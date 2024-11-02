@@ -1,0 +1,39 @@
+{
+	"name": "mos6502-devcontainer",
+	"image": "debian:12-slim",
+	// Comment out the next line to run as root instead.
+	"remoteUser": "codemonkey",
+	"updateRemoteUserUID": true,
+	"workspaceMount": "source=${localWorkspaceFolder}/,target=/home/codemonkey/workspaces,type=bind",
+	"workspaceFolder": "/home/codemonkey/workspaces",
+	"containerEnv": {
+		"ENV_NAME": "local",
+		"CONTAINERIZED": "true"
+	},
+	"mounts": [
+		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+		// this requires xQuartz running on a mac for X11 support will not start without, comment out to remove requirement
+		"source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/codemonkey/.ssh,type=bind,consistency=cached",
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws,target=/home/codemonkey/.aws,type=bind,consistency=cached"
+	],
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"configureZshAsDefaultShell": true,
+			"username": "codemonkey",
+			"userUid": 1000,
+			"userGid": 1000
+		},
+		"./cpp": {}
+	},
+	"runArgs": [
+		"--env-file",
+		"${localWorkspaceFolder}/.env",
+		"--cap-add=NET_ADMIN",
+		"--cap-add=SYS_ADMIN",
+		"--cap-add=DAC_READ_SEARCH",
+		"--device",
+		"/dev/net/tun",
+		"--network=monkey_net"
+	]
+}

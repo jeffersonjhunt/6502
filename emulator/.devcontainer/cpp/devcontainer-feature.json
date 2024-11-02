@@ -1,0 +1,49 @@
+{
+    "id": "jjh-cpp-support",
+    "version": "1.0.0",
+    "name": "C/C++ Support",
+    "documentationURL": "https://github.com/jeffersonjhunt/featured-devcontainers/tree/main/src/cpp",
+    "description": "Installs C/C++ development tools",
+    "options": {
+        "installGdb": {
+            "type": "boolean",
+            "default": true,
+            "description": "Install GNU Debugger?"
+        },
+        "installBoost": {
+            "type": "boolean",
+            "default": true,
+            "description": "Install Boost libraries?"
+        },
+        "installCMake": {
+            "type": "boolean",
+            "default": true,
+            "description": "Install CMake?"
+        },
+        "installFmtLib": {
+            "type": "boolean",
+            "default": true,
+            "description": "Install fast type-safe C++ formatting library?"
+        },
+        "installSDL2Lib": {
+            "type": "boolean",
+            "default": true,
+            "description": "Install Simple DirectMedia Layer library?"
+        },
+	"installCC65": {
+	    "type": "boolean",
+	    "default": true,
+	    "description": "Install the CC65 suite for 6502 compiler/assembler"
+	"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+		"ms-vscode.cpptools-extension-pack",
+            ]
+        }
+    },
+    "installsAfter": [
+        "ghcr.io/devcontainers/features/common-utils"
+    ]
+}
