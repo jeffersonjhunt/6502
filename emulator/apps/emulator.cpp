@@ -5,7 +5,6 @@ namespace ooe
 {
 
     Emulator *emulator;
-    Keyboard *keyboard;
 
     void Wrapper_WriteMemory(uint16_t address, uint8_t data){
         emulator->WriteMemory(address, data, true);
@@ -89,12 +88,13 @@ namespace ooe
                 this->lastCycleCount = this->cycleCount;
             } 
             else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                if(this->shouldPause)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(THROTTLE));
             }
         }
     }
 
-    Emulator::Emulator()
+    Emulator::Emulator(bool shouldPause)
     {
         std::cout << "Emulator::Emulator() initializing memory" << std::endl;
         for (int i = 0; i < MEM_SIZE; i++)
