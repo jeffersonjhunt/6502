@@ -2,28 +2,27 @@
 
 namespace ooe
 {
-    struct termios old;
-
     Keyboard::Keyboard(bool blocking)
     {
-        old = {0};
-        if (tcgetattr(STDIN_FILENO, &old) < 0)
-                perror("tcsetattr()");
-        old.c_lflag &= ~ICANON;
-        old.c_lflag &= ~ECHO;
-        old.c_cc[VMIN] = blocking ? 1 : 0;
-        old.c_cc[VTIME] = 0;
+        old_t = {0};
+        if (tcgetattr(STDIN_FILENO, &old_t) < 0)
+                perror("tcgetattr()");
 
-        if (tcsetattr(STDIN_FILENO, TCSANOW, &old) < 0)
+        struct termios new_t = old_t;
+
+        new_t.c_lflag &= ~ICANON;
+        new_t.c_lflag &= ~ECHO;
+        new_t.c_cc[VMIN] = blocking ? 1 : 0;
+        new_t.c_cc[VTIME] = 0;
+
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &new_t) < 0)
             perror("tcsetattr ICANON");
     }
 
     Keyboard::~Keyboard()
     {
         std::cout << "Keyboard::~Keyboard() restoring terminal settings" << std::endl;
-        old.c_lflag |= ICANON;
-        old.c_lflag |= ECHO;
-        if (tcsetattr(STDIN_FILENO, TCSADRAIN, &old) < 0)
+        if (tcsetattr(STDIN_FILENO, TCSADRAIN, &old_t) < 0)
             perror ("tcsetattr ~ICANON");
     }
 
@@ -31,7 +30,7 @@ namespace ooe
     {
         char buf = 0;
 
-        if (read(0, &buf, 1) < 0)
+        if (read(STDIN_FILENO, &buf, 1) < 0)
                 perror ("read()");
         
         return (buf);

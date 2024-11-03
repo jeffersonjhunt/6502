@@ -15,5 +15,7 @@ namespace ooe
         ~Keyboard();
 
         uint8_t Pull();
+    private:
+        struct termios old_t;
     };
 } // namespace ooe
