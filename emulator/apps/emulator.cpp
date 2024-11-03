@@ -89,8 +89,7 @@ namespace ooe
                 this->lastCycleCount = this->cycleCount;
             } 
             else {
-                //std::cout << "I have no ticks left to give" << std::endl;
-                // sleep
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
     }
