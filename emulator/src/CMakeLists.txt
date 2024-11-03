@@ -4,7 +4,7 @@
 file(GLOB HEADER_LIST CONFIGURE_DEPENDS "${emulator_SOURCE_DIR}/include/*.h")
 
 # Make an automatic library - will be static or dynamic based on user setting
-add_library(mos6502 mos6502.cpp ${HEADER_LIST})
+add_library(mos6502 mos6502.cpp keyboard.cpp ${HEADER_LIST})
 
 # We need this directory, and users of our library will need it too
 target_include_directories(mos6502 PUBLIC ../include)

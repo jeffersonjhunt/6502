@@ -5,6 +5,7 @@ namespace ooe
 {
 
     Emulator *emulator;
+    Keyboard *keyboard;
 
     void Wrapper_WriteMemory(uint16_t address, uint8_t data){
         emulator->WriteMemory(address, data, true);
@@ -43,13 +44,41 @@ namespace ooe
         return this->memory[address];
     }
 
+    void Emulator::UpdateDisplay()
+    {
+        // update the display
+    }
+
+    void Emulator::ReadKeyboard()
+    {
+        // read the keyboard
+        uint8_t key = keyboard->Pull();
+
+        switch (key)
+        {
+            case 0x00:
+                break;
+            case 0x0a:
+                std::cout << "Key: return: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (RETURN)" << std::endl;
+                break;
+            case 0x20:
+                std::cout << "Key: space: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (SPACE)" << std::endl;
+                break;
+            default:
+                std::cout << "Key: " << key << ": " << (int)key << ": " << fmt::format("{:#04x}", key) << std::endl;
+                break;  
+        }
+    }
+
     void Emulator::Run(mos6502 *cpu)
     {
         while (true)
         {       
             // update display
-            
+            this->UpdateDisplay();
+
             // read keyboard
+            this->ReadKeyboard();
             
             // step the cpu
             cpu->Run(1, this->cycleCount);
@@ -58,9 +87,10 @@ namespace ooe
             if(this->lastCycleCount != this->cycleCount){
                 std::cout << "Ticks: " << this->cycleCount << std::endl;
                 this->lastCycleCount = this->cycleCount;
-            } else {
-                std::cout << "I have no ticks left to give" << std::endl;
-                return;
+            } 
+            else {
+                //std::cout << "I have no ticks left to give" << std::endl;
+                // sleep
             }
         }
     }
@@ -83,10 +113,16 @@ namespace ooe
 
         this->cycleCount = 0;
         this->lastCycleCount = 0;
+
+        std::cout << "Emulator::Emulator() init keyboard monitor" << std::endl;
+        keyboard = new Keyboard();
+        std::cout << "Emulator::Emulator() keyboard monitor initialized" << std::endl;
     }   
 
     Emulator::~Emulator()
     {
+        delete keyboard;
+        delete emulator;
     }
 
     void Emulator::WozMon(uint16_t address){
