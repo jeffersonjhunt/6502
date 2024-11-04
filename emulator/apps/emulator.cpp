@@ -125,9 +125,9 @@ namespace ooe
     void Emulator::WozMon(uint16_t address){
         std::cout << "Emulator::WozMon() loading WozMon ROM starting at " <<  fmt::format("{:#06x}",address) << std::endl;
   
-        for (int i = 0; i < sizeof(wozmon); i++)
+        for (int i = 0; i < sizeof(WOZMON); i++)
         {
-            this->WriteMemory(address+i, wozmon[i]);
+            this->WriteMemory(address+i, WOZMON[i]);
         }
 
         std::cout << "Emulator::WozMon() Loaded Wozmon into memory" << std::endl;

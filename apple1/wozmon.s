@@ -155,8 +155,8 @@ ECHO:           BIT DSP         ; DA bit (B7) cleared yet?
                 BRK             ; unused
 
 ; Interrupt Vectors
+.segment "RESET_VECTOR"
 
-.segment "RESET"
                 .WORD $0F00     ; NMI
                 .WORD RESET     ; RESET
                 .WORD $0000     ; BRK/IRQ
