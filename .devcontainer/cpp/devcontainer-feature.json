@@ -30,16 +30,16 @@
             "default": true,
             "description": "Install Simple DirectMedia Layer library?"
         },
-	"installCC65": {
-	    "type": "boolean",
-	    "default": true,
-	    "description": "Install the CC65 suite for 6502 compiler/assembler"
-	"
+	    "installCC65": {
+	        "type": "boolean",
+	        "default": true,
+	        "description": "Install the CC65 suite for 6502 compiler/assembler"
+        }
     },
     "customizations": {
         "vscode": {
             "extensions": [
-		"ms-vscode.cpptools-extension-pack",
+		"ms-vscode.cpptools-extension-pack"
             ]
         }
     },
