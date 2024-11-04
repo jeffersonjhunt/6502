@@ -20,7 +20,7 @@ namespace ooe
     extern "C" int main()
     {
         // create the emulator
-        emulator = new Emulator();
+        emulator = new Emulator(true);
         
         mos6502 *cpu = new mos6502(&Wrapper_ReadMemory, &Wrapper_WriteMemory, nullptr);
         cpu->Reset();
@@ -83,19 +83,19 @@ namespace ooe
             cpu->Run(1, this->cycleCount);
 
             // ticks
-            if(this->lastCycleCount != this->cycleCount){
+            if(this->cycleCount % 1000 == 0){
                 std::cout << "Ticks: " << this->cycleCount << std::endl;
-                this->lastCycleCount = this->cycleCount;
             } 
-            else {
-                if(this->shouldPause)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(THROTTLE));
-            }
+
+            if(this->shouldPause)
+                std::this_thread::sleep_for(std::chrono::milliseconds(THROTTLE));
         }
     }
 
     Emulator::Emulator(bool shouldPause)
     {
+        this->shouldPause = shouldPause;
+
         std::cout << "Emulator::Emulator() initializing memory" << std::endl;
         for (int i = 0; i < MEM_SIZE; i++)
         {
@@ -106,18 +106,10 @@ namespace ooe
         // load the WozMon ROM
         this->WozMon(0xFF00);
 
-        std::cout << "Emulator::Emulator() RESET vector at 0xFFFC -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFC)) << std::endl;
-        std::cout << "Emulator::Emulator() RESET vector at 0xFFFD -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFD)) << std::endl;
-
-        // set the reset vector
-        this->WriteMemory(0xFFFC, 0x00);
-        this->WriteMemory(0xFFFD, 0xFF);
-
-        std::cout << "Emulator::Emulator() RESET vector at 0xFFFC -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFC)) << std::endl;
-        std::cout << "Emulator::Emulator() RESET vector at 0xFFFD -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFD)) << std::endl;
+        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFC -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFC)) << std::endl;
+        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFD -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFD)) << std::endl;
 
         this->cycleCount = 0;
-        this->lastCycleCount = 0;
 
         std::cout << "Emulator::Emulator() init keyboard monitor" << std::endl;
         keyboard = new Keyboard();

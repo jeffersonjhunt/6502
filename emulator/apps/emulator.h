@@ -13,7 +13,7 @@
 #include "keyboard.h"
 
 #define MEM_SIZE 65536
-#define THROTTLE 1              // 1ms
+#define THROTTLE 1000              // 1ms
 
 
 #define IN      0x0200          //  Input buffer to $027F
@@ -42,7 +42,6 @@ namespace ooe
         Keyboard *keyboard;
         bool shouldPause;
 		uint64_t cycleCount;
-        uint64_t lastCycleCount;
         uint8_t memory[MEM_SIZE];
         void WozMon(uint16_t address);
     };
