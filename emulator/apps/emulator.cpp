@@ -32,14 +32,14 @@ namespace ooe
     void Emulator::WriteMemory(uint16_t address, uint8_t data, bool debug)
     {
         if (debug)
-            std::cout << "WriteMemory: " << fmt::format("{:#06x}",address) << " " <<  fmt::format("{:#04x}", data) << std::endl;
+            std::cout << fmt::format("Emulator::WriteMemory() {:#06x} <- {:#04x}", address, data) << std::endl;
         this->memory[address] = data;
     }
 
     uint8_t Emulator::ReadMemory(uint16_t address, bool debug)
     {
         if (debug)
-            std::cout << "ReadMemory: " << fmt::format("{:#06x}",address) << " " << fmt::format("{:#04x}", this->memory[address]) << std::endl;
+            std::cout << fmt::format("ReadMemory() {:#06x} -> {:#04x}", address, this->memory[address]) << std::endl;
         return this->memory[address];
     }
 
@@ -104,11 +104,17 @@ namespace ooe
         std::cout << "Emulator::Emulator() memory initialized" << std::endl;
 
         // load the WozMon ROM
-        this->WozMon(0xFF00);   
+        this->WozMon(0xFF00);
+
+        std::cout << "Emulator::Emulator() RESET vector at 0xFFFC -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFC)) << std::endl;
+        std::cout << "Emulator::Emulator() RESET vector at 0xFFFD -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFD)) << std::endl;
 
         // set the reset vector
         this->WriteMemory(0xFFFC, 0x00);
         this->WriteMemory(0xFFFD, 0xFF);
+
+        std::cout << "Emulator::Emulator() RESET vector at 0xFFFC -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFC)) << std::endl;
+        std::cout << "Emulator::Emulator() RESET vector at 0xFFFD -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFD)) << std::endl;
 
         this->cycleCount = 0;
         this->lastCycleCount = 0;
