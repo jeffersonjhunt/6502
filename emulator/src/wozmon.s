@@ -1,6 +1,19 @@
+
+; compile wozmon
+; ca65 wozmon.s
+; ld65 -C apple1.cfg wozmon.o
+
+; Convert a.out file to C Array
+; hexdump -v -e '16/1 "0x%02X, "' -e '"\n"' a.out > hexarray.h
+; echo "#pragma once\n\nuint8_t wozmon[] = {" > wozmon.h
+; cat hexarray.h | tail -16 >> wozmon.h
+; echo "\n};" >> wozmon.h
+; rm hexarray.h
+
 ;  The WOZ Monitor for the Apple 1
 ;  Written by Steve Wozniak in 1976
 
+.segment "WOZMON"
 
 ; Page 0 Variables
 
@@ -155,6 +168,7 @@ ECHO:           BIT DSP         ; DA bit (B7) cleared yet?
 
 ; Interrupt Vectors
 
+.segment "RESET"
                 .WORD $0F00     ; NMI
                 .WORD RESET     ; RESET
                 .WORD $0000     ; BRK/IRQ
