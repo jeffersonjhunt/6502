@@ -2,8 +2,11 @@
 
 namespace ooe
 {
-    Keyboard::Keyboard(bool blocking)
+    Keyboard::Keyboard(BusInterface *bus, uint16_t address, bool blocking)
     {
+        this->address = address;
+        this->bus = bus;
+
         old_t = {0};
         if (tcgetattr(STDIN_FILENO, &old_t) < 0)
                 perror("tcgetattr()");

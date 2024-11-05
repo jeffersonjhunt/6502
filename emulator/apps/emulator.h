@@ -28,7 +28,7 @@ namespace ooe
     class Emulator
     {
     public:
-        Emulator(Memory *memory, bool shouldPause=false);
+        Emulator(Memory *memory, Keyboard *keyboard, bool shouldPause=false);
         ~Emulator();
         
         void Run(cpu *mos6502);

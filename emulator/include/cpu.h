@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "memory.h"
+#include "bus.h"
 
 class cpu
 {
@@ -139,10 +139,10 @@ private:
 	inline void StackPush(uint8_t byte);
 	inline uint8_t StackPop();
 
-	MemoryInterface *memory;
+	BusInterface *memory;
 
 public:
-	cpu(MemoryInterface *memory);
+	cpu(BusInterface *memory);
 	void NMI();
 	void IRQ();
 	void Reset();

@@ -8,19 +8,21 @@ namespace ooe
      */
     extern "C" int main()
     {
+        // create the memory
         Memory *memory = new Memory();
 
-        std::cout << "Emulator::Emulator() initializing memory" << std::endl;
-        for (int i = 0; i < MEM_SIZE; i++)
-        {
-            memory->Write(i, 0);
-        }
-        std::cout << "Emulator::Emulator() memory initialized" << std::endl;
+        // create the cpu
+        cpu *mos6502 = new cpu(memory);
+
+        // create the keyboard
+        Keyboard *keyboard = new Keyboard(memory, IN);
+
+        // create the display
+        // Display *display = new Display(memory, DSP);
 
         // create the emulator
-        Emulator *emulator = new Emulator(memory, true);
+        Emulator *emulator = new Emulator(memory, keyboard, true);
         
-        cpu *mos6502 = new cpu(memory);
         mos6502->Reset();
 
         // run the emulator
@@ -84,9 +86,10 @@ namespace ooe
         }
     }
 
-    Emulator::Emulator(Memory *memory, bool shouldPause)
+    Emulator::Emulator(Memory *memory, Keyboard *keyboard, bool shouldPause)
     {
         this->memory = memory;
+        this->keyboard = keyboard;
         this->shouldPause = shouldPause;
 
         // load the WozMon ROM
@@ -96,10 +99,6 @@ namespace ooe
         std::cout << "Emulator::Emulator() RESET vector now at 0xFFFD -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFD)) << std::endl;
 
         this->cycleCount = 0;
-
-        std::cout << "Emulator::Emulator() init keyboard monitor" << std::endl;
-        keyboard = new Keyboard();
-        std::cout << "Emulator::Emulator() keyboard monitor initialized" << std::endl;
     }   
 
     Emulator::~Emulator()

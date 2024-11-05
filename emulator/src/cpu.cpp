@@ -30,7 +30,7 @@
 
 cpu::Instr cpu::InstrTable[256];
 
-cpu::cpu(MemoryInterface *memory)
+cpu::cpu(BusInterface *memory)
 	: reset_A(0x00)
     , reset_X(0x00)
     , reset_Y(0x00)

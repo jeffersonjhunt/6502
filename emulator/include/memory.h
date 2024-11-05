@@ -1,18 +1,20 @@
 #pragma once
 #include <cstdint>
+#include "bus.h"
 
-class MemoryInterface
-{
-public:
-    virtual uint8_t Read(uint16_t) = 0;
-    virtual void Write(uint16_t, uint8_t) = 0;
-};
+#define MEM_SIZE 65536 // 64K
 
-class Memory : public MemoryInterface
+class Memory : public BusInterface
 {
 public:
     uint8_t Read(uint16_t addr) override;
     void Write(uint16_t addr, uint8_t data) override;
+
+    void Reset();
+
+    Memory();
+    ~Memory();
+    
 private:
-    uint8_t memory[1024*64];
+    uint8_t memory[MEM_SIZE];
 };
