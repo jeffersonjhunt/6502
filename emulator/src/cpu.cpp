@@ -1,7 +1,7 @@
 #include "cpu.h"
 
-#define Read(addr) this->memory->Read(addr)
-#define Write(addr, data) this->memory->Write(addr, data)
+#define Read(addr) bus->Read(addr)
+#define Write(addr, data) bus->Write(addr, data)
 
 #define NEGATIVE  0x80
 #define OVERFLOW  0x40
@@ -30,18 +30,14 @@
 
 cpu::Instr cpu::InstrTable[256];
 
-cpu::cpu(BusInterface *memory)
+cpu::cpu(BusInterface *bus)
 	: reset_A(0x00)
     , reset_X(0x00)
     , reset_Y(0x00)
     , reset_sp(0xFD)
     , reset_status(CONSTANT)
 {
-	this->memory = memory;
-
-	static bool initialized = false;
-	if (initialized) return;
-	initialized = true;
+	this->bus = bus;
 
 	Instr instr;
 	// fill jump table with ILLEGALs
@@ -53,665 +49,608 @@ cpu::cpu(BusInterface *memory)
 	}
 
 	// insert opcodes
-
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x69] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x6D] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x65] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x61] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x71] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x75] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x7D] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_ADC;
-
 	InstrTable[0x79] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x29] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x2D] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x25] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x21] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x31] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x35] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x3D] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_AND;
-
 	InstrTable[0x39] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_ASL;
-
 	InstrTable[0x0E] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_ASL;
-
 	InstrTable[0x06] = instr;
+
 	instr.addr = &cpu::Addr_ACC;
 	instr.code = &cpu::Op_ASL_ACC;
-
 	InstrTable[0x0A] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_ASL;
-
 	InstrTable[0x16] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_ASL;
-
 	InstrTable[0x1E] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BCC;
-
 	InstrTable[0x90] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BCS;
-
 	InstrTable[0xB0] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BEQ;
-
 	InstrTable[0xF0] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_BIT;
-
 	InstrTable[0x2C] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_BIT;
-
 	InstrTable[0x24] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BMI;
-
 	InstrTable[0x30] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BNE;
-
 	InstrTable[0xD0] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BPL;
-
 	InstrTable[0x10] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_BRK;
-
 	InstrTable[0x00] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BVC;
-
 	InstrTable[0x50] = instr;
 
 	instr.addr = &cpu::Addr_REL;
 	instr.code = &cpu::Op_BVS;
-
 	InstrTable[0x70] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_CLC;
-
 	InstrTable[0x18] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_CLD;
-
 	InstrTable[0xD8] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_CLI;
-
 	InstrTable[0x58] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_CLV;
-
 	InstrTable[0xB8] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xC9] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xCD] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xC5] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xC1] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xD1] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xD5] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xDD] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_CMP;
-
 	InstrTable[0xD9] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_CPX;
-
 	InstrTable[0xE0] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_CPX;
-
 	InstrTable[0xEC] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_CPX;
-
 	InstrTable[0xE4] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_CPY;
-
 	InstrTable[0xC0] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_CPY;
-
 	InstrTable[0xCC] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_CPY;
-
 	InstrTable[0xC4] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_DEC;
-
 	InstrTable[0xCE] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_DEC;
-
 	InstrTable[0xC6] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_DEC;
-
 	InstrTable[0xD6] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_DEC;
-
 	InstrTable[0xDE] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_DEX;
-
 	InstrTable[0xCA] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_DEY;
-
 	InstrTable[0x88] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x49] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x4D] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x45] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x41] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x51] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x55] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x5D] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_EOR;
-
 	InstrTable[0x59] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_INC;
-
 	InstrTable[0xEE] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_INC;
-
 	InstrTable[0xE6] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_INC;
-
 	InstrTable[0xF6] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_INC;
-
 	InstrTable[0xFE] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_INX;
-
 	InstrTable[0xE8] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_INY;
-
 	InstrTable[0xC8] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_JMP;
-
 	InstrTable[0x4C] = instr;
+
 	instr.addr = &cpu::Addr_ABI;
 	instr.code = &cpu::Op_JMP;
-
 	InstrTable[0x6C] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_JSR;
-
 	InstrTable[0x20] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xA9] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xAD] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xA5] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xA1] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xB1] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xB5] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xBD] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_LDA;
-
 	InstrTable[0xB9] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_LDX;
-
 	InstrTable[0xA2] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_LDX;
-
 	InstrTable[0xAE] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_LDX;
-
 	InstrTable[0xA6] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_LDX;
-
 	InstrTable[0xBE] = instr;
+
 	instr.addr = &cpu::Addr_ZEY;
 	instr.code = &cpu::Op_LDX;
-
 	InstrTable[0xB6] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_LDY;
-
 	InstrTable[0xA0] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_LDY;
-
 	InstrTable[0xAC] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_LDY;
-
 	InstrTable[0xA4] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_LDY;
-
 	InstrTable[0xB4] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_LDY;
-
 	InstrTable[0xBC] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_LSR;
-
 	InstrTable[0x4E] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_LSR;
-
 	InstrTable[0x46] = instr;
+
 	instr.addr = &cpu::Addr_ACC;
 	instr.code = &cpu::Op_LSR_ACC;
-
 	InstrTable[0x4A] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_LSR;
-
 	InstrTable[0x56] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_LSR;
-
 	InstrTable[0x5E] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_NOP;
-
 	InstrTable[0xEA] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x09] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x0D] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x05] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x01] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x11] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x15] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x1D] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_ORA;
-
 	InstrTable[0x19] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_PHA;
-
 	InstrTable[0x48] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_PHP;
-
 	InstrTable[0x08] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_PLA;
-
 	InstrTable[0x68] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_PLP;
-
 	InstrTable[0x28] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_ROL;
-
 	InstrTable[0x2E] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_ROL;
-
 	InstrTable[0x26] = instr;
+
 	instr.addr = &cpu::Addr_ACC;
 	instr.code = &cpu::Op_ROL_ACC;
-
 	InstrTable[0x2A] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_ROL;
-
 	InstrTable[0x36] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_ROL;
-
 	InstrTable[0x3E] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_ROR;
-
 	InstrTable[0x6E] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_ROR;
-
 	InstrTable[0x66] = instr;
+
 	instr.addr = &cpu::Addr_ACC;
 	instr.code = &cpu::Op_ROR_ACC;
-
 	InstrTable[0x6A] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_ROR;
-
 	InstrTable[0x76] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_ROR;
-
 	InstrTable[0x7E] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_RTI;
-
 	InstrTable[0x40] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_RTS;
-
 	InstrTable[0x60] = instr;
 
 	instr.addr = &cpu::Addr_IMM;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xE9] = instr;
+
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xED] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xE5] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xE1] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xF1] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xF5] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xFD] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_SBC;
-
 	InstrTable[0xF9] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_SEC;
-
 	InstrTable[0x38] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_SED;
-
 	InstrTable[0xF8] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_SEI;
-
 	InstrTable[0x78] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x8D] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x85] = instr;
+
 	instr.addr = &cpu::Addr_INX;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x81] = instr;
+
 	instr.addr = &cpu::Addr_INY;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x91] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x95] = instr;
+
 	instr.addr = &cpu::Addr_ABX;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x9D] = instr;
+
 	instr.addr = &cpu::Addr_ABY;
 	instr.code = &cpu::Op_STA;
-
 	InstrTable[0x99] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_STX;
-
 	InstrTable[0x8E] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_STX;
-
 	InstrTable[0x86] = instr;
+
 	instr.addr = &cpu::Addr_ZEY;
 	instr.code = &cpu::Op_STX;
-
 	InstrTable[0x96] = instr;
 
 	instr.addr = &cpu::Addr_ABS;
 	instr.code = &cpu::Op_STY;
-
 	InstrTable[0x8C] = instr;
+
 	instr.addr = &cpu::Addr_ZER;
 	instr.code = &cpu::Op_STY;
-
 	InstrTable[0x84] = instr;
+
 	instr.addr = &cpu::Addr_ZEX;
 	instr.code = &cpu::Op_STY;
-
 	InstrTable[0x94] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_TAX;
-
 	InstrTable[0xAA] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_TAY;
-
 	InstrTable[0xA8] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_TSX;
-
 	InstrTable[0xBA] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_TXA;
-
 	InstrTable[0x8A] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_TXS;
-
 	InstrTable[0x9A] = instr;
 
 	instr.addr = &cpu::Addr_IMP;
 	instr.code = &cpu::Op_TYA;
-
 	InstrTable[0x98] = instr;
 
 	return;

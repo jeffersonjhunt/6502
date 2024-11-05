@@ -21,7 +21,7 @@ namespace ooe
         // Display *display = new Display(memory, DSP);
 
         // create the emulator
-        Emulator *emulator = new Emulator(memory, keyboard, true);
+        Emulator *emulator = new Emulator(memory, keyboard);
         
         mos6502->Reset();
 
@@ -77,21 +77,18 @@ namespace ooe
             mos6502->Step();
 
             // ticks
-            this->cycleCount++;
-            if(this->cycleCount % 1000 == 0){
-                std::cout << "Ticks: " << this->cycleCount << std::endl;
+            this->ticks++;
+            if(this->ticks % 1000 == 0){
+                std::cout << "Ticks: " << this->ticks << std::endl;
             } 
-
-            if(this->shouldPause)
-                std::this_thread::sleep_for(std::chrono::milliseconds(THROTTLE));
+            std::this_thread::sleep_for(std::chrono::milliseconds(TICK_RATE));
         }
     }
 
-    Emulator::Emulator(Memory *memory, Keyboard *keyboard, bool shouldPause)
+    Emulator::Emulator(Memory *memory, Keyboard *keyboard)
     {
         this->memory = memory;
         this->keyboard = keyboard;
-        this->shouldPause = shouldPause;
 
         // load the WozMon ROM
         this->WozMon(0xFF00);
@@ -99,7 +96,7 @@ namespace ooe
         std::cout << "Emulator::Emulator() RESET vector now at 0xFFFC -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFC)) << std::endl;
         std::cout << "Emulator::Emulator() RESET vector now at 0xFFFD -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFD)) << std::endl;
 
-        this->cycleCount = 0;
+        this->ticks = 0;
     }   
 
     Emulator::~Emulator()

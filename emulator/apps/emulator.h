@@ -14,7 +14,7 @@
 #include "memory.h"
 
 #define MEM_SIZE 65536
-#define THROTTLE 1              // 1ms
+#define TICK_RATE 1             // 1ms per tick
 
 
 #define IN      0x0200          //  Input buffer to $027F
@@ -28,7 +28,7 @@ namespace ooe
     class Emulator
     {
     public:
-        Emulator(Memory *memory, Keyboard *keyboard, bool shouldPause=false);
+        Emulator(Memory *memory, Keyboard *keyboard);
         ~Emulator();
         
         void Run(cpu *mos6502);
@@ -40,7 +40,7 @@ namespace ooe
         Memory *memory;
         Keyboard *keyboard;
         bool shouldPause;
-		uint64_t cycleCount;
+		uint64_t ticks;
         void WozMon(uint16_t address);
     };
 

@@ -138,10 +138,10 @@ private:
 	inline void StackPush(uint8_t byte);
 	inline uint8_t StackPop();
 
-	BusInterface *memory;
+	BusInterface *bus;
 
 public:
-	cpu(BusInterface *memory);
+	cpu(BusInterface *bus);
 	void NMI();
 	void IRQ();
 	void Reset();
