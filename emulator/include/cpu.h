@@ -1,15 +1,8 @@
-//============================================================================
-// Name        : mos6502
-// Author      : Gianluca Ghettini
-// Version     : 1.0
-// Copyright   :
-// Description : A MOS 6502 CPU emulator written in C++
-//============================================================================
-
 #pragma once
 #include <stdint.h>
+#include "memory.h"
 
-class mos6502
+class cpu
 {
 private:
     // register reset values
@@ -33,8 +26,8 @@ private:
 	// status register
 	uint8_t status;
 
-	typedef void (mos6502::*CodeExec)(uint16_t);
-	typedef uint16_t (mos6502::*AddrExec)();
+	typedef void (cpu::*CodeExec)(uint16_t);
+	typedef uint16_t (cpu::*AddrExec)();
 
 	struct Instr
 	{
@@ -142,35 +135,20 @@ private:
 	static const uint16_t nmiVectorH = 0xFFFB;
 	static const uint16_t nmiVectorL = 0xFFFA;
 
-	// read/write/clock-cycle callbacks
-	typedef void (*BusWrite)(uint16_t, uint8_t);
-	typedef uint8_t (*BusRead)(uint16_t);
-	typedef void (*ClockCycle)(mos6502*);
-	BusRead Read;
-	BusWrite Write;
-	ClockCycle Cycle;
-
 	// stack operations
 	inline void StackPush(uint8_t byte);
 	inline uint8_t StackPop();
 
+	MemoryInterface *memory;
+
 public:
-	enum CycleMethod {
-		INST_COUNT,
-		CYCLE_COUNT,
-	};
-	mos6502(BusRead r, BusWrite w, ClockCycle c = nullptr);
+	cpu(MemoryInterface *memory);
 	void NMI();
 	void IRQ();
 	void Reset();
 	void Run(
 		int32_t cycles,
-		uint64_t& cycleCount,
-		CycleMethod cycleMethod = CYCLE_COUNT);
-	void RunEternally(); // until it encounters a illegal opcode
-						 // useful when running e.g. WOZ Monitor
-						 // no need to worry about cycle exhaus-
-						 // tion
+		uint64_t& cycleCount);
     uint16_t GetPC();
     uint8_t GetS();
     uint8_t GetP();

@@ -9,8 +9,9 @@
 
 #include "fmt/core.h"
 
-#include "mos6502.h"
+#include "cpu.h"
 #include "keyboard.h"
+#include "memory.h"
 
 #define MEM_SIZE 65536
 #define THROTTLE 1              // 1ms
@@ -27,22 +28,19 @@ namespace ooe
     class Emulator
     {
     public:
-        Emulator(bool shouldPause=false);
+        Emulator(Memory *memory, bool shouldPause=false);
         ~Emulator();
         
-        void WriteMemory(uint16_t address, uint8_t data, bool debug=false);
-        uint8_t ReadMemory(uint16_t address, bool debug=false);
-
-        void Run(mos6502 *cpu);
+        void Run(cpu *mos6502);
 
         void UpdateDisplay();
         void ReadKeyboard();
 
     private:
+        Memory *memory;
         Keyboard *keyboard;
         bool shouldPause;
 		uint64_t cycleCount;
-        uint8_t memory[MEM_SIZE];
         void WozMon(uint16_t address);
     };
 

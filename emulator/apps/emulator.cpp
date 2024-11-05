@@ -3,44 +3,28 @@
 
 namespace ooe
 {
-
-    Emulator *emulator;
-
-    void Wrapper_WriteMemory(uint16_t address, uint8_t data){
-        emulator->WriteMemory(address, data, true);
-    }
-
-    uint8_t Wrapper_ReadMemory(uint16_t address){
-        return emulator->ReadMemory(address, true);
-    }
-
     /**
      * @brief bootstraps the application
      */
     extern "C" int main()
     {
+        Memory *memory = new Memory();
+
+        std::cout << "Emulator::Emulator() initializing memory" << std::endl;
+        for (int i = 0; i < MEM_SIZE; i++)
+        {
+            memory->Write(i, 0);
+        }
+        std::cout << "Emulator::Emulator() memory initialized" << std::endl;
+
         // create the emulator
-        emulator = new Emulator(true);
+        Emulator *emulator = new Emulator(memory, true);
         
-        mos6502 *cpu = new mos6502(&Wrapper_ReadMemory, &Wrapper_WriteMemory, nullptr);
-        cpu->Reset();
+        cpu *mos6502 = new cpu(memory);
+        mos6502->Reset();
 
         // run the emulator
-        emulator->Run(cpu);
-    }
-
-    void Emulator::WriteMemory(uint16_t address, uint8_t data, bool debug)
-    {
-        if (debug)
-            std::cout << fmt::format("Emulator::WriteMemory() {:#06x} <- {:#04x}", address, data) << std::endl;
-        this->memory[address] = data;
-    }
-
-    uint8_t Emulator::ReadMemory(uint16_t address, bool debug)
-    {
-        if (debug)
-            std::cout << fmt::format("ReadMemory() {:#06x} -> {:#04x}", address, this->memory[address]) << std::endl;
-        return this->memory[address];
+        emulator->Run(mos6502);
     }
 
     void Emulator::UpdateDisplay()
@@ -77,7 +61,7 @@ namespace ooe
         }
     }
 
-    void Emulator::Run(mos6502 *cpu)
+    void Emulator::Run(cpu *mos6502)
     {
         while (true)
         {       
@@ -88,7 +72,7 @@ namespace ooe
             this->ReadKeyboard();
             
             // step the cpu
-            cpu->Run(1, this->cycleCount);
+            mos6502->Run(1, this->cycleCount);
 
             // ticks
             if(this->cycleCount % 1000 == 0){
@@ -100,22 +84,16 @@ namespace ooe
         }
     }
 
-    Emulator::Emulator(bool shouldPause)
+    Emulator::Emulator(Memory *memory, bool shouldPause)
     {
+        this->memory = memory;
         this->shouldPause = shouldPause;
-
-        std::cout << "Emulator::Emulator() initializing memory" << std::endl;
-        for (int i = 0; i < MEM_SIZE; i++)
-        {
-            this->WriteMemory(i,  0x00);
-        }
-        std::cout << "Emulator::Emulator() memory initialized" << std::endl;
 
         // load the WozMon ROM
         this->WozMon(0xFF00);
 
-        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFC -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFC)) << std::endl;
-        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFD -> " <<  fmt::format("{:#04x}",this->ReadMemory(0xFFFD)) << std::endl;
+        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFC -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFC)) << std::endl;
+        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFD -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFD)) << std::endl;
 
         this->cycleCount = 0;
 
@@ -127,7 +105,6 @@ namespace ooe
     Emulator::~Emulator()
     {
         delete keyboard;
-        delete emulator;
     }
 
     void Emulator::WozMon(uint16_t address){
@@ -135,7 +112,7 @@ namespace ooe
   
         for (int i = 0; i < sizeof(WOZMON); i++)
         {
-            this->WriteMemory(address+i, WOZMON[i]);
+            this->memory->Write(address+i, WOZMON[i]);
         }
 
         std::cout << "Emulator::WozMon() Loaded Wozmon into memory" << std::endl;
