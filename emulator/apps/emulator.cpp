@@ -63,6 +63,14 @@ namespace ooe
             case 0x20:
                 std::cout << "Key: space: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (SPACE)" << std::endl;
                 break;
+            case 0x03:
+                std::cout << "Key: ctrl-c: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (CTRL-C)" << std::endl;
+                std::exit(0);
+                break;
+            case 0x1b:
+                std::cout << "Key: escape: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (ESCAPE)" << std::endl;
+                std::exit(0);
+                break;
             default:
                 std::cout << "Key: " << key << ": " << (int)key << ": " << fmt::format("{:#04x}", key) << std::endl;
                 break;  

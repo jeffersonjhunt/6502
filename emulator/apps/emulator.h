@@ -13,7 +13,7 @@
 #include "keyboard.h"
 
 #define MEM_SIZE 65536
-#define THROTTLE 1000              // 1ms
+#define THROTTLE 1              // 1ms
 
 
 #define IN      0x0200          //  Input buffer to $027F
