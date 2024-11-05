@@ -33,7 +33,6 @@ private:
 	{
 		AddrExec addr;
 		CodeExec code;
-		uint8_t cycles;
 	};
 
 	static Instr InstrTable[256];
@@ -146,9 +145,7 @@ public:
 	void NMI();
 	void IRQ();
 	void Reset();
-	void Run(
-		int32_t cycles,
-		uint64_t& cycleCount);
+	void Step();
     uint16_t GetPC();
     uint8_t GetS();
     uint8_t GetP();

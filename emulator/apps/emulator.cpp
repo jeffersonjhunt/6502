@@ -74,9 +74,10 @@ namespace ooe
             this->ReadKeyboard();
             
             // step the cpu
-            mos6502->Run(1, this->cycleCount);
+            mos6502->Step();
 
             // ticks
+            this->cycleCount++;
             if(this->cycleCount % 1000 == 0){
                 std::cout << "Ticks: " << this->cycleCount << std::endl;
             } 
