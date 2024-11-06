@@ -7,7 +7,10 @@
 #include <unistd.h>
 #include <termios.h>
 
+#include <fmt/core.h>
+
 #include "bus.h"
+#include "logging.h"
 
 namespace ooe
 {

@@ -6,26 +6,33 @@ namespace ooe
     /**
      * @brief bootstraps the application
      */
-    extern "C" int main()
+    extern "C" int main(int argc, char* argv[])
     {
-        // create the memory
+        START_EASYLOGGINGPP(argc, argv);
+
+        // Load configuration from file
+        el::Configurations conf("logging.cfg");
+        el::Loggers::reconfigureAllLoggers(conf);
+
+        LOG(DEBUG) << "initializing memory";
         Memory *memory = new Memory();
 
-        // create the cpu
+        LOG(DEBUG) << "initializing cpu";
         cpu *mos6502 = new cpu(memory);
 
-        // create the keyboard
+        LOG(DEBUG) << "initializing keyboard";
         Keyboard *keyboard = new Keyboard(memory, IN);
 
-        // create the display
+        // LOG(DEBUG) << "initializing display";
         // Display *display = new Display(memory, DSP);
 
-        // create the emulator
+        LOG(DEBUG) << "initializing emulator";
         Emulator *emulator = new Emulator(memory, keyboard);
         
+        LOG(DEBUG) << "resetting cpu";
         mos6502->Reset();
 
-        // run the emulator
+        LOG(DEBUG) << "running emulator";
         emulator->Run(mos6502);
     }
 
@@ -44,21 +51,21 @@ namespace ooe
             case 0x00:
                 break;
             case 0x0a:
-                std::cout << "Key: return: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (RETURN)" << std::endl;
+                LOG(DEBUG) << fmt::format("Key: {:#04x} (RETURN)", key);
                 break;
             case 0x20:
-                std::cout << "Key: space: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (SPACE)" << std::endl;
+                LOG(DEBUG) << fmt::format("Key: {:#04x} (SPACE)", key);
                 break;
             case 0x03:
-                std::cout << "Key: ctrl-c: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (CTRL-C)" << std::endl;
+                LOG(DEBUG) << fmt::format("Key: {:#04x} (CTRL-C)", key);
                 std::exit(0);
                 break;
             case 0x1b:
-                std::cout << "Key: escape: " << (int)key << ": " << fmt::format("{:#04x}", key) << " (ESCAPE)" << std::endl;
+                LOG(DEBUG) << fmt::format("Key: {:#04x} (ESCAPE)", key);
                 std::exit(0);
                 break;
             default:
-                std::cout << "Key: " << key << ": " << (int)key << ": " << fmt::format("{:#04x}", key) << std::endl;
+                LOG(DEBUG) << fmt::format("Key: {:#04x} ({})", key, (char)key); 
                 break;  
         }
     }
@@ -79,7 +86,7 @@ namespace ooe
             // ticks
             this->ticks++;
             if(this->ticks % 1000 == 0){
-                std::cout << "Ticks: " << this->ticks << std::endl;
+                LOG(DEBUG) << "Ticks: " << this->ticks;
             } 
             std::this_thread::sleep_for(std::chrono::milliseconds(TICK_RATE));
         }
@@ -90,11 +97,8 @@ namespace ooe
         this->memory = memory;
         this->keyboard = keyboard;
 
-        // load the WozMon ROM
+        // load the WozMon ROM (move to storage class)
         this->WozMon(0xFF00);
-
-        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFC -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFC)) << std::endl;
-        std::cout << "Emulator::Emulator() RESET vector now at 0xFFFD -> " <<  fmt::format("{:#04x}",this->memory->Read(0xFFFD)) << std::endl;
 
         this->ticks = 0;
     }   
@@ -102,17 +106,17 @@ namespace ooe
     Emulator::~Emulator()
     {
         delete keyboard;
+        delete memory;
     }
 
-    void Emulator::WozMon(uint16_t address){
-        std::cout << "Emulator::WozMon() loading WozMon ROM starting at " <<  fmt::format("{:#06x}",address) << std::endl;
-  
+    void Emulator::WozMon(uint16_t address)
+    {
+        LOG(INFO) << "Emulator::WozMon() loading WozMon";
         for (int i = 0; i < sizeof(WOZMON); i++)
         {
             this->memory->Write(address+i, WOZMON[i]);
         }
-
-        std::cout << "Emulator::WozMon() Loaded Wozmon into memory" << std::endl;
+        LOG(DEBUG) << fmt::format("Emulator::WozMon() Loaded Wozmon into memory starting at {:#06x}", address);
     }
 
 } // namespace ooe

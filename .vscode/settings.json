@@ -1,5 +1,8 @@
 {
     "files.associations": {
-        "compare": "cpp"
-    }
+        "compare": "cpp",
+        "iomanip": "cpp",
+        "iostream": "cpp"
+    },
+    "cmake.sourceDirectory": "/home/codemonkey/workspaces/emulator"
 }

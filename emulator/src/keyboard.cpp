@@ -1,6 +1,4 @@
 #include "keyboard.h"
-#include <iostream>
-#include <fmt/core.h>
 
 namespace ooe
 {
@@ -12,14 +10,14 @@ namespace ooe
         this->buf_size = buf_size;
         this->buf_ptr = buf_adr;
 
-        std::cout << fmt::format("Key Buffer Address: {:#06x}", buf_adr) << std::endl;
-        std::cout << fmt::format("Key Buffer Size:    {:#04x}", buf_size) << std::endl;
-        std::cout << fmt::format("Key Buffer End:     {:#06x}", (buf_adr+buf_size)) << std::endl;
-        std::cout << fmt::format("Key Buffer Ptr:     {:#06x}", buf_ptr) << std::endl;
+        LOG(DEBUG) << fmt::format("Buffer Address: {:#06x}", buf_adr);
+        LOG(DEBUG) << fmt::format("Buffer Size:    {:#04x}", buf_size);
+        LOG(DEBUG) << fmt::format("Buffer End:     {:#06x}", (buf_adr+buf_size));
+        LOG(DEBUG) << fmt::format("Buffer Ptr:     {:#06x}", buf_ptr);
 
         old_t = {0};
         if (tcgetattr(STDIN_FILENO, &old_t) < 0) {
-                perror("tcgetattr()");
+                LOG(ERROR) << "tcgetattr() failed";
         }
 
         struct termios new_t = old_t;
@@ -30,15 +28,15 @@ namespace ooe
         new_t.c_cc[VTIME] = 0;
 
         if (tcsetattr(STDIN_FILENO, TCSANOW, &new_t) < 0) {
-            perror("tcsetattr ICANON");
+            LOG(ERROR) << "tcsetattr() failed";
         }
     }
 
     Keyboard::~Keyboard()
     {
-        std::cout << "Keyboard::~Keyboard() restoring terminal settings" << std::endl;
+        LOG(DEBUG) << "Keyboard::~Keyboard() restoring terminal settings";
         if (tcsetattr(STDIN_FILENO, TCSADRAIN, &old_t) < 0) {
-            perror ("tcsetattr ~ICANON");
+            LOG(ERROR) << "tcsetattr() failed";
         }
     }
 
@@ -47,7 +45,7 @@ namespace ooe
         char buf = 0;
 
         if (read(STDIN_FILENO, &buf, 1) < 0) {
-                perror ("read()");
+                LOG(ERROR) << "read() failed";
         }
 
         // if a key was pressed

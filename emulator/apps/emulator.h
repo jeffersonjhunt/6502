@@ -12,6 +12,7 @@
 #include "cpu.h"
 #include "keyboard.h"
 #include "memory.h"
+#include "logging.h"
 
 #define MEM_SIZE 65536
 #define TICK_RATE 1             // 1ms per tick
@@ -22,6 +23,8 @@
 #define KBDCR   0xD011          //  PIA.A keyboard control register
 #define DSP     0xD012          //  PIA.B display output register
 #define DSPCR   0xD013          //  PIA.B display control register
+
+INITIALIZE_EASYLOGGINGPP
 
 namespace ooe
 {

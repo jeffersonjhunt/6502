@@ -2,9 +2,10 @@
 # show up in IDEs unless they are listed in add_library.
 
 file(GLOB HEADER_LIST CONFIGURE_DEPENDS "${emulator_SOURCE_DIR}/include/*.h")
+file(GLOB SOURCE_LIST CONFIGURE_DEPENDS "${emulator_SOURCE_DIR}/src/*.cpp")
 
 # Make an automatic library - will be static or dynamic based on user setting
-add_library(mos6502 cpu.cpp keyboard.cpp memory.cpp ${HEADER_LIST})
+add_library(mos6502 ${SOURCE_LIST} ${HEADER_LIST})
 
 # We need this directory, and users of our library will need it too
 target_include_directories(mos6502 PUBLIC ../include)
