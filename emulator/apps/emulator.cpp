@@ -86,7 +86,7 @@ namespace ooe
             // ticks
             this->ticks++;
             if(this->ticks % 1000 == 0){
-                LOG(DEBUG) << "Ticks: " << this->ticks;
+                LOG(TRACE) << "Ticks: " << this->ticks;
             } 
             std::this_thread::sleep_for(std::chrono::milliseconds(TICK_RATE));
         }

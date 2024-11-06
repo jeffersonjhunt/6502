@@ -3,7 +3,6 @@
 #include <iostream>
 #include <cstdint>
 
-#include <stdint.h>
 #include <unistd.h>
 #include <termios.h>
 

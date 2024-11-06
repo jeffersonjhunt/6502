@@ -1,6 +1,10 @@
 #pragma once
 #include <cstdint>
+
+#include "fmt/core.h"
+
 #include "bus.h"
+#include "logging.h"
 
 #define MEM_SIZE 65536 // 64K
 
