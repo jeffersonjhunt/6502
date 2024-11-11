@@ -10,12 +10,14 @@
 #include "fmt/core.h"
 
 #include "cpu.h"
+#include "display.h"
 #include "keyboard.h"
 #include "memory.h"
 #include "logging.h"
 
 #define MEM_SIZE 65536
 #define TICK_RATE 1             // 1ms per tick
+#define CYCLES_PER_TICK 10
 
 
 #define IN      0x0200          //  Input buffer to $027F
@@ -31,7 +33,7 @@ namespace ooe
     class Emulator
     {
     public:
-        Emulator(Memory *memory, Keyboard *keyboard);
+        Emulator(Memory *memory, Keyboard *keyboard, Display *display);
         ~Emulator();
         
         void Run(cpu *mos6502);
@@ -42,6 +44,7 @@ namespace ooe
     private:
         Memory *memory;
         Keyboard *keyboard;
+        Display *display;
         bool shouldPause;
 		uint64_t ticks;
         void WozMon(uint16_t address);

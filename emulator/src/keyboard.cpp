@@ -2,18 +2,11 @@
 
 namespace ooe
 {
-    Keyboard::Keyboard(BusInterface *bus, uint16_t buf_adr, uint8_t buf_size)
+    Keyboard::Keyboard(BusInterface *bus, uint16_t ctrl_addr, uint16_t data_addr)
     {
         this->bus = bus;
-        
-        this->buf_adr = buf_adr;
-        this->buf_size = buf_size;
-        this->buf_ptr = buf_adr;
-
-        LOG(DEBUG) << fmt::format("Buffer Address: {:#06x}", buf_adr);
-        LOG(DEBUG) << fmt::format("Buffer Size:    {:#04x}", buf_size);
-        LOG(DEBUG) << fmt::format("Buffer End:     {:#06x}", (buf_adr+buf_size));
-        LOG(DEBUG) << fmt::format("Buffer Ptr:     {:#06x}", buf_ptr);
+        this->ctrl_addr = ctrl_addr;
+        this->data_addr = data_addr;
 
         old_t = {0};
         if (tcgetattr(STDIN_FILENO, &old_t) < 0) {
@@ -48,13 +41,22 @@ namespace ooe
                 LOG(ERROR) << "read() failed";
         }
 
-        // if a key was pressed
-        if (buf != 0) { 
-            // update the bus with the new value
-            bus->Write(buf_ptr, buf);
+        u_int8_t ctrl = bus->Read(this->ctrl_addr);
 
-            // increment the buffer pointer
-            buf_ptr == (buf_adr+buf_size) ? buf_ptr = buf_adr : buf_ptr++;
+        // if a key was pressed
+        if (buf != 0 && ctrl == 0x27 ) {
+
+            if(buf == 0x0a) // LF -> CR
+                buf = 0x0d;
+
+            LOG(TRACE) << fmt::format("Raw Key: {:#04x}", buf);
+            // update the bus with the new value adjusted for apple 1
+            bus->Write(data_addr, bus->bit_set(buf, 7));
+            LOG(TRACE) << fmt::format("Adj Key: {:#04x}", bus->Read(data_addr));
+            bus->Write(ctrl_addr, 0xa7); // set the data available flag
+        } 
+        else {
+            bus->Write(ctrl_addr, 0x27); // clear the data available flag
         }
 
         return (buf);

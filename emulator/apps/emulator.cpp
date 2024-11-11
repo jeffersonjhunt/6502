@@ -21,13 +21,13 @@ namespace ooe
         cpu *mos6502 = new cpu(memory);
 
         LOG(DEBUG) << "initializing keyboard";
-        Keyboard *keyboard = new Keyboard(memory, IN);
+        Keyboard *keyboard = new Keyboard(memory, KBDCR, KBD);
 
-        // LOG(DEBUG) << "initializing display";
-        // Display *display = new Display(memory, DSP);
+        LOG(DEBUG) << "initializing display";
+        Display *display = new Display(memory, DSPCR, DSP);
 
         LOG(DEBUG) << "initializing emulator";
-        Emulator *emulator = new Emulator(memory, keyboard);
+        Emulator *emulator = new Emulator(memory, keyboard, display);
         
         LOG(DEBUG) << "resetting cpu";
         mos6502->Reset();
@@ -38,19 +38,19 @@ namespace ooe
 
     void Emulator::UpdateDisplay()
     {
-        // update the display
+        this->display->update();
     }
 
     void Emulator::ReadKeyboard()
     {
         // read the keyboard
         uint8_t key = keyboard->Pull();
-
         switch (key)
         {
             case 0x00:
                 break;
             case 0x0a:
+            case 0x0d:
                 LOG(DEBUG) << fmt::format("Key: {:#04x} (RETURN)", key);
                 break;
             case 0x20:
@@ -62,7 +62,7 @@ namespace ooe
                 break;
             case 0x1b:
                 LOG(DEBUG) << fmt::format("Key: {:#04x} (ESCAPE)", key);
-                std::exit(0);
+                // std::exit(0);
                 break;
             default:
                 LOG(DEBUG) << fmt::format("Key: {:#04x} ({})", key, (char)key); 
@@ -73,15 +73,16 @@ namespace ooe
     void Emulator::Run(cpu *mos6502)
     {
         while (true)
-        {       
-            // update display
-            this->UpdateDisplay();
-
+        {
             // read keyboard
             this->ReadKeyboard();
-            
+
             // step the cpu
-            mos6502->Step();
+            for(int i = 0; i < CYCLES_PER_TICK; i++)
+                mos6502->Step();
+
+            // update display
+            this->UpdateDisplay();            
 
             // ticks
             this->ticks++;
@@ -92,10 +93,11 @@ namespace ooe
         }
     }
 
-    Emulator::Emulator(Memory *memory, Keyboard *keyboard)
+    Emulator::Emulator(Memory *memory, Keyboard *keyboard, Display *display)
     {
         this->memory = memory;
         this->keyboard = keyboard;
+        this->display = display;
 
         // load the WozMon ROM (move to storage class)
         this->WozMon(0xFF00);

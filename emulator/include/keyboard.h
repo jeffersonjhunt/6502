@@ -16,14 +16,13 @@ namespace ooe
     class Keyboard
     {
     public:
-        Keyboard(BusInterface *bus, uint16_t address, uint8_t buffer_size=0x7F);
+        Keyboard(BusInterface *bus, uint16_t ctrl_addr, uint16_t data_addr);
         ~Keyboard();
 
         uint8_t Pull();
     private:
-        uint16_t buf_adr;
-        uint8_t buf_size;
-        uint16_t buf_ptr;
+        uint16_t ctrl_addr;
+        uint16_t data_addr;
         BusInterface *bus;
         struct termios old_t;
 
