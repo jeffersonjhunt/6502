@@ -44,19 +44,15 @@ namespace ooe
         u_int8_t ctrl = bus->Read(this->ctrl_addr);
 
         // if a key was pressed
-        if (buf != 0 && ctrl == 0x27 ) {
+        if (buf != 0 && !bus->bit_test(ctrl, 7))
+        {
+            // update the bus with the new value adjusted for apple 1 encoding
+            bus->Write(data_addr, bus->bit_set(DecodeKey(buf), 7));
 
-            if(buf == 0x0a) // LF -> CR
-                buf = 0x0d;
-
-            LOG(TRACE) << fmt::format("Raw Key: {:#04x}", buf);
-            // update the bus with the new value adjusted for apple 1
-            bus->Write(data_addr, bus->bit_set(buf, 7));
-            LOG(TRACE) << fmt::format("Adj Key: {:#04x}", bus->Read(data_addr));
-            bus->Write(ctrl_addr, 0xa7); // set the data available flag
+            bus->Write(ctrl_addr, bus->bit_set(ctrl, 7)); // set the data available flag
         } 
         else {
-            bus->Write(ctrl_addr, 0x27); // clear the data available flag
+            bus->Write(ctrl_addr, bus->bit_clear(ctrl, 7)); // clear the data available flag
         }
 
         return (buf);
@@ -64,7 +60,13 @@ namespace ooe
 
     uint8_t Keyboard::DecodeKey(uint8_t key)
     {
-        return key;
+        switch (key)
+        {
+            case 0x0a: // CR -> LF
+                key = 0x0d;
+            default:
+                return key;
+        }
     }
 
 } // namespace ooe

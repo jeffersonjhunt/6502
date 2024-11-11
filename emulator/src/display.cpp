@@ -19,7 +19,7 @@ namespace ooe
         uint8_t data = bus->Read( this->data_addr );
         if( bus->bit_test(data, 7) ) // check for data available
         {            
-            data = bus->bit_clear(data, 7); // adjust for apple 1 display
+            data = bus->bit_clear(data, 7); // adjust for apple 1 display encoding
    
             std::cout << (char)data;
             if(data == 0x0d) // CR -> LF

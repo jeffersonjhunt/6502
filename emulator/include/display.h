@@ -22,7 +22,6 @@ class Display
         BusInterface *bus;
         uint16_t ctrl_addr;
         uint16_t data_addr;
-        uint8_t last_data = 0x0;
 };
 
 } // namespace ooe
