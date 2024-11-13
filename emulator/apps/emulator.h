@@ -15,16 +15,8 @@
 #include "memory.h"
 #include "logging.h"
 
-#define MEM_SIZE 65536
-#define TICK_RATE 1             // 1ms per tick
-#define CYCLES_PER_TICK 10
-
-
-#define IN      0x0200          //  Input buffer to $027F
-#define KBD     0xD010          //  PIA.A keyboard input
-#define KBDCR   0xD011          //  PIA.A keyboard control register
-#define DSP     0xD012          //  PIA.B display output register
-#define DSPCR   0xD013          //  PIA.B display control register
+#define TICK_RATE 0            // 0 = run as fast as possible, otherwise sleep for n microseconds (1000000 = 1 second)
+#define CYCLES_PER_TICK 4
 
 INITIALIZE_EASYLOGGINGPP
 
@@ -40,6 +32,8 @@ namespace ooe
 
         void UpdateDisplay();
         void ReadKeyboard();
+        void LoadProgram(uint16_t address, uint8_t *program, size_t size);
+
 
     private:
         Memory *memory;
@@ -48,6 +42,7 @@ namespace ooe
         bool shouldPause;
 		uint64_t ticks;
         void WozMon(uint16_t address);
+        void Basic(uint16_t address);
     };
 
 } // namespace ooe

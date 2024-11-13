@@ -1,5 +1,6 @@
 #include "emulator.h"
 #include "wozmon.h"
+#include "basic.h"
 
 namespace ooe
 {
@@ -89,7 +90,8 @@ namespace ooe
             if(this->ticks % 1000 == 0){
                 LOG(TRACE) << "Ticks: " << this->ticks;
             } 
-            std::this_thread::sleep_for(std::chrono::milliseconds(TICK_RATE));
+            if(TICK_RATE > 0)
+                std::this_thread::sleep_for(std::chrono::microseconds(TICK_RATE));
         }
     }
 
@@ -101,6 +103,9 @@ namespace ooe
 
         // load the WozMon ROM (move to storage class)
         this->WozMon(0xFF00);
+
+        // load the Basic ROM (move to storage class)
+        this->Basic(0x0800);
 
         this->ticks = 0;
     }   
@@ -119,6 +124,26 @@ namespace ooe
             this->memory->Write(address+i, WOZMON[i]);
         }
         LOG(DEBUG) << fmt::format("Emulator::WozMon() Loaded Wozmon into memory starting at {:#06x}", address);
+    }
+
+    void Emulator::Basic(uint16_t address)
+    {
+        LOG(INFO) << "Emulator::Basic() loading Basic";
+        for (int i = 0; i < sizeof(BASIC); i++)
+        {
+            this->memory->Write(address+i, BASIC[i]);
+        }
+        LOG(DEBUG) << fmt::format("Emulator::Basic() Loaded Basic into memory starting at {:#06x}", address);
+    }
+
+    void Emulator::LoadProgram(uint16_t address, uint8_t *program, size_t size)
+    {
+        LOG(INFO) << "Emulator::LoadProgram() loading program";
+        for (int i = 0; i < size; i++)
+        {
+            this->memory->Write(address+i, program[i]);
+        }
+        LOG(DEBUG) << fmt::format("Emulator::LoadProgram() Loaded program into memory starting at {:#06x}", address);
     }
 
 } // namespace ooe

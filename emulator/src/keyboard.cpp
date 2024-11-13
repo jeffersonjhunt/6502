@@ -36,7 +36,7 @@ namespace ooe
     /**
      * @brief check if a key was pressed and if so, write it to the data address
      * 
-     * TODO: this timing is not correct, it should be based on the clock or some cpu flag?
+     * note: the data available flag is set in the control register but cleared by the read in the bus
      * 
      * @return uint8_t 
      */
@@ -55,9 +55,6 @@ namespace ooe
         {
             bus->Write(data_addr, EncodeKey(buf));
             bus->Write(ctrl_addr, bus->bit_set(ctrl, 7)); // set the data available flag
-        } 
-        else {
-            bus->Write(ctrl_addr, bus->bit_clear(ctrl, 7)); // clear the data available flag
         }
 
         return (buf);
