@@ -1,5 +1,3 @@
-rom.h
-apple1.rom
-hexarray.h
-wozmon.o
-basic.o
+src/*.o
+src/*.rom
+src/*.rom.lbl

@@ -30,7 +30,7 @@ RDKEY:
 	lda	KEYBOARDCR	; Key ready?
 	bpl	RDKEY		; Loop until ready
 	lda	KEYBOARD	; Load character
-	and	#$7F		; Clear hi bit
+;	and	#$7F		; Clear hi bit
 	rts
 
 ; ----------------------------------------------------------------------------

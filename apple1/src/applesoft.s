@@ -15,13 +15,11 @@
 .setcpu "6502"
 .segment "BASIC"
 
-.export FIX_LINKS, ERROR, INPUTBUFFER, COLDSTART, RESTART
+.export FIX_LINKS, ERROR, INPUTBUFFER, START
 .exportzp ERR_SYNTAX, ERR_NOCFFA
 
 .import CLS, OUTDO, CRDO, OUTSP, OUTQUES	; Imports from io.s
 .import KEYBOARD, GETLN, RDKEY
-
-.import CFFALoad, CFFASave, CFFAMenu		; Imports from cffa1.s
 
 .include "macros.s"
 .include "zeropage.s"
@@ -57,8 +55,13 @@ TOKEN_LEFTSTR	= $BF
 ; ----------------------------------------------------------------------------
 ; Cold and warm entry points at $E000 and E003
 ; ----------------------------------------------------------------------------
-	jmp	COLDSTART
-	jmp	RESTART
+
+; The program can be relocated to a different address but should be a
+; multiple of $2000.
+
+        .org    $E000
+        .export START
+START:  JMP     COLDSTART            ; BASIC cold start entry point
 
 
 ; ----------------------------------------------------------------------------
@@ -95,9 +98,9 @@ TOKEN_ADDRESS_TABLE:
 	.addr	CLEAR - 1	; $9B... 154... CLEAR
 	.addr	GET - 1		; $9C... 155... GET
 	.addr	NEW - 1		; $9D... 156... NEW
-	.addr	CFFAMenu - 1	; $9E... 157... MENU
-	.addr	CFFASave - 1	; $9F... 158... SAVE
-	.addr	CFFALoad - 1	; $A0... 160... LOAD
+;	.addr	CFFAMenu - 1	; $9E... 157... MENU
+;	.addr	CFFASave - 1	; $9F... 158... SAVE
+;	.addr	CFFALoad - 1	; $A0... 160... LOAD
 	.addr	CLS - 1		; $A1... 161... CLS
 ; ----------------------------------------------------------------------------
 UNFNC:  .addr	SGN		; $B1... 177... SGN

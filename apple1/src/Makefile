@@ -4,7 +4,7 @@ APPLESOFT_ROM = applesoft.rom
 IBASIC_ROM = ibasic.rom
 
 SHARED_OBJS = wozmon.o
-APPLESOFT_OBJS = applesoft.o io.o cffa1.o
+APPLESOFT_OBJS = applesoft.o io.o
 IBASIC_OBJS    = ibasic.o
 
 roms: $(APPLESOFT_ROM) $(IBASIC_ROM)
@@ -22,9 +22,6 @@ ibasic.o: ibasic.s
 	ca65 $(AFLAGS) $<
 
 wozmon.o: wozmon.s
-	ca65 $(AFLAGS) $<
-
-cffa1.o: cffa1.s
 	ca65 $(AFLAGS) $<
 
 io.o: io.s

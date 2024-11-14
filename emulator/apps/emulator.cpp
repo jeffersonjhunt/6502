@@ -100,8 +100,8 @@ namespace ooe
         this->display = display;
 
         // load the Apple 1 ROM (move to storage class)
-        std::string filename = "applesoft.rom";
-        // std::string filename = "ibasic.rom";
+        // std::string filename = "applesoft.rom"; // does not work
+        std::string filename = "ibasic.rom";
         this->LoadProgram(&filename, 0x8000);
 
         this->ticks = 0;
