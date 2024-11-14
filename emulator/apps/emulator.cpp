@@ -1,6 +1,5 @@
 #include "emulator.h"
-#include "wozmon.h"
-#include "basic.h"
+#include "rom.h"
 
 namespace ooe
 {
@@ -101,11 +100,8 @@ namespace ooe
         this->keyboard = keyboard;
         this->display = display;
 
-        // load the WozMon ROM (move to storage class)
-        this->WozMon(0xFF00);
-
-        // load the Basic ROM (move to storage class)
-        this->Basic(0x0800);
+        // load the Apple 1 ROM (move to storage class)
+        this->LoadROM(0x8000);
 
         this->ticks = 0;
     }   
@@ -116,24 +112,14 @@ namespace ooe
         delete memory;
     }
 
-    void Emulator::WozMon(uint16_t address)
+    void Emulator::LoadROM(uint16_t address)
     {
-        LOG(INFO) << "Emulator::WozMon() loading WozMon";
-        for (int i = 0; i < sizeof(WOZMON); i++)
+        LOG(INFO) << "loading Apple 1 ROM";
+        for (int i = 0; i < sizeof(ROM); i++)
         {
-            this->memory->Write(address+i, WOZMON[i]);
+            this->memory->Write(address+i, ROM[i]);
         }
-        LOG(DEBUG) << fmt::format("Emulator::WozMon() Loaded Wozmon into memory starting at {:#06x}", address);
-    }
-
-    void Emulator::Basic(uint16_t address)
-    {
-        LOG(INFO) << "Emulator::Basic() loading Basic";
-        for (int i = 0; i < sizeof(BASIC); i++)
-        {
-            this->memory->Write(address+i, BASIC[i]);
-        }
-        LOG(DEBUG) << fmt::format("Emulator::Basic() Loaded Basic into memory starting at {:#06x}", address);
+        LOG(DEBUG) << fmt::format("Loaded ROM into memory starting at {:#06x}", address);
     }
 
     void Emulator::LoadProgram(uint16_t address, uint8_t *program, size_t size)

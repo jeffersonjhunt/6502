@@ -1,4 +1,5 @@
-wozmon.h
-a.out
+rom.h
+apple1.rom
 hexarray.h
 wozmon.o
+basic.o

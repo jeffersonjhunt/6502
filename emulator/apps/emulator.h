@@ -41,8 +41,7 @@ namespace ooe
         Display *display;
         bool shouldPause;
 		uint64_t ticks;
-        void WozMon(uint16_t address);
-        void Basic(uint16_t address);
+        void LoadROM(uint16_t address);
     };
 
 } // namespace ooe

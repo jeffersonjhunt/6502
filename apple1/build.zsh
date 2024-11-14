@@ -1,15 +1,16 @@
 
 # compile wozmon
-ca65 wozmon.s
-ld65 -C apple1.cfg wozmon.o
+ca65 wozmon.s 
+ca65 basic.s
+ld65 -C apple1.cfg wozmon.o basic.o -o apple1.rom
 
 # Convert a.out file to C Array
-hexdump -v -e '16/1 "0x%02X, "' -e '"\n"' a.out > hexarray.h
-echo "#pragma once\n\nstatic const uint8_t WOZMON[] = {" > wozmon.h
-cat hexarray.h | tail -16 >> wozmon.h
-echo "};\n" >> wozmon.h
+hexdump -v -e '16/1 "0x%02X, "' -e '"\n"' apple1.rom > hexarray.h
+echo "#pragma once\n\nstatic const uint8_t ROM[] = {" > rom.h
+cat hexarray.h >> rom.h
+echo "};\n" >> rom.h
 
 # Clean up
-rm a.out
+rm *.o
 rm hexarray.h
-rm wozmon.o
+rm apple1.rom
