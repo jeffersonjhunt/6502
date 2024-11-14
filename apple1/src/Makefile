@@ -28,4 +28,8 @@ io.o: io.s
 	ca65 $(AFLAGS) $<
 
 clean:
-	rm $(SHARED_OBJS) $(APPLESOFT_OBJS) $(IBASIC_OBJS) $(APPLESOFT_ROM) $(IBASIC_ROM) *.lbl
+	rm $(SHARED_OBJS) $(APPLESOFT_OBJS) $(IBASIC_OBJS) $(APPLESOFT_ROM) $(IBASIC_ROM) *.lbl *.hex
+
+hexdump: roms
+	hexdump -v -e '16/1 "0x%02X, "' -e '"\n"' $(APPLESOFT_ROM) > applesoft.hex
+	hexdump -v -e '16/1 "0x%02X, "' -e '"\n"' $(IBASIC_ROM) > ibasic.hex
