@@ -1,4 +1,4 @@
-; Applesoft Lite
+; Applesoft
 ;
 ; Disassembled from the Apple II+ ROMs with da65 V2.12.0
 ;
@@ -15,7 +15,7 @@
 .setcpu "6502"
 .segment "BASIC"
 
-.export FIX_LINKS, ERROR, INPUTBUFFER
+.export FIX_LINKS, ERROR, INPUTBUFFER, COLDSTART, RESTART
 .exportzp ERR_SYNTAX, ERR_NOCFFA
 
 .import CLS, OUTDO, CRDO, OUTSP, OUTQUES	; Imports from io.s

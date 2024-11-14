@@ -6,6 +6,7 @@
 
 .export KEYBOARD, GETLN, RDKEY, CLS, OUTDO, CRDO, OUTQUES, OUTSP
 .import INPUTBUFFER
+.import ECHO
 
 .include "zeropage.s"
 
@@ -19,7 +20,7 @@ KEYBOARDCR      := $D011
 ; ----------------------------------------------------------------------------
 ; Monitor Subroutines
 ; ----------------------------------------------------------------------------
-MONECHO         := $FFEF
+;MONECHO         := $FFEF
 
 
 ; ----------------------------------------------------------------------------
@@ -39,7 +40,7 @@ RDKEY:
 NOTCR:
 	cmp	#$18		; CTRL-X?
 	beq	CANCEL		; Cancel line if so
-	jsr	MONECHO		; Output using monitor ECHO routine
+	jsr	ECHO		; Output using monitor ECHO routine
 	cmp	#'_'		; backspace?
 	beq	BCKSPC		; Yes, do backspace...
 NOTCR1:	inx
@@ -76,7 +77,7 @@ OUTQUES:
 	.byte	$2C
 CRDO:	lda	#$0D    
 OUTDO:	ora	#$80    ; Set hi bit
-	jsr	MONECHO	; Send character to monitor ECHO
+	jsr	ECHO	; Send character to monitor ECHO
 	and	#$7F	; clear hi bit
 	rts
 

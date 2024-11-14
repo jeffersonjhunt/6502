@@ -1,7 +1,9 @@
 ;  The WOZ Monitor for the Apple 1
 ;  Written by Steve Wozniak in 1976
 
+.setcpu	"6502"
 .segment "WOZMON"
+.export ECHO
 
 XAML  = $24                            ; Last "opened" location Low
 XAMH  = $25                            ; Last "opened" location High

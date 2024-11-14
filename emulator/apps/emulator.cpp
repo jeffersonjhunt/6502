@@ -1,5 +1,4 @@
 #include "emulator.h"
-#include <fstream>
 
 namespace ooe
 {
@@ -101,7 +100,8 @@ namespace ooe
         this->display = display;
 
         // load the Apple 1 ROM (move to storage class)
-        std::string filename = "apple1.rom";
+        std::string filename = "applesoft.rom";
+        // std::string filename = "ibasic.rom";
         this->LoadProgram(&filename, 0x8000);
 
         this->ticks = 0;
