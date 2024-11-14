@@ -13,4 +13,4 @@ echo "};\n" >> rom.h
 # Clean up
 rm *.o
 rm hexarray.h
-rm apple1.rom
+#rm apple1.rom

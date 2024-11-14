@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <string>
 #include <thread>
 
 #include <stdint.h>
@@ -32,7 +33,7 @@ namespace ooe
 
         void UpdateDisplay();
         void ReadKeyboard();
-        void LoadProgram(uint16_t address, uint8_t *program, size_t size);
+        void LoadProgram(std::string *filename, uint16_t address);
 
 
     private:

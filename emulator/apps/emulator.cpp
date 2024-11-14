@@ -1,5 +1,5 @@
 #include "emulator.h"
-#include "rom.h"
+#include <fstream>
 
 namespace ooe
 {
@@ -101,7 +101,8 @@ namespace ooe
         this->display = display;
 
         // load the Apple 1 ROM (move to storage class)
-        this->LoadROM(0x8000);
+        std::string filename = "apple1.rom";
+        this->LoadProgram(&filename, 0x8000);
 
         this->ticks = 0;
     }   
@@ -112,24 +113,29 @@ namespace ooe
         delete memory;
     }
 
-    void Emulator::LoadROM(uint16_t address)
+    void Emulator::LoadProgram(std::string *filename, uint16_t address)
     {
-        LOG(INFO) << "loading Apple 1 ROM";
-        for (int i = 0; i < sizeof(ROM); i++)
-        {
-            this->memory->Write(address+i, ROM[i]);
-        }
-        LOG(DEBUG) << fmt::format("Loaded ROM into memory starting at {:#06x}", address);
-    }
+        LOG(INFO) << "loading program: " << filename->c_str();
+        FILE *fp;
+        char buf[128];
 
-    void Emulator::LoadProgram(uint16_t address, uint8_t *program, size_t size)
-    {
-        LOG(INFO) << "Emulator::LoadProgram() loading program";
-        for (int i = 0; i < size; i++)
+        fp = fopen(filename->c_str(), "rb");
+
+        if (fp == NULL)
         {
-            this->memory->Write(address+i, program[i]);
+            LOG(ERROR) << fmt::format("could not open program file: {}", filename->c_str());
+            return;
         }
-        LOG(DEBUG) << fmt::format("Emulator::LoadProgram() Loaded program into memory starting at {:#06x}", address);
+
+        while (fread(buf, sizeof(u_int8_t), sizeof(buf), fp) > 0)
+        {
+            for (int i = 0; i < sizeof(buf); i++)
+            {
+                this->memory->Write(address++, buf[i]);
+            }
+        }
+
+        LOG(DEBUG) << fmt::format("loaded program into memory starting at {:#06x}", address);
     }
 
 } // namespace ooe
