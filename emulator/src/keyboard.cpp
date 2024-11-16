@@ -55,6 +55,9 @@ namespace ooe
         {
             bus->Write(data_addr, EncodeKey(buf));
             bus->Write(ctrl_addr, bus->bit_set(ctrl, 7)); // set the data available flag
+        } else if (buf != 0) {
+            LOG(WARNING) << fmt::format("Key: {:#04x} (IGNORED)", buf);
+            buf = 0;
         }
 
         return (buf);
