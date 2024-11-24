@@ -864,6 +864,8 @@ void cpu::Step()
 {
 	// fetch
 	uint8_t  opcode = Read(pc++);
+	if(opcode != 0x00)
+		LOG(TRACE) << fmt::format("OpCode: {:#04x}", opcode);
 
 	// decode
 	Instr instr = InstrTable[opcode];

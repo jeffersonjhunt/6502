@@ -17,7 +17,7 @@
 #include "logging.h"
 
 #define TICK_RATE 0            // 0 = run as fast as possible, otherwise sleep for n microseconds (1000000 = 1 second)
-#define CYCLES_PER_TICK 4
+#define CYCLES_PER_TICK 16
 
 INITIALIZE_EASYLOGGINGPP
 

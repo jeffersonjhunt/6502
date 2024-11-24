@@ -2,7 +2,10 @@
 
 #include <cstdint>
 
+#include "fmt/core.h"
+
 #include "bus.h"
+#include "logging.h"
 
 class cpu
 {
