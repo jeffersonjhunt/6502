@@ -1,8 +1,9 @@
 SRC_FILES := $(wildcard src/*.s)
-#ROM_FILES := $(basename $(SRC_FILES))
 ROM_FILES := $(SRC_FILES:.s=.rom) 
+
 AS := $(HOME)/.local/bin/vbcc/bin/vasm6502_oldstyle
 ASFLAGS := -Fbin -dotdir -wdc02
+
 ROM_PROG := minipro -p 28C256 -uP -w
 
 
