@@ -53,7 +53,7 @@ Clock -> CPU -> North Bridge -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (Level Shif
 | 0xC     |                            |
 | 0xD     |                            |
 | 0xE     |                            |
-| 0xF     |                            |
+| 0xF     | Clock                      |
 
 
 
