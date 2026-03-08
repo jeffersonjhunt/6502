@@ -113,7 +113,7 @@ ISA Card Slot with 62 Pins (e.g. EDC395062-ND) 20 Address Lines and 8 Data Lines
 | 0xB     |                            |
 | 0xC     |                            |
 | 0xD     |                            |
-| 0xE     |                            |
+| 0xE     | Console                    |
 | 0xF     | Clock                      |
 
 

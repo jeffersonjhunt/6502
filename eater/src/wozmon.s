@@ -1,3 +1,8 @@
+;  The WOZ Monitor for the Apple 1
+;  Written by Steve Wozniak in 1976
+
+  .setcpu "6502"
+
   .org $8000
   .org $ff00
 
