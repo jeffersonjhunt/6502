@@ -52,6 +52,11 @@ set(EMU_FIXTURE_DIR "${CMAKE_CURRENT_LIST_DIR}/fixtures")
 # found. test_support.h refuses to compile without it.
 add_library(emu_core STATIC
         "${EMU_ROOT}/src/cpu.cpp"
+        "${EMU_ROOT}/src/memory.cpp"
+        "${EMU_ROOT}/src/loader.cpp"
+        "${EMU_ROOT}/src/apple1.cpp"
+        "${EMU_ROOT}/src/display.cpp"
+        "${EMU_ROOT}/src/keyboard.cpp"
         "${EMU_ROOT}/src/logging.cpp")
 target_include_directories(emu_core SYSTEM PUBLIC "${EMU_ROOT}/include")
 target_compile_definitions(emu_core PUBLIC ELPP_NO_DEFAULT_LOG_FILE ELPP_NO_CHECK_MACROS)
@@ -78,6 +83,68 @@ endfunction()
 emu_add_test(test_cpu_smoke)
 emu_add_test(test_dormann)
 emu_add_test(test_harte)
+emu_add_test(test_memory)
+emu_add_test(test_loader)
+emu_add_test(test_rom_boot)
+
+# --- Apple-1 ROMs ------------------------------------------------------------
+#
+# Assembled here from apple1/src, into the build tree, so the boot tests run
+# against the sources in this checkout rather than whatever .rom happens to be
+# lying in apple1/src. Mirrors apple1/src/Makefile. Without cc65 the ROM tests
+# skip.
+
+set(APPLE1_SRC "${EMU_ROOT}/../apple1/src")
+set(ROM_DIR "${CMAKE_CURRENT_BINARY_DIR}/roms")
+find_program(EMU_CA65 ca65)
+find_program(EMU_LD65 ld65)
+
+if(EMU_CA65 AND EMU_LD65)
+    file(MAKE_DIRECTORY "${ROM_DIR}")
+    foreach(src wozmon applesoft io ibasic)
+        add_custom_command(
+                OUTPUT "${ROM_DIR}/${src}.o"
+                COMMAND "${EMU_CA65}" -I "${APPLE1_SRC}" -o "${ROM_DIR}/${src}.o" "${APPLE1_SRC}/${src}.s"
+                DEPENDS "${APPLE1_SRC}/${src}.s" "${APPLE1_SRC}/zeropage.s" "${APPLE1_SRC}/macros.s"
+                VERBATIM)
+    endforeach()
+    add_custom_command(
+            OUTPUT "${ROM_DIR}/applesoft.rom"
+            COMMAND "${EMU_LD65}" -C "${APPLE1_SRC}/apple1.cfg" -o "${ROM_DIR}/applesoft.rom"
+                    "${ROM_DIR}/applesoft.o" "${ROM_DIR}/io.o" "${ROM_DIR}/wozmon.o"
+            DEPENDS "${ROM_DIR}/applesoft.o" "${ROM_DIR}/io.o" "${ROM_DIR}/wozmon.o" "${APPLE1_SRC}/apple1.cfg"
+            VERBATIM)
+    add_custom_command(
+            OUTPUT "${ROM_DIR}/ibasic.rom"
+            COMMAND "${EMU_LD65}" -C "${APPLE1_SRC}/apple1.cfg" -o "${ROM_DIR}/ibasic.rom"
+                    "${ROM_DIR}/ibasic.o" "${ROM_DIR}/wozmon.o"
+            DEPENDS "${ROM_DIR}/ibasic.o" "${ROM_DIR}/wozmon.o" "${APPLE1_SRC}/apple1.cfg"
+            VERBATIM)
+    add_custom_target(apple1_roms ALL DEPENDS "${ROM_DIR}/applesoft.rom" "${ROM_DIR}/ibasic.rom")
+else()
+    message(STATUS "emu: ca65/ld65 not found — Apple-1 ROM tests will skip")
+endif()
+
+target_compile_definitions(test_rom_boot PRIVATE
+        EMU_IBASIC_ROM="${ROM_DIR}/ibasic.rom"
+        EMU_APPLESOFT_ROM="${ROM_DIR}/applesoft.rom")
+
+# --- the app itself ----------------------------------------------------------
+#
+# Built here as well as by emulator/CMakeLists.txt so it gets the sanitizers:
+# test_app_tty relies on LeakSanitizer to turn a leak at exit into a failure.
+
+add_executable(emulator_app "${EMU_ROOT}/apps/emulator.cpp")
+target_include_directories(emulator_app PRIVATE "${EMU_ROOT}/apps")
+target_link_libraries(emulator_app PRIVATE emu_core)
+
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_test(NAME test_app_tty
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_app_tty.py"
+                     $<TARGET_FILE:emulator_app> "${EMU_ROOT}/logging.cfg" "${ROM_DIR}/ibasic.rom")
+    set_tests_properties(test_app_tty PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+endif()
 
 # Dormann runs ~30M instructions; under ASan that is well past CTest's default.
 set_tests_properties(test_dormann PROPERTIES TIMEOUT 900)

@@ -53,8 +53,8 @@ namespace ooe
         // if a key was pressed and the data available flag is not set
         if (buf != 0 && !bus->bit_test(ctrl, 7))
         {
-            bus->Write(data_addr, EncodeKey(buf));
-            bus->Write(ctrl_addr, bus->bit_set(ctrl, 7)); // set the data available flag
+            bus->Poke(data_addr, EncodeKey(buf));
+            bus->Poke(ctrl_addr, bus->bit_set(ctrl, 7)); // set the data available flag (device side: the CPU cannot)
         } else if (buf != 0) {
             LOG(WARNING) << fmt::format("Key: {:#04x} (IGNORED)", buf);
             buf = 0;

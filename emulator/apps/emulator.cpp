@@ -2,8 +2,23 @@
 
 namespace ooe
 {
+    namespace
+    {
+        // Raw mode keeps ISIG, so Ctrl-C arrives as SIGINT rather than as a
+        // 0x03 byte. Left to the default action it killed the process before
+        // the keyboard could restore the terminal; now it just ends Run().
+        volatile std::sig_atomic_t quit_requested = 0;
+
+        void RequestQuit(int)
+        {
+            quit_requested = 1;
+        }
+    }
+
     /**
      * @brief bootstraps the application
+     *
+     * usage: emulator [rom]   (default: ibasic.rom in the current directory)
      */
     extern "C" int main(int argc, char* argv[])
     {
@@ -13,26 +28,42 @@ namespace ooe
         el::Configurations conf("logging.cfg");
         el::Loggers::reconfigureAllLoggers(conf);
 
+        const std::string rom = argc > 1 ? argv[1] : "ibasic.rom";
+
         LOG(DEBUG) << "initializing memory";
-        Memory *memory = new Memory();
+        Memory memory;
+
+        // Before the keyboard takes over the terminal, so the error is
+        // readable and there is nothing to restore.
+        if (!LoadApple1(memory, rom))
+        {
+            std::fprintf(stderr, "emulator: cannot load ROM %s\n", rom.c_str());
+            return 1;
+        }
 
         LOG(DEBUG) << "initializing cpu";
-        cpu *mos6502 = new cpu(memory);
+        cpu mos6502(&memory);
 
         LOG(DEBUG) << "initializing keyboard";
-        Keyboard *keyboard = new Keyboard(memory, KBDCR, KBD);
+        Keyboard keyboard(&memory, KBDCR, KBD);
 
         LOG(DEBUG) << "initializing display";
-        Display *display = new Display(memory, DSPCR, DSP);
+        Display display(&memory, DSPCR, DSP);
 
         LOG(DEBUG) << "initializing emulator";
-        Emulator *emulator = new Emulator(memory, keyboard, display);
-        
+        Emulator emulator(&memory, &keyboard, &display);
+
+        std::signal(SIGINT, RequestQuit);
+        std::signal(SIGTERM, RequestQuit);
+
         LOG(DEBUG) << "resetting cpu";
-        mos6502->Reset();
+        mos6502.Reset();
 
         LOG(DEBUG) << "running emulator";
-        emulator->Run(mos6502);
+        emulator.Run(&mos6502);
+
+        LOG(DEBUG) << "exiting";
+        return 0;
     }
 
     void Emulator::UpdateDisplay()
@@ -40,7 +71,7 @@ namespace ooe
         this->display->update();
     }
 
-    void Emulator::ReadKeyboard()
+    bool Emulator::ReadKeyboard()
     {
         // read the keyboard
         uint8_t key = keyboard->Pull();
@@ -57,8 +88,7 @@ namespace ooe
                 break;
             case 0x03:
                 LOG(DEBUG) << fmt::format("Key: {:#04x} (CTRL-C)", key);
-                std::exit(0);
-                break;
+                return false;
             case 0x1b:
                 LOG(DEBUG) << fmt::format("Key: {:#04x} (ESCAPE)", key);
                 // std::exit(0);
@@ -67,14 +97,16 @@ namespace ooe
                 LOG(DEBUG) << fmt::format("Key: {:#04x} ({})", key, (char)key); 
                 break;  
         }
+        return true;
     }
 
     void Emulator::Run(cpu *mos6502)
     {
-        while (true)
+        while (!quit_requested)
         {
             // read keyboard
-            this->ReadKeyboard();
+            if (!this->ReadKeyboard())
+                break;
 
             // step the cpu
             for(int i = 0; i < CYCLES_PER_TICK; i++)
@@ -98,44 +130,10 @@ namespace ooe
         this->memory = memory;
         this->keyboard = keyboard;
         this->display = display;
-
-        // load the Apple 1 ROM (move to storage class)
-        // std::string filename = "applesoft.rom"; // does not work
-        std::string filename = "ibasic.rom";
-        this->LoadProgram(&filename, 0x8000);
-
         this->ticks = 0;
     }   
 
     Emulator::~Emulator()
     {
-        delete keyboard;
-        delete memory;
     }
-
-    void Emulator::LoadProgram(std::string *filename, uint16_t address)
-    {
-        LOG(INFO) << "loading program: " << filename->c_str();
-        FILE *fp;
-        char buf[128];
-
-        fp = fopen(filename->c_str(), "rb");
-
-        if (fp == NULL)
-        {
-            LOG(ERROR) << fmt::format("could not open program file: {}", filename->c_str());
-            return;
-        }
-
-        while (fread(buf, sizeof(u_int8_t), sizeof(buf), fp) > 0)
-        {
-            for (int i = 0; i < sizeof(buf); i++)
-            {
-                this->memory->Write(address++, buf[i]);
-            }
-        }
-
-        LOG(DEBUG) << fmt::format("loaded program into memory starting at {:#06x}", address);
-    }
-
 } // namespace ooe

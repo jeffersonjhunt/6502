@@ -1,4 +1,5 @@
 #pragma once
+#include <bitset>
 #include <cstdint>
 
 #include "fmt/core.h"
@@ -19,6 +20,15 @@ class Memory : public BusInterface
 public:
     uint8_t Read(uint16_t addr) override;
     void Write(uint16_t addr, uint8_t data) override;
+    void Poke(uint16_t addr, uint8_t data) override;
+
+    /**
+     * @brief Mark [first, last] read-only to the CPU (or writable again)
+     *
+     * CPU writes into a read-only range are dropped, as on a ROM. Poke still
+     * writes, so loaders can fill it.
+     */
+    void SetReadOnly(uint16_t first, uint16_t last, bool protect = true);
 
     void Reset();
 
@@ -27,8 +37,9 @@ public:
     
 private:
     uint8_t memory[MEM_SIZE];
+    std::bitset<MEM_SIZE> read_only;
 
     void ReadSideEffects(uint16_t addr);
-    void WriteSideEffects(uint16_t addr, uint8_t data);
+    uint8_t WriteSideEffects(uint16_t addr, uint8_t data);
 
 };

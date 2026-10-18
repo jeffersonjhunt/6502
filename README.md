@@ -9,16 +9,21 @@ https://www.applefritter.com/replica/chapter7
 
 ## Emulator ##
 
-To run the emulator
+To run the emulator (needs `libfmt-dev`; the ROMs need `cc65`)
 
 ```
+make -C apple1/src roms
 mkdir build
 cd build
 cmake ../emulator
 make
 ln -s ../emulator/logging.cfg
-./apps/emulator
+./apps/emulator ../apple1/src/ibasic.rom      # or applesoft.rom
 ```
+
+At the `\` prompt, `E000R` starts BASIC. Ctrl-C quits. With no argument the
+emulator looks for `ibasic.rom` in the current directory, and it exits with an
+error if the ROM can't be loaded.
 
 ### Tests ###
 

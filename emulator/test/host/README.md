@@ -25,8 +25,12 @@ HARTE_VERBOSE=1 ./build-host/test_harte  # every failing case, not just the firs
 | `test_cpu_smoke` | hand-checked datasheet facts: reset vector, N/Z, binary overflow, valid-BCD ADC/SBC, NMOS `JMP ($xxFF)`, JSR/RTS, what BRK and IRQ push | none, always runs |
 | `test_dormann` | Klaus Dormann's `6502_functional_test`: every documented opcode and mode, traps on the first failure | `6502_functional_test.bin` |
 | `test_harte` | Tom Harte's SingleStepTests: one instruction from a random state, registers and RAM compared, per opcode | `harte/*.txt` |
+| `test_memory` | Apple-1 memory map: read-only ROM, PIA control-register flags, `DSP` output and DDR | none |
+| `test_loader` | `LoadImage`: short files, missing files, images that don't fit | none |
+| `test_rom_boot` | Woz Monitor, Integer BASIC and Applesoft booted headless with scripted keys and a captured screen | ROMs, assembled by this build if `ca65` is on the PATH |
+| `test_app_tty` | the real app in a pty: Ctrl-C and SIGTERM restore the terminal and exit 0 without leaks (LeakSanitizer); a missing ROM exits with an error | ROMs, `python3` |
 
-Fixture suites exit 77 when their fixtures are absent, which CTest reports
+Suites with fixtures exit 77 when their fixtures are absent, which CTest reports
 as **Skipped**, not Passed. Check the skipped count: a green run with two
 skips has only run the smoke suite. `test_harte` fails, rather than passes,
 if its fixture directory exists but holds no cases.
