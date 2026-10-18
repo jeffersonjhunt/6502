@@ -16,9 +16,9 @@
  * - Bus cycles. The core does not count them (Phase 4). The expected count is
  *   in the fixture so that phase can start checking without a re-fetch.
  * - P bit 4 (B). It is not a register bit on real silicon; it exists only in
- *   pushed copies of P, and those are checked through RAM. The core's Reset()
- *   forces it on in its live status byte, so comparing it would fail every
- *   case for a reason no program can observe.
+ *   pushed copies of P, and those are checked through RAM. The core keeps it
+ *   set in its live status byte (reset, PLP, RTI and BIT all force it), so
+ *   comparing it would fail cases for a reason no program can observe.
  */
 
 #include "test_support.h"
@@ -31,15 +31,16 @@
 #include <vector>
 
 using namespace ooe::test;
+using namespace ooe::emu;
 
 namespace
 {
-    constexpr uint8_t P_MASK = static_cast<uint8_t>(~flag::B);
+    constexpr uint8_t P_MASK = static_cast<uint8_t>(~Cpu6502::FLAG_B);
     constexpr int LEGAL_OPCODES = 151; // documented NMOS set, as fetched
 
     struct State
     {
-        Regs regs;
+        Registers regs;
         std::vector<std::pair<uint16_t, uint8_t>> ram;
     };
 
@@ -48,7 +49,7 @@ namespace
         unsigned pc, s, a, x, y, p, n;
         if (!(in >> pc >> s >> a >> x >> y >> p >> n))
             return false;
-        st.regs = Regs{static_cast<uint16_t>(pc), static_cast<uint8_t>(s), static_cast<uint8_t>(a),
+        st.regs = Registers{static_cast<uint16_t>(pc), static_cast<uint8_t>(s), static_cast<uint8_t>(a),
                        static_cast<uint8_t>(x), static_cast<uint8_t>(y), static_cast<uint8_t>(p)};
         st.ram.clear();
         for (unsigned i = 0; i < n; ++i)
@@ -64,12 +65,12 @@ namespace
     /// Run one case; on mismatch, describe the first difference in `why`.
     bool run_case(FlatBus &bus, const State &init, const State &want, std::string &why)
     {
-        cpu c(&bus);
-        boot(c, bus, init.regs);
+        Cpu6502 c(bus);
+        c.set_regs(init.regs);
         for (const auto &[addr, val] : init.ram)
             bus.at(addr) = val;
 
-        c.Step();
+        c.step();
 
         char buf[128];
         auto reg = [&](const char *name, unsigned got, unsigned exp) {
@@ -79,15 +80,15 @@ namespace
             why = buf;
             return false;
         };
-        if (c.GetPC() != want.regs.pc)
+        if (c.regs().pc != want.regs.pc)
         {
-            std::snprintf(buf, sizeof buf, "PC got %04X want %04X", c.GetPC(), want.regs.pc);
+            std::snprintf(buf, sizeof buf, "PC got %04X want %04X", c.regs().pc, want.regs.pc);
             why = buf;
             return false;
         }
-        if (!reg("A", c.GetA(), want.regs.a) || !reg("X", c.GetX(), want.regs.x) ||
-            !reg("Y", c.GetY(), want.regs.y) || !reg("S", c.GetS(), want.regs.s) ||
-            !reg("P", c.GetP() & P_MASK, want.regs.p & P_MASK))
+        if (!reg("A", c.regs().a, want.regs.a) || !reg("X", c.regs().x, want.regs.x) ||
+            !reg("Y", c.regs().y, want.regs.y) || !reg("S", c.regs().s, want.regs.s) ||
+            !reg("P", c.regs().p & P_MASK, want.regs.p & P_MASK))
             return false;
         for (const auto &[addr, val] : want.ram)
         {

@@ -21,6 +21,7 @@
 #include <vector>
 
 using namespace ooe::test;
+using namespace ooe::emu;
 
 namespace
 {
@@ -49,22 +50,22 @@ int main()
     for (size_t i = 0; i < image.size(); ++i)
         bus.at(static_cast<uint16_t>(i)) = static_cast<uint8_t>(image[i]);
 
-    cpu c(&bus);
-    boot(c, bus, Regs{START, 0xFF, 0, 0, 0, flag::U | flag::I});
+    Cpu6502 c(bus);
+    c.set_regs(Registers{START, 0xFF, 0, 0, 0, Cpu6502::FLAG_U | Cpu6502::FLAG_I});
 
     long steps = 0;
-    uint16_t pc = c.GetPC();
+    uint16_t pc = c.regs().pc;
     for (; steps < MAX_STEPS; ++steps)
     {
-        c.Step();
-        const uint16_t now = c.GetPC();
+        c.step();
+        const uint16_t now = c.regs().pc;
         if (now == pc)
             break;
         pc = now;
     }
 
     std::printf("trapped at $%04X after %ld instructions (A=%02X X=%02X Y=%02X S=%02X P=%02X)\n",
-                pc, steps, c.GetA(), c.GetX(), c.GetY(), c.GetS(), c.GetP());
+                pc, steps, c.regs().a, c.regs().x, c.regs().y, c.regs().s, c.regs().p);
     if (steps == MAX_STEPS)
     {
         std::printf("FAIL: no trap within %ld instructions\n", MAX_STEPS);

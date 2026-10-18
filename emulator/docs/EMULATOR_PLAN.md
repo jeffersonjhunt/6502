@@ -113,6 +113,17 @@ Doxygen headers, explicit CMake sources, presets and `.clangd`. Replace
 easylogging++ and `fmt` with `emu_log`; bus tracing becomes compile-time so it
 costs nothing when off. Bring the core under `-Werror`.
 
+**Done 2026-10-18.** Layout as in §3, except `devices/`, which waits for
+Phase 3; the Apple-1 map lives in `components/machine` until then, and the
+terminal keyboard/display in `apps/emu`. The opcode table was generated from
+the old one. Results are unchanged: Harte's `HARTE_VERBOSE` output at 1,000
+cases/opcode is byte-identical to `beta`'s, and Dormann traps at $3469 after
+the same 30,646,176 instructions. The core also gained `regs()`/`set_regs()`,
+which tests use instead of going through the reset vector, and Phase 5's
+debugger will need. Mutations of the restyled core (an unsigned SBC borrow,
+`JMP ($xxFF)` without the page wrap) are caught. The app now logs only with
+`--log FILE`, and `logging.cfg` is gone.
+
 ### Phase 3 — a bus that matches the hardware
 
 - `Device`: `read(addr)`, `write(addr, data)`, `tick(cycles)`, an IRQ line.
@@ -153,5 +164,5 @@ costs nothing when off. Bring the core under `-Werror`.
    now the open question for Phase 3's decoder.
 2. **Machine description format** — plain text or JSON (protobuf is overkill
    here).
-3. **`fmt`** — drop it in Phase 2 to match `pinled`'s minimal dependencies, or
-   keep it.
+3. ~~`fmt`~~ — dropped in Phase 2, with easylogging++; `emu_log` is
+   printf-style, like pinled's `ESP_LOGx`.

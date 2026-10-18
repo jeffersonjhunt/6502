@@ -17,138 +17,139 @@
 #include <initializer_list>
 
 using namespace ooe::test;
+using namespace ooe::emu;
 
 namespace
 {
     constexpr uint16_t ORG = 0x0200;
 
     /// Load `code` at ORG, boot there with `r`, and execute `steps` instructions.
-    void run(cpu &c, FlatBus &bus, std::initializer_list<uint8_t> code, int steps, Regs r = {})
+    void run(Cpu6502 &c, FlatBus &bus, std::initializer_list<uint8_t> code, int steps, Registers r = {})
     {
         uint16_t addr = ORG;
         for (const uint8_t b : code)
             bus.at(addr++) = b;
         r.pc = ORG;
-        boot(c, bus, r);
+        c.set_regs(r);
         for (int i = 0; i < steps; ++i)
-            c.Step();
+            c.step();
     }
 } // namespace
 
 TEST(reset_loads_pc_from_vector)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     bus.at(0xFFFC) = 0x34;
     bus.at(0xFFFD) = 0x12;
-    c.Reset();
-    CHECK_EQ(c.GetPC(), 0x1234);
+    c.reset();
+    CHECK_EQ(c.regs().pc, 0x1234);
 }
 
 TEST(lda_immediate_sets_n_and_z)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     run(c, bus, {0xA9, 0x00}, 1); // LDA #$00
-    CHECK_EQ(c.GetA(), 0x00);
-    CHECK(c.GetP() & flag::Z);
-    CHECK(!(c.GetP() & flag::N));
+    CHECK_EQ(c.regs().a, 0x00);
+    CHECK(c.regs().p & Cpu6502::FLAG_Z);
+    CHECK(!(c.regs().p & Cpu6502::FLAG_N));
 
     run(c, bus, {0xA9, 0x80}, 1); // LDA #$80
-    CHECK(!(c.GetP() & flag::Z));
-    CHECK(c.GetP() & flag::N);
+    CHECK(!(c.regs().p & Cpu6502::FLAG_Z));
+    CHECK(c.regs().p & Cpu6502::FLAG_N);
 }
 
 TEST(adc_binary_signed_overflow)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     run(c, bus, {0x18, 0xA9, 0x50, 0x69, 0x50}, 3); // CLC; LDA #$50; ADC #$50
-    CHECK_EQ(c.GetA(), 0xA0);
-    CHECK(c.GetP() & flag::V);
-    CHECK(c.GetP() & flag::N);
-    CHECK(!(c.GetP() & flag::C));
+    CHECK_EQ(c.regs().a, 0xA0);
+    CHECK(c.regs().p & Cpu6502::FLAG_V);
+    CHECK(c.regs().p & Cpu6502::FLAG_N);
+    CHECK(!(c.regs().p & Cpu6502::FLAG_C));
 }
 
 TEST(adc_decimal_carries_between_digits)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     run(c, bus, {0xF8, 0x18, 0xA9, 0x09, 0x69, 0x01}, 4); // SED; CLC; LDA #$09; ADC #$01
-    CHECK_EQ(c.GetA(), 0x10);
-    CHECK(!(c.GetP() & flag::C));
+    CHECK_EQ(c.regs().a, 0x10);
+    CHECK(!(c.regs().p & Cpu6502::FLAG_C));
 
     run(c, bus, {0xF8, 0x18, 0xA9, 0x99, 0x69, 0x01}, 4); // 99 + 01 = 00, carry out
-    CHECK_EQ(c.GetA(), 0x00);
-    CHECK(c.GetP() & flag::C);
+    CHECK_EQ(c.regs().a, 0x00);
+    CHECK(c.regs().p & Cpu6502::FLAG_C);
 }
 
 TEST(sbc_decimal_borrows)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     run(c, bus, {0xF8, 0x38, 0xA9, 0x10, 0xE9, 0x01}, 4); // SED; SEC; LDA #$10; SBC #$01
-    CHECK_EQ(c.GetA(), 0x09);
-    CHECK(c.GetP() & flag::C); // no borrow
+    CHECK_EQ(c.regs().a, 0x09);
+    CHECK(c.regs().p & Cpu6502::FLAG_C); // no borrow
 }
 
 TEST(jmp_indirect_wraps_within_page)
 {
     // NMOS bug: the high byte of the target is fetched from $1000, not $1100.
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     bus.at(0x10FF) = 0x34;
     bus.at(0x1000) = 0x12;
     bus.at(0x1100) = 0x56;
     run(c, bus, {0x6C, 0xFF, 0x10}, 1); // JMP ($10FF)
-    CHECK_EQ(c.GetPC(), 0x1234);
+    CHECK_EQ(c.regs().pc, 0x1234);
 }
 
 TEST(jsr_rts_round_trip)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     bus.at(0x2000) = 0x60;                // RTS
     run(c, bus, {0x20, 0x00, 0x20}, 1);   // JSR $2000
-    CHECK_EQ(c.GetPC(), 0x2000);
-    CHECK_EQ(c.GetS(), 0xFB);
+    CHECK_EQ(c.regs().pc, 0x2000);
+    CHECK_EQ(c.regs().s, 0xFB);
     CHECK_EQ(bus.at(0x01FD), 0x02);       // return address - 1 = $0202
     CHECK_EQ(bus.at(0x01FC), 0x02);
-    c.Step();
-    CHECK_EQ(c.GetPC(), ORG + 3);
-    CHECK_EQ(c.GetS(), 0xFD);
+    c.step();
+    CHECK_EQ(c.regs().pc, ORG + 3);
+    CHECK_EQ(c.regs().s, 0xFD);
 }
 
 TEST(brk_pushes_pc_plus_two_with_b_set)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     bus.at(0xFFFE) = 0x00;
     bus.at(0xFFFF) = 0x30;
     run(c, bus, {0x00, 0xEA}, 1); // BRK; (padding)
-    CHECK_EQ(c.GetPC(), 0x3000);
+    CHECK_EQ(c.regs().pc, 0x3000);
     CHECK_EQ(bus.at(0x01FD), 0x02); // PCH
     CHECK_EQ(bus.at(0x01FC), 0x02); // PCL: BRK skips its padding byte
-    CHECK(bus.at(0x01FB) & flag::B);
-    CHECK(c.GetP() & flag::I);
+    CHECK(bus.at(0x01FB) & Cpu6502::FLAG_B);
+    CHECK(c.regs().p & Cpu6502::FLAG_I);
 }
 
 TEST(irq_is_masked_by_i_and_pushes_b_clear)
 {
     FlatBus bus;
-    cpu c(&bus);
+    Cpu6502 c(bus);
     bus.at(0xFFFE) = 0x00;
     bus.at(0xFFFF) = 0x40;
 
-    run(c, bus, {0xEA}, 0, Regs{0, 0xFD, 0, 0, 0, flag::U | flag::I});
-    c.IRQ();
-    CHECK_EQ(c.GetPC(), ORG); // masked: nothing happens
+    run(c, bus, {0xEA}, 0, Registers{0, 0xFD, 0, 0, 0, Cpu6502::FLAG_U | Cpu6502::FLAG_I});
+    c.irq();
+    CHECK_EQ(c.regs().pc, ORG); // masked: nothing happens
 
-    run(c, bus, {0xEA}, 0, Regs{0, 0xFD, 0, 0, 0, flag::U});
-    c.IRQ();
-    CHECK_EQ(c.GetPC(), 0x4000);
-    CHECK(!(bus.at(0x01FB) & flag::B));
-    CHECK(c.GetP() & flag::I);
+    run(c, bus, {0xEA}, 0, Registers{0, 0xFD, 0, 0, 0, Cpu6502::FLAG_U});
+    c.irq();
+    CHECK_EQ(c.regs().pc, 0x4000);
+    CHECK(!(bus.at(0x01FB) & Cpu6502::FLAG_B));
+    CHECK(c.regs().p & Cpu6502::FLAG_I);
 }
 
 int main()

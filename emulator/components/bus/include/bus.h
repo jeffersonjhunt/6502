@@ -1,0 +1,37 @@
+#pragma once
+
+/**
+ * @file bus.h
+ * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
+ * @brief What the CPU sees: a 64 KB address space of reads and writes.
+ * @version 0.2.0
+ * @date 2026-10-18
+ *
+ * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
+ *
+ * Two write paths, because the CPU is not the only thing that writes:
+ *
+ * - write() is a CPU store and obeys the memory map. ROM ignores it, and a
+ *   6821's status flags cannot be stored to.
+ * - poke() is the device or loader side. A ROM has to get its contents and
+ *   a keyboard has to raise key-ready, both of which a CPU store must not do.
+ *
+ * Phase 3 (docs/EMULATOR_PLAN.md) puts an address decoder and devices
+ * behind this interface; the CPU will not change.
+ */
+
+#include <cstdint>
+
+namespace ooe::emu
+{
+    class Bus
+    {
+    public:
+        virtual ~Bus() = default;
+
+        virtual uint8_t read(uint16_t addr) = 0;
+        virtual void write(uint16_t addr, uint8_t data) = 0;
+        /// Device/loader-side write; defaults to write() for a plain bus.
+        virtual void poke(uint16_t addr, uint8_t data) { write(addr, data); }
+    };
+} // namespace ooe::emu
