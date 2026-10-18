@@ -27,9 +27,26 @@ uint8_t Memory::Read(uint16_t addr)
 
 void Memory::Write(uint16_t addr, uint8_t data)
 {
+    if (read_only[addr])
+    {
+        LOG(TRACE) << fmt::format("{:#06x} <- {:#04x} (read-only, ignored)", addr, data);
+        return;
+    }
     LOG(TRACE) << fmt::format("{:#06x} <- {:#04x}", addr, data);
-    WriteSideEffects(addr, data);
+    memory[addr] = WriteSideEffects(addr, data);
+}
+
+void Memory::Poke(uint16_t addr, uint8_t data)
+{
     memory[addr] = data;
+}
+
+void Memory::SetReadOnly(uint16_t first, uint16_t last, bool protect)
+{
+    for (uint32_t a = first; a <= last; a++)
+    {
+        read_only[a] = protect;
+    }
 }
 
 
@@ -54,7 +71,33 @@ void Memory::ReadSideEffects(uint16_t addr)
     }
 }
 
-void Memory::WriteSideEffects(uint16_t addr, uint8_t data)
+uint8_t Memory::WriteSideEffects(uint16_t addr, uint8_t data)
 {
-    // None yet
+    /*
+     * 6821 PIA: bits 6 and 7 of each control register are interrupt flags.
+     * The CPU can read them but not store to them; they are set by the
+     * peripheral (Poke) and cleared by reading the data register. Woz Monitor
+     * writes $A7 to KBDCR at reset, which used to fake a keypress.
+     */
+    if (addr == KBDCR || addr == DSPCR)
+    {
+        return (uint8_t)((data & 0x3F) | (memory[addr] & 0xC0));
+    }
+
+    /*
+     * DSP bit 7 is the display's busy line (PB7, an input), not part of the
+     * character: any store outputs the low 7 bits and the display reads busy
+     * until it has taken it (Display clears the bit). While CRB bit 2 is 0,
+     * $D012 is the data direction register instead, as at reset when Woz
+     * Monitor stores $7F there; that is not output.
+     */
+    if (addr == DSP)
+    {
+        if (!(memory[DSPCR] & 0x04))
+        {
+            return memory[addr];
+        }
+        return (uint8_t)(data | 0x80);
+    }
+    return data;
 }

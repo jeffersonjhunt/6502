@@ -13,6 +13,14 @@ public:
      * @brief Write a byte to the bus
      */
     virtual void Write(uint16_t, uint8_t) = 0;
+    /**
+     * @brief Write a byte from the device/loader side, not the CPU's
+     *
+     * The CPU's Write obeys the memory map (ROM is read-only, PIA status
+     * flags cannot be stored to). Loaders and peripherals have to get past
+     * that: a ROM needs its contents, a keyboard has to raise key-ready.
+     */
+    virtual void Poke(uint16_t addr, uint8_t data) { Write(addr, data); }
 
     /** 
      * @brief Set a bit in a byte

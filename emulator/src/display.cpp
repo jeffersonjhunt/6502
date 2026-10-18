@@ -29,7 +29,7 @@ namespace ooe
                 std::cout << std::flush;
             }
 
-           bus->Write(this->data_addr, data); // clear the data available flag
+           bus->Poke(this->data_addr, data); // clear the data available flag
         }
     }
 } // namespace ooe
