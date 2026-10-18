@@ -30,10 +30,10 @@ known whether N/V/Z are also wrong in these cases.
 
 **Does it matter?** Not for code that only does BCD on BCD. That includes
 Woz Monitor, both BASICs and the Dormann suite. It matters for code that
-relies on the undocumented NMOS behaviour, and for the real board, because
-the W65C02's invalid-BCD results differ from the NMOS ones, and its N/Z
-flags are valid in decimal mode. Fix it as part of the CPU-variant work (Phase 4, open decision
-1), not before.
+relies on the undocumented NMOS behaviour, and for the real board, which is
+a W65C02S: its invalid-BCD results differ from the NMOS ones, and its N/Z
+flags are valid in decimal mode. Fix it as part of the W65C02S work in
+Phase 4, against Harte's `wdc65c02` set, not before.
 
 ## What this means for Phase 1
 

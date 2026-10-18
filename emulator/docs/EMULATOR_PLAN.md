@@ -107,9 +107,14 @@ costs nothing when off. Bring the core under `-Werror`.
 
 - Per-instruction cycle counts with page-cross and branch-taken penalties;
   throttle to a real clock (e.g. 1 MHz). Harte's cycle traces become checked.
-- WDC 65C02 variant (BRA, PHX/PLX/PHY/PLY, STZ, TRB/TSB, WAI/STP,
-  RMB/SMB/BBR/BBS, fixed `JMP ($xxFF)`), chosen per machine. The Eater build
-  already assembles with `-wdc02`, and VPB in the bus notes is W65C02S-only.
+- **W65C02S as the primary core** — the real board's CPU (decided
+  2026-10-18). Adds BRA, PHX/PLX/PHY/PLY, STZ, TRB/TSB, WAI/STP,
+  RMB/SMB/BBR/BBS, `(zp)` addressing, BIT #imm/zp,X/abs,X, INC A/DEC A,
+  fixed `JMP ($xxFF)`, D cleared on interrupts, valid N/Z in decimal mode and
+  its extra decimal cycle; undefined opcodes as WDC's sized NOPs. Verified
+  against Harte's `65x02/wdc65c02` set and Dormann's
+  `65C02_extended_opcodes_test`. NMOS stays as a per-machine option for the
+  Apple-1 machine.
 - RDY, SYNC and VPB as bus signals visible to the console and bus spy.
 
 ### Phase 5 — bring-up tooling
@@ -122,9 +127,10 @@ costs nothing when off. Bring the core under `-Werror`.
 
 ## 5. Open decisions
 
-1. **CPU on the real board** — W65C02S, NMOS 6502, or 65C816? The 20-bit bus
-   and 16 data lamps on the console could point to the '816, which would
-   reshape Phase 4.
+1. ~~CPU on the real board~~ — **W65C02S** (decided 2026-10-18). Its
+   address bus is 16 bits, so A16..A19 on the backplane must come from the
+   north bridge (a bank/segment register?). How those bits are produced is
+   now the open question for Phase 3's decoder.
 2. **Machine description format** — plain text or JSON (protobuf is overkill
    here).
 3. **`fmt`** — drop it in Phase 2 to match `pinled`'s minimal dependencies, or
