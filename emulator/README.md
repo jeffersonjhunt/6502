@@ -1,117 +1,64 @@
-## MOS6502 Emulator in C++
+## 6502 emulator
 
-This is my C++ implementation of the MOS Technology 6502 CPU. The code is written to be more readable than fast, however some minor tricks have been introduced to greatly reduce the overall execution time.
-
-main features:
-
-- 100% coverage of legal opcodes
-- decimal mode implemented
-- read/write bus callback
-- jump table opcode selection
-
-
-## Emulator features
-
-Project is a simple jump-table based emulator: the actual value of the opcode (let's say 0x80) is used to address a function pointer table, each entry of such table is a C++ function which emulates the behavior of the corresponding real instruction.
-
-All the 13 addressing modes are emulated:
+A 6502 core, the Apple-1 memory map, and a terminal front end that runs the
+Apple-1 ROMs in `../apple1/src`. It is being refactored to stand in for the
+backplane 6502 computer (`../hw/`) during bring-up; see
+[`docs/EMULATOR_PLAN.md`](docs/EMULATOR_PLAN.md).
 
 ```
-// addressing modes
-uint16_t Addr_ACC(); // ACCUMULATOR
-uint16_t Addr_IMM(); // IMMEDIATE
-uint16_t Addr_ABS(); // ABSOLUTE
-uint16_t Addr_ZER(); // ZERO PAGE
-uint16_t Addr_ZEX(); // INDEXED-X ZERO PAGE
-uint16_t Addr_ZEY(); // INDEXED-Y ZERO PAGE
-uint16_t Addr_ABX(); // INDEXED-X ABSOLUTE
-uint16_t Addr_ABY(); // INDEXED-Y ABSOLUTE
-uint16_t Addr_IMP(); // IMPLIED
-uint16_t Addr_REL(); // RELATIVE
-uint16_t Addr_INX(); // INDEXED-X INDIRECT
-uint16_t Addr_INY(); // INDEXED-Y INDIRECT
-uint16_t Addr_ABI(); // ABSOLUTE INDIRECT
+cmake --preset release && cmake --build --preset release
+./build/release/apps/emu/emulator ../apple1/src/ibasic.rom
 ```
 
-All the 151 opcodes are emulated. Since the 6502 CPU uses 8 bit to encode the opcode value it also has a lot of "illegal opcodes" (i.e. opcode values other than the designed 151). Such opcodes perform weird operations, write multiple registers at the same time, sometimes are the combination of two or more "valid" opcodes. Such illegals were used to enforce software copy protection or to discover the exact CPU type.
-
-The illegals are not supported yet, so instead a simple NOP is executed.
-
-## Instruction Stepping
-
-It's a fetch-decode-execute per step/tick, the "loop" is handled by the Emulator class.
+## Layout
 
 ```
-	// fetch
-	opcode = Read(pc++);
-
-	// decode
-	instr = InstrTable[opcode];
-
-	// execute
-	Exec(instr);
+components/
+  emu_log/     TAG-scoped printf logging (EMU_LOGE/W/I/D; EMU_LOGV with EMU_TRACE)
+  bus/         Bus: read/write for the CPU, poke for devices and loaders
+  cpu6502/     Cpu6502: NMOS core, one instruction per step()
+  machine/     apple1::Memory (RAM, read-only ROM, 6821 PIA rules), load_image
+apps/emu/      terminal keyboard/display, run loop, main
+test/host/     tests (test/host/README.md)
+tools/         fetch_fixtures.py
+docs/          plan and results
 ```
 
-The next instruction (the opcode value) is retrieved from memory. Then it's decoded (i.e. the opcode is used to address the instruction table) and the resulting code block is executed.
+Presets: `dev` (Debug, ASan/UBSan, tests), `release`, and `trace` (`dev` with
+`EMU_LOGV` compiled in).
 
-## Public methods
+## The core
 
-The cpu emulator comes as a single C++ class with five public methods:
+`ooe::emu::Cpu6502` works through a `Bus`:
 
-```
-cpu(BusInterface *bus);
-void NMI();
-void IRQ();
-void Reset();
-void Step();
-```
+```cpp
+class Bus
+{
+public:
+    virtual uint8_t read(uint16_t addr) = 0;
+    virtual void write(uint16_t addr, uint8_t data) = 0; // CPU stores
+    virtual void poke(uint16_t addr, uint8_t data);      // devices, loaders
+};
 
-`cpu(BusInterface *bus);`
-
-it's the class constructor. It requires you to pass an implementation of the BusInterface:
-
-```
-    /** 
-     * @brief Read a byte from the bus
-     */
-    virtual uint8_t Read(uint16_t) = 0;
-    /** 
-     * @brief Write a byte to the bus
-     */
-    virtual void Write(uint16_t, uint8_t) = 0;
+Cpu6502 cpu(bus);
+cpu.reset();   // PC from $FFFC
+cpu.step();    // one instruction
+cpu.irq();     // taken unless I is set
+cpu.nmi();
+cpu.regs();    // pc, s, a, x, y, p
 ```
 
-respectively to read/write from/to a memory location (16 bit address, 8 bit value). In such functions you can define your address decoding logic (if any) to address memory mapped I/O, external virtual devices and such.
+Decoding is a 256-entry table pairing an addressing mode (consumes the
+operand, returns the effective address) with an operation. All 151
+documented opcodes and decimal mode are implemented; undocumented opcodes
+run as one-byte NOPs. There are no cycle counts yet, and decimal ADC/SBC on
+invalid BCD differs from silicon (`docs/PHASE0_RESULTS.md`). Both are Phase 4,
+with the W65C02S the real board uses.
 
-```
-void NMI();
-```
-
-triggers a Non-Mascherable Interrupt request, as done by the external pin of the real chip
-
-```
-void IRQ();
-```
-
-triggers an Interrupt ReQuest, as done by the external pin of the real chip
-
-```
-void Reset();
-```
-
-performs an hardware reset, as done by the external pin of the real chip
-
-```
-void Step();
-```
-
-It runs the CPU for the next machine instruction.
+Derived from [gianlucag/mos6502](https://github.com/gianlucag/mos6502)
+(MIT, `licenses/mos6502_LICENSE`).
 
 ## Links
-
-Some useful stuff I used...
-
-https://github.com/gianlucag/mos6502
 
 http://en.wikipedia.org/wiki/MOS_Technology_6502
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The emulator app in a real pseudo-terminal: start-up, Ctrl-C, and exit.
 
-  test_app_tty.py <emulator binary> <logging.cfg> <rom>
+  test_app_tty.py <emulator binary> <rom>
 
 Covers the app-level bugs in EMULATOR_PLAN.md section 1, which no in-process
 test can see:
@@ -13,6 +13,9 @@ test can see:
   turns a leak into a non-zero exit status.
 - A missing ROM was only logged; the app then ran 64 KB of zeros forever.
 
+And the Phase 2 logging contract: nothing is written unless --log is given
+(the terminal is the Apple-1's screen), and --log FILE gets the run.
+
 Each check has a timeout: "it hung" is the failure mode for two of these.
 Exit code 77 (CTest skip) only when there is no tty support at all.
 """
@@ -20,7 +23,6 @@ Exit code 77 (CTest skip) only when there is no tty support at all.
 import fcntl
 import os
 import select
-import shutil
 import signal
 import subprocess
 import sys
@@ -45,9 +47,9 @@ def read_until(fd, needle, timeout):
     return buf
 
 
-def start(binary, rom, cwd):
+def start(binary, args, cwd):
     master, slave = os.openpty()
-    proc = subprocess.Popen([binary, rom], stdin=slave, stdout=slave, stderr=slave, cwd=cwd,
+    proc = subprocess.Popen([binary, *args], stdin=slave, stdout=slave, stderr=slave, cwd=cwd,
                             start_new_session=True,
                             preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
     return proc, master, slave
@@ -62,10 +64,10 @@ def finish(proc, timeout=10):
         return None
 
 
-def check_quit(name, binary, rom, cwd, quit_action):
+def check_quit(name, binary, args, cwd, quit_action):
     """Start, wait for the Woz prompt, quit with quit_action, check what is left."""
     failures = []
-    proc, master, slave = start(binary, rom, cwd)
+    proc, master, slave = start(binary, args, cwd)
     before = termios.tcgetattr(slave)
     banner = read_until(master, b"\\", 10)
     if b"\\" not in banner:
@@ -89,22 +91,29 @@ def check_quit(name, binary, rom, cwd, quit_action):
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 3:
         sys.exit(__doc__)
-    binary, cfg, rom = sys.argv[1:]
+    binary, rom = sys.argv[1:]
     if not os.path.exists(rom):
         print(f"SKIP: {rom} not built")
         return SKIP
 
     failures = []
     with tempfile.TemporaryDirectory() as cwd:
-        shutil.copy(cfg, os.path.join(cwd, "logging.cfg"))
+        failures += check_quit("ctrl-c", binary, [rom], cwd, lambda p, m: os.write(m, b"\x03"))
+        failures += check_quit("sigterm", binary, [rom], cwd, lambda p, m: p.send_signal(signal.SIGTERM))
+        if os.listdir(cwd):
+            failures.append(f"no --log: files written anyway: {os.listdir(cwd)}")
 
-        failures += check_quit("ctrl-c", binary, rom, cwd, lambda p, m: os.write(m, b"\x03"))
-        failures += check_quit("sigterm", binary, rom, cwd, lambda p, m: p.send_signal(signal.SIGTERM))
+        log = os.path.join(cwd, "run.log")
+        failures += check_quit("--log", binary, ["--log", log, rom], cwd, lambda p, m: os.write(m, b"\x03"))
+        text = open(log).read() if os.path.exists(log) else ""
+        for needle in ("loaded", "exiting"):
+            if needle not in text:
+                failures.append(f"--log: {needle!r} not in log (got {text[-300:]!r})")
 
         # A ROM that is not there must stop the app, not run zeros.
-        proc, master, slave = start(binary, os.path.join(cwd, "missing.rom"), cwd)
+        proc, master, slave = start(binary, [os.path.join(cwd, "missing.rom")], cwd)
         rc = finish(proc, timeout=5)
         out = read_until(master, b"\0", 0.5).decode(errors="replace")
         os.close(master)

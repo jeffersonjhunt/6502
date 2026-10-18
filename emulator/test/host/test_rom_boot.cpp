@@ -20,12 +20,13 @@
 #include "test_support.h"
 
 #include "apple1.h"
-#include "memory.h"
 
 #include <fstream>
 #include <string>
 
 using namespace ooe::test;
+using namespace ooe::emu;
+using namespace ooe::emu::apple1;
 
 namespace
 {
@@ -39,8 +40,8 @@ namespace
     std::string session(Memory &mem, const std::string &keys, long max_steps = 40'000'000,
                         long settle = 2'000'000)
     {
-        cpu c(&mem);
-        c.Reset();
+        Cpu6502 c(mem);
+        c.reset();
 
         std::string screen;
         size_t next_key = 0;
@@ -48,24 +49,24 @@ namespace
         for (long steps = 0; steps < max_steps; steps += 16)
         {
             for (int i = 0; i < 16; ++i)
-                c.Step();
+                c.step();
 
-            const uint8_t dsp = mem.Read(DSP);
+            const uint8_t dsp = mem.read(DSP);
             if (dsp & 0x80)
             {
                 const char ch = static_cast<char>(dsp & 0x7F);
                 screen += ch == '\r' ? '\n' : ch;
-                mem.Poke(DSP, static_cast<uint8_t>(dsp & 0x7F));
+                mem.poke(DSP, static_cast<uint8_t>(dsp & 0x7F));
                 quiet = 0;
             }
             else if (next_key == keys.size() && (quiet += 16) > settle)
                 break;
 
             // One key at a time, and only once the last one has been read.
-            if (next_key < keys.size() && !(mem.Read(KBDCR) & 0x80) && steps % 4096 == 0)
+            if (next_key < keys.size() && !(mem.read(KBDCR) & 0x80) && steps % 4096 == 0)
             {
-                mem.Poke(KBD, static_cast<uint8_t>(keys[next_key++] | 0x80));
-                mem.Poke(KBDCR, static_cast<uint8_t>(mem.Read(KBDCR) | 0x80));
+                mem.poke(KBD, static_cast<uint8_t>(keys[next_key++] | 0x80));
+                mem.poke(KBDCR, static_cast<uint8_t>(mem.read(KBDCR) | 0x80));
             }
         }
         return screen;
@@ -74,8 +75,8 @@ namespace
     std::string session(const char *rom, const std::string &keys, long max_steps = 40'000'000,
                         long settle = 2'000'000)
     {
-        Memory mem;
-        if (!ooe::LoadApple1(mem, rom))
+        apple1::Memory mem;
+        if (!apple1::load_rom(mem, rom))
             return "<load failed>";
         return session(mem, keys, max_steps, settle);
     }
@@ -115,12 +116,12 @@ TEST(no_phantom_key_at_reset)
     // monitor reads a $00 "key" into its input buffer before any typing.
     // (The first version of this case never serviced the display, so the
     // monitor sat in ECHO and the case passed with the bug present.)
-    Memory mem;
-    REQUIRE(ooe::LoadApple1(mem, EMU_IBASIC_ROM));
-    mem.Poke(0x0200, 0xEE);
+    apple1::Memory mem;
+    REQUIRE(apple1::load_rom(mem, EMU_IBASIC_ROM));
+    mem.poke(0x0200, 0xEE);
     const std::string screen = session(mem, "", 400'000, 200'000);
     REQUIRE(contains(screen, "\\\n")); // reached the prompt, so input was polled
-    CHECK_EQ(mem.Read(0x0200), 0xEE);
+    CHECK_EQ(mem.read(0x0200), 0xEE);
 }
 
 TEST(integer_basic_runs_a_program)
