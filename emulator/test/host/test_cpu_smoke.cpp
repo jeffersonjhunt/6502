@@ -1,0 +1,157 @@
+/**
+ * @file test_cpu_smoke.cpp
+ * @brief Hand-checked 6502 behaviour that needs no downloaded fixtures.
+ * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
+ *
+ * The Dormann and Harte suites are far more thorough, but they are fetched on
+ * demand and skip when absent. This file is what every checkout runs, so a
+ * machine without fixtures still examines the core rather than reporting a
+ * green run over nothing. Each case pins one datasheet fact, chosen for the
+ * places emulators most often get wrong: decimal mode, overflow, the NMOS
+ * JMP ($xxFF) page wrap, and what BRK and IRQ push.
+ */
+
+#include "harness.h"
+#include "test_support.h"
+
+#include <initializer_list>
+
+using namespace ooe::test;
+
+namespace
+{
+    constexpr uint16_t ORG = 0x0200;
+
+    /// Load `code` at ORG, boot there with `r`, and execute `steps` instructions.
+    void run(cpu &c, FlatBus &bus, std::initializer_list<uint8_t> code, int steps, Regs r = {})
+    {
+        uint16_t addr = ORG;
+        for (const uint8_t b : code)
+            bus.at(addr++) = b;
+        r.pc = ORG;
+        boot(c, bus, r);
+        for (int i = 0; i < steps; ++i)
+            c.Step();
+    }
+} // namespace
+
+TEST(reset_loads_pc_from_vector)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    bus.at(0xFFFC) = 0x34;
+    bus.at(0xFFFD) = 0x12;
+    c.Reset();
+    CHECK_EQ(c.GetPC(), 0x1234);
+}
+
+TEST(lda_immediate_sets_n_and_z)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    run(c, bus, {0xA9, 0x00}, 1); // LDA #$00
+    CHECK_EQ(c.GetA(), 0x00);
+    CHECK(c.GetP() & flag::Z);
+    CHECK(!(c.GetP() & flag::N));
+
+    run(c, bus, {0xA9, 0x80}, 1); // LDA #$80
+    CHECK(!(c.GetP() & flag::Z));
+    CHECK(c.GetP() & flag::N);
+}
+
+TEST(adc_binary_signed_overflow)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    run(c, bus, {0x18, 0xA9, 0x50, 0x69, 0x50}, 3); // CLC; LDA #$50; ADC #$50
+    CHECK_EQ(c.GetA(), 0xA0);
+    CHECK(c.GetP() & flag::V);
+    CHECK(c.GetP() & flag::N);
+    CHECK(!(c.GetP() & flag::C));
+}
+
+TEST(adc_decimal_carries_between_digits)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    run(c, bus, {0xF8, 0x18, 0xA9, 0x09, 0x69, 0x01}, 4); // SED; CLC; LDA #$09; ADC #$01
+    CHECK_EQ(c.GetA(), 0x10);
+    CHECK(!(c.GetP() & flag::C));
+
+    run(c, bus, {0xF8, 0x18, 0xA9, 0x99, 0x69, 0x01}, 4); // 99 + 01 = 00, carry out
+    CHECK_EQ(c.GetA(), 0x00);
+    CHECK(c.GetP() & flag::C);
+}
+
+TEST(sbc_decimal_borrows)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    run(c, bus, {0xF8, 0x38, 0xA9, 0x10, 0xE9, 0x01}, 4); // SED; SEC; LDA #$10; SBC #$01
+    CHECK_EQ(c.GetA(), 0x09);
+    CHECK(c.GetP() & flag::C); // no borrow
+}
+
+TEST(jmp_indirect_wraps_within_page)
+{
+    // NMOS bug: the high byte of the target is fetched from $1000, not $1100.
+    FlatBus bus;
+    cpu c(&bus);
+    bus.at(0x10FF) = 0x34;
+    bus.at(0x1000) = 0x12;
+    bus.at(0x1100) = 0x56;
+    run(c, bus, {0x6C, 0xFF, 0x10}, 1); // JMP ($10FF)
+    CHECK_EQ(c.GetPC(), 0x1234);
+}
+
+TEST(jsr_rts_round_trip)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    bus.at(0x2000) = 0x60;                // RTS
+    run(c, bus, {0x20, 0x00, 0x20}, 1);   // JSR $2000
+    CHECK_EQ(c.GetPC(), 0x2000);
+    CHECK_EQ(c.GetS(), 0xFB);
+    CHECK_EQ(bus.at(0x01FD), 0x02);       // return address - 1 = $0202
+    CHECK_EQ(bus.at(0x01FC), 0x02);
+    c.Step();
+    CHECK_EQ(c.GetPC(), ORG + 3);
+    CHECK_EQ(c.GetS(), 0xFD);
+}
+
+TEST(brk_pushes_pc_plus_two_with_b_set)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    bus.at(0xFFFE) = 0x00;
+    bus.at(0xFFFF) = 0x30;
+    run(c, bus, {0x00, 0xEA}, 1); // BRK; (padding)
+    CHECK_EQ(c.GetPC(), 0x3000);
+    CHECK_EQ(bus.at(0x01FD), 0x02); // PCH
+    CHECK_EQ(bus.at(0x01FC), 0x02); // PCL: BRK skips its padding byte
+    CHECK(bus.at(0x01FB) & flag::B);
+    CHECK(c.GetP() & flag::I);
+}
+
+TEST(irq_is_masked_by_i_and_pushes_b_clear)
+{
+    FlatBus bus;
+    cpu c(&bus);
+    bus.at(0xFFFE) = 0x00;
+    bus.at(0xFFFF) = 0x40;
+
+    run(c, bus, {0xEA}, 0, Regs{0, 0xFD, 0, 0, 0, flag::U | flag::I});
+    c.IRQ();
+    CHECK_EQ(c.GetPC(), ORG); // masked: nothing happens
+
+    run(c, bus, {0xEA}, 0, Regs{0, 0xFD, 0, 0, 0, flag::U});
+    c.IRQ();
+    CHECK_EQ(c.GetPC(), 0x4000);
+    CHECK(!(bus.at(0x01FB) & flag::B));
+    CHECK(c.GetP() & flag::I);
+}
+
+int main()
+{
+    return run_all();
+}
