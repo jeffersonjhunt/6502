@@ -14,16 +14,36 @@ A jump-table NMOS 6502 core (derived from gianlucag/mos6502), a flat 64 KB
 a stdout display, and a main loop that loads `ibasic.rom` at `$8000` and runs
 16 steps per tick. It boots Woz Monitor and Integer BASIC "for the most part".
 
-Known problems, each to become a test before it becomes a fix:
+Known problems at `beta`, and what Phase 1 found behind each (every fix has
+a test that was seen failing first):
 
-- ROM is opened relative to the working directory; the README's run steps
-  never put it there.
-- `LoadProgram` copies a full 128-byte buffer after a short read, and logs the
-  end address as the start.
-- Ctrl-C calls `std::exit(0)`, skipping the termios restore.
-- `cpu` and `Display` are leaked; `LoadROM` and `shouldPause` are dead.
-- The Applesoft ROM "does not work" (comment in `emulator.cpp`).
-- No cycle counting, NMOS opcodes only, no tests.
+- **The Applesoft ROM "does not work"**: two emulator bugs.
+  - `Memory` let the CPU write over ROM. Applesoft's cold start sizes RAM by
+    complementing a byte per page until one doesn't change, so it never found
+    the top of RAM and looped at `$FCE8`. ROM is now read-only to the CPU
+    (`Memory::SetReadOnly`, set up by `LoadApple1`).
+  - A store to `DSP` only printed if the stored byte had bit 7 set. On the
+    Apple-1 that bit is the display's busy line, and every store prints.
+    Integer BASIC lost the last letter of every error message (`EN ERR`), and
+    commit 3612a35 had commented out Applesoft's `and #$7F` in `RDKEY` to keep
+    its echo visible. That broke CR detection, because keys then arrived as
+    `$8D`. Fixed in `Memory`, with the 6821 rule that `$D012` is the DDR while
+    CRB bit 2 is 0, and `io.s` restored to the original.
+- **Phantom key at reset.** Woz Monitor stores `$A7` to `KBDCR`, and that set
+  key-ready. Bits 6-7 of both PIA control registers are now read-only to the
+  CPU; peripherals set them through `BusInterface::Poke`.
+- **ROM loading.** It copied a full 128-byte buffer after a short read, logged
+  the wrong address, ran 64 KB of zeros when the file was missing, and would
+  have wrapped an oversized image into zero page. Replaced by
+  `ooe::LoadImage`, which refuses instead.
+- **ROM path** was hard-coded relative to the working directory. It is now
+  `emulator [rom]`, and failing to load is fatal.
+- **Ctrl-C** was SIGINT (raw mode keeps ISIG), which killed the process
+  before the terminal was restored. SIGINT/SIGTERM now end `Run()`, and
+  everything is owned by `main()`, so destructors run with no leaks. `LoadROM`
+  and `shouldPause` are gone.
+- Still open, for later phases: no cycle counting, NMOS opcodes only, and
+  invalid-BCD decimal results (Phase 4).
 
 ## 2. House style (from `pinled`)
 
