@@ -1,0 +1,137 @@
+# Emulator Plan — refactor toward the backplane system
+
+Turns the Apple-1 emulator into one that can stand in for the real 6502
+backplane computer (`hw/modules.md`, `hw/console.md`) during bring-up, and
+brings it in line with the house C++ style used by `pinled`
+(`ooe-site/projects/001/firmware`).
+
+The code as it stood before any of this is tagged **`beta`**.
+
+## 1. Where it is today
+
+A jump-table NMOS 6502 core (derived from gianlucag/mos6502), a flat 64 KB
+`Memory` that special-cases the Apple-1 PIA keyboard flag, a raw-tty keyboard,
+a stdout display, and a main loop that loads `ibasic.rom` at `$8000` and runs
+16 steps per tick. It boots Woz Monitor and Integer BASIC "for the most part".
+
+Known problems, each to become a test before it becomes a fix:
+
+- ROM is opened relative to the working directory; the README's run steps
+  never put it there.
+- `LoadProgram` copies a full 128-byte buffer after a short read, and logs the
+  end address as the start.
+- Ctrl-C calls `std::exit(0)`, skipping the termios restore.
+- `cpu` and `Display` are leaked; `LoadROM` and `shouldPause` are dead.
+- The Applesoft ROM "does not work" (comment in `emulator.cpp`).
+- No cycle counting, NMOS opcodes only, no tests.
+
+## 2. House style (from `pinled`)
+
+| Area | Convention |
+|---|---|
+| Namespace | `namespace ooe::emu { … }`, body indented 4 spaces |
+| Naming | `PascalCase` types, `snake_case()` methods, `member_` with `{}` initialisers, `static constexpr` constants |
+| Braces | Allman, spaces not tabs |
+| Headers | `#pragma once`, Doxygen `@file/@author/@brief/@version/@date/@copyright (MIT)` and a paragraph on *why* |
+| Layout | `components/<name>/{include/<name>.h, <name>.cpp, CMakeLists.txt}` |
+| Errors | return codes, `new (std::nothrow)`; no exceptions on the hot path |
+| Logging | `TAG`-scoped printf-style macros; nothing on the hot path unless compiled in |
+| Build | explicit source lists, C++17, `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror`, ASan/UBSan on by default, `CMakePresets.json`, `.clangd` |
+| Tests | `test/host/harness.h` (`TEST`/`CHECK_EQ`), CTest, hardware-free core |
+| Docs | `docs/REQUIREMENTS.md` + plan; requirement IDs cited in code |
+
+## 3. Target layout
+
+```
+emulator/
+  CMakeLists.txt  CMakePresets.json  .clangd  README.md
+  docs/           REQUIREMENTS.md  EMULATOR_PLAN.md  MACHINES.md
+  components/
+    cpu6502/      6502/65C02 core: registers, decode table, cycle counts
+    bus/          Device interface + address decoder (ranges / module IDs)
+    devices/      ram, rom, pia6821, via6522, acia6551, console
+    machine/      machine descriptions: apple1, eater, ooe-backplane
+    emu_log/      TAG-scoped logger (replaces easylogging++)
+  apps/emu/       terminal frontend: raw tty, throttle, debugger
+  test/host/      harness.h, test_*.cpp, fixtures/
+```
+
+Dependency direction, no cycles:
+
+```
+apps ─▶ machine ─▶ devices ─▶ bus ─▶ cpu6502
+```
+
+`cpu6502` and `bus` include nothing from the terminal or the logger — the same
+property that keeps `pinled_schema` testable off-target.
+
+## 4. Phases
+
+### Phase 0 — tests before refactoring
+
+Measure the existing core before changing it.
+
+1. `test/host/harness.h` and a CTest project with the full warning set and
+   sanitizers on test code. The core is built without `-Werror` until Phase 2
+   brings it under the house flags.
+2. Hand-written smoke cases that need no fixtures, so every machine runs
+   *something*.
+3. Klaus Dormann's `6502_functional_test` against the unchanged core.
+4. Tom Harte's SingleStepTests (`65x02/6502/v1`), a pinned subset per legal
+   opcode, comparing registers and RAM (cycles recorded, not yet compared).
+5. Record what fails (`docs/PHASE0_RESULTS.md`). That list is Phase 1.
+
+### Phase 1 — fix known bugs
+
+Each bug from §1 and each Phase 0 failure gets a failing test first.
+
+### Phase 2 — restyle and restructure
+
+No behaviour change; Phase 0 suites must stay identical. Rename to
+`ooe::emu::Cpu6502` (`step/reset/irq/nmi`), move to the component layout, add
+Doxygen headers, explicit CMake sources, presets and `.clangd`. Replace
+easylogging++ and `fmt` with `emu_log`; bus tracing becomes compile-time so it
+costs nothing when off. Bring the core under `-Werror`.
+
+### Phase 3 — a bus that matches the hardware
+
+- `Device`: `read(addr)`, `write(addr, data)`, `tick(cycles)`, an IRQ line.
+- `Bus` owns a decode table; devices stop hard-coding addresses. The PIA's
+  clear-on-read moves out of `Memory` into a `Pia6821` device.
+- North bridge model: 20-bit address bus and 4-bit module ID (PS0..3), so the
+  emulator decodes into module IDs 0x0..0xF exactly as the backplane will.
+- Machine descriptions (text/JSON) choose the map, ROMs and devices: one
+  binary runs the Apple-1, the Eater board, and the backplane system.
+
+### Phase 4 — timing and CPU variant
+
+- Per-instruction cycle counts with page-cross and branch-taken penalties;
+  throttle to a real clock (e.g. 1 MHz). Harte's cycle traces become checked.
+- **W65C02S as the primary core** — the real board's CPU (decided
+  2026-10-18). Adds BRA, PHX/PLX/PHY/PLY, STZ, TRB/TSB, WAI/STP,
+  RMB/SMB/BBR/BBS, `(zp)` addressing, BIT #imm/zp,X/abs,X, INC A/DEC A,
+  fixed `JMP ($xxFF)`, D cleared on interrupts, valid N/Z in decimal mode and
+  its extra decimal cycle; undefined opcodes as WDC's sized NOPs. Verified
+  against Harte's `65x02/wdc65c02` set and Dormann's
+  `65C02_extended_opcodes_test`. NMOS stays as a per-machine option for the
+  Apple-1 machine.
+- RDY, SYNC and VPB as bus signals visible to the console and bus spy.
+
+### Phase 5 — bring-up tooling
+
+- Debugger mirroring the console panel: run/halt/step, store/fetch, break,
+  register and memory dump.
+- Bus trace in the ESP32 bus spy's format, so emulator and board can be
+  diffed cycle by cycle.
+- Intel HEX / raw loaders and ca65 `.lbl` symbols for labelled traces.
+
+## 5. Open decisions
+
+1. ~~CPU on the real board~~ — **W65C02S** (decided 2026-10-18). Its
+   address bus is 16 bits, so A16..A19 on the backplane must come from the
+   north bridge (a bank/segment register?). How those bits are produced is
+   now the open question for Phase 3's decoder.
+2. **Machine description format** — plain text or JSON (protobuf is overkill
+   here).
+3. **`fmt`** — drop it in Phase 2 to match `pinled`'s minimal dependencies, or
+   keep it.
