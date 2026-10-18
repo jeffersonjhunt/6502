@@ -35,6 +35,7 @@ using namespace ooe::test;
 namespace
 {
     constexpr uint8_t P_MASK = static_cast<uint8_t>(~flag::B);
+    constexpr int LEGAL_OPCODES = 151; // documented NMOS set, as fetched
 
     struct State
     {
@@ -173,9 +174,16 @@ int main()
 
     // Zero examined is a failure, not a pass: a SOURCE file with no opcode
     // files beside it means the fetch broke, not that the core is perfect.
+    // Short of all 151 is a failure too, or a partial fetch reads as coverage.
     if (opcodes == 0)
     {
         std::printf("FAIL: %s has no opcode files\n", dir.c_str());
+        return 1;
+    }
+    if (opcodes != LEGAL_OPCODES)
+    {
+        std::printf("FAIL: %s has %d opcode files, expected %d (re-run tools/fetch_fixtures.py)\n",
+                    dir.c_str(), opcodes, LEGAL_OPCODES);
         return 1;
     }
     std::printf("\n%d opcodes, %ld cases: %d opcode(s) / %ld case(s) failed\n", opcodes, cases,
