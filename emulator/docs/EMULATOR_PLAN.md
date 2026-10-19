@@ -71,6 +71,7 @@ emulator/
     bus/          Device interface + address decoder (ranges / module IDs)
     devices/      ram, rom, pia6821, via6522, acia6551, console
     machine/      machine descriptions: apple1, eater, ooe-backplane
+    debug/        debugger, disassembler, ld65 symbols, bus trace (Phase 5)
     emu_log/      TAG-scoped logger (replaces easylogging++)
   apps/emu/       terminal frontend: raw tty, throttle, debugger
   test/host/      harness.h, test_*.cpp, fixtures/
@@ -183,7 +184,8 @@ run loop with `--clock HZ` (default 1 MHz, measured at 1.000 MHz;
 `--clock 0` runs ~166 MHz).
 
 Moved to Phase 5: RDY, SYNC and VPB. They only matter to whatever watches
-the bus, which is the bus trace and console that Phase 5 builds.
+the bus, which is the bus trace and console that Phase 5 builds. (Phase 5 did
+SYNC and VPB; RDY is still open, see below.)
 
 To confirm on hardware: two WDC details come only from Harte. The decimal
 extra cycle in immediate mode reads $007F (ADC) or $0000 (SBC), and the
@@ -196,6 +198,45 @@ $5C/$DC/$FC NOPs take 4 cycles (WDC's own documentation gives $5C 8).
 - Bus trace in the ESP32 bus spy's format, so emulator and board can be
   diffed cycle by cycle.
 - Intel HEX / raw loaders and ca65 `.lbl` symbols for labelled traces.
+
+**Done 2026-10-19.** Ctrl-] stops the running machine at a `debug>`
+prompt with the panel's operations (run, step, fetch, store) plus
+breakpoints, register edits and a disassembler; `--halt` starts there, as
+the system key at Step/Halt would, and STP lands there too. The debugger
+(`components/debug`) is terminal-free, taking a command line and returning
+text, so all of it is unit-tested; the app only prompts. Fetch and the
+disassembler read through a new side-effect-free `Bus::peek()`, so dumping
+the 6821 does not eat a keystroke. `--load` takes Intel HEX or a raw image
+at an address, and `--symbols` takes ld65 `-Ln` labels; the Apple-1 ROM
+builds now assemble with `ca65 -g` and write `<rom>.lbl` (the ROMs are
+byte-identical).
+
+SYNC and VPB come from the core through a `CycleObserver`, and `--trace
+FILE` writes one line per bus cycle with the 20-bit address, data, R/W,
+SYNC, VPB and module ID. Nothing in `hw/` defined the spy's format, so
+`docs/BUS_TRACE.md` defines it (version 1) for the ESP32 firmware to
+follow, and `tools/trace_diff.py` reports the first cycle where a board
+capture and an emulator run disagree, with `?` for anything the spy did
+not capture and `--from` to line up a capture that began mid-program.
+
+Checked: the disassembler against two independent oracles (lengths
+against how far the core moves PC for every opcode of both models, and
+ca65 reassembling every opcode to the same bytes, which caught an invalid
+`jmp (a:$0080)`); HEX against Wikipedia's worked example; the trace line
+for line from reset; the app end to end in a pty. Ten deliberate
+mutations, one per mechanism, were each caught. Cost: the breakpoint
+check before every instruction takes the unthrottled release build from
+~166 to ~157 MHz; tracing runs at ~14 MHz.
+
+Not done, and why:
+
+- **RDY.** Holding the CPU mid-instruction needs a core that can stop
+  between cycles; this one runs an instruction at a time. The debugger
+  halts between instructions, and BUS_TRACE.md asks the spy to log only
+  cycles where RDY is high, so a single-stepped board capture still diffs.
+- **Cycle-level step** on the console needs the same, so it waits on RDY.
+- **WAI/STP idle cycles** are not traced; they show as a gap in the cycle
+  numbers, which the diff checks for equal length.
 
 ## 5. Open decisions
 

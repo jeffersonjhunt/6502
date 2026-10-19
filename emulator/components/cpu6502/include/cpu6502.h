@@ -25,6 +25,13 @@
  * functional tests (test/host). Execution is still an instruction at a time:
  * interrupts are taken between instructions.
  *
+ * Pins: a CycleObserver sees every access as the bus spy would, with SYNC
+ * (opcode fetch) and VPB (vector pull) alongside address, data and RWB.
+ * RDY is not modelled: holding the CPU mid-instruction needs a core that can
+ * stop between cycles, and the debugger halts between instructions instead.
+ * WAI and STP are idle cycles here, which no observer sees, so they show in
+ * a trace only as a gap in the cycle numbers.
+ *
  * Models:
  * - Nmos6502: the 151 documented opcodes, and NMOS decimal mode including
  *   its invalid-BCD results and flags. Undocumented opcodes run as two-cycle,
@@ -50,6 +57,24 @@ namespace ooe::emu
         uint8_t x{0};
         uint8_t y{0};
         uint8_t p{0x20}; ///< U always reads 1; B is never set in the live register
+    };
+
+    /// One bus cycle, as a logic analyser on the CPU's pins would see it.
+    struct BusCycle
+    {
+        uint64_t cycle{0};        ///< Cpu6502::cycles() including this access
+        uint16_t addr{0};
+        uint8_t data{0};
+        bool write{false};        ///< RWB low
+        bool sync{false};         ///< SYNC high: an opcode fetch
+        bool vector_pull{false};  ///< VPB low: a reset/interrupt vector read (a W65C02S pin; reported for NMOS too)
+    };
+
+    class CycleObserver
+    {
+    public:
+        virtual ~CycleObserver() = default;
+        virtual void on_cycle(const BusCycle &c) = 0;
     };
 
     class Cpu6502
@@ -106,6 +131,9 @@ namespace ooe::emu
         uint64_t cycles() const { return cycles_; }
         State state() const { return state_; }
         Model model() const { return model_; }
+        /// Watch every bus access (not owned; nullptr to stop). One pointer
+        /// test per access when unset.
+        void set_observer(CycleObserver *observer) { observer_ = observer; }
 
     private:
         enum class Mode
@@ -182,5 +210,8 @@ namespace ooe::emu
         Registers regs_{};
         State state_{State::Running};
         uint64_t cycles_{0};
+        CycleObserver *observer_{nullptr};
+        bool sync_{false};        ///< the next access is an opcode fetch
+        bool vector_pull_{false}; ///< accesses are vector reads
     };
 } // namespace ooe::emu

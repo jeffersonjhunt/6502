@@ -70,6 +70,12 @@ namespace ooe::emu
             m->device->poke(bridge_.physical(addr) - m->first, data);
     }
 
+    uint8_t Decoder::peek(uint16_t addr) const
+    {
+        const Mapping *m = decode(addr);
+        return m ? m->device->peek(bridge_.physical(addr) - m->first) : UNMAPPED_READ;
+    }
+
     uint8_t Decoder::module_at(uint16_t addr) const
     {
         const Mapping *m = decode(addr);

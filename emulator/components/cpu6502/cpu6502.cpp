@@ -44,13 +44,19 @@ namespace ooe::emu
     uint8_t Cpu6502::read(uint16_t addr)
     {
         ++cycles_;
-        return bus_.read(addr);
+        const uint8_t v = bus_.read(addr);
+        if (observer_)
+            observer_->on_cycle(BusCycle{cycles_, addr, v, false, sync_, vector_pull_});
+        sync_ = false;
+        return v;
     }
 
     void Cpu6502::write(uint16_t addr, uint8_t data)
     {
         ++cycles_;
         bus_.write(addr, data);
+        if (observer_)
+            observer_->on_cycle(BusCycle{cycles_, addr, data, true, false, vector_pull_});
     }
 
     uint16_t Cpu6502::fetch16()
@@ -95,8 +101,10 @@ namespace ooe::emu
         regs_.p = static_cast<uint8_t>((regs_.p | FLAG_I | FLAG_U) & ~FLAG_B);
         if (cmos())
             set_flag(FLAG_D, false);
+        vector_pull_ = true;
         const unsigned lo = read(RESET_VECTOR);
         const unsigned hi = read(RESET_VECTOR + 1);
+        vector_pull_ = false;
         regs_.pc = static_cast<uint16_t>(lo | (hi << 8));
     }
 
@@ -108,6 +116,7 @@ namespace ooe::emu
             return 1;
         }
         const uint64_t start = cycles_;
+        sync_ = true;
         const uint8_t opcode = fetch();
         EMU_LOGV(TAG, "%04X: %02X", static_cast<unsigned>(regs_.pc - 1), opcode);
         execute(opcode);
@@ -144,8 +153,10 @@ namespace ooe::emu
         set_flag(FLAG_I, true);
         if (cmos())
             set_flag(FLAG_D, false);
+        vector_pull_ = true;
         const unsigned lo = read(vector);
         const unsigned hi = read(static_cast<uint16_t>(vector + 1));
+        vector_pull_ = false;
         regs_.pc = static_cast<uint16_t>(lo | (hi << 8));
     }
 

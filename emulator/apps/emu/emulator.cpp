@@ -23,25 +23,40 @@ namespace ooe::emu
     void Emulator::run(const volatile std::sig_atomic_t &quit)
     {
         using clock = std::chrono::steady_clock;
-        const auto start = clock::now();
-        const uint64_t start_cycles = cpu_.cycles();
+        auto start = clock::now();
+        uint64_t start_cycles = cpu_.cycles();
+        double run_secs = 0; // excluding time halted
+        uint64_t run_cycles = 0;
 
-        while (!quit)
+        while (!quit && !debugger_.quit())
         {
+            if (debugger_.halted())
+            {
+                std::string line;
+                if (!terminal_.read_line("debug> ", line))
+                    break; // end of input, or a signal: either way, done
+                terminal_.write(debugger_.command(line));
+                terminal_.update_screen();
+                if (!debugger_.halted())
+                {
+                    start = clock::now(); // the clock restarts on resume
+                    start_cycles = cpu_.cycles();
+                }
+                continue;
+            }
+
             if (!handle_key(terminal_.poll_key()))
                 break;
-
-            unsigned ran = 0;
-            while (ran < SLICE_CYCLES)
-                ran += cpu_.step();
-            bus_.tick(ran);
-
-            // Level-sensitive, sampled between slices. irq() does nothing
-            // while I is set, except end a WAI.
-            if (bus_.irq())
-                cpu_.irq();
-
+            if (!debugger_.halted())
+                run_slice();
             terminal_.update_screen();
+
+            if (debugger_.halted())
+            {
+                run_secs += std::chrono::duration<double>(clock::now() - start).count();
+                run_cycles += cpu_.cycles() - start_cycles;
+                continue;
+            }
 
             if (clock_hz_ > 0)
             {
@@ -51,10 +66,42 @@ namespace ooe::emu
                     std::this_thread::sleep_until(due);
             }
         }
-        const double secs = std::chrono::duration<double>(clock::now() - start).count();
-        EMU_LOGI(TAG, "%llu cycles in %.2f s (%.3f MHz)",
-                 static_cast<unsigned long long>(cpu_.cycles() - start_cycles), secs,
-                 secs > 0 ? static_cast<double>(cpu_.cycles() - start_cycles) / secs / 1e6 : 0.0);
+        if (!debugger_.halted())
+        {
+            run_secs += std::chrono::duration<double>(clock::now() - start).count();
+            run_cycles += cpu_.cycles() - start_cycles;
+        }
+        EMU_LOGI(TAG, "%llu cycles in %.2f s running (%.3f MHz)", static_cast<unsigned long long>(run_cycles),
+                 run_secs, run_secs > 0 ? static_cast<double>(run_cycles) / run_secs / 1e6 : 0.0);
+    }
+
+    void Emulator::run_slice()
+    {
+        unsigned ran = 0;
+        while (ran < SLICE_CYCLES)
+        {
+            if (debugger_.check(cpu_.regs().pc))
+            {
+                terminal_.write("\n" + debugger_.halt("break"));
+                break;
+            }
+            ran += cpu_.step();
+        }
+        bus_.tick(ran);
+
+        // Level-sensitive, sampled between slices. irq() does nothing
+        // while I is set, except end a WAI.
+        if (bus_.irq())
+            cpu_.irq();
+
+        // STP stops the clock for good; say so once rather than idle silently.
+        if (cpu_.state() == Cpu6502::State::Stopped && !stop_reported_ && !debugger_.halted())
+        {
+            stop_reported_ = true;
+            terminal_.write("\n" + debugger_.halt("STP"));
+        }
+        else if (cpu_.state() != Cpu6502::State::Stopped)
+            stop_reported_ = false;
     }
 
     bool Emulator::handle_key(uint8_t key)
@@ -62,6 +109,11 @@ namespace ooe::emu
         if (key == 0)
             return true;
         EMU_LOGD(TAG, "key %02X", key);
+        if (key == Terminal::DEBUG_KEY)
+        {
+            terminal_.write("\n" + debugger_.halt("Ctrl-]"));
+            return true;
+        }
         // Only reached with ISIG off; normally Ctrl-C arrives as SIGINT.
         return key != CTRL_C;
     }

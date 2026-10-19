@@ -42,6 +42,7 @@ add_subdirectory(components/bus)
 add_subdirectory(components/cpu6502)
 add_subdirectory(components/devices)
 add_subdirectory(components/machine)
+add_subdirectory(components/debug)
 add_subdirectory(apps/emu)
 
 if(EMU_BUILD_TESTS)

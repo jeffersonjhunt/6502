@@ -2,12 +2,14 @@
  * @file main.cpp
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Apple-1 emulator on the host terminal.
- * @version 0.2.0
- * @date 2026-10-18
+ * @version 0.5.0
+ * @date 2026-10-19
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v] [rom]
+ *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]
+ *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
+ *            [--break ADDR]... [--halt] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
@@ -18,6 +20,16 @@
  * Logging is off unless --log is given: stdout and stderr are the Apple-1's
  * screen, and a stray warning in the middle of BASIC output is worse than
  * none. --log writes Info and above; -v adds Debug (per-key).
+ *
+ * Bring-up (Phase 5):
+ * - --load puts an image on the bus before reset, past ROM's write
+ *   protection: Intel HEX if it ends in .hex or .ihx, else raw at @ADDR.
+ * - --symbols reads an ld65 -Ln label file for the debugger.
+ * - --trace writes every bus cycle in the bus spy's format
+ *   (docs/BUS_TRACE.md), from the reset sequence on.
+ * - --break sets a breakpoint (hex or label); --halt starts at the
+ *   debugger's prompt, like the console's system key at Step/Halt.
+ * - Ctrl-] stops a running machine into the debugger ('h' for commands).
  */
 
 #include <csignal>
@@ -26,13 +38,20 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <vector>
+
+#include <signal.h>
 
 #include "apple1.h"
+#include "bus_trace.h"
 #include "cpu6502.h"
+#include "debugger.h"
 #include "emu_log.h"
 #include "emulator.h"
+#include "loader.h"
 #include "machine.h"
 #include "pia6821.h"
+#include "symbols.h"
 #include "terminal.h"
 
 namespace
@@ -41,7 +60,8 @@ namespace
 
     // Raw mode keeps ISIG, so Ctrl-C arrives as SIGINT rather than as a
     // 0x03 byte. It ends run(), so the keyboard's destructor restores the
-    // terminal on the way out.
+    // terminal on the way out. Installed without SA_RESTART, so that it
+    // also interrupts a read blocked at the debugger's prompt.
     volatile std::sig_atomic_t quit_requested = 0;
 
     void request_quit(int)
@@ -49,10 +69,146 @@ namespace
         quit_requested = 1;
     }
 
+    void on_signal(int sig)
+    {
+        struct sigaction sa{};
+        sa.sa_handler = request_quit;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sigaction(sig, &sa, nullptr);
+    }
+
     int usage()
     {
-        std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v] [rom]\n");
+        std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]\n"
+                             "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
+                             "                [--break ADDR]... [--halt] [rom]\n");
         return 2;
+    }
+
+    bool ends_with(const std::string &s, const char *suffix)
+    {
+        const std::string x = suffix;
+        return s.size() >= x.size() && s.compare(s.size() - x.size(), x.size(), x) == 0;
+    }
+
+    /// --load FILE[@ADDR]: Intel HEX by extension, else raw at ADDR.
+    bool load(ooe::emu::Bus &bus, const std::string &spec, std::string &error)
+    {
+        const size_t at = spec.rfind('@');
+        const std::string path = spec.substr(0, at);
+        if (ends_with(path, ".hex") || ends_with(path, ".ihx"))
+        {
+            if (at != std::string::npos)
+            {
+                error = spec + ": a HEX file carries its own addresses; drop the @ADDR";
+                return false;
+            }
+            return ooe::emu::load_hex(bus, path, error) >= 0;
+        }
+        char *end = nullptr;
+        const unsigned long addr =
+            at == std::string::npos ? 0x10000 : std::strtoul(spec.c_str() + at + 1, &end, 16);
+        if (at == std::string::npos || *end != '\0' || addr > 0xFFFF)
+        {
+            error = spec + ": a raw image needs a hex load address, FILE@ADDR";
+            return false;
+        }
+        if (ooe::emu::load_image(bus, path, static_cast<uint16_t>(addr)) < 0)
+        {
+            error = path + ": cannot read it, or it does not fit at $" + spec.substr(at + 1);
+            return false;
+        }
+        return true;
+    }
+
+    struct Settings
+    {
+        const char *trace_path{nullptr};
+        std::vector<std::string> loads, symbol_files, breaks;
+        uint32_t clock_hz{1'000'000};
+        bool start_halted{false};
+    };
+
+    /// Everything after the machine is built. Errors are reported before
+    /// the terminal goes raw, so they are readable and nothing needs restoring.
+    int run(ooe::emu::Machine &machine, ooe::emu::Pia6821 &pia, const Settings &settings)
+    {
+        using namespace ooe::emu;
+        std::string error;
+        for (const std::string &spec : settings.loads)
+        {
+            if (!load(machine.bus(), spec, error))
+            {
+                std::fprintf(stderr, "emulator: %s\n", error.c_str());
+                return 1;
+            }
+        }
+        Symbols symbols;
+        for (const std::string &path : settings.symbol_files)
+        {
+            if (!symbols.load(path, error))
+            {
+                std::fprintf(stderr, "emulator: %s\n", error.c_str());
+                return 1;
+            }
+        }
+
+        const auto model = machine.cpu() == "w65c02s" ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
+        Cpu6502 cpu(machine.bus(), model);
+
+        std::FILE *trace_file = nullptr;
+        std::unique_ptr<BusTrace> trace;
+        if (settings.trace_path)
+        {
+            trace_file = std::fopen(settings.trace_path, "w");
+            if (!trace_file)
+            {
+                std::fprintf(stderr, "emulator: cannot write trace %s\n", settings.trace_path);
+                return 1;
+            }
+            std::setvbuf(trace_file, nullptr, _IOFBF, 1 << 20);
+            trace = std::make_unique<BusTrace>(trace_file, machine.bus(), "cpu " + machine.cpu());
+            cpu.set_observer(trace.get());
+        }
+
+        Debugger debugger(cpu, machine.bus(), symbols, trace.get());
+        int rc = 0;
+        for (const std::string &b : settings.breaks)
+        {
+            uint16_t addr = 0;
+            if (debugger.parse_address(b, addr))
+                debugger.add_breakpoint(addr);
+            else
+            {
+                std::fprintf(stderr, "emulator: --break %s: not a hex address or a known label\n", b.c_str());
+                rc = 1;
+            }
+        }
+
+        if (rc == 0)
+        {
+            apple1::Io io(pia);
+            Terminal terminal(io);
+            Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz);
+
+            on_signal(SIGINT);
+            on_signal(SIGTERM);
+
+            cpu.reset();
+            EMU_LOGI(TAG, "%s from $%04X at %u Hz", machine.cpu().c_str(), cpu.regs().pc, settings.clock_hz);
+            if (settings.start_halted)
+                terminal.write(debugger.halt("--halt"));
+            emulator.run(quit_requested);
+            EMU_LOGI(TAG, "exiting");
+        }
+
+        if (trace_file)
+        {
+            cpu.set_observer(nullptr);
+            std::fclose(trace_file);
+        }
+        return rc;
     }
 } // namespace
 
@@ -63,7 +219,7 @@ int main(int argc, char *argv[])
     MachineOptions options;
     const char *machine_path = nullptr;
     const char *log_path = nullptr;
-    uint32_t clock_hz = 1'000'000;
+    Settings settings;
     bool verbose = false;
     for (int i = 1; i < argc; ++i)
     {
@@ -77,8 +233,18 @@ int main(int argc, char *argv[])
             const unsigned long hz = std::strtoul(argv[++i], &end, 10);
             if (*end != '\0' || hz > 100'000'000ul)
                 return usage();
-            clock_hz = static_cast<uint32_t>(hz);
+            settings.clock_hz = static_cast<uint32_t>(hz);
         }
+        else if (std::strcmp(argv[i], "--load") == 0 && i + 1 < argc)
+            settings.loads.emplace_back(argv[++i]);
+        else if (std::strcmp(argv[i], "--symbols") == 0 && i + 1 < argc)
+            settings.symbol_files.emplace_back(argv[++i]);
+        else if (std::strcmp(argv[i], "--trace") == 0 && i + 1 < argc)
+            settings.trace_path = argv[++i];
+        else if (std::strcmp(argv[i], "--break") == 0 && i + 1 < argc)
+            settings.breaks.emplace_back(argv[++i]);
+        else if (std::strcmp(argv[i], "--halt") == 0)
+            settings.start_halted = true;
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')
@@ -126,20 +292,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            const auto model =
-                machine->cpu() == "w65c02s" ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
-            Cpu6502 cpu(machine->bus(), model);
-            apple1::Io io(*pia);
-            Terminal terminal(io);
-            Emulator emulator(cpu, machine->bus(), terminal, clock_hz);
-
-            std::signal(SIGINT, request_quit);
-            std::signal(SIGTERM, request_quit);
-
-            cpu.reset();
-            EMU_LOGI(TAG, "%s from $%04X at %u Hz", machine->cpu().c_str(), cpu.regs().pc, clock_hz);
-            emulator.run(quit_requested);
-            EMU_LOGI(TAG, "exiting");
+            rc = run(*machine, *pia, settings);
         }
     }
 

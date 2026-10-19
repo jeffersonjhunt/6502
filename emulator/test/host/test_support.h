@@ -30,6 +30,7 @@ namespace ooe::test
     public:
         uint8_t read(uint16_t addr) override { return mem_[addr]; }
         void write(uint16_t addr, uint8_t data) override { mem_[addr] = data; }
+        uint8_t peek(uint16_t addr) const override { return mem_[addr]; }
 
         uint8_t &at(uint16_t addr) { return mem_[addr]; }
 
