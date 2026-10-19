@@ -151,9 +151,45 @@ faster is warranted yet. Harte's known gap (decimal ADC/SBC on invalid BCD)
 is now set aside and reported rather than failed (`HARTE_STRICT=1`
 restores it), so the suite is green and any new failure stands out.
 
-**3b, still to do:** a `Via6522` (needs Phase 4's cycles for its timers) and
-an `Acia6551`, then `eater.machine` and `backplane.machine`. The backplane
-file waits on the north bridge's A16-A19 rule and the module address map.
+**3b done 2026-10-19**, except `backplane.machine`, which still waits on
+the north bridge's A16-A19 rule and the module address map (§5).
+
+- **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
+  the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
+  timed device up just before it is accessed and before each IRQ check,
+  which the run loop now makes after every instruction. A 6522 counter
+  read mid-instruction is exact and a timer interrupt is taken after the
+  instruction it fired in, which a trace diffed against the board needs.
+  The per-slice `tick()` is gone.
+- **`Via6522`** (W65C22): ports with DDRs, CA1/CA2/CB1/CB2 edges per the
+  PCR, IFR/IER, T1 one-shot and free-running with PB7 output, T2 one-shot
+  and PB6 pulse counting. T1 times out N+1.5 cycles after a load and
+  free-runs every N+2, as the datasheet gives. Not modelled: the shift
+  register, input latching, CA2/CB2 handshake and pulse outputs.
+- **`Acia6551`** as the W65C51N, stuck TDRE included; receive interrupt,
+  DTR gating, programmed reset. No baud timing.
+- **Peripherals** on a 6522's pins, wired in the machine file: an HD44780
+  LCD (`hd44780`, 4- or 8-bit, any pins) and a PS/2 keyboard (`ps2kbd`,
+  scan codes on a port with CA1).
+- **Consoles.** The app talks to whatever the machine names `terminal` (a
+  6821 or a 6551), `lcd` and `keyboard`, so it runs the Apple-1 and the
+  Eater board alike; host keys are queued rather than dropped, and the
+  LCD is drawn as a box.
+- **`machines/eater.machine`** (Eater's final board: 6551, 6522, 4-bit LCD,
+  PS/2) and **`eater-lcd8.machine`** (his first wiring). All six programs in
+  `eater/src` run in test_eater, assembled by vasm as `eater/Makefile` does.
+
+Found on the way: `eater/src/wozmon.s` did not assemble with its own
+Makefile (a ca65 `.setcpu` line vasm rejects; removed), and
+`eater/src/keyboard.s`'s shifted keymap has `#` and `$` swapped (left as
+it is; the test pins it). Two HD44780 behaviours are inferred rather than
+from the datasheet: DDRAM addresses $28-$3F in 2-line mode reach line 2
+(Eater's Enter relies on it), and the busy flag always reads clear. The
+VIA's T2 pulse-count interrupt point (after N pulses) varies between
+datasheets and is unchecked on silicon.
+
+Cost: unthrottled, the Apple-1 runs at ~138 MHz (was ~157) and the Eater
+machine at ~107 MHz; real time is unaffected.
 
 ### Phase 4 — timing and CPU variant
 

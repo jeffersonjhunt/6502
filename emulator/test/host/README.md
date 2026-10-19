@@ -26,14 +26,19 @@ HARTE_VERBOSE=1 ./build/dev/test/host/test_harte wdc65c02  # every failing case,
 | `test_dormann_*` | Klaus Dormann's functional tests, three runs: `6502_functional_test` on each model, `65C02_extended_opcodes_test` on the W65C02S. Traps on the first failure | `*.bin` |
 | `test_harte_6502`, `test_harte_wdc65c02` | Tom Harte's SingleStepTests: one instruction from a random state; registers, RAM and **every bus cycle** (address, data, direction) compared | `harte/<cpu>/*.txt` |
 | `test_pia` | the 6821: DDR select, input/output mixing, read-only flags, clear-on-read, write handler, IRQ enable | none |
-| `test_decoder` | offsets, unmapped space, later-wins overlap, read-only ROM, module IDs, the north bridge, IRQ wiring | none |
-| `test_machine` | machine descriptions: the Apple-1 map they build, options, every parse error naming its line, the built-in default | none |
+| `test_via` | the 6522: ports, PCR edges, IFR/IER, T1 one-shot (N+1.5) and free-run (N+2) with PB7, T2 and pulse counting; a timer interrupt and a WAI wake-up through the CPU to the exact cycle | none |
+| `test_acia` | the W65C51N: stuck TDRE, DTR and transmitter gating, receive and its interrupt, programmed reset | none |
+| `test_lcd` | the HD44780 through a 6522 in Eater's 8- and 4-bit wirings, busy/AC and data reads, line wrap and shift; PS/2 bytes on CA1 | none |
+| `test_decoder` | offsets, unmapped space, later-wins overlap, read-only ROM, module IDs, the north bridge, IRQ wiring, devices kept in lockstep with bus cycles | none |
+| `test_machine` | machine descriptions: the Apple-1 map they build, options, every parse error naming its line, the built-in default; the 6522/6551 and peripheral lines and their errors; consoles | none |
+| `test_eater` | Eater's six programs on the Eater machines: hello-world (3 wirings), keyboard.s typing every printable character onto the LCD, Woz Monitor over serial, blink | ROMs, assembled by this build if `vasm6502_oldstyle` is found |
 | `test_loader` | `load_image`: short files, missing files, images that don't fit; `load_hex` (Wikipedia's worked example, CRLF, bad checksum, truncation, data past $FFFF, extended addresses); ld65 label files | none |
 | `test_disasm` | lengths against how far the core actually moves PC, every opcode of both models; every opcode reassembled by ca65 to the same bytes, three operand patterns | round trip needs `ca65`/`ld65`, else skipped |
 | `test_debugger` | each command, breakpoints in the run loop and `step`, fetch without side effects, store obeying ROM; bus trace lines character for character, through a north bridge | none |
 | `test_rom_boot` | Woz Monitor, Integer BASIC and Applesoft booted headless with scripted keys and a captured screen | ROMs, assembled by this build if `ca65` is on the PATH |
 | `test_app_tty` | the real app in a pty: Ctrl-C and SIGTERM restore the terminal and exit 0 without leaks (LeakSanitizer); a missing ROM exits with an error; nothing is logged without `--log`, and `--log FILE` gets the run; a bad `--machine` file stops it with file and line | ROMs, `python3` |
 | `test_app_debug` | the debugger in the app: Ctrl-] and `r`, `--halt`/`--break`/`--symbols`, Ctrl-C at the prompt, `--load` HEX and raw (over ROM too), STP, `--trace` checked and diffed; bad arguments refused before the terminal goes raw | ROMs and labels, `python3` |
+| `test_app_eater` | the app on `eater.machine`: Woz Monitor through the serial port, keyboard.s onto the LCD box; a machine with nothing to talk through is refused | Eater ROMs, `python3` |
 | `test_trace_diff` | `tools/trace_diff.py`: relative cycles and gaps, each field, `?` wildcards, `--from`, malformed traces exit 2 | `python3` |
 
 Suites with fixtures exit 77 when their fixtures are absent, which CTest reports

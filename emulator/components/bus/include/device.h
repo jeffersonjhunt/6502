@@ -4,8 +4,8 @@
  * @file device.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A chip on the bus: addressed by offset within its mapping.
- * @version 0.3.0
- * @date 2026-10-18
+ * @version 0.6.0
+ * @date 2026-10-19
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -14,9 +14,12 @@
  * `offset = physical address - mapping base`, so the same Pia6821 works at
  * $D010 on an Apple-1 and wherever the backplane's I/O module puts it.
  *
- * tick() carries CPU cycles, which the core counts exactly since Phase 4
- * (one per bus access), so a 6522's timers or a 6551's baud clock can be
- * built on it. The run loop calls it once per slice of instructions.
+ * Time: a device that answers timed() gets tick() calls carrying CPU
+ * cycles, in lockstep with the CPU. The decoder catches it up just before
+ * each access to it, so a 6522 counter read mid-instruction is exact, and
+ * before each IRQ check, so a timer interrupt is seen after the very
+ * instruction it fired in. Untimed devices (RAM, ROM) are never ticked,
+ * which keeps that free for them.
  */
 
 #include <cstddef>
@@ -44,7 +47,10 @@ namespace ooe::emu
         /// Interrupt output, active high. Only reaches the CPU if the mapping wires it.
         virtual bool irq() const { return false; }
 
-        /// `cycles` CPU cycles have passed since the last tick.
-        virtual void tick(unsigned cycles) { (void)cycles; }
+        /// True if the device keeps time (tick() does something).
+        virtual bool timed() const { return false; }
+        /// `cycles` CPU cycles have passed since the last tick. Only called
+        /// on timed devices.
+        virtual void tick(uint64_t cycles) { (void)cycles; }
     };
 } // namespace ooe::emu

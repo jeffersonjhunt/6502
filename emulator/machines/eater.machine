@@ -1,0 +1,21 @@
+# Ben Eater's 6502 breadboard computer as it stands at the end of his series
+# (eater.net/6502), and as eater/src/keyboard.s and wozmon.s expect it.
+#
+# His NAND-gate decoding gives the ranges below: the 62256's lower 16 KB, the
+# 6551 repeating every 4 bytes through $5xxx, the 6522 every 16 through
+# $6000-$7FFF, and the 28C256 in the top 32 KB. Both chips' IRQ outputs reach
+# the CPU.
+#
+# The LCD is in 4-bit mode on port B (D4-D7 on PB0-3, RS PB4, RW PB5, E PB6),
+# the PS/2 keyboard on port A with CA1. The serial line is the terminal, so
+# Woz Monitor talks to the host; with keyboard.rom the LCD and keyboard do.
+#
+#   make -C ../eater   (vasm), then:  emulator --machine machines/eater.machine ../eater/src/wozmon.rom
+
+cpu       w65c02s
+ram       0000-3FFF
+acia6551  5000-5FFF  name=terminal  irq
+via6522   6000-7FFF  name=via       irq
+rom       8000-FFFF  wozmon.rom
+hd44780   name=lcd       via=via  data=PB0-3  rs=PB4  rw=PB5  e=PB6
+ps2kbd    name=keyboard  via=via  data=PA0-7

@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.3.0
- * @date 2026-10-18
+ * @version 0.6.0
+ * @date 2026-10-19
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -24,6 +24,14 @@
  *
  * Lookup is a reverse linear scan: a machine has a handful of mappings, so
  * anything cleverer waits for a measurement that says it is needed.
+ *
+ * Time is bus cycles. Every CPU cycle is exactly one read() or write(), or
+ * an idle() while the CPU waits, so the decoder counts them itself and needs
+ * no wiring to the CPU. Timed devices (Device::timed()) are caught up to the
+ * cycle before an access to them, and all of them by irq(), which the run
+ * loop calls after every instruction. poke() and peek() are not CPU cycles
+ * and do not count; a debugger store through write() does, as a Store from
+ * the console takes a bus cycle on the board.
  */
 
 #include <cstdint>
@@ -70,6 +78,7 @@ namespace ooe::emu
         void write(uint16_t addr, uint8_t data) override;
         void poke(uint16_t addr, uint8_t data) override;
         uint8_t peek(uint16_t addr) const override;
+        void idle() override { ++now_; }
 
         /// The 20-bit physical address the north bridge makes of a CPU address.
         uint32_t physical(uint16_t addr) const { return bridge_.physical(addr); }
@@ -78,18 +87,34 @@ namespace ooe::emu
         const Mapping *decode(uint16_t addr) const;
         /// Module ID a CPU address selects (for the console and bus traces).
         uint8_t module_at(uint16_t addr) const;
-        /// True if any device with a wired IRQ is asserting it.
-        bool irq() const;
-        /// Pass `cycles` to every mapped device, once each however often it is mapped.
-        void tick(unsigned cycles);
+        /// Catch timed devices up, then: is any device with a wired IRQ asserting it?
+        bool irq();
+        /// Catch every timed device up to now().
+        void sync();
+        /// Bus cycles so far: accesses plus idle cycles.
+        uint64_t now() const { return now_; }
 
         const std::vector<Mapping> &mappings() const { return mappings_; }
 
     private:
         static const NorthBridge DEFAULT_BRIDGE;
 
+        struct Slot
+        {
+            Device *device;
+            uint64_t synced;  ///< cycles the device has been ticked through
+            bool timed;
+        };
+
+        /// Bring a timed mapping's device up to the cycle before this access.
+        void catch_up(const Mapping &m);
+
         const NorthBridge &bridge_;
         std::vector<Mapping> mappings_;
-        std::vector<Device *> devices_; ///< distinct, in mapping order
+        std::vector<size_t> slot_of_;     ///< per mapping: its device's slot
+        std::vector<Slot> slots_;         ///< distinct devices, in mapping order
+        std::vector<size_t> timed_;       ///< slots of timed devices
+        std::vector<Device *> irq_wired_; ///< distinct devices with an IRQ wire
+        uint64_t now_{0};
     };
 } // namespace ooe::emu

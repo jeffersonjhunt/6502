@@ -6,14 +6,19 @@
 
 #include "machine.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <sstream>
 
+#include "acia6551.h"
 #include "emu_log.h"
+#include "hd44780.h"
 #include "memory_devices.h"
 #include "pia6821.h"
+#include "ps2_keyboard.h"
+#include "via6522.h"
 
 namespace ooe::emu
 {
@@ -40,6 +45,40 @@ namespace ooe::emu
             const size_t dash = s.find('-');
             return dash != std::string::npos && parse_addr(s.substr(0, dash), first) &&
                    parse_addr(s.substr(dash + 1), last) && first <= last;
+        }
+
+        /// "PB4" or "PA0-7": a port letter, then a bit or a range of bits.
+        bool parse_pins(const std::string &s, ViaPins &out)
+        {
+            if (s.size() < 3 || s[0] != 'P' || (s[1] != 'A' && s[1] != 'B'))
+                return false;
+            out.port = s[1] == 'A' ? Via6522::Port::A : Via6522::Port::B;
+            const std::string bits = s.substr(2);
+            const size_t dash = bits.find('-');
+            auto digit = [](const std::string &d, unsigned &v) {
+                if (d.size() != 1 || d[0] < '0' || d[0] > '7')
+                    return false;
+                v = static_cast<unsigned>(d[0] - '0');
+                return true;
+            };
+            unsigned first = 0, last = 0;
+            if (!digit(bits.substr(0, dash), first))
+                return false;
+            last = first;
+            if (dash != std::string::npos && (!digit(bits.substr(dash + 1), last) || last < first))
+                return false;
+            out.first = static_cast<uint8_t>(first);
+            out.count = static_cast<uint8_t>(last - first + 1);
+            return true;
+        }
+
+        bool parse_pin(const std::string &s, ViaPin &out)
+        {
+            ViaPins p;
+            if (!parse_pins(s, p) || p.count != 1)
+                return false;
+            out = ViaPin{p.port, p.first};
+            return true;
         }
 
         std::string strip_comment(const std::string &line)
@@ -79,8 +118,58 @@ namespace ooe::emu
                 m->cpu_ = w[1];
                 continue;
             }
-            if (type != "ram" && type != "rom" && type != "pia6821")
-                return fail("unknown type '" + type + "' (want cpu, ram, rom or pia6821)");
+            if (type == "hd44780" || type == "ps2kbd")
+            {
+                std::unordered_map<std::string, std::string> opt;
+                for (size_t i = 1; i < w.size(); ++i)
+                {
+                    const size_t eq = w[i].find('=');
+                    if (eq == std::string::npos)
+                        return fail(type + ": options are key=value, not '" + w[i] + "'");
+                    opt[w[i].substr(0, eq)] = w[i].substr(eq + 1);
+                }
+                const std::string name = opt["name"];
+                if (!name.empty() && m->named_peripherals_.count(name))
+                    return fail("name '" + name + "' is already used");
+                auto *via = dynamic_cast<Via6522 *>(m->find(opt["via"]));
+                if (!via)
+                    return fail(type + ": via=NAME must name a via6522 described above");
+                ViaPins data;
+                std::unique_ptr<Peripheral> p;
+                if (type == "hd44780")
+                {
+                    ViaPin rs, rw, e;
+                    if (!parse_pins(opt["data"], data) || (data.count != 4 && data.count != 8))
+                        return fail("hd44780: data= wants 4 or 8 pins, like PB0-7 or PB0-3");
+                    if (!parse_pin(opt["rs"], rs) || !parse_pin(opt["rw"], rw) || !parse_pin(opt["e"], e))
+                        return fail("hd44780: rs=, rw= and e= each want one pin, like PA5");
+                    unsigned cols = 16, rows = 2;
+                    if (opt.count("size") &&
+                        (std::sscanf(opt["size"].c_str(), "%ux%u", &cols, &rows) != 2 || cols == 0 || cols > 40 ||
+                         (rows != 1 && rows != 2 && rows != 4)))
+                        return fail("hd44780: size= wants COLSxROWS, like 16x2 or 20x4");
+                    for (const char *k : {"name", "via", "data", "rs", "rw", "e", "size"})
+                        opt.erase(k);
+                    p = std::make_unique<ViaLcd>(*via, data, rs, rw, e, cols, rows);
+                }
+                else
+                {
+                    if (!parse_pins(opt["data"], data) || data.count != 8)
+                        return fail("ps2kbd: data= wants 8 pins, like PA0-7");
+                    for (const char *k : {"name", "via", "data"})
+                        opt.erase(k);
+                    p = std::make_unique<Ps2Keyboard>(*via, data);
+                }
+                if (!opt.empty())
+                    return fail(type + ": unknown option '" + opt.begin()->first + "'");
+                if (!name.empty())
+                    m->named_peripherals_[name] = p.get();
+                m->peripherals_.push_back(std::move(p));
+                continue;
+            }
+            if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551")
+                return fail("unknown type '" + type +
+                            "' (want cpu, ram, rom, pia6821, via6522, acia6551, hd44780 or ps2kbd)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
@@ -139,8 +228,13 @@ namespace ooe::emu
             else
             {
                 if (!image.empty())
-                    return fail("pia6821 takes no image");
-                dev = std::make_unique<Pia6821>();
+                    return fail(type + " takes no image");
+                if (type == "pia6821")
+                    dev = std::make_unique<Pia6821>();
+                else if (type == "via6522")
+                    dev = std::make_unique<Via6522>();
+                else
+                    dev = std::make_unique<Acia6551>();
             }
 
             map.device = dev.get();

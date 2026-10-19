@@ -26,6 +26,9 @@ a W65C02S). It runs at 1 MHz; `--clock HZ` changes that and `--clock 0` runs
 flat out. Nothing is logged unless you ask:
 `--log FILE` writes the run to FILE, and `-v` adds per-key detail.
 
+`emulator/machines/eater.machine` runs Ben Eater's breadboard computer and
+the programs in `eater/src` (see `emulator/README.md`).
+
 Ctrl-] stops it at a debugger prompt (`h` for help). `--halt`, `--break`,
 `--symbols`, `--load` and `--trace` are for bring-up; see
 `emulator/README.md`.

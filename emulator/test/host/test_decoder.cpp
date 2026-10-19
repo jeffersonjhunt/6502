@@ -127,22 +127,45 @@ TEST(peek_routes_like_read_without_side_effects)
     CHECK(!(pia.cra() & Pia6821::CR_IRQ1));
 }
 
-TEST(tick_reaches_each_device_once)
+TEST(timed_devices_keep_time_in_lockstep_with_bus_cycles)
 {
-    struct Counter : Ram
+    /// Reads back how many cycles it has been ticked through.
+    struct Clock : Ram
     {
-        Counter() : Ram(16) {}
-        void tick(unsigned cycles) override { total += cycles; }
-        unsigned total{0};
+        Clock() : Ram(16) {}
+        bool timed() const override { return true; }
+        void tick(uint64_t cycles) override { total += cycles; }
+        uint8_t read(uint32_t) override { return static_cast<uint8_t>(total); }
+        uint8_t peek(uint32_t) const override { return static_cast<uint8_t>(total); }
+        uint64_t total{0};
     };
-    Counter a, b;
+    struct Untimed : Ram
+    {
+        Untimed() : Ram(16) {}
+        void tick(uint64_t cycles) override { total += cycles; }
+        uint64_t total{0};
+    };
+    Clock clock;
+    Untimed ram;
     Decoder bus;
-    bus.map({0x0000, 0x000F, &a});
-    bus.map({0x0010, 0x001F, &a}); // a mirror: still one chip
-    bus.map({0x0020, 0x002F, &b});
-    bus.tick(5);
-    CHECK_EQ(a.total, 5u);
-    CHECK_EQ(b.total, 5u);
+    bus.map({0x0000, 0x000F, &ram});
+    bus.map({0x0010, 0x001F, &clock});
+    bus.map({0x0020, 0x002F, &clock}); // a mirror: still one chip, one clock
+
+    for (int i = 0; i < 5; ++i)
+        bus.read(0x0000);              // cycles 1-5
+    CHECK_EQ(bus.read(0x0010), 5);     // cycle 6: caught up through cycle 5
+    bus.write(0x0001, 0);              // 7
+    bus.idle();                        // 8: WAI
+    bus.idle();                        // 9
+    CHECK_EQ(bus.read(0x0020), 9);     // 10, through the mirror
+    CHECK_EQ(bus.now(), 10u);
+    bus.irq();                         // brings every timed device to now()
+    CHECK_EQ(clock.total, 10u);
+    bus.poke(0x0000, 1);               // the loader and debugger take no cycles
+    CHECK_EQ(bus.peek(0x0010), 10);
+    CHECK_EQ(bus.now(), 10u);
+    CHECK_EQ(ram.total, 0u);           // untimed: never ticked
 }
 
 int main()

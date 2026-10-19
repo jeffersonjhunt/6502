@@ -149,8 +149,7 @@ namespace ooe::emu
             }
             if (count <= SHOW_EACH_STEP)
                 out += line_at(pc);
-            const unsigned ran = cpu_.step();
-            bus_.tick(ran);
+            cpu_.step();
             if (bus_.irq())
                 cpu_.irq();
         }

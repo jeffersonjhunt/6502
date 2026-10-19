@@ -13,7 +13,9 @@
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
- * attaches to the PIA the description names `terminal`. The CPU model is
+ * talks to what the description names `terminal` (a 6821 keyboard and
+ * display, or a 6551 serial line), `lcd` and `keyboard` (console.h). The
+ * CPU model is
  * the description's `cpu` line. --clock sets the emulated clock (default
  * 1 MHz, real time for an Apple-1); --clock 0 runs as fast as the host can.
  *
@@ -44,13 +46,13 @@
 
 #include "apple1.h"
 #include "bus_trace.h"
+#include "console.h"
 #include "cpu6502.h"
 #include "debugger.h"
 #include "emu_log.h"
 #include "emulator.h"
 #include "loader.h"
 #include "machine.h"
-#include "pia6821.h"
 #include "symbols.h"
 #include "terminal.h"
 
@@ -132,7 +134,7 @@ namespace
 
     /// Everything after the machine is built. Errors are reported before
     /// the terminal goes raw, so they are readable and nothing needs restoring.
-    int run(ooe::emu::Machine &machine, ooe::emu::Pia6821 &pia, const Settings &settings)
+    int run(ooe::emu::Machine &machine, ooe::emu::Console &console, const Settings &settings)
     {
         using namespace ooe::emu;
         std::string error;
@@ -188,8 +190,7 @@ namespace
 
         if (rc == 0)
         {
-            apple1::Io io(pia);
-            Terminal terminal(io);
+            Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz);
 
             on_signal(SIGINT);
@@ -278,21 +279,15 @@ int main(int argc, char *argv[])
         std::unique_ptr<Machine> machine =
             machine_path ? Machine::load(machine_path, options, error)
                          : Machine::build(apple1::default_machine(), "apple1.machine (built in)", options, error);
-        Pia6821 *pia = machine ? machine->find_as<Pia6821>(apple1::TERMINAL_PIA) : nullptr;
-        if (!machine)
+        std::unique_ptr<Console> console = machine ? make_console(*machine, error) : nullptr;
+        if (!console)
         {
             std::fprintf(stderr, "emulator: %s\n", error.c_str());
             rc = 1;
         }
-        else if (!pia)
-        {
-            std::fprintf(stderr, "emulator: the machine has no pia6821 named '%s' for the terminal\n",
-                         apple1::TERMINAL_PIA);
-            rc = 1;
-        }
         else
         {
-            rc = run(*machine, *pia, settings);
+            rc = run(*machine, *console, settings);
         }
     }
 

@@ -1,0 +1,11 @@
+# Ben Eater's breadboard computer as it is in his first videos: the LCD on 8
+# data lines (port B) with RS, RW and E on PA5-7, and no serial port or
+# keyboard yet. eater/src/hello-world.s and hello-world-final.s are for this.
+#
+#   emulator --machine machines/eater-lcd8.machine ../eater/src/hello-world-final.rom
+
+cpu       w65c02s
+ram       0000-3FFF
+via6522   6000-7FFF  name=via  irq
+rom       8000-FFFF  hello-world-final.rom
+hd44780   name=lcd  via=via  data=PB0-7  rs=PA5  rw=PA6  e=PA7
