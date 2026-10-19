@@ -1,14 +1,27 @@
 /**
  * @file cpu6502.cpp
- * @brief NMOS 6502 core implementation.
+ * @brief NMOS 6502 / W65C02S implementation, one bus access per cycle.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT).
- * Derived from gianlucag/mos6502 (MIT); see licenses/mos6502_LICENSE.
+ * Originally derived from gianlucag/mos6502 (MIT); see licenses/mos6502_LICENSE.
  *
- * Restyled from the `beta` core without changing behaviour: the opcode table
- * was generated from the old one, and every Phase 0 suite gives the same
- * result (docs/PHASE0_RESULTS.md). Where a quirk below looks wrong, it is
- * there because the measured core had it; fixing those is Phase 4's job,
- * against the W65C02S.
+ * The access patterns below were read off Harte's per-cycle fixtures, not
+ * recalled from datasheets, and every one is checked by test_harte. Where
+ * the two models differ it is almost always a dummy access:
+ *
+ *   indexed page cross   NMOS re-reads the un-carried address; WDC re-reads
+ *                        the last operand byte (PC-1)
+ *   read-modify-write    NMOS writes the old value back; WDC re-reads it
+ *   ASL..ROR abs,X       WDC skips the extra cycle when no page is crossed
+ *   JMP ($xxFF)          NMOS wraps within the page; WDC fixes it, but still
+ *                        dummy-reads the wrapped address first (+1 cycle)
+ *   ADC/SBC decimal      WDC takes one extra cycle, re-reading the operand
+ *
+ * Two WDC details come only from Harte and are worth confirming against the
+ * board with the bus spy: the decimal extra cycle in immediate mode reads
+ * $007F (ADC) or $0000 (SBC), and the $5C/$DC/$FC NOPs take 4 cycles.
+ *
+ * Decimal arithmetic follows Bruce Clark's "Decimal Mode" (6502.org),
+ * appendix A: sequences 1-2 for ADC, 3 for NMOS SBC, 4 for 65C02 SBC.
  */
 
 #include "cpu6502.h"
@@ -22,219 +35,41 @@ namespace ooe::emu
         [[maybe_unused]] const char *TAG = "cpu";
 
         constexpr uint8_t lo8(unsigned v) { return static_cast<uint8_t>(v & 0xFF); }
+        constexpr uint16_t stack(uint8_t s) { return static_cast<uint16_t>(0x0100 | s); }
+        constexpr bool crosses(uint16_t a, uint16_t b) { return ((a ^ b) & 0xFF00) != 0; }
     } // namespace
 
-    Cpu6502::Table Cpu6502::build_table()
+    // --- bus ---------------------------------------------------------------
+
+    uint8_t Cpu6502::read(uint16_t addr)
     {
-        Table t{};
-        for (auto &e : t)
-            e = {&Cpu6502::addr_imp, &Cpu6502::op_nop}; // undocumented: one-byte NOP
-
-        t[0x00] = {&Cpu6502::addr_imp, &Cpu6502::op_brk};
-        t[0x01] = {&Cpu6502::addr_izx, &Cpu6502::op_ora};
-        t[0x05] = {&Cpu6502::addr_zp, &Cpu6502::op_ora};
-        t[0x06] = {&Cpu6502::addr_zp, &Cpu6502::op_asl};
-        t[0x08] = {&Cpu6502::addr_imp, &Cpu6502::op_php};
-        t[0x09] = {&Cpu6502::addr_imm, &Cpu6502::op_ora};
-        t[0x0A] = {&Cpu6502::addr_acc, &Cpu6502::op_asl_acc};
-        t[0x0D] = {&Cpu6502::addr_abs, &Cpu6502::op_ora};
-        t[0x0E] = {&Cpu6502::addr_abs, &Cpu6502::op_asl};
-        t[0x10] = {&Cpu6502::addr_rel, &Cpu6502::op_bpl};
-        t[0x11] = {&Cpu6502::addr_izy, &Cpu6502::op_ora};
-        t[0x15] = {&Cpu6502::addr_zpx, &Cpu6502::op_ora};
-        t[0x16] = {&Cpu6502::addr_zpx, &Cpu6502::op_asl};
-        t[0x18] = {&Cpu6502::addr_imp, &Cpu6502::op_clc};
-        t[0x19] = {&Cpu6502::addr_aby, &Cpu6502::op_ora};
-        t[0x1D] = {&Cpu6502::addr_abx, &Cpu6502::op_ora};
-        t[0x1E] = {&Cpu6502::addr_abx, &Cpu6502::op_asl};
-        t[0x20] = {&Cpu6502::addr_abs, &Cpu6502::op_jsr};
-        t[0x21] = {&Cpu6502::addr_izx, &Cpu6502::op_and};
-        t[0x24] = {&Cpu6502::addr_zp, &Cpu6502::op_bit};
-        t[0x25] = {&Cpu6502::addr_zp, &Cpu6502::op_and};
-        t[0x26] = {&Cpu6502::addr_zp, &Cpu6502::op_rol};
-        t[0x28] = {&Cpu6502::addr_imp, &Cpu6502::op_plp};
-        t[0x29] = {&Cpu6502::addr_imm, &Cpu6502::op_and};
-        t[0x2A] = {&Cpu6502::addr_acc, &Cpu6502::op_rol_acc};
-        t[0x2C] = {&Cpu6502::addr_abs, &Cpu6502::op_bit};
-        t[0x2D] = {&Cpu6502::addr_abs, &Cpu6502::op_and};
-        t[0x2E] = {&Cpu6502::addr_abs, &Cpu6502::op_rol};
-        t[0x30] = {&Cpu6502::addr_rel, &Cpu6502::op_bmi};
-        t[0x31] = {&Cpu6502::addr_izy, &Cpu6502::op_and};
-        t[0x35] = {&Cpu6502::addr_zpx, &Cpu6502::op_and};
-        t[0x36] = {&Cpu6502::addr_zpx, &Cpu6502::op_rol};
-        t[0x38] = {&Cpu6502::addr_imp, &Cpu6502::op_sec};
-        t[0x39] = {&Cpu6502::addr_aby, &Cpu6502::op_and};
-        t[0x3D] = {&Cpu6502::addr_abx, &Cpu6502::op_and};
-        t[0x3E] = {&Cpu6502::addr_abx, &Cpu6502::op_rol};
-        t[0x40] = {&Cpu6502::addr_imp, &Cpu6502::op_rti};
-        t[0x41] = {&Cpu6502::addr_izx, &Cpu6502::op_eor};
-        t[0x45] = {&Cpu6502::addr_zp, &Cpu6502::op_eor};
-        t[0x46] = {&Cpu6502::addr_zp, &Cpu6502::op_lsr};
-        t[0x48] = {&Cpu6502::addr_imp, &Cpu6502::op_pha};
-        t[0x49] = {&Cpu6502::addr_imm, &Cpu6502::op_eor};
-        t[0x4A] = {&Cpu6502::addr_acc, &Cpu6502::op_lsr_acc};
-        t[0x4C] = {&Cpu6502::addr_abs, &Cpu6502::op_jmp};
-        t[0x4D] = {&Cpu6502::addr_abs, &Cpu6502::op_eor};
-        t[0x4E] = {&Cpu6502::addr_abs, &Cpu6502::op_lsr};
-        t[0x50] = {&Cpu6502::addr_rel, &Cpu6502::op_bvc};
-        t[0x51] = {&Cpu6502::addr_izy, &Cpu6502::op_eor};
-        t[0x55] = {&Cpu6502::addr_zpx, &Cpu6502::op_eor};
-        t[0x56] = {&Cpu6502::addr_zpx, &Cpu6502::op_lsr};
-        t[0x58] = {&Cpu6502::addr_imp, &Cpu6502::op_cli};
-        t[0x59] = {&Cpu6502::addr_aby, &Cpu6502::op_eor};
-        t[0x5D] = {&Cpu6502::addr_abx, &Cpu6502::op_eor};
-        t[0x5E] = {&Cpu6502::addr_abx, &Cpu6502::op_lsr};
-        t[0x60] = {&Cpu6502::addr_imp, &Cpu6502::op_rts};
-        t[0x61] = {&Cpu6502::addr_izx, &Cpu6502::op_adc};
-        t[0x65] = {&Cpu6502::addr_zp, &Cpu6502::op_adc};
-        t[0x66] = {&Cpu6502::addr_zp, &Cpu6502::op_ror};
-        t[0x68] = {&Cpu6502::addr_imp, &Cpu6502::op_pla};
-        t[0x69] = {&Cpu6502::addr_imm, &Cpu6502::op_adc};
-        t[0x6A] = {&Cpu6502::addr_acc, &Cpu6502::op_ror_acc};
-        t[0x6C] = {&Cpu6502::addr_ind, &Cpu6502::op_jmp};
-        t[0x6D] = {&Cpu6502::addr_abs, &Cpu6502::op_adc};
-        t[0x6E] = {&Cpu6502::addr_abs, &Cpu6502::op_ror};
-        t[0x70] = {&Cpu6502::addr_rel, &Cpu6502::op_bvs};
-        t[0x71] = {&Cpu6502::addr_izy, &Cpu6502::op_adc};
-        t[0x75] = {&Cpu6502::addr_zpx, &Cpu6502::op_adc};
-        t[0x76] = {&Cpu6502::addr_zpx, &Cpu6502::op_ror};
-        t[0x78] = {&Cpu6502::addr_imp, &Cpu6502::op_sei};
-        t[0x79] = {&Cpu6502::addr_aby, &Cpu6502::op_adc};
-        t[0x7D] = {&Cpu6502::addr_abx, &Cpu6502::op_adc};
-        t[0x7E] = {&Cpu6502::addr_abx, &Cpu6502::op_ror};
-        t[0x81] = {&Cpu6502::addr_izx, &Cpu6502::op_sta};
-        t[0x84] = {&Cpu6502::addr_zp, &Cpu6502::op_sty};
-        t[0x85] = {&Cpu6502::addr_zp, &Cpu6502::op_sta};
-        t[0x86] = {&Cpu6502::addr_zp, &Cpu6502::op_stx};
-        t[0x88] = {&Cpu6502::addr_imp, &Cpu6502::op_dey};
-        t[0x8A] = {&Cpu6502::addr_imp, &Cpu6502::op_txa};
-        t[0x8C] = {&Cpu6502::addr_abs, &Cpu6502::op_sty};
-        t[0x8D] = {&Cpu6502::addr_abs, &Cpu6502::op_sta};
-        t[0x8E] = {&Cpu6502::addr_abs, &Cpu6502::op_stx};
-        t[0x90] = {&Cpu6502::addr_rel, &Cpu6502::op_bcc};
-        t[0x91] = {&Cpu6502::addr_izy, &Cpu6502::op_sta};
-        t[0x94] = {&Cpu6502::addr_zpx, &Cpu6502::op_sty};
-        t[0x95] = {&Cpu6502::addr_zpx, &Cpu6502::op_sta};
-        t[0x96] = {&Cpu6502::addr_zpy, &Cpu6502::op_stx};
-        t[0x98] = {&Cpu6502::addr_imp, &Cpu6502::op_tya};
-        t[0x99] = {&Cpu6502::addr_aby, &Cpu6502::op_sta};
-        t[0x9A] = {&Cpu6502::addr_imp, &Cpu6502::op_txs};
-        t[0x9D] = {&Cpu6502::addr_abx, &Cpu6502::op_sta};
-        t[0xA0] = {&Cpu6502::addr_imm, &Cpu6502::op_ldy};
-        t[0xA1] = {&Cpu6502::addr_izx, &Cpu6502::op_lda};
-        t[0xA2] = {&Cpu6502::addr_imm, &Cpu6502::op_ldx};
-        t[0xA4] = {&Cpu6502::addr_zp, &Cpu6502::op_ldy};
-        t[0xA5] = {&Cpu6502::addr_zp, &Cpu6502::op_lda};
-        t[0xA6] = {&Cpu6502::addr_zp, &Cpu6502::op_ldx};
-        t[0xA8] = {&Cpu6502::addr_imp, &Cpu6502::op_tay};
-        t[0xA9] = {&Cpu6502::addr_imm, &Cpu6502::op_lda};
-        t[0xAA] = {&Cpu6502::addr_imp, &Cpu6502::op_tax};
-        t[0xAC] = {&Cpu6502::addr_abs, &Cpu6502::op_ldy};
-        t[0xAD] = {&Cpu6502::addr_abs, &Cpu6502::op_lda};
-        t[0xAE] = {&Cpu6502::addr_abs, &Cpu6502::op_ldx};
-        t[0xB0] = {&Cpu6502::addr_rel, &Cpu6502::op_bcs};
-        t[0xB1] = {&Cpu6502::addr_izy, &Cpu6502::op_lda};
-        t[0xB4] = {&Cpu6502::addr_zpx, &Cpu6502::op_ldy};
-        t[0xB5] = {&Cpu6502::addr_zpx, &Cpu6502::op_lda};
-        t[0xB6] = {&Cpu6502::addr_zpy, &Cpu6502::op_ldx};
-        t[0xB8] = {&Cpu6502::addr_imp, &Cpu6502::op_clv};
-        t[0xB9] = {&Cpu6502::addr_aby, &Cpu6502::op_lda};
-        t[0xBA] = {&Cpu6502::addr_imp, &Cpu6502::op_tsx};
-        t[0xBC] = {&Cpu6502::addr_abx, &Cpu6502::op_ldy};
-        t[0xBD] = {&Cpu6502::addr_abx, &Cpu6502::op_lda};
-        t[0xBE] = {&Cpu6502::addr_aby, &Cpu6502::op_ldx};
-        t[0xC0] = {&Cpu6502::addr_imm, &Cpu6502::op_cpy};
-        t[0xC1] = {&Cpu6502::addr_izx, &Cpu6502::op_cmp};
-        t[0xC4] = {&Cpu6502::addr_zp, &Cpu6502::op_cpy};
-        t[0xC5] = {&Cpu6502::addr_zp, &Cpu6502::op_cmp};
-        t[0xC6] = {&Cpu6502::addr_zp, &Cpu6502::op_dec};
-        t[0xC8] = {&Cpu6502::addr_imp, &Cpu6502::op_iny};
-        t[0xC9] = {&Cpu6502::addr_imm, &Cpu6502::op_cmp};
-        t[0xCA] = {&Cpu6502::addr_imp, &Cpu6502::op_dex};
-        t[0xCC] = {&Cpu6502::addr_abs, &Cpu6502::op_cpy};
-        t[0xCD] = {&Cpu6502::addr_abs, &Cpu6502::op_cmp};
-        t[0xCE] = {&Cpu6502::addr_abs, &Cpu6502::op_dec};
-        t[0xD0] = {&Cpu6502::addr_rel, &Cpu6502::op_bne};
-        t[0xD1] = {&Cpu6502::addr_izy, &Cpu6502::op_cmp};
-        t[0xD5] = {&Cpu6502::addr_zpx, &Cpu6502::op_cmp};
-        t[0xD6] = {&Cpu6502::addr_zpx, &Cpu6502::op_dec};
-        t[0xD8] = {&Cpu6502::addr_imp, &Cpu6502::op_cld};
-        t[0xD9] = {&Cpu6502::addr_aby, &Cpu6502::op_cmp};
-        t[0xDD] = {&Cpu6502::addr_abx, &Cpu6502::op_cmp};
-        t[0xDE] = {&Cpu6502::addr_abx, &Cpu6502::op_dec};
-        t[0xE0] = {&Cpu6502::addr_imm, &Cpu6502::op_cpx};
-        t[0xE1] = {&Cpu6502::addr_izx, &Cpu6502::op_sbc};
-        t[0xE4] = {&Cpu6502::addr_zp, &Cpu6502::op_cpx};
-        t[0xE5] = {&Cpu6502::addr_zp, &Cpu6502::op_sbc};
-        t[0xE6] = {&Cpu6502::addr_zp, &Cpu6502::op_inc};
-        t[0xE8] = {&Cpu6502::addr_imp, &Cpu6502::op_inx};
-        t[0xE9] = {&Cpu6502::addr_imm, &Cpu6502::op_sbc};
-        t[0xEA] = {&Cpu6502::addr_imp, &Cpu6502::op_nop};
-        t[0xEC] = {&Cpu6502::addr_abs, &Cpu6502::op_cpx};
-        t[0xED] = {&Cpu6502::addr_abs, &Cpu6502::op_sbc};
-        t[0xEE] = {&Cpu6502::addr_abs, &Cpu6502::op_inc};
-        t[0xF0] = {&Cpu6502::addr_rel, &Cpu6502::op_beq};
-        t[0xF1] = {&Cpu6502::addr_izy, &Cpu6502::op_sbc};
-        t[0xF5] = {&Cpu6502::addr_zpx, &Cpu6502::op_sbc};
-        t[0xF6] = {&Cpu6502::addr_zpx, &Cpu6502::op_inc};
-        t[0xF8] = {&Cpu6502::addr_imp, &Cpu6502::op_sed};
-        t[0xF9] = {&Cpu6502::addr_aby, &Cpu6502::op_sbc};
-        t[0xFD] = {&Cpu6502::addr_abx, &Cpu6502::op_sbc};
-        t[0xFE] = {&Cpu6502::addr_abx, &Cpu6502::op_inc};
-
-        return t;
+        ++cycles_;
+        return bus_.read(addr);
     }
 
-    const Cpu6502::Table Cpu6502::TABLE = Cpu6502::build_table();
-
-    // --- control ---------------------------------------------------------------
-
-    void Cpu6502::reset()
+    void Cpu6502::write(uint16_t addr, uint8_t data)
     {
-        regs_.a = 0;
-        regs_.x = 0;
-        regs_.y = 0;
-        regs_.s = 0xFD;
-        regs_.p = FLAG_U | FLAG_B;
-        regs_.pc = read16(RESET_VECTOR);
+        ++cycles_;
+        bus_.write(addr, data);
     }
 
-    void Cpu6502::step()
+    uint16_t Cpu6502::fetch16()
     {
-        const uint8_t opcode = read(regs_.pc++);
-        EMU_LOGV(TAG, "%04X: %02X", static_cast<unsigned>(regs_.pc - 1), opcode);
-        const Instr &i = TABLE[opcode];
-        const uint16_t src = (this->*i.addr)();
-        (this->*i.op)(src);
-    }
-
-    void Cpu6502::irq()
-    {
-        if (!flag(FLAG_I))
-            interrupt(IRQ_VECTOR, static_cast<uint8_t>((regs_.p & ~FLAG_B) | FLAG_U));
-    }
-
-    void Cpu6502::nmi()
-    {
-        interrupt(NMI_VECTOR, static_cast<uint8_t>((regs_.p & ~FLAG_B) | FLAG_U));
-    }
-
-    void Cpu6502::interrupt(uint16_t vector, uint8_t pushed_p)
-    {
-        push(lo8(regs_.pc >> 8));
-        push(lo8(regs_.pc));
-        push(pushed_p);
-        set_flag(FLAG_I, true);
-        regs_.pc = read16(vector);
-    }
-
-    // --- helpers ---------------------------------------------------------------
-
-    uint16_t Cpu6502::read16(uint16_t addr)
-    {
-        const unsigned lo = read(addr);
-        const unsigned hi = read(static_cast<uint16_t>(addr + 1));
+        const unsigned lo = fetch();
+        const unsigned hi = fetch();
         return static_cast<uint16_t>(lo | (hi << 8));
+    }
+
+    void Cpu6502::push(uint8_t v)
+    {
+        write(stack(regs_.s), v);
+        regs_.s--;
+    }
+
+    uint8_t Cpu6502::pull()
+    {
+        regs_.s++;
+        return read(stack(regs_.s));
     }
 
     void Cpu6502::set_flag(uint8_t f, bool on)
@@ -248,507 +83,758 @@ namespace ooe::emu
         set_flag(FLAG_Z, v == 0);
     }
 
-    void Cpu6502::push(uint8_t v)
+    // --- control -------------------------------------------------------------
+
+    void Cpu6502::reset()
     {
-        write(static_cast<uint16_t>(0x0100 + regs_.s), v);
-        regs_.s--;
-    }
-
-    uint8_t Cpu6502::pop()
-    {
-        regs_.s++;
-        return read(static_cast<uint16_t>(0x0100 + regs_.s));
-    }
-
-    // --- addressing modes ------------------------------------------------------
-
-    uint16_t Cpu6502::addr_acc()
-    {
-        return 0;
-    }
-
-    uint16_t Cpu6502::addr_imp()
-    {
-        return 0;
-    }
-
-    uint16_t Cpu6502::addr_imm()
-    {
-        return regs_.pc++;
-    }
-
-    uint16_t Cpu6502::addr_abs()
-    {
-        const unsigned lo = read(regs_.pc++);
-        const unsigned hi = read(regs_.pc++);
-        return static_cast<uint16_t>(lo | (hi << 8));
-    }
-
-    uint16_t Cpu6502::addr_zp()
-    {
-        return read(regs_.pc++);
-    }
-
-    uint16_t Cpu6502::addr_zpx()
-    {
-        return lo8(read(regs_.pc++) + regs_.x);
-    }
-
-    uint16_t Cpu6502::addr_zpy()
-    {
-        return lo8(read(regs_.pc++) + regs_.y);
-    }
-
-    uint16_t Cpu6502::addr_abx()
-    {
-        return static_cast<uint16_t>(addr_abs() + regs_.x);
-    }
-
-    uint16_t Cpu6502::addr_aby()
-    {
-        return static_cast<uint16_t>(addr_abs() + regs_.y);
-    }
-
-    uint16_t Cpu6502::addr_rel()
-    {
-        const auto offset = static_cast<int8_t>(read(regs_.pc++));
-        return static_cast<uint16_t>(regs_.pc + offset);
-    }
-
-    uint16_t Cpu6502::addr_izx()
-    {
-        const uint8_t zp = lo8(read(regs_.pc++) + regs_.x);
-        const unsigned lo = read(zp);
-        const unsigned hi = read(lo8(zp + 1u)); // the pointer wraps within zero page
-        return static_cast<uint16_t>(lo | (hi << 8));
-    }
-
-    uint16_t Cpu6502::addr_izy()
-    {
-        const uint8_t zp = read(regs_.pc++);
-        const unsigned lo = read(zp);
-        const unsigned hi = read(lo8(zp + 1u));
-        return static_cast<uint16_t>((lo | (hi << 8)) + regs_.y);
-    }
-
-    uint16_t Cpu6502::addr_ind()
-    {
-        const uint16_t ptr = addr_abs();
-        const unsigned lo = read(ptr);
-        // NMOS: the high byte comes from the same page, so ($10FF) reads $1000.
-        const unsigned hi = read(static_cast<uint16_t>((ptr & 0xFF00) | lo8(ptr + 1u)));
-        return static_cast<uint16_t>(lo | (hi << 8));
-    }
-
-    // --- operations ------------------------------------------------------------
-
-    void Cpu6502::op_adc(uint16_t src)
-    {
-        const uint8_t m = read(src);
-        const uint8_t a = regs_.a;
-        const unsigned carry = flag(FLAG_C) ? 1 : 0;
-        unsigned tmp = m + a + carry;
-        set_flag(FLAG_Z, (tmp & 0xFF) == 0);
-        if (flag(FLAG_D))
-        {
-            if (((a & 0xFu) + (m & 0xFu) + carry) > 9)
-                tmp += 6;
-            set_flag(FLAG_N, tmp & 0x80);
-            set_flag(FLAG_V, !((a ^ m) & 0x80) && ((a ^ tmp) & 0x80));
-            if (tmp > 0x99)
-                tmp += 96;
-            set_flag(FLAG_C, tmp > 0x99);
-        }
-        else
-        {
-            set_flag(FLAG_N, tmp & 0x80);
-            set_flag(FLAG_V, !((a ^ m) & 0x80) && ((a ^ tmp) & 0x80));
-            set_flag(FLAG_C, tmp > 0xFF);
-        }
-        regs_.a = lo8(tmp);
-    }
-
-    void Cpu6502::op_sbc(uint16_t src)
-    {
-        const uint8_t m = read(src);
-        const uint8_t a = regs_.a;
-        // int, not unsigned: the decimal adjust below compares a signed
-        // difference, and (a & 0x0F) - borrow may be -1.
-        const int borrow = flag(FLAG_C) ? 0 : 1;
-        unsigned tmp = static_cast<unsigned>(a - m - borrow);
-        set_flag(FLAG_N, tmp & 0x80);
-        set_flag(FLAG_Z, (tmp & 0xFF) == 0);
-        set_flag(FLAG_V, ((a ^ tmp) & 0x80) && ((a ^ m) & 0x80));
-        if (flag(FLAG_D))
-        {
-            if (((a & 0x0F) - borrow) < (m & 0x0F))
-                tmp -= 6;
-            if (tmp > 0x99)
-                tmp -= 0x60;
-        }
-        set_flag(FLAG_C, tmp < 0x100);
-        regs_.a = lo8(tmp);
-    }
-
-    void Cpu6502::op_and(uint16_t src)
-    {
-        regs_.a = static_cast<uint8_t>(regs_.a & read(src));
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_eor(uint16_t src)
-    {
-        regs_.a = static_cast<uint8_t>(regs_.a ^ read(src));
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_ora(uint16_t src)
-    {
-        regs_.a = static_cast<uint8_t>(regs_.a | read(src));
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_bit(uint16_t src)
-    {
-        const uint8_t m = read(src);
-        // N and V come from the operand; the live P keeps U and B set.
-        regs_.p = static_cast<uint8_t>((regs_.p & 0x3F) | (m & 0xC0) | FLAG_U | FLAG_B);
-        set_flag(FLAG_Z, (m & regs_.a) == 0);
-    }
-
-    void Cpu6502::op_cmp(uint16_t src)
-    {
-        const auto tmp = static_cast<unsigned>(regs_.a - read(src));
-        set_flag(FLAG_C, tmp < 0x100);
-        set_flag(FLAG_N, tmp & 0x80);
-        set_flag(FLAG_Z, (tmp & 0xFF) == 0);
-    }
-
-    void Cpu6502::op_cpx(uint16_t src)
-    {
-        const auto tmp = static_cast<unsigned>(regs_.x - read(src));
-        set_flag(FLAG_C, tmp < 0x100);
-        set_flag(FLAG_N, tmp & 0x80);
-        set_flag(FLAG_Z, (tmp & 0xFF) == 0);
-    }
-
-    void Cpu6502::op_cpy(uint16_t src)
-    {
-        const auto tmp = static_cast<unsigned>(regs_.y - read(src));
-        set_flag(FLAG_C, tmp < 0x100);
-        set_flag(FLAG_N, tmp & 0x80);
-        set_flag(FLAG_Z, (tmp & 0xFF) == 0);
-    }
-
-    // Shifts and rotates write back once (NMOS silicon writes twice; Phase 3/4).
-
-    void Cpu6502::op_asl(uint16_t src)
-    {
-        const uint8_t m = read(src);
-        set_flag(FLAG_C, m & 0x80);
-        const uint8_t r = lo8(m << 1u);
-        set_nz(r);
-        write(src, r);
-    }
-
-    void Cpu6502::op_asl_acc(uint16_t)
-    {
-        set_flag(FLAG_C, regs_.a & 0x80);
-        regs_.a = lo8(regs_.a << 1u);
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_lsr(uint16_t src)
-    {
-        const uint8_t m = read(src);
-        set_flag(FLAG_C, m & 0x01);
-        const uint8_t r = static_cast<uint8_t>(m >> 1);
-        set_nz(r);
-        write(src, r);
-    }
-
-    void Cpu6502::op_lsr_acc(uint16_t)
-    {
-        set_flag(FLAG_C, regs_.a & 0x01);
-        regs_.a = static_cast<uint8_t>(regs_.a >> 1);
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_rol(uint16_t src)
-    {
-        const unsigned m = (read(src) << 1u) | (flag(FLAG_C) ? 1u : 0u);
-        set_flag(FLAG_C, m > 0xFF);
-        const uint8_t r = lo8(m);
-        set_nz(r);
-        write(src, r);
-    }
-
-    void Cpu6502::op_rol_acc(uint16_t)
-    {
-        const unsigned m = (regs_.a << 1u) | (flag(FLAG_C) ? 1u : 0u);
-        set_flag(FLAG_C, m > 0xFF);
-        regs_.a = lo8(m);
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_ror(uint16_t src)
-    {
-        const unsigned m = read(src) | (flag(FLAG_C) ? 0x100u : 0u);
-        set_flag(FLAG_C, m & 0x01);
-        const uint8_t r = lo8(m >> 1);
-        set_nz(r);
-        write(src, r);
-    }
-
-    void Cpu6502::op_ror_acc(uint16_t)
-    {
-        const unsigned m = regs_.a | (flag(FLAG_C) ? 0x100u : 0u);
-        set_flag(FLAG_C, m & 0x01);
-        regs_.a = lo8(m >> 1);
-        set_nz(regs_.a);
-    }
-
-    void Cpu6502::op_dec(uint16_t src)
-    {
-        const uint8_t r = lo8(read(src) - 1u);
-        set_nz(r);
-        write(src, r);
-    }
-
-    void Cpu6502::op_inc(uint16_t src)
-    {
-        const uint8_t r = lo8(read(src) + 1u);
-        set_nz(r);
-        write(src, r);
-    }
-
-    void Cpu6502::op_dex(uint16_t)
-    {
-        set_nz(--regs_.x);
-    }
-
-    void Cpu6502::op_dey(uint16_t)
-    {
-        set_nz(--regs_.y);
-    }
-
-    void Cpu6502::op_inx(uint16_t)
-    {
-        set_nz(++regs_.x);
-    }
-
-    void Cpu6502::op_iny(uint16_t)
-    {
-        set_nz(++regs_.y);
-    }
-
-    void Cpu6502::op_bcc(uint16_t src)
-    {
-        if (!flag(FLAG_C))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_bcs(uint16_t src)
-    {
-        if (flag(FLAG_C))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_beq(uint16_t src)
-    {
-        if (flag(FLAG_Z))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_bne(uint16_t src)
-    {
-        if (!flag(FLAG_Z))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_bmi(uint16_t src)
-    {
-        if (flag(FLAG_N))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_bpl(uint16_t src)
-    {
-        if (!flag(FLAG_N))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_bvc(uint16_t src)
-    {
-        if (!flag(FLAG_V))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_bvs(uint16_t src)
-    {
-        if (flag(FLAG_V))
-            regs_.pc = src;
-    }
-
-    void Cpu6502::op_brk(uint16_t)
-    {
-        regs_.pc++; // BRK skips its padding byte
-        interrupt(IRQ_VECTOR, static_cast<uint8_t>(regs_.p | FLAG_U | FLAG_B));
-    }
-
-    void Cpu6502::op_jmp(uint16_t src)
-    {
-        regs_.pc = src;
-    }
-
-    void Cpu6502::op_jsr(uint16_t src)
-    {
-        regs_.pc--; // pushes the address of its own last byte
-        push(lo8(regs_.pc >> 8));
-        push(lo8(regs_.pc));
-        regs_.pc = src;
-    }
-
-    void Cpu6502::op_rts(uint16_t)
-    {
-        const unsigned lo = pop();
-        const unsigned hi = pop();
-        regs_.pc = static_cast<uint16_t>((lo | (hi << 8)) + 1);
-    }
-
-    void Cpu6502::op_rti(uint16_t)
-    {
-        regs_.p = static_cast<uint8_t>(pop() | FLAG_U | FLAG_B);
-        const unsigned lo = pop();
-        const unsigned hi = pop();
+        state_ = State::Running;
+        read(regs_.pc);
+        read(regs_.pc);
+        for (int i = 0; i < 3; ++i) // the pushes of an interrupt, as reads
+            read(stack(regs_.s--));
+        regs_.p = static_cast<uint8_t>((regs_.p | FLAG_I | FLAG_U) & ~FLAG_B);
+        if (cmos())
+            set_flag(FLAG_D, false);
+        const unsigned lo = read(RESET_VECTOR);
+        const unsigned hi = read(RESET_VECTOR + 1);
         regs_.pc = static_cast<uint16_t>(lo | (hi << 8));
     }
 
-    void Cpu6502::op_clc(uint16_t)
+    unsigned Cpu6502::step()
     {
-        set_flag(FLAG_C, false);
+        if (state_ != State::Running)
+        {
+            ++cycles_; // WAI/STP: the clock runs, the bus is idle
+            return 1;
+        }
+        const uint64_t start = cycles_;
+        const uint8_t opcode = fetch();
+        EMU_LOGV(TAG, "%04X: %02X", static_cast<unsigned>(regs_.pc - 1), opcode);
+        execute(opcode);
+        return static_cast<unsigned>(cycles_ - start);
     }
 
-    void Cpu6502::op_cld(uint16_t)
+    void Cpu6502::irq()
     {
-        set_flag(FLAG_D, false);
+        if (state_ == State::Stopped)
+            return;
+        state_ = State::Running; // a WAI resumes even when the IRQ is masked
+        if (flag(FLAG_I))
+            return;
+        read(regs_.pc);
+        read(regs_.pc);
+        interrupt(IRQ_VECTOR, static_cast<uint8_t>((regs_.p & ~FLAG_B) | FLAG_U));
     }
 
-    void Cpu6502::op_cli(uint16_t)
+    void Cpu6502::nmi()
     {
-        set_flag(FLAG_I, false);
+        if (state_ == State::Stopped)
+            return;
+        state_ = State::Running;
+        read(regs_.pc);
+        read(regs_.pc);
+        interrupt(NMI_VECTOR, static_cast<uint8_t>((regs_.p & ~FLAG_B) | FLAG_U));
     }
 
-    void Cpu6502::op_clv(uint16_t)
+    void Cpu6502::interrupt(uint16_t vector, uint8_t pushed_p)
     {
-        set_flag(FLAG_V, false);
-    }
-
-    void Cpu6502::op_sec(uint16_t)
-    {
-        set_flag(FLAG_C, true);
-    }
-
-    void Cpu6502::op_sed(uint16_t)
-    {
-        set_flag(FLAG_D, true);
-    }
-
-    void Cpu6502::op_sei(uint16_t)
-    {
+        push(lo8(regs_.pc >> 8));
+        push(lo8(regs_.pc));
+        push(pushed_p);
         set_flag(FLAG_I, true);
+        if (cmos())
+            set_flag(FLAG_D, false);
+        const unsigned lo = read(vector);
+        const unsigned hi = read(static_cast<uint16_t>(vector + 1));
+        regs_.pc = static_cast<uint16_t>(lo | (hi << 8));
     }
 
-    void Cpu6502::op_lda(uint16_t src)
+    // --- addressing ----------------------------------------------------------
+
+    uint16_t Cpu6502::abs_indexed(uint8_t index, bool always_extra)
     {
-        regs_.a = read(src);
+        const uint16_t base = fetch16();
+        const auto ea = static_cast<uint16_t>(base + index);
+        if (always_extra || crosses(base, ea))
+        {
+            if (cmos())
+                read(static_cast<uint16_t>(regs_.pc - 1));
+            else
+                read(static_cast<uint16_t>((base & 0xFF00) | (ea & 0xFF)));
+        }
+        return ea;
+    }
+
+    uint16_t Cpu6502::izy(bool always_extra)
+    {
+        const uint8_t zp = fetch();
+        const unsigned lo = read(zp);
+        const unsigned hi = read(lo8(zp + 1u));
+        const auto base = static_cast<uint16_t>(lo | (hi << 8));
+        const auto ea = static_cast<uint16_t>(base + regs_.y);
+        if (always_extra || crosses(base, ea))
+        {
+            if (cmos())
+                read(static_cast<uint16_t>(regs_.pc - 1));
+            else
+                read(static_cast<uint16_t>((base & 0xFF00) | (ea & 0xFF)));
+        }
+        return ea;
+    }
+
+    uint16_t Cpu6502::ea_read(Mode m)
+    {
+        switch (m)
+        {
+        case Mode::Imm:
+            return regs_.pc++;
+        case Mode::Zp:
+            return fetch();
+        case Mode::Zpx:
+        case Mode::Zpy:
+        {
+            const uint8_t zp = fetch();
+            read(zp); // the un-indexed address, on both models
+            return lo8(zp + (m == Mode::Zpx ? regs_.x : regs_.y));
+        }
+        case Mode::Abs:
+            return fetch16();
+        case Mode::Abx:
+            return abs_indexed(regs_.x, false);
+        case Mode::Aby:
+            return abs_indexed(regs_.y, false);
+        case Mode::Izx:
+        {
+            const uint8_t zp = fetch();
+            read(zp);
+            const uint8_t ptr = lo8(zp + regs_.x);
+            const unsigned lo = read(ptr);
+            const unsigned hi = read(lo8(ptr + 1u)); // the pointer wraps in zero page
+            return static_cast<uint16_t>(lo | (hi << 8));
+        }
+        case Mode::Izy:
+            return izy(false);
+        case Mode::Izp:
+        {
+            const uint8_t zp = fetch();
+            const unsigned lo = read(zp);
+            const unsigned hi = read(lo8(zp + 1u));
+            return static_cast<uint16_t>(lo | (hi << 8));
+        }
+        }
+        return 0;
+    }
+
+    uint16_t Cpu6502::ea_write(Mode m)
+    {
+        switch (m)
+        {
+        case Mode::Abx:
+            return abs_indexed(regs_.x, true);
+        case Mode::Aby:
+            return abs_indexed(regs_.y, true);
+        case Mode::Izy:
+            return izy(true);
+        default:
+            return ea_read(m);
+        }
+    }
+
+    // --- loads, stores, logic ------------------------------------------------
+
+    void Cpu6502::load(uint8_t &reg, Mode m)
+    {
+        reg = read(ea_read(m));
+        set_nz(reg);
+    }
+
+    void Cpu6502::store(Mode m, uint8_t v)
+    {
+        write(ea_write(m), v);
+    }
+
+    void Cpu6502::logic(Mode m, char op)
+    {
+        const uint8_t v = read(ea_read(m));
+        if (op == '|')
+            regs_.a = static_cast<uint8_t>(regs_.a | v);
+        else if (op == '&')
+            regs_.a = static_cast<uint8_t>(regs_.a & v);
+        else
+            regs_.a = static_cast<uint8_t>(regs_.a ^ v);
         set_nz(regs_.a);
     }
 
-    void Cpu6502::op_ldx(uint16_t src)
+    void Cpu6502::compare(uint8_t reg, Mode m)
     {
-        regs_.x = read(src);
-        set_nz(regs_.x);
+        const uint8_t v = read(ea_read(m));
+        set_flag(FLAG_C, reg >= v);
+        set_nz(lo8(reg - v + 0x100u));
     }
 
-    void Cpu6502::op_ldy(uint16_t src)
+    void Cpu6502::bit(Mode m)
     {
-        regs_.y = read(src);
-        set_nz(regs_.y);
+        const uint8_t v = read(ea_read(m));
+        set_flag(FLAG_Z, (regs_.a & v) == 0);
+        if (m != Mode::Imm) // BIT # (W65C02S) affects Z only
+        {
+            set_flag(FLAG_N, v & 0x80);
+            set_flag(FLAG_V, v & 0x40);
+        }
     }
 
-    void Cpu6502::op_sta(uint16_t src)
-    {
-        write(src, regs_.a);
-    }
+    // --- arithmetic ----------------------------------------------------------
 
-    void Cpu6502::op_stx(uint16_t src)
+    void Cpu6502::binary_add(uint8_t m)
     {
-        write(src, regs_.x);
-    }
-
-    void Cpu6502::op_sty(uint16_t src)
-    {
-        write(src, regs_.y);
-    }
-
-    void Cpu6502::op_tax(uint16_t)
-    {
-        regs_.x = regs_.a;
-        set_nz(regs_.x);
-    }
-
-    void Cpu6502::op_tay(uint16_t)
-    {
-        regs_.y = regs_.a;
-        set_nz(regs_.y);
-    }
-
-    void Cpu6502::op_tsx(uint16_t)
-    {
-        regs_.x = regs_.s;
-        set_nz(regs_.x);
-    }
-
-    void Cpu6502::op_txa(uint16_t)
-    {
-        regs_.a = regs_.x;
+        const unsigned a = regs_.a;
+        const unsigned sum = a + m + (flag(FLAG_C) ? 1u : 0u);
+        set_flag(FLAG_C, sum > 0xFF);
+        set_flag(FLAG_V, (~(a ^ m) & (a ^ sum) & 0x80) != 0);
+        regs_.a = lo8(sum);
         set_nz(regs_.a);
     }
 
-    void Cpu6502::op_txs(uint16_t)
+    void Cpu6502::decimal_extra_cycle(Mode m, uint16_t ea, bool subtract)
     {
-        regs_.s = regs_.x; // no flags
+        // W65C02S only. Re-reads the operand; immediate mode reads a fixed
+        // address instead (per Harte; see the file comment).
+        if (m == Mode::Imm)
+            read(subtract ? 0x0000 : 0x007F);
+        else
+            read(ea);
     }
 
-    void Cpu6502::op_tya(uint16_t)
+    void Cpu6502::adc(Mode m)
     {
-        regs_.a = regs_.y;
-        set_nz(regs_.a);
+        const uint16_t ea = ea_read(m);
+        const uint8_t v = read(ea);
+        if (!flag(FLAG_D))
+        {
+            binary_add(v);
+            return;
+        }
+        const int a = regs_.a, b = v, c = flag(FLAG_C) ? 1 : 0;
+        int al = (a & 0x0F) + (b & 0x0F) + c; // Clark seq. 1/2
+        if (al >= 0x0A)
+            al = ((al + 0x06) & 0x0F) + 0x10;
+        const int seq2 = static_cast<int8_t>(a & 0xF0) + static_cast<int8_t>(b & 0xF0) + al;
+        int sum = (a & 0xF0) + (b & 0xF0) + al;
+        if (sum >= 0xA0)
+            sum += 0x60;
+        set_flag(FLAG_C, sum >= 0x100);
+        set_flag(FLAG_V, seq2 < -128 || seq2 > 127);
+        regs_.a = lo8(static_cast<unsigned>(sum));
+        if (cmos())
+        {
+            set_nz(regs_.a);
+            decimal_extra_cycle(m, ea, false);
+        }
+        else
+        {
+            set_flag(FLAG_N, seq2 & 0x80);
+            set_flag(FLAG_Z, ((a + b + c) & 0xFF) == 0); // NMOS: Z from the binary sum
+        }
     }
 
-    void Cpu6502::op_pha(uint16_t)
+    void Cpu6502::sbc(Mode m)
     {
-        push(regs_.a);
+        const uint16_t ea = ea_read(m);
+        const uint8_t v = read(ea);
+        const int a = regs_.a, b = v, c = flag(FLAG_C) ? 1 : 0;
+        if (!flag(FLAG_D))
+        {
+            binary_add(lo8(~static_cast<unsigned>(v)));
+            return;
+        }
+        // Carry and overflow are the binary subtraction's on both models.
+        const unsigned bin = static_cast<unsigned>(a - b - 1 + c);
+        set_flag(FLAG_C, a - b - 1 + c >= 0);
+        set_flag(FLAG_V, ((static_cast<unsigned>(a) ^ bin) & (static_cast<unsigned>(a) ^ static_cast<unsigned>(b)) & 0x80) != 0);
+        int al = (a & 0x0F) - (b & 0x0F) + c - 1;
+        int r = 0;
+        if (cmos())
+        {
+            r = a - b + c - 1; // Clark seq. 4
+            if (r < 0)
+                r -= 0x60;
+            if (al < 0)
+                r -= 0x06;
+        }
+        else
+        {
+            if (al < 0) // Clark seq. 3
+                al = ((al - 0x06) & 0x0F) - 0x10;
+            r = (a & 0xF0) - (b & 0xF0) + al;
+            if (r < 0)
+                r -= 0x60;
+        }
+        regs_.a = lo8(static_cast<unsigned>(r));
+        if (cmos())
+        {
+            set_nz(regs_.a);
+            decimal_extra_cycle(m, ea, true);
+        }
+        else
+        {
+            set_nz(lo8(bin)); // NMOS: N and Z from the binary difference
+        }
     }
 
-    void Cpu6502::op_php(uint16_t)
+    // --- read-modify-write ---------------------------------------------------
+
+    uint8_t Cpu6502::asl(uint8_t v)
     {
-        push(static_cast<uint8_t>(regs_.p | FLAG_U | FLAG_B));
+        set_flag(FLAG_C, v & 0x80);
+        const uint8_t r = lo8(v << 1u);
+        set_nz(r);
+        return r;
     }
 
-    void Cpu6502::op_pla(uint16_t)
+    uint8_t Cpu6502::lsr(uint8_t v)
     {
-        regs_.a = pop();
-        set_nz(regs_.a);
+        set_flag(FLAG_C, v & 0x01);
+        const auto r = static_cast<uint8_t>(v >> 1);
+        set_nz(r);
+        return r;
     }
 
-    void Cpu6502::op_plp(uint16_t)
+    uint8_t Cpu6502::rol(uint8_t v)
     {
-        regs_.p = static_cast<uint8_t>(pop() | FLAG_U | FLAG_B);
+        const uint8_t r = lo8((v << 1u) | (flag(FLAG_C) ? 1u : 0u));
+        set_flag(FLAG_C, v & 0x80);
+        set_nz(r);
+        return r;
     }
 
-    void Cpu6502::op_nop(uint16_t)
+    uint8_t Cpu6502::ror(uint8_t v)
     {
+        const uint8_t r = lo8((v >> 1) | (flag(FLAG_C) ? 0x80u : 0u));
+        set_flag(FLAG_C, v & 0x01);
+        set_nz(r);
+        return r;
+    }
+
+    uint8_t Cpu6502::inc(uint8_t v)
+    {
+        const uint8_t r = lo8(v + 1u);
+        set_nz(r);
+        return r;
+    }
+
+    uint8_t Cpu6502::dec(uint8_t v)
+    {
+        const uint8_t r = lo8(v - 1u);
+        set_nz(r);
+        return r;
+    }
+
+    uint8_t Cpu6502::tsb(uint8_t v)
+    {
+        set_flag(FLAG_Z, (regs_.a & v) == 0);
+        return static_cast<uint8_t>(v | regs_.a);
+    }
+
+    uint8_t Cpu6502::trb(uint8_t v)
+    {
+        set_flag(FLAG_Z, (regs_.a & v) == 0);
+        return static_cast<uint8_t>(v & ~regs_.a);
+    }
+
+    void Cpu6502::rmw(Mode m, Rmw op)
+    {
+        uint16_t ea = 0;
+        if (m == Mode::Abx)
+        {
+            // WDC: shifts and rotates skip the extra cycle without a page
+            // cross; INC and DEC never do. NMOS always takes it.
+            const bool inc_dec = op == &Cpu6502::inc || op == &Cpu6502::dec;
+            ea = abs_indexed(regs_.x, !cmos() || inc_dec);
+        }
+        else
+        {
+            ea = ea_write(m);
+        }
+        const uint8_t v = read(ea);
+        if (cmos())
+            read(ea); // WDC re-reads
+        else
+            write(ea, v); // NMOS writes the old value back first
+        write(ea, (this->*op)(v));
+    }
+
+    void Cpu6502::rmw_acc(Rmw op)
+    {
+        implied();
+        regs_.a = (this->*op)(regs_.a);
+    }
+
+    void Cpu6502::rmb_smb(unsigned bitno, bool set)
+    {
+        const uint8_t zp = fetch();
+        const uint8_t v = read(zp);
+        read(zp);
+        const auto mask = static_cast<uint8_t>(1u << bitno);
+        write(zp, set ? static_cast<uint8_t>(v | mask) : static_cast<uint8_t>(v & ~mask));
+    }
+
+    // --- branches and jumps ----------------------------------------------------
+
+    void Cpu6502::branch(bool taken)
+    {
+        const auto offset = static_cast<int8_t>(fetch());
+        if (!taken)
+            return;
+        read(regs_.pc);
+        const auto target = static_cast<uint16_t>(regs_.pc + offset);
+        if (crosses(regs_.pc, target))
+            read(static_cast<uint16_t>((regs_.pc & 0xFF00) | (target & 0xFF)));
+        regs_.pc = target;
+    }
+
+    void Cpu6502::bbr_bbs(unsigned bitno, bool set)
+    {
+        const uint8_t zp = fetch();
+        const uint8_t v = read(zp);
+        read(zp);
+        const auto offset = static_cast<int8_t>(fetch());
+        if (((v >> bitno) & 1u) != (set ? 1u : 0u))
+            return;
+        read(regs_.pc);
+        const auto target = static_cast<uint16_t>(regs_.pc + offset);
+        if (crosses(regs_.pc, target))
+            read(regs_.pc);
+        regs_.pc = target;
+    }
+
+    // --- stack -----------------------------------------------------------------
+
+    void Cpu6502::push_reg(uint8_t v)
+    {
+        implied();
+        push(v);
+    }
+
+    uint8_t Cpu6502::pull_reg()
+    {
+        implied();
+        read(stack(regs_.s));
+        return pull();
+    }
+
+    // --- decode ----------------------------------------------------------------
+
+    bool Cpu6502::execute_cmos(uint8_t op)
+    {
+        Registers &r = regs_;
+        const unsigned lo = op & 0x0F, hi = op >> 4;
+
+        if (lo == 0x7) // RMB0-7 / SMB0-7
+        {
+            rmb_smb(hi & 7, hi >= 8);
+            return true;
+        }
+        if (lo == 0xF) // BBR0-7 / BBS0-7
+        {
+            bbr_bbs(hi & 7, hi >= 8);
+            return true;
+        }
+        if ((lo == 0x3 || lo == 0xB) && op != 0xCB && op != 0xDB)
+            return true; // one-byte, one-cycle NOP
+
+        switch (op)
+        {
+        case 0x04: rmw(Mode::Zp, &Cpu6502::tsb); return true;
+        case 0x0C: rmw(Mode::Abs, &Cpu6502::tsb); return true;
+        case 0x14: rmw(Mode::Zp, &Cpu6502::trb); return true;
+        case 0x1C: rmw(Mode::Abs, &Cpu6502::trb); return true;
+        case 0x12: logic(Mode::Izp, '|'); return true;
+        case 0x32: logic(Mode::Izp, '&'); return true;
+        case 0x52: logic(Mode::Izp, '^'); return true;
+        case 0x72: adc(Mode::Izp); return true;
+        case 0x92: store(Mode::Izp, r.a); return true;
+        case 0xB2: load(r.a, Mode::Izp); return true;
+        case 0xD2: compare(r.a, Mode::Izp); return true;
+        case 0xF2: sbc(Mode::Izp); return true;
+        case 0x1A: rmw_acc(&Cpu6502::inc); return true;
+        case 0x3A: rmw_acc(&Cpu6502::dec); return true;
+        case 0x34: bit(Mode::Zpx); return true;
+        case 0x3C: bit(Mode::Abx); return true;
+        case 0x89: bit(Mode::Imm); return true;
+        case 0x5A: push_reg(r.y); return true;
+        case 0xDA: push_reg(r.x); return true;
+        case 0x7A: r.y = pull_reg(); set_nz(r.y); return true;
+        case 0xFA: r.x = pull_reg(); set_nz(r.x); return true;
+        case 0x64: store(Mode::Zp, 0); return true;
+        case 0x74: store(Mode::Zpx, 0); return true;
+        case 0x9C: store(Mode::Abs, 0); return true;
+        case 0x9E: store(Mode::Abx, 0); return true;
+        case 0x80: branch(true); return true; // BRA
+        case 0x7C: // JMP (abs,X)
+        {
+            const uint16_t base = fetch16();
+            read(static_cast<uint16_t>(r.pc - 2)); // the operand's first byte
+            const auto ptr = static_cast<uint16_t>(base + r.x);
+            const unsigned plo = read(ptr);
+            const unsigned phi = read(static_cast<uint16_t>(ptr + 1));
+            r.pc = static_cast<uint16_t>(plo | (phi << 8));
+            return true;
+        }
+        case 0xCB: // WAI
+            implied();
+            read(r.pc);
+            state_ = State::Waiting;
+            return true;
+        case 0xDB: // STP
+            implied();
+            read(r.pc);
+            state_ = State::Stopped;
+            return true;
+        // Undefined: NOPs with the size and bus pattern WDC's die gives them.
+        case 0x02: case 0x22: case 0x42: case 0x62: case 0x82: case 0xC2: case 0xE2:
+            fetch();
+            return true;
+        case 0x44:
+            read(fetch());
+            return true;
+        case 0x54: case 0xD4: case 0xF4:
+            read(ea_read(Mode::Zpx));
+            return true;
+        case 0x5C: case 0xDC: case 0xFC:
+            fetch16();
+            read(static_cast<uint16_t>(r.pc - 1));
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    void Cpu6502::execute(uint8_t op)
+    {
+        if (cmos() && execute_cmos(op))
+            return;
+
+        Registers &r = regs_;
+        switch (op)
+        {
+        // loads and stores
+        case 0xA9: load(r.a, Mode::Imm); break;
+        case 0xA5: load(r.a, Mode::Zp); break;
+        case 0xB5: load(r.a, Mode::Zpx); break;
+        case 0xAD: load(r.a, Mode::Abs); break;
+        case 0xBD: load(r.a, Mode::Abx); break;
+        case 0xB9: load(r.a, Mode::Aby); break;
+        case 0xA1: load(r.a, Mode::Izx); break;
+        case 0xB1: load(r.a, Mode::Izy); break;
+        case 0xA2: load(r.x, Mode::Imm); break;
+        case 0xA6: load(r.x, Mode::Zp); break;
+        case 0xB6: load(r.x, Mode::Zpy); break;
+        case 0xAE: load(r.x, Mode::Abs); break;
+        case 0xBE: load(r.x, Mode::Aby); break;
+        case 0xA0: load(r.y, Mode::Imm); break;
+        case 0xA4: load(r.y, Mode::Zp); break;
+        case 0xB4: load(r.y, Mode::Zpx); break;
+        case 0xAC: load(r.y, Mode::Abs); break;
+        case 0xBC: load(r.y, Mode::Abx); break;
+        case 0x85: store(Mode::Zp, r.a); break;
+        case 0x95: store(Mode::Zpx, r.a); break;
+        case 0x8D: store(Mode::Abs, r.a); break;
+        case 0x9D: store(Mode::Abx, r.a); break;
+        case 0x99: store(Mode::Aby, r.a); break;
+        case 0x81: store(Mode::Izx, r.a); break;
+        case 0x91: store(Mode::Izy, r.a); break;
+        case 0x86: store(Mode::Zp, r.x); break;
+        case 0x96: store(Mode::Zpy, r.x); break;
+        case 0x8E: store(Mode::Abs, r.x); break;
+        case 0x84: store(Mode::Zp, r.y); break;
+        case 0x94: store(Mode::Zpx, r.y); break;
+        case 0x8C: store(Mode::Abs, r.y); break;
+
+        // logic and arithmetic
+        case 0x09: logic(Mode::Imm, '|'); break;
+        case 0x05: logic(Mode::Zp, '|'); break;
+        case 0x15: logic(Mode::Zpx, '|'); break;
+        case 0x0D: logic(Mode::Abs, '|'); break;
+        case 0x1D: logic(Mode::Abx, '|'); break;
+        case 0x19: logic(Mode::Aby, '|'); break;
+        case 0x01: logic(Mode::Izx, '|'); break;
+        case 0x11: logic(Mode::Izy, '|'); break;
+        case 0x29: logic(Mode::Imm, '&'); break;
+        case 0x25: logic(Mode::Zp, '&'); break;
+        case 0x35: logic(Mode::Zpx, '&'); break;
+        case 0x2D: logic(Mode::Abs, '&'); break;
+        case 0x3D: logic(Mode::Abx, '&'); break;
+        case 0x39: logic(Mode::Aby, '&'); break;
+        case 0x21: logic(Mode::Izx, '&'); break;
+        case 0x31: logic(Mode::Izy, '&'); break;
+        case 0x49: logic(Mode::Imm, '^'); break;
+        case 0x45: logic(Mode::Zp, '^'); break;
+        case 0x55: logic(Mode::Zpx, '^'); break;
+        case 0x4D: logic(Mode::Abs, '^'); break;
+        case 0x5D: logic(Mode::Abx, '^'); break;
+        case 0x59: logic(Mode::Aby, '^'); break;
+        case 0x41: logic(Mode::Izx, '^'); break;
+        case 0x51: logic(Mode::Izy, '^'); break;
+        case 0x69: adc(Mode::Imm); break;
+        case 0x65: adc(Mode::Zp); break;
+        case 0x75: adc(Mode::Zpx); break;
+        case 0x6D: adc(Mode::Abs); break;
+        case 0x7D: adc(Mode::Abx); break;
+        case 0x79: adc(Mode::Aby); break;
+        case 0x61: adc(Mode::Izx); break;
+        case 0x71: adc(Mode::Izy); break;
+        case 0xE9: sbc(Mode::Imm); break;
+        case 0xE5: sbc(Mode::Zp); break;
+        case 0xF5: sbc(Mode::Zpx); break;
+        case 0xED: sbc(Mode::Abs); break;
+        case 0xFD: sbc(Mode::Abx); break;
+        case 0xF9: sbc(Mode::Aby); break;
+        case 0xE1: sbc(Mode::Izx); break;
+        case 0xF1: sbc(Mode::Izy); break;
+        case 0xC9: compare(r.a, Mode::Imm); break;
+        case 0xC5: compare(r.a, Mode::Zp); break;
+        case 0xD5: compare(r.a, Mode::Zpx); break;
+        case 0xCD: compare(r.a, Mode::Abs); break;
+        case 0xDD: compare(r.a, Mode::Abx); break;
+        case 0xD9: compare(r.a, Mode::Aby); break;
+        case 0xC1: compare(r.a, Mode::Izx); break;
+        case 0xD1: compare(r.a, Mode::Izy); break;
+        case 0xE0: compare(r.x, Mode::Imm); break;
+        case 0xE4: compare(r.x, Mode::Zp); break;
+        case 0xEC: compare(r.x, Mode::Abs); break;
+        case 0xC0: compare(r.y, Mode::Imm); break;
+        case 0xC4: compare(r.y, Mode::Zp); break;
+        case 0xCC: compare(r.y, Mode::Abs); break;
+        case 0x24: bit(Mode::Zp); break;
+        case 0x2C: bit(Mode::Abs); break;
+
+        // read-modify-write
+        case 0x0A: rmw_acc(&Cpu6502::asl); break;
+        case 0x06: rmw(Mode::Zp, &Cpu6502::asl); break;
+        case 0x16: rmw(Mode::Zpx, &Cpu6502::asl); break;
+        case 0x0E: rmw(Mode::Abs, &Cpu6502::asl); break;
+        case 0x1E: rmw(Mode::Abx, &Cpu6502::asl); break;
+        case 0x4A: rmw_acc(&Cpu6502::lsr); break;
+        case 0x46: rmw(Mode::Zp, &Cpu6502::lsr); break;
+        case 0x56: rmw(Mode::Zpx, &Cpu6502::lsr); break;
+        case 0x4E: rmw(Mode::Abs, &Cpu6502::lsr); break;
+        case 0x5E: rmw(Mode::Abx, &Cpu6502::lsr); break;
+        case 0x2A: rmw_acc(&Cpu6502::rol); break;
+        case 0x26: rmw(Mode::Zp, &Cpu6502::rol); break;
+        case 0x36: rmw(Mode::Zpx, &Cpu6502::rol); break;
+        case 0x2E: rmw(Mode::Abs, &Cpu6502::rol); break;
+        case 0x3E: rmw(Mode::Abx, &Cpu6502::rol); break;
+        case 0x6A: rmw_acc(&Cpu6502::ror); break;
+        case 0x66: rmw(Mode::Zp, &Cpu6502::ror); break;
+        case 0x76: rmw(Mode::Zpx, &Cpu6502::ror); break;
+        case 0x6E: rmw(Mode::Abs, &Cpu6502::ror); break;
+        case 0x7E: rmw(Mode::Abx, &Cpu6502::ror); break;
+        case 0xE6: rmw(Mode::Zp, &Cpu6502::inc); break;
+        case 0xF6: rmw(Mode::Zpx, &Cpu6502::inc); break;
+        case 0xEE: rmw(Mode::Abs, &Cpu6502::inc); break;
+        case 0xFE: rmw(Mode::Abx, &Cpu6502::inc); break;
+        case 0xC6: rmw(Mode::Zp, &Cpu6502::dec); break;
+        case 0xD6: rmw(Mode::Zpx, &Cpu6502::dec); break;
+        case 0xCE: rmw(Mode::Abs, &Cpu6502::dec); break;
+        case 0xDE: rmw(Mode::Abx, &Cpu6502::dec); break;
+
+        // register-only
+        case 0xE8: implied(); set_nz(++r.x); break;
+        case 0xC8: implied(); set_nz(++r.y); break;
+        case 0xCA: implied(); set_nz(--r.x); break;
+        case 0x88: implied(); set_nz(--r.y); break;
+        case 0xAA: implied(); r.x = r.a; set_nz(r.x); break;
+        case 0xA8: implied(); r.y = r.a; set_nz(r.y); break;
+        case 0xBA: implied(); r.x = r.s; set_nz(r.x); break;
+        case 0x8A: implied(); r.a = r.x; set_nz(r.a); break;
+        case 0x98: implied(); r.a = r.y; set_nz(r.a); break;
+        case 0x9A: implied(); r.s = r.x; break; // no flags
+        case 0x18: implied(); set_flag(FLAG_C, false); break;
+        case 0x38: implied(); set_flag(FLAG_C, true); break;
+        case 0x58: implied(); set_flag(FLAG_I, false); break;
+        case 0x78: implied(); set_flag(FLAG_I, true); break;
+        case 0xB8: implied(); set_flag(FLAG_V, false); break;
+        case 0xD8: implied(); set_flag(FLAG_D, false); break;
+        case 0xF8: implied(); set_flag(FLAG_D, true); break;
+        case 0xEA: implied(); break;
+
+        // branches
+        case 0x10: branch(!flag(FLAG_N)); break;
+        case 0x30: branch(flag(FLAG_N)); break;
+        case 0x50: branch(!flag(FLAG_V)); break;
+        case 0x70: branch(flag(FLAG_V)); break;
+        case 0x90: branch(!flag(FLAG_C)); break;
+        case 0xB0: branch(flag(FLAG_C)); break;
+        case 0xD0: branch(!flag(FLAG_Z)); break;
+        case 0xF0: branch(flag(FLAG_Z)); break;
+
+        // stack
+        case 0x48: push_reg(r.a); break;
+        case 0x08: push_reg(static_cast<uint8_t>(r.p | FLAG_B | FLAG_U)); break;
+        case 0x68: r.a = pull_reg(); set_nz(r.a); break;
+        case 0x28: r.p = static_cast<uint8_t>((pull_reg() | FLAG_U) & ~FLAG_B); break;
+
+        // jumps, calls, interrupts
+        case 0x4C: r.pc = fetch16(); break;
+        case 0x6C:
+        {
+            const uint16_t ptr = fetch16();
+            const unsigned plo = read(ptr);
+            unsigned phi = 0;
+            const auto wrapped = static_cast<uint16_t>((ptr & 0xFF00) | lo8(ptr + 1u));
+            if (cmos())
+            {
+                // WDC still visits the NMOS address, as a dummy read, then
+                // fetches the high byte from the right one.
+                read(wrapped);
+                phi = read(static_cast<uint16_t>(ptr + 1));
+            }
+            else
+            {
+                phi = read(wrapped); // NMOS: ($10FF) takes its high byte from $1000
+            }
+            r.pc = static_cast<uint16_t>(plo | (phi << 8));
+            break;
+        }
+        case 0x20:
+        {
+            const unsigned plo = fetch();
+            read(stack(r.s));
+            push(lo8(r.pc >> 8)); // the address of the operand's last byte
+            push(lo8(r.pc));
+            const unsigned phi = read(r.pc);
+            r.pc = static_cast<uint16_t>(plo | (phi << 8));
+            break;
+        }
+        case 0x60:
+        {
+            implied();
+            read(stack(r.s));
+            const unsigned plo = pull();
+            const unsigned phi = pull();
+            r.pc = static_cast<uint16_t>(plo | (phi << 8));
+            read(r.pc);
+            r.pc++;
+            break;
+        }
+        case 0x40:
+        {
+            implied();
+            read(stack(r.s));
+            r.p = static_cast<uint8_t>((pull() | FLAG_U) & ~FLAG_B);
+            const unsigned plo = pull();
+            const unsigned phi = pull();
+            r.pc = static_cast<uint16_t>(plo | (phi << 8));
+            break;
+        }
+        case 0x00:
+            fetch(); // BRK's padding byte
+            interrupt(IRQ_VECTOR, static_cast<uint8_t>(r.p | FLAG_B | FLAG_U));
+            break;
+
+        default:
+            implied(); // NMOS undocumented: a two-cycle NOP here, not on silicon
+            break;
+        }
     }
 } // namespace ooe::emu
