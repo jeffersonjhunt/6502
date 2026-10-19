@@ -8,16 +8,24 @@ backplane 6502 computer (`../hw/`) during bring-up; see
 ```
 cmake --preset release && cmake --build --preset release
 ./build/release/apps/emu/emulator ../apple1/src/ibasic.rom
+./build/release/apps/emu/emulator --machine machines/apple1.machine ../apple1/src/applesoft.rom
 ```
+
+A machine is one line per chip; see `machines/apple1.machine` and
+`components/machine/include/machine.h` for the format. ROM image paths in a
+description are relative to the working directory, and a ROM on the command
+line replaces the first one.
 
 ## Layout
 
 ```
 components/
   emu_log/     TAG-scoped printf logging (EMU_LOGE/W/I/D; EMU_LOGV with EMU_TRACE)
-  bus/         Bus: read/write for the CPU, poke for devices and loaders
+  bus/         Bus (read/write for the CPU, poke for devices); Device; Decoder + NorthBridge
   cpu6502/     Cpu6502: NMOS core, one instruction per step()
-  machine/     apple1::Memory (RAM, read-only ROM, 6821 PIA rules), load_image
+  devices/     Ram, Rom, Pia6821
+  machine/     Machine (built from a description), apple1::Io, load_image
+machines/      plain-text machine descriptions (apple1.machine is the built-in default)
 apps/emu/      terminal keyboard/display, run loop, main
 test/host/     tests (test/host/README.md)
 tools/         fetch_fixtures.py

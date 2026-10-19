@@ -24,13 +24,18 @@ namespace ooe::emu
     {
         while (!quit)
         {
-            if (!handle_key(keyboard_.poll()))
+            if (!handle_key(terminal_.poll_key()))
                 break;
 
             for (int i = 0; i < STEPS_PER_TICK; ++i)
                 cpu_.step();
 
-            display_.update();
+            // Level-sensitive, sampled once per tick until Phase 4 counts
+            // cycles; irq() does nothing while I is set.
+            if (bus_.irq())
+                cpu_.irq();
+
+            terminal_.update_screen();
 
             if (++ticks_ % 1000 == 0)
                 EMU_LOGV(TAG, "ticks: %llu", static_cast<unsigned long long>(ticks_));

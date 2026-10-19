@@ -20,7 +20,8 @@ cmake --preset release && cmake --build --preset release
 
 At the `\` prompt, `E000R` starts BASIC. Ctrl-C quits. With no argument the
 emulator looks for `ibasic.rom` in the current directory, and it exits with an
-error if the ROM can't be loaded. Nothing is logged unless you ask:
+error if the ROM can't be loaded. `--machine FILE` runs a different machine
+description (`emulator/machines/`). Nothing is logged unless you ask:
 `--log FILE` writes the run to FILE, and `-v` adds per-key detail.
 
 ### Tests ###

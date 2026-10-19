@@ -7,7 +7,11 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- *   emulator [--log FILE] [-v] [rom]     (rom defaults to ./ibasic.rom)
+ *   emulator [--machine FILE] [--log FILE] [-v] [rom]
+ *
+ * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
+ * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
+ * attaches to the PIA the description names `terminal`.
  *
  * Logging is off unless --log is given: stdout and stderr are the Apple-1's
  * screen, and a stray warning in the middle of BASIC output is worse than
@@ -17,12 +21,15 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "apple1.h"
 #include "cpu6502.h"
 #include "emu_log.h"
 #include "emulator.h"
+#include "machine.h"
+#include "pia6821.h"
 #include "terminal.h"
 
 namespace
@@ -41,7 +48,7 @@ namespace
 
     int usage()
     {
-        std::fprintf(stderr, "usage: emulator [--log FILE] [-v] [rom]\n");
+        std::fprintf(stderr, "usage: emulator [--machine FILE] [--log FILE] [-v] [rom]\n");
         return 2;
     }
 } // namespace
@@ -50,19 +57,22 @@ int main(int argc, char *argv[])
 {
     using namespace ooe::emu;
 
-    std::string rom = "ibasic.rom";
+    MachineOptions options;
+    const char *machine_path = nullptr;
     const char *log_path = nullptr;
     bool verbose = false;
     for (int i = 1; i < argc; ++i)
     {
         if (std::strcmp(argv[i], "--log") == 0 && i + 1 < argc)
             log_path = argv[++i];
+        else if (std::strcmp(argv[i], "--machine") == 0 && i + 1 < argc)
+            machine_path = argv[++i];
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')
             return usage();
         else
-            rom = argv[i];
+            options.rom_override = argv[i];
     }
 
     std::FILE *log_file = nullptr;
@@ -84,26 +94,36 @@ int main(int argc, char *argv[])
 
     int rc = 0;
     {
-        apple1::Memory memory;
-        // Before the keyboard takes the terminal, so the error is readable
-        // and there is nothing to restore.
-        if (!apple1::load_rom(memory, rom))
+        // Before the terminal takes over stdin, so an error is readable and
+        // there is nothing to restore.
+        std::string error;
+        std::unique_ptr<Machine> machine =
+            machine_path ? Machine::load(machine_path, options, error)
+                         : Machine::build(apple1::default_machine(), "apple1.machine (built in)", options, error);
+        Pia6821 *pia = machine ? machine->find_as<Pia6821>(apple1::TERMINAL_PIA) : nullptr;
+        if (!machine)
         {
-            std::fprintf(stderr, "emulator: cannot load ROM %s\n", rom.c_str());
+            std::fprintf(stderr, "emulator: %s\n", error.c_str());
+            rc = 1;
+        }
+        else if (!pia)
+        {
+            std::fprintf(stderr, "emulator: the machine has no pia6821 named '%s' for the terminal\n",
+                         apple1::TERMINAL_PIA);
             rc = 1;
         }
         else
         {
-            Cpu6502 cpu(memory);
-            TerminalKeyboard keyboard(memory, apple1::KBDCR, apple1::KBD);
-            TerminalDisplay display(memory, apple1::DSP);
-            Emulator emulator(cpu, keyboard, display);
+            Cpu6502 cpu(machine->bus());
+            apple1::Io io(*pia);
+            Terminal terminal(io);
+            Emulator emulator(cpu, machine->bus(), terminal);
 
             std::signal(SIGINT, request_quit);
             std::signal(SIGTERM, request_quit);
 
             cpu.reset();
-            EMU_LOGI(TAG, "running %s from $%04X", rom.c_str(), cpu.regs().pc);
+            EMU_LOGI(TAG, "running from $%04X", cpu.regs().pc);
             emulator.run(quit_requested);
             EMU_LOGI(TAG, "exiting");
         }

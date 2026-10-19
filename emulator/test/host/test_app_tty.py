@@ -13,6 +13,8 @@ test can see:
   turns a leak into a non-zero exit status.
 - A missing ROM was only logged; the app then ran 64 KB of zeros forever.
 
+A broken --machine file stops the app with its file and line (Phase 3).
+
 And the Phase 2 logging contract: nothing is written unless --log is given
 (the terminal is the Apple-1's screen), and --log FILE gets the run.
 
@@ -124,6 +126,20 @@ def main():
             failures.append("missing rom: exit status 0, want non-zero")
         elif "missing.rom" not in out:
             failures.append(f"missing rom: no message naming the file (got {out[-300:]!r})")
+
+        # A bad machine description must name the file and line, and stop.
+        bad = os.path.join(cwd, "bad.machine")
+        with open(bad, "w") as f:
+            f.write("ram 0000-7FFF\nflux 8000-FFFF\n")
+        proc, master, slave = start(binary, ["--machine", bad], cwd)
+        rc = finish(proc, timeout=5)
+        out = read_until(master, b"\0", 0.5).decode(errors="replace")
+        os.close(master)
+        os.close(slave)
+        if rc is None or rc == 0:
+            failures.append(f"bad machine: exit status {rc}, want non-zero")
+        elif "bad.machine:2:" not in out:
+            failures.append(f"bad machine: no 'bad.machine:2:' in message (got {out[-300:]!r})")
 
     for f in failures:
         print(f"FAIL {f}")

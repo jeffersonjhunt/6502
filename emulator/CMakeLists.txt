@@ -7,7 +7,7 @@
 # tests rely on (test_app_tty uses LeakSanitizer to catch leaks at exit);
 # `release` is the optimised build to actually run.
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18) # file(CONFIGURE)
 project(emu CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -40,6 +40,7 @@ endfunction()
 add_subdirectory(components/emu_log)
 add_subdirectory(components/bus)
 add_subdirectory(components/cpu6502)
+add_subdirectory(components/devices)
 add_subdirectory(components/machine)
 add_subdirectory(apps/emu)
 

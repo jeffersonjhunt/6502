@@ -1,0 +1,13 @@
+# Apple-1 with a 32 KB ROM image (apple1/src/apple1.cfg).
+#
+#   <type> <first>-<last> [name=ID] [module=0-F] [irq] [image]
+#
+# Addresses are physical (A0-A19), in hex. Later lines win where ranges
+# overlap, so the PIA sits inside the ROM image's range. Image paths are
+# relative to the working directory; `emulator <rom>` replaces the first
+# ROM's image.
+
+cpu      nmos6502
+ram      0000-7FFF
+rom      8000-FFFF               ibasic.rom
+pia6821  D010-D013  name=terminal          # KBD/KBDCR, DSP/DSPCR; IRQ not wired
