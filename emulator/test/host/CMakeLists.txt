@@ -19,7 +19,7 @@ function(emu_add_test_exe name)
     emu_house_flags(${name})
     target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
     target_compile_definitions(${name} PRIVATE EMU_FIXTURE_DIR="${EMU_FIXTURE_DIR}")
-    target_link_libraries(${name} PRIVATE emu_cpu6502 emu_machine emu_devices emu_bus emu_log)
+    target_link_libraries(${name} PRIVATE emu_debug emu_cpu6502 emu_machine emu_devices emu_bus emu_log)
 endfunction()
 
 function(emu_add_test name)
@@ -49,14 +49,17 @@ emu_add_test(test_decoder)
 emu_add_test(test_machine)
 emu_add_test(test_loader)
 emu_add_test(test_rom_boot)
+emu_add_test(test_disasm)
+emu_add_test(test_debugger)
 
 
 # --- Apple-1 ROMs ------------------------------------------------------------
 #
 # Assembled here from apple1/src, into the build tree, so the boot tests run
 # against the sources in this checkout rather than whatever .rom happens to be
-# lying in apple1/src. Mirrors apple1/src/Makefile. Without cc65 the ROM tests
-# skip.
+# lying in apple1/src. Mirrors apple1/src/Makefile, including the ld65 -Ln
+# label files (<rom>.lbl), with every label since ca65 gets -g. Without cc65
+# the ROM tests skip.
 
 set(APPLE1_SRC "${PROJECT_SOURCE_DIR}/../apple1/src")
 set(ROM_DIR "${CMAKE_CURRENT_BINARY_DIR}/roms")
@@ -68,25 +71,30 @@ if(EMU_CA65 AND EMU_LD65)
     foreach(src wozmon applesoft io ibasic)
         add_custom_command(
                 OUTPUT "${ROM_DIR}/${src}.o"
-                COMMAND "${EMU_CA65}" -I "${APPLE1_SRC}" -o "${ROM_DIR}/${src}.o" "${APPLE1_SRC}/${src}.s"
+                COMMAND "${EMU_CA65}" -g -I "${APPLE1_SRC}" -o "${ROM_DIR}/${src}.o" "${APPLE1_SRC}/${src}.s"
                 DEPENDS "${APPLE1_SRC}/${src}.s" "${APPLE1_SRC}/zeropage.s" "${APPLE1_SRC}/macros.s"
                 VERBATIM)
     endforeach()
     add_custom_command(
-            OUTPUT "${ROM_DIR}/applesoft.rom"
-            COMMAND "${EMU_LD65}" -C "${APPLE1_SRC}/apple1.cfg" -o "${ROM_DIR}/applesoft.rom"
+            OUTPUT "${ROM_DIR}/applesoft.rom" "${ROM_DIR}/applesoft.rom.lbl"
+            COMMAND "${EMU_LD65}" -C "${APPLE1_SRC}/apple1.cfg" -o "${ROM_DIR}/applesoft.rom" -Ln "${ROM_DIR}/applesoft.rom.lbl"
                     "${ROM_DIR}/applesoft.o" "${ROM_DIR}/io.o" "${ROM_DIR}/wozmon.o"
             DEPENDS "${ROM_DIR}/applesoft.o" "${ROM_DIR}/io.o" "${ROM_DIR}/wozmon.o" "${APPLE1_SRC}/apple1.cfg"
             VERBATIM)
     add_custom_command(
-            OUTPUT "${ROM_DIR}/ibasic.rom"
-            COMMAND "${EMU_LD65}" -C "${APPLE1_SRC}/apple1.cfg" -o "${ROM_DIR}/ibasic.rom"
+            OUTPUT "${ROM_DIR}/ibasic.rom" "${ROM_DIR}/ibasic.rom.lbl"
+            COMMAND "${EMU_LD65}" -C "${APPLE1_SRC}/apple1.cfg" -o "${ROM_DIR}/ibasic.rom" -Ln "${ROM_DIR}/ibasic.rom.lbl"
                     "${ROM_DIR}/ibasic.o" "${ROM_DIR}/wozmon.o"
             DEPENDS "${ROM_DIR}/ibasic.o" "${ROM_DIR}/wozmon.o" "${APPLE1_SRC}/apple1.cfg"
             VERBATIM)
     add_custom_target(apple1_roms ALL DEPENDS "${ROM_DIR}/applesoft.rom" "${ROM_DIR}/ibasic.rom")
 else()
     message(STATUS "emu: ca65/ld65 not found — Apple-1 ROM tests will skip")
+endif()
+
+target_compile_definitions(test_disasm PRIVATE EMU_TEST_TMP="${CMAKE_CURRENT_BINARY_DIR}")
+if(EMU_CA65 AND EMU_LD65)
+    target_compile_definitions(test_disasm PRIVATE EMU_CA65="${EMU_CA65}" EMU_LD65="${EMU_LD65}")
 endif()
 
 target_compile_definitions(test_rom_boot PRIVATE
@@ -104,4 +112,12 @@ if(Python3_FOUND)
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_app_tty.py"
                      $<TARGET_FILE:emulator> "${ROM_DIR}/ibasic.rom")
     set_tests_properties(test_app_tty PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME test_app_debug
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_app_debug.py"
+                     $<TARGET_FILE:emulator> "${ROM_DIR}/ibasic.rom" "${ROM_DIR}/ibasic.rom.lbl"
+                     "${PROJECT_SOURCE_DIR}/tools/trace_diff.py" "${PROJECT_SOURCE_DIR}/machines")
+    set_tests_properties(test_app_debug PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME test_trace_diff
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
+                     "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")
 endif()

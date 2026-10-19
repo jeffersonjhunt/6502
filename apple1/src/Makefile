@@ -1,4 +1,4 @@
-AFLAGS  =
+AFLAGS  = -g  # debug info, so -Ln lists every label, not just the exports
 LFLAGS  =
 APPLESOFT_ROM = applesoft.rom
 IBASIC_ROM = ibasic.rom
