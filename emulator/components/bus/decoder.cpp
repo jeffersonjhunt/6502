@@ -26,8 +26,18 @@ namespace ooe::emu
         if (!m.device || m.first > m.last || m.last >= PHYSICAL_SPACE)
             return false;
         mappings_.push_back(m);
-        if (std::find(devices_.begin(), devices_.end(), m.device) == devices_.end())
-            devices_.push_back(m.device);
+        size_t slot = 0;
+        while (slot < slots_.size() && slots_[slot].device != m.device)
+            ++slot;
+        if (slot == slots_.size())
+        {
+            slots_.push_back(Slot{m.device, now_, m.device->timed()});
+            if (m.device->timed())
+                timed_.push_back(slot);
+        }
+        slot_of_.push_back(slot);
+        if (m.irq_wired && std::find(irq_wired_.begin(), irq_wired_.end(), m.device) == irq_wired_.end())
+            irq_wired_.push_back(m.device);
         return true;
     }
 
@@ -42,14 +52,26 @@ namespace ooe::emu
         return nullptr;
     }
 
+    void Decoder::catch_up(const Mapping &m)
+    {
+        Slot &s = slots_[slot_of_[static_cast<size_t>(&m - mappings_.data())]];
+        if (s.timed && s.synced + 1 < now_)
+        {
+            s.device->tick(now_ - 1 - s.synced);
+            s.synced = now_ - 1;
+        }
+    }
+
     uint8_t Decoder::read(uint16_t addr)
     {
+        ++now_;
         const Mapping *m = decode(addr);
         if (!m)
         {
             EMU_LOGV(TAG, "%04X -> unmapped", addr);
             return UNMAPPED_READ;
         }
+        catch_up(*m);
         const uint8_t v = m->device->read(bridge_.physical(addr) - m->first);
         EMU_LOGV(TAG, "%04X -> %02X", addr, v);
         return v;
@@ -57,10 +79,13 @@ namespace ooe::emu
 
     void Decoder::write(uint16_t addr, uint8_t data)
     {
+        ++now_;
         const Mapping *m = decode(addr);
         EMU_LOGV(TAG, "%04X <- %02X%s", addr, data, m ? "" : " (unmapped)");
-        if (m)
-            m->device->write(bridge_.physical(addr) - m->first, data);
+        if (!m)
+            return;
+        catch_up(*m);
+        m->device->write(bridge_.physical(addr) - m->first, data);
     }
 
     void Decoder::poke(uint16_t addr, uint8_t data)
@@ -82,19 +107,27 @@ namespace ooe::emu
         return m ? m->module : NO_MODULE;
     }
 
-    bool Decoder::irq() const
+    void Decoder::sync()
     {
-        for (const Mapping &m : mappings_)
+        for (const size_t i : timed_)
         {
-            if (m.irq_wired && m.device->irq())
+            Slot &s = slots_[i];
+            if (s.synced < now_)
+            {
+                s.device->tick(now_ - s.synced);
+                s.synced = now_;
+            }
+        }
+    }
+
+    bool Decoder::irq()
+    {
+        sync();
+        for (const Device *d : irq_wired_)
+        {
+            if (d->irq())
                 return true;
         }
         return false;
-    }
-
-    void Decoder::tick(unsigned cycles)
-    {
-        for (Device *d : devices_)
-            d->tick(cycles);
     }
 } // namespace ooe::emu

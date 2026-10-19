@@ -39,5 +39,8 @@ namespace ooe::emu
         /// and disassembler look at memory this way, so dumping a 6821 does
         /// not eat a keystroke.
         virtual uint8_t peek(uint16_t addr) const = 0;
+        /// A CPU cycle with no access (WAI, STP), so a bus that keeps time
+        /// by counting accesses (Decoder) stays level with the CPU.
+        virtual void idle() {}
     };
 } // namespace ooe::emu

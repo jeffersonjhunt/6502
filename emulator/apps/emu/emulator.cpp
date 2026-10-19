@@ -86,13 +86,12 @@ namespace ooe::emu
                 break;
             }
             ran += cpu_.step();
+            // Level-sensitive, sampled after every instruction (devices keep
+            // time in lockstep, so a timer fires at the right instruction).
+            // irq() does nothing while I is set, except end a WAI.
+            if (bus_.irq())
+                cpu_.irq();
         }
-        bus_.tick(ran);
-
-        // Level-sensitive, sampled between slices. irq() does nothing
-        // while I is set, except end a WAI.
-        if (bus_.irq())
-            cpu_.irq();
 
         // STP stops the clock for good; say so once rather than idle silently.
         if (cpu_.state() == Cpu6502::State::Stopped && !stop_reported_ && !debugger_.halted())

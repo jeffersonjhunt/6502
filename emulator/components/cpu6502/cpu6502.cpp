@@ -113,6 +113,7 @@ namespace ooe::emu
         if (state_ != State::Running)
         {
             ++cycles_; // WAI/STP: the clock runs, the bus is idle
+            bus_.idle();
             return 1;
         }
         const uint64_t start = cycles_;

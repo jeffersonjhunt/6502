@@ -9,9 +9,10 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * Time is CPU cycles, counted exactly by the core since Phase 4. The loop
- * runs whole instructions until a slice of SLICE_CYCLES has passed, ticks
- * the devices by what actually ran, then services the host. With a clock
+ * Time is CPU cycles, counted exactly by the core since Phase 4; devices
+ * keep it in lockstep through the decoder (Phase 3b). The loop runs whole
+ * instructions, checking IRQ after each, until a slice of SLICE_CYCLES has
+ * passed, then services the host. With a clock
  * rate it sleeps to keep emulated time level with wall time; it only sleeps
  * once ahead by more than a millisecond, so the host's sleep granularity
  * does not set the speed.
