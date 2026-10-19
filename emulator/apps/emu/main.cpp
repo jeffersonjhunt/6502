@@ -7,11 +7,13 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- *   emulator [--machine FILE] [--log FILE] [-v] [rom]
+ *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
- * attaches to the PIA the description names `terminal`.
+ * attaches to the PIA the description names `terminal`. The CPU model is
+ * the description's `cpu` line. --clock sets the emulated clock (default
+ * 1 MHz, real time for an Apple-1); --clock 0 runs as fast as the host can.
  *
  * Logging is off unless --log is given: stdout and stderr are the Apple-1's
  * screen, and a stray warning in the middle of BASIC output is worse than
@@ -20,6 +22,7 @@
 
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -48,7 +51,7 @@ namespace
 
     int usage()
     {
-        std::fprintf(stderr, "usage: emulator [--machine FILE] [--log FILE] [-v] [rom]\n");
+        std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v] [rom]\n");
         return 2;
     }
 } // namespace
@@ -60,6 +63,7 @@ int main(int argc, char *argv[])
     MachineOptions options;
     const char *machine_path = nullptr;
     const char *log_path = nullptr;
+    uint32_t clock_hz = 1'000'000;
     bool verbose = false;
     for (int i = 1; i < argc; ++i)
     {
@@ -67,6 +71,14 @@ int main(int argc, char *argv[])
             log_path = argv[++i];
         else if (std::strcmp(argv[i], "--machine") == 0 && i + 1 < argc)
             machine_path = argv[++i];
+        else if (std::strcmp(argv[i], "--clock") == 0 && i + 1 < argc)
+        {
+            char *end = nullptr;
+            const unsigned long hz = std::strtoul(argv[++i], &end, 10);
+            if (*end != '\0' || hz > 100'000'000ul)
+                return usage();
+            clock_hz = static_cast<uint32_t>(hz);
+        }
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')
@@ -114,16 +126,18 @@ int main(int argc, char *argv[])
         }
         else
         {
-            Cpu6502 cpu(machine->bus());
+            const auto model =
+                machine->cpu() == "w65c02s" ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
+            Cpu6502 cpu(machine->bus(), model);
             apple1::Io io(*pia);
             Terminal terminal(io);
-            Emulator emulator(cpu, machine->bus(), terminal);
+            Emulator emulator(cpu, machine->bus(), terminal, clock_hz);
 
             std::signal(SIGINT, request_quit);
             std::signal(SIGTERM, request_quit);
 
             cpu.reset();
-            EMU_LOGI(TAG, "running from $%04X", cpu.regs().pc);
+            EMU_LOGI(TAG, "%s from $%04X at %u Hz", machine->cpu().c_str(), cpu.regs().pc, clock_hz);
             emulator.run(quit_requested);
             EMU_LOGI(TAG, "exiting");
         }

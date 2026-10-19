@@ -22,26 +22,39 @@ namespace ooe::emu
 
     void Emulator::run(const volatile std::sig_atomic_t &quit)
     {
+        using clock = std::chrono::steady_clock;
+        const auto start = clock::now();
+        const uint64_t start_cycles = cpu_.cycles();
+
         while (!quit)
         {
             if (!handle_key(terminal_.poll_key()))
                 break;
 
-            for (int i = 0; i < STEPS_PER_TICK; ++i)
-                cpu_.step();
+            unsigned ran = 0;
+            while (ran < SLICE_CYCLES)
+                ran += cpu_.step();
+            bus_.tick(ran);
 
-            // Level-sensitive, sampled once per tick until Phase 4 counts
-            // cycles; irq() does nothing while I is set.
+            // Level-sensitive, sampled between slices. irq() does nothing
+            // while I is set, except end a WAI.
             if (bus_.irq())
                 cpu_.irq();
 
             terminal_.update_screen();
 
-            if (++ticks_ % 1000 == 0)
-                EMU_LOGV(TAG, "ticks: %llu", static_cast<unsigned long long>(ticks_));
-            if (TICK_SLEEP_US > 0)
-                std::this_thread::sleep_for(std::chrono::microseconds(TICK_SLEEP_US));
+            if (clock_hz_ > 0)
+            {
+                const auto due = start + std::chrono::nanoseconds((cpu_.cycles() - start_cycles) * 1'000'000'000ull /
+                                                                  clock_hz_);
+                if (due - clock::now() > std::chrono::milliseconds(1))
+                    std::this_thread::sleep_until(due);
+            }
         }
+        const double secs = std::chrono::duration<double>(clock::now() - start).count();
+        EMU_LOGI(TAG, "%llu cycles in %.2f s (%.3f MHz)",
+                 static_cast<unsigned long long>(cpu_.cycles() - start_cycles), secs,
+                 secs > 0 ? static_cast<double>(cpu_.cycles() - start_cycles) / secs / 1e6 : 0.0);
     }
 
     bool Emulator::handle_key(uint8_t key)

@@ -15,7 +15,7 @@ Run a suite directly for its full output:
 
 ```sh
 ./build/dev/test/host/test_cpu_smoke
-HARTE_VERBOSE=1 ./build/dev/test/host/test_harte  # every failing case, not just the first
+HARTE_VERBOSE=1 ./build/dev/test/host/test_harte wdc65c02  # every failing case, not just the first
 ```
 
 ## Suites
@@ -23,8 +23,8 @@ HARTE_VERBOSE=1 ./build/dev/test/host/test_harte  # every failing case, not just
 | Suite | Covers | Fixtures |
 |---|---|---|
 | `test_cpu_smoke` | hand-checked datasheet facts: reset vector, N/Z, binary overflow, valid-BCD ADC/SBC, NMOS `JMP ($xxFF)`, JSR/RTS, what BRK and IRQ push | none, always runs |
-| `test_dormann` | Klaus Dormann's `6502_functional_test`: every documented opcode and mode, traps on the first failure | `6502_functional_test.bin` |
-| `test_harte` | Tom Harte's SingleStepTests: one instruction from a random state, registers and RAM compared, per opcode; the known invalid-BCD decimal gap is reported, not failed (`HARTE_STRICT=1` fails it) | `harte/*.txt` |
+| `test_dormann_*` | Klaus Dormann's functional tests, three runs: `6502_functional_test` on each model, `65C02_extended_opcodes_test` on the W65C02S. Traps on the first failure | `*.bin` |
+| `test_harte_6502`, `test_harte_wdc65c02` | Tom Harte's SingleStepTests: one instruction from a random state; registers, RAM and **every bus cycle** (address, data, direction) compared | `harte/<cpu>/*.txt` |
 | `test_pia` | the 6821: DDR select, input/output mixing, read-only flags, clear-on-read, write handler, IRQ enable | none |
 | `test_decoder` | offsets, unmapped space, later-wins overlap, read-only ROM, module IDs, the north bridge, IRQ wiring | none |
 | `test_machine` | machine descriptions: the Apple-1 map they build, options, every parse error naming its line, the built-in default | none |
@@ -42,8 +42,10 @@ if its fixture directory exists but holds no cases.
 `tools/fetch_fixtures.py` fetches both from pinned commits into `fixtures/`,
 which is gitignored. Neither is vendored: Dormann's tests are GPL-3.0 and the
 full Harte set is ~1 GB. Dormann's binary is checked against a sha256, because
-`test_dormann` hard-codes its success address. Harte defaults to 100 cases per
-opcode (~2 MB on disk); `--cases 1000` is ~23 MB and still quick to fetch.
+`test_dormann` hard-codes its success addresses. Harte defaults to 100 cases
+per opcode for each CPU (~7 MB on disk); `--cases 1000` is ~69 MB and still
+quick to fetch. Fixtures are format 2 (with bus cycles) since Phase 4; older
+ones fail with "re-run tools/fetch_fixtures.py".
 
 ## Things to know
 
@@ -59,5 +61,8 @@ opcode (~2 MB on disk); `--cases 1000` is ~23 MB and still quick to fetch.
   failing cases, all invalid-BCD decimal), and Dormann traps at the same
   address after the same 30,646,176 instructions.
 - **Dormann has blind spots.** It only tests INX on $FE→$FF→$00→$01, so an N
-  flag taken from bit 6 instead of bit 7 passes it. Harte catches that one.
+  flag taken from bit 6 instead of bit 7 passes it. It cannot see bus
+  traffic either: an NMOS read-modify-write that re-reads instead of
+  writing back, or a wrong invalid-BCD result, passes Dormann and fails
+  Harte (both checked by mutation in Phase 4).
   Don't read a Dormann pass on its own as a clean core.

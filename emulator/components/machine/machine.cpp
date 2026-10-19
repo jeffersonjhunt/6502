@@ -74,8 +74,8 @@ namespace ooe::emu
             const std::string &type = w[0];
             if (type == "cpu")
             {
-                if (w.size() != 2 || w[1] != "nmos6502")
-                    return fail("cpu: only 'nmos6502' is supported (the W65C02S is Phase 4)");
+                if (w.size() != 2 || (w[1] != "nmos6502" && w[1] != "w65c02s"))
+                    return fail("cpu: want nmos6502 or w65c02s");
                 m->cpu_ = w[1];
                 continue;
             }

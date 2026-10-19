@@ -6,6 +6,8 @@
 
 #include "decoder.h"
 
+#include <algorithm>
+
 #include "emu_log.h"
 
 namespace ooe::emu
@@ -24,6 +26,8 @@ namespace ooe::emu
         if (!m.device || m.first > m.last || m.last >= PHYSICAL_SPACE)
             return false;
         mappings_.push_back(m);
+        if (std::find(devices_.begin(), devices_.end(), m.device) == devices_.end())
+            devices_.push_back(m.device);
         return true;
     }
 
@@ -80,5 +84,11 @@ namespace ooe::emu
                 return true;
         }
         return false;
+    }
+
+    void Decoder::tick(unsigned cycles)
+    {
+        for (Device *d : devices_)
+            d->tick(cycles);
     }
 } // namespace ooe::emu

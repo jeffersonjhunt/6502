@@ -148,6 +148,17 @@ TEST(builtin_default_is_the_apple1)
     CHECK_EQ(m->bus().mappings().size(), size_t{3});
 }
 
+TEST(cpu_line_picks_the_model)
+{
+    std::string error;
+    auto m = build("cpu w65c02s\nram 0000-00FF\n", error);
+    REQUIRE(m != nullptr);
+    CHECK(m->cpu() == "w65c02s");
+    auto d = build("ram 0000-00FF\n", error);
+    REQUIRE(d != nullptr);
+    CHECK(d->cpu() == "nmos6502"); // the default
+}
+
 TEST(load_reports_a_missing_file)
 {
     std::string error;
