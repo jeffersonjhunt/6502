@@ -9,6 +9,8 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
+ * peek() is a read without side effects, for the debugger (Phase 5).
+ *
  * Two write paths, because the CPU is not the only thing that writes:
  *
  * - write() is a CPU store and obeys the memory map. ROM ignores it, and a
@@ -33,5 +35,9 @@ namespace ooe::emu
         virtual void write(uint16_t addr, uint8_t data) = 0;
         /// Device/loader-side write; defaults to write() for a plain bus.
         virtual void poke(uint16_t addr, uint8_t data) { write(addr, data); }
+        /// What a read would return, without its side effects: the debugger
+        /// and disassembler look at memory this way, so dumping a 6821 does
+        /// not eat a keystroke.
+        virtual uint8_t peek(uint16_t addr) const = 0;
     };
 } // namespace ooe::emu

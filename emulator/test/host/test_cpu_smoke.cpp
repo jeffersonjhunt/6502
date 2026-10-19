@@ -19,6 +19,7 @@
 #include "test_support.h"
 
 #include <initializer_list>
+#include <vector>
 
 using namespace ooe::test;
 using namespace ooe::emu;
@@ -38,6 +39,12 @@ namespace
         for (int i = 0; i < steps; ++i)
             c.step();
     }
+
+    struct Recorder : CycleObserver
+    {
+        void on_cycle(const BusCycle &c) override { seen.push_back(c); }
+        std::vector<BusCycle> seen;
+    };
 } // namespace
 
 TEST(reset_loads_pc_from_vector)
@@ -250,6 +257,47 @@ TEST(wai_and_stp_are_nops_on_nmos)
     Cpu6502 c(bus);
     run(c, bus, {0xCB, 0xDB}, 2);
     CHECK(c.state() == Cpu6502::State::Running);
+}
+
+TEST(observer_sees_every_access_with_sync_and_vector_pull)
+{
+    FlatBus bus;
+    Cpu6502 c(bus, Cpu6502::Model::W65C02S);
+    Recorder rec;
+    c.set_observer(&rec);
+    bus.at(0xFFFC) = 0x00;
+    bus.at(0xFFFD) = 0x02;
+    bus.at(0xFFFE) = 0x00;
+    bus.at(0xFFFF) = 0x03;
+    c.reset();
+    CHECK_EQ(rec.seen.size(), 7u);
+    for (size_t i = 0; i < rec.seen.size(); ++i)
+    {
+        CHECK_EQ(rec.seen[i].cycle, i + 1);
+        CHECK(!rec.seen[i].sync);
+        CHECK_EQ(rec.seen[i].vector_pull, i >= 5); // only the two $FFFC/D reads
+    }
+    CHECK_EQ(rec.seen[5].addr, 0xFFFC);
+
+    rec.seen.clear();
+    run(c, bus, {0x8D, 0x34, 0x12, 0x00}, 2, c.regs()); // STA $1234; BRK
+    CHECK_EQ(rec.seen.size(), 4u + 7u);
+    CHECK(rec.seen[0].sync);
+    CHECK_EQ(rec.seen[0].data, 0x8D);
+    CHECK(!rec.seen[1].sync);
+    CHECK(rec.seen[3].write);
+    CHECK_EQ(rec.seen[3].addr, 0x1234);
+    CHECK(rec.seen[4].sync); // BRK's fetch
+    int pulls = 0;
+    for (const BusCycle &b : rec.seen)
+        pulls += b.vector_pull;
+    CHECK_EQ(pulls, 2);
+    CHECK(rec.seen[9].vector_pull && rec.seen[9].addr == 0xFFFE);
+    CHECK_EQ(rec.seen.back().cycle, c.cycles());
+
+    c.set_observer(nullptr);
+    c.step();
+    CHECK_EQ(rec.seen.size(), 11u); // detached
 }
 
 int main()

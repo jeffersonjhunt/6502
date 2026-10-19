@@ -97,6 +97,23 @@ TEST(irq_needs_flag_and_enable)
     CHECK(!p.irq());
 }
 
+TEST(peek_matches_read_but_leaves_the_flags)
+{
+    Pia6821 p;
+    p.write(DATA_A, 0x0F); // DDRA
+    p.write(CR_A, Pia6821::CR_SELECT_OR);
+    p.write(DATA_A, 0x05);
+    p.set_input_a(0xA0);
+    p.strobe_ca1();
+    for (uint32_t r = 0; r < 4; ++r)
+        CHECK_EQ(p.peek(r), p.peek(r)); // stable
+    CHECK_EQ(p.peek(DATA_A), 0xA5);
+    CHECK_EQ(p.peek(CR_A) & Pia6821::CR_IRQ1, Pia6821::CR_IRQ1); // still set after peeking
+    CHECK_EQ(p.peek(DATA_B), 0x00);                               // DDRB, CRB bit 2 clear
+    CHECK_EQ(p.read(DATA_A), 0xA5);                               // the same value, read for real...
+    CHECK_EQ(p.peek(CR_A) & Pia6821::CR_IRQ1, 0);                 // ...does clear it
+}
+
 TEST(registers_mirror_on_the_low_two_bits)
 {
     Pia6821 p;

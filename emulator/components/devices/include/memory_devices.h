@@ -29,7 +29,8 @@ namespace ooe::emu
         explicit Ram(size_t size) : mem_(size, 0) {}
 
         size_t size() const override { return mem_.size(); }
-        uint8_t read(uint32_t offset) override { return offset < mem_.size() ? mem_[offset] : 0xFF; }
+        uint8_t read(uint32_t offset) override { return peek(offset); }
+        uint8_t peek(uint32_t offset) const override { return offset < mem_.size() ? mem_[offset] : 0xFF; }
         void write(uint32_t offset, uint8_t data) override
         {
             if (offset < mem_.size())
@@ -46,7 +47,8 @@ namespace ooe::emu
         explicit Rom(size_t size) : mem_(size, 0) {}
 
         size_t size() const override { return mem_.size(); }
-        uint8_t read(uint32_t offset) override { return offset < mem_.size() ? mem_[offset] : 0xFF; }
+        uint8_t read(uint32_t offset) override { return peek(offset); }
+        uint8_t peek(uint32_t offset) const override { return offset < mem_.size() ? mem_[offset] : 0xFF; }
         void write(uint32_t, uint8_t) override {}
         void poke(uint32_t offset, uint8_t data) override
         {

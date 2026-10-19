@@ -109,6 +109,24 @@ TEST(irq_reaches_the_cpu_only_when_wired)
     CHECK(bus.irq());
 }
 
+TEST(peek_routes_like_read_without_side_effects)
+{
+    Ram ram(16);
+    Pia6821 pia;
+    Decoder bus;
+    bus.map({0x0000, 0x000F, &ram});
+    bus.map({0xD010, 0xD013, &pia});
+    bus.write(0x0003, 0x42);
+    bus.write(0xD011, Pia6821::CR_SELECT_OR);
+    pia.strobe_ca1();
+    CHECK_EQ(bus.peek(0x0003), 0x42);
+    CHECK_EQ(bus.peek(0x8000), Decoder::UNMAPPED_READ);
+    bus.peek(0xD010);
+    CHECK(pia.cra() & Pia6821::CR_IRQ1); // a peek leaves key-ready alone
+    bus.read(0xD010);
+    CHECK(!(pia.cra() & Pia6821::CR_IRQ1));
+}
+
 TEST(tick_reaches_each_device_once)
 {
     struct Counter : Ram

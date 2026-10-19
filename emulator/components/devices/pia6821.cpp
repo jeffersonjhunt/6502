@@ -20,15 +20,24 @@ namespace ooe::emu
         return Port{or_a_, ddr_a_, cra_, in_a_, write_a_};
     }
 
+    uint8_t Pia6821::peek(uint32_t offset) const
+    {
+        const bool b = offset & 2;
+        const uint8_t cr = b ? crb_ : cra_;
+        const uint8_t ddr = b ? ddr_b_ : ddr_a_;
+        if (offset & 1)
+            return cr;
+        if (!(cr & CR_SELECT_OR))
+            return ddr;
+        return static_cast<uint8_t>(((b ? or_b_ : or_a_) & ddr) | ((b ? in_b_ : in_a_) & ~ddr));
+    }
+
     uint8_t Pia6821::read(uint32_t offset)
     {
+        const uint8_t v = peek(offset);
         Port p = port(offset & 2);
-        if (offset & 1)
-            return p.cr;
-        if (!(p.cr & CR_SELECT_OR))
-            return p.ddr;
-        const auto v = static_cast<uint8_t>((p.out & p.ddr) | (p.in & ~p.ddr));
-        p.cr = static_cast<uint8_t>(p.cr & ~CR_FLAGS); // reading the data clears the flags
+        if (!(offset & 1) && (p.cr & CR_SELECT_OR))
+            p.cr = static_cast<uint8_t>(p.cr & ~CR_FLAGS); // reading the data clears the flags
         return v;
     }
 

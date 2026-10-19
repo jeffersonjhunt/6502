@@ -48,6 +48,7 @@ namespace ooe::emu
 
         size_t size() const override { return 4; }
         uint8_t read(uint32_t offset) override;
+        uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         bool irq() const override;
 

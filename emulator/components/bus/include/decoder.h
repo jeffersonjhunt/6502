@@ -69,6 +69,10 @@ namespace ooe::emu
         uint8_t read(uint16_t addr) override;
         void write(uint16_t addr, uint8_t data) override;
         void poke(uint16_t addr, uint8_t data) override;
+        uint8_t peek(uint16_t addr) const override;
+
+        /// The 20-bit physical address the north bridge makes of a CPU address.
+        uint32_t physical(uint16_t addr) const { return bridge_.physical(addr); }
 
         /// The mapping a CPU address decodes to, or nullptr.
         const Mapping *decode(uint16_t addr) const;

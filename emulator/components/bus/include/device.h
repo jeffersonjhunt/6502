@@ -34,6 +34,8 @@ namespace ooe::emu
 
         /// CPU read. May have side effects (a 6821 clears its flags).
         virtual uint8_t read(uint32_t offset) = 0;
+        /// read() without the side effects, for the debugger.
+        virtual uint8_t peek(uint32_t offset) const = 0;
         /// CPU write. A ROM ignores it.
         virtual void write(uint32_t offset, uint8_t data) = 0;
         /// Loader-side write, past any read-only rule.
