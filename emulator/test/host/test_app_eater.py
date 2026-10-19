@@ -28,8 +28,10 @@ tty = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tty)
 
 
-def session(binary, args, cwd, steps):
-    """Run, then for each (bytes to send, bytes to wait for): send and wait. Ctrl-C at the end."""
+def session(binary, args, cwd, steps, settle=0.0):
+    """Run, then for each (bytes to send, bytes to wait for): send and wait. Ctrl-C at the end.
+
+    `settle` seconds pass after the first step's output before anything is typed."""
     proc, master, slave = tty.start(binary, args, cwd)
     before = termios.tcgetattr(slave)
     seen = []
@@ -40,6 +42,8 @@ def session(binary, args, cwd, steps):
             got += tty.read_until(master, b"\0", 0.05)
         if want not in got:
             got += tty.read_until(master, want, 10)
+        if not seen and settle:
+            got += tty.read_until(master, b"\0", settle)
         seen.append(got)
     os.write(master, b"\x03")
     rc = tty.finish(proc)
@@ -74,8 +78,10 @@ def main():
         if rc != 0 or lost:
             failures.append(f"wozmon: rc={rc} lost={lost}")
 
+        # keyboard.s zeroes its key buffer pointers after setting up the LCD,
+        # so a key in its first ~2 ms is lost (on the board too): wait first.
         rc, lost, seen = session(binary, ["--machine", eater, keyboard], cwd,
-                                 [(b"", b"+----------------+"), (b"hi", b"|hi    ")])
+                                 [(b"", b"+----------------+"), (b"hi", b"|hi    ")], settle=0.5)
         if b"|hi              |" not in seen[1]:
             failures.append(f"keyboard: LCD box does not show 'hi' (got {seen[1][-400:]!r})")
         if rc != 0 or lost:
