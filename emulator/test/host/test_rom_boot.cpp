@@ -29,12 +29,16 @@ using namespace ooe::emu;
 
 namespace
 {
-    std::unique_ptr<Machine> apple1_with(const char *rom)
+    /// The built-in Apple-1, or the same with `cpu w65c02s` (a Replica-1).
+    std::unique_ptr<Machine> apple1_with(const char *rom, bool w65c02s = false)
     {
         MachineOptions opt;
         opt.rom_override = rom;
         std::string error;
-        auto m = Machine::build(apple1::default_machine(), "apple1.machine", opt, error);
+        std::string text = apple1::default_machine();
+        if (w65c02s)
+            text += "\ncpu w65c02s\n";
+        auto m = Machine::build(text, "apple1.machine", opt, error);
         if (!m)
             std::printf("  build failed: %s\n", error.c_str());
         return m;
@@ -50,7 +54,7 @@ namespace
                         long settle = 2'000'000)
     {
         apple1::Io io(*m.find_as<Pia6821>(apple1::TERMINAL_PIA));
-        Cpu6502 c(m.bus());
+        Cpu6502 c(m.bus(), m.cpu() == "w65c02s" ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502);
         c.reset();
 
         std::string screen;
@@ -78,9 +82,9 @@ namespace
     }
 
     std::string session(const char *rom, const std::string &keys, long max_steps = 40'000'000,
-                        long settle = 2'000'000)
+                        long settle = 2'000'000, bool w65c02s = false)
     {
-        auto m = apple1_with(rom);
+        auto m = apple1_with(rom, w65c02s);
         return m ? session(*m, keys, max_steps, settle) : "<build failed>";
     }
 
@@ -159,6 +163,17 @@ TEST(applesoft_runs_floating_point)
         return void(++skipped);
     const std::string screen = session(EMU_APPLESOFT_ROM, "E000R\r10 PRINT SQR(2)\rRUN\r");
     CHECK(contains(screen, "1.41421356"));
+}
+
+TEST(both_basics_run_on_the_w65c02s)
+{
+    // NMOS code on the real board's CPU: the Replica-1 configuration.
+    if (!have(EMU_IBASIC_ROM) || !have(EMU_APPLESOFT_ROM))
+        return void(++skipped);
+    const std::string ib = session(EMU_IBASIC_ROM, "E000R\r10 PRINT 2+3\r20 END\rRUN\r", 40'000'000, 2'000'000, true);
+    CHECK(contains(ib, "RUN\n5\n"));
+    const std::string as = session(EMU_APPLESOFT_ROM, "E000R\r10 PRINT SQR(2)\rRUN\r", 40'000'000, 2'000'000, true);
+    CHECK(contains(as, "1.41421356"));
 }
 
 int main()

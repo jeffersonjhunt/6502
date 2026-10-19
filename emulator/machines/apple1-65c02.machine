@@ -1,0 +1,14 @@
+# Apple-1 with a W65C02S in place of the NMOS 6502, as on a Replica-1.
+# Otherwise identical to apple1.machine.
+#
+#   <type> <first>-<last> [name=ID] [module=0-F] [irq] [image]
+#
+# Addresses are physical (A0-A19), in hex. Later lines win where ranges
+# overlap, so the PIA sits inside the ROM image's range. Image paths are
+# relative to the working directory; `emulator <rom>` replaces the first
+# ROM's image.
+
+cpu      w65c02s
+ram      0000-7FFF
+rom      8000-FFFF               ibasic.rom
+pia6821  D010-D013  name=terminal          # KBD/KBDCR, DSP/DSPCR; IRQ not wired

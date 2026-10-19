@@ -14,9 +14,9 @@
  * `offset = physical address - mapping base`, so the same Pia6821 works at
  * $D010 on an Apple-1 and wherever the backplane's I/O module puts it.
  *
- * No tick() yet: nothing can use one until the core counts cycles
- * (Phase 4), and a tick measured in instructions would be a wrong API to
- * build a 6522's timers on.
+ * tick() carries CPU cycles, which the core counts exactly since Phase 4
+ * (one per bus access), so a 6522's timers or a 6551's baud clock can be
+ * built on it. The run loop calls it once per slice of instructions.
  */
 
 #include <cstddef>
@@ -41,5 +41,8 @@ namespace ooe::emu
 
         /// Interrupt output, active high. Only reaches the CPU if the mapping wires it.
         virtual bool irq() const { return false; }
+
+        /// `cycles` CPU cycles have passed since the last tick.
+        virtual void tick(unsigned cycles) { (void)cycles; }
     };
 } // namespace ooe::emu

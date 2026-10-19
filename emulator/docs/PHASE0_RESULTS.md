@@ -1,5 +1,10 @@
 # Phase 0 results: the core as tagged `beta`
 
+> **Since closed.** Phase 4 rewrote the core to be bus-cycle accurate and to
+> match NMOS decimal mode on invalid BCD; Harte now passes every case on both
+> CPU models (docs/EMULATOR_PLAN.md, Phase 4). This page records the core as
+> it was.
+
 Measured 2026-10-18 on the core at `beta` (9203823), unchanged.
 GCC 14.2, Debug, ASan/UBSan on. Commands are in `test/host/README.md`.
 

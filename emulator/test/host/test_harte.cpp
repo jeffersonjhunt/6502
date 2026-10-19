@@ -1,38 +1,27 @@
 /**
  * @file test_harte.cpp
- * @brief Tom Harte's SingleStepTests (65x02/6502/v1) against the core.
+ * @brief Tom Harte's SingleStepTests against the core, bus cycle by bus cycle.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
+ *   test_harte 6502        NMOS 6502, the 151 documented opcodes
+ *   test_harte wdc65c02    WDC 65C02 (the W65C02S), 254 opcodes
+ *
  * Each case is one instruction from a random state: set registers and RAM,
- * Step() once, compare registers and RAM. Dormann tells you *that* something
- * is wrong and roughly where; this tells you which opcode, from which state,
- * and how. That is the list Phase 1 works from.
+ * step() once, then compare registers (all of P), RAM, and every bus access
+ * the instruction made: address, data and direction, in order. Since every
+ * 6502 cycle is one access, matching the list also matches the cycle count,
+ * and an access to anything not in the list fails, as Harte requires.
  *
- * Not built on harness.h: the unit of report here is an opcode, of which
- * there are 151 discovered at run time from fixture files, and the useful
- * output is a table rather than one line per assertion.
- *
- * Known gap, set aside by default: decimal ADC/SBC with an operand that is
- * not valid BCD (a nibble above 9). The core differs from NMOS silicon
- * there, every one of the failures is in that class (docs/PHASE0_RESULTS.md),
- * and fixing it belongs with the W65C02S in Phase 4, which differs again.
- * Those cases are counted and reported, not failed, so that anything new
- * stands out; HARTE_STRICT=1 fails them too. The classification needs the
- * operand, which for ADC/SBC is always the instruction's last bus read.
- *
- * Comparisons deliberately left out for now:
- * - Bus cycles. The core does not count them (Phase 4). The expected count is
- *   in the fixture so that phase can start checking without a re-fetch.
- * - P bit 4 (B). It is not a register bit on real silicon; it exists only in
- *   pushed copies of P, and those are checked through RAM. The core keeps it
- *   set in its live status byte (reset, PLP, RTI and BIT all force it), so
- *   comparing it would fail cases for a reason no program can observe.
+ * Not built on harness.h: the unit of report is an opcode, of which there
+ * are up to 254 discovered from fixture files, and the useful output is a
+ * table rather than one line per assertion.
  */
 
 #include "test_support.h"
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -43,39 +32,31 @@ using namespace ooe::emu;
 
 namespace
 {
-    constexpr uint8_t P_MASK = static_cast<uint8_t>(~Cpu6502::FLAG_B);
-    constexpr int LEGAL_OPCODES = 151; // documented NMOS set, as fetched
+    struct Access
+    {
+        uint16_t addr;
+        uint8_t data;
+        bool write;
+        bool operator==(const Access &o) const { return addr == o.addr && data == o.data && write == o.write; }
+    };
 
-    /// FlatBus that remembers the last value read: for ADC/SBC, the operand.
+    /// FlatBus that records every access the CPU makes.
     class RecordingBus : public FlatBus
     {
     public:
-        uint8_t read(uint16_t addr) override { return last_read = FlatBus::read(addr); }
-        uint8_t last_read{0};
-    };
-
-    bool is_adc_sbc(unsigned op)
-    {
-        switch (op)
+        uint8_t read(uint16_t addr) override
         {
-        case 0x61: case 0x65: case 0x69: case 0x6D: case 0x71: case 0x75: case 0x79: case 0x7D: // ADC
-        case 0xE1: case 0xE5: case 0xE9: case 0xED: case 0xF1: case 0xF5: case 0xF9: case 0xFD: // SBC
-            return true;
-        default:
-            return false;
+            const uint8_t v = FlatBus::read(addr);
+            log.push_back({addr, v, false});
+            return v;
         }
-    }
-
-    bool valid_bcd(uint8_t v)
-    {
-        return (v >> 4) <= 9 && (v & 0xF) <= 9;
-    }
-
-    /// The known Phase 4 gap: decimal ADC/SBC on an invalid-BCD operand.
-    bool known_gap(unsigned op, const Registers &init, uint8_t operand)
-    {
-        return is_adc_sbc(op) && (init.p & Cpu6502::FLAG_D) && !(valid_bcd(init.a) && valid_bcd(operand));
-    }
+        void write(uint16_t addr, uint8_t data) override
+        {
+            log.push_back({addr, data, true});
+            FlatBus::write(addr, data);
+        }
+        std::vector<Access> log;
+    };
 
     struct State
     {
@@ -89,7 +70,7 @@ namespace
         if (!(in >> pc >> s >> a >> x >> y >> p >> n))
             return false;
         st.regs = Registers{static_cast<uint16_t>(pc), static_cast<uint8_t>(s), static_cast<uint8_t>(a),
-                       static_cast<uint8_t>(x), static_cast<uint8_t>(y), static_cast<uint8_t>(p)};
+                            static_cast<uint8_t>(x), static_cast<uint8_t>(y), static_cast<uint8_t>(p)};
         st.ram.clear();
         for (unsigned i = 0; i < n; ++i)
         {
@@ -101,17 +82,60 @@ namespace
         return true;
     }
 
-    /// Run one case; on mismatch, describe the first difference in `why`.
-    bool run_case(RecordingBus &bus, const State &init, const State &want, std::string &why)
+    bool read_cycles(std::istringstream &in, std::vector<Access> &out)
     {
-        Cpu6502 c(bus);
+        unsigned n;
+        if (!(in >> n))
+            return false;
+        out.clear();
+        for (unsigned i = 0; i < n; ++i)
+        {
+            unsigned addr, val, w;
+            if (!(in >> addr >> val >> w))
+                return false;
+            out.push_back({static_cast<uint16_t>(addr), static_cast<uint8_t>(val), w != 0});
+        }
+        return true;
+    }
+
+    std::string show(const std::vector<Access> &v, size_t k)
+    {
+        if (k >= v.size())
+            return "nothing";
+        char b[32];
+        std::snprintf(b, sizeof b, "%c %04X=%02X", v[k].write ? 'W' : 'r', v[k].addr, v[k].data);
+        return b;
+    }
+
+    /// Run one case; on mismatch, describe the first difference in `why`.
+    bool run_case(Cpu6502::Model model, RecordingBus &bus, const State &init, const State &want,
+                  const std::vector<Access> &cycles, std::string &why)
+    {
+        Cpu6502 c(bus, model);
         c.set_regs(init.regs);
         for (const auto &[addr, val] : init.ram)
             bus.at(addr) = val;
+        bus.log.clear();
 
-        c.step();
+        const unsigned took = c.step();
 
-        char buf[128];
+        char buf[160];
+        for (size_t i = 0; i < cycles.size() || i < bus.log.size(); ++i)
+        {
+            if (i < cycles.size() && i < bus.log.size() && bus.log[i] == cycles[i])
+                continue;
+            std::snprintf(buf, sizeof buf, "cycle %zu: got %s want %s (%zu cycles, want %zu)", i + 1,
+                          show(bus.log, i).c_str(), show(cycles, i).c_str(), bus.log.size(), cycles.size());
+            why = buf;
+            return false;
+        }
+        if (took != cycles.size())
+        {
+            std::snprintf(buf, sizeof buf, "step() returned %u, made %zu accesses", took, cycles.size());
+            why = buf;
+            return false;
+        }
+
         auto reg = [&](const char *name, unsigned got, unsigned exp) {
             if (got == exp)
                 return true;
@@ -119,15 +143,15 @@ namespace
             why = buf;
             return false;
         };
-        if (c.regs().pc != want.regs.pc)
+        const Registers &r = c.regs();
+        if (r.pc != want.regs.pc)
         {
-            std::snprintf(buf, sizeof buf, "PC got %04X want %04X", c.regs().pc, want.regs.pc);
+            std::snprintf(buf, sizeof buf, "PC got %04X want %04X", r.pc, want.regs.pc);
             why = buf;
             return false;
         }
-        if (!reg("A", c.regs().a, want.regs.a) || !reg("X", c.regs().x, want.regs.x) ||
-            !reg("Y", c.regs().y, want.regs.y) || !reg("S", c.regs().s, want.regs.s) ||
-            !reg("P", c.regs().p & P_MASK, want.regs.p & P_MASK))
+        if (!reg("A", r.a, want.regs.a) || !reg("X", r.x, want.regs.x) || !reg("Y", r.y, want.regs.y) ||
+            !reg("S", r.s, want.regs.s) || !reg("P", r.p, want.regs.p))
             return false;
         for (const auto &[addr, val] : want.ram)
         {
@@ -142,23 +166,39 @@ namespace
     }
 } // namespace
 
-int main()
+int main(int argc, char **argv)
 {
-    const std::string dir = EMU_FIXTURE_DIR "/harte";
-    if (!std::ifstream(dir + "/SOURCE"))
+    if (argc != 2 || (std::strcmp(argv[1], "6502") != 0 && std::strcmp(argv[1], "wdc65c02") != 0))
+    {
+        std::printf("usage: test_harte 6502|wdc65c02\n");
+        return 2;
+    }
+    const bool wdc = std::strcmp(argv[1], "wdc65c02") == 0;
+    const Cpu6502::Model model = wdc ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
+    const int expected_opcodes = wdc ? 254 : 151;
+
+    const std::string dir = std::string(EMU_FIXTURE_DIR "/harte/") + argv[1];
+    std::ifstream source(dir + "/SOURCE");
+    if (!source)
     {
         std::printf("SKIP: %s not found (run tools/fetch_fixtures.py)\n", dir.c_str());
         return SKIP;
     }
+    std::string format;
+    std::getline(source, format);
+    if (format != "format 2")
+    {
+        std::printf("FAIL: %s is '%s', want 'format 2' (re-run tools/fetch_fixtures.py)\n", dir.c_str(),
+                    format.c_str());
+        return 1;
+    }
 
     // HARTE_VERBOSE=1 lists every failing case, not just the first per opcode.
     const bool verbose = std::getenv("HARTE_VERBOSE") != nullptr;
-    // HARTE_STRICT=1 fails the known gap too (for Phase 4).
-    const bool strict = std::getenv("HARTE_STRICT") != nullptr;
 
     RecordingBus bus;
     int opcodes = 0, failed_opcodes = 0;
-    long cases = 0, failed_cases = 0, known_cases = 0;
+    long cases = 0, failed_cases = 0;
 
     for (unsigned op = 0; op < 256; ++op)
     {
@@ -171,31 +211,25 @@ int main()
         ++opcodes;
         long n = 0, bad = 0;
         std::string line, first_case, first_why;
+        std::vector<Access> cycles;
         while (std::getline(in, line))
         {
             if (line.empty())
                 continue;
             std::istringstream ls(line);
             State init, want;
-            unsigned cycles;
-            if (!read_state(ls, init) || !read_state(ls, want) || !(ls >> cycles))
+            if (!read_state(ls, init) || !read_state(ls, want) || !read_cycles(ls, cycles))
             {
                 std::printf("FAIL: malformed line in %s%s\n", dir.c_str(), name);
                 return 1;
             }
             ++n;
             std::string why;
-            if (!run_case(bus, init, want, why))
+            if (!run_case(model, bus, init, want, cycles, why))
             {
-                const bool known = !strict && known_gap(op, init.regs, bus.last_read);
                 if (verbose)
-                    std::printf("  %02X case %ld (pc=%04X a=%02X p=%02X): %s%s\n", op, n, init.regs.pc,
-                                init.regs.a, init.regs.p, why.c_str(), known ? " [known gap]" : "");
-                if (known)
-                {
-                    ++known_cases;
-                    continue;
-                }
+                    std::printf("  %02X case %ld (pc=%04X a=%02X p=%02X): %s\n", op, n, init.regs.pc,
+                                init.regs.a, init.regs.p, why.c_str());
                 if (bad++ == 0)
                 {
                     char at[64];
@@ -215,29 +249,19 @@ int main()
         if (bad)
         {
             ++failed_opcodes;
-            std::printf("NOT OK %02X  %4ld/%ld failed  first: %s: %s\n", op, bad, n,
-                        first_case.c_str(), first_why.c_str());
+            std::printf("NOT OK %02X  %4ld/%ld failed  first: %s: %s\n", op, bad, n, first_case.c_str(),
+                        first_why.c_str());
         }
     }
 
-    // Zero examined is a failure, not a pass: a SOURCE file with no opcode
-    // files beside it means the fetch broke, not that the core is perfect.
-    // Short of all 151 is a failure too, or a partial fetch reads as coverage.
-    if (opcodes == 0)
+    // Zero examined is a failure, not a pass; so is a partial set.
+    if (opcodes != expected_opcodes)
     {
-        std::printf("FAIL: %s has no opcode files\n", dir.c_str());
+        std::printf("FAIL: %s has %d opcode files, expected %d (re-run tools/fetch_fixtures.py)\n", dir.c_str(),
+                    opcodes, expected_opcodes);
         return 1;
     }
-    if (opcodes != LEGAL_OPCODES)
-    {
-        std::printf("FAIL: %s has %d opcode files, expected %d (re-run tools/fetch_fixtures.py)\n",
-                    dir.c_str(), opcodes, LEGAL_OPCODES);
-        return 1;
-    }
-    std::printf("\n%d opcodes, %ld cases: %d opcode(s) / %ld case(s) failed\n", opcodes, cases,
+    std::printf("\n%s: %d opcodes, %ld cases: %d opcode(s) / %ld case(s) failed\n", argv[1], opcodes, cases,
                 failed_opcodes, failed_cases);
-    if (known_cases)
-        std::printf("%ld more in the known gap (decimal ADC/SBC on invalid BCD, Phase 4); "
-                    "HARTE_STRICT=1 to fail them\n", known_cases);
     return failed_opcodes == 0 ? 0 : 1;
 }

@@ -14,27 +14,42 @@
 
 set(EMU_FIXTURE_DIR "${CMAKE_CURRENT_LIST_DIR}/fixtures")
 
-function(emu_add_test name)
+function(emu_add_test_exe name)
     add_executable(${name} "${name}.cpp")
     emu_house_flags(${name})
     target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
     target_compile_definitions(${name} PRIVATE EMU_FIXTURE_DIR="${EMU_FIXTURE_DIR}")
     target_link_libraries(${name} PRIVATE emu_cpu6502 emu_machine emu_devices emu_bus emu_log)
+endfunction()
+
+function(emu_add_test name)
+    emu_add_test_exe(${name})
     add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
     set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE 77)
 endfunction()
 
 emu_add_test(test_cpu_smoke)
-emu_add_test(test_dormann)
-emu_add_test(test_harte)
+emu_add_test_exe(test_dormann)
+foreach(run "6502_functional_test 6502" "6502_functional_test w65c02s" "65C02_extended_opcodes_test w65c02s")
+    separate_arguments(args UNIX_COMMAND "${run}")
+    list(GET args 0 image)
+    list(GET args 1 cpu)
+    add_test(NAME test_dormann_${image}_${cpu} COMMAND test_dormann ${args})
+    # ~30M instructions each; under ASan that is well past CTest's default.
+    set_tests_properties(test_dormann_${image}_${cpu} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+endforeach()
+# One runner, one CTest test per CPU model.
+emu_add_test_exe(test_harte)
+foreach(cpu 6502 wdc65c02)
+    add_test(NAME test_harte_${cpu} COMMAND test_harte ${cpu})
+    set_tests_properties(test_harte_${cpu} PROPERTIES SKIP_RETURN_CODE 77)
+endforeach()
 emu_add_test(test_pia)
 emu_add_test(test_decoder)
 emu_add_test(test_machine)
 emu_add_test(test_loader)
 emu_add_test(test_rom_boot)
 
-# Dormann runs ~30M instructions; under ASan that is well past CTest's default.
-set_tests_properties(test_dormann PROPERTIES TIMEOUT 900)
 
 # --- Apple-1 ROMs ------------------------------------------------------------
 #

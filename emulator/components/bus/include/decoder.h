@@ -76,6 +76,8 @@ namespace ooe::emu
         uint8_t module_at(uint16_t addr) const;
         /// True if any device with a wired IRQ is asserting it.
         bool irq() const;
+        /// Pass `cycles` to every mapped device, once each however often it is mapped.
+        void tick(unsigned cycles);
 
         const std::vector<Mapping> &mappings() const { return mappings_; }
 
@@ -84,5 +86,6 @@ namespace ooe::emu
 
         const NorthBridge &bridge_;
         std::vector<Mapping> mappings_;
+        std::vector<Device *> devices_; ///< distinct, in mapping order
     };
 } // namespace ooe::emu

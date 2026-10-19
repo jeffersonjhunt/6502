@@ -168,6 +168,27 @@ file waits on the north bridge's A16-A19 rule and the module address map.
   Apple-1 machine.
 - RDY, SYNC and VPB as bus signals visible to the console and bus spy.
 
+**Done 2026-10-18,** further than planned: the core is bus-cycle accurate,
+not just cycle-counted. Every cycle is the one bus access the silicon makes,
+dummy reads and NMOS write-backs included, so cycles are simply accesses and
+Phase 5 can diff traffic against the bus spy. Checked per cycle (address,
+data, direction) against Harte for both models: 151,000 NMOS and 254,000
+WDC cases at 1,000/opcode, all passing. Dormann's functional test passes on
+both models and the 65C02 extended test on the W65C02S. NMOS decimal mode
+now matches silicon on invalid BCD too (Clark's sequences), which closes the
+gap Phase 0 found rather than setting it aside. Also: `cpu w65c02s` in
+machine files (`machines/apple1-65c02.machine`, a Replica-1), WAI/STP,
+7-cycle reset/IRQ/NMI sequences, `Device::tick(cycles)`, and a cycle-sliced
+run loop with `--clock HZ` (default 1 MHz, measured at 1.000 MHz;
+`--clock 0` runs ~166 MHz).
+
+Moved to Phase 5: RDY, SYNC and VPB. They only matter to whatever watches
+the bus, which is the bus trace and console that Phase 5 builds.
+
+To confirm on hardware: two WDC details come only from Harte. The decimal
+extra cycle in immediate mode reads $007F (ADC) or $0000 (SBC), and the
+$5C/$DC/$FC NOPs take 4 cycles (WDC's own documentation gives $5C 8).
+
 ### Phase 5 — bring-up tooling
 
 - Debugger mirroring the console panel: run/halt/step, store/fetch, break,

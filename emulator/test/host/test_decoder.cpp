@@ -109,6 +109,24 @@ TEST(irq_reaches_the_cpu_only_when_wired)
     CHECK(bus.irq());
 }
 
+TEST(tick_reaches_each_device_once)
+{
+    struct Counter : Ram
+    {
+        Counter() : Ram(16) {}
+        void tick(unsigned cycles) override { total += cycles; }
+        unsigned total{0};
+    };
+    Counter a, b;
+    Decoder bus;
+    bus.map({0x0000, 0x000F, &a});
+    bus.map({0x0010, 0x001F, &a}); // a mirror: still one chip
+    bus.map({0x0020, 0x002F, &b});
+    bus.tick(5);
+    CHECK_EQ(a.total, 5u);
+    CHECK_EQ(b.total, 5u);
+}
+
 int main()
 {
     return run_all();

@@ -12,7 +12,7 @@
  * One line per chip, so a memory map can be read, diffed and commented
  * like the schematic it mirrors (see machines/apple1.machine):
  *
- *   cpu      nmos6502
+ *   cpu      nmos6502                (or w65c02s; nmos6502 if omitted)
  *   ram      0000-7FFF
  *   rom      8000-FFFF               ibasic.rom
  *   pia6821  D010-D013  name=terminal

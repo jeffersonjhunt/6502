@@ -9,6 +9,10 @@
  * green run over nothing. Each case pins one datasheet fact, chosen for the
  * places emulators most often get wrong: decimal mode, overflow, the NMOS
  * JMP ($xxFF) page wrap, and what BRK and IRQ push.
+ *
+ * The later cases cover what Harte cannot, because each of his cases is one
+ * instruction: the reset and interrupt sequences, and the W65C02S's WAI and
+ * STP, which wait on something outside the instruction.
  */
 
 #include "harness.h"
@@ -150,6 +154,102 @@ TEST(irq_is_masked_by_i_and_pushes_b_clear)
     CHECK_EQ(c.regs().pc, 0x4000);
     CHECK(!(bus.at(0x01FB) & Cpu6502::FLAG_B));
     CHECK(c.regs().p & Cpu6502::FLAG_I);
+}
+
+TEST(reset_takes_7_cycles_sets_i_and_drops_s_by_3)
+{
+    FlatBus bus;
+    Cpu6502 c(bus);
+    bus.at(0xFFFC) = 0x00;
+    bus.at(0xFFFD) = 0xE0;
+    c.reset();
+    CHECK_EQ(c.cycles(), uint64_t{7});
+    CHECK_EQ(c.regs().pc, 0xE000);
+    CHECK_EQ(c.regs().s, 0xFD); // from S = 0 at power-on
+    CHECK(c.regs().p & Cpu6502::FLAG_I);
+    CHECK(!(c.regs().p & Cpu6502::FLAG_B));
+}
+
+TEST(w65c02s_reset_and_interrupts_clear_d)
+{
+    FlatBus bus;
+    Cpu6502 c(bus, Cpu6502::Model::W65C02S);
+    bus.at(0xFFFE) = 0x00;
+    bus.at(0xFFFF) = 0x40;
+    c.set_regs(Registers{0x0200, 0xFD, 0, 0, 0, Cpu6502::FLAG_U | Cpu6502::FLAG_D});
+    c.reset();
+    CHECK(!(c.regs().p & Cpu6502::FLAG_D));
+
+    c.set_regs(Registers{0x0200, 0xFD, 0, 0, 0, Cpu6502::FLAG_U | Cpu6502::FLAG_D});
+    c.irq();
+    CHECK(!(c.regs().p & Cpu6502::FLAG_D));
+    CHECK(bus.at(0x01FB) & Cpu6502::FLAG_D); // the pushed copy keeps it
+
+    Cpu6502 nmos(bus);
+    nmos.set_regs(Registers{0x0200, 0xFD, 0, 0, 0, Cpu6502::FLAG_U | Cpu6502::FLAG_D});
+    nmos.irq();
+    CHECK(nmos.regs().p & Cpu6502::FLAG_D); // NMOS leaves D alone
+}
+
+TEST(irq_and_nmi_take_7_cycles)
+{
+    FlatBus bus;
+    Cpu6502 c(bus);
+    c.set_regs(Registers{0x0200, 0xFD, 0, 0, 0, Cpu6502::FLAG_U});
+    c.irq();
+    CHECK_EQ(c.cycles(), uint64_t{7});
+    c.nmi(); // not masked by the I that the IRQ just set
+    CHECK_EQ(c.cycles(), uint64_t{14});
+}
+
+TEST(wai_waits_for_an_interrupt)
+{
+    FlatBus bus;
+    Cpu6502 c(bus, Cpu6502::Model::W65C02S);
+    bus.at(0xFFFE) = 0x00;
+    bus.at(0xFFFF) = 0x40;
+    run(c, bus, {0xCB, 0xEA}, 1); // WAI; NOP
+    CHECK(c.state() == Cpu6502::State::Waiting);
+    CHECK_EQ(c.regs().pc, ORG + 1);
+    CHECK_EQ(c.step(), 1u); // the clock runs, nothing executes
+    CHECK_EQ(c.regs().pc, ORG + 1);
+    c.irq();
+    CHECK(c.state() == Cpu6502::State::Running);
+    CHECK_EQ(c.regs().pc, 0x4000);
+}
+
+TEST(wai_with_i_set_resumes_without_servicing)
+{
+    FlatBus bus;
+    Cpu6502 c(bus, Cpu6502::Model::W65C02S);
+    run(c, bus, {0xCB, 0xEA}, 1, Registers{0, 0xFD, 0, 0, 0, Cpu6502::FLAG_U | Cpu6502::FLAG_I});
+    c.irq();
+    CHECK(c.state() == Cpu6502::State::Running);
+    CHECK_EQ(c.regs().pc, ORG + 1); // carries on after the WAI
+}
+
+TEST(stp_stops_until_reset)
+{
+    FlatBus bus;
+    Cpu6502 c(bus, Cpu6502::Model::W65C02S);
+    bus.at(0xFFFC) = 0x00;
+    bus.at(0xFFFD) = 0x02;
+    run(c, bus, {0xDB}, 1);
+    CHECK(c.state() == Cpu6502::State::Stopped);
+    c.irq();
+    c.nmi();
+    CHECK(c.state() == Cpu6502::State::Stopped);
+    c.reset();
+    CHECK(c.state() == Cpu6502::State::Running);
+    CHECK_EQ(c.regs().pc, 0x0200);
+}
+
+TEST(wai_and_stp_are_nops_on_nmos)
+{
+    FlatBus bus;
+    Cpu6502 c(bus);
+    run(c, bus, {0xCB, 0xDB}, 2);
+    CHECK(c.state() == Cpu6502::State::Running);
 }
 
 int main()
