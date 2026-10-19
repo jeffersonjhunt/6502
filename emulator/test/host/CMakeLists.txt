@@ -45,10 +45,14 @@ foreach(cpu 6502 wdc65c02)
     set_tests_properties(test_harte_${cpu} PROPERTIES SKIP_RETURN_CODE 77)
 endforeach()
 emu_add_test(test_pia)
+emu_add_test(test_via)
+emu_add_test(test_acia)
+emu_add_test(test_lcd)
 emu_add_test(test_decoder)
 emu_add_test(test_machine)
 emu_add_test(test_loader)
 emu_add_test(test_rom_boot)
+emu_add_test(test_eater)
 emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 
@@ -101,6 +105,36 @@ target_compile_definitions(test_rom_boot PRIVATE
         EMU_IBASIC_ROM="${ROM_DIR}/ibasic.rom"
         EMU_APPLESOFT_ROM="${ROM_DIR}/applesoft.rom")
 
+# --- Ben Eater's ROMs -------------------------------------------------------
+#
+# Assembled from eater/src with vasm, as eater/Makefile does (same flags), so
+# the Eater machines run the programs written for the board. vasm is looked
+# for where that Makefile expects it. Without it test_eater skips.
+
+set(EATER_SRC "${PROJECT_SOURCE_DIR}/../eater/src")
+set(EATER_ROM_DIR "${CMAKE_CURRENT_BINARY_DIR}/eater")
+find_program(EMU_VASM vasm6502_oldstyle HINTS "$ENV{HOME}/.local/bin/vbcc/bin")
+if(EMU_VASM)
+    file(MAKE_DIRECTORY "${EATER_ROM_DIR}")
+    set(eater_roms)
+    foreach(prog blink hello-world hello-world-4pin hello-world-final keyboard wozmon)
+        add_custom_command(
+                OUTPUT "${EATER_ROM_DIR}/${prog}.rom"
+                COMMAND "${EMU_VASM}" -Fbin -dotdir -wdc02 -quiet -o "${EATER_ROM_DIR}/${prog}.rom"
+                        "${EATER_SRC}/${prog}.s"
+                DEPENDS "${EATER_SRC}/${prog}.s"
+                VERBATIM)
+        list(APPEND eater_roms "${EATER_ROM_DIR}/${prog}.rom")
+    endforeach()
+    add_custom_target(eater_roms ALL DEPENDS ${eater_roms})
+else()
+    message(STATUS "emu: vasm6502_oldstyle not found — Eater ROM tests will skip")
+endif()
+
+target_compile_definitions(test_eater PRIVATE
+        EMU_EATER_ROM_DIR="${EATER_ROM_DIR}"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+
 # --- the app itself ----------------------------------------------------------
 #
 # The real `emulator` binary, in a pty. In the `dev` preset it has ASan, so
@@ -117,6 +151,10 @@ if(Python3_FOUND)
                      $<TARGET_FILE:emulator> "${ROM_DIR}/ibasic.rom" "${ROM_DIR}/ibasic.rom.lbl"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py" "${PROJECT_SOURCE_DIR}/machines")
     set_tests_properties(test_app_debug PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME test_app_eater
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_app_eater.py"
+                     $<TARGET_FILE:emulator> "${PROJECT_SOURCE_DIR}/machines" "${EATER_ROM_DIR}")
+    set_tests_properties(test_app_eater PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
     add_test(NAME test_trace_diff
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")

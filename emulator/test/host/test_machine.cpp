@@ -10,10 +10,15 @@
 
 #include "harness.h"
 
+#include "acia6551.h"
 #include "apple1.h"
+#include "console.h"
+#include "hd44780.h"
 #include "machine.h"
 #include "memory_devices.h"
 #include "pia6821.h"
+#include "ps2_keyboard.h"
+#include "via6522.h"
 
 #include <cstdio>
 #include <string>
@@ -133,6 +138,64 @@ TEST(errors_name_the_line)
     CHECK(starts_with(error_of("ram 0-F extra.bin\n"), "test.machine:1: ram takes no image"));
     CHECK(starts_with(error_of("cpu z80\n"), "test.machine:1: cpu:"));
     CHECK(starts_with(error_of("# nothing\n"), "test.machine: describes no devices"));
+}
+
+TEST(via_acia_and_peripherals)
+{
+    std::string error;
+    auto m = build("via6522  6000-7FFF name=via irq\n"
+                   "acia6551 5000-5FFF name=terminal\n"
+                   "hd44780  name=lcd via=via data=PB0-3 rs=PB4 rw=PB5 e=PB6 size=20x4\n"
+                   "ps2kbd   name=keyboard via=via data=PA0-7\n",
+                   error);
+    CHECK(m != nullptr);
+    if (!m)
+        return;
+    auto *via = m->find_as<Via6522>("via");
+    CHECK(via != nullptr);
+    m->bus().write(0x7FF2, 0xAB); // DDRB through the last mirror of 16
+    CHECK_EQ(via->ddr(Via6522::Port::B), 0xAB);
+    CHECK(m->find_as<Acia6551>("terminal") != nullptr);
+    const auto *lcd = m->find_peripheral<ViaLcd>("lcd");
+    CHECK(lcd && lcd->lcd().columns() == 20 && lcd->lcd().rows() == 4);
+    CHECK(m->find_peripheral<Ps2Keyboard>("keyboard") != nullptr);
+    CHECK(m->find_peripheral<Ps2Keyboard>("lcd") == nullptr); // wrong type
+    CHECK(make_console(*m, error) != nullptr);
+}
+
+TEST(peripheral_errors_name_the_line)
+{
+    const std::string via = "via6522 6000-600F name=via\n";
+    CHECK(starts_with(error_of("hd44780 name=lcd via=nope data=PB0-7 rs=PA5 rw=PA6 e=PA7\n"),
+                      "test.machine:1: hd44780: via=NAME must name a via6522"));
+    CHECK(starts_with(error_of("ram 0-F name=r\nhd44780 via=r data=PB0-7 rs=PA5 rw=PA6 e=PA7\n"),
+                      "test.machine:2: hd44780: via=NAME must name a via6522"));
+    CHECK(starts_with(error_of(via + "hd44780 via=via data=PB0-5 rs=PA5 rw=PA6 e=PA7\n"),
+                      "test.machine:2: hd44780: data= wants 4 or 8 pins"));
+    CHECK(starts_with(error_of(via + "hd44780 via=via data=PB0-7 rs=PA5 rw=PA6\n"),
+                      "test.machine:2: hd44780: rs=, rw= and e="));
+    CHECK(starts_with(error_of(via + "hd44780 via=via data=PB0-7 rs=PC5 rw=PA6 e=PA7\n"),
+                      "test.machine:2: hd44780: rs=, rw= and e="));
+    CHECK(starts_with(error_of(via + "hd44780 via=via data=PB0-7 rs=PA5 rw=PA6 e=PA7 size=99x9\n"),
+                      "test.machine:2: hd44780: size="));
+    CHECK(starts_with(error_of(via + "hd44780 via=via data=PB0-7 rs=PA5 rw=PA6 e=PA7 colour=blue\n"),
+                      "test.machine:2: hd44780: unknown option 'colour'"));
+    CHECK(starts_with(error_of(via + "ps2kbd via=via data=PA0-3\n"), "test.machine:2: ps2kbd: data= wants 8 pins"));
+    CHECK(starts_with(error_of(via + "ps2kbd via=via PA0-7\n"), "test.machine:2: ps2kbd: options are key=value"));
+    CHECK(starts_with(error_of(via + "ps2kbd name=k via=via data=PA0-7\nps2kbd name=k via=via data=PA0-7\n"),
+                      "test.machine:3: name 'k' is already used"));
+    CHECK(starts_with(error_of("via6522 6000-600F x.rom\n"), "test.machine:1: via6522 takes no image"));
+}
+
+TEST(a_console_needs_something_to_talk_through)
+{
+    std::string error;
+    auto bare = build("ram 0000-7FFF\n", error);
+    CHECK(bare && make_console(*bare, error) == nullptr);
+    CHECK(error.find("no 'terminal'") != std::string::npos);
+    auto wrong = build("ram 0000-7FFF name=terminal\n", error);
+    CHECK(wrong && make_console(*wrong, error) == nullptr);
+    CHECK(error.find("must be a pia6821 or an acia6551") != std::string::npos);
 }
 
 TEST(builtin_default_is_the_apple1)

@@ -41,6 +41,22 @@ python3 tools/trace_diff.py --symbols ../apple1/src/ibasic.rom.lbl board.trace r
   format the ESP32 bus spy is to use (`docs/BUS_TRACE.md`);
   `tools/trace_diff.py` finds the first cycle where two traces differ.
 
+## Ben Eater's board
+
+`machines/eater.machine` is the breadboard computer as it ends his series:
+6522, 6551, a 16x2 LCD and a PS/2 keyboard. The programs in `../eater/src`
+build with vasm (`make -C ../eater`), as for the real board:
+
+```
+./build/release/apps/emu/emulator --machine machines/eater.machine ../eater/src/wozmon.rom    # serial
+./build/release/apps/emu/emulator --machine machines/eater.machine ../eater/src/keyboard.rom  # LCD + keyboard
+./build/release/apps/emu/emulator --machine machines/eater-lcd8.machine ../eater/src/hello-world-final.rom
+```
+
+The LCD is drawn as a box under the text. Keys go to whatever the program
+is listening on: the serial port once it turns DTR on, the keyboard once
+it enables CA1 interrupts.
+
 A machine is one line per chip; see `machines/apple1.machine` and
 `components/machine/include/machine.h` for the format. ROM image paths in a
 description are relative to the working directory, and a ROM on the command
@@ -53,10 +69,10 @@ components/
   emu_log/     TAG-scoped printf logging (EMU_LOGE/W/I/D; EMU_LOGV with EMU_TRACE)
   bus/         Bus (read/write for the CPU, poke for devices); Device; Decoder + NorthBridge
   cpu6502/     Cpu6502: NMOS 6502 / W65C02S, bus-cycle accurate
-  devices/     Ram, Rom, Pia6821
-  machine/     Machine (built from a description), apple1::Io, load_image, load_hex
+  devices/     Ram, Rom, Pia6821, Via6522, Acia6551 (W65C51N); Hd44780 and Ps2Keyboard on a 6522's pins
+  machine/     Machine (built from a description), Console, apple1::Io, load_image, load_hex
   debug/       Debugger, disassembler, ld65 symbols, BusTrace
-machines/      plain-text machine descriptions (apple1.machine is the built-in default)
+machines/      plain-text machine descriptions (apple1.machine is the built-in default; eater*.machine)
 apps/emu/      terminal keyboard/display, run loop, main
 test/host/     tests (test/host/README.md)
 tools/         fetch_fixtures.py, trace_diff.py

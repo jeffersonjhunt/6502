@@ -8,7 +8,7 @@ file(READ "${APPLE1_MACHINE_FILE}" APPLE1_MACHINE_TEXT)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/gen/apple1_machine.inc"
      CONTENT "const char APPLE1_MACHINE[] = R\"MACHINE(${APPLE1_MACHINE_TEXT})MACHINE\";\n" @ONLY)
 
-add_library(emu_machine STATIC apple1.cpp loader.cpp machine.cpp)
+add_library(emu_machine STATIC apple1.cpp console.cpp loader.cpp machine.cpp)
 target_include_directories(emu_machine PUBLIC include PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/gen")
 target_link_libraries(emu_machine PUBLIC emu_bus emu_devices PRIVATE emu_log)
 emu_house_flags(emu_machine)

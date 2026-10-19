@@ -7,6 +7,7 @@
 #include "terminal.h"
 
 #include <cstdio>
+#include <string>
 
 #include <unistd.h>
 
@@ -19,7 +20,7 @@ namespace ooe::emu
         const char *TAG = "terminal";
     } // namespace
 
-    Terminal::Terminal(apple1::Io &io) : io_(io)
+    Terminal::Terminal(Console &console) : console_(console)
     {
         if (tcgetattr(STDIN_FILENO, &saved_) < 0)
         {
@@ -46,30 +47,80 @@ namespace ooe::emu
 
     uint8_t Terminal::poll_key()
     {
-        char key = 0;
-        if (read(STDIN_FILENO, &key, 1) < 0)
+        constexpr size_t MAX_QUEUED = 4096;
+        uint8_t last = 0;
+        bool debug = false;
+        char buf[64];
+        const ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
+        if (n < 0)
             EMU_LOGE(TAG, "read() failed");
-        if (key == 0)
-            return 0;
-        if (key == DEBUG_KEY)
-            return DEBUG_KEY;
-        if (!io_.key(static_cast<uint8_t>(key)))
+        for (ssize_t i = 0; i < n; ++i)
         {
-            EMU_LOGW(TAG, "key %02X dropped: previous key not yet read", static_cast<uint8_t>(key));
-            return 0;
+            const auto key = static_cast<uint8_t>(buf[i]);
+            if (key == DEBUG_KEY)
+            {
+                debug = true;
+                continue;
+            }
+            last = key;
+            if (keys_.size() < MAX_QUEUED)
+                keys_.push_back(key);
+            else
+                EMU_LOGW(TAG, "key %02X dropped: %zu keys already waiting", key, keys_.size());
         }
-        return static_cast<uint8_t>(key);
+        while (!keys_.empty() && console_.key(keys_.front()))
+            keys_.pop_front();
+        return debug ? DEBUG_KEY : last;
     }
 
     void Terminal::update_screen()
     {
+        console_.service();
         uint8_t ch = 0;
-        if (!io_.output(ch))
-            return;
-        std::putchar(ch);
-        if (ch == '\r')
-            std::putchar('\n');
+        bool printed = false;
+        while (console_.output(ch))
+        {
+            if (ch == '\n' && last_cr_)
+            {
+                last_cr_ = false; // the LF of a CR LF: the CR already gave one
+                continue;
+            }
+            std::putchar(ch);
+            if (ch == '\r')
+                std::putchar('\n');
+            last_cr_ = ch == '\r';
+            printed = true;
+        }
+        if (printed)
+            lcd_on_screen_ = false;
+
+        std::vector<std::string> rows;
+        if (console_.display(rows))
+        {
+            lcd_rows_ = rows;
+            lcd_dirty_ = true;
+        }
+        if (lcd_dirty_ && std::chrono::steady_clock::now() - lcd_drawn_ > std::chrono::milliseconds(20))
+            draw_lcd();
+        if (printed || lcd_dirty_)
+            std::fflush(stdout);
+    }
+
+    void Terminal::draw_lcd()
+    {
+        const std::string edge = "+" + std::string(lcd_rows_.empty() ? 0 : lcd_rows_[0].size(), '-') + "+\r\n";
+        if (lcd_on_screen_)
+            std::printf("\033[%zuA", lcd_rows_.size() + 2); // back up over the last box
+        else if (last_cr_ == false && !lcd_rows_.empty())
+            std::fputs("\r\n", stdout);
+        std::fputs(edge.c_str(), stdout);
+        for (const std::string &row : lcd_rows_)
+            std::printf("|%s|\r\n", row.c_str());
+        std::fputs(edge.c_str(), stdout);
         std::fflush(stdout);
+        lcd_on_screen_ = true;
+        lcd_dirty_ = false;
+        lcd_drawn_ = std::chrono::steady_clock::now();
     }
 
     bool Terminal::read_line(const char *prompt, std::string &line)
