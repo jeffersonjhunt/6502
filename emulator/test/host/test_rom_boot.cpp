@@ -3,14 +3,11 @@
  * @brief Boot the Apple-1 ROMs headless, type at them, read the screen.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * End to end through the same pieces the app uses (LoadApple1, Memory, the
- * core), with the terminal swapped for a scripted keyboard and a captured
- * display. This is the test for "the Applesoft ROM does not work": it hung
- * at $FCE8 sizing RAM, and printed nothing after E000R.
- *
- * The keyboard and display here repeat what Keyboard::Pull and
- * Display::update do to the PIA registers. Phase 3 moves both behind a
- * Pia6821 device and this copy goes away.
+ * End to end through what the app uses: the built-in Apple-1 description,
+ * the decoder and devices, the core, and apple1::Io for the keyboard and
+ * screen. Only the host terminal is swapped, for a scripted keyboard and a
+ * captured screen. This is the test for "the Applesoft ROM does not work":
+ * it hung at $FCE8 sizing RAM, and printed nothing after E000R.
  *
  * ROMs are assembled from apple1/src by this test build when ca65 is on the
  * PATH; without it the cases skip.
@@ -20,27 +17,40 @@
 #include "test_support.h"
 
 #include "apple1.h"
+#include "machine.h"
+#include "pia6821.h"
 
 #include <fstream>
+#include <memory>
 #include <string>
 
 using namespace ooe::test;
 using namespace ooe::emu;
-using namespace ooe::emu::apple1;
 
 namespace
 {
-    /// Run `mem` (ROM already loaded) from reset, typing `keys` (CR as '\r');
-    /// return the screen text. The display is serviced throughout: without
-    /// that the ROM blocks in ECHO on its first character and nothing after
-    /// it is exercised.
+    std::unique_ptr<Machine> apple1_with(const char *rom)
+    {
+        MachineOptions opt;
+        opt.rom_override = rom;
+        std::string error;
+        auto m = Machine::build(apple1::default_machine(), "apple1.machine", opt, error);
+        if (!m)
+            std::printf("  build failed: %s\n", error.c_str());
+        return m;
+    }
+
+    /// Run `m` from reset, typing `keys` (CR as '\r'); return the screen text.
+    /// The screen is serviced throughout: without that the ROM blocks in ECHO
+    /// on its first character and nothing after it is exercised.
     ///
     /// Stops after `max_steps` instructions, or once every key is consumed and
     /// `settle` more instructions have run with nothing new printed.
-    std::string session(Memory &mem, const std::string &keys, long max_steps = 40'000'000,
+    std::string session(Machine &m, const std::string &keys, long max_steps = 40'000'000,
                         long settle = 2'000'000)
     {
-        Cpu6502 c(mem);
+        apple1::Io io(*m.find_as<Pia6821>(apple1::TERMINAL_PIA));
+        Cpu6502 c(m.bus());
         c.reset();
 
         std::string screen;
@@ -51,23 +61,18 @@ namespace
             for (int i = 0; i < 16; ++i)
                 c.step();
 
-            const uint8_t dsp = mem.read(DSP);
-            if (dsp & 0x80)
+            uint8_t ch = 0;
+            if (io.output(ch))
             {
-                const char ch = static_cast<char>(dsp & 0x7F);
-                screen += ch == '\r' ? '\n' : ch;
-                mem.poke(DSP, static_cast<uint8_t>(dsp & 0x7F));
+                screen += ch == '\r' ? '\n' : static_cast<char>(ch);
                 quiet = 0;
             }
             else if (next_key == keys.size() && (quiet += 16) > settle)
                 break;
 
-            // One key at a time, and only once the last one has been read.
-            if (next_key < keys.size() && !(mem.read(KBDCR) & 0x80) && steps % 4096 == 0)
-            {
-                mem.poke(KBD, static_cast<uint8_t>(keys[next_key++] | 0x80));
-                mem.poke(KBDCR, static_cast<uint8_t>(mem.read(KBDCR) | 0x80));
-            }
+            // One key at a time; io.key() refuses while the last is unread.
+            if (next_key < keys.size() && steps % 4096 == 0 && io.key(static_cast<uint8_t>(keys[next_key])))
+                ++next_key;
         }
         return screen;
     }
@@ -75,10 +80,8 @@ namespace
     std::string session(const char *rom, const std::string &keys, long max_steps = 40'000'000,
                         long settle = 2'000'000)
     {
-        apple1::Memory mem;
-        if (!apple1::load_rom(mem, rom))
-            return "<load failed>";
-        return session(mem, keys, max_steps, settle);
+        auto m = apple1_with(rom);
+        return m ? session(*m, keys, max_steps, settle) : "<build failed>";
     }
 
     bool have(const char *path)
@@ -116,12 +119,12 @@ TEST(no_phantom_key_at_reset)
     // monitor reads a $00 "key" into its input buffer before any typing.
     // (The first version of this case never serviced the display, so the
     // monitor sat in ECHO and the case passed with the bug present.)
-    apple1::Memory mem;
-    REQUIRE(apple1::load_rom(mem, EMU_IBASIC_ROM));
-    mem.poke(0x0200, 0xEE);
-    const std::string screen = session(mem, "", 400'000, 200'000);
+    auto m = apple1_with(EMU_IBASIC_ROM);
+    REQUIRE(m != nullptr);
+    m->bus().poke(0x0200, 0xEE);
+    const std::string screen = session(*m, "", 400'000, 200'000);
     REQUIRE(contains(screen, "\\\n")); // reached the prompt, so input was polled
-    CHECK_EQ(mem.read(0x0200), 0xEE);
+    CHECK_EQ(m->bus().read(0x0200), 0xEE);
 }
 
 TEST(integer_basic_runs_a_program)

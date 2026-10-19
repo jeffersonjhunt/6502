@@ -3,67 +3,47 @@
 /**
  * @file terminal.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The host terminal as the Apple-1's keyboard and display.
- * @version 0.2.0
+ * @brief The host terminal as the Apple-1's keyboard and screen.
+ * @version 0.3.0
  * @date 2026-10-18
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * Both sit on the device side of the PIA: they poke() its registers, which
- * the CPU's own stores cannot reach (apple1.h). Phase 3 moves the register
- * logic into a Pia6821 device and leaves only the terminal here.
+ * Only the host half lives here: raw stdin and stdout. What those mean to
+ * the 6821 (key encoding, CA1 strobe, PB7 busy) is apple1::Io, shared with
+ * the boot tests.
  */
 
 #include <cstdint>
 
 #include <termios.h>
 
-#include "bus.h"
+#include "apple1.h"
 
 namespace ooe::emu
 {
-    /**
-     * @brief stdin in raw, non-blocking mode, feeding the PIA's keyboard port
-     *
-     * Restores the terminal in its destructor, which is why the app must
-     * return from main rather than exit (Phase 1: Ctrl-C used to skip it).
-     */
-    class TerminalKeyboard
+    class Terminal
     {
     public:
-        TerminalKeyboard(Bus &bus, uint16_t ctrl_addr, uint16_t data_addr);
-        ~TerminalKeyboard();
-        TerminalKeyboard(const TerminalKeyboard &) = delete;
-        TerminalKeyboard &operator=(const TerminalKeyboard &) = delete;
+        /// Puts stdin in raw, non-blocking mode; the destructor restores it,
+        /// which is why the app returns from main rather than exiting.
+        explicit Terminal(apple1::Io &io);
+        ~Terminal();
+        Terminal(const Terminal &) = delete;
+        Terminal &operator=(const Terminal &) = delete;
 
         /**
-         * @brief Pass one pending keystroke to the PIA, if it is free
+         * @brief Pass one pending keystroke to the machine
          * @return the raw key, or 0 for none (or dropped: the last is unread)
          */
-        uint8_t poll();
+        uint8_t poll_key();
 
-        /// Apple-1 keyboard encoding: upper case, LF as CR, bit 7 set.
-        static uint8_t encode(uint8_t key);
+        /// Print the character the machine sent, if any.
+        void update_screen();
 
     private:
-        Bus &bus_;
-        uint16_t ctrl_addr_;
-        uint16_t data_addr_;
+        apple1::Io &io_;
         struct termios saved_{};
         bool restore_{false};
-    };
-
-    /// stdout, fed from the PIA's display port.
-    class TerminalDisplay
-    {
-    public:
-        TerminalDisplay(Bus &bus, uint16_t data_addr) : bus_(bus), data_addr_(data_addr) {}
-
-        /// Print the pending character, if any, and clear display-busy.
-        void update();
-
-    private:
-        Bus &bus_;
-        uint16_t data_addr_;
     };
 } // namespace ooe::emu

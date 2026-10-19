@@ -3,70 +3,59 @@
 /**
  * @file apple1.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The Apple-1 memory map: RAM, read-only ROM, and the 6821 PIA.
- * @version 0.2.0
+ * @brief The Apple-1's keyboard and display, as seen from the PIA's pins.
+ * @version 0.3.0
  * @date 2026-10-18
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * One flat 64 KB array with the Apple-1's rules applied on the CPU path
- * (write); the device path (poke) is unrestricted. The rules, each of which
- * was a bug before Phase 1 (docs/EMULATOR_PLAN.md §1):
+ * Woz Monitor drives a 6821: port A is the keyboard (PA7 tied high, a key
+ * strobes CA1), port B is the display (PB0-6 the character, PB7 an input
+ * that reads busy until the display has taken it). Io is that wiring, for
+ * anything standing in for the keyboard and screen: the terminal app and
+ * the boot tests share it, so they cannot drift apart.
  *
- * - ROM is read-only. Applesoft sizes RAM by finding a byte that will not
- *   change, and hung when there wasn't one.
- * - Bits 6-7 of KBDCR and DSPCR are 6821 status flags: readable, not
- *   storable. Woz Monitor's reset-time $A7 store used to fake a keypress.
- * - Reading KBD clears key-ready.
- * - DSP bit 7 is the display's busy line, not part of the character, so any
- *   store outputs; while CRB bit 2 is 0, $D012 is the DDR and nothing does.
- *
- * Phase 3 replaces this with RAM/ROM/Pia6821 devices behind a decoder.
+ * The default machine description (machines/apple1.machine) is compiled in,
+ * so the app runs an Apple-1 with no --machine argument.
  */
 
-#include <bitset>
 #include <cstdint>
 #include <string>
 
-#include "bus.h"
+#include "pia6821.h"
 
 namespace ooe::emu::apple1
 {
-    constexpr uint16_t KBD = 0xD010;   ///< PIA A data: keyboard
-    constexpr uint16_t KBDCR = 0xD011; ///< PIA A control
-    constexpr uint16_t DSP = 0xD012;   ///< PIA B data: display
-    constexpr uint16_t DSPCR = 0xD013; ///< PIA B control
-    constexpr uint16_t ROM_BASE = 0x8000;
+    /// machines/apple1.machine, embedded at build time.
+    const std::string &default_machine();
 
-    constexpr uint8_t KEY_READY = 0x80;    ///< KBDCR bit 7
-    constexpr uint8_t DISPLAY_BUSY = 0x80; ///< DSP bit 7
+    /// Name the description gives the PIA the keyboard and display hang off.
+    constexpr const char *TERMINAL_PIA = "terminal";
 
-    class Memory : public Bus
+    class Io
     {
     public:
-        static constexpr size_t SIZE = 65536;
+        static constexpr uint8_t PB7_BUSY = 0x80;
 
-        uint8_t read(uint16_t addr) override;
-        void write(uint16_t addr, uint8_t data) override;
-        void poke(uint16_t addr, uint8_t data) override;
+        /// Takes over `pia`'s port B write handler; `pia` must outlive this.
+        explicit Io(Pia6821 &pia);
+        Io(const Io &) = delete;
+        Io &operator=(const Io &) = delete;
 
-        /// Make [first, last] read-only to the CPU (or writable again).
-        void set_read_only(uint16_t first, uint16_t last, bool protect = true);
+        /// Present a key (host ASCII) and strobe CA1.
+        /// @return false if the previous key has not been read yet (the key is dropped)
+        bool key(uint8_t ascii);
+
+        /// Take the character the CPU last sent, if any, and drop PB7 busy.
+        /// @return false if nothing is waiting
+        bool output(uint8_t &ch);
+
+        /// Apple-1 keyboard encoding: upper case, LF as CR, bit 7 set.
+        static uint8_t encode(uint8_t ascii);
 
     private:
-        uint8_t store_value(uint16_t addr, uint8_t data) const;
-
-        uint8_t mem_[SIZE]{};
-        std::bitset<SIZE> read_only_;
+        Pia6821 &pia_;
+        uint8_t pending_{0};
+        bool have_pending_{false};
     };
-
-    /**
-     * @brief Load a ROM image at $8000 and lay out the map around it
-     *
-     * The image (apple1/src/apple1.cfg: 32 KB, $8000-$FFFF) becomes
-     * read-only except the PIA at $D010-$D013. Below $8000 is RAM.
-     *
-     * @return false if the ROM cannot be loaded
-     */
-    bool load_rom(Memory &memory, const std::string &path);
 } // namespace ooe::emu::apple1

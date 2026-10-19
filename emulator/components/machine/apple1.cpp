@@ -1,74 +1,58 @@
 /**
  * @file apple1.cpp
- * @brief Apple-1 memory map implementation.
+ * @brief Apple-1 keyboard/display wiring.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 
 #include "apple1.h"
 
-#include "emu_log.h"
-#include "loader.h"
-
 namespace ooe::emu::apple1
 {
     namespace
     {
-        [[maybe_unused]] const char *TAG = "apple1";
-
-        constexpr uint8_t CR_FLAGS = 0xC0;     ///< 6821 control-register bits 6-7
-        constexpr uint8_t CRB_SELECT_OR = 0x04; ///< CRB bit 2: $D012 is ORB, not DDRB
+#include "apple1_machine.inc" // const char APPLE1_MACHINE[]
     } // namespace
 
-    uint8_t Memory::read(uint16_t addr)
+    const std::string &default_machine()
     {
-        const uint8_t v = mem_[addr];
-        EMU_LOGV(TAG, "%04X -> %02X", addr, v);
-        if (addr == KBD)
-            mem_[KBDCR] = static_cast<uint8_t>(mem_[KBDCR] & ~KEY_READY);
-        return v;
+        static const std::string text(APPLE1_MACHINE);
+        return text;
     }
 
-    void Memory::write(uint16_t addr, uint8_t data)
+    Io::Io(Pia6821 &pia) : pia_(pia)
     {
-        if (read_only_[addr])
-        {
-            EMU_LOGV(TAG, "%04X <- %02X (read-only, ignored)", addr, data);
-            return;
-        }
-        EMU_LOGV(TAG, "%04X <- %02X", addr, data);
-        mem_[addr] = store_value(addr, data);
+        pia_.on_write_b([this](uint8_t out) {
+            pending_ = static_cast<uint8_t>(out & 0x7F);
+            have_pending_ = true;
+            pia_.set_input_b(PB7_BUSY); // reads busy until output() takes it
+        });
     }
 
-    void Memory::poke(uint16_t addr, uint8_t data)
+    bool Io::key(uint8_t ascii)
     {
-        mem_[addr] = data;
-    }
-
-    void Memory::set_read_only(uint16_t first, uint16_t last, bool protect)
-    {
-        for (uint32_t a = first; a <= last; a++)
-            read_only_[a] = protect;
-    }
-
-    uint8_t Memory::store_value(uint16_t addr, uint8_t data) const
-    {
-        if (addr == KBDCR || addr == DSPCR)
-            return static_cast<uint8_t>((data & ~CR_FLAGS) | (mem_[addr] & CR_FLAGS));
-        if (addr == DSP)
-        {
-            if (!(mem_[DSPCR] & CRB_SELECT_OR))
-                return mem_[addr]; // a DDRB write: not output
-            return static_cast<uint8_t>(data | DISPLAY_BUSY);
-        }
-        return data;
-    }
-
-    bool load_rom(Memory &memory, const std::string &path)
-    {
-        if (load_image(memory, path, ROM_BASE) < 0)
+        if (pia_.cra() & Pia6821::CR_IRQ1)
             return false;
-        memory.set_read_only(ROM_BASE, 0xFFFF);
-        memory.set_read_only(KBD, DSPCR, false);
+        pia_.set_input_a(encode(ascii));
+        pia_.strobe_ca1();
         return true;
+    }
+
+    bool Io::output(uint8_t &ch)
+    {
+        if (!have_pending_)
+            return false;
+        ch = pending_;
+        have_pending_ = false;
+        pia_.set_input_b(0);
+        return true;
+    }
+
+    uint8_t Io::encode(uint8_t ascii)
+    {
+        if (ascii >= 'a' && ascii <= 'z')
+            ascii = static_cast<uint8_t>(ascii - 0x20); // the Apple-1 is upper case only
+        if (ascii == '\n')
+            ascii = '\r';
+        return static_cast<uint8_t>(ascii | 0x80);    // PA7 is tied high
     }
 } // namespace ooe::emu::apple1
