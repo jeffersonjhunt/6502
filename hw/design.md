@@ -7,12 +7,13 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
 
 ## Goals ##
 
-- A W65C02S at **14.31818 MHz**, just over its 14 MHz rating, or 7.15909 MHz while the hardware is being brought
-  up. It has **1 MB of RAM**, with the system software (BIOS, Monitor, BASIC, DOS) living at the top of RAM.
+- A W65C02S at **7.15909 MHz**, with 14.31818 MHz as a possible later turbo mode. It has **1 MB of RAM** on the
+  backplane, with the system software (BIOS, Monitor, BASIC, DOS) living at the top of RAM.
 - Banking with as few bits as possible.
 - Storage and I/O that **support DMA**: every card can be driven by the CPU through its registers, and can also
   move data by DMA.
 - VGA video with text, bitmap, tile and sprite modes; stereo sound from two 6581 SIDs.
+- USB keyboard and mouse, a game port, two serial ports (COM1, COM2) and a parallel port.
 - An **Apple II mode**, selected by a register, that runs unaltered software for a stock enhanced Apple IIe with
   the extended 80-column card (128 KB). Software that needs any other hardware is out of scope; the one exception is
   the Disk II, needed to load anything at all.
@@ -34,8 +35,8 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
                                                               |
   ======================== backplane: A0-A19, D0-D7, PS0-PS3, RWB, RDY, BE, DRQ/DACK ... ========================
        |           |          |          |          |           |           |           |            |
-     RAM A-D     ROM A     DMA ctl    video      sound      Disk II     SD/CF      serial/par    bus spy
-     (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)    (GoTek)    storage                  (ESP32)
+     RAM A-D     ROM A     DMA ctl    video      sound      Disk II     SD/CF     COM1/COM2/   USB/game    bus spy
+     (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)    (GoTek)    storage     LPT          port      (ESP32)
 ```
 
 
@@ -46,27 +47,27 @@ divided down from it:
 
 | Divider | PHI2 | Cycle | Used for |
 |---|---|---|---|
-| ÷1 | 14.31818 MHz | 69.8 ns | native mode |
-| ÷2 | 7.15909 MHz | 139.7 ns | native mode during bring-up, or as the fallback if ÷1 isn't stable |
+| ÷2 | 7.15909 MHz | 139.7 ns | **native mode** |
+| ÷1 | 14.31818 MHz | 69.8 ns | a possible later "turbo" mode, not planned for |
 | ÷14, every 65th cycle ÷16 | about 1.0205 MHz average | 978 ns (1,117 ns long cycle) | Apple II mode: 65 cycles per scan line, 17,030 per frame, exactly as the Apple |
 
-- **The ÷1 speed is just over the rating.** Its 69.8 ns cycle is 0.2 ns, about 0.3%, under the datasheet's 70 ns
-  minimum. That's well inside what parts typically manage, but it isn't guaranteed. ÷2 is the safety net.
-- **÷2 suits early development.** At 140 ns per cycle the read budget is about 100 ns. Flash, backplane RAM, logic
-  analysers and long wires all work with no wait states, so timing problems can be dealt with one at a time when
-  moving up to ÷1.
+- **Decided: the design targets ÷2.** At 140 ns per cycle the read budget is about 100 ns. Flash, RAM on the
+  backplane, logic analysers and long wires all work with no wait states.
+- **÷1 is a "future maybe".** Its 69.8 ns cycle is 0.2 ns, about 0.3%, under the datasheet's 70 ns minimum, which
+  parts typically manage but WDC doesn't guarantee. It also leaves only about 30 ns for each read (below), which RAM
+  on the backplane probably can't meet. Nothing in this design depends on it.
 
 **Proposed**
 
-- **A synchronous divider** on the clock card, selected by the north bridge's mode register and a speed bit (or a
-  jumper during bring-up). Every speed comes from the same crystal, so switching is just changing the divider at a
+- **A synchronous divider** on the clock card, selected by the north bridge's mode register (and, if turbo is ever
+  added, a speed bit). Every speed comes from the same crystal, so switching is just changing the divider at a
   cycle boundary while PHI2 is low. The divider never produces a short pulse, so it needs no clock multiplexer.
 - **Clock lines on the backplane.** The OSC line (B30) carries the 14.31818 MHz master at all times. In Apple mode
   the Disk II card divides it by 7 to get its 2 MHz state-machine clock, locked to PHI2 as on the real Apple.
 - **Other cards keep their own clocks.** The video card's 25.175 MHz VGA pixel clock and the sound card's SID clock
   are separate oscillators on those cards. Neither needs to be in step with the CPU.
 
-**Timing at ÷1.** These are WDC's 5 V figures:
+**Timing.** These are WDC's 5 V figures:
 
 | Parameter | Value |
 |---|---|
@@ -75,13 +76,15 @@ divided down from it:
 | tMDS (write data valid after PHI2 rises) | 25 ns max |
 | tCYC (cycle time) | 70 ns min |
 
-From the address becoming valid to read data being needed is 69.8 − 30 − 10 = **about 30 ns**. That covers the
-north bridge's window lookup and module decode, about 7.5 ns in a fast CPLD, plus 10 ns SRAM, with margin for one
-transceiver hop each way. At ÷2 the same budget is about 100 ns.
+From the address becoming valid to read data being needed is the cycle time minus 40 ns:
 
-- **Main RAM:** it goes on the CPU board, or on a short, well-grounded backplane segment beside it.
-- **Slow cards:** anything slower holds the CPU with RDY wait states. Examples are the flash ROM, the SID card,
-  and any slow I/O.
+- **At ÷2: about 100 ns.** That covers the north bridge's window lookup and module decode, transceivers in both
+  directions, a backplane crossing, and 55–70 ns RAM or flash, with margin.
+- **At ÷1: about 30 ns.** Only a fast CPLD and 10 ns SRAM close to the CPU would fit.
+
+**Decided: RAM lives on the backplane.**
+
+**Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the SID card.
 
 
 ## Memory ##
@@ -98,7 +101,9 @@ The north bridge turns every CPU access into a 20-bit physical address (A0–A19
 | 1 | `$10000–$1FFFF` | user memory | IIe auxiliary 64 KB |
 | 2 | `$20000–$2FFFF` | user memory | language card RAM, main |
 | 3 | `$30000–$3FFFF` | user memory | language card RAM, auxiliary |
-| 4–7 | `$40000–$7FFFF` | user memory, RAM disk | unused |
+| 4 | `$40000–$4FFFF` | user memory | the main language card's second `$D000` bank (at `$4D000`) |
+| 5 | `$50000–$5FFFF` | user memory | the auxiliary language card's second `$D000` bank (at `$5D000`) |
+| 6–7 | `$60000–$7FFFF` | user memory, RAM disk | unused |
 | 8–B | `$80000–$BFFFF` | video memory (snooped by the video card) | unused |
 | C–D | `$C0000–$DFFFF` | user memory, RAM disk | unused |
 | E | `$E0000–$EFFFF` | Apple IIe ROM image | IIe ROM (`$C100–$FFFF`), write-protected |
@@ -134,9 +139,9 @@ program can look at the first 16 KB of the screen without giving up its zero pag
   handler switches through.
 - **Write protection.** One north bridge bit write-protects the system software in bank F; a second bit does the
   same for the Apple ROM image in bank E.
-- **I/O.** The north bridge decodes a fixed I/O area ahead of the windows, so it appears whatever the windows
-  hold. Proposal: `$C000–$C7FF`, the same place as the Apple's I/O, so there is one I/O hole in both modes. The
-  region size and the register map are open.
+- **I/O (decided).** The north bridge decodes a fixed I/O area at `$C000–$C7FF` ahead of the windows, so it
+  appears whatever the windows hold. It's the same place as the Apple's I/O, so there's one I/O hole in both
+  modes. The register map of each card is still open.
 
 ### Apple II mode ###
 
@@ -149,9 +154,9 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
 - **80STORE with PAGE2** (`$C000/$C001`, `$C054/$C055`), plus **HIRES** (`$C056/$C057`): bank 0 or 1 for text
   page 1 and, with HIRES on, hi-res page 1.
 - **Language card** (`$C080–$C08F`): RAM in bank 2 (main) or bank 3 (auxiliary), or ROM from bank E; read and
-  write selection with the two-read rule for write enable.
-  - Proposed: the second 4 KB `$D000` bank is kept at `$C000–$CFFF` of the same bank, which is otherwise unused
-    because the CPU never sees RAM there. The north bridge clears A12 for it.
+  write selection with the two-read rule for write enable. The second 4 KB `$D000` bank is at `$D000` of bank 4
+  (main) or bank 5 (auxiliary). That keeps every Apple-mode address a pass-through of A0–A15, so the north bridge
+  only ever drives A16–A19.
 - **I/O:** `$C000–$C0FF` is the IIe's soft switches, keyboard, speaker and game port.
 - **Slot ROMs:** `$C100–$CFFF` comes from the ROM image in bank E, as the IIe's internal ROM (INTCXROM, SLOTC3ROM),
   or from a slot card's ROM.
@@ -159,7 +164,7 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
 - **Status:** the switch states read back at `$C011–$C01F`. `$C019`, the vertical blank flag, is driven by the
   video card in step with the Apple timing.
 
-This is too much for a 74HC670 register file, which is also too slow at 14 MHz. The north bridge is a CPLD, for
+This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge is a CPLD, for
 example an ATF1508 (5 V), holding:
 
 - the native window registers;
@@ -184,13 +189,14 @@ window registers.
 
 **From ROM (normal)**
 
-1. At reset the north bridge overlays the flash ROM (module ID 4, ROM A) on W3, for reads only. The CPU runs from
-   it with RDY wait states: flash takes 55–70 ns, so each access needs one or two wait states at ÷1 and none at ÷2.
+1. At reset the north bridge overlays the flash ROM (module ID 4, ROM A) on W3, for reads only. At ÷2, 55–70 ns
+   flash runs with no wait states. A turbo mode would need one or two.
 2. The boot code copies the system image from flash into bank F. A DMA memory-to-memory copy does 64 KB in about
-   10 ms.
+   18 ms.
 3. It copies the Apple IIe ROM image into bank E.
 4. It clears the overlay bit and sets the write-protect bits.
-5. From then on everything runs from RAM with no wait states.
+5. From then on the system software runs from RAM. That's the "top of RAM" requirement. It also leaves the flash
+   free to be reprogrammed while the machine runs, and keeps a turbo mode possible.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).
 
 **From the ESP32 (override)**
@@ -242,8 +248,8 @@ The machine works without it, so it can come later.
   3. It drives A0–A19 and RWB itself and asserts the channel's DACK.
   4. The card reads or writes the data bus in the same cycle (a fly-by transfer).
 
-  That's one bus cycle per byte, up to 14 MB/s.
-- **Memory to memory:** two cycles per byte, about 7 MB/s.
+  That's one bus cycle per byte, up to about 7 MB/s.
+- **Memory to memory:** two cycles per byte, about 3.5 MB/s.
 - **End of transfer:**
   - an interrupt on /IRQ when a count runs out (terminal count);
   - a status bit for each channel;
@@ -290,7 +296,7 @@ together with SYNC to stop at each instruction; Store and Fetch take the bus the
 
 **Common to every mode:**
 
-- a 256-entry palette of 12-bit RGB;
+- a 256-entry palette of 12-bit RGB (decided);
 - a display base register (one write to flip between buffers);
 - fine scroll on each layer;
 - a border colour;
@@ -298,10 +304,10 @@ together with SYNC to stop at each instruction; Store and Fetch take the bus the
 
 **Where the data lives.** All video data (maps, tiles, sprite tables, bitmaps) is in banks 8–B, 256 KB, which the
 card mirrors. A game keeps its sprite table anywhere in RAM and copies it into the video banks with one 512-byte
-DMA during vertical blank, about 37 µs, as the NES does. Storage can load tiles and pictures straight into the video
+DMA during vertical blank, about 72 µs, as the NES does. Storage can load tiles and pictures straight into the video
 banks.
 
-**Hardware.** The card needs an FPGA: at 14 MHz it must capture an address and data every 70 ns, and draw layers
+**Hardware.** The card needs an FPGA: it must capture an address and data every 140 ns (every 70 ns in turbo), and draw layers
 and sprites at the VGA pixel clock (25.175 MHz). The Commander X16's VERA is a useful reference. The difference is
 that VERA's memory is reached through I/O ports, while here the screen is ordinary memory.
 
@@ -347,7 +353,7 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
     second SID at `$D420` or `$D500`.
   - The player maps a 64 KB "C64 sandbox" through the windows, with the SID card decoded at `$D400` in that
     mapping.
-  - A timer interrupt calls play 50 or 60 times a second, running at 14 MHz.
+  - A timer interrupt calls play 50 or 60 times a second, running at 7.16 MHz.
   - Tunes that play samples by timing writes to the volume register need a 1 MHz CPU. The Apple-mode clock could
     be borrowed for those later.
 
@@ -371,7 +377,7 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
   - Copy-protected disks survive the conversion from `.WOZ` to HFE case by case.
 - **Native storage:** an SD or CompactFlash card controller, with DMA for block transfers and registers for simple
   drivers.
-  - A floppy runs at about 30 KB/s, too slow to be native storage at 14 MHz.
+  - A floppy runs at about 30 KB/s, too slow to be native storage.
   - Optionally, a ProDOS block driver in a slot ROM could show the same card as a hard disk in Apple mode. That goes
     beyond a stock IIe, so it's an extra, not a requirement.
 
@@ -387,7 +393,8 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
 
 Before the switch, the BIOS has loaded the ROM image into bank E and cleared banks 0–3.
 
-**Leaving:** see the open questions. Unaltered Apple software must not be able to leave by accident.
+**Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
+an Apple program does can leave by accident.
 
 **What a stock enhanced IIe needs, and where it comes from**
 
@@ -395,36 +402,137 @@ Before the switch, the BIOS has loaded the ROM image into bank E and cleared ban
 |---|---|
 | 65C02 | the W65C02S. Its extra opcodes (BBR, BBS, RMB, SMB, WAI, STP) do nothing on the IIe's 65C02 and aren't used by Apple software |
 | 128 KB with auxiliary memory, language card, and all soft switches | north bridge |
-| Keyboard (`$C000`, `$C010`), Open- and Closed-Apple keys (`$C061/$C062`) | keyboard interface (card to be decided) |
-| Speaker (`$C030`) | sound card, or a small speaker driver on the keyboard/game card |
-| Game port: paddles and buttons (`$C064–$C070`) | keyboard/game card. Paddle timing depends on the 1 MHz clock |
+| Keyboard (`$C000`, `$C010`), Open- and Closed-Apple keys (`$C061/$C062`) | USB card, from the USB keyboard |
+| Speaker (`$C030`) | USB card (proposed), or the sound card |
+| Game port: paddles and buttons (`$C064–$C070`) | USB card's game port. Paddle timing depends on the 1 MHz clock |
 | Video: all IIe modes, `$C019` vertical blank | video card, by snooping |
 | Disk (slot 6) | Disk II clone with a GoTek |
 | ROMs | the IIe ROM image (Applesoft, Monitor, 80-column firmware) in bank E. Apple's IIe ROMs are copyrighted and have to be supplied by the owner; the `applesoft-lite` in this repo is not full Applesoft and has no graphics commands |
 
 
+## Interrupts ##
+
+**Decided:** one interrupt status register, with a bit per module ID, so a single read finds which cards are
+interrupting.
+
+**Proposed mechanism.** Cards are chosen by module ID, not by slot, so the north bridge can't see which card pulled
+/IRQ. Instead it asks:
+
+1. The register is two bytes in the north bridge's I/O space: module IDs 0–7, then IDs 8–F.
+2. When the CPU reads either byte, the north bridge asserts **/IACK** for that cycle and drives nothing on the data
+   bus.
+3. During /IACK, each card with an interrupt pending pulls its own data line low, D(ID mod 8), choosing the half by
+   A0. Every other card leaves the data bus alone.
+4. Weak pull-ups on the data lines keep every other bit high. The CPU reads a byte where **0 means interrupting**.
+
+The cost is one backplane line, plus open-drain drivers for one data bit on each card that interrupts.
+
+**In Apple II mode** /IACK is never used: Apple software polls its own cards. Native-only cards keep quiet while
+AMODE is high.
+
+
+## Input and Ports ##
+
+**Decided**
+
+- USB keyboard and mouse.
+- The game port goes on the same card as the USB ports.
+- Two serial ports (COM1, COM2) and a parallel port.
+
+**Proposed: the USB card**
+
+- **USB host:** a microcontroller with USB host support, such as an RP2350 running TinyUSB. It presents simple
+  registers to the 6502.
+- **Native mode:**
+  - a key event FIFO, holding key codes with press and release and the modifier state;
+  - mouse movement and buttons;
+  - an interrupt on new events.
+
+  The FIFO can be drained by DMA, which meets the "supports DMA" rule, though input rarely needs it.
+- **Apple II mode:** the same controller presents the IIe keyboard:
+  - ASCII with the strobe bit at `$C000`, cleared by `$C010`;
+  - Open- and Closed-Apple on two modifier keys at `$C061/$C062`.
+- **Game port:** a DE-9 Apple-style joystick port.
+  - The paddles use a real 558 timer, triggered by `$C070` and read in bit 7 of `$C064–$C067`. Because it runs in
+    real time, its readings stay correct whatever the CPU speed, though native software has to calibrate.
+  - The buttons are read at `$C061–$C063`.
+  - A USB gamepad mapped onto the paddles is an option for later.
+- **Speaker:** the `$C030` click is a flip-flop that changes on each access, with a small amplifier. It fits on
+  this card.
+
+**Proposed: the serial and parallel card** (module ID 6, "Serial A/B & Parallel")
+
+- TI's TL16C552A: two 16550-compatible UARTs with 16-byte FIFOs and an IEEE 1284 bidirectional parallel port, in
+  one chip. It is the classic PC combination for COM1, COM2 and LPT1.
+- **DMA:** the UARTs' TXRDY/RXRDY outputs drive DRQ lines. The parallel port can use DMA the same way.
+- **Clock:** a 1.8432 MHz crystal for the standard baud rates.
+- **Glue logic:** the chip has an Intel-style bus, so a few gates turn PHI2 and RWB into /RD and /WR.
+- The W65C51N was considered and rejected: its stuck transmit flag makes DMA and interrupt-driven transmit
+  unreliable.
+
+**Proposed module IDs** for the new cards, using the free IDs `0x8`–`0xD`:
+
+| ID | Module |
+|---|---|
+| 0x8 | DMA controller |
+| 0x9 | Video |
+| 0xA | Sound (2× SID) |
+| 0xB | USB, game port and speaker |
+| 0xC | Disk II controller |
+| 0xD | spare |
+
+Native storage (SD or CF) is "Mass Storage", ID 7. RAM A–D (IDs 0–3) are four 256 KB modules, chosen by A18–A19.
+
+
 ## Backplane Signals ##
 
-The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28.
+The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
+design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.
 
-**Signals this design needs**
+**Proposed assignment** (new pins in bold, existing pins listed for context):
 
-| Signal | Dir | Purpose |
-|---|---|---|
-| RWB | CPU, DMA controller, or bus spy | read/write |
-| RDY | open drain, any card | wait states; stops the CPU for DMA |
-| BE | DMA controller, bus spy | floats the CPU off the bus |
-| SYNC | CPU | opcode fetch, for single-step and the bus spy |
-| VPB | CPU | vector pull, for the north bridge's vector rule and the bus spy |
-| OE | north bridge | read strobe (already listed in modules.md) |
-| DRQ0–DRQ3 | cards | DMA requests |
-| DACK0–DACK3 | DMA controller | DMA acknowledges |
-| TC | DMA controller | terminal count (optional) |
-| BOOTSEL | bus spy | boot from RAM, not ROM |
-| AMODE | north bridge | Apple II mode is active (video, Disk II, DMA controller, keyboard card) |
+| Pin | Signal | Driven by | Type | Purpose |
+|---|---|---|---|---|
+| A2–A9 | D7–D0 | | | data, existing |
+| **A10** | RWB | CPU, or the bus master | totem pole | read/write. Beside the data lines it qualifies |
+| **A11** | /OE | north bridge | totem pole | read strobe (already listed in modules.md) |
+| A12–A31 | A19–A0 | | | address, existing |
+| B2–B4 | /RESET, /NMI, /IRQ | | | existing |
+| B5–B8 | PS3–PS0 | | | module ID, existing |
+| **B9** | SYNC | CPU | totem pole | opcode fetch, for single-step and the bus spy |
+| B10 | GND | | | existing |
+| **B11** | VPB | CPU | totem pole | vector pull, for the north bridge's vector rule |
+| **B12** | RDY | any card | open drain, pulled up | wait states; stops the CPU for DMA |
+| **B13** | BE | DMA controller, bus spy, front panel | open drain, pulled up | low floats the CPU off the bus |
+| **B14** | /IACK | north bridge | totem pole | interrupt status poll |
+| **B15** | DRQ0 | storage | pulled down | DMA request, channel 0 (highest priority) |
+| **B16** | /DACK0 | DMA controller | totem pole | DMA acknowledge, channel 0 |
+| **B17** | DRQ1 | | pulled down | channel 1 |
+| **B18** | /DACK1 | DMA controller | totem pole | |
+| **B19** | GND | | | ground beside PHI2 |
+| B20 | PHI2 | | | existing |
+| **B21** | GND | | | ground beside PHI2 |
+| **B22** | DRQ2 | | pulled down | channel 2 |
+| **B23** | /DACK2 | DMA controller | totem pole | |
+| **B24** | DRQ3 | | pulled down | channel 3 |
+| **B25** | /DACK3 | DMA controller | totem pole | |
+| **B26** | TC | DMA controller | totem pole | terminal count |
+| **B27** | AMODE | north bridge | totem pole | Apple II mode is active |
+| **B28** | /BOOTSEL | bus spy | open drain, pulled up | boot from RAM, not ROM |
+| B29, B30 | +24 VDC, OSC | | | existing |
 
-That's 17 signals, leaving 3 pins. At 14 MHz those 3 are best spent on extra ground pins: the slot has only 4
-grounds for more than 40 fast signals.
+**Assumption: the CPU and the north bridge share a card.**
+
+- With 6-bit windows, the north bridge replaces A14–A15, so the CPU's own A14–A15 must not reach the backplane.
+- On one card, the CPU's A14–A15 go only to the north bridge. The north bridge drives backplane A14–A19, and the
+  CPU drives A0–A13 directly. The north bridge floats its address lines whenever BE is low.
+- As separate cards they'd need two more lines, CA14 and CA15, and those would take the two ground pins beside
+  PHI2.
+- One card also keeps the address path from crossing the backplane twice, which a future turbo mode would need.
+
+**Pull-ups and pull-downs** belong on the backplane itself, so an empty slot leaves every line in a defined state.
+That covers RDY, BE, /BOOTSEL, /RESET, /NMI and /IRQ, the weak data-line pull-ups for /IACK, and the DRQ
+pull-downs.
 
 
 ## Emulator ##
@@ -448,14 +556,11 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Leaving Apple II mode.** Options:
-   - a hard reset, where power-on and the reset button always start in native mode;
-   - a front-panel switch;
-   - a register at an address no Apple software uses.
-2. **The native I/O area:** where it is, how big, and the register map of each card. Proposed: `$C000–$C7FF`.
-3. **Palette depth:** 12-bit RGB is proposed; VGA used 18-bit.
-4. **The keyboard and game-port card** for Apple mode, and what native mode uses for a keyboard.
-5. **Backplane pin assignment** for the signals above, and whether the RAM can sit on the backplane at ÷1 or must be
-   on the CPU board. At ÷2 it can sit on the backplane.
-6. **The native interrupt scheme.** With many interrupting cards on one /IRQ line, an interrupt status register in
-   the north bridge or DMA controller would save polling every card.
+1. **Register maps.** The north bridge first (windows, mode, write protect, overlay, interrupt status), then each
+   card's registers within `$C000–$C7FF`.
+2. **The CPU and north bridge on one card** (assumed by the pin table), or separate with CA14/CA15.
+3. **The proposed pin table and module IDs.**
+4. **Native storage:** SD or CompactFlash.
+5. **The front panel's bus access.** Store, Fetch and Step need RDY and BE: does the panel use a DMA channel, or
+   its own logic?
+6. **Power.** `modules.md` says each card regulates 12 V, but the backplane carries +24 V.
