@@ -164,8 +164,8 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
 - **Status:** the switch states read back at `$C011–$C01F`. `$C019`, the vertical blank flag, is driven by the
   video card in step with the Apple timing.
 
-This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge is a CPLD, for
-example an ATF1508 (5 V), holding:
+This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge
+is a CPLD, for example an ATF1508 (5 V), holding:
 
 - the native window registers;
 - the Apple switch logic;
@@ -307,9 +307,9 @@ card mirrors. A game keeps its sprite table anywhere in RAM and copies it into t
 DMA during vertical blank, about 72 µs, as the NES does. Storage can load tiles and pictures straight into the video
 banks.
 
-**Hardware.** The card needs an FPGA: it must capture an address and data every 140 ns (every 70 ns in turbo), and draw layers
-and sprites at the VGA pixel clock (25.175 MHz). The Commander X16's VERA is a useful reference. The difference is
-that VERA's memory is reached through I/O ports, while here the screen is ordinary memory.
+**Hardware.** The card needs an FPGA: it must capture an address and data every 140 ns (every 70 ns in turbo),
+and draw layers and sprites at the VGA pixel clock (25.175 MHz). The Commander X16's VERA is a useful reference.
+The difference is that VERA's memory is reached through I/O ports, while here the screen is ordinary memory.
 
 **Apple II mode.** The card snoops what the IIe's video reads, in banks 0 and 1:
 
