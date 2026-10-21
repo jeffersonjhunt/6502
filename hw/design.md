@@ -7,8 +7,8 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
 
 ## Goals ##
 
-- A W65C02S at **14 MHz** (its rated maximum) with **1 MB of RAM**, the system software (BIOS, Monitor, BASIC,
-  DOS) living at the top of RAM.
+- A W65C02S at **14.31818 MHz**, just over its 14 MHz rating, or 7.15909 MHz while the hardware is being brought
+  up. It has **1 MB of RAM**, with the system software (BIOS, Monitor, BASIC, DOS) living at the top of RAM.
 - Banking with as few bits as possible.
 - Storage and I/O that **support DMA**: every card can be driven by the CPU through its registers, and can also
   move data by DMA.
@@ -22,10 +22,10 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
 
 ```
                  +-----------+     +--------------+
-   14 MHz osc -->|           |     |              |
-14.31818 MHz -->|  clock    |---->|  W65C02S     |  A0-A15, D0-D7, RWB, SYNC, VPB
-                 |  (glitch- | PHI2|  CPU card    |-----------+
-                 |  free mux)|     +--------------+           |
+14.31818 MHz -->|  clock    |     |              |
+    crystal      |  divider  |---->|  W65C02S     |  A0-A15, D0-D7, RWB, SYNC, VPB
+                 | /1 /2 /14 | PHI2|  CPU card    |-----------+
+                 |           |     +--------------+           |
                  +-----------+                                v
                                                     +------------------+
                                                     |  north bridge    |  CPU address -> 20-bit address
@@ -41,24 +41,32 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
 
 ## CPU and clocks ##
 
-**Decided**
+**Decided: one oscillator for the CPU,** a 14.31818 MHz crystal (the Apple II's master clock). Every CPU speed is
+divided down from it:
 
-- Native mode runs at 14 MHz. Apple II mode runs at the Apple's exact clock: a 14.31818 MHz master divided by 14,
-  with every 65th cycle stretched to 16 master clocks. That gives 65 cycles per scan line, 17,030 per frame, and an
-  average of about 1.0205 MHz.
+| Divider | PHI2 | Cycle | Used for |
+|---|---|---|---|
+| ÷1 | 14.31818 MHz | 69.8 ns | native mode |
+| ÷2 | 7.15909 MHz | 139.7 ns | native mode during bring-up, or as the fallback if ÷1 isn't stable |
+| ÷14, every 65th cycle ÷16 | about 1.0205 MHz average | 978 ns (1,117 ns long cycle) | Apple II mode: 65 cycles per scan line, 17,030 per frame, exactly as the Apple |
+
+- **The ÷1 speed is just over the rating.** Its 69.8 ns cycle is 0.2 ns, about 0.3%, under the datasheet's 70 ns
+  minimum. That's well inside what parts typically manage, but it isn't guaranteed. ÷2 is the safety net.
+- **÷2 suits early development.** At 140 ns per cycle the read budget is about 100 ns. Flash, backplane RAM, logic
+  analysers and long wires all work with no wait states, so timing problems can be dealt with one at a time when
+  moving up to ÷1.
 
 **Proposed**
 
-- **Two oscillators.** A 14.000 MHz one for native mode, which keeps the CPU inside its rating, and 14.31818 MHz
-  for Apple mode. (Running native mode from the 14.31818 MHz crystal saves a part, but its 69.8 ns cycle is just
-  under the datasheet's 70 ns minimum.)
-- **A glitch-free clock multiplexer** on the clock card. It switches between the two only while PHI2 is low, using
-  the usual two flip-flops per input. The W65C02S is fully static, so a long cycle is harmless, but a runt pulse is
-  not.
-- **Clock lines on the backplane.** The OSC line (B30) carries the selected master clock. In Apple mode the Disk II
-  card divides it by 7 to get its 2 MHz state-machine clock, locked to PHI2 as on the real Apple.
+- **A synchronous divider** on the clock card, selected by the north bridge's mode register and a speed bit (or a
+  jumper during bring-up). Every speed comes from the same crystal, so switching is just changing the divider at a
+  cycle boundary while PHI2 is low. The divider never produces a short pulse, so it needs no clock multiplexer.
+- **Clock lines on the backplane.** The OSC line (B30) carries the 14.31818 MHz master at all times. In Apple mode
+  the Disk II card divides it by 7 to get its 2 MHz state-machine clock, locked to PHI2 as on the real Apple.
+- **Other cards keep their own clocks.** The video card's 25.175 MHz VGA pixel clock and the sound card's SID clock
+  are separate oscillators on those cards. Neither needs to be in step with the CPU.
 
-**Timing at 14 MHz.** These are WDC's 5 V figures:
+**Timing at ÷1.** These are WDC's 5 V figures:
 
 | Parameter | Value |
 |---|---|
@@ -67,9 +75,9 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
 | tMDS (write data valid after PHI2 rises) | 25 ns max |
 | tCYC (cycle time) | 70 ns min |
 
-From the address becoming valid to read data being needed is 70 − 30 − 10 = **30 ns**. That covers the north
-bridge's window lookup and module decode, about 7.5 ns in a fast CPLD, plus 10 ns SRAM, with margin for one
-transceiver hop each way.
+From the address becoming valid to read data being needed is 69.8 − 30 − 10 = **about 30 ns**. That covers the
+north bridge's window lookup and module decode, about 7.5 ns in a fast CPLD, plus 10 ns SRAM, with margin for one
+transceiver hop each way. At ÷2 the same budget is about 100 ns.
 
 - **Main RAM:** it goes on the CPU board, or on a short, well-grounded backplane segment beside it.
 - **Slow cards:** anything slower holds the CPU with RDY wait states. Examples are the flash ROM, the SID card,
@@ -177,7 +185,7 @@ window registers.
 **From ROM (normal)**
 
 1. At reset the north bridge overlays the flash ROM (module ID 4, ROM A) on W3, for reads only. The CPU runs from
-   it with RDY wait states: flash takes 55–70 ns, so each access needs one or two wait states.
+   it with RDY wait states: flash takes 55–70 ns, so each access needs one or two wait states at ÷1 and none at ÷2.
 2. The boot code copies the system image from flash into bank F. A DMA memory-to-memory copy does 64 KB in about
    10 ms.
 3. It copies the Apple IIe ROM image into bank E.
@@ -447,7 +455,7 @@ Each step can be checked against real software, the same way the Ben Eater progr
 2. **The native I/O area:** where it is, how big, and the register map of each card. Proposed: `$C000–$C7FF`.
 3. **Palette depth:** 12-bit RGB is proposed; VGA used 18-bit.
 4. **The keyboard and game-port card** for Apple mode, and what native mode uses for a keyboard.
-5. **Backplane pin assignment** for the signals above, and whether the RAM can sit on the backplane at 14 MHz or must
-   be on the CPU board.
+5. **Backplane pin assignment** for the signals above, and whether the RAM can sit on the backplane at ÷1 or must be
+   on the CPU board. At ÷2 it can sit on the backplane.
 6. **The native interrupt scheme.** With many interrupting cards on one /IRQ line, an interrupt status register in
    the north bridge or DMA controller would save polling every card.
