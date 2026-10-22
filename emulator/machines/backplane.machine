@@ -1,0 +1,29 @@
+# The backplane computer (hw/design.md), as far as the emulator models it:
+# the CPU and north bridge card, 1 MB of RAM on the backplane, and the
+# flash. Step 1 of the emulator plan; the cards come later.
+#
+# The north bridge maps the CPU's 64 KB through four 16 KB windows. At reset
+# W0-W2 are RAM blocks 0-2 and W3 is the top 16 KB of ROM A, read-only, so
+# the BIOS starts in flash and shadows itself into bank F (hw/design.md,
+# "Boot"). Its registers are at $C680. Add `bootsel` to start with W3 on RAM
+# block 63 instead, as when the bus spy has loaded RAM.
+#
+# The flash image is the whole 512 KB ROM A (as a programmer would write
+# it), with the BIOS in its top 16 KB: block 31, $7C000-$7FFFF. The CPU
+# sees $C800-$FFFF of it; $C000-$C7FF is the I/O hole.
+#
+# The terminal is a STAND-IN: a 6551 in the serial card's I/O block
+# ($C300, module 6) until the TL16C552A is modelled.
+#
+#   emulator --machine machines/backplane.machine --rom bios.rom
+
+cpu          w65c02s
+northbridge  backplane
+
+ram   00000-3FFFF  module=0  name=ram_a     # RAM A-D: 256 KB each, A18-A19
+ram   40000-7FFFF  module=1  name=ram_b
+ram   80000-BFFFF  module=2  name=ram_c
+ram   C0000-FFFFF  module=3  name=ram_d
+rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
+
+acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card

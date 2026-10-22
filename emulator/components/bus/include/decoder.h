@@ -4,23 +4,35 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.6.0
- * @date 2026-10-19
+ * @version 0.7.0
+ * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * The backplane (hw/modules.md) has a 20-bit address bus and a 4-bit module
- * ID, but the W65C02S drives only A0-A15. Something on the north bridge
- * makes the other bits, and what that is has not been decided yet. So it is
- * a pluggable NorthBridge: CPU address in, 20-bit physical address out. The
- * default drives A16-A19 low, which is exactly a machine with no banking.
- * When the real rule is chosen (a bank latch, fixed windows), it is one
- * subclass, and nothing else here changes.
+ * The W65C02S drives only A0-A15; the north bridge decides what an access
+ * reaches (hw/design.md). So it is a pluggable NorthBridge: CPU address in,
+ * a Route out. The default sends everything to memory with A16-A19 low,
+ * which is exactly a machine with no banking; the backplane's bridge
+ * (backplane_bridge.h) adds the windows, ROM space and the I/O hole.
  *
- * Mappings live in physical space. Where they overlap the later one wins,
- * which is how a 4-byte PIA sits inside a 32 KB ROM image on the Apple-1
- * without splitting the ROM. Reads of unmapped space return $FF (a floating
- * bus is not modelled); writes there are dropped.
+ * A route names one of three address spaces, because the backplane's north
+ * bridge reaches more than the 1 MB of RAM:
+ *
+ * - Memory: the 20-bit physical address space (RAM A-D).
+ * - Flash: ROM A at 00000-7FFFF and ROM B, the cartridge, at 80000-FFFFF,
+ *   reached through a window's ROM bit.
+ * - Io: the 2 KB I/O hole, CPU $C000-$C7FF, decoded ahead of the windows;
+ *   module n's 128-byte block is at n x $80.
+ *
+ * Mappings and routes use bus addresses: the space in bits 20-21 above a
+ * 20-bit offset (bus_address()). A route also says whether the access may
+ * write (a window's RO bit), so a write through a read-only window is
+ * dropped while poke() still loads it.
+ *
+ * Mappings in one space may overlap; the later one wins, which is how a
+ * 4-byte PIA sits inside a 32 KB ROM image on the Apple-1 without splitting
+ * the ROM. Reads of unmapped space return $FF (a floating bus is not
+ * modelled); writes there are dropped.
  *
  * Lookup is a reverse linear scan: a machine has a handful of mappings, so
  * anything cleverer waits for a measurement that says it is needed.
@@ -42,24 +54,62 @@
 
 namespace ooe::emu
 {
-    constexpr uint32_t PHYSICAL_SPACE = 1u << 20; ///< A0-A19
+    constexpr uint32_t PHYSICAL_SPACE = 1u << 20; ///< A0-A19: the size of each space
     constexpr uint8_t NO_MODULE = 0xFF;
+
+    enum class Space : uint8_t
+    {
+        Memory = 0, ///< the 1 MB physical address space
+        Flash = 1,  ///< ROM A, then ROM B
+        Io = 2,     ///< the I/O hole, CPU $C000-$C7FF
+    };
+    constexpr uint32_t SPACE_COUNT = 3;
+    constexpr uint32_t IO_HOLE = 0xC000; ///< CPU address of the I/O hole
+    constexpr uint32_t IO_SIZE = 0x800;
+
+    /// A bus address: `offset` (A0-A19) within `space`.
+    constexpr uint32_t bus_address(Space space, uint32_t offset)
+    {
+        return static_cast<uint32_t>(space) << 20 | (offset & (PHYSICAL_SPACE - 1));
+    }
+    constexpr Space space_of(uint32_t bus_addr) { return static_cast<Space>(bus_addr >> 20); }
+    constexpr uint32_t offset_of(uint32_t bus_addr) { return bus_addr & (PHYSICAL_SPACE - 1); }
+
+    /// Where one CPU access goes.
+    struct Route
+    {
+        uint32_t where{0};    ///< bus address
+        bool writable{true};  ///< false: a write is dropped (a read-only window)
+    };
 
     class NorthBridge
     {
     public:
         virtual ~NorthBridge() = default;
-        /// The 20-bit physical address for a CPU access. Default: A16-A19 low.
-        virtual uint32_t physical(uint16_t cpu_addr) const { return cpu_addr; }
+        /// Route a CPU access. `vector_pull` is the VPB pin. Default: memory, A16-A19 low.
+        virtual Route route(uint16_t cpu_addr, bool vector_pull) const
+        {
+            (void)vector_pull;
+            return Route{cpu_addr, true};
+        }
+        /// /RESET: put the bridge's registers back to their reset values.
+        virtual void reset() {}
     };
 
     struct Mapping
     {
-        uint32_t first{0};          ///< physical, inclusive
-        uint32_t last{0};           ///< physical, inclusive
+        uint32_t first{0};          ///< bus address, inclusive
+        uint32_t last{0};           ///< bus address, inclusive, in the same space
         Device *device{nullptr};    ///< not owned
         uint8_t module{NO_MODULE};  ///< backplane module ID 0x0-0xF, or NO_MODULE
         bool irq_wired{false};      ///< device's IRQ output reaches the CPU
+    };
+
+    /// What the backplane carried on the most recent CPU access, for the bus trace.
+    struct Access
+    {
+        uint32_t physical{0};       ///< A0-A19
+        uint8_t module{NO_MODULE};  ///< PS0-PS3, or NO_MODULE
     };
 
     class Decoder : public Bus
@@ -68,10 +118,13 @@ namespace ooe::emu
         static constexpr uint8_t UNMAPPED_READ = 0xFF;
 
         /// `bridge` is not owned and must outlive the decoder; nullptr = default.
-        explicit Decoder(const NorthBridge *bridge = nullptr);
+        explicit Decoder(NorthBridge *bridge = nullptr);
+
+        /// Replace the north bridge (nullptr = default). Not owned.
+        void set_bridge(NorthBridge *bridge);
 
         /// Add a mapping; later mappings win where ranges overlap.
-        /// @return false if the range is empty, outside A0-A19, or has no device
+        /// @return false if the range is empty, crosses or lies outside a space, or has no device
         bool map(const Mapping &m);
 
         uint8_t read(uint16_t addr) override;
@@ -79,14 +132,24 @@ namespace ooe::emu
         void poke(uint16_t addr, uint8_t data) override;
         uint8_t peek(uint16_t addr) const override;
         void idle() override { ++now_; }
+        void vector_pull(bool active) override { vector_pull_ = active; }
 
-        /// The 20-bit physical address the north bridge makes of a CPU address.
-        uint32_t physical(uint16_t addr) const { return bridge_.physical(addr); }
+        /// /RESET. So far only the north bridge listens.
+        void reset() { bridge_->reset(); }
+
+        /// Where a CPU address goes now (with VPB as given).
+        Route route(uint16_t addr, bool vector_pull = false) const { return bridge_->route(addr, vector_pull); }
+        /// What A0-A19 carry for a CPU address: the offset in memory or
+        /// flash; in the I/O hole, the CPU address itself.
+        uint32_t physical(uint16_t addr, bool vector_pull = false) const;
 
         /// The mapping a CPU address decodes to, or nullptr.
-        const Mapping *decode(uint16_t addr) const;
+        const Mapping *decode(uint16_t addr, bool vector_pull = false) const;
         /// Module ID a CPU address selects (for the console and bus traces).
-        uint8_t module_at(uint16_t addr) const;
+        uint8_t module_at(uint16_t addr, bool vector_pull = false) const;
+        /// The backplane's lines on the latest read() or write().
+        const Access &last_access() const { return last_; }
+
         /// Catch timed devices up, then: is any device with a wired IRQ asserting it?
         bool irq();
         /// Catch every timed device up to now().
@@ -97,7 +160,7 @@ namespace ooe::emu
         const std::vector<Mapping> &mappings() const { return mappings_; }
 
     private:
-        static const NorthBridge DEFAULT_BRIDGE;
+        static NorthBridge default_bridge_;
 
         struct Slot
         {
@@ -106,10 +169,15 @@ namespace ooe::emu
             bool timed;
         };
 
+        const Mapping *find(uint32_t where) const;
         /// Bring a timed mapping's device up to the cycle before this access.
         void catch_up(const Mapping &m);
+        /// Count the cycle, route a CPU access and record it in last_.
+        const Mapping *access(uint16_t addr, Route &r);
 
-        const NorthBridge &bridge_;
+        NorthBridge *bridge_;
+        bool vector_pull_{false};
+        Access last_;
         std::vector<Mapping> mappings_;
         std::vector<size_t> slot_of_;     ///< per mapping: its device's slot
         std::vector<Slot> slots_;         ///< distinct devices, in mapping order

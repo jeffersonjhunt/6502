@@ -55,6 +55,8 @@ emu_add_test(test_rom_boot)
 emu_add_test(test_eater)
 emu_add_test(test_disasm)
 emu_add_test(test_debugger)
+emu_add_test(test_backplane)
+target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 
 # --- Apple-1 ROMs ------------------------------------------------------------

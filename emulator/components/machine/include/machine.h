@@ -4,8 +4,8 @@
  * @file machine.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A machine built from a plain-text description.
- * @version 0.6.0
- * @date 2026-10-19
+ * @version 0.7.0
+ * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -17,12 +17,20 @@
  *   rom      8000-FFFF               ibasic.rom
  *   pia6821  D010-D013  name=terminal
  *
- * `<type> <first>-<last> [name=ID] [module=0-F] [irq] [image]`. Addresses
- * are physical (A0-A19) hex, optionally with a `$`. `#` starts a comment.
- * `module=` tags the mapping with a backplane module ID; `irq` wires the
- * device's IRQ output to the CPU. Chips: ram, rom (needs an image),
- * pia6821, via6522, acia6551. A mapping larger than the chip mirrors it
- * (a 6522 at 6000-7FFF repeats every 16 bytes, as on Eater's board).
+ * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [irq] [image]`.
+ * Addresses are hex, optionally with a `$`, within the space: memory (the
+ * default, A0-A19), flash (ROM A then ROM B) or io (the I/O hole, 000-7FF,
+ * whose mappings take the module ID of their 128-byte block unless
+ * `module=` says otherwise). `#` starts a comment. `module=` tags the
+ * mapping with a backplane module ID; `irq` wires the device's IRQ output
+ * to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
+ * acia6551. A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * repeats every 16 bytes, as on Eater's board).
+ *
+ * Without a `northbridge` line every CPU address is memory with A16-A19
+ * low. `northbridge backplane [bootsel]` fits the backplane's north bridge
+ * (backplane_bridge.h): the windows, VEC, ROM space and the I/O hole, with
+ * its registers at io 680-6FF (module D), named `northbridge`.
  *
  * Peripherals hang off a named 6522's pins instead of the bus, so they
  * take no range:
@@ -49,8 +57,9 @@ namespace ooe::emu
     {
         /// If set, replaces the image of the first `rom` line.
         std::string rom_override;
-        /// North bridge for the decoder; nullptr = A16-A19 low. Not owned.
-        const NorthBridge *bridge{nullptr};
+        /// North bridge for the decoder; nullptr = the description's
+        /// (`northbridge` line), or A16-A19 low. Not owned.
+        NorthBridge *bridge{nullptr};
     };
 
     class Machine
@@ -89,12 +98,13 @@ namespace ooe::emu
         }
 
     private:
-        explicit Machine(const NorthBridge *bridge) : bus_(bridge) {}
+        explicit Machine(NorthBridge *bridge) : bus_(bridge) {}
 
         Decoder bus_;
         std::string cpu_{"nmos6502"};
         std::vector<std::unique_ptr<Device>> devices_;
         std::unordered_map<std::string, Device *> named_;
+        NorthBridge *bridge_{nullptr}; ///< the description's own, owned through devices_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

@@ -1,6 +1,6 @@
 /**
  * @file test_decoder.cpp
- * @brief Address decoding: mappings, overlap, the north bridge, IRQ wiring.
+ * @brief Address decoding: mappings, overlap, spaces, the north bridge, IRQ wiring.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 
@@ -62,7 +62,8 @@ TEST(map_refuses_bad_ranges)
     Ram ram(0x10);
     Decoder bus;
     CHECK(!bus.map({0x10, 0x0F, &ram}));        // backwards
-    CHECK(!bus.map({0x0, 0x100000, &ram}));     // past A19
+    CHECK(!bus.map({0x0, 0x100000, &ram}));     // past A19, into the next space
+    CHECK(!bus.map({0x300000, 0x30000F, &ram})); // past the last space
     CHECK(!bus.map({0x0, 0xF, nullptr}));       // no device
     CHECK(bus.mappings().empty());
 }
@@ -80,12 +81,12 @@ TEST(module_id_follows_the_mapping)
 
 TEST(north_bridge_places_cpu_addresses_in_physical_space)
 {
-    // A stand-in for the undecided A16-A19 rule: everything in bank 3.
+    // A stand-in rule: everything in bank 3.
     struct Bank3 : NorthBridge
     {
-        uint32_t physical(uint16_t a) const override { return 0x30000u | a; }
+        Route route(uint16_t a, bool) const override { return Route{0x30000u | a, true}; }
     };
-    const Bank3 bridge;
+    Bank3 bridge;
     Ram low(0x10000), high(0x10000);
     Decoder bus(&bridge);
     bus.map({0x00000, 0x0FFFF, &low});
@@ -93,6 +94,50 @@ TEST(north_bridge_places_cpu_addresses_in_physical_space)
     bus.write(0x0042, 0x99);
     CHECK_EQ(high.read(0x0042), 0x99);
     CHECK_EQ(low.read(0x0042), 0x00);
+}
+
+TEST(routes_reach_other_spaces_and_honour_read_only)
+{
+    // $0xxx -> flash, read-only; $1xxx -> I/O; VPB sends $Fxxx to flash too.
+    struct Split : NorthBridge
+    {
+        Route route(uint16_t a, bool vpb) const override
+        {
+            if (a < 0x1000 || (vpb && a >= 0xF000))
+                return Route{bus_address(Space::Flash, a), false};
+            if (a < 0x2000)
+                return Route{bus_address(Space::Io, a & 0x7FF), true};
+            return Route{a, true};
+        }
+    };
+    Split bridge;
+    Ram mem(0x10000), io(0x800);
+    Rom flash(0x10000);
+    Decoder bus(&bridge);
+    bus.map({0x00000, 0x0FFFF, &mem, 0x0});
+    bus.map({bus_address(Space::Flash, 0), bus_address(Space::Flash, 0xFFFF), &flash, 0x4});
+    bus.map({bus_address(Space::Io, 0), bus_address(Space::Io, 0x7FF), &io, 0x6});
+
+    bus.poke(0x0010, 0xA5);                // the loader reaches flash
+    CHECK_EQ(bus.read(0x0010), 0xA5);
+    CHECK_EQ(bus.last_access().physical, 0x00010u);
+    CHECK_EQ(bus.last_access().module, 0x4);
+    flash.poke(0x0011, 0x00);
+    bus.write(0x0011, 0xFF);               // read-only route: dropped
+    CHECK_EQ(flash.read(0x0011), 0x00);
+
+    bus.write(0x1803, 0x77);               // I/O: A0-A19 carry the CPU address
+    CHECK_EQ(io.read(0x003), 0x77);
+    CHECK_EQ(bus.last_access().physical, 0x0C003u);
+    CHECK_EQ(bus.physical(0x1803), 0x0C003u);
+
+    mem.write(0xFFFC, 0x11);
+    flash.poke(0xFFFC, 0x22);
+    CHECK_EQ(bus.read(0xFFFC), 0x11);      // an ordinary read: memory
+    bus.vector_pull(true);
+    CHECK_EQ(bus.read(0xFFFC), 0x22);      // VPB: the bridge's vector route
+    bus.vector_pull(false);
+    CHECK_EQ(bus.module_at(0xFFFC, true), 0x4);
 }
 
 TEST(irq_reaches_the_cpu_only_when_wired)

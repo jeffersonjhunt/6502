@@ -15,15 +15,24 @@ namespace ooe::emu
     namespace
     {
         [[maybe_unused]] const char *TAG = "decoder";
+
+        /// A0-A19 for a bus address: the offset, or in the I/O hole the CPU address.
+        uint32_t lines(uint32_t where)
+        {
+            return space_of(where) == Space::Io ? IO_HOLE + offset_of(where) : offset_of(where);
+        }
     } // namespace
 
-    const NorthBridge Decoder::DEFAULT_BRIDGE{};
+    NorthBridge Decoder::default_bridge_{};
 
-    Decoder::Decoder(const NorthBridge *bridge) : bridge_(bridge ? *bridge : DEFAULT_BRIDGE) {}
+    Decoder::Decoder(NorthBridge *bridge) : bridge_(bridge ? bridge : &default_bridge_) {}
+
+    void Decoder::set_bridge(NorthBridge *bridge) { bridge_ = bridge ? bridge : &default_bridge_; }
 
     bool Decoder::map(const Mapping &m)
     {
-        if (!m.device || m.first > m.last || m.last >= PHYSICAL_SPACE)
+        if (!m.device || m.first > m.last || m.last >= SPACE_COUNT * PHYSICAL_SPACE ||
+            space_of(m.first) != space_of(m.last))
             return false;
         mappings_.push_back(m);
         size_t slot = 0;
@@ -41,15 +50,30 @@ namespace ooe::emu
         return true;
     }
 
-    const Mapping *Decoder::decode(uint16_t addr) const
+    const Mapping *Decoder::find(uint32_t where) const
     {
-        const uint32_t phys = bridge_.physical(addr);
         for (auto it = mappings_.rbegin(); it != mappings_.rend(); ++it)
         {
-            if (phys >= it->first && phys <= it->last)
+            if (where >= it->first && where <= it->last)
                 return &*it;
         }
         return nullptr;
+    }
+
+    uint32_t Decoder::physical(uint16_t addr, bool vector_pull) const
+    {
+        return lines(route(addr, vector_pull).where);
+    }
+
+    const Mapping *Decoder::decode(uint16_t addr, bool vector_pull) const
+    {
+        return find(route(addr, vector_pull).where);
+    }
+
+    uint8_t Decoder::module_at(uint16_t addr, bool vector_pull) const
+    {
+        const Mapping *m = decode(addr, vector_pull);
+        return m ? m->module : NO_MODULE;
     }
 
     void Decoder::catch_up(const Mapping &m)
@@ -62,49 +86,53 @@ namespace ooe::emu
         }
     }
 
-    uint8_t Decoder::read(uint16_t addr)
+    const Mapping *Decoder::access(uint16_t addr, Route &r)
     {
         ++now_;
-        const Mapping *m = decode(addr);
+        r = route(addr, vector_pull_);
+        const Mapping *m = find(r.where);
+        last_ = Access{lines(r.where), m ? m->module : NO_MODULE};
+        return m;
+    }
+
+    uint8_t Decoder::read(uint16_t addr)
+    {
+        Route r;
+        const Mapping *m = access(addr, r);
         if (!m)
         {
             EMU_LOGV(TAG, "%04X -> unmapped", addr);
             return UNMAPPED_READ;
         }
         catch_up(*m);
-        const uint8_t v = m->device->read(bridge_.physical(addr) - m->first);
+        const uint8_t v = m->device->read(r.where - m->first);
         EMU_LOGV(TAG, "%04X -> %02X", addr, v);
         return v;
     }
 
     void Decoder::write(uint16_t addr, uint8_t data)
     {
-        ++now_;
-        const Mapping *m = decode(addr);
-        EMU_LOGV(TAG, "%04X <- %02X%s", addr, data, m ? "" : " (unmapped)");
-        if (!m)
+        Route r;
+        const Mapping *m = access(addr, r);
+        EMU_LOGV(TAG, "%04X <- %02X%s", addr, data, !m ? " (unmapped)" : r.writable ? "" : " (read-only)");
+        if (!m || !r.writable)
             return;
         catch_up(*m);
-        m->device->write(bridge_.physical(addr) - m->first, data);
+        m->device->write(r.where - m->first, data);
     }
 
     void Decoder::poke(uint16_t addr, uint8_t data)
     {
-        const Mapping *m = decode(addr);
-        if (m)
-            m->device->poke(bridge_.physical(addr) - m->first, data);
+        const Route r = route(addr);
+        if (const Mapping *m = find(r.where))
+            m->device->poke(r.where - m->first, data);
     }
 
     uint8_t Decoder::peek(uint16_t addr) const
     {
-        const Mapping *m = decode(addr);
-        return m ? m->device->peek(bridge_.physical(addr) - m->first) : UNMAPPED_READ;
-    }
-
-    uint8_t Decoder::module_at(uint16_t addr) const
-    {
-        const Mapping *m = decode(addr);
-        return m ? m->module : NO_MODULE;
+        const Route r = route(addr);
+        const Mapping *m = find(r.where);
+        return m ? m->device->peek(r.where - m->first) : UNMAPPED_READ;
     }
 
     void Decoder::sync()

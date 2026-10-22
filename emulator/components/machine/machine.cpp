@@ -13,6 +13,7 @@
 #include <sstream>
 
 #include "acia6551.h"
+#include "backplane_bridge.h"
 #include "emu_log.h"
 #include "hd44780.h"
 #include "memory_devices.h"
@@ -118,6 +119,27 @@ namespace ooe::emu
                 m->cpu_ = w[1];
                 continue;
             }
+            if (type == "northbridge")
+            {
+                if (w.size() < 2 || w[1] != "backplane" || w.size() > 3 || (w.size() == 3 && w[2] != "bootsel"))
+                    return fail("northbridge: want 'northbridge backplane [bootsel]'");
+                if (m->bridge_)
+                    return fail("northbridge: only one per machine");
+                if (options.bridge)
+                    return fail("northbridge: the caller already supplied a north bridge");
+                if (m->named_.count("northbridge"))
+                    return fail("name 'northbridge' is already used");
+                auto bridge = std::make_unique<BackplaneBridge>(w.size() == 3);
+                bridge->attach(&m->bus_);
+                m->bus_.set_bridge(bridge.get());
+                m->bus_.map(Mapping{bus_address(Space::Io, BackplaneBridge::REGISTERS),
+                                    bus_address(Space::Io, BackplaneBridge::REGISTERS + 0x7F), bridge.get(),
+                                    BackplaneBridge::MODULE, false});
+                m->bridge_ = bridge.get();
+                m->named_["northbridge"] = bridge.get();
+                m->devices_.push_back(std::move(bridge));
+                continue;
+            }
             if (type == "hd44780" || type == "ps2kbd")
             {
                 std::unordered_map<std::string, std::string> opt;
@@ -169,7 +191,7 @@ namespace ooe::emu
             }
             if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551")
                 return fail("unknown type '" + type +
-                            "' (want cpu, ram, rom, pia6821, via6522, acia6551, hd44780 or ps2kbd)");
+                            "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, hd44780 or ps2kbd)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
@@ -178,12 +200,25 @@ namespace ooe::emu
                 return fail(type + ": range is outside A0-A19");
 
             std::string name, image;
+            Space space = Space::Memory;
             for (size_t i = 2; i < w.size(); ++i)
             {
                 const std::string &arg = w[i];
                 const size_t eq = arg.find('=');
                 if (arg == "irq")
                     map.irq_wired = true;
+                else if (eq != std::string::npos && arg.compare(0, eq, "space") == 0)
+                {
+                    const std::string s = arg.substr(eq + 1);
+                    if (s == "memory")
+                        space = Space::Memory;
+                    else if (s == "flash")
+                        space = Space::Flash;
+                    else if (s == "io")
+                        space = Space::Io;
+                    else
+                        return fail("space: want memory, flash or io");
+                }
                 else if (eq != std::string::npos && arg.compare(0, eq, "name") == 0)
                     name = arg.substr(eq + 1);
                 else if (eq != std::string::npos && arg.compare(0, eq, "module") == 0)
@@ -202,6 +237,13 @@ namespace ooe::emu
             }
             if (!name.empty() && m->named_.count(name))
                 return fail("name '" + name + "' is already used");
+            if (space == Space::Io)
+            {
+                if (map.last >= IO_SIZE)
+                    return fail(type + ": the I/O hole is 000-7FF");
+                if (map.module == NO_MODULE)
+                    map.module = static_cast<uint8_t>(map.first >> 7);
+            }
 
             const size_t size = map.last - map.first + 1;
             std::unique_ptr<Device> dev;
@@ -238,6 +280,8 @@ namespace ooe::emu
             }
 
             map.device = dev.get();
+            map.first = bus_address(space, map.first);
+            map.last = bus_address(space, map.last);
             m->bus_.map(map);
             if (!name.empty())
                 m->named_[name] = dev.get();

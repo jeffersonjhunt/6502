@@ -24,12 +24,15 @@ namespace ooe::emu
     {
         if (!enabled_)
             return;
-        const uint8_t module = decoder_.module_at(c.addr);
+        // The lines as they were on this access: a window write or VPB can
+        // change where the same CPU address goes next time.
+        const Access &a = decoder_.last_access();
+        const uint8_t module = a.module;
         char ps[2] = {'-', '\0'};
         if (module != NO_MODULE)
             ps[0] = "0123456789ABCDEF"[module & 0xF];
         std::fprintf(out_, "%llu %05X %02X %c %c%c %s\n", static_cast<unsigned long long>(c.cycle),
-                     static_cast<unsigned>(decoder_.physical(c.addr)), c.data, c.write ? 'W' : 'R',
+                     static_cast<unsigned>(a.physical), c.data, c.write ? 'W' : 'R',
                      c.sync ? 'S' : '-', c.vector_pull ? 'V' : '-', ps);
         ++lines_;
     }

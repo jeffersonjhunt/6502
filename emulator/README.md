@@ -57,6 +57,22 @@ The LCD is drawn as a box under the text. Keys go to whatever the program
 is listening on: the serial port once it turns DTR on, the keyboard once
 it enables CA1 interrupts.
 
+## The backplane computer
+
+`machines/backplane.machine` is the real machine's design (`../hw/design.md`)
+as far as it is modelled: the W65C02S and north bridge, 1 MB of RAM in four
+modules, and the 512 KB flash, with a 6551 at $C300 standing in for the
+serial card. At reset the north bridge maps the top 16 KB of the flash at
+$C000-$FFFF, read-only, so the ROM image is the whole flash with the BIOS in
+its last 16 KB ($C800-$FFFF is visible; $C000-$C7FF is the I/O hole):
+
+```
+./build/release/apps/emu/emulator --machine machines/backplane.machine bios.rom
+```
+
+There is no BIOS in the repo yet; `test_backplane` builds a small one that
+shadows itself into RAM.
+
 A machine is one line per chip; see `machines/apple1.machine` and
 `components/machine/include/machine.h` for the format. ROM image paths in a
 description are relative to the working directory, and a ROM on the command
@@ -69,10 +85,10 @@ components/
   emu_log/     TAG-scoped printf logging (EMU_LOGE/W/I/D; EMU_LOGV with EMU_TRACE)
   bus/         Bus (read/write for the CPU, poke for devices); Device; Decoder + NorthBridge
   cpu6502/     Cpu6502: NMOS 6502 / W65C02S, bus-cycle accurate
-  devices/     Ram, Rom, Pia6821, Via6522, Acia6551 (W65C51N); Hd44780 and Ps2Keyboard on a 6522's pins
+  devices/     Ram, Rom, Pia6821, Via6522, Acia6551 (W65C51N), BackplaneBridge; Hd44780 and Ps2Keyboard on a 6522's pins
   machine/     Machine (built from a description), Console, apple1::Io, load_image, load_hex
   debug/       Debugger, disassembler, ld65 symbols, BusTrace
-machines/      plain-text machine descriptions (apple1.machine is the built-in default; eater*.machine)
+machines/      plain-text machine descriptions (apple1.machine is the built-in default; eater*.machine; backplane.machine)
 apps/emu/      terminal keyboard/display, run loop, main
 test/host/     tests (test/host/README.md)
 tools/         fetch_fixtures.py, trace_diff.py

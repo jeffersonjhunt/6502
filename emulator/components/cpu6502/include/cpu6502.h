@@ -27,6 +27,8 @@
  *
  * Pins: a CycleObserver sees every access as the bus spy would, with SYNC
  * (opcode fetch) and VPB (vector pull) alongside address, data and RWB.
+ * VPB also goes to the bus (Bus::vector_pull()), as the pin goes to the
+ * north bridge.
  * RDY is not modelled: holding the CPU mid-instruction needs a core that can
  * stop between cycles, and the debugger halts between instructions instead.
  * WAI and STP are idle cycles here, which no observer sees, so they show in
