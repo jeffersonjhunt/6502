@@ -7,7 +7,8 @@ Clock -> CPU + North Bridge (one card) -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (
 ## Notes: ##
 
   - Only 1 active clock per stack. Each clock module producing a clock should have a disable switch.
-  - Each module should regulate 12v to the required voltage V~CC2~.
+  - Each module should regulate the bus's +24 V down to the voltage it needs (V~CC2~) at the point of use. This
+    keeps the current on the bus low.
   - Reset should be pulled low by _any_ module should reset the system. Soft starts should go high after 100ms.
     - use a 100k resistor and 1uf cap to V~CC1~, clamp Reset high with a zener diode (3v3, 5v, etc...).
   - Each Module has an ID (2^4) set with lines 31 .. 34 by the North Bridge. More than one ID can be services by a
