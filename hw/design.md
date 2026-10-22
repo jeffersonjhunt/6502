@@ -198,8 +198,9 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
 - **Slot ROMs:** `$C100–$CFFF` comes from the ROM image in bank E, as the IIe's internal ROM (INTCXROM, SLOTC3ROM),
   or from a slot card's ROM.
   - Only slot 6 has a card, the Disk II controller. Its boot ROM appears at `$C600`.
-- **Status:** the switch states read back at `$C011–$C01F`. `$C019`, the vertical blank flag, is driven by the
-  video card in step with the Apple timing.
+- **Status:** the switch states read back in bit 7 of `$C011–$C01F`. `$C019`, the vertical blank flag, is driven
+  by the video card in step with the Apple timing. As on a real IIe, bits 0–6 of these reads are the keyboard
+  latch, which a few programs rely on: the north bridge drives bit 7 and the USB card bits 0–6.
 
 This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge
 is a CPLD, for example an ATF1508 (5 V), holding:
@@ -595,6 +596,13 @@ Before the switch, the BIOS has loaded the ROM image into bank E and cleared ban
 **Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
 an Apple program does can leave by accident.
 
+**Two kinds of reset (decided).** IIe software relies on Ctrl-Reset resetting the CPU *without* leaving Apple mode.
+
+- **Ctrl-Reset** (or Ctrl-Delete) on the USB keyboard makes the USB card pulse the bus's /RESET. The APPLE bit
+  survives it. The north bridge's own pulse on entering Apple mode is the same kind.
+- **Hard reset:** power-on and the reset button go into the north bridge, which clears APPLE and then pulses
+  /RESET. /RESET alone never clears the bit.
+
 **What a stock enhanced IIe needs, and where it comes from**
 
 | IIe feature | Provided by |
@@ -641,24 +649,73 @@ AMODE is high.
 
 **Proposed: the USB card**
 
-- **USB host:** a microcontroller with USB host support, such as an RP2350 running TinyUSB. It presents simple
-  registers to the 6502.
-- **Native mode:**
-  - a key event FIFO, holding key codes with press and release and the modifier state;
-  - mouse movement and buttons;
-  - an interrupt on new events.
+- **USB host:** an RP2350 running TinyUSB. Its PIO answers the bus, holding RDY when it needs time, the same pattern
+  as the sound and SD cards.
+- **Game port:** a DE-9 Apple-style joystick port. The paddles use a real 558 timer, so Apple-mode readings stay
+  correct whatever the CPU speed. A USB gamepad mapped onto the paddles is an option for later.
+- **Speaker:** a flip-flop that changes on each access, with a small amplifier.
 
-  The FIFO can be drained by DMA, which meets the "supports DMA" rule, though input rarely needs it.
-- **Apple II mode:** the same controller presents the IIe keyboard:
-  - ASCII with the strobe bit at `$C000`, cleared by `$C010`;
-  - Open- and Closed-Apple on two modifier keys at `$C061/$C062`.
-- **Game port:** a DE-9 Apple-style joystick port.
-  - The paddles use a real 558 timer, triggered by `$C070` and read in bit 7 of `$C064–$C067`. Because it runs in
-    real time, its readings stay correct whatever the CPU speed, though native software has to calibrate.
-  - The buttons are read at `$C061–$C063`.
-  - A USB gamepad mapped onto the paddles is an option for later.
-- **Speaker:** the `$C030` click is a flip-flop that changes on each access, with a small amplifier. It fits on
-  this card.
+**USB card registers (decided)** (module ID `0xB`, `$C580–$C5FF`, offsets from `$C580`):
+
+*Keyboard.* Two interfaces: cooked ASCII for simple software, raw events for games and an OS.
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$00` | KEY | read | cooked: ASCII in the current layout, with key repeat. Bit 7 is the strobe, as on the Apple |
+| `$01` | KEYCLR | read/write | any access clears the strobe; reading returns bit 7 = a key is held down |
+| `$02` | MODS | read | the modifiers held now, in USB HID bit order (L-Ctrl, L-Shift, L-Alt, L-GUI, then right) |
+| `$03` | EVCOUNT | read | bytes waiting in the raw event FIFO (stops at 255) |
+| `$04` | EVENT | read | raw events, two bytes each: the USB HID usage code, then flags (bit 7 = release). Modifiers arrive as keys too (`$E0–$E7`). Asserts DRQ while not empty |
+| `$05` | LEDS | write | bit 0 Num Lock, bit 1 Caps Lock, bit 2 Scroll Lock |
+| `$06` | REPEAT | read/write | for KEY: bits 0–3 rate, bits 4–5 delay |
+| `$07` | KBCFG | read/write | bits 0–3 layout (0 = US). Bit 7: Pause/Break pulls /NMI, to break into the Monitor |
+
+Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboard actually sends, no prefixes.
+
+*Mouse.*
+
+| Offset | Name | Purpose |
+|---|---|---|
+| `$10` | MCTRL | bit 0: absolute mode |
+| `$11` | MBTN | buttons, bits 0–4 |
+| `$12–$13` | MX | reading `$12` latches MX, MY and MWHEEL together. Relative mode: signed movement since the last latch. Absolute mode: the position, so an OS pointer goes straight into a sprite |
+| `$14–$15` | MY | |
+| `$16` | MWHEEL | signed wheel movement |
+| `$17–$18` | MAXX | absolute-mode limit, for example 639 |
+| `$19–$1A` | MAXY | absolute-mode limit, for example 479 |
+
+*Game port and speaker.*
+
+| Offset | Name | Purpose |
+|---|---|---|
+| `$20` | GAME | bits 0–3: the four paddle timer outputs, raw. Bits 4–6: buttons 0–2, 1 = pressed |
+| `$21` | PTRIG | writing starts the 558, like `$C070` |
+| `$22–$25` | PADDLE0–3 | 0–255, measured by the RP2350 timing the 558 itself: no counting loop or calibration |
+| `$26` | SPKR | any access toggles the speaker, like `$C030` |
+
+*Interrupts and status.*
+
+| Offset | Name | Purpose |
+|---|---|---|
+| `$30` | IEN | bit 0 key event, bit 1 mouse change, bit 2 game button change, bit 3 a device connected or disconnected |
+| `$31` | ISR | the same bits, pending; write 1 to clear. Any of them pulls bit 3 of IRQH (ID B) low |
+| `$32` | DEVICES | bit 0 keyboard, bit 1 mouse, bit 2 gamepad (reserved) |
+| `$7F` | ID | card type and revision |
+
+**In Apple II mode** the north bridge routes these IIe addresses to ID `0xB`, and the native block is hidden:
+
+| Address | Behaviour |
+|---|---|
+| `$C000–$C00F` (read) | keyboard: Apple ASCII with the strobe. Writes here are the north bridge's soft switches |
+| `$C010` | clears the strobe; bit 7 = any key down |
+| `$C011–$C01F` (read) | bits 0–6: the keyboard latch (the north bridge drives bit 7) |
+| `$C030` | speaker |
+| `$C061–$C063` | buttons 0–2. Open Apple is left GUI or Alt, Closed Apple right GUI or Alt, wired with buttons 0 and 1 as on a IIe |
+| `$C064–$C067` | paddle timer outputs in bit 7 |
+| `$C070` | trigger the 558 |
+
+The card follows the Apple keyboard's conventions: arrows give `$08`, `$15`, `$0A`, `$0B`; Delete gives `$7F`; Caps
+Lock behaves as on the IIe; Ctrl-Reset pulses /RESET (see [Apple II Mode](#apple-ii-mode)).
 
 **Proposed: the serial and parallel card** (module ID 6, "Serial A/B & Parallel")
 
@@ -796,5 +853,5 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: USB, Disk II (native
-   side), mass storage, serial, Console.
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: Disk II (native side), mass storage,
+   serial, Console.
