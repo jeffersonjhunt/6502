@@ -84,7 +84,7 @@ From the address becoming valid to read data being needed is the cycle time minu
 
 **Decided: RAM lives on the backplane.**
 
-**Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the sound card.
+**Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the RP2350 cards and the serial card.
 
 
 ## Memory ##
@@ -768,11 +768,46 @@ Lock behaves as on the IIe; Ctrl-Reset pulses /RESET (see [Apple II Mode](#apple
 
 - TI's TL16C552A: two 16550-compatible UARTs with 16-byte FIFOs and an IEEE 1284 bidirectional parallel port, in
   one chip. It is the classic PC combination for COM1, COM2 and LPT1.
-- **DMA:** the UARTs' TXRDY/RXRDY outputs drive DRQ lines. The parallel port can use DMA the same way.
-- **Clock:** a 1.8432 MHz crystal for the standard baud rates.
-- **Glue logic:** the chip has an Intel-style bus, so a few gates turn PHI2 and RWB into /RD and /WR.
+- **DMA:** the UARTs' TXRDY/RXRDY outputs drive DRQ lines; the parallel port gets DMA from the card's AUTOSTROBE.
+- **Clock:** a 1.8432 MHz crystal, so the PC's divisors apply: 1 is 115,200 baud, 12 is 9,600.
+- **Glue logic:** a small CPLD turns PHI2 and RWB into the chip's Intel-style /IOR and /IOW, and adds the DMA
+  routing and interrupt summary below.
 - The W65C51N was considered and rejected: its stuck transmit flag makes DMA and interrupt-driven transmit
   unreliable.
+
+**Serial card registers (decided)** (`$C300–$C37F`). The 552A's own registers are mapped directly in PC order, so
+16550 and LPT driver code needs only its base addresses changed.
+
+| Range | Contents |
+|---|---|
+| `$C300–$C307` | COM1: RBR/THR/DLL, IER/DLM, IIR/FCR, LCR, MCR, LSR, MSR, SCR |
+| `$C308–$C30F` | COM2: the same |
+| `$C310–$C312` | LPT: data, status, control, as at a PC's LPT base + 0–2 |
+| `$C320–$C323` | card registers |
+| `$C37F` | ID: card type and revision |
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$20` | DMASEL1 | read/write | the source on DRQ1: 0 none, 1 COM1 receive, 2 COM1 transmit, 3 COM2 receive, 4 COM2 transmit, 5 LPT output |
+| `$21` | DMASEL3 | read/write | the same for DRQ3, so a second stream can use the general-purpose channel |
+| `$22` | INTSTAT | read | bit 0 COM1, bit 1 COM2, bit 2 LPT: which part is interrupting. Any of them pulls bit 6 of IRQL (ID 6) low. The enables stay in the chip's IER and LPT control registers |
+| `$23` | LPTCTL | read/write | bit 0 AUTOSTROBE: in DMA mode the card generates STROBE itself |
+
+- **DMA routing.** On /DACK1 or /DACK3 the CPLD selects the chosen source's data register (chip select, A0–A2 = 0,
+  /IOR or /IOW by direction), so the UART needs no address, as fly-by requires. With FCR bit 3 set (DMA mode 1),
+  receive requests at the FIFO trigger level or timeout and transmit requests while the FIFO has room; both suit
+  demand mode. The classic receive arrangement is channel 1 in AUTO mode as a ring buffer, the OS reading the
+  channel's current address to see how much has arrived.
+- **AUTOSTROBE.** The 552A's parallel port has no DMA request and only strobes when software writes its control
+  register. With AUTOSTROBE set, the card asserts DRQ while the printer isn't BUSY, and after each /DACK write holds
+  the data, pulses STROBE and waits for ACK, keeping the datasheet's 1 µs setup, pulse and hold.
+- **Bus timing** (TI datasheet SLLS189D). /IOR and /IOW must be low for at least 80 ns, longer than PHI2's ~70 ns
+  high time at ÷2, so **every access takes one RDY wait state**. The chip also needs 80 ns between strobes, so the
+  CPLD adds a second wait state when accesses come back to back (DMA bursts, read-modify-write instructions). In
+  FIFO mode the chip needs 425 ns between reading the receive FIFO and reading IIR or LSR; drivers must allow for it,
+  and at serial speeds it costs nothing.
+- **Apple mode:** the block is hidden. A stock IIe has no serial card; a Super Serial Card emulation in slot 2 would
+  be a later extra.
 
 **Module IDs (decided)** for the new cards, using the free IDs `0x8`–`0xD`:
 
@@ -900,5 +935,4 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: Disk II (native side), serial,
-   Console.
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: Disk II (native side), Console.
