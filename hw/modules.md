@@ -102,12 +102,12 @@ live on the backplane. Signal details are in [design.md](design.md#backplane-sig
 | 0x5     | ROM B (Game Cart)          |
 | 0x6     | Serial A/B & Parallel      |
 | 0x7     | Mass Storage               |
-| 0x8     |                            |
-| 0x9     |                            |
-| 0xA     |                            |
-| 0xB     |                            |
-| 0xC     |                            |
-| 0xD     |                            |
+| 0x8     | DMA Controller             |
+| 0x9     | Video                      |
+| 0xA     | Sound (2x SID)             |
+| 0xB     | USB, Game Port & Speaker   |
+| 0xC     | Disk II Controller         |
+| 0xD     | North Bridge (registers)   |
 | 0xE     | Console                    |
 | 0xF     | Clock                      |
 

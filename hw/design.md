@@ -35,7 +35,7 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
                                                               |
   ======================== backplane: A0-A19, D0-D7, PS0-PS3, RWB, RDY, BE, DRQ/DACK ... ========================
        |           |          |          |          |           |           |           |            |
-     RAM A-D     ROM A     DMA ctl    video      sound      Disk II     SD/CF     COM1/COM2/   USB/game    bus spy
+     RAM A-D     ROM A     DMA ctl    video      sound      Disk II      SD       COM1/COM2/   USB/game    bus spy
      (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)    (GoTek)    storage     LPT          port      (ESP32)
 ```
 
@@ -121,27 +121,62 @@ The north bridge turns every CPU access into a 20-bit physical address (A0–A19
 Four bits is the minimum for choosing a bank. The extra two let any 16 KB of the 1 MB appear in any window, so a
 program can look at the first 16 KB of the screen without giving up its zero page and stack.
 
-**Proposed**
+**Decided**
 
 - **Reset state:**
 
-  | Window | CPU range | Block | Physical |
+  | Window | CPU range | Maps | Physical |
   |---|---|---|---|
-  | W0 | `$0000–$3FFF` | 0 | `$00000` |
-  | W1 | `$4000–$7FFF` | 1 | `$04000` |
-  | W2 | `$8000–$BFFF` | 2 | `$08000` |
-  | W3 | `$C000–$FFFF` | 63 | `$FC000`, the top of bank F |
+  | W0 | `$0000–$3FFF` | RAM block 0 | `$00000` |
+  | W1 | `$4000–$7FFF` | RAM block 1 | `$04000` |
+  | W2 | `$8000–$BFFF` | RAM block 2 | `$08000` |
+  | W3 | `$C000–$FFFF` | ROM A block 31, read-only: the top 16 KB of the flash | module ID 4 |
 
-  The machine wakes up looking like an ordinary 64 KB computer with the system software at the top.
-- **Vectors.** While VPB is low (the CPU reading an interrupt or reset vector), the north bridge forces W3 to
-  block 63, wherever W3 points. Vectors therefore always come from the system software. The first instructions of
-  each handler must also be in a fixed place: either in W3 with W3 left alone, or in a small common area the
+  The machine wakes up looking like an ordinary 64 KB computer with the BIOS at the top. When /BOOTSEL is held at
+  reset, W3 starts at RAM block 63 (`$FC000`, the top of bank F) instead. See [Boot](#boot).
+- **Vectors.** While VPB is low (the CPU reading an interrupt or reset vector), the north bridge maps
+  `$C000–$FFFF` through the VEC register instead of W3. VEC resets to the same value as W3, so vectors come from
+  the flash until the BIOS moves them to RAM, and an OS can point VEC at its own block. The first instructions of
+  each handler must still be in a fixed place: either in W3 with W3 left alone, or in a small common area the
   handler switches through.
-- **Write protection.** One north bridge bit write-protects the system software in bank F; a second bit does the
-  same for the Apple ROM image in bank E.
-- **I/O (decided).** The north bridge decodes a fixed I/O area at `$C000–$C7FF` ahead of the windows, so it
-  appears whatever the windows hold. It's the same place as the Apple's I/O, so there's one I/O hole in both
-  modes. The register map of each card is still open.
+- **ROM space.** A window can map flash instead of RAM: blocks 0–31 of ROM A (module ID 4, 512 KB) or of ROM B, the
+  game cartridge (module ID 5). A cartridge appears in the CPU's view without being copied.
+- **Write protection.** Each window has a read-only bit; writes through it are ignored. It guards against stray
+  writes, not deliberate ones: software can clear the bit, or reach the same block through another window.
+- **I/O.** The north bridge decodes a fixed I/O area at `$C000–$C7FF` ahead of the windows, so it appears whatever
+  the windows hold. It's the same place as the Apple's I/O, so there's one I/O hole in both modes.
+
+### North bridge registers ###
+
+**Decided.** In native mode each module ID owns 128 bytes of the I/O area, at `$C000 + ID × $80`; the 16 IDs
+fill `$C000–$C7FF` exactly. A card matches its module ID on PS0–PS3 and decodes only A0–A6. Memory-only modules
+(RAM A–D, ROM A and B) leave their blocks unused.
+
+The north bridge isn't a card, so it takes the spare ID `0xD`: its registers are at **`$C680–$C6FF`**. While the
+CPU accesses them, the north bridge puts `0xD` on PS0–PS3, so no card answers. In Apple mode the area belongs to
+the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden until a hard reset.
+
+**Window format.** WIN0–WIN3 and VEC share one layout:
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7 | ROM | 1 = flash. Blocks 0–31 are ROM A; 32–63 are ROM B (the cartridge) |
+| 6 | RO | 1 = writes through this window are ignored |
+| 5–0 | BLOCK | which 16 KB block: A14–A19, or the offset into the flash |
+
+**Register map** (offset from `$C680`):
+
+| Offset | Name | Access | Purpose | Reset value |
+|---|---|---|---|---|
+| `$00`–`$03` | WIN0–WIN3 | read/write | the four windows | `$00`, `$01`, `$02`, `$DF` (ROM, RO, block 31) |
+| `$04` | VEC | read/write | the mapping of `$C000–$FFFF` while VPB is low | `$DF` |
+| `$05` | MODE | write | bit 0 APPLE: writing 1 enters Apple II mode (Apple map, clock ÷14, pulse /RESET); only a hard reset clears it. Bit 1 TURBO: reserved for ÷1 | `$00` |
+| `$06` | STATUS | read | bit 0: booted from RAM (/BOOTSEL); bit 1: the last reset was power-on; bits 4–7: north bridge revision | |
+| `$08` | IRQL | read | interrupt poll for IDs 0–7, using /IACK. 0 = interrupting | |
+| `$09` | IRQH | read | interrupt poll for IDs 8–F | |
+| `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID. Reserved for turbo; unused at ÷2 | `$00` |
+
+With /BOOTSEL held at reset, WIN3 and VEC start at `$3F` (RAM block 63) instead of `$DF`.
 
 ### Apple II mode ###
 
@@ -189,12 +224,14 @@ window registers.
 
 **From ROM (normal)**
 
-1. At reset the north bridge overlays the flash ROM (module ID 4, ROM A) on W3, for reads only. At ÷2, 55–70 ns
-   flash runs with no wait states. A turbo mode would need one or two.
-2. The boot code copies the system image from flash into bank F. A DMA memory-to-memory copy does 64 KB in about
-   18 ms.
-3. It copies the Apple IIe ROM image into bank E.
-4. It clears the overlay bit and sets the write-protect bits.
+1. At reset W3 and VEC map the top block of the flash (ROM A, module ID 4), read-only. At ÷2, 55–70 ns flash runs
+   with no wait states. A turbo mode would need one or two.
+2. The BIOS points W2 at RAM block 63 and copies itself from W3 into W2.
+3. It writes `$7F` to WIN3 (RAM block 63, read-only). The code it is running is now the RAM copy at the same
+   addresses, so execution carries on without a jump. It then sets VEC to match.
+4. It copies the rest of the system software into bank F, and the Apple IIe ROM image into bank E, through a window
+   set to ROM space. The CPU does the copying, because the DMA controller only reaches RAM; 64 KB takes about
+   0.1 s, once per boot.
 5. From then on the system software runs from RAM. That's the "top of RAM" requirement. It also leaves the flash
    free to be reprogrammed while the machine runs, and keeps a turbo mode possible.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).
@@ -203,7 +240,7 @@ window registers.
 
 1. The bus spy holds /RESET low; a held W65C02S stays off the bus.
 2. It writes an image into RAM over the backplane. The image can come from its flash, an SD card, Wi-Fi or USB.
-3. It drives BOOTSEL (a new backplane line) to tell the north bridge to start with the overlay off.
+3. It drives /BOOTSEL, so the north bridge starts with W3 and VEC on RAM block 63 instead of the flash.
 4. It releases /RESET, and the CPU starts from the image in RAM.
 
 **What the override is for:**
@@ -231,7 +268,7 @@ The machine works without it, so it can come later.
 
 - **What a card needs:** only a request line (DRQ), an acknowledge line (DACK), and a data register. That keeps
   DMA cheap enough for every card to have it.
-- **Placement:** on its own card, using one of the free module IDs `0x8`–`0xD`.
+- **Placement:** on its own card, module ID `0x8`.
 - **Channels:** four, each with its own DRQ and DACK line. Priority is fixed, with channel 0 highest; it goes to
   storage.
 - **Registers per channel:**
@@ -257,8 +294,8 @@ The machine works without it, so it can come later.
 - **Apple mode:** the controller is held idle. Unaltered software never programs it, and stolen cycles would break
   code timed to the cycle.
 
-The front panel's Store, Fetch and Step/Halt switches ([console.md](console.md)) are a bus master too. Step uses RDY
-together with SYNC to stop at each instruction; Store and Fetch take the bus the same way the DMA controller does.
+The front panel's Console card is a bus master too: EXAM and DEP take the bus the same way the DMA controller does.
+See [Front Panel](#front-panel).
 
 
 ## Video ##
@@ -367,7 +404,8 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
 - **Disk II controller clone, in slot 6.**
   - In Apple mode it is exactly a Disk II: the switches at `$C0E0–$C0EF`, the boot ROM at `$C600`, the
     ROM-driven state machine and shift register, on the 2 MHz clock derived from OSC.
-  - It fits in a CPLD with the boot ROM beside it.
+  - It fits in a CPLD. Its 256-byte boot ROM can be part of the IIe ROM image in bank E, at `$C600`, so the card
+    needs no ROM of its own.
   - In native mode, a DMA channel can move a whole track of raw disk bytes at once.
 - **GoTek.**
   - It must run the **HxC firmware**. FlashFloppy, which most GoTeks ship with, has no documented Apple II
@@ -375,9 +413,17 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
   - HxC reads `.DSK`, `.DO` and `.PO` images directly; `.NIB` and `.WOZ` images are converted to HFE first.
   - It connects through an adapter to the Apple's 20-pin drive cable; the HxC docs give the pinout.
   - Copy-protected disks survive the conversion from `.WOZ` to HFE case by case.
-- **Native storage:** an SD or CompactFlash card controller, with DMA for block transfers and registers for simple
-  drivers.
-  - A floppy runs at about 30 KB/s, too slow to be native storage.
+- **Native storage (decided): SD, behind an RP2350** (module ID 7, "Mass Storage"). A floppy runs at about
+  30 KB/s, too slow to be native storage.
+  - The same pattern as the USB card: one microcontroller family and one toolchain.
+  - The RP2350 handles the SD protocol and presents ATA-like registers to the 6502: sector number (LBA), count,
+    command and status, plus a 512-byte buffer. Demand-mode DMA on channel 0 empties or fills the buffer at full
+    bus speed, and the CPU can also read it directly.
+  - It could also understand FAT, so files copied onto the card from a PC can be read directly. Optional.
+  - The RP2350 is 3.3 V: its outputs need HCT/ACT receivers or level shifters on the bus side. Check whether its
+    inputs are 5 V tolerant before relying on it.
+  - CompactFlash was the alternative: bus-ready with a little glue and no firmware, but a fading medium, with
+    8-bit mode and DMA support varying between cards.
   - Optionally, a ProDOS block driver in a slot ROM could show the same card as a hard disk in Apple mode. That goes
     beyond a stock IIe, so it's an extra, not a requirement.
 
@@ -418,7 +464,8 @@ interrupting.
 **Proposed mechanism.** Cards are chosen by module ID, not by slot, so the north bridge can't see which card pulled
 /IRQ. Instead it asks:
 
-1. The register is two bytes in the north bridge's I/O space: module IDs 0–7, then IDs 8–F.
+1. The register is two bytes in the north bridge's I/O space, IRQL and IRQH at `$C688/$C689`: module IDs 0–7,
+   then IDs 8–F.
 2. When the CPU reads either byte, the north bridge asserts **/IACK** for that cycle and drives nothing on the data
    bus.
 3. During /IACK, each card with an interrupt pending pulls its own data line low, D(ID mod 8), choosing the half by
@@ -479,9 +526,10 @@ AMODE is high.
 | 0xA | Sound (2× SID) |
 | 0xB | USB, game port and speaker |
 | 0xC | Disk II controller |
-| 0xD | spare |
+| 0xD | north bridge registers (no card) |
 
-Native storage (SD or CF) is "Mass Storage", ID 7. RAM A–D (IDs 0–3) are four 256 KB modules, chosen by A18–A19.
+Native storage (SD) is "Mass Storage", ID 7. The front panel is "Console", ID 0xE. RAM A–D (IDs 0–3) are four
+256 KB modules, chosen by A18–A19.
 
 
 ## Backplane Signals ##
@@ -504,7 +552,7 @@ design needs 18 new signals, which leaves 2 pins. Both go to ground on either si
 | B10 | GND | | | existing |
 | **B11** | VPB | CPU | totem pole | vector pull, for the north bridge's vector rule |
 | **B12** | RDY | any card | open drain, pulled up | wait states; stops the CPU for DMA |
-| **B13** | BE | DMA controller, bus spy, front panel | open drain, pulled up | low floats the CPU off the bus |
+| **B13** | BE | DMA controller, bus spy, Console card | open drain, pulled up | low floats the CPU off the bus |
 | **B14** | /IACK | north bridge | totem pole | interrupt status poll |
 | **B15** | DRQ0 | storage | pulled down | DMA request, channel 0 (highest priority) |
 | **B16** | /DACK0 | DMA controller | totem pole | DMA acknowledge, channel 0 |
@@ -538,12 +586,47 @@ pull-downs.
 point of use. At 24 V the bus carries a fifth of the current that 5 V would need for the same power.
 
 
+## Front Panel ##
+
+**Decided:** PDP-11 style, on its own **Console card** (module ID `0xE`), with a single switch register and live
+lights. It works without the ESP32. This supersedes the switch list in [console.md](console.md).
+
+**Proposed controls**, after the PDP-11/70:
+
+- **Switch register:** 20 switches. LOAD ADRS takes all 20 as a physical address; DEP takes the low 8 as data.
+- **LOAD ADRS, EXAM, DEP.** Repeated EXAM or DEP presses advance the address, to step through memory.
+- **HALT/ENABLE, CONT,** and **START** (reset and run).
+- **S INST / S BUS CYCLE:** whether CONT, while halted, runs one instruction or one bus cycle.
+
+**Lights:**
+
+- A0–A19: the 20-bit physical address, after the north bridge. It doesn't always match the CPU's address.
+- D0–D7: the data bus.
+- Status: Power, Run, Halt, SYNC (fetch), RWB, VPB, RDY (wait), BE (DMA or panel), IRQ, AMODE.
+
+**How the card works:**
+
+- A small CPLD does everything that must be exact to the cycle.
+- **Halt and step through RDY.** The W65C02S stops on any cycle when RDY is low, writes included, so single
+  bus-cycle step comes free. Releasing RDY until SYNC goes high again gives single-instruction step. What the lights
+  show at each step lines up with the emulator's bus trace.
+- **EXAM and DEP** take the bus with BE and run one bus cycle at a 20-bit physical address, so they don't depend on
+  the window registers.
+- **Live lights.** The CPLD latches the address, data and status on every bus cycle, so the lights glow with real
+  bus activity, as a running PDP-11's did, and freeze when halted.
+- **Wiring.** Shift-register chains (74HC595 for lights, 74HC165 for switches) or LED drivers keep the card to the
+  panel down to one ribbon cable.
+- **Registers** at `$C700` (ID `0xE`) give software and the ESP32 bus spy the same view as the panel: switch
+  states, halt, step, and a breakpoint address. The ESP32 can mirror the panel over Wi-Fi or script stepping.
+
+
 ## Emulator ##
 
 The emulator ([emulator/](../emulator/)) can run this design before any hardware exists. Its device model
 (machine files, decoder, timed devices, bus trace) carries over. The additions, roughly in order:
 
-1. **The north bridge:** the native windows, the VPB rule, write protection, the boot overlay, and module decode.
+1. **The north bridge:** the registers at `$C680`, the native windows with ROM space and read-only bits, VEC, and
+   module decode.
    This is `backplane.machine`, unblocked by this document.
 2. **RDY:** wait states per module, and stopping the CPU for DMA. The core is bus-cycle accurate already; this
    adds the stall cycle.
@@ -559,7 +642,6 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Register maps.** The north bridge first (windows, mode, write protect, overlay, interrupt status), then each
-   card's registers within `$C000–$C7FF`.
-2. **Native storage:** SD or CompactFlash.
-3. **The front panel:** PDP-11 style. Whether it is its own bus card or driven by the ESP32.
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: DMA, video, sound, USB, Disk II
+   (native side), mass storage, serial, Console.
+2. **Data lights:** [console.md](console.md) lists D0–D15, but the data bus is 8 bits. Intended, or left over?
