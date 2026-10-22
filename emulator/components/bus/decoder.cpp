@@ -88,9 +88,12 @@ namespace ooe::emu
 
     const Mapping *Decoder::access(uint16_t addr, Route &r)
     {
-        ++now_;
         r = route(addr, vector_pull_);
         const Mapping *m = find(r.where);
+        last_wait_ = 0;
+        if (m)
+            last_wait_ = m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        now_ += 1 + last_wait_; // the access completes on the last held cycle
         last_ = Access{lines(r.where), m ? m->module : NO_MODULE};
         return m;
     }

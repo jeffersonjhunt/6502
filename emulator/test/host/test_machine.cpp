@@ -113,6 +113,20 @@ TEST(physical_addresses_above_64k)
     CHECK(starts_with(error_of("ram 0-100000\n"), "test.machine:1: ram: want a range"));
 }
 
+TEST(wait_option)
+{
+    std::string error;
+    auto m = build("ram 0000-7FFF\nram 8000-80FF wait=3\n", error);
+    REQUIRE(m != nullptr);
+    CHECK_EQ(m->bus().mappings()[0].wait, 0);
+    CHECK_EQ(m->bus().mappings()[1].wait, 3);
+    m->bus().read(0x8000);
+    CHECK_EQ(m->bus().wait_states(), 3u);
+    CHECK(starts_with(error_of("ram 0-F wait=16\n"), "test.machine:1: wait:"));
+    CHECK(starts_with(error_of("ram 0-F wait=x\n"), "test.machine:1: wait:"));
+    CHECK(starts_with(error_of("ram 0-F wait=\n"), "test.machine:1: wait:"));
+}
+
 TEST(spaces_and_the_northbridge_line)
 {
     const std::string flash = image("flash_16.bin", 16);

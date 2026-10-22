@@ -17,13 +17,14 @@
  *   rom      8000-FFFF               ibasic.rom
  *   pia6821  D010-D013  name=terminal
  *
- * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [irq] [image]`.
+ * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [irq] [image]`.
  * Addresses are hex, optionally with a `$`, within the space: memory (the
  * default, A0-A19), flash (ROM A then ROM B) or io (the I/O hole, 000-7FF,
  * whose mappings take the module ID of their 128-byte block unless
  * `module=` says otherwise). `#` starts a comment. `module=` tags the
- * mapping with a backplane module ID; `irq` wires the device's IRQ output
- * to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
+ * mapping with a backplane module ID; `wait=` (0-15) holds RDY for that
+ * many extra cycles on every access, as a slow card does; `irq` wires the
+ * device's IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
  * acia6551. A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board).
  *

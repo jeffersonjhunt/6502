@@ -4,7 +4,7 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.7.0
+ * @version 0.8.0
  * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
@@ -44,6 +44,11 @@
  * loop calls after every instruction. poke() and peek() are not CPU cycles
  * and do not count; a debugger store through write() does, as a Store from
  * the console takes a bus cycle on the board.
+ *
+ * Wait states (RDY): an access to a mapping with `wait` set, or to a module
+ * the north bridge is told to slow down, lasts 1 + N cycles. The device is
+ * accessed once, at the end, when the CPU takes the data, so a timed device
+ * has been ticked through the held cycles by then.
  */
 
 #include <cstdint>
@@ -94,6 +99,12 @@ namespace ooe::emu
         }
         /// /RESET: put the bridge's registers back to their reset values.
         virtual void reset() {}
+        /// Wait states the bridge inserts on an access to `module`.
+        virtual unsigned wait_states(uint8_t module) const
+        {
+            (void)module;
+            return 0;
+        }
     };
 
     struct Mapping
@@ -103,6 +114,7 @@ namespace ooe::emu
         Device *device{nullptr};    ///< not owned
         uint8_t module{NO_MODULE};  ///< backplane module ID 0x0-0xF, or NO_MODULE
         bool irq_wired{false};      ///< device's IRQ output reaches the CPU
+        uint8_t wait{0};            ///< wait states the card holds RDY for on every access
     };
 
     /// What the backplane carried on the most recent CPU access, for the bus trace.
@@ -133,6 +145,7 @@ namespace ooe::emu
         uint8_t peek(uint16_t addr) const override;
         void idle() override { ++now_; }
         void vector_pull(bool active) override { vector_pull_ = active; }
+        unsigned wait_states() const override { return last_wait_; }
 
         /// /RESET. So far only the north bridge listens.
         void reset() { bridge_->reset(); }
@@ -172,11 +185,12 @@ namespace ooe::emu
         const Mapping *find(uint32_t where) const;
         /// Bring a timed mapping's device up to the cycle before this access.
         void catch_up(const Mapping &m);
-        /// Count the cycle, route a CPU access and record it in last_.
+        /// Route a CPU access, count its cycles (wait states too) and record it in last_.
         const Mapping *access(uint16_t addr, Route &r);
 
         NorthBridge *bridge_;
         bool vector_pull_{false};
+        unsigned last_wait_{0};
         Access last_;
         std::vector<Mapping> mappings_;
         std::vector<size_t> slot_of_;     ///< per mapping: its device's slot

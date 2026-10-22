@@ -29,8 +29,11 @@
  * (opcode fetch) and VPB (vector pull) alongside address, data and RWB.
  * VPB also goes to the bus (Bus::vector_pull()), as the pin goes to the
  * north bridge.
- * RDY is not modelled: holding the CPU mid-instruction needs a core that can
- * stop between cycles, and the debugger halts between instructions instead.
+ * RDY wait states are: an access held N extra cycles (Bus::wait_states())
+ * counts 1 + N cycles and is observed once, on its last cycle, as the bus
+ * spy logs it. Holding the CPU for an open-ended time (the console's halt,
+ * DMA) still needs a core that can stop between cycles; the debugger halts
+ * between instructions instead.
  * WAI and STP are idle cycles here, which no observer sees, so they show in
  * a trace only as a gap in the cycle numbers.
  *

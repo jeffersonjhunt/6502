@@ -4,7 +4,7 @@
  * @file backplane_bridge.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's north bridge: windows, VEC, ROM space, I/O hole.
- * @version 0.1.0
+ * @version 0.2.0
  * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
@@ -31,9 +31,12 @@
  * a card with that module ID and a wired IRQ asserts it. Unused offsets read
  * $FF, the data lines' weak pull-ups.
  *
+ * WAIT0-WAIT3 give each module ID 2 bits of wait states: WAITn holds IDs
+ * 4n to 4n+3, the lowest ID in bits 1-0. Every access to that module is held
+ * that many extra cycles with RDY.
+ *
  * Not modelled yet (docs/EMULATOR_PLAN.md): MODE's APPLE bit (Apple II mode
- * is a later step; the write is logged and ignored) and the WAIT registers,
- * which are stored but insert nothing until RDY exists.
+ * is a later step; the write is logged and ignored).
  */
 
 #include <array>
@@ -82,6 +85,7 @@ namespace ooe::emu
         // NorthBridge
         Route route(uint16_t cpu_addr, bool vector_pull) const override;
         void reset() override;
+        unsigned wait_states(uint8_t module) const override;
 
         // Device: the registers at $C680
         size_t size() const override { return 0x80; }

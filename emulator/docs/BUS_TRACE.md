@@ -54,9 +54,12 @@ Three gaps:
   amount.
 - **The debugger.** Its fetch and store are not CPU cycles, so they are
   not traced; neither is anything while it is halted.
-- **RDY.** The emulator does not model wait states. A board run with RDY
-  pulled low (the console's single-step) repeats the held cycle; the spy
-  should log a cycle only on PHI2 edges where RDY is high.
+- **RDY.** A cycle held by RDY repeats on the board; the spy should log a
+  cycle only on PHI2 edges where RDY is high. The emulator does the same
+  for wait states (a slow card, or the north bridge's WAIT registers): the
+  access is logged once, on its last cycle, so the held cycles show as a
+  gap in the cycle numbers. Halting with RDY (the console's single-step) is
+  not modelled; the debugger halts between instructions.
 
 ## Module IDs and A16..A19
 
