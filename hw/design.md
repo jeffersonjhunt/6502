@@ -294,6 +294,57 @@ The machine works without it, so it can come later.
 - **Apple mode:** the controller is held idle. Unaltered software never programs it, and stolen cycles would break
   code timed to the cycle.
 
+### DMA registers ###
+
+**Decided.** The controller's block is `$C400–$C47F` (module ID `0x8`). Each channel has 16 bytes at
+`$C400 + channel × $10`; the registers shared by all channels start at `$C440`, and the rest is reserved.
+
+**Per channel** (offset from the channel's base):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$0`–`$2` | ADDR | read/write | 20-bit physical address, low byte first; only the low 4 bits of `$2` are used. Writing sets the start value; reading returns the current address |
+| `$4`–`$5` | COUNT | read/write | bytes to move, low byte first; 0 means 65,536. Reading returns how many are left |
+| `$6` | MODE | read/write | see below |
+| `$7` | CTRL | read/write | bit 0 ENABLE: writing 1 arms the channel; the hardware clears it at terminal count unless AUTO is set. Bit 1 REQ: writing 1 is a software request, which starts a memory-to-memory transfer or a block transfer with no DRQ |
+| `$8`–`$A` | DEST | read/write | 20-bit destination address, for memory to memory only |
+
+**MODE:**
+
+| Bits | Name | Values |
+|---|---|---|
+| 1–0 | XFER | 00 single, 01 demand, 10 block, 11 reserved |
+| 3–2 | DIR | 00 card to memory, 01 memory to card, 10 memory to memory, 11 reserved |
+| 4 | DEC | 1 = the address counts down |
+| 5 | HOLD | 1 = the address stays fixed. On a memory-to-memory source, this fills memory with one byte |
+| 6 | AUTO | 1 = at terminal count, reload ADDR and COUNT and stay armed, for ring buffers and sample streams |
+| 7 | IRQ | 1 = interrupt at terminal count |
+
+**Shared** (`$C440`):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$40` | STATUS | read; write 1 to clear | bits 0–3: terminal count reached on channel 0–3, also the interrupt source. Bits 4–7: DRQ0–DRQ3 asserted now (read-only) |
+| `$41` | CONTROL | read/write | bit 0: master enable. Bits 4–6 BURST: demand and block transfers give the CPU one cycle back every 2^BURST bytes; 7 (the reset value) means no limit, and the OS chooses |
+| `$42` | ABORT | write | bit n stops channel n at once; ADDR and COUNT keep the values they stopped at |
+
+**Behaviour:**
+
+- **Fly-by.** While /DACKn is low the card needs no address decode. For card to memory it drives its data register
+  onto the bus; for memory to card it latches the byte at the falling edge of PHI2. The north bridge decodes the
+  controller's address to a RAM module as usual.
+- **Taking the bus** costs about one cycle before the first byte (RDY low, then BE low).
+- **Single mode** gives the CPU one cycle back after every byte, as the 8237 does.
+- **Memory to memory** reads each byte into a latch and then writes it: two cycles per byte, 64 KB in about 18 ms at
+  7.16 MHz. Any channel can do it with its own DEST, so storage on channel 0 is never tied up (the 8237 pairs
+  channels 0 and 1 instead).
+- **Terminal count.** TC is asserted during the last byte's cycle together with its /DACK, the channel's STATUS bit
+  is set, and if its IRQ bit is set, bit 0 of IRQH (ID 8) reads 0.
+- **Programming.** Registers are written a byte at a time with the channel disabled, so a half-written address
+  never matters. Setting ENABLE commits.
+- **Channels (proposed):** 0 mass storage (SD), 1 serial and parallel, 2 USB or the Disk II's native side, 3 general
+  use (memory to memory and blits).
+
 The front panel's Console card is a bus master too: EXAM and DEP take the bus the same way the DMA controller does.
 See [Front Panel](#front-panel).
 
@@ -601,7 +652,7 @@ lights. It works without the ESP32. This supersedes the switch list in [console.
 **Lights:**
 
 - A0–A19: the 20-bit physical address, after the north bridge. It doesn't always match the CPU's address.
-- D0–D7: the data bus.
+- D0–D7: the data bus (decided: 8 lights, not the 16 in [console.md](console.md)).
 - Status: Power, Run, Halt, SYNC (fetch), RWB, VPB, RDY (wait), BE (DMA or panel), IRQ, AMODE.
 
 **How the card works:**
@@ -642,6 +693,5 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: DMA, video, sound, USB, Disk II
-   (native side), mass storage, serial, Console.
-2. **Data lights:** [console.md](console.md) lists D0–D15, but the data bus is 8 bits. Intended, or left over?
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: video, sound, USB, Disk II (native
+   side), mass storage, serial, Console.
