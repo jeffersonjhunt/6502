@@ -1,0 +1,20 @@
+# The backplane BIOS: a full 512 KB ROM A image (bios.rom) with the BIOS
+# and Woz Monitor in its top 16 KB. Needs cc65 (ca65, ld65).
+#
+#   make            # bios.rom and bios.rom.lbl (labels for --symbols)
+#   ../../emulator/build/release/apps/emu/emulator --machine ../../emulator/machines/backplane.machine bios.rom
+
+AFLAGS  = -g  # debug info, so -Ln lists every label, not just the exports
+OBJS    = bios.o wozmon.o
+ROM     = bios.rom
+
+$(ROM): $(OBJS) bios.cfg
+	ld65 -C bios.cfg $(OBJS) -o $(ROM) -Ln $(ROM).lbl
+
+%.o: %.s backplane.inc
+	ca65 $(AFLAGS) $<
+
+clean:
+	rm -f $(OBJS) $(ROM) $(ROM).lbl
+
+.PHONY: clean

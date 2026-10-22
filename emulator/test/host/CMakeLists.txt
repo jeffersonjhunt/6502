@@ -56,6 +56,7 @@ emu_add_test(test_eater)
 emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 emu_add_test(test_backplane)
+emu_add_test(test_bios)
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 
@@ -106,6 +107,38 @@ endif()
 target_compile_definitions(test_rom_boot PRIVATE
         EMU_IBASIC_ROM="${ROM_DIR}/ibasic.rom"
         EMU_APPLESOFT_ROM="${ROM_DIR}/applesoft.rom")
+
+# --- the backplane BIOS -----------------------------------------------------
+#
+# Assembled from backplane/bios as its Makefile does, into the build tree:
+# a full 512 KB ROM A image with the BIOS and Woz Monitor in the top block.
+# Without cc65 test_bios skips.
+
+set(BIOS_SRC "${PROJECT_SOURCE_DIR}/../backplane/bios")
+set(BIOS_DIR "${CMAKE_CURRENT_BINARY_DIR}/bios")
+if(EMU_CA65 AND EMU_LD65)
+    file(MAKE_DIRECTORY "${BIOS_DIR}")
+    foreach(src bios wozmon)
+        add_custom_command(
+                OUTPUT "${BIOS_DIR}/${src}.o"
+                COMMAND "${EMU_CA65}" -g -I "${BIOS_SRC}" -o "${BIOS_DIR}/${src}.o" "${BIOS_SRC}/${src}.s"
+                DEPENDS "${BIOS_SRC}/${src}.s" "${BIOS_SRC}/backplane.inc"
+                VERBATIM)
+    endforeach()
+    add_custom_command(
+            OUTPUT "${BIOS_DIR}/bios.rom" "${BIOS_DIR}/bios.rom.lbl"
+            COMMAND "${EMU_LD65}" -C "${BIOS_SRC}/bios.cfg" -o "${BIOS_DIR}/bios.rom" -Ln "${BIOS_DIR}/bios.rom.lbl"
+                    "${BIOS_DIR}/bios.o" "${BIOS_DIR}/wozmon.o"
+            DEPENDS "${BIOS_DIR}/bios.o" "${BIOS_DIR}/wozmon.o" "${BIOS_SRC}/bios.cfg"
+            VERBATIM)
+    add_custom_target(backplane_bios ALL DEPENDS "${BIOS_DIR}/bios.rom")
+else()
+    message(STATUS "emu: ca65/ld65 not found — backplane BIOS tests will skip")
+endif()
+
+target_compile_definitions(test_bios PRIVATE
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 # --- Ben Eater's ROMs -------------------------------------------------------
 #
