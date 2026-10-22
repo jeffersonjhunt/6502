@@ -180,8 +180,14 @@ settled the rule, and its emulator plan's first step is in:
   through W2, points W3 at the copy and keeps running with no jump.
 
 Not yet: MODE's APPLE bit (logged and ignored), the WAIT registers (stored;
-nothing inserts wait states until RDY is modelled), the DMA controller and
-the cards (hw/design.md "Emulator", steps 2-7), and a real BIOS.
+nothing inserts wait states until RDY is modelled), and the DMA controller
+and the cards (hw/design.md "Emulator", steps 2-7).
+
+**A minimal BIOS (2026-10-22)** in `backplane/bios` (ca65): it shadows itself
+into RAM block 63, switches W3 and VEC to the read-only copy, restores W2
+and enters the Woz Monitor (Eater's 6551 version, ported) on the stand-in
+terminal; NMI re-enters the monitor. The same image boots under /BOOTSEL
+from RAM. The test build assembles it and test_bios boots it.
 
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a

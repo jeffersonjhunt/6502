@@ -29,6 +29,10 @@ flat out. Nothing is logged unless you ask:
 `emulator/machines/eater.machine` runs Ben Eater's breadboard computer and
 the programs in `eater/src` (see `emulator/README.md`).
 
+`emulator/machines/backplane.machine` is the backplane computer being designed
+in `hw/design.md`; `backplane/bios` is its BIOS, which boots to the Woz
+Monitor (`make -C backplane/bios`, then see `emulator/README.md`).
+
 Ctrl-] stops it at a debugger prompt (`h` for help). `--halt`, `--break`,
 `--symbols`, `--load` and `--trace` are for bring-up; see
 `emulator/README.md`.

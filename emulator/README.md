@@ -67,11 +67,14 @@ $C000-$FFFF, read-only, so the ROM image is the whole flash with the BIOS in
 its last 16 KB ($C800-$FFFF is visible; $C000-$C7FF is the I/O hole):
 
 ```
-./build/release/apps/emu/emulator --machine machines/backplane.machine bios.rom
+make -C ../backplane/bios
+./build/release/apps/emu/emulator --machine machines/backplane.machine ../backplane/bios/bios.rom
 ```
 
-There is no BIOS in the repo yet; `test_backplane` builds a small one that
-shadows itself into RAM.
+The BIOS (`../backplane/bios`) copies itself into RAM block 63, switches W3
+to the copy and starts the Woz Monitor on the 6551. `C680.C684` shows the
+north bridge's windows (`00 01 02 7F 7F` after boot). Add
+`--symbols ../backplane/bios/bios.rom.lbl` for its labels in the debugger.
 
 A machine is one line per chip; see `machines/apple1.machine` and
 `components/machine/include/machine.h` for the format. ROM image paths in a
