@@ -489,7 +489,8 @@ Native storage (SD or CF) is "Mass Storage", ID 7. RAM A–D (IDs 0–3) are fou
 The current pin-out ([modules.md](modules.md)) leaves 20 pins unassigned: A10, A11, B9, B11–B19 and B21–B28. This
 design needs 18 new signals, which leaves 2 pins. Both go to ground on either side of PHI2.
 
-**Proposed assignment** (new pins in bold, existing pins listed for context):
+**Assignment (decided).** New pins are in bold, existing pins are listed for context. The same table is in
+[modules.md](modules.md).
 
 | Pin | Signal | Driven by | Type | Purpose |
 |---|---|---|---|---|
@@ -521,13 +522,12 @@ design needs 18 new signals, which leaves 2 pins. Both go to ground on either si
 | **B28** | /BOOTSEL | bus spy | open drain, pulled up | boot from RAM, not ROM |
 | B29, B30 | +24 VDC, OSC | | | existing |
 
-**Assumption: the CPU and the north bridge share a card.**
+**Decided: the CPU and the north bridge share a card.**
 
 - With 6-bit windows, the north bridge replaces A14–A15, so the CPU's own A14–A15 must not reach the backplane.
 - On one card, the CPU's A14–A15 go only to the north bridge. The north bridge drives backplane A14–A19, and the
   CPU drives A0–A13 directly. The north bridge floats its address lines whenever BE is low.
-- As separate cards they'd need two more lines, CA14 and CA15, and those would take the two ground pins beside
-  PHI2.
+- Separate cards would have needed two more lines, CA14 and CA15, taking the two ground pins beside PHI2.
 - One card also keeps the address path from crossing the backplane twice, which a future turbo mode would need.
 
 **Pull-ups and pull-downs** belong on the backplane itself, so an empty slot leaves every line in a defined state.
@@ -558,9 +558,8 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 1. **Register maps.** The north bridge first (windows, mode, write protect, overlay, interrupt status), then each
    card's registers within `$C000–$C7FF`.
-2. **The CPU and north bridge on one card** (assumed by the pin table), or separate with CA14/CA15.
-3. **The proposed pin table and module IDs.**
-4. **Native storage:** SD or CompactFlash.
-5. **The front panel's bus access.** Store, Fetch and Step need RDY and BE: does the panel use a DMA channel, or
+2. **The proposed module IDs** for the new cards (`0x8`–`0xD`).
+3. **Native storage:** SD or CompactFlash.
+4. **The front panel's bus access.** Store, Fetch and Step need RDY and BE: does the panel use a DMA channel, or
    its own logic?
-6. **Power.** `modules.md` says each card regulates 12 V, but the backplane carries +24 V.
+5. **Power.** `modules.md` says each card regulates 12 V, but the backplane carries +24 V.

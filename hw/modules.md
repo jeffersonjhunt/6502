@@ -2,7 +2,7 @@
 
 ## Chain ##
 
-Clock -> CPU -> North Bridge -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (Level Shift Driver) -> I/O (Serial/Parallel)
+Clock -> CPU + North Bridge (one card) -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (Level Shift Driver) -> I/O (Serial/Parallel)
 
 ## Notes: ##
 
@@ -30,8 +30,8 @@ ISA Card Slot with 62 Pins (e.g. EDC395062-ND) 20 Address Lines and 8 Data Lines
 |  A7  | D2     | IN/OUT·|·Data·Bit·2·············································|
 |  A8  | D1     | IN/OUT·|·Data·Bit·1·············································|
 |  A9  | D0     | IN/OUT·|·Data·Bit·0·············································|
-|  A10 | ?      | ?     ·|·TBD       ·············································|
-|  A11 | ?      | ?     ·|·TBD       ·············································|
+|  A10 | RWB    | IN/OUT | Read/Write (CPU, or the DMA/bus master)                |
+|  A11 | /OE    | OUT    | Read strobe from the north bridge                      |
 |  A12 | A19    | OUT   ·|·Address Bit 19 ········································|
 |  A13 | A18    | OUT   ·|·Address Bit 18 ········································|
 |  A14 | A17    | OUT   ·|·Address Bit 17 ········································|
@@ -60,39 +60,33 @@ ISA Card Slot with 62 Pins (e.g. EDC395062-ND) 20 Address Lines and 8 Data Lines
 |  B6  | PS2    | OUT   ·|·Peripheral·Selector Bit 2 ·····························|
 |  B7  | PS1    | OUT   ·|·Peripheral·Selector Bit 1 ·····························|
 |  B8  | PS0    | OUT   ·|·Peripheral·Selector Bit 0 ·····························|
-|  B9  |        |       ·|·        ········· ··············      ·················|
+|  B9  | SYNC   | OUT    | Opcode fetch (single-step, bus spy)                    |
 |  B10 | GND    |       ·|·Ground        ········· ·······························|
-|  B11 |        |       ·|      ·        ········· ·······························|
-|  B12 |        |       ·|·              ········· ·······························|
-|  B13 |        |       ·|·        ···      ······ ·······························|
-|  B14 |        |       ·|·        ·········       ·······························|
-|  B15 |        |       ·|·        ········· ·····      ··························|
-|  B16 |        |       ·|·        ········· ···········      ····················|
-|  B17 |        |       ·|·        ········· ·················      ··············|
-|  B18 |        |       ·|·        ········· ·······················      ········|
-|  B19 |        |       ·|·        ········· ··························      ·····|
+|  B11 | VPB    | OUT    | Vector pull (north bridge vector rule)                 |
+|  B12 | RDY    | IN     | Ready, open drain: wait states, DMA halt               |
+|  B13 | BE     | IN     | Bus Enable, open drain: low floats the CPU             |
+|  B14 | /IACK  | OUT    | Interrupt status poll                                  |
+|  B15 | DRQ0   | DMA    | DMA request, channel 0 (storage)                       |
+|  B16 | /DACK0 | DMA    | DMA acknowledge, channel 0                             |
+|  B17 | DRQ1   | DMA    | DMA request, channel 1                                 |
+|  B18 | /DACK1 | DMA    | DMA acknowledge, channel 1                             |
+|  B19 | GND    |        | Ground (shields PHI2)                                  |
 |  B20 | PHI2   | OUT   ·|·CPU Clock    (50% duty cycle) ·············        ····|
-|  B21 |        |       ·|·              ········· ·······························|
-|  B22 |        |       ·|·              ········· ·······························|
-|  B23 |        |       ·|·        ····      ····· ·······························|
-|  B24 |        |       ·|·        ········      · ·······························|
-|  B25 |        |       ·|·        ········· ··      ·····························|
-|  B26 |        |       ·|·        ········· ·····      ··························|
-|  B27 |        |       ·|·        ········· ········      ·······················|
-|  B28 |        |       ·|·        ········· ·········      ······················|
+|  B21 | GND    |        | Ground (shields PHI2)                                  |
+|  B22 | DRQ2   | DMA    | DMA request, channel 2                                 |
+|  B23 | /DACK2 | DMA    | DMA acknowledge, channel 2                             |
+|  B24 | DRQ3   | DMA    | DMA request, channel 3                                 |
+|  B25 | /DACK3 | DMA    | DMA acknowledge, channel 3                             |
+|  B26 | TC     | DMA    | DMA terminal count                                     |
+|  B27 | AMODE  | OUT    | Apple II mode is active                                |
+|  B28 | /BOOTSEL| IN     | Boot from RAM, not ROM (bus spy), open drain           |
 |  B29 | +24VDC |       ·|·        ········· ·················      ··············|
 |  B30 | OSC    | OUT   ·|·System Clock (50% duty cycle)       ···················|
 |  B31 | GND    |       ·|·Ground        ········· ·······························|
 
 
-```
-       => RWB (Read Write)
-       => OE (Output Enabled)
-       => BE (Bus Enable)
-       => Vector Pull (VPB)
-       => Sync
-       => Ready (RDY)
-```
+Pull-ups (RDY, BE, /BOOTSEL, /RESET, /NMI, /IRQ, and weak ones on D0-D7 for /IACK) and pull-downs (DRQ0-DRQ3)
+live on the backplane. Signal details are in [design.md](design.md#backplane-signals).
 
 
 ## Modules Id List ##
