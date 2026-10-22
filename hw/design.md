@@ -214,8 +214,9 @@ is a CPLD, for example an ATF1508 (5 V), holding:
 
 The north bridge works in two stages:
 
-1. CPU address to physical address, using the windows or the Apple rules. Only the CPU goes through this.
-2. Physical address to module ID (PS0–PS3), plus the I/O decode. Everything goes through this, including DMA.
+1. CPU address to physical address, using the windows or the Apple rules, with the I/O hole decoded first. Only
+   the CPU goes through this.
+2. Physical address to module ID (PS0–PS3). Everything goes through this, including DMA.
 
 The DMA controller supplies its own 20-bit addresses, so DMA always sees physical memory and never depends on the
 window registers.
@@ -890,7 +891,8 @@ lights. It works without the ESP32. This supersedes the switch list in [console.
 
 - **Switch register:** 20 switches. LOAD ADRS takes all 20 as a physical address; DEP takes the low 8 as data.
 - **LOAD ADRS, EXAM, DEP.** Repeated EXAM or DEP presses advance the address, to step through memory.
-- **HALT/ENABLE, CONT,** and **START** (reset and run).
+- **HALT/ENABLE, CONT,** and **START**: the hard reset, through the north bridge like the reset button, so it
+  clears Apple mode.
 - **S INST / S BUS CYCLE:** whether CONT, while halted, runs one instruction or one bus cycle.
 
 **Lights:**
@@ -911,8 +913,36 @@ lights. It works without the ESP32. This supersedes the switch list in [console.
   bus activity, as a running PDP-11's did, and freeze when halted.
 - **Wiring.** Shift-register chains (74HC595 for lights, 74HC165 for switches) or LED drivers keep the card to the
   panel down to one ribbon cable.
-- **Registers** at `$C700` (ID `0xE`) give software and the ESP32 bus spy the same view as the panel: switch
-  states, halt, step, and a breakpoint address. The ESP32 can mirror the panel over Wi-Fi or script stepping.
+- **EXAM and DEP work only while halted,** as on the PDP-11.
+- **In Apple mode** the registers are hidden from software, but the panel still works: halting, stepping, EXAM, DEP
+  and the lights are all hardware, so Apple software can be single-stepped.
+- **The ESP32** plugs into a small SPI header on the card that exposes the same registers. It can halt, step and
+  read the latched cycle even when the bus is hung, and mirror the panel over Wi-Fi or script stepping.
+
+### Console registers ###
+
+**Decided.** Module ID `0xE`, `$C700–$C77F`, offsets from `$C700`.
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$00–$02` | SWR | read | the 20-bit switch register, low byte first; programs can read it for boot options, as on the PDP-11 |
+| `$03` | PANEL | read | bit 0 HALT/ENABLE switch; bit 1 S INST (0) or S BUS CYCLE (1) |
+| `$04` | KEYS | read; write to press | bit 0 LOAD ADRS, bit 1 EXAM, bit 2 DEP, bit 3 CONT. Reading returns keys pressed since the last read and clears them; writing a bit presses that key (the ESP32's remote panel) |
+| `$05` | DISPLAY | write | a byte shown on the data lights while CTRL bit 3 is set: the PDP-11's display register, for progress or error codes with no screen |
+| `$06` | CTRL | read/write | bit 0 HALT: software asks to halt, like the switch. Bit 2 LOCK: panel keys and switches are ignored. Bit 3: data lights show DISPLAY instead of the bus |
+| `$08–$0A` | BPADDR | read/write | breakpoint: 20-bit physical address |
+| `$0B` | BPCTRL | read/write | bit 0 enable; bit 1 match an opcode fetch (SYNC); bit 2 a read; bit 3 a write; bit 4 action, 0 = halt with RDY, 1 = pull /NMI |
+| `$0C` | STATUS | read | bit 0 halted; bit 1 breakpoint hit (write 1 to clear); bit 2 panel key pressed |
+| `$10–$12` | LADDR | read | address of the cycle where the CPU stopped (halt or breakpoint) |
+| `$13` | LDATA | read | that cycle's data |
+| `$14` | LSTAT | read | that cycle's SYNC, RWB, VPB, BE and AMODE |
+| `$15–$17` | PADDR | read/write | the panel's address: set by LOAD ADRS, advanced by EXAM and DEP |
+| `$18` | IEN | read/write | bit 0: interrupt on a panel key press |
+| `$19` | ISR | read; write 1 to clear | pending; pulls bit 6 of IRQH (ID E) low |
+| `$7F` | ID | read | card type and revision |
+
+The breakpoint comparator checks every bus cycle at no cost in speed. Halting suits the panel and the ESP32; /NMI
+suits a debugger running on the machine itself, which then reads LADDR, LDATA and LSTAT to see the matching cycle.
 
 
 ## Emulator ##
@@ -938,4 +968,7 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Console card registers,** in its block at `$C700–$C77F`.
+1. **Bus masters and I/O.** The I/O hole is decoded from the CPU's address, before the windows, so a bus master
+   driving physical addresses (the ESP32) has no way to reach card registers. The DMA controller doesn't need to
+   (cards answer /DACK) and the ESP32 reaches the Console card over SPI. If a master ever needs I/O, the simplest
+   rule is a physical range the north bridge treats as the I/O hole while BE is low.
