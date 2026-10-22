@@ -150,7 +150,8 @@ program can look at the first 16 KB of the screen without giving up its zero pag
 
 **Decided.** In native mode each module ID owns 128 bytes of the I/O area, at `$C000 + ID × $80`; the 16 IDs
 fill `$C000–$C7FF` exactly. A card matches its module ID on PS0–PS3 and decodes only A0–A6. Memory-only modules
-(RAM A–D, ROM A and B) leave their blocks unused.
+(RAM A–D, ROM A and B) leave their blocks unused. Every block with registers ends in an **ID byte at `+$7F`**,
+giving the card type and revision, so the BIOS can probe which cards are fitted.
 
 The north bridge isn't a card, so it takes the spare ID `0xD`: its registers are at **`$C680–$C6FF`**. While the
 CPU accesses them, the north bridge puts `0xD` on PS0–PS3, so no card answers. In Apple mode the area belongs to
@@ -175,6 +176,7 @@ the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden unt
 | `$08` | IRQL | read | interrupt poll for IDs 0–7, using /IACK. 0 = interrupting | |
 | `$09` | IRQH | read | interrupt poll for IDs 8–F | |
 | `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID. Reserved for turbo; unused at ÷2 | `$00` |
+| `$7F` | ID | read | north bridge type and revision | |
 
 With /BOOTSEL held at reset, WIN3 and VEC start at `$3F` (RAM block 63) instead of `$DF`.
 
@@ -327,6 +329,7 @@ The machine works without it, so it can come later.
 | `$40` | STATUS | read; write 1 to clear | bits 0–3: terminal count reached on channel 0–3, also the interrupt source. Bits 4–7: DRQ0–DRQ3 asserted now (read-only) |
 | `$41` | CONTROL | read/write | bit 0: master enable. Bits 4–6 BURST: demand and block transfers give the CPU one cycle back every 2^BURST bytes; 7 (the reset value) means no limit, and the OS chooses |
 | `$42` | ABORT | write | bit n stops channel n at once; ADDR and COUNT keep the values they stopped at |
+| `$7F` | ID | read | card type and revision |
 
 **Behaviour:**
 
@@ -417,6 +420,60 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
 
 **Limit:** the display is not locked to the CPU clock. Effects that switch modes at an exact cycle mid-frame
 ("vapor lock", raster splits timed by cycle counting) won't display correctly. Ordinary software is unaffected.
+
+### Video registers ###
+
+**Decided.** The card's block is `$C480–$C4FF` (module ID `0x9`). The registers only set up the display; all
+display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snooped video banks 8–B.
+
+- **Base registers** are one byte in **1 KB units** of video memory: physical address `$80000 + base × 1024`.
+  Sprite images use 12-bit addresses in 64-byte units.
+- **Latching.** Base and scroll registers take effect at the next vertical blank, so one write flips buffers without
+  tearing.
+- In Apple mode the block is hidden; the card follows AMODE and draws the Apple modes from banks 0 and 1.
+
+**Global** (offset from `$C480`):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$00` | CTRL | read/write | bit 0 display on; bit 1 layer 0 on; bit 2 layer 1 on; bit 3 sprites on |
+| `$01` | BORDER | read/write | border colour (palette index) |
+| `$02` | PALBASE | read/write | palette location: 256 entries × 2 bytes |
+| `$03` | SPRBASE | read/write | sprite table location: 64 entries × 8 bytes |
+| `$04` | IEN | read/write | interrupt enables: bit 0 vertical blank, bit 1 scan line match, bit 2 sprite collision |
+| `$05` | ISR | read; write 1 to clear | the same bits, pending; any of them pulls bit 1 of IRQH (ID 9) low |
+| `$06`–`$07` | LINE | read/write | write: the 10-bit scan line for the line interrupt. Read: the line being drawn now |
+| `$08` | STATUS | read | bit 7 in vertical blank; bits 0–3 COLL, the collision groups in the last collision |
+| `$7F` | ID | read | card type and revision |
+
+**Layers** (layer 0 at `$10`, layer 1 at `$20`):
+
+| Offset | Name | Purpose |
+|---|---|---|
+| `+$0` | CONFIG | bits 2–0 TYPE: 0 text 80×30, 1 text 40×30, 2 tile, 3 bitmap 256, 4 bitmap 512, 5 mono. Bit 3 tile size 8 or 16. Bit 4 tiles at 4 or 8 bpp. Bits 5–6 map size, 32 or 64 entries each way. Bit 7 text: attribute bit 7 blinks (as on the PC) instead of a bright background |
+| `+$1` | MAPBASE | text: character and attribute buffer. Tile: the map. Bitmap or mono: the image |
+| `+$2` | TILEBASE | tile: tile images. Text: the font |
+| `+$3`–`$4` | HSCROLL | 10 bits, wraps |
+| `+$5`–`$6` | VSCROLL | 10 bits, wraps |
+| `+$7` | PALOFS | added to the high 4 bits of 4 bpp pixels, text colours and mono pixels: any 16-colour slice of the palette |
+
+**Formats in video memory:**
+
+- **Palette entry:** 2 bytes, `GGGGBBBB` then `0000RRRR`. Colour 0 is transparent in layers and sprites. The palette
+  is ordinary snooped memory, so a DMA during vertical blank fades it and a PALBASE write swaps it; the FPGA copies
+  the 512 bytes into its own RAM when PALBASE changes.
+- **Sprite entry** (8 bytes, the X16 VERA layout, so its tools and ideas carry over):
+
+  | Byte | Contents |
+  |---|---|
+  | 0–1 | bits 0–11: image address in 64-byte units. Bit 15: 8 bpp |
+  | 2–3 | X, 10 bits |
+  | 4–5 | Y, 10 bits |
+  | 6 | bits 0–1 H and V flip; bits 2–3 depth (0 off, 1 behind both layers, 2 between, 3 in front); bits 4–7 collision group mask |
+  | 7 | bits 0–3 palette offset; bits 4–5 width (8, 16, 32, 64); bits 6–7 height |
+
+- **Bitmaps:** bitmap 256 (8 bpp) and bitmap 512 (4 bpp) are both 256 bytes per row, one page each, so y is the high
+  byte of the address relative to MAPBASE. Mono is 80 bytes per row, packed.
 
 
 ## Sound ##
@@ -693,5 +750,5 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: video, sound, USB, Disk II (native
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: sound, USB, Disk II (native
    side), mass storage, serial, Console.
