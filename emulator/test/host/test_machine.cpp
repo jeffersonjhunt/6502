@@ -11,6 +11,7 @@
 #include "harness.h"
 
 #include "acia6551.h"
+#include "backplane_bridge.h"
 #include "apple1.h"
 #include "console.h"
 #include "hd44780.h"
@@ -110,6 +111,45 @@ TEST(physical_addresses_above_64k)
     REQUIRE(m != nullptr);
     CHECK_EQ(m->bus().mappings()[0].first, 0x10000u);
     CHECK(starts_with(error_of("ram 0-100000\n"), "test.machine:1: ram: want a range"));
+}
+
+TEST(spaces_and_the_northbridge_line)
+{
+    const std::string flash = image("flash_16.bin", 16);
+    std::string error;
+    auto m = build("northbridge backplane\n"
+                   "ram 00000-FFFFF space=memory\n"
+                   "rom 7FFF0-7FFFF space=flash " + flash + "\n"
+                   "pia6821 300-303 space=io name=card\n"
+                   "pia6821 500-503 space=io module=9\n",
+                   error);
+    if (!m)
+        std::printf("  %s\n", error.c_str());
+    REQUIRE(m != nullptr);
+    const auto &maps = m->bus().mappings();
+    REQUIRE(maps.size() == 5u);
+    CHECK_EQ(maps[0].first, bus_address(Space::Io, 0x680)); // the bridge's own registers
+    CHECK_EQ(maps[0].module, 0xD);
+    CHECK_EQ(maps[2].first, bus_address(Space::Flash, 0x7FFF0));
+    CHECK_EQ(maps[3].module, 0x6);                          // from its I/O block
+    CHECK_EQ(maps[4].module, 0x9);                          // module= wins
+    REQUIRE(m->find_as<BackplaneBridge>("northbridge") != nullptr);
+    CHECK_EQ(m->bus().read(0xFFF0), 0x01);                  // W3 at reset: top of ROM A
+    CHECK(m->bus().decode(0xC300)->device == m->find("card"));
+
+    auto boot = build("northbridge backplane bootsel\nram 00000-FFFFF\n", error);
+    REQUIRE(boot != nullptr);
+    CHECK_EQ(boot->find_as<BackplaneBridge>("northbridge")->window(3), 0x3F);
+
+    CHECK(starts_with(error_of("northbridge\n"), "test.machine:1: northbridge: want"));
+    CHECK(starts_with(error_of("northbridge chipset\n"), "test.machine:1: northbridge: want"));
+    CHECK(starts_with(error_of("northbridge backplane fast\n"), "test.machine:1: northbridge: want"));
+    CHECK(starts_with(error_of("northbridge backplane\nnorthbridge backplane\n"),
+                      "test.machine:2: northbridge: only one"));
+    CHECK(starts_with(error_of("ram 0-F name=northbridge\nnorthbridge backplane\n"),
+                      "test.machine:2: name 'northbridge' is already used"));
+    CHECK(starts_with(error_of("ram 0-F space=disk\n"), "test.machine:1: space:"));
+    CHECK(starts_with(error_of("ram 700-800 space=io\n"), "test.machine:1: ram: the I/O hole is 000-7FF"));
 }
 
 TEST(rom_override_replaces_only_the_first_rom)

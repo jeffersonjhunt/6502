@@ -102,9 +102,11 @@ namespace ooe::emu
         if (cmos())
             set_flag(FLAG_D, false);
         vector_pull_ = true;
+        bus_.vector_pull(true);
         const unsigned lo = read(RESET_VECTOR);
         const unsigned hi = read(RESET_VECTOR + 1);
         vector_pull_ = false;
+        bus_.vector_pull(false);
         regs_.pc = static_cast<uint16_t>(lo | (hi << 8));
     }
 
@@ -155,9 +157,11 @@ namespace ooe::emu
         if (cmos())
             set_flag(FLAG_D, false);
         vector_pull_ = true;
+        bus_.vector_pull(true);
         const unsigned lo = read(vector);
         const unsigned hi = read(static_cast<uint16_t>(vector + 1));
         vector_pull_ = false;
+        bus_.vector_pull(false);
         regs_.pc = static_cast<uint16_t>(lo | (hi << 8));
     }
 

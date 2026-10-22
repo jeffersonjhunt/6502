@@ -334,6 +334,7 @@ namespace ooe::emu
         }
         if (cmd == "reset")
         {
+            bus_.reset();
             cpu_.reset();
             return status();
         }

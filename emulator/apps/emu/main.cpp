@@ -196,6 +196,7 @@ namespace
             on_signal(SIGINT);
             on_signal(SIGTERM);
 
+            machine.bus().reset();
             cpu.reset();
             EMU_LOGI(TAG, "%s from $%04X at %u Hz", machine.cpu().c_str(), cpu.regs().pc, settings.clock_hz);
             if (settings.start_halted)

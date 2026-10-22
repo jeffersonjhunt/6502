@@ -29,7 +29,7 @@ namespace
 {
     struct Rig
     {
-        explicit Rig(const NorthBridge *bridge = nullptr) : bus(bridge)
+        explicit Rig(NorthBridge *bridge = nullptr) : bus(bridge)
         {
             bus.map({0x0000, 0x7FFF, &ram, 0x0});
             bus.map({0xE000, 0xFFFF, &rom, 0x4});
@@ -268,7 +268,7 @@ TEST(bus_trace_uses_the_north_bridge_address)
 {
     struct Bank3 : NorthBridge
     {
-        uint32_t physical(uint16_t a) const override { return 0x30000u | a; }
+        Route route(uint16_t a, bool) const override { return Route{0x30000u | a, true}; }
     };
     Bank3 bridge;
     Ram ram(0x10000);

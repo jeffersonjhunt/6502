@@ -60,11 +60,22 @@ Three gaps:
 
 ## Module IDs and A16..A19
 
-The address is the 20-bit backplane address, after the north bridge. Until
-its A16..A19 rule is decided (EMULATOR_PLAN.md §5), the emulator drives
-them low, so its addresses all start with `0`. The module is the mapping's
-`module=` in the machine file; the Apple-1 machines set none, so they show
-`-`.
+The address is what A19..A0 carry on the backplane, after the north
+bridge. Machines without one (the Apple-1, Eater) drive A16..A19 low, so
+their addresses all start with `0`. On `backplane.machine` the north
+bridge's windows decide (hw/design.md):
+
+- **RAM:** the 20-bit physical address.
+- **Flash** (a window with its ROM bit set): the offset into the flash,
+  `00000-7FFFF` for ROM A (module 4) and `80000-FFFFF` for ROM B (module
+  5). The module column tells it from RAM at the same address.
+- **The I/O hole:** the CPU address, `0C000-0C7FF`, with the card's module
+  ID.
+
+Each line shows the lines as they were on that cycle, so the write that
+changes a window, and a vector read through VEC, are traced where they
+actually went. The module is the mapping's `module=` in the machine file;
+the Apple-1 machines set none, so they show `-`.
 
 ## Diffing
 

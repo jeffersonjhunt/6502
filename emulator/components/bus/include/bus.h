@@ -4,8 +4,8 @@
  * @file bus.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief What the CPU sees: a 64 KB address space of reads and writes.
- * @version 0.2.0
- * @date 2026-10-18
+ * @version 0.3.0
+ * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -42,5 +42,9 @@ namespace ooe::emu
         /// A CPU cycle with no access (WAI, STP), so a bus that keeps time
         /// by counting accesses (Decoder) stays level with the CPU.
         virtual void idle() {}
+        /// The VPB pin: true while the CPU reads a reset or interrupt
+        /// vector. The backplane's north bridge maps those reads through
+        /// its VEC register (hw/design.md).
+        virtual void vector_pull(bool active) { (void)active; }
     };
 } // namespace ooe::emu

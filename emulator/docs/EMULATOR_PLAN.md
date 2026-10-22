@@ -151,8 +151,37 @@ faster is warranted yet. Harte's known gap (decimal ADC/SBC on invalid BCD)
 is now set aside and reported rather than failed (`HARTE_STRICT=1`
 restores it), so the suite is green and any new failure stands out.
 
-**3b done 2026-10-19**, except `backplane.machine`, which still waits on
-the north bridge's A16-A19 rule and the module address map (§5).
+**3b done 2026-10-19**, except `backplane.machine`, which waited on the
+north bridge's A16-A19 rule and the module address map (§5).
+
+**`backplane.machine` step 1 (2026-10-22): the north bridge.** hw/design.md
+settled the rule, and its emulator plan's first step is in:
+
+- **Three address spaces.** A `NorthBridge` now returns a `Route`: memory
+  (the 1 MB), flash (ROM A, then ROM B) or the 2 KB I/O hole, plus a
+  writable flag. Mappings name their space (`space=flash|io`; I/O mappings
+  take the module ID of their 128-byte block). VPB reaches the bus
+  (`Bus::vector_pull`), and the bus trace records the lines of each cycle as
+  they were (`Decoder::last_access`).
+- **`BackplaneBridge`** (`components/devices`), from the machine line
+  `northbridge backplane [bootsel]`: four 16 KB windows with ROM and RO
+  bits, VEC on vector pulls, the I/O hole ahead of the windows, and its
+  registers at $C680 with the decided reset values (W3 and VEC on the top
+  block of ROM A, or RAM block 63 under /BOOTSEL), STATUS, the /IACK poll
+  (IRQL/IRQH), WAIT0-3 and the ID byte ($D1: module D, revision 1). The
+  bridge resets with the CPU (`Decoder::reset`, from the app and the
+  debugger's `reset`).
+- **`machines/backplane.machine`:** RAM A-D, the 512 KB flash, and a 6551
+  in the serial card's block ($C300) as a stand-in terminal until the
+  TL16C552A is modelled. The flash image is the whole ROM A, BIOS in its
+  top 16 KB.
+- **test_backplane** checks each register and route, and runs the design's
+  boot as 6502 code: the BIOS copies itself from flash into RAM block 63
+  through W2, points W3 at the copy and keeps running with no jump.
+
+Not yet: MODE's APPLE bit (logged and ignored), the WAIT registers (stored;
+nothing inserts wait states until RDY is modelled), the DMA controller and
+the cards (hw/design.md "Emulator", steps 2-7), and a real BIOS.
 
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
@@ -277,9 +306,9 @@ Not done, and why:
 ## 5. Open decisions
 
 1. ~~CPU on the real board~~ — **W65C02S** (decided 2026-10-18). Its
-   address bus is 16 bits, so A16..A19 on the backplane must come from the
-   north bridge (a bank/segment register?). How those bits are produced is
-   now the open question for Phase 3's decoder.
+   address bus is 16 bits, so A16..A19 come from the north bridge: four
+   16 KB windows with 6-bit block registers (decided in hw/design.md,
+   2026-10-21; modelled 2026-10-22).
 2. ~~Machine description format~~ — **plain text**, one line per chip
    (decided 2026-10-18; `components/machine/include/machine.h`).
 3. ~~`fmt`~~ — dropped in Phase 2, with easylogging++; `emu_log` is
