@@ -570,16 +570,63 @@ it commands.
 - **Native storage (decided): SD, behind an RP2350** (module ID 7, "Mass Storage"). A floppy runs at about
   30 KB/s, too slow to be native storage.
   - The same pattern as the USB card: one microcontroller family and one toolchain.
-  - The RP2350 handles the SD protocol and presents ATA-like registers to the 6502: sector number (LBA), count,
-    command and status, plus a 512-byte buffer. Demand-mode DMA on channel 0 empties or fills the buffer at full
-    bus speed, and the CPU can also read it directly.
-  - It could also understand FAT, so files copied onto the card from a PC can be read directly. Optional.
+  - The RP2350 handles the SD protocol, start-up and buffering, and presents IDE-style registers (below).
+  - It can also read FAT well enough to mount image files from a PC-formatted card as units.
   - The RP2350 is 3.3 V: its outputs need HCT/ACT receivers or level shifters on the bus side. Check whether its
     inputs are 5 V tolerant before relying on it.
   - CompactFlash was the alternative: bus-ready with a little glue and no firmware, but a fading medium, with
     8-bit mode and DMA support varying between cards.
-  - Optionally, a ProDOS block driver in a slot ROM could show the same card as a hard disk in Apple mode. That goes
-    beyond a stock IIe, so it's an extra, not a requirement.
+  - Optionally, a ProDOS block driver in a slot ROM could show the same card, or a mounted `.po` image, as a hard
+    disk in Apple mode. That goes beyond a stock IIe, so it's an extra, not a requirement. Otherwise the block is
+    hidden in Apple mode.
+
+### Mass storage registers ###
+
+**Decided.** Module ID `0x7`, `$C380–$C3FF`. The model is an IDE disk: write a sector number and a count, then a
+command, and the data streams through one port, fed by DMA channel 0 or a CPU loop.
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$00` | CTRL | read/write | bit 0 DMA: assert DRQ0 when DATA has a byte, or room for one. Bit 1 RESET: start the SD card up again |
+| `$01` | STATUS | read | bit 7 BUSY; bit 6 READY (card started up); bit 5 PRESENT (card detect); bit 4 WP (write-protect switch); bit 3 DATA (a byte, or room for one, at DATA); bit 0 ERR |
+| `$02` | ERROR | read | error code when ERR is set: no card, out of range, CRC, timeout, write-protected, unit not mounted |
+| `$03` | CMD | write | starts a command |
+| `$04` | UNIT | read/write | 0 = the whole card; 1–7 = a mounted image file |
+| `$06–$09` | LBA | read/write | 32-bit sector number, low byte first: up to 2 TB |
+| `$0A–$0B` | COUNT | read/write | sectors; 0 means 65,536. Reading returns how many are left |
+| `$0C` | DATA | read/write | the byte stream for the transfer |
+| `$0D–$0E` | BUFPTR | read/write | position within the current 512-byte sector, for jumping into a sector without DMA |
+| `$10` | IEN | read/write | bit 0 command done; bit 1 card inserted or removed |
+| `$11` | ISR | read; write 1 to clear | the same bits, pending; any of them pulls bit 7 of IRQL (ID 7) low |
+| `$7F` | ID | read | card type and revision |
+
+**Commands** (numbers from ATA where one exists):
+
+| CMD | Name | Action |
+|---|---|---|
+| `$20` | READ | read COUNT sectors from LBA through DATA |
+| `$30` | WRITE | write COUNT sectors to LBA from DATA |
+| `$E7` | FLUSH | write cached data out to the SD card; use before removing it |
+| `$EC` | IDENTIFY | one sector through DATA: capacity, card type, name, and the units table |
+| `$A0` | MOUNT | DATA takes a sector holding a unit number and a file path; the file becomes that unit |
+| `$A1` | UNMOUNT | detach UNIT |
+| `$A2` | LIST | the directory at the path in DATA, as fixed-size entries, for a boot or image menu |
+
+**Transfers.**
+
+- **With DMA**, for example 16 sectors to `$20000`: program channel 0 (ADDR `$20000`, COUNT 8192, demand mode, card
+  to memory), set CTRL.DMA, write LBA and COUNT, then CMD = `$20`. DRQ0 drops while the card fetches the next
+  sector, so demand mode pauses and resumes. The DMA terminal count or the command-done interrupt ends it. The
+  RP2350 reads SD in 4-bit mode faster than the bus takes bytes, so this runs near full bus speed, about 7 MB/s.
+  Transfers over 128 sectors need a new DMA program or AUTO mode, since the DMA count stops at 64 KB.
+- **Without DMA**, an `LDA DATA` / `STA (ptr),Y` loop takes about 11 cycles per byte, roughly 650 KB/s: plenty for
+  the BIOS and the Monitor.
+- **Writes** run the same way in the other direction. The card may cache them, hence FLUSH.
+
+**Units.** Unit 0 is the raw card. On a FAT-formatted card, MOUNT attaches an image file as units 1–7, where LBA 0
+is the file's first sector. Disk images copied from a PC become drives, a boot menu can LIST and start them, and the
+OS still sees plain sectors with any file system it likes. The RP2350 only needs enough FAT to find a file's
+sectors. The command numbers are fixed now; the raw card works before the mounting firmware exists.
 
 
 ## Apple II Mode ##
@@ -853,5 +900,5 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: Disk II (native side), mass storage,
-   serial, Console.
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: Disk II (native side), serial,
+   Console.
