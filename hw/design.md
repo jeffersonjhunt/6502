@@ -84,7 +84,7 @@ From the address becoming valid to read data being needed is the cycle time minu
 
 **Decided: RAM lives on the backplane.**
 
-**Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the SID card.
+**Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the sound card.
 
 
 ## Memory ##
@@ -482,25 +482,70 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 
 - Two 6581 SIDs, using modern drop-in replacements (ARMSID, FPGASID, SwinSID or similar).
 - Playing C64 `.sid` files is a goal for later.
+- **A co-processor on the card:** an RP2350 running a cycle-exact 6510, with its own 64 KB, so tunes play
+  independently of the main CPU.
 
-**Proposed**
+**Why a co-processor.** A `.sid` file is 6502 code (the tune's own player), not data, so playing it independently
+needs a CPU on the card. Running tunes on the main CPU instead would hit several walls:
 
-- **Clock.** The card has its own SID clock, because pitch depends on it. It is switchable between PAL (985,248 Hz,
-  17.734475 MHz ÷ 18) and NTSC (1,022,727 Hz), since `.sid` files assume one or the other; most assume PAL.
-- **Bus timing.** The SIDs' bus interface expects a 1 MHz PHI2.
-  - The card latches each CPU write and passes it to the SID on the SID's own clock.
-  - A second write before the first is done is held off with RDY.
-  - Reads (OSC3, ENV3, the paddles) take wait states too.
-- **Model.** Most replacement chips can be set to behave as a 6581 or an 8580. The filters differ, and tunes are
-  written for one or the other.
-- **`.sid` playback.**
-  - A tune is C64 code with load, init and play addresses, and expects the SID at `$D400`. Stereo tunes put the
-    second SID at `$D420` or `$D500`.
-  - The player maps a 64 KB "C64 sandbox" through the windows, with the SID card decoded at `$D400` in that
-    mapping.
-  - A timer interrupt calls play 50 or 60 times a second, running at 7.16 MHz.
-  - Tunes that play samples by timing writes to the volume register need a 1 MHz CPU. The Apple-mode clock could
-    be borrowed for those later.
+- the I/O hole at `$C000–$C7FF` collides with tunes loaded there;
+- the SIDs can't appear at `$D400` inside a window, so tunes couldn't read OSC3 or ENV3;
+- sample tunes time their `$D418` writes for a 1 MHz CPU;
+- many players, especially demoscene ones, use the NMOS 6510's undocumented opcodes (LAX, SAX, DCP and others),
+  which are NOPs on the W65C02S.
+
+The card's 6510 runs from the SID clock at exactly C64 speed, with the SIDs at `$D400` in its own map. Native games
+can use it the same way, as arcade boards used sound CPUs: the game loads its music driver onto the card and sends
+it commands.
+
+**Proposed: the card**
+
+- **RP2350**, the same chip as the USB and SD cards. Its 520 KB of internal SRAM holds the card's 64 KB, so there is
+  no external RAM.
+- **SID clock** from crystals, selected by CTRL: PAL 985,248 Hz (17.734475 MHz ÷ 18) or NTSC 1,022,727 Hz
+  (14.31818 MHz ÷ 14). `.sid` files assume one or the other; most assume PAL. The 6510 runs one cycle per SID
+  clock.
+- **Model.** Most replacement chips can behave as a 6581 or an 8580, set by a jumper or a configuration sequence
+  written to the chip; there is no card register for it.
+- **The card's 6510 memory map**, modelled on the C64:
+
+  | Address | Contents |
+  |---|---|
+  | `$0000–$FFFF` | 64 KB RAM |
+  | `$0001` | the 6510 port, for tunes that bank I/O out of the way |
+  | `$D400` | SID A |
+  | `$D420` or `$D500` | SID B (CTRL bit 3) |
+  | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
+  | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status |
+
+  RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
+  later.
+- **Bus timing.** The RP2350 answers the backplane through its PIO. Writes are latched; reads and back-to-back
+  writes hold the CPU with RDY if the card isn't ready.
+- **In Apple mode** the card is idle and its block hidden.
+
+**Registers (decided)** (module ID `0xA`, `$C500–$C57F`, offsets from `$C500`):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$00–$1C` | SID A | read/write | the SID's 29 registers, for native programs that drive the SIDs themselves. Writes are ignored while the card's 6510 runs; reads always work |
+| `$20–$3C` | SID B | read/write | the same for SID B |
+| `$40` | CTRL | read/write | bit 0: SID clock PAL (0) or NTSC (1). Bit 1 RUN: the card's 6510 runs. Bit 2 RESET: writing 1 resets it. Bit 3: SID B at `$D500` instead of `$D420` in the card's map. Bit 4 BOTH: SID A writes also go to SID B, so a mono tune plays on both |
+| `$41` | STATUS | read | bit 0 BUSY: a SID write is still pending. Bit 1: the host-to-card mailbox is full. Bit 2: the card-to-host mailbox is full. Bit 7: interrupt pending |
+| `$42` | IEN | read/write | bit 2: interrupt when the card sends a mailbox byte; it pulls bit 2 of IRQH (ID A) low |
+| `$43–$44` | RAMADDR | read/write | address in the card's 64 KB, low byte first; increments on every RAMDATA access |
+| `$45` | RAMDATA | read/write | the card's RAM. Asserts DRQ while ready, so DMA loads a whole tune in about 10 ms |
+| `$46` | MBOUT | write | a byte to the card ("play song 3", a sound effect, a music cue) |
+| `$47` | MBIN | read | a byte from the card ("tune finished", a sync point); reading empties it |
+| `$7F` | ID | read | card type and revision |
+
+**`.sid` playback.**
+
+1. The host stops the card (RUN = 0) and loads the tune's data at its load address through RAMDATA.
+2. It writes a small stub that calls init with the song number, then calls play on each CIA timer interrupt, or
+   at 50 or 60 Hz for tunes that use the vertical blank.
+3. It sets the clock from the file's PAL or NTSC flag and sets RUN.
+4. The main CPU is free; the mailbox tells it when to change song or stop.
 
 
 ## Storage ##
@@ -743,12 +788,13 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
 5. **Apple II mode:** the IIe switch logic, the mode register and the clock switch. Check it by running real IIe
    software.
 6. **The Disk II controller,** with `.dsk` and `.woz` images.
-7. **The SID card:** register-level first, with sound later.
+7. **The sound card:** the registers and mailbox first, then the card's own 6510 (with the NMOS undocumented
+   opcodes) and the SID, with sound later.
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: sound, USB, Disk II (native
+1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: USB, Disk II (native
    side), mass storage, serial, Console.
