@@ -470,7 +470,7 @@ AMODE is high.
 - The W65C51N was considered and rejected: its stuck transmit flag makes DMA and interrupt-driven transmit
   unreliable.
 
-**Proposed module IDs** for the new cards, using the free IDs `0x8`–`0xD`:
+**Module IDs (decided)** for the new cards, using the free IDs `0x8`–`0xD`:
 
 | ID | Module |
 |---|---|
@@ -534,6 +534,9 @@ design needs 18 new signals, which leaves 2 pins. Both go to ground on either si
 That covers RDY, BE, /BOOTSEL, /RESET, /NMI and /IRQ, the weak data-line pull-ups for /IACK, and the DRQ
 pull-downs.
 
+**Power (decided).** The backplane carries +24 V (B29), and every card regulates it down to what it needs at the
+point of use. At 24 V the bus carries a fifth of the current that 5 V would need for the same power.
+
 
 ## Emulator ##
 
@@ -558,8 +561,5 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 1. **Register maps.** The north bridge first (windows, mode, write protect, overlay, interrupt status), then each
    card's registers within `$C000–$C7FF`.
-2. **The proposed module IDs** for the new cards (`0x8`–`0xD`).
-3. **Native storage:** SD or CompactFlash.
-4. **The front panel's bus access.** Store, Fetch and Step need RDY and BE: does the panel use a DMA channel, or
-   its own logic?
-5. **Power.** `modules.md` says each card regulates 12 V, but the backplane carries +24 V.
+2. **Native storage:** SD or CompactFlash.
+3. **The front panel:** PDP-11 style. Whether it is its own bus card or driven by the ESP32.
