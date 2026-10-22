@@ -346,7 +346,7 @@ The machine works without it, so it can come later.
   is set, and if its IRQ bit is set, bit 0 of IRQH (ID 8) reads 0.
 - **Programming.** Registers are written a byte at a time with the channel disabled, so a half-written address
   never matters. Setting ENABLE commits.
-- **Channels (proposed):** 0 mass storage (SD), 1 serial and parallel, 2 USB or the Disk II's native side, 3 general
+- **Channels (proposed):** 0 mass storage (SD), 1 serial and parallel, 2 USB, 3 general
   use (memory to memory and blits).
 
 The front panel's Console card is a bus master too: EXAM and DEP take the bus the same way the DMA controller does.
@@ -560,7 +560,10 @@ it commands.
     ROM-driven state machine and shift register, on the 2 MHz clock derived from OSC.
   - It fits in a CPLD. Its 256-byte boot ROM can be part of the IIe ROM image in bank E, at `$C600`, so the card
     needs no ROM of its own.
-  - In native mode, a DMA channel can move a whole track of raw disk bytes at once.
+  - **Apple mode only (decided).** Native mode runs at 7.16 MHz, too fast for the CPU-timed Disk II, and native
+    software reaches Apple disk images more easily as files on the SD card, mounted as mass storage units. In
+    native mode the card ignores its switches; its block `$C600–$C67F` holds only the ID byte at `$C67F`, so the
+    BIOS can see the card is fitted. It is the exception to the rule that I/O supports DMA.
 - **GoTek.**
   - It must run the **HxC firmware**. FlashFloppy, which most GoTeks ship with, has no documented Apple II
     support.
@@ -935,4 +938,4 @@ Each step can be checked against real software, the same way the Ben Eater progr
 
 ## Open Questions ##
 
-1. **Card register maps,** each within its 128-byte block of `$C000–$C7FF`: Disk II (native side), Console.
+1. **Console card registers,** in its block at `$C700–$C77F`.
