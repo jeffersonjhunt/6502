@@ -45,6 +45,7 @@ namespace ooe::emu
     {
         ++cycles_;
         const uint8_t v = bus_.read(addr);
+        cycles_ += bus_.wait_states(); // held by RDY; traced once, on its last cycle
         if (observer_)
             observer_->on_cycle(BusCycle{cycles_, addr, v, false, sync_, vector_pull_});
         sync_ = false;
@@ -55,6 +56,7 @@ namespace ooe::emu
     {
         ++cycles_;
         bus_.write(addr, data);
+        cycles_ += bus_.wait_states();
         if (observer_)
             observer_->on_cycle(BusCycle{cycles_, addr, data, true, false, vector_pull_});
     }

@@ -4,7 +4,7 @@
  * @file bus.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief What the CPU sees: a 64 KB address space of reads and writes.
- * @version 0.3.0
+ * @version 0.4.0
  * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
@@ -46,5 +46,9 @@ namespace ooe::emu
         /// vector. The backplane's north bridge maps those reads through
         /// its VEC register (hw/design.md).
         virtual void vector_pull(bool active) { (void)active; }
+        /// RDY: how many extra cycles the last read() or write() was held
+        /// for wait states. The CPU counts them as clock cycles; the access
+        /// itself happened once.
+        virtual unsigned wait_states() const { return 0; }
     };
 } // namespace ooe::emu

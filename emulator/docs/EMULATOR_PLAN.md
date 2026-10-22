@@ -179,15 +179,28 @@ settled the rule, and its emulator plan's first step is in:
   boot as 6502 code: the BIOS copies itself from flash into RAM block 63
   through W2, points W3 at the copy and keeps running with no jump.
 
-Not yet: MODE's APPLE bit (logged and ignored), the WAIT registers (stored;
-nothing inserts wait states until RDY is modelled), and the DMA controller
-and the cards (hw/design.md "Emulator", steps 2-7).
+Not yet: MODE's APPLE bit (logged and ignored), and the DMA controller and
+the cards (hw/design.md "Emulator", steps 2-7).
 
 **A minimal BIOS (2026-10-22)** in `backplane/bios` (ca65): it shadows itself
 into RAM block 63, switches W3 and VEC to the read-only copy, restores W2
 and enters the Woz Monitor (Eater's 6551 version, ported) on the stand-in
 terminal; NMI re-enters the monitor. The same image boots under /BOOTSEL
 from RAM. The test build assembles it and test_bios boots it.
+
+**RDY wait states (2026-10-22), hw/design.md's emulator step 2.** An access
+can be held for N extra cycles: `Bus::wait_states()` reports them after each
+read or write and the CPU counts them, so `--clock` slows down and the bus
+trace logs the access once, on its last cycle, leaving a gap as the spy
+would. The decoder's clock includes them, so timers run through the held
+cycles, and the device is accessed once, at the end. The waits come from
+the north bridge's WAIT0-3 (2 bits per module ID; WAITn holds IDs 4n to
+4n+3, lowest in bits 1-0, now in hw/design.md) plus a mapping's `wait=N`
+(0-15) in the machine file. Holding the CPU for an open-ended time (the
+console's halt and bus-cycle step, DMA) still needs a core that stops
+between cycles; the DMA step decides how to steal cycles. Wait states that
+vary per access (an RP2350 card holding RDY until ready) get a device hook
+when the first such card is modelled.
 
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
@@ -302,7 +315,8 @@ check before every instruction takes the unthrottled release build from
 Not done, and why:
 
 - **RDY.** Holding the CPU mid-instruction needs a core that can stop
-  between cycles; this one runs an instruction at a time. The debugger
+  between cycles; this one runs an instruction at a time. (Fixed-length
+  wait states were added later, 2026-10-22; see the backplane section.) The debugger
   halts between instructions, and BUS_TRACE.md asks the spy to log only
   cycles where RDY is high, so a single-stepped board capture still diffs.
 - **Cycle-level step** on the console needs the same, so it waits on RDY.

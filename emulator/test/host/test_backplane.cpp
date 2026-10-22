@@ -212,6 +212,26 @@ TEST(irq_poll_reads_0_for_interrupting_modules)
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::IRQH), 0xFB);  // bit 2: ID A
 }
 
+TEST(wait_registers_slow_their_module_only)
+{
+    Rig r;
+    Ram serial(0x80), storage(0x80);
+    r.bus.map({bus_address(Space::Io, 0x300), bus_address(Space::Io, 0x37F), &serial, 0x6});
+    r.bus.map({bus_address(Space::Io, 0x380), bus_address(Space::Io, 0x3FF), &storage, 0x7});
+    r.bus.write(NB + BackplaneBridge::WAIT0 + 1, 0x20); // WAIT1: IDs 4-7; ID 6 is bits 5-4 = 2
+    r.bus.read(0xC300);
+    CHECK_EQ(r.bus.wait_states(), 2u);
+    r.bus.read(0xC380);
+    CHECK_EQ(r.bus.wait_states(), 0u);                 // ID 7 untouched
+    r.bus.write(NB + BackplaneBridge::WAIT0, 0x03);     // WAIT0: ID 0 (RAM A) = 3
+    const uint64_t before = r.bus.now();
+    r.bus.read(0x1000);
+    CHECK_EQ(r.bus.now() - before, 4u);
+    r.bus.write(NB + BackplaneBridge::WAIT0 + 3, 0xC0); // WAIT3: ID F is bits 7-6
+    CHECK_EQ(r.bridge.wait_states(0xF), 3u);
+    CHECK_EQ(r.bridge.wait_states(0xC), 0u);
+}
+
 TEST(mode_wait_and_unused_registers)
 {
     Rig r;

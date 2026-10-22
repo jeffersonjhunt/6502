@@ -1,14 +1,18 @@
 /**
  * @file test_decoder.cpp
- * @brief Address decoding: mappings, overlap, spaces, the north bridge, IRQ wiring.
+ * @brief Address decoding: mappings, overlap, spaces, the north bridge, IRQ wiring, RDY wait states.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 
 #include "harness.h"
 
+#include "cpu6502.h"
 #include "decoder.h"
 #include "memory_devices.h"
 #include "pia6821.h"
+#include "via6522.h"
+
+#include <vector>
 
 using namespace ooe::test;
 using namespace ooe::emu;
@@ -211,6 +215,104 @@ TEST(timed_devices_keep_time_in_lockstep_with_bus_cycles)
     CHECK_EQ(bus.peek(0x0010), 10);
     CHECK_EQ(bus.now(), 10u);
     CHECK_EQ(ram.total, 0u);           // untimed: never ticked
+}
+
+TEST(wait_states_hold_one_access_for_more_cycles)
+{
+    /// Counts accesses, and reads back how far it has been ticked.
+    struct Slow : Ram
+    {
+        Slow() : Ram(16) {}
+        bool timed() const override { return true; }
+        void tick(uint64_t cycles) override { total += cycles; }
+        uint8_t read(uint32_t) override
+        {
+            ++reads;
+            return static_cast<uint8_t>(total);
+        }
+        uint64_t total{0};
+        int reads{0};
+    };
+    Ram ram(0x100);
+    Slow slow;
+    Decoder bus;
+    bus.map({0x0000, 0x00FF, &ram});
+    bus.map({0x8000, 0x800F, &slow, NO_MODULE, false, 3});
+    bus.read(0x0000);
+    CHECK_EQ(bus.wait_states(), 0u);
+    CHECK_EQ(bus.now(), 1u);
+    CHECK_EQ(bus.read(0x8000), 4);     // taken at the end: ticked through cycles 1-4
+    CHECK_EQ(bus.wait_states(), 3u);
+    CHECK_EQ(bus.now(), 5u);           // 1 + (1 + 3)
+    CHECK_EQ(slow.reads, 1);           // one access, however long
+    bus.write(0x8001, 0);
+    CHECK_EQ(bus.now(), 9u);
+    bus.read(0x0001);
+    CHECK_EQ(bus.wait_states(), 0u);   // per access, not sticky
+}
+
+TEST(cpu_counts_wait_states_and_observes_the_last_cycle)
+{
+    struct Seen : CycleObserver
+    {
+        void on_cycle(const BusCycle &c) override { cycles.push_back(c.cycle); }
+        std::vector<uint64_t> cycles;
+    };
+    Ram ram(0x8000), slow(0x100);
+    Decoder bus;
+    bus.map({0x0000, 0x7FFF, &ram});
+    bus.map({0x8000, 0x80FF, &slow, NO_MODULE, false, 3});
+    const uint8_t prog[] = {
+        0xAD, 0x00, 0x80, // LDA $8000: 4 accesses, the last (a read) held 3
+        0x8D, 0x01, 0x80, // STA $8001: the same, the last a write
+    };
+    for (unsigned i = 0; i < sizeof prog; ++i)
+        bus.poke(static_cast<uint16_t>(0x0200 + i), prog[i]);
+    Cpu6502 cpu(bus, Cpu6502::Model::W65C02S);
+    Seen seen;
+    cpu.set_observer(&seen);
+    Registers r;
+    r.pc = 0x0200;
+    cpu.set_regs(r);
+    CHECK_EQ(cpu.step(), 7u);
+    CHECK_EQ(cpu.step(), 7u);
+    CHECK(seen.cycles == (std::vector<uint64_t>{1, 2, 3, 7, 8, 9, 10, 14}));
+    CHECK_EQ(slow.read(1), 0x00);      // LDA got $00 from the slow RAM; stored once
+    CHECK_EQ(bus.now(), cpu.cycles());   // the decoder's clock and the CPU's agree
+}
+
+TEST(a_timer_runs_through_wait_states)
+{
+    // T1 counts down while the CPU is held, so a program that reads it after
+    // a waited access sees exactly the extra cycles gone.
+    auto run = [](uint8_t wait) {
+        Ram ram(0x6000), slow(0x100);
+        Via6522 via;
+        Decoder bus;
+        bus.map({0x0000, 0x5FFF, &ram});
+        bus.map({0x6000, 0x600F, &via});
+        bus.map({0x8000, 0x80FF, &slow, NO_MODULE, false, wait});
+        const uint8_t prog[] = {
+            0xA9, 0xFF, 0x8D, 0x04, 0x60, // LDA #$FF; STA T1L-L
+            0xA9, 0x00, 0x8D, 0x05, 0x60, // LDA #$00; STA T1C-H: load and start
+            0xAD, 0x00, 0x80,             // LDA $8000 (waited)
+            0xAD, 0x04, 0x60,             // LDA T1C-L
+            0x85, 0x10,                   // STA $10
+            0xDB,                         // STP
+        };
+        for (unsigned i = 0; i < sizeof prog; ++i)
+            bus.poke(static_cast<uint16_t>(0x0200 + i), prog[i]);
+        Cpu6502 cpu(bus, Cpu6502::Model::W65C02S);
+        Registers r;
+        r.pc = 0x0200;
+        cpu.set_regs(r);
+        for (int i = 0; i < 20 && cpu.state() != Cpu6502::State::Stopped; ++i)
+            cpu.step();
+        return bus.peek(0x0010);
+    };
+    const uint8_t plain = run(0);
+    CHECK_EQ(run(3), static_cast<uint8_t>(plain - 3));
+    CHECK_EQ(run(15), static_cast<uint8_t>(plain - 15));
 }
 
 int main()

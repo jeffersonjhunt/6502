@@ -207,6 +207,14 @@ namespace ooe::emu
                 const size_t eq = arg.find('=');
                 if (arg == "irq")
                     map.irq_wired = true;
+                else if (eq != std::string::npos && arg.compare(0, eq, "wait") == 0)
+                {
+                    const std::string n = arg.substr(eq + 1);
+                    if (n.empty() || n.size() > 2 || n.find_first_not_of("0123456789") != std::string::npos ||
+                        std::stoul(n) > 15)
+                        return fail("wait: want 0-15 wait states");
+                    map.wait = static_cast<uint8_t>(std::stoul(n));
+                }
                 else if (eq != std::string::npos && arg.compare(0, eq, "space") == 0)
                 {
                     const std::string s = arg.substr(eq + 1);
