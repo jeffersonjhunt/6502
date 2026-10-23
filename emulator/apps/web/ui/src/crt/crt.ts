@@ -4,10 +4,14 @@
  * overlays, styles/crt.css).
  *
  * Text is drawn from a glyph atlas made once per phosphor colour (VT323,
- * squeezed to 8x16 cells, glow baked in), and only rows that changed are
- * redrawn, so an idle screen costs nothing per frame. Drawing is in VGA's
- * 640x480, but the canvas holds twice that, so the browser scales the
- * picture down to the glass rather than blurring it up.
+ * whose 20 px glyphs are VGA's 8 pixels wide: a crisp core over a soft
+ * halo), and only rows that changed are redrawn, so an idle screen costs
+ * nothing per frame.
+ *
+ * Drawing is in VGA's 640x480, but the canvas holds a whole multiple of
+ * that, at least as many pixels as the glass shows on this display
+ * (resize()): the browser only ever scales the picture down, never blurs
+ * it up, which on a 2x display it otherwise does by half again.
  *
  * Scenes are the monitor's input select. "text" is the serial terminal.
  * "tiles" and "apple" are the video card's modes, which are not emulated
@@ -35,7 +39,7 @@ const CH = 16;
 const FIRST = 0x20;
 const GLYPHS = 0x7f - FIRST;
 const BLINK_MS = 530;
-const SCALE = 2; // backing pixels per VGA pixel
+const MAX_SCALE = 4;
 
 export class Crt {
   private readonly ctx: CanvasRenderingContext2D;
@@ -50,18 +54,18 @@ export class Crt {
   private scrolls = -1;
   private readonly demo: boolean;
   private readonly blinks: boolean;
+  /** Canvas pixels per VGA pixel. */
+  private k = 0;
 
   constructor(
-    canvas: HTMLCanvasElement,
+    private readonly canvas: HTMLCanvasElement,
     private readonly terminal: Terminal,
     options: { demo?: boolean; reducedMotion?: boolean } = {},
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("no 2D canvas");
     this.ctx = ctx;
-    canvas.width = W * SCALE;
-    canvas.height = H * SCALE;
-    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+    this.resize(W, 1);
     this.demo = options.demo ?? false;
     this.blinks = !options.reducedMotion;
   }
@@ -80,6 +84,27 @@ export class Crt {
   setPowered(on: boolean): void {
     if (on !== this.powered) this.full = true;
     this.powered = on;
+  }
+
+  /**
+   * The canvas is shown `cssWidth` CSS pixels wide at `dpr` device pixels
+   * each: hold enough pixels for that, a whole multiple of VGA's.
+   */
+  resize(cssWidth: number, dpr: number): void {
+    const k = Math.min(MAX_SCALE, Math.max(1, Math.ceil((cssWidth * dpr) / W - 0.05)));
+    if (k === this.k) return;
+    this.k = k;
+    this.canvas.width = W * k;
+    this.canvas.height = H * k;
+    this.canvas.dataset.scale = String(k);
+    this.ctx.setTransform(k, 0, 0, k, 0, 0);
+    this.atlas = null;
+    this.full = true;
+  }
+
+  /** Canvas pixels per VGA pixel (for tests). */
+  get scale(): number {
+    return this.k;
   }
 
   /** The fonts arrived: rebuild the glyphs. */
@@ -149,7 +174,7 @@ export class Crt {
     for (let c = 0; c < COLS; ++c) {
       const ch = cells[r * COLS + c];
       if (ch > FIRST && ch < 0x7f)
-        ctx.drawImage(atlas, (ch - FIRST) * CW * SCALE, 0, CW * SCALE, CH * SCALE, c * CW, r * CH, CW, CH);
+        ctx.drawImage(atlas, (ch - FIRST) * CW * this.k, 0, CW * this.k, CH * this.k, c * CW, r * CH, CW, CH);
     }
   }
 
@@ -163,24 +188,33 @@ export class Crt {
 
   private buildAtlas(): HTMLCanvasElement {
     const atlas = document.createElement("canvas");
-    atlas.width = GLYPHS * CW * SCALE;
-    atlas.height = CH * SCALE;
+    atlas.width = GLYPHS * CW * this.k;
+    atlas.height = CH * this.k;
     const g = atlas.getContext("2d")!;
-    g.scale(SCALE, SCALE);
+    g.scale(this.k, this.k);
     const fg = PHOSPHORS[this.phosphor].fg;
     g.font = "20px VT323, 'Courier New', monospace";
     g.textBaseline = "top";
     g.fillStyle = fg;
+    const sx = CW / (g.measureText("M").width || CW); // 1 for VT323; squeezes a fallback font
+    const glyphs = () => {
+      for (let i = 0; i < GLYPHS; ++i) {
+        g.save();
+        g.translate(i * CW, -1);
+        g.scale(sx, 1);
+        g.fillText(String.fromCharCode(FIRST + i), 0, 0);
+        g.restore();
+      }
+    };
+    // The phosphor's halo, soft and faint (shadowBlur is in canvas pixels)...
     g.shadowColor = fg;
-    g.shadowBlur = 4;
-    const sx = CW / (g.measureText("M").width || CW);
-    for (let i = 0; i < GLYPHS; ++i) {
-      g.save();
-      g.translate(i * CW, -1);
-      g.scale(sx, 1);
-      g.fillText(String.fromCharCode(FIRST + i), 0, 0);
-      g.restore();
-    }
+    g.shadowBlur = 2.5 * this.k;
+    g.globalAlpha = 0.55;
+    glyphs();
+    // ...then the beam itself, sharp.
+    g.shadowBlur = 0;
+    g.globalAlpha = 1;
+    glyphs();
     return atlas;
   }
 

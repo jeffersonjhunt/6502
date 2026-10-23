@@ -123,6 +123,11 @@ function start(root: HTMLElement, port: MachinePort): void {
     }
   });
 
+  // Keep the canvas's pixels matched to the glass on this display; a move
+  // to another display, or zooming, fires resize too.
+  const fit = () => crt.resize(canvas.getBoundingClientRect().width, devicePixelRatio || 1);
+  new ResizeObserver(fit).observe(canvas);
+  window.addEventListener("resize", fit);
   void document.fonts.load("20px VT323").then(() => crt.fontsReady());
   port
     .connect()

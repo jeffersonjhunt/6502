@@ -61,6 +61,22 @@ test("the whole screen stays inside the glass, typing line included, after it sc
   await page.screenshot({ path: `test-results/scrolled-${test.info().project.name}.png` });
 });
 
+test("the CRT is never scaled up: the canvas has at least the pixels the display shows", async ({ page }) => {
+  await booted(page);
+  for (const width of [900, 1440, 1920]) {
+    await page.setViewportSize({ width, height: Math.round(width * 0.6) });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const c = document.querySelector<HTMLCanvasElement>("[data-testid=crt] canvas")!;
+          return c.width / (c.getBoundingClientRect().width * devicePixelRatio);
+        }),
+      )
+      .toBeGreaterThanOrEqual(0.95);
+  }
+  await page.screenshot({ path: `test-results/sharp-${test.info().project.name}.png` });
+});
+
 test("phosphor sets the glow and is remembered", async ({ page }) => {
   await booted(page);
   await page.getByRole("button", { name: "P1" }).click();

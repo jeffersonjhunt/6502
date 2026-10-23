@@ -10,7 +10,7 @@ export default defineConfig({
   // Chromium, and WebKit for Safari on the Mac: they lay out the CRT differently enough to matter.
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 860 } } },
-    { name: "webkit", use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 800 } } },
+    { name: "webkit", use: { ...devices["Desktop Safari"], viewport: { width: 1440, height: 800 }, deviceScaleFactor: 2 } }, // a Retina Mac
   ],
   webServer: { command: "npx vite preview --host 127.0.0.1 --port 4173 --strictPort", url: "http://127.0.0.1:4173/", reuseExistingServer: false },
 });
