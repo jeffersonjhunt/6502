@@ -25,7 +25,7 @@ endfunction()
 function(emu_add_test name)
     emu_add_test_exe(${name})
     add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-    set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE 77)
+    set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120) # a hang fails, not stalls
 endfunction()
 
 emu_add_test(test_cpu_smoke)
@@ -57,6 +57,7 @@ emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 emu_add_test(test_backplane)
 emu_add_test(test_bios)
+emu_add_test(test_dma)
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 

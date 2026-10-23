@@ -58,8 +58,10 @@ Three gaps:
   cycle only on PHI2 edges where RDY is high. The emulator does the same
   for wait states (a slow card, or the north bridge's WAIT registers): the
   access is logged once, on its last cycle, so the held cycles show as a
-  gap in the cycle numbers. Halting with RDY (the console's single-step) is
-  not modelled; the debugger halts between instructions.
+  gap in the cycle numbers. DMA is the same: the controller holds the CPU
+  with RDY and uses the bus, and its cycles show as a gap before the CPU
+  cycle it held. Halting with RDY (the console's single-step) is not
+  modelled; the debugger halts between instructions.
 
 ## Module IDs and A16..A19
 

@@ -12,6 +12,7 @@
 
 #include "acia6551.h"
 #include "backplane_bridge.h"
+#include "dma_controller.h"
 #include "apple1.h"
 #include "console.h"
 #include "hd44780.h"
@@ -111,6 +112,21 @@ TEST(physical_addresses_above_64k)
     REQUIRE(m != nullptr);
     CHECK_EQ(m->bus().mappings()[0].first, 0x10000u);
     CHECK(starts_with(error_of("ram 0-100000\n"), "test.machine:1: ram: want a range"));
+}
+
+TEST(dma_line_and_drq_option)
+{
+    std::string error;
+    auto m = build("ram 0000-7FFF\ndma C400-C47F name=dma irq\npia6821 D000-D003 drq=2\n", error);
+    REQUIRE(m != nullptr);
+    CHECK(m->find_as<DmaController>("dma") != nullptr);
+    CHECK_EQ(m->bus().mappings()[0].drq, NO_DRQ);
+    CHECK_EQ(m->bus().mappings()[2].drq, 2);
+    CHECK_EQ(m->bus().read(0xC47F), 0x81);
+    CHECK(starts_with(error_of("dma C400-C47F\ndma C500-C57F\n"), "test.machine:2: dma: only one"));
+    CHECK(starts_with(error_of("ram 0-F drq=4\n"), "test.machine:1: drq:"));
+    CHECK(starts_with(error_of("ram 0-F drq=\n"), "test.machine:1: drq:"));
+    CHECK(starts_with(error_of("dma C400-C47F x.bin\n"), "test.machine:1: dma takes no image"));
 }
 
 TEST(wait_option)

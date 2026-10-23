@@ -61,7 +61,7 @@ it enables CA1 interrupts.
 
 `machines/backplane.machine` is the real machine's design (`../hw/design.md`)
 as far as it is modelled: the W65C02S and north bridge, 1 MB of RAM in four
-modules, and the 512 KB flash, with a 6551 at $C300 standing in for the
+modules, the 512 KB flash and the DMA controller, with a 6551 at $C300 standing in for the
 serial card. At reset the north bridge maps the top 16 KB of the flash at
 $C000-$FFFF, read-only, so the ROM image is the whole flash with the BIOS in
 its last 16 KB ($C800-$FFFF is visible; $C000-$C7FF is the I/O hole):

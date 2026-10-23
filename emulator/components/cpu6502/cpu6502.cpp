@@ -118,7 +118,9 @@ namespace ooe::emu
         {
             ++cycles_; // WAI/STP: the clock runs, the bus is idle
             bus_.idle();
-            return 1;
+            const unsigned held = bus_.wait_states(); // a bus master may use the idle bus
+            cycles_ += held;
+            return 1 + held;
         }
         const uint64_t start = cycles_;
         sync_ = true;

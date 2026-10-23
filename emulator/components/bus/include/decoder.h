@@ -4,7 +4,7 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.8.0
+ * @version 0.9.0
  * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
@@ -49,6 +49,13 @@
  * the north bridge is told to slow down, lasts 1 + N cycles. The device is
  * accessed once, at the end, when the CPU takes the data, so a timed device
  * has been ticked through the held cycles by then.
+ *
+ * Bus masters (DMA): before every CPU cycle, and every idle one, the
+ * decoder offers the bus to its BusMaster, as the board's DMA controller
+ * pulls RDY low before any cycle and then takes the bus with BE. The cycles
+ * it uses (dma_*()) are real bus cycles, devices and timers included, and
+ * the CPU's pending access is held for them like a wait state. They reach
+ * memory space only, by physical address, never through the windows.
  */
 
 #include <cstdint>
@@ -61,6 +68,7 @@ namespace ooe::emu
 {
     constexpr uint32_t PHYSICAL_SPACE = 1u << 20; ///< A0-A19: the size of each space
     constexpr uint8_t NO_MODULE = 0xFF;
+    constexpr uint8_t NO_DRQ = 0xFF;
 
     enum class Space : uint8_t
     {
@@ -115,6 +123,22 @@ namespace ooe::emu
         uint8_t module{NO_MODULE};  ///< backplane module ID 0x0-0xF, or NO_MODULE
         bool irq_wired{false};      ///< device's IRQ output reaches the CPU
         uint8_t wait{0};            ///< wait states the card holds RDY for on every access
+        uint8_t drq{NO_DRQ};        ///< DMA channel the device's DRQ line goes to, or NO_DRQ
+    };
+
+    class Decoder;
+
+    /// Something that can take the bus from the CPU (RDY low, then BE low).
+    class BusMaster
+    {
+    public:
+        virtual ~BusMaster() = default;
+        /// The CPU is about to make a bus cycle: use the bus first if wanted,
+        /// through the decoder's dma_*() cycles.
+        /// @return the cycles used, which the CPU waits out
+        virtual unsigned take_bus(Decoder &bus) = 0;
+        /// /RESET.
+        virtual void reset() {}
     };
 
     /// What the backplane carried on the most recent CPU access, for the bus trace.
@@ -134,6 +158,8 @@ namespace ooe::emu
 
         /// Replace the north bridge (nullptr = default). Not owned.
         void set_bridge(NorthBridge *bridge);
+        /// The bus master offered every cycle (nullptr = none). Not owned.
+        void set_master(BusMaster *master) { master_ = master; }
 
         /// Add a mapping; later mappings win where ranges overlap.
         /// @return false if the range is empty, crosses or lies outside a space, or has no device
@@ -143,12 +169,22 @@ namespace ooe::emu
         void write(uint16_t addr, uint8_t data) override;
         void poke(uint16_t addr, uint8_t data) override;
         uint8_t peek(uint16_t addr) const override;
-        void idle() override { ++now_; }
+        void idle() override;
         void vector_pull(bool active) override { vector_pull_ = active; }
         unsigned wait_states() const override { return last_wait_; }
 
-        /// /RESET. So far only the north bridge listens.
-        void reset() { bridge_->reset(); }
+        /// /RESET: the north bridge and the bus master listen.
+        void reset();
+
+        /// A bus master's cycle with nothing transferred (taking the bus).
+        unsigned dma_idle();
+        /// A bus master's memory read at a physical address. @return cycles used
+        unsigned dma_read(uint32_t physical, uint8_t &data);
+        /// A bus master's memory write at a physical address. @return cycles used
+        unsigned dma_write(uint32_t physical, uint8_t data);
+        /// One fly-by cycle between `card` and memory at `physical`:
+        /// `to_memory` card -> memory, else memory -> card. @return cycles used
+        unsigned dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc);
 
         /// Where a CPU address goes now (with VPB as given).
         Route route(uint16_t addr, bool vector_pull = false) const { return bridge_->route(addr, vector_pull); }
@@ -185,10 +221,16 @@ namespace ooe::emu
         const Mapping *find(uint32_t where) const;
         /// Bring a timed mapping's device up to the cycle before this access.
         void catch_up(const Mapping &m);
-        /// Route a CPU access, count its cycles (wait states too) and record it in last_.
+        /// Route a CPU access, count its cycles (wait states and any bus
+        /// master's cycles too) and record it in last_.
         const Mapping *access(uint16_t addr, Route &r);
+        /// Count one bus master cycle to memory; @return the mapping (or nullptr) and its cycles in `cycles`.
+        const Mapping *dma_cycle(uint32_t physical, unsigned &cycles);
+        /// Bring the slot of `device` up to the cycle before now.
+        void catch_up_device(const Device &device);
 
         NorthBridge *bridge_;
+        BusMaster *master_{nullptr};
         bool vector_pull_{false};
         unsigned last_wait_{0};
         Access last_;
