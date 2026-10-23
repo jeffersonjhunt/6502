@@ -10,8 +10,17 @@
   --muted: #9a9590;
   --accent: #cc5500;
   --amber: #ffb000;
+}
+/* On body, not :root: a custom property resolves its var()s where it is
+   declared, so --scr has to sit where body.dbg-closed changes --dbg, or the
+   CRT never grows when the debugger closes. */
+body {
+  --dbg: clamp(340px, 30vw, 460px);
+  /* room for the debugger beside, and the rack below */
+  --scr: max(280px, min(calc(100vw - var(--dbg) - 120px), 760px, calc((100vh - 400px) * 4 / 3)));
+}
+body.dbg-closed {
   --dbg: 0px;
-  --scr: max(280px, min(calc(100vw - 120px), 760px, calc((100vh - 400px) * 4 / 3))); /* room for the rack below */
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
