@@ -1,7 +1,7 @@
 /**
  * The OO-1 workbench page (mockup C): the toolbar, the CRT monitor with the
- * serial terminal on it, the front panel in its rack and, in a later step,
- * the debugger. Everything talks to the machine through one MachinePort.
+ * serial terminal on it, the front panel in its rack, and the debugger
+ * pane beside them. Everything talks to the machine through one MachinePort.
  *
  * Query options: ?demo=scenes shows the mockup's pictures on the Tiles and
  * Apple II scenes instead of NO SIGNAL.
@@ -17,6 +17,7 @@ import "@fontsource/vt323/400.css";
 import "./styles/base.css";
 import "./styles/crt.css";
 import "./styles/panel.css";
+import "./styles/debugger.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
 import { keyBytes, pasteBytes } from "./crt/keyboard";
@@ -24,6 +25,7 @@ import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { WasmPort } from "./port/wasm-port";
 import { h, prefs, segmented } from "./ui/dom";
+import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
 import { toolbar } from "./ui/toolbar";
@@ -52,7 +54,9 @@ function start(root: HTMLElement, port: MachinePort): void {
   const crt = new Crt(canvas, terminal, { demo: params.get("demo") === "scenes", reducedMotion });
   let caps = true;
 
+  const dbg = debuggerPane(port);
   const bar = toolbar(port, panel, {
+    trailing: [dbg.toggle],
     phosphor: (p) => {
       crt.setPhosphor(p);
       document.documentElement.style.setProperty("--halo", PHOSPHORS[p].halo);
@@ -113,7 +117,7 @@ function start(root: HTMLElement, port: MachinePort): void {
 
   const rack = frontPanel(panel);
   const bench = h("section", { class: "bench" }, monitor, rack.element, mirror);
-  root.append(bar.element, h("main", { class: "wrap" }, bench));
+  root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
 
   let clockLabel = "7.16 MHz";
   let mirrored = "";
@@ -123,6 +127,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     crt.setPowered(f.powered);
     bar.update(f);
     rack.update(f);
+    dbg.update(f);
     if (f.hz > 0) clockLabel = `${(f.hz / 1e6).toFixed(2)} MHz`;
     status.textContent = statusText(f, clockLabel);
     const now = performance.now();
@@ -145,6 +150,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     .then(() => {
       panel.applyAll();
       port.setLights(true);
+      dbg.connect();
       glass.focus();
     })
     .catch((err: unknown) => {

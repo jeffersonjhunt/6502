@@ -2,7 +2,7 @@
 
 The OO-1 (One Off One) in the browser, after mockup C ("Workbench"): a CRT
 with the serial terminal on it, the PDP-11 style front panel in its rack,
-and, in a later step, a debugger. It talks to the machine only through `MachinePort`
+and a debugger beside them. It talks to the machine only through `MachinePort`
 (`../../../docs/MACHINE_PORT.md`); today that is the emulator compiled to
 WebAssembly, running in the page.
 
@@ -31,6 +31,15 @@ ADRS, EXAM (again to step on); set bits 7-0 and DEP to store. The keyswitch
 turns OFF (power off), RUN, LOCK (the panel is ignored). The switch register
 is remembered between visits.
 
+The debugger (toggle it from the toolbar; it remembers) has three working
+tabs. CPU: registers and flags, live. Bus trace: the latest cycles, as the
+bus spy writes them, recorded only while the tab is open. Breakpoints: add a
+label or address (`ECHO`, `C951`, or five hex digits for a physical one),
+arm one (the Console card has one comparator), choose fetch, read or write
+and halt or /NMI; a hit shows the cycle the card latched. Breakpoints are
+the card's BPADDR/BPCTRL, written over its SPI registers, so they work the
+same way on the real board.
+
 `?demo=scenes` shows the mockup's pictures on the Tiles and Apple II scenes
 instead of NO SIGNAL (the video card is not emulated yet).
 
@@ -53,6 +62,7 @@ src/main.ts           the page: toolbar, monitor, wiring
 src/port/             MachinePort, WasmPort (the WebAssembly core), FakePort (for tests)
 src/crt/              Terminal (80x30 text model), Crt (canvas renderer), keyboard, demo scenes
 src/panel/            the front panel: lamps, switches, keyswitch, readouts
+src/debugger/         the pane: registers, bus trace, breakpoints (the card's comparator)
 src/ui/               toolbar, panel state (every physical control, one path to the port), DOM helpers
 src/styles/           mockup C's tokens, toolbar and monitor
 e2e/                  Playwright

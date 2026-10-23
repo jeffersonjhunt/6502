@@ -12,6 +12,8 @@ import type { PanelState } from "./panel-state";
 export interface ToolbarHooks {
   phosphor: (p: Phosphor) => void;
   caps: (on: boolean) => void;
+  /** Buttons for the right-hand end (the debugger's toggle). */
+  trailing?: HTMLElement[];
 }
 
 const CLOCK_TEXT = ["1.02", "1.79", "3.58", "7.16 MHz"];
@@ -96,6 +98,7 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
     caps,
     h("span", { class: "lbl" }, "Phosphor"),
     phosphors.element,
+    ...(hooks.trailing?.length ? [h("span", { class: "sep" }), ...hooks.trailing] : []),
   );
 
   // Run, Halt and Step are the panel's own controls: dead unless the keyswitch is at RUN.

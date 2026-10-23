@@ -281,6 +281,13 @@ and in WebKit at 2x (a Retina Mac); repeated parallel runs found the canvas
 left blank after a resize when the next frame was slow, so `Crt.resize`
 redraws at once.
 
+**Debugger (2026-10-23), WebUI step 6.** Mockup C's collapsible pane:
+registers and flags, the bus trace (the trace ring, only while its tab is
+open), and breakpoints on the Console card's comparator: a saved list, one
+armed, labels resolved through the windows to physical addresses, fetch,
+read or write, halt or /NMI, and the latched cycle on a hit. Re-armed after
+a power cycle, since the card forgets. Memory and Devices tabs are placeholders.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,
