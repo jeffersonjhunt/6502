@@ -19,7 +19,7 @@ function(emu_add_test_exe name)
     emu_house_flags(${name})
     target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
     target_compile_definitions(${name} PRIVATE EMU_FIXTURE_DIR="${EMU_FIXTURE_DIR}")
-    target_link_libraries(${name} PRIVATE emu_debug emu_cpu6502 emu_machine emu_devices emu_bus emu_log)
+    target_link_libraries(${name} PRIVATE emu_session emu_debug emu_cpu6502 emu_machine emu_devices emu_bus emu_log)
 endfunction()
 
 function(emu_add_test name)
@@ -59,6 +59,7 @@ emu_add_test(test_backplane)
 emu_add_test(test_bios)
 emu_add_test(test_dma)
 emu_add_test(test_console_card)
+emu_add_test(test_session)
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 
@@ -139,6 +140,9 @@ else()
 endif()
 
 target_compile_definitions(test_bios PRIVATE
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_session PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
