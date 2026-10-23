@@ -30,12 +30,12 @@ instead of NO SIGNAL (the video card is not emulated yet).
 
 ```sh
 npm test         # vitest: terminal, keyboard, panel state, and WasmPort against the real module in node
-npm run e2e      # build, then Playwright in headless Chromium against `vite preview`
+npm run e2e      # build, then Playwright in headless Chromium and WebKit (Safari's engine) against `vite preview`
 ```
 
 Both need the core; without it they fail rather than skip. Playwright needs
-its Chromium (`npx playwright install chromium`, and on a bare Linux box
-`npx playwright install-deps chromium`). Screenshots of the boot, the
+its browsers (`npx playwright install chromium webkit`, and on a bare Linux
+box `npx playwright install-deps chromium webkit`). Screenshots of the boot, the
 monitor and NO SIGNAL land in `test-results/`.
 
 ## Layout
