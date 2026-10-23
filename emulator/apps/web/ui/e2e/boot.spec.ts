@@ -11,7 +11,7 @@ async function booted(page: Page) {
 test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {
   await booted(page);
   await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.1\n\\$/);
-  await page.screenshot({ path: "test-results/boot.png" });
+  await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 
 test("typing reaches the monitor: CAPS on, Enter is CR", async ({ page }) => {
@@ -20,7 +20,7 @@ test("typing reaches the monitor: CAPS on, Enter is CR", async ({ page }) => {
   await page.keyboard.type("c680.c684");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("crt-text")).toContainText("C680: 00 01 02 7F 7F");
-  await page.screenshot({ path: "test-results/monitor.png" });
+  await page.screenshot({ path: `test-results/monitor-${test.info().project.name}.png` });
 });
 
 test("Halt holds the CPU, Run lets it go: a key typed while halted echoes after", async ({ page }) => {
@@ -36,6 +36,29 @@ test("Halt holds the CPU, Run lets it go: a key typed while halted echoes after"
   await page.getByRole("button", { name: "Run" }).click();
   await expect(page.getByTestId("status")).toContainText("RUNNING");
   await expect(page.getByTestId("crt-text")).toContainText("Q");
+});
+
+test("the whole screen stays inside the glass, typing line included, after it scrolls", async ({ page }) => {
+  await booted(page);
+  await page.getByTestId("crt").click();
+  for (let i = 0; i < 16; i++) {
+    await page.keyboard.type("C680.C684");
+    await page.keyboard.press("Enter");
+  }
+  await page.keyboard.type("LAST");
+  await expect(page.getByTestId("crt-text")).toContainText("LAST");
+  const box = await page.evaluate(() => {
+    const glass = document.querySelector("[data-testid=crt]")!.getBoundingClientRect();
+    const screen = document.querySelector("[data-testid=crt] canvas")!.getBoundingClientRect();
+    return { glass: [glass.left, glass.top, glass.right, glass.bottom], screen: [screen.left, screen.top, screen.right, screen.bottom] };
+  });
+  expect(box.screen[0]).toBeGreaterThanOrEqual(box.glass[0]);
+  expect(box.screen[1]).toBeGreaterThanOrEqual(box.glass[1]);
+  expect(box.screen[2]).toBeLessThanOrEqual(box.glass[2]);
+  expect(box.screen[3]).toBeLessThanOrEqual(box.glass[3]);
+  const [l, t, r, b] = box.screen;
+  expect((r - l) / (b - t)).toBeCloseTo(4 / 3, 2); // not stretched
+  await page.screenshot({ path: `test-results/scrolled-${test.info().project.name}.png` });
 });
 
 test("phosphor sets the glow and is remembered", async ({ page }) => {
@@ -62,7 +85,7 @@ test("Tiles and Apple II show NO SIGNAL until the video card exists", async ({ p
     return n;
   });
   await expect.poll(lit).toBeGreaterThan(50); // drawn on the next animation frame
-  await page.screenshot({ path: "test-results/no-signal.png" });
+  await page.screenshot({ path: `test-results/no-signal-${test.info().project.name}.png` });
   await page.getByRole("button", { name: "Text" }).click();
   await expect(page.getByTestId("crt-text")).toContainText(GREETING);
 });
