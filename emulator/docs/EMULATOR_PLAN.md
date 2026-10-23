@@ -72,6 +72,7 @@ emulator/
     devices/      ram, rom, pia6821, via6522, acia6551, console
     machine/      machine descriptions: apple1, eater, ooe-backplane
     debug/        debugger, disassembler, ld65 symbols, bus trace (Phase 5)
+    session/      a machine run a budget of cycles at a time: the WebUI's core
     emu_log/      TAG-scoped logger (replaces easylogging++)
   apps/emu/       terminal frontend: raw tty, throttle, debugger
   test/host/      harness.h, test_*.cpp, fixtures/
@@ -234,6 +235,16 @@ after the instruction, and S BUS CYCLE steps an instruction. EXAM and DEP
 use `Decoder::peek_physical`/`write_physical`, which count no cycle, since
 emulated time stands still while halted. Not modelled: Apple mode (AMODE,
 hidden registers) and BE in LSTAT and the lights.
+
+**Session (2026-10-23), WebUI step 2.** `components/session` is the run
+loop without a terminal, clock or debugger: `Session::run(budget)` runs the
+machine for a budget of cycles (the browser's is one frame, ~119,318 at
+7.16 MHz) and stops early at a Console card halt or STP. Serial goes
+through a key queue and `take_output()`; the panel is the card's inputs
+and its SPI registers; lamps, registers, peeks and a trace ring are read
+without bus cycles. `power_cycle()` rebuilds the machine from its files
+and keeps the panel's switches. The caller paces it, so it is the same code
+on the host and, next, in WebAssembly.
 
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
