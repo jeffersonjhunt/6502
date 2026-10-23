@@ -51,6 +51,7 @@
 #include <cstdint>
 
 #include "bus.h"
+#include "bus_cycle.h"
 
 namespace ooe::emu
 {
@@ -62,24 +63,6 @@ namespace ooe::emu
         uint8_t x{0};
         uint8_t y{0};
         uint8_t p{0x20}; ///< U always reads 1; B is never set in the live register
-    };
-
-    /// One bus cycle, as a logic analyser on the CPU's pins would see it.
-    struct BusCycle
-    {
-        uint64_t cycle{0};        ///< Cpu6502::cycles() including this access
-        uint16_t addr{0};
-        uint8_t data{0};
-        bool write{false};        ///< RWB low
-        bool sync{false};         ///< SYNC high: an opcode fetch
-        bool vector_pull{false};  ///< VPB low: a reset/interrupt vector read (a W65C02S pin; reported for NMOS too)
-    };
-
-    class CycleObserver
-    {
-    public:
-        virtual ~CycleObserver() = default;
-        virtual void on_cycle(const BusCycle &c) = 0;
     };
 
     class Cpu6502

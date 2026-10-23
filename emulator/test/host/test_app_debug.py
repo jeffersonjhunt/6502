@@ -7,7 +7,8 @@ What only the app can show: Ctrl-] stops a running machine into the
 debugger and `r` resumes it; --halt, --break and --symbols work from the
 command line; Ctrl-C at the debugger's prompt (a blocked read, not the raw
 keyboard) still quits and restores the terminal; --load puts HEX and raw
-images on the bus, ROM included; STP stops into the debugger; --trace
+images on the bus, ROM included; STP stops into the debugger; so does a
+Console card's HALT set by the program, and `r` releases it; --trace
 writes a well-formed trace that tools/trace_diff.py agrees with, and
 disagrees with once a byte is changed. Bad --load and --break arguments
 stop the app before the terminal goes raw.
@@ -149,6 +150,26 @@ def main():
         os.write(s.master, b"q\n")
         rc, lost = s.close()
         check(failures, "stp session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
+
+        # A Console card's HALT, set by the program, stops into the debugger
+        # as "panel"; r releases the card, so the program runs on.
+        panel = os.path.join(cwd, "panel.machine")
+        with open(machine) as f, open(panel, "w") as out_f:
+            out_f.write(f.read() + "\nconsole  C700-C77F  name=console\n")
+        write_hex(hexfile, [(0x0300, [0xA9, 0x01, 0x8D, 0x06, 0xC7,  # LDA #$01; STA CTRL (HALT)
+                                      0x4C, 0x05, 0x03])])         # JMP *
+        s = Session(binary, ["--machine", panel, "--load", hexfile, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        s.send(b"x pc=0300\n")
+        out = s.send(b"r\n")
+        check(failures, "panel: CTRL HALT did not stop", b"halted (panel)" in out and b"PC=0305" in out, text(out))
+        out = s.send(b"r\n", until=b"running")
+        out += s.send(b"\x1d")
+        check(failures, "panel: r did not release the card",
+              b"halted (Ctrl-])" in out and b"halted (panel)" not in out, text(out))
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "panel session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
 
         # --trace: header, reset sequence, one line per cycle; trace_diff agrees
         # with itself and finds a changed byte.

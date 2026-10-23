@@ -213,6 +213,20 @@ namespace ooe::emu
             m->device->poke(r.where - m->first, data);
     }
 
+    uint8_t Decoder::peek_physical(uint32_t physical) const
+    {
+        const uint32_t where = bus_address(Space::Memory, physical);
+        const Mapping *m = find(where);
+        return m ? m->device->peek(where - m->first) : UNMAPPED_READ;
+    }
+
+    void Decoder::write_physical(uint32_t physical, uint8_t data)
+    {
+        const uint32_t where = bus_address(Space::Memory, physical);
+        if (const Mapping *m = find(where))
+            m->device->write(where - m->first, data);
+    }
+
     uint8_t Decoder::peek(uint16_t addr) const
     {
         const Route r = route(addr);

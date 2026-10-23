@@ -14,6 +14,7 @@
 
 #include "acia6551.h"
 #include "backplane_bridge.h"
+#include "console_card.h"
 #include "dma_controller.h"
 #include "emu_log.h"
 #include "hd44780.h"
@@ -191,9 +192,9 @@ namespace ooe::emu
                 continue;
             }
             if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
-                type != "dma")
+                type != "dma" && type != "console")
                 return fail("unknown type '" + type +
-                            "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, hd44780 or ps2kbd)");
+                            "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, hd44780 or ps2kbd)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
@@ -294,6 +295,15 @@ namespace ooe::emu
                     dev = std::make_unique<Via6522>();
                 else if (type == "acia6551")
                     dev = std::make_unique<Acia6551>();
+                else if (type == "console")
+                {
+                    if (m->console_card_)
+                        return fail("console: only one per machine");
+                    auto card = std::make_unique<ConsoleCard>();
+                    card->attach(&m->bus_);
+                    m->console_card_ = card.get();
+                    dev = std::move(card);
+                }
                 else
                 {
                     if (m->master_)

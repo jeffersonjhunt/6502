@@ -218,6 +218,23 @@ flag; a mapping's `drq=0-3` wires one to a channel. No modelled card uses
 DMA yet (the SD card will); test_dma uses a test card. Not modelled: an
 NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only).
 
+**The Console card (2026-10-23), WebUI step 1.** `ConsoleCard` (module E,
+$C700; machine line `console 700-77F space=io irq`) has the decided
+registers: SWR, PANEL, KEYS, DISPLAY, CTRL, the BPADDR/BPCTRL breakpoint,
+STATUS, the latched cycle (LADDR, LDATA, LSTAT), PADDR, IEN and ISR. It is
+a `CycleObserver` (now in `bus/include/bus_cycle.h`, with `CycleTee` so the
+trace and the card both watch), so the comparator and the latch see every
+cycle's physical address, and the lights accumulate per-line duty when
+asked. The panel's switches and keys are methods, not registers. The run
+loop asks `may_run()` before each instruction and takes the card's /NMI and
+START after it; the app turns a card halt into the debugger's "panel"
+stop, and `r` releases the card. Two deviations, both from stepping whole
+instructions: a read or write breakpoint latches its exact cycle but stops
+after the instruction, and S BUS CYCLE steps an instruction. EXAM and DEP
+use `Decoder::peek_physical`/`write_physical`, which count no cycle, since
+emulated time stands still while halted. Not modelled: Apple mode (AMODE,
+hidden registers) and BE in LSTAT and the lights.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

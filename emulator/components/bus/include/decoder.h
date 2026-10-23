@@ -4,8 +4,8 @@
  * @file decoder.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief Address decoding: CPU address -> north bridge -> device.
- * @version 0.9.0
- * @date 2026-10-22
+ * @version 0.10.0
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -56,6 +56,9 @@
  * it uses (dma_*()) are real bus cycles, devices and timers included, and
  * the CPU's pending access is held for them like a wait state. They reach
  * memory space only, by physical address, never through the windows.
+ *
+ * peek_physical() and write_physical() are the same reach with no cycle
+ * counted, for the Console card while the CPU is halted.
  */
 
 #include <cstdint>
@@ -185,6 +188,12 @@ namespace ooe::emu
         /// One fly-by cycle between `card` and memory at `physical`:
         /// `to_memory` card -> memory, else memory -> card. @return cycles used
         unsigned dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc);
+        /// Memory at a physical address with no bus cycle counted: the Console
+        /// card's EXAM, while the CPU is halted and emulated time stands still.
+        uint8_t peek_physical(uint32_t physical) const;
+        /// A store at a physical address with no bus cycle counted (DEP). A
+        /// device write, as the card's cycle is: ROM ignores it.
+        void write_physical(uint32_t physical, uint8_t data);
 
         /// Where a CPU address goes now (with VPB as given).
         Route route(uint16_t addr, bool vector_pull = false) const { return bridge_->route(addr, vector_pull); }

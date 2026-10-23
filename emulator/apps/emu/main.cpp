@@ -159,6 +159,7 @@ namespace
         const auto model = machine.cpu() == "w65c02s" ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
         Cpu6502 cpu(machine.bus(), model);
 
+        CycleTee observers; // the trace and the Console card both watch the bus
         std::FILE *trace_file = nullptr;
         std::unique_ptr<BusTrace> trace;
         if (settings.trace_path)
@@ -171,8 +172,12 @@ namespace
             }
             std::setvbuf(trace_file, nullptr, _IOFBF, 1 << 20);
             trace = std::make_unique<BusTrace>(trace_file, machine.bus(), "cpu " + machine.cpu());
-            cpu.set_observer(trace.get());
+            observers.add(trace.get());
         }
+        if (ConsoleCard *card = machine.console_card())
+            observers.add(card);
+        if (!observers.empty())
+            cpu.set_observer(&observers);
 
         Debugger debugger(cpu, machine.bus(), symbols, trace.get());
         int rc = 0;
@@ -191,7 +196,7 @@ namespace
         if (rc == 0)
         {
             Terminal terminal(console);
-            Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz);
+            Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
 
             on_signal(SIGINT);
             on_signal(SIGTERM);
@@ -205,11 +210,9 @@ namespace
             EMU_LOGI(TAG, "exiting");
         }
 
+        cpu.set_observer(nullptr);
         if (trace_file)
-        {
-            cpu.set_observer(nullptr);
             std::fclose(trace_file);
-        }
         return rc;
     }
 } // namespace
