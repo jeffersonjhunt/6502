@@ -1,0 +1,88 @@
+/* Workbench tokens and the toolbar (mockup C). The page is dark by design:
+   a bench under a lamp, the CRT the brightest thing on it. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0a09;
+  --bg2: #141311;
+  --bg3: #1c1a17;
+  --line: #2c2924;
+  --text: #e8e4e0;
+  --muted: #9a9590;
+  --accent: #cc5500;
+  --amber: #ffb000;
+  --dbg: 0px;
+  --scr: max(280px, min(calc(100vw - 120px), 760px, calc((100vh - 220px) * 4 / 3)));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: pre;
+}
+
+.tb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.tb img { height: 18px; display: block; }
+.tb .ttl { font: 800 15px/1 Inter, sans-serif; letter-spacing: .02em; margin-right: 8px; }
+.tb .ttl span { color: var(--muted); font-weight: 500; margin-left: 6px; }
+.tbtn {
+  font: 600 11.5px/1 Inter, sans-serif;
+  color: var(--text);
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.tbtn:hover:not(:disabled) { border-color: var(--amber); }
+.tbtn.on { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.tbtn:disabled { color: #5d5852; cursor: not-allowed; }
+.tbtn:focus-visible, .seg button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.sep { width: 1px; height: 22px; background: var(--line); }
+.grow { flex: 1; }
+.lbl { font: 600 10px/1 Inter, sans-serif; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.seg button {
+  font: 600 11px/1 Inter, sans-serif;
+  color: var(--muted);
+  background: var(--bg3);
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 7px 9px;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { color: var(--text); background: #26231f; }
+.seg .sw8 { width: 9px; height: 9px; border-radius: 2px; }
+
+.wrap { display: grid; grid-template-columns: 1fr var(--dbg); min-height: calc(100vh - 48px); }
+.bench { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px 16px 20px; min-width: 0; }
+
+@media (max-width: 600px) {
+  .tb { padding: 8px 12px; gap: 8px; }
+  .tb .lbl { display: none; }
+}

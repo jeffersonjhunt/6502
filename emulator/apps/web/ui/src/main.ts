@@ -1,0 +1,138 @@
+/**
+ * The OO-1 workbench page (mockup C): the toolbar, the CRT monitor with the
+ * serial terminal on it and, in later steps, the front panel and the
+ * debugger. Everything talks to the machine through one MachinePort.
+ *
+ * Query options: ?demo=scenes shows the mockup's pictures on the Tiles and
+ * Apple II scenes instead of NO SIGNAL.
+ */
+
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/800.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/600.css";
+import "@fontsource/vt323/400.css";
+import "./styles/base.css";
+import "./styles/crt.css";
+
+import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
+import { keyBytes, pasteBytes } from "./crt/keyboard";
+import { Terminal } from "./crt/terminal";
+import type { FrameState, MachinePort } from "./port/machine-port";
+import { WasmPort } from "./port/wasm-port";
+import { h, segmented } from "./ui/dom";
+import { PanelState } from "./ui/panel-state";
+import { toolbar } from "./ui/toolbar";
+
+function statusText(f: FrameState, clockLabel: string): string {
+  if (!f.powered) return "POWER OFF";
+  if (f.stopped) return "STOPPED (STP)";
+  if (f.halted) return "HALTED";
+  return `RUNNING · ${clockLabel}`;
+}
+
+function start(root: HTMLElement, port: MachinePort): void {
+  const params = new URLSearchParams(location.search);
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const terminal = new Terminal();
+  const panel = new PanelState(port);
+
+  const canvas = h("canvas", { "aria-hidden": "true" });
+  const crt = new Crt(canvas, terminal, { demo: params.get("demo") === "scenes", reducedMotion });
+  let caps = true;
+
+  const bar = toolbar(port, panel, {
+    phosphor: (p) => {
+      crt.setPhosphor(p);
+      document.documentElement.style.setProperty("--halo", PHOSPHORS[p].halo);
+    },
+    caps: (on) => (caps = on),
+  });
+
+  // The screen as text, for screen readers and tests.
+  const mirror = h("pre", { class: "sr-only", role: "log", "aria-live": "polite", "data-testid": "crt-text" });
+  const glass = h(
+    "div",
+    {
+      class: "mon-glass",
+      tabindex: "0",
+      role: "application",
+      "aria-label": "Terminal: click and type",
+      "data-testid": "crt",
+      "data-scene": "text",
+    },
+    canvas,
+    h("div", { class: "halo" }),
+    h("div", { class: "scan" }),
+    h("div", { class: "vign" }),
+    h("div", { class: "gl" }),
+  );
+  glass.addEventListener("keydown", (e) => {
+    const bytes = keyBytes(e, caps);
+    if (!bytes) return;
+    e.preventDefault();
+    port.sendSerial(bytes);
+  });
+  glass.addEventListener("paste", (e) => {
+    e.preventDefault();
+    port.sendSerial(pasteBytes(e.clipboardData?.getData("text") ?? "", caps));
+  });
+
+  const scenes = segmented<Scene>(
+    "Scene",
+    [
+      { value: "text", text: "Text", title: "The serial terminal" },
+      { value: "tiles", text: "Tiles", title: "Native video: tiles and sprites" },
+      { value: "apple", text: "Apple II", title: "Apple II video modes" },
+    ],
+    "text",
+    (s) => {
+      crt.setScene(s);
+      glass.dataset.scene = s;
+      if (s === "text") glass.focus();
+    },
+  );
+  const status = h("span", { "data-testid": "status" }, "STARTING");
+  const monitor = h(
+    "div",
+    { class: "mon" },
+    glass,
+    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · VGA 640×480 · ", status), scenes.element),
+  );
+
+  const bench = h("section", { class: "bench" }, monitor, mirror);
+  root.append(bar.element, h("main", { class: "wrap" }, bench));
+
+  let clockLabel = "7.16 MHz";
+  let mirrored = "";
+  let lastMirror = 0;
+  port.onFrame((f) => {
+    if (f.serialOut.length) terminal.write(f.serialOut);
+    crt.setPowered(f.powered);
+    bar.update(f);
+    if (f.hz > 0) clockLabel = `${(f.hz / 1e6).toFixed(2)} MHz`;
+    status.textContent = statusText(f, clockLabel);
+    const now = performance.now();
+    crt.draw(now);
+    if (now - lastMirror > 250) {
+      lastMirror = now;
+      const text = terminal.text();
+      if (text !== mirrored) mirror.textContent = mirrored = text;
+    }
+  });
+
+  void document.fonts.load("20px VT323").then(() => crt.fontsReady());
+  port
+    .connect()
+    .then(() => glass.focus())
+    .catch((err: unknown) => {
+      status.textContent = "NO MACHINE";
+      terminal.write(new TextEncoder().encode(`\r${String(err instanceof Error ? err.message : err)}\r`));
+      crt.draw(performance.now());
+      mirror.textContent = terminal.text();
+    });
+}
+
+start(document.getElementById("app")!, new WasmPort());
