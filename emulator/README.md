@@ -82,6 +82,21 @@ A machine is one line per chip; see `machines/apple1.machine` and
 description are relative to the working directory, and a ROM on the command
 line replaces the first one.
 
+## WebAssembly
+
+The same core, as an ES module for the WebUI (`apps/web`): `Session`
+(`components/session`) behind embind, with the backplane machine and BIOS
+built in. It builds in a pinned emsdk image, so only Docker is needed:
+
+```
+tools/web_build.sh          # build/web/apps/web/oo1.mjs + oo1.wasm, then ctest --preset web
+```
+
+`ctest --preset web` runs the host suites that need no fixtures or Python
+under node, plus `apps/web/test/boot.mjs`, which boots the BIOS through the
+module as the browser will. It runs ~21 MHz under node: real time at 7.16 MHz
+takes about a third of a core.
+
 ## Layout
 
 ```
@@ -92,15 +107,18 @@ components/
   devices/     Ram, Rom, Pia6821, Via6522, Acia6551 (W65C51N), BackplaneBridge; Hd44780 and Ps2Keyboard on a 6522's pins
   machine/     Machine (built from a description), Console, apple1::Io, load_image, load_hex
   debug/       Debugger, disassembler, ld65 symbols, BusTrace
+  session/     Session: a machine run a budget of cycles at a time (the WebUI's core)
 machines/      plain-text machine descriptions (apple1.machine is the built-in default; eater*.machine; backplane.machine)
 apps/emu/      terminal keyboard/display, run loop, main
+apps/web/      the WebAssembly module (embind over Session), its Dockerfile and node test
+cmake/         roms.cmake: the backplane BIOS, assembled with cc65
 test/host/     tests (test/host/README.md)
-tools/         fetch_fixtures.py, trace_diff.py
+tools/         fetch_fixtures.py, trace_diff.py, web_build.sh
 docs/          plan, results, BUS_TRACE.md
 ```
 
-Presets: `dev` (Debug, ASan/UBSan, tests), `release`, and `trace` (`dev` with
-`EMU_LOGV` compiled in).
+Presets: `dev` (Debug, ASan/UBSan, tests), `release`, `trace` (`dev` with
+`EMU_LOGV` compiled in), and `web` (Emscripten; run through `tools/web_build.sh`).
 
 ## The core
 
