@@ -1,0 +1,27 @@
+{
+  "name": "oo1-webui",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The OO-1 (One Off One) emulator in the browser: CRT terminal, front panel, debugger",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "core": "node scripts/copy-core.mjs",
+    "dev": "npm run core && vite",
+    "build": "npm run core && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run core && vitest run",
+    "e2e": "npm run build && playwright test"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/vt323": "5.3.0",
+    "@playwright/test": "1.64.1",
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

@@ -92,6 +92,10 @@ built in. It builds in a pinned emsdk image, so only Docker is needed:
 tools/web_build.sh          # build/web/apps/web/oo1.mjs + oo1.wasm, then ctest --preset web
 ```
 
+The WebUI that runs it (CRT terminal now; front panel and debugger next)
+is `apps/web/ui`: `npm install && npm run dev` there, after the build above.
+It reaches the machine only through `MachinePort` (`docs/MACHINE_PORT.md`).
+
 `ctest --preset web` runs the host suites that need no fixtures or Python
 under node, plus `apps/web/test/boot.mjs`, which boots the BIOS through the
 module as the browser will. It runs ~21 MHz under node: real time at 7.16 MHz
@@ -111,6 +115,7 @@ components/
 machines/      plain-text machine descriptions (apple1.machine is the built-in default; eater*.machine; backplane.machine)
 apps/emu/      terminal keyboard/display, run loop, main
 apps/web/      the WebAssembly module (embind over Session), its Dockerfile and node test
+apps/web/ui/   the WebUI: TypeScript + Vite, CRT terminal, MachinePort (its own README)
 cmake/         roms.cmake: the backplane BIOS, assembled with cc65
 test/host/     tests (test/host/README.md)
 tools/         fetch_fixtures.py, trace_diff.py, web_build.sh

@@ -259,6 +259,18 @@ sign conversions, which found three spots GCC let through. Speed under node:
 ~21 MHz, so 7.16 MHz real time is about a third of a core on the main
 thread, as the plan hoped.
 
+**WebUI shell (2026-10-23), WebUI step 4.** `apps/web/ui`: TypeScript and
+Vite, no framework. The page talks to the machine through `MachinePort`
+(docs/MACHINE_PORT.md) only; `WasmPort` runs the module on the main thread,
+a budget of clock × frame time per animation frame, capped at 100 ms.
+Mockup C's toolbar (Run/Halt/Step through the panel's HALT switch and CONT,
+clock, phosphor, CAPS) and monitor: an 80x30 terminal drawn from a glyph
+atlas on a 640x480 canvas held at 2x, with Tiles and Apple II showing NO
+SIGNAL until the video card exists. Tested by vitest (WasmPort against the
+real module in node, with a hand-stepped clock) and Playwright (boot to the
+monitor in Chromium, typing, halt and run, phosphor, NO SIGNAL, a missing
+core).
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,
