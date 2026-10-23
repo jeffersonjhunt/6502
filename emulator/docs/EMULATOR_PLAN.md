@@ -202,6 +202,22 @@ between cycles; the DMA step decides how to steal cycles. Wait states that
 vary per access (an RP2350 card holding RDY until ready) get a device hook
 when the first such card is modelled.
 
+**The DMA controller (2026-10-22), step 3.** `DmaController` (module 8,
+$C400; machine line `dma 400-47F space=io irq`) has the decided registers
+and modes: single, demand, block and memory to memory, DEC, HOLD, AUTO,
+BURST, fixed priority, ABORT, terminal count with TC to the card, STATUS
+and the interrupt; CONTROL resets to $70 (DMA off). Cycles are stolen
+exactly where the board steals them: the decoder offers the bus to its
+`BusMaster` before every CPU cycle and every WAI/STP idle cycle, the
+controller runs real bus cycles (one to take the bus, one per fly-by byte,
+two per memory-to-memory byte), and the CPU's pending access is held for
+them through the wait-state path, so the CPU clock, `--clock`, timers and
+the trace gap all agree. DMA reaches memory space by physical address.
+Cards raise `Device::drq()` and answer `dack_read`/`dack_write` with the TC
+flag; a mapping's `drq=0-3` wires one to a channel. No modelled card uses
+DMA yet (the SD card will); test_dma uses a test card. Not modelled: an
+NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only).
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

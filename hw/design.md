@@ -329,7 +329,7 @@ The machine works without it, so it can come later.
 | Offset | Name | Access | Purpose |
 |---|---|---|---|
 | `$40` | STATUS | read; write 1 to clear | bits 0–3: terminal count reached on channel 0–3, also the interrupt source. Bits 4–7: DRQ0–DRQ3 asserted now (read-only) |
-| `$41` | CONTROL | read/write | bit 0: master enable. Bits 4–6 BURST: demand and block transfers give the CPU one cycle back every 2^BURST bytes; 7 (the reset value) means no limit, and the OS chooses |
+| `$41` | CONTROL | read/write | bit 0: master enable. Bits 4–6 BURST: demand and block transfers give the CPU one cycle back every 2^BURST bytes; 7 means no limit, and the OS chooses. Resets to `$70`: no limit, and DMA off until software sets the master enable |
 | `$42` | ABORT | write | bit n stops channel n at once; ADDR and COUNT keep the values they stopped at |
 | `$7F` | ID | read | card type and revision |
 
@@ -338,7 +338,7 @@ The machine works without it, so it can come later.
 - **Fly-by.** While /DACKn is low the card needs no address decode. For card to memory it drives its data register
   onto the bus; for memory to card it latches the byte at the falling edge of PHI2. The north bridge decodes the
   controller's address to a RAM module as usual.
-- **Taking the bus** costs about one cycle before the first byte (RDY low, then BE low).
+- **Taking the bus** costs one cycle before the first byte (RDY low, then BE low), each time the controller takes it.
 - **Single mode** gives the CPU one cycle back after every byte, as the 8237 does.
 - **Memory to memory** reads each byte into a latch and then writes it: two cycles per byte, 64 KB in about 18 ms at
   7.16 MHz. Any channel can do it with its own DEST, so storage on channel 0 is never tied up (the 8237 pairs

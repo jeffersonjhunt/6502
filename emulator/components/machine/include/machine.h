@@ -17,15 +17,17 @@
  *   rom      8000-FFFF               ibasic.rom
  *   pia6821  D010-D013  name=terminal
  *
- * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [irq] [image]`.
+ * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq=N] [irq] [image]`.
  * Addresses are hex, optionally with a `$`, within the space: memory (the
  * default, A0-A19), flash (ROM A then ROM B) or io (the I/O hole, 000-7FF,
  * whose mappings take the module ID of their 128-byte block unless
  * `module=` says otherwise). `#` starts a comment. `module=` tags the
  * mapping with a backplane module ID; `wait=` (0-15) holds RDY for that
- * many extra cycles on every access, as a slow card does; `irq` wires the
- * device's IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
- * acia6551. A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * many extra cycles on every access, as a slow card does; `drq=` (0-3)
+ * wires the device's DMA request to that channel; `irq` wires the device's
+ * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
+ * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
+ * takes the bus from the CPU). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board).
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
@@ -106,6 +108,7 @@ namespace ooe::emu
         std::vector<std::unique_ptr<Device>> devices_;
         std::unordered_map<std::string, Device *> named_;
         NorthBridge *bridge_{nullptr}; ///< the description's own, owned through devices_
+        BusMaster *master_{nullptr};   ///< its DMA controller, owned through devices_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

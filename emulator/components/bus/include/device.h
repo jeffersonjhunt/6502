@@ -4,8 +4,8 @@
  * @file device.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A chip on the bus: addressed by offset within its mapping.
- * @version 0.6.0
- * @date 2026-10-19
+ * @version 0.7.0
+ * @date 2026-10-22
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -20,6 +20,11 @@
  * before each IRQ check, so a timer interrupt is seen after the very
  * instruction it fired in. Untimed devices (RAM, ROM) are never ticked,
  * which keeps that free for them.
+ *
+ * DMA: a card raises drq() on the channel its mapping names, and the DMA
+ * controller answers with /DACK cycles, fly-by: the card drives or takes
+ * the data while the controller addresses memory, so a /DACK access has no
+ * offset. `tc` marks the transfer's last byte (the TC line).
  */
 
 #include <cstddef>
@@ -52,5 +57,20 @@ namespace ooe::emu
         /// `cycles` CPU cycles have passed since the last tick. Only called
         /// on timed devices.
         virtual void tick(uint64_t cycles) { (void)cycles; }
+
+        /// DRQ: the card wants a DMA transfer.
+        virtual bool drq() const { return false; }
+        /// /DACK, card to memory: the byte the card puts on the bus.
+        virtual uint8_t dack_read(bool tc)
+        {
+            (void)tc;
+            return 0xFF;
+        }
+        /// /DACK, memory to card: the byte on the bus.
+        virtual void dack_write(uint8_t data, bool tc)
+        {
+            (void)data;
+            (void)tc;
+        }
     };
 } // namespace ooe::emu

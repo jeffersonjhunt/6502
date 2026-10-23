@@ -29,6 +29,86 @@ namespace ooe::emu
 
     void Decoder::set_bridge(NorthBridge *bridge) { bridge_ = bridge ? bridge : &default_bridge_; }
 
+    void Decoder::reset()
+    {
+        bridge_->reset();
+        if (master_)
+            master_->reset();
+    }
+
+    void Decoder::idle()
+    {
+        last_wait_ = master_ ? master_->take_bus(*this) : 0;
+        ++now_;
+    }
+
+    void Decoder::catch_up_device(const Device &device)
+    {
+        for (size_t i = 0; i < slots_.size(); ++i)
+        {
+            Slot &s = slots_[i];
+            if (s.device != &device)
+                continue;
+            if (s.timed && s.synced + 1 < now_)
+            {
+                s.device->tick(now_ - 1 - s.synced);
+                s.synced = now_ - 1;
+            }
+            return;
+        }
+    }
+
+    const Mapping *Decoder::dma_cycle(uint32_t physical, unsigned &cycles)
+    {
+        const Mapping *m = find(bus_address(Space::Memory, physical));
+        cycles = 1;
+        if (m)
+            cycles += m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        now_ += cycles;
+        if (m)
+            catch_up(*m);
+        return m;
+    }
+
+    unsigned Decoder::dma_idle()
+    {
+        ++now_;
+        return 1;
+    }
+
+    unsigned Decoder::dma_read(uint32_t physical, uint8_t &data)
+    {
+        unsigned cycles = 0;
+        const Mapping *m = dma_cycle(physical, cycles);
+        data = m ? m->device->read(bus_address(Space::Memory, physical) - m->first) : UNMAPPED_READ;
+        return cycles;
+    }
+
+    unsigned Decoder::dma_write(uint32_t physical, uint8_t data)
+    {
+        unsigned cycles = 0;
+        if (const Mapping *m = dma_cycle(physical, cycles))
+            m->device->write(bus_address(Space::Memory, physical) - m->first, data);
+        return cycles;
+    }
+
+    unsigned Decoder::dma_fly_by(uint32_t physical, Device &card, bool to_memory, bool tc)
+    {
+        unsigned cycles = 0;
+        const Mapping *m = dma_cycle(physical, cycles);
+        catch_up_device(card);
+        const uint32_t offset = bus_address(Space::Memory, physical) - (m ? m->first : 0);
+        if (to_memory)
+        {
+            const uint8_t v = card.dack_read(tc);
+            if (m)
+                m->device->write(offset, v);
+        }
+        else
+            card.dack_write(m ? m->device->read(offset) : UNMAPPED_READ, tc);
+        return cycles;
+    }
+
     bool Decoder::map(const Mapping &m)
     {
         if (!m.device || m.first > m.last || m.last >= SPACE_COUNT * PHYSICAL_SPACE ||
@@ -88,12 +168,14 @@ namespace ooe::emu
 
     const Mapping *Decoder::access(uint16_t addr, Route &r)
     {
+        const unsigned stolen = master_ ? master_->take_bus(*this) : 0; // RDY: the master goes first
         r = route(addr, vector_pull_);
         const Mapping *m = find(r.where);
-        last_wait_ = 0;
+        unsigned waits = 0;
         if (m)
-            last_wait_ = m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
-        now_ += 1 + last_wait_; // the access completes on the last held cycle
+            waits = m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
+        now_ += 1 + waits; // the access completes on the last held cycle
+        last_wait_ = stolen + waits;
         last_ = Access{lines(r.where), m ? m->module : NO_MODULE};
         return m;
     }
