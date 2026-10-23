@@ -4,8 +4,8 @@
  * @file emulator.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The run loop: keyboard, a slice of cycles, devices, IRQ, screen.
- * @version 0.5.0
- * @date 2026-10-19
+ * @version 0.6.0
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -21,11 +21,18 @@
  * (checked before every instruction), Ctrl-], STP, or --halt. While halted
  * the loop reads debugger commands instead of running, and on resuming the
  * clock starts afresh, so time spent at the prompt is not raced back.
+ *
+ * A Console card (console_card.h) can stop it too: before each instruction
+ * the loop asks it (may_run()), so its HALT, a halting breakpoint or a
+ * program setting CTRL's HALT lands at the debugger as "panel", and
+ * resuming the debugger releases the card. Its /NMI requests are taken
+ * after the instruction that made them, and START resets the machine.
  */
 
 #include <csignal>
 #include <cstdint>
 
+#include "console_card.h"
 #include "cpu6502.h"
 #include "debugger.h"
 #include "decoder.h"
@@ -40,9 +47,10 @@ namespace ooe::emu
         static constexpr unsigned SLICE_CYCLES = 64;
 
         /// Borrows everything; main() owns it and outlives run().
-        /// `clock_hz` of 0 runs flat out.
-        Emulator(Cpu6502 &cpu, Decoder &bus, Terminal &terminal, Debugger &debugger, uint32_t clock_hz)
-            : cpu_(cpu), bus_(bus), terminal_(terminal), debugger_(debugger), clock_hz_(clock_hz)
+        /// `clock_hz` of 0 runs flat out. `card` may be nullptr (no console line).
+        Emulator(Cpu6502 &cpu, Decoder &bus, Terminal &terminal, Debugger &debugger, uint32_t clock_hz,
+                 ConsoleCard *card = nullptr)
+            : cpu_(cpu), bus_(bus), terminal_(terminal), debugger_(debugger), clock_hz_(clock_hz), card_(card)
         {
         }
 
@@ -61,6 +69,7 @@ namespace ooe::emu
         Terminal &terminal_;
         Debugger &debugger_;
         uint32_t clock_hz_;
+        ConsoleCard *card_;
         bool stop_reported_{false};
     };
 } // namespace ooe::emu

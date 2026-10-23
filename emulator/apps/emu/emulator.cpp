@@ -39,6 +39,8 @@ namespace ooe::emu
                 terminal_.update_screen();
                 if (!debugger_.halted())
                 {
+                    if (card_)
+                        card_->resume(); // if the card stopped it, it lets go too
                     start = clock::now(); // the clock restarts on resume
                     start_cycles = cpu_.cycles();
                 }
@@ -85,12 +87,24 @@ namespace ooe::emu
                 terminal_.write("\n" + debugger_.halt("break"));
                 break;
             }
+            if (card_ && !card_->may_run(cpu_.regs().pc))
+            {
+                terminal_.write("\n" + debugger_.halt("panel"));
+                break;
+            }
             ran += cpu_.step();
             // Level-sensitive, sampled after every instruction (devices keep
             // time in lockstep, so a timer fires at the right instruction).
             // irq() does nothing while I is set, except end a WAI.
             if (bus_.irq())
                 cpu_.irq();
+            if (card_ && card_->take_nmi())
+                cpu_.nmi();
+            if (card_ && card_->take_start())
+            {
+                bus_.reset(); // START: the hard reset, through the north bridge
+                cpu_.reset();
+            }
         }
 
         // STP stops the clock for good; say so once rather than idle silently.

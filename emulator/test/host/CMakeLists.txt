@@ -58,6 +58,7 @@ emu_add_test(test_debugger)
 emu_add_test(test_backplane)
 emu_add_test(test_bios)
 emu_add_test(test_dma)
+emu_add_test(test_console_card)
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 

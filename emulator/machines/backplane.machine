@@ -16,6 +16,11 @@
 # transfers; CONTROL starts at $70, so software turns it on. No card that
 # requests DMA is modelled yet; memory-to-memory copies work.
 #
+# The Console card (module E, $C700) is the front panel: switches, lights,
+# HALT/CONT and a breakpoint on any bus cycle. Without a panel attached (the
+# terminal emulator has none) programs can still use its breakpoint and
+# HALT, which stop at the debugger.
+#
 # The terminal is a STAND-IN: a 6551 in the serial card's I/O block
 # ($C300, module 6) until the TL16C552A is modelled.
 #
@@ -32,3 +37,4 @@ rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
 
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
 dma       400-47F  space=io  name=dma  irq
+console   700-77F  space=io  name=console  irq     # the front panel

@@ -4,8 +4,8 @@
  * @file machine.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A machine built from a plain-text description.
- * @version 0.7.0
- * @date 2026-10-22
+ * @version 0.8.0
+ * @date 2026-10-23
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -27,7 +27,8 @@
  * wires the device's DMA request to that channel; `irq` wires the device's
  * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
- * takes the bus from the CPU). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * takes the bus from the CPU), console (the Console card, console_card.h;
+ * at most one; the run loop wires it to the CPU, see console_card()). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board).
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
@@ -50,6 +51,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "console_card.h"
 #include "decoder.h"
 #include "device.h"
 #include "peripheral.h"
@@ -82,6 +84,9 @@ namespace ooe::emu
 
         Decoder &bus() { return bus_; }
         const std::string &cpu() const { return cpu_; }
+        /// The `console` line's card, or nullptr. The run loop makes it the
+        /// CPU's observer and asks it before each instruction (may_run()).
+        ConsoleCard *console_card() const { return console_card_; }
 
         /// The device given `name=` in the description, or nullptr.
         Device *find(const std::string &name) const;
@@ -109,6 +114,7 @@ namespace ooe::emu
         std::unordered_map<std::string, Device *> named_;
         NorthBridge *bridge_{nullptr}; ///< the description's own, owned through devices_
         BusMaster *master_{nullptr};   ///< its DMA controller, owned through devices_
+        ConsoleCard *console_card_{nullptr}; ///< owned through devices_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

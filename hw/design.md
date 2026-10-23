@@ -894,6 +894,11 @@ lights. It works without the ESP32. This supersedes the switch list in [console.
 - **HALT/ENABLE, CONT,** and **START**: the hard reset, through the north bridge like the reset button, so it
   clears Apple mode.
 - **S INST / S BUS CYCLE:** whether CONT, while halted, runs one instruction or one bus cycle.
+- **Keyswitch, OFF / RUN / LOCK** (decided): OFF is power off; RUN is normal; LOCK does what CTRL bit 2 does, so the
+  panel's keys and switches are ignored.
+- **CONT after a halt** (decided): CONT clears a breakpoint halt and CTRL's HALT. With the HALT switch at ENABLE the
+  CPU runs on; with it at HALT, CONT runs one step and stays halted. The STATUS hit bit stays set until a 1 is
+  written to it, so software or the ESP32 can see that a breakpoint fired.
 
 **Lights:**
 
@@ -931,7 +936,7 @@ lights. It works without the ESP32. This supersedes the switch list in [console.
 | `$05` | DISPLAY | write | a byte shown on the data lights while CTRL bit 3 is set: the PDP-11's display register, for progress or error codes with no screen |
 | `$06` | CTRL | read/write | bit 0 HALT: software asks to halt, like the switch. Bit 2 LOCK: panel keys and switches are ignored. Bit 3: data lights show DISPLAY instead of the bus |
 | `$08–$0A` | BPADDR | read/write | breakpoint: 20-bit physical address |
-| `$0B` | BPCTRL | read/write | bit 0 enable; bit 1 match an opcode fetch (SYNC); bit 2 a read; bit 3 a write; bit 4 action, 0 = halt with RDY, 1 = pull /NMI |
+| `$0B` | BPCTRL | read/write | bit 0 enable; bit 1 match an opcode fetch (SYNC); bit 2 a read that is not a fetch; bit 3 a write; bit 4 action, 0 = halt with RDY, 1 = pull /NMI |
 | `$0C` | STATUS | read | bit 0 halted; bit 1 breakpoint hit (write 1 to clear); bit 2 panel key pressed |
 | `$10–$12` | LADDR | read | address of the cycle where the CPU stopped (halt or breakpoint) |
 | `$13` | LDATA | read | that cycle's data |

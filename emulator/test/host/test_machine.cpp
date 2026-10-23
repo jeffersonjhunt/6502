@@ -12,6 +12,7 @@
 
 #include "acia6551.h"
 #include "backplane_bridge.h"
+#include "console_card.h"
 #include "dma_controller.h"
 #include "apple1.h"
 #include "console.h"
@@ -127,6 +128,19 @@ TEST(dma_line_and_drq_option)
     CHECK(starts_with(error_of("ram 0-F drq=4\n"), "test.machine:1: drq:"));
     CHECK(starts_with(error_of("ram 0-F drq=\n"), "test.machine:1: drq:"));
     CHECK(starts_with(error_of("dma C400-C47F x.bin\n"), "test.machine:1: dma takes no image"));
+}
+
+TEST(console_line)
+{
+    std::string error;
+    auto m = build("ram 0000-7FFF\nconsole C700-C77F name=console irq\n", error);
+    REQUIRE(m != nullptr);
+    CHECK(m->console_card() != nullptr);
+    CHECK(m->console_card() == m->find_as<ConsoleCard>("console"));
+    CHECK_EQ(m->bus().read(0xC77F), 0xE1);
+    CHECK(build("ram 0000-7FFF\n", error)->console_card() == nullptr);
+    CHECK(starts_with(error_of("console C700-C77F\nconsole C780-C7FF\n"), "test.machine:2: console: only one"));
+    CHECK(starts_with(error_of("console C700-C77F x.bin\n"), "test.machine:1: console takes no image"));
 }
 
 TEST(wait_option)
