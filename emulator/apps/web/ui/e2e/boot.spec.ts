@@ -112,8 +112,14 @@ test("Step cycle is disabled: the emulator steps whole instructions", async ({ p
 });
 
 test("a missing core says so instead of a blank screen", async ({ page }) => {
-  await page.route("**/core/oo1.mjs", (route) => route.fulfill({ status: 404, body: "" }));
+  await page.route("**/core/oo1.mjs?*", (route) => route.fulfill({ status: 404, body: "" })); // ?v=<version>
   await page.goto("./");
   await expect(page.getByTestId("status")).toHaveText("NO MACHINE");
   await expect(page.getByTestId("crt-text")).not.toBeEmpty();
+});
+
+test("a missing wasm says so too", async ({ page }) => {
+  await page.route("**/core/oo1.wasm?*", (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("./");
+  await expect(page.getByTestId("status")).toHaveText("NO MACHINE");
 });

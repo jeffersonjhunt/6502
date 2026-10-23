@@ -14,9 +14,19 @@ export interface ToolbarHooks {
   caps: (on: boolean) => void;
   /** Buttons for the right-hand end (the debugger's toggle). */
   trailing?: HTMLElement[];
+  /** Where the badge links back to (the project page), if anywhere. */
+  home?: string;
 }
 
 const CLOCK_TEXT = ["1.02", "1.79", "3.58", "7.16 MHz"];
+
+/** The mark and the name; a link home when the page has one. */
+function badge(home: string | undefined): HTMLElement[] {
+  const img = h("img", { src: mark, alt: "One Off Endeavors" });
+  const ttl = h("div", { class: "ttl" }, "OO-1", h("span", {}, "One Off One"));
+  if (!home) return [img, ttl];
+  return [h("a", { class: "home", href: home, title: "The OO-1 project page", "data-testid": "tb-home" }, h("span", { class: "back" }, "←"), img, ttl)];
+}
 
 export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHooks) {
   const run = h("button", { class: "tbtn", type: "button", title: "Run: HALT to ENABLE, then CONT", "data-testid": "tb-run" }, "▶ Run");
@@ -85,8 +95,7 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
   const element = h(
     "header",
     { class: "tb" },
-    h("img", { src: mark, alt: "One Off Endeavors" }),
-    h("div", { class: "ttl" }, "OO-1", h("span", {}, "One Off One")),
+    ...badge(hooks.home),
     run,
     halt,
     stepInst,

@@ -90,10 +90,19 @@ const browserScheduler: Scheduler = {
   cancel: (handle) => cancelAnimationFrame(handle),
 };
 
+/** The core's URL: next to the page, with the build's hash of it so a cache never serves an old one. */
+export function coreUrl(file: string, base: string, version: string | undefined): string {
+  const url = new URL(`core/${file}`, base);
+  if (version) url.searchParams.set("v", version);
+  return url.href;
+}
+
 async function loadFromPage(): Promise<CoreModule> {
-  const url = new URL("core/oo1.mjs", document.baseURI).href;
-  const mod = (await import(/* @vite-ignore */ url)) as { default: () => Promise<CoreModule> };
-  return mod.default();
+  const version = import.meta.env.VITE_CORE_VERSION as string | undefined;
+  const at = (file: string) => coreUrl(file, document.baseURI, version);
+  type Factory = (options: { locateFile: (file: string) => string }) => Promise<CoreModule>;
+  const mod = (await import(/* @vite-ignore */ at("oo1.mjs"))) as { default: Factory };
+  return mod.default({ locateFile: at }); // oo1.wasm too, not just the script
 }
 
 /** Latin-1: one char per byte, as the module's strings are. */
