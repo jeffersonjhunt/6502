@@ -2,6 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <script>
+      // Every asset is relative to the page's directory: served as .../emulator (no slash), it
+      // would look for them one level up. Go to .../emulator/ before anything loads.
+      if (!/\/$|\.html?$/.test(location.pathname)) location.replace(location.pathname + "/" + location.search + location.hash);
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OO-1 Workbench</title>
     <meta name="description" content="The OO-1 (One Off One), a homebrew W65C02S computer, emulated in the browser: CRT terminal, front panel and debugger" />

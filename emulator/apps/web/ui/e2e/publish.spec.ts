@@ -39,3 +39,17 @@ test.describe("on a touch screen", () => {
     await expect(note).toHaveCount(0);
   });
 });
+
+test("served without the trailing slash, it goes to the slash and boots", async ({ page }) => {
+  // vite preview serves dist/ at /; /index.html is the page by another name, so stand in for
+  // a directory URL with a route that answers /emulator with the page itself.
+  await page.route("**/emulator", async (route) => route.fulfill({ response: await page.request.get("./") }));
+  await page.route("**/emulator/**", async (route) => {
+    const url = new URL(route.request().url());
+    url.pathname = url.pathname.replace("/emulator/", "/");
+    route.fulfill({ response: await page.request.get(url.href) });
+  });
+  await page.goto("/emulator?demo=scenes");
+  await expect(page).toHaveURL(/\/emulator\/\?demo=scenes$/);
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+});
