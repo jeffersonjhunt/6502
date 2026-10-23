@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { FrameState } from "./machine-port";
-import { MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
+import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
 const GREETING = "\rBACKPLANE BIOS 0.1\r\\\r";
@@ -57,6 +57,17 @@ async function open() {
   };
   return { port, clock, step, until, output: () => out, clear: () => (out = "") };
 }
+
+describe("coreUrl", () => {
+  test("next to the page, with the build's version", () => {
+    expect(coreUrl("oo1.wasm", "https://x.test/projects/oo-1/emulator/", "abc123")).toBe(
+      "https://x.test/projects/oo-1/emulator/core/oo1.wasm?v=abc123",
+    );
+  });
+  test("no version: no query", () => {
+    expect(coreUrl("oo1.mjs", "http://127.0.0.1:8000/index.html", undefined)).toBe("http://127.0.0.1:8000/core/oo1.mjs");
+  });
+});
 
 describe("WasmPort", () => {
   test("boots in frame budgets: clock x frame time", async () => {

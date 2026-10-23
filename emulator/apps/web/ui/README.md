@@ -40,6 +40,23 @@ and halt or /NMI; a hit shows the cycle the card latched. Breakpoints are
 the card's BPADDR/BPCTRL, written over its SPI registers, so they work the
 same way on the real board.
 
+## Publish it
+
+The page is published at
+[oneoffendeavors.com/projects/oo-1/emulator/](https://oneoffendeavors.com/projects/oo-1/emulator/);
+the site's `make emulator` builds it from this checkout. To build it for
+somewhere else:
+
+```sh
+VITE_HOME_URL=/projects/oo-1/ npm run build -- --outDir /path/to/site/emulator
+```
+
+`VITE_HOME_URL` makes the badge a link back to that page (unset: no link).
+The core keeps its names, so the page asks for `core/oo1.mjs?v=<hash>` and
+the same for `oo1.wasm`: a new core is a new URL, never an old one from a
+cache. Everything else Vite already names by hash. On a touch screen the page
+says once that the terminal needs a keyboard.
+
 `?demo=scenes` shows the mockup's pictures on the Tiles and Apple II scenes
 instead of NO SIGNAL (the video card is not emulated yet).
 

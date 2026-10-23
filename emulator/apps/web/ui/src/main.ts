@@ -5,6 +5,8 @@
  *
  * Query options: ?demo=scenes shows the mockup's pictures on the Tiles and
  * Apple II scenes instead of NO SIGNAL.
+ *
+ * Built with VITE_HOME_URL set, the badge links back to that page.
  */
 
 import "@fontsource/inter/400.css";
@@ -37,6 +39,27 @@ function statusText(f: FrameState, clockLabel: string): string {
   return `RUNNING · ${clockLabel}`;
 }
 
+/**
+ * The terminal reads a keyboard; a touch screen brings up none for it. Say
+ * so on a device with no fine pointer, once, rather than look broken.
+ */
+function touchNote(): HTMLElement[] {
+  if (!matchMedia("(pointer: coarse)").matches || matchMedia("(any-pointer: fine)").matches) return [];
+  if (prefs.get("touch-note") === "seen") return [];
+  const ok = h("button", { class: "tbtn", type: "button" }, "OK");
+  const note = h(
+    "p",
+    { class: "touch-note", role: "note", "data-testid": "touch-note" },
+    "The terminal needs a keyboard: on a tablet, connect one. The front panel and the debugger work by touch.",
+    ok,
+  );
+  ok.addEventListener("click", () => {
+    prefs.set("touch-note", "seen");
+    note.remove();
+  });
+  return [note];
+}
+
 function start(root: HTMLElement, port: MachinePort): void {
   const params = new URLSearchParams(location.search);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -62,6 +85,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       document.documentElement.style.setProperty("--halo", PHOSPHORS[p].halo);
     },
     caps: (on) => (caps = on),
+    home: (import.meta.env.VITE_HOME_URL as string | undefined) || undefined,
   });
 
   // The screen as text, for screen readers and tests.
@@ -116,7 +140,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   );
 
   const rack = frontPanel(panel);
-  const bench = h("section", { class: "bench" }, monitor, rack.element, mirror);
+  const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, mirror);
   root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
 
   let clockLabel = "7.16 MHz";
