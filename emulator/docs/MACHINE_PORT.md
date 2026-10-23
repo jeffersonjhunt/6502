@@ -36,7 +36,7 @@ forget. Reads return promises, because over a socket they are round trips;
 `WasmPort` resolves them at once.
 
 State arrives as a `FrameState` about once per animation frame: cycles,
-power, halted, stopped (STP), the measured speed, the serial bytes since the
+power, halted, stopped (STP), the /IRQ line, the measured speed, the serial bytes since the
 last frame, and, only while asked for (`setLights`, `watchRegisters`), lamp
 duty and registers, so a closed debugger costs nothing.
 

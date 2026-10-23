@@ -17,9 +17,9 @@ export interface ToolbarHooks {
 const CLOCK_TEXT = ["1.02", "1.79", "3.58", "7.16 MHz"];
 
 export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHooks) {
-  const run = h("button", { class: "tbtn", type: "button", title: "Run: HALT to ENABLE, then CONT" }, "▶ Run");
-  const halt = h("button", { class: "tbtn", type: "button", title: "Halt: the HALT switch" }, "❚❚ Halt");
-  const stepInst = h("button", { class: "tbtn", type: "button", title: "Step one instruction (S INST, CONT)" }, "Step inst");
+  const run = h("button", { class: "tbtn", type: "button", title: "Run: HALT to ENABLE, then CONT", "data-testid": "tb-run" }, "▶ Run");
+  const halt = h("button", { class: "tbtn", type: "button", title: "Halt: the HALT switch", "data-testid": "tb-halt" }, "❚❚ Halt");
+  const stepInst = h("button", { class: "tbtn", type: "button", title: "Step one instruction (S INST, CONT)", "data-testid": "tb-step" }, "Step inst");
   const stepCycle = h(
     "button",
     {
@@ -97,6 +97,13 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
     h("span", { class: "lbl" }, "Phosphor"),
     phosphors.element,
   );
+
+  // Run, Halt and Step are the panel's own controls: dead unless the keyswitch is at RUN.
+  const live = () => {
+    for (const b of [run, halt, stepInst]) b.disabled = !panel.live;
+  };
+  panel.onChange(live);
+  live();
 
   /** Light Run or Halt to match the machine. */
   const update = (f: FrameState) => {

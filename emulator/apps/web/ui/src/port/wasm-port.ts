@@ -5,7 +5,9 @@
  * clock rate x the time since the last frame, capped at 100 ms so a tab
  * that was in the background does not try to catch up on minutes. At
  * "max" it runs 50,000-cycle slices until 10 ms of the frame are used.
- * Everything else is a direct call into the module.
+ * Everything else is a direct call into the module. Calls that only send
+ * are dropped until connect() has finished (the panel sends its state once
+ * connected); reads before then reject.
  *
  * The scheduler and the module loader are injectable, so tests can step
  * frames by hand against the real module under node.
@@ -44,6 +46,7 @@ export interface CoreMachine {
   cycles(): number;
   halted(): boolean;
   stopped(): boolean;
+  irq(): boolean;
   peek(addr: number): number;
   peekPhysical(addr: number): number;
   physical(addr: number): number;
@@ -194,6 +197,7 @@ export class WasmPort implements MachinePort {
       powered: this.powered,
       halted: this.powered && m.halted(),
       stopped: this.powered && m.stopped(),
+      irq: this.powered && m.irq(),
       hz: this.hz,
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
@@ -231,20 +235,20 @@ export class WasmPort implements MachinePort {
   }
 
   setSwitches(swr: number): void {
-    this.machine.setSwitches(swr);
+    this.m?.setSwitches(swr);
   }
 
   setPanel(panel: { halt: boolean; busCycle: boolean }): void {
-    this.machine.setPanel(panel.halt, panel.busCycle);
+    this.m?.setPanel(panel.halt, panel.busCycle);
   }
 
   setLock(locked: boolean): void {
-    this.machine.setLock(locked);
+    this.m?.setLock(locked);
   }
 
   press(key: PanelKey): void {
-    if (key === "start") this.machine.start();
-    else this.machine.press(KEY_BITS[key]);
+    if (key === "start") this.m?.start();
+    else this.m?.press(KEY_BITS[key]);
   }
 
   async cardRead(offset: number): Promise<number> {
@@ -252,11 +256,11 @@ export class WasmPort implements MachinePort {
   }
 
   cardWrite(offset: number, value: number): void {
-    this.machine.cardWrite(offset, value);
+    this.m?.cardWrite(offset, value);
   }
 
   sendSerial(bytes: Uint8Array): void {
-    this.machine.send(bytesToString(bytes));
+    this.m?.send(bytesToString(bytes));
   }
 
   async readMemory(addr: number, length: number, space: "cpu" | "physical"): Promise<Uint8Array> {
@@ -277,7 +281,7 @@ export class WasmPort implements MachinePort {
 
   setLights(on: boolean): void {
     this.lightsOn = on;
-    this.machine.setLights(on);
+    this.m?.setLights(on);
   }
 
   watchRegisters(on: boolean): void {
@@ -285,7 +289,7 @@ export class WasmPort implements MachinePort {
   }
 
   setTrace(on: boolean, depth = 4096): void {
-    this.machine.setTrace(on, depth);
+    this.m?.setTrace(on, depth);
   }
 
   async readTrace(max: number): Promise<TraceRow[]> {

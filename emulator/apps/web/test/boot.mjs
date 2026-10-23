@@ -97,6 +97,15 @@ check("breakpoint: STATUS halted + hit", (m.cardRead(0x0c) & 0x03) === 0x03, Str
 m.cardWrite(0x0b, 0x00);
 m.press(8);
 
+// The IRQ line: quiet in the monitor, raised by a panel key with IEN set.
+check("irq: quiet", !m.irq());
+m.cardWrite(0x18, 0x01); // IEN
+m.press(1); // LOAD ADRS
+check("irq: a key press raises it", m.irq());
+m.cardWrite(0x19, 0x01); // ISR: write 1 to clear
+check("irq: cleared", !m.irq());
+m.cardWrite(0x18, 0x00);
+
 // Lamps and the trace ring, as typed arrays.
 m.setLights(true);
 m.run(FRAME);

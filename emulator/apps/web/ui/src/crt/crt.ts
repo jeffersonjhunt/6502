@@ -65,9 +65,9 @@ export class Crt {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("no 2D canvas");
     this.ctx = ctx;
-    this.resize(W, 1);
     this.demo = options.demo ?? false;
     this.blinks = !options.reducedMotion;
+    this.resize(W, 1);
   }
 
   setScene(scene: Scene): void {
@@ -100,6 +100,9 @@ export class Crt {
     this.ctx.setTransform(k, 0, 0, k, 0, 0);
     this.atlas = null;
     this.full = true;
+    // Resizing wiped the canvas: draw again now, not on the next animation
+    // frame, which may be a while coming (a throttled or busy page).
+    this.draw(performance.now());
   }
 
   /** Canvas pixels per VGA pixel (for tests). */

@@ -184,8 +184,11 @@ TEST(the_card_interrupt_ends_a_wai)
     s->send("300: CB DB\r300R\r");                          // WAI; STP
     for (int i = 0; i < 5; ++i)
         CHECK(s->run(FRAME).why == Session::Stop::Budget); // waiting
+    CHECK(!s->irq());
     s->press(ConsoleCard::LOAD_ADRS);                       // a key press: ISR, IRQH bit 6
+    CHECK(s->irq());                                        // the IRQ lamp
     CHECK(s->run(FRAME).why == Session::Stop::Stopped);
+    CHECK(s->irq());                                        // nothing acknowledged it
 }
 
 TEST(lamps_glow_while_running_and_freeze_when_halted)
