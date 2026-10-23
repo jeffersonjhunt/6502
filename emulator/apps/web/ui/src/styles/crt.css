@@ -23,11 +23,11 @@
    positioning sizes it the same in every engine: a percentage height inside
    an aspect-ratio box with padding is laid out differently by WebKit, which
    pushed the bottom rows, where you type, out of sight. */
-.mon-glass canvas { position: absolute; inset: 4%; width: 92%; height: 92%; filter: blur(.4px) brightness(1.1); }
+.mon-glass canvas { position: absolute; inset: 4%; width: 92%; height: 92%; }
 .mon-glass .scan, .mon-glass .vign, .mon-glass .gl, .mon-glass .halo { position: absolute; inset: 0; pointer-events: none; }
-.mon-glass .scan { background: repeating-linear-gradient(180deg, #0000 0 2px, #0000006b 2px 3px); }
+.mon-glass .scan { background: repeating-linear-gradient(180deg, #0000 0 2px, #00000038 2px 3px); }
 .mon-glass .vign { background: radial-gradient(ellipse 80% 75% at 50% 50%, #0000 55%, #000c 100%); }
-.mon-glass .gl { background: radial-gradient(ellipse 55% 35% at 28% 10%, #ffffff17, #0000 70%); }
+.mon-glass .gl { background: radial-gradient(ellipse 55% 35% at 28% 10%, #ffffff10, #0000 70%); }
 .mon-glass .halo { box-shadow: inset 0 0 80px var(--halo, #ffb00014); }
 .mon-foot {
   display: flex;
