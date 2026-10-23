@@ -147,6 +147,19 @@ describe("WasmPort", () => {
     expect(rows[rows.length - 1].cycle).toBeLessThanOrEqual(f.cycles);
   });
 
+  test("the IRQ line, for the panel's lamp", async () => {
+    const m = await open();
+    m.until(GREETING);
+    expect(m.step().irq).toBe(false);
+    m.port.cardWrite(0x18, 0x01); // IEN: interrupt on a panel key
+    m.port.press("load");
+    expect(m.step().irq).toBe(true);
+    m.port.cardWrite(0x19, 0x01); // ISR: write 1 to clear
+    expect(m.step().irq).toBe(false);
+    m.port.setPower(false);
+    expect(m.step().irq).toBe(false); // nothing is lit with the power off
+  });
+
   test("labels, physical addresses and memory reads", async () => {
     const m = await open();
     m.until(GREETING);

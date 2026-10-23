@@ -25,15 +25,15 @@ test("typing reaches the monitor: CAPS on, Enter is CR", async ({ page }) => {
 
 test("Halt holds the CPU, Run lets it go: a key typed while halted echoes after", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "Halt" }).click();
+  await page.getByTestId("tb-halt").click();
   await expect(page.getByTestId("status")).toHaveText(/HALTED/);
   await page.getByTestId("crt").click();
   await page.keyboard.type("Q");
   await page.waitForTimeout(600);
   await expect(page.getByTestId("crt-text")).not.toContainText("Q");
-  await page.getByRole("button", { name: "Step inst" }).click(); // one instruction: still halted
+  await page.getByTestId("tb-step").click(); // one instruction: still halted
   await expect(page.getByTestId("status")).toHaveText(/HALTED/);
-  await page.getByRole("button", { name: "Run" }).click();
+  await page.getByTestId("tb-run").click();
   await expect(page.getByTestId("status")).toContainText("RUNNING");
   await expect(page.getByTestId("crt-text")).toContainText("Q");
 });

@@ -104,6 +104,7 @@ namespace
         double cycles() const { return static_cast<double>(session_->cycles()); }
         bool halted() const { return session_->halted(); }
         bool stopped() const { return session_->stopped(); }
+        bool irq() { return session_->irq(); }
         unsigned peek(unsigned addr) const { return session_->peek(static_cast<uint16_t>(addr)); }
         unsigned peek_physical(unsigned addr) const { return session_->peek_physical(addr); }
         unsigned physical(unsigned addr) const { return session_->physical(static_cast<uint16_t>(addr)); }
@@ -189,6 +190,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("cycles", &WebMachine::cycles)
         .function("halted", &WebMachine::halted)
         .function("stopped", &WebMachine::stopped)
+        .function("irq", &WebMachine::irq)
         .function("peek", &WebMachine::peek)
         .function("peekPhysical", &WebMachine::peek_physical)
         .function("physical", &WebMachine::physical)

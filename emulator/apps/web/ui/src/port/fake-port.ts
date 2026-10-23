@@ -29,6 +29,7 @@ export class FakePort implements MachinePort {
       powered: true,
       halted: false,
       stopped: false,
+      irq: false,
       hz: 0,
       serialOut: new Uint8Array(0),
       lights: null,

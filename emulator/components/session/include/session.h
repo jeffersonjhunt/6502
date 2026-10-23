@@ -125,6 +125,10 @@ namespace ooe::emu
         uint64_t cycles() const { return cpu_->cycles(); }
         bool halted() const { return card_ && card_->halted(); }
         bool stopped() const { return cpu_->state() == Cpu6502::State::Stopped; }
+        /// The /IRQ line: some device with a wired interrupt is asserting it
+        /// (the panel's IRQ lamp). Brings timed devices up to now, which
+        /// changes nothing they would not do anyway.
+        bool irq() { return machine_->bus().irq(); }
         uint8_t peek(uint16_t addr) const { return machine_->bus().peek(addr); }
         uint8_t peek_physical(uint32_t physical) const { return machine_->bus().peek_physical(physical); }
         /// What A0-A19 carry for a CPU address now (the windows as they are).

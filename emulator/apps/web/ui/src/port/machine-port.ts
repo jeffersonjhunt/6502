@@ -71,6 +71,8 @@ export interface FrameState {
   halted: boolean;
   /** The CPU executed STP. */
   stopped: boolean;
+  /** /IRQ is asserted by some device (the panel's IRQ lamp). */
+  irq: boolean;
   /** Emulated speed over the last second or so, in Hz; 0 while not running. */
   hz: number;
   /** What the machine sent on its serial line since the last frame. */

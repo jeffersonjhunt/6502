@@ -271,6 +271,16 @@ real module in node, with a hand-stepped clock) and Playwright (boot to the
 monitor in Chromium, typing, halt and run, phosphor, NO SIGNAL, a missing
 core).
 
+**Front panel (2026-10-23), WebUI step 5.** Mockup C's rack unit, wired:
+address, data and status lamps from the card's duty (incandescent curve,
+flicker while partly lit, frozen and read out when halted), the switch
+register, LOAD ADRS/EXAM/DEP/CONT/START, the HALT and S INST toggles and the
+keyswitch, all through one PanelState so the toolbar and panel move the same
+switches. `Session::irq()` feeds the IRQ lamp. Playwright runs in Chromium
+and in WebKit at 2x (a Retina Mac); repeated parallel runs found the canvas
+left blank after a resize when the next frame was slow, so `Crt.resize`
+redraws at once.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

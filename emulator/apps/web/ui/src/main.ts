@@ -1,7 +1,7 @@
 /**
  * The OO-1 workbench page (mockup C): the toolbar, the CRT monitor with the
- * serial terminal on it and, in later steps, the front panel and the
- * debugger. Everything talks to the machine through one MachinePort.
+ * serial terminal on it, the front panel in its rack and, in a later step,
+ * the debugger. Everything talks to the machine through one MachinePort.
  *
  * Query options: ?demo=scenes shows the mockup's pictures on the Tiles and
  * Apple II scenes instead of NO SIGNAL.
@@ -16,13 +16,15 @@ import "@fontsource/jetbrains-mono/600.css";
 import "@fontsource/vt323/400.css";
 import "./styles/base.css";
 import "./styles/crt.css";
+import "./styles/panel.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
 import { keyBytes, pasteBytes } from "./crt/keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { WasmPort } from "./port/wasm-port";
-import { h, segmented } from "./ui/dom";
+import { h, prefs, segmented } from "./ui/dom";
+import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
 import { toolbar } from "./ui/toolbar";
 
@@ -38,6 +40,13 @@ function start(root: HTMLElement, port: MachinePort): void {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const terminal = new Terminal();
   const panel = new PanelState(port);
+  panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0 }); // the switches stay where they were left
+  let key = panel.switches.key;
+  panel.onChange((sw) => {
+    prefs.set("swr", String(sw.swr));
+    if (key === "off" && sw.key !== "off") terminal.clear(); // power on: a fresh screen
+    key = sw.key;
+  });
 
   const canvas = h("canvas", { "aria-hidden": "true" });
   const crt = new Crt(canvas, terminal, { demo: params.get("demo") === "scenes", reducedMotion });
@@ -102,7 +111,8 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · VGA 640×480 · ", status), scenes.element),
   );
 
-  const bench = h("section", { class: "bench" }, monitor, mirror);
+  const rack = frontPanel(panel);
+  const bench = h("section", { class: "bench" }, monitor, rack.element, mirror);
   root.append(bar.element, h("main", { class: "wrap" }, bench));
 
   let clockLabel = "7.16 MHz";
@@ -112,6 +122,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     if (f.serialOut.length) terminal.write(f.serialOut);
     crt.setPowered(f.powered);
     bar.update(f);
+    rack.update(f);
     if (f.hz > 0) clockLabel = `${(f.hz / 1e6).toFixed(2)} MHz`;
     status.textContent = statusText(f, clockLabel);
     const now = performance.now();
@@ -131,7 +142,11 @@ function start(root: HTMLElement, port: MachinePort): void {
   void document.fonts.load("20px VT323").then(() => crt.fontsReady());
   port
     .connect()
-    .then(() => glass.focus())
+    .then(() => {
+      panel.applyAll();
+      port.setLights(true);
+      glass.focus();
+    })
     .catch((err: unknown) => {
       status.textContent = "NO MACHINE";
       terminal.write(new TextEncoder().encode(`\r${String(err instanceof Error ? err.message : err)}\r`));
