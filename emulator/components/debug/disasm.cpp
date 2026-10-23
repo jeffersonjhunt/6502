@@ -282,7 +282,7 @@ namespace ooe::emu
 
         const std::string name = op.name;
         auto rel = [&](unsigned offset, unsigned next) {
-            const auto target = static_cast<uint16_t>(pc + next + static_cast<int8_t>(offset));
+            const auto target = static_cast<uint16_t>(static_cast<int>(pc + next) + static_cast<int8_t>(offset));
             return address(target, 4, symbols);
         };
         switch (op.mode)

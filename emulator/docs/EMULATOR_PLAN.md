@@ -246,6 +246,19 @@ without bus cycles. `power_cycle()` rebuilds the machine from its files
 and keeps the panel's switches. The caller paces it, so it is the same code
 on the host and, next, in WebAssembly.
 
+**WebAssembly (2026-10-23), WebUI step 3.** `apps/web` is `Session` behind
+embind as an ES module (`oo1.mjs` + `oo1.wasm`, ~770 KB) with
+backplane.machine and the BIOS embedded, built by the `web` preset in a
+pinned image (`emscripten/emsdk:6.0.12` plus cc65 and Ninja,
+`tools/web_build.sh`). The BIOS rules moved to `cmake/roms.cmake` so the
+tests and the module share them. Thirteen host suites also build to WASM and
+run under node, so both sides of the fork run the same checks; they need a
+1 MB stack (`-sSTACK_SIZE`), since tests keep 64 KB buses on the stack and
+Emscripten's default stack is 64 KB. Clang's `-Wconversion` includes
+sign conversions, which found three spots GCC let through. Speed under node:
+~21 MHz, so 7.16 MHz real time is about a third of a core on the main
+thread, as the plan hoped.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

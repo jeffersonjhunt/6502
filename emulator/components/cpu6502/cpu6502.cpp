@@ -406,7 +406,7 @@ namespace ooe::emu
     uint8_t Cpu6502::asl(uint8_t v)
     {
         set_flag(FLAG_C, v & 0x80);
-        const uint8_t r = lo8(v << 1u);
+        const uint8_t r = lo8(static_cast<unsigned>(v) << 1);
         set_nz(r);
         return r;
     }
@@ -421,7 +421,7 @@ namespace ooe::emu
 
     uint8_t Cpu6502::rol(uint8_t v)
     {
-        const uint8_t r = lo8((v << 1u) | (flag(FLAG_C) ? 1u : 0u));
+        const uint8_t r = lo8(static_cast<unsigned>(v) << 1 | (flag(FLAG_C) ? 1u : 0u));
         set_flag(FLAG_C, v & 0x80);
         set_nz(r);
         return r;

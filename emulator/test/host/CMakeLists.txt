@@ -28,6 +28,29 @@ function(emu_add_test name)
     set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120) # a hang fails, not stalls
 endfunction()
 
+# --- WebAssembly (the `web` preset) -----------------------------------------
+#
+# The same core compiled by Emscripten and run under node (the toolchain's
+# CMAKE_CROSSCOMPILING_EMULATOR), reading the build tree through NODERAWFS:
+# the suites that need no fixture download, Python or subprocess, so both
+# sides of the native/WASM fork run the same tests. Then apps/web's own.
+
+if(EMSCRIPTEN)
+    foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
+                 test_backplane test_dma test_console_card test_bios test_session)
+        emu_add_test(${name})
+        # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
+        target_link_options(${name} PRIVATE -sNODERAWFS=1 -sEXIT_RUNTIME=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1MB)
+    endforeach()
+    target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+    foreach(name test_bios test_session)
+        target_compile_definitions(${name} PRIVATE
+                EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
+                EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+    endforeach()
+    return()
+endif()
+
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
 foreach(run "6502_functional_test 6502" "6502_functional_test w65c02s" "65C02_extended_opcodes_test w65c02s")
@@ -73,8 +96,6 @@ target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOU
 
 set(APPLE1_SRC "${PROJECT_SOURCE_DIR}/../apple1/src")
 set(ROM_DIR "${CMAKE_CURRENT_BINARY_DIR}/roms")
-find_program(EMU_CA65 ca65)
-find_program(EMU_LD65 ld65)
 
 if(EMU_CA65 AND EMU_LD65)
     file(MAKE_DIRECTORY "${ROM_DIR}")
@@ -113,32 +134,10 @@ target_compile_definitions(test_rom_boot PRIVATE
 
 # --- the backplane BIOS -----------------------------------------------------
 #
-# Assembled from backplane/bios as its Makefile does, into the build tree:
-# a full 512 KB ROM A image with the BIOS and Woz Monitor in the top block.
-# Without cc65 test_bios skips.
+# Assembled by cmake/roms.cmake (apps/web embeds it too). Without cc65
+# test_bios and test_session skip.
 
-set(BIOS_SRC "${PROJECT_SOURCE_DIR}/../backplane/bios")
-set(BIOS_DIR "${CMAKE_CURRENT_BINARY_DIR}/bios")
-if(EMU_CA65 AND EMU_LD65)
-    file(MAKE_DIRECTORY "${BIOS_DIR}")
-    foreach(src bios wozmon)
-        add_custom_command(
-                OUTPUT "${BIOS_DIR}/${src}.o"
-                COMMAND "${EMU_CA65}" -g -I "${BIOS_SRC}" -o "${BIOS_DIR}/${src}.o" "${BIOS_SRC}/${src}.s"
-                DEPENDS "${BIOS_SRC}/${src}.s" "${BIOS_SRC}/backplane.inc"
-                VERBATIM)
-    endforeach()
-    add_custom_command(
-            OUTPUT "${BIOS_DIR}/bios.rom" "${BIOS_DIR}/bios.rom.lbl"
-            COMMAND "${EMU_LD65}" -C "${BIOS_SRC}/bios.cfg" -o "${BIOS_DIR}/bios.rom" -Ln "${BIOS_DIR}/bios.rom.lbl"
-                    "${BIOS_DIR}/bios.o" "${BIOS_DIR}/wozmon.o"
-            DEPENDS "${BIOS_DIR}/bios.o" "${BIOS_DIR}/wozmon.o" "${BIOS_SRC}/bios.cfg"
-            VERBATIM)
-    add_custom_target(backplane_bios ALL DEPENDS "${BIOS_DIR}/bios.rom")
-else()
-    message(STATUS "emu: ca65/ld65 not found — backplane BIOS tests will skip")
-endif()
-
+set(BIOS_DIR "${EMU_BIOS_DIR}")
 target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")

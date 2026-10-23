@@ -33,18 +33,51 @@
       "cacheVariables": {
         "EMU_TRACE": "ON"
       }
+    },
+    {
+      "name": "web",
+      "displayName": "WebAssembly (Emscripten), Release + the tests that run under node",
+      "binaryDir": "${sourceDir}/build/web",
+      "generator": "Ninja",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "EMU_BUILD_TESTS": "ON"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "dev", "configurePreset": "dev" },
-    { "name": "release", "configurePreset": "release" },
-    { "name": "trace", "configurePreset": "trace" }
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "trace",
+      "configurePreset": "trace"
+    },
+    {
+      "name": "web",
+      "configurePreset": "web"
+    }
   ],
   "testPresets": [
     {
       "name": "dev",
       "configurePreset": "dev",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "web",
+      "configurePreset": "web",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }
