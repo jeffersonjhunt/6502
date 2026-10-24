@@ -17,6 +17,7 @@ Everything in the port is something the real board can also do:
 | Card registers | `cardRead`, `cardWrite` | the card's SPI header, which the ESP32 plugs into |
 | Serial | `sendSerial`, `FrameState.serialOut` | the serial card |
 | Inspection | `readMemory`, `physical`, `resolve`, `readTrace`, `FrameState.lights`, `FrameState.regs` | memory and the latched cycle over SPI; the lamps; the bus spy's trace |
+| Video | `watchVideo`, `FrameState.video` | the video card's VGA output (a capture device, for the board) |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
 The UI never calls the emulator's debugger. Breakpoints are the Console
@@ -26,8 +27,8 @@ the same way against the board.
 
 `caps` says what a backend cannot do. The emulator has no bus-cycle step
 (`busCycleStep: false`: it runs whole instructions, so S BUS CYCLE steps an
-instruction) and no video yet (`video: false`). The board cannot show the
-CPU's registers (`registers: false` there).
+instruction). The board cannot show the CPU's registers (`registers: false`
+there), and needs a capture device on its VGA port for `video`.
 
 ## Calls and frames
 
@@ -37,8 +38,11 @@ forget. Reads return promises, because over a socket they are round trips;
 
 State arrives as a `FrameState` about once per animation frame: cycles,
 power, halted, stopped (STP), the /IRQ line, the measured speed, the serial bytes since the
-last frame, and, only while asked for (`setLights`, `watchRegisters`), lamp
-duty and registers, so a closed debugger costs nothing.
+last frame, and, only while asked for (`setLights`, `watchRegisters`,
+`watchVideo`), lamp duty, registers and the video card's frames, so a closed
+debugger or another scene costs nothing. `video` is the card's last finished
+frame (640x480, RGBA), sent only when it is a new one; `setClock` also tells
+the card the CPU clock, so it keeps 60 frames a second at any speed.
 
 Lamps are 0 to 1: the share of bus cycles each line was high since the last
 frame (weighted by wait states), or exactly 0/1 while halted, when they

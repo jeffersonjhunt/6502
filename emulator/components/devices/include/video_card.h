@@ -127,7 +127,7 @@ namespace ooe::emu
         /// Frames finished since reset.
         uint64_t frames() const { return frames_; }
         /// The line the beam is on, 0-524 (480 on: vertical blank).
-        unsigned beam_line() const { return static_cast<unsigned>(pos_ / LINE_CLOCKS); }
+        unsigned beam_line() const { return y_; }
 
         /// 12-bit palette colour (0x0RGB) as a frame() pixel.
         static uint32_t rgba(uint16_t rgb12);
@@ -154,9 +154,11 @@ namespace ooe::emu
         void draw_mono(const Layer &l, unsigned y, int16_t *line) const;
 
         const uint8_t *vram_{nullptr};
-        uint32_t cpu_hz_{NATIVE_HZ};
-        uint64_t remainder_{0}; ///< pixel clocks x cpu_hz_ not yet a whole clock
-        uint64_t pos_{0};       ///< pixel clock in the frame, 0 to LINES x LINE_CLOCKS - 1
+        /// Pixel clocks per CPU cycle, 32.32 fixed point: tick() is a multiply, and
+        /// the sum of the parts is the whole however the cycles are split.
+        uint64_t step_{0};
+        uint64_t fraction_{0}; ///< a pixel clock's 2^-32 parts not yet whole
+        unsigned x_{0}, y_{0}; ///< the beam: pixel clock in the line, and the line
         uint64_t frames_{0};
 
         uint8_t ctrl_{0}, border_{0};

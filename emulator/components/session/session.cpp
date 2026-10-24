@@ -121,6 +121,8 @@ namespace ooe::emu
         console_ = std::move(console);
         cpu_ = std::move(cpu);
         card_ = machine_->console_card();
+        if (VideoCard *video = machine_->video_card())
+            video->set_cpu_hz(cpu_hz_);
 
         recorder_->attach(&machine_->bus());
         observers_ = CycleTee{};
@@ -150,6 +152,13 @@ namespace ooe::emu
     }
 
     bool Session::power_cycle(std::string &error) { return build(error); }
+
+    void Session::set_cpu_hz(uint32_t hz)
+    {
+        cpu_hz_ = hz;
+        if (VideoCard *video = machine_->video_card())
+            video->set_cpu_hz(hz);
+    }
 
     Session::RunResult Session::run(uint64_t budget)
     {

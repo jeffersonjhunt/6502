@@ -138,6 +138,12 @@ namespace ooe::emu
         const Symbols &symbols() const { return symbols_; }
         const std::string &machine_name() const { return config_.machine; }
 
+        /// The video card, if the machine has one: frame() is the screen.
+        const VideoCard *video() const { return machine_->video_card(); }
+        /// The clock the caller runs the CPU at, so the video card keeps real
+        /// time: 60 frames a second at any speed (0: 7.16 MHz). Kept across power cycles.
+        void set_cpu_hz(uint32_t hz);
+
         /// Lamp duty since the last call (zeros without a card).
         ConsoleCard::Lights lights();
         void set_lights(bool on);
@@ -168,6 +174,7 @@ namespace ooe::emu
 
         // The panel's physical state, kept across power cycles
         uint32_t switches_{0};
+        uint32_t cpu_hz_{0};
         bool halt_switch_{false}, bus_cycle_switch_{false}, lock_{false}, lights_on_{false};
 
         std::string input_;   ///< keys not yet taken

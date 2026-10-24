@@ -14,15 +14,18 @@
  * it up, which on a 2x display it otherwise does by half again.
  *
  * Scenes are the monitor's input select. "text" is the serial terminal.
- * "tiles" and "apple" are the video card's modes, which are not emulated
- * yet: they show NO SIGNAL, unless the page has ?demo=scenes, which draws
- * the mockup's still pictures for design review.
+ * "vga" is the video card: its frames (setVideo()), drawn pixel for pixel
+ * at the canvas's scale, in colour, or on a monochrome phosphor as a mono
+ * monitor shows them (brightness in the phosphor's colour). Without a card
+ * it shows NO SIGNAL. "apple" is Apple II mode, not emulated yet: NO
+ * SIGNAL, or with ?demo=scenes the mockup's still picture.
  */
 
+import type { VideoFrame } from "../port/machine-port";
 import { COLS, ROWS, type Terminal } from "./terminal";
 import { drawDemo } from "./scenes";
 
-export type Scene = "text" | "tiles" | "apple";
+export type Scene = "text" | "vga" | "apple";
 export type Phosphor = "colour" | "p1" | "p3" | "p4";
 
 export const PHOSPHORS: Record<Phosphor, { fg: string; rgb: [number, number, number] | null; halo: string }> = {
@@ -56,6 +59,11 @@ export class Crt {
   private readonly blinks: boolean;
   /** Canvas pixels per VGA pixel. */
   private k = 0;
+  /** The video card's last frame as it came, and as this phosphor shows it. */
+  private videoIn: Uint8ClampedArray | null = null;
+  private videoDirty = false;
+  private readonly videoCanvas: HTMLCanvasElement;
+  private readonly videoImage: ImageData;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -67,6 +75,10 @@ export class Crt {
     this.ctx = ctx;
     this.demo = options.demo ?? false;
     this.blinks = !options.reducedMotion;
+    this.videoCanvas = document.createElement("canvas");
+    this.videoCanvas.width = W;
+    this.videoCanvas.height = H;
+    this.videoImage = new ImageData(W, H);
     this.resize(W, 1);
   }
 
@@ -78,6 +90,19 @@ export class Crt {
   setPhosphor(phosphor: Phosphor): void {
     this.phosphor = phosphor;
     this.atlas = null;
+    this.full = true;
+    this.videoDirty = this.videoIn !== null;
+  }
+
+  /** A new frame from the video card (FrameState.video); kept until the next. */
+  setVideo(frame: VideoFrame): void {
+    this.videoIn = frame.pixels;
+    this.videoDirty = true;
+  }
+
+  /** The video card's picture is gone (power off, or not watched): NO SIGNAL until a frame comes. */
+  clearVideo(): void {
+    this.videoIn = null;
     this.full = true;
   }
 
@@ -131,10 +156,16 @@ export class Crt {
       }
       return;
     }
-    if (this.scene !== "text") {
+    if (this.scene === "vga") {
+      if (this.videoIn && (this.videoDirty || this.full)) this.drawVideo();
+      else if (!this.videoIn && this.full) this.noSignal("no video card on this machine");
+      this.full = false;
+      return;
+    }
+    if (this.scene === "apple") {
       if (this.full) {
-        if (this.demo) drawDemo(ctx, this.scene, PHOSPHORS[this.phosphor].rgb);
-        else this.noSignal();
+        if (this.demo) drawDemo(ctx, PHOSPHORS[this.phosphor].rgb);
+        else this.noSignal("Apple II mode not emulated yet (hw/design.md, Emulator step 5)");
         this.full = false;
       }
       return;
@@ -221,7 +252,28 @@ export class Crt {
     return atlas;
   }
 
-  private noSignal(): void {
+  /** The frame, through the phosphor, scaled up by whole pixels. */
+  private drawVideo(): void {
+    const src = this.videoIn!;
+    const out = this.videoImage.data;
+    const rgb = PHOSPHORS[this.phosphor].rgb;
+    if (!rgb) out.set(src);
+    else {
+      for (let i = 0; i < out.length; i += 4) {
+        const l = (77 * src[i] + 150 * src[i + 1] + 29 * src[i + 2]) >> 8; // luma, 0-255
+        out[i] = (rgb[0] * l) >> 8;
+        out[i + 1] = (rgb[1] * l) >> 8;
+        out[i + 2] = (rgb[2] * l) >> 8;
+        out[i + 3] = 255;
+      }
+    }
+    this.videoCanvas.getContext("2d")!.putImageData(this.videoImage, 0, 0);
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.drawImage(this.videoCanvas, 0, 0, W, H);
+    this.videoDirty = false;
+  }
+
+  private noSignal(why: string): void {
     const ctx = this.ctx;
     const fg = PHOSPHORS[this.phosphor].fg;
     ctx.fillStyle = "#000";
@@ -235,7 +287,7 @@ export class Crt {
     ctx.fillText("NO SIGNAL", W / 2, H / 2 - 16);
     ctx.shadowBlur = 0;
     ctx.font = "20px VT323, 'Courier New', monospace";
-    ctx.fillText("video card not emulated yet (hw/design.md, Emulator step 4)", W / 2, H / 2 + 28);
+    ctx.fillText(why, W / 2, H / 2 + 28);
     ctx.textAlign = "start";
   }
 }

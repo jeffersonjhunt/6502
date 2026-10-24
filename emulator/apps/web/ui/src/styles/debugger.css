@@ -97,3 +97,7 @@ body.dbg-closed .reopen { display: block; }
   .reopen { display: none !important; }
   body.dbg-closed .dbg { display: none; }
 }
+
+.devs { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 0; font: 400 11.5px/1.45 "JetBrains Mono", monospace; }
+.devs dt { font: 600 9.5px/1.9 Inter, sans-serif; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.devs dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }

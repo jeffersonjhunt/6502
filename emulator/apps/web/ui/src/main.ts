@@ -3,8 +3,9 @@
  * serial terminal on it, the front panel in its rack, and the debugger
  * pane beside them. Everything talks to the machine through one MachinePort.
  *
- * Query options: ?demo=scenes shows the mockup's pictures on the Tiles and
- * Apple II scenes instead of NO SIGNAL.
+ * The monitor's scenes: Text (the serial terminal), VGA (the video card)
+ * and Apple II. Query options: ?demo=scenes shows the mockup's picture on
+ * the Apple II scene instead of NO SIGNAL.
  *
  * Built with VITE_HOME_URL set, the badge links back to that page.
  */
@@ -117,20 +118,29 @@ function start(root: HTMLElement, port: MachinePort): void {
     port.sendSerial(pasteBytes(e.clipboardData?.getData("text") ?? "", caps));
   });
 
+  // The video card's frames are copied out only while its scene is showing.
+  const showScene = (s: Scene) => {
+    crt.setScene(s);
+    glass.dataset.scene = s;
+    port.watchVideo(s === "vga");
+    if (s !== "vga") crt.clearVideo();
+    prefs.set("scene", s);
+  };
+  const savedScene = (["text", "vga", "apple"] as Scene[]).find((s) => s === prefs.get("scene")) ?? "text";
   const scenes = segmented<Scene>(
     "Scene",
     [
       { value: "text", text: "Text", title: "The serial terminal" },
-      { value: "tiles", text: "Tiles", title: "Native video: tiles and sprites" },
+      { value: "vga", text: "VGA", title: "The video card: VGA 640x480, what the BIOS puts on screen" },
       { value: "apple", text: "Apple II", title: "Apple II video modes" },
     ],
-    "text",
+    savedScene,
     (s) => {
-      crt.setScene(s);
-      glass.dataset.scene = s;
-      if (s === "text") glass.focus();
+      showScene(s);
+      glass.focus(); // the keyboard is still the serial line's
     },
   );
+  showScene(savedScene);
   const status = h("span", { "data-testid": "status" }, "STARTING");
   const monitor = h(
     "div",
@@ -140,14 +150,28 @@ function start(root: HTMLElement, port: MachinePort): void {
   );
 
   const rack = frontPanel(panel);
-  const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, mirror);
+  // The BIOS's font is CC BY-SA 4.0 (backplane/bios/font): the page carries it, so it says whose it is.
+  const credits = h(
+    "p",
+    { class: "credits", "data-testid": "credits" },
+    "Screen font: IBM VGA 8×16 from ",
+    h("a", { href: "https://int10h.org/oldschool-pc-fonts/", target: "_blank", rel: "noopener" }, "VileR's Ultimate Oldschool PC Font Pack"),
+    ", ",
+    h("a", { href: "https://creativecommons.org/licenses/by-sa/4.0/", target: "_blank", rel: "noopener" }, "CC BY-SA 4.0"),
+    ".",
+  );
+  const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, credits, mirror);
   root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
 
   let clockLabel = "7.16 MHz";
   let mirrored = "";
   let lastMirror = 0;
+  let wasPowered = true;
   port.onFrame((f) => {
     if (f.serialOut.length) terminal.write(f.serialOut);
+    if (f.video) crt.setVideo(f.video);
+    else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
+    wasPowered = f.powered;
     crt.setPowered(f.powered);
     bar.update(f);
     rack.update(f);

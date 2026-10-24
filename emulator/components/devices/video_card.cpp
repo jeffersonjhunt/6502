@@ -12,7 +12,6 @@ namespace ooe::emu
 {
     namespace
     {
-        constexpr uint64_t FRAME_CLOCKS = uint64_t{VideoCard::LINES} * VideoCard::LINE_CLOCKS;
         constexpr uint32_t BLACK = 0xFF000000;
         constexpr int16_t UNCOVERED = -1;
         constexpr uint16_t SCROLL_MASK = 0x3FF;
@@ -24,7 +23,7 @@ namespace ooe::emu
         void set_hi(uint16_t &v, uint8_t b, uint16_t mask) { v = static_cast<uint16_t>(((b << 8) | (v & 0xFF)) & mask); }
     } // namespace
 
-    VideoCard::VideoCard() : front_(WIDTH * HEIGHT, BLACK), back_(WIDTH * HEIGHT, BLACK) {}
+    VideoCard::VideoCard() : front_(WIDTH * HEIGHT, BLACK), back_(WIDTH * HEIGHT, BLACK) { set_cpu_hz(NATIVE_HZ); }
 
     uint32_t VideoCard::rgba(uint16_t rgb12)
     {
@@ -39,15 +38,16 @@ namespace ooe::emu
         ien_ = isr_ = 0;
         match_line_ = 0;
         layers_ = {};
-        pos_ = remainder_ = frames_ = 0;
+        x_ = y_ = 0;
+        fraction_ = frames_ = 0;
         front_.assign(front_.size(), BLACK);
         back_.assign(back_.size(), BLACK);
     }
 
     void VideoCard::set_cpu_hz(uint32_t hz)
     {
-        cpu_hz_ = hz ? hz : NATIVE_HZ;
-        remainder_ = 0;
+        step_ = (uint64_t{PIXEL_HZ} << 32) / (hz ? hz : NATIVE_HZ);
+        fraction_ = 0;
     }
 
     uint8_t VideoCard::peek(uint32_t offset) const
@@ -173,9 +173,12 @@ namespace ooe::emu
 
     void VideoCard::tick(uint64_t cycles)
     {
-        remainder_ += cycles * PIXEL_HZ;
-        const uint64_t clocks = remainder_ / cpu_hz_;
-        remainder_ %= cpu_hz_;
+        constexpr uint64_t CHUNK = uint64_t{1} << 28; // x step_ (under 2^36) stays inside 64 bits
+        for (; cycles > CHUNK; cycles -= CHUNK)
+            tick(CHUNK);
+        fraction_ += cycles * step_;
+        const uint64_t clocks = fraction_ >> 32;
+        fraction_ &= 0xFFFF'FFFF;
         advance(clocks);
     }
 
@@ -183,26 +186,24 @@ namespace ooe::emu
     {
         while (clocks)
         {
-            const uint64_t x = pos_ % LINE_CLOCKS;
-            const uint64_t to = x < WIDTH ? WIDTH - x : LINE_CLOCKS - x; // the next event
+            const unsigned to = (x_ < WIDTH ? WIDTH : LINE_CLOCKS) - x_; // the next event
             if (clocks < to)
             {
-                pos_ += clocks;
+                x_ += static_cast<unsigned>(clocks);
                 return;
             }
             clocks -= to;
-            pos_ += to;
-            if (x < WIDTH)
+            if (x_ < WIDTH)
             {
-                const unsigned y = beam_line();
-                if (y < HEIGHT)
-                    draw_line(y);
+                x_ = WIDTH;
+                if (y_ < HEIGHT)
+                    draw_line(y_);
             }
             else
             {
-                if (pos_ == FRAME_CLOCKS)
-                    pos_ = 0;
-                start_line(beam_line());
+                x_ = 0;
+                y_ = y_ + 1 == LINES ? 0 : y_ + 1;
+                start_line(y_);
             }
         }
     }

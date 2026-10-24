@@ -22,6 +22,7 @@ import type {
   PortCaps,
   Registers,
   TraceRow,
+  VideoFrame,
 } from "./machine-port";
 import { CLOCKS_HZ } from "./machine-port";
 
@@ -52,6 +53,10 @@ export interface CoreMachine {
   physical(addr: number): number;
   resolve(text: string): number;
   lights(): Float32Array;
+  hasVideo(): boolean;
+  videoFrames(): number;
+  videoFrame(): Uint8Array;
+  setClock(hz: number): void;
   setLights(on: boolean): void;
   setTrace(on: boolean, depth: number): void;
   trace(max: number): Uint32Array;
@@ -119,7 +124,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: false, power: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, power: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -131,6 +136,8 @@ export class WasmPort implements MachinePort {
   private powered = true;
   private lightsOn = false;
   private regsOn = false;
+  private videoOn = false;
+  private videoSeen = -1;
   private readonly listeners = new Set<(frame: FrameState) => void>();
   private speedCycles = 0;
   private speedMs = 0;
@@ -155,6 +162,7 @@ export class WasmPort implements MachinePort {
       throw new Error(`cannot open ${this.files.machine}: ${why}`);
     }
     this.m = m;
+    this.setClock(this.clock); // the video card keeps time by it
     this.last = this.scheduler.now();
     this.schedule();
     return { machine: this.files.machine };
@@ -211,7 +219,7 @@ export class WasmPort implements MachinePort {
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,
-      video: null,
+      video: this.videoOn && this.powered ? this.readVideo(m) : null,
     };
     for (const listener of this.listeners) listener(state);
     this.schedule();
@@ -232,14 +240,25 @@ export class WasmPort implements MachinePort {
     return { addr: v.subarray(0, 20), data: v.subarray(20, 28), sync: v[28], rwb: v[29], vpb: v[30], rdy: v[31] };
   }
 
+  /** A frame the card finished since the last one sent, copied out of the module's memory; else null. */
+  private readVideo(m: CoreMachine): VideoFrame | null {
+    if (!m.hasVideo()) return null;
+    const frames = m.videoFrames();
+    if (frames === this.videoSeen) return null;
+    this.videoSeen = frames;
+    return { width: 640, height: 480, frames, pixels: new Uint8ClampedArray(m.videoFrame()) };
+  }
+
   setClock(clock: Clock): void {
     this.clock = clock;
+    this.m?.setClock(clock === "max" ? 0 : clock); // "max": the card keeps 7.16 MHz time
   }
 
   setPower(on: boolean): void {
     if (on === this.powered) return;
     this.powered = on;
     this.hz = 0;
+    this.videoSeen = -1;
     if (on && !this.machine.powerCycle()) throw new Error(`power on failed: ${this.machine.error()}`);
   }
 
@@ -295,6 +314,11 @@ export class WasmPort implements MachinePort {
 
   watchRegisters(on: boolean): void {
     this.regsOn = on;
+  }
+
+  watchVideo(on: boolean): void {
+    this.videoOn = on;
+    this.videoSeen = -1; // the next frame goes out, even if it is not new
   }
 
   setTrace(on: boolean, depth = 4096): void {

@@ -93,6 +93,10 @@ export class FakePort implements MachinePort {
   setLights(on: boolean): void {
     this.calls.push(["setLights", on]);
   }
+  watchVideo(on: boolean): void {
+    this.calls.push(["watchVideo", on]);
+  }
+
   watchRegisters(on: boolean): void {
     this.calls.push(["watchRegisters", on]);
   }
