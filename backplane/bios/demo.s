@@ -27,7 +27,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import DEMO_EXIT
+.import DEMO_EXIT, KEYHIT
 .export DEMO_MAIN
 
 BALLS     = 12
@@ -174,11 +174,9 @@ FRAME:          JSR     WAITVB         ; the picture is not being drawn: change 
                 STA     SCROLL+1
 @move:          JSR     MOVE
                 JSR     SPRITES
-                LDA     ACIA_STATUS
-                AND     #$08           ; a key?
-                BEQ     FRAME
+                JSR     KEYHIT         ; a key, serial or USB? (taken: it only meant "stop")
+                BCC     FRAME
 
-                LDA     ACIA_DATA      ; take it: it only meant "stop"
                 ; back to the BIOS's screen, as it was
                 LDA     #VIDEO_ON_L0
                 STA     VIDEO_CTRL

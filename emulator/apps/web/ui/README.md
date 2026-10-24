@@ -34,7 +34,7 @@ is remembered between visits.
 The debugger (toggle it from the toolbar; it remembers) has three working
 tabs. CPU: registers and flags, live. Bus trace: the latest cycles, as the
 bus spy writes them, recorded only while the tab is open. Breakpoints: add a
-label or address (`ECHO`, `C95A`, or five hex digits for a physical one),
+label or address (`ECHO`, `C956`, or five hex digits for a physical one),
 arm one (the Console card has one comparator), choose fetch, read or write
 and halt or /NMI; a hit shows the cycle the card latched. Breakpoints are
 the card's BPADDR/BPCTRL, written over its SPI registers, so they work the

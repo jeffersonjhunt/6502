@@ -66,3 +66,13 @@ VIDEO_ID_V1     = $91
 
 ; Zero page the BIOS keeps for itself (the Woz Monitor has $24-$2B).
 BIOS_ZP         = $E0                  ; $E0-$E7: the screen (video.s)
+
+; USB card (module B): keyboard, mouse, game port.
+USB             = $C580
+USB_KEY         = USB + $00            ; cooked ASCII, bit 7 the strobe
+USB_KEYCLR      = USB + $01            ; any access clears the strobe
+USB_KBCFG       = USB + $07
+USB_ID          = USB + $7F
+
+USB_NMI_PAUSE   = $80                  ; KBCFG: Pause/Break pulls /NMI
+USB_ID_V1       = $B1

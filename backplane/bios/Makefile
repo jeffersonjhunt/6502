@@ -7,7 +7,7 @@
 #   ../../emulator/build/release/apps/emu/emulator --machine ../../emulator/machines/backplane.machine bios.rom
 
 AFLAGS  = -g  # debug info, so -Ln lists every label, not just the exports
-OBJS    = bios.o wozmon.o video.o demo.o
+OBJS    = bios.o wozmon.o video.o input.o demo.o
 ROM     = bios.rom
 
 $(ROM): $(OBJS) bios.cfg

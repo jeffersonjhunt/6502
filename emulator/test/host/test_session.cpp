@@ -27,7 +27,7 @@ using namespace ooe::emu;
 namespace
 {
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    const std::string GREETING = "\rBACKPLANE BIOS 0.3\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.4\r\\\r";
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
 
     std::unique_ptr<Session> open(const std::string &machine = MACHINE)
@@ -293,6 +293,8 @@ TEST(pause_break_on_the_usb_keyboard_breaks_into_the_monitor)
     UsbCard *usb = s->usb();
     REQUIRE(usb != nullptr);
     std::string out;
+    CHECK_EQ(usb->peek(UsbCard::KBCFG), 0x80);   // the BIOS let Pause/Break break in
+    usb->write(UsbCard::KBCFG, 0);
     usb->key(UsbCard::PAUSE, true);              // KBCFG bit 7 clear: nothing
     usb->key(UsbCard::PAUSE, false);
     s->run(FRAME * 4);

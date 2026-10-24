@@ -4,7 +4,7 @@ async function booted(page: Page) {
   await page.goto("./");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.3", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.4", { timeout: 15_000 });
 }
 
 const lamp = (page: Page, name: string) =>
@@ -21,11 +21,11 @@ async function setSwitches(page: Page, value: number) {
   await expect(page.getByTestId("readout-swr")).toHaveText(value.toString(16).toUpperCase().padStart(5, "0"));
 }
 
-test("the lamps glow with the monitor's loop: code at $FC8xx, the 6551 at $0C3xx", async ({ page }) => {
+test("the lamps glow with the monitor's loop: code at $FCBxx, the 6551 at $0C3xx, the USB card at $0C5xx", async ({ page }) => {
   await booted(page);
   await expect.poll(() => lamp(page, "A19")).toBeGreaterThan(0.3);
-  expect(await lamp(page, "A14")).toBeGreaterThan(0.9); // high in both (low only for the odd stack access)
-  expect(await lamp(page, "A13")).toBeLessThan(0.3); // low in both
+  expect(await lamp(page, "A14")).toBeGreaterThan(0.9); // high in all three (low only for the odd stack access)
+  expect(await lamp(page, "A13")).toBeLessThan(0.3); // low in all three
   expect(await lamp(page, "POWER")).toBe(1);
   expect(await lamp(page, "RUN")).toBe(1);
   expect(await lamp(page, "HALT")).toBe(0);
@@ -99,7 +99,7 @@ test("keyswitch: LOCK ignores the panel, OFF powers down, RUN is a cold start", 
   expect(await lamp(page, "A19")).toBe(0);
   await key.click(); // RUN
   await expect(page.getByTestId("status")).toContainText("RUNNING");
-  await expect(page.getByTestId("crt-text")).toHaveText(/^\s*BACKPLANE BIOS 0\.3\n\\$/); // a fresh screen
+  await expect(page.getByTestId("crt-text")).toHaveText(/^\s*BACKPLANE BIOS 0\.4\n\\$/); // a fresh screen
   await expect(page.getByTestId("tb-halt")).toBeEnabled();
 });
 

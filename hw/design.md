@@ -241,7 +241,8 @@ window registers.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).
 7. *(Emulator BIOS 0.3.)* The BIOS turns on an 80x30 text screen: an 8x16 font from flash block 30, a 16-colour
    palette, and layer 0 in video memory, so the monitor shows on VGA as well as the serial line. It starts with
-   fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29.
+   fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29. *(BIOS 0.4.)* The monitor takes keys
+   from the serial line or the USB keyboard, and Pause/Break breaks into it.
 
 **From the ESP32 (override)**
 

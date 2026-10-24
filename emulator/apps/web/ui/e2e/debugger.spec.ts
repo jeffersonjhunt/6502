@@ -4,7 +4,7 @@ async function booted(page: Page) {
   await page.goto("./");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.3", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.4", { timeout: 15_000 });
 }
 
 const pc = (page: Page) => page.getByTestId("reg-pc").textContent();
@@ -19,7 +19,7 @@ async function addBreakpoint(page: Page, text: string) {
 test("CPU tab: live registers; halted, Step moves PC one instruction", async ({ page }) => {
   await booted(page);
   await page.locator('[data-tab="cpu"]').click();
-  await expect(page.getByTestId("reg-pc")).toHaveText(/^C8[89A-F][0-9A-F]$/); // the monitor's key loop
+  await expect(page.getByTestId("reg-pc")).toHaveText(/^CB[67][0-9A-F]$/); // the monitor's key loop (GETKEY)
   await page.getByTestId("tb-halt").click();
   await expect(page.getByTestId("status")).toHaveText(/HALTED/);
   const at = await pc(page);
@@ -33,16 +33,16 @@ test("CPU tab: live registers; halted, Step moves PC one instruction", async ({ 
 test("a fetch breakpoint on a label halts before ECHO, shows the hit, and Run goes on", async ({ page }) => {
   await booted(page);
   await addBreakpoint(page, "ECHO");
-  await expect(page.getByTestId("bp-row")).toContainText("ECHO $C95A → FC95A");
+  await expect(page.getByTestId("bp-row")).toContainText("ECHO $C956 → FC956");
   await expect(page.getByTestId("bp-row")).toHaveAttribute("data-armed", "true");
   await page.getByTestId("crt").click();
   await page.keyboard.type("A");
   await expect(page.getByTestId("status")).toHaveText(/HALTED/);
-  await expect(page.getByTestId("bp-hit-text")).toHaveText("hit: FC95A  data 20  fetch"); // JSR VPUTC
+  await expect(page.getByTestId("bp-hit-text")).toHaveText("hit: FC956  data 20  fetch"); // JSR VPUTC
   await expect(page.getByTestId("crt-text")).not.toContainText("\\\nA"); // stopped before the echo
   await page.screenshot({ path: `test-results/debugger-bp-${test.info().project.name}.png` });
   await page.locator('[data-tab="cpu"]').click();
-  await expect(page.getByTestId("reg-pc")).toHaveText("C95A");
+  await expect(page.getByTestId("reg-pc")).toHaveText("C956");
   await page.locator('[data-tab="bps"]').click();
   await page.getByRole("radio", { name: "None armed" }).check(); // disarm, or it stops at the next echo
   await page.getByTestId("tb-run").click();
@@ -70,16 +70,16 @@ test("a write breakpoint can pull /NMI instead: the monitor restarts, nothing ha
   await expect(page.getByTestId("status")).toContainText("RUNNING");
 });
 
-test("Bus trace: the monitor's loop, fetches at FC8xx and the 6551 in the I/O hole", async ({ page }) => {
+test("Bus trace: the monitor's loop, fetches at FCB6x-FCB7x, the 6551 and the USB card in the I/O hole", async ({ page }) => {
   await booted(page);
   await page.locator('[data-tab="trace"]').click();
   const rows = page.getByTestId("trace-rows").locator("tr");
   await expect.poll(() => rows.count()).toBeGreaterThan(30);
   const fetch = page.getByTestId("trace-rows").locator("tr.f").first();
-  await expect(fetch.locator("td").nth(1)).toHaveText(/^FC8[89A-F][0-9A-F]$/);
-  const io = page.getByTestId("trace-rows").locator("tr.io").first();
-  await expect(io.locator("td").nth(1)).toHaveText("0C301");
-  await expect(io.locator("td").nth(5)).toHaveText("I/O m6");
+  await expect(fetch.locator("td").nth(1)).toHaveText(/^FCB[67][0-9A-F]$/);
+  const io = page.getByTestId("trace-rows").locator("tr.io");
+  await expect(io.filter({ hasText: "0C301" }).first().locator("td").nth(5)).toHaveText("I/O m6"); // ACIA status
+  await expect(io.filter({ hasText: "0C5FF" }).first().locator("td").nth(5)).toHaveText("I/O mB"); // USB card's ID
   await page.screenshot({ path: `test-results/debugger-trace-${test.info().project.name}.png` });
 });
 

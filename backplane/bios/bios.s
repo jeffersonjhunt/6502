@@ -8,7 +8,8 @@
 ;   2. points W3 and VEC at the copy, read-only, and carries on in RAM with no
 ;      jump, because the copy sits at the same CPU addresses,
 ;   3. puts W2 back on RAM block 2, so the map is RAM blocks 0, 1, 2 and 63,
-;   4. turns on the video card's text screen (video.s), if there is one,
+;   4. turns on the video card's text screen (video.s) and the USB keyboard
+;      (input.s), if there are such cards,
 ;   5. greets the terminal and enters the Woz Monitor.
 ;
 ; $C800 is reset and $C803 the video demo: C803R from the monitor.
@@ -22,7 +23,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, VINIT, DEMO
+.import WOZMON, ECHO, VINIT, DEMO, KINIT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -71,6 +72,7 @@ COPY:           LDA     (SRC),Y
                 LDA     #$0B           ; no parity, no echo, no interrupts
                 STA     ACIA_CMD
                 JSR     VINIT          ; the screen, so ECHO writes there too
+                JSR     KINIT          ; the USB keyboard, if there is one (input.s)
                 LDX     #$00
 BANNER:         LDA     GREETING,X
                 BEQ     MONITOR
@@ -81,7 +83,7 @@ MONITOR:        JMP     WOZMON
 
 IRQ:            RTI
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.3", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.4", $0D, 0
 
 .segment "VECTORS"
                 .word   WOZMON         ; NMI
