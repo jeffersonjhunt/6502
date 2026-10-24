@@ -57,8 +57,14 @@ the same for `oo1.wasm`: a new core is a new URL, never an old one from a
 cache. Everything else Vite already names by hash. On a touch screen the page
 says once that the terminal needs a keyboard.
 
-`?demo=scenes` shows the mockup's pictures on the Tiles and Apple II scenes
-instead of NO SIGNAL (the video card is not emulated yet).
+The monitor's scene buttons are its input select. **Text** is the serial
+terminal; **VGA** is the video card's output, which the BIOS fills with the
+same Woz Monitor session in the IBM VGA font: in Colour as the card makes
+it, on P1/P3/P4 as a mono monitor shows it. The keyboard is the serial line's
+in either. The Devices tab in the debugger decodes the card's registers.
+`?demo=scenes` shows the mockup's picture on the Apple II scene instead of
+NO SIGNAL (Apple II mode is not emulated yet). The screen font is VileR's
+(CC BY-SA 4.0), and the page credits it under the front panel.
 
 ## Test it
 
@@ -70,7 +76,7 @@ npm run e2e      # build, then Playwright in headless Chromium and WebKit (Safar
 Both need the core; without it they fail rather than skip. Playwright needs
 its browsers (`npx playwright install chromium webkit`, and on a bare Linux
 box `npx playwright install-deps chromium webkit`). Screenshots of the boot, the
-monitor and NO SIGNAL land in `test-results/`.
+monitor, VGA and NO SIGNAL land in `test-results/`.
 
 ## Layout
 

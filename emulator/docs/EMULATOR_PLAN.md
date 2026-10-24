@@ -318,6 +318,18 @@ onto the next with an overlapping DMA, the DMA controller's first real
 work. The video code sits after the Woz Monitor, which moved only 3 bytes
 (WOZMON $C865, ECHO $C954). Without a card the BIOS runs as before.
 
+**VGA in the WebUI (2026-10-24), video part 3.** `Session::video()` and
+`set_cpu_hz()` (kept across power cycles), and in the module `hasVideo`,
+`videoFrames`, `videoFrame` (a view onto the RGBA frame) and `setClock`.
+`MachinePort.watchVideo` sends the card's frame in `FrameState.video` only
+while the VGA scene shows it and only when it is new. The monitor's Tiles
+button is now VGA: the frame drawn pixel for pixel at the canvas's scale,
+true colour or a mono phosphor's brightness. The debugger's Devices tab
+decodes the card's registers; the page credits the font. The card's tick is
+now 32.32 fixed point with the beam as line and column (no divisions);
+with the text layer on, the core runs about 10% slower flat out (19-20 MHz
+against 21-22 under node), some 4% of a core at real time.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

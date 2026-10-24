@@ -30,6 +30,12 @@
  * - trace(max): Uint32Array(4 per row, oldest first): cycle low 32 bits,
  *   cycle high bits, A0-A19 | module << 24, CPU address | data << 16 |
  *   flags << 24 (1 write, 2 SYNC, 4 VPB).
+ * - videoFrame(): Uint8Array(640 x 480 x 4): the video card's last finished
+ *   frame, R G B A per pixel, row by row; empty without a card. A new one
+ *   each frame (videoFrames() counts them), so copy it before running on.
+ *
+ * setClock(hz) is the clock the caller runs the CPU at (0 for flat out),
+ * so the video card keeps 60 frames a second at any speed.
  */
 
 #include <emscripten/bind.h>
@@ -130,6 +136,19 @@ namespace
             return val(emscripten::typed_memory_view(lights_.size(), lights_.data()));
         }
         void set_lights(bool on) { session_->set_lights(on); }
+        bool has_video() const { return session_->video() != nullptr; }
+        double video_frames() const
+        {
+            const VideoCard *v = session_->video();
+            return v ? static_cast<double>(v->frames()) : 0;
+        }
+        val video_frame() const
+        {
+            const VideoCard *v = session_->video();
+            const size_t bytes = v ? size_t{VideoCard::WIDTH} * VideoCard::HEIGHT * 4 : 0;
+            return val(emscripten::typed_memory_view(bytes, v ? reinterpret_cast<const uint8_t *>(v->frame()) : nullptr));
+        }
+        void set_clock(double hz) { session_->set_cpu_hz(static_cast<uint32_t>(hz)); }
 
         void set_trace(bool on, unsigned depth) { session_->set_trace(on, depth); }
         val trace(unsigned max)
@@ -197,6 +216,10 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("resolve", &WebMachine::resolve)
         .function("lights", &WebMachine::lights)
         .function("setLights", &WebMachine::set_lights)
+        .function("hasVideo", &WebMachine::has_video)
+        .function("videoFrames", &WebMachine::video_frames)
+        .function("videoFrame", &WebMachine::video_frame)
+        .function("setClock", &WebMachine::set_clock)
         .function("setTrace", &WebMachine::set_trace)
         .function("trace", &WebMachine::trace);
 }

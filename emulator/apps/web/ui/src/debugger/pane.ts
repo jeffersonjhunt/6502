@@ -1,7 +1,7 @@
 /**
  * The debugger pane (mockup C): collapsible, at the right of the bench,
- * with tabs. CPU (registers and flags), Bus trace and Breakpoints work;
- * Memory and Devices come later and show as such.
+ * with tabs. CPU (registers and flags), Bus trace, Breakpoints and Devices
+ * (the cards' registers) work; Memory comes later and shows as such.
  *
  * It costs nothing while closed: registers are watched only while the CPU
  * tab is showing and the trace recorded only while its tab is, so the port
@@ -12,16 +12,17 @@ import type { FrameState, MachinePort } from "../port/machine-port";
 import { h, prefs } from "../ui/dom";
 import { Breakpoints } from "./breakpoints";
 import { breakpointsView } from "./breakpoints-view";
+import { devicesView } from "./devices";
 import { registersView } from "./registers";
 import { TRACE_ROWS, traceView } from "./trace";
 
-type Tab = "cpu" | "trace" | "bps";
-const TABS: { id: Tab | "mem" | "dev"; text: string; later?: boolean }[] = [
+type Tab = "cpu" | "trace" | "bps" | "dev";
+const TABS: { id: Tab | "mem"; text: string; later?: boolean }[] = [
   { id: "cpu", text: "CPU" },
   { id: "trace", text: "Bus trace" },
   { id: "bps", text: "Breakpoints" },
   { id: "mem", text: "Memory", later: true },
-  { id: "dev", text: "Devices", later: true },
+  { id: "dev", text: "Devices" },
 ];
 
 const TRACE_DEPTH = 1024;
@@ -32,10 +33,11 @@ export function debuggerPane(port: MachinePort) {
   const regs = registersView();
   const trace = traceView();
   const bpv = breakpointsView(bps);
-  const sections: Record<Tab, HTMLElement> = { cpu: regs.element, trace: trace.element, bps: bpv.element };
+  const devs = devicesView(port);
+  const sections: Record<Tab, HTMLElement> = { cpu: regs.element, trace: trace.element, bps: bpv.element, dev: devs.element };
 
   let open = prefs.get("dbg") !== "closed";
-  let tab: Tab = (["cpu", "trace", "bps"] as Tab[]).find((t) => t === prefs.get("dbg.tab")) ?? "cpu";
+  let tab: Tab = (["cpu", "trace", "bps", "dev"] as Tab[]).find((t) => t === prefs.get("dbg.tab")) ?? "cpu";
   let connected = false;
 
   const tabButtons = TABS.map((t) => {
@@ -101,6 +103,7 @@ export function debuggerPane(port: MachinePort) {
     polling = true;
     try {
       if (tab === "trace") trace.show(await port.readTrace(TRACE_ROWS));
+      if (tab === "dev") await devs.refresh();
       bpv.showHit(await bps.hit());
     } finally {
       polling = false;

@@ -20,7 +20,7 @@ export interface PortCaps {
   trace: boolean;
   /** CONT can step a single bus cycle (S BUS CYCLE); the emulator steps instructions. */
   busCycleStep: boolean;
-  /** FrameState.video carries a framebuffer (no video card is emulated yet). */
+  /** FrameState.video carries the video card's frames (watchVideo). */
   video: boolean;
   /** setPower() works: the keyswitch. */
   power: boolean;
@@ -61,6 +61,15 @@ export interface TraceRow {
   vpb: boolean;
 }
 
+/** The video card's last finished frame: VGA 640x480, R G B A per pixel, row by row. */
+export interface VideoFrame {
+  width: number;
+  height: number;
+  /** Frames the card has finished since power on; this is that one. */
+  frames: number;
+  pixels: Uint8ClampedArray;
+}
+
 export type StopReason = "budget" | "halted" | "stopped";
 
 export interface FrameState {
@@ -81,8 +90,11 @@ export interface FrameState {
   lights: Lights | null;
   /** Only while watchRegisters(true) and caps.registers. */
   regs: Registers | null;
-  /** A framebuffer, once a video card is emulated; until then null. */
-  video: null;
+  /**
+   * Only while watchVideo(true), with a video card, and only when it has
+   * finished a frame since the last FrameState: draw it, keep it if needed.
+   */
+  video: VideoFrame | null;
 }
 
 export type PanelKey = "load" | "exam" | "dep" | "cont" | "start";
@@ -146,6 +158,8 @@ export interface MachinePort {
 
   setLights(on: boolean): void;
   watchRegisters(on: boolean): void;
+  /** Send the video card's frames (FrameState.video); off, they cost nothing. */
+  watchVideo(on: boolean): void;
   setTrace(on: boolean, depth?: number): void;
   /** Up to `max` of the newest cycles, oldest first. */
   readTrace(max: number): Promise<TraceRow[]>;

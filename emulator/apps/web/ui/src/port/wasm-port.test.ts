@@ -158,6 +158,31 @@ describe("WasmPort", () => {
     expect(rows[rows.length - 1].cycle).toBeLessThanOrEqual(f.cycles);
   });
 
+  test("the video card's frames: only when watched, only when new, at 60 a second", async () => {
+    const m = await open();
+    m.until(GREETING);
+    expect(m.step().video).toBeNull();          // not watched
+    m.port.watchVideo(true);
+    let f = m.step();
+    const v = f.video!;
+    expect(v.width * v.height * 4).toBe(v.pixels.length);
+    expect(v.frames).toBeGreaterThan(0);
+    const at = (x: number, y: number) => Array.from(v.pixels.subarray((y * 640 + x) * 4, (y * 640 + x) * 4 + 4));
+    expect(at(0, 18)).toEqual([170, 170, 170, 255]); // the B of BACKPLANE (row 1), in light grey
+    expect(at(6, 18)).toEqual([0, 0, 0, 255]);
+    expect(m.step(0).video).toBeNull();         // no time, no new frame
+    f = m.step(2 * FRAME_MS);
+    expect(f.video!.frames).toBeGreaterThan(v.frames);
+    m.port.setClock(1_020_484);                 // slow CPU: still 60 frames a second
+    const before = f.video!.frames;
+    let last = before;
+    for (let i = 0; i < 10; ++i) last = m.step(100).video?.frames ?? last;
+    expect(last - before).toBeGreaterThanOrEqual(59);
+    expect(last - before).toBeLessThanOrEqual(61);
+    m.port.watchVideo(false);
+    expect(m.step().video).toBeNull();
+  });
+
   test("the IRQ line, for the panel's lamp", async () => {
     const m = await open();
     m.until(GREETING);

@@ -263,6 +263,29 @@ TEST(start_and_power_cycle)
     CHECK(run_until(*s, out, GREETING));
 }
 
+TEST(the_video_card_keeps_the_callers_clock_across_a_power_cycle)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    REQUIRE(s->video() != nullptr);
+    s->set_cpu_hz(1'020'484);              // the panel's slowest clock: a second is 1,020,484 cycles
+    uint64_t before = s->video()->frames();
+    s->run(1'020'484);
+    const uint64_t slow = s->video()->frames() - before;
+    CHECK(slow == 59 || slow == 60);       // 59.94 Hz
+    std::string error;
+    REQUIRE(s->power_cycle(error));
+    before = s->video()->frames();         // a new card
+    s->run(1'020'484);
+    const uint64_t after = s->video()->frames() - before;
+    CHECK(after == 59 || after == 60);     // at 7.16 MHz time it would be 8
+    s->set_cpu_hz(0);
+    before = s->video()->frames();
+    s->run(1'020'484);
+    const uint64_t native = s->video()->frames() - before;
+    CHECK(native == 8 || native == 9);     // 0: the card's own 7.16 MHz, 8.54 frames
+}
+
 TEST(stp_ends_the_run_and_start_gets_out)
 {
     auto s = booted();

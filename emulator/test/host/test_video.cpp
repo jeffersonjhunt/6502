@@ -132,6 +132,9 @@ TEST(at_the_native_clock_a_second_is_60_frames_however_it_is_ticked)
     CHECK_EQ(whole.frames(), uint64_t{60});       // 59.94 Hz: the 60th vertical blank is inside the second
     CHECK_EQ(pieces.frames(), whole.frames());
     CHECK_EQ(pieces.beam_line(), whole.beam_line());
+    VideoCard big;                                // one huge tick: an hour at 7.16 MHz
+    big.tick(uint64_t{VideoCard::NATIVE_HZ} * 3600);
+    CHECK(big.frames() >= 215'783 && big.frames() <= 215'785); // 59.94 Hz x 3600, no overflow
     VideoCard slow;
     slow.set_cpu_hz(1'020'484);                   // the panel's slowest clock
     slow.tick(1'020'484);

@@ -103,3 +103,6 @@ body {
   .tb { padding: 8px 12px; gap: 8px; }
   .tb .lbl { display: none; }
 }
+.credits { margin: 0; font: 400 11px/1.5 Inter, sans-serif; color: var(--muted); text-align: center; }
+.credits a { color: inherit; text-underline-offset: 2px; }
+.credits a:hover, .credits a:focus-visible { color: var(--text); }
