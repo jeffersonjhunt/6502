@@ -370,6 +370,14 @@ time and buttons, the speaker's toggle, the interrupts, and Pause/Break's
 movement; the WebUI is to feed it. The few rules the tables left open are
 in hw/design.md.
 
+**The BIOS on the USB keyboard (2026-10-24), part 2; BIOS 0.4.**
+`backplane/bios/input.s`: the Woz Monitor's key comes from the serial line
+or the USB card's KEY, whichever has one (USB letters made capitals for
+the monitor), the demo stops on either, and at boot KBCFG bit 7 is set so
+Pause/Break breaks into the monitor. The wait loop (GETKEY) reads only
+code and I/O, the card's ID each time round, so the lamps and the trace
+show it plainly; the tests that watch it moved to $CB6x. ECHO is now $C956.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

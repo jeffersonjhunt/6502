@@ -12,7 +12,9 @@
  * Then the screen (video.s): the monitor on the video card's text layer,
  * typing and backspace, scrolling by DMA, and a machine with no card. And
  * the video demo (demo.s, C803R): tiles, sprites, scroll and fade on the
- * card, and back to the monitor's screen as it was on a key.
+ * card, and back to the monitor's screen as it was on a key. And the USB
+ * keyboard (input.s): the monitor takes keys from it, Pause/Break breaks
+ * in, and a USB key ends the demo.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -121,6 +123,44 @@ namespace
             return out;
         }
 
+        /// Type on the USB keyboard: each character's key down, a gap, up, a gap.
+        /// Letters, digits, space, '.', ':' and CR. @return what the console printed
+        std::string type_usb(const std::string &text, uint64_t gap = 25'000)
+        {
+            UsbCard *usb = machine->usb_card();
+            std::string out;
+            for (const char ch : text)
+            {
+                uint8_t usage = 0;
+                bool shift = false;
+                if (ch >= 'A' && ch <= 'Z')
+                    usage = static_cast<uint8_t>(0x04 + ch - 'A');
+                else if (ch >= 'a' && ch <= 'z')
+                    usage = static_cast<uint8_t>(0x04 + ch - 'a');
+                else if (ch >= '1' && ch <= '9')
+                    usage = static_cast<uint8_t>(0x1E + ch - '1');
+                else if (ch == '0')
+                    usage = 0x27;
+                else if (ch == ' ')
+                    usage = 0x2C;
+                else if (ch == '.')
+                    usage = 0x37;
+                else if (ch == ':')
+                    usage = 0x33, shift = true;
+                else if (ch == '\r')
+                    usage = 0x28;
+                if (shift)
+                    usb->key(0xE1, true);
+                usb->key(usage, true);
+                out += run(gap);
+                usb->key(usage, false);
+                if (shift)
+                    usb->key(0xE1, false);
+                out += run(gap);
+            }
+            return out + run(250'000);            // the answer, at the serial line's pace
+        }
+
         const BackplaneBridge &bridge() const { return *machine->find_as<BackplaneBridge>("northbridge"); }
 
         /// The BIOS's text screen (video memory unit 8), row by row, trailing blanks dropped.
@@ -149,7 +189,7 @@ namespace
     };
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
-    const std::string GREETING = "\rBACKPLANE BIOS 0.3\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.4\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -279,7 +319,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.3"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.4"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -334,7 +374,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.3"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.4"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -436,6 +476,64 @@ TEST(without_a_video_card_c803_goes_back_to_the_monitor)
     b.run(BOOT);
     const std::string out = b.run(BOOT, "C803R\r");
     CHECK(has(out, "C803: 4C\\"));             // R shows the byte, then the prompt at once
+    CHECK_EQ(b.bridge().window(1), 0x01);
+}
+
+TEST(the_monitor_takes_keys_from_the_usb_keyboard)
+{
+    Board b;
+    REQUIRE(b.ok());
+    REQUIRE(b.machine->usb_card() != nullptr);
+    b.reset();
+    b.run(BOOT);
+    CHECK_EQ(b.machine->usb_card()->peek(UsbCard::KBCFG), 0x80); // KINIT: Pause/Break breaks in
+    CHECK(has(b.type_usb("C680.C684\r"), "C680.C684\r\rC680: 00 01 02 7F 7F"));
+    UsbCard *usb = b.machine->usb_card();
+    usb->key(0x39, true);                        // Caps Lock off: the BIOS makes capitals anyway
+    usb->key(0x39, false);
+    REQUIRE(!usb->caps_lock());
+    CHECK(has(b.type_usb("fffc.fffd\r"), "FFFC: 00 C8"));
+    CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));     // and the serial line still works
+}
+
+TEST(pause_break_on_the_usb_keyboard_enters_the_monitor)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.type_usb("C680");                          // half a line...
+    UsbCard *usb = b.machine->usb_card();
+    usb->key(UsbCard::PAUSE, true);
+    std::string out;
+    for (int i = 0; i < 1000 && out.find("\\") == std::string::npos; ++i)
+    {
+        b.cpu->step();
+        if (usb->take_nmi())                     // the run loop's job (Session, the app)
+            b.cpu->nmi();
+        b.console->service();
+        uint8_t ch = 0;
+        while (b.console->output(ch))
+            out += static_cast<char>(ch);
+    }
+    usb->key(UsbCard::PAUSE, false);
+    out += b.run(BOOT);
+    CHECK(has(out, "\\"));                     // ...abandoned: a fresh prompt
+    CHECK(has(b.type_usb("C680.C680\r"), "C680: 00"));
+}
+
+TEST(a_usb_key_ends_the_demo)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.type_usb("C803R\r");
+    b.run(20 * FRAME);
+    REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+    const std::string out = b.type_usb(" ");
+    CHECK(has(out, "\\"));
+    CHECK_EQ(b.machine->video_card()->peek(VideoCard::CTRL), 0x03);
     CHECK_EQ(b.bridge().window(1), 0x01);
 }
 

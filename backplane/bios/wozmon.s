@@ -4,13 +4,14 @@
 ;  Ben Eater's serial version (eater/src/wozmon.s), ported to ca65 for the
 ;  backplane: the 6551 is the stand-in terminal at $C300 (backplane.inc), the
 ;  vectors belong to the BIOS, ECHO's transmit delay is stretched for the
-;  7.16 MHz clock, and ECHO writes to the BIOS's screen too (video.s).
+;  7.16 MHz clock, ECHO writes to the BIOS's screen too (video.s), and keys
+;  come from the serial line or the USB keyboard (input.s).
 
 .setcpu "65C02"
 .include "backplane.inc"
 .segment "WOZMON"
 .export WOZMON, ECHO
-.import VPUTC
+.import VPUTC, GETKEY
 
 XAML  = $24                            ; Last "opened" location Low
 XAMH  = $25                            ; Last "opened" location High
@@ -51,10 +52,7 @@ BACKSPACE:      DEY                    ; Back up text index.
                 BMI     GETLINE        ; Beyond start of line, reinitialize.
 
 NEXTCHAR:
-                LDA     ACIA_STATUS    ; Check status.
-                AND     #$08           ; Key ready?
-                BEQ     NEXTCHAR       ; Loop until ready.
-                LDA     ACIA_DATA      ; Load character. B7 will be '0'.
+                JSR     GETKEY         ; Serial or USB keyboard (input.s). B7 will be '0'.
                 STA     IN,Y           ; Add to text buffer.
                 JSR     ECHO           ; Display character.
                 CMP     #$0D           ; CR?

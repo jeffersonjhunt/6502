@@ -9,7 +9,7 @@ import type { FrameState } from "./machine-port";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
-const GREETING = "\rBACKPLANE BIOS 0.3\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.4\r\\\r";
 const FRAME_MS = 1000 / 60;
 const NATIVE_HZ = 7_159_090;
 
@@ -142,10 +142,10 @@ describe("WasmPort", () => {
     f = m.step();
     expect(f.lights!.addr.length).toBe(20);
     expect(f.lights!.data.length).toBe(8);
-    // The monitor's loop: code at $FC8xx and the 6551 at $0C301, all reads.
+    // The monitor's loop: code at $FCBxx, the 6551 at $0C301 and the USB card at $0C5xx, all reads.
     expect(f.lights!.addr[19]).toBeGreaterThan(0.5);
-    expect(f.lights!.addr[14]).toBe(1); // high in both
-    expect(f.lights!.addr[13]).toBe(0); // low in both
+    expect(f.lights!.addr[14]).toBe(1); // high in all three
+    expect(f.lights!.addr[13]).toBe(0); // low in all three
     expect(f.lights!.rwb).toBe(1);
     expect(f.lights!.vpb).toBe(0);
     expect(f.regs!.pc).toBeGreaterThanOrEqual(0xc800);
