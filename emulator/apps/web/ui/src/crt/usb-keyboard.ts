@@ -36,6 +36,49 @@ export function usageFor(code: string): number | null {
   return USAGES[code] ?? null;
 }
 
+const SHIFTED = '!@#$%^&*()_+{}|:"~<>?';
+const UNSHIFTED = "1234567890-=[]\\;'`,./";
+const SHIFT = 0xe1;
+
+/**
+ * Text as a US keyboard types it (the card's own layout): each character's
+ * key, with Shift where it needs it. Letters go without Shift, so they
+ * come out as the card's Caps Lock has them: capitals from power-up, as
+ * Applesoft and the Woz Monitor want (with Shift they would be the other
+ * case). Line ends (CR, LF or both) are Return; a character with no key on
+ * it is left out.
+ */
+export function keysFor(text: string): { usage: number; shift: boolean }[] {
+  const keys: { usage: number; shift: boolean }[] = [];
+  for (const ch of text.replace(/\r\n?/g, "\n")) {
+    const code = (c: string) => usageFor(/[a-z]/i.test(c) ? `Key${c.toUpperCase()}` : /[0-9]/.test(c) ? `Digit${c}` : PUNCTUATION[c] ?? "");
+    if (ch === "\n") keys.push({ usage: 0x28, shift: false });
+    else if (ch === "\t") keys.push({ usage: 0x2b, shift: false });
+    else if (ch === " ") keys.push({ usage: 0x2c, shift: false });
+    else if (SHIFTED.includes(ch)) keys.push({ usage: code(UNSHIFTED[SHIFTED.indexOf(ch)])!, shift: true });
+    else {
+      const usage = code(ch);
+      if (usage !== null) keys.push({ usage, shift: false });
+    }
+  }
+  return keys;
+}
+
+const PUNCTUATION: Record<string, string> = {
+  "-": "Minus", "=": "Equal", "[": "BracketLeft", "]": "BracketRight", "\\": "Backslash", ";": "Semicolon",
+  "'": "Quote", "`": "Backquote", ",": "Comma", ".": "Period", "/": "Slash",
+};
+
+/** Type text on the USB keyboard: each key pressed and let go, Shift around those that need it. */
+export function typeText(text: string, send: (usage: number, down: boolean) => void): void {
+  for (const { usage, shift } of keysFor(text)) {
+    if (shift) send(SHIFT, true);
+    send(usage, true);
+    send(usage, false);
+    if (shift) send(SHIFT, false);
+  }
+}
+
 export class UsbKeyboard {
   private readonly held = new Set<number>();
 

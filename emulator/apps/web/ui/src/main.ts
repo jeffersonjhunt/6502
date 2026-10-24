@@ -25,7 +25,7 @@ import "./styles/debugger.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
 import { keyBytes, pasteBytes } from "./crt/keyboard";
-import { UsbKeyboard } from "./crt/usb-keyboard";
+import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { WasmPort } from "./port/wasm-port";
@@ -157,9 +157,15 @@ function start(root: HTMLElement, port: MachinePort): void {
   glass.addEventListener("contextmenu", (e) => {
     if (onMouse()) e.preventDefault(); // the right button is the machine's
   });
+  // A paste is typed on whichever keyboard the screen has: on the USB one,
+  // its card holds each character until the machine has taken the last.
   glass.addEventListener("paste", (e) => {
     e.preventDefault();
-    port.sendSerial(pasteBytes(e.clipboardData?.getData("text") ?? "", caps));
+    const text = e.clipboardData?.getData("text") ?? "";
+    if (onUsb()) {
+      usbKeys.releaseAll();
+      typeText(text, (usage, down) => port.sendKey(usage, down));
+    } else port.sendSerial(pasteBytes(text, caps));
   });
 
   // The video card's frames are copied out only while its scene is showing.

@@ -103,7 +103,21 @@ namespace ooe::emu
         return b;
     }
 
-    void UsbCard::strobe(uint8_t ascii) { key_ = static_cast<uint8_t>(ascii | STROBE); }
+    void UsbCard::strobe(uint8_t ascii)
+    {
+        key_ = static_cast<uint8_t>(ascii | STROBE);
+        strobed_at_ = now_;
+    }
+
+    bool UsbCard::waiting_to_be_taken() const
+    {
+        const auto [usage, down] = pending_.front();
+        if (!down || !(key_ & STROBE) || now_ >= strobed_at_ + ms(TAKE_MS))
+            return false;
+        if (usage == DELETE && (mods_ & (L_CTRL | R_CTRL)))
+            return false; // Ctrl-Reset makes no character: never held back
+        return cooked(usage, mods_, caps_) != 0;
+    }
 
     void UsbCard::key(uint8_t usage, bool down)
     {
@@ -230,7 +244,7 @@ namespace ooe::emu
     void UsbCard::tick(uint64_t cycles)
     {
         now_ += cycles;
-        if (!pending_.empty() && now_ >= next_report_)
+        if (!pending_.empty() && now_ >= next_report_ && !waiting_to_be_taken())
         {
             const auto [usage, down] = pending_.front();
             pending_.pop_front();

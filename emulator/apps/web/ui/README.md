@@ -78,7 +78,11 @@ localStorage, never uploaded; **Eject** forgets them. **Start Apple IIe** is
 START, then `C806R` at the monitor; in Apple II mode **Ctrl-Reset** and
 **Reboot** (Ctrl-Open Apple-Reset) type the IIe's resets. Entering Apple II
 mode, by the button or `C806R` typed, switches to the Apple II scene and
-lights AMODE. The screen font is VileR's (CC BY-SA 4.0), and the page
+lights AMODE. A paste goes to whichever keyboard the screen has: on VGA and
+Apple II it is typed on the USB keyboard (US layout; letters as the card's
+Caps Lock has them), and the card holds each character until the machine
+has taken the last, so a BASIC program pasted into Applesoft arrives whole.
+The screen font is VileR's (CC BY-SA 4.0), and the page
 credits it under the front panel.
 
 ## Test it
