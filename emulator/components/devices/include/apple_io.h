@@ -24,7 +24,8 @@
  *                PAGE2, HIRES, ALTCHARSET, 80COL. Bits 0-6: the keyboard latch
  *   $C030        the speaker      $C050-$C05F  TEXT, MIXED, PAGE2, HIRES,
  *                                              AN0-AN3 (AN3 off = DHIRES on)
- *   $C061-$C063  buttons 0-2      $C064-$C067  paddle timers (bit 7)
+ *   $C061-$C063  buttons 0-2 (0 and 1 also Open and Closed Apple)
+ *   $C064-$C067  paddle timers (bit 7)
  *   $C070        trigger the 558  $C07E/$C07F  read: IOUDIS, DHIRES
  *   $C080-$C08F  the language card: bit 3 bank 1 (else 2), bits 0-1 00 read
  *                RAM, 01 read ROM and write RAM, 10 read ROM, 11 read and write

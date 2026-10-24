@@ -194,7 +194,8 @@ namespace ooe::emu
             // Level-sensitive, sampled after every instruction, as the app does.
             if (bus.irq())
                 cpu_->irq();
-            if (machine_->bus().take_reset()) // the north bridge entering Apple II mode
+            UsbCard *usb = machine_->usb_card();
+            if (machine_->bus().take_reset() || (usb && usb->take_reset())) // entering Apple II mode, Ctrl-Reset
             {
                 machine_->bus().pulse_reset();
                 cpu_->reset();
@@ -202,7 +203,7 @@ namespace ooe::emu
             }
             if (card_ && card_->take_nmi())
                 cpu_->nmi();
-            if (UsbCard *usb = machine_->usb_card(); usb && usb->take_nmi()) // Pause/Break
+            if (usb && usb->take_nmi()) // Pause/Break
                 cpu_->nmi();
             if (cpu_->cycles() >= next_service_)
             {

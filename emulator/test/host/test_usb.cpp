@@ -312,6 +312,32 @@ TEST(interrupts_pend_whatever_ien_says)
     CHECK_EQ(c.peek(UsbCard::ISR), UsbCard::IRQ_GAME);
 }
 
+TEST(ctrl_delete_is_ctrl_reset_and_gui_or_alt_are_the_apple_keys)
+{
+    Card c;
+    CHECK_EQ(c.type(DEL), 0x80 | 0x7F);           // Delete alone: DEL
+    CHECK(!c.take_reset());
+    c.read(UsbCard::KEYCLR);
+    c.key(LCTRL, true);
+    c.type(DEL);
+    CHECK(c.take_reset());                        // Ctrl-Delete: /RESET, once
+    CHECK(!c.take_reset());
+    CHECK_EQ(c.peek(UsbCard::KEY) & 0x80, 0);     // and no character
+    c.key(LCTRL, false);
+    CHECK_EQ(c.apple_keys(), 0);
+    c.key(0xE2, true);                            // left Alt: Open Apple
+    CHECK_EQ(c.apple_keys(), 1);
+    c.key(0xE7, true);                            // right GUI: Closed Apple
+    CHECK_EQ(c.apple_keys(), 3);
+    c.key(0xE2, false);
+    c.key(0xE3, true);                            // left GUI: Open Apple too
+    CHECK_EQ(c.apple_keys(), 3);
+    c.key(0xE7, false);
+    c.key(0xE3, false);
+    c.key(0xE6, true);                            // right Alt: Closed Apple
+    CHECK_EQ(c.apple_keys(), 2);
+}
+
 TEST(pause_break_pulls_nmi_only_with_kbcfg_bit_7)
 {
     Card c;

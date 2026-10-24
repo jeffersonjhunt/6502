@@ -423,6 +423,18 @@ kept Apple time; the fixed one is now kept apart. Not yet: the USB card's
 Apple keys (Open/Closed Apple, Ctrl-Reset), the video card's Apple modes,
 slot cards (the Disk II), the floating bus (reads $FF).
 
+**Apple II mode, step 4 (2026-10-24): the USB card's Apple keys.** Open
+Apple (left GUI or Alt) and Closed Apple (right GUI or Alt) are buttons 0
+and 1 at $C061/$C062, ORed with the game port's, as a IIe wires them;
+Ctrl-Delete is Ctrl-Reset: the card pulses /RESET, which Session takes and
+which keeps Apple mode. `test_iie`, with the owner's ROMs in
+`test/host/fixtures/apple2e/` (gitignored; skipped without them): the
+enhanced IIe boots to "Apple //e" and Applesoft's prompt, answers PRINT
+2+2 typed on the USB keyboard, keeps its program over Ctrl-Reset, cold
+starts on Ctrl-Open Apple-Reset, and passes its own self-test ("System
+OK") on Ctrl-Closed Apple-Reset: the north bridge's RAM, MMU and IOU as
+the IIe's diagnostics see them.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

@@ -86,6 +86,8 @@ emu_add_test(test_video)
 emu_add_test(test_usb)
 emu_add_test(test_apple)
 emu_add_test(test_session)
+emu_add_test(test_iie)
+set_tests_properties(test_iie PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600) # seconds of Apple time, five boots, under ASan
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
 
@@ -138,13 +140,17 @@ target_compile_definitions(test_rom_boot PRIVATE
 # --- the backplane BIOS -----------------------------------------------------
 #
 # Assembled by cmake/roms.cmake (apps/web embeds it too). Without cc65
-# test_bios and test_session skip.
+# test_bios and test_session skip. test_iie also needs the owner's Apple IIe
+# ROMs in fixtures/apple2e, and skips without them.
 
 set(BIOS_DIR "${EMU_BIOS_DIR}")
 target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_iie PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 

@@ -159,7 +159,8 @@ namespace ooe::emu
             const unsigned n = lo & 7;
             if (n == 0 || !usb_)
                 return 0; // cassette in
-            const uint8_t game = usb_->peek(UsbCard::GAME);
+            // Buttons 0 and 1 are Open and Closed Apple too, as a IIe wires them
+            const uint8_t game = static_cast<uint8_t>(usb_->peek(UsbCard::GAME) | usb_->apple_keys() << 4);
             const bool on = n <= 3 ? (game >> (4 + n - 1)) & 1 : (game >> (n - 4)) & 1;
             return on ? 0x80 : 0;
         }

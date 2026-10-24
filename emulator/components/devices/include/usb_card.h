@@ -47,7 +47,10 @@
  * pulls bit 3 of IRQH. Write 1s to ISR to clear. A keyboard and a mouse are
  * connected from power on (DEVICES).
  *
- * Apple II mode's addresses ($C000, $C010, ...) come with Apple II mode.
+ * In Apple II mode the IIe's addresses reach the card through the north
+ * bridge (apple_io.h): KEY, KEYCLR, SPKR, the game port, and Open and Closed
+ * Apple (apple_keys()) on buttons 0 and 1. Ctrl-Delete is the IIe's
+ * Ctrl-Reset: the card pulses /RESET (take_reset()), in either mode.
  */
 
 #include <array>
@@ -99,7 +102,7 @@ namespace ooe::emu
         static constexpr size_t FIFO_BYTES = 128;
 
         /// HID usages the card treats specially.
-        static constexpr uint8_t CAPS_LOCK = 0x39, PAUSE = 0x48, LEFT_CTRL = 0xE0;
+        static constexpr uint8_t CAPS_LOCK = 0x39, PAUSE = 0x48, DELETE = 0x4C, LEFT_CTRL = 0xE0;
 
         UsbCard() { reset(); }
         void reset();
@@ -123,6 +126,12 @@ namespace ooe::emu
         void set_game_buttons(uint8_t buttons); ///< bits 0-2
         /// Pause/Break with KBCFG bit 7: /NMI, taken once.
         bool take_nmi();
+        /// Ctrl-Delete: the card pulses the bus's /RESET (Ctrl-Reset, which Apple II
+        /// mode keeps). Taken once.
+        bool take_reset();
+        /// Open Apple (left GUI or Alt) and Closed Apple (right GUI or Alt), bits 0 and
+        /// 1, as a IIe wires them to buttons 0 and 1.
+        uint8_t apple_keys() const;
         uint64_t speaker_toggles() const { return speaker_toggles_; }
         bool caps_lock() const { return caps_; }
         uint8_t leds() const { return leds_; }
@@ -154,7 +163,7 @@ namespace ooe::emu
 
         // keyboard
         uint8_t key_{0}, mods_{0}, leds_{0}, repeat_{0x10}, kbcfg_{0};
-        bool caps_{true}, nmi_{false};
+        bool caps_{true}, nmi_{false}, reset_{false};
         std::array<uint8_t, FIFO_BYTES> fifo_{};
         size_t fifo_head_{0}, fifo_count_{0};
         uint8_t held_{0};         ///< the usage that repeats, 0 for none
