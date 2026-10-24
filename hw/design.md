@@ -501,6 +501,12 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 - **Map entries** are VERA's: tile number bits 0-7, then a byte of tile bits 8-9 (bits 0-1), H flip (bit 2), V flip
   (bit 3) and a palette offset (bits 4-7). Tile *n* is at TILEBASE + *n* x its size (32, 64, 128 or 256 bytes), row
   by row. A 4-bit tile's colour is ((entry offset + PALOFS) mod 16) x 16 + pixel; an 8-bit tile's is the pixel.
+- **Sprites:** X and Y wrap at 1024, so a sprite can start off the left or top. On each 320x240 line the
+  lowest-numbered 32 that touch it are drawn, and a lower number is in front of a higher one. Back to front:
+  the border or entry 0, depth-1 sprites, layer 0, depth-2 sprites, layer 1, depth-3 sprites. A 4-bit sprite's
+  colour is its palette offset x 16 + pixel; an 8-bit sprite's is the pixel. Images are row by row, left pixel high.
+- **Collisions:** opaque pixels of two drawn sprites on the same spot whose groups share a bit. At the vertical
+  blank after the frame, STATUS COLL holds the shared groups and ISR bit 2 is set.
 
 
 ## Sound ##

@@ -59,7 +59,17 @@
  * H and V flip, palette offset); tile n is at TILEBASE + n x its size, row
  * by row, left pixel high. A 4-bit tile's colour is (entry offset + PALOFS)
  * x 16 + pixel; an 8-bit tile's is the pixel. Scroll wraps within the
- * layer. Sprites come later.
+ * layer.
+ *
+ * Sprites (CTRL bit 3) share the tiles' 320x240 space: 64 entries of 8
+ * bytes at SPRBASE in VERA's layout (image in 64-byte units, 8-bit flag, X
+ * and Y wrapping at 1024, flips, depth, collision groups, palette offset,
+ * 8-64 pixels each way), images row by row like tiles. On each line the
+ * lowest-numbered 32 that touch it are drawn, a lower number in front.
+ * Depth places a sprite behind both layers (1), between them (2) or in
+ * front (3); 0 is off. Opaque pixels of two sprites on one spot whose
+ * groups share a bit are a collision: at the vertical blank after it,
+ * STATUS COLL holds the shared groups and ISR's collision bit is set.
  */
 
 #include <array>
@@ -143,6 +153,13 @@ namespace ooe::emu
         static uint32_t rgba(uint16_t rgb12);
 
     private:
+        static constexpr unsigned SPRITES = 64, SPRITES_PER_LINE = 32, SPRITE_WIDTH = WIDTH / 2;
+        struct SpritePixel
+        {
+            uint8_t colour{0};
+            uint8_t depth{0}; ///< 0: no sprite here
+        };
+
         struct Layer
         {
             uint8_t config{0};
@@ -164,6 +181,8 @@ namespace ooe::emu
         void draw_mono(const Layer &l, unsigned y, int16_t *line) const;
         void draw_bitmap(const Layer &l, unsigned y, int16_t *line, bool bpp8) const;
         void draw_tiles(const Layer &l, unsigned y, int16_t *line) const;
+        /// Line `ly` of the 320x240 sprite space; sprite collisions are noted for the frame.
+        void draw_sprites(unsigned ly, SpritePixel *line);
 
         const uint8_t *vram_{nullptr};
         /// Pixel clocks per CPU cycle, 32.32 fixed point: tick() is a multiply, and
@@ -177,6 +196,8 @@ namespace ooe::emu
         uint8_t palbase_{0}, live_palbase_{0};
         uint8_t sprbase_{0}, live_sprbase_{0};
         uint8_t ien_{0}, isr_{0};
+        uint8_t coll_{0};       ///< STATUS COLL: the groups in the last frame with a collision
+        uint8_t frame_coll_{0}; ///< groups that collided in the frame being drawn
         uint16_t match_line_{0};
         std::array<Layer, 2> layers_{};
 

@@ -36,6 +36,7 @@ namespace ooe::emu
         ctrl_ = border_ = 0;
         palbase_ = live_palbase_ = sprbase_ = live_sprbase_ = 0;
         ien_ = isr_ = 0;
+        coll_ = frame_coll_ = 0;
         match_line_ = 0;
         layers_ = {};
         x_ = y_ = 0;
@@ -96,7 +97,7 @@ namespace ooe::emu
         case LINE + 1:
             return hi(static_cast<uint16_t>(beam_line()));
         case STATUS:
-            return beam_line() >= HEIGHT ? IN_VBLANK : 0; // COLL comes with sprites
+            return static_cast<uint8_t>((beam_line() >= HEIGHT ? IN_VBLANK : 0) | coll_);
         case ID_REG:
             return ID;
         default:
@@ -227,6 +228,12 @@ namespace ooe::emu
         front_.swap(back_);
         ++frames_;
         isr_ |= VBLANK;
+        if (frame_coll_) // the frame just drawn had a collision
+        {
+            coll_ = frame_coll_;
+            frame_coll_ = 0;
+            isr_ |= COLLISION;
+        }
     }
 
     void VideoCard::draw_line(unsigned y)
@@ -244,14 +251,86 @@ namespace ooe::emu
         for (unsigned i = 0; i < 256; ++i)
             pal[i] = rgba(static_cast<uint16_t>((vram(base + 2 * i + 1) & 0x0F) << 8 | vram(base + 2 * i)));
 
-        std::array<int16_t, WIDTH> line;
-        line.fill(UNCOVERED);
+        // Back to front: border or entry 0, sprites at depth 1, layer 0, depth 2, layer 1, depth 3.
+        std::array<int16_t, WIDTH> l0, l1;
+        l0.fill(UNCOVERED);
+        l1.fill(UNCOVERED);
         if (ctrl_ & LAYER0_ON)
-            draw_layer(layers_[0], y, line.data());
+            draw_layer(layers_[0], y, l0.data());
         if (ctrl_ & LAYER1_ON)
-            draw_layer(layers_[1], y, line.data());
+            draw_layer(layers_[1], y, l1.data());
+        std::array<SpritePixel, SPRITE_WIDTH> spr{};
+        if (ctrl_ & SPRITES_ON)
+            draw_sprites(y / 2, spr.data());
         for (unsigned x = 0; x < WIDTH; ++x)
-            out[x] = line[x] == UNCOVERED ? pal[border_] : pal[static_cast<uint8_t>(line[x])];
+        {
+            const SpritePixel s = spr[x / 2];
+            int c = l0[x] == UNCOVERED && l1[x] == UNCOVERED ? UNCOVERED : 0;
+            if (s.depth == 1)
+                c = s.colour;
+            if (l0[x] > 0)
+                c = l0[x];
+            if (s.depth == 2)
+                c = s.colour;
+            if (l1[x] > 0)
+                c = l1[x];
+            if (s.depth == 3)
+                c = s.colour;
+            out[x] = c == UNCOVERED ? pal[border_] : pal[static_cast<uint8_t>(c)];
+        }
+    }
+
+    void VideoCard::draw_sprites(unsigned ly, SpritePixel *line)
+    {
+        // 64 entries of 8 bytes (VERA's): the lowest-numbered 32 on this line are drawn, and a
+        // lower number is in front. Collision groups (masks) record where opaque pixels overlap.
+        std::array<uint8_t, SPRITE_WIDTH> masks{};
+        const uint32_t table = uint32_t{live_sprbase_} * 1024;
+        unsigned drawn = 0;
+        for (unsigned n = 0; n < SPRITES && drawn < SPRITES_PER_LINE; ++n)
+        {
+            const uint32_t e = table + n * 8;
+            const uint8_t flags = vram(e + 6), size = vram(e + 7);
+            const unsigned depth = (flags >> 2) & 3;
+            if (!depth)
+                continue;
+            const unsigned w = 8u << ((size >> 4) & 3), h = 8u << (size >> 6);
+            const unsigned sx = (vram(e + 2) | (vram(e + 3) & 3u) << 8);
+            const unsigned sy = (vram(e + 4) | (vram(e + 5) & 3u) << 8);
+            const unsigned row = (ly - sy) & 0x3FF;
+            if (row >= h)
+                continue;
+            ++drawn;
+            const unsigned image = vram(e) | (vram(e + 1) & 0x0Fu) << 8;
+            const bool bpp8 = vram(e + 1) & 0x80;
+            const unsigned ty = flags & 0x02 ? h - 1 - row : row;
+            const uint32_t at = uint32_t{image} * 64 + ty * (bpp8 ? w : w / 2);
+            const uint8_t group = flags >> 4, palofs = size & 0x0F;
+            for (unsigned i = 0; i < w; ++i)
+            {
+                const unsigned x = (sx + i) & 0x3FF;
+                if (x >= SPRITE_WIDTH)
+                    continue;
+                const unsigned tx = flags & 0x01 ? w - 1 - i : i;
+                unsigned v;
+                if (bpp8)
+                    v = vram(at + tx);
+                else
+                {
+                    const uint8_t b = vram(at + tx / 2);
+                    v = tx & 1 ? b & 0x0F : b >> 4;
+                }
+                if (!v)
+                    continue; // transparent
+                if (masks[x] & group)
+                    frame_coll_ |= static_cast<uint8_t>(masks[x] & group);
+                masks[x] |= group;
+                if (line[x].depth)
+                    continue; // a lower-numbered sprite is already here, in front
+                line[x].colour = static_cast<uint8_t>(bpp8 ? v : (unsigned{palofs} << 4) | v);
+                line[x].depth = static_cast<uint8_t>(depth);
+            }
+        }
     }
 
     void VideoCard::draw_layer(const Layer &l, unsigned y, int16_t *line) const

@@ -477,6 +477,174 @@ TEST(tiles_over_text_transparent_where_0)
     CHECK_EQ(r.px(7, 15), rgba(WHITE));
 }
 
+namespace
+{
+    constexpr uint8_t SPR = 40;                   // the sprite table at unit 40, $8A000
+
+    /// Sprite `n`: image at 64-byte unit `image`, X, Y, flags byte 6, byte 7 (size and palette).
+    void sprite(Rig &r, unsigned n, unsigned image, bool bpp8, unsigned x, unsigned y, uint8_t b6, uint8_t b7)
+    {
+        uint8_t *e = &r.vram[SPR * 1024 + n * 8];
+        e[0] = static_cast<uint8_t>(image);
+        e[1] = static_cast<uint8_t>(image >> 8 | (bpp8 ? 0x80 : 0));
+        e[2] = static_cast<uint8_t>(x);
+        e[3] = static_cast<uint8_t>(x >> 8);
+        e[4] = static_cast<uint8_t>(y);
+        e[5] = static_cast<uint8_t>(y >> 8);
+        e[6] = b6;
+        e[7] = b7;
+    }
+    /// An 8x8 4-bit image at 64-byte unit `image`, every pixel `v`.
+    void solid8(Rig &r, unsigned image, uint8_t v) { std::fill_n(&r.vram[image * 64], 32, static_cast<uint8_t>(v << 4 | v)); }
+    constexpr uint8_t FRONT = 3 << 2, BETWEEN = 2 << 2, BEHIND = 1 << 2;
+
+    void sprites_on(Rig &r, uint8_t more = 0)
+    {
+        r.reg(VideoCard::SPRBASE, SPR);
+        r.reg(VideoCard::CTRL, static_cast<uint8_t>(VideoCard::DISPLAY | VideoCard::SPRITES_ON | more));
+    }
+} // namespace
+
+TEST(a_sprite_is_drawn_doubled_at_its_place_with_its_palette)
+{
+    Rig r;
+    r.colour(0x35, RED);
+    r.colour(0x07, GREEN);
+    solid8(r, 100, 5);
+    r.vram[100 * 64] = 0x05;                      // its (0, 0) transparent, (1, 0) colour 5
+    sprite(r, 0, 100, false, 10, 20, FRONT, 0x03); // 8x8, palette 3
+    sprites_on(r);
+    r.show();
+    CHECK_EQ(r.px(20, 40), BLACK);                // (0, 0): transparent
+    CHECK_EQ(r.px(22, 40), rgba(RED));            // (1, 0): $35, 2x2
+    CHECK_EQ(r.px(23, 41), rgba(RED));
+    CHECK_EQ(r.px(20 + 15, 40 + 15), rgba(RED));  // the far corner
+    CHECK_EQ(r.px(20 + 16, 40), BLACK);           // just past it
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY);   // sprites off
+    r.frames();
+    CHECK_EQ(r.px(22, 40), BLACK);
+    sprite(r, 0, 100, false, 10, 20, 0, 0x03);    // depth 0: off
+    sprites_on(r);
+    r.frames();
+    CHECK_EQ(r.px(22, 40), BLACK);
+    // 8 bits, 16 wide by 32 high, both flips: the image's (0, 0) lands at the far corner.
+    r.vram[200 * 64] = 0x07;
+    sprite(r, 1, 200, true, 50, 60, FRONT | 0x03, 0x10 | 0x80 | 0x0F); // 16 wide (1), 32 high (2); palette ignored at 8 bits
+    r.frames();
+    CHECK_EQ(r.px(2 * (50 + 15), 2 * (60 + 31)), rgba(GREEN));
+    CHECK_EQ(r.px(2 * 50, 2 * 60), BLACK);
+}
+
+TEST(sprites_wrap_at_1024_so_they_can_start_off_the_left)
+{
+    Rig r;
+    r.colour(0x01, WHITE);
+    solid8(r, 100, 1);
+    sprite(r, 0, 100, false, 1020, 1020, FRONT, 0x00); // 4 pixels off the left and the top
+    sprites_on(r);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(WHITE));
+    CHECK_EQ(r.px(7, 7), rgba(WHITE));            // its (7, 7) at (3, 3)
+    CHECK_EQ(r.px(8, 0), BLACK);
+}
+
+TEST(depth_puts_a_sprite_behind_between_or_in_front_of_the_layers)
+{
+    Rig r;
+    r.colour(0x01, RED);                          // layer 0: mono, all lit
+    r.colour(0x0F, WHITE);                        // layer 1: a text block at cell (0, 0)
+    r.colour(0x02, GREEN);                        // the sprite
+    for (uint32_t i = 0; i < 80 * 480; ++i)
+        r.vram[16 * 1024 + i] = 0xFF;
+    r.reg(L0 + VideoCard::CONFIG, VideoCard::MONO);
+    r.reg(L0 + VideoCard::MAPBASE, 16);
+    for (unsigned row = 0; row < 16; ++row)
+        r.glyph(0xDB, row, 0xFF);
+    r.cell(0, 0, 0xDB, 0x0F);
+    r.text(L1, VideoCard::TEXT80);
+    solid8(r, 100, 2);
+    const uint8_t layers = VideoCard::LAYER0_ON | VideoCard::LAYER1_ON;
+    sprite(r, 0, 100, false, 0, 0, BEHIND, 0x00);
+    sprites_on(r, layers);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(WHITE));            // behind both: layer 1's block...
+    CHECK_EQ(r.px(10, 10), rgba(RED));            // ...and layer 0 elsewhere
+    sprite(r, 0, 100, false, 0, 0, BETWEEN, 0x00);
+    r.frames();
+    CHECK_EQ(r.px(0, 0), rgba(WHITE));            // between: under layer 1's block
+    CHECK_EQ(r.px(10, 10), rgba(GREEN));          // over layer 0
+    sprite(r, 0, 100, false, 0, 0, FRONT, 0x00);
+    r.frames();
+    CHECK_EQ(r.px(0, 0), rgba(GREEN));            // in front of everything
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::SPRITES_ON); // no layers: the border is behind it
+    r.colour(0x09, GREY);
+    r.reg(VideoCard::BORDER, 9);
+    sprite(r, 0, 100, false, 0, 0, BEHIND, 0x00);
+    r.frames();
+    CHECK_EQ(r.px(0, 0), rgba(GREEN));
+    CHECK_EQ(r.px(100, 100), rgba(GREY));
+}
+
+TEST(lower_numbers_are_in_front_and_32_a_line_at_most)
+{
+    Rig r;
+    r.colour(0x01, RED);
+    r.colour(0x02, GREEN);
+    solid8(r, 100, 1);
+    solid8(r, 101, 2);
+    sprite(r, 0, 101, false, 4, 0, FRONT, 0x00);  // green, overlapping red by 4
+    sprite(r, 1, 100, false, 0, 0, FRONT, 0x00);  // red
+    for (unsigned n = 2; n < 40; ++n)             // 38 more on line 100: only 32 of all those on it draw
+        sprite(r, n, 100, false, 8 * n, 100, FRONT, 0x00);
+    sprites_on(r);
+    r.show();
+    CHECK_EQ(r.px(2 * 4, 0), rgba(GREEN));        // where they overlap, sprite 0 wins
+    CHECK_EQ(r.px(2 * 3, 0), rgba(RED));
+    CHECK_EQ(r.px(2 * 8 * 33, 200), rgba(RED));   // sprite 33: the 32nd on line 100 (0 and 1 are not on it)
+    CHECK_EQ(r.px(2 * 8 * 34, 200), BLACK);       // sprite 34: the 33rd, dropped
+}
+
+TEST(collisions_need_overlapping_pixels_and_a_shared_group)
+{
+    Rig r;
+    r.colour(0x01, RED);
+    solid8(r, 100, 1);
+    sprite(r, 0, 100, false, 0, 0, FRONT | 0x30, 0x00);   // groups 1 and 2 (bits 4-5)
+    sprite(r, 1, 100, false, 100, 0, FRONT | 0x60, 0x00); // groups 2 and 4, far off: no overlap
+    sprites_on(r);
+    r.reg(VideoCard::IEN, VideoCard::COLLISION);
+    r.show();
+    CHECK_EQ(r.card.peek(VideoCard::ISR) & VideoCard::COLLISION, 0);
+    CHECK(!r.card.irq());
+    sprite(r, 1, 100, false, 4, 4, FRONT | 0xC0, 0x00);   // overlapping, groups 4 and 8: none shared
+    r.frames();
+    CHECK_EQ(r.card.peek(VideoCard::ISR) & VideoCard::COLLISION, 0);
+    sprite(r, 1, 100, false, 4, 4, FRONT | 0x60, 0x00);   // overlapping, shares group 2
+    r.frames(2);
+    CHECK_EQ(r.card.peek(VideoCard::ISR) & VideoCard::COLLISION, VideoCard::COLLISION);
+    CHECK_EQ(r.card.peek(VideoCard::STATUS) & 0x0F, 0x02); // the shared group
+    CHECK(r.card.irq());
+    r.reg(VideoCard::ISR, VideoCard::COLLISION);
+    CHECK(!r.card.irq());
+}
+
+TEST(the_sprite_table_moves_at_vertical_blank)
+{
+    Rig r;
+    r.colour(0x01, RED);
+    solid8(r, 100, 1);
+    sprite(r, 0, 100, false, 0, 200, FRONT, 0x00); // low on the screen, in table 40
+    sprites_on(r);
+    r.show();
+    CHECK_EQ(r.px(0, 400), rgba(RED));
+    r.card.tick(100 * LINE);
+    r.reg(VideoCard::SPRBASE, SPR + 1);           // an empty table, mid-frame
+    r.card.tick(FRAME - 100 * LINE);
+    CHECK_EQ(r.px(0, 400), rgba(RED));            // the rest of that frame: still the old table
+    r.frames();
+    CHECK_EQ(r.px(0, 400), BLACK);
+}
+
 TEST(bases_and_scroll_wait_for_vertical_blank_memory_does_not)
 {
     Rig r;

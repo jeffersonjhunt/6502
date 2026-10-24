@@ -64,7 +64,7 @@ export function devicesView(port: MachinePort) {
       ...row("Layer 0", describeLayer(r.subarray(0x10, 0x18), (ctrl & 3) === 3)),
       ...row("Layer 1", describeLayer(r.subarray(0x20, 0x28), (ctrl & 5) === 5)),
       ...row("Palette", `${base(r[2])}  border ${r[1]}`),
-      ...row("Sprites", base(r[3])),
+      ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${base(r[3])}${r[8] & 0x0f ? ` · collided: groups $${hex(r[8] & 0x0f, 1)}` : ""}`),
       ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
       ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
     );
