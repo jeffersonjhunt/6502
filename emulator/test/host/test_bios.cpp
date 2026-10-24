@@ -10,7 +10,9 @@
  * monitor reads them, a program run with R, the read-only copy, NMI back
  * into the monitor, and the /BOOTSEL boot from an image already in RAM.
  * Then the screen (video.s): the monitor on the video card's text layer,
- * typing and backspace, scrolling by DMA, and a machine with no card.
+ * typing and backspace, scrolling by DMA, and a machine with no card. And
+ * the video demo (demo.s, C803R): tiles, sprites, scroll and fade on the
+ * card, and back to the monitor's screen as it was on a key.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -23,6 +25,7 @@
 #include "console.h"
 #include "machine.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -146,7 +149,7 @@ namespace
     };
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
-    const std::string GREETING = "\rBACKPLANE BIOS 0.2\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.3\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -276,7 +279,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.2"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.3"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -331,7 +334,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.2"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.3"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -351,6 +354,89 @@ TEST(without_a_video_card_the_bios_still_runs_the_monitor)
     b.reset();
     CHECK_EQ(b.run(BOOT), GREETING);
     CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
+}
+
+namespace
+{
+    constexpr uint64_t FRAME = 119'437;          // a video frame at 7.16 MHz
+
+    /// What the card shows now, as distinct colours.
+    size_t colours(const VideoCard &card)
+    {
+        std::vector<uint32_t> seen;
+        for (size_t i = 0; i < size_t{640} * 480; i += 7)
+            if (std::find(seen.begin(), seen.end(), card.frame()[i]) == seen.end())
+                seen.push_back(card.frame()[i]);
+        return seen.size();
+    }
+} // namespace
+
+TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    b.run(30 * FRAME, "C803R\r");               // typed, then 20-odd frames: past the fade
+    CHECK_EQ(card->peek(VideoCard::CTRL), 0x0F); // display, both layers, sprites
+    const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
+    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x22); // tiles, a 64-wide map
+    CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0x01); // the caption, text 40x30
+    CHECK_EQ(card->peek(VideoCard::SPRBASE), 36);
+    CHECK_EQ(b.bridge().window(1), 0xDD);        // flash block 29, read-only, at $4000
+    // The palette faded all the way in: the caption's white is $FFF.
+    CHECK_EQ(b.machine->bus().peek_physical(0x83400 + 2 * 15), 0xFF);
+    CHECK_EQ(b.machine->bus().peek_physical(0x83400 + 2 * 15 + 1), 0x0F);
+    CHECK(colours(*card) >= 12);                 // sky, hills, bricks, stars, balls, caption
+    // The table the DMA keeps: 12 balls between the layers, and they move.
+    auto ball0 = [&]() -> unsigned { return unsigned{b.machine->bus().peek_physical(0x89000 + 2)} | unsigned{b.machine->bus().peek_physical(0x89004)} << 16; };
+    CHECK_EQ(b.machine->bus().peek_physical(0x89000 + 11 * 8 + 6), 0x18); // the 12th: depth 2, group 1
+    CHECK_EQ(b.machine->bus().peek_physical(0x89000 + 12 * 8 + 6), 0x00); // no 13th
+    const unsigned at = ball0(), scroll = card->peek(l0 + VideoCard::HSCROLL);
+    b.run(10 * FRAME);
+    CHECK_NE(ball0(), at);
+    CHECK_EQ(static_cast<uint8_t>(card->peek(l0 + VideoCard::HSCROLL) - scroll), 10); // a pixel a frame
+}
+
+TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C680.C684\r");
+    const std::string before = b.row(5);
+    REQUIRE(before == "C680: 00 01 02 7F 7F");
+    b.run(20 * FRAME, "C803R\r");
+    REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+    const std::string out = b.run(10 * FRAME, "X");
+    CHECK(has(out, "\\"));                     // the monitor's prompt again
+    const VideoCard *card = b.machine->video_card();
+    const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
+    CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
+    CHECK_EQ(card->peek(VideoCard::PALBASE), 0);
+    CHECK_EQ(card->peek(VideoCard::SPRBASE), 0);
+    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
+    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
+    CHECK_EQ(card->peek(l0 + VideoCard::HSCROLL), 0);
+    CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0);
+    CHECK_EQ(b.bridge().window(1), 0x01);        // the windows back
+    CHECK_EQ(b.bridge().window(2), 0x02);
+    CHECK_EQ(b.row(5), before);                  // the text screen kept
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // and the monitor works
+}
+
+TEST(without_a_video_card_c803_goes_back_to_the_monitor)
+{
+    Board b(false, false);
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    const std::string out = b.run(BOOT, "C803R\r");
+    CHECK(has(out, "C803: 4C\\"));             // R shows the byte, then the prompt at once
+    CHECK_EQ(b.bridge().window(1), 0x01);
 }
 
 int main()

@@ -10,7 +10,7 @@
 import { pathToFileURL } from "node:url";
 
 const FRAME = 119318; // 7.15909 MHz / 60
-const GREETING = "\rBACKPLANE BIOS 0.2\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.3\r\\\r";
 const failures = [];
 const check = (name, ok, detail = "") => {
   if (!ok) failures.push(detail ? `${name}: ${detail}` : name);

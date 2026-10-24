@@ -11,6 +11,8 @@
 ;   4. turns on the video card's text screen (video.s), if there is one,
 ;   5. greets the terminal and enters the Woz Monitor.
 ;
+; $C800 is reset and $C803 the video demo: C803R from the monitor.
+;
 ; When the bus spy has loaded RAM and held /BOOTSEL, the reset map already
 ; has W3 on RAM block 63; the copy then copies the RAM onto itself, which is
 ; harmless, so one image serves both boots.
@@ -20,7 +22,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, VINIT
+.import WOZMON, ECHO, VINIT, DEMO
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -29,6 +31,10 @@ BLOCK63 = 63                           ; RAM block 63: physical $FC000-$FFFFF
 BLOCK2  = 2
 
 .segment "CODE"
+
+; Entry points at fixed addresses, for the monitor (nnnnR) and programs.
+ENTRY:          JMP     RESET          ; $C800: reset, as the vector does
+                JMP     DEMO           ; $C803: the video demo (video.s, demo.s)
 
 RESET:
                 SEI
@@ -75,9 +81,9 @@ MONITOR:        JMP     WOZMON
 
 IRQ:            RTI
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.2", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.3", $0D, 0
 
 .segment "VECTORS"
                 .word   WOZMON         ; NMI
-                .word   RESET          ; RESET
+                .word   ENTRY          ; RESET, through $C800
                 .word   IRQ            ; IRQ/BRK
