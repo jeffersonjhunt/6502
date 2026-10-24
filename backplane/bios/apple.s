@@ -12,6 +12,9 @@
 ; thing done, inline: no subroutine returns after it. It is four 64 KB DMA
 ; fills from a zero byte held as the source, about 75 ms.
 ;
+; The IIe's character ROM goes to video memory too (CHARS), from the
+; cartridge's $84000 or, without one, made from the VGA font.
+;
 ; With no IIe ROM in the cartridge, or no DMA controller, it says so and
 ; goes back to the monitor.
 
@@ -27,6 +30,15 @@ ZERO_BLOCK = 58                        ; $E8000-$EBFFF: the fill's zero byte at 
 ZERO_PHYS = $EBFFF
 SRC       = $00                        ; copy pointers (as the boot copy uses them)
 DST       = $02
+CODE      = $04                        ; CHARS's
+TMP       = $05
+FPTR      = $06
+DPTR      = $08
+CART_CHARS = NB_ROM | NB_RO | 33       ; the cartridge's $84000: the character ROM
+CHARS_BLOCK = 47                       ; RAM block 47: $BC000-$BFFFF
+CHARS_CPU = $A000                      ; $BE000 through W2
+VGA_BLOCK = 32                         ; RAM block 32: video memory's start, the VGA font at unit 1
+VGA_FONT  = $4400
 
 .segment "APPLE"
 
@@ -63,6 +75,8 @@ APPLE:
                 CMP     #>(CART_CPU + $4000)
                 BNE     @copy
 
+                JSR     CHARS          ; the character ROM into video memory
+
                 SEI
                 LDA     #ZERO_BLOCK    ; the fill's source: one zero byte
                 STA     NB_WIN2
@@ -96,6 +110,103 @@ APPLE:
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
 @reset:         BRA     @reset         ; ...which takes the CPU from here
+
+; The IIe's character ROM, 2 KB, into video memory at $BE000, where the
+; video card draws Apple text from (video_card.h). From the cartridge at
+; $84000 if one is there; else made from the BIOS's VGA font, so Apple text
+; still shows: each glyph's 16 rows folded to 8 (two ORed), its 7 left dots
+; reversed into the IIe's order (bit 0 leftmost), and normal codes ($80 up)
+; stored inverted, lit where 0, as the real ROM does.
+CHARS:
+                LDA     #CHARS_BLOCK   ; $BC000-$BFFFF through W2: $BE000 is $A000
+                STA     NB_WIN2
+                LDA     #CART_CHARS    ; the cartridge's $84000 through W1
+                STA     NB_WIN1
+                LDX     #7
+@probe:         LDA     CART_CPU,X     ; erased flash: all $FF
+                CMP     #$FF
+                BNE     @copy
+                DEX
+                BPL     @probe
+                BRA     @make
+@copy:          STZ     SRC
+                STZ     DST
+                LDA     #>CART_CPU
+                STA     SRC+1
+                LDA     #>CHARS_CPU
+                STA     DST+1
+                LDX     #8             ; 2 KB
+                LDY     #0
+@page:          LDA     (SRC),Y
+                STA     (DST),Y
+                INY
+                BNE     @page
+                INC     SRC+1
+                INC     DST+1
+                DEX
+                BNE     @page
+                BRA     @done
+
+@make:          LDA     #VGA_BLOCK     ; the VGA font (video memory unit 1) through W1: $4400
+                STA     NB_WIN1
+                STZ     CODE
+                STZ     DPTR
+                LDA     #>CHARS_CPU
+                STA     DPTR+1
+@code:          LDA     CODE           ; the ASCII it shows: $00-$1F and $80-$9F are capitals
+                AND     #$7F
+                CMP     #$20
+                BCS     @ascii
+                ORA     #$40
+@ascii:         STA     FPTR           ; FPTR = $4400 + ASCII x 16
+                STZ     FPTR+1
+                LDX     #4
+@x16:           ASL     FPTR
+                ROL     FPTR+1
+                DEX
+                BNE     @x16
+                LDA     FPTR+1
+                CLC
+                ADC     #>VGA_FONT
+                STA     FPTR+1
+                LDX     #0             ; the glyph's 8 rows
+@row:           TXA
+                ASL     A
+                TAY
+                LDA     (FPTR),Y       ; two VGA rows, ORed
+                INY
+                ORA     (FPTR),Y
+                STA     TMP
+                LDY     #7
+@rev:           ASL     TMP            ; VGA bit 7 (leftmost) becomes bit 0
+                ROR     A
+                DEY
+                BNE     @rev
+                LSR     A
+                BIT     CODE
+                BPL     @store         ; inverse and flashing codes: lit where 1
+                EOR     #$FF           ; normal: lit where 0
+@store:         PHA
+                TXA
+                TAY
+                PLA
+                STA     (DPTR),Y
+                INX
+                CPX     #8
+                BNE     @row
+                LDA     DPTR
+                CLC
+                ADC     #8
+                STA     DPTR
+                BCC     @next
+                INC     DPTR+1
+@next:          INC     CODE
+                BNE     @code
+@done:          LDA     #1
+                STA     NB_WIN1
+                LDA     #2
+                STA     NB_WIN2
+                RTS
 
 NODMA_SAY:      LDX     #NODMA - MESSAGES
                 BRA     SAY

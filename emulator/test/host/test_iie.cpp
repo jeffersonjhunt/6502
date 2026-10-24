@@ -16,8 +16,10 @@
 #include "backplane_bridge.h"
 #include "session.h"
 #include "usb_card.h"
+#include "video_card.h"
 
 #include <fstream>
+#include <iterator>
 #include <string>
 
 using namespace ooe::test;
@@ -27,6 +29,7 @@ namespace
 {
     const std::string ROMS = EMU_FIXTURE_DIR "/apple2e/";
     const std::string IIE = ROMS + "iie-enhanced-c000-ffff.bin";
+    const std::string CHARS = ROMS + "iie-video-enhanced-342-0265-a.bin";
     constexpr uint64_t FRAME = 17'030; // an Apple frame of cycles
 
     bool have(const std::string &path) { return std::ifstream(path).good(); }
@@ -38,6 +41,7 @@ namespace
             std::string error;
             Session::Config c{EMU_MACHINE_DIR "/backplane.machine", EMU_BIOS_ROM, ""};
             c.apple_rom = {rom};
+            c.apple_chars = CHARS;
             s = Session::create(c, error);
             if (!s)
             {
@@ -81,6 +85,9 @@ namespace
                 std::printf("  %2u |%s|\n", r, row(r).c_str());
         }
 
+        /// The video card's pixel for Apple dot (x, y) (2x2 each, from 40, 48).
+        uint32_t dot(unsigned x, unsigned y) const { return s->video()->frame()[(48 + y * 2) * 640 + 40 + x * 2]; }
+
         /// Type on the USB keyboard, at a person's pace.
         void type(const std::string &text)
         {
@@ -107,6 +114,8 @@ namespace
                     usage = 0x36;
                 else if (ch == '"')
                     usage = 0x34, shift = true;
+                else if (ch == ':')
+                    usage = 0x33, shift = true;
                 if (shift)
                     usb->queue_key(0xE1, true);
                 usb->queue_key(usage, true);
@@ -204,6 +213,63 @@ TEST(ctrl_closed_apple_reset_runs_the_self_test)
     CHECK(e.screen_has("System OK"));               // every chip it checks, passed: RAM, MMU, IOU, ROM
     if (!e.screen_has("System OK"))
         e.dump();
+}
+
+TEST(the_boot_screen_drawn_from_the_real_character_rom)
+{
+    IIe e;
+    REQUIRE(e.ok());
+    std::ifstream in(CHARS, std::ios::binary);
+    const std::string rom((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(rom.size() == 0x1000);
+    const uint32_t white = VideoCard::rgba(0xFFF), black = VideoCard::rgba(0x000);
+    size_t wrong = 0, lit = 0;
+    const std::string banner = "Apple //e";
+    for (size_t i = 0; i < banner.size(); ++i)        // row 0, from column 15: normal characters ($80 up)
+    {
+        const unsigned code = 0x80u | static_cast<unsigned char>(banner[i]);
+        for (unsigned r = 0; r < 8; ++r)
+            for (unsigned b = 0; b < 7; ++b)
+            {
+                const bool on = !((static_cast<uint8_t>(rom[code * 8 + r]) >> b) & 1);
+                lit += on;
+                wrong += e.dot(static_cast<unsigned>((15 + i) * 7 + b), r) != (on ? white : black);
+            }
+    }
+    CHECK(lit > 50);
+    CHECK_EQ(wrong, size_t{0});
+}
+
+TEST(gr_and_plot_on_the_lores_screen)
+{
+    IIe e;
+    REQUIRE(e.ok());
+    e.type("GR\r");
+    e.type("COLOR=1\r");                             // magenta
+    e.type("PLOT 0,0\r");
+    e.type("COLOR=12\r");                            // green
+    e.type("PLOT 39,39\r");
+    e.run(4 * FRAME);
+    CHECK_EQ(e.dot(0, 0), VideoCard::rgba(0xE26));
+    CHECK_EQ(e.dot(6, 3), VideoCard::rgba(0xE26));    // the whole 7x4 block
+    CHECK_EQ(e.dot(7, 0), VideoCard::rgba(0x000));
+    CHECK_EQ(e.dot(39 * 7, 39 * 4), VideoCard::rgba(0x1F4));
+    CHECK(e.screen_has("]PLOT 39,39"));               // GR is mixed: the text window under it
+}
+
+TEST(hgr_and_hplot_on_the_hires_screen)
+{
+    IIe e;
+    REQUIRE(e.ok());
+    e.type("HGR\r");
+    e.type("HCOLOR=3\r");                            // white
+    e.type("HPLOT 0,0 TO 279,0\r");
+    e.run(4 * FRAME);
+    size_t white = 0;
+    for (unsigned x = 0; x < 280; ++x)
+        white += e.dot(x, 0) == VideoCard::rgba(0xFFF);
+    CHECK(white > 270);                               // a white line across the top (the ends can fringe)
+    CHECK_EQ(e.dot(140, 1), VideoCard::rgba(0x000));
 }
 
 int main()

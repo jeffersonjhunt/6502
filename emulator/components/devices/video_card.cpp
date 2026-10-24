@@ -6,6 +6,8 @@
 
 #include "video_card.h"
 
+#include "backplane_bridge.h"
+
 #include <cstdio>
 
 namespace ooe::emu
@@ -239,6 +241,11 @@ namespace ooe::emu
     void VideoCard::draw_line(unsigned y)
     {
         uint32_t *out = &back_[static_cast<size_t>(y) * WIDTH];
+        if (bridge_ && bridge_->apple())
+        {
+            draw_apple(y, out); // the IIe's display; the native registers are out of reach
+            return;
+        }
         if (!(ctrl_ & DISPLAY))
         {
             for (unsigned x = 0; x < WIDTH; ++x)
@@ -455,6 +462,104 @@ namespace ooe::emu
                 const uint8_t b = vram(at + (ty * size + tx) / 2);
                 put(line[x], tx & 1 ? b & 0x0F : b >> 4, static_cast<uint8_t>(((hi >> 4) + l.palofs) & 0x0F));
             }
+        }
+    }
+
+    namespace
+    {
+        /// The IIe's 16 lo-res colours (the hi-res ones are among them), in 12 bits.
+        constexpr std::array<uint16_t, 16> LORES = {0x000, 0xE26, 0x65B, 0xF4F, 0x0A6, 0x999, 0x1CF, 0xDCF,
+                                                    0x670, 0xF64, 0x999, 0xFAD, 0x1F4, 0xDD9, 0x7FD, 0xFFF};
+        constexpr unsigned VIOLET = 3, GREEN = 12, BLUE = 6, ORANGE = 9, WHITE = 15;
+        constexpr unsigned APPLE_LEFT = (VideoCard::WIDTH - 560) / 2, APPLE_TOP = (VideoCard::HEIGHT - 384) / 2;
+
+        /// Text and lo-res row r's offset in a page; hi-res line a's.
+        uint16_t text_row(unsigned r) { return static_cast<uint16_t>((r & 7) * 0x80 + (r >> 3) * 0x28); }
+        uint16_t hires_line(unsigned a)
+        {
+            return static_cast<uint16_t>((a & 7) * 0x400 + ((a >> 3) & 7) * 0x80 + (a >> 6) * 0x28);
+        }
+    } // namespace
+
+    void VideoCard::draw_apple(unsigned y, uint32_t *out) const
+    {
+        const uint32_t black = rgba(0x000);
+        for (unsigned x = 0; x < WIDTH; ++x)
+            out[x] = black;
+        if (y < APPLE_TOP || y >= APPLE_TOP + 384)
+            return;
+        const unsigned a = (y - APPLE_TOP) / 2; // the Apple's line, 0-191
+        const AppleSwitches &s = bridge_->apple_switches();
+        const bool page2 = s.page2 && !s.store80;
+        uint32_t *px = out + APPLE_LEFT;
+
+        if (s.text || (s.mixed && a >= 160))
+        {
+            const uint16_t row = static_cast<uint16_t>((page2 ? 0x0800 : 0x0400) + text_row(a / 8));
+            const bool flash_on = (frames_ / BLINK_FRAMES) & 1;
+            const uint32_t on = rgba(LORES[WHITE]);
+            auto dots = [&](uint8_t code) {
+                unsigned idx = code;
+                if (!s.altchar && code >= 0x40 && code < 0x80) // flashing: inverse, then normal
+                    idx = flash_on ? (code & 0x3Fu) | 0x80 : code & 0x3Fu;
+                return static_cast<uint8_t>(~vram(APPLE_CHARS + idx * 8 + a % 8)); // lit where 0
+            };
+            if (s.col80)
+            {
+                for (unsigned col = 0; col < 80; ++col)
+                {
+                    const uint8_t d = dots(apple(col & 1 ? 0 : 1, static_cast<uint16_t>(row + col / 2)));
+                    for (unsigned b = 0; b < 7; ++b)
+                        px[col * 7 + b] = (d >> b) & 1 ? on : black;
+                }
+            }
+            else
+            {
+                for (unsigned col = 0; col < 40; ++col)
+                {
+                    const uint8_t d = dots(apple(0, static_cast<uint16_t>(row + col)));
+                    for (unsigned b = 0; b < 7; ++b)
+                        px[col * 14 + b * 2] = px[col * 14 + b * 2 + 1] = (d >> b) & 1 ? on : black;
+                }
+            }
+            return;
+        }
+        if (!s.hires) // lo-res: two blocks a byte, the low nibble on top
+        {
+            const uint16_t row = static_cast<uint16_t>((page2 ? 0x0800 : 0x0400) + text_row(a / 8));
+            for (unsigned col = 0; col < 40; ++col)
+            {
+                const uint8_t b = apple(0, static_cast<uint16_t>(row + col));
+                const uint32_t c = rgba(LORES[(a & 4) ? b >> 4 : b & 0x0F]);
+                for (unsigned i = 0; i < 14; ++i)
+                    px[col * 14 + i] = c;
+            }
+            return;
+        }
+        // hi-res: 7 dots a byte, bit 0 first; bit 7 delays them half a dot
+        const uint16_t line = static_cast<uint16_t>((page2 ? 0x4000 : 0x2000) + hires_line(a));
+        std::array<bool, 282> dot{}; // one each side, off
+        std::array<bool, 40> shift{};
+        for (unsigned col = 0; col < 40; ++col)
+        {
+            const uint8_t b = apple(0, static_cast<uint16_t>(line + col));
+            shift[col] = b & 0x80;
+            for (unsigned i = 0; i < 7; ++i)
+                dot[1 + col * 7 + i] = (b >> i) & 1;
+        }
+        for (unsigned d = 0; d < 280; ++d)
+        {
+            if (!dot[1 + d])
+                continue;
+            const bool hi = shift[d / 7];
+            unsigned c = WHITE;
+            if (!dot[d] && !dot[2 + d]) // a lone dot: its colour from where it falls
+                c = d & 1 ? (hi ? ORANGE : GREEN) : (hi ? BLUE : VIOLET);
+            const uint32_t rgb = rgba(LORES[c]);
+            const unsigned x = d * 2 + (hi ? 1 : 0);
+            px[x] = rgb;
+            if (x + 1 < 560)
+                px[x + 1] = rgb;
         }
     }
 

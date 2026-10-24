@@ -51,7 +51,8 @@ namespace
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.
     struct Board
     {
-        explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {})
+        explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
+                       std::string apple_chars = "")
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
             if (!video)
@@ -74,6 +75,7 @@ namespace
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
             opt.apple_rom = std::move(apple_rom);
+            opt.apple_chars = std::move(apple_chars);
             std::string error;
             machine = Machine::build(text, "backplane.machine", opt, error);
             if (machine)
@@ -197,7 +199,7 @@ namespace
     };
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
-    const std::string GREETING = "\rBACKPLANE BIOS 0.5\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.6\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -327,7 +329,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.5"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.6"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -382,7 +384,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.5"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.6"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -665,6 +667,50 @@ TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
     CHECK(error.find("rom_b") != std::string::npos);
     for (const char *f : {"test_cart.rom", "test_cd.rom", "test_ef.rom", "test_chars.rom", "test_bad.rom"})
         std::remove(f);
+}
+
+TEST(c806_puts_the_character_rom_in_video_memory_or_makes_one_from_the_vga_font)
+{
+    const std::string rom = fake_iie_rom("test_chars_iie.rom");
+    {
+        std::string chars(0x1000, '\0');
+        for (size_t i = 0; i < chars.size(); ++i)
+            chars[i] = static_cast<char>(i * 3 + 1);
+        std::ofstream("test_chars.chr", std::ios::binary) << chars;
+    }
+    Board with(false, true, {rom}, "test_chars.chr");
+    Board without(false, true, {rom});
+    std::remove("test_chars.chr");
+    std::remove(rom.c_str());
+    REQUIRE(with.ok() && without.ok());
+    for (Board *b : {&with, &without})
+    {
+        b->reset();
+        b->run(BOOT);
+        b->run(2 * BOOT, "C806R\r");
+    }
+    size_t differ = 0;
+    for (uint32_t i = 0; i < 0x800; ++i)
+        differ += with.machine->bus().peek_physical(0xBE000 + i) != static_cast<uint8_t>(i * 3 + 1);
+    CHECK_EQ(differ, size_t{0});                                // the cartridge's, its first 2 KB
+    // Without one: each glyph from the VGA font (video memory unit 1), 16 rows folded to 8,
+    // 7 dots reversed, normal codes inverted. Check A both ways: $C1 normal, $01 inverse.
+    Decoder &bus = without.machine->bus();
+    size_t wrong = 0;
+    for (unsigned r = 0; r < 8; ++r)
+    {
+        const uint8_t vga = bus.peek_physical(0x80400 + 'A' * 16 + 2 * r) | bus.peek_physical(0x80400 + 'A' * 16 + 2 * r + 1);
+        uint8_t dots = 0;
+        for (unsigned b = 0; b < 7; ++b)
+            dots = static_cast<uint8_t>(dots | ((vga >> (7 - b)) & 1) << b);
+        wrong += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
+        wrong += bus.peek_physical(0xBE000 + 0x01 * 8 + r) != dots;
+    }
+    CHECK_EQ(wrong, size_t{0});
+    size_t blank = 0;
+    for (unsigned r = 0; r < 8; ++r)
+        blank += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) == 0xFF;
+    CHECK(blank < 8);                                           // something to see: A is not empty
 }
 
 int main()
