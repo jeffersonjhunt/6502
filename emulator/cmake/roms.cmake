@@ -16,7 +16,7 @@ if(EMU_CA65 AND EMU_LD65)
     file(MAKE_DIRECTORY "${EMU_BIOS_DIR}")
     set(objs "")
     file(GLOB demo_assets "${EMU_BIOS_SRC}/demo/*.bin")
-    foreach(src bios wozmon video input demo)
+    foreach(src bios wozmon video input apple demo)
         add_custom_command(
                 OUTPUT "${EMU_BIOS_DIR}/${src}.o"
                 COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" --bin-include-dir "${EMU_BIOS_SRC}"

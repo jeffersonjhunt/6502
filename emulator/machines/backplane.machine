@@ -12,6 +12,11 @@
 # it), with the BIOS in its top 16 KB: block 31, $7C000-$7FFFF. The CPU
 # sees $C800-$FFFF of it; $C000-$C7FF is the I/O hole.
 #
+# ROM B (module 5) is the cartridge, erased flash until something is
+# plugged in: `emulator --apple-rom FILE` (the owner's Apple IIe ROM, 16 KB,
+# or CD,EF) puts a IIe ROM at its start, for the BIOS's C806R to copy into
+# bank E before entering Apple II mode.
+#
 # The DMA controller (module 8, $C400) takes the bus from the CPU for its
 # transfers; CONTROL starts at $70, so software turns it on. No card that
 # requests DMA is modelled yet; memory-to-memory copies work.
@@ -42,6 +47,7 @@ ram   40000-7FFFF  module=1  name=ram_b
 ram   80000-BFFFF  module=2  name=ram_c
 ram   C0000-FFFFF  module=3  name=ram_d
 rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
+rom   80000-FFFFF  space=flash  module=5  name=rom_b  -   # the cartridge: empty unless --apple-rom
 
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
 dma       400-47F  space=io  name=dma  irq

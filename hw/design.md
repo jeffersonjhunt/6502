@@ -242,7 +242,8 @@ window registers.
 7. *(Emulator BIOS 0.3.)* The BIOS turns on an 80x30 text screen: an 8x16 font from flash block 30, a 16-colour
    palette, and layer 0 in video memory, so the monitor shows on VGA as well as the serial line. It starts with
    fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29. *(BIOS 0.4.)* The monitor takes keys
-   from the serial line or the USB keyboard, and Pause/Break breaks into it.
+   from the serial line or the USB keyboard, and Pause/Break breaks into it. *(BIOS 0.5.)* `$C806` enters Apple II
+   mode, with the IIe ROM image taken from the cartridge (ROM B).
 
 **From the ESP32 (override)**
 

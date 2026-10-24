@@ -18,7 +18,7 @@ namespace ooe::emu
         const char *TAG = "rom";
     } // namespace
 
-    bool Rom::load(const std::string &path)
+    bool Rom::load(const std::string &path, size_t at)
     {
         std::ifstream in(path, std::ios::binary);
         if (!in)
@@ -27,13 +27,13 @@ namespace ooe::emu
             return false;
         }
         const std::vector<char> image((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (image.size() > mem_.size())
+        if (at > mem_.size() || image.size() > mem_.size() - at)
         {
-            EMU_LOGE(TAG, "%s: %zu bytes, but the ROM is %zu", path.c_str(), image.size(), mem_.size());
+            EMU_LOGE(TAG, "%s: %zu bytes at %zu, but the ROM is %zu", path.c_str(), image.size(), at, mem_.size());
             return false;
         }
         for (size_t i = 0; i < image.size(); ++i)
-            mem_[i] = static_cast<uint8_t>(image[i]);
+            mem_[at + i] = static_cast<uint8_t>(image[i]);
         EMU_LOGI(TAG, "loaded %s (%zu bytes)", path.c_str(), image.size());
         return true;
     }

@@ -62,6 +62,13 @@ per opcode for each CPU (~7 MB on disk); `--cases 1000` is ~69 MB and still
 quick to fetch. Fixtures are format 2 (with bus cycles) since Phase 4; older
 ones fail with "re-run tools/fetch_fixtures.py".
 
+**Apple IIe ROMs** are Apple's copyright and are never fetched or vendored.
+To run the Apple II mode tests that need them, put your own in
+`fixtures/apple2e/` (gitignored with the rest): the 16 KB main ROM
+(`$C000-$FFFF`, or the two 8 KB halves) and, optionally, the 4 or 8 KB video
+character ROM. Without them those tests skip; everything else uses a
+stand-in ROM the tests write themselves.
+
 ## Things to know
 
 - **Everything gets the same flags.** Code under test and tests alike build

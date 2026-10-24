@@ -60,10 +60,12 @@ namespace ooe::emu
         }
 
         /**
-         * @brief Fill from an image file, from offset 0
-         * @return false (and log why) if it cannot be read or is larger than the ROM
+         * @brief Fill from an image file, from offset `at`
+         * @return false (and log why) if it cannot be read or does not fit
          */
-        bool load(const std::string &path);
+        bool load(const std::string &path, size_t at = 0);
+        /// Erased flash: every byte $FF.
+        void erase() { mem_.assign(mem_.size(), 0xFF); }
 
     private:
         std::vector<uint8_t> mem_;

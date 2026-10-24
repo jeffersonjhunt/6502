@@ -14,7 +14,9 @@
  * the video demo (demo.s, C803R): tiles, sprites, scroll and fade on the
  * card, and back to the monitor's screen as it was on a key. And the USB
  * keyboard (input.s): the monitor takes keys from it, Pause/Break breaks
- * in, and a USB key ends the demo.
+ * in, and a USB key ends the demo. And Apple II mode's way in (apple.s,
+ * C806R), with a stand-in for the owner's IIe ROM: these tests never need
+ * Apple's.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -49,7 +51,7 @@ namespace
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.
     struct Board
     {
-        explicit Board(bool bootsel = false, bool video = true)
+        explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {})
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
             if (!video)
@@ -71,6 +73,7 @@ namespace
             }
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
+            opt.apple_rom = std::move(apple_rom);
             std::string error;
             machine = Machine::build(text, "backplane.machine", opt, error);
             if (machine)
@@ -189,7 +192,7 @@ namespace
     };
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
-    const std::string GREETING = "\rBACKPLANE BIOS 0.4\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.5\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -319,7 +322,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.4"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.5"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -374,7 +377,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.4"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.5"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -535,6 +538,120 @@ TEST(a_usb_key_ends_the_demo)
     CHECK(has(out, "\\"));
     CHECK_EQ(b.machine->video_card()->peek(VideoCard::CTRL), 0x03);
     CHECK_EQ(b.bridge().window(1), 0x01);
+}
+
+namespace
+{
+    /// A stand-in for the owner's IIe ROM: 16 KB as at $C000-$FFFF, a IIe's
+    /// ID byte at $FBB3, a reset vector, and a pattern to recognise it by.
+    std::string fake_iie_rom(const std::string &path, uint8_t id = 0x06)
+    {
+        std::string image(0x4000, '\0');
+        for (size_t i = 0; i < image.size(); ++i)
+            image[i] = static_cast<char>(i * 13 + 5);
+        image[0xFBB3 - 0xC000] = static_cast<char>(id);
+        image[0xFFFC - 0xC000] = 0x62; // $FA62, the IIe's reset
+        image[0xFFFD - 0xC000] = static_cast<char>(0xFA);
+        std::ofstream(path, std::ios::binary) << image;
+        return path;
+    }
+} // namespace
+
+TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    const std::string out = b.run(BOOT, "C806R\r");
+    CHECK(has(out, "NO APPLE IIE ROM IN THE CARTRIDGE\\"));  // then the monitor's prompt
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));          // the monitor carries on
+    const std::string plus = fake_iie_rom("test_ii_plus.rom", 0xEA); // an Apple II Plus's ROM: not a IIe's
+    Board p(false, true, {plus});
+    std::remove(plus.c_str());
+    REQUIRE(p.ok());
+    p.reset();
+    p.run(BOOT);
+    CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN THE CARTRIDGE\\"));
+}
+
+TEST(c806_copies_the_iie_rom_to_bank_e_clears_banks_0_to_3_and_writes_mode)
+{
+    const std::string rom = fake_iie_rom("test_fake_iie.rom");
+    Board b(false, true, {rom});
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    for (uint32_t a : {0x10000u, 0x2ABCDu, 0x3FFFFu, 0x0C000u})
+        bus.write_physical(a, 0x5A);                          // something to clear
+    REQUIRE(bus.peek_physical(0x2ABCD) == 0x5A);
+    const std::string flash = read_file(EMU_BIOS_ROM);
+    b.run(2 * BOOT, "C806R\r");
+    size_t differ = 0;
+    for (uint32_t i = 0; i < 0x4000; ++i)
+        differ += bus.peek_physical(0xEC000 + i) != static_cast<uint8_t>(i * 13 + 5) &&
+                  i != 0xFBB3 - 0xC000 && i != 0xFFFC - 0xC000 && i != 0xFFFD - 0xC000;
+    CHECK_EQ(differ, size_t{0});                               // the IIe ROM, in bank E
+    CHECK_EQ(bus.peek_physical(0xEFFFC), 0x62);
+    size_t left = 0;
+    for (uint32_t a = 0; a < 0x40000; a += 0x101)
+        left += bus.peek_physical(a) != 0;
+    CHECK_EQ(left, size_t{0});                                 // banks 0-3: all zero
+    CHECK_EQ(bus.peek_physical(0x3FFFF), 0);
+    CHECK_EQ(bus.peek_physical(0x40000 + 0x1234), 0);          // bank 4 untouched (it was 0 anyway)
+    CHECK_EQ(bus.peek_physical(0xFC800), static_cast<uint8_t>(flash[0x7C800])); // the BIOS's own copy kept
+    const unsigned at = label(read_file(EMU_BIOS_ROM ".lbl"), "APPLE");
+    CHECK(b.cpu->regs().pc > at && b.cpu->regs().pc < at + 0x100); // waiting for the reset MODE pulses
+}
+
+TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
+{
+    std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
+    std::string error;
+    const std::string rom = fake_iie_rom("test_cart.rom");
+    {
+        std::ofstream("test_cd.rom", std::ios::binary) << read_file(rom).substr(0, 0x2000);
+        std::ofstream("test_ef.rom", std::ios::binary) << read_file(rom).substr(0x2000);
+        std::ofstream("test_chars.rom", std::ios::binary) << std::string(0x1000, '\x11');
+        std::ofstream("test_bad.rom", std::ios::binary) << std::string(0x3000, '\0');
+    }
+    auto build = [&](std::vector<std::string> parts, std::string chars = "") {
+        MachineOptions opt;
+        opt.rom_override = EMU_BIOS_ROM;
+        opt.apple_rom = std::move(parts);
+        opt.apple_chars = std::move(chars);
+        error.clear();
+        return Machine::build(text, "backplane.machine", opt, error);
+    };
+    auto whole = build({rom});
+    REQUIRE(whole != nullptr);
+    auto halves = build({"test_cd.rom", "test_ef.rom"}, "test_chars.rom");
+    REQUIRE(halves != nullptr);
+    size_t differ = 0;
+    Device *a = whole->find("rom_b"), *c = halves->find("rom_b");
+    REQUIRE(a != nullptr && c != nullptr);
+    for (uint32_t i = 0; i < 0x4000; ++i)
+        differ += a->peek(i) != c->peek(i);
+    CHECK_EQ(differ, size_t{0});
+    CHECK_EQ(c->peek(0x4000), 0x11);                           // the character ROM at $4000
+    CHECK_EQ(a->peek(0x4000), 0xFF);                           // erased without one
+    CHECK_EQ(a->peek(0x7FFFF), 0xFF);
+    CHECK(build({"test_bad.rom"}) == nullptr);
+    CHECK(error.find("want 16 KB") != std::string::npos);
+    CHECK(build({rom}, "test_bad.rom") == nullptr);
+    CHECK(error.find("4 or 8 KB") != std::string::npos);
+    CHECK(build({"no_such.rom"}) == nullptr);
+    CHECK(error.find("no_such.rom") != std::string::npos);
+    const size_t at = text.find("\nrom   80000");
+    REQUIRE(at != std::string::npos);
+    text.erase(at + 1, text.find('\n', at + 1) - at);
+    CHECK(build({rom}) == nullptr);
+    CHECK(error.find("rom_b") != std::string::npos);
+    for (const char *f : {"test_cart.rom", "test_cd.rom", "test_ef.rom", "test_chars.rom", "test_bad.rom"})
+        std::remove(f);
 }
 
 int main()

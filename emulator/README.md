@@ -81,6 +81,12 @@ to the copy, turns on the video card's 80x30 text screen (IBM VGA font,
 CGA colours) and starts the Woz Monitor on the 6551; everything the monitor
 prints goes to the screen as well (`--screen FILE` to see it). Its font is
 CC BY-SA 4.0, not MIT: `../backplane/bios/font/README.md`.
+`--apple-rom FILE` plugs your own Apple IIe ROM into the cartridge (ROM B): one
+16 KB file of `$C000-$FFFF`, or the two 8 KB halves as `CD,EF`; `--apple-chars
+FILE` adds its 4 or 8 KB character ROM. `C806R` at the monitor copies the ROM
+into bank E and enters Apple II mode (in progress: docs/EMULATOR_PLAN.md).
+Apple's ROMs are copyrighted: nothing here ships them.
+
 `C803R` at the monitor runs the video demo from flash (`../backplane/bios/demo.s`):
 a scrolling tile landscape, twelve bouncing sprites whose table is copied by DMA
 every vertical blank, a caption layer and a palette fade. Any key goes back to

@@ -17,7 +17,8 @@
  *   rom      8000-FFFF               ibasic.rom
  *   pia6821  D010-D013  name=terminal
  *
- * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq=N] [irq] [image]`.
+ * `<type> <first>-<last> [space=S] [name=ID] [module=0-F] [wait=N] [drq=N] [irq] [image]`;
+ * a rom's image `-` is erased flash, all $FF (an empty cartridge).
  * Addresses are hex, optionally with a `$`, within the space: memory (the
  * default, A0-A19), flash (ROM A then ROM B) or io (the I/O hole, 000-7FF,
  * whose mappings take the module ID of their 128-byte block unless
@@ -67,6 +68,12 @@ namespace ooe::emu
     {
         /// If set, replaces the image of the first `rom` line.
         std::string rom_override;
+        /// An Apple IIe ROM for the cartridge (the rom line named `rom_b`), at its
+        /// start: one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
+        /// Apple's ROMs are copyrighted: the owner supplies them.
+        std::vector<std::string> apple_rom;
+        /// The IIe's video character ROM (4 or 8 KB), at cartridge offset $4000.
+        std::string apple_chars;
         /// North bridge for the decoder; nullptr = the description's
         /// (`northbridge` line), or A16-A19 low. Not owned.
         NorthBridge *bridge{nullptr};
