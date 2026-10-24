@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
-import { describeLayer, devicesView, VIDEO } from "./devices";
+import { describeLayer, devicesView, keyText, USB, VIDEO } from "./devices";
 
 const text = (el: Element, reg: string) => el.querySelector(`[data-reg="${reg}"]`)?.textContent;
 
@@ -41,5 +41,27 @@ describe("Devices tab", () => {
     await v.refresh();
     expect(v.element.textContent).toContain("No video card on this machine.");
     expect(text(v.element, "CTRL")).toBeUndefined();
+  });
+
+  test("the USB card: KEY, modifiers, events, the mouse, interrupts", async () => {
+    const port = new FakePort();
+    const regs: Record<number, number> = { 0x00: 0xc1, 0x02: 0x22, 0x03: 4, 0x07: 0x80, 0x10: 1, 0x11: 0x01, 0x12: 0x40, 0x13: 0x01, 0x14: 0xf0, 0x31: 0x03, 0x7f: 0xb1 };
+    for (const [o, v] of Object.entries(regs)) port.memory.set(USB + Number(o), v);
+    const v = devicesView(port);
+    await v.refresh();
+    expect(text(v.element, "KEY")).toBe("$C1 A · new");
+    expect(text(v.element, "Modifiers")).toBe("L-Shift R-Shift");
+    expect(text(v.element, "Events")).toBe("4 bytes waiting · Pause/Break → /NMI");
+    expect(text(v.element, "Mouse")).toBe("absolute · buttons $01 · latched 320,240");
+    expect(text(v.element, "IEN / ISR")).toBe("$00 / $03  key · mouse");
+    expect(keyText(0x0d)).toBe("$0D CR");
+    expect(keyText(0x83)).toBe("$83 ^C · new");
+    expect(keyText(0x15)).toBe("$15 →");
+  });
+
+  test("no USB card: says so", async () => {
+    const v = devicesView(new FakePort());
+    await v.refresh();
+    expect(v.element.textContent).toContain("No USB card on this machine.");
   });
 });

@@ -767,6 +767,8 @@ Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboa
 - The raw event FIFO holds 128 bytes (64 events); when full, a new event is dropped whole, so pairs never split.
 - Each paddle's GAME bit stays high for about 11 us per count after PTRIG, in real time, as on the Apple.
 - An event sets its ISR bit whether or not IEN enables it; the card's IRQ is ISR AND IEN.
+- Key changes reach the card at the keyboard's USB polling interval, one per 8 ms, so a burst of keys arrives as
+  separate presses rather than one overwriting the last in KEY.
 
 *Mouse.*
 

@@ -24,6 +24,7 @@ import "./styles/debugger.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
 import { keyBytes, pasteBytes } from "./crt/keyboard";
+import { UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { WasmPort } from "./port/wasm-port";
@@ -107,11 +108,51 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("div", { class: "vign" }),
     h("div", { class: "gl" }),
   );
+  // The keyboard is the serial terminal's on the Text scene, and the USB
+  // card's on VGA: a VGA monitor and a USB keyboard are a whole computer.
+  let scene: Scene = "text";
+  const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
+  const onUsb = () => scene === "vga" && port.caps.usb;
   glass.addEventListener("keydown", (e) => {
+    if (onUsb()) {
+      if (usbKeys.down(e)) e.preventDefault();
+      return;
+    }
     const bytes = keyBytes(e, caps);
     if (!bytes) return;
     e.preventDefault();
     port.sendSerial(bytes);
+  });
+  glass.addEventListener("keyup", (e) => {
+    if (usbKeys.up(e)) e.preventDefault();
+  });
+  glass.addEventListener("blur", () => usbKeys.releaseAll());
+  window.addEventListener("blur", () => usbKeys.releaseAll());
+
+  // The USB mouse, on VGA: where the pointer is on the picture, in its 640x480.
+  const vgaPoint = (e: MouseEvent) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: Math.floor(((e.clientX - r.left) / r.width) * 640), y: Math.floor(((e.clientY - r.top) / r.height) * 480) };
+  };
+  const BUTTONS = (b: number) => b & 7; // the DOM's left, right, middle bits are HID's
+  glass.addEventListener("mousemove", (e) => {
+    if (onUsb()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
+  });
+  for (const type of ["mousedown", "mouseup"] as const)
+    glass.addEventListener(type, (e) => {
+      if (onUsb()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
+    });
+  glass.addEventListener(
+    "wheel",
+    (e) => {
+      if (!onUsb()) return;
+      e.preventDefault();
+      port.sendMouse({ wheel: Math.sign(e.deltaY) });
+    },
+    { passive: false },
+  );
+  glass.addEventListener("contextmenu", (e) => {
+    if (onUsb()) e.preventDefault(); // the right button is the machine's
   });
   glass.addEventListener("paste", (e) => {
     e.preventDefault();
@@ -120,6 +161,10 @@ function start(root: HTMLElement, port: MachinePort): void {
 
   // The video card's frames are copied out only while its scene is showing.
   const showScene = (s: Scene) => {
+    if (s !== scene) usbKeys.releaseAll();
+    scene = s;
+    bar.setCapsEnabled(!onUsb());
+    glass.setAttribute("aria-label", onUsb() ? "VGA screen: click and type on the USB keyboard" : "Terminal: click and type");
     crt.setScene(s);
     glass.dataset.scene = s;
     port.watchVideo(s === "vga");

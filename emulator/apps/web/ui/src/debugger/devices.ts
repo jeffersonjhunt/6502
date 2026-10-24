@@ -1,8 +1,10 @@
 /**
  * The Devices tab: the cards' registers, decoded. So far the video card
- * (hw/design.md, "Video registers"), read at $C480 with readMemory, which
- * takes no bus cycle and changes nothing (ISR is read, not cleared). Bases
- * are shown as the physical addresses they point at: $80000 + base x 1 KB.
+ * (hw/design.md, "Video registers") at $C480 and the USB card ("USB card
+ * registers") at $C580, read with readMemory, which takes no bus cycle and
+ * changes nothing (ISR is read, not cleared; the mouse is not latched).
+ * Video bases are shown as the physical addresses they point at: $80000 +
+ * base x 1 KB.
  */
 
 import type { MachinePort } from "../port/machine-port";
@@ -11,6 +13,17 @@ import { hex } from "./breakpoints";
 
 export const VIDEO = 0xc480;
 const VIDEO_ID = 0x91;
+export const USB = 0xc580;
+const USB_ID = 0xb1;
+const MODS = ["L-Ctrl", "L-Shift", "L-Alt", "L-GUI", "R-Ctrl", "R-Shift", "R-Alt", "R-GUI"];
+
+/** KEY as a person reads it: the character, or its control name. */
+export function keyText(key: number): string {
+  const c = key & 0x7f;
+  const names: Record<number, string> = { 0x08: "←/BS", 0x0a: "↓", 0x0b: "↑", 0x0d: "CR", 0x15: "→", 0x1b: "ESC", 0x20: "space", 0x7f: "DEL" };
+  const text = names[c] ?? (c < 0x20 ? `^${String.fromCharCode(c + 0x40)}` : String.fromCharCode(c));
+  return `$${hex(key, 2)} ${text}${key & 0x80 ? " · new" : ""}`;
+}
 const TYPES = ["text 80×30", "text 40×30", "tile", "bitmap 256", "bitmap 512", "mono 640×480", "type 6", "type 7"];
 
 const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
@@ -35,6 +48,8 @@ export function describeLayer(r: Uint8Array, on: boolean): string {
 export function devicesView(port: MachinePort) {
   const rows = h("dl", { class: "devs", "data-testid": "dev-video" });
   const status = h("em", {}, "");
+  const usbRows = h("dl", { class: "devs", "data-testid": "dev-usb" });
+  const usbStatus = h("em", {}, "");
   const element = h(
     "div",
     { class: "sec" },
@@ -45,11 +60,34 @@ export function devicesView(port: MachinePort) {
       { class: "hint" },
       "Module 9 at $C480. Bases and scroll take effect at vertical blank; this shows what was written.",
     ),
+    h("h4", {}, "USB card ", usbStatus),
+    usbRows,
+    h("p", { class: "hint" }, "Module B at $C580. On the VGA scene the keyboard and mouse are this card's."),
   );
 
   const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
 
+  const refreshUsb = async () => {
+    const u = await port.readMemory(USB, 0x80, "cpu");
+    if (u[0x7f] !== USB_ID) {
+      usbStatus.textContent = "none";
+      usbRows.replaceChildren(h("dd", {}, "No USB card on this machine."));
+      return;
+    }
+    usbStatus.textContent = `ID $${hex(u[0x7f], 2)}`;
+    const mods = MODS.filter((_, i) => u[2] & (1 << i)).join(" ") || "none";
+    const mx = u[0x12] | (u[0x13] << 8), my = u[0x14] | (u[0x15] << 8);
+    usbRows.replaceChildren(
+      ...row("KEY", keyText(u[0])),
+      ...row("Modifiers", mods),
+      ...row("Events", `${u[3]} bytes waiting${u[7] & 0x80 ? " · Pause/Break → /NMI" : ""}`),
+      ...row("Mouse", `${u[0x10] & 1 ? "absolute" : "relative"} · buttons $${hex(u[0x11], 2)} · latched ${mx},${my}`),
+      ...row("IEN / ISR", `$${hex(u[0x30], 2)} / $${hex(u[0x31], 2)}  ${bits(u[0x31], [[1, "key"], [2, "mouse"], [4, "game"], [8, "device"]])}`),
+    );
+  };
+
   const refresh = async () => {
+    await refreshUsb();
     const r = await port.readMemory(VIDEO, 0x80, "cpu");
     if (r[0x7f] !== VIDEO_ID) {
       status.textContent = "none";
