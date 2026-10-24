@@ -26,6 +26,9 @@
 # with the display off: software sets the palette, a layer and CTRL.
 # `emulator --screen FILE` saves its last frame.
 #
+# The USB card (module B, $C580) is the keyboard, mouse and game port
+# (usb_card.h). Nothing types on it in the terminal app; the WebUI does.
+#
 # The terminal is a STAND-IN: a 6551 in the serial card's I/O block
 # ($C300, module 6) until the TL16C552A is modelled.
 #
@@ -43,4 +46,5 @@ rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
 dma       400-47F  space=io  name=dma  irq
 video     480-4FF  space=io  name=video  irq
+usb       580-5FF  space=io  name=usb  irq
 console   700-77F  space=io  name=console  irq     # the front panel

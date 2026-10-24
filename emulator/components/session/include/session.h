@@ -140,8 +140,11 @@ namespace ooe::emu
 
         /// The video card, if the machine has one: frame() is the screen.
         const VideoCard *video() const { return machine_->video_card(); }
-        /// The clock the caller runs the CPU at, so the video card keeps real
-        /// time: 60 frames a second at any speed (0: 7.16 MHz). Kept across power cycles.
+        /// The USB card, if the machine has one: the keyboard, mouse and game port.
+        UsbCard *usb() const { return machine_->usb_card(); }
+        /// The clock the caller runs the CPU at, so the video and USB cards keep
+        /// real time: 60 frames a second, key repeat and the paddles, at any
+        /// speed (0: 7.16 MHz). Kept across power cycles.
         void set_cpu_hz(uint32_t hz);
 
         /// Lamp duty since the last call (zeros without a card).
