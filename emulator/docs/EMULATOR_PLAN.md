@@ -341,6 +341,13 @@ scroll wrapping round the map, either layer, over or under text. The scale,
 the map-size bits and how the two palette offsets add are recorded in
 hw/design.md.
 
+**Sprites (2026-10-24), video part 6.** 64 sprites in VERA's 8-byte
+entries, in the tiles' 320x240 space: 8-64 pixels each way at 4 or 8 bits,
+flips, X and Y wrapping at 1024, depth against the layers, the lowest 32 a
+line with a lower number in front, and collision groups reported in STATUS
+and ISR at the next vertical blank. The Devices tab shows the table and
+the last collision.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

@@ -28,6 +28,12 @@ describe("Devices tab", () => {
     expect(text(v.element, "Layer 1")).toBe("off (text 80×30) · text $80000 · font $80000");
     expect(text(v.element, "IEN / ISR")).toBe("$00 / $01  vblank");
     expect(text(v.element, "Beam")).toBe("line 480 · vertical blank");
+    expect(text(v.element, "Sprites")).toBe("off · table $80000");
+    port.memory.set(VIDEO + 0x00, 0x0b);
+    port.memory.set(VIDEO + 0x03, 40);
+    port.memory.set(VIDEO + 0x08, 0x86); // in vertical blank, groups 2 and 4 collided
+    await v.refresh();
+    expect(text(v.element, "Sprites")).toBe("on · table $8A000 · collided: groups $6");
   });
 
   test("no card: says so", async () => {
