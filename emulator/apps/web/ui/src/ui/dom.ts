@@ -53,4 +53,11 @@ export const prefs = {
       /* not remembered: fine */
     }
   },
+  remove(key: string): void {
+    try {
+      localStorage.removeItem(`oo1.${key}`);
+    } catch {
+      /* nothing kept: fine */
+    }
+  },
 };

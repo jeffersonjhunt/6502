@@ -55,6 +55,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "backplane_bridge.h"
 #include "console_card.h"
 #include "decoder.h"
 #include "device.h"
@@ -103,6 +104,8 @@ namespace ooe::emu
         VideoCard *video_card() const { return video_card_; }
         /// The USB card, if the description has one (`usb`): the keyboard, mouse and game port.
         UsbCard *usb_card() const { return usb_card_; }
+        /// The backplane's north bridge (Apple II mode's switches), if the description has one.
+        const BackplaneBridge *backplane_bridge() const { return dynamic_cast<const BackplaneBridge *>(bridge_); }
 
         /// The device given `name=` in the description, or nullptr.
         Device *find(const std::string &name) const;

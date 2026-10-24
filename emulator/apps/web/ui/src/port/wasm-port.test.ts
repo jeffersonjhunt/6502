@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { FrameState } from "./machine-port";
 import { usageFor } from "../crt/usb-keyboard";
+import { startApple, typeReset } from "../ui/apple-bar";
+import { fakeIIeRom } from "./fake-iie";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
@@ -270,5 +272,56 @@ describe("WasmPort", () => {
   test("a machine that will not open is a rejection with the reason", async () => {
     const port = new WasmPort({ load, scheduler: new ManualClock(), machine: "/machines/nope.machine" });
     await expect(port.connect()).rejects.toThrow(/nope\.machine/);
+  });
+
+  test("a cartridge in, Start Apple IIe: Apple II mode, its switches, the cards in I/O space, Ctrl-Reset", async () => {
+    const m = await open();
+    expect(m.until(GREETING)).toBe(true);
+    expect(m.step().apple).toBe(false);
+    expect((await m.port.readApple())?.mode).toBe(false);
+    m.clear();
+    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null });
+    expect(m.until(GREETING)).toBe(true); // plugged in with the power off: a fresh boot
+    m.port.press("cont"); // anything running...
+    startApple(m.port); // ...START gets back to the monitor first
+    let f = m.step();
+    for (let i = 0; i < 120 && !f.apple; ++i) f = m.step();
+    expect(f.apple).toBe(true);
+    expect(f.fixedHz).toBe(1_020_484);
+    m.step();
+    expect((await m.port.readMemory(0x0400, 2, "physical"))[0]).toBe(0xc1); // the stand-in's "A"
+    expect((await m.port.readMemory(0x0300, 1, "physical"))[0]).toBe(1); // reset once
+    const s = await m.port.readApple();
+    expect(s?.mode).toBe(true);
+    expect(s?.altchar).toBe(true); // its STA $C00F
+    expect(s?.text).toBe(true);
+    expect((await m.port.readMemory(0xc4ff, 1, "io"))[0]).toBe(0x91); // the video card, though...
+    expect((await m.port.readMemory(0xc4ff, 1, "cpu"))[0]).not.toBe(0x91); // ...the CPU sees the Apple's $C4FF
+    typeReset(m.port, false); // Ctrl-Delete on the USB keyboard
+    for (let i = 0; i < 10; ++i) f = m.step();
+    expect((await m.port.readMemory(0x0300, 1, "physical"))[0]).toBe(2);
+    expect(f.apple).toBe(true); // Ctrl-Reset stays in Apple II mode
+    m.port.setPower(false);
+    expect(m.step().apple).toBe(false);
+  });
+
+  test("a cartridge that does not fit is refused, the old one stays; out, C806R says so", async () => {
+    const m = await open();
+    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null });
+    await expect(m.port.insertCartridge({ rom: new Uint8Array(100), chars: null })).rejects.toThrow(/16 KB/);
+    await expect(m.port.insertCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(100) })).rejects.toThrow(/character ROM/);
+    m.port.setPower(false);
+    m.port.setPower(true); // the next power cycle reads the cartridge's files again: the refused ones did not touch them
+    m.clear();
+    expect(m.until(GREETING)).toBe(true);
+    m.port.sendSerial(ascii("C806R\r"));
+    let f = m.step();
+    for (let i = 0; i < 120 && !f.apple; ++i) f = m.step();
+    expect(f.apple).toBe(true); // the first one is still in
+    await m.port.insertCartridge(null);
+    m.clear();
+    expect(m.until(GREETING)).toBe(true);
+    m.port.sendSerial(ascii("C806R\r"));
+    expect(m.until("NO APPLE IIE ROM")).toBe(true);
   });
 });

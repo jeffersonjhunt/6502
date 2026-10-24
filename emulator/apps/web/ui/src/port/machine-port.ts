@@ -11,6 +11,10 @@
  * Calls that only send are fire-and-forget; reads are async, because over
  * a socket they are. State arrives in a FrameState about once per
  * animation frame.
+ *
+ * Apple II mode needs the owner's Apple IIe ROM in the cartridge
+ * (insertCartridge): the page never ships one. A backend takes it as the
+ * board takes a cartridge, and keeps it no further than its own memory.
  */
 
 export interface PortCaps {
@@ -26,6 +30,44 @@ export interface PortCaps {
   usb: boolean;
   /** setPower() works: the keyswitch. */
   power: boolean;
+  /** insertCartridge() works: the owner's IIe ROM, for Apple II mode. */
+  cartridge: boolean;
+}
+
+/** The owner's Apple IIe ROM for the cartridge (ROM B). */
+export interface Cartridge {
+  /** 16 KB, as it sits at $C000-$FFFF. */
+  rom: Uint8Array;
+  /** The IIe's character ROM, 4 or 8 KB; null: the BIOS makes one from the VGA font. */
+  chars: Uint8Array | null;
+}
+
+/** Apple II mode's soft switches (hw/design.md, "Apple II Mode"), and whether the mode is on. */
+export interface AppleState {
+  /** The north bridge's MODE: the Apple's map and clock. */
+  mode: boolean;
+  text: boolean;
+  mixed: boolean;
+  page2: boolean;
+  hires: boolean;
+  col80: boolean;
+  store80: boolean;
+  altchar: boolean;
+  /** AN3 off: with 80COL, the double modes. */
+  dhires: boolean;
+  ramrd: boolean;
+  ramwrt: boolean;
+  altzp: boolean;
+  intcxrom: boolean;
+  slotc3rom: boolean;
+  intc8rom: boolean;
+  /** The language card: $D000 bank 2, reads RAM, writes RAM. */
+  lcBank2: boolean;
+  lcRead: boolean;
+  lcWrite: boolean;
+  ioudis: boolean;
+  /** AN0-AN3, bit n. */
+  an: number;
 }
 
 export interface Registers {
@@ -95,6 +137,8 @@ export interface FrameState {
   hz: number;
   /** The clock the machine's mode fixes (Apple II mode's 1,020,484 Hz), which setClock() cannot change; 0: none. */
   fixedHz: number;
+  /** In Apple II mode (the panel's AMODE lamp). */
+  apple: boolean;
   /** What the machine sent on its serial line since the last frame. */
   serialOut: Uint8Array;
   /** Only while setLights(true). */
@@ -164,12 +208,25 @@ export interface MachinePort {
   /** The USB mouse: an absolute position (0-639, 0-479), buttons (bit 0 left, 1 right, 2 middle), wheel steps. */
   sendMouse(mouse: MouseInput): void;
 
-  /** Memory without bus cycles: CPU addresses (through the windows) or physical. */
-  readMemory(addr: number, length: number, space: "cpu" | "physical"): Promise<Uint8Array>;
+  /**
+   * Memory without bus cycles: CPU addresses (through the windows), physical,
+   * or "io": the cards' registers at the CPU addresses the native map gives
+   * them ($C000-$CFFF), in Apple II mode too, where the CPU sees the Apple's.
+   */
+  readMemory(addr: number, length: number, space: "cpu" | "physical" | "io"): Promise<Uint8Array>;
   /** What A0-A19 carry for a CPU address now. */
   physical(cpuAddr: number): Promise<number>;
   /** A label or hex ("C800", "$C800") to a CPU address; null if neither. */
   resolve(text: string): Promise<number | null>;
+
+  /**
+   * Plug the owner's IIe ROM into the cartridge, or take it out (null), as
+   * with the power off: the machine starts afresh. Rejects with a readable
+   * reason if it does not fit; the old cartridge stays.
+   */
+  insertCartridge(cartridge: Cartridge | null): Promise<void>;
+  /** The Apple's soft switches; null on a machine without the backplane's north bridge. */
+  readApple(): Promise<AppleState | null>;
 
   setLights(on: boolean): void;
   watchRegisters(on: boolean): void;

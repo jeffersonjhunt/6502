@@ -4,8 +4,9 @@
  * pane beside them. Everything talks to the machine through one MachinePort.
  *
  * The monitor's scenes: Text (the serial terminal), VGA (the video card)
- * and Apple II. Query options: ?demo=scenes shows the mockup's picture on
- * the Apple II scene instead of NO SIGNAL.
+ * and Apple II (the video card's IIe picture, filling the screen). Entering
+ * Apple II mode, however it happens, switches to the Apple II scene; under
+ * the monitor are the cartridge and the IIe's controls (ui/apple-bar.ts).
  *
  * Built with VITE_HOME_URL set, the badge links back to that page.
  */
@@ -33,6 +34,7 @@ import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
 import { toolbar } from "./ui/toolbar";
+import { appleBar } from "./ui/apple-bar";
 
 function statusText(f: FrameState, clockLabel: string): string {
   if (!f.powered) return "POWER OFF";
@@ -63,7 +65,6 @@ function touchNote(): HTMLElement[] {
 }
 
 function start(root: HTMLElement, port: MachinePort): void {
-  const params = new URLSearchParams(location.search);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const terminal = new Terminal();
   const panel = new PanelState(port);
@@ -76,7 +77,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   });
 
   const canvas = h("canvas", { "aria-hidden": "true" });
-  const crt = new Crt(canvas, terminal, { demo: params.get("demo") === "scenes", reducedMotion });
+  const crt = new Crt(canvas, terminal, { reducedMotion });
   let caps = true;
 
   const dbg = debuggerPane(port);
@@ -109,10 +110,12 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("div", { class: "gl" }),
   );
   // The keyboard is the serial terminal's on the Text scene, and the USB
-  // card's on VGA: a VGA monitor and a USB keyboard are a whole computer.
+  // card's on VGA and Apple II: a monitor and a USB keyboard are a whole
+  // computer. The mouse is the card's on VGA.
   let scene: Scene = "text";
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
-  const onUsb = () => scene === "vga" && port.caps.usb;
+  const onUsb = () => scene !== "text" && port.caps.usb;
+  const onMouse = () => scene === "vga" && port.caps.usb;
   glass.addEventListener("keydown", (e) => {
     if (onUsb()) {
       if (usbKeys.down(e)) e.preventDefault();
@@ -136,23 +139,23 @@ function start(root: HTMLElement, port: MachinePort): void {
   };
   const BUTTONS = (b: number) => b & 7; // the DOM's left, right, middle bits are HID's
   glass.addEventListener("mousemove", (e) => {
-    if (onUsb()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
+    if (onMouse()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
   });
   for (const type of ["mousedown", "mouseup"] as const)
     glass.addEventListener(type, (e) => {
-      if (onUsb()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
+      if (onMouse()) port.sendMouse({ ...vgaPoint(e), buttons: BUTTONS(e.buttons) });
     });
   glass.addEventListener(
     "wheel",
     (e) => {
-      if (!onUsb()) return;
+      if (!onMouse()) return;
       e.preventDefault();
       port.sendMouse({ wheel: Math.sign(e.deltaY) });
     },
     { passive: false },
   );
   glass.addEventListener("contextmenu", (e) => {
-    if (onUsb()) e.preventDefault(); // the right button is the machine's
+    if (onMouse()) e.preventDefault(); // the right button is the machine's
   });
   glass.addEventListener("paste", (e) => {
     e.preventDefault();
@@ -164,11 +167,14 @@ function start(root: HTMLElement, port: MachinePort): void {
     if (s !== scene) usbKeys.releaseAll();
     scene = s;
     bar.setCapsEnabled(!onUsb());
-    glass.setAttribute("aria-label", onUsb() ? "VGA screen: click and type on the USB keyboard" : "Terminal: click and type");
+    glass.setAttribute(
+      "aria-label",
+      !onUsb() ? "Terminal: click and type" : s === "apple" ? "Apple IIe screen: click and type on the USB keyboard" : "VGA screen: click and type on the USB keyboard",
+    );
     crt.setScene(s);
     glass.dataset.scene = s;
-    port.watchVideo(s === "vga");
-    if (s !== "vga") crt.clearVideo();
+    port.watchVideo(s !== "text");
+    if (s === "text") crt.clearVideo();
     prefs.set("scene", s);
   };
   const savedScene = (["text", "vga", "apple"] as Scene[]).find((s) => s === prefs.get("scene")) ?? "text";
@@ -177,7 +183,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     [
       { value: "text", text: "Text", title: "The serial terminal" },
       { value: "vga", text: "VGA", title: "The video card: VGA 640x480, what the BIOS puts on screen" },
-      { value: "apple", text: "Apple II", title: "Apple II video modes" },
+      { value: "apple", text: "Apple II", title: "Apple II mode: the IIe's picture, filling the screen" },
     ],
     savedScene,
     (s) => {
@@ -187,11 +193,20 @@ function start(root: HTMLElement, port: MachinePort): void {
   );
   showScene(savedScene);
   const status = h("span", { "data-testid": "status" }, "STARTING");
+  const signal = h("span", {}, "VGA 640×480");
+  const apple = appleBar(port, {
+    started: () => {
+      scenes.select("apple");
+      showScene("apple");
+      glass.focus(); // the IIe's keyboard
+    },
+    typed: () => glass.focus(),
+  });
   const monitor = h(
     "div",
     { class: "mon" },
     glass,
-    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · VGA 640×480 · ", status), scenes.element),
+    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status), apple.element, scenes.element),
   );
 
   const rack = frontPanel(panel);
@@ -203,7 +218,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("a", { href: "https://int10h.org/oldschool-pc-fonts/", target: "_blank", rel: "noopener" }, "VileR's Ultimate Oldschool PC Font Pack"),
     ", ",
     h("a", { href: "https://creativecommons.org/licenses/by-sa/4.0/", target: "_blank", rel: "noopener" }, "CC BY-SA 4.0"),
-    ".",
+    ". Apple II mode runs your own Apple IIe ROM: it stays in this browser and is never uploaded.",
   );
   const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, credits, mirror);
   root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
@@ -212,7 +227,18 @@ function start(root: HTMLElement, port: MachinePort): void {
   let mirrored = "";
   let lastMirror = 0;
   let wasPowered = true;
+  let wasApple = false;
   port.onFrame((f) => {
+    if (f.apple !== wasApple) {
+      wasApple = f.apple;
+      crt.setApple(f.apple);
+      signal.textContent = f.apple ? "APPLE IIe" : "VGA 640×480";
+      if (f.apple && scene !== "apple") {
+        scenes.select("apple"); // C806R typed, or Start Apple IIe: the Apple's picture
+        showScene("apple");
+      }
+    }
+    apple.update(f);
     if (f.serialOut.length) terminal.write(f.serialOut);
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
@@ -240,7 +266,8 @@ function start(root: HTMLElement, port: MachinePort): void {
   void document.fonts.load("20px VT323").then(() => crt.fontsReady());
   port
     .connect()
-    .then(() => {
+    .then(async () => {
+      await apple.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       panel.applyAll();
       port.setLights(true);
       dbg.connect();

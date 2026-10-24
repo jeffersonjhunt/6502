@@ -326,6 +326,51 @@ TEST(apple_ii_mode_fixes_the_clock_and_the_cards_follow_it)
     CHECK(after == 8 || after == 9);           // not the Apple clock's 60
 }
 
+TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)
+{
+    // A stand-in IIe ROM: the ID byte, and a reset that turns on graphics ($C050), stores $A5 at $0300 and stops.
+    std::string image(0x4000, '\0');
+    image[0xFBB3 - 0xC000] = 0x06;
+    image[0xFFFC - 0xC000] = 0x62;
+    image[0xFFFD - 0xC000] = static_cast<char>(0xFA);
+    const uint8_t reset[] = {0xAD, 0x50, 0xC0, 0xA9, 0xA5, 0x8D, 0x00, 0x03, 0x4C, 0x6A, 0xFA};
+    for (size_t i = 0; i < sizeof reset; ++i)
+        image[0xFA62 - 0xC000 + i] = static_cast<char>(reset[i]);
+    std::ofstream("test_session_iie.rom", std::ios::binary) << image;
+    std::ofstream("test_session_short.rom", std::ios::binary) << std::string(100, '\0');
+
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    std::string error, out;
+    REQUIRE(s->set_cartridge({"test_session_iie.rom"}, "", error));
+    CHECK(run_until(*s, out, GREETING));         // plugged in with the power off: a fresh boot
+    CHECK(!s->set_cartridge({"test_session_short.rom"}, "", error));
+    CHECK(error.find("16 KB") != std::string::npos);
+    CHECK_EQ(s->cartridge().size(), 1u);         // the old one stays in, and works:
+    CHECK_EQ(s->cartridge()[0], std::string("test_session_iie.rom"));
+    REQUIRE(s->apple_switches() != nullptr);
+    CHECK(s->apple_switches()->text);
+    CHECK(!s->apple_mode());
+    CHECK_EQ(s->peek(0xC4FF), 0x91);             // the video card's ID, at $C480 + $7F
+    s->send("C806R\r");
+    for (int i = 0; i < 120 && s->peek_physical(0x0300) != 0xA5; ++i)
+        s->run(FRAME);
+    CHECK(s->apple_mode());
+    CHECK_EQ(s->peek_physical(0x0300), 0xA5);
+    CHECK(!s->apple_switches()->text);           // the ROM's $C050
+    CHECK(s->peek(0xC4FF) != 0x91);              // $C4FF is the Apple's now...
+    CHECK_EQ(s->peek_io(0x4FF), 0x91);           // ...and I/O space still reaches the card
+
+    REQUIRE(s->set_cartridge({}, "", error));    // taken out
+    CHECK(!s->apple_mode());
+    out.clear();
+    REQUIRE(run_until(*s, out, GREETING));
+    s->send("C806R\r");
+    CHECK(run_until(*s, out, "NO APPLE IIE ROM"));
+    std::remove("test_session_iie.rom");
+    std::remove("test_session_short.rom");
+}
+
 TEST(stp_ends_the_run_and_start_gets_out)
 {
     auto s = booted();
