@@ -21,6 +21,7 @@ import type {
   PanelKey,
   PortCaps,
   Registers,
+  MouseInput,
   TraceRow,
   VideoFrame,
 } from "./machine-port";
@@ -57,6 +58,12 @@ export interface CoreMachine {
   videoFrames(): number;
   videoFrame(): Uint8Array;
   setClock(hz: number): void;
+  hasUsb(): boolean;
+  usbKey(usage: number, down: boolean): void;
+  usbMouseTo(x: number, y: number): void;
+  usbMouseMove(dx: number, dy: number): void;
+  usbMouseButtons(buttons: number): void;
+  usbMouseWheel(steps: number): void;
   setLights(on: boolean): void;
   setTrace(on: boolean, depth: number): void;
   trace(max: number): Uint32Array;
@@ -124,7 +131,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, power: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -289,6 +296,18 @@ export class WasmPort implements MachinePort {
 
   sendSerial(bytes: Uint8Array): void {
     this.m?.send(bytesToString(bytes));
+  }
+
+  sendKey(usage: number, down: boolean): void {
+    this.m?.usbKey(usage, down);
+  }
+
+  sendMouse(mouse: MouseInput): void {
+    const m = this.m;
+    if (!m) return;
+    if (mouse.x !== undefined && mouse.y !== undefined) m.usbMouseTo(Math.round(mouse.x), Math.round(mouse.y));
+    if (mouse.buttons !== undefined) m.usbMouseButtons(mouse.buttons);
+    if (mouse.wheel) m.usbMouseWheel(mouse.wheel);
   }
 
   async readMemory(addr: number, length: number, space: "cpu" | "physical"): Promise<Uint8Array> {

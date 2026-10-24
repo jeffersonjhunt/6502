@@ -378,6 +378,18 @@ Pause/Break breaks into the monitor. The wait loop (GETKEY) reads only
 code and I/O, the card's ID each time round, so the lamps and the trace
 show it plainly; the tests that watch it moved to $CB6x. ECHO is now $C956.
 
+**The USB keyboard and mouse in the WebUI (2026-10-24), part 3.** On the
+VGA scene the keyboard goes to the USB card as HID usages from
+KeyboardEvent.code (`crt/usb-keyboard.ts`), Shift, Ctrl and Alt kept in
+step with each event's flags, held keys released when focus goes, Cmd
+shortcuts left to the browser; the mouse gives an absolute position in
+640x480, buttons and the wheel. `MachinePort.sendKey/sendMouse`, the
+module's `usbKey` and friends. Host keys reach the card at USB's pace,
+one change per 8 ms polling interval (`UsbCard::queue_key`): a page that
+sends a burst within one frame would otherwise overwrite KEY before the
+BIOS read it, which the first browser test showed. The Devices tab shows
+the card.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

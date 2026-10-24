@@ -164,6 +164,29 @@ TEST(the_last_key_pressed_repeats_after_the_delay_at_the_rate)
     CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | '1');
 }
 
+TEST(host_keys_arrive_at_the_usb_polling_pace)
+{
+    Card c;
+    c.queue_key(A, true);                         // the line is free: at once
+    c.queue_key(A, false);
+    c.queue_key(Z, true);                         // a burst, as a page can send in one frame
+    c.queue_key(Z, false);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'A');
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 2);
+    c.tick(8 * MS - 1);
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 2);        // the next report: 8 ms on
+    c.tick(1);
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 4);        // A up
+    c.read(UsbCard::KEYCLR);
+    c.tick(8 * MS);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'Z');   // Z, not lost behind A
+    c.tick(8 * MS);
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 8);
+    c.tick(100 * MS);
+    c.queue_key(C, true);                         // quiet a while: at once again
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'C');
+}
+
 TEST(raw_events_every_press_and_release_in_a_fifo_with_drq)
 {
     Card c;

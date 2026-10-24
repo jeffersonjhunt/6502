@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { FrameState } from "./machine-port";
+import { usageFor } from "../crt/usb-keyboard";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
@@ -181,6 +182,33 @@ describe("WasmPort", () => {
     expect(last - before).toBeLessThanOrEqual(61);
     m.port.watchVideo(false);
     expect(m.step().video).toBeNull();
+  });
+
+  test("the USB keyboard and mouse: typed into the monitor, the mouse read back by it", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.clear();
+    const code = (ch: string) =>
+      /[A-Z]/.test(ch) ? `Key${ch}` : /[0-9]/.test(ch) ? `Digit${ch}` : ({ ".": "Period", ":": "Semicolon", " ": "Space", "\r": "Enter" } as Record<string, string>)[ch];
+    const type = (text: string) => {
+      for (const ch of text) {
+        const shift = ch === ":";
+        if (shift) m.port.sendKey(0xe1, true);
+        m.port.sendKey(usageFor(code(ch))!, true);
+        m.step(5);
+        m.port.sendKey(usageFor(code(ch))!, false);
+        if (shift) m.port.sendKey(0xe1, false);
+        m.step(5);
+      }
+    };
+    type("C680.C684\r");
+    expect(m.until("C680: 00 01 02 7F 7F")).toBe(true);
+    type("C590: 1\r");                              // MCTRL: absolute
+    m.port.sendMouse({ x: 320, y: 240, buttons: 1 });
+    type("C592.C595\r");                            // the monitor reads MX: that latches
+    expect(m.until("C592: 40 01 F0 00")).toBe(true);
+    type("C591\r");
+    expect(m.until("C591: 01")).toBe(true);         // the left button
   });
 
   test("the IRQ line, for the panel's lamp", async () => {

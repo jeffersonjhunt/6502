@@ -60,8 +60,10 @@ says once that the terminal needs a keyboard.
 The monitor's scene buttons are its input select. **Text** is the serial
 terminal; **VGA** is the video card's output, which the BIOS fills with the
 same Woz Monitor session in the IBM VGA font: in Colour as the card makes
-it, on P1/P3/P4 as a mono monitor shows it. The keyboard is the serial line's
-in either. Type `C803R` for the video demo (tiles, sprites, scrolling, a
+it, on P1/P3/P4 as a mono monitor shows it. On Text the keyboard is the
+serial terminal's; on VGA it and the mouse are the USB card's, as HID usage
+codes from the physical keys (the card cooks them in its own US layout, with
+its own Caps Lock, so CAPS is off there). Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
 palette fade); any key goes back. The Devices tab in the debugger decodes the
 card's registers.
 `?demo=scenes` shows the mockup's picture on the Apple II scene instead of

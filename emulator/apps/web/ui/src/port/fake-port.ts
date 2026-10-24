@@ -3,7 +3,7 @@
  * frames a test gives it. No machine behind it.
  */
 
-import type { Clock, FrameState, MachinePort, PanelKey, PortCaps, TraceRow } from "./machine-port";
+import type { Clock, FrameState, MachinePort, MouseInput, PanelKey, PortCaps, TraceRow } from "./machine-port";
 
 export type FakeCall = [name: string, ...args: unknown[]];
 
@@ -19,7 +19,7 @@ export class FakePort implements MachinePort {
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
-    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, power: true, ...caps };
+    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, ...caps };
   }
 
   /** Send a frame to the listeners; unset fields take idle defaults. */
@@ -93,6 +93,13 @@ export class FakePort implements MachinePort {
   setLights(on: boolean): void {
     this.calls.push(["setLights", on]);
   }
+  sendKey(usage: number, down: boolean): void {
+    this.calls.push(["sendKey", usage, down]);
+  }
+  sendMouse(mouse: MouseInput): void {
+    this.calls.push(["sendMouse", mouse]);
+  }
+
   watchVideo(on: boolean): void {
     this.calls.push(["watchVideo", on]);
   }

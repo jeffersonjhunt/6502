@@ -18,6 +18,7 @@ Everything in the port is something the real board can also do:
 | Serial | `sendSerial`, `FrameState.serialOut` | the serial card |
 | Inspection | `readMemory`, `physical`, `resolve`, `readTrace`, `FrameState.lights`, `FrameState.regs` | memory and the latched cycle over SPI; the lamps; the bus spy's trace |
 | Video | `watchVideo`, `FrameState.video` | the video card's VGA output (a capture device, for the board) |
+| USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
 The UI never calls the emulator's debugger. Breakpoints are the Console

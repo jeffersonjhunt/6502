@@ -148,6 +148,23 @@ const mhz = ran / secs / 1e6;
 console.log(`speed: ${mhz.toFixed(1)} MHz emulated; real time at 7.16 MHz takes ${(100 * secs).toFixed(0)}% of a core`);
 check("speed: at least real time", mhz > 7.16, `${mhz.toFixed(2)} MHz`);
 
+// The USB keyboard: HID usages in, the monitor answers on the serial line.
+check("usb: the backplane has its card", m.hasUsb());
+const USAGE = { C: 0x06, 6: 0x23, 8: 0x25, 0: 0x27, 4: 0x21, ".": 0x37, "\r": 0x28 };
+let typed = "";
+for (const ch of "C680.C684\r") {
+  m.usbKey(USAGE[ch], true);
+  m.run(FRAME / 4);
+  m.usbKey(USAGE[ch], false);
+  m.run(FRAME / 4);
+  typed += m.takeOutput();
+}
+for (let i = 0; i < 30 && !typed.includes("C680: 00 01 02 7F 7F"); ++i) { // the rest of the answer
+  m.run(FRAME);
+  typed += m.takeOutput();
+}
+check("usb: typed into the monitor", typed.includes("C680.C684\r\rC680: 00 01 02 7F 7F"), show(typed));
+
 // Power cycle: RAM forgets, and it boots again.
 m.setClock(1_020_484);
 check("power cycle", m.powerCycle(), m.error());

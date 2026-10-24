@@ -19,6 +19,8 @@
  * The host side is what the RP2350 hears over USB: key() takes HID usage
  * codes (modifiers $E0-$E7 included), the mouse takes movement, a position,
  * buttons and the wheel, and the game port takes paddle settings and buttons.
+ * queue_key() is key() at the keyboard's pace: one change per 8 ms polling
+ * interval of CPU time, as reports arrive over USB.
  *
  * Keyboard. Every press and release goes into the raw event FIFO (128 bytes:
  * usage, then flags, bit 7 = release; a full FIFO drops the event whole),
@@ -50,6 +52,8 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
+#include <utility>
 
 #include "device.h"
 
@@ -103,7 +107,13 @@ namespace ooe::emu
         void set_cpu_hz(uint32_t hz) { cpu_hz_ = hz ? hz : NATIVE_HZ; }
 
         // The host side: what arrives over USB
+        /// A key report, now.
         void key(uint8_t usage, bool down);
+        /// A key change from the host, as the keyboard would report it: at most
+        /// one every POLL_MS (the HID polling interval), queued until then, so
+        /// a burst of keys does not overwrite KEY faster than USB could.
+        void queue_key(uint8_t usage, bool down);
+        static constexpr unsigned POLL_MS = 8;
         void mouse_move(int dx, int dy);
         /// Absolute mode: where the pointer is now (clamped to MAXX, MAXY).
         void mouse_to(int x, int y);
@@ -150,6 +160,8 @@ namespace ooe::emu
         uint8_t held_{0};         ///< the usage that repeats, 0 for none
         uint64_t next_repeat_{0}; ///< cycle of its next repeat
         std::array<bool, 256> down_{};
+        std::deque<std::pair<uint8_t, bool>> pending_; ///< queue_key()'s, not yet reported
+        uint64_t next_report_{0};
 
         // mouse
         uint8_t mctrl_{0}, mbtn_{0};

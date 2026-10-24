@@ -36,6 +36,10 @@
  *
  * setClock(hz) is the clock the caller runs the CPU at (0 for flat out),
  * so the video card keeps 60 frames a second at any speed.
+ *
+ * The USB card's host side (usb_card.h): usbKey(usage, down) with HID usage
+ * codes (queued at the keyboard's 8 ms polling pace), usbMouseTo(x, y) (absolute, in its MAXX/MAXY), usbMouseMove(dx, dy),
+ * usbMouseButtons(bits), usbMouseWheel(steps). Without a card they do nothing.
  */
 
 #include <emscripten/bind.h>
@@ -149,6 +153,32 @@ namespace
             return val(emscripten::typed_memory_view(bytes, v ? reinterpret_cast<const uint8_t *>(v->frame()) : nullptr));
         }
         void set_clock(double hz) { session_->set_cpu_hz(static_cast<uint32_t>(hz)); }
+        bool has_usb() const { return session_->usb() != nullptr; }
+        void usb_key(unsigned usage, bool down)
+        {
+            if (UsbCard *u = session_->usb())
+                u->queue_key(static_cast<uint8_t>(usage), down); // at the keyboard's pace
+        }
+        void usb_mouse_to(int x, int y)
+        {
+            if (UsbCard *u = session_->usb())
+                u->mouse_to(x, y);
+        }
+        void usb_mouse_move(int dx, int dy)
+        {
+            if (UsbCard *u = session_->usb())
+                u->mouse_move(dx, dy);
+        }
+        void usb_mouse_buttons(unsigned buttons)
+        {
+            if (UsbCard *u = session_->usb())
+                u->mouse_buttons(static_cast<uint8_t>(buttons));
+        }
+        void usb_mouse_wheel(int steps)
+        {
+            if (UsbCard *u = session_->usb())
+                u->mouse_wheel(steps);
+        }
 
         void set_trace(bool on, unsigned depth) { session_->set_trace(on, depth); }
         val trace(unsigned max)
@@ -220,6 +250,12 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("videoFrames", &WebMachine::video_frames)
         .function("videoFrame", &WebMachine::video_frame)
         .function("setClock", &WebMachine::set_clock)
+        .function("hasUsb", &WebMachine::has_usb)
+        .function("usbKey", &WebMachine::usb_key)
+        .function("usbMouseTo", &WebMachine::usb_mouse_to)
+        .function("usbMouseMove", &WebMachine::usb_mouse_move)
+        .function("usbMouseButtons", &WebMachine::usb_mouse_buttons)
+        .function("usbMouseWheel", &WebMachine::usb_mouse_wheel)
         .function("setTrace", &WebMachine::set_trace)
         .function("trace", &WebMachine::trace);
 }

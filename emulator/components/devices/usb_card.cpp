@@ -27,6 +27,8 @@ namespace ooe::emu
         fifo_head_ = fifo_count_ = 0;
         held_ = 0;
         down_ = {};
+        pending_.clear();
+        next_report_ = 0;
         mctrl_ = mbtn_ = 0;
         sum_x_ = sum_y_ = sum_wheel_ = pos_x_ = pos_y_ = 0;
         max_x_ = 639;
@@ -136,6 +138,17 @@ namespace ooe::emu
         }
     }
 
+    void UsbCard::queue_key(uint8_t usage, bool down)
+    {
+        if (pending_.empty() && now_ >= next_report_)
+        {
+            key(usage, down);
+            next_report_ = now_ + ms(POLL_MS);
+            return;
+        }
+        pending_.emplace_back(usage, down);
+    }
+
     bool UsbCard::take_nmi()
     {
         const bool n = nmi_;
@@ -199,6 +212,13 @@ namespace ooe::emu
     void UsbCard::tick(uint64_t cycles)
     {
         now_ += cycles;
+        if (!pending_.empty() && now_ >= next_report_)
+        {
+            const auto [usage, down] = pending_.front();
+            pending_.pop_front();
+            key(usage, down);
+            next_report_ = now_ + ms(POLL_MS);
+        }
         if (held_ && down_[held_] && now_ >= next_repeat_)
         {
             strobe(cooked(held_, mods_, caps_));

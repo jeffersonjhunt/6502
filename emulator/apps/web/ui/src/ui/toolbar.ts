@@ -123,5 +123,10 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
     run.classList.toggle("on", running);
     halt.classList.toggle("on", f.powered && f.halted);
   };
-  return { element, update };
+  /** CAPS is the serial terminal's; on the USB keyboard the card has its own Caps Lock. */
+  const setCapsEnabled = (on: boolean) => {
+    caps.disabled = !on;
+    caps.title = on ? "Send letters as capitals (the Woz Monitor wants them)" : "The USB keyboard has its own Caps Lock (on at power-up)";
+  };
+  return { element, update, setCapsEnabled };
 }

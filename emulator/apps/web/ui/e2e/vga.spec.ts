@@ -113,3 +113,48 @@ test("C803R runs the video demo on VGA, and a key goes back to the monitor", asy
   await expect.poll(() => colours(page)).toBeLessThan(5);
   await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\");
 });
+
+test("on VGA the keyboard is the USB card's; on Text it is the serial line's", async ({ page }) => {
+  await booted(page);
+  await page.locator('[data-tab="dev"]').click();
+  const key = page.getByTestId("dev-usb").locator('[data-reg="KEY"]');
+  await expect(page.getByRole("button", { name: "CAPS" })).toBeEnabled();
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("C680");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crt-text")).toContainText("C680: 00");
+  await expect(key).toHaveText("$00 ^@");                      // serial: the USB card saw nothing
+  await page.getByRole("button", { name: "VGA" }).click();
+  await expect(page.getByRole("button", { name: "CAPS" })).toBeDisabled();
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("c684");                            // lowercase: the card's Caps Lock makes capitals
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crt-text")).toContainText("C684: 7F");
+  await expect(key).toHaveText("$0D CR");                      // the last key, taken by the BIOS
+});
+
+test("on VGA the mouse is the USB card's: the monitor reads its position", async ({ page }) => {
+  await booted(page);
+  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("C590: 1");                         // MCTRL: absolute
+  await page.keyboard.press("Enter");
+  const box = (await page.locator("[data-testid=crt] canvas").boundingBox())!;
+  // Inside VGA pixel (320, 240), clear of its edges: WebKit rounds the pointer to whole CSS pixels.
+  await page.mouse.move(box.x + (320.9 / 640) * box.width, box.y + (240.9 / 480) * box.height);
+  await page.keyboard.type("C592.C595");                       // reading MX latches MX and MY
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crt-text")).toContainText("C592: 40 01 F0 00"); // 320, 240
+});
+
+test("Cmd shortcuts are the browser's, and a key held when focus goes is let go", async ({ page }) => {
+  await booted(page);
+  await page.getByRole("button", { name: "VGA" }).click();
+  await page.locator('[data-tab="dev"]').click();
+  await page.getByTestId("crt").click();
+  await page.keyboard.down("Shift");
+  await expect(page.getByTestId("dev-usb").locator('[data-reg="Modifiers"]')).toHaveText("L-Shift");
+  await page.getByRole("button", { name: "Text" }).click();    // focus leaves the screen
+  await expect(page.getByTestId("dev-usb").locator('[data-reg="Modifiers"]')).toHaveText("none");
+  await page.keyboard.up("Shift");
+});

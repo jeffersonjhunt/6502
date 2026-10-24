@@ -22,6 +22,8 @@ export interface PortCaps {
   busCycleStep: boolean;
   /** FrameState.video carries the video card's frames (watchVideo). */
   video: boolean;
+  /** sendKey and sendMouse reach a USB card. */
+  usb: boolean;
   /** setPower() works: the keyswitch. */
   power: boolean;
 }
@@ -68,6 +70,13 @@ export interface VideoFrame {
   /** Frames the card has finished since power on; this is that one. */
   frames: number;
   pixels: Uint8ClampedArray;
+}
+
+export interface MouseInput {
+  x?: number;
+  y?: number;
+  buttons?: number;
+  wheel?: number;
 }
 
 export type StopReason = "budget" | "halted" | "stopped";
@@ -148,6 +157,10 @@ export interface MachinePort {
 
   /** Bytes to the machine's serial line, each offered until taken. */
   sendSerial(bytes: Uint8Array): void;
+  /** The USB keyboard: a HID usage code (hw/design.md, "USB card registers") pressed or released. */
+  sendKey(usage: number, down: boolean): void;
+  /** The USB mouse: an absolute position (0-639, 0-479), buttons (bit 0 left, 1 right, 2 middle), wheel steps. */
+  sendMouse(mouse: MouseInput): void;
 
   /** Memory without bus cycles: CPU addresses (through the windows) or physical. */
   readMemory(addr: number, length: number, space: "cpu" | "physical"): Promise<Uint8Array>;
