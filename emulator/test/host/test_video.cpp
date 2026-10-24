@@ -360,6 +360,123 @@ TEST(bitmap_512_is_4_bits_left_pixel_high_with_palofs)
     CHECK_EQ(r.px(575, 0), rgba(BLUE));           // ...and (0, 0) wrapped to the far right
 }
 
+namespace
+{
+    constexpr uint8_t MAP = 32, TILES = 48;       // units: map at $88000, tiles at $8C000
+
+    /// A 4-bit pixel of tile `n` (size x size), left pixel high.
+    void tile4(Rig &r, unsigned n, unsigned size, unsigned tx, unsigned ty, uint8_t v)
+    {
+        const uint32_t at = TILES * 1024 + n * size * size / 2 + (ty * size + tx) / 2;
+        r.vram[at] = static_cast<uint8_t>(tx & 1 ? (r.vram[at] & 0xF0) | v : (r.vram[at] & 0x0F) | v << 4);
+    }
+    void entry(Rig &r, unsigned mx, unsigned my, unsigned map_w, unsigned tile, uint8_t flags)
+    {
+        const uint32_t at = MAP * 1024 + (my * map_w + mx) * 2;
+        r.vram[at] = static_cast<uint8_t>(tile);
+        r.vram[at + 1] = static_cast<uint8_t>(flags | tile >> 8);
+    }
+    void tiles(Rig &r, uint8_t config)
+    {
+        r.reg(L0 + VideoCard::CONFIG, static_cast<uint8_t>(VideoCard::TILE | config));
+        r.reg(L0 + VideoCard::MAPBASE, MAP);
+        r.reg(L0 + VideoCard::TILEBASE, TILES);
+        r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    }
+} // namespace
+
+TEST(tiles_8x8_4_bits_doubled_with_the_entry_palette_and_palofs)
+{
+    Rig r;
+    r.colour(0x05, RED);
+    r.colour(0x35, GREEN);
+    r.colour(0x45, BLUE);
+    tile4(r, 1, 8, 0, 0, 5);                      // tile 1: one pixel at (0, 0), colour 5
+    tile4(r, 1, 8, 7, 7, 5);                      // and (7, 7)
+    entry(r, 0, 0, 32, 1, 0x00);                  // map (0, 0): tile 1, palette 0
+    entry(r, 2, 1, 32, 1, 0x30);                  // map (2, 1): tile 1, palette 3
+    tiles(r, 0);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(RED));              // a tile pixel is 2x2 on screen
+    CHECK_EQ(r.px(1, 1), rgba(RED));
+    CHECK_EQ(r.px(2, 0), BLACK);                  // the rest of the tile: 0, transparent
+    CHECK_EQ(r.px(14, 14), rgba(RED));            // (7, 7)
+    CHECK_EQ(r.px(32, 16), rgba(GREEN));          // map (2, 1) is at 320-space (16, 8): palette 3 -> $35
+    r.reg(L0 + VideoCard::PALOFS, 1);
+    r.frames();
+    CHECK_EQ(r.px(32, 16), rgba(BLUE));           // 3 + 1 -> $45
+    r.reg(L0 + VideoCard::PALOFS, 13);
+    r.frames();
+    CHECK_EQ(r.px(32, 16), rgba(RED));            // 3 + 13 = 16: wraps to 0 -> $05
+}
+
+TEST(tiles_flip_and_reach_tile_1023)
+{
+    Rig r;
+    r.colour(0x07, WHITE);
+    tile4(r, 1023, 8, 1, 2, 7);                   // the last tile number, one pixel at (1, 2)
+    entry(r, 0, 0, 32, 1023, 0x00);
+    entry(r, 1, 0, 32, 1023, 0x04);               // H flip: (6, 2)
+    entry(r, 2, 0, 32, 1023, 0x08);               // V flip: (1, 5)
+    entry(r, 3, 0, 32, 1023, 0x0C);               // both: (6, 5)
+    tiles(r, 0);
+    r.show();
+    auto lit = [&](unsigned tx, unsigned ty) { return r.px(tx * 2, ty * 2) == rgba(WHITE); };
+    CHECK(lit(1, 2));
+    CHECK(!lit(6, 2));
+    CHECK(lit(8 + 6, 2));
+    CHECK(!lit(8 + 1, 2));
+    CHECK(lit(16 + 1, 5));
+    CHECK(!lit(16 + 1, 2));
+    CHECK(lit(24 + 6, 5));
+}
+
+TEST(tiles_16x16_8_bits_and_a_64_wide_map_scroll_and_wrap)
+{
+    Rig r;
+    r.colour(0x9C, RED);
+    r.colour(0x2D, GREEN);
+    const uint32_t tile2 = TILES * 1024 + 2 * 256;  // 16x16 at 8 bits: 256 bytes
+    r.vram[tile2 + 0] = 0x9C;                       // (0, 0)
+    r.vram[tile2 + 15 * 16 + 15] = 0x2D;            // (15, 15)
+    entry(r, 63, 0, 64, 2, 0xF0);                   // the map's last column; palette ignored at 8 bits
+    tiles(r, VideoCard::TILE16 | VideoCard::TILE8BPP | VideoCard::MAP_W64);
+    r.show();
+    CHECK_EQ(r.px(0, 0), BLACK);                    // column 63 is at x 1008 in 320-space: off screen
+    r.reg(L0 + VideoCard::HSCROLL, (63 * 16) & 0xFF);
+    r.reg(L0 + VideoCard::HSCROLL + 1, (63 * 16) >> 8);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(RED));                // scrolled to it
+    CHECK_EQ(r.px(30, 30), rgba(GREEN));            // (15, 15), doubled
+    CHECK_EQ(r.px(32, 0), BLACK);                   // then column 0, wrapped round (64 x 16 = 1024)
+    r.reg(L0 + VideoCard::HSCROLL, (63 * 16 + 4) & 0xFF); // fine scroll: 4 pixels on
+    r.reg(L0 + VideoCard::VSCROLL, (32 * 16 - 1) & 0xFF); // 32 high: 512, and one row back from 0
+    r.reg(L0 + VideoCard::VSCROLL + 1, (32 * 16 - 1) >> 8);
+    r.show();
+    CHECK_EQ(r.px(22, 32), rgba(GREEN));            // (15, 15) now at 320-space (11, 16)
+}
+
+TEST(tiles_over_text_transparent_where_0)
+{
+    Rig r;
+    r.colour(0x01, RED);
+    r.colour(0x0F, WHITE);
+    for (unsigned row = 0; row < 16; ++row)
+        r.glyph(0xDB, row, 0xFF);
+    r.cell(0, 0, 0xDB, 0x0F);                     // layer 0: a white block at text cell (0, 0)
+    r.text(L0, VideoCard::TEXT80);
+    tile4(r, 1, 8, 0, 0, 1);
+    entry(r, 0, 0, 32, 1, 0x00);
+    r.reg(L1 + VideoCard::CONFIG, VideoCard::TILE);
+    r.reg(L1 + VideoCard::MAPBASE, MAP);
+    r.reg(L1 + VideoCard::TILEBASE, TILES);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON | VideoCard::LAYER1_ON);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(RED));              // the tile's pixel over the text
+    CHECK_EQ(r.px(2, 0), rgba(WHITE));            // transparent: the text shows
+    CHECK_EQ(r.px(7, 15), rgba(WHITE));
+}
+
 TEST(bases_and_scroll_wait_for_vertical_blank_memory_does_not)
 {
     Rig r;

@@ -334,6 +334,13 @@ against 21-22 under node), some 4% of a core at real time.
 doubled, no PALOFS) and bitmap 512 (512x480 at 4 bits, left pixel high),
 both centred with the border either side, scroll wrapping in the image.
 
+**Tiles (2026-10-24), video part 5.** Tile layers in a 320x240 space shown
+doubled: 8x8 or 16x16 tiles at 4 or 8 bits, maps 32 or 64 entries each
+way of VERA's 2-byte entries (tile 0-1023, flips, palette offset), fine
+scroll wrapping round the map, either layer, over or under text. The scale,
+the map-size bits and how the two palette offsets add are recorded in
+hw/design.md.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

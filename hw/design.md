@@ -495,6 +495,12 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
   interrupt is at the start of line LINE. Changes to memory and the palette show from the next line drawn.
 - **Bitmaps** are centred: bitmap 256 (256x240, doubled both ways) and bitmap 512 both fill x 64-575, with the
   BORDER colour either side. In a 4-bit byte the left pixel is the high 4 bits, as in VERA.
+- **Tile layers are 320x240, shown doubled** (as the mockup's native picture), and so are sprites: the games
+  resolution. Text, mono and the bitmaps keep their own sizes.
+- **Tile CONFIG:** bit 3 16x16 tiles, bit 4 8 bits a pixel, bit 5 a map 64 entries wide (else 32), bit 6 64 high.
+- **Map entries** are VERA's: tile number bits 0-7, then a byte of tile bits 8-9 (bits 0-1), H flip (bit 2), V flip
+  (bit 3) and a palette offset (bits 4-7). Tile *n* is at TILEBASE + *n* x its size (32, 64, 128 or 256 bytes), row
+  by row. A 4-bit tile's colour is ((entry offset + PALOFS) mod 16) x 16 + pixel; an 8-bit tile's is the pixel.
 
 
 ## Sound ##

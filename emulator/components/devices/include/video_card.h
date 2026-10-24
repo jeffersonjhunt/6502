@@ -45,7 +45,7 @@
  * Palette entries are 12-bit, `GGGGBBBB` then `0000RRRR`.
  *
  * Layer types so far: text 80x30 and 40x30 (40 columns are doubled
- * across), mono 640x480, and bitmap 256 and 512. Text cells are a character byte and an
+ * across), mono 640x480, bitmap 256 and 512, and tiles. Text cells are a character byte and an
  * attribute byte (foreground low nibble, background high), the font is 256
  * characters of 16 bytes at TILEBASE, the leftmost pixel in bit 7; CONFIG
  * bit 7 makes attribute bit 7 blink the character (16 frames on, 16 off)
@@ -53,8 +53,13 @@
  * colour 1. Bitmaps are 256 bytes a row and centred, with BORDER either
  * side: bitmap 256 is 256x240 at 8 bits, doubled both ways to 512x480
  * (PALOFS does not apply); bitmap 512 is 512x480 at 4 bits, the left pixel
- * in the high 4 bits. Scroll wraps within the layer. Tile layers and
- * sprites come later: until then they draw nothing.
+ * in the high 4 bits. Tile layers are 320x240, doubled: 8x8 or 16x16 tiles
+ * (CONFIG bit 3) at 4 or 8 bits (bit 4), from a map 32 or 64 entries wide
+ * (bit 5) and high (bit 6) of VERA's 2-byte entries (tile number 0-1023,
+ * H and V flip, palette offset); tile n is at TILEBASE + n x its size, row
+ * by row, left pixel high. A 4-bit tile's colour is (entry offset + PALOFS)
+ * x 16 + pixel; an 8-bit tile's is the pixel. Scroll wraps within the
+ * layer. Sprites come later.
  */
 
 #include <array>
@@ -106,6 +111,8 @@ namespace ooe::emu
         static constexpr uint8_t IN_VBLANK = 0x80;
         static constexpr uint8_t TEXT80 = 0, TEXT40 = 1, TILE = 2, BITMAP256 = 3, BITMAP512 = 4, MONO = 5;
         static constexpr uint8_t BLINK = 0x80; ///< CONFIG: attribute bit 7 blinks
+        static constexpr uint8_t TILE16 = 0x08, TILE8BPP = 0x10; ///< CONFIG, tile layers: 16x16 tiles, 8 bits
+        static constexpr uint8_t MAP_W64 = 0x20, MAP_H64 = 0x40; ///< CONFIG, tile layers: map 64 wide, 64 high
 
         VideoCard();
 
@@ -156,6 +163,7 @@ namespace ooe::emu
         void draw_text(const Layer &l, unsigned y, int16_t *line, bool wide) const;
         void draw_mono(const Layer &l, unsigned y, int16_t *line) const;
         void draw_bitmap(const Layer &l, unsigned y, int16_t *line, bool bpp8) const;
+        void draw_tiles(const Layer &l, unsigned y, int16_t *line) const;
 
         const uint8_t *vram_{nullptr};
         /// Pixel clocks per CPU cycle, 32.32 fixed point: tick() is a multiply, and
