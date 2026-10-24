@@ -123,6 +123,8 @@ namespace ooe::emu
         card_ = machine_->console_card();
         if (VideoCard *video = machine_->video_card())
             video->set_cpu_hz(cpu_hz_);
+        if (UsbCard *usb = machine_->usb_card())
+            usb->set_cpu_hz(cpu_hz_);
 
         recorder_->attach(&machine_->bus());
         observers_ = CycleTee{};
@@ -158,6 +160,8 @@ namespace ooe::emu
         cpu_hz_ = hz;
         if (VideoCard *video = machine_->video_card())
             video->set_cpu_hz(hz);
+        if (UsbCard *usb = machine_->usb_card())
+            usb->set_cpu_hz(hz);
     }
 
     Session::RunResult Session::run(uint64_t budget)
@@ -185,6 +189,8 @@ namespace ooe::emu
             if (bus.irq())
                 cpu_->irq();
             if (card_ && card_->take_nmi())
+                cpu_->nmi();
+            if (UsbCard *usb = machine_->usb_card(); usb && usb->take_nmi()) // Pause/Break
                 cpu_->nmi();
             if (cpu_->cycles() >= next_service_)
             {

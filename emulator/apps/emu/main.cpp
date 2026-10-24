@@ -200,6 +200,8 @@ namespace
         {
             if (VideoCard *video = machine.video_card())
                 video->set_cpu_hz(settings.clock_hz); // 0, flat out: the card keeps 7.16 MHz time
+            if (UsbCard *usb = machine.usb_card())
+                usb->set_cpu_hz(settings.clock_hz); // key repeat and the paddles
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
 

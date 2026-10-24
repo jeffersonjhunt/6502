@@ -360,6 +360,16 @@ made by `demo/make_assets.py` and committed. The Woz Monitor moved again
 (WOZMON $C86B, ECHO $C95A). That finishes step 4 of hw/design.md's
 emulator list; Apple II mode is next.
 
+**The USB card (2026-10-24), part 1.** `UsbCard` (module B, $C580;
+`usb 580-5FF space=io irq`): the keyboard as cooked ASCII in KEY (US
+layout, the Apple's conventions, Caps Lock, key repeat) and raw HID events
+in a 128-byte FIFO with DRQ, the mouse (relative sums or an absolute
+position, latched together), the game port's 558 paddles timed in real
+time and buttons, the speaker's toggle, the interrupts, and Pause/Break's
+/NMI, which the Session takes. The host side takes HID usages and mouse
+movement; the WebUI is to feed it. The few rules the tables left open are
+in hw/design.md.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

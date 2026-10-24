@@ -21,6 +21,7 @@
 #include "memory_devices.h"
 #include "pia6821.h"
 #include "ps2_keyboard.h"
+#include "usb_card.h"
 #include "via6522.h"
 #include "video_card.h"
 
@@ -193,10 +194,10 @@ namespace ooe::emu
                 continue;
             }
             if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
-                type != "dma" && type != "console" && type != "video")
+                type != "dma" && type != "console" && type != "video" && type != "usb")
                 return fail("unknown type '" + type +
                             "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
-                            "hd44780 or ps2kbd)");
+                            "usb, hd44780 or ps2kbd)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
@@ -304,6 +305,14 @@ namespace ooe::emu
                     auto card = std::make_unique<ConsoleCard>();
                     card->attach(&m->bus_);
                     m->console_card_ = card.get();
+                    dev = std::move(card);
+                }
+                else if (type == "usb")
+                {
+                    if (m->usb_card_)
+                        return fail("usb: only one per machine");
+                    auto card = std::make_unique<UsbCard>();
+                    m->usb_card_ = card.get();
                     dev = std::move(card);
                 }
                 else if (type == "video")

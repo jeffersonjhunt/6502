@@ -755,6 +755,18 @@ AMODE is high.
 
 Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboard actually sends, no prefixes.
 
+**Decided (2026-10-24), filling in what the tables leave open,** as the emulator does it:
+
+- KEY holds one character, as on the Apple: a new one replaces it, read or not. It follows the Apple keyboard's
+  conventions in native mode too (arrows `$08` `$15` `$0A` `$0B`, Delete `$7F`, Ctrl with `$40-$5F` or a letter
+  giving `$00-$1F`). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
+  usually left.
+- REPEAT: the last character key pressed repeats while held, after (bits 4-5 + 1) x 250 ms, every (bits 0-3 + 1) x
+  33 ms (30 to about 2 a second). It resets to `$10`: 500 ms, 30 a second.
+- The raw event FIFO holds 128 bytes (64 events); when full, a new event is dropped whole, so pairs never split.
+- Each paddle's GAME bit stays high for about 11 us per count after PTRIG, in real time, as on the Apple.
+- An event sets its ISR bit whether or not IEN enables it; the card's IRQ is ISR AND IEN.
+
 *Mouse.*
 
 | Offset | Name | Purpose |

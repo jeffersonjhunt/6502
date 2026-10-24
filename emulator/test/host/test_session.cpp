@@ -286,6 +286,22 @@ TEST(the_video_card_keeps_the_callers_clock_across_a_power_cycle)
     CHECK(native == 8 || native == 9);     // 0: the card's own 7.16 MHz, 8.54 frames
 }
 
+TEST(pause_break_on_the_usb_keyboard_breaks_into_the_monitor)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    UsbCard *usb = s->usb();
+    REQUIRE(usb != nullptr);
+    std::string out;
+    usb->key(UsbCard::PAUSE, true);              // KBCFG bit 7 clear: nothing
+    usb->key(UsbCard::PAUSE, false);
+    s->run(FRAME * 4);
+    CHECK_EQ(s->take_output(), std::string(""));
+    usb->write(UsbCard::KBCFG, UsbCard::NMI_ON_PAUSE);
+    usb->key(UsbCard::PAUSE, true);
+    CHECK(run_until(*s, out, "\\\r"));          // /NMI: the vector is the Woz Monitor, a fresh prompt
+}
+
 TEST(stp_ends_the_run_and_start_gets_out)
 {
     auto s = booted();
