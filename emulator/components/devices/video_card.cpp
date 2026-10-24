@@ -273,8 +273,11 @@ namespace ooe::emu
         case BITMAP512:
             draw_bitmap(l, y, line, false);
             break;
+        case TILE:
+            draw_tiles(l, y, line);
+            break;
         default:
-            break; // tile: not yet
+            break; // types 6 and 7: nothing
         }
     }
 
@@ -342,6 +345,36 @@ namespace ooe::emu
             {
                 const uint8_t b = vram(row + sx / 2);
                 put(line[x], sx & 1 ? b & 0x0F : b >> 4, l.palofs);
+            }
+        }
+    }
+
+    void VideoCard::draw_tiles(const Layer &l, unsigned y, int16_t *line) const
+    {
+        // 320x240, doubled. The map is 32 or 64 entries each way of 2 bytes (VERA's): tile number
+        // bits 0-7, then bits 0-1 tile bits 8-9, bit 2 H flip, bit 3 V flip, bits 4-7 palette offset.
+        const unsigned size = l.config & TILE16 ? 16 : 8;
+        const bool bpp8 = l.config & TILE8BPP;
+        const unsigned map_w = l.config & MAP_W64 ? 64 : 32, map_h = l.config & MAP_H64 ? 64 : 32;
+        const unsigned tile_bytes = size * size / (bpp8 ? 1 : 2);
+        const unsigned ly = (y / 2 + l.live_vscroll) % (map_h * size);
+        const uint32_t map_row = uint32_t{l.live_mapbase} * 1024 + (ly / size) * map_w * 2;
+        const uint32_t tiles = uint32_t{l.live_tilebase} * 1024;
+        for (unsigned x = 0; x < WIDTH; ++x)
+        {
+            const unsigned lx = (x / 2 + l.live_hscroll) % (map_w * size);
+            const uint32_t entry = map_row + (lx / size) * 2;
+            const uint8_t lo = vram(entry), hi = vram(entry + 1);
+            const unsigned tile = lo | (hi & 0x03u) << 8;
+            const unsigned tx = hi & 0x04 ? size - 1 - lx % size : lx % size;
+            const unsigned ty = hi & 0x08 ? size - 1 - ly % size : ly % size;
+            const uint32_t at = tiles + tile * tile_bytes;
+            if (bpp8)
+                put(line[x], vram(at + ty * size + tx), 0); // 8 bits: no offsets
+            else
+            {
+                const uint8_t b = vram(at + (ty * size + tx) / 2);
+                put(line[x], tx & 1 ? b & 0x0F : b >> 4, static_cast<uint8_t>(((hi >> 4) + l.palofs) & 0x0F));
             }
         }
     }
