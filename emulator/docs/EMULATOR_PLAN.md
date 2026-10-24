@@ -402,6 +402,27 @@ table now has eight entries, five spare, so new ones stop moving the code
 after it (WOZMON $C880, ECHO $C968). The tests use a stand-in ROM; real
 ones go in `test/host/fixtures/apple2e/`.
 
+**Apple II mode, steps 2 and 3 (2026-10-24): the north bridge and the
+clock.** MODE's APPLE bit now switches the bridge to the IIe's map: A0-A15
+pass through and A16-A19 come from RAMRD/RAMWRT (so `NorthBridge::route`
+takes a `write` flag), ALTZP, 80STORE with PAGE2 and HIRES, and the
+language card (bank 2/3, the other $D000 bank at 4/5, the ROM image in
+bank E). `$C000-$CFFF` goes to `AppleIo` (apple_io.h) at `APPLE_IO` in Io
+space, whose reads and writes are bus cycles with the IIe's side effects
+and whose peeks change nothing: the soft switches, their status at
+$C011-$C01F (bits 0-6 the keyboard latch), the keyboard, speaker and game
+port through the USB card, VBL from Apple timing in CPU cycles, the
+language card's two-read rule, and the ROM space's INTCXROM, SLOTC3ROM and
+INTC8ROM. Entering asks the run loop for a /RESET pulse
+(`take_reset`/`pulse_reset`), which keeps APPLE; only a hard reset
+leaves. `NorthBridge::clock_hz()` is the Apple clock in the mode
+(1,020,484 Hz): Session clocks the cards by it, the app paces by it, and
+the WebUI locks its clock buttons to 1.02. Found on the way: Session first
+stored the fixed clock as the caller's, so after a power cycle the cards
+kept Apple time; the fixed one is now kept apart. Not yet: the USB card's
+Apple keys (Open/Closed Apple, Ctrl-Reset), the video card's Apple modes,
+slot cards (the Disk II), the floating bus (reads $FF).
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

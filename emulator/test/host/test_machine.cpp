@@ -171,12 +171,13 @@ TEST(spaces_and_the_northbridge_line)
         std::printf("  %s\n", error.c_str());
     REQUIRE(m != nullptr);
     const auto &maps = m->bus().mappings();
-    REQUIRE(maps.size() == 5u);
+    REQUIRE(maps.size() == 6u);
     CHECK_EQ(maps[0].first, bus_address(Space::Io, 0x680)); // the bridge's own registers
     CHECK_EQ(maps[0].module, 0xD);
-    CHECK_EQ(maps[2].first, bus_address(Space::Flash, 0x7FFF0));
-    CHECK_EQ(maps[3].module, 0x6);                          // from its I/O block
-    CHECK_EQ(maps[4].module, 0x9);                          // module= wins
+    CHECK_EQ(maps[1].first, bus_address(Space::Io, APPLE_IO)); // and Apple II mode's $C000-$CFFF
+    CHECK_EQ(maps[3].first, bus_address(Space::Flash, 0x7FFF0));
+    CHECK_EQ(maps[4].module, 0x6);                          // from its I/O block
+    CHECK_EQ(maps[5].module, 0x9);                          // module= wins
     REQUIRE(m->find_as<BackplaneBridge>("northbridge") != nullptr);
     CHECK_EQ(m->bus().read(0xFFF0), 0x01);                  // W3 at reset: top of ROM A
     CHECK(m->bus().decode(0xC300)->device == m->find("card"));

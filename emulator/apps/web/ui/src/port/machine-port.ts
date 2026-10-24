@@ -93,6 +93,8 @@ export interface FrameState {
   irq: boolean;
   /** Emulated speed over the last second or so, in Hz; 0 while not running. */
   hz: number;
+  /** The clock the machine's mode fixes (Apple II mode's 1,020,484 Hz), which setClock() cannot change; 0: none. */
+  fixedHz: number;
   /** What the machine sent on its serial line since the last frame. */
   serialOut: Uint8Array;
   /** Only while setLights(true). */

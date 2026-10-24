@@ -31,14 +31,52 @@ namespace ooe::emu
 
     void BackplaneBridge::reset()
     {
-        apply_reset();
+        apply_reset(); // a hard reset clears APPLE too: the one way back to native mode
+        apple_io_.reset();
+        reset_wanted_ = false;
         // The machine's first reset is the power-on one; STATUS says so until the next.
         power_on_ = !reset_seen_;
         reset_seen_ = true;
     }
 
-    Route BackplaneBridge::route(uint16_t cpu_addr, bool vector_pull) const
+    void BackplaneBridge::reset_pulse()
     {
+        const uint8_t apple = mode_ & MODE_APPLE;
+        apply_reset();
+        mode_ = apple; // /RESET alone never clears it
+        apple_io_.reset();
+    }
+
+    bool BackplaneBridge::take_reset()
+    {
+        const bool r = reset_wanted_;
+        reset_wanted_ = false;
+        return r;
+    }
+
+    Route BackplaneBridge::route(uint16_t cpu_addr, bool vector_pull, bool write) const
+    {
+        if (apple())
+        {
+            const AppleSwitches &s = apple_io_.switches();
+            const uint32_t a = cpu_addr;
+            if (a >= 0xC000 && a < 0xD000)
+                return Route{bus_address(Space::Io, APPLE_IO + a - 0xC000), true};
+            uint32_t bank = 0;
+            if (a < 0x0200)
+                bank = s.altzp;
+            else if (a < 0xC000)
+            {
+                bank = write ? s.ramwrt : s.ramrd;
+                if (s.store80 && ((a >= 0x0400 && a < 0x0800) || (s.hires && a >= 0x2000 && a < 0x4000)))
+                    bank = s.page2;
+            }
+            else if (!(write ? s.lc_write : s.lc_read))
+                return Route{bus_address(Space::Memory, AppleIo::ROM_BASE | a), false}; // the ROM image
+            else
+                bank = (a < 0xE000 && !s.lc_bank2 ? 4u : 2u) + s.altzp;
+            return Route{bus_address(Space::Memory, bank << 16 | a), true};
+        }
         if (cpu_addr >= IO_HOLE && cpu_addr < IO_HOLE + IO_SIZE)
             return Route{bus_address(Space::Io, cpu_addr - IO_HOLE), true};
         const unsigned n = cpu_addr >> WINDOW_SHIFT;
@@ -118,9 +156,12 @@ namespace ooe::emu
             vec_ = data;
             break;
         case MODE:
-            if (data & MODE_APPLE)
-                EMU_LOGW(TAG, "MODE APPLE: Apple II mode is not modelled yet; ignored");
-            mode_ = static_cast<uint8_t>(data & ~MODE_APPLE);
+            if ((data & MODE_APPLE) && !apple())
+            {
+                EMU_LOGI(TAG, "MODE: Apple II mode");
+                reset_wanted_ = true; // the switch pulses /RESET
+            }
+            mode_ = static_cast<uint8_t>(data | (mode_ & MODE_APPLE)); // APPLE only sets
             break;
         case WAIT0:
         case WAIT0 + 1:

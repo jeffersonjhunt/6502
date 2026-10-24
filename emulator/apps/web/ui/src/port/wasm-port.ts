@@ -58,6 +58,7 @@ export interface CoreMachine {
   videoFrames(): number;
   videoFrame(): Uint8Array;
   setClock(hz: number): void;
+  fixedHz(): number;
   hasUsb(): boolean;
   usbKey(usage: number, down: boolean): void;
   usbMouseTo(x: number, y: number): void;
@@ -200,8 +201,10 @@ export class WasmPort implements MachinePort {
     this.last = now;
 
     let ran = 0;
+    const fixed = this.powered ? m.fixedHz() : 0; // Apple II mode: the clock card follows the mode
+    const clock: Clock = fixed || this.clock;
     if (this.powered) {
-      if (this.clock === "max") {
+      if (clock === "max") {
         const until = now + MAX_FRAME_BUDGET_MS;
         do {
           const why = m.run(MAX_SLICE);
@@ -209,7 +212,7 @@ export class WasmPort implements MachinePort {
           if (why !== 0) break;
         } while (this.scheduler.now() < until);
       } else {
-        m.run(Math.round((this.clock * dt) / 1000));
+        m.run(Math.round((clock * dt) / 1000));
         ran = m.lastCycles();
       }
     }
@@ -223,6 +226,7 @@ export class WasmPort implements MachinePort {
       stopped: this.powered && m.stopped(),
       irq: this.powered && m.irq(),
       hz: this.hz,
+      fixedHz: fixed,
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,

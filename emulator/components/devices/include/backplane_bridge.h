@@ -35,13 +35,31 @@
  * 4n to 4n+3, the lowest ID in bits 1-0. Every access to that module is held
  * that many extra cycles with RDY.
  *
- * Not modelled yet (docs/EMULATOR_PLAN.md): MODE's APPLE bit (Apple II mode
- * is a later step; the write is logged and ignored).
+ * Apple II mode (MODE bit 0; hw/design.md, "Apple II mode"): writing it
+ * asks for a /RESET pulse (take_reset()) and switches to the IIe's map. A0-
+ * A15 pass through and the bridge supplies A16-A19 from the IIe's switches
+ * (apple_io.h holds them, and $C000-$CFFF, at APPLE_IO):
+ *
+ *   $0000-$01FF  bank 0, or 1 with ALTZP
+ *   $0200-$BFFF  bank 0 or 1: RAMRD for reads, RAMWRT for writes; with
+ *                80STORE, PAGE2 picks for $0400-$07FF, and with HIRES too for
+ *                $2000-$3FFF
+ *   $C000-$CFFF  the soft switches, I/O and ROM space (AppleIo)
+ *   $D000-$FFFF  the language card: RAM in bank 2 (main) or 3 (ALTZP),
+ *                with the other $D000 bank at bank 4 or 5; else the ROM image
+ *                in bank E. Writes with RAM write-protected are dropped
+ *
+ * The native registers, the windows and VEC are out of the way until a hard
+ * reset (reset()), the only way back. A /RESET pulse (reset_pulse(): entering,
+ * and later Ctrl-Reset) resets the windows and the IIe's switches but keeps
+ * APPLE. clock_hz() is the Apple clock while in the mode: the run loop paces
+ * by it, as the clock card follows the mode register.
  */
 
 #include <array>
 #include <cstdint>
 
+#include "apple_io.h"
 #include "decoder.h"
 #include "device.h"
 
@@ -75,16 +93,32 @@ namespace ooe::emu
         static constexpr uint8_t STATUS_BOOTSEL = 0x01;  ///< booted from RAM
         static constexpr uint8_t STATUS_POWER_ON = 0x02; ///< the last reset was power-on
         static constexpr uint8_t MODE_APPLE = 0x01;
+        static constexpr uint8_t MODE_TURBO = 0x02; ///< reserved for /1: kept, not modelled
 
         /// `bootsel`: the bus spy holds /BOOTSEL, so reset maps RAM, not flash, at the top.
         explicit BackplaneBridge(bool bootsel = false);
 
         /// The decoder whose module IDs the interrupt poll reads. Not owned.
-        void attach(Decoder *decoder) { decoder_ = decoder; }
+        void attach(Decoder *decoder)
+        {
+            decoder_ = decoder;
+            apple_io_.attach(decoder);
+        }
 
         // NorthBridge
-        Route route(uint16_t cpu_addr, bool vector_pull) const override;
+        Route route(uint16_t cpu_addr, bool vector_pull, bool write) const override;
         void reset() override;
+        void reset_pulse() override;
+        bool take_reset() override;
+        /// Apple II mode's clock: 14.31818 MHz / 14, with the long cycle every 65th: 65 cycles in 912 master clocks.
+        static constexpr uint32_t APPLE_HZ = 1'020'484;
+        uint32_t clock_hz() const override { return apple() ? APPLE_HZ : 0; }
+
+        /// In Apple II mode: the IIe's map, and the run loop's Apple clock.
+        bool apple() const { return (mode_ & MODE_APPLE) != 0; }
+        /// Apple mode's $C000-$CFFF, which the machine maps at APPLE_IO.
+        AppleIo &apple_io() { return apple_io_; }
+        const AppleSwitches &apple_switches() const { return apple_io_.switches(); }
         unsigned wait_states(uint8_t module) const override;
 
         // Device: the registers at $C680
@@ -109,5 +143,7 @@ namespace ooe::emu
         uint8_t vec_{0};
         uint8_t mode_{0};
         std::array<uint8_t, 4> wait_{};
+        bool reset_wanted_{false};
+        AppleIo apple_io_;
     };
 } // namespace ooe::emu

@@ -235,8 +235,9 @@ TEST(wait_registers_slow_their_module_only)
 TEST(mode_wait_and_unused_registers)
 {
     Rig r;
-    r.bus.write(NB + BackplaneBridge::MODE, BackplaneBridge::MODE_APPLE | 0x02);
-    CHECK_EQ(r.bus.read(NB + BackplaneBridge::MODE), 0x02); // APPLE not modelled: ignored
+    r.bus.write(NB + BackplaneBridge::MODE, BackplaneBridge::MODE_TURBO);
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::MODE), BackplaneBridge::MODE_TURBO); // kept, not modelled
+    CHECK(!r.bridge.apple());                               // APPLE: test_apple
     r.bus.write(NB + BackplaneBridge::WAIT0 + 3, 0x5A);
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 3), 0x5A);
     r.bus.write(NB + BackplaneBridge::STATUS, 0x00);         // read-only

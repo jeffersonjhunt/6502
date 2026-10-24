@@ -82,6 +82,9 @@ namespace ooe::emu
     constexpr uint32_t SPACE_COUNT = 3;
     constexpr uint32_t IO_HOLE = 0xC000; ///< CPU address of the I/O hole
     constexpr uint32_t IO_SIZE = 0x800;
+    /// Apple II mode's $C000-$CFFF, in Io space past the native hole (backplane_bridge.h);
+    /// the address lines still show $0C000-$0CFFF.
+    constexpr uint32_t APPLE_IO = 0x1000;
 
     /// A bus address: `offset` (A0-A19) within `space`.
     constexpr uint32_t bus_address(Space space, uint32_t offset)
@@ -102,14 +105,26 @@ namespace ooe::emu
     {
     public:
         virtual ~NorthBridge() = default;
-        /// Route a CPU access. `vector_pull` is the VPB pin. Default: memory, A16-A19 low.
-        virtual Route route(uint16_t cpu_addr, bool vector_pull) const
+        /// Route a CPU access. `vector_pull` is the VPB pin; `write` is RWB low (a
+        /// bridge may send reads and writes to different places, as Apple II
+        /// mode's RAMRD and RAMWRT do). Default: memory, A16-A19 low.
+        virtual Route route(uint16_t cpu_addr, bool vector_pull, bool write) const
         {
             (void)vector_pull;
+            (void)write;
             return Route{cpu_addr, true};
         }
-        /// /RESET: put the bridge's registers back to their reset values.
+        /// A hard reset (power-on, the reset button): everything back to its reset value.
         virtual void reset() {}
+        /// A /RESET pulse that is not a hard reset (Apple II mode's own, Ctrl-Reset):
+        /// by default the same as reset().
+        virtual void reset_pulse() { reset(); }
+        /// The bridge wants a /RESET pulse (entering Apple II mode): the run loop
+        /// asks after each instruction, and resets the CPU. Taken once.
+        virtual bool take_reset() { return false; }
+        /// The CPU clock the bridge's mode fixes (the clock card follows it, as
+        /// Apple II mode's ÷14 does), in Hz; 0: the caller's choice.
+        virtual uint32_t clock_hz() const { return 0; }
         /// Wait states the bridge inserts on an access to `module`.
         virtual unsigned wait_states(uint8_t module) const
         {
@@ -178,6 +193,12 @@ namespace ooe::emu
 
         /// /RESET: the north bridge and the bus master listen.
         void reset();
+        /// A /RESET pulse that is not a hard reset (NorthBridge::reset_pulse()).
+        void pulse_reset();
+        /// Something wants /RESET pulsed (the bridge entering Apple II mode).
+        bool take_reset() { return bridge_->take_reset(); }
+        /// The clock the bridge's mode fixes, or 0 (NorthBridge::clock_hz()).
+        uint32_t clock_hz() const { return bridge_->clock_hz(); }
 
         /// A bus master's cycle with nothing transferred (taking the bus).
         unsigned dma_idle();
@@ -196,7 +217,10 @@ namespace ooe::emu
         void write_physical(uint32_t physical, uint8_t data);
 
         /// Where a CPU address goes now (with VPB as given).
-        Route route(uint16_t addr, bool vector_pull = false) const { return bridge_->route(addr, vector_pull); }
+        Route route(uint16_t addr, bool vector_pull = false, bool write = false) const
+        {
+            return bridge_->route(addr, vector_pull, write);
+        }
         /// What A0-A19 carry for a CPU address: the offset in memory or
         /// flash; in the I/O hole, the CPU address itself.
         uint32_t physical(uint16_t addr, bool vector_pull = false) const;
@@ -232,7 +256,7 @@ namespace ooe::emu
         void catch_up(const Mapping &m);
         /// Route a CPU access, count its cycles (wait states and any bus
         /// master's cycles too) and record it in last_.
-        const Mapping *access(uint16_t addr, Route &r);
+        const Mapping *access(uint16_t addr, Route &r, bool write);
         /// Count one bus master cycle to memory; @return the mapping (or nullptr) and its cycles in `cycles`.
         const Mapping *dma_cycle(uint32_t physical, unsigned &cycles);
         /// Bring the slot of `device` up to the cycle before now.
