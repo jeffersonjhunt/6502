@@ -493,6 +493,8 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 - **Interrupt flags:** an event sets its ISR bit whether or not IEN enables it; the card's IRQ is ISR AND IEN.
 - **Where in the line:** the vertical blank interrupt and the latching are at the start of line 480; the line
   interrupt is at the start of line LINE. Changes to memory and the palette show from the next line drawn.
+- **Bitmaps** are centred: bitmap 256 (256x240, doubled both ways) and bitmap 512 both fill x 64-575, with the
+  BORDER colour either side. In a 4-bit byte the left pixel is the high 4 bits, as in VERA.
 
 
 ## Sound ##

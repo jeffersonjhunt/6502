@@ -45,13 +45,16 @@
  * Palette entries are 12-bit, `GGGGBBBB` then `0000RRRR`.
  *
  * Layer types so far: text 80x30 and 40x30 (40 columns are doubled
- * across), and mono 640x480. Text cells are a character byte and an
+ * across), mono 640x480, and bitmap 256 and 512. Text cells are a character byte and an
  * attribute byte (foreground low nibble, background high), the font is 256
  * characters of 16 bytes at TILEBASE, the leftmost pixel in bit 7; CONFIG
  * bit 7 makes attribute bit 7 blink the character (16 frames on, 16 off)
  * and leaves 8 backgrounds. Mono is 80 bytes a row, bit 7 leftmost: 1 is
- * colour 1. Scroll wraps within the layer. Tile, bitmap 256 and bitmap
- * 512 layers, and sprites, come later: until then they draw nothing.
+ * colour 1. Bitmaps are 256 bytes a row and centred, with BORDER either
+ * side: bitmap 256 is 256x240 at 8 bits, doubled both ways to 512x480
+ * (PALOFS does not apply); bitmap 512 is 512x480 at 4 bits, the left pixel
+ * in the high 4 bits. Scroll wraps within the layer. Tile layers and
+ * sprites come later: until then they draw nothing.
  */
 
 #include <array>
@@ -152,6 +155,7 @@ namespace ooe::emu
         void draw_layer(const Layer &l, unsigned y, int16_t *line) const;
         void draw_text(const Layer &l, unsigned y, int16_t *line, bool wide) const;
         void draw_mono(const Layer &l, unsigned y, int16_t *line) const;
+        void draw_bitmap(const Layer &l, unsigned y, int16_t *line, bool bpp8) const;
 
         const uint8_t *vram_{nullptr};
         /// Pixel clocks per CPU cycle, 32.32 fixed point: tick() is a multiply, and

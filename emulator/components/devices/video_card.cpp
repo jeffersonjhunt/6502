@@ -267,8 +267,14 @@ namespace ooe::emu
         case MONO:
             draw_mono(l, y, line);
             break;
+        case BITMAP256:
+            draw_bitmap(l, y, line, true);
+            break;
+        case BITMAP512:
+            draw_bitmap(l, y, line, false);
+            break;
         default:
-            break; // tile, bitmap: not yet
+            break; // tile: not yet
         }
     }
 
@@ -317,6 +323,26 @@ namespace ooe::emu
         {
             const unsigned sx = (x + l.live_hscroll) % WIDTH;
             put(line[x], (vram(row + sx / 8) >> (7 - sx % 8)) & 1, l.palofs);
+        }
+    }
+
+    void VideoCard::draw_bitmap(const Layer &l, unsigned y, int16_t *line, bool bpp8) const
+    {
+        // Both are 256 bytes a row, centred: 256x240 doubled, or 512x480 at 4 bits, left pixel high.
+        constexpr unsigned LEFT = (WIDTH - 512) / 2;
+        const unsigned h = bpp8 ? 240 : HEIGHT, w = bpp8 ? 256 : 512;
+        const unsigned sy = ((bpp8 ? y / 2 : y) + l.live_vscroll) % h;
+        const uint32_t row = uint32_t{l.live_mapbase} * 1024 + sy * 256;
+        for (unsigned x = LEFT; x < LEFT + 512; ++x)
+        {
+            const unsigned sx = ((bpp8 ? (x - LEFT) / 2 : x - LEFT) + l.live_hscroll) % w;
+            if (bpp8)
+                put(line[x], vram(row + sx), 0); // PALOFS is for 4-bit pixels
+            else
+            {
+                const uint8_t b = vram(row + sx / 2);
+                put(line[x], sx & 1 ? b & 0x0F : b >> 4, l.palofs);
+            }
         }
     }
 
