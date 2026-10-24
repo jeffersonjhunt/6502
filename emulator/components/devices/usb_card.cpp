@@ -23,7 +23,7 @@ namespace ooe::emu
         key_ = mods_ = leds_ = kbcfg_ = 0;
         repeat_ = 0x10;
         caps_ = true;
-        nmi_ = false;
+        nmi_ = reset_ = false;
         fifo_head_ = fifo_count_ = 0;
         held_ = 0;
         down_ = {};
@@ -130,6 +130,11 @@ namespace ooe::emu
         }
         if (usage == PAUSE && (kbcfg_ & NMI_ON_PAUSE))
             nmi_ = true;
+        if (usage == DELETE && (mods_ & (L_CTRL | R_CTRL)))
+        {
+            reset_ = true; // Ctrl-Reset: no character
+            return;
+        }
         if (const uint8_t c = cooked(usage, mods_, caps_))
         {
             strobe(c);
@@ -147,6 +152,19 @@ namespace ooe::emu
             return;
         }
         pending_.emplace_back(usage, down);
+    }
+
+    bool UsbCard::take_reset()
+    {
+        const bool r = reset_;
+        reset_ = false;
+        return r;
+    }
+
+    uint8_t UsbCard::apple_keys() const
+    {
+        constexpr uint8_t L_ALT = 0x04, L_GUI = 0x08, R_ALT = 0x40, R_GUI = 0x80;
+        return static_cast<uint8_t>((mods_ & (L_ALT | L_GUI) ? 1 : 0) | (mods_ & (R_ALT | R_GUI) ? 2 : 0));
     }
 
     bool UsbCard::take_nmi()

@@ -315,6 +315,24 @@ TEST(the_keyboard_speaker_and_game_port_are_the_usb_cards)
     CHECK_EQ(a.bus().read(0xC064), 0x00);                   // paddle 0 at 0: done
 }
 
+TEST(open_and_closed_apple_are_buttons_0_and_1)
+{
+    Apple a;
+    REQUIRE(a.ok());
+    a.enter();
+    CHECK_EQ(a.bus().read(0xC061), 0x00);
+    a.usb->key(0xE3, true);                                 // left GUI: Open Apple
+    CHECK_EQ(a.bus().read(0xC061), 0x80);
+    CHECK_EQ(a.bus().read(0xC062), 0x00);
+    a.usb->key(0xE6, true);                                 // right Alt: Closed Apple
+    CHECK_EQ(a.bus().read(0xC062), 0x80);
+    a.usb->key(0xE3, false);
+    a.usb->key(0xE6, false);
+    a.usb->set_game_buttons(0x02);                          // the game port's button 1, the same line
+    CHECK_EQ(a.bus().read(0xC062), 0x80);
+    CHECK_EQ(a.bus().read(0xC061), 0x00);
+}
+
 TEST(vbl_follows_the_apples_frame_in_cpu_cycles)
 {
     Apple a;
