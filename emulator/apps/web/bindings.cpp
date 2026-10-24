@@ -153,6 +153,8 @@ namespace
             return val(emscripten::typed_memory_view(bytes, v ? reinterpret_cast<const uint8_t *>(v->frame()) : nullptr));
         }
         void set_clock(double hz) { session_->set_cpu_hz(static_cast<uint32_t>(hz)); }
+        /// The clock the machine's mode fixes (Apple II mode), or 0: pace by it then.
+        double fixed_hz() const { return session_->fixed_hz(); }
         bool has_usb() const { return session_->usb() != nullptr; }
         void usb_key(unsigned usage, bool down)
         {
@@ -250,6 +252,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("videoFrames", &WebMachine::video_frames)
         .function("videoFrame", &WebMachine::video_frame)
         .function("setClock", &WebMachine::set_clock)
+        .function("fixedHz", &WebMachine::fixed_hz)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbMouseTo", &WebMachine::usb_mouse_to)

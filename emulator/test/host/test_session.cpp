@@ -304,6 +304,28 @@ TEST(pause_break_on_the_usb_keyboard_breaks_into_the_monitor)
     CHECK(run_until(*s, out, "\\\r"));          // /NMI: the vector is the Woz Monitor, a fresh prompt
 }
 
+TEST(apple_ii_mode_fixes_the_clock_and_the_cards_follow_it)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    CHECK_EQ(s->fixed_hz(), 0u);
+    s->send("C685: 1\r");                     // MODE: Apple II mode, straight from the monitor
+    for (int i = 0; i < 60 && !s->fixed_hz(); ++i)
+        s->run(FRAME);
+    CHECK_EQ(s->fixed_hz(), 1'020'484u);
+    const uint64_t before = s->video()->frames();
+    s->run(1'020'484);                         // a second at the Apple clock
+    const uint64_t frames = s->video()->frames() - before;
+    CHECK(frames == 59 || frames == 60);       // the video card keeps real time at it
+    std::string error;
+    REQUIRE(s->power_cycle(error));            // a hard reset: native again
+    CHECK_EQ(s->fixed_hz(), 0u);
+    const uint64_t native = s->video()->frames();
+    s->run(1'020'484);                         // the caller's clock again (7.16 MHz): 8.5 frames,
+    const uint64_t after = s->video()->frames() - native;
+    CHECK(after == 8 || after == 9);           // not the Apple clock's 60
+}
+
 TEST(stp_ends_the_run_and_start_gets_out)
 {
     auto s = booted();

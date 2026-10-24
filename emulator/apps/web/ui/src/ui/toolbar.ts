@@ -49,6 +49,7 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
   const savedClock = prefs.get("clock");
   const clock: Clock = savedClock === "max" ? "max" : CLOCKS_HZ.find((c) => String(c) === savedClock) ?? CLOCKS_HZ[3];
   port.setClock(clock);
+  let picked = String(clock); // the user's pick, shown again when nothing fixes the clock
   const clocks = segmented<string>(
     "Clock",
     [
@@ -57,6 +58,7 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
     ],
     String(clock),
     (v) => {
+      picked = v;
       port.setClock(v === "max" ? "max" : Number(v));
       prefs.set("clock", v);
     },
@@ -117,8 +119,16 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
   panel.onChange(live);
   live();
 
-  /** Light Run or Halt to match the machine. */
+  /** Light Run or Halt to match the machine; while its mode fixes the clock, show that one, locked. */
+  let fixedShown = 0;
   const update = (f: FrameState) => {
+    if (f.fixedHz !== fixedShown) {
+      fixedShown = f.fixedHz;
+      const near = CLOCKS_HZ.find((c) => Math.abs(c - f.fixedHz) < 1000);
+      clocks.select(fixedShown ? (near !== undefined ? String(near) : "") : picked);
+      for (const b of clocks.element.querySelectorAll("button")) b.disabled = fixedShown !== 0;
+      clocks.element.title = fixedShown ? "Apple II mode: the Apple's own clock, 1.02 MHz" : "";
+    }
     const running = f.powered && !f.halted && !f.stopped;
     run.classList.toggle("on", running);
     halt.classList.toggle("on", f.powered && f.halted);

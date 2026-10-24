@@ -211,6 +211,20 @@ describe("WasmPort", () => {
     expect(m.until("C591: 01")).toBe(true);         // the left button
   });
 
+  test("Apple II mode fixes the clock: the budget follows it, whatever setClock said", async () => {
+    const m = await open();
+    m.until(GREETING);
+    expect(m.step().fixedHz).toBe(0);
+    m.port.sendSerial(ascii("C685: 1\r"));        // MODE, from the monitor: no ROM needed for this
+    let f = m.step();
+    for (let i = 0; i < 60 && !f.fixedHz; ++i) f = m.step();
+    expect(f.fixedHz).toBe(1_020_484);
+    m.port.setClock("max");                       // ignored while the mode fixes it
+    const before = m.step().cycles;
+    const after = m.step(100).cycles;
+    expect(Math.abs(after - before - 102_048)).toBeLessThan(16);
+  });
+
   test("the IRQ line, for the panel's lamp", async () => {
     const m = await open();
     m.until(GREETING);

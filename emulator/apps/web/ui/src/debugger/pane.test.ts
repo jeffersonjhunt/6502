@@ -152,6 +152,7 @@ function frame() {
     serialOut: new Uint8Array(0),
     lights: null,
     regs: null,
+    fixedHz: 0,
     video: null,
   };
 }

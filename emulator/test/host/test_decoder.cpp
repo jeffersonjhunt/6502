@@ -88,7 +88,7 @@ TEST(north_bridge_places_cpu_addresses_in_physical_space)
     // A stand-in rule: everything in bank 3.
     struct Bank3 : NorthBridge
     {
-        Route route(uint16_t a, bool) const override { return Route{0x30000u | a, true}; }
+        Route route(uint16_t a, bool, bool) const override { return Route{0x30000u | a, true}; }
     };
     Bank3 bridge;
     Ram low(0x10000), high(0x10000);
@@ -105,7 +105,7 @@ TEST(routes_reach_other_spaces_and_honour_read_only)
     // $0xxx -> flash, read-only; $1xxx -> I/O; VPB sends $Fxxx to flash too.
     struct Split : NorthBridge
     {
-        Route route(uint16_t a, bool vpb) const override
+        Route route(uint16_t a, bool vpb, bool) const override
         {
             if (a < 0x1000 || (vpb && a >= 0xF000))
                 return Route{bus_address(Space::Flash, a), false};

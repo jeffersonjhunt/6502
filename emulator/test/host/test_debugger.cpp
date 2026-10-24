@@ -268,7 +268,7 @@ TEST(bus_trace_uses_the_north_bridge_address)
 {
     struct Bank3 : NorthBridge
     {
-        Route route(uint16_t a, bool) const override { return Route{0x30000u | a, true}; }
+        Route route(uint16_t a, bool, bool) const override { return Route{0x30000u | a, true}; }
     };
     Bank3 bridge;
     Ram ram(0x10000);

@@ -123,10 +123,7 @@ namespace ooe::emu
         console_ = std::move(console);
         cpu_ = std::move(cpu);
         card_ = machine_->console_card();
-        if (VideoCard *video = machine_->video_card())
-            video->set_cpu_hz(cpu_hz_);
-        if (UsbCard *usb = machine_->usb_card())
-            usb->set_cpu_hz(cpu_hz_);
+        clock_cards();
 
         recorder_->attach(&machine_->bus());
         observers_ = CycleTee{};
@@ -160,6 +157,13 @@ namespace ooe::emu
     void Session::set_cpu_hz(uint32_t hz)
     {
         cpu_hz_ = hz;
+        clock_cards();
+    }
+
+    void Session::clock_cards()
+    {
+        // The mode's clock if it fixes one (Apple II mode), else the caller's.
+        const uint32_t hz = machine_->bus().clock_hz() ? machine_->bus().clock_hz() : cpu_hz_;
         if (VideoCard *video = machine_->video_card())
             video->set_cpu_hz(hz);
         if (UsbCard *usb = machine_->usb_card())
@@ -190,6 +194,12 @@ namespace ooe::emu
             // Level-sensitive, sampled after every instruction, as the app does.
             if (bus.irq())
                 cpu_->irq();
+            if (machine_->bus().take_reset()) // the north bridge entering Apple II mode
+            {
+                machine_->bus().pulse_reset();
+                cpu_->reset();
+                clock_cards(); // and its clock
+            }
             if (card_ && card_->take_nmi())
                 cpu_->nmi();
             if (UsbCard *usb = machine_->usb_card(); usb && usb->take_nmi()) // Pause/Break

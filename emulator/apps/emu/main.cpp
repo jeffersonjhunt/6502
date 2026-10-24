@@ -210,6 +210,12 @@ namespace
                 usb->set_cpu_hz(settings.clock_hz); // key repeat and the paddles
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
+            emulator.on_clock_change([&machine](uint32_t hz) {
+                if (VideoCard *video = machine.video_card())
+                    video->set_cpu_hz(hz);
+                if (UsbCard *usb = machine.usb_card())
+                    usb->set_cpu_hz(hz);
+            });
 
             on_signal(SIGINT);
             on_signal(SIGTERM);

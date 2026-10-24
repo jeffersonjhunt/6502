@@ -52,6 +52,16 @@ namespace ooe::emu
             if (!debugger_.halted())
                 run_slice();
             terminal_.update_screen();
+            if (const uint32_t hz = bus_.clock_hz(); hz && hz != clock_hz_) // Apple II mode: the clock card's
+            {
+                run_secs += std::chrono::duration<double>(clock::now() - start).count();
+                run_cycles += cpu_.cycles() - start_cycles;
+                clock_hz_ = hz;
+                start = clock::now(); // pace from here, at the new rate
+                start_cycles = cpu_.cycles();
+                if (clock_changed_)
+                    clock_changed_(hz);
+            }
 
             if (debugger_.halted())
             {
@@ -98,6 +108,11 @@ namespace ooe::emu
             // irq() does nothing while I is set, except end a WAI.
             if (bus_.irq())
                 cpu_.irq();
+            if (bus_.take_reset()) // the north bridge entering Apple II mode
+            {
+                bus_.pulse_reset();
+                cpu_.reset();
+            }
             if (card_ && card_->take_nmi())
                 cpu_.nmi();
             if (card_ && card_->take_start())

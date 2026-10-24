@@ -202,6 +202,16 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
   by the video card in step with the Apple timing. As on a real IIe, bits 0–6 of these reads are the keyboard
   latch, which a few programs rely on: the north bridge drives bit 7 and the USB card bits 0–6.
 
+**Decided (2026-10-24), as the emulator models it,** where the IIe's own manuals leave room:
+
+- The language card enables writing on two *reads* in a row of an odd `$C08x` address; an even address, or a write to
+  an odd one, clears it. /RESET leaves it reading ROM and writing RAM bank 2, as a IIe's MMU does.
+- /RESET also turns off 80STORE, RAMRD, RAMWRT, INTCXROM, ALTZP, SLOTC3ROM, INTC8ROM, 80COL and ALTCHARSET, and
+  sets text mode. APPLE survives it.
+- `$C019` reads bit 7 = 0 during vertical blank (lines 192-261 of 262, 65 cycles each, 17,030 a frame), counted in
+  CPU cycles.
+- Empty slots, the cassette and other unused reads return `$FF` (no floating-bus video data yet).
+
 This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge
 is a CPLD, for example an ATF1508 (5 V), holding:
 

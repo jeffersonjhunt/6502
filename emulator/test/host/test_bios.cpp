@@ -108,6 +108,11 @@ namespace
                 cpu->step();
                 if (machine->bus().irq())
                     cpu->irq();
+                if (machine->bus().take_reset()) // the run loop's job, as Session's: Apple II mode's /RESET
+                {
+                    machine->bus().pulse_reset();
+                    cpu->reset();
+                }
                 if (cpu->cycles() % 64 > 7)
                     continue; // service the console about once every 64 cycles
                 console->service();
@@ -552,6 +557,10 @@ namespace
         image[0xFBB3 - 0xC000] = static_cast<char>(id);
         image[0xFFFC - 0xC000] = 0x62; // $FA62, the IIe's reset
         image[0xFFFD - 0xC000] = static_cast<char>(0xFA);
+        // ...which here stores $A5 at $0300 and stops: LDA #$A5; STA $0300; JMP *
+        const uint8_t reset[] = {0xA9, 0xA5, 0x8D, 0x00, 0x03, 0x4C, 0x67, 0xFA};
+        for (size_t i = 0; i < sizeof reset; ++i)
+            image[0xFA62 - 0xC000 + i] = static_cast<char>(reset[i]);
         std::ofstream(path, std::ios::binary) << image;
         return path;
     }
@@ -593,18 +602,22 @@ TEST(c806_copies_the_iie_rom_to_bank_e_clears_banks_0_to_3_and_writes_mode)
     size_t differ = 0;
     for (uint32_t i = 0; i < 0x4000; ++i)
         differ += bus.peek_physical(0xEC000 + i) != static_cast<uint8_t>(i * 13 + 5) &&
-                  i != 0xFBB3 - 0xC000 && i != 0xFFFC - 0xC000 && i != 0xFFFD - 0xC000;
+                  i != 0xFBB3 - 0xC000 && i != 0xFFFC - 0xC000 && i != 0xFFFD - 0xC000 &&
+                  !(i >= 0xFA62 - 0xC000 && i < 0xFA6A - 0xC000);
     CHECK_EQ(differ, size_t{0});                               // the IIe ROM, in bank E
     CHECK_EQ(bus.peek_physical(0xEFFFC), 0x62);
     size_t left = 0;
     for (uint32_t a = 0; a < 0x40000; a += 0x101)
-        left += bus.peek_physical(a) != 0;
+        left += bus.peek_physical(a) != 0 && a != 0x00300 && (a < 0x00100 || a >= 0x00200); // (not its store, nor the stack)
     CHECK_EQ(left, size_t{0});                                 // banks 0-3: all zero
     CHECK_EQ(bus.peek_physical(0x3FFFF), 0);
     CHECK_EQ(bus.peek_physical(0x40000 + 0x1234), 0);          // bank 4 untouched (it was 0 anyway)
     CHECK_EQ(bus.peek_physical(0xFC800), static_cast<uint8_t>(flash[0x7C800])); // the BIOS's own copy kept
-    const unsigned at = label(read_file(EMU_BIOS_ROM ".lbl"), "APPLE");
-    CHECK(b.cpu->regs().pc > at && b.cpu->regs().pc < at + 0x100); // waiting for the reset MODE pulses
+    // MODE: Apple II mode, a /RESET pulse, and the CPU running the IIe ROM's reset code in bank E
+    REQUIRE(b.machine->find_as<BackplaneBridge>("northbridge") != nullptr);
+    CHECK(b.machine->find_as<BackplaneBridge>("northbridge")->apple());
+    CHECK_EQ(b.cpu->regs().pc, 0xFA67);                        // its JMP *
+    CHECK_EQ(bus.peek_physical(0x00300), 0xA5);                // its store, to bank 0
 }
 
 TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)

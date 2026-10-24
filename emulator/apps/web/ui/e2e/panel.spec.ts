@@ -110,3 +110,20 @@ test("the switch register stays where it was left", async ({ page }) => {
   await expect(page.getByTestId("readout-swr")).toHaveText("0C680");
   await expect(sw(page, 7)).toHaveAttribute("aria-pressed", "true");
 });
+
+test("Apple II mode locks the clock at 1.02 MHz until a cold start", async ({ page }) => {
+  await booted(page);
+  const clock = page.getByRole("group", { name: "Clock" });
+  await expect(clock.getByRole("button", { name: "7.16 MHz" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("C685: 1");                   // MODE: Apple II mode (no IIe ROM: it just sits there)
+  await page.keyboard.press("Enter");
+  await expect(clock.getByRole("button", { name: "1.02" })).toHaveAttribute("aria-pressed", "true");
+  await expect(clock.getByRole("button", { name: "7.16 MHz" })).toBeDisabled();
+  const key = page.getByTestId("keyswitch");
+  await key.click(); // LOCK
+  await key.click(); // OFF
+  await key.click(); // RUN: a cold start, native again
+  await expect(clock.getByRole("button", { name: "7.16 MHz" })).toBeEnabled();
+  await expect(clock.getByRole("button", { name: "7.16 MHz" })).toHaveAttribute("aria-pressed", "true");
+});

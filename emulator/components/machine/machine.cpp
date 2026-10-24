@@ -139,6 +139,9 @@ namespace ooe::emu
                 m->bus_.map(Mapping{bus_address(Space::Io, BackplaneBridge::REGISTERS),
                                     bus_address(Space::Io, BackplaneBridge::REGISTERS + 0x7F), bridge.get(),
                                     BackplaneBridge::MODULE, false});
+                // Apple II mode's $C000-$CFFF: the bridge sends it there only in that mode.
+                m->bus_.map(Mapping{bus_address(Space::Io, APPLE_IO), bus_address(Space::Io, APPLE_IO + 0xFFF),
+                                    &bridge->apple_io(), BackplaneBridge::MODULE, false});
                 m->bridge_ = bridge.get();
                 m->named_["northbridge"] = bridge.get();
                 m->devices_.push_back(std::move(bridge));
@@ -351,6 +354,8 @@ namespace ooe::emu
             error = origin + ": describes no devices";
             return nullptr;
         }
+        if (auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_); bp && m->usb_card_)
+            bp->apple_io().attach(m->usb_card_); // the IIe's keyboard, speaker and game port
         if (m->video_card_)
         {
             // The card draws from banks 8-B, which it snoops: give it the RAM there.

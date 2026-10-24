@@ -149,6 +149,9 @@ namespace ooe::emu
         /// real time: 60 frames a second, key repeat and the paddles, at any
         /// speed (0: 7.16 MHz). Kept across power cycles.
         void set_cpu_hz(uint32_t hz);
+        /// The clock the machine's mode fixes (Apple II mode's 1,020,484 Hz), or 0: the
+        /// caller paces by it instead of its own choice. The cards follow it already.
+        uint32_t fixed_hz() const { return machine_->bus().clock_hz(); }
 
         /// Lamp duty since the last call (zeros without a card).
         ConsoleCard::Lights lights();
@@ -166,6 +169,8 @@ namespace ooe::emu
         /// Build everything from config_. @return false with `error`
         bool build(std::string &error);
         void reset();
+        /// Tell the cards the clock they keep time by: the mode's fixed one, or the caller's.
+        void clock_cards();
         /// Move console bytes both ways.
         void service();
 

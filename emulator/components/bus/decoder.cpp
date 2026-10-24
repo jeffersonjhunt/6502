@@ -19,7 +19,10 @@ namespace ooe::emu
         /// A0-A19 for a bus address: the offset, or in the I/O hole the CPU address.
         uint32_t lines(uint32_t where)
         {
-            return space_of(where) == Space::Io ? IO_HOLE + offset_of(where) : offset_of(where);
+            if (space_of(where) != Space::Io)
+                return offset_of(where);
+            const uint32_t off = offset_of(where);
+            return IO_HOLE + (off >= APPLE_IO ? off - APPLE_IO : off);
         }
     } // namespace
 
@@ -32,6 +35,13 @@ namespace ooe::emu
     void Decoder::reset()
     {
         bridge_->reset();
+        if (master_)
+            master_->reset();
+    }
+
+    void Decoder::pulse_reset()
+    {
+        bridge_->reset_pulse();
         if (master_)
             master_->reset();
     }
@@ -166,10 +176,10 @@ namespace ooe::emu
         }
     }
 
-    const Mapping *Decoder::access(uint16_t addr, Route &r)
+    const Mapping *Decoder::access(uint16_t addr, Route &r, bool write)
     {
         const unsigned stolen = master_ ? master_->take_bus(*this) : 0; // RDY: the master goes first
-        r = route(addr, vector_pull_);
+        r = route(addr, vector_pull_, write);
         const Mapping *m = find(r.where);
         unsigned waits = 0;
         if (m)
@@ -183,7 +193,7 @@ namespace ooe::emu
     uint8_t Decoder::read(uint16_t addr)
     {
         Route r;
-        const Mapping *m = access(addr, r);
+        const Mapping *m = access(addr, r, false);
         if (!m)
         {
             EMU_LOGV(TAG, "%04X -> unmapped", addr);
@@ -198,7 +208,7 @@ namespace ooe::emu
     void Decoder::write(uint16_t addr, uint8_t data)
     {
         Route r;
-        const Mapping *m = access(addr, r);
+        const Mapping *m = access(addr, r, true);
         EMU_LOGV(TAG, "%04X <- %02X%s", addr, data, !m ? " (unmapped)" : r.writable ? "" : " (read-only)");
         if (!m || !r.writable)
             return;
@@ -208,7 +218,7 @@ namespace ooe::emu
 
     void Decoder::poke(uint16_t addr, uint8_t data)
     {
-        const Route r = route(addr);
+        const Route r = route(addr, false, true);
         if (const Mapping *m = find(r.where))
             m->device->poke(r.where - m->first, data);
     }

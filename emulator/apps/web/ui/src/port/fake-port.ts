@@ -34,6 +34,7 @@ export class FakePort implements MachinePort {
       serialOut: new Uint8Array(0),
       lights: null,
       regs: null,
+      fixedHz: 0,
       video: null,
       ...frame,
     };

@@ -31,6 +31,7 @@
 
 #include <csignal>
 #include <cstdint>
+#include <functional>
 
 #include "console_card.h"
 #include "cpu6502.h"
@@ -56,6 +57,8 @@ namespace ooe::emu
 
         /// Run until Ctrl-C, the debugger's quit, end of input at its
         /// prompt, or until `quit` becomes true.
+        /// Called when the machine's mode fixes a new clock (Apple II mode), for the cards.
+        void on_clock_change(std::function<void(uint32_t)> f) { clock_changed_ = std::move(f); }
         void run(const volatile std::sig_atomic_t &quit);
 
     private:
@@ -69,6 +72,7 @@ namespace ooe::emu
         Terminal &terminal_;
         Debugger &debugger_;
         uint32_t clock_hz_;
+        std::function<void(uint32_t)> clock_changed_;
         ConsoleCard *card_;
         bool stop_reported_{false};
     };
