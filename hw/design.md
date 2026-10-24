@@ -211,6 +211,12 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
 - `$C019` reads bit 7 = 0 during vertical blank (lines 192-261 of 262, 65 cycles each, 17,030 a frame), counted in
   CPU cycles.
 - Empty slots, the cassette and other unused reads return `$FF` (no floating-bus video data yet).
+- **The video card's character ROM** for Apple text is 2 KB in video memory at `$BE000`, which the BIOS copies from
+  the cartridge (`$84000`) before entering the mode, or builds from the VGA font when there is none. It is the IIe
+  video ROM's first 2 KB: 8 bytes a code, bit 0 the leftmost of 7 dots, a dot lit where its bit is 0.
+- **Apple colours:** the 16 lo-res colours (and hi-res's violet, green, blue, orange and white among them) are the
+  usual NTSC approximations, rounded to the card's 12 bits. Hi-res colour is the simple artifact rule: a lone dot
+  takes its column's colour, two together are white; no NTSC filter yet.
 
 This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge
 is a CPLD, for example an ATF1508 (5 V), holding:

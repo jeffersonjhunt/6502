@@ -378,6 +378,19 @@ namespace ooe::emu
                 error = origin + ": video: banks 8-B (80000-BFFFF) must be one ram line";
                 return nullptr;
             }
+            // Apple II mode: banks 0 and 1, and the bridge's switches
+            if (auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_))
+            {
+                for (auto it = maps.rbegin(); it != maps.rend(); ++it)
+                {
+                    if (it->last < bus_address(Space::Memory, 0) || it->first > bus_address(Space::Memory, 0x1FFFF))
+                        continue;
+                    if (const auto *low = dynamic_cast<const Ram *>(it->device);
+                        low && it->first <= bus_address(Space::Memory, 0) && it->last >= bus_address(Space::Memory, 0x1FFFF))
+                        m->video_card_->attach_apple(low->data() + (bus_address(Space::Memory, 0) - it->first), bp);
+                    break;
+                }
+            }
         }
         if (!options.apple_rom.empty() || !options.apple_chars.empty())
         {

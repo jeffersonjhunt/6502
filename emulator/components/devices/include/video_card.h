@@ -61,6 +61,20 @@
  * x 16 + pixel; an 8-bit tile's is the pixel. Scroll wraps within the
  * layer.
  *
+ * Apple II mode (the north bridge's APPLE, hw/design.md "Apple II mode"):
+ * the card draws the IIe's display from banks 0 and 1 instead, as the north
+ * bridge's switches say, its own registers out of reach. Each Apple dot is
+ * 2x2 pixels, the 560x384 picture centred in 640x480 on black. Text, 40 or
+ * 80 columns (80: aux, main, aux...), with the IIe's character ROM at
+ * APPLE_CHARS (2 KB: 8 bytes a code, bit 0 the leftmost of 7 dots, lit where
+ * the bit is 0): ALTCHARSET off makes $40-$7F flash between inverse and
+ * normal, on shows them as they are (MouseText, inverse lowercase). Lo-res:
+ * 40x48 blocks of 16 colours. Hi-res: 280 dots a line, colour from NTSC
+ * artifacts (a lone dot is violet or green, blue or orange when its byte's
+ * bit 7 shifts it half a dot right; two together are white). MIXED: the last
+ * four text rows over graphics. PAGE2 picks page 2 unless 80STORE. The double
+ * modes come next. Colours are the IIe's, in the card's 12 bits.
+ *
  * Sprites (CTRL bit 3) share the tiles' 320x240 space: 64 entries of 8
  * bytes at SPRBASE in VERA's layout (image in 64-byte units, 8-bit flag, X
  * and Y wrapping at 1024, flips, depth, collision groups, palette offset,
@@ -81,6 +95,7 @@
 
 namespace ooe::emu
 {
+    class BackplaneBridge;
     class VideoCard : public Device
     {
     public:
@@ -128,6 +143,15 @@ namespace ooe::emu
 
         /// Banks 8-B: VRAM_SIZE bytes, as the RAM holds them. Not owned; null draws $FF.
         void attach(const uint8_t *vram) { vram_ = vram; }
+        /// Apple II mode: banks 0 and 1 (main and auxiliary, 128 KB as the RAM holds
+        /// them), and the north bridge whose mode and switches say what to draw. Not owned.
+        void attach_apple(const uint8_t *banks01, const BackplaneBridge *bridge)
+        {
+            apple_ram_ = banks01;
+            bridge_ = bridge;
+        }
+        /// The character ROM's 2 KB in video memory (the BIOS's C806R puts it there): $BE000.
+        static constexpr uint32_t APPLE_CHARS = 0x3E000;
         /// The CPU clock that tick()'s cycles run at; 0 = NATIVE_HZ.
         void set_cpu_hz(uint32_t hz);
         void reset();
@@ -181,10 +205,15 @@ namespace ooe::emu
         void draw_mono(const Layer &l, unsigned y, int16_t *line) const;
         void draw_bitmap(const Layer &l, unsigned y, int16_t *line, bool bpp8) const;
         void draw_tiles(const Layer &l, unsigned y, int16_t *line) const;
+        /// Apple II mode: line y of the IIe's display, 560x384 centred.
+        void draw_apple(unsigned y, uint32_t *out) const;
+        uint8_t apple(uint32_t bank, uint16_t addr) const { return apple_ram_ ? apple_ram_[bank << 16 | addr] : 0; }
         /// Line `ly` of the 320x240 sprite space; sprite collisions are noted for the frame.
         void draw_sprites(unsigned ly, SpritePixel *line);
 
         const uint8_t *vram_{nullptr};
+        const uint8_t *apple_ram_{nullptr};
+        const BackplaneBridge *bridge_{nullptr};
         /// Pixel clocks per CPU cycle, 32.32 fixed point: tick() is a multiply, and
         /// the sum of the parts is the whole however the cycles are split.
         uint64_t step_{0};

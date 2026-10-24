@@ -11,6 +11,7 @@
 
 #include "harness.h"
 
+#include "backplane_bridge.h"
 #include "cpu6502.h"
 #include "machine.h"
 #include "video_card.h"
@@ -792,6 +793,187 @@ TEST(a_6502_program_puts_a_character_on_the_screen_and_takes_the_vblank_irq)
     CHECK_EQ(card->frame()[7 + 15 * 640], rgba(WHITE)); // the cell's far corner
     CHECK_EQ(card->frame()[8], BLACK);      // the next cell: nothing
     CHECK_EQ(bus.peek_physical(0x80800), 0x01); // drawn from the RAM, as written through the window
+}
+
+namespace
+{
+    /// A backplane in Apple II mode: the IIe's display drawn by the video card.
+    struct AppleScreen
+    {
+        AppleScreen()
+        {
+            std::string error;
+            m = Machine::build("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
+                               "video 480-4FF space=io name=video irq\n",
+                               "apple.machine", {}, error);
+            if (!m)
+            {
+                std::printf("  %s\n", error.c_str());
+                return;
+            }
+            card = m->video_card();
+            // A test character set: code n's row r is n ^ r (so every glyph differs), lit where 0.
+            for (unsigned n = 0; n < 256; ++n)
+                for (unsigned r = 0; r < 8; ++r)
+                    bus().write_physical(0x80000 + VideoCard::APPLE_CHARS + n * 8 + r, static_cast<uint8_t>(n ^ r));
+            bus().write(0xC685, BackplaneBridge::MODE_APPLE);
+            if (bus().take_reset())
+                bus().pulse_reset();
+        }
+        bool ok() const { return card != nullptr; }
+        Decoder &bus() { return m->bus(); }
+        void show() { card->tick(2 * 119'437); } // two frames at the card's 7.16 MHz
+        /// The screen pixel of Apple dot (x, y): its top left (40-column text and graphics are 2x2).
+        uint32_t dot(unsigned x, unsigned y) const { return card->frame()[(48 + y * 2) * 640 + 40 + x * 2]; }
+        uint32_t px(unsigned x, unsigned y) const { return card->frame()[y * 640 + x]; }
+        /// Glyph `code`'s row r as dots, lit where its bit is 0.
+        static bool lit(unsigned code, unsigned r, unsigned b) { return !(((code ^ r) >> b) & 1); }
+
+        std::unique_ptr<Machine> m;
+        VideoCard *card{nullptr};
+    };
+
+    const uint32_t A_WHITE = VideoCard::rgba(0xFFF), A_BLACK = VideoCard::rgba(0x000);
+    const uint32_t A_VIOLET = VideoCard::rgba(0xF4F), A_GREEN = VideoCard::rgba(0x1F4);
+    const uint32_t A_BLUE = VideoCard::rgba(0x1CF), A_ORANGE = VideoCard::rgba(0xF64), A_MAGENTA = VideoCard::rgba(0xE26);
+    const uint32_t A_DKGREEN = VideoCard::rgba(0x0A6);
+} // namespace
+
+TEST(apple_text_40_columns_from_the_character_rom_centred_on_black)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write(0x0400, 0xC1);                 // row 0, column 0
+    a.bus().write(0x0400 + 0x28 * 2 + 0x80 * 7 + 39, 0x2A); // row 23, column 39 (inverse)
+    a.show();
+    size_t wrong = 0;
+    for (unsigned r = 0; r < 8; ++r)
+        for (unsigned b = 0; b < 7; ++b)
+        {
+            wrong += a.dot(b, r) != (AppleScreen::lit(0xC1, r, b) ? A_WHITE : A_BLACK);
+            wrong += a.dot(273 + b, 184 + r) != (AppleScreen::lit(0x2A, r, b) ? A_WHITE : A_BLACK);
+        }
+    CHECK_EQ(wrong, size_t{0});
+    CHECK_EQ(a.px(40 + 1, 48 + 1), a.dot(0, 0)); // a dot is 2x2
+    CHECK_EQ(a.px(39, 48), A_BLACK);             // the border: black, not the VGA layers
+    CHECK_EQ(a.px(600, 431), A_BLACK);
+    CHECK_EQ(a.px(320, 47), A_BLACK);
+}
+
+TEST(apple_flashing_and_the_alternate_set)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write(0x0400, 0x41);                 // a flashing A (ALTCHARSET off)
+    a.show();
+    const bool first = a.dot(0, 0) == (AppleScreen::lit(0x01, 0, 0) ? A_WHITE : A_BLACK) &&
+                       a.dot(1, 0) == (AppleScreen::lit(0x01, 0, 1) ? A_WHITE : A_BLACK);
+    CHECK(first);                                // inverse first: code & $3F
+    while (a.card->frames() < 18)
+        a.card->tick(119'437);
+    size_t as_normal = 0;
+    for (unsigned b = 0; b < 7; ++b)
+        as_normal += a.dot(b, 3) == (AppleScreen::lit(0x81, 3, b) ? A_WHITE : A_BLACK);
+    CHECK_EQ(as_normal, size_t{7});              // then normal: (code & $3F) | $80
+    a.bus().write(0xC00F, 0);                    // ALTCHARSET on: $41 as it is (MouseText)
+    a.show();
+    size_t as_is = 0;
+    for (unsigned b = 0; b < 7; ++b)
+        as_is += a.dot(b, 5) == (AppleScreen::lit(0x41, 5, b) ? A_WHITE : A_BLACK);
+    CHECK_EQ(as_is, size_t{7});
+}
+
+TEST(apple_text_80_columns_aux_then_main_and_page_2)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write_physical(0x10400, 0xC1);       // aux: column 0
+    a.bus().write_physical(0x00400, 0xC2);       // main: column 1
+    a.bus().write(0xC00D, 0);                    // 80COL on
+    a.show();
+    size_t wrong = 0;
+    for (unsigned b = 0; b < 7; ++b)
+    {
+        wrong += a.px(40 + b, 48 + 2 * 2) != (AppleScreen::lit(0xC1, 2, b) ? A_WHITE : A_BLACK);
+        wrong += a.px(47 + b, 48 + 2 * 2) != (AppleScreen::lit(0xC2, 2, b) ? A_WHITE : A_BLACK); // 7 pixels a column
+    }
+    CHECK_EQ(wrong, size_t{0});
+    a.bus().write(0xC00C, 0);                    // 40 columns, page 2
+    a.bus().write_physical(0x00800, 0xC3);
+    a.bus().read(0xC055);
+    a.show();
+    CHECK_EQ(a.dot(0, 1), AppleScreen::lit(0xC3, 1, 0) ? A_WHITE : A_BLACK);
+    CHECK_EQ(a.dot(1, 1), AppleScreen::lit(0xC3, 1, 1) ? A_WHITE : A_BLACK);
+    a.bus().write(0xC001, 0);                    // 80STORE: PAGE2 picks memory, the display stays on page 1
+    a.show();
+    size_t page1 = 0;
+    for (unsigned b = 0; b < 7; ++b)             // the whole row: $C2 and $C3 differ in a dot or two
+        page1 += a.dot(b, 1) == (AppleScreen::lit(0xC2, 1, b) ? A_WHITE : A_BLACK);
+    CHECK_EQ(page1, size_t{7});
+}
+
+TEST(apple_lores_blocks_low_nibble_on_top)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write(0x0400, 0x41);                 // top: magenta (1), bottom: dark green (4)
+    a.bus().read(0xC050);                        // graphics, HIRES off: lo-res
+    a.show();
+    CHECK_EQ(a.dot(0, 0), A_MAGENTA);
+    CHECK_EQ(a.dot(6, 3), A_MAGENTA);            // a block is 7 dots by 4 lines
+    CHECK_EQ(a.dot(0, 4), A_DKGREEN);
+    CHECK_EQ(a.dot(6, 7), A_DKGREEN);
+    CHECK_EQ(a.dot(7, 0), A_BLACK);              // the next block: 0
+}
+
+TEST(apple_hires_artifact_colours_white_pairs_and_the_half_dot_shift)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().read(0xC050);
+    a.bus().read(0xC057);                        // hi-res, page 1 at $2000
+    a.bus().write(0x2000, 0x01);                 // line 0: dot 0 alone, an even dot: violet
+    a.bus().write(0x2001, 0x01);                 // dot 7 (the second byte's bit 0): odd: green
+    a.bus().write(0x2400, 0x81);                 // line 1: dot 0, shifted half a dot: blue
+    a.bus().write(0x2401, 0x81);                 // dot 7, shifted: orange
+    a.bus().write(0x2800, 0x03);                 // line 2: dots 0 and 1 together: white
+    a.bus().write(0x2000 + 4 * 0x400 + 4 * 0x80 + 1 * 0x28 + 5, 0x01); // line 100 (4 + 4 x 8 + 64), byte 5
+    a.bus().write(0x2000 + 7 * 0x400 + 7 * 0x80 + 2 * 0x28 + 39, 0x40); // line 191, the last dot
+    a.show();
+    CHECK_EQ(a.dot(35, 100), A_GREEN);           // dot 35: odd
+    CHECK_EQ(a.dot(279, 191), A_GREEN);
+    CHECK_EQ(a.dot(0, 0), A_VIOLET);
+    CHECK_EQ(a.dot(1, 0), A_BLACK);
+    CHECK_EQ(a.dot(7, 0), A_GREEN);
+    CHECK_EQ(a.px(40, 48 + 2), A_BLACK);         // shifted: the first pixel is still dark...
+    CHECK_EQ(a.px(41, 48 + 2), A_BLUE);          // ...from the next one
+    CHECK_EQ(a.px(42, 48 + 2), A_BLUE);
+    CHECK_EQ(a.px(40 + 7 * 2 + 1, 48 + 2), A_ORANGE);
+    CHECK_EQ(a.px(40 + 7 * 2, 48 + 2), A_BLACK);
+    CHECK_EQ(a.dot(0, 2), A_WHITE);
+    CHECK_EQ(a.dot(1, 2), A_WHITE);
+    a.bus().write_physical(0x04000, 0x01);       // page 2, with PAGE2
+    a.bus().write_physical(0x02000, 0x00);
+    a.bus().read(0xC055);
+    a.show();
+    CHECK_EQ(a.dot(0, 0), A_VIOLET);
+}
+
+TEST(apple_mixed_mode_four_text_rows_under_graphics)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write(0x0400 + 0x28 * 2 + 0x80 * 4, 0xC1); // row 20, column 0
+    a.bus().write(0x0400 + 0x28 * 2 + 0x80 * 3, 0x11); // row 19: a lo-res byte
+    a.bus().read(0xC050);
+    a.bus().read(0xC053);                        // MIXED
+    a.show();
+    CHECK_EQ(a.dot(0, 152), A_MAGENTA);          // row 19: graphics
+    CHECK_EQ(a.dot(0, 160), AppleScreen::lit(0xC1, 0, 0) ? A_WHITE : A_BLACK); // row 20: text
+    CHECK_EQ(a.dot(1, 161), AppleScreen::lit(0xC1, 1, 1) ? A_WHITE : A_BLACK);
+    a.bus().read(0xC052);                        // not mixed: row 20 is graphics too
+    a.show();
+    CHECK_EQ(a.dot(0, 160), A_MAGENTA);          // row 20's byte $C1 as lo-res: 1 on top
 }
 
 int main()

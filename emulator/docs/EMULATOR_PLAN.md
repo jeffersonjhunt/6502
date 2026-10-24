@@ -435,6 +435,18 @@ starts on Ctrl-Open Apple-Reset, and passes its own self-test ("System
 OK") on Ctrl-Closed Apple-Reset: the north bridge's RAM, MMU and IOU as
 the IIe's diagnostics see them.
 
+**Apple II mode, step 5a (2026-10-24): the IIe's display; BIOS 0.6.** In
+Apple mode the video card draws banks 0 and 1 as the north bridge's
+switches say: 40- and 80-column text (80: aux then main), lo-res, hi-res
+with NTSC artifact colour (a lone dot violet/green, or blue/orange shifted
+half a dot by bit 7; pairs white), MIXED, PAGE2 unless 80STORE, flashing and
+the alternate set; each Apple dot 2x2, 560x384 centred on black, the IIe's
+colours in the card's 12 bits. C806R puts the character ROM's 2 KB at
+$BE000 in video memory, from the cartridge or, without one, built from the
+VGA font. test_iie, with the owner's ROMs, checks the boot banner dot for
+dot against the real character ROM, and GR/PLOT and HGR/HPLOT typed into
+Applesoft. Next: the double modes (5b), and the WebUI (step 6).
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

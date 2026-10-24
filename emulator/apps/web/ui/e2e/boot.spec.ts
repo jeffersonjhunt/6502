@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const GREETING = "BACKPLANE BIOS 0.5";
+const GREETING = "BACKPLANE BIOS 0.6";
 
 async function booted(page: Page) {
   await page.goto("./");
@@ -10,7 +10,7 @@ async function booted(page: Page) {
 
 test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {
   await booted(page);
-  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.5\n\\$/);
+  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.6\n\\$/);
   await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 
