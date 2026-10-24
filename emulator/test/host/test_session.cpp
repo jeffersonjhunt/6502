@@ -331,6 +331,7 @@ TEST(a_machine_without_a_panel)
     REQUIRE(at != std::string::npos);
     text.erase(at + 1, text.find('\n', at + 1) - at);       // drop the console line
     auto s = open(write_machine("no_panel.machine", text));
+    std::remove("no_panel.machine");                        // read at create: leave nothing behind
     REQUIRE(s != nullptr);
     CHECK(!s->has_card());
     CHECK_EQ(s->card_read(ConsoleCard::ID_REG), 0xFF);
