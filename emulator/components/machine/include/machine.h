@@ -28,7 +28,9 @@
  * IRQ output to the CPU. Chips: ram, rom (needs an image), pia6821, via6522,
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
  * takes the bus from the CPU), console (the Console card, console_card.h;
- * at most one; the run loop wires it to the CPU, see console_card()). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * at most one; the run loop wires it to the CPU, see console_card()), video
+ * (the video card, video_card.h; at most one, and banks 8-B, 80000-BFFFF,
+ * must be one ram line, which it draws from). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board).
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
@@ -55,6 +57,7 @@
 #include "decoder.h"
 #include "device.h"
 #include "peripheral.h"
+#include "video_card.h"
 
 namespace ooe::emu
 {
@@ -87,6 +90,8 @@ namespace ooe::emu
         /// The `console` line's card, or nullptr. The run loop makes it the
         /// CPU's observer and asks it before each instruction (may_run()).
         ConsoleCard *console_card() const { return console_card_; }
+        /// The video card, if the description has one (`video`).
+        VideoCard *video_card() const { return video_card_; }
 
         /// The device given `name=` in the description, or nullptr.
         Device *find(const std::string &name) const;
@@ -115,6 +120,7 @@ namespace ooe::emu
         NorthBridge *bridge_{nullptr}; ///< the description's own, owned through devices_
         BusMaster *master_{nullptr};   ///< its DMA controller, owned through devices_
         ConsoleCard *console_card_{nullptr}; ///< owned through devices_
+        VideoCard *video_card_{nullptr};     ///< owned through devices_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

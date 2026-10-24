@@ -37,6 +37,9 @@ namespace ooe::emu
                 mem_[offset] = data;
         }
 
+        /// The bytes, for a card that keeps a snooped copy of them (the video card).
+        const uint8_t *data() const { return mem_.data(); }
+
     private:
         std::vector<uint8_t> mem_;
     };

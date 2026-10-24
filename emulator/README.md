@@ -40,6 +40,8 @@ python3 tools/trace_diff.py --symbols ../apple1/src/ibasic.rom.lbl board.trace r
 - `--trace FILE` writes every bus cycle, SYNC and VPB included, in the
   format the ESP32 bus spy is to use (`docs/BUS_TRACE.md`);
   `tools/trace_diff.py` finds the first cycle where two traces differ.
+- `--screen FILE` writes the video card's last frame, 640x480, as a PPM when
+  the emulator exits (a machine with a `video` line; see below).
 
 ## Ben Eater's board
 
@@ -61,7 +63,8 @@ it enables CA1 interrupts.
 
 `machines/backplane.machine` is the real machine's design (`../hw/design.md`)
 as far as it is modelled: the W65C02S and north bridge, 1 MB of RAM in four
-modules, the 512 KB flash, the DMA controller and the Console card (the front
+modules, the 512 KB flash, the DMA controller, the video card ($C480: VGA
+640x480 from banks 8-B, text and mono layers so far) and the Console card (the front
 panel at $C700: its breakpoint and HALT stop at the debugger as "panel"), with a
 6551 at $C300 standing in for the serial card. At reset the north bridge maps the top 16 KB of the flash at
 $C000-$FFFF, read-only, so the ROM image is the whole flash with the BIOS in

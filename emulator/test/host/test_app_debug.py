@@ -10,8 +10,9 @@ keyboard) still quits and restores the terminal; --load puts HEX and raw
 images on the bus, ROM included; STP stops into the debugger; so does a
 Console card's HALT set by the program, and `r` releases it; --trace
 writes a well-formed trace that tools/trace_diff.py agrees with, and
-disagrees with once a byte is changed. Bad --load and --break arguments
-stop the app before the terminal goes raw.
+disagrees with once a byte is changed; --screen saves the video card's
+frame as a PPM, and fails on a machine without one. Bad --load and
+--break arguments stop the app before the terminal goes raw.
 
 The pty helpers are test_app_tty.py's, loaded by path (python -I does not
 put this directory on sys.path).
@@ -170,6 +171,42 @@ def main():
         os.write(s.master, b"q\n")
         rc, lost = s.close()
         check(failures, "panel session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
+
+        # --screen: a program sets a border colour on a backplane machine's video
+        # card; the PPM written on the way out is that colour.
+        video = os.path.join(cwd, "video.machine")
+        with open(video, "w") as f:
+            f.write("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
+                    "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n"
+                    "video 480-4FF space=io name=video irq\n")
+        write_hex(hexfile, [(0x0300, [0xA9, 0x20, 0x8D, 0x81, 0xC6,   # LDA #$20; STA WIN1: $4000 = $80000
+                                      0xA9, 0x23, 0x8D, 0x06, 0x40,   # palette entry 3 = $123
+                                      0xA9, 0x01, 0x8D, 0x07, 0x40,
+                                      0xA9, 0x03, 0x8D, 0x81, 0xC4,   # BORDER 3
+                                      0xA9, 0x01, 0x8D, 0x80, 0xC4,   # CTRL: display on
+                                      0x4C, 0x19, 0x03])])           # JMP *
+        screen = os.path.join(cwd, "screen.ppm")
+        s = Session(binary, ["--machine", video, "--load", hexfile, "--screen", screen, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        s.send(b"x pc=0300\n")
+        s.send(b"r\n", until=b"running")
+        s.expect(b"\0", timeout=0.5)  # a few frames at 1 MHz
+        s.send(b"\x1d")
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "screen session: exit", rc == 0 and not lost, f"rc={rc} lost={lost} {text(s.log)}")
+        ppm = open(screen, "rb").read() if os.path.exists(screen) else b""
+        head = b"P6\n640 480\n255\n"
+        check(failures, "screen: a 640x480 PPM", ppm.startswith(head) and len(ppm) == len(head) + 640 * 480 * 3,
+              f"{len(ppm)} bytes")
+        check(failures, "screen: the border colour", ppm[len(head):len(head) + 3] == bytes([0x11, 0x22, 0x33])
+              and ppm[-3:] == bytes([0x11, 0x22, 0x33]), ppm[len(head):len(head) + 3].hex())
+        s = Session(binary, ["--screen", screen, "--halt", rom], cwd)  # the Apple-1: no video card
+        s.expect(PROMPT)
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "screen without a video card", rc == 1 and b"has no video card" in s.log and not lost,
+              f"rc={rc} {text(s.log)}")
 
         # --trace: header, reset sequence, one line per cycle; trace_diff agrees
         # with itself and finds a changed byte.

@@ -288,6 +288,23 @@ armed, labels resolved through the windows to physical addresses, fetch,
 read or write, halt or /NMI, and the latched cycle on a hit. Re-armed after
 a power cycle, since the card forgets. Memory and Devices tabs are placeholders.
 
+**The video card (2026-10-24), step 4, part 1.** `VideoCard` (module 9,
+$C480; machine line `video 480-4FF space=io irq`) has the decided registers
+and VGA 640x480 timing: 800 pixel clocks a line at 25.175 MHz, 525 lines,
+turned from CPU cycles at the clock it is told, so it is 60 frames a second
+at any CPU speed. It draws from banks 8-B, which the board's card snoops;
+a copy that sees every write is the RAM, so the machine hands it a pointer
+to the RAM there (and refuses a description where banks 8-B are not one
+`ram` line). Each line is drawn as the beam finishes it, so mid-frame
+changes to memory and the palette show from the next line; base and scroll
+registers latch at vertical blank, and `frame()` is the last finished
+frame (double buffered). Vertical blank and line interrupts, LINE, STATUS.
+Layers so far: text 80x30 and 40x30 (attributes, PALOFS, blink) and mono.
+`emulator --screen FILE` writes the last frame as a PPM. Five behaviours
+the design left open are now in hw/design.md (what shows through, the
+border, display off, transparency, blink rate). Next: the BIOS on the
+screen, then the WebUI's VGA scene, bitmaps, tiles and sprites.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,
