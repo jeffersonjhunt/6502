@@ -3,13 +3,14 @@
 ;
 ;  Ben Eater's serial version (eater/src/wozmon.s), ported to ca65 for the
 ;  backplane: the 6551 is the stand-in terminal at $C300 (backplane.inc), the
-;  vectors belong to the BIOS, and ECHO's transmit delay is stretched for
-;  the 7.16 MHz clock.
+;  vectors belong to the BIOS, ECHO's transmit delay is stretched for the
+;  7.16 MHz clock, and ECHO writes to the BIOS's screen too (video.s).
 
 .setcpu "65C02"
 .include "backplane.inc"
 .segment "WOZMON"
 .export WOZMON, ECHO
+.import VPUTC
 
 XAML  = $24                            ; Last "opened" location Low
 XAMH  = $25                            ; Last "opened" location High
@@ -187,6 +188,7 @@ PRHEX:
 ; instead: 10 bits at 19200 baud is 521 us, 3,730 cycles at 7.16 MHz. Three
 ; passes of 256 x 5 cycles is 3,840. X is kept for the callers.
 ECHO:
+                JSR     VPUTC          ; The VGA screen (keeps A, X and Y).
                 PHA                    ; Save A.
                 PHX                    ; Save X.
                 STA     ACIA_DATA      ; Output character.

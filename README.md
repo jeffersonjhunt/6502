@@ -50,3 +50,9 @@ cmake --preset dev && cmake --build --preset dev && ctest --preset dev
 
 The refactor plan is `emulator/docs/EMULATOR_PLAN.md`; the baseline it starts
 from is tagged `beta`.
+
+### License ###
+
+MIT (`LICENSE`), except the backplane BIOS's font, `backplane/bios/font/vga8x16.bin`: IBM VGA 8x16 from VileR's
+[Ultimate Oldschool PC Font Pack](https://int10h.org/oldschool-pc-fonts/), under CC BY-SA 4.0. It is inside
+`bios.rom` and the emulator's web build, which carry it under that license; see `backplane/bios/font/README.md`.
