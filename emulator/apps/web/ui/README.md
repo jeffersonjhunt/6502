@@ -34,7 +34,7 @@ is remembered between visits.
 The debugger (toggle it from the toolbar; it remembers) has three working
 tabs. CPU: registers and flags, live. Bus trace: the latest cycles, as the
 bus spy writes them, recorded only while the tab is open. Breakpoints: add a
-label or address (`ECHO`, `C954`, or five hex digits for a physical one),
+label or address (`ECHO`, `C95A`, or five hex digits for a physical one),
 arm one (the Console card has one comparator), choose fetch, read or write
 and halt or /NMI; a hit shows the cycle the card latched. Breakpoints are
 the card's BPADDR/BPCTRL, written over its SPI registers, so they work the
@@ -61,7 +61,9 @@ The monitor's scene buttons are its input select. **Text** is the serial
 terminal; **VGA** is the video card's output, which the BIOS fills with the
 same Woz Monitor session in the IBM VGA font: in Colour as the card makes
 it, on P1/P3/P4 as a mono monitor shows it. The keyboard is the serial line's
-in either. The Devices tab in the debugger decodes the card's registers.
+in either. Type `C803R` for the video demo (tiles, sprites, scrolling, a
+palette fade); any key goes back. The Devices tab in the debugger decodes the
+card's registers.
 `?demo=scenes` shows the mockup's picture on the Apple II scene instead of
 NO SIGNAL (Apple II mode is not emulated yet). The screen font is VileR's
 (CC BY-SA 4.0), and the page credits it under the front panel.

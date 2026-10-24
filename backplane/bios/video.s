@@ -24,7 +24,8 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.export VINIT, VPUTC
+.export VINIT, VPUTC, DEMO, DEMO_EXIT
+.import WOZMON, DEMO_MAIN
 
 VPTR    = BIOS_ZP + 0                  ; cell pointer (CPU address)
 VCOL    = BIOS_ZP + 2
@@ -120,6 +121,25 @@ VINIT:
                 STZ     VROW
                 DEC     VOK            ; $FF: on
 @done:          RTS
+
+; The video demo (demo.s), in flash block 29: map it at $4000 through W1
+; and run it. It needs the screen (the card and the DMA controller).
+DEMO_BLOCK = 29
+DEMO:
+                BIT     VOK
+                BPL     @none
+                LDA     #NB_ROM | NB_RO | DEMO_BLOCK
+                STA     NB_WIN1
+                JMP     DEMO_MAIN
+@none:          JMP     WOZMON
+
+; The demo ends here, out of its own window: put W1 and W2 back, then the monitor.
+DEMO_EXIT:
+                LDA     #2
+                STA     NB_WIN2
+                LDA     #1
+                STA     NB_WIN1
+                JMP     WOZMON
 
 ; Write A to the screen at the cursor: CR starts a new line, backspace backs
 ; up one, other control characters do nothing. A, X and Y are kept.

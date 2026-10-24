@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function booted(page: Page) {
   await page.goto("./");
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.2", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.3", { timeout: 15_000 });
 }
 
 /** A VGA pixel (x, y in 640x480) off the canvas, which holds k x k canvas pixels for each. */
@@ -78,4 +78,38 @@ test("the page credits the screen font", async ({ page }) => {
     "https://int10h.org/oldschool-pc-fonts/",
   );
   await expect(credits.getByRole("link", { name: "CC BY-SA 4.0" })).toBeVisible();
+});
+
+/** Distinct colours across the canvas, sampled on a coarse grid. */
+function colours(page: Page) {
+  return page.evaluate(() => {
+    const c = document.querySelector<HTMLCanvasElement>("[data-testid=crt] canvas")!;
+    const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+    const seen = new Set<number>();
+    for (let y = 0; y < c.height; y += 9) for (let x = 0; x < c.width; x += 7) {
+      const i = (y * c.width + x) * 4;
+      seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+    }
+    return seen.size;
+  });
+}
+
+test("C803R runs the video demo on VGA, and a key goes back to the monitor", async ({ page }) => {
+  await booted(page);
+  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Colour" }).click();
+  await expect.poll(() => pixel(page, 0, 18)).toEqual([170, 170, 170]);
+  expect(await colours(page)).toBeLessThan(5); // the text screen: grey on black
+  await page.getByTestId("crt").click();
+  await page.keyboard.type("C803R");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => colours(page), { timeout: 10_000 }).toBeGreaterThan(12); // sky, hills, balls, caption
+  await page.locator('[data-tab="dev"]').click();
+  await expect(page.getByTestId("dev-video").locator('[data-reg="Sprites"]')).toContainText("on · table $89000");
+  await page.screenshot({ path: `test-results/vga-demo-${test.info().project.name}.png` });
+  await page.getByTestId("crt").click();
+  await page.keyboard.press("x");
+  await expect.poll(() => pixel(page, 0, 18), { timeout: 10_000 }).toEqual([170, 170, 170]); // the screen as it was
+  await expect.poll(() => colours(page)).toBeLessThan(5);
+  await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\");
 });

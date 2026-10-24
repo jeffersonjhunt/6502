@@ -46,14 +46,22 @@ VIDEO           = $C480
 VIDEO_CTRL      = VIDEO + $00
 VIDEO_BORDER    = VIDEO + $01
 VIDEO_PALBASE   = VIDEO + $02
+VIDEO_SPRBASE   = VIDEO + $03
+VIDEO_STATUS    = VIDEO + $08          ; bit 7: in vertical blank
 VIDEO_L0        = VIDEO + $10          ; layer 0
 VIDEO_L0_CONFIG = VIDEO_L0 + 0
 VIDEO_L0_MAP    = VIDEO_L0 + 1
 VIDEO_L0_TILE   = VIDEO_L0 + 2
+VIDEO_L0_HSCROLL = VIDEO_L0 + 3
+VIDEO_L1        = VIDEO + $20          ; layer 1, the same registers
 VIDEO_ID        = VIDEO + $7F
 
 VIDEO_ON_L0     = $03                  ; CTRL: display on, layer 0 on
 VIDEO_TEXT80B   = $80                  ; CONFIG: text 80x30, attribute bit 7 blinks
+VIDEO_TEXT40    = $01                  ; CONFIG: text 40x30
+VIDEO_TILE      = $02                  ; CONFIG: tiles, 8x8 at 4 bits...
+VIDEO_MAP_W64   = $20                  ; ...from a map 64 wide (32 high)
+VIDEO_ALL       = $0F                  ; CTRL: display, both layers, sprites
 VIDEO_ID_V1     = $91
 
 ; Zero page the BIOS keeps for itself (the Woz Monitor has $24-$2B).

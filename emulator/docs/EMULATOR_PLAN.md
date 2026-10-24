@@ -348,6 +348,18 @@ line with a lower number in front, and collision groups reported in STATUS
 and ISR at the next vertical blank. The Devices tab shows the table and
 the last collision.
 
+**The video demo (2026-10-24), video part 7; BIOS 0.3.** `C803R` at the
+monitor (the BIOS now starts with a jump table: $C800 reset, $C803 the
+demo) runs `backplane/bios/demo.s` from flash block 29 through W1: a 64x32
+tile landscape scrolled a pixel a frame, twelve 16x16 balls between the
+layers whose shadow table in RAM goes to the card by DMA in each vertical
+blank, a 40-column caption in the BIOS's font, and a 16-step palette fade
+in. It keeps clear of the BIOS's video memory, so a key goes back to the
+monitor with its screen as it was, by register writes alone. Graphics are
+made by `demo/make_assets.py` and committed. The Woz Monitor moved again
+(WOZMON $C86B, ECHO $C95A). That finishes step 4 of hw/design.md's
+emulator list; Apple II mode is next.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,
