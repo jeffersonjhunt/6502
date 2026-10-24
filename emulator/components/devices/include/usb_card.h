@@ -20,7 +20,11 @@
  * codes (modifiers $E0-$E7 included), the mouse takes movement, a position,
  * buttons and the wheel, and the game port takes paddle settings and buttons.
  * queue_key() is key() at the keyboard's pace: one change per 8 ms polling
- * interval of CPU time, as reports arrive over USB.
+ * interval of CPU time, as reports arrive over USB. A queued press that
+ * makes a character also waits, up to TAKE_MS, until the machine has taken
+ * the last one (KEYCLR): KEY holds one character, as the Apple's latch
+ * does, and a burst (a paste, a page typing for a test) must not overwrite
+ * it while the software is busy. A lone key is never held back.
  *
  * Keyboard. Every press and release goes into the raw event FIFO (128 bytes:
  * usage, then flags, bit 7 = release; a full FIFO drops the event whole),
@@ -117,6 +121,8 @@ namespace ooe::emu
         /// a burst of keys does not overwrite KEY faster than USB could.
         void queue_key(uint8_t usage, bool down);
         static constexpr unsigned POLL_MS = 8;
+        /// How long a queued character waits for the last one to be taken, at most.
+        static constexpr unsigned TAKE_MS = 250;
         void mouse_move(int dx, int dy);
         /// Absolute mode: where the pointer is now (clamped to MAXX, MAXY).
         void mouse_to(int x, int y);
@@ -171,6 +177,9 @@ namespace ooe::emu
         std::array<bool, 256> down_{};
         std::deque<std::pair<uint8_t, bool>> pending_; ///< queue_key()'s, not yet reported
         uint64_t next_report_{0};
+        uint64_t strobed_at_{0}; ///< cycle KEY last got a character
+        /// The queue's next change is a character while KEY still holds one, not long held.
+        bool waiting_to_be_taken() const;
 
         // mouse
         uint8_t mctrl_{0}, mbtn_{0};

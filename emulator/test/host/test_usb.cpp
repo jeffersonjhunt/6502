@@ -187,6 +187,42 @@ TEST(host_keys_arrive_at_the_usb_polling_pace)
     CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'C');
 }
 
+TEST(a_queued_character_waits_for_the_last_to_be_taken)
+{
+    Card c;
+    for (const uint8_t u : {A, Z, C})            // a paste: three characters at once
+    {
+        c.queue_key(u, true);
+        c.queue_key(u, false);
+    }
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'A');
+    c.tick(8 * MS);                               // A up
+    c.tick(8 * MS);
+    c.tick(8 * MS);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'A');   // Z waits: nobody has taken A
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 4);        // A down and up; everything behind Z waits too
+    c.read(UsbCard::KEYCLR);
+    c.tick(1);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'Z');   // taken: the next at once
+    c.tick(8 * MS);                               // Z up
+    c.tick(250 * MS - 8 * MS - 2);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'Z');   // software that never takes it...
+    c.tick(2);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'C');   // ...gets the next after 250 ms anyway
+
+    c.tick(8 * MS);                               // C up
+    c.tick(100 * MS);
+    c.queue_key(A, true);                         // a lone key, KEY still full: at once, as a person types
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'A');
+    c.queue_key(A, false);
+    c.queue_key(LCTRL, true);
+    c.queue_key(DEL, true);                       // Ctrl-Reset in a burst: not held back
+    c.tick(8 * MS);
+    c.tick(8 * MS);
+    c.tick(8 * MS);
+    CHECK(c.take_reset());
+}
+
 TEST(raw_events_every_press_and_release_in_a_fifo_with_drq)
 {
     Card c;

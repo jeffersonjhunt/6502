@@ -64,3 +64,43 @@ test("the owner's enhanced IIe: boots to Applesoft, answers, Ctrl-Reset keeps th
   await expect(page.getByTestId("crt")).toBeFocused(); // typing goes on at once
   expect(await row(page, prompt)).toBeGreaterThan(20); // "4", one line up after the scroll
 });
+
+/** A screen pixel (x, y in 640x480), R G B. */
+function pixel(page: Page, x: number, y: number) {
+  return page.evaluate(
+    ([x, y]) => {
+      const c = document.querySelector<HTMLCanvasElement>("[data-testid=crt] canvas")!;
+      const k = c.width / 640;
+      const d = c.getContext("2d")!.getImageData(x * k + Math.floor(k / 2), y * k + Math.floor(k / 2), 1, 1).data;
+      return [d[0], d[1], d[2]];
+    },
+    [x, y],
+  );
+}
+
+test("a program pasted into the IIe, faster than Applesoft takes it, arrives whole and runs", async ({ page }) => {
+  await page.goto("./");
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.6", { timeout: 15_000 });
+  await page.getByTestId("apple-file").setInputFiles([
+    { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
+    { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
+  ]);
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.6", { timeout: 15_000 });
+  await page.getByTestId("apple-start").click();
+  await expect.poll(() => row(page, 0), { timeout: 10_000 }).toBeGreaterThan(50);
+  await page.getByRole("button", { name: "Colour" }).click();
+  await page.getByTestId("crt").click();
+  const program = "10 GR\n20 FOR I = 0 TO 15: COLOR= I\n30 FOR X = I * 2 + 4 TO I * 2 + 5: VLIN 0,39 AT X: NEXT: NEXT\nRUN\n";
+  await page.getByTestId("crt").evaluate((glass, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    glass.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, program);
+  // Lo-res block x is 14 of 560 dots: 16 screen pixels. Bar I is blocks 2I+4 and 2I+5.
+  const bar = (i: number) => pixel(page, (2 * i + 5) * 16, 200);
+  await expect.poll(() => bar(15), { timeout: 20_000 }).toEqual([255, 255, 255]); // the last bar: white
+  expect(await bar(0)).toEqual([0, 0, 0]);
+  expect(await bar(1)).toEqual([238, 34, 102]); // magenta, $E26
+  expect(await bar(12)).toEqual([17, 255, 68]); // green, $1F4
+  await page.screenshot({ path: `test-results/iie-lores-${test.info().project.name}.png` });
+});

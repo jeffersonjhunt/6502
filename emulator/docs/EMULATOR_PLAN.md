@@ -605,3 +605,12 @@ Not done, and why:
    (decided 2026-10-18; `components/machine/include/machine.h`).
 3. ~~`fmt`~~ — dropped in Phase 2, with easylogging++; `emu_log` is
    printf-style, like pinled's `ESP_LOGx`.
+
+**The USB card's type-ahead (2026-10-24).** Keys queued from the host (a
+burst, a paste) arrived every 8 ms whatever the software was doing, and
+the Apple's KEY holds one character: Applesoft, a line's worth of work
+behind, lost the start of the next line. A queued press that makes a
+character now waits until the last one is taken (KEYCLR, or $C010), at
+most 250 ms; a lone key is never held back, nor is Ctrl-Reset. Paste on
+the VGA and Apple II scenes types on the USB keyboard; the serial line has
+nobody listening in Apple II mode.
