@@ -72,8 +72,15 @@
  * 40x48 blocks of 16 colours. Hi-res: 280 dots a line, colour from NTSC
  * artifacts (a lone dot is violet or green, blue or orange when its byte's
  * bit 7 shifts it half a dot right; two together are white). MIXED: the last
- * four text rows over graphics. PAGE2 picks page 2 unless 80STORE. The double
- * modes come next. Colours are the IIe's, in the card's 12 bits.
+ * four text rows over graphics. PAGE2 picks page 2 unless 80STORE. With
+ * 80COL and AN3 off, the double modes: lo-res as 80 blocks of 7 dots (aux,
+ * main, ...; aux nibbles shown rotated a bit, as their dots fall out of
+ * phase), hi-res as 560 dots of aux and main bytes in turn, each 4 dots one
+ * of the 16 colours by the pattern they make. Every colour follows one rule:
+ * a 560-dot line's dot x counts as bit x mod 4 of a lo-res colour, so
+ * hi-res's violet is dots 0-1 (3), green 2-3 (12), and so on. A hi-res
+ * gap between two dots of one colour takes that colour, as NTSC smears it.
+ * Colours are the IIe's, in the card's 12 bits.
  *
  * Sprites (CTRL bit 3) share the tiles' 320x240 space: 64 entries of 8
  * bytes at SPRBASE in VERA's layout (image in 64-byte units, 8-bit flag, X

@@ -216,7 +216,9 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
   video ROM's first 2 KB: 8 bytes a code, bit 0 the leftmost of 7 dots, a dot lit where its bit is 0.
 - **Apple colours:** the 16 lo-res colours (and hi-res's violet, green, blue, orange and white among them) are the
   usual NTSC approximations, rounded to the card's 12 bits. Hi-res colour is the simple artifact rule: a lone dot
-  takes its column's colour, two together are white; no NTSC filter yet.
+  takes its column's colour, two together are white, and a gap between two dots of one colour takes it; no NTSC
+  filter. The double modes follow the same phase rule (dot x of 560 is bit x mod 4 of a lo-res colour): double hi-res
+  colours each aligned 4 dots by their pattern; double lo-res shows aux nibbles rotated right a bit.
 
 This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge
 is a CPLD, for example an ATF1508 (5 V), holding:

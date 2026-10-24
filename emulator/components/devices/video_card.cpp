@@ -524,6 +524,42 @@ namespace ooe::emu
             }
             return;
         }
+        const bool twice = s.col80 && s.dhires; // the double modes: 80COL with AN3 off
+        if (!s.hires && twice) // double lo-res: 80 blocks of 7 dots, aux then main
+        {
+            const uint16_t row = static_cast<uint16_t>((page2 ? 0x0800 : 0x0400) + text_row(a / 8));
+            for (unsigned col = 0; col < 80; ++col)
+            {
+                const uint8_t b = apple(col & 1 ? 0 : 1, static_cast<uint16_t>(row + col / 2));
+                unsigned n = (a & 4) ? b >> 4 : b & 0x0F;
+                if (!(col & 1))
+                    n = (n >> 1 | n << 3) & 0x0F; // aux blocks fall a dot out of phase: shown rotated
+                const uint32_t c = rgba(LORES[n]);
+                for (unsigned i = 0; i < 7; ++i)
+                    px[col * 7 + i] = c;
+            }
+            return;
+        }
+        if (s.hires && twice) // double hi-res: 560 dots, aux and main bytes in turn
+        {
+            const uint16_t line = static_cast<uint16_t>((page2 ? 0x4000 : 0x2000) + hires_line(a));
+            std::array<uint8_t, 560> dots{};
+            for (unsigned col = 0; col < 40; ++col)
+                for (unsigned half = 0; half < 2; ++half)
+                {
+                    const uint8_t b = apple(half ? 0 : 1, static_cast<uint16_t>(line + col));
+                    for (unsigned i = 0; i < 7; ++i)
+                        dots[col * 14 + half * 7 + i] = (b >> i) & 1;
+                }
+            for (unsigned g = 0; g < 560; g += 4) // each 4 dots, by where they fall: a colour
+            {
+                const unsigned v = unsigned{dots[g]} | unsigned{dots[g + 1]} << 1 | unsigned{dots[g + 2]} << 2 | unsigned{dots[g + 3]} << 3;
+                const uint32_t c = rgba(LORES[v]);
+                for (unsigned i = 0; i < 4; ++i)
+                    px[g + i] = c;
+            }
+            return;
+        }
         if (!s.hires) // lo-res: two blocks a byte, the low nibble on top
         {
             const uint16_t row = static_cast<uint16_t>((page2 ? 0x0800 : 0x0400) + text_row(a / 8));
@@ -547,14 +583,24 @@ namespace ooe::emu
             for (unsigned i = 0; i < 7; ++i)
                 dot[1 + col * 7 + i] = (b >> i) & 1;
         }
+        auto colour = [&](unsigned d) { // a lone dot's colour, from where it falls
+            const bool hi = shift[d / 7];
+            return d & 1 ? (hi ? ORANGE : GREEN) : (hi ? BLUE : VIOLET);
+        };
         for (unsigned d = 0; d < 280; ++d)
         {
-            if (!dot[1 + d])
-                continue;
             const bool hi = shift[d / 7];
             unsigned c = WHITE;
-            if (!dot[d] && !dot[2 + d]) // a lone dot: its colour from where it falls
-                c = d & 1 ? (hi ? ORANGE : GREEN) : (hi ? BLUE : VIOLET);
+            if (!dot[1 + d])
+            {
+                // NTSC smears colour across a gap: off between two dots of one colour, that colour
+                if (!(d > 0 && d < 279 && dot[d] && dot[2 + d]) || colour(d - 1) != colour(d + 1) ||
+                    (d > 1 && dot[d - 1]) || (d < 278 && dot[3 + d]))
+                    continue;
+                c = colour(d - 1);
+            }
+            else if (!dot[d] && !dot[2 + d])
+                c = colour(d);
             const uint32_t rgb = rgba(LORES[c]);
             const unsigned x = d * 2 + (hi ? 1 : 0);
             px[x] = rgb;
