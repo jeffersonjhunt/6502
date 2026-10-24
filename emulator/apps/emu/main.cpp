@@ -9,7 +9,7 @@
  *
  *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]
  *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
- *            [--break ADDR]... [--halt] [rom]
+ *            [--break ADDR]... [--halt] [--screen FILE] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
@@ -32,6 +32,8 @@
  * - --break sets a breakpoint (hex or label); --halt starts at the
  *   debugger's prompt, like the console's system key at Step/Halt.
  * - Ctrl-] stops a running machine into the debugger ('h' for commands).
+ * - --screen writes the video card's last frame (if the machine has one)
+ *   to FILE as a PPM on the way out.
  */
 
 #include <csignal>
@@ -84,7 +86,7 @@ namespace
     {
         std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]\n"
                              "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
-                             "                [--break ADDR]... [--halt] [rom]\n");
+                             "                [--break ADDR]... [--halt] [--screen FILE] [rom]\n");
         return 2;
     }
 
@@ -127,6 +129,7 @@ namespace
     struct Settings
     {
         const char *trace_path{nullptr};
+        const char *screen_path{nullptr};
         std::vector<std::string> loads, symbol_files, breaks;
         uint32_t clock_hz{1'000'000};
         bool start_halted{false};
@@ -195,6 +198,8 @@ namespace
 
         if (rc == 0)
         {
+            if (VideoCard *video = machine.video_card())
+                video->set_cpu_hz(settings.clock_hz); // 0, flat out: the card keeps 7.16 MHz time
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
 
@@ -208,6 +213,16 @@ namespace
                 terminal.write(debugger.halt("--halt"));
             emulator.run(quit_requested);
             EMU_LOGI(TAG, "exiting");
+            if (settings.screen_path)
+            {
+                const VideoCard *video = machine.video_card();
+                if (!video || !write_ppm(*video, settings.screen_path))
+                {
+                    std::fprintf(stderr, "emulator: --screen %s: %s\n", settings.screen_path,
+                                 video ? "cannot write it" : "the machine has no video card");
+                    rc = 1;
+                }
+            }
         }
 
         cpu.set_observer(nullptr);
@@ -250,6 +265,8 @@ int main(int argc, char *argv[])
             settings.breaks.emplace_back(argv[++i]);
         else if (std::strcmp(argv[i], "--halt") == 0)
             settings.start_halted = true;
+        else if (std::strcmp(argv[i], "--screen") == 0 && i + 1 < argc)
+            settings.screen_path = argv[++i];
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')

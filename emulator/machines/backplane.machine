@@ -21,6 +21,11 @@
 # terminal emulator has none) programs can still use its breakpoint and
 # HALT, which stop at the debugger.
 #
+# The video card (module 9, $C480) draws VGA 640x480 from banks 8-B, which
+# it snoops; so far its text and mono layers (video_card.h). It powers up
+# with the display off: software sets the palette, a layer and CTRL.
+# `emulator --screen FILE` saves its last frame.
+#
 # The terminal is a STAND-IN: a 6551 in the serial card's I/O block
 # ($C300, module 6) until the TL16C552A is modelled.
 #
@@ -37,4 +42,5 @@ rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
 
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
 dma       400-47F  space=io  name=dma  irq
+video     480-4FF  space=io  name=video  irq
 console   700-77F  space=io  name=console  irq     # the front panel

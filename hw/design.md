@@ -476,6 +476,21 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 
 - **Bitmaps:** bitmap 256 (8 bpp) and bitmap 512 (4 bpp) are both 256 bytes per row, one page each, so y is the high
   byte of the address relative to MAPBASE. Mono is 80 bytes per row, packed.
+- **Text:** each cell is a character byte then an attribute byte (foreground in the low 4 bits, background in the
+  high 4), 80 or 40 cells a row. The font is 256 characters of 16 bytes at TILEBASE, the leftmost pixel in bit 7.
+  40 columns are shown doubled across.
+
+**Decided (2026-10-24), filling in what the tables leave open,** as the emulator draws it:
+
+- **Transparency:** a layer or sprite pixel whose value is 0 *before* PALOFS is added is transparent.
+- **What shows through:** where every layer is transparent, the screen shows palette entry 0. Outside the area a
+  layer covers (the bitmap modes don't fill 640x480), it shows the BORDER colour.
+- **Display off** (CTRL bit 0 clear) is black. The timing, and its interrupts, keep running.
+- **Blink:** with CONFIG bit 7, a cell whose attribute has bit 7 set shows only its background for 16 frames in
+  every 32 (about 1.9 Hz, the PC's rate), and the background is the low 3 bits.
+- **Interrupt flags:** an event sets its ISR bit whether or not IEN enables it; the card's IRQ is ISR AND IEN.
+- **Where in the line:** the vertical blank interrupt and the latching are at the start of line 480; the line
+  interrupt is at the start of line LINE. Changes to memory and the palette show from the next line drawn.
 
 
 ## Sound ##
