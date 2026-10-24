@@ -244,6 +244,13 @@ namespace ooe::emu
         return m ? m->device->peek(r.where - m->first) : UNMAPPED_READ;
     }
 
+    uint8_t Decoder::peek_io(uint16_t offset) const
+    {
+        const uint32_t where = bus_address(Space::Io, offset);
+        const Mapping *m = find(where);
+        return m ? m->device->peek(where - m->first) : UNMAPPED_READ;
+    }
+
     void Decoder::sync()
     {
         for (const size_t i : timed_)

@@ -212,6 +212,9 @@ namespace ooe::emu
         /// Memory at a physical address with no bus cycle counted: the Console
         /// card's EXAM, while the CPU is halted and emulated time stands still.
         uint8_t peek_physical(uint32_t physical) const;
+        /// I/O space at `offset` ($000-$FFF the cards, as the native map puts them at $C000)
+        /// with no bus cycle, whatever the map is now: a card's registers in Apple II mode too.
+        uint8_t peek_io(uint16_t offset) const;
         /// A store at a physical address with no bus cycle counted (DEP). A
         /// device write, as the card's cycle is: ROM ignores it.
         void write_physical(uint32_t physical, uint8_t data);

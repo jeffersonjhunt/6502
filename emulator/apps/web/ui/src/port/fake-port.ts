@@ -3,7 +3,7 @@
  * frames a test gives it. No machine behind it.
  */
 
-import type { Clock, FrameState, MachinePort, MouseInput, PanelKey, PortCaps, TraceRow } from "./machine-port";
+import type { AppleState, Cartridge, Clock, FrameState, MachinePort, MouseInput, PanelKey, PortCaps, TraceRow } from "./machine-port";
 
 export type FakeCall = [name: string, ...args: unknown[]];
 
@@ -14,12 +14,18 @@ export class FakePort implements MachinePort {
   readonly card = new Map<number, number>();
   /** What readMemory() returns, by address. */
   readonly memory = new Map<number, number>();
+  /** What readMemory(..., "io") returns where set (else `memory`): the cards, whatever the CPU sees. */
+  readonly io = new Map<number, number>();
   labels = new Map<string, number>();
   traceRows: TraceRow[] = [];
+  /** What readApple() returns. */
+  apple: AppleState | null = null;
+  /** insertCartridge() rejects with this, if set. */
+  cartridgeError: string | null = null;
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
-    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, ...caps };
+    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, ...caps };
   }
 
   /** Send a frame to the listeners; unset fields take idle defaults. */
@@ -35,6 +41,7 @@ export class FakePort implements MachinePort {
       lights: null,
       regs: null,
       fixedHz: 0,
+      apple: false,
       video: null,
       ...frame,
     };
@@ -80,8 +87,15 @@ export class FakePort implements MachinePort {
   sendSerial(bytes: Uint8Array): void {
     this.calls.push(["sendSerial", Array.from(bytes)]);
   }
-  async readMemory(addr: number, length: number): Promise<Uint8Array> {
-    return Uint8Array.from({ length }, (_, i) => this.memory.get(addr + i) ?? 0);
+  async insertCartridge(cartridge: Cartridge | null): Promise<void> {
+    this.calls.push(["insertCartridge", cartridge]);
+    if (this.cartridgeError) throw new Error(this.cartridgeError);
+  }
+  async readApple(): Promise<AppleState | null> {
+    return this.apple;
+  }
+  async readMemory(addr: number, length: number, space: "cpu" | "physical" | "io" = "cpu"): Promise<Uint8Array> {
+    return Uint8Array.from({ length }, (_, i) => (space === "io" ? this.io.get(addr + i) : undefined) ?? this.memory.get(addr + i) ?? 0);
   }
   async physical(cpuAddr: number): Promise<number> {
     return cpuAddr >= 0xc800 ? 0xf0000 | cpuAddr : cpuAddr;

@@ -14,6 +14,8 @@
  */
 
 import type {
+  AppleState,
+  Cartridge,
   Clock,
   FrameState,
   Lights,
@@ -59,6 +61,10 @@ export interface CoreMachine {
   videoFrame(): Uint8Array;
   setClock(hz: number): void;
   fixedHz(): number;
+  loadCartridge(rom: string, chars: string): boolean;
+  appleMode(): boolean;
+  appleSwitches(): number;
+  peekIo(offset: number): number;
   hasUsb(): boolean;
   usbKey(usage: number, down: boolean): void;
   usbMouseTo(x: number, y: number): void;
@@ -132,7 +138,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -226,7 +232,8 @@ export class WasmPort implements MachinePort {
       stopped: this.powered && m.stopped(),
       irq: this.powered && m.irq(),
       hz: this.hz,
-      fixedHz: fixed,
+      fixedHz: this.powered ? m.fixedHz() : 0, // as the run left it, as everything here is
+      apple: this.powered && m.appleMode(),
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,
@@ -314,11 +321,49 @@ export class WasmPort implements MachinePort {
     if (mouse.wheel) m.usbMouseWheel(mouse.wheel);
   }
 
-  async readMemory(addr: number, length: number, space: "cpu" | "physical"): Promise<Uint8Array> {
+  async readMemory(addr: number, length: number, space: "cpu" | "physical" | "io"): Promise<Uint8Array> {
+    const m = this.machine;
+    const read =
+      space === "cpu" ? (a: number) => m.peek(a & 0xffff) : space === "io" ? (a: number) => m.peekIo(a & 0xfff) : (a: number) => m.peekPhysical(a & 0xfffff);
     const out = new Uint8Array(length);
-    for (let i = 0; i < length; ++i)
-      out[i] = space === "cpu" ? this.machine.peek((addr + i) & 0xffff) : this.machine.peekPhysical((addr + i) & 0xfffff);
+    for (let i = 0; i < length; ++i) out[i] = read(addr + i);
     return out;
+  }
+
+  async insertCartridge(cartridge: Cartridge | null): Promise<void> {
+    const m = this.machine;
+    const rom = cartridge ? bytesToString(cartridge.rom) : "";
+    const chars = cartridge?.chars ? bytesToString(cartridge.chars) : "";
+    if (!m.loadCartridge(rom, chars)) throw new Error(m.error());
+    this.videoSeen = -1;
+  }
+
+  async readApple(): Promise<AppleState | null> {
+    const v = this.machine.appleSwitches();
+    if (v < 0) return null;
+    const on = (bit: number) => (v & (1 << bit)) !== 0;
+    return {
+      mode: this.machine.appleMode(),
+      text: on(0),
+      mixed: on(1),
+      page2: on(2),
+      hires: on(3),
+      col80: on(4),
+      store80: on(5),
+      altchar: on(6),
+      dhires: on(7),
+      ramrd: on(8),
+      ramwrt: on(9),
+      altzp: on(10),
+      intcxrom: on(11),
+      slotc3rom: on(12),
+      intc8rom: on(13),
+      lcBank2: on(14),
+      lcRead: on(15),
+      lcWrite: on(16),
+      ioudis: on(17),
+      an: (v >>> 20) & 0x0f,
+    };
   }
 
   async physical(cpuAddr: number): Promise<number> {

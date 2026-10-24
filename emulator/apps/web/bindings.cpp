@@ -40,12 +40,24 @@
  * The USB card's host side (usb_card.h): usbKey(usage, down) with HID usage
  * codes (queued at the keyboard's 8 ms polling pace), usbMouseTo(x, y) (absolute, in its MAXX/MAXY), usbMouseMove(dx, dy),
  * usbMouseButtons(bits), usbMouseWheel(steps). Without a card they do nothing.
+ *
+ * Apple II mode: loadCartridge(rom, chars) plugs the owner's IIe ROM (16 KB,
+ * $C000-$FFFF) and character ROM (4 or 8 KB, or "" for none) into the
+ * cartridge, as with the power off (a power cycle); loadCartridge("", "")
+ * takes it out. The bytes go to the module's own memory file system and no
+ * further, a new file for each, so one that is refused leaves the files
+ * the old cartridge loads from (at the next power cycle) as they were. appleMode() is the north bridge's MODE; appleSwitches() packs
+ * the IIe's soft switches (APPLE_* below), or -1 without the backplane's
+ * bridge. peekIo(offset) reads I/O space ($000-$FFF, the cards' registers)
+ * with no bus cycle in either mode.
  */
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
 #include <array>
+#include <cstdio>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -56,6 +68,30 @@ namespace
 {
     using namespace ooe::emu;
     using emscripten::val;
+
+    /// appleSwitches()'s bits; the annunciators AN0-AN3 are bits 20-23.
+    enum : unsigned
+    {
+        APPLE_TEXT = 1u << 0,
+        APPLE_MIXED = 1u << 1,
+        APPLE_PAGE2 = 1u << 2,
+        APPLE_HIRES = 1u << 3,
+        APPLE_COL80 = 1u << 4,
+        APPLE_STORE80 = 1u << 5,
+        APPLE_ALTCHAR = 1u << 6,
+        APPLE_DHIRES = 1u << 7,
+        APPLE_RAMRD = 1u << 8,
+        APPLE_RAMWRT = 1u << 9,
+        APPLE_ALTZP = 1u << 10,
+        APPLE_INTCXROM = 1u << 11,
+        APPLE_SLOTC3ROM = 1u << 12,
+        APPLE_INTC8ROM = 1u << 13,
+        APPLE_LC_BANK2 = 1u << 14,
+        APPLE_LC_READ = 1u << 15,
+        APPLE_LC_WRITE = 1u << 16,
+        APPLE_IOUDIS = 1u << 17,
+        APPLE_AN_SHIFT = 20,
+    };
 
     constexpr size_t LIGHT_COUNT = ConsoleCard::ADDRESS_LIGHTS + ConsoleCard::DATA_LIGHTS + 4;
 
@@ -155,6 +191,49 @@ namespace
         void set_clock(double hz) { session_->set_cpu_hz(static_cast<uint32_t>(hz)); }
         /// The clock the machine's mode fixes (Apple II mode), or 0: pace by it then.
         double fixed_hz() const { return session_->fixed_hz(); }
+        /// @return false, with error(), if it does not fit; the old cartridge stays
+        bool load_cartridge(const std::string &rom, const std::string &chars)
+        {
+            error_.clear();
+            const std::string stem = "/tmp/cartridge-" + std::to_string(++cartridges_);
+            const auto file = [](const std::string &path, const std::string &bytes) {
+                if (bytes.empty())
+                    return std::string();
+                std::ofstream(path, std::ios::binary | std::ios::trunc) << bytes;
+                return path;
+            };
+            const std::string rom_file = file(stem + "-iie.rom", rom), chars_file = file(stem + "-chars.rom", chars);
+            std::vector<std::string> parts;
+            if (!rom_file.empty())
+                parts.push_back(rom_file);
+            const bool ok = session_->set_cartridge(parts, chars_file, error_);
+            for (const std::string &old : ok ? loaded_ : std::vector<std::string>{rom_file, chars_file})
+                if (!old.empty())
+                    std::remove(old.c_str());
+            if (ok)
+                loaded_ = {rom_file, chars_file};
+            return ok;
+        }
+        bool apple_mode() const { return session_->apple_mode(); }
+        int apple_switches() const
+        {
+            const AppleSwitches *s = session_->apple_switches();
+            if (!s)
+                return -1;
+            const auto bit = [](bool on, unsigned b) { return on ? b : 0u; };
+            const unsigned v = bit(s->text, APPLE_TEXT) | bit(s->mixed, APPLE_MIXED) | bit(s->page2, APPLE_PAGE2) |
+                               bit(s->hires, APPLE_HIRES) | bit(s->col80, APPLE_COL80) |
+                               bit(s->store80, APPLE_STORE80) | bit(s->altchar, APPLE_ALTCHAR) |
+                               bit(s->dhires, APPLE_DHIRES) | bit(s->ramrd, APPLE_RAMRD) |
+                               bit(s->ramwrt, APPLE_RAMWRT) | bit(s->altzp, APPLE_ALTZP) |
+                               bit(s->intcxrom, APPLE_INTCXROM) | bit(s->slotc3rom, APPLE_SLOTC3ROM) |
+                               bit(s->intc8rom, APPLE_INTC8ROM) | bit(s->lc_bank2, APPLE_LC_BANK2) |
+                               bit(s->lc_read, APPLE_LC_READ) | bit(s->lc_write, APPLE_LC_WRITE) |
+                               bit(s->ioudis, APPLE_IOUDIS) | unsigned{s->an & 0x0Fu} << APPLE_AN_SHIFT;
+            return static_cast<int>(v);
+        }
+        unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
+
         bool has_usb() const { return session_->usb() != nullptr; }
         void usb_key(unsigned usage, bool down)
         {
@@ -206,6 +285,8 @@ namespace
         std::array<float, LIGHT_COUNT> lights_{};
         std::vector<Session::TraceRow> rows_;
         std::vector<uint32_t> packed_;
+        unsigned cartridges_{0};
+        std::vector<std::string> loaded_; ///< the cartridge's files, which a power cycle reads again
     };
 } // namespace
 
@@ -253,6 +334,10 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("videoFrame", &WebMachine::video_frame)
         .function("setClock", &WebMachine::set_clock)
         .function("fixedHz", &WebMachine::fixed_hz)
+        .function("loadCartridge", &WebMachine::load_cartridge)
+        .function("appleMode", &WebMachine::apple_mode)
+        .function("appleSwitches", &WebMachine::apple_switches)
+        .function("peekIo", &WebMachine::peek_io)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbMouseTo", &WebMachine::usb_mouse_to)

@@ -17,13 +17,14 @@
  * "vga" is the video card: its frames (setVideo()), drawn pixel for pixel
  * at the canvas's scale, in colour, or on a monochrome phosphor as a mono
  * monitor shows them (brightness in the phosphor's colour). Without a card
- * it shows NO SIGNAL. "apple" is Apple II mode, not emulated yet: NO
- * SIGNAL, or with ?demo=scenes the mockup's still picture.
+ * it shows NO SIGNAL. "apple" is Apple II mode as an Apple monitor shows
+ * it: the video card's frame cut to the IIe's 560x384 picture and filling
+ * the screen, as the Apple's 280x192 filled a TV; NO SIGNAL while the
+ * machine is not in Apple II mode (setApple()).
  */
 
 import type { VideoFrame } from "../port/machine-port";
 import { COLS, ROWS, type Terminal } from "./terminal";
-import { drawDemo } from "./scenes";
 
 export type Scene = "text" | "vga" | "apple";
 export type Phosphor = "colour" | "p1" | "p3" | "p4";
@@ -43,6 +44,8 @@ const FIRST = 0x20;
 const GLYPHS = 0x7f - FIRST;
 const BLINK_MS = 530;
 const MAX_SCALE = 4;
+/** Where the video card puts Apple II mode's 560x384 picture (hw/design.md). */
+export const APPLE_PICTURE = { x: 40, y: 48, w: 560, h: 384 };
 
 export class Crt {
   private readonly ctx: CanvasRenderingContext2D;
@@ -55,7 +58,7 @@ export class Crt {
   private cursorAt = { col: -1, row: -1 };
   private lastBlink = 0;
   private scrolls = -1;
-  private readonly demo: boolean;
+  private apple = false;
   private readonly blinks: boolean;
   /** Canvas pixels per VGA pixel. */
   private k = 0;
@@ -68,12 +71,11 @@ export class Crt {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly terminal: Terminal,
-    options: { demo?: boolean; reducedMotion?: boolean } = {},
+    options: { reducedMotion?: boolean } = {},
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("no 2D canvas");
     this.ctx = ctx;
-    this.demo = options.demo ?? false;
     this.blinks = !options.reducedMotion;
     this.videoCanvas = document.createElement("canvas");
     this.videoCanvas.width = W;
@@ -104,6 +106,12 @@ export class Crt {
   clearVideo(): void {
     this.videoIn = null;
     this.full = true;
+  }
+
+  /** The machine is in Apple II mode: the Apple II scene has a picture. */
+  setApple(on: boolean): void {
+    if (on !== this.apple) this.full = true;
+    this.apple = on;
   }
 
   setPowered(on: boolean): void {
@@ -163,11 +171,10 @@ export class Crt {
       return;
     }
     if (this.scene === "apple") {
-      if (this.full) {
-        if (this.demo) drawDemo(ctx, PHOSPHORS[this.phosphor].rgb);
-        else this.noSignal("Apple II mode not emulated yet (hw/design.md, Emulator step 5)");
-        this.full = false;
-      }
+      if (this.apple && this.videoIn && (this.videoDirty || this.full)) this.drawVideo(APPLE_PICTURE);
+      else if ((!this.apple || !this.videoIn) && this.full)
+        this.noSignal(this.apple ? "no video card on this machine" : "not in Apple II mode: insert a IIe ROM, then Start Apple IIe");
+      this.full = false;
       return;
     }
 
@@ -252,8 +259,8 @@ export class Crt {
     return atlas;
   }
 
-  /** The frame, through the phosphor, scaled up by whole pixels. */
-  private drawVideo(): void {
+  /** The frame, through the phosphor: all of it scaled up by whole pixels, or a part of it filling the screen. */
+  private drawVideo(part: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: W, h: H }): void {
     const src = this.videoIn!;
     const out = this.videoImage.data;
     const rgb = PHOSPHORS[this.phosphor].rgb;
@@ -268,8 +275,9 @@ export class Crt {
       }
     }
     this.videoCanvas.getContext("2d")!.putImageData(this.videoImage, 0, 0);
-    this.ctx.imageSmoothingEnabled = false;
-    this.ctx.drawImage(this.videoCanvas, 0, 0, W, H);
+    const whole = part.w === W && part.h === H;
+    this.ctx.imageSmoothingEnabled = !whole; // not whole pixels: soften, as the tube would
+    this.ctx.drawImage(this.videoCanvas, part.x, part.y, part.w, part.h, 0, 0, W, H);
     this.videoDirty = false;
   }
 

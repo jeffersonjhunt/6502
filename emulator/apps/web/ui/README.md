@@ -66,9 +66,20 @@ codes from the physical keys (the card cooks them in its own US layout, with
 its own Caps Lock, so CAPS is off there). Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
 palette fade); any key goes back. The Devices tab in the debugger decodes the
 card's registers.
-`?demo=scenes` shows the mockup's picture on the Apple II scene instead of
-NO SIGNAL (Apple II mode is not emulated yet). The screen font is VileR's
-(CC BY-SA 4.0), and the page credits it under the front panel.
+
+**Apple II** is Apple II mode as an Apple monitor shows it: the video card's
+560x384 IIe picture filling the screen, softened since it is not whole
+pixels, and the keyboard is the USB card's (Ctrl-Delete is Reset; the left
+GUI or Alt is Open Apple, the right Closed Apple). It needs the owner's IIe
+ROM: **Insert IIe ROM…** under the monitor takes the files (16 KB, or the CD
+and EF halves, and the character ROM; told apart by size and contents, not
+names), plugs them into the cartridge, and keeps them in this browser's
+localStorage, never uploaded; **Eject** forgets them. **Start Apple IIe** is
+START, then `C806R` at the monitor; in Apple II mode **Ctrl-Reset** and
+**Reboot** (Ctrl-Open Apple-Reset) type the IIe's resets. Entering Apple II
+mode, by the button or `C806R` typed, switches to the Apple II scene and
+lights AMODE. The screen font is VileR's (CC BY-SA 4.0), and the page
+credits it under the front panel.
 
 ## Test it
 
@@ -80,17 +91,20 @@ npm run e2e      # build, then Playwright in headless Chromium and WebKit (Safar
 Both need the core; without it they fail rather than skip. Playwright needs
 its browsers (`npx playwright install chromium webkit`, and on a bare Linux
 box `npx playwright install-deps chromium webkit`). Screenshots of the boot, the
-monitor, VGA and NO SIGNAL land in `test-results/`.
+monitor, VGA, NO SIGNAL and Apple II land in `test-results/`. The Apple II
+tests use a stand-in ROM (src/port/fake-iie.ts); `e2e/iie.spec.ts` runs the
+real enhanced IIe only where the owner's ROMs are in
+`test/host/fixtures/apple2e` (or `OO1_IIE_DIR`), and skips elsewhere.
 
 ## Layout
 
 ```
 src/main.ts           the page: toolbar, monitor, wiring
 src/port/             MachinePort, WasmPort (the WebAssembly core), FakePort (for tests)
-src/crt/              Terminal (80x30 text model), Crt (canvas renderer), keyboard, demo scenes
+src/crt/              Terminal (80x30 text model), Crt (canvas renderer), keyboards
 src/panel/            the front panel: lamps, switches, keyswitch, readouts
 src/debugger/         the pane: registers, bus trace, breakpoints (the card's comparator)
-src/ui/               toolbar, panel state (every physical control, one path to the port), DOM helpers
+src/ui/               toolbar, panel state (every physical control, one path to the port), the Apple bar and cartridge, DOM helpers
 src/styles/           mockup C's tokens, toolbar and monitor
 e2e/                  Playwright
 scripts/copy-core.mjs puts the core in public/core

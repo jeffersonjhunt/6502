@@ -458,6 +458,22 @@ colour takes it. These follow the rule, not yet a real program: the double
 modes have no ROM command, so they wait for a disk to show them. Next: the
 WebUI (step 6).
 
+**Apple II mode, step 6 (2026-10-24): the WebUI.** Insert IIe ROM… under
+the monitor takes the owner's files, sorts them by size and contents
+(16 KB, or CD and EF halves, and the character ROM), and plugs them into
+the cartridge through the port (`insertCartridge`, Session::set_cartridge:
+a power cycle, as with a cartridge plugged in with the power off). The
+page keeps them in localStorage, never uploads them, and Eject forgets
+them. Start Apple IIe is START then C806R; Ctrl-Reset and Reboot type the
+IIe's resets on the USB keyboard. The Apple II scene is the card's 560x384
+picture filling the screen, with the USB keyboard; entering the mode
+switches to it, and AMODE lights. The Devices tab reads the cards in I/O
+space (`readMemory(..., "io")`, Decoder::peek_io), which Apple II mode hides
+from the CPU, and shows the IIe's switches (`readApple`). e2e/iie.spec.ts
+boots the real enhanced IIe in Chromium and WebKit where the owner's ROMs
+are (Applesoft answers PRINT 2+2; Ctrl-Reset gives a fresh prompt and keeps
+the screen), and skips elsewhere. Next: the Disk II card.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

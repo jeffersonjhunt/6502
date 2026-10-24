@@ -136,6 +136,7 @@ function base() {
     lights: null,
     regs: null,
     fixedHz: 0,
+    apple: false,
     video: null,
   };
 }

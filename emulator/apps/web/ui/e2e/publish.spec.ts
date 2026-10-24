@@ -49,7 +49,7 @@ test("served without the trailing slash, it goes to the slash and boots", async 
     url.pathname = url.pathname.replace("/emulator/", "/");
     route.fulfill({ response: await page.request.get(url.href) });
   });
-  await page.goto("/emulator?demo=scenes");
-  await expect(page).toHaveURL(/\/emulator\/\?demo=scenes$/);
+  await page.goto("/emulator?from=site");
+  await expect(page).toHaveURL(/\/emulator\/\?from=site$/);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
 });

@@ -103,6 +103,12 @@ namespace ooe::emu
         /// (RAM forgets), the panel's switches as they were, a cold start.
         /// @return false, with `error`, if the files no longer build; the old machine stays
         bool power_cycle(std::string &error);
+        /// Plug the owner's Apple IIe ROM into the cartridge (Config::apple_rom and
+        /// apple_chars; both empty: take it out), as with the power off: a power cycle.
+        /// @return false, with `error`, if it does not fit; the old machine and cartridge stay
+        bool set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
+                           std::string &error);
+        const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
 
         // The panel: the card's inputs (nothing without a card)
         bool has_card() const { return card_ != nullptr; }
@@ -152,6 +158,20 @@ namespace ooe::emu
         /// The clock the machine's mode fixes (Apple II mode's 1,020,484 Hz), or 0: the
         /// caller paces by it instead of its own choice. The cards follow it already.
         uint32_t fixed_hz() const { return machine_->bus().clock_hz(); }
+        /// In Apple II mode (the north bridge's MODE).
+        bool apple_mode() const
+        {
+            const BackplaneBridge *b = machine_->backplane_bridge();
+            return b && b->apple();
+        }
+        /// Apple II mode's soft switches (as they stand, in either mode), or nullptr without the backplane's bridge.
+        const AppleSwitches *apple_switches() const
+        {
+            const BackplaneBridge *b = machine_->backplane_bridge();
+            return b ? &b->apple_switches() : nullptr;
+        }
+        /// A card's register in I/O space, with no bus cycle, whatever the map (Decoder::peek_io()).
+        uint8_t peek_io(uint16_t offset) const { return machine_->bus().peek_io(offset); }
 
         /// Lamp duty since the last call (zeros without a card).
         ConsoleCard::Lights lights();

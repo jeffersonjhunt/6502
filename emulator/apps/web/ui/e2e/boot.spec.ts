@@ -87,7 +87,7 @@ test("phosphor sets the glow and is remembered", async ({ page }) => {
   expect(await halo()).toBe("#33ff6614");
 });
 
-test("Apple II shows NO SIGNAL until Apple II mode exists", async ({ page }) => {
+test("Apple II shows NO SIGNAL until the machine is in Apple II mode", async ({ page }) => {
   await booted(page);
   await page.getByRole("button", { name: "Apple II" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "apple");

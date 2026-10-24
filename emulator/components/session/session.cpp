@@ -154,6 +154,18 @@ namespace ooe::emu
 
     bool Session::power_cycle(std::string &error) { return build(error); }
 
+    bool Session::set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
+                                std::string &error)
+    {
+        const Config old = config_;
+        config_.apple_rom = apple_rom;
+        config_.apple_chars = apple_chars;
+        if (build(error))
+            return true;
+        config_ = old; // build() kept the old machine
+        return false;
+    }
+
     void Session::set_cpu_hz(uint32_t hz)
     {
         cpu_hz_ = hz;

@@ -19,6 +19,7 @@ Everything in the port is something the real board can also do:
 | Inspection | `readMemory`, `physical`, `resolve`, `readTrace`, `FrameState.lights`, `FrameState.regs` | memory and the latched cycle over SPI; the lamps; the bus spy's trace |
 | Video | `watchVideo`, `FrameState.video` | the video card's VGA output (a capture device, for the board) |
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
+| Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
 The UI never calls the emulator's debugger. Breakpoints are the Console
@@ -29,7 +30,20 @@ the same way against the board.
 `caps` says what a backend cannot do. The emulator has no bus-cycle step
 (`busCycleStep: false`: it runs whole instructions, so S BUS CYCLE steps an
 instruction). The board cannot show the CPU's registers (`registers: false`
-there), and needs a capture device on its VGA port for `video`.
+there), and needs a capture device on its VGA port for `video`. A backend
+that cannot take a cartridge says `cartridge: false`.
+
+`readMemory` reads CPU addresses (through the windows), physical ones, or
+`"io"`: the cards' registers at the addresses the native map gives them
+($C000-$CFFF), which Apple II mode hides from the CPU behind the Apple's
+own. The Devices tab reads the cards that way, in either mode.
+
+The page never ships Apple's ROMs. `insertCartridge` takes the owner's
+(16 KB for $C000-$FFFF, and optionally the 4 or 8 KB character ROM) as
+plugging a cartridge in with the power off: the machine starts afresh.
+`WasmPort` writes it into the module's own memory file system and no
+further; the page keeps it in the browser's localStorage for next time
+(ui/cartridge.ts), and Eject forgets it.
 
 ## Calls and frames
 
@@ -38,7 +52,9 @@ forget. Reads return promises, because over a socket they are round trips;
 `WasmPort` resolves them at once.
 
 State arrives as a `FrameState` about once per animation frame: cycles,
-power, halted, stopped (STP), the /IRQ line, the measured speed, the serial bytes since the
+power, halted, stopped (STP), the /IRQ line, the measured speed, the clock
+the mode fixes and whether it is Apple II mode (both as the frame's run
+left them), the serial bytes since the
 last frame, and, only while asked for (`setLights`, `watchRegisters`,
 `watchVideo`), lamp duty, registers and the video card's frames, so a closed
 debugger or another scene costs nothing. `video` is the card's last finished

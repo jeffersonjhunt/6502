@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
-import { describeLayer, devicesView, keyText, USB, VIDEO } from "./devices";
+import type { AppleState } from "../port/machine-port";
+import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, keyText, USB, VIDEO } from "./devices";
+
+/** The IIe's switches at power-on. */
+const IIE: AppleState = {
+  mode: false, text: true, mixed: false, page2: false, hires: false, col80: false, store80: false, altchar: false, dhires: false,
+  ramrd: false, ramwrt: false, altzp: false, intcxrom: false, slotc3rom: false, intc8rom: false,
+  lcBank2: true, lcRead: false, lcWrite: true, ioudis: true, an: 0,
+};
 
 const text = (el: Element, reg: string) => el.querySelector(`[data-reg="${reg}"]`)?.textContent;
 
@@ -63,5 +71,47 @@ describe("Devices tab", () => {
     const v = devicesView(new FakePort());
     await v.refresh();
     expect(v.element.textContent).toContain("No USB card on this machine.");
+  });
+
+  test("in Apple II mode the cards are read in I/O space, where the CPU sees the Apple's", async () => {
+    const port = new FakePort();
+    port.memory.set(VIDEO + 0x7f, 0x60); // what the CPU reads at $C4FF now: the Apple's slot 4
+    port.io.set(VIDEO + 0x7f, 0x91);
+    port.io.set(USB + 0x7f, 0xb1);
+    const v = devicesView(port);
+    await v.refresh();
+    expect(v.element.textContent).toContain("Video card ID $91");
+    expect(v.element.textContent).toContain("USB card ID $B1");
+  });
+
+  test("the Apple's screen, memory, language card and slots in words", () => {
+    expect(appleVideo(IIE)).toBe("text 40 · page 1");
+    expect(appleVideo({ ...IIE, text: false, mixed: true, page2: true })).toBe("lo-res + 4 lines of text 40 · page 2");
+    expect(appleVideo({ ...IIE, text: false, hires: true, col80: true, dhires: true, page2: true, store80: true })).toBe("double hi-res · page 1");
+    expect(appleVideo({ ...IIE, text: false, hires: true, col80: true })).toBe("hi-res · page 1"); // AN3 on: not double
+    expect(appleVideo({ ...IIE, text: false, hires: true, dhires: true })).toBe("hi-res · page 1"); // nor without 80COL
+    expect(appleVideo({ ...IIE, col80: true, altchar: true })).toBe("text 80 · page 1 · MouseText");
+    expect(appleMemory(IIE)).toBe("read main · write main · zero page main");
+    expect(appleMemory({ ...IIE, ramrd: true, altzp: true, store80: true })).toBe("read aux · write main · zero page aux · 80STORE");
+    expect(appleLanguageCard(IIE)).toBe("$D000 bank 2 · reads ROM · writes RAM");
+    expect(appleLanguageCard({ ...IIE, lcBank2: false, lcRead: true, lcWrite: false })).toBe("$D000 bank 1 · reads RAM · write-protected");
+    expect(appleSlots(IIE)).toBe("$C300 internal 80-column · $C800 slots");
+    expect(appleSlots({ ...IIE, slotc3rom: true, intc8rom: true })).toBe("$C300 slot 3 · $C800 internal");
+    expect(appleSlots({ ...IIE, intcxrom: true })).toBe("$C100-$CFFF internal ROM");
+  });
+
+  test("the Apple II section: off, on, or none", async () => {
+    const port = new FakePort();
+    const v = devicesView(port);
+    await v.refresh();
+    expect(v.element.textContent).toContain("No Apple II mode on this machine.");
+    port.apple = IIE;
+    await v.refresh();
+    expect(text(v.element, "Mode")).toBe("off (C806R, or Start Apple IIe)");
+    port.apple = { ...IIE, mode: true, an: 0b1010, ioudis: false };
+    await v.refresh();
+    expect(text(v.element, "Mode")).toBe("on · the IIe's map · 1.02 MHz");
+    expect(text(v.element, "Video")).toBe("text 40 · page 1");
+    expect(text(v.element, "Annunciators")).toBe("AN0-AN3 0101");
   });
 });

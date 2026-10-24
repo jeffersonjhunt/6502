@@ -6,8 +6,8 @@
  * Lamps: A0-A19 (the physical address, after the north bridge), D0-D7, and
  * POWER, RUN, HALT, SYNC, RWB, VPB, RDY, BE, IRQ, AMODE. Each glows with
  * the share of bus cycles its line was high, as a running PDP-11's did,
- * and freezes on the latched cycle when halted. BE and AMODE stay dark:
- * neither is modelled yet.
+ * and freezes on the latched cycle when halted. AMODE is lit in Apple II
+ * mode. BE stays dark: it is not modelled yet.
  *
  * Switches: the 20-bit switch register, in hex digits of four, orange and
  * gold; LOAD ADRS, EXAM, DEP, CONT and START are momentary; HALT/ENABLE and
@@ -36,7 +36,7 @@ const STATUS = [
   ["RDY", "RDY: wait state, or held"],
   ["BE", "BE: DMA or the panel owns the bus (not modelled)"],
   ["IRQ", "IRQ asserted"],
-  ["AMODE", "Apple II mode (not modelled)"],
+  ["AMODE", "Apple II mode"],
 ] as const;
 type StatusName = (typeof STATUS)[number][0];
 
@@ -263,7 +263,7 @@ export function frontPanel(panel: PanelState): FrontPanel {
       RDY: l ? glow(l.rdy) : 0,
       BE: 0,
       IRQ: f.powered && f.irq ? 1 : 0,
-      AMODE: 0,
+      AMODE: f.powered && f.apple ? 1 : 0,
     };
     for (const [name, lamp] of status) lamp.set(values[name], halted);
     if (halted && l) {
