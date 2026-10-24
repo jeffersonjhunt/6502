@@ -1030,7 +1030,8 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
 4. **Video:** a snooping video device, starting with the text layer, drawn in a window or the terminal.
 5. **Apple II mode:** the IIe switch logic, the mode register and the clock switch. Check it by running real IIe
    software.
-6. **The Disk II controller,** with `.dsk` and `.woz` images.
+6. **The Disk II controller,** with `.woz`, `.dsk`/`.do` and `.po` images (decided 2026-10-24; `.nib`, `.d13` and
+   `.2mg` are in the emulator's backlog, [EMULATOR_PLAN.md](../emulator/docs/EMULATOR_PLAN.md#backlog)).
 7. **The sound card:** the registers and mailbox first, then the card's own 6510 (with the NMOS undocumented
    opcodes) and the SID, with sound later.
 

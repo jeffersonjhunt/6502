@@ -614,3 +614,16 @@ character now waits until the last one is taken (KEYCLR, or $C010), at
 most 250 ms; a lone key is never held back, nor is Ctrl-Reset. Paste on
 the VGA and Apple II scenes types on the USB keyboard; the serial line has
 nobody listening in Apple II mode.
+
+## Backlog
+
+Decided to come later, not forgotten:
+
+- **More Disk II image formats** (2026-10-24). The Disk II starts with `.woz` (WOZ 1 and 2: the
+  track's bits, for copy-protected originals), `.dsk`/`.do` and `.po` (140 KB sector images, DOS
+  or ProDOS order, told apart by their contents). Later:
+  - `.nib` (232,960 bytes: each track's raw bytes; keeps most nibble-count protection);
+  - `.d13` (116,480 bytes: 13-sector DOS 3.2 disks, with the 13-sector boot ROM and sequencer
+    PROM, both in the owner's ROM folder);
+  - `.2mg` (a header around a `.po` or `.dsk` image, with a write-protect flag).
+
