@@ -76,7 +76,10 @@ make -C ../backplane/bios
 ```
 
 The BIOS (`../backplane/bios`) copies itself into RAM block 63, switches W3
-to the copy and starts the Woz Monitor on the 6551. `C680.C684` shows the
+to the copy, turns on the video card's 80x30 text screen (IBM VGA font,
+CGA colours) and starts the Woz Monitor on the 6551; everything the monitor
+prints goes to the screen as well (`--screen FILE` to see it). Its font is
+CC BY-SA 4.0, not MIT: `../backplane/bios/font/README.md`. `C680.C684` shows the
 north bridge's windows (`00 01 02 7F 7F` after boot). Add
 `--symbols ../backplane/bios/bios.rom.lbl` for its labels in the debugger.
 

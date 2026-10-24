@@ -8,7 +8,8 @@
 ;   2. points W3 and VEC at the copy, read-only, and carries on in RAM with no
 ;      jump, because the copy sits at the same CPU addresses,
 ;   3. puts W2 back on RAM block 2, so the map is RAM blocks 0, 1, 2 and 63,
-;   4. greets the terminal and enters the Woz Monitor.
+;   4. turns on the video card's text screen (video.s), if there is one,
+;   5. greets the terminal and enters the Woz Monitor.
 ;
 ; When the bus spy has loaded RAM and held /BOOTSEL, the reset map already
 ; has W3 on RAM block 63; the copy then copies the RAM onto itself, which is
@@ -19,7 +20,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO
+.import WOZMON, ECHO, VINIT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -63,6 +64,7 @@ COPY:           LDA     (SRC),Y
                 STA     ACIA_CTRL
                 LDA     #$0B           ; no parity, no echo, no interrupts
                 STA     ACIA_CMD
+                JSR     VINIT          ; the screen, so ECHO writes there too
                 LDX     #$00
 BANNER:         LDA     GREETING,X
                 BEQ     MONITOR
@@ -73,7 +75,7 @@ MONITOR:        JMP     WOZMON
 
 IRQ:            RTI
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.1", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.2", $0D, 0
 
 .segment "VECTORS"
                 .word   WOZMON         ; NMI

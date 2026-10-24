@@ -4,7 +4,7 @@ async function booted(page: Page) {
   await page.goto("./");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.1", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.2", { timeout: 15_000 });
 }
 
 const pc = (page: Page) => page.getByTestId("reg-pc").textContent();
@@ -33,16 +33,16 @@ test("CPU tab: live registers; halted, Step moves PC one instruction", async ({ 
 test("a fetch breakpoint on a label halts before ECHO, shows the hit, and Run goes on", async ({ page }) => {
   await booted(page);
   await addBreakpoint(page, "ECHO");
-  await expect(page.getByTestId("bp-row")).toContainText("ECHO $C951 → FC951");
+  await expect(page.getByTestId("bp-row")).toContainText("ECHO $C954 → FC954");
   await expect(page.getByTestId("bp-row")).toHaveAttribute("data-armed", "true");
   await page.getByTestId("crt").click();
   await page.keyboard.type("A");
   await expect(page.getByTestId("status")).toHaveText(/HALTED/);
-  await expect(page.getByTestId("bp-hit-text")).toHaveText("hit: FC951  data 48  fetch"); // PHA
+  await expect(page.getByTestId("bp-hit-text")).toHaveText("hit: FC954  data 20  fetch"); // JSR VPUTC
   await expect(page.getByTestId("crt-text")).not.toContainText("\\\nA"); // stopped before the echo
   await page.screenshot({ path: `test-results/debugger-bp-${test.info().project.name}.png` });
   await page.locator('[data-tab="cpu"]').click();
-  await expect(page.getByTestId("reg-pc")).toHaveText("C951");
+  await expect(page.getByTestId("reg-pc")).toHaveText("C954");
   await page.locator('[data-tab="bps"]').click();
   await page.getByRole("radio", { name: "None armed" }).check(); // disarm, or it stops at the next echo
   await page.getByTestId("tb-run").click();

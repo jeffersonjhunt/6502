@@ -4,7 +4,7 @@ async function booted(page: Page) {
   await page.goto("./");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.1", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.2", { timeout: 15_000 });
 }
 
 const lamp = (page: Page, name: string) =>
@@ -99,7 +99,7 @@ test("keyswitch: LOCK ignores the panel, OFF powers down, RUN is a cold start", 
   expect(await lamp(page, "A19")).toBe(0);
   await key.click(); // RUN
   await expect(page.getByTestId("status")).toContainText("RUNNING");
-  await expect(page.getByTestId("crt-text")).toHaveText(/^\s*BACKPLANE BIOS 0\.1\n\\$/); // a fresh screen
+  await expect(page.getByTestId("crt-text")).toHaveText(/^\s*BACKPLANE BIOS 0\.2\n\\$/); // a fresh screen
   await expect(page.getByTestId("tb-halt")).toBeEnabled();
 });
 

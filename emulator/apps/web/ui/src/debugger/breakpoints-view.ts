@@ -17,7 +17,7 @@ function statText(stat: number): string {
 export function breakpointsView(bps: Breakpoints) {
   const input = h("input", {
     type: "text",
-    placeholder: "ECHO, C951 or FC951",
+    placeholder: "ECHO, C954 or FC954",
     "aria-label": "Breakpoint address or label",
     spellcheck: "false",
     autocomplete: "off",

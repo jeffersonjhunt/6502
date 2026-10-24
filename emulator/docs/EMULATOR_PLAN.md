@@ -305,6 +305,19 @@ the design left open are now in hw/design.md (what shows through, the
 border, display off, transparency, blink rate). Next: the BIOS on the
 screen, then the WebUI's VGA scene, bitmaps, tiles and sprites.
 
+**The BIOS on the screen (2026-10-24), video part 2.** BIOS 0.2
+(`backplane/bios/video.s`): at boot, if the video card and the DMA
+controller answer with their IDs, it copies an 8x16 font from flash block
+30 into video memory (IBM VGA 8x16 from VileR's Ultimate Oldschool PC Font
+Pack, CC BY-SA 4.0, converted by `font/fon2bin.py`), writes the CGA
+palette and turns on an 80x30 text layer; ECHO then writes every character
+to the screen as well as the serial line: CR, backspace, wrap at column 80,
+and a cursor that the card blinks (attribute bit 7). Scrolling is one
+4,640-byte memory-to-memory DMA (1.3 ms) and clearing copies a blank cell
+onto the next with an overlapping DMA, the DMA controller's first real
+work. The video code sits after the Woz Monitor, which moved only 3 bytes
+(WOZMON $C865, ECHO $C954). Without a card the BIOS runs as before.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,
