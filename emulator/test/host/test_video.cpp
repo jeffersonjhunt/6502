@@ -132,9 +132,11 @@ TEST(at_the_native_clock_a_second_is_60_frames_however_it_is_ticked)
     CHECK_EQ(whole.frames(), uint64_t{60});       // 59.94 Hz: the 60th vertical blank is inside the second
     CHECK_EQ(pieces.frames(), whole.frames());
     CHECK_EQ(pieces.beam_line(), whole.beam_line());
-    VideoCard big;                                // one huge tick: an hour at 7.16 MHz
-    big.tick(uint64_t{VideoCard::NATIVE_HZ} * 3600);
-    CHECK(big.frames() >= 215'783 && big.frames() <= 215'785); // 59.94 Hz x 3600, no overflow
+    VideoCard big;                                // one tick past where cycles x step overflows 64 bits
+    const uint64_t huge = 1'300'000'000;          // 3 minutes at 7.16 MHz
+    big.tick(huge);
+    const double want = (double(huge) * VideoCard::PIXEL_HZ / VideoCard::NATIVE_HZ - 480.0 * 800) / (525 * 800) + 1;
+    CHECK(big.frames() + 1 >= uint64_t(want) && big.frames() <= uint64_t(want) + 1);
     VideoCard slow;
     slow.set_cpu_hz(1'020'484);                   // the panel's slowest clock
     slow.tick(1'020'484);
@@ -291,6 +293,71 @@ TEST(mono_pixels_and_scroll_wrap_within_the_layer)
     CHECK_EQ(r.px(639, 479), rgba(RED));          // (0, 0) wrapped to the far corner, colour $31
     CHECK_EQ(r.px(638, 478), rgba(RED));          // and (639, 479) to one in from it
     CHECK_EQ(r.px(0, 0), BLACK);
+}
+
+TEST(bitmap_256_is_8_bits_doubled_and_centred_with_border_either_side)
+{
+    Rig r;
+    r.colour(3, GREY);                            // the border
+    r.colour(0x21, RED);
+    r.colour(0xF0, GREEN);
+    r.colour(0x01, BLUE);
+    const uint32_t img = 64 * 1024;               // unit 64: 256 bytes a row, y the high byte
+    r.vram[img + 0] = 0x21;                       // (0, 0)
+    r.vram[img + 255] = 0xF0;                     // (255, 0)
+    r.vram[img + 239 * 256 + 128] = 0x01;         // (128, 239)
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(L0 + VideoCard::CONFIG, VideoCard::BITMAP256);
+    r.reg(L0 + VideoCard::MAPBASE, 64);
+    r.reg(L0 + VideoCard::PALOFS, 5);             // not for 8-bit pixels
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(r.px(63, 0), rgba(GREY));            // left of the image: border
+    CHECK_EQ(r.px(64, 0), rgba(RED));             // (0, 0) is 2x2 screen pixels
+    CHECK_EQ(r.px(65, 1), rgba(RED));
+    CHECK_EQ(r.px(66, 0), BLACK);                 // (1, 0): 0, transparent, entry 0
+    CHECK_EQ(r.px(574, 0), rgba(GREEN));          // (255, 0)
+    CHECK_EQ(r.px(575, 1), rgba(GREEN));
+    CHECK_EQ(r.px(576, 0), rgba(GREY));           // right of the image: border
+    CHECK_EQ(r.px(64 + 256, 478), rgba(BLUE));    // (128, 239), the last row
+    CHECK_EQ(r.px(64 + 257, 479), rgba(BLUE));
+    r.reg(L0 + VideoCard::HSCROLL, 255);          // one pixel left of 0: wraps
+    r.reg(L0 + VideoCard::VSCROLL, 239);
+    r.show();
+    CHECK_EQ(r.px(64 + 2, 2), rgba(RED));         // (0, 0) is now at (1, 1)
+    CHECK_EQ(r.px(64 + 258, 0), rgba(BLUE));      // (128, 239) at (129, 0)
+}
+
+TEST(bitmap_512_is_4_bits_left_pixel_high_with_palofs)
+{
+    Rig r;
+    r.colour(3, GREY);
+    r.colour(0x0A, RED);
+    r.colour(0x0B, GREEN);
+    r.colour(0x2A, BLUE);
+    r.colour(0x2B, WHITE);
+    const uint32_t img = 64 * 1024;               // 120 KB, still inside banks 8-B
+    r.vram[img + 0] = 0xAB;                       // (0, 0) = A, (1, 0) = B
+    r.vram[img + 479 * 256 + 255] = 0x0A;         // (511, 479) = A, (510, 479) = 0
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(L0 + VideoCard::CONFIG, VideoCard::BITMAP512);
+    r.reg(L0 + VideoCard::MAPBASE, 64);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(r.px(63, 0), rgba(GREY));
+    CHECK_EQ(r.px(64, 0), rgba(RED));
+    CHECK_EQ(r.px(65, 0), rgba(GREEN));
+    CHECK_EQ(r.px(64, 1), BLACK);                 // not doubled
+    CHECK_EQ(r.px(575, 479), rgba(RED));
+    CHECK_EQ(r.px(574, 479), BLACK);
+    CHECK_EQ(r.px(576, 479), rgba(GREY));
+    r.reg(L0 + VideoCard::PALOFS, 2);
+    r.frames();
+    CHECK_EQ(r.px(64, 0), rgba(BLUE));            // $2A
+    r.reg(L0 + VideoCard::HSCROLL, 1);
+    r.show();
+    CHECK_EQ(r.px(64, 0), rgba(WHITE));           // (1, 0), B + PALOFS: $2B, shows first...
+    CHECK_EQ(r.px(575, 0), rgba(BLUE));           // ...and (0, 0) wrapped to the far right
 }
 
 TEST(bases_and_scroll_wait_for_vertical_blank_memory_does_not)

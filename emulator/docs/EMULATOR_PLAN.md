@@ -330,6 +330,10 @@ now 32.32 fixed point with the beam as line and column (no divisions);
 with the text layer on, the core runs about 10% slower flat out (19-20 MHz
 against 21-22 under node), some 4% of a core at real time.
 
+**Bitmaps (2026-10-24), video part 4.** Bitmap 256 (256x240 at 8 bits,
+doubled, no PALOFS) and bitmap 512 (512x480 at 4 bits, left pixel high),
+both centred with the border either side, scroll wrapping in the image.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,
