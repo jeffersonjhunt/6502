@@ -76,3 +76,6 @@ USB_ID          = USB + $7F
 
 USB_NMI_PAUSE   = $80                  ; KBCFG: Pause/Break pulls /NMI
 USB_ID_V1       = $B1
+
+NB_MODE_APPLE   = $01                  ; MODE: enter Apple II mode (only a hard reset leaves)
+DMA_HOLD        = $20                  ; MODE: the source address holds still (a fill)

@@ -59,6 +59,9 @@ namespace ooe::emu
             std::string machine;  ///< machine description file
             std::string rom;      ///< replaces the first rom line's image; empty keeps it
             std::string symbols;  ///< an ld65 -Ln label file, or empty
+            /// The owner's Apple IIe ROM for the cartridge (MachineOptions::apple_rom), or none.
+            std::vector<std::string> apple_rom{};
+            std::string apple_chars{}; ///< and its character ROM, or empty
         };
 
         enum class Stop : uint8_t

@@ -10,7 +10,7 @@ import { usageFor } from "../crt/usb-keyboard";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
-const GREETING = "\rBACKPLANE BIOS 0.4\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.5\r\\\r";
 const FRAME_MS = 1000 / 60;
 const NATIVE_HZ = 7_159_090;
 

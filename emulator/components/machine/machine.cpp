@@ -282,9 +282,11 @@ namespace ooe::emu
                     rom_overridden = true;
                 }
                 if (image.empty())
-                    return fail("rom: needs an image file");
+                    return fail("rom: needs an image file, or - for erased flash");
                 auto rom = std::make_unique<Rom>(size);
-                if (!rom->load(image))
+                if (image == "-")
+                    rom->erase();
+                else if (!rom->load(image))
                     return fail("rom: cannot load " + image);
                 dev = std::move(rom);
             }
@@ -370,6 +372,54 @@ namespace ooe::emu
             {
                 error = origin + ": video: banks 8-B (80000-BFFFF) must be one ram line";
                 return nullptr;
+            }
+        }
+        if (!options.apple_rom.empty() || !options.apple_chars.empty())
+        {
+            // The owner's Apple IIe ROMs, plugged in as the cartridge.
+            auto *cart = dynamic_cast<Rom *>(m->find("rom_b"));
+            if (!cart)
+            {
+                error = origin + ": an Apple IIe ROM needs the cartridge, a rom line named rom_b";
+                return nullptr;
+            }
+            size_t at = 0;
+            for (const std::string &part : options.apple_rom)
+            {
+                std::ifstream in(part, std::ios::binary | std::ios::ate);
+                if (!in)
+                {
+                    error = part + ": cannot open the Apple IIe ROM";
+                    return nullptr;
+                }
+                const auto bytes = static_cast<size_t>(in.tellg());
+                if (!cart->load(part, at))
+                {
+                    error = part + ": does not fit the cartridge";
+                    return nullptr;
+                }
+                at += bytes;
+            }
+            if (!options.apple_rom.empty() && at != 0x4000)
+            {
+                error = "Apple IIe ROM: want 16 KB ($C000-$FFFF, or the CD and EF halves), got " +
+                        std::to_string(at) + " bytes";
+                return nullptr;
+            }
+            if (!options.apple_chars.empty())
+            {
+                std::ifstream in(options.apple_chars, std::ios::binary | std::ios::ate);
+                const auto bytes = in ? static_cast<size_t>(in.tellg()) : size_t{0};
+                if (bytes != 0x1000 && bytes != 0x2000)
+                {
+                    error = options.apple_chars + ": want the 4 or 8 KB IIe character ROM";
+                    return nullptr;
+                }
+                if (!cart->load(options.apple_chars, 0x4000))
+                {
+                    error = options.apple_chars + ": cannot load it";
+                    return nullptr;
+                }
             }
         }
         if (!options.rom_override.empty() && !rom_overridden)

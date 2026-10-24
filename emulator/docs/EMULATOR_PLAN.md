@@ -390,6 +390,18 @@ sends a burst within one frame would otherwise overwrite KEY before the
 BIOS read it, which the first browser test showed. The Devices tab shows
 the card.
 
+**Apple II mode, step 1 (2026-10-24): the cartridge and the way in; BIOS
+0.5.** ROM B, the cartridge (module 5), is in backplane.machine as erased
+flash (`rom ... -`); `MachineOptions::apple_rom` (the app's `--apple-rom`,
+Session's `Config::apple_rom`) puts the owner's 16 KB IIe ROM, or its CD and
+EF halves, at its start, and `apple_chars` the character ROM at $4000.
+`backplane/bios/apple.s`, `C806R`: check the cartridge holds a IIe ROM
+($FBB3 = $06), copy it to bank E ($EC000), clear banks 0-3 with four DMA
+fills (inline, as the clear takes the stack), write MODE. The BIOS's jump
+table now has eight entries, five spare, so new ones stop moving the code
+after it (WOZMON $C880, ECHO $C968). The tests use a stand-in ROM; real
+ones go in `test/host/fixtures/apple2e/`.
+
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a
   timed device up just before it is accessed and before each IRQ check,

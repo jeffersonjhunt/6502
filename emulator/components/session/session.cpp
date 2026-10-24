@@ -105,6 +105,8 @@ namespace ooe::emu
     {
         MachineOptions options;
         options.rom_override = config_.rom;
+        options.apple_rom = config_.apple_rom;
+        options.apple_chars = config_.apple_chars;
         std::unique_ptr<Machine> machine = Machine::load(config_.machine, options, error);
         if (!machine)
             return false;

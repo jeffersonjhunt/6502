@@ -9,7 +9,8 @@
  *
  *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]
  *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
- *            [--break ADDR]... [--halt] [--screen FILE] [rom]
+ *            [--break ADDR]... [--halt] [--screen FILE]
+ *            [--apple-rom FILE[,FILE]] [--apple-chars FILE] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
@@ -34,8 +35,12 @@
  * - Ctrl-] stops a running machine into the debugger ('h' for commands).
  * - --screen writes the video card's last frame (if the machine has one)
  *   to FILE as a PPM on the way out.
+ * - --apple-rom plugs the owner's Apple IIe ROM into the cartridge (one
+ *   16 KB file, or the CD and EF halves), and --apple-chars its character
+ *   ROM; C806R at the monitor enters Apple II mode with them.
  */
 
+#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -86,7 +91,8 @@ namespace
     {
         std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]\n"
                              "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
-                             "                [--break ADDR]... [--halt] [--screen FILE] [rom]\n");
+                             "                [--break ADDR]... [--halt] [--screen FILE]\n"
+                             "                [--apple-rom FILE[,FILE]] [--apple-chars FILE] [rom]\n");
         return 2;
     }
 
@@ -269,6 +275,18 @@ int main(int argc, char *argv[])
             settings.start_halted = true;
         else if (std::strcmp(argv[i], "--screen") == 0 && i + 1 < argc)
             settings.screen_path = argv[++i];
+        else if (std::strcmp(argv[i], "--apple-rom") == 0 && i + 1 < argc)
+        {
+            std::string list = argv[++i];
+            for (size_t at = 0; at <= list.size();)
+            {
+                const size_t comma = std::min(list.find(',', at), list.size());
+                options.apple_rom.push_back(list.substr(at, comma - at));
+                at = comma + 1;
+            }
+        }
+        else if (std::strcmp(argv[i], "--apple-chars") == 0 && i + 1 < argc)
+            options.apple_chars = argv[++i];
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')
