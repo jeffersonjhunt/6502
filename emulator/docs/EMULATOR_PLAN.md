@@ -445,7 +445,18 @@ colours in the card's 12 bits. C806R puts the character ROM's 2 KB at
 $BE000 in video memory, from the cartridge or, without one, built from the
 VGA font. test_iie, with the owner's ROMs, checks the boot banner dot for
 dot against the real character ROM, and GR/PLOT and HGR/HPLOT typed into
-Applesoft. Next: the double modes (5b), and the WebUI (step 6).
+Applesoft.
+
+**Apple II mode, step 5b (2026-10-24): the double modes.** With 80COL and
+AN3 off: double lo-res (80 blocks of 7 dots, aux then main, aux nibbles
+shown rotated a bit as their dots fall out of phase) and double hi-res
+(560 dots of aux and main bytes in turn, 4 dots to one of 16 colours).
+Every Apple colour now follows one rule: dot x of a 560-dot line counts as
+bit x mod 4 of a lo-res colour, which is where hi-res's violet, green,
+blue and orange already came from. A hi-res gap between two dots of one
+colour takes it. These follow the rule, not yet a real program: the double
+modes have no ROM command, so they wait for a disk to show them. Next: the
+WebUI (step 6).
 
 - **Devices keep time in lockstep.** Every CPU cycle is one bus access, so
   the decoder counts them (plus `Bus::idle()` for WAI/STP) and catches a

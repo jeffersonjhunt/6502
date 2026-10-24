@@ -976,6 +976,73 @@ TEST(apple_mixed_mode_four_text_rows_under_graphics)
     CHECK_EQ(a.dot(0, 160), A_MAGENTA);          // row 20's byte $C1 as lo-res: 1 on top
 }
 
+TEST(apple_double_lores_80_blocks_aux_rotated)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write_physical(0x10400, 0x02);       // aux: nibble 2, shown rotated right a bit: 1, magenta
+    a.bus().write_physical(0x00400, 0x01);       // main: 1, magenta as it is
+    a.bus().write_physical(0x10401, 0x01);       // aux 1 -> 8, brown
+    a.bus().read(0xC050);
+    a.bus().write(0xC00D, 0);                    // 80COL
+    a.bus().read(0xC05E);                        // AN3 off: double
+    a.show();
+    CHECK_EQ(a.px(40, 48), A_MAGENTA);           // block 0 (aux), 7 dots
+    CHECK_EQ(a.px(46, 48), A_MAGENTA);
+    CHECK_EQ(a.px(47, 48), A_MAGENTA);           // block 1 (main)
+    CHECK_EQ(a.px(54, 48), VideoCard::rgba(0x670)); // block 2 (aux, $10401): brown
+    a.bus().read(0xC05F);                        // AN3 on: plain lo-res, 40 blocks of 14 dots
+    a.show();
+    CHECK_EQ(a.px(40, 48), A_MAGENTA);           // main's $01: magenta
+    CHECK_EQ(a.px(53, 48), A_MAGENTA);           // a 14-dot block now
+    CHECK_EQ(a.px(54, 48), A_BLACK);             // and the next one main's $0401: 0 (double showed aux's brown)
+}
+
+TEST(apple_double_hires_560_dots_four_to_a_colour)
+{
+    // Column c's aux byte is dots 14c to 14c+6, its main byte 14c+7 to 14c+13 (bit 0 first).
+    // Each aligned 4 dots make a pattern, bit n the dot at 4k+n: that pattern's lo-res colour.
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().write_physical(0x12000, 0x01);       // aux 0: dot 0
+    a.bus().write_physical(0x02000, 0x0F);       // main 0: dots 7-10
+    a.bus().write_physical(0x12001, 0x70);       // aux 1: dots 18-20
+    a.bus().write_physical(0x02001, 0x01);       // main 1: dot 21
+    a.bus().read(0xC050);
+    a.bus().read(0xC057);
+    a.bus().write(0xC00D, 0);
+    a.bus().read(0xC05E);
+    a.show();
+    CHECK_EQ(a.px(40 + 0, 48), A_MAGENTA);       // dots 0-3:   0001 = 1
+    CHECK_EQ(a.px(40 + 3, 48), A_MAGENTA);
+    CHECK_EQ(a.px(40 + 4, 48), VideoCard::rgba(0x670)); // 4-7:  1000 = 8, brown
+    CHECK_EQ(a.px(40 + 8, 48), VideoCard::rgba(0xDCF)); // 8-11: 0111 = 7, light blue
+    CHECK_EQ(a.px(40 + 12, 48), A_BLACK);        // 12-15: nothing
+    CHECK_EQ(a.px(40 + 16, 48), A_GREEN);        // 16-19: 1100 = 12
+    CHECK_EQ(a.px(40 + 20, 48), A_VIOLET);       // 20-23: 0011 = 3
+    CHECK_EQ(a.px(40 + 23, 48), A_VIOLET);
+}
+
+TEST(apple_hires_a_gap_between_two_dots_of_one_colour_takes_it)
+{
+    AppleScreen a;
+    REQUIRE(a.ok());
+    a.bus().read(0xC050);
+    a.bus().read(0xC057);
+    a.bus().write(0x2000, 0x05);                 // dots 0 and 2: both even, violet; 1 off between
+    a.bus().write(0x2400, 0x11);                 // line 1: dots 0 and 4: a gap of 3 stays black
+    a.bus().write(0x2800, 0x40);                 // line 2: dot 6, violet...
+    a.bus().write(0x2801, 0x82);                 // ...and dot 8, shifted: blue. Two colours: no fill
+    a.show();
+    CHECK_EQ(a.px(40 + 7 * 2 + 1, 48 + 2 * 2), A_BLACK); // dot 7 is in the shifted byte: half a dot right
+    CHECK_EQ(a.px(40 + 8 * 2 + 1, 48 + 2 * 2), A_BLUE);
+    CHECK_EQ(a.dot(0, 0), A_VIOLET);
+    CHECK_EQ(a.dot(1, 0), A_VIOLET);             // filled
+    CHECK_EQ(a.dot(2, 0), A_VIOLET);
+    CHECK_EQ(a.dot(3, 0), A_BLACK);
+    CHECK_EQ(a.dot(2, 1), A_BLACK);
+}
+
 int main()
 {
     return run_all();
