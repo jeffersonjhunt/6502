@@ -570,7 +570,7 @@ it commands.
   | `$D400` | SID A |
   | `$D420` or `$D500` | SID B (CTRL bit 3) |
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
-  | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status |
+  | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status (bit 0: a byte from the host is waiting; bit 1: the card's last byte hasn't been taken) |
 
   RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
   later.
@@ -592,6 +592,16 @@ it commands.
 | `$46` | MBOUT | write | a byte to the card ("play song 3", a sound effect, a music cue) |
 | `$47` | MBIN | read | a byte from the card ("tune finished", a sync point); reading empties it |
 | `$7F` | ID | read | card type and revision |
+
+**Details settled in the emulator (2026-10-25, proposed for the card):**
+
+- **SID reads.** The card answers the 25 write-only registers itself, with what was last written to each, so
+  "reads always work" holds for every register; `$19–$1C` come from the chip.
+- **The mailbox** is one byte each way. A second MBOUT before the card has taken the first replaces it, and the
+  same for the card's byte; STATUS says when a box is full.
+- **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2.
+- **/RESET** stops the card's 6510 (CTRL is cleared), pulls the SIDs' /RES, and empties the mailbox. The card's
+  RAM keeps its contents.
 
 **`.sid` playback.**
 

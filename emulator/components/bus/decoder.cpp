@@ -37,6 +37,7 @@ namespace ooe::emu
         bridge_->reset();
         if (master_)
             master_->reset();
+        reset_cards();
     }
 
     void Decoder::pulse_reset()
@@ -44,6 +45,13 @@ namespace ooe::emu
         bridge_->reset_pulse();
         if (master_)
             master_->reset();
+        reset_cards();
+    }
+
+    void Decoder::reset_cards()
+    {
+        for (const Slot &s : slots_) // one per device, however many mappings it has
+            s.device->bus_reset();
     }
 
     void Decoder::idle()

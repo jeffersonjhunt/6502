@@ -34,6 +34,10 @@
 # The USB card (module B, $C580) is the keyboard, mouse and game port
 # (usb_card.h). Nothing types on it in the terminal app; the WebUI does.
 #
+# The sound card (module A, $C500) holds two SIDs and 64 KB for a 6510 of
+# its own (sound_card.h): so far its registers, RAM and mailbox. RAMDATA is
+# on DMA channel 2.
+#
 # The terminal is a STAND-IN: a 6551 in the serial card's I/O block
 # ($C300, module 6) until the TL16C552A is modelled.
 #
@@ -52,6 +56,7 @@ rom   80000-FFFFF  space=flash  module=5  name=rom_b  -   # the cartridge: empty
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
 dma       400-47F  space=io  name=dma  irq
 video     480-4FF  space=io  name=video  irq
+sound     500-57F  space=io  name=sound  irq  drq=2
 usb       580-5FF  space=io  name=usb  irq
 disk2     600-67F  space=io  name=disk2               # slot 6 in Apple II mode
 console   700-77F  space=io  name=console  irq     # the front panel

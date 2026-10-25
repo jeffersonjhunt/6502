@@ -197,10 +197,11 @@ namespace ooe::emu
                 continue;
             }
             if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
-                type != "dma" && type != "console" && type != "video" && type != "usb" && type != "disk2")
+                type != "dma" && type != "console" && type != "video" && type != "usb" && type != "disk2" &&
+                type != "sound")
                 return fail("unknown type '" + type +
                             "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
-                            "usb, disk2, hd44780 or ps2kbd)");
+                            "usb, disk2, sound, hd44780 or ps2kbd)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
@@ -327,6 +328,14 @@ namespace ooe::emu
                     auto card = std::make_unique<Disk2Card>();
                     card->attach(&m->bus_);
                     m->disk2_card_ = card.get();
+                    dev = std::move(card);
+                }
+                else if (type == "sound")
+                {
+                    if (m->sound_card_)
+                        return fail("sound: only one per machine");
+                    auto card = std::make_unique<SoundCard>();
+                    m->sound_card_ = card.get();
                     dev = std::move(card);
                 }
                 else if (type == "video")

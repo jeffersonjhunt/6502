@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState } from "../port/machine-port";
-import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, sidFilter, sidVoice, SOUND, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -135,5 +135,43 @@ describe("Devices tab", () => {
     expect(diskMode({ ...port.disk2, q7: true })).toBe("write: shift out");
     expect(diskMode({ ...port.disk2, q6: true })).toBe("sense write-protect");
     expect(diskText({ name: "t.woz", format: "woz", writeProtected: false, changed: false, writes: 0 })).toBe("t.woz · WOZ");
+  });
+
+  test("a SID voice and its filter in words", () => {
+    expect(sidVoice(Uint8Array.from([0xd6, 0x1c, 0x00, 0x08, 0x41, 0x09, 0xa0]))).toBe("$1CD6 · pulse · width $800 · gate · ADSR 0 9 A 0");
+    expect(sidVoice(Uint8Array.from([0x00, 0x10, 0, 0, 0x16, 0x00, 0x00]))).toBe("$1000 · triangle · sync · ring · ADSR 0 0 0 0");
+    expect(sidVoice(new Uint8Array(7))).toBe("$0000 · no waveform · ADSR 0 0 0 0");
+    const r = new Uint8Array(29);
+    r[0x18] = 0x0f;
+    expect(sidFilter(r)).toBe("volume 15 · filter off");
+    r[0x15] = 0x07;
+    r[0x16] = 0x80;
+    r[0x17] = 0xf5; // resonance 15, voices 1 and 3
+    r[0x18] = 0xda; // low and high pass, voice 3 off, volume 10
+    expect(sidFilter(r)).toBe("volume 10 · filter low+high-pass · cutoff 1031 · resonance 15 · voices 1 3 · voice 3 off");
+    r[0x17] = 0x08;
+    expect(sidFilter(r)).toBe("volume 10 · filter low+high-pass · cutoff 1031 · resonance 0 · voices ext · voice 3 off");
+  });
+
+  test("the sound card: CTRL, the mailbox, RAMADDR and both SIDs", async () => {
+    const port = new FakePort();
+    const regs: Record<number, number> = { 0x00: 0xd6, 0x01: 0x1c, 0x04: 0x21, 0x18: 0x0f, 0x24: 0x11, 0x40: 0x1b, 0x41: 0x06, 0x42: 0x04, 0x43: 0x00, 0x44: 0x10, 0x47: 0x80, 0x7f: 0xa1 };
+    for (const [o, v] of Object.entries(regs)) port.memory.set(SOUND + Number(o), v);
+    const v = devicesView(port);
+    await v.refresh();
+    expect(v.element.textContent).toContain("Sound card running");
+    expect(text(v.element, "CTRL")).toBe("$1B  NTSC 1.023 MHz · 6510 running · SID B at $D500 · A to both");
+    expect(text(v.element, "Mailbox")).toBe("to card full · to host $80 waiting · interrupts");
+    expect(text(v.element, "RAMADDR")).toBe("$1000");
+    expect(text(v.element, "SID A")).toBe("volume 15 · filter off");
+    expect(text(v.element, "A1")).toBe("$1CD6 · saw · gate · ADSR 0 0 0 0");
+    expect(text(v.element, "B1")).toBe("$0000 · triangle · gate · ADSR 0 0 0 0");
+    expect(text(v.element, "B3")).toBe("$0000 · no waveform · ADSR 0 0 0 0");
+  });
+
+  test("no sound card: says so", async () => {
+    const v = devicesView(new FakePort());
+    await v.refresh();
+    expect(v.element.textContent).toContain("No sound card on this machine.");
   });
 });

@@ -647,6 +647,19 @@ ones, all passing. The disassembler shows them as `.byte` lists of the
 right length, which ca65 still reassembles, with the instruction as a
 comment (`.byte $A7,$12 ; lax $12`).
 
+**The sound card, step 7b (2026-10-25): its registers and mailbox.**
+`SoundCard` (module A, $C500, `sound` line; DMA channel 2 in
+backplane.machine): the two SIDs' 29 registers each, the card's 64 KB
+through RAMADDR and RAMDATA (DRQ always asserted, so a DMA channel loads a
+tune at bus speed), CTRL, STATUS, IEN, and the mailbox, with its interrupt
+on bit 2 of IRQH. Host writes to the SIDs are dropped while CTRL RUN gives
+them to the card's 6510; BOTH copies SID A's writes to SID B. The card's
+side is card_receive(), card_send() and sid_write(), for step 7c's 6510
+to call from $DE00, $DE01 and $D400. /RESET now reaches devices that ask
+for it (Device::bus_reset()); the sound card stops and goes quiet, keeping
+its RAM. The WebUI's Devices tab shows CTRL, the mailbox, RAMADDR and both
+SIDs' voices and filter in words.
+
 ## Backlog
 
 Decided to come later, not forgotten:

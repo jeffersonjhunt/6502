@@ -10,7 +10,9 @@
  * Then Apple II mode: whether it is on, and the IIe's soft switches
  * (readApple), which keep their state in native mode too. Then the Disk II
  * card (readDisk2): its motor, heads, mode, data register and magnets, and
- * the disks in its drives.
+ * the disks in its drives. Then the sound card at $C500: CTRL, the mailbox,
+ * RAMADDR, and both SIDs' registers in words (what was last written: the
+ * card answers its write-only registers from that).
  */
 
 import type { AppleState, DiskInfo, DiskStatus, MachinePort } from "../port/machine-port";
@@ -21,6 +23,8 @@ export const VIDEO = 0xc480;
 const VIDEO_ID = 0x91;
 export const USB = 0xc580;
 const USB_ID = 0xb1;
+export const SOUND = 0xc500;
+const SOUND_ID = 0xa1;
 const MODS = ["L-Ctrl", "L-Shift", "L-Alt", "L-GUI", "R-Ctrl", "R-Shift", "R-Alt", "R-GUI"];
 
 /** KEY as a person reads it: the character, or its control name. */
@@ -78,6 +82,30 @@ const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
 const bits = (v: number, names: [number, string][]) => names.filter(([b]) => v & b).map(([, n]) => n).join(" · ") || "none";
 
 /** What a layer's registers (8 bytes from +$0) say, in words. */
+/** A SID voice's seven registers in words. */
+export function sidVoice(r: Uint8Array): string {
+  const ctrl = r[4];
+  const waves = bits(ctrl, [[0x10, "triangle"], [0x20, "saw"], [0x40, "pulse"], [0x80, "noise"]]);
+  const parts = [`$${hex(r[0] | (r[1] << 8), 4)}`, waves === "none" ? "no waveform" : waves];
+  if (ctrl & 0x40) parts.push(`width $${hex(r[2] | ((r[3] & 0x0f) << 8), 3)}`);
+  const flags = bits(ctrl, [[0x01, "gate"], [0x02, "sync"], [0x04, "ring"], [0x08, "test"]]);
+  if (flags !== "none") parts.push(flags);
+  parts.push(`ADSR ${[r[5] >> 4, r[5] & 15, r[6] >> 4, r[6] & 15].map((n) => hex(n, 1)).join(" ")}`);
+  return parts.join(" · ");
+}
+
+/** A SID's volume and filter ($15-$18) in words. */
+export function sidFilter(r: Uint8Array): string {
+  const mode = r[0x18];
+  const types = bits(mode, [[0x10, "low"], [0x20, "band"], [0x40, "high"]]);
+  const routed = ["1", "2", "3", "ext"].filter((_, i) => r[0x17] & (1 << i));
+  const parts = [`volume ${mode & 15}`];
+  if (types === "none" || !routed.length) parts.push("filter off");
+  else parts.push(`filter ${types.replace(/ · /g, "+")}-pass · cutoff ${(r[0x15] & 7) | (r[0x16] << 3)} · resonance ${r[0x17] >> 4} · voices ${routed.join(" ")}`);
+  if (mode & 0x80) parts.push("voice 3 off");
+  return parts.join(" · ");
+}
+
 export function describeLayer(r: Uint8Array, on: boolean): string {
   const config = r[0];
   const type = config & 7;
@@ -102,6 +130,8 @@ export function devicesView(port: MachinePort) {
   const appleStatus = h("em", {}, "");
   const diskRows = h("dl", { class: "devs", "data-testid": "dev-disk2" });
   const diskStatus = h("em", {}, "");
+  const soundRows = h("dl", { class: "devs", "data-testid": "dev-sound" });
+  const soundStatus = h("em", {}, "");
   const element = h(
     "div",
     { class: "sec" },
@@ -121,6 +151,9 @@ export function devicesView(port: MachinePort) {
     h("h4", {}, "Disk II ", diskStatus),
     diskRows,
     h("p", { class: "hint" }, "Module C; slot 6 in Apple II mode, its switches at $C0E0-$C0EF and its boot ROM at $C600."),
+    h("h4", {}, "Sound card ", soundStatus),
+    soundRows,
+    h("p", { class: "hint" }, "Module A at $C500: two SIDs, and 64 KB for the card's own 6510. No sound is played yet."),
   );
 
   const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
@@ -184,8 +217,32 @@ export function devicesView(port: MachinePort) {
     );
   };
 
+  const refreshSound = async () => {
+    const r = await port.readMemory(SOUND, 0x80, "io");
+    if (r[0x7f] !== SOUND_ID) {
+      soundStatus.textContent = "none";
+      soundRows.replaceChildren(h("dd", {}, "No sound card on this machine."));
+      return;
+    }
+    const ctrl = r[0x40], status = r[0x41];
+    soundStatus.textContent = ctrl & 2 ? "running" : "stopped";
+    const clock = ctrl & 1 ? "NTSC 1.023 MHz" : "PAL 0.985 MHz";
+    const box = (full: boolean, v: number) => (full ? `$${hex(v, 2)} waiting` : "empty");
+    const voices = (base: number) => [0, 7, 14].map((o, i) => row(`${base ? "B" : "A"}${i + 1}`, sidVoice(r.subarray(base + o, base + o + 7)))).flat();
+    soundRows.replaceChildren(
+      ...row("CTRL", `$${hex(ctrl, 2)}  ${clock} · 6510 ${ctrl & 2 ? "running" : "stopped"} · SID B at $${ctrl & 8 ? "D500" : "D420"}${ctrl & 0x10 ? " · A to both" : ""}`),
+      ...row("Mailbox", `to card ${status & 2 ? "full" : "empty"} · to host ${box(!!(status & 4), r[0x47])}${r[0x42] & 4 ? " · interrupts" : ""}`),
+      ...row("RAMADDR", `$${hex(r[0x43] | (r[0x44] << 8), 4)}`),
+      ...row("SID A", sidFilter(r.subarray(0x00, 0x1d))),
+      ...voices(0x00),
+      ...row("SID B", sidFilter(r.subarray(0x20, 0x3d))),
+      ...voices(0x20),
+    );
+  };
+
   const refresh = async () => {
     await refreshUsb();
+    await refreshSound();
     await refreshApple();
     await refreshDisk();
     const r = await port.readMemory(VIDEO, 0x80, "io");
