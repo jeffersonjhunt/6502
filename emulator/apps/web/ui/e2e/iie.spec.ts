@@ -122,9 +122,11 @@ test("the Disk II boots The Oregon Trail from the owner's WOZ, the drive light o
   await expect(page.getByTestId("apple-note")).toHaveText("");          // nothing missing
   await page.getByTestId("disk-file").setInputFiles({ name: "The Oregon Trail.woz", mimeType: "application/octet-stream", buffer: readFileSync(woz) });
   await expect(page.getByTestId("disk-insert")).toHaveText("The Oregon Trail.woz");
+  await expect(page.getByTestId("disk-note")).toHaveText("Start Apple IIe boots it");
   await page.getByRole("button", { name: "Colour" }).click();
   await page.getByTestId("apple-start").click();
   await expect(page.getByTestId("disk-light")).toHaveClass(/on/, { timeout: 10_000 });
+  await expect(page.getByTestId("disk-note")).toHaveText("");
   await page.locator('[data-tab="dev"]').click();
   const video = page.getByTestId("dev-apple").locator('[data-reg="Video"]');
   await expect(video).toHaveText("hi-res · page 2", { timeout: 30_000 });
@@ -132,4 +134,27 @@ test("the Disk II boots The Oregon Trail from the owner's WOZ, the drive light o
   // "The Oregon Trail" in white across the top of the menu.
   await expect.poll(() => lit(page, 0, 20, 640, 50)).toBeGreaterThan(2000);
   await page.screenshot({ path: `test-results/oregon-trail-${test.info().project.name}.png` });
+});
+
+test("a disk put in at BASIC's prompt boots on Reboot, and the drive says so", async ({ page }) => {
+  const woz = `${process.env.OO1_DISKS_DIR ?? fileURLToPath(new URL("../../../../test/host/fixtures/disks/", import.meta.url))}/The Oregon Trail - Disk 1, Side A.woz`;
+  test.skip(!existsSync(woz) || !existsSync(dir + P5) || !existsSync(dir + P6), "no WOZ or Disk II PROMs among the fixtures");
+  await page.goto("./");
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.6", { timeout: 15_000 });
+  await page.getByTestId("apple-file").setInputFiles([
+    { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
+    { name: P5, mimeType: "application/octet-stream", buffer: readFileSync(dir + P5) },
+    { name: P6, mimeType: "application/octet-stream", buffer: readFileSync(dir + P6) },
+  ]);
+  await page.getByTestId("apple-start").click();
+  await expect(page.getByTestId("disk-note")).toHaveText(/^No disk: the IIe waits for one/, { timeout: 10_000 });
+  await page.getByTestId("apple-reset").click(); // to BASIC
+  await expect(page.getByTestId("disk-light")).not.toHaveClass(/on/, { timeout: 10_000 });
+  await page.getByTestId("disk-file").setInputFiles({ name: "The Oregon Trail.woz", mimeType: "application/octet-stream", buffer: readFileSync(woz) });
+  await expect(page.getByTestId("disk-note")).toHaveText("Reboot boots it (or PR#6 in BASIC)");
+  await page.waitForTimeout(1000);
+  await expect(page.getByTestId("disk-light")).not.toHaveClass(/on/); // in, and nothing reads it: a real IIe's way
+  await page.getByTestId("apple-reboot").click();
+  await expect(page.getByTestId("disk-light")).toHaveClass(/on/, { timeout: 10_000 });
+  await expect(page.getByTestId("disk-note")).toHaveText("");
 });

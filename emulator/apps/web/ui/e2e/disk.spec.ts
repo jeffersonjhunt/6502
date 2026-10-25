@@ -18,6 +18,7 @@ test("a disk goes in, shows on the Devices tab, stays through a reload, saves, a
   await page.getByTestId("disk-file").setInputFiles({ name: "Random.dsk", mimeType: "application/octet-stream", buffer: disk() });
   await expect(page.getByTestId("disk-insert")).toHaveText("Random.dsk");
   await expect(page.getByTestId("disk-light")).not.toHaveClass(/on/);
+  await expect(page.getByTestId("disk-note")).toHaveText("To boot it, the IIe needs the IIe ROM and the Disk II PROMs (Insert IIe ROM…)");
   await page.locator('[data-tab="dev"]').click();
   const dev = page.getByTestId("dev-disk2");
   await expect(dev.locator('[data-reg="Drive 1"]')).toHaveText("Random.dsk · 16 sectors, DOS order");

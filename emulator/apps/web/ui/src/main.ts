@@ -215,7 +215,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     const a = h("a", { href: url, download: name });
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  });
+  }, apple.bootNeeds);
   const monitor = h(
     "div",
     { class: "mon" },
