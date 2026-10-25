@@ -1,16 +1,19 @@
 /**
  * @file sid.cpp
- * @brief A 6581 SID's oscillators and envelopes.
+ * @brief A SID's oscillators, envelopes and output stage.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * Time is spent in bulk where nothing depends on the clock-by-clock order:
  * an accumulator just adds freq x clocks (and the noise register is clocked
  * once for each rise of bit 19 on the way), and an envelope jumps from one
  * rate-counter match to the next. Only hard sync, where one voice resets
- * another the clock its top bit rises, needs every clock.
+ * another the clock its top bit rises, needs every clock; and the output
+ * stage, whose filter runs every clock, unless every envelope is at rest.
  */
 
 #include "sid.h"
+
+#include <cmath>
 
 namespace ooe::emu
 {
@@ -38,12 +41,56 @@ namespace ooe::emu
 
         /// The voice that syncs and ring-modulates voice n.
         constexpr unsigned source(unsigned n) { return (n + 2) % 3; }
+
+        constexpr unsigned FC_LO = 0x15, FC_HI = 0x16, RES_FILT = 0x17, MODE_VOL = 0x18;
+        constexpr uint8_t LP = 0x10, BP = 0x20, HP = 0x40, OFF3 = 0x80;
+        constexpr float PI = 3.14159265f;
+        /// A voice's output for one waveform step at full envelope: 1/2048 of full scale, 1/255 per envelope step.
+        constexpr float VOICE_SCALE = 1.0f / (2048.0f * 255.0f);
     } // namespace
 
     void Sid::reset()
     {
         regs_ = {};
         voices_ = {};
+        lp_ = bp_ = out_ = 0;
+        tune_filter();
+    }
+
+    void Sid::set_model(Model m)
+    {
+        model_ = m;
+        // The 6581's waveform DAC idles near the bottom of its range and its mixer carries a large DC
+        // level; the 8580's DAC idles mid-range and its mixer's DC is faint.
+        zero_ = m == Model::Mos6581 ? 0x380 : 0x800;
+        mixer_dc_ = m == Model::Mos6581 ? -0.6f : -0.03f;
+        tune_filter();
+    }
+
+    void Sid::set_clock_hz(uint32_t hz)
+    {
+        clock_hz_ = hz ? hz : 985'248;
+        tune_filter();
+    }
+
+    float Sid::cutoff_hz() const
+    {
+        const float x = static_cast<float>((regs_[FC_LO] & 0x07) | regs_[FC_HI] << 3) / 2047.0f;
+        if (model_ == Model::Mos8580)
+            return 30.0f + 12'470.0f * x;
+        return 220.0f + 17'780.0f * std::pow(x, 2.4f);
+    }
+
+    void Sid::tune_filter()
+    {
+        // Chamberlin's state variable filter, stepped once a clock: f = 2 sin(pi fc / clock).
+        const float clock = static_cast<float>(clock_hz_);
+        w_ = 2.0f * std::sin(PI * std::fmin(cutoff_hz(), clock / 6.0f) / clock);
+        // Resonance's Q, as the chips are measured: the 6581's 0.707 to 1.7, linear in the nibble; the
+        // 8580's 0.707 to 2.6, exponential in it.
+        const float res = static_cast<float>(regs_[RES_FILT] >> 4);
+        const float q = model_ == Model::Mos6581 ? 0.7071f + res / 15.0f : std::pow(2.0f, (res - 4.0f) / 8.0f);
+        q1_ = 1.0f / q;
     }
 
     void Sid::write(unsigned reg, uint8_t data)
@@ -71,6 +118,8 @@ namespace ooe::emu
             }
         }
         regs_[reg] = data;
+        if (reg >= FC_LO && reg <= RES_FILT)
+            tune_filter();
     }
 
     uint8_t Sid::read(unsigned reg) const
@@ -126,6 +175,58 @@ namespace ooe::emu
             advance_oscillators(clocks);
         for (unsigned n = 0; n < 3; ++n)
             clock_envelope(n, clocks);
+    }
+
+    bool Sid::quiet() const
+    {
+        for (const Voice &v : voices_)
+            if (!v.frozen || v.envelope)
+                return false;
+        return std::fabs(lp_) < 1e-5f && std::fabs(bp_) < 1e-5f;
+    }
+
+    float Sid::mix()
+    {
+        const uint8_t route = regs_[RES_FILT] & 0x07, mode = regs_[MODE_VOL];
+        float in = 0, direct = 0;
+        for (unsigned n = 0; n < 3; ++n)
+        {
+            if (muted_ >> n & 1)
+                continue;
+            const float v = (static_cast<float>(waveform(n)) - zero_) * static_cast<float>(voices_[n].envelope) * VOICE_SCALE;
+            if (route >> n & 1)
+                in += v;
+            else if (n != 2 || !(mode & OFF3))
+                direct += v;
+        }
+        lp_ += w_ * bp_;
+        const float hp = in - lp_ - q1_ * bp_;
+        bp_ += w_ * hp;
+        const float filtered = (mode & LP ? lp_ : 0.0f) + (mode & BP ? bp_ : 0.0f) + (mode & HP ? hp : 0.0f);
+        out_ = (direct + filtered + mixer_dc_) * static_cast<float>(mode & 0x0F) / 15.0f;
+        return out_;
+    }
+
+    double Sid::clock_audio(uint64_t clocks)
+    {
+        if (!clocks)
+            return 0;
+        if (quiet()) // nothing but the mixer's DC, which only a volume write changes
+        {
+            clock(clocks);
+            lp_ = bp_ = 0;
+            out_ = mixer_dc_ * static_cast<float>(regs_[MODE_VOL] & 0x0F) / 15.0f;
+            return static_cast<double>(out_) * static_cast<double>(clocks);
+        }
+        double sum = 0;
+        for (uint64_t i = 0; i < clocks; ++i)
+        {
+            clock_oscillators();
+            for (unsigned n = 0; n < 3; ++n)
+                clock_envelope(n, 1);
+            sum += mix();
+        }
+        return sum;
     }
 
     void Sid::clock_oscillators()

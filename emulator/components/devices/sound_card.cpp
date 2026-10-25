@@ -6,10 +6,14 @@
 
 #include "sound_card.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace ooe::emu
 {
     void SoundCard::reset()
     {
+        catch_up();
         chips_[0].reset();
         chips_[1].reset();
         sids_at_ = clock_;
@@ -21,6 +25,7 @@ namespace ooe::emu
         cia_reset();
         phase_ = 0;
         owed_ = 0;
+        tune_clocks();
     }
 
     void SoundCard::reset_cpu()
@@ -71,9 +76,86 @@ namespace ooe::emu
         const uint64_t t = now();
         if (t <= sids_at_)
             return;
-        chips_[0].clock(t - sids_at_);
-        chips_[1].clock(t - sids_at_);
+        if (audio_rate_)
+            render(t - sids_at_);
+        else
+        {
+            chips_[0].clock(t - sids_at_);
+            chips_[1].clock(t - sids_at_);
+        }
         sids_at_ = t;
+    }
+
+    // --- audio ------------------------------------------------------------------
+
+    void SoundCard::set_audio_rate(uint32_t rate)
+    {
+        catch_up(); // what went before, at the old rate (or none)
+        audio_rate_ = rate;
+        audio_.clear();
+        sum_l_ = sum_r_ = 0;
+        sample_clocks_ = sample_length_ = sample_phase_ = 0;
+        hp_in_ = hp_out_ = {};
+        hp_pole_ = rate ? std::exp(-2.0f * 3.14159265f * 16.0f / static_cast<float>(rate)) : 0.0f;
+    }
+
+    void SoundCard::set_model(Sid::Model m)
+    {
+        catch_up();
+        chips_[0].set_model(m);
+        chips_[1].set_model(m);
+    }
+
+    void SoundCard::tune_clocks()
+    {
+        chips_[0].set_clock_hz(sid_hz());
+        chips_[1].set_clock_hz(sid_hz());
+    }
+
+    void SoundCard::render(uint64_t clocks) const
+    {
+        while (clocks)
+        {
+            if (!sample_length_)
+            {
+                // Each sample spans SID Hz / rate clocks, the remainder carried: 20 or 21 for PAL at 48 kHz.
+                sample_phase_ += sid_hz();
+                sample_length_ = sample_phase_ / audio_rate_;
+                sample_phase_ %= audio_rate_;
+                if (!sample_length_)
+                    continue; // a rate above the SID clock: this sample spans none
+            }
+            const uint64_t n = std::min(clocks, sample_length_ - sample_clocks_);
+            sum_l_ += chips_[0].clock_audio(n);
+            sum_r_ += chips_[1].clock_audio(n);
+            sample_clocks_ += n;
+            clocks -= n;
+            if (sample_clocks_ < sample_length_)
+                continue;
+            const float in[2] = {static_cast<float>(sum_l_ / static_cast<double>(sample_clocks_)),
+                                 static_cast<float>(sum_r_ / static_cast<double>(sample_clocks_))};
+            for (unsigned ch = 0; ch < 2; ++ch)
+            {
+                // the output capacitor: a one-pole high-pass, y = x - x' + p y'
+                hp_out_[ch] = in[ch] - hp_in_[ch] + hp_pole_ * hp_out_[ch];
+                hp_in_[ch] = in[ch];
+                audio_.push_back(std::fmax(-1.0f, std::fmin(1.0f, hp_out_[ch] / 8.0f))); // headroom: of 192 tunes, one clips, 12 samples
+            }
+            sum_l_ = sum_r_ = 0;
+            sample_clocks_ = sample_length_ = 0;
+        }
+        const size_t most = 2 * static_cast<size_t>(audio_rate_ / 2); // half a second
+        if (audio_.size() > most)
+            audio_.erase(audio_.begin(), audio_.begin() + static_cast<std::ptrdiff_t>(audio_.size() - most));
+    }
+
+    size_t SoundCard::take_audio(float *out, size_t max_frames)
+    {
+        catch_up();
+        const size_t frames = std::min(max_frames, audio_.size() / 2);
+        std::copy(audio_.begin(), audio_.begin() + static_cast<std::ptrdiff_t>(2 * frames), out);
+        audio_.erase(audio_.begin(), audio_.begin() + static_cast<std::ptrdiff_t>(2 * frames));
+        return frames;
     }
 
     uint8_t SoundCard::read(uint32_t offset)
@@ -134,8 +216,12 @@ namespace ooe::emu
         {
         case CTRL:
             if ((data ^ ctrl_) & CTRL_NTSC)
+            {
+                catch_up(); // up to now on the old crystal
                 phase_ = 0; // a new crystal: the remainder was in the old one's clocks
+            }
             ctrl_ = static_cast<uint8_t>(data & ~CTRL_RESET); // RESET is a strobe
+            tune_clocks();
             if (data & CTRL_RESET)
                 reset_cpu();
             break;

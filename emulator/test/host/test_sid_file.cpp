@@ -277,6 +277,29 @@ TEST(ctrl_follows_the_clock_and_the_second_sid)
     CHECK(p->warnings[0].find("third") != std::string::npos);
 }
 
+TEST(the_model_follows_the_header)
+{
+    std::string error;
+    auto model = [&](uint16_t flags) {
+        Header h;
+        h.flags = flags;
+        return parsed(h, COUNTER).model();
+    };
+    CHECK(model(0x0014) == Sid::Model::Mos6581);
+    CHECK(model(0x0024) == Sid::Model::Mos8580);
+    CHECK(model(0x0034) == Sid::Model::Mos6581); // either: the 6581
+    CHECK(model(0x0004) == Sid::Model::Mos6581); // unknown
+    Header h;
+    h.flags = 0x0024;
+    const auto plan = plan_sid(parsed(h, COUNTER), 0, error);
+    REQUIRE(plan);
+    CHECK(plan->model == Sid::Model::Mos8580);
+    SoundCard card;
+    start_sid(card, *plan);
+    CHECK(card.chip(0).model() == Sid::Model::Mos8580);
+    CHECK(card.chip(1).model() == Sid::Model::Mos8580);
+}
+
 TEST(tunes_the_card_cant_start_are_refused)
 {
     std::string error;

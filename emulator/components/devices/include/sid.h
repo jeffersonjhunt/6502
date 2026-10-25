@@ -3,7 +3,7 @@
 /**
  * @file sid.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief A 6581 SID's oscillators and envelopes, clock by clock.
+ * @brief A SID (6581 or 8580): oscillators, envelopes, and the output stage, clock by clock.
  * @version 0.1.0
  * @date 2026-10-25
  *
@@ -43,8 +43,27 @@
  * work around and some rely on. At 0 the counter stays until the next
  * attack.
  *
- * Not modelled yet, being sound rather than registers: the waveform DAC,
- * the filter and the mixer.
+ * Output (clock_audio(); clock() skips it, for a card nobody listens to).
+ * Each voice is its 12-bit waveform, less the DAC's zero level, times its
+ * envelope: on the 6581 the zero sits low ($380 of $FFF), so a voice's
+ * envelope moves a DC level even with no waveform, as on the chip; the
+ * 8580's sits in the middle. $D417's low bits send voices through the
+ * filter, the rest go straight to the mixer, except voice 3 with $D418
+ * bit 7 (3OFF) unless it is filtered. The filter is a two-pole state
+ * variable filter, run every clock, its low-, band- and high-pass outputs
+ * chosen by $D418 bits 4-6 and summed; resonance ($D417's high nibble)
+ * sets its Q: on the 6581 0.707 + res/15, on the 8580 2^((res-4)/8), from
+ * 0.7 to 1.7 and 2.6. The cutoff's 11 bits map to Hz as the
+ * chips are measured to, approximately: the 8580's is nearly linear, 30 Hz
+ * to 12.5 kHz; the 6581's (which varies chip to chip) stays low through
+ * the bottom quarter and rises steeply, about 220 Hz to 18 kHz. The mixer
+ * adds its own DC level and scales everything by the master volume; on
+ * the 6581 that DC is large, so writing $D418 alone makes a 4-bit DAC (the
+ * sample playback in many tunes), while on the 8580 it is faint, as it is
+ * on the chip. Output is about -1 to 1 for one voice at full envelope.
+ *
+ * Not modelled: the DACs' nonlinearity, the 6581 filter's distortion, the
+ * combined waveforms' real values, and EXT IN.
  */
 
 #include <array>
@@ -81,7 +100,22 @@ namespace ooe::emu
             bool frozen{true};     ///< at 0, waiting for an attack
         };
 
-        Sid() { reset(); }
+        enum class Model : uint8_t
+        {
+            Mos6581,
+            Mos8580,
+        };
+
+        Sid()
+        {
+            set_model(Model::Mos6581);
+            reset();
+        }
+        /// The chip: the output stage differs (the registers don't).
+        void set_model(Model m);
+        Model model() const { return model_; }
+        /// The clock the chip runs at, for the filter's cutoff in Hz (default PAL's).
+        void set_clock_hz(uint32_t hz);
         /// /RES: registers, oscillators and envelopes to 0.
         void reset();
         void write(unsigned reg, uint8_t data);
@@ -90,6 +124,16 @@ namespace ooe::emu
         uint8_t read(unsigned reg) const;
         /// `clocks` cycles of the SID's clock.
         void clock(uint64_t clocks);
+        /// The same, through the output stage: @return the sum of the
+        /// chip's output over those clocks (each about -1 to 1).
+        double clock_audio(uint64_t clocks);
+        /// Leave voices out of the output (bit n: voice n + 1), as a player's mute does; the chip runs on.
+        void set_muted(uint8_t voices) { muted_ = voices & 7; }
+        uint8_t muted() const { return muted_; }
+        /// The output now (clock_audio()'s last clock).
+        float output() const { return out_; }
+        /// The filter's cutoff in Hz, as the registers set it.
+        float cutoff_hz() const;
 
         const std::array<uint8_t, REGS> &regs() const { return regs_; }
         const Voice &voice(unsigned n) const { return voices_[n % 3]; }
@@ -108,8 +152,20 @@ namespace ooe::emu
         void advance_oscillators(uint64_t clocks); ///< many, when no voice syncs
         void clock_envelope(unsigned n, uint64_t clocks);
         void step_envelope(Voice &v, unsigned n);
+        /// Every envelope at 0 and the filter at rest: the output holds.
+        bool quiet() const;
+        void tune_filter();
+        float mix(); ///< one clock of the output stage
 
         std::array<uint8_t, REGS> regs_{};
         std::array<Voice, 3> voices_{};
+        Model model_{Model::Mos6581};
+        uint32_t clock_hz_{985'248};
+        float zero_{0x380};  ///< the waveform DAC's zero level
+        float mixer_dc_{0}; ///< the mixer's DC, in voice full scales
+        float w_{0}, q1_{1.4142f}; ///< the filter's frequency and damping
+        float lp_{0}, bp_{0}; ///< the filter's state
+        float out_{0};
+        uint8_t muted_{0};
     };
 } // namespace ooe::emu

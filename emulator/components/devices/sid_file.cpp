@@ -263,6 +263,7 @@ namespace ooe::emu
                                 static_cast<uint8_t>(stub.at), static_cast<uint8_t>(stub.at >> 8),
                                 static_cast<uint8_t>(stub.irq), static_cast<uint8_t>(stub.irq >> 8)}});
 
+        plan.model = f.model();
         plan.ctrl = SoundCard::CTRL_RUN | SoundCard::CTRL_RESET;
         if (ntsc)
             plan.ctrl |= SoundCard::CTRL_NTSC;
@@ -284,6 +285,7 @@ namespace ooe::emu
     void start_sid(SoundCard &card, const SidPlan &plan)
     {
         card.write(SoundCard::CTRL, 0); // stopped: the SIDs are the host's
+        card.set_model(plan.model);
         for (unsigned reg = 0; reg < 0x19; ++reg)
         {
             card.write(SoundCard::SID_A + reg, 0);
