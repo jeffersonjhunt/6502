@@ -14,7 +14,9 @@
 
 #include "session.h"
 #include "sound_card.h"
+#include "usb_card.h"
 
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -370,6 +372,47 @@ TEST(a_sid_tune_plays_on_the_card_changes_song_stops_and_goes_with_a_power_cycle
     REQUIRE(s->power_cycle(error));
     CHECK(s->sid() == nullptr); // a new card, no tune on it
     CHECK(!(s->sound()->ctrl() & SoundCard::CTRL_RUN));
+}
+
+TEST(the_speaker_and_the_sids_mix_into_the_same_stream)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    std::string out;
+    s->set_audio_rate(48'000);
+    // A SID note on both sides, from the monitor...
+    for (const char *line : {"C540: 10\r", "C500: 00 10 00 00 11 00 F0\r", "C518: 0F\r"})
+    {
+        s->send(line);
+        CHECK(run_until(*s, out, std::string(line).substr(0, 5)));
+    }
+    // ...and the speaker ($C5A6) toggled every 3,866 cycles, 926 Hz: LDA $C5A6, then three rounds of
+    // 256 DEXes (LDY #3, LDX #0, DEX, BNE, DEY, BNE), JMP $0300.
+    s->send("300: AD A6 C5 A0 03 A2 00 CA D0 FD 88 D0 F8 4C 00 03\r");
+    CHECK(run_until(*s, out, "0300:"));
+    std::vector<float> block(2 * 24'000);
+    s->take_audio(block.data(), 24'000); // what went before
+    s->send("300R\r");
+    for (int i = 0; i < 6; ++i) // a tenth of a second for it to start and settle
+        s->run(7'159'090 / 60), s->take_audio(block.data(), 24'000);
+    double sq = 0;
+    size_t n = 0;
+    for (int i = 0; i < 30; ++i)
+    {
+        s->run(7'159'090 / 60);
+        const size_t k = s->take_audio(block.data(), 24'000);
+        for (size_t f = 0; f < k; ++f, ++n)
+        {
+            CHECK_EQ(block[2 * f], block[2 * f + 1]); // a mono tune, and the speaker: both sides alike
+            sq += static_cast<double>(block[2 * f]) * block[2 * f];
+        }
+    }
+    CHECK(n > 23'000);
+    const double rms = std::sqrt(sq / static_cast<double>(n));
+    // The speaker's square, 0.2 RMS less the few % of its harmonics past 24 kHz, and the SID's
+    // triangle at full envelope, 0.072: about 0.21 together (the speaker alone is 0.197).
+    CHECK(rms > 0.203 && rms < 0.22);
+    CHECK(s->usb()->speaker_toggles() > 400);
 }
 
 TEST(pause_break_on_the_usb_keyboard_breaks_into_the_monitor)

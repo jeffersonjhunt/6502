@@ -126,11 +126,13 @@ namespace ooe::emu
         Disk2Card *disk2() const { return machine_->disk2_card(); }
         /// The sound card, or nullptr: its registers, RAM and 6510.
         SoundCard *sound() const { return machine_->sound_card(); }
-        /// The sound card's sound at `rate` samples a second (0: none, the default), kept
-        /// across power cycles. Time is the CPU's: halted or stopped, the card is silent too.
+        /// The machine's sound at `rate` samples a second (0: none, the default), kept across
+        /// power cycles: the sound card's two SIDs, left and right, and the USB card's speaker
+        /// (the Apple's $C030) in both. Time is the CPU's: halted or stopped, it is silent too.
         void set_audio_rate(uint32_t rate);
         uint32_t audio_rate() const { return audio_rate_; }
-        /// Up to `max_frames` stereo frames (left, right) made since the last call. @return frames
+        /// Up to `max_frames` stereo frames (left, right) made since the last call, the sources
+        /// mixed. @return frames
         size_t take_audio(float *out, size_t max_frames);
         /// A `.sid` file's song on the sound card (0: its start song), started as a host
         /// program would start it (sid_file.h), though no program runs: the session writes
@@ -244,6 +246,7 @@ namespace ooe::emu
         uint32_t switches_{0};
         uint32_t cpu_hz_{0};
         uint32_t audio_rate_{0};
+        std::vector<float> sid_audio_, speaker_audio_; ///< made, not yet mixed: the sources end a frame or so apart
         bool halt_switch_{false}, bus_cycle_switch_{false}, lock_{false}, lights_on_{false};
 
         std::string input_;   ///< keys not yet taken

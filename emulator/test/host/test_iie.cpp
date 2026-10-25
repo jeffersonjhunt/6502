@@ -22,6 +22,7 @@
 #include "video_card.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -236,6 +237,44 @@ TEST(ctrl_closed_apple_reset_runs_the_self_test)
     CHECK(e.screen_has("System OK"));               // every chip it checks, passed: RAM, MMU, IOU, ROM
     if (!e.screen_has("System OK"))
         e.dump();
+}
+
+TEST(the_bell_rings_on_the_speaker_at_its_pitch)
+{
+    // The IIe beeps once on power-up, and again for Ctrl-G at Applesoft's prompt: BELL2 toggles $C030
+    // 192 times, WAIT with A = $0C between (535 cycles) plus its loop's 11: 1,092 cycles a period,
+    // 934.5 Hz at the Apple's 1,020,484 Hz, for 0.103 s.
+    IIe m;
+    REQUIRE(m.ok());
+    UsbCard *usb = m.s->usb();
+    const uint64_t booted = usb->speaker_toggles();
+    CHECK_EQ(booted, 192u); // the power-up beep
+    m.s->set_audio_rate(48'000);
+    std::vector<float> sound, block(2 * 24'000);
+    for (int i = 0; i < 30; ++i)
+    {
+        if (i == 2)
+            m.chord({L_CTRL}, 0x0A); // Ctrl-G
+        m.run(FRAME);
+        const size_t n = m.s->take_audio(block.data(), 24'000);
+        for (size_t k = 0; k < n; ++k)
+        {
+            CHECK_EQ(block[2 * k], block[2 * k + 1]); // the speaker is in both
+            sound.push_back(block[2 * k]);
+        }
+    }
+    CHECK_EQ(usb->speaker_toggles() - booted, 192u);
+    std::vector<double> rises; // where it crosses 0 going up, to the fraction of a sample
+    for (size_t i = 1; i < sound.size(); ++i)
+        if (sound[i - 1] < 0 && sound[i] >= 0 && std::fabs(sound[i] - sound[i - 1]) > 0.1f)
+            rises.push_back(static_cast<double>(i - 1) + sound[i - 1] / (sound[i - 1] - sound[i]));
+    REQUIRE(rises.size() >= 90);
+    const double hz = static_cast<double>(rises.size() - 1) * 48'000.0 / (rises.back() - rises.front());
+    const double secs = (rises.back() - rises.front()) / 48'000;
+    CHECK(hz > 930 && hz < 939);
+    CHECK(secs > 0.095 && secs < 0.105);
+    if (hz <= 930 || hz >= 939)
+        std::printf("  bell: %zu rises, %.1f Hz over %.3f s\n", rises.size(), hz, secs);
 }
 
 TEST(the_boot_screen_drawn_from_the_real_character_rom)

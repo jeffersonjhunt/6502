@@ -22,7 +22,7 @@ Everything in the port is something the real board can also do:
 | Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
 | Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the GoTek in the drive's place: an image in, out, written back; the drive's light |
 | Sound card | `readSound`, and its registers through `readMemory(0xC500, 0x80, "io")` | the card's 6510 and its SIDs, for the debugger |
-| Sound | `listen`, `FrameState.audio` | the sound card's audio (emulator only: the board's card plays through its own jacks) |
+| Sound | `listen`, `FrameState.audio` | the sound card's audio and the USB card's speaker, mixed (emulator only: the board's cards play through their own jacks) |
 | A tune | `playSid`, `playSong`, `stopSid`, `FrameState.soundRunning` | a `.sid` file onto the sound card (emulator only, `caps.sid`: on the board a program on the CPU would load it) |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
@@ -69,9 +69,9 @@ last frame, and, only while asked for (`setLights`, `watchRegisters`,
 debugger or another scene costs nothing. `video` is the card's last finished
 frame (640x480, RGBA), sent only when it is a new one; `setClock` also tells
 the card the CPU clock, so it keeps 60 frames a second at any speed.
-`audio`, while `listen(rate)` asks for it, is the sound card's samples since
-the last frame at that rate, left and right interleaved (SID A, SID B), -1
-to 1; `listen` is kept through power cycles, and `listen(0)` stops the card
+`audio`, while `listen(rate)` asks for it, is the machine's samples since
+the last frame at that rate, left and right interleaved, -1 to 1: SID A
+left, SID B right, and the speaker (the IIe's `$C030`) in both; `listen` is kept through power cycles, and `listen(0)` stops the card
 making them at all. Time is the CPU's, so a halted or stopped machine is a
 silent one (the board's card would play on). `playSid` starts a `.sid`
 file's song on the card as hw/design.md's player would (the tune at its
