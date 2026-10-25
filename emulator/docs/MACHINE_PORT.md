@@ -20,7 +20,7 @@ Everything in the port is something the real board can also do:
 | Video | `watchVideo`, `FrameState.video` | the video card's VGA output (a capture device, for the board) |
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
 | Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
-| Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the GoTek in the drive's place: an image in, out, written back; the drive's light |
+| Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the Floppy Emu in the drive's place: an image in, out, written back; the drive's light |
 | Sound card | `readSound`, and its registers through `readMemory(0xC500, 0x80, "io")` | the card's 6510 and its SIDs, for the debugger |
 | Sound | `listen`, `FrameState.audio` | the sound card's audio and the USB card's speaker, mixed (emulator only: the board's cards play through their own jacks) |
 | A tune | `playSid`, `playSong`, `stopSid`, `FrameState.soundRunning` | a `.sid` file onto the sound card (emulator only, `caps.sid`: on the board a program on the CPU would load it) |

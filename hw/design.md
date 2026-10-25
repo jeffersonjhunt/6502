@@ -36,7 +36,7 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
   ======================== backplane: A0-A19, D0-D7, PS0-PS3, RWB, RDY, BE, DRQ/DACK ... ========================
        |           |          |          |          |           |           |           |            |
      RAM A-D     ROM A     DMA ctl    video      sound      Disk II      SD       COM1/COM2/   USB/game    bus spy
-     (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)    (GoTek)    storage     LPT          port      (ESP32)
+     (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)  (Floppy Emu) storage     LPT          port      (ESP32)
 ```
 
 
@@ -633,7 +633,8 @@ it commands.
 
 ## Storage ##
 
-**Decided:** a GoTek for disks, not original Apple drives.
+**Decided:** a Floppy Emu for disks, not original Apple drives. *(2026-10-25, replacing the GoTek: see "The
+drive" below.)*
 
 **Proposed**
 
@@ -644,10 +645,24 @@ it commands.
     (341-0028), which are Apple's: the owner fits their own, as with the IIe ROM. **(Decided 2026-10-24,** replacing
     the idea of keeping the boot ROM in the IIe image in bank E: the IIe's internal ROM has its own `$C600` page,
     which INTCXROM needs.)
-  - **Apple mode only (decided).** Native mode runs at 7.16 MHz, too fast for the CPU-timed Disk II, and native
-    software reaches Apple disk images more easily as files on the SD card, mounted as mass storage units. In
-    native mode the card ignores its switches; its block `$C600–$C67F` holds only the ID byte at `$C67F`, so the
-    BIOS can see the card is fitted. It is the exception to the rule that I/O supports DMA.
+  - **Both modes (decided 2026-10-25,** replacing "Apple mode only"). In native mode the card's switches appear
+    in its own block: `$C600–$C60F` are `$C0E0–$C0EF`, the same sixteen switches in the same order, and the ID
+    byte stays at `$C67F`; the rest of the block reads `$FF`. The boot ROM isn't visible in native mode.
+    - **Why it works at 7.16 MHz.** The sequencer runs from OSC ÷ 7 (2.045 MHz) whatever the CPU's speed, and
+      it assembles each disk byte itself, holding it in the data register for about 32 µs, so reading is the
+      same polling loop at any speed (a faster CPU just polls more often). Writing and stepping are timed by
+      the CPU: the Apple's code counts 32 cycles a byte and times the stepper with delay loops, so it can't
+      run natively, but a native driver can. Native mode's clock is OSC ÷ 2, exactly 3.5 CPU cycles a
+      sequencer step, so a byte (64 steps) is exactly **224 cycles**: a native write loop holds the disk's
+      timing with no drift. While it writes, the driver keeps interrupts and DMA off and touches no card with
+      wait states.
+    - **What it's for.** Native software reading and writing the Apple disk in the drive, without moving the
+      image to the SD card: a copier between the two, or a native utility for DOS 3.3 and ProDOS disks. The SD
+      card is still the native machine's own storage (about 7 MB/s against the floppy's 30 KB/s), and mounts
+      the same images as files.
+    - It remains the exception to the rule that I/O supports DMA.
+    - The emulator doesn't do this yet: in native mode it still answers only the ID byte
+      ([EMULATOR_PLAN.md](../emulator/docs/EMULATOR_PLAN.md#backlog)).
 
 **Decided (2026-10-24), as the emulator models it** (`emulator/components/devices/disk2_card.h`):
 
@@ -666,12 +681,17 @@ it commands.
 - **Images:** `.woz` (WOZ 1 and 2) bit for bit; `.dsk`/`.do` and `.po` (140 KB) written out as DOS 3.3 formats a
   disk, volume 254, the sector order decided from the contents (a DOS catalog chain, or a ProDOS volume directory,
   where each order puts it) before the name. `.nib`, `.d13` and `.2mg` come later.
-- **GoTek.**
-  - It must run the **HxC firmware**. FlashFloppy, which most GoTeks ship with, has no documented Apple II
-    support.
-  - HxC reads `.DSK`, `.DO` and `.PO` images directly; `.NIB` and `.WOZ` images are converted to HFE first.
-  - It connects through an adapter to the Apple's 20-pin drive cable; the HxC docs give the pinout.
-  - Copy-protected disks survive the conversion from `.WOZ` to HFE case by case.
+- **The drive: a Floppy Emu (decided 2026-10-25,** replacing the GoTek).
+  - BMOW's Floppy Emu, built for Apple II drives: it connects to the Disk II's 20-pin drive connector by a ribbon
+    cable, and its own SD card holds the images.
+  - It reads `.woz`, `.dsk`/`.do`, `.po` and `.nib` directly. WOZ is what the emulator uses, so the same files
+    boot the emulator and the machine, most copy protection included.
+  - Its SmartPort hard-disk mode isn't usable here: a stock IIe's Disk II controller doesn't speak SmartPort.
+  - Check the current firmware's features before buying.
+  - **Why not the GoTek:** it is cheaper and widely sold, but it is a PC floppy emulator. It needs the HxC
+    firmware flashed on (FlashFloppy, which most ship with, has no documented Apple II support), an adapter to
+    the 20-pin cable, and `.woz` and `.nib` converted to HFE first, where copy protection survives case by case.
+    It stays a fallback: the card is a Disk II, so any drive that behaves like one works.
 - **Native storage (decided): SD, behind an RP2350** (module ID 7, "Mass Storage"). A floppy runs at about
   30 KB/s, too slow to be native storage.
   - The same pattern as the USB card: one microcontroller family and one toolchain.
@@ -765,7 +785,7 @@ an Apple program does can leave by accident.
 | Speaker (`$C030`) | USB card (proposed), or the sound card |
 | Game port: paddles and buttons (`$C064–$C070`) | USB card's game port. Paddle timing depends on the 1 MHz clock |
 | Video: all IIe modes, `$C019` vertical blank | video card, by snooping |
-| Disk (slot 6) | Disk II clone with a GoTek |
+| Disk (slot 6) | Disk II clone with a Floppy Emu |
 | ROMs | the IIe ROM image (Applesoft, Monitor, 80-column firmware) in bank E. Apple's IIe ROMs are copyrighted and have to be supplied by the owner; the `applesoft-lite` in this repo is not full Applesoft and has no graphics commands |
 
 
