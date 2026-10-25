@@ -7,6 +7,10 @@
  * again whenever the motor stops after it was written to: in the format it
  * came in while it still fits, else as WOZ. Save downloads it the same way,
  * saying so when a sector image had to become a .woz.
+ *
+ * A disk going in boots nothing by itself, as on a real IIe, so until the
+ * drive first spins with it the note says what will: the PROMs, if
+ * bootNeeds() says they are missing; Start Apple IIe; or Reboot.
  */
 
 import type { DiskFormat, DiskInfo, FrameState, MachinePort } from "../port/machine-port";
@@ -22,7 +26,12 @@ export function savedName(name: string, format: DiskFormat): string {
   return `${stem}.${format}`;
 }
 
-export function diskBar(port: MachinePort, store: DiskStore, download: (name: string, bytes: Uint8Array) => void) {
+export function diskBar(
+  port: MachinePort,
+  store: DiskStore,
+  download: (name: string, bytes: Uint8Array) => void,
+  bootNeeds: () => string = () => "",
+) {
   const picker = h("input", { type: "file", accept: ACCEPT, hidden: true, "data-testid": "disk-file" });
   const light = h("span", { class: "disk-led", title: "The drive's light: on while its motor runs", "data-testid": "disk-light" });
   const insert = h("button", { class: "tbtn", type: "button", title: "A .woz, .dsk, .do or .po of your own: it stays in this browser", "data-testid": "disk-insert" }, "Insert disk…");
@@ -36,7 +45,8 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   let kept: KeptDisk | null = null;
   let keptWrites = 0;
   let spinning = false;
-  let waiting = false;
+  let read = false; // the drive has spun with this disk in
+  let auto = ""; // the note update() last put up
   const WAITING = "No disk: the IIe waits for one, as a real one does. Ctrl-Reset for BASIC.";
   const say = (text: string) => (note.textContent = text);
   const show = () => {
@@ -58,6 +68,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     info = { ...info, writeProtected: disk.writeProtected };
     kept = disk;
     keptWrites = info.writes;
+    read = false;
     return true;
   };
 
@@ -81,6 +92,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     if (!(await put(disk, bytes))) return;
     disk.format = info!.format; // as the core read it (a .dsk can be in ProDOS order)
     say((await store.put(DRIVE, disk)) ? "" : "In for now; this browser would not keep it");
+    auto = ""; // the hint again, for this disk
     show(); // kept first: a reload now finds it
   });
   protect.addEventListener("click", async () => {
@@ -139,12 +151,21 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     light.classList.toggle("on", on);
     if (spinning && !on) void keepChanges();
     spinning = on;
-    const wait = f.apple && on && !info; // the boot ROM looking for a disk that is not there
-    if (wait !== waiting) {
-      waiting = wait;
-      if (wait) say(WAITING);
-      else if (note.textContent === WAITING) say("");
+    if (on && info) read = true;
+    const next = hint(f, on);
+    if (next !== auto) {
+      if (note.textContent === auto || !note.textContent) say(next); // not over a note of its own
+      auto = next;
     }
+  };
+  /** What the note should say about booting, or "". */
+  const hint = (f: FrameState, on: boolean): string => {
+    if (!info) return f.apple && on ? WAITING : ""; // the boot ROM looking for a disk that is not there
+    if (read) return "";
+    const needs = bootNeeds();
+    if (needs) return `To boot it, the IIe needs ${needs} (Insert IIe ROM…)`;
+    if (!f.apple) return "Start Apple IIe boots it";
+    return "Reboot boots it (or PR#6 in BASIC)";
   };
   return { element, restore, update };
 }

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import { fakeIIeRom } from "../port/fake-iie";
 import type { Cartridge } from "../port/machine-port";
-import { appleBar } from "./apple-bar";
+import { appleBar, bootNeeds } from "./apple-bar";
 import { keepCartridge, keptCartridge } from "./cartridge";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -99,4 +99,14 @@ describe("the Apple bar", () => {
     await bar.restore();
     expect(bar.element.hidden).toBe(true);
   });
+});
+
+test("what booting from the drive still needs", () => {
+  const rom = new Uint8Array(16384), prom = new Uint8Array(256);
+  const c = (diskBoot: Uint8Array | null, diskSequencer: Uint8Array | null): Cartridge => ({ rom, chars: null, diskBoot, diskSequencer });
+  expect(bootNeeds(null)).toBe("the IIe ROM and the Disk II PROMs");
+  expect(bootNeeds(c(null, null))).toBe("the Disk II PROMs");
+  expect(bootNeeds(c(null, prom))).toBe("the Disk II boot ROM (341-0027)");
+  expect(bootNeeds(c(prom, null))).toBe("the Disk II sequencer (341-0028)");
+  expect(bootNeeds(c(prom, prom))).toBe("");
 });

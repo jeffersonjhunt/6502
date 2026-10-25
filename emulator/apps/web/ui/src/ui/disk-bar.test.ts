@@ -135,6 +135,50 @@ describe("the drive", () => {
     expect($(bar.element, "disk-note").textContent).toBe("");
   });
 
+  test("a disk in boots nothing by itself: the note says what will, until the drive reads it", async () => {
+    let needs = "the Disk II PROMs";
+    const port = new FakePort();
+    const bar = diskBar(port, memoryDiskStore(), () => {}, () => needs);
+    port.onFrame(bar.update);
+    const note = () => $(bar.element, "disk-note").textContent;
+    port.emit(frame({}));
+    expect(note()).toBe(""); // no disk: nothing to boot
+    await pick(bar.element, "Trail.woz", new Uint8Array(4));
+    port.emit(frame({}));
+    expect(note()).toBe("To boot it, the IIe needs the Disk II PROMs (Insert IIe ROM…)");
+    await pick(bar.element, "Trail.dsk", new Uint8Array(4)); // another, unread: the same hint
+    port.emit(frame({}));
+    expect(note()).toBe("To boot it, the IIe needs the Disk II PROMs (Insert IIe ROM…)");
+    needs = "";
+    port.emit(frame({}));
+    expect(note()).toBe("Start Apple IIe boots it");
+    port.emit({ apple: true, ...frame({}) }); // at BASIC's prompt, say
+    expect(note()).toBe("Reboot boots it (or PR#6 in BASIC)");
+    port.emit({ apple: true, ...frame({ spinning: true }) });
+    expect(note()).toBe("");
+    port.emit({ apple: true, ...frame({ spinning: false }) }); // the program done with the drive
+    expect(note()).toBe("");
+    await pick(bar.element, "Side B.woz", new Uint8Array(4)); // another disk: not read yet
+    port.emit({ apple: true, ...frame({}) });
+    expect(note()).toBe("Reboot boots it (or PR#6 in BASIC)");
+  });
+
+  test("the hint does not cover a note of the bar's own", async () => {
+    const port = new FakePort();
+    let needs = "the Disk II PROMs";
+    const bar = diskBar(port, memoryDiskStore(), () => {}, () => needs);
+    port.onFrame(bar.update);
+    await pick(bar.element, "Trail.woz", new Uint8Array(4));
+    port.emit(frame({}));
+    expect($(bar.element, "disk-note").textContent).toMatch(/^To boot it/);
+    port.diskError = "x.txt: 4 bytes is no disk image";
+    await pick(bar.element, "x.txt", new Uint8Array(4)); // Trail.woz stays in
+    port.emit(frame({}));
+    needs = ""; // the PROMs in: another hint, but the reason stays
+    port.emit(frame({}));
+    expect($(bar.element, "disk-note").textContent).toBe("x.txt: 4 bytes is no disk image");
+  });
+
   test("names: the stem, the format's extension", () => {
     expect(savedName("The Oregon Trail.dsk", "woz")).toBe("The Oregon Trail.woz");
     expect(savedName("X.PO", "po")).toBe("X.po");

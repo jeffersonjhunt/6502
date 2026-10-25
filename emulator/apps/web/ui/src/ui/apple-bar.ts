@@ -42,6 +42,15 @@ export function notes(c: Cartridge): string {
   return n.join(". ");
 }
 
+/** What booting from the drive still needs, or "" (the drive bar's hint). */
+export function bootNeeds(c: Cartridge | null): string {
+  if (!c) return "the IIe ROM and the Disk II PROMs";
+  if (!c.diskBoot && !c.diskSequencer) return "the Disk II PROMs";
+  if (!c.diskBoot) return "the Disk II boot ROM (341-0027)";
+  if (!c.diskSequencer) return "the Disk II sequencer (341-0028)";
+  return "";
+}
+
 export interface AppleBarHooks {
   /** Start Apple IIe was pressed: show the Apple II scene. */
   started: () => void;
@@ -134,5 +143,5 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
     powered = f.powered;
     show();
   };
-  return { element, restore, update };
+  return { element, restore, update, bootNeeds: () => bootNeeds(current) };
 }
