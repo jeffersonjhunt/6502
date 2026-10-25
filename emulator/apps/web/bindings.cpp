@@ -62,6 +62,11 @@
  * 0 motor on, 1 spinning, 2 drive 2 selected, 3 Q6, 4 Q7, 8-15 the data
  * register, 16-19 the phases; diskQuarter(drive) is that drive's head, in
  * quarter tracks (0-159).
+ *
+ * The sound card's 6510 (sound_card.h): soundCpu() is its registers, state
+ * (0 running, 2 jammed), cycles, port (ddr, port) and CIA 1's timer A
+ * (timer, latch, timerOn), or has: false without the card. Its registers
+ * at $C500 are peekIo's.
  */
 
 #include <emscripten/bind.h>
@@ -110,6 +115,15 @@ namespace
     struct Regs
     {
         unsigned pc, a, x, y, s, p;
+    };
+
+    struct SoundCpu
+    {
+        bool has;
+        unsigned pc, a, x, y, s, p, state;
+        double cycles;
+        unsigned ddr, port, timer, latch;
+        bool timer_on;
     };
 
     /// `Machine` in JavaScript (ooe::emu::Machine is the description).
@@ -302,6 +316,17 @@ namespace
             return c ? c->status().quarter_track[drive % Disk2Card::DRIVES] : 0;
         }
 
+        SoundCpu sound_cpu() const
+        {
+            const SoundCard *c = session_->sound();
+            if (!c)
+                return SoundCpu{};
+            const Registers &r = c->cpu().regs();
+            return SoundCpu{true, r.pc, r.a, r.x, r.y, r.s, r.p, static_cast<unsigned>(c->cpu().state()),
+                            static_cast<double>(c->cpu().cycles()), c->port_ddr(), c->port_data(), c->timer(),
+                            c->timer_latch(), c->timer_running()};
+        }
+
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
 
         bool has_usb() const { return session_->usb() != nullptr; }
@@ -370,6 +395,21 @@ EMSCRIPTEN_BINDINGS(oo1)
         .field("y", &Regs::y)
         .field("s", &Regs::s)
         .field("p", &Regs::p);
+    value_object<SoundCpu>("SoundCpu")
+        .field("has", &SoundCpu::has)
+        .field("pc", &SoundCpu::pc)
+        .field("a", &SoundCpu::a)
+        .field("x", &SoundCpu::x)
+        .field("y", &SoundCpu::y)
+        .field("s", &SoundCpu::s)
+        .field("p", &SoundCpu::p)
+        .field("state", &SoundCpu::state)
+        .field("cycles", &SoundCpu::cycles)
+        .field("ddr", &SoundCpu::ddr)
+        .field("port", &SoundCpu::port)
+        .field("timer", &SoundCpu::timer)
+        .field("latch", &SoundCpu::latch)
+        .field("timerOn", &SoundCpu::timer_on);
     class_<WebMachine>("Machine")
         .constructor<>()
         .function("open", &WebMachine::open)
@@ -416,6 +456,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("setWriteProtect", &WebMachine::set_write_protect)
         .function("diskStatus", &WebMachine::disk_status)
         .function("diskQuarter", &WebMachine::disk_quarter)
+        .function("soundCpu", &WebMachine::sound_cpu)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbMouseTo", &WebMachine::usb_mouse_to)

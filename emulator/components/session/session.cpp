@@ -216,6 +216,8 @@ namespace ooe::emu
             video->set_cpu_hz(hz);
         if (UsbCard *usb = machine_->usb_card())
             usb->set_cpu_hz(hz);
+        if (SoundCard *sound = machine_->sound_card())
+            sound->set_cpu_hz(hz);
     }
 
     Session::RunResult Session::run(uint64_t budget)

@@ -12,10 +12,11 @@
  * card (readDisk2): its motor, heads, mode, data register and magnets, and
  * the disks in its drives. Then the sound card at $C500: CTRL, the mailbox,
  * RAMADDR, and both SIDs' registers in words (what was last written: the
- * card answers its write-only registers from that).
+ * card answers its write-only registers from that), and its own 6510
+ * (readSound): registers, port and CIA 1's timer A.
  */
 
-import type { AppleState, DiskInfo, DiskStatus, MachinePort } from "../port/machine-port";
+import type { AppleState, DiskInfo, DiskStatus, MachinePort, SoundCpu } from "../port/machine-port";
 import { h } from "../ui/dom";
 import { hex } from "./breakpoints";
 
@@ -104,6 +105,18 @@ export function sidFilter(r: Uint8Array): string {
   else parts.push(`filter ${types.replace(/ · /g, "+")}-pass · cutoff ${(r[0x15] & 7) | (r[0x16] << 3)} · resonance ${r[0x17] >> 4} · voices ${routed.join(" ")}`);
   if (mode & 0x80) parts.push("voice 3 off");
   return parts.join(" · ");
+}
+
+/** The card's 6510 in a line: its registers, and whether it runs. */
+export function soundCpuText(c: SoundCpu, running: boolean): string {
+  const regs = `PC $${hex(c.pc, 4)} · A $${hex(c.a, 2)} X $${hex(c.x, 2)} Y $${hex(c.y, 2)} S $${hex(c.s, 2)} P $${hex(c.p, 2)}`;
+  return `${regs} · ${c.jammed ? "jammed (CTRL RESET)" : running ? "running" : "held"}`;
+}
+
+/** The 6510's port, and what it banks at $D000-$DFFF. */
+export function soundPortText(c: SoundCpu): string {
+  const lines = (c.port | (~c.ddr & 0xff)) & 7;
+  return `DDR $${hex(c.ddr, 2)} · $${hex(c.port, 2)} · ${lines & 4 && lines & 3 ? "I/O in" : "RAM at $D000"}`;
 }
 
 export function describeLayer(r: Uint8Array, on: boolean): string {
@@ -229,10 +242,19 @@ export function devicesView(port: MachinePort) {
     const clock = ctrl & 1 ? "NTSC 1.023 MHz" : "PAL 0.985 MHz";
     const box = (full: boolean, v: number) => (full ? `$${hex(v, 2)} waiting` : "empty");
     const voices = (base: number) => [0, 7, 14].map((o, i) => row(`${base ? "B" : "A"}${i + 1}`, sidVoice(r.subarray(base + o, base + o + 7)))).flat();
+    const cpu = await port.readSound();
+    const cpuRows = cpu
+      ? [
+          ...row("6510", soundCpuText(cpu, !!(ctrl & 2))),
+          ...row("Port", soundPortText(cpu)),
+          ...row("Timer A", `$${hex(cpu.timer, 4)} of $${hex(cpu.latch, 4)} · ${cpu.timerOn ? "counting" : "stopped"}`),
+        ]
+      : [];
     soundRows.replaceChildren(
       ...row("CTRL", `$${hex(ctrl, 2)}  ${clock} · 6510 ${ctrl & 2 ? "running" : "stopped"} · SID B at $${ctrl & 8 ? "D500" : "D420"}${ctrl & 0x10 ? " · A to both" : ""}`),
       ...row("Mailbox", `to card ${status & 2 ? "full" : "empty"} · to host ${box(!!(status & 4), r[0x47])}${r[0x42] & 4 ? " · interrupts" : ""}`),
       ...row("RAMADDR", `$${hex(r[0x43] | (r[0x44] << 8), 4)}`),
+      ...cpuRows,
       ...row("SID A", sidFilter(r.subarray(0x00, 0x1d))),
       ...voices(0x00),
       ...row("SID B", sidFilter(r.subarray(0x20, 0x3d))),

@@ -71,6 +71,8 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   const sound = page.getByTestId("dev-sound");
   await expect(sound.locator('[data-reg="CTRL"]')).toHaveText("$00  PAL 0.985 MHz · 6510 stopped · SID B at $D420");
   await expect(sound.locator('[data-reg="SID A"]')).toHaveText("volume 0 · filter off");
+  await expect(sound.locator('[data-reg="6510"]')).toContainText("· held"); // never started
+  await expect(sound.locator('[data-reg="Timer A"]')).toHaveText("$FFFF of $FFFF · stopped");
 });
 
 test("the page credits the screen font", async ({ page }) => {

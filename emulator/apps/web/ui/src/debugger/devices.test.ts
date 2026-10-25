@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState } from "../port/machine-port";
-import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, sidFilter, sidVoice, SOUND, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -167,6 +167,22 @@ describe("Devices tab", () => {
     expect(text(v.element, "A1")).toBe("$1CD6 · saw · gate · ADSR 0 0 0 0");
     expect(text(v.element, "B1")).toBe("$0000 · triangle · gate · ADSR 0 0 0 0");
     expect(text(v.element, "B3")).toBe("$0000 · no waveform · ADSR 0 0 0 0");
+  });
+
+  test("the card's 6510: registers, port, timer", async () => {
+    const port = new FakePort();
+    port.memory.set(SOUND + 0x7f, 0xa1);
+    port.memory.set(SOUND + 0x40, 0x02);
+    port.sound = { pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0x1234, latch: 0x4cf8, timerOn: true };
+    const v = devicesView(port);
+    await v.refresh();
+    expect(text(v.element, "6510")).toBe("PC $1023 · A $01 X $02 Y $03 S $FD P $24 · running");
+    expect(text(v.element, "Port")).toBe("DDR $2F · $37 · I/O in");
+    expect(text(v.element, "Timer A")).toBe("$1234 of $4CF8 · counting");
+    expect(soundCpuText({ ...port.sound, jammed: true }, true)).toBe("PC $1023 · A $01 X $02 Y $03 S $FD P $24 · jammed (CTRL RESET)");
+    expect(soundCpuText(port.sound, false)).toContain("· held");
+    expect(soundPortText({ ...port.sound, port: 0x34 })).toBe("DDR $2F · $34 · RAM at $D000");
+    expect(soundPortText({ ...port.sound, ddr: 0, port: 0 })).toBe("DDR $00 · $00 · I/O in"); // inputs read high
   });
 
   test("no sound card: says so", async () => {

@@ -14,11 +14,38 @@
  *   $00-$1C SID A   $20-$3C SID B   $40 CTRL   $41 STATUS   $42 IEN
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
- * The host's side so far (step 7b): the SIDs' registers, the card's 64 KB
- * through RAMADDR and RAMDATA, and the mailbox. The card's own 6510, which
- * runs from the SID clock with the SIDs at $D400 in its map, is step 7c;
- * until then the card's side is card_receive(), card_send() and
- * sid_write(), which are what its $DE00, $DE01 and $D400 will call.
+ * The host's side: the SIDs' registers, the card's 64 KB through RAMADDR
+ * and RAMDATA, and the mailbox. The card's side: its own 6510, an NMOS
+ * 6502 with the undocumented opcodes (cpu6502.h), which runs while CTRL
+ * RUN is set, one cycle per SID clock: PAL 985,248 Hz, or NTSC 1,022,727 Hz
+ * with CTRL bit 0. Its map, modelled on the C64's:
+ *
+ *   $0000-$FFFF  the card's 64 KB
+ *   $0000/$0001  the 6510's port: DDR and data, as on the C64. Bits 0-2
+ *                bank $D000-$DFFF: I/O while bit 2 and bit 0 or 1 are high
+ *                (inputs read high), RAM otherwise. An input bit reads 1,
+ *                but 6 and 7, unconnected, hold what was last written, so
+ *                DDR $2F with $37 reads $37 as on a C64. Writes to $00/$01
+ *                go to the RAM under them too.
+ *   $D400        SID A, repeating every 32 bytes to $D7FF, except where
+ *                SID B is: $D420-$D43F, or $D500-$D51F with CTRL bit 3
+ *   $DC00        CIA 1, imitated: timer A ($DC04/$DC05), its interrupt
+ *                ($DC0D) and control ($DC0E), repeating every 16 bytes
+ *   $DE00/$DE01  the mailbox and its status
+ *
+ * The rest of $D000-$DFFF (the C64's VIC-II, colour RAM, CIA 2) reads $FF
+ * and ignores writes while I/O is in. The timer counts down one each SID
+ * clock and underflows after latch + 1 of them: it reloads from the latch,
+ * sets ICR bit 0, and pulls the 6510's /IRQ while ICR's mask has bit 0.
+ * CRA bit 0 starts it, bit 3 makes it one-shot, bit 4 loads the latch now.
+ * Writing the latch's high byte while the timer is stopped loads it too.
+ *
+ * CTRL RESET resets the 6510 (its vector at $FFFC in the card's RAM) and the
+ * CIA. The usual start: RUN = 0, load the code through RAMDATA, write the
+ * reset vector, then CTRL = RUN | RESET. Time: the card is a timed device,
+ * ticked in host CPU cycles; set_cpu_hz() says how fast those are (0: 7.16
+ * MHz, also for a host run flat out), so the card keeps its own clock's
+ * time against the host's.
  *
  * SIDs. A host write to $00-$1C goes to SID A, unless CTRL RUN is set: the
  * card's 6510 owns the chips then, and the write is dropped. With CTRL BOTH,
@@ -43,14 +70,16 @@
  * waiting", bit 1 "my byte not yet taken".
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
- * registers cleared, as the SID's /RES pin does), and empties the mailbox;
- * the card's RAM keeps its contents. In Apple II mode the card sits idle:
+ * registers cleared, as the SID's /RES pin does), resets the CIA and the
+ * 6510's port, and empties the mailbox; the card's RAM keeps its contents. In Apple II mode the card sits idle:
  * entering it is a reset, and Apple software never addresses the block.
  */
 
 #include <array>
 #include <cstdint>
 
+#include "bus.h"
+#include "cpu6502.h"
 #include "device.h"
 
 namespace ooe::emu
@@ -85,8 +114,16 @@ namespace ooe::emu
         static constexpr uint8_t IEN_MAILBOX = 0x04;
         /// $DE01, the card's view of the mailbox.
         static constexpr uint8_t CARD_FROM_HOST = 0x01, CARD_UNTAKEN = 0x02;
+        static constexpr uint32_t PAL_HZ = 985'248, NTSC_HZ = 1'022'727, NATIVE_HZ = 7'159'090;
+        /// CIA 1's registers the card imitates (offsets from $DC00).
+        static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
+        static constexpr uint8_t CRA_START = 0x01, CRA_ONE_SHOT = 0x08, CRA_LOAD = 0x10;
 
-        SoundCard() { reset(); }
+        SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
+        SoundCard(const SoundCard &) = delete;
+        SoundCard &operator=(const SoundCard &) = delete;
+        /// The host CPU's clock, which tick()'s cycles run at (0: 7.16 MHz).
+        void set_cpu_hz(uint32_t hz) { host_hz_ = hz ? hz : NATIVE_HZ; }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
         void reset();
         void bus_reset() override { reset(); }
@@ -99,6 +136,8 @@ namespace ooe::emu
         bool drq() const override { return true; }
         uint8_t dack_read(bool tc) override;
         void dack_write(uint8_t data, bool tc) override;
+        bool timed() const override { return true; }
+        void tick(uint64_t cycles) override;
 
         // The card's side: what its 6510 reaches ($DE00, $DE01, $D400)
         /// $DE00 read: the host's byte, taking it; -1 if none is waiting.
@@ -118,11 +157,49 @@ namespace ooe::emu
         const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return sid_[chip & 1]; }
         std::array<uint8_t, RAM_BYTES> &ram() { return ram_; }
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
-        /// Times CTRL RESET was written (the card's 6510 resets, from step 7c).
+        /// Times CTRL RESET was written.
         unsigned cpu_resets() const { return cpu_resets_; }
+        /// The card's 6510, for the debugger.
+        const Cpu6502 &cpu() const { return cpu_; }
+        /// The SID clock CTRL picks.
+        uint32_t sid_hz() const { return ctrl_ & CTRL_NTSC ? NTSC_HZ : PAL_HZ; }
+        /// The 6510's port: DDR ($00) and data ($01), as written.
+        uint8_t port_ddr() const { return ddr_; }
+        uint8_t port_data() const { return port_; }
+        /// CIA 1's timer A: its counter and latch, and whether it is running.
+        uint16_t timer() const { return cia_counter_; }
+        uint16_t timer_latch() const { return cia_latch_; }
+        bool timer_running() const { return cia_cra_ & CRA_START; }
+        /// ICR's flags as they stand (bit 0: timer A underflowed), without acknowledging them.
+        uint8_t timer_flags() const { return cia_flags_; }
 
     private:
+        /// What the card's 6510 sees.
+        class CardBus : public Bus
+        {
+        public:
+            explicit CardBus(SoundCard &card) : card_(card) {}
+            uint8_t read(uint16_t addr) override { return card_.card_read(addr); }
+            void write(uint16_t addr, uint8_t data) override { card_.card_write(addr, data); }
+            uint8_t peek(uint16_t addr) const override { return card_.card_peek(addr); }
+
+        private:
+            SoundCard &card_;
+        };
+
         uint8_t ram_byte() { return ram_[ram_addr_++]; }
+        bool io_in() const;
+        uint8_t card_read(uint16_t addr);
+        uint8_t card_peek(uint16_t addr) const;
+        void card_write(uint16_t addr, uint8_t data);
+        /// Which SID (0 or 1) answers $D400-$D7FF address `addr`.
+        unsigned sid_at(uint16_t addr) const;
+        void cia_reset();
+        void cia_tick(unsigned cycles);
+        uint8_t cia_read(unsigned reg);
+        void cia_write(unsigned reg, uint8_t data);
+        bool cia_irq() const { return cia_flags_ & cia_mask_ & 0x01; }
+        void reset_cpu();
 
         std::array<std::array<uint8_t, SID_REGS>, 2> sid_{};
         std::array<uint8_t, RAM_BYTES> ram_{};
@@ -132,5 +209,14 @@ namespace ooe::emu
         uint8_t to_card_{0}, to_host_{0};
         bool to_card_full_{false}, to_host_full_{false};
         unsigned cpu_resets_{0};
+
+        CardBus bus_{*this};
+        Cpu6502 cpu_;
+        uint32_t host_hz_{NATIVE_HZ};
+        uint64_t phase_{0}; ///< SID clocks x host Hz owed, below one SID clock
+        int64_t owed_{0};   ///< SID clocks the 6510 is behind (negative: ahead)
+        uint8_t ddr_{0}, port_{0};
+        uint16_t cia_latch_{0xFFFF}, cia_counter_{0xFFFF};
+        uint8_t cia_cra_{0}, cia_flags_{0}, cia_mask_{0};
     };
 } // namespace ooe::emu

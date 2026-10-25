@@ -15,6 +15,7 @@ import type {
   MouseInput,
   PanelKey,
   PortCaps,
+  SoundCpu,
   TraceRow,
 } from "./machine-port";
 
@@ -43,6 +44,8 @@ export class FakePort implements MachinePort {
   saved = new Uint8Array([1, 2, 3]);
   /** What readDisk2() returns. */
   disk2: DiskStatus | null = null;
+  /** What readSound() returns. */
+  sound: SoundCpu | null = null;
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
@@ -136,6 +139,9 @@ export class FakePort implements MachinePort {
   }
   async readDisk2(): Promise<DiskStatus | null> {
     return this.disk2;
+  }
+  async readSound(): Promise<SoundCpu | null> {
+    return this.sound;
   }
   setWriteProtect(drive: number, on: boolean): void {
     this.calls.push(["setWriteProtect", drive, on]);
