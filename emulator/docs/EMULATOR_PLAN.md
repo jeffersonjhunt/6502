@@ -631,6 +631,22 @@ its HELLO, DOS saves a program and lists it, a write-protected disk gets
 DOS's own error, and The Oregon Trail's WOZ boots to its menu, natively
 and in Chromium and WebKit.
 
+**The sound card, step 7a (2026-10-25): the NMOS undocumented opcodes.**
+The card's 6510 has to run C64 tunes, and their players use the NMOS
+6502's undocumented opcodes, which the core used to run as one-byte NOPs.
+The Nmos6502 model now runs all 244 non-jamming opcodes as the die does:
+the RMW + ALU pairs (SLO, RLA, SRE, RRA, DCP, ISC) on the RMW's bus
+sequence, SAX, LAX, LAS, the immediate ANC, ALR, ARR (with its decimal-mode
+fix-ups), SBX, and the NOPs that address memory. The unstable ones follow
+Harte's measurements: ANE and LXA OR in $EE; SHA, SHX, SHY and TAS store
+the register ANDed with the base's high byte + 1, which becomes the
+address's high byte on a page cross. The twelve jams stop the CPU until
+reset (Harte has no cases for them: a jam never ends). Checked per cycle
+against Harte's 6502 set, now 244 opcodes: 1,000 cases each for the 93 new
+ones, all passing. The disassembler shows them as `.byte` lists of the
+right length, which ca65 still reassembles, with the instruction as a
+comment (`.byte $A7,$12 ; lax $12`).
+
 ## Backlog
 
 Decided to come later, not forgotten:

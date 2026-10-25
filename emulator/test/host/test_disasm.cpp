@@ -159,7 +159,12 @@ TEST(formats)
     CHECK_EQ(text({0x5C, 0x34, 0x12}), std::string(".byte $5C,$34,$12"));
     CHECK_EQ(disassemble(Cpu6502::Model::W65C02S, bus, 0x0300).length, 3u);
     CHECK_EQ(text({0x6C, 0x80, 0x00}), std::string("jmp ($0080)")); // no a: on indirect JMP
-    CHECK_EQ(text({0x80, 0x00}, Cpu6502::Model::Nmos6502), std::string(".byte $80"));
+    // NMOS undocumented: bytes as the core runs them, and what it does with them.
+    CHECK_EQ(text({0x80, 0x00}, Cpu6502::Model::Nmos6502), std::string(".byte $80,$00 ; nop #$00"));
+    CHECK_EQ(text({0xA7, 0x12}, Cpu6502::Model::Nmos6502), std::string(".byte $A7,$12 ; lax $12"));
+    CHECK_EQ(text({0x9F, 0x00, 0xD4}, Cpu6502::Model::Nmos6502), std::string(".byte $9F,$00,$D4 ; sha $D400,y"));
+    CHECK_EQ(text({0x02, 0xEA}, Cpu6502::Model::Nmos6502), std::string(".byte $02")); // a jam
+    CHECK_EQ(text({0xA7, 0x12}, Cpu6502::Model::W65C02S), std::string("smb2 $12"));
 
     Symbols sym;
     sym.add("ECHO", 0xFFEF);

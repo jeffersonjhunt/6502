@@ -3,7 +3,7 @@
  * @brief Tom Harte's SingleStepTests against the core, bus cycle by bus cycle.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- *   test_harte 6502        NMOS 6502, the 151 documented opcodes
+ *   test_harte 6502        NMOS 6502, 244 opcodes (all but the twelve jams)
  *   test_harte wdc65c02    WDC 65C02 (the W65C02S), 254 opcodes
  *
  * Each case is one instruction from a random state: set registers and RAM,
@@ -175,7 +175,7 @@ int main(int argc, char **argv)
     }
     const bool wdc = std::strcmp(argv[1], "wdc65c02") == 0;
     const Cpu6502::Model model = wdc ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
-    const int expected_opcodes = wdc ? 254 : 151;
+    const int expected_opcodes = wdc ? 254 : 244;
 
     const std::string dir = std::string(EMU_FIXTURE_DIR "/harte/") + argv[1];
     std::ifstream source(dir + "/SOURCE");

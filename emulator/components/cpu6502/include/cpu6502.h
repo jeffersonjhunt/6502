@@ -39,8 +39,10 @@
  *
  * Models:
  * - Nmos6502: the 151 documented opcodes, and NMOS decimal mode including
- *   its invalid-BCD results and flags. Undocumented opcodes run as two-cycle,
- *   one-byte NOPs, which is not what NMOS silicon does.
+ *   its invalid-BCD results and flags; and the undocumented ones, as the
+ *   die runs them (LAX, SAX, DCP, ISC, SLO and the rest, the unstable ANE,
+ *   LXA and SH* with Harte's constants), which C64 tunes use on the sound
+ *   card's 6510. The twelve jams stop the CPU until reset, as STP does.
  * - W65C02S: the real board's CPU. Every WDC instruction (BRA, PHX..PLY, STZ,
  *   TRB/TSB, BIT #/zp,X/abs,X, INC A/DEC A, (zp), JMP (abs,X), RMB/SMB,
  *   BBR/BBS, WAI, STP), 65C02 decimal mode (valid N/Z, one extra cycle), D
@@ -168,10 +170,13 @@ namespace ooe::emu
         void adc(Mode m);
         void sbc(Mode m);
         void compare(uint8_t reg, Mode m);
+        void compare_value(uint8_t reg, uint8_t v);
         void bit(Mode m);
         void binary_add(uint8_t m);
+        bool add(uint8_t v);      ///< ADC's arithmetic; true if it was decimal
+        bool subtract(uint8_t v); ///< SBC's
         void decimal_extra_cycle(Mode m, uint16_t ea, bool subtract);
-        void rmw(Mode m, Rmw op);
+        uint8_t rmw(Mode m, Rmw op); ///< the value written
         void rmw_acc(Rmw op);
         void rmb_smb(unsigned bitno, bool set);
         void branch(bool taken);
@@ -192,6 +197,12 @@ namespace ooe::emu
 
         void execute(uint8_t opcode);
         bool execute_cmos(uint8_t opcode);
+        void execute_undocumented(uint8_t opcode);
+        void arr(uint8_t v);
+        void store_high_and(Mode m, uint8_t v);
+
+        /// What ANE and LXA OR into A: the NMOS bus's value, $EE on the chips Harte measured.
+        static constexpr uint8_t MAGIC = 0xEE;
 
         Bus &bus_;
         Model model_;
