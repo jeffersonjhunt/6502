@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState } from "../port/machine-port";
-import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, keyText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -113,5 +113,27 @@ describe("Devices tab", () => {
     expect(text(v.element, "Mode")).toBe("on · the IIe's map · 1.02 MHz");
     expect(text(v.element, "Video")).toBe("text 40 · page 1");
     expect(text(v.element, "Annunciators")).toBe("AN0-AN3 0101");
+  });
+
+  test("the Disk II: motor, heads, mode, data, magnets, disks", async () => {
+    const port = new FakePort();
+    const v = devicesView(port);
+    await v.refresh();
+    expect(v.element.textContent).toContain("No Disk II card on this machine.");
+    port.disk2 = { motor: false, spinning: true, drive: 0, q6: false, q7: false, data: 0xd5, phases: 0b0101, quarterTracks: [69, 0] };
+    port.disks[0] = { name: "Master.dsk", format: "dsk", writeProtected: true, changed: true, writes: 3 };
+    await v.refresh();
+    expect(text(v.element, "Drive")).toBe("1 · running on");
+    expect(text(v.element, "Heads")).toBe("drive 1 track 17.25 · drive 2 track 0");
+    expect(text(v.element, "Mode")).toBe("read");
+    expect(text(v.element, "Data")).toBe("$D5");
+    expect(text(v.element, "Phases")).toBe("0 2");
+    expect(text(v.element, "Drive 1")).toBe("Master.dsk · 16 sectors, DOS order · write-protected · written to");
+    expect(text(v.element, "Drive 2")).toBe("empty");
+    expect(trackText(70)).toBe("17.5");
+    expect(diskMode({ ...port.disk2, q7: true, q6: true })).toBe("write: load the data bus");
+    expect(diskMode({ ...port.disk2, q7: true })).toBe("write: shift out");
+    expect(diskMode({ ...port.disk2, q6: true })).toBe("sense write-protect");
+    expect(diskText({ name: "t.woz", format: "woz", writeProtected: false, changed: false, writes: 0 })).toBe("t.woz · WOZ");
   });
 });

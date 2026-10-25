@@ -8,10 +8,12 @@
  * physical addresses they point at: $80000 + base x 1 KB.
  *
  * Then Apple II mode: whether it is on, and the IIe's soft switches
- * (readApple), which keep their state in native mode too.
+ * (readApple), which keep their state in native mode too. Then the Disk II
+ * card (readDisk2): its motor, heads, mode, data register and magnets, and
+ * the disks in its drives.
  */
 
-import type { AppleState, MachinePort } from "../port/machine-port";
+import type { AppleState, DiskInfo, DiskStatus, MachinePort } from "../port/machine-port";
 import { h } from "../ui/dom";
 import { hex } from "./breakpoints";
 
@@ -56,6 +58,22 @@ export function appleSlots(s: AppleState): string {
   return [`$C300 ${s.slotc3rom ? "slot 3" : "internal 80-column"}`, `$C800 ${s.intc8rom ? "internal" : "slots"}`].join(" · ");
 }
 
+/** A head's place: track and quarters, as "17", "17.25", "17.5". */
+export function trackText(quarter: number): string {
+  return String(quarter / 4);
+}
+
+export function diskMode(s: DiskStatus): string {
+  if (s.q7) return s.q6 ? "write: load the data bus" : "write: shift out";
+  return s.q6 ? "sense write-protect" : "read";
+}
+
+export function diskText(d: DiskInfo | null): string {
+  if (!d) return "empty";
+  const how = { woz: "WOZ", dsk: "16 sectors, DOS order", po: "16 sectors, ProDOS order" }[d.format];
+  return [d.name || "(no name)", how, ...(d.writeProtected ? ["write-protected"] : []), ...(d.changed ? ["written to"] : [])].join(" · ");
+}
+
 const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
 const bits = (v: number, names: [number, string][]) => names.filter(([b]) => v & b).map(([, n]) => n).join(" · ") || "none";
 
@@ -82,6 +100,8 @@ export function devicesView(port: MachinePort) {
   const usbStatus = h("em", {}, "");
   const appleRows = h("dl", { class: "devs", "data-testid": "dev-apple" });
   const appleStatus = h("em", {}, "");
+  const diskRows = h("dl", { class: "devs", "data-testid": "dev-disk2" });
+  const diskStatus = h("em", {}, "");
   const element = h(
     "div",
     { class: "sec" },
@@ -98,6 +118,9 @@ export function devicesView(port: MachinePort) {
     h("h4", {}, "Apple II mode ", appleStatus),
     appleRows,
     h("p", { class: "hint" }, "The north bridge's MODE and the IIe's soft switches ($C000-$C07F), which keep their state in native mode too."),
+    h("h4", {}, "Disk II ", diskStatus),
+    diskRows,
+    h("p", { class: "hint" }, "Module C; slot 6 in Apple II mode, its switches at $C0E0-$C0EF and its boot ROM at $C600."),
   );
 
   const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
@@ -139,9 +162,32 @@ export function devicesView(port: MachinePort) {
     );
   };
 
+  const refreshDisk = async () => {
+    const s = await port.readDisk2();
+    if (!s) {
+      diskStatus.textContent = "none";
+      diskRows.replaceChildren(h("dd", {}, "No Disk II card on this machine."));
+      return;
+    }
+    diskStatus.textContent = s.spinning ? "spinning" : "stopped";
+    const motor = s.motor ? "motor on" : s.spinning ? "running on" : "motor off";
+    const [d1, d2] = await Promise.all([port.readDiskInfo(0), port.readDiskInfo(1)]);
+    const magnets = [0, 1, 2, 3].filter((m) => s.phases & (1 << m)).join(" ") || "none";
+    diskRows.replaceChildren(
+      ...row("Drive", `${s.drive + 1} · ${motor}`),
+      ...row("Heads", `drive 1 track ${trackText(s.quarterTracks[0])} · drive 2 track ${trackText(s.quarterTracks[1])}`),
+      ...row("Mode", diskMode(s)),
+      ...row("Data", `$${hex(s.data, 2)}`),
+      ...row("Phases", magnets),
+      ...row("Drive 1", diskText(d1)),
+      ...row("Drive 2", diskText(d2)),
+    );
+  };
+
   const refresh = async () => {
     await refreshUsb();
     await refreshApple();
+    await refreshDisk();
     const r = await port.readMemory(VIDEO, 0x80, "io");
     if (r[0x7f] !== VIDEO_ID) {
       status.textContent = "none";

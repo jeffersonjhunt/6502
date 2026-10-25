@@ -7,10 +7,18 @@
 #include "apple_io.h"
 
 #include "decoder.h"
+#include "disk2_card.h"
 #include "usb_card.h"
 
 namespace ooe::emu
 {
+    void AppleIo::reset()
+    {
+        s_ = AppleSwitches{};
+        if (disk_)
+            disk_->reset();
+    }
+
     bool AppleIo::vbl() const
     {
         const uint64_t now = decoder_ ? decoder_->now() : 0;
@@ -52,7 +60,7 @@ namespace ooe::emu
         else if (!internal && addr >= 0xC800)
             internal = s_.intc8rom;
         if (!internal)
-            return FLOATING; // an empty slot (the Disk II comes for slot 6)
+            return disk_ && addr >= 0xC600 && addr < 0xC700 ? disk_->slot_rom(static_cast<uint8_t>(addr)) : FLOATING;
         return decoder_ ? decoder_->peek_physical(ROM_BASE | addr) : FLOATING;
     }
 
@@ -82,7 +90,6 @@ namespace ooe::emu
 
     uint8_t AppleIo::access(uint32_t offset, bool write, uint8_t data, bool effects)
     {
-        (void)data;
         if (offset >= 0x100) // $C100-$CFFF: ROM space
         {
             const uint32_t addr = 0xC000 + offset;
@@ -182,7 +189,9 @@ namespace ooe::emu
             if (effects)
                 language_card(lo, write);
             return FLOATING;
-        default: // cassette out, utility strobe, slot I/O: nothing yet
+        case 0xE: // slot 6
+            return disk_ ? disk_->slot_io(lo, write, data, effects) : FLOATING;
+        default: // cassette out, utility strobe, the other slots: nothing
             return FLOATING;
         }
     }

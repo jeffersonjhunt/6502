@@ -107,6 +107,8 @@ namespace ooe::emu
         options.rom_override = config_.rom;
         options.apple_rom = config_.apple_rom;
         options.apple_chars = config_.apple_chars;
+        options.disk2_boot = config_.disk2_boot;
+        options.disk2_sequencer = config_.disk2_sequencer;
         std::unique_ptr<Machine> machine = Machine::load(config_.machine, options, error);
         if (!machine)
             return false;
@@ -124,6 +126,9 @@ namespace ooe::emu
         cpu_ = std::move(cpu);
         card_ = machine_->console_card();
         clock_cards();
+        if (Disk2Card *d = machine_->disk2_card()) // the disks are still in their drives
+            for (unsigned i = 0; i < Disk2Card::DRIVES; ++i)
+                d->insert(i, disks_[i]);
 
         recorder_->attach(&machine_->bus());
         observers_ = CycleTee{};
@@ -157,13 +162,44 @@ namespace ooe::emu
     bool Session::set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
                                 std::string &error)
     {
+        return set_cartridge(apple_rom, apple_chars, "", "", error);
+    }
+
+    bool Session::set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
+                                const std::string &disk2_boot, const std::string &disk2_sequencer, std::string &error)
+    {
         const Config old = config_;
         config_.apple_rom = apple_rom;
         config_.apple_chars = apple_chars;
+        config_.disk2_boot = disk2_boot;
+        config_.disk2_sequencer = disk2_sequencer;
         if (build(error))
             return true;
         config_ = old; // build() kept the old machine
         return false;
+    }
+
+    bool Session::insert_disk(unsigned drive, const std::vector<uint8_t> &bytes, const std::string &name,
+                              std::string &error)
+    {
+        if (!machine_->disk2_card())
+        {
+            error = "this machine has no Disk II card";
+            return false;
+        }
+        std::unique_ptr<DiskImage> disk = DiskImage::load(bytes, name, error);
+        if (!disk)
+            return false;
+        disks_[drive % Disk2Card::DRIVES] = std::move(disk);
+        machine_->disk2_card()->insert(drive, disks_[drive % Disk2Card::DRIVES]);
+        return true;
+    }
+
+    void Session::eject_disk(unsigned drive)
+    {
+        disks_[drive % Disk2Card::DRIVES].reset();
+        if (Disk2Card *d = machine_->disk2_card())
+            d->insert(drive, nullptr);
     }
 
     void Session::set_cpu_hz(uint32_t hz)

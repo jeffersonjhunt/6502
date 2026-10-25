@@ -615,6 +615,22 @@ most 250 ms; a lone key is never held back, nor is Ctrl-Reset. Paste on
 the VGA and Apple II scenes types on the USB keyboard; the serial line has
 nobody listening in Apple II mode.
 
+**The Disk II (2026-10-24): roadmap step 6.** The card in slot 6 (`disk2`
+line, module C, ID $C1 at $C67F): the owner's two PROMs, the real sequencer
+at 2 MHz, two drives with quarter-track heads, the motor's run-on, write
+protect, and the MC3470's noise. Its PROM's address wiring was found by
+running the owner's 341-0028 against a known bit stream: one layout of
+the 2,880 possible decodes it, and the same layout writes. Disk images:
+`.woz` (1 and 2) bit for bit, `.dsk`/`.do`/`.po` written out as DOS 3.3
+formats them, the order decided from the contents; saved back as `.woz`,
+or as sectors while every track still reads as 16 plain ones. The disks
+stay in their drives through power cycles (Session), and in the WebUI the
+last one is kept in IndexedDB, with what was written to it once the drive
+stops. With the owner's files: the DOS 3.3 System Master boots and runs
+its HELLO, DOS saves a program and lists it, a write-protected disk gets
+DOS's own error, and The Oregon Trail's WOZ boots to its menu, natively
+and in Chromium and WebKit.
+
 ## Backlog
 
 Decided to come later, not forgotten:

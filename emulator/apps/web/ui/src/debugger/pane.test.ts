@@ -154,6 +154,7 @@ function frame() {
     regs: null,
     fixedHz: 0,
     apple: false,
+    disk: null,
     video: null,
   };
 }

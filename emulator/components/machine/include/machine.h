@@ -32,7 +32,8 @@
  * at most one; the run loop wires it to the CPU, see console_card()), video
  * (the video card, video_card.h; at most one, and banks 8-B, 80000-BFFFF,
  * must be one ram line, which it draws from), usb (the USB card, usb_card.h;
- * at most one; the run loop takes its /NMI). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
+ * disk2_card.h; at most one, slot 6 in Apple II mode). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board).
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
@@ -57,6 +58,7 @@
 
 #include "backplane_bridge.h"
 #include "console_card.h"
+#include "disk2_card.h"
 #include "decoder.h"
 #include "device.h"
 #include "peripheral.h"
@@ -75,6 +77,9 @@ namespace ooe::emu
         std::vector<std::string> apple_rom;
         /// The IIe's video character ROM (4 or 8 KB), at cartridge offset $4000.
         std::string apple_chars;
+        /// The Disk II card's PROMs (256 bytes each): the boot ROM (341-0027) and the
+        /// sequencer (341-0028). Apple's too; empty: the card has none.
+        std::string disk2_boot, disk2_sequencer;
         /// North bridge for the decoder; nullptr = the description's
         /// (`northbridge` line), or A16-A19 low. Not owned.
         NorthBridge *bridge{nullptr};
@@ -104,6 +109,8 @@ namespace ooe::emu
         VideoCard *video_card() const { return video_card_; }
         /// The USB card, if the description has one (`usb`): the keyboard, mouse and game port.
         UsbCard *usb_card() const { return usb_card_; }
+        /// The Disk II controller, if the description has one (`disk2`).
+        Disk2Card *disk2_card() const { return disk2_card_; }
         /// The backplane's north bridge (Apple II mode's switches), if the description has one.
         const BackplaneBridge *backplane_bridge() const { return dynamic_cast<const BackplaneBridge *>(bridge_); }
 
@@ -136,6 +143,7 @@ namespace ooe::emu
         ConsoleCard *console_card_{nullptr}; ///< owned through devices_
         VideoCard *video_card_{nullptr};     ///< owned through devices_
         UsbCard *usb_card_{nullptr};         ///< owned through devices_
+        Disk2Card *disk2_card_{nullptr};     ///< owned through devices_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

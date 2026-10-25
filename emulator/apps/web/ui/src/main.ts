@@ -35,6 +35,8 @@ import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
 import { toolbar } from "./ui/toolbar";
 import { appleBar } from "./ui/apple-bar";
+import { diskBar } from "./ui/disk-bar";
+import { browserDiskStore } from "./ui/disk-store";
 
 function statusText(f: FrameState, clockLabel: string): string {
   if (!f.powered) return "POWER OFF";
@@ -208,11 +210,18 @@ function start(root: HTMLElement, port: MachinePort): void {
     },
     typed: () => glass.focus(),
   });
+  const drive = diskBar(port, browserDiskStore(), (name, bytes) => {
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }));
+    const a = h("a", { href: url, download: name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  });
   const monitor = h(
     "div",
     { class: "mon" },
     glass,
     h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status), apple.element, scenes.element),
+    h("div", { class: "mon-foot mon-drive" }, drive.element),
   );
 
   const rack = frontPanel(panel);
@@ -224,7 +233,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("a", { href: "https://int10h.org/oldschool-pc-fonts/", target: "_blank", rel: "noopener" }, "VileR's Ultimate Oldschool PC Font Pack"),
     ", ",
     h("a", { href: "https://creativecommons.org/licenses/by-sa/4.0/", target: "_blank", rel: "noopener" }, "CC BY-SA 4.0"),
-    ". Apple II mode runs your own Apple IIe ROM: it stays in this browser and is never uploaded.",
+    ". Apple II mode runs your own Apple IIe ROM and disks: they stay in this browser and are never uploaded.",
   );
   const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, credits, mirror);
   root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
@@ -245,6 +254,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       }
     }
     apple.update(f);
+    drive.update(f);
     if (f.serialOut.length) terminal.write(f.serialOut);
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
@@ -274,6 +284,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     .connect()
     .then(async () => {
       await apple.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
+      await drive.restore(); // and the disk kept from last time, which stays in through power cycles
       panel.applyAll();
       port.setLights(true);
       dbg.connect();

@@ -6,7 +6,11 @@
  * Files are told apart by size and contents, not names (dumps come named
  * every way): 16 KB is the whole $C000-$FFFF; two 8 KB halves are CD and
  * EF, EF being the one with the IIe's ID byte ($FBB3 = $06) and a reset
- * vector into ROM; 4 KB (or a third 8 KB) is the character ROM.
+ * vector into ROM; 4 KB (or a third 8 KB) is the character ROM. The Disk II
+ * card's two PROMs are 256 bytes each: the boot ROM is the one with a disk
+ * controller's signature ($20 $00 $03 $3C at bytes 1, 3, 5 and 7, what the
+ * IIe looks for in a slot), the other is the sequencer. Picked without a IIe
+ * ROM, they join the cartridge already in.
  */
 
 import type { Cartridge } from "../port/machine-port";
@@ -26,21 +30,37 @@ function isEf(b: Uint8Array): boolean {
   return b[0x1bb3] === 0x06 && b[0x1ffd] >= 0xc0;
 }
 
-/** The files someone picked, as a cartridge; or why not. */
-export function sortRoms(files: RomFile[]): Cartridge | string {
+/** A disk controller's boot ROM: the bytes the IIe's autostart looks for in a slot. */
+function isBootRom(b: Uint8Array): boolean {
+  return b[1] === 0x20 && b[3] === 0x00 && b[5] === 0x03 && b[7] === 0x3c;
+}
+
+/** The files someone picked, as a cartridge; or why not. `current`: the cartridge in now, which PROMs alone join. */
+export function sortRoms(files: RomFile[], current: Cartridge | null = null): Cartridge | string {
   let rom: Uint8Array | null = null;
   let chars: Uint8Array | null = null;
+  let diskBoot: Uint8Array | null = null;
+  let diskSequencer: Uint8Array | null = null;
   const halves: RomFile[] = [];
   for (const f of files) {
     const n = f.bytes.length;
-    if (n === 16 * K) {
+    if (n === 256) {
+      if (isBootRom(f.bytes)) {
+        if (diskBoot) return `${f.name}: two Disk II boot ROMs; pick one`;
+        diskBoot = f.bytes;
+      } else {
+        if (diskSequencer) return `${f.name}: two 256-byte PROMs that are not boot ROMs; pick one sequencer`;
+        diskSequencer = f.bytes;
+      }
+    } else if (n === 16 * K) {
       if (rom) return `${f.name}: two 16 KB ROMs; pick one`;
       rom = f.bytes;
     } else if (n === 4 * K) {
       if (chars) return `${f.name}: two character ROMs; pick one`;
       chars = f.bytes;
     } else if (n === 8 * K) halves.push(f);
-    else return `${f.name}: ${n} bytes is no IIe ROM (want 16 KB, two 8 KB halves, and a 4 KB character ROM)`;
+    else
+      return `${f.name}: ${n} bytes is no IIe ROM (want 16 KB, two 8 KB halves, a 4 KB character ROM, and the Disk II's two 256-byte PROMs)`;
   }
   const ef = halves.find((f) => isEf(f.bytes));
   if (!rom && ef) {
@@ -56,9 +76,11 @@ export function sortRoms(files: RomFile[]): Cartridge | string {
     if (chars) return `${f.name}: one 8 KB file too many`;
     chars = f.bytes; // an 8 KB character ROM (the US/German 341-0161)
   }
+  if (!rom && !chars && current && (diskBoot || diskSequencer))
+    return { ...current, diskBoot: diskBoot ?? current.diskBoot, diskSequencer: diskSequencer ?? current.diskSequencer };
   if (!rom) return "No IIe ROM among these: want 16 KB ($C000-$FFFF) or the CD and EF halves";
   if (rom[ID] !== 0x06) return `Not an Apple IIe ROM: $FBB3 is $${hex2(rom[ID])}, a IIe's is $06`;
-  return { rom, chars };
+  return { rom, chars, diskBoot, diskSequencer };
 }
 
 function toBase64(b: Uint8Array): string {
@@ -80,17 +102,21 @@ export function keepCartridge(c: Cartridge): boolean {
   const rom = toBase64(c.rom);
   prefs.set("apple-rom", rom);
   prefs.set("apple-chars", c.chars ? toBase64(c.chars) : "");
+  prefs.set("apple-disk-boot", c.diskBoot ? toBase64(c.diskBoot) : "");
+  prefs.set("apple-disk-sequencer", c.diskSequencer ? toBase64(c.diskSequencer) : "");
   return prefs.get("apple-rom") === rom;
 }
 
 export function keptCartridge(): Cartridge | null {
   const rom = fromBase64(prefs.get("apple-rom") ?? "");
   if (!rom || rom.length !== 16 * K) return null;
-  const chars = fromBase64(prefs.get("apple-chars") ?? "");
-  return { rom, chars: chars && chars.length ? chars : null };
+  const part = (key: string, size?: number) => {
+    const b = fromBase64(prefs.get(key) ?? "");
+    return b && b.length && (size === undefined || b.length === size) ? b : null;
+  };
+  return { rom, chars: part("apple-chars"), diskBoot: part("apple-disk-boot", 256), diskSequencer: part("apple-disk-sequencer", 256) };
 }
 
 export function forgetCartridge(): void {
-  prefs.remove("apple-rom");
-  prefs.remove("apple-chars");
+  for (const key of ["apple-rom", "apple-chars", "apple-disk-boot", "apple-disk-sequencer"]) prefs.remove(key);
 }

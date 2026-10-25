@@ -17,6 +17,9 @@ import type {
   AppleState,
   Cartridge,
   Clock,
+  DiskFormat,
+  DiskInfo,
+  DiskStatus,
   FrameState,
   Lights,
   MachinePort,
@@ -61,7 +64,15 @@ export interface CoreMachine {
   videoFrame(): Uint8Array;
   setClock(hz: number): void;
   fixedHz(): number;
-  loadCartridge(rom: string, chars: string): boolean;
+  loadCartridge(rom: string, chars: string, boot: string, sequencer: string): boolean;
+  insertDisk(drive: number, bytes: string, name: string): boolean;
+  ejectDisk(drive: number): void;
+  diskInfo(drive: number): number;
+  diskWrites(drive: number): number;
+  saveDisk(drive: number, format: string): string;
+  setWriteProtect(drive: number, on: boolean): void;
+  diskStatus(): number;
+  diskQuarter(drive: number): number;
   appleMode(): boolean;
   appleSwitches(): number;
   peekIo(offset: number): number;
@@ -138,7 +149,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -156,6 +167,7 @@ export class WasmPort implements MachinePort {
   private speedCycles = 0;
   private speedMs = 0;
   private hz = 0;
+  private readonly diskNames = ["", ""];
 
   constructor(options: WasmPortOptions = {}) {
     this.load = options.load ?? loadFromPage;
@@ -234,6 +246,7 @@ export class WasmPort implements MachinePort {
       hz: this.hz,
       fixedHz: this.powered ? m.fixedHz() : 0, // as the run left it, as everything here is
       apple: this.powered && m.appleMode(),
+      disk: this.powered ? this.readDiskStatus(m) : null,
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,
@@ -241,6 +254,21 @@ export class WasmPort implements MachinePort {
     };
     for (const listener of this.listeners) listener(state);
     this.schedule();
+  }
+
+  private readDiskStatus(m: CoreMachine): DiskStatus | null {
+    const v = m.diskStatus();
+    if (v < 0) return null;
+    return {
+      motor: (v & 1) !== 0,
+      spinning: (v & 2) !== 0,
+      drive: (v >> 2) & 1,
+      q6: (v & 8) !== 0,
+      q7: (v & 16) !== 0,
+      data: (v >> 8) & 0xff,
+      phases: (v >> 16) & 0xf,
+      quarterTracks: [m.diskQuarter(0), m.diskQuarter(1)],
+    };
   }
 
   private measure(cycles: number, ms: number): void {
@@ -334,8 +362,51 @@ export class WasmPort implements MachinePort {
     const m = this.machine;
     const rom = cartridge ? bytesToString(cartridge.rom) : "";
     const chars = cartridge?.chars ? bytesToString(cartridge.chars) : "";
-    if (!m.loadCartridge(rom, chars)) throw new Error(m.error());
+    const boot = cartridge?.diskBoot ? bytesToString(cartridge.diskBoot) : "";
+    const sequencer = cartridge?.diskSequencer ? bytesToString(cartridge.diskSequencer) : "";
+    if (!m.loadCartridge(rom, chars, boot, sequencer)) throw new Error(m.error());
     this.videoSeen = -1;
+  }
+
+  async insertDisk(drive: number, bytes: Uint8Array, name: string): Promise<DiskInfo> {
+    const m = this.machine;
+    if (!m.insertDisk(drive, bytesToString(bytes), name)) throw new Error(m.error());
+    this.diskNames[drive & 1] = name;
+    return (await this.readDiskInfo(drive))!;
+  }
+
+  ejectDisk(drive: number): void {
+    this.m?.ejectDisk(drive);
+    this.diskNames[drive & 1] = "";
+  }
+
+  async readDiskInfo(drive: number): Promise<DiskInfo | null> {
+    const m = this.machine;
+    const v = m.diskInfo(drive);
+    if (v < 0) return null;
+    const formats: DiskFormat[] = ["woz", "dsk", "po"];
+    return {
+      name: this.diskNames[drive & 1],
+      format: formats[(v >> 4) & 3] ?? "woz",
+      writeProtected: (v & 2) !== 0,
+      changed: (v & 1) !== 0,
+      writes: m.diskWrites(drive),
+    };
+  }
+
+  async saveDisk(drive: number, format: DiskFormat): Promise<Uint8Array> {
+    const m = this.machine;
+    const s = m.saveDisk(drive, format);
+    if (!s) throw new Error(m.error());
+    return stringToBytes(s);
+  }
+
+  setWriteProtect(drive: number, on: boolean): void {
+    this.m?.setWriteProtect(drive, on);
+  }
+
+  async readDisk2(): Promise<DiskStatus | null> {
+    return this.readDiskStatus(this.machine);
   }
 
   async readApple(): Promise<AppleState | null> {

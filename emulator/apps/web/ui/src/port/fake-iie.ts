@@ -3,7 +3,8 @@
  * and never in the repo): 16 KB as at $C000-$FFFF with a IIe's ID byte
  * at $FBB3, and a reset at $FA62 that counts resets in $0300, turns on
  * ALTCHARSET ($C00F), clears text page 1 to spaces, puts an "A" at $0400
- * (the top left) and waits.
+ * (the top left), switches slot 6's drive motor on and off again (so it
+ * runs on for its second) and waits.
  */
 export function fakeIIeRom(): Uint8Array {
   const rom = new Uint8Array(0x4000);
@@ -25,7 +26,9 @@ export function fakeIIeRom(): Uint8Array {
     0xd0, 0xf1,       //       BNE $FA6C
     0xa9, 0xc1,       //       LDA #$C1 ("A")
     0x8d, 0x00, 0x04, //       STA $0400
-    0x4c, 0x80, 0xfa, // $FA80 JMP $FA80
+    0xad, 0xe9, 0xc0, // $FA80 LDA $C0E9 (the Disk II's motor on...)
+    0xad, 0xe8, 0xc0, //       LDA $C0E8 (...and off: it runs on)
+    0x4c, 0x86, 0xfa, // $FA86 JMP $FA86
   ], at(0xfa62));
   return rom;
 }

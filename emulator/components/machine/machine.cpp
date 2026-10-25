@@ -197,10 +197,10 @@ namespace ooe::emu
                 continue;
             }
             if (type != "ram" && type != "rom" && type != "pia6821" && type != "via6522" && type != "acia6551" &&
-                type != "dma" && type != "console" && type != "video" && type != "usb")
+                type != "dma" && type != "console" && type != "video" && type != "usb" && type != "disk2")
                 return fail("unknown type '" + type +
                             "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
-                            "usb, hd44780 or ps2kbd)");
+                            "usb, disk2, hd44780 or ps2kbd)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
@@ -320,6 +320,15 @@ namespace ooe::emu
                     m->usb_card_ = card.get();
                     dev = std::move(card);
                 }
+                else if (type == "disk2")
+                {
+                    if (m->disk2_card_)
+                        return fail("disk2: only one per machine");
+                    auto card = std::make_unique<Disk2Card>();
+                    card->attach(&m->bus_);
+                    m->disk2_card_ = card.get();
+                    dev = std::move(card);
+                }
                 else if (type == "video")
                 {
                     if (m->video_card_)
@@ -356,6 +365,18 @@ namespace ooe::emu
         }
         if (auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_); bp && m->usb_card_)
             bp->apple_io().attach(m->usb_card_); // the IIe's keyboard, speaker and game port
+        if (m->disk2_card_)
+        {
+            if (auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_))
+                bp->apple_io().attach(m->disk2_card_); // slot 6
+            if (!m->disk2_card_->load_roms(options.disk2_boot, options.disk2_sequencer, error))
+                return nullptr;
+        }
+        else if (!options.disk2_boot.empty() || !options.disk2_sequencer.empty())
+        {
+            error = origin + ": Disk II PROMs, but no disk2 line for the card";
+            return nullptr;
+        }
         if (m->video_card_)
         {
             // The card draws from banks 8-B, which it snoops: give it the RAM there.

@@ -37,6 +37,7 @@
  * only while turned on.
  */
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -62,6 +63,8 @@ namespace ooe::emu
             /// The owner's Apple IIe ROM for the cartridge (MachineOptions::apple_rom), or none.
             std::vector<std::string> apple_rom{};
             std::string apple_chars{}; ///< and its character ROM, or empty
+            /// The Disk II card's PROMs (MachineOptions::disk2_boot, disk2_sequencer), or empty.
+            std::string disk2_boot{}, disk2_sequencer{};
         };
 
         enum class Stop : uint8_t
@@ -108,6 +111,18 @@ namespace ooe::emu
         /// @return false, with `error`, if it does not fit; the old machine and cartridge stay
         bool set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
                            std::string &error);
+        /// The same, with the Disk II card's PROMs: they come with the IIe ROM, and go with it.
+        bool set_cartridge(const std::vector<std::string> &apple_rom, const std::string &apple_chars,
+                           const std::string &disk2_boot, const std::string &disk2_sequencer, std::string &error);
+
+        // The Disk II's drives (nothing without a disk2 line). A disk stays in
+        // its drive through power cycles and cartridge changes, as a real one does.
+        /// A disk image's bytes into drive 0 or 1 (DiskImage::load()). @return false with `error`
+        bool insert_disk(unsigned drive, const std::vector<uint8_t> &bytes, const std::string &name, std::string &error);
+        void eject_disk(unsigned drive);
+        /// The disk in a drive, or nullptr.
+        DiskImage *disk(unsigned drive) const { return disks_[drive % Disk2Card::DRIVES].get(); }
+        Disk2Card *disk2() const { return machine_->disk2_card(); }
         const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
 
         // The panel: the card's inputs (nothing without a card)
@@ -212,5 +227,6 @@ namespace ooe::emu
         size_t input_next_{0};
         std::string output_;
         uint64_t next_service_{0};
+        std::array<std::shared_ptr<DiskImage>, Disk2Card::DRIVES> disks_{};
     };
 } // namespace ooe::emu

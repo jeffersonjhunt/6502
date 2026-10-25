@@ -611,12 +611,32 @@ it commands.
 - **Disk II controller clone, in slot 6.**
   - In Apple mode it is exactly a Disk II: the switches at `$C0E0–$C0EF`, the boot ROM at `$C600`, the
     ROM-driven state machine and shift register, on the 2 MHz clock derived from OSC.
-  - It fits in a CPLD. Its 256-byte boot ROM can be part of the IIe ROM image in bank E, at `$C600`, so the card
-    needs no ROM of its own.
+  - It fits in a CPLD, with sockets for the Disk II's two 256-byte PROMs, the boot ROM (341-0027) and the sequencer
+    (341-0028), which are Apple's: the owner fits their own, as with the IIe ROM. **(Decided 2026-10-24,** replacing
+    the idea of keeping the boot ROM in the IIe image in bank E: the IIe's internal ROM has its own `$C600` page,
+    which INTCXROM needs.)
   - **Apple mode only (decided).** Native mode runs at 7.16 MHz, too fast for the CPU-timed Disk II, and native
     software reaches Apple disk images more easily as files on the SD card, mounted as mass storage units. In
     native mode the card ignores its switches; its block `$C600–$C67F` holds only the ID byte at `$C67F`, so the
     BIOS can see the card is fitted. It is the exception to the rule that I/O supports DMA.
+
+**Decided (2026-10-24), as the emulator models it** (`emulator/components/devices/disk2_card.h`):
+
+- **ID byte** `$C1` at `$C67F` (type C, revision 1).
+- **The sequencer** steps at 2 MHz, two steps a CPU cycle (the Apple's long cycle every 65th is left out, 0.2%,
+  well inside a drive's speed tolerance). The PROM is read as the 341-0028 is wired, found by running the owner's
+  dump against a known bit stream: address A7, A6, A0, A5 the state, fed back from data D7–D4; A4 the read pulse,
+  low while there is one; A3 Q7, A2 Q6, A1 the data register's bit 7. D3–D0 are the command: 0–7 clear, 8 and C
+  nothing, 9 shift in a 0, D shift in a 1, A and E shift right bringing in write protect, B and F load the data bus.
+  Writing, the head follows state bit D7: a change within a 4 µs cell is a flux transition.
+- **The drive:** a bit cell every 4 µs; a read pulse on the first step of a cell holding a 1; past three 0 bits the
+  read amplifier finds noise (3 in 10 ones), as an MC3470 does on unformatted disk. The head moves a quarter track
+  at a time towards the magnets that are on, only while the motor runs. The motor runs on for 1 s after it is
+  switched off. Reading an odd address returns `$FF`; only even ones drive the data register onto the bus.
+- **/RESET** clears the card's latch: phases, Q6 and Q7 off, drive 1, the motor off (running on).
+- **Images:** `.woz` (WOZ 1 and 2) bit for bit; `.dsk`/`.do` and `.po` (140 KB) written out as DOS 3.3 formats a
+  disk, volume 254, the sector order decided from the contents (a DOS catalog chain, or a ProDOS volume directory,
+  where each order puts it) before the name. `.nib`, `.d13` and `.2mg` come later.
 - **GoTek.**
   - It must run the **HxC firmware**. FlashFloppy, which most GoTeks ship with, has no documented Apple II
     support.

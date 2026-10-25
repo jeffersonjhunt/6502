@@ -10,7 +10,8 @@
  *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]
  *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
  *            [--break ADDR]... [--halt] [--screen FILE]
- *            [--apple-rom FILE[,FILE]] [--apple-chars FILE] [rom]
+ *            [--apple-rom FILE[,FILE]] [--apple-chars FILE]
+ *            [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
@@ -38,6 +39,10 @@
  * - --apple-rom plugs the owner's Apple IIe ROM into the cartridge (one
  *   16 KB file, or the CD and EF halves), and --apple-chars its character
  *   ROM; C806R at the monitor enters Apple II mode with them.
+ * - --disk2-rom gives the Disk II card the owner's two PROMs (the 16-sector
+ *   boot ROM and the sequencer, 256 bytes each), and --disk puts a .woz,
+ *   .dsk, .do or .po in drive 1; the IIe boots it. What is written to the
+ *   disk stays in memory: the file is not changed.
  */
 
 #include <algorithm>
@@ -45,6 +50,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -92,7 +99,8 @@ namespace
         std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]\n"
                              "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
                              "                [--break ADDR]... [--halt] [--screen FILE]\n"
-                             "                [--apple-rom FILE[,FILE]] [--apple-chars FILE] [rom]\n");
+                             "                [--apple-rom FILE[,FILE]] [--apple-chars FILE]\n"
+                             "                [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [rom]\n");
         return 2;
     }
 
@@ -251,6 +259,7 @@ int main(int argc, char *argv[])
     using namespace ooe::emu;
 
     MachineOptions options;
+    const char *disk_path = nullptr;
     const char *machine_path = nullptr;
     const char *log_path = nullptr;
     Settings settings;
@@ -293,6 +302,17 @@ int main(int argc, char *argv[])
         }
         else if (std::strcmp(argv[i], "--apple-chars") == 0 && i + 1 < argc)
             options.apple_chars = argv[++i];
+        else if (std::strcmp(argv[i], "--disk2-rom") == 0 && i + 1 < argc)
+        {
+            const std::string pair = argv[++i];
+            const size_t comma = pair.find(',');
+            if (comma == std::string::npos)
+                return usage();
+            options.disk2_boot = pair.substr(0, comma);
+            options.disk2_sequencer = pair.substr(comma + 1);
+        }
+        else if (std::strcmp(argv[i], "--disk") == 0 && i + 1 < argc)
+            disk_path = argv[++i];
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')
@@ -326,6 +346,20 @@ int main(int argc, char *argv[])
         std::unique_ptr<Machine> machine =
             machine_path ? Machine::load(machine_path, options, error)
                          : Machine::build(apple1::default_machine(), "apple1.machine (built in)", options, error);
+        if (machine && disk_path)
+        {
+            std::ifstream in(disk_path, std::ios::binary);
+            const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::unique_ptr<DiskImage> disk = in || in.eof() ? DiskImage::load(bytes, disk_path, error) : nullptr;
+            if (!in && !in.eof())
+                error = std::string(disk_path) + ": cannot read it";
+            if (!machine->disk2_card() && disk)
+                error = std::string(disk_path) + ": the machine has no Disk II card (a disk2 line)";
+            if (disk && machine->disk2_card())
+                machine->disk2_card()->insert(0, std::move(disk));
+            else
+                machine.reset();
+        }
         std::unique_ptr<Console> console = machine ? make_console(*machine, error) : nullptr;
         if (!console)
         {

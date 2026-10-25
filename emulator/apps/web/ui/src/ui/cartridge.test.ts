@@ -64,15 +64,61 @@ describe("sortRoms", () => {
   });
 });
 
+describe("the Disk II's PROMs", () => {
+  const boot = () => {
+    const b = new Uint8Array(256);
+    b.set([0xa2, 0x20, 0xa0, 0x00, 0xa2, 0x03, 0x86, 0x3c], 0); // a disk controller's signature at 1, 3, 5, 7
+    return b;
+  };
+  const sequencer = () => new Uint8Array(256).fill(0x18);
+
+  test("a sequencer starting as a boot ROM does is still a sequencer: the signature decides", () => {
+    const seq = sequencer();
+    seq[0] = 0xa2;
+    const c = sortRoms([file("p5", boot()), file("p6", seq), file("iie", fakeIIeRom())]);
+    if (typeof c === "string") throw new Error(c);
+    expect(c.diskBoot).toEqual(boot());
+    expect(c.diskSequencer).toEqual(seq);
+  });
+
+  test("told apart by the boot ROM's signature, beside the IIe ROM", () => {
+    const c = sortRoms([file("p6", sequencer()), file("iie", fakeIIeRom()), file("p5", boot())]);
+    if (typeof c === "string") throw new Error(c);
+    expect(c.diskBoot).toEqual(boot());
+    expect(c.diskSequencer).toEqual(sequencer());
+  });
+
+  test("picked alone, they join the cartridge already in; alone with none, they are no cartridge", () => {
+    const current = { rom: fakeIIeRom(), chars: new Uint8Array(4 * K), diskBoot: null, diskSequencer: null };
+    const c = sortRoms([file("p5", boot()), file("p6", sequencer())], current);
+    if (typeof c === "string") throw new Error(c);
+    expect(c.rom).toBe(current.rom);
+    expect(c.chars).toBe(current.chars);
+    expect(c.diskBoot).toEqual(boot());
+    expect(sortRoms([file("p5", boot())])).toMatch(/^No IIe ROM among these/);
+    expect(sortRoms([file("a", boot()), file("b", boot())])).toMatch(/two Disk II boot ROMs/);
+  });
+
+  test("kept with the ROM", () => {
+    localStorage.clear();
+    keepCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: boot(), diskSequencer: sequencer() });
+    const back = keptCartridge();
+    expect(back?.diskBoot).toEqual(boot());
+    expect(back?.diskSequencer).toEqual(sequencer());
+    forgetCartridge();
+    expect(Object.keys(localStorage)).toEqual([]);
+  });
+});
+
 describe("kept in this browser", () => {
   beforeEach(() => localStorage.clear());
 
   test("a browser that will not keep it says so", () => {
-    const refuse = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    const refuse = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
     try {
-      expect(keepCartridge({ rom: fakeIIeRom(), chars: null })).toBe(false);
+      expect(keepCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null })).toBe(false);
       expect(keptCartridge()).toBeNull();
     } finally {
       refuse.mockRestore();
@@ -82,11 +128,11 @@ describe("kept in this browser", () => {
   test("kept, back next time, forgotten", () => {
     expect(keptCartridge()).toBeNull();
     const chars = Uint8Array.from({ length: 4 * K }, (_, i) => i & 0xff);
-    expect(keepCartridge({ rom: fakeIIeRom(), chars })).toBe(true);
+    expect(keepCartridge({ rom: fakeIIeRom(), chars, diskBoot: null, diskSequencer: null })).toBe(true);
     const back = keptCartridge();
     expect(back?.rom).toEqual(fakeIIeRom());
     expect(back?.chars).toEqual(chars);
-    expect(keepCartridge({ rom: fakeIIeRom(), chars: null })).toBe(true);
+    expect(keepCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null })).toBe(true);
     expect(keptCartridge()?.chars).toBeNull(); // the old character ROM went with the old cartridge
     forgetCartridge();
     expect(keptCartridge()).toBeNull();
