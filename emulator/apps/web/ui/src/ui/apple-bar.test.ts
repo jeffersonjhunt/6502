@@ -59,7 +59,7 @@ describe("the Apple bar", () => {
   });
 
   test("kept from last time: back in once connected; Eject takes it out and forgets it", async () => {
-    keepCartridge({ rom: fakeIIeRom(), chars: null });
+    keepCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null });
     const { port, bar } = make();
     await bar.restore();
     expect((port.callsTo("insertCartridge")[0][0] as Cartridge).rom).toEqual(fakeIIeRom());
@@ -71,7 +71,7 @@ describe("the Apple bar", () => {
   });
 
   test("Start: START, then C806R at the monitor; in Apple II mode, the IIe's resets", async () => {
-    keepCartridge({ rom: fakeIIeRom(), chars: null });
+    keepCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null });
     const { port, bar, started } = make();
     await bar.restore();
     $(bar.element, "apple-start").click();

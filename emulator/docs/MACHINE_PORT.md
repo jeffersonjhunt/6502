@@ -19,7 +19,8 @@ Everything in the port is something the real board can also do:
 | Inspection | `readMemory`, `physical`, `resolve`, `readTrace`, `FrameState.lights`, `FrameState.regs` | memory and the latched cycle over SPI; the lamps; the bus spy's trace |
 | Video | `watchVideo`, `FrameState.video` | the video card's VGA output (a capture device, for the board) |
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
-| Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
+| Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
+| Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the GoTek in the drive's place: an image in, out, written back; the drive's light |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
 The UI never calls the emulator's debugger. Breakpoints are the Console
@@ -43,7 +44,9 @@ The page never ships Apple's ROMs. `insertCartridge` takes the owner's
 plugging a cartridge in with the power off: the machine starts afresh.
 `WasmPort` writes it into the module's own memory file system and no
 further; the page keeps it in the browser's localStorage for next time
-(ui/cartridge.ts), and Eject forgets it.
+(ui/cartridge.ts), and Eject forgets it. Disks are the same: the page keeps
+the last one in IndexedDB (ui/disk-store.ts), with what was written to it,
+and never uploads it. A disk stays in its drive through power cycles.
 
 ## Calls and frames
 

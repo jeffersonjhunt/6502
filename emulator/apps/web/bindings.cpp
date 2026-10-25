@@ -41,15 +41,27 @@
  * codes (queued at the keyboard's 8 ms polling pace), usbMouseTo(x, y) (absolute, in its MAXX/MAXY), usbMouseMove(dx, dy),
  * usbMouseButtons(bits), usbMouseWheel(steps). Without a card they do nothing.
  *
- * Apple II mode: loadCartridge(rom, chars) plugs the owner's IIe ROM (16 KB,
- * $C000-$FFFF) and character ROM (4 or 8 KB, or "" for none) into the
- * cartridge, as with the power off (a power cycle); loadCartridge("", "")
- * takes it out. The bytes go to the module's own memory file system and no
+ * Apple II mode: loadCartridge(rom, chars, boot, sequencer) plugs the
+ * owner's IIe ROM (16 KB, $C000-$FFFF) and character ROM (4 or 8 KB, or ""
+ * for none) into the cartridge, and the Disk II card's two PROMs (256 bytes
+ * each, or ""), as with the power off (a power cycle); all "" takes them
+ * out. The bytes go to the module's own memory file system and no
  * further, a new file for each, so one that is refused leaves the files
  * the old cartridge loads from (at the next power cycle) as they were. appleMode() is the north bridge's MODE; appleSwitches() packs
  * the IIe's soft switches (APPLE_* below), or -1 without the backplane's
  * bridge. peekIo(offset) reads I/O space ($000-$FFF, the cards' registers)
  * with no bus cycle in either mode.
+ *
+ * The Disk II's drives (0 and 1): insertDisk(drive, bytes, name) takes a
+ * .woz, .dsk, .do or .po file's bytes (name only breaks a tie); ejectDisk;
+ * diskInfo(drive) is -1 for none, else bit 0 changed, bit 1 write-protected,
+ * bits 4-5 the format (0 WOZ, 1 DOS order, 2 ProDOS order); diskWrites(drive)
+ * counts writes, so a copy kept elsewhere can tell it is behind;
+ * saveDisk(drive, "woz" | "dsk" | "po") is the file, or "" with error();
+ * setWriteProtect(drive, on). diskStatus() is -1 without the card, else bit
+ * 0 motor on, 1 spinning, 2 drive 2 selected, 3 Q6, 4 Q7, 8-15 the data
+ * register, 16-19 the phases; diskQuarter(drive) is that drive's head, in
+ * quarter tracks (0-159).
  */
 
 #include <emscripten/bind.h>
@@ -192,7 +204,8 @@ namespace
         /// The clock the machine's mode fixes (Apple II mode), or 0: pace by it then.
         double fixed_hz() const { return session_->fixed_hz(); }
         /// @return false, with error(), if it does not fit; the old cartridge stays
-        bool load_cartridge(const std::string &rom, const std::string &chars)
+        bool load_cartridge(const std::string &rom, const std::string &chars, const std::string &boot,
+                            const std::string &sequencer)
         {
             error_.clear();
             const std::string stem = "/tmp/cartridge-" + std::to_string(++cartridges_);
@@ -202,16 +215,19 @@ namespace
                 std::ofstream(path, std::ios::binary | std::ios::trunc) << bytes;
                 return path;
             };
-            const std::string rom_file = file(stem + "-iie.rom", rom), chars_file = file(stem + "-chars.rom", chars);
+            const std::string rom_file = file(stem + "-iie.rom", rom), chars_file = file(stem + "-chars.rom", chars),
+                              boot_file = file(stem + "-disk2-boot.rom", boot),
+                              sequencer_file = file(stem + "-disk2-sequencer.rom", sequencer);
             std::vector<std::string> parts;
             if (!rom_file.empty())
                 parts.push_back(rom_file);
-            const bool ok = session_->set_cartridge(parts, chars_file, error_);
-            for (const std::string &old : ok ? loaded_ : std::vector<std::string>{rom_file, chars_file})
+            const bool ok = session_->set_cartridge(parts, chars_file, boot_file, sequencer_file, error_);
+            for (const std::string &old :
+                 ok ? loaded_ : std::vector<std::string>{rom_file, chars_file, boot_file, sequencer_file})
                 if (!old.empty())
                     std::remove(old.c_str());
             if (ok)
-                loaded_ = {rom_file, chars_file};
+                loaded_ = {rom_file, chars_file, boot_file, sequencer_file};
             return ok;
         }
         bool apple_mode() const { return session_->apple_mode(); }
@@ -232,6 +248,60 @@ namespace
                                bit(s->ioudis, APPLE_IOUDIS) | unsigned{s->an & 0x0Fu} << APPLE_AN_SHIFT;
             return static_cast<int>(v);
         }
+        bool insert_disk(unsigned drive, const std::string &bytes, const std::string &name)
+        {
+            error_.clear();
+            return session_->insert_disk(drive, std::vector<uint8_t>(bytes.begin(), bytes.end()), name, error_);
+        }
+        void eject_disk(unsigned drive) { session_->eject_disk(drive); }
+        int disk_info(unsigned drive) const
+        {
+            const DiskImage *d = session_->disk(drive);
+            if (!d)
+                return -1;
+            return (d->changed() ? 1 : 0) | (d->write_protected() ? 2 : 0) | static_cast<int>(d->format()) << 4;
+        }
+        double disk_writes(unsigned drive) const
+        {
+            const DiskImage *d = session_->disk(drive);
+            return d ? d->writes() : 0;
+        }
+        std::string save_disk(unsigned drive, const std::string &format)
+        {
+            error_.clear();
+            const DiskImage *d = session_->disk(drive);
+            if (!d)
+            {
+                error_ = "no disk in drive " + std::to_string(drive + 1);
+                return "";
+            }
+            std::vector<uint8_t> out;
+            if (format == "woz")
+                out = d->to_woz();
+            else if (!d->to_sectors(format == "po" ? DiskImage::Format::Prodos : DiskImage::Format::Dos, out, error_))
+                return "";
+            return std::string(out.begin(), out.end());
+        }
+        void set_write_protect(unsigned drive, bool on)
+        {
+            if (DiskImage *d = session_->disk(drive))
+                d->set_write_protected(on);
+        }
+        int disk_status() const
+        {
+            Disk2Card *c = session_->disk2();
+            if (!c)
+                return -1;
+            const Disk2Card::Status s = c->status();
+            return (s.motor ? 1 : 0) | (s.spinning ? 2 : 0) | (s.drive ? 4 : 0) | (s.q6 ? 8 : 0) | (s.q7 ? 16 : 0) |
+                   s.data << 8 | (s.phases & 0xF) << 16;
+        }
+        unsigned disk_quarter(unsigned drive) const
+        {
+            Disk2Card *c = session_->disk2();
+            return c ? c->status().quarter_track[drive % Disk2Card::DRIVES] : 0;
+        }
+
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
 
         bool has_usb() const { return session_->usb() != nullptr; }
@@ -338,6 +408,14 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("appleMode", &WebMachine::apple_mode)
         .function("appleSwitches", &WebMachine::apple_switches)
         .function("peekIo", &WebMachine::peek_io)
+        .function("insertDisk", &WebMachine::insert_disk)
+        .function("ejectDisk", &WebMachine::eject_disk)
+        .function("diskInfo", &WebMachine::disk_info)
+        .function("diskWrites", &WebMachine::disk_writes)
+        .function("saveDisk", &WebMachine::save_disk)
+        .function("setWriteProtect", &WebMachine::set_write_protect)
+        .function("diskStatus", &WebMachine::disk_status)
+        .function("diskQuarter", &WebMachine::disk_quarter)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbMouseTo", &WebMachine::usb_mouse_to)

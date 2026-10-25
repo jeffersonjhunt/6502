@@ -35,8 +35,9 @@
  *                INTCXROM, SLOTC3ROM and INTC8ROM say (a $C3xx access with
  *                the internal C3 ROM sets INTC8ROM, $CFFF clears it)
  *
- * The internal ROM is the IIe ROM image in bank E ($EC000-$EFFFF). No slot
- * has a card yet (the Disk II comes for slot 6), so empty slots and the
+ * The internal ROM is the IIe ROM image in bank E ($EC000-$EFFFF). Slot 6
+ * is the Disk II card's (disk2_card.h), when the machine has one: its
+ * switches at $C0E0-$C0EF and its boot ROM at $C600. Empty slots and the
  * cassette read $FF, the floating bus as the emulator models it.
  *
  * VBL follows the Apple's timing in CPU cycles: 65 a line, 262 lines, 17,030
@@ -52,6 +53,7 @@
 namespace ooe::emu
 {
     class Decoder;
+    class Disk2Card;
     class UsbCard;
 
     struct AppleSwitches
@@ -74,7 +76,9 @@ namespace ooe::emu
 
         void attach(Decoder *decoder) { decoder_ = decoder; }
         void attach(UsbCard *usb) { usb_ = usb; }
-        void reset() { s_ = AppleSwitches{}; }
+        void attach(Disk2Card *disk) { disk_ = disk; }
+        /// /RESET: the switches, and the cards in the slots.
+        void reset();
         const AppleSwitches &switches() const { return s_; }
         /// The Apple's vertical blank (lines 192-261), from the cycle count.
         bool vbl() const;
@@ -93,6 +97,7 @@ namespace ooe::emu
 
         Decoder *decoder_{nullptr};
         UsbCard *usb_{nullptr};
+        Disk2Card *disk_{nullptr};
         AppleSwitches s_{};
     };
 } // namespace ooe::emu

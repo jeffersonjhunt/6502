@@ -32,6 +32,8 @@ export interface PortCaps {
   power: boolean;
   /** insertCartridge() works: the owner's IIe ROM, for Apple II mode. */
   cartridge: boolean;
+  /** insertDisk() and the rest work: the Disk II's drives. */
+  disk: boolean;
 }
 
 /** The owner's Apple IIe ROM for the cartridge (ROM B). */
@@ -40,6 +42,41 @@ export interface Cartridge {
   rom: Uint8Array;
   /** The IIe's character ROM, 4 or 8 KB; null: the BIOS makes one from the VGA font. */
   chars: Uint8Array | null;
+  /** The Disk II card's 16-sector boot ROM (341-0027), 256 bytes; null: slot 6 is empty. */
+  diskBoot: Uint8Array | null;
+  /** Its sequencer PROM (341-0028), 256 bytes; null: the card reads nothing. */
+  diskSequencer: Uint8Array | null;
+}
+
+export type DiskFormat = "woz" | "dsk" | "po";
+
+/** A disk in a drive. */
+export interface DiskInfo {
+  /** The file it came from. */
+  name: string;
+  /** How it was loaded: bits ("woz"), or sectors in DOS ("dsk") or ProDOS ("po") order. */
+  format: DiskFormat;
+  writeProtected: boolean;
+  /** Written to since it went in (or was last saved). */
+  changed: boolean;
+  /** Counts writes ever: a copy kept elsewhere is behind when this has moved on. */
+  writes: number;
+}
+
+/** The Disk II card as it is (FrameState.disk, readDisk2). */
+export interface DiskStatus {
+  motor: boolean;
+  /** The motor on, or running on its second after. */
+  spinning: boolean;
+  /** 0 or 1. */
+  drive: number;
+  q6: boolean;
+  q7: boolean;
+  data: number;
+  /** The stepper's magnets, bit n phase n. */
+  phases: number;
+  /** Each drive's head, in quarter tracks (0-159). */
+  quarterTracks: [number, number];
 }
 
 /** Apple II mode's soft switches (hw/design.md, "Apple II Mode"), and whether the mode is on. */
@@ -139,6 +176,8 @@ export interface FrameState {
   fixedHz: number;
   /** In Apple II mode (the panel's AMODE lamp). */
   apple: boolean;
+  /** The Disk II card, if the machine has one (the drive light). */
+  disk: DiskStatus | null;
   /** What the machine sent on its serial line since the last frame. */
   serialOut: Uint8Array;
   /** Only while setLights(true). */
@@ -227,6 +266,20 @@ export interface MachinePort {
   insertCartridge(cartridge: Cartridge | null): Promise<void>;
   /** The Apple's soft switches; null on a machine without the backplane's north bridge. */
   readApple(): Promise<AppleState | null>;
+
+  /**
+   * A disk image's bytes into drive 0 or 1 (.woz, .dsk, .do or .po; told
+   * apart by contents, the name only breaking a tie). Rejects with a
+   * readable reason. The disk stays in through power cycles, as a real one.
+   */
+  insertDisk(drive: number, bytes: Uint8Array, name: string): Promise<DiskInfo>;
+  ejectDisk(drive: number): void;
+  readDiskInfo(drive: number): Promise<DiskInfo | null>;
+  /** The disk as a file. A sector format rejects a disk that no longer reads as 16 plain sectors a track. */
+  saveDisk(drive: number, format: DiskFormat): Promise<Uint8Array>;
+  setWriteProtect(drive: number, on: boolean): void;
+  /** The Disk II card as it is; null without one. */
+  readDisk2(): Promise<DiskStatus | null>;
 
   setLights(on: boolean): void;
   watchRegisters(on: boolean): void;

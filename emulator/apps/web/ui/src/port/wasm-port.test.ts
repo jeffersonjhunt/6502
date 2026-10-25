@@ -280,7 +280,7 @@ describe("WasmPort", () => {
     expect(m.step().apple).toBe(false);
     expect((await m.port.readApple())?.mode).toBe(false);
     m.clear();
-    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null });
+    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null });
     expect(m.until(GREETING)).toBe(true); // plugged in with the power off: a fresh boot
     m.port.press("cont"); // anything running...
     startApple(m.port); // ...START gets back to the monitor first
@@ -294,6 +294,8 @@ describe("WasmPort", () => {
     const s = await m.port.readApple();
     expect(s?.mode).toBe(true);
     expect(s?.altchar).toBe(true); // its STA $C00F
+    expect(f.disk?.motor).toBe(false); // its motor on and off: the drive runs on
+    expect(f.disk?.spinning).toBe(true);
     expect(s?.text).toBe(true);
     expect((await m.port.readMemory(0xc4ff, 1, "io"))[0]).toBe(0x91); // the video card, though...
     expect((await m.port.readMemory(0xc4ff, 1, "cpu"))[0]).not.toBe(0x91); // ...the CPU sees the Apple's $C4FF
@@ -307,9 +309,9 @@ describe("WasmPort", () => {
 
   test("a cartridge that does not fit is refused, the old one stays; out, C806R says so", async () => {
     const m = await open();
-    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null });
-    await expect(m.port.insertCartridge({ rom: new Uint8Array(100), chars: null })).rejects.toThrow(/16 KB/);
-    await expect(m.port.insertCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(100) })).rejects.toThrow(/character ROM/);
+    await m.port.insertCartridge({ rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null });
+    await expect(m.port.insertCartridge({ rom: new Uint8Array(100), chars: null, diskBoot: null, diskSequencer: null })).rejects.toThrow(/16 KB/);
+    await expect(m.port.insertCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(100), diskBoot: null, diskSequencer: null })).rejects.toThrow(/character ROM/);
     m.port.setPower(false);
     m.port.setPower(true); // the next power cycle reads the cartridge's files again: the refused ones did not touch them
     m.clear();
@@ -323,5 +325,33 @@ describe("WasmPort", () => {
     expect(m.until(GREETING)).toBe(true);
     m.port.sendSerial(ascii("C806R\r"));
     expect(m.until("NO APPLE IIE ROM")).toBe(true);
+  });
+
+  test("disks: in, saved in each format, write-protected, kept through a power cycle, out", async () => {
+    const m = await open();
+    const dsk = Uint8Array.from({ length: 143_360 }, (_, i) => (i * 7 + (i >> 8)) & 0xff);
+    await expect(m.port.insertDisk(0, new Uint8Array(5), "notes.txt")).rejects.toThrow(/notes\.txt: 5 bytes is no disk image/);
+    const info = await m.port.insertDisk(0, dsk, "Random.dsk");
+    expect(info).toEqual({ name: "Random.dsk", format: "dsk", writeProtected: false, changed: false, writes: 0 });
+    expect(m.step().disk).toEqual({ motor: false, spinning: false, drive: 0, q6: false, q7: false, data: 0, phases: 0, quarterTracks: [0, 0] });
+    expect(await m.port.saveDisk(0, "dsk")).toEqual(dsk); // the same 140 KB, by way of the tracks
+    const po = await m.port.saveDisk(0, "po");
+    expect(po.length).toBe(143_360);
+    expect(po).not.toEqual(dsk);                          // the same sectors, another order
+    const woz = await m.port.saveDisk(0, "woz");
+    expect(String.fromCharCode(...woz.subarray(0, 4))).toBe("WOZ2");
+    m.port.setWriteProtect(0, true);
+    expect((await m.port.readDiskInfo(0))?.writeProtected).toBe(true);
+    m.port.setPower(false);
+    m.port.setPower(true);                                // a new machine: the disk is still in the drive
+    expect((await m.port.readDiskInfo(0))?.name).toBe("Random.dsk");
+    expect(await m.port.saveDisk(0, "dsk")).toEqual(dsk);
+    const again = await m.port.insertDisk(1, woz, "Copy.woz");
+    expect(again.format).toBe("woz");
+    expect(await m.port.saveDisk(1, "dsk")).toEqual(dsk); // the WOZ reads back as the same sectors
+    m.port.ejectDisk(0);
+    expect(await m.port.readDiskInfo(0)).toBeNull();
+    await expect(m.port.saveDisk(0, "woz")).rejects.toThrow(/no disk in drive 1/);
+    expect((await m.port.readDisk2())?.drive).toBe(0);
   });
 });

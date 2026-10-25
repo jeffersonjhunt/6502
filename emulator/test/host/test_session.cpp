@@ -371,6 +371,39 @@ TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)
     std::remove("test_session_short.rom");
 }
 
+TEST(a_disk_stays_in_its_drive_through_power_cycles_and_cartridges)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    REQUIRE(s->disk2() != nullptr);
+    std::string error;
+    CHECK(!s->insert_disk(0, std::vector<uint8_t>(1000), "notes.txt", error));
+    CHECK(error.find("notes.txt: 1000 bytes is no disk image") == 0);
+    CHECK(s->disk(0) == nullptr);
+    REQUIRE(s->insert_disk(0, std::vector<uint8_t>(143'360), "blank.dsk", error));
+    DiskImage *d = s->disk(0);
+    REQUIRE(d != nullptr);
+    CHECK(s->disk2()->disk(0).get() == d);       // in the card's drive 1
+    REQUIRE(s->power_cycle(error));
+    CHECK(s->disk(0) == d);                       // the machine is new; the disk is the same one
+    CHECK(s->disk2()->disk(0).get() == d);
+    std::ofstream("test_session_p5.rom", std::ios::binary) << std::string(256, '\x60');
+    std::ofstream("test_session_bad.rom", std::ios::binary) << std::string(255, '\0');
+    CHECK(!s->set_cartridge({}, "", "test_session_bad.rom", "", error));
+    CHECK(error.find("want a 256-byte Disk II PROM") != std::string::npos);
+    CHECK(!s->disk2()->has_boot());               // refused: the old cartridge (none) stays
+    REQUIRE(s->set_cartridge({}, "", "test_session_p5.rom", "", error));
+    CHECK(s->disk2()->has_boot());
+    CHECK_EQ(s->disk2()->slot_rom(0), 0x60);
+    CHECK(s->disk2()->disk(0).get() == d);        // and through a cartridge change
+    s->eject_disk(0);
+    CHECK(s->disk(0) == nullptr);
+    CHECK(s->disk2()->disk(0) == nullptr);
+    CHECK_EQ(s->peek_io(0x67F), Disk2Card::ID);   // native mode: the card's ID at $C67F
+    std::remove("test_session_p5.rom");
+    std::remove("test_session_bad.rom");
+}
+
 TEST(stp_ends_the_run_and_start_gets_out)
 {
     auto s = booted();

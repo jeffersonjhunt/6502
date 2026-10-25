@@ -1,0 +1,143 @@
+// @vitest-environment happy-dom
+import { describe, expect, test } from "vitest";
+import { FakePort } from "../port/fake-port";
+import type { DiskStatus, FrameState } from "../port/machine-port";
+import { diskBar, savedName } from "./disk-bar";
+import { memoryDiskStore } from "./disk-store";
+
+const flush = async () => {
+  for (let i = 0; i < 6; ++i) await new Promise((r) => setTimeout(r, 0));
+};
+const $ = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
+const shown = (el: HTMLElement) => ["disk-insert", "disk-protect", "disk-save", "disk-eject"].filter((id) => !$(el, id).hidden);
+const STATUS: DiskStatus = { motor: false, spinning: false, drive: 0, q6: false, q7: false, data: 0, phases: 0, quarterTracks: [0, 0] };
+const frame = (disk: Partial<DiskStatus> | null): Partial<FrameState> => ({ disk: disk ? { ...STATUS, ...disk } : null });
+
+async function pick(bar: HTMLElement, name: string, bytes: Uint8Array) {
+  const input = $(bar, "disk-file") as HTMLInputElement;
+  Object.defineProperty(input, "files", { configurable: true, value: [new File([new Uint8Array(bytes)], name)] });
+  input.dispatchEvent(new Event("change"));
+  await flush();
+}
+
+function make() {
+  const port = new FakePort();
+  const store = memoryDiskStore();
+  const downloads: [string, Uint8Array][] = [];
+  const bar = diskBar(port, store, (name, bytes) => downloads.push([name, bytes]));
+  port.onFrame(bar.update);
+  return { port, store, bar, downloads };
+}
+
+describe("the drive", () => {
+  test("shown only on a machine with the card; the light is the drive's motor", () => {
+    const { port, bar } = make();
+    port.emit(frame(null));
+    expect(bar.element.hidden).toBe(true);
+    port.emit(frame({}));
+    expect(bar.element.hidden).toBe(false);
+    expect($(bar.element, "disk-light").classList.contains("on")).toBe(false);
+    port.emit(frame({ spinning: true }));
+    expect($(bar.element, "disk-light").classList.contains("on")).toBe(true);
+    port.emit(frame({ spinning: true, drive: 1 })); // drive 2's motor: not this light
+    expect($(bar.element, "disk-light").classList.contains("on")).toBe(false);
+  });
+
+  test("a disk picked goes in and is kept; Eject takes it out and forgets it", async () => {
+    const { port, store, bar } = make();
+    expect(shown(bar.element)).toEqual(["disk-insert"]);
+    await pick(bar.element, "Trail.woz", new Uint8Array([9, 9]));
+    expect(port.callsTo("insertDisk")).toEqual([[0, new Uint8Array([9, 9]), "Trail.woz"]]);
+    expect($(bar.element, "disk-insert").textContent).toBe("Trail.woz");
+    expect(shown(bar.element)).toEqual(["disk-insert", "disk-protect", "disk-save", "disk-eject"]);
+    expect((await store.get(0))?.name).toBe("Trail.woz");
+    $(bar.element, "disk-eject").click();
+    await flush();
+    expect(port.callsTo("ejectDisk")).toEqual([[0]]);
+    expect(await store.get(0)).toBeNull();
+    expect(shown(bar.element)).toEqual(["disk-insert"]);
+  });
+
+  test("a file that is no disk: says why, and nothing is kept", async () => {
+    const { port, store, bar } = make();
+    port.diskError = "notes.txt: 5 bytes is no disk image";
+    await pick(bar.element, "notes.txt", new Uint8Array(5));
+    expect($(bar.element, "disk-note").textContent).toBe("notes.txt: 5 bytes is no disk image");
+    expect(await store.get(0)).toBeNull();
+    expect(shown(bar.element)).toEqual(["disk-insert"]);
+  });
+
+  test("write-protect is the disk's, and kept with it", async () => {
+    const { port, store, bar } = make();
+    await pick(bar.element, "a.dsk", new Uint8Array(4));
+    $(bar.element, "disk-protect").click();
+    await flush();
+    expect(port.callsTo("setWriteProtect")).toEqual([[0, true]]);
+    expect($(bar.element, "disk-protect").getAttribute("aria-pressed")).toBe("true");
+    expect((await store.get(0))?.writeProtected).toBe(true);
+  });
+
+  test("kept from last time: back in once connected, write-protect and all", async () => {
+    const { port, store, bar } = make();
+    await store.put(0, { name: "old.po", bytes: new Uint8Array([1]), writeProtected: true, format: "po" });
+    await bar.restore();
+    expect(port.callsTo("insertDisk")).toEqual([[0, new Uint8Array([1]), "old.po"]]);
+    expect(port.callsTo("setWriteProtect")).toEqual([[0, true]]);
+    expect($(bar.element, "disk-insert").textContent).toBe("old.po");
+  });
+
+  test("Save downloads it in its own format, or as .woz when it no longer fits one", async () => {
+    const { port, bar, downloads } = make();
+    await pick(bar.element, "Master.dsk", new Uint8Array(4));
+    $(bar.element, "disk-save").click();
+    await flush();
+    expect(port.callsTo("saveDisk")).toEqual([[0, "dsk"]]);
+    expect(downloads.map((d) => d[0])).toEqual(["Master.dsk"]);
+    let calls = 0;
+    port.saveDisk = async (_drive, format) => {
+      if (++calls === 1 || format !== "woz") throw new Error("track 3, sector 0 does not read as a plain sector");
+      return new Uint8Array([7]);
+    };
+    $(bar.element, "disk-save").click();
+    await flush();
+    expect(downloads.map((d) => d[0])).toEqual(["Master.dsk", "Master.woz"]);
+    expect($(bar.element, "disk-note").textContent).toMatch(/saved as \.woz/);
+  });
+
+  test("what is written is kept once the drive stops, and only then", async () => {
+    const { port, store, bar } = make();
+    port.onFrame(bar.update);
+    port.emit(frame({}));
+    await pick(bar.element, "Master.dsk", new Uint8Array(4));
+    port.saved = new Uint8Array([5, 5]);
+    port.emit(frame({ spinning: true }));
+    port.disks[0]!.writes = 40; // DOS wrote
+    await flush();
+    expect((await store.get(0))?.bytes).toEqual(new Uint8Array(4)); // not while it spins
+    port.emit(frame({ spinning: false }));
+    await flush();
+    expect((await store.get(0))?.bytes).toEqual(new Uint8Array([5, 5]));
+    expect(port.callsTo("saveDisk")).toEqual([[0, "dsk"]]);
+    port.emit(frame({ spinning: true }));
+    port.emit(frame({ spinning: false })); // read only, this time
+    await flush();
+    expect(port.callsTo("saveDisk").length).toBe(1);
+  });
+
+  test("the IIe looking for a disk with none in: says so, and why it seems stuck", async () => {
+    const { port, bar } = make();
+    port.emit({ apple: true, ...frame({ spinning: true }) });
+    expect($(bar.element, "disk-note").textContent).toMatch(/^No disk: the IIe waits for one/);
+    port.emit({ apple: true, ...frame({ spinning: false }) }); // Ctrl-Reset: BASIC
+    expect($(bar.element, "disk-note").textContent).toBe("");
+    await pick(bar.element, "a.dsk", new Uint8Array(4));
+    port.emit({ apple: true, ...frame({ spinning: true }) }); // a disk in: just reading
+    expect($(bar.element, "disk-note").textContent).toBe("");
+  });
+
+  test("names: the stem, the format's extension", () => {
+    expect(savedName("The Oregon Trail.dsk", "woz")).toBe("The Oregon Trail.woz");
+    expect(savedName("X.PO", "po")).toBe("X.po");
+    expect(savedName("image", "dsk")).toBe("image.dsk");
+  });
+});

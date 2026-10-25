@@ -3,7 +3,20 @@
  * frames a test gives it. No machine behind it.
  */
 
-import type { AppleState, Cartridge, Clock, FrameState, MachinePort, MouseInput, PanelKey, PortCaps, TraceRow } from "./machine-port";
+import type {
+  AppleState,
+  Cartridge,
+  Clock,
+  DiskFormat,
+  DiskInfo,
+  DiskStatus,
+  FrameState,
+  MachinePort,
+  MouseInput,
+  PanelKey,
+  PortCaps,
+  TraceRow,
+} from "./machine-port";
 
 export type FakeCall = [name: string, ...args: unknown[]];
 
@@ -22,10 +35,18 @@ export class FakePort implements MachinePort {
   apple: AppleState | null = null;
   /** insertCartridge() rejects with this, if set. */
   cartridgeError: string | null = null;
+  /** The drives: what readDiskInfo() returns, and insertDisk() sets. */
+  readonly disks: (DiskInfo | null)[] = [null, null];
+  /** insertDisk() and saveDisk() reject with this, if set. */
+  diskError: string | null = null;
+  /** What saveDisk() returns. */
+  saved = new Uint8Array([1, 2, 3]);
+  /** What readDisk2() returns. */
+  disk2: DiskStatus | null = null;
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
-    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, ...caps };
+    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, ...caps };
   }
 
   /** Send a frame to the listeners; unset fields take idle defaults. */
@@ -42,6 +63,7 @@ export class FakePort implements MachinePort {
       regs: null,
       fixedHz: 0,
       apple: false,
+      disk: null,
       video: null,
       ...frame,
     };
@@ -93,6 +115,31 @@ export class FakePort implements MachinePort {
   }
   async readApple(): Promise<AppleState | null> {
     return this.apple;
+  }
+  async insertDisk(drive: number, bytes: Uint8Array, name: string): Promise<DiskInfo> {
+    this.calls.push(["insertDisk", drive, bytes, name]);
+    if (this.diskError) throw new Error(this.diskError);
+    const format: DiskFormat = /\.woz$/i.test(name) ? "woz" : /\.po$/i.test(name) ? "po" : "dsk";
+    return (this.disks[drive] = { name, format, writeProtected: false, changed: false, writes: 0 });
+  }
+  ejectDisk(drive: number): void {
+    this.calls.push(["ejectDisk", drive]);
+    this.disks[drive] = null;
+  }
+  async readDiskInfo(drive: number): Promise<DiskInfo | null> {
+    return this.disks[drive] ? { ...this.disks[drive]! } : null;
+  }
+  async saveDisk(drive: number, format: DiskFormat): Promise<Uint8Array> {
+    this.calls.push(["saveDisk", drive, format]);
+    if (this.diskError) throw new Error(this.diskError);
+    return this.saved;
+  }
+  async readDisk2(): Promise<DiskStatus | null> {
+    return this.disk2;
+  }
+  setWriteProtect(drive: number, on: boolean): void {
+    this.calls.push(["setWriteProtect", drive, on]);
+    if (this.disks[drive]) this.disks[drive]!.writeProtected = on;
   }
   async readMemory(addr: number, length: number, space: "cpu" | "physical" | "io" = "cpu"): Promise<Uint8Array> {
     return Uint8Array.from({ length }, (_, i) => (space === "io" ? this.io.get(addr + i) : undefined) ?? this.memory.get(addr + i) ?? 0);

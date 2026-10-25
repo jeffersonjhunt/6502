@@ -1,7 +1,7 @@
 /**
  * Apple II mode's controls under the monitor: the cartridge (the owner's
- * IIe ROM, which ui/cartridge.ts sorts and keeps in this browser), Start
- * Apple IIe, and the IIe's two resets.
+ * IIe ROM, and the Disk II card's PROMs, which ui/cartridge.ts sorts and
+ * keeps in this browser), Start Apple IIe, and the IIe's two resets.
  *
  * Start Apple IIe is what the owner would do at the machine: START (a
  * hard reset, back to the BIOS whatever was running), then C806R at the
@@ -32,6 +32,16 @@ export function startApple(port: MachinePort): void {
   port.sendSerial(Uint8Array.from("C806R\r", (c) => c.charCodeAt(0)));
 }
 
+/** What is missing from a cartridge that works, if anything. */
+export function notes(c: Cartridge): string {
+  const n: string[] = [];
+  if (!c.chars) n.push("No character ROM: the BIOS draws one from the VGA font");
+  if (!c.diskBoot && !c.diskSequencer) n.push("No Disk II PROMs: the drive needs its boot ROM and sequencer");
+  else if (!c.diskBoot) n.push("No Disk II boot ROM (341-0027): the IIe will not boot from the drive");
+  else if (!c.diskSequencer) n.push("No Disk II sequencer (341-0028): the drive will read nothing");
+  return n.join(". ");
+}
+
 export interface AppleBarHooks {
   /** Start Apple IIe was pressed: show the Apple II scene. */
   started: () => void;
@@ -49,14 +59,15 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
   const note = h("span", { class: "apple-note", role: "status", "data-testid": "apple-note" });
   const element = h("div", { class: "apple-bar", "data-testid": "apple-bar" }, picker, insert, eject, start, reset, reboot, note);
 
+  let current: Cartridge | null = null;
   let loaded = false;
   let apple = false;
   let powered = true;
   const show = () => {
     insert.textContent = loaded ? "IIe ROM ✓" : "Insert IIe ROM…";
     insert.title = loaded
-      ? "Your Apple IIe ROM is in the cartridge, kept in this browser only. Click to put in another."
-      : "Your own Apple IIe ROM (16 KB, or the CD and EF halves, and the character ROM): it stays in this browser and is never uploaded";
+      ? "Your Apple IIe ROM is in the cartridge, kept in this browser only. Click to put in another, or add the Disk II's PROMs."
+      : "Your own Apple IIe ROM (16 KB, or the CD and EF halves), the character ROM, and the Disk II's two PROMs: they stay in this browser and are never uploaded";
     insert.classList.toggle("on", loaded);
     eject.hidden = !loaded;
     start.hidden = !loaded || apple;
@@ -72,6 +83,7 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
       say(String(err instanceof Error ? err.message : err));
       return false;
     }
+    current = c;
     loaded = c !== null;
     show();
     return true;
@@ -82,10 +94,10 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
     const files = await Promise.all(Array.from(picker.files ?? [], async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
     picker.value = ""; // the same files again is a change too
     if (!files.length) return;
-    const c = sortRoms(files);
+    const c = sortRoms(files, current);
     if (typeof c === "string") return void say(c);
     if (!(await plug(c))) return;
-    say(keepCartridge(c) ? (c.chars ? "" : "No character ROM: the BIOS draws one from the VGA font") : "In for now; this browser would not keep it");
+    say(keepCartridge(c) ? notes(c) : "In for now; this browser would not keep it");
   });
   eject.addEventListener("click", async () => {
     if (await plug(null)) {

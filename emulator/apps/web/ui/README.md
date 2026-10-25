@@ -78,7 +78,12 @@ localStorage, never uploaded; **Eject** forgets them. **Start Apple IIe** is
 START, then `C806R` at the monitor; in Apple II mode **Ctrl-Reset** and
 **Reboot** (Ctrl-Open Apple-Reset) type the IIe's resets. Entering Apple II
 mode, by the button or `C806R` typed, switches to the Apple II scene and
-lights AMODE. A paste goes to whichever keyboard the screen has: on VGA and
+lights AMODE. With the Disk II's two PROMs among those files (or added
+later, alone), the drive under the monitor takes a `.woz`, `.dsk`, `.do` or
+`.po`; the IIe boots it on Start. Its light is the drive's motor;
+Write-protect is the disk's notch; Save downloads it (as `.woz` if it no
+longer reads as plain sectors); Eject forgets it. The last disk is kept in
+this browser (IndexedDB), with what was written to it, never uploaded. A paste goes to whichever keyboard the screen has: on VGA and
 Apple II it is typed on the USB keyboard (US layout; letters as the card's
 Caps Lock has them), and the card holds each character until the machine
 has taken the last, so a BASIC program pasted into Applesoft arrives whole.
