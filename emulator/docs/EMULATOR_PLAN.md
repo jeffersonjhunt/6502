@@ -716,6 +716,9 @@ Decided to come later, not forgotten:
   would). Still to come: RSIDs, which need the VIC-II's raster interrupt (all 17 of the owner's
   wait on `$D012`), CIA 2 and timer B, and a third SID; and a native player program, so the real
   machine can do what the WebUI does.
+- **The Disk II in native mode** (2026-10-25). hw/design.md now puts the card's sixteen switches at
+  `$C600–$C60F` in native mode, so native software can use the drive (its timing: 224 CPU cycles a disk
+  byte). The emulator still answers only the ID byte there; then a native read/write driver to test it.
 - **More Disk II image formats** (2026-10-24). The Disk II starts with `.woz` (WOZ 1 and 2: the
   track's bits, for copy-protected originals), `.dsk`/`.do` and `.po` (140 KB sector images, DOS
   or ProDOS order, told apart by their contents). Later:
