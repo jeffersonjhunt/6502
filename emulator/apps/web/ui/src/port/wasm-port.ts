@@ -27,6 +27,7 @@ import type {
   PortCaps,
   Registers,
   MouseInput,
+  SidTune,
   SoundCpu,
   TraceRow,
   VideoFrame,
@@ -64,6 +65,11 @@ export interface CoreMachine {
   videoFrames(): number;
   videoFrame(): Uint8Array;
   setAudioRate(rate: number): void;
+  loadSid(bytes: string, song: number): boolean;
+  sidSong(song: number): boolean;
+  stopSid(): void;
+  sidInfo(): { has: boolean; name: string; author: string; released: string; warnings: string; songs: number; song: number; rsid: boolean; ntsc: boolean; mos8580: boolean };
+  soundRunning(): boolean;
   takeAudio(): Float32Array;
   setClock(hz: number): void;
   fixedHz(): number;
@@ -154,7 +160,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -253,6 +259,7 @@ export class WasmPort implements MachinePort {
       hz: this.hz,
       fixedHz: this.powered ? m.fixedHz() : 0, // as the run left it, as everything here is
       apple: this.powered && m.appleMode(),
+      soundRunning: this.powered && m.soundRunning(),
       disk: this.powered ? this.readDiskStatus(m) : null,
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
@@ -426,6 +433,37 @@ export class WasmPort implements MachinePort {
       return { level: v & 0xff, phase: phases[(v >> 8) & 3] ?? "release", held: !!(v & 0x400) };
     });
     return { ...c, jammed: state === 2, envelopes };
+  }
+
+  async playSid(bytes: Uint8Array, song = 0): Promise<SidTune> {
+    const m = this.machine;
+    if (!m.loadSid(bytesToString(bytes), song)) throw new Error(m.error());
+    return this.tune();
+  }
+
+  async playSong(song: number): Promise<SidTune> {
+    const m = this.machine;
+    if (!m.sidSong(song)) throw new Error(m.error());
+    return this.tune();
+  }
+
+  stopSid(): void {
+    this.m?.stopSid();
+  }
+
+  private tune(): SidTune {
+    const t = this.machine.sidInfo();
+    return {
+      name: t.name,
+      author: t.author,
+      released: t.released,
+      songs: t.songs,
+      song: t.song,
+      rsid: t.rsid,
+      clock: t.ntsc ? "NTSC" : "PAL",
+      model: t.mos8580 ? "8580" : "6581",
+      warnings: t.warnings ? t.warnings.split("\n") : [],
+    };
   }
 
   async readApple(): Promise<AppleState | null> {

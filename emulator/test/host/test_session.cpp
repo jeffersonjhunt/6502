@@ -13,6 +13,7 @@
 #include "test_support.h"
 
 #include "session.h"
+#include "sound_card.h"
 
 #include <cstdio>
 #include <fstream>
@@ -307,6 +308,68 @@ TEST(the_sound_cards_audio_keeps_real_time_and_outlasts_a_power_cycle)
     s->set_audio_rate(0);
     s->run(1'020'484 / 4);
     CHECK_EQ(s->take_audio(out.data(), 48'000), 0u);
+}
+
+namespace
+{
+    /// A two-song PSID of our own: init stores the song at $C000 and sets volume 15; play INCs $D400.
+    std::vector<uint8_t> two_song_sid()
+    {
+        std::vector<uint8_t> b(0x7C, 0);
+        auto put16 = [&](size_t at, unsigned v) {
+            b[at] = static_cast<uint8_t>(v >> 8);
+            b[at + 1] = static_cast<uint8_t>(v);
+        };
+        b[0] = 'P', b[1] = 'S', b[2] = 'I', b[3] = 'D';
+        put16(0x04, 2), put16(0x06, 0x7C), put16(0x08, 0x1000), put16(0x0A, 0x1000), put16(0x0C, 0x1009);
+        put16(0x0E, 2), put16(0x10, 1), put16(0x76, 0x0014);
+        const std::string name = "Two Songs";
+        std::copy(name.begin(), name.end(), b.begin() + 0x16);
+        for (const int x : {0x8D, 0x00, 0xC0, 0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0x60, 0xEE, 0x00, 0xD4, 0x60})
+            b.push_back(static_cast<uint8_t>(x));
+        return b;
+    }
+} // namespace
+
+TEST(a_sid_tune_plays_on_the_card_changes_song_stops_and_goes_with_a_power_cycle)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    SoundCard *card = s->sound();
+    REQUIRE(card != nullptr);
+    std::string error;
+    REQUIRE(s->play_sid(two_song_sid(), 0, error));
+    REQUIRE(s->sid() != nullptr);
+    CHECK_EQ(s->sid()->name, std::string("Two Songs"));
+    CHECK_EQ(s->sid_song(), 1u);
+    CHECK(card->ctrl() & SoundCard::CTRL_RUN);
+    s->run(7'159'090 / 5); // a fifth of a second of the host: ten frames on the card
+    CHECK_EQ(card->sid(0)[0x18], 0x0F);
+    const uint8_t frames = card->sid(0)[0x00];
+    CHECK(frames >= 9 && frames <= 10);
+    CHECK_EQ(card->ram()[0xC000], 0);
+
+    REQUIRE(s->play_song(2, error));
+    CHECK_EQ(s->sid_song(), 2u);
+    s->run(7'159'090 / 50);
+    CHECK_EQ(card->ram()[0xC000], 1); // init again, with song 2 in A
+    CHECK(card->sid(0)[0x00] <= 1);  // from silence again
+    CHECK(!s->play_song(3, error));
+    CHECK(!error.empty());
+
+    CHECK(!s->play_sid({1, 2, 3}, 0, error)); // not a .sid: the tune playing stays
+    CHECK_EQ(s->sid()->name, std::string("Two Songs"));
+    CHECK(card->ctrl() & SoundCard::CTRL_RUN);
+
+    s->stop_sid();
+    CHECK(s->sid() == nullptr);
+    CHECK(!(card->ctrl() & SoundCard::CTRL_RUN));
+    CHECK_EQ(card->sid(0)[0x18], 0);
+
+    REQUIRE(s->play_sid(two_song_sid(), 2, error));
+    REQUIRE(s->power_cycle(error));
+    CHECK(s->sid() == nullptr); // a new card, no tune on it
+    CHECK(!(s->sound()->ctrl() & SoundCard::CTRL_RUN));
 }
 
 TEST(pause_break_on_the_usb_keyboard_breaks_into_the_monitor)

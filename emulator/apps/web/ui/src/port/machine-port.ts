@@ -36,6 +36,24 @@ export interface PortCaps {
   disk: boolean;
   /** listen() works: FrameState.audio carries the sound card's sound (the real card plays through its own jacks). */
   audio: boolean;
+  /** playSid() works: a .sid tune straight onto the sound card. */
+  sid: boolean;
+}
+
+/** A .sid tune on the sound card (playSid). */
+export interface SidTune {
+  name: string;
+  author: string;
+  released: string;
+  songs: number;
+  /** The one playing, 1-based. */
+  song: number;
+  /** An RSID: written for a whole C64, which the card is not. */
+  rsid: boolean;
+  clock: "PAL" | "NTSC";
+  model: "6581" | "8580";
+  /** What the card can't give it (a third SID, a VIC-II...). */
+  warnings: string[];
 }
 
 /** The owner's Apple IIe ROM for the cartridge (ROM B). */
@@ -209,6 +227,8 @@ export interface FrameState {
   fixedHz: number;
   /** In Apple II mode (the panel's AMODE lamp). */
   apple: boolean;
+  /** The sound card's 6510 runs (a tune plays); false without the card. */
+  soundRunning: boolean;
   /** The Disk II card, if the machine has one (the drive light). */
   disk: DiskStatus | null;
   /** What the machine sent on its serial line since the last frame. */
@@ -321,6 +341,17 @@ export interface MachinePort {
   readDisk2(): Promise<DiskStatus | null>;
   /** The sound card's 6510; null without the card. Its registers are readMemory(0xC500, 0x80, "io"). */
   readSound(): Promise<SoundCpu | null>;
+  /**
+   * A .sid file's song (default: its own start song) onto the sound card,
+   * started as a host program would (hw/design.md, ".sid playback"), with
+   * the chips' model the tune asks for. Rejects with a readable reason; a
+   * tune already playing then plays on.
+   */
+  playSid(bytes: Uint8Array, song?: number): Promise<SidTune>;
+  /** Another song of the tune playing. */
+  playSong(song: number): Promise<SidTune>;
+  /** Stop the tune and forget it. */
+  stopSid(): void;
 
   setLights(on: boolean): void;
   watchRegisters(on: boolean): void;

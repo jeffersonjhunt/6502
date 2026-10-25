@@ -282,15 +282,20 @@ namespace ooe::emu
         return plan;
     }
 
-    void start_sid(SoundCard &card, const SidPlan &plan)
+    void stop_sid(SoundCard &card)
     {
         card.write(SoundCard::CTRL, 0); // stopped: the SIDs are the host's
-        card.set_model(plan.model);
         for (unsigned reg = 0; reg < 0x19; ++reg)
         {
             card.write(SoundCard::SID_A + reg, 0);
             card.write(SoundCard::SID_B + reg, 0);
         }
+    }
+
+    void start_sid(SoundCard &card, const SidPlan &plan)
+    {
+        stop_sid(card);
+        card.set_model(plan.model);
         for (const auto &block : plan.blocks)
         {
             card.write(SoundCard::RAMADDR, static_cast<uint8_t>(block.addr));

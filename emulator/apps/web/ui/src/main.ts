@@ -7,7 +7,8 @@
  * and Apple II (the video card's IIe picture, filling the screen). Entering
  * Apple II mode, however it happens, switches to the Apple II scene; under
  * the monitor are the cartridge and the IIe's controls (ui/apple-bar.ts),
- * the Disk II's drive, and Sound, the sound card through the speakers.
+ * the Disk II's drive, and Sound, the sound card through the speakers, with
+ * a .sid tune to play on it (ui/sid-bar.ts).
  *
  * Built with VITE_HOME_URL set, the badge links back to that page.
  */
@@ -40,6 +41,7 @@ import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
 import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
+import { sidBar } from "./ui/sid-bar";
 
 function statusText(f: FrameState, clockLabel: string): string {
   if (!f.powered) return "POWER OFF";
@@ -88,6 +90,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   const dbg = debuggerPane(port);
   const speaker = new Speaker(port);
   const sound = soundButton(speaker, port.caps.audio && typeof AudioWorkletNode !== "undefined");
+  const tune = sidBar(port, { playing: () => void (speaker.on || sound.turnOn()) });
   const bar = toolbar(port, panel, {
     trailing: [dbg.toggle],
     phosphor: (p) => {
@@ -226,7 +229,8 @@ function start(root: HTMLElement, port: MachinePort): void {
     { class: "mon" },
     glass,
     h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status), apple.element, scenes.element),
-    h("div", { class: "mon-foot mon-drive" }, drive.element, sound.element), // the monitor's speaker
+    h("div", { class: "mon-foot mon-drive" }, drive.element),
+    h("div", { class: "mon-foot mon-sound" }, sound.element, tune.element), // the monitor's speaker, and a tune for it
   );
 
   const rack = frontPanel(panel);
@@ -262,6 +266,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     drive.update(f);
     speaker.feed(f);
     sound.update();
+    tune.update(f);
     if (f.serialOut.length) terminal.write(f.serialOut);
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal

@@ -48,6 +48,7 @@
 #include "console_card.h"
 #include "cpu6502.h"
 #include "machine.h"
+#include "sid_file.h"
 #include "symbols.h"
 
 namespace ooe::emu
@@ -131,6 +132,19 @@ namespace ooe::emu
         uint32_t audio_rate() const { return audio_rate_; }
         /// Up to `max_frames` stereo frames (left, right) made since the last call. @return frames
         size_t take_audio(float *out, size_t max_frames);
+        /// A `.sid` file's song on the sound card (0: its start song), started as a host
+        /// program would start it (sid_file.h), though no program runs: the session writes
+        /// the card's registers itself. @return false, with `error`: not a .sid, no card...
+        bool play_sid(const std::vector<uint8_t> &bytes, unsigned song, std::string &error);
+        /// Another song of the tune last played. @return false, with `error`
+        bool play_song(unsigned song, std::string &error);
+        /// Stop the tune: the card's 6510 stopped, the SIDs silent. The tune is forgotten
+        /// (a power cycle forgets it too; START's /RESET stops the card without forgetting).
+        void stop_sid();
+        /// The tune last played (nullptr: none), its song, and what the card can't give it.
+        const SidFile *sid() const { return sid_.get(); }
+        unsigned sid_song() const { return sid_song_; }
+        const std::vector<std::string> &sid_warnings() const { return sid_warnings_; }
         const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
 
         // The panel: the card's inputs (nothing without a card)
@@ -237,5 +251,8 @@ namespace ooe::emu
         std::string output_;
         uint64_t next_service_{0};
         std::array<std::shared_ptr<DiskImage>, Disk2Card::DRIVES> disks_{};
+        std::unique_ptr<SidFile> sid_;
+        unsigned sid_song_{0};
+        std::vector<std::string> sid_warnings_;
     };
 } // namespace ooe::emu

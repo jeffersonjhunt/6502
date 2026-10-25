@@ -9,6 +9,7 @@ import type { FrameState } from "./machine-port";
 import { usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
+import { fakeSid } from "./fake-sid";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
@@ -300,6 +301,43 @@ describe("WasmPort", () => {
     expect(Math.max(...after.map(Math.abs))).toBeLessThan(0.01);
     m.port.listen(0);
     expect(m.step().audio).toBeNull();
+  });
+
+  test("a .sid tune: onto the card, its songs, heard, stopped; a bad file refused, the tune playing on", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.port.listen(48_000);
+    expect(m.step().soundRunning).toBe(false);
+    const t = await m.port.playSid(fakeSid({ songs: 3, name: "Test Tone", flags: 0x24 }));
+    expect(t).toEqual({ name: "Test Tone", author: "OO-1 tests", released: "2026", songs: 3, song: 1, rsid: false, clock: "PAL", model: "8580", warnings: [] });
+    expect(m.step().soundRunning).toBe(true);
+    const loud = () => {
+      let sq = 0;
+      let n = 0;
+      for (let i = 0; i < 20; ++i) {
+        const a = m.step().audio!;
+        for (const v of a) sq += v * v;
+        n += a.length;
+      }
+      return Math.sqrt(sq / n);
+    };
+    expect(loud()).toBeGreaterThan(0.05); // a triangle at full envelope, on both sides (a mono tune)
+    expect((await m.port.playSong(3)).song).toBe(3);
+    m.step(); // the card runs init again
+    expect(Array.from(await m.port.readMemory(0x501, 1, "io"))).toEqual([0x18]); // SID A's pitch: song 3's
+    await expect(m.port.playSong(4)).rejects.toThrow(/song 4 of 3/);
+    await expect(m.port.playSid(new Uint8Array([1, 2, 3]))).rejects.toThrow(/not a \.sid file/);
+    expect(m.step().soundRunning).toBe(true); // the tune plays on
+    m.port.stopSid();
+    expect(m.step().soundRunning).toBe(false);
+    loud(); // the DC settling
+    expect(loud()).toBeLessThan(0.002);
+    const big = await m.port.playSid(fakeSid({ rsid: true, sid3: 0x44 }));
+    expect(big.rsid).toBe(true);
+    expect(big.warnings).toEqual(["it needs a third SID, at $D440", "an RSID tune expects a whole C64 (VIC-II, CIA 2, ROMs)"]);
+    m.port.setPower(false);
+    m.port.setPower(true);
+    expect(m.step().soundRunning).toBe(false); // a power cycle: gone
   });
 
   test("a machine that will not open is a rejection with the reason", async () => {

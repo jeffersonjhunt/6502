@@ -140,5 +140,6 @@ function base() {
     disk: null,
     video: null,
     audio: null,
+    soundRunning: false,
   };
 }

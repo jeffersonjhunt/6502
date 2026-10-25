@@ -128,6 +128,9 @@ namespace ooe::emu
         clock_cards();
         if (SoundCard *s = machine_->sound_card())
             s->set_audio_rate(audio_rate_);
+        sid_.reset(); // a new card: no tune on it
+        sid_song_ = 0;
+        sid_warnings_.clear();
         if (Disk2Card *d = machine_->disk2_card()) // the disks are still in their drives
             for (unsigned i = 0; i < Disk2Card::DRIVES; ++i)
                 d->insert(i, disks_[i]);
@@ -221,6 +224,50 @@ namespace ooe::emu
     {
         SoundCard *s = machine_->sound_card();
         return s ? s->take_audio(out, max_frames) : 0;
+    }
+
+    bool Session::play_sid(const std::vector<uint8_t> &bytes, unsigned song, std::string &error)
+    {
+        if (!machine_->sound_card())
+        {
+            error = "this machine has no sound card";
+            return false;
+        }
+        auto file = parse_sid(bytes, error);
+        if (!file)
+            return false;
+        auto keep = std::make_unique<SidFile>(std::move(*file));
+        std::swap(sid_, keep);
+        if (play_song(song, error))
+            return true;
+        std::swap(sid_, keep); // the old tune, if any, is still the one
+        return false;
+    }
+
+    bool Session::play_song(unsigned song, std::string &error)
+    {
+        SoundCard *card = machine_->sound_card();
+        if (!card || !sid_)
+        {
+            error = card ? "no tune" : "this machine has no sound card";
+            return false;
+        }
+        const auto plan = plan_sid(*sid_, song, error);
+        if (!plan)
+            return false;
+        start_sid(*card, *plan);
+        sid_song_ = song ? song : sid_->start_song;
+        sid_warnings_ = plan->warnings;
+        return true;
+    }
+
+    void Session::stop_sid()
+    {
+        if (SoundCard *card = machine_->sound_card())
+            ooe::emu::stop_sid(*card);
+        sid_.reset();
+        sid_song_ = 0;
+        sid_warnings_.clear();
     }
 
     void Session::clock_cards()

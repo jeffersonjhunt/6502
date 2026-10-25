@@ -91,7 +91,12 @@ has taken the last, so a BASIC program pasted into Applesoft arrives whole.
 the computer's speakers (Web Audio, at the device's own rate; the meter in
 the button is the card's level). It is remembered; left on, it plays from
 the first click or key after a reload, as browsers require. Halting the
-machine silences it: the emulator's time is the CPU's.
+machine silences it: the emulator's time is the CPU's. **Play .sid…**
+beside it puts a C64 tune of your own (PSID or RSID) on the sound card,
+turning Sound on; ◀ ▶ change the song, Stop stops it, and the note says
+what the card can't give a tune (a third SID; an RSID's VIC-II, without
+which most stay silent). The file stays in the page: not kept, never
+uploaded.
 The screen font is VileR's (CC BY-SA 4.0), and the page
 credits it under the front panel.
 

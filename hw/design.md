@@ -1082,9 +1082,9 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
 6. **The Disk II controller,** with `.woz`, `.dsk`/`.do` and `.po` images (decided 2026-10-24; `.nib`, `.d13` and
    `.2mg` are in the emulator's backlog, [EMULATOR_PLAN.md](../emulator/docs/EMULATOR_PLAN.md#backlog)).
 7. **The sound card:** the registers and mailbox first, then the card's own 6510 (with the NMOS undocumented
-   opcodes) and the SID, with sound later. *(Emulated 2026-10-25, all but the sound: the SIDs' oscillators and
-   envelopes, which OSC3 and ENV3 read back; the filter, the mixer and audio output are in the emulator's
-   backlog.)*
+   opcodes) and the SID, with sound later. *(Emulated 2026-10-25: the SIDs' oscillators and envelopes, which
+   OSC3 and ENV3 read back, then the output stage (waveform DACs, the filter, the mixer) and sound in the WebUI,
+   which also plays `.sid` files on the card. Combined waveforms' real values are in the emulator's backlog.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 

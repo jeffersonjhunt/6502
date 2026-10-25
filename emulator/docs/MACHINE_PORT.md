@@ -23,6 +23,7 @@ Everything in the port is something the real board can also do:
 | Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the GoTek in the drive's place: an image in, out, written back; the drive's light |
 | Sound card | `readSound`, and its registers through `readMemory(0xC500, 0x80, "io")` | the card's 6510 and its SIDs, for the debugger |
 | Sound | `listen`, `FrameState.audio` | the sound card's audio (emulator only: the board's card plays through its own jacks) |
+| A tune | `playSid`, `playSong`, `stopSid`, `FrameState.soundRunning` | a `.sid` file onto the sound card (emulator only, `caps.sid`: on the board a program on the CPU would load it) |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
 The UI never calls the emulator's debugger. Breakpoints are the Console
@@ -35,7 +36,9 @@ the same way against the board.
 instruction). The board cannot show the CPU's registers (`registers: false`
 there), and needs a capture device on its VGA port for `video`. A backend
 that cannot take a cartridge says `cartridge: false`; one whose sound comes
-out of the machine itself, as the board's does, says `audio: false`.
+out of the machine itself, as the board's does, says `audio: false`, and
+one that can't load a tune onto the sound card without a program says
+`sid: false`.
 
 `readMemory` reads CPU addresses (through the windows), physical ones, or
 `"io"`: the cards' registers at the addresses the native map gives them
@@ -70,7 +73,11 @@ the card the CPU clock, so it keeps 60 frames a second at any speed.
 the last frame at that rate, left and right interleaved (SID A, SID B), -1
 to 1; `listen` is kept through power cycles, and `listen(0)` stops the card
 making them at all. Time is the CPU's, so a halted or stopped machine is a
-silent one (the board's card would play on).
+silent one (the board's card would play on). `playSid` starts a `.sid`
+file's song on the card as hw/design.md's player would (the tune at its
+load address, the stub, the clock and the chips' model from the header),
+writing the card's registers itself; `soundRunning` says the card's 6510
+still runs it, so a page sees a power cycle or START's /RESET stop it.
 
 Lamps are 0 to 1: the share of bus cycles each line was high since the last
 frame (weighted by wait states), or exactly 0/1 while halted, when they
