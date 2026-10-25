@@ -10,7 +10,9 @@ namespace ooe::emu
 {
     void SoundCard::reset()
     {
-        sid_ = {};
+        chips_[0].reset();
+        chips_[1].reset();
+        sids_at_ = clock_;
         ctrl_ = ien_ = 0;
         ram_addr_ = 0;
         to_card_ = to_host_ = 0;
@@ -34,20 +36,44 @@ namespace ooe::emu
 
     void SoundCard::tick(uint64_t cycles)
     {
-        if (!(ctrl_ & CTRL_RUN))
-            return;
         // SID clocks = host cycles x SID Hz / host Hz, the remainder carried.
         phase_ += cycles * sid_hz();
-        owed_ += static_cast<int64_t>(phase_ / host_hz_);
+        const uint64_t due = phase_ / host_hz_;
         phase_ %= host_hz_;
+        if (!(ctrl_ & CTRL_RUN))
+        {
+            clock_ += due; // the SIDs' clock runs on; they catch up when next touched
+            return;
+        }
+        owed_ += static_cast<int64_t>(due);
         while (owed_ > 0)
         {
-            const unsigned n = cpu_.step();
+            step_start_ = cpu_.cycles();
+            in_step_ = true;
+            const auto n = static_cast<unsigned>(cpu_.step());
+            in_step_ = false;
+            clock_ += n;
             cia_tick(n);
             owed_ -= n;
             if (cia_irq())
                 cpu_.irq(); // ignored while I is set; level-sensitive, so it comes back
         }
+    }
+
+    uint64_t SoundCard::now() const
+    {
+        // Mid-instruction, the 6510's accesses so far: a SID write lands on its own cycle.
+        return clock_ + (in_step_ ? cpu_.cycles() - step_start_ : 0);
+    }
+
+    void SoundCard::catch_up() const
+    {
+        const uint64_t t = now();
+        if (t <= sids_at_)
+            return;
+        chips_[0].clock(t - sids_at_);
+        chips_[1].clock(t - sids_at_);
+        sids_at_ = t;
     }
 
     uint8_t SoundCard::read(uint32_t offset)
@@ -107,8 +133,8 @@ namespace ooe::emu
         switch (o)
         {
         case CTRL:
-            if (!(ctrl_ & CTRL_RUN))
-                phase_ = 0; // a stopped card owes nothing
+            if ((data ^ ctrl_) & CTRL_NTSC)
+                phase_ = 0; // a new crystal: the remainder was in the old one's clocks
             ctrl_ = static_cast<uint8_t>(data & ~CTRL_RESET); // RESET is a strobe
             if (data & CTRL_RESET)
                 reset_cpu();
@@ -159,28 +185,16 @@ namespace ooe::emu
 
     void SoundCard::sid_write(unsigned chip, unsigned reg, uint8_t data)
     {
-        if (reg >= POTX)
-            return; // read-only
-        sid_[chip & 1][reg] = data;
+        catch_up(); // the write lands on its clock
+        chips_[chip & 1].write(reg, data);
         if ((chip & 1) == 0 && (ctrl_ & CTRL_BOTH))
-            sid_[1][reg] = data;
+            chips_[1].write(reg, data);
     }
 
     uint8_t SoundCard::sid_read(unsigned chip, unsigned reg) const
     {
-        if (reg >= SID_REGS)
-            return 0xFF; // $1D-$1F
-        switch (reg)
-        {
-        case POTX:
-        case POTY:
-            return 0xFF; // no paddles
-        case OSC3:
-        case ENV3:
-            return 0; // the SID model is step 7d
-        default:
-            return sid_[chip & 1][reg];
-        }
+        catch_up();
+        return chips_[chip & 1].read(reg);
     }
 
     // --- the card's 6510 and its map -------------------------------------------

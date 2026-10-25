@@ -74,6 +74,7 @@ export interface CoreMachine {
   setWriteProtect(drive: number, on: boolean): void;
   diskStatus(): number;
   diskQuarter(drive: number): number;
+  soundVoice(chip: number, voice: number): number;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
   appleMode(): boolean;
   appleSwitches(): number;
@@ -413,7 +414,13 @@ export class WasmPort implements MachinePort {
 
   async readSound(): Promise<SoundCpu | null> {
     const { has, state, ...c } = this.machine.soundCpu();
-    return has ? { ...c, jammed: state === 2 } : null;
+    if (!has) return null;
+    const phases = ["attack", "decay/sustain", "release"] as const;
+    const envelopes = [0, 1, 2, 3, 4, 5].map((i) => {
+      const v = this.machine.soundVoice(Math.floor(i / 3), i % 3);
+      return { level: v & 0xff, phase: phases[(v >> 8) & 3] ?? "release", held: !!(v & 0x400) };
+    });
+    return { ...c, jammed: state === 2, envelopes };
   }
 
   async readApple(): Promise<AppleState | null> {

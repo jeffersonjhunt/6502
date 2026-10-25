@@ -676,10 +676,31 @@ LAX, SAX and DCP, banks I/O out and back, and plays notes on mailbox
 commands, answering each. The Devices tab shows the 6510's registers,
 its port and the timer (soundCpu in the bindings, readSound on the port).
 
+**The sound card, step 7d (2026-10-25): the SIDs' oscillators and
+envelopes.** `Sid` (sid.h), written from the chip's documented and
+measured behaviour (reSID is GPL, so none of it is used): 24-bit phase
+accumulators, the sawtooth, triangle (with ring), pulse and noise
+waveforms (the 23-bit register, taps 22 and 17, clocked by bit 19), hard
+sync and TEST; the ADSR envelopes with the measured rate periods, the
+exponential decay and release, sustain, and the rate counter's wrap (the
+ADSR delay). That is what software reads back: OSC3 and ENV3, live, so
+tunes that use them for vibrato, noise or timing work. The chips run from
+the SID clock whether or not the 6510 does, and are clocked up to the
+moment they are touched (mid-instruction for the 6510's own accesses), in
+bulk where nothing depends on the order. Combined waveforms are ANDed,
+which the real chip's are not. Checked against the datasheet's timings:
+a full attack at A=0 in 255 x 9 clocks, a decay through all six of the
+exponential marks, the delay after a period drops below the count; and
+OSC3 read by the 6510 on its LDA's own cycle. The Devices tab shows each
+voice's envelope, and OSC3 and ENV3.
+
 ## Backlog
 
 Decided to come later, not forgotten:
 
+- **The sound card's sound** (2026-10-25). Steps 7a-7d model everything software can read back.
+  Still to come: the SID's waveform DAC, the filter and the mixer, the output to Web Audio (and
+  the terminal app), the combined waveforms' real values, and `.sid` playback (hw/design.md, "Sound").
 - **More Disk II image formats** (2026-10-24). The Disk II starts with `.woz` (WOZ 1 and 2: the
   track's bits, for copy-protected originals), `.dsk`/`.do` and `.po` (140 KB sector images, DOS
   or ProDOS order, told apart by their contents). Later:

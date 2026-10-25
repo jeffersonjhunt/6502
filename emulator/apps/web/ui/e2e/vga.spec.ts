@@ -70,7 +70,8 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   // The sound card, as the BIOS leaves it: nothing touches it yet.
   const sound = page.getByTestId("dev-sound");
   await expect(sound.locator('[data-reg="CTRL"]')).toHaveText("$00  PAL 0.985 MHz · 6510 stopped · SID B at $D420");
-  await expect(sound.locator('[data-reg="SID A"]')).toHaveText("volume 0 · filter off");
+  await expect(sound.locator('[data-reg="SID A"]')).toHaveText("volume 0 · filter off · OSC3 $00 ENV3 $00");
+  await expect(sound.locator('[data-reg="A1"]')).toHaveText("$0000 · no waveform · ADSR 0 0 0 0 · env $00 held at 0");
   await expect(sound.locator('[data-reg="6510"]')).toContainText("· held"); // never started
   await expect(sound.locator('[data-reg="Timer A"]')).toHaveText("$FFFF of $FFFF · stopped");
 });
