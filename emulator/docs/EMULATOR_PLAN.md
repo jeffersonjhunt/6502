@@ -710,9 +710,11 @@ Decided to come later, not forgotten:
 - **`.sid` playback** (2026-10-25). Loading and running a tune is done (`sid_file.h`, `sidcheck`):
   of 192 owner-supplied tunes, every PSID with a play routine plays, and 164 of them match
   siddump's registers call for call over 500 calls (siddump can't run 7 of the rest, 2 need a third
-  SID and 1 relies on `$D440` mirroring `$D400`, which siddump doesn't do). Still to come: a way to
-  play one in the WebUI (with the sound), RSIDs, which need the VIC-II's raster interrupt (all 17
-  of the owner's wait on `$D012`), CIA 2 and timer B, and a third SID.
+  SID and 1 relies on `$D440` mirroring `$D400`, which siddump doesn't do). 8c plays them in the
+  WebUI (Play .sid… under the monitor; the session writes the card's registers as a host program
+  would). Still to come: RSIDs, which need the VIC-II's raster interrupt (all 17 of the owner's
+  wait on `$D012`), CIA 2 and timer B, and a third SID; and a native player program, so the real
+  machine can do what the WebUI does.
 - **More Disk II image formats** (2026-10-24). The Disk II starts with `.woz` (WOZ 1 and 2: the
   track's bits, for copy-protected originals), `.dsk`/`.do` and `.po` (140 KB sector images, DOS
   or ProDOS order, told apart by their contents). Later:

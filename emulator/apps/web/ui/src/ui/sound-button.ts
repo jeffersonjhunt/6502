@@ -37,6 +37,12 @@ export function soundButton(speaker: Speaker, available: boolean) {
   // A browser plays only after the user does something: the first click or key anywhere wakes a kept setting.
   for (const type of ["pointerdown", "keydown"] as const) document.addEventListener(type, () => speaker.wake(), { capture: true });
 
+  /** On, from a click, as the button does: remembered. */
+  const turnOn = () => {
+    const on = speaker.turnOn();
+    prefs.set("sound", "on");
+    return on;
+  };
   /** Turn it on again if it was left on (it plays from the first click or key). */
   const restore = () => {
     if (available && prefs.get("sound") === "on") void speaker.turnOn();
@@ -49,5 +55,5 @@ export function soundButton(speaker: Speaker, available: boolean) {
     button.dataset.played = String(speaker.stats.played);
   };
   show();
-  return { element: button, update, restore };
+  return { element: button, update, restore, turnOn };
 }

@@ -74,6 +74,13 @@
  * none), kept across power cycles; takeAudio() is what was made since the
  * last call, left and right interleaved, as a Float32Array view into the
  * module's memory (copy it before the next call).
+ *
+ * A `.sid` tune: loadSid(bytes, song) starts it on the card (song 0: its
+ * start song; false, with error(), if it is not one or there is no card),
+ * sidSong(song) another song of it, stopSid() stops and forgets it.
+ * sidInfo() is the tune (has: false for none): name, author, released,
+ * songs, song, rsid, ntsc, mos8580, and warnings, one a line, for what the
+ * card can't give it. soundRunning() is whether the card's 6510 runs.
  */
 
 #include <emscripten/bind.h>
@@ -122,6 +129,14 @@ namespace
     struct Regs
     {
         unsigned pc, a, x, y, s, p;
+    };
+
+    struct SidInfo
+    {
+        bool has{false};
+        std::string name, author, released, warnings; ///< warnings: one a line
+        unsigned songs{0}, song{0};
+        bool rsid{false}, ntsc{false}, mos8580{false};
     };
 
     struct SoundCpu
@@ -352,6 +367,32 @@ namespace
             return val(emscripten::typed_memory_view(2 * frames, audio_.data()));
         }
 
+        /// @return false, with error()
+        bool load_sid(const std::string &bytes, unsigned song)
+        {
+            const std::vector<uint8_t> data(bytes.begin(), bytes.end());
+            return session_->play_sid(data, song, error_);
+        }
+        bool sid_song(unsigned song) { return session_->play_song(song, error_); }
+        void stop_sid() { session_->stop_sid(); }
+        SidInfo sid_info() const
+        {
+            const SidFile *f = session_->sid();
+            if (!f)
+                return SidInfo{};
+            std::string warnings;
+            for (const auto &w : session_->sid_warnings())
+                warnings += (warnings.empty() ? "" : "\n") + w;
+            return SidInfo{true, f->name, f->author, f->released, warnings, f->songs, session_->sid_song(),
+                           f->rsid, f->ntsc(), f->model() == Sid::Model::Mos8580};
+        }
+        /// The card's 6510 runs (CTRL RUN): a tune plays. False without the card.
+        bool sound_running() const
+        {
+            const SoundCard *c = session_->sound();
+            return c && (c->ctrl() & SoundCard::CTRL_RUN);
+        }
+
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
 
         bool has_usb() const { return session_->usb() != nullptr; }
@@ -421,6 +462,17 @@ EMSCRIPTEN_BINDINGS(oo1)
         .field("y", &Regs::y)
         .field("s", &Regs::s)
         .field("p", &Regs::p);
+    value_object<SidInfo>("SidInfo")
+        .field("has", &SidInfo::has)
+        .field("name", &SidInfo::name)
+        .field("author", &SidInfo::author)
+        .field("released", &SidInfo::released)
+        .field("warnings", &SidInfo::warnings)
+        .field("songs", &SidInfo::songs)
+        .field("song", &SidInfo::song)
+        .field("rsid", &SidInfo::rsid)
+        .field("ntsc", &SidInfo::ntsc)
+        .field("mos8580", &SidInfo::mos8580);
     value_object<SoundCpu>("SoundCpu")
         .field("has", &SoundCpu::has)
         .field("pc", &SoundCpu::pc)
@@ -464,6 +516,11 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("physical", &WebMachine::physical)
         .function("resolve", &WebMachine::resolve)
         .function("setAudioRate", &WebMachine::set_audio_rate)
+        .function("loadSid", &WebMachine::load_sid)
+        .function("sidSong", &WebMachine::sid_song)
+        .function("stopSid", &WebMachine::stop_sid)
+        .function("sidInfo", &WebMachine::sid_info)
+        .function("soundRunning", &WebMachine::sound_running)
         .function("takeAudio", &WebMachine::take_audio)
         .function("lights", &WebMachine::lights)
         .function("setLights", &WebMachine::set_lights)

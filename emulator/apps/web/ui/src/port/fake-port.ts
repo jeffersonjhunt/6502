@@ -15,6 +15,7 @@ import type {
   MouseInput,
   PanelKey,
   PortCaps,
+  SidTune,
   SoundCpu,
   TraceRow,
 } from "./machine-port";
@@ -44,12 +45,14 @@ export class FakePort implements MachinePort {
   saved = new Uint8Array([1, 2, 3]);
   /** What readDisk2() returns. */
   disk2: DiskStatus | null = null;
+  /** What playSid() and playSong() return (the song set to the one asked for), or reject with, if a string. */
+  tune: SidTune | string = { name: "Fake Tune", author: "Nobody", released: "2026", songs: 3, song: 1, rsid: false, clock: "PAL", model: "8580", warnings: [] };
   /** What readSound() returns. */
   sound: SoundCpu | null = null;
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
-    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, audio: false, ...caps };
+    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, audio: false, sid: false, ...caps };
   }
 
   /** Send a frame to the listeners; unset fields take idle defaults. */
@@ -69,6 +72,7 @@ export class FakePort implements MachinePort {
       disk: null,
       video: null,
       audio: null,
+      soundRunning: false,
       ...frame,
     };
     for (const listener of this.listeners) listener(full);
@@ -140,6 +144,19 @@ export class FakePort implements MachinePort {
   }
   async readDisk2(): Promise<DiskStatus | null> {
     return this.disk2;
+  }
+  async playSid(bytes: Uint8Array, song = 0): Promise<SidTune> {
+    this.calls.push(["playSid", bytes.length, song]);
+    if (typeof this.tune === "string") throw new Error(this.tune);
+    return { ...this.tune, song: song || 1 };
+  }
+  async playSong(song: number): Promise<SidTune> {
+    this.calls.push(["playSong", song]);
+    if (typeof this.tune === "string") throw new Error(this.tune);
+    return { ...this.tune, song };
+  }
+  stopSid(): void {
+    this.calls.push(["stopSid"]);
   }
   async readSound(): Promise<SoundCpu | null> {
     return this.sound;

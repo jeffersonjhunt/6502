@@ -114,6 +114,9 @@ namespace ooe::emu
     /// and `error` when there is nowhere free for the stub, or no such song.
     std::optional<SidPlan> plan_sid(const SidFile &file, unsigned song, std::string &error);
 
+    /// Stop the card's 6510 and silence the SIDs, through its host registers.
+    void stop_sid(SoundCard &card);
+
     /// Carry out `plan` through the card's host registers: stop, load, start;
     /// and set the chips' model, as the card's owner would set the jumper.
     void start_sid(SoundCard &card, const SidPlan &plan);
