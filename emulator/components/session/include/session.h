@@ -125,6 +125,12 @@ namespace ooe::emu
         Disk2Card *disk2() const { return machine_->disk2_card(); }
         /// The sound card, or nullptr: its registers, RAM and 6510.
         SoundCard *sound() const { return machine_->sound_card(); }
+        /// The sound card's sound at `rate` samples a second (0: none, the default), kept
+        /// across power cycles. Time is the CPU's: halted or stopped, the card is silent too.
+        void set_audio_rate(uint32_t rate);
+        uint32_t audio_rate() const { return audio_rate_; }
+        /// Up to `max_frames` stereo frames (left, right) made since the last call. @return frames
+        size_t take_audio(float *out, size_t max_frames);
         const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
 
         // The panel: the card's inputs (nothing without a card)
@@ -223,6 +229,7 @@ namespace ooe::emu
         // The panel's physical state, kept across power cycles
         uint32_t switches_{0};
         uint32_t cpu_hz_{0};
+        uint32_t audio_rate_{0};
         bool halt_switch_{false}, bus_cycle_switch_{false}, lock_{false}, lights_on_{false};
 
         std::string input_;   ///< keys not yet taken

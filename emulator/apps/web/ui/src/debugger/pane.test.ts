@@ -156,5 +156,6 @@ function frame() {
     apple: false,
     disk: null,
     video: null,
+    audio: null,
   };
 }

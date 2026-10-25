@@ -21,7 +21,8 @@ Everything in the port is something the real board can also do:
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
 | Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
 | Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the GoTek in the drive's place: an image in, out, written back; the drive's light |
-| Sound card | `readSound`, and its registers through `readMemory(0xC500, 0x80, "io")` | the card's 6510 and its SIDs, for the debugger (no audio yet) |
+| Sound card | `readSound`, and its registers through `readMemory(0xC500, 0x80, "io")` | the card's 6510 and its SIDs, for the debugger |
+| Sound | `listen`, `FrameState.audio` | the sound card's audio (emulator only: the board's card plays through its own jacks) |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |
 
 The UI never calls the emulator's debugger. Breakpoints are the Console
@@ -33,7 +34,8 @@ the same way against the board.
 (`busCycleStep: false`: it runs whole instructions, so S BUS CYCLE steps an
 instruction). The board cannot show the CPU's registers (`registers: false`
 there), and needs a capture device on its VGA port for `video`. A backend
-that cannot take a cartridge says `cartridge: false`.
+that cannot take a cartridge says `cartridge: false`; one whose sound comes
+out of the machine itself, as the board's does, says `audio: false`.
 
 `readMemory` reads CPU addresses (through the windows), physical ones, or
 `"io"`: the cards' registers at the addresses the native map gives them
@@ -64,6 +66,11 @@ last frame, and, only while asked for (`setLights`, `watchRegisters`,
 debugger or another scene costs nothing. `video` is the card's last finished
 frame (640x480, RGBA), sent only when it is a new one; `setClock` also tells
 the card the CPU clock, so it keeps 60 frames a second at any speed.
+`audio`, while `listen(rate)` asks for it, is the sound card's samples since
+the last frame at that rate, left and right interleaved (SID A, SID B), -1
+to 1; `listen` is kept through power cycles, and `listen(0)` stops the card
+making them at all. Time is the CPU's, so a halted or stopped machine is a
+silent one (the board's card would play on).
 
 Lamps are 0 to 1: the share of bus cycles each line was high since the last
 frame (weighted by wait states), or exactly 0/1 while halted, when they

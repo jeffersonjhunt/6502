@@ -269,6 +269,39 @@ describe("WasmPort", () => {
     expect(m.until(GREETING)).toBe(true);
   });
 
+  test("the sound card's sound: only when listening, a frame's worth a frame, kept through a power cycle", async () => {
+    const m = await open();
+    m.until(GREETING);
+    expect(m.step().audio).toBeNull(); // not listening: none made
+    m.port.listen(48_000);
+    // SID A from the monitor: $1000 (about 245 Hz), a triangle, attack 0, sustain F, volume 15
+    m.port.sendSerial(ascii("C500: 00 10 00 00 11 00 F0\r"));
+    expect(m.until("C500:")).toBe(true);
+    m.port.sendSerial(ascii("C518: 0F\r"));
+    expect(m.until("C518:")).toBe(true);
+    let frames = 0;
+    let sq = 0;
+    for (let i = 0; i < 30; ++i) {
+      const a = m.step().audio!;
+      expect(a).toBeInstanceOf(Float32Array);
+      frames += a.length / 2;
+      for (let k = 0; k < a.length; k += 2) sq += a[k] * a[k];
+      if (i === 0) expect(a.length).toBeGreaterThan(0);
+    }
+    expect(Math.abs(frames - 30 * 800)).toBeLessThan(800); // 48 kHz x 30 frames of 1/60 s
+    const rms = Math.sqrt(sq / frames);
+    expect(rms).toBeGreaterThan(0.05); // a triangle at full envelope: 1/8 peak, 0.072 RMS
+    expect(rms).toBeLessThan(0.1);
+    m.port.setPower(false);
+    expect(m.step().audio).toBeNull();
+    m.port.setPower(true); // a new machine: still listening, and silent
+    const after = m.step().audio!;
+    expect(after.length).toBeGreaterThan(0);
+    expect(Math.max(...after.map(Math.abs))).toBeLessThan(0.01);
+    m.port.listen(0);
+    expect(m.step().audio).toBeNull();
+  });
+
   test("a machine that will not open is a rejection with the reason", async () => {
     const port = new WasmPort({ load, scheduler: new ManualClock(), machine: "/machines/nope.machine" });
     await expect(port.connect()).rejects.toThrow(/nope\.machine/);

@@ -87,13 +87,18 @@ this browser (IndexedDB), with what was written to it, never uploaded. A paste g
 Apple II it is typed on the USB keyboard (US layout; letters as the card's
 Caps Lock has them), and the card holds each character until the machine
 has taken the last, so a BASIC program pasted into Applesoft arrives whole.
+**Sound**, under the monitor at the right, plays the sound card through
+the computer's speakers (Web Audio, at the device's own rate; the meter in
+the button is the card's level). It is remembered; left on, it plays from
+the first click or key after a reload, as browsers require. Halting the
+machine silences it: the emulator's time is the CPU's.
 The screen font is VileR's (CC BY-SA 4.0), and the page
 credits it under the front panel.
 
 ## Test it
 
 ```sh
-npm test         # vitest: terminal, keyboard, panel state, and WasmPort against the real module in node
+npm test         # vitest: terminal, keyboard, panel state, the speaker's queue, and WasmPort against the real module in node
 npm run e2e      # build, then Playwright in headless Chromium and WebKit (Safari's engine) against `vite preview`
 ```
 
