@@ -8,8 +8,8 @@ of git (test/host/fixtures/.gitignore).
   python3 tools/fetch_fixtures.py              # 100 cases per opcode, both CPUs
   python3 tools/fetch_fixtures.py --cases 1000 # more coverage, ~10x download
 
-Two CPUs, each with a Dormann image and a Harte set: the NMOS 6502 (the
-151 documented opcodes) and the WDC 65C02, the real board's W65C02S (254
+Two CPUs, each with a Dormann image and a Harte set: the NMOS 6502 (244
+opcodes: all but the jams) and the WDC 65C02, the real board's W65C02S (254
 opcodes; Harte has no cases for WAI and STP).
 
 Harte files are fetched with an HTTP Range request rather than whole: the
@@ -49,44 +49,18 @@ HARTE_URL = ("https://raw.githubusercontent.com/SingleStepTests/65x02/"
              f"{HARTE_COMMIT}/{{cpu}}/v1/{{op:02x}}.json")
 HARTE_FORMAT = 2
 
-# The 151 documented NMOS opcodes. The core runs everything else as a NOP, so
-# testing undocumented opcodes would only measure that choice.
-LEGAL_OPCODES = sorted({
-    0x69, 0x65, 0x75, 0x6D, 0x7D, 0x79, 0x61, 0x71,  # ADC
-    0x29, 0x25, 0x35, 0x2D, 0x3D, 0x39, 0x21, 0x31,  # AND
-    0x0A, 0x06, 0x16, 0x0E, 0x1E,                    # ASL
-    0x90, 0xB0, 0xF0, 0x30, 0xD0, 0x10, 0x50, 0x70,  # branches
-    0x24, 0x2C,                                      # BIT
-    0x00,                                            # BRK
-    0x18, 0xD8, 0x58, 0xB8,                          # CLC CLD CLI CLV
-    0xC9, 0xC5, 0xD5, 0xCD, 0xDD, 0xD9, 0xC1, 0xD1,  # CMP
-    0xE0, 0xE4, 0xEC, 0xC0, 0xC4, 0xCC,              # CPX CPY
-    0xC6, 0xD6, 0xCE, 0xDE, 0xCA, 0x88,              # DEC DEX DEY
-    0x49, 0x45, 0x55, 0x4D, 0x5D, 0x59, 0x41, 0x51,  # EOR
-    0xE6, 0xF6, 0xEE, 0xFE, 0xE8, 0xC8,              # INC INX INY
-    0x4C, 0x6C, 0x20,                                # JMP JSR
-    0xA9, 0xA5, 0xB5, 0xAD, 0xBD, 0xB9, 0xA1, 0xB1,  # LDA
-    0xA2, 0xA6, 0xB6, 0xAE, 0xBE,                    # LDX
-    0xA0, 0xA4, 0xB4, 0xAC, 0xBC,                    # LDY
-    0x4A, 0x46, 0x56, 0x4E, 0x5E,                    # LSR
-    0xEA,                                            # NOP
-    0x09, 0x05, 0x15, 0x0D, 0x1D, 0x19, 0x01, 0x11,  # ORA
-    0x48, 0x08, 0x68, 0x28,                          # PHA PHP PLA PLP
-    0x2A, 0x26, 0x36, 0x2E, 0x3E,                    # ROL
-    0x6A, 0x66, 0x76, 0x6E, 0x7E,                    # ROR
-    0x40, 0x60,                                      # RTI RTS
-    0xE9, 0xE5, 0xF5, 0xED, 0xFD, 0xF9, 0xE1, 0xF1,  # SBC
-    0x38, 0xF8, 0x78,                                # SEC SED SEI
-    0x85, 0x95, 0x8D, 0x9D, 0x99, 0x81, 0x91,        # STA
-    0x86, 0x96, 0x8E, 0x84, 0x94, 0x8C,              # STX STY
-    0xAA, 0xA8, 0xBA, 0x8A, 0x9A, 0x98,              # transfers
-})
-assert len(LEGAL_OPCODES) == 151, len(LEGAL_OPCODES)
+# Every NMOS opcode but the twelve that jam the CPU: the documented 151 and
+# the undocumented ones (LAX, SAX, DCP, the unstable ANE and SHA, ...), which
+# a 6510's tunes use. A jam has no end, so Harte's cases for one record an
+# arbitrary number of cycles; the core just stops (test_cpu_smoke checks it).
+JAM_OPCODES = [0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2]
+NMOS_OPCODES = [op for op in range(256) if op not in JAM_OPCODES]
+assert len(NMOS_OPCODES) == 244, len(NMOS_OPCODES)
 
 # Every opcode but WAI ($CB) and STP ($DB), which Harte cannot test.
 WDC_OPCODES = [op for op in range(256) if op not in (0xCB, 0xDB)]
 
-HARTE_SETS = {"6502": LEGAL_OPCODES, "wdc65c02": WDC_OPCODES}
+HARTE_SETS = {"6502": NMOS_OPCODES, "wdc65c02": WDC_OPCODES}
 
 # Bytes per case is ~550 on average and ~1 kB for the longest (BRK, JSR, RTI);
 # asking for 1.5 kB per case covers the worst opcode with room to spare.

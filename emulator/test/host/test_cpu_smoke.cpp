@@ -11,8 +11,8 @@
  * JMP ($xxFF) page wrap, and what BRK and IRQ push.
  *
  * The later cases cover what Harte cannot, because each of his cases is one
- * instruction: the reset and interrupt sequences, and the W65C02S's WAI and
- * STP, which wait on something outside the instruction.
+ * instruction: the reset and interrupt sequences, the W65C02S's WAI and
+ * STP, which wait on something outside the instruction, and the NMOS jams.
  */
 
 #include "harness.h"
@@ -251,12 +251,38 @@ TEST(stp_stops_until_reset)
     CHECK_EQ(c.regs().pc, 0x0200);
 }
 
-TEST(wai_and_stp_are_nops_on_nmos)
+TEST(wai_and_stp_are_other_instructions_on_nmos)
 {
     FlatBus bus;
     Cpu6502 c(bus);
-    run(c, bus, {0xCB, 0xDB}, 2);
+    Registers r;
+    r.a = 0x3C;
+    r.x = 0x0F;
+    run(c, bus, {0xCB, 0x02}, 1, r); // SBX #2: X = (A & X) - 2
     CHECK(c.state() == Cpu6502::State::Running);
+    CHECK_EQ(c.regs().x, 0x0A);
+    CHECK_EQ(c.regs().pc, ORG + 2);
+}
+
+TEST(nmos_jams_stop_until_reset)
+{
+    // Harte has no cases for these: a jam never ends, so his record of one
+    // is as long as he chose to run it.
+    for (const unsigned op : {0x02u, 0x12u, 0x22u, 0x32u, 0x42u, 0x52u, 0x62u, 0x72u, 0x92u, 0xB2u, 0xD2u, 0xF2u})
+    {
+        FlatBus bus;
+        Cpu6502 c(bus);
+        bus.at(0xFFFC) = 0x00;
+        bus.at(0xFFFD) = 0x02;
+        run(c, bus, {static_cast<uint8_t>(op), 0xEA}, 1);
+        CHECK(c.state() == Cpu6502::State::Stopped);
+        c.irq();
+        c.nmi();
+        CHECK_EQ(c.step(), 1u); // idle, and nothing more
+        CHECK(c.state() == Cpu6502::State::Stopped);
+        c.reset();
+        CHECK(c.state() == Cpu6502::State::Running);
+    }
 }
 
 TEST(observer_sees_every_access_with_sync_and_vector_pull)

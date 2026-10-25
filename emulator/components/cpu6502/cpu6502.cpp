@@ -287,7 +287,11 @@ namespace ooe::emu
 
     void Cpu6502::compare(uint8_t reg, Mode m)
     {
-        const uint8_t v = read(ea_read(m));
+        compare_value(reg, read(ea_read(m)));
+    }
+
+    void Cpu6502::compare_value(uint8_t reg, uint8_t v)
+    {
         set_flag(FLAG_C, reg >= v);
         set_nz(lo8(reg - v + 0x100u));
     }
@@ -328,11 +332,16 @@ namespace ooe::emu
     void Cpu6502::adc(Mode m)
     {
         const uint16_t ea = ea_read(m);
-        const uint8_t v = read(ea);
+        if (add(read(ea)) && cmos())
+            decimal_extra_cycle(m, ea, false);
+    }
+
+    bool Cpu6502::add(uint8_t v)
+    {
         if (!flag(FLAG_D))
         {
             binary_add(v);
-            return;
+            return false;
         }
         const int a = regs_.a, b = v, c = flag(FLAG_C) ? 1 : 0;
         int al = (a & 0x0F) + (b & 0x0F) + c; // Clark seq. 1/2
@@ -348,24 +357,29 @@ namespace ooe::emu
         if (cmos())
         {
             set_nz(regs_.a);
-            decimal_extra_cycle(m, ea, false);
         }
         else
         {
             set_flag(FLAG_N, seq2 & 0x80);
             set_flag(FLAG_Z, ((a + b + c) & 0xFF) == 0); // NMOS: Z from the binary sum
         }
+        return true;
     }
 
     void Cpu6502::sbc(Mode m)
     {
         const uint16_t ea = ea_read(m);
-        const uint8_t v = read(ea);
+        if (subtract(read(ea)) && cmos())
+            decimal_extra_cycle(m, ea, true);
+    }
+
+    bool Cpu6502::subtract(uint8_t v)
+    {
         const int a = regs_.a, b = v, c = flag(FLAG_C) ? 1 : 0;
         if (!flag(FLAG_D))
         {
             binary_add(lo8(~static_cast<unsigned>(v)));
-            return;
+            return false;
         }
         // Carry and overflow are the binary subtraction's on both models.
         const unsigned bin = static_cast<unsigned>(a - b - 1 + c);
@@ -390,15 +404,8 @@ namespace ooe::emu
                 r -= 0x60;
         }
         regs_.a = lo8(static_cast<unsigned>(r));
-        if (cmos())
-        {
-            set_nz(regs_.a);
-            decimal_extra_cycle(m, ea, true);
-        }
-        else
-        {
-            set_nz(lo8(bin)); // NMOS: N and Z from the binary difference
-        }
+        set_nz(cmos() ? regs_.a : lo8(bin)); // NMOS: N and Z from the binary difference
+        return true;
     }
 
     // --- read-modify-write ---------------------------------------------------
@@ -461,7 +468,7 @@ namespace ooe::emu
         return static_cast<uint8_t>(v & ~regs_.a);
     }
 
-    void Cpu6502::rmw(Mode m, Rmw op)
+    uint8_t Cpu6502::rmw(Mode m, Rmw op)
     {
         uint16_t ea = 0;
         if (m == Mode::Abx)
@@ -480,7 +487,9 @@ namespace ooe::emu
             read(ea); // WDC re-reads
         else
             write(ea, v); // NMOS writes the old value back first
-        write(ea, (this->*op)(v));
+        const uint8_t r = (this->*op)(v);
+        write(ea, r);
+        return r;
     }
 
     void Cpu6502::rmw_acc(Rmw op)
@@ -853,8 +862,148 @@ namespace ooe::emu
             break;
 
         default:
-            implied(); // NMOS undocumented: a two-cycle NOP here, not on silicon
+            execute_undocumented(op);
             break;
         }
+    }
+
+    // --- NMOS undocumented opcodes ---------------------------------------------
+    //
+    // What the NMOS die does with the other 105 opcodes, as Harte's fixtures
+    // record it (and as a 6510's tunes rely on): mostly two documented
+    // operations sharing one addressing sequence, an RMW's then an ALU's.
+    // ANE and LXA mix in the bus's "magic" constant, $EE on the chips Harte
+    // measured; SHA, SHX, SHY and TAS store a register ANDed with the base
+    // address's high byte + 1, and on a page cross that value becomes the
+    // high byte of the address written.
+
+    void Cpu6502::execute_undocumented(uint8_t op)
+    {
+        Registers &r = regs_;
+        // The RMW + ALU combinations share the documented groups' layout:
+        // low bits 3 or 7 or F, the mode in bits 2-4.
+        static constexpr Mode RMW_MODES[8] = {Mode::Izx, Mode::Zp, Mode::Imm, Mode::Abs, Mode::Izy, Mode::Zpx, Mode::Aby, Mode::Abx};
+        const unsigned group = op >> 5, mode = (op >> 2) & 7;
+        if ((op & 3) == 3 && mode != 2 && group != 4 && group != 5)
+        {
+            const Mode m = RMW_MODES[mode];
+            switch (group)
+            {
+            case 0: r.a = static_cast<uint8_t>(r.a | rmw(m, &Cpu6502::asl)); set_nz(r.a); return; // SLO
+            case 1: r.a = static_cast<uint8_t>(r.a & rmw(m, &Cpu6502::rol)); set_nz(r.a); return; // RLA
+            case 2: r.a = static_cast<uint8_t>(r.a ^ rmw(m, &Cpu6502::lsr)); set_nz(r.a); return; // SRE
+            case 3: add(rmw(m, &Cpu6502::ror)); return;                                            // RRA
+            case 6: compare_value(r.a, rmw(m, &Cpu6502::dec)); return;                             // DCP
+            case 7: subtract(rmw(m, &Cpu6502::inc)); return;                                       // ISC
+            }
+        }
+        switch (op)
+        {
+        // SAX, LAX, LAS
+        case 0x87: store(Mode::Zp, static_cast<uint8_t>(r.a & r.x)); return;
+        case 0x97: store(Mode::Zpy, static_cast<uint8_t>(r.a & r.x)); return;
+        case 0x8F: store(Mode::Abs, static_cast<uint8_t>(r.a & r.x)); return;
+        case 0x83: store(Mode::Izx, static_cast<uint8_t>(r.a & r.x)); return;
+        case 0xA7: load(r.a, Mode::Zp); r.x = r.a; return;
+        case 0xB7: load(r.a, Mode::Zpy); r.x = r.a; return;
+        case 0xAF: load(r.a, Mode::Abs); r.x = r.a; return;
+        case 0xBF: load(r.a, Mode::Aby); r.x = r.a; return;
+        case 0xA3: load(r.a, Mode::Izx); r.x = r.a; return;
+        case 0xB3: load(r.a, Mode::Izy); r.x = r.a; return;
+        case 0xBB: r.a = r.x = r.s = static_cast<uint8_t>(read(ea_read(Mode::Aby)) & r.s); set_nz(r.a); return;
+
+        // immediate ALU combinations
+        case 0x0B: case 0x2B: // ANC
+            r.a = static_cast<uint8_t>(r.a & fetch());
+            set_nz(r.a);
+            set_flag(FLAG_C, r.a & 0x80);
+            return;
+        case 0x4B: r.a = static_cast<uint8_t>(r.a & fetch()); r.a = lsr(r.a); return; // ALR
+        case 0x6B: arr(fetch()); return;
+        case 0x8B: r.a = static_cast<uint8_t>((r.a | MAGIC) & r.x & fetch()); set_nz(r.a); return; // ANE
+        case 0xAB: r.a = r.x = static_cast<uint8_t>((r.a | MAGIC) & fetch()); set_nz(r.a); return; // LXA
+        case 0xCB: // SBX
+        {
+            const unsigned ax = r.a & r.x, v = fetch();
+            set_flag(FLAG_C, ax >= v);
+            r.x = lo8(ax - v + 0x100u);
+            set_nz(r.x);
+            return;
+        }
+        case 0xEB: subtract(fetch()); return; // SBC #, again
+
+        // stores of a register ANDed with the address
+        case 0x93: store_high_and(Mode::Izy, static_cast<uint8_t>(r.a & r.x)); return; // SHA
+        case 0x9F: store_high_and(Mode::Aby, static_cast<uint8_t>(r.a & r.x)); return; // SHA
+        case 0x9E: store_high_and(Mode::Aby, r.x); return;                             // SHX
+        case 0x9C: store_high_and(Mode::Abx, r.y); return;                             // SHY
+        case 0x9B: r.s = static_cast<uint8_t>(r.a & r.x); store_high_and(Mode::Aby, r.s); return; // TAS
+
+        // NOPs that still address memory
+        case 0x80: case 0x82: case 0x89: case 0xC2: case 0xE2: read(ea_read(Mode::Imm)); return;
+        case 0x04: case 0x44: case 0x64: read(ea_read(Mode::Zp)); return;
+        case 0x14: case 0x34: case 0x54: case 0x74: case 0xD4: case 0xF4: read(ea_read(Mode::Zpx)); return;
+        case 0x0C: read(ea_read(Mode::Abs)); return;
+        case 0x1C: case 0x3C: case 0x5C: case 0x7C: case 0xDC: case 0xFC: read(ea_read(Mode::Abx)); return;
+        case 0x1A: case 0x3A: case 0x5A: case 0x7A: case 0xDA: case 0xFA: implied(); return;
+
+        default: // the jams ($x2): the CPU stops until reset, as STP
+            read(r.pc);
+            state_ = State::Stopped;
+            return;
+        }
+    }
+
+    void Cpu6502::arr(uint8_t v)
+    {
+        // AND, then ROR A, with flags from the adder's half of the job: in
+        // decimal mode it applies the BCD fix-ups to the rotated value.
+        Registers &r = regs_;
+        const unsigned t = r.a & v;
+        const bool c = flag(FLAG_C);
+        unsigned res = (t >> 1) | (c ? 0x80u : 0u);
+        if (!flag(FLAG_D))
+        {
+            set_nz(lo8(res));
+            set_flag(FLAG_C, res & 0x40);
+            set_flag(FLAG_V, ((res >> 6) ^ (res >> 5)) & 1);
+        }
+        else
+        {
+            set_flag(FLAG_N, c);
+            set_flag(FLAG_Z, res == 0);
+            set_flag(FLAG_V, (t ^ res) & 0x40);
+            if ((t & 0x0F) + (t & 0x01) > 5)
+                res = (res & 0xF0) | ((res + 6) & 0x0F);
+            const bool carry = (t >> 4) + ((t >> 4) & 1) > 5;
+            set_flag(FLAG_C, carry);
+            if (carry)
+                res += 0x60;
+        }
+        r.a = lo8(res);
+    }
+
+    void Cpu6502::store_high_and(Mode m, uint8_t v)
+    {
+        // The address phase of an indexed store, then v & (base high + 1).
+        uint16_t base = 0;
+        uint8_t index = m == Mode::Abx ? regs_.x : regs_.y;
+        if (m == Mode::Izy)
+        {
+            const uint8_t zp = fetch();
+            const unsigned lo = read(zp);
+            const unsigned hi = read(lo8(zp + 1u));
+            base = static_cast<uint16_t>(lo | (hi << 8));
+        }
+        else
+        {
+            base = fetch16();
+        }
+        auto ea = static_cast<uint16_t>(base + index);
+        read(static_cast<uint16_t>((base & 0xFF00) | (ea & 0xFF)));
+        const auto out = static_cast<uint8_t>(v & ((base >> 8) + 1u));
+        if (crosses(base, ea))
+            ea = static_cast<uint16_t>((out << 8) | (ea & 0xFF));
+        write(ea, out);
     }
 } // namespace ooe::emu

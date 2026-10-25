@@ -203,6 +203,69 @@ namespace ooe::emu
             return t;
         }
 
+        /// What the NMOS die does with the other opcodes (cpu6502.cpp), named as
+        /// ca65's "6502X" does; the jams are left out (one byte, no operand).
+        Table nmos_undocumented_table()
+        {
+            Table t{};
+            auto set = [&t](unsigned op, const char *name, Mode m) { t[op] = Op{name, m}; };
+            // SLO RLA SRE RRA DCP ISC: base + 03 (zp,x), 07 zp, 0F abs, 13 (zp),y, 17 zp,x, 1B abs,y, 1F abs,x.
+            for (const auto &[name, base] : {std::pair{"slo", 0x00u}, std::pair{"rla", 0x20u}, std::pair{"sre", 0x40u},
+                                             std::pair{"rra", 0x60u}, std::pair{"dcp", 0xC0u}, std::pair{"isc", 0xE0u}})
+            {
+                set(base + 0x03, name, Mode::Izx);
+                set(base + 0x07, name, Mode::Zp);
+                set(base + 0x0F, name, Mode::Abs);
+                set(base + 0x13, name, Mode::Izy);
+                set(base + 0x17, name, Mode::Zpx);
+                set(base + 0x1B, name, Mode::Aby);
+                set(base + 0x1F, name, Mode::Abx);
+            }
+            set(0x87, "sax", Mode::Zp);
+            set(0x97, "sax", Mode::Zpy);
+            set(0x8F, "sax", Mode::Abs);
+            set(0x83, "sax", Mode::Izx);
+            set(0xA7, "lax", Mode::Zp);
+            set(0xB7, "lax", Mode::Zpy);
+            set(0xAF, "lax", Mode::Abs);
+            set(0xBF, "lax", Mode::Aby);
+            set(0xA3, "lax", Mode::Izx);
+            set(0xB3, "lax", Mode::Izy);
+            set(0xBB, "las", Mode::Aby);
+            set(0x0B, "anc", Mode::Imm);
+            set(0x2B, "anc", Mode::Imm);
+            set(0x4B, "alr", Mode::Imm);
+            set(0x6B, "arr", Mode::Imm);
+            set(0x8B, "ane", Mode::Imm);
+            set(0xAB, "lxa", Mode::Imm);
+            set(0xCB, "axs", Mode::Imm);
+            set(0xEB, "sbc", Mode::Imm);
+            set(0x93, "sha", Mode::Izy);
+            set(0x9F, "sha", Mode::Aby);
+            set(0x9E, "shx", Mode::Aby);
+            set(0x9C, "shy", Mode::Abx);
+            set(0x9B, "tas", Mode::Aby);
+            for (const unsigned op : {0x80u, 0x82u, 0x89u, 0xC2u, 0xE2u})
+                set(op, "nop", Mode::Imm);
+            for (const unsigned op : {0x04u, 0x44u, 0x64u})
+                set(op, "nop", Mode::Zp);
+            for (const unsigned op : {0x14u, 0x34u, 0x54u, 0x74u, 0xD4u, 0xF4u})
+                set(op, "nop", Mode::Zpx);
+            set(0x0C, "nop", Mode::Abs);
+            for (const unsigned op : {0x1Cu, 0x3Cu, 0x5Cu, 0x7Cu, 0xDCu, 0xFCu})
+                set(op, "nop", Mode::Abx);
+            for (const unsigned op : {0x1Au, 0x3Au, 0x5Au, 0x7Au, 0xDAu, 0xFAu})
+                set(op, "nop", Mode::Imp);
+            return t;
+        }
+
+        const Table &undocumented(Cpu6502::Model model)
+        {
+            static const Table NMOS = nmos_undocumented_table();
+            static const Table NONE{};
+            return model == Cpu6502::Model::W65C02S ? NONE : NMOS;
+        }
+
         const Table &table(Cpu6502::Model model)
         {
             static const Table NMOS = nmos_table();
@@ -214,7 +277,7 @@ namespace ooe::emu
         unsigned undefined_length(Cpu6502::Model model, uint8_t op)
         {
             if (model != Cpu6502::Model::W65C02S)
-                return 1; // the core's NMOS undocumented opcodes are one-byte NOPs
+                return mode_length(undocumented(model)[op].mode); // a jam: one byte
             if ((op & 0x0F) == 0x02 || op == 0x44 || op == 0x54 || op == 0xD4 || op == 0xF4)
                 return 2;
             if (op == 0x5C || op == 0xDC || op == 0xFC)
@@ -243,6 +306,37 @@ namespace ooe::emu
             }
             return prefix + hex(addr, digits);
         }
+
+        std::string operation(const Op &op, uint16_t pc, unsigned b1, unsigned b2, const Symbols *symbols)
+        {
+            const unsigned word = b1 | (b2 << 8);
+            const std::string name = op.name;
+            auto rel = [&](unsigned offset, unsigned next) {
+                const auto target = static_cast<uint16_t>(static_cast<int>(pc + next) + static_cast<int8_t>(offset));
+                return address(target, 4, symbols);
+            };
+            switch (op.mode)
+            {
+            case Mode::Imp: return name;
+            case Mode::Acc: return name + " a";
+            case Mode::Imm: return name + " #" + hex(b1, 2);
+            case Mode::Zp: return name + " " + address(b1, 2, symbols);
+            case Mode::Zpx: return name + " " + address(b1, 2, symbols) + ",x";
+            case Mode::Zpy: return name + " " + address(b1, 2, symbols) + ",y";
+            case Mode::Abs: return name + " " + address(word, 4, symbols, true);
+            case Mode::Abx: return name + " " + address(word, 4, symbols, true) + ",x";
+            case Mode::Aby: return name + " " + address(word, 4, symbols, true) + ",y";
+            case Mode::Ind: return name + " (" + address(word, 4, symbols) + ")";
+            case Mode::Aix: return name + " (" + address(word, 4, symbols) + ",x)";
+            case Mode::Izx: return name + " (" + address(b1, 2, symbols) + ",x)";
+            case Mode::Izy: return name + " (" + address(b1, 2, symbols) + "),y";
+            case Mode::Izp: return name + " (" + address(b1, 2, symbols) + ")";
+            case Mode::Rel: return name + " " + rel(b1, 2);
+            case Mode::Zpr: return name + " " + address(b1, 2, symbols) + "," + rel(b2, 3);
+            case Mode::None: break;
+            }
+            return "";
+        }
     } // namespace
 
     bool is_instruction(Cpu6502::Model model, uint8_t opcode)
@@ -265,46 +359,23 @@ namespace ooe::emu
         const uint8_t opcode = bus.peek(pc);
         const unsigned b1 = bus.peek(static_cast<uint16_t>(pc + 1));
         const unsigned b2 = bus.peek(static_cast<uint16_t>(pc + 2));
-        const unsigned word = b1 | (b2 << 8);
         const Op &op = table(model)[opcode];
 
         Disassembly d;
         d.length = instruction_length(model, opcode);
-        if (op.mode == Mode::None)
+        if (op.mode != Mode::None)
         {
-            d.text = ".byte " + hex(opcode, 2);
-            if (d.length > 1)
-                d.text += "," + hex(b1, 2);
-            if (d.length > 2)
-                d.text += "," + hex(b2, 2);
+            d.text = operation(op, pc, b1, b2, symbols);
             return d;
         }
-
-        const std::string name = op.name;
-        auto rel = [&](unsigned offset, unsigned next) {
-            const auto target = static_cast<uint16_t>(static_cast<int>(pc + next) + static_cast<int8_t>(offset));
-            return address(target, 4, symbols);
-        };
-        switch (op.mode)
-        {
-        case Mode::Imp: d.text = name; break;
-        case Mode::Acc: d.text = name + " a"; break;
-        case Mode::Imm: d.text = name + " #" + hex(b1, 2); break;
-        case Mode::Zp: d.text = name + " " + address(b1, 2, symbols); break;
-        case Mode::Zpx: d.text = name + " " + address(b1, 2, symbols) + ",x"; break;
-        case Mode::Zpy: d.text = name + " " + address(b1, 2, symbols) + ",y"; break;
-        case Mode::Abs: d.text = name + " " + address(word, 4, symbols, true); break;
-        case Mode::Abx: d.text = name + " " + address(word, 4, symbols, true) + ",x"; break;
-        case Mode::Aby: d.text = name + " " + address(word, 4, symbols, true) + ",y"; break;
-        case Mode::Ind: d.text = name + " (" + address(word, 4, symbols) + ")"; break;
-        case Mode::Aix: d.text = name + " (" + address(word, 4, symbols) + ",x)"; break;
-        case Mode::Izx: d.text = name + " (" + address(b1, 2, symbols) + ",x)"; break;
-        case Mode::Izy: d.text = name + " (" + address(b1, 2, symbols) + "),y"; break;
-        case Mode::Izp: d.text = name + " (" + address(b1, 2, symbols) + ")"; break;
-        case Mode::Rel: d.text = name + " " + rel(b1, 2); break;
-        case Mode::Zpr: d.text = name + " " + address(b1, 2, symbols) + "," + rel(b2, 3); break;
-        case Mode::None: break;
-        }
+        d.text = ".byte " + hex(opcode, 2);
+        if (d.length > 1)
+            d.text += "," + hex(b1, 2);
+        if (d.length > 2)
+            d.text += "," + hex(b2, 2);
+        const Op &undoc = undocumented(model)[opcode];
+        if (undoc.mode != Mode::None)
+            d.text += " ; " + operation(undoc, pc, b1, b2, symbols); // what the NMOS die does with it
         return d;
     }
 } // namespace ooe::emu

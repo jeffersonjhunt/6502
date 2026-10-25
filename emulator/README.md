@@ -171,8 +171,10 @@ Every cycle is the one bus access the chip makes, dummy reads and NMOS
 write-backs included, so a cycle count is just the number of accesses and
 the traffic can be compared with a logic analyser. Both models pass Harte's
 per-cycle tests and Dormann's functional tests (`test/host`). The NMOS
-model's undocumented opcodes are two-cycle NOPs, which is not what silicon
-does; the W65C02S's undefined opcodes are WDC's NOPs.
+model runs the undocumented opcodes as the die does (LAX, SAX, DCP, the
+unstable ANE and SHA with Harte's constants), for the sound card's 6510;
+its twelve jams stop the CPU until reset. The W65C02S's undefined opcodes
+are WDC's NOPs.
 
 Derived from [gianlucag/mos6502](https://github.com/gianlucag/mos6502)
 (MIT, `licenses/mos6502_LICENSE`).
