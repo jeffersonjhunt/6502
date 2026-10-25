@@ -53,6 +53,7 @@ if(EMSCRIPTEN)
     add_subdirectory(apps/web) # the WebUI's core, in WebAssembly (cmake --preset web)
 else()
     add_subdirectory(apps/emu)
+    add_subdirectory(apps/sidcheck)
 endif()
 
 if(EMU_BUILD_TESTS)

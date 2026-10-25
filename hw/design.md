@@ -611,6 +611,25 @@ it commands.
 3. It sets the clock from the file's PAL or NTSC flag and sets RUN.
 4. The main CPU is free; the mailbox tells it when to change song or stop.
 
+**Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
+
+- **The stub** goes on a free page: the one the header names, else `$FF00`, `$FE00`, `$0400`, `$C000`
+  or `$0200`, the first the tune leaves alone. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
+  timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
+  song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
+  A, and waits in a `JMP` loop.
+- **`$01` for a routine** follows PSID players: `$37` below `$A000`, `$36` below `$D000`, `$34` in
+  `$D000-$DFFF`, `$35` above. On the card only `$34` differs (there are no ROMs), so I/O comes back
+  after an init under it.
+- **The KERNAL's interrupt path** is imitated: `$FFFE` pushes A, X and Y and jumps through `$0314`,
+  and `$EA31`, `$EA7E`, `$EA81` and `$FEBC` acknowledge the CIA and return, wherever the tune
+  leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run.
+- **A sync point:** after each play call the stub writes the call's number (mod 256) to the
+  mailbox, so the host can count frames.
+- **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3
+  to match; a third SID, or a second elsewhere, is beyond the card, and its writes land on SID A's
+  mirror.
+
 
 ## Storage ##
 

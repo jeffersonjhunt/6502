@@ -45,6 +45,8 @@ HARTE_VERBOSE=1 ./build/dev/test/host/test_harte wdc65c02  # every failing case,
 | `test_app_tty` | the real app in a pty: Ctrl-C and SIGTERM restore the terminal and exit 0 without leaks (LeakSanitizer); a missing ROM exits with an error; nothing is logged without `--log`, and `--log FILE` gets the run; a bad `--machine` file stops it with file and line | ROMs, `python3` |
 | `test_app_debug` | the debugger in the app: Ctrl-] and `r`, `--halt`/`--break`/`--symbols`, Ctrl-C at the prompt, `--load` HEX and raw (over ROM too), STP, a Console card halt as "panel" and `r` releasing it, `--trace` checked and diffed; bad arguments refused before the terminal goes raw | ROMs and labels, `python3` |
 | `test_app_eater` | the app on `eater.machine`: Woz Monitor through the serial port, keyboard.s onto the LCD box; a machine with nothing to talk through is refused | Eater ROMs, `python3` |
+| `test_sid_file` | `.sid` files: the PSID/RSID header, the stub's page, vectors and KERNAL exits, CTRL from the clock and the second SID, refusals; hand-assembled tunes played on the card: 50 Hz, the KERNAL's CIA rate and NTSC frames to the clock, the song in A, a tune's own interrupt at `$0314` or `$FFFE`, play and init under the I/O | none |
+| `test_sid_corpus` | every tune in `fixtures/SIDs`: a PSID's play routine called on time for 2 s, no jam, a voice sounding within 10 s; RSIDs run without jamming | the owner's `.sid` files |
 | `test_trace_diff` | `tools/trace_diff.py`: relative cycles and gaps, each field, `?` wildcards, `--from`, malformed traces exit 2 | `python3` |
 
 Suites with fixtures exit 77 when their fixtures are absent, which CTest reports
@@ -68,6 +70,11 @@ To run the Apple II mode tests that need them, put your own in
 (`$C000-$FFFF`, or the two 8 KB halves) and, optionally, the 4 or 8 KB video
 character ROM. Without them those tests skip; everything else uses a
 stand-in ROM the tests write themselves.
+
+**`.sid` tunes** (HVSC's and others) are their composers' copyright and are
+never fetched or vendored either. Put your own in `fixtures/SIDs/` for
+`test_sid_corpus`; without them it skips. `test_sid_file` builds its own
+tunes from a few hand-assembled bytes.
 
 ## Things to know
 

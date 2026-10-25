@@ -173,6 +173,12 @@ namespace ooe::emu
         unsigned cpu_resets() const { return cpu_resets_; }
         /// The card's 6510, for the debugger.
         const Cpu6502 &cpu() const { return cpu_; }
+        /// What the card's 6510 sees, for disassembly.
+        const Bus &cpu_bus() const { return bus_; }
+        /// Watch the card's 6510's bus cycles (not owned; nullptr to stop).
+        void set_cpu_observer(CycleObserver *observer) { cpu_.set_observer(observer); }
+        /// $D000-$DFFF is I/O to the card's 6510 now, by its port.
+        bool io_visible() const { return io_in(); }
         /// The SID clock CTRL picks.
         uint32_t sid_hz() const { return ctrl_ & CTRL_NTSC ? NTSC_HZ : PAL_HZ; }
         /// The 6510's port: DDR ($00) and data ($01), as written.

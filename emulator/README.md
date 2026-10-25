@@ -99,6 +99,24 @@ A machine is one line per chip; see `machines/apple1.machine` and
 description are relative to the working directory, and a ROM on the command
 line replaces the first one.
 
+## `.sid` files
+
+`sidcheck` plays C64 `.sid` tunes (PSID and RSID) on the sound card, headless,
+the way hw/design.md (".sid playback") has a host program do it: the tune
+loaded through RAMDATA, a stub standing in for the C64's KERNAL, the clock
+from the file, then CTRL RUN. There is no sound yet, so it reports what each
+tune did to the SIDs: OK, PARTIAL (it wants a third SID, or a second one
+where the card has none), SILENT, STALLED or JAM, with the frames played, the
+voices that sounded, and the C64 I/O the tune reached that the card lacks:
+
+```
+./build/release/apps/sidcheck/sidcheck [--seconds N] [--song N] [--dump] tune.sid...
+```
+
+`--dump` prints the SIDs' registers after each play call, for comparing with
+a reference player. Tunes are their composers' copyright: keep them in the
+gitignored `test/host/fixtures/SIDs/`, where `test_sid_corpus` plays them all.
+
 ## WebAssembly
 
 The same core, as an ES module for the WebUI (`apps/web`): `Session`
