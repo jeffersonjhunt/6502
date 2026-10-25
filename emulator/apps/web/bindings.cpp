@@ -69,6 +69,11 @@
  * at $C500 are peekIo's. soundVoice(chip, voice) is that voice's envelope:
  * bits 0-7 the level, 8-9 the phase (0 attack, 1 decay/sustain, 2
  * release), bit 10 held at 0; -1 without the card.
+ *
+ * Its sound: setAudioRate(rate) makes it at `rate` samples a second (0:
+ * none), kept across power cycles; takeAudio() is what was made since the
+ * last call, left and right interleaved, as a Float32Array view into the
+ * module's memory (copy it before the next call).
  */
 
 #include <emscripten/bind.h>
@@ -338,6 +343,15 @@ namespace
             return v.envelope | static_cast<int>(v.phase) << 8 | (v.frozen ? 1 << 10 : 0);
         }
 
+        void set_audio_rate(double rate) { session_->set_audio_rate(static_cast<uint32_t>(rate)); }
+        /// The sound card's samples since the last call, left and right interleaved: a view
+        /// into the module's memory, good until the next call.
+        val take_audio()
+        {
+            const size_t frames = session_->take_audio(audio_.data(), audio_.size() / 2);
+            return val(emscripten::typed_memory_view(2 * frames, audio_.data()));
+        }
+
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
 
         bool has_usb() const { return session_->usb() != nullptr; }
@@ -389,6 +403,7 @@ namespace
         std::string error_;
         double last_cycles_{0};
         std::array<float, LIGHT_COUNT> lights_{};
+        std::vector<float> audio_ = std::vector<float>(2 * 24'000); ///< half a second at 48 kHz, as much as the card keeps
         std::vector<Session::TraceRow> rows_;
         std::vector<uint32_t> packed_;
         unsigned cartridges_{0};
@@ -448,6 +463,8 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("peekPhysical", &WebMachine::peek_physical)
         .function("physical", &WebMachine::physical)
         .function("resolve", &WebMachine::resolve)
+        .function("setAudioRate", &WebMachine::set_audio_rate)
+        .function("takeAudio", &WebMachine::take_audio)
         .function("lights", &WebMachine::lights)
         .function("setLights", &WebMachine::set_lights)
         .function("hasVideo", &WebMachine::has_video)

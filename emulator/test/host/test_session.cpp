@@ -286,6 +286,29 @@ TEST(the_video_card_keeps_the_callers_clock_across_a_power_cycle)
     CHECK(native == 8 || native == 9);     // 0: the card's own 7.16 MHz, 8.54 frames
 }
 
+TEST(the_sound_cards_audio_keeps_real_time_and_outlasts_a_power_cycle)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    REQUIRE(s->sound() != nullptr);
+    std::vector<float> out(2 * 48'000);
+    CHECK_EQ(s->take_audio(out.data(), 48'000), 0u); // not asked for: none
+    s->set_audio_rate(48'000);
+    s->set_cpu_hz(1'020'484);
+    s->run(1'020'484 / 4); // a quarter second at the slowest clock
+    const size_t quarter = s->take_audio(out.data(), 48'000);
+    CHECK(quarter >= 11'999 && quarter <= 12'000); // the card keeps the caller's time
+    std::string error;
+    REQUIRE(s->power_cycle(error));
+    CHECK_EQ(s->audio_rate(), 48'000u);
+    s->run(1'020'484 / 4);
+    const size_t again = s->take_audio(out.data(), 48'000); // a new card, still making it
+    CHECK(again >= 11'999 && again <= 12'000);
+    s->set_audio_rate(0);
+    s->run(1'020'484 / 4);
+    CHECK_EQ(s->take_audio(out.data(), 48'000), 0u);
+}
+
 TEST(pause_break_on_the_usb_keyboard_breaks_into_the_monitor)
 {
     auto s = booted();

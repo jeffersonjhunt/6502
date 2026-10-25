@@ -139,5 +139,6 @@ function base() {
     apple: false,
     disk: null,
     video: null,
+    audio: null,
   };
 }

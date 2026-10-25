@@ -703,9 +703,10 @@ Decided to come later, not forgotten:
   mixer and its DC, and the card's resampling to stereo). Against sidplayfp (reSIDfp) on the
   owner's 174 PSIDs, the spectrograms' median correlation is 0.97 (157 at 0.9 or more); timbre
   is within 1 dB a band on the 6581 and 8580 tunes. The low ones use combined waveforms, which are
-  still ANDed; two others weren't pinned down. Still to come: the output to Web Audio (and the
-  terminal app), the combined waveforms' real values, the DACs' nonlinearity and the 6581
-  filter's distortion.
+  still ANDed; two others weren't pinned down. 8b plays it in the WebUI (Web Audio, an
+  AudioWorklet queue). Still to come: the terminal app's audio, the combined waveforms' real
+  values, the DACs' nonlinearity and the 6581 filter's distortion, and the card playing on while
+  the CPU is halted (time is the CPU's).
 - **`.sid` playback** (2026-10-25). Loading and running a tune is done (`sid_file.h`, `sidcheck`):
   of 192 owner-supplied tunes, every PSID with a play routine plays, and 164 of them match
   siddump's registers call for call over 500 calls (siddump can't run 7 of the rest, 2 need a third

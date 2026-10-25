@@ -49,7 +49,7 @@ export class FakePort implements MachinePort {
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
-    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, ...caps };
+    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, audio: false, ...caps };
   }
 
   /** Send a frame to the listeners; unset fields take idle defaults. */
@@ -68,6 +68,7 @@ export class FakePort implements MachinePort {
       apple: false,
       disk: null,
       video: null,
+      audio: null,
       ...frame,
     };
     for (const listener of this.listeners) listener(full);
@@ -166,6 +167,9 @@ export class FakePort implements MachinePort {
   }
   sendMouse(mouse: MouseInput): void {
     this.calls.push(["sendMouse", mouse]);
+  }
+  listen(rate: number): void {
+    this.calls.push(["listen", rate]);
   }
 
   watchVideo(on: boolean): void {

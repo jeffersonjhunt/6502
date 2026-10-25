@@ -126,6 +126,8 @@ namespace ooe::emu
         cpu_ = std::move(cpu);
         card_ = machine_->console_card();
         clock_cards();
+        if (SoundCard *s = machine_->sound_card())
+            s->set_audio_rate(audio_rate_);
         if (Disk2Card *d = machine_->disk2_card()) // the disks are still in their drives
             for (unsigned i = 0; i < Disk2Card::DRIVES; ++i)
                 d->insert(i, disks_[i]);
@@ -206,6 +208,19 @@ namespace ooe::emu
     {
         cpu_hz_ = hz;
         clock_cards();
+    }
+
+    void Session::set_audio_rate(uint32_t rate)
+    {
+        audio_rate_ = rate;
+        if (SoundCard *s = machine_->sound_card())
+            s->set_audio_rate(rate);
+    }
+
+    size_t Session::take_audio(float *out, size_t max_frames)
+    {
+        SoundCard *s = machine_->sound_card();
+        return s ? s->take_audio(out, max_frames) : 0;
     }
 
     void Session::clock_cards()

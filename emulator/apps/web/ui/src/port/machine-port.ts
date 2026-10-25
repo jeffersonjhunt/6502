@@ -34,6 +34,8 @@ export interface PortCaps {
   cartridge: boolean;
   /** insertDisk() and the rest work: the Disk II's drives. */
   disk: boolean;
+  /** listen() works: FrameState.audio carries the sound card's sound (the real card plays through its own jacks). */
+  audio: boolean;
 }
 
 /** The owner's Apple IIe ROM for the cartridge (ROM B). */
@@ -220,6 +222,12 @@ export interface FrameState {
    * finished a frame since the last FrameState: draw it, keep it if needed.
    */
   video: VideoFrame | null;
+  /**
+   * Only while listen(rate), with a sound card: the samples it made since
+   * the last frame, at that rate, left and right interleaved (SID A, SID B),
+   * -1 to 1. Yours to keep or transfer.
+   */
+  audio: Float32Array | null;
 }
 
 export type PanelKey = "load" | "exam" | "dep" | "cont" | "start";
@@ -318,6 +326,8 @@ export interface MachinePort {
   watchRegisters(on: boolean): void;
   /** Send the video card's frames (FrameState.video); off, they cost nothing. */
   watchVideo(on: boolean): void;
+  /** Send the sound card's sound at `rate` samples a second (FrameState.audio); 0 stops it, and costs nothing. */
+  listen(rate: number): void;
   setTrace(on: boolean, depth?: number): void;
   /** Up to `max` of the newest cycles, oldest first. */
   readTrace(max: number): Promise<TraceRow[]>;

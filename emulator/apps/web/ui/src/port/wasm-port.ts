@@ -63,6 +63,8 @@ export interface CoreMachine {
   hasVideo(): boolean;
   videoFrames(): number;
   videoFrame(): Uint8Array;
+  setAudioRate(rate: number): void;
+  takeAudio(): Float32Array;
   setClock(hz: number): void;
   fixedHz(): number;
   loadCartridge(rom: string, chars: string, boot: string, sequencer: string): boolean;
@@ -152,7 +154,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -166,6 +168,7 @@ export class WasmPort implements MachinePort {
   private regsOn = false;
   private videoOn = false;
   private videoSeen = -1;
+  private audioRate = 0;
   private readonly listeners = new Set<(frame: FrameState) => void>();
   private speedCycles = 0;
   private speedMs = 0;
@@ -192,6 +195,7 @@ export class WasmPort implements MachinePort {
     }
     this.m = m;
     this.setClock(this.clock); // the video card keeps time by it
+    m.setAudioRate(this.audioRate);
     this.last = this.scheduler.now();
     this.schedule();
     return { machine: this.files.machine };
@@ -254,6 +258,7 @@ export class WasmPort implements MachinePort {
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,
       video: this.videoOn && this.powered ? this.readVideo(m) : null,
+      audio: this.audioRate && this.powered ? new Float32Array(m.takeAudio()) : null, // copied out of the module's memory
     };
     for (const listener of this.listeners) listener(state);
     this.schedule();
@@ -472,6 +477,11 @@ export class WasmPort implements MachinePort {
   watchVideo(on: boolean): void {
     this.videoOn = on;
     this.videoSeen = -1; // the next frame goes out, even if it is not new
+  }
+
+  listen(rate: number): void {
+    this.audioRate = Math.max(0, Math.round(rate));
+    this.m?.setAudioRate(this.audioRate);
   }
 
   setTrace(on: boolean, depth = 4096): void {
