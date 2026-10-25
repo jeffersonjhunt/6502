@@ -56,7 +56,7 @@ namespace
         put16(0x10, h.start);
         put16(0x12, static_cast<uint16_t>(h.speed >> 16));
         put16(0x14, static_cast<uint16_t>(h.speed));
-        const std::string name = "Test Tune", author = "Nobody";
+        const std::string name = "Test Tune   ", author = "Nobody"; // trailing spaces: padding, as some files have
         std::copy(name.begin(), name.end(), b.begin() + 0x16);
         std::copy(author.begin(), author.end(), b.begin() + 0x36);
         if (h.version >= 2)
