@@ -16,7 +16,7 @@
  * (readSound): registers, port and CIA 1's timer A.
  */
 
-import type { AppleState, DiskInfo, DiskStatus, MachinePort, SoundCpu } from "../port/machine-port";
+import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SoundCpu } from "../port/machine-port";
 import { h } from "../ui/dom";
 import { hex } from "./breakpoints";
 
@@ -95,7 +95,12 @@ export function sidVoice(r: Uint8Array): string {
   return parts.join(" · ");
 }
 
-/** A SID's volume and filter ($15-$18) in words. */
+/** A voice's envelope in words. */
+export function envelopeText(e: Envelope): string {
+  return `env $${hex(e.level, 2)} ${e.held ? "held at 0" : e.phase}`;
+}
+
+/** A SID's volume and filter ($15-$18), and what it reads back ($1B-$1C), in words. */
 export function sidFilter(r: Uint8Array): string {
   const mode = r[0x18];
   const types = bits(mode, [[0x10, "low"], [0x20, "band"], [0x40, "high"]]);
@@ -104,6 +109,7 @@ export function sidFilter(r: Uint8Array): string {
   if (types === "none" || !routed.length) parts.push("filter off");
   else parts.push(`filter ${types.replace(/ · /g, "+")}-pass · cutoff ${(r[0x15] & 7) | (r[0x16] << 3)} · resonance ${r[0x17] >> 4} · voices ${routed.join(" ")}`);
   if (mode & 0x80) parts.push("voice 3 off");
+  parts.push(`OSC3 $${hex(r[0x1b], 2)} ENV3 $${hex(r[0x1c], 2)}`);
   return parts.join(" · ");
 }
 
@@ -241,8 +247,10 @@ export function devicesView(port: MachinePort) {
     soundStatus.textContent = ctrl & 2 ? "running" : "stopped";
     const clock = ctrl & 1 ? "NTSC 1.023 MHz" : "PAL 0.985 MHz";
     const box = (full: boolean, v: number) => (full ? `$${hex(v, 2)} waiting` : "empty");
-    const voices = (base: number) => [0, 7, 14].map((o, i) => row(`${base ? "B" : "A"}${i + 1}`, sidVoice(r.subarray(base + o, base + o + 7)))).flat();
     const cpu = await port.readSound();
+    const envelope = (chip: number, i: number) => (cpu?.envelopes[chip * 3 + i] ? ` · ${envelopeText(cpu.envelopes[chip * 3 + i])}` : "");
+    const voices = (base: number) =>
+      [0, 7, 14].map((o, i) => row(`${base ? "B" : "A"}${i + 1}`, sidVoice(r.subarray(base + o, base + o + 7)) + envelope(base ? 1 : 0, i))).flat();
     const cpuRows = cpu
       ? [
           ...row("6510", soundCpuText(cpu, !!(ctrl & 2))),

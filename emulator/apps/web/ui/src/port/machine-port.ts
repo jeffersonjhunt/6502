@@ -82,6 +82,16 @@ export interface SoundCpu {
   timer: number;
   latch: number;
   timerOn: boolean;
+  /** Each voice's envelope, SID A's three then SID B's. */
+  envelopes: Envelope[];
+}
+
+/** A SID voice's envelope: its level, and where in ADSR it is. */
+export interface Envelope {
+  level: number;
+  phase: "attack" | "decay/sustain" | "release";
+  /** At 0 after a release, until the next attack. */
+  held: boolean;
 }
 
 /** The Disk II card as it is (FrameState.disk, readDisk2). */

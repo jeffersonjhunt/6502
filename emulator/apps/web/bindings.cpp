@@ -66,7 +66,9 @@
  * The sound card's 6510 (sound_card.h): soundCpu() is its registers, state
  * (0 running, 2 jammed), cycles, port (ddr, port) and CIA 1's timer A
  * (timer, latch, timerOn), or has: false without the card. Its registers
- * at $C500 are peekIo's.
+ * at $C500 are peekIo's. soundVoice(chip, voice) is that voice's envelope:
+ * bits 0-7 the level, 8-9 the phase (0 attack, 1 decay/sustain, 2
+ * release), bit 10 held at 0; -1 without the card.
  */
 
 #include <emscripten/bind.h>
@@ -327,6 +329,15 @@ namespace
                             c->timer_latch(), c->timer_running()};
         }
 
+        int sound_voice(unsigned chip, unsigned voice) const
+        {
+            const SoundCard *c = session_->sound();
+            if (!c)
+                return -1;
+            const Sid::Voice &v = c->chip(chip).voice(voice);
+            return v.envelope | static_cast<int>(v.phase) << 8 | (v.frozen ? 1 << 10 : 0);
+        }
+
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
 
         bool has_usb() const { return session_->usb() != nullptr; }
@@ -457,6 +468,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("diskStatus", &WebMachine::disk_status)
         .function("diskQuarter", &WebMachine::disk_quarter)
         .function("soundCpu", &WebMachine::sound_cpu)
+        .function("soundVoice", &WebMachine::sound_voice)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbMouseTo", &WebMachine::usb_mouse_to)

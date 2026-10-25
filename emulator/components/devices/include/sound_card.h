@@ -51,9 +51,12 @@
  * card's 6510 owns the chips then, and the write is dropped. With CTRL BOTH,
  * a write to SID A also goes to SID B, from either side. Reads always work:
  * the card answers the 25 write-only registers from what was last written to
- * each, and $19-$1C (POTX, POTY, OSC3, ENV3) from the chip. No paddles are
- * connected (POTX, POTY read $FF); OSC3 and ENV3 come with the SID model,
- * step 7d, and read 0 until then. The RP2350 forwards a write at once in the
+ * each, and $19-$1C (POTX, POTY, OSC3, ENV3) from the chip (sid.h): no
+ * paddles are connected, so POTX and POTY read $FF; OSC3 and ENV3 are voice
+ * 3's waveform and envelope, as of that clock. The chips run from the SID
+ * clock whether the 6510 runs or not, and are brought up to date whenever
+ * they are written or read (by either side, or the debugger), so a quiet
+ * card costs nothing. The RP2350 forwards a write at once in the
  * emulator, so STATUS BUSY never sets.
  *
  * RAM. RAMADDR is the next address; a RAMDATA access, read or write, moves
@@ -81,6 +84,7 @@
 #include "bus.h"
 #include "cpu6502.h"
 #include "device.h"
+#include "sid.h"
 
 namespace ooe::emu
 {
@@ -154,7 +158,15 @@ namespace ooe::emu
         uint8_t sid_read(unsigned chip, unsigned reg) const;
 
         uint8_t ctrl() const { return ctrl_; }
-        const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return sid_[chip & 1]; }
+        const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return chips_[chip & 1].regs(); }
+        /// SID `n` as of now: its voices' oscillators and envelopes.
+        const Sid &chip(unsigned n) const
+        {
+            catch_up();
+            return chips_[n & 1];
+        }
+        /// SID clocks since power-up, whether the 6510 ran or not.
+        uint64_t sid_clocks() const { return now(); }
         std::array<uint8_t, RAM_BYTES> &ram() { return ram_; }
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
         /// Times CTRL RESET was written.
@@ -200,8 +212,12 @@ namespace ooe::emu
         void cia_write(unsigned reg, uint8_t data);
         bool cia_irq() const { return cia_flags_ & cia_mask_ & 0x01; }
         void reset_cpu();
+        uint64_t now() const;
+        /// Clock the SIDs up to now(). Const: the debugger looks through peek().
+        void catch_up() const;
 
-        std::array<std::array<uint8_t, SID_REGS>, 2> sid_{};
+        mutable std::array<Sid, 2> chips_{};
+        mutable uint64_t sids_at_{0}; ///< the SID clock the chips have been clocked to
         std::array<uint8_t, RAM_BYTES> ram_{};
         uint8_t ctrl_{0};
         uint8_t ien_{0};
@@ -215,6 +231,9 @@ namespace ooe::emu
         uint32_t host_hz_{NATIVE_HZ};
         uint64_t phase_{0}; ///< SID clocks x host Hz owed, below one SID clock
         int64_t owed_{0};   ///< SID clocks the 6510 is behind (negative: ahead)
+        uint64_t clock_{0}; ///< SID clocks passed, to the end of the 6510's last instruction
+        uint64_t step_start_{0};
+        bool in_step_{false};
         uint8_t ddr_{0}, port_{0};
         uint16_t cia_latch_{0xFFFF}, cia_counter_{0xFFFF};
         uint8_t cia_cra_{0}, cia_flags_{0}, cia_mask_{0};
