@@ -21,6 +21,8 @@ namespace ooe::emu
             std::string s;
             for (size_t i = at; i < at + 32 && b[i]; ++i)
                 s += static_cast<char>(b[i]);
+            while (!s.empty() && s.back() == ' ') // some pad with spaces, not NULs
+                s.pop_back();
             return s;
         }
 
