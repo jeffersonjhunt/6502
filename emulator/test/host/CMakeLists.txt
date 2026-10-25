@@ -158,6 +158,27 @@ target_compile_definitions(test_iie PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
+# --- the sound card's test driver --------------------------------------------
+#
+# test/host/sound/driver.s, for the card's 6510: assembled here so
+# test_sound_driver runs a real program on the card. Without cc65 it skips.
+
+emu_add_test(test_sound_driver)
+set(SOUND_SRC "${CMAKE_CURRENT_LIST_DIR}/sound")
+set(SOUND_DIR "${CMAKE_CURRENT_BINARY_DIR}/sound")
+if(EMU_CA65 AND EMU_LD65)
+    file(MAKE_DIRECTORY "${SOUND_DIR}")
+    add_custom_command(
+            OUTPUT "${SOUND_DIR}/driver.bin"
+            COMMAND "${EMU_CA65}" -g -o "${SOUND_DIR}/driver.o" "${SOUND_SRC}/driver.s"
+            COMMAND "${EMU_LD65}" -C "${SOUND_SRC}/driver.cfg" -o "${SOUND_DIR}/driver.bin" "${SOUND_DIR}/driver.o"
+            DEPENDS "${SOUND_SRC}/driver.s" "${SOUND_SRC}/driver.cfg"
+            VERBATIM)
+    add_custom_target(sound_driver ALL DEPENDS "${SOUND_DIR}/driver.bin")
+    add_dependencies(test_sound_driver sound_driver)
+endif()
+target_compile_definitions(test_sound_driver PRIVATE EMU_SOUND_DRIVER="${SOUND_DIR}/driver.bin")
+
 # --- Ben Eater's ROMs -------------------------------------------------------
 #
 # Assembled from eater/src with vasm, as eater/Makefile does (same flags), so

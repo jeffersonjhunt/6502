@@ -216,6 +216,8 @@ namespace
                 video->set_cpu_hz(settings.clock_hz); // 0, flat out: the card keeps 7.16 MHz time
             if (UsbCard *usb = machine.usb_card())
                 usb->set_cpu_hz(settings.clock_hz); // key repeat and the paddles
+            if (SoundCard *sound = machine.sound_card())
+                sound->set_cpu_hz(settings.clock_hz); // its 6510 keeps the SID clock's time
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
             emulator.on_clock_change([&machine](uint32_t hz) {
@@ -223,6 +225,8 @@ namespace
                     video->set_cpu_hz(hz);
                 if (UsbCard *usb = machine.usb_card())
                     usb->set_cpu_hz(hz);
+                if (SoundCard *sound = machine.sound_card())
+                    sound->set_cpu_hz(hz);
             });
 
             on_signal(SIGINT);

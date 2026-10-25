@@ -27,6 +27,7 @@ import type {
   PortCaps,
   Registers,
   MouseInput,
+  SoundCpu,
   TraceRow,
   VideoFrame,
 } from "./machine-port";
@@ -73,6 +74,7 @@ export interface CoreMachine {
   setWriteProtect(drive: number, on: boolean): void;
   diskStatus(): number;
   diskQuarter(drive: number): number;
+  soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
   appleMode(): boolean;
   appleSwitches(): number;
   peekIo(offset: number): number;
@@ -407,6 +409,11 @@ export class WasmPort implements MachinePort {
 
   async readDisk2(): Promise<DiskStatus | null> {
     return this.readDiskStatus(this.machine);
+  }
+
+  async readSound(): Promise<SoundCpu | null> {
+    const { has, state, ...c } = this.machine.soundCpu();
+    return has ? { ...c, jammed: state === 2 } : null;
   }
 
   async readApple(): Promise<AppleState | null> {

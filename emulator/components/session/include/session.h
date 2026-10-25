@@ -123,6 +123,8 @@ namespace ooe::emu
         /// The disk in a drive, or nullptr.
         DiskImage *disk(unsigned drive) const { return disks_[drive % Disk2Card::DRIVES].get(); }
         Disk2Card *disk2() const { return machine_->disk2_card(); }
+        /// The sound card, or nullptr: its registers, RAM and 6510.
+        SoundCard *sound() const { return machine_->sound_card(); }
         const std::vector<std::string> &cartridge() const { return config_.apple_rom; }
 
         // The panel: the card's inputs (nothing without a card)

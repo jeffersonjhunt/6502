@@ -63,6 +63,27 @@ export interface DiskInfo {
   writes: number;
 }
 
+/** The sound card's own 6510 as it is (readSound). */
+export interface SoundCpu {
+  pc: number;
+  a: number;
+  x: number;
+  y: number;
+  s: number;
+  p: number;
+  /** Jammed: a $x2 opcode stopped it, until CTRL RESET. */
+  jammed: boolean;
+  /** SID clocks it has run. */
+  cycles: number;
+  /** The 6510's port: DDR ($00) and data ($01). */
+  ddr: number;
+  port: number;
+  /** CIA 1's timer A: counter, latch, running. */
+  timer: number;
+  latch: number;
+  timerOn: boolean;
+}
+
 /** The Disk II card as it is (FrameState.disk, readDisk2). */
 export interface DiskStatus {
   motor: boolean;
@@ -280,6 +301,8 @@ export interface MachinePort {
   setWriteProtect(drive: number, on: boolean): void;
   /** The Disk II card as it is; null without one. */
   readDisk2(): Promise<DiskStatus | null>;
+  /** The sound card's 6510; null without the card. Its registers are readMemory(0xC500, 0x80, "io"). */
+  readSound(): Promise<SoundCpu | null>;
 
   setLights(on: boolean): void;
   watchRegisters(on: boolean): void;

@@ -660,6 +660,22 @@ for it (Device::bus_reset()); the sound card stops and goes quiet, keeping
 its RAM. The WebUI's Devices tab shows CTRL, the mailbox, RAMADDR and both
 SIDs' voices and filter in words.
 
+**The sound card, step 7c (2026-10-25): its own 6510.** The card runs an
+NMOS 6510 (step 7a's undocumented opcodes) while CTRL RUN is set, one
+cycle per SID clock, PAL 985,248 Hz or NTSC 1,022,727 Hz, against the
+host's clock (set_cpu_hz, as the USB and video cards keep time). Its map
+follows the C64's: 64 KB of RAM, the 6510's port at $00/$01 banking
+$D000-$DFFF between I/O and RAM, SID A at $D400 repeating to $D7FF with SID
+B at $D420 or $D500, CIA 1's timer A and its interrupt at $DC00, and the
+mailbox at $DE00/$DE01; the rest of I/O reads $FF. CTRL RESET resets the
+6510 and the CIA. Checked with hand-assembled programs (the clock to
+within an instruction a second, the map, the timer's latch + 1 period
+and one-shot) and with a real driver, test/host/sound/driver.s,
+assembled by ca65: it counts 50 Hz frames on the CIA's interrupt with ISC,
+LAX, SAX and DCP, banks I/O out and back, and plays notes on mailbox
+commands, answering each. The Devices tab shows the 6510's registers,
+its port and the timer (soundCpu in the bindings, readSound on the port).
+
 ## Backlog
 
 Decided to come later, not forgotten:
