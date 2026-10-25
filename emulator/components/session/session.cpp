@@ -7,6 +7,7 @@
 #include "session.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ooe::emu
 {
@@ -128,6 +129,10 @@ namespace ooe::emu
         clock_cards();
         if (SoundCard *s = machine_->sound_card())
             s->set_audio_rate(audio_rate_);
+        if (UsbCard *u = machine_->usb_card())
+            u->set_audio_rate(audio_rate_);
+        sid_audio_.clear();
+        speaker_audio_.clear();
         sid_.reset(); // a new card: no tune on it
         sid_song_ = 0;
         sid_warnings_.clear();
@@ -218,12 +223,54 @@ namespace ooe::emu
         audio_rate_ = rate;
         if (SoundCard *s = machine_->sound_card())
             s->set_audio_rate(rate);
+        if (UsbCard *u = machine_->usb_card())
+            u->set_audio_rate(rate);
+        sid_audio_.clear();
+        speaker_audio_.clear();
     }
 
     size_t Session::take_audio(float *out, size_t max_frames)
     {
-        SoundCard *s = machine_->sound_card();
-        return s ? s->take_audio(out, max_frames) : 0;
+        SoundCard *sound = machine_->sound_card();
+        UsbCard *usb = machine_->usb_card();
+        if (!audio_rate_ || (!sound && !usb))
+            return 0;
+        // Each source makes samples up to now by its own clock, so they end within a sample or
+        // two of each other: mix what both have, and keep the rest for next time.
+        const size_t most = audio_rate_ / 2;
+        if (sound)
+        {
+            const size_t had = sid_audio_.size();
+            sid_audio_.resize(had + 2 * most);
+            sid_audio_.resize(had + 2 * sound->take_audio(sid_audio_.data() + had, most));
+        }
+        if (usb)
+        {
+            const size_t had = speaker_audio_.size();
+            speaker_audio_.resize(had + most);
+            speaker_audio_.resize(had + usb->take_audio(speaker_audio_.data() + had, most));
+        }
+        size_t frames = max_frames;
+        if (sound)
+            frames = std::min(frames, sid_audio_.size() / 2);
+        if (usb)
+            frames = std::min(frames, speaker_audio_.size());
+        for (size_t i = 0; i < frames; ++i)
+        {
+            const float speaker = usb ? speaker_audio_[i] : 0.0f;
+            for (size_t ch = 0; ch < 2; ++ch)
+                out[2 * i + ch] = std::fmax(-1.0f, std::fmin(1.0f, (sound ? sid_audio_[2 * i + ch] : 0.0f) + speaker));
+        }
+        if (sound)
+            sid_audio_.erase(sid_audio_.begin(), sid_audio_.begin() + static_cast<std::ptrdiff_t>(2 * frames));
+        if (usb)
+            speaker_audio_.erase(speaker_audio_.begin(), speaker_audio_.begin() + static_cast<std::ptrdiff_t>(frames));
+        // One source running ahead (it shouldn't) doesn't grow without end.
+        if (sid_audio_.size() > 2 * most)
+            sid_audio_.erase(sid_audio_.begin(), sid_audio_.end() - static_cast<std::ptrdiff_t>(2 * most));
+        if (speaker_audio_.size() > most)
+            speaker_audio_.erase(speaker_audio_.begin(), speaker_audio_.end() - static_cast<std::ptrdiff_t>(most));
+        return frames;
     }
 
     bool Session::play_sid(const std::vector<uint8_t> &bytes, unsigned song, std::string &error)

@@ -15,6 +15,8 @@
 #include "machine.h"
 #include "usb_card.h"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -383,6 +385,153 @@ TEST(pause_break_pulls_nmi_only_with_kbcfg_bit_7)
     c.type(PAUSE);
     CHECK(c.take_nmi());
     CHECK(!c.take_nmi());                         // once
+}
+
+namespace
+{
+    constexpr uint32_t APPLE_HZ = 1'020'484, RATE = 48'000;
+
+    /// A card with the speaker's sound on, at the Apple's clock.
+    UsbCard speaker_card()
+    {
+        UsbCard u;
+        u.set_cpu_hz(APPLE_HZ);
+        u.set_audio_rate(RATE);
+        return u;
+    }
+
+    /// Toggle the speaker every `half` cycles, `toggles` times; then collect everything.
+    std::vector<float> square(UsbCard &u, unsigned half, unsigned toggles, uint64_t after = 0)
+    {
+        std::vector<float> out, block(RATE);
+        auto collect = [&] {
+            const size_t n = u.take_audio(block.data(), block.size());
+            out.insert(out.end(), block.begin(), block.begin() + static_cast<std::ptrdiff_t>(n));
+        };
+        for (unsigned i = 0; i < toggles; ++i)
+        {
+            u.tick(half);
+            u.read(UsbCard::SPKR);
+            if (i % 100 == 0) // often: half a second waits at most
+                collect();
+        }
+        u.tick(after);
+        collect();
+        return out;
+    }
+
+    float rms(const std::vector<float> &v, size_t from, size_t to)
+    {
+        double sq = 0;
+        for (size_t i = from; i < to; ++i)
+            sq += static_cast<double>(v[i]) * v[i];
+        return static_cast<float>(std::sqrt(sq / static_cast<double>(to - from)));
+    }
+} // namespace
+
+TEST(the_speaker_a_toggle_every_510_cycles_is_1_khz_at_its_level)
+{
+    UsbCard u = speaker_card();
+    const auto s = square(u, 510, 1000, APPLE_HZ / 4); // half a second, then a quarter of quiet
+    const size_t tone = RATE / 2;
+    const uint64_t want = (510'000 + APPLE_HZ / 4) * uint64_t{RATE} / APPLE_HZ; // whole samples of the cycles run
+    CHECK(s.size() + 1 >= want && s.size() <= want);
+    unsigned rises = 0;
+    for (size_t i = RATE / 20; i < tone; ++i)
+        rises += s[i - 1] < 0 && s[i] >= 0;
+    const double hz = rises / (0.5 - 0.05);
+    CHECK(hz > 995 && hz < 1006); // 1,020,484 / 1,020: 1,000.5 Hz
+    float peak = 0;
+    for (size_t i = RATE / 20; i < tone; ++i)
+        peak = std::fmax(peak, std::fabs(s[i]));
+    CHECK(peak > 0.19f && peak < 0.215f); // +-0.2, with the high-pass's droop
+    CHECK(rms(s, s.size() - 1000, s.size()) < 0.002f); // left alone, it dies away
+    CHECK_EQ(u.speaker_toggles(), 1000u);
+}
+
+TEST(the_speaker_one_toggle_is_one_click_and_two_on_a_cycle_are_none)
+{
+    UsbCard one = speaker_card();
+    auto s = square(one, 2'000, 1, APPLE_HZ / 10);
+    size_t at = 0;
+    for (size_t i = 0; i < s.size(); ++i)
+        if (std::fabs(s[i]) > std::fabs(s[at]))
+            at = i;
+    CHECK(std::fabs(s[at]) > 0.35f); // the step: 0.4, high-passed
+    CHECK(std::fabs(s.back()) < 0.01f); // gone again in 100 ms (20 Hz)
+    UsbCard two = speaker_card();
+    two.tick(2'000);
+    two.read(UsbCard::SPKR);
+    two.write(UsbCard::SPKR, 0); // the same cycle: back where it was
+    two.tick(APPLE_HZ / 10);
+    std::vector<float> out(RATE);
+    out.resize(two.take_audio(out.data(), out.size()));
+    CHECK(!out.empty());
+    CHECK_EQ(rms(out, 0, out.size()), 0.0f);
+}
+
+TEST(the_speaker_averages_each_sample_so_a_tone_past_hearing_is_quiet)
+{
+    // 46 kHz, toggled every 11 cycles: averaged over each 21-cycle sample it nearly cancels; sampled at a point it would alias loud.
+    UsbCard u = speaker_card();
+    const auto s = square(u, 11, 40'000);
+    CHECK(rms(s, s.size() / 4, s.size()) < 0.06f);
+}
+
+TEST(the_speaker_makes_a_second_of_samples_a_second_at_any_clock_and_none_when_off)
+{
+    for (const uint32_t hz : {APPLE_HZ, UsbCard::NATIVE_HZ})
+    {
+        UsbCard u;
+        u.set_cpu_hz(hz);
+        u.set_audio_rate(RATE);
+        std::vector<float> block(RATE);
+        size_t n = 0;
+        for (int i = 0; i < 4; ++i) // in quarters: half a second waits at most
+        {
+            u.tick(hz / 4);
+            n += u.take_audio(block.data(), block.size());
+        }
+        CHECK(n >= RATE - 1 && n <= RATE);
+    }
+    UsbCard off;
+    off.read(UsbCard::SPKR);
+    off.tick(APPLE_HZ);
+    std::vector<float> block(RATE);
+    CHECK_EQ(off.take_audio(block.data(), block.size()), 0u);
+    CHECK_EQ(off.speaker_toggles(), 1u);
+}
+
+TEST(the_speaker_keeps_half_a_second_and_its_place_while_nobody_listens)
+{
+    UsbCard u = speaker_card();
+    u.tick(2 * APPLE_HZ); // nobody collecting: the oldest go
+    std::vector<float> block(2 * RATE);
+    CHECK_EQ(u.take_audio(block.data(), block.size()), size_t{RATE / 2});
+    // Toggled with the sound off, the flip-flop still moves: high now, so the next toggle is a step down.
+    UsbCard v;
+    v.set_cpu_hz(APPLE_HZ);
+    v.read(UsbCard::SPKR);
+    v.set_audio_rate(RATE);
+    v.tick(1'000);
+    v.read(UsbCard::SPKR);
+    v.tick(APPLE_HZ / 100);
+    const size_t n = v.take_audio(block.data(), block.size());
+    REQUIRE(n > 100);
+    CHECK_EQ(block[0], 0.0f); // turned on at rest: no click
+    CHECK(*std::min_element(block.begin(), block.begin() + static_cast<std::ptrdiff_t>(n)) < -0.35f); // a step of -0.4
+    CHECK(*std::max_element(block.begin(), block.begin() + static_cast<std::ptrdiff_t>(n)) <= 0.0f);
+}
+
+TEST(the_speakers_time_runs_on_through_a_reset)
+{
+    UsbCard u = speaker_card();
+    u.tick(APPLE_HZ / 10);
+    u.reset(); // Ctrl-Reset: the card's own clock starts again, the speaker's doesn't
+    u.tick(APPLE_HZ / 10);
+    std::vector<float> block(RATE);
+    const size_t n = u.take_audio(block.data(), block.size());
+    CHECK(n >= RATE / 5 - 1 && n <= RATE / 5);
 }
 
 namespace

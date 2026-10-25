@@ -44,7 +44,18 @@
  * Game port. PTRIG starts the 558: each paddle's GAME bit is 1 for about
  * 11 us per count of its setting, in real time (set_cpu_hz()). PADDLE0-3 are
  * the settings themselves, as the RP2350 measures them. SPKR toggles the
- * speaker on any access (speaker_toggles() counts them, for sound later).
+ * speaker on any access (speaker_toggles() counts them).
+ *
+ * Speaker. A flip-flop driving a speaker, as on the Apple II: software makes
+ * a tone by toggling it in a timed loop. With set_audio_rate(), the card
+ * notes each toggle's CPU cycle and turns them into samples at that rate:
+ * each sample is the flip-flop's level (+-SPEAKER_LEVEL) averaged over the
+ * cycles it spans, then a high-pass at 20 Hz, as the speaker's coupling
+ * capacitor lets a held level die away, so a speaker left on clicks once
+ * and goes quiet. take_audio() collects them (mono), up to half a second
+ * waiting, the oldest dropped first. A toggle lands on the cycle the card
+ * has been brought up to, which the bus does before every instruction ends:
+ * within an instruction's few cycles of the access.
  *
  * Interrupts: a key event, mouse change, game button change or device change
  * sets its ISR bit whether IEN enables it or not; irq() is ISR & IEN, which
@@ -61,6 +72,7 @@
 #include <cstdint>
 #include <deque>
 #include <utility>
+#include <vector>
 
 #include "device.h"
 
@@ -139,6 +151,12 @@ namespace ooe::emu
         /// 1, as a IIe wires them to buttons 0 and 1.
         uint8_t apple_keys() const;
         uint64_t speaker_toggles() const { return speaker_toggles_; }
+        /// The speaker's sound at `rate` samples a second (0: none, the default). Kept through resets.
+        void set_audio_rate(uint32_t rate);
+        uint32_t audio_rate() const { return audio_rate_; }
+        /// Up to `max` mono samples made since the last call, up to now. @return samples
+        size_t take_audio(float *out, size_t max);
+        static constexpr float SPEAKER_LEVEL = 0.2f;
         bool caps_lock() const { return caps_; }
         uint8_t leds() const { return leds_; }
 
@@ -195,6 +213,18 @@ namespace ooe::emu
         uint64_t trigger_{0};
         bool triggered_{false};
         uint64_t speaker_toggles_{0};
+        void toggle_speaker();
+        /// Samples up to now_ + reset_base_: whole ones only.
+        void render();
+        uint64_t clock() const { return reset_base_ + now_; } ///< cycles since power on, through resets
+        uint64_t reset_base_{0};
+        uint32_t audio_rate_{0};
+        std::deque<uint64_t> toggles_;   ///< not yet rendered, by clock()
+        uint64_t rendered_{0};           ///< the clock() samples have been made up to
+        uint64_t sample_phase_{0};       ///< CPU Hz owed to the next sample's length
+        bool level_{false};              ///< the flip-flop
+        float hp_in_{0}, hp_out_{0}, hp_pole_{0};
+        std::vector<float> audio_;
 
         uint8_t ien_{0}, isr_{0};
     };

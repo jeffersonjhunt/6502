@@ -303,6 +303,30 @@ describe("WasmPort", () => {
     expect(m.step().audio).toBeNull();
   });
 
+  test("the speaker ($C030 in Apple II mode, $C5A6 here) is in the sound too, on both sides", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.port.listen(48_000);
+    // LDA $C5A6, then three rounds of 256 DEXes, JMP $0300: a 926 Hz square.
+    m.port.sendSerial(ascii("300: AD A6 C5 A0 03 A2 00 CA D0 FD 88 D0 F8 4C 00 03\r"));
+    expect(m.until("0300:")).toBe(true);
+    m.port.sendSerial(ascii("300R\r"));
+    for (let i = 0; i < 6; ++i) m.step();
+    let sq = 0;
+    let n = 0;
+    for (let i = 0; i < 20; ++i) {
+      const a = m.step().audio!;
+      for (let k = 0; k < a.length; k += 2) {
+        expect(a[k + 1]).toBe(a[k]);
+        sq += a[k] * a[k];
+        ++n;
+      }
+    }
+    const rms = Math.sqrt(sq / n);
+    expect(rms).toBeGreaterThan(0.18); // a square at +-0.2
+    expect(rms).toBeLessThan(0.21);
+  });
+
   test("a .sid tune: onto the card, its songs, heard, stopped; a bad file refused, the tune playing on", async () => {
     const m = await open();
     m.until(GREETING);

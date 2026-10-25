@@ -17,7 +17,7 @@ export function soundButton(speaker: Speaker, available: boolean) {
       "aria-pressed": "false",
       "data-testid": "tb-sound",
       disabled: !available,
-      title: available ? "The sound card through your speakers" : "This machine has no sound to play here",
+      title: available ? "The machine's sound through your speakers: the sound card, and the speaker ($C030 on the IIe)" : "This machine has no sound to play here",
     },
     meter,
     "Sound",

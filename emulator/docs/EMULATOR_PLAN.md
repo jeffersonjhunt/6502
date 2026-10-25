@@ -706,7 +706,8 @@ Decided to come later, not forgotten:
   still ANDed; two others weren't pinned down. 8b plays it in the WebUI (Web Audio, an
   AudioWorklet queue). Still to come: the terminal app's audio, the combined waveforms' real
   values, the DACs' nonlinearity and the 6581 filter's distortion, and the card playing on while
-  the CPU is halted (time is the CPU's).
+  the CPU is halted (time is the CPU's). The USB card's speaker (the IIe's `$C030`) plays too, mixed
+  into the same stream: the IIe's bell measures 934.4 Hz against the 934.5 its ROM's loop makes.
 - **`.sid` playback** (2026-10-25). Loading and running a tune is done (`sid_file.h`, `sidcheck`):
   of 192 owner-supplied tunes, every PSID with a play routine plays, and 164 of them match
   siddump's registers call for call over 500 calls (siddump can't run 7 of the rest, 2 need a third

@@ -6,6 +6,9 @@
 
 #include "usb_card.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace ooe::emu
 {
     namespace
@@ -20,6 +23,8 @@ namespace ooe::emu
 
     void UsbCard::reset()
     {
+        reset_base_ += now_; // the speaker's time runs on through resets
+        now_ = 0;
         key_ = mods_ = leds_ = kbcfg_ = 0;
         repeat_ = 0x10;
         caps_ = true;
@@ -263,6 +268,82 @@ namespace ooe::emu
 
     uint8_t UsbCard::dack_read(bool) { return pop_event(); }
 
+    // --- the speaker -------------------------------------------------------------
+
+    void UsbCard::toggle_speaker()
+    {
+        ++speaker_toggles_;
+        if (audio_rate_)
+        {
+            toggles_.push_back(clock());
+            if (toggles_.size() > 65'536) // nobody collecting: keep the backlog down
+                render();
+        }
+        else
+            level_ = !level_;
+    }
+
+    void UsbCard::set_audio_rate(uint32_t rate)
+    {
+        audio_rate_ = rate;
+        toggles_.clear();
+        audio_.clear();
+        rendered_ = clock();
+        sample_phase_ = 0;
+        hp_in_ = SPEAKER_LEVEL * (level_ ? 1.0f : -1.0f); // at rest where it is: no click for turning it on
+        hp_out_ = 0;
+        hp_pole_ = rate ? std::exp(-2.0f * 3.14159265f * 20.0f / static_cast<float>(rate)) : 0.0f;
+    }
+
+    void UsbCard::render()
+    {
+        const uint64_t now = clock();
+        for (;;)
+        {
+            // Each sample spans CPU Hz / rate cycles, the remainder carried (21 or 22 at 1.02 MHz and 48 kHz).
+            const uint64_t owed = sample_phase_ + cpu_hz_;
+            const uint64_t length = owed / audio_rate_;
+            if (rendered_ + length > now)
+                break;
+            sample_phase_ = owed % audio_rate_;
+            const uint64_t end = rendered_ + length;
+            double high = 0; // cycles the flip-flop was high
+            uint64_t t = rendered_;
+            while (!toggles_.empty() && toggles_.front() < end)
+            {
+                const uint64_t at = std::max(toggles_.front(), t);
+                if (level_)
+                    high += static_cast<double>(at - t);
+                t = at;
+                level_ = !level_;
+                toggles_.pop_front();
+            }
+            if (level_)
+                high += static_cast<double>(end - t);
+            rendered_ = end;
+            if (!length)
+                continue;
+            const float in = SPEAKER_LEVEL * static_cast<float>(2 * high / static_cast<double>(length) - 1);
+            hp_out_ = in - hp_in_ + hp_pole_ * hp_out_; // the coupling capacitor
+            hp_in_ = in;
+            audio_.push_back(hp_out_);
+        }
+        const size_t most = audio_rate_ / 2;
+        if (audio_.size() > most)
+            audio_.erase(audio_.begin(), audio_.begin() + static_cast<std::ptrdiff_t>(audio_.size() - most));
+    }
+
+    size_t UsbCard::take_audio(float *out, size_t max)
+    {
+        if (!audio_rate_)
+            return 0;
+        render();
+        const size_t n = std::min(max, audio_.size());
+        std::copy(audio_.begin(), audio_.begin() + static_cast<std::ptrdiff_t>(n), out);
+        audio_.erase(audio_.begin(), audio_.begin() + static_cast<std::ptrdiff_t>(n));
+        return n;
+    }
+
     namespace
     {
         uint8_t sat8(int v) { return static_cast<uint8_t>(static_cast<int8_t>(v < -128 ? -128 : v > 127 ? 127 : v)); }
@@ -303,7 +384,7 @@ namespace ooe::emu
             triggered_ = true;
             return peek(offset);
         case SPKR:
-            ++speaker_toggles_;
+            toggle_speaker();
             return peek(offset);
         default:
             return peek(offset);
@@ -420,7 +501,7 @@ namespace ooe::emu
             triggered_ = true;
             break;
         case SPKR:
-            ++speaker_toggles_;
+            toggle_speaker();
             break;
         case IEN:
             ien_ = data & 0x0F;

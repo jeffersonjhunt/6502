@@ -87,9 +87,10 @@ this browser (IndexedDB), with what was written to it, never uploaded. A paste g
 Apple II it is typed on the USB keyboard (US layout; letters as the card's
 Caps Lock has them), and the card holds each character until the machine
 has taken the last, so a BASIC program pasted into Applesoft arrives whole.
-**Sound**, under the monitor at the right, plays the sound card through
-the computer's speakers (Web Audio, at the device's own rate; the meter in
-the button is the card's level). It is remembered; left on, it plays from
+**Sound**, under the monitor, plays the machine's sound through the
+computer's speakers: the sound card's two SIDs, and the USB card's speaker,
+which is the IIe's `$C030` in Apple II mode (Web Audio, at the device's own
+rate; the meter in the button is the level). It is remembered; left on, it plays from
 the first click or key after a reload, as browsers require. Halting the
 machine silences it: the emulator's time is the CPU's. **Play .sid…**
 beside it puts a C64 tune of your own (PSID or RSID) on the sound card,
