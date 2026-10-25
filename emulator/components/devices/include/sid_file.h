@@ -42,6 +42,8 @@
  * the card; a second one plays only at $D420 or $D500.
  */
 
+#include "sid.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -80,6 +82,8 @@ namespace ooe::emu
         static constexpr uint16_t FLAG_MUS = 0x01, FLAG_BASIC = 0x02; ///< bit 1: PSID-specific, or RSID's BASIC
 
         Clock clock() const { return static_cast<Clock>((flags >> 2) & 3); }
+        /// The chip it was written for: 8580 when it says only that, else the 6581.
+        Sid::Model model() const { return ((flags >> 4) & 3) == 2 ? Sid::Model::Mos8580 : Sid::Model::Mos6581; }
         bool ntsc() const { return clock() == Clock::Ntsc; }
         /// The last address the code fills.
         uint32_t end() const { return load + static_cast<uint32_t>(data.size()) - 1; }
@@ -100,6 +104,7 @@ namespace ooe::emu
         };
         std::vector<Block> blocks; ///< the tune, then the stub, the KERNAL exits and vectors
         uint8_t ctrl{0};           ///< CTRL to start with (RUN and RESET included)
+        Sid::Model model{Sid::Model::Mos6581}; ///< the chips' jumper, as the tune wants
         uint16_t stub{0};          ///< where the stub sits
         uint16_t frame{0};         ///< the stub's frame counter, written to the mailbox after each play
         std::vector<std::string> warnings; ///< what about the tune the card can't give it
@@ -109,6 +114,7 @@ namespace ooe::emu
     /// and `error` when there is nowhere free for the stub, or no such song.
     std::optional<SidPlan> plan_sid(const SidFile &file, unsigned song, std::string &error);
 
-    /// Carry out `plan` through the card's host registers: stop, load, start.
+    /// Carry out `plan` through the card's host registers: stop, load, start;
+    /// and set the chips' model, as the card's owner would set the jumper.
     void start_sid(SoundCard &card, const SidPlan &plan);
 } // namespace ooe::emu

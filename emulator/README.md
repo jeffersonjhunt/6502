@@ -111,10 +111,13 @@ voices that sounded, and the C64 I/O the tune reached that the card lacks:
 
 ```
 ./build/release/apps/sidcheck/sidcheck [--seconds N] [--song N] [--dump] tune.sid...
+./build/release/apps/sidcheck/sidcheck --wav out.wav [--model 6581|8580] [--mute 23] tune.sid
 ```
 
 `--dump` prints the SIDs' registers after each play call, for comparing with
-a reference player. Tunes are their composers' copyright: keep them in the
+a reference player. `--wav` writes the card's sound (sid.h's output stage:
+the waveform DACs, envelopes, filter and mixer), 16-bit stereo at 48 kHz;
+`--model` overrides the chip the file asks for, and `--mute` leaves voices out. Tunes are their composers' copyright: keep them in the
 gitignored `test/host/fixtures/SIDs/`, where `test_sid_corpus` plays them all.
 
 ## WebAssembly

@@ -72,6 +72,18 @@
  * host's byte and writes its own; $DE01 bit 0 is "a byte from the host
  * waiting", bit 1 "my byte not yet taken".
  *
+ * Audio. With set_audio_rate(), the card also makes the SIDs' sound
+ * (sid.h's output stage) at that rate, stereo: SID A left, SID B right (a
+ * mono tune plays on both with CTRL BOTH). Each sample averages the chips'
+ * output over the SID clocks it spans, then a high-pass at 16 Hz takes out
+ * the DC, as the C64's output capacitor does, and the result is scaled by
+ * 1/8 (a voice at full envelope peaks at about -18 dBFS: room for three,
+ * resonance and the 6581's DC steps) and clipped to -1..1. Samples wait, at most half a
+ * second of them, oldest dropped first, until take_audio() collects them;
+ * that brings the chips up to now first. Off (rate 0, the default) the
+ * chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
+ * is the replacement chips' jumper (set_model()), not a register.
+ *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
  * 6510's port, and empties the mailbox; the card's RAM keeps its contents. In Apple II mode the card sits idle:
@@ -80,6 +92,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "bus.h"
 #include "cpu6502.h"
@@ -131,6 +144,26 @@ namespace ooe::emu
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
         void reset();
         void bus_reset() override { reset(); }
+        /// Make sound at `rate` samples a second (0: none, the default).
+        void set_audio_rate(uint32_t rate);
+        uint32_t audio_rate() const { return audio_rate_; }
+        /// The SIDs' model, both chips (a jumper on the card). Kept through resets.
+        void set_model(Sid::Model m);
+        /// Up to `max_frames` stereo frames (left, right) made since the last call, oldest first,
+        /// into `out`; the chips are brought up to now first. @return frames copied
+        size_t take_audio(float *out, size_t max_frames);
+        /// Leave voices of SID `chip` out of the sound (Sid::set_muted()).
+        void set_muted(unsigned chip, uint8_t voices)
+        {
+            catch_up();
+            chips_[chip & 1].set_muted(voices);
+        }
+        /// Frames waiting, the chips brought up to now.
+        size_t audio_frames() const
+        {
+            catch_up();
+            return audio_.size() / 2;
+        }
 
         size_t size() const override { return 0x80; }
         uint8_t read(uint32_t offset) override;
@@ -221,9 +254,20 @@ namespace ooe::emu
         uint64_t now() const;
         /// Clock the SIDs up to now(). Const: the debugger looks through peek().
         void catch_up() const;
+        /// `clocks` SID clocks through the output stage, into audio_.
+        void render(uint64_t clocks) const;
+        void tune_clocks();
 
         mutable std::array<Sid, 2> chips_{};
         mutable uint64_t sids_at_{0}; ///< the SID clock the chips have been clocked to
+        uint32_t audio_rate_{0};
+        mutable std::vector<float> audio_;         ///< left, right, ...
+        mutable double sum_l_{0}, sum_r_{0};       ///< this sample's output so far
+        mutable uint64_t sample_clocks_{0};        ///< and its clocks so far
+        mutable uint64_t sample_length_{0};        ///< the clocks this sample spans
+        mutable uint64_t sample_phase_{0};         ///< SID Hz owed to the next sample's length
+        mutable std::array<float, 2> hp_in_{}, hp_out_{};
+        float hp_pole_{0};
         std::array<uint8_t, RAM_BYTES> ram_{};
         uint8_t ctrl_{0};
         uint8_t ien_{0};

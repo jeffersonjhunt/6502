@@ -7,7 +7,7 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- *   sidcheck [--seconds N] [--song N] [--dump] FILE.sid...
+ *   sidcheck [--seconds N] [--song N] [--model 6581|8580] [--mute VOICES] [--dump] [--wav OUT.wav] FILE.sid...
  *
  * Each file is loaded onto a sound card as a host program would
  * (sid_file.h) and run for N seconds of the SID clock (default 10). There
@@ -25,19 +25,24 @@
  * reached that the card doesn't have (the VIC-II, CIA 2, timer B), which is
  * usually why an RSID stays silent. --dump writes, after each frame, the
  * SIDs' 25 writable registers in hex, one line a frame, for comparing with
- * a reference player. The exit code is 1 if any file was not OK.
+ * a reference player. --wav writes the card's sound, 16-bit stereo at
+ * 48 kHz, to OUT.wav (one tune only). The exit code is 1 if any file was
+ * not OK. --model plays every tune on that chip, whatever its header says;
+ * --mute leaves voices out of the sound, e.g. 23 for voices 2 and 3.
  */
 
 #include "disasm.h"
 #include "sid_file.h"
 #include "sound_card.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -98,7 +103,42 @@ namespace
         double seconds{10};
         unsigned song{0};
         bool dump{false};
+        std::string wav;
+        std::optional<Sid::Model> model;
+        uint8_t muted{0};
     };
+
+    constexpr uint32_t WAV_RATE = 48'000;
+
+    void put32(std::string &s, uint32_t v)
+    {
+        for (int i = 0; i < 4; ++i)
+            s += static_cast<char>(v >> (8 * i));
+    }
+
+    /// `samples` (left, right, ...) as a 16-bit PCM WAV file.
+    bool write_wav(const std::string &path, const std::vector<float> &samples)
+    {
+        std::string h = "RIFF";
+        const auto bytes = static_cast<uint32_t>(samples.size() * 2);
+        put32(h, 36 + bytes);
+        h += "WAVEfmt ";
+        put32(h, 16);
+        put32(h, 1 | 2u << 16); // PCM, two channels
+        put32(h, WAV_RATE);
+        put32(h, WAV_RATE * 4);
+        put32(h, 4 | 16u << 16); // 4 bytes a frame, 16 bits
+        h += "data";
+        put32(h, bytes);
+        std::ofstream out(path, std::ios::binary);
+        out << h;
+        for (const float f : samples)
+        {
+            const auto v = static_cast<int16_t>(std::lround(f * 32767.0f));
+            out.put(static_cast<char>(v & 0xFF)).put(static_cast<char>((v >> 8) & 0xFF));
+        }
+        return static_cast<bool>(out);
+    }
 
     /// Play one file; false unless it came out OK.
     bool check(const std::string &path, const Options &opt)
@@ -109,7 +149,9 @@ namespace
         const auto file = in ? parse_sid(bytes, error) : std::nullopt;
         if (!in)
             error = "can't read it";
-        const auto plan = file ? plan_sid(*file, opt.song, error) : std::nullopt;
+        auto plan = file ? plan_sid(*file, opt.song, error) : std::nullopt;
+        if (plan && opt.model)
+            plan->model = *opt.model;
         const std::string name = path.substr(path.find_last_of('/') + 1);
         if (!plan)
         {
@@ -122,7 +164,12 @@ namespace
         card.set_cpu_hz(hz); // a host tick is one SID clock
         Missing missing(card);
         card.set_cpu_observer(&missing);
+        std::vector<float> sound, block(2 * 4096);
+        if (!opt.wav.empty())
+            card.set_audio_rate(WAV_RATE);
         start_sid(card, *plan);
+        for (unsigned n = 0; n < 2; ++n)
+            card.set_muted(n, opt.muted);
 
         const auto total = static_cast<uint64_t>(opt.seconds * hz);
         const uint64_t frame_clocks = file->ntsc() ? 17095 : 19656;
@@ -133,6 +180,11 @@ namespace
         for (uint64_t t = 0, next_look = frame_clocks; t < total; t += 16)
         {
             card.tick(16);
+            if (!opt.wav.empty() && card.audio_frames() >= 2048)
+            {
+                const size_t n = card.take_audio(block.data(), 4096);
+                sound.insert(sound.end(), block.begin(), block.begin() + static_cast<std::ptrdiff_t>(2 * n));
+            }
             if (card.peek(SoundCard::STATUS) & SoundCard::STATUS_TO_HOST)
             {
                 card.read(SoundCard::MBIN);
@@ -175,6 +227,13 @@ namespace
             }
         }
 
+        if (!opt.wav.empty())
+        {
+            for (size_t n; (n = card.take_audio(block.data(), 4096));)
+                sound.insert(sound.end(), block.begin(), block.begin() + static_cast<std::ptrdiff_t>(2 * n));
+            if (!write_wav(opt.wav, sound))
+                std::fprintf(stderr, "sidcheck: can't write %s\n", opt.wav.c_str());
+        }
         std::string verdict, detail;
         const uint64_t expected = static_cast<uint64_t>(opt.seconds * hz) / frame_clocks;
         if (jam)
@@ -227,17 +286,24 @@ int main(int argc, char **argv)
             opt.song = static_cast<unsigned>(std::atoi(argv[++i]));
         else if (a == "--dump")
             opt.dump = true;
+        else if (a == "--model" && i + 1 < argc && (std::string(argv[i + 1]) == "6581" || std::string(argv[i + 1]) == "8580"))
+            opt.model = std::string(argv[++i]) == "6581" ? Sid::Model::Mos6581 : Sid::Model::Mos8580;
+        else if (a == "--mute" && i + 1 < argc)
+            for (const char *p = argv[++i]; *p; ++p)
+                opt.muted = static_cast<uint8_t>(opt.muted | (*p >= '1' && *p <= '3' ? 1 << (*p - '1') : 0));
+        else if (a == "--wav" && i + 1 < argc)
+            opt.wav = argv[++i];
         else if (a.rfind("--", 0) == 0)
         {
-            std::fprintf(stderr, "usage: sidcheck [--seconds N] [--song N] [--dump] FILE.sid...\n");
+            std::fprintf(stderr, "usage: sidcheck [--seconds N] [--song N] [--model 6581|8580] [--mute VOICES] [--dump] [--wav OUT.wav] FILE.sid...\n");
             return 2;
         }
         else
             files.push_back(a);
     }
-    if (files.empty() || opt.seconds <= 0)
+    if (files.empty() || opt.seconds <= 0 || (!opt.wav.empty() && files.size() != 1))
     {
-        std::fprintf(stderr, "usage: sidcheck [--seconds N] [--song N] [--dump] FILE.sid...\n");
+        std::fprintf(stderr, "usage: sidcheck [--seconds N] [--song N] [--model 6581|8580] [--mute VOICES] [--dump] [--wav OUT.wav] FILE.sid...\n");
         return 2;
     }
     unsigned ok = 0;
