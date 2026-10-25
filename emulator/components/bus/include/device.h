@@ -49,6 +49,11 @@ namespace ooe::emu
         /// Loader-side write, past any read-only rule.
         virtual void poke(uint32_t offset, uint8_t data) { write(offset, data); }
 
+        /// The backplane's /RESET (power-up, START, a pulse). Most cards keep
+        /// running through it, their own controllers unaffected; one that
+        /// stops for it says so here.
+        virtual void bus_reset() {}
+
         /// Interrupt output, active high. Only reaches the CPU if the mapping wires it.
         virtual bool irq() const { return false; }
 

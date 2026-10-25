@@ -191,7 +191,8 @@ namespace ooe::emu
         void vector_pull(bool active) override { vector_pull_ = active; }
         unsigned wait_states() const override { return last_wait_; }
 
-        /// /RESET: the north bridge and the bus master listen.
+        /// /RESET: the north bridge and the bus master listen, and every
+        /// device hears it (Device::bus_reset()).
         void reset();
         /// A /RESET pulse that is not a hard reset (NorthBridge::reset_pulse()).
         void pulse_reset();
@@ -254,6 +255,7 @@ namespace ooe::emu
             bool timed;
         };
 
+        void reset_cards();
         const Mapping *find(uint32_t where) const;
         /// Bring a timed mapping's device up to the cycle before this access.
         void catch_up(const Mapping &m);

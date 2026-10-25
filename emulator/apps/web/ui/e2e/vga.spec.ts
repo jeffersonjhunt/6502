@@ -67,6 +67,10 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await expect(dev.locator('[data-reg="CTRL"]')).toHaveText("$03  display · layer 0");
   await expect(dev.locator('[data-reg="Layer 0"]')).toHaveText("text 80×30 · text $82000 · font $80400 · blink");
   await expect(dev.locator('[data-reg="Beam"]')).toContainText("line ");
+  // The sound card, as the BIOS leaves it: nothing touches it yet.
+  const sound = page.getByTestId("dev-sound");
+  await expect(sound.locator('[data-reg="CTRL"]')).toHaveText("$00  PAL 0.985 MHz · 6510 stopped · SID B at $D420");
+  await expect(sound.locator('[data-reg="SID A"]')).toHaveText("volume 0 · filter off");
 });
 
 test("the page credits the screen font", async ({ page }) => {

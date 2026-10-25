@@ -301,7 +301,9 @@ TEST(bios_shadows_itself_into_ram_and_keeps_running)
     REQUIRE(m != nullptr);
     REQUIRE(m->cpu() == "w65c02s");
     REQUIRE(m->find_as<BackplaneBridge>("northbridge") != nullptr);
+    REQUIRE(m->sound_card() != nullptr);
     Decoder &bus = m->bus();
+    CHECK_EQ(bus.peek(0xC57F), 0xA1); // the sound card, module A
 
     Cpu6502 cpu(bus, Cpu6502::Model::W65C02S);
     Fetches fetches(bus);
