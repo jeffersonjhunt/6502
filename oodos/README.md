@@ -37,12 +37,13 @@ OODOS's drives keep creation and update stamps, 0x31, so set it after `mkfs.cpm`
 
 ## Checking the formats ##
 
-`test/check_diskdefs.sh` makes each format with date stamps, sets and checks the label's mode (0x31), checks
-the directory label and an SFCB in every fourth entry, copies files in and out (users 0 and 3), checks the stamps cpmtools wrote, and runs `fsck.cpm`. It
+`test/check_diskdefs.sh` checks each format's DPB arithmetic (directory blocks, DSM, EXM), makes it with date
+stamps, sets and checks the label's mode (0x31), checks the directory label and an SFCB in every fourth entry,
+copies files in and out (users 0 and 3), checks the stamps cpmtools wrote, and runs `fsck.cpm`. It
 installs cpmtools, so run it in a throwaway container:
 
 ```
 docker run --rm -v "$(hostpath oodos):/o:ro" debian:bookworm sh /o/test/check_diskdefs.sh
 ```
 
-It ends `PASS 15`. Checked with cpmtools 2.23 (Debian bookworm), 2026-10-26.
+It ends `PASS 18`. Checked with cpmtools 2.23 (Debian bookworm), 2026-10-26.

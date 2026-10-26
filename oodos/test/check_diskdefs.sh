@@ -19,11 +19,30 @@ fail() { echo "FAIL $*"; exit 1; }
 # The byte at a directory entry's offset, as a decimal number.
 dirbyte() { od -An -tu1 -j "$(( $2 + $3 ))" -N1 "$1" | tr -d ' '; }
 
+# A diskdef's value: def oodos-8m blocksize.
+def() { awk -v f="$1" -v k="$2" '$1 == "diskdef" { on = $2 == f } on && $1 == k { print $2; exit }' diskdefs; }
+
+# What CP/M 3's DPB can hold, which cpmtools doesn't check: the directory's
+# blocks fit AL0/AL1 (16 bits), DSM fits 16 bits, and 1 KB blocks need DSM
+# under 256 (their EXM can't describe more). The SD drives' ceiling is 512 MB.
+dpb() {
+  bls=$(def "$1" blocksize); dir=$(def "$1" maxdir)
+  bytes=$(( ($(def "$1" tracks) - $(def "$1" boottrk)) * $(def "$1" sectrk) * $(def "$1" seclen) ))
+  dsm=$(( bytes / bls - 1 )); dirblk=$(( (dir * 32 + bls - 1) / bls ))
+  [ "$dirblk" -le 16 ] || fail "$1: the directory is $dirblk blocks, AL0/AL1 hold 16"
+  [ "$dsm" -le 65535 ] || fail "$1: DSM $dsm is over 65535"
+  [ "$bls" -ne 1024 ] || [ "$dsm" -lt 256 ] || fail "$1: 1 KB blocks with DSM $dsm (256 or more)"
+  [ "$bytes" -le $((512 * 1024 * 1024)) ] || fail "$1: $bytes bytes is over 512 MB"
+  if [ "$dsm" -lt 256 ]; then exm=$(( bls / 1024 - 1 )); else exm=$(( bls / 2048 - 1 )); fi
+  ok "$1: DPB DSM $dsm, $dirblk directory blocks, EXM $exm"
+}
+
 printf 'HELLO FROM LINUX\r\n\032' >"$work/hello.txt"
 head -c 20000 /dev/urandom >"$work/big.bin"
 
 for fmt in oodos-8m oodos-32m oodos-ram; do
   img="$work/$fmt.img"
+  dpb "$fmt"
   mkfs.cpm -f "$fmt" -t -L OODOS "$img" || fail "$fmt: mkfs.cpm"
   # mkfs.cpm -t keeps creation stamps only (mode 0x11); OODOS keeps creation
   # and update (0x31), as its INITDIR does.

@@ -66,8 +66,8 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
 - **Checked with cpmtools 2.23** ([oodos/test/check_diskdefs.sh](../oodos/test/check_diskdefs.sh)): `mkfs.cpm -t`
   writes a directory label and an SFCB in every fourth entry; with the label's mode set to 0x31, `cpmcp` stamps
   what it writes (creation and update), `cpmls -F` reads the stamps back, and `fsck.cpm` passes, for all three
-  formats. The other direction, OODOS writing and cpmtools
-  checking, waits for the BDOS (phase 1's interoperability tests).
+  formats; and each DPB is legal (at most 16 directory blocks, DSM within 16 bits, under 256 for 1 KB blocks).
+  The other direction, OODOS writing and cpmtools checking, waits for the BDOS (phase 1's interoperability tests).
 
 
 ## Drives ##
