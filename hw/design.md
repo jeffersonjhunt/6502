@@ -266,7 +266,14 @@ window registers.
    `$1000` by DMA channel 0 (at most 88 sectors, `$1000–$BFFF`) and calls it, so a program that returns comes back
    to the monitor. `$C80F` is ECHO, for programs to print with. *(BIOS 0.8.)* The boot puts windows 0–2 back on
    RAM blocks 0–2 first, so the CPU's `$1000` is where the DMA wrote, and a failed command ends with its error
-   rather than a hang.
+   rather than a hang. *(BIOS 0.9.)* Break (NMI) and BRK enter the monitor with a fresh stack, windows 0–2 on RAM
+   blocks 0–2 and the video card's registers back on the text screen, whatever was running (the demo, a program,
+   the screen code itself); other IRQs still return at once. `$C800` goes back to the flash and starts from its
+   reset vector, as a hard reset does, so it copies the flash again (unless the machine booted from RAM through
+   /BOOTSEL). The BIOS's memory-to-memory copies are block transfers that it waits for, so they're whole whatever
+   BURST a program has set. Apple II mode also clears the language card's second `$D000` bank (banks 4–5). The
+   zero page the BIOS and the monitor keep is listed in `backplane/bios/backplane.inc`: ECHO (`$C80F`) uses
+   `$E0–$E7`.
 
 **From the ESP32 (override)**
 
@@ -345,7 +352,7 @@ The machine works without it, so it can come later.
 
 | Bits | Name | Values |
 |---|---|---|
-| 1–0 | XFER | 00 single, 01 demand, 10 block, 11 reserved |
+| 1–0 | XFER | 00 single, 01 demand, 10 block, 11 reserved. Memory to memory always runs as block |
 | 3–2 | DIR | 00 card to memory, 01 memory to card, 10 memory to memory, 11 reserved |
 | 4 | DEC | 1 = the address counts down |
 | 5 | HOLD | 1 = the address stays fixed. On a memory-to-memory source, this fills memory with one byte |
@@ -370,7 +377,9 @@ The machine works without it, so it can come later.
 - **Single mode** gives the CPU one cycle back after every byte, as the 8237 does.
 - **Memory to memory** reads each byte into a latch and then writes it: two cycles per byte, 64 KB in about 18 ms at
   7.16 MHz. Any channel can do it with its own DEST, so storage on channel 0 is never tied up (the 8237 pairs
-  channels 0 and 1 instead).
+  channels 0 and 1 instead). It always runs as a block transfer, whatever XFER says (software writes 10): once REQ
+  starts it, the CPU is held until the count runs out, or gets a cycle back every 2^BURST bytes if CONTROL sets a
+  limit. Software that needs the copy finished before it goes on waits for ENABLE to clear.
 - **Terminal count.** TC is asserted during the last byte's cycle together with its /DACK, the channel's STATUS bit
   is set, and if its IRQ bit is set, bit 0 of IRQH (ID 8) reads 0.
 - **Programming.** Registers are written a byte at a time with the channel disabled, so a half-written address
@@ -834,7 +843,8 @@ the tables leave open:
 3. The north bridge pulses /RESET.
 4. The CPU starts from the IIe ROM image's reset vector in bank E, as a IIe does at power-on.
 
-Before the switch, the BIOS has loaded the ROM image into bank E and cleared banks 0–3.
+Before the switch, the BIOS has loaded the ROM image into bank E and cleared banks 0–3 and the second `$D000` bank
+(`$D000–$DFFF` of banks 4 and 5).
 
 **Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
 an Apple program does can leave by accident.
