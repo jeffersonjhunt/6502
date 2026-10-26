@@ -38,7 +38,7 @@
  * Pause/Break pulls /NMI (take_nmi()).
  *
  * Mouse. Relative mode adds movement up; absolute mode (MCTRL bit 0) keeps a
- * position clamped to MAXX, MAXY. Reading MX's low byte latches MX, MY and
+ * position clamped to MAXX, MAXY (new limits clamp it at once). Reading MX's low byte latches MX, MY and
  * MWHEEL together, and in relative mode starts the next sums at 0.
  *
  * Game port. PTRIG starts the 558: each paddle's GAME bit is 1 for about
@@ -57,7 +57,8 @@
  * has been brought up to, which the bus does before every instruction ends:
  * within an instruction's few cycles of the access.
  *
- * Interrupts: a key event, mouse change, game button change or device change
+ * Interrupts: a key event (a press or release, whether the FIFO has room for
+ * it or not, or a repeat), mouse change, game button change or device change
  * sets its ISR bit whether IEN enables it or not; irq() is ISR & IEN, which
  * pulls bit 3 of IRQH. Write 1s to ISR to clear. A keyboard and a mouse are
  * connected from power on (DEVICES).
@@ -121,7 +122,12 @@ namespace ooe::emu
         static constexpr uint8_t CAPS_LOCK = 0x39, PAUSE = 0x48, DELETE = 0x4C, LEFT_CTRL = 0xE0;
 
         UsbCard() { reset(); }
+        /// Power-on: everything, the host side too.
         void reset();
+        /// /RESET (START, Ctrl-Reset, entering Apple II mode): what the CPU programs back to
+        /// its reset value, interrupts off and the event FIFO empty. Keys held, Caps Lock, the
+        /// mouse's position, the game port and the speaker are the host's, and run on.
+        void bus_reset() override;
         /// The CPU clock tick()'s cycles run at (0: 7.16 MHz), for key repeat and the paddle timer.
         void set_cpu_hz(uint32_t hz) { cpu_hz_ = hz ? hz : NATIVE_HZ; }
 
@@ -172,8 +178,9 @@ namespace ooe::emu
         uint8_t dack_read(bool tc) override;
 
         /// The US layout with the Apple's conventions: the character a usage
-        /// gives with these modifiers, or 0 for none (function keys, modifiers).
-        static uint8_t cooked(uint8_t usage, uint8_t mods, bool caps);
+        /// gives with these modifiers (Ctrl-@ is NUL), or NO_CHAR (function keys, modifiers).
+        static constexpr int NO_CHAR = -1;
+        static int cooked(uint8_t usage, uint8_t mods, bool caps);
 
     private:
         void push_event(uint8_t usage, uint8_t flags);
