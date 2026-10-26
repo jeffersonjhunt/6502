@@ -38,29 +38,31 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
   hour and minute in BCD. The directory label chooses which are kept, as in CP/M 3.
 - **Directory hashing** is CP/M 3's, kept in memory only (the DPH's HASH table, 4 bytes an entry). It never
   touches the disk, so it costs interoperability nothing. With 1 MB it's on for every drive.
-- **cpmtools.** The repo carries a `diskdefs` file with OODOS's formats, so a card is made on Linux with, for
-  example:
+- **cpmtools.** The repo carries [`oodos/diskdefs`](../oodos/diskdefs) with OODOS's formats, so a card is made on
+  Linux with, for example ([oodos/README.md](../oodos/README.md) has more):
 
   ```
-  mkfs.cpm -f oodos-8m A.IMG
+  mkfs.cpm -f oodos-8m -t -L OODOS A.IMG
   cpmcp -f oodos-8m A.IMG HELLO.TXT 0:
-  cpmls -f oodos-8m -l A.IMG
+  cpmls -f oodos-8m -F A.IMG
   ```
 
-**Proposed formats**
+**Decided (phase 0, 2026-10-26): the formats**
 
 | diskdef | Sector | Size | Block | Directory | Boot tracks | For |
 |---|---|---|---|---|---|---|
 | `oodos-8m` | 512 | 8 MB (1024 tracks of 16) | 4 KB | 1024 | 0 | the usual SD drive |
 | `oodos-32m` | 512 | 32 MB | 8 KB | 2048 | 0 | a large SD drive |
-| `oodos-ram` | 512 | the RAM disk's size | 2 KB | 256 | 0 | M:, made at boot, never on a card |
+| `oodos-ram` | 512 | 128 KB, banks C–D | 2 KB | 256 | 0 | M:, made at boot, never on a card |
 | `apple-do` | 256 | 140 KB, 35 × 16 | 1 KB | 64 | 3 | Apple CP/M (SoftCard) disks, cpmtools's own diskdef |
 
 - No boot tracks on SD drives: the loader is `/BOOT.BIN` on the FAT card (below), so a drive image is all file
   system.
 - `apple-do` is a CP/M 2.2 format. CP/M 3 reads and writes those; they just have no date stamps.
-- **To check first:** that cpmtools's `os 3` support makes and reads SFCBs as OODOS will (`mkfs.cpm`'s time stamp
-  option, `cpmls -l`), with a round-trip test in both directions.
+- **Checked with cpmtools 2.23** ([oodos/test/check_diskdefs.sh](../oodos/test/check_diskdefs.sh)): `mkfs.cpm -t`
+  writes a directory label and an SFCB in every fourth entry, `cpmcp` stamps what it writes, `cpmls -F` reads the
+  stamps back, and `fsck.cpm` passes, for all three formats. The other direction, OODOS writing and cpmtools
+  checking, waits for the BDOS (phase 1's interoperability tests).
 
 
 ## Drives ##
