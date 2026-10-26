@@ -11,7 +11,10 @@
 
 #include "disk_image.h"
 
+#include <algorithm>
 #include <cstring>
+#include <initializer_list>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -84,6 +87,35 @@ namespace
     }
 
     std::vector<uint8_t> bytes(const char *s) { return std::vector<uint8_t>(s, s + std::strlen(s)); }
+
+    /// A WOZ 1 file: track i `bits[i]` bits long, of 0x55 (0: an empty record), quarter tracks per `tmap`.
+    std::vector<uint8_t> woz1(const std::vector<uint16_t> &bits, const std::vector<uint8_t> &tmap)
+    {
+        std::vector<uint8_t> f = bytes("WOZ1\xFF\x0A\x0D\x0A");
+        f.resize(12, 0);
+        const auto chunk = [&](const char *id, const std::vector<uint8_t> &data) {
+            f.insert(f.end(), id, id + 4);
+            for (int i = 0; i < 4; ++i)
+                f.push_back(static_cast<uint8_t>(data.size() >> (8 * i)));
+            f.insert(f.end(), data.begin(), data.end());
+        };
+        std::vector<uint8_t> info(60, 0);
+        info[0] = 1, info[1] = 1;
+        chunk("INFO", info);
+        chunk("TMAP", tmap);
+        std::vector<uint8_t> trks(bits.size() * 6656, 0x55);
+        for (size_t i = 0; i < bits.size(); ++i)
+            trks[i * 6656 + 6648] = static_cast<uint8_t>(bits[i]), trks[i * 6656 + 6649] = static_cast<uint8_t>(bits[i] >> 8);
+        chunk("TRKS", trks);
+        return f;
+    }
+    std::vector<uint8_t> tmap_of(std::initializer_list<std::pair<unsigned, uint8_t>> m)
+    {
+        std::vector<uint8_t> t(DiskImage::QUARTER_TRACKS, DiskImage::NO_TRACK);
+        for (const auto &[q, i] : m)
+            t[q] = i;
+        return t;
+    }
 } // namespace
 
 TEST(the_6_and_2_code_is_the_64_disk_bytes)
@@ -290,6 +322,81 @@ TEST(a_woz_1_file_loads)
     CHECK_EQ(d->track(1)->bit_count, 50'000u);
     CHECK_EQ(d->track(0)->bytes[2], 0x96);
     CHECK(d->track(2) == nullptr);
+}
+
+TEST(more_tracks_than_quarter_tracks_save_within_the_woz_header)
+{
+    // 200 records, three mapped: only those are the disk, and TRKS's 160 entries hold them (an overflow once).
+    std::string error;
+    const auto d = DiskImage::load(woz1(std::vector<uint16_t>(200, 50'000), tmap_of({{0, 0}, {4, 150}, {8, 199}})),
+                                   "many.woz", error);
+    REQUIRE(d != nullptr);
+    const std::vector<uint8_t> woz = d->to_woz();
+    const auto e = DiskImage::load(woz, "x.woz", error);
+    REQUIRE(e != nullptr);
+    for (const unsigned q : {0u, 4u, 8u})
+    {
+        REQUIRE(e->track(q) != nullptr);
+        CHECK_EQ(e->track(q)->bit_count, 50'000u);
+    }
+    CHECK(e->track(1) == nullptr);
+    CHECK_EQ(woz.size(), size_t{1536 + 3 * 13 * 512}); // the header, and the three tracks' blocks
+
+    std::vector<uint16_t> empty(250, 0);                  // 249 empty records first: written past the header's end
+    empty.back() = 50'000;
+    const auto f = DiskImage::load(woz1(empty, tmap_of({{0, 249}})), "empty.woz", error);
+    REQUIRE(f != nullptr);
+    CHECK_EQ(f->to_woz().size(), size_t{1536 + 13 * 512});
+}
+
+TEST(a_track_written_where_there_was_none_is_its_own)
+{
+    // 300 records, one mapped: a new track's index once wrapped onto another's, or became NO_TRACK.
+    std::string error;
+    const auto d = DiskImage::load(woz1(std::vector<uint16_t>(300, 50'000), tmap_of({{0, 0}})), "many.woz",
+                                   error);
+    REQUIRE(d != nullptr);
+    for (unsigned q = 1; q < DiskImage::QUARTER_TRACKS; ++q)
+    {
+        DiskTrack &t = d->track_for_writing(q);
+        REQUIRE(d->track(q) == &t);
+        t.set_bit(0, false);
+    }
+    CHECK_EQ(d->track(5)->bit_count, DiskImage::BLANK_TRACK_BITS);
+    CHECK(d->track(5) != d->track(6));
+    CHECK_EQ(d->track(0)->bit_count, 50'000u);
+    CHECK(d->track(0)->bit(1)); // 0x55: untouched
+}
+
+TEST(an_empty_track_keeps_the_ones_after_it)
+{
+    // Records 0 and 2 mapped, 1 empty: saved and loaded, quarter track 4 must still be there.
+    std::string error;
+    const auto d = DiskImage::load(woz1({50'000, 0, 50'000}, tmap_of({{0, 0}, {4, 2}})), "gap.woz", error);
+    REQUIRE(d != nullptr);
+    REQUIRE(d->track(4) != nullptr);
+    const auto e = DiskImage::load(d->to_woz(), "x.woz", error);
+    REQUIRE(e != nullptr);
+    REQUIRE(e->track(0) != nullptr);
+    REQUIRE(e->track(4) != nullptr);
+    CHECK_EQ(e->track(4)->bit_count, 50'000u);
+
+    // A WOZ 2 with an empty entry between two tracks (as another tool may leave one) loads them both.
+    std::vector<uint8_t> gap = e->to_woz();
+    std::copy_n(gap.begin() + 264, 8, gap.begin() + 272); // TRKS entry 1 (quarter track 4's) moved to 2
+    std::fill_n(gap.begin() + 264, 8, 0);
+    gap[88 + 4] = 2;                                      // TMAP
+    gap[8] = gap[9] = gap[10] = gap[11] = 0;              // no CRC
+    const auto g = DiskImage::load(gap, "gap2.woz", error);
+    REQUIRE(g != nullptr);
+    REQUIRE(g->track(4) != nullptr);
+    CHECK_EQ(g->track(4)->bit_count, 50'000u);
+}
+
+TEST(sectors_of_the_wrong_size_make_no_disk)
+{
+    CHECK(DiskImage::from_sectors(std::vector<uint8_t>(1000), DiskImage::Format::Dos) == nullptr);
+    CHECK(DiskImage::from_sectors(std::vector<uint8_t>(DiskImage::SECTOR_IMAGE + 1), DiskImage::Format::Dos) == nullptr);
 }
 
 int main() { return run_all(); }

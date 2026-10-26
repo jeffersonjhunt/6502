@@ -67,7 +67,7 @@ namespace ooe::emu
         /// An image from a file's bytes; `name` only breaks a tie (.po). @return nullptr with `error`
         static std::unique_ptr<DiskImage> load(const std::vector<uint8_t> &bytes, const std::string &name,
                                                std::string &error);
-        /// 35 tracks of 16 sectors, nibblized as DOS 3.3 formats them.
+        /// 35 tracks of 16 sectors, nibblized as DOS 3.3 formats them. @return nullptr if `image` is not SECTOR_IMAGE bytes
         static std::unique_ptr<DiskImage> from_sectors(const std::vector<uint8_t> &image, Format order,
                                                        uint8_t volume = 254);
 
