@@ -27,8 +27,10 @@
  * Input that is not a terminal (a pipe, a file) works too: stdin is only
  * read when poll() says something is there, so a quiet pipe does not stall
  * the machine, and keys and debugger lines come from one buffer, so a
- * script can type, press Ctrl-] and give commands in one stream. With
- * 4096 keys queued it stops reading, so a long file waits for the machine
+ * script can type, press Ctrl-] and give commands in one stream. Keys
+ * wait in their own queue, apart from the debugger's lines, so a breakpoint
+ * hit with keys still queued does not read them as commands. With 1 MB of
+ * keys queued it stops reading, so a long file waits for the machine
  * rather than being dropped.
  *
  * Ctrl-Z puts the terminal back before the process stops and raw again
@@ -91,9 +93,9 @@ namespace ooe::emu
         Console &console_;
         struct termios saved_{};
         bool restore_{false};
-        std::string input_; ///< read but not yet a key or a debugger line
+        std::string input_; ///< read but not yet a key, or after a Ctrl-]
         bool eof_{false};
-        std::deque<uint8_t> keys_;
+        std::deque<uint8_t> keys_; ///< keys the machine has yet to take
         bool last_cr_{false};
         std::vector<std::string> lcd_rows_;
         bool lcd_dirty_{false};

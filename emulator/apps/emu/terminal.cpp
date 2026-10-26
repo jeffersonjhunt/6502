@@ -158,26 +158,25 @@ namespace ooe::emu
 
     uint8_t Terminal::poll_key()
     {
-        constexpr size_t MAX_QUEUED = 4096;
+        // Far more than a paste: past it a pipe waits for the machine to
+        // catch up. Below it stdin is read however busy the machine is, so a
+        // Ctrl-] behind a long backlog is still seen.
+        constexpr size_t MAX_BACKLOG = 1 << 20;
         uint8_t last = 0;
         bool debug = false;
-        if (input_.empty())
+        if (input_.empty() && keys_.size() < MAX_BACKLOG)
             fill(false);
-        // A full queue leaves the rest in input_, and with input_ not empty
-        // nothing more is read: a pipe waits for the machine to catch up.
+        // Keys go straight to keys_, so input_ only ever holds what follows
+        // a Ctrl-]: a breakpoint's prompt never reads the machine's keys.
         size_t used = 0;
         while (used < input_.size() && !debug)
         {
-            const auto key = static_cast<uint8_t>(input_[used]);
+            const auto key = static_cast<uint8_t>(input_[used++]);
             if (key == DEBUG_KEY)
             {
-                ++used;
                 debug = true; // what follows is the debugger's
                 continue;
             }
-            if (keys_.size() >= MAX_QUEUED)
-                break;
-            ++used;
             last = key;
             keys_.push_back(key);
         }

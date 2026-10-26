@@ -21,7 +21,8 @@ job-control "shell", leaves the terminal cooked while stopped and raw again
 once continued. And stdin need not be a terminal: through a pipe, a quiet
 input does not stall the machine, a script can press Ctrl-] and give
 debugger commands in the same stream, and more input than the key queue
-holds waits for the machine rather than being dropped.
+holds waits for the machine rather than being dropped, yet neither a
+breakpoint nor Ctrl-] behind it mistakes those keys for debugger lines.
 
 And the Phase 2 logging contract: nothing is written unless --log is given
 (the terminal is the Apple-1's screen), and --log FILE gets the run.
@@ -221,6 +222,46 @@ def check_pipe(binary, rom, cwd):
     return failures
 
 
+def check_backlog(binary, rom, cwd):
+    """More keys waiting than the queue holds, while the program reads none."""
+    failures = []
+    proc = subprocess.Popen([binary, rom], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            cwd=cwd)
+    fd = proc.stdout.fileno()
+    read_until(fd, b"\\", 10)
+
+    def send(data, until, timeout=10):
+        proc.stdin.write(data)
+        proc.stdin.flush()
+        return read_until(fd, until, timeout)
+
+    # A delay loop that ends at a breakpoint (JMP * at 030A), typed and run
+    # with 5000 more keys behind it: the debugger's lines are not those keys.
+    backlog = b"FF00\n" * 1000
+    send(b"\x1db 030A\nr\n", b"running")
+    out = send(b"300: A2 00 A0 00 88 D0 FD CA D0 F8 4C 0A 03\n300R\n" + backlog, b"halted (break)")
+    if b"halted (break)" not in out:
+        failures.append(f"backlog: the breakpoint was not hit (got {out[-300:]!r})")
+    out = send(b"f FF00 4\n", b"FF00  D8 58 A0 7F")
+    if b"FF00  D8 58 A0 7F" not in out or b"unknown command" in out:
+        failures.append(f"backlog: at a breakpoint, queued keys read as commands (got {out[-300:]!r})")
+
+    # Running on with the keys still waiting, more behind them: Ctrl-] after
+    # them still stops the machine.
+    send(b"d all\nr\n", b"running")
+    out = send(backlog + b"\x1df FF00 4\n", b"FF00  D8 58 A0 7F")
+    if b"FF00  D8 58 A0 7F" not in out:
+        failures.append(f"backlog: Ctrl-] behind a full key queue not seen (got {out[-300:]!r})")
+    proc.stdin.write(b"q\n")
+    proc.stdin.flush()
+    rc = finish(proc)
+    proc.stdin.close()
+    proc.stdout.close()
+    if rc != 0:
+        failures.append(f"backlog: exit status {rc}, want 0")
+    return failures
+
+
 def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
@@ -238,6 +279,7 @@ def main():
         failures += check_quit("sigpipe", binary, [rom], cwd, lambda p, m: p.send_signal(signal.SIGPIPE))
         failures += check_job_control(binary, rom, cwd)
         failures += check_pipe(binary, rom, cwd)
+        failures += check_backlog(binary, rom, cwd)
         if os.listdir(cwd):
             failures.append(f"no --log: files written anyway: {os.listdir(cwd)}")
 
