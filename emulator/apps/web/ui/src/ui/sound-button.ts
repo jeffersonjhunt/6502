@@ -25,7 +25,10 @@ export function soundButton(speaker: Speaker, available: boolean) {
   const show = () => {
     button.classList.toggle("on", speaker.on);
     button.setAttribute("aria-pressed", String(speaker.on));
-    if (speaker.error) button.title = `No sound: ${speaker.error}`;
+    if (speaker.error) {
+      button.title = `No sound: ${speaker.error}`;
+      prefs.set("sound", "off"); // not tried again at every load
+    }
     button.dataset.played = String(speaker.stats.played);
   };
   speaker.onChange(show);
