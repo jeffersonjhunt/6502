@@ -402,6 +402,19 @@ TEST(ctrl_at_is_nul_on_the_press_as_on_the_repeat)
     CHECK_EQ(c.peek(UsbCard::KEY), 0x80);         // and the same on the repeat
 }
 
+TEST(ctrl_with_the_lower_case_column_cooks_as_a_terminal_does)
+{
+    Card c;
+    c.key(LCTRL, true);
+    c.type(0x35);                                 // Ctrl-`: NUL, as Ctrl-@
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80);
+    c.key(LSHIFT, true);
+    c.type(0x2F);                                 // Ctrl-{: ESC, as Ctrl-[
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 0x1B);
+    c.type(0x35);                                 // Ctrl-~: RS, as Ctrl-^
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 0x1E);
+}
+
 TEST(new_mouse_limits_clamp_the_position_at_once)
 {
     Card c;

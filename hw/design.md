@@ -936,7 +936,7 @@ Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboa
 
 - KEY holds one character, as on the Apple: a new one replaces it, read or not. It follows the Apple keyboard's
   conventions in native mode too (arrows `$08` `$15` `$0A` `$0B`, Delete `$7F`, Ctrl with `$40-$5F` or a letter
-  giving `$00-$1F`). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
+  giving `$00-$1F`; with `` ` `` `{` `|` `}` `~` too, as a terminal cooks them: Ctrl-`` ` `` is NUL, Ctrl-`{` ESC). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
   usually left.
 - REPEAT: the last character key pressed repeats while held, after (bits 4-5 + 1) x 250 ms, every (bits 0-3 + 1) x
   33 ms (30 to about 2 a second). It resets to `$10`: 500 ms, 30 a second.
