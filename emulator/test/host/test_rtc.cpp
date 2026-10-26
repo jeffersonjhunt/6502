@@ -299,27 +299,28 @@ TEST(apple_ii_mode_hides_the_registers_and_the_clock_runs_on)
 TEST(any_reset_clears_tick_and_tie_but_not_the_time)
 {
     Rig r;
-    r.bus().write(RTCREG, Ds3231::CONTROL);
-    r.bus().write(RTCDATA, Ds3231::A2IE); // a control bit the power-on set-up would keep
-    r.bus().write(RTCREG, Ds3231::AGING);
-    r.settle();
     r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     r.next_tick();
-    r.next_tick();
     REQUIRE(r.bus().irq());
+    r.bus().write(RTCREG, Ds3231::AGING);
+    r.settle();
     r.bus().pulse_reset(); // /RESET
+    CHECK(!r.bus().irq());
     CHECK_EQ(r.bus().read(RTCCTL), 0x00);
     CHECK_EQ(r.bus().read(RTCREG), 0x00);
     r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     r.next_tick();
     REQUIRE(r.bus().irq());
+    r.bus().write(RTCREG, Ds3231::CONTROL);
+    r.bus().write(RTCDATA, Ds3231::INTCN | Ds3231::A2IE); // what the power-on set-up would undo
+    r.settle();
     r.bus().reset(); // the reset button: a hard reset, not a power-on
     CHECK(!r.bus().irq());
     CHECK_EQ(r.bus().read(RTCCTL), 0x00);
-    CHECK_EQ(r.rtc->read(Ds3231::CONTROL), Ds3231::A2IE); // no power-on set-up again
-    CHECK_EQ(r.bus().read(SEC), 0x10);                     // 13:45:10: the time ran on
-    r.next_tick();
-    CHECK_EQ(r.bus().read(SEC), 0x11);
+    CHECK_EQ(r.rtc->read(Ds3231::CONTROL), Ds3231::INTCN | Ds3231::A2IE); // no set-up again
+    CHECK_EQ(r.bus().read(SEC), 0x09);                                     // 13:45:09, as last read
+    r.idle(HZ);
+    CHECK_EQ(r.rtc->time().second, 10u); // the time ran on
 }
 
 TEST(the_debugger_shows_the_clock)
