@@ -368,20 +368,21 @@ many of them the OEM's routines for the screen, graphics, keyboard, sound, light
 the video card's text and bitmap modes for SCREEN, the SIDs for SOUND and PLAY, the USB keyboard, the game port,
 COM1/COM2 and the parallel port.
 
-**Size.** The released source assembles to about 40 KB of 8086 code and 4.4 KB of tables, and 6502 code will be
-larger. It won't fit in the TPA beside a
-useful workspace, so the cold parts (graphics, PLAY, RENUM, the editor) live in allocated blocks and are called
-through common memory (FARCALL), 12 KB at a time in W3's code window. The program and its variables have the
-TPA, and as much of the interpreter as the 32 KB leaves room for.
+**Size.** The released source is estimated at about 40 KB of 8086 code (40,035 bytes, 39.1 KB) and 4,412 bytes
+(4.3 KB) of tables, and 6502 code will be larger. It won't fit in the TPA beside a useful workspace, so the cold
+parts (graphics, PLAY, RENUM, the editor) live in allocated blocks and are called through common memory (FARCALL),
+12 KB at a time in W3's code window. The program and its variables have the TPA, and as much of the interpreter as
+the 32 KB leaves room for.
 **Decided (2026-10-26): at least 32 KB free for BASIC.** That's a minimum, not a target.
 
 **Measured (phase 0, 2026-10-26): it fits, just.** The spike ([`oodos/spike/gwbasic/`](../oodos/spike/gwbasic/))
-hand-translated about 2,530 of the 8086 instructions (MATH1 and MATH2, the statement loop, CHRGET, GOTO, IF, LET,
-the formula evaluator) to 6502, linked as a `.COM` at `$0300`, and checked them on the emulator's W65C02S core.
+hand-translated about 2,530 of the 8086 instructions (parts of MATH1 and MATH2, the statement loop, CHRGET, GOTO,
+IF, LET, the formula evaluator) to 6502, linked as a `.COM` at `$0300`, and checked them on the emulator's W65C02S
+core.
 
 - **The ratio:** 6,637 bytes of 6502 for 5,551 of 8086, 1.20. Math is 1.16, interpreter code 1.27, text
   scanning the worst at 1.36.
-- **The whole:** about 50 KB of 6502 (53 KB at the worst ratio), plus the tables, plus the OO-1's OEM layer
+- **The whole:** 48.9 KB of 6502 (51.9 KB at the worst ratio), plus 4.3 KB of tables, plus the OO-1's OEM layer
   (estimated 12–20 KB): 65–73 KB.
 - **The TPA:** a resident core of about 10 KB (the statement loop, LET, IF, GOTO, GOSUB, FOR and NEXT, the
   evaluator, variables, the string core and functions, INKEY$, single and integer math, console output) and 4 KB of
