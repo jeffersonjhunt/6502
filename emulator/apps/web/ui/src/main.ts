@@ -300,7 +300,8 @@ function start(root: HTMLElement, port: MachinePort): void {
       }
     }
     if (pasting && !f.keysQueued) pasting = false;
-    stopTyping.hidden = !pasting || f.keysQueued < 40; // not for a line or two
+    const typing = pasting && f.keysQueued >= 40; // not for a line or two
+    if (stopTyping.hidden === typing) stopTyping.hidden = !typing; // set only on a change: no restyle a frame
     apple.update(f);
     drive.update(f);
     card.update(f);
