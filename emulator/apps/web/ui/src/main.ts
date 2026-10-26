@@ -94,7 +94,10 @@ function start(root: HTMLElement, port: MachinePort): void {
   const dbg = debuggerPane(port);
   const speaker = new Speaker(port);
   const sound = soundButton(speaker, port.caps.audio && typeof AudioWorkletNode !== "undefined");
-  const tune = sidBar(port, { playing: () => void (speaker.on || sound.turnOn()) });
+  const tune = sidBar(port, {
+    soundOn: () => !speaker.on && (void sound.turnOn(), true),
+    soundOff: () => sound.turnOff(),
+  });
   const bar = toolbar(port, panel, {
     trailing: [dbg.toggle],
     phosphor: (p) => {

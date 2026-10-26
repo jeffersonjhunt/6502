@@ -56,6 +56,16 @@ describe("Speaker", () => {
     expect(opened).toBe(1);
   });
 
+  test("on again once opened: resumed in the same call, inside the user's gesture (Safari's rule)", async () => {
+    const out = new FakeOut();
+    const s = new Speaker(new FakePort(), async () => out);
+    await s.turnOn();
+    s.turnOff();
+    out.calls = [];
+    void s.turnOn();
+    expect(out.calls).toEqual(["resume"]); // before any await
+  });
+
   test("off: no samples made, the queue emptied, the device suspended, nothing fed", async () => {
     const port = new FakePort();
     const out = new FakeOut();
