@@ -42,6 +42,18 @@ beforeAll(() => {
 });
 
 const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+const hex2 = (n: number) => n.toString(16).toUpperCase().padStart(2, "0");
+
+/** A BIOS label's address, from the bios.rom.lbl embedded in the core (ld65's "al 00C9BA .ECHO"). */
+async function biosLabel(name: string): Promise<number> {
+  const core = (await load()) as unknown as { FS: { readFile(path: string, options: { encoding: "utf8" }): string } };
+  const line = core.FS.readFile("/roms/bios.rom.lbl", { encoding: "utf8" })
+    .split("\n")
+    .map((l) => /^al ([0-9A-F]+) \.(\w+)$/i.exec(l.trim()))
+    .find((r) => r?.[2] === name);
+  expect(line, `no BIOS label ${name}`).toBeTruthy();
+  return parseInt(line![1], 16);
+}
 
 async function open() {
   const clock = new ManualClock();
@@ -569,13 +581,16 @@ describe("WasmPort", () => {
     await expect(m.port.insertSd(new Uint8Array(100), "tiny.img")).rejects.toThrow(/tiny\.img: not an SD card image/);
     expect(await m.port.insertSd(new Uint8Array(64 * 512), "raw.img")).toEqual({ name: "raw.img", sectors: 64, writeProtected: false, changed: false });
     for (let i = 0; i < 4; ++i) m.step(); // 50 ms to start up
-    // WRITE sector 0 of the raw card, $AA throughout, by a CPU loop; back to the monitor.
+    // WRITE sector 0 of the raw card, $AA throughout, by a CPU loop; JMP back to the monitor.
+    const woz = await biosLabel("WOZMON");
     m.clear();
     m.port.sendSerial(ascii("1000: A9 01 8D 8A C3 9C 8B C3 9C 84 C3 9C 86 C3 A9 30 8D 83 C3\r"));
-    m.port.sendSerial(ascii("1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C 80 C8\r1000R\r"));
+    m.port.sendSerial(ascii(`1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C ${hex2(woz & 0xff)} ${hex2(woz >> 8)}\r1000R\r`));
     let lit = false;
     for (let i = 0; i < 30; ++i) lit ||= m.step().sd!.busy; // the command's light, though it's done within a frame
     expect(m.output()).toContain("1000R");
+    expect(m.output().endsWith("\\\r")).toBe(true); // the monitor's prompt...
+    expect(m.output()).not.toContain(GREETING); // ...not a second start-up
     expect(lit).toBe(true);
     expect(m.step().sd).toEqual({ present: true, busy: false, changed: true });
     expect((await m.port.readSdInfo())?.changed).toBe(true);
