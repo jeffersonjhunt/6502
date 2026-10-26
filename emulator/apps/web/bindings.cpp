@@ -65,10 +65,11 @@
  *
  * The SD card's slot (sd_card.h): hasSd() if the machine has the card;
  * insertSd(bytes, name) puts a card image (a Uint8Array, whole 512-byte sectors) in, held
- * in memory, or false with error(); ejectSd(); sdInfo() is -1 for an empty
+ * in memory, or false with error() (one of a sector or more takes the old
+ * card out first, so two are never held at once); ejectSd(); sdInfo() is -1 for an empty
  * slot, else bit 0 written to since it went in or was last saved, bit 1
  * write-protected; sdSectors(); sdSave() is a copy of the image (a Uint8Array, null for none), and counts
- * as saved; setSdWriteProtect(on) is the card's switch; sdStatus() is -1
+ * as saved once the copy is made; setSdWriteProtect(on) is the card's switch; sdStatus() is -1
  * without the card, else its STATUS register; sdCommands() counts the
  * commands it has started (a light: one between two frames is activity).
  *
@@ -352,6 +353,8 @@ namespace
         bool insert_sd(const val &bytes, const std::string &name)
         {
             error_.clear();
+            if (bytes["length"].as<double>() >= SdMedia::SECTOR)
+                session_->eject_sd(); // the old card's memory back first: two big ones don't fit
             return session_->insert_sd(emscripten::convertJSArrayToNumberVector<uint8_t>(bytes), name, error_);
         }
         void eject_sd() { session_->eject_sd(); }
@@ -372,10 +375,12 @@ namespace
             MemoryMedia *m = session_->sd_image();
             if (!m)
                 return val::null();
-            m->clean();
             const std::vector<uint8_t> &b = m->bytes();
             // A copy: the card's bytes stay the machine's, and a view moves if memory grows.
-            return val(emscripten::typed_memory_view(b.size(), b.data())).call<val>("slice");
+            // Saved only once it is made: if the copy throws, the writes still count as unsaved.
+            val copy = val(emscripten::typed_memory_view(b.size(), b.data())).call<val>("slice");
+            m->clean();
+            return copy;
         }
         void set_sd_write_protect(bool on)
         {

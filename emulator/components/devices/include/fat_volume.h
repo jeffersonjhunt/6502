@@ -71,7 +71,8 @@ namespace ooe::emu
         Status find(const std::string &path, Entry &out) const;
         /// A directory's entries, in order, without ".", "..", volume labels or deleted ones.
         Status list(const std::string &path, std::vector<Entry> &out) const;
-        /// Where a file's whole sectors are on the card (its size rounded down), in order.
+        /// Where a file's sectors are on the card (its size rounded up: a last part-sector
+        /// runs on into its cluster's slack), in order.
         Status extents(const Entry &file, std::vector<Extent> &out) const;
 
     private:

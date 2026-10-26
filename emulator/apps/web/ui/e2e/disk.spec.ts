@@ -6,7 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function booted(page: Page) {
   await page.goto("./");
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.7", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.8", { timeout: 15_000 });
 }
 
 const disk = () => Buffer.from(Uint8Array.from({ length: 143_360 }, (_, i) => (i * 7 + (i >> 8)) & 0xff));
@@ -41,7 +41,7 @@ test("a disk goes in, shows on the Devices tab, stays through a reload, saves, a
   await page.getByTestId("disk-eject").click();
   await expect(page.getByTestId("disk-insert")).toHaveText("Insert disk…");
   await page.reload();
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.7", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.8", { timeout: 15_000 });
   await expect(page.getByTestId("disk-insert")).toHaveText("Insert disk…");
 });
 

@@ -93,7 +93,7 @@ MONITOR:        JMP     WOZMON
 
 IRQ:            RTI
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.7", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.8", $0D, 0
 
 .segment "VECTORS"
                 .word   WOZMON         ; NMI

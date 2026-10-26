@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { FrameState, SdStatus } from "../port/machine-port";
-import { cardSize, sdBar } from "./sd-bar";
+import { cardSize, MAX_CARD, sdBar } from "./sd-bar";
 
 const flush = async () => {
   for (let i = 0; i < 6; ++i) await new Promise((r) => setTimeout(r, 0));
@@ -11,9 +11,11 @@ const $ = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`[data-
 const shown = (el: HTMLElement) => ["sd-insert", "sd-protect", "sd-save", "sd-eject"].filter((id) => !$(el, id).hidden);
 const frame = (sd: Partial<SdStatus> | null): Partial<FrameState> => ({ sd: sd ? { present: true, busy: false, changed: false, ...sd } : null });
 
-async function pick(bar: HTMLElement, name: string, bytes: Uint8Array) {
+async function pick(bar: HTMLElement, name: string, bytes: Uint8Array, size?: number) {
   const input = $(bar, "sd-file") as HTMLInputElement;
-  Object.defineProperty(input, "files", { configurable: true, value: [new File([new Uint8Array(bytes)], name)] });
+  const file = new File([new Uint8Array(bytes)], name);
+  if (size !== undefined) Object.defineProperty(file, "size", { value: size }); // a big one, without the bytes
+  Object.defineProperty(input, "files", { configurable: true, value: [file] });
   input.dispatchEvent(new Event("change"));
   await flush();
 }
@@ -22,7 +24,12 @@ function make() {
   const port = new FakePort();
   const downloads: [string, Uint8Array][] = [];
   const listeners: ((e: Event) => void)[] = [];
-  const win = { addEventListener: (_: string, l: (e: Event) => void) => listeners.push(l) } as unknown as Window;
+  const asked: string[] = [];
+  const answer = { yes: true };
+  const win = {
+    addEventListener: (_: string, l: (e: Event) => void) => listeners.push(l),
+    confirm: (q: string) => (asked.push(q), answer.yes),
+  } as unknown as Window;
   const bar = sdBar(port, (name, bytes) => downloads.push([name, bytes]), win);
   port.onFrame(bar.update);
   /** What leaving the page would do: true if it asks first. */
@@ -31,7 +38,7 @@ function make() {
     for (const l of listeners) l(e);
     return e.defaultPrevented;
   };
-  return { port, bar, downloads, leaving };
+  return { port, bar, downloads, leaving, asked, answer };
 }
 
 describe("the SD slot", () => {
@@ -104,6 +111,41 @@ describe("the SD slot", () => {
     expect(leaving()).toBe(false);
     port.emit(frame({ changed: false })); // the port agrees: nothing to say
     expect($(bar.element, "sd-note").textContent).toBe("");
+  });
+
+  test("a card over 1 GB is refused before it is read: the core's memory stops at 2 GB", async () => {
+    const { port, bar } = make();
+    await pick(bar.element, "big.img", new Uint8Array(512), MAX_CARD + 512);
+    expect(port.callsTo("insertSd")).toEqual([]);
+    expect($(bar.element, "sd-note").textContent).toBe("big.img: over 1 GB, more than this page can hold");
+    await pick(bar.element, "edge.img", new Uint8Array(512), MAX_CARD); // 1 GB itself goes in
+    expect(port.callsTo("insertSd").length).toBe(1);
+  });
+
+  test("Eject and another card ask first when the writes aren't saved, and No keeps the card", async () => {
+    const { port, bar, asked, answer } = make();
+    await pick(bar.element, "card.img", new Uint8Array(512));
+    $(bar.element, "sd-eject").click(); // nothing written: no question
+    expect(asked).toEqual([]);
+    expect(port.callsTo("ejectSd").length).toBe(1);
+
+    await pick(bar.element, "card.img", new Uint8Array(512));
+    port.emit(frame({ changed: true }));
+    answer.yes = false;
+    $(bar.element, "sd-eject").click();
+    await pick(bar.element, "other.img", new Uint8Array(512));
+    expect(asked.length).toBe(2);
+    expect(asked[0]).toContain("Eject the card?");
+    expect(asked[1]).toContain("Put other.img in?");
+    expect(asked[1]).toContain("card.img aren't saved");
+    expect(port.callsTo("ejectSd").length).toBe(1); // kept
+    expect(port.callsTo("insertSd").length).toBe(2);
+    expect($(bar.element, "sd-insert").textContent).toBe("card.img (0.5 KB)");
+
+    answer.yes = true;
+    await pick(bar.element, "other.img", new Uint8Array(1024));
+    expect(asked.length).toBe(3);
+    expect($(bar.element, "sd-insert").textContent).toBe("other.img (1 KB)");
   });
 
   test("with no card, frames change nothing and leaving doesn't ask", () => {

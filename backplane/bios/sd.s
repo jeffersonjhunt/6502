@@ -4,7 +4,8 @@
 ;          entry: the name, then "/" for a directory or its size in hex.
 ;   C80CR  boot: /BOOT.BIN mounted as unit 1, read to $1000 by DMA channel 0
 ;          (at most 88 sectors: $1000-$BFFF) and called there. A program
-;          that returns comes back to the monitor.
+;          that returns comes back to the monitor. Windows 0-2 go back to
+;          their reset blocks first, so $1000 is where the DMA puts it.
 ;
 ; $C80F is ECHO, for a program loaded this way to print with: the character
 ; in A; A and X are kept.
@@ -21,6 +22,7 @@ BUF     = $0400
 PTR     = SD_ZP                        ; $F0-$F1: into BUF, or a message
 ENTRIES = SD_ZP + 2                    ; entries left in this sector
 SECTORS = SD_ZP + 3                    ; BOOT.BIN's
+WHAT    = SD_ZP + 4                    ; $F4-$F5: the path a command names, for "not on the card"
 LOAD    = $1000
 MAX_SECTORS = 88                       ; $1000-$BFFF
 
@@ -28,7 +30,11 @@ MAX_SECTORS = 88                       ; $1000-$BFFF
 
 QUIT:           JMP     WOZMON         ; within a branch of SDCAT's start
 
-SDCAT:          JSR     START
+SDCAT:          LDA     #<ROOT
+                STA     WHAT
+                LDA     #>ROOT
+                STA     WHAT+1
+                JSR     START
                 BCS     QUIT
                 LDA     #SD_IDENTIFY
                 STA     SD_CMD
@@ -59,6 +65,7 @@ SDCAT:          JSR     START
                 LDA     #SD_LIST
                 STA     SD_CMD
                 JSR     PUTBUF
+                BCS     @out
 @sector:        JSR     GETSECT
                 BCS     @out
                 STZ     PTR
@@ -102,7 +109,16 @@ SDCAT:          JSR     START
                 BRA     @sector
 @out:           JMP     WOZMON
 
-SDBOOT:         JSR     START
+SDBOOT:         STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at reset:
+                LDA     #1             ; the DMA writes physical $01000 on, and the
+                STA     NB_WIN1        ; load is called at CPU $1000
+                LDA     #2
+                STA     NB_WIN2
+                LDA     #<BOOTBIN
+                STA     WHAT
+                LDA     #>BOOTBIN
+                STA     WHAT+1
+                JSR     START
                 BCS     @out
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
@@ -122,6 +138,7 @@ SDBOOT:         JSR     START
 @mount:         LDA     #SD_MOUNT
                 STA     SD_CMD
                 JSR     PUTBUF
+                BCS     @out
                 JSR     WAITDONE
                 BCS     @out
                 LDA     #SD_IDENTIFY   ; its size, from the units table
@@ -228,7 +245,15 @@ WAITDONE:       LDA     SD_STATUS
 FAILED:         LDA     SD_ERROR
                 CMP     #SD_NOT_FOUND
                 BNE     @code
-                LDX     #MNOTFOUND - MSGS
+                LDX     #MNOTFOUND - MSGS ; "NOT ON THE CARD: " and the path
+                JSR     SAY
+                LDY     #0
+@path:          LDA     (WHAT),Y
+                BEQ     @cr
+                JSR     ECHO
+                INY
+                BNE     @path
+@cr:            LDX     #MCR - MSGS
                 BRA     @say
 @code:          LDX     #MERROR - MSGS ; "SD ERROR nn"
                 JSR     SAY
@@ -239,11 +264,15 @@ FAILED:         LDA     SD_ERROR
                 SEC
                 RTS
 
-; BUF into DATA, a whole sector, once there is room.
+; BUF into DATA, a whole sector, once there is room. Carry set if the
+; command ended first (the card taken out, say): with an error, said.
 PUTBUF:         LDA     SD_STATUS
                 BIT     #SD_DATA_READY
-                BEQ     PUTBUF
-                LDY     #0
+                BNE     @put
+                BIT     #SD_BUSY
+                BNE     PUTBUF
+                BRA     FAILED
+@put:           LDY     #0
 @lo:            LDA     BUF,Y
                 STA     SD_DATA
                 INY
@@ -252,6 +281,7 @@ PUTBUF:         LDA     SD_STATUS
                 STA     SD_DATA
                 INY
                 BNE     @hi
+                CLC
                 RTS
 
 CLEARBUF:       LDA     #0
@@ -271,13 +301,14 @@ SAY:            LDA     MSGS,X
 @done:          RTS
 
 BOOTBIN:        .byte   "/BOOT.BIN", 0
+ROOT:           .byte   "/", 0
 MSGS:
 MCARD:          .byte   $0D, "CARD ", 0
 MSECTORS:       .byte   " SECTORS", $0D, 0
 MNOCARD:        .byte   $0D, "NO SD CARD", $0D, 0
 MEMPTYSLOT:     .byte   $0D, "NO CARD IN THE SLOT", $0D, 0
 MNODMA:         .byte   $0D, "NO DMA", $0D, 0
-MNOTFOUND:      .byte   $0D, "NOT ON THE CARD: /BOOT.BIN", $0D, 0
+MNOTFOUND:      .byte   $0D, "NOT ON THE CARD: ", 0
 MERROR:         .byte   $0D, "SD ERROR ", 0
 MBIG:           .byte   $0D, "BOOT.BIN IS OVER 44 KB", $0D, 0
 MEMPTY:         .byte   $0D, "BOOT.BIN IS EMPTY", $0D, 0

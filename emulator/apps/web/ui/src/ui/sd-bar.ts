@@ -8,11 +8,15 @@
  * The card stays in the page only: it is never uploaded, and not kept in
  * this browser either (a card is megabytes). Once the machine writes to it
  * the note says so, Save card downloads it with the writes, and leaving the
- * page asks first.
+ * page, Eject, or putting another card in asks first. A card over MAX_CARD
+ * is refused before it is read: the core's memory stops at 2 GB.
  */
 
 import type { FrameState, MachinePort, SdInfo } from "../port/machine-port";
 import { h } from "./dom";
+
+/** The biggest card the page takes: the core holds it, and its memory stops at 2 GB. */
+export const MAX_CARD = 1024 * 1024 * 1024;
 
 /** "32 MB", "1440 KB": a card's size from its sectors. */
 export function cardSize(sectors: number): string {
@@ -20,7 +24,7 @@ export function cardSize(sectors: number): string {
   return kb >= 1024 && kb % 1024 === 0 ? `${kb / 1024} MB` : kb >= 10240 ? `${Math.round(kb / 1024)} MB` : `${kb} KB`;
 }
 
-export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Array) => void, win: Pick<Window, "addEventListener"> = window) {
+export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Array) => void, win: Pick<Window, "addEventListener" | "confirm"> = window) {
   const picker = h("input", { type: "file", hidden: true, "data-testid": "sd-file" });
   const light = h("span", { class: "disk-led", title: "The SD card's light: on while it works", "data-testid": "sd-light" });
   const insert = h("button", { class: "tbtn", type: "button", "data-testid": "sd-insert" }, "Insert SD card…");
@@ -33,6 +37,8 @@ export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Ar
   let info: SdInfo | null = null;
   const HINT = "C809R lists the card; C80CR boots its /BOOT.BIN";
   const say = (text: string) => (note.textContent = text);
+  /** Unsaved writes: may they go? */
+  const letGo = (doing: string) => !info?.changed || win.confirm(`${doing}? The machine's writes to ${info.name} aren't saved: Save card keeps them.`);
   const show = () => {
     insert.textContent = info ? `${info.name} (${cardSize(info.sectors)})` : "Insert SD card…";
     insert.title = info ? `${info.name} is in the slot. Click to put in another.` : "A card image of your own (raw, or FAT as a PC formats it): it stays in this page";
@@ -47,6 +53,11 @@ export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Ar
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
+    if (f.size > MAX_CARD) {
+      say(`${f.name}: over 1 GB, more than this page can hold`);
+      return;
+    }
+    if (!letGo(`Put ${f.name} in`)) return;
     try {
       info = await port.insertSd(new Uint8Array(await f.arrayBuffer()), f.name);
       say(HINT);
@@ -74,6 +85,7 @@ export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Ar
     show();
   });
   eject.addEventListener("click", () => {
+    if (!letGo("Eject the card")) return;
     port.ejectSd();
     info = null;
     say("");

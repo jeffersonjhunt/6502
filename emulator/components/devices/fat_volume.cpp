@@ -336,8 +336,9 @@ namespace ooe::emu
     {
         // The chain must hold exactly the clusters the size needs and then end: one that
         // loops, stops early or runs on is damaged (fsck's rule), and a loop never ends.
+        // A last part-sector counts whole: the rest of it is the cluster's slack.
         out.clear();
-        const uint64_t sectors = file.size / SECTOR;
+        const uint64_t sectors = (uint64_t{file.size} + SECTOR - 1) / SECTOR;
         const uint64_t cluster_bytes = uint64_t{sectors_per_cluster_} * SECTOR;
         const uint64_t chain = (file.size + cluster_bytes - 1) / cluster_bytes;
         uint64_t mapped = 0;

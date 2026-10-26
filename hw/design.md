@@ -264,7 +264,9 @@ window registers.
    mode, with the IIe ROM image taken from the cartridge (ROM B). *(BIOS 0.7, proposed.)* The SD card: `$C809`
    lists the card's root directory, and `$C80C` boots from it. The boot mounts `/BOOT.BIN` as unit 1, reads it to
    `$1000` by DMA channel 0 (at most 88 sectors, `$1000–$BFFF`) and calls it, so a program that returns comes back
-   to the monitor. `$C80F` is ECHO, for programs to print with.
+   to the monitor. `$C80F` is ECHO, for programs to print with. *(BIOS 0.8.)* The boot puts windows 0–2 back on
+   RAM blocks 0–2 first, so the CPU's `$1000` is where the DMA wrote, and a failed command ends with its error
+   rather than a hang.
 
 **From the ESP32 (override)**
 
@@ -765,6 +767,7 @@ the tables leave open:
   With CTRL.DMA set, DRQ0 follows it. When DATA is clear, reading DATA returns `$FF` and a write to it is dropped.
 - **LBA and COUNT advance** as each sector passes through DATA. During a transfer COUNT is the number of sectors
   left; afterwards LBA names the next sector, so consecutive reads need only a new COUNT and CMD.
+  MOUNT and LIST set COUNT to 1 for their parameter sector, whatever the program wrote, and don't move LBA.
   IDENTIFY's sector comes from the firmware and moves neither.
 - **Errors.** A failed command sets ERR and ERROR, stops at once and sets ISR bit 0 like a finished one; ERR
   stays set until the next command. ERROR codes:
@@ -795,7 +798,8 @@ the tables leave open:
   | `$040` | a 32-byte entry for each of units 1–7: sectors (4 bytes), flags (bit 0 mounted, bit 1 read-only), then from +8 the file's name (24 bytes) |
 - **MOUNT, UNMOUNT and LIST.**
   - MOUNT's sector holds the unit (1–7) at +0, flags at +1 (bit 0 read-only) and the path from +2,
-    NUL-terminated. The unit is the file's whole sectors. It is read-only if the flag, the file's read-only
+    NUL-terminated. The unit is the file's sectors, rounded up: a last part-sector reads on into the slack of
+    its cluster, so a program shorter than a sector still loads. It is read-only if the flag, the file's read-only
     attribute or the card's switch says so. Mounting a unit that is already mounted replaces it.
   - UNMOUNT detaches UNIT.
   - LIST's sector holds the directory's path from +0. The card then sends the entries out through DATA, with

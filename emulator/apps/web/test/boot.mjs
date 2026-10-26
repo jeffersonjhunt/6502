@@ -10,7 +10,7 @@
 import { pathToFileURL } from "node:url";
 
 const FRAME = 119318; // 7.15909 MHz / 60
-const GREETING = "\rBACKPLANE BIOS 0.7\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
 const failures = [];
 const check = (name, ok, detail = "") => {
   if (!ok) failures.push(detail ? `${name}: ${detail}` : name);
@@ -174,6 +174,34 @@ m.setClock(0);
 check("power cycle: RAM cleared", m.peek(0x300) === 0);
 check("power cycle: boots again", runUntil(GREETING).includes(GREETING));
 m.delete();
+
+// The SD card's save: a copy that fails leaves the writes unsaved, so the page still warns.
+const sd = new oo1.Machine();
+check("sd: open", sd.open("/machines/backplane.machine", "/roms/bios.rom", "/roms/bios.rom.lbl"), sd.error());
+check("sd: a card goes in", sd.insertSd(new Uint8Array(64 * 512), "card.img"), sd.error());
+let sdOut = ""; // booted first: keys sent before the monitor runs are lost
+for (let i = 0; i < 60 && !sdOut.includes(GREETING); ++i) {
+  sd.run(FRAME);
+  sdOut += sd.takeOutput();
+}
+check("sd: boots", sdOut.includes(GREETING), show(sdOut));
+// WRITE sector 0, $AA throughout, by a CPU loop typed at the monitor (as e2e/sd.spec.ts does).
+sd.send("1000: A9 01 8D 8A C3 9C 8B C3 9C 84 C3 9C 86 C3 A9 30 8D 83 C3\r");
+sd.send("1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C 80 C8\r");
+sd.send("1000R\r");
+for (let i = 0; i < 120 && !(sd.sdInfo() & 1); ++i) sd.run(FRAME);
+check("sd: written to", (sd.sdInfo() & 1) === 1, String(sd.sdInfo()));
+const slice = Uint8Array.prototype.slice;
+Uint8Array.prototype.slice = () => { throw new RangeError("out of memory"); };
+let threw = false;
+try { sd.sdSave(); } catch { threw = true; }
+Uint8Array.prototype.slice = slice;
+check("sd: the failed copy threw", threw);
+check("sd: and the writes still count as unsaved", (sd.sdInfo() & 1) === 1, String(sd.sdInfo()));
+const saved = sd.sdSave();
+check("sd: then a save copies them", saved && saved.length === 64 * 512 && saved[0] === 0xaa && saved[512] === 0);
+check("sd: and counts as saved", (sd.sdInfo() & 1) === 0, String(sd.sdInfo()));
+sd.delete();
 
 for (const f of failures) console.log(`FAIL ${f}`);
 console.log(`${failures.length ? "NOT OK" : "ok"}: ${failures.length} failure(s)`);

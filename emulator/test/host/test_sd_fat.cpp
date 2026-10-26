@@ -54,7 +54,7 @@ namespace
         return std::make_shared<MemoryMedia>(sparse(name), name);
     }
 
-    /// A file's bytes, read through its extents.
+    /// A file's sectors, read through its extents (a last part-sector whole, the cluster's slack after the end).
     std::vector<uint8_t> file_bytes(SdMedia &media, const FatVolume &v, const FatVolume::Entry &e)
     {
         std::vector<FatVolume::Extent> ext;
@@ -188,13 +188,15 @@ TEST(fat12_on_the_whole_card)
     const std::string alias = e.short_name;
     REQUIRE(v->find("/" + alias, e) == FatVolume::Status::Ok); // the 8.3 alias finds it too
     CHECK_EQ(e.name, std::string("A long file name.dsk"));
-    const std::vector<uint8_t> bytes = file_bytes(*m, *v, e);
-    CHECK_EQ(bytes.size(), size_t{39 * 512}); // 20,000 bytes: 39 whole sectors
+    std::vector<uint8_t> bytes = file_bytes(*m, *v, e);
+    CHECK_EQ(bytes.size(), size_t{40 * 512}); // 20,000 bytes: 39 sectors and part of a 40th
+    bytes.resize(20000);
     CHECK_EQ(differ(bytes, 1), size_t{0});
     REQUIRE(v->find("/HELLO.TXT", e) == FatVolume::Status::Ok);
-    std::vector<FatVolume::Extent> none;
-    CHECK(v->extents(e, none) == FatVolume::Status::Ok);
-    CHECK(none.empty()); // under a sector
+    std::vector<FatVolume::Extent> one;
+    CHECK(v->extents(e, one) == FatVolume::Status::Ok);
+    CHECK_EQ(one.size(), size_t{1}); // under a sector: still one
+    CHECK_EQ(one.empty() ? 0 : one[0].count, uint64_t{1});
 
     CHECK(v->find("/NOPE", e) == FatVolume::Status::NotFound);
     CHECK(v->find("/HELLO.TXT/X", e) == FatVolume::Status::NotFound);
@@ -225,8 +227,9 @@ TEST(fat16_in_a_partition_with_a_fragmented_file)
     CHECK_EQ(ext[1].card, ext[0].card + 40); // B's 20 sectors between
     CHECK_EQ(differ(file_bytes(*m, *v, e), 4), size_t{0});
     REQUIRE(v->find("/odd.bin", e) == FatVolume::Status::Ok);
-    const std::vector<uint8_t> odd = file_bytes(*m, *v, e);
-    CHECK_EQ(odd.size(), size_t{512}); // 1,000 bytes: 1 whole sector
+    std::vector<uint8_t> odd = file_bytes(*m, *v, e);
+    CHECK_EQ(odd.size(), size_t{1024}); // 1,000 bytes: a sector and most of another
+    odd.resize(1000);
     CHECK_EQ(differ(odd, 5), size_t{0});
 }
 
@@ -368,7 +371,7 @@ TEST(mount_takes_its_sector_then_access_us)
     r.card.tick(1);
     CHECK_EQ(r.status(), SdCard::PRESENT | SdCard::READY);
     CHECK(r.card.unit(1).mounted);
-    CHECK_EQ(r.card.unit(1).sectors, uint64_t{0}); // 21 bytes: no whole sector
+    CHECK_EQ(r.card.unit(1).sectors, uint64_t{1}); // 21 bytes: part of one sector, which counts
 }
 
 TEST(mount_errors)

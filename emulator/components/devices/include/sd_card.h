@@ -32,7 +32,8 @@
  * - IDENTIFY $EC: one sector out of DATA (below). LBA and COUNT stay.
  * - MOUNT $A0: one sector into DATA: +0 the unit (1-7), +1 flags (bit 0
  *   read-only), from +2 the file's path, NUL-terminated. The unit is the
- *   file's whole sectors, read-only if the flag, the file's attribute or the
+ *   file's sectors, a last part-sector included (its cluster's slack after
+ *   the end), read-only if the flag, the file's attribute or the
  *   card's switch says so; mounting a mounted unit replaces it.
  * - UNMOUNT $A1: UNIT (1-7) detached.
  * - LIST $A2: one sector into DATA, the directory's path from +0,
@@ -42,8 +43,8 @@
  *   long one, 56 bytes, NUL padded; longer ones cut). An entry of zeros
  *   follows the last.
  *
- * MOUNT's and LIST's sectors don't move LBA; COUNT counts them down like
- * any other. Paths are '/'-separated from the card's root, matching long or
+ * MOUNT and LIST set COUNT to 1 for their sector, whatever was written to
+ * it, and it counts down as it passes; it doesn't move LBA. Paths are '/'-separated from the card's root, matching long or
  * 8.3 names in any case (fat_volume.h). The firmware reads the FAT (whole
  * card, or the MBR's first FAT partition) at each MOUNT and LIST, so a card
  * changed through unit 0 is seen at the next one; a mounted unit's sectors
