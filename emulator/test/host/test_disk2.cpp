@@ -209,6 +209,27 @@ TEST(past_three_0_bits_the_amplifier_reads_noise)
     std::remove("test_disk2_count.rom");
 }
 
+TEST(a_woz_disks_bit_timing_sets_the_cell)
+{
+    // WOZ 2 INFO "optimal bit timing" 28: 3.5 us cells, 7 steps, so 8/7 the cells of 4 us in the same time.
+    std::vector<uint8_t> woz = disk_of("1")->to_woz();
+    woz[12 + 8 + 39] = 28;
+    woz[8] = woz[9] = woz[10] = woz[11] = 0; // no CRC
+    std::string error;
+    auto d = std::shared_ptr<DiskImage>(DiskImage::load(woz, "fast.woz", error));
+    REQUIRE(d != nullptr);
+    CHECK_EQ(d->bit_timing(), 28);
+    DiskTrack &t = d->track_for_writing(0);
+    for (uint32_t n = 0; n < t.bit_count; ++n)
+        t.set_bit(n, n % 4 == 0);
+    Rig r(counting());
+    r.write(MOTOR_ON, 0);
+    r.card.insert(0, d);
+    const unsigned n = pulses(r, 800); // 200 at 4 us
+    CHECK(n >= 224 && n <= 234);
+    std::remove("test_disk2_count.rom");
+}
+
 TEST(a_long_wait_in_read_mode_lands_the_head_where_it_would_be)
 {
     Rig r(counting());

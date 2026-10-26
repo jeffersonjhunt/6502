@@ -165,6 +165,22 @@ namespace ooe::emu
             return dir[0] == 0 && dir[1] == 0 && (dir[4] >> 4) == 0xF && (dir[4] & 0xF) != 0 && le16(next) == 2;
         }
 
+        /// Each track's new index when only the ones `tmap` names, and that hold bits, are kept (NO_TRACK: dropped).
+        /// In order, and never more than the quarter tracks.
+        std::vector<uint8_t> kept_tracks(const std::array<uint8_t, DiskImage::QUARTER_TRACKS> &tmap,
+                                         const std::vector<DiskTrack> &tracks)
+        {
+            std::vector<uint8_t> to(tracks.size(), DiskImage::NO_TRACK);
+            for (const uint8_t m : tmap)
+                if (m < tracks.size() && tracks[m].bit_count)
+                    to[m] = 0;
+            uint8_t n = 0;
+            for (uint8_t &t : to)
+                if (t != DiskImage::NO_TRACK)
+                    t = n++;
+            return to;
+        }
+
         std::string lower(std::string s)
         {
             for (char &c : s)
@@ -208,18 +224,23 @@ namespace ooe::emu
 
     DiskTrack &DiskImage::track_for_writing(unsigned q)
     {
+        q = std::min(q, QUARTER_TRACKS - 1);
         if (DiskTrack *t = track(q))
             return *t;
+        // Every track is some quarter track's (load_woz keeps only those), and q had none: so this one is at
+        // most the 160th, its index well below NO_TRACK.
         DiskTrack t;
         t.bit_count = BLANK_TRACK_BITS;
         t.bytes.assign((BLANK_TRACK_BITS + 7) / 8, 0);
         tracks_.push_back(std::move(t));
-        tmap_[std::min(q, QUARTER_TRACKS - 1)] = static_cast<uint8_t>(tracks_.size() - 1);
+        tmap_[q] = static_cast<uint8_t>(tracks_.size() - 1);
         return tracks_.back();
     }
 
     std::unique_ptr<DiskImage> DiskImage::from_sectors(const std::vector<uint8_t> &image, Format order, uint8_t volume)
     {
+        if (image.size() != SECTOR_IMAGE)
+            return nullptr;
         std::unique_ptr<DiskImage> d(new DiskImage());
         d->format_ = order;
         d->boot_format_ = 1;
@@ -321,7 +342,7 @@ namespace ooe::emu
                 if (v2 && size >= 40)
                 {
                     d->boot_format_ = b[data + 38];
-                    if (b[data + 39])
+                    if (b[data + 39] >= 16) // 0: not given; under 2 us is no 5.25" disk
                         d->bit_timing_ = b[data + 39];
                 }
             }
@@ -340,8 +361,11 @@ namespace ooe::emu
                         const uint8_t *e = &b[data + 8 * i];
                         const size_t start = size_t{le16(e)} * 512, blocks = le16(e + 2);
                         const uint32_t bits = le32(e + 4);
-                        if (!blocks)
-                            break;
+                        if (!blocks) // unused: kept in its place, as TMAP counts them
+                        {
+                            d->tracks_.emplace_back();
+                            continue;
+                        }
                         if (start + blocks * 512 > b.size() || bits > blocks * 512 * 8)
                         {
                             error = "WOZ file damaged: track " + std::to_string(i) + " is outside it";
@@ -357,7 +381,7 @@ namespace ooe::emu
                 else
                 {
                     constexpr size_t ENTRY = 6656;
-                    for (size_t i = 0; (i + 1) * ENTRY <= size; ++i)
+                    for (size_t i = 0; (i + 1) * ENTRY <= size && i < NO_TRACK; ++i) // TMAP names no more
                     {
                         const uint8_t *e = &b[data + i * ENTRY];
                         const uint32_t bits = le16(e + 6648);
@@ -375,9 +399,15 @@ namespace ooe::emu
             error = "WOZ file damaged: it lacks its INFO, TMAP or TRKS chunk";
             return nullptr;
         }
+        // Only the tracks TMAP names: no more than its 160 quarter tracks, however many the file holds.
+        const std::vector<uint8_t> to = kept_tracks(d->tmap_, d->tracks_);
+        std::vector<DiskTrack> kept;
+        for (size_t i = 0; i < to.size(); ++i)
+            if (to[i] != NO_TRACK)
+                kept.push_back(std::move(d->tracks_[i]));
+        d->tracks_ = std::move(kept);
         for (uint8_t &m : d->tmap_)
-            if (m != NO_TRACK && (m >= d->tracks_.size() || d->tracks_[m].bit_count == 0))
-                m = NO_TRACK;
+            m = m < to.size() ? to[m] : NO_TRACK;
         return d;
     }
 
@@ -397,18 +427,25 @@ namespace ooe::emu
         f[57] = 1;                       // one side
         f[58] = boot_format_;
         f[59] = bit_timing_;
+        // The tracks TMAP names that hold bits, renumbered: at most 160, TRKS's entries, and none empty (a
+        // reader stops at one).
+        const std::vector<uint8_t> to = kept_tracks(tmap_, tracks_);
         std::memcpy(&f[80], "TMAP", 4);
         put32(f, 84, 160);
-        std::copy(tmap_.begin(), tmap_.end(), f.begin() + 88);
+        for (size_t q = 0; q < QUARTER_TRACKS; ++q)
+            f[88 + q] = tmap_[q] < to.size() ? to[tmap_[q]] : NO_TRACK;
         std::memcpy(&f[248], "TRKS", 4);
         uint32_t block = 3, largest = 0;
-        for (size_t i = 0; i < tracks_.size(); ++i)
+        for (size_t i = 0, n = 0; i < tracks_.size(); ++i)
         {
+            if (to[i] == NO_TRACK)
+                continue;
             const DiskTrack &t = tracks_[i];
+            const size_t e = 256 + 8 * n++;
             const uint32_t blocks = ((t.bit_count + 7) / 8 + 511) / 512;
-            put16(f, 256 + 8 * i, block);
-            put16(f, 256 + 8 * i + 2, blocks);
-            put32(f, 256 + 8 * i + 4, t.bit_count);
+            put16(f, e, block);
+            put16(f, e + 2, blocks);
+            put32(f, e + 4, t.bit_count);
             std::vector<uint8_t> data(t.bytes.begin(), t.bytes.begin() + (t.bit_count + 7) / 8);
             data.resize(size_t{blocks} * 512, 0);
             f.insert(f.end(), data.begin(), data.end());

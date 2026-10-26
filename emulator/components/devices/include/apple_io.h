@@ -43,7 +43,8 @@
  * VBL follows the Apple's timing in CPU cycles: 65 a line, 262 lines, 17,030
  * a frame, the last 70 lines blank. /RESET puts the switches back as a IIe's
  * MMU and IOU do: memory main, ROMs internal-slot as the IIe ROM expects,
- * the language card reading ROM and writing RAM bank 2, text mode.
+ * the language card reading ROM and writing RAM bank 2, text mode, AN3 on
+ * (DHIRES off).
  */
 
 #include <cstdint>
@@ -61,7 +62,7 @@ namespace ooe::emu
         bool store80{false}, ramrd{false}, ramwrt{false}, intcxrom{false}, altzp{false}, slotc3rom{false};
         bool col80{false}, altchar{false};
         bool text{true}, mixed{false}, page2{false}, hires{false}, dhires{false}, ioudis{true};
-        uint8_t an{0}; ///< annunciators AN0-AN3, bit n
+        uint8_t an{0x08}; ///< annunciators AN0-AN3, bit n; AN3 on, as DHIRES is off
         bool lc_bank2{true}, lc_read{false}, lc_write{true}, lc_prewrite{false};
         bool intc8rom{false};
     };

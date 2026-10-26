@@ -34,8 +34,9 @@
  * 8 and C nothing, 9 shift in a 0, D a 1, A and E shift right bringing in
  * write protect, B and F load the data bus.
  *
- * The drive: a bit cell every 4 us (8 steps; a WOZ disk's own bit timing),
- * a read pulse on the first step of a cell holding a 1. Past three 0 bits
+ * The drive: a bit cell every 4 us (8 steps), or as a WOZ disk's own bit
+ * timing says (3.5 us: 7 steps; between whole steps, cells a step apart
+ * in turn), a read pulse on the first step of a cell holding a 1. Past three 0 bits
  * the read amplifier finds noise, as an MC3470 does: random bits, 3 in 10
  * ones. Writing, the head follows state bit D7: a change in a cell writes
  * a 1. The head moves by quarter tracks towards the magnets that are on
@@ -122,6 +123,7 @@ namespace ooe::emu
         void step();
         void move_head();
         uint32_t track_bits(const Drive &d) const;
+        unsigned cell_length(const Drive &d) const; ///< 125 ns units
         bool noise();
 
         const Decoder *decoder_{nullptr};
@@ -135,7 +137,7 @@ namespace ooe::emu
         uint64_t stops_at_{0}; ///< cycle the motor stops, once switched off
         bool q6_{false}, q7_{false};
         uint8_t data_{0}, bus_{0}, state_{0};
-        unsigned cell_{0};     ///< step within the bit cell
+        unsigned cell_{0};     ///< 125 ns units into the bit cell
         bool level_{false};    ///< the write head's last level
         unsigned zeros_{0};    ///< 0 bits read in a row
         uint32_t noise_{0x2545F491};

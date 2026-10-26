@@ -268,6 +268,20 @@ TEST(video_switches_on_any_access_and_their_status)
     CHECK_EQ(a.s().an, 0x0A);
 }
 
+TEST(reset_leaves_an3_and_dhires_agreeing)
+{
+    Apple a;
+    REQUIRE(a.ok());
+    a.enter();
+    CHECK(!a.s().dhires);                                   // AN3 on: DHIRES off
+    CHECK_EQ(a.s().an & 0x08, 0x08);
+    CHECK_EQ(a.bus().read(0xC07F) & 0x80, 0x00);            // RDDHIRES
+    a.bus().read(0xC05E);
+    a.bus().pulse_reset();
+    CHECK(!a.s().dhires);
+    CHECK_EQ(a.s().an & 0x08, 0x08);
+}
+
 TEST(peek_changes_nothing)
 {
     Apple a;
