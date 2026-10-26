@@ -770,8 +770,10 @@ the tables leave open:
   - 3: CRC;
   - 4: timeout, or a host error in the emulator;
   - 5: write-protected;
-  - 6: unit not mounted;
-  - 7: unknown command.
+  - 6: unit not mounted, or not a unit 1–7;
+  - 7: unknown command;
+  - 8: not found (MOUNT's file or LIST's directory);
+  - 9: no FAT volume on the card, or a damaged one.
 
   A command written while BUSY is ignored. CTRL bit 1 (RESET) is a strobe: it abandons the command and starts the
   card up again.
@@ -784,10 +786,33 @@ the tables leave open:
   |---|---|
   | `$000–$003` | the card's sectors |
   | `$004` | its type: 0 none, 1 SDSC (up to 2 GB), 2 SDHC (up to 32 GB), 3 SDXC |
-  | `$005` | flags: bit 0 write-protected |
+  | `$005` | flags: bit 0 write-protected, bit 1 a FAT volume found |
   | `$006–$007` | the firmware's version, major then minor |
   | `$010–$02F` | the card's name, ASCII, NUL padded |
   | `$040` | a 32-byte entry for each of units 1–7: sectors (4 bytes), flags (bit 0 mounted, bit 1 read-only), then from +8 the file's name (24 bytes) |
+- **MOUNT, UNMOUNT and LIST.**
+  - MOUNT's sector holds the unit (1–7) at +0, flags at +1 (bit 0 read-only) and the path from +2,
+    NUL-terminated. The unit is the file's whole sectors. It is read-only if the flag, the file's read-only
+    attribute or the card's switch says so. Mounting a unit that is already mounted replaces it.
+  - UNMOUNT detaches UNIT.
+  - LIST's sector holds the directory's path from +0. The card then sends the entries out through DATA, with
+    COUNT set to the number of sectors they fill. Each sector holds 8 entries of 64 bytes:
+
+    | Offset | Contents |
+    |---|---|
+    | +0 | the size, 4 bytes |
+    | +4 | the FAT attributes: bit 0 read-only, bit 4 a directory |
+    | +8 | the long name, 56 bytes, NUL padded; a longer name is cut |
+
+    An entry of zeros follows the last one. `.`, `..` and volume labels are left out.
+  - **Paths** are `/`-separated from the root. A name matches its long or its 8.3 form, ignoring case.
+  - **Where the FAT is:** on the whole card (a "superfloppy") or in the MBR's first FAT partition, as FAT12, FAT16
+    or FAT32 with long names.
+  - **When it's read:** the firmware reads the FAT again at each MOUNT and LIST. A unit's sectors are found
+    when it is mounted. Its writes go into the file's own clusters, so the FAT never changes and the RP2350 needs
+    no FAT writer.
+  - **A damaged chain** (one that is short, runs on, or loops) fails with error 9 rather than hanging.
+  - **Taking the card out** unmounts everything.
 - **Timing, the emulator's figures:** 100 µs to a read's first sector, then 25 µs for each further sector (SD in
   4-bit mode, about 20 MB/s), and 25 µs to program a written sector. A DMA at a byte a cycle takes 72 µs a sector,
   so after the first sector the bus never waits. FLUSH takes 100 µs.
@@ -1145,7 +1170,7 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    OSC3 and ENV3 read back, then the output stage (waveform DACs, the filter, the mixer) and sound in the WebUI,
    which also plays `.sid` files on the card. Combined waveforms' real values are in the emulator's backlog.)*
 8. **The mass storage card:** the registers, the raw card through DATA by CPU or DMA, then FAT mounting, the BIOS
-   and the WebUI. *(Emulated 2026-10-25: the card, raw sectors and IDENTIFY.)*
+   and the WebUI. *(Emulated 2026-10-25: the card, raw sectors and IDENTIFY; FAT, MOUNT, UNMOUNT and LIST.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 

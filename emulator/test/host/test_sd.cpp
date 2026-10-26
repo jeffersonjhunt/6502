@@ -313,9 +313,9 @@ TEST(errors_range_write_protect_unit_and_unknown_commands)
         {SdCard::WRITE, 63, 2, 0, SdCard::ERR_RANGE},
         {SdCard::READ, 0, 1, 1, SdCard::ERR_UNIT},
         {SdCard::WRITE, 0, 1, 7, SdCard::ERR_UNIT},
-        {SdCard::MOUNT, 0, 1, 0, SdCard::ERR_COMMAND}, // not yet
-        {SdCard::UNMOUNT, 0, 1, 1, SdCard::ERR_COMMAND},
-        {SdCard::LIST, 0, 1, 0, SdCard::ERR_COMMAND},
+        {SdCard::UNMOUNT, 0, 1, 0, SdCard::ERR_UNIT}, // unit 0 is the card
+        {SdCard::UNMOUNT, 0, 1, 1, SdCard::ERR_UNIT}, // nothing mounted
+        {0xA3, 0, 1, 0, SdCard::ERR_COMMAND},
         {0x00, 0, 1, 0, SdCard::ERR_COMMAND},
         {0xFF, 0, 1, 0, SdCard::ERR_COMMAND},
     };
