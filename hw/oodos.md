@@ -36,31 +36,40 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
 
 - **Date stamps:** two per file (creation or access, and update), each 2 bytes of days from 1 January 1978, then the
   hour and minute in BCD. The directory label chooses which are kept, as in CP/M 3.
+- **Decided (2026-10-26): creation and update stamps.** OODOS drives have the directory label's mode byte (entry
+  0, byte 12) at 0x31: a label, creation stamps, update stamps; no access stamps, no passwords. INITDIR's default
+  is the same. `mkfs.cpm -t` writes 0x11 (creation only), so a drive made on Linux has the byte set after it.
 - **Directory hashing** is CP/M 3's, kept in memory only (the DPH's HASH table, 4 bytes an entry). It never
   touches the disk, so it costs interoperability nothing. With 1 MB it's on for every drive.
-- **cpmtools.** The repo carries a `diskdefs` file with OODOS's formats, so a card is made on Linux with, for
-  example:
+- **cpmtools.** The repo carries [`oodos/diskdefs`](../oodos/diskdefs) with OODOS's formats, so a card is made on
+  Linux with, for example ([oodos/README.md](../oodos/README.md) has more):
 
   ```
-  mkfs.cpm -f oodos-8m A.IMG
+  mkfs.cpm -f oodos-8m -t -L OODOS A.IMG
+  printf '\061' | dd of=A.IMG bs=1 seek=12 conv=notrunc
   cpmcp -f oodos-8m A.IMG HELLO.TXT 0:
-  cpmls -f oodos-8m -l A.IMG
+  cpmls -f oodos-8m -F A.IMG
   ```
 
-**Proposed formats**
+**Decided (phase 0, 2026-10-26): the formats**
 
 | diskdef | Sector | Size | Block | Directory | Boot tracks | For |
 |---|---|---|---|---|---|---|
 | `oodos-8m` | 512 | 8 MB (1024 tracks of 16) | 4 KB | 1024 | 0 | the usual SD drive |
 | `oodos-32m` | 512 | 32 MB | 8 KB | 2048 | 0 | a large SD drive |
-| `oodos-ram` | 512 | the RAM disk's size | 2 KB | 256 | 0 | M:, made at boot, never on a card |
+| `oodos-ram` | 512 | 128 KB, banks C–D | 2 KB | 256 | 0 | M:, made at boot, never on a card |
 | `apple-do` | 256 | 140 KB, 35 × 16 | 1 KB | 64 | 3 | Apple CP/M (SoftCard) disks, cpmtools's own diskdef |
 
 - No boot tracks on SD drives: the loader is `/BOOT.BIN` on the FAT card (below), so a drive image is all file
   system.
 - `apple-do` is a CP/M 2.2 format. CP/M 3 reads and writes those; they just have no date stamps.
-- **To check first:** that cpmtools's `os 3` support makes and reads SFCBs as OODOS will (`mkfs.cpm`'s time stamp
-  option, `cpmls -l`), with a round-trip test in both directions.
+- **Checked with cpmtools 2.23** ([oodos/test/check_diskdefs.sh](../oodos/test/check_diskdefs.sh)): `mkfs.cpm -t`
+  writes a directory label and an SFCB in every fourth entry, the label's mode is set to 0x31 (creation and update
+  stamps, as INITDIR sets it) and checked, `cpmcp` stamps what it writes, `cpmls -F` reads the stamps back, and
+  `fsck.cpm` passes, for all three formats; and each DPB is legal (at most 16 directory blocks, DSM within 16 bits,
+  under 256 for 1 KB blocks). cpmtools writes both stamps whatever the mode, so only OODOS's BDOS will honour it;
+  that, and the other direction, OODOS writing and cpmtools checking, wait for the BDOS (phase 1's
+  interoperability tests).
 
 
 ## Drives ##
@@ -361,12 +370,38 @@ many of them the OEM's routines for the screen, graphics, keyboard, sound, light
 the video card's text and bitmap modes for SCREEN, the SIDs for SOUND and PLAY, the USB keyboard, the game port,
 COM1/COM2 and the parallel port.
 
-**Size.** GW-BASIC is about 60 KB of 8086 code, and 6502 code will be larger. It won't fit in the TPA beside a
-useful workspace, so the cold parts (graphics, PLAY, RENUM, the editor) live in allocated blocks and are called
-through common memory (FARCALL), 12 KB at a time in W3's code window. The program and its variables have the
-TPA, and as much of the interpreter as the 32 KB leaves room for.
-**Decided (2026-10-26): at least 32 KB free for BASIC.** That's a minimum, not a target. A spike settles it before the port starts: translate MATH1 and the main interpreter loop,
-and measure.
+**Size.** The released source is estimated at about 40 KB of 8086 code (40,035 bytes, 39.1 KB) and 4,412 bytes
+(4.3 KB) of tables, and 6502 code will be larger. It won't fit in the TPA beside a useful workspace, so the cold
+parts (graphics, PLAY, RENUM, the editor) live in allocated blocks and are called through common memory (FARCALL),
+12 KB at a time in W3's code window. The program and its variables have the TPA, and as much of the interpreter as
+the 32 KB leaves room for.
+**Decided (2026-10-26): at least 32 KB free for BASIC.** That's a minimum, not a target.
+
+**Measured (phase 0, 2026-10-26): it fits, just.** The spike ([`oodos/spike/gwbasic/`](../oodos/spike/gwbasic/))
+hand-translated about 2,530 of the 8086 instructions (parts of MATH1 and MATH2, the statement loop, CHRGET, GOTO,
+IF, LET, the formula evaluator) to 6502, linked as a `.COM` at `$0300`, and checked them on the emulator's W65C02S
+core.
+
+- **The ratio:** 6,637 bytes of 6502 for 5,551 of 8086, 1.20. Math is 1.16, interpreter code 1.27, text
+  scanning the worst at 1.36.
+- **The whole:** 48.9 KB of 6502 (51.9 KB at the worst ratio), plus 4.3 KB of tables, plus the OO-1's OEM layer
+  (estimated 12–20 KB): 65–73 KB.
+- **The TPA:** a resident core of about 10 KB (the statement loop, LET, IF, GOTO, GOSUB, FOR and NEXT, the
+  evaluator, variables, the string core and functions, INKEY$, single and integer math, console output) and 4 KB of
+  fixed RAM leave **34,213 bytes free**; 32,599 in the pessimistic case, 169 bytes short, closed by keeping the file
+  and device buffers out of the TPA. The rest goes in 7 or 8 banked blocks of 12 KB: math with PRINT and INPUT,
+  program entry and LIST, the other statements, files, graphics and devices, the screen editor, the OO-1's drivers.
+- **No far calls on the core statement path.** A FARCALL costs 281 cycles over a JSR; one pass of
+  `I%=I%+1 : IF I%<1000 THEN …` is about 4,700 and printing a single 16,000–20,000. A loop of LET, IF, GOTO,
+  FOR/NEXT, single and integer arithmetic, string functions and INKEY$ stays resident; PRINT and INPUT (once a
+  statement), double precision, banked functions (SIN, VAL...), graphics (PSET and LINE once a point), I/O
+  statements and typed lines make a far call each time.
+- **Correct:** 93,289 math vectors bit for bit against a Python model written from the 8086 source (`mbf.py`),
+  and seven BASIC programs; the translated segments pass the 65C816 rules (`rules.py`). One finding for phase 7 to
+  check against PC-BASIC: the 1983 source prints 1/3 as `.3333334`.
+
+For phase 7: keep the BASIC stack in the TPA, zero page pseudo-registers without the 8086's push and swap glue,
+dispatch tables that carry the block, and a build that gates the resident size with `sizes.py`.
 
 **Testing.** PC-BASIC, an independent reimplementation that aims to match GW-BASIC, is the oracle for what
 programs print and how numbers are formatted. It runs only in a throwaway container. The port keeps Microsoft's
@@ -407,4 +442,6 @@ Each phase is its own branch.
 
 ## Open Questions ##
 
-None at the moment.
+- **A home block for GW-BASIC.** Letting a program keep one block mapped in W3 between far calls, and FARCALL
+  return to it rather than to nothing, would move 4–6 KB of GW-BASIC out of the TPA. It changes FARCALL's design
+  above; for phase 2, not needed for the 32 KB.

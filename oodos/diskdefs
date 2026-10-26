@@ -1,0 +1,44 @@
+# OODOS's disk formats, for cpmtools (mkfs.cpm, cpmls, cpmcp, cpmrm, fsck.cpm).
+# Point cpmtools at this file with -f and DISKDEFS (see oodos/README.md), or
+# add these entries to its own diskdefs. All are CP/M 3 ("os 3") formats with
+# 512-byte sectors, the SD card's, and no boot tracks: OODOS loads from
+# /BOOT.BIN on the FAT card, so a drive image is all file system. Apple CP/M
+# disks use cpmtools's own "apple-do", the SoftCard's format. hw/oodos.md has
+# the reasons.
+
+# The usual SD drive: 8 MB.
+diskdef oodos-8m
+  seclen 512
+  tracks 1024
+  sectrk 16
+  blocksize 4096
+  maxdir 1024
+  skew 0
+  boottrk 0
+  os 3
+end
+
+# A large SD drive: 32 MB.
+diskdef oodos-32m
+  seclen 512
+  tracks 4096
+  sectrk 16
+  blocksize 8192
+  maxdir 2048
+  skew 0
+  boottrk 0
+  os 3
+end
+
+# M:, the RAM disk in banks C-D (128 KB). OODOS makes it at boot; this is for
+# tests and for looking at a saved copy.
+diskdef oodos-ram
+  seclen 512
+  tracks 16
+  sectrk 16
+  blocksize 2048
+  maxdir 256
+  skew 0
+  boottrk 0
+  os 3
+end
