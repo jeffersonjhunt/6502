@@ -255,6 +255,31 @@ This is too much for a 74HC670 register file, which would also leave no room for
 - **The emulator** counts the DS3231's time in emulated cycles from the host's clock at power-on, so tests are
   repeatable and the tick keeps the CPU's time. It keeps the time across /RESET, as the battery does.
 
+**Proposed (2026-10-26), as the emulator models it,** where the above leaves room:
+
+- **Timing.** The bridge does one I²C transaction at a time, at 400 kHz: 9 bits a byte and one for each START,
+  repeated START and STOP. BUSY is set from the request to the end, and the effect lands at the end. The second's
+  read (the seven time registers, then the status) is 132 bits, 330 µs, 2,363 cycles at 7.16 MHz; SET (the seven,
+  then the status) 112; an RTCDATA read 39, a write and its read-back 68. An SQW edge while that second's read is
+  still waiting is missed.
+- **At power-on** the bridge sets the DS3231 up and reads the time while /RESET is still held, so the first
+  instruction finds a valid time and BUSY clear. It clears only INTCN and RS2–RS1, keeping the rest of the control
+  register. A hard reset that is not a power-on doesn't set it up again; any reset clears TICK, TIE and RTCREG.
+- **SEC–YEAR writes** go to a holding copy, which SET sends; reads always give the time. SET reads 1 until it is
+  sent, and SEC–YEAR then hold what it sent. Writing the seconds restarts the DS3231's second, so SQW falls if it
+  was high, and a second's read (and TICK) follows the SET.
+- **RTCREG and RTCDATA:** writing RTCREG reads that register into RTCDATA; writing RTCDATA writes the register and
+  reads it back. No auto-increment. Registers past `$12` read `$FF`.
+- **ALARM and LOST** are the status register as the bridge last read it (A1F or A2F; OSF), so they clear when
+  software clears the flags through RTCDATA, at once.
+- **With INTCN set by software,** the pin is INT: the bridge reads the time only when an enabled alarm pulls it low.
+  With RS not 00 it reads it at each edge of the faster wave, as far as each read's 330 µs allows.
+- **Day of the week** counts 1–7 with 1 for Sunday; the century bit set means 21xx.
+- **The chip** in the emulator starts with the host's local time and OSF clear; its battery never runs flat, and
+  it keeps the time through a power cycle, unless EOSC is set, which stops it there and sets OSF. Its leap-year rule
+  is the chip's, every fourth year, so 2100 gets a 29 February. The temperature is always 25.00 °C, the aging
+  register is kept but changes nothing, and BSY follows CONV and the chip's own conversion every 64 seconds (125 ms).
+
 ### Module decode ###
 
 The north bridge works in two stages:
@@ -301,8 +326,8 @@ window registers.
    monitor back from the demo, a program, or the screen code itself. It doesn't put back W3 or VEC (Break works
    while they're the BIOS's: a program that moves VEC takes the NMI itself), memory (zero page, video memory's
    font, palette and text), DMA CONTROL, or the rest of any card's state (the monitor's entry, WOZMON, programs the
-   serial card afresh; only the RTC, not yet built, is left as it was). Other IRQs still
-   return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
+   serial card afresh). It turns the real-time clock's tick off (RTCCTL's TICK and TIE cleared); the time runs on.
+   Other IRQs still return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
    copies the flash again (unless the machine booted from RAM through /BOOTSEL). The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a

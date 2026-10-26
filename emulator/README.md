@@ -65,7 +65,9 @@ it enables CA1 interrupts.
 ## The backplane computer
 
 `machines/backplane.machine` is the real machine's design (`../hw/design.md`)
-as far as it is modelled: the W65C02S and north bridge, 1 MB of RAM in four
+as far as it is modelled: the W65C02S and north bridge (with the DS3231
+real-time clock, set from the host's clock at start-up; `rtc` at the
+`debug>` prompt shows it), 1 MB of RAM in four
 modules, the 512 KB flash, the DMA controller, the video card ($C480: VGA
 640x480 from banks 8-B: text, bitmaps, tiles and sprites), the USB card
 ($C580: keyboard, mouse, game port; the WebUI types on it), the mass storage
@@ -157,7 +159,7 @@ components/
   emu_log/     TAG-scoped printf logging (EMU_LOGE/W/I/D; EMU_LOGV with EMU_TRACE)
   bus/         Bus (read/write for the CPU, poke for devices); Device; Decoder + NorthBridge
   cpu6502/     Cpu6502: NMOS 6502 / W65C02S, bus-cycle accurate
-  devices/     Ram, Rom, Pia6821, Via6522, Acia6551 (W65C51N), BackplaneBridge; Hd44780 and Ps2Keyboard on a 6522's pins
+  devices/     Ram, Rom, Pia6821, Via6522, Acia6551 (W65C51N), BackplaneBridge and its Ds3231, the cards; Hd44780 and Ps2Keyboard on a 6522's pins
   machine/     Machine (built from a description), Console, apple1::Io, load_image, load_hex
   debug/       Debugger, disassembler, ld65 symbols, BusTrace
   session/     Session: a machine run a budget of cycles at a time (the WebUI's core)

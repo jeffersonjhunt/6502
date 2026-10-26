@@ -69,7 +69,8 @@ its own Caps Lock, so CAPS is off there). On Text, a character AltGr makes
 the machine's, so F6 takes the keyboard off the screen to what follows it,
 Shift+F6 to what comes before. Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
 palette fade); any key goes back. The Devices tab in the debugger decodes the
-card's registers.
+card's registers, and the north bridge's real-time clock, which the page sets
+from this computer's clock when it opens the machine.
 
 **Apple II** is Apple II mode as an Apple monitor shows it: the video card's
 560x384 IIe picture filling the screen, softened since it is not whole
