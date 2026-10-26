@@ -63,7 +63,11 @@ same Woz Monitor session in the IBM VGA font: in Colour as the card makes
 it, on P1/P3/P4 as a mono monitor shows it. On Text the keyboard is the
 serial terminal's; on VGA it and the mouse are the USB card's, as HID usage
 codes from the physical keys (the card cooks them in its own US layout, with
-its own Caps Lock, so CAPS is off there). Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
+its own Caps Lock, so CAPS is off there). On Text, a character AltGr makes
+(or Option, on the Mac) is typed as it is. Ctrl+V and Shift+Insert paste
+(Cmd+V on the Mac, where Ctrl+V is the machine's ^V). Tab and Escape are
+the machine's, so F6 takes the keyboard off the screen to what follows it,
+Shift+F6 to what comes before. Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
 palette fade); any key goes back. The Devices tab in the debugger decodes the
 card's registers.
 

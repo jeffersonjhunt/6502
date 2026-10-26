@@ -27,7 +27,7 @@ import "./styles/panel.css";
 import "./styles/debugger.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
-import { keyBytes, pasteBytes } from "./crt/keyboard";
+import { isPaste, keyBytes, leavesScreen, pasteBytes } from "./crt/keyboard";
 import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
@@ -44,6 +44,8 @@ import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
 import { sdBar } from "./ui/sd-bar";
 import { sidBar } from "./ui/sid-bar";
+
+const TERMINAL_LABEL = "Terminal: click and type. F6 leaves the screen";
 
 function statusText(f: FrameState, clockLabel: string): string {
   if (!f.powered) return "POWER OFF";
@@ -111,7 +113,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       class: "mon-glass",
       tabindex: "0",
       role: "application",
-      "aria-label": "Terminal: click and type",
+      "aria-label": TERMINAL_LABEL,
       "data-testid": "crt",
       "data-scene": "text",
     },
@@ -128,7 +130,22 @@ function start(root: HTMLElement, port: MachinePort): void {
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
   const onUsb = () => scene !== "text" && port.caps.usb;
   const onMouse = () => scene === "vga" && port.caps.usb;
+  // Tab and Escape are the machine's, so F6 is the way off the screen by keyboard.
+  const leave = (way: 1 | -1) => {
+    const stops = Array.from(
+      document.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'),
+    ).filter((el) => el === glass || el.getClientRects().length > 0);
+    const next = stops[stops.indexOf(glass) + way];
+    if (next) next.focus();
+    else glass.blur();
+  };
   glass.addEventListener("keydown", (e) => {
+    const way = leavesScreen(e);
+    if (way) {
+      e.preventDefault();
+      return leave(way);
+    }
+    if (isPaste(e)) return; // the browser's: its paste event types the text, below
     if (onUsb()) {
       if (usbKeys.down(e)) e.preventDefault();
       return;
@@ -187,7 +204,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     bar.setCapsEnabled(!onUsb());
     glass.setAttribute(
       "aria-label",
-      !onUsb() ? "Terminal: click and type" : s === "apple" ? "Apple IIe screen: click and type on the USB keyboard" : "VGA screen: click and type on the USB keyboard",
+      !onUsb() ? TERMINAL_LABEL : `${s === "apple" ? "Apple IIe" : "VGA"} screen: click and type on the USB keyboard. F6 leaves the screen`,
     );
     crt.setScene(s);
     glass.dataset.scene = s;
