@@ -142,6 +142,32 @@ TEST(at_the_native_clock_a_second_is_60_frames_however_it_is_ticked)
     slow.set_cpu_hz(1'020'484);                   // the panel's slowest clock
     slow.tick(1'020'484);
     CHECK_EQ(slow.frames(), uint64_t{60});        // still 60 a second
+    VideoCard apple;                              // the Apple clock: a bigger step, so a smaller safe chunk
+    apple.set_cpu_hz(1'020'484);
+    const uint64_t ages = (uint64_t{1} << 28) + 1; // 4 minutes in one tick
+    apple.tick(ages);
+    const double frames = (double(ages) * VideoCard::PIXEL_HZ / 1'020'484 - 480.0 * 800) / (525 * 800) + 1;
+    CHECK(apple.frames() + 1 >= uint64_t(frames) && apple.frames() <= uint64_t(frames) + 1);
+}
+
+TEST(bus_reset_clears_the_registers_and_the_beam_runs_on)
+{
+    Rig r;
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY);
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(VideoCard::IEN, VideoCard::VBLANK);
+    r.reg(L0 + VideoCard::CONFIG, VideoCard::MONO);
+    r.card.tick(VBLANK_AT + 5 * LINE);
+    REQUIRE(r.card.irq());
+    r.card.bus_reset();                           // START, Ctrl-Reset, entering Apple II mode
+    CHECK(!r.card.irq());
+    CHECK_EQ(r.card.peek(VideoCard::IEN), 0);
+    CHECK_EQ(r.card.peek(VideoCard::ISR), 0);
+    CHECK_EQ(r.card.peek(VideoCard::CTRL), 0);
+    CHECK_EQ(r.card.peek(VideoCard::BORDER), 0);
+    CHECK_EQ(r.card.peek(L0 + VideoCard::CONFIG), 0);
+    CHECK_EQ(r.card.frames(), uint64_t{1});       // the monitor keeps its sync
+    CHECK_EQ(r.card.beam_line(), 485u);
 }
 
 TEST(vertical_blank_and_line_interrupts_pend_whatever_ien_says)

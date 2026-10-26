@@ -35,16 +35,21 @@ namespace ooe::emu
 
     void VideoCard::reset()
     {
+        bus_reset();
+        x_ = y_ = 0;
+        fraction_ = frames_ = 0;
+        front_.assign(front_.size(), BLACK);
+        back_.assign(back_.size(), BLACK);
+    }
+
+    void VideoCard::bus_reset()
+    {
         ctrl_ = border_ = 0;
         palbase_ = live_palbase_ = sprbase_ = live_sprbase_ = 0;
         ien_ = isr_ = 0;
         coll_ = frame_coll_ = 0;
         match_line_ = 0;
         layers_ = {};
-        x_ = y_ = 0;
-        fraction_ = frames_ = 0;
-        front_.assign(front_.size(), BLACK);
-        back_.assign(back_.size(), BLACK);
     }
 
     void VideoCard::set_cpu_hz(uint32_t hz)
@@ -176,9 +181,9 @@ namespace ooe::emu
 
     void VideoCard::tick(uint64_t cycles)
     {
-        constexpr uint64_t CHUNK = uint64_t{1} << 28; // x step_ (under 2^36) stays inside 64 bits
-        for (; cycles > CHUNK; cycles -= CHUNK)
-            tick(CHUNK);
+        const uint64_t chunk = (UINT64_MAX >> 1) / step_; // x step_, plus a fraction, stays inside 64 bits
+        for (; cycles > chunk; cycles -= chunk)
+            tick(chunk);
         fraction_ += cycles * step_;
         const uint64_t clocks = fraction_ >> 32;
         fraction_ &= 0xFFFF'FFFF;
