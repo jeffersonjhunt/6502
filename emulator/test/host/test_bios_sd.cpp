@@ -6,7 +6,7 @@
  * The BIOS on backplane.machine in a Session, typed at over serial as the
  * WebUI does, with the SD test images (sd/, made by mkfs.fat and mtools) in
  * the card's slot. fat12's BOOT.BIN is a one-sector program that prints
- * through $C80F and returns.
+ * through $C80F and returns. Break during C80CR stops the read and its DMA.
  */
 
 #include "harness.h"
@@ -235,6 +235,31 @@ TEST(a_machine_without_the_card_says_so)
     std::string out;
     CHECK(run_until(*s, out, "\rNO SD CARD\r\\"));
     std::remove(path.c_str());
+}
+
+TEST(break_during_c80c_stops_the_read_and_its_dma)
+{
+    auto s = booted("fat12.sparse");
+    REQUIRE(s != nullptr);
+    s->send("C80CR\r");
+    bool reading = false;                        // the READ written: the 3rd command, after MOUNT and IDENTIFY
+    for (int i = 0; i < 200'000 && !reading; ++i)
+    {
+        s->run(4);
+        reading = s->sd()->commands() == 3;
+    }
+    REQUIRE(reading);
+    REQUIRE(s->peek(0xC407) & 1);                // channel 0 armed
+    s->usb()->key(UsbCard::PAUSE, true);         // Pause/Break
+    s->run(300);                                 // Break's own work, before the card's first byte
+    s->usb()->key(UsbCard::PAUSE, false);
+    CHECK_EQ(s->peek(0xC407) & 1, 0);            // channel 0 stopped
+    CHECK_EQ(s->sd()->peek(SdCard::CTRL), 0);    // and the card's DRQ0 off
+    std::string out;
+    REQUIRE(run_until(*s, out, "\\\r"));
+    CHECK(out.find("BOOTED FROM SD") == std::string::npos);
+    s->send("C80CR\r");                          // the card takes commands again
+    CHECK(run_until(*s, out, "\rBOOTED FROM SD\r"));
 }
 
 int main()

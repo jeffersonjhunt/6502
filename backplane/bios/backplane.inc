@@ -33,7 +33,9 @@ DMA3_COUNT      = DMA + $34
 DMA3_MODE       = DMA + $36
 DMA3_CTRL       = DMA + $37
 DMA3_DEST       = DMA + $38            ; destination, 20 bits
+DMA_STATUS      = DMA + $40            ; terminal counts: write 1s to clear
 DMA_CONTROL     = DMA + $41
+DMA_ABORT       = DMA + $42            ; bit n stops channel n
 DMA_ID          = DMA + $7F
 
 DMA_M2M         = $0A                  ; MODE: memory to memory, block (the CPU waits)
@@ -41,6 +43,8 @@ DMA_GO          = $03                  ; CTRL: ENABLE + REQ
 DMA_ON          = $71                  ; CONTROL: master enable, no burst limit
 DMA_MASTER      = $01                  ; CONTROL: master enable
 DMA_ID_V1       = $81
+DMA_CH3         = $08                  ; ABORT, STATUS: channel 3
+DMA_ALL         = $0F                  ; ABORT, STATUS: every channel
 
 ; Video card (module 9): VGA 640x480 from banks 8-B.
 VIDEO           = $C480
@@ -71,7 +75,7 @@ VIDEO_ID_V1     = $91
 
 ; Zero page and low RAM, and who has them:
 ;
-;   $00-$08    the boot's copy pointers and C800R's stub (bios.s), Apple II
+;   $00-$09    the boot's copy pointers and C800R's stub (bios.s), Apple II
 ;              mode's way in (apple.s): free once the monitor is up
 ;   $24-$2B    the Woz Monitor
 ;   $30-$7B    the video demo (demo.s)
@@ -88,6 +92,7 @@ USB             = $C580
 USB_KEY         = USB + $00            ; cooked ASCII, bit 7 the strobe
 USB_KEYCLR      = USB + $01            ; any access clears the strobe
 USB_KBCFG       = USB + $07
+USB_IEN         = USB + $30
 USB_ID          = USB + $7F
 
 USB_NMI_PAUSE   = $80                  ; KBCFG: Pause/Break pulls /NMI
@@ -106,6 +111,7 @@ SD_UNIT         = SD + $04
 SD_LBA          = SD + $06             ; 4 bytes, low first
 SD_COUNT        = SD + $0A             ; 2 bytes
 SD_DATA         = SD + $0C
+SD_IEN          = SD + $10
 SD_ID           = SD + $7F
 
 SD_BUSY         = $80                  ; STATUS
@@ -114,6 +120,7 @@ SD_PRESENT      = $20
 SD_DATA_READY   = $08
 SD_ERR          = $01
 SD_CTRL_DMA     = $01                  ; CTRL: DRQ0 follows DATA
+SD_CTRL_RESET   = $02                  ; CTRL: abandon the command, start the card up again
 SD_READ         = $20                  ; CMD
 SD_MOUNT        = $A0
 SD_LIST         = $A2
@@ -129,3 +136,17 @@ DMA0_MODE       = DMA + $06
 DMA0_CTRL       = DMA + $07
 DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory
 DMA_ENABLE      = $01                  ; CTRL
+
+; Sound card (module A): two SIDs and a 6510 of its own.
+SOUND           = $C500
+SOUND_SIDS      = $3D                  ; $00-$3C: SID A, a gap, SID B
+SOUND_CTRL      = SOUND + $40
+SOUND_RUN       = $02                  ; CTRL: the card's 6510 runs
+SOUND_IEN       = SOUND + $42
+SOUND_ID        = SOUND + $7F
+SOUND_ID_V1     = $A1
+
+; Console card (module E): the front panel.
+CONSOLE_IEN     = $C718
+CONSOLE_ID      = $C77F
+CONSOLE_ID_V1   = $E1

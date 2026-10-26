@@ -273,11 +273,21 @@ window registers.
    to the monitor. `$C80F` is ECHO, for programs to print with. *(BIOS 0.8.)* The boot puts windows 0–2 back on
    RAM blocks 0–2 first, so the CPU's `$1000` is where the DMA wrote, and a failed command ends with its error
    rather than a hang. *(BIOS 0.9.)* Break (NMI) and BRK enter the monitor with a fresh stack, windows 0–2 on RAM
-   blocks 0–2 and the video card's registers back on the text screen, whatever was running (the demo, a program,
-   the screen code itself); other IRQs still return at once. `$C800` goes back to the flash and starts from its
-   reset vector, as a hard reset does, so it copies the flash again (unless the machine booted from RAM through
-   /BOOTSEL). The BIOS's memory-to-memory copies are block transfers that it waits for, so they're whole whatever
-   BURST a program has set. Apple II mode also clears the language card's second `$D000` bank (banks 4–5). The
+   blocks 0–2, every DMA channel stopped and its terminal counts cleared, an SD command abandoned (units stay
+   mounted), the sound card's 6510 stopped and its SIDs silenced, the interrupt enables of the DMA controller and
+   the SD, video, sound, USB and Console cards off (so a program run with R may CLI), and the video card's
+   registers back on the text screen, which the BIOS finds again from the cards' ID bytes. That brings the
+   monitor back from the demo, a program, or the screen code itself. It doesn't put back W3 or VEC (Break works
+   while they're the BIOS's: a program that moves VEC takes the NMI itself), memory (zero page, video memory's
+   font, palette and text), DMA CONTROL, the serial card, or the rest of any card's state. Other IRQs still
+   return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
+   copies the flash again (unless the machine booted from RAM through /BOOTSEL). The BIOS's memory-to-memory
+   copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
+   on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
+   program has set. A copy still running after about 0.1 s (no controller, or a busier channel taking the bus) is
+   stopped. Apple II mode's fills run inline (they clear the stack), so it stops every channel first and sets no
+   burst limit, and each fill is done before the next instruction. Apple II mode also clears the language card's
+   second `$D000` bank (banks 4–5). The
    zero page the BIOS and the monitor keep is listed in `backplane/bios/backplane.inc`: ECHO (`$C80F`) uses
    `$E0–$E7`.
 
