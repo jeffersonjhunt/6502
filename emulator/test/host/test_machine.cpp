@@ -283,6 +283,33 @@ TEST(a_console_needs_something_to_talk_through)
     CHECK(error.find("must be a pia6821 or an acia6551") != std::string::npos);
 }
 
+TEST(a_full_keyboard_refuses_keys_so_a_paste_waits)
+{
+    // A PS/2 keyboard whose program never reads it fills its queue; a key it
+    // cannot take must be refused (and not given to the serial line either),
+    // so the host offers it again rather than losing it.
+    std::string error;
+    auto m = build("ram 0000-3FFF\nacia6551 5000-5FFF name=terminal\nvia6522 6000-7FFF name=via\n"
+                   "ps2kbd name=keyboard via=via data=PA0-7\n",
+                   error);
+    REQUIRE(m != nullptr);
+    auto console = make_console(*m, error);
+    REQUIRE(console != nullptr);
+    m->bus().write(0x600E, 0x80 | Via6522::IRQ_CA1); // the program listens for keys
+    m->bus().write(0x5002, Acia6551::CMD_DTR);       // and on the serial line
+
+    unsigned taken = 0;
+    while (taken < 2000 && console->key('a'))
+    {
+        ++taken;
+        m->bus().read(0x5000); // the serial line's program keeps up; the keyboard's does not
+    }
+    CHECK(taken > 0 && taken < 2000);
+    CHECK(!console->key('b'));
+    CHECK(!(m->bus().peek(0x5001) & Acia6551::STATUS_RDRF)); // RDRF clear: the refused key did not reach the ACIA either
+    CHECK(console->key(0x01));              // no scan code: the keyboard is no reason to wait
+}
+
 TEST(builtin_default_is_the_apple1)
 {
     // The compiled-in text is machines/apple1.machine. Its image name is
