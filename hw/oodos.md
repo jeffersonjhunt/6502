@@ -314,6 +314,63 @@ A machine with no OODOS card still boots to the monitor as now.
   `$F0–$FF`.
 - **GENCOM** attaches RSXs to a program, as in CP/M 3. GET, PUT and SUBMIT are RSXs.
 
+### The program header ###
+
+**Proposed.** 16 bytes at the start of every `.COM` and `.PRL`, in the file only: the image after it is what
+goes into memory. `OODOS_HEADER` in [`oodos/include/oodos.inc`](../oodos/include/oodos.inc) writes it, with the
+values from the link.
+
+| Offset | Size | What |
+|---|---|---|
+| 0 | 4 | the magic number, `$4F $4F $44 $1A`: "OOD", then ^Z, so TYPE shows OOD and stops |
+| 4 | 1 | flags: bit 0 relocatable (a `.PRL`, bitmaps follow), bit 1 an RSX (the image starts with the RSX prefix), bit 7 breaks the 65C816 rules (OODOS's tools never set it); the rest 0 |
+| 5 | 1 | the link page: the image is linked to run at this page × 256. `$03` for a `.COM`, and the only page it loads at |
+| 6 | 2 | the image's size, in bytes |
+| 8 | 2 | BSS: bytes the program needs above its image, not in the file and not cleared |
+| 10 | 1 | the zero page base: where the image's own zero page segment is linked |
+| 11 | 1 | the zero page size: that segment's bytes, the slice an RSX needs from `$F0–$FF` |
+| 12 | 1 | the number of attached RSXs (GENCOM), 0 for none |
+| 13 | 1 | reserved, 0 |
+| 14 | 2 | the record (128 bytes, from the file's start) of the attached RSX table, 0 for none |
+
+- **The loader** reads the first record into the DMA buffer and refuses the file if bytes 0–3 aren't the magic
+  number, then checks the image and BSS fit below the top of the TPA (`$0204`). The image starts 16 bytes into
+  the record: those 112 bytes are moved to the load address, and the rest of the file read straight after them.
+  A `.COM` whose link page isn't `$03` is refused.
+- **Sizes are exact.** CP/M files are whole records, so the end of the last one is padding, ignored.
+- **The attached RSX table** (GENCOM, phase 5) is a record-aligned run of 16-byte entries after the program: the
+  record the RSX's own `.PRL` starts at (2 bytes), a flags byte (bit 0: load only in a non-banked system, as CP/M
+  3's), the name (8 bytes, space padded), 5 reserved. Each attached RSX is a whole `.PRL`, header and all, starting
+  on a record.
+- **The RSX prefix** keeps CP/M 3's offsets, in the RSX's image: 0 the serial number (6 bytes), 6 `JMP` to the
+  RSX's entry, 9 `JMP` to the next RSX or the BDOS, 12 the previous entry's address, 14 the remove flag, 15 the
+  non-banked flag, 16 the name (8 bytes), 24 the loader's flag, 25–26 reserved. A 6502 `JMP` is 3 bytes as an
+  8080's is, so every offset holds.
+
+### The .PRL file ###
+
+**Proposed.** The header (flag bit 0 set), the image as linked at the header's page and zero page base, then two
+bitmaps of a bit for each byte of the image, the first byte in bit 7 of the bitmap's first byte:
+
+| | Size | What |
+|---|---|---|
+| header | 16 | as above |
+| image | size | linked at the link page, its zero page segment at the zero page base |
+| page bitmap | (size + 7) / 8 | 1: the byte is the high byte of an address in the image |
+| zero page bitmap | (size + 7) / 8 | 1: the byte is the address of a byte in the image's zero page segment |
+
+- **Loading at page P with zero page base Z** adds P − the link page to every byte marked in the page bitmap,
+  and Z − the zero page base to every byte marked in the zero page bitmap, both modulo 256. The loader refuses Z
+  with the segment running past `$FF`. A byte is in one bitmap or neither.
+- **Made with [`oodos/tools/mkprl.py`](../oodos/tools/mkprl.py)** from two links of the same objects, the second a
+  page above the first and with its zero page base 2 above (the build's default: page 3 and `$00`, then page 4
+  and `$02`). Every byte must be the same, 1 more or 2 more; anything else is refused, with the offset. The zero
+  page bases may be any distance apart but 0 or 1, which would make the bitmaps ambiguous.
+- **What can't be told apart:** a byte that is some other function of an address but happens to move by 1 or 2
+  (`>(label*2)` moves by 2) would be taken for a relocation. Programs keep to addresses, their high and low bytes,
+  and zero page addresses.
+- A `.PRL` program (not an RSX) is given Z = `$00`, its own zero page; an RSX a slice of `$F0–$FF`.
+
 ### Rules for programs: the 65C816 ###
 
 **Decided (2026-10-26).** A later machine may have a 65C816, whose direct page (zero page) and stack can be put
@@ -396,7 +453,7 @@ core.
   statement), double precision, banked functions (SIN, VAL...), graphics (PSET and LINE once a point), I/O
   statements and typed lines make a far call each time.
 - **Correct:** 93,289 math vectors bit for bit against a Python model written from the 8086 source (`mbf.py`),
-  and seven BASIC programs; the translated segments pass the 65C816 rules (`rules.py`). One finding for phase 7 to
+  and seven BASIC programs; the translated segments pass the 65C816 rules ([`oodos/tools/rules.py`](../oodos/tools/rules.py)). One finding for phase 7 to
   check against PC-BASIC: the 1983 source prints 1/3 as `.3333334`.
 
 For phase 7: keep the BASIC stack in the TPA, zero page pseudo-registers without the 8086's push and swap glue,
@@ -411,7 +468,10 @@ copyright and MIT notice.
 
 **Proposed**
 
-- **The build:** ca65 and ld65, as the BIOS.
+- **The build:** ca65 and ld65, as the BIOS. **Built (phase 1, 2026-10-26):** [`oodos/Makefile`](../oodos/Makefile)
+  links each program as a `.COM` and a `.PRL`, and every link passes the 65C816 rules (`oodos/tools/rules.py`) or
+  the build fails. `make check` tests the tools: relocated `.PRL`s against direct links, mkprl's refusals, the
+  magic number and the rules gate on planted violations.
 - **Card images** made with cpmtools in a throwaway container, from our own files, committed as sparse images like
   `emulator/test/host/sd/`.
 - **Interoperability, both ways:** cpmtools writes and OODOS reads; OODOS writes and `fsck.cpm` and `cpmls -l`
