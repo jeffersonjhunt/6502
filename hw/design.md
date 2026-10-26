@@ -272,7 +272,27 @@ window registers.
    `$1000` by DMA channel 0 (at most 88 sectors, `$1000–$BFFF`) and calls it, so a program that returns comes back
    to the monitor. `$C80F` is ECHO, for programs to print with. *(BIOS 0.8.)* The boot puts windows 0–2 back on
    RAM blocks 0–2 first, so the CPU's `$1000` is where the DMA wrote, and a failed command ends with its error
-   rather than a hang.
+   rather than a hang. *(BIOS 0.9.)* Break (NMI) and BRK enter the monitor with a fresh stack, windows 0–2 on RAM
+   blocks 0–2, every DMA channel stopped and its terminal counts cleared, an SD command abandoned (units stay
+   mounted), the sound card's 6510 stopped and its SIDs silenced, the interrupt enables of the DMA controller and
+   the SD, video, sound, USB and Console cards off (so a program run with R may CLI), and the video card's
+   registers back on the text screen, which the BIOS finds again from the cards' ID bytes. That brings the
+   monitor back from the demo, a program, or the screen code itself. It doesn't put back W3 or VEC (Break works
+   while they're the BIOS's: a program that moves VEC takes the NMI itself), memory (zero page, video memory's
+   font, palette and text), DMA CONTROL, or the rest of any card's state (the monitor's entry, WOZMON, programs the
+   serial card afresh; only the RTC, not yet built, is left as it was). Other IRQs still
+   return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
+   copies the flash again (unless the machine booted from RAM through /BOOTSEL). The BIOS's memory-to-memory
+   copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
+   on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
+   program has set. The master enable is the whole controller's, so any channel a program has left armed runs during
+   the copy (the text screen's scroll, say): a program that wants a channel not to run aborts it, rather than only
+   turning the master enable off. A copy still running after about 0.1 s (no controller, or a busier channel taking the bus) is
+   stopped. Apple II mode's fills run inline (they clear the stack), so it stops every channel first and sets no
+   burst limit, and each fill is done before the next instruction. Apple II mode also clears the language card's
+   second `$D000` bank (banks 4–5). The
+   zero page the BIOS and the monitor keep is listed in `backplane/bios/backplane.inc`: ECHO (`$C80F`) uses
+   `$E0–$E7`.
 
 **From the ESP32 (override)**
 
@@ -351,7 +371,7 @@ The machine works without it, so it can come later.
 
 | Bits | Name | Values |
 |---|---|---|
-| 1–0 | XFER | 00 single, 01 demand, 10 block, 11 reserved |
+| 1–0 | XFER | 00 single, 01 demand, 10 block, 11 reserved. Memory to memory always runs as block |
 | 3–2 | DIR | 00 card to memory, 01 memory to card, 10 memory to memory, 11 reserved |
 | 4 | DEC | 1 = the address counts down |
 | 5 | HOLD | 1 = the address stays fixed. On a memory-to-memory source, this fills memory with one byte |
@@ -376,7 +396,9 @@ The machine works without it, so it can come later.
 - **Single mode** gives the CPU one cycle back after every byte, as the 8237 does.
 - **Memory to memory** reads each byte into a latch and then writes it: two cycles per byte, 64 KB in about 18 ms at
   7.16 MHz. Any channel can do it with its own DEST, so storage on channel 0 is never tied up (the 8237 pairs
-  channels 0 and 1 instead).
+  channels 0 and 1 instead). It always runs as a block transfer, whatever XFER says (software writes 10): once REQ
+  starts it, the CPU is held until the count runs out, or gets a cycle back every 2^BURST bytes if CONTROL sets a
+  limit. Software that needs the copy finished before it goes on waits for ENABLE to clear.
 - **Terminal count.** TC is asserted during the last byte's cycle together with its /DACK, the channel's STATUS bit
   is set, and if its IRQ bit is set, bit 0 of IRQH (ID 8) reads 0.
 - **Programming.** Registers are written a byte at a time with the channel disabled, so a half-written address
@@ -622,10 +644,13 @@ it commands.
 3. It sets the clock from the file's PAL or NTSC flag and sets RUN.
 4. The main CPU is free; the mailbox tells it when to change song or stop.
 
+Break, BRK and the demo's end stop the card (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
+tune; the WebUI's tune bar then says the machine stopped it.
+
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 
-- **The stub** goes on a free page: the one the header names, else `$FF00`, `$FE00`, `$0400`, `$C000`
-  or `$0200`, the first the tune leaves alone. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
+- **The stub** goes on a free page: the one the header names (not `$00` or `$01`, the port and the stack), else `$FF00`, `$FE00`, `$0400`, `$C000`
+  or `$0200`, the first the tune leaves alone and that misses `$0314` when the stub sets it. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
   timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
   song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
   A, and waits in a `JMP` loop.
@@ -634,7 +659,8 @@ it commands.
   after an init under it.
 - **The KERNAL's interrupt path** is imitated: `$FFFE` pushes A, X and Y and jumps through `$0314`,
   and `$EA31`, `$EA7E`, `$EA81` and `$FEBC` acknowledge the CIA and return, wherever the tune
-  leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run.
+  leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run. A tune with
+  a play routine that loads over `$0314` goes straight to the stub's handler instead.
 - **A sync point:** after each play call the stub writes the call's number (mod 256) to the
   mailbox, so the host can count frames.
 - **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3
@@ -840,7 +866,8 @@ the tables leave open:
 3. The north bridge pulses /RESET.
 4. The CPU starts from the IIe ROM image's reset vector in bank E, as a IIe does at power-on.
 
-Before the switch, the BIOS has loaded the ROM image into bank E and cleared banks 0–3.
+Before the switch, the BIOS has loaded the ROM image into bank E and cleared banks 0–3 and the second `$D000` bank
+(`$D000–$DFFF` of banks 4 and 5).
 
 **Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
 an Apple program does can leave by accident.
@@ -925,13 +952,16 @@ Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboa
 
 - KEY holds one character, as on the Apple: a new one replaces it, read or not. It follows the Apple keyboard's
   conventions in native mode too (arrows `$08` `$15` `$0A` `$0B`, Delete `$7F`, Ctrl with `$40-$5F` or a letter
-  giving `$00-$1F`). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
+  giving `$00-$1F`; with `` ` `` `{` `|` `}` `~` too, as a terminal cooks them: Ctrl-`` ` `` is NUL, Ctrl-`{` ESC). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
   usually left.
 - REPEAT: the last character key pressed repeats while held, after (bits 4-5 + 1) x 250 ms, every (bits 0-3 + 1) x
   33 ms (30 to about 2 a second). It resets to `$10`: 500 ms, 30 a second.
 - The raw event FIFO holds 128 bytes (64 events); when full, a new event is dropped whole, so pairs never split.
 - Each paddle's GAME bit stays high for about 11 us per count after PTRIG, in real time, as on the Apple.
-- An event sets its ISR bit whether or not IEN enables it; the card's IRQ is ISR AND IEN.
+- An event sets its ISR bit whether or not IEN enables it; the card's IRQ is ISR AND IEN. A key press or release
+  sets the key bit even when the raw FIFO has no room for it, and so does a repeat (a new character in KEY).
+- /RESET puts back what the CPU programs (LEDS, REPEAT, KBCFG, MCTRL, MAXX/MAXY, IEN, ISR) and empties the raw
+  FIFO. Keys held, Caps Lock, the mouse's position and the game port are the host's and carry on.
 - Key changes reach the card at the keyboard's USB polling interval, one per 8 ms, so a burst of keys arrives as
   separate presses rather than one overwriting the last in KEY.
 

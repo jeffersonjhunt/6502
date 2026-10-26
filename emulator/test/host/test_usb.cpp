@@ -225,6 +225,27 @@ TEST(a_queued_character_waits_for_the_last_to_be_taken)
     CHECK(c.take_reset());
 }
 
+TEST(a_paste_stopped_drops_what_is_queued_and_lets_go_of_the_keys)
+{
+    Card c;
+    for (const uint8_t u : {A, Z, C})            // a paste: three characters at once
+    {
+        c.queue_key(u, true);
+        c.queue_key(u, false);
+    }
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'A');   // A down at once; A up and the rest queued
+    CHECK_EQ(c.queued(), 5u);
+    c.drop_queue();
+    CHECK_EQ(c.queued(), 0u);
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 4);        // A down, and up: nothing is left held
+    c.read(UsbCard::KEYCLR);
+    c.tick(1000 * MS);
+    CHECK_EQ(c.peek(UsbCard::KEY), 'A');          // no Z, no C, no repeat
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 4);
+    c.queue_key(C, true);                         // the keyboard as before
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'C');
+}
+
 TEST(raw_events_every_press_and_release_in_a_fifo_with_drq)
 {
     Card c;
@@ -348,6 +369,104 @@ TEST(interrupts_pend_whatever_ien_says)
     CHECK_EQ(c.peek(UsbCard::ISR), 0);
     c.set_game_buttons(1);
     CHECK_EQ(c.peek(UsbCard::ISR), UsbCard::IRQ_GAME);
+}
+
+TEST(a_key_interrupts_with_the_fifo_full_and_on_a_repeat)
+{
+    Card c;
+    c.write(UsbCard::IEN, UsbCard::IRQ_KEY);
+    for (int i = 0; i < 40; ++i)                  // 80 events: the FIFO fills at 64, and nobody drains it
+    {
+        c.type(A);
+        c.write(UsbCard::ISR, UsbCard::IRQ_KEY);  // an IRQ reader that takes KEY, never EVENT
+    }
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 128);
+    c.key(Z, true);                               // still heard: KEY has it, and so does ISR
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'Z');
+    CHECK(c.irq());
+    c.write(UsbCard::ISR, UsbCard::IRQ_KEY);
+    c.tick(500 * MS);                             // the repeat: a new character in KEY interrupts too
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'Z');
+    CHECK(c.irq());
+}
+
+TEST(ctrl_at_is_nul_on_the_press_as_on_the_repeat)
+{
+    Card c;
+    c.key(LCTRL, true);
+    c.key(LSHIFT, true);
+    c.key(TWO, true);                             // Ctrl-@
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80);         // NUL, strobed
+    c.read(UsbCard::KEYCLR);
+    c.tick(500 * MS);
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80);         // and the same on the repeat
+}
+
+TEST(ctrl_with_the_lower_case_column_cooks_as_a_terminal_does)
+{
+    Card c;
+    c.key(LCTRL, true);
+    c.type(0x35);                                 // Ctrl-`: NUL, as Ctrl-@
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80);
+    c.key(LSHIFT, true);
+    c.type(0x2F);                                 // Ctrl-{: ESC, as Ctrl-[
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 0x1B);
+    c.type(0x35);                                 // Ctrl-~: RS, as Ctrl-^
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 0x1E);
+}
+
+TEST(new_mouse_limits_clamp_the_position_at_once)
+{
+    Card c;
+    c.write(UsbCard::MCTRL, UsbCard::ABSOLUTE);
+    c.mouse_to(600, 400);
+    c.write(UsbCard::MAXX, 255);                  // 639 -> 511 on the way to 255
+    c.write(UsbCard::MAXX + 1, 0);
+    c.write(UsbCard::MAXY, 191);
+    c.write(UsbCard::MAXY + 1, 0);
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 255);
+    CHECK_EQ(c.peek(UsbCard::MY) | c.peek(UsbCard::MY + 1) << 8, 191);
+}
+
+TEST(a_limit_raised_across_a_byte_takes_hold_on_its_high_byte)
+{
+    Card c;
+    c.write(UsbCard::MCTRL, UsbCard::ABSOLUTE);
+    c.write(UsbCard::MAXX, 511 & 0xFF);
+    c.write(UsbCard::MAXX + 1, 511 >> 8);
+    c.mouse_to(500, 0);
+    c.write(UsbCard::MAXX, 512 & 0xFF);           // 511 -> 256 for a moment: the low byte alone
+    c.write(UsbCard::MAXX + 1, 512 >> 8);         // must not clamp
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 500);
+    c.mouse_to(512, 0);
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 512);
+}
+
+TEST(bus_reset_puts_the_registers_back_and_keeps_the_host_side)
+{
+    Card c;
+    c.write(UsbCard::IEN, 0x0F);
+    c.write(UsbCard::KBCFG, 0x80);
+    c.write(UsbCard::REPEAT, 0x3F);
+    c.write(UsbCard::MCTRL, UsbCard::ABSOLUTE);
+    c.write(UsbCard::MAXX, 100);
+    c.key(LSHIFT, true);                          // held through it
+    c.type(A);
+    CHECK(c.irq());
+    c.bus_reset();
+    CHECK(!c.irq());
+    CHECK_EQ(c.peek(UsbCard::IEN), 0);
+    CHECK_EQ(c.peek(UsbCard::ISR), 0);
+    CHECK_EQ(c.peek(UsbCard::KBCFG), 0);
+    CHECK_EQ(c.peek(UsbCard::REPEAT), 0x10);
+    CHECK_EQ(c.peek(UsbCard::MCTRL), 0);
+    CHECK_EQ(c.peek(UsbCard::MAXX), 639 & 0xFF);
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 0);
+    CHECK_EQ(c.peek(UsbCard::MODS), 0x02);        // the keyboard didn't let go of Shift
+    CHECK(c.caps_lock());
 }
 
 TEST(ctrl_delete_is_ctrl_reset_and_gui_or_alt_are_the_apple_keys)

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const GREETING = "BACKPLANE BIOS 0.8";
+const GREETING = "BACKPLANE BIOS 0.9";
 
 async function booted(page: Page) {
   await page.goto("./");
@@ -10,7 +10,7 @@ async function booted(page: Page) {
 
 test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {
   await booted(page);
-  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.8\n\\$/);
+  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.9\n\\$/);
   await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 
@@ -122,4 +122,50 @@ test("a missing wasm says so too", async ({ page }) => {
   await page.route("**/core/oo1.wasm?*", (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./");
   await expect(page.getByTestId("status")).toHaveText("NO MACHINE");
+});
+
+test("Ctrl+V and Shift+Insert paste, on the serial terminal and on the USB keyboard", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "the clipboard is granted to Chromium only");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await booted(page);
+  const clip = (text: string) => page.evaluate((t) => navigator.clipboard.writeText(t), text);
+  await page.getByTestId("crt").click();
+  await clip("c680.c684\n");
+  await page.keyboard.press("Control+V");
+  await expect(page.getByTestId("crt-text")).toContainText("C680: 00 01 02 7F 7F");
+  await clip("c681\n");
+  await page.keyboard.press("Shift+Insert");
+  await expect(page.getByTestId("crt-text")).toContainText("C681: 01");
+  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByTestId("crt").click();
+  await clip("c682\n");
+  await page.keyboard.press("Control+V");
+  await expect(page.getByTestId("crt-text")).toContainText("C682: 02");
+  await clip("c683\n");
+  await page.keyboard.press("Shift+Insert");
+  await expect(page.getByTestId("crt-text")).toContainText("C683: 7F");
+});
+
+test("F6 takes the keyboard off the screen to what follows it, Shift+F6 to what comes before; the machine gets neither", async ({ page }) => {
+  await booted(page);
+  const crt = page.getByTestId("crt");
+  await expect(crt).toHaveAttribute("aria-label", /F6 leaves the screen/);
+  await crt.click();
+  await page.keyboard.press("F6");
+  await expect(crt).not.toBeFocused();
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("BUTTON");
+  await page.keyboard.press("Shift+Tab"); // the screen is the stop before it
+  await expect(crt).toBeFocused();
+  await page.keyboard.press("Shift+F6");
+  await expect(crt).not.toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(crt).toBeFocused();
+  await page.keyboard.type("c680");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crt-text")).toContainText(/\\\nC680\n+C680: 00/); // nothing typed before it
+  await page.getByRole("button", { name: "VGA" }).click();
+  await expect(crt).toHaveAttribute("aria-label", /F6 leaves the screen/);
+  await crt.click();
+  await page.keyboard.press("F6");
+  await expect(crt).not.toBeFocused();
 });

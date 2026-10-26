@@ -14,7 +14,8 @@
 ;   palette  its own, faded in from black over 16 frames
 ;
 ; The BIOS's text screen keeps its own part of video memory (units 0-12),
-; so going back is a few register writes, with the screen as it was left.
+; so going back is a few register writes, with the screen as it was left:
+; BREAK's (bios.s), the same as Pause/Break's.
 ;
 ; Video memory (1 KB units of banks 8-B, $80000 + unit x 1 KB):
 ;
@@ -27,7 +28,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import DEMO_EXIT, KEYHIT
+.import BREAK, KEYHIT, DMA3RUN
 .export DEMO_MAIN
 
 BALLS     = 12
@@ -40,7 +41,7 @@ BALL_UNIT = 32
 SPR_UNIT  = 36
 BALL_IMAGE = BALL_UNIT * 1024 / 64
 
-; Zero page ($30-$5F; the monitor has $24-$2B, the BIOS $00-$03 and $E0-$E7)
+; Zero page $30-$7B (the rest is the BIOS's and the monitor's: backplane.inc)
 SRC     = $30
 DST     = $32
 LEN     = $34
@@ -51,7 +52,7 @@ XHI     = XLO + BALLS
 DX      = XHI + BALLS                  ; +1 or -1 (low byte; high follows the sign)
 YPOS    = DX + BALLS
 DY      = YPOS + BALLS
-.assert DY + BALLS <= $90, error, "demo zero page overflows"
+.assert DY + BALLS <= $80, error, "demo zero page overflows"
 
 VBLOCK0 = 32                           ; RAM blocks holding banks 8-B, 16 KB each
 VWIN    = $8000                        ; W2
@@ -177,21 +178,7 @@ FRAME:          JSR     WAITVB         ; the picture is not being drawn: change 
                 JSR     KEYHIT         ; a key, serial or USB? (taken: it only meant "stop")
                 BCC     FRAME
 
-                ; back to the BIOS's screen, as it was
-                LDA     #VIDEO_ON_L0
-                STA     VIDEO_CTRL
-                STZ     VIDEO_PALBASE
-                STZ     VIDEO_SPRBASE
-                LDA     #VIDEO_TEXT80B
-                STA     VIDEO_L0_CONFIG
-                LDA     #8
-                STA     VIDEO_L0_MAP
-                LDA     #1
-                STA     VIDEO_L0_TILE
-                STZ     VIDEO_L0_HSCROLL
-                STZ     VIDEO_L0_HSCROLL + 1
-                STZ     VIDEO_L1 + 0
-                JMP     DEMO_EXIT      ; the windows back, from the BIOS: this code is in W1
+                JMP     BREAK          ; the windows and the BIOS's screen back: this code is in W1
 
 ; Copy LEN bytes from (SRC) to (DST).
 COPY:
@@ -390,15 +377,15 @@ MOVE:
                 STA     YPOS,X
                 CMP     #225
                 BCC     @yok
-                LDA     DY,X           ; off the top ($FF) or the bottom (225+): turn round
-                EOR     #$FE           ; $01 <-> $FF
-                STA     DY,X
-                LDA     YPOS,X
+                LDA     DY,X           ; off the top ($FF) going up, or the bottom (225) going down
                 BMI     @top
                 LDA     #224
                 BRA     @sety
 @top:           LDA     #0
 @sety:          STA     YPOS,X
+                LDA     DY,X           ; turn round: $01 <-> $FF
+                EOR     #$FE
+                STA     DY,X
 @yok:           DEX
                 BPL     @ball
                 RTS
@@ -436,8 +423,12 @@ SPRITES:
                 BNE     @entry
                 RTS
 
-; The shadow table into the card's (unit 36) by DMA: 96 bytes, about 27 us.
+; The shadow table into the card's (unit 36) by DMA: 96 bytes, about 27 us,
+; waited for (DMA3RUN, the BIOS's), since SPRITES writes the shadow next.
+; Uses A, X, Y.
 DMASPRITES:
+                LDA     #DMA_CH3       ; stopped while it is programmed
+                STA     DMA_ABORT
                 LDA     #<SHADOW
                 STA     DMA3_ADDR
                 LDA     #>SHADOW
@@ -454,9 +445,7 @@ DMASPRITES:
                 STZ     DMA3_COUNT+1
                 LDA     #DMA_M2M
                 STA     DMA3_MODE
-                LDA     #DMA_GO
-                STA     DMA3_CTRL
-                RTS
+                JMP     DMA3RUN
 
 TILES:          .incbin "demo/tiles.bin"
 MAP:            .incbin "demo/map.bin"

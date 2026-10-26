@@ -6,9 +6,13 @@
 
 #include "terminal.h"
 
+#include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <string>
 
+#include <poll.h>
+#include <signal.h>
 #include <unistd.h>
 
 #include "emu_log.h"
@@ -18,7 +22,66 @@ namespace ooe::emu
     namespace
     {
         const char *TAG = "terminal";
+
+        // For the signal handlers, which have no Terminal: both modes, and
+        // which one is in force.
+        struct termios g_saved{};
+        struct termios g_raw{};
+        volatile std::sig_atomic_t g_active = 0; ///< a Terminal changed the mode
+        volatile std::sig_atomic_t g_raw_on = 0; ///< raw, not the debugger's prompt
+        volatile std::sig_atomic_t g_resumed = 0;
+
+        void handle(int sig, void (*handler)(int))
+        {
+            struct sigaction sa{};
+            sa.sa_handler = handler;
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = SA_RESTART; // a stop is no reason to end the prompt's read
+            sigaction(sig, &sa, nullptr);
+        }
+
+        void on_continue(int)
+        {
+            const int saved_errno = errno;
+            if (g_active && g_raw_on)
+                tcsetattr(STDIN_FILENO, TCSANOW, &g_raw); // the shell had it back meanwhile
+            g_resumed = 1;
+            errno = saved_errno;
+        }
+
+        // Ctrl-Z: leave the shell a usable terminal, then stop as the default
+        // action would. Raised with it unblocked, so the stop happens inside
+        // raise(), or not at all (an orphaned process group), and either way
+        // raw mode is back on return.
+        void on_stop(int sig)
+        {
+            const int saved_errno = errno;
+            if (g_active)
+                tcsetattr(STDIN_FILENO, TCSANOW, &g_saved);
+            handle(sig, SIG_DFL);
+            sigset_t set;
+            sigemptyset(&set);
+            sigaddset(&set, sig);
+            sigprocmask(SIG_UNBLOCK, &set, nullptr);
+            raise(sig);
+            handle(sig, on_stop);
+            on_continue(SIGCONT);
+            errno = saved_errno;
+        }
     } // namespace
+
+    bool Terminal::resumed()
+    {
+        const bool r = g_resumed;
+        g_resumed = 0;
+        return r;
+    }
+
+    void Terminal::restore()
+    {
+        if (g_active)
+            tcsetattr(STDIN_FILENO, TCSANOW, &g_saved);
+    }
 
     Terminal::Terminal(Console &console) : console_(console)
     {
@@ -37,37 +100,87 @@ namespace ooe::emu
             return;
         }
         restore_ = true;
+        g_saved = saved_;
+        g_raw = raw;
+        g_raw_on = 1;
+        g_active = 1;
+        handle(SIGTSTP, on_stop);
+        handle(SIGCONT, on_continue);
     }
 
     Terminal::~Terminal()
     {
-        if (restore_ && tcsetattr(STDIN_FILENO, TCSADRAIN, &saved_) < 0)
+        if (!restore_)
+            return;
+        handle(SIGTSTP, SIG_DFL);
+        handle(SIGCONT, SIG_DFL);
+        g_active = 0;
+        if (tcsetattr(STDIN_FILENO, TCSADRAIN, &saved_) < 0)
             EMU_LOGE(TAG, "tcsetattr() failed restoring the terminal");
+    }
+
+    bool Terminal::fill(bool wait)
+    {
+        // Running, only read what is there. At the prompt a plain blocking
+        // read(): a stop and continue restart it (SA_RESTART), where poll()
+        // would fail with EINTR; Ctrl-C (no SA_RESTART) still ends it.
+        struct pollfd in = {STDIN_FILENO, POLLIN, 0};
+        while (!eof_)
+        {
+            if (!wait && poll(&in, 1, 0) <= 0)
+                return true; // nothing yet
+            char buf[256];
+            const ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
+            if (n > 0)
+            {
+                input_.append(buf, static_cast<size_t>(n));
+                return true;
+            }
+            if (n == 0)
+                eof_ = true;
+            else if (errno == EINTR)
+                return !wait; // running, the loop sees the quit flag
+            else if (errno == EAGAIN) // stdin came to us non-blocking
+            {
+                if (!wait)
+                    return true;
+                if (poll(&in, 1, -1) < 0)
+                    return false;
+            }
+            else
+            {
+                EMU_LOGE(TAG, "reading stdin failed: errno %d", errno);
+                eof_ = true;
+            }
+        }
+        return false;
     }
 
     uint8_t Terminal::poll_key()
     {
-        constexpr size_t MAX_QUEUED = 4096;
+        // Far more than a paste: past it a pipe waits for the machine to
+        // catch up. Below it stdin is read however busy the machine is, so a
+        // Ctrl-] behind a long backlog is still seen.
+        constexpr size_t MAX_BACKLOG = 1 << 20;
         uint8_t last = 0;
         bool debug = false;
-        char buf[64];
-        const ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
-        if (n < 0)
-            EMU_LOGE(TAG, "read() failed");
-        for (ssize_t i = 0; i < n; ++i)
+        if (input_.empty() && keys_.size() < MAX_BACKLOG)
+            fill(false);
+        // Keys go straight to keys_, so input_ only ever holds what follows
+        // a Ctrl-]: a breakpoint's prompt never reads the machine's keys.
+        size_t used = 0;
+        while (used < input_.size() && !debug)
         {
-            const auto key = static_cast<uint8_t>(buf[i]);
+            const auto key = static_cast<uint8_t>(input_[used++]);
             if (key == DEBUG_KEY)
             {
-                debug = true;
+                debug = true; // what follows is the debugger's
                 continue;
             }
             last = key;
-            if (keys_.size() < MAX_QUEUED)
-                keys_.push_back(key);
-            else
-                EMU_LOGW(TAG, "key %02X dropped: %zu keys already waiting", key, keys_.size());
+            keys_.push_back(key);
         }
+        input_.erase(0, used);
         while (!keys_.empty() && console_.key(keys_.front()))
             keys_.pop_front();
         return debug ? DEBUG_KEY : last;
@@ -125,27 +238,30 @@ namespace ooe::emu
 
     bool Terminal::read_line(const char *prompt, std::string &line)
     {
-        struct termios raw{};
         if (restore_)
         {
-            tcgetattr(STDIN_FILENO, &raw);
+            g_raw_on = 0;
             tcsetattr(STDIN_FILENO, TCSADRAIN, &saved_);
         }
         std::fputs(prompt, stdout);
         std::fflush(stdout);
         line.clear();
-        char buf[256];
-        bool ok = false;
-        while (std::fgets(buf, sizeof buf, stdin)) // a long line arrives in pieces
+        size_t end = input_.find('\n');
+        bool ok = true;
+        while (end == std::string::npos && (ok = fill(true))) // a long line arrives in pieces
+            end = input_.find('\n');
+        if (end != std::string::npos || (eof_ && !input_.empty())) // the last line may have no newline
         {
             ok = true;
-            line += buf;
-            if (line.back() == '\n')
-                break;
+            end = end == std::string::npos ? input_.size() : end + 1;
+            line = input_.substr(0, end);
+            input_.erase(0, end);
         }
-        std::clearerr(stdin); // after EINTR, so the next read is not refused
         if (restore_)
-            tcsetattr(STDIN_FILENO, TCSADRAIN, &raw);
+        {
+            tcsetattr(STDIN_FILENO, TCSADRAIN, &g_raw);
+            g_raw_on = 1;
+        }
         return ok;
     }
 

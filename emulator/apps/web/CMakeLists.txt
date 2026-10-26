@@ -29,7 +29,7 @@ target_link_options(oo1 PRIVATE
         "--embed-file=${EMU_BIOS_DIR}/bios.rom.lbl@/roms/bios.rom.lbl")
 # Relink when an embedded file changes.
 set_property(TARGET oo1 APPEND PROPERTY LINK_DEPENDS
-        "${PROJECT_SOURCE_DIR}/machines/backplane.machine" "${EMU_BIOS_DIR}/bios.rom")
+        "${PROJECT_SOURCE_DIR}/machines/backplane.machine" "${EMU_BIOS_DIR}/bios.rom" "${EMU_BIOS_DIR}/bios.rom.lbl")
 
 if(EMU_BUILD_TESTS)
     add_test(NAME web_boot

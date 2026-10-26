@@ -28,7 +28,8 @@
  *   or $4295 for a CIA song or an RSID (which expects the C64 as the KERNAL
  *   leaves it), which init may reprogram;
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
- *   then JMP ($0314)), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
+ *   then JMP ($0314); straight to the stub's handler for a tune with a
+ *   play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
  *   $FEBC, for tunes that install their own interrupt at $0314 and leave
  *   through them;
  * - init called with the song (0-based) in A; then, if the tune has a play

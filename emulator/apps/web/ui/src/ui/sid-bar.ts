@@ -4,18 +4,24 @@
  * program would start it; then its name and author, the song (◀ n of N ▶)
  * and Stop. The file stays in the page: it is not kept, and never uploaded.
  *
- * Choosing a tune turns Sound on (the click is the gesture a browser waits
- * for). The note says what the card can't give a tune (a third SID, an
- * RSID's VIC-II), or why a file was refused. A tune stops when the card
- * does: Stop, a power cycle, or START's /RESET.
+ * Play .sid… turns Sound on there and then, in its click, before the
+ * picker opens (the gesture a browser waits for: Safari may not start
+ * sound after an await, and the pick is one); a cancel, or a file refused,
+ * turns it off again if it was off. A file given some other way turns it
+ * on in the change. The note says what the card can't give a tune (a third
+ * SID, an RSID's VIC-II), or why a file was refused. A tune stops when the
+ * card does: Stop, a power cycle, START's /RESET, or the BIOS's QUIET on
+ * Break, a BRK and the demo's end. It pauses in a background tab, as the
+ * whole machine does (port/wasm-port.ts).
  */
 
 import type { FrameState, MachinePort, SidTune } from "../port/machine-port";
 import { h } from "./dom";
 
-export function sidBar(port: MachinePort, hooks: { playing: () => void }) {
+/** soundOn: Sound on if it is off. @returns whether it was off, so soundOff puts it back. */
+export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; soundOff: () => void }) {
   const picker = h("input", { type: "file", accept: ".sid", hidden: true, "data-testid": "sid-file" });
-  const play = h("button", { class: "tbtn", type: "button", title: "A C64 .sid tune of your own, played on the sound card: it stays in this page", "data-testid": "sid-play" }, "Play .sid…");
+  const play = h("button", { class: "tbtn", type: "button", title: "A C64 .sid tune of your own, played on the sound card: it stays in this page. It plays while this tab is in front", "data-testid": "sid-play" }, "Play .sid…");
   const title = h("span", { class: "sid-title", "data-testid": "sid-title" });
   const prev = h("button", { class: "tbtn", type: "button", title: "The song before", "aria-label": "Previous song", "data-testid": "sid-prev" }, "◀");
   const song = h("span", { class: "sid-song", "data-testid": "sid-song" });
@@ -44,15 +50,26 @@ export function sidBar(port: MachinePort, hooks: { playing: () => void }) {
     show();
   };
 
-  play.addEventListener("click", () => picker.click());
+  let turnedOn = false; // by the click, for the pick it opened
+  const giveBack = () => {
+    if (turnedOn) hooks.soundOff();
+    turnedOn = false;
+  };
+  play.addEventListener("click", () => {
+    turnedOn = hooks.soundOn() || turnedOn;
+    picker.click();
+  });
+  picker.addEventListener("cancel", giveBack);
   picker.addEventListener("change", async () => {
     const f = picker.files?.[0];
     picker.value = "";
-    if (!f) return;
-    hooks.playing();
+    if (!f) return giveBack();
+    const mine = turnedOn || hooks.soundOn(); // before any await
+    turnedOn = false;
     try {
       started(await port.playSid(new Uint8Array(await f.arrayBuffer())));
     } catch (err) {
+      if (mine) hooks.soundOff(); // not left on for a file that isn't a tune
       say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
@@ -74,12 +91,12 @@ export function sidBar(port: MachinePort, hooks: { playing: () => void }) {
   });
   show();
 
-  /** The card stopped under the tune (a power cycle, START): it's gone. */
+  /** The card stopped under the tune (a power cycle, START, QUIET): it's gone. */
   const update = (f: FrameState) => {
     if (tune && !f.soundRunning) {
       port.stopSid(); // forgotten, as the card has
       tune = null;
-      say(f.powered ? "The card was reset: the tune stopped" : "");
+      say(f.powered ? "The machine stopped the card: the tune stopped" : "");
       show();
     }
   };

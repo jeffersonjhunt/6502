@@ -80,8 +80,10 @@
  * 1/8 (a voice at full envelope peaks at about -18 dBFS: room for three,
  * resonance and the 6581's DC steps) and clipped to -1..1. Samples wait, at most half a
  * second of them, oldest dropped first, until take_audio() collects them;
- * that brings the chips up to now first. Off (rate 0, the default) the
- * chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
+ * that brings the chips up to now first. Of a backlog over two seconds
+ * (nobody collecting), only the last second is made: the rest, whose
+ * samples would be dropped, is clocked in bulk. Off (rate 0, the default)
+ * the chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
  * is the replacement chips' jumper (set_model()), not a register.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
@@ -92,7 +94,7 @@
 
 #include <array>
 #include <cstdint>
-#include <vector>
+#include <deque>
 
 #include "bus.h"
 #include "cpu6502.h"
@@ -261,7 +263,7 @@ namespace ooe::emu
         mutable std::array<Sid, 2> chips_{};
         mutable uint64_t sids_at_{0}; ///< the SID clock the chips have been clocked to
         uint32_t audio_rate_{0};
-        mutable std::vector<float> audio_;         ///< left, right, ...
+        mutable std::deque<float> audio_;          ///< left, right, ...: trimmed at the front
         mutable double sum_l_{0}, sum_r_{0};       ///< this sample's output so far
         mutable uint64_t sample_clocks_{0};        ///< and its clocks so far
         mutable uint64_t sample_length_{0};        ///< the clocks this sample spans

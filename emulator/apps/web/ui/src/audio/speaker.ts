@@ -60,6 +60,7 @@ export class Speaker {
     this.wanted = true;
     this.error = "";
     this.changed();
+    if (this.out) void this.out.resume().catch(() => {}); // now, while still in the click: Safari plays only from one
     try {
       this.opening ??= this.open();
       const out = await this.opening;

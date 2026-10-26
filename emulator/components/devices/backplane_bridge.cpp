@@ -161,7 +161,7 @@ namespace ooe::emu
                 EMU_LOGI(TAG, "MODE: Apple II mode");
                 reset_wanted_ = true; // the switch pulses /RESET
             }
-            mode_ = static_cast<uint8_t>(data | (mode_ & MODE_APPLE)); // APPLE only sets
+            mode_ = static_cast<uint8_t>((data & (MODE_APPLE | MODE_TURBO)) | (mode_ & MODE_APPLE)); // APPLE only sets
             break;
         case WAIT0:
         case WAIT0 + 1:

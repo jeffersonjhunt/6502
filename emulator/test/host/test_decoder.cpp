@@ -27,6 +27,19 @@ TEST(device_sees_offset_not_system_address)
     CHECK_EQ(bus.read(0x4010), 0x5A);
 }
 
+TEST(a_mapping_larger_than_the_device_mirrors_it)
+{
+    Ram ram(0x100);
+    Decoder bus;
+    REQUIRE(bus.map({0x4000, 0x43FF, &ram}));      // 1 KB of decode for 256 bytes: four copies
+    bus.write(0x4310, 0x5A);
+    CHECK_EQ(ram.read(0x10), 0x5A);
+    CHECK_EQ(bus.read(0x4010), 0x5A);
+    CHECK_EQ(bus.peek(0x4210), 0x5A);
+    bus.poke(0x41FF, 0x33);
+    CHECK_EQ(ram.read(0xFF), 0x33);
+}
+
 TEST(unmapped_reads_ff_and_drops_writes)
 {
     Ram ram(0x100);

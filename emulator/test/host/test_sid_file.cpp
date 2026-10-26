@@ -457,6 +457,43 @@ TEST(play_under_the_io_runs_with_io_banked_out)
     CHECK_EQ(p.frames, 50u);
 }
 
+TEST(a_tune_over_0314_with_a_play_routine_is_still_played)
+{
+    // Loaded at $0300: $0314 is the tune's (zeros here), so the stub can't
+    // point it at its handler. init at $0340 RTS, play at $0341 INC $D400.
+    std::vector<uint8_t> code(0x40, 0x00);
+    for (const int b : {0x60, 0xEE, 0x00, 0xD4, 0x60})
+        code.push_back(static_cast<uint8_t>(b));
+    Header h;
+    h.load = 0x0300, h.init = 0x0340, h.play = 0x0341;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+    CHECK_EQ(p.reg(0x00), 50);
+    CHECK_EQ(p.frames, 50u);
+}
+
+TEST(a_free_page_on_the_port_stack_or_0314_is_not_taken)
+{
+    // $00-$01: the port and zero page, the stack; $03: the stub points $0314
+    // at its handler. $02 is free on the card, as in the fallback list.
+    std::string error;
+    Header h;
+    h.play = 0x1009, h.page_length = 1;
+    for (const uint8_t page : {uint8_t{0x00}, uint8_t{0x01}, uint8_t{0x03}})
+    {
+        h.start_page = page;
+        const auto plan = plan_sid(parsed(h, COUNTER), 0, error);
+        REQUIRE(plan);
+        CHECK_EQ(plan->stub, 0xFF00);
+    }
+    for (const uint8_t page : {uint8_t{0x02}, uint8_t{0x04}})
+    {
+        h.start_page = page;
+        const auto plan = plan_sid(parsed(h, COUNTER), 0, error);
+        REQUIRE(plan);
+        CHECK_EQ(plan->stub, page << 8);
+    }
+}
+
 TEST(a_second_tune_starts_clean)
 {
     Header h;

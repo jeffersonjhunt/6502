@@ -2,8 +2,7 @@
 ;
 ; VINIT sets up an 80x30 text layer and VPUTC writes a character to it, so
 ; everything the Woz Monitor prints (ECHO calls VPUTC) shows on the VGA
-; screen as well as the serial line. Input stays on the serial line until
-; the USB card exists.
+; screen as well as the serial line.
 ;
 ; Video memory, in the card's 1 KB units of banks 8-B ($80000 + unit x 1 KB):
 ;
@@ -13,18 +12,24 @@
 ;
 ; The CPU reaches them through W2 ($8000-$BFFF) put on RAM block 32 for a
 ; moment and put back; DMA reaches them by physical address. Scrolling is
-; one 4,640-byte memory-to-memory DMA copy (1.3 ms), and clearing is a cell
+; one 4,640-byte memory-to-memory DMA copy (1.3 ms) on channel 3, waited
+; for, so it is whole whatever BURST a program has set (DMA3RUN: the master
+; enable on for it and put back after; a copy that never ends, with no
+; controller there, is given up after about 0.1 s); clearing is a cell
 ; written by the CPU then copied onto the next by an overlapping DMA, which
 ; repeats it. The cursor is an underline whose attribute blinks (bit 7, with
 ; CONFIG's blink on), so the card blinks it and the BIOS does nothing.
 ;
 ; With no video card, or no DMA controller, VINIT leaves VOK clear and
-; VPUTC does nothing. An NMI during VPUTC enters the monitor with W2 still
-; on video memory; the next VPUTC puts it back on what it found.
+; VPUTC does nothing. Break (NMI) puts W2 back and calls VSCREEN, which sets
+; VOK again from the ID bytes, so one during VPUTC, or a program that moved
+; the screen or wrote VOK, leaves the monitor on the text screen as VINIT
+; made it. PUTAT keeps the cursor on the screen whatever
+; a program has left in VCOL and VROW.
 
 .setcpu "65C02"
 .include "backplane.inc"
-.export VINIT, VPUTC, DEMO, DEMO_EXIT
+.export VINIT, VPUTC, VSCREEN, DEMO, DMA3RUN
 .import WOZMON, DEMO_MAIN
 
 VPTR    = BIOS_ZP + 0                  ; cell pointer (CPU address)
@@ -53,13 +58,8 @@ FONT_CPU   = $4000
 
 ; Turn the screen on: font, palette, a clear screen, then the registers.
 VINIT:
-                STZ     VOK
-                LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
-                BNE     @done
-                LDA     DMA_ID
-                CMP     #DMA_ID_V1
-                BNE     @done
+                JSR     PROBE
+                BPL     @done
                 LDA     #DMA_ON
                 STA     DMA_CONTROL
 
@@ -107,7 +107,33 @@ VINIT:
                 PLA
                 STA     NB_WIN1
 
+                STZ     VCOL
+                STZ     VROW
+                BRA     VSCREEN
+@done:          RTS
+
+; VOK from the ID bytes: $FF (N set) with the video card and the DMA
+; controller, else 0.
+PROBE:
+                STZ     VOK
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V1
+                BNE     @done
+                LDA     DMA_ID
+                CMP     #DMA_ID_V1
+                BNE     @done
+                DEC     VOK
+@done:          BIT     VOK
+                RTS
+
+; The card's registers for the text screen, if there is one: layer 0 only,
+; unscrolled, no interrupts. Its memory is left as it is.
+VSCREEN:
+                JSR     PROBE
+                BPL     @done
+                STZ     VIDEO_IEN
                 STZ     VIDEO_PALBASE
+                STZ     VIDEO_SPRBASE
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG
@@ -115,15 +141,19 @@ VINIT:
                 STA     VIDEO_L0_MAP
                 LDA     #FONT_UNIT
                 STA     VIDEO_L0_TILE
+                STZ     VIDEO_L0_HSCROLL
+                STZ     VIDEO_L0_HSCROLL + 1
+                STZ     VIDEO_L0_VSCROLL
+                STZ     VIDEO_L0_VSCROLL + 1
+                STZ     VIDEO_L0_PALOFS
+                STZ     VIDEO_L1_CONFIG
                 LDA     #VIDEO_ON_L0
                 STA     VIDEO_CTRL
-                STZ     VCOL
-                STZ     VROW
-                DEC     VOK            ; $FF: on
 @done:          RTS
 
 ; The video demo (demo.s), in flash block 29: map it at $4000 through W1
-; and run it. It needs the screen (the card and the DMA controller).
+; and run it. It needs the screen (the card and the DMA controller). It ends
+; at BREAK (bios.s), which puts the windows and the screen back.
 DEMO_BLOCK = 29
 DEMO:
                 BIT     VOK
@@ -132,14 +162,6 @@ DEMO:
                 STA     NB_WIN1
                 JMP     DEMO_MAIN
 @none:          JMP     WOZMON
-
-; The demo ends here, out of its own window: put W1 and W2 back, then the monitor.
-DEMO_EXIT:
-                LDA     #2
-                STA     NB_WIN2
-                LDA     #1
-                STA     NB_WIN1
-                JMP     WOZMON
 
 ; Write A to the screen at the cursor: CR starts a new line, backspace backs
 ; up one, other control characters do nothing. A, X and Y are kept.
@@ -190,12 +212,21 @@ BLANK:          LDA     #' '
                 LDX     #ATTR
                 ; fall through
 
-; Character A, attribute X, at VCOL, VROW. Uses A, X, Y.
+; Character A, attribute X, at VCOL, VROW, each first kept on the screen
+; (a program may have used them). Uses A, X, Y.
 PUTAT:
                 PHA
                 LDY     VROW
-                LDA     VCOL
-                ASL     A              ; 2 bytes a cell; at most 158, so no carry
+                CPY     #ROWS
+                BCC     @row
+                LDY     #ROWS - 1
+                STY     VROW
+@row:           LDA     VCOL
+                CMP     #COLS
+                BCC     @col
+                LDA     #0
+                STA     VCOL
+@col:           ASL     A              ; 2 bytes a cell; at most 158, so no carry
                 ADC     ROWLO,Y
                 STA     VPTR
                 LDA     ROWHI,Y
@@ -210,22 +241,25 @@ PUTAT:
 
 ; Down a line; at the bottom, scroll up and clear the new last line.
 NEWLINE:
-                INC     VROW
-                LDA     VROW
+                LDA     VROW           ; VROW is never past the bottom, even for a moment
+                INC     A
                 CMP     #ROWS
-                BCC     @done
-                DEC     VROW
-                LDX     #JOB_SCROLL
+                BCS     @scroll
+                STA     VROW
+                RTS
+@scroll:        LDX     #JOB_SCROLL
                 JSR     DMAJOB
                 STZ     VCOL
                 JSR     BLANK          ; the last row's first cell...
                 LDX     #JOB_CLEARROW
-                JSR     DMAJOB         ; ...repeated along it
-@done:          RTS
+                JMP     DMAJOB         ; ...repeated along it
 
-; Run DMA job X (an offset into JOBS) on channel 3. It runs to the end
-; before the CPU's next cycle (no burst limit), so it is done on return.
+; Run DMA job X (an offset into JOBS) on channel 3, a block transfer, and
+; wait for it: with a BURST limit the CPU gets cycles back, but it is done
+; on return. Uses A, X, Y.
 DMAJOB:
+                LDA     #DMA_CH3       ; programmed stopped, so a live channel
+                STA     DMA_ABORT      ; never runs on a half-written address
                 LDY     #$00
 @regs:          LDA     JOBS,X
                 STA     DMA3_ADDR,Y    ; source: Y = 0-2
@@ -241,8 +275,35 @@ DMAJOB:
                 STA     DMA3_COUNT+1
                 LDA     #DMA_M2M
                 STA     DMA3_MODE
+                ; fall through
+
+; Start channel 3, programmed, and wait for ENABLE to clear at terminal
+; count, with the master enable on (a program may have turned it off) and
+; CONTROL put back after. The enable is the whole controller's, so a
+; program's channels still armed run meanwhile: to keep one from running, a
+; program aborts it, not just turns the master enable off. 65,536 polls, about 0.1 s, then it gives up and
+; stops the channel: no controller there (ENABLE reads 1 off a floating
+; bus), or one starved by a busier channel. For the demo too. Uses A, X, Y.
+DMA3RUN:
+                LDA     DMA_CONTROL
+                PHA
+                ORA     #DMA_MASTER
+                STA     DMA_CONTROL
                 LDA     #DMA_GO
                 STA     DMA3_CTRL
+                LDX     #0
+                LDY     #0
+@wait:          LDA     DMA3_CTRL
+                LSR     A
+                BCC     @done
+                DEX
+                BNE     @wait
+                DEY
+                BNE     @wait
+                LDA     #DMA_CH3
+                STA     DMA_ABORT
+@done:          PLA
+                STA     DMA_CONTROL
                 RTS
 
 .macro JOB src, dst, count

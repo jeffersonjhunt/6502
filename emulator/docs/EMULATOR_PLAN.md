@@ -398,8 +398,10 @@ EF halves, at its start, and `apple_chars` the character ROM at $4000.
 `backplane/bios/apple.s`, `C806R`: check the cartridge holds a IIe ROM
 ($FBB3 = $06), copy it to bank E ($EC000), clear banks 0-3 with four DMA
 fills (inline, as the clear takes the stack), write MODE. The BIOS's jump
-table now has eight entries, five spare, so new ones stop moving the code
-after it (WOZMON $C880, ECHO $C968). The tests use a stand-in ROM; real
+table now has eight entries, five spare, so new entry points don't move the
+code after it (WOZMON was $C880 then; code added since before the monitor
+has moved it, so programs and tests take WOZMON and ECHO from
+`bios.rom.lbl`, not a fixed address). The tests use a stand-in ROM; real
 ones go in `test/host/fixtures/apple2e/`.
 
 **Apple II mode, steps 2 and 3 (2026-10-24): the north bridge and the
@@ -728,8 +730,8 @@ cluster past 65,535 and the reserved top bits.
 0.7.** `backplane/bios/sd.s`: `C809R` prints the card's name and size and
 its root directory (LIST), and `C80CR` mounts `/BOOT.BIN` as unit 1, reads
 it to $1000 by DMA channel 0 and calls it. `$C80F` is ECHO, for programs.
-The jump table keeps eight entries, so nothing after it moved (WOZMON $C880,
-ECHO $C968). test_bios_sd runs both against the mkfs.fat images, whose
+The jump table keeps eight entries, so nothing after it moved then (WOZMON
+and ECHO: see `bios.rom.lbl`, as later BIOS code has moved them). test_bios_sd runs both against the mkfs.fat images, whose
 FAT12 one now holds a one-sector BOOT.BIN. In the WebUI, Insert SD card…
 sits under the drive: an image in (a Uint8Array through embind, since a
 card is megabytes), the light, write-protect, Save card with the machine's

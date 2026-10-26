@@ -15,6 +15,15 @@ test can see:
 
 A broken --machine file stops the app with its file and line (Phase 3).
 
+Every signal that ends the app puts the terminal back: SIGTERM, SIGHUP,
+SIGQUIT (Ctrl-\\) and SIGPIPE as well as Ctrl-C. Ctrl-Z, under a small
+job-control "shell", leaves the terminal cooked while stopped and raw again
+once continued. And stdin need not be a terminal: through a pipe, a quiet
+input does not stall the machine, a script can press Ctrl-] and give
+debugger commands in the same stream, and more input than the key queue
+holds waits for the machine rather than being dropped, yet neither a
+breakpoint nor Ctrl-] behind it mistakes those keys for debugger lines.
+
 And the Phase 2 logging contract: nothing is written unless --log is given
 (the terminal is the Apple-1's screen), and --log FILE gets the run.
 
@@ -92,6 +101,167 @@ def check_quit(name, binary, args, cwd, quit_action):
     return failures
 
 
+# A shell's job control in miniature: the emulator in its own foreground
+# process group; on its stop, report the terminal's mode, put the "shell's"
+# cooked mode back as bash would, then continue it in the foreground.
+JOB_SHELL = r"""
+import os, signal, sys, termios
+binary, args = sys.argv[1], sys.argv[2:]
+signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+cooked = termios.tcgetattr(0)
+pid = os.fork()
+if pid == 0:
+    os.setpgid(0, 0)
+    os.tcsetpgrp(0, os.getpid())
+    signal.signal(signal.SIGTTOU, signal.SIG_DFL)
+    os.execv(binary, [binary, *args])
+os.setpgid(pid, pid)
+os.tcsetpgrp(0, pid)
+_, st = os.waitpid(pid, os.WUNTRACED)
+if not os.WIFSTOPPED(st):
+    print("SHELL: not stopped", flush=True)
+    sys.exit(3)
+os.tcsetpgrp(0, os.getpgrp())
+lflag = termios.tcgetattr(0)[3]
+print("SHELL: stopped icanon=%d echo=%d" % (bool(lflag & termios.ICANON), bool(lflag & termios.ECHO)), flush=True)
+termios.tcsetattr(0, termios.TCSANOW, cooked)
+os.tcsetpgrp(0, pid)
+os.killpg(pid, signal.SIGCONT)
+_, st = os.waitpid(pid, 0)
+sys.exit(os.waitstatus_to_exitcode(st))
+"""
+
+
+def check_job_control(binary, rom, cwd):
+    failures = []
+    proc, master, slave = start(sys.executable, ["-I", "-c", JOB_SHELL, binary, rom], cwd)
+    before = termios.tcgetattr(slave)
+    if b"\\" not in read_until(master, b"\\", 10):
+        failures.append("ctrl-z: no Woz Monitor prompt within 10 s")
+    os.write(master, b"\x1a")
+    out = read_until(master, b"SHELL: stopped", 10)
+    out += read_until(master, b"\n", 1)
+    if b"SHELL: stopped icanon=1 echo=1" not in out:
+        failures.append(f"ctrl-z: terminal not restored while stopped (got {out[-200:]!r})")
+    deadline = time.monotonic() + 5  # continued: raw again
+    while time.monotonic() < deadline and termios.tcgetattr(slave)[LFLAG] & termios.ICANON:
+        time.sleep(0.05)
+    if termios.tcgetattr(slave)[LFLAG] & (termios.ICANON | termios.ECHO):
+        failures.append("ctrl-z: terminal not raw again after continuing")
+    os.write(master, b"A")
+    if b"A" not in read_until(master, b"A", 5):
+        failures.append("ctrl-z: the machine does not take keys after continuing")
+    os.write(master, b"\x03")
+    rc = finish(proc)
+    read_until(master, b"\0", 0.3)
+    after = termios.tcgetattr(slave)
+    os.close(master)
+    os.close(slave)
+    if rc != 0:
+        failures.append(f"ctrl-z: exit status {rc}, want 0")
+    if (before[LFLAG] & termios.ICANON) and not (after[LFLAG] & termios.ICANON):
+        failures.append("ctrl-z: terminal left with ICANON off")
+
+    # At the debugger's prompt: the read blocked there carries on afterwards.
+    proc, master, slave = start(sys.executable, ["-I", "-c", JOB_SHELL, binary, "--halt", rom], cwd)
+    read_until(master, b"debug> ", 10)
+    os.write(master, b"\x1a")
+    out = read_until(master, b"SHELL: stopped", 10)
+    if b"SHELL: stopped icanon=1 echo=1" not in out + read_until(master, b"\n", 1):
+        failures.append(f"ctrl-z at the prompt: not stopped as it was (got {out[-200:]!r})")
+    time.sleep(0.3)
+    os.write(master, b"f FF00 4\n")
+    out = read_until(master, b"FF00  D8 58 A0 7F", 5)
+    if b"FF00  D8 58 A0 7F" not in out:
+        failures.append(f"ctrl-z at the prompt: no prompt after continuing (got {out[-200:]!r})")
+    os.write(master, b"q\n")
+    rc = finish(proc)
+    os.close(master)
+    os.close(slave)
+    if rc != 0:
+        failures.append(f"ctrl-z at the prompt: exit status {rc}, want 0")
+    return failures
+
+
+def check_pipe(binary, rom, cwd):
+    """stdin and stdout are pipes, not a terminal."""
+    failures = []
+    proc = subprocess.Popen([binary, rom], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            cwd=cwd)
+    fd = proc.stdout.fileno()
+    if b"\\" not in read_until(fd, b"\\", 10):
+        failures.append("pipe: no Woz Monitor prompt with nothing to read: the machine is stalled")
+    proc.stdin.write(b"\x1df FF00 4\n")
+    proc.stdin.flush()
+    out = read_until(fd, b"FF00  D8 58 A0 7F", 10)
+    if b"FF00  D8 58 A0 7F" not in out:
+        failures.append(f"pipe: Ctrl-] then a command in one write: no fetch (got {out[-300:]!r})")
+    proc.stdin.write(b"r\n")
+    proc.stdin.flush()
+
+    # More input than the key queue holds: the machine takes it at its own
+    # pace and none is dropped. 12 KB of Woz commands, each printing a line.
+    lines = 2500
+    proc.stdin.write(b"FF00\n" * lines)
+    proc.stdin.flush()
+    out, deadline = b"", time.monotonic() + 60
+    while out.count(b"FF00: D8") < lines and time.monotonic() < deadline:
+        more = read_until(fd, b"\0", 3)
+        if not more:
+            break  # the machine has stopped answering: the rest was lost
+        out += more
+    if out.count(b"FF00: D8") != lines:
+        failures.append(f"pipe: {lines} commands in one write, {out.count(b'FF00: D8')} answered")
+    proc.stdin.write(b"\x1dq\n")
+    proc.stdin.flush()
+    rc = finish(proc)
+    proc.stdin.close()
+    proc.stdout.close()
+    if rc != 0:
+        failures.append(f"pipe: exit status {rc}, want 0")
+    return failures
+
+
+def check_backlog(binary, rom, cwd):
+    """More keys waiting than the queue holds, while the program reads none."""
+    failures = []
+    proc = subprocess.Popen([binary, rom], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            cwd=cwd)
+    fd = proc.stdout.fileno()
+    read_until(fd, b"\\", 10)
+
+    def send(data, until, timeout=10):
+        proc.stdin.write(data)
+        proc.stdin.flush()
+        return read_until(fd, until, timeout)
+
+    # A delay loop that ends at a breakpoint (JMP * at 030A), typed and run
+    # with 5000 more keys behind it: the debugger's lines are not those keys.
+    backlog = b"FF00\n" * 1000
+    send(b"\x1db 030A\nr\n", b"running")
+    out = send(b"300: A2 00 A0 00 88 D0 FD CA D0 F8 4C 0A 03\n300R\n" + backlog, b"halted (break)")
+    if b"halted (break)" not in out:
+        failures.append(f"backlog: the breakpoint was not hit (got {out[-300:]!r})")
+    out = send(b"f FF00 4\n", b"FF00  D8 58 A0 7F")
+    if b"FF00  D8 58 A0 7F" not in out or b"unknown command" in out:
+        failures.append(f"backlog: at a breakpoint, queued keys read as commands (got {out[-300:]!r})")
+
+    # Running on with the keys still waiting, more behind them: Ctrl-] after
+    # them still stops the machine.
+    send(b"d all\nr\n", b"running")
+    out = send(backlog + b"\x1df FF00 4\n", b"FF00  D8 58 A0 7F")
+    if b"FF00  D8 58 A0 7F" not in out:
+        failures.append(f"backlog: Ctrl-] behind a full key queue not seen (got {out[-300:]!r})")
+    proc.stdin.write(b"q\n")
+    proc.stdin.flush()
+    rc = finish(proc)
+    proc.stdin.close()
+    proc.stdout.close()
+    if rc != 0:
+        failures.append(f"backlog: exit status {rc}, want 0")
+    return failures
+
+
 def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
@@ -104,6 +274,12 @@ def main():
     with tempfile.TemporaryDirectory() as cwd:
         failures += check_quit("ctrl-c", binary, [rom], cwd, lambda p, m: os.write(m, b"\x03"))
         failures += check_quit("sigterm", binary, [rom], cwd, lambda p, m: p.send_signal(signal.SIGTERM))
+        failures += check_quit("sighup", binary, [rom], cwd, lambda p, m: p.send_signal(signal.SIGHUP))
+        failures += check_quit("ctrl-\\", binary, [rom], cwd, lambda p, m: os.write(m, b"\x1c"))
+        failures += check_quit("sigpipe", binary, [rom], cwd, lambda p, m: p.send_signal(signal.SIGPIPE))
+        failures += check_job_control(binary, rom, cwd)
+        failures += check_pipe(binary, rom, cwd)
+        failures += check_backlog(binary, rom, cwd)
         if os.listdir(cwd):
             failures.append(f"no --log: files written anyway: {os.listdir(cwd)}")
 

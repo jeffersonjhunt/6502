@@ -35,6 +35,14 @@ function isBootRom(b: Uint8Array): boolean {
   return b[1] === 0x20 && b[3] === 0x00 && b[5] === 0x03 && b[7] === 0x3c;
 }
 
+/** The largest file that can be one of the cartridge's ROMs: bigger ones are not read. */
+export const MAX_ROM_FILE = 16 * K;
+
+/** Why a file of n bytes is none of them. */
+export function noRom(name: string, n: number): string {
+  return `${name}: ${n} bytes is no IIe ROM (want 16 KB, two 8 KB halves, a 4 KB character ROM, and the Disk II's two 256-byte PROMs)`;
+}
+
 /** The files someone picked, as a cartridge; or why not. `current`: the cartridge in now, which PROMs alone join. */
 export function sortRoms(files: RomFile[], current: Cartridge | null = null): Cartridge | string {
   let rom: Uint8Array | null = null;
@@ -59,8 +67,7 @@ export function sortRoms(files: RomFile[], current: Cartridge | null = null): Ca
       if (chars) return `${f.name}: two character ROMs; pick one`;
       chars = f.bytes;
     } else if (n === 8 * K) halves.push(f);
-    else
-      return `${f.name}: ${n} bytes is no IIe ROM (want 16 KB, two 8 KB halves, a 4 KB character ROM, and the Disk II's two 256-byte PROMs)`;
+    else return noRom(f.name, n);
   }
   const ef = halves.find((f) => isEf(f.bytes));
   if (!rom && ef) {

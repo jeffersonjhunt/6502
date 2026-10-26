@@ -61,3 +61,23 @@ export const prefs = {
     }
   },
 };
+
+const TAB_STOPS = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]';
+
+/**
+ * Focus the tab stop after `from` (way 1) or before it (-1), as Tab would:
+ * not one Tab skips (tabindex=-1, inert, not laid out), and past one that
+ * won't take focus (visibility: hidden) to the next. @returns false if none did.
+ */
+export function focusStop(from: HTMLElement, way: 1 | -1): boolean {
+  const stops = Array.from(document.querySelectorAll<HTMLElement>(TAB_STOPS)).filter(
+    (el) => el === from || (el.tabIndex >= 0 && !el.closest("[inert]") && el.getClientRects().length > 0),
+  );
+  const at = stops.indexOf(from);
+  if (at < 0) return false;
+  for (let i = at + way; i >= 0 && i < stops.length; i += way) {
+    stops[i].focus();
+    if (document.activeElement === stops[i]) return true;
+  }
+  return false;
+}

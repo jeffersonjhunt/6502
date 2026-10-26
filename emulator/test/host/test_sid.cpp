@@ -17,6 +17,7 @@
 #include "sid.h"
 #include "sound_card.h"
 
+#include <chrono>
 #include <initializer_list>
 #include <set>
 
@@ -356,6 +357,71 @@ TEST(the_6510_reads_osc3_on_the_cycle_of_its_lda)
     // the access been taken at the instruction's start, every read would be
     // a little early, and this one more than the others: 26.
     CHECK_EQ(c.ram()[0x12], 27);
+}
+
+TEST(long_bulk_runs_agree_with_clock_by_clock)
+{
+    // Spans long enough for the shortcuts: noise jumped ahead, sync from one
+    // source rise to the next, an envelope at rest skipping whole periods.
+    // clock_audio(1) is the reference: one clock at a time.
+    for (const bool sync : {false, true})
+    {
+        Sid a, b;
+        for (Sid *s : {&a, &b})
+        {
+            freq(*s, 0x00, 0x1234), freq(*s, 0x07, 0x0F00), freq(*s, FREQ3, 0xFFF0);
+            s->write(0x05, 0x00), s->write(0x06, 0xA4); // voice 1: to sustain $AA
+            s->write(0x0C, 0x32), s->write(0x0D, 0x05); // voice 2: decays to 0
+            s->write(0x04, static_cast<uint8_t>(Sid::NOISE | Sid::GATE | (sync ? Sid::SYNC : 0)));
+            s->write(0x0B, static_cast<uint8_t>(Sid::PULSE | Sid::GATE | (sync ? Sid::SYNC : 0)));
+            s->write(CTRL3, Sid::NOISE);
+        }
+        for (const uint64_t span : {1'000'003u, 2'345'679u})
+        {
+            a.clock(span);
+            for (uint64_t i = 0; i < span; ++i)
+                b.clock_audio(1);
+            for (unsigned n = 0; n < 3; ++n)
+            {
+                CHECK_EQ(a.voice(n).accumulator, b.voice(n).accumulator);
+                CHECK_EQ(a.voice(n).noise, b.voice(n).noise);
+                CHECK_EQ(a.voice(n).envelope, b.voice(n).envelope);
+                CHECK_EQ(a.voice(n).rate_count, b.voice(n).rate_count);
+                CHECK_EQ(a.voice(n).exp_count, b.voice(n).exp_count);
+            }
+            a.write(0x0B, Sid::PULSE), b.write(0x0B, Sid::PULSE); // voice 2 released for the second span
+        }
+        CHECK_EQ(a.voice(0).envelope, 0xAA);
+        CHECK_EQ(a.voice(1).envelope, 0);
+    }
+}
+
+TEST(touching_the_chips_after_idle_minutes_is_quick)
+{
+    // Ten minutes' SID clocks with nobody looking, sounding, then a read:
+    // the chips catch up in bulk, not clock by clock.
+    for (const bool audio : {false, true})
+    {
+        SoundCard c;
+        c.set_cpu_hz(SoundCard::PAL_HZ);
+        if (audio)
+            c.set_audio_rate(48'000);
+        c.write(SoundCard::SID_A + 0x05, 0x00), c.write(SoundCard::SID_A + 0x06, 0xF0);
+        c.write(SoundCard::SID_A + 0x18, 0x0F);
+        c.write(SoundCard::SID_A + 0x00, 0x00), c.write(SoundCard::SID_A + 0x01, 0x1D);
+        c.write(SoundCard::SID_A + FREQ3, 0x00), c.write(SoundCard::SID_A + FREQ3 + 1, 0x1D); // 440 Hz: syncs voice 1
+        c.write(SoundCard::SID_A + 0x04, Sid::SAW | Sid::SYNC | Sid::GATE);
+        c.write(SoundCard::SID_A + CTRL3, Sid::NOISE);
+        for (int i = 0; i < 600; ++i)
+            c.tick(SoundCard::PAL_HZ);
+        const auto t0 = std::chrono::steady_clock::now();
+        c.read(SoundCard::SID_A + Sid::OSC3);
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+        CHECK(ms < 2000); // clock by clock, seconds to minutes in a debug build
+        CHECK_EQ(c.chip(0).voice(0).envelope, 0xFF);
+        if (audio)
+            CHECK_EQ(c.audio_frames(), 24'000u); // half a second, as ever
+    }
 }
 
 int main()

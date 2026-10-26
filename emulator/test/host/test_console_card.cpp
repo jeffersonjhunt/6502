@@ -14,6 +14,7 @@
 
 #include "console_card.h"
 #include "cpu6502.h"
+#include "dma_controller.h"
 #include "machine.h"
 
 #include <memory>
@@ -411,6 +412,102 @@ TEST(lights_glow_with_the_bus_and_freeze_when_halted)
     l = p.card->lights();
     CHECK_EQ(l.addr[0] + l.addr[1], 1.0f);            // one address, not a blur: $FC801 or $FC802
     CHECK_EQ(l.rdy, 1.0f);                            // held
+}
+
+TEST(the_breakpoint_and_the_lights_see_dma_cycles)
+{
+    std::string error;
+    auto m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
+                            "dma 400-47F space=io name=dma irq\nconsole 700-77F space=io name=console irq\n",
+                            "panel_dma.machine", {}, error);
+    REQUIRE(m != nullptr);
+    ConsoleCard *card = m->console_card();
+    Decoder &bus = m->bus();
+    auto copy = [&bus] { // channel 3: 16 bytes, $01000 to $02000, then a CPU cycle lets it run
+        const uint8_t regs[] = {0x00, 0x10, 0x00, 0x00, 16, 0, DmaController::MEM_TO_MEM, 0, 0x00, 0x20, 0x00};
+        for (uint16_t i = 0; i < sizeof regs; ++i)
+            bus.poke(static_cast<uint16_t>(0xC430 + i), regs[i]);
+        bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
+        bus.poke(0xC437, DmaController::ENABLE | DmaController::REQ);
+        bus.read(0x0000);
+    };
+    bus.reset();
+    for (uint32_t i = 0; i < 16; ++i)
+        bus.write_physical(0x1000 + i, static_cast<uint8_t>(0xA0 + i));
+
+    card->set_lights(true);
+    card->lights();
+    copy();
+    const ConsoleCard::Lights l = card->lights();
+    CHECK(l.addr[13] > 0.4f);                         // the writes to $020xx: half the copy's cycles
+    CHECK(l.addr[12] > 0.4f);                         // the reads from $010xx
+    CHECK(l.rwb > 0.4f && l.rwb < 0.6f);
+
+    bus.poke(0xC708, 0x05);                           // BPADDR $02005: a write breakpoint
+    bus.poke(0xC709, 0x20);
+    bus.poke(0xC70A, 0x00);
+    bus.poke(0xC70B, ConsoleCard::BP_ENABLE | ConsoleCard::BP_WRITE);
+    copy();
+    CHECK(card->halted());                            // the CPU stops after this instruction
+    CHECK_EQ(bus.peek(0xC70C) & ConsoleCard::HIT, ConsoleCard::HIT);
+    CHECK_EQ(bus.peek(0xC710) | bus.peek(0xC711) << 8 | bus.peek(0xC712) << 16, 0x02005);
+    CHECK_EQ(bus.peek(0xC713), 0xA5);
+    CHECK_EQ(bus.peek(0xC714), ConsoleCard::L_BE);    // a write, with BE low
+}
+
+TEST(the_lights_count_the_cycle_taking_the_bus)
+{
+    Panel p;
+    REQUIRE(p.ok());
+    DmaController dma;
+    struct Requester : Device // holds DRQ0 for good
+    {
+        size_t size() const override { return 4; }
+        uint8_t read(uint32_t) override { return 0; }
+        uint8_t peek(uint32_t) const override { return 0; }
+        void write(uint32_t, uint8_t) override {}
+        bool drq() const override { return true; }
+        uint8_t dack_read(bool) override { return 0x5A; }
+    } card;
+    Decoder &bus = p.bus();
+    REQUIRE(bus.map({bus_address(Space::Io, 0x400), bus_address(Space::Io, 0x47F), &dma, DmaController::MODULE}));
+    REQUIRE(bus.map({bus_address(Space::Io, 0x500), bus_address(Space::Io, 0x503), &card, 0x5, false, 0, 0}));
+    dma.attach(&bus);
+    bus.set_master(&dma);
+    p.boot(LOOP);
+    // channel 0: single, card to $F0000, the whole 64K
+    const uint8_t regs[] = {0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, DmaController::SINGLE | DmaController::TO_MEMORY};
+    for (uint16_t i = 0; i < sizeof regs; ++i)
+        bus.poke(static_cast<uint16_t>(0xC400 + i), regs[i]);
+    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
+    bus.poke(0xC407, DmaController::ENABLE);
+
+    p.card->set_lights(true);
+    p.card->lights();
+    const uint64_t start = p.cpu->cycles();
+    p.run(400);
+    const ConsoleCard::Lights l = p.card->lights();
+    CHECK_EQ(l.cycles, p.cpu->cycles() - start);     // every cycle lit once: taking the bus, the byte, the CPU's
+    CHECK(l.rdy > 0.65f && l.rdy < 0.68f);            // RDY low for two of each three
+    CHECK_EQ(bus.peek_physical(0xF0000), 0x5A);       // and the bytes went
+}
+
+TEST(bus_reset_clears_ctrl_ien_and_isr_and_keeps_the_breakpoint)
+{
+    Panel p;
+    REQUIRE(p.ok());
+    p.set(ConsoleCard::IEN, 0x01);
+    p.card->press(ConsoleCard::LOAD_ADRS);
+    p.set(ConsoleCard::CTRL, ConsoleCard::CTRL_HALT | ConsoleCard::LOCK);
+    p.set20(ConsoleCard::BPADDR, CODE_PHYS);
+    p.set(ConsoleCard::BPCTRL, ConsoleCard::BP_ENABLE | ConsoleCard::BP_FETCH);
+    REQUIRE(p.card->irq());
+    p.card->bus_reset();                              // Ctrl-Reset, entering Apple II mode
+    CHECK(!p.card->irq());
+    CHECK_EQ(p.reg(ConsoleCard::IEN), 0x00);
+    CHECK_EQ(p.reg(ConsoleCard::CTRL), 0x00);
+    CHECK(!p.card->halted());
+    CHECK_EQ(p.reg20(ConsoleCard::BPADDR), CODE_PHYS);
 }
 
 int main()

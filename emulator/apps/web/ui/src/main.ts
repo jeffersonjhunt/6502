@@ -27,12 +27,12 @@ import "./styles/panel.css";
 import "./styles/debugger.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
-import { keyBytes, pasteBytes } from "./crt/keyboard";
+import { isPaste, keyBytes, leavesScreen, pasteBytes } from "./crt/keyboard";
 import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { WasmPort } from "./port/wasm-port";
-import { h, prefs, segmented } from "./ui/dom";
+import { focusStop, h, prefs, segmented } from "./ui/dom";
 import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
@@ -44,6 +44,8 @@ import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
 import { sdBar } from "./ui/sd-bar";
 import { sidBar } from "./ui/sid-bar";
+
+const TERMINAL_LABEL = "Terminal: click and type. F6 leaves the screen";
 
 function statusText(f: FrameState, clockLabel: string): string {
   if (!f.powered) return "POWER OFF";
@@ -92,7 +94,10 @@ function start(root: HTMLElement, port: MachinePort): void {
   const dbg = debuggerPane(port);
   const speaker = new Speaker(port);
   const sound = soundButton(speaker, port.caps.audio && typeof AudioWorkletNode !== "undefined");
-  const tune = sidBar(port, { playing: () => void (speaker.on || sound.turnOn()) });
+  const tune = sidBar(port, {
+    soundOn: () => !speaker.on && (void sound.turnOn(), true),
+    soundOff: () => sound.turnOff(),
+  });
   const bar = toolbar(port, panel, {
     trailing: [dbg.toggle],
     phosphor: (p) => {
@@ -111,7 +116,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       class: "mon-glass",
       tabindex: "0",
       role: "application",
-      "aria-label": "Terminal: click and type",
+      "aria-label": TERMINAL_LABEL,
       "data-testid": "crt",
       "data-scene": "text",
     },
@@ -128,7 +133,17 @@ function start(root: HTMLElement, port: MachinePort): void {
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
   const onUsb = () => scene !== "text" && port.caps.usb;
   const onMouse = () => scene === "vga" && port.caps.usb;
+  // Tab and Escape are the machine's, so F6 is the way off the screen by keyboard.
+  const leave = (way: 1 | -1) => {
+    if (!focusStop(glass, way)) glass.blur();
+  };
   glass.addEventListener("keydown", (e) => {
+    const way = leavesScreen(e);
+    if (way) {
+      e.preventDefault();
+      return leave(way);
+    }
+    if (isPaste(e)) return; // the browser's: its paste event types the text, below
     if (onUsb()) {
       if (usbKeys.down(e)) e.preventDefault();
       return;
@@ -170,13 +185,28 @@ function start(root: HTMLElement, port: MachinePort): void {
     if (onMouse()) e.preventDefault(); // the right button is the machine's
   });
   // A paste is typed on whichever keyboard the screen has: on the USB one,
-  // its card holds each character until the machine has taken the last.
+  // its card holds each character until the machine has taken the last, so
+  // a long one takes a while, and Stop typing drops the rest.
+  let pasting = false;
+  const stopTyping = h(
+    "button",
+    { class: "tbtn stop-typing", type: "button", hidden: true, title: "What the paste has not typed yet is dropped", "data-testid": "stop-typing" },
+    "Stop typing",
+  );
+  stopTyping.addEventListener("click", () => {
+    port.stopTyping();
+    usbKeys.releaseAll();
+    pasting = false;
+    stopTyping.hidden = true;
+    glass.focus();
+  });
   glass.addEventListener("paste", (e) => {
     e.preventDefault();
     const text = e.clipboardData?.getData("text") ?? "";
     if (onUsb()) {
       usbKeys.releaseAll();
       typeText(text, (usage, down) => port.sendKey(usage, down));
+      pasting = true;
     } else port.sendSerial(pasteBytes(text, caps));
   });
 
@@ -187,7 +217,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     bar.setCapsEnabled(!onUsb());
     glass.setAttribute(
       "aria-label",
-      !onUsb() ? "Terminal: click and type" : s === "apple" ? "Apple IIe screen: click and type on the USB keyboard" : "VGA screen: click and type on the USB keyboard",
+      !onUsb() ? TERMINAL_LABEL : `${s === "apple" ? "Apple IIe" : "VGA"} screen: click and type on the USB keyboard. F6 leaves the screen`,
     );
     crt.setScene(s);
     glass.dataset.scene = s;
@@ -210,7 +240,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     },
   );
   showScene(savedScene);
-  const status = h("span", { "data-testid": "status" }, "STARTING");
+  const status = h("span", { class: "mon-status", "data-testid": "status" }, "STARTING");
   const signal = h("span", {}, "VGA 640×480");
   const apple = appleBar(port, {
     started: () => {
@@ -232,7 +262,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     "div",
     { class: "mon" },
     glass,
-    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status), apple.element, scenes.element),
+    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status, stopTyping), apple.element, scenes.element),
     h("div", { class: "mon-foot mon-drive" }, drive.element),
     h("div", { class: "mon-foot mon-sd" }, card.element),
     h("div", { class: "mon-foot mon-sound" }, sound.element, tune.element), // the monitor's speaker, and a tune for it
@@ -267,6 +297,9 @@ function start(root: HTMLElement, port: MachinePort): void {
         showScene("apple");
       }
     }
+    if (pasting && !f.keysQueued) pasting = false;
+    const typing = pasting && f.keysQueued >= 40; // not for a line or two
+    if (stopTyping.hidden === typing) stopTyping.hidden = !typing; // set only on a change: no restyle a frame
     apple.update(f);
     drive.update(f);
     card.update(f);
@@ -292,6 +325,14 @@ function start(root: HTMLElement, port: MachinePort): void {
     }
   });
 
+  // The core threw: the machine is gone until a reload, and the screen says so rather than freeze on RUNNING.
+  port.onFail((why) => {
+    status.textContent = "CRASHED";
+    terminal.write(new TextEncoder().encode(`\r\rThe emulator stopped: ${why}\rReload the page to start it again.\r`));
+    crt.draw(performance.now());
+    mirror.textContent = mirrored = terminal.text();
+  });
+
   // Keep the canvas's pixels matched to the glass on this display; a move
   // to another display, or zooming, fires resize too.
   const fit = () => crt.resize(canvas.getBoundingClientRect().width, devicePixelRatio || 1);
@@ -302,12 +343,12 @@ function start(root: HTMLElement, port: MachinePort): void {
     .connect()
     .then(async () => {
       await apple.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
-      await drive.restore(); // and the disk kept from last time, which stays in through power cycles
       panel.applyAll();
       port.setLights(true);
       sound.restore(); // left on last time: it plays from the first click or key
       dbg.connect();
       glass.focus();
+      await drive.restore(); // the disk kept from last time, which stays in through power cycles: last, as IndexedDB can be slow to answer
     })
     .catch((err: unknown) => {
       status.textContent = "NO MACHINE";

@@ -16,7 +16,15 @@
  * keyboard (input.s): the monitor takes keys from it, Pause/Break breaks
  * in, and a USB key ends the demo. And Apple II mode's way in (apple.s,
  * C806R), with a stand-in for the owner's IIe ROM: these tests never need
- * Apple's.
+ * Apple's. And the BIOS's recovery: Break (in the demo, or inside the screen
+ * code) and BRK back into the monitor with the windows and the screen as the
+ * BIOS keeps them, C800R from the flash again (or the RAM image after a
+ * /BOOTSEL boot), the cursor kept on the screen whatever its zero page says,
+ * and scrolling whole under a DMA burst limit. Break also stops the DMA (a
+ * scroll mid-copy too), quiets the cards' interrupts and finds the screen
+ * from the ID bytes; the BIOS's copies leave CONTROL as they found it, give
+ * up with no controller, and run with the master enable off (the demo's
+ * too); C806R stops a program's DMA before its fills.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -31,6 +39,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -52,12 +61,14 @@ namespace
     struct Board
     {
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
-                       std::string apple_chars = "")
+                       std::string apple_chars = "", std::vector<std::string> without = {})
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
             if (!video)
+                without.push_back("video");
+            for (const std::string &card : without) // the machine without these cards
             {
-                const size_t at = text.find("\nvideo ");
+                const size_t at = text.find("\n" + card + " ");
                 if (at != std::string::npos)
                     text.erase(at + 1, text.find('\n', at + 1) - at);
             }
@@ -199,7 +210,7 @@ namespace
     };
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
-    const std::string GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -329,7 +340,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.8"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.9"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -384,7 +395,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.8"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.9"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -587,7 +598,7 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN THE CARTRIDGE\\"));
 }
 
-TEST(c806_copies_the_iie_rom_to_bank_e_clears_banks_0_to_3_and_writes_mode)
+TEST(c806_copies_the_iie_rom_to_bank_e_clears_the_iies_memory_and_writes_mode)
 {
     const std::string rom = fake_iie_rom("test_fake_iie.rom");
     Board b(false, true, {rom});
@@ -596,8 +607,8 @@ TEST(c806_copies_the_iie_rom_to_bank_e_clears_banks_0_to_3_and_writes_mode)
     b.reset();
     b.run(BOOT);
     Decoder &bus = b.machine->bus();
-    for (uint32_t a : {0x10000u, 0x2ABCDu, 0x3FFFFu, 0x0C000u})
-        bus.write_physical(a, 0x5A);                          // something to clear
+    for (uint32_t a : {0x10000u, 0x2ABCDu, 0x3FFFFu, 0x0C000u, 0x4D000u, 0x5DFFFu, 0x41234u})
+        bus.write_physical(a, 0x5A);                          // something to clear (and one to keep)
     REQUIRE(bus.peek_physical(0x2ABCD) == 0x5A);
     const std::string flash = read_file(EMU_BIOS_ROM);
     b.run(2 * BOOT, "C806R\r");
@@ -613,7 +624,9 @@ TEST(c806_copies_the_iie_rom_to_bank_e_clears_banks_0_to_3_and_writes_mode)
         left += bus.peek_physical(a) != 0 && a != 0x00300 && (a < 0x00100 || a >= 0x00200); // (not its store, nor the stack)
     CHECK_EQ(left, size_t{0});                                 // banks 0-3: all zero
     CHECK_EQ(bus.peek_physical(0x3FFFF), 0);
-    CHECK_EQ(bus.peek_physical(0x40000 + 0x1234), 0);          // bank 4 untouched (it was 0 anyway)
+    CHECK_EQ(bus.peek_physical(0x4D000), 0);                   // the second $D000 bank, main...
+    CHECK_EQ(bus.peek_physical(0x5DFFF), 0);                   // ...and auxiliary
+    CHECK_EQ(bus.peek_physical(0x41234), 0x5A);                // the rest of bank 4 untouched
     CHECK_EQ(bus.peek_physical(0xFC800), static_cast<uint8_t>(flash[0x7C800])); // the BIOS's own copy kept
     // MODE: Apple II mode, a /RESET pulse, and the CPU running the IIe ROM's reset code in bank E
     REQUIRE(b.machine->find_as<BackplaneBridge>("northbridge") != nullptr);
@@ -711,6 +724,316 @@ TEST(c806_puts_the_character_rom_in_video_memory_or_makes_one_from_the_vga_font)
     for (unsigned r = 0; r < 8; ++r)
         blank += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) == 0xFF;
     CHECK(blank < 8);                                           // something to see: A is not empty
+}
+
+TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(20 * FRAME, "C803R\r");
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card->peek(VideoCard::CTRL) == 0x0F);
+    b.cpu->nmi();                                // Pause/Break, mid-frame
+    CHECK(has(b.run(BOOT), "\\"));
+    const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
+    CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
+    CHECK_EQ(card->peek(VideoCard::PALBASE), 0);
+    CHECK_EQ(card->peek(VideoCard::SPRBASE), 0);
+    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
+    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
+    CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
+    CHECK_EQ(card->peek(l0 + VideoCard::HSCROLL), 0);
+    CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0);
+    CHECK_EQ(b.bridge().window(0), 0x00);
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().window(2), 0x02);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
+    CHECK(b.find_row("C680: 00 01 02 7F 7F") >= 0); // on the screen too
+}
+
+TEST(break_inside_vputc_puts_w2_back)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    bool caught = false;                         // a key's echo, with W2 on video memory
+    bool offered = false;
+    for (int i = 0; i < 2'000'000 && !caught; ++i)
+    {
+        b.cpu->step();
+        b.console->service();
+        uint8_t ch = 0;
+        while (b.console->output(ch))
+            ;
+        if (!offered)
+            offered = b.console->key('A');
+        caught = b.bridge().window(2) == 32;
+    }
+    REQUIRE(caught);
+    b.cpu->nmi();
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK_EQ(b.bridge().window(2), 0x02);        // the monitor's echo found it put back
+    CHECK(has(b.run(BOOT, "C682\r"), "C682: 02"));
+}
+
+TEST(brk_enters_the_monitor)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "300: 00 00\r");
+    CHECK(has(b.run(BOOT, "300R\r"), "0300: 00\\\r"));
+    CHECK(has(b.run(BOOT, "C680.C682\r"), "C680: 00 01 02"));
+}
+
+TEST(c800_puts_the_windows_and_the_screen_back_and_copies_the_flash_again)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
+    const unsigned greeting = label(lbl, "GREETING");
+    REQUIRE(greeting >= 0xC800);
+    Device *ram_d = b.machine->find("ram_d");
+    REQUIRE(ram_d != nullptr);
+    ram_d->poke(0x3C000 + greeting + 1 - 0xC000, 'X'); // the RAM copy spoilt: "XACKPLANE"
+    b.run(BOOT, "C681: 05\r");
+    b.run(BOOT, "C483: 07\r");                   // layer 0 scrolled
+    CHECK(has(b.run(BOOT, "C800R\r"), GREETING.c_str()));
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().window(3), 0x7F);
+    CHECK_EQ(b.machine->video_card()->peek(uint8_t{VideoCard::LAYER0} + VideoCard::HSCROLL), 0);
+}
+
+TEST(the_cursor_stays_on_the_screen_whatever_is_in_its_zero_page)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "E3: 28\r");                     // VROW 40, past the bottom
+    CHECK(b.machine->bus().peek(0xE3) < 30);
+    b.run(BOOT, "C680\r");
+    CHECK(b.find_row("C680: 00") >= 0);
+}
+
+TEST(the_screen_scrolls_whole_with_a_burst_limit)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C441: 11\r");                   // DMA: a cycle back to the CPU every 2 bytes
+    std::string keys;
+    for (int i = 0; i < 12; ++i)
+        keys += "FFFC.FFFD\r";
+    b.run(keys.size() * 25'000 + BOOT, keys);
+    CHECK_EQ(b.row(29), std::string("_"));
+    CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
+    CHECK_EQ(b.row(27), std::string(""));
+    CHECK_EQ(b.row(26), std::string("FFFC.FFFD"));
+    CHECK_EQ(b.row(25), std::string("FFFC: 00 C8"));
+    size_t odd = 0;
+    for (unsigned r = 0; r < 30; ++r)
+        for (unsigned c = 0; c < 80; ++c)
+            odd += b.attr(r, c) != (r == 29 && c == 0 ? 0x87 : 0x07);
+    CHECK_EQ(odd, size_t{0});
+}
+
+TEST(the_demo_balls_bounce_off_the_bottom)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(20 * FRAME, "C803R\r");
+    REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+    auto y = [&](unsigned n) { return int{b.machine->bus().peek_physical(0x89000 + n * 8 + 4)}; };
+    std::vector<int> last;
+    for (unsigned n = 0; n < 12; ++n)
+        last.push_back(y(n));
+    int lowest = 0, jump = 0;
+    for (int f = 0; f < 60; ++f)
+    {
+        b.run(FRAME);
+        for (unsigned n = 0; n < 12; ++n)
+        {
+            lowest = std::max(lowest, y(n));
+            jump = std::max(jump, std::abs(y(n) - last[n]));
+            last[n] = y(n);
+        }
+    }
+    CHECK(lowest >= 224);                        // some reached the bottom...
+    CHECK(jump <= 2);                            // ...and none jumped to the top
+}
+
+namespace
+{
+    /// Step `b` until `done`, the console serviced and `key` offered until taken. @return whether it came
+    template <typename F> bool step_until(Board &b, F done, uint64_t cycles, char key = 0)
+    {
+        const uint64_t end = b.cpu->cycles() + cycles;
+        while (b.cpu->cycles() < end)
+        {
+            if (done())
+                return true;
+            b.cpu->step();
+            b.console->service();
+            uint8_t ch = 0;
+            while (b.console->output(ch))
+                ;
+            if (key && b.console->key(static_cast<uint8_t>(key)))
+                key = 0;
+        }
+        return done();
+    }
+} // namespace
+
+TEST(c800_after_a_bootsel_boot_starts_the_image_in_ram_again)
+{
+    Board b(true);
+    REQUIRE(b.ok());
+    const std::string flash = read_file(EMU_BIOS_ROM);
+    Device *ram_d = b.machine->find("ram_d");
+    Device *rom_a = b.machine->find("rom_a");
+    REQUIRE(ram_d != nullptr && rom_a != nullptr && flash.size() == 0x80000u);
+    for (uint32_t a = 0; a < 0x4000; ++a)
+    {
+        ram_d->poke(0x3C000 + a, static_cast<uint8_t>(flash[0x7C000 + a]));
+        rom_a->poke(0x7C000 + a, 0xFF);        // no flash to go back to
+    }
+    b.reset();
+    CHECK_EQ(b.run(BOOT), GREETING);
+    CHECK(has(b.run(BOOT, "C800R\r"), GREETING.c_str()));
+    CHECK_EQ(b.bridge().window(3), 0x7F);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
+}
+
+TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    b.machine->usb_card()->key(0xE1, true);      // Shift: a USB key event, but no character
+    b.machine->usb_card()->key(0xE1, false);
+    const std::string keys = "C418: 00 10 00\r"  // channel 1: a byte to $01000...
+                             "C410: 00 00 00 00 01 00 8A 03\r" // ...interrupting at terminal count
+                             "C406: 01 01\r"     // channel 0 armed, as for the SD card
+                             "C5B0: 01\r"        // USB: the key event interrupts
+                             "C540: 02 00 04\r"; // the sound card's 6510 running, its mailbox interrupting
+    b.run(keys.size() * 25'000 + BOOT / 2, keys);
+    REQUIRE(bus.irq());
+    REQUIRE(bus.peek(0xC407) & 1);
+    b.cpu->nmi();
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK(!bus.irq());
+    CHECK_EQ(bus.peek(0xC440) & 0x0F, 0);        // no terminal count left
+    CHECK_EQ(bus.peek(0xC407) & 1, 0);           // channel 0 stopped
+    CHECK_EQ(bus.peek(0xC416) & 0x80, 0);        // and its interrupt off
+    CHECK_EQ(bus.peek(0xC5B0), 0);
+    CHECK_EQ(bus.peek(0xC540), 0);               // the 6510 stopped
+    CHECK_EQ(bus.peek(0xC542), 0);
+    // CLI; LDA #'Z'; JSR ECHO; SEI; JMP WOZMON: runs, rather than living in IRQ and RTI.
+    const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
+    const unsigned echo = label(lbl, "ECHO"), wozmon = label(lbl, "WOZMON");
+    REQUIRE(echo >= 0xC800 && wozmon >= 0xC800);
+    b.run(BOOT, "300: 58 A9 5A 20 " + hex(echo) + " " + hex(echo >> 8) + " 78 4C " + hex(wozmon) + " " +
+                    hex(wozmon >> 8) + "\r");
+    CHECK(has(b.run(BOOT, "300R\r"), "0300: 58Z"));
+}
+
+TEST(break_finds_the_screen_whatever_its_zero_page_says)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "E4: 00\r");                     // VOK: a program said there's no screen
+    b.cpu->nmi();
+    b.run(BOOT);
+    CHECK_EQ(b.machine->bus().peek(0xE4), 0xFF);
+    b.run(BOOT, "C680\r");
+    CHECK(b.find_row("C680: 00") >= 0);
+}
+
+TEST(a_scroll_with_no_dma_controller_gives_up_rather_than_hangs)
+{
+    Board b(false, true, {}, "", {"dma"});
+    REQUIRE(b.ok());
+    b.reset();
+    CHECK_EQ(b.run(BOOT), GREETING);
+    b.run(BOOT, "E3: 1D FF\r");                  // the bottom row, and VOK set by a program
+    CHECK(has(b.run(8 * BOOT, "C680\r"), "C680: 00"));
+}
+
+TEST(break_during_a_burst_limited_scroll_stops_it)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C441: 01\r");                   // a cycle back to the CPU every byte
+    b.run(BOOT, "E3: 1D\r");                     // the cursor on the bottom row
+    Decoder &bus = b.machine->bus();
+    REQUIRE(step_until(b, [&] { return (bus.peek(0xC437) & 1) != 0; }, BOOT, '\r')); // a scroll under way
+    b.cpu->nmi();
+    const unsigned wozmon = label(read_file(EMU_BIOS_ROM ".lbl"), "WOZMON");
+    REQUIRE(step_until(b, [&] { return b.cpu->regs().pc == wozmon; }, BOOT));
+    CHECK_EQ(bus.peek(0xC437) & 1, 0);           // stopped by Break, not left to run
+    CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));
+    CHECK_EQ(b.row(29), std::string("_"));
+    CHECK_EQ(b.row(28), std::string("C680: 00"));
+}
+
+TEST(a_scroll_leaves_the_dma_master_enable_as_it_was)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C441: 70\r");                   // DMA off, as a program may leave it
+    b.run(BOOT, "E3: 1D\r");
+    b.run(BOOT, "C680\r");
+    CHECK_EQ(b.machine->bus().peek(0xC441), 0x70);
+    CHECK_EQ(b.row(29), std::string("_"));
+    CHECK_EQ(b.row(28), std::string("C680: 00"));
+}
+
+TEST(the_demo_runs_with_the_dma_master_enable_off)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C441: 70\r");
+    b.run(20 * FRAME, "C803R\r");
+    REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+    CHECK_EQ(b.machine->bus().peek_physical(0x89000 + 11 * 8 + 6), 0x18); // the sprite table, by DMA
+    CHECK(has(b.run(10 * FRAME, "X"), "\\"));
+    CHECK_EQ(b.machine->bus().peek(0xC441), 0x70);
+}
+
+TEST(c806_stops_a_programs_dma_before_its_fills)
+{
+    const std::string rom = fake_iie_rom("test_dma_iie.rom");
+    Board b(false, true, {rom});
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    b.run(BOOT, "C441: 01\r");                   // a burst limit, so the monitor still runs...
+    b.run(BOOT, "C420: 00 00 02 00 00 00 45 01\r"); // ...beside channel 2 feeding the sound card for ever
+    REQUIRE(b.machine->bus().peek(0xC427) & 1);
+    b.run(4 * BOOT, "C806R\r");
+    CHECK(b.bridge().apple());
+    CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's reset code ran
 }
 
 int main()

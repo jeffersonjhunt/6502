@@ -55,10 +55,16 @@ namespace ooe::emu
                 // Every listener must be able to take it, or none gets it yet.
                 if (apple1)
                     return apple1->key(ascii);
+                bool shift = false;
                 const bool to_serial = serial && serial->listening();
+                // A key with no scan code is no reason to wait for the keyboard.
+                const bool to_keyboard =
+                    keyboard && keyboard->listening() && Ps2Keyboard::scan_code(ascii, shift) != 0;
+                if (to_keyboard && !keyboard->room())
+                    return false; // before the serial line takes it, or a retry would send it twice
                 if (to_serial && !serial->key(ascii))
                     return false;
-                if (keyboard && keyboard->listening())
+                if (to_keyboard)
                     keyboard->key(ascii);
                 return true;
             }

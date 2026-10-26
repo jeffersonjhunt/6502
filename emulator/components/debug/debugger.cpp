@@ -6,6 +6,7 @@
 
 #include "debugger.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -98,6 +99,7 @@ namespace ooe::emu
     std::string Debugger::halt(const std::string &why)
     {
         halted_ = true;
+        stop_pc_ = cpu_.regs().pc;
         return "halted (" + why + ")\n" + status();
     }
 
@@ -107,14 +109,13 @@ namespace ooe::emu
         std::string bytes;
         for (unsigned i = 0; i < d.length; ++i)
             bytes += format("%02X ", bus_.peek(static_cast<uint16_t>(pc + i)));
-        std::string label;
-        if (const std::string *name = symbols_.name_at(pc))
-            label = *name + ": ";
         if (length)
             *length = d.length;
-        char buf[160];
-        std::snprintf(buf, sizeof buf, "%04X  %-9s %s%s\n", pc, bytes.c_str(), label.c_str(), d.text.c_str());
-        return buf;
+        bytes.resize(std::max<size_t>(bytes.size(), 9), ' '); // %-9s; a label of any length follows
+        std::string out = format("%04X  ", pc) + bytes + " ";
+        if (const std::string *name = symbols_.name_at(pc))
+            out += *name + ": ";
+        return out + d.text + "\n";
     }
 
     std::string Debugger::status() const
@@ -142,17 +143,25 @@ namespace ooe::emu
         for (unsigned i = 0; i < count; ++i)
         {
             const uint16_t pc = cpu_.regs().pc;
-            if (i > 0 && breaks_[pc])
+            if (i > 0 && cpu_.state() == Cpu6502::State::Running && breaks_[pc])
             {
                 out += format("break at %04X after %u instruction(s)\n", pc, i);
+                break;
+            }
+            if (i > 0 && i % 4096 == 0 && interrupted_ && interrupted_())
+            {
+                out += format("interrupted after %u instruction(s)\n", i);
                 break;
             }
             if (count <= SHOW_EACH_STEP)
                 out += line_at(pc);
             cpu_.step();
-            if (bus_.irq())
+            if (after_step_)
+                after_step_();
+            else if (bus_.irq())
                 cpu_.irq();
         }
+        stop_pc_ = cpu_.regs().pc;
         return out + status();
     }
 
@@ -250,7 +259,8 @@ namespace ooe::emu
         if (cmd == "r" || cmd == "run")
         {
             halted_ = false;
-            skip_once_ = true;
+            // Halted in WAI or STP, the fetch at PC never stopped it: break there.
+            skip_armed_ = cpu_.state() == Cpu6502::State::Running;
             return "running\n";
         }
         if (cmd == "q" || cmd == "quit")

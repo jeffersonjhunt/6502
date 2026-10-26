@@ -30,7 +30,7 @@ using namespace ooe::emu;
 namespace
 {
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    const std::string GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
 
     std::unique_ptr<Session> open(const std::string &machine = MACHINE)
@@ -240,6 +240,14 @@ TEST(trace_ring_keeps_the_newest_cycles)
     CHECK(fetches > 5);
     CHECK_EQ(s->trace(rows.data(), 3), 3u);                 // fewer than kept: the newest three
     CHECK(rows[2].cycle > s->cycles() - 16);
+
+    std::string error;
+    REQUIRE(s->power_cycle(error));                         // a new machine: none of the old one's cycles
+    s->run(10);
+    const size_t n = s->trace(rows.data(), rows.size());
+    CHECK(n > 0 && n < 64);                                 // still on, and only the new machine's
+    for (size_t i = 0; i < n; ++i)
+        CHECK(rows[i].cycle <= s->cycles());
 }
 
 TEST(start_and_power_cycle)
@@ -453,6 +461,23 @@ TEST(apple_ii_mode_fixes_the_clock_and_the_cards_follow_it)
     s->run(1'020'484);                         // the caller's clock again (7.16 MHz): 8.5 frames,
     const uint64_t after = s->video()->frames() - native;
     CHECK(after == 8 || after == 9);           // not the Apple clock's 60
+}
+
+TEST(start_after_apple_ii_mode_puts_the_cards_back_on_the_callers_clock)
+{
+    auto s = booted();
+    REQUIRE(s != nullptr);
+    s->send("C685: 1\r");
+    for (int i = 0; i < 60 && !s->fixed_hz(); ++i)
+        s->run(FRAME);
+    REQUIRE(s->fixed_hz() == 1'020'484u);
+    s->start();                                // the hard reset: native again, the machine kept
+    s->run(FRAME);
+    CHECK_EQ(s->fixed_hz(), 0u);
+    const uint64_t before = s->video()->frames();
+    s->run(1'020'484);                         // 7.16 MHz time: 8.5 frames, not the Apple clock's 60
+    const uint64_t after = s->video()->frames() - before;
+    CHECK(after == 8 || after == 9);
 }
 
 TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)

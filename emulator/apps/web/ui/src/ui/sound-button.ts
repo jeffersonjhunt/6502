@@ -17,7 +17,7 @@ export function soundButton(speaker: Speaker, available: boolean) {
       "aria-pressed": "false",
       "data-testid": "tb-sound",
       disabled: !available,
-      title: available ? "The machine's sound through your speakers: the sound card, and the speaker ($C030 on the IIe)" : "This machine has no sound to play here",
+      title: available ? "The machine's sound through your speakers: the sound card, and the speaker ($C030 on the IIe). Silent while this tab is in the background" : "This machine has no sound to play here",
     },
     meter,
     "Sound",
@@ -25,6 +25,7 @@ export function soundButton(speaker: Speaker, available: boolean) {
   const show = () => {
     button.classList.toggle("on", speaker.on);
     button.setAttribute("aria-pressed", String(speaker.on));
+    // The setting stays as it was: a failure can be the page going away (a reload while it opened).
     if (speaker.error) button.title = `No sound: ${speaker.error}`;
     button.dataset.played = String(speaker.stats.played);
   };
@@ -43,6 +44,11 @@ export function soundButton(speaker: Speaker, available: boolean) {
     prefs.set("sound", "on");
     return on;
   };
+  /** Off, as the button does: remembered. */
+  const turnOff = () => {
+    speaker.turnOff();
+    prefs.set("sound", "off");
+  };
   /** Turn it on again if it was left on (it plays from the first click or key). */
   const restore = () => {
     if (available && prefs.get("sound") === "on") void speaker.turnOn();
@@ -55,5 +61,5 @@ export function soundButton(speaker: Speaker, available: boolean) {
     button.dataset.played = String(speaker.stats.played);
   };
   show();
-  return { element: button, update, restore, turnOn };
+  return { element: button, update, restore, turnOn, turnOff };
 }

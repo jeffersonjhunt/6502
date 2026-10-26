@@ -63,7 +63,11 @@ same Woz Monitor session in the IBM VGA font: in Colour as the card makes
 it, on P1/P3/P4 as a mono monitor shows it. On Text the keyboard is the
 serial terminal's; on VGA it and the mouse are the USB card's, as HID usage
 codes from the physical keys (the card cooks them in its own US layout, with
-its own Caps Lock, so CAPS is off there). Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
+its own Caps Lock, so CAPS is off there). On Text, a character AltGr makes
+(or Option, on the Mac) is typed as it is. Ctrl+V and Shift+Insert paste
+(Cmd+V on the Mac, where Ctrl+V is the machine's ^V). Tab and Escape are
+the machine's, so F6 takes the keyboard off the screen to what follows it,
+Shift+F6 to what comes before. Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
 palette fade); any key goes back. The Devices tab in the debugger decodes the
 card's registers.
 
@@ -87,6 +91,8 @@ this browser (IndexedDB), with what was written to it, never uploaded. A paste g
 Apple II it is typed on the USB keyboard (US layout; letters as the card's
 Caps Lock has them), and the card holds each character until the machine
 has taken the last, so a BASIC program pasted into Applesoft arrives whole.
+A long one takes a while at that pace: **Stop typing**, beside the status
+while it types, drops the rest.
 **Insert SD card…**, under the drive, puts a card image of your own in the
 mass storage card's slot: whole 512-byte sectors, raw or FAT as a PC
 formats it. `C809R` at the monitor lists the card's root, and `C80CR` boots
@@ -100,7 +106,9 @@ computer's speakers: the sound card's two SIDs, and the USB card's speaker,
 which is the IIe's `$C030` in Apple II mode (Web Audio, at the device's own
 rate; the meter in the button is the level). It is remembered; left on, it plays from
 the first click or key after a reload, as browsers require. Halting the
-machine silences it: the emulator's time is the CPU's. **Play .sid…**
+machine silences it: the emulator's time is the CPU's. So does a
+background tab, where the browser stops the animation frames the machine
+runs on: a tune pauses until the tab is in front again. **Play .sid…**
 beside it puts a C64 tune of your own (PSID or RSID) on the sound card,
 turning Sound on; ◀ ▶ change the song, Stop stops it, and the note says
 what the card can't give a tune (a third SID; an RSID's VIC-II, without

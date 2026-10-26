@@ -23,6 +23,20 @@
  * poll_key() keeps it from the machine. The debugger's prompt reads whole
  * lines in the terminal's original mode, so editing and Ctrl-C work as
  * usual there.
+ *
+ * Input that is not a terminal (a pipe, a file) works too: stdin is only
+ * read when poll() says something is there, so a quiet pipe does not stall
+ * the machine, and keys and debugger lines come from one buffer, so a
+ * script can type, press Ctrl-] and give commands in one stream. Keys
+ * wait in their own queue, apart from the debugger's lines, so a breakpoint
+ * hit with keys still queued does not read them as commands. With 1 MB of
+ * keys queued it stops reading, so a long file waits for the machine
+ * rather than being dropped.
+ *
+ * Ctrl-Z puts the terminal back before the process stops and raw again
+ * when it continues (resumed() tells the run loop to re-base its clock).
+ * restore() is for the app's last resort: signal handlers and a terminate
+ * hook, where no destructor will run.
  */
 
 #include <chrono>
@@ -65,13 +79,23 @@ namespace ooe::emu
         /// Print debugger output.
         void write(const std::string &text);
 
+        /// True once after the process continues from a stop (Ctrl-Z, SIGSTOP).
+        static bool resumed();
+        /// Put the terminal back as it was. Async-signal-safe.
+        static void restore();
+
     private:
         void draw_lcd();
+        /// Read what stdin has into input_; with `wait`, block for it.
+        /// @return false at end of input, or when a signal interrupts the wait
+        bool fill(bool wait);
 
         Console &console_;
         struct termios saved_{};
         bool restore_{false};
-        std::deque<uint8_t> keys_;
+        std::string input_; ///< read but not yet a key, or after a Ctrl-]
+        bool eof_{false};
+        std::deque<uint8_t> keys_; ///< keys the machine has yet to take
         bool last_cr_{false};
         std::vector<std::string> lcd_rows_;
         bool lcd_dirty_{false};

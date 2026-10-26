@@ -6,19 +6,20 @@ import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { FrameState } from "./machine-port";
-import { usageFor } from "../crt/usb-keyboard";
+import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
-const GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
 const FRAME_MS = 1000 / 60;
 const NATIVE_HZ = 7_159_090;
 
 class ManualClock implements Scheduler {
   t = 0;
+  requests = 0;
   /** How far now() moves each time it is read (for the Max loop). */
   tick = 0;
   now(): number {
@@ -27,6 +28,7 @@ class ManualClock implements Scheduler {
     return t;
   }
   request(): number {
+    ++this.requests;
     return 1;
   }
   cancel(): void {}
@@ -40,6 +42,18 @@ beforeAll(() => {
 });
 
 const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
+const hex2 = (n: number) => n.toString(16).toUpperCase().padStart(2, "0");
+
+/** A BIOS label's address, from the bios.rom.lbl embedded in the core (ld65's "al 00C9BA .ECHO"). */
+async function biosLabel(name: string): Promise<number> {
+  const core = (await load()) as unknown as { FS: { readFile(path: string, options: { encoding: "utf8" }): string } };
+  const line = core.FS.readFile("/roms/bios.rom.lbl", { encoding: "utf8" })
+    .split("\n")
+    .map((l) => /^al ([0-9A-F]+) \.(\w+)$/i.exec(l.trim()))
+    .find((r) => r?.[2] === name);
+  expect(line, `no BIOS label ${name}`).toBeTruthy();
+  return parseInt(line![1], 16);
+}
 
 async function open() {
   const clock = new ManualClock();
@@ -110,6 +124,127 @@ describe("WasmPort", () => {
     const slices = Math.round((after - before) / MAX_SLICE);
     expect(slices).toBeGreaterThanOrEqual(MAX_FRAME_BUDGET_MS - 2);
     expect(slices).toBeLessThanOrEqual(MAX_FRAME_BUDGET_MS + 2);
+  });
+
+  test("a set clock the host can't keep up with gets 4/5 of the time, not the whole frame, and the status says how fast it really ran", async () => {
+    const m = await open();
+    let f = m.step(100);
+    for (let i = 0; i < 12; ++i) f = m.step(100); // over a second at full speed: the measured clock is the set one
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    // Each read of the clock "takes" 10 ms, so a 50,000-cycle slice runs at 5 MHz: too slow for 7.16.
+    m.clock.tick = 10;
+    // The page quick between frames: the machine stops at its share, behind the clock, rather than run the whole of each frame's time.
+    for (let i = 0; i < 80; ++i) f = m.step(1); // long enough for the average page time to come down
+    expect(f.hz).toBeGreaterThan(0);
+    expect(f.hz).toBeLessThan(NATIVE_HZ * 0.6);
+    // The page slow between frames (200 ms of drawing): 4/5 of the time is more than the machine needs,
+    // once the average has caught up with it.
+    for (let i = 0; i < 20; ++i) m.step(200);
+    const before = m.step(200).cycles;
+    const after = m.step(200).cycles;
+    expect(after - before).toBeGreaterThanOrEqual(715_909);
+    expect(after - before).toBeLessThan(715_909 + 16);
+  }, 20_000);
+
+  test("a slow host behind vsync settles at one frame rate, not swinging between two", async () => {
+    // Time moves only by the machine's work (a 6 MHz host: too slow for 7.16 MHz) and the page's (3 ms);
+    // frames come on 60 Hz boundaries, as a browser's do. Each frame's own gap as the page's time, it went 3 4 3 4.
+    const clock = new ManualClock();
+    const VSYNC = 1000 / 60;
+    const timed = async (): Promise<CoreModule> => {
+      const core = await load();
+      return {
+        Machine: function () {
+          const m = new core.Machine();
+          return new Proxy(m, {
+            get(target, key) {
+              const v = Reflect.get(target, key) as unknown;
+              if (key === "run")
+                return (n: number) => {
+                  const why = target.run(n);
+                  clock.t += target.lastCycles() / 6_000; // 6,000 cycles a ms
+                  return why;
+                };
+              return typeof v === "function" ? v.bind(target) : v;
+            },
+          });
+        } as unknown as CoreModule["Machine"],
+      };
+    };
+    const port = new WasmPort({ load: timed, scheduler: clock });
+    port.onFrame(() => void (clock.t += 3)); // drawing
+    await port.connect();
+    const starts: number[] = [];
+    for (let i = 0; i < 120; ++i) {
+      clock.t = (Math.floor(clock.t / VSYNC) + 1) * VSYNC; // the next vsync
+      starts.push(clock.t);
+      port.frame();
+    }
+    const gaps = starts.slice(60).map((t, i) => Math.round((t - starts[59 + i]) / VSYNC));
+    expect(new Set(gaps).size, `frames ${gaps.join(" ")} vsyncs apart`).toBe(1);
+    port.close();
+  });
+
+  test("the real speed leaves out a background tab's gap and time halted", async () => {
+    const m = await open();
+    let f = m.step();
+    for (let i = 0; i < 70; ++i) f = m.step(); // over a second
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    m.step(60_000); // a minute in the background: 100 ms run
+    for (let i = 0; i < 70; ++i) f = m.step();
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    m.port.setPanel({ halt: true, busCycle: false });
+    for (let i = 0; i < 120; ++i) f = m.step(); // two seconds halted
+    m.port.setPanel({ halt: false, busCycle: false });
+    m.port.press("cont");
+    for (let i = 0; i < 70; ++i) f = m.step();
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+  });
+
+  test("a host under 10 fps still measures its speed: a long frame is not a background tab", async () => {
+    const m = await open();
+    let f = m.step(250);
+    for (let i = 0; i < 8; ++i) f = m.step(250); // 4 fps: each frame runs its 100 ms cap in 250 ms
+    expect(Math.abs(f.hz - NATIVE_HZ * 0.4) / NATIVE_HZ).toBeLessThan(0.01);
+  });
+
+  test("a listener that throws is reported and the others still hear; the loop goes on", async () => {
+    const m = await open();
+    const heard: number[] = [];
+    const errors: unknown[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    try {
+      m.port.onFrame(() => {
+        throw new Error("a bug in the page");
+      });
+      m.port.onFrame((f) => void heard.push(f.cycles));
+      const asked = m.clock.requests;
+      m.step();
+      m.step();
+      expect(heard.length).toBe(2);
+      expect(m.clock.requests).toBe(asked + 2);
+      expect(errors.length).toBe(1); // once, not once a frame
+    } finally {
+      console.error = error;
+    }
+  });
+
+  test("a core that throws (a wasm abort) stops the loop and says why, once", async () => {
+    const m = await open();
+    m.until(GREETING);
+    const failures: string[] = [];
+    m.port.onFail((why) => failures.push(why));
+    (m.port as unknown as { m: { run: () => number } }).m.run = () => {
+      throw new Error("RuntimeError: unreachable");
+    };
+    const asked = m.clock.requests;
+    m.step();
+    m.step();
+    expect(m.clock.requests).toBe(asked); // not rescheduled
+    expect(failures).toEqual(["RuntimeError: unreachable"]);
+    m.port.sendSerial(ascii("C680\r")); // sends are dropped, as before connect()
+    await expect(m.port.readMemory(0xc680, 1, "cpu")).rejects.toThrow();
   });
 
   test("serial both ways: a monitor command", async () => {
@@ -212,6 +347,23 @@ describe("WasmPort", () => {
     expect(m.until("C592: 40 01 F0 00")).toBe(true);
     type("C591\r");
     expect(m.until("C591: 01")).toBe(true);         // the left button
+  });
+
+  test("a paste typed on the USB keyboard: how much is left, and stopped, what is left is dropped", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.clear();
+    typeText("C680\r".repeat(50), (usage, down) => m.port.sendKey(usage, down));
+    let f = m.step();
+    expect(f.keysQueued).toBeGreaterThan(400);
+    expect(m.until("C680: 00", 120)).toBe(true);
+    f = m.step();
+    expect(f.keysQueued).toBeGreaterThan(0);
+    m.port.stopTyping();
+    expect(m.step().keysQueued).toBe(0);
+    const typed = m.output().split("C680: 00").length;
+    for (let i = 0; i < 60; ++i) m.step();
+    expect(m.output().split("C680: 00").length).toBe(typed); // nothing more comes
   });
 
   test("Apple II mode fixes the clock: the budget follows it, whatever setClock said", async () => {
@@ -429,13 +581,16 @@ describe("WasmPort", () => {
     await expect(m.port.insertSd(new Uint8Array(100), "tiny.img")).rejects.toThrow(/tiny\.img: not an SD card image/);
     expect(await m.port.insertSd(new Uint8Array(64 * 512), "raw.img")).toEqual({ name: "raw.img", sectors: 64, writeProtected: false, changed: false });
     for (let i = 0; i < 4; ++i) m.step(); // 50 ms to start up
-    // WRITE sector 0 of the raw card, $AA throughout, by a CPU loop; back to the monitor.
+    // WRITE sector 0 of the raw card, $AA throughout, by a CPU loop; JMP back to the monitor.
+    const woz = await biosLabel("WOZMON");
     m.clear();
     m.port.sendSerial(ascii("1000: A9 01 8D 8A C3 9C 8B C3 9C 84 C3 9C 86 C3 A9 30 8D 83 C3\r"));
-    m.port.sendSerial(ascii("1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C 80 C8\r1000R\r"));
+    m.port.sendSerial(ascii(`1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C ${hex2(woz & 0xff)} ${hex2(woz >> 8)}\r1000R\r`));
     let lit = false;
     for (let i = 0; i < 30; ++i) lit ||= m.step().sd!.busy; // the command's light, though it's done within a frame
     expect(m.output()).toContain("1000R");
+    expect(m.output().endsWith("\\\r")).toBe(true); // the monitor's prompt...
+    expect(m.output()).not.toContain(GREETING); // ...not a second start-up
     expect(lit).toBe(true);
     expect(m.step().sd).toEqual({ present: true, busy: false, changed: true });
     expect((await m.port.readSdInfo())?.changed).toBe(true);

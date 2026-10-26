@@ -13,7 +13,9 @@ cmake --preset release && cmake --build --preset release
 ```
 
 `--clock HZ` sets the emulated clock (default 1 MHz, real time for an
-Apple-1); `--clock 0` runs as fast as the host allows.
+Apple-1); `--clock 0` runs as fast as the host allows. Ctrl-Z suspends it
+with the terminal put back, as any program. Input can be a pipe or a file
+instead of a terminal: keys, Ctrl-] and debugger lines in one stream.
 
 ## Bring-up tools
 
@@ -21,7 +23,8 @@ Press **Ctrl-]** to stop the machine at a `debug>` prompt (`h` lists the
 commands). They follow the backplane's console panel (`../hw/console.md`):
 `r` run, `s [N]` step, `f ADDR [N]` fetch, `st ADDR BYTE...` store, plus
 `x` registers, `l` disassemble, `b`/`d` breakpoints, `t` trace on/off and
-`q` quit. Addresses take labels.
+`q` quit. Addresses take labels. A step does what running does after each
+instruction (interrupts, resets), and Ctrl-C cuts a long one short.
 
 ```
 make -C ../apple1/src roms            # writes ibasic.rom.lbl beside the ROM
@@ -84,10 +87,10 @@ CGA colours) and starts the Woz Monitor on the 6551; everything the monitor
 prints goes to the screen as well (`--screen FILE` to see it). Its font is
 CC BY-SA 4.0, not MIT: `../backplane/bios/font/README.md`.
 `--apple-rom FILE` plugs your own Apple IIe ROM into the cartridge (ROM B): one
-16 KB file of `$C000-$FFFF`, or the two 8 KB halves as `CD,EF`; `--apple-chars
-FILE` adds its 4 or 8 KB character ROM. `C806R` at the monitor copies the ROM
-into bank E and enters Apple II mode (in progress: docs/EMULATOR_PLAN.md).
-Apple's ROMs are copyrighted: nothing here ships them.
+16 KB file of `$C000-$FFFF`, or the two 8 KB halves as `CD,EF` (or two
+`--apple-rom`s); `--apple-chars FILE` adds its 4 or 8 KB character ROM.
+`C806R` at the monitor copies the ROM into bank E and enters Apple II mode
+(in progress: docs/EMULATOR_PLAN.md). Apple's ROMs are copyrighted: nothing here ships them.
 
 `--sd FILE` puts a card image in the mass storage card's slot, written through
 to the file. `C809R` at the monitor lists the card (a FAT card's root directory),

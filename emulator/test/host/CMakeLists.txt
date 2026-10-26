@@ -83,6 +83,7 @@ emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 emu_add_test(test_backplane)
 emu_add_test(test_bios)
+set_tests_properties(test_bios PROPERTIES TIMEOUT 300) # about 140 s of BIOS runs under ASan
 emu_add_test(test_dma)
 emu_add_test(test_console_card)
 emu_add_test(test_video)
@@ -102,6 +103,8 @@ emu_add_test(test_bios_sd)
 emu_add_test(test_iie)
 set_tests_properties(test_iie PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1200) # minutes of Apple time: boots and disks, under ASan
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+emu_add_test(test_pacing) # the terminal app's arithmetic, header-only
+target_include_directories(test_pacing PRIVATE "${PROJECT_SOURCE_DIR}/apps/emu")
 
 
 # --- Apple-1 ROMs ------------------------------------------------------------
@@ -246,6 +249,9 @@ if(Python3_FOUND)
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_app_eater.py"
                      $<TARGET_FILE:emulator> "${PROJECT_SOURCE_DIR}/machines" "${EATER_ROM_DIR}")
     set_tests_properties(test_app_eater PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME test_fetch_fixtures # a fake download into a scratch directory: never fixtures/
+             COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_fetch_fixtures.py"
+                     "${PROJECT_SOURCE_DIR}/tools/fetch_fixtures.py")
     add_test(NAME test_trace_diff
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")

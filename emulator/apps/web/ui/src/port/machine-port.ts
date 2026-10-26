@@ -244,7 +244,7 @@ export interface FrameState {
   stopped: boolean;
   /** /IRQ is asserted by some device (the panel's IRQ lamp). */
   irq: boolean;
-  /** Emulated speed over the last second or so, in Hz; 0 while not running. */
+  /** Emulated speed over the last second or so of wall time, in Hz: below the clock if the host can't keep up; 0 while not running. */
   hz: number;
   /** The clock the machine's mode fixes (Apple II mode's 1,020,484 Hz), which setClock() cannot change; 0: none. */
   fixedHz: number;
@@ -252,6 +252,8 @@ export interface FrameState {
   apple: boolean;
   /** The sound card's 6510 runs (a tune plays); false without the card. */
   soundRunning: boolean;
+  /** Key changes the USB card holds back, not yet typed (a paste at the keyboard's pace); 0 without the card. */
+  keysQueued: number;
   /** The Disk II card, if the machine has one (the drive light). */
   disk: DiskStatus | null;
   /** The SD card, if the machine has one (its light). */
@@ -328,6 +330,8 @@ export interface MachinePort {
   sendSerial(bytes: Uint8Array): void;
   /** The USB keyboard: a HID usage code (hw/design.md, "USB card registers") pressed or released. */
   sendKey(usage: number, down: boolean): void;
+  /** Stop typing what sendKey queued (a paste): it is dropped, and every key let go. */
+  stopTyping(): void;
   /** The USB mouse: an absolute position (0-639, 0-479), buttons (bit 0 left, 1 right, 2 middle), wheel steps. */
   sendMouse(mouse: MouseInput): void;
 
@@ -402,4 +406,6 @@ export interface MachinePort {
 
   /** Called about once per animation frame. @returns unsubscribe */
   onFrame(listener: (frame: FrameState) => void): () => void;
+  /** The backend died (the core threw): no more frames come. @returns unsubscribe */
+  onFail(listener: (why: string) => void): () => void;
 }

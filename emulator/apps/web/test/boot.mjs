@@ -10,12 +10,13 @@
 import { pathToFileURL } from "node:url";
 
 const FRAME = 119318; // 7.15909 MHz / 60
-const GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
 const failures = [];
 const check = (name, ok, detail = "") => {
   if (!ok) failures.push(detail ? `${name}: ${detail}` : name);
 };
 const show = (s) => JSON.stringify(s.slice(-200));
+const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, "0");
 
 if (process.argv.length !== 3) {
   console.error("usage: node boot.mjs <oo1.mjs>");
@@ -23,6 +24,16 @@ if (process.argv.length !== 3) {
 }
 const { default: createOO1 } = await import(pathToFileURL(process.argv[2]).href);
 const oo1 = await createOO1();
+// The BIOS's labels, embedded beside it (ld65's "al 00C9BA .ECHO"): its code moves.
+const labels = new Map(
+  oo1.FS.readFile("/roms/bios.rom.lbl", { encoding: "utf8" })
+    .split("\n")
+    .map((l) => /^al ([0-9A-F]+) \.(\w+)$/i.exec(l.trim()))
+    .filter(Boolean)
+    .map((r) => [r[2], parseInt(r[1], 16)]),
+);
+const WOZMON = labels.get("WOZMON");
+check("labels: WOZMON", WOZMON !== undefined);
 
 // Opening what is not there says so.
 const bad = new oo1.Machine();
@@ -185,12 +196,18 @@ for (let i = 0; i < 60 && !sdOut.includes(GREETING); ++i) {
   sdOut += sd.takeOutput();
 }
 check("sd: boots", sdOut.includes(GREETING), show(sdOut));
-// WRITE sector 0, $AA throughout, by a CPU loop typed at the monitor (as e2e/sd.spec.ts does).
+// WRITE sector 0, $AA throughout, by a CPU loop typed at the monitor (as e2e/sd.spec.ts does),
+// then JMP back to the monitor.
 sd.send("1000: A9 01 8D 8A C3 9C 8B C3 9C 84 C3 9C 86 C3 A9 30 8D 83 C3\r");
-sd.send("1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C 80 C8\r");
+sd.send(`1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C ${hex2(WOZMON & 0xff)} ${hex2(WOZMON >> 8)}\r`);
 sd.send("1000R\r");
-for (let i = 0; i < 120 && !(sd.sdInfo() & 1); ++i) sd.run(FRAME);
+sdOut = "";
+for (let i = 0; i < 120 && !(sd.sdInfo() & 1 && sdOut.endsWith("\\\r")); ++i) {
+  sd.run(FRAME);
+  sdOut += sd.takeOutput();
+}
 check("sd: written to", (sd.sdInfo() & 1) === 1, String(sd.sdInfo()));
+check("sd: back at the monitor, not started again", sdOut.includes("1000R") && sdOut.endsWith("\\\r") && !sdOut.includes(GREETING), show(sdOut));
 const slice = Uint8Array.prototype.slice;
 Uint8Array.prototype.slice = () => { throw new RangeError("out of memory"); };
 let threw = false;

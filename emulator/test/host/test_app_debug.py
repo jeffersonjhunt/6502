@@ -11,8 +11,10 @@ images on the bus, ROM included; STP stops into the debugger; so does a
 Console card's HALT set by the program, and `r` releases it; --trace
 writes a well-formed trace that tools/trace_diff.py agrees with, and
 disagrees with once a byte is changed; --screen saves the video card's
-frame as a PPM, and fails on a machine without one. Bad --load and
---break arguments stop the app before the terminal goes raw.
+frame as a PPM, and fails on a machine without one; leaving Apple II mode
+by a hard reset paces at --clock again. Bad --load and --break arguments,
+an option missing its value or given twice, stop the app before the
+terminal goes raw.
 
 The pty helpers are test_app_tty.py's, loaded by path (python -I does not
 put this directory on sys.path).
@@ -20,10 +22,12 @@ put this directory on sys.path).
 
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import termios
+import time
 
 SKIP = 77
 LFLAG = 3
@@ -208,6 +212,38 @@ def main():
         check(failures, "screen without a video card", rc == 1 and b"has no video card" in s.log and not lost,
               f"rc={rc} {text(s.log)}")
 
+        # Apple II mode paces at its own clock; a hard reset leaves it, and
+        # pacing (and the cards) go back to --clock, not stay at 1.02 MHz.
+        apple = os.path.join(cwd, "apple.machine")
+        with open(apple, "w") as f:
+            f.write("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
+                    "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n")
+        write_hex(hexfile, [(0x0300, [0xA9, 0x01, 0x8D, 0x85, 0xC6,   # LDA #$01; STA MODE: Apple II mode
+                                      0x4C, 0x05, 0x03])])           # JMP *
+        s = Session(binary, ["--machine", apple, "--clock", "10000", "--load", hexfile, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        s.send(b"x pc=0300\n")
+        s.send(b"r\n", until=b"running")
+        s.expect(b"\0", timeout=0.3)  # in Apple II mode, at 1.02 MHz
+        s.send(b"\x1d")
+        s.send(b"reset\n")
+        out = s.send(b"x pc=0305\n")
+
+        def cycles(text):
+            found = re.findall(rb"cycles=(\d+)", text)
+            return int(found[-1]) if found else None
+
+        before = cycles(out)
+        s.send(b"r\n", until=b"running")
+        s.expect(b"\0", timeout=1.0)
+        after = cycles(s.send(b"\x1d"))
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        ran = after - before if before is not None and after is not None else None
+        check(failures, "apple mode left: paced at --clock again", ran is not None and ran < 100_000,
+              f"{ran} cycles in about a second at --clock 10000 {text(s.log)}")
+        check(failures, "apple session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
+
         # --trace: header, reset sequence, one line per cycle; trace_diff agrees
         # with itself and finds a changed byte.
         trace = os.path.join(cwd, "run.trace")
@@ -239,12 +275,37 @@ def main():
         rc, out = diff("--symbols", lbl, trace, changed)
         check(failures, "trace_diff: changed byte", rc == 1 and "data D8 vs EA" in out and "RESET" in out, out)
 
+        # Ctrl-C during a long step ends the step, not the app.
+        s = Session(binary, ["--halt", rom], cwd)
+        s.expect(PROMPT)
+        os.write(s.master, b"s 1000000000\n")
+        time.sleep(0.5)  # well into the step, the terminal raw again
+        out = s.send(b"\x03")
+        check(failures, "ctrl-c in a step: not cut short", b"interrupted after" in out and PROMPT in out, text(out))
+        out = s.send(b"f FF00 4\n")
+        check(failures, "ctrl-c in a step: the prompt is gone", b"FF00  D8 58 A0 7F" in out, text(out))
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "ctrl-c in a step: exit", rc == 0 and not lost, f"rc={rc} lost={lost} {text(s.log)}")
+
         # Bad arguments stop the app before the terminal is touched.
+        half = os.path.join(cwd, "half.rom")
+        with open(half, "wb") as f:
+            f.write(bytes(0x1000))
+        backplane = os.path.join(machines, "backplane.machine")
         for args, needle in ((["--load", raw, rom], "needs a hex load address"),
                              (["--load", os.path.join(cwd, "none.hex"), rom], "none.hex: cannot open"),
                              (["--load", hexfile + "@0300", rom], "drop the @ADDR"),
                              (["--symbols", raw, rom], "data.bin:1:"),
-                             (["--break", "NOPE", rom], "--break NOPE")):
+                             (["--break", "NOPE", rom], "--break NOPE"),
+                             (["--load", raw + "@", rom], "needs a hex load address"),
+                             (["--load", raw + "@0x300", rom], "needs a hex load address"),
+                             (["--load", "--halt", rom], "--load needs a value"),
+                             (["--clock", "1000", "--clock", "2000", rom], "--clock given twice"),
+                             (["--machine", machine, "--machine", machine, rom], "--machine given twice"),
+                             ([rom, rom], "rom given twice"),
+                             # --apple-rom adds up: two 4 KB parts make 8 KB, not "given twice"
+                             (["--machine", backplane, "--apple-rom", half, "--apple-rom", half, rom], "got 8192 bytes")):
             s = Session(binary, args, cwd)
             rc, lost = s.close()
             check(failures, f"{' '.join(args[:2])}: refused", rc not in (None, 0) and needle in text(s.log),

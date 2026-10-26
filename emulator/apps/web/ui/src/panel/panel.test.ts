@@ -142,5 +142,6 @@ function base() {
     video: null,
     audio: null,
     soundRunning: false,
+    keysQueued: 0,
   };
 }

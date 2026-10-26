@@ -47,7 +47,26 @@ namespace ooe::emu
         now_ = 0;
     }
 
-    uint8_t UsbCard::cooked(uint8_t usage, uint8_t mods, bool caps)
+    void UsbCard::bus_reset()
+    {
+        // What the CPU programs; the host side (keys held, Caps Lock, the queue, the mouse's
+        // position, paddles and buttons) is the RP2350's and the keyboard's, and runs on.
+        leds_ = kbcfg_ = 0;
+        repeat_ = 0x10;
+        fifo_head_ = fifo_count_ = 0;
+        mctrl_ = 0;
+        max_x_ = 639;
+        max_y_ = 479;
+        pos_x_ = clamp(pos_x_, max_x_);
+        pos_y_ = clamp(pos_y_, max_y_);
+        sum_x_ = sum_y_ = sum_wheel_ = 0;
+        latch_x_ = latch_y_ = 0;
+        latch_wheel_ = 0;
+        triggered_ = false;
+        ien_ = isr_ = 0;
+    }
+
+    int UsbCard::cooked(uint8_t usage, uint8_t mods, bool caps)
     {
         const bool shift = mods & (L_SHIFT | R_SHIFT), ctrl = mods & (L_CTRL | R_CTRL);
         uint8_t c = 0;
@@ -79,7 +98,7 @@ namespace ooe::emu
             case 0x57: return '+';
             case 0x58: return '\r';
             case 0x63: return '.';
-            default: return 0;
+            default: return NO_CHAR;
             }
         }
         if (ctrl && c >= 0x40 && c < 0x60)
@@ -91,11 +110,11 @@ namespace ooe::emu
 
     void UsbCard::push_event(uint8_t usage, uint8_t flags)
     {
+        isr_ |= IRQ_KEY; // an event, whether the FIFO has room for it or not
         if (fifo_count_ + 2 > FIFO_BYTES)
             return; // full: the event is dropped whole
         fifo_[(fifo_head_ + fifo_count_++) % FIFO_BYTES] = usage;
         fifo_[(fifo_head_ + fifo_count_++) % FIFO_BYTES] = flags;
-        isr_ |= IRQ_KEY;
     }
 
     uint8_t UsbCard::pop_event()
@@ -112,6 +131,7 @@ namespace ooe::emu
     {
         key_ = static_cast<uint8_t>(ascii | STROBE);
         strobed_at_ = now_;
+        isr_ |= IRQ_KEY; // a repeat too: KEY has a new character
     }
 
     bool UsbCard::waiting_to_be_taken() const
@@ -121,7 +141,7 @@ namespace ooe::emu
             return false;
         if (usage == DELETE && (mods_ & (L_CTRL | R_CTRL)))
             return false; // Ctrl-Reset makes no character: never held back
-        return cooked(usage, mods_, caps_) != 0;
+        return cooked(usage, mods_, caps_) != NO_CHAR;
     }
 
     void UsbCard::key(uint8_t usage, bool down)
@@ -154,9 +174,9 @@ namespace ooe::emu
             reset_ = true; // Ctrl-Reset: no character
             return;
         }
-        if (const uint8_t c = cooked(usage, mods_, caps_))
+        if (const int c = cooked(usage, mods_, caps_); c != NO_CHAR) // Ctrl-@ is NUL, a character
         {
-            strobe(c);
+            strobe(static_cast<uint8_t>(c));
             held_ = usage;
             next_repeat_ = now_ + ms(250 * (((repeat_ >> 4) & 3) + 1));
         }
@@ -171,6 +191,14 @@ namespace ooe::emu
             return;
         }
         pending_.emplace_back(usage, down);
+    }
+
+    void UsbCard::drop_queue()
+    {
+        pending_.clear();
+        for (unsigned u = 0; u < down_.size(); ++u)
+            if (down_[u])
+                key(static_cast<uint8_t>(u), false); // a release queued behind the rest would be lost with it
     }
 
     bool UsbCard::take_reset()
@@ -258,7 +286,8 @@ namespace ooe::emu
         }
         if (held_ && down_[held_] && now_ >= next_repeat_)
         {
-            strobe(cooked(held_, mods_, caps_));
+            if (const int c = cooked(held_, mods_, caps_); c != NO_CHAR)
+                strobe(static_cast<uint8_t>(c));
             const uint64_t period = ms(33 * ((repeat_ & 0x0F) + 1));
             next_repeat_ += period;
             if (next_repeat_ <= now_) // a long tick: no burst of repeats, just the next one
@@ -485,16 +514,18 @@ namespace ooe::emu
             mctrl_ = data & ABSOLUTE;
             break;
         case MAXX:
-            max_x_ = static_cast<uint16_t>((max_x_ & 0xFF00) | data);
+            max_x_ = static_cast<uint16_t>((max_x_ & 0xFF00) | data); // half a limit: wait for the high byte
             break;
         case MAXX + 1:
             max_x_ = static_cast<uint16_t>((max_x_ & 0xFF) | data << 8);
+            pos_x_ = clamp(pos_x_, max_x_); // the new limit holds the pointer at once
             break;
         case MAXY:
             max_y_ = static_cast<uint16_t>((max_y_ & 0xFF00) | data);
             break;
         case MAXY + 1:
             max_y_ = static_cast<uint16_t>((max_y_ & 0xFF) | data << 8);
+            pos_y_ = clamp(pos_y_, max_y_);
             break;
         case PTRIG:
             trigger_ = now_;

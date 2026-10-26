@@ -42,6 +42,7 @@
 
 #include <bitset>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -71,23 +72,36 @@ namespace ooe::emu
         bool halted() const { return halted_; }
         bool quit() const { return quit_; }
 
-        /// For the run loop, before each instruction: true if PC is a
-        /// breakpoint, in which case the debugger is now halted. The first
-        /// instruction after a resume never breaks, or `run` from a
-        /// breakpoint would stop again where it is.
+        /// For the run loop, before each step: true if the CPU is about to
+        /// fetch an opcode at a breakpoint, in which case the debugger is
+        /// now halted. Not while it idles in WAI or STP, or a breakpoint
+        /// after one would stop every cycle. The first instruction after a
+        /// resume does not break where it halted, or `run` from a breakpoint
+        /// would stop again where it is; moved elsewhere (PC=, a step), or
+        /// halted in WAI (the fetch after it never stopped), it does.
         bool check(uint16_t pc)
         {
-            if (skip_once_)
-            {
-                skip_once_ = false;
+            if (cpu_.state() != Cpu6502::State::Running)
                 return false;
+            if (skip_armed_)
+            {
+                skip_armed_ = false;
+                if (pc == stop_pc_)
+                    return false;
             }
             if (!breaks_[pc])
                 return false;
             halted_ = true;
+            stop_pc_ = pc;
             return true;
         }
         bool any_breakpoints() const { return breaks_.any(); }
+
+        /// What the run loop does after each instruction (IRQ, NMI, resets),
+        /// so a step does the same; without it, a step only samples IRQ.
+        void on_step(std::function<void()> f) { after_step_ = std::move(f); }
+        /// Polled during a long step: true (Ctrl-C) cuts it short.
+        void on_interrupt(std::function<bool()> f) { interrupted_ = std::move(f); }
 
         /// Registers, flags and the next instruction.
         std::string status() const;
@@ -111,6 +125,9 @@ namespace ooe::emu
         std::bitset<65536> breaks_;
         bool halted_{false};
         bool quit_{false};
-        bool skip_once_{false};
+        bool skip_armed_{false}; ///< resumed: don't break at stop_pc_ first
+        uint16_t stop_pc_{0};     ///< where it last halted or stepped to
+        std::function<void()> after_step_;
+        std::function<bool()> interrupted_;
     };
 } // namespace ooe::emu
