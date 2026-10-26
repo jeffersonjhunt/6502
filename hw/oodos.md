@@ -36,6 +36,9 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
 
 - **Date stamps:** two per file (creation or access, and update), each 2 bytes of days from 1 January 1978, then the
   hour and minute in BCD. The directory label chooses which are kept, as in CP/M 3.
+- **Decided (2026-10-26): creation and update stamps.** OODOS drives have the directory label's mode byte (entry
+  0, byte 12) at 0x31: a label, creation stamps, update stamps; no access stamps, no passwords. INITDIR's default
+  is the same. `mkfs.cpm -t` writes 0x11 (creation only), so a drive made on Linux has the byte set after it.
 - **Directory hashing** is CP/M 3's, kept in memory only (the DPH's HASH table, 4 bytes an entry). It never
   touches the disk, so it costs interoperability nothing. With 1 MB it's on for every drive.
 - **cpmtools.** The repo carries [`oodos/diskdefs`](../oodos/diskdefs) with OODOS's formats, so a card is made on
@@ -43,6 +46,7 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
 
   ```
   mkfs.cpm -f oodos-8m -t -L OODOS A.IMG
+  printf '\061' | dd of=A.IMG bs=1 seek=12 conv=notrunc
   cpmcp -f oodos-8m A.IMG HELLO.TXT 0:
   cpmls -f oodos-8m -F A.IMG
   ```
@@ -60,8 +64,9 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
   system.
 - `apple-do` is a CP/M 2.2 format. CP/M 3 reads and writes those; they just have no date stamps.
 - **Checked with cpmtools 2.23** ([oodos/test/check_diskdefs.sh](../oodos/test/check_diskdefs.sh)): `mkfs.cpm -t`
-  writes a directory label and an SFCB in every fourth entry, `cpmcp` stamps what it writes, `cpmls -F` reads the
-  stamps back, and `fsck.cpm` passes, for all three formats. The other direction, OODOS writing and cpmtools
+  writes a directory label and an SFCB in every fourth entry; with the label's mode set to 0x31, `cpmcp` stamps
+  what it writes (creation and update), `cpmls -F` reads the stamps back, and `fsck.cpm` passes, for all three
+  formats. The other direction, OODOS writing and cpmtools
   checking, waits for the BDOS (phase 1's interoperability tests).
 
 

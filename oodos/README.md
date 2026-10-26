@@ -16,6 +16,7 @@ An OODOS drive is an image file on the SD card's FAT volume. cpmtools makes and 
 ```
 cd oodos
 mkfs.cpm -f oodos-8m -t -L OODOS A.IMG      # -t: date stamps, as OODOS keeps them
+printf '\061' | dd of=A.IMG bs=1 seek=12 conv=notrunc   # label mode 0x31: creation and update stamps
 cpmcp -f oodos-8m A.IMG HELLO.TXT 0:        # copy in, user 0
 cpmls -f oodos-8m -F A.IMG                  # the directory with its stamps, as DIR [FULL]
 cpmcp -f oodos-8m A.IMG 0:HELLO.TXT .       # copy out
@@ -30,13 +31,14 @@ fsck.cpm -f oodos-8m -n A.IMG               # check, changing nothing
 | `apple-do` | 140 KB | Apple CP/M disks (the SoftCard's), cpmtools's own |
 
 Make drives with `-t`. Without it there are no SFCBs, so no date stamps, and OODOS's INITDIR would have to add
-them.
+them. `-t` alone keeps creation stamps only (the directory label's mode byte, entry 0's byte 12, is 0x11);
+OODOS's drives keep creation and update stamps, 0x31, so set it after `mkfs.cpm` as above.
 
 
 ## Checking the formats ##
 
-`test/check_diskdefs.sh` makes each format with date stamps, checks the directory label and an SFCB in every
-fourth entry, copies files in and out (users 0 and 3), checks the stamps cpmtools wrote, and runs `fsck.cpm`. It
+`test/check_diskdefs.sh` makes each format with date stamps, sets and checks the label's mode (0x31), checks
+the directory label and an SFCB in every fourth entry, copies files in and out (users 0 and 3), checks the stamps cpmtools wrote, and runs `fsck.cpm`. It
 installs cpmtools, so run it in a throwaway container:
 
 ```

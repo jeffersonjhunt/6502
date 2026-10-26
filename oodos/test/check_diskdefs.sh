@@ -25,6 +25,9 @@ head -c 20000 /dev/urandom >"$work/big.bin"
 for fmt in oodos-8m oodos-32m oodos-ram; do
   img="$work/$fmt.img"
   mkfs.cpm -f "$fmt" -t -L OODOS "$img" || fail "$fmt: mkfs.cpm"
+  # mkfs.cpm -t keeps creation stamps only (mode 0x11); OODOS keeps creation
+  # and update (0x31), as its INITDIR does.
+  printf '\061' | dd of="$img" bs=1 seek=12 conv=notrunc 2>/dev/null || fail "$fmt: label mode"
   ok "$fmt: made with time stamps"
 
   # The directory starts at sector 0 (no boot tracks). Entry 0 is the label
@@ -32,7 +35,8 @@ for fmt in oodos-8m oodos-32m oodos-ram; do
   [ "$(dirbyte "$img" 0 0)" = 32 ] || fail "$fmt: entry 0 is not a directory label"
   [ "$(dirbyte "$img" 0 96)" = 33 ] || fail "$fmt: entry 3 is not an SFCB"
   [ "$(dirbyte "$img" 0 224)" = 33 ] || fail "$fmt: entry 7 is not an SFCB"
-  ok "$fmt: a label and an SFCB every fourth entry"
+  [ "$(dirbyte "$img" 0 12)" = 49 ] || fail "$fmt: the label's mode is not 0x31"
+  ok "$fmt: a label (creation and update stamps) and an SFCB every fourth entry"
 
   cpmcp -f "$fmt" "$img" "$work/hello.txt" 0:HELLO.TXT || fail "$fmt: cpmcp in"
   cpmcp -f "$fmt" "$img" "$work/big.bin" 3:BIG.BIN || fail "$fmt: cpmcp in, user 3"
