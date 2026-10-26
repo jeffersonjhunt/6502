@@ -62,6 +62,8 @@ test("paste chords are the browser's: Ctrl+V, Ctrl+Shift+V, Shift+Insert; Cmd+V 
   expect(isPaste(key("v", { code: "KeyV", ctrlKey: true }), false)).toBe(true);
   expect(isPaste(key("V", { code: "KeyV", ctrlKey: true, shiftKey: true }), false)).toBe(true);
   expect(isPaste(key("м", { code: "KeyV", ctrlKey: true }), false)).toBe(true); // a Russian layout: the V key
+  expect(isPaste(key("k", { code: "KeyV", ctrlKey: true }), false)).toBe(false); // Dvorak: Ctrl+K is the machine's
+  expect(isPaste(key("v", { code: "Period", ctrlKey: true }), false)).toBe(true); // Dvorak's V
   expect(isPaste(key("Insert", { code: "Insert", shiftKey: true }), false)).toBe(true);
   expect(isPaste(key("Insert", { code: "Insert", shiftKey: true }), true)).toBe(true);
   expect(isPaste(key("v", { code: "KeyV", ctrlKey: true }), true)).toBe(false);

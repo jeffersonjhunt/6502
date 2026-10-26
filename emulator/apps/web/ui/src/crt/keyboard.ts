@@ -40,11 +40,15 @@ export function keyBytes(e: KeyLike, caps: boolean, mac = IS_MAC): Uint8Array | 
   return Uint8Array.of(c);
 }
 
-/** Ctrl+V, Ctrl+Shift+V or Shift+Insert: the browser's paste, so the page gets the text (Cmd+V on the Mac is anyway). */
+/**
+ * Ctrl+V, Ctrl+Shift+V or Shift+Insert: the browser's paste, so the page gets the text (Cmd+V on the Mac is anyway).
+ * The V key's code only where the layout's letter isn't Latin (Russian): on Dvorak it is K, and Ctrl+K is the machine's.
+ */
 export function isPaste(e: KeyLike, mac = IS_MAC): boolean {
   if (e.altKey || e.metaKey) return false;
   if (e.key === "Insert") return !!e.shiftKey && !e.ctrlKey;
-  return !mac && e.ctrlKey && (e.code === "KeyV" || e.key.toLowerCase() === "v");
+  const k = e.key.toLowerCase();
+  return !mac && e.ctrlKey && (k === "v" || (e.code === "KeyV" && !/^[a-z]$/.test(k)));
 }
 
 /**
