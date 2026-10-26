@@ -67,6 +67,24 @@ describe("the drive", () => {
     expect(shown(bar.element)).toEqual(["disk-insert"]);
   });
 
+  test("a file too big to be a disk is not read; one that can't be read says so", async () => {
+    const { port, store, bar } = make();
+    const input = $(bar.element, "disk-file") as HTMLInputElement;
+    const choose = async (file: object) => {
+      Object.defineProperty(input, "files", { configurable: true, value: [file] });
+      input.dispatchEvent(new Event("change"));
+      await flush();
+    };
+    let reads = 0;
+    await choose({ name: "movie.dsk", size: 2 ** 31, arrayBuffer: async () => (++reads, new ArrayBuffer(0)) });
+    expect(reads).toBe(0);
+    expect($(bar.element, "disk-note").textContent).toBe("movie.dsk: over 16 MB, too big for a 5.25-inch disk");
+    await choose({ name: "gone.woz", size: 1000, arrayBuffer: async () => Promise.reject(new Error("the file could not be read")) });
+    expect($(bar.element, "disk-note").textContent).toBe("gone.woz: the file could not be read");
+    expect(port.callsTo("insertDisk")).toEqual([]);
+    expect(await store.get(0)).toBeNull();
+  });
+
   test("write-protect is the disk's, and kept with it", async () => {
     const { port, store, bar } = make();
     await pick(bar.element, "a.dsk", new Uint8Array(4));

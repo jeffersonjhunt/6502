@@ -11,7 +11,7 @@
  */
 
 import type { Cartridge, FrameState, MachinePort } from "../port/machine-port";
-import { forgetCartridge, keepCartridge, keptCartridge, sortRoms } from "./cartridge";
+import { forgetCartridge, keepCartridge, keptCartridge, MAX_ROM_FILE, noRom, sortRoms, type RomFile } from "./cartridge";
 import { h } from "./dom";
 
 const L_CTRL = 0xe0;
@@ -100,9 +100,19 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
 
   insert.addEventListener("click", () => picker.click());
   picker.addEventListener("change", async () => {
-    const files = await Promise.all(Array.from(picker.files ?? [], async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
+    const picked = Array.from(picker.files ?? []);
     picker.value = ""; // the same files again is a change too
-    if (!files.length) return;
+    if (!picked.length) return;
+    const big = picked.find((f) => f.size > MAX_ROM_FILE);
+    if (big) return void say(noRom(big.name, big.size));
+    const files: RomFile[] = [];
+    for (const f of picked) {
+      try {
+        files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+      } catch (err) {
+        return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     const c = sortRoms(files, current);
     if (typeof c === "string") return void say(c);
     if (!(await plug(c))) return;
