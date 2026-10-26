@@ -104,7 +104,9 @@ computer's speakers: the sound card's two SIDs, and the USB card's speaker,
 which is the IIe's `$C030` in Apple II mode (Web Audio, at the device's own
 rate; the meter in the button is the level). It is remembered; left on, it plays from
 the first click or key after a reload, as browsers require. Halting the
-machine silences it: the emulator's time is the CPU's. **Play .sid…**
+machine silences it: the emulator's time is the CPU's. So does a
+background tab, where the browser stops the animation frames the machine
+runs on: a tune pauses until the tab is in front again. **Play .sid…**
 beside it puts a C64 tune of your own (PSID or RSID) on the sound card,
 turning Sound on; ◀ ▶ change the song, Stop stops it, and the note says
 what the card can't give a tune (a third SID; an RSID's VIC-II, without
