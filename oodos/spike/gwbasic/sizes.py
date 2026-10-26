@@ -188,27 +188,31 @@ SKIP = {"PUBLIC", "EXTRN", "ASSUME", "SUBTTL", "TITLE", "PAGE", "INCLUDE", ".XLI
 
 def arith(text):
     """An expression of integers, + - * / (as //) and parentheses, or None.
-    The source is downloaded data, so no eval(): anything else is refused."""
-    try:
-        tree = ast.parse(text.replace("/", "//"), mode="eval")
-    except SyntaxError:
+    The source is downloaded data, so no eval(): anything else is refused, as
+    are more than 1,000 characters and any value, on the way or at the end,
+    of 2^32 or more either way."""
+    if len(text) > 1000:
         return None
     ops = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b, ast.Mult: lambda a, b: a * b,
            ast.FloorDiv: lambda a, b: a // b}
 
     def ev(n):
         if isinstance(n, ast.Constant) and type(n.value) is int:
-            return n.value
-        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.USub, ast.UAdd)):
+            v = n.value
+        elif isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.USub, ast.UAdd)):
             v = ev(n.operand)
-            return -v if isinstance(n.op, ast.USub) else v
-        if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.left), ev(n.right))
-        raise ValueError(ast.dump(n))
+            v = -v if isinstance(n.op, ast.USub) else v
+        elif isinstance(n, ast.BinOp) and type(n.op) in ops:
+            v = ops[type(n.op)](ev(n.left), ev(n.right))
+        else:
+            raise ValueError(ast.dump(n))
+        if abs(v) >= 2 ** 32:
+            raise ValueError(v)
+        return v
 
     try:
-        return ev(tree.body)
-    except (ValueError, ZeroDivisionError, RecursionError):
+        return ev(ast.parse(text.replace("/", "//"), mode="eval").body)
+    except (SyntaxError, ValueError, ZeroDivisionError, MemoryError, RecursionError):
         return None
 
 
