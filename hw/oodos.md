@@ -321,15 +321,16 @@ breaking them.
 
 ## Apple II disks ##
 
-**Proposed: two jobs.**
+**Decided (2026-10-26): two jobs, in this order.** The details are proposed.
 
-1. **Apple CP/M disks as OODOS drives,** in cpmtools's `apple-do` format (the SoftCard's):
+1. **First, Apple CP/M disks as OODOS drives,** in cpmtools's `apple-do` format (the SoftCard's):
    - **as images on the SD card**, `.dsk` files mounted as units: two 256-byte sectors to an SD sector;
    - **in the real drive,** through the Disk II card in native mode: a 6502 driver for the address and data fields
      (6-and-2 GCR), stepping with the phases, and writing with the 224-cycle loop in design.md, with interrupts
      and DMA off while it writes. The motor goes off a second after the last access, timed by the RTC's tick.
-2. **DOS 3.3 and ProDOS disks:** an exchange utility, like the SoftCard's APDOS, that lists such a disk and copies
-   files between it and an OODOS drive. Not a drive format.
+2. **Then DOS 3.3 disks:** an exchange utility, like the SoftCard's APDOS, that lists such a disk and copies
+   files between it and an OODOS drive. Not a drive format. ProDOS disks could follow in the same utility; that
+   isn't decided.
 
 **First, in the emulator:** the Disk II card in native mode, which it doesn't do yet (its backlog). The driver is
 tested against it with our own disk images.
@@ -397,7 +398,7 @@ Each phase is its own branch.
 4. **The CCP and utilities:** the built-in commands; DIR, TYPE, ERA, REN, PIP, SUBMIT, DATE, INITDIR, SET, SHOW,
    DEVICE.
 5. **RSXs:** the loader, chaining, GENCOM; GET, PUT and SUBMIT as RSXs.
-6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3 and ProDOS
+6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3
    exchange utility.
 7. **GW-BASIC.**
 8. **The website:** an OODOS card in the WebUI with OODOS, GW-BASIC and demo programs, all ours or MIT.
@@ -405,5 +406,4 @@ Each phase is its own branch.
 
 ## Open Questions ##
 
-1. **Apple disks:** CP/M disks first and the DOS 3.3/ProDOS utility later, or both at once?
-2. **BDOS numbers:** CP/M-86's 51–58 for memory, and 72 onwards for OODOS's own, as proposed above?
+1. **BDOS numbers:** CP/M-86's 51–58 for memory, and 72 onwards for OODOS's own, as proposed above?
