@@ -5,14 +5,15 @@ MIT) into 6502, measure it against the 8086 original, and decide whether at leas
 programs** with the interpreter split between the TPA (`$0300–$BFFF`) and banked 12 KB pages in W3 reached by
 FARCALL.
 
-**Answer: yes, with a thin margin that the port has to make.** The translation is 1.20 times the 8086's size.
-Scaled to the whole released source that is 48.9 KB of 6502 code plus 4.3 KB of tables. The code every
-statement and operator runs (the statement loop, the formula evaluator, variables, strings, FOR/NEXT, single
-precision and integer arithmetic) comes to about 10,000 bytes resident, which leaves **about 34,300 bytes free
-(33.5 KB)**. In the pessimistic case (the worst measured ratio for all non-math code, and GW-BASIC's full PC RAM)
-it is 32,681, 87 bytes short, which moving GW-BASIC's file and device buffers out of the TPA puts right.
-Everything else (output formatting, input, editing, files, graphics, sound, the screen editor, the OO-1's own
-drivers) goes in 7 or 8 banked pages. Loops of ordinary statements make no far calls.
+**Answer: yes, with a thin margin that the port has to make.** The translation is 1.20 times the 8086's size. Scaled
+to the whole released source that is 48.9 KB of 6502 code plus 4.3 KB of tables. The code every statement and
+operator runs (the statement loop, the formula evaluator, variables, strings, FOR/NEXT, single precision and integer
+arithmetic, the common string functions and INKEY$) comes to about 10,080 bytes resident, which leaves **about
+34,200 bytes free (33.4 KB)**. In the pessimistic case (the worst measured ratio for all non-math code, and
+GW-BASIC's full PC RAM) it is 32,599, 169 bytes short, which moving GW-BASIC's file and device buffers out of the
+TPA puts right. Everything else (output formatting, input, editing, files, graphics, sound, the screen editor, the
+OO-1's own drivers) goes in 7 or 8 banked pages. A loop of LET, IF, GOTO, FOR/NEXT, single and integer arithmetic
+and string functions makes no far calls; PRINT, INPUT, double precision and graphics statements make one each time.
 
 KB here is 1,024 bytes; the TPA, $0300–$BFFF, is 48,384 bytes (47.25 KB), and the minimum is 32,768.
 
@@ -95,15 +96,15 @@ release.
 | Variables and arrays, PTRGET (BIPTRG) | 884 | 1,122 |
 | String space, temporaries, garbage collection, concatenation (BISTRS) | 737 | 935 |
 | Single precision and integer arithmetic, compares, conversions, INT/FIX/ABS/SGN | 2,295 | 2,672 |
-| LEN ASC CHR$ LEFT$ RIGHT$ MID$ (a far call would add an estimated 15–25% to them in a loop) | 486 | 617 |
+| LEN ASC CHR$ LEFT$ RIGHT$ MID$ INSTR (BISTRS) and INKEY$ (GIOKYB): a far call would add an estimated 15–25% to them in a loop, and a game polls INKEY$ every pass | 546 | 693 |
 | Statement, function and operator tables, with a bank byte per entry (estimate) | | 400 |
 | Console output and Ctrl-C polling (OEM, new; estimate) | | 500 |
 | The BASIC stack runtime and the far-call dispatch | | 200 |
-| **Resident code** | | **9,999** (high 10,467) |
+| **Resident code** | | **10,075** (high 10,549) |
 
 The first five rows are `sizes.py`'s "resident candidates" (8,282 bytes, high 8,704; each row the sum of its
 files' lines there, at the unrounded ratios 1.164 and 1.269), whole sections of the source, so they include some
-cold code (RUN, for one) that shares them.
+cold code (RUN, for one) that shares them. The sixth is its "resident functions" (high 745).
 
 **Fixed RAM in the TPA.** GW-BASIC declares 2.0 KB of variables and buffers (GWRAM and the data segments, as
 `sizes.py` sums them); with the BASIC stack (0.5 KB), three file blocks (0.6 KB), the OEM layer's RAM and
@@ -111,8 +112,8 @@ cold code (RUN, for one) that shares them.
 free of its 64 KB data segment), which is the bad case. About 140 bytes of GW-BASIC's variables live in zero
 page.
 
-**Free for BASIC:** 48,384 bytes, less 9,999 of code and 4,096 of RAM, leaves **34,289 bytes**, 1,521 over
-the minimum. At the high ratio and the PC's 5,236 bytes of RAM it is 32,681, 87 short. To make the margin, in
+**Free for BASIC:** 48,384 bytes, less 10,075 of code and 4,096 of RAM, leaves **34,213 bytes**, 1,445 over
+the minimum. At the high ratio and the PC's 5,236 bytes of RAM it is 32,599, 169 short. To make the margin, in
 order of value:
 
 1. **Move the file blocks, device queues and the screen editor's line table out of the TPA** into an allocated
@@ -130,17 +131,19 @@ so one statement stays in one page (6502 estimates from each module's 8086 size)
 |---|---|---|
 | 1 | The rest of the math package: PRINT USING's formatting, `$FOUT`, `$FIN` (INPUT, READ, VAL), double precision, SIN COS TAN ATN LOG EXP SQR `^` RND, the powers of ten; and the PRINT, LPRINT and INPUT statements | 8.5 KB |
 | 2 | Program entry and listing: CRUNCH, LIST, DELETE, the keyword tables, start-up, errors and their messages | 5.8 KB |
-| 3 | The other statements and functions: RENUM, AUTO, EDIT, ON, DEF FN, USR, SWAP, ERASE, CLEAR, INSTR, STRING$, events, PLAY/SOUND parsing (GWSTS), CALL | 9.5 KB |
+| 3 | The other statements and functions: RENUM, AUTO, EDIT, ON, DEF FN, USR, SWAP, ERASE, CLEAR, STRING$, events, PLAY/SOUND parsing (GWSTS), CALL | 9.5 KB |
 | 4 | Files: OPEN, CLOSE, GET, PUT, the device dispatch (GIO86, GIODSK, DSKCOM, FIVEO) | 8.5 KB |
 | 5 | Graphics (GENGRP, ADVGRP, DRAW) and the COM, LPT, keyboard and screen device code | 6.6 KB |
 | 6 | The screen editor (SCNDRV, SCNEDT) | 5.0 KB |
 | 7, 8 | The OO-1's drivers: video modes, SIDs, game port, ports (with page 6's room) | 12–20 KB |
 
-**Far calls on the hot paths: none.** A loop of LET, IF, GOTO, GOSUB, FOR/NEXT, arithmetic, comparisons,
-variables and string assignment stays resident. A far call is made once per PRINT or INPUT statement, per call
-of a banked function (SIN, LOG, `^`, RND, VAL, STR$, INSTR...), per file, device, graphics or sound statement,
-per line typed (CRUNCH) and per LIST. The dispatch tables carry the page, so the statement and function
-dispatchers make the far call themselves; there are no per-routine stubs in the TPA.
+**Far calls: none on the core statement path, one per statement or function elsewhere.** A loop of LET, IF,
+GOTO, GOSUB, FOR/NEXT, single and integer arithmetic, comparisons, variables, string assignment, LEN to INSTR and
+INKEY$ stays resident. Everything else is a far call each time it runs: PRINT and INPUT (once per statement, not
+per item), double precision arithmetic, a banked function (SIN, LOG, `^`, RND, VAL, STR$...), a graphics
+statement (so a loop of PSET or LINE makes one per point), a file, device or sound statement, a line typed
+(CRUNCH) and LIST. The dispatch tables carry the page, so the statement and function dispatchers make the far
+call themselves; there are no per-routine stubs in the TPA.
 
 What that costs, measured on the emulator (cycles, at 7.16 MHz 1,000 cycles is 140 µs):
 
@@ -191,7 +194,7 @@ the project's oracle, settles it.
 
 ## Risks ##
 
-- **The margin.** 34,289 bytes free is 1.5 KB over the minimum, and the bad case is 87 bytes under it. The 8086
+- **The margin.** 34,213 bytes free is 1.4 KB over the minimum, and the bad case is 169 bytes under it. The 8086
   sizes are estimates (a few percent either way, mostly cancelling), the OEM layer is unknown, and GW-BASIC's RAM
   may be more than counted. Moving buffers out (layout, 1) is cheap insurance; the W3 home block (2) is the big
   lever.

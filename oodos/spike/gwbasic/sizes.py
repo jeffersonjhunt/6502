@@ -140,6 +140,13 @@ HOT_MATH = [
     ("MATH2", "$ROUNS", "$SIGD"),
 ]
 
+# Functions resident beside them (README.md, "Layout"): LEN through INSTR,
+# which string loops call, and INKEY$, which a game loop calls every pass.
+HOT_FN = [
+    ("BISTRS", "STRING FUNCTIONS - LEN", "STRING FUNCTIONS - LEFT HAND"),
+    ("GIOKYB", "INKEY", "Cursor Support"),
+]
+
 # The 6502 segments for each module (the map's names), code and data.
 SEGMENTS = {
     "MATH1": (["MATH1"], ["MATH1D"]),
@@ -862,6 +869,13 @@ def main():
         if v:
             r = math_r if k.startswith("MATH") else int_r
             print("  %-8s %6d -> %5.0f (high %5.0f)" % (k, v, v * r, v * (math_r if k.startswith("MATH") else worst)))
+    fn = 0
+    for f, a, b in HOT_FN:
+        src = Source(os.path.join(gwsrc, f + ".ASM"))
+        r = range(find_line(src, a), find_line(src, b))
+        fn += est.scan(f, (lambda i, r=r: "f" if i in r else None))[4].get("f", [0])[0]
+    print("Resident functions (LEN to INSTR, INKEY$): 8086 %d B -> 6502 %d B (high %d B)" % (
+        fn, fn * int_r, fn * worst))
     mv, ds = declared_ram(gwsrc)
     print("RAM GW-BASIC declares: %d B of GWRAM variables, %d B in data segments: %d B" % (mv, ds, mv + ds))
 
