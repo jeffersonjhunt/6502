@@ -86,6 +86,11 @@ From the address becoming valid to read data being needed is the cycle time minu
 
 **Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the RP2350 cards and the serial card.
 
+**Real-time clock (decided 2026-10-26): a DS3231 on the CPU card,** with a CR2032 to keep time with the power off.
+OODOS's date stamps need it ([oodos.md](oodos.md#real-time-clock)). *(Proposed.)* Its I²C lines go to the north
+bridge, on the same card: the RTC register at `$C687`. Its SQW output, at 1 Hz, can interrupt as the north bridge's
+ID `0xD`.
+
 
 ## Memory ##
 
@@ -173,6 +178,7 @@ the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden unt
 | `$04` | VEC | read/write | the mapping of `$C000–$FFFF` while VPB is low | `$DF` |
 | `$05` | MODE | write | bit 0 APPLE: writing 1 enters Apple II mode (Apple map, clock ÷14, pulse /RESET); only a hard reset clears it. Bit 1 TURBO: reserved for ÷1 | `$00` |
 | `$06` | STATUS | read | bit 0: booted from RAM (/BOOTSEL); bit 1: the last reset was power-on; bits 4–7: north bridge revision | |
+| `$07` | RTC | read/write | *(proposed)* the DS3231's I²C, driven by software: bit 0 SCL, bit 1 SDA, both open drain (1 = released); reading bit 1 gives SDA | `$03` |
 | `$08` | IRQL | read | interrupt poll for IDs 0–7, using /IACK. 0 = interrupting | |
 | `$09` | IRQH | read | interrupt poll for IDs 8–F | |
 | `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID: WAITn holds IDs 4n to 4n+3, the lowest ID in bits 1–0. Reserved for turbo; unused at ÷2 | `$00` |
