@@ -149,7 +149,7 @@ What that costs, measured on the emulator (cycles, at 7.16 MHz 1,000 cycles is 1
 
 | | cycles |
 |---|---|
-| FARCALL over a JSR/RTS (farcall.s: preserves A, X, Y and the flags both ways, nests; `check.py --timing`) | 279 |
+| FARCALL over a JSR/RTS (farcall.s: preserves A, X, Y and the flags both ways, nests; `check.py --timing`) | 281 |
 | `$FADDS` / `$FMULS` / `$FDIVS` / `$FCOMP` (single) | 470 / 1,840 / 3,420 / 300 |
 | `IADD` / `IMULT` / `IDIV` | 110 / 1,010 / 990 |
 | `$FOUT` of a single / of an integer | 18,200 / 2,000 |
@@ -159,7 +159,7 @@ What that costs, measured on the emulator (cycles, at 7.16 MHz 1,000 cycles is 1
 
 So a far call adds 1.5% to printing a number (and, estimated, about as much to SIN, which is a polynomial of
 several multiplies), but 8–12% per statement if anything on the statement path were banked: hence the
-resident list. A leaner FARCALL (keeping only A and the flags) would roughly halve the 279.
+resident list. A leaner FARCALL (keeping only A and the flags) would roughly halve the 281.
 
 ## Correctness ##
 
@@ -184,9 +184,10 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
   zero messages mid-line), four programs of 60 lines of random expressions, and outputs GW-BASIC is known to
   print (`2/3` is .6666667, `12345678` is 1.234568E+07, `1E+38*10` prints Overflow then 1.701412E+38).
 - **FARCALL** (farcall.s, harness.s's `OPFARF`): A, X, Y and P reach the target as the caller set them and come
-  back as the target left them, the target's block is in W3 for the call and the caller's after, one far call
-  nests in another, and S ends where it began. It found that the return path lost X (`TSX`), now kept, which
-  took FARCALL from 263 cycles to 279.
+  back as the target left them (D and I among them), the target's block is in W3 for the call and the caller's
+  after, one far call nests in another, and S ends where it began. It found that the return path lost X (`TSX`),
+  now kept, and that with the caller's D set FARCALL's own adds went decimal and returned to the wrong place, now
+  a `CLD` (PLP gives D back): 263 cycles to 281.
 - **OODOS's rules** (rules.py, over the translated segments): no RMB, SMB, BBR or BBS; zero page only through
   zero page operands; no absolute stack page access; no JSR or JMP out of the program but to the BDOS ($0203) or
   warm boot ($0200). 3,432 instructions, no problems. It found one on the way: an indirect `JMP (PTR2)`, now a pushed return address.

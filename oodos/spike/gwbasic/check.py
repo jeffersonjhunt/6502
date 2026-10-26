@@ -14,7 +14,8 @@
 3. Programs: tokenised BASIC run through NEWSTT, FRMEVL and the rest, the
    output compared with basic.py's reading of the same program, which uses
    mbf.py for the arithmetic. One program is generated: random expressions.
-4. FARCALL (farcall.s): the harness's OPFARF sets A, X, Y and P, far calls
+4. FARCALL (farcall.s): the harness's OPFARF sets A, X, Y and P (D among
+   them, which FARCALL's adds must not see), far calls
    a target that checks and changes them and makes a nested far call; each
    stage's registers and block must be what farcall.s promises.
 
@@ -378,7 +379,8 @@ def run_ops(ops, workdir, dumps=()):
     cfile = os.path.join(workdir, "ctrl.vec")
     open(vec, "wb").write(data)
     open(cfile, "wb").write(bytes([0, 0, len(ops) & 0xFF, len(ops) >> 8]))
-    args = [RUNNER, IMAGE, "--load", "7FF0:" + cfile, "--load", "8000:" + vec]
+    # A far call gone wrong runs away; a few hundred take well under this.
+    args = [RUNNER, IMAGE, "--load", "7FF0:" + cfile, "--load", "8000:" + vec, "--max", "10000000"]
     for d in dumps:
         args += ["--dump", d]
     p = subprocess.run(args, capture_output=True, text=True)
@@ -405,7 +407,7 @@ def farcall_cycles(workdir, n=300):
 
 # OPFARF's stages (harness.s): A, X, Y, P as PHP pushes it ($30 set), block.
 FARF_WANT = [
-    ("the target gets the caller's", [0x33, 0x11, 0x22, 0xC1 | 0x30, 5]),
+    ("the target gets the caller's", [0x33, 0x11, 0x22, 0xCD | 0x30, 5]),
     ("the target gets the nested target's", [0xAA, 0xBB, 0xCC, 0x03 | 0x30, 5]),
     ("the nested target gets the target's", [0x44, 0x55, 0x66, 0x41 | 0x30, 6]),
     ("the caller gets the target's", [0x77, 0x88, 0x99, 0x80 | 0x30, 0x42]),

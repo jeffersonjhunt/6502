@@ -319,7 +319,7 @@ OPFARF:         LDA     #$42           ; the caller's block
                 STA     NB_WIN3
                 TSX
                 STX     FFREC+20
-                FFSET   $C1, $33, $11, $22     ; N V C
+                FFSET   $CD, $33, $11, $22     ; N V D I C: FARCALL adds
                 JSR     FARCALL
                 .byte   5
                 .word   FTGT1

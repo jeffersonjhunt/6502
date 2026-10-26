@@ -23,6 +23,7 @@ NB_WIN3         = $C683
 .segment "FARCALL"
 
 FARCALL:        PHP
+                CLD                    ; binary adds below; PLP gives the caller's D back
                 PHA
                 PHX
                 PHY
