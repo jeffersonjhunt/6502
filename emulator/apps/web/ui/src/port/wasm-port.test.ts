@@ -122,23 +122,21 @@ describe("WasmPort", () => {
     // Each read of the clock "takes" 10 ms, so a 50,000-cycle slice runs at 5 MHz: too slow for 7.16.
     m.clock.tick = 10;
     // The page quick between frames: the machine stops at its share, behind the clock, rather than run the whole of each frame's time.
-    for (let i = 0; i < 40; ++i) f = m.step(1);
+    for (let i = 0; i < 80; ++i) f = m.step(1); // long enough for the average page time to come down
     expect(f.hz).toBeGreaterThan(0);
     expect(f.hz).toBeLessThan(NATIVE_HZ * 0.6);
-    // The page slow (200 ms of drawing in its listener): 4/5 of the time is more than the machine needs.
-    let drawing = 0;
-    m.port.onFrame(() => void (m.clock.t += drawing));
-    drawing = 200;
-    m.step(1);
-    const before = m.step(1).cycles;
-    const after = m.step(1).cycles;
+    // The page slow between frames (200 ms of drawing): 4/5 of the time is more than the machine needs,
+    // once the average has caught up with it.
+    for (let i = 0; i < 20; ++i) m.step(200);
+    const before = m.step(200).cycles;
+    const after = m.step(200).cycles;
     expect(after - before).toBeGreaterThanOrEqual(715_909);
     expect(after - before).toBeLessThan(715_909 + 16);
-  });
+  }, 20_000);
 
-  test("a slow host behind vsync settles at one frame rate: the wait for the next frame is not the page's time", async () => {
+  test("a slow host behind vsync settles at one frame rate, not swinging between two", async () => {
     // Time moves only by the machine's work (a 6 MHz host: too slow for 7.16 MHz) and the page's (3 ms);
-    // frames come on 60 Hz boundaries, as a browser's do. Counting the wait as the page's, it went 3 4 3 4.
+    // frames come on 60 Hz boundaries, as a browser's do. Each frame's own gap as the page's time, it went 3 4 3 4.
     const clock = new ManualClock();
     const VSYNC = 1000 / 60;
     const timed = async (): Promise<CoreModule> => {

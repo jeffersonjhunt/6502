@@ -5,16 +5,17 @@
  * clock rate x the time since the last frame, capped at 100 ms so a tab
  * that was in the background does not try to catch up on minutes. It runs
  * in 50,000-cycle slices: at "max" until 10 ms of the frame are used; at a
- * set clock until the budget is done, or the machine has had 4 times what
- * the page's listeners took last frame (at least 12 ms), so a host too slow
- * for the clock runs the machine slower rather than the page. Its share,
- * not a fixed time: where drawing a frame is slow, a fixed few ms would
- * starve the machine and not speed the page up. The listeners' time, not
- * the browser's wait for vsync after them, or a slow host swings between
- * frame rates. FrameState.hz is what it really ran, over wall time while
- * running (not halted, nor a background tab's gap). A browser stops
- * animation frames in a background tab, so the machine stops there, and a
- * tune with it. Everything else is a direct call into the module.
+ * set clock until the budget is done, or the machine has had 4/5 of the
+ * time between frames (at least 12 ms), so a host too slow for the clock
+ * runs the machine slower rather than the page. Its share, not a fixed
+ * time: where drawing a frame is slow, a fixed few ms would starve the
+ * machine and not speed the page up. That time is averaged over frames: a
+ * frame's own gap includes the wait for vsync, which the machine's last
+ * share sets, so following it swung a slow host between frame rates.
+ * FrameState.hz is what it really ran, over wall time while running (not
+ * halted, nor a background tab's gap). A browser stops animation frames in
+ * a background tab, so the machine stops there, and a tune with it.
+ * Everything else is a direct call into the module.
  *
  * A listener that throws is logged (once) and the rest still hear. If the
  * module itself throws (a wasm abort), the machine is gone: the loop stops,
@@ -150,8 +151,10 @@ export const MAX_FRAME_MS = 100;
 export const MAX_SLICE = 50_000;
 export const MAX_FRAME_BUDGET_MS = 10;
 export const FIXED_FRAME_BUDGET_MS = 12;
-/** A set clock's machine may use this many times what the page's listeners took last frame. */
+/** A set clock's machine may use this many times what the page took between its frames. */
 export const FIXED_FRAME_SHARE = 4;
+/** Frames the page's time is averaged over. */
+export const PAGE_SMOOTHING = 16;
 
 const KEY_BITS: Record<Exclude<PanelKey, "start">, number> = { load: 1, exam: 2, dep: 4, cont: 8 };
 
@@ -199,7 +202,7 @@ export class WasmPort implements MachinePort {
   private handle: number | null = null;
   private last = 0;
   private ranUntil = 0;
-  private pageUntil = 0; // the listeners done: what follows, to the next frame, is the browser waiting for vsync
+  private page = 0; // the page's time between frames, smoothed
   private clock: Clock = CLOCKS_HZ[3];
   private powered = true;
   private lightsOn = false;
@@ -238,7 +241,7 @@ export class WasmPort implements MachinePort {
     this.m = m;
     this.setClock(this.clock); // the video card keeps time by it
     m.setAudioRate(this.audioRate);
-    this.last = this.ranUntil = this.pageUntil = this.scheduler.now();
+    this.last = this.ranUntil = this.scheduler.now();
     this.schedule();
     return { machine: this.files.machine };
   }
@@ -278,7 +281,6 @@ export class WasmPort implements MachinePort {
         console.error("OO-1: a frame listener threw", err);
       }
     }
-    this.pageUntil = this.scheduler.now();
     this.schedule();
   }
 
@@ -300,7 +302,8 @@ export class WasmPort implements MachinePort {
     const clock: Clock = fixed || this.clock;
     if (this.powered) {
       const budget = clock === "max" ? Infinity : Math.round((clock * dt) / 1000);
-      const page = Math.max(this.pageUntil - this.ranUntil, 0); // the listeners (drawing), not the wait for vsync
+      const gap = Math.min(Math.max(now - this.ranUntil, 0), MAX_FRAME_MS); // drawing, the listeners, the browser, the wait for vsync
+      const page = (this.page = this.page ? this.page + (gap - this.page) / PAGE_SMOOTHING : gap);
       const until = now + (clock === "max" ? MAX_FRAME_BUDGET_MS : Math.max(FIXED_FRAME_BUDGET_MS, FIXED_FRAME_SHARE * page));
       while (ran < budget) {
         const why = m.run(Math.min(MAX_SLICE, budget - ran));
