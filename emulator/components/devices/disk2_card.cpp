@@ -22,6 +22,7 @@ namespace ooe::emu
     namespace
     {
         constexpr unsigned STEPS_PER_CYCLE = 2; ///< the sequencer's 2 MHz against the CPU's 1 MHz
+        constexpr unsigned STEP = 4;            ///< 125 ns units (WOZ bit timing's) a step takes
         constexpr uint64_t SKIP_AFTER = 4096;   ///< steps: a longer gap in read mode skips ahead
         constexpr uint64_t SETTLE = 64;         ///< steps run at the end of a skip
 
@@ -65,6 +66,8 @@ namespace ooe::emu
 
     uint64_t Disk2Card::now() const { return decoder_ ? decoder_->now() : synced_; }
 
+    unsigned Disk2Card::cell_length(const Drive &d) const { return d.disk ? d.disk->bit_timing() : 32; }
+
     uint32_t Disk2Card::track_bits(const Drive &d) const
     {
         const DiskTrack *t = d.disk ? d.disk->track(d.quarter) : nullptr;
@@ -92,9 +95,9 @@ namespace ooe::emu
         {
             // Reading with nobody looking: the disk turns on, and only the last few steps matter.
             Drive &d = drives_[drive_];
-            const uint64_t skip = steps - SETTLE;
-            const uint64_t cells = (cell_ + skip) / 8;
-            cell_ = static_cast<unsigned>((cell_ + skip) % 8);
+            const uint64_t skip = steps - SETTLE, cell = cell_length(d);
+            const uint64_t cells = (cell_ + skip * STEP) / cell;
+            cell_ = static_cast<unsigned>((cell_ + skip * STEP) % cell);
             d.pos = static_cast<uint32_t>((d.pos + cells) % track_bits(d));
             steps = SETTLE;
         }
@@ -114,8 +117,9 @@ namespace ooe::emu
     {
         Drive &d = drives_[drive_];
         const DiskTrack *t = d.disk ? d.disk->track(d.quarter) : nullptr;
+        const unsigned cell = cell_length(d);
         bool pulse = false;
-        if (cell_ == 0 && !q7_)
+        if (cell_ < STEP && !q7_) // the cell's first step
         {
             bool bit = t && t->bit(d.pos % t->bit_count);
             if (bit)
@@ -153,7 +157,7 @@ namespace ooe::emu
             break;
         }
         state_ = static_cast<uint8_t>(op & 0xF0);
-        if (cell_ == 7 && q7_)
+        if (cell_ + STEP >= cell && q7_) // its last
         {
             const bool level = (state_ & 0x80) != 0;
             if (d.disk && !wp)
@@ -163,9 +167,9 @@ namespace ooe::emu
             }
             level_ = level;
         }
-        if (++cell_ == 8)
+        if ((cell_ += STEP) >= cell)
         {
-            cell_ = 0;
+            cell_ = (cell_ - cell) % cell; // (a drive switched to a shorter cell: start the next)
             d.pos = (d.pos + 1) % track_bits(d);
         }
     }

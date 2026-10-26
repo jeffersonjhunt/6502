@@ -342,7 +342,7 @@ namespace ooe::emu
                 if (v2 && size >= 40)
                 {
                     d->boot_format_ = b[data + 38];
-                    if (b[data + 39])
+                    if (b[data + 39] >= 16) // 0: not given; under 2 us is no 5.25" disk
                         d->bit_timing_ = b[data + 39];
                 }
             }
