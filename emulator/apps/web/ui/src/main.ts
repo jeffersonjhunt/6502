@@ -302,12 +302,12 @@ function start(root: HTMLElement, port: MachinePort): void {
     .connect()
     .then(async () => {
       await apple.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
-      await drive.restore(); // and the disk kept from last time, which stays in through power cycles
       panel.applyAll();
       port.setLights(true);
       sound.restore(); // left on last time: it plays from the first click or key
       dbg.connect();
       glass.focus();
+      await drive.restore(); // the disk kept from last time, which stays in through power cycles: last, as IndexedDB can be slow to answer
     })
     .catch((err: unknown) => {
       status.textContent = "NO MACHINE";

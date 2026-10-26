@@ -131,11 +131,11 @@ export function diskBar(
   });
   show();
 
-  /** Once connected: the disk kept from last time goes back in. */
+  /** Once connected: the disk kept from last time goes back in, unless one went in while the browser looked for it. */
   const restore = async () => {
     if (!port.caps.disk) return;
     const d = await store.get(DRIVE);
-    if (d && (await put(d, d.bytes))) show();
+    if (d && !info && (await put(d, d.bytes))) show();
   };
 
   /** Keep what was written, once the drive has stopped. */

@@ -5,7 +5,8 @@
  * they stay here and are never uploaded.
  *
  * Every call settles, never throws: private windows and blocked storage
- * just keep nothing.
+ * just keep nothing, and so does a database that hasn't opened in
+ * OPEN_MS (some browsers leave the open hanging).
  */
 
 import type { DiskFormat } from "../port/machine-port";
@@ -35,11 +36,14 @@ export function memoryDiskStore(): DiskStore {
   };
 }
 
+const OPEN_MS = 5000;
+
 export function browserDiskStore(): DiskStore {
   if (typeof indexedDB === "undefined") return memoryDiskStore();
   let db: Promise<IDBDatabase | null> | null = null;
   const open = () =>
     (db ??= new Promise((resolve) => {
+      setTimeout(() => resolve(null), OPEN_MS);
       try {
         const req = indexedDB.open("oo1", 1);
         req.onupgradeneeded = () => req.result.createObjectStore("disks");

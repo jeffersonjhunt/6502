@@ -104,6 +104,21 @@ describe("the drive", () => {
     expect($(bar.element, "disk-insert").textContent).toBe("old.po");
   });
 
+  test("a disk picked while the browser still looks for the kept one stays in", async () => {
+    const port = new FakePort();
+    const store = memoryDiskStore();
+    await store.put(0, { name: "old.po", bytes: new Uint8Array([1]), writeProtected: false, format: "po" });
+    let answer = () => {};
+    const slow = { ...store, get: (d: number) => new Promise<Awaited<ReturnType<typeof store.get>>>((r) => (answer = () => void store.get(d).then(r))) };
+    const bar = diskBar(port, slow, () => {});
+    const restoring = bar.restore();
+    await pick(bar.element, "new.dsk", new Uint8Array([2]));
+    answer();
+    await restoring;
+    expect(port.callsTo("insertDisk").map((c) => c[2])).toEqual(["new.dsk"]);
+    expect($(bar.element, "disk-insert").textContent).toBe("new.dsk");
+  });
+
   test("Save downloads it in its own format, or as .woz when it no longer fits one", async () => {
     const { port, bar, downloads } = make();
     await pick(bar.element, "Master.dsk", new Uint8Array(4));
