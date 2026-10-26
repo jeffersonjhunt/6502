@@ -13,6 +13,8 @@ OBJS    = harness.o gwmain.o gweval.o bimisc.o math1.o math2.o tables.o stubs.o 
 EMU     = ../../../emulator/components
 RUNNER  = run6502
 PYTHON  = python3 -I
+RULES   = ../../tools/rules.py --load 0x0300 --map spike.map --lbl spike.lbl --inline SYNCHR \
+          --code GWMAIN,GWEVAL,BIMISC,MATH1,MATH2,RUNTIME
 
 spike.bin: $(OBJS) spike.cfg
 	ld65 -C spike.cfg $(OBJS) -o spike.bin -m spike.map -Ln spike.lbl
@@ -26,7 +28,7 @@ $(RUNNER): run6502.cpp
 	    run6502.cpp $(EMU)/cpu6502/cpu6502.cpp $(EMU)/emu_log/emu_log.cpp -o $(RUNNER)
 
 check: spike.bin $(RUNNER)
-	$(PYTHON) rules.py spike.bin spike.map spike.lbl
+	$(PYTHON) $(RULES) spike.bin
 	$(PYTHON) check.py
 	$(PYTHON) check.py --timing
 
