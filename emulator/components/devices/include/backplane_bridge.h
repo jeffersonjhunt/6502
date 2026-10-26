@@ -4,8 +4,8 @@
  * @file backplane_bridge.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief The backplane's north bridge: windows, VEC, ROM space, I/O hole.
- * @version 0.2.0
- * @date 2026-10-22
+ * @version 0.3.0
+ * @date 2026-10-26
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -21,8 +21,9 @@
  * $C000 + n x $80. This bridge is both the router (NorthBridge) and the
  * device holding its own registers at $C680 (module ID 0xD):
  *
- *   $00-$03 WIN0-WIN3   $04 VEC   $05 MODE   $06 STATUS
- *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $7F ID
+ *   $00-$03 WIN0-WIN3   $04 VEC   $05 MODE   $06 STATUS   $07 RTCCTL
+ *   $08/$09 IRQL/IRQH   $0A-$0D WAIT0-WAIT3   $10-$16 SEC-YEAR
+ *   $17 RTCREG   $18 RTCDATA   $7F ID
  *
  * At reset W0-W2 map RAM blocks 0-2 and W3 and VEC map the top block of
  * ROM A read-only ($DF); with /BOOTSEL held they map RAM block 63 ($3F).
@@ -49,6 +50,33 @@
  *                with the other $D000 bank at bank 4 or 5; else the ROM image
  *                in bank E. Writes with RAM write-protected are dropped
  *
+ * The real-time clock (hw/design.md, "Real-time clock"): the bridge owns
+ * the DS3231 (ds3231.h) and talks I²C to it at 400 kHz, so software sees
+ * registers only. Each transaction keeps BUSY set for its bits' time at the
+ * CPU clock (9 a byte, one for each START and STOP), and its effect lands
+ * when it ends; they queue, one at a time:
+ *
+ * - On each falling edge of SQW (1 Hz as the bridge sets it up) it reads
+ *   the seven time registers and the status into SEC-YEAR, LOST (OSF) and
+ *   ALARM (A1F or A2F), and sets TICK. An edge while that read is still
+ *   queued is missed. With INTCN set by software, SQW is INT, so the time
+ *   is read only when an enabled alarm pulls it low.
+ * - Reading SEC copies SEC-YEAR into a latch, which reads of SEC+1 to
+ *   YEAR return: a time read in order never straddles a second.
+ * - Writes to SEC-YEAR go to a holding copy (reads still give the time);
+ *   SET sends it, then clears OSF, keeping EN32kHz and the alarm flags.
+ *   SET reads 1 until it has gone, and SEC-YEAR then show what it sent.
+ * - Writing RTCREG reads that DS3231 register into RTCDATA; writing RTCDATA
+ *   writes it and reads it back. A status read updates LOST and ALARM.
+ * - TICK && TIE is the bridge's interrupt: IRQH bit 5, ID 0xD.
+ *
+ * At power-on (the first reset) the bridge sets the square wave to 1 Hz
+ * (INTCN and RS cleared, the rest of the control register kept) and reads
+ * the time, all while /RESET is held, so the first instruction sees a
+ * valid time with BUSY clear. Any reset clears TICK and TIE; the DS3231,
+ * its time, and a transaction under way carry on. The chip itself is
+ * shared, so a session can keep it through a power cycle (rtc()).
+ *
  * The native registers, the windows and VEC are out of the way until a hard
  * reset (reset()), the only way back. A /RESET pulse (reset_pulse(): entering,
  * and later Ctrl-Reset) resets the windows and the IIe's switches but keeps
@@ -58,10 +86,14 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
+#include <memory>
+#include <string>
 
 #include "apple_io.h"
 #include "decoder.h"
 #include "device.h"
+#include "ds3231.h"
 
 namespace ooe::emu
 {
@@ -85,18 +117,34 @@ namespace ooe::emu
             VEC = 0x04,
             MODE = 0x05,
             STATUS = 0x06,
+            RTCCTL = 0x07,
             IRQL = 0x08,
             IRQH = 0x09,
             WAIT0 = 0x0A,
+            SEC = 0x10, ///< SEC-YEAR: $10-$16
+            RTCREG = 0x17,
+            RTCDATA = 0x18,
             ID_REG = 0x7F,
         };
         static constexpr uint8_t STATUS_BOOTSEL = 0x01;  ///< booted from RAM
         static constexpr uint8_t STATUS_POWER_ON = 0x02; ///< the last reset was power-on
         static constexpr uint8_t MODE_APPLE = 0x01;
         static constexpr uint8_t MODE_TURBO = 0x02; ///< reserved for /1: kept, not modelled
+        // RTCCTL
+        static constexpr uint8_t RTC_TICK = 0x80, RTC_TIE = 0x40, RTC_ALARM = 0x20, RTC_LOST = 0x04,
+                                 RTC_SET = 0x02, RTC_BUSY = 0x01;
+        static constexpr unsigned TIME_REGS = 7;
+        static constexpr uint32_t NATIVE_HZ = 7'159'090; ///< 14.31818 MHz / 2
+        static constexpr uint32_t I2C_HZ = 400'000;
+        // I²C bits a transaction takes: 9 a byte, one for each START, repeated START and STOP.
+        static constexpr unsigned READ_BITS = 9 * 3 + 3;  ///< address, register, address; + data
+        static constexpr unsigned WRITE_BITS = 9 * 2 + 2; ///< address, register; + data
+        static constexpr unsigned REFRESH_BITS = READ_BITS + 9 * TIME_REGS + READ_BITS + 9;
+        static constexpr unsigned SET_BITS = WRITE_BITS + 9 * TIME_REGS + WRITE_BITS + 9;
 
         /// `bootsel`: the bus spy holds /BOOTSEL, so reset maps RAM, not flash, at the top.
-        explicit BackplaneBridge(bool bootsel = false);
+        /// `rtc`: the DS3231 on the CPU card; nullptr, a new one at 2000-01-01 00:00:00.
+        explicit BackplaneBridge(bool bootsel = false, std::shared_ptr<Ds3231> rtc = nullptr);
 
         /// The decoder whose module IDs the interrupt poll reads. Not owned.
         void attach(Decoder *decoder)
@@ -127,11 +175,48 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
 
+        bool irq() const override { return tick_ && tie_; }
+        bool timed() const override { return true; }
+        void tick(uint64_t cycles) override;
+
         uint8_t window(unsigned n) const { return win_[n & 3]; }
         uint8_t vec() const { return vec_; }
 
+        // The real-time clock
+        /// The CPU clock tick()'s cycles run at in native mode (0: NATIVE_HZ); Apple II mode's is APPLE_HZ.
+        void set_cpu_hz(uint32_t hz);
+        const std::shared_ptr<Ds3231> &rtc() const { return rtc_; }
+        /// Set the DS3231 from outside (the host's clock), and read it into SEC-YEAR at once.
+        void set_rtc_time(const Ds3231::Time &t);
+        /// SEC-YEAR as the bridge last read them (not the latch).
+        const std::array<uint8_t, TIME_REGS> &rtc_time() const { return time_; }
+        uint8_t rtcctl() const;
+        /// The clock in words, for the debugger: the time, RTCCTL, the chip's registers.
+        std::string describe_clock() const;
+
     private:
+        enum class Op : uint8_t
+        {
+            Refresh, ///< read the time and status (SQW fell)
+            Set,     ///< write the time, clear OSF
+            Read,    ///< RTCREG into RTCDATA
+            Write,   ///< RTCDATA to RTCREG, read back
+        };
+        struct Transaction
+        {
+            Op op;
+            uint8_t reg{0}, data{0};
+            std::array<uint8_t, TIME_REGS> time{};
+        };
+
         void apply_reset();
+        void rtc_reset();
+        void retime();
+        uint64_t cost(Op op) const;
+        void queue(const Transaction &t);
+        void finish(const Transaction &t);
+        void read_time();
+        void read_status();
         /// IRQL (high = false) or IRQH: 0 bits for interrupting modules.
         uint8_t poll(bool high) const;
 
@@ -145,5 +230,16 @@ namespace ooe::emu
         std::array<uint8_t, 4> wait_{};
         bool reset_wanted_{false};
         AppleIo apple_io_;
+
+        std::shared_ptr<Ds3231> rtc_;
+        uint32_t cpu_hz_{NATIVE_HZ};
+        std::array<uint8_t, TIME_REGS> time_{};   ///< SEC-YEAR as last read
+        std::array<uint8_t, TIME_REGS> latch_{};  ///< what reading SEC caught
+        std::array<uint8_t, TIME_REGS> staged_{}; ///< what SET will send
+        uint8_t status_{0};                       ///< the DS3231's status as last read
+        bool tick_{false}, tie_{false};
+        uint8_t rtc_reg_{0}, rtc_data_{0};
+        std::deque<Transaction> queue_; ///< the front is under way
+        uint64_t left_{0};              ///< its cycles still to go
     };
 } // namespace ooe::emu

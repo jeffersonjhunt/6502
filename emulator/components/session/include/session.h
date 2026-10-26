@@ -199,6 +199,13 @@ namespace ooe::emu
         const Symbols &symbols() const { return symbols_; }
         const std::string &machine_name() const { return config_.machine; }
 
+        // The DS3231 on the CPU card (nothing without the backplane's bridge). Its battery
+        // keeps it through power cycles, as a real one does.
+        /// Set its time (the host's clock, say), and the bridge's SEC-YEAR with it.
+        void set_rtc_time(const Ds3231::Time &t);
+        /// The north bridge, which owns the clock, or nullptr.
+        const BackplaneBridge *bridge() const { return machine_->backplane_bridge(); }
+
         /// The video card, if the machine has one: frame() is the screen.
         const VideoCard *video() const { return machine_->video_card(); }
         /// The USB card, if the machine has one: the keyboard, mouse and game port.
@@ -268,6 +275,7 @@ namespace ooe::emu
         uint64_t next_service_{0};
         std::array<std::shared_ptr<DiskImage>, Disk2Card::DRIVES> disks_{};
         std::shared_ptr<SdMedia> sd_;
+        std::shared_ptr<Ds3231> rtc_; ///< the DS3231, once a machine has made one
         std::unique_ptr<SidFile> sid_;
         unsigned sid_song_{0};
         std::vector<std::string> sid_warnings_;

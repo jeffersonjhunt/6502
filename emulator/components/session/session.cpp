@@ -116,6 +116,7 @@ namespace ooe::emu
         options.apple_chars = config_.apple_chars;
         options.disk2_boot = config_.disk2_boot;
         options.disk2_sequencer = config_.disk2_sequencer;
+        options.rtc = rtc_; // the clock, on its battery
         std::unique_ptr<Machine> machine = Machine::load(config_.machine, options, error);
         if (!machine)
             return false;
@@ -132,6 +133,12 @@ namespace ooe::emu
         console_ = std::move(console);
         machine_ = std::move(machine);
         card_ = machine_->console_card();
+        if (BackplaneBridge *b = machine_->backplane_bridge())
+        {
+            if (rtc_ == b->rtc())
+                rtc_->power_off(); // it was the old machine's: the power went off around it
+            rtc_ = b->rtc();
+        }
         clock_cards();
         if (SoundCard *s = machine_->sound_card())
             s->set_audio_rate(audio_rate_);
@@ -369,6 +376,14 @@ namespace ooe::emu
             sound->set_cpu_hz(hz);
         if (SdCard *sd = machine_->sd_card())
             sd->set_cpu_hz(hz);
+        if (BackplaneBridge *b = machine_->backplane_bridge())
+            b->set_cpu_hz(cpu_hz_); // it knows Apple II mode's clock itself
+    }
+
+    void Session::set_rtc_time(const Ds3231::Time &t)
+    {
+        if (BackplaneBridge *b = machine_->backplane_bridge())
+            b->set_rtc_time(t);
     }
 
     Session::RunResult Session::run(uint64_t budget)

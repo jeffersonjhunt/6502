@@ -42,8 +42,10 @@
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
  * low. `northbridge backplane [bootsel]` fits the backplane's north bridge
- * (backplane_bridge.h): the windows, VEC, ROM space and the I/O hole, with
- * its registers at io 680-6FF (module D), named `northbridge`.
+ * (backplane_bridge.h): the windows, VEC, ROM space, the I/O hole and the
+ * DS3231 real-time clock, with its registers at io 680-6FF (module D, its
+ * IRQ wired: the clock's tick), named `northbridge`. The clock starts at the
+ * host's local time unless the options give one.
  *
  * Peripherals hang off a named 6522's pins instead of the bus, so they
  * take no range:
@@ -56,6 +58,7 @@
  */
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -89,6 +92,10 @@ namespace ooe::emu
         /// North bridge for the decoder; nullptr = the description's
         /// (`northbridge` line), or A16-A19 low. Not owned.
         NorthBridge *bridge{nullptr};
+        /// The backplane's DS3231, kept from another machine (a power cycle): its battery
+        /// held the time. nullptr: a new chip, at `rtc_time`, or the host's local time.
+        std::shared_ptr<Ds3231> rtc;
+        std::optional<Ds3231::Time> rtc_time;
     };
 
     class Machine
@@ -123,6 +130,7 @@ namespace ooe::emu
         SdCard *sd_card() const { return sd_card_; }
         /// The backplane's north bridge (Apple II mode's switches), if the description has one.
         const BackplaneBridge *backplane_bridge() const { return dynamic_cast<const BackplaneBridge *>(bridge_); }
+        BackplaneBridge *backplane_bridge() { return dynamic_cast<BackplaneBridge *>(bridge_); }
 
         /// The device given `name=` in the description, or nullptr.
         Device *find(const std::string &name) const;

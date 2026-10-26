@@ -26,6 +26,9 @@
  *      reset               the reset sequence
  *   q  quit                end the emulator
  *
+ * A machine adds views of its own devices (add_view()): the backplane's
+ * `rtc`, the north bridge's real-time clock.
+ *
  * Addresses and values are hex, with or without `$`, or a label from the
  * symbols; counts are decimal. Fetch uses Bus::peek(), so looking at a 6821
  * does not clear its flags. Store goes through the CPU's write path, so ROM
@@ -102,6 +105,12 @@ namespace ooe::emu
         void on_step(std::function<void()> f) { after_step_ = std::move(f); }
         /// Polled during a long step: true (Ctrl-C) cuts it short.
         void on_interrupt(std::function<bool()> f) { interrupted_ = std::move(f); }
+        /// A command `name` showing what `show` returns (a device's state); `help` is its
+        /// line in the help, before `q`, ending in '\n'.
+        void add_view(std::string name, std::string help, std::function<std::string()> show)
+        {
+            views_.push_back(View{std::move(name), std::move(help), std::move(show)});
+        }
 
         /// Registers, flags and the next instruction.
         std::string status() const;
@@ -129,5 +138,11 @@ namespace ooe::emu
         uint16_t stop_pc_{0};     ///< where it last halted or stepped to
         std::function<void()> after_step_;
         std::function<bool()> interrupted_;
+        struct View
+        {
+            std::string name, help;
+            std::function<std::string()> show;
+        };
+        std::vector<View> views_;
     };
 } // namespace ooe::emu

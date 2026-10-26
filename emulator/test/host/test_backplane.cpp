@@ -244,7 +244,7 @@ TEST(mode_wait_and_unused_registers)
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 3), 0x5A);
     r.bus.write(NB + BackplaneBridge::STATUS, 0x00);         // read-only
     CHECK(r.bus.read(NB + BackplaneBridge::STATUS) & BackplaneBridge::STATUS_POWER_ON);
-    CHECK_EQ(r.bus.read(NB + 0x07), 0xFF);
+    CHECK_EQ(r.bus.read(NB + 0x0E), 0xFF); // $07 is RTCCTL: test_rtc
     CHECK_EQ(r.bus.read(NB + 0x40), 0xFF);
     r.bus.reset();
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 3), 0x00);
