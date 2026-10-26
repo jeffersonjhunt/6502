@@ -244,7 +244,7 @@ export interface FrameState {
   stopped: boolean;
   /** /IRQ is asserted by some device (the panel's IRQ lamp). */
   irq: boolean;
-  /** Emulated speed over the last second or so, in Hz; 0 while not running. */
+  /** Emulated speed over the last second or so of wall time, in Hz: below the clock if the host can't keep up; 0 while not running. */
   hz: number;
   /** The clock the machine's mode fixes (Apple II mode's 1,020,484 Hz), which setClock() cannot change; 0: none. */
   fixedHz: number;
@@ -402,4 +402,6 @@ export interface MachinePort {
 
   /** Called about once per animation frame. @returns unsubscribe */
   onFrame(listener: (frame: FrameState) => void): () => void;
+  /** The backend died (the core threw): no more frames come. @returns unsubscribe */
+  onFail(listener: (why: string) => void): () => void;
 }

@@ -10,7 +10,7 @@ import { usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
-import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
+import { coreUrl, FIXED_FRAME_BUDGET_MS, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
 const GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
@@ -19,6 +19,7 @@ const NATIVE_HZ = 7_159_090;
 
 class ManualClock implements Scheduler {
   t = 0;
+  requests = 0;
   /** How far now() moves each time it is read (for the Max loop). */
   tick = 0;
   now(): number {
@@ -27,6 +28,7 @@ class ManualClock implements Scheduler {
     return t;
   }
   request(): number {
+    ++this.requests;
     return 1;
   }
   cancel(): void {}
@@ -110,6 +112,62 @@ describe("WasmPort", () => {
     const slices = Math.round((after - before) / MAX_SLICE);
     expect(slices).toBeGreaterThanOrEqual(MAX_FRAME_BUDGET_MS - 2);
     expect(slices).toBeLessThanOrEqual(MAX_FRAME_BUDGET_MS + 2);
+  });
+
+  test("a fixed clock the host can't keep up with stops at its share of the frame, and the status says how fast it really ran", async () => {
+    const m = await open();
+    m.step();
+    let f = m.step(100);
+    for (let i = 0; i < 12; ++i) f = m.step(100); // over a second at full speed: the measured clock is the set one
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    m.clock.tick = 1; // each read of the clock "takes" 1 ms: a slow host
+    const before = m.step(100).cycles;
+    const after = m.step(100).cycles;
+    const slices = Math.round((after - before) / MAX_SLICE);
+    expect(slices).toBeGreaterThanOrEqual(FIXED_FRAME_BUDGET_MS - 2);
+    expect(slices).toBeLessThanOrEqual(FIXED_FRAME_BUDGET_MS + 1); // not the 14.3 slices 100 ms wants
+    for (let i = 0; i < 12; ++i) f = m.step(100);
+    expect(f.hz).toBeGreaterThan(0);
+    expect(f.hz).toBeLessThan(NATIVE_HZ * 0.9);
+  });
+
+  test("a listener that throws is reported and the others still hear; the loop goes on", async () => {
+    const m = await open();
+    const heard: number[] = [];
+    const errors: unknown[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    try {
+      m.port.onFrame(() => {
+        throw new Error("a bug in the page");
+      });
+      m.port.onFrame((f) => void heard.push(f.cycles));
+      const asked = m.clock.requests;
+      m.step();
+      m.step();
+      expect(heard.length).toBe(2);
+      expect(m.clock.requests).toBe(asked + 2);
+      expect(errors.length).toBe(1); // once, not once a frame
+    } finally {
+      console.error = error;
+    }
+  });
+
+  test("a core that throws (a wasm abort) stops the loop and says why, once", async () => {
+    const m = await open();
+    m.until(GREETING);
+    const failures: string[] = [];
+    m.port.onFail((why) => failures.push(why));
+    (m.port as unknown as { m: { run: () => number } }).m.run = () => {
+      throw new Error("RuntimeError: unreachable");
+    };
+    const asked = m.clock.requests;
+    m.step();
+    m.step();
+    expect(m.clock.requests).toBe(asked); // not rescheduled
+    expect(failures).toEqual(["RuntimeError: unreachable"]);
+    m.port.sendSerial(ascii("C680\r")); // sends are dropped, as before connect()
+    await expect(m.port.readMemory(0xc680, 1, "cpu")).rejects.toThrow();
   });
 
   test("serial both ways: a monitor command", async () => {

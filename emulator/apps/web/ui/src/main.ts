@@ -309,6 +309,14 @@ function start(root: HTMLElement, port: MachinePort): void {
     }
   });
 
+  // The core threw: the machine is gone until a reload, and the screen says so rather than freeze on RUNNING.
+  port.onFail((why) => {
+    status.textContent = "CRASHED";
+    terminal.write(new TextEncoder().encode(`\r\rThe emulator stopped: ${why}\rReload the page to start it again.\r`));
+    crt.draw(performance.now());
+    mirror.textContent = mirrored = terminal.text();
+  });
+
   // Keep the canvas's pixels matched to the glass on this display; a move
   // to another display, or zooming, fires resize too.
   const fit = () => crt.resize(canvas.getBoundingClientRect().width, devicePixelRatio || 1);

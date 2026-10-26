@@ -236,4 +236,13 @@ export class FakePort implements MachinePort {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+  private readonly failListeners = new Set<(why: string) => void>();
+  onFail(listener: (why: string) => void): () => void {
+    this.failListeners.add(listener);
+    return () => this.failListeners.delete(listener);
+  }
+  /** The backend dies. */
+  fail(why: string): void {
+    for (const listener of this.failListeners) listener(why);
+  }
 }
