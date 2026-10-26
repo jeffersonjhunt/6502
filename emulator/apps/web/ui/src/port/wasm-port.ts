@@ -108,6 +108,8 @@ export interface CoreMachine {
   peekIo(offset: number): number;
   hasUsb(): boolean;
   usbKey(usage: number, down: boolean): void;
+  usbQueued(): number;
+  usbDropKeys(): void;
   usbMouseTo(x: number, y: number): void;
   usbMouseMove(dx: number, dy: number): void;
   usbMouseButtons(buttons: number): void;
@@ -308,6 +310,7 @@ export class WasmPort implements MachinePort {
       fixedHz: this.powered ? m.fixedHz() : 0, // as the run left it, as everything here is
       apple: this.powered && m.appleMode(),
       soundRunning: this.powered && m.soundRunning(),
+      keysQueued: this.powered ? m.usbQueued() : 0,
       disk: this.powered ? this.readDiskStatus(m) : null,
       sd: this.powered ? this.readSdStatus(m) : null,
       serialOut: out,
@@ -412,6 +415,10 @@ export class WasmPort implements MachinePort {
 
   sendKey(usage: number, down: boolean): void {
     this.m?.usbKey(usage, down);
+  }
+
+  stopTyping(): void {
+    this.m?.usbDropKeys();
   }
 
   sendMouse(mouse: MouseInput): void {

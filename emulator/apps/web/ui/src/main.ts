@@ -187,13 +187,28 @@ function start(root: HTMLElement, port: MachinePort): void {
     if (onMouse()) e.preventDefault(); // the right button is the machine's
   });
   // A paste is typed on whichever keyboard the screen has: on the USB one,
-  // its card holds each character until the machine has taken the last.
+  // its card holds each character until the machine has taken the last, so
+  // a long one takes a while, and Stop typing drops the rest.
+  let pasting = false;
+  const stopTyping = h(
+    "button",
+    { class: "tbtn stop-typing", type: "button", hidden: true, title: "What the paste has not typed yet is dropped", "data-testid": "stop-typing" },
+    "Stop typing",
+  );
+  stopTyping.addEventListener("click", () => {
+    port.stopTyping();
+    usbKeys.releaseAll();
+    pasting = false;
+    stopTyping.hidden = true;
+    glass.focus();
+  });
   glass.addEventListener("paste", (e) => {
     e.preventDefault();
     const text = e.clipboardData?.getData("text") ?? "";
     if (onUsb()) {
       usbKeys.releaseAll();
       typeText(text, (usage, down) => port.sendKey(usage, down));
+      pasting = true;
     } else port.sendSerial(pasteBytes(text, caps));
   });
 
@@ -249,7 +264,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     "div",
     { class: "mon" },
     glass,
-    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status), apple.element, scenes.element),
+    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status, stopTyping), apple.element, scenes.element),
     h("div", { class: "mon-foot mon-drive" }, drive.element),
     h("div", { class: "mon-foot mon-sd" }, card.element),
     h("div", { class: "mon-foot mon-sound" }, sound.element, tune.element), // the monitor's speaker, and a tune for it
@@ -284,6 +299,8 @@ function start(root: HTMLElement, port: MachinePort): void {
         showScene("apple");
       }
     }
+    if (pasting && !f.keysQueued) pasting = false;
+    stopTyping.hidden = !pasting || f.keysQueued < 40; // not for a line or two
     apple.update(f);
     drive.update(f);
     card.update(f);

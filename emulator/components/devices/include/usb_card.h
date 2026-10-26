@@ -135,6 +135,10 @@ namespace ooe::emu
         static constexpr unsigned POLL_MS = 8;
         /// How long a queued character waits for the last one to be taken, at most.
         static constexpr unsigned TAKE_MS = 250;
+        /// Key changes queue_key() holds, not yet reported (a paste still typing).
+        size_t queued() const { return pending_.size(); }
+        /// Stop a paste: drop what queue_key() holds, and let go of every key still down.
+        void drop_queue();
         void mouse_move(int dx, int dy);
         /// Absolute mode: where the pointer is now (clamped to MAXX, MAXY).
         void mouse_to(int x, int y);

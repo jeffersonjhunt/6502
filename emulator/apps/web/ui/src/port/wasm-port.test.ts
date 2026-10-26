@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { FrameState } from "./machine-port";
-import { usageFor } from "../crt/usb-keyboard";
+import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
@@ -270,6 +270,23 @@ describe("WasmPort", () => {
     expect(m.until("C592: 40 01 F0 00")).toBe(true);
     type("C591\r");
     expect(m.until("C591: 01")).toBe(true);         // the left button
+  });
+
+  test("a paste typed on the USB keyboard: how much is left, and stopped, what is left is dropped", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.clear();
+    typeText("C680\r".repeat(50), (usage, down) => m.port.sendKey(usage, down));
+    let f = m.step();
+    expect(f.keysQueued).toBeGreaterThan(400);
+    expect(m.until("C680: 00", 120)).toBe(true);
+    f = m.step();
+    expect(f.keysQueued).toBeGreaterThan(0);
+    m.port.stopTyping();
+    expect(m.step().keysQueued).toBe(0);
+    const typed = m.output().split("C680: 00").length;
+    for (let i = 0; i < 60; ++i) m.step();
+    expect(m.output().split("C680: 00").length).toBe(typed); // nothing more comes
   });
 
   test("Apple II mode fixes the clock: the budget follows it, whatever setClock said", async () => {

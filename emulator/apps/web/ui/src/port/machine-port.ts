@@ -252,6 +252,8 @@ export interface FrameState {
   apple: boolean;
   /** The sound card's 6510 runs (a tune plays); false without the card. */
   soundRunning: boolean;
+  /** Key changes the USB card holds back, not yet typed (a paste at the keyboard's pace); 0 without the card. */
+  keysQueued: number;
   /** The Disk II card, if the machine has one (the drive light). */
   disk: DiskStatus | null;
   /** The SD card, if the machine has one (its light). */
@@ -328,6 +330,8 @@ export interface MachinePort {
   sendSerial(bytes: Uint8Array): void;
   /** The USB keyboard: a HID usage code (hw/design.md, "USB card registers") pressed or released. */
   sendKey(usage: number, down: boolean): void;
+  /** Stop typing what sendKey queued (a paste): it is dropped, and every key let go. */
+  stopTyping(): void;
   /** The USB mouse: an absolute position (0-639, 0-479), buttons (bit 0 left, 1 right, 2 middle), wheel steps. */
   sendMouse(mouse: MouseInput): void;
 

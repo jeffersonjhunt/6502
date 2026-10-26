@@ -173,6 +173,14 @@ namespace ooe::emu
         pending_.emplace_back(usage, down);
     }
 
+    void UsbCard::drop_queue()
+    {
+        pending_.clear();
+        for (unsigned u = 0; u < down_.size(); ++u)
+            if (down_[u])
+                key(static_cast<uint8_t>(u), false); // a release queued behind the rest would be lost with it
+    }
+
     bool UsbCard::take_reset()
     {
         const bool r = reset_;

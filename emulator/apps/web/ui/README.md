@@ -91,6 +91,8 @@ this browser (IndexedDB), with what was written to it, never uploaded. A paste g
 Apple II it is typed on the USB keyboard (US layout; letters as the card's
 Caps Lock has them), and the card holds each character until the machine
 has taken the last, so a BASIC program pasted into Applesoft arrives whole.
+A long one takes a while at that pace: **Stop typing**, beside the status
+while it types, drops the rest.
 **Insert SD card…**, under the drive, puts a card image of your own in the
 mass storage card's slot: whole 512-byte sectors, raw or FAT as a PC
 formats it. `C809R` at the monitor lists the card's root, and `C80CR` boots

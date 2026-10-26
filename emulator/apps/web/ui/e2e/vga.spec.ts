@@ -165,3 +165,26 @@ test("Cmd shortcuts are the browser's, and a key held when focus goes is let go"
   await expect(page.getByTestId("dev-usb").locator('[data-reg="Modifiers"]')).toHaveText("none");
   await page.keyboard.up("Shift");
 });
+
+test("a long paste on the USB keyboard can be stopped: Stop typing drops the rest", async ({ page }) => {
+  await booted(page);
+  await page.getByRole("button", { name: "VGA" }).click();
+  const stop = page.getByTestId("stop-typing");
+  await expect(stop).toBeHidden();
+  await page.getByTestId("crt").evaluate((glass, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    glass.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, "C680\n".repeat(200)); // a minute of typing
+  await expect(page.getByTestId("crt-text")).toContainText("C680: 00");
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(stop).toBeHidden();
+  await expect(page.getByTestId("crt")).toBeFocused();
+  await page.waitForTimeout(300); // what was already typed, typed
+  const count = async () => ((await page.getByTestId("crt-text").textContent()) ?? "").split("C680: 00").length;
+  const typed = await count();
+  await page.waitForTimeout(1500);
+  expect(await count()).toBe(typed);
+  expect(typed).toBeLessThan(100);
+});

@@ -81,6 +81,7 @@ export class FakePort implements MachinePort {
       video: null,
       audio: null,
       soundRunning: false,
+      keysQueued: 0,
       ...frame,
     };
     for (const listener of this.listeners) listener(full);
@@ -208,6 +209,9 @@ export class FakePort implements MachinePort {
   }
   setLights(on: boolean): void {
     this.calls.push(["setLights", on]);
+  }
+  stopTyping(): void {
+    this.calls.push(["stopTyping"]);
   }
   sendKey(usage: number, down: boolean): void {
     this.calls.push(["sendKey", usage, down]);
