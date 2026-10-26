@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { inKeyLoop } from "./bios-labels";
 
 // The Disk II's drive in the browser with a made-up 140 KB disk (no Apple
 // files needed): in, decoded on the Devices tab, kept through a reload,
@@ -64,5 +65,7 @@ test("a browser whose storage never answers still starts: lamps, debugger and ke
     .poll(() => page.locator('.lamp[data-lamp="A19"]').evaluate((e) => Number((e as HTMLElement).style.getPropertyValue("--b") || 0)), { timeout: 3000 })
     .toBeGreaterThan(0.3);
   await page.locator('[data-tab="cpu"]').click();
-  await expect(page.getByTestId("reg-pc")).toHaveText(/^CB[789][0-9A-F]$/, { timeout: 3000 });
+  await expect
+    .poll(async () => inKeyLoop(parseInt((await page.getByTestId("reg-pc").textContent()) ?? "", 16)), { timeout: 3000 })
+    .toBe(true); // the monitor's key loop
 });

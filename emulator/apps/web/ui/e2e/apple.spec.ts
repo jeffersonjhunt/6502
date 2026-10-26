@@ -60,7 +60,9 @@ test("a IIe ROM in, Start Apple IIe: the Apple's picture, AMODE, its clock and s
   const dev = page.getByTestId("dev-apple");
   await expect(dev.locator('[data-reg="Mode"]')).toHaveText("on · the IIe's map · 1.02 MHz");
   await expect(dev.locator('[data-reg="Video"]')).toHaveText("text 40 · page 1 · MouseText");
-  await expect(page.getByTestId("dev-video")).toContainText("display"); // the cards, still read in I/O space
+  // The cards, still read in I/O space; the /RESET that entered the mode cleared the video card's CTRL (the Apple's
+  // picture doesn't use it).
+  await expect(page.getByTestId("dev-video")).toContainText("CTRL$00  none");
 });
 
 test("the ROM is kept in this browser: back after a reload; Eject forgets it", async ({ page }) => {

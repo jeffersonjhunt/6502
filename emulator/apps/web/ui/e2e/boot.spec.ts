@@ -10,7 +10,7 @@ async function booted(page: Page) {
 
 test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {
   await booted(page);
-  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.8\n\\$/);
+  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.9\n\\$/);
   await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 
