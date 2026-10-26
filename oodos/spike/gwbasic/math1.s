@@ -817,12 +817,10 @@ IADD:           CLC
                 LDA     T0
                 STA     RBL
                 JMP     MAKINT
-IAD10:          LDA     #<FADDS
-                LDX     #>FADDS
-; Float both and apply the single routine at X:A, as IAD10 and IM10 do.
-FLOAT2:         STA     PTR2
-                STX     PTR2+1
-                LDA     RBL            ; the right one
+IAD10:          PUSHRET FADDS
+; Float both and go on to the single routine pushed, as IAD10 and IM10 do.
+; (Not JMP (PTR2): that reads zero page by an absolute address, rule 2.)
+FLOAT2:         LDA     RBL            ; the right one
                 PHA
                 LDA     RBH
                 PHA
@@ -848,7 +846,7 @@ FLOAT2:         STA     PTR2
                 STA     RDH
                 PLA
                 STA     RDL
-                JMP     (PTR2)
+                RTS
 
 ; IMULT: BX = BX * DX, or the single product if it doesn't fit.
 IMULT:          JSR     IMUL16
@@ -858,8 +856,7 @@ IMULT:          JSR     IMUL16
                 LDA     T1
                 STA     RBH
                 JMP     MAKINT
-IM10:           LDA     #<FMULS
-                LDX     #>FMULS
+IM10:           PUSHRET FMULS
                 BRA     FLOAT2
 
 ; IDIV: BX = DX \ BX. -32768 \ -1 is the single 32768.
@@ -1757,12 +1754,13 @@ SAVE:           LDA     RBH
                 STA     FACLO
                 RTS
 
-; The messages, and the constants (CON86) $FOUT needs.
+.segment "MATH1D"
+
+; The messages (GWDATA's in the 8086), $FOTZS's jump table, and the
+; constants (CON86) $FOUT needs.
 OVMSG:          .byte   "Overflow", 0
 DIV0M:          .byte   "Division by zero", 0
 FZ45:           .word   FZ50, FZ50, FZ60, FZ60, FZ60, FZ60, FZ50, FZ60, FZ10, FZ10
-
-.segment "MATH1D"
 
 ; $FOTB: for each exponent, the power of ten that brings the number near
 ; 10^6..10^7.
