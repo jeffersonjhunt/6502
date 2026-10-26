@@ -17,6 +17,12 @@ first N cases are all a test needs, and taking a prefix of each file keeps the
 download near 1 MB per opcode instead of 5. The truncated tail is discarded by
 decoding objects one at a time and stopping at the first incomplete one.
 
+Both CPUs' sets are written to scratch directories beside the old ones and
+swapped in only once all of both have arrived, so a failed or interrupted
+fetch leaves what was there. The Harte files have no published hashes (and
+a ranged prefix could not match one): the URL pins the commit, and each
+case is checked to run the opcode its file is named for.
+
 Output for Harte is one case per line, all decimal, so the C++ side needs no
 JSON parser (format 2, which added the bus cycles):
 
@@ -31,7 +37,9 @@ import concurrent.futures
 import hashlib
 import json
 import pathlib
+import shutil
 import sys
+import tempfile
 import urllib.request
 
 DORMANN_COMMIT = "7954e2dbb49c469ea286070bf46cdd71aeb29e4b"
@@ -65,6 +73,14 @@ HARTE_SETS = {"6502": NMOS_OPCODES, "wdc65c02": WDC_OPCODES}
 # Bytes per case is ~550 on average and ~1 kB for the longest (BRK, JSR, RTI);
 # asking for 1.5 kB per case covers the worst opcode with room to spare.
 BYTES_PER_CASE = 1500
+HARTE_CASES_PER_FILE = 10000
+
+
+def positive_cases(text):
+    n = int(text) if text.isdigit() else 0
+    if not 1 <= n <= HARTE_CASES_PER_FILE:
+        raise argparse.ArgumentTypeError(f"want 1 to {HARTE_CASES_PER_FILE}, not {text!r}")
+    return n
 
 
 def fetch(url, byte_range=None):
@@ -82,7 +98,9 @@ def fetch_dormann(out_dir):
         digest = hashlib.sha256(data).hexdigest()
         if digest != sha:
             sys.exit(f"dormann: {name} sha256 mismatch ({digest}), refusing to write {dest}")
-        dest.write_bytes(data)
+        part = dest.with_name(dest.name + ".part")
+        part.write_bytes(data)
+        part.replace(dest)  # never half a file under the real name
         print(f"dormann: {dest} ({len(data)} bytes, sha256 ok)")
 
 
@@ -107,6 +125,9 @@ def harte_cases(cpu, op, cases):
         except json.JSONDecodeError:
             break  # reached the truncated tail of the ranged download
         cycles = case["cycles"]
+        pc = case["initial"]["pc"]
+        if not cycles or cycles[0][:2] != [pc, op] or [pc, op] not in case["initial"]["ram"]:
+            sys.exit(f"harte: {cpu}/{op:02x}: case {len(rows)} does not run opcode {op:02x}; not the pinned file?")
         row = state_fields(case["initial"]) + state_fields(case["final"]) + [len(cycles)]
         for addr, val, kind in cycles:
             row += [addr, val, 1 if kind == "write" else 0]
@@ -115,27 +136,39 @@ def harte_cases(cpu, op, cases):
 
 
 def fetch_harte(out_dir, cases):
-    short = []
-    for cpu, opcodes in HARTE_SETS.items():
-        dest_dir = out_dir / "harte" / cpu
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for old in dest_dir.glob("*.txt"):
-            old.unlink()  # a smaller set must not leave stale opcodes behind
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            for op, rows in pool.map(lambda o: harte_cases(cpu, o, cases), opcodes):
-                if len(rows) < cases:
-                    short.append(f"{cpu}/{op:02x}:{len(rows)}")
-                (dest_dir / f"{op:02x}.txt").write_text("\n".join(rows) + "\n")
-        (dest_dir / "SOURCE").write_text(
-            f"format {HARTE_FORMAT}\nSingleStepTests/65x02 {HARTE_COMMIT} {cpu}/v1, {cases} cases/opcode\n")
-        print(f"harte: {cpu}: {len(opcodes)} opcodes x {cases} cases -> {dest_dir}")
-    if short:
-        sys.exit(f"harte: fewer cases than asked for {', '.join(short)}; raise BYTES_PER_CASE")
+    harte = out_dir / "harte"
+    harte.mkdir(parents=True, exist_ok=True)
+    fetched = {}  # cpu -> its new set, in a scratch directory beside the old
+    try:
+        short = []
+        for cpu, opcodes in HARTE_SETS.items():
+            new_dir = fetched[cpu] = pathlib.Path(tempfile.mkdtemp(prefix=f".{cpu}.", dir=harte))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                for op, rows in pool.map(lambda o: harte_cases(cpu, o, cases), opcodes):
+                    if len(rows) < cases:
+                        short.append(f"{cpu}/{op:02x}:{len(rows)}")
+                    (new_dir / f"{op:02x}.txt").write_text("\n".join(rows) + "\n")
+            (new_dir / "SOURCE").write_text(
+                f"format {HARTE_FORMAT}\nSingleStepTests/65x02 {HARTE_COMMIT} {cpu}/v1, {cases} cases/opcode\n")
+        if short:
+            sys.exit(f"harte: fewer cases than asked for {', '.join(short)}; raise BYTES_PER_CASE")
+        # Every set whole, or none: a smaller one must not leave stale opcodes behind.
+        for cpu, new_dir in fetched.items():
+            dest_dir, old_dir = harte / cpu, harte / f".{cpu}.old"
+            shutil.rmtree(old_dir, ignore_errors=True)
+            if dest_dir.exists():
+                dest_dir.rename(old_dir)
+            new_dir.rename(dest_dir)
+            shutil.rmtree(old_dir, ignore_errors=True)
+            print(f"harte: {cpu}: {len(HARTE_SETS[cpu])} opcodes x {cases} cases -> {dest_dir}")
+    finally:
+        for new_dir in fetched.values():
+            shutil.rmtree(new_dir, ignore_errors=True)  # gone already if it was swapped in
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--cases", type=int, default=100, help="Harte cases per opcode (default 100)")
+    ap.add_argument("--cases", type=positive_cases, default=100, help="Harte cases per opcode (default 100)")
     ap.add_argument("--out", type=pathlib.Path,
                     default=pathlib.Path(__file__).resolve().parent.parent / "test" / "host" / "fixtures")
     ap.add_argument("--skip-harte", action="store_true")
