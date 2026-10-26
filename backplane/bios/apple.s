@@ -4,13 +4,16 @@
 ; 16 KB as it sits at $C000-$FFFF. This checks it is a IIe's ($FBB3 = $06),
 ; copies it into bank E at $EC000 (RAM block 59, where Apple mode reads its
 ; ROM from), clears banks 0-3 (the IIe's main and auxiliary memory and the
-; language card) and writes MODE: the north bridge switches to the Apple
+; language card) and $D000-$DFFF of banks 4-5 (the language card's second
+; $D000 bank) and writes MODE: the north bridge switches to the Apple
 ; map and clock and pulses /RESET, and the CPU starts at the IIe ROM's
 ; reset vector, as a IIe does at power-on. Only a hard reset comes back.
 ;
 ; The clear wipes this code's stack and zero page (bank 0), so it is the last
 ; thing done, inline: no subroutine returns after it. It is four 64 KB DMA
-; fills from a zero byte held as the source, about 75 ms.
+; fills from a zero byte held as the source, and two of 4 KB, about 75 ms.
+; Each is a block transfer with no burst limit, so it is done before the
+; next instruction.
 ;
 ; The IIe's character ROM goes to video memory too (CHARS), from the
 ; cartridge's $84000 or, without one, made from the VGA font.
@@ -106,6 +109,20 @@ APPLE:
                 STA     DMA3_MODE
                 LDA     #DMA_GO
                 STA     DMA3_CTRL      ; it runs before the next instruction
+.endrepeat
+.repeat 2, bank                        ; the second $D000 bank, main then auxiliary
+                STZ     DMA3_DEST
+                LDA     #$D0
+                STA     DMA3_DEST+1
+                LDA     #4 + bank
+                STA     DMA3_DEST+2
+                STZ     DMA3_COUNT     ; 4 KB
+                LDA     #$10
+                STA     DMA3_COUNT+1
+                LDA     #DMA_M2M | DMA_HOLD
+                STA     DMA3_MODE
+                LDA     #DMA_GO
+                STA     DMA3_CTRL
 .endrepeat
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET

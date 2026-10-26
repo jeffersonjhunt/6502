@@ -74,7 +74,7 @@ namespace
             return nullptr;
         }
         std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.8\r\\\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.9\r\\\r"))
             return nullptr;
         return s;
     }

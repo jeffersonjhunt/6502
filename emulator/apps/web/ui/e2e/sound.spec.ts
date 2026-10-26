@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const GREETING = "BACKPLANE BIOS 0.8";
+const GREETING = "BACKPLANE BIOS 0.9";
 
 async function booted(page: Page) {
   await page.goto("./");
