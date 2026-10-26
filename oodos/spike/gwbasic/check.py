@@ -10,6 +10,7 @@
    and $FOUT's text.
 2. The model against exact arithmetic: how often each operation is the
    correctly rounded result, and its worst error in units of the last place.
+   Divides and the double multiply must always be; the rest within an ulp.
 3. Programs: tokenised BASIC run through NEWSTT, FRMEVL and the rest, the
    output compared with basic.py's reading of the same program, which uses
    mbf.py for the arithmetic. One program is generated: random expressions.
@@ -314,13 +315,17 @@ def hx(b):
 
 
 def exactness(rng, n):
+    """Divides and the double multiply must be correctly rounded every time;
+    add, subtract and single multiply aren't quite (README, Correctness), but
+    must stay within an ulp. Returns the lines and the number of failures."""
     lines = []
-    for name, f, g, bits in (("add", mbf.fadds, lambda x, y: x + y, 24),
-                             ("sub", mbf.fsubs, lambda x, y: x - y, 24),
-                             ("mul", mbf.fmuls, lambda x, y: x * y, 24),
-                             ("div", mbf.fdivs, lambda x, y: x / y, 24),
-                             ("dmul", mbf.fmuld, lambda x, y: x * y, 56),
-                             ("ddiv", mbf.ddiv, lambda x, y: x / y, 56)):
+    failed = 0
+    for name, f, g, bits, exact in (("add", mbf.fadds, lambda x, y: x + y, 24, False),
+                                    ("sub", mbf.fsubs, lambda x, y: x - y, 24, False),
+                                    ("mul", mbf.fmuls, lambda x, y: x * y, 24, False),
+                                    ("div", mbf.fdivs, lambda x, y: x / y, 24, True),
+                                    ("dmul", mbf.fmuld, lambda x, y: x * y, 56, True),
+                                    ("ddiv", mbf.ddiv, lambda x, y: x / y, 56, True)):
         same = total = 0
         worst = Fraction(0)
         for _ in range(n):
@@ -343,8 +348,11 @@ def exactness(rng, n):
                 e = r[-1]
                 ulp = Fraction(2) ** (e - 128 - bits)
                 worst = max(worst, abs(mbf.value(r) - x) / ulp)
-        lines.append("  %-5s %5d/%d correctly rounded; worst %.3f ulp" % (name, same, total, float(worst)))
-    return lines
+        bad = (same < total) if exact else (worst >= 1)
+        failed += bad
+        lines.append("  %-5s %5d/%d correctly rounded; worst %.3f ulp%s" % (
+            name, same, total, float(worst), "  BAD" if bad else ""))
+    return lines, failed
 
 
 # --- Programs ---------------------------------------------------------------------------
@@ -431,8 +439,10 @@ def main():
             print("  %-7s %5d  %s" % (op, per[op][0], "ok" if not per[op][1] else "%d BAD" % per[op][1]))
         failed += bad
         print("The model against exact arithmetic (operands 2^-32..2^32):")
-        for l in exactness(random.Random(args.seed), 2000):
+        lines, bad = exactness(random.Random(args.seed), 2000)
+        for l in lines:
             print(l)
+        failed += bad
         progs = dict(PROGRAMS)
         for k in range(4):
             progs["random%d" % k] = random_program(rng)

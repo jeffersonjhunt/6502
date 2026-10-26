@@ -171,7 +171,9 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
 - **mbf.py itself against exact arithmetic** (Python's fractions): single and double divide and double
   multiply are correctly rounded in every case; add and subtract in 97% (worst 0.75 ulp) and multiply in 94%
   (worst 0.63 ulp). Those are GW-BASIC's own: the add loses its sticky bit when the sum carries, and the
-  multiply truncates its partial products below the rounding bits. The port must keep them.
+  multiply truncates its partial products below the rounding bits. The port must keep them. check.py fails
+  if a divide or the double multiply is ever not correctly rounded, or add, subtract or multiply is out by an
+  ulp.
 - **Programs**, tokenised by basic.py and run through NEWSTT, FRMEVL and the rest on the emulator, against
   basic.py's reading of the same program: a counted loop, a precedence and type test (integer overflow into
   single, `\`, MOD, AND/OR/XOR/EQV/IMP, NOT, relations, nested IF/ELSE, CINT/FIX/INT, Overflow and Division by
