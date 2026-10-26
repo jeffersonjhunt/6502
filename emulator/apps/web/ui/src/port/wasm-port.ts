@@ -31,6 +31,7 @@
 
 import type {
   AppleState,
+  ClockState,
   Cartridge,
   Clock,
   DiskFormat,
@@ -110,6 +111,8 @@ export interface CoreMachine {
   sdStatus(): number;
   sdCommands(): number;
   soundVoice(chip: number, voice: number): number;
+  setRtc(seconds: number): void;
+  rtc(): Uint8Array;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
   appleMode(): boolean;
   appleSwitches(): number;
@@ -195,6 +198,11 @@ function stringToBytes(s: string): Uint8Array {
   return out;
 }
 
+/** Seconds since 1970 on the local wall clock: what the DS3231 is set to (setRtc). */
+export function wallClock(d: Date): number {
+  return Math.floor(d.getTime() / 1000) - d.getTimezoneOffset() * 60;
+}
+
 export class WasmPort implements MachinePort {
   readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true, sd: true };
 
@@ -244,6 +252,7 @@ export class WasmPort implements MachinePort {
       throw new Error(`cannot open ${this.files.machine}: ${why}`);
     }
     this.m = m;
+    m.setRtc(wallClock(new Date())); // the DS3231, set as the owner would set it
     this.setClock(this.clock); // the video card keeps time by it
     m.setAudioRate(this.audioRate);
     this.last = this.ranUntil = this.scheduler.now();
@@ -546,6 +555,12 @@ export class WasmPort implements MachinePort {
 
   async readDisk2(): Promise<DiskStatus | null> {
     return this.readDiskStatus(this.machine);
+  }
+
+  async readClock(): Promise<ClockState | null> {
+    const r = this.machine.rtc();
+    if (!r.length) return null;
+    return { time: r.slice(0, 7), rtcctl: r[7], rtcreg: r[8], rtcdata: r[9], chip: r.slice(16, 16 + 0x13) };
   }
 
   async readSound(): Promise<SoundCpu | null> {

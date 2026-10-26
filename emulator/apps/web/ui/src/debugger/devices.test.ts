@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -227,5 +227,44 @@ describe("Devices tab", () => {
     expect(text(sd, "ERROR")).toBe("not found");
     expect(text(sd, "Transfer")).toBe("unit 1 · LBA $00001234 · COUNT 65536 · DMA");
     expect(text(sd, "IEN / ISR")).toBe("$01 / $03  done · card change");
+  });
+
+  test("the real-time clock: the time, RTCCTL and the DS3231's registers in words", async () => {
+    const bytes = (...v: number[]) => Uint8Array.from(v);
+    expect(clockTime(bytes(0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26))).toBe("2026-10-26 13:45:07 · Monday");
+    expect(clockTime(bytes(0x00, 0x00, 0x52, 0x01, 0x01, 0x81, 0x00))).toBe("2100-01-01 00:00:00 · Sunday · 12 h"); // 12 AM
+    expect(clockTime(bytes(0x59, 0x30, 0x71, 0x07, 0x29, 0x02, 0x00))).toBe("2000-02-29 23:30:59 · Saturday · 12 h"); // 11 PM
+    expect(clockTime(bytes(0, 0, 0, 0, 1, 1, 0))).toBe("2000-01-01 00:00:00 · day 0");
+    expect(rtcctlText(0x00)).toBe("none");
+    expect(rtcctlText(0xc5)).toBe("TICK · TIE · LOST · BUSY");
+    expect(clockControl(0x00)).toBe("square wave 1 Hz");
+    expect(clockControl(0x1c)).toBe("SQW is INT: alarms only");
+    expect(clockControl(0x89)).toBe("square wave 1.024 kHz · EOSC · A1IE");
+    expect(clockStatus(0x88)).toBe("OSF (the time is invalid) · EN32kHz");
+    expect(clockStatus(0x07)).toBe("BSY · A2F · A1F");
+
+    const port = new FakePort();
+    const view = devicesView(port);
+    await view.refresh();
+    expect(view.element.querySelector('[data-testid="dev-rtc"]')?.textContent).toBe("No real-time clock on this machine.");
+    const chip = new Uint8Array(0x13);
+    chip.set([0x80, 0x80, 0x80, 0x80], 0x07);
+    chip[0x0f] = 0x09;
+    chip[0x10] = 0x85;
+    chip[0x11] = 25;
+    port.clock = { time: bytes(0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26), rtcctl: 0xe0, rtcreg: 0x0f, rtcdata: 0x09, chip };
+    await view.refresh();
+    const rtc = view.element.querySelector('[data-testid="dev-rtc"]')!;
+    expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock ticking");
+    expect(text(rtc, "Time")).toBe("2026-10-26 13:45:07 · Monday");
+    expect(text(rtc, "RTCCTL")).toBe("$E0  TICK · TIE · ALARM");
+    expect(text(rtc, "RTCREG")).toBe("$0F · RTCDATA $09");
+    expect(text(rtc, "Control")).toBe("$00  square wave 1 Hz");
+    expect(text(rtc, "Status")).toBe("$09  EN32kHz · A1F");
+    expect(text(rtc, "Alarms")).toBe("1: $80 $80 $80 $80 · 2: $00 $00 $00");
+    expect(text(rtc, "Aging")).toBe("$85 · 25.00 °C");
+    port.clock = { ...port.clock, rtcctl: 0x04 };
+    await view.refresh();
+    expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock lost");
   });
 });

@@ -10,7 +10,7 @@ import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
-import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
+import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, wallClock, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
 const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
@@ -75,6 +75,30 @@ async function open() {
   };
   return { port, clock, step, until, output: () => out, clear: () => (out = "") };
 }
+
+describe("the real-time clock", () => {
+  test("wallClock is the local time as seconds since 1970", () => {
+    const d = new Date(2026, 9, 26, 13, 45, 7); // local
+    expect(wallClock(d)).toBe(Date.UTC(2026, 9, 26, 13, 45, 7) / 1000);
+  });
+
+  test("connect sets the DS3231 from this computer's clock, and it counts in the CPU's time", async () => {
+    const before = new Date();
+    const { port, step } = await open();
+    const c = (await port.readClock())!;
+    const bcd = (v: number) => (v >> 4) * 10 + (v & 15);
+    const at = new Date(2000 + bcd(c.time[6]), bcd(c.time[5] & 0x1f) - 1, bcd(c.time[4]), bcd(c.time[2]), bcd(c.time[1]), bcd(c.time[0]));
+    expect(Math.abs(at.getTime() - before.getTime())).toBeLessThan(5000);
+    expect(c.time[3]).toBe(at.getDay() + 1); // 1 = Sunday
+    expect(c.chip[0x11]).toBe(25);
+    expect(c.rtcctl & 0x04).toBe(0); // not LOST
+    for (let i = 0; i < 61; ++i) step(); // a second of emulated time
+    const later = (await port.readClock())!;
+    expect(later.rtcctl & 0x80).toBe(0x80); // TICK
+    expect(later.time.join()).not.toBe(c.time.join());
+    port.close();
+  });
+});
 
 describe("coreUrl", () => {
   test("next to the page, with the build's version", () => {

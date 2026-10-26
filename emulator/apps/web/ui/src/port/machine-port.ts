@@ -137,6 +137,17 @@ export interface Envelope {
   held: boolean;
 }
 
+/** The north bridge's real-time clock, its DS3231 behind it (readClock). */
+export interface ClockState {
+  /** SEC-YEAR as the bridge last read them: the DS3231's $00-$06, in BCD. */
+  time: Uint8Array;
+  rtcctl: number;
+  rtcreg: number;
+  rtcdata: number;
+  /** The DS3231's own registers, $00-$12. */
+  chip: Uint8Array;
+}
+
 /** The Disk II card as it is (FrameState.disk, readDisk2). */
 export interface DiskStatus {
   motor: boolean;
@@ -380,6 +391,8 @@ export interface MachinePort {
   saveSd(): Promise<Uint8Array>;
   /** The card's write-protect switch. */
   setSdWriteProtect(on: boolean): void;
+  /** The real-time clock; null without the backplane's north bridge. */
+  readClock(): Promise<ClockState | null>;
   /** The sound card's 6510; null without the card. Its registers are readMemory(0xC500, 0x80, "io"). */
   readSound(): Promise<SoundCpu | null>;
   /**
