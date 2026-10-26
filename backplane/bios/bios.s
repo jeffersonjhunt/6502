@@ -12,8 +12,9 @@
 ;      (input.s), if there are such cards,
 ;   5. greets the terminal and enters the Woz Monitor.
 ;
-; $C800 is reset, $C803 the video demo and $C806 Apple II mode: C803R or
-; C806R from the monitor.
+; $C800 is reset, $C803 the video demo, $C806 Apple II mode, $C809 the SD
+; card's directory and $C80C a boot from it: C803R and so on from the
+; monitor. $C80F is ECHO, for programs.
 ;
 ; When the bus spy has loaded RAM and held /BOOTSEL, the reset map already
 ; has W3 on RAM block 63; the copy then copies the RAM onto itself, which is
@@ -24,7 +25,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, VINIT, DEMO, KINIT, APPLE
+.import WOZMON, ECHO, VINIT, DEMO, KINIT, APPLE, SDCAT, SDBOOT
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
 DST   = $02
@@ -39,8 +40,11 @@ BLOCK2  = 2
 ENTRY:          JMP     RESET          ; $C800: reset, as the vector does
                 JMP     DEMO           ; $C803: the video demo (video.s, demo.s)
                 JMP     APPLE          ; $C806: Apple II mode (apple.s)
-.repeat 5
-                JMP     WOZMON         ; $C809-$C815: spare
+                JMP     SDCAT          ; $C809: the SD card and its root directory (sd.s)
+                JMP     SDBOOT         ; $C80C: boot /BOOT.BIN from the SD card (sd.s)
+                JMP     ECHO           ; $C80F: print A, for programs (keeps A and X)
+.repeat 2
+                JMP     WOZMON         ; $C812-$C815: spare
 .endrepeat
 
 RESET:
@@ -89,7 +93,7 @@ MONITOR:        JMP     WOZMON
 
 IRQ:            RTI
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.6", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.7", $0D, 0
 
 .segment "VECTORS"
                 .word   WOZMON         ; NMI

@@ -38,6 +38,8 @@ export interface PortCaps {
   audio: boolean;
   /** playSid() works: a .sid tune straight onto the sound card. */
   sid: boolean;
+  /** insertSd() and the rest work: the SD card's slot. */
+  sd: boolean;
 }
 
 /** A .sid tune on the sound card (playSid). */
@@ -81,6 +83,27 @@ export interface DiskInfo {
   changed: boolean;
   /** Counts writes ever: a copy kept elsewhere is behind when this has moved on. */
   writes: number;
+}
+
+/** The card in the SD slot (readSdInfo). */
+export interface SdInfo {
+  /** The file it came from. */
+  name: string;
+  /** 512-byte sectors. */
+  sectors: number;
+  writeProtected: boolean;
+  /** Written to since it went in (or was last saved). */
+  changed: boolean;
+}
+
+/** The SD card as it is (FrameState.sd). */
+export interface SdStatus {
+  /** A card is in the slot. */
+  present: boolean;
+  /** A command was under way during the frame: the card's light. */
+  busy: boolean;
+  /** The card has been written to since it went in or was last saved. */
+  changed: boolean;
 }
 
 /** The sound card's own 6510 as it is (readSound). */
@@ -231,6 +254,8 @@ export interface FrameState {
   soundRunning: boolean;
   /** The Disk II card, if the machine has one (the drive light). */
   disk: DiskStatus | null;
+  /** The SD card, if the machine has one (its light). */
+  sd: SdStatus | null;
   /** What the machine sent on its serial line since the last frame. */
   serialOut: Uint8Array;
   /** Only while setLights(true). */
@@ -339,6 +364,18 @@ export interface MachinePort {
   setWriteProtect(drive: number, on: boolean): void;
   /** The Disk II card as it is; null without one. */
   readDisk2(): Promise<DiskStatus | null>;
+  /**
+   * A card image's bytes (whole 512-byte sectors: a raw card, or FAT as a PC
+   * formats it) into the SD slot, held in the page. Rejects with a readable
+   * reason. The card stays in through power cycles, as a real one.
+   */
+  insertSd(bytes: Uint8Array, name: string): Promise<SdInfo>;
+  ejectSd(): void;
+  readSdInfo(): Promise<SdInfo | null>;
+  /** The card as a file, with the machine's writes; it counts as saved (changed goes false). */
+  saveSd(): Promise<Uint8Array>;
+  /** The card's write-protect switch. */
+  setSdWriteProtect(on: boolean): void;
   /** The sound card's 6510; null without the card. Its registers are readMemory(0xC500, 0x80, "io"). */
   readSound(): Promise<SoundCpu | null>;
   /**

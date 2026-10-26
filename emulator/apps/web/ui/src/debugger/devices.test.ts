@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -199,5 +199,33 @@ describe("Devices tab", () => {
     const v = devicesView(new FakePort());
     await v.refresh();
     expect(v.element.textContent).toContain("No sound card on this machine.");
+  });
+
+  test("the SD card's registers and card in words", async () => {
+    expect(sdStatusText(0x00)).toBe("no card");
+    expect(sdStatusText(0x20)).toBe("starting up");
+    expect(sdStatusText(0x60)).toBe("ready");
+    expect(sdStatusText(0xe8)).toBe("busy · DATA");
+    expect(sdStatusText(0x71)).toBe("ready · write-protected · error");
+    expect(sdErrorText(9)).toBe("no FAT volume");
+    expect(sdErrorText(0x42)).toBe("$42");
+    expect(sdCardText(null)).toBe("empty");
+    expect(sdCardText({ name: "card.img", sectors: 65536, writeProtected: true, changed: true })).toBe("card.img · 65536 sectors (32 MB) · write-protected · written to");
+    expect(sdCardText({ name: "", sectors: 2880, writeProtected: false, changed: false })).toBe("(no name) · 2880 sectors (1440 KB)");
+
+    const port = new FakePort();
+    const view = devicesView(port);
+    await view.refresh();
+    expect(view.element.querySelector('[data-testid="dev-sd"]')?.textContent).toBe("No SD card slot on this machine.");
+    const regs: Record<number, number> = { 0x00: 0x01, 0x01: 0x61, 0x02: 0x08, 0x04: 1, 0x06: 0x34, 0x07: 0x12, 0x0a: 0, 0x0b: 0, 0x10: 1, 0x11: 3, 0x7f: 0x71 };
+    for (const [o, v] of Object.entries(regs)) port.io.set(SD + Number(o), v);
+    await port.insertSd(new Uint8Array(2880 * 512), "fat12.img");
+    await view.refresh();
+    const sd = view.element.querySelector('[data-testid="dev-sd"]')!;
+    expect(text(sd, "Card")).toBe("fat12.img · 2880 sectors (1440 KB)");
+    expect(text(sd, "STATUS")).toBe("$61  ready · error");
+    expect(text(sd, "ERROR")).toBe("not found");
+    expect(text(sd, "Transfer")).toBe("unit 1 · LBA $00001234 · COUNT 65536 · DMA");
+    expect(text(sd, "IEN / ISR")).toBe("$01 / $03  done · card change");
   });
 });

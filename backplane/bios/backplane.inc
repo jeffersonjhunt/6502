@@ -79,3 +79,37 @@ USB_ID_V1       = $B1
 
 NB_MODE_APPLE   = $01                  ; MODE: enter Apple II mode (only a hard reset leaves)
 DMA_HOLD        = $20                  ; MODE: the source address holds still (a fill)
+
+; Mass storage card (module 7): an SD card behind an RP2350 (sd.s).
+SD              = $C380
+SD_CTRL         = SD + $00
+SD_STATUS       = SD + $01
+SD_ERROR        = SD + $02
+SD_CMD          = SD + $03
+SD_UNIT         = SD + $04
+SD_LBA          = SD + $06             ; 4 bytes, low first
+SD_COUNT        = SD + $0A             ; 2 bytes
+SD_DATA         = SD + $0C
+SD_ID           = SD + $7F
+
+SD_BUSY         = $80                  ; STATUS
+SD_READY        = $40
+SD_PRESENT      = $20
+SD_DATA_READY   = $08
+SD_ERR          = $01
+SD_CTRL_DMA     = $01                  ; CTRL: DRQ0 follows DATA
+SD_READ         = $20                  ; CMD
+SD_MOUNT        = $A0
+SD_LIST         = $A2
+SD_IDENTIFY     = $EC
+SD_NOT_FOUND    = 8                    ; ERROR
+SD_ID_V1        = $71
+SD_ZP           = $F0                  ; $F0-$F4: sd.s
+
+; DMA channel 0, storage's.
+DMA0_ADDR       = DMA + $00
+DMA0_COUNT      = DMA + $04
+DMA0_MODE       = DMA + $06
+DMA0_CTRL       = DMA + $07
+DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory
+DMA_ENABLE      = $01                  ; CTRL

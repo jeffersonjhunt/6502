@@ -409,7 +409,9 @@ TEST(a_command_written_while_busy_is_ignored)
 {
     Rig r;
     r.command(SdCard::READ, 0, 1);
+    CHECK_EQ(r.card.commands(), uint64_t{1});
     r.command(SdCard::WRITE, 5, 1);
+    CHECK_EQ(r.card.commands(), uint64_t{1}); // ignored: not counted
     r.card.tick(ACCESS);
     CHECK_EQ(r.lba(), 5u); // the registers took the writes
     CHECK_EQ(r.read_sector(0), size_t{0}); // but the read went on

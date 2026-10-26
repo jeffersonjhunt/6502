@@ -87,6 +87,14 @@ this browser (IndexedDB), with what was written to it, never uploaded. A paste g
 Apple II it is typed on the USB keyboard (US layout; letters as the card's
 Caps Lock has them), and the card holds each character until the machine
 has taken the last, so a BASIC program pasted into Applesoft arrives whole.
+**Insert SD card…**, under the drive, puts a card image of your own in the
+mass storage card's slot: whole 512-byte sectors, raw or FAT as a PC
+formats it. `C809R` at the monitor lists the card's root, and `C80CR` boots
+its `/BOOT.BIN`. The light is on while it works on a command. Write-protect is
+the card's switch, **Save card** downloads it with what the machine wrote,
+and Eject takes it out. The card stays in the page only: never uploaded, and
+not kept in this browser (a card is megabytes), so once it has been written
+to the note says so and leaving the page asks first.
 **Sound**, under the monitor, plays the machine's sound through the
 computer's speakers: the sound card's two SIDs, and the USB card's speaker,
 which is the IIe's `$C030` in Apple II mode (Web Audio, at the device's own

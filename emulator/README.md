@@ -89,6 +89,12 @@ FILE` adds its 4 or 8 KB character ROM. `C806R` at the monitor copies the ROM
 into bank E and enters Apple II mode (in progress: docs/EMULATOR_PLAN.md).
 Apple's ROMs are copyrighted: nothing here ships them.
 
+`--sd FILE` puts a card image in the mass storage card's slot, written through
+to the file. `C809R` at the monitor lists the card (a FAT card's root directory),
+and `C80CR` loads its `/BOOT.BIN` at `$1000` by DMA and calls it. A program
+booted this way prints through `$C80F` (ECHO) and can return to the monitor with
+RTS. Make a card with `mkfs.fat -C card.img 32768` and `mcopy`.
+
 `C803R` at the monitor runs the video demo from flash (`../backplane/bios/demo.s`):
 a scrolling tile landscape, twelve bouncing sprites whose table is copied by DMA
 every vertical blank, a caption layer and a palette fade. Any key goes back to

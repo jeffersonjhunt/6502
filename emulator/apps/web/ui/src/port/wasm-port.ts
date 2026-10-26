@@ -27,6 +27,8 @@ import type {
   PortCaps,
   Registers,
   MouseInput,
+  SdInfo,
+  SdStatus,
   SidTune,
   SoundCpu,
   TraceRow,
@@ -82,6 +84,15 @@ export interface CoreMachine {
   setWriteProtect(drive: number, on: boolean): void;
   diskStatus(): number;
   diskQuarter(drive: number): number;
+  hasSd(): boolean;
+  insertSd(bytes: Uint8Array, name: string): boolean;
+  ejectSd(): void;
+  sdInfo(): number;
+  sdSectors(): number;
+  sdSave(): Uint8Array | null;
+  setSdWriteProtect(on: boolean): void;
+  sdStatus(): number;
+  sdCommands(): number;
   soundVoice(chip: number, voice: number): number;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
   appleMode(): boolean;
@@ -160,7 +171,7 @@ function stringToBytes(s: string): Uint8Array {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true, sd: true };
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -180,6 +191,8 @@ export class WasmPort implements MachinePort {
   private speedMs = 0;
   private hz = 0;
   private readonly diskNames = ["", ""];
+  private sdName = "";
+  private sdCommands = 0;
 
   constructor(options: WasmPortOptions = {}) {
     this.load = options.load ?? loadFromPage;
@@ -261,6 +274,7 @@ export class WasmPort implements MachinePort {
       apple: this.powered && m.appleMode(),
       soundRunning: this.powered && m.soundRunning(),
       disk: this.powered ? this.readDiskStatus(m) : null,
+      sd: this.powered ? this.readSdStatus(m) : null,
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,
@@ -269,6 +283,16 @@ export class WasmPort implements MachinePort {
     };
     for (const listener of this.listeners) listener(state);
     this.schedule();
+  }
+
+  private readSdStatus(m: CoreMachine): SdStatus | null {
+    const v = m.sdStatus();
+    if (v < 0) return null;
+    const commands = m.sdCommands();
+    const busy = (v & 0x80) !== 0 || commands !== this.sdCommands; // one started and done within the frame counts
+    this.sdCommands = commands;
+    const info = m.sdInfo(); // -1: the slot is empty
+    return { present: (v & 0x20) !== 0, busy, changed: info >= 0 && (info & 1) === 1 };
   }
 
   private readDiskStatus(m: CoreMachine): DiskStatus | null {
@@ -418,6 +442,35 @@ export class WasmPort implements MachinePort {
 
   setWriteProtect(drive: number, on: boolean): void {
     this.m?.setWriteProtect(drive, on);
+  }
+
+  async insertSd(bytes: Uint8Array, name: string): Promise<SdInfo> {
+    const m = this.machine;
+    if (!m.insertSd(bytes, name)) throw new Error(m.error());
+    this.sdName = name;
+    return (await this.readSdInfo())!;
+  }
+
+  ejectSd(): void {
+    this.m?.ejectSd();
+    this.sdName = "";
+  }
+
+  async readSdInfo(): Promise<SdInfo | null> {
+    const m = this.machine;
+    const v = m.sdInfo();
+    if (v < 0) return null;
+    return { name: this.sdName, sectors: m.sdSectors(), writeProtected: (v & 2) !== 0, changed: (v & 1) !== 0 };
+  }
+
+  async saveSd(): Promise<Uint8Array> {
+    const bytes = this.machine.sdSave();
+    if (!bytes) throw new Error("no card in the slot");
+    return bytes;
+  }
+
+  setSdWriteProtect(on: boolean): void {
+    this.m?.setSdWriteProtect(on);
   }
 
   async readDisk2(): Promise<DiskStatus | null> {

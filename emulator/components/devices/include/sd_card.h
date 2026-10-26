@@ -177,6 +177,8 @@ namespace ooe::emu
         void eject();
         SdMedia *media() const { return media_.get(); }
         const Unit &unit(unsigned n) const { return units_[n % UNITS]; }
+        /// Commands started since power-up, failed ones included: what a light shows.
+        uint64_t commands() const { return commands_; }
 
         // Device: the registers at $C380
         size_t size() const override { return 0x80; }
@@ -226,6 +228,7 @@ namespace ooe::emu
         std::shared_ptr<SdMedia> media_;
         uint64_t ready_at_{0};            ///< cycle the card has started up
         std::array<Unit, UNITS> units_{}; ///< [0] unused: unit 0 is the card
+        uint64_t commands_{0};
 
         // registers
         uint8_t ctrl_{0}, status_err_{0}, error_{0}, unit_{0}, ien_{0}, isr_{0};

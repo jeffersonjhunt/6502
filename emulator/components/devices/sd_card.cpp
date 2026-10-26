@@ -115,6 +115,7 @@ namespace ooe::emu
     {
         if (op_ != Op::None)
             return; // BUSY: the firmware isn't listening
+        ++commands_;
         status_err_ = error_ = 0;
         switch (command)
         {

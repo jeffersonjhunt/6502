@@ -13,11 +13,14 @@
  * the disks in its drives. Then the sound card at $C500: CTRL, the mailbox,
  * RAMADDR, and both SIDs' registers in words (what was last written: the
  * card answers its write-only registers from that), and its own 6510
- * (readSound): registers, port and CIA 1's timer A.
+ * (readSound): registers, port and CIA 1's timer A. Then the SD card at
+ * $C380: the card in the slot (readSdInfo), STATUS, the last error, and the
+ * command's UNIT, LBA and COUNT.
  */
 
-import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SoundCpu } from "../port/machine-port";
+import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SdInfo, SoundCpu } from "../port/machine-port";
 import { h } from "../ui/dom";
+import { cardSize } from "../ui/sd-bar";
 import { hex } from "./breakpoints";
 
 export const VIDEO = 0xc480;
@@ -26,6 +29,8 @@ export const USB = 0xc580;
 const USB_ID = 0xb1;
 export const SOUND = 0xc500;
 const SOUND_ID = 0xa1;
+export const SD = 0xc380;
+const SD_ID = 0x71;
 const MODS = ["L-Ctrl", "L-Shift", "L-Alt", "L-GUI", "R-Ctrl", "R-Shift", "R-Alt", "R-GUI"];
 
 /** KEY as a person reads it: the character, or its control name. */
@@ -77,6 +82,27 @@ export function diskText(d: DiskInfo | null): string {
   if (!d) return "empty";
   const how = { woz: "WOZ", dsk: "16 sectors, DOS order", po: "16 sectors, ProDOS order" }[d.format];
   return [d.name || "(no name)", how, ...(d.writeProtected ? ["write-protected"] : []), ...(d.changed ? ["written to"] : [])].join(" · ");
+}
+
+/** The SD card's STATUS in words. */
+export function sdStatusText(v: number): string {
+  if (!(v & 0x20)) return "no card";
+  const parts = [v & 0x80 ? "busy" : v & 0x40 ? "ready" : "starting up"];
+  if (v & 0x08) parts.push("DATA");
+  if (v & 0x10) parts.push("write-protected");
+  if (v & 0x01) parts.push("error");
+  return parts.join(" · ");
+}
+
+/** The SD card's ERROR codes (hw/design.md). */
+export function sdErrorText(code: number): string {
+  const names = ["none", "no card", "out of range", "CRC", "timeout", "write-protected", "unit not mounted", "unknown command", "not found", "no FAT volume"];
+  return names[code] ?? `$${hex(code, 2)}`;
+}
+
+export function sdCardText(c: SdInfo | null): string {
+  if (!c) return "empty";
+  return [c.name || "(no name)", `${c.sectors} sectors (${cardSize(c.sectors)})`, ...(c.writeProtected ? ["write-protected"] : []), ...(c.changed ? ["written to"] : [])].join(" · ");
 }
 
 const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
@@ -151,6 +177,8 @@ export function devicesView(port: MachinePort) {
   const diskStatus = h("em", {}, "");
   const soundRows = h("dl", { class: "devs", "data-testid": "dev-sound" });
   const soundStatus = h("em", {}, "");
+  const sdRows = h("dl", { class: "devs", "data-testid": "dev-sd" });
+  const sdStatus = h("em", {}, "");
   const element = h(
     "div",
     { class: "sec" },
@@ -172,7 +200,10 @@ export function devicesView(port: MachinePort) {
     h("p", { class: "hint" }, "Module C; slot 6 in Apple II mode, its switches at $C0E0-$C0EF and its boot ROM at $C600."),
     h("h4", {}, "Sound card ", soundStatus),
     soundRows,
-    h("p", { class: "hint" }, "Module A at $C500: two SIDs, and 64 KB for the card's own 6510. No sound is played yet."),
+    h("p", { class: "hint" }, "Module A at $C500: two SIDs, and 64 KB for the card's own 6510."),
+    h("h4", {}, "SD card ", sdStatus),
+    sdRows,
+    h("p", { class: "hint" }, "Module 7 at $C380: an SD card behind an RP2350, sectors through DATA by CPU or DMA channel 0. C809R lists it, C80CR boots /BOOT.BIN."),
   );
 
   const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
@@ -270,8 +301,29 @@ export function devicesView(port: MachinePort) {
     );
   };
 
+  const refreshSd = async () => {
+    const r = await port.readMemory(SD, 0x80, "io");
+    if (r[0x7f] !== SD_ID) {
+      sdStatus.textContent = "none";
+      sdRows.replaceChildren(h("dd", {}, "No SD card slot on this machine."));
+      return;
+    }
+    const st = r[0x01];
+    sdStatus.textContent = st & 0x20 ? (st & 0x80 ? "busy" : "card in") : "empty";
+    const lba = (r[0x06] | (r[0x07] << 8) | (r[0x08] << 16) | (r[0x09] << 24)) >>> 0;
+    const count = r[0x0a] | (r[0x0b] << 8);
+    sdRows.replaceChildren(
+      ...row("Card", sdCardText(await port.readSdInfo())),
+      ...row("STATUS", `$${hex(st, 2)}  ${sdStatusText(st)}`),
+      ...row("ERROR", st & 0x01 ? sdErrorText(r[0x02]) : "none"),
+      ...row("Transfer", `unit ${r[0x04]} · LBA $${hex(lba, 8)} · COUNT ${count || 65536}${r[0x00] & 1 ? " · DMA" : ""}`),
+      ...row("IEN / ISR", `$${hex(r[0x10], 2)} / $${hex(r[0x11], 2)}  ${bits(r[0x11], [[1, "done"], [2, "card change"]])}`),
+    );
+  };
+
   const refresh = async () => {
     await refreshUsb();
+    await refreshSd();
     await refreshSound();
     await refreshApple();
     await refreshDisk();

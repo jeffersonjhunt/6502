@@ -722,8 +722,23 @@ not by us. `tools/make_sd_images.sh` builds them in a throwaway container
 and keeps their non-zero sectors as text in `test/host/sd/`. Hand-patched
 copies of those images reach the corners mtools doesn't make: Windows NT's
 lower-case flags, `$05`, a non-ASCII long name, a broken checksum, a FAT32
-cluster past 65,535 and the reserved top bits. Next: the BIOS and the
-WebUI.
+cluster past 65,535 and the reserved top bits.
+
+**The SD card in the BIOS and the WebUI (2026-10-25), part 3 (9c); BIOS
+0.7.** `backplane/bios/sd.s`: `C809R` prints the card's name and size and
+its root directory (LIST), and `C80CR` mounts `/BOOT.BIN` as unit 1, reads
+it to $1000 by DMA channel 0 and calls it. `$C80F` is ECHO, for programs.
+The jump table keeps eight entries, so nothing after it moved (WOZMON $C880,
+ECHO $C968). test_bios_sd runs both against the mkfs.fat images, whose
+FAT12 one now holds a one-sector BOOT.BIN. In the WebUI, Insert SD card…
+sits under the drive: an image in (a Uint8Array through embind, since a
+card is megabytes), the light, write-protect, Save card with the machine's
+writes, and Eject. The card isn't kept in the browser, so its writes are
+noted and leaving the page asks first. The light counts commands, not BUSY,
+which is up for 100 us and so is almost never caught at a frame boundary.
+The Devices tab decodes the card's registers. `MachinePort` gains
+`insertSd` and the rest, and `FrameState.sd`. The sound card's hint there
+still said "No sound is played yet", which is fixed.
 
 ## Backlog
 
@@ -747,6 +762,11 @@ Decided to come later, not forgotten:
   would). Still to come: RSIDs, which need the VIC-II's raster interrupt (all 17 of the owner's
   wait on `$D012`), CIA 2 and timer B, and a third SID; and a native player program, so the real
   machine can do what the WebUI does.
+- **The SD card** (2026-10-25). Done: the card, FAT mounting, the BIOS's listing and boot, and the
+  WebUI. Still to come: a native OS or DOS on it (the BIOS only lists and boots), the optional
+  ProDOS block driver that would show it in Apple II mode (hw/design.md), interrupts in the BIOS
+  (it polls), a card kept in the browser between visits, and real timing from an RP2350 once one
+  is built. The figures (100 us to a first sector, 25 us a sector after) are estimates.
 - **The Disk II in native mode** (2026-10-25). hw/design.md now puts the card's sixteen switches at
   `$C600–$C60F` in native mode, so native software can use the drive (its timing: 224 CPU cycles a disk
   byte). The emulator still answers only the ID byte there; then a native read/write driver to test it.

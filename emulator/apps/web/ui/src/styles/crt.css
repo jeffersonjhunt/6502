@@ -51,6 +51,8 @@
 .apple-bar [hidden] { display: none; }
 .apple-note { font: 500 11px/1.3 Inter, sans-serif; color: var(--amber); max-width: 40ch; }
 .mon-drive:has(.disk-bar[hidden]) { display: none; }
+.mon-sd:has(.sd-bar[hidden]) { display: none; }
+.mon-sd { justify-content: flex-start; margin-top: 6px; }
 .mon-sound:has(.sid-bar[hidden]):has(.sound:disabled) { display: none; }
 .mon-sound { justify-content: flex-start; margin-top: 6px; }
 .mon-sound .tbtn.sound { padding: 5px 8px; font-size: 11px; }
