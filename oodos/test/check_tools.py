@@ -18,6 +18,7 @@ BUILD = os.path.join(ROOT, "build")
 PRL_CFG = os.path.join(ROOT, "cfg", "prl.cfg")
 COM_CFG = os.path.join(ROOT, "cfg", "com.cfg")
 
+sys.dont_write_bytecode = True  # no __pycache__ in tools/
 spec = importlib.util.spec_from_file_location("mkprl", os.path.join(ROOT, "tools", "mkprl.py"))
 mkprl = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mkprl)
