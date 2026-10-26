@@ -189,6 +189,13 @@ describe("WasmPort", () => {
     expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
   });
 
+  test("a host under 10 fps still measures its speed: a long frame is not a background tab", async () => {
+    const m = await open();
+    let f = m.step(250);
+    for (let i = 0; i < 8; ++i) f = m.step(250); // 4 fps: each frame runs its 100 ms cap in 250 ms
+    expect(Math.abs(f.hz - NATIVE_HZ * 0.4) / NATIVE_HZ).toBeLessThan(0.01);
+  });
+
   test("a listener that throws is reported and the others still hear; the loop goes on", async () => {
     const m = await open();
     const heard: number[] = [];

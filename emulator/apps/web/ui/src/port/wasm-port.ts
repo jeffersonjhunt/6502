@@ -13,8 +13,9 @@
  * frame's own gap includes the wait for vsync, which the machine's last
  * share sets, so following it swung a slow host between frame rates.
  * FrameState.hz is what it really ran, over wall time while running (not
- * halted, nor a background tab's gap). A browser stops animation frames in
- * a background tab, so the machine stops there, and a tune with it.
+ * halted, nor a background tab's gap: a frame after the page was hidden,
+ * or after 3 s; a merely slow frame counts). A browser stops animation
+ * frames in a background tab, so the machine stops there, and a tune with it.
  * Everything else is a direct call into the module.
  *
  * A listener that throws is logged (once) and the rest still hear. If the
@@ -148,6 +149,8 @@ export interface WasmPortOptions {
 }
 
 export const MAX_FRAME_MS = 100;
+/** A frame this late was a background tab (or a debugger pause), not the host's speed. */
+export const BACKGROUND_GAP_MS = 3000;
 export const MAX_SLICE = 50_000;
 export const MAX_FRAME_BUDGET_MS = 10;
 export const FIXED_FRAME_BUDGET_MS = 12;
@@ -202,6 +205,8 @@ export class WasmPort implements MachinePort {
   private handle: number | null = null;
   private last = 0;
   private ranUntil = 0;
+  private wasHidden = false;
+  private readonly onVisibility = () => void (this.wasHidden = true);
   private page = 0; // the page's time between frames, smoothed
   private clock: Clock = CLOCKS_HZ[3];
   private powered = true;
@@ -242,6 +247,7 @@ export class WasmPort implements MachinePort {
     this.setClock(this.clock); // the video card keeps time by it
     m.setAudioRate(this.audioRate);
     this.last = this.ranUntil = this.scheduler.now();
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisibility);
     this.schedule();
     return { machine: this.files.machine };
   }
@@ -249,6 +255,7 @@ export class WasmPort implements MachinePort {
   close(): void {
     if (this.handle !== null) this.scheduler.cancel(this.handle);
     this.handle = null;
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
     this.m?.delete();
     this.m = null;
   }
@@ -364,7 +371,9 @@ export class WasmPort implements MachinePort {
   }
 
   private measure(cycles: number, ms: number): void {
-    if (!cycles || ms > MAX_FRAME_MS) {
+    const back = this.wasHidden || ms > BACKGROUND_GAP_MS;
+    this.wasHidden = false;
+    if (!cycles || back) {
       // Halted, off, or back from a background tab: not the speed it runs at. Start the window again.
       this.speedCycles = this.speedMs = 0;
       return;
