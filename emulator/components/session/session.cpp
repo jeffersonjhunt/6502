@@ -139,6 +139,8 @@ namespace ooe::emu
         if (Disk2Card *d = machine_->disk2_card()) // the disks are still in their drives
             for (unsigned i = 0; i < Disk2Card::DRIVES; ++i)
                 d->insert(i, disks_[i]);
+        if (SdCard *sd = machine_->sd_card(); sd && sd_) // and the SD card in its slot
+            sd->insert(sd_, false);
 
         recorder_->attach(&machine_->bus());
         observers_ = CycleTee{};
@@ -210,6 +212,36 @@ namespace ooe::emu
         disks_[drive % Disk2Card::DRIVES].reset();
         if (Disk2Card *d = machine_->disk2_card())
             d->insert(drive, nullptr);
+    }
+
+    bool Session::insert_sd(std::vector<uint8_t> bytes, const std::string &name, std::string &error)
+    {
+        if (bytes.size() < SdMedia::SECTOR)
+        {
+            error = name + ": not an SD card image (less than one 512-byte sector)";
+            return false;
+        }
+        return insert_sd(std::make_shared<MemoryMedia>(std::move(bytes), name), error);
+    }
+
+    bool Session::insert_sd(std::shared_ptr<SdMedia> media, std::string &error)
+    {
+        SdCard *sd = machine_->sd_card();
+        if (!sd)
+        {
+            error = "this machine has no SD card slot (an sd line)";
+            return false;
+        }
+        sd_ = std::move(media);
+        sd->insert(sd_);
+        return true;
+    }
+
+    void Session::eject_sd()
+    {
+        sd_.reset();
+        if (SdCard *sd = machine_->sd_card())
+            sd->eject();
     }
 
     void Session::set_cpu_hz(uint32_t hz)
@@ -327,6 +359,8 @@ namespace ooe::emu
             usb->set_cpu_hz(hz);
         if (SoundCard *sound = machine_->sound_card())
             sound->set_cpu_hz(hz);
+        if (SdCard *sd = machine_->sd_card())
+            sd->set_cpu_hz(hz);
     }
 
     Session::RunResult Session::run(uint64_t budget)

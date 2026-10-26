@@ -38,6 +38,10 @@
 # its own (sound_card.h): so far its registers, RAM and mailbox. RAMDATA is
 # on DMA channel 2.
 #
+# The mass storage card (module 7, $C380) is an SD card behind an RP2350
+# (sd_card.h): sectors through DATA, by CPU or DMA channel 0. `emulator --sd
+# FILE` puts a card image in its slot, written through.
+#
 # The terminal is a STAND-IN: a 6551 in the serial card's I/O block
 # ($C300, module 6) until the TL16C552A is modelled.
 #
@@ -54,6 +58,7 @@ rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
 rom   80000-FFFFF  space=flash  module=5  name=rom_b  -   # the cartridge: empty unless --apple-rom
 
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
+sd        380-3FF  space=io  name=sd  irq  drq=0
 dma       400-47F  space=io  name=dma  irq
 video     480-4FF  space=io  name=video  irq
 sound     500-57F  space=io  name=sound  irq  drq=2

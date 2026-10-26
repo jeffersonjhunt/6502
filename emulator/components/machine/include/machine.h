@@ -34,7 +34,7 @@
  * must be one ram line, which it draws from), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
- * card, sound_card.h; at most one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board).
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
@@ -60,6 +60,7 @@
 #include "backplane_bridge.h"
 #include "console_card.h"
 #include "disk2_card.h"
+#include "sd_card.h"
 #include "sound_card.h"
 #include "decoder.h"
 #include "device.h"
@@ -115,6 +116,8 @@ namespace ooe::emu
         Disk2Card *disk2_card() const { return disk2_card_; }
         /// The sound card, if the description has one (`sound`).
         SoundCard *sound_card() const { return sound_card_; }
+        /// The mass storage card, if the description has one (`sd`): an SD card behind an RP2350.
+        SdCard *sd_card() const { return sd_card_; }
         /// The backplane's north bridge (Apple II mode's switches), if the description has one.
         const BackplaneBridge *backplane_bridge() const { return dynamic_cast<const BackplaneBridge *>(bridge_); }
 
@@ -149,6 +152,7 @@ namespace ooe::emu
         UsbCard *usb_card_{nullptr};         ///< owned through devices_
         Disk2Card *disk2_card_{nullptr};     ///< owned through devices_
         SoundCard *sound_card_{nullptr};     ///< owned through devices_
+        SdCard *sd_card_{nullptr};           ///< owned through devices_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

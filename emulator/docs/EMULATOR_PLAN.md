@@ -216,7 +216,7 @@ them through the wait-state path, so the CPU clock, `--clock`, timers and
 the trace gap all agree. DMA reaches memory space by physical address.
 Cards raise `Device::drq()` and answer `dack_read`/`dack_write` with the TC
 flag; a mapping's `drq=0-3` wires one to a channel. No modelled card uses
-DMA yet (the SD card will); test_dma uses a test card. Not modelled: an
+DMA yet (the SD card now does); test_dma uses a test card. Not modelled: an
 NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only).
 
 **The Console card (2026-10-23), WebUI step 1.** `ConsoleCard` (module E,
@@ -693,6 +693,23 @@ a full attack at A=0 in 255 x 9 clocks, a decay through all six of the
 exponential marks, the delay after a period drops below the count; and
 OSC3 read by the 6510 on its LDA's own cycle. The Devices tab shows each
 voice's envelope, and OSC3 and ENV3.
+
+**The mass storage card (2026-10-25), step 8, part 1 (9a).** `SdCard`
+(module 7, $C380; `sd 380-3FF space=io irq drq=0`): an SD card behind an
+RP2350, as IDE-style registers. READ, WRITE, FLUSH and IDENTIFY on the raw
+card (unit 0) through DATA, by a CPU loop or DMA channel 0. Two sector
+buffers, so the card fetches or programs one while the bus empties or
+fills the other; DATA in STATUS covers a whole sector. LBA and COUNT
+advance as sectors pass. The errors, start-up, /RESET and IDENTIFY's
+sector are what hw/design.md left open, now written back there as
+proposed. Timing as an RP2350 in 4-bit mode would give it: 100 us to the
+first sector, 25 us for each after it. So a DMA read of 4 sectors takes
+the access time plus a cycle a byte, as test_sd checks on the backplane
+with real 6502 code. The media is `SdMedia`: `MemoryMedia` for the
+WebUI, `FileMedia` for `emulator --sd FILE`, which writes through to the
+file. `Session::insert_sd` keeps the card in its slot through power
+cycles. Next: FAT and MOUNT, UNMOUNT and LIST (units 1-7), then the BIOS
+and the WebUI.
 
 ## Backlog
 

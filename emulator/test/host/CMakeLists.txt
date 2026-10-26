@@ -38,13 +38,13 @@ endfunction()
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
                  test_backplane test_dma test_console_card test_video test_usb test_sound test_sid test_sid_audio test_sid_file test_apple test_bios test_session
-                 test_disk_image test_disk2)
+                 test_disk_image test_disk2 test_sd)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
         target_link_options(${name} PRIVATE -sNODERAWFS=1 -sEXIT_RUNTIME=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1MB)
     endforeach()
     target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
-    foreach(name test_bios test_session)
+    foreach(name test_bios test_session test_sd)
         target_compile_definitions(${name} PRIVATE
                 EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
                 EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
@@ -94,6 +94,7 @@ emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)
 emu_add_test(test_session)
+emu_add_test(test_sd)
 emu_add_test(test_iie)
 set_tests_properties(test_iie PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1200) # minutes of Apple time: boots and disks, under ASan
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
@@ -156,6 +157,9 @@ target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_sd PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_iie PRIVATE

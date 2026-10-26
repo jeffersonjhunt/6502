@@ -65,7 +65,9 @@ it enables CA1 interrupts.
 as far as it is modelled: the W65C02S and north bridge, 1 MB of RAM in four
 modules, the 512 KB flash, the DMA controller, the video card ($C480: VGA
 640x480 from banks 8-B: text, bitmaps, tiles and sprites), the USB card
-($C580: keyboard, mouse, game port; the WebUI types on it) and the Console card (the front
+($C580: keyboard, mouse, game port; the WebUI types on it), the mass storage
+card ($C380: an SD card behind an RP2350; `--sd FILE` puts a card image in its
+slot, written through) and the Console card (the front
 panel at $C700: its breakpoint and HALT stop at the debugger as "panel"), with a
 6551 at $C300 standing in for the serial card. At reset the north bridge maps the top 16 KB of the flash at
 $C000-$FFFF, read-only, so the ROM image is the whole flash with the BIOS in
