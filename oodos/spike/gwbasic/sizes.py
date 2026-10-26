@@ -16,6 +16,7 @@ the 6502 side is the map's segment sizes. The ratio of the two, per module
 and overall, scales each whole module's 8086 size to a 6502 estimate.
 """
 
+import ast
 import os
 import re
 import sys
@@ -174,6 +175,32 @@ SKIP = {"PUBLIC", "EXTRN", "ASSUME", "SUBTTL", "TITLE", "PAGE", "INCLUDE", ".XLI
         "DO_EXT", "EXPAND_MAC", "RINIT", "R1", "PDIRAM", "PDURAM", "NAMES", "NDEV", "IF1", "ENDIF", "IFN"}
 
 
+def arith(text):
+    """An expression of integers, + - * / (as //) and parentheses, or None.
+    The source is downloaded data, so no eval(): anything else is refused."""
+    try:
+        tree = ast.parse(text.replace("/", "//"), mode="eval")
+    except SyntaxError:
+        return None
+    ops = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b, ast.Mult: lambda a, b: a * b,
+           ast.FloorDiv: lambda a, b: a // b}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and type(n.value) is int:
+            return n.value
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.USub, ast.UAdd)):
+            v = ev(n.operand)
+            return -v if isinstance(n.op, ast.USub) else v
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        raise ValueError(ast.dump(n))
+
+    try:
+        return ev(tree.body)
+    except (ValueError, ZeroDivisionError, RecursionError):
+        return None
+
+
 def number(tok, radix):
     t = tok.upper()
     try:
@@ -326,10 +353,7 @@ class Estimator:
             if n is None:
                 return None
             out += str(n)
-        try:
-            return int(eval(out, {"__builtins__": {}}))  # noqa: S307 - our own digits and operators
-        except Exception:
-            return None
+        return arith(out)
 
     def width(self, ops):
         for o in ops:
@@ -684,10 +708,7 @@ def declared_ram(gwsrc):
             if n is None:
                 return None
             out += str(n)
-        try:
-            return int(eval(out, {"__builtins__": {}}))  # noqa: S307 - our own digits and operators
-        except Exception:
-            return None
+        return arith(out)
 
     for _ in range(4):
         for f in names:
