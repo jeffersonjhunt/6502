@@ -7,7 +7,9 @@ Nothing is fetched: the tool's fetch() is replaced, and every run writes
 under a temporary directory, never test/host/fixtures. What it checks: a
 download that fails, or brings back cases that are not the opcode asked
 for, leaves the set already there as it was; a good one replaces it whole,
-stale opcodes and all; --cases outside what the suite has is refused.
+stale opcodes and all; one interrupted mid-swap puts the old sets back, and
+what a killed run left is swept up by the next; --cases outside what the
+suite has is refused.
 """
 
 import importlib.util
@@ -103,6 +105,44 @@ def main():
         except SystemExit as e:
             check("wrong opcode: says which", "6502/10" in str(e.code), str(e.code))
         check("wrong opcode: old set kept", snapshot(out) == before)
+
+        # Interrupted while swapping in (Ctrl-C between the two CPUs' renames):
+        # both old sets go back, not one new and one old, or one missing.
+        real_rename = pathlib.Path.rename
+        interrupts = [1]
+
+        def rename(self, target):
+            if pathlib.Path(target) == out / "harte" / "wdc65c02" and interrupts:
+                interrupts.pop()  # once: the new set's way in, not the old one's way back
+                raise KeyboardInterrupt
+            return real_rename(self, target)
+
+        tool.fetch = fake_fetch()
+        pathlib.Path.rename = rename
+        try:
+            tool.fetch_harte(out, 7)
+            check("interrupted swap: no error", False)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            pathlib.Path.rename = real_rename
+        check("interrupted swap: old sets kept", snapshot(out) == before,
+              f"{sorted(set(snapshot(out)) ^ set(before))[:4]}")
+        check("interrupted swap: nothing left over", sorted(os.listdir(out / "harte")) == ["6502", "wdc65c02"],
+              str(os.listdir(out / "harte")))
+
+        # What a killed run leaves (a scratch set; an old set moved out and the
+        # new not yet in) is swept up at the start of the next: the old set back.
+        (out / "harte" / ".6502.k1ll3d").mkdir()
+        (out / "harte" / ".6502.k1ll3d" / "a9.txt").write_text("half\n")
+        (out / "harte" / "wdc65c02").rename(out / "harte" / ".wdc65c02.old")
+        tool.fetch = fake_fetch(fail=("6502", 0x00))
+        try:
+            tool.fetch_harte(out, 7)
+        except (OSError, SystemExit):
+            pass
+        check("swept: old set back, debris gone", snapshot(out) == before
+              and sorted(os.listdir(out / "harte")) == ["6502", "wdc65c02"], str(os.listdir(out / "harte")))
 
         # --cases: at least one, at most the 10,000 each file holds.
         tool.fetch = fake_fetch()
