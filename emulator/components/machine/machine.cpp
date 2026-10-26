@@ -266,6 +266,8 @@ namespace ooe::emu
             {
                 if (map.last >= IO_SIZE)
                     return fail(type + ": the I/O hole is 000-7FF");
+                if (map.first >> 7 != map.last >> 7) // a card matches one module ID and decodes A0-A6
+                    return fail(type + ": " + w[1] + " crosses a module's 128-byte block");
                 if (map.module == NO_MODULE)
                     map.module = static_cast<uint8_t>(map.first >> 7);
             }
@@ -310,6 +312,7 @@ namespace ooe::emu
                         return fail("console: only one per machine");
                     auto card = std::make_unique<ConsoleCard>();
                     card->attach(&m->bus_);
+                    m->bus_.set_dma_observer(card.get()); // the CPLD sees DMA cycles too
                     m->console_card_ = card.get();
                     dev = std::move(card);
                 }

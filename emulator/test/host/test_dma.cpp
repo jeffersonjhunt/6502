@@ -165,6 +165,25 @@ TEST(memory_to_memory_copy_fill_and_count_down)
     CHECK_EQ(r.bus.peek(DMA + 0x20), 0x0B);    // ADDR read back: the current address
 }
 
+TEST(count_0_is_65536_however_the_channel_got_it)
+{
+    Rig r;
+    r.on();
+    // COUNT never written since reset: 0, which means 65,536 (not 4G, a hang that writes all of memory)
+    for (unsigned i = 0; i < 3; ++i)
+        r.bus.poke(static_cast<uint16_t>(DMA + 0x38 + i), static_cast<uint8_t>(0x10000 >> (8 * i)));
+    r.bus.poke(DMA + 0x36, DmaController::MEM_TO_MEM);
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 2 * 0x10000);
+    CHECK_EQ(r.bus.peek(DMA + DmaController::STATUS) & 0x0F, 0x08);
+    CHECK_EQ(r.bus.peek(DMA + 0x30), 0x00);    // ADDR moved on by exactly 65,536
+    CHECK_EQ(r.bus.peek(DMA + 0x32), 0x01);
+    // Re-armed after terminal count without a new COUNT: 0 again, so 65,536 again
+    r.arm(3, DmaController::ENABLE | DmaController::REQ);
+    CHECK_EQ(r.cpu_cycle(), 1u + 2 * 0x10000);
+    CHECK_EQ(r.bus.peek(DMA + 0x32), 0x02);
+}
+
 TEST(single_mode_gives_the_cpu_a_cycle_after_each_byte)
 {
     Rig r;

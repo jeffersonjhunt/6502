@@ -31,6 +31,7 @@ namespace ooe::emu
         bool write{false};        ///< RWB low
         bool sync{false};         ///< SYNC high: an opcode fetch
         bool vector_pull{false};  ///< VPB low: a reset/interrupt vector read (a W65C02S pin; reported for NMOS too)
+        bool dma{false};          ///< BE low: a bus master's cycle (Decoder::set_dma_observer()); addr is A0-A15
     };
 
     class CycleObserver

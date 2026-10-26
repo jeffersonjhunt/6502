@@ -57,6 +57,7 @@ namespace ooe::emu
     void Decoder::idle()
     {
         last_wait_ = master_ ? master_->take_bus(*this) : 0;
+        last_stolen_ = last_wait_;
         ++now_;
     }
 
@@ -88,6 +89,21 @@ namespace ooe::emu
         return m;
     }
 
+    void Decoder::dma_seen(uint32_t physical, const Mapping *m, unsigned cycles, uint8_t data, bool write)
+    {
+        if (!dma_observer_)
+            return;
+        last_ = Access{physical & (PHYSICAL_SPACE - 1), m ? m->module : NO_MODULE};
+        last_wait_ = cycles - 1; // the CPU's access, after these, sets both again
+        BusCycle c;
+        c.cycle = now_;
+        c.addr = static_cast<uint16_t>(physical);
+        c.data = data;
+        c.write = write;
+        c.dma = true;
+        dma_observer_->on_cycle(c);
+    }
+
     unsigned Decoder::dma_idle()
     {
         ++now_;
@@ -98,15 +114,18 @@ namespace ooe::emu
     {
         unsigned cycles = 0;
         const Mapping *m = dma_cycle(physical, cycles);
-        data = m ? m->device->read(bus_address(Space::Memory, physical) - m->first) : UNMAPPED_READ;
+        data = m ? m->device->read(device_offset(*m, bus_address(Space::Memory, physical))) : UNMAPPED_READ;
+        dma_seen(physical, m, cycles, data, false);
         return cycles;
     }
 
     unsigned Decoder::dma_write(uint32_t physical, uint8_t data)
     {
         unsigned cycles = 0;
-        if (const Mapping *m = dma_cycle(physical, cycles))
-            m->device->write(bus_address(Space::Memory, physical) - m->first, data);
+        const Mapping *m = dma_cycle(physical, cycles);
+        if (m)
+            m->device->write(device_offset(*m, bus_address(Space::Memory, physical)), data);
+        dma_seen(physical, m, cycles, data, true);
         return cycles;
     }
 
@@ -115,15 +134,21 @@ namespace ooe::emu
         unsigned cycles = 0;
         const Mapping *m = dma_cycle(physical, cycles);
         catch_up_device(card);
-        const uint32_t offset = bus_address(Space::Memory, physical) - (m ? m->first : 0);
+        const uint32_t off = m ? device_offset(*m, bus_address(Space::Memory, physical)) : 0;
+        uint8_t v = UNMAPPED_READ;
         if (to_memory)
         {
-            const uint8_t v = card.dack_read(tc);
+            v = card.dack_read(tc);
             if (m)
-                m->device->write(offset, v);
+                m->device->write(off, v);
         }
         else
-            card.dack_write(m ? m->device->read(offset) : UNMAPPED_READ, tc);
+        {
+            if (m)
+                v = m->device->read(off);
+            card.dack_write(v, tc);
+        }
+        dma_seen(physical, m, cycles, v, to_memory);
         return cycles;
     }
 
@@ -133,6 +158,8 @@ namespace ooe::emu
             space_of(m.first) != space_of(m.last))
             return false;
         mappings_.push_back(m);
+        const uint64_t span = uint64_t{m.last} - m.first + 1;
+        mirror_.push_back(m.device->size() && span > m.device->size() ? static_cast<uint32_t>(m.device->size()) : 0);
         size_t slot = 0;
         while (slot < slots_.size() && slots_[slot].device != m.device)
             ++slot;
@@ -146,6 +173,13 @@ namespace ooe::emu
         if (m.irq_wired && std::find(irq_wired_.begin(), irq_wired_.end(), m.device) == irq_wired_.end())
             irq_wired_.push_back(m.device);
         return true;
+    }
+
+    uint32_t Decoder::device_offset(const Mapping &m, uint32_t where) const
+    {
+        const uint32_t off = where - m.first;
+        const uint32_t size = mirror_[static_cast<size_t>(&m - mappings_.data())];
+        return size ? off % size : off; // a chip decodes its own low lines only
     }
 
     const Mapping *Decoder::find(uint32_t where) const
@@ -194,6 +228,7 @@ namespace ooe::emu
             waits = m->wait + (m->module != NO_MODULE ? bridge_->wait_states(m->module) : 0);
         now_ += 1 + waits; // the access completes on the last held cycle
         last_wait_ = stolen + waits;
+        last_stolen_ = stolen;
         last_ = Access{lines(r.where), m ? m->module : NO_MODULE};
         return m;
     }
@@ -208,7 +243,7 @@ namespace ooe::emu
             return UNMAPPED_READ;
         }
         catch_up(*m);
-        const uint8_t v = m->device->read(r.where - m->first);
+        const uint8_t v = m->device->read(device_offset(*m, r.where));
         EMU_LOGV(TAG, "%04X -> %02X", addr, v);
         return v;
     }
@@ -221,42 +256,42 @@ namespace ooe::emu
         if (!m || !r.writable)
             return;
         catch_up(*m);
-        m->device->write(r.where - m->first, data);
+        m->device->write(device_offset(*m, r.where), data);
     }
 
     void Decoder::poke(uint16_t addr, uint8_t data)
     {
         const Route r = route(addr, false, true);
         if (const Mapping *m = find(r.where))
-            m->device->poke(r.where - m->first, data);
+            m->device->poke(device_offset(*m, r.where), data);
     }
 
     uint8_t Decoder::peek_physical(uint32_t physical) const
     {
         const uint32_t where = bus_address(Space::Memory, physical);
         const Mapping *m = find(where);
-        return m ? m->device->peek(where - m->first) : UNMAPPED_READ;
+        return m ? m->device->peek(device_offset(*m, where)) : UNMAPPED_READ;
     }
 
     void Decoder::write_physical(uint32_t physical, uint8_t data)
     {
         const uint32_t where = bus_address(Space::Memory, physical);
         if (const Mapping *m = find(where))
-            m->device->write(where - m->first, data);
+            m->device->write(device_offset(*m, where), data);
     }
 
     uint8_t Decoder::peek(uint16_t addr) const
     {
         const Route r = route(addr);
         const Mapping *m = find(r.where);
-        return m ? m->device->peek(r.where - m->first) : UNMAPPED_READ;
+        return m ? m->device->peek(device_offset(*m, r.where)) : UNMAPPED_READ;
     }
 
     uint8_t Decoder::peek_io(uint16_t offset) const
     {
         const uint32_t where = bus_address(Space::Io, offset);
         const Mapping *m = find(where);
-        return m ? m->device->peek(where - m->first) : UNMAPPED_READ;
+        return m ? m->device->peek(device_offset(*m, where)) : UNMAPPED_READ;
     }
 
     void Decoder::sync()

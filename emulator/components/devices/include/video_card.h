@@ -161,6 +161,7 @@ namespace ooe::emu
         static constexpr uint32_t APPLE_CHARS = 0x3E000;
         /// The CPU clock that tick()'s cycles run at; 0 = NATIVE_HZ.
         void set_cpu_hz(uint32_t hz);
+        /// Power-on: the registers, the beam at line 0 and a black picture.
         void reset();
 
         // Device: the registers at $C480
@@ -169,6 +170,9 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         bool irq() const override { return (isr_ & ien_ & 0x07) != 0; }
+        /// /RESET (START, Ctrl-Reset, entering Apple II mode): the registers back to their
+        /// reset values, interrupts off. The beam and the picture run on: the monitor keeps its sync.
+        void bus_reset() override;
         bool timed() const override { return true; }
         void tick(uint64_t cycles) override;
 

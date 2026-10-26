@@ -56,11 +56,12 @@ namespace ooe::emu
         const uint32_t phys = decoder_ ? decoder_->last_access().physical : c.addr;
         last_ = Cycle{phys, c.data,
                       static_cast<uint8_t>((c.sync ? L_SYNC : 0) | (c.write ? 0 : L_RWB) |
-                                           (c.vector_pull ? L_VPB : 0))};
+                                           (c.vector_pull ? L_VPB : 0) | (c.dma ? L_BE : 0))};
 
         if (lights_on_)
         {
-            const uint64_t w = 1 + (decoder_ ? decoder_->wait_states() : 0); // a held access glows longer
+            // A held access glows longer; the DMA cycles it waited for came on their own, at their addresses.
+            const uint64_t w = 1 + (decoder_ ? decoder_->wait_states() - (c.dma ? 0 : decoder_->stolen()) : 0);
             for (unsigned i = 0; i < ADDRESS_LIGHTS; ++i)
                 addr_high_[i] += (phys >> i & 1) * w;
             for (unsigned i = 0; i < DATA_LIGHTS; ++i)
@@ -68,7 +69,7 @@ namespace ooe::emu
             sync_high_ += c.sync * w;
             rwb_high_ += !c.write * w;
             vpb_high_ += c.vector_pull * w;
-            rdy_held_ += w - 1;
+            rdy_held_ += c.dma ? w : w - 1; // RDY stays low through a DMA cycle
             lit_cycles_ += w;
         }
 

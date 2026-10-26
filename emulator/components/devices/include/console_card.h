@@ -27,7 +27,8 @@
  *   set_lock_switch() and press(). These are switches, not registers, and
  *   LOCK (CTRL bit 2, or the keyswitch) makes the card ignore them.
  *
- * Its CPLD watches every bus cycle (it is a CycleObserver), so the
+ * Its CPLD watches every bus cycle (it is a CycleObserver: the CPU's, and
+ * the DMA controller's through the decoder, with BE in LSTAT), so the
  * breakpoint comparator and the latched cycle are exact to the cycle, and
  * the lights accumulate how often each line was high (set_lights()).
  *
@@ -51,9 +52,10 @@
  * is the hard reset through the north bridge: the run loop does it
  * (take_start()), and the card clears CTRL, IEN, ISR and any halt but its
  * own switch. The breakpoint stays armed, so a boot address can be caught.
+ * Any other /RESET (Ctrl-Reset, entering Apple II mode) does the same to
+ * the card (bus_reset()).
  *
- * Not modelled yet: Apple mode (AMODE, hiding the registers), and BE in
- * LSTAT and the lights.
+ * Not modelled yet: Apple mode (AMODE, hiding the registers), and a BE lamp.
  */
 
 #include <array>
@@ -125,6 +127,7 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         bool irq() const override { return isr_ != 0; }
+        void bus_reset() override { reset_card(); }
 
         // CycleObserver: the CPLD's view of each bus cycle
         void on_cycle(const BusCycle &c) override;

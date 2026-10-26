@@ -100,6 +100,8 @@ namespace ooe::emu
         unsigned cycles = 0;
         for (uint32_t moved = 0; moved < limit; ++moved)
         {
+            if (!c.count) // never written since reset, or run out: COUNT 0 is 65,536
+                c.count = FULL_COUNT;
             const bool tc = c.count == 1;
             if (mem_to_mem)
             {

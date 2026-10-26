@@ -237,6 +237,8 @@ TEST(mode_wait_and_unused_registers)
     Rig r;
     r.bus.write(NB + BackplaneBridge::MODE, BackplaneBridge::MODE_TURBO);
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::MODE), BackplaneBridge::MODE_TURBO); // kept, not modelled
+    r.bus.write(NB + BackplaneBridge::MODE, 0xFE);          // reserved bits: not stored
+    CHECK_EQ(r.bus.read(NB + BackplaneBridge::MODE), BackplaneBridge::MODE_TURBO);
     CHECK(!r.bridge.apple());                               // APPLE: test_apple
     r.bus.write(NB + BackplaneBridge::WAIT0 + 3, 0x5A);
     CHECK_EQ(r.bus.read(NB + BackplaneBridge::WAIT0 + 3), 0x5A);
