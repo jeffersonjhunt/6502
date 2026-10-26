@@ -9,7 +9,7 @@
 # point GWSRC at a clone of microsoft/GW-BASIC (make sizes GWSRC=...).
 
 AFLAGS  = -g
-OBJS    = harness.o gwmain.o gweval.o bimisc.o math1.o math2.o tables.o stubs.o
+OBJS    = harness.o gwmain.o gweval.o bimisc.o math1.o math2.o tables.o stubs.o farcall.o
 EMU     = ../../../emulator/components
 RUNNER  = run6502
 PYTHON  = python3 -I

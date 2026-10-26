@@ -24,7 +24,7 @@
 
 .import FADDS, FSUBS, FMULS, FDIVS, FCOMP, FLT, FRCINT, INT, FIXER, IADD
 .import ISUB, IMULT, IDIV, IMOD, ICOMP, INTDIV, FOUT, FMULD, DDIVFA, CSD
-.import SGN, VNEG, VABS, MUL10, DIV10, NEWSTT, ERRHOOK
+.import SGN, VNEG, VABS, MUL10, DIV10, NEWSTT, ERRHOOK, FARCALL
 
 CTRL            = $7FF0
 VECTORS         = $8000
@@ -158,7 +158,7 @@ HERROR:         LDY     #22
 OPS:            .word   0, OPADD, OPSUB, OPMUL, OPDIV, OPCMP, OPFLT, OPCINT
                 .word   OPINT, OPFIX, OPIADD, OPISUB, OPIMUL, OPIDIV, OPIMOD
                 .word   OPICMP, OPINTDV, OPFOUT, OPDMUL, OPDDIV, OPCSD, OPSGN
-                .word   OPNEG, OPABS, OPMUL10, OPDIV10
+                .word   OPNEG, OPABS, OPMUL10, OPDIV10, OPFAR, OPNEAR
 
 ; A to BXDX, B to the FAC (singles); or A to DX and B to BX (integers).
 LDAB:           LDY     #4
@@ -281,6 +281,13 @@ OPMUL10:        JSR     LDFAC
                 JMP     MUL10
 OPDIV10:        JSR     LDFAC
                 JMP     DIV10
+OPFAR:          JSR     FARCALL        ; FARCALL's cost: against OPNEAR
+                .byte   5
+                .word   DUMMY
+                RTS
+OPNEAR:         JSR     DUMMY
+                RTS
+DUMMY:          RTS
 OPFOUT:         JSR     LDFAC          ; the text to +32
                 JSR     FOUT
                 LDY     #0
