@@ -242,7 +242,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     },
   );
   showScene(savedScene);
-  const status = h("span", { "data-testid": "status" }, "STARTING");
+  const status = h("span", { class: "mon-status", "data-testid": "status" }, "STARTING");
   const signal = h("span", {}, "VGA 640×480");
   const apple = appleBar(port, {
     started: () => {
