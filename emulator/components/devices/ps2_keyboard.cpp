@@ -64,7 +64,7 @@ namespace ooe::emu
     {
         bool shift = false;
         const uint8_t code = scan_code(ascii, shift);
-        if (code == 0 || queue_.size() + 8 > MAX_QUEUED)
+        if (code == 0 || !room())
             return false;
         if (shift)
             queue_.push_back(LEFT_SHIFT);

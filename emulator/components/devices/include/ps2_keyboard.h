@@ -43,6 +43,8 @@ namespace ooe::emu
         /// Present the next byte if the last has been read. Call it often.
         void service();
         bool idle() const { return queue_.empty(); }
+        /// Whether there is room for a key's scan codes (8 bytes at most).
+        bool room() const { return queue_.size() + 8 <= MAX_QUEUED; }
         /// Whether the program wants keys: it has enabled the CA1 interrupt.
         bool listening() const { return via_.peek(0xE) & Via6522::IRQ_CA1; }
 

@@ -13,7 +13,9 @@ cmake --preset release && cmake --build --preset release
 ```
 
 `--clock HZ` sets the emulated clock (default 1 MHz, real time for an
-Apple-1); `--clock 0` runs as fast as the host allows.
+Apple-1); `--clock 0` runs as fast as the host allows. Ctrl-Z suspends it
+with the terminal put back, as any program. Input can be a pipe or a file
+instead of a terminal: keys, Ctrl-] and debugger lines in one stream.
 
 ## Bring-up tools
 
@@ -21,7 +23,8 @@ Press **Ctrl-]** to stop the machine at a `debug>` prompt (`h` lists the
 commands). They follow the backplane's console panel (`../hw/console.md`):
 `r` run, `s [N]` step, `f ADDR [N]` fetch, `st ADDR BYTE...` store, plus
 `x` registers, `l` disassemble, `b`/`d` breakpoints, `t` trace on/off and
-`q` quit. Addresses take labels.
+`q` quit. Addresses take labels. A step does what running does after each
+instruction (interrupts, resets), and Ctrl-C cuts a long one short.
 
 ```
 make -C ../apple1/src roms            # writes ibasic.rom.lbl beside the ROM
