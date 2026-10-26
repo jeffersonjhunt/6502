@@ -55,13 +55,17 @@ namespace ooe::emu
         {
             step_start_ = cpu_.cycles();
             in_step_ = true;
-            const auto n = static_cast<unsigned>(cpu_.step());
-            in_step_ = false;
-            clock_ += n;
-            cia_tick(n);
-            owed_ -= n;
+            cia_tick(cpu_.step());
             if (cia_irq())
+            {
+                const uint64_t entry = cpu_.cycles();
                 cpu_.irq(); // ignored while I is set; level-sensitive, so it comes back
+                cia_tick(static_cast<unsigned>(cpu_.cycles() - entry)); // its 7 cycles are SID clocks too
+            }
+            in_step_ = false;
+            const uint64_t n = cpu_.cycles() - step_start_;
+            clock_ += n;
+            owed_ -= static_cast<int64_t>(n);
         }
     }
 
@@ -114,6 +118,18 @@ namespace ooe::emu
 
     void SoundCard::render(uint64_t clocks) const
     {
+        // Only the last half second waits: of a longer backlog (nobody taking samples), all but a
+        // second is clocked in bulk, its samples, which would be dropped, never made.
+        if (clocks > 2ull * sid_hz())
+        {
+            const uint64_t skip = clocks - sid_hz();
+            chips_[0].clock(skip);
+            chips_[1].clock(skip);
+            audio_.clear();
+            sum_l_ = sum_r_ = 0;
+            sample_clocks_ = sample_length_ = 0;
+            clocks -= skip;
+        }
         while (clocks)
         {
             if (!sample_length_)

@@ -624,7 +624,7 @@ it commands.
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 
-- **The stub** goes on a free page: the one the header names, else `$FF00`, `$FE00`, `$0400`, `$C000`
+- **The stub** goes on a free page: the one the header names (from `$0400` up), else `$FF00`, `$FE00`, `$0400`, `$C000`
   or `$0200`, the first the tune leaves alone. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
   timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
   song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
@@ -634,7 +634,8 @@ it commands.
   after an init under it.
 - **The KERNAL's interrupt path** is imitated: `$FFFE` pushes A, X and Y and jumps through `$0314`,
   and `$EA31`, `$EA7E`, `$EA81` and `$FEBC` acknowledge the CIA and return, wherever the tune
-  leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run.
+  leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run. A tune with
+  a play routine that loads over `$0314` goes straight to the stub's handler instead.
 - **A sync point:** after each play call the stub writes the call's number (mod 256) to the
   mailbox, so the host can count frames.
 - **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3

@@ -134,6 +134,8 @@ namespace ooe::emu
         float output() const { return out_; }
         /// The filter's cutoff in Hz, as the registers set it.
         float cutoff_hz() const;
+        /// The filter's state: its low-pass and band-pass outputs.
+        std::array<float, 2> filter_state() const { return {lp_, bp_}; }
 
         const std::array<uint8_t, REGS> &regs() const { return regs_; }
         const Voice &voice(unsigned n) const { return voices_[n % 3]; }
@@ -149,7 +151,8 @@ namespace ooe::emu
         uint8_t control(unsigned n) const { return regs_[n * 7 + 4]; }
         uint16_t rate_period(unsigned n) const;
         void clock_oscillators();                   ///< one clock, sync included
-        void advance_oscillators(uint64_t clocks); ///< many, when no voice syncs
+        void advance_oscillators(uint64_t clocks); ///< many, when no voice syncs on the way
+        uint64_t next_sync() const; ///< clocks to the next sync, counting the clock it happens on
         void clock_envelope(unsigned n, uint64_t clocks);
         void step_envelope(Voice &v, unsigned n);
         /// Every envelope at 0 and the filter at rest: the output holds.

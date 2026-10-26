@@ -86,7 +86,9 @@ namespace ooe::emu
                 idle = here();
                 w(0x4C, idle);
                 irq = here(); // the KERNAL's entry: PHA TXA PHA TYA PHA, JMP ($0314)
-                b({0x48, 0x8A, 0x48, 0x98, 0x48}), w(0x6C, 0x0314);
+                b({0x48, 0x8A, 0x48, 0x98, 0x48});
+                if (set_0314 || !play) // a tune over $0314 has its own there; with play, the handler is ours
+                    w(0x6C, 0x0314);
                 handler = here();
                 if (play)
                 {
@@ -212,7 +214,7 @@ namespace ooe::emu
         SidPlan plan;
         // The stub's page: the free one the header names, else the first of these the tune leaves alone.
         std::vector<unsigned> pages;
-        if (f.version >= 2 && f.start_page != 0 && f.start_page != 0xFF && f.page_length)
+        if (f.version >= 2 && f.start_page >= 0x04 && f.start_page != 0xFF && f.page_length) // not the port, stack or vectors
             pages.push_back(f.start_page);
         for (const unsigned p : {0xFFu, 0xFEu, 0x04u, 0xC0u, 0x02u})
             pages.push_back(p);

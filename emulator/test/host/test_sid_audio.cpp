@@ -20,6 +20,7 @@
 #include "sound_card.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
@@ -246,6 +247,27 @@ TEST(an_attack_from_zero_is_not_silence)
     CHECK(mean > -0.6 + 0.4 && mean < -0.6 + 0.6);
 }
 
+TEST(the_filter_settles_to_zero_not_to_denormals)
+{
+    // Voice 1 rings the filter, then goes straight to the mixer: the filter,
+    // fed nothing, decays, while the voice keeps the chip from resting.
+    Sid s = playing(Sid::Model::Mos6581, Sid::PULSE, 300);
+    s.write(0x03, 0x08);
+    set_cutoff(s, 2000);
+    s.write(RES_FILT, 0x01);
+    s.write(MODE_VOL, 0x1F);
+    s.clock_audio(5'000);
+    s.write(RES_FILT, 0x00);
+    for (int i = 0; i < 20; ++i)
+    {
+        s.clock_audio(50'000);
+        for (const float v : s.filter_state())
+            CHECK(std::fpclassify(v) != FP_SUBNORMAL);
+    }
+    for (const float v : s.filter_state())
+        CHECK_EQ(v, 0.0f);
+}
+
 TEST(reset_stills_the_filter)
 {
     Sid s = playing(Sid::Model::Mos8580, Sid::PULSE, 300);
@@ -401,6 +423,25 @@ TEST(samples_wait_half_a_second_at_most_and_none_without_a_rate)
     CHECK_EQ(card.audio_frames(), 24'000u);
     card.set_audio_rate(0);
     CHECK_EQ(card.audio_frames(), 0u);
+}
+
+TEST(a_full_buffer_costs_a_sid_write_little)
+{
+    // Nobody taking samples: each write's few new ones push the oldest out,
+    // at the front of half a second's, without moving the rest.
+    SoundCard card;
+    card.set_cpu_hz(SoundCard::PAL_HZ);
+    card.set_audio_rate(48'000);
+    card.tick(SECOND);
+    const auto t0 = std::chrono::steady_clock::now();
+    for (unsigned i = 0; i < 50'000; ++i)
+    {
+        card.write(SoundCard::SID_A + MODE_VOL, i & 1 ? 0x00 : 0x0F);
+        card.tick(21);
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(ms < 500);
+    CHECK_EQ(card.audio_frames(), 24'000u);
 }
 
 TEST(a_d418_sample_is_loud_on_the_6581_and_faint_on_the_8580)
