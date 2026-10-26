@@ -181,7 +181,7 @@ test("a long paste on the USB keyboard can be stopped: Stop typing drops the res
   await stop.click();
   await expect(stop).toBeHidden();
   await expect(page.getByTestId("crt")).toBeFocused();
-  await page.waitForTimeout(300); // what was already typed, typed
+  await page.waitForTimeout(2000); // what the machine had taken already, answered (WebKit runs it slowly here)
   const count = async () => ((await page.getByTestId("crt-text").textContent()) ?? "").split("C680: 00").length;
   const typed = await count();
   await page.waitForTimeout(1500);
