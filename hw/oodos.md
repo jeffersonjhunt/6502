@@ -108,14 +108,18 @@ back in A (low) and X (high), as CP/M 3 returns it in A and HL.
 
 ### Zero page ###
 
-**Proposed**
+**Decided (2026-10-26): a fixed split.**
 
-- **`$00–$EF` belongs to the program.** The BDOS and BIOS never touch it, because they run on their own zero page
-  (below).
-- **`$F0–$FF` is for code that runs in the program's context:** RSXs use it freely, since they're called
-  synchronously and the program doesn't use it; interrupt handlers save and restore any of it they use.
-- That is the only thing a program gives up. GW-BASIC's pseudo-registers and floating-point accumulators fit in
-  `$00–$EF` easily.
+- **`$00–$EF` belongs to the program,** at fixed addresses. The BDOS and BIOS never touch it, because they run on
+  their own zero page (below).
+- **`$F0–$FF` is for RSXs.** The loader gives each RSX its own slice, through the RSX's zero page relocation
+  bitmap ([below](#rsxs-and-programs)), so RSXs never share bytes and needn't save them before passing a call down
+  the chain. An RSX that doesn't fit in what's left is refused, not overlapped.
+- **Interrupt handlers use none of the program's zero page.** They work with absolute and indexed addressing in
+  common memory; a driver that needs `(zp),Y` swaps W0 to the system's zero page, as the BDOS and BIOS do.
+- **Why not the loader handing out zero page to programs too** (as CP/M-65 does): it costs nothing at run time,
+  but needs every program to be relocatable, about 80 ms to load a 24 KB one against 4 ms, and gains nothing on a
+  65C816 (below), whose direct page register does the same in hardware.
 
 ### Banking ###
 
@@ -189,7 +193,7 @@ Not in CP/M 3, and not here: 38, 39 and 41 (MP/M's drive access and test-and-wri
 - **49:** the SCB keeps CP/M 3's offsets for every field CP/M 3 documents.
 - **50:** the BIOS parameter block is OODOS's: +0 the BIOS function, +1 A, +2 X, +3 Y, +4–5 and +6–7 two words
   (for MOVE and XMOVE's addresses and counts).
-- **59** loads a file in OODOS's program format at the FCB's random record address, relocating it.
+- **59** loads a `.PRL` at the FCB's random record address, relocating it; a `.COM` loads only where it was linked.
 - **104, 105** use CP/M 3's DAT (days from 1 January 1978, hour and minute in BCD); 105 returns the seconds, BCD, in
   A. Both go to the DS3231.
 
@@ -285,20 +289,35 @@ A machine with no OODOS card still boots to the monitor as now.
 
 ## RSXs and programs ##
 
-**Proposed: one relocatable format for programs and RSXs.**
+**Decided (2026-10-26): CP/M 3's split. `.COM` files load at a fixed address; `.PRL` files are relocatable.**
 
-- A short header (a magic number, the code size, the zero page the program needs, any attached RSXs), then code
-  that relocates by page, PRL-style: a bitmap marks every byte that is the high byte of an address.
-- The bitmap is made by linking twice with ld65, a page apart, and comparing, as Digital Research's tools did.
-- A second bitmap marks zero page operands, so an RSX's few zero page bytes go wherever the loader puts them in
+- **`.COM`:** a short header, then code linked to run at **`$0300`**. That address and the base page's layout are
+  permanent. Most programs are these: no relocation step to build, nothing to do at load.
+- **`.PRL`:** the same header, then code that relocates by page: a bitmap marks every byte that is the high byte
+  of an address, and a second bitmap marks zero page operands. The bitmaps are made by linking twice with ld65, a
+  page apart (and a zero page apart), and comparing, as Digital Research's tools did. RSXs are `.PRL`s, and so is
+  anything that must load elsewhere: a debugger that moves itself up out of the way, overlays (function 59).
+- **The header:** a magic number, a flag for relocatable, the code size, the zero page an RSX needs, any attached
+  RSXs. The loader checks the magic number first and refuses a file without it, so an 8080 `.COM` copied over by
+  mistake can't run.
+- **RSXs** load below the BDOS and chain on `$0203` exactly as CP/M 3's do, each with CP/M 3's RSX prefix (serial
+  number, the next entry, the previous entry, the remove flag, the non-banked flag, the name), and a slice of
   `$F0–$FF`.
-- **Programs** load at `$0300`. **RSXs** load below the BDOS and chain on `$0203` exactly as CP/M 3's do, each
-  with CP/M 3's RSX prefix (serial number, the next entry, the previous entry, the remove flag, the non-banked
-  flag, the name).
 - **GENCOM** attaches RSXs to a program, as in CP/M 3. GET, PUT and SUBMIT are RSXs.
-- Programs end in `.COM`, as on CP/M-65. An 8080 `.COM` copied over by mistake would crash, so the header's magic
-  number is checked first and the loader refuses a file without it.
 
+### Rules for programs: the 65C816 ###
+
+**Decided (2026-10-26).** A later machine may have a 65C816, whose direct page (zero page) and stack can be put
+anywhere. An OODOS program that keeps these rules would run on it unchanged, in emulation mode, with its own
+direct page; OODOS's build tools and examples keep them, and the loader may later refuse a program marked as
+breaking them.
+
+1. **No `RMB`, `SMB`, `BBR` or `BBS`.** They are the 65C02's only; on the 65C816 the same opcodes are other
+   instructions.
+2. **Zero page variables only through zero page operands:** no absolute-mode access to them (`LDA $0012`), and no
+   16-bit pointers to them. Both break once the direct page moves.
+3. **The stack only through the stack instructions:** no reading it in page 1 (`TSX`, then `LDA $0103,X`).
+4. **The BDOS only through `$0203`,** with the registers as above.
 
 ## Apple II disks ##
 
@@ -386,8 +405,5 @@ Each phase is its own branch.
 
 ## Open Questions ##
 
-1. **Zero page:** is the split above, `$00–$EF` for the program and `$F0–$FF` for RSXs and handlers, right?
-2. **Program format:** relocatable programs as above, or a fixed load address of `$0300` with only RSXs
-   relocatable?
-3. **Apple disks:** CP/M disks first and the DOS 3.3/ProDOS utility later, or both at once?
-4. **BDOS numbers:** CP/M-86's 51–58 for memory, and 72 onwards for OODOS's own, as proposed above?
+1. **Apple disks:** CP/M disks first and the DOS 3.3/ProDOS utility later, or both at once?
+2. **BDOS numbers:** CP/M-86's 51–58 for memory, and 72 onwards for OODOS's own, as proposed above?
