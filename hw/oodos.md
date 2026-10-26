@@ -1,0 +1,311 @@
+# OODOS: One Off DOS #
+
+Draft, 2026-10-26. The plan for the OO-1's disk operating system: CP/M Plus (CP/M 3) written again for the
+W65C02S and the backplane. As in [design.md](design.md), each section separates what is **decided** from what is
+**proposed**; open questions are collected at the end.
+
+
+## Goals ##
+
+**Decided**
+
+- **The CP/M 3 interface, kept exactly where it can be:**
+  - the on-disk format: DPBs, extents, directory labels, SFCB date stamps, password entries, disks up to 512 MB and
+    files up to 32 MB;
+  - the BDOS function numbers and what they do;
+  - the banked structure: the BDOS deblocks, the BIOS reads and writes physical sectors only, and RSXs chain on the
+    BDOS entry.
+- **cpmtools interoperability with Linux:** an OODOS drive is an image file that `mkfs.cpm`, `cpmls`, `cpmcp` and
+  `fsck.cpm` work on with a diskdef from this repo.
+- **Apple II disks:** OODOS reads and writes them, in the real drive and as image files.
+- **RSXs,** loaded and chained as CP/M 3 does.
+- **Banked,** using the north bridge's windows and the 1 MB.
+- **The first application is GW-BASIC,** ported from Microsoft's 1983 source (MIT licence, released 2020).
+- **The name is OODOS.** It's a new implementation written from Digital Research's CP/M 3 manuals: no DR source
+  or binaries go into this repo or the website.
+
+**Not a goal:** running 8080 or Z80 CP/M programs. The CPU is different; OODOS programs are 6502 programs written
+to the same interface.
+
+
+## Disk format ##
+
+**Decided: CP/M 3's, unchanged.** A drive is described by a DPB as CP/M 3 defines it (SPT, BSH, BLM, EXM, DSM, DRM,
+AL0/AL1, CKS, OFF, PSH, PHM), and the directory holds CP/M 3's entries: files, XFCBs (passwords), the directory
+label, and an SFCB in every fourth entry when the drive has date stamps.
+
+- **Date stamps:** two per file (creation or access, and update), each 2 bytes of days from 1 January 1978, then the
+  hour and minute in BCD. The directory label chooses which are kept, as in CP/M 3.
+- **Directory hashing** is CP/M 3's, kept in memory only (the DPH's HASH table, 4 bytes an entry). It never
+  touches the disk, so it costs interoperability nothing. With 1 MB it's on for every drive.
+- **cpmtools.** The repo carries a `diskdefs` file with OODOS's formats, so a card is made on Linux with, for
+  example:
+
+  ```
+  mkfs.cpm -f oodos-8m A.IMG
+  cpmcp -f oodos-8m A.IMG HELLO.TXT 0:
+  cpmls -f oodos-8m -l A.IMG
+  ```
+
+**Proposed formats**
+
+| diskdef | Sector | Size | Block | Directory | Boot tracks | For |
+|---|---|---|---|---|---|---|
+| `oodos-8m` | 512 | 8 MB (1024 tracks of 16) | 4 KB | 1024 | 0 | the usual SD drive |
+| `oodos-32m` | 512 | 32 MB | 8 KB | 2048 | 0 | a large SD drive |
+| `oodos-ram` | 512 | the RAM disk's size | 2 KB | 256 | 0 | M:, made at boot, never on a card |
+| `apple-do` | 256 | 140 KB, 35 × 16 | 1 KB | 64 | 3 | Apple CP/M (SoftCard) disks, cpmtools's own diskdef |
+
+- No boot tracks on SD drives: the loader is `/BOOT.BIN` on the FAT card (below), so a drive image is all file
+  system.
+- `apple-do` is a CP/M 2.2 format. CP/M 3 reads and writes those; they just have no date stamps.
+- **To check first:** that cpmtools's `os 3` support makes and reads SFCBs as OODOS will (`mkfs.cpm`'s time stamp
+  option, `cpmls -l`), with a round-trip test in both directions.
+
+
+## Drives ##
+
+**Proposed**
+
+| Drive | What |
+|---|---|
+| A–G | SD units 1–7: image files on the FAT card, mounted with MOUNT. A is the system drive |
+| M | the RAM disk, in banks C–D (128 KB) |
+| O, P | the Apple drives 1 and 2, through the Disk II card |
+
+Which image each SD drive holds is set by a file on the card, `/OODOS/DRIVES.TXT`, read by the loader, and can be
+changed while running by a utility that does MOUNT and resets the drive.
+
+
+## Memory ##
+
+### What a program sees ###
+
+**Proposed**
+
+| CPU range | Window | What |
+|---|---|---|
+| `$0000–$00FF` | W0 | zero page (below) |
+| `$0100–$01FF` | W0 | the program's stack |
+| `$0200–$02FF` | W0 | the **base page**: CP/M's page 0, moved up a page with the same offsets |
+| `$0300`–top | W0–W2 | the TPA, about 47 KB, less any RSXs at its top |
+| `$C000–$C7FF` | — | the I/O hole, always there |
+| `$C800–$FFFF` | W3 | **common memory** (14 KB): the BDOS entry stub, the BIOS jump table, interrupt handlers, bank helpers |
+
+**The base page** keeps CP/M's offsets, so ported code keeps its constants:
+
+| Address | CP/M | What |
+|---|---|---|
+| `$0200` | `$0000` | `JMP` warm boot |
+| `$0203` | `$0005` | `JMP` to the BDOS, or the top RSX. Its operand, `$0204–$0205`, is the top of the TPA + 1, as CP/M's address 6 |
+| `$025C` | `$005C` | the default FCB |
+| `$026C` | `$006C` | the second FCB |
+| `$0280` | `$0080` | the default DMA buffer and the command tail |
+
+**Calling the BDOS:** `JSR $0203` with the function in Y and the parameter in A (low) and X (high). The result comes
+back in A (low) and X (high), as CP/M 3 returns it in A and HL.
+
+### Zero page ###
+
+**Proposed**
+
+- **`$00–$EF` belongs to the program.** The BDOS and BIOS never touch it, because they run on their own zero page
+  (below).
+- **`$F0–$FF` is for code that runs in the program's context:** RSXs use it freely, since they're called
+  synchronously and the program doesn't use it; interrupt handlers save and restore any of it they use.
+- That is the only thing a program gives up. GW-BASIC's pseudo-registers and floating-point accumulators fit in
+  `$00–$EF` easily.
+
+### Banking ###
+
+**Proposed physical layout**
+
+| Where | What |
+|---|---|
+| Block 60 | the banked BDOS |
+| Block 61 | the OODOS BIOS and drivers |
+| Block 62 | common memory: W3 while a program runs; VEC points here too |
+| Block 63 | the ROM BIOS and Monitor, as now, so Break still reaches the monitor |
+| A block in bank 7 | the system's zero page, stack and data |
+| Rest of banks 6–7 | deblocking buffers (BCBs), directory buffers, hash tables |
+| Banks C–D | the M: RAM disk |
+| Banks 1–5 | blocks programs can ask for (GW-BASIC's banked code, below) |
+
+**Entering the BDOS.** The stub in common memory saves the program's stack pointer and window registers, points
+W0 at the system's zero page and stack, and W1–W2 at the BDOS and BIOS. On the way out it puts them back and does
+RTS. That's a handful of cycles at 7 MHz.
+
+**The program's memory from the BDOS.** FCB and DMA addresses are the program's CPU addresses. The BDOS turns
+them into physical ones through the saved window registers and moves data with the DMA controller's memory to
+memory copy (CP/M 3's `MOVE` and `XMOVE`), which runs as a block (BIOS 0.9). Sectors come from the SD card by DMA
+straight into a buffer's physical address and are never mapped into the CPU's view.
+
+**Allocating blocks.** CP/M 3 has no memory manager, so OODOS adds one: BDOS functions above CP/M 3's (numbers to
+be chosen from the unused range) to allocate and free 16 KB blocks and to call code in one through common memory.
+GW-BASIC is the first user.
+
+
+## BDOS ##
+
+**Proposed: all of CP/M 3's functions, banked.**
+
+- 0–40 (the file system and console), 41–50 (CP/M 3's additions, with 50, direct BIOS calls, through the
+  6502 BIOS jump table), 98–112 and 152 (parse filename).
+- **Deblocking:** the BIOS states each drive's physical sector size in PSH/PHM, and the BDOS blocks and deblocks
+  128-byte records through its BCBs.
+- **Multi-sector I/O** (function 44) passes the count to the BIOS, which makes it one SD command with COUNT > 1.
+- **The SCB** (function 49), error modes, console modes and the `^C`/`^S` handling, as in CP/M 3.
+- **Date and time** (functions 104 and 105) from the DS3231 (below).
+
+
+## BIOS ##
+
+**Proposed.** The 6502 BIOS has CP/M 3's entry points in a jump table in common memory: BOOT, WBOOT, CONST,
+CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC, SETDMA, READ, WRITE, LISTST, SECTRN,
+CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE.
+
+- **SD drives:** LBA = track × SPT + sector; a READ programs DMA channel 0 to the buffer's physical address and
+  issues the SD card's READ. About a hundred lines.
+- **Console:** the video card's 80×30 text screen and the USB keyboard. AUX is COM1 (or COM2), LST the parallel
+  port. CP/M 3's device table lets DEVICE move them.
+- **TIME:** reads and sets the DS3231.
+- **Apple drives:** below.
+
+
+## Real-time clock ##
+
+**Decided: a DS3231 on the CPU card.** Date stamps need the time.
+
+**Proposed**
+
+- The CPU card already holds the north bridge, so the DS3231's I²C lines go to it: a north bridge register,
+  **RTC at `$C687`**, bit 0 SCL, bit 1 SDA, both open drain; reading bit 1 gives SDA. Software drives I²C by hand,
+  which is plenty for reading a clock.
+- A CR2032 keeps it running with the power off.
+- Its SQW output, set to 1 Hz, can be an interrupt (bit 5 of IRQH, ID `0xD`) for a seconds tick.
+- The emulator gives the host's time.
+
+
+## Loading ##
+
+**Proposed**
+
+1. The BIOS's `C80CR` boots `/BOOT.BIN` from the FAT card, as now. For OODOS that's **OOLDR**, a loader in the
+   spirit of CPMLDR.
+2. OOLDR mounts the drives from `/OODOS/DRIVES.TXT` and reads **`OODOS.SYS`** from drive A's own CP/M file system,
+   with a small read-only BDOS of its own.
+3. It puts the banked BDOS, the BIOS and common memory in their blocks, sets the windows and VEC, and starts the
+   BDOS's cold boot, which runs the CCP.
+
+A machine with no OODOS card still boots to the monitor as now.
+
+
+## RSXs and programs ##
+
+**Proposed: one relocatable format for programs and RSXs.**
+
+- A short header (a magic number, the code size, the zero page the program needs, any attached RSXs), then code
+  that relocates by page, PRL-style: a bitmap marks every byte that is the high byte of an address.
+- The bitmap is made by linking twice with ld65, a page apart, and comparing, as Digital Research's tools did.
+- A second bitmap marks zero page operands, so an RSX's few zero page bytes go wherever the loader puts them in
+  `$F0–$FF`.
+- **Programs** load at `$0300`. **RSXs** load below the BDOS and chain on `$0203` exactly as CP/M 3's do, each
+  with CP/M 3's RSX prefix (serial number, the next entry, the previous entry, the remove flag, the non-banked
+  flag, the name).
+- **GENCOM** attaches RSXs to a program, as in CP/M 3. GET, PUT and SUBMIT are RSXs.
+- Programs end in `.COM`, as on CP/M-65. An 8080 `.COM` copied over by mistake would crash, so the header's magic
+  number is checked first and the loader refuses a file without it.
+
+
+## Apple II disks ##
+
+**Proposed: two jobs.**
+
+1. **Apple CP/M disks as OODOS drives,** in cpmtools's `apple-do` format (the SoftCard's):
+   - **as images on the SD card**, `.dsk` files mounted as units: two 256-byte sectors to an SD sector;
+   - **in the real drive,** through the Disk II card in native mode: a 6502 driver for the address and data fields
+     (6-and-2 GCR), stepping with the phases, and writing with the 224-cycle loop in design.md, with interrupts
+     and DMA off while it writes. The motor goes off a second after the last access, timed by the RTC's tick.
+2. **DOS 3.3 and ProDOS disks:** an exchange utility, like the SoftCard's APDOS, that lists such a disk and copies
+   files between it and an OODOS drive. Not a drive format.
+
+**First, in the emulator:** the Disk II card in native mode, which it doesn't do yet (its backlog). The driver is
+tested against it with our own disk images.
+
+
+## GW-BASIC ##
+
+**Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).
+
+**What the source is.** 34,474 lines of 8088 assembly in 35 files, dated February 1983, with no build files.
+Microsoft machine-translated it from their 8080 source ("translation created 12-Jan-83"), so it still works in 8080
+register pairs (HL in BX, DE in DX, BC in CX). That maps onto 6502 zero page pseudo-registers more naturally than
+true 8086 code would.
+
+**What fits.**
+
+- **Files:** it uses MS-DOS 1's FCB calls (functions 5, 6, 13–17, 19, 20, 22, 23, 25, 26, 33, 34), which are
+  the CP/M BDOS's numbers, because DOS 1 copied them. Only 39 (random block read) and 41 (parse filename) differ;
+  they become CP/M 3's multi-sector I/O and function 152.
+- **DEF SEG:** an 8086 segment and offset make a 20-bit address, as the OO-1's physical addresses are. PEEK,
+  POKE, BLOAD and BSAVE with DEF SEG reach the whole 1 MB, video memory included, through a DMA copy or a spare
+  window.
+
+**What we write.** The machine-specific layer isn't in the release: about 217 symbols are used and never defined,
+many of them the OEM's routines for the screen, graphics, keyboard, sound, light pen, joystick and serial ports
+(SCROUT, SETC, READC, MAPXYC, KEYINP, DONOTE, RDSTIK, INICOM and others). We'd write those for the OO-1 anyway:
+the video card's text and bitmap modes for SCREEN, the SIDs for SOUND and PLAY, the USB keyboard, the game port,
+COM1/COM2 and the parallel port.
+
+**Size.** GW-BASIC is about 60 KB of 8086 code, and 6502 code will be larger. It won't fit in the TPA beside a
+useful workspace, so the cold parts (graphics, PLAY, RENUM, the editor) live in allocated blocks and are called
+through common memory; the interpreter's core, the program and its variables stay in the TPA. **Target: at least
+32 KB free for BASIC.** A spike settles it before the port starts: translate MATH1 and the main interpreter loop,
+and measure.
+
+**Testing.** PC-BASIC, an independent reimplementation that aims to match GW-BASIC, is the oracle for what
+programs print and how numbers are formatted. It runs only in a throwaway container. The port keeps Microsoft's
+copyright and MIT notice.
+
+
+## Testing ##
+
+**Proposed**
+
+- **The build:** ca65 and ld65, as the BIOS.
+- **Card images** made with cpmtools in a throwaway container, from our own files, committed as sparse images like
+  `emulator/test/host/sd/`.
+- **Interoperability, both ways:** cpmtools writes and OODOS reads; OODOS writes and `fsck.cpm` and `cpmls -l`
+  check the result, date stamps included.
+- **The emulator** runs OODOS in native tests (BDOS functions, the CCP, RSXs, the Apple driver) and in the WebUI's
+  e2e tests.
+- Nothing of Digital Research's, or any other copyrighted software, goes into the tests or onto the website.
+
+
+## Phases ##
+
+Each phase is its own branch.
+
+0. **This document,** its open questions settled, the `diskdefs` file, and the GW-BASIC size spike.
+1. **Tooling:** the build, card images, the interoperability tests, the DS3231 in the emulator.
+2. **OOLDR and the BIOS:** common memory, the banking stub, the SD drives, the console, TIME.
+3. **The BDOS:** the file system, deblocking, hashing, multi-sector I/O, the SCB, date stamps, labels and
+   passwords.
+4. **The CCP and utilities:** the built-in commands; DIR, TYPE, ERA, REN, PIP, SUBMIT, DATE, INITDIR, SET, SHOW,
+   DEVICE.
+5. **RSXs:** the loader, chaining, GENCOM; GET, PUT and SUBMIT as RSXs.
+6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3 and ProDOS
+   exchange utility.
+7. **GW-BASIC.**
+8. **The website:** an OODOS card in the WebUI with OODOS, GW-BASIC and demo programs, all ours or MIT.
+
+
+## Open Questions ##
+
+1. **Zero page:** is the split above, `$00–$EF` for the program and `$F0–$FF` for RSXs and handlers, right?
+2. **Program format:** relocatable programs as above, or a fixed load address of `$0300` with only RSXs
+   relocatable?
+3. **Apple disks:** CP/M disks first and the DOS 3.3/ProDOS utility later, or both at once?
+4. **GW-BASIC:** is 32 KB free the right target? It sets how much of the interpreter is banked.
+5. **8080 programs:** dropped for good, or worth a Z80 card one day?
+6. **The extra BDOS functions** for blocks: which numbers, and should they follow MP/M's memory functions?
