@@ -56,8 +56,10 @@ namespace ooe::emu
 
     void Decoder::idle()
     {
+        granting_ = 0;
         last_wait_ = master_ ? master_->take_bus(*this) : 0;
         last_stolen_ = last_wait_;
+        last_granted_ = granting_;
         ++now_;
     }
 
@@ -106,6 +108,7 @@ namespace ooe::emu
 
     unsigned Decoder::dma_idle()
     {
+        ++granting_;
         ++now_;
         return 1;
     }
@@ -220,7 +223,9 @@ namespace ooe::emu
 
     const Mapping *Decoder::access(uint16_t addr, Route &r, bool write)
     {
+        granting_ = 0;
         const unsigned stolen = master_ ? master_->take_bus(*this) : 0; // RDY: the master goes first
+        last_granted_ = granting_;
         r = route(addr, vector_pull_, write);
         const Mapping *m = find(r.where);
         unsigned waits = 0;

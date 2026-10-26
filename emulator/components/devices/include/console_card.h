@@ -115,6 +115,7 @@ namespace ooe::emu
             std::array<float, ADDRESS_LIGHTS> addr{};
             std::array<float, DATA_LIGHTS> data{};
             float sync{0}, rwb{0}, vpb{0}, rdy{0};
+            uint64_t cycles{0}; ///< the bus cycles they average over (0 while halted)
         };
 
         /// The decoder it watches (physical addresses, wait states) and

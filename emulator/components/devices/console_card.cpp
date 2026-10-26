@@ -60,8 +60,12 @@ namespace ooe::emu
 
         if (lights_on_)
         {
-            // A held access glows longer; the DMA cycles it waited for came on their own, at their addresses.
-            const uint64_t w = 1 + (decoder_ ? decoder_->wait_states() - (c.dma ? 0 : decoder_->stolen()) : 0);
+            // A held access glows longer; the DMA cycles it waited for came on their own, at their
+            // addresses, but not the one taking the bus, which still shows the CPU's address.
+            const uint64_t w =
+                1 + (decoder_ ? decoder_->wait_states() -
+                                    (c.dma ? 0 : decoder_->stolen() - decoder_->granted())
+                              : 0);
             for (unsigned i = 0; i < ADDRESS_LIGHTS; ++i)
                 addr_high_[i] += (phys >> i & 1) * w;
             for (unsigned i = 0; i < DATA_LIGHTS; ++i)
@@ -216,6 +220,7 @@ namespace ooe::emu
             l.rwb = static_cast<float>(rwb_high_) / n;
             l.vpb = static_cast<float>(vpb_high_) / n;
             l.rdy = static_cast<float>(rdy_held_) / n;
+            l.cycles = lit_cycles_;
         }
         if (ctrl_ & SHOW_DISPLAY)
             for (unsigned i = 0; i < DATA_LIGHTS; ++i)

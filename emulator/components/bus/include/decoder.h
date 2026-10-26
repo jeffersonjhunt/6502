@@ -66,7 +66,8 @@
  * the decoder's (set_dma_observer()), each read or write as it happens,
  * with last_access() and wait_states() describing it then, so the Console
  * card sees every bus cycle. The cycle taking the bus carries nothing and
- * is not reported.
+ * is not reported: RDY is low but BE is not yet, so the CPU's held address
+ * is still on the bus, and granted() lets the card light it as the CPU's.
  */
 
 #include <cstdint>
@@ -203,6 +204,8 @@ namespace ooe::emu
         unsigned wait_states() const override { return last_wait_; }
         /// Of the latest CPU access's wait_states(), the cycles a bus master took first.
         unsigned stolen() const { return last_stolen_; }
+        /// Of stolen(), the cycles spent taking the bus (dma_idle()), which no observer saw.
+        unsigned granted() const { return last_granted_; }
 
         /// /RESET: the north bridge and the bus master listen, and every
         /// device hears it (Device::bus_reset()).
@@ -288,6 +291,8 @@ namespace ooe::emu
         BusMaster *master_{nullptr};
         CycleObserver *dma_observer_{nullptr};
         unsigned last_stolen_{0};
+        unsigned last_granted_{0};
+        unsigned granting_{0}; ///< dma_idle() cycles of the take_bus() under way
         bool vector_pull_{false};
         unsigned last_wait_{0};
         Access last_;
