@@ -120,12 +120,12 @@ describe("WasmPort", () => {
     let f = m.step(100);
     for (let i = 0; i < 12; ++i) f = m.step(100); // over a second at full speed: the measured clock is the set one
     expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
-    m.clock.tick = 1; // each read of the clock "takes" 1 ms: a slow host
+    m.clock.tick = 5; // each read of the clock "takes" 5 ms: a slow host, 10 slices in the budget
     const before = m.step(100).cycles;
     const after = m.step(100).cycles;
     const slices = Math.round((after - before) / MAX_SLICE);
-    expect(slices).toBeGreaterThanOrEqual(FIXED_FRAME_BUDGET_MS - 2);
-    expect(slices).toBeLessThanOrEqual(FIXED_FRAME_BUDGET_MS + 1); // not the 14.3 slices 100 ms wants
+    expect(slices).toBeGreaterThanOrEqual(FIXED_FRAME_BUDGET_MS / 5 - 1);
+    expect(slices).toBeLessThanOrEqual(FIXED_FRAME_BUDGET_MS / 5 + 1); // not the 14.3 slices 100 ms wants
     for (let i = 0; i < 12; ++i) f = m.step(100);
     expect(f.hz).toBeGreaterThan(0);
     expect(f.hz).toBeLessThan(NATIVE_HZ * 0.9);

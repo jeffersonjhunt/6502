@@ -5,9 +5,11 @@
  * clock rate x the time since the last frame, capped at 100 ms so a tab
  * that was in the background does not try to catch up on minutes. It runs
  * in 50,000-cycle slices: at "max" until 10 ms of the frame are used, at a
- * set clock until the budget is done or 12 ms are, so a host too slow for
- * the clock runs the machine slower rather than the page. FrameState.hz is
- * what it really ran, over wall time. A browser stops animation frames in
+ * set clock until the budget is done or 50 ms are, so a host too slow for
+ * the clock runs the machine slower and the page still gets some 15 frames
+ * a second. (Less than 50 starves a slow browser's machine: the drawing
+ * between frames is the same either way.) FrameState.hz is what it really
+ * ran, over wall time. A browser stops animation frames in
  * a background tab, so the machine stops there, and a tune with it.
  * Everything else is a direct call into the module.
  *
@@ -143,7 +145,7 @@ export interface WasmPortOptions {
 export const MAX_FRAME_MS = 100;
 export const MAX_SLICE = 50_000;
 export const MAX_FRAME_BUDGET_MS = 10;
-export const FIXED_FRAME_BUDGET_MS = 12;
+export const FIXED_FRAME_BUDGET_MS = 50;
 
 const KEY_BITS: Record<Exclude<PanelKey, "start">, number> = { load: 1, exam: 2, dep: 4, cont: 8 };
 
