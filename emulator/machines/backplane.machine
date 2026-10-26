@@ -6,7 +6,9 @@
 # W0-W2 are RAM blocks 0-2 and W3 is the top 16 KB of ROM A, read-only, so
 # the BIOS starts in flash and shadows itself into bank F (hw/design.md,
 # "Boot"). Its registers are at $C680. Add `bootsel` to start with W3 on RAM
-# block 63 instead, as when the bus spy has loaded RAM.
+# block 63 instead, as when the bus spy has loaded RAM. The bridge owns the
+# DS3231 real-time clock (ds3231.h), which starts at the host's local time;
+# its tick interrupts as module D.
 #
 # The flash image is the whole 512 KB ROM A (as a programmer would write
 # it), with the BIOS in its top 16 KB: block 31, $7C000-$7FFFF. The CPU

@@ -217,6 +217,9 @@ namespace
             cpu.set_observer(&observers);
 
         Debugger debugger(cpu, machine.bus(), symbols, trace.get());
+        if (const BackplaneBridge *bridge = machine.backplane_bridge())
+            debugger.add_view("rtc", "   rtc                 the real-time clock: time, RTCCTL, the DS3231's registers\n",
+                              [bridge] { return bridge->describe_clock(); });
         int rc = 0;
         for (const std::string &b : settings.breaks)
         {
@@ -240,6 +243,8 @@ namespace
                 sound->set_cpu_hz(settings.clock_hz); // its 6510 keeps the SID clock's time
             if (SdCard *sd = machine.sd_card())
                 sd->set_cpu_hz(settings.clock_hz); // its start-up and sector times
+            if (BackplaneBridge *bridge = machine.backplane_bridge())
+                bridge->set_cpu_hz(settings.clock_hz); // the DS3231's second
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
             emulator.on_clock_change([&machine](uint32_t hz) {
@@ -251,6 +256,8 @@ namespace
                     sound->set_cpu_hz(hz);
                 if (SdCard *sd = machine.sd_card())
                     sd->set_cpu_hz(hz);
+                if (BackplaneBridge *bridge = machine.backplane_bridge())
+                    bridge->set_cpu_hz(hz);
             });
 
             for (const int sig : {SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGPIPE})

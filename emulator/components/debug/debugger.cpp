@@ -255,7 +255,15 @@ namespace ooe::emu
         const std::string bad = "bad arguments; 'h' for help\n";
 
         if (cmd == "h" || cmd == "help" || cmd == "?")
-            return HELP;
+        {
+            std::string help = HELP;
+            for (const View &v : views_)
+                help.insert(help.rfind("q  quit"), v.help);
+            return help;
+        }
+        for (const View &v : views_)
+            if (cmd == v.name)
+                return w.size() == 1 ? v.show() : bad;
         if (cmd == "r" || cmd == "run")
         {
             halted_ = false;

@@ -742,6 +742,25 @@ The Devices tab decodes the card's registers. `MachinePort` gains
 `insertSd` and the rest, and `FrameState.sd`. The sound card's hint there
 still said "No sound is played yet", which is fixed.
 
+**The real-time clock (2026-10-26), OODOS phase 1.** `Ds3231` (ds3231.h)
+is the chip's registers, $00-$12, counted in emulated cycles: BCD time, 12
+h mode, the century bit, both alarms in each mask mode, the control and
+status bits, the square wave on SQW/INT, aging, and 25.00 °C. Its leap
+rule is every fourth year, as the chip's, so 2100 gets a 29 February. The
+north bridge owns it (hw/design.md, "Real-time clock"): at power-on it sets
+SQW to 1 Hz and reads the time; each falling edge reads the time and status
+again and sets TICK, which with TIE is IRQH bit 5; reading SEC latches the
+seven; SET, RTCREG and RTCDATA queue I²C transactions, BUSY for their bits
+at 400 kHz in CPU cycles (132 bits a second's read, 2,363 cycles at 7.16
+MHz). A new chip starts at the host's local time with OSF clear (the
+emulator's battery is never flat; a test can ask for OSF); the session
+keeps it through power cycles, where EOSC stops it as the battery would.
+Any reset clears TICK and TIE; only power-on sets the chip up again. The
+BIOS's Break (QUIET) clears TICK and TIE. test_ds3231 and test_rtc check
+the chip and the bridge, the latter with 6502 code reading $C690-$C696 and
+taking the tick's interrupt; the terminal debugger's `rtc` and the WebUI's
+Devices tab show the time, which the WebUI sets from the page's clock.
+
 ## Backlog
 
 Decided to come later, not forgotten:

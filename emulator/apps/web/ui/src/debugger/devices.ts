@@ -15,7 +15,10 @@
  * card answers its write-only registers from that), and its own 6510
  * (readSound): registers, port and CIA 1's timer A. Then the SD card at
  * $C380: the card in the slot (readSdInfo), STATUS, the last error, and the
- * command's UNIT, LBA and COUNT.
+ * command's UNIT, LBA and COUNT. Then the north bridge's real-time clock
+ * (readClock): SEC-YEAR as the bridge last read them from its DS3231, as
+ * a date and time, RTCCTL's flags, and the chip's own control, status,
+ * alarm, aging and temperature registers.
  */
 
 import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SdInfo, SoundCpu } from "../port/machine-port";
@@ -108,6 +111,38 @@ export function sdCardText(c: SdInfo | null): string {
 const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
 const bits = (v: number, names: [number, string][]) => names.filter(([b]) => v & b).map(([, n]) => n).join(" · ") || "none";
 
+const bcd = (v: number) => (v >> 4) * 10 + (v & 15);
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const SQW = ["1 Hz", "1.024 kHz", "4.096 kHz", "8.192 kHz"];
+
+/** SEC-YEAR (the DS3231's $00-$06) as YYYY-MM-DD hh:mm:ss, the day (1 = Sunday) and 12 h mode. */
+export function clockTime(t: Uint8Array): string {
+  const h12 = (t[2] & 0x40) !== 0;
+  const hour = h12 ? (bcd(t[2] & 0x1f) % 12) + (t[2] & 0x20 ? 12 : 0) : bcd(t[2] & 0x3f);
+  const year = 2000 + (t[5] & 0x80 ? 100 : 0) + bcd(t[6]);
+  const day = DAYS[(t[3] & 7) - 1] ?? `day ${t[3] & 7}`;
+  return `${year}-${pad(bcd(t[5] & 0x1f))}-${pad(bcd(t[4] & 0x3f))} ${pad(hour)}:${pad(bcd(t[1] & 0x7f))}:${pad(bcd(t[0] & 0x7f))} · ${day}${h12 ? " · 12 h" : ""}`;
+}
+
+/** RTCCTL in words. */
+export function rtcctlText(v: number): string {
+  return bits(v, [[0x80, "TICK"], [0x40, "TIE"], [0x20, "ALARM"], [0x04, "LOST"], [0x02, "SET"], [0x01, "BUSY"]]);
+}
+
+/** The DS3231's control register ($0E) in words. */
+export function clockControl(v: number): string {
+  const parts = [v & 0x04 ? "SQW is INT: alarms only" : `square wave ${SQW[(v >> 3) & 3]}`];
+  const flags = bits(v, [[0x80, "EOSC"], [0x40, "BBSQW"], [0x20, "CONV"], [0x02, "A2IE"], [0x01, "A1IE"]]);
+  if (flags !== "none") parts.push(flags);
+  return parts.join(" · ");
+}
+
+/** The DS3231's status register ($0F) in words. */
+export function clockStatus(v: number): string {
+  return bits(v, [[0x80, "OSF (the time is invalid)"], [0x08, "EN32kHz"], [0x04, "BSY"], [0x02, "A2F"], [0x01, "A1F"]]);
+}
+
 /** What a layer's registers (8 bytes from +$0) say, in words. */
 /** A SID voice's seven registers in words. */
 export function sidVoice(r: Uint8Array): string {
@@ -179,6 +214,8 @@ export function devicesView(port: MachinePort) {
   const soundStatus = h("em", {}, "");
   const sdRows = h("dl", { class: "devs", "data-testid": "dev-sd" });
   const sdStatus = h("em", {}, "");
+  const clockRows = h("dl", { class: "devs", "data-testid": "dev-rtc" });
+  const clockStatusEl = h("em", {}, "");
   const element = h(
     "div",
     { class: "sec" },
@@ -204,6 +241,13 @@ export function devicesView(port: MachinePort) {
     h("h4", {}, "SD card ", sdStatus),
     sdRows,
     h("p", { class: "hint" }, "Module 7 at $C380: an SD card behind an RP2350, sectors through DATA by CPU or DMA channel 0. C809R lists it, C80CR boots /BOOT.BIN."),
+    h("h4", {}, "Real-time clock ", clockStatusEl),
+    clockRows,
+    h(
+      "p",
+      { class: "hint" },
+      "The north bridge's DS3231 (ID D): RTCCTL at $C687, SEC-YEAR at $C690-$C696 (reading SEC latches all seven), RTCREG and RTCDATA at $C697-$C698. Set from this computer's clock when the page opened.",
+    ),
   );
 
   const row = (name: string, value: string) => [h("dt", {}, name), h("dd", { "data-reg": name }, value)];
@@ -321,9 +365,31 @@ export function devicesView(port: MachinePort) {
     );
   };
 
+  const refreshClock = async () => {
+    const c = await port.readClock();
+    if (!c) {
+      clockStatusEl.textContent = "none";
+      clockRows.replaceChildren(h("dd", {}, "No real-time clock on this machine."));
+      return;
+    }
+    const r = c.chip;
+    const alarm = (from: number, n: number) => Array.from(r.subarray(from, from + n), (v) => `$${hex(v, 2)}`).join(" ");
+    clockStatusEl.textContent = c.rtcctl & 0x04 ? "lost" : c.rtcctl & 0x40 ? "ticking" : "running";
+    clockRows.replaceChildren(
+      ...row("Time", clockTime(c.time)),
+      ...row("RTCCTL", `$${hex(c.rtcctl, 2)}  ${rtcctlText(c.rtcctl)}`),
+      ...row("RTCREG", `$${hex(c.rtcreg, 2)} · RTCDATA $${hex(c.rtcdata, 2)}`),
+      ...row("Control", `$${hex(r[0x0e], 2)}  ${clockControl(r[0x0e])}`),
+      ...row("Status", `$${hex(r[0x0f], 2)}  ${clockStatus(r[0x0f])}`),
+      ...row("Alarms", `1: ${alarm(0x07, 4)} · 2: ${alarm(0x0b, 3)}`),
+      ...row("Aging", `$${hex(r[0x10], 2)} · ${r[0x11]}.${pad((r[0x12] >> 6) * 25)} °C`),
+    );
+  };
+
   const refresh = async () => {
     await refreshUsb();
     await refreshSd();
+    await refreshClock();
     await refreshSound();
     await refreshApple();
     await refreshDisk();
