@@ -24,8 +24,8 @@ W65C02S and the backplane. As in [design.md](design.md), each section separates 
 - **The name is OODOS.** It's a new implementation written from Digital Research's CP/M 3 manuals: no DR source
   or binaries go into this repo or the website.
 
-**Not a goal:** running 8080 or Z80 CP/M programs. The CPU is different; OODOS programs are 6502 programs written
-to the same interface.
+**Decided (2026-10-26): no 8080 or Z80 CP/M programs,** now or by a later card. The CPU is different; OODOS
+programs are 6502 programs written to the same interface.
 
 
 ## Disk format ##
@@ -90,7 +90,8 @@ changed while running by a utility that does MOUNT and resets the drive.
 | `$0200–$02FF` | W0 | the **base page**: CP/M's page 0, moved up a page with the same offsets |
 | `$0300`–top | W0–W2 | the TPA, about 47 KB, less any RSXs at its top |
 | `$C000–$C7FF` | — | the I/O hole, always there |
-| `$C800–$FFFF` | W3 | **common memory** (14 KB): the BDOS entry stub, the BIOS jump table, interrupt handlers, bank helpers |
+| `$C800–$F7FF` | W3 | the **code window** (12 KB): OODOS's resident code, or a program's banked code during a far call |
+| `$F800–$FFFF` | W3 | **common memory** (2 KB): the BDOS entry stub, the BIOS jump table, the far call table, interrupt entry |
 
 **The base page** keeps CP/M's offsets, so ported code keeps its constants:
 
@@ -124,12 +125,17 @@ back in A (low) and X (high), as CP/M 3 returns it in A and HL.
 |---|---|
 | Block 60 | the banked BDOS |
 | Block 61 | the OODOS BIOS and drivers |
-| Block 62 | common memory: W3 while a program runs; VEC points here too |
+| Block 62 | W3 while a program runs: OODOS's resident code and common memory; VEC points here too |
 | Block 63 | the ROM BIOS and Monitor, as now, so Break still reaches the monitor |
 | A block in bank 7 | the system's zero page, stack and data |
 | Rest of banks 6–7 | deblocking buffers (BCBs), directory buffers, hash tables |
 | Banks C–D | the M: RAM disk |
 | Banks 1–5 | blocks programs can ask for (GW-BASIC's banked code, below) |
+
+**Common memory is in every block W3 maps.** Whatever block is in W3, its top 2 KB is the same copy of common
+memory, put there by OODOS when the block is allocated for code. So the BDOS entry, the interrupt entry and the far
+call table are always at the same addresses, and a far call can swap W3 without losing them. Common memory keeps
+no state of its own: that lives in the system's zero page block.
 
 **Entering the BDOS.** The stub in common memory saves the program's stack pointer and window registers, points
 W0 at the system's zero page and stack, and W1–W2 at the BDOS and BIOS. On the way out it puts them back and does
@@ -140,22 +146,99 @@ them into physical ones through the saved window registers and moves data with t
 memory copy (CP/M 3's `MOVE` and `XMOVE`), which runs as a block (BIOS 0.9). Sectors come from the SD card by DMA
 straight into a buffer's physical address and are never mapped into the CPU's view.
 
-**Allocating blocks.** CP/M 3 has no memory manager, so OODOS adds one: BDOS functions above CP/M 3's (numbers to
-be chosen from the unused range) to allocate and free 16 KB blocks and to call code in one through common memory.
-GW-BASIC is the first user.
+**Allocating blocks.** CP/M 3 has no memory manager, so OODOS adds CP/M-86's (functions 51–58, under
+[BDOS](#bdos)), handing out 16 KB blocks. Calling code in a block goes through common memory, not the BDOS (see
+[Far calls](#far-calls)). GW-BASIC is the first user.
 
 
 ## BDOS ##
 
-**Proposed: all of CP/M 3's functions, banked.**
+**Proposed: CP/M 3's functions, banked, with CP/M-86's memory functions and a few of OODOS's own.** Numbers follow
+Digital Research's systems wherever one has the function; no number means one thing here and another there.
 
-- 0–40 (the file system and console), 41–50 (CP/M 3's additions, with 50, direct BIOS calls, through the
-  6502 BIOS jump table), 98–112 and 152 (parse filename).
-- **Deblocking:** the BIOS states each drive's physical sector size in PSH/PHM, and the BDOS blocks and deblocks
-  128-byte records through its BCBs.
-- **Multi-sector I/O** (function 44) passes the count to the BIOS, which makes it one SD command with COUNT > 1.
-- **The SCB** (function 49), error modes, console modes and the `^C`/`^S` handling, as in CP/M 3.
-- **Date and time** (functions 104 and 105) from the DS3231 (below).
+### Registers ###
+
+- **In:** the function in Y. A byte parameter (CP/M's E) in A; a word parameter (CP/M's DE) in A (low) and X (high).
+- **Out:** CP/M's A and L in A, its B and H in X. A word result is A (low) and X (high), as CP/M 3's HL.
+- **Errors** follow CP/M 3: A = `$FF` and X = the physical error code (CP/M 3's H) when the error mode
+  (function 45) returns errors.
+- Y and the flags are not kept. The decimal flag is clear on return.
+
+### CP/M 3's functions ###
+
+All of these do what CP/M 3's do, with the registers above.
+
+| Numbers | What |
+|---|---|
+| 0–37 | the CP/M 2.2 set, with CP/M 3's changes: 7 and 8 are AUX status, 12 returns `$0031`, 35 returns errors |
+| 40 | write random with zero fill |
+| 42, 43 | lock and unlock record: succeed and do nothing, as CP/M 3 |
+| 44–50 | multi-sector count, error mode, free space, chain, flush, the SCB, direct BIOS calls |
+| 59, 60 | load overlay, call an RSX |
+| 98–112 | free blocks, truncate, directory labels, date stamps and XFCBs, date and time, passwords, serial number, return code, console mode, output delimiter, print and list block |
+| 152 | parse filename |
+
+Not in CP/M 3, and not here: 38, 39 and 41 (MP/M's drive access and test-and-write).
+
+**Where the 6502 changes things:**
+
+- **12** returns `$0031`, as CP/M 3. Programs that need OODOS itself use function 72.
+- **27** (allocation vector): in banked CP/M 3 the vector is in the system bank, and here it is too. It returns
+  `$FFFF`; function 46 gives the free space.
+- **31** returns the address of a copy of the DPB in common memory.
+- **49:** the SCB keeps CP/M 3's offsets for every field CP/M 3 documents.
+- **50:** the BIOS parameter block is OODOS's: +0 the BIOS function, +1 A, +2 X, +3 Y, +4–5 and +6–7 two words
+  (for MOVE and XMOVE's addresses and counts).
+- **59** loads a file in OODOS's program format at the FCB's random record address, relocating it.
+- **104, 105** use CP/M 3's DAT (days from 1 January 1978, hour and minute in BCD); 105 returns the seconds, BCD, in
+  A. Both go to the DS3231.
+
+### Memory: CP/M-86's functions ###
+
+CP/M 3 has no memory manager. CP/M-86's suits the OO-1 exactly: it works in paragraphs of 16 bytes, so a 16-bit
+paragraph number names any byte boundary of the 1 MB, as an 8086 segment does (and as GW-BASIC's DEF SEG
+assumes).
+
+| No. | CP/M-86 name | What |
+|---|---|---|
+| 51 | F_DMASEG | set the DMA "segment": the paragraph the DMA address counts from, so a read or write reaches any physical memory. `$FFFF`, the default, means the DMA address is the program's CPU address, as in CP/M 3 |
+| 52 | F_DMAGET | return the DMA segment and address |
+| 53 | MC_MAX | the largest free run of memory, in an MCB |
+| 54 | MC_ABSMAX | the same, at a given base |
+| 55 | MC_ALLOC | allocate memory: the MCB's length in, its base out |
+| 56 | MC_ABSALLOC | allocate memory at a given base |
+| 57 | MC_FREE | free one allocation |
+| 58 | MC_ALLFREE | free everything the program allocated |
+
+- **The MCB** is CP/M-86's: base (a paragraph, 2 bytes), length (paragraphs, 2 bytes), and an extra byte.
+- **Granularity is a 16 KB block,** 1024 paragraphs: lengths round up, bases are block boundaries. Only the blocks
+  that are user memory (banks 1–5 and what's left of the others) are handed out.
+- **Warm boot frees** everything a program allocated, as 58 does, so a program that stops early leaks nothing.
+- MP/M's memory functions (128–130) were the alternative. They describe memory segments of a multi-process
+  system, and fit less well.
+
+### OODOS's own ###
+
+From 72, a range no Digital Research system uses (CP/Net has 64–71).
+
+| No. | What |
+|---|---|
+| 72 | OODOS's version, the BIOS's version, the memory fitted and free, and the address of the far call table |
+| 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
+| 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
+| 75–97 | reserved for OODOS |
+
+### Far calls ###
+
+**Proposed.** Calling code in an allocated block can't wait for a BDOS call; GW-BASIC makes thousands a second. So
+common memory holds a small table, found through function 72, beside the BIOS's jump table:
+
+- **FARCALL:** map a block into W3's code window (the program names the block and an address in `$C800–$F7FF`),
+  JSR there, and put W3 back on the way out. The block's code may call FARCALL again; the table keeps a stack of
+  the blocks. The program's own memory, `$0000–$BFFF`, stays mapped throughout, so banked code sees all of it.
+- A block allocated for code gets common memory copied into its top 2 KB, so 12 KB of each is the program's.
+- **FARPEEK, FARPOKE, FARMOVE:** bytes and runs of bytes at physical addresses, for DEF SEG, PEEK, POKE, BLOAD and
+  BSAVE. FARMOVE uses the DMA controller.
 
 
 ## BIOS ##
@@ -259,8 +342,9 @@ COM1/COM2 and the parallel port.
 
 **Size.** GW-BASIC is about 60 KB of 8086 code, and 6502 code will be larger. It won't fit in the TPA beside a
 useful workspace, so the cold parts (graphics, PLAY, RENUM, the editor) live in allocated blocks and are called
-through common memory; the interpreter's core, the program and its variables stay in the TPA. **Target: at least
-32 KB free for BASIC.** A spike settles it before the port starts: translate MATH1 and the main interpreter loop,
+through common memory (FARCALL), 12 KB at a time in W3's code window. The program and its variables have the
+TPA, and as much of the interpreter as the 32 KB leaves room for.
+**Decided (2026-10-26): at least 32 KB free for BASIC.** That's a minimum, not a target. A spike settles it before the port starts: translate MATH1 and the main interpreter loop,
 and measure.
 
 **Testing.** PC-BASIC, an independent reimplementation that aims to match GW-BASIC, is the oracle for what
@@ -306,6 +390,4 @@ Each phase is its own branch.
 2. **Program format:** relocatable programs as above, or a fixed load address of `$0300` with only RSXs
    relocatable?
 3. **Apple disks:** CP/M disks first and the DOS 3.3/ProDOS utility later, or both at once?
-4. **GW-BASIC:** is 32 KB free the right target? It sets how much of the interpreter is banked.
-5. **8080 programs:** dropped for good, or worth a Z80 card one day?
-6. **The extra BDOS functions** for blocks: which numbers, and should they follow MP/M's memory functions?
+4. **BDOS numbers:** CP/M-86's 51–58 for memory, and 72 onwards for OODOS's own, as proposed above?
