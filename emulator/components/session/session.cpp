@@ -50,6 +50,12 @@ namespace ooe::emu
             count_ = 0;
         }
         bool on() const { return on_; }
+        /// Forget what was recorded (a new machine), keeping on and depth.
+        void clear()
+        {
+            next_ = 0;
+            count_ = 0;
+        }
 
         void on_cycle(const BusCycle &c) override
         {
@@ -119,12 +125,12 @@ namespace ooe::emu
         const auto model = machine->cpu() == "w65c02s" ? Cpu6502::Model::W65C02S : Cpu6502::Model::Nmos6502;
         auto cpu = std::make_unique<Cpu6502>(machine->bus(), model);
 
-        // Everything built: replace the old machine.
+        // Everything built: replace the old machine, its users first (they hold its chips).
         if (cpu_)
             cpu_->set_observer(nullptr);
-        machine_ = std::move(machine);
-        console_ = std::move(console);
         cpu_ = std::move(cpu);
+        console_ = std::move(console);
+        machine_ = std::move(machine);
         card_ = machine_->console_card();
         clock_cards();
         if (SoundCard *s = machine_->sound_card())
@@ -143,6 +149,7 @@ namespace ooe::emu
             sd->insert(sd_, false);
 
         recorder_->attach(&machine_->bus());
+        recorder_->clear(); // the old machine's cycles are not this one's
         observers_ = CycleTee{};
         observers_.add(recorder_.get());
         observers_.add(card_);
@@ -166,6 +173,7 @@ namespace ooe::emu
     {
         machine_->bus().reset();
         cpu_->reset();
+        clock_cards(); // a hard reset leaves Apple II mode, and its clock
         next_service_ = cpu_->cycles() + SERVICE_CYCLES;
     }
 
