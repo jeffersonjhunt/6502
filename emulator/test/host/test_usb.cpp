@@ -402,6 +402,19 @@ TEST(ctrl_at_is_nul_on_the_press_as_on_the_repeat)
     CHECK_EQ(c.peek(UsbCard::KEY), 0x80);         // and the same on the repeat
 }
 
+TEST(ctrl_with_the_lower_case_column_cooks_as_a_terminal_does)
+{
+    Card c;
+    c.key(LCTRL, true);
+    c.type(0x35);                                 // Ctrl-`: NUL, as Ctrl-@
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80);
+    c.key(LSHIFT, true);
+    c.type(0x2F);                                 // Ctrl-{: ESC, as Ctrl-[
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 0x1B);
+    c.type(0x35);                                 // Ctrl-~: RS, as Ctrl-^
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 0x1E);
+}
+
 TEST(new_mouse_limits_clamp_the_position_at_once)
 {
     Card c;
@@ -414,6 +427,22 @@ TEST(new_mouse_limits_clamp_the_position_at_once)
     c.read(UsbCard::MX);
     CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 255);
     CHECK_EQ(c.peek(UsbCard::MY) | c.peek(UsbCard::MY + 1) << 8, 191);
+}
+
+TEST(a_limit_raised_across_a_byte_takes_hold_on_its_high_byte)
+{
+    Card c;
+    c.write(UsbCard::MCTRL, UsbCard::ABSOLUTE);
+    c.write(UsbCard::MAXX, 511 & 0xFF);
+    c.write(UsbCard::MAXX + 1, 511 >> 8);
+    c.mouse_to(500, 0);
+    c.write(UsbCard::MAXX, 512 & 0xFF);           // 511 -> 256 for a moment: the low byte alone
+    c.write(UsbCard::MAXX + 1, 512 >> 8);         // must not clamp
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 500);
+    c.mouse_to(512, 0);
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 512);
 }
 
 TEST(bus_reset_puts_the_registers_back_and_keeps_the_host_side)

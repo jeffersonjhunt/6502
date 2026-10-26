@@ -455,6 +455,43 @@ TEST(the_breakpoint_and_the_lights_see_dma_cycles)
     CHECK_EQ(bus.peek(0xC714), ConsoleCard::L_BE);    // a write, with BE low
 }
 
+TEST(the_lights_count_the_cycle_taking_the_bus)
+{
+    Panel p;
+    REQUIRE(p.ok());
+    DmaController dma;
+    struct Requester : Device // holds DRQ0 for good
+    {
+        size_t size() const override { return 4; }
+        uint8_t read(uint32_t) override { return 0; }
+        uint8_t peek(uint32_t) const override { return 0; }
+        void write(uint32_t, uint8_t) override {}
+        bool drq() const override { return true; }
+        uint8_t dack_read(bool) override { return 0x5A; }
+    } card;
+    Decoder &bus = p.bus();
+    REQUIRE(bus.map({bus_address(Space::Io, 0x400), bus_address(Space::Io, 0x47F), &dma, DmaController::MODULE}));
+    REQUIRE(bus.map({bus_address(Space::Io, 0x500), bus_address(Space::Io, 0x503), &card, 0x5, false, 0, 0}));
+    dma.attach(&bus);
+    bus.set_master(&dma);
+    p.boot(LOOP);
+    // channel 0: single, card to $F0000, the whole 64K
+    const uint8_t regs[] = {0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, DmaController::SINGLE | DmaController::TO_MEMORY};
+    for (uint16_t i = 0; i < sizeof regs; ++i)
+        bus.poke(static_cast<uint16_t>(0xC400 + i), regs[i]);
+    bus.poke(0xC441, DmaController::CONTROL_RESET | DmaController::MASTER_ENABLE);
+    bus.poke(0xC407, DmaController::ENABLE);
+
+    p.card->set_lights(true);
+    p.card->lights();
+    const uint64_t start = p.cpu->cycles();
+    p.run(400);
+    const ConsoleCard::Lights l = p.card->lights();
+    CHECK_EQ(l.cycles, p.cpu->cycles() - start);     // every cycle lit once: taking the bus, the byte, the CPU's
+    CHECK(l.rdy > 0.65f && l.rdy < 0.68f);            // RDY low for two of each three
+    CHECK_EQ(bus.peek_physical(0xF0000), 0x5A);       // and the bytes went
+}
+
 TEST(bus_reset_clears_ctrl_ien_and_isr_and_keeps_the_breakpoint)
 {
     Panel p;

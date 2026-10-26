@@ -633,8 +633,8 @@ it commands.
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 
-- **The stub** goes on a free page: the one the header names (from `$0400` up), else `$FF00`, `$FE00`, `$0400`, `$C000`
-  or `$0200`, the first the tune leaves alone. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
+- **The stub** goes on a free page: the one the header names (not `$00` or `$01`, the port and the stack), else `$FF00`, `$FE00`, `$0400`, `$C000`
+  or `$0200`, the first the tune leaves alone and that misses `$0314` when the stub sets it. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
   timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
   song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
   A, and waits in a `JMP` loop.
@@ -936,7 +936,7 @@ Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboa
 
 - KEY holds one character, as on the Apple: a new one replaces it, read or not. It follows the Apple keyboard's
   conventions in native mode too (arrows `$08` `$15` `$0A` `$0B`, Delete `$7F`, Ctrl with `$40-$5F` or a letter
-  giving `$00-$1F`). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
+  giving `$00-$1F`; with `` ` `` `{` `|` `}` `~` too, as a terminal cooks them: Ctrl-`` ` `` is NUL, Ctrl-`{` ESC). Caps Lock acts on letters only, Shift undoes it, and it is **on at power-up**, as a IIe is
   usually left.
 - REPEAT: the last character key pressed repeats while held, after (bits 4-5 + 1) x 250 ms, every (bits 0-3 + 1) x
   33 ms (30 to about 2 a second). It resets to `$10`: 500 ms, 30 a second.

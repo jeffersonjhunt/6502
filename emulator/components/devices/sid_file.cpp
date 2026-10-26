@@ -214,7 +214,7 @@ namespace ooe::emu
         SidPlan plan;
         // The stub's page: the free one the header names, else the first of these the tune leaves alone.
         std::vector<unsigned> pages;
-        if (f.version >= 2 && f.start_page >= 0x04 && f.start_page != 0xFF && f.page_length) // not the port, stack or vectors
+        if (f.version >= 2 && f.start_page >= 0x02 && f.start_page != 0xFF && f.page_length) // not the port or the stack
             pages.push_back(f.start_page);
         for (const unsigned p : {0xFFu, 0xFEu, 0x04u, 0xC0u, 0x02u})
             pages.push_back(p);
@@ -238,7 +238,8 @@ namespace ooe::emu
             code = stub.emit();
             const uint32_t last = at + static_cast<uint32_t>(code.size()) - 1;
             const bool clash = overlaps(f, at, last) || (at <= 0xFFF9 && last >= 0xFFFA) || (at <= 0xFEC1 && last >= 0xFEBC) ||
-                               (at >= 0xD000 && at < 0xE000) || p == 0xEA;
+                               (at >= 0xD000 && at < 0xE000) || p == 0xEA ||
+                               (stub.set_0314 && at <= 0x0315 && last >= 0x0314); // the vector it sets
             if (!clash)
                 break;
             code.clear();

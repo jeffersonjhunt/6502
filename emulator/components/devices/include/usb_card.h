@@ -30,7 +30,8 @@
  * usage, then flags, bit 7 = release; a full FIFO drops the event whole),
  * which asserts DRQ while not empty. Presses that mean a character also go to
  * KEY, cooked in the US layout with the Apple's conventions: the strobe in
- * bit 7, arrows $08 $15 $0A $0B, Delete $7F, Ctrl with $40-$5F giving $00-$1F,
+ * bit 7, arrows $08 $15 $0A $0B, Delete $7F, Ctrl with $40-$5F giving $00-$1F
+ * and with $60-$7E the same (Ctrl-` NUL, Ctrl-{ ESC), as a terminal cooks them,
  * and Caps Lock on letters only (on at power-up, as a IIe is usually left).
  * KEY holds one character, as on the Apple: a new one replaces it. The last
  * key pressed repeats while held: after (REPEAT bits 4-5 + 1) x 250 ms, every
@@ -38,7 +39,8 @@
  * Pause/Break pulls /NMI (take_nmi()).
  *
  * Mouse. Relative mode adds movement up; absolute mode (MCTRL bit 0) keeps a
- * position clamped to MAXX, MAXY (new limits clamp it at once). Reading MX's low byte latches MX, MY and
+ * position clamped to MAXX, MAXY (a new limit clamps it at once, on its
+ * high byte's write: low byte first). Reading MX's low byte latches MX, MY and
  * MWHEEL together, and in relative mode starts the next sums at 0.
  *
  * Game port. PTRIG starts the 558: each paddle's GAME bit is 1 for about
@@ -182,7 +184,7 @@ namespace ooe::emu
         uint8_t dack_read(bool tc) override;
 
         /// The US layout with the Apple's conventions: the character a usage
-        /// gives with these modifiers (Ctrl-@ is NUL), or NO_CHAR (function keys, modifiers).
+        /// gives with these modifiers (Ctrl-@ and Ctrl-` are NUL), or NO_CHAR (function keys, modifiers).
         static constexpr int NO_CHAR = -1;
         static int cooked(uint8_t usage, uint8_t mods, bool caps);
 
