@@ -1,4 +1,5 @@
-; Derived from Microsoft GW-BASIC (1983), MIT licence, see LICENSE.
+; Derived from Microsoft GW-BASIC (1983).
+; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; The spike's zero page, tokens and shared names (README.md). OODOS gives a
 ; program $00-$EF at fixed addresses (hw/oodos.md, "Zero page"); this uses

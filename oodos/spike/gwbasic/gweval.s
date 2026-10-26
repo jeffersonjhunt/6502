@@ -1,4 +1,5 @@
-; Derived from Microsoft GW-BASIC (1983), MIT licence, see LICENSE.
+; Derived from Microsoft GW-BASIC (1983).
+; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; GWEVAL.ASM, translated: the formula evaluator (README.md):
 ;

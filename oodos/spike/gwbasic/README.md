@@ -253,4 +253,8 @@ make check      # rules.py and check.py
 make sizes GWSRC=/path/to/GW-BASIC
 ```
 
-Derived from Microsoft GW-BASIC (1983), MIT licence: see LICENSE.
+Derived from Microsoft GW-BASIC (1983), Copyright (c) Microsoft Corporation, MIT licence (LICENSE): the
+translation (`math1.s` `math2.s` `gwmain.s` `gweval.s` `bimisc.s` `tables.s` `gwbasic.inc`), `mbf.py`, written from
+its arithmetic, and `basic.py`, which has its tokens and precedences. The rest (`harness.s` `stubs.s` `farcall.s`
+`run6502.cpp` `spike.cfg` `Makefile` `check.py` `rules.py` `sizes.py`) is the project's own, under the repository's
+licence.

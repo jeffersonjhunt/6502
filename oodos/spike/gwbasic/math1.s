@@ -1,4 +1,5 @@
-; Derived from Microsoft GW-BASIC (1983), MIT licence, see LICENSE.
+; Derived from Microsoft GW-BASIC (1983).
+; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; MATH1.ASM, translated: the parts the spike measures (README.md). In the
 ; 8086's order:

@@ -1,4 +1,5 @@
-; Derived from Microsoft GW-BASIC (1983), MIT licence, see LICENSE.
+; Derived from Microsoft GW-BASIC (1983).
+; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; The dispatch tables: GWDATA.ASM's operator tables (segment GWDATA) and
 ; IBMRES.ASM's statement and function tables (segment IBMRES). Entries the

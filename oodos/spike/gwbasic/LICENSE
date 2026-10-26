@@ -1,3 +1,8 @@
+The files of this directory derived from Microsoft GW-BASIC are under the licence
+below: math1.s, math2.s, gwmain.s, gweval.s, bimisc.s, tables.s, gwbasic.inc,
+mbf.py and basic.py. The rest are the project's own, under the repository's
+LICENSE.
+
     MIT License
 
     Copyright (c) Microsoft Corporation.

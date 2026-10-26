@@ -1,4 +1,5 @@
-; Derived from Microsoft GW-BASIC (1983), MIT licence, see LICENSE.
+; Derived from Microsoft GW-BASIC (1983).
+; Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
 ;
 ; BIMISC.ASM's SYNCHR, GETSTK and ISLET2, translated (segment BIMISC), and
 ; the BASIC stack (segment RUNTIME), which has no 8086 counterpart: it is

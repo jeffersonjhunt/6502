@@ -1,3 +1,6 @@
+# Derived from Microsoft GW-BASIC (1983).
+# Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
+
 """GW-BASIC's Microsoft Binary Format arithmetic, modelled in Python.
 
 The reference the spike's 6502 code is checked against (check.py). It is

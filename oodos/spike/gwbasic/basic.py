@@ -1,3 +1,6 @@
+# Derived from Microsoft GW-BASIC (1983).
+# Copyright (c) Microsoft Corporation. MIT licence, see LICENSE.
+
 """A tiny GW-BASIC for checking the spike: tokeniser and reference reader.
 
 tokenise(src) gives the bytes GW-BASIC keeps a program in (a zero, then
