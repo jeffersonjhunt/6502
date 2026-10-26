@@ -67,9 +67,8 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
   writes a directory label and an SFCB in every fourth entry, the label's mode is set to 0x31 (creation and update
   stamps, as INITDIR sets it) and checked, `cpmcp` stamps what it writes, `cpmls -F` reads the stamps back, and
   `fsck.cpm` passes, for all three formats; and each DPB is legal (at most 16 directory blocks, DSM within 16 bits,
-  under 256 for 1 KB blocks). cpmtools writes both stamps whatever the mode, so only OODOS's BDOS will honour it;
-  that, and the other direction, OODOS writing and cpmtools checking, wait for the BDOS (phase 1's
-  interoperability tests).
+  under 256 for 1 KB blocks). cpmtools writes both stamps whatever the mode, so only OODOS's BDOS (phase 3)
+  will honour it. Each reading the other's drives is tested both ways from phase 1 ([Testing](#testing)).
 
 
 ## Drives ##
@@ -84,6 +83,22 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
 
 Which image each SD drive holds is set by a file on the card, `/OODOS/DRIVES.TXT`, read by the loader, and can be
 changed while running by a utility that does MOUNT and resets the drive.
+
+**Proposed: `DRIVES.TXT`** (the test card has one, [oodos/card/DRIVES.TXT](../oodos/card/DRIVES.TXT)):
+
+```
+# A is the system drive.
+A: /OODOS/A.IMG
+B: /OODOS/WORK.IMG
+C: /DISKS/CPM.DSK RO
+```
+
+- A line is a drive letter, A–G (SD units 1–7), a colon, then the image's path as MOUNT takes it: from the card's
+  root, `/`-separated, long or 8.3 names in any case, no spaces. `RO` after the path mounts it read-only.
+- Words are separated by spaces or tabs; `#` starts a comment, to the end of the line; blank lines are ignored.
+  Lines end in LF or CR LF, so the file can be edited on any PC.
+- A drive not named isn't mounted. Without an A line, or with a path MOUNT can't find, the loader says which and
+  goes back to the monitor. A drive named twice is an error, not the later line winning.
 
 
 ## Memory ##
@@ -466,16 +481,31 @@ copyright and MIT notice.
 
 ## Testing ##
 
+**Done (phase 1, 2026-10-26)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **The build:** ca65 and ld65, as the BIOS. [`oodos/Makefile`](../oodos/Makefile) links each program as a `.COM`
+  and a `.PRL`, and every link passes the 65C816 rules (`oodos/tools/rules.py`) or the build fails. `make check`
+  tests the tools: relocated `.PRL`s against direct links, mkprl's refusals, the magic number and the rules gate on
+  planted violations. The test card's `/BOOT.BIN` is built with ca65 and ld65 too.
+- **Card images:** [`oodos/tools/make_card.sh`](../oodos/tools/make_card.sh) makes the test card with cpmtools,
+  mkfs.fat and mtools in a throwaway container, from our own files, under faketime so the same sources make the
+  same card. It's committed as a sparse image, `emulator/test/host/sd/oodos.sparse` (184 KB): a 16 MB card,
+  FAT16 in an MBR partition, with `/BOOT.BIN`, `/OODOS/DRIVES.TXT` and `/OODOS/A.IMG` (`oodos-8m`, label mode
+  0x31, files in users 0 and 3, one over two directory entries).
+- **Interoperability, both ways:**
+  - **cpmtools writes, the OO-1 reads:** `test_oodos_card`, in ctest, mounts A.IMG through the card's own MOUNT
+    (after reading DRIVES.TXT, as OOLDR will) and finds every entry, SFCB stamp and record at LBA = track × SPT +
+    sector, by the DPB worked out from `oodos/diskdefs`.
+  - **The OO-1 writes, cpmtools checks:** in the same test a stand-in for the BDOS writes a file through the card's
+    WRITE and saves the card; [`oodos/test/interop.sh`](../oodos/test/interop.sh) takes A.IMG off it with mtools and
+    checks it with `fsck.cpm -n`, `cpmls -F` (both stamps) and `cpmcp`. It checks the committed card the same way.
+    A wrong allocation or a misplaced stamp, made on purpose, fails it.
+  - **Decided (2026-10-26): ctest stays hermetic,** with no skips, on committed images; the checks that need
+    Docker are scripts like `check_diskdefs.sh` and `interop.sh`, run by hand and at each phase's verify.
+  - Phase 3 puts the BDOS where the stand-in is, running in the emulator; the checks on both sides stay.
+
 **Proposed**
 
-- **The build:** ca65 and ld65, as the BIOS. **Built (phase 1, 2026-10-26):** [`oodos/Makefile`](../oodos/Makefile)
-  links each program as a `.COM` and a `.PRL`, and every link passes the 65C816 rules (`oodos/tools/rules.py`) or
-  the build fails. `make check` tests the tools: relocated `.PRL`s against direct links, mkprl's refusals, the
-  magic number and the rules gate on planted violations.
-- **Card images** made with cpmtools in a throwaway container, from our own files, committed as sparse images like
-  `emulator/test/host/sd/`.
-- **Interoperability, both ways:** cpmtools writes and OODOS reads; OODOS writes and `fsck.cpm` and `cpmls -l`
-  check the result, date stamps included.
 - **The emulator** runs OODOS in native tests (BDOS functions, the CCP, RSXs, the Apple driver) and in the WebUI's
   e2e tests.
 - Nothing of Digital Research's, or any other copyrighted software, goes into the tests or onto the website.
