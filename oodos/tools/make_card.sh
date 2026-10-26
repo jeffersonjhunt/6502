@@ -1,0 +1,105 @@
+#!/bin/sh
+# Builds the OODOS test card: a FAT card image as a PC would make one
+# (mkfs.fat, mtools, sfdisk) holding an OODOS drive made by cpmtools, so the
+# emulator's tests read what Linux writes (hw/oodos.md, "Testing"). Needs
+# Docker; everything runs in a throwaway debian:bookworm, under faketime, so
+# the same sources make the same card. Writes
+# emulator/test/host/sd/oodos.sparse (sd_images.h reads it):
+#
+#   oodos/tools/make_card.sh
+#
+# The card: 16 MB, an MBR, FAT16 in partition 1 (type 06) at sector 2048,
+# 2 KB clusters. On it:
+#
+#   /BOOT.BIN          oodos/card/boot.s: says it's an OODOS card, returns
+#   /OODOS/DRIVES.TXT  oodos/card/DRIVES.TXT: A: is /OODOS/A.IMG
+#   /OODOS/A.IMG       oodos-8m, label mode 0x31, stamped 2026-10-26 12:00:
+#     0:README.TXT     text, CR LF, ^Z to the end of its last record
+#     0:PATTERN.BIN    36,864 bytes, seed 1: two directory entries (32 KB each)
+#     3:USER3.TXT      text, as README.TXT
+#     3:SMALL.BIN      384 bytes, seed 3
+#
+# A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
+# different run in each record; test_oodos_card.cpp and interop.sh know the
+# same, and the text files' words.
+set -eu
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+out="$root/emulator/test/host/sd"
+docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" -v "$(hostpath "$out"):/out" debian:bookworm sh -eu <<'INNER'
+apt-get -qq update >/dev/null
+apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 python3 faketime >/dev/null
+cd /tmp
+export MTOOLS_SKIP_CHECK=1 TZ=UTC
+# Every stamp, FAT and CP/M, is this moment.
+at() { faketime '2026-10-26 12:00:00' "$@"; }
+
+cat > gen.py <<'PY'
+import sys
+name, size, seed = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+open(name, 'wb').write(bytes((((i >> 7) * 31 + i * 7 + seed) & 0xFF) for i in range(size)))
+PY
+# A CP/M text file: CR LF lines, ^Z after the last to the end of its record.
+cat > text.py <<'PY'
+import sys
+name, lines = sys.argv[1], sys.argv[2:]
+b = ''.join(l + '\r\n' for l in lines).encode('ascii')
+open(name, 'wb').write(b + b'\x1a' * (128 - len(b) % 128))
+PY
+# mkfs.fat's boot code (dosfstools, GPL) zeroed, as make_sd_images.sh does.
+cat > noboot.py <<'PY'
+import sys
+with open(sys.argv[1], 'r+b') as f:
+    f.seek(62)
+    f.write(bytes(510 - 62))
+PY
+cat > sparse.py <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+data = open(src, 'rb').read()
+assert len(data) % 512 == 0
+with open(dst, 'w') as f:
+    f.write('oo1-sparse 1\nsectors %d\n' % (len(data) // 512))
+    for n in range(len(data) // 512):
+        s = data[n * 512:(n + 1) * 512]
+        if any(s):
+            f.write('%d %s\n' % (n, s.hex()))
+PY
+
+# BOOT.BIN, from its source.
+ca65 -o boot.o /o/card/boot.s
+ld65 -C /o/card/boot.cfg -o BOOT.BIN boot.o
+
+# A.IMG: made, its label's mode set to 0x31 (oodos/README.md), the files in.
+cp /o/diskdefs diskdefs
+at mkfs.cpm -f oodos-8m -t -L OODOS A.IMG
+# mkfs.cpm writes only the directory, and the file grows as cpmcp writes. A
+# unit is its file's size, so the drive gets all 8 MB first; the blocks no
+# file has are zeros, as the holes cpmtools would have left read.
+truncate -s 8M A.IMG
+printf '\061' | dd of=A.IMG bs=1 seek=12 conv=notrunc status=none
+python3 text.py README.TXT 'THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.' \
+    'OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD.'
+python3 gen.py PATTERN.BIN 36864 1
+python3 text.py USER3.TXT 'A FILE IN USER 3.'
+python3 gen.py SMALL.BIN 384 3
+at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
+at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
+fsck.cpm -f oodos-8m -n A.IMG
+cpmls -f oodos-8m -F A.IMG
+
+# The card: the partition made alone, then put at 2048.
+python3 -c "open('part.img', 'wb').truncate((16 * 2048 - 2048) * 512)"
+at mkfs.fat -F 16 -s 4 -i 0001DD05 -n OODOS part.img >/dev/null
+python3 noboot.py part.img
+at mmd -i part.img ::/OODOS
+at mcopy -i part.img BOOT.BIN ::/BOOT.BIN
+at mcopy -i part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
+at mcopy -i part.img A.IMG ::/OODOS/A.IMG
+mdir -i part.img -/ ::/
+python3 -c "open('card.img', 'wb').truncate(16 * 2048 * 512)"
+printf 'label: dos\nlabel-id: 0x0001dd05\nstart=2048, type=06\n' | sfdisk -q card.img
+dd if=part.img of=card.img bs=512 seek=2048 conv=notrunc status=none
+python3 sparse.py card.img /out/oodos.sparse
+chown $(stat -c %u /out) /out/oodos.sparse
+INNER
+ls -l "$out/oodos.sparse"
