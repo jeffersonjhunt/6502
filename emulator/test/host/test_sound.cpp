@@ -338,6 +338,24 @@ TEST(cia_timer_a_interrupts_the_6510_every_latch_plus_one_clocks)
     CHECK(irqs >= 998 && irqs <= 1000); // a period of 99 would make it 1,010
 }
 
+TEST(the_6510s_interrupt_entry_takes_sid_clocks_too)
+{
+    // The same timer and handler: every cycle the 6510 spends, its 7-cycle
+    // interrupt entries included, is a SID clock and a CIA clock.
+    SoundCard c;
+    c.ram()[0xFFFE] = 0x00;
+    c.ram()[0xFFFF] = 0x11;
+    uint16_t a = 0x1100;
+    for (const unsigned b : {0xADu, 0x0Du, 0xDCu, 0xE6u, 0x20u, 0x40u}) // LDA $DC0D; INC $20; RTI
+        c.ram()[a++] = static_cast<uint8_t>(b);
+    start(c, 0x1000, {0xA9, 0x63, 0x8D, 0x04, 0xDC, 0xA9, 0x00, 0x8D, 0x05, 0xDC, 0xA9, 0x81, 0x8D, 0x0D, 0xDC, 0xA9,
+                      0x01, 0x8D, 0x0E, 0xDC, 0x58, 0x4C, 0x15, 0x10});
+    const uint64_t cpu0 = c.cpu().cycles(), sid0 = c.sid_clocks();
+    host(c, 10'000ull * SoundCard::NATIVE_HZ / SoundCard::PAL_HZ);
+    CHECK(c.ram()[0x20] >= 90); // about 100 interrupts
+    CHECK_EQ(c.cpu().cycles() - cpu0, c.sid_clocks() - sid0);
+}
+
 TEST(cia_one_shot_stops_and_reading_icr_acknowledges)
 {
     SoundCard c;
