@@ -80,8 +80,10 @@
  * 1/8 (a voice at full envelope peaks at about -18 dBFS: room for three,
  * resonance and the 6581's DC steps) and clipped to -1..1. Samples wait, at most half a
  * second of them, oldest dropped first, until take_audio() collects them;
- * that brings the chips up to now first. Off (rate 0, the default) the
- * chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
+ * that brings the chips up to now first. Of a backlog over two seconds
+ * (nobody collecting), only the last second is made: the rest, whose
+ * samples would be dropped, is clocked in bulk. Off (rate 0, the default)
+ * the chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
  * is the replacement chips' jumper (set_model()), not a register.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their

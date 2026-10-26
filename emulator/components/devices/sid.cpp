@@ -4,15 +4,19 @@
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * Time is spent in bulk where nothing depends on the clock-by-clock order:
- * an accumulator just adds freq x clocks (and the noise register is clocked
- * once for each rise of bit 19 on the way), and an envelope jumps from one
- * rate-counter match to the next. Only hard sync, where one voice resets
- * another the clock its top bit rises, needs every clock; and the output
- * stage, whose filter runs every clock, unless every envelope is at rest.
+ * an accumulator just adds freq x clocks (and the noise register jumps
+ * ahead by the rises of bit 19 on the way), and an envelope jumps from one
+ * rate-counter match to the next, or past whole periods while it rests.
+ * Hard sync, where one voice resets another the clock its top bit rises,
+ * goes in bulk from one such clock to the next. Only the output stage, whose
+ * filter runs every clock, needs every clock, unless every envelope is at
+ * rest. So a chip left alone for minutes catches up at once.
  */
 
 #include "sid.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace ooe::emu
@@ -30,6 +34,33 @@ namespace ooe::emu
         {
             const uint32_t bit = ((r >> 22) ^ (r >> 17)) & 1u;
             return ((r << 1) | bit) & 0x7FFFFF;
+        }
+
+        /// The register `steps` clocks on. It is linear over GF(2): a step is a 23 x 23 bit matrix, and
+        /// its powers of two, as columns, take it any distance in one product per set bit.
+        uint32_t jump_noise(uint32_t r, uint64_t steps)
+        {
+            using Matrix = std::array<uint32_t, 23>;
+            auto apply = [](const Matrix &m, uint32_t v) {
+                uint32_t out = 0;
+                for (unsigned i = 0; i < 23; ++i)
+                    if (v >> i & 1)
+                        out ^= m[i];
+                return out;
+            };
+            static const auto powers = [&] {
+                std::array<Matrix, 64> p{};
+                for (unsigned i = 0; i < 23; ++i)
+                    p[0][i] = clock_noise(1u << i);
+                for (unsigned j = 1; j < 64; ++j)
+                    for (unsigned i = 0; i < 23; ++i)
+                        p[j][i] = apply(p[j - 1], p[j - 1][i]);
+                return p;
+            }();
+            for (unsigned j = 0; steps; ++j, steps >>= 1)
+                if (steps & 1)
+                    r = apply(powers[j], r);
+            return r;
         }
 
         /// The noise waveform: eight of the register's bits, as the top 8 of 12.
@@ -169,8 +200,18 @@ namespace ooe::emu
         for (unsigned n = 0; n < 3; ++n)
             syncing = syncing || ((control(n) & SYNC) && freq(source(n)) && !(control(source(n)) & TEST));
         if (syncing)
-            for (uint64_t i = 0; i < clocks; ++i)
+            for (uint64_t left = clocks; left;) // in bulk up to each clock a sync source's top bit rises; that one alone
+            {
+                const uint64_t k = next_sync(); // 1-based
+                if (k > left)
+                {
+                    advance_oscillators(left);
+                    break;
+                }
+                advance_oscillators(k - 1);
                 clock_oscillators();
+                left -= k;
+            }
         else
             advance_oscillators(clocks);
         for (unsigned n = 0; n < 3; ++n)
@@ -251,6 +292,23 @@ namespace ooe::emu
                 voices_[n].accumulator = 0;
     }
 
+    uint64_t Sid::next_sync() const
+    {
+        uint64_t k = UINT64_MAX;
+        for (unsigned n = 0; n < 3; ++n)
+        {
+            const unsigned src = source(n);
+            const uint32_t f = freq(src);
+            if (!(control(n) & SYNC) || !f || (control(src) & TEST))
+                continue;
+            // the add that takes it to TOP or past, from below: after a wrap if the bit is set now
+            const uint64_t a = voices_[src].accumulator;
+            const uint64_t target = (a & TOP) ? ACC_MASK + 1u + TOP : TOP;
+            k = std::min(k, (target - a + f - 1) / f);
+        }
+        return k;
+    }
+
     void Sid::advance_oscillators(uint64_t clocks)
     {
         for (unsigned n = 0; n < 3; ++n)
@@ -262,8 +320,7 @@ namespace ooe::emu
             // bit 19 rises at k x 2^20 + 2^19: count those passed on the way
             const uint64_t half = NOISE_CLOCK;
             const uint64_t rises = (to + half) / (2 * half) - (from + half) / (2 * half);
-            for (uint64_t i = 0; i < rises; ++i)
-                v.noise = clock_noise(v.noise);
+            v.noise = jump_noise(v.noise, rises);
             v.accumulator = static_cast<uint32_t>(to & ACC_MASK);
         }
     }
@@ -300,6 +357,15 @@ namespace ooe::emu
             clocks -= to_match;
             v.rate_count = 0;
             step_envelope(v, n);
+            // At rest (at 0, or held at the sustain level) a step moves only exp_count: skip whole periods.
+            const uint16_t next = rate_period(n);
+            const bool rest = v.frozen || (v.phase == Phase::DecaySustain && v.envelope == (regs_[n * 7 + 6] >> 4) * 0x11);
+            if (rest && clocks >= next && v.exp_count < v.exp_period)
+            {
+                const uint64_t k = clocks / next;
+                v.exp_count = static_cast<uint8_t>((v.exp_count + k) % v.exp_period);
+                clocks -= k * next;
+            }
         }
     }
 

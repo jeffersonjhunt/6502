@@ -151,7 +151,8 @@ namespace ooe::emu
         uint8_t control(unsigned n) const { return regs_[n * 7 + 4]; }
         uint16_t rate_period(unsigned n) const;
         void clock_oscillators();                   ///< one clock, sync included
-        void advance_oscillators(uint64_t clocks); ///< many, when no voice syncs
+        void advance_oscillators(uint64_t clocks); ///< many, when no voice syncs on the way
+        uint64_t next_sync() const; ///< clocks to the next sync, counting the clock it happens on
         void clock_envelope(unsigned n, uint64_t clocks);
         void step_envelope(Voice &v, unsigned n);
         /// Every envelope at 0 and the filter at rest: the output holds.
