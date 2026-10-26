@@ -125,11 +125,70 @@ describe("WasmPort", () => {
     for (let i = 0; i < 40; ++i) f = m.step(1);
     expect(f.hz).toBeGreaterThan(0);
     expect(f.hz).toBeLessThan(NATIVE_HZ * 0.6);
-    // The page slow between frames (200 ms of drawing): 4/5 of the time is more than the machine needs.
-    const before = m.step(200).cycles;
-    const after = m.step(200).cycles;
+    // The page slow (200 ms of drawing in its listener): 4/5 of the time is more than the machine needs.
+    let drawing = 0;
+    m.port.onFrame(() => void (m.clock.t += drawing));
+    drawing = 200;
+    m.step(1);
+    const before = m.step(1).cycles;
+    const after = m.step(1).cycles;
     expect(after - before).toBeGreaterThanOrEqual(715_909);
     expect(after - before).toBeLessThan(715_909 + 16);
+  });
+
+  test("a slow host behind vsync settles at one frame rate: the wait for the next frame is not the page's time", async () => {
+    // Time moves only by the machine's work (a 6 MHz host: too slow for 7.16 MHz) and the page's (3 ms);
+    // frames come on 60 Hz boundaries, as a browser's do. Counting the wait as the page's, it went 3 4 3 4.
+    const clock = new ManualClock();
+    const VSYNC = 1000 / 60;
+    const timed = async (): Promise<CoreModule> => {
+      const core = await load();
+      return {
+        Machine: function () {
+          const m = new core.Machine();
+          return new Proxy(m, {
+            get(target, key) {
+              const v = Reflect.get(target, key) as unknown;
+              if (key === "run")
+                return (n: number) => {
+                  const why = target.run(n);
+                  clock.t += target.lastCycles() / 6_000; // 6,000 cycles a ms
+                  return why;
+                };
+              return typeof v === "function" ? v.bind(target) : v;
+            },
+          });
+        } as unknown as CoreModule["Machine"],
+      };
+    };
+    const port = new WasmPort({ load: timed, scheduler: clock });
+    port.onFrame(() => void (clock.t += 3)); // drawing
+    await port.connect();
+    const starts: number[] = [];
+    for (let i = 0; i < 120; ++i) {
+      clock.t = (Math.floor(clock.t / VSYNC) + 1) * VSYNC; // the next vsync
+      starts.push(clock.t);
+      port.frame();
+    }
+    const gaps = starts.slice(60).map((t, i) => Math.round((t - starts[59 + i]) / VSYNC));
+    expect(new Set(gaps).size, `frames ${gaps.join(" ")} vsyncs apart`).toBe(1);
+    port.close();
+  });
+
+  test("the real speed leaves out a background tab's gap and time halted", async () => {
+    const m = await open();
+    let f = m.step();
+    for (let i = 0; i < 70; ++i) f = m.step(); // over a second
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    m.step(60_000); // a minute in the background: 100 ms run
+    for (let i = 0; i < 70; ++i) f = m.step();
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    m.port.setPanel({ halt: true, busCycle: false });
+    for (let i = 0; i < 120; ++i) f = m.step(); // two seconds halted
+    m.port.setPanel({ halt: false, busCycle: false });
+    m.port.press("cont");
+    for (let i = 0; i < 70; ++i) f = m.step();
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
   });
 
   test("a listener that throws is reported and the others still hear; the loop goes on", async () => {
