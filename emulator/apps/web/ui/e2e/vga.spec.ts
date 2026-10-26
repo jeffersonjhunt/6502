@@ -144,8 +144,13 @@ test("on VGA the mouse is the USB card's: the monitor reads its position", async
   await booted(page);
   await page.getByRole("button", { name: "VGA" }).click();
   await page.getByTestId("crt").click();
-  await page.keyboard.type("C590: 1");                         // MCTRL: absolute
+  // MCTRL: absolute. The colon is pressed as Shift+; because the USB card takes key codes, and WebKit's typed ":"
+  // is the ; key without Shift.
+  await page.keyboard.type("C590");
+  await page.keyboard.press("Shift+Semicolon");
+  await page.keyboard.type(" 1");
   await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crt-text")).toContainText("C590: 1");
   const box = (await page.locator("[data-testid=crt] canvas").boundingBox())!;
   // About the middle, on whole CSS pixels as WebKit rounds the pointer to them; a VGA pixel can be less than one
   // here, so which one is under it depends on where the layout puts the canvas.
