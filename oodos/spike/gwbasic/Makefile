@@ -30,6 +30,7 @@ check: spike.bin $(RUNNER)
 	$(PYTHON) check.py
 
 sizes: spike.bin
+	@test -n "$(GWSRC)" || { echo "usage: make sizes GWSRC=/path/to/GW-BASIC (a clone of microsoft/GW-BASIC)" >&2; exit 2; }
 	$(PYTHON) sizes.py spike.map $(GWSRC)
 
 clean:

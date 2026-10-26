@@ -8,9 +8,9 @@ FARCALL.
 **Answer: yes, with a thin margin that the port has to make.** The translation is 1.20 times the 8086's size.
 Scaled to the whole released source that is 48.9 KB of 6502 code plus 4.3 KB of tables. The code every
 statement and operator runs (the statement loop, the formula evaluator, variables, strings, FOR/NEXT, single
-precision and integer arithmetic) comes to about 9,990 bytes resident, which leaves **about 34,300 bytes free
+precision and integer arithmetic) comes to about 10,000 bytes resident, which leaves **about 34,300 bytes free
 (33.5 KB)**. In the pessimistic case (the worst measured ratio for all non-math code, and GW-BASIC's full PC RAM)
-it is 32,683, 85 bytes short, which moving GW-BASIC's file and device buffers out of the TPA puts right.
+it is 32,681, 87 bytes short, which moving GW-BASIC's file and device buffers out of the TPA puts right.
 Everything else (output formatting, input, editing, files, graphics, sound, the screen editor, the OO-1's own
 drivers) goes in 7 or 8 banked pages. Loops of ordinary statements make no far calls.
 
@@ -90,19 +90,20 @@ release.
 
 | | 8086 | 6502 |
 |---|---|---|
-| Statement loop, CHRGET, LET IF GOTO GOSUB RETURN DATA REM, FOR/NEXT, FNDLIN, FNDFOR, GETSTK, SYNCHR (GWMAIN, NEXT86, BIMISC parts) | 1,634 | 2,075 |
-| Formula evaluator, EVAL, operators, function dispatch (GWEVAL's formula section) | 1,165 | 1,480 |
-| Variables and arrays, PTRGET (BIPTRG) | 884 | 1,123 |
-| String space, temporaries, garbage collection, concatenation (BISTRS) | 737 | 936 |
-| Single precision and integer arithmetic, compares, conversions, INT/FIX/ABS/SGN | 2,295 | 2,662 |
+| Statement loop, CHRGET, LET IF GOTO GOSUB RETURN DATA REM, FOR/NEXT, FNDLIN, FNDFOR, GETSTK, SYNCHR (GWMAIN, NEXT86, BIMISC parts) | 1,634 | 2,074 |
+| Formula evaluator, EVAL, operators, function dispatch (GWEVAL's formula section) | 1,165 | 1,479 |
+| Variables and arrays, PTRGET (BIPTRG) | 884 | 1,122 |
+| String space, temporaries, garbage collection, concatenation (BISTRS) | 737 | 935 |
+| Single precision and integer arithmetic, compares, conversions, INT/FIX/ABS/SGN | 2,295 | 2,672 |
 | LEN ASC CHR$ LEFT$ RIGHT$ MID$ (a far call would add an estimated 15–25% to them in a loop) | 486 | 617 |
 | Statement, function and operator tables, with a bank byte per entry (estimate) | | 400 |
 | Console output and Ctrl-C polling (OEM, new; estimate) | | 500 |
 | The BASIC stack runtime and the far-call dispatch | | 200 |
-| **Resident code** | | **9,993** (high 10,465) |
+| **Resident code** | | **9,999** (high 10,467) |
 
-The first five rows are `sizes.py`'s "resident candidates" (8,276 bytes, high 8,704), whole sections of the
-source, so they include some cold code (RUN, for one) that shares them.
+The first five rows are `sizes.py`'s "resident candidates" (8,282 bytes, high 8,704; each row the sum of its
+files' lines there, at the unrounded ratios 1.164 and 1.269), whole sections of the source, so they include some
+cold code (RUN, for one) that shares them.
 
 **Fixed RAM in the TPA.** GW-BASIC declares 2.0 KB of variables and buffers (GWRAM and the data segments, as
 `sizes.py` sums them); with the BASIC stack (0.5 KB), three file blocks (0.6 KB), the OEM layer's RAM and
@@ -110,8 +111,8 @@ source, so they include some cold code (RUN, for one) that shares them.
 free of its 64 KB data segment), which is the bad case. About 140 bytes of GW-BASIC's variables live in zero
 page.
 
-**Free for BASIC:** 48,384 bytes, less 9,993 of code and 4,096 of RAM, leaves **34,295 bytes**, 1,527 over
-the minimum. At the high ratio and the PC's 5,236 bytes of RAM it is 32,683, 85 short. To make the margin, in
+**Free for BASIC:** 48,384 bytes, less 9,999 of code and 4,096 of RAM, leaves **34,289 bytes**, 1,521 over
+the minimum. At the high ratio and the PC's 5,236 bytes of RAM it is 32,681, 87 short. To make the margin, in
 order of value:
 
 1. **Move the file blocks, device queues and the screen editor's line table out of the TPA** into an allocated
@@ -161,11 +162,11 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
 
 `make check` (and `check.py --seed N --count N` for more):
 
-- **Math vectors, bit for bit against mbf.py:** 12,763 by default, 40,263 each for seeds 7 and 42, all equal:
-  the FAC's bytes, VALTYP, compare results, errors (CINT's Overflow), infinities after Overflow and Division by
-  zero (including GW-BASIC's sign rules: an add or multiply that overflows gives +∞), and `$FOUT`'s text, for
-  random operands, operands with close exponents, small decimal numbers and edge cases (zero, ±1, the largest
-  and smallest, -32768, 32767).
+- **Math vectors, bit for bit against mbf.py:** 12,763 by default, 40,263 each for seeds 7 and 42 (`check.py
+  --seed 7 --count 1500`), all equal: the FAC's bytes, VALTYP, compare results, errors (CINT's Overflow),
+  infinities after Overflow and Division by zero (including GW-BASIC's sign rules: an add or multiply that
+  overflows gives +∞), and `$FOUT`'s text, for random operands, operands with close exponents, small decimal
+  numbers and edge cases (zero, ±1, the largest and smallest, -32768, 32767).
 - **The tables:** math1.s's `$FOTB` and powers of ten must equal mbf.py's, which works out the powers of ten
   as the nearest doubles and copies `$FOTB` from MATH1.ASM. The vectors alone pass with a wrong low byte there.
 - **mbf.py itself against exact arithmetic** (Python's fractions): single and double divide and double
@@ -190,7 +191,7 @@ the project's oracle, settles it.
 
 ## Risks ##
 
-- **The margin.** 34,295 bytes free is 1.5 KB over the minimum, and the bad case is 85 bytes under it. The 8086
+- **The margin.** 34,289 bytes free is 1.5 KB over the minimum, and the bad case is 87 bytes under it. The 8086
   sizes are estimates (a few percent either way, mostly cancelling), the OEM layer is unknown, and GW-BASIC's RAM
   may be more than counted. Moving buffers out (layout, 1) is cheap insurance; the W3 home block (2) is the big
   lever.

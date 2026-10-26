@@ -8,8 +8,12 @@ from the 8086's encoding rules (modrm, displacement and immediate sizes,
 the accumulator and sign-extended short forms, short jumps where MASM
 would make them), with INS86's raw bytes, the code macros expanded, and
 conditional assembly evaluated. DB and DW in the code segment are counted
-as data, apart from code. Data-segment (RAM) declarations are summed too:
-they are what GW-BASIC needs in the TPA besides its code.
+as data, apart from code. Data-segment (RAM) declarations are summed too
+(declared_ram): they are what GW-BASIC needs in the TPA besides its code.
+That is the one RAM count. The instruction scan sees data-segment DB and DW
+as well, but not GWRAM's R, R1 and RINIT macros, so it says 999 B where
+declared_ram, which counts both and ignores conditional assembly (erring
+high, the safe side for the TPA), says 2,004 B.
 
 MEASURED lists the 8086 source the spike translated, routine by routine;
 the 6502 side is the map's segment sizes. The ratio of the two, per module
@@ -770,6 +774,8 @@ def map_sizes(mapfile):
 
 
 def main():
+    if len(sys.argv) < 3 or not os.path.isdir(sys.argv[2]):
+        sys.exit("usage: sizes.py spike.map GWSRC  (GWSRC: a clone of microsoft/GW-BASIC's source)")
     mapfile, gwsrc = sys.argv[1], sys.argv[2]
     est = Estimator(gwsrc)
     # The measured ranges, as line sets per file.
@@ -827,15 +833,14 @@ def main():
     print("  plus the BASIC stack's runtime (no 8086 counterpart): %d B; with it %.2f" % (
         runtime, (t65 + runtime) / t86))
     print()
-    print("Whole program, 8086 (estimated encodings): code, data in the code segment, RAM declared")
-    tc = td = tr = 0
+    print("Whole program, 8086 (estimated encodings): code, and data in the code segment")
+    tc = td = 0
     for f in FILES:
         c, d, r, n = totals[f]
         tc += c
         td += d
-        tr += r
-        print("  %-8s %6d %6d %6d" % (f, c, d, r))
-    print("  %-8s %6d %6d %6d" % ("total", tc, td, tr))
+        print("  %-8s %6d %6d" % (f, c, d))
+    print("  %-8s %6d %6d" % ("total", tc, td))
     print()
     math_r = sum(r[3] for r in rows if r[0].startswith("MATH")) / sum(r[2] for r in rows if r[0].startswith("MATH"))
     int_r = sum(r[3] for r in rows if not r[0].startswith("MATH")) / sum(r[2] for r in rows if not r[0].startswith("MATH"))
@@ -852,9 +857,11 @@ def main():
     hr = sum(v for k, v in hotsize.items() if not k.startswith("MATH"))
     print("Resident candidates: 8086 %d B (math %d, interpreter %d) -> 6502 %d B (high %d B)" % (
         hm + hr, hm, hr, hm * math_r + hr * int_r, hm * math_r + hr * worst))
+    # Per file at the unrounded ratios; README's Layout rows are sums of these.
     for k, v in sorted(hotsize.items()):
         if v:
-            print("  %-8s %6d" % (k, v))
+            r = math_r if k.startswith("MATH") else int_r
+            print("  %-8s %6d -> %5.0f (high %5.0f)" % (k, v, v * r, v * (math_r if k.startswith("MATH") else worst)))
     mv, ds = declared_ram(gwsrc)
     print("RAM GW-BASIC declares: %d B of GWRAM variables, %d B in data segments: %d B" % (mv, ds, mv + ds))
 

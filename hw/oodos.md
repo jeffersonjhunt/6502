@@ -385,7 +385,7 @@ the formula evaluator) to 6502, linked as a `.COM` at `$0300`, and checked them 
   (estimated 12–20 KB): 65–73 KB.
 - **The TPA:** a resident core of about 10 KB (the statement loop, LET, IF, GOTO, GOSUB, FOR and NEXT, the
   evaluator, variables, the string core, single and integer math, console output) and 4 KB of fixed RAM leave
-  **34,295 bytes free**; 32,683 in the pessimistic case, 85 bytes short, closed by keeping the file and device
+  **34,289 bytes free**; 32,681 in the pessimistic case, 87 bytes short, closed by keeping the file and device
   buffers out of the TPA. The rest goes in 7 or 8 banked blocks of 12 KB: math with PRINT and INPUT, program
   entry and LIST, the other statements, files, graphics and devices, the screen editor, the OO-1's drivers.
 - **No far calls on the hot paths.** A FARCALL costs 263 cycles over a JSR; one pass of
