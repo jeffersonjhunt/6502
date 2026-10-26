@@ -165,6 +165,21 @@ TEST(a_breakpoint_after_wai_fires_once_when_it_ends)
     CHECK_EQ(m.cpu.regs().pc, 0xE001);
 }
 
+TEST(a_halt_during_wai_does_not_skip_the_breakpoint_after_it)
+{
+    Rig m;
+    m.load(0xE000, {0xCB, 0xEA, 0xEA}); // WAI; NOP; NOP
+    m.cpu.reset();
+    Debugger d(m.cpu, m.bus, m.symbols);
+    d.command("b E001");
+    m.cpu.step(); // WAI: PC is already E001
+    d.halt("key"); // stopped while waiting, not at E001's fetch
+    d.command("r");
+    CHECK(!d.check(m.cpu.regs().pc));
+    m.cpu.irq(); // ends the WAI: E001 is about to run for the first time since the halt
+    CHECK(d.check(m.cpu.regs().pc));
+}
+
 TEST(run_skips_only_the_breakpoint_it_halted_at)
 {
     Rig m;
