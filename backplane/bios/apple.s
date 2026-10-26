@@ -12,8 +12,10 @@
 ; The clear wipes this code's stack and zero page (bank 0), so it is the last
 ; thing done, inline: no subroutine returns after it. It is four 64 KB DMA
 ; fills from a zero byte held as the source, and two of 4 KB, about 75 ms.
-; Each is a block transfer with no burst limit, so it is done before the
-; next instruction.
+; Every channel is stopped first and CONTROL set to no burst limit (Apple
+; mode holds the controller idle after, so a program's CONTROL is not worth
+; keeping); each fill is then a block transfer that is done before the next
+; instruction, with no wait needed.
 ;
 ; The IIe's character ROM goes to video memory too (CHARS), from the
 ; cartridge's $84000 or, without one, made from the VGA font.
@@ -90,7 +92,10 @@ APPLE:
                 STA     NB_WIN2
 
                 ; banks 0-3 by DMA, inline from here: the first fill takes the stack
-                LDA     #DMA_ON
+                LDA     #DMA_ALL       ; a program's channels stopped, so the fills
+                STA     DMA_ABORT      ; have the bus to themselves
+                STA     DMA_STATUS
+                LDA     #DMA_ON        ; and no burst limit, whatever it set
                 STA     DMA_CONTROL
                 LDA     #<ZERO_PHYS
                 STA     DMA3_ADDR

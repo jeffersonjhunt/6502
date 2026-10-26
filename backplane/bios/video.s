@@ -12,21 +12,24 @@
 ;
 ; The CPU reaches them through W2 ($8000-$BFFF) put on RAM block 32 for a
 ; moment and put back; DMA reaches them by physical address. Scrolling is
-; one 4,640-byte memory-to-memory DMA copy (1.3 ms), waited for, so it is
-; whole whatever BURST a program has set; clearing is a cell
+; one 4,640-byte memory-to-memory DMA copy (1.3 ms) on channel 3, waited
+; for, so it is whole whatever BURST a program has set (DMA3RUN: the master
+; enable on for it and put back after; a copy that never ends, with no
+; controller there, is given up after about 0.1 s); clearing is a cell
 ; written by the CPU then copied onto the next by an overlapping DMA, which
 ; repeats it. The cursor is an underline whose attribute blinks (bit 7, with
 ; CONFIG's blink on), so the card blinks it and the BIOS does nothing.
 ;
 ; With no video card, or no DMA controller, VINIT leaves VOK clear and
-; VPUTC does nothing. Break (NMI) puts W2 back and calls VSCREEN, so one
-; during VPUTC, or a program that moved the screen, leaves the monitor on the
-; text screen as VINIT made it. PUTAT keeps the cursor on the screen whatever
+; VPUTC does nothing. Break (NMI) puts W2 back and calls VSCREEN, which sets
+; VOK again from the ID bytes, so one during VPUTC, or a program that moved
+; the screen or wrote VOK, leaves the monitor on the text screen as VINIT
+; made it. PUTAT keeps the cursor on the screen whatever
 ; a program has left in VCOL and VROW.
 
 .setcpu "65C02"
 .include "backplane.inc"
-.export VINIT, VPUTC, VSCREEN, DEMO
+.export VINIT, VPUTC, VSCREEN, DEMO, DMA3RUN
 .import WOZMON, DEMO_MAIN
 
 VPTR    = BIOS_ZP + 0                  ; cell pointer (CPU address)
@@ -55,13 +58,8 @@ FONT_CPU   = $4000
 
 ; Turn the screen on: font, palette, a clear screen, then the registers.
 VINIT:
-                STZ     VOK
-                LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
-                BNE     @done
-                LDA     DMA_ID
-                CMP     #DMA_ID_V1
-                BNE     @done
+                JSR     PROBE
+                BPL     @done
                 LDA     #DMA_ON
                 STA     DMA_CONTROL
 
@@ -111,14 +109,27 @@ VINIT:
 
                 STZ     VCOL
                 STZ     VROW
-                DEC     VOK            ; $FF: on
                 BRA     VSCREEN
 @done:          RTS
 
-; The card's registers for the text screen, if it is on: layer 0 only,
+; VOK from the ID bytes: $FF (N set) with the video card and the DMA
+; controller, else 0.
+PROBE:
+                STZ     VOK
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V1
+                BNE     @done
+                LDA     DMA_ID
+                CMP     #DMA_ID_V1
+                BNE     @done
+                DEC     VOK
+@done:          BIT     VOK
+                RTS
+
+; The card's registers for the text screen, if there is one: layer 0 only,
 ; unscrolled, no interrupts. Its memory is left as it is.
 VSCREEN:
-                BIT     VOK
+                JSR     PROBE
                 BPL     @done
                 STZ     VIDEO_IEN
                 STZ     VIDEO_PALBASE
@@ -245,8 +256,10 @@ NEWLINE:
 
 ; Run DMA job X (an offset into JOBS) on channel 3, a block transfer, and
 ; wait for it: with a BURST limit the CPU gets cycles back, but it is done
-; on return. The master enable goes on, in case a program turned it off.
+; on return. Uses A, X, Y.
 DMAJOB:
+                LDA     #DMA_CH3       ; programmed stopped, so a live channel
+                STA     DMA_ABORT      ; never runs on a half-written address
                 LDY     #$00
 @regs:          LDA     JOBS,X
                 STA     DMA3_ADDR,Y    ; source: Y = 0-2
@@ -262,14 +275,33 @@ DMAJOB:
                 STA     DMA3_COUNT+1
                 LDA     #DMA_M2M
                 STA     DMA3_MODE
+                ; fall through
+
+; Start channel 3, programmed, and wait for ENABLE to clear at terminal
+; count, with the master enable on (a program may have turned it off) and
+; CONTROL put back after. 65,536 polls, about 0.1 s, then it gives up and
+; stops the channel: no controller there (ENABLE reads 1 off a floating
+; bus), or one starved by a busier channel. For the demo too. Uses A, X, Y.
+DMA3RUN:
                 LDA     DMA_CONTROL
+                PHA
                 ORA     #DMA_MASTER
                 STA     DMA_CONTROL
                 LDA     #DMA_GO
                 STA     DMA3_CTRL
-@wait:          LDA     DMA3_CTRL      ; ENABLE clears at terminal count
+                LDX     #0
+                LDY     #0
+@wait:          LDA     DMA3_CTRL
                 LSR     A
-                BCS     @wait
+                BCC     @done
+                DEX
+                BNE     @wait
+                DEY
+                BNE     @wait
+                LDA     #DMA_CH3
+                STA     DMA_ABORT
+@done:          PLA
+                STA     DMA_CONTROL
                 RTS
 
 .macro JOB src, dst, count

@@ -28,7 +28,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import BREAK, KEYHIT
+.import BREAK, KEYHIT, DMA3RUN
 .export DEMO_MAIN
 
 BALLS     = 12
@@ -424,8 +424,11 @@ SPRITES:
                 RTS
 
 ; The shadow table into the card's (unit 36) by DMA: 96 bytes, about 27 us,
-; waited for, since SPRITES writes the shadow next.
+; waited for (DMA3RUN, the BIOS's), since SPRITES writes the shadow next.
+; Uses A, X, Y.
 DMASPRITES:
+                LDA     #DMA_CH3       ; stopped while it is programmed
+                STA     DMA_ABORT
                 LDA     #<SHADOW
                 STA     DMA3_ADDR
                 LDA     #>SHADOW
@@ -442,12 +445,7 @@ DMASPRITES:
                 STZ     DMA3_COUNT+1
                 LDA     #DMA_M2M
                 STA     DMA3_MODE
-                LDA     #DMA_GO
-                STA     DMA3_CTRL
-@wait:          LDA     DMA3_CTRL      ; ENABLE clears at terminal count
-                LSR     A
-                BCS     @wait
-                RTS
+                JMP     DMA3RUN
 
 TILES:          .incbin "demo/tiles.bin"
 MAP:            .incbin "demo/map.bin"

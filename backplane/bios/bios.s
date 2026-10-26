@@ -25,8 +25,9 @@
 ; harmless, so one image serves both boots.
 ;
 ; NMI (the USB card's Pause/Break can pull /NMI) and BRK enter the monitor
-; with the windows and the text screen as the BIOS keeps them, whatever was
-; running; other IRQs return at once until there is something to interrupt.
+; with the windows and the text screen as the BIOS keeps them, the DMA
+; stopped and the cards it knows quiet (QUIET), whatever was running; other
+; IRQs return at once until there is something to interrupt.
 
 .setcpu "65C02"
 .include "backplane.inc"
@@ -73,8 +74,8 @@ START:
                 BPL     @stub
                 LDA     #FLASH31
                 JMP     $0000
-STUB:           STA     NB_WIN3
-                STA     NB_VEC
+STUB:           STA     NB_WIN3        ; an NMI between these two takes the RAM copy's
+                STA     NB_VEC         ; vector into the flash's code: accepted, one instruction
                 JMP     ($FFFC)
 STUB_END:
 
@@ -124,7 +125,8 @@ BANNER:         LDA     GREETING,X
 MONITOR:        JMP     WOZMON
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
-; blocks 0-2 (W3 and VEC are the BIOS's), the text screen, then the monitor.
+; blocks 0-2 (W3 and VEC are the BIOS's), the cards quiet, the text screen
+; (VSCREEN finds it from the ID bytes), then the monitor.
 BREAK:
                 CLD
                 LDX     #$FF
@@ -134,6 +136,7 @@ BREAK:
                 STA     NB_WIN1
                 LDA     #BLOCK2
                 STA     NB_WIN2
+                JSR     QUIET
                 JSR     VSCREEN
                 JMP     WOZMON
 
@@ -147,6 +150,56 @@ IRQ:            PHA
                 PLX
                 PLA
                 RTI
+
+; Stop what would go on behind the monitor: every DMA channel, the SD card's
+; command, the sound card's 6510 and SIDs; and turn off the interrupts that
+; IRQ can't answer, so a program run with R can CLI. What it doesn't know
+; (the serial card, the RTC, a program's own state) is left alone.
+QUIET:
+                LDA     DMA_ID
+                CMP     #DMA_ID_V1
+                BNE     @sd
+                LDA     #DMA_ALL
+                STA     DMA_ABORT
+                STA     DMA_STATUS     ; no terminal count left to interrupt
+                STZ     DMA0_MODE      ; nor one to come: MODE's IRQ bit
+                STZ     DMA0_MODE + $10
+                STZ     DMA0_MODE + $20
+                STZ     DMA0_MODE + $30
+@sd:            LDA     SD_ID
+                CMP     #SD_ID_V1
+                BNE     @usb
+                STZ     SD_IEN
+                LDA     SD_STATUS
+                BPL     @idle          ; BUSY clear
+                LDA     #SD_CTRL_RESET ; abandon the command; units stay mounted
+                STA     SD_CTRL
+                BRA     @usb
+@idle:          STZ     SD_CTRL        ; DRQ0 off
+@usb:           LDA     USB_ID
+                CMP     #USB_ID_V1
+                BNE     @video
+                STZ     USB_IEN
+@video:         LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V1
+                BNE     @sound
+                STZ     VIDEO_IEN
+@sound:         LDA     SOUND_ID
+                CMP     #SOUND_ID_V1
+                BNE     @panel
+                LDA     SOUND_CTRL
+                AND     #<~SOUND_RUN   ; the 6510 stopped, so the SIDs take writes
+                STA     SOUND_CTRL
+                STZ     SOUND_IEN
+                LDX     #SOUND_SIDS - 1
+@sid:           STZ     SOUND,X        ; every SID register: gates and volume off
+                DEX
+                BPL     @sid
+@panel:         LDA     CONSOLE_ID
+                CMP     #CONSOLE_ID_V1
+                BNE     @done
+                STZ     CONSOLE_IEN
+@done:          RTS
 
 GREETING:       .byte   $0D, "BACKPLANE BIOS 0.9", $0D, 0
 
