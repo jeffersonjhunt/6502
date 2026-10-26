@@ -83,6 +83,7 @@ emu_add_test(test_disasm)
 emu_add_test(test_debugger)
 emu_add_test(test_backplane)
 emu_add_test(test_bios)
+set_tests_properties(test_bios PROPERTIES TIMEOUT 300) # about 100 s of BIOS runs under ASan
 emu_add_test(test_dma)
 emu_add_test(test_console_card)
 emu_add_test(test_video)
