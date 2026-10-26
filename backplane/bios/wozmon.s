@@ -10,7 +10,7 @@
 .setcpu "65C02"
 .include "backplane.inc"
 .segment "WOZMON"
-.export WOZMON, ECHO
+.export WOZMON, ECHO, PRBYTE
 .import VPUTC, GETKEY
 
 XAML  = $24                            ; Last "opened" location Low

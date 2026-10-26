@@ -7,8 +7,9 @@
  * and Apple II (the video card's IIe picture, filling the screen). Entering
  * Apple II mode, however it happens, switches to the Apple II scene; under
  * the monitor are the cartridge and the IIe's controls (ui/apple-bar.ts),
- * the Disk II's drive, and Sound, the sound card through the speakers, with
- * a .sid tune to play on it (ui/sid-bar.ts).
+ * the Disk II's drive, the SD card's slot (ui/sd-bar.ts), and Sound, the
+ * sound card through the speakers, with a .sid tune to play on it
+ * (ui/sid-bar.ts).
  *
  * Built with VITE_HOME_URL set, the badge links back to that page.
  */
@@ -41,6 +42,7 @@ import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
 import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
+import { sdBar } from "./ui/sd-bar";
 import { sidBar } from "./ui/sid-bar";
 
 function statusText(f: FrameState, clockLabel: string): string {
@@ -218,18 +220,21 @@ function start(root: HTMLElement, port: MachinePort): void {
     },
     typed: () => glass.focus(),
   });
-  const drive = diskBar(port, browserDiskStore(), (name, bytes) => {
+  const download = (name: string, bytes: Uint8Array) => {
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" }));
     const a = h("a", { href: url, download: name });
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  }, apple.bootNeeds);
+  };
+  const drive = diskBar(port, browserDiskStore(), download, apple.bootNeeds);
+  const card = sdBar(port, download);
   const monitor = h(
     "div",
     { class: "mon" },
     glass,
     h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status), apple.element, scenes.element),
     h("div", { class: "mon-foot mon-drive" }, drive.element),
+    h("div", { class: "mon-foot mon-sd" }, card.element),
     h("div", { class: "mon-foot mon-sound" }, sound.element, tune.element), // the monitor's speaker, and a tune for it
   );
 
@@ -242,7 +247,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("a", { href: "https://int10h.org/oldschool-pc-fonts/", target: "_blank", rel: "noopener" }, "VileR's Ultimate Oldschool PC Font Pack"),
     ", ",
     h("a", { href: "https://creativecommons.org/licenses/by-sa/4.0/", target: "_blank", rel: "noopener" }, "CC BY-SA 4.0"),
-    ". Apple II mode runs your own Apple IIe ROM and disks: they stay in this browser and are never uploaded.",
+    ". Apple II mode runs your own Apple IIe ROM and disks: they stay in this browser and are never uploaded. So does an SD card image, which stays in this page.",
   );
   const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, credits, mirror);
   root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
@@ -264,6 +269,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     }
     apple.update(f);
     drive.update(f);
+    card.update(f);
     speaker.feed(f);
     sound.update();
     tune.update(f);

@@ -63,6 +63,15 @@
  * register, 16-19 the phases; diskQuarter(drive) is that drive's head, in
  * quarter tracks (0-159).
  *
+ * The SD card's slot (sd_card.h): hasSd() if the machine has the card;
+ * insertSd(bytes, name) puts a card image (a Uint8Array, whole 512-byte sectors) in, held
+ * in memory, or false with error(); ejectSd(); sdInfo() is -1 for an empty
+ * slot, else bit 0 written to since it went in or was last saved, bit 1
+ * write-protected; sdSectors(); sdSave() is a copy of the image (a Uint8Array, null for none), and counts
+ * as saved; setSdWriteProtect(on) is the card's switch; sdStatus() is -1
+ * without the card, else its STATUS register; sdCommands() counts the
+ * commands it has started (a light: one between two frames is activity).
+ *
  * The sound card's 6510 (sound_card.h): soundCpu() is its registers, state
  * (0 running, 2 jammed), cycles, port (ddr, port) and CIA 1's timer A
  * (timer, latch, timerOn), or has: false without the card. Its registers
@@ -338,6 +347,52 @@ namespace
             return c ? c->status().quarter_track[drive % Disk2Card::DRIVES] : 0;
         }
 
+        bool has_sd() const { return session_->sd() != nullptr; }
+        /// `bytes` a Uint8Array: a card is megabytes, too many for a string.
+        bool insert_sd(const val &bytes, const std::string &name)
+        {
+            error_.clear();
+            return session_->insert_sd(emscripten::convertJSArrayToNumberVector<uint8_t>(bytes), name, error_);
+        }
+        void eject_sd() { session_->eject_sd(); }
+        int sd_info() const
+        {
+            const MemoryMedia *m = session_->sd_image();
+            if (!m)
+                return -1;
+            return (m->dirty() ? 1 : 0) | (m->write_protected() ? 2 : 0);
+        }
+        double sd_sectors() const
+        {
+            const SdMedia *m = session_->sd_media();
+            return m ? static_cast<double>(m->sectors()) : 0;
+        }
+        val sd_save() const
+        {
+            MemoryMedia *m = session_->sd_image();
+            if (!m)
+                return val::null();
+            m->clean();
+            const std::vector<uint8_t> &b = m->bytes();
+            // A copy: the card's bytes stay the machine's, and a view moves if memory grows.
+            return val(emscripten::typed_memory_view(b.size(), b.data())).call<val>("slice");
+        }
+        void set_sd_write_protect(bool on)
+        {
+            if (SdMedia *m = session_->sd_media())
+                m->set_write_protected(on);
+        }
+        int sd_status() const
+        {
+            SdCard *c = session_->sd();
+            return c ? c->peek(SdCard::STATUS) : -1;
+        }
+        double sd_commands() const
+        {
+            SdCard *c = session_->sd();
+            return c ? static_cast<double>(c->commands()) : 0;
+        }
+
         SoundCpu sound_cpu() const
         {
             const SoundCard *c = session_->sound();
@@ -541,6 +596,15 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("setWriteProtect", &WebMachine::set_write_protect)
         .function("diskStatus", &WebMachine::disk_status)
         .function("diskQuarter", &WebMachine::disk_quarter)
+        .function("hasSd", &WebMachine::has_sd)
+        .function("insertSd", &WebMachine::insert_sd)
+        .function("ejectSd", &WebMachine::eject_sd)
+        .function("sdInfo", &WebMachine::sd_info)
+        .function("sdSectors", &WebMachine::sd_sectors)
+        .function("sdSave", &WebMachine::sd_save)
+        .function("setSdWriteProtect", &WebMachine::set_sd_write_protect)
+        .function("sdStatus", &WebMachine::sd_status)
+        .function("sdCommands", &WebMachine::sd_commands)
         .function("soundCpu", &WebMachine::sound_cpu)
         .function("soundVoice", &WebMachine::sound_voice)
         .function("hasUsb", &WebMachine::has_usb)

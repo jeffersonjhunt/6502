@@ -15,6 +15,7 @@ import type {
   MouseInput,
   PanelKey,
   PortCaps,
+  SdInfo,
   SidTune,
   SoundCpu,
   TraceRow,
@@ -43,6 +44,12 @@ export class FakePort implements MachinePort {
   diskError: string | null = null;
   /** What saveDisk() returns. */
   saved = new Uint8Array([1, 2, 3]);
+  /** The SD slot: what readSdInfo() returns, and insertSd() sets. */
+  sdCard: SdInfo | null = null;
+  /** insertSd() rejects with this, if set. */
+  sdError: string | null = null;
+  /** What saveSd() returns. */
+  sdSaved = new Uint8Array([4, 5, 6]);
   /** What readDisk2() returns. */
   disk2: DiskStatus | null = null;
   /** What playSid() and playSong() return (the song set to the one asked for), or reject with, if a string. */
@@ -52,7 +59,7 @@ export class FakePort implements MachinePort {
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
-    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, audio: false, sid: false, ...caps };
+    this.caps = { registers: true, trace: true, busCycleStep: false, video: false, usb: false, power: true, cartridge: true, disk: true, audio: false, sid: false, sd: true, ...caps };
   }
 
   /** Send a frame to the listeners; unset fields take idle defaults. */
@@ -70,6 +77,7 @@ export class FakePort implements MachinePort {
       fixedHz: 0,
       apple: false,
       disk: null,
+      sd: null,
       video: null,
       audio: null,
       soundRunning: false,
@@ -141,6 +149,28 @@ export class FakePort implements MachinePort {
     this.calls.push(["saveDisk", drive, format]);
     if (this.diskError) throw new Error(this.diskError);
     return this.saved;
+  }
+  async insertSd(bytes: Uint8Array, name: string): Promise<SdInfo> {
+    this.calls.push(["insertSd", bytes, name]);
+    if (this.sdError) throw new Error(this.sdError);
+    return (this.sdCard = { name, sectors: Math.floor(bytes.length / 512), writeProtected: false, changed: false });
+  }
+  ejectSd(): void {
+    this.calls.push(["ejectSd"]);
+    this.sdCard = null;
+  }
+  async readSdInfo(): Promise<SdInfo | null> {
+    return this.sdCard ? { ...this.sdCard } : null;
+  }
+  async saveSd(): Promise<Uint8Array> {
+    this.calls.push(["saveSd"]);
+    if (!this.sdCard) throw new Error("no card in the slot");
+    this.sdCard.changed = false;
+    return this.sdSaved;
+  }
+  setSdWriteProtect(on: boolean): void {
+    this.calls.push(["setSdWriteProtect", on]);
+    if (this.sdCard) this.sdCard.writeProtected = on;
   }
   async readDisk2(): Promise<DiskStatus | null> {
     return this.disk2;

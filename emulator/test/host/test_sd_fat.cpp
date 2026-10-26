@@ -12,6 +12,7 @@
  */
 
 #include "harness.h"
+#include "sd_images.h"
 
 #include "fat_volume.h"
 #include "sd_card.h"
@@ -22,7 +23,6 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -42,29 +42,10 @@ namespace
 
     uint8_t content(unsigned seed, size_t i) { return static_cast<uint8_t>(((i >> 9) * 31 + i * 7 + seed) & 0xFF); }
 
-    /// An image from its sparse dump: "oo1-sparse 1", "sectors N", then "LBA hex" for each non-zero sector.
     std::vector<uint8_t> sparse(const std::string &name)
     {
-        std::ifstream in(std::string(EMU_SD_DIR) + "/" + name);
-        std::string magic, word;
-        uint64_t sectors = 0;
-        std::getline(in, magic);
-        in >> word >> sectors;
-        CHECK(magic == "oo1-sparse 1" && word == "sectors" && sectors > 0);
-        if (sectors == 0)
-            return {};
-        std::vector<uint8_t> bytes(static_cast<size_t>(sectors) * SECTOR);
-        uint64_t lba = 0;
-        std::string hex;
-        while (in >> lba >> hex)
-        {
-            CHECK(lba < sectors && hex.size() == 2 * SECTOR);
-            if (lba >= sectors || hex.size() != 2 * SECTOR)
-                return {};
-            for (size_t i = 0; i < SECTOR; ++i)
-                bytes[static_cast<size_t>(lba) * SECTOR + i] =
-                    static_cast<uint8_t>(std::stoul(hex.substr(2 * i, 2), nullptr, 16));
-        }
+        std::vector<uint8_t> bytes = sd_image(name);
+        CHECK(!bytes.empty());
         return bytes;
     }
 
@@ -189,7 +170,7 @@ TEST(fat12_on_the_whole_card)
     CHECK_EQ(v->label(), std::string("OO1FAT12"));
     std::vector<FatVolume::Entry> root;
     REQUIRE(v->list("/", root) == FatVolume::Status::Ok);
-    CHECK_EQ(joined(names(root)), std::string("HELLO.TXT|A long file name.dsk|DISKS|" + LONGEST));
+    CHECK_EQ(joined(names(root)), std::string("HELLO.TXT|A long file name.dsk|DISKS|" + LONGEST + "|BOOT.BIN"));
     CHECK_EQ(root[0].size, 21u);
     CHECK(root[2].attributes & FatVolume::DIRECTORY);
     CHECK_EQ(root[1].short_name.substr(0, 6), std::string("ALONGF"));
@@ -553,7 +534,8 @@ TEST(a_long_name_is_cut_at_56_bytes_in_a_listing)
     CHECK_EQ(root[64 + 0] | root[64 + 1] << 8, 20000);
     const char *cut = reinterpret_cast<const char *>(&root[3 * 64 + 8]);
     CHECK_EQ(std::string(cut, SdCard::LIST_NAME), LONGEST.substr(0, SdCard::LIST_NAME)); // no NUL: it fills the field
-    CHECK_EQ(root[4 * 64 + 8], 0);
+    CHECK_EQ(std::string(reinterpret_cast<const char *>(&root[4 * 64 + 8])), std::string("BOOT.BIN"));
+    CHECK_EQ(root[5 * 64 + 8], 0);
 }
 
 namespace

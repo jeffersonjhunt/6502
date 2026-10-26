@@ -13,7 +13,7 @@ import { fakeSid } from "./fake-sid";
 import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
-const GREETING = "\rBACKPLANE BIOS 0.6\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.7\r\\\r";
 const FRAME_MS = 1000 / 60;
 const NATIVE_HZ = 7_159_090;
 
@@ -420,6 +420,39 @@ describe("WasmPort", () => {
     expect(m.until(GREETING)).toBe(true);
     m.port.sendSerial(ascii("C806R\r"));
     expect(m.until("NO APPLE IIE ROM")).toBe(true);
+  });
+
+  test("the SD card: in, written by the machine, saved, kept through a power cycle, out", async () => {
+    const m = await open();
+    expect(m.until(GREETING)).toBe(true);
+    expect(m.step().sd).toEqual({ present: false, busy: false, changed: false });
+    await expect(m.port.insertSd(new Uint8Array(100), "tiny.img")).rejects.toThrow(/tiny\.img: not an SD card image/);
+    expect(await m.port.insertSd(new Uint8Array(64 * 512), "raw.img")).toEqual({ name: "raw.img", sectors: 64, writeProtected: false, changed: false });
+    for (let i = 0; i < 4; ++i) m.step(); // 50 ms to start up
+    // WRITE sector 0 of the raw card, $AA throughout, by a CPU loop; back to the monitor.
+    m.clear();
+    m.port.sendSerial(ascii("1000: A9 01 8D 8A C3 9C 8B C3 9C 84 C3 9C 86 C3 A9 30 8D 83 C3\r"));
+    m.port.sendSerial(ascii("1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C 80 C8\r1000R\r"));
+    let lit = false;
+    for (let i = 0; i < 30; ++i) lit ||= m.step().sd!.busy; // the command's light, though it's done within a frame
+    expect(m.output()).toContain("1000R");
+    expect(lit).toBe(true);
+    expect(m.step().sd).toEqual({ present: true, busy: false, changed: true });
+    expect((await m.port.readSdInfo())?.changed).toBe(true);
+    const saved = await m.port.saveSd();
+    expect(saved.length).toBe(64 * 512);
+    expect(Array.from(saved.subarray(0, 512)).every((b) => b === 0xaa)).toBe(true);
+    expect(saved[512]).toBe(0);
+    expect(m.step().sd!.changed).toBe(false); // saved
+    m.port.setSdWriteProtect(true);
+    expect((await m.port.readSdInfo())?.writeProtected).toBe(true);
+    m.port.setPower(false);
+    m.port.setPower(true); // a new machine: the card is still in the slot
+    expect((await m.port.readSdInfo())?.name).toBe("raw.img");
+    expect((await m.port.saveSd())[0]).toBe(0xaa);
+    m.port.ejectSd();
+    expect(await m.port.readSdInfo()).toBeNull();
+    await expect(m.port.saveSd()).rejects.toThrow(/no card in the slot/);
   });
 
   test("disks: in, saved in each format, write-protected, kept through a power cycle, out", async () => {

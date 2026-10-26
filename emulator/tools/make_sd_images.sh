@@ -58,7 +58,15 @@ mmd -i fat12.img ::/DISKS
 mcopy -i fat12.img GAME.PO ::/DISKS/GAME.PO
 mcopy -i fat12.img README ::/DISKS/README
 mattrib -i fat12.img +r ::/DISKS/README
+# BOOT.BIN, for the BIOS's C80CR: at $1000, it prints through $C80F (ECHO) and
+# returns to the monitor. One sector:
+#   LDX #0 / LDA MSG,X / BEQ done / JSR $C80F / INX / BNE / done: RTS / MSG
+python3 - <<'PY'
+code = bytes.fromhex('A200BD0E10F006200FC8E8D0F560') + b'\rBOOTED FROM SD\r\0'
+open('BOOT.BIN', 'wb').write(code + bytes(512 - len(code)))
+PY
 mcopy -i fat12.img HELLO.TXT "::/This name is longer than the fifty-six bytes a listing keeps of it.txt"
+mcopy -i fat12.img BOOT.BIN ::/BOOT.BIN
 python3 sparse.py fat12.img /out/fat12.sparse
 
 # FAT16 in partition 1 (type 06) at sector 2048 of a 20 MB card, 2 KB clusters.

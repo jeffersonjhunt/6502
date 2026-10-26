@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function booted(page: Page) {
   await page.goto("./");
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.6", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.7", { timeout: 15_000 });
 }
 
 /** A VGA pixel (x, y in 640x480) off the canvas, which holds k x k canvas pixels for each. */

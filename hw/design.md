@@ -261,7 +261,10 @@ window registers.
    palette, and layer 0 in video memory, so the monitor shows on VGA as well as the serial line. It starts with
    fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29. *(BIOS 0.4.)* The monitor takes keys
    from the serial line or the USB keyboard, and Pause/Break breaks into it. *(BIOS 0.5.)* `$C806` enters Apple II
-   mode, with the IIe ROM image taken from the cartridge (ROM B).
+   mode, with the IIe ROM image taken from the cartridge (ROM B). *(BIOS 0.7, proposed.)* The SD card: `$C809`
+   lists the card's root directory, and `$C80C` boots from it. The boot mounts `/BOOT.BIN` as unit 1, reads it to
+   `$1000` by DMA channel 0 (at most 88 sectors, `$1000–$BFFF`) and calls it, so a program that returns comes back
+   to the monitor. `$C80F` is ECHO, for programs to print with.
 
 **From the ESP32 (override)**
 
@@ -1170,7 +1173,8 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    OSC3 and ENV3 read back, then the output stage (waveform DACs, the filter, the mixer) and sound in the WebUI,
    which also plays `.sid` files on the card. Combined waveforms' real values are in the emulator's backlog.)*
 8. **The mass storage card:** the registers, the raw card through DATA by CPU or DMA, then FAT mounting, the BIOS
-   and the WebUI. *(Emulated 2026-10-25: the card, raw sectors and IDENTIFY; FAT, MOUNT, UNMOUNT and LIST.)*
+   and the WebUI. *(Emulated 2026-10-25: the card, raw sectors and IDENTIFY; FAT, MOUNT, UNMOUNT and LIST; the
+   BIOS's listing and boot; the card in the WebUI.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 

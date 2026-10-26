@@ -138,6 +138,7 @@ function base() {
     fixedHz: 0,
     apple: false,
     disk: null,
+    sd: null,
     video: null,
     audio: null,
     soundRunning: false,
