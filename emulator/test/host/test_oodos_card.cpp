@@ -278,7 +278,7 @@ namespace
                     return {};
                 std::vector<uint8_t> blk = d.block(at);
                 const unsigned n = std::min(per_block, records - b * per_block);
-                out.insert(out.end(), blk.begin(), blk.begin() + n * RECORD);
+                out.insert(out.end(), blk.data(), blk.data() + n * RECORD);
             }
         }
         return out;
@@ -363,7 +363,7 @@ namespace
     constexpr size_t NEW_SIZE = 260 * RECORD;
     const std::array<uint8_t, 4> NEW_MADE = stamp(2026, 10, 26, 13, 45), NEW_UPDATED = stamp(2026, 10, 26, 15, 30);
 
-    /// A stand-in for OODOS's BDOS, until phase 3: makes the file on a drive as CP/M 3 would,
+    /// A stand-in for OODOS's BDOS, until phase 3: makes the file on a drive in CP/M 3's layout,
     /// sector by sector through the card (read, change, write back): entries in the first
     /// free slots, blocks the first free ones, and both stamps in each entry's SFCB slot (as
     /// cpmtools does; fsck.cpm checks them all). `fault`: "alloc" gives it a block another
@@ -603,8 +603,7 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     // Nothing else changed: the directory's first sector (entries 8 and 9, the SFCB in 11) and 65 of records.
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
-        sectors += !std::equal(before.begin() + n * SECTOR, before.begin() + (n + 1) * SECTOR,
-                               r.media->bytes().begin() + n * SECTOR);
+        sectors += std::memcmp(before.data() + n * SECTOR, r.media->bytes().data() + n * SECTOR, SECTOR) != 0;
     CHECK_EQ(sectors, size_t{1 + 65});
 }
 
