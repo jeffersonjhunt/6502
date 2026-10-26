@@ -144,6 +144,80 @@ TEST(breakpoints_halt_the_run_loop_and_resume_past_themselves)
     CHECK(!d.any_breakpoints());
 }
 
+TEST(a_breakpoint_after_wai_fires_once_when_it_ends)
+{
+    Rig m;
+    m.load(0xE000, {0xCB, 0xEA, 0xEA}); // WAI; NOP; NOP
+    m.cpu.reset();                      // I set: an IRQ ends the WAI and runs on
+    Debugger d(m.cpu, m.bus, m.symbols);
+    d.command("b E001");
+    CHECK(!d.check(m.cpu.regs().pc));
+    m.cpu.step(); // WAI
+    for (int i = 0; i < 10; ++i)
+    {
+        CHECK(!d.check(m.cpu.regs().pc)); // idling, not about to run E001
+        m.cpu.step();
+    }
+    CHECK(contains(d.command("s 5"), "(waiting: WAI)")); // nor does a step stop there
+    CHECK(!d.halted());
+    m.cpu.irq();
+    CHECK(d.check(m.cpu.regs().pc));
+    CHECK_EQ(m.cpu.regs().pc, 0xE001);
+}
+
+TEST(run_skips_only_the_breakpoint_it_halted_at)
+{
+    Rig m;
+    m.load(0xE000, PROGRAM);
+    m.cpu.reset();
+    Debugger d(m.cpu, m.bus, m.symbols);
+    d.command("b E005");
+    d.halt("key"); // at E000, not a breakpoint
+    d.command("x pc=E005");
+    d.command("r");
+    CHECK(d.check(m.cpu.regs().pc)); // moved onto a breakpoint: it is the first one hit
+
+    d.command("s"); // E005 -> E006, then back round to E005 by stepping
+    d.command("s");
+    d.command("s");
+    CHECK_EQ(m.cpu.regs().pc, 0xE005);
+    d.command("r");
+    CHECK(!d.check(m.cpu.regs().pc)); // stepped onto it: run goes past, as from a halt there
+}
+
+TEST(steps_do_the_run_loops_work_and_can_be_interrupted)
+{
+    Rig m;
+    m.load(0xE000, PROGRAM);
+    m.cpu.reset();
+    Debugger d(m.cpu, m.bus, m.symbols);
+    unsigned after = 0;
+    d.on_step([&] { ++after; });
+    d.command("s 3");
+    CHECK_EQ(after, 3u);
+
+    bool stop = false;
+    unsigned polls = 0;
+    d.on_interrupt([&] { ++polls; return stop; });
+    d.command("s 10000");
+    CHECK_EQ(after, 10003u);
+    CHECK(polls > 0);
+    stop = true;
+    CHECK(contains(d.command("s 1000000"), "interrupted after 4096 instruction(s)"));
+    CHECK_EQ(after, 10003u + 4096u);
+}
+
+TEST(long_labels_are_not_cut_short)
+{
+    Rig m;
+    m.load(0xE000, {0xEA});
+    const std::string name(200, 'L');
+    m.symbols.add(name, 0xE000);
+    m.cpu.reset();
+    Debugger d(m.cpu, m.bus, m.symbols);
+    CHECK(contains(d.command("l E000 1"), "E000  EA        " + name + ": nop\n"));
+}
+
 TEST(fetch_has_no_side_effects_and_store_obeys_the_map)
 {
     Rig m;
