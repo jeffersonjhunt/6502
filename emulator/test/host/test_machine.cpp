@@ -195,6 +195,9 @@ TEST(spaces_and_the_northbridge_line)
                       "test.machine:2: name 'northbridge' is already used"));
     CHECK(starts_with(error_of("ram 0-F space=disk\n"), "test.machine:1: space:"));
     CHECK(starts_with(error_of("ram 700-800 space=io\n"), "test.machine:1: ram: the I/O hole is 000-7FF"));
+    // A card matches one module ID (PS0-PS3) and decodes A0-A6: no mapping spans two modules' blocks
+    CHECK(starts_with(error_of("video 480-57F space=io\n"), "test.machine:1: video: 480-57F crosses"));
+    CHECK(starts_with(error_of("ram 000-0FF space=io\n"), "test.machine:1: ram: 000-0FF crosses"));
 }
 
 TEST(rom_override_replaces_only_the_first_rom)

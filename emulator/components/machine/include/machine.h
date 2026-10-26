@@ -22,7 +22,8 @@
  * Addresses are hex, optionally with a `$`, within the space: memory (the
  * default, A0-A19), flash (ROM A then ROM B) or io (the I/O hole, 000-7FF,
  * whose mappings take the module ID of their 128-byte block unless
- * `module=` says otherwise). `#` starts a comment. `module=` tags the
+ * `module=` says otherwise, and may not cross into the next: a card
+ * answers one module ID and decodes A0-A6). `#` starts a comment. `module=` tags the
  * mapping with a backplane module ID; `wait=` (0-15) holds RDY for that
  * many extra cycles on every access, as a slow card does; `drq=` (0-3)
  * wires the device's DMA request to that channel; `irq` wires the device's
@@ -34,8 +35,10 @@
  * must be one ram line, which it draws from), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
- * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
- * repeats every 16 bytes, as on Eater's board).
+ * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most
+ * one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
+ * repeats every 16 bytes, as on Eater's board; a 4-byte 6551 in an I/O
+ * block, every 4).
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
  * low. `northbridge backplane [bootsel]` fits the backplane's north bridge

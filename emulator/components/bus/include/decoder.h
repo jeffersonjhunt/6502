@@ -32,7 +32,9 @@
  * Mappings in one space may overlap; the later one wins, which is how a
  * 4-byte PIA sits inside a 32 KB ROM image on the Apple-1 without splitting
  * the ROM. Reads of unmapped space return $FF (a floating bus is not
- * modelled); writes there are dropped.
+ * modelled); writes there are dropped. A mapping larger than its device
+ * mirrors it: the device sees the offset modulo its size(), as a chip
+ * decodes only its own low address lines.
  *
  * Lookup is a reverse linear scan: a machine has a handful of mappings, so
  * anything cleverer waits for a measurement that says it is needed.
@@ -59,12 +61,19 @@
  *
  * peek_physical() and write_physical() are the same reach with no cycle
  * counted, for the Console card while the CPU is halted.
+ *
+ * The CPU reports its own cycles to its observer; the bus master's go to
+ * the decoder's (set_dma_observer()), each read or write as it happens,
+ * with last_access() and wait_states() describing it then, so the Console
+ * card sees every bus cycle. The cycle taking the bus carries nothing and
+ * is not reported.
  */
 
 #include <cstdint>
 #include <vector>
 
 #include "bus.h"
+#include "bus_cycle.h"
 #include "device.h"
 
 namespace ooe::emu
@@ -178,6 +187,8 @@ namespace ooe::emu
         void set_bridge(NorthBridge *bridge);
         /// The bus master offered every cycle (nullptr = none). Not owned.
         void set_master(BusMaster *master) { master_ = master; }
+        /// What watches the bus master's cycles (BusCycle::dma), nullptr = nothing. Not owned.
+        void set_dma_observer(CycleObserver *observer) { dma_observer_ = observer; }
 
         /// Add a mapping; later mappings win where ranges overlap.
         /// @return false if the range is empty, crosses or lies outside a space, or has no device
@@ -190,6 +201,8 @@ namespace ooe::emu
         void idle() override;
         void vector_pull(bool active) override { vector_pull_ = active; }
         unsigned wait_states() const override { return last_wait_; }
+        /// Of the latest CPU access's wait_states(), the cycles a bus master took first.
+        unsigned stolen() const { return last_stolen_; }
 
         /// /RESET: the north bridge and the bus master listen, and every
         /// device hears it (Device::bus_reset()).
@@ -257,6 +270,8 @@ namespace ooe::emu
 
         void reset_cards();
         const Mapping *find(uint32_t where) const;
+        /// The offset a bus address is at in mapping `m`'s device, mirrored into its size().
+        uint32_t device_offset(const Mapping &m, uint32_t where) const;
         /// Bring a timed mapping's device up to the cycle before this access.
         void catch_up(const Mapping &m);
         /// Route a CPU access, count its cycles (wait states and any bus
@@ -266,14 +281,19 @@ namespace ooe::emu
         const Mapping *dma_cycle(uint32_t physical, unsigned &cycles);
         /// Bring the slot of `device` up to the cycle before now.
         void catch_up_device(const Device &device);
+        /// Tell the DMA observer about a bus master's cycle of `cycles` at `physical`.
+        void dma_seen(uint32_t physical, const Mapping *m, unsigned cycles, uint8_t data, bool write);
 
         NorthBridge *bridge_;
         BusMaster *master_{nullptr};
+        CycleObserver *dma_observer_{nullptr};
+        unsigned last_stolen_{0};
         bool vector_pull_{false};
         unsigned last_wait_{0};
         Access last_;
         std::vector<Mapping> mappings_;
         std::vector<size_t> slot_of_;     ///< per mapping: its device's slot
+        std::vector<uint32_t> mirror_;    ///< per mapping: the device's size() if the mapping is larger, else 0
         std::vector<Slot> slots_;         ///< distinct devices, in mapping order
         std::vector<size_t> timed_;       ///< slots of timed devices
         std::vector<Device *> irq_wired_; ///< distinct devices with an IRQ wire
