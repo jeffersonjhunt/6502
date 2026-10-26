@@ -158,7 +158,7 @@ HERROR:         LDY     #22
 OPS:            .word   0, OPADD, OPSUB, OPMUL, OPDIV, OPCMP, OPFLT, OPCINT
                 .word   OPINT, OPFIX, OPIADD, OPISUB, OPIMUL, OPIDIV, OPIMOD
                 .word   OPICMP, OPINTDV, OPFOUT, OPDMUL, OPDDIV, OPCSD, OPSGN
-                .word   OPNEG, OPABS, OPMUL10, OPDIV10, OPFAR, OPNEAR
+                .word   OPNEG, OPABS, OPMUL10, OPDIV10, OPFAR, OPNEAR, OPFARF
 
 ; A to BXDX, B to the FAC (singles); or A to DX and B to BX (integers).
 LDAB:           LDY     #4
@@ -288,6 +288,61 @@ OPFAR:          JSR     FARCALL        ; FARCALL's cost: against OPNEAR
 OPNEAR:         JSR     DUMMY
                 RTS
 DUMMY:          RTS
+
+; FARCALL's promises (farcall.s), for check.py: A, X, Y and P reach the
+; target as the caller set them and come back as the target left them, the
+; target's block is mapped for the call and the caller's after it, a far
+; call nests in another, and S ends where it began. Each stage puts A, X, Y,
+; P (as PHP pushes it) and the block in W3 in FFREC, 5 bytes a stage, and
+; S before and after at FFREC+20; check.py dumps it.
+NB_WIN3         = $C683
+
+.macro FFSAVE n                        ; after a PHP: the stage's registers
+                STA     FFREC+n
+                STX     FFREC+n+1
+                STY     FFREC+n+2
+                PLA
+                STA     FFREC+n+3
+                LDA     NB_WIN3
+                STA     FFREC+n+4
+.endmacro
+.macro FFSET pv, av, xv, yv            ; P last: the loads change the flags
+                LDA     #pv
+                PHA
+                LDA     #av
+                LDX     #xv
+                LDY     #yv
+                PLP
+.endmacro
+
+OPFARF:         LDA     #$42           ; the caller's block
+                STA     NB_WIN3
+                TSX
+                STX     FFREC+20
+                FFSET   $C1, $33, $11, $22     ; N V C
+                JSR     FARCALL
+                .byte   5
+                .word   FTGT1
+                PHP                    ; what the outer target left
+                FFSAVE  15
+                TSX
+                STX     FFREC+21
+                LDA     #0
+                RTS
+FTGT1:          PHP                    ; in block 5: what the caller set
+                FFSAVE  0
+                FFSET   $41, $44, $55, $66     ; V C
+                JSR     FARCALL
+                .byte   6
+                .word   FTGT2
+                PHP                    ; what the inner target left
+                FFSAVE  5
+                FFSET   $80, $77, $88, $99     ; N
+                RTS
+FTGT2:          PHP                    ; in block 6: what the outer target set
+                FFSAVE  10
+                FFSET   $03, $AA, $BB, $CC     ; Z C
+                RTS
 OPFOUT:         JSR     LDFAC          ; the text to +32
                 JSR     FOUT
                 LDY     #0
@@ -312,4 +367,5 @@ OPFOUT:         JSR     LDFAC          ; the text to +32
 .segment "BSS"
 
 SSTACK:         .res    1024           ; the BASIC stack
+FFREC:          .res    22             ; OPFARF's record
 SSTOP:

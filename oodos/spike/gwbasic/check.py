@@ -14,6 +14,13 @@
 3. Programs: tokenised BASIC run through NEWSTT, FRMEVL and the rest, the
    output compared with basic.py's reading of the same program, which uses
    mbf.py for the arithmetic. One program is generated: random expressions.
+4. FARCALL (farcall.s): the harness's OPFARF sets A, X, Y and P, far calls
+   a target that checks and changes them and makes a nested far call; each
+   stage's registers and block must be what farcall.s promises.
+
+    python3 -I check.py --timing
+
+prints FARCALL's cost instead: the cycles of N far calls less N JSRs.
 
 Exits non-zero on any mismatch.
 """
@@ -41,7 +48,9 @@ OPS = {
     "int": 8, "fix": 9, "iadd": 10, "isub": 11, "imul": 12, "idiv": 13,
     "imod": 14, "icmp": 15, "intdiv": 16, "fout": 17, "dmul": 18, "ddiv": 19,
     "csd": 20, "sgn": 21, "neg": 22, "abs": 23, "mul10": 24, "div10": 25,
+    "far": 26, "near": 27, "farf": 28,
 }
+LABELS = os.path.join(HERE, "spike.lbl")
 
 
 def check_tables():
@@ -355,6 +364,71 @@ def exactness(rng, n):
     return lines, failed
 
 
+# --- FARCALL ------------------------------------------------------------------------------
+
+
+def run_ops(ops, workdir, dumps=()):
+    """Runs harness ops with no operands; run6502's stderr."""
+    data = bytearray()
+    for op in ops:
+        rec = bytearray(VLEN)
+        rec[0] = OPS[op]
+        data += rec
+    vec = os.path.join(workdir, "far.vec")
+    cfile = os.path.join(workdir, "ctrl.vec")
+    open(vec, "wb").write(data)
+    open(cfile, "wb").write(bytes([0, 0, len(ops) & 0xFF, len(ops) >> 8]))
+    args = [RUNNER, IMAGE, "--load", "7FF0:" + cfile, "--load", "8000:" + vec]
+    for d in dumps:
+        args += ["--dump", d]
+    p = subprocess.run(args, capture_output=True, text=True)
+    if p.returncode:
+        sys.exit("run6502 failed: " + p.stderr)
+    return p.stderr
+
+
+def label(name):
+    for l in open(LABELS):
+        m = re.match(r"al ([0-9A-F]+) \.(\w+)$", l.strip())
+        if m and m.group(2) == name:
+            return int(m.group(1), 16)
+    raise KeyError(name)
+
+
+def farcall_cycles(workdir, n=300):
+    """FARCALL's cost over a JSR/RTS, in cycles: the harness loop cancels.
+    300 vectors end below NB_WIN3 ($C683), which FARCALL writes."""
+    def cycles(op):
+        return int(re.search(r"(\d+) cycles", run_ops([op] * n, workdir)).group(1))
+    return (cycles("far") - cycles("near")) / n
+
+
+# OPFARF's stages (harness.s): A, X, Y, P as PHP pushes it ($30 set), block.
+FARF_WANT = [
+    ("the target gets the caller's", [0x33, 0x11, 0x22, 0xC1 | 0x30, 5]),
+    ("the target gets the nested target's", [0xAA, 0xBB, 0xCC, 0x03 | 0x30, 5]),
+    ("the nested target gets the target's", [0x44, 0x55, 0x66, 0x41 | 0x30, 6]),
+    ("the caller gets the target's", [0x77, 0x88, 0x99, 0x80 | 0x30, 0x42]),
+]
+
+
+def farcall_check(workdir):
+    """Lines, and the number of failures."""
+    out = os.path.join(workdir, "farf.out")
+    run_ops(["farf"], workdir, ["%X:22:%s" % (label("FFREC"), out)])
+    got = list(open(out, "rb").read())
+    lines, bad = [], 0
+    for k, (what, want) in enumerate(FARF_WANT):
+        g = got[5 * k:5 * k + 5]
+        ok = g == want
+        bad += not ok
+        lines.append("  %-38s %s" % (what, "ok" if ok else "BAD: A X Y P block %s, want %s" % (hx(g), hx(want))))
+    ok = got[20] == got[21]
+    bad += not ok
+    lines.append("  %-38s %s" % ("S as it was", "ok" if ok else "BAD: $%02X, then $%02X" % (got[20], got[21])))
+    return lines, bad
+
+
 # --- Programs ---------------------------------------------------------------------------
 
 
@@ -424,7 +498,12 @@ def main():
     ap.add_argument("--seed", type=int, default=1983)
     ap.add_argument("--count", type=int, default=400)
     ap.add_argument("-v", action="store_true")
+    ap.add_argument("--timing", action="store_true", help="print FARCALL's cost and stop")
     args = ap.parse_args()
+    if args.timing:
+        with tempfile.TemporaryDirectory() as work:
+            print("FARCALL over a JSR/RTS: %.0f cycles" % farcall_cycles(work))
+        return 0
     rng = random.Random(args.seed)
     failed = 0
     bad = check_tables()
@@ -440,6 +519,11 @@ def main():
         failed += bad
         print("The model against exact arithmetic (operands 2^-32..2^32):")
         lines, bad = exactness(random.Random(args.seed), 2000)
+        for l in lines:
+            print(l)
+        failed += bad
+        print("FARCALL, nested once, A X Y P and the block:")
+        lines, bad = farcall_check(work)
         for l in lines:
             print(l)
         failed += bad

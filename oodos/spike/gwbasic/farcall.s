@@ -1,5 +1,5 @@
-; A sketch of OODOS's FARCALL (hw/oodos.md, "Far calls"), to time it: the
-; spike's harness calls it, and README.md gives the cycles. Not GW-BASIC's;
+; A sketch of OODOS's FARCALL (hw/oodos.md, "Far calls"), to time and check
+; it: the spike's harness calls it (check.py), and README.md gives the cycles. Not GW-BASIC's;
 ; in OODOS it lives in common memory ($F800-$FFFF), the same copy in every
 ; block W3 maps.
 ;
@@ -77,14 +77,18 @@ FCRD:           LDA     $FFFF,Y        ; the operand is the call's return addres
                 RTS
 FCRET:          PHP                    ; the target's return: the old block back
                 PHA
-                TSX                    ; $0101,X A, P, the block, the return
-                LDA     $0103,X
+                PHX                    ; TSX needs X
+                TSX                    ; $0101,X X, A, P, the block, the return
+                LDA     $0104,X
                 STA     NB_WIN3
-                LDA     $0102,X        ; drop the block from under A and P
+                LDA     $0103,X        ; drop the block from under X, A and P
+                STA     $0104,X
+                LDA     $0102,X
                 STA     $0103,X
                 LDA     $0101,X
                 STA     $0102,X
-                PLA
+                PLA                    ; the stale copy of X
+                PLX
                 PLA
                 PLP
                 RTS

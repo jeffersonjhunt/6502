@@ -149,7 +149,7 @@ What that costs, measured on the emulator (cycles, at 7.16 MHz 1,000 cycles is 1
 
 | | cycles |
 |---|---|
-| FARCALL over a JSR/RTS (farcall.s: preserves A, X, Y and the flags both ways, nests) | 263 |
+| FARCALL over a JSR/RTS (farcall.s: preserves A, X, Y and the flags both ways, nests; `check.py --timing`) | 279 |
 | `$FADDS` / `$FMULS` / `$FDIVS` / `$FCOMP` (single) | 470 / 1,840 / 3,420 / 300 |
 | `IADD` / `IMULT` / `IDIV` | 110 / 1,010 / 990 |
 | `$FOUT` of a single / of an integer | 18,200 / 2,000 |
@@ -157,9 +157,9 @@ What that costs, measured on the emulator (cycles, at 7.16 MHz 1,000 cycles is 1
 | `10 I%=I%+1 : IF I%<1000 THEN 10`, per pass | 4,680 |
 | `A=A+I%*1.5 : I%=I%+1 : IF I%<1000 THEN ...`, per pass | 10,400 |
 
-So a far call adds 1.4% to printing a number (and, estimated, about as much to SIN, which is a polynomial of
-several multiplies), but 8–11% per statement if anything on the statement path were banked: hence the
-resident list. A leaner FARCALL (keeping only A and the flags) would roughly halve the 263.
+So a far call adds 1.5% to printing a number (and, estimated, about as much to SIN, which is a polynomial of
+several multiplies), but 8–12% per statement if anything on the statement path were banked: hence the
+resident list. A leaner FARCALL (keeping only A and the flags) would roughly halve the 279.
 
 ## Correctness ##
 
@@ -183,6 +183,10 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
   single, `\`, MOD, AND/OR/XOR/EQV/IMP, NOT, relations, nested IF/ELSE, CINT/FIX/INT, Overflow and Division by
   zero messages mid-line), four programs of 60 lines of random expressions, and outputs GW-BASIC is known to
   print (`2/3` is .6666667, `12345678` is 1.234568E+07, `1E+38*10` prints Overflow then 1.701412E+38).
+- **FARCALL** (farcall.s, harness.s's `OPFARF`): A, X, Y and P reach the target as the caller set them and come
+  back as the target left them, the target's block is in W3 for the call and the caller's after, one far call
+  nests in another, and S ends where it began. It found that the return path lost X (`TSX`), now kept, which
+  took FARCALL from 263 cycles to 279.
 - **OODOS's rules** (rules.py, over the translated segments): no RMB, SMB, BBR or BBS; zero page only through
   zero page operands; no absolute stack page access; no JSR or JMP out of the program but to the BDOS ($0203) or
   warm boot ($0200). 3,432 instructions, no problems. It found one on the way: an indirect `JMP (PTR2)`, now a pushed return address.
@@ -237,8 +241,8 @@ the project's oracle, settles it.
 | `gwbasic.inc` | zero page, pseudo-registers, tokens, conventions |
 | `math1.s` `math2.s` `gwmain.s` `gweval.s` `bimisc.s` `tables.s` | the translation (one segment each; tables.s holds GWDATA's and IBMRES's tables) |
 | `stubs.s` | what the translation calls but the spike doesn't translate |
-| `harness.s` | runs math vectors or a tokenised program |
-| `farcall.s` | a FARCALL, to time it |
+| `harness.s` | runs math vectors, FARCALL's checks or a tokenised program |
+| `farcall.s` | a FARCALL, to time and check it |
 | `spike.cfg`, `Makefile` | the build: a `.COM` linked at $0300 |
 | `run6502.cpp` | runs the image on the emulator's W65C02S core, answering BDOS calls at $0203 |
 | `mbf.py` | the reference model of GW-BASIC's arithmetic |
@@ -249,7 +253,7 @@ the project's oracle, settles it.
 
 ```
 make            # spike.bin and spike.map
-make check      # rules.py and check.py
+make check      # rules.py, check.py and check.py --timing
 make sizes GWSRC=/path/to/GW-BASIC
 ```
 

@@ -389,7 +389,7 @@ core.
   fixed RAM leave **34,213 bytes free**; 32,599 in the pessimistic case, 169 bytes short, closed by keeping the file
   and device buffers out of the TPA. The rest goes in 7 or 8 banked blocks of 12 KB: math with PRINT and INPUT,
   program entry and LIST, the other statements, files, graphics and devices, the screen editor, the OO-1's drivers.
-- **No far calls on the core statement path.** A FARCALL costs 263 cycles over a JSR; one pass of
+- **No far calls on the core statement path.** A FARCALL costs 279 cycles over a JSR; one pass of
   `I%=I%+1 : IF I%<1000 THEN …` is 4,680 and printing a single about 18,200. A loop of LET, IF, GOTO, FOR/NEXT,
   single and integer arithmetic, string functions and INKEY$ stays resident; PRINT and INPUT (once a statement),
   double precision, banked functions (SIN, VAL...), graphics (PSET and LINE once a point), I/O statements and typed
