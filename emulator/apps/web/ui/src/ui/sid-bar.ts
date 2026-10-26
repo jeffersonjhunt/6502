@@ -4,13 +4,15 @@
  * program would start it; then its name and author, the song (◀ n of N ▶)
  * and Stop. The file stays in the page: it is not kept, and never uploaded.
  *
- * Choosing a tune turns Sound on there and then, in the change itself (the
- * gesture a browser waits for: Safari may not start sound after an await);
- * a file refused turns it off again if it was off. The note says what the
- * card can't give a tune (a third SID, an RSID's VIC-II), or why a file
- * was refused. A tune stops when the card
- * does: Stop, a power cycle, or START's /RESET. It pauses in a background
- * tab, as the whole machine does (port/wasm-port.ts).
+ * Play .sid… turns Sound on there and then, in its click, before the
+ * picker opens (the gesture a browser waits for: Safari may not start
+ * sound after an await, and the pick is one); a cancel, or a file refused,
+ * turns it off again if it was off. A file given some other way turns it
+ * on in the change. The note says what the card can't give a tune (a third
+ * SID, an RSID's VIC-II), or why a file was refused. A tune stops when the
+ * card does: Stop, a power cycle, START's /RESET, or the BIOS's QUIET on
+ * Break, a BRK and the demo's end. It pauses in a background tab, as the
+ * whole machine does (port/wasm-port.ts).
  */
 
 import type { FrameState, MachinePort, SidTune } from "../port/machine-port";
@@ -48,16 +50,26 @@ export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; sound
     show();
   };
 
-  play.addEventListener("click", () => picker.click());
+  let turnedOn = false; // by the click, for the pick it opened
+  const giveBack = () => {
+    if (turnedOn) hooks.soundOff();
+    turnedOn = false;
+  };
+  play.addEventListener("click", () => {
+    turnedOn = hooks.soundOn() || turnedOn;
+    picker.click();
+  });
+  picker.addEventListener("cancel", giveBack);
   picker.addEventListener("change", async () => {
     const f = picker.files?.[0];
     picker.value = "";
-    if (!f) return;
-    const turnedOn = hooks.soundOn(); // before any await
+    if (!f) return giveBack();
+    const mine = turnedOn || hooks.soundOn(); // before any await
+    turnedOn = false;
     try {
       started(await port.playSid(new Uint8Array(await f.arrayBuffer())));
     } catch (err) {
-      if (turnedOn) hooks.soundOff(); // not left on for a file that isn't a tune
+      if (mine) hooks.soundOff(); // not left on for a file that isn't a tune
       say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
@@ -79,12 +91,12 @@ export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; sound
   });
   show();
 
-  /** The card stopped under the tune (a power cycle, START): it's gone. */
+  /** The card stopped under the tune (a power cycle, START, QUIET): it's gone. */
   const update = (f: FrameState) => {
     if (tune && !f.soundRunning) {
       port.stopSid(); // forgotten, as the card has
       tune = null;
-      say(f.powered ? "The card was reset: the tune stopped" : "");
+      say(f.powered ? "The machine stopped the card: the tune stopped" : "");
       show();
     }
   };

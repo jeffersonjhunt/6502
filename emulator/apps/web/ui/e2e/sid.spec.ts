@@ -8,7 +8,9 @@ test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop",
   await page.goto("./");
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "false");
-  await page.getByTestId("sid-file").setInputFiles({ name: "tone.sid", mimeType: "application/octet-stream", buffer: Buffer.from(fakeSid({ songs: 2 })) });
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByTestId("sid-play").click(); // Sound goes on in this click
+  await (await chooser).setFiles({ name: "tone.sid", mimeType: "application/octet-stream", buffer: Buffer.from(fakeSid({ songs: 2 })) });
   await expect(page.getByTestId("sid-title")).toHaveText("Test Tone — OO-1 tests (2026)");
   await expect(page.getByTestId("sid-song")).toHaveText("song 1 of 2");
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "true"); // choosing a tune turns Sound on

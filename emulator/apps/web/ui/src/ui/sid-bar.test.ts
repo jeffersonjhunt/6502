@@ -70,7 +70,7 @@ describe("the tune", () => {
     port.emit({ soundRunning: false }); // START's /RESET
     expect(port.callsTo("stopSid").length).toBe(2);
     expect(visible(el)).toEqual([]);
-    expect($(el, "sid-note").textContent).toBe("The card was reset: the tune stopped");
+    expect($(el, "sid-note").textContent).toBe("The machine stopped the card: the tune stopped");
   });
 
   test("what the card can't give it, and a refusal, in the note", async () => {
@@ -85,7 +85,7 @@ describe("the tune", () => {
     expect(visible(el).length).toBe(5); // the tune before plays on
   });
 
-  test("Sound goes on in the change itself, inside the gesture, and off again if the file is refused", async () => {
+  test("a file given without the click turns Sound on in the change, before any await, and off again if refused", async () => {
     const { port, el, sound } = make();
     port.tune = "not a .sid file (no PSID or RSID header)";
     const input = $(el, "sid-file") as HTMLInputElement;
@@ -96,6 +96,24 @@ describe("the tune", () => {
     expect(sound.on).toBe(false); // refused: not left on
     sound.on = true; // on already, by the user: a refusal leaves it on
     await pick(el, "y.txt");
+    expect(sound.on).toBe(true);
+  });
+
+  test("Play .sid… turns Sound on in its click, before the picker; a cancel turns it off again if it was off", async () => {
+    const { el, sound, playing } = make();
+    const input = $(el, "sid-file") as HTMLInputElement;
+    let onAtPick = false;
+    input.click = () => void (onAtPick = sound.on);
+    $(el, "sid-play").click();
+    expect(onAtPick).toBe(true); // the AudioContext starts inside the click, not after the file's await
+    input.dispatchEvent(new Event("cancel"));
+    expect(sound.on).toBe(false);
+    $(el, "sid-play").click();
+    await pick(el, "a.sid");
+    expect(sound.on).toBe(true);
+    expect(playing()).toBe(2); // the pick did not turn it on a second time
+    $(el, "sid-play").click(); // on already, by the tune: a cancel leaves it on
+    input.dispatchEvent(new Event("cancel"));
     expect(sound.on).toBe(true);
   });
 });
