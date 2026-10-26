@@ -633,8 +633,8 @@ it commands.
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 
-- **The stub** goes on a free page: the one the header names (from `$0400` up), else `$FF00`, `$FE00`, `$0400`, `$C000`
-  or `$0200`, the first the tune leaves alone. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
+- **The stub** goes on a free page: the one the header names (not `$00` or `$01`, the port and the stack), else `$FF00`, `$FE00`, `$0400`, `$C000`
+  or `$0200`, the first the tune leaves alone and that misses `$0314` when the stub sets it. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
   timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
   song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
   A, and waits in a `JMP` loop.

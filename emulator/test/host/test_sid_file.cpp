@@ -471,9 +471,10 @@ TEST(a_tune_over_0314_with_a_play_routine_is_still_played)
     CHECK_EQ(p.frames, 50u);
 }
 
-TEST(a_free_page_below_0400_is_not_taken)
+TEST(a_free_page_on_the_port_stack_or_0314_is_not_taken)
 {
-    // $0000-$03FF: the port, zero page, the stack and the vectors.
+    // $00-$01: the port and zero page, the stack; $03: the stub points $0314
+    // at its handler. $02 is free on the card, as in the fallback list.
     std::string error;
     Header h;
     h.play = 0x1009, h.page_length = 1;
@@ -484,10 +485,13 @@ TEST(a_free_page_below_0400_is_not_taken)
         REQUIRE(plan);
         CHECK_EQ(plan->stub, 0xFF00);
     }
-    h.start_page = 0x04;
-    const auto plan = plan_sid(parsed(h, COUNTER), 0, error);
-    REQUIRE(plan);
-    CHECK_EQ(plan->stub, 0x0400);
+    for (const uint8_t page : {uint8_t{0x02}, uint8_t{0x04}})
+    {
+        h.start_page = page;
+        const auto plan = plan_sid(parsed(h, COUNTER), 0, error);
+        REQUIRE(plan);
+        CHECK_EQ(plan->stub, page << 8);
+    }
 }
 
 TEST(a_second_tune_starts_clean)
