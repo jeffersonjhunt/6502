@@ -273,14 +273,13 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
 
 **Decided: a DS3231 on the CPU card.** Date stamps need the time.
 
-**Proposed**
+**Decided (2026-10-26): the north bridge owns it** ([design.md](design.md#real-time-clock)).
 
-- The CPU card already holds the north bridge, so the DS3231's I²C lines go to it: a north bridge register,
-  **RTC at `$C687`**, bit 0 SCL, bit 1 SDA, both open drain; reading bit 1 gives SDA. Software drives I²C by hand,
-  which is plenty for reading a clock.
+- The bridge keeps the time in registers, `$C690–$C696`, in the DS3231's BCD; reading the seconds latches them all.
+  TIME is a handful of loads, and setting the time is seven stores and SET. No I²C in the BIOS.
 - A CR2032 keeps it running with the power off.
-- Its SQW output, set to 1 Hz, can be an interrupt (bit 5 of IRQH, ID `0xD`) for a seconds tick.
-- The emulator gives the host's time.
+- RTCCTL's TICK, once a second, can be an interrupt (bit 5 of IRQH, ID `0xD`) for a seconds tick; alarms set it too.
+- The emulator counts it in emulated time, from the host's clock at power-on.
 
 
 ## Loading ##
