@@ -4,8 +4,8 @@
  * program would start it; then its name and author, the song (◀ n of N ▶)
  * and Stop. The file stays in the page: it is not kept, and never uploaded.
  *
- * Choosing a tune turns Sound on (the click is the gesture a browser waits
- * for). The note says what the card can't give a tune (a third SID, an
+ * A tune that plays turns Sound on (the click is the gesture a browser
+ * waits for); a file refused leaves it as it was. The note says what the card can't give a tune (a third SID, an
  * RSID's VIC-II), or why a file was refused. A tune stops when the card
  * does: Stop, a power cycle, or START's /RESET.
  */
@@ -49,9 +49,9 @@ export function sidBar(port: MachinePort, hooks: { playing: () => void }) {
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
-    hooks.playing();
     try {
       started(await port.playSid(new Uint8Array(await f.arrayBuffer())));
+      hooks.playing();
     } catch (err) {
       say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
