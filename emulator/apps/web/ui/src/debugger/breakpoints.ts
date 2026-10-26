@@ -64,6 +64,20 @@ export interface Hit {
 
 const STORE_KEY = "breakpoints";
 
+/** A saved breakpoint as this page wrote it: anything else (an old page's, an edited one) is dropped, not drawn. */
+function isBreakpoint(v: unknown): v is Breakpoint {
+  if (typeof v !== "object" || v === null) return false;
+  const b = v as Record<string, unknown>;
+  const address = (a: unknown, max: number) => Number.isInteger(a) && (a as number) >= 0 && (a as number) <= max;
+  return (
+    typeof b.id === "string" &&
+    typeof b.text === "string" &&
+    (b.cpu === null || address(b.cpu, 0xffff)) &&
+    address(b.physical, 0xfffff) &&
+    (["fetch", "read", "write", "nmi"] as const).every((f) => typeof b[f] === "boolean")
+  );
+}
+
 export class Breakpoints {
   list: Breakpoint[] = [];
   armed: string | null = null;
@@ -72,8 +86,8 @@ export class Breakpoints {
 
   constructor(private readonly port: MachinePort) {
     try {
-      const saved = JSON.parse(prefs.get(STORE_KEY) ?? "[]") as Breakpoint[];
-      if (Array.isArray(saved)) this.list = saved.filter((b) => typeof b.physical === "number");
+      const saved: unknown = JSON.parse(prefs.get(STORE_KEY) ?? "[]");
+      if (Array.isArray(saved)) this.list = saved.filter(isBreakpoint);
     } catch {
       this.list = [];
     }

@@ -99,6 +99,25 @@ describe("Breakpoints", () => {
     expect(b.id).not.toBe(a.id); // ids keep counting
   });
 
+  test("a saved list that is not what this page wrote: the bad ones are dropped, the good one kept", () => {
+    const good = { id: "3", text: "ECHO", cpu: 0xc951, physical: 0xfc951, fetch: true, read: false, write: false, nmi: false };
+    const bad = [
+      null,
+      7,
+      { physical: 0x1234 }, // no cpu: describe() would throw
+      { ...good, cpu: "C951" },
+      { ...good, physical: Number.NaN },
+      { ...good, physical: 0x100000 },
+      { ...good, text: 5 },
+      { ...good, fetch: "yes" },
+      { ...good, id: 9 },
+    ];
+    localStorage.setItem("oo1.breakpoints", JSON.stringify([...bad, good]));
+    const bps = new Breakpoints(port());
+    expect(bps.list).toEqual([good]);
+    expect(bps.list.map(describeBp)).toEqual(["ECHO $C951 → FC951"]);
+  });
+
   test("hit: reads the latched cycle only when STATUS says so; clear writes 1 to the bit", async () => {
     const p = port();
     const bps = new Breakpoints(p);
