@@ -44,6 +44,7 @@ export function diskBar(
   const element = h("div", { class: "apple-bar disk-bar", hidden: true, "data-testid": "disk-bar" }, picker, light, insert, protect, save, eject, note);
 
   let info: DiskInfo | null = null;
+  let picked = false; // set as the change comes in: the user's disk wins over the kept one
   let kept: KeptDisk | null = null;
   let keptWrites = 0;
   let spinning = false;
@@ -59,19 +60,20 @@ export function diskBar(
     protect.classList.toggle("on", !!info?.writeProtected);
   };
 
-  const put = async (disk: KeptDisk, bytes: Uint8Array): Promise<boolean> => {
+  const put = async (disk: KeptDisk, bytes: Uint8Array): Promise<DiskInfo | null> => {
+    let got: DiskInfo;
     try {
-      info = await port.insertDisk(DRIVE, bytes, disk.name);
+      got = await port.insertDisk(DRIVE, bytes, disk.name);
     } catch (err) {
       say(String(err instanceof Error ? err.message : err));
-      return false;
+      return null;
     }
     if (disk.writeProtected) port.setWriteProtect(DRIVE, true);
-    info = { ...info, writeProtected: disk.writeProtected };
+    info = { ...got, writeProtected: disk.writeProtected };
     kept = disk;
     keptWrites = info.writes;
     read = false;
-    return true;
+    return info;
   };
 
   /** The disk as a file: its own format if it still fits, else WOZ. */
@@ -89,6 +91,7 @@ export function diskBar(
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
+    picked = true;
     if (f.size > MAX_DISK) return void say(`${f.name}: over 16 MB, too big for a 5.25-inch disk`);
     let bytes: Uint8Array;
     try {
@@ -97,8 +100,9 @@ export function diskBar(
       return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
     const disk: KeptDisk = { name: f.name, bytes, writeProtected: false, format: /\.woz$/i.test(f.name) ? "woz" : /\.po$/i.test(f.name) ? "po" : "dsk" };
-    if (!(await put(disk, bytes))) return;
-    disk.format = info!.format; // as the core read it (a .dsk can be in ProDOS order)
+    const got = await put(disk, bytes);
+    if (!got) return;
+    disk.format = got.format; // as the core read it (a .dsk can be in ProDOS order)
     say((await store.put(DRIVE, disk)) ? "" : "In for now; this browser would not keep it");
     auto = ""; // the hint again, for this disk
     show(); // kept first: a reload now finds it
@@ -131,11 +135,11 @@ export function diskBar(
   });
   show();
 
-  /** Once connected: the disk kept from last time goes back in, unless one went in while the browser looked for it. */
+  /** Once connected: the disk kept from last time goes back in, unless one was picked while the browser looked for it. */
   const restore = async () => {
     if (!port.caps.disk) return;
     const d = await store.get(DRIVE);
-    if (d && !info && (await put(d, d.bytes))) show();
+    if (d && !picked && (await put(d, d.bytes))) show();
   };
 
   /** Keep what was written, once the drive has stopped. */

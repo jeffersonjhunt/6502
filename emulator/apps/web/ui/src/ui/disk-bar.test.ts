@@ -119,6 +119,21 @@ describe("the drive", () => {
     expect($(bar.element, "disk-insert").textContent).toBe("new.dsk");
   });
 
+  test("a slow pick (the file still being read) and a restore: only the pick goes in, and it is what is kept", async () => {
+    const { port, store, bar } = make();
+    await store.put(0, { name: "old.po", bytes: new Uint8Array([1]), writeProtected: false, format: "po" });
+    let read = () => {};
+    const input = $(bar.element, "disk-file") as HTMLInputElement;
+    const file = { name: "new.woz", size: 1, arrayBuffer: () => new Promise<ArrayBuffer>((r) => (read = () => r(new Uint8Array([2]).buffer))) };
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change"));
+    await bar.restore(); // finds old.po while new.woz is still being read
+    read();
+    await flush();
+    expect(port.callsTo("insertDisk").map((c) => c[2])).toEqual(["new.woz"]);
+    expect(await store.get(0)).toMatchObject({ name: "new.woz", format: "woz" });
+  });
+
   test("Save downloads it in its own format, or as .woz when it no longer fits one", async () => {
     const { port, bar, downloads } = make();
     await pick(bar.element, "Master.dsk", new Uint8Array(4));

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { inKeyLoop } from "./bios-labels";
+import { inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 // The Disk II's drive in the browser with a made-up 140 KB disk (no Apple
 // files needed): in, decoded on the Devices tab, kept through a reload,
@@ -8,6 +8,7 @@ import { inKeyLoop } from "./bios-labels";
 async function booted(page: Page) {
   await page.goto("./");
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await loadBiosLabels(page);
 }
 
 const disk = () => Buffer.from(Uint8Array.from({ length: 143_360 }, (_, i) => (i * 7 + (i >> 8)) & 0xff));

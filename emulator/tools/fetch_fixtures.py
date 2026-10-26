@@ -18,8 +18,9 @@ download near 1 MB per opcode instead of 5. The truncated tail is discarded by
 decoding objects one at a time and stopping at the first incomplete one.
 
 Both CPUs' sets are written to scratch directories beside the old ones and
-swapped in only once all of both have arrived, so a failed or interrupted
-fetch leaves what was there. The Harte files have no published hashes (and
+swapped in only once all of both have arrived (both old sets out, then both
+new in, undone on a failure), so a failed or interrupted fetch leaves what
+was there; what a killed one leaves is swept up by the next run. The Harte files have no published hashes (and
 a ranged prefix could not match one): the URL pins the commit, and each
 case is checked to run the opcode its file is named for.
 
@@ -135,9 +136,43 @@ def harte_cases(cpu, op, cases):
     return op, rows
 
 
+def sweep(harte):
+    """What a killed run left: an old set moved out with no new one in goes back; scratch sets go."""
+    for cpu in HARTE_SETS:
+        dest_dir, old_dir = harte / cpu, harte / f".{cpu}.old"
+        if old_dir.is_dir() and not dest_dir.exists():
+            old_dir.rename(dest_dir)
+        for debris in harte.glob(f".{cpu}.*"):
+            shutil.rmtree(debris, ignore_errors=True)
+
+
+def swap_in(harte, fetched):
+    """Every old set out, then every new one in; any failure (Ctrl-C too) puts the old ones back."""
+    moved_out, moved_in = [], []
+    try:
+        for cpu in fetched:
+            dest_dir, old_dir = harte / cpu, harte / f".{cpu}.old"
+            shutil.rmtree(old_dir, ignore_errors=True)
+            if dest_dir.exists():
+                dest_dir.rename(old_dir)
+                moved_out.append(cpu)
+        for cpu, new_dir in fetched.items():
+            new_dir.rename(harte / cpu)
+            moved_in.append(cpu)
+    except BaseException:
+        for cpu in moved_in:
+            (harte / cpu).rename(fetched[cpu])  # back to scratch, for the caller to remove
+        for cpu in moved_out:
+            (harte / f".{cpu}.old").rename(harte / cpu)
+        raise
+    for cpu in fetched:
+        shutil.rmtree(harte / f".{cpu}.old", ignore_errors=True)
+
+
 def fetch_harte(out_dir, cases):
     harte = out_dir / "harte"
     harte.mkdir(parents=True, exist_ok=True)
+    sweep(harte)
     fetched = {}  # cpu -> its new set, in a scratch directory beside the old
     try:
         short = []
@@ -153,14 +188,9 @@ def fetch_harte(out_dir, cases):
         if short:
             sys.exit(f"harte: fewer cases than asked for {', '.join(short)}; raise BYTES_PER_CASE")
         # Every set whole, or none: a smaller one must not leave stale opcodes behind.
-        for cpu, new_dir in fetched.items():
-            dest_dir, old_dir = harte / cpu, harte / f".{cpu}.old"
-            shutil.rmtree(old_dir, ignore_errors=True)
-            if dest_dir.exists():
-                dest_dir.rename(old_dir)
-            new_dir.rename(dest_dir)
-            shutil.rmtree(old_dir, ignore_errors=True)
-            print(f"harte: {cpu}: {len(HARTE_SETS[cpu])} opcodes x {cases} cases -> {dest_dir}")
+        swap_in(harte, fetched)
+        for cpu in fetched:
+            print(f"harte: {cpu}: {len(HARTE_SETS[cpu])} opcodes x {cases} cases -> {harte / cpu}")
     finally:
         for new_dir in fetched.values():
             shutil.rmtree(new_dir, ignore_errors=True)  # gone already if it was swapped in

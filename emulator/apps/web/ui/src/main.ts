@@ -32,7 +32,7 @@ import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { WasmPort } from "./port/wasm-port";
-import { h, prefs, segmented } from "./ui/dom";
+import { focusStop, h, prefs, segmented } from "./ui/dom";
 import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
@@ -94,7 +94,10 @@ function start(root: HTMLElement, port: MachinePort): void {
   const dbg = debuggerPane(port);
   const speaker = new Speaker(port);
   const sound = soundButton(speaker, port.caps.audio && typeof AudioWorkletNode !== "undefined");
-  const tune = sidBar(port, { playing: () => void (speaker.on || sound.turnOn()) });
+  const tune = sidBar(port, {
+    soundOn: () => !speaker.on && (void sound.turnOn(), true),
+    soundOff: () => sound.turnOff(),
+  });
   const bar = toolbar(port, panel, {
     trailing: [dbg.toggle],
     phosphor: (p) => {
@@ -132,12 +135,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   const onMouse = () => scene === "vga" && port.caps.usb;
   // Tab and Escape are the machine's, so F6 is the way off the screen by keyboard.
   const leave = (way: 1 | -1) => {
-    const stops = Array.from(
-      document.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'),
-    ).filter((el) => el === glass || el.getClientRects().length > 0);
-    const next = stops[stops.indexOf(glass) + way];
-    if (next) next.focus();
-    else glass.blur();
+    if (!focusStop(glass, way)) glass.blur();
   };
   glass.addEventListener("keydown", (e) => {
     const way = leavesScreen(e);

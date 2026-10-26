@@ -163,20 +163,23 @@ namespace ooe::emu
         bool debug = false;
         if (input_.empty())
             fill(false);
+        // A full queue leaves the rest in input_, and with input_ not empty
+        // nothing more is read: a pipe waits for the machine to catch up.
         size_t used = 0;
         while (used < input_.size() && !debug)
         {
-            const auto key = static_cast<uint8_t>(input_[used++]);
+            const auto key = static_cast<uint8_t>(input_[used]);
             if (key == DEBUG_KEY)
             {
+                ++used;
                 debug = true; // what follows is the debugger's
                 continue;
             }
+            if (keys_.size() >= MAX_QUEUED)
+                break;
+            ++used;
             last = key;
-            if (keys_.size() < MAX_QUEUED)
-                keys_.push_back(key);
-            else
-                EMU_LOGW(TAG, "key %02X dropped: %zu keys already waiting", key, keys_.size());
+            keys_.push_back(key);
         }
         input_.erase(0, used);
         while (!keys_.empty() && console_.key(keys_.front()))

@@ -44,6 +44,15 @@
 
 namespace ooe::emu
 {
+    /// Written by main()'s signal handlers. Ctrl-C during a debugger
+    /// command (a long step) ends the command, not the app.
+    struct RunSignals
+    {
+        volatile std::sig_atomic_t quit = 0;
+        volatile std::sig_atomic_t in_command = 0; ///< the run loop is in Debugger::command()
+        volatile std::sig_atomic_t interrupt = 0;  ///< Ctrl-C while in_command
+    };
+
     class Emulator
     {
     public:
@@ -59,12 +68,12 @@ namespace ooe::emu
         {
         }
 
-        /// Run until Ctrl-C, the debugger's quit, end of input at its
-        /// prompt, or until `quit` becomes true.
         /// Called when the machine's mode fixes a new clock (Apple II mode),
         /// or gives it back (a hard reset), for the cards.
         void on_clock_change(std::function<void(uint32_t)> f) { clock_changed_ = std::move(f); }
-        void run(const volatile std::sig_atomic_t &quit);
+        /// Run until Ctrl-C, the debugger's quit, end of input at its
+        /// prompt, or until `signals.quit` becomes true.
+        void run(RunSignals &signals);
 
     private:
         /// @return false when the key asks to quit

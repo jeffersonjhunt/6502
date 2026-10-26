@@ -77,7 +77,8 @@ namespace ooe::emu
         /// now halted. Not while it idles in WAI or STP, or a breakpoint
         /// after one would stop every cycle. The first instruction after a
         /// resume does not break where it halted, or `run` from a breakpoint
-        /// would stop again where it is; moved elsewhere (PC=, a step), it does.
+        /// would stop again where it is; moved elsewhere (PC=, a step), or
+        /// halted in WAI (the fetch after it never stopped), it does.
         bool check(uint16_t pc)
         {
             if (cpu_.state() != Cpu6502::State::Running)

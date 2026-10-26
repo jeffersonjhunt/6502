@@ -19,8 +19,9 @@ Every signal that ends the app puts the terminal back: SIGTERM, SIGHUP,
 SIGQUIT (Ctrl-\\) and SIGPIPE as well as Ctrl-C. Ctrl-Z, under a small
 job-control "shell", leaves the terminal cooked while stopped and raw again
 once continued. And stdin need not be a terminal: through a pipe, a quiet
-input does not stall the machine, and a script can press Ctrl-] and give
-debugger commands in the same stream.
+input does not stall the machine, a script can press Ctrl-] and give
+debugger commands in the same stream, and more input than the key queue
+holds waits for the machine rather than being dropped.
 
 And the Phase 2 logging contract: nothing is written unless --log is given
 (the terminal is the Apple-1's screen), and --log FILE gets the run.
@@ -194,7 +195,23 @@ def check_pipe(binary, rom, cwd):
     out = read_until(fd, b"FF00  D8 58 A0 7F", 10)
     if b"FF00  D8 58 A0 7F" not in out:
         failures.append(f"pipe: Ctrl-] then a command in one write: no fetch (got {out[-300:]!r})")
-    proc.stdin.write(b"q\n")
+    proc.stdin.write(b"r\n")
+    proc.stdin.flush()
+
+    # More input than the key queue holds: the machine takes it at its own
+    # pace and none is dropped. 12 KB of Woz commands, each printing a line.
+    lines = 2500
+    proc.stdin.write(b"FF00\n" * lines)
+    proc.stdin.flush()
+    out, deadline = b"", time.monotonic() + 60
+    while out.count(b"FF00: D8") < lines and time.monotonic() < deadline:
+        more = read_until(fd, b"\0", 3)
+        if not more:
+            break  # the machine has stopped answering: the rest was lost
+        out += more
+    if out.count(b"FF00: D8") != lines:
+        failures.append(f"pipe: {lines} commands in one write, {out.count(b'FF00: D8')} answered")
+    proc.stdin.write(b"\x1dq\n")
     proc.stdin.flush()
     rc = finish(proc)
     proc.stdin.close()

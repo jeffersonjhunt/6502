@@ -27,7 +27,9 @@
  * Input that is not a terminal (a pipe, a file) works too: stdin is only
  * read when poll() says something is there, so a quiet pipe does not stall
  * the machine, and keys and debugger lines come from one buffer, so a
- * script can type, press Ctrl-] and give commands in one stream.
+ * script can type, press Ctrl-] and give commands in one stream. With
+ * 4096 keys queued it stops reading, so a long file waits for the machine
+ * rather than being dropped.
  *
  * Ctrl-Z puts the terminal back before the process stops and raw again
  * when it continues (resumed() tells the run loop to re-base its clock).

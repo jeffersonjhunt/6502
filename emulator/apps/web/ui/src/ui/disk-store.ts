@@ -6,7 +6,7 @@
  *
  * Every call settles, never throws: private windows and blocked storage
  * just keep nothing, and so does a database that hasn't opened in
- * OPEN_MS (some browsers leave the open hanging).
+ * OPEN_MS (some browsers leave the open hanging) until it does open.
  */
 
 import type { DiskFormat } from "../port/machine-port";
@@ -38,20 +38,28 @@ export function memoryDiskStore(): DiskStore {
 
 const OPEN_MS = 5000;
 
-export function browserDiskStore(): DiskStore {
-  if (typeof indexedDB === "undefined") return memoryDiskStore();
+/** `idb` for tests. */
+export function browserDiskStore(idb: IDBFactory | undefined = typeof indexedDB === "undefined" ? undefined : indexedDB): DiskStore {
+  if (!idb) return memoryDiskStore();
   let db: Promise<IDBDatabase | null> | null = null;
   const open = () =>
     (db ??= new Promise((resolve) => {
-      setTimeout(() => resolve(null), OPEN_MS);
+      const timer = setTimeout(() => resolve(null), OPEN_MS);
+      const settle = (d: IDBDatabase | null) => {
+        clearTimeout(timer);
+        resolve(d);
+      };
       try {
-        const req = indexedDB.open("oo1", 1);
+        const req = idb.open("oo1", 1);
         req.onupgradeneeded = () => req.result.createObjectStore("disks");
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => resolve(null);
-        req.onblocked = () => resolve(null);
+        req.onsuccess = () => {
+          settle(req.result);
+          db = Promise.resolve(req.result); // open after OPEN_MS: the calls from now on have it
+        };
+        req.onerror = () => settle(null);
+        req.onblocked = () => settle(null);
       } catch {
-        resolve(null);
+        settle(null);
       }
     }));
   const run = async <T>(mode: IDBTransactionMode, op: (s: IDBObjectStore) => IDBRequest, fallback: T, done: (r: unknown) => T) => {

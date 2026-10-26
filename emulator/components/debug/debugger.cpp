@@ -259,7 +259,8 @@ namespace ooe::emu
         if (cmd == "r" || cmd == "run")
         {
             halted_ = false;
-            skip_armed_ = true;
+            // Halted in WAI or STP, the fetch at PC never stopped it: break there.
+            skip_armed_ = cpu_.state() == Cpu6502::State::Running;
             return "running\n";
         }
         if (cmd == "q" || cmd == "quit")

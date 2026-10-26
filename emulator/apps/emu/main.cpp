@@ -10,7 +10,7 @@
  *   emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]
  *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
  *            [--break ADDR]... [--halt] [--screen FILE]
- *            [--apple-rom FILE[,FILE]] [--apple-chars FILE]
+ *            [--apple-rom FILE[,FILE]]... [--apple-chars FILE]
  *            [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [--sd FILE] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
@@ -37,8 +37,8 @@
  * - --screen writes the video card's last frame (if the machine has one)
  *   to FILE as a PPM on the way out.
  * - --apple-rom plugs the owner's Apple IIe ROM into the cartridge (one
- *   16 KB file, or the CD and EF halves), and --apple-chars its character
- *   ROM; C806R at the monitor enters Apple II mode with them.
+ *   16 KB file, or the CD and EF halves, in one option or two), and
+ *   --apple-chars its character ROM; C806R at the monitor enters Apple II mode with them.
  * - --disk2-rom gives the Disk II card the owner's two PROMs (the 16-sector
  *   boot ROM and the sequencer, 256 bytes each), and --disk puts a .woz,
  *   .dsk, .do or .po in drive 1; the IIe boots it. What is written to the
@@ -83,12 +83,16 @@ namespace
     // terminal on the way out; so do SIGTERM, SIGHUP, SIGQUIT (Ctrl-\) and
     // SIGPIPE, whose default actions would leave it raw. Installed without
     // SA_RESTART, so that it also interrupts a read blocked at the
-    // debugger's prompt. Ctrl-Z is the Terminal's (terminal.h).
-    volatile std::sig_atomic_t quit_requested = 0;
+    // debugger's prompt. Ctrl-C during a debugger command (a long step)
+    // only ends the command. Ctrl-Z is the Terminal's (terminal.h).
+    ooe::emu::RunSignals run_signals;
 
-    void request_quit(int)
+    void request_quit(int sig)
     {
-        quit_requested = 1;
+        if (sig == SIGINT && run_signals.in_command)
+            run_signals.interrupt = 1;
+        else
+            run_signals.quit = 1;
     }
 
     void on_signal(int sig)
@@ -116,7 +120,7 @@ namespace
         std::fprintf(stderr, "usage: emulator [--machine FILE] [--clock HZ] [--log FILE] [-v]\n"
                              "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
                              "                [--break ADDR]... [--halt] [--screen FILE]\n"
-                             "                [--apple-rom FILE[,FILE]] [--apple-chars FILE]\n"
+                             "                [--apple-rom FILE[,FILE]]... [--apple-chars FILE]\n"
                              "                [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [--sd FILE] [rom]\n");
         return 2;
     }
@@ -257,7 +261,7 @@ namespace
             EMU_LOGI(TAG, "%s from $%04X at %u Hz", machine.cpu().c_str(), cpu.regs().pc, settings.clock_hz);
             if (settings.start_halted)
                 terminal.write(debugger.halt("--halt"));
-            emulator.run(quit_requested);
+            emulator.run(run_signals);
             EMU_LOGI(TAG, "exiting");
             if (settings.screen_path)
             {
@@ -295,7 +299,7 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; ++i)
     {
         const std::string opt = argv[i];
-        const bool repeatable = opt == "--load" || opt == "--symbols" || opt == "--break";
+        const bool repeatable = opt == "--load" || opt == "--symbols" || opt == "--break" || opt == "--apple-rom";
         static const char *const WITH_VALUE[] = {"--log",       "--machine",     "--clock",     "--load",
                                                  "--symbols",   "--trace",       "--break",     "--screen",
                                                  "--apple-rom", "--apple-chars", "--disk2-rom", "--disk",

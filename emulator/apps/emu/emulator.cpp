@@ -21,11 +21,12 @@ namespace ooe::emu
         constexpr uint8_t CTRL_C = 0x03;
     } // namespace
 
-    void Emulator::run(const volatile std::sig_atomic_t &quit)
+    void Emulator::run(RunSignals &signals)
     {
         using clock = std::chrono::steady_clock;
+        const volatile std::sig_atomic_t &quit = signals.quit;
         debugger_.on_step([this] { after_step(); });
-        debugger_.on_interrupt([&quit] { return quit != 0; });
+        debugger_.on_interrupt([&signals] { return signals.quit != 0 || signals.interrupt != 0; });
 
         // Paced from (start, start_cycles), re-based whenever the rate changes
         // or running resumes; the totals are only for the log.
@@ -49,7 +50,11 @@ namespace ooe::emu
                 std::string line;
                 if (!terminal_.read_line("debug> ", line))
                     break; // end of input, or a signal: either way, done
-                terminal_.write(debugger_.command(line));
+                signals.interrupt = 0;
+                signals.in_command = 1;
+                const std::string out = debugger_.command(line);
+                signals.in_command = 0;
+                terminal_.write(out);
                 terminal_.update_screen();
                 update_clock(); // a step can enter Apple II mode, a reset leave it
                 if (!debugger_.halted())

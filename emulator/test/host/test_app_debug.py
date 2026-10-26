@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import time
 
 SKIP = 77
 LFLAG = 3
@@ -274,7 +275,24 @@ def main():
         rc, out = diff("--symbols", lbl, trace, changed)
         check(failures, "trace_diff: changed byte", rc == 1 and "data D8 vs EA" in out and "RESET" in out, out)
 
+        # Ctrl-C during a long step ends the step, not the app.
+        s = Session(binary, ["--halt", rom], cwd)
+        s.expect(PROMPT)
+        os.write(s.master, b"s 1000000000\n")
+        time.sleep(0.5)  # well into the step, the terminal raw again
+        out = s.send(b"\x03")
+        check(failures, "ctrl-c in a step: not cut short", b"interrupted after" in out and PROMPT in out, text(out))
+        out = s.send(b"f FF00 4\n")
+        check(failures, "ctrl-c in a step: the prompt is gone", b"FF00  D8 58 A0 7F" in out, text(out))
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "ctrl-c in a step: exit", rc == 0 and not lost, f"rc={rc} lost={lost} {text(s.log)}")
+
         # Bad arguments stop the app before the terminal is touched.
+        half = os.path.join(cwd, "half.rom")
+        with open(half, "wb") as f:
+            f.write(bytes(0x1000))
+        backplane = os.path.join(machines, "backplane.machine")
         for args, needle in ((["--load", raw, rom], "needs a hex load address"),
                              (["--load", os.path.join(cwd, "none.hex"), rom], "none.hex: cannot open"),
                              (["--load", hexfile + "@0300", rom], "drop the @ADDR"),
@@ -285,7 +303,9 @@ def main():
                              (["--load", "--halt", rom], "--load needs a value"),
                              (["--clock", "1000", "--clock", "2000", rom], "--clock given twice"),
                              (["--machine", machine, "--machine", machine, rom], "--machine given twice"),
-                             ([rom, rom], "rom given twice")):
+                             ([rom, rom], "rom given twice"),
+                             # --apple-rom adds up: two 4 KB parts make 8 KB, not "given twice"
+                             (["--machine", backplane, "--apple-rom", half, "--apple-rom", half, rom], "got 8192 bytes")):
             s = Session(binary, args, cwd)
             rc, lost = s.close()
             check(failures, f"{' '.join(args[:2])}: refused", rc not in (None, 0) and needle in text(s.log),

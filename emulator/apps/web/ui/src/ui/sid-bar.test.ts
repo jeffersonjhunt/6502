@@ -18,10 +18,13 @@ async function pick(bar: HTMLElement, name: string, bytes = new Uint8Array([1, 2
 
 function make(caps = { sid: true }) {
   const port = new FakePort(caps);
-  let playing = 0;
-  const bar = sidBar(port, { playing: () => ++playing });
+  const sound = { on: false, ons: 0 };
+  const bar = sidBar(port, {
+    soundOn: () => !sound.on && ((sound.on = true), ++sound.ons, true),
+    soundOff: () => void (sound.on = false),
+  });
   port.onFrame(bar.update);
-  return { port, bar, el: bar.element, playing: () => playing };
+  return { port, bar, el: bar.element, sound, playing: () => sound.ons };
 }
 
 describe("the tune", () => {
@@ -80,5 +83,19 @@ describe("the tune", () => {
     expect($(el, "sid-note").textContent).toBe("x.txt: not a .sid file (no PSID or RSID header)");
     expect(playing()).toBe(1); // Sound on for the tune that played, not for the refusal
     expect(visible(el).length).toBe(5); // the tune before plays on
+  });
+
+  test("Sound goes on in the change itself, inside the gesture, and off again if the file is refused", async () => {
+    const { port, el, sound } = make();
+    port.tune = "not a .sid file (no PSID or RSID header)";
+    const input = $(el, "sid-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File([new Uint8Array(4)], "x.txt")] });
+    input.dispatchEvent(new Event("change"));
+    expect(sound.on).toBe(true); // before any await
+    await flush();
+    expect(sound.on).toBe(false); // refused: not left on
+    sound.on = true; // on already, by the user: a refusal leaves it on
+    await pick(el, "y.txt");
+    expect(sound.on).toBe(true);
   });
 });
