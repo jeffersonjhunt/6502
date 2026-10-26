@@ -279,12 +279,15 @@ window registers.
    registers back on the text screen, which the BIOS finds again from the cards' ID bytes. That brings the
    monitor back from the demo, a program, or the screen code itself. It doesn't put back W3 or VEC (Break works
    while they're the BIOS's: a program that moves VEC takes the NMI itself), memory (zero page, video memory's
-   font, palette and text), DMA CONTROL, the serial card, or the rest of any card's state. Other IRQs still
+   font, palette and text), DMA CONTROL, or the rest of any card's state (the monitor's entry, WOZMON, programs the
+   serial card afresh; only the RTC, not yet built, is left as it was). Other IRQs still
    return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
    copies the flash again (unless the machine booted from RAM through /BOOTSEL). The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
-   program has set. A copy still running after about 0.1 s (no controller, or a busier channel taking the bus) is
+   program has set. The master enable is the whole controller's, so any channel a program has left armed runs during
+   the copy (the text screen's scroll, say): a program that wants a channel not to run aborts it, rather than only
+   turning the master enable off. A copy still running after about 0.1 s (no controller, or a busier channel taking the bus) is
    stopped. Apple II mode's fills run inline (they clear the stack), so it stops every channel first and sets no
    burst limit, and each fill is done before the next instruction. Apple II mode also clears the language card's
    second `$D000` bank (banks 4–5). The
@@ -640,6 +643,9 @@ it commands.
    at 50 or 60 Hz for tunes that use the vertical blank.
 3. It sets the clock from the file's PAL or NTSC flag and sets RUN.
 4. The main CPU is free; the mailbox tells it when to change song or stop.
+
+Break, BRK and the demo's end stop the card (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
+tune; the WebUI's tune bar then says the machine stopped it.
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 

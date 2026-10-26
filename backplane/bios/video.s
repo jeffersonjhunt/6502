@@ -279,7 +279,9 @@ DMAJOB:
 
 ; Start channel 3, programmed, and wait for ENABLE to clear at terminal
 ; count, with the master enable on (a program may have turned it off) and
-; CONTROL put back after. 65,536 polls, about 0.1 s, then it gives up and
+; CONTROL put back after. The enable is the whole controller's, so a
+; program's channels still armed run meanwhile: to keep one from running, a
+; program aborts it, not just turns the master enable off. 65,536 polls, about 0.1 s, then it gives up and
 ; stops the channel: no controller there (ENABLE reads 1 off a floating
 ; bus), or one starved by a busier channel. For the demo too. Uses A, X, Y.
 DMA3RUN:

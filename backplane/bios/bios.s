@@ -154,7 +154,8 @@ IRQ:            PHA
 ; Stop what would go on behind the monitor: every DMA channel, the SD card's
 ; command, the sound card's 6510 and SIDs; and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI. What it doesn't know
-; (the serial card, the RTC, a program's own state) is left alone.
+; (the RTC, a program's own state) is left alone; the serial card the
+; monitor's entry (WOZMON) programs afresh.
 QUIET:
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
