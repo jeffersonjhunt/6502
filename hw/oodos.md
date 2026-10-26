@@ -394,8 +394,8 @@ core.
   single and integer arithmetic, string functions and INKEY$ stays resident; PRINT and INPUT (once a statement),
   double precision, banked functions (SIN, VAL...), graphics (PSET and LINE once a point), I/O statements and typed
   lines make a far call each time.
-- **Correct:** 93,289 math vectors bit for bit against a Python model written from the 8086 source
-  (`mbf.py`), and seven BASIC programs; the image passes the 65C816 rules (`rules.py`). One finding for phase 7 to
+- **Correct:** 93,289 math vectors bit for bit against a Python model written from the 8086 source (`mbf.py`),
+  and seven BASIC programs; the translated segments pass the 65C816 rules (`rules.py`). One finding for phase 7 to
   check against PC-BASIC: the 1983 source prints 1/3 as `.3333334`.
 
 For phase 7: keep the BASIC stack in the TPA, zero page pseudo-registers without the 8086's push and swap glue,

@@ -183,9 +183,9 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
   single, `\`, MOD, AND/OR/XOR/EQV/IMP, NOT, relations, nested IF/ELSE, CINT/FIX/INT, Overflow and Division by
   zero messages mid-line), four programs of 60 lines of random expressions, and outputs GW-BASIC is known to
   print (`2/3` is .6666667, `12345678` is 1.234568E+07, `1E+38*10` prints Overflow then 1.701412E+38).
-- **OODOS's rules** (rules.py, over the image): no RMB, SMB, BBR or BBS; zero page only through zero page
-  operands; no absolute stack page access; no JSR out of the program but the BDOS's. 3,432 instructions, no
-  problems. It found one on the way: an indirect `JMP (PTR2)`, now a pushed return address.
+- **OODOS's rules** (rules.py, over the translated segments): no RMB, SMB, BBR or BBS; zero page only through
+  zero page operands; no absolute stack page access; no JSR or JMP out of the program but to the BDOS ($0203) or
+  warm boot ($0200). 3,432 instructions, no problems. It found one on the way: an indirect `JMP (PTR2)`, now a pushed return address.
 
 **One finding for phase 7:** by the 1983 source, `PRINT 1/3` prints .3333334, not .3333333: `$FOTNV` brings
 1/3 to 3333333.43 in double precision, `$CSD` rounds that to 3333333.5 in single, and `$FOTCV` adds .5. The 6502
@@ -244,7 +244,7 @@ the project's oracle, settles it.
 | `mbf.py` | the reference model of GW-BASIC's arithmetic |
 | `basic.py` | a tokeniser and reference reader for test programs |
 | `check.py` | runs everything and compares |
-| `rules.py` | checks OODOS's rules on the image |
+| `rules.py` | checks OODOS's rules on the translated segments |
 | `sizes.py` | the 8086 estimates, the comparison and the extrapolation (needs a GW-BASIC clone) |
 
 ```
