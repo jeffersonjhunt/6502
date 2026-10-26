@@ -10,7 +10,7 @@ import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
-import { coreUrl, FIXED_FRAME_BUDGET_MS, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
+import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
 const GREETING = "\rBACKPLANE BIOS 0.8\r\\\r";
@@ -114,21 +114,22 @@ describe("WasmPort", () => {
     expect(slices).toBeLessThanOrEqual(MAX_FRAME_BUDGET_MS + 2);
   });
 
-  test("a fixed clock the host can't keep up with stops at its share of the frame, and the status says how fast it really ran", async () => {
+  test("a set clock the host can't keep up with gets 4/5 of the time, not the whole frame, and the status says how fast it really ran", async () => {
     const m = await open();
-    m.step();
     let f = m.step(100);
     for (let i = 0; i < 12; ++i) f = m.step(100); // over a second at full speed: the measured clock is the set one
     expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
-    m.clock.tick = 5; // each read of the clock "takes" 5 ms: a slow host, 10 slices in the budget
-    const before = m.step(100).cycles;
-    const after = m.step(100).cycles;
-    const slices = Math.round((after - before) / MAX_SLICE);
-    expect(slices).toBeGreaterThanOrEqual(FIXED_FRAME_BUDGET_MS / 5 - 1);
-    expect(slices).toBeLessThanOrEqual(FIXED_FRAME_BUDGET_MS / 5 + 1); // not the 14.3 slices 100 ms wants
-    for (let i = 0; i < 12; ++i) f = m.step(100);
+    // Each read of the clock "takes" 10 ms, so a 50,000-cycle slice runs at 5 MHz: too slow for 7.16.
+    m.clock.tick = 10;
+    // The page quick between frames: the machine stops at its share, behind the clock, rather than run the whole of each frame's time.
+    for (let i = 0; i < 40; ++i) f = m.step(1);
     expect(f.hz).toBeGreaterThan(0);
-    expect(f.hz).toBeLessThan(NATIVE_HZ * 0.9);
+    expect(f.hz).toBeLessThan(NATIVE_HZ * 0.6);
+    // The page slow between frames (200 ms of drawing): 4/5 of the time is more than the machine needs.
+    const before = m.step(200).cycles;
+    const after = m.step(200).cycles;
+    expect(after - before).toBeGreaterThanOrEqual(715_909);
+    expect(after - before).toBeLessThan(715_909 + 16);
   });
 
   test("a listener that throws is reported and the others still hear; the loop goes on", async () => {
