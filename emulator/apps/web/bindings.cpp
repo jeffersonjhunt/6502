@@ -39,7 +39,8 @@
  *
  * The USB card's host side (usb_card.h): usbKey(usage, down) with HID usage
  * codes (queued at the keyboard's 8 ms polling pace), usbMouseTo(x, y) (absolute, in its MAXX/MAXY), usbMouseMove(dx, dy),
- * usbMouseButtons(bits), usbMouseWheel(steps). Without a card they do nothing.
+ * usbMouseButtons(bits), usbMouseWheel(steps); usbQueued() is how many key changes wait
+ * (a paste typing), usbDropKeys() stops it. Without a card they do nothing.
  *
  * Apple II mode: loadCartridge(rom, chars, boot, sequencer) plugs the
  * owner's IIe ROM (16 KB, $C000-$FFFF) and character ROM (4 or 8 KB, or ""
@@ -461,6 +462,16 @@ namespace
             if (UsbCard *u = session_->usb())
                 u->queue_key(static_cast<uint8_t>(usage), down); // at the keyboard's pace
         }
+        unsigned usb_queued() const
+        {
+            const UsbCard *u = session_->usb();
+            return u ? static_cast<unsigned>(u->queued()) : 0;
+        }
+        void usb_drop_keys()
+        {
+            if (UsbCard *u = session_->usb())
+                u->drop_queue();
+        }
         void usb_mouse_to(int x, int y)
         {
             if (UsbCard *u = session_->usb())
@@ -614,6 +625,8 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("soundVoice", &WebMachine::sound_voice)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
+        .function("usbQueued", &WebMachine::usb_queued)
+        .function("usbDropKeys", &WebMachine::usb_drop_keys)
         .function("usbMouseTo", &WebMachine::usb_mouse_to)
         .function("usbMouseMove", &WebMachine::usb_mouse_move)
         .function("usbMouseButtons", &WebMachine::usb_mouse_buttons)

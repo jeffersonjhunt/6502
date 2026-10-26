@@ -3,9 +3,21 @@
  *
  * It runs on the main thread, one budget of cycles per animation frame:
  * clock rate x the time since the last frame, capped at 100 ms so a tab
- * that was in the background does not try to catch up on minutes. At
- * "max" it runs 50,000-cycle slices until 10 ms of the frame are used.
- * Everything else is a direct call into the module. Calls that only send
+ * that was in the background does not try to catch up on minutes. It runs
+ * in 50,000-cycle slices: at "max" until 10 ms of the frame are used; at a
+ * set clock until the budget is done, or the machine has had 4/5 of the
+ * time since the last frame (at least 12 ms), so a host too slow for the
+ * clock runs the machine slower rather than the page. Its share, not a
+ * fixed time: where drawing a frame is slow, a fixed few ms would starve
+ * the machine and not speed the page up. FrameState.hz is what it really
+ * ran, over wall time. A browser stops animation frames in a background
+ * tab, so the machine stops there, and a tune with it. Everything else is
+ * a direct call into the module.
+ *
+ * A listener that throws is logged (once) and the rest still hear. If the
+ * module itself throws (a wasm abort), the machine is gone: the loop stops,
+ * onFail's listeners hear why, and the port acts as if never connected.
+ * Calls that only send
  * are dropped until connect() has finished (the panel sends its state once
  * connected); reads before then reject.
  *
@@ -100,6 +112,8 @@ export interface CoreMachine {
   peekIo(offset: number): number;
   hasUsb(): boolean;
   usbKey(usage: number, down: boolean): void;
+  usbQueued(): number;
+  usbDropKeys(): void;
   usbMouseTo(x: number, y: number): void;
   usbMouseMove(dx: number, dy: number): void;
   usbMouseButtons(buttons: number): void;
@@ -133,6 +147,9 @@ export interface WasmPortOptions {
 export const MAX_FRAME_MS = 100;
 export const MAX_SLICE = 50_000;
 export const MAX_FRAME_BUDGET_MS = 10;
+export const FIXED_FRAME_BUDGET_MS = 12;
+/** A set clock's machine may use this many times what the page took between its frames. */
+export const FIXED_FRAME_SHARE = 4;
 
 const KEY_BITS: Record<Exclude<PanelKey, "start">, number> = { load: 1, exam: 2, dep: 4, cont: 8 };
 
@@ -179,6 +196,7 @@ export class WasmPort implements MachinePort {
   private m: CoreMachine | null = null;
   private handle: number | null = null;
   private last = 0;
+  private ranUntil = 0;
   private clock: Clock = CLOCKS_HZ[3];
   private powered = true;
   private lightsOn = false;
@@ -187,6 +205,8 @@ export class WasmPort implements MachinePort {
   private videoSeen = -1;
   private audioRate = 0;
   private readonly listeners = new Set<(frame: FrameState) => void>();
+  private readonly failListeners = new Set<(why: string) => void>();
+  private readonly reported = new WeakSet<object>();
   private speedCycles = 0;
   private speedMs = 0;
   private hz = 0;
@@ -215,7 +235,7 @@ export class WasmPort implements MachinePort {
     this.m = m;
     this.setClock(this.clock); // the video card keeps time by it
     m.setAudioRate(this.audioRate);
-    this.last = this.scheduler.now();
+    this.last = this.ranUntil = this.scheduler.now();
     this.schedule();
     return { machine: this.files.machine };
   }
@@ -240,27 +260,53 @@ export class WasmPort implements MachinePort {
   frame(): void {
     const m = this.m;
     if (!m) return;
+    let state: FrameState;
+    try {
+      state = this.advance(m);
+    } catch (err) {
+      return this.fail(err);
+    }
+    for (const listener of this.listeners) {
+      try {
+        listener(state);
+      } catch (err) {
+        if (this.reported.has(listener)) continue;
+        this.reported.add(listener);
+        console.error("OO-1: a frame listener threw", err);
+      }
+    }
+    this.schedule();
+  }
+
+  private fail(err: unknown): void {
+    this.m = null; // not deleted: an aborted module may throw on that too
+    this.handle = null;
+    const why = err instanceof Error ? err.message : String(err);
+    for (const listener of this.failListeners) listener(why);
+  }
+
+  private advance(m: CoreMachine): FrameState {
     const now = this.scheduler.now();
-    const dt = Math.min(Math.max(now - this.last, 0), MAX_FRAME_MS);
+    const wall = Math.max(now - this.last, 0);
+    const dt = Math.min(wall, MAX_FRAME_MS);
     this.last = now;
 
     let ran = 0;
     const fixed = this.powered ? m.fixedHz() : 0; // Apple II mode: the clock card follows the mode
     const clock: Clock = fixed || this.clock;
     if (this.powered) {
-      if (clock === "max") {
-        const until = now + MAX_FRAME_BUDGET_MS;
-        do {
-          const why = m.run(MAX_SLICE);
-          ran += m.lastCycles();
-          if (why !== 0) break;
-        } while (this.scheduler.now() < until);
-      } else {
-        m.run(Math.round((clock * dt) / 1000));
-        ran = m.lastCycles();
+      const budget = clock === "max" ? Infinity : Math.round((clock * dt) / 1000);
+      const page = Math.max(now - this.ranUntil, 0); // drawing, the listeners, the browser
+      const until = now + (clock === "max" ? MAX_FRAME_BUDGET_MS : Math.max(FIXED_FRAME_BUDGET_MS, FIXED_FRAME_SHARE * page));
+      while (ran < budget) {
+        const why = m.run(Math.min(MAX_SLICE, budget - ran));
+        const cycles = m.lastCycles();
+        ran += cycles;
+        if (why !== 0 || !cycles || this.scheduler.now() >= until) break;
       }
     }
-    this.measure(ran, dt);
+    this.ranUntil = this.scheduler.now();
+    this.measure(ran, wall);
 
     const out = this.powered ? stringToBytes(m.takeOutput()) : new Uint8Array(0);
     const state: FrameState = {
@@ -273,6 +319,7 @@ export class WasmPort implements MachinePort {
       fixedHz: this.powered ? m.fixedHz() : 0, // as the run left it, as everything here is
       apple: this.powered && m.appleMode(),
       soundRunning: this.powered && m.soundRunning(),
+      keysQueued: this.powered ? m.usbQueued() : 0,
       disk: this.powered ? this.readDiskStatus(m) : null,
       sd: this.powered ? this.readSdStatus(m) : null,
       serialOut: out,
@@ -281,8 +328,7 @@ export class WasmPort implements MachinePort {
       video: this.videoOn && this.powered ? this.readVideo(m) : null,
       audio: this.audioRate && this.powered ? new Float32Array(m.takeAudio()) : null, // copied out of the module's memory
     };
-    for (const listener of this.listeners) listener(state);
-    this.schedule();
+    return state;
   }
 
   private readSdStatus(m: CoreMachine): SdStatus | null {
@@ -378,6 +424,10 @@ export class WasmPort implements MachinePort {
 
   sendKey(usage: number, down: boolean): void {
     this.m?.usbKey(usage, down);
+  }
+
+  stopTyping(): void {
+    this.m?.usbDropKeys();
   }
 
   sendMouse(mouse: MouseInput): void {
@@ -601,5 +651,10 @@ export class WasmPort implements MachinePort {
   onFrame(listener: (frame: FrameState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  onFail(listener: (why: string) => void): () => void {
+    this.failListeners.add(listener);
+    return () => this.failListeners.delete(listener);
   }
 }

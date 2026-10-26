@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 import type { FrameState } from "./machine-port";
-import { usageFor } from "../crt/usb-keyboard";
+import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
@@ -19,6 +19,7 @@ const NATIVE_HZ = 7_159_090;
 
 class ManualClock implements Scheduler {
   t = 0;
+  requests = 0;
   /** How far now() moves each time it is read (for the Max loop). */
   tick = 0;
   now(): number {
@@ -27,6 +28,7 @@ class ManualClock implements Scheduler {
     return t;
   }
   request(): number {
+    ++this.requests;
     return 1;
   }
   cancel(): void {}
@@ -110,6 +112,63 @@ describe("WasmPort", () => {
     const slices = Math.round((after - before) / MAX_SLICE);
     expect(slices).toBeGreaterThanOrEqual(MAX_FRAME_BUDGET_MS - 2);
     expect(slices).toBeLessThanOrEqual(MAX_FRAME_BUDGET_MS + 2);
+  });
+
+  test("a set clock the host can't keep up with gets 4/5 of the time, not the whole frame, and the status says how fast it really ran", async () => {
+    const m = await open();
+    let f = m.step(100);
+    for (let i = 0; i < 12; ++i) f = m.step(100); // over a second at full speed: the measured clock is the set one
+    expect(Math.abs(f.hz - NATIVE_HZ) / NATIVE_HZ).toBeLessThan(0.01);
+    // Each read of the clock "takes" 10 ms, so a 50,000-cycle slice runs at 5 MHz: too slow for 7.16.
+    m.clock.tick = 10;
+    // The page quick between frames: the machine stops at its share, behind the clock, rather than run the whole of each frame's time.
+    for (let i = 0; i < 40; ++i) f = m.step(1);
+    expect(f.hz).toBeGreaterThan(0);
+    expect(f.hz).toBeLessThan(NATIVE_HZ * 0.6);
+    // The page slow between frames (200 ms of drawing): 4/5 of the time is more than the machine needs.
+    const before = m.step(200).cycles;
+    const after = m.step(200).cycles;
+    expect(after - before).toBeGreaterThanOrEqual(715_909);
+    expect(after - before).toBeLessThan(715_909 + 16);
+  });
+
+  test("a listener that throws is reported and the others still hear; the loop goes on", async () => {
+    const m = await open();
+    const heard: number[] = [];
+    const errors: unknown[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    try {
+      m.port.onFrame(() => {
+        throw new Error("a bug in the page");
+      });
+      m.port.onFrame((f) => void heard.push(f.cycles));
+      const asked = m.clock.requests;
+      m.step();
+      m.step();
+      expect(heard.length).toBe(2);
+      expect(m.clock.requests).toBe(asked + 2);
+      expect(errors.length).toBe(1); // once, not once a frame
+    } finally {
+      console.error = error;
+    }
+  });
+
+  test("a core that throws (a wasm abort) stops the loop and says why, once", async () => {
+    const m = await open();
+    m.until(GREETING);
+    const failures: string[] = [];
+    m.port.onFail((why) => failures.push(why));
+    (m.port as unknown as { m: { run: () => number } }).m.run = () => {
+      throw new Error("RuntimeError: unreachable");
+    };
+    const asked = m.clock.requests;
+    m.step();
+    m.step();
+    expect(m.clock.requests).toBe(asked); // not rescheduled
+    expect(failures).toEqual(["RuntimeError: unreachable"]);
+    m.port.sendSerial(ascii("C680\r")); // sends are dropped, as before connect()
+    await expect(m.port.readMemory(0xc680, 1, "cpu")).rejects.toThrow();
   });
 
   test("serial both ways: a monitor command", async () => {
@@ -212,6 +271,23 @@ describe("WasmPort", () => {
     expect(m.until("C592: 40 01 F0 00")).toBe(true);
     type("C591\r");
     expect(m.until("C591: 01")).toBe(true);         // the left button
+  });
+
+  test("a paste typed on the USB keyboard: how much is left, and stopped, what is left is dropped", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.clear();
+    typeText("C680\r".repeat(50), (usage, down) => m.port.sendKey(usage, down));
+    let f = m.step();
+    expect(f.keysQueued).toBeGreaterThan(400);
+    expect(m.until("C680: 00", 120)).toBe(true);
+    f = m.step();
+    expect(f.keysQueued).toBeGreaterThan(0);
+    m.port.stopTyping();
+    expect(m.step().keysQueued).toBe(0);
+    const typed = m.output().split("C680: 00").length;
+    for (let i = 0; i < 60; ++i) m.step();
+    expect(m.output().split("C680: 00").length).toBe(typed); // nothing more comes
   });
 
   test("Apple II mode fixes the clock: the budget follows it, whatever setClock said", async () => {

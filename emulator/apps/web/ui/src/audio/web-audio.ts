@@ -10,8 +10,14 @@ import workletUrl from "./speaker-worklet.ts?worker&url";
 /** An AudioContext and the speaker's worklet, at the device's rate. */
 export async function webAudioOut(url: string = workletUrl): Promise<AudioOut> {
   const context = new AudioContext({ latencyHint: "interactive" });
-  await context.audioWorklet.addModule(url);
-  const node = new AudioWorkletNode(context, "oo1-speaker", { numberOfInputs: 0, outputChannelCount: [2] });
+  let node: AudioWorkletNode;
+  try {
+    await context.audioWorklet.addModule(url);
+    node = new AudioWorkletNode(context, "oo1-speaker", { numberOfInputs: 0, outputChannelCount: [2] });
+  } catch (err) {
+    void context.close().catch(() => {}); // a browser allows only a few open at once
+    throw err;
+  }
   const gain = context.createGain();
   node.connect(gain).connect(context.destination);
   let statsListener: ((stats: SpeakerStats) => void) | null = null;

@@ -81,6 +81,7 @@ export class FakePort implements MachinePort {
       video: null,
       audio: null,
       soundRunning: false,
+      keysQueued: 0,
       ...frame,
     };
     for (const listener of this.listeners) listener(full);
@@ -209,6 +210,9 @@ export class FakePort implements MachinePort {
   setLights(on: boolean): void {
     this.calls.push(["setLights", on]);
   }
+  stopTyping(): void {
+    this.calls.push(["stopTyping"]);
+  }
   sendKey(usage: number, down: boolean): void {
     this.calls.push(["sendKey", usage, down]);
   }
@@ -235,5 +239,14 @@ export class FakePort implements MachinePort {
   onFrame(listener: (frame: FrameState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+  private readonly failListeners = new Set<(why: string) => void>();
+  onFail(listener: (why: string) => void): () => void {
+    this.failListeners.add(listener);
+    return () => this.failListeners.delete(listener);
+  }
+  /** The backend dies. */
+  fail(why: string): void {
+    for (const listener of this.failListeners) listener(why);
   }
 }

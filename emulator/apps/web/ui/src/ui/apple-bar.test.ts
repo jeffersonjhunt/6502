@@ -49,6 +49,23 @@ describe("the Apple bar", () => {
     expect(shown(bar.element)).toEqual(["apple-insert"]);
   });
 
+  test("a file too big to be a ROM is not read; one that can't be read says so", async () => {
+    const { port, bar } = make();
+    const input = $(bar.element, "apple-file") as HTMLInputElement;
+    const choose = async (file: object) => {
+      Object.defineProperty(input, "files", { configurable: true, value: [file] });
+      input.dispatchEvent(new Event("change"));
+      for (let i = 0; i < 5; ++i) await flush();
+    };
+    let reads = 0;
+    await choose({ name: "movie.mp4", size: 2 ** 31, arrayBuffer: async () => (++reads, new ArrayBuffer(0)) });
+    expect(reads).toBe(0);
+    expect($(bar.element, "apple-note").textContent).toMatch(/^movie\.mp4: 2147483648 bytes is no IIe ROM/);
+    await choose({ name: "gone.rom", size: 16384, arrayBuffer: async () => Promise.reject(new Error("the file could not be read")) });
+    expect($(bar.element, "apple-note").textContent).toBe("gone.rom: the file could not be read");
+    expect(port.callsTo("insertCartridge")).toEqual([]);
+  });
+
   test("the machine refuses it: says why, keeps nothing", async () => {
     const { port, bar } = make();
     port.cartridgeError = "Apple IIe ROM: want 16 KB";

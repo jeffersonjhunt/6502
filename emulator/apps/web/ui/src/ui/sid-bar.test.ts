@@ -71,13 +71,14 @@ describe("the tune", () => {
   });
 
   test("what the card can't give it, and a refusal, in the note", async () => {
-    const { port, el } = make();
+    const { port, el, playing } = make();
     port.tune = { ...(port.tune as object), rsid: true, warnings: ["it needs a third SID, at $D440"] } as typeof port.tune;
     await pick(el, "big.sid");
     expect($(el, "sid-note").textContent).toBe("The card can't play all of it: it needs a third SID, at $D440; it may stay silent");
     port.tune = "not a .sid file (no PSID or RSID header)";
     await pick(el, "x.txt");
     expect($(el, "sid-note").textContent).toBe("x.txt: not a .sid file (no PSID or RSID header)");
+    expect(playing()).toBe(1); // Sound on for the tune that played, not for the refusal
     expect(visible(el).length).toBe(5); // the tune before plays on
   });
 });

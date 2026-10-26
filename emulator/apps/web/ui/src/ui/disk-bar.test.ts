@@ -67,6 +67,24 @@ describe("the drive", () => {
     expect(shown(bar.element)).toEqual(["disk-insert"]);
   });
 
+  test("a file too big to be a disk is not read; one that can't be read says so", async () => {
+    const { port, store, bar } = make();
+    const input = $(bar.element, "disk-file") as HTMLInputElement;
+    const choose = async (file: object) => {
+      Object.defineProperty(input, "files", { configurable: true, value: [file] });
+      input.dispatchEvent(new Event("change"));
+      await flush();
+    };
+    let reads = 0;
+    await choose({ name: "movie.dsk", size: 2 ** 31, arrayBuffer: async () => (++reads, new ArrayBuffer(0)) });
+    expect(reads).toBe(0);
+    expect($(bar.element, "disk-note").textContent).toBe("movie.dsk: over 16 MB, too big for a 5.25-inch disk");
+    await choose({ name: "gone.woz", size: 1000, arrayBuffer: async () => Promise.reject(new Error("the file could not be read")) });
+    expect($(bar.element, "disk-note").textContent).toBe("gone.woz: the file could not be read");
+    expect(port.callsTo("insertDisk")).toEqual([]);
+    expect(await store.get(0)).toBeNull();
+  });
+
   test("write-protect is the disk's, and kept with it", async () => {
     const { port, store, bar } = make();
     await pick(bar.element, "a.dsk", new Uint8Array(4));
@@ -84,6 +102,21 @@ describe("the drive", () => {
     expect(port.callsTo("insertDisk")).toEqual([[0, new Uint8Array([1]), "old.po"]]);
     expect(port.callsTo("setWriteProtect")).toEqual([[0, true]]);
     expect($(bar.element, "disk-insert").textContent).toBe("old.po");
+  });
+
+  test("a disk picked while the browser still looks for the kept one stays in", async () => {
+    const port = new FakePort();
+    const store = memoryDiskStore();
+    await store.put(0, { name: "old.po", bytes: new Uint8Array([1]), writeProtected: false, format: "po" });
+    let answer = () => {};
+    const slow = { ...store, get: (d: number) => new Promise<Awaited<ReturnType<typeof store.get>>>((r) => (answer = () => void store.get(d).then(r))) };
+    const bar = diskBar(port, slow, () => {});
+    const restoring = bar.restore();
+    await pick(bar.element, "new.dsk", new Uint8Array([2]));
+    answer();
+    await restoring;
+    expect(port.callsTo("insertDisk").map((c) => c[2])).toEqual(["new.dsk"]);
+    expect($(bar.element, "disk-insert").textContent).toBe("new.dsk");
   });
 
   test("Save downloads it in its own format, or as .woz when it no longer fits one", async () => {

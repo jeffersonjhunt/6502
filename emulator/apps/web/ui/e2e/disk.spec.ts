@@ -51,3 +51,18 @@ test("a file that is no disk: says why", async ({ page }) => {
   await expect(page.getByTestId("disk-note")).toHaveText(/^notes\.txt: 5 bytes is no disk image/);
   await expect(page.getByTestId("disk-insert")).toHaveText("Insert disk…");
 });
+
+test("a browser whose storage never answers still starts: lamps, debugger and keyboard don't wait for the kept disk", async ({ page }) => {
+  await page.addInitScript(() => {
+    IDBFactory.prototype.open = function () {
+      return {} as IDBOpenDBRequest; // neither success nor error, ever
+    };
+  });
+  await booted(page);
+  await expect(page.getByTestId("crt")).toBeFocused({ timeout: 3000 });
+  await expect
+    .poll(() => page.locator('.lamp[data-lamp="A19"]').evaluate((e) => Number((e as HTMLElement).style.getPropertyValue("--b") || 0)), { timeout: 3000 })
+    .toBeGreaterThan(0.3);
+  await page.locator('[data-tab="cpu"]').click();
+  await expect(page.getByTestId("reg-pc")).toHaveText(/^CB[789][0-9A-F]$/, { timeout: 3000 });
+});

@@ -4,10 +4,11 @@
  * program would start it; then its name and author, the song (◀ n of N ▶)
  * and Stop. The file stays in the page: it is not kept, and never uploaded.
  *
- * Choosing a tune turns Sound on (the click is the gesture a browser waits
- * for). The note says what the card can't give a tune (a third SID, an
+ * A tune that plays turns Sound on (the click is the gesture a browser
+ * waits for); a file refused leaves it as it was. The note says what the card can't give a tune (a third SID, an
  * RSID's VIC-II), or why a file was refused. A tune stops when the card
- * does: Stop, a power cycle, or START's /RESET.
+ * does: Stop, a power cycle, or START's /RESET. It pauses in a background
+ * tab, as the whole machine does (port/wasm-port.ts).
  */
 
 import type { FrameState, MachinePort, SidTune } from "../port/machine-port";
@@ -15,7 +16,7 @@ import { h } from "./dom";
 
 export function sidBar(port: MachinePort, hooks: { playing: () => void }) {
   const picker = h("input", { type: "file", accept: ".sid", hidden: true, "data-testid": "sid-file" });
-  const play = h("button", { class: "tbtn", type: "button", title: "A C64 .sid tune of your own, played on the sound card: it stays in this page", "data-testid": "sid-play" }, "Play .sid…");
+  const play = h("button", { class: "tbtn", type: "button", title: "A C64 .sid tune of your own, played on the sound card: it stays in this page. It plays while this tab is in front", "data-testid": "sid-play" }, "Play .sid…");
   const title = h("span", { class: "sid-title", "data-testid": "sid-title" });
   const prev = h("button", { class: "tbtn", type: "button", title: "The song before", "aria-label": "Previous song", "data-testid": "sid-prev" }, "◀");
   const song = h("span", { class: "sid-song", "data-testid": "sid-song" });
@@ -49,9 +50,9 @@ export function sidBar(port: MachinePort, hooks: { playing: () => void }) {
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
-    hooks.playing();
     try {
       started(await port.playSid(new Uint8Array(await f.arrayBuffer())));
+      hooks.playing();
     } catch (err) {
       say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
     }

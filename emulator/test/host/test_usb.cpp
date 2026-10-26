@@ -225,6 +225,27 @@ TEST(a_queued_character_waits_for_the_last_to_be_taken)
     CHECK(c.take_reset());
 }
 
+TEST(a_paste_stopped_drops_what_is_queued_and_lets_go_of_the_keys)
+{
+    Card c;
+    for (const uint8_t u : {A, Z, C})            // a paste: three characters at once
+    {
+        c.queue_key(u, true);
+        c.queue_key(u, false);
+    }
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'A');   // A down at once; A up and the rest queued
+    CHECK_EQ(c.queued(), 5u);
+    c.drop_queue();
+    CHECK_EQ(c.queued(), 0u);
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 4);        // A down, and up: nothing is left held
+    c.read(UsbCard::KEYCLR);
+    c.tick(1000 * MS);
+    CHECK_EQ(c.peek(UsbCard::KEY), 'A');          // no Z, no C, no repeat
+    CHECK_EQ(c.peek(UsbCard::EVCOUNT), 4);
+    c.queue_key(C, true);                         // the keyboard as before
+    CHECK_EQ(c.peek(UsbCard::KEY), 0x80 | 'C');
+}
+
 TEST(raw_events_every_press_and_release_in_a_fifo_with_drq)
 {
     Card c;

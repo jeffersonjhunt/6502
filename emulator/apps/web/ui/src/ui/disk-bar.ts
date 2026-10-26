@@ -19,6 +19,8 @@ import { h } from "./dom";
 
 const DRIVE = 0;
 const ACCEPT = ".woz,.dsk,.do,.po";
+/** A 5.25-inch disk's image is a few hundred KB, a few MB as a WOZ with flux tracks: bigger is a wrong file. */
+const MAX_DISK = 16 * 1024 * 1024;
 
 /** The name a disk is saved under in a format: the same stem, that format's extension. */
 export function savedName(name: string, format: DiskFormat): string {
@@ -87,7 +89,13 @@ export function diskBar(
     const f = picker.files?.[0];
     picker.value = "";
     if (!f) return;
-    const bytes = new Uint8Array(await f.arrayBuffer());
+    if (f.size > MAX_DISK) return void say(`${f.name}: over 16 MB, too big for a 5.25-inch disk`);
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await f.arrayBuffer());
+    } catch (err) {
+      return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
     const disk: KeptDisk = { name: f.name, bytes, writeProtected: false, format: /\.woz$/i.test(f.name) ? "woz" : /\.po$/i.test(f.name) ? "po" : "dsk" };
     if (!(await put(disk, bytes))) return;
     disk.format = info!.format; // as the core read it (a .dsk can be in ProDOS order)
@@ -123,11 +131,11 @@ export function diskBar(
   });
   show();
 
-  /** Once connected: the disk kept from last time goes back in. */
+  /** Once connected: the disk kept from last time goes back in, unless one went in while the browser looked for it. */
   const restore = async () => {
     if (!port.caps.disk) return;
     const d = await store.get(DRIVE);
-    if (d && (await put(d, d.bytes))) show();
+    if (d && !info && (await put(d, d.bytes))) show();
   };
 
   /** Keep what was written, once the drive has stopped. */

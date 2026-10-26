@@ -147,11 +147,16 @@ test("on VGA the mouse is the USB card's: the monitor reads its position", async
   await page.keyboard.type("C590: 1");                         // MCTRL: absolute
   await page.keyboard.press("Enter");
   const box = (await page.locator("[data-testid=crt] canvas").boundingBox())!;
-  // Inside VGA pixel (320, 240), clear of its edges: WebKit rounds the pointer to whole CSS pixels.
-  await page.mouse.move(box.x + (320.9 / 640) * box.width, box.y + (240.9 / 480) * box.height);
+  // About the middle, on whole CSS pixels as WebKit rounds the pointer to them; a VGA pixel can be less than one
+  // here, so which one is under it depends on where the layout puts the canvas.
+  const at = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  const vga = { x: Math.floor(((at.x - box.x) / box.width) * 640), y: Math.floor(((at.y - box.y) / box.height) * 480) };
+  expect(Math.abs(vga.x - 320) + Math.abs(vga.y - 240)).toBeLessThan(4);
+  await page.mouse.move(at.x, at.y);
   await page.keyboard.type("C592.C595");                       // reading MX latches MX and MY
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("crt-text")).toContainText("C592: 40 01 F0 00"); // 320, 240
+  const hex = (v: number) => v.toString(16).toUpperCase().padStart(2, "0");
+  await expect(page.getByTestId("crt-text")).toContainText(`C592: ${hex(vga.x & 0xff)} ${hex(vga.x >> 8)} ${hex(vga.y & 0xff)} ${hex(vga.y >> 8)}`);
 });
 
 test("Cmd shortcuts are the browser's, and a key held when focus goes is let go", async ({ page }) => {
@@ -164,4 +169,27 @@ test("Cmd shortcuts are the browser's, and a key held when focus goes is let go"
   await page.getByRole("button", { name: "Text" }).click();    // focus leaves the screen
   await expect(page.getByTestId("dev-usb").locator('[data-reg="Modifiers"]')).toHaveText("none");
   await page.keyboard.up("Shift");
+});
+
+test("a long paste on the USB keyboard can be stopped: Stop typing drops the rest", async ({ page }) => {
+  await booted(page);
+  await page.getByRole("button", { name: "VGA" }).click();
+  const stop = page.getByTestId("stop-typing");
+  await expect(stop).toBeHidden();
+  await page.getByTestId("crt").evaluate((glass, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    glass.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, "C680\n".repeat(200)); // a minute of typing
+  await expect(page.getByTestId("crt-text")).toContainText("C680: 00");
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(stop).toBeHidden();
+  await expect(page.getByTestId("crt")).toBeFocused();
+  await page.waitForTimeout(2000); // what the machine had taken already, answered (WebKit runs it slowly here)
+  const count = async () => ((await page.getByTestId("crt-text").textContent()) ?? "").split("C680: 00").length;
+  const typed = await count();
+  await page.waitForTimeout(1500);
+  expect(await count()).toBe(typed);
+  expect(typed).toBeLessThan(100);
 });
