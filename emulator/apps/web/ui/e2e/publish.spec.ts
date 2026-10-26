@@ -40,16 +40,21 @@ test.describe("on a touch screen", () => {
   });
 });
 
-test("served without the trailing slash, it goes to the slash and boots", async ({ page }) => {
-  // vite preview serves dist/ at /; /index.html is the page by another name, so stand in for
-  // a directory URL with a route that answers /emulator with the page itself.
-  await page.route("**/emulator", async (route) => route.fulfill({ response: await page.request.get("./") }));
-  await page.route("**/emulator/**", async (route) => {
-    const url = new URL(route.request().url());
-    url.pathname = url.pathname.replace("/emulator/", "/");
-    route.fulfill({ response: await page.request.get(url.href) });
-  });
-  await page.goto("/emulator?from=site");
-  await expect(page).toHaveURL(/\/emulator\/\?from=site$/);
+test("served without the trailing slash, it goes to the slash and boots", async ({ page, baseURL }) => {
+  // Published (OO1_BASE_URL), the page is a directory and its server answers it without the slash.
+  // vite preview serves dist/ at /, which has no slash to leave off, so stand in for a directory
+  // URL with routes that answer /emulator with the page itself and /emulator/... with dist/.
+  let dir = new URL(baseURL!).pathname.replace(/\/$/, "");
+  if (!dir) {
+    dir = "/emulator";
+    await page.route("**/emulator", async (route) => route.fulfill({ response: await page.request.get("./") }));
+    await page.route("**/emulator/**", async (route) => {
+      const url = new URL(route.request().url());
+      url.pathname = url.pathname.replace("/emulator/", "/");
+      route.fulfill({ response: await page.request.get(url.href) });
+    });
+  }
+  await page.goto(`${dir}?from=site`);
+  await expect(page).toHaveURL(new URL(`${dir}/?from=site`, baseURL).href);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
 });

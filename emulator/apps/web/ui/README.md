@@ -114,6 +114,7 @@ credits it under the front panel.
 ```sh
 npm test         # vitest: terminal, keyboard, panel state, the speaker's queue, and WasmPort against the real module in node
 npm run e2e      # build, then Playwright in headless Chromium and WebKit (Safari's engine) against `vite preview`
+OO1_BASE_URL=https://staging.oneoffendeavors.com/projects/oo-1/emulator/ npx playwright test   # the same tests against the published page
 ```
 
 Both need the core; without it they fail rather than skip. Playwright needs
