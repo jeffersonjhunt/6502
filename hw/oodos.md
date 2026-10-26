@@ -157,7 +157,8 @@ straight into a buffer's physical address and are never mapped into the CPU's vi
 
 ## BDOS ##
 
-**Proposed: CP/M 3's functions, banked, with CP/M-86's memory functions and a few of OODOS's own.** Numbers follow
+**Decided (2026-10-26): CP/M 3's functions, banked, with CP/M-86's memory functions (51–58) and OODOS's own from
+72.** The details below are proposed. Numbers follow
 Digital Research's systems wherever one has the function; no number means one thing here and another there.
 
 ### Registers ###
@@ -406,4 +407,4 @@ Each phase is its own branch.
 
 ## Open Questions ##
 
-1. **BDOS numbers:** CP/M-86's 51–58 for memory, and 72 onwards for OODOS's own, as proposed above?
+None at the moment.
