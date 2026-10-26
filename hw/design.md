@@ -753,6 +753,45 @@ is the file's first sector. Disk images copied from a PC become drives, a boot m
 OS still sees plain sectors with any file system it likes. The RP2350 only needs enough FAT to find a file's
 sectors. The command numbers are fixed now; the raw card works before the mounting firmware exists.
 
+**Proposed, as the emulator models it (2026-10-25)** (`emulator/components/devices/sd_card.h`). These fill in what
+the tables leave open:
+
+- **Buffers and DATA.** The card holds two 512-byte buffers, so it fetches (or programs) one sector while the bus
+  empties (or fills) the other. STATUS.DATA is set while the whole current sector is there to read, or a whole
+  buffer is free to write. A loop can wait for it once a sector and then move 512 bytes without checking again.
+  With CTRL.DMA set, DRQ0 follows it. When DATA is clear, reading DATA returns `$FF` and a write to it is dropped.
+- **LBA and COUNT advance** as each sector passes through DATA. During a transfer COUNT is the number of sectors
+  left; afterwards LBA names the next sector, so consecutive reads need only a new COUNT and CMD.
+  IDENTIFY's sector comes from the firmware and moves neither.
+- **Errors.** A failed command sets ERR and ERROR, stops at once and sets ISR bit 0 like a finished one; ERR
+  stays set until the next command. ERROR codes:
+  - 1: no card, or not started up yet;
+  - 2: out of range (past the last sector of the card or unit);
+  - 3: CRC;
+  - 4: timeout, or a host error in the emulator;
+  - 5: write-protected;
+  - 6: unit not mounted;
+  - 7: unknown command.
+
+  A command written while BUSY is ignored. CTRL bit 1 (RESET) is a strobe: it abandons the command and starts the
+  card up again.
+- **Starting up** takes about 50 ms, after power-up, a card going in, or CTRL.RESET. READY is set once it has.
+- **/RESET** abandons a command (sectors already programmed stay written) and clears the registers. The card stays
+  started up and units stay mounted, so a boot menu can mount an image and reset into it.
+- **IDENTIFY's sector.** Everything not listed is 0.
+
+  | Offset | Contents |
+  |---|---|
+  | `$000–$003` | the card's sectors |
+  | `$004` | its type: 0 none, 1 SDSC (up to 2 GB), 2 SDHC (up to 32 GB), 3 SDXC |
+  | `$005` | flags: bit 0 write-protected |
+  | `$006–$007` | the firmware's version, major then minor |
+  | `$010–$02F` | the card's name, ASCII, NUL padded |
+  | `$040` | a 32-byte entry for each of units 1–7: sectors (4 bytes), flags (bit 0 mounted, bit 1 read-only), then from +8 the file's name (24 bytes) |
+- **Timing, the emulator's figures:** 100 µs to a read's first sector, then 25 µs for each further sector (SD in
+  4-bit mode, about 20 MB/s), and 25 µs to program a written sector. A DMA at a byte a cycle takes 72 µs a sector,
+  so after the first sector the bus never waits. FLUSH takes 100 µs.
+
 
 ## Apple II Mode ##
 
@@ -1105,6 +1144,8 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    opcodes) and the SID, with sound later. *(Emulated 2026-10-25: the SIDs' oscillators and envelopes, which
    OSC3 and ENV3 read back, then the output stage (waveform DACs, the filter, the mixer) and sound in the WebUI,
    which also plays `.sid` files on the card. Combined waveforms' real values are in the emulator's backlog.)*
+8. **The mass storage card:** the registers, the raw card through DATA by CPU or DMA, then FAT mounting, the BIOS
+   and the WebUI. *(Emulated 2026-10-25: the card, raw sectors and IDENTIFY.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 

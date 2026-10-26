@@ -124,6 +124,19 @@ namespace ooe::emu
         /// The disk in a drive, or nullptr.
         DiskImage *disk(unsigned drive) const { return disks_[drive % Disk2Card::DRIVES].get(); }
         Disk2Card *disk2() const { return machine_->disk2_card(); }
+
+        // The mass storage card's slot (nothing without an sd line). The card stays in
+        // through power cycles, as a real one does.
+        /// A card image's bytes (whole 512-byte sectors) into the slot, held in memory.
+        /// @return false with `error`: no card slot, not a sector
+        bool insert_sd(std::vector<uint8_t> bytes, const std::string &name, std::string &error);
+        /// Any media into the slot (a host file, say). @return false with `error`: no slot
+        bool insert_sd(std::shared_ptr<SdMedia> media, std::string &error);
+        void eject_sd();
+        /// What is in the slot, or nullptr; the memory image insert_sd() made, or nullptr.
+        SdMedia *sd_media() const { return sd_.get(); }
+        MemoryMedia *sd_image() const { return dynamic_cast<MemoryMedia *>(sd_.get()); }
+        SdCard *sd() const { return machine_->sd_card(); }
         /// The sound card, or nullptr: its registers, RAM and 6510.
         SoundCard *sound() const { return machine_->sound_card(); }
         /// The machine's sound at `rate` samples a second (0: none, the default), kept across
@@ -254,6 +267,7 @@ namespace ooe::emu
         std::string output_;
         uint64_t next_service_{0};
         std::array<std::shared_ptr<DiskImage>, Disk2Card::DRIVES> disks_{};
+        std::shared_ptr<SdMedia> sd_;
         std::unique_ptr<SidFile> sid_;
         unsigned sid_song_{0};
         std::vector<std::string> sid_warnings_;

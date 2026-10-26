@@ -11,7 +11,7 @@
  *            [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]
  *            [--break ADDR]... [--halt] [--screen FILE]
  *            [--apple-rom FILE[,FILE]] [--apple-chars FILE]
- *            [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [rom]
+ *            [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [--sd FILE] [rom]
  *
  * The machine defaults to the built-in Apple-1 (machines/apple1.machine);
  * `rom` replaces its first ROM image (default ./ibasic.rom). The terminal
@@ -43,6 +43,10 @@
  *   boot ROM and the sequencer, 256 bytes each), and --disk puts a .woz,
  *   .dsk, .do or .po in drive 1; the IIe boots it. What is written to the
  *   disk stays in memory: the file is not changed.
+ * - --sd puts a card image (whole 512-byte sectors) in the mass storage
+ *   card's slot. Unlike a disk, it is written through: the machine's writes
+ *   change the file, as they would a real card. A file that can't be
+ *   written is a write-protected card.
  */
 
 #include <algorithm>
@@ -100,7 +104,7 @@ namespace
                              "                [--load FILE[@ADDR]]... [--symbols FILE]... [--trace FILE]\n"
                              "                [--break ADDR]... [--halt] [--screen FILE]\n"
                              "                [--apple-rom FILE[,FILE]] [--apple-chars FILE]\n"
-                             "                [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [rom]\n");
+                             "                [--disk2-rom BOOT,SEQUENCER] [--disk FILE] [--sd FILE] [rom]\n");
         return 2;
     }
 
@@ -218,6 +222,8 @@ namespace
                 usb->set_cpu_hz(settings.clock_hz); // key repeat and the paddles
             if (SoundCard *sound = machine.sound_card())
                 sound->set_cpu_hz(settings.clock_hz); // its 6510 keeps the SID clock's time
+            if (SdCard *sd = machine.sd_card())
+                sd->set_cpu_hz(settings.clock_hz); // its start-up and sector times
             Terminal terminal(console);
             Emulator emulator(cpu, machine.bus(), terminal, debugger, settings.clock_hz, machine.console_card());
             emulator.on_clock_change([&machine](uint32_t hz) {
@@ -227,6 +233,8 @@ namespace
                     usb->set_cpu_hz(hz);
                 if (SoundCard *sound = machine.sound_card())
                     sound->set_cpu_hz(hz);
+                if (SdCard *sd = machine.sd_card())
+                    sd->set_cpu_hz(hz);
             });
 
             on_signal(SIGINT);
@@ -264,6 +272,7 @@ int main(int argc, char *argv[])
 
     MachineOptions options;
     const char *disk_path = nullptr;
+    const char *sd_path = nullptr;
     const char *machine_path = nullptr;
     const char *log_path = nullptr;
     Settings settings;
@@ -317,6 +326,8 @@ int main(int argc, char *argv[])
         }
         else if (std::strcmp(argv[i], "--disk") == 0 && i + 1 < argc)
             disk_path = argv[++i];
+        else if (std::strcmp(argv[i], "--sd") == 0 && i + 1 < argc)
+            sd_path = argv[++i];
         else if (std::strcmp(argv[i], "-v") == 0)
             verbose = true;
         else if (argv[i][0] == '-')
@@ -361,6 +372,16 @@ int main(int argc, char *argv[])
                 error = std::string(disk_path) + ": the machine has no Disk II card (a disk2 line)";
             if (disk && machine->disk2_card())
                 machine->disk2_card()->insert(0, std::move(disk));
+            else
+                machine.reset();
+        }
+        if (machine && sd_path)
+        {
+            std::shared_ptr<SdMedia> card = FileMedia::open(sd_path, error);
+            if (card && !machine->sd_card())
+                error = std::string(sd_path) + ": the machine has no SD card slot (an sd line)";
+            if (card && machine->sd_card())
+                machine->sd_card()->insert(std::move(card), false);
             else
                 machine.reset();
         }
