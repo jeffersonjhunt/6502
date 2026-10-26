@@ -64,10 +64,12 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
   system.
 - `apple-do` is a CP/M 2.2 format. CP/M 3 reads and writes those; they just have no date stamps.
 - **Checked with cpmtools 2.23** ([oodos/test/check_diskdefs.sh](../oodos/test/check_diskdefs.sh)): `mkfs.cpm -t`
-  writes a directory label and an SFCB in every fourth entry; with the label's mode set to 0x31, `cpmcp` stamps
-  what it writes (creation and update), `cpmls -F` reads the stamps back, and `fsck.cpm` passes, for all three
-  formats; and each DPB is legal (at most 16 directory blocks, DSM within 16 bits, under 256 for 1 KB blocks).
-  The other direction, OODOS writing and cpmtools checking, waits for the BDOS (phase 1's interoperability tests).
+  writes a directory label and an SFCB in every fourth entry, the label's mode is set to 0x31 (creation and update
+  stamps, as INITDIR sets it) and checked, `cpmcp` stamps what it writes, `cpmls -F` reads the stamps back, and
+  `fsck.cpm` passes, for all three formats; and each DPB is legal (at most 16 directory blocks, DSM within 16 bits,
+  under 256 for 1 KB blocks). cpmtools writes both stamps whatever the mode, so only OODOS's BDOS will honour it;
+  that, and the other direction, OODOS writing and cpmtools checking, wait for the BDOS (phase 1's
+  interoperability tests).
 
 
 ## Drives ##

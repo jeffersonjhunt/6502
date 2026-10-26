@@ -44,8 +44,10 @@ for fmt in oodos-8m oodos-32m oodos-ram; do
   img="$work/$fmt.img"
   dpb "$fmt"
   mkfs.cpm -f "$fmt" -t -L OODOS "$img" || fail "$fmt: mkfs.cpm"
-  # mkfs.cpm -t keeps creation stamps only (mode 0x11); OODOS keeps creation
-  # and update (0x31), as its INITDIR does.
+  # mkfs.cpm -t sets the label's mode to 0x11 (creation stamps); OODOS's
+  # INITDIR sets 0x31 (creation and update), so set that, and check it below.
+  # cpmtools writes both stamps whatever the mode: only OODOS's BDOS honours
+  # it, and phase 1's interoperability tests check that.
   printf '\061' | dd of="$img" bs=1 seek=12 conv=notrunc 2>/dev/null || fail "$fmt: label mode"
   ok "$fmt: made with time stamps"
 
@@ -65,7 +67,8 @@ for fmt in oodos-8m oodos-32m oodos-ram; do
   cmp -s "$work/big.bin" "$work/back.bin" || fail "$fmt: BIG.BIN changed"
   ok "$fmt: files in and out unchanged, users 0 and 3"
 
-  # cpmls -F (CP/M 3's DIR [FULL]) shows the stamps it wrote: today's, update and create.
+  # cpmls -F (CP/M 3's DIR [FULL]) shows cpmcp's two stamps, update and
+  # create, both today's; cpmcp writes both whatever the label's mode.
   today=$(date +%m/%d/%y)
   [ "$(cpmls -f "$fmt" -F "$img" | grep '^HELLO ' | grep -o "$today" | wc -l)" = 2 ] || fail "$fmt: HELLO.TXT isn't stamped today"
   # HELLO.TXT is entry 1; its two stamps are the SFCB's (entry 3) bytes 11-18.
