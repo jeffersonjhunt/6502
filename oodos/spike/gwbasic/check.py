@@ -21,7 +21,10 @@
 
     python3 -I check.py --timing
 
-prints FARCALL's cost instead: the cycles of N far calls less N JSRs.
+prints cycles instead (README.md's table): FARCALL's, N far calls less N
+JSRs; each arithmetic op's on the operand sets in TIMED, the op less one
+that only loads the operands, so the figure is a JSR to the routine; and a
+BASIC loop's per pass, the loop to 2000 less the loop to 1000, over 1000.
 
 Exits non-zero on any mismatch.
 """
@@ -50,6 +53,7 @@ OPS = {
     "imod": 14, "icmp": 15, "intdiv": 16, "fout": 17, "dmul": 18, "ddiv": 19,
     "csd": 20, "sgn": 21, "neg": 22, "abs": 23, "mul10": 24, "div10": 25,
     "far": 26, "near": 27, "farf": 28,
+    "ldab": 29, "ldint": 30, "ldfac": 31, "lddbl": 32, "ldcmp": 33, "foutt": 34,
 }
 LABELS = os.path.join(HERE, "spike.lbl")
 
@@ -405,6 +409,98 @@ def farcall_cycles(workdir, n=300):
     return (cycles("far") - cycles("near")) / n
 
 
+# --- Timing ------------------------------------------------------------------------------
+
+
+def nonzero(f):
+    """f, again until it isn't zero: dividing by zero is another path."""
+    def g(rng):
+        while True:
+            x = f(rng)
+            if any(x):
+                return x
+    return g
+
+
+def small(rng):
+    return single(Fraction(rng.randint(-1000, 1000), rng.choice([1, 2, 4, 10, 3])))
+
+
+def rint(lo, hi):
+    return lambda rng: ints(rng.randint(lo, hi))
+
+
+# The operand sets.
+SNG_R = ("random singles, exponents $60-$A0", lambda rng: rsingle(rng, 0x60, 0xA0))
+SNG_S = ("small decimals, n/1 2 4 10 3 for |n| <= 1000", small)
+INT_S = ("integers, -181..181 (no product overflows)", rint(-181, 181))
+INT_F = ("integers, full range (overflows go to single)", rint(-32768, 32767))
+DBL_R = ("random doubles, exponents $50-$B0", rdouble)
+
+# (label, op, the load-only op, VALTYP, operand set, a divisor?)
+TIMED = [("$FADDS", "add", "ldab", mbf.SNG, SNG_R, False), ("$FADDS", "add", "ldab", mbf.SNG, SNG_S, False),
+         ("$FMULS", "mul", "ldab", mbf.SNG, SNG_R, False), ("$FMULS", "mul", "ldab", mbf.SNG, SNG_S, False),
+         ("$FDIVS", "div", "ldab", mbf.SNG, SNG_R, True), ("$FDIVS", "div", "ldab", mbf.SNG, SNG_S, True),
+         ("$FCOMP", "cmp", "ldcmp", mbf.SNG, SNG_R, False), ("$FCOMP", "cmp", "ldcmp", mbf.SNG, SNG_S, False),
+         ("IADD", "iadd", "ldint", mbf.INT, INT_S, False), ("IADD", "iadd", "ldint", mbf.INT, INT_F, False),
+         ("IMULT", "imul", "ldint", mbf.INT, INT_S, False), ("IMULT", "imul", "ldint", mbf.INT, INT_F, False),
+         ("IDIV", "idiv", "ldint", mbf.INT, INT_S, True), ("IDIV", "idiv", "ldint", mbf.INT, INT_F, True),
+         ("$FOUT", "foutt", "ldfac", mbf.SNG, SNG_R, False), ("$FOUT", "foutt", "ldfac", mbf.SNG, SNG_S, False),
+         ("$FOUT", "foutt", "ldfac", mbf.INT, INT_S, False), ("$FOUT", "foutt", "ldfac", mbf.INT, INT_F, False),
+         ("$FMULD", "dmul", "lddbl", mbf.DBL, DBL_R, False), ("DDIV", "ddiv", "lddbl", mbf.DBL, DBL_R, True)]
+
+LOOPS = [("10 I%=I%+1 : IF I%<{n} THEN 10", "I%=I%+1 : IF I%<1000 THEN 10"),
+         ("10 A=A+I%*1.5 : I%=I%+1 : IF I%<{n} THEN 10", "A=A+I%*1.5 : I%=I%+1 : IF I%<1000 THEN 10")]
+
+
+def run_cycles(recs, workdir):
+    """The cycles of one run of these vectors (at most 300: they must end below
+    NB_WIN3)."""
+    vec = os.path.join(workdir, "time.vec")
+    cfile = os.path.join(workdir, "ctrl.vec")
+    open(vec, "wb").write(b"".join(recs))
+    open(cfile, "wb").write(bytes([0, 0, len(recs) & 0xFF, len(recs) >> 8]))
+    res = os.path.join(workdir, "time.out")
+    p = subprocess.run([RUNNER, IMAGE, "--load", "7FF0:" + cfile, "--load", "8000:" + vec, "--max", "100000000",
+                        "--dump", "8000:%X:%s" % (VLEN * len(recs), res)], capture_output=True, text=True)
+    if p.returncode:
+        sys.exit("run6502 failed: " + p.stderr)
+    if any(open(res, "rb").read()[22::VLEN]):  # the error path would be timed instead
+        sys.exit("timing: an operand set gave an error")
+    return int(re.search(r"(\d+) cycles", p.stderr).group(1))
+
+
+def op_cycles(rng, workdir, n=300):
+    """(label, operand set, mean cycles) for each of TIMED."""
+    out = []
+    for label_, op, load, typ, (what, gen), divisor in TIMED:
+        pairs = [(gen(rng), (nonzero(gen) if divisor else gen)(rng)) for _ in range(n)]
+
+        def recs(code):
+            r = []
+            for a, b in pairs:
+                rec = bytearray(VLEN)
+                rec[0], rec[1] = OPS[code], typ
+                rec[4:4 + len(a)] = bytes(a)
+                rec[12:12 + len(b)] = bytes(b)
+                r.append(bytes(rec))
+            return r
+        out.append((label_, what, (run_cycles(recs(op), workdir) - run_cycles(recs(load), workdir)) / n))
+    return out
+
+
+def loop_cycles(workdir):
+    """(the loop, cycles a pass)."""
+    out = []
+    for src, name in LOOPS:
+        c = []
+        for n in (1000, 2000):
+            _, err = run_program(src.format(n=n) + "\n20 END\n", workdir)
+            c.append(int(re.search(r"(\d+) cycles", err).group(1)))
+        out.append((name, (c[1] - c[0]) / 1000))
+    return out
+
+
 # OPFARF's stages (harness.s): A, X, Y, P as PHP pushes it ($30 set), block.
 FARF_WANT = [
     ("the target gets the caller's", [0x33, 0x11, 0x22, 0xCD | 0x30, 5]),
@@ -500,11 +596,17 @@ def main():
     ap.add_argument("--seed", type=int, default=1983)
     ap.add_argument("--count", type=int, default=400)
     ap.add_argument("-v", action="store_true")
-    ap.add_argument("--timing", action="store_true", help="print FARCALL's cost and stop")
+    ap.add_argument("--timing", action="store_true", help="print the cycles (README.md's table) and stop")
     args = ap.parse_args()
     if args.timing:
         with tempfile.TemporaryDirectory() as work:
             print("FARCALL over a JSR/RTS: %.0f cycles" % farcall_cycles(work))
+            print("A JSR to each, less loading its operands (300 pairs a set, seed %d):" % args.seed)
+            for label_, what, c in op_cycles(random.Random(args.seed), work):
+                print("  %-7s %-46s %7.0f" % (label_, what, c))
+            print("A BASIC loop, per pass (to 2000 less to 1000, over 1000):")
+            for name, c in loop_cycles(work):
+                print("  %-54s %7.0f" % (name, c))
         return 0
     rng = random.Random(args.seed)
     failed = 0

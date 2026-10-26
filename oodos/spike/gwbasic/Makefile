@@ -2,7 +2,7 @@
 # compiler for the runner, and python3.
 #
 #   make            # spike.bin, spike.map (the sizes) and spike.lbl
-#   make check      # the rules, the math vectors, FARCALL and the programs; FARCALL's cycles
+#   make check      # the rules, the math vectors, FARCALL and the programs; the cycles
 #   make sizes      # the 6502 and 8086 sizes, and the extrapolation
 #
 # The 8086 sizes are read from Microsoft's source, which isn't in this repo:

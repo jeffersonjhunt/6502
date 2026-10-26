@@ -159,6 +159,7 @@ OPS:            .word   0, OPADD, OPSUB, OPMUL, OPDIV, OPCMP, OPFLT, OPCINT
                 .word   OPINT, OPFIX, OPIADD, OPISUB, OPIMUL, OPIDIV, OPIMOD
                 .word   OPICMP, OPINTDV, OPFOUT, OPDMUL, OPDDIV, OPCSD, OPSGN
                 .word   OPNEG, OPABS, OPMUL10, OPDIV10, OPFAR, OPNEAR, OPFARF
+                .word   OPLDAB, OPLDINT, OPLDFAC, OPLDDBL, OPLDCMP, OPFOUTT
 
 ; A to BXDX, B to the FAC (singles); or A to DX and B to BX (integers).
 LDAB:           LDY     #4
@@ -234,7 +235,9 @@ OPMUL:          JSR     LDAB
                 JMP     FMULS
 OPDIV:          JSR     LDAB
                 JMP     FDIVS
-OPCMP:          JSR     LDAB           ; A against B: the FAC is A
+OPCMP:          JSR     LDCMP
+                JMP     FCOMP
+LDCMP:          JSR     LDAB           ; A against B: the FAC is A
                 LDX     #3
 @sw:            LDA     RDL,X
                 LDY     FACLO,X
@@ -242,7 +245,7 @@ OPCMP:          JSR     LDAB           ; A against B: the FAC is A
                 STY     RDL,X
                 DEX
                 BPL     @sw
-                JMP     FCOMP
+                RTS
 OPFLT:          JSR     LDAB
                 JMP     FLT
 OPCINT:         JSR     LDFAC
@@ -343,6 +346,15 @@ FTGT2:          PHP                    ; in block 6: what the outer target set
                 FFSAVE  10
                 FFSET   $03, $AA, $BB, $CC     ; Z C
                 RTS
+; The operands loaded and nothing done: check.py --timing takes these from
+; the ops above, so the figures leave out the loading.
+OPLDAB:         JMP     LDAB
+OPLDINT:        JMP     LDINT
+OPLDFAC:        JMP     LDFAC
+OPLDDBL:        JMP     LDDBL
+OPLDCMP:        JMP     LDCMP
+OPFOUTT:        JSR     LDFAC          ; $FOUT without OPFOUT's copy of the text
+                JMP     FOUT
 OPFOUT:         JSR     LDFAC          ; the text to +32
                 JSR     FOUT
                 LDY     #0

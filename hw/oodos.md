@@ -390,10 +390,10 @@ core.
   and device buffers out of the TPA. The rest goes in 7 or 8 banked blocks of 12 KB: math with PRINT and INPUT,
   program entry and LIST, the other statements, files, graphics and devices, the screen editor, the OO-1's drivers.
 - **No far calls on the core statement path.** A FARCALL costs 281 cycles over a JSR; one pass of
-  `I%=I%+1 : IF I%<1000 THEN …` is 4,680 and printing a single about 18,200. A loop of LET, IF, GOTO, FOR/NEXT,
-  single and integer arithmetic, string functions and INKEY$ stays resident; PRINT and INPUT (once a statement),
-  double precision, banked functions (SIN, VAL...), graphics (PSET and LINE once a point), I/O statements and typed
-  lines make a far call each time.
+  `I%=I%+1 : IF I%<1000 THEN …` is about 4,700 and printing a single 16,000–20,000. A loop of LET, IF, GOTO,
+  FOR/NEXT, single and integer arithmetic, string functions and INKEY$ stays resident; PRINT and INPUT (once a
+  statement), double precision, banked functions (SIN, VAL...), graphics (PSET and LINE once a point), I/O
+  statements and typed lines make a far call each time.
 - **Correct:** 93,289 math vectors bit for bit against a Python model written from the 8086 source (`mbf.py`),
   and seven BASIC programs; the translated segments pass the 65C816 rules (`rules.py`). One finding for phase 7 to
   check against PC-BASIC: the 1983 source prints 1/3 as `.3333334`.

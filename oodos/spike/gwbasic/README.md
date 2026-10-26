@@ -145,19 +145,27 @@ statement (so a loop of PSET or LINE makes one per point), a file, device or sou
 (CRUNCH) and LIST. The dispatch tables carry the page, so the statement and function dispatchers make the far
 call themselves; there are no per-routine stubs in the TPA.
 
-What that costs, measured on the emulator (cycles, at 7.16 MHz 1,000 cycles is 140 µs):
+What that costs, measured on the emulator by `check.py --timing` (in `make check`; cycles, at 7.16 MHz 1,000
+cycles is 140 µs). An arithmetic figure is a JSR to the routine, less loading its operands, averaged over 300
+pairs and rounded to two significant figures. The operand sets: *random* singles have exponents $60–$A0 (2^-32 to
+2^32), *small* singles are n/1, 2, 4, 10 or 3 for |n| ≤ 1,000; *small* integers are within ±181 (no product
+overflows), *full range* ones aren't (an overflow goes on in single, the cost of IADD and IMULT there); doubles
+have exponents $50–$B0. A loop's figure is the loop to 2000 less the loop to 1000, over 1000 passes.
 
 | | cycles |
 |---|---|
-| FARCALL over a JSR/RTS (farcall.s: preserves A, X, Y and the flags both ways, nests; `check.py --timing`) | 281 |
-| `$FADDS` / `$FMULS` / `$FDIVS` / `$FCOMP` (single) | 470 / 1,840 / 3,420 / 300 |
-| `IADD` / `IMULT` / `IDIV` | 110 / 1,010 / 990 |
-| `$FOUT` of a single / of an integer | 18,200 / 2,000 |
-| `$FMULD` / `DDIV` (double) | 14,500 / 20,200 |
-| `10 I%=I%+1 : IF I%<1000 THEN 10`, per pass | 4,680 |
-| `A=A+I%*1.5 : I%=I%+1 : IF I%<1000 THEN ...`, per pass | 10,400 |
+| FARCALL over a JSR/RTS (farcall.s: preserves A, X, Y and the flags both ways, nests) | 281 |
+| `$FADDS` / `$FMULS` / `$FDIVS` / `$FCOMP` (single), random | 360 / 1,700 / 3,200 / 65 |
+| the same, small | 340 / 1,500 / 3,200 / 65 |
+| `IADD` / `IMULT` / `IDIV`, small | 60 / 900 / 940 |
+| the same, full range | 230 / 3,000 / 940 |
+| `$FOUT` of a single, random / small | 20,000 / 16,000 |
+| `$FOUT` of an integer, small / full range | 1,700 / 1,800 |
+| `$FMULD` / `DDIV` (double), random | 14,000 / 20,000 |
+| `10 I%=I%+1 : IF I%<1000 THEN 10`, per pass | 4,700 |
+| `10 A=A+I%*1.5 : I%=I%+1 : IF I%<1000 THEN 10`, per pass | 10,000 |
 
-So a far call adds 1.5% to printing a number (and, estimated, about as much to SIN, which is a polynomial of
+So a far call adds 1.4–1.8% to printing a number (and, estimated, about as much to SIN, which is a polynomial of
 several multiplies), but 8–12% per statement if anything on the statement path were banked: hence the
 resident list. A leaner FARCALL (keeping only A and the flags) would roughly halve the 281.
 
@@ -208,7 +216,7 @@ the project's oracle, settles it.
 - **A mechanical translation would be bigger.** These routines were translated by hand, idiom by idiom
   (multiplies and divides as bit loops, registers as zero page). Phase 7 should do the same.
 - **Speed.** Adds and statements cost hundreds to a few thousand cycles (above), but with no MUL or DIV the
-  multiply and divide are bit loops (1,840 and 3,420 cycles single, 14,500 and 20,200 double). How that
+  multiply and divide are bit loops (1,500–1,700 and 3,200 cycles single, 14,000 and 20,000 double). How that
   compares with an 8088 isn't measured here. Faster multiplies need tables, which cost TPA.
 - **The real PTRGET** wasn't translated: its symbol table search is on every variable reference.
 - **Kludges that must survive:** the byte before NUMCON must read as a harmless token (the 8086 has a RET
