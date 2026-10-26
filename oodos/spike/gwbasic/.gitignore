@@ -1,0 +1,6 @@
+*.o
+spike.bin
+spike.map
+spike.lbl
+run6502
+__pycache__/
