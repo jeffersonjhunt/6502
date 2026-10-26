@@ -38,7 +38,8 @@
  * Pause/Break pulls /NMI (take_nmi()).
  *
  * Mouse. Relative mode adds movement up; absolute mode (MCTRL bit 0) keeps a
- * position clamped to MAXX, MAXY (new limits clamp it at once). Reading MX's low byte latches MX, MY and
+ * position clamped to MAXX, MAXY (a new limit clamps it at once, on its
+ * high byte's write: low byte first). Reading MX's low byte latches MX, MY and
  * MWHEEL together, and in relative mode starts the next sums at 0.
  *
  * Game port. PTRIG starts the 558: each paddle's GAME bit is 1 for about

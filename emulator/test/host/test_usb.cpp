@@ -416,6 +416,22 @@ TEST(new_mouse_limits_clamp_the_position_at_once)
     CHECK_EQ(c.peek(UsbCard::MY) | c.peek(UsbCard::MY + 1) << 8, 191);
 }
 
+TEST(a_limit_raised_across_a_byte_takes_hold_on_its_high_byte)
+{
+    Card c;
+    c.write(UsbCard::MCTRL, UsbCard::ABSOLUTE);
+    c.write(UsbCard::MAXX, 511 & 0xFF);
+    c.write(UsbCard::MAXX + 1, 511 >> 8);
+    c.mouse_to(500, 0);
+    c.write(UsbCard::MAXX, 512 & 0xFF);           // 511 -> 256 for a moment: the low byte alone
+    c.write(UsbCard::MAXX + 1, 512 >> 8);         // must not clamp
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 500);
+    c.mouse_to(512, 0);
+    c.read(UsbCard::MX);
+    CHECK_EQ(c.peek(UsbCard::MX) | c.peek(UsbCard::MX + 1) << 8, 512);
+}
+
 TEST(bus_reset_puts_the_registers_back_and_keeps_the_host_side)
 {
     Card c;

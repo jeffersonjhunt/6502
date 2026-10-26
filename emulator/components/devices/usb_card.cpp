@@ -514,16 +514,14 @@ namespace ooe::emu
             mctrl_ = data & ABSOLUTE;
             break;
         case MAXX:
-            max_x_ = static_cast<uint16_t>((max_x_ & 0xFF00) | data);
-            pos_x_ = clamp(pos_x_, max_x_); // new limits hold the pointer at once
+            max_x_ = static_cast<uint16_t>((max_x_ & 0xFF00) | data); // half a limit: wait for the high byte
             break;
         case MAXX + 1:
             max_x_ = static_cast<uint16_t>((max_x_ & 0xFF) | data << 8);
-            pos_x_ = clamp(pos_x_, max_x_);
+            pos_x_ = clamp(pos_x_, max_x_); // the new limit holds the pointer at once
             break;
         case MAXY:
             max_y_ = static_cast<uint16_t>((max_y_ & 0xFF00) | data);
-            pos_y_ = clamp(pos_y_, max_y_);
             break;
         case MAXY + 1:
             max_y_ = static_cast<uint16_t>((max_y_ & 0xFF) | data << 8);
