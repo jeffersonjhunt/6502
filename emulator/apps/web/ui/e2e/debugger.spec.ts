@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bios, hex4, inKeyLoop } from "./bios-labels";
+import { bios, hex4, inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 async function booted(page: Page) {
   await page.goto("./");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await loadBiosLabels(page);
 }
 
 const pc = (page: Page) => page.getByTestId("reg-pc").textContent();
