@@ -20,6 +20,7 @@
 #include "sound_card.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <vector>
 
@@ -422,6 +423,25 @@ TEST(samples_wait_half_a_second_at_most_and_none_without_a_rate)
     CHECK_EQ(card.audio_frames(), 24'000u);
     card.set_audio_rate(0);
     CHECK_EQ(card.audio_frames(), 0u);
+}
+
+TEST(a_full_buffer_costs_a_sid_write_little)
+{
+    // Nobody taking samples: each write's few new ones push the oldest out,
+    // at the front of half a second's, without moving the rest.
+    SoundCard card;
+    card.set_cpu_hz(SoundCard::PAL_HZ);
+    card.set_audio_rate(48'000);
+    card.tick(SECOND);
+    const auto t0 = std::chrono::steady_clock::now();
+    for (unsigned i = 0; i < 50'000; ++i)
+    {
+        card.write(SoundCard::SID_A + MODE_VOL, i & 1 ? 0x00 : 0x0F);
+        card.tick(21);
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(ms < 500);
+    CHECK_EQ(card.audio_frames(), 24'000u);
 }
 
 TEST(a_d418_sample_is_loud_on_the_6581_and_faint_on_the_8580)
