@@ -153,10 +153,12 @@ IRQ:            PHA
 
 ; Stop what would go on behind the monitor: every DMA channel, the SD card's
 ; command, the sound card's 6510 and SIDs; and turn off the interrupts that
-; IRQ can't answer, so a program run with R can CLI. What it doesn't know
-; (the RTC, a program's own state) is left alone; the serial card the
-; monitor's entry (WOZMON) programs afresh.
+; IRQ can't answer, so a program run with R can CLI: the clock's tick too
+; (its time runs on). What it doesn't know (a program's own state) is left
+; alone; the serial card the monitor's entry (WOZMON) programs afresh.
 QUIET:
+                LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
+                STA     NB_RTCCTL
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BNE     @sd
