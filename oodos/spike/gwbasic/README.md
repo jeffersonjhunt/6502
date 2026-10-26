@@ -166,6 +166,8 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
   zero (including GW-BASIC's sign rules: an add or multiply that overflows gives +∞), and `$FOUT`'s text, for
   random operands, operands with close exponents, small decimal numbers and edge cases (zero, ±1, the largest
   and smallest, -32768, 32767).
+- **The tables:** math1.s's `$FOTB` and powers of ten must equal mbf.py's, which works out the powers of ten
+  as the nearest doubles and copies `$FOTB` from MATH1.ASM. The vectors alone pass with a wrong low byte there.
 - **mbf.py itself against exact arithmetic** (Python's fractions): single and double divide and double
   multiply are correctly rounded in every case; add and subtract in 97% (worst 0.75 ulp) and multiply in 94%
   (worst 0.63 ulp). Those are GW-BASIC's own: the add loses its sticky bit when the sum carries, and the

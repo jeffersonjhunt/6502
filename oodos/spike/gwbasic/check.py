@@ -2,6 +2,8 @@
 
     python3 -I check.py [--seed N] [--count N] [-v]
 
+0. Tables: math1.s's $FOTB and powers of ten must equal mbf.py's. The
+   vectors alone wouldn't catch a wrong low byte there.
 1. Math vectors: thousands of operands, random and chosen at the edges, for
    each translated routine. run6502 runs them all (harness.s) and the
    results must equal mbf.py's byte for byte: the FAC, the type, the error,
@@ -41,9 +43,10 @@ OPS = {
 }
 
 
-def load_tables():
-    """The constants the model needs, from math1.s (checked against the
-    original by hand and by the build's history)."""
+def check_tables():
+    """math1.s's $FOTB and powers of ten must be the model's, which come from
+    MATH1.ASM and from exact arithmetic, not from math1.s. Returns the
+    mismatches."""
     src = open(os.path.join(HERE, "math1.s")).read().split("\n")
 
     def rows(label, n):
@@ -61,11 +64,16 @@ def load_tables():
                     out.append(int(v))
         return out
 
-    mbf.FOTB = rows("FOTB", 32)
+    bad = []
+    if rows("FOTB", 32) != mbf.FOTB:
+        bad.append("FOTB")
     dp = rows("DPM01", 40)
-    mbf.DPM01 = dp[0:8]
+    if dp[0:8] != mbf.DPM01:
+        bad.append("DPM01")
     for n in range(39):
-        mbf.DP[n] = dp[8 + 8 * n:16 + 8 * n]
+        if dp[8 + 8 * n:16 + 8 * n] != mbf.DP[n]:
+            bad.append("DP%02d" % n)
+    return bad
 
 
 # --- Operands --------------------------------------------------------------------
@@ -409,9 +417,11 @@ def main():
     ap.add_argument("--count", type=int, default=400)
     ap.add_argument("-v", action="store_true")
     args = ap.parse_args()
-    load_tables()
     rng = random.Random(args.seed)
     failed = 0
+    bad = check_tables()
+    print("Tables in math1.s: %s" % ("ok" if not bad else "MISMATCH " + " ".join(bad)))
+    failed += len(bad)
     with tempfile.TemporaryDirectory() as work:
         vs = vectors(rng, args.count)
         res = run_vectors(vs, work)

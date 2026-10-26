@@ -386,7 +386,7 @@ the formula evaluator) to 6502, linked as a `.COM` at `$0300`, and checked them 
 - **No far calls on the hot paths.** A FARCALL costs 263 cycles over a JSR; one pass of
   `I%=I%+1 : IF I%<1000 THEN …` is 4,680 and printing a single about 18,200. So far calls happen once per PRINT,
   INPUT, banked function, I/O statement or typed line, and the statement path stays resident.
-- **Correct:** 93,289 math vectors bit for bit against an independent model of Microsoft's binary format
+- **Correct:** 93,289 math vectors bit for bit against a Python model written from the 8086 source
   (`mbf.py`), and seven BASIC programs; the image passes the 65C816 rules (`rules.py`). One finding for phase 7 to
   check against PC-BASIC: the 1983 source prints 1/3 as `.3333334`.
 
