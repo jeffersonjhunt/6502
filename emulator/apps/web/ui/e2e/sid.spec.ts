@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fakeSid } from "../src/port/fake-sid";
 
-const GREETING = "BACKPLANE BIOS 0.7";
+const GREETING = "BACKPLANE BIOS 0.8";
 const peak = async (page: import("@playwright/test").Page) => Number(await page.getByTestId("tb-sound").getAttribute("data-peak"));
 
 test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop", async ({ page }) => {

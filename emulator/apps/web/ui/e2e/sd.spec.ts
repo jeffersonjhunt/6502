@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // mkfs.fat and mtools) listed by C809R and booted by C80CR, and a raw card
 // written by a program typed at the monitor, saved with the write.
 
-const GREETING = "BACKPLANE BIOS 0.7";
+const GREETING = "BACKPLANE BIOS 0.8";
 
 async function booted(page: Page) {
   await page.goto("./");

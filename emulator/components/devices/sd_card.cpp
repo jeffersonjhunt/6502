@@ -353,7 +353,7 @@ namespace ooe::emu
             return fail(ERR_NO_FAT);
         u.mounted = true;
         u.read_only = (param[1] & MOUNT_READ_ONLY) || (file.attributes & FatVolume::READ_ONLY);
-        u.sectors = file.size / SECTOR;
+        u.sectors = (uint64_t{file.size} + SECTOR - 1) / SECTOR; // a last part-sector too
         u.name = file.name;
         units_[n] = std::move(u);
         done();

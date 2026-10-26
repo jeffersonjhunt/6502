@@ -104,7 +104,7 @@ SD_LIST         = $A2
 SD_IDENTIFY     = $EC
 SD_NOT_FOUND    = 8                    ; ERROR
 SD_ID_V1        = $71
-SD_ZP           = $F0                  ; $F0-$F4: sd.s
+SD_ZP           = $F0                  ; $F0-$F5: sd.s
 
 ; DMA channel 0, storage's.
 DMA0_ADDR       = DMA + $00
