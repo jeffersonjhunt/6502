@@ -14,7 +14,7 @@ namespace ooe::emu
     {
         constexpr uint64_t SDSC_MAX = 2ull << 30, SDHC_MAX = 32ull << 30; ///< bytes
         constexpr uint8_t CARD_SDSC = 1, CARD_SDHC = 2, CARD_SDXC = 3;
-        constexpr unsigned NAME = 0x10, NAME_BYTES = 32;
+        constexpr unsigned NAME = 0x10, NAME_BYTES = 32, UNIT_TABLE = 0x40, UNIT_ENTRY = 32, UNIT_NAME = 24;
 
         void put32(uint8_t *at, uint64_t v)
         {
@@ -28,6 +28,7 @@ namespace ooe::emu
         now_ = 0;
         ready_at_ = us(uint64_t{INIT_MS} * 1000);
         abandon();
+        unmount_all(); // the RP2350 starts afresh
         ctrl_ = status_err_ = error_ = unit_ = ien_ = isr_ = 0;
         lba_ = 0;
         count_ = 0;
@@ -41,10 +42,17 @@ namespace ooe::emu
         count_ = 0;
     }
 
+    void SdCard::unmount_all()
+    {
+        for (Unit &u : units_)
+            u = Unit{};
+    }
+
     void SdCard::insert(std::shared_ptr<SdMedia> media, bool changed)
     {
         if (op_ != Op::None)
             fail(ERR_NO_CARD); // the old card went with it
+        unmount_all();
         media_ = std::move(media);
         ready_at_ = now_ + us(uint64_t{INIT_MS} * 1000);
         if (changed)
@@ -57,6 +65,7 @@ namespace ooe::emu
             return;
         if (op_ != Op::None)
             fail(ERR_NO_CARD);
+        unmount_all();
         media_.reset();
         isr_ = static_cast<uint8_t>(isr_ | IRQ_CARD);
     }
@@ -113,9 +122,12 @@ namespace ooe::emu
         case WRITE:
         case FLUSH:
         case IDENTIFY:
+        case MOUNT:
+        case UNMOUNT:
+        case LIST:
             break;
         default:
-            fail(ERR_COMMAND); // MOUNT, UNMOUNT and LIST included, for now
+            fail(ERR_COMMAND);
             return;
         }
         if (!ready())
@@ -123,47 +135,98 @@ namespace ooe::emu
             fail(ERR_NO_CARD);
             return;
         }
+        abandon();
+        cmd_ = command;
+        op_unit_ = unit_;
         total_ = passed_ = worked_ = 0;
         media_lba_ = lba_;
-        working_ = true;
-        if (command == FLUSH)
+        switch (command)
         {
-            op_ = Op::Flush;
+        case FLUSH:
+            op_ = Op::Work;
+            working_ = true;
             due_ = now_ + us(ACCESS_US);
             return;
-        }
-        if (command == IDENTIFY)
-        {
-            op_ = Op::Read;
+        case UNMOUNT:
+            if (!units_[op_unit_].mounted)
+            {
+                fail(ERR_UNIT); // unit 0 never is
+                return;
+            }
+            op_ = Op::Work;
+            working_ = true;
+            due_ = now_ + us(ACCESS_US);
+            return;
+        case IDENTIFY:
+            identify();
+            reply(us(ACCESS_US));
+            return;
+        case MOUNT:
+        case LIST:
+            op_ = Op::Write; // their sector, into DATA
             firmware_ = true;
             total_ = 1;
-            due_ = now_ + us(ACCESS_US);
+            count_ = 1;
             return;
+        default:
+            break;
         }
-        if (unit_ != 0)
+        const Unit &u = units_[op_unit_];
+        if (op_unit_ != 0 && !u.mounted)
         {
             fail(ERR_UNIT);
             return;
         }
         total_ = sectors_left();
-        if (media_lba_ + total_ > media_->sectors())
+        if (media_lba_ + total_ > (op_unit_ ? u.sectors : media_->sectors()))
         {
             fail(ERR_RANGE);
             return;
         }
         if (command == WRITE)
         {
-            if (media_->write_protected())
+            if (media_->write_protected() || u.read_only)
             {
                 fail(ERR_WP);
                 return;
             }
-            op_ = Op::Write;
-            working_ = false; // nothing to program until a sector arrives
+            op_ = Op::Write; // nothing to program until a sector arrives
             return;
         }
         op_ = Op::Read;
+        working_ = true;
         due_ = now_ + us(ACCESS_US);
+    }
+
+    void SdCard::reply(uint64_t after)
+    {
+        op_ = Op::Read;
+        firmware_ = true;
+        total_ = reply_.size() / SECTOR;
+        passed_ = worked_ = 0;
+        full_ = head_ = 0;
+        pos_ = 0;
+        working_ = true;
+        due_ = now_ + after;
+    }
+
+    bool SdCard::card_sector(uint64_t lba, uint64_t &out) const
+    {
+        if (op_unit_ == 0)
+        {
+            out = lba;
+            return true;
+        }
+        const std::vector<FatVolume::Extent> &ext = units_[op_unit_].extents;
+        auto it = std::upper_bound(ext.begin(), ext.end(), lba,
+                                   [](uint64_t v, const FatVolume::Extent &e) { return v < e.first; });
+        if (it == ext.begin())
+            return false;
+        --it;
+        if (lba >= it->first + it->count)
+            return false;
+        out = it->card + (lba - it->first);
+        return true;
     }
 
     void SdCard::advance()
@@ -175,14 +238,15 @@ namespace ooe::emu
                 fail(ERR_NO_CARD);
                 return;
             }
+            uint64_t lba = 0;
             switch (op_)
             {
             case Op::Read:
             {
                 uint8_t *into = buf_[(head_ + full_) % 2].data();
                 if (firmware_)
-                    identify(into);
-                else if (!media_->read(media_lba_, into))
+                    std::copy_n(reply_.begin() + static_cast<std::ptrdiff_t>(worked_ * SECTOR), SECTOR, into);
+                else if (!card_sector(media_lba_, lba) || !media_->read(lba, into))
                 {
                     fail(ERR_TIMEOUT);
                     return;
@@ -195,7 +259,7 @@ namespace ooe::emu
                 break;
             }
             case Op::Write:
-                if (!media_->write(media_lba_, buf_[head_].data()))
+                if (!card_sector(media_lba_, lba) || !media_->write(lba, buf_[head_].data()))
                 {
                     fail(ERR_TIMEOUT);
                     return;
@@ -212,26 +276,130 @@ namespace ooe::emu
                 working_ = full_ > 0;
                 due_ += us(SECTOR_US);
                 break;
-            case Op::Flush:
-                if (!media_->flush())
-                    fail(ERR_TIMEOUT);
-                else
-                    done();
-                return;
+            case Op::Work:
+                work(); // may go on to a reply, which this loop then fetches
+                break;
             case Op::None:
                 return;
             }
         }
     }
 
+    void SdCard::work()
+    {
+        switch (cmd_)
+        {
+        case FLUSH:
+            if (!media_->flush())
+                fail(ERR_TIMEOUT);
+            else
+                done();
+            return;
+        case UNMOUNT:
+            units_[op_unit_] = Unit{};
+            done();
+            return;
+        case MOUNT:
+            mount(buf_[head_].data());
+            return;
+        case LIST:
+            list(buf_[head_].data());
+            return;
+        default:
+            done();
+            return;
+        }
+    }
+
+    namespace
+    {
+        /// A NUL-terminated path in a parameter sector. @return false if it runs off the end
+        bool path_at(const uint8_t *p, size_t room, std::string &out)
+        {
+            const uint8_t *end = std::find(p, p + room, uint8_t{0});
+            if (end == p + room)
+                return false;
+            out.assign(reinterpret_cast<const char *>(p), static_cast<size_t>(end - p));
+            return true;
+        }
+    } // namespace
+
+    void SdCard::mount(const uint8_t *param)
+    {
+        const unsigned n = param[0];
+        std::string path, error;
+        if (n < 1 || n >= UNITS)
+            return fail(ERR_UNIT);
+        if (!path_at(param + 2, SECTOR - 2, path))
+            return fail(ERR_NOT_FOUND);
+        const std::unique_ptr<FatVolume> volume = FatVolume::open(*media_, error);
+        if (!volume)
+            return fail(ERR_NO_FAT);
+        FatVolume::Entry file;
+        Unit u;
+        switch (volume->find(path, file))
+        {
+        case FatVolume::Status::Ok:
+            break;
+        case FatVolume::Status::NotFound:
+            return fail(ERR_NOT_FOUND);
+        case FatVolume::Status::Damaged:
+            return fail(ERR_NO_FAT);
+        }
+        if (file.attributes & FatVolume::DIRECTORY)
+            return fail(ERR_NOT_FOUND);
+        if (volume->extents(file, u.extents) != FatVolume::Status::Ok)
+            return fail(ERR_NO_FAT);
+        u.mounted = true;
+        u.read_only = (param[1] & MOUNT_READ_ONLY) || (file.attributes & FatVolume::READ_ONLY);
+        u.sectors = file.size / SECTOR;
+        u.name = file.name;
+        units_[n] = std::move(u);
+        done();
+    }
+
+    void SdCard::list(const uint8_t *param)
+    {
+        std::string path, error;
+        if (!path_at(param, SECTOR, path))
+            return fail(ERR_NOT_FOUND);
+        const std::unique_ptr<FatVolume> volume = FatVolume::open(*media_, error);
+        if (!volume)
+            return fail(ERR_NO_FAT);
+        std::vector<FatVolume::Entry> entries;
+        switch (volume->list(path, entries))
+        {
+        case FatVolume::Status::Ok:
+            break;
+        case FatVolume::Status::NotFound:
+            return fail(ERR_NOT_FOUND);
+        case FatVolume::Status::Damaged:
+            return fail(ERR_NO_FAT);
+        }
+        const size_t per = SECTOR / LIST_ENTRY;
+        const size_t sectors = entries.size() / per + 1; // always room for the zero entry after the last
+        reply_.assign(sectors * SECTOR, 0);
+        for (size_t i = 0; i < entries.size(); ++i)
+        {
+            uint8_t *e = reply_.data() + i * LIST_ENTRY;
+            for (unsigned k = 0; k < 4; ++k)
+                e[k] = static_cast<uint8_t>(entries[i].size >> (8 * k));
+            e[4] = entries[i].attributes;
+            const std::string &name = entries[i].name;
+            std::copy_n(name.begin(), std::min(name.size(), LIST_NAME), e + 8);
+        }
+        count_ = static_cast<uint16_t>(sectors);
+        reply(0);
+    }
+
     void SdCard::sector_passed()
     {
         pos_ = 0;
         ++passed_;
-        if (firmware_)
-            return; // IDENTIFY's sector isn't the card's: LBA and COUNT stay
-        ++lba_;
-        --count_;
+        if (!firmware_)
+            ++lba_; // the firmware's sectors aren't the card's
+        if (cmd_ != IDENTIFY)
+            --count_;
     }
 
     uint8_t SdCard::take_byte()
@@ -262,6 +430,13 @@ namespace ooe::emu
         if (++pos_ < SECTOR)
             return;
         sector_passed();
+        if (firmware_)
+        {
+            op_ = Op::Work; // MOUNT's or LIST's sector, in buf_[head_]
+            working_ = true;
+            due_ = now_ + us(ACCESS_US);
+            return;
+        }
         ++full_;
         if (!working_)
         {
@@ -270,20 +445,31 @@ namespace ooe::emu
         }
     }
 
-    void SdCard::identify(uint8_t *out) const
+    void SdCard::identify()
     {
-        std::fill(out, out + SECTOR, uint8_t{0});
-        if (!media_)
-            return;
+        reply_.assign(SECTOR, 0);
+        uint8_t *out = reply_.data();
         const uint64_t sectors = media_->sectors();
         put32(out, std::min<uint64_t>(sectors, 0xFFFFFFFF));
         const uint64_t bytes = sectors * SECTOR;
         out[4] = bytes <= SDSC_MAX ? CARD_SDSC : bytes <= SDHC_MAX ? CARD_SDHC : CARD_SDXC;
-        out[5] = media_->write_protected() ? 0x01 : 0x00;
+        std::string error;
+        out[5] = static_cast<uint8_t>((media_->write_protected() ? ID_WP : 0) |
+                                      (FatVolume::open(*media_, error) ? ID_FAT : 0));
         out[6] = VERSION_MAJOR;
         out[7] = VERSION_MINOR;
         const std::string &name = media_->name();
         std::copy_n(name.begin(), std::min<size_t>(name.size(), NAME_BYTES), out + NAME);
+        for (unsigned n = 1; n < UNITS; ++n)
+        {
+            const Unit &u = units_[n];
+            if (!u.mounted)
+                continue;
+            uint8_t *e = out + UNIT_TABLE + UNIT_ENTRY * (n - 1);
+            put32(e, std::min<uint64_t>(u.sectors, 0xFFFFFFFF));
+            e[4] = static_cast<uint8_t>(UNIT_MOUNTED | (u.read_only ? UNIT_READ_ONLY : 0));
+            std::copy_n(u.name.begin(), std::min<size_t>(u.name.size(), UNIT_NAME), e + 8);
+        }
     }
 
     uint8_t SdCard::read(uint32_t offset)

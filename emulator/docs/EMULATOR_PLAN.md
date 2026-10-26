@@ -708,8 +708,22 @@ the access time plus a cycle a byte, as test_sd checks on the backplane
 with real 6502 code. The media is `SdMedia`: `MemoryMedia` for the
 WebUI, `FileMedia` for `emulator --sd FILE`, which writes through to the
 file. `Session::insert_sd` keeps the card in its slot through power
-cycles. Next: FAT and MOUNT, UNMOUNT and LIST (units 1-7), then the BIOS
-and the WebUI.
+cycles.
+
+**FAT on the SD card (2026-10-25), part 2 (9b).** `FatVolume`
+(fat_volume.h) is as much FAT as the RP2350 needs. It reads FAT12, FAT16
+and FAT32, on a whole card or in an MBR's first FAT partition, with long
+names. It finds paths, lists directories, and maps a file's sectors to
+runs on the card. MOUNT, UNMOUNT and LIST use it: units 1-7 are image
+files, written in place within their own clusters, so the FAT is never
+written. A chain that is short, runs on or loops is "damaged", not a hang.
+test_sd_fat checks it against images made by mkfs.fat, mtools and sfdisk,
+not by us. `tools/make_sd_images.sh` builds them in a throwaway container
+and keeps their non-zero sectors as text in `test/host/sd/`. Hand-patched
+copies of those images reach the corners mtools doesn't make: Windows NT's
+lower-case flags, `$05`, a non-ASCII long name, a broken checksum, a FAT32
+cluster past 65,535 and the reserved top bits. Next: the BIOS and the
+WebUI.
 
 ## Backlog
 
