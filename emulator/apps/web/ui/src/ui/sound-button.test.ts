@@ -61,7 +61,7 @@ describe("sound button", () => {
     expect(m.speaker.on).toBe(false);
   });
 
-  test("sound that will not start: it says why, and is not tried again at the next load", async () => {
+  test("sound that will not start: it says why, and stays off", async () => {
     const port = new FakePort({ audio: true });
     const speaker = new Speaker(port, async () => Promise.reject(new Error("no worklet")));
     const b = soundButton(speaker, true);
@@ -70,7 +70,7 @@ describe("sound button", () => {
     await settle();
     expect(speaker.on).toBe(false);
     expect(el.title).toBe("No sound: no worklet");
-    expect(prefs.get("sound")).toBe("off");
+    expect(el.getAttribute("aria-pressed")).toBe("false");
   });
 
   test("the meter shows the peak while on", async () => {
