@@ -202,6 +202,9 @@ namespace ooe::emu
         lp_ += w_ * bp_;
         const float hp = in - lp_ - q1_ * bp_;
         bp_ += w_ * hp;
+        // Fed nothing, the state decays into denormals, slow on some machines: far below hearing, flush it.
+        if (std::fabs(lp_) < 1e-20f && std::fabs(bp_) < 1e-20f) // both: either alone can stall the other
+            lp_ = bp_ = 0;
         const float filtered = (mode & LP ? lp_ : 0.0f) + (mode & BP ? bp_ : 0.0f) + (mode & HP ? hp : 0.0f);
         out_ = (direct + filtered + mixer_dc_) * static_cast<float>(mode & 0x0F) / 15.0f;
         return out_;

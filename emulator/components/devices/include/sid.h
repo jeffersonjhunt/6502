@@ -134,6 +134,8 @@ namespace ooe::emu
         float output() const { return out_; }
         /// The filter's cutoff in Hz, as the registers set it.
         float cutoff_hz() const;
+        /// The filter's state: its low-pass and band-pass outputs.
+        std::array<float, 2> filter_state() const { return {lp_, bp_}; }
 
         const std::array<uint8_t, REGS> &regs() const { return regs_; }
         const Voice &voice(unsigned n) const { return voices_[n % 3]; }

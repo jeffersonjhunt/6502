@@ -246,6 +246,27 @@ TEST(an_attack_from_zero_is_not_silence)
     CHECK(mean > -0.6 + 0.4 && mean < -0.6 + 0.6);
 }
 
+TEST(the_filter_settles_to_zero_not_to_denormals)
+{
+    // Voice 1 rings the filter, then goes straight to the mixer: the filter,
+    // fed nothing, decays, while the voice keeps the chip from resting.
+    Sid s = playing(Sid::Model::Mos6581, Sid::PULSE, 300);
+    s.write(0x03, 0x08);
+    set_cutoff(s, 2000);
+    s.write(RES_FILT, 0x01);
+    s.write(MODE_VOL, 0x1F);
+    s.clock_audio(5'000);
+    s.write(RES_FILT, 0x00);
+    for (int i = 0; i < 20; ++i)
+    {
+        s.clock_audio(50'000);
+        for (const float v : s.filter_state())
+            CHECK(std::fpclassify(v) != FP_SUBNORMAL);
+    }
+    for (const float v : s.filter_state())
+        CHECK_EQ(v, 0.0f);
+}
+
 TEST(reset_stills_the_filter)
 {
     Sid s = playing(Sid::Model::Mos8580, Sid::PULSE, 300);
