@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDebugger } from "./ui";
 
 // The north bridge's real-time clock on the Devices tab: set from this
 // computer's clock when the page opened, and counting.
@@ -12,6 +13,7 @@ test("the Devices tab shows the clock, set from this computer's, and it ticks", 
   test.setTimeout(45_000); // the boot's 15 s and the tick's 15 s
   const year = new Date().getFullYear(); // before booting: midnight on 31 December may pass meanwhile
   await booted(page);
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const rtc = page.getByTestId("dev-rtc");
   const time = rtc.locator('[data-reg="Time"]');

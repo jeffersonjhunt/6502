@@ -47,7 +47,8 @@
 @media (max-width: 980px) {
   body.drawer-open { --dbg: 0px; }
   .drawer {
-    position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; height: auto;
+    position: fixed; z-index: 40; top: 0; right: 0; bottom: 0;
+    height: 100vh; height: 100dvh; /* stated: WebKit shrinks a fixed grid item with align-self: start to its content */
     width: min(440px, 100vw);
     box-shadow: -20px 0 40px #000a;
   }

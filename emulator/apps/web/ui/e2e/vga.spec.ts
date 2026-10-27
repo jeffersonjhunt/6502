@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDebugger, phosphor } from "./ui";
 
-// The VGA scene: the video card's frames, as the BIOS draws its screen.
+// Display: the video card's frames (the VGA scene), as the BIOS draws its screen.
 
 async function booted(page: Page) {
   await page.goto("./");
@@ -34,19 +35,19 @@ function litInRow(page: Page, row: number) {
 
 test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
   // The B of BACKPLANE (row 1): glyph row 2 is 11111100. P3 amber, at light grey's brightness.
   await expect.poll(() => pixel(page, 0, 18)).toEqual([169, 116, 0]);
   expect(await pixel(page, 6, 18)).toEqual([0, 0, 0]);
-  await page.getByRole("button", { name: "Colour" }).click();
+  await phosphor(page, "Colour");
   await expect.poll(() => pixel(page, 0, 18)).toEqual([170, 170, 170]); // the CGA's light grey, as the card made it
   await page.screenshot({ path: `test-results/vga-${test.info().project.name}.png` });
 });
 
 test("typing shows on VGA too, and the scene is remembered", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   await expect.poll(() => pixel(page, 0, 18)).not.toEqual([0, 0, 0]);
   expect(await litInRow(page, 4)).toBe(0);
   await page.getByTestId("crt").click();
@@ -62,6 +63,7 @@ test("typing shows on VGA too, and the scene is remembered", async ({ page }) =>
 
 test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await booted(page);
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const dev = page.getByTestId("dev-video");
   await expect(dev.locator('[data-reg="CTRL"]')).toHaveText("$03  display · layer 0");
@@ -76,9 +78,15 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await expect(sound.locator('[data-reg="Timer A"]')).toHaveText("$FFFF of $FFFF · stopped");
 });
 
-test("the page credits the screen font", async ({ page }) => {
+test("the page credits its fonts, in Settings' About", async ({ page }) => {
   await booted(page);
+  await page.getByTestId("about-link").click(); // under the panel
+  await expect(page.getByTestId("settings")).toBeVisible();
+  await expect(page.locator("#set-about")).toBeFocused();
   const credits = page.getByTestId("credits");
+  await expect(credits).toBeVisible();
+  for (const font of ["Inter", "JetBrains Mono", "VT323"]) await expect(credits.getByRole("link", { name: font, exact: true })).toBeVisible();
+  await expect(credits.getByRole("link", { name: "SIL Open Font License 1.1" })).toHaveAttribute("href", "https://openfontlicense.org/");
   await expect(credits).toContainText("IBM VGA 8×16");
   await expect(credits.getByRole("link", { name: "VileR's Ultimate Oldschool PC Font Pack" })).toHaveAttribute(
     "href",
@@ -103,26 +111,31 @@ function colours(page: Page) {
 
 test("C803R runs the video demo on VGA, and a key goes back to the monitor", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "VGA" }).click();
-  await page.getByRole("button", { name: "Colour" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
+  await phosphor(page, "Colour");
   await expect.poll(() => pixel(page, 0, 18)).toEqual([170, 170, 170]);
   expect(await colours(page)).toBeLessThan(5); // the text screen: grey on black
   await page.getByTestId("crt").click();
   await page.keyboard.type("C803R");
   await page.keyboard.press("Enter");
   await expect.poll(() => colours(page), { timeout: 10_000 }).toBeGreaterThan(12); // sky, hills, balls, caption
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   await expect(page.getByTestId("dev-video").locator('[data-reg="Sprites"]')).toContainText("on · table $89000");
   await page.screenshot({ path: `test-results/vga-demo-${test.info().project.name}.png` });
   await page.getByTestId("crt").click();
   await page.keyboard.press("x");
+  // The demo over, the machine's on the BIOS's screen again: the monitor follows it back to Terminal.
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text", { timeout: 10_000 });
+  await page.getByRole("button", { name: "Display" }).click();
   await expect.poll(() => pixel(page, 0, 18), { timeout: 10_000 }).toEqual([170, 170, 170]); // the screen as it was
   await expect.poll(() => colours(page)).toBeLessThan(5);
   await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\");
 });
 
-test("on VGA the keyboard is the USB card's; on Text it is the serial line's", async ({ page }) => {
+test("on VGA the keyboard is the USB card's; on Terminal it is the serial line's", async ({ page }) => {
   await booted(page);
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const key = page.getByTestId("dev-usb").locator('[data-reg="KEY"]');
   await expect(page.getByRole("button", { name: "CAPS" })).toBeEnabled();
@@ -131,7 +144,7 @@ test("on VGA the keyboard is the USB card's; on Text it is the serial line's", a
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("crt-text")).toContainText("C680: 00");
   await expect(key).toHaveText("$00 ^@");                      // serial: the USB card saw nothing
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   await expect(page.getByRole("button", { name: "CAPS" })).toBeDisabled();
   await page.getByTestId("crt").click();
   await page.keyboard.type("c684");                            // lowercase: the card's Caps Lock makes capitals
@@ -142,7 +155,7 @@ test("on VGA the keyboard is the USB card's; on Text it is the serial line's", a
 
 test("on VGA the mouse is the USB card's: the monitor reads its position", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   await page.getByTestId("crt").click();
   // MCTRL: absolute. The colon is pressed as Shift+; because the USB card takes key codes, and WebKit's typed ":"
   // is the ; key without Shift.
@@ -166,19 +179,20 @@ test("on VGA the mouse is the USB card's: the monitor reads its position", async
 
 test("Cmd shortcuts are the browser's, and a key held when focus goes is let go", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   await page.getByTestId("crt").click();
   await page.keyboard.down("Shift");
   await expect(page.getByTestId("dev-usb").locator('[data-reg="Modifiers"]')).toHaveText("L-Shift");
-  await page.getByRole("button", { name: "Text" }).click();    // focus leaves the screen
+  await page.getByRole("button", { name: "Terminal" }).click(); // focus leaves the screen
   await expect(page.getByTestId("dev-usb").locator('[data-reg="Modifiers"]')).toHaveText("none");
   await page.keyboard.up("Shift");
 });
 
 test("a long paste on the USB keyboard can be stopped: Stop typing drops the rest", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   const stop = page.getByTestId("stop-typing");
   await expect(stop).toBeHidden();
   await page.getByTestId("crt").evaluate((glass, text) => {

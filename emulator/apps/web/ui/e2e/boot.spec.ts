@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openSettings, phosphor } from "./ui";
 
 const GREETING = "BACKPLANE BIOS 0.9";
 
@@ -79,30 +80,27 @@ test("the CRT is never scaled up: the canvas has at least the pixels the display
 
 test("phosphor sets the glow and is remembered", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "P1" }).click();
+  await phosphor(page, "P1");
   const halo = () => page.evaluate(() => document.documentElement.style.getPropertyValue("--halo"));
   expect(await halo()).toBe("#33ff6614");
   await page.reload();
+  await openSettings(page);
   await expect(page.getByRole("button", { name: "P1" })).toHaveAttribute("aria-pressed", "true");
   expect(await halo()).toBe("#33ff6614");
 });
 
-test("Apple II shows NO SIGNAL until the machine is in Apple II mode", async ({ page }) => {
+test("Display is the video card, Terminal the serial line; the monitor says which", async ({ page }) => {
   await booted(page);
-  await page.getByRole("button", { name: "Apple II" }).click();
-  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "apple");
-  // The middle of the screen is lit (the NO SIGNAL caption); text mode's middle is dark.
-  const lit = () => page.evaluate(() => {
-    const c = document.querySelector<HTMLCanvasElement>("[data-testid=crt] canvas")!;
-    const k = c.width / 640; // the canvas holds more pixels than VGA's 640x480
-    const d = c.getContext("2d")!.getImageData(200 * k, 210 * k, 240 * k, 40 * k).data;
-    let n = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 200) n++;
-    return n;
-  });
-  await expect.poll(lit).toBeGreaterThan(50); // drawn on the next animation frame
-  await page.screenshot({ path: `test-results/no-signal-${test.info().project.name}.png` });
-  await page.getByRole("button", { name: "Text" }).click();
+  const label = page.getByTestId("mon-label");
+  await expect(label).toHaveText("Terminal · the serial line");
+  await expect(label).toHaveCSS("text-transform", "uppercase");
+  await page.getByRole("button", { name: "Display" }).click();
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // not in Apple II mode: VGA
+  await expect(label).toHaveText("Display · VGA 640×480");
+  await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Terminal" }).click();
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text");
+  await expect(page.getByTestId("crt")).toBeFocused(); // the keyboard back on the screen
   await expect(page.getByTestId("crt-text")).toContainText(GREETING);
 });
 
@@ -136,7 +134,7 @@ test("Ctrl+V and Shift+Insert paste, on the serial terminal and on the USB keybo
   await clip("c681\n");
   await page.keyboard.press("Shift+Insert");
   await expect(page.getByTestId("crt-text")).toContainText("C681: 01");
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   await page.getByTestId("crt").click();
   await clip("c682\n");
   await page.keyboard.press("Control+V");
@@ -163,7 +161,7 @@ test("F6 takes the keyboard off the screen to what follows it, Shift+F6 to what 
   await page.keyboard.type("c680");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("crt-text")).toContainText(/\\\nC680\n+C680: 00/); // nothing typed before it
-  await page.getByRole("button", { name: "VGA" }).click();
+  await page.getByRole("button", { name: "Display" }).click();
   await expect(crt).toHaveAttribute("aria-label", /F6 leaves the screen/);
   await crt.click();
   await page.keyboard.press("F6");

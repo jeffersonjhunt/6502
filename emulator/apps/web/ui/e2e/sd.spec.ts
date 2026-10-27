@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDebugger, openSettings } from "./ui";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { bios, hex4, loadBiosLabels } from "./bios-labels";
@@ -34,10 +35,13 @@ async function command(page: Page, line: string) {
 
 test("a FAT card goes in, C809R lists it and C80CR boots its BOOT.BIN", async ({ page }) => {
   await booted(page);
+  await openSettings(page);
   await expect(page.getByTestId("sd-bar")).toBeVisible();
   await expect(page.getByTestId("sd-eject")).toBeHidden();
   await page.getByTestId("sd-file").setInputFiles({ name: "fat12.img", mimeType: "application/octet-stream", buffer: image("fat12.sparse") });
-  await expect(page.getByTestId("sd-insert")).toHaveText("fat12.img (1440 KB)");
+  await expect(page.getByTestId("sd-name")).toHaveText("fat12.img");
+  await expect(page.getByTestId("sd-meta")).toHaveText("1440 KB");
+  await expect(page.getByTestId("pill-sd")).toHaveText("SD 1440 KB");
   await expect(page.getByTestId("sd-note")).toHaveText("C809R lists the card; C80CR boots its /BOOT.BIN");
   await page.getByRole("application", { name: "Terminal: click and type" }).click(); // the keys back to the terminal
   await command(page, "C809R");
@@ -48,6 +52,7 @@ test("a FAT card goes in, C809R lists it and C80CR boots its BOOT.BIN", async ({
   await command(page, "C80CR");
   await expect(crt).toContainText("BOOTED FROM SD");
   await expect(page.getByTestId("sd-save")).not.toHaveClass(/on/); // read, not written
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const dev = page.getByTestId("dev-sd");
   await expect(dev.locator('[data-reg="Card"]')).toHaveText("fat12.img · 2880 sectors (1440 KB)");
@@ -60,7 +65,8 @@ test("the machine's writes are noted, and Save card downloads them; the page doe
   await booted(page);
   const raw = Buffer.alloc(64 * 512);
   await page.getByTestId("sd-file").setInputFiles({ name: "raw.img", mimeType: "application/octet-stream", buffer: raw });
-  await expect(page.getByTestId("sd-insert")).toHaveText("raw.img (32 KB)");
+  await expect(page.getByTestId("sd-name")).toHaveText("raw.img");
+  await expect(page.getByTestId("sd-meta")).toHaveText("32 KB");
   await page.getByRole("application", { name: "Terminal: click and type" }).click(); // the keys back to the terminal
   // WRITE sector 0, $AA throughout, by a CPU loop, then JMP back to the monitor (WOZMON).
   const woz = hex4(bios("WOZMON"));
@@ -68,9 +74,10 @@ test("the machine's writes are noted, and Save card downloads them; the page doe
   await command(page, `1013: A0 00 A9 AA 8D 8C C3 C8 D0 FA 8D 8C C3 C8 D0 FA 4C ${woz.slice(2)} ${woz.slice(0, 2)}`);
   await command(page, "1000R");
   await expect(page.getByTestId("crt-text")).toHaveText(/\\$/); // back at the monitor's prompt
-  await expect(page.getByTestId("sd-note")).toHaveText("Written to: Save card to keep it, as the page forgets it");
+  await expect(page.getByTestId("sd-note")).toHaveText("Written to: Save to keep it, as the page forgets it");
   await expect(page.getByTestId("sd-save")).toHaveClass(/on/);
 
+  await openSettings(page);
   const download = page.waitForEvent("download");
   await page.getByTestId("sd-save").click();
   const file = await download;
@@ -83,7 +90,7 @@ test("the machine's writes are noted, and Save card downloads them; the page doe
 
   await page.reload(); // saved: nothing to ask about, and the card is gone with the page
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
-  await expect(page.getByTestId("sd-insert")).toHaveText("Insert SD card…");
+  await expect(page.getByTestId("sd-meta")).toHaveText("empty");
 });
 
 test("a file that isn't a card is refused, and says why", async ({ page }) => {
