@@ -85,6 +85,7 @@ test("the ROM is kept in this browser: back after a reload; Eject forgets it", a
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "apple");
   await openSettings(page);
+  page.once("dialog", (d) => void d.accept()); // in Apple II mode it asks: the IIe's program would go
   await page.getByTestId("apple-eject").click();
   await expect(page.getByTestId("apple-meta")).toHaveText(/^none/);
   await expect(page.getByTestId("apple-insert")).toBeVisible();

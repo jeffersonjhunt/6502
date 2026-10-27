@@ -15,7 +15,9 @@
  * Settings has a row for each part (takePart): the IIe ROM's takes any of
  * the files at once, as sortRoms does, keeping the parts already in that
  * the pick doesn't replace; the others take their own file, and need the
- * IIe ROM in first (a cartridge is nothing without it).
+ * IIe ROM in first (a cartridge is nothing without it). Ejecting the IIe
+ * ROM keeps the parts (forgetRom, keptParts): they go back in with the
+ * next one.
  */
 
 import type { Cartridge } from "../port/machine-port";
@@ -96,17 +98,20 @@ export function sortRoms(files: RomFile[], current: Cartridge | null = null): Ca
 }
 
 export type RomPart = "rom" | "chars" | "diskBoot" | "diskSequencer";
+/** A cartridge's parts but the IIe ROM. */
+export type RomParts = Omit<Cartridge, "rom">;
 
-/** The cartridge with `files` in as `part` (see above); or why not. */
-export function takePart(part: RomPart, files: RomFile[], current: Cartridge | null): Cartridge | string {
+/** The cartridge with `files` in as `part` (see above); or why not. `spare`: parts kept with no IIe ROM in, for the next. */
+export function takePart(part: RomPart, files: RomFile[], current: Cartridge | null, spare: RomParts | null = null): Cartridge | string {
   if (part === "rom") {
     const c = sortRoms(files, null);
     if (typeof c === "string") return c;
+    const had = current ?? spare;
     return {
       rom: c.rom,
-      chars: c.chars ?? current?.chars ?? null,
-      diskBoot: c.diskBoot ?? current?.diskBoot ?? null,
-      diskSequencer: c.diskSequencer ?? current?.diskSequencer ?? null,
+      chars: c.chars ?? had?.chars ?? null,
+      diskBoot: c.diskBoot ?? had?.diskBoot ?? null,
+      diskSequencer: c.diskSequencer ?? had?.diskSequencer ?? null,
     };
   }
   if (!current) return "Load the Apple IIe ROM first: the cartridge needs it";
@@ -159,11 +164,32 @@ export function keepCartridge(c: Cartridge): boolean {
 export function keptCartridge(): Cartridge | null {
   const rom = fromBase64(prefs.get("apple-rom") ?? "");
   if (!rom || rom.length !== 16 * K) return null;
-  const part = (key: string, size?: number) => {
+  return { rom, ...keptParts() };
+}
+
+const PART_KEYS: Record<Exclude<RomPart, "rom">, [key: string, size?: number]> = {
+  chars: ["apple-chars"],
+  diskBoot: ["apple-disk-boot", 256],
+  diskSequencer: ["apple-disk-sequencer", 256],
+};
+
+/** The parts kept, with a IIe ROM or waiting for one. */
+export function keptParts(): RomParts {
+  const part = ([key, size]: [string, number?]) => {
     const b = fromBase64(prefs.get(key) ?? "");
     return b && b.length && (size === undefined || b.length === size) ? b : null;
   };
-  return { rom, chars: part("apple-chars"), diskBoot: part("apple-disk-boot", 256), diskSequencer: part("apple-disk-sequencer", 256) };
+  return { chars: part(PART_KEYS.chars), diskBoot: part(PART_KEYS.diskBoot), diskSequencer: part(PART_KEYS.diskSequencer) };
+}
+
+/** Forget the IIe ROM alone: the parts stay kept, for the next one. */
+export function forgetRom(): void {
+  prefs.remove("apple-rom");
+}
+
+/** Forget one part kept with no IIe ROM in. */
+export function forgetPart(part: Exclude<RomPart, "rom">): void {
+  prefs.remove(PART_KEYS[part][0]);
 }
 
 export function forgetCartridge(): void {

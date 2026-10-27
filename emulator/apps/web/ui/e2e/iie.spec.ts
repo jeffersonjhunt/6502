@@ -43,7 +43,7 @@ test("the owner's enhanced IIe: boots to Applesoft, answers, Ctrl-Reset keeps th
     { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
   ]);
   await expect(page.getByTestId("apple-meta")).toHaveText("16 KB · yours, kept in this browser");
-  await expect(page.getByTestId("apple-note")).toHaveText("No Disk II PROMs: the drive needs its boot ROM and sequencer");
+  await expect(page.getByTestId("apple-note")).toHaveText("The machine restarted. No Disk II PROMs: the drive needs its boot ROM and sequencer");
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await openSettings(page);
   await page.getByTestId("apple-start").click();
@@ -122,7 +122,7 @@ test("the Disk II boots The Oregon Trail from the owner's WOZ, the drive light o
     { name: P5, mimeType: "application/octet-stream", buffer: readFileSync(dir + P5) },
     { name: P6, mimeType: "application/octet-stream", buffer: readFileSync(dir + P6) },
   ]);
-  await expect(page.getByTestId("apple-note")).toHaveText("");          // nothing missing
+  await expect(page.getByTestId("apple-note")).toHaveText("The machine restarted"); // nothing missing
   await page.getByTestId("disk-file").setInputFiles({ name: "The Oregon Trail.woz", mimeType: "application/octet-stream", buffer: readFileSync(woz) });
   await expect(page.getByTestId("disk-name")).toHaveText("Drive 1 · The Oregon Trail.woz");
   await expect(page.getByTestId("disk-note")).toHaveText("Start Apple IIe boots it");

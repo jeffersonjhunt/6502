@@ -139,6 +139,70 @@ describe("the Apple bar", () => {
     expect($(bar.element, "apple-boot-meta").textContent).toBe("none: the IIe won't boot from the drive");
   });
 
+  test("a part in or out restarts the machine: the buttons and the note say so", async () => {
+    const { bar } = make();
+    expect($(bar.element, "apple-insert").title).toMatch(/Restarts the machine$/);
+    await pick(bar.element, [{ name: "iie.rom", bytes: fakeIIeRom() }]);
+    expect($(bar.element, "apple-note").textContent).toMatch(/^The machine restarted\. No character ROM/);
+    expect($(bar.element, "apple-eject").title).toMatch(/restarts the machine$/);
+    expect($(bar.element, "apple-chars-load").title).toMatch(/Restarts the machine$/);
+    expect($(bar.element, "apple-chars-eject").title).toMatch(/restarts the machine$/);
+  });
+
+  test("in Apple II mode a part change asks first, and No leaves the IIe running", async () => {
+    keepCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(4096), diskBoot: null, diskSequencer: null });
+    const asked: string[] = [];
+    const answer = { yes: false };
+    const port = new FakePort({ usb: true });
+    const bar = appleBar(port, { started: () => {}, confirm: (q) => (asked.push(q), answer.yes) });
+    await bar.restore();
+    port.onFrame(bar.update);
+    port.emit({ apple: true });
+    $(bar.element, "apple-chars-eject").click();
+    await flush();
+    expect(asked).toEqual(["Eject the IIe character ROM? That restarts the machine: the IIe goes back to the BIOS, and what it runs now is lost."]);
+    expect(port.callsTo("insertCartridge").length).toBe(1); // the restore's alone
+    expect(keptCartridge()?.chars).not.toBeNull();
+    answer.yes = true;
+    $(bar.element, "apple-chars-eject").click();
+    await flush();
+    expect(port.callsTo("insertCartridge").length).toBe(2);
+    port.emit({ apple: false });
+    $(bar.element, "apple-eject").click(); // at the BIOS: nothing to lose, no question
+    await flush();
+    expect(asked.length).toBe(2);
+  });
+
+  test("ejecting the IIe ROM keeps the other parts: they go back in with the next one", async () => {
+    const chars = new Uint8Array(4096).fill(7);
+    keepCartridge({ rom: fakeIIeRom(), chars, diskBoot: null, diskSequencer: null });
+    const { port, bar } = make();
+    await bar.restore();
+    $(bar.element, "apple-eject").click();
+    await flush();
+    expect(port.callsTo("insertCartridge").at(-1)).toEqual([null]);
+    expect(keptCartridge()).toBeNull();
+    expect($(bar.element, "apple-chars-meta").textContent).toBe("4 KB · yours, kept for the next IIe ROM");
+    expect($(bar.element, "apple-note").textContent).toBe("The machine restarted. The other parts are kept for the next IIe ROM");
+    const again = make(); // next time too
+    await again.bar.restore();
+    await pick(again.bar.element, [{ name: "iie.rom", bytes: fakeIIeRom() }]);
+    expect((again.port.callsTo("insertCartridge").at(-1)![0] as Cartridge).chars).toEqual(chars);
+    expect(keptCartridge()?.chars).toEqual(chars);
+  });
+
+  test("a part kept with no IIe ROM in: Eject just forgets it", async () => {
+    keepCartridge({ rom: fakeIIeRom(), chars: new Uint8Array(4096), diskBoot: null, diskSequencer: null });
+    localStorage.removeItem("oo1.apple-rom");
+    const { port, bar } = make();
+    await bar.restore();
+    $(bar.element, "apple-chars-eject").click();
+    await flush();
+    expect(port.callsTo("insertCartridge")).toEqual([]);
+    expect($(bar.element, "apple-chars-meta").textContent).toBe("none: the built-in font");
+    expect(localStorage.getItem("oo1.apple-chars")).toBeNull();
+  });
+
   test("a backend without a cartridge slot: no bar", async () => {
     const port = new FakePort({ cartridge: false });
     const bar = appleBar(port, { started: () => {} });

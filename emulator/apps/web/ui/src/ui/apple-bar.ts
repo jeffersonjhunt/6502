@@ -3,7 +3,10 @@
  * (with Start Apple IIe), the character ROM, and the Disk II card's two
  * PROMs, each loaded and ejected on its own (ui/cartridge.ts identifies
  * them and keeps them in this browser); and the IIe's two resets, which
- * the status strip shows in Apple II mode.
+ * the status strip shows in Apple II mode. A part going in or out plugs a
+ * new cartridge, which restarts the machine (a power cycle): the rows say
+ * so, and in Apple II mode, where a IIe program would be lost, ask first.
+ * Ejecting the IIe ROM keeps the other parts for the next one.
  *
  * Start Apple IIe is what the owner would do at the machine: START (a
  * hard reset, back to the BIOS whatever was running), then C806R at the
@@ -13,7 +16,7 @@
  */
 
 import type { Cartridge, FrameState, MachinePort } from "../port/machine-port";
-import { forgetCartridge, keepCartridge, keptCartridge, MAX_ROM_FILE, noRom, takePart, withoutPart, type RomFile, type RomPart } from "./cartridge";
+import { forgetCartridge, forgetPart, forgetRom, keepCartridge, keptCartridge, keptParts, MAX_ROM_FILE, noRom, takePart, withoutPart, type RomFile, type RomPart, type RomParts } from "./cartridge";
 import { h } from "./dom";
 
 const L_CTRL = 0xe0;
@@ -63,6 +66,8 @@ export interface AppleBarHooks {
   started: () => void;
   /** A reset was typed: the keyboard back to the screen, off the button. */
   typed?: () => void;
+  /** Asks; true to go ahead (window.confirm). */
+  confirm?: (question: string) => boolean;
 }
 
 interface PartRow {
@@ -89,10 +94,14 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
   const resets = h("span", { class: "strip-group", hidden: true, "data-testid": "apple-resets" }, reset, reboot);
 
   let current: Cartridge | null = null;
+  let spare: RomParts = keptParts(); // the parts kept while no IIe ROM is in
   let kept = true;
   let apple = false;
   let powered = true;
   const say = (text: string) => (note.textContent = text);
+  /** A new cartridge restarts the machine: in Apple II mode, may the IIe's program go? */
+  const letGo = (doing: string) =>
+    !apple || (hooks.confirm ?? ((q) => confirm(q)))(`${doing}? That restarts the machine: the IIe goes back to the BIOS, and what it runs now is lost.`);
 
   const plug = async (c: Cartridge | null): Promise<boolean> => {
     try {
@@ -111,7 +120,15 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
     const load = h("button", { class: "tbtn", type: "button", "data-testid": p.id === "apple" ? "apple-insert" : `${p.id}-load` }, "Load…");
     const eject = h(
       "button",
-      { class: "tbtn", type: "button", title: p.part === "rom" ? "Take the cartridge out, and forget it in this browser" : `Take the ${p.name} out`, "data-testid": `${p.id}-eject` },
+      {
+        class: "tbtn",
+        type: "button",
+        title:
+          p.part === "rom"
+            ? "Take the IIe ROM out, and forget it in this browser (the other parts are kept for the next): restarts the machine"
+            : `Take the ${p.name} out: restarts the machine`,
+        "data-testid": `${p.id}-eject`,
+      },
       "Eject",
     );
     const meta = h("div", { class: "meta", "data-testid": `${p.id}-meta` });
@@ -132,38 +149,57 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
           return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      const c = takePart(p.part, files, current);
+      const c = takePart(p.part, files, current, spare);
       if (typeof c === "string") return void say(c);
+      if (!letGo(`Load ${picked[0].name}`)) return;
       if (!(await plug(c))) return;
       kept = keepCartridge(c);
       show();
-      say(kept ? notes(c) : "In for now; this browser would not keep it");
+      say(kept ? restarted(notes(c)) : "In for now; this browser would not keep it. The machine restarted with it");
     });
     eject.addEventListener("click", async () => {
+      if (!current && p.part !== "rom") {
+        spare = { ...spare, [p.part]: null }; // kept for a IIe ROM that isn't in: just forgotten
+        forgetPart(p.part);
+        return void show();
+      }
+      if (!letGo(`Eject the ${p.name}`)) return;
       const c = withoutPart(p.part, current);
+      const was = current;
       if (!(await plug(c))) return;
       if (c) kept = keepCartridge(c);
-      else forgetCartridge();
+      else {
+        spare = { chars: was?.chars ?? null, diskBoot: was?.diskBoot ?? null, diskSequencer: was?.diskSequencer ?? null };
+        if (spare.chars || spare.diskBoot || spare.diskSequencer) forgetRom();
+        else forgetCartridge(); // nothing to keep: nothing left behind
+      }
       show();
-      say(c ? notes(c) : "");
+      say(restarted(c ? notes(c) : spare.chars || spare.diskBoot || spare.diskSequencer ? "The other parts are kept for the next IIe ROM" : ""));
     });
 
     const update = () => {
-      const bytes = current?.[p.part] ?? null;
-      meta.textContent = bytes ? `${romSize(bytes.length)} · yours, ${kept ? "kept in this browser" : "in for now"}` : p.none;
+      const waiting = !current && p.part !== "rom" ? spare[p.part] : null;
+      const bytes = current?.[p.part] ?? waiting;
+      meta.textContent = waiting
+        ? `${romSize(waiting.length)} · yours, kept for the next IIe ROM`
+        : bytes
+          ? `${romSize(bytes.length)} · yours, ${kept ? "kept in this browser" : "in for now"}`
+          : p.none;
       load.hidden = !!bytes;
       eject.hidden = !bytes;
       load.disabled = p.part !== "rom" && !current;
       load.title =
         p.part === "rom"
-          ? "Your own Apple IIe ROM (16 KB, or the CD and EF halves; the character ROM and PROMs may come with it): it stays in this browser and is never uploaded"
+          ? "Your own Apple IIe ROM (16 KB, or the CD and EF halves; the character ROM and PROMs may come with it): it stays in this browser and is never uploaded. Restarts the machine"
           : current
-            ? `Your ${p.name}: it stays in this browser`
+            ? `Your ${p.name}: it stays in this browser. Restarts the machine`
             : "Load the Apple IIe ROM first";
     };
     return { element, update };
   });
 
+  /** The note after a new cartridge: the restart first. */
+  const restarted = (n: string) => `The machine restarted${n ? `. ${n}` : ""}`;
   const show = () => {
     for (const r of rows) r.update();
     start.hidden = !current || apple;
