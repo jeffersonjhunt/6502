@@ -2,9 +2,10 @@
 # Builds the OODOS test card: a FAT card image as a PC would make one
 # (mkfs.fat, mtools, sfdisk) holding an OODOS drive made by cpmtools, so the
 # emulator's tests read what Linux writes (hw/oodos.md, "Testing"). Needs
-# Docker; everything runs in a throwaway debian:bookworm, under faketime, so
-# the same sources make the same card. Writes
-# emulator/test/host/sd/oodos.sparse (sd_images.h reads it):
+# Docker; everything runs in a throwaway debian:bookworm, pinned by digest,
+# under faketime, so the same sources make the same card; it prints the
+# packages' versions it used. Writes emulator/test/host/sd/oodos.sparse
+# (sd_images.h reads it):
 #
 #   oodos/tools/make_card.sh
 #
@@ -23,11 +24,15 @@
 # different run in each record; test_oodos_card.cpp and interop.sh know the
 # same, and the text files' words.
 set -eu
+# debian:bookworm as of 2026-10-20.
+image=debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/emulator/test/host/sd"
-docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" -v "$(hostpath "$out"):/out" debian:bookworm sh -eu <<'INNER'
+docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
 apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 python3 faketime >/dev/null
+echo "debian $(cat /etc/debian_version); the packages:"
+dpkg-query -W -f '  ${Package} ${Version}\n' dosfstools mtools fdisk cpmtools cc65 python3 faketime
 cd /tmp
 export MTOOLS_SKIP_CHECK=1 TZ=UTC
 # Every stamp, FAT and CP/M, is this moment.
