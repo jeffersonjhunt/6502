@@ -257,6 +257,23 @@ describe("the drive", () => {
     expect(bar.pill.hidden).toBe(true);
   });
 
+  test("power off: the row and the pill stay, the light out, and a disk still goes in", async () => {
+    const { port, bar } = make();
+    port.onFrame(bar.update);
+    port.emit(frame({}));
+    await pick(bar.element, "Trail.dsk", new Uint8Array(4));
+    port.emit(frame({ spinning: true }));
+    port.emit({ powered: false, disk: null }); // the port has no card to report while off
+    expect(bar.element.hidden).toBe(false);
+    expect(bar.pill.hidden).toBe(false);
+    expect(bar.pill.querySelector(".led")!.classList.contains("on")).toBe(false);
+    $(bar.element, "disk-eject").click();
+    await flush();
+    expect(shown(bar.element)).toEqual(["disk-insert"]);
+    await pick(bar.element, "Side B.dsk", new Uint8Array(4));
+    expect(bar.pill.textContent).toBe("D1 Side B.dsk");
+  });
+
   test("drive 2: its own disk, light and testids; the boot hint is drive 1's alone", async () => {
     const port = new FakePort();
     const store = memoryDiskStore();

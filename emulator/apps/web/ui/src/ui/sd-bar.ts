@@ -122,8 +122,9 @@ export function sdBar(
   show();
 
   const update = (f: FrameState) => {
-    if (!!f.sd !== present) {
-      present = !!f.sd;
+    const has = port.caps.sd && (f.powered ? !!f.sd : present); // off, the frame has no card to say: as it was
+    if (has !== present) {
+      present = has;
       element.hidden = !present;
       show();
     }

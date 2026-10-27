@@ -192,7 +192,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   };
 
   const update = (f: FrameState) => {
-    const has = port.caps.disk && !!f.disk;
+    const has = port.caps.disk && (f.powered ? !!f.disk : present); // off, the frame has no card to say: as it was
     if (has !== present || f.apple !== apple) {
       present = has;
       apple = f.apple;

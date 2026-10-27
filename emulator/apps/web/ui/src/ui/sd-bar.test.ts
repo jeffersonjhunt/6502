@@ -170,6 +170,17 @@ describe("the SD slot", () => {
     expect(bar.pill.hidden).toBe(true);
   });
 
+  test("power off: the row and the pill stay, the light out", async () => {
+    const { port, bar } = make();
+    port.emit(frame({ present: false }));
+    await pick(bar.element, "card.img", new Uint8Array(1024));
+    port.emit(frame({ busy: true }));
+    port.emit({ powered: false, sd: null }); // the port has no card to report while off
+    expect(bar.element.hidden).toBe(false);
+    expect(bar.pill.hidden).toBe(false);
+    expect(bar.pill.querySelector(".led")!.classList.contains("on")).toBe(false);
+  });
+
   test("with no card, frames change nothing and leaving doesn't ask", () => {
     const { port, bar, leaving } = make();
     port.emit(frame({ present: false, changed: true }));
