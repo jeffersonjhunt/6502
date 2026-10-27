@@ -1582,6 +1582,9 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"DELRO", "FF 03"},
         {"RENRO", "FF 03"},
         {"WRITERO", "FF 03"},
+        {"BYTECOUNT", "55"},
+        {"DELX", "00 00"},             // found, but nothing to delete with f5'
+        {"XKEPT", "01 00"},
         {"BITS", "C2 D4"},             // f1' and t3' on the disk
         {"OPENBITS", "C2 D4"},         // and in the FCB after Open
         {"REN", "00 00"},
@@ -1637,6 +1640,8 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
     for (const auto &w : want)
         CHECK_EQ(field(o, w.first), std::string(w.second));
     CHECK_EQ(field(o, "DPB"), dpb_hex("oodos-ram"));
+    const std::string rdma = field(o, "RDMA"); // at $0280 after 13, as at BUF
+    CHECK(rdma.size() == 13 && rdma.substr(0, 6) == rdma.substr(7));
     if (o.find("DIRTEST DONE") == std::string::npos)
         r.tail(2000);
 }
@@ -1814,13 +1819,27 @@ TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
     };
     const size_t from = start(r, "logintest.com");
     REQUIRE(r.until("ADDED?", ms(10000), from));
-    // LATE.TXT in M:'s entry 1, behind the BDOS's back: user 0, no records, no blocks.
+    // LATE.TXT in M:'s entry 1, behind the BDOS's back: user 0, no records, no blocks; and an
+    // XFCB for it in entry 2 (user 16: a password's place, which 3b reads).
     CpmDisk m{r, 0};
     std::vector<uint8_t> s0 = m.sector(0);
     const std::string late = "LATE    TXT";
-    std::fill(s0.begin() + 32, s0.begin() + 64, 0);
+    std::fill(s0.begin() + 32, s0.begin() + 96, 0);
     std::copy(late.begin(), late.end(), s0.begin() + 33);
+    std::copy(late.begin(), late.end(), s0.begin() + 65);
+    s0[64] = 16;
     m.put(0, s0);
+    r.type(" ");
+    REQUIRE(r.until("RENAMED?", ms(5000), from));
+    s0 = m.sector(0);
+    CHECK_EQ(std::string(s0.begin() + 33, s0.begin() + 44), std::string("LATER   TXT"));
+    CHECK_EQ(std::string(s0.begin() + 65, s0.begin() + 76), std::string("LATER   TXT")); // the XFCB too
+    CHECK_EQ(s0[64], 16);
+    r.type(" ");
+    REQUIRE(r.until("XGONE?", ms(5000), from));
+    s0 = m.sector(0);
+    CHECK_EQ(s0[64], 0xE5); // f5': the XFCB only
+    CHECK_EQ(s0[32], 0);
     r.type(" ");
     REQUIRE(r.until("UNCLOSED?", ms(5000), from));
     r.watch = nullptr;
@@ -1833,6 +1852,10 @@ TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
     CHECK_EQ(field(o, "BEFORE"), std::string("FF 00")); // the directory as logged in
     CHECK_EQ(field(o, "RESET"), std::string("00 00"));
     CHECK_EQ(field(o, "AFTER"), std::string("01 00"));  // read again: there
+    CHECK_EQ(field(o, "XREN"), std::string("01 00"));
+    CHECK_EQ(field(o, "XDEL"), std::string("00 00"));
+    CHECK_EQ(field(o, "DEL"), std::string("00 00"));
+    CHECK(m.entries_of(m.directory(), 0, "LATER   TXT").empty());
     // W.DAT's 4 records are in a buffer, not on M:, until the warm boot writes them back.
     std::vector<uint8_t> four;
     for (unsigned n = 0; n < 4; ++n)

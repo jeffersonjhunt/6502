@@ -9,6 +9,10 @@
 ;   directory
 ;   BEFORE aa xx          Open LATE.TXT: FF, the BDOS has M:'s directory
 ;   (m3-m4) RESET aa xx   37 of M:, then AFTER aa xx: Open finds it now
+;   XREN aa xx            LATE.TXT renamed LATER.TXT, its XFCB (the test
+;                         put one in entry 2) too. RENAMED? waits
+;   XDEL aa xx            Delete with f5': the XFCB only. XGONE? waits
+;   DEL aa xx             the file
 ;   UNCLOSED? waits: 4 records written to M:W.DAT, not closed, still in
 ;   their buffers; then the program ends, and the warm boot writes them
 
@@ -52,6 +56,23 @@ m4:     sta     RA
         lda     RA
         ldx     RX
         jsr     RES
+        NAME    fcb2, "LATER   TXT"     ; the new name, at +16
+        NAME    fcb, "LATE    TXT"      ; its XFCB (the test put one) goes with it
+        ldx     #10
+@new:   lda     fcb2+1,x
+        sta     fcb+17,x
+        dex
+        bpl     @new
+        TRY     "XREN ", F_RENAME, fcb
+        KEYWAIT "RENAMED?"
+        NAME    fcb, "LATER   TXT"
+        lda     fcb+5
+        ora     #$80                    ; f5': the XFCB only
+        sta     fcb+5
+        TRY     "XDEL ", F_DELETE, fcb
+        KEYWAIT "XGONE?"
+        NAME    fcb, "LATER   TXT"
+        TRY     "DEL ", F_DELETE, fcb
         NAME    fcb, "W       DAT"
         CALLF   F_MAKE, fcb
         stz     RN
@@ -70,3 +91,4 @@ m4:     sta     RA
 
         .bss
 fcb:    .res    36
+fcb2:   .res    36

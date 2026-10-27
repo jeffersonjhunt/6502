@@ -13,6 +13,8 @@
 ;   SYSREAD aa xx / SYSWRITE aa xx   read it; write it: FF 03, File R/O
 ;   SEARCH3 aa xx         17 doesn't look in user 0: FF
 ;   DELRO / RENRO / WRITERO aa xx    A2 read-only (t1'): FF 03 each
+;   BYTECOUNT hh          f6': 30 sets A1's byte count, Open gives it in CR
+;   DELX aa xx / XKEPT aa xx  f5': Delete of XFCBs only, which A1 hasn't
 ;   BITS hh hh            B1 given f1' and t3': its entry's bytes 1 and 11
 ;   OPENBITS hh hh        and the FCB's after Open
 ;   REN aa xx             B1 to C1; SEARCHB1 aa xx: FF; SEARCHC1 aa xx
@@ -38,6 +40,7 @@
 ;   DPB <17 bytes>        from function 31's address
 ;   SIZEGONE aa xx / SNEXTEND aa xx / FREEBAD aa xx / SELBAD aa xx
 ;   RESET aa xx / RDRIVE aa xx / RLOGIN aa xx / RROVEC aa xx  after 13
+;   RDMA xxxxxx xxxxxx    46 after 13 writes at $0280: as it does at BUF
 ;   FLUSH aa xx / PURGE aa xx
 ;   DIRTEST DONE
 
@@ -237,6 +240,32 @@ start:  lda     #$FF                    ; errors come back
         lda     fcb+11
         jsr     HEX2
         jsr     CRLF
+
+        ; f6': the last record's byte count, set by 30, given by Open
+        NAME    fcb, "A1      TXT"
+        lda     fcb+6
+        ora     #$80
+        sta     fcb+6
+        lda     #$55
+        sta     fcb+32
+        CALLF   F_ATTRIB, fcb
+        NAME    fcb, "A1      TXT"
+        lda     fcb+6
+        ora     #$80
+        sta     fcb+6
+        CALLF   F_OPEN, fcb
+        SAY     "BYTECOUNT "
+        lda     fcb+32
+        jsr     HEX2
+        jsr     CRLF
+        ; f5': XFCBs only, of which A1 has none: the file stays
+        NAME    fcb, "A1      TXT"
+        lda     fcb+5
+        ora     #$80
+        sta     fcb+5
+        TRY     "DELX ", F_DELETE, fcb
+        NAME    sfcb, "A1      TXT"
+        TRY     "XKEPT ", F_SFIRST, sfcb
 
         ; rename, and what may not be made or renamed
         NAME    fcb, "B1      TXT"
@@ -514,6 +543,17 @@ dirfull:
         TRY     "RDRIVE ", DRV_GET, 0
         TRY     "RLOGIN ", DRV_LOGINVEC, 0
         TRY     "RROVEC ", DRV_ROVEC, 0
+        lda     #DRV_M                  ; 13 put the DMA address back at $0280
+        ldy     #DRV_SPACE
+        jsr     BDOS
+        SAY     "RDMA "
+        lda     #<BP_DMA
+        ldx     #>BP_DMA
+        jsr     HEX6
+        jsr     SPACE
+        CALLF   F_DMAOFF, BUF
+        jsr     free                    ; into BUF
+        jsr     showfree
         SAY     "DIRTEST DONE"
         jsr     CRLF
         rts
