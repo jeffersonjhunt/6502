@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { biosRow, forgetBios, keepBios, keptBios } from "./bios";
+import { biosRow, forgetBios, keepBios, keptBios, QUIET_MS, yoursLoaded } from "./bios";
 
 const flush = async () => {
   for (let i = 0; i < 6; ++i) await new Promise((r) => setTimeout(r, 0));
@@ -125,5 +125,40 @@ describe("the BIOS row", () => {
       noName.mockRestore();
     }
     expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) });
+  });
+
+  test("yours, silent on the serial line for a while: the strip's hint points to Use built-in; a word from it, and no hint", () => {
+    vi.useFakeTimers();
+    try {
+      keepBios("blank.rom", new Uint8Array([0xff]));
+      let opened: HTMLElement | null = null;
+      const row = biosRow(() => {}, { open: (from) => (opened = from) });
+      row.connected(undefined);
+      vi.advanceTimersByTime(QUIET_MS - 1);
+      expect(row.quiet.hidden).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(row.quiet.hidden).toBe(false);
+      expect(row.quiet.textContent).toBe("Your BIOS, blank.rom, has printed nothing: Settings › ROMs › Use built-in");
+      $(row.quiet, "bios-quiet-open").click();
+      expect(opened).toBe($(row.quiet, "bios-quiet-open"));
+      row.spoke();
+      expect(row.quiet.hidden).toBe(true);
+      const talks = biosRow(() => {});
+      talks.connected(undefined);
+      talks.spoke();
+      vi.advanceTimersByTime(QUIET_MS);
+      expect(talks.quiet.hidden).toBe(true);
+      localStorage.clear();
+      const builtIn = biosRow(() => {}); // the page's own: no hint
+      builtIn.connected("0.9");
+      vi.advanceTimersByTime(QUIET_MS);
+      expect(builtIn.quiet.hidden).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("where the way back is, for a machine that stopped on yours", () => {
+    expect(yoursLoaded({ name: "dev.rom", bytes: new Uint8Array(1) })).toBe("Your BIOS, dev.rom, is loaded: Settings › ROMs › Use built-in");
   });
 });

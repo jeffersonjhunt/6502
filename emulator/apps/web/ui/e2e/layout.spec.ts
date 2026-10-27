@@ -118,6 +118,11 @@ test("a BIOS that runs nothing useful: Settings still takes you back to the page
   await expect(page.getByTestId("status")).toContainText(/RUNNING|HALTED|STOPPED/, { timeout: 15_000 }); // restarted, on it
   await page.waitForTimeout(500);
   await expect(page.getByTestId("crt-text")).not.toContainText("BACKPLANE BIOS");
+  // Silent: the strip points the way back.
+  await expect(page.getByTestId("bios-quiet")).toHaveText("Your BIOS, blank.rom, has printed nothing: Settings › ROMs › Use built-in", { timeout: 10_000 });
+  await page.getByTestId("bios-quiet-open").click();
+  await expect(page.locator("#set-roms")).toBeFocused();
+  await page.keyboard.press("Escape");
   await openSettings(page);
   await expect(page.getByTestId("bios-meta")).toHaveText("yours: blank.rom · kept in this browser"); // no version to read from it
   await page.getByTestId("bios-builtin").click();

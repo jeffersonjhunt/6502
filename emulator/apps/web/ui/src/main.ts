@@ -41,7 +41,7 @@ import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
 import { toolbar } from "./ui/toolbar";
 import { appleBar } from "./ui/apple-bar";
-import { biosRow, keptBios } from "./ui/bios";
+import { biosRow, keptBios, yoursLoaded } from "./ui/bios";
 import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
 import { drawer, OVERLAY } from "./ui/drawer";
@@ -294,6 +294,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       ];
     },
     leaving: () => card.waive(),
+    open: () => openSettings("roms"),
   });
   const settings = settingsPanel({
     roms: [bios.element, appleRoms.element],
@@ -306,7 +307,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   const monitor = h("div", { class: "mon" }, glass, h("div", { class: "mon-foot" }, monLabel, screens.element));
   const strip = statusStrip({
     pills: [...drives.map((d) => d.pill), card.pill, tune.pill],
-    trailing: [stopTyping, appleRoms.resets],
+    trailing: [bios.quiet, stopTyping, appleRoms.resets],
     load: () => openSettings("roms"),
   });
 
@@ -349,7 +350,10 @@ function start(root: HTMLElement, port: MachinePort): void {
     sound.update();
     tune.update(f);
     strip.update(f.powered);
-    if (f.serialOut.length) terminal.write(f.serialOut);
+    if (f.serialOut.length) {
+      terminal.write(f.serialOut);
+      bios.spoke();
+    }
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
     wasPowered = f.powered;
@@ -371,7 +375,8 @@ function start(root: HTMLElement, port: MachinePort): void {
   // The core threw: the machine is gone until a reload, and the screen says so rather than freeze on RUNNING.
   port.onFail((why) => {
     strip.status.textContent = "CRASHED";
-    terminal.write(new TextEncoder().encode(`\r\rThe emulator stopped: ${why}\rReload the page to start it again.\r`));
+    const mine = bios.mine ? `${yoursLoaded(bios.mine)}.\r` : ""; // it may be why
+    terminal.write(new TextEncoder().encode(`\r\rThe emulator stopped: ${why}\rReload the page to start it again.\r${mine}`));
     crt.draw(performance.now());
     mirror.textContent = mirrored = terminal.text();
   });

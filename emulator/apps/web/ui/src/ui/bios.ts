@@ -7,6 +7,9 @@
  * would lose something (the SD card's writes, a drive at work), it asks
  * first, in the page, and only then keeps or forgets: so the page's own
  * prompt on leaving can't stop a restart the choice was already saved for.
+ *
+ * Yours that prints nothing for QUIET_MS gets a hint in the status strip
+ * (quiet), pointing to Use built-in.
  */
 
 import { MAX_BIOS } from "../port/wasm-port";
@@ -54,6 +57,14 @@ export function forgetBios(): void {
   prefs.remove("bios-name");
 }
 
+/** How long a BIOS of the owner's may stay silent on the serial line before the strip points the way back. */
+export const QUIET_MS = 5000;
+
+/** Where the way back to the page's own BIOS is. */
+export function yoursLoaded(mine: KeptBios): string {
+  return `Your BIOS, ${mine.name}, is loaded: Settings › ROMs › Use built-in`;
+}
+
 export interface BiosHooks {
   /** What a restart now would lose, as phrases ("the SD card's writes..."); none: nothing. */
   atRisk?: () => string[];
@@ -61,6 +72,8 @@ export interface BiosHooks {
   confirm?: (question: string) => boolean;
   /** Agreed: the page goes without asking again. */
   leaving?: () => void;
+  /** The quiet hint's link was clicked (from it): show the BIOS row in Settings. */
+  open?: (from: HTMLElement) => void;
 }
 
 /** restart: start the page again (location.reload), on whatever is kept now. */
@@ -116,10 +129,23 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
   });
   show();
 
+  // Yours, silent: the strip says where Use built-in is.
+  const way = h("button", { class: "linkish", type: "button", "data-testid": "bios-quiet-open" }, "Settings › ROMs › Use built-in");
+  way.addEventListener("click", () => hooks.open?.(way));
+  const quiet = h("span", { class: "strip-empty", role: "status", hidden: true, "data-testid": "bios-quiet" }, mine ? `Your BIOS, ${mine.name}, has printed nothing: ` : "", way);
+  let heard = false;
+
   /** The machine is open: the version its ROM greets with. */
   const connected = (v: string | undefined) => {
     version = v ?? "";
     show();
+    if (mine) setTimeout(() => (quiet.hidden = heard), QUIET_MS);
   };
-  return { element, connected, mine };
+  /** The serial line said something. */
+  const spoke = () => {
+    if (heard) return;
+    heard = true;
+    quiet.hidden = true;
+  };
+  return { element, connected, mine, quiet, spoke };
 }
