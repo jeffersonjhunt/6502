@@ -17,7 +17,7 @@
 
 import type { DiskFormat, DiskInfo, FrameState, MachinePort } from "../port/machine-port";
 import type { DiskStore, KeptDisk } from "./disk-store";
-import { h } from "./dom";
+import { h, passFocus } from "./dom";
 
 const ACCEPT = ".woz,.dsk,.do,.po";
 /** A 5.25-inch disk's image is a few hundred KB, a few MB as a WOZ with flux tracks: bigger is a wrong file. */
@@ -140,6 +140,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     say((await store.put(drive, disk)) ? "" : "In for now; this browser would not keep it");
     auto = ""; // the hint again, for this disk
     show(); // kept first: a reload now finds it
+    passFocus(insert, eject);
   });
   protect.addEventListener("click", async () => {
     if (!info || !kept) return;
@@ -166,7 +167,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     await store.remove(drive); // forgotten first: a reload now finds nothing
     show();
     say("");
-    insert.focus(); // Eject is gone: the keyboard stays on the row
+    passFocus(eject, insert); // Eject is gone: the keyboard stays on the row
   });
   show();
 

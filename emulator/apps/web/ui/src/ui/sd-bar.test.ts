@@ -182,6 +182,17 @@ describe("the SD slot", () => {
     expect(leaving()).toBe(false);
   });
 
+  test("the keyboard follows the row: Insert… to Eject once a card is in", async () => {
+    const { bar } = make();
+    document.body.append(bar.element);
+    $(bar.element, "sd-insert").focus();
+    await pick(bar.element, "card.img", new Uint8Array(1024));
+    expect(document.activeElement).toBe($(bar.element, "sd-eject"));
+    $(bar.element, "sd-eject").click();
+    expect(document.activeElement).toBe($(bar.element, "sd-insert"));
+    bar.element.remove();
+  });
+
   test("power off: the row and the pill stay, the light out", async () => {
     const { port, bar } = make();
     port.emit(frame({ present: false }));

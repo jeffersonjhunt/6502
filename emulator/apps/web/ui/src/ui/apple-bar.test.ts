@@ -203,6 +203,28 @@ describe("the Apple bar", () => {
     expect(localStorage.getItem("oo1.apple-chars")).toBeNull();
   });
 
+  test("the keyboard follows the row: Load… to Eject once in, Eject to Load… once out", async () => {
+    const { bar } = make();
+    document.body.append(bar.element);
+    $(bar.element, "apple-insert").focus();
+    await pick(bar.element, [{ name: "iie.rom", bytes: fakeIIeRom() }]);
+    expect(document.activeElement).toBe($(bar.element, "apple-eject"));
+    const input = $(bar.element, "apple-chars-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File([new Uint8Array(4096)], "video.bin")] });
+    $(bar.element, "apple-chars-load").focus();
+    input.dispatchEvent(new Event("change"));
+    for (let i = 0; i < 5; ++i) await flush();
+    expect(document.activeElement).toBe($(bar.element, "apple-chars-eject"));
+    $(bar.element, "apple-chars-eject").click();
+    for (let i = 0; i < 5; ++i) await flush();
+    expect(document.activeElement).toBe($(bar.element, "apple-chars-load"));
+    $(bar.element, "apple-eject").focus();
+    $(bar.element, "apple-eject").click();
+    for (let i = 0; i < 5; ++i) await flush();
+    expect(document.activeElement).toBe($(bar.element, "apple-insert"));
+    bar.element.remove();
+  });
+
   test("a backend without a cartridge slot: no bar", async () => {
     const port = new FakePort({ cartridge: false });
     const bar = appleBar(port, { started: () => {} });

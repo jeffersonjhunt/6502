@@ -17,7 +17,7 @@
 
 import type { Cartridge, FrameState, MachinePort } from "../port/machine-port";
 import { forgetCartridge, forgetPart, forgetRom, keepCartridge, keptCartridge, keptParts, MAX_ROM_FILE, noRom, takePart, withoutPart, type RomFile, type RomPart, type RomParts } from "./cartridge";
-import { h } from "./dom";
+import { h, passFocus } from "./dom";
 
 const L_CTRL = 0xe0;
 const L_GUI = 0xe3; // Open Apple
@@ -155,13 +155,15 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
       if (!(await plug(c))) return;
       kept = keepCartridge(c);
       show();
+      passFocus(load, eject);
       say(kept ? restarted(notes(c)) : "In for now; this browser would not keep it. The machine restarted with it");
     });
     eject.addEventListener("click", async () => {
       if (!current && p.part !== "rom") {
         spare = { ...spare, [p.part]: null }; // kept for a IIe ROM that isn't in: just forgotten
         forgetPart(p.part);
-        return void show();
+        show();
+        return passFocus(eject, romLoad()); // its own Load waits for a IIe ROM
       }
       if (!letGo(`Eject the ${p.name}`)) return;
       const c = withoutPart(p.part, current);
@@ -174,6 +176,7 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
         else forgetCartridge(); // nothing to keep: nothing left behind
       }
       show();
+      passFocus(eject, load.disabled ? romLoad() : load);
       say(restarted(c ? notes(c) : spare.chars || spare.diskBoot || spare.diskSequencer ? "The other parts are kept for the next IIe ROM" : ""));
     });
 
@@ -195,8 +198,9 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
             ? `Your ${p.name}: it stays in this browser. Restarts the machine`
             : "Load the Apple IIe ROM first";
     };
-    return { element, update };
+    return { element, update, load };
   });
+  const romLoad = () => rows[0].load;
 
   /** The note after a new cartridge: the restart first. */
   const restarted = (n: string) => `The machine restarted${n ? `. ${n}` : ""}`;

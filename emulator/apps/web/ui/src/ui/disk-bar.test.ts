@@ -179,6 +179,18 @@ describe("the drive", () => {
     expect(port.callsTo("saveDisk").length).toBe(1);
   });
 
+  test("the keyboard follows the row: Insert… to Eject once a disk is in, Eject to Insert… once it is out", async () => {
+    const { bar } = make();
+    document.body.append(bar.element);
+    $(bar.element, "disk-insert").focus();
+    await pick(bar.element, "Trail.dsk", new Uint8Array(4));
+    expect(document.activeElement).toBe($(bar.element, "disk-eject"));
+    $(bar.element, "disk-eject").click();
+    await flush();
+    expect(document.activeElement).toBe($(bar.element, "disk-insert"));
+    bar.element.remove();
+  });
+
   test("busy while the motor runs, and until what it wrote is kept", async () => {
     const { port, bar } = make();
     port.onFrame(bar.update);

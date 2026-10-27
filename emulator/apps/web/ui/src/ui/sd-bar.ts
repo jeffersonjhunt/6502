@@ -15,7 +15,7 @@
  */
 
 import type { FrameState, MachinePort, SdInfo } from "../port/machine-port";
-import { h } from "./dom";
+import { h, passFocus } from "./dom";
 
 /** The biggest card the page takes: the core holds it, and its memory stops at 2 GB. */
 export const MAX_CARD = 1024 * 1024 * 1024;
@@ -88,6 +88,7 @@ export function sdBar(
       say(String(err instanceof Error ? err.message : err));
     }
     show();
+    if (info) passFocus(insert, eject);
   });
   protect.addEventListener("click", () => {
     if (!info) return;
@@ -113,7 +114,7 @@ export function sdBar(
     info = null;
     say("");
     show();
-    insert.focus(); // Eject is gone: the keyboard stays on the row
+    passFocus(eject, insert); // Eject is gone: the keyboard stays on the row
   });
   // Unsaved writes: ask before the page goes, and the card with it; unless the page asked already (waive).
   let waived = false;

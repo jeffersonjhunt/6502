@@ -13,7 +13,7 @@
  */
 
 import { MAX_BIOS } from "../port/wasm-port";
-import { h, prefs } from "./dom";
+import { h, passFocus, prefs } from "./dom";
 
 export interface KeptBios {
   name: string;
@@ -124,6 +124,8 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
     if (!letGo("Restart on the built-in BIOS")) return;
     forgetBios();
     hooks.leaving?.();
+    builtIn.hidden = true; // nothing of yours kept now
+    passFocus(builtIn, load);
     say("Restarting on the built-in BIOS…");
     restart();
   });

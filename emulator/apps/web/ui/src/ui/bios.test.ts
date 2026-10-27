@@ -161,4 +161,15 @@ describe("the BIOS row", () => {
   test("where the way back is, for a machine that stopped on yours", () => {
     expect(yoursLoaded({ name: "dev.rom", bytes: new Uint8Array(1) })).toBe("Your BIOS, dev.rom, is loaded: Settings › ROMs › Use built-in");
   });
+
+  test("Use built-in: it goes, and the keyboard is on Load…", () => {
+    keepBios("mine.rom", new Uint8Array([1]));
+    const row = biosRow(() => {});
+    document.body.append(row.element);
+    $(row.element, "bios-builtin").focus();
+    $(row.element, "bios-builtin").click();
+    expect($(row.element, "bios-builtin").hidden).toBe(true);
+    expect(document.activeElement).toBe($(row.element, "bios-load"));
+    row.element.remove();
+  });
 });
