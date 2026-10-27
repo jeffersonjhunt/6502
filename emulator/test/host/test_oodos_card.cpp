@@ -4,8 +4,8 @@
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * sd/oodos.sparse is made by cpmtools, mkfs.fat and mtools
- * (oodos/tools/make_card.sh): /BOOT.BIN, /OODOS/DRIVES.TXT, and /OODOS/A.IMG,
- * an oodos-8m drive. Here the emulated card reads DRIVES.TXT strictly, by
+ * (oodos/tools/make_card.sh): /BOOT.BIN (OOLDR, which test_oodos_boot
+ * boots), /OODOS/DRIVES.TXT, and /OODOS/A.IMG and B.IMG, oodos-8m drives. Here the emulated card reads DRIVES.TXT strictly, by
  * its grammar (hw/oodos.md, "Drives"), and mounts A.IMG as unit 1 with its
  * own MOUNT, as OODOS will; the n-th sector of block b, at LBA
  * b x (BLS / 512) + n (512-byte sectors, no boot tracks), holds each
@@ -459,7 +459,7 @@ namespace
     // ---- the OO-1's side ----------------------------------------------------
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
-    /// (two entries, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
+    /// (two entries, the second in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
     /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
     /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself.
     const std::string NEW_NAME = "OO1     BIN";
@@ -582,32 +582,10 @@ TEST(the_dpb_is_oodos_8m_as_check_diskdefs_works_it_out)
     CHECK_EQ(p.dir_blocks, 8u);
 }
 
-TEST(the_card_boots_its_placeholder_and_returns_to_the_monitor)
-{
-    std::string error;
-    auto s = Session::create({EMU_MACHINE_DIR "/backplane.machine", EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
-    REQUIRE(s != nullptr);
-    REQUIRE(s->insert_sd(sd_image(CARD), CARD, error));
-    std::string out;
-    auto until = [&](const std::string &want) {
-        for (int i = 0; i < 120 && out.find(want) == std::string::npos; ++i)
-        {
-            s->run(119'318);
-            out += s->take_output();
-        }
-        return out.find(want) != std::string::npos;
-    };
-    REQUIRE(until("BACKPLANE BIOS 0.9\r\\\r"));
-    s->send("C80CR\r");
-    out.clear();
-    CHECK(until("\rTHIS IS AN OODOS CARD. NO LOADER YET: BACK TO THE MONITOR\r"));
-    CHECK(until("\\\r"));
-}
-
 TEST(drives_txt_names_a_and_the_card_mounts_it_as_unit_1)
 {
     Rig r;
-    REQUIRE(r.media->sectors() == 16u * 2048);
+    REQUIRE(r.media->sectors() == 32u * 2048);
     REQUIRE(mount_a(r));
     CHECK_EQ(r.card.unit(1).sectors, uint64_t{8 * 2048}); // all 8 MB: 1024 tracks of 16
     CHECK(!r.card.unit(1).read_only);
@@ -684,7 +662,7 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
         free += dir[i * ENTRY] == 0xE5;
     }
     CHECK_EQ(sfcbs, 256u);
-    CHECK_EQ(free, 1024u - 256 - 1 - 5); // the label, and five files' entries
+    CHECK_EQ(free, 1024u - 256 - 1 - 7); // the label, and six files' seven entries
     // The label's own stamps, in its bytes 24-31: made at make_card.sh's moment.
     CHECK(std::equal(MADE.begin(), MADE.end(), dir.begin() + 24));
     allocation(a, dir);
@@ -754,8 +732,8 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     allocation(a, dir);
     const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
     REQUIRE(e.size() == 2u);
-    CHECK_EQ(e[0], 8u); // the first free entries, not an SFCB's
-    CHECK_EQ(e[1], 9u);
+    CHECK_EQ(e[0], 10u); // the first free entries, not an SFCB's (11)
+    CHECK_EQ(e[1], 12u);
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
     for (unsigned i : e)
     {
@@ -764,7 +742,7 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
         CHECK(st.second == NEW_UPDATED);
     }
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
-    // Nothing else changed: the directory's first sector (entries 8 and 9, the SFCB in 11) and 65 of records.
+    // Nothing else changed: the directory's first sector (entries 10 and 12, the SFCBs in 11 and 15) and 65 of records.
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
         sectors += std::memcmp(before.data() + n * SECTOR, r.media->bytes().data() + n * SECTOR, SECTOR) != 0;
