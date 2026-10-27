@@ -362,7 +362,7 @@ def rules_checks(hello, tmp):
         cmd = ["ld65", "-C", cfg] + (["-D", "__OODOS_ZP__=%d" % zp] if zp is not None else [])
         r = run(*cmd, o, "-o", os.path.join(tmp, "zpfull"))
         ok((r.returncode == 0) == (zp != 1), "%s: $F0 bytes of zero page from $%02X %s" % (
-            os.path.basename(cfg), zp or 0, "link" if zp != 1 else "don't: %s" % r.stderr.strip().splitlines()[-1]))
+            os.path.basename(cfg), zp or 0, "link" if zp != 1 else "don't: %s" % (r.stderr.strip().splitlines() or ["linked"])[-1]))
     # The build itself stops: no .COM, no .PRL.
     for kind in ("com", "prl"):
         status, out, made = build(tmp, "rule2", kind)
