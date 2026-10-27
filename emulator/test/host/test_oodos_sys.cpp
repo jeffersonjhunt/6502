@@ -1464,6 +1464,87 @@ TEST(fstest_on_m_with_byte_pointers)
     CHECK_EQ(field(o, "MAKE"), std::string("01 00"));    // entry 1, after the label
 }
 
+TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "dirtest.com");
+    CHECK(r.until("DIRTEST DONE", ms(60000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    const std::string o = r.out.substr(from);
+    const std::pair<const char *, const char *> want[] = {
+        {"SEARCH", "A1 A2"},           // A?.TXT, in the directory's order
+        {"COUNT", "03"},               // A1, A2, B1 in user 0
+        {"ALL", "0100 LABEL 01 SFCB 40 FREE 00BC"}, // '?' as the drive: all 256, free ones too
+        {"USER3", "01"},               // user 3 sees only its own
+        {"OPEN3", "FF 00"},            // A1 isn't SYS yet
+        {"SYSOPEN", "01 00"},          // now it is: from user 0,
+        {"F8", "80"},                  // f8' set
+        {"SYSREAD", "00 00"},
+        {"SYSWRITE", "FF 03"},         // File R/O
+        {"SEARCH3", "FF 00"},          // search doesn't look in user 0
+        {"DELRO", "FF 03"},
+        {"RENRO", "FF 03"},
+        {"WRITERO", "FF 03"},
+        {"BITS", "C2 D4"},             // f1' and t3' on the disk
+        {"OPENBITS", "C2 D4"},         // and in the FCB after Open
+        {"REN", "00 00"},
+        {"SEARCHB1", "FF 00"},
+        {"SEARCHC1", "00 00"},
+        {"RENEX", "FF 08"},            // File Exists
+        {"RENWILD", "FF 09"},          // ? in Filename
+        {"MAKEEX", "FF 08"},
+        {"MAKEWILD", "FF 09"},
+        {"OPENWILD", "FF 09"},
+        {"HASHOPEN", "FF 00"},         // HASHBA.TXT's hash is HASHAG.TXT's: not taken for it
+        {"HASHFIND", "FF 00"},
+        {"HASHAG", "02 00"},
+        {"BIGREN", "00 00"},
+        {"BIGCOUNT", "02 OLDCOUNT 00"}, // both entries renamed
+        {"BIGDEL", "00 00"},
+        {"BIGGONE", "00 FREEBACK Y"},  // both deleted, every block back
+        {"DIRFULL", "00BA FF"},        // 186 more: 191 entries less the five files
+        {"WILDDEL", "00 00"},
+        {"AFTERDEL", "00"},
+        {"DISKFULL", "0370 02"},       // 55 free blocks of 16 records, then disk full
+        {"RANDFULL", "02"},
+        {"FREEFULL", "000000"},
+        {"FREE98", "000340 000370"},   // 3 blocks held by a file not closed, freed by 98
+        {"TRUNC", "00 00"},
+        {"SIZE", "000064"},
+        {"R99", "00Y R100 01"},
+        {"TRUNCFREE", "Y"},            // 12 of its 19 blocks freed
+        {"TRUNCBIG", "FF 00"},
+        {"TRUNCWILD", "FF 09"},
+        {"ROMAKE", "FF 02"},           // Read Only
+        {"ROVEC", "00 10"},            // M:, bit 12
+        {"ROWRITE", "FF 02"},
+        {"ROVEC2", "00 00"},           // 37 made it writable
+        {"MAKEAGAIN", "02 00"},        // entry 10, after TR.DAT and W.DAT
+        {"LOGIN", "00 10"},            // M: only
+        {"DRIVE", "0C 00"},
+        {"ALLOC", "FF FF"},
+        {"VERSION", "31 00"},
+        {"LOCK", "00 00"},
+        {"UNLOCK", "00 00"},
+        {"SIZEGONE", "FF 00"},
+        {"SNEXTEND", "FF 00"},
+        {"FREEBAD", "FF 04"},          // Invalid Drive: F: isn't mounted
+        {"SELBAD", "FF 04"},           // P:
+        {"FLUSH", "00 00"},
+        {"PURGE", "00 00"},
+        {"RESET", "00 00"},
+        {"RDRIVE", "00 00"},           // A: after 13
+        {"RLOGIN", "00 00"},
+        {"RROVEC", "00 00"},           // and nothing read-only
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    CHECK_EQ(field(o, "DPB"), dpb_hex("oodos-ram"));
+    if (o.find("DIRTEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
 int main()
 {
     // ctest stays hermetic with no skips (hw/oodos.md, "Testing"): CMake requires the tools
