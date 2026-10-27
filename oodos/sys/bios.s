@@ -45,8 +45,8 @@
 ;            SCB, $FF set it from the SCB
 ;   SELMEM   A = bank                        - (the bank MOVE uses)
 ;   SETBNK   A = bank                        - (the bank of SETDMA's address)
-;   XMOVE    A = destination bank,           - (for the next MOVE)
-;            X = source bank
+;   XMOVE    A = source bank (CP/M's C),     - (for the next MOVE)
+;            X = destination bank (B)
 ;
 ; Banks: 0 is the system's view (W0-W3 on 31, 60, 61, 62), 1 the program's
 ; (the windows the BDOS stub saved); any other is taken as 0. Addresses in
@@ -327,11 +327,11 @@ SETBNK:         JSR     BANK
 SELMEM:         JSR     BANK
                 STA     CURBANK
                 RTS
-XMOVE:          JSR     BANK
-                STA     XDST
+XMOVE:          JSR     BANK           ; C, the source, then B, the destination
+                STA     XSRC
                 TXA
                 JSR     BANK
-                STA     XSRC
+                STA     XDST
                 LDA     #1
                 STA     XPEND
                 RTS

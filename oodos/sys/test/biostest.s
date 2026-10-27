@@ -403,9 +403,9 @@ fetch:  sta     pb+4
         sty     fcount
         lda     #BIOS::XMOVE
         sta     pb
-        lda     #1                      ; to the program's bank
+        lda     #0                      ; from the system's bank (CP/M's C)
         sta     pb+1
-        lda     #0                      ; from the system's
+        lda     #1                      ; to the program's (B)
         sta     pb+2
         jsr     bios
         lda     #BIOS::MOVE
