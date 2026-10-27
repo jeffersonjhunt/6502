@@ -96,6 +96,9 @@ DOP:            .res    1              ; 0 READ, 1 WRITE
 LBA:            .res    3
 SIDES:          .res    8              ; COPY's source, then destination: bank, address (3)
 CNT:            .res    2
+SAVED:          .res    10             ; SIDES and CNT, for COPY's second pass
+DRY:            .res    1              ; bit 7: COPY's first pass, which only checks
+TMO:            .res    1              ; SDIDLE's and SDDATA's outer count
 SRCP:           .res    3              ; DMAGO's source, destination and count
 DSTP:           .res    3
 DCOUNT:         .res    2
@@ -375,24 +378,23 @@ SELDSK:         CMP     #16
 UNITTAB         = SECBUF + $40         ; IDENTIFY's: 32 bytes a unit, 1-7
 
 ; IDENTIFY's units table into DRVTAB, DPHs and DRVRO. A card that isn't
-; there or not started up leaves A-G empty.
+; there or not started up, or doesn't answer within about a second, leaves
+; A-G empty.
 UNITS:          LDX     #2 * SD_DRIVES - 1
 @clear:         STZ     DRVTAB,X
                 DEX
                 BPL     @clear
                 JSR     CARDOK
-                BCC     @card
-                RTS
-@card:          STZ     SD_CTRL
+                BCS     @none
+                JSR     SDIDLE         ; a command written while BUSY is ignored
+                BCS     @none
+                STZ     SD_CTRL
                 STZ     SD_UNIT
                 LDA     #SD_IDENTIFY
                 STA     SD_CMD
-@wait:          LDA     SD_STATUS
-                BIT     #SD_DATA_READY
-                BNE     @read
-                BIT     #SD_BUSY
-                BNE     @wait
-                RTS                    ; failed: no drives
+                JSR     SDDATA
+                BCC     @read
+@none:          RTS                    ; failed: no drives
 @read:          LDY     #0
 @lo:            LDA     SD_DATA
                 STA     SECBUF,Y
@@ -402,6 +404,7 @@ UNITS:          LDX     #2 * SD_DRIVES - 1
                 STA     SECBUF + $100,Y
                 INY
                 BNE     @hi
+                JSR     SDIDLE         ; and IDENTIFY's end, before anything else
                 LDX     #0             ; X the drive, Y its entry
                 LDY     #0
 @unit:          LDA     UNITTAB + 4,Y
@@ -629,13 +632,24 @@ CROSSES:        LDA     DMAADR + 1
 
 ; One sector between the SD card (CURDRV's unit, LBA) and physical memory at
 ; SRCP, by DMA channel 0, as DOP says. A = 0, 1 an error, 2 the card is
-; write-protected; Z by A.
+; write-protected; Z by A. It waits for the card to be idle first (a command
+; written while BUSY is ignored), and gives a command about a second to end
+; (an SD card may stay busy hundreds of milliseconds programming a write);
+; then the card is reset, its units staying mounted. A command that ends
+; without its 512 bytes all moved (channel 0 short of its terminal count) is
+; an error too.
 SDIO:           JSR     CARDOK
                 BCC     @card
                 LDA     #1
                 RTS
-@card:          LDA     #$01           ; channel 0, programmed stopped
-                STA     DMA_ABORT
+@card:          JSR     SDIDLE
+                BCC     @idle
+                JSR     SDRESET        ; still busy with something else: give up
+                LDA     #1
+                RTS
+@idle:          LDA     #$01           ; channel 0, programmed stopped, its
+                STA     DMA_ABORT      ; terminal count cleared
+                STA     DMA_STATUS
                 LDX     #2
 @addr:          LDA     SRCP,X
                 STA     DMA0_ADDR,X
@@ -674,17 +688,12 @@ SDIO:           JSR     CARDOK
                 BEQ     @cmd
                 LDA     #SD_WRITE
 @cmd:           STA     SD_CMD
-                LDX     #0             ; about 0.1 s, then give up
-                LDY     #0
-@wait:          LDA     SD_STATUS
-                BPL     @done          ; BUSY clear
-                DEX
-                BNE     @wait
-                DEY
-                BNE     @wait
-                LDA     #SD_CTRL_RESET ; abandon it; units stay mounted
-                STA     SD_CTRL
-@done:          STZ     SD_CTRL
+SDWAIT:         JSR     SDIDLE
+                BCC     SDEND
+                JSR     SDRESET        ; abandon it
+SDEND:          LDA     DMA_STATUS     ; channel 0's terminal count, in bit 0
+                TAY
+                STZ     SD_CTRL
                 LDA     #$01
                 STA     DMA_ABORT
                 PLA
@@ -693,15 +702,64 @@ SDIO:           JSR     CARDOK
                 LDA     SD_STATUS
                 BMI     @error         ; still busy: given up
                 AND     #SD_ERR
-                BEQ     @ok
+                BEQ     @ended
                 LDA     SD_ERROR
                 CMP     #SD_WRITE_PROTECTED
                 BNE     @error
                 LDA     #2
                 RTS
+@ended:         TYA                    ; no error: were all 512 bytes moved?
+                LSR     A
+                BCC     @error
+                LDA     #0
+                RTS
 @error:         LDA     #1
                 RTS
-@ok:            LDA     #0
+
+SDRESET:        LDA     #SD_CTRL_RESET ; the command abandoned; units stay mounted
+                STA     SD_CTRL
+                STZ     SD_CTRL
+                RTS
+
+; Carry clear once the card isn't BUSY; set if it still is after about a
+; second: 11 cycles a pass, 655,360 passes. Uses A, X, Y.
+SDIDLE:         LDA     #10
+                STA     TMO
+                LDX     #0
+                LDY     #0
+@wait:          BIT     SD_STATUS      ; N: BUSY
+                BPL     @idle
+                DEX
+                BNE     @wait
+                DEY
+                BNE     @wait
+                DEC     TMO
+                BNE     @wait
+                SEC
+                RTS
+@idle:          CLC
+                RTS
+
+; Carry clear once the command has a sector for DATA; set if it ended
+; instead, or after about a second (17 cycles a pass). Uses A, X, Y.
+SDDATA:         LDA     #7
+                STA     TMO
+                LDX     #0
+                LDY     #0
+@wait:          LDA     SD_STATUS
+                BIT     #SD_DATA_READY
+                BNE     @ready
+                BIT     #SD_BUSY
+                BEQ     @ended
+                DEX
+                BNE     @wait
+                DEY
+                BNE     @wait
+                DEC     TMO
+                BNE     @wait
+@ended:         SEC
+                RTS
+@ready:         CLC
                 RTS
 
 ; ---------------------------------------------------------------------------

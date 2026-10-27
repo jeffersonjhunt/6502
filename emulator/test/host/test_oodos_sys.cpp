@@ -1080,6 +1080,70 @@ TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
     CHECK_EQ(banners, size_t{1});
 }
 
+/// BANKTEST USE's READ, with `hook` called once when the BIOS gets to `label`. @return READ's
+/// result, and the cycles from `label` to SDRESET, if the BIOS gave up, in `waited`
+std::string read_with(Rig &r, const std::string &label, const std::function<void()> &hook, uint64_t &waited)
+{
+    const uint16_t at = sym(label), end = sym("SDRESET");
+    bool done = false;
+    uint64_t t0 = 0;
+    waited = 0;
+    r.watch = [&](uint16_t pc) {
+        if (!done && pc == at && r.nb(2) == 61)
+        {
+            done = true;
+            t0 = r.cpu->cycles();
+            hook();
+        }
+        else if (done && !waited && pc == end && r.nb(2) == 61)
+            waited = r.cpu->cycles() - t0;
+    };
+    const std::string o = r.go("banktest.com", " USE", ms(6000));
+    r.watch = nullptr;
+    return field(o, "READ");
+}
+
+TEST(the_bios_waits_for_the_card_bounded_and_checks_the_dma_moved_it_all)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> a0 = r.read_unit(1, 0);
+    auto read_ok = [&] {
+        bool same = true;
+        for (uint32_t i = 0; i < SECTOR; ++i)
+            same = same && r.phys(SYS_BLOCK_PHYS + 0x1000 + i) == a0[i];
+        r.poke(SYS_BLOCK_PHYS + 0x1000, std::vector<uint8_t>(SECTOR, 0));
+        return same;
+    };
+    uint64_t waited = 0;
+    // The card busy with a FLUSH as READ starts: READ waits for it, then reads.
+    CHECK_EQ(read_with(r, "SDIO", [&] { r.sd().write(SdCard::CMD, 0xE7); }, waited), std::string("00"));
+    CHECK(read_ok());
+    // The card done but channel 0 short of its terminal count: an error, not 0.
+    CHECK_EQ(read_with(r, "SDEND", [&] { r.machine->bus().write(0xC440, 0x01); }, waited), std::string("01"));
+    // A command that never ends (channel 0 stopped under it): given about a second, then the
+    // card reset, its units still mounted.
+    CHECK_EQ(read_with(r, "SDWAIT", [&] { r.machine->bus().write(0xC442, 0x01); }, waited), std::string("01"));
+    std::printf("  a READ that never ends: given up after %.2f s\n", static_cast<double>(waited) / HZ);
+    CHECK(waited > ms(900) && waited < ms(1500));
+    r.run(ms(SdCard::INIT_MS + 10));
+    CHECK_EQ(read_with(r, "SDIO", [] {}, waited), std::string("00"));
+    CHECK(read_ok());
+    // The card still busy with something else as READ starts: given about a second too.
+    auto stuck = [&] { // a READ through DATA that nobody takes: BUSY until reset
+        r.sd().write(SdCard::CTRL, 0);
+        r.sd().write(SdCard::UNIT, 0);
+        r.sd().write(SdCard::COUNT, 1);
+        r.sd().write(SdCard::CMD, SdCard::READ);
+    };
+    CHECK_EQ(read_with(r, "SDIO", stuck, waited), std::string("01"));
+    std::printf("  a card busy from before: given up after %.2f s\n", static_cast<double>(waited) / HZ);
+    CHECK(waited > ms(900) && waited < ms(1500));
+    r.run(ms(SdCard::INIT_MS + 10));
+    CHECK_EQ(read_with(r, "SDIO", [] {}, waited), std::string("00"));
+    CHECK(read_ok());
+}
+
 int main()
 {
     if (read_bytes(SYS + "/OODOS.SYS").empty() || read_bytes(EMU_BIOS_ROM).empty())
