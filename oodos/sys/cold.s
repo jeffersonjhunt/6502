@@ -37,6 +37,8 @@ COLD:           SEI
                 INX
                 CPX     #SCBINIT_LEN
                 BNE     @scb
+                LDA     #BIOS_BLOCK    ; bank 0's W2 until the jump table says otherwise
+                STA     CALLW2
                 JSR     BINIT
                 LDA     #0
                 JSR     JT(BIOS::TIME)

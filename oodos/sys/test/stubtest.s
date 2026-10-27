@@ -12,7 +12,7 @@
 ;   S ss ss                  S before and after
 ;   P pp                     P after (D, bit 3, clear)
 ;   DAT dddd hh mm ss        what function 105 wrote at $8000, block 5
-;   NOFUNC FFFF              function 13, which the stand-in hasn't
+;   NOFUNC FFFF              function 41, which CP/M 3 hasn't (MP/M's)
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -102,7 +102,7 @@ start:  lda     #COPYBLK                ; block 0 to block 3, through W1
         ldy     #T_GET
         jsr     BDOS
         sta     secs
-        ldy     #13                     ; one the stand-in hasn't: A = X = $FF
+        ldy     #41                     ; one the BDOS hasn't: A = X = $FF
         jsr     BDOS
         sta     nofunc
         stx     nofunc+1

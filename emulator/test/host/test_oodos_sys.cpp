@@ -1226,14 +1226,17 @@ TEST(the_bios_waits_for_the_card_bounded_and_checks_the_dma_moved_it_all)
     CHECK(read_ok());
 }
 
-TEST(the_ccps_reader_gives_up_on_a_card_that_stays_busy)
+TEST(the_ccps_load_gives_up_on_a_card_that_stays_busy)
 {
+    // The CCP opens HELLO.COM through the BDOS, which logs A: in first: the card busy as it
+    // starts reading the directory, so the BIOS's READ gives up, the BDOS returns Disk I/O (the
+    // CCP's error mode returns errors), and the CCP says READ ERROR.
     Booted r;
     REQUIRE(r.ok);
     bool stuck = false;
     uint64_t t0 = 0;
     r.watch = [&](uint16_t pc) {
-        if (!stuck && pc == sym("CR_INIT"))
+        if (!stuck && pc == sym("LOGIN"))
         {
             stuck = true;
             t0 = r.cpu->cycles();
@@ -1247,7 +1250,7 @@ TEST(the_ccps_reader_gives_up_on_a_card_that_stays_busy)
     r.type("HELLO\r");
     CHECK(r.until("READ ERROR\r\nA>", ms(4000), from));
     const uint64_t took = r.cpu->cycles() - t0;
-    std::printf("  CR_INIT on a busy card: READ ERROR after %.2f s\n", static_cast<double>(took) / HZ);
+    std::printf("  A:'s login on a busy card: READ ERROR after %.2f s\n", static_cast<double>(took) / HZ);
     CHECK(stuck && took > ms(900));
     r.watch = nullptr;
     r.run(ms(SdCard::INIT_MS + 10));

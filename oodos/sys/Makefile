@@ -14,7 +14,7 @@
 
 BUILD    ?= build
 PYTHON   = python3 -I
-SYSOBJS  = common bdos bios crt cold ccp cpmread
+SYSOBJS  = common bdos bdosfile bdosdisk bios crt cold ccp
 PROGRAMS = hello biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest
 AFLAGS   = -g -I . -I ../include -I ../../backplane/bios
 PFLAGS   = -g -I test -I ../include
@@ -26,7 +26,7 @@ PARTS = 0xF0000:$(BUILD)/oodos.bdos 0xF4000:$(BUILD)/oodos.bios \
 LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2).ld; \
 	[ -z "$$w" ] || echo "$$w" >&2; [ $$s = 0 ] && [ -z "$$w" ]
 
-INCS = sys.inc ../include/system.inc ../../backplane/bios/backplane.inc
+INCS = sys.inc bdos.inc ../include/system.inc ../../backplane/bios/backplane.inc
 
 all: $(BUILD)/OODOS.SYS $(PROGRAMS:%=$(BUILD)/%.com)
 

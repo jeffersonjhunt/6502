@@ -11,10 +11,17 @@
 ;           header) at $0280 where a loader leaves it: for tests, and for
 ;           whatever put it there by hand. The command tail goes over the
 ;           header, so a second GO needs it put back
-;   NAME    NAME.COM from drive A, user 0, read by cpmread.s (OOLDR's
-;           reader) a record at a time: the header (the file's first 16
-;           bytes) to $0280, checked, then exactly the image's size, from
-;           the file's 17th byte, to $0300. A name it can't find is NAME?
+;   NAME    NAME.COM from drive A, user 0, through the BDOS (Open, then
+;           Read): the first record to LASTREC, its header (the file's first
+;           16 bytes) to $0280 and checked, then exactly the image's size,
+;           from the file's 17th byte, to $0300: the first record's 112 bytes
+;           (or fewer), whole records read straight to their place, a last
+;           part record through LASTREC. A name it can't find is NAME?
+;
+; Each warm boot writes back what the BDOS holds (48) and frees the blocks
+; of files a program didn't close (98). The CCP's own calls return their
+; errors (error mode $FF): an error loading is READ ERROR. A program starts
+; in the default error mode, with the DMA address $0280.
 ;
 ; Before a program runs, its header is checked as the loader checks it
 ; (hw/oodos.md, "The program header"): the magic number, no flags (a .COM),
@@ -28,7 +35,6 @@
 .include "sys.inc"
 .include "oodos.inc"
 .import WARM, STUB
-.import CR_INIT, CR_FIND, CR_READ
 .export CCP, RUNHDR
 
 LINE_MAX        = 126                  ; what $0280's tail can hold
@@ -38,10 +44,11 @@ RECORD          = 128
 LINE:           .res    2 + LINE_MAX   ; function 10's: its size, the count, the line
 WSTART:         .res    1              ; the command word, in LINE
 WEND:           .res    1
-FCBNAME:        .res    11             ; NAME.COM as an FCB has it
+COMFCB:         .res    36             ; A:NAME.COM
+FCBNAME         = COMFCB + 1
 LEFT:           .res    2              ; the image's bytes still to load
 DEST:           .res    2              ; where the next record goes
-LASTREC:        .res    RECORD         ; each record of NAME.COM, before its bytes are copied
+LASTREC:        .res    RECORD         ; a record of NAME.COM whose bytes are copied
 COUNT:          .res    1              ; COPYREC's bytes
 
 .segment "RES"
@@ -55,6 +62,16 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 STA     BDOS_ENTRY,X
                 DEX
                 BPL     @jmps
+                LDX     #$FF
+                TXS
+                LDA     #$FF           ; the CCP's errors come back to it
+                LDY     #F_ERRMODE
+                JSR     BDOS
+                LDA     #0             ; written back, and unclosed files' blocks freed
+                LDY     #DRV_FLUSH
+                JSR     BDOS
+                LDY     #DRV_FREE
+                JSR     BDOS
 PROMPT:         LDX     #$FF
                 TXS
                 LDA     #<CRLF
@@ -108,11 +125,11 @@ PROMPT:         LDX     #$FF
                 BNE     LOADCOM
                 JMP     RUNHDR
 
-; NAME.COM from drive A (unit 1), user 0, a record at a time through
-; LASTREC: the header, its first 16 bytes, to $0280 and checked before
-; anything else is written; then exactly the image's size, which follows the
-; header in the file, to $0300, so nothing past the image changes.
-; The reader failed (or the file ended inside the image): READ ERROR.
+; NAME.COM from drive A, user 0, through the BDOS: record 0 to LASTREC,
+; its header (the first 16 bytes) to $0280 and checked before anything else
+; is written; then exactly the image's size, which follows the header, to
+; $0300, so nothing past the image changes.
+; An error, or the file ending inside the image: READ ERROR.
 RDERR:          LDA     #<READERR
                 LDX     #>READERR
                 JSR     STRING
@@ -120,7 +137,12 @@ RDERR:          LDA     #<READERR
 
 NOFILE:         JMP     NONAME         ; NONAME is out of a branch's reach
 
-LOADCOM:        LDY     #10            ; FCBNAME: "NAME    COM"
+LOADCOM:        LDX     #36 - 1        ; A:"NAME    COM", the rest 0
+@clear:         STZ     COMFCB,X
+                DEX
+                BPL     @clear
+                INC     COMFCB         ; A:
+                LDY     #10
 @blank:         LDA     COMNAME,Y
                 STA     FCBNAME,Y
                 DEY
@@ -128,7 +150,7 @@ LOADCOM:        LDY     #10            ; FCBNAME: "NAME    COM"
                 LDX     WSTART
                 LDY     #0
 @name:          CPX     WEND
-                BEQ     @find
+                BEQ     @open
                 CPY     #8
                 BCS     NOFILE         ; too long: NAME? anyway
                 LDA     LINE + 2,X
@@ -136,20 +158,24 @@ LOADCOM:        LDY     #10            ; FCBNAME: "NAME    COM"
                 INX
                 INY
                 BRA     @name
-@find:          LDA     #1
-                JSR     CR_INIT
-                BCS     RDERR
-                LDA     #<FCBNAME
-                LDX     #>FCBNAME
-                JSR     CR_FIND
-                BCC     @found
-                CMP     #CRE_NOFILE
+@open:          LDA     #0             ; user 0
+                LDY     #F_USERNUM
+                JSR     BDOS
+                LDA     #<COMFCB
+                LDX     #>COMFCB
+                LDY     #F_OPEN
+                JSR     BDOS
+                CMP     #$FF
+                BNE     @found
+                CPX     #0             ; not there, or an error
                 BEQ     NOFILE
                 BRA     RDERR
-@found:         JSR     NEXTREC        ; record 0: the header, then the image's start
+@found:         LDA     #<LASTREC      ; record 0: the header, then the image's start
+                LDX     #>LASTREC
+                JSR     NEXTREC
                 BCC     @header
-                CMP     #CRE_EOF       ; an empty file: no program
-                BNE     @fail
+                CMP     #1             ; an empty file: no program
+                BNE     RDERR
                 STZ     BP_DMA
                 JSR     CHECKHDR       ; says so, and doesn't come back
 @header:        LDX     #OH_LEN - 1    ; the header to $0280, where RUNHDR reads it
@@ -165,26 +191,52 @@ LOADCOM:        LDY     #10            ; FCBNAME: "NAME    COM"
                 STZ     DEST
                 LDA     #>BP_TPA
                 STA     DEST + 1
-                LDX     #OH_LEN        ; the image starts after the header, in record 0
                 LDA     LEFT           ; an empty image: nothing to load
                 ORA     LEFT + 1
                 BEQ     @loaded
-@more:          TXA
+                LDA     #OH_LEN        ; the image starts after the header, in record 0
                 JSR     COPYREC
-                LDA     LEFT           ; the image's end?
-                ORA     LEFT + 1
+@whole:         LDA     LEFT + 1       ; a whole record left: straight to DEST
+                BNE     @straight
+                LDA     LEFT
                 BEQ     @loaded
+                BPL     @part
+@straight:      LDA     DEST
+                LDX     DEST + 1
                 JSR     NEXTREC
                 BCS     @fail          ; the file ends inside the image
-                LDX     #0
-                BRA     @more
+                CLC
+                LDA     DEST
+                ADC     #RECORD
+                STA     DEST
+                BCC     @less
+                INC     DEST + 1
+@less:          SEC
+                LDA     LEFT
+                SBC     #RECORD
+                STA     LEFT
+                BCS     @whole
+                DEC     LEFT + 1
+                BRA     @whole
+@part:          LDA     #<LASTREC      ; a last part record, through LASTREC
+                LDX     #>LASTREC
+                JSR     NEXTREC
+                BCS     @fail
+                LDA     #0
+                JSR     COPYREC
 @loaded:        JMP     RUNTAIL
 @fail:          JMP     RDERR
 
-; The file's next record into LASTREC; carry set and the error in A if none.
-NEXTREC:        LDA     #<LASTREC
-                LDX     #>LASTREC
-                JMP     CR_READ
+; The file's next record to A/X; carry set if none (A = 1, the end) or an
+; error (A = $FF).
+NEXTREC:        LDY     #F_DMAOFF
+                JSR     BDOS
+                LDA     #<COMFCB
+                LDX     #>COMFCB
+                LDY     #F_READ
+                JSR     BDOS
+                CMP     #1
+                RTS
 
 ; LASTREC from offset A to its end, or LEFT bytes if fewer (LEFT isn't 0), to
 ; DEST; both move on.
@@ -289,8 +341,16 @@ CHECKHDR:       LDX     #3
 @say:           JSR     STRING
                 JMP     PROMPT         ; a fresh stack: CHECKHDR's return is dropped
 
-; Run it: the command tail over the header, the FCBs, a fresh stack, $0300.
-RUNTAIL:        LDY     #0             ; the tail: after the command word
+; Run it: the DMA address $0280 and the default error mode, the command
+; tail over the header, the FCBs, a fresh stack, $0300.
+RUNTAIL:        LDA     #<BP_DMA
+                LDX     #>BP_DMA
+                LDY     #F_DMAOFF
+                JSR     BDOS
+                LDA     #0
+                LDY     #F_ERRMODE
+                JSR     BDOS
+                LDY     #0             ; the tail: after the command word
                 LDX     WEND
 @tail:          CPX     LINE + 1
                 BEQ     @tailed
