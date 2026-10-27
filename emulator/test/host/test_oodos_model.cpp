@@ -127,9 +127,11 @@ namespace
 
     bool prepare(unsigned seed, const std::string &dir)
     {
-        std::string out;
+        std::string out, cut;
+        if (const char *c = std::getenv("OODOS_MODEL_CUT"); c && *c)
+            cut = std::string(" --cut ") + c;                  // the script's first N operations only
         const int rc = modeltest("prepare --seed " + std::to_string(seed) + " --format " + format_of(seed) +
-                                     " --dir " + quote(dir) + " --driver " + quote(DRIVER),
+                                     " --dir " + quote(dir) + " --driver " + quote(DRIVER) + cut,
                                  out);
         if (rc != 0)
             print_lines(out);
@@ -660,6 +662,8 @@ constexpr bool MODEL_BDOS = false;
 
 int main()
 {
+    if (env_on("OODOS_MODEL_ONLY", false))
+        ::ooe::test::registry().clear();                    // the comparison alone: seeds run in parallel by hand
     if (env_on("OODOS_MODEL_BDOS", MODEL_BDOS))
     {
         static ::ooe::test::Registrar reg("oodos_matches_the_model", [] {

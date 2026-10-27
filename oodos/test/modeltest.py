@@ -1,6 +1,7 @@
 """The model test's commands (hw/oodos.md, "The BDOS, phase 3"; oodos/README.md has them in use).
 
     python3 -I modeltest.py prepare --seed N --format F --dir DIR --driver DRIVER.COM [--profile P] [--ops N]
+                                    [--cut N]
         DIR/SCRIPT.BIN, the seed's script; DIR/A.IMG, an oodos-8m drive holding it and DRIVER.COM;
         DIR/T.IMG, the drive under test, empty (made as mkfs.cpm -t, mode 0x31); DIR/setup, what was asked
     python3 -I modeltest.py serve --dir DIR [--fault F]
@@ -76,6 +77,8 @@ def cmd_prepare(o):
     drive = drive_for(o.format)
     g = S.Generator(o.seed, o.format, drive, nops=o.ops, profile=o.profile)
     script = g.generate()
+    if o.cut is not None:                    # the first N operations of the seed's script, to find a difference
+        script.ops = script.ops[:o.cut]
     data = script.encode()
     a = M.Drive(A_FMT, M.mkfs(M.FORMATS[A_FMT], START))
     S.put_file(a, 0, "SCRIPT.BIN", data, START)
@@ -97,10 +100,10 @@ class Faulty(M.Bdos):
 
     fault = None
 
-    def stamp_slot(self, dv, i, made=False, updated=False):
-        if self.fault == "update" and updated:
+    def stamp_slot(self, dv, i, made=False, first=False):
+        if self.fault == "update" and not made:
             return
-        super().stamp_slot(dv, i, made, updated)
+        super().stamp_slot(dv, i, made, first)
 
     def writeback(self, s):
         i = super().writeback(s)
@@ -265,6 +268,7 @@ def main():
     q.add_argument("--driver")
     q.add_argument("--profile", choices=sorted(set(S.PROFILES)))
     q.add_argument("--ops", type=int)
+    q.add_argument("--cut", type=int)
     for name in ("serve", "predict", "check", "show"):
         q = sub.add_parser(name)
         q.add_argument("--dir", required=True)

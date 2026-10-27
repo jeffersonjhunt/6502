@@ -36,22 +36,28 @@ Testing, "phase 3a: the model", Proposed):
 - Errors return (the driver sets 45 to $FF): A = $FF and X = CP/M 3's H: 2 R/O disk, 3 R/O file, 4 select
   error, 8 file exists, 9 '?' in the name. "Not found", "no directory space" and the like are A = $FF,
   X = 0. Checks go in this order: the drive, '?' (9), a read-only drive (2), not found, a read-only file
-  (3), exists (8).
+  (3), exists (8); but rename (23) checks the new name first: the drive, '?' in either name, a read-only
+  drive, the new name exists (8), the old one not found, a read-only file (3), as OODOS's BDOS does (the
+  manual lists the errors in no order).
 - Directory codes: 15, 16 (a written FCB), 17, 18 and 22 return the entry's index mod 4; 19, 23 and 30
   return one of 0-3 (which isn't fixed: Result.loose). A close of an FCB not written returns 0 and
   writes nothing. Success puts 0 in X.
 - Delete (19) takes '?' and all extents; if any match is R/O nothing is deleted. Rename (23) keeps the
   entries' attributes; '?' in either name is 9, a new name that exists is 8. Set attributes (30) copies
   f1'-f4' and t1'-t3' from the FCB to every extent, no '?'. File size (35) and truncate (99): the
-  current user only, '?' is 9.
+  current user only, '?' is 9. File size puts 0 in R0-R2 when there's no such file (as CP/M 2.2 did).
 - Truncate (99) keeps records 0 to R: entries past R's extent are deleted, the one holding it gets EX and
-  RC for R and loses the blocks after R's. R at or past the end is A = $FF, X = 0. It stamps nothing.
-- Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access): make, and a new entry
-  made by a write, sets its SFCB slot's create (or access) and update stamps to now, password mode and
-  the reserved byte 0; writing a written FCB's entry back (close, or moving to another extent) sets its
-  update stamp; open sets the access stamp only with $40. Delete, rename, 30 and 99 leave the SFCB as
-  it is, and so does make on a drive whose mode keeps no stamps. Now is what 104 last set (the driver
-  sets the time before what stamps).
+  RC for R and loses the blocks after R's. R at or past the end is A = $FF, X = 0. It stamps the
+  update, as a close after a write does (the manual doesn't say; OODOS's BDOS does).
+- Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access), only ever in the
+  SFCB slot of a file's extent-zero entry (the manual: a slot is valid only for an extent-zero entry).
+  A new entry's slot is cleared (its password mode and reserved byte 0 too); make (of extent 0) sets
+  its create (or access) and update stamps to now, an entry made by a write gets none. Writing a written
+  FCB's entry back (close, or moving to another extent) and truncate set the update stamp in the
+  file's extent-zero entry's slot, whichever extent they changed. Open of extent 0 sets the access
+  stamp with $40 (over the creation stamp, the field they share), not on a read-only drive. Delete,
+  rename and 30 leave the SFCB as it is, and so does make on a drive whose mode keeps no stamps. Now is
+  what 104 last set (the driver sets the time before what stamps).
 - 13 resets every drive (R/O cleared, logged out), drive A current, the DMA $0280; 37 the drives in its
   vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 returns
   the address of a copy of the current drive's DPB (17 bytes). 27 returns $FFFF. 12 returns $0031.
@@ -350,15 +356,23 @@ class Bdos:
     def code(self, i):
         return i & 3
 
-    def stamp_slot(self, dv, i, made=False, updated=False):
+    def stamp_slot(self, dv, i, made=False, first=False):
+        """A made entry's slot: 0, and with `first` (make's extent 0) the create (or access) and update
+        stamps as the mode asks. Without `made`, the update stamp in the slot of user:name's extent-zero
+        entry, entry i's file (CP/M 3 keeps a file's stamps there only)."""
+        if not made:
+            e = dv.entry(i)
+            i = self.find_ext(dv, e[0], bytes(c & 0x7F for c in e[1:12]), 0)
+            if i is None:
+                return
         o = dv.slot(i)
         if o is None:
             return
         if made and dv.mode & (MODE_CREATE | MODE_ACCESS | MODE_UPDATE):
-            first = self.now if dv.mode & (MODE_CREATE | MODE_ACCESS) else bytes(4)
-            upd = self.now if dv.mode & MODE_UPDATE else bytes(4)
-            dv.img[o:o + 10] = first + upd + b"\0\0"
-        elif updated and dv.mode & MODE_UPDATE:
+            cre = self.now if first and dv.mode & (MODE_CREATE | MODE_ACCESS) else bytes(4)
+            upd = self.now if first and dv.mode & MODE_UPDATE else bytes(4)
+            dv.img[o:o + 10] = cre + upd + b"\0\0"
+        elif not made and dv.mode & MODE_UPDATE:
             dv.img[o + 4:o + 8] = self.now
 
     def find_ext(self, dv, user, name, ext):
@@ -427,7 +441,9 @@ class Bdos:
         b[1:12] = s.name
         b[12] = s.ext & 0x1F
         b[13] = s.s1
-        b[14] = s.ext >> 5
+        # S2: the module, and as OODOS's BDOS keeps them there, $80 not written and $40 no entry yet;
+        # so a program's own FCB of the same name and place isn't taken for the open one
+        b[14] = s.ext >> 5 | (0 if s.modified else 0x80) | (0x40 if s.entry is None else 0)
         b[15] = s.rc
         e = dv.put_blocks(bytes(32), s.map if s.map else [0] * dv.fmt.slots)
         b[16:32] = e[16:32]
@@ -481,11 +497,11 @@ class Bdos:
         s.map = merged
         s.entry = i
         s.modified = False
-        self.stamp_slot(dv, i, updated=True)
+        self.stamp_slot(dv, i)
         self.kill(lambda o: o in self.sharers(s))       # their copies of the entry are old now
         return i
 
-    def new_entry(self, dv, s, ext):
+    def new_entry(self, dv, s, ext, first=False):
         i = self.free_entry(dv)
         if i is None:
             return None
@@ -495,7 +511,7 @@ class Bdos:
         e[12] = ext & 0x1F
         e[14] = ext >> 5
         dv.set_entry(i, bytes(e))
-        self.stamp_slot(dv, i, made=True)
+        self.stamp_slot(dv, i, made=True, first=first)
         self.kill(lambda o: o in self.sharers(s))
         s.entry, s.ext = i, ext
         s.map, s.rc, s.s1 = [0] * dv.fmt.slots, 0, 0
@@ -588,7 +604,7 @@ class Bdos:
         self.load_ext(s, ext)
         self.fcbs[addr] = s
         self.put_fcb(addr, s, b, mem)
-        if dv.mode & MODE_ACCESS and not dv.mode & MODE_CREATE:
+        if dv.mode & MODE_ACCESS and ext == 0 and not dv.ro:  # access overwrites a creation stamp
             o = dv.slot(i)
             if o is not None:
                 dv.img[o:o + 4] = self.now
@@ -692,6 +708,8 @@ class Bdos:
             raise Unspecified("read: the position is uncertain after an error")
         dv = self.drives[s.drive]
         moved = s.cr >= 128
+        if moved and s.ext < MAX_EXT and s.modified and dv.ro:
+            return 0xFF, 2                               # moving on closes the written extent: R/O disk
         if moved:
             if s.ext >= MAX_EXT or self.move(s, s.ext + 1, False):
                 s.cr = 0
@@ -779,7 +797,7 @@ class Bdos:
             return 0xFF, 8
         s = Fcb(d, self.user, name, False, b[0])
         s.opener = self.user
-        if self.new_entry(dv, s, 0) is None:
+        if self.new_entry(dv, s, 0, first=True) is None:
             return 0xFF, 0
         self.kill(lambda o: o.drive == d and o.user == self.user and same_name(o.name, name))
         s.cr = b[32]
@@ -798,13 +816,13 @@ class Bdos:
         dv = self.use(d)
         if dv.ro:
             return 0xFF, 2
+        if dv.file_entries(self.user, new):              # checked first, as OODOS's BDOS does
+            return 0xFF, 8
         hits = dv.file_entries(self.user, old)
         if not hits:
             return 0xFF, 0
         if any(dv.entry(i)[9] & 0x80 for i in hits):
             return 0xFF, 3
-        if dv.file_entries(self.user, new):
-            return 0xFF, 8
         for i in hits:
             e = bytearray(dv.entry(i))
             for k in range(11):
@@ -861,6 +879,7 @@ class Bdos:
         return self.code(hits[0]), 0
 
     def f31(self, a, x, mem):
+        self.use(self.cur)                               # it selects: the manual has it return $FFFF on an I/O error
         mem.write(self.dpb_addr, self.drives[self.cur].fmt.dpb())
         self.loose = {"a", "x"}
         return self.dpb_addr & 0xFF, self.dpb_addr >> 8
@@ -884,6 +903,8 @@ class Bdos:
             s.uncertain = True
             return 6, 0
         ext, c = r >> 7, r & 127
+        if (ext != s.ext or s.entry is None) and s.modified and dv.ro:
+            return 0xFF, 2                               # moving closes the written extent: R/O disk
         if self.move(s, ext, False):
             s.cr = c
             s.uncertain = True
@@ -998,6 +1019,8 @@ class Bdos:
         dv = self.use(d)
         if dv.ro:
             return 0xFF, 2
+        if b[35] > 3:                                    # R past 32 MB, before the directory is read
+            return 0xFF, 0
         name = bytes(c & 0x7F for c in b[1:12])
         hits = dv.file_entries(self.user, name)
         if not hits:
@@ -1034,6 +1057,7 @@ class Bdos:
                 e[0] = E5
                 dv.set_entry(i, bytes(e))
         dv.alv.update(range(f.dir_blocks))
+        self.stamp_slot(dv, keep)
         self.kill(lambda s: s.drive == d and s.user == self.user and same_name(s.name, name))
         return 0, 0
 

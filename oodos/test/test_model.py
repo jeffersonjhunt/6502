@@ -185,7 +185,15 @@ def make_write_close():
     t.f(16)
     eq(t.e(1), entry(0, "B.DAT", ex=1, rc=128, blocks=range(4, 20)), "257 records: entry 1 full, EX 1, RC 128, 16 blocks")
     eq(t.e(2), entry(0, "B.DAT", ex=2, rc=1, blocks=[20]), "entry 2: EX 2, RC 1, block 20")
-    eq(t.slot(2)[:4], T0, "entry 2's slot stamped when the write made it")
+    eq(t.slot(2), bytes(10), "entry 2's slot, made by the write, 0: CP/M 3 keeps stamps in extent zero's only")
+    t.b.now = T1
+    t.fcb("B.DAT", ex=2)
+    t.f(15)
+    t.rand(257)
+    t.write(1, fn=34)
+    eq(t.f(16), (2, 0), "B.DAT opened at extent 2, record 257 written, closed: entry 2's directory code")
+    eq((t.slot(1), t.slot(2)), (T0 + T1 + h("0000"), bytes(10)),
+       "the update stamped in extent zero's slot (entry 1's), not entry 2's")
 
     t = Rig("oodos-8m")
     t.new("C.BIN", 1)
@@ -237,6 +245,8 @@ def random_records():
     t.fcb("S.DAT", FCB2)
     t.f(35, FCB2)
     eq(t.r(FCB2), 301, "size 301")
+    t.fcb("NONE.DAT", FCB2, r=0x30201)
+    eq((t.f(35, FCB2), t.r(FCB2)), ((0xFF, 0), 0), "35 of no such file: $FF, and R0-R2 0")
     t.fcb("S.DAT")
     t.f(15)
     for r, want, what in ((150, 1, "extent 1, past entry 1's EX: unwritten (1)"),
@@ -373,6 +383,10 @@ def rename_delete():
     t.fcb("A.TXT", FCB2)
     t.m.write(FCB2 + 16, bytes([1]) + M.fcb_name("B.TXT") + bytes(4))
     eq(t.f(23, FCB2), (0xFF, 8), "rename A.TXT to B.TXT: B.TXT exists (8)")
+    t.fcb("X.TXT", FCB2)
+    t.m.write(FCB2 + 16, bytes([1]) + M.fcb_name("B.TXT") + bytes(4))
+    eq(t.f(23, FCB2), (0xFF, 8), "rename X.TXT (not there) to B.TXT (there): the new name is checked first (8)")
+    t.fcb("A.TXT", FCB2)
     t.m.write(FCB2 + 16, bytes([1]) + M.fcb_name("C.DAT") + bytes(4))
     ok(t.f(23, FCB2)[0] < 4, "rename A.TXT to C.DAT")
     eq((t.e(1)[:12], t.e(2)[:12]), (h("00" + name("C.DAT")),) * 2, "both of its entries")
@@ -441,6 +455,14 @@ def truncate():
     t.fcb("T.DAT", FCB2)
     t.f(35, FCB2)
     eq(t.r(FCB2), 100, "size 100")
+    t = Rig()
+    t.new("U.DAT", 300)
+    t.f(16)
+    t.b.now = T1
+    t.fcb("U.DAT", FCB2, r=280)
+    eq(t.f(99, FCB2), (0, 0), "truncate to record 280, in entry 2 (extent 2)")
+    eq((t.slot(1), t.slot(2)), (T0 + T1 + h("0000"), bytes(10)),
+       "the update stamped in extent zero's slot (entry 1's), entry 2's still 0")
 
 
 def stamps_and_modes():
@@ -452,6 +474,21 @@ def stamps_and_modes():
         t.f(16)
         got = t.slot(1)
         eq(got[:8] if want else got, want or h("e5") * 10, "label mode %s" % what)
+    t = Rig(mode=0x71)
+    t.new("A.TXT", 257)
+    t.f(16)
+    t.b.now = T1
+    t.fcb("A.TXT", FCB2)
+    t.f(15, FCB2)
+    eq(t.slot(1)[:8], T1 + T0, "0x71: open of extent 0 stamps the access, over the creation (the field they share)")
+    t.b.now = T0
+    t.fcb("A.TXT", FCB2, ex=2)
+    eq(t.f(15, FCB2), (2, 0), "open of extent 2: entry 2")
+    eq((t.slot(1)[:8], t.slot(2)), (T1 + T0, bytes(10)), "no access stamp: not extent 0")
+    t.call(28)
+    t.fcb("A.TXT", FCB2)
+    t.f(15, FCB2)
+    eq(t.slot(1)[:8], T1 + T0, "nor on a read-only drive")
 
 
 def policy():
