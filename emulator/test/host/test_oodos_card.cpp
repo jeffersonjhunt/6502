@@ -387,7 +387,7 @@ namespace
             const size_t end = std::min(text.find('\n', at), text.size());
             std::string line = text.substr(at, end - at);
             at = end + 1;
-            if (!line.empty() && line.back() == '\r')
+            if (end < text.size() && !line.empty() && line.back() == '\r') // CR LF; a CR at the very end is no line end
                 line.pop_back();
             if (line.find('\r') != std::string::npos) // in a comment too: an editor may show it as a line end
                 return bad("a CR not before LF");
@@ -632,6 +632,8 @@ TEST(drives_txt_is_read_by_its_grammar)
         {"A: /X.IMG\nB: /Y.IMG\na: /Z.IMG\n", "line 3: A: named twice"},
         {"A: /X.IMG\nB: /x.img RO\n", "line 2: /x.img is drive A: already"},
         {"\xEF\xBB\xBF\xEF\xBB\xBF" "A: /X.IMG\n", "line 1: not a drive A-G and a colon"}, // one BOM only
+        {"A: /X.IMG\nB: /Y.IMG\r", "line 2: a CR not before LF"}, // at the very end, with no LF
+        {"A: /X.IMG\r", "line 1: a CR not before LF"},
     };
     for (const auto &b : bad)
     {
