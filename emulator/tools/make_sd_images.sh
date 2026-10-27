@@ -10,9 +10,11 @@
 # A file's byte i is ((i >> 9) * 31 + i * 7 + seed) & 0xFF, its seed in
 # the comments below; test_sd_fat.cpp knows the same.
 set -eu
+# debian:bookworm as of 2026-10-20, as oodos/tools/make_card.sh.
+image=debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 out="$(cd "$(dirname "$0")/.." && pwd)/test/host/sd"
 mkdir -p "$out"
-docker run --rm -i -v "$(hostpath "$out"):/out" debian:bookworm sh -eu <<'INNER'
+docker run --rm -i -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null && apt-get -qq install -y dosfstools mtools fdisk python3 >/dev/null
 cd /tmp
 cat > gen.py <<'PY'
