@@ -6,9 +6,10 @@
  * The committed card, sd/oodos.sparse (oodos/tools/make_card.sh), as the
  * owner would use it: backplane.machine boots to the monitor, C80CR loads
  * OOLDR, OOLDR loads OODOS.SYS from A:, and its stand-in CCP prompts A> and
- * runs NAME.COM from A: through the CP/M reader (oodos/sys/cpmread.s, as
- * OOLDR's). test_oodos_boot covers OOLDR's refusals, test_oodos_sys the
- * system's parts; this is all of them together.
+ * runs NAME.COM from A: through the BDOS (Open, then Read). WRITEOO1 writes a
+ * file there through it, and HELLO still runs after. test_oodos_boot covers
+ * OOLDR's refusals, test_oodos_sys the system's parts; this is all of them
+ * together.
  */
 
 #include "harness.h"
@@ -55,17 +56,17 @@ namespace
     }
 
     /// A small file's records off an oodos-8m drive (4 KB blocks, 1024 entries, 16-bit
-    /// pointers), user 0, its first directory entry only: enough for HELLO.COM.
+    /// pointers, EXM 1), user 0, its first directory entry only: enough for HELLO.COM.
     Bytes cpm_file(const Bytes &img, const std::string &name83)
     {
         constexpr unsigned BLS = 4096, ENTRIES = 1024;
         for (unsigned i = 0; i < ENTRIES; ++i)
         {
             const uint8_t *e = &img[i * ENTRY];
-            if (e[0] != 0 || e[12] != 0 || std::string(e + 1, e + 12) != name83)
+            if (e[0] != 0 || e[12] > 1 || std::string(e + 1, e + 12) != name83)
                 continue;
             Bytes out;
-            const unsigned records = e[15];
+            const unsigned records = (e[12] & 1) * 128 + e[15];
             for (unsigned r = 0; r < records; ++r)
             {
                 const unsigned block = e[16 + 2 * (r / 32)] | e[17 + 2 * (r / 32)] << 8;
@@ -81,6 +82,7 @@ namespace
     struct Oo1
     {
         std::unique_ptr<Session> s;
+        std::shared_ptr<MemoryMedia> card;
         std::string out;
 
         /// Run until `text` appears in the output after `from`, or `frames` pass.
@@ -115,7 +117,8 @@ namespace
         Oo1 m;
         std::string error;
         m.s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
-        if (!m.s || !m.s->insert_sd(std::make_shared<MemoryMedia>(sd_image("oodos.sparse"), "card"), error))
+        m.card = std::make_shared<MemoryMedia>(sd_image("oodos.sparse"), "card");
+        if (!m.s || !m.s->insert_sd(m.card, error))
         {
             std::printf("  %s\n", error.c_str());
             m.s.reset();
@@ -205,6 +208,23 @@ TEST(a_name_not_on_a_is_name_question_mark)
     CHECK(m.command("TESTSYS").find("TESTSYS?") != std::string::npos); // TESTSYS.SYS, not .COM
     CHECK(m.command("TOOLONGNAME").find("TOOLONGNAME?") != std::string::npos);
     CHECK(m.command("HELLO").find("Hello from OODOS") != std::string::npos); // and it still runs things
+}
+
+TEST(writeoo1_writes_through_the_bdos_and_the_ccp_still_loads)
+{
+    Oo1 m = booted();
+    REQUIRE(m.s != nullptr);
+    CHECK(m.command("WRITEOO1").find("OO1.BIN WRITTEN\r\n") != std::string::npos);
+    CHECK(m.command("HELLO").find("Hello from OODOS") != std::string::npos);
+    CHECK(m.command("WRITEOO1").find("\nMAKE FF 08\r\n") != std::string::npos); // File Exists, returned to it
+    // OO1.BIN's first entry, 256 records, on the card the Session wrote: byte i of the file
+    // ((i >> 7) * 31 + i * 7 + 5) & 0xFF.
+    const Bytes oo1 = cpm_file(file_of(m.card->bytes(), "/OODOS/A.IMG"), "OO1     BIN");
+    REQUIRE(oo1.size() == 256 * RECORD);
+    size_t wrong = 0;
+    for (size_t i = 0; i < oo1.size(); ++i)
+        wrong += oo1[i] != static_cast<uint8_t>(((i >> 7) * 31 + i * 7 + 5) & 0xFF);
+    CHECK_EQ(wrong, size_t{0});
 }
 
 int main()

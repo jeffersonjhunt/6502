@@ -1405,7 +1405,7 @@ TEST(the_ccps_load_gives_up_on_a_card_that_stays_busy)
 
 /// FSTEST on a drive: its results, the last sector held back until close (a write-back at close),
 /// and the BIOS's READs while it reads the file back (deblocking: at most one a sector).
-void fstest(Booted &r, char drive, unsigned free_records_per_block)
+void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = false)
 {
     REQUIRE(r.ok);
     CpmDisk disk{r, drive == 'M' ? 0u : 1u};
@@ -1457,11 +1457,14 @@ void fstest(Booted &r, char drive, unsigned free_records_per_block)
     CHECK(drive == 'M' ? in_memory(r, MDISK, MDISK_SIZE, last) : on_card(r, last));
     const std::vector<uint8_t> dir = disk.directory();
     const std::vector<unsigned> es = disk.entries_of(dir, 0, "SEQ     DAT");
-    CHECK_EQ(es.size(), size_t{2}); // 256 records an entry
-    bool all = es.size() == 2;
-    for (unsigned n = 0; n < 300 && all; ++n)
-        all = disk.record(dir, es, n) == pattern_record(n);
-    CHECK(all);
+    if (!big) // CpmDisk knows oodos-8m and M:
+    {
+        CHECK_EQ(es.size(), size_t{2}); // 256 records an entry
+        bool all = es.size() == 2;
+        for (unsigned n = 0; n < 300 && all; ++n)
+            all = disk.record(dir, es, n) == pattern_record(n);
+        CHECK(all);
+    }
     r.type(" ");
     CHECK(r.until("FSTEST DONE", ms(20000), from));
     CHECK(r.until("\r\nA>", ms(3000), from));
@@ -1479,8 +1482,9 @@ void fstest(Booted &r, char drive, unsigned free_records_per_block)
     CHECK_EQ(field(o, "READ"), std::string("012C 01"));
     CHECK_EQ(field(o, "RANDREC"), std::string("00012C"));
     CHECK_EQ(field(o, "SIZE"), std::string("00012C"));
-    for (const char *want : {"00C8 00 Y", "012B 00 Y", "012C 01 N", "1388 04 N", "0258 04 N", "0384 01 N",
-                             "03E8 00 Y", "03E9 01 N", "03EA 00 Y"})
+    // Record 600's extent, 4: no entry has it, but on oodos-32m (EXM 3) 1000's has, without its block.
+    for (const char *want : {"00C8 00 Y", "012B 00 Y", "012C 01 N", "1388 04 N", big ? "0258 01 N" : "0258 04 N",
+                             "0384 01 N", "03E8 00 Y", "03E9 01 N", "03EA 00 Y"})
         if (o.find(std::string("\nRREAD ") + want + "\r") == std::string::npos)
         {
             std::printf("  no RREAD %s in:\n%s\n", want, o.c_str());
@@ -1529,6 +1533,22 @@ TEST(fstest_writes_reads_seeks_and_deletes_on_a)
 {
     Booted r;
     fstest(r, 'A', 32);
+}
+
+TEST(fstest_on_an_oodos_32m_drive)
+{
+    // A 32 MB image as A:, its directory (8 blocks of 8 KB) $E5s: empty.
+    std::vector<uint8_t> card = fat16_card({{"BIG.IMG", 65536u * 512}});
+    auto word = [&](size_t at) { return size_t{card[at]} | size_t{card[at + 1]} << 8; };
+    const size_t root = (word(14) + card[16] * word(22)) * SECTOR;
+    const size_t data = root + word(17) * 32; // BIG.IMG is the first file
+    std::fill(card.begin() + static_cast<long>(data), card.begin() + static_cast<long>(data + 2048 * 32), 0xE5);
+    Rig r(card);
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/BIG.IMG"), 0);
+    REQUIRE(r.boot());
+    fstest(r, 'A', 64, true);
+    CHECK_EQ(field(r.out, "FREE0"), std::string("03FE00")); // 4,088 blocks of 64 records
 }
 
 TEST(fstest_on_m_with_byte_pointers)
