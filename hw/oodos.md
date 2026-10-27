@@ -127,6 +127,7 @@ Each line is one of these, and anything else is an error:
 | `$0100–$01FF` | W0 | the program's stack |
 | `$0200–$02FF` | W0 | the **base page**: CP/M's page 0, moved up a page with the same offsets |
 | `$0300`–top | W0–W2 | the TPA, about 47 KB, less any RSXs at its top |
+| `$BFFD–$BFFF` | W2 | the BDOS's entry: a `JMP` to the stub in common memory, the TPA's top (phase 2, below) |
 | `$C000–$C7FF` | — | the I/O hole, always there |
 | `$C800–$F7FF` | W3 | the **code window** (12 KB): OODOS's resident code, or a program's banked code during a far call |
 | `$F800–$FFFF` | W3 | **common memory** (2 KB): the BDOS entry stub, the BIOS jump table, the far call table, interrupt entry |
@@ -169,7 +170,7 @@ back in A (low) and X (high), as CP/M 3 returns it in A and HL.
 | Block 61 | the OODOS BIOS and drivers |
 | Block 62 | W3 while a program runs: OODOS's resident code and common memory; VEC points here too |
 | Block 63 | the ROM BIOS and Monitor, as now, so Break still reaches the monitor |
-| A block in bank 7 | the system's zero page, stack and data |
+| Block 31 (the top of bank 7) | the system's zero page, stack and data |
 | Rest of banks 6–7 | deblocking buffers (BCBs), directory buffers, hash tables |
 | Banks C–D | the M: RAM disk |
 | Banks 1–5 | blocks programs can ask for (GW-BASIC's banked code, below) |
@@ -298,6 +299,26 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
 - **Console:** the video card's 80×30 text screen and the USB keyboard. AUX is COM1 (or COM2), LST the parallel
   port. CP/M 3's device table lets DEVICE move them.
 - **TIME:** reads and sets the DS3231.
+
+**Proposed (phase 2)**
+
+- **Drives A–G** are SD units 1–7 as mounted: 16,384 sectors is `oodos-8m`, 65,536 `oodos-32m`. A read-only
+  unit's WRITE returns 2, as CP/M 3's write-protect error. SELDSK gives a DPH with the DPB and no translation;
+  its buffers (CSV, ALV, BCBs, HASH) come with the BDOS in phase 3.
+- **M:** `oodos-ram` in banks C–D (`$C0000–$DFFFF`), READ and WRITE by DMA memory-to-memory copies. Cold boot
+  formats it as `mkfs.cpm -t` would, with the label's mode 0x31.
+- **SETBNK** names whose memory SETDMA's address is in: 0 the system's view, 1 the program's (through the windows
+  the BDOS stub saved). The BIOS turns either into a physical address for the DMA.
+- **The devices:** CRT (the text screen and the USB keyboard), TTY (the serial card, the 6551 for now) and LPT
+  (nothing yet: no parallel port in the emulator; it takes and drops). CON: is CRT and TTY, in and out, AUX: is
+  TTY, LST: is LPT.
+- **The terminal** is a VT52 subset: CR, LF, BS, BEL, `ESC A B C D` (cursor), `ESC H` (home), `ESC J` and `ESC K`
+  (erase to the end of the screen and of the line), `ESC E` (clear) and `ESC Y` row column (each + 32).
+  Lowercase stays lowercase.
+- **TIME** with A = 0 reads the bridge into the SCB's date (days from 1 January 1978, day 1 that day), hour,
+  minute and second (BCD); with A = `$FF` it sets the bridge from them, the day of the week worked out.
+- **Interrupts:** none enabled in phase 2; the console is polled. BRK, and Break (NMI), go to the ROM's monitor
+  as BIOS 0.9's Break does (W3 and VEC back to block 63). Any other IRQ returns.
 - **Apple drives:** below.
 
 
@@ -327,6 +348,85 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
    BDOS's cold boot, which runs the CCP.
 
 A machine with no OODOS card still boots to the monitor as now.
+
+
+## The system, phase 2 ##
+
+**Decided (2026-10-27)**
+
+- **Until phase 3's BDOS, OODOS.SYS has a stand-in BDOS and CCP:** the console, version, time and direct BIOS
+  functions and 72, and an `A>` prompt that runs `NAME.COM` from drive A, user 0. Phase 3 replaces both.
+- **Common memory has the full FARCALL** (the spike's), and the BDOS stub saves and restores W3 as well as W0–W2,
+  so a home block stays possible ([Open Questions](#open-questions)).
+- **M:, the RAM disk, is the BIOS's from phase 2.**
+
+**Proposed (phase 2)**
+
+**The windows.** A program's memory, `$0000–$BFFF`, is blocks 0–2; the system's is block 31.
+
+| | A program running | In the BDOS or the BIOS |
+|---|---|---|
+| W0 `$0000–$3FFF` | block 0: its zero page, stack, base page, TPA | block 31: the system's zero page, stack, data and the SCB |
+| W1 `$4000–$7FFF` | block 1 | block 60: the BDOS |
+| W2 `$8000–$BFFF` | block 2 | block 61: the BIOS |
+| W3 `$C000–$FFFF` | block 62, or a far call's block | block 62: OODOS's resident code and common memory |
+| VEC | block 62 | block 62 |
+
+- **The BDOS's entry** is a `JMP` at `$BFFD`, the last three bytes of the TPA, to the stub in common memory, and
+  `$0203` jumps there: so `$0204` is `$BFFD`, the top of the TPA + 1, as CP/M's address 6 is. RSXs load below it.
+  The TPA is `$0300–$BFFC`, 48,381 bytes. (A `JMP $F8xx` at `$0203` would make `$0204` claim the I/O hole and
+  the code window.)
+- **The BDOS stub** saves the program's S, P and WIN0–WIN3, switches to the system's windows and stack, calls the
+  BDOS, and puts them back. With interrupts off while it switches; its scratch bytes are in common memory, used
+  only between the entry and the switch.
+- **The program's memory from the system:** through the saved windows, as physical addresses, by DMA
+  (MOVE/XMOVE, or a byte at a time where that's all it is).
+- **Programs call the BIOS through function 50 only.** The jump table in common memory is the BDOS's.
+
+**Common memory** (`$F800–$FFFF`, the same in every block W3 maps) holds:
+
+| Address | What |
+|---|---|
+| `$F800` | the BIOS jump table: CP/M 3's 30 entries, in CP/M 3's order, 3 bytes each |
+| after it | the BDOS stub, the warm boot entry, FARCALL, the interrupt and NMI entries, the stub's scratch |
+| `$FFFA–$FFFF` | the NMI, reset and IRQ vectors (VEC is block 62) |
+
+The addresses after the jump table aren't fixed: programs find FARCALL through function 72.
+
+**OODOS.SYS** is a file on drive A, user 0. Its first 128-byte record is a header:
+
+| Offset | What |
+|---|---|
+| +0 | the magic number `4F 4F 53 59` ("OOSY") |
+| +4 | OODOS's version, major then minor. OOLDR refuses a major version it doesn't know |
+| +6 | the cold boot's entry, a CPU address in block 62 |
+| +8 | the number of segments, 1–8 |
+| +9–+15 | reserved, 0 |
+| +16 | 8 bytes a segment: its physical address (3 bytes), its length in bytes (2, at most 16 KB), the record of the file it starts at (2), reserved (1) |
+
+Each segment's bytes start on a record. A segment must lie inside block 31 or blocks 60–62 and not overlap
+another, or OOLDR refuses the file.
+
+**OOLDR** is `/BOOT.BIN`, loaded at `$1000` by the BIOS's `C80CR`:
+
+1. It reads `/OODOS/DRIVES.TXT` (its size from LIST of `/OODOS`, its bytes through a unit mounted for the
+   purpose) and checks it all by the grammar above before mounting anything.
+2. It mounts each drive line's image as its unit (A is 1, so `/BOOT.BIN` is replaced, being in memory). An
+   image must be 16,384 sectors (`oodos-8m`) or 65,536 (`oodos-32m`); any other size, or a path MOUNT can't
+   find, stops it with the line's number.
+3. It finds OODOS.SYS in drive A's directory, user 0, reads it by its extents, checks the header and puts each
+   segment at its physical address.
+4. It sets W1, W2, W3 and VEC to blocks 60, 61, 62 and 62 (W0 is still block 0), interrupts off, decimal off,
+   and jumps to the cold boot's entry.
+
+Any failure says what, and returns to the monitor. The BIOS learns the drives from the card itself: IDENTIFY's
+units table gives each unit's sectors and read-only flag, so nothing is handed over.
+
+**The stand-in BDOS** (block 60) has functions 0, 1, 2, 6, 9, 10, 11, 12, 25, 50, 72, 104 and 105, as CP/M 3's
+(and 72 as above); any other returns A = X = `$FF`. **The stand-in CCP** prompts `A>`, reads a line (function
+10), and runs `NAME.COM` from drive A, user 0, through a read-only reader shared with OOLDR: it checks the
+program header's magic, loads the image at `$0300`, sets the base page and jumps there with the program's
+windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm boot comes back to the prompt.
 
 
 ## RSXs and programs ##
