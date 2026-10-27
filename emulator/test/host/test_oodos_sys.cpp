@@ -642,6 +642,9 @@ TEST(biostest_reaches_every_bios_entry_through_function_50)
         CHECK_EQ(field(o, d), std::string("0000"));
     CHECK_EQ(field(o, "SELDSK M"), hex(sym("DPHM"), 4));
     CHECK_EQ(field(o, "DPB M"), dpb_hex("oodos-ram"));
+    CHECK_EQ(field(o, "SELDSK 16"), std::string("0000"));
+    CHECK_EQ(field(o, "PAST A"), std::string("01"));      // the card: out of range
+    CHECK_EQ(field(o, "BADBIOS"), std::string("FFFF"));
     CHECK_EQ(field(o, "WRITE A"), std::string("00"));
     CHECK_EQ(field(o, "READ A"), std::string("00"));
     CHECK_EQ(field(o, "SAME A"), std::string("Y"));
@@ -801,6 +804,12 @@ TEST(time_reads_and_sets_the_clock_through_the_scb)
     CHECK_EQ(t[5], 0x83);                                    // March, the century bit
     CHECK_EQ(t[6], 0x01);
     CHECK_EQ(t[3], (days(2101, 3, 1) - 1) % 7 + 1);
+    // 31 December 1999 is before what the bridge holds: the clock is left as it was.
+    o = r.go("timetest.com", " " + hex(days(1999, 12, 31), 4) + " 12 00");
+    CHECK_EQ(field(o, "TIME").substr(0, 10), hex(days(2101, 3, 1), 4) + " 23 01");
+    t = r.bridge().rtc_time();
+    CHECK_EQ(t[6], 0x01);
+    CHECK_EQ(t[5], 0x83);
 }
 
 TEST(the_crt_does_the_vt52_subset_and_lowercase)
@@ -872,6 +881,90 @@ TEST(keys_come_from_the_usb_keyboard_and_the_serial_line)
     for (unsigned row = 0; row < 30; ++row)
         echoed = echoed || r.row(row) == "A>abc";
     CHECK(echoed);
+}
+
+TEST(function_10_edits_the_line_as_the_ccp_reads_it)
+{
+    if (!have_build())
+        return;
+    Booted r;
+    REQUIRE(r.ok);
+    size_t from = r.out.size();
+    r.type("fx\x7Foo\r");                                    // DEL takes the x back
+    CHECK(r.until("FOO?\r\nA>", ms(1000), from));
+    CHECK(r.out.find("fx\b \boo\r\n", from) != std::string::npos);
+    from = r.out.size();
+    r.type("ba\x08r\x18qux\r");                              // BS, then ^X the whole line
+    CHECK(r.until("QUX?\r\nA>", ms(1000), from));
+    from = r.out.size();
+    r.type("a\x01" "b\r");                                     // other control characters: nothing
+    CHECK(r.until("AB?\r\nA>", ms(1000), from));
+    from = r.out.size();
+    r.type(std::string(130, 'z') + "\r");                   // 126 fit
+    CHECK(r.until(std::string(126, 'Z') + "?\r\nA>", ms(3000), from));
+    CHECK(r.out.find(std::string(127, 'Z'), from) == std::string::npos);
+    // ^C at the start of a line: the warm boot.
+    bool warm = false;
+    r.watch = [&](uint16_t pc) { warm = warm || pc == sym("WARM"); };
+    from = r.out.size();
+    r.type("x\x03\x7F\x03");                               // not after a character: only at the start
+    CHECK(r.until("\r\nA>", ms(1000), from));
+    CHECK(warm);
+    CHECK(r.out.find("x\b \b", from) != std::string::npos);
+}
+
+TEST(the_console_functions_of_the_stand_in_bdos)
+{
+    if (!have_build())
+        return;
+    Booted r;
+    REQUIRE(r.ok);
+    r.poke_com(read_bytes(SYS + "/linetest.com"));
+    const size_t from = r.out.size();
+    r.type("GO\r");
+    REQUIRE(r.until("KEY?", ms(2000), from));
+    r.type("k");
+    REQUIRE(r.until("RAW?", ms(2000), from));
+    r.type("r");
+    REQUIRE(r.until("WAIT ", ms(2000), from));
+    r.run(ms(20));
+    r.type("s");
+    REQUIRE(r.until("LINE?", ms(2000), from));
+    r.type("hello world\r");
+    CHECK(r.until("\r\nA>", ms(2000), from));
+    const std::string o = r.out.substr(from);
+    CHECK_EQ(field(o, "VERSION"), std::string("0031"));
+    CHECK_EQ(field(o, "STAT"), std::string("00 RAW 00"));
+    CHECK(o.find("\nKEY?k GOT 6B\r\n") != std::string::npos);  // echoed
+    CHECK(o.find("\nRAW? GOT 72\r\n") != std::string::npos);   // not
+    CHECK_EQ(field(o, "WAIT"), std::string("01 GOT 73"));
+    CHECK(o.find("\nQ\r\na       b\r\n") != std::string::npos);
+    CHECK(o.find("LINE?hello wo\r COUNT 08 hello wo\r\n") != std::string::npos);
+}
+
+TEST(disk_errors_from_the_card_a_read_only_unit_and_no_card)
+{
+    if (!have_build())
+        return;
+    Rig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/A.IMG"), 0);                // writable at boot
+    REQUIRE(r.boot());
+    CHECK_EQ(r.mount(2, "/OODOS/A.IMG", true), 0);           // then read-only, behind the BIOS's back
+    const uint64_t commands = r.sd().commands();
+    r.poke_com(read_bytes(SYS + "/wptest.com"));
+    const size_t from = r.out.size();
+    r.type("GO\r");
+    REQUIRE(r.until("EJECT?", ms(2000), from));
+    CHECK_EQ(field(r.out.substr(from), "WP"), std::string("02")); // the card's write-protect
+    CHECK(r.sd().commands() > commands);                     // it got as far as the card
+    r.sd().eject();
+    r.type("e");
+    CHECK(r.until("\r\nA>", ms(2000), from));
+    const std::string o = r.out.substr(from);
+    CHECK_EQ(field(o, "NOCARD"), std::string("01"));
+    CHECK_EQ(field(o, "GONE"), std::string("0000"));
 }
 
 TEST(the_ccp_refuses_what_it_cant_run)

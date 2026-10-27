@@ -3,10 +3,12 @@
 ; writable unit and B: on a read-only one.
 ;
 ;   SELDSK d hhhh            A-G and M: the DPH (0000: no drive)
+;   SELDSK 16 hhhh           past P:
 ;   DPB d <17 bytes>         its DPB, copied out of the system bank by XMOVE
 ;   WRITE d rr / READ d rr   a sector out and back: the last of the drive
 ;   SAME d Y|N               and whether it came back as it went
 ;   BOUNCE d rr Y|N          the same READ into a buffer across $4000
+;   PAST A rr                READ A: past its last track
 ;   ERRORS M rr rr           READ M: past its last track, and a sector 16
 ;   LABEL M <16 bytes>       M: directory's first 16 bytes
 ;   TIME dddd hh mm ss       TIME into the SCB, then function 105
@@ -16,6 +18,7 @@
 ;   SECTRN hhhh MULTIO rr FLUSH rr
 ;   MOVE <text> hhhh         a MOVE in the program's bank, and A/X after
 ;   CONOUT/AUXOUT/LIST       characters straight to the devices
+;   BADBIOS hhhh             function 50 of BIOS function 30
 ;   BIOSTEST DONE
 
         .setcpu "65C02"
@@ -42,6 +45,17 @@ start:  ldx     #0                      ; A-G, then M
         lda     #'M'
         ldx     #12
         jsr     drive
+        lda     #<sel16msg              ; past P:
+        ldx     #>sel16msg
+        jsr     PUTS
+        lda     #BIOS::SELDSK
+        sta     pb
+        lda     #16
+        sta     pb+1
+        stz     pb+2
+        jsr     bios
+        jsr     HEX4
+        jsr     CRLF
 
         ; A: its last sector out and back, then into a buffer across $4000
         lda     #0
@@ -65,6 +79,22 @@ start:  ldx     #0                      ; A-G, then M
         jsr     SPACE
         lda     #>CROSS
         jsr     compare
+        jsr     CRLF
+
+        ; A: past its last track: the card refuses it
+        lda     #<1024
+        ldx     #>1024
+        jsr     settrk
+        lda     #0
+        jsr     setsec
+        lda     #BIOS::READ
+        jsr     bios0
+        pha
+        lda     #<pastmsg
+        ldx     #>pastmsg
+        jsr     PUTS
+        pla
+        jsr     HEX2
         jsr     CRLF
 
         ; B: read-only
@@ -287,6 +317,19 @@ start:  ldx     #0                      ; A-G, then M
         jsr     biosc
         jsr     CRLF
 
+        ; a BIOS function there isn't
+        lda     #BIOS::COUNT
+        jsr     bios0
+        pha
+        phx
+        lda     #<badmsg
+        ldx     #>badmsg
+        jsr     PUTS
+        plx
+        pla
+        jsr     HEX4
+        jsr     CRLF
+
         lda     #<donemsg
         ldx     #>donemsg
         jsr     PUTS
@@ -496,6 +539,9 @@ bios:   lda     #<pb
         .rodata
 stats:  .byte   BIOS::CONST, BIOS::CONOST, BIOS::LISTST, BIOS::AUXIST, BIOS::AUXOST
 selmsg: .byte   "SELDSK $"
+sel16msg: .byte "SELDSK 16 $"
+pastmsg: .byte  "PAST A $"
+badmsg: .byte   "BADBIOS $"
 dpbmsg: .byte   "DPB $"
 writemsg: .byte "WRITE $"
 readmsg: .byte  "READ $"
