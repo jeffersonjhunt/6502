@@ -172,16 +172,16 @@ TEST(set_sends_sec_to_year_and_clears_osf)
     CHECK(r.time() == START_REGS); // written to the holding copy; reads give the time
     r.bus().write(RTCCTL, BackplaneBridge::RTC_SET);
     r.bus().sync(); // the write's own cycle is the first of SET's 112
-    CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_LOST | BackplaneBridge::RTC_SET | BackplaneBridge::RTC_BUSY);
+    CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_LOST | BackplaneBridge::RTC_BUSY); // SET reads 0
     r.idle(BackplaneBridge::SET_BITS - 2);
-    CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_LOST | BackplaneBridge::RTC_SET | BackplaneBridge::RTC_BUSY);
+    CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_LOST | BackplaneBridge::RTC_BUSY);
     r.idle(1);
     CHECK_EQ(BackplaneBridge::SET_BITS, 112u);
     CHECK(r.rtc->time() == (Ds3231::Time{2105, 1, 1, 9, 15, 30, 7}));
     CHECK_EQ(r.rtc->read(Ds3231::STATUS) & Ds3231::OSF, 0);
     // Writing the seconds restarted the second, and SQW, high half a second in, fell with it:
     // the bridge reads the new time back, and TICKs.
-    CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_BUSY); // LOST and SET off
+    CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_BUSY); // LOST off
     CHECK_EQ(r.settle(), uint64_t{BackplaneBridge::REFRESH_BITS});
     CHECK_EQ(r.bridge->rtcctl(), BackplaneBridge::RTC_TICK);
     CHECK(r.time() == t);
@@ -243,22 +243,39 @@ TEST(an_alarm_sets_alarm_and_tick_until_its_flag_is_cleared)
     CHECK_EQ(r.bus().read(RTCCTL), 0x00); // a status write updates ALARM at once
 }
 
-TEST(with_intcn_only_an_enabled_alarm_refreshes_the_time)
+TEST(rtcdata_leaves_the_square_wave_to_the_bridge)
 {
     Rig r;
-    r.rtc->write(Ds3231::ALARM1, 0x12); // :12
+    r.rtc->write(Ds3231::ALARM1, 0x09); // :09
     for (uint8_t i = 1; i < 4; ++i)
         r.rtc->write(static_cast<uint8_t>(Ds3231::ALARM1 + i), 0x80);
     r.bus().write(RTCREG, Ds3231::CONTROL);
-    r.bus().write(RTCDATA, Ds3231::INTCN | Ds3231::A1IE); // SQW becomes INT
+    r.bus().write(RTCDATA, Ds3231::BBSQW | Ds3231::RS2 | Ds3231::RS1 | Ds3231::INTCN | Ds3231::A1IE);
     r.settle();
-    r.idle(4 * HZ); // :11: no square wave, no reads
-    CHECK_EQ(r.bus().read(RTCCTL), 0x00);
-    CHECK_EQ(r.bus().read(SEC), 0x07);
-    r.idle(HZ);
-    r.settle(); // :12: INT fell
+    CHECK_EQ(r.rtc->read(Ds3231::CONTROL), Ds3231::BBSQW | Ds3231::A1IE); // INTCN and RS masked: 1 Hz still
+    CHECK_EQ(r.bus().read(RTCDATA), Ds3231::BBSQW | Ds3231::A1IE);       // and read back so
+    r.next_tick();
+    CHECK_EQ(r.bus().read(SEC), 0x08);
+    r.next_tick(); // :09: the alarm, seen in the second's status read
+    CHECK_EQ(r.bus().read(SEC), 0x09);
     CHECK_EQ(r.bus().read(RTCCTL), BackplaneBridge::RTC_TICK | BackplaneBridge::RTC_ALARM);
-    CHECK_EQ(r.bus().read(SEC), 0x12);
+}
+
+TEST(set_reads_0_so_a_read_modify_write_does_not_send_it_again)
+{
+    Rig r;
+    const std::vector<uint8_t> t = {0x00, 0x30, 0x10, 0x03, 0x27, 0x10, 0x26};
+    for (uint16_t i = 0; i < 7; ++i)
+        r.bus().write(static_cast<uint16_t>(SEC + i), t[i]);
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_SET | BackplaneBridge::RTC_TIE);
+    const uint8_t ctl = r.bus().read(RTCCTL);
+    CHECK_EQ(ctl, BackplaneBridge::RTC_TIE | BackplaneBridge::RTC_BUSY); // pending shows as BUSY
+    r.bus().write(RTCCTL, ctl);
+    r.idle(BackplaneBridge::SET_BITS);
+    CHECK(r.rtc->time() == (Ds3231::Time{2026, 10, 27, 10, 30, 0, 3}));
+    r.rtc->set_time(START); // after the one SET: nothing sends SEC-YEAR again
+    r.settle();
+    CHECK(r.rtc->time() == START);
 }
 
 TEST(busy_takes_its_bits_at_the_cpu_clock)
@@ -311,9 +328,7 @@ TEST(any_reset_clears_tick_and_tie_but_not_the_time)
     r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE);
     r.next_tick();
     REQUIRE(r.bus().irq());
-    r.bus().write(RTCREG, Ds3231::CONTROL);
-    r.bus().write(RTCDATA, Ds3231::INTCN | Ds3231::A2IE); // what the power-on set-up would undo
-    r.settle();
+    r.rtc->write(Ds3231::CONTROL, Ds3231::INTCN | Ds3231::A2IE); // on the chip (RTCDATA can't): the set-up would undo it
     r.bus().reset(); // the reset button: a hard reset, not a power-on
     CHECK(!r.bus().irq());
     CHECK_EQ(r.bus().read(RTCCTL), 0x00);

@@ -380,10 +380,10 @@ namespace ooe::emu
             b->set_cpu_hz(cpu_hz_); // it knows Apple II mode's clock itself
     }
 
-    void Session::set_rtc_time(const Ds3231::Time &t)
+    void Session::set_rtc_time(const Ds3231::Time &t, unsigned ms)
     {
         if (BackplaneBridge *b = machine_->backplane_bridge())
-            b->set_rtc_time(t);
+            b->set_rtc_time(t, ms);
     }
 
     Session::RunResult Session::run(uint64_t budget)

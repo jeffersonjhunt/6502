@@ -201,8 +201,8 @@ namespace ooe::emu
 
         // The DS3231 on the CPU card (nothing without the backplane's bridge). Its battery
         // keeps it through power cycles, as a real one does.
-        /// Set its time (the host's clock, say), and the bridge's SEC-YEAR with it.
-        void set_rtc_time(const Ds3231::Time &t);
+        /// Set its time (the host's clock, say), `ms` into the second, and the bridge's SEC-YEAR with it.
+        void set_rtc_time(const Ds3231::Time &t, unsigned ms = 0);
         /// The north bridge, which owns the clock, or nullptr.
         const BackplaneBridge *bridge() const { return machine_->backplane_bridge(); }
 
