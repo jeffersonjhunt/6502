@@ -586,9 +586,9 @@ against, compared with what the BDOS does on the emulator.
 **Proposed (3a, as built, 2026-10-27)** ([`oodos/sys/bdos.s`](../oodos/sys/bdos.s), [`bdosfile.s`](../oodos/sys/bdosfile.s),
 [`bdosdisk.s`](../oodos/sys/bdosdisk.s); the choices the manuals leave open are ours, marked so for the model test):
 
-- **Where it lives:** all of it fits block 60 (6,167 bytes of 16 KB), so nothing is in block 62's code window yet;
+- **Where it lives:** all of it fits block 60 (6,348 bytes of 16 KB), so nothing is in block 62's code window yet;
   `sys.cfg` has a `BDOS2` segment there, after the CCP's code and before its BSS, for when it doesn't. The system
-  block holds its zero page (the BDOS's and the BIOS's together, 180 of the 240 bytes), its variables (the FCB's copy,
+  block holds its zero page (the BDOS's and the BIOS's together, 181 of the 240 bytes), its variables (the FCB's copy,
   the search's state, a table a drive, the buffers' tags: 402 bytes of `SYSBSS`'s 1,280 with the BIOS's) and the
   allocation vectors at `$1000–$2FFF`, 1 KB a drive's slot (A–G slots 0–6, M: 7); the hash is 8 KB a slot in blocks
   24–27, the buffers block 28.
