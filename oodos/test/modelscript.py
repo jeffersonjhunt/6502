@@ -781,7 +781,7 @@ class Generator:
         free = sum(1 for i in dv.entries() if dv.entry(i)[0] == M.E5)
         n = max(1, free + self.rng.randint(-3, 2))
         n = min(n, 999)
-        base = bytearray(M.fcb_name(self.rng.choice(["M", "MANY", "D"])))
+        base = bytearray(M.fcb_name(self.rng.choice(["MKALL", "MANYF", "DFULL"])))  # no space before the digits
         base[5:8] = b"000"
         self.set_fcb(7, bytes(base))
         self.time(force=True)

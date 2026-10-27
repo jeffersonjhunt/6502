@@ -13,6 +13,15 @@
         every result, then the drive's directory and files; prints the seed, each operation that differs
         and how, and PASS or FAIL; exits 0 only on PASS
     python3 -I modeltest.py show --dir DIR       the script, an operation a line
+    python3 -I modeltest.py files --image IMG --format F --out DIR
+        each file on a drive image to DIR/USER/NAME.EXT (a hole as zeros), and a line for each: the user,
+        the name, the type, its first entry's update and create stamps as cpmls -F shows them
+    python3 -I modeltest.py mkfs --format F -o IMG
+        an empty drive, as mkfs.cpm -t at 2026-10-27 12:00 with the label's mode set to 0x31
+    python3 -I modeltest.py sparse --image IMG --format F
+        fsck.cpm's "Bad record count" line for each entry whose last logical extent has a hole: fsck.cpm
+        2.23 takes RC to need exactly that many blocks, so a sparse file (a random write past a gap,
+        as CP/M allows) draws it. model_cpmtools.sh lets those lines through, and only those
 
 --compare exact compares the images byte for byte (the BDOS allocating as --alloc); renumber, the
 default, the same but for the blocks' numbers, which need only be one to one. --loose-x doesn't compare
@@ -201,6 +210,51 @@ def cmd_show(o):
         print("%4d %s" % (i, S.describe(op, args)))
 
 
+def cpmls_stamp(s):
+    """A stamp as cpmls -F shows it: MM/DD/YY HH:MM."""
+    import datetime
+    d = datetime.date(1977, 12, 31) + datetime.timedelta(days=s[0] | s[1] << 8)
+    return "%02d/%02d/%02d %02x:%02x" % (d.month, d.day, d.year % 100, s[2], s[3])
+
+
+def cmd_files(o):
+    dv = M.Drive(o.format, read(o.image))
+    seen = set()
+    for i in dv.entries():
+        e = dv.entry(i)
+        if e[0] > 15 or (e[0], bytes(c & 0x7F for c in e[1:12])) in seen:
+            continue
+        user, nm = e[0], bytes(c & 0x7F for c in e[1:12])
+        seen.add((user, nm))
+        first = min(dv.file_entries(user, nm), key=lambda j: ((dv.entry(j)[14] & 0x3F) << 5 | dv.entry(j)[12] & 0x1F, j))
+        n, t = nm[:8].decode().rstrip(), nm[8:].decode().rstrip()
+        os.makedirs(os.path.join(o.out, str(user)), exist_ok=True)
+        write(os.path.join(o.out, str(user), n + ("." + t if t else "")), dv.read_file(user, nm))
+        sl = dv.slot(first)
+        st = dv.img[sl:sl + 8] if sl is not None else bytes(8)
+        print("%d %s %s %s %s" % (user, n, t or "-", cpmls_stamp(st[4:8]), cpmls_stamp(st[:4])))
+
+
+def cmd_sparse(o):
+    dv = M.Drive(o.format, read(o.image))
+    f = dv.fmt
+    for i in dv.entries():
+        e = dv.entry(i)
+        if e[0] > 15:
+            continue
+        lo = e[12] & f.exm
+        first, last = lo * 128 // f.rpb, (lo * 128 + 127) // f.rpb
+        bl = dv.blocks(e)[first:last + 1]
+        need = (e[15] + f.rpb - 1) // f.rpb
+        if any(b == 0 for b in bl[:need]) or any(bl[need:]):
+            nm = bytes(c & 0x7F for c in e[1:12]).decode()
+            print('Error: Bad record count (extent=%d, name="%s.%s", record count=%d)' % (i, nm[:8], nm[8:], e[15]))
+
+
+def cmd_mkfs(o):
+    write(o.o, M.mkfs(M.FORMATS[o.format], START))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -220,6 +274,16 @@ def main():
         if name == "check":
             q.add_argument("--compare", default="renumber", choices=("renumber", "exact"))
             q.add_argument("--loose-x", action="store_true")
+    q = sub.add_parser("files")
+    q.add_argument("--image", required=True)
+    q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
+    q.add_argument("--out", required=True)
+    q = sub.add_parser("sparse")
+    q.add_argument("--image", required=True)
+    q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
+    q = sub.add_parser("mkfs")
+    q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
+    q.add_argument("-o", required=True)
     o = p.parse_args()
     return globals()["cmd_" + o.cmd](o) or 0
 
