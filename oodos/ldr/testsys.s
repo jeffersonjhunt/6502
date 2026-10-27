@@ -9,15 +9,16 @@
 ; the records of the file each takes (testsys.cfg):
 ;
 ;   1  $7E000   1,000 bytes, seed 11  block 31        records 1-8
-;   2  $F76B0   2,000 bytes, seed 14  block 61        9-24
+;   2  $F72B0   2,000 bytes, seed 14  block 61        9-24
 ;   3  $F8800   the cold boot         block 62, $C800 25-28
 ;   4  $FBFFA   the vectors, 6 bytes  block 62, $FFFA 29
-;   5  $F4000  14,000 bytes, seed 13  block 61        30-139, over record 128
-;   6  $F0000  16,384 bytes, seed 12  block 60        140-267, over record 256
+;   5  $F3C00  14,000 bytes, seed 13  blocks 60-61    30-139, over record 128
+;   6  $F0000  15,360 bytes, seed 12  block 60        140-259, over record 256
 ;
 ; 2 starts where 5 ends and is loaded first: a last part record of 5's
-; written whole would show on it. The file is 268 records, two directory
-; entries on oodos-8m.
+; written whole would show on it. 5 runs from block 60 into 61, over
+; $F4000, so OOLDR's W2 must be the next block. The file is 260 records, two
+; directory entries on oodos-8m.
 ;
 ; The cold boot, at $C800 in block 62 (segment 3), runs with the windows OOLDR
 ; leaves. It keeps P and S as it found them, reads WIN0-WIN3 and VEC, and
@@ -41,8 +42,8 @@ S1_AT   = $7E000                       ; block 31
 S2_AT   = S5_AT + 14000                ; block 61, right after 5
 S3_AT   = $F8800                       ; block 62: CPU $C800
 S4_AT   = $FBFFA                       ; block 62: CPU $FFFA
-S5_AT   = $F4000                       ; block 61
-S6_AT   = $F0000                       ; block 60, all of it
+S5_AT   = $F3C00                       ; block 60's last 1 KB, into 61
+S6_AT   = $F0000                       ; block 60, to S5
 RECORD  = $7FF00                       ; what the cold boot found
 SCRATCH = $F000                        ; block 62, outside every segment
 
@@ -79,7 +80,7 @@ SCRATCH = $F000                        ; block 62, outside every segment
 .segment "SEG5"
         PATTERN 14000, 13
 .segment "SEG6"
-        PATTERN 16384, 12
+        PATTERN 15360, 12
 
 .segment "COLD"
 COLD:   PHP                            ; P and S as OOLDR left them

@@ -1258,10 +1258,12 @@ TEST(the_ccps_reader_gives_up_on_a_card_that_stays_busy)
 
 int main()
 {
+    // ctest stays hermetic with no skips (hw/oodos.md, "Testing"): CMake requires the tools
+    // that build these, so their absence is a failure, not a skip.
     if (read_bytes(SYS + "/OODOS.SYS").empty() || read_bytes(EMU_BIOS_ROM).empty())
     {
-        std::printf("no OODOS.SYS or bios.rom (needs ca65, ld65, python3 and make): skipped\n");
-        return SKIP;
+        std::printf("no OODOS.SYS or bios.rom in the build tree (CMake builds them): failed\n");
+        return 1;
     }
     return run_all();
 }

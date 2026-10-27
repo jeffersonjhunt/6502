@@ -19,7 +19,9 @@
 ;      0), interrupts and decimal off, and jumps to the cold boot's entry.
 ;
 ; Everything it has is below $4000 (W0, block 0), so W1 and W2 are free to
-; look at the segments' blocks. Zero page: $00-$1F (ldr.cfg).
+; look at the segments' blocks. Zero page: $00-$1F (ldr.cfg). Every wait for
+; the card is bounded: about a second, then SD TIMEOUT (the command
+; abandoned by CTRL's RESET, units staying mounted) and back to the monitor.
 
 .setcpu "65C02"
 .include "backplane.inc"
@@ -85,6 +87,7 @@ eph:            .res    3              ; ...as a physical address in block 62
 bigsize:        .res    1              ; DRIVES.TXT's size's top byte
 nlen:           .res    1              ; the path's name so far: its length, to 3...
 alldots:        .res    1              ; ...bit 7: dots only
+tmo:            .res    3              ; a wait's passes left
 seg:            .res    1              ; a segment's index
 other:          .res    1
 starts:         .res    SYS_MAX_SEGMENTS * 3 ; each segment's first byte (physical)...
@@ -305,14 +308,7 @@ UNITS2:         JSR     IDLE
                 INC
                 JSR     CR_INIT
                 BCC     @nextd
-                CMP     #CRE_SIZE
-                BNE     @cr
-                JSR     DRIVE_SAY
-                JSR     SAY_PATH
-                LDA     #<MSIZE
-                LDX     #>MSIZE
-                JMP     FAIL
-@cr:            JMP     CRFAIL
+@cr:            JMP     CRFAIL         ; drive seg's: the size, say
 @sd:            JMP     SDFAIL
 @nextd:         INC     seg
                 LDA     seg
@@ -321,6 +317,7 @@ UNITS2:         JSR     IDLE
                 JSR     SAMEFILE
 
 ; 3. OODOS.SYS, on A:.
+SYS_A:          STZ     seg            ; A:, for CRFAIL
                 LDA     #1
                 JSR     CR_INIT
                 BCS     @cr
@@ -342,6 +339,7 @@ UNITS2:         JSR     IDLE
                 LDA     #<MEMPTY
                 LDX     #>MEMPTY
                 JMP     FAIL
+@cr:            JMP     CRFAIL
 
 ; The header, all of it, before anything is loaded.
 CHECK:          LDX     #3
@@ -1164,12 +1162,15 @@ MOUNT:          STA     ptr
                 LDA     #SD_MOUNT
                 STA     SD_CMD
                 LDY     #0             ; its sector, once DATA takes it
+                JSR     TSTART
 @wait:          LDA     SD_STATUS
                 BIT     #SD_DATA_READY
                 BNE     @put
                 BIT     #SD_BUSY
-                BNE     @wait
-                SEC
+                BEQ     @ended
+                JSR     TICK
+                BRA     @wait
+@ended:         SEC
                 RTS
 @put:           LDA     (ptr),Y
                 STA     SD_DATA
@@ -1187,12 +1188,15 @@ PUTBUF:         LDA     #<buf
                 LDX     #>buf
                 STA     ptr
                 STX     ptr+1
+                JSR     TSTART
 @wait:          LDA     SD_STATUS
                 BIT     #SD_DATA_READY
                 BNE     @put
                 BIT     #SD_BUSY
-                BNE     @wait
-                SEC
+                BEQ     @ended
+                JSR     TICK
+                BRA     @wait
+@ended:         SEC
                 RTS
 @put:           LDY     #0
 @lo:            LDA     buf,Y
@@ -1207,12 +1211,15 @@ PUTBUF:         LDA     #<buf
                 RTS
 
 ; A sector out of DATA into buf. Carry set if the command ended instead.
-GETBUF:         LDA     SD_STATUS
+GETBUF:         JSR     TSTART
+@wait:          LDA     SD_STATUS
                 BIT     #SD_DATA_READY
                 BNE     @get
                 BIT     #SD_BUSY
-                BNE     GETBUF
-                SEC
+                BEQ     @ended
+                JSR     TICK
+                BRA     @wait
+@ended:         SEC
                 RTS
 @get:           LDY     #0
 @lo:            LDA     SD_DATA
@@ -1246,22 +1253,50 @@ READ1:          PHA
                 BCC     DONE
                 RTS
 
-; Wait for the command's end. Carry set if it failed.
-DONE:           LDA     SD_STATUS
+; Wait for the command's end. Carry set if it failed. Keeps X and Y.
+DONE:           JSR     TSTART
+@wait:          LDA     SD_STATUS
                 BIT     #SD_BUSY
-                BNE     DONE
-                BIT     #SD_ERR
+                BEQ     @ended
+                JSR     TICK
+                BRA     @wait
+@ended:         BIT     #SD_ERR
                 BNE     @err
                 CLC
                 RTS
 @err:           SEC
                 RTS
 
-; Wait for whatever the card is doing to end, before a command.
-IDLE:           LDA     SD_STATUS
+; Wait for whatever the card is doing to end, before a command. Keeps X and Y.
+IDLE:           JSR     TSTART
+@wait:          LDA     SD_STATUS
                 BIT     #SD_BUSY
-                BNE     IDLE
+                BEQ     @idle
+                JSR     TICK
+                BRA     @wait
+@idle:          RTS
+
+; A wait's count: 4 x 65,536 passes of TICK, about 30 cycles each: a second.
+TSTART:         STZ     tmo
+                STZ     tmo+1
+                LDA     #4
+                STA     tmo+2
                 RTS
+; One pass of a wait; once they're all gone, the command is abandoned and
+; it's SD TIMEOUT. Keeps A, X and Y.
+TICK:           DEC     tmo
+                BNE     @more
+                DEC     tmo+1
+                BNE     @more
+                DEC     tmo+2
+                BEQ     SDTIMEOUT
+@more:          RTS
+SDTIMEOUT:      LDA     #SD_CTRL_RESET ; units stay mounted
+                STA     SD_CTRL
+                STZ     SD_CTRL
+                LDA     #<MTIMEOUT
+                LDX     #>MTIMEOUT
+                JMP     FAIL
 
 CLEARBUF:       LDA     #0
                 TAY
@@ -1331,16 +1366,35 @@ SYS_SAY:        LDA     #<MSYS
                 LDX     #>MSYS
                 JMP     SAY
 
-; The CP/M reader's error A.
+; The CP/M reader's error A, on drive seg.
 CRFAIL:         CMP     #CRE_SD
                 BEQ     SDFAIL_CR
-                CMP     #CRE_BIG
+                CMP     #CRE_TIMEOUT
+                BNE     @known
+                JMP     SDTIMEOUT
+@known:         CMP     #CRE_BIG
                 BEQ     @big
+                CMP     #CRE_UNIT
+                BEQ     @unit
+                CMP     #CRE_SIZE
+                BEQ     @size
                 LDA     #<MDAMAGED
                 LDX     #>MDAMAGED
                 BRA     FAIL
 @big:           LDA     #<MBIG
                 LDX     #>MBIG
+                BRA     FAIL
+@unit:          LDA     #<MUNMOUNTED   ; mounted, then gone from the units table
+                LDX     #>MUNMOUNTED
+                BRA     @drive
+@size:          LDA     #<MSIZE
+                LDX     #>MSIZE
+@drive:         PHA                    ; DRIVES.TXT LINE n: PATH and why
+                PHX
+                JSR     DRIVE_SAY
+                JSR     SAY_PATH
+                PLX
+                PLA
                 BRA     FAIL
 
 SDFAIL_CR:      LDA     CR_SDERR
@@ -1498,8 +1552,10 @@ MSAME2:         .byte   ": ALREADY", $0D, 0
 MNOA:           .byte   $0D, "DRIVES.TXT NAMES NO A:", $0D, 0
 MNOTFOUND:      .byte   " IS NOT ON THE CARD", $0D, 0
 MSIZE:          .byte   " IS NOT 8 MB OR 32 MB", $0D, 0
+MUNMOUNTED:     .byte   " IS NOT MOUNTED", $0D, 0
 MNAME:          .byte   "AN EMPTY, . OR .. NAME IN THE PATH", $0D, 0
 MTOOBIG:        .byte   $0D, "DRIVES.TXT IS TOO BIG", $0D, 0
+MTIMEOUT:       .byte   $0D, "SD TIMEOUT", $0D, 0
 MNOSYS:         .byte   $0D, "NO OODOS.SYS ON A:", $0D, 0
 MSYS:           .byte   $0D, "OODOS.SYS: ", 0
 MEMPTY:         .byte   $0D, "OODOS.SYS: EMPTY", $0D, 0

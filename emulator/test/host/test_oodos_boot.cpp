@@ -17,6 +17,12 @@
  * here, not committed: cards are built in memory, FAT16 on the whole card,
  * from the committed card's files with DRIVES.TXT or A.IMG's bytes changed.
  * The FAT and CP/M readers here are the test's own; OOLDR's are on the card.
+ * Some refusals need the card changed while OOLDR runs (a unit gone, a card
+ * that stays busy): a Hook stops boot() at one of OOLDR's labels for that.
+ *
+ * CMake builds OOLDR, both systems and HELLO from the sources (oodos/ldr,
+ * oodos/sys, oodos/Makefile) into the build tree; the committed card must
+ * hold exactly those, or it is stale.
  */
 
 #include "harness.h"
@@ -30,7 +36,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <functional>
+#include <iterator>
 #include <map>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,6 +62,30 @@ namespace
     using Bytes = std::vector<uint8_t>;
 
     uint8_t pattern(unsigned seed, size_t i) { return static_cast<uint8_t>(((i >> 7) * 31 + i * 7 + seed) & 0xFF); }
+
+    Bytes read_file(const std::string &path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        return Bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    /// A label of OOLDR's, from the build tree's ld65 -Ln file.
+    uint16_t ldr_label(const std::string &name)
+    {
+        static const std::map<std::string, uint16_t> labels = [] {
+            std::map<std::string, uint16_t> out;
+            const Bytes b = read_file(EMU_OODOS_LDR_DIR "/ooldr.lbl");
+            std::istringstream in(std::string(b.begin(), b.end()));
+            std::string al, hex, n;
+            while (in >> al >> hex >> n)
+                if (al == "al" && n.size() > 1)
+                    out[n.substr(1)] = static_cast<uint16_t>(std::stoul(hex, nullptr, 16));
+            return out;
+        }();
+        const auto it = labels.find(name);
+        if (it == labels.end())
+            std::printf("  no label %s in ooldr.lbl\n", name.c_str());
+        return it == labels.end() ? 0 : it->second;
+    }
     Bytes text(const std::string &s) { return Bytes(s.begin(), s.end()); }
 
     const Bytes &committed()
@@ -359,8 +393,15 @@ namespace
         return phys < BLOCK60 ? before[phys - BLOCK31] : before[BLOCK_SIZE + phys - BLOCK60];
     }
 
+    /// Called once, when OOLDR gets to a label: to change the card under it.
+    struct Hook
+    {
+        uint16_t at{0};
+        std::function<void(Session &)> act{};
+    };
+
     /// Run C80CR again on `b`'s session: until the system stops or OOLDR is back at the monitor.
-    void c80c(Boot &b)
+    void c80c(Boot &b, const Hook &hook = {})
     {
         b.before.clear();
         for (uint32_t a = BLOCK31; a < BLOCK31 + BLOCK_SIZE; ++a)
@@ -369,6 +410,17 @@ namespace
             b.before.push_back(b.s->peek_physical(a));
         b.s->send("C80CR\r");
         b.out.clear();
+        if (hook.act)
+        {
+            // An instruction at a time to the label (OOLDR is in RAM at $1000-$3FFF, block 0).
+            const uint64_t limit = b.s->cycles() + 300 * FRAME;
+            while (b.s->cycles() < limit && !(b.s->regs().pc == hook.at && b.s->peek(0xC683) == (0x40 | 63)))
+                b.s->run(1);
+            if (b.s->regs().pc == hook.at)
+                hook.act(*b.s);
+            else
+                std::printf("  OOLDR never got to $%04X\n", hook.at);
+        }
         for (int i = 0; i < 900 && !b.s->stopped(); ++i)
         {
             b.s->run(FRAME);
@@ -380,7 +432,7 @@ namespace
     }
 
     /// Booted to the monitor with `media` in the slot, then C80CR.
-    Boot boot(std::shared_ptr<SdMedia> media)
+    Boot boot(std::shared_ptr<SdMedia> media, const Hook &hook = {})
     {
         Boot b;
         std::string error;
@@ -397,15 +449,15 @@ namespace
             b.s->run(FRAME);
             out += b.s->take_output();
         }
-        c80c(b);
+        c80c(b, hook);
         return b;
     }
-    Boot boot(const Bytes &card) { return boot(std::make_shared<MemoryMedia>(card, "card")); }
+    Boot boot(const Bytes &card, const Hook &hook = {}) { return boot(std::make_shared<MemoryMedia>(card, "card"), hook); }
 
     /// OOLDR said `why` (a line of its own) and went back to the monitor, the windows as C80CR left them.
-    void refused(const Bytes &card, const std::string &why)
+    void refused(const Bytes &card, const std::string &why, const Hook &hook = {})
     {
-        Boot b = boot(card);
+        Boot b = boot(card, hook);
         REQUIRE(b.s != nullptr);
         const bool said = b.out.find("\r" + why + "\r\\") != std::string::npos;
         std::printf("  %s\n", said ? why.c_str() : ("not \"" + why + "\" but: " + b.out).c_str());
@@ -444,6 +496,8 @@ namespace
         CHECK(b.out.find("\rOOLDR 0.2\r") != std::string::npos);
         const std::vector<Segment> segs = segments_of(sys);
         CHECK_EQ(segs.size(), size_t{6});
+        // One runs from block 60 into 61, so OOLDR's W2 must be the next block.
+        CHECK(std::any_of(segs.begin(), segs.end(), [](const Segment &s) { return s.at < 0xF4000 && s.at + s.length > 0xF4000; }));
         auto inside = [&](uint32_t a) {
             return std::any_of(segs.begin(), segs.end(), [&](const Segment &s) { return a >= s.at && a < s.at + s.length; });
         };
@@ -521,16 +575,16 @@ TEST(the_committed_card_holds_what_make_card_sh_says)
     // In parts(), the test system is OODOS.SYS
     Drive a = Drive::of(p.a);
     const std::vector<unsigned> e = a.entries_of(0, SYS_NAME);
-    CHECK_EQ(e.size(), size_t{2}); // over a directory entry: 268 records, 256 to an entry
+    CHECK_EQ(e.size(), size_t{2}); // over a directory entry: 260 records, 256 to an entry
     const Bytes sys = a.file(SYS_NAME);
-    REQUIRE(sys.size() == 268 * RECORD);
+    REQUIRE(sys.size() == 260 * RECORD);
     CHECK(std::equal(sys.begin(), sys.begin() + 4, "OOSY"));
     // Segment 6 crosses record 256, the second entry's start; segment 5 record 128, a logical extent's.
     const std::vector<Segment> segs = segments_of(sys);
     REQUIRE(segs.size() == 6u);
     CHECK(segs[5].record < 256 && segs[5].record + segs[5].length / RECORD > 256);
     CHECK(segs[4].record < 128 && segs[4].record + segs[4].length / RECORD > 128);
-    for (unsigned i = 0; i < 16384; ++i) // and the data segments are testsys.s's patterns
+    for (unsigned i = 0; i < segs[5].length; ++i) // and the data segments are testsys.s's patterns
         if (sys[segs[5].record * RECORD + i] != pattern(12, i))
         {
             CHECK(false);
@@ -651,6 +705,61 @@ TEST(drives_txt_of_16_mb_or_more_is_refused)
     refused(card, "DRIVES.TXT IS TOO BIG");
 }
 
+TEST(a_card_that_stays_busy_is_an_sd_timeout)
+{
+    // As OOLDR starts, a READ through DATA that nobody takes: BUSY until reset.
+    auto stuck = [](Session &s) {
+        SdCard &sd = *s.sd();
+        sd.write(SdCard::CTRL, 0);
+        sd.write(SdCard::UNIT, 0);
+        sd.write(SdCard::COUNT, 1);
+        sd.write(SdCard::CMD, SdCard::READ);
+    };
+    refused(parts().card(), "SD TIMEOUT", {ldr_label("START"), stuck});
+    // ...or as it goes to read OODOS.SYS: the CP/M reader's wait.
+    refused(parts().card(), "SD TIMEOUT", {ldr_label("SYS_A"), stuck});
+}
+
+TEST(drive_a_gone_or_changed_before_oodos_sys_is_read)
+{
+    // The CP/M reader's CRE_UNIT and CRE_SIZE, by A:'s line: unit 1 unmounted, or mounted
+    // again as a file of neither size, as OOLDR goes to read OODOS.SYS.
+    auto command = [](Session &s, uint8_t cmd, const std::string &param) {
+        SdCard &sd = *s.sd();
+        sd.write(SdCard::UNIT, 1);
+        sd.write(SdCard::CMD, cmd);
+        for (size_t i = 0; !param.empty() && i < SECTOR; ++i)
+            sd.write(SdCard::DATA, i < param.size() ? static_cast<uint8_t>(param[i]) : 0);
+        s.run(FRAME / 10);
+    };
+    const Bytes card = with_drives("A: /OODOS/A.IMG\n");
+    refused(card, "DRIVES.TXT LINE 1: /OODOS/A.IMG IS NOT MOUNTED",
+            {ldr_label("SYS_A"), [&](Session &s) { command(s, 0xA1, ""); }});
+    refused(card, "DRIVES.TXT LINE 1: /OODOS/A.IMG IS NOT 8 MB OR 32 MB",
+            {ldr_label("SYS_A"), [&](Session &s) { command(s, SdCard::MOUNT, std::string("\x01\x00/BOOT.BIN", 11)); }});
+}
+
+TEST(the_committed_card_is_what_the_sources_build)
+{
+    // OOLDR and the systems and HELLO the build tree has, from today's sources, are the card's:
+    // a file on A: is its bytes, then whatever pads its last record.
+    const std::string STALE = "the card is stale: run oodos/tools/make_card.sh";
+    auto same = [&](const std::string &what, const Bytes &card, const Bytes &built, bool records) {
+        const size_t size = records ? (built.size() + RECORD - 1) / RECORD * RECORD : built.size();
+        const bool ok = !built.empty() && card.size() == size && std::equal(built.begin(), built.end(), card.begin());
+        std::printf("  %s: %zu bytes built, %zu on the card%s\n", what.c_str(), built.size(), card.size(),
+                    ok ? "" : (": " + STALE).c_str());
+        CHECK(ok);
+    };
+    same("/BOOT.BIN", file_of(committed(), "/BOOT.BIN"), read_file(EMU_OODOS_LDR_DIR "/BOOT.BIN"), false);
+    Drive a = Drive::of(file_of(committed(), "/OODOS/A.IMG"));
+    same("OODOS.SYS", a.file(SYS_NAME), read_file(EMU_OODOS_SYS_DIR "/OODOS.SYS"), true);
+    same("TESTSYS.SYS", a.file(TEST_NAME), read_file(EMU_OODOS_LDR_DIR "/OODOS.SYS"), true);
+    same("HELLO.COM", a.file("HELLO   COM"), read_file(EMU_OODOS_SYS_DIR "/hello.com"), true);
+    same("HELLO.PRL", a.file("HELLO   PRL"), read_file(EMU_OODOS_PRL_DIR "/hello.prl"), true);
+    same("DRIVES.TXT", file_of(committed(), "/OODOS/DRIVES.TXT"), read_file(EMU_OODOS_CARD_DIR "/DRIVES.TXT"), false);
+}
+
 TEST(drives_it_cannot_mount)
 {
     refused(with_drives("B: /OODOS/B.IMG\n"), "DRIVES.TXT NAMES NO A:");
@@ -716,7 +825,7 @@ TEST(oodos_sys_headers_it_refuses)
     refused(with_header([&](uint8_t *h) { seg_at(h, 4, 0xFBFFC); }), S + "SEGMENT 4" + OUT);  // into block 63
     refused(with_header([&](uint8_t *h) { seg_at(h, 4, 0x1F0000); }), S + "SEGMENT 4" + OUT); // past 1 MB
     refused(with_header([&](uint8_t *h) { seg_at(h, 2, 0xF4064); }), S + "SEGMENTS 2 AND 5 OVERLAP");
-    refused(with_header([&](uint8_t *h) { seg_at(h, 6, 0xF3FFF); }), S + "SEGMENTS 5 AND 6 OVERLAP"); // by a byte
+    refused(with_header([&](uint8_t *h) { seg_at(h, 6, 0xF0001); }), S + "SEGMENTS 5 AND 6 OVERLAP"); // by a byte
     refused(with_header([&](uint8_t *h) { seg_at(h, 4, 0xF8800); }), S + "SEGMENTS 3 AND 4 OVERLAP"); // the same start
     refused(with_header([&](uint8_t *h) { set16(h, 16 + 8 * 5 + 5, 141); }), S + "SEGMENT 6 RUNS PAST THE FILE'S END");
     refused(with_header([&](uint8_t *h) { set16(h, 16 + 8 * 1 + 3, 0); }), S + "SEGMENT 2 IS EMPTY");
