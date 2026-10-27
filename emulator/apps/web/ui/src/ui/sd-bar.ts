@@ -36,10 +36,10 @@ export function sdBar(
   const light = h("span", { class: "led disk-led", title: "The SD card's light: on while it works", "data-testid": "sd-light" });
   const name = h("div", { class: "name", "data-testid": "sd-name" }, "The slot");
   const meta = h("div", { class: "meta", "data-testid": "sd-meta" }, "empty");
-  const insert = h("button", { class: "tbtn", type: "button", title: "A card image of your own (raw, or FAT as a PC formats it): it stays in this page", "data-testid": "sd-insert" }, "Insert…");
-  const protect = h("button", { class: "tbtn", type: "button", "aria-pressed": "false", title: "The card's write-protect switch", "data-testid": "sd-protect" }, "Protect");
-  const save = h("button", { class: "tbtn", type: "button", title: "Download the card as it is now, with the machine's writes", "data-testid": "sd-save" }, "Save");
-  const eject = h("button", { class: "tbtn", type: "button", title: "Take the card out", "data-testid": "sd-eject" }, "Eject");
+  const insert = h("button", { class: "tbtn", type: "button", "aria-label": "Insert an SD card", title: "A card image of your own (raw, or FAT as a PC formats it): it stays in this page", "data-testid": "sd-insert" }, "Insert…");
+  const protect = h("button", { class: "tbtn", type: "button", "aria-pressed": "false", "aria-label": "Protect the SD card", title: "The card's write-protect switch", "data-testid": "sd-protect" }, "Protect");
+  const save = h("button", { class: "tbtn", type: "button", "aria-label": "Save the SD card", title: "Download the card as it is now, with the machine's writes", "data-testid": "sd-save" }, "Save");
+  const eject = h("button", { class: "tbtn", type: "button", "aria-label": "Eject the SD card", title: "Take the card out", "data-testid": "sd-eject" }, "Eject");
   const note = h("p", { class: "row-note", role: "status", "data-testid": "sd-note" });
   const element = h(
     "div",

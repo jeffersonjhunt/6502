@@ -51,10 +51,10 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   const light = h("span", { class: "led disk-led", title: `${label}'s light: on while its motor runs`, "data-testid": id("light") });
   const name = h("div", { class: "name", "data-testid": id("name") }, label);
   const meta = h("div", { class: "meta", "data-testid": id("meta") }, "empty");
-  const insert = h("button", { class: "tbtn", type: "button", title: "A .woz, .dsk, .do or .po of your own: it stays in this browser", "data-testid": id("insert") }, "Insert…");
-  const protect = h("button", { class: "tbtn", type: "button", "aria-pressed": "false", title: "The disk's write-protect notch", "data-testid": id("protect") }, "Protect");
-  const save = h("button", { class: "tbtn", type: "button", title: "Download the disk as it is now", "data-testid": id("save") }, "Save");
-  const eject = h("button", { class: "tbtn", type: "button", title: "Take the disk out, and forget it in this browser", "data-testid": id("eject") }, "Eject");
+  const insert = h("button", { class: "tbtn", type: "button", "aria-label": `Insert a disk in drive ${drive + 1}`, title: "A .woz, .dsk, .do or .po of your own: it stays in this browser", "data-testid": id("insert") }, "Insert…");
+  const protect = h("button", { class: "tbtn", type: "button", "aria-pressed": "false", "aria-label": `Protect drive ${drive + 1}'s disk`, title: "The disk's write-protect notch", "data-testid": id("protect") }, "Protect");
+  const save = h("button", { class: "tbtn", type: "button", "aria-label": `Save drive ${drive + 1}'s disk`, title: "Download the disk as it is now", "data-testid": id("save") }, "Save");
+  const eject = h("button", { class: "tbtn", type: "button", "aria-label": `Eject drive ${drive + 1}`, title: "Take the disk out, and forget it in this browser", "data-testid": id("eject") }, "Eject");
   const note = h("p", { class: "row-note", role: "status", "data-testid": id("note") });
   const element = h(
     "div",

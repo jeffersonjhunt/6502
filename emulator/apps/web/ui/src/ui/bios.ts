@@ -83,7 +83,7 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
   const meta = h("div", { class: "meta", "data-testid": "bios-meta" });
   const load = h(
     "button",
-    { class: "tbtn", type: "button", title: "Your own build of the BIOS (up to 512 KB, the flash): the machine restarts on it, and it stays in this browser", "data-testid": "bios-load" },
+    { class: "tbtn", type: "button", "aria-label": "Load a BIOS of your own", title: "Your own build of the BIOS (up to 512 KB, the flash): the machine restarts on it, and it stays in this browser", "data-testid": "bios-load" },
     "Load…",
   );
   const builtIn = h("button", { class: "tbtn", type: "button", hidden: !mine, title: "Forget yours, and restart on the page's own", "data-testid": "bios-builtin" }, "Use built-in");

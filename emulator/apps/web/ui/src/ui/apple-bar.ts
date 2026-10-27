@@ -117,12 +117,13 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
 
   const rows = PARTS.map((p) => {
     const picker = h("input", { type: "file", multiple: p.part === "rom", hidden: true, "data-testid": `${p.id}-file` });
-    const load = h("button", { class: "tbtn", type: "button", "data-testid": p.id === "apple" ? "apple-insert" : `${p.id}-load` }, "Load…");
+    const load = h("button", { class: "tbtn", type: "button", "aria-label": `Load the ${p.name}`, "data-testid": p.id === "apple" ? "apple-insert" : `${p.id}-load` }, "Load…");
     const eject = h(
       "button",
       {
         class: "tbtn",
         type: "button",
+        "aria-label": `Eject the ${p.name}`,
         title:
           p.part === "rom"
             ? "Take the IIe ROM out, and forget it in this browser (the other parts are kept for the next): restarts the machine"

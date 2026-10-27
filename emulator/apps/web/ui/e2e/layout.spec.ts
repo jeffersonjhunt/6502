@@ -53,6 +53,18 @@ test("the strip: nothing loaded says so, and its link opens Settings at the ROMs
   await expect(page.getByTestId("no-media")).toBeVisible();
 });
 
+test("Settings' buttons each name their row: no two alike for a screen reader", async ({ page }) => {
+  await booted(page);
+  await openSettings(page);
+  for (const id of ["disk-file", "disk-file-2"]) await page.getByTestId(id).setInputFiles({ name: "A.dsk", mimeType: "application/octet-stream", buffer: Buffer.alloc(143_360) });
+  await expect(page.getByTestId("disk-eject-2")).toBeVisible();
+  const names = await page.getByTestId("settings").getByRole("button").evaluateAll((bs) =>
+    bs.filter((b) => b.getClientRects().length).map((b) => b.getAttribute("aria-label") ?? b.textContent!.trim()),
+  );
+  expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
+  expect(names).toEqual(expect.arrayContaining(["Load the IIe character ROM", "Eject drive 2", "Save drive 1's disk", "Protect drive 2's disk", "Load a BIOS of your own"]));
+});
+
 test("the monitor follows the machine: the demo's picture switches to Display, its end back to Terminal; a choice by hand holds", async ({ page }) => {
   await booted(page);
   const crt = page.getByTestId("crt");
