@@ -631,6 +631,7 @@ TEST(biostest_reaches_every_bios_entry_through_function_50)
     CHECK_EQ(field(o, "WRITE A"), std::string("00"));
     CHECK_EQ(field(o, "READ A"), std::string("00"));
     CHECK_EQ(field(o, "SAME A"), std::string("Y"));
+    CHECK_EQ(field(o, "BOUNCEW A"), std::string("00"));  // a WRITE from across the windows
     CHECK_EQ(field(o, "BOUNCE A"), std::string("00 Y"));
     CHECK_EQ(field(o, "WRITE B"), std::string("02"));    // read-only: CP/M 3's write-protect
     CHECK_EQ(field(o, "WRITE M"), std::string("00"));
@@ -656,6 +657,12 @@ TEST(biostest_reaches_every_bios_entry_through_function_50)
     }
     CHECK(card);
     CHECK(mdisk);
+    // BOUNCEW's sector, from $3F00-$3FFF in block 0 and $4000-$40FF in block 4: i ^ $A5.
+    const std::vector<uint8_t> w = r.read_unit(1, 1023 * 16 + 14);
+    bool bounced = true;
+    for (size_t i = 0; i < SECTOR; ++i)
+        bounced = bounced && w[i] == static_cast<uint8_t>((i & 0xFF) ^ 0xA5);
+    CHECK(bounced);
     // BOUNCE's halves: $3F00-$3FFF in block 0, then $4000-$40FF in block 4 (W1 moved for it).
     bool halves = true;
     for (uint32_t i = 0; i < 256; ++i)

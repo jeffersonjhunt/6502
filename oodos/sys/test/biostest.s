@@ -7,8 +7,10 @@
 ;   DPB d <17 bytes>         its DPB, copied out of the system bank by XMOVE
 ;   WRITE d rr / READ d rr   a sector out and back: the last of the drive
 ;   SAME d Y|N               and whether it came back as it went
-;   BOUNCE d rr Y|N          the same READ into a buffer across $4000, W1 on
-;                            block 4 for it, so the halves aren't one run
+;   BOUNCEW A rr             a WRITE of sector 14 from a buffer across $4000,
+;                            W1 on block 4 for it, so the halves aren't one
+;                            run: the pattern i ^ $A5
+;   BOUNCE d rr Y|N          then a READ of sector 15 into that buffer
 ;   PAST A rr                READ A: past its last track
 ;   ERRORS M rr rr           READ M: past its last track, and a sector 16
 ;   LABEL M <16 bytes>       M: directory's first 16 bytes
@@ -71,6 +73,26 @@ start:  ldx     #0                      ; A-G, then M
         lda     #<CROSS
         ldx     #>CROSS
         jsr     setdma
+        ldx     #0                      ; sector 14 from it: i ^ $A5
+@fillx: txa
+        eor     #$A5
+        sta     CROSS,x
+        sta     CROSS+$100,x
+        inx
+        bne     @fillx
+        lda     #14
+        jsr     setsec
+        lda     #BIOS::WRITE
+        jsr     bios0
+        pha
+        lda     #<bouncewmsg
+        ldx     #>bouncewmsg
+        jsr     PUTS
+        pla
+        jsr     HEX2
+        jsr     CRLF
+        lda     #15                     ; then sector 15 into it
+        jsr     setsec
         lda     #BIOS::READ
         jsr     bios0
         pha
@@ -552,6 +574,7 @@ writemsg: .byte "WRITE $"
 readmsg: .byte  "READ $"
 samemsg: .byte  "SAME $"
 bouncemsg: .byte "BOUNCE A $"
+bouncewmsg: .byte "BOUNCEW A $"
 writebmsg: .byte "WRITE B $"
 errmsg: .byte   "ERRORS M $"
 labelmsg: .byte "LABEL M $"
