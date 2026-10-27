@@ -65,6 +65,7 @@ namespace
     constexpr size_t SECTOR = 512, RECORD = 128;
     constexpr uint32_t BLOCK = 0x4000;
     constexpr uint32_t COMMON_PHYS = 62 * BLOCK + 0x3800; ///< $F800 in block 62
+    constexpr uint32_t SYS_BLOCK_PHYS = 31 * BLOCK;      ///< bank 0's $0000
     constexpr uint32_t SCREEN = 0x82000;
     constexpr uint16_t NB = 0xC680;
     constexpr uint8_t ROM_BLOCK_RO = 0x40 | 63;
@@ -1041,6 +1042,42 @@ TEST(an_irq_that_isnt_brk_returns)
     CHECK(taken);
     CHECK(returned);
     CHECK(o.find("IRQ RETURNED\r\n\r\nA>") != std::string::npos);
+}
+
+TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    // In the program's memory, where bank 1 would have put them: sentinels.
+    r.poke(0x1000, std::vector<uint8_t>(SECTOR, 0xA5));
+    r.poke(0x1800, std::vector<uint8_t>(16, 0xA5));
+    CHECK(r.go("banktest.com", " SET").find("\r\nA>") != std::string::npos);
+    const std::string o = r.go("banktest.com", " USE");
+    CHECK_EQ(field(o, "READ"), std::string("00"));
+    const std::vector<uint8_t> a0 = r.read_unit(1, 0);
+    bool sector = true, moved = true, untouched = true;
+    for (uint32_t i = 0; i < SECTOR; ++i)
+    {
+        sector = sector && r.phys(SYS_BLOCK_PHYS + 0x1000 + i) == a0[i];
+        untouched = untouched && r.phys(0x1000 + i) == 0xA5;
+    }
+    for (uint32_t i = 0; i < 16; ++i)
+    {
+        moved = moved && r.phys(SYS_BLOCK_PHYS + 0x1800 + i) == r.phys(60 * BLOCK + i);
+        untouched = untouched && r.phys(0x1800 + i) == 0xA5;
+    }
+    CHECK(sector);    // READ into bank 0: SETBNK's 1 didn't outlive its program
+    CHECK(moved);     // MOVE in bank 0: nor SELMEM's 1, nor the XMOVE left pending
+    CHECK(untouched);
+    // Function 50 of BOOT is refused: cold boot would format M: again.
+    r.poke(0xC0000 + 32, std::vector<uint8_t>{0x00, 'K', 'E', 'E', 'P'});
+    const std::string b = r.go("banktest.com", " BOOT");
+    CHECK_EQ(field(b, "BOOT"), std::string("FFFF"));
+    CHECK_EQ(r.phys(0xC0000 + 33), 'K');
+    size_t banners = 0;
+    for (size_t at = r.out.find("OODOS 0.2"); at != std::string::npos; at = r.out.find("OODOS 0.2", at + 1))
+        ++banners;
+    CHECK_EQ(banners, size_t{1});
 }
 
 int main()

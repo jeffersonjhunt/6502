@@ -21,7 +21,8 @@
 ;   25  DRV_GET     A = the current drive
 ;   50  S_BIOS      the BIOS parameter block at A/X: +0 the function, +1 A,
 ;                   +2 X, +3 Y, +4-5 and +6-7 the words (BW1, BW2); returns
-;                   the BIOS's A/X
+;                   the BIOS's A/X. BOOT (0), which would run cold boot again
+;                   and wipe M:, and any function past XMOVE return A = X = $FF
 ;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
 ;                   programs in KB (words), and FARCALL's address; A/X = FARCALL
@@ -221,9 +222,11 @@ RUBOUT:         LDA     #ASCII_BS
 ; The BIOS for the program: its parameter block in, a JSR through the jump
 ; table, A and X out.
 F_BIOS:         JSR     PGET
+                CMP     #BIOS::BOOT
+                BEQ     @refused
                 CMP     #BIOS::COUNT
                 BCC     @known
-                JMP     NOFUNC
+@refused:       JMP     NOFUNC
 @known:         STA     BIOSV          ; $F800 + 3 x the function
                 ASL     A
                 ADC     BIOSV

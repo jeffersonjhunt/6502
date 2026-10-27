@@ -22,6 +22,7 @@
 .import CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .import SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
+.importzp DMABANK, CURBANK, XPEND
 .export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI
 
 .segment "JUMPS"
@@ -125,13 +126,19 @@ STUBRET:        STA     ST_A           ; the results go on the program's stack,
                 RTS
 
 ; The warm boot: from $0200, function 0 and the BIOS's WBOOT, in any window
-; state. The program's windows (blocks 0-2, 62), VEC on 62, a fresh stack, D
-; clear and interrupts off, then the CCP.
+; state. The BIOS's banks back to 0 and no XMOVE pending, so nothing a
+; program set reaches the next; then the program's windows (blocks 0-2, 62),
+; VEC on 62, a fresh stack, D clear and interrupts off, and the CCP.
 WARM:           SEI
                 CLD
                 LDA     #RES_BLOCK
                 STA     NB_WIN3        ; this code goes on, in block 62's copy
                 STA     NB_VEC
+                LDA     #SYS_BLOCK
+                STA     NB_WIN0
+                STZ     DMABANK        ; BANK_SYS: .assert below
+                STZ     CURBANK
+                STZ     XPEND
                 STZ     NB_WIN0
                 LDA     #1
                 STA     NB_WIN1
@@ -140,6 +147,8 @@ WARM:           SEI
                 LDX     #$FF
                 TXS
                 JMP     CCP
+
+.assert BANK_SYS = 0, error, "WARM's STZs set bank 0"
 
 ; FARCALL, the spike's (oodos/spike/gwbasic/farcall.s), unchanged but for
 ; where it lives. Found through function 72.
