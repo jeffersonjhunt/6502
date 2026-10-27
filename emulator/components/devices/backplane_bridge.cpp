@@ -258,7 +258,15 @@ namespace ooe::emu
         retime();
     }
 
-    void BackplaneBridge::retime() { rtc_->set_cpu_hz(apple() ? APPLE_HZ : cpu_hz_); }
+    void BackplaneBridge::retime()
+    {
+        // What's left of the transaction under way takes the same time at the new clock, as a DS3231 conversion does.
+        const uint32_t hz = apple() ? APPLE_HZ : cpu_hz_;
+        if (!queue_.empty())
+            left_ = (left_ * hz + hz_ - 1) / hz_;
+        hz_ = hz;
+        rtc_->set_cpu_hz(hz);
+    }
 
     uint64_t BackplaneBridge::cost(Op op) const
     {
@@ -278,8 +286,7 @@ namespace ooe::emu
             bits = WRITE_BITS + 9 + READ_BITS + 9;
             break;
         }
-        const uint64_t hz = apple() ? APPLE_HZ : cpu_hz_;
-        return (uint64_t{bits} * hz + I2C_HZ - 1) / I2C_HZ;
+        return (uint64_t{bits} * hz_ + I2C_HZ - 1) / I2C_HZ;
     }
 
     void BackplaneBridge::queue(const Transaction &t)

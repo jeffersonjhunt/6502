@@ -286,6 +286,11 @@ TEST(busy_takes_its_bits_at_the_cpu_clock)
     CHECK_EQ(r.settle(), uint64_t{(39 * 7'159'090 + 399'999) / 400'000} - 1);
     r.bus().write(RTCCTL, BackplaneBridge::RTC_SET);
     CHECK_EQ(r.settle(), uint64_t{(112 * 7'159'090 + 399'999) / 400'000} - 1);
+    // The clock changed mid-transaction: what's left of it takes the same time at the new clock.
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_SET);
+    r.idle(1000); // 2,005 cycles less the write's and these: 1,004 at 7.16 MHz
+    r.bridge->set_cpu_hz(HZ);
+    CHECK_EQ(r.settle(), (uint64_t{1004} * HZ + 7'159'089) / 7'159'090);
 }
 
 TEST(apple_ii_mode_hides_the_registers_and_the_clock_runs_on)

@@ -237,6 +237,7 @@ namespace ooe::emu
 
         std::shared_ptr<Ds3231> rtc_;
         uint32_t cpu_hz_{NATIVE_HZ};
+        uint32_t hz_{NATIVE_HZ}; ///< the clock left_ counts: cpu_hz_, or APPLE_HZ
         std::array<uint8_t, TIME_REGS> time_{};   ///< SEC-YEAR as last read
         std::array<uint8_t, TIME_REGS> latch_{};  ///< what reading SEC caught
         std::array<uint8_t, TIME_REGS> staged_{}; ///< what SET will send
