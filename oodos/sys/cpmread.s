@@ -26,8 +26,10 @@
 ;            it. At the end of the file, carry set and A = CRE_EOF.
 ;
 ; Each returns carry clear, or carry set and an error in A (CRE_*,
-; system.inc; with CRE_SD the card's ERROR is in CR_SDERR). A, X and Y are
-; not kept. D must be clear.
+; system.inc; with CRE_SD the card's ERROR is in CR_SDERR). A card that
+; stays BUSY about a second, before a command or in one, is CRE_TIMEOUT:
+; the command is abandoned (CTRL's RESET; units stay mounted). A, X and Y
+; are not kept. D must be clear.
 ;
 ; Only entries in user 0 (byte 0 is 0) are looked at, so free and deleted
 ; ones ($E5), the directory label ($20), SFCBs ($21), XFCBs (16-31) and other
@@ -68,6 +70,7 @@ tmp:            .res    2
 lba:            .res    2              ; the sector in sbuf, if valid
 valid:          .res    1
 dsec:           .res    1              ; CR_FIND's directory sector
+tmo:            .res    3              ; a wait's passes left, to about a second
 name:           .res    11
 last:           .res    1              ; the last entry's index; $FF: none yet
 found:          .res    MAX_ENTRIES    ; nonzero: that entry is in blocks
@@ -94,6 +97,7 @@ CR_INIT:        STA     unit
                 CMP     #7
                 BCS     @unit          ; 0 or over 7
                 JSR     idle
+                BCS     @out
                 STZ     SD_CTRL
                 LDA     #SD_IDENTIFY
                 STA     SD_CMD
@@ -423,10 +427,40 @@ CR_READ:        STA     ptr
                 RTS
 
 ; Wait for a command to end, before the next: one written while BUSY is
-; ignored. Its ERR is the caller's business, not ours.
-idle:           LDA     SD_STATUS
+; ignored. Its ERR is the caller's business, not ours. Carry set with
+; CRE_TIMEOUT after about a second.
+idle:           JSR     tstart
+@wait:          LDA     SD_STATUS
                 BIT     #SD_BUSY
-                BNE     idle
+                BEQ     @idle
+                JSR     tick
+                BCC     @wait
+                RTS
+@idle:          CLC
+                RTS
+
+; A wait's count: tick's passes, 4 x 65,536 of about 34 cycles, a second.
+tstart:         STZ     tmo
+                STZ     tmo+1
+                LDA     #4
+                STA     tmo+2
+                RTS
+; One pass of a wait: carry set, the command abandoned and A = CRE_TIMEOUT,
+; once they're all gone. Keeps X and Y.
+tick:           DEC     tmo
+                BNE     @more
+                DEC     tmo+1
+                BNE     @more
+                DEC     tmo+2
+                BNE     @more
+                LDA     #SD_CTRL_RESET
+                STA     SD_CTRL
+                STZ     SD_CTRL
+                STZ     valid
+                LDA     #CRE_TIMEOUT
+                SEC
+                RTS
+@more:          CLC
                 RTS
 
 ; Sector A/X of the unit into sbuf, unless it's there already. Carry set
@@ -443,6 +477,7 @@ get:            BIT     valid
                 STX     lba+1
                 STZ     valid
                 JSR     idle
+                BCS     @out
                 STZ     SD_CTRL        ; DATA by the CPU, not DRQ0
                 LDA     unit
                 STA     SD_UNIT
@@ -464,13 +499,16 @@ get:            BIT     valid
 @out:           RTS
 
 ; The command's sector out of DATA into sbuf, then its end. Carry set with
-; CRE_SD if it fails.
-take:           LDA     SD_STATUS
+; CRE_SD if it fails, CRE_TIMEOUT if it takes over about a second.
+take:           JSR     tstart
+@wait:          LDA     SD_STATUS
                 BIT     #SD_DATA_READY
                 BNE     @read
                 BIT     #SD_BUSY
-                BNE     take
-                BRA     failed
+                BEQ     failed
+                JSR     tick
+                BCC     @wait
+                RTS
 @read:          LDY     #0
 @lo:            LDA     SD_DATA
                 STA     sbuf,Y
@@ -480,10 +518,14 @@ take:           LDA     SD_STATUS
                 STA     sbuf + 256,Y
                 INY
                 BNE     @hi
+                JSR     tstart
 @end:           LDA     SD_STATUS      ; then the command's end
                 BIT     #SD_BUSY
-                BNE     @end
-                BIT     #SD_ERR
+                BEQ     @ended
+                JSR     tick
+                BCC     @end
+                RTS
+@ended:         BIT     #SD_ERR
                 BNE     failed
                 CLC
                 RTS

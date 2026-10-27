@@ -95,5 +95,6 @@ CRE_SIZE        = 3                    ; CR_INIT: neither 16,384 sectors nor 65,
 CRE_NOFILE      = 4                    ; CR_FIND: no such file in user 0
 CRE_BIG         = 5                    ; CR_FIND: more directory entries than it keeps (16)
 CRE_BAD         = 6                    ; an entry missing, twice, part full or with a block out of range
+CRE_TIMEOUT     = 7                    ; the card stayed BUSY about a second: the command abandoned
 
 .endif
