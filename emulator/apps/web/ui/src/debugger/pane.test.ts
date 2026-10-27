@@ -160,5 +160,6 @@ function frame() {
     audio: null,
     soundRunning: false,
     keysQueued: 0,
+    videoCard: null,
   };
 }

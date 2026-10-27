@@ -27,6 +27,11 @@
  *
  * The scheduler and the module loader are injectable, so tests can step
  * frames by hand against the real module under node.
+ *
+ * `bios` is the owner's own build of the BIOS, in place of the one built
+ * into the module: it goes into the module's file system (and no further)
+ * and the machine opens on it, with no labels (the built-in ones are for
+ * the built-in ROM). A new BIOS is a new machine, so the page restarts.
  */
 
 import type {
@@ -50,6 +55,7 @@ import type {
   SoundCpu,
   TraceRow,
   VideoFrame,
+  VideoRegs,
 } from "./machine-port";
 import { CLOCKS_HZ } from "./machine-port";
 
@@ -134,6 +140,8 @@ export interface CoreMachine {
 
 export interface CoreModule {
   Machine: new () => CoreMachine;
+  /** The module's memory file system (-sEXPORTED_RUNTIME_METHODS=FS). */
+  FS?: { writeFile(path: string, data: Uint8Array): void; readFile(path: string): Uint8Array };
 }
 
 export interface Scheduler {
@@ -150,6 +158,8 @@ export interface WasmPortOptions {
   machine?: string;
   rom?: string;
   symbols?: string;
+  /** The owner's BIOS ROM, to open the machine on instead of `rom`. */
+  bios?: Uint8Array;
 }
 
 export const MAX_FRAME_MS = 100;
@@ -162,6 +172,23 @@ export const FIXED_FRAME_BUDGET_MS = 12;
 export const FIXED_FRAME_SHARE = 4;
 /** Frames the page's time is averaged over. */
 export const PAGE_SMOOTHING = 16;
+
+/** Where the owner's BIOS goes in the module's file system. */
+export const USER_BIOS = "/roms/user-bios.rom";
+/** The flash the BIOS is in: rom_a, $00000-$7FFFF (machines/backplane.machine). */
+export const MAX_BIOS = 512 * 1024;
+
+/** "0.9" from a ROM that greets "BACKPLANE BIOS 0.9", or "". */
+export function biosVersion(rom: Uint8Array): string {
+  const want = Array.from("BACKPLANE BIOS ", (c) => c.charCodeAt(0));
+  outer: for (let i = 0; i + want.length < rom.length; ++i) {
+    for (let j = 0; j < want.length; ++j) if (rom[i + j] !== want[j]) continue outer;
+    let v = "";
+    for (let k = i + want.length; k < rom.length && v.length < 16 && /[0-9A-Za-z.\-]/.test(String.fromCharCode(rom[k])); ++k) v += String.fromCharCode(rom[k]);
+    if (v) return v;
+  }
+  return "";
+}
 
 const KEY_BITS: Record<Exclude<PanelKey, "start">, number> = { load: 1, exam: 2, dep: 4, cont: 8 };
 
@@ -210,6 +237,7 @@ export class WasmPort implements MachinePort {
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
   private readonly files: { machine: string; rom: string; symbols: string };
+  private readonly bios: Uint8Array | undefined;
   private m: CoreMachine | null = null;
   private handle: number | null = null;
   private last = 0;
@@ -242,12 +270,21 @@ export class WasmPort implements MachinePort {
       rom: options.rom ?? "/roms/bios.rom",
       symbols: options.symbols ?? "/roms/bios.rom.lbl",
     };
+    this.bios = options.bios;
   }
 
-  async connect(): Promise<{ machine: string }> {
+  async connect(): Promise<{ machine: string; bios?: string }> {
     const core = await this.load();
+    let rom = this.files.rom;
+    let symbols = this.files.symbols;
+    if (this.bios) {
+      if (!core.FS) throw new Error("this core cannot take a BIOS of your own");
+      core.FS.writeFile(USER_BIOS, this.bios);
+      rom = USER_BIOS;
+      symbols = "";
+    }
     const m = new core.Machine();
-    if (!m.open(this.files.machine, this.files.rom, this.files.symbols)) {
+    if (!m.open(this.files.machine, rom, symbols)) {
       const why = m.error();
       m.delete();
       throw new Error(`cannot open ${this.files.machine}: ${why}`);
@@ -259,7 +296,13 @@ export class WasmPort implements MachinePort {
     this.last = this.ranUntil = this.scheduler.now();
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisibility);
     this.schedule();
-    return { machine: this.files.machine };
+    let bios = "";
+    try {
+      bios = biosVersion(this.bios ?? core.FS?.readFile(rom) ?? new Uint8Array(0));
+    } catch {
+      /* no version to show: fine */
+    }
+    return { machine: this.files.machine, bios };
   }
 
   close(): void {
@@ -349,6 +392,7 @@ export class WasmPort implements MachinePort {
       keysQueued: this.powered ? m.usbQueued() : 0,
       disk: this.powered ? this.readDiskStatus(m) : null,
       sd: this.powered ? this.readSdStatus(m) : null,
+      videoCard: this.powered ? this.readVideoRegs(m) : null,
       serialOut: out,
       lights: this.lightsOn && this.powered ? this.readLights(m) : null,
       regs: this.regsOn && this.powered ? m.regs() : null,
@@ -356,6 +400,12 @@ export class WasmPort implements MachinePort {
       audio: this.audioRate && this.powered ? new Float32Array(m.takeAudio()) : null, // copied out of the module's memory
     };
     return state;
+  }
+
+  /** CTRL ($C480), layer 0's CONFIG and MAPBASE ($C490, $C491), read with no bus cycle. */
+  private readVideoRegs(m: CoreMachine): VideoRegs | null {
+    if (!m.hasVideo()) return null;
+    return { ctrl: m.peekIo(0x480), layer0: m.peekIo(0x490), map0: m.peekIo(0x491) };
   }
 
   private readSdStatus(m: CoreMachine): SdStatus | null {
