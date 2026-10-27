@@ -105,8 +105,8 @@ Each line is one of these, and anything else is an error:
   or 8.3 names in any case (fat_volume.h). It has no spaces, tabs, `#` or control characters, and is at most 509
   bytes, what MOUNT's sector holds after the unit and the flags with its NUL.
 - **Lines end** in LF or CR LF, so the file can be edited on any PC; the last may have no ending. A CR anywhere
-  else is an error. A UTF-8 byte order mark at the start of the file is skipped. The file is read to its size
-  (LIST gives it), not to a NUL.
+  else, in a comment too, is an error. A UTF-8 byte order mark at the start of the file is skipped. The file is
+  read to its size (LIST gives it), not to a NUL.
 - **Errors** stop the loader, which says which line, by number, and why, and goes back to the monitor: a line
   that fits none of the forms (a word after the path that isn't `RO`, such as a mistyped `R0`, or a second `RO`;
   a space in the path), a drive named twice (not the later line winning), and the same path on two drives

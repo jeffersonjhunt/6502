@@ -389,6 +389,8 @@ namespace
             at = end + 1;
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
+            if (line.find('\r') != std::string::npos) // in a comment too: an editor may show it as a line end
+                return bad("a CR not before LF");
             size_t i = 0;
             auto blanks = [&]() {
                 const size_t from = i;
@@ -637,8 +639,10 @@ TEST(drives_txt_is_read_by_its_grammar)
         {"A: /X.IMG R0\n", "line 1: \"R0\" after the path"},
         {"A: /X.IMG ROM\n", "line 1: \"ROM\" after the path"},
         {"A: /X.IMG RO RO\n", "line 1: \"RO\" after the path"},
-        {"A: /X.IMG\rB: /Y.IMG\n", "line 1: a control character in the path"}, // a CR alone isn't a line end
-        {"A: /X.IMG\r\r\n", "line 1: a control character in the path"},
+        {"A: /X.IMG\rB: /Y.IMG\n", "line 1: a CR not before LF"}, // a CR alone isn't a line end
+        {"A: /X.IMG\r\r\n", "line 1: a CR not before LF"},
+        {"A: /X.IMG\n# b drive\rB: /Y.IMG RO\n", "line 2: a CR not before LF"}, // not hidden in a comment
+        {"A: /X.IMG # a\rb\n", "line 1: a CR not before LF"},
         {"\n\nH: /X.IMG\n", "line 3: not a drive A-G and a colon"},
         {"A /X.IMG\n", "line 1: not a drive A-G and a colon"},
         {"AB: /X.IMG\n", "line 1: not a drive A-G and a colon"},
