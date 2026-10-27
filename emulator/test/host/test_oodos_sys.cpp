@@ -507,6 +507,127 @@ namespace
             ok = ok && boot();
         }
     };
+
+    // ---- phase 3a: the BDOS's files --------------------------------------------------------
+
+    constexpr uint32_t MDISK = 0xC0000, MDISK_SIZE = 0x20000; ///< M:, banks C-D
+    constexpr uint32_t SEC32 = 512, REC32 = 128;
+
+    /// An OODOS drive read behind OODOS's back, as the test's oracle: oodos-8m on a card unit
+    /// (read through the card's registers while OODOS waits), or M: in banks C-D. Not a file
+    /// system: entries and records found by the DPB, as cpmtools would.
+    struct CpmDisk
+    {
+        Rig &r;
+        unsigned unit; ///< 1-7, 0 for M:
+        unsigned bls() const { return unit ? 4096 : 2048; }
+        unsigned entries() const { return unit ? 1024 : 256; }
+        bool words() const { return unit != 0; } ///< 16-bit block pointers (DSM > 255)
+        unsigned exm() const { return 1; }       ///< both formats' EXM
+
+        std::vector<uint8_t> sector(uint32_t lba)
+        {
+            if (unit)
+                return r.read_unit(unit, lba);
+            std::vector<uint8_t> s(SECTOR);
+            for (size_t i = 0; i < SECTOR; ++i)
+                s[i] = r.phys(MDISK + lba * SEC32 + static_cast<uint32_t>(i));
+            return s;
+        }
+        void put(uint32_t lba, const std::vector<uint8_t> &s)
+        {
+            REQUIRE(unit == 0); // M: only: the card's sectors are OODOS's
+            r.poke(MDISK + lba * SEC32, s);
+        }
+        std::vector<uint8_t> directory()
+        {
+            std::vector<uint8_t> d;
+            for (uint32_t n = 0; n * SEC32 < entries() * 32; ++n)
+            {
+                const std::vector<uint8_t> s = sector(n);
+                d.insert(d.end(), s.begin(), s.end());
+            }
+            return d;
+        }
+        /// A file's entries (user `u`, an 8 + 3 name), in extent order.
+        std::vector<unsigned> entries_of(const std::vector<uint8_t> &d, unsigned u, const std::string &name83)
+        {
+            std::vector<std::pair<unsigned, unsigned>> found;
+            for (unsigned i = 0; i < entries(); ++i)
+            {
+                const uint8_t *e = &d[i * 32];
+                bool same = e[0] == u;
+                for (unsigned c = 0; c < 11 && same; ++c)
+                    same = (e[1 + c] & 0x7F) == static_cast<uint8_t>(name83[c]);
+                if (same)
+                    found.push_back({unsigned{e[14]} * 32 + e[12], i});
+            }
+            std::sort(found.begin(), found.end());
+            std::vector<unsigned> out;
+            for (const auto &f : found)
+                out.push_back(f.second);
+            return out;
+        }
+        unsigned pointer(const uint8_t *e, unsigned k) const
+        {
+            return words() ? unsigned{e[16 + 2 * k]} | unsigned{e[17 + 2 * k]} << 8 : e[16 + k];
+        }
+        /// Record `n` of a file (its entries as entries_of gives them); empty if it has no block.
+        std::vector<uint8_t> record(const std::vector<uint8_t> &d, const std::vector<unsigned> &es, unsigned n)
+        {
+            const unsigned group = n / 128 / (exm() + 1), per = bls() / REC32;
+            for (unsigned i : es)
+            {
+                const uint8_t *e = &d[i * 32];
+                if ((unsigned{e[14]} * 32 + e[12]) / (exm() + 1) != group)
+                    continue;
+                const unsigned in = n % (128 * (exm() + 1)), block = pointer(e, in / per);
+                if (block == 0)
+                    return {};
+                const uint32_t at = block * bls() + (in % per) * REC32;
+                const std::vector<uint8_t> s = sector(at / SEC32);
+                return std::vector<uint8_t>(s.begin() + static_cast<long>(at % SEC32),
+                                            s.begin() + static_cast<long>(at % SEC32 + REC32));
+            }
+            return {};
+        }
+    };
+
+    /// FSTEST's record pattern (oodos/sys/test/fs.inc's FILL).
+    std::vector<uint8_t> pattern_record(unsigned n)
+    {
+        std::vector<uint8_t> b(RECORD);
+        for (unsigned j = 0; j < RECORD; ++j)
+            b[j] = static_cast<uint8_t>(((n & 0xFF) + j) ^ (n >> 8) ^ 0x5A);
+        return b;
+    }
+
+    /// Whether these bytes are anywhere in physical memory from `from`, `len` bytes.
+    bool in_memory(Rig &r, uint32_t from, uint32_t len, const std::vector<uint8_t> &what)
+    {
+        std::vector<uint8_t> m(len);
+        for (uint32_t i = 0; i < len; ++i)
+            m[i] = r.phys(from + i);
+        return std::search(m.begin(), m.end(), what.begin(), what.end()) != m.end();
+    }
+    /// Whether these bytes are anywhere on the card.
+    bool on_card(Rig &r, const std::vector<uint8_t> &what)
+    {
+        const std::vector<uint8_t> &c = r.media->bytes();
+        return std::search(c.begin(), c.end(), what.begin(), what.end()) != c.end();
+    }
+
+    /// Run a test program by GO with `tail`, without waiting for the prompt.
+    size_t start(Rig &r, const std::string &com, const std::string &tail = "")
+    {
+        r.poke_com(read_bytes(SYS + "/" + com));
+        const size_t from = r.out.size();
+        r.type("GO" + tail + "\r");
+        return from;
+    }
+
+    /// A 24-bit hex field as a number.
+    unsigned hexval(const std::string &s) { return static_cast<unsigned>(std::stoul(s, nullptr, 16)); }
 } // namespace
 
 TEST(oodos_sys_is_built_to_its_format)
@@ -1257,6 +1378,90 @@ TEST(the_ccps_load_gives_up_on_a_card_that_stays_busy)
     const size_t again = r.out.size();
     r.type("HELLO\r");                                      // reset, so the next one reads
     CHECK(r.until("Hello from OODOS", ms(4000), again));
+}
+
+/// FSTEST on a drive: its results, the last sector held back until close (a write-back at close),
+/// and the BIOS's READs while it reads the file back (deblocking: at most one a sector).
+void fstest(Booted &r, char drive, unsigned free_records_per_block)
+{
+    REQUIRE(r.ok);
+    CpmDisk disk{r, drive == 'M' ? 0u : 1u};
+    const auto fl = labels(SYS + "/fstest.lbl");
+    bool counting = false;
+    unsigned reads = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == fl.at("rdbegin"))
+            counting = true;
+        else if (pc == fl.at("rdend"))
+            counting = false;
+        else if (counting && pc == sym("READ"))
+            ++reads;
+    };
+    const size_t from = start(r, "fstest.com", std::string(" ") + drive);
+    REQUIRE(r.until("WRITTEN?", ms(20000), from));
+    // The last sector is still in its buffer: records 296-299 aren't on the disk yet.
+    const std::vector<uint8_t> last = pattern_record(299);
+    CHECK(!(drive == 'M' ? in_memory(r, MDISK, MDISK_SIZE, last) : on_card(r, last)));
+    r.type(" ");
+    REQUIRE(r.until("CLOSED?", ms(5000), from));
+    CHECK(drive == 'M' ? in_memory(r, MDISK, MDISK_SIZE, last) : on_card(r, last));
+    const std::vector<uint8_t> dir = disk.directory();
+    const std::vector<unsigned> es = disk.entries_of(dir, 0, "SEQ     DAT");
+    CHECK_EQ(es.size(), size_t{2}); // 256 records an entry
+    bool all = es.size() == 2;
+    for (unsigned n = 0; n < 300 && all; ++n)
+        all = disk.record(dir, es, n) == pattern_record(n);
+    CHECK(all);
+    r.type(" ");
+    CHECK(r.until("FSTEST DONE", ms(20000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    r.watch = nullptr;
+    const std::string o = r.out.substr(from);
+    const unsigned free0 = hexval(field(o, "FREE0"));
+    const unsigned blocks = (300 + free_records_per_block - 1) / free_records_per_block;
+    CHECK_EQ(hexval(field(o, "FREE1")), free0 - blocks * free_records_per_block);
+    CHECK_EQ(field(o, "FREE2"), field(o, "FREE0"));
+    CHECK_EQ(field(o, "MAKE").substr(2), std::string(" 00"));
+    CHECK_EQ(field(o, "WRITE"), std::string("012C 00"));
+    CHECK_EQ(field(o, "CLOSE").substr(2), std::string(" 00"));
+    CHECK_EQ(field(o, "OPEN"), field(o, "MAKE")); // the same entry: the first, extent 0's
+    CHECK_EQ(field(o, "RC"), std::string("80"));
+    CHECK_EQ(field(o, "READ"), std::string("012C 01"));
+    CHECK_EQ(field(o, "RANDREC"), std::string("00012C"));
+    CHECK_EQ(field(o, "SIZE"), std::string("00012C"));
+    for (const char *want : {"00C8 00 Y", "012B 00 Y", "012C 01 N", "1388 04 N", "0258 04 N", "0384 01 N",
+                             "03E8 00 Y", "03E9 01 N", "03EA 00 Y"})
+        if (o.find(std::string("\nRREAD ") + want + "\r") == std::string::npos)
+        {
+            std::printf("  no RREAD %s in:\n%s\n", want, o.c_str());
+            CHECK(false);
+        }
+    CHECK_EQ(field(o, "RREAD 40000"), std::string("06"));
+    CHECK_EQ(field(o, "RWRITE 1000"), std::string("00"));
+    CHECK_EQ(field(o, "RWRITEZ 1003"), std::string("00"));
+    CHECK_EQ(field(o, "CLOSE2").substr(2), std::string(" 00"));
+    CHECK_EQ(field(o, "SIZE2"), std::string("0003EC"));
+    CHECK_EQ(field(o, "DELETE"), std::string("00 00"));
+    CHECK_EQ(field(o, "OPEN2"), std::string("FF 00"));
+    std::printf("  %c: the BIOS's READs reading 300 records back: %u\n", drive, reads);
+    CHECK(reads > 0);   // buffers were reused: some of the file had to be read again
+    CHECK(reads <= 75 + 2); // a sector at most once for its four records, and the directory's
+                            // as each of the next two extents is opened
+}
+
+TEST(fstest_writes_reads_seeks_and_deletes_on_a)
+{
+    Booted r;
+    fstest(r, 'A', 32);
+}
+
+TEST(fstest_on_m_with_byte_pointers)
+{
+    Booted r;
+    fstest(r, 'M', 16);
+    const std::string o = r.out;
+    CHECK_EQ(field(o, "FREE0"), std::string("0003C0")); // 60 blocks of 16 records: an empty M:
+    CHECK_EQ(field(o, "MAKE"), std::string("01 00"));    // entry 1, after the label
 }
 
 int main()
