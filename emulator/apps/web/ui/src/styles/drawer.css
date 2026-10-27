@@ -1,6 +1,7 @@
 /* The right-hand drawer that Settings and the debugger share: the grid's
    second column beside the bench on a wide window (--dbg, base.css); over
-   the page on a narrower one; the whole screen on a phone. */
+   the page on a narrower one (OVERLAY, ui/drawer.ts: a modal dialog there);
+   the whole screen on a phone. */
 .drawer {
   grid-column: 2;
   border-left: 1px solid var(--line);
@@ -43,7 +44,7 @@
 .credits a { color: var(--amber); text-underline-offset: 2px; }
 .credits a:hover, .credits a:focus-visible { color: #ffd06a; }
 
-/* Narrower: over the page, from the right. */
+/* Narrower: over the page, from the right, a modal dialog (OVERLAY in ui/drawer.ts). */
 @media (max-width: 980px) {
   body.drawer-open { --dbg: 0px; }
   .drawer {

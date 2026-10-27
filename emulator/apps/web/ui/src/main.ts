@@ -39,12 +39,12 @@ import { focusStop, h, prefs, segmented } from "./ui/dom";
 import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
-import { PHONE, toolbar } from "./ui/toolbar";
+import { toolbar } from "./ui/toolbar";
 import { appleBar } from "./ui/apple-bar";
 import { biosRow, keptBios } from "./ui/bios";
 import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
-import { drawer } from "./ui/drawer";
+import { drawer, OVERLAY } from "./ui/drawer";
 import { fitWidth } from "./ui/fit";
 import { machineScreen, ScreenFollow, type Screen } from "./ui/screen";
 import { phosphorPicker, settingsPanel, type SettingsSection } from "./ui/settings";
@@ -86,7 +86,7 @@ function touchNote(): HTMLElement[] {
 
 function start(root: HTMLElement, port: MachinePort): void {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const phone = matchMedia(PHONE);
+  const overlay = matchMedia(OVERLAY);
   const terminal = new Terminal();
   const panel = new PanelState(port);
   panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0 }); // the switches stay where they were left
@@ -320,7 +320,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       settings: { element: settings.element, button: bar.settings, label: "Settings" },
       debugger: { element: dbg.element, button: bar.debug, label: "Debugger", shown: (o) => dbg.setOpen(o) },
     },
-    { focusBack: bar.focusBack, phone, behind: [bar.element, bench] },
+    { focusBack: bar.focusBack, overlay, behind: [bar.element, bench] },
   );
   settings.header.append(drawer_.closers.settings);
   dbg.head.append(drawer_.closers.debugger);

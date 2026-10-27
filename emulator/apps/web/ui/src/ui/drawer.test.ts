@@ -17,7 +17,7 @@ function make(phone = false) {
       settings: { element: settings, button: settingsButton, label: "Settings", shown: (o) => shown.push(["settings", o]) },
       debugger: { element: debug, button: debuggerButton, label: "Debugger", shown: (o) => shown.push(["debugger", o]) },
     },
-    { phone: media, behind: [page] },
+    { overlay: media, behind: [page] },
   );
   document.body.replaceChildren(settingsButton, debuggerButton, page, d.element);
   return { d, settings, debug, settingsButton, debuggerButton, page, shown, media, listeners };
@@ -89,5 +89,25 @@ describe("the drawer", () => {
     expect(document.activeElement).not.toBe(again.debug);
     again.settingsButton.click(); // Settings in its place: the debugger is closed, for next time too
     expect(prefs.get("dbg")).toBe("closed");
+  });
+
+  test("left open, the debugger stays closed over a narrow page: a dialog would hold focus it doesn't have", () => {
+    make().debuggerButton.click();
+    const narrow = make(true);
+    narrow.d.restore();
+    expect(narrow.d.current()).toBeNull();
+    expect(narrow.page.inert).toBe(false);
+  });
+
+  test("narrowed to a dialog while open: focus goes in, off the page now inert", () => {
+    const { d, debug, debuggerButton, page, media, listeners } = make();
+    d.restore();
+    debuggerButton.click();
+    debuggerButton.focus(); // focus on the page, beside the drawer
+    (media as { matches: boolean }).matches = true;
+    for (const l of listeners) l();
+    expect(debug.getAttribute("role")).toBe("dialog");
+    expect(page.inert).toBe(true);
+    expect(document.activeElement).toBe(debug);
   });
 });

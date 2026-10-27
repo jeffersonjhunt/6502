@@ -1,20 +1,25 @@
 /**
  * The one right-hand drawer, shared by Settings and the Debugger: opening
  * one closes the other, and each toggles from its toolbar button (pressed
- * while it shows). Beside the bench on a wide window, over it on a narrow
- * one; on a phone it fills the screen and is a modal dialog, the page
- * behind it inert.
+ * while it shows). Beside the bench on a wide window; over it on a narrow
+ * one (OVERLAY), where it is a modal dialog, the page behind it inert; on
+ * a phone it fills the screen.
  *
  * Focus goes into it when it opens from a click (to `at`, or the panel),
- * and back to the button that opened it when it closes; Escape closes it
- * from inside. Whether the debugger was open is remembered (a first visit
- * starts with it closed); Settings always starts closed.
+ * or when the window narrows to an overlay while it is open, and back to
+ * the button that opened it when it closes; Escape closes it from inside.
+ * Whether the debugger was open is remembered (a first visit starts with
+ * it closed), and it opens again beside the page only; Settings always
+ * starts closed.
  */
 
 import { h, prefs } from "./dom";
 import { icon } from "./icons";
 
 export type DrawerId = "settings" | "debugger";
+
+/** Where the drawer goes over the page (drawer.css). */
+export const OVERLAY = "(max-width: 980px)";
 
 export interface DrawerPanel {
   element: HTMLElement;
@@ -29,8 +34,8 @@ export interface DrawerPanel {
 export interface DrawerOptions {
   /** Where focus goes back to for a button (More, when the button is folded into its menu). */
   focusBack?: (button: HTMLElement) => HTMLElement;
-  /** A phone: the drawer is a modal dialog over the page. */
-  phone?: MediaQueryList | null;
+  /** A narrow window (OVERLAY): the drawer is a modal dialog over the page. */
+  overlay?: MediaQueryList | null;
   /** Made inert while it is a modal dialog. */
   behind?: HTMLElement[];
 }
@@ -52,18 +57,23 @@ export function drawer(panels: Record<DrawerId, DrawerPanel>, options: DrawerOpt
     p.button.addEventListener("click", () => toggle(id, p.button));
   }
 
-  /** Region beside the page; a modal dialog on a phone. */
+  /** Region beside the page; a modal dialog over it. */
+  const modal = () => !!options.overlay?.matches;
   const roles = () => {
-    const modal = !!options.phone?.matches;
+    const dialog = modal();
     for (const id of ["settings", "debugger"] as DrawerId[]) {
       const e = panels[id].element;
-      e.setAttribute("role", modal ? "dialog" : "region");
-      if (modal) e.setAttribute("aria-modal", "true");
+      e.setAttribute("role", dialog ? "dialog" : "region");
+      if (dialog) e.setAttribute("aria-modal", "true");
       else e.removeAttribute("aria-modal");
     }
-    for (const b of options.behind ?? []) b.inert = modal && current !== null;
+    for (const b of options.behind ?? []) b.inert = dialog && current !== null;
   };
-  options.phone?.addEventListener("change", roles);
+  // Narrowed (a resize, a rotation) to a dialog while open: focus goes in, off the page now inert.
+  options.overlay?.addEventListener("change", () => {
+    roles();
+    if (modal() && current && !element.contains(document.activeElement)) panels[current].element.focus({ preventScroll: true });
+  });
 
   const press = () => {
     for (const id of ["settings", "debugger"] as DrawerId[]) {
@@ -121,9 +131,9 @@ export function drawer(panels: Record<DrawerId, DrawerPanel>, options: DrawerOpt
 
   roles();
   press();
-  /** The debugger, if it was left open last time: shown, focus left where it is. */
+  /** The debugger, if it was left open last time: shown beside the page, focus left where it is; not over it. */
   const restore = () => {
-    if (prefs.get("dbg") === "open") show("debugger", { focus: false });
+    if (prefs.get("dbg") === "open" && !modal()) show("debugger", { focus: false });
   };
   return { element, show, hide, toggle, restore, closers, current: () => current };
 }

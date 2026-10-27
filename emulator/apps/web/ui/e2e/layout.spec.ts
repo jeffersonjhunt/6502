@@ -140,6 +140,24 @@ test("the fonts are the page's own: Inter and JetBrains Mono load, and nothing i
   expect(outside).toEqual([]);
 });
 
+test.describe("on a narrow window", () => {
+  test.use({ viewport: { width: 800, height: 900 } });
+
+  test("the drawer over the page is a modal dialog, the page behind it inert; the debugger left open stays closed", async ({ page }) => {
+    await booted(page);
+    await page.getByTestId("tb-settings").click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await expect(settings).toBeFocused();
+    expect(await page.locator(".bench").evaluate((b) => (b as HTMLElement).inert)).toBe(true);
+    await page.keyboard.press("Escape");
+    expect(await page.locator(".bench").evaluate((b) => (b as HTMLElement).inert)).toBe(false);
+    await page.getByTestId("tb-debugger").click();
+    await page.reload();
+    await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+    await expect(page.getByTestId("drawer")).toBeHidden();
+  });
+});
+
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
