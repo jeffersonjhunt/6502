@@ -717,7 +717,30 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
         else if (t2 && !t3 && pc == back)
             t3 = now;
     };
+    // The jump table's W2 handling (common.s's BIOSW): cycles from the entry to the BIOS's
+    // CONOUT, and from CONOUT's return to the caller, less the entry's JMP before.
+    uint64_t j0 = 0, j1 = 0, j2 = 0, j3 = 0;
+    const uint16_t entry = static_cast<uint16_t>(0xF800 + 3 * 4), after = static_cast<uint16_t>(sym("W_CONOUT") + 18);
+    auto stub = r.watch;
+    r.watch = [&](uint16_t pc) {
+        stub(pc);
+        if (j3)
+            return;
+        if (!j0 && pc == entry)
+            j0 = r.cpu->cycles();
+        else if (j0 && !j1 && pc == sym("CONOUT"))
+            j1 = r.cpu->cycles();
+        else if (j1 && !j2 && pc == after)
+            j2 = r.cpu->cycles();
+        else if (j2 && pc < 0xF800)
+            j3 = r.cpu->cycles();
+    };
     const std::string o = r.go("hello.com", " world");
+    REQUIRE(j3 != 0);
+    std::printf("  a BIOS call through the jump table: %llu cycles more than a JMP (%llu in, %llu out)\n",
+                static_cast<unsigned long long>(j1 - j0 - 3 + j3 - j2), static_cast<unsigned long long>(j1 - j0 - 3),
+                static_cast<unsigned long long>(j3 - j2));
+    CHECK_EQ(j1 - j0 - 3 + j3 - j2, uint64_t{51});
     CHECK(o.find("GO world\r\nHello from OODOS\r\nHello from OODOS\r\n world\r\n\r\nA>") != std::string::npos);
     REQUIRE(t3 != 0);
     std::printf("  the BDOS stub: %llu cycles in (JSR $0203 to the BDOS), %llu out (its RTS to the program's)\n",
@@ -1389,13 +1412,40 @@ void fstest(Booted &r, char drive, unsigned free_records_per_block)
     const auto fl = labels(SYS + "/fstest.lbl");
     bool counting = false;
     unsigned reads = 0;
+    // Each BDOS call's cycles, BDOSENT to STUBRET, and whether it read, wrote or zeroed a block.
+    struct Call
+    {
+        uint8_t fn;
+        uint64_t cycles;
+        bool read, write, zero;
+    };
+    std::vector<Call> calls;
+    Call now{};
+    uint64_t t0 = 0;
     r.watch = [&](uint16_t pc) {
         if (pc == fl.at("rdbegin"))
             counting = true;
         else if (pc == fl.at("rdend"))
             counting = false;
-        else if (counting && pc == sym("READ"))
-            ++reads;
+        else if (pc == sym("READ"))
+        {
+            reads += counting;
+            now.read = true;
+        }
+        else if (pc == sym("WRITE"))
+            now.write = true;
+        else if (pc == sym("ZEROBLK"))
+            now.zero = true;
+        else if (pc == sym("BDOSENT"))
+        {
+            now = Call{r.cpu->regs().y, 0, false, false, false};
+            t0 = r.cpu->cycles();
+        }
+        else if (pc == sym("STUBRET"))
+        {
+            now.cycles = r.cpu->cycles() - t0;
+            calls.push_back(now);
+        }
     };
     const size_t from = start(r, "fstest.com", std::string(" ") + drive);
     REQUIRE(r.until("WRITTEN?", ms(20000), from));
@@ -1444,6 +1494,32 @@ void fstest(Booted &r, char drive, unsigned free_records_per_block)
     CHECK_EQ(field(o, "DELETE"), std::string("00 00"));
     CHECK_EQ(field(o, "OPEN2"), std::string("FF 00"));
     std::printf("  %c: the BIOS's READs reading 300 records back: %u\n", drive, reads);
+    // The BDOS's cycles (BDOSENT to its return), the least of each kind of call.
+    auto least = [&](uint8_t fn, const std::function<bool(const Call &)> &which) {
+        uint64_t best = 0;
+        for (const Call &c : calls)
+            if (c.fn == fn && which(c) && (best == 0 || c.cycles < best))
+                best = c.cycles;
+        return best;
+    };
+    const uint64_t open = least(15, [](const Call &) { return true; }),
+                   cached = least(20, [](const Call &c) { return !c.read; }),
+                   missed = least(20, [](const Call &c) { return c.read && !c.write; }),
+                   wcached = least(21, [](const Call &c) { return !c.read && !c.write && !c.zero; }),
+                   wnew = least(21, [](const Call &c) { return c.zero && !c.write; }),
+                   wback = least(21, [](const Call &c) { return c.zero && c.write; });
+    // A write's write-backs come with a new block: its sectors take buffers (zeroed), and those
+    // the earlier blocks changed are written back as they're taken.
+    std::printf("  %c: BDOS cycles: open %llu; read a record of a buffered sector %llu, of one read %llu; "
+                "write to a buffered sector %llu, to a new block %llu, a new block's buffers written back first %llu\n",
+                drive, static_cast<unsigned long long>(open), static_cast<unsigned long long>(cached),
+                static_cast<unsigned long long>(missed), static_cast<unsigned long long>(wcached),
+                static_cast<unsigned long long>(wnew), static_cast<unsigned long long>(wback));
+    CHECK(open && cached && missed && wcached);
+    if (drive == 'A')
+        CHECK(wback != 0); // 32 buffers: writing 300 records needs some written back first
+    else
+        CHECK(wnew != 0);
     CHECK(reads > 0);   // buffers were reused: some of the file had to be read again
     CHECK(reads <= 75 + 2); // a sector at most once for its four records, and the directory's
                             // as each of the next two extents is opened

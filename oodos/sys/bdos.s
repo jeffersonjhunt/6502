@@ -197,7 +197,7 @@ FIDX:
 
 F_TERM:         JMP     WARM
 
-F_READ:         JSR     CONIN
+F_READ:         JSR     B_CONIN
                 PHA
                 CMP     #' '
                 BCS     @echo
@@ -221,22 +221,22 @@ F_WRITE:        JSR     OUT
 
 F_RAWIO:        CMP     #$FF
                 BNE     @status
-                JSR     CONST
+                JSR     B_CONST
                 BEQ     ZERO
-                JSR     CONIN
+                JSR     B_CONIN
                 LDX     #0
                 RTS
 @status:        CMP     #$FE
                 BNE     @input
-                JSR     CONST
+                JSR     B_CONST
                 LDX     #0
                 RTS
 @input:         CMP     #$FD
                 BNE     @output
-                JSR     CONIN
+                JSR     B_CONIN
                 LDX     #0
                 RTS
-@output:        JSR     CONOUT
+@output:        JSR     B_CONOUT
 ZERO:           LDA     #0
                 TAX
                 RTS
@@ -247,7 +247,7 @@ F_STRING:       JSR     PGET
                 JSR     OUT
                 BRA     F_STRING
 
-F_STAT:         JSR     CONST
+F_STAT:         JSR     B_CONST
                 BEQ     ZERO
                 LDA     #1
                 LDX     #0
@@ -272,7 +272,7 @@ F_LINE:         LDA     PA
 @buffer:        JSR     PGET           ; +0 its size; PP is +1, the count
                 STA     SIZE
                 STZ     COUNT
-@key:           JSR     CONIN
+@key:           JSR     B_CONIN
                 CMP     #ASCII_CR
                 BEQ     @end
                 CMP     #ASCII_LF
@@ -382,11 +382,11 @@ F_TSET:         LDX     #0
                 BNE     @dat
                 STZ     SCB_SEC
                 LDA     #$FF
-                JSR     TIME
+                JSR     B_TIME
                 JMP     ZERO
 
 F_TGET:         LDA     #0
-                JSR     TIME
+                JSR     B_TIME
                 BCC     @time
                 JMP     NOFUNC         ; past 2155
 @time:          LDX     #0
@@ -424,7 +424,7 @@ OUT:            CMP     #ASCII_TAB
                 BRA     @out
 @print:         INC     SCB_COLUMN
 @out:           PLA
-                JMP     CONOUT
+                JMP     B_CONOUT
 
 ; ---------------------------------------------------------------------------
 ; Errors and returns
@@ -664,10 +664,9 @@ DRVBIT:         PHA
                 RTS
 
 ; The BIOS, through the jump table (common.s), which keeps W2
-CONST:          JMP     JT(BIOS::CONST)
-CONIN:          JMP     JT(BIOS::CONIN)
-CONOUT:         JMP     JT(BIOS::CONOUT)
-TIME:
+B_CONST:        JMP     JT(BIOS::CONST)
+B_CONIN:        JMP     JT(BIOS::CONIN)
+B_CONOUT:       JMP     JT(BIOS::CONOUT)
 B_TIME:         JMP     JT(BIOS::TIME)
 B_SELDSK:       JMP     JT(BIOS::SELDSK)
 B_SETTRK:       JMP     JT(BIOS::SETTRK)
