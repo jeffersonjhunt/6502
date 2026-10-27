@@ -4,7 +4,8 @@
 ; case ends in the default mode with an error that ends the program, so
 ; NOT REACHED is never printed.
 ;
-;   B   B: a read-only unit: RO aa xx (mode $FF: FF 02); then mode $FE, the
+;   B   B: a read-only unit: SELB aa xx, ROVEC aa xx (B:, read-only from its
+;       login), RO aa xx (mode $FF: FF 02); then mode $FE, the
 ;       message and BACK aa xx; then the default: the message, the end
 ;   M   on M:: EXISTS aa xx (FF 08), WILD aa xx (FF 09); mode $FE: the
 ;       message (File Exists), BACK aa xx; then a write to a read-only file
@@ -51,6 +52,8 @@ caseb:  lda     #1                      ; B:
         sta     TDRV
         lda     #$FF
         jsr     mode
+        TRY     "SELB ", DRV_SPACE, 1   ; logged in: a read-only unit, a read-only drive
+        TRY     "ROVEC ", DRV_ROVEC, 0
         NAME    fcb, "X       TXT"
         TRY     "RO ", F_MAKE, fcb
         lda     #$FE

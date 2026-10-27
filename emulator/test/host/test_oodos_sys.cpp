@@ -1676,7 +1676,9 @@ TEST(errors_return_say_or_end_the_program_as_the_error_mode_says)
         Booted r; // B: is a read-only unit
         REQUIRE(r.ok);
         const std::string o = errtest(r, 'B');
-        CHECK_EQ(field(o, "RO"), std::string("FF 02")); // mode $FF: only returned
+        CHECK_EQ(field(o, "SELB"), std::string("00 00"));
+        CHECK_EQ(field(o, "ROVEC"), std::string("02 00")); // read-only from its login, before a write
+        CHECK_EQ(field(o, "RO"), std::string("FF 02"));    // mode $FF: only returned
         const std::string msg = "\r\nOODOS Error On B: Read Only\r\nBDOS Function = 22 File = X       .TXT\r\n";
         CHECK_EQ(count_of(o, msg), size_t{2});         // mode $FE and the default say it
         CHECK(o.find(msg + "BACK FF 02\r\n") != std::string::npos); // $FE returned after
