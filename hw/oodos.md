@@ -1054,6 +1054,70 @@ copyright and MIT notice.
   (LOGINTEST); and the CCP reading a last part record straight to its place, on a card made with it
   (`test_oodos_e2e`). Each was put back and the card made again, byte for byte the committed one.
 
+**Done (phase 3a: the model, 2026-10-27)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **The model** ([`oodos/test/cpm3model.py`](../oodos/test/cpm3model.py), Python's standard library only): CP/M 3's
+  file system at the level of functions 13–37, 40, 46, 48, 98 and 99 on an `oodos-8m`, `oodos-32m` or `oodos-ram`
+  drive, the DPB worked out from `oodos/diskdefs`. Its state is the drives' images, laid out as CP/M 3 lays them
+  out (the label, an SFCB every fourth entry, the entries, the blocks), so an image compares byte for byte with
+  one the BDOS wrote and cpmtools reads it. User numbers, attributes, extents and EXM, random records and sparse
+  files, a full directory and a full disk, rename and delete across extents, `?` searches, read-only drives and
+  files, SYS files in user 0, temporary blocks (98) and date stamps by the label's mode.
+- **The script** ([`oodos/test/modelscript.py`](../oodos/test/modelscript.py) has the format): `SCRIPT.BIN`, a
+  16-byte header (`OOMS`, version 1, the drive, the count and length of the operations, the seed) and
+  operations of an opcode and its arguments: set an FCB (one of 8), its rename half or its random record; call
+  a function on an FCB; 18; read or write a record (20, 33; 21, 34, 40), the written one a pattern of a 16-bit
+  tag; n sequential writes or reads; 17 and 18 to the end; n makes and closes; any other function; 46; 31;
+  104. `RESULT.BIN` has, for each, the opcode, A, X, the FCB's EX, CR and R0–R2, and what the call left (a
+  record's checksum, the entry found, the free space, the DPB).
+- **The generator** makes a seed's script by running each candidate operation on the model and keeping it,
+  aiming at the edges: extent and entry boundaries, records 0, 65,535, 262,143 and 262,144, a directory filled
+  to its last entry and a disk to its last block, `?` in names, other users' files and user 0's SYS files,
+  read-only drives and files, a select of a drive that isn't. The time is set (104) before what stamps, a
+  minute apart or days. Its profiles: mixed, sparse, users, dirfill, diskfill (`oodos-ram` only).
+- **DRIVER.COM** ([`oodos/test/driver/`](../oodos/test/driver/)): reads `A:SCRIPT.BIN`, runs it through `JSR
+  $0203` with error mode `$FF`, keeps the results in memory and writes `A:RESULT.BIN` at the end. Only CP/M 3's
+  documented functions; a `.COM` through the rules gate. `modelscript.Driver` is the same steps on the model.
+- **`test_oodos_model`, in ctest:** DRIVER.COM on the emulator's W65C02S with the model as its BDOS
+  (`modeltest.py serve`, over a pipe), 9 seeds over the three formats, compared with the model's own run:
+  driver, formats and reference driver agree. The model made wrong on purpose (no update stamp, an RC one
+  short, open's directory code 0, a byte of data) fails the comparison, which names the seed and the
+  operation. DRIVER.COM runs under OODOS.SYS from A: (today it says `NO SCRIPT`), and the harness's images
+  are checked: A:'s entries off the card, M:'s directory as cold boot made it, the model's mkfs at that minute.
+  `test_oodos_model_py` is the model's own tests: the DPBs, mkfs against `sd/oodos-ram.sparse`, and hand-worked
+  cases from the manual's rules, each a scenario and the directory bytes it leaves; the script format, the
+  generator's determinism and the comparison finding a changed result, block, RC and stamp.
+- **Against OODOS's BDOS:** with `OODOS_MODEL_BDOS` on (`cmake --preset dev -DOODOS_MODEL_BDOS=ON`, or
+  `OODOS_MODEL_BDOS=1` for one run), each seed's A: (and B:, `oodos-8m` or `oodos-32m`, or M:) goes on a card,
+  OODOS.SYS boots on `backplane.machine`, `DRIVER` runs at the CCP, and the results and the drive under test
+  are compared with the model's. Off until 3a's BDOS is merged: the stand-in's file functions return `$FF`.
+- **cpmtools at verify** ([`oodos/test/model_cpmtools.sh`](../oodos/test/model_cpmtools.sh), Docker): the
+  model's empty drives against `mkfs.cpm -t`'s, byte for byte; then each seed's drive through `fsck.cpm`,
+  `cpmls -F` (every file's stamps) and `cpmcp` (every file's contents). fsck.cpm 2.23 takes a sparse file's
+  last extent for a bad record count (it wants RC's records in that many blocks); those entries, and only
+  those, are let through, as interop.sh lets its first-slot warning.
+- **Each check can fail:** seen to fail with DRIVER.COM's pattern step wrong, the model's EXM from 1 KB
+  blocks, no update stamp, CR advanced by a random write, user 0's files opened without SYS, the comparison
+  skipping records or RC, and (cpmtools) block numbers high byte first and an update stamp a minute out.
+
+**Proposed (phase 3a: the model's choices,** where the manual leaves a behaviour open; `cpm3model.py`'s
+header has the full list):
+
+- **Allocation:** lowest free block first, or (a parameter) the nearest after the block before; the first
+  free directory entry. The comparison takes the blocks' numbering as it finds it (`--compare renumber`) or,
+  if the BDOS allocates the same way, byte for byte (`--compare exact`).
+- **Stamps:** make, and an entry made by a write, stamp creation and update (as cpmtools does, so an
+  update is never before a creation); writing a written FCB's entry back (close, or moving to another
+  extent) stamps the update. Delete, rename, 30 and 99 don't stamp. A mode without stamps leaves the SFCB.
+- **Results:** 15, 16 (a written FCB), 17, 18 and 22 return the entry's directory code; 19, 23 and 30 any of
+  0–3; X is 0 on success (`--loose-x` doesn't compare it); 35 returns 0 or `$FF`; 13 returns 0 and logs no
+  drive in. Errors in the order drive (4), `?` (9), read-only drive (2), not found, read-only file (3),
+  exists (8). Delete refuses all if any match is read-only. Rename keeps the attributes.
+- **Truncate** (99) past the end is `$FF`; into a hole the model doesn't decide, and the generator avoids it.
+- **What isn't decided** (an FCB used after its file was deleted or renamed or its drive reset, two FCBs on
+  one file with one writing, sequential I/O after an error, the user changed under an open file) the model
+  refuses, and the generator keeps out of the scripts.
+
 **Proposed**
 
 - **The emulator** runs OODOS in native tests (BDOS functions, the CCP, RSXs, the Apple driver) and in the WebUI's
