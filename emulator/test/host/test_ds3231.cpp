@@ -375,6 +375,66 @@ TEST(set_time_takes_the_milliseconds_into_the_second)
     CHECK_EQ(d.time().second, 1u);
 }
 
+TEST(seconds_is_from_seconds_backwards)
+{
+    // 2000-01-01, a leap day, the chip's 2100-02-29 being no leap day to from_seconds, 2199's last second
+    for (const int64_t at : {int64_t{946684800}, int64_t{951782400}, int64_t{1793012345}, int64_t{4102444800},
+                             int64_t{4107542400}, int64_t{7258118399}})
+    {
+        const Ds3231 c = chip(Ds3231::from_seconds(at));
+        CHECK_EQ(c.seconds(), at);
+    }
+}
+
+TEST(step_moves_the_count_and_keeps_the_phase_mode_and_day_numbering)
+{
+    Ds3231 c = chip(Time{2026, 10, 26, 23, 59, 58, 2});
+    c.write(Ds3231::HOURS, Ds3231::HOUR_12 | Ds3231::HOUR_PM | 0x11); // 11 PM, in 12 h mode
+    c.write(Ds3231::DAY, 5);                                          // the owner's numbering, not ours
+    for (uint8_t i = 0; i < 4; ++i)
+        c.write(static_cast<uint8_t>(Ds3231::ALARM1 + i), Ds3231::ALARM_MASK); // alarm 1 every second
+    c.write(Ds3231::STATUS, 0x00);
+    run(c, 300);
+    CHECK_EQ(c.ms(), 300u);
+    const uint32_t sets = c.sets();
+
+    c.step(3); // over midnight
+    CHECK(c.time() == (Time{2026, 10, 27, 0, 0, 1, 6}));
+    CHECK_EQ(c.read(Ds3231::HOURS), Ds3231::HOUR_12 | 0x12); // 12 AM
+    CHECK_EQ(c.ms(), 300u);
+    CHECK_EQ(c.sets(), sets);                          // not a write
+    CHECK_EQ(c.read(Ds3231::STATUS) & Ds3231::A1F, 0); // no second counted
+    run(c, 699);
+    CHECK_EQ(c.time().second, 1u);
+    run(c, 1);
+    CHECK_EQ(c.time().second, 2u);
+    CHECK(c.read(Ds3231::STATUS) & Ds3231::A1F); // a second counted is
+
+    c.step(-2 * 86400); // and back
+    CHECK(c.time() == (Time{2026, 10, 25, 0, 0, 2, 4}));
+    c.step(-3 * 86400); // the week wraps
+    CHECK_EQ(c.time().day, 1u);
+    c.step(-86400);
+    CHECK_EQ(c.time().day, 7u);
+}
+
+TEST(sets_counts_the_times_writes)
+{
+    Ds3231 c = chip(Time{});
+    const uint32_t made = c.sets();
+    for (uint8_t r = Ds3231::SECONDS; r <= Ds3231::YEAR; ++r)
+        c.write(r, c.read(r));
+    CHECK_EQ(c.sets(), made + 7);
+    c.write(Ds3231::ALARM1, 0);
+    c.write(Ds3231::CONTROL, 0);
+    c.write(Ds3231::AGING, 1);
+    CHECK_EQ(c.sets(), made + 7);
+    c.set_time(Time{2030, 6, 15, 8, 0, 0, 7});
+    CHECK_EQ(c.sets(), made + 8);
+    seconds(c, 3); // counting isn't setting
+    CHECK_EQ(c.sets(), made + 8);
+}
+
 int main()
 {
     return run_all();

@@ -386,6 +386,26 @@ namespace ooe::emu
             b->set_rtc_time(t, ms);
     }
 
+    void Session::sync_rtc(int64_t host_ms)
+    {
+        const BackplaneBridge *b = machine_->backplane_bridge();
+        if (!b)
+            return;
+        Ds3231 &rtc = *b->rtc();
+        const int64_t chip_ms = rtc.seconds() * 1000 + rtc.ms();
+        if (rtc_synced_ != &rtc || rtc_sets_ != rtc.sets())
+        {
+            // A new chip, or someone set it: this is the time it keeps.
+            rtc_synced_ = &rtc;
+            rtc_sets_ = rtc.sets();
+            rtc_offset_ms_ = chip_ms - host_ms;
+            return;
+        }
+        const int64_t behind = host_ms + rtc_offset_ms_ - chip_ms;
+        if (behind >= RTC_SYNC_MS || behind <= -RTC_SYNC_MS)
+            rtc.step(behind / 1000); // toward zero: within a second, on the side it was
+    }
+
     Session::RunResult Session::run(uint64_t budget)
     {
         RunResult r;

@@ -41,6 +41,12 @@
  * writing 0 and ignore a 1. CONV runs a conversion (BSY for CONVERSION_MS,
  * then CONV clears), and the chip runs one itself every 64 seconds.
  *
+ * The host's clock: seconds() and ms() are the count as a number to set
+ * against it, step() moves the count by whole seconds with the second's
+ * phase kept (the emulator catching up with the host's clock, not a write:
+ * no alarm matches on the way), and sets() counts the time's writes, the
+ * host's set_time() and the CPU's alike (Session::sync_rtc()).
+ *
  * Power: the chip outlives the machine on its CR2032 (the session keeps it
  * across a power cycle). power_off() is the switch to the battery: with
  * EOSC set the oscillator stops there, so OSF is set. A new chip in the
@@ -115,6 +121,14 @@ namespace ooe::emu
         void set_time(const Time &t, unsigned ms = 0);
         /// The time as the registers count it, in 24 h, 2000-2199.
         Time time() const;
+        /// time() as seconds since 1970-01-01 00:00 (from_seconds() backwards), and the ms into it.
+        int64_t seconds() const;
+        unsigned ms() const { return static_cast<unsigned>(phase_ * 1000 / hz_); }
+        /// Move the count `seconds` on (or back), as the bridge would see it at its next read. The
+        /// second's phase, 12 h mode and the day of the week's numbering are kept; no alarm matches.
+        void step(int64_t seconds);
+        /// Writes of the time, $00-$06 or set_time(): a change says someone set the clock.
+        uint32_t sets() const { return sets_; }
 
         /// The CPU clock advance()'s cycles run at; 0 = NATIVE_HZ.
         void set_cpu_hz(uint32_t hz);
@@ -155,5 +169,6 @@ namespace ooe::emu
         uint64_t conv_until_{0};  ///< BSY until this cycle
         unsigned seconds_{0};     ///< seconds counted, for the 64-second conversion
         bool edge_{false};
+        uint32_t sets_{0};
     };
 } // namespace ooe::emu

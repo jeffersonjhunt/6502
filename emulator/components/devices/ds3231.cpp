@@ -86,11 +86,40 @@ namespace ooe::emu
         year_ = t.year % 100;
         century_ = t.year >= 2100;
         phase_ = uint64_t{std::min(ms, 999u)} * hz_ / 1000;
+        ++sets_;
     }
 
     Ds3231::Time Ds3231::time() const
     {
         return Time{2000 + (century_ ? 100u : 0u) + year_, month_, date_, hour_, min_, sec_, day_};
+    }
+
+    int64_t Ds3231::seconds() const
+    {
+        // Howard Hinnant's days_from_civil.
+        const int64_t y = int64_t{2000 + (century_ ? 100 : 0) + year_} - (month_ <= 2 ? 1 : 0);
+        const int64_t era = y / 400; // 2000-2199: never negative
+        const int64_t yoe = y - era * 400;
+        const int64_t mp = (int64_t{month_} + 9) % 12;
+        const int64_t doy = (153 * mp + 2) / 5 + date_ - 1;
+        const int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        const int64_t days = era * 146097 + doe - 719468;
+        return days * 86400 + hour_ * 3600 + min_ * 60 + sec_;
+    }
+
+    void Ds3231::step(int64_t seconds)
+    {
+        const int64_t was = this->seconds();
+        const auto day_of = [](int64_t s) { return s / 86400 - (s % 86400 < 0 ? 1 : 0); };
+        const int64_t days = day_of(was + seconds) - day_of(was);
+        const unsigned day = day_;
+        const bool mode12 = mode12_;
+        const uint64_t phase = phase_;
+        set_time(from_seconds(was + seconds));
+        --sets_; // not a write: the host's clock, caught up with
+        mode12_ = mode12;
+        phase_ = phase;
+        day_ = day >= 1 && day <= 7 ? static_cast<unsigned>(((day - 1 + days) % 7 + 7) % 7 + 1) : day;
     }
 
     uint8_t Ds3231::read(uint8_t reg) const
@@ -180,6 +209,8 @@ namespace ooe::emu
                 alarm_[reg - ALARM1] = data;
             break;
         }
+        if (reg <= YEAR)
+            ++sets_;
         if (!low && pin_low())
             edge_ = true; // INT fell: an alarm enabled with its flag already set, say
     }
