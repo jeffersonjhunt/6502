@@ -118,11 +118,14 @@ def refusals():
     refused(lambda: mksys.read(b"OOSX" + good[4:]), "read: no magic", "no OOSY")
     refused(lambda: mksys.read(good[:100]), "read: shorter than the header", "no OOSY")
     refused(lambda: mksys.read(good[:4] + b"\x01" + good[5:]), "read: a major version it doesn't know", "knows major")
-    refused(lambda: mksys.read(good[:12] + b"\x01" + good[13:]), "read: a reserved byte set", "reserved")
+    ok(mksys.read(good[:12] + b"\x01" + good[13:23] + b"\x01" + good[24:])[1] == 0xC800,
+       "read: reserved bytes set, not looked at (OOLDR doesn't)")
     refused(lambda: mksys.read(good[:8] + b"\x00" + good[9:]), "read: 0 segments", "0 segments")
     refused(lambda: mksys.read(good[:8] + b"\x09" + good[9:]), "read: 9 segments", "9 segments")
     refused(lambda: mksys.read(good[:21] + b"\x05\x00" + good[23:]), "read: a segment past the file's end", "aren't in the file")
-    refused(lambda: mksys.read(good[:21] + b"\x00\x00" + good[23:]), "read: a segment in the header", "aren't in the file")
+    refused(lambda: mksys.read(good[:21] + b"\x00\x00" + good[23:]), "read: a segment in the header", "in the header")
+    refused(lambda: mksys.read(good[:19] + b"\x00\x00" + good[21:]), "read: an empty segment", "empty")
+    refused(lambda: mksys.read(good[:6] + b"\x00\xC9" + good[8:]), "read: the entry in no segment", "in no segment")
     refused(lambda: mksys.read(good[:16] + b"\x00\x00\x08" + good[19:]), "read: a segment in block 32", "not inside")
     refused(lambda: mksys.read(good[:6] + b"\x00\x03" + good[8:]), "read: the entry $0300", "not in block 62")
 

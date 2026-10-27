@@ -10,7 +10,8 @@
 ;      by its line number;
 ;   2. unmounts units 2-7 that no line names, mounts each line's image as
 ;      its unit, read-only for RO, and refuses one that isn't 16,384 or
-;      65,536 sectors (oodos-8m, oodos-32m), by the line's number;
+;      65,536 sectors (oodos-8m, oodos-32m), by the line's number, and two
+;      drives the units table names the same file (an 8.3 alias, say);
 ;   3. finds OODOS.SYS in A:'s user 0 with the CP/M reader (../sys/cpmread.s),
 ;      checks its header (system.inc) and puts each segment at its physical
 ;      address through W1 and W2;
@@ -30,6 +31,8 @@ SD_UNMOUNT      = $A1                  ; UNIT detached (hw/design.md, "Mass stor
 MOUNT_RO        = $01                  ; MOUNT's flags: read-only
 UNIT_MOUNTED    = $01                  ; IDENTIFY's units table, its flags
 UNITS           = $40
+UNIT_NAME       = 8                    ; a unit's file name, at +8...
+UNIT_NAME_LEN   = 24                   ; ...24 bytes, NUL padded
 MAX_PATH        = 509                  ; MOUNT's sector: the unit, the flags, the path, its NUL
 DRIVES          = 7                    ; A-G: units 1-7
 LIST_ENTRY      = 64
@@ -78,6 +81,10 @@ count:          .res    2              ; bytes of this sector to parse
 named:          .res    DRIVES         ; nonzero: the drive has a line
 lines:          .res    DRIVES * 2     ; ...and this is its number
 entry:          .res    2              ; OODOS.SYS's cold boot
+eph:            .res    3              ; ...as a physical address in block 62
+bigsize:        .res    1              ; DRIVES.TXT's size's top byte
+nlen:           .res    1              ; the path's name so far: its length, to 3...
+alldots:        .res    1              ; ...bit 7: dots only
 seg:            .res    1              ; a segment's index
 other:          .res    1
 starts:         .res    SYS_MAX_SEGMENTS * 3 ; each segment's first byte (physical)...
@@ -137,7 +144,12 @@ START:          CLD
                 BEQ     @nodrives
                 JMP     SDFAIL
 @known:         LDA     named
-                BNE     @mount
+                BEQ     @nodrives
+                LDA     bigsize
+                BEQ     @mount
+                LDA     #<MTOOBIG
+                LDX     #>MTOOBIG
+                JMP     FAIL
 @nodrives:      LDA     #<MNODRIVES
                 LDX     #>MNODRIVES
                 JMP     FAIL
@@ -306,6 +318,7 @@ UNITS2:         JSR     IDLE
                 LDA     seg
                 CMP     #DRIVES
                 BNE     @drive
+                JSR     SAMEFILE
 
 ; 3. OODOS.SYS, on A:.
                 LDA     #1
@@ -392,7 +405,23 @@ SEGMENTS:       STZ     seg
 @long:          LDA     #<MLONG
                 LDX     #>MLONG
                 JMP     SEG_FAIL
-@short:         LDX     seg            ; its start and end
+@empty:         LDA     #<MEMPTYSEG
+                LDX     #>MEMPTYSEG
+                JMP     SEG_FAIL
+@inheader:      LDA     #<MRECORD0
+                LDX     #>MRECORD0
+                JMP     SEG_FAIL
+@short:         LDY     #SS_LENGTH     ; not 0
+                LDA     (src),Y
+                INY
+                ORA     (src),Y
+                BEQ     @empty
+                LDY     #SS_RECORD     ; record 0 is the header
+                LDA     (src),Y
+                INY
+                ORA     (src),Y
+                BEQ     @inheader
+                LDX     seg            ; its start and end
                 LDY     #SS_ADDR
                 LDA     (src),Y
                 STA     starts,X
@@ -486,7 +515,7 @@ SEGMENTS:       STZ     seg
 @inc:           INC     seg
                 LDA     seg
                 CMP     header + SH_COUNT
-                BEQ     LOAD
+                BEQ     INSIDE
                 JMP     @one
 @overlap:       JSR     SYS_SAY
                 LDA     #<MSEGMENTS
@@ -503,6 +532,38 @@ SEGMENTS:       STZ     seg
                 JSR     SAY_BYTE
                 LDA     #<MOVERLAP
                 LDX     #>MOVERLAP
+                JMP     FAIL
+
+; The entry, in block 62 ($EC000 + the CPU address), must be in a segment.
+INSIDE:         LDA     entry
+                STA     eph
+                LDA     entry+1
+                SEC
+                SBC     #$40
+                STA     eph+1
+                LDA     #$0F
+                STA     eph+2
+                LDX     #0
+@seg:           LDA     eph            ; start <= it...
+                CMP     starts,X
+                LDA     eph+1
+                SBC     starts + SYS_MAX_SEGMENTS,X
+                LDA     eph+2
+                SBC     starts + 2 * SYS_MAX_SEGMENTS,X
+                BCC     @next
+                LDA     eph            ; ...< end
+                CMP     ends,X
+                LDA     eph+1
+                SBC     ends + SYS_MAX_SEGMENTS,X
+                LDA     eph+2
+                SBC     ends + 2 * SYS_MAX_SEGMENTS,X
+                BCC     LOAD
+@next:          INX
+                CPX     header + SH_COUNT
+                BNE     @seg
+                JSR     SYS_SAY
+                LDA     #<MNOENTRY
+                LDX     #>MNOENTRY
                 JMP     FAIL
 
 ; 4. Each segment to its place: W1 its first block, W2 the next, the record
@@ -619,7 +680,7 @@ IS_DRIVES:      LDY     #4
                 INY
                 CMP     #0
                 BNE     @cmp
-                LDY     #0             ; its size: the loader takes 16 MB at most
+                LDY     #0             ; its size: the loader takes under 16 MB
                 LDA     (src),Y
                 STA     left
                 INY
@@ -628,6 +689,9 @@ IS_DRIVES:      LDY     #4
                 INY
                 LDA     (src),Y
                 STA     left+2
+                INY
+                LDA     (src),Y
+                STA     bigsize        ; refused once LIST has ended
                 LDA     #1
                 STA     named
 @no:            RTS
@@ -734,6 +798,7 @@ S_BLANK:        JSR     BLANK
                 STZ     plen
                 STZ     plen+1
                 STZ     ro
+                JSR     NEWNAME
                 LDA     #P_PATH
                 STA     state
                 PLA
@@ -751,7 +816,21 @@ S_PATH:         JSR     BLANK
                 BCC     @control
                 CMP     #$7F
                 BEQ     @control
+                CMP     #'/'
+                BNE     @char
+                PHA                    ; the name before it ends
+                JSR     ENDNAME
+                JSR     NEWNAME
+                PLA
                 JMP     ADD
+@char:          CMP     #'.'
+                BEQ     @dot
+                STZ     alldots
+@dot:           LDX     nlen           ; counted to 3: enough to tell . and ..
+                CPX     #3
+                BCS     @add
+                INC     nlen
+@add:           JMP     ADD
 @after:         LDA     #P_AFTER
                 STA     state
                 RTS
@@ -875,9 +954,29 @@ EOL:            LDX     state
                 LDX     #>MNOSLASH
                 JMP     LINE_FAIL
 
-; This line's drive: not named before, its path no other drive's (in any
-; case), then into its slot.
-TAKE:           LDA     #0             ; the path's NUL
+; A name of the path begins: after a /.
+NEWNAME:        STZ     nlen
+                LDA     #$80
+                STA     alldots
+                RTS
+
+; A name of the path has ended: not empty (//), not . or .. (/./, /../),
+; which would let one image be mounted by two paths.
+ENDNAME:        LDA     nlen
+                BEQ     @bad
+                BIT     alldots
+                BPL     @ok
+                CMP     #3
+                BCC     @bad
+@ok:            RTS
+@bad:           LDA     #<MNAME
+                LDX     #>MNAME
+                JMP     LINE_FAIL
+
+; This line's drive: its path's last name, not named before, its path no
+; other drive's (in any case), then into its slot.
+TAKE:           JSR     ENDNAME
+                LDA     #0             ; the path's NUL
                 STA     (dst)
                 LDX     drive
                 LDA     named,X
@@ -976,6 +1075,77 @@ SAME_PATH:      TXA
                 INC     p2+1
                 BRA     @byte
 @done:          RTS
+
+; After mounting: no two drives on one file, as the units table names them
+; (its first 24 bytes; the same name in two directories is refused too:
+; the table is all the card says of a unit).
+SAMEFILE:       JSR     IDLE
+                STZ     SD_CTRL
+                LDA     #SD_IDENTIFY
+                STA     SD_CMD
+                JSR     GETBUF
+                BCS     @sd
+                JSR     DONE
+                BCS     @sd
+                LDA     #1             ; drive seg against each drive other before it
+                STA     seg
+@x:             LDX     seg
+                LDA     named,X
+                BEQ     @nextx
+                STZ     other
+@y:             LDX     other
+                LDA     named,X
+                BEQ     @nexty
+                LDA     seg
+                JSR     UNITNAME
+                LDA     p1
+                STA     p2
+                LDA     p1+1
+                STA     p2+1
+                LDA     other
+                JSR     UNITNAME
+                LDY     #UNIT_NAME_LEN - 1
+@cmp:           LDA     (p1),Y
+                CMP     (p2),Y
+                BNE     @nexty
+                DEY
+                BPL     @cmp
+                JSR     DRIVE_SAY
+                JSR     SAY_PATH
+                LDA     #<MSAME
+                LDX     #>MSAME
+                JSR     SAY
+                LDA     other
+                CLC
+                ADC     #'A'
+                JSR     ECHO
+                LDA     #<MSAME2
+                LDX     #>MSAME2
+                JMP     FAIL
+@nexty:         INC     other
+                LDA     other
+                CMP     seg
+                BNE     @y
+@nextx:         INC     seg
+                LDA     seg
+                CMP     #DRIVES
+                BNE     @x
+                RTS
+@sd:            JMP     SDFAIL
+
+; p1 = drive A's file name in IDENTIFY's units table, in buf.
+UNITNAME:       ASL                    ; x 32: at most 192
+                ASL
+                ASL
+                ASL
+                ASL
+                CLC
+                ADC     #<(buf + UNITS + UNIT_NAME)
+                STA     p1
+                LDA     #>(buf + UNITS + UNIT_NAME)
+                ADC     #0
+                STA     p1+1
+                RTS
 
 UPPER:          CMP     #'a'
                 BCC     @done
@@ -1138,7 +1308,7 @@ DRIVE_SAY:      LDA     seg
 SAY_PATH:       LDA     seg
                 ASL
                 CLC
-                ADC     #>slots
+                ADC     #>(slots + 2)
                 TAX
                 LDA     #<(slots + 2)
                 JMP     SAY
@@ -1328,6 +1498,8 @@ MSAME2:         .byte   ": ALREADY", $0D, 0
 MNOA:           .byte   $0D, "DRIVES.TXT NAMES NO A:", $0D, 0
 MNOTFOUND:      .byte   " IS NOT ON THE CARD", $0D, 0
 MSIZE:          .byte   " IS NOT 8 MB OR 32 MB", $0D, 0
+MNAME:          .byte   "AN EMPTY, . OR .. NAME IN THE PATH", $0D, 0
+MTOOBIG:        .byte   $0D, "DRIVES.TXT IS TOO BIG", $0D, 0
 MNOSYS:         .byte   $0D, "NO OODOS.SYS ON A:", $0D, 0
 MSYS:           .byte   $0D, "OODOS.SYS: ", 0
 MEMPTY:         .byte   $0D, "OODOS.SYS: EMPTY", $0D, 0
@@ -1338,6 +1510,9 @@ MCOUNT:         .byte   " SEGMENTS, NOT 1-8", $0D, 0
 MENTRY:         .byte   "ENTRY NOT IN $C800-$FFFF", $0D, 0
 MSEGMENT:       .byte   "SEGMENT ", 0
 MLONG:          .byte   " IS OVER 16 KB", $0D, 0
+MEMPTYSEG:      .byte   " IS EMPTY", $0D, 0
+MRECORD0:       .byte   " STARTS IN THE HEADER", $0D, 0
+MNOENTRY:       .byte   "THE ENTRY IS IN NO SEGMENT", $0D, 0
 MOUTSIDE:       .byte   " IS NOT IN BLOCK 31 OR BLOCKS 60-62", $0D, 0
 MPAST:          .byte   " RUNS PAST THE FILE'S END", $0D, 0
 MSEGMENTS:      .byte   "SEGMENTS ", 0

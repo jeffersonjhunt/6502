@@ -84,6 +84,7 @@ namespace
     {
         std::string path; ///< "/NAME.EXT" or "/OODOS/NAME.EXT"
         Bytes bytes;
+        std::string long_name{}; ///< if set, a long name (13 characters at most) for the 8.3 one
     };
 
     void put16(Bytes &b, size_t at, unsigned v)
@@ -107,8 +108,27 @@ namespace
         return base + ext;
     }
 
+    /// One long-name entry before a short one: `name` (at most 13 characters) for `short11`.
+    void long_entry(uint8_t *e, const std::string &name, const std::string &short11)
+    {
+        uint8_t sum = 0;
+        for (char c : short11)
+            sum = static_cast<uint8_t>(((sum & 1) << 7) + (sum >> 1) + static_cast<uint8_t>(c));
+        std::memset(e, 0, ENTRY);
+        e[0] = 0x41; // the first part, and the last
+        e[11] = 0x0F;
+        e[13] = sum;
+        static const unsigned at[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+        for (unsigned k = 0; k < 13; ++k)
+        {
+            const unsigned ch = k < name.size() ? static_cast<uint8_t>(name[k]) : k == name.size() ? 0 : 0xFFFF;
+            e[at[k]] = static_cast<uint8_t>(ch);
+            e[at[k] + 1] = static_cast<uint8_t>(ch >> 8);
+        }
+    }
+
     /// FAT16 on the whole card (a superfloppy), 4 KB clusters, each file in one run: what
-    /// fat_volume.h reads, with /OODOS a directory. Short names only.
+    /// fat_volume.h reads, with /OODOS a directory. Short names, and a long one where a File has it.
     Bytes make_card(const std::vector<File> &files)
     {
         constexpr unsigned SPC = 8, CLUSTER = SPC * SECTOR, ROOT_ENTRIES = 512;
@@ -168,7 +188,13 @@ namespace
             if (first)
                 std::copy(f.bytes.begin(), f.bytes.end(), card.begin() + static_cast<std::ptrdiff_t>(at(first)));
             size_t &where = in_dir ? dir_at : root_at;
-            entry(where, name83(f.path.substr(in_dir ? 7 : 1)), 0, first, f.bytes.size());
+            const std::string short11 = name83(f.path.substr(in_dir ? 7 : 1));
+            if (!f.long_name.empty())
+            {
+                long_entry(&card[where], f.long_name, short11);
+                where += ENTRY;
+            }
+            entry(where, short11, 0, first, f.bytes.size());
             where += ENTRY;
         }
         return card;
@@ -548,6 +574,7 @@ TEST(drives_txt_in_every_form_the_grammar_allows)
 TEST(drives_txt_errors_by_their_line)
 {
     const std::string L = "DRIVES.TXT LINE ", WORD = ": ONLY RO AND A COMMENT MAY FOLLOW THE PATH";
+    const std::string NAME = "AN EMPTY, . OR .. NAME IN THE PATH";
     const std::string A = "A: /OODOS/A.IMG\n";
     const std::string long_path = "/" + std::string(508, 'P'); // 509 bytes
     const std::pair<std::string, std::string> bad[] = {
@@ -576,11 +603,52 @@ TEST(drives_txt_errors_by_their_line)
         {"A: /OODOS/A\x01.IMG\n", L + "1: A CONTROL CHARACTER IN THE PATH"},
         {"A: /OODOS/A\x7F.IMG\n", L + "1: A CONTROL CHARACTER IN THE PATH"},
         {A + "B: " + long_path + "P\n", L + "2: THE PATH IS OVER 509 BYTES"},
+        // Two paths to one file: an empty, . or .. name in a path.
+        {A + "B: /OODOS//A.IMG\n", L + "2: " + NAME},
+        {A + "B: /OODOS/./A.IMG RO\n", L + "2: " + NAME},
+        {A + "B: /OODOS/../OODOS/A.IMG#b\n", L + "2: " + NAME},
+        {"A: //OODOS/A.IMG\n", L + "1: " + NAME},
+        {A + "B: /OODOS/B.IMG/\n", L + "2: " + NAME},
+        {A + "B: /OODOS/.\n", L + "2: " + NAME},
+        {A + "B: /\n", L + "2: " + NAME},
     };
     for (const auto &b : bad)
         refused(with_drives(b.first), b.second);
     // 509 bytes is a path: it passes the grammar and goes to MOUNT.
     refused(with_drives(A + "B: " + long_path + "\n"), L + "2: " + long_path + " IS NOT ON THE CARD");
+    // Names of dots that aren't . or .. are names: to MOUNT.
+    refused(with_drives(A + "B: /.../..X/X..\n"), L + "2: /.../..X/X.. IS NOT ON THE CARD");
+}
+
+TEST(two_drives_on_one_file_by_the_units_table)
+{
+    // An 8.3 alias passes the grammar and the paths' compare: the units table names the file.
+    Parts p = parts();
+    std::vector<File> files = p.files();
+    files.push_back({"/OODOS/LONGNA~1.IMG", p.b, "LONGNAME.IMG"});
+    files[1].bytes = text("A: /OODOS/A.IMG\nB: /OODOS/LONGNAME.IMG\n# C: the same\nC: /oodos/longna~1.img\n");
+    refused(make_card(files), "DRIVES.TXT LINE 4: /oodos/longna~1.img IS DRIVE B: ALREADY");
+    // Each alone is a drive.
+    files[1].bytes = text("A: /OODOS/A.IMG\nC: /oodos/longna~1.img\n");
+    Boot b = boot(make_card(files));
+    came_up(b, Drive::of(p.a).file(SYS_NAME));
+    CHECK_EQ(b.s->sd()->unit(3).name, std::string("LONGNAME.IMG"));
+    // The same name in two directories too: the table is all the card says (hw/oodos.md, "Drives").
+    files = p.files();
+    files.push_back({"/B.IMG", p.b});
+    files[1].bytes = text("A: /OODOS/A.IMG\nB: /B.IMG\nG: /OODOS/B.IMG\n");
+    refused(make_card(files), "DRIVES.TXT LINE 3: /OODOS/B.IMG IS DRIVE B: ALREADY");
+}
+
+TEST(drives_txt_of_16_mb_or_more_is_refused)
+{
+    // Its size in LIST's entry, 16 MB and 16 bytes: read modulo 16 MB it'd be the first line.
+    Bytes card = with_drives("A: /OODOS/A.IMG\n");
+    const std::string name = "DRIVES  TXT";
+    const auto at = std::search(card.begin(), card.end(), name.begin(), name.end());
+    REQUIRE(at != card.end());
+    put32(card, static_cast<size_t>(at - card.begin()) + 28, 0x01000010);
+    refused(card, "DRIVES.TXT IS TOO BIG");
 }
 
 TEST(drives_it_cannot_mount)
@@ -651,6 +719,10 @@ TEST(oodos_sys_headers_it_refuses)
     refused(with_header([&](uint8_t *h) { seg_at(h, 6, 0xF3FFF); }), S + "SEGMENTS 5 AND 6 OVERLAP"); // by a byte
     refused(with_header([&](uint8_t *h) { seg_at(h, 4, 0xF8800); }), S + "SEGMENTS 3 AND 4 OVERLAP"); // the same start
     refused(with_header([&](uint8_t *h) { set16(h, 16 + 8 * 5 + 5, 141); }), S + "SEGMENT 6 RUNS PAST THE FILE'S END");
+    refused(with_header([&](uint8_t *h) { set16(h, 16 + 8 * 1 + 3, 0); }), S + "SEGMENT 2 IS EMPTY");
+    refused(with_header([&](uint8_t *h) { set16(h, 16 + 8 * 0 + 5, 0); }), S + "SEGMENT 1 STARTS IN THE HEADER");
+    refused(with_header([&](uint8_t *h) { set16(h, 6, 0xD000); }), S + "THE ENTRY IS IN NO SEGMENT"); // block 62, unloaded
+    refused(with_header([&](uint8_t *h) { set16(h, 6, 0xC800 + 62); }), S + "THE ENTRY IS IN NO SEGMENT"); // just past it
 }
 
 TEST(oodos_sys_and_the_cp_m_reader)

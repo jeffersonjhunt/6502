@@ -416,6 +416,14 @@ namespace
             const std::string path = line.substr(from, i - from);
             if (path.size() > MOUNT_PATH_MAX)
                 return bad("the path is over " + std::to_string(MOUNT_PATH_MAX) + " bytes, more than MOUNT takes");
+            for (size_t k = 1; k <= path.size();) // each name: two paths to one image otherwise
+            {
+                const size_t slash = std::min(path.find('/', k), path.size());
+                const std::string name = path.substr(k, slash - k);
+                if (name.empty() || name == "." || name == "..")
+                    return bad("an empty, . or .. name in the path");
+                k = slash + 1;
+            }
             bool read_only = false;
             if (blanks() && i + 2 <= line.size() && upper(line[i]) == 'R' && upper(line[i + 1]) == 'O' &&
                 (i + 2 == line.size() || line[i + 2] == ' ' || line[i + 2] == '\t' || line[i + 2] == '#'))
@@ -608,6 +616,7 @@ TEST(drives_txt_is_read_by_its_grammar)
         CHECK_EQ(it->second.read_only, w.second.read_only);
     }
     CHECK(parse_drives("").drives.empty() && parse_drives("").error.empty());
+    CHECK_EQ(parse_drives("A: /.../..X/X..").drives.at('A').path, std::string("/.../..X/X..")); // dots, but names
     CHECK_EQ(parse_drives("A: /" + std::string(MOUNT_PATH_MAX - 1, 'P')).drives.at('A').path.size(), MOUNT_PATH_MAX);
 
     // Each a line the loader refuses, with its number.
@@ -634,6 +643,11 @@ TEST(drives_txt_is_read_by_its_grammar)
         {"\xEF\xBB\xBF\xEF\xBB\xBF" "A: /X.IMG\n", "line 1: not a drive A-G and a colon"}, // one BOM only
         {"A: /X.IMG\nB: /Y.IMG\r", "line 2: a CR not before LF"}, // at the very end, with no LF
         {"A: /X.IMG\r", "line 1: a CR not before LF"},
+        {"A: /D//X.IMG\n", "line 1: an empty, . or .. name in the path"},
+        {"A: /D/./X.IMG RO\n", "line 1: an empty, . or .. name in the path"},
+        {"A: /D/../X.IMG\n", "line 1: an empty, . or .. name in the path"},
+        {"A: /D/\n", "line 1: an empty, . or .. name in the path"},
+        {"A: /\n", "line 1: an empty, . or .. name in the path"},
     };
     for (const auto &b : bad)
     {

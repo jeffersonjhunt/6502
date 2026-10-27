@@ -17,7 +17,10 @@ zeros to a whole record:
 
 Refused, with why: no segments or more than 8; an empty segment or one over 16 KB; one not wholly
 inside block 31 or blocks 60-62; two that overlap; an entry outside block 62's $C800-$FFFF or in no
-segment there; a version over 255. --check reads a file by the same rules, as OOLDR does.
+segment there; a version over 255. --check reads a file by OOLDR's rules (oodos/ldr/ooldr.s), no
+more and no fewer: those, and no OOSY, a major version it doesn't know, and a segment that starts in
+the header (record 0) or runs past the file's end. The reserved bytes (+9-+15, and each segment's
+last) are written 0 and looked at by neither, so a later minor version may use them.
 """
 
 import argparse
@@ -96,8 +99,6 @@ def read(data, major=VERSION[0]):
         raise Refused("not OODOS.SYS: no OOSY")
     if data[4] != major:
         raise Refused("version %d.%d: OOLDR knows major %d" % (data[4], data[5], major))
-    if any(data[9:16]):
-        raise Refused("reserved bytes 9-15 aren't 0")
     count = data[8]
     if not 1 <= count <= MAX_SEGMENTS:
         raise Refused("%d segments: 1 to %d" % (count, MAX_SEGMENTS))
@@ -109,7 +110,9 @@ def read(data, major=VERSION[0]):
         length = int.from_bytes(data[at + 3:at + 5], "little")
         record = int.from_bytes(data[at + 5:at + 7], "little")
         start = record * RECORD
-        if record == 0 or start + length > len(data):
+        if record == 0:
+            raise Refused("segment %d starts in the header" % (i + 1))
+        if start + length > len(data):
             raise Refused("segment %d's bytes aren't in the file" % (i + 1))
         parts.append((phys, data[start:start + length]))
     check_segments([(phys, len(b)) for phys, b in parts], entry)
