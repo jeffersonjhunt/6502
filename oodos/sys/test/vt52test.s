@@ -1,6 +1,7 @@
 ; VT52TEST: the CRT's VT52 subset and lowercase (bios.s, crt.s), for
-; test_oodos_sys.cpp to find on the video card's text screen. A character
-; at a time by function 2, since ESC Y's operands can be '$'.
+; test_oodos_sys.cpp to find on the video card's text screen (it scrolls it
+; afterwards from the CCP). A character at a time by function 2, since ESC
+; Y's operands can be '$'.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -26,8 +27,6 @@ start:  ldx     #0
 
         .rodata
 text:   .byte   ESC, 'E'                ; clear
-        at      29, 0                   ; a scroll: rows 28 and 29
-        .byte   "BOTTOM", 13, 10, "NEXT"
         .byte   ESC, 'H', "Line one", 13, 10, "lower case"
         at      5, 10
         .byte   "AT 5,10"

@@ -191,6 +191,40 @@ target_compile_definitions(test_iie PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 
+# --- OODOS.SYS ----------------------------------------------------------------
+#
+# oodos/sys's Makefile builds OODOS.SYS and its test programs (ca65, ld65,
+# python3) into the build tree, for test_oodos_sys, which also needs the BIOS.
+# Without cc65 or python3 the suite skips.
+
+emu_add_test(test_oodos_sys)
+set_tests_properties(test_oodos_sys PROPERTIES TIMEOUT 600) # a dozen boots, seconds of machine time, under ASan
+set(OODOS_SYS_SRC "${PROJECT_SOURCE_DIR}/../oodos/sys")
+set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")
+find_package(Python3 COMPONENTS Interpreter)
+find_program(EMU_MAKE make)
+if(EMU_CA65 AND EMU_LD65 AND Python3_FOUND AND EMU_MAKE)
+    file(GLOB oodos_sys_deps CONFIGURE_DEPENDS
+            "${OODOS_SYS_SRC}/*.s" "${OODOS_SYS_SRC}/*.inc" "${OODOS_SYS_SRC}/*.cfg" "${OODOS_SYS_SRC}/*.py"
+            "${OODOS_SYS_SRC}/Makefile" "${OODOS_SYS_SRC}/test/*.s" "${OODOS_SYS_SRC}/test/*.inc"
+            "${PROJECT_SOURCE_DIR}/../oodos/include/*.inc" "${PROJECT_SOURCE_DIR}/../oodos/cfg/com.cfg"
+            "${PROJECT_SOURCE_DIR}/../oodos/tools/rules.py" "${PROJECT_SOURCE_DIR}/../oodos/examples/hello.s"
+            "${EMU_BIOS_SRC}/backplane.inc")
+    add_custom_command(
+            OUTPUT "${OODOS_SYS_DIR}/OODOS.SYS" "${OODOS_SYS_DIR}/oodos.lbl"
+            COMMAND "${EMU_MAKE}" -s -C "${OODOS_SYS_SRC}" "BUILD=${OODOS_SYS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+            DEPENDS ${oodos_sys_deps}
+            VERBATIM)
+    add_custom_target(oodos_sys ALL DEPENDS "${OODOS_SYS_DIR}/OODOS.SYS")
+    add_dependencies(test_oodos_sys oodos_sys backplane_bios)
+endif()
+target_compile_definitions(test_oodos_sys PRIVATE
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+
 # --- the sound card's test driver --------------------------------------------
 #
 # test/host/sound/driver.s, for the card's 6510: assembled here so

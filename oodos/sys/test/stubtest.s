@@ -10,6 +10,7 @@
 ;   S ss ss                  S before and after
 ;   P pp                     P after (D, bit 3, clear)
 ;   DAT dddd hh mm ss        what function 105 wrote at $8000, block 5
+;   NOFUNC FFFF              function 13, which the stand-in hasn't
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -96,6 +97,10 @@ start:  lda     #COPYBLK                ; block 0 to block 3, through W1
         ldy     #T_GET
         jsr     BDOS
         sta     secs
+        ldy     #13                     ; one the stand-in hasn't: A = X = $FF
+        jsr     BDOS
+        sta     nofunc
+        stx     nofunc+1
 
         lda     #<winmsg
         ldx     #>winmsg
@@ -141,6 +146,13 @@ start:  lda     #COPYBLK                ; block 0 to block 3, through W1
         lda     secs
         jsr     HEX2
         jsr     CRLF
+        lda     #<nofmsg
+        ldx     #>nofmsg
+        jsr     PUTS
+        lda     nofunc
+        ldx     nofunc+1
+        jsr     HEX4
+        jsr     CRLF
         jmp     WBOOT                   ; which puts the windows back
 
         .rodata
@@ -150,6 +162,7 @@ winmsg: .byte   "WINDOWS $"
 smsg:   .byte   "S $"
 pmsg:   .byte   "P $"
 datmsg: .byte   "DAT $"
+nofmsg: .byte   "NOFUNC $"
 
         .bss
 jmpsave: .res   3
@@ -158,5 +171,6 @@ safter: .res    1
 pafter: .res    1
 wafter: .res    4
 secs:   .res    1
+nofunc: .res    2
 
         .include "print.inc"

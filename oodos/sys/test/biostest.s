@@ -1,8 +1,8 @@
 ; BIOSTEST: OODOS's BIOS through function 50 (hw/oodos.md, "BIOS"), a line
-; a result, for test_oodos_sys.cpp to read. It expects A: on a writable
-; oodos-8m unit, B: on a read-only one, C: on none, and M:.
+; a result, for test_oodos_sys.cpp to read. Its sector tests expect A: on a
+; writable unit and B: on a read-only one.
 ;
-;   SELDSK d hhhh            the DPH (0000: no drive)
+;   SELDSK d hhhh            A-G and M: the DPH (0000: no drive)
 ;   DPB d <17 bytes>         its DPB, copied out of the system bank by XMOVE
 ;   WRITE d rr / READ d rr   a sector out and back: the last of the drive
 ;   SAME d Y|N               and whether it came back as it went
@@ -29,15 +29,16 @@ BUF     = $2000                         ; a sector's buffer
 CROSS   = $3F00                         ; one across W0 and W1
 
         .code
-start:  lda     #'A'
-        ldx     #0
+start:  ldx     #0                      ; A-G, then M
+@drive: txa
+        clc
+        adc     #'A'
+        phx
         jsr     drive
-        lda     #'B'
-        ldx     #1
-        jsr     drive
-        lda     #'C'
-        ldx     #2
-        jsr     drive
+        plx
+        inx
+        cpx     #7
+        bne     @drive
         lda     #'M'
         ldx     #12
         jsr     drive

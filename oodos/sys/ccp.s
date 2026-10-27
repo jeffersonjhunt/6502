@@ -9,7 +9,8 @@
 ;
 ;   GO      the program image already at $0300, its first record (the
 ;           header) at $0280 where a loader leaves it: for tests, and for
-;           whatever put it there by hand
+;           whatever put it there by hand. The command tail goes over the
+;           header, so a second GO needs it put back
 ;   NAME    NAME.COM from drive A, user 0: the integration hook below.
 ;           Until then, and for a name it can't find, NAME?
 ;
