@@ -333,6 +333,48 @@ TEST(set_time_restarts_the_second_and_leaves_osf)
     CHECK(c.read(Ds3231::STATUS) & Ds3231::OSF);
 }
 
+TEST(a_clock_change_keeps_the_second_and_a_conversion_in_real_time)
+{
+    Ds3231 c = chip(Time{2026, 10, 26, 13, 45, 7, 2});
+    run(c, HZ / 2);
+    c.set_cpu_hz(4 * HZ); // half a second in: 2000 cycles of 4 kHz to go
+    run(c, 2 * HZ - 1);
+    CHECK_EQ(c.read(Ds3231::SECONDS), 0x07);
+    run(c, 1);
+    CHECK_EQ(c.read(Ds3231::SECONDS), 0x08);
+    run(c, 3 * HZ);
+    c.set_cpu_hz(HZ); // three quarters in: 250 cycles of 1 kHz, not the last one
+    run(c, HZ / 4 - 1);
+    CHECK_EQ(c.read(Ds3231::SECONDS), 0x08);
+    run(c, 1);
+    CHECK_EQ(c.read(Ds3231::SECONDS), 0x09);
+    // A conversion's 125 ms too: 50 ms in, the other 75 ms at 4 kHz are 300 cycles
+    c.write(Ds3231::CONTROL, Ds3231::CONV);
+    run(c, 50);
+    c.set_cpu_hz(4 * HZ);
+    run(c, 299);
+    CHECK(c.read(Ds3231::STATUS) & Ds3231::BSY);
+    run(c, 1);
+    CHECK_EQ(c.read(Ds3231::STATUS) & Ds3231::BSY, 0);
+}
+
+TEST(set_time_takes_the_milliseconds_into_the_second)
+{
+    Ds3231 c = chip(Time{});
+    c.set_time(Time{2030, 6, 15, 8, 0, 0, 7}, 600);
+    run(c, 399);
+    CHECK_EQ(c.time().second, 0u);
+    run(c, 1);
+    CHECK_EQ(c.time().second, 1u);
+    // A new chip likewise, made at 7.16 MHz and then set to the CPU's clock
+    Ds3231 d(Time{2030, 6, 15, 8, 0, 0, 7}, false, 900);
+    d.set_cpu_hz(HZ);
+    run(d, 99);
+    CHECK_EQ(d.time().second, 0u);
+    run(d, 1);
+    CHECK_EQ(d.time().second, 1u);
+}
+
 int main()
 {
     return run_all();

@@ -31,7 +31,7 @@ NB_RTC_TICK     = $80                  ; RTCCTL: a second passed or an alarm fir
 NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D)
 NB_RTC_ALARM    = $20                  ; RTCCTL: the DS3231 flagged an alarm (A1F or A2F)
 NB_RTC_LOST     = $04                  ; RTCCTL: the DS3231's oscillator stopped (OSF): set the time
-NB_RTC_SET      = $02                  ; RTCCTL: write 1 to send SEC-YEAR to the DS3231
+NB_RTC_SET      = $02                  ; RTCCTL: write 1 to send SEC-YEAR to the DS3231 (reads 0)
 NB_RTC_BUSY     = $01                  ; RTCCTL: the bridge is talking to the DS3231
 
 ; STAND-IN terminal: a 6551 in the serial card's block (module 6) until the

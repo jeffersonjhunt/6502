@@ -4,7 +4,7 @@
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { FrameState } from "./machine-port";
 import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
@@ -77,9 +77,11 @@ async function open() {
 }
 
 describe("the real-time clock", () => {
-  test("wallClock is the local time as seconds since 1970", () => {
-    const d = new Date(2026, 9, 26, 13, 45, 7); // local
-    expect(wallClock(d)).toBe(Date.UTC(2026, 9, 26, 13, 45, 7) / 1000);
+  afterEach(() => vi.useRealTimers());
+
+  test("wallClock is the local time as milliseconds since 1970", () => {
+    const d = new Date(2026, 9, 26, 13, 45, 7, 250); // local
+    expect(wallClock(d)).toBe(Date.UTC(2026, 9, 26, 13, 45, 7, 250));
   });
 
   test("connect sets the DS3231 from this computer's clock, and it counts in the CPU's time", async () => {
@@ -87,15 +89,26 @@ describe("the real-time clock", () => {
     const { port, step } = await open();
     const c = (await port.readClock())!;
     const bcd = (v: number) => (v >> 4) * 10 + (v & 15);
-    const at = new Date(2000 + bcd(c.time[6]), bcd(c.time[5] & 0x1f) - 1, bcd(c.time[4]), bcd(c.time[2]), bcd(c.time[1]), bcd(c.time[0]));
-    expect(Math.abs(at.getTime() - before.getTime())).toBeLessThan(5000);
-    expect(c.time[3]).toBe(at.getDay() + 1); // 1 = Sunday
+    // The wall clock as epoch milliseconds, not a local Date: no DST hour to land in twice
+    const at = Date.UTC(2000 + bcd(c.time[6]), bcd(c.time[5] & 0x1f) - 1, bcd(c.time[4]), bcd(c.time[2]), bcd(c.time[1]), bcd(c.time[0]));
+    expect(Math.abs(at - wallClock(before))).toBeLessThan(5000);
+    expect(c.time[3]).toBe(new Date(at).getUTCDay() + 1); // 1 = Sunday
     expect(c.chip[0x11]).toBe(25);
     expect(c.rtcctl & 0x04).toBe(0); // not LOST
     for (let i = 0; i < 61; ++i) step(); // a second of emulated time
     const later = (await port.readClock())!;
     expect(later.rtcctl & 0x80).toBe(0x80); // TICK
     expect(later.time.join()).not.toBe(c.time.join());
+    port.close();
+  });
+
+  test("the DS3231 starts as far into its second as this computer's clock is", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 26, 13, 45, 7, 950)); // 50 ms to the next second
+    const { port, step } = await open();
+    expect((await port.readClock())!.time[0]).toBe(0x07);
+    for (let i = 0; i < 6; ++i) step(); // 100 ms
+    expect((await port.readClock())!.time[0]).toBe(0x08);
     port.close();
   });
 });

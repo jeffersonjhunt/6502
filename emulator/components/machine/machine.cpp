@@ -6,6 +6,7 @@
 
 #include "machine.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -87,10 +88,16 @@ namespace ooe::emu
             return true;
         }
 
-        /// The host's local time, for a new DS3231: the clock is right when the emulator starts.
-        Ds3231::Time host_time()
+        /// The host's local time, for a new DS3231, and `ms` into its second: the clock is right when the
+        /// emulator starts.
+        Ds3231::Time host_time(unsigned &ms)
         {
-            const std::time_t now = std::time(nullptr);
+            const auto clock = std::chrono::system_clock::now();
+            const std::time_t now = std::chrono::system_clock::to_time_t(clock);
+            ms = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           clock - std::chrono::system_clock::from_time_t(now))
+                                           .count() %
+                                       1000);
             std::tm local{};
             localtime_r(&now, &local);
             return Ds3231::Time{static_cast<unsigned>(local.tm_year + 1900), static_cast<unsigned>(local.tm_mon + 1),
@@ -147,8 +154,14 @@ namespace ooe::emu
                 if (m->named_.count("northbridge"))
                     return fail("name 'northbridge' is already used");
                 std::shared_ptr<Ds3231> rtc = options.rtc;
+                if (!rtc && options.rtc_time)
+                    rtc = std::make_shared<Ds3231>(*options.rtc_time);
                 if (!rtc)
-                    rtc = std::make_shared<Ds3231>(options.rtc_time ? *options.rtc_time : host_time());
+                {
+                    unsigned ms = 0;
+                    const Ds3231::Time now = host_time(ms);
+                    rtc = std::make_shared<Ds3231>(now, false, ms);
+                }
                 auto bridge = std::make_unique<BackplaneBridge>(w.size() == 3, std::move(rtc));
                 bridge->attach(&m->bus_);
                 m->bus_.set_bridge(bridge.get());

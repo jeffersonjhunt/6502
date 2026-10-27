@@ -103,15 +103,16 @@ namespace ooe::emu
         /// Seconds since 1970-01-01 00:00 on the wall clock (no time zone), as a Time.
         static Time from_seconds(int64_t seconds);
 
-        explicit Ds3231(const Time &t = Time{}, bool lost = false);
+        /// `ms` into the second `t` starts (the host's clock's fraction).
+        explicit Ds3231(const Time &t = Time{}, bool lost = false, unsigned ms = 0);
 
         /// A register over I²C (no side effects: reading is free on the chip). $13 and up read $FF.
         uint8_t read(uint8_t reg) const;
         /// A register written over I²C. $13 and up, BSY and the temperature ignore it.
         void write(uint8_t reg, uint8_t data);
 
-        /// Set the time as a programmer on the bench would: the second restarts; OSF stays.
-        void set_time(const Time &t);
+        /// Set the time as a programmer on the bench would, `ms` into its second; OSF stays.
+        void set_time(const Time &t, unsigned ms = 0);
         /// The time as the registers count it, in 24 h, 2000-2199.
         Time time() const;
 

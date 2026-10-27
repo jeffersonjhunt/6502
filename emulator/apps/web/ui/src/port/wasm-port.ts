@@ -111,7 +111,7 @@ export interface CoreMachine {
   sdStatus(): number;
   sdCommands(): number;
   soundVoice(chip: number, voice: number): number;
-  setRtc(seconds: number): void;
+  setRtc(ms: number): void;
   rtc(): Uint8Array;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
   appleMode(): boolean;
@@ -198,9 +198,9 @@ function stringToBytes(s: string): Uint8Array {
   return out;
 }
 
-/** Seconds since 1970 on the local wall clock: what the DS3231 is set to (setRtc). */
+/** Milliseconds since 1970 on the local wall clock: what the DS3231 is set to (setRtc), the fraction its phase. */
 export function wallClock(d: Date): number {
-  return Math.floor(d.getTime() / 1000) - d.getTimezoneOffset() * 60;
+  return d.getTime() - d.getTimezoneOffset() * 60_000;
 }
 
 export class WasmPort implements MachinePort {

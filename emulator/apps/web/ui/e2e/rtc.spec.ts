@@ -9,12 +9,13 @@ async function booted(page: Page) {
 }
 
 test("the Devices tab shows the clock, set from this computer's, and it ticks", async ({ page }) => {
+  const year = new Date().getFullYear(); // before booting: midnight on 31 December may pass meanwhile
   await booted(page);
   await page.locator('[data-tab="dev"]').click();
   const rtc = page.getByTestId("dev-rtc");
   const time = rtc.locator('[data-reg="Time"]');
   await expect(time).toHaveText(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d · \w+day$/);
-  await expect(time).toContainText(String(new Date().getFullYear()));
+  await expect(time).toHaveText(new RegExp(`^(${year}|${year + 1})-`));
   const first = await time.textContent();
   await expect(time).not.toHaveText(first!, { timeout: 5_000 }); // a second on
   await expect(rtc.locator('[data-reg="RTCCTL"]')).toContainText("TICK");

@@ -48,7 +48,7 @@ namespace ooe::emu
         {
             // Power-on, while /RESET is held: the square wave to 1 Hz, and the time read.
             const uint8_t control = rtc_->read(Ds3231::CONTROL);
-            rtc_->write(Ds3231::CONTROL, control & ~(Ds3231::INTCN | Ds3231::RS2 | Ds3231::RS1));
+            rtc_->write(Ds3231::CONTROL, control & ~SQW_BITS);
             rtc_->take_edge();
             read_time();
             read_status();
@@ -235,6 +235,8 @@ namespace ooe::emu
             queue(Transaction{Op::Read, data});
             break;
         case RTCDATA:
+            if (rtc_reg_ == Ds3231::CONTROL)
+                data &= static_cast<uint8_t>(~SQW_BITS); // SQW is the bridge's
             queue(Transaction{Op::Write, rtc_reg_, data});
             break;
         case WAIT0:
@@ -352,21 +354,18 @@ namespace ooe::emu
         }
     }
 
-    void BackplaneBridge::set_rtc_time(const Ds3231::Time &t)
+    void BackplaneBridge::set_rtc_time(const Ds3231::Time &t, unsigned ms)
     {
-        rtc_->set_time(t);
+        rtc_->set_time(t, ms);
         read_time();
     }
 
     uint8_t BackplaneBridge::rtcctl() const
     {
-        bool set = false;
-        for (const Transaction &q : queue_)
-            set = set || q.op == Op::Set;
+        // SET is a strobe: a pending one shows as BUSY, so writing back what was read can't resend it.
         return static_cast<uint8_t>((tick_ ? RTC_TICK : 0) | (tie_ ? RTC_TIE : 0) |
                                     (status_ & (Ds3231::A1F | Ds3231::A2F) ? RTC_ALARM : 0) |
-                                    (status_ & Ds3231::OSF ? RTC_LOST : 0) | (set ? RTC_SET : 0) |
-                                    (queue_.empty() ? 0 : RTC_BUSY));
+                                    (status_ & Ds3231::OSF ? RTC_LOST : 0) | (queue_.empty() ? 0 : RTC_BUSY));
     }
 
     std::string BackplaneBridge::describe_clock() const

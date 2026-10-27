@@ -59,15 +59,16 @@
  * - On each falling edge of SQW (1 Hz as the bridge sets it up) it reads
  *   the seven time registers and the status into SEC-YEAR, LOST (OSF) and
  *   ALARM (A1F or A2F), and sets TICK. An edge while that read is still
- *   queued is missed. With INTCN set by software, SQW is INT, so the time
- *   is read only when an enabled alarm pulls it low.
+ *   queued is missed.
  * - Reading SEC copies SEC-YEAR into a latch, which reads of SEC+1 to
  *   YEAR return: a time read in order never straddles a second.
  * - Writes to SEC-YEAR go to a holding copy (reads still give the time);
  *   SET sends it, then clears OSF, keeping EN32kHz and the alarm flags.
- *   SET reads 1 until it has gone, and SEC-YEAR then show what it sent.
+ *   SET is a strobe and reads 0: BUSY shows it pending; SEC-YEAR then show
+ *   what it sent.
  * - Writing RTCREG reads that DS3231 register into RTCDATA; writing RTCDATA
- *   writes it and reads it back. A status read updates LOST and ALARM.
+ *   writes it and reads it back. A status read updates LOST and ALARM. A
+ *   control write goes with INTCN and RS cleared: SQW stays the bridge's.
  * - TICK && TIE is the bridge's interrupt: IRQH bit 5, ID 0xD.
  *
  * At power-on (the first reset) the bridge sets the square wave to 1 Hz
@@ -186,8 +187,8 @@ namespace ooe::emu
         /// The CPU clock tick()'s cycles run at in native mode (0: NATIVE_HZ); Apple II mode's is APPLE_HZ.
         void set_cpu_hz(uint32_t hz);
         const std::shared_ptr<Ds3231> &rtc() const { return rtc_; }
-        /// Set the DS3231 from outside (the host's clock), and read it into SEC-YEAR at once.
-        void set_rtc_time(const Ds3231::Time &t);
+        /// Set the DS3231 from outside (the host's clock, `ms` into the second), and read it into SEC-YEAR at once.
+        void set_rtc_time(const Ds3231::Time &t, unsigned ms = 0);
         /// SEC-YEAR as the bridge last read them (not the latch).
         const std::array<uint8_t, TIME_REGS> &rtc_time() const { return time_; }
         uint8_t rtcctl() const;
@@ -195,6 +196,9 @@ namespace ooe::emu
         std::string describe_clock() const;
 
     private:
+        /// The DS3231's control bits that pick SQW: the bridge's, kept 0.
+        static constexpr uint8_t SQW_BITS = Ds3231::INTCN | Ds3231::RS2 | Ds3231::RS1;
+
         enum class Op : uint8_t
         {
             Refresh, ///< read the time and status (SQW fell)
