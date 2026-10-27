@@ -5,13 +5,16 @@
 .ifndef SYSTEM_INC
 SYSTEM_INC = 1
 
-; The north bridge's windows (hw/design.md, "North bridge registers")
+; The north bridge's windows (hw/design.md, "North bridge registers"),
+; unless backplane.inc, included first, has them already
+.ifndef NB_WIN0
 NB_WIN0         = $C680
 NB_WIN1         = $C681
 NB_WIN2         = $C682
 NB_WIN3         = $C683
 NB_VEC          = $C684
 NB_RO           = $40                  ; a window's read-only bit
+.endif
 ROM_BLOCK       = 63                   ; the ROM BIOS's RAM copy, the monitor's
 
 ; Blocks
@@ -83,5 +86,14 @@ SS_LEN          = 8
 SYS_MAX_SEGMENTS = 8
 SYS_MAJOR       = 0                    ; phase 2's
 SYS_MINOR       = 2
+
+; The CP/M file reader's errors (sys/cpmread.s), in A with carry set
+CRE_EOF         = 0                    ; CR_READ: past the file's last record
+CRE_SD          = 1                    ; the card failed a command: CR_SDERR has its ERROR
+CRE_UNIT        = 2                    ; CR_INIT: not a unit 1-7, or not mounted
+CRE_SIZE        = 3                    ; CR_INIT: neither 16,384 sectors nor 65,536
+CRE_NOFILE      = 4                    ; CR_FIND: no such file in user 0
+CRE_BIG         = 5                    ; CR_FIND: more directory entries than it keeps (16)
+CRE_BAD         = 6                    ; an entry missing, twice, part full or with a block out of range
 
 .endif
