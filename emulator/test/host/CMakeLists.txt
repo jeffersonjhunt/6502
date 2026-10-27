@@ -108,6 +108,8 @@ emu_add_test(test_sd)
 emu_add_test(test_sd_fat)
 emu_add_test(test_bios_sd)
 emu_add_test(test_oodos_card)
+emu_add_test(test_oodos_boot)
+set_tests_properties(test_oodos_boot PROPERTIES TIMEOUT 600) # dozens of boots from 17-33 MB cards, under ASan
 emu_add_test(test_iie)
 set_tests_properties(test_iie PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1200) # minutes of Apple time: boots and disks, under ASan
 target_compile_definitions(test_backplane PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
@@ -182,6 +184,10 @@ target_compile_definitions(test_bios_sd PRIVATE
 target_compile_definitions(test_oodos_card PRIVATE
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_oodos_boot PRIVATE
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_sd PRIVATE

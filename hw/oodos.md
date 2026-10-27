@@ -422,6 +422,24 @@ another, or OOLDR refuses the file.
 Any failure says what, and returns to the monitor. The BIOS learns the drives from the card itself: IDENTIFY's
 units table gives each unit's sectors and read-only flag, so nothing is handed over.
 
+**Proposed (phase 2): OOLDR's details,** as [`oodos/ldr/ooldr.s`](../oodos/ldr/ooldr.s) has them:
+
+- **The CP/M reader** is [`oodos/sys/cpmread.s`](../oodos/sys/cpmread.s), linked into OOLDR and, later, the stand-in
+  CCP: CR_INIT (a unit; its size picks `oodos-8m` or `oodos-32m`), CR_FIND (an 8 + 3 name, user 0), CR_SEEK (a
+  record: OODOS.SYS's segments start where the header says, not in order) and CR_READ (the next record to a CPU
+  address). Carry and a code in A on failure, the end of the file told apart. It reads through DATA by CPU loop,
+  never DMA, and has no fixed addresses: its zero page and buffers are segments (`CRZP`, 4 bytes; `CRBSS`, about
+  1 KB) the linker config places. A file may have 16 directory entries (512 KB on `oodos-8m`), each but the last
+  full; an entry missing, twice, part full or naming a block outside the data area is a damaged directory.
+- **DRIVES.TXT:** a CR at the very end, with no LF after it, is a CR not before LF. The drives are mounted in order,
+  A to G, each with its size checked as it's mounted. Units 2–7 that no line names are unmounted first, so a unit
+  left from an earlier boot doesn't become a drive.
+- **The header:** the entry must be in `$C800–$FFFF` (block 62 through W3, past the I/O hole); each segment must
+  also lie inside the file (its record and length within the file's records); a segment may run from one of blocks
+  60–62 into the next; the reserved bytes aren't looked at. Everything is checked before anything is loaded.
+- **Loading** maps W1 to a segment's first block and W2 to the next, and copies each record through a buffer, so a
+  last part record writes only the segment's bytes. On a failure W1 and W2 go back to blocks 1 and 2.
+
 **The stand-in BDOS** (block 60) has functions 0, 1, 2, 6, 9, 10, 11, 12, 25, 50, 72, 104 and 105, as CP/M 3's
 (and 72 as above); any other returns A = X = `$FF`. **The stand-in CCP** prompts `A>`, reads a line (function
 10), and runs `NAME.COM` from drive A, user 0, through a read-only reader shared with OOLDR: it checks the
@@ -661,6 +679,41 @@ copyright and MIT notice.
   - **Decided (2026-10-26): ctest stays hermetic,** with no skips, on committed images; the checks that need
     Docker are scripts like `check_diskdefs.sh` and `interop.sh`, run by hand and at each phase's verify.
   - Phase 3 puts the BDOS where the stand-in is, running in the emulator; the checks on both sides stay.
+
+**Done (phase 2: the loader, 2026-10-27)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **OOLDR and the CP/M reader:** [`oodos/ldr/`](../oodos/ldr/) builds `/BOOT.BIN` from `ooldr.s` and
+  `oodos/sys/cpmread.s`, and a test OODOS.SYS from `testsys.s`: six segments in block 31 and blocks 60–62, one of
+  them over the first directory entry's end (record 256) and one over a logical extent's (record 128), and two
+  touching, the earlier loaded later, so a last part record written whole shows. Its cold boot writes the windows
+  and P it found to block 31 and stops. ld65 writes the header's records from the file offsets it gives.
+- **The card:** `make_card.sh` builds both in its container and puts them on the card, which is now 32 MB:
+  `/BOOT.BIN` is OOLDR, A.IMG holds OODOS.SYS beside phase 1's files, and `/OODOS/B.IMG` is an empty `oodos-8m`
+  drive, label mode 0x31; DRIVES.TXT names A: and B:. `SYS=` chooses what goes on A: as OODOS.SYS. The sparse
+  image is 351 KB.
+- **`test_oodos_boot`, in ctest,** boots the committed card through C80CR in a Session and checks every segment
+  byte for byte at its physical address, the bytes either side as they were, the entry (W0 still block 0, W1–W3
+  and VEC 60, 61, 62, 62, I set, D clear), and units 1 and 2 mounted as A.IMG and B.IMG with their flags. Then every
+  refusal, each with its message, and DRIVES.TXT's with the line's number: each form the grammar refuses (a word
+  after the path, `R0`, `ROM` or a second `RO`; a space in the path; a drive named twice; the same path in another
+  case, either way round; a CR not before LF, in a comment too and at the end; a drive outside A–G, no blank after
+  the colon, a path without `/`, a control character in it, one over 509 bytes), the forms it allows (a BOM, CR LF, blank and comment
+  lines, tabs, lower case, `RO` before a comment, a last line with no ending), no A line, a path not on the card,
+  an image of the wrong size, no DRIVES.TXT, and a unit left mounted unmounted; OODOS.SYS missing from user 0, a
+  bad magic number, an unknown major version, 0 or 9 segments, an entry outside block 62, a segment over 16 KB,
+  outside block 31 and blocks 60–62 (below, past and between them, into block 63, past 1 MB), overlapping by a
+  byte or wholly, or past the file's end; the reader's damaged directories (an entry missing, twice, part full, an
+  RC over 128, an EX over 31, a block of the directory's or past DSM), too many entries and an empty file; and
+  copies of OODOS.SYS's entry where the reader mustn't look (deleted, user 3, an XFCB, the label's and an SFCB's
+  first bytes). An `oodos-32m` drive, its two entries last extent first, boots too. Those cards are made in the
+  test, FAT16 on the whole card, from the committed card's files; nothing more is committed.
+- **Each check can fail:** OOLDR built with a deliberate bug and spliced into the card fails the test, one bug at a
+  time: every last record written whole, W2 on block 62, CLI, SED, entries of any user read, a CR in a comment
+  let by, a CR at the end let by, a drive named twice let by, paths compared in one case only, no overlap check,
+  any image size taken, `oodos-32m` with `oodos-8m`'s EXM, block 63 allowed, a segment past the file's end let by,
+  the BOM not skipped, nothing unmounted, segments over 16 KB let by, part full entries let by.
+- `test_oodos_card` follows the card (its size, the directory's entries, OO1.BIN's two entries now 10 and 12) and
+  `interop.sh` passes on it unchanged.
 
 **Proposed**
 

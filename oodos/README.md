@@ -12,6 +12,8 @@ directory holds the work.
 - [`test/check_tools.py`](test/check_tools.py): `make check`, the tools' tests.
 - [`test/cpmtools.sh`](test/cpmtools.sh), [`test/sfcb.py`](test/sfcb.py): what `check_diskdefs.sh` and
   `interop.sh` share, and interop's own reading of the date stamps.
+- [`ldr/`](ldr/): OOLDR, the loader (`/BOOT.BIN`), and a test OODOS.SYS; [`sys/cpmread.s`](sys/cpmread.s), the
+  read-only CP/M reader OOLDR and OODOS.SYS share (phase 2, below).
 
 
 ## Building a program ##
@@ -134,20 +136,23 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 ## The test card ##
 
 `tools/make_card.sh` makes the card the emulator's tests use, `emulator/test/host/sd/oodos.sparse` (committed,
-184 KB; `sd_images.h` expands it): a 16 MB card with an MBR and FAT16 in partition 1, holding
+351 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
 
 | On the card | What |
 |---|---|
-| `/BOOT.BIN` | [`card/boot.s`](card/boot.s): says it's an OODOS card and returns to the monitor, until OOLDR (phase 2) |
-| `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN` |
+| `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
+| `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, and `0:OODOS.SYS`, the test system ([`ldr/testsys.s`](ldr/testsys.s): 268 records, two entries) |
+| `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
-It runs everything (ca65, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a throwaway `debian:bookworm`, pinned by
-digest, under faketime, every stamp 2026-10-26 12:00, with fixed volume and disk ids, so the same sources make the
-same card; it prints the packages' versions:
+It runs everything (make, ca65 and ld65 for OOLDR and OODOS.SYS, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
+throwaway `debian:bookworm`, pinned by digest, under faketime, every stamp 2026-10-26 12:00, with fixed volume and
+disk ids, so the same sources make the same card; it prints the packages' versions. `SYS` names what goes on A: as
+OODOS.SYS, a path in `ldr/` (by default `build/OODOS.SYS`, the test system), for when the real one replaces it:
 
 ```
 oodos/tools/make_card.sh
+SYS=build/OTHER.SYS oodos/tools/make_card.sh
 ```
 
 `mkfs.cpm` writes only the directory, and the file grows as `cpmcp` writes; an SD unit is its file's size, so the
@@ -199,3 +204,33 @@ date earlier than creation date (extent=S/E)", and one updated on an earlier day
 compared right). `interop.sh` checks the order with `sfcb.py` first, then lets that warning through for those
 entries only
 ([hw/oodos.md](../hw/oodos.md#testing)).
+
+
+## The loader (phase 2) ##
+
+OOLDR is `/BOOT.BIN` on an OODOS card: the ROM BIOS's `C80CR` loads it at `$1000`, and it reads
+`/OODOS/DRIVES.TXT`, mounts the drives and loads OODOS.SYS from A: ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)).
+[`ldr/`](ldr/) builds it, with its own Makefile, and the test OODOS.SYS the card carries until the real one:
+
+```
+make -C ldr            # ldr/build/BOOT.BIN (OOLDR) and ldr/build/OODOS.SYS (testsys.s)
+make -C ldr clean
+```
+
+| File | What |
+|---|---|
+| [`ldr/ooldr.s`](ldr/ooldr.s), [`ldr/ldr.cfg`](ldr/ldr.cfg) | OOLDR: at `$1000`, everything below `$4000`, zero page `$00–$1F` |
+| [`sys/cpmread.s`](sys/cpmread.s) | the read-only CP/M reader: CR_INIT, CR_FIND, CR_SEEK, CR_READ; its zero page and buffers are the `CRZP` and `CRBSS` segments, placed by whoever links it |
+| [`ldr/testsys.s`](ldr/testsys.s), [`ldr/testsys.cfg`](ldr/testsys.cfg) | the test OODOS.SYS: six segments in block 31 and blocks 60–62, a cold boot that writes the windows and P it found to `$7FF00` and stops |
+
+It builds with the host's cc65 as with the container's (Debian's 2.19 both), byte for byte. To try it: `make -C ldr`,
+`tools/make_card.sh`, then in the emulator with the card in the slot, `C80CR` from the monitor. Each refusal says
+what, DRIVES.TXT's with the line's number, and goes back to the monitor.
+
+`test_oodos_boot`, in ctest, boots the committed card and checks where every segment landed and the entry's
+windows and flags, then makes each refusal on cards it builds in memory (a changed DRIVES.TXT, a changed A.IMG):
+
+```
+cmake --build emulator/build/dev --target test_oodos_boot
+emulator/build/dev/test/host/test_oodos_boot      # ends "10 cases, 0 failed"
+```
