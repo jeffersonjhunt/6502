@@ -84,21 +84,35 @@ label, and an SFCB in every fourth entry when the drive has date stamps.
 Which image each SD drive holds is set by a file on the card, `/OODOS/DRIVES.TXT`, read by the loader, and can be
 changed while running by a utility that does MOUNT and resets the drive.
 
-**Proposed: `DRIVES.TXT`** (the test card has one, [oodos/card/DRIVES.TXT](../oodos/card/DRIVES.TXT)):
+**Decided (2026-10-26): `DRIVES.TXT`** (the test card has one, [oodos/card/DRIVES.TXT](../oodos/card/DRIVES.TXT)):
 
 ```
 # A is the system drive.
 A: /OODOS/A.IMG
 B: /OODOS/WORK.IMG
-C: /DISKS/CPM.DSK RO
+c:	/DISKS/CPM.DSK  ro      # read-only
 ```
 
-- A line is a drive letter, A–G (SD units 1–7), a colon, then the image's path as MOUNT takes it: from the card's
-  root, `/`-separated, long or 8.3 names in any case, no spaces. `RO` after the path mounts it read-only.
-- Words are separated by spaces or tabs; `#` starts a comment, to the end of the line; blank lines are ignored.
-  Lines end in LF or CR LF, so the file can be edited on any PC.
+Each line is one of these, and anything else is an error:
+
+| Line | What |
+|---|---|
+| blank | nothing, or only spaces and tabs |
+| a comment | optional spaces and tabs, then `#` and anything to the end of the line |
+| a drive | optional spaces and tabs; a drive letter, `A`–`G` in either case (SD units 1–7); `:`; one or more spaces or tabs; the image's path; optionally one or more spaces or tabs and `RO` in any case; optionally spaces and tabs; optionally `#` and a comment |
+
+- **The path** is the image's as MOUNT takes it: from the card's root, so it starts with `/`; `/`-separated, long
+  or 8.3 names in any case (fat_volume.h). It has no spaces, tabs, `#` or control characters, and is at most 509
+  bytes, what MOUNT's sector holds after the unit and the flags with its NUL.
+- **Lines end** in LF or CR LF, so the file can be edited on any PC; the last may have no ending. A CR anywhere
+  else is an error. A UTF-8 byte order mark at the start of the file is skipped. The file is read to its size
+  (LIST gives it), not to a NUL.
+- **Errors** stop the loader, which says which line, by number, and why, and goes back to the monitor: a line
+  that fits none of the forms (a word after the path that isn't `RO`, such as a mistyped `R0`, or a second `RO`;
+  a space in the path), a drive named twice (not the later line winning), and the same path on two drives
+  (compared in any case, as FAT names are).
 - A drive not named isn't mounted. Without an A line, or with a path MOUNT can't find, the loader says which and
-  goes back to the monitor. A drive named twice is an error, not the later line winning.
+  goes back to the monitor.
 
 
 ## Memory ##
@@ -218,7 +232,10 @@ Not in CP/M 3, and not here: 38, 39 and 41 (MP/M's drive access and test-and-wri
 - **49:** the SCB keeps CP/M 3's offsets for every field CP/M 3 documents.
 - **50:** the BIOS parameter block is OODOS's: +0 the BIOS function, +1 A, +2 X, +3 Y, +4–5 and +6–7 two words
   (for MOVE and XMOVE's addresses and counts).
-- **59** loads a `.PRL` at the FCB's random record address, relocating it; a `.COM` loads only where it was linked.
+- **59** loads an overlay at the FCB's random record address, which must be a page's start, or the call is
+  refused. A `.PRL` is relocated there; a `.COM` loads only where it was linked. An overlay has no zero page of
+  its own (its header's zero page size must be 0, or it's refused): it uses its caller's, by importing the
+  caller's zero page symbols when it's linked ([The .PRL file](#the-prl-file)).
 - **104, 105** use CP/M 3's DAT (days from 1 January 1978, hour and minute in BCD); 105 returns the seconds, BCD, in
   A. Both go to the DS3231.
 
@@ -331,27 +348,31 @@ A machine with no OODOS card still boots to the monitor as now.
 
 ### The program header ###
 
-**Proposed.** 16 bytes at the start of every `.COM` and `.PRL`, in the file only: the image after it is what
+**Decided (2026-10-26).** 16 bytes at the start of every `.COM` and `.PRL`, in the file only: the image after it is what
 goes into memory. `OODOS_HEADER` in [`oodos/include/oodos.inc`](../oodos/include/oodos.inc) writes it, with the
 values from the link.
 
 | Offset | Size | What |
 |---|---|---|
 | 0 | 4 | the magic number, `$4F $4F $44 $1A`: "OOD", then ^Z, so TYPE shows OOD and stops |
-| 4 | 1 | flags: bit 0 relocatable (a `.PRL`, bitmaps follow), bit 1 an RSX (the image starts with the RSX prefix), bit 7 breaks the 65C816 rules (OODOS's tools never set it); the rest 0 |
+| 4 | 1 | flags: bit 0 relocatable (a `.PRL`, bitmaps follow), bit 1 an RSX (the image starts with the RSX prefix), bit 7 breaks the 65C816 rules (OODOS's tools never set it); the rest 0, and a file with any of them set is refused |
 | 5 | 1 | the link page: the image is linked to run at this page × 256. `$03` for a `.COM`, and the only page it loads at |
 | 6 | 2 | the image's size, in bytes |
 | 8 | 2 | BSS: bytes the program needs above its image, not in the file and not cleared |
 | 10 | 1 | the zero page base: where the image's own zero page segment is linked |
-| 11 | 1 | the zero page size: that segment's bytes, the slice an RSX needs from `$F0–$FF` |
+| 11 | 1 | the zero page size: that segment's bytes; at most `$F0` for a program, 16 for an RSX (the slice it needs from `$F0–$FF`), 0 for an overlay |
 | 12 | 1 | the number of attached RSXs (GENCOM), 0 for none |
 | 13 | 1 | reserved, 0 |
 | 14 | 2 | the record (128 bytes, from the file's start) of the attached RSX table, 0 for none |
 
 - **The loader** reads the first record into the DMA buffer and refuses the file if bytes 0–3 aren't the magic
-  number, then checks the image and BSS fit below the top of the TPA (`$0204`). The image starts 16 bytes into
-  the record: those 112 bytes are moved to the load address, and the rest of the file read straight after them.
-  A `.COM` whose link page isn't `$03` is refused.
+  number or a flag bit it doesn't know is set. It refuses a `.COM` whose link page isn't `$03`, a `.PRL` at a page
+  below `$03`, an image and BSS that don't fit below the top of the TPA (`$0204`), and a zero page that doesn't
+  fit (below). Then it reads **exactly the image's size bytes** of image: the first record's 112 bytes after the
+  header, or as many as the image has if it's smaller, are moved to the load address; the following whole records
+  can be read straight to their place; and a last part-record goes through the DMA buffer, only the image's bytes
+  of it moved. Nothing after the image (a `.PRL`'s bitmaps, the attached RSX table, the attached RSXs) is ever
+  read into the image or past it: BSS is not cleared, and memory above the image is left as it was.
 - **Sizes are exact.** CP/M files are whole records, so the end of the last one is padding, ignored.
 - **The attached RSX table** (GENCOM, phase 5) is a record-aligned run of 16-byte entries after the program: the
   record the RSX's own `.PRL` starts at (2 bytes), a flags byte (bit 0: load only in a non-banked system, as CP/M
@@ -364,27 +385,41 @@ values from the link.
 
 ### The .PRL file ###
 
-**Proposed.** The header (flag bit 0 set), the image as linked at the header's page and zero page base, then two
-bitmaps of a bit for each byte of the image, the first byte in bit 7 of the bitmap's first byte:
+**Decided (2026-10-26).** The header (flag bit 0 set), the image as linked at the header's page and zero page
+base, then two bitmaps of a bit for each byte of the image, the first byte in bit 7 of the bitmap's first byte.
+Each bitmap starts on a record, so a record of it covers 1,024 bytes of the image:
 
-| | Size | What |
+| Record | Size | What |
 |---|---|---|
-| header | 16 | as above |
-| image | size | linked at the link page, its zero page segment at the zero page base |
-| page bitmap | (size + 7) / 8 | 1: the byte is the high byte of an address in the image |
-| zero page bitmap | (size + 7) / 8 | 1: the byte is the address of a byte in the image's zero page segment |
+| 0 | 16 | the header, as above |
+| 0 | size | the image, from byte 16: linked at the link page, its zero page segment at the zero page base; zeros to the end of its last record |
+| p = ⌈(16 + size) / 128⌉ | (size + 7) / 8 | the page bitmap. 1: the byte is the high byte of an address in the image. Zeros to the end of its last record |
+| p + ⌈((size + 7) / 8) / 128⌉ | (size + 7) / 8 | the zero page bitmap. 1: the byte is the address of a byte in the image's zero page segment. Zeros to the end of its last record |
 
-- **Loading at page P with zero page base Z** adds P − the link page to every byte marked in the page bitmap,
-  and Z − the zero page base to every byte marked in the zero page bitmap, both modulo 256. The loader refuses Z
-  with the segment running past `$FF`. A byte is in one bitmap or neither.
-- **Made with [`oodos/tools/mkprl.py`](../oodos/tools/mkprl.py)** from two links of the same objects, the second a
-  page above the first and with its zero page base 2 above (the build's default: page 3 and `$00`, then page 4
-  and `$02`). Every byte must be the same, 1 more or 2 more; anything else is refused, with the offset. The zero
-  page bases may be any distance apart but 0 or 1, which would make the bitmaps ambiguous.
-- **What can't be told apart:** a byte that is some other function of an address but happens to move by 1 or 2
-  (`>(label*2)` moves by 2) would be taken for a relocation. Programs keep to addresses, their high and low bytes,
-  and zero page addresses.
-- A `.PRL` program (not an RSX) is given Z = `$00`, its own zero page; an RSX a slice of `$F0–$FF`.
+The attached RSX table, if any, follows on a later record (its record is in the header).
+
+- **Loading at page P with zero page base Z:** the image is read as above, then the page bitmap is read a
+  record at a time through the DMA buffer, and P − the link page added to every byte of the image it marks; then
+  the zero page bitmap the same way, adding Z − the zero page base; both modulo 256. Bits past the image's last
+  byte are padding, ignored. A byte is in one bitmap or neither.
+- **Zero page.** A `.PRL` program (not an RSX) is given Z = `$00`, its own zero page, and the loader refuses one
+  with Z + its zero page size past `$F0`. An RSX is given a slice of `$F0–$FF`, and refused if its zero page is
+  more than what's left of it. An overlay (function 59) has none of its own: the loader refuses one whose zero
+  page size isn't 0. It uses its caller's zero page by importing the caller's symbols, which don't move, as a
+  program's zero page is always at its link address. An overlay's load address must be a page's start.
+- **The zero page is BSS only:** no initialized data in it (ld65 drops it with only a warning, and OODOS's build
+  fails on any ld65 warning). In OODOS's link configs it ends at `$EF` (`$F0` − the zero page base), so a `.PRL`
+  linked at zero page base 5, as the third link is, has at most `$EB` bytes of it.
+- **Made with [`oodos/tools/mkprl.py`](../oodos/tools/mkprl.py)** from three links of the same objects: the build's
+  are page 3 with the zero page at `$00`, page 4 at `$02` and page 5 at `$05`. Every byte must move in the second
+  and third links as one of three classes: not at all; 1 and 2 (the high byte of an address in the image); or the
+  zero page offsets, 2 and 5 (a zero page address). Anything else is refused, with the offset, so a byte that is
+  some other function of an address (`>(label*2)` moves by 2 and 4) is refused rather than taken for a
+  relocation. The zero page bases may be any offsets but ones that move as nothing does, or as a page does.
+- **No 16-bit pointers to zero page,** rule 2 below: mkprl.py refuses a zero page address that isn't the operand
+  of a zero page or immediate instruction in `CODE` (it disassembles `CODE` from the first link's map), so a
+  `.word ptr` or `.byte ptr` in data, or an absolute operand, can't relocate quietly. mkprl.py refuses a zero page
+  size over `$F0` for a program, and over 16 for an RSX.
 
 ### Rules for programs: the 65C816 ###
 
@@ -399,6 +434,10 @@ breaking them.
    16-bit pointers to them. Both break once the direct page moves.
 3. **The stack only through the stack instructions:** no reading it in page 1 (`TSX`, then `LDA $0103,X`).
 4. **The BDOS only through `$0203`,** with the registers as above.
+
+OODOS's build checks them: `oodos/tools/rules.py` disassembles `CODE` (only `CODE`: data in other segments isn't
+looked at) of the `.COM` and of the `.PRL`'s first link, for rules 1, 3, 4 and rule 2's absolute operands, and
+mkprl.py finds rule 2's 16-bit pointers to zero page in any segment, by the zero page bitmap ([above](#the-prl-file)).
 
 ## Apple II disks ##
 
@@ -484,9 +523,12 @@ copyright and MIT notice.
 **Done (phase 1, 2026-10-26)** ([oodos/README.md](../oodos/README.md) has the commands)
 
 - **The build:** ca65 and ld65, as the BIOS. [`oodos/Makefile`](../oodos/Makefile) links each program as a `.COM`
-  and a `.PRL`, and every link passes the 65C816 rules (`oodos/tools/rules.py`) or the build fails. `make check`
-  tests the tools: relocated `.PRL`s against direct links, mkprl's refusals, the magic number and the rules gate on
-  planted violations. The test card's `/BOOT.BIN` is built with ca65 and ld65 too.
+  and, three times, a `.PRL`; the `CODE` of the `.COM` and of the `.PRL`'s first link passes the 65C816 rules
+  (`oodos/tools/rules.py`), mkprl.py's checks pass, and ld65 gives no warning, or the build fails. `make check`
+  tests the tools: relocated `.PRL`s against direct links, the loader's steps (only the image's bytes change in
+  memory full of sentinels, with images under 112 bytes, over 1,024, and RSXs attached) and refusals, mkprl's
+  refusals, the magic number, and the rules gate on planted violations; and runs hello on the emulator's W65C02S.
+  The test card's `/BOOT.BIN` is built with ca65 and ld65 too.
 - **Card images:** [`oodos/tools/make_card.sh`](../oodos/tools/make_card.sh) makes the test card with cpmtools,
   mkfs.fat and mtools in a throwaway container, from our own files, under faketime so the same sources make the
   same card. It's committed as a sparse image, `emulator/test/host/sd/oodos.sparse` (184 KB): a 16 MB card,
@@ -494,12 +536,22 @@ copyright and MIT notice.
   0x31, files in users 0 and 3, one over two directory entries).
 - **Interoperability, both ways:**
   - **cpmtools writes, the OO-1 reads:** `test_oodos_card`, in ctest, mounts A.IMG through the card's own MOUNT
-    (after reading DRIVES.TXT, as OOLDR will) and finds every entry, SFCB stamp and record at LBA = track × SPT +
-    sector, by the DPB worked out from `oodos/diskdefs`.
+    (after reading DRIVES.TXT by its grammar, as OOLDR will) and finds every entry, SFCB stamp and record in the
+    n-th sector of its block b, at LBA = b × (BLS / 512) + n (the unit's sectors are 512 bytes, the drive has no
+    boot tracks), by the DPB worked out from `oodos/diskdefs`.
   - **The OO-1 writes, cpmtools checks:** in the same test a stand-in for the BDOS writes a file through the card's
     WRITE and saves the card; [`oodos/test/interop.sh`](../oodos/test/interop.sh) takes A.IMG off it with mtools and
-    checks it with `fsck.cpm -n`, `cpmls -F` (both stamps) and `cpmcp`. It checks the committed card the same way.
-    A wrong allocation or a misplaced stamp, made on purpose, fails it.
+    checks it with `fsck.cpm -n`, `cpmls -F` (both stamps), the file's raw SFCB slots, and `cpmcp`. It checks the
+    committed card the same way. A wrong allocation or misplaced stamps, made on purpose (in an SFCB of mkfs.cpm's
+    `$E5`s or of zeros), fail both.
+  - **fsck.cpm by its report:** it exits 0 after some errors, a bad stamp for one, so `check_diskdefs.sh` and
+    `interop.sh` fail on any Error or Warning line it prints (`oodos/test/cpmtools.sh`). One exception, in
+    `interop.sh` only: **cpmtools 2.23's fsck.cpm compares the stamps in an SFCB's first slot backwards.** For a
+    file entry E with E mod 4 = 0 it warns "Modification date earlier than creation date (extent=S/E)" when the
+    update is on a later day than the creation, and says nothing when it's earlier; the other slots are compared
+    right. So `oodos/test/sfcb.py` reads every file entry's stamps itself and fails one updated before it was
+    made, and only then is that warning let through, for exactly the first-slot entries it found a day or more
+    apart and in order. The OO-1's test file is made a day before it's updated, so the case is always exercised.
   - **Decided (2026-10-26): ctest stays hermetic,** with no skips, on committed images; the checks that need
     Docker are scripts like `check_diskdefs.sh` and `interop.sh`, run by hand and at each phase's verify.
   - Phase 3 puts the BDOS where the stand-in is, running in the emulator; the checks on both sides stay.

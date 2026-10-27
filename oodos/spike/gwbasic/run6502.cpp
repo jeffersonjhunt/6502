@@ -13,6 +13,7 @@
  *
  *   0   warm boot: stop
  *   2   console output: the character in A, to stdout
+ *   9   print string: the string at A (low) and X (high), to its '$'
  *
  * A jump to $0200 also stops, and so does STP. Then each --dump writes LEN
  * bytes from ADDR to FILE, for the checker to read; --count reports how many
@@ -175,6 +176,10 @@ int main(int argc, char **argv)
                 break;
             case 2:
                 std::fputc(r.a, stdout);
+                break;
+            case 9:
+                for (unsigned n = 0; n < 0x10000 && bus.at(static_cast<uint16_t>((r.x << 8 | r.a) + n)) != '$'; ++n)
+                    std::fputc(bus.at(static_cast<uint16_t>((r.x << 8 | r.a) + n)), stdout);
                 break;
             default:
                 std::fprintf(stderr, "run6502: BDOS function %u is not answered here\n", r.y);

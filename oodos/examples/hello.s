@@ -57,13 +57,17 @@ putstr: lda     #0
         bne     @loop
 @done:  rts
 
-; The command tail, a count then the characters, at the DMA buffer.
+; The command tail, a count then the characters, at the DMA buffer. The '$'
+; goes after them, so a count over 126 is cut to 126 to keep it in the buffer.
 tail:   lda     #<(BP_DMA + 1)
         sta     ptr
         lda     #>(BP_DMA + 1)
         sta     ptr+1
         ldy     BP_DMA
-        lda     #'$'
+        cpy     #127
+        bcc     @end
+        ldy     #126
+@end:   lda     #'$'
         sta     (ptr),y
         jmp     putstr
 

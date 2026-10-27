@@ -1,23 +1,35 @@
 #!/bin/sh
 # Checks an OODOS card with cpmtools: /OODOS/A.IMG taken off the card's FAT
-# by mtools, then fsck.cpm, the label's mode, cpmls -F's stamps, and every
-# file's contents by cpmcp. Runs in a throwaway container:
+# by mtools, then the stamps' order (sfcb.py), fsck.cpm, the label's mode,
+# cpmls -F's stamps, and every file's contents by cpmcp. Runs in a throwaway
+# container:
 #
 #   docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath DIR):/c:ro" \
-#       debian:bookworm sh /o/test/interop.sh /c/CARD [--written]
+#       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
+#       sh /o/test/interop.sh /c/CARD [--written]
 #
 # CARD is a raw card image or a sparse one (oo1-sparse, as
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
 # --written it is the card test_oodos_card saved (OODOS_CARD_OUT), and
-# 0:OO1.BIN, the file the OO-1 wrote, is checked too. cpmtools reads
-# ./diskdefs, so it runs in /o. Exits non-zero on the first failure; "PASS n"
-# at the end counts the checks.
+# 0:OO1.BIN, the file the OO-1 wrote, is checked too: cpmls -F's stamps and
+# its SFCB slots' bytes. cpmtools reads ./diskdefs, so it runs in /o. Exits
+# non-zero on the first failure; "PASS n" at the end counts the checks.
+#
+# fsck.cpm 2.23 compares the stamps in an SFCB's first slot backwards: it
+# warns "Modification date earlier than creation date (extent=S/E)" for an
+# entry E (E & 3 = 0, its SFCB S = E | 3) updated on a later day than it was
+# made, and misses one updated before. OO1.BIN, made a day before its update,
+# has its first entry there. So sfcb.py checks every file entry's stamp order
+# itself first, and fsck_clean lets through only that warning, only for
+# first-slot entries sfcb.py found a day or more apart and in order.
 set -eu
 card=$1
 written=${2:-}
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq cpmtools mtools python3 >/dev/null 2>&1
+dpkg-query -W -f '${Package} ${Version}\n' cpmtools mtools python3 | sed 's/^/     /'
 cd /o
+. "$(dirname "$0")/cpmtools.sh"
 work=$(mktemp -d)
 passed=0
 ok() { passed=$((passed + 1)); echo "ok   $*"; }
@@ -70,12 +82,13 @@ mcopy -n -i "$work/card.img@@$offset" ::/OODOS/A.IMG "$img" || fail "no /OODOS/A
 [ "$(stat -c %s "$img")" = 8388608 ] || fail "A.IMG is not 8 MB"
 ok "A.IMG off the card's FAT (partition at byte $offset), 8 MB"
 
-# fsck.cpm -n exits 0 after some errors (a bad stamp, for one), so its
-# report must have no Error or Warning lines either.
-out=$(fsck.cpm -f oodos-8m -n "$img" 2>&1) || { echo "$out"; fail "fsck.cpm"; }
-echo "$out" | sed 's/^/     /'
-! echo "$out" | grep -E '^(Error|Warning)' >/dev/null || fail "fsck.cpm reports the errors above"
-ok "fsck.cpm is clean"
+entries=$(def oodos-8m maxdir)
+order=$(python3 -I test/sfcb.py "$img" "$entries" check "$work/allowed") || { echo "$order"; fail "sfcb.py: stamps out of order"; }
+echo "$order" | sed 's/^/     /'
+ok "sfcb.py: every file entry has an SFCB slot, updated no earlier than made"
+
+fsck_clean oodos-8m "$img" "$work/allowed"
+ok "fsck.cpm is clean ($(grep -c . "$work/allowed" || true) first-slot warnings checked by sfcb.py)"
 
 [ "$(od -An -tu1 -j12 -N1 "$img" | tr -d ' ')" = 49 ] || fail "the label's mode is not 0x31"
 ok "the label's mode is 0x31: creation and update stamps"
@@ -98,8 +111,14 @@ done
 ok "the card's files, out by cpmcp, unchanged"
 
 if [ "$written" = --written ]; then
-  stamped OO1 BIN '10/26/26 15:30' '10/26/26 13:45'
-  ok "cpmls -F: 0:OO1.BIN, made 10/26/26 13:45, updated 15:30"
+  stamped OO1 BIN '10/26/26 15:30' '10/25/26 13:45'
+  ok "cpmls -F: 0:OO1.BIN, made 10/25/26 13:45, updated 10/26/26 15:30"
+  want="$(python3 -I test/sfcb.py stamp 2026-10-25 13:45)$(python3 -I test/sfcb.py stamp 2026-10-26 15:30)"
+  slots=$(python3 -I test/sfcb.py "$img" "$entries" slots 0 OO1.BIN)
+  echo "$slots" | sed 's/^/     /'
+  [ "$(echo "$slots" | wc -l)" = 2 ] || fail "0:OO1.BIN has not two entries"
+  ! echo "$slots" | grep -v " $want\$" >/dev/null || fail "0:OO1.BIN's SFCB slots aren't $want"
+  ok "0:OO1.BIN's two entries' SFCB slots hold $want"
   cpmcp -f oodos-8m "$img" 0:OO1.BIN "$work/out" || fail "cpmcp 0:OO1.BIN"
   cmp -s "$work/OO1.BIN" "$work/out" || fail "0:OO1.BIN is not what the OO-1 wrote"
   ok "0:OO1.BIN, out by cpmcp, is what the OO-1 wrote"

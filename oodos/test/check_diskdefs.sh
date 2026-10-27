@@ -3,14 +3,18 @@
 # that cpmtools writes, lists and checks, with CP/M 3 date stamps (SFCBs) and
 # a directory label when made with -t. Runs in a throwaway container:
 #
-#   docker run --rm -v "$(hostpath oodos):/o:ro" debian:bookworm sh /o/test/check_diskdefs.sh
+#   docker run --rm -v "$(hostpath oodos):/o:ro" \
+#       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
+#       sh /o/test/check_diskdefs.sh
 #
 # cpmtools reads ./diskdefs, so it runs in /o. Exits non-zero on the first
 # failure; "PASS n" at the end counts the checks.
 set -eu
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq cpmtools >/dev/null 2>&1
+dpkg-query -W -f '${Package} ${Version}\n' cpmtools | sed 's/^/     /'
 cd /o
+. "$(dirname "$0")/cpmtools.sh"
 work=$(mktemp -d)
 passed=0
 ok() { passed=$((passed + 1)); echo "ok   $*"; }
@@ -18,9 +22,6 @@ fail() { echo "FAIL $*"; exit 1; }
 
 # The byte at a directory entry's offset, as a decimal number.
 dirbyte() { od -An -tu1 -j "$(( $2 + $3 ))" -N1 "$1" | tr -d ' '; }
-
-# A diskdef's value: def oodos-8m blocksize.
-def() { awk -v f="$1" -v k="$2" '$1 == "diskdef" { on = $2 == f } on && $1 == k { print $2; exit }' diskdefs; }
 
 # What CP/M 3's DPB can hold, which cpmtools doesn't check: the directory's
 # blocks fit AL0/AL1 (16 bits), DSM fits 16 bits, and 1 KB blocks need DSM
@@ -76,8 +77,8 @@ for fmt in oodos-8m oodos-32m oodos-ram; do
   [ "$stamps" != "0000000000000000" ] || fail "$fmt: HELLO.TXT's SFCB stamps are empty"
   ok "$fmt: the file is date stamped"
 
-  fsck.cpm -f "$fmt" -n "$img" >/dev/null || fail "$fmt: fsck.cpm"
-  ok "$fmt: fsck.cpm is clean"
+  fsck_clean "$fmt" "$img"
+  ok "$fmt: fsck.cpm is clean: no Error or Warning lines"
 done
 
 echo "PASS $passed"

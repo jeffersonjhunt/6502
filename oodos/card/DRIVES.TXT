@@ -1,5 +1,6 @@
 # OODOS's drives: which image file on this card each SD drive is. The loader
 # reads it at boot (hw/oodos.md, "Drives"). A line is a drive, A-G (SD units
-# 1-7), a colon, and the image's path from the card's root; RO after the
-# path mounts it read-only. A # starts a comment.
+# 1-7), a colon, a space or tab, and the image's path from the card's root:
+# a / first, no spaces or #. RO after the path mounts it read-only; a #
+# starts a comment. Any other line is an error.
 A: /OODOS/A.IMG
