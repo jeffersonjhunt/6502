@@ -4,10 +4,10 @@
  * video card (the VGA scene, or the Apple II scene in Apple II mode).
  *
  * The machine asks for Display when it is in Apple II mode, or when the
- * video card shows a picture of a program's own. The BIOS's own text
- * screen on the card (layer 0 alone, text 80x30 at the map VINIT puts it
- * at) is the serial session mirrored, so it counts as Terminal's, as does
- * the card's display off. ScreenFollow switches when what the machine asks
+ * video card shows a picture of a program's own. A text screen on the
+ * card (layer 0 alone, in a text mode) is the BIOS's serial session
+ * mirrored, whoever's BIOS set it up and however, so it counts as
+ * Terminal's, as does the card's display off. ScreenFollow switches when what the machine asks
  * for changes, and only then: a choice made by hand holds until it does.
  * Only that choice is remembered for next time, and only until the machine
  * next switches: a visit starts on the user's pick, or the terminal the
@@ -21,19 +21,19 @@ export type Screen = "terminal" | "display";
 const DISPLAY = 0x01; // CTRL: the display on
 const LAYERS = 0x0e; // CTRL: layer 0, layer 1, sprites
 const LAYER0_ONLY = 0x02;
-const BIOS_CONFIG = 0x80; // text 80x30, attribute bit 7 blinks (backplane/bios/video.s, VSCREEN)
-const BIOS_MAP = 8; // TEXT_UNIT: $82000
+const TYPE = 0x07; // CONFIG: the layer's type
+const TEXT_40 = 1; // text 80x30 is 0, 40x30 is 1; tiles and bitmaps above
 
-/** The video card shows the BIOS's own text screen, and nothing else. */
-export function biosScreen(v: VideoRegs): boolean {
-  return (v.ctrl & DISPLAY) !== 0 && (v.ctrl & LAYERS) === LAYER0_ONLY && v.layer0 === BIOS_CONFIG && v.map0 === BIOS_MAP;
+/** The video card shows a text screen on layer 0, and nothing else: a BIOS's, any BIOS's. */
+export function textScreen(v: VideoRegs): boolean {
+  return (v.ctrl & DISPLAY) !== 0 && (v.ctrl & LAYERS) === LAYER0_ONLY && (v.layer0 & TYPE) <= TEXT_40;
 }
 
 /** The screen the machine asks for in this frame. */
 export function machineScreen(f: Pick<FrameState, "apple" | "videoCard">): Screen {
   if (f.apple) return "display";
   const v = f.videoCard;
-  if (!v || !(v.ctrl & DISPLAY) || biosScreen(v)) return "terminal";
+  if (!v || !(v.ctrl & DISPLAY) || textScreen(v)) return "terminal";
   return "display";
 }
 

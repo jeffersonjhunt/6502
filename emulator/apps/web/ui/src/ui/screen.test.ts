@@ -1,20 +1,26 @@
 import { describe, expect, test } from "vitest";
-import { biosScreen, machineScreen, ScreenFollow } from "./screen";
+import { machineScreen, ScreenFollow, textScreen } from "./screen";
 
 const BIOS = { ctrl: 0x03, layer0: 0x80, map0: 8 };
 
 describe("what the machine asks the monitor for", () => {
   test("the BIOS's text screen is the terminal's; a program's picture is the display's", () => {
-    expect(biosScreen(BIOS)).toBe(true);
+    expect(textScreen(BIOS)).toBe(true);
     expect(machineScreen({ apple: false, videoCard: BIOS })).toBe("terminal");
     expect(machineScreen({ apple: false, videoCard: null })).toBe("terminal"); // no card, or power off
     expect(machineScreen({ apple: false, videoCard: { ...BIOS, ctrl: 0 } })).toBe("terminal"); // display off
     expect(machineScreen({ apple: false, videoCard: { ctrl: 0x0f, layer0: 0x22, map0: 20 } })).toBe("display"); // C803R's demo
     expect(machineScreen({ apple: false, videoCard: { ...BIOS, ctrl: 0x07 } })).toBe("display"); // a second layer over the text
     expect(machineScreen({ apple: false, videoCard: { ...BIOS, ctrl: 0x0b } })).toBe("display"); // sprites over it
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x01 } })).toBe("display"); // 40 columns
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, map0: 16 } })).toBe("display"); // a text screen of its own
+    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x02 } })).toBe("display"); // tiles
+    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x05 } })).toBe("display"); // a bitmap
     expect(machineScreen({ apple: true, videoCard: { ...BIOS, ctrl: 0 } })).toBe("display"); // Apple II mode
+  });
+
+  test("a BIOS of the owner's with its own text setup: still the terminal's", () => {
+    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x01 } })).toBe("terminal"); // 40 columns
+    expect(machineScreen({ apple: false, videoCard: { ...BIOS, map0: 16 } })).toBe("terminal"); // its text elsewhere
+    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x00 } })).toBe("terminal"); // no blink
   });
 });
 
