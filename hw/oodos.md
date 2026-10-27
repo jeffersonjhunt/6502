@@ -607,7 +607,8 @@ against, compared with what the BDOS does on the emulator.
   directory read once through the buffers: 64 sectors on `oodos-8m`, 128 on `oodos-32m`, 16 on M:. The first label's
   mode byte decides the stamps (none without a label). A read-only unit (IDENTIFY's flag) is a read-only drive from
   its login; a unit made read-only later is when its WRITE returns 2. Files are looked for up to the last entry that
-  isn't free or an SFCB (a high-water mark); free entries, and 17's every entry, to the directory's end.
+  isn't free or an SFCB (a high-water mark); free entries, and 17's every entry, to the directory's end. The DPHs'
+  CSV, ALV, BCB and HASH fields stay 0: the BDOS places its own, as above.
 - **The hash** is FIND's first look at each entry: its first byte, the name's 16-bit hash (each byte's low 7 bits
   XORed into a word turned left a bit before each) and the extent (EX's 5 bits, S2's low 3); then the entry is
   read and compared in full, so two names with one hash (HASHAG.TXT and HASHBA.TXT) are told apart.
