@@ -187,8 +187,12 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
       if (!now || now.writes === keptWrites) return;
       keptWrites = now.writes;
       const out = await file(kept.format);
+      if (!info || !kept) return; // ejected meanwhile
       kept = { ...kept, bytes: out.bytes, format: out.format };
       await store.put(drive, kept);
+      info = { ...info, format: out.format }; // a sector image that became a WOZ says so
+      size = out.bytes.length;
+      show();
     } catch {
       /* not kept: the disk in the drive is still right */
     } finally {

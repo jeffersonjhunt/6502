@@ -206,6 +206,23 @@ describe("the drive", () => {
     expect(bar.busy()).toBe(false);
   });
 
+  test("written until it no longer fits its sectors: kept as WOZ, and the row says so", async () => {
+    const { port, store, bar } = make();
+    port.onFrame(bar.update);
+    port.emit(frame({}));
+    await pick(bar.element, "Master.dsk", new Uint8Array(143_360));
+    expect($(bar.element, "disk-meta").textContent).toBe("140 KB · DOS order");
+    port.emit(frame({ spinning: true }));
+    port.disks[0]!.writes = 40;
+    port.diskError = "no longer plain sectors";
+    const saveDisk = port.saveDisk.bind(port);
+    port.saveDisk = async (d, format) => (format === "woz" ? new Uint8Array(240 * 1024) : saveDisk(d, format));
+    port.emit(frame({ spinning: false }));
+    await flush();
+    expect((await store.get(0))?.format).toBe("woz");
+    expect($(bar.element, "disk-meta").textContent).toBe("240 KB · WOZ");
+  });
+
   test("the IIe looking for a disk with none in: says so, and why it seems stuck", async () => {
     const { port, bar } = make();
     port.emit({ apple: true, ...frame({ spinning: true }) });
