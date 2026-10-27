@@ -7,9 +7,11 @@
  * through the ROM BIOS's C80CR on backplane.machine, as the monitor's user
  * types it: OOLDR reads /OODOS/DRIVES.TXT, mounts A: and B:, finds OODOS.SYS
  * on A: with the CP/M reader (oodos/sys/cpmread.s) and puts its segments in
- * block 31 and blocks 60-62. The card's OODOS.SYS is the test system
- * (oodos/ldr/testsys.s), whose cold boot records the windows and P it found
- * at $7FF00 and stops.
+ * block 31 and blocks 60-62. The card's A: holds OODOS itself as OODOS.SYS
+ * and OOLDR's test system (oodos/ldr/testsys.s) as TESTSYS.SYS; here the
+ * test system is OODOS.SYS (parts() swaps the names in its copy of A:), so
+ * its cold boot records the windows and P it found at $7FF00 and stops.
+ * test_oodos_e2e boots OODOS itself.
  *
  * Every refusal (hw/oodos.md, "The system, phase 2" and "Drives") is made
  * here, not committed: cards are built in memory, FAT16 on the whole card,
@@ -43,6 +45,8 @@ namespace
     const std::string CARD = "oodos.sparse";
     constexpr size_t SECTOR = 512, RECORD = 128, ENTRY = 32;
     const std::string SYS_NAME = "OODOS   SYS";
+    const std::string TEST_NAME = "TESTSYS SYS"; // on the card; OODOS.SYS in parts()
+    const std::string MOVED_NAME = "OODOS   REL"; // the real OODOS.SYS, out of the way in parts()
     constexpr uint32_t TEST_RECORD = 0x7FF00; // testsys.s: what its cold boot found
 
     using Bytes = std::vector<uint8_t>;
@@ -285,12 +289,21 @@ namespace
         }
         Bytes card() const { return make_card(files()); }
     };
+    /// The committed card's files, with the test system as A:'s OODOS.SYS.
     const Parts &parts()
     {
         static const Parts p = [] {
             const Bytes &c = committed();
-            return Parts{file_of(c, "/BOOT.BIN"), file_of(c, "/OODOS/DRIVES.TXT"), file_of(c, "/OODOS/A.IMG"),
-                         file_of(c, "/OODOS/B.IMG")};
+            Parts out{file_of(c, "/BOOT.BIN"), file_of(c, "/OODOS/DRIVES.TXT"), file_of(c, "/OODOS/A.IMG"),
+                      file_of(c, "/OODOS/B.IMG")};
+            Drive a = Drive::of(out.a);
+            const std::vector<unsigned> real = a.entries_of(0, SYS_NAME), test = a.entries_of(0, TEST_NAME);
+            for (unsigned i : real)
+                std::memcpy(a.dir(i) + 1, MOVED_NAME.data(), 11);
+            for (unsigned i : test)
+                std::memcpy(a.dir(i) + 1, SYS_NAME.data(), 11);
+            out.a = a.img;
+            return out;
         }();
         return p;
     }
@@ -472,6 +485,14 @@ TEST(the_committed_card_holds_what_make_card_sh_says)
     CHECK_EQ(p.b.size(), size_t{8} << 20);
     CHECK_EQ(std::string(p.drives.begin(), p.drives.end()).find("\nA: /OODOS/A.IMG\nB: /OODOS/B.IMG\n") != std::string::npos,
              true);
+    // On the card itself: OODOS, the test system and HELLO.COM, each in user 0
+    Drive card_a = Drive::of(file_of(committed(), "/OODOS/A.IMG"));
+    const Bytes oodos = card_a.file(SYS_NAME);
+    REQUIRE(oodos.size() >= RECORD);
+    CHECK(std::equal(oodos.begin(), oodos.begin() + 4, "OOSY"));
+    CHECK_EQ(card_a.entries_of(0, TEST_NAME).size(), size_t{2});
+    CHECK(card_a.file("HELLO   COM").size() > 0);
+    // In parts(), the test system is OODOS.SYS
     Drive a = Drive::of(p.a);
     const std::vector<unsigned> e = a.entries_of(0, SYS_NAME);
     CHECK_EQ(e.size(), size_t{2}); // over a directory entry: 268 records, 256 to an entry
@@ -498,7 +519,7 @@ TEST(the_committed_card_holds_what_make_card_sh_says)
 TEST(the_committed_card_boots_the_test_system)
 {
     const Bytes sys = Drive::of(parts().a).file(SYS_NAME);
-    Boot b = boot(committed());
+    Boot b = boot(parts().card());
     came_up(b, sys);
     mounted(b, 1, "A.IMG", false);
     mounted(b, 2, "B.IMG", false);

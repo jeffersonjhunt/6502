@@ -662,7 +662,7 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
         free += dir[i * ENTRY] == 0xE5;
     }
     CHECK_EQ(sfcbs, 256u);
-    CHECK_EQ(free, 1024u - 256 - 1 - 7); // the label, and six files' seven entries
+    CHECK_EQ(free, 1024u - 256 - 1 - 10); // the label, and nine files' ten entries
     // The label's own stamps, in its bytes 24-31: made at make_card.sh's moment.
     CHECK(std::equal(MADE.begin(), MADE.end(), dir.begin() + 24));
     allocation(a, dir);
@@ -732,8 +732,8 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     allocation(a, dir);
     const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
     REQUIRE(e.size() == 2u);
-    CHECK_EQ(e[0], 10u); // the first free entries, not an SFCB's (11)
-    CHECK_EQ(e[1], 12u);
+    CHECK_EQ(e[0], 14u); // the first free entries, not an SFCB's (15)
+    CHECK_EQ(e[1], 16u); // an SFCB's first slot: the one fsck.cpm 2.23 compares backwards
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
     for (unsigned i : e)
     {
@@ -742,11 +742,11 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
         CHECK(st.second == NEW_UPDATED);
     }
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
-    // Nothing else changed: the directory's first sector (entries 10 and 12, the SFCBs in 11 and 15) and 65 of records.
+    // Nothing else changed: the directory's first two sectors (entries 14 and 16, the SFCBs in 15 and 19) and 65 of records.
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
         sectors += std::memcmp(before.data() + n * SECTOR, r.media->bytes().data() + n * SECTOR, SECTOR) != 0;
-    CHECK_EQ(sectors, size_t{1 + 65});
+    CHECK_EQ(sectors, size_t{2 + 65});
 }
 
 int main()

@@ -19,22 +19,25 @@
 #     0:PATTERN.BIN    36,864 bytes, seed 1: two directory entries (32 KB each)
 #     3:USER3.TXT      text, as README.TXT
 #     3:SMALL.BIN      384 bytes, seed 3
-#     0:OODOS.SYS      oodos/ldr/$SYS, built here: by default the test
-#                      system (oodos/ldr/testsys.s), 268 records, two entries,
-#                      until the real one replaces it
+#     0:OODOS.SYS      OODOS (oodos/sys/), built here
+#     0:TESTSYS.SYS    OOLDR's test system (oodos/ldr/testsys.s), 268
+#                      records, two entries: test_oodos_boot names it
+#                      OODOS.SYS in its own copy of the card
+#     0:HELLO.COM      oodos/examples/hello.s, for the CCP to run
+#     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
+#                      loader; it also puts test_oodos_card's file over an
+#                      SFCB's first slot (entries 14 and 16)
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
 # different run in each record; test_oodos_card.cpp and interop.sh know the
 # same, and the text files' words.
 set -eu
-# What goes on A: as OODOS.SYS, built by oodos/ldr/Makefile (a path in it).
-SYS=${SYS:-build/OODOS.SYS}
 # debian:bookworm as of 2026-10-20.
 image=debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/emulator/test/host/sd"
-docker run --rm -i -e SYS="$SYS" -v "$(hostpath "$root/oodos"):/o:ro" \
+docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" \
     -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
 apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 make python3 faketime >/dev/null
@@ -77,15 +80,20 @@ with open(dst, 'w') as f:
             f.write('%d %s\n' % (n, s.hex()))
 PY
 
-# OOLDR and OODOS.SYS, from their sources, in a copy laid out as the repo
-# is (/o and /b are read-only): /BOOT.BIN, and $SYS for A:.
+# OOLDR, OODOS.SYS, the test system and HELLO.COM, from their sources, in a
+# copy laid out as the repo is (/o and /b are read-only).
 mkdir -p src/oodos src/backplane/bios
-cp -r /o/include /o/sys /o/ldr src/oodos/
+cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools src/oodos/
 cp /b/backplane.inc src/backplane/bios/
-rm -rf src/oodos/ldr/build
+rm -rf src/oodos/ldr/build src/oodos/sys/build
 make -s -C src/oodos/ldr
+make -s -C src/oodos/sys build/OODOS.SYS build/hello.com
+make -s -C src/oodos build/hello.prl
 cp src/oodos/ldr/build/BOOT.BIN BOOT.BIN
-cp "src/oodos/ldr/$SYS" OODOS.SYS
+cp src/oodos/ldr/build/OODOS.SYS TESTSYS.SYS
+cp src/oodos/sys/build/OODOS.SYS OODOS.SYS
+cp src/oodos/sys/build/hello.com HELLO.COM
+cp src/oodos/build/hello.prl HELLO.PRL
 
 # A.IMG: made, its label's mode set to 0x31 (oodos/README.md), the files in.
 cp /o/diskdefs diskdefs
@@ -102,7 +110,7 @@ python3 text.py USER3.TXT 'A FILE IN USER 3.'
 python3 gen.py SMALL.BIN 384 3
 at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
-at cpmcp -f oodos-8m A.IMG OODOS.SYS 0:
+at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL 0:
 fsck.cpm -f oodos-8m -n A.IMG
 cpmls -f oodos-8m -F A.IMG
 

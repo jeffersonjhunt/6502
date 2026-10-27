@@ -11,8 +11,10 @@
 ;           header) at $0280 where a loader leaves it: for tests, and for
 ;           whatever put it there by hand. The command tail goes over the
 ;           header, so a second GO needs it put back
-;   NAME    NAME.COM from drive A, user 0: the integration hook below.
-;           Until then, and for a name it can't find, NAME?
+;   NAME    NAME.COM from drive A, user 0, read by cpmread.s (OOLDR's
+;           reader) a record at a time: the header (the file's first 16
+;           bytes) to $0280, checked, then exactly the image's size, from
+;           the file's 17th byte, to $0300. A name it can't find is NAME?
 ;
 ; Before a program runs, its header is checked as the loader checks it
 ; (hw/oodos.md, "The program header"): the magic number, no flags (a .COM),
@@ -26,15 +28,21 @@
 .include "sys.inc"
 .include "oodos.inc"
 .import WARM, STUB
+.import CR_INIT, CR_FIND, CR_READ
 .export CCP, RUNHDR
 
 LINE_MAX        = 126                  ; what $0280's tail can hold
+RECORD          = 128
 
 .segment "RESBSS"
 LINE:           .res    2 + LINE_MAX   ; function 10's: its size, the count, the line
 WSTART:         .res    1              ; the command word, in LINE
 WEND:           .res    1
-FCBNAME:        .res    11             ; NAME.COM as an FCB has it, for the hook
+FCBNAME:        .res    11             ; NAME.COM as an FCB has it
+LEFT:           .res    2              ; the image's bytes still to load
+DEST:           .res    2              ; where the next record goes
+LASTREC:        .res    RECORD         ; each record of NAME.COM, before its bytes are copied
+COUNT:          .res    1              ; COPYREC's bytes
 
 .segment "RES"
 
@@ -100,13 +108,18 @@ PROMPT:         LDX     #$FF
                 BNE     LOADCOM
                 JMP     RUNHDR
 
-; ---- Integration hook: NAME.COM from drive A ----------------------------
-; With OOLDR's read-only reader (cpmread.s): CR_INIT with A = 1 (drive A's
-; unit), CR_FIND with FCBNAME (made here: the name, space padded to 8, then
-; COM), then CR_READ a record at a time: the first to $0280 (the header,
-; checked by RUNHDR) and the image, exactly its size, to $0300, as
-; hw/oodos.md's "The program header" says; then JMP RUNHDR. Not found:
-; NAME?, below.
+; NAME.COM from drive A (unit 1), user 0, a record at a time through
+; LASTREC: the header, its first 16 bytes, to $0280 and checked before
+; anything else is written; then exactly the image's size, which follows the
+; header in the file, to $0300, so nothing past the image changes.
+; The reader failed (or the file ended inside the image): READ ERROR.
+RDERR:          LDA     #<READERR
+                LDX     #>READERR
+                JSR     STRING
+                JMP     PROMPT
+
+NOFILE:         JMP     NONAME         ; NONAME is out of a branch's reach
+
 LOADCOM:        LDY     #10            ; FCBNAME: "NAME    COM"
 @blank:         LDA     COMNAME,Y
                 STA     FCBNAME,Y
@@ -115,15 +128,108 @@ LOADCOM:        LDY     #10            ; FCBNAME: "NAME    COM"
                 LDX     WSTART
                 LDY     #0
 @name:          CPX     WEND
-                BEQ     NONAME
+                BEQ     @find
                 CPY     #8
-                BCS     NONAME         ; too long: NAME? anyway
+                BCS     NOFILE         ; too long: NAME? anyway
                 LDA     LINE + 2,X
                 STA     FCBNAME,Y
                 INX
                 INY
                 BRA     @name
-; ---- (end of the hook) --------------------------------------------------
+@find:          LDA     #1
+                JSR     CR_INIT
+                BCS     RDERR
+                LDA     #<FCBNAME
+                LDX     #>FCBNAME
+                JSR     CR_FIND
+                BCC     @found
+                CMP     #CRE_NOFILE
+                BEQ     NOFILE
+                BRA     RDERR
+@found:         JSR     NEXTREC        ; record 0: the header, then the image's start
+                BCC     @header
+                CMP     #CRE_EOF       ; an empty file: no program
+                BNE     @fail
+                STZ     BP_DMA
+                JSR     CHECKHDR       ; says so, and doesn't come back
+@header:        LDX     #OH_LEN - 1    ; the header to $0280, where RUNHDR reads it
+@hdr:           LDA     LASTREC,X
+                STA     BP_DMA,X
+                DEX
+                BPL     @hdr
+                JSR     CHECKHDR       ; back only if it may run
+                LDA     BP_DMA + OH_SIZE
+                STA     LEFT
+                LDA     BP_DMA + OH_SIZE + 1
+                STA     LEFT + 1
+                STZ     DEST
+                LDA     #>BP_TPA
+                STA     DEST + 1
+                LDX     #OH_LEN        ; the image starts after the header, in record 0
+                LDA     LEFT           ; an empty image: nothing to load
+                ORA     LEFT + 1
+                BEQ     @loaded
+@more:          TXA
+                JSR     COPYREC
+                LDA     LEFT           ; the image's end?
+                ORA     LEFT + 1
+                BEQ     @loaded
+                JSR     NEXTREC
+                BCS     @fail          ; the file ends inside the image
+                LDX     #0
+                BRA     @more
+@loaded:        JMP     RUNTAIL
+@fail:          JMP     RDERR
+
+; The file's next record into LASTREC; carry set and the error in A if none.
+NEXTREC:        LDA     #<LASTREC
+                LDX     #>LASTREC
+                JMP     CR_READ
+
+; LASTREC from offset A to its end, or LEFT bytes if fewer (LEFT isn't 0), to
+; DEST; both move on.
+COPYREC:        CLC                    ; the LDA's operand: LASTREC + A
+                ADC     #<LASTREC
+                STA     @from + 1
+                LDA     #>LASTREC
+                ADC     #0
+                STA     @from + 2
+                LDA     DEST           ; the STA's: DEST
+                STA     @to + 1
+                LDA     DEST + 1
+                STA     @to + 2
+                SEC                    ; Y: the bytes, 128 - offset at most
+                LDA     #RECORD
+                SBC     @from + 1
+                CLC
+                ADC     #<LASTREC
+                LDX     LEFT + 1
+                BNE     @n
+                CMP     LEFT
+                BCC     @n
+                LDA     LEFT
+@n:             STA     COUNT
+                LDY     #0
+@byte:
+@from:          LDA     $FFFF,Y
+@to:            STA     $FFFF,Y
+                INY
+                CPY     COUNT
+                BNE     @byte
+                CLC                    ; DEST += COUNT, LEFT -= COUNT
+                LDA     DEST
+                ADC     COUNT
+                STA     DEST
+                BCC     @less
+                INC     DEST + 1
+@less:          SEC
+                LDA     LEFT
+                SBC     COUNT
+                STA     LEFT
+                BCS     @done
+                DEC     LEFT + 1
+@done:          RTS
+
 
 ; NAME?: the word as typed, in capitals, and a question mark.
 NONAME:         LDX     WSTART
@@ -140,7 +246,12 @@ NONAME:         LDX     WSTART
 
 ; Run the program whose header is at $0280 and image at $0300: the loader's
 ; checks, the tail and FCBs, a fresh stack, $0300.
-RUNHDR:         LDX     #3
+RUNHDR:         JSR     CHECKHDR
+                BRA     RUNTAIL
+
+; The header at $0280 checked as the loader checks it: back if it may run,
+; else what's wrong and the prompt.
+CHECKHDR:       LDX     #3
 @magic:         LDA     BP_DMA,X
                 CMP     MAGIC,X
                 BNE     @none
@@ -169,15 +280,17 @@ RUNHDR:         LDX     #3
                 CPY     #<(BDOS_ENTRY + 1)
                 SBC     #>(BDOS_ENTRY + 1) ; carry set: the end is past $BFFD
                 BCS     @bad
-                BRA     @fits
+                RTS
 @none:          LDA     #<NOPROG
                 LDX     #>NOPROG
                 BRA     @say
 @bad:           LDA     #<BADPROG
                 LDX     #>BADPROG
 @say:           JSR     STRING
-                JMP     PROMPT
-@fits:          LDY     #0             ; the tail: after the command word
+                JMP     PROMPT         ; a fresh stack: CHECKHDR's return is dropped
+
+; Run it: the command tail over the header, the FCBs, a fresh stack, $0300.
+RUNTAIL:        LDY     #0             ; the tail: after the command word
                 LDX     WEND
 @tail:          CPX     LINE + 1
                 BEQ     @tailed
@@ -229,3 +342,4 @@ COMNAME:        .byte   "        COM"
 CRLF:           .byte   $0D, $0A, "$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
+READERR:        .byte   "READ ERROR$"

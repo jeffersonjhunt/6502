@@ -119,8 +119,8 @@ ctest --preset dev -R test_oodos_sys
 ./build/dev/test/host/test_oodos_sys     # the cases, and the stub's and FARCALL's cycles
 ```
 
-To run something by hand at the stand-in CCP, put a `.COM`'s first record at `$0280` and its image at `$0300`
-and type `GO`, as the test does. `NAME.COM` from drive A comes with OOLDR's reader (the hook is in `ccp.s`).
+At the stand-in CCP, `NAME` runs `NAME.COM` from drive A, user 0 (`HELLO` on the test card). To run something
+by hand instead, put a `.COM`'s header at `$0280` and its image at `$0300` and type `GO`, as test_oodos_sys does.
 
 M:'s format is checked against what cpmtools makes, kept as `emulator/test/host/sd/oodos-ram.sparse`; it was made,
 and is made again, with Docker:
@@ -182,17 +182,15 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 |---|---|
 | `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
 | `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, and `0:OODOS.SYS`, the test system ([`ldr/testsys.s`](ldr/testsys.s): 268 records, two entries) |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 268 records, two entries), `0:HELLO.COM` and `0:HELLO.PRL` |
 | `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
 It runs everything (make, ca65 and ld65 for OOLDR and OODOS.SYS, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
 throwaway `debian:bookworm`, pinned by digest, under faketime, every stamp 2026-10-26 12:00, with fixed volume and
-disk ids, so the same sources make the same card; it prints the packages' versions. `SYS` names what goes on A: as
-OODOS.SYS, a path in `ldr/` (by default `build/OODOS.SYS`, the test system), for when the real one replaces it:
+disk ids, so the same sources make the same card; it prints the packages' versions:
 
 ```
 oodos/tools/make_card.sh
-SYS=build/OTHER.SYS oodos/tools/make_card.sh
 ```
 
 `mkfs.cpm` writes only the directory, and the file grows as `cpmcp` writes; an SD unit is its file's size, so the
@@ -250,7 +248,7 @@ entries only
 
 OOLDR is `/BOOT.BIN` on an OODOS card: the ROM BIOS's `C80CR` loads it at `$1000`, and it reads
 `/OODOS/DRIVES.TXT`, mounts the drives and loads OODOS.SYS from A: ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)).
-[`ldr/`](ldr/) builds it, with its own Makefile, and the test OODOS.SYS the card carries until the real one:
+[`ldr/`](ldr/) builds it, with its own Makefile, and the test system the card carries as TESTSYS.SYS:
 
 ```
 make -C ldr            # ldr/build/BOOT.BIN (OOLDR) and ldr/build/OODOS.SYS (testsys.s)

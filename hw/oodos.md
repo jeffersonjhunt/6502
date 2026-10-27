@@ -501,8 +501,11 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   not parsed (phase 4). A program starts with A, X and Y 0, D clear, interrupts off, and the warm boot's address on
   a fresh stack, so its RTS ends it. Its built-in `GO` runs the image at `$0300` whose first record is at `$0280`,
   as a loader leaves them, after the loader's checks (magic, no flags, link page `$03`, the image and BSS ending by
-  `$BFFD`); the tail then goes over that header. `NAME.COM` from drive A is the integration hook, marked in
-  `ccp.s`: until the reader is in, `NAME?`.
+  `$BFFD`); the tail then goes over that header. `NAME.COM` comes from drive A, user 0, through OOLDR's reader
+  (`cpmread.s`, linked into block 62) a record at a time: the header, the file's first 16 bytes, to `$0280` and
+  checked before anything else is written, then exactly the image's size, which follows it in the file, to
+  `$0300`; nothing past the image changes. A name it can't find is `NAME?`, one over 8 characters too; a file that
+  ends inside its image, or a reader error, is `READ ERROR`.
 - **The stand-in BDOS's choices:** 11 returns 1 for a waiting character (CP/M 3's); 6 with `$FE` returns `$FF` or 0;
   10 with A/X = 0 reads into the DMA address (from the SCB, `$0280` at boot) but doesn't edit what is there, takes
   BS and DEL, ^X, and ^C at the start of a line (the warm boot), ignores other control characters and echoes the
@@ -754,8 +757,8 @@ copyright and MIT notice.
   and P it found to block 31 and stops. ld65 writes the header's records from the file offsets it gives.
 - **The card:** `make_card.sh` builds both in its container and puts them on the card, which is now 32 MB:
   `/BOOT.BIN` is OOLDR, A.IMG holds OODOS.SYS beside phase 1's files, and `/OODOS/B.IMG` is an empty `oodos-8m`
-  drive, label mode 0x31; DRIVES.TXT names A: and B:. `SYS=` chooses what goes on A: as OODOS.SYS. The sparse
-  image is 351 KB.
+  drive, label mode 0x31; DRIVES.TXT names A: and B:. (At integration A: got OODOS itself as OODOS.SYS, the test
+  system as TESTSYS.SYS, which test_oodos_boot renames in its copy, and HELLO.COM and HELLO.PRL: below.)
 - **`test_oodos_boot`, in ctest,** boots the committed card through C80CR in a Session and checks every segment
   byte for byte at its physical address, the bytes either side as they were, the entry (W0 still block 0, W1–W3
   and VEC 60, 61, 62, 62, I set, D clear), and units 1 and 2 mounted as A.IMG and B.IMG with their flags. Then every
@@ -779,6 +782,20 @@ copyright and MIT notice.
   the BOM not skipped, nothing unmounted, segments over 16 KB let by, part full entries let by.
 - `test_oodos_card` follows the card (its size, the directory's entries, OO1.BIN's two entries now 10 and 12) and
   `interop.sh` passes on it unchanged.
+
+**Done (phase 2: together, 2026-10-27)**
+
+- **The card** carries the whole system: `/BOOT.BIN` is OOLDR, and A: holds OODOS.SYS (OODOS itself),
+  TESTSYS.SYS (OOLDR's test system, which `test_oodos_boot` names OODOS.SYS in its own copy of the card),
+  HELLO.COM and HELLO.PRL. The sparse image is 366 KB.
+- **`test_oodos_e2e`, in ctest,** boots the committed card as its owner would: the monitor, `C80CR`, OOLDR, OODOS
+  and `A>`; `hello world` runs HELLO.COM from A: through the CCP's reader, with its tail, its image byte for byte
+  at `$0300` and the bytes past its BSS (set by the monitor first) untouched, and runs again after the warm boot;
+  a name not on A:, a `.SYS` not a `.COM` and a name over 8 characters say `NAME?`. Seen to fail with the image
+  loaded from the file's start instead of after its header.
+- `test_oodos_card` follows the card: ten entries before its own file, which lands in entries 14 and 16, so an
+  SFCB's first slot, the one fsck.cpm 2.23 compares backwards, is still exercised (HELLO.PRL is there partly for
+  that).
 
 **Done (phase 2: the system, 2026-10-27)** ([oodos/README.md](../oodos/README.md) has the commands)
 
