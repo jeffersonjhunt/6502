@@ -1545,6 +1545,79 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         r.tail(2000);
 }
 
+/// ERRTEST's case `c` to the prompt, `between` called at its prompt `wait` if it has one.
+std::string errtest(Rig &r, char c, const std::string &wait = "", const std::function<void()> &between = {})
+{
+    const size_t from = start(r, "errtest.com", std::string(" ") + c);
+    if (!wait.empty())
+    {
+        CHECK(r.until(wait, ms(10000), from));
+        between();
+        r.type(" ");
+    }
+    CHECK(r.until("\r\nA>", ms(10000), from + 4));
+    const std::string o = r.out.substr(from);
+    CHECK(o.find("NOT REACHED") == std::string::npos); // the default mode ended the program
+    return o;
+}
+size_t count_of(const std::string &text, const std::string &what)
+{
+    size_t n = 0;
+    for (size_t at = text.find(what); at != std::string::npos; at = text.find(what, at + 1))
+        ++n;
+    return n;
+}
+
+TEST(errors_return_say_or_end_the_program_as_the_error_mode_says)
+{
+    {
+        Booted r; // B: is a read-only unit
+        REQUIRE(r.ok);
+        const std::string o = errtest(r, 'B');
+        CHECK_EQ(field(o, "RO"), std::string("FF 02")); // mode $FF: only returned
+        const std::string msg = "\r\nOODOS Error On B: Read Only\r\nBDOS Function = 22 File = X       .TXT\r\n";
+        CHECK_EQ(count_of(o, msg), size_t{2});         // mode $FE and the default say it
+        CHECK(o.find(msg + "BACK FF 02\r\n") != std::string::npos); // $FE returned after
+        CHECK(o.find("RO FF 02\r\nBACK") == std::string::npos);
+    }
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const std::string o = errtest(r, 'M');
+        CHECK_EQ(field(o, "EXISTS"), std::string("FF 08"));
+        CHECK_EQ(field(o, "WILD"), std::string("FF 09"));
+        CHECK(o.find("\r\nOODOS Error On M: File Exists\r\nBDOS Function = 22 File = ROF     .TXT\r\nBACK FF 08\r\n") !=
+              std::string::npos);
+        CHECK(o.find("\r\nOODOS Error On M: File R/O\r\nBDOS Function = 21 File = ROF     .TXT\r\n") != std::string::npos);
+    }
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const std::string o = errtest(r, 'P');
+        CHECK(o.find("\r\nOODOS Error On P: Invalid Drive\r\nBDOS Function = 14\r\n") != std::string::npos);
+    }
+    {
+        Booted r;
+        REQUIRE(r.ok);
+        const std::string o = errtest(r, 'I', "EJECT?", [&] { r.sd().eject(); });
+        CHECK_EQ(field(o, "IO"), std::string("FF 01"));
+        CHECK(o.find("\r\nOODOS Error On A: Disk I/O\r\nBDOS Function = 15 File = README  .TXT\r\n") != std::string::npos);
+    }
+    {
+        // B: writable when it is logged in, made read-only behind the BDOS's back: the close's
+        // write-back gets the BIOS's 2, a Read Only error, and B: is read-only from then on.
+        Rig r;
+        REQUIRE(r.ok);
+        CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+        CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+        REQUIRE(r.boot());
+        const std::string o = errtest(r, 'W', "REMOUNT?", [&] { CHECK_EQ(r.mount(2, "/OODOS/B.IMG", true), 0); });
+        CHECK_EQ(field(o, "WPCLOSE"), std::string("FF 02"));
+        CHECK_EQ(field(o, "WPROVEC"), std::string("02 00"));
+        CHECK(o.find("\r\nOODOS Error On B: Read Only\r\nBDOS Function = 22 File = WP2     .TXT\r\n") != std::string::npos);
+    }
+}
+
 int main()
 {
     // ctest stays hermetic with no skips (hw/oodos.md, "Testing"): CMake requires the tools
