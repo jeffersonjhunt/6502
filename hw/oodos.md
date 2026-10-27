@@ -592,3 +592,17 @@ Each phase is its own branch.
 - **A home block for GW-BASIC.** Letting a program keep one block mapped in W3 between far calls, and FARCALL
   return to it rather than to nothing, would move 4–6 KB of GW-BASIC out of the TPA. It changes FARCALL's design
   above; for phase 2, not needed for the 32 KB.
+- **A lean FARCALL**, keeping only A and the flags across the call, would save an estimated 100–140 of its 281
+  cycles (not measured: reading the inline bytes, the return frame and the two window writes stay). Under 1% on
+  PRINT, more on a graphics loop's far call a point, nothing on the core statement path. Against it:
+  - X and Y no longer reach the target or come back. The GW-BASIC port names numbers in zero page by X, so a
+    banked math entry taking one would need X passed through zero page: a second convention at the bank
+    boundary, and some of the saving back.
+  - FARCALL is OODOS's interface for every program (function 72), not GW-BASIC's. cc65's C passes and returns
+    16-bit values in A/X, so a banked C function would lose the high byte. Two variants cost common memory.
+  - A routine that works by JSR can break by FARCALL with nothing to say so; the full one's "whatever works by
+    JSR works by FARCALL" is what the spike's checks test, and they found real bugs (X lost, D set).
+
+  Leaning (2026-10-27): keep the full FARCALL as the interface; if phase 2's timing shows far calls matter
+  somewhere (graphics), a lean variant private to GW-BASIC's dispatchers, whose targets take nothing in X or Y.
+  Time a lean prototype with `check.py --timing` first.
