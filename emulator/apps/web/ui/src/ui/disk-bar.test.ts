@@ -179,6 +179,21 @@ describe("the drive", () => {
     expect(port.callsTo("saveDisk").length).toBe(1);
   });
 
+  test("busy while the motor runs, and until what it wrote is kept", async () => {
+    const { port, bar } = make();
+    port.onFrame(bar.update);
+    port.emit(frame({}));
+    await pick(bar.element, "Master.dsk", new Uint8Array(4));
+    expect(bar.busy()).toBe(false);
+    port.emit(frame({ spinning: true }));
+    expect(bar.busy()).toBe(true);
+    port.disks[0]!.writes = 40;
+    port.emit(frame({ spinning: false }));
+    expect(bar.busy()).toBe(true); // keeping it
+    await flush();
+    expect(bar.busy()).toBe(false);
+  });
+
   test("the IIe looking for a disk with none in: says so, and why it seems stuck", async () => {
     const { port, bar } = make();
     port.emit({ apple: true, ...frame({ spinning: true }) });

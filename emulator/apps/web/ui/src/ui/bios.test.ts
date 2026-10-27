@@ -70,4 +70,36 @@ describe("the BIOS row", () => {
     expect(keptBios()).toBeNull();
     forgetBios();
   });
+
+  test("a restart that would lose something asks first, saying the machine restarts; No keeps things as they are", async () => {
+    keepBios("mine.rom", new Uint8Array([1, 2, 3]));
+    let restarts = 0;
+    let left = 0;
+    const asked: string[] = [];
+    const answer = { yes: false };
+    const row = biosRow(() => ++restarts, {
+      atRisk: () => ["the SD card's writes to card.img aren't saved", "drive 1 is at work"],
+      confirm: (q) => (asked.push(q), answer.yes),
+      leaving: () => ++left,
+    });
+    await pick(row.element, "new.rom", new Uint8Array([7]));
+    expect(asked).toEqual(["Restart on new.rom? The machine restarts: the SD card's writes to card.img aren't saved; drive 1 is at work."]);
+    $(row.element, "bios-builtin").click();
+    expect(asked[1]).toMatch(/^Restart on the built-in BIOS\? The machine restarts: /);
+    expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) }); // neither saved nor forgotten
+    expect([restarts, left]).toEqual([0, 0]);
+    answer.yes = true;
+    await pick(row.element, "new.rom", new Uint8Array([7]));
+    expect(keptBios()).toEqual({ name: "new.rom", bytes: new Uint8Array([7]) });
+    expect([restarts, left]).toEqual([1, 1]); // the page's own prompt on leaving is waived: it was asked
+  });
+
+  test("nothing at risk: no question", async () => {
+    const asked: string[] = [];
+    let restarts = 0;
+    const row = biosRow(() => ++restarts, { atRisk: () => [], confirm: (q) => (asked.push(q), false) });
+    await pick(row.element, "new.rom", new Uint8Array([7]));
+    expect(asked).toEqual([]);
+    expect(restarts).toBe(1);
+  });
 });

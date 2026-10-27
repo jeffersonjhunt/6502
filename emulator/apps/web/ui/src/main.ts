@@ -285,7 +285,16 @@ function start(root: HTMLElement, port: MachinePort): void {
   const store = browserDiskStore();
   const drives = [0, 1].map((d) => diskBar(port, store, download, { bootNeeds: appleRoms.bootNeeds, open: () => openSettings("disk") }, d));
   const card = sdBar(port, download, window, { open: () => openSettings("sd") });
-  const bios = biosRow(() => location.reload());
+  const bios = biosRow(() => location.reload(), {
+    atRisk: () => {
+      const sd = card.unsaved();
+      return [
+        ...(sd ? [`the SD card's writes to ${sd} aren't saved (Save keeps them)`] : []),
+        ...drives.flatMap((d, i) => (d.busy() ? [`drive ${i + 1} is at work, and what it writes may be lost`] : [])),
+      ];
+    },
+    leaving: () => card.waive(),
+  });
   const settings = settingsPanel({
     roms: [bios.element, appleRoms.element],
     drives: drives.map((d) => d.element),

@@ -170,6 +170,18 @@ describe("the SD slot", () => {
     expect(bar.pill.hidden).toBe(true);
   });
 
+  test("unsaved: the card's name while it has writes; waived, leaving doesn't ask", async () => {
+    const { port, bar, leaving } = make();
+    port.emit(frame({ present: false }));
+    await pick(bar.element, "card.img", new Uint8Array(1024));
+    expect(bar.unsaved()).toBeNull();
+    port.emit(frame({ changed: true }));
+    expect(bar.unsaved()).toBe("card.img");
+    expect(leaving()).toBe(true);
+    bar.waive(); // the page asked already
+    expect(leaving()).toBe(false);
+  });
+
   test("power off: the row and the pill stay, the light out", async () => {
     const { port, bar } = make();
     port.emit(frame({ present: false }));

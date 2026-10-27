@@ -73,6 +73,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   let kept: KeptDisk | null = null;
   let keptWrites = 0;
   let spinning = false;
+  let keeping = 0; // keeps of what was written, still going
   let read = false; // the drive has spun with this disk in
   let auto = ""; // the note update() last put up
   let present = false; // the machine has the card
@@ -179,15 +180,18 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   /** Keep what was written, once the drive has stopped. */
   const keepChanges = async () => {
     if (!info || !kept) return;
-    const now = await port.readDiskInfo(drive);
-    if (!now || now.writes === keptWrites) return;
-    keptWrites = now.writes;
+    ++keeping;
     try {
+      const now = await port.readDiskInfo(drive);
+      if (!now || now.writes === keptWrites) return;
+      keptWrites = now.writes;
       const out = await file(kept.format);
       kept = { ...kept, bytes: out.bytes, format: out.format };
       await store.put(drive, kept);
     } catch {
       /* not kept: the disk in the drive is still right */
+    } finally {
+      --keeping;
     }
   };
 
@@ -221,5 +225,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
     if (!f.apple) return "Start Apple IIe boots it";
     return "Reboot boots it (or PR#6 in BASIC)";
   };
-  return { element, pill, restore, update, loaded: () => !!info };
+  /** Its motor runs, or what it wrote is still being kept: a restart now may lose writes. */
+  const busy = () => spinning || keeping > 0;
+  return { element, pill, restore, update, busy, loaded: () => !!info };
 }

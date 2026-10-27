@@ -115,9 +115,10 @@ export function sdBar(
     show();
     insert.focus(); // Eject is gone: the keyboard stays on the row
   });
-  // Unsaved writes: ask before the page goes, and the card with it.
+  // Unsaved writes: ask before the page goes, and the card with it; unless the page asked already (waive).
+  let waived = false;
   win.addEventListener("beforeunload", (e: Event) => {
-    if (info?.changed) e.preventDefault();
+    if (info?.changed && !waived) e.preventDefault();
   });
   show();
 
@@ -137,5 +138,14 @@ export function sdBar(
       show();
     }
   };
-  return { element, pill, update, loaded: () => !!info };
+  return {
+    element,
+    pill,
+    update,
+    loaded: () => !!info,
+    /** The card's name while it has writes not saved, else null. */
+    unsaved: () => (info?.changed ? info.name : null),
+    /** The page is going with the user's say-so: leaving doesn't ask again. */
+    waive: () => (waived = true),
+  };
 }

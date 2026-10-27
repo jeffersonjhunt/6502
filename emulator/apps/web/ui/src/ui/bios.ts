@@ -3,7 +3,10 @@
  * own build of it (Load…), kept in this browser (localStorage) as the IIe
  * ROM is, and never uploaded. A BIOS is the machine's flash: loading one
  * restarts the page, which opens the machine on it (port/wasm-port.ts);
- * Use built-in forgets it and restarts on the page's own.
+ * Use built-in forgets it and restarts on the page's own. When a restart
+ * would lose something (the SD card's writes, a drive at work), it asks
+ * first, in the page, and only then keeps or forgets: so the page's own
+ * prompt on leaving can't stop a restart the choice was already saved for.
  */
 
 import { MAX_BIOS } from "../port/wasm-port";
@@ -47,8 +50,17 @@ export function forgetBios(): void {
   prefs.remove("bios-name");
 }
 
+export interface BiosHooks {
+  /** What a restart now would lose, as phrases ("the SD card's writes..."); none: nothing. */
+  atRisk?: () => string[];
+  /** Asks; true to go ahead (window.confirm). */
+  confirm?: (question: string) => boolean;
+  /** Agreed: the page goes without asking again. */
+  leaving?: () => void;
+}
+
 /** restart: start the page again (location.reload), on whatever is kept now. */
-export function biosRow(restart: () => void) {
+export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
   const mine = keptBios();
   const picker = h("input", { type: "file", accept: ".rom,.bin", hidden: true, "data-testid": "bios-file" });
   const meta = h("div", { class: "meta", "data-testid": "bios-meta" });
@@ -61,6 +73,11 @@ export function biosRow(restart: () => void) {
   const note = h("p", { class: "row-note", role: "status", "data-testid": "bios-note" });
   const element = h("div", { class: "row-wrap" }, h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, "BIOS"), meta), builtIn, load), note);
   const say = (text: string) => (note.textContent = text);
+  /** May the machine restart, losing what it would? */
+  const letGo = (doing: string) => {
+    const risks = hooks.atRisk?.() ?? [];
+    return !risks.length || (hooks.confirm ?? ((q) => confirm(q)))(`${doing}? The machine restarts: ${risks.join("; ")}.`);
+  };
 
   let version = "";
   const show = () => {
@@ -80,12 +97,16 @@ export function biosRow(restart: () => void) {
     } catch (err) {
       return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
+    if (!letGo(`Restart on ${f.name}`)) return;
     if (!keepBios(f.name, bytes)) return void say("This browser would not keep it, so the machine can't restart on it");
+    hooks.leaving?.();
     say(`Restarting on ${f.name}…`);
     restart();
   });
   builtIn.addEventListener("click", () => {
+    if (!letGo("Restart on the built-in BIOS")) return;
     forgetBios();
+    hooks.leaving?.();
     say("Restarting on the built-in BIOS…");
     restart();
   });
