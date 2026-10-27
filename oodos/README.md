@@ -14,6 +14,7 @@ directory holds the work.
   `interop.sh` share, and interop's own reading of the date stamps.
 - [`ldr/`](ldr/): OOLDR, the loader (`/BOOT.BIN`), and a test OODOS.SYS; [`sys/cpmread.s`](sys/cpmread.s), the
   read-only CP/M reader OOLDR and OODOS.SYS share (phase 2, below).
+- [`sys/`](sys/): OODOS.SYS, phase 2's system: common memory, the stand-in BDOS and CCP, the BIOS; below.
 
 
 ## Building a program ##
@@ -88,6 +89,45 @@ And phase 1's tooling:
 
 - [`tools/make_card.sh`](tools/make_card.sh): makes the test card, from [`card/`](card/).
 - [`test/interop.sh`](test/interop.sh): checks a card with cpmtools, the committed one or one the OO-1 wrote.
+
+
+## The system: OODOS.SYS ##
+
+Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)), in [`sys/`](sys/):
+
+| File | What |
+|---|---|
+| `common.s` | common memory, `$F800–$FFFF` in block 62: the BIOS's jump table, the BDOS stub, the warm boot, FARCALL, IRQ, Break and BRK, the vectors |
+| `bdos.s` | the stand-in BDOS, block 60 |
+| `bios.s`, `crt.s` | the BIOS, block 61: drives, M:, TIME, MOVE, the devices; the text screen's VT52 subset |
+| `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
+| `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
+| `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST), `check_mksys.py`, `make_mdisk.sh` |
+
+```
+make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
+make -C sys sizes       # its segments: mksys.py --check
+make -C sys check       # test/check_mksys.py: ends PASS 53
+```
+
+The native test runs it all on the emulator; from `emulator/`, after `cmake --build --preset dev` (which runs the
+Makefile above into the build tree):
+
+```
+ctest --preset dev -R test_oodos_sys
+./build/dev/test/host/test_oodos_sys     # the cases, and the stub's and FARCALL's cycles
+```
+
+To run something by hand at the stand-in CCP, put a `.COM`'s first record at `$0280` and its image at `$0300`
+and type `GO`, as the test does. `NAME.COM` from drive A comes with OOLDR's reader (the hook is in `ccp.s`).
+
+M:'s format is checked against what cpmtools makes, kept as `emulator/test/host/sd/oodos-ram.sparse`; it was made,
+and is made again, with Docker:
+
+```
+sys/test/make_mdisk.sh      # mkfs.cpm -f oodos-ram -t at 2026-10-27 12:00, the mode set to 0x31
+```
 
 
 ## Drives on Linux ##
