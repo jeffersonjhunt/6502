@@ -540,6 +540,47 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   one of BOOT, which would run cold boot again and format M: (a program ends by the warm boot).
 
 
+
+## The BDOS, phase 3 ##
+
+**Decided (2026-10-27): three parts, each reviewed and merged on its own.** 3a the file system core; 3b CP/M 3's
+extras (the SCB, multi-sector I/O, labels, reading stamps, XFCBs and passwords, chain, the full console set,
+107, 108, 152); 3c the memory functions 51–58 and OODOS's 73–74. **A randomized model test** comes with 3a: a model
+of CP/M 3's file system, ours, in Python, written from the manuals, that random sequences of file operations run
+against, compared with what the BDOS does on the emulator.
+
+**Proposed (3a)**
+
+- **Functions:** 13–37, 40, 42–43 (succeed, do nothing), 45, 46, 48, 98 and 99, as CP/M 3's, with the registers
+  above, the stand-in's console, version, time, 50 and 72 kept. 27 returns `$FFFF`, 31 the address of a copy of
+  the DPB in common memory. 44 (multi-sector) is 3b's: until then the count is 1.
+- **Date stamps from 3a:** every OODOS drive's label asks for creation and update stamps (mode 0x31), so making a
+  file stamps its SFCB slot's creation, and closing a written one its update, from TIME, as the label's mode says.
+  Reading them (102), labels (100, 101), XFCBs and passwords are 3b's.
+- **Where it lives.** The BDOS's code is block 60, and what doesn't fit goes in block 62's code window (about 10 KB is
+  free there). Its variables and the drives' allocation vectors (CP/M 3's two bits a block: 1 KB at most for an
+  `oodos-32m` drive) are in the system block. The hash tables (4 bytes a directory entry: 4 KB an `oodos-8m`
+  drive, 8 KB an `oodos-32m`, 1 KB M:) are in blocks 24–27, and the directory and data buffers (BCBs, 512 bytes
+  each) in block 28: banks 6–7, as [Banking](#banking) planned. Blocks 29–30 are spare.
+- **Reaching them:** the BDOS maps a hash or buffer block into W2 while it works on it. Each entry of the BIOS's
+  jump table puts W2 back on the BIOS (block 61) for the call and returns it as it was, so the BDOS needn't care
+  which block W2 holds when it calls the BIOS.
+- **The hash** is in memory only and ours: per entry the user (or a free/other mark), a hash of the name and the
+  extent number, so a search compares four bytes before it reads the entry.
+- **Deblocking:** the BDOS reads and writes 512-byte physical sectors through the BCBs, least recently used first,
+  and writes a changed buffer back when it's reused, at close, function 48, a drive reset (13, 37) and a warm boot.
+- **Login** (the first select after a reset): the directory is read once to build the allocation vector and the
+  hash, and the label read for the stamp mode. An SD drive is fixed media (CKS `$8000`, no checksums).
+- **Errors** as CP/M 3's, with the error mode of 45: by default the BDOS says `OODOS Error On A: Disk I/O` (or Read
+  Only, File R/O, Invalid Drive) and the function and file, and ends the program; in return mode it returns
+  A = `$FF` and X = the code (CP/M 3's H).
+- **The stand-in CCP** loads `NAME.COM` through the BDOS (Open, Read), not OOLDR's reader, so every program run
+  exercises it; OODOS.SYS no longer links `cpmread.s`. The real CCP is phase 4.
+- **The model test:** [`oodos/test/`](../oodos/test/)'s model and a driver program (a `.COM`) that runs a script of
+  operations from a file and writes what each returned; a ctest runs the same seeded scripts on the model and on
+  OODOS in the emulator and compares the results and the drives' files and directories. The model's images are
+  checked by cpmtools too, at verify.
+
 ## RSXs and programs ##
 
 **Decided (2026-10-26): CP/M 3's split. `.COM` files load at a fixed address; `.PRL` files are relocatable.**
