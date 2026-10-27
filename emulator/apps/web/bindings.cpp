@@ -91,7 +91,8 @@
  * local wall clock (JavaScript's Date less its time-zone offset), the
  * fraction as far into the chip's second, and the bridge reads it at once; the chip keeps it through power cycles. rtc() is
  * a Uint8Array(35) view: 0-6 SEC-YEAR as the bridge last read them,
- * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, then from 16 the DS3231's registers
+ * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, 10 1 while a SET is pending (it reads
+ * 0 in RTCCTL), then from 16 the DS3231's registers
  * $00-$12; empty without the backplane's bridge.
  *
  * A `.sid` tune: loadSid(bytes, song) starts it on the card (song 0: its
@@ -435,6 +436,7 @@ namespace
             rtc_[7] = b->rtcctl();
             rtc_[8] = b->peek(BackplaneBridge::RTCREG);
             rtc_[9] = b->peek(BackplaneBridge::RTCDATA);
+            rtc_[10] = b->set_pending();
             for (uint8_t r = 0; r < Ds3231::REGISTERS; ++r)
                 rtc_[RTC_CHIP + r] = b->rtc()->read(r);
             return val(emscripten::typed_memory_view(rtc_.size(), rtc_.data()));

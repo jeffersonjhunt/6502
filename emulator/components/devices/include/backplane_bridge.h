@@ -192,6 +192,8 @@ namespace ooe::emu
         /// SEC-YEAR as the bridge last read them (not the latch).
         const std::array<uint8_t, TIME_REGS> &rtc_time() const { return time_; }
         uint8_t rtcctl() const;
+        /// A SET queued, under way or behind another transaction: what BUSY can't say, as SET reads 0.
+        bool set_pending() const;
         /// The clock in words, for the debugger: the time, RTCCTL, the chip's registers.
         std::string describe_clock() const;
 

@@ -560,7 +560,7 @@ export class WasmPort implements MachinePort {
   async readClock(): Promise<ClockState | null> {
     const r = this.machine.rtc();
     if (!r.length) return null;
-    return { time: r.slice(0, 7), rtcctl: r[7], rtcreg: r[8], rtcdata: r[9], chip: r.slice(16, 16 + 0x13) };
+    return { time: r.slice(0, 7), rtcctl: r[7], setPending: r[10] !== 0, rtcreg: r[8], rtcdata: r[9], chip: r.slice(16, 16 + 0x13) };
   }
 
   async readSound(): Promise<SoundCpu | null> {

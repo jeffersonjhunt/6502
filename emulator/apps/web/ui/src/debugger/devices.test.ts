@@ -237,6 +237,8 @@ describe("Devices tab", () => {
     expect(clockTime(bytes(0, 0, 0, 0, 1, 1, 0))).toBe("2000-01-01 00:00:00 · day 0");
     expect(rtcctlText(0x00)).toBe("none");
     expect(rtcctlText(0xc5)).toBe("TICK · TIE · LOST · BUSY");
+    expect(rtcctlText(0x03)).toBe("BUSY"); // SET reads 0: bit 1 is nothing
+    expect(rtcctlText(0x01, true)).toBe("BUSY (SET)"); // the bridge's queue says a SET is pending
     expect(clockControl(0x00)).toBe("square wave 1 Hz");
     expect(clockControl(0x1c)).toBe("SQW is INT: alarms only");
     expect(clockControl(0x89)).toBe("square wave 1.024 kHz · EOSC · A1IE");
@@ -252,7 +254,7 @@ describe("Devices tab", () => {
     chip[0x0f] = 0x09;
     chip[0x10] = 0x85;
     chip[0x11] = 25;
-    port.clock = { time: bytes(0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26), rtcctl: 0xe0, rtcreg: 0x0f, rtcdata: 0x09, chip };
+    port.clock = { time: bytes(0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26), rtcctl: 0xe0, setPending: false, rtcreg: 0x0f, rtcdata: 0x09, chip };
     await view.refresh();
     const rtc = view.element.querySelector('[data-testid="dev-rtc"]')!;
     expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock ticking");
@@ -263,7 +265,10 @@ describe("Devices tab", () => {
     expect(text(rtc, "Status")).toBe("$09  EN32kHz · A1F");
     expect(text(rtc, "Alarms")).toBe("1: $80 $80 $80 $80 · 2: $00 $00 $00");
     expect(text(rtc, "Aging")).toBe("$85 · 25.00 °C");
-    port.clock = { ...port.clock, rtcctl: 0x04 };
+    port.clock = { ...port.clock, rtcctl: 0x41, setPending: true };
+    await view.refresh();
+    expect(text(rtc, "RTCCTL")).toBe("$41  TIE · BUSY (SET)");
+    port.clock = { ...port.clock, rtcctl: 0x04, setPending: false };
     await view.refresh();
     expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock lost");
   });

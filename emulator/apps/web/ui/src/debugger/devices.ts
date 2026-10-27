@@ -125,9 +125,9 @@ export function clockTime(t: Uint8Array): string {
   return `${year}-${pad(bcd(t[5] & 0x1f))}-${pad(bcd(t[4] & 0x3f))} ${pad(hour)}:${pad(bcd(t[1] & 0x7f))}:${pad(bcd(t[0] & 0x7f))} · ${day}${h12 ? " · 12 h" : ""}`;
 }
 
-/** RTCCTL in words. */
-export function rtcctlText(v: number): string {
-  return bits(v, [[0x80, "TICK"], [0x40, "TIE"], [0x20, "ALARM"], [0x04, "LOST"], [0x02, "SET"], [0x01, "BUSY"]]);
+/** RTCCTL in words. SET reads 0, so a pending one is BUSY, and `setPending` (the bridge's queue) says so. */
+export function rtcctlText(v: number, setPending = false): string {
+  return bits(v, [[0x80, "TICK"], [0x40, "TIE"], [0x20, "ALARM"], [0x04, "LOST"], [0x01, setPending ? "BUSY (SET)" : "BUSY"]]);
 }
 
 /** The DS3231's control register ($0E) in words. */
@@ -377,7 +377,7 @@ export function devicesView(port: MachinePort) {
     clockStatusEl.textContent = c.rtcctl & 0x04 ? "lost" : c.rtcctl & 0x40 ? "ticking" : "running";
     clockRows.replaceChildren(
       ...row("Time", clockTime(c.time)),
-      ...row("RTCCTL", `$${hex(c.rtcctl, 2)}  ${rtcctlText(c.rtcctl)}`),
+      ...row("RTCCTL", `$${hex(c.rtcctl, 2)}  ${rtcctlText(c.rtcctl, c.setPending)}`),
       ...row("RTCREG", `$${hex(c.rtcreg, 2)} · RTCDATA $${hex(c.rtcdata, 2)}`),
       ...row("Control", `$${hex(r[0x0e], 2)}  ${clockControl(r[0x0e])}`),
       ...row("Status", `$${hex(r[0x0f], 2)}  ${clockStatus(r[0x0f])}`),

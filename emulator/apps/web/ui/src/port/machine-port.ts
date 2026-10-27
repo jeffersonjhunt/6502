@@ -142,6 +142,8 @@ export interface ClockState {
   /** SEC-YEAR as the bridge last read them: the DS3231's $00-$06, in BCD. */
   time: Uint8Array;
   rtcctl: number;
+  /** A SET queued in the bridge (SET reads 0; BUSY doesn't say which transaction it waits on). */
+  setPending: boolean;
   rtcreg: number;
   rtcdata: number;
   /** The DS3231's own registers, $00-$12. */

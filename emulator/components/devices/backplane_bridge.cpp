@@ -375,6 +375,11 @@ namespace ooe::emu
                                     (status_ & Ds3231::OSF ? RTC_LOST : 0) | (queue_.empty() ? 0 : RTC_BUSY));
     }
 
+    bool BackplaneBridge::set_pending() const
+    {
+        return std::any_of(queue_.begin(), queue_.end(), [](const Transaction &t) { return t.op == Op::Set; });
+    }
+
     std::string BackplaneBridge::describe_clock() const
     {
         const auto bcd = [](uint8_t v) { return (v >> 4) * 10u + (v & 0x0Fu); };
@@ -390,10 +395,11 @@ namespace ooe::emu
         const uint8_t ctl = rtcctl();
         std::string flags;
         for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{RTC_TICK, " TICK"}, {RTC_TIE, " TIE"},
-                                        {RTC_ALARM, " ALARM"}, {RTC_LOST, " LOST"}, {RTC_SET, " SET"},
-                                        {RTC_BUSY, " BUSY"}})
+                                        {RTC_ALARM, " ALARM"}, {RTC_LOST, " LOST"}, {RTC_BUSY, " BUSY"}})
             if (ctl & bit)
                 flags += name;
+        if (set_pending())
+            flags += " (SET)"; // SET reads 0: the queue says it's what BUSY waits on
         std::snprintf(buf, sizeof buf, "RTCCTL   $%02X%s\n", ctl, flags.c_str());
         out += buf;
         const Ds3231 &r = *rtc_;

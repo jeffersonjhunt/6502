@@ -95,6 +95,7 @@ describe("the real-time clock", () => {
     expect(c.time[3]).toBe(new Date(at).getUTCDay() + 1); // 1 = Sunday
     expect(c.chip[0x11]).toBe(25);
     expect(c.rtcctl & 0x04).toBe(0); // not LOST
+    expect(c.setPending).toBe(false); // the clock was set from outside, not by SET
     for (let i = 0; i < 61; ++i) step(); // a second of emulated time
     const later = (await port.readClock())!;
     expect(later.rtcctl & 0x80).toBe(0x80); // TICK

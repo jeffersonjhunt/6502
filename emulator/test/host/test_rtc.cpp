@@ -360,6 +360,12 @@ TEST(the_debugger_shows_the_clock)
     r.rtc->write(Ds3231::HOURS, Ds3231::HOUR_12 | Ds3231::HOUR_PM | 0x01);
     r.next_tick();
     CHECK(r.bridge->describe_clock().find("time     2026-10-26 13:45:08  day 2  (12 h)") == 0);
+    // SET reads 0: a pending one is BUSY, and the bridge's queue says which.
+    r.bus().write(RTCREG, Ds3231::AGING);
+    CHECK(d.command("rtc").find("RTCCTL   $C1 TICK TIE BUSY\n") != std::string::npos);
+    r.settle();
+    r.bus().write(RTCCTL, BackplaneBridge::RTC_TIE | BackplaneBridge::RTC_SET);
+    CHECK(d.command("rtc").find("RTCCTL   $C1 TICK TIE BUSY (SET)\n") != std::string::npos);
 }
 
 namespace
