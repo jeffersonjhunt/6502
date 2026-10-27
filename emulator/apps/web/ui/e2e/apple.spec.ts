@@ -42,7 +42,8 @@ test("a IIe ROM in, Start Apple IIe: the Apple's picture, AMODE, its clock and s
   await expect(page.getByTestId("apple-note")).toContainText("No character ROM");
   await page.getByTestId("apple-start").click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "apple");
-  await expect(page.getByTestId("mon-label")).toHaveText("Display · Apple IIe 560×384");
+  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · APPLE IIe 560×384", { useInnerText: true }); // as rendered: IIe
+  await expect(page.locator(".strip-text")).toContainText("OO-1 · APPLE IIe ·", { useInnerText: true });
   await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("crt")).toHaveAttribute("aria-label", /Apple IIe screen/);
   await expect(page.getByTestId("apple-reset")).toBeVisible();

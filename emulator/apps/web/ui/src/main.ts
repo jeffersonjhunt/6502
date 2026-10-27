@@ -240,7 +240,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     glass.dataset.scene = s;
     port.watchVideo(s !== "text");
     if (s === "text") crt.clearVideo();
-    monLabel.textContent = s === "text" ? "Terminal · the serial line" : s === "apple" ? "Display · Apple IIe 560×384" : "Display · VGA 640×480";
+    monLabel.textContent = s === "text" ? "TERMINAL · THE SERIAL LINE" : s === "apple" ? "DISPLAY · APPLE IIe 560×384" : "DISPLAY · VGA 640×480";
   };
   const screens = segmented<Screen>(
     "Screen",

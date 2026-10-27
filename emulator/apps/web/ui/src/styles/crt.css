@@ -37,7 +37,8 @@
   flex-wrap: wrap;
   margin-top: 10px;
 }
-.mon-label { color: #8d877f; }
+/* Capitals written in the text, not transformed: MHz and IIe keep their small letters. */
+.mon-label { color: #8d877f; text-transform: none; }
 @media (max-width: 600px) {
   .mon { padding: 10px 10px 8px; border-radius: 12px; width: 100%; }
   .mon-glass { width: 100%; }

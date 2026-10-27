@@ -92,11 +92,10 @@ test("phosphor sets the glow and is remembered", async ({ page }) => {
 test("Display is the video card, Terminal the serial line; the monitor says which", async ({ page }) => {
   await booted(page);
   const label = page.getByTestId("mon-label");
-  await expect(label).toHaveText("Terminal · the serial line");
-  await expect(label).toHaveCSS("text-transform", "uppercase");
+  await expect(label).toHaveText("TERMINAL · THE SERIAL LINE", { useInnerText: true }); // as rendered
   await page.getByRole("button", { name: "Display" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // not in Apple II mode: VGA
-  await expect(label).toHaveText("Display · VGA 640×480");
+  await expect(label).toHaveText("DISPLAY · VGA 640×480");
   await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Terminal" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text");

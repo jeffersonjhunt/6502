@@ -40,6 +40,7 @@ test("the strip: nothing loaded says so, and its link opens Settings at the ROMs
   await booted(page);
   const strip = page.getByRole("region", { name: "Machine status and media" });
   await expect(strip).toContainText("OO-1 · VGA 640×480 · RUNNING");
+  await expect(strip.locator(".strip-text")).toHaveText(/^OO-1 · VGA 640×480 · RUNNING · \d+\.\d\d MHz$/, { useInnerText: true }); // as rendered: MHz
   await expect(page.getByTestId("no-media")).toHaveText("No media loaded. Load in Settings");
   await page.getByTestId("load-in-settings").click();
   await expect(page.getByTestId("settings")).toBeVisible();
@@ -60,7 +61,7 @@ test("the monitor follows the machine: the demo's picture switches to Display, i
   await page.keyboard.type("C803R");
   await page.keyboard.press("Enter");
   await expect(crt).toHaveAttribute("data-scene", "vga", { timeout: 10_000 }); // by itself
-  await expect(page.getByTestId("mon-label")).toHaveText("Display · VGA 640×480");
+  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480");
   await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Terminal" }).click(); // by hand, while the demo runs
   await page.waitForTimeout(1000);
