@@ -1590,6 +1590,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"REN", "00 00"},
         {"SEARCHB1", "FF 00"},
         {"SEARCHC1", "00 00"},
+        {"RENBITS", "C3 D4"},          // the new name, the old f1' and t3'
         {"RENEX", "FF 08"},            // File Exists
         {"RENWILD", "FF 09"},          // ? in Filename
         {"MAKEEX", "FF 08"},

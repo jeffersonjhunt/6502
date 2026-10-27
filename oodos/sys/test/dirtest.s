@@ -18,6 +18,7 @@
 ;   BITS hh hh            B1 given f1' and t3': its entry's bytes 1 and 11
 ;   OPENBITS hh hh        and the FCB's after Open
 ;   REN aa xx             B1 to C1; SEARCHB1 aa xx: FF; SEARCHC1 aa xx
+;   RENBITS hh hh         C1's bytes 1 and 11: B1's attributes kept
 ;   RENEX / RENWILD / MAKEEX / MAKEWILD / OPENWILD aa xx   FF 08, 09
 ;   HASHOPEN / HASHFIND aa xx   HASHBA.TXT, whose hash is HASHAG.TXT's: FF
 ;   HASHAG aa xx          HASHAG.TXT itself
@@ -276,6 +277,16 @@ start:  lda     #$FF                    ; errors come back
         TRY     "SEARCHB1 ", F_SFIRST, sfcb
         NAME    sfcb, "C1      TXT"
         TRY     "SEARCHC1 ", F_SFIRST, sfcb
+        jsr     entryat                 ; B1's attributes kept
+        SAY     "RENBITS "
+        ldy     #1
+        lda     (PTR),y
+        jsr     HEX2
+        jsr     SPACE
+        ldy     #11
+        lda     (PTR),y
+        jsr     HEX2
+        jsr     CRLF
         NAME    fcb, "C1      TXT"
         NEWNAME "A1      TXT"
         TRY     "RENEX ", F_RENAME, fcb
