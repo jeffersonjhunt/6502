@@ -38,8 +38,8 @@ export function diskSize(n: number): string {
 export interface DiskBarHooks {
   /** What booting from the drive still needs ("" for nothing): drive 1's hint. */
   bootNeeds?: () => string;
-  /** The pill was clicked: show this drive in Settings. */
-  open?: () => void;
+  /** The pill was clicked: show this drive in Settings, focus back to `from` (the pill) after. */
+  open?: (from: HTMLElement) => void;
 }
 
 /** drive: 0 or 1. Drive 1's testids are disk-*, drive 2's disk-*-2. */
@@ -65,7 +65,7 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   const pillLight = h("span", { class: "led disk-led" });
   const pillText = h("span", {});
   const pill = h("button", { class: "pill", type: "button", hidden: true, "data-testid": `pill-d${drive + 1}` }, pillLight, pillText);
-  pill.addEventListener("click", () => hooks.open?.());
+  pill.addEventListener("click", () => hooks.open?.(pill));
 
   let info: DiskInfo | null = null;
   let size = 0;

@@ -53,6 +53,20 @@ test("the strip: nothing loaded says so, and its link opens Settings at the ROMs
   await expect(page.getByTestId("no-media")).toBeVisible();
 });
 
+test("Settings opened from the strip or the page: closing it puts focus back on what opened it", async ({ page }) => {
+  await booted(page);
+  for (const id of ["load-in-settings", "about-link"]) {
+    await page.getByTestId(id).click();
+    await expect(page.getByTestId("settings")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId(id)).toBeFocused();
+  }
+  await page.getByTestId("disk-file").setInputFiles({ name: "A.dsk", mimeType: "application/octet-stream", buffer: Buffer.alloc(143_360) });
+  await page.getByTestId("pill-d1").click();
+  await page.getByTestId("settings-close").click();
+  await expect(page.getByTestId("pill-d1")).toBeFocused();
+});
+
 test("Settings' buttons each name their row: no two alike for a screen reader", async ({ page }) => {
   await booted(page);
   await openSettings(page);

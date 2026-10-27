@@ -30,7 +30,7 @@ export function sdBar(
   port: MachinePort,
   download: (name: string, bytes: Uint8Array) => void,
   win: Pick<Window, "addEventListener" | "confirm"> = window,
-  hooks: { open?: () => void } = {},
+  hooks: { open?: (from: HTMLElement) => void } = {},
 ) {
   const picker = h("input", { type: "file", hidden: true, "data-testid": "sd-file" });
   const light = h("span", { class: "led disk-led", title: "The SD card's light: on while it works", "data-testid": "sd-light" });
@@ -50,7 +50,7 @@ export function sdBar(
   const pillLight = h("span", { class: "led disk-led" });
   const pillText = h("span", {});
   const pill = h("button", { class: "pill", type: "button", hidden: true, "data-testid": "pill-sd" }, pillLight, pillText);
-  pill.addEventListener("click", () => hooks.open?.());
+  pill.addEventListener("click", () => hooks.open?.(pill));
 
   let info: SdInfo | null = null;
   let present = false;

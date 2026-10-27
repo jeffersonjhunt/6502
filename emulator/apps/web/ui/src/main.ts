@@ -277,14 +277,15 @@ function start(root: HTMLElement, port: MachinePort): void {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
-  const openSettings = (at: SettingsSection) => {
+  /** Settings at a section; `from`: what opened it, where focus goes back to (else the toolbar's button). */
+  const openSettings = (at: SettingsSection, from?: HTMLElement) => {
     const head = settings.at(at);
-    drawer_.show("settings", { at: head });
+    drawer_.show("settings", { at: head, from });
     drawer_.element.scrollTop = head.offsetTop - 12; // the drawer scrolls, not the page
   };
   const store = browserDiskStore();
-  const drives = [0, 1].map((d) => diskBar(port, store, download, { bootNeeds: appleRoms.bootNeeds, open: () => openSettings("disk") }, d));
-  const card = sdBar(port, download, window, { open: () => openSettings("sd") });
+  const drives = [0, 1].map((d) => diskBar(port, store, download, { bootNeeds: appleRoms.bootNeeds, open: (from) => openSettings("disk", from) }, d));
+  const card = sdBar(port, download, window, { open: (from) => openSettings("sd", from) });
   const bios = biosRow(() => location.reload(), {
     atRisk: () => {
       const sd = card.unsaved();
@@ -294,7 +295,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       ];
     },
     leaving: () => card.waive(),
-    open: () => openSettings("roms"),
+    open: (from) => openSettings("roms", from),
   });
   const settings = settingsPanel({
     roms: [bios.element, appleRoms.element],
@@ -308,12 +309,12 @@ function start(root: HTMLElement, port: MachinePort): void {
   const strip = statusStrip({
     pills: [...drives.map((d) => d.pill), card.pill, tune.pill],
     trailing: [bios.quiet, stopTyping, appleRoms.resets],
-    load: () => openSettings("roms"),
+    load: (from) => openSettings("roms", from),
   });
 
   const rack = frontPanel(panel);
   const about = h("button", { class: "linkish", type: "button", "data-testid": "about-link" }, "About and credits");
-  about.addEventListener("click", () => openSettings("about"));
+  about.addEventListener("click", () => openSettings("about", about));
   const note = h("p", { class: "page-note" }, "Your ROMs, disks and card images stay in this browser. ", about);
   const bench = h("section", { class: "bench" }, ...touchNote(), h("div", { class: "mon-col" }, monitor, strip.element), fitWidth(rack.element), note, mirror);
   const drawer_ = drawer(

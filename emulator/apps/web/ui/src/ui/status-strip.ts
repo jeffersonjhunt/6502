@@ -14,8 +14,8 @@ export interface StripParts {
   pills: HTMLElement[];
   /** At the far end: Stop typing, the IIe's resets. */
   trailing: HTMLElement[];
-  /** "Load in Settings". */
-  load: () => void;
+  /** "Load in Settings" was clicked (`from`, where focus goes back to). */
+  load: (from: HTMLElement) => void;
 }
 
 export function statusStrip(parts: StripParts) {
@@ -23,7 +23,7 @@ export function statusStrip(parts: StripParts) {
   const signal = h("span", { class: "strip-signal" }, "VGA 640×480");
   const status = h("span", { class: "mon-status", "data-testid": "status" }, "STARTING");
   const load = h("button", { class: "linkish", type: "button", "data-testid": "load-in-settings" }, "Load in Settings");
-  load.addEventListener("click", parts.load);
+  load.addEventListener("click", () => parts.load(load));
   const empty = h("span", { class: "strip-empty", "data-testid": "no-media" }, "No media loaded. ", load);
   const element = h(
     "section",
