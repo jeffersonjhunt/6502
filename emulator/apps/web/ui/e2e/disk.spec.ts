@@ -26,7 +26,7 @@ test("a disk goes in, shows on the Devices tab, stays through a reload, saves, a
   await expect(page.getByTestId("disk-meta")).toHaveText("140 KB · DOS order");
   await expect(page.getByTestId("disk-light")).not.toHaveClass(/on/);
   await expect(page.getByTestId("disk-note")).toHaveText("To boot it, the IIe needs the IIe ROM and the Disk II PROMs (under ROMs)");
-  // The strip: the drive's pill in place of "No media loaded."; it opens Settings at the drives.
+  // The strip: the drive's pill in place of "No disk or card in."; it opens Settings at the drives.
   await expect(page.getByTestId("pill-d1")).toHaveText("D1 Random.dsk");
   await expect(page.getByTestId("no-media")).toBeHidden();
   await expect(page.getByTestId("pill-d2")).toBeHidden(); // empty, and not in Apple II mode

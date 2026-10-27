@@ -41,7 +41,7 @@ test("the strip: nothing loaded says so, and its link opens Settings at the ROMs
   const strip = page.getByRole("region", { name: "Machine status and media" });
   await expect(strip).toContainText("OO-1 · VGA 640×480 · RUNNING");
   await expect(strip.locator(".strip-text")).toHaveText(/^OO-1 · VGA 640×480 · RUNNING · \d+\.\d\d MHz$/, { useInnerText: true }); // as rendered: MHz
-  await expect(page.getByTestId("no-media")).toHaveText("No media loaded. Load in Settings");
+  await expect(page.getByTestId("no-media")).toHaveText("No disk or card in. Load in Settings");
   await page.getByTestId("load-in-settings").click();
   await expect(page.getByTestId("settings")).toBeVisible();
   await expect(page.locator("#set-roms")).toBeFocused();

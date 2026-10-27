@@ -24,7 +24,7 @@ export function statusStrip(parts: StripParts) {
   const status = h("span", { class: "mon-status", "data-testid": "status" }, "STARTING");
   const load = h("button", { class: "linkish", type: "button", "data-testid": "load-in-settings" }, "Load in Settings");
   load.addEventListener("click", () => parts.load(load));
-  const empty = h("span", { class: "strip-empty", "data-testid": "no-media" }, "No media loaded. ", load);
+  const empty = h("span", { class: "strip-empty", "data-testid": "no-media" }, "No disk or card in. ", load);
   const element = h(
     "section",
     { class: "strip", "aria-label": "Machine status and media", "data-testid": "strip" },
@@ -37,7 +37,7 @@ export function statusStrip(parts: StripParts) {
   );
 
   let none = false;
-  /** Once a frame: the light, and "No media loaded." when no pill shows. */
+  /** Once a frame: the light, and "No disk or card in." when no pill shows. */
   const update = (powered: boolean) => {
     led.classList.toggle("on", powered);
     const nothing = parts.pills.every((p) => p.hidden);
