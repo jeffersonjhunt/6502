@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fakeIIeRom } from "../port/fake-iie";
-import { forgetCartridge, keepCartridge, keptCartridge, sortRoms } from "./cartridge";
+import { forgetCartridge, keepCartridge, keptCartridge, sortRoms, takePart, withoutPart } from "./cartridge";
 
 const K = 1024;
 const file = (name: string, bytes: Uint8Array) => ({ name, bytes });
@@ -144,5 +144,52 @@ describe("kept in this browser", () => {
     expect(keptCartridge()).toBeNull();
     localStorage.setItem("oo1.apple-rom", btoa("short"));
     expect(keptCartridge()).toBeNull();
+  });
+});
+
+describe("takePart: a row of Settings at a time", () => {
+  const boot = () => {
+    const b = new Uint8Array(256);
+    b.set([0xa2, 0x20, 0xa0, 0x00, 0xa2, 0x03, 0x86, 0x3c]); // the controller's signature
+    return b;
+  };
+  const seq = () => new Uint8Array(256).fill(0x18);
+
+  test("the IIe ROM: whole or in halves, keeping the parts already in", () => {
+    const first = takePart("rom", [file("iie.rom", fakeIIeRom())], null);
+    if (typeof first === "string") throw new Error(first);
+    expect(first.chars).toBeNull();
+    const withChars = takePart("chars", [file("video.bin", new Uint8Array(4 * K))], first);
+    if (typeof withChars === "string") throw new Error(withChars);
+    const { cd, ef } = halves();
+    const again = takePart("rom", [file("ef", ef), file("cd", cd)], withChars);
+    if (typeof again === "string") throw new Error(again);
+    expect(again.rom[0]).toBe(0x4c);
+    expect(again.chars).toBe(withChars.chars); // still in
+  });
+
+  test("the others need the IIe ROM, one file each, of their own kind", () => {
+    expect(takePart("chars", [file("video.bin", new Uint8Array(4 * K))], null)).toMatch(/^Load the Apple IIe ROM first/);
+    const c = { rom: fakeIIeRom(), chars: null, diskBoot: null, diskSequencer: null };
+    expect(takePart("chars", [file("x.bin", new Uint8Array(100))], c)).toBe("x.bin: 100 bytes is no character ROM (want 4 or 8 KB)");
+    expect(takePart("diskBoot", [file("p6.bin", seq())], c)).toMatch(/^p6\.bin: not a Disk II boot ROM/);
+    expect(takePart("diskSequencer", [file("p5.bin", boot())], c)).toBe("p5.bin: that's the Disk II boot ROM (341-0027), not the sequencer");
+    expect(takePart("diskBoot", [file("p5.bin", new Uint8Array(512))], c)).toBe("p5.bin: 512 bytes is no Disk II PROM (want 256)");
+    expect(takePart("diskBoot", [file("a", boot()), file("b", boot())], c)).toBe("One file, please");
+    const b = takePart("diskBoot", [file("p5.bin", boot())], c);
+    if (typeof b === "string") throw new Error(b);
+    const s = takePart("diskSequencer", [file("p6.bin", seq())], b);
+    if (typeof s === "string") throw new Error(s);
+    expect(s.diskBoot).toEqual(boot());
+    expect(s.diskSequencer).toEqual(seq());
+    expect(s.rom).toBe(c.rom);
+  });
+
+  test("taking a part out; the IIe ROM out is the whole cartridge out", () => {
+    const c = { rom: fakeIIeRom(), chars: new Uint8Array(4 * K), diskBoot: boot(), diskSequencer: seq() };
+    expect(withoutPart("chars", c)).toEqual({ ...c, chars: null });
+    expect(withoutPart("diskBoot", c)?.diskSequencer).toBe(c.diskSequencer);
+    expect(withoutPart("rom", c)).toBeNull();
+    expect(withoutPart("chars", null)).toBeNull();
   });
 });

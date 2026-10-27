@@ -81,6 +81,7 @@ export class FakePort implements MachinePort {
       apple: false,
       disk: null,
       sd: null,
+      videoCard: null,
       video: null,
       audio: null,
       soundRunning: false,

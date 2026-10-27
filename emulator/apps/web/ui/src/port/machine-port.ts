@@ -229,6 +229,17 @@ export interface TraceRow {
   vpb: boolean;
 }
 
+/**
+ * What the video card is set to show (hw/design.md, "Video registers"):
+ * CTRL, and layer 0's CONFIG and MAPBASE. Enough to tell the BIOS's own
+ * text screen (layer 0 alone, text 80x30 at its map) from a program's.
+ */
+export interface VideoRegs {
+  ctrl: number;
+  layer0: number;
+  map0: number;
+}
+
 /** The video card's last finished frame: VGA 640x480, R G B A per pixel, row by row. */
 export interface VideoFrame {
   width: number;
@@ -271,6 +282,8 @@ export interface FrameState {
   disk: DiskStatus | null;
   /** The SD card, if the machine has one (its light). */
   sd: SdStatus | null;
+  /** The video card's registers, if the machine has one: what it is showing. */
+  videoCard: VideoRegs | null;
   /** What the machine sent on its serial line since the last frame. */
   serialOut: Uint8Array;
   /** Only while setLights(true). */
@@ -318,8 +331,8 @@ export const CARD = {
 export interface MachinePort {
   readonly caps: PortCaps;
 
-  /** Open the machine and start running. Rejects with a readable reason. */
-  connect(): Promise<{ machine: string }>;
+  /** Open the machine and start running. Rejects with a readable reason. `bios`: its version, if its ROM says ("0.9"). */
+  connect(): Promise<{ machine: string; bios?: string }>;
   /** Stop the frame loop and let go of the backend. */
   close(): void;
 

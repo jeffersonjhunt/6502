@@ -1,0 +1,175 @@
+// @vitest-environment happy-dom
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { biosRow, forgetBios, keepBios, keptBios, QUIET_MS, yoursLoaded } from "./bios";
+
+const flush = async () => {
+  for (let i = 0; i < 6; ++i) await new Promise((r) => setTimeout(r, 0));
+};
+const $ = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
+
+async function pick(el: HTMLElement, name: string, bytes: Uint8Array, size?: number) {
+  const input = $(el, "bios-file") as HTMLInputElement;
+  const file = new File([new Uint8Array(bytes)], name);
+  if (size !== undefined) Object.defineProperty(file, "size", { value: size });
+  Object.defineProperty(input, "files", { configurable: true, value: [file] });
+  input.dispatchEvent(new Event("change"));
+  await flush();
+}
+
+describe("the BIOS row", () => {
+  beforeEach(() => localStorage.clear());
+
+  test("built in: says which; a build of your own is kept, and the machine restarts on it", async () => {
+    let restarts = 0;
+    const row = biosRow(() => ++restarts);
+    row.connected("0.9");
+    expect($(row.element, "bios-meta").textContent).toBe("built-in 0.9 · or load your own build");
+    expect($(row.element, "bios-builtin").hidden).toBe(true);
+    const rom = Uint8Array.from({ length: 512 * 1024 }, (_, i) => i & 0xff);
+    await pick(row.element, "bios-dev.rom", rom);
+    expect(restarts).toBe(1);
+    expect(keptBios()).toEqual({ name: "bios-dev.rom", bytes: rom });
+  });
+
+  test("kept from last time: says so, with its version; Use built-in forgets it and restarts", async () => {
+    keepBios("mine.rom", new Uint8Array([1, 2, 3]));
+    let restarts = 0;
+    const row = biosRow(() => ++restarts);
+    expect(row.mine?.name).toBe("mine.rom");
+    row.connected("0.10-dev");
+    expect($(row.element, "bios-meta").textContent).toBe("yours: mine.rom · 0.10-dev · kept in this browser");
+    $(row.element, "bios-builtin").click();
+    expect(keptBios()).toBeNull();
+    expect(restarts).toBe(1);
+  });
+
+  test("a file too big for the flash, or empty, is refused before it is read; nothing restarts", async () => {
+    let restarts = 0;
+    const row = biosRow(() => ++restarts);
+    await pick(row.element, "huge.bin", new Uint8Array(4), 512 * 1024 + 1);
+    expect($(row.element, "bios-note").textContent).toBe("huge.bin: 524289 bytes is no BIOS for the flash (up to 512 KB)");
+    await pick(row.element, "empty.bin", new Uint8Array(0));
+    expect($(row.element, "bios-note").textContent).toBe("empty.bin: 0 bytes is no BIOS for the flash (up to 512 KB)");
+    expect(restarts).toBe(0);
+    expect(keptBios()).toBeNull();
+  });
+
+  test("a browser that won't keep it: says so, and doesn't restart on nothing", async () => {
+    let restarts = 0;
+    const row = biosRow(() => ++restarts);
+    const full = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    try {
+      await pick(row.element, "bios.rom", new Uint8Array(16));
+    } finally {
+      full.mockRestore();
+    }
+    expect($(row.element, "bios-note").textContent).toBe("This browser would not keep it, so the machine can't restart on it");
+    expect(restarts).toBe(0);
+    expect(keptBios()).toBeNull();
+    forgetBios();
+  });
+
+  test("a restart that would lose something asks first, saying the machine restarts; No keeps things as they are", async () => {
+    keepBios("mine.rom", new Uint8Array([1, 2, 3]));
+    let restarts = 0;
+    let left = 0;
+    const asked: string[] = [];
+    const answer = { yes: false };
+    const row = biosRow(() => ++restarts, {
+      atRisk: () => ["the SD card's writes to card.img aren't saved", "drive 1 is at work"],
+      confirm: (q) => (asked.push(q), answer.yes),
+      leaving: () => ++left,
+    });
+    await pick(row.element, "new.rom", new Uint8Array([7]));
+    expect(asked).toEqual(["Restart on new.rom? The machine restarts: the SD card's writes to card.img aren't saved; drive 1 is at work."]);
+    $(row.element, "bios-builtin").click();
+    expect(asked[1]).toMatch(/^Restart on the built-in BIOS\? The machine restarts: /);
+    expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) }); // neither saved nor forgotten
+    expect([restarts, left]).toEqual([0, 0]);
+    answer.yes = true;
+    await pick(row.element, "new.rom", new Uint8Array([7]));
+    expect(keptBios()).toEqual({ name: "new.rom", bytes: new Uint8Array([7]) });
+    expect([restarts, left]).toEqual([1, 1]); // the page's own prompt on leaving is waived: it was asked
+  });
+
+  test("nothing at risk: no question", async () => {
+    const asked: string[] = [];
+    let restarts = 0;
+    const row = biosRow(() => ++restarts, { atRisk: () => [], confirm: (q) => (asked.push(q), false) });
+    await pick(row.element, "new.rom", new Uint8Array([7]));
+    expect(asked).toEqual([]);
+    expect(restarts).toBe(1);
+  });
+
+  test("a browser that won't keep a new one: the one kept before stays, name and all", () => {
+    keepBios("mine.rom", new Uint8Array([1, 2, 3]));
+    const full = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    try {
+      expect(keepBios("new.rom", new Uint8Array(16))).toBe(false);
+    } finally {
+      full.mockRestore();
+    }
+    expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) });
+    const set = localStorage.setItem.bind(localStorage);
+    const noName = vi.spyOn(localStorage, "setItem").mockImplementation((k, v) => {
+      if (k === "oo1.bios-name" && v === "new.rom") throw new Error("QuotaExceededError");
+      set(k, v);
+    });
+    try {
+      expect(keepBios("new.rom", new Uint8Array(16))).toBe(false); // the bytes went in, the name didn't
+    } finally {
+      noName.mockRestore();
+    }
+    expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) });
+  });
+
+  test("yours, silent on the serial line for a while: the strip's hint points to Use built-in; a word from it, and no hint", () => {
+    vi.useFakeTimers();
+    try {
+      keepBios("blank.rom", new Uint8Array([0xff]));
+      let opened: HTMLElement | null = null;
+      const row = biosRow(() => {}, { open: (from) => (opened = from) });
+      row.connected(undefined);
+      vi.advanceTimersByTime(QUIET_MS - 1);
+      expect(row.quiet.hidden).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(row.quiet.hidden).toBe(false);
+      expect(row.quiet.textContent).toBe("Your BIOS, blank.rom, has printed nothing: Settings › ROMs › Use built-in");
+      $(row.quiet, "bios-quiet-open").click();
+      expect(opened).toBe($(row.quiet, "bios-quiet-open"));
+      row.spoke();
+      expect(row.quiet.hidden).toBe(true);
+      const talks = biosRow(() => {});
+      talks.connected(undefined);
+      talks.spoke();
+      vi.advanceTimersByTime(QUIET_MS);
+      expect(talks.quiet.hidden).toBe(true);
+      localStorage.clear();
+      const builtIn = biosRow(() => {}); // the page's own: no hint
+      builtIn.connected("0.9");
+      vi.advanceTimersByTime(QUIET_MS);
+      expect(builtIn.quiet.hidden).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("where the way back is, for a machine that stopped on yours", () => {
+    expect(yoursLoaded({ name: "dev.rom", bytes: new Uint8Array(1) })).toBe("Your BIOS, dev.rom, is loaded: Settings › ROMs › Use built-in");
+  });
+
+  test("Use built-in: it goes, and the keyboard is on Load…", () => {
+    keepBios("mine.rom", new Uint8Array([1]));
+    const row = biosRow(() => {});
+    document.body.append(row.element);
+    $(row.element, "bios-builtin").focus();
+    $(row.element, "bios-builtin").click();
+    expect($(row.element, "bios-builtin").hidden).toBe(true);
+    expect(document.activeElement).toBe($(row.element, "bios-load"));
+    row.element.remove();
+  });
+});

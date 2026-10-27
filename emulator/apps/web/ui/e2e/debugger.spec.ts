@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDebugger } from "./ui";
 import { bios, hex4, inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 async function booted(page: Page) {
@@ -7,6 +8,7 @@ async function booted(page: Page) {
   await page.reload();
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await loadBiosLabels(page);
+  await openDebugger(page);
 }
 
 const pc = (page: Page) => page.getByTestId("reg-pc").textContent();
@@ -89,16 +91,23 @@ test("Bus trace: the monitor's loop, fetches in GETKEY's (bank F), the 6551 and 
   await page.screenshot({ path: `test-results/debugger-trace-${test.info().project.name}.png` });
 });
 
-test("the pane collapses, the CRT grows, and it is remembered", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 1300 }); // tall: the CRT's size is set by the width beside the pane
+test("the drawer closes, the CRT grows, and whether the debugger was open is remembered", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 1300 }); // tall: the CRT's size is set by the width beside the drawer
   await booted(page);
   const width = () => page.getByTestId("crt").evaluate((e) => e.getBoundingClientRect().width);
   const open = await width();
-  await page.getByTestId("tb-debugger").click();
-  await expect(page.getByTestId("dbg-reopen")).toBeVisible();
+  await page.getByTestId("debugger-close").click();
+  await expect(page.getByTestId("debugger")).toBeHidden();
+  await expect(page.getByTestId("tb-debugger")).toBeFocused(); // back to the button that opened it
+  await expect(page.getByTestId("tb-debugger")).toHaveAttribute("aria-pressed", "false");
   await expect.poll(width).toBeGreaterThan(open);
   await page.reload();
-  await expect(page.getByTestId("dbg-reopen")).toBeVisible();
-  await page.getByTestId("dbg-reopen").click();
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("debugger")).toBeHidden(); // closed, as it was left
+  await page.getByTestId("tb-debugger").click();
   await expect(page.getByTestId("debugger")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("debugger")).toBeVisible(); // open, as it was left
+  await expect(page.getByTestId("crt")).toBeFocused(); // and the keyboard still the screen's
 });
