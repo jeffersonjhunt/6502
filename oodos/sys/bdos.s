@@ -328,8 +328,10 @@ RUBOUT:         LDA     #ASCII_BS
                 JMP     OUT
 
 ; The BIOS for the program: its parameter block in, a JSR through the jump
-; table, A and X out.
-F_BIOS:         JSR     PGET
+; table, A and X out. The BIOS's drive may be another after it, so the BDOS
+; selects its own again before its next sector (bdosdisk.s's DISKOP).
+F_BIOS:         STZ     BIOSDRV
+                JSR     PGET
                 CMP     #BIOS::BOOT
                 BEQ     @refused
                 CMP     #BIOS::COUNT

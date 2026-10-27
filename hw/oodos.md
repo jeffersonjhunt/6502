@@ -645,6 +645,8 @@ against, compared with what the BDOS does on the emulator.
   checked, the image's first 112 bytes (or fewer) to `$0300`; then whole records straight to their place by the DMA
   address, and a last part record through its buffer. Open's `$FF` with X 0 is `NAME?`, any other error `READ ERROR`.
   A program starts in the default error mode with the DMA address `$0280`.
+- **Function 50** forgets which drive the BIOS has selected, so the BDOS selects its own again before its next
+  sector: a program's SELDSK can't send the BDOS's reads to another drive.
 - **UNITS** (SELDSK's first select) resets a card it finds busy, as READ and WRITE do, so a login after a stuck card
   works.
 - **Measured** on `oodos-8m`, BDOSENT to its return: Open 5,213 cycles; a sequential read of a record in a buffered
@@ -1046,7 +1048,8 @@ copyright and MIT notice.
   logging out (LOGINTEST, STAMPTEST), the default mode returning (ERRTEST), any user 0 file opened from another
   user or none (DIRTEST), 98 freeing nothing (DIRTEST, LOGINTEST), a new block not zeroed (FSTEST, DIRTEST), a
   read-only unit writable at login (ERRTEST), truncate not freeing, 18 repeating an entry, delete not checking
-  read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), RC 0 for an
+  read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), function 50 not
+  making the BDOS select its drive again (FSTEST after BIOSTEST), RC 0 for an
   extent the entry goes past (FSTEST), UNITS not resetting a stuck card (the busy card), the CCP not calling 48
   (LOGINTEST); and the CCP reading a last part record straight to its place, on a card made with it
   (`test_oodos_e2e`). Each was put back and the card made again, byte for byte the committed one.
