@@ -1618,6 +1618,142 @@ TEST(errors_return_say_or_end_the_program_as_the_error_mode_says)
     }
 }
 
+/// A CP/M 3 date stamp: days (1 January 1978 day 1, the DS3231's leap years), hour and minute in BCD.
+std::vector<uint8_t> dat(unsigned y, unsigned mo, unsigned d, unsigned h, unsigned mi)
+{
+    const unsigned n = days(y, mo, d);
+    return {static_cast<uint8_t>(n), static_cast<uint8_t>(n >> 8), static_cast<uint8_t>(h / 10 << 4 | h % 10),
+            static_cast<uint8_t>(mi / 10 << 4 | mi % 10)};
+}
+
+/// STAMPTEST on a drive: each SFCB byte for byte, at each step, against the clock the test set.
+void stamptest(Booted &r, char drive)
+{
+    REQUIRE(r.ok);
+    CpmDisk disk{r, drive == 'M' ? 0u : 1u};
+    std::vector<uint8_t> before = disk.directory();
+    // The SFCB of `name`'s entry, and what it should be: as before (with the slots checked so
+    // far) but its slot, which is `first` (creation or access) and `update`, then the password
+    // mode and a reserved byte, 0.
+    auto check = [&](const std::string &name, const std::vector<uint8_t> &first, const std::vector<uint8_t> &update) {
+        const std::vector<uint8_t> dir = disk.directory();
+        const std::vector<unsigned> es = disk.entries_of(dir, 0, name);
+        REQUIRE(es.size() == 1u);
+        const unsigned i = es[0], at = (i | 3) * 32;
+        std::vector<uint8_t> want(before.begin() + at, before.begin() + at + 32);
+        CHECK_EQ(want[0], 0x21);
+        std::vector<uint8_t> slot = first;
+        slot.insert(slot.end(), update.begin(), update.end());
+        slot.push_back(0);
+        slot.push_back(0);
+        std::copy(slot.begin(), slot.end(), want.begin() + 1 + (i & 3) * 10);
+        std::copy(want.begin(), want.end(), before.begin() + at);
+        const std::vector<uint8_t> got(dir.begin() + at, dir.begin() + at + 32);
+        CHECK(got == want);
+        if (got != want)
+            for (unsigned k = 0; k < 32; ++k)
+                std::printf("  %s SFCB byte %u: %02X, want %02X\n", name.c_str(), k, got[k], want[k]);
+    };
+    const std::vector<uint8_t> none = {0, 0, 0, 0};
+    const auto t1 = dat(2026, 11, 3, 9, 15), t2 = dat(2026, 11, 4, 18, 30), t3 = dat(2026, 12, 31, 23, 59),
+               t4 = dat(2027, 1, 1, 0, 1);
+    r.set_time(2026, 11, 3, 9, 15, 0);
+    const size_t from = start(r, "stamptest.com", std::string(" ") + drive);
+    REQUIRE(r.until("MADE?", ms(5000), from));
+    check("STAMP   DAT", t1, none); // made: its creation stamp, no update yet
+    r.set_time(2026, 11, 4, 18, 30, 0);
+    r.type(" ");
+    REQUIRE(r.until("CLOSED?", ms(5000), from));
+    check("STAMP   DAT", t1, t2); // written and closed: the update
+    r.set_time(2026, 12, 31, 23, 59, 0);
+    r.type(" ");
+    REQUIRE(r.until("MODE?", ms(5000), from));
+    check("EMPTY   DAT", t3, none); // closed unwritten: no update
+    if (drive == 'M')
+        r.poke(MDISK + 12, 0x61); // the label: access and update stamps
+    r.set_time(2027, 1, 1, 0, 1, 0);
+    r.type(" ");
+    REQUIRE(r.until("OPENED?", ms(5000), from));
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // an access stamp only if the label asks
+    r.type(" ");
+    CHECK(r.until("STAMPTEST DONE", ms(5000), from));
+    const std::string o = r.out.substr(from);
+    CHECK_EQ(field(o, "WRITE"), std::string("00"));
+    CHECK_EQ(field(o, "RESET"), std::string("00 00"));
+    CHECK_EQ(field(o, "OPEN").substr(2), std::string(" 00"));
+}
+
+TEST(stamps_on_m_creation_update_and_access_byte_for_byte)
+{
+    Booted r;
+    stamptest(r, 'M');
+}
+
+TEST(stamps_on_a_from_the_label_mode_0x31)
+{
+    Booted r;
+    stamptest(r, 'A');
+}
+
+TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const auto lt = labels(SYS + "/logintest.lbl");
+    int window = -1;
+    unsigned reads[4] = {};
+    r.watch = [&](uint16_t pc) {
+        if (pc == lt.at("a1"))
+            window = 0;
+        else if (pc == lt.at("a2"))
+            window = 1;
+        else if (pc == lt.at("m1"))
+            window = 2;
+        else if (pc == lt.at("m3"))
+            window = 3;
+        else if (pc == lt.at("m2") || pc == lt.at("m4"))
+            window = -1;
+        else if (window >= 0 && pc == sym("READ"))
+            ++reads[window];
+    };
+    const size_t from = start(r, "logintest.com");
+    REQUIRE(r.until("ADDED?", ms(10000), from));
+    // LATE.TXT in M:'s entry 1, behind the BDOS's back: user 0, no records, no blocks.
+    CpmDisk m{r, 0};
+    std::vector<uint8_t> s0 = m.sector(0);
+    const std::string late = "LATE    TXT";
+    std::fill(s0.begin() + 32, s0.begin() + 64, 0);
+    std::copy(late.begin(), late.end(), s0.begin() + 33);
+    m.put(0, s0);
+    r.type(" ");
+    REQUIRE(r.until("UNCLOSED?", ms(5000), from));
+    r.watch = nullptr;
+    std::printf("  READs: A:'s login %u, again %u; M:'s %u, again after 37 %u\n", reads[0], reads[1], reads[2], reads[3]);
+    CHECK_EQ(reads[0], 64u); // oodos-8m's directory: 64 sectors, once
+    CHECK_EQ(reads[1], 0u);  // logged in: nothing
+    CHECK_EQ(reads[2], 16u); // M:'s, 16
+    CHECK_EQ(reads[3], 16u); // after 37, the first select reads it again
+    std::string o = r.out.substr(from);
+    CHECK_EQ(field(o, "BEFORE"), std::string("FF 00")); // the directory as logged in
+    CHECK_EQ(field(o, "RESET"), std::string("00 00"));
+    CHECK_EQ(field(o, "AFTER"), std::string("01 00"));  // read again: there
+    // W.DAT's 4 records are in a buffer, not on M:, until the warm boot writes them back.
+    std::vector<uint8_t> four;
+    for (unsigned n = 0; n < 4; ++n)
+    {
+        const std::vector<uint8_t> rec = pattern_record(n);
+        four.insert(four.end(), rec.begin(), rec.end());
+    }
+    CHECK(!in_memory(r, MDISK, MDISK_SIZE, four));
+    r.type(" ");
+    CHECK(r.until("\r\nA>", ms(3000), from + o.size()));
+    CHECK(in_memory(r, MDISK, MDISK_SIZE, four));
+    // and frees its block, never closed (98): an FSTEST after sees all 60 free.
+    const size_t mark = r.out.size();
+    fstest(r, 'M', 16);
+    CHECK_EQ(field(r.out.substr(mark), "FREE0"), std::string("0003C0"));
+}
+
 int main()
 {
     // ctest stays hermetic with no skips (hw/oodos.md, "Testing"): CMake requires the tools
