@@ -11,10 +11,11 @@
 ;   FARCALL a call into another block through W3 (from oodos/spike/gwbasic/farcall.s)
 ;   IRQ, NMI and the vectors
 ;
-; Common memory keeps no state: the stub's two scratch bytes are written and
-; read only between the entry and its switch to the system's windows, with
-; interrupts off; on the way out the results go by the program's stack. FARCALL's
-; operand is its own, in the caller's block, for the length of one call.
+; Common memory keeps no state and is never written, so a program may have
+; it in W3 read-only, or in flash: the stub keeps what it must on the
+; program's own stack (three bytes under its P on the way in, A and X on the
+; way out), with interrupts off. FARCALL's operand is its own, in the
+; caller's block, for the length of one call.
 
 .setcpu "65C02"
 .include "sys.inc"
@@ -61,26 +62,35 @@ JUMPS:          JMP     COLD           ; BOOT
 .segment "COMMON"
 
 ; The BDOS's entry: the program's JSR $0203 lands here through $BFFD, the
-; function in Y, the parameter in A and X. The program's P goes on its own
-; stack; its S and WIN0-WIN3 into the system's zero page (ST_*); W0-W3 become
-; 31, 60, 61 and 62 and S a fresh $FF. The BDOS returns A and X; the program
-; gets them back with its windows, S and P, D clear, Y not kept.
+; function in Y, the parameter in A and X. The program's P, A, X and Y go on
+; its own stack, and WIN0 into A and its S into X before W0 changes; then its
+; S and WIN0-WIN3 into the system's zero page (ST_*), A and X read back off
+; its stack through W1, W0-W3 become 31, 60, 61 and 62 and S a fresh $FF. The
+; BDOS returns A and X; the program gets them back with its windows, S and P,
+; D clear, Y not kept.
 STUB:           PHP
                 SEI
-                STA     SC_A           ; scratch: in whatever block W3 is
+                PHA
+                PHX
+                PHY
+                TSX                    ; $0101,X Y, X, A, then P
                 LDA     NB_WIN0
-                STA     SC_W0
-                LDA     #SYS_BLOCK
-                STA     NB_WIN0        ; the system's zero page and stack from here
-                STX     ST_X
-                TSX
-                STX     ST_S
-                LDA     SC_W0
+                LDY     #SYS_BLOCK
+                STY     NB_WIN0        ; the system's zero page and stack from here
                 STA     ST_W0
-                LDA     SC_A
-                STA     ST_A
                 LDA     NB_WIN1
                 STA     ST_W1
+                LDA     ST_W0
+                STA     NB_WIN1        ; the program's stack page at $4100
+                LDY     $4101,X
+                LDA     $4102,X
+                STA     ST_X
+                LDA     $4103,X
+                STA     ST_A
+                INX                    ; its S after the PHP
+                INX
+                INX
+                STX     ST_S
                 LDA     NB_WIN2
                 STA     ST_W2
                 LDA     NB_WIN3
@@ -98,7 +108,7 @@ STUB:           PHP
                 LDX     ST_X
                 JSR     BDOSENT
 STUBRET:        STA     ST_A           ; the results go on the program's stack,
-                STX     ST_X           ; under its P: no scratch on the way out
+                STX     ST_X           ; under its P
                 LDA     ST_W0
                 STA     NB_WIN1        ; its stack page at $4100, the BDOS done with W1
                 LDY     ST_S
@@ -267,10 +277,6 @@ TRAMPSRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TR
                 STA     NB_VEC
                 JMP     ($FFFA)        ; block 63's: the ROM's BREAK
 TRAMPEND:
-
-; The stub's scratch
-SC_A:           .res    1
-SC_W0:          .res    1
 
 .segment "VECTORS"
                 .word   NMI

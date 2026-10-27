@@ -706,6 +706,28 @@ TEST(the_bdos_stub_keeps_all_four_windows_s_and_returns_d_clear)
     CHECK(o.find("\r\nA>") != std::string::npos);         // the warm boot put the windows back
 }
 
+TEST(the_bdos_stub_writes_nothing_in_w3_so_it_may_be_read_only)
+{
+    // STUBTEST with a tail: the home block in W3 read-only, common memory in it.
+    Booted r;
+    REQUIRE(r.ok);
+    give_common(r, 20);
+    const std::string home = "HOME BLOCK\r\n$";
+    r.poke(20 * BLOCK + 0x800, std::vector<uint8_t>(home.begin(), home.end()));
+    std::vector<uint8_t> common(0x800);
+    for (uint32_t i = 0; i < 0x800; ++i)
+        common[i] = r.phys(20 * BLOCK + 0x3800 + i);
+    const std::string o = r.go("stubtest.com", " RO");
+    CHECK(o.find("\r\nW1 STRING\r\nHOME BLOCK\r\n") != std::string::npos);
+    CHECK_EQ(field(o, "WINDOWS"), std::string("03 04 05 54 "));
+    CHECK_EQ(field(o, "NOFUNC"), std::string("FFFF"));
+    CHECK(o.find("\r\nA>") != std::string::npos);
+    bool same = true;
+    for (uint32_t i = 0; i < 0x800; ++i)
+        same = same && r.phys(20 * BLOCK + 0x3800 + i) == common[i];
+    CHECK(same);
+}
+
 TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
 {
     Booted r;

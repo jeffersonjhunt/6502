@@ -2,11 +2,13 @@
 ; returns D clear (hw/oodos.md, "The system, phase 2"), for test_oodos_sys.cpp.
 ; It moves itself to block 3 (a copy of block 0, then W0 there), puts W1 and
 ; W2 on blocks 4 and 5 (with $BFFD's JMP in 5) and W3 on block 20, a home
-; block the test has given common memory and a string at $C800. Then, with D
-; set, function 9 of a string in W1 and of the one in W3, and 105 into W2:
+; block the test has given common memory and a string at $C800 (read-only,
+; NB_RO, with any command tail: the stub mustn't need to write common
+; memory). Then, with D set, function 9 of a string in W1 and of the one in
+; W3, and 105 into W2:
 ;
 ;   W1 STRING / HOME BLOCK   function 9 through W1 and W3
-;   WINDOWS 03 04 05 14      WIN0-WIN3 after them
+;   WINDOWS 03 04 05 14      WIN0-WIN3 after them (54: W3 read-only)
 ;   S ss ss                  S before and after
 ;   P pp                     P after (D, bit 3, clear)
 ;   DAT dddd hh mm ss        what function 105 wrote at $8000, block 5
@@ -69,7 +71,10 @@ start:  lda     #COPYBLK                ; block 0 to block 3, through W1
         dex
         bpl     @str
         lda     #HOMEBLK
-        sta     NB_WIN3
+        ldx     BP_DMA                  ; a tail: read-only
+        beq     @w3
+        ora     #NB_RO
+@w3:    sta     NB_WIN3
 
         tsx
         stx     sbefore
