@@ -24,10 +24,13 @@ Click the screen and type: the BIOS boots to the Woz Monitor (`\`).
 Woz only knows capitals. Run, Halt and Step work through the front panel's
 HALT switch and CONT, as the real panel does. The toolbar is one row: back
 to the project page, Run, Halt, Step inst, Step cycle and the clock; then
-CAPS, Sound, Settings and Debugger. Narrower than 1280px the steps and the
-clock go under More, so it stays one row. On a phone it keeps Run or Halt
+CAPS, Sound, Settings and Debugger. Narrower than 1340px the subtitle goes;
+narrower than 1280px the steps and the clock go under More, so it stays one
+row. On a phone it keeps Run or Halt
 (the one the machine isn't doing), Sound and Settings, and the rest go under
-More; the front panel scales to the screen's width.
+More; the front panel scales to the screen's width. `npm run build` lays the page out as the website
+builds it, with the back link (`.env.production`'s `VITE_HOME_URL`), so the e2e tests
+see the toolbar people do.
 
 The strip under the monitor has the power light, the machine's state
 (`OO-1 · VGA 640×480 · RUNNING · 7.16 MHz`), and a pill for each thing

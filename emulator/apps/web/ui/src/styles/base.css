@@ -139,9 +139,10 @@ body {
 .tb-menu .seg button { flex: 1; justify-content: center; white-space: nowrap; padding: 0 8px; }
 .tb-menu .lbl { display: block; width: 100%; }
 /* Between a phone and a wide window the steps and the clock are under More
-   (ui/toolbar.ts, MIDDLE); narrower, the subtitle goes, then the toggles' words,
-   so the rest stays one row. */
-@media (max-width: 1000px) {
+   (ui/toolbar.ts, MIDDLE); the subtitle goes below 1340px (the whole row, with the
+   website's back link, measured 1,299px), then the toggles' words, so the rest
+   stays one row. */
+@media (max-width: 1339px) {
   .tb .ttl span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 @media (max-width: 760px) {
@@ -189,7 +190,7 @@ button.pill:hover { border-color: var(--amber); }
 @media (max-width: 600px) {
   .tb { padding: 8px 12px; gap: 6px; flex-wrap: nowrap; }
   .tb .ttl span, .tb .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .tb .home { width: 28px; height: 44px; justify-content: center; }
+  .tb .home { width: 44px; height: 44px; justify-content: center; }
   .tb .tbtn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 14px; border-radius: 8px; }
   .tb .tbtn .ico { width: 18px; height: 18px; }
   /* Run or Halt, whichever the machine isn't doing. */
