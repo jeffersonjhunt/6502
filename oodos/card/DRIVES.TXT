@@ -4,3 +4,4 @@
 # a / first, no spaces or #. RO after the path mounts it read-only; a #
 # starts a comment. Any other line is an error.
 A: /OODOS/A.IMG
+B: /OODOS/B.IMG

@@ -9,16 +9,25 @@
 #
 #   oodos/tools/make_card.sh
 #
-# The card: 16 MB, an MBR, FAT16 in partition 1 (type 06) at sector 2048,
+# The card: 32 MB, an MBR, FAT16 in partition 1 (type 06) at sector 2048,
 # 2 KB clusters. On it:
 #
-#   /BOOT.BIN          oodos/card/boot.s: says it's an OODOS card, returns
-#   /OODOS/DRIVES.TXT  oodos/card/DRIVES.TXT: A: is /OODOS/A.IMG
+#   /BOOT.BIN          OOLDR (oodos/ldr/ooldr.s), built here
+#   /OODOS/DRIVES.TXT  oodos/card/DRIVES.TXT: A: and B:
 #   /OODOS/A.IMG       oodos-8m, label mode 0x31, stamped 2026-10-26 12:00:
 #     0:README.TXT     text, CR LF, ^Z to the end of its last record
 #     0:PATTERN.BIN    36,864 bytes, seed 1: two directory entries (32 KB each)
 #     3:USER3.TXT      text, as README.TXT
 #     3:SMALL.BIN      384 bytes, seed 3
+#     0:OODOS.SYS      OODOS (oodos/sys/), built here
+#     0:TESTSYS.SYS    OOLDR's test system (oodos/ldr/testsys.s), 268
+#                      records, two entries: test_oodos_boot names it
+#                      OODOS.SYS in its own copy of the card
+#     0:HELLO.COM      oodos/examples/hello.s, for the CCP to run
+#     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
+#                      loader; it also puts test_oodos_card's file over an
+#                      SFCB's first slot (entries 14 and 16)
+#   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
 # different run in each record; test_oodos_card.cpp and interop.sh know the
@@ -28,11 +37,12 @@ set -eu
 image=debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/emulator/test/host/sd"
-docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
+docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" \
+    -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
-apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 python3 faketime >/dev/null
+apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 make python3 faketime >/dev/null
 echo "debian $(cat /etc/debian_version); the packages:"
-dpkg-query -W -f '  ${Package} ${Version}\n' dosfstools mtools fdisk cpmtools cc65 python3 faketime
+dpkg-query -W -f '  ${Package} ${Version}\n' dosfstools mtools fdisk cpmtools cc65 make python3 faketime
 cd /tmp
 export MTOOLS_SKIP_CHECK=1 TZ=UTC
 # Every stamp, FAT and CP/M, is this moment.
@@ -70,9 +80,20 @@ with open(dst, 'w') as f:
             f.write('%d %s\n' % (n, s.hex()))
 PY
 
-# BOOT.BIN, from its source.
-ca65 -o boot.o /o/card/boot.s
-ld65 -C /o/card/boot.cfg -o BOOT.BIN boot.o
+# OOLDR, OODOS.SYS, the test system and HELLO.COM, from their sources, in a
+# copy laid out as the repo is (/o and /b are read-only).
+mkdir -p src/oodos src/backplane/bios
+cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools src/oodos/
+cp /b/backplane.inc src/backplane/bios/
+rm -rf src/oodos/ldr/build src/oodos/sys/build
+make -s -C src/oodos/ldr
+make -s -C src/oodos/sys build/OODOS.SYS build/hello.com
+make -s -C src/oodos build/hello.prl
+cp src/oodos/ldr/build/BOOT.BIN BOOT.BIN
+cp src/oodos/ldr/build/OODOS.SYS TESTSYS.SYS
+cp src/oodos/sys/build/OODOS.SYS OODOS.SYS
+cp src/oodos/sys/build/hello.com HELLO.COM
+cp src/oodos/build/hello.prl HELLO.PRL
 
 # A.IMG: made, its label's mode set to 0x31 (oodos/README.md), the files in.
 cp /o/diskdefs diskdefs
@@ -89,19 +110,27 @@ python3 text.py USER3.TXT 'A FILE IN USER 3.'
 python3 gen.py SMALL.BIN 384 3
 at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
+at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL 0:
 fsck.cpm -f oodos-8m -n A.IMG
 cpmls -f oodos-8m -F A.IMG
 
+# B.IMG: an empty drive, made as A.IMG is.
+at mkfs.cpm -f oodos-8m -t -L WORK B.IMG
+truncate -s 8M B.IMG
+printf '\061' | dd of=B.IMG bs=1 seek=12 conv=notrunc status=none
+fsck.cpm -f oodos-8m -n B.IMG
+
 # The card: the partition made alone, then put at 2048.
-python3 -c "open('part.img', 'wb').truncate((16 * 2048 - 2048) * 512)"
+python3 -c "open('part.img', 'wb').truncate((32 * 2048 - 2048) * 512)"
 at mkfs.fat -F 16 -s 4 -i 0001DD05 -n OODOS part.img >/dev/null
 python3 noboot.py part.img
 at mmd -i part.img ::/OODOS
 at mcopy -i part.img BOOT.BIN ::/BOOT.BIN
 at mcopy -i part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
 at mcopy -i part.img A.IMG ::/OODOS/A.IMG
+at mcopy -i part.img B.IMG ::/OODOS/B.IMG
 mdir -i part.img -/ ::/
-python3 -c "open('card.img', 'wb').truncate(16 * 2048 * 512)"
+python3 -c "open('card.img', 'wb').truncate(32 * 2048 * 512)"
 printf 'label: dos\nlabel-id: 0x0001dd05\nstart=2048, type=06\n' | sfdisk -q card.img
 dd if=part.img of=card.img bs=512 seek=2048 conv=notrunc status=none
 python3 sparse.py card.img /out/oodos.sparse
