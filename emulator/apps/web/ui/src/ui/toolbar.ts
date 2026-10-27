@@ -6,8 +6,11 @@
  *
  * On a phone (PHONE) the row keeps back, the name, Run or Halt (whichever
  * the machine isn't doing), Sound and Settings, and the rest go under More:
- * Step inst, Step cycle, the clock, CAPS and Debugger. The same buttons,
- * moved: they keep their state and listeners.
+ * Step inst, Step cycle, the clock, CAPS and Debugger. Between a phone
+ * and a wide window (MIDDLE) More holds the steps and the clock, and the
+ * rest stays in the row; base.css drops the subtitle, then the toggles'
+ * words, as it narrows. The same buttons, moved: they keep their state
+ * and listeners.
  */
 
 import { CLOCKS_HZ, type Clock, type FrameState, type MachinePort } from "../port/machine-port";
@@ -17,6 +20,8 @@ import type { PanelState } from "./panel-state";
 
 /** Where the page is laid out for a phone. */
 export const PHONE = "(max-width: 600px)";
+/** Where the whole row no longer fits (measured: it wraps below 1270px): the steps and the clock fold into More. */
+export const MIDDLE = "(max-width: 1279px)";
 
 export interface ToolbarHooks {
   caps: (on: boolean) => void;
@@ -121,17 +126,25 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
   const grow = () => h("span", { class: "grow" });
   const sound = hooks.sound ? [hooks.sound] : [];
   const phone = typeof matchMedia === "function" ? matchMedia(PHONE) : null;
+  const middle = typeof matchMedia === "function" ? matchMedia(MIDDLE) : null;
+  const folded = () => h("span", { class: "tb-more" }, more, menu);
   const layout = () => {
     const lead = back ? [back, ttl] : [ttl];
     if (phone?.matches) {
       menu.replaceChildren(stepInst, stepCycle, clockGroup, caps, debug);
-      element.replaceChildren(...lead, grow(), run, halt, ...sound, settings, h("span", { class: "tb-more" }, more, menu));
+      more.setAttribute("aria-label", "More: step, clock, caps, debugger");
+      element.replaceChildren(...lead, grow(), run, halt, ...sound, settings, folded());
+    } else if (middle?.matches) {
+      menu.replaceChildren(stepInst, stepCycle, clockGroup);
+      more.setAttribute("aria-label", "More: step, clock");
+      element.replaceChildren(...lead, sep(), run, halt, grow(), caps, ...sound, sep(), settings, debug, folded());
     } else {
       setMenu(false);
       element.replaceChildren(...lead, sep(), run, halt, stepInst, stepCycle, sep(), clockGroup, grow(), caps, ...sound, sep(), settings, debug);
     }
   };
   phone?.addEventListener("change", layout);
+  middle?.addEventListener("change", layout);
   layout();
 
   // Run, Halt and Step are the panel's own controls: dead unless the keyswitch is at RUN.

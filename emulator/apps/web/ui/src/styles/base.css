@@ -134,6 +134,20 @@ body {
   box-shadow: 0 12px 30px #000c;
 }
 .tb-menu .tb-clock { flex-wrap: wrap; }
+.tb-menu .tbtn { width: 100%; justify-content: flex-start; }
+.tb-menu .seg { width: 100%; }
+.tb-menu .seg button { flex: 1; justify-content: center; white-space: nowrap; padding: 0 8px; }
+.tb-menu .lbl { display: block; width: 100%; }
+/* Between a phone and a wide window the steps and the clock are under More
+   (ui/toolbar.ts, MIDDLE); narrower, the subtitle goes, then the toggles' words,
+   so the rest stays one row. */
+@media (max-width: 1000px) {
+  .tb .ttl span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+@media (max-width: 760px) {
+  .tb .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tb-menu .txt { position: static; width: auto; height: auto; clip: auto; }
+}
 
 .wrap { display: grid; grid-template-columns: minmax(0, 1fr) var(--dbg); min-height: calc(100vh - 51px); }
 .bench { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 16px 20px; min-width: 0; }
@@ -180,11 +194,7 @@ button.pill:hover { border-color: var(--amber); }
   .tb .tbtn .ico { width: 18px; height: 18px; }
   /* Run or Halt, whichever the machine isn't doing. */
   .tb [data-testid="tb-run"].on, .tb [data-testid="tb-halt"].on { display: none; }
-  .tb-menu .tbtn { width: 100%; justify-content: flex-start; }
   .tb-menu .txt { position: static; width: auto; height: auto; clip: auto; }
-  .tb-menu .seg { width: 100%; }
-  .tb-menu .seg button { flex: 1; justify-content: center; white-space: nowrap; padding: 0 8px; }
-  .tb-menu .lbl { display: block; width: 100%; }
   .seg button { height: 44px; padding: 0 14px; font-size: 13px; }
   .bench { padding: 14px 12px; gap: 14px; }
   .mon-col { width: 100%; }

@@ -30,6 +30,7 @@ describe("toolbar", () => {
   });
 
   test("one row: run, step and clock, then CAPS, Sound, Settings, Debugger; the phosphor is Settings' now", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {} })); // a wide window
     const tb = bar();
     expect(ids(tb.element)).toEqual(["ttl", "sep", "tb-run", "tb-halt", "tb-step", "tb-step-cycle", "sep", "tb-clock", "grow", "tb-caps", "sep", "tb-settings", "tb-debugger"]);
     expect(tb.element.querySelector('[aria-label="Phosphor"]')).toBeNull();
@@ -59,6 +60,15 @@ describe("toolbar", () => {
     more.click();
     tb.debug.click(); // the drawer takes over
     expect(menu.hidden).toBe(true);
+  });
+
+  test("between a phone and a wide window: the steps and the clock under More, the rest in the row", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("1279px"), addEventListener() {} }));
+    const tb = bar();
+    expect(ids(tb.element)).toEqual(["ttl", "sep", "tb-run", "tb-halt", "grow", "tb-caps", "sep", "tb-settings", "tb-debugger", "tb-more"]);
+    const menu = tb.element.querySelector<HTMLElement>('[data-testid="tb-menu"]')!;
+    expect(ids(menu)).toEqual(["tb-step", "tb-step-cycle", "tb-clock"]);
+    expect(tb.element.querySelector('[data-testid="tb-more"]')!.getAttribute("aria-label")).toBe("More: step, clock");
   });
 
   test("CAPS is a toggle: pressed, and remembered", () => {

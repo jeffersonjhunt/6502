@@ -172,6 +172,19 @@ test("the fonts are the page's own: Inter and JetBrains Mono load, and nothing i
   expect(outside).toEqual([]);
 });
 
+for (const width of [768, 1024]) {
+  test(`at ${width}px the toolbar is one row: the steps and the clock are under More`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await booted(page);
+    expect((await page.getByRole("banner").boundingBox())!.height).toBeLessThan(60); // one row (two would be ~91)
+    await expect(page.getByTestId("tb-clock")).toBeHidden();
+    await page.getByTestId("tb-more").click();
+    await expect(page.getByTestId("tb-menu").getByRole("group", { name: "Clock" })).toBeVisible();
+    await expect(page.getByTestId("tb-menu").getByRole("button", { name: "Step inst" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  });
+}
+
 test.describe("on a narrow window", () => {
   test.use({ viewport: { width: 800, height: 900 } });
 
