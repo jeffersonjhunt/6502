@@ -347,6 +347,17 @@ def build(tmp, name, kind, source=None):
     return r.returncode, r.stdout + r.stderr, os.path.exists(out)
 
 
+def tpa_checks(tmp):
+    """A .COM's image and BSS end by $BFFC: $BFFD-$BFFF are the BDOS's JMP (hw/oodos.md)."""
+    big = lambda n: ('        .include "oodos.inc"\n        OODOS_HEADER\n        .code\n        jmp WBOOT\n'
+                     "        .bss\n        .res %d\n" % n)
+    status, out, made = build(tmp, "tpatop", "com", big(0xBFFD - 0x0300 - 3))
+    ok(status == 0 and made and mkprl.header(read(os.path.join(tmp, "build", "tpatop.com")))["bss"] == 0xBFFD - 0x0303,
+       "a .COM to $BFFC links")
+    status, out, made = build(tmp, "tpaover", "com", big(0xBFFD - 0x0300 - 2))
+    ok(status != 0 and not made, "a .COM to $BFFD doesn't: ld65 refuses it")
+
+
 def rules_checks(hello, tmp):
     r = run(sys.executable, "-I", "tools/rules.py", hello + ".com", "--map", hello + ".map")
     ok(r.returncode == 0 and "0 problems" in r.stdout, "rules: hello.com passes: %s" % r.stdout.strip())
@@ -420,6 +431,8 @@ def main():
         mkprl_checks(hello, tmp)
         print("The magic number")
         magic_checks(hello)
+        print("The TPA's top")
+        tpa_checks(tmp)
         print("The 65C816 rules")
         rules_checks(hello, tmp)
         print("Running hello")
