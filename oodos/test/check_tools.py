@@ -208,6 +208,13 @@ def loader_checks(hello, tmp):
     attached = patched(prl, rsxcount=1, rsxrec=len(prl) // 128) + bytes(table) + bytes([0xEE]) * 256
     got, changed = under_sentinels(attached, 0x80)
     ok(got == mkprl.load(prl, 0x80) and not changed, "hello.prl with an RSX table and an RSX attached: only the image changed")
+    # Set bits in the bitmaps' padding, past the image's bytes, are ignored.
+    n = mkprl.bitmap_len(mkprl.header(prl)["size"])
+    dirty = bytearray(prl)
+    for r in mkprl.bitmap_records(mkprl.header(prl)["size"]):
+        dirty[r * 128 + n:(r + 1) * 128] = bytes([0xFF]) * (128 - n)
+    got, changed = under_sentinels(bytes(dirty), 0x80)
+    ok(got == mkprl.load(prl, 0x80) and not changed, "hello.prl with its bitmaps' padding all ones: the padding is ignored")
     refused(lambda: mkprl.load(prl[:3 * 128], 0x40), "hello.prl without its zero page bitmap's record", "ends at record 3")
     refused(lambda: mkprl.load(prl[:2 * 128], 0x40), "hello.prl without its bitmaps", "before its bitmaps")
     # The refusals.
@@ -349,6 +356,13 @@ def rules_checks(hello, tmp):
         r = run(sys.executable, "-I", "tools/rules.py", os.path.join(tmp, name + ".com"), "--map", os.path.join(tmp, name + ".com.map"))
         line = r.stdout.splitlines()[0] if r.stdout else ""
         ok(r.returncode == 1 and expect in line and "$0303" in line, "rules: %s refused: %s" % (name, line.replace(tmp + os.sep, "")))
+    # The zero page segment ends at $EF, in both configs.
+    o = assemble(tmp, "zpfull", program("        lda zp", zp="zp:     .res $F0"))
+    for cfg, zp in ((COM_CFG, None), (PRL_CFG, 0), (PRL_CFG, 1)):
+        cmd = ["ld65", "-C", cfg] + (["-D", "__OODOS_ZP__=%d" % zp] if zp is not None else [])
+        r = run(*cmd, o, "-o", os.path.join(tmp, "zpfull"))
+        ok((r.returncode == 0) == (zp != 1), "%s: $F0 bytes of zero page from $%02X %s" % (
+            os.path.basename(cfg), zp or 0, "link" if zp != 1 else "don't: %s" % r.stderr.strip().splitlines()[-1]))
     # The build itself stops: no .COM, no .PRL.
     for kind in ("com", "prl"):
         status, out, made = build(tmp, "rule2", kind)
