@@ -101,6 +101,18 @@ test("the monitor follows the machine: the demo's picture switches to Display, i
   await expect(crt).toHaveAttribute("data-scene", "text", { timeout: 10_000 });
 });
 
+test("a switch the machine made is not remembered: the next visit opens on the terminal it boots to", async ({ page }) => {
+  await booted(page);
+  const crt = page.getByTestId("crt");
+  await crt.click();
+  await page.keyboard.type("C803R");
+  await page.keyboard.press("Enter");
+  await expect(crt).toHaveAttribute("data-scene", "vga", { timeout: 10_000 }); // the demo's, by itself
+  await page.reload();
+  await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+  await expect(crt).toHaveAttribute("data-scene", "text");
+});
+
 /** The core's own bios.rom, as the page loads it (bios-labels.ts reads its labels the same way). */
 async function builtInBios(page: Page): Promise<Buffer> {
   const bytes = await page.evaluate(async () => {

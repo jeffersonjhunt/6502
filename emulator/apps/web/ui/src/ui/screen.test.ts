@@ -49,4 +49,21 @@ describe("following the machine", () => {
     expect(s.machine("terminal")).toBe(false);
     expect(s.screen).toBe("display");
   });
+
+  test("only a pick by hand is remembered, and only until the machine next switches", () => {
+    const kept: (string | null)[] = [];
+    const memory = { keep: (s: string) => kept.push(s), forget: () => kept.push(null) };
+    const s = new ScreenFollow("terminal", "terminal", memory);
+    s.pick("display");
+    expect(kept).toEqual(["display"]);
+    s.machine("terminal"); // nothing new from the machine: the pick stands
+    expect(kept).toEqual(["display"]);
+    s.machine("display"); // the demo: its switch is not the user's
+    s.machine("terminal");
+    expect(kept.at(-1)).toBeNull();
+    s.follow("display"); // Start Apple IIe: the machine's, ahead of its frame
+    expect(s.screen).toBe("display");
+    expect(kept.at(-1)).toBeNull();
+    expect(kept.filter((k) => k !== null)).toEqual(["display"]);
+  });
 });

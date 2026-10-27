@@ -224,7 +224,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   // Display is the Apple II scene in Apple II mode, VGA otherwise.
   let apple = false;
   const saved: Screen = prefs.get("screen") === "display" ? "display" : "terminal";
-  const follow = new ScreenFollow(saved);
+  const follow = new ScreenFollow(saved, "terminal", { keep: (s) => prefs.set("screen", s), forget: () => prefs.remove("screen") });
   const sceneFor = (s: Screen): Scene => (s === "terminal" ? "text" : apple ? "apple" : "vga");
   const monLabel = h("span", { class: "lbl mon-label", "data-testid": "mon-label" });
   // The video card's frames are copied out only while its scene is showing.
@@ -258,14 +258,13 @@ function start(root: HTMLElement, port: MachinePort): void {
   screens.element.dataset.testid = "screen-switch";
   const applyScreen = () => {
     screens.select(follow.screen);
-    prefs.set("screen", follow.screen);
     if (sceneFor(follow.screen) !== scene || !monLabel.textContent) showScene(sceneFor(follow.screen));
   };
   applyScreen();
 
   const appleRoms = appleBar(port, {
     started: () => {
-      follow.pick("display"); // the Apple's picture, without waiting for the frame that says so
+      follow.follow("display"); // the Apple's picture, without waiting for the frame that says so
       applyScreen();
       glass.focus(); // the IIe's keyboard
     },

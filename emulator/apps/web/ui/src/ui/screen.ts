@@ -9,6 +9,9 @@
  * at) is the serial session mirrored, so it counts as Terminal's, as does
  * the card's display off. ScreenFollow switches when what the machine asks
  * for changes, and only then: a choice made by hand holds until it does.
+ * Only that choice is remembered for next time, and only until the machine
+ * next switches: a visit starts on the user's pick, or the terminal the
+ * machine boots to, never on a switch the machine made last time.
  */
 
 import type { FrameState, VideoRegs } from "../port/machine-port";
@@ -34,13 +37,20 @@ export function machineScreen(f: Pick<FrameState, "apple" | "videoCard">): Scree
   return "display";
 }
 
+/** Where the user's pick is remembered (prefs). */
+export interface ScreenMemory {
+  keep(screen: Screen): void;
+  forget(): void;
+}
+
 export class ScreenFollow {
   private wanted: Screen;
 
-  /** `screen`: the one showing (as left last time); `wanted`: what the machine asks for to start with. */
+  /** `screen`: the one showing (the pick kept from last time); `wanted`: what the machine asks for to start with. */
   constructor(
     public screen: Screen,
     wanted: Screen = "terminal",
+    private readonly memory?: ScreenMemory,
   ) {
     this.wanted = wanted;
   }
@@ -49,13 +59,21 @@ export class ScreenFollow {
   machine(want: Screen): boolean {
     if (want === this.wanted) return false;
     this.wanted = want;
+    this.memory?.forget(); // a pick holds until now
     if (this.screen === want) return false;
     this.screen = want;
     return true;
   }
 
-  /** Picked by hand: it holds until the machine's video mode next changes. */
+  /** Picked by hand: it holds until the machine's video mode next changes, and is remembered till then. */
   pick(screen: Screen): void {
     this.screen = screen;
+    this.memory?.keep(screen);
+  }
+
+  /** Switched for the machine, ahead of the frame that would say so (Start Apple IIe): not remembered. */
+  follow(screen: Screen): void {
+    this.screen = screen;
+    this.memory?.forget();
   }
 }
