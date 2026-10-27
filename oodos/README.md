@@ -78,7 +78,7 @@ python3 -I tools/mkprl.py --load OVL.PRL --overlay 0x6000 -o OVL.img            
 
 ```
 make            # build/*.com, build/*.prl
-make check      # test/check_tools.py build: ends PASS 97
+make check      # test/check_tools.py build: ends PASS 99
 make clean
 ```
 
@@ -103,16 +103,17 @@ Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)), in [`sys/`]
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
 make -C sys sizes       # its segments: mksys.py --check
-make -C sys check       # test/check_mksys.py: ends PASS 53
+make -C sys check       # test/check_mksys.py: ends PASS 55
 ```
 
 The native test runs it all on the emulator; from `emulator/`, after `cmake --build --preset dev` (which runs the
-Makefile above into the build tree):
+Makefile above into the build tree, with `ldr/`'s and this directory's for `test_oodos_boot`; configuring fails
+without cc65, python3 and make, as ctest has no skips):
 
 ```
 ctest --preset dev -R test_oodos_sys
@@ -176,13 +177,13 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 ## The test card ##
 
 `tools/make_card.sh` makes the card the emulator's tests use, `emulator/test/host/sd/oodos.sparse` (committed,
-351 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
+367 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
 
 | On the card | What |
 |---|---|
 | `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
 | `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 268 records, two entries), `0:HELLO.COM` and `0:HELLO.PRL` |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` and `0:HELLO.PRL` |
 | `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
 It runs everything (make, ca65 and ld65 for OOLDR and OODOS.SYS, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
@@ -192,6 +193,10 @@ disk ids, so the same sources make the same card; it prints the packages' versio
 ```
 oodos/tools/make_card.sh
 ```
+
+Run it after changing anything on the card: `test_oodos_boot` builds OOLDR, both systems, HELLO.COM and HELLO.PRL
+from the sources and fails, with "the card is stale: run oodos/tools/make_card.sh", unless the card holds exactly
+those (and `card/DRIVES.TXT`).
 
 `mkfs.cpm` writes only the directory, and the file grows as `cpmcp` writes; an SD unit is its file's size, so the
 script makes A.IMG 8 MB first (`truncate`), the unused blocks zeros. mkfs.fat's boot code is zeroed, as
@@ -259,7 +264,7 @@ make -C ldr clean
 |---|---|
 | [`ldr/ooldr.s`](ldr/ooldr.s), [`ldr/ldr.cfg`](ldr/ldr.cfg) | OOLDR: at `$1000`, everything below `$4000`, zero page `$00–$1F` |
 | [`sys/cpmread.s`](sys/cpmread.s) | the read-only CP/M reader: CR_INIT, CR_FIND, CR_SEEK, CR_READ; its zero page and buffers are the `CRZP` and `CRBSS` segments, placed by whoever links it |
-| [`ldr/testsys.s`](ldr/testsys.s), [`ldr/testsys.cfg`](ldr/testsys.cfg) | the test OODOS.SYS: six segments in block 31 and blocks 60–62, a cold boot that writes the windows and P it found to `$7FF00` and stops |
+| [`ldr/testsys.s`](ldr/testsys.s), [`ldr/testsys.cfg`](ldr/testsys.cfg) | the test OODOS.SYS: six segments in block 31 and blocks 60–62, one from block 60 into 61, a cold boot that writes the windows and P it found to `$7FF00` and stops |
 
 It builds with the host's cc65 as with the container's (Debian's 2.19 both), byte for byte. To try it: `make -C ldr`,
 `tools/make_card.sh`, then in the emulator with the card in the slot, `C80CR` from the monitor. Each refusal says
@@ -270,5 +275,5 @@ windows and flags, then makes each refusal on cards it builds in memory (a chang
 
 ```
 cmake --build emulator/build/dev --target test_oodos_boot
-emulator/build/dev/test/host/test_oodos_boot      # ends "10 cases, 0 failed"
+emulator/build/dev/test/host/test_oodos_boot      # ends "15 cases, 0 failed"
 ```

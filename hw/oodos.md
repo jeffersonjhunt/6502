@@ -103,14 +103,19 @@ Each line is one of these, and anything else is an error:
 
 - **The path** is the image's as MOUNT takes it: from the card's root, so it starts with `/`; `/`-separated, long
   or 8.3 names in any case (fat_volume.h). It has no spaces, tabs, `#` or control characters, and is at most 509
-  bytes, what MOUNT's sector holds after the unit and the flags with its NUL.
+  bytes, what MOUNT's sector holds after the unit and the flags with its NUL. **Decided (2026-10-27):** no `//`,
+  `/./` or `/../` in it, which would give one image two paths; as built, no name in it is empty, `.` or `..`, so a
+  `/` at the end is refused too (Proposed).
 - **Lines end** in LF or CR LF, so the file can be edited on any PC; the last may have no ending. A CR anywhere
   else, in a comment too, is an error. A UTF-8 byte order mark at the start of the file is skipped. The file is
   read to its size (LIST gives it), not to a NUL.
 - **Errors** stop the loader, which says which line, by number, and why, and goes back to the monitor: a line
   that fits none of the forms (a word after the path that isn't `RO`, such as a mistyped `R0`, or a second `RO`;
   a space in the path), a drive named twice (not the later line winning), and the same path on two drives
-  (compared in any case, as FAT names are).
+  (compared in any case, as FAT names are). **Decided (2026-10-27):** once they're mounted, two drives whose files
+  IDENTIFY's units table names the same (its 24 bytes of the name) are refused too, by the later line: an 8.3
+  alias of a long name passes the paths' compare. The table is all the card says of a unit, so two images of the
+  same name in different directories are refused as well: give them different names.
 - A drive not named isn't mounted. Without an A line, or with a path MOUNT can't find, the loader says which and
   goes back to the monitor.
 
@@ -326,22 +331,33 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
 - **Registers:** CP/M 3's C or E in A, BC in A/X, and MOVE's DE and HL (SECTRN's table too) in two words of the
   system's zero page, function 50's +4–5 and +6–7; a result in A, or A/X for HL. `bios.s`'s header has every
   entry. SELDSK's E (bit 0: selected before) is X; a first select reads IDENTIFY's units table again, so a unit
-  mounted since shows up.
+  mounted since shows up. As CP/M 3's: MOVE copies BC bytes from DE (+4–5, the source) to HL (+6–7, the
+  destination) and returns HL past them; XMOVE's C, the source bank, is A, and its B, the destination bank, is X.
 - **Banks:** 0 is the system's view (31, 60, 61, 62), 1 the program's (the windows the stub saved); any other is
   taken as 0. SETBNK names SETDMA's; SELMEM sets the bank MOVE copies within, and moves no window (the BDOS reaches
   the program's memory by physical address, never by switching under itself); XMOVE's two banks are for the next
-  MOVE only.
+  MOVE only. Cold boot and every warm boot set SETBNK's and SELMEM's banks to 0 and drop a pending XMOVE, so
+  nothing a program left reaches the next.
+- **What isn't memory:** an address in a window's I/O hole (`$C000–$C7FF`), a window on flash (`NB_ROM`), or a
+  read-only window as the destination, has no physical address the BIOS may use: READ and WRITE return 1 and MOVE
+  moves nothing and returns A = X = `$FF`, all checked before a byte moves. The BDOS's functions stop at a program
+  address in the hole and return A = X = `$FF`.
 - **The DPBs:** worked out from `oodos/diskdefs`, with CKS `$8000` (a drive not changed under the system: no
   checksums), OFF 0, PSH 2 and PHM 3. SELDSK's DPHs have no translation and no buffers until phase 3.
 - **READ and WRITE** check the sector (0–15) and the drive, then move one sector by DMA (channel 0 for the card,
   3 for M:); a sector past a drive's end, a card error, or no card returns 1, and the card's own write-protect
   (a unit made read-only since the units table was read) returns 2 as the table's flag does. MULTIO takes the count
   and READ and WRITE still do one sector each; FLUSH has nothing to write out.
+- **The card's commands** wait for it to be idle first (a command written while BUSY is ignored), and give a
+  command about a second to end (an SD card may stay busy hundreds of milliseconds programming a write); then CTRL's
+  RESET abandons it, the units staying mounted, and READ or WRITE returns 1. A command that ends without channel 0
+  at its terminal count (the 512 bytes not all moved) returns 1 too. The units table's IDENTIFY waits the same way.
 - **M:'s label** is `mkfs.cpm -t`'s, UNLABELED, mode 0x31, both stamps the time cold boot read; the data area is
   left as it is, as mkfs.cpm leaves it.
 - **TIME:** the bridge holds 2000–2199 and the SCB's days reach 2155. Leap years are the DS3231's, every fourth, so
-  2100 has a 29 February in both and they always agree; a date before 2000 leaves the clock as it was. Setting it
-  keeps RTCCTL's TIE and waits for BUSY to clear.
+  2100 has a 29 February in both and they always agree; a date before 2000 or past 2155 leaves the clock as it was.
+  A clock past 2155 reads as no time: TIME returns carry set and leaves the SCB as it was, cold boot's banner shows
+  no date, and function 105 returns A = X = `$FF`. Setting it keeps RTCCTL's TIE and waits for BUSY to clear.
 - **The devices:** DEVTBL is `CRT` (input and output), `TTY` (serial, 19,200: code 15) and `LPT` (output). The SCB's
   vectors start with CON: in and out on CRT and TTY, AUX: on TTY, LST: on LPT. TTY waits out a character after each
   (the 6551's stuck transmit flag), as the ROM's ECHO does; LPT's input is ^Z.
@@ -406,8 +422,8 @@ A machine with no OODOS card still boots to the monitor as now.
   The TPA is `$0300–$BFFC`, 48,381 bytes. (A `JMP $F8xx` at `$0203` would make `$0204` claim the I/O hole and
   the code window.)
 - **The BDOS stub** saves the program's S, P and WIN0–WIN3, switches to the system's windows and stack, calls the
-  BDOS, and puts them back. With interrupts off while it switches; its scratch bytes are in common memory, used
-  only between the entry and the switch.
+  BDOS, and puts them back. With interrupts off while it switches; what it keeps before the switch goes on the
+  program's own stack, so common memory is never written and may be read-only in a program's W3.
 - **The program's memory from the system:** through the saved windows, as physical addresses, by DMA
   (MOVE/XMOVE, or a byte at a time where that's all it is).
 - **Programs call the BIOS through function 50 only.** The jump table in common memory is the BDOS's.
@@ -417,7 +433,7 @@ A machine with no OODOS card still boots to the monitor as now.
 | Address | What |
 |---|---|
 | `$F800` | the BIOS jump table: CP/M 3's 30 entries, in CP/M 3's order, 3 bytes each |
-| after it | the BDOS stub, the warm boot entry, FARCALL, the interrupt and NMI entries, the stub's scratch |
+| after it | the BDOS stub, the warm boot entry, FARCALL, the interrupt and NMI entries |
 | `$FFFA–$FFFF` | the NMI, reset and IRQ vectors (VEC is block 62) |
 
 The addresses after the jump table aren't fixed: programs find FARCALL through function 72.
@@ -460,12 +476,19 @@ units table gives each unit's sectors and read-only flag, so nothing is handed o
   never DMA, and has no fixed addresses: its zero page and buffers are segments (`CRZP`, 4 bytes; `CRBSS`, about
   1 KB) the linker config places. A file may have 16 directory entries (512 KB on `oodos-8m`), each but the last
   full; an entry missing, twice, part full or naming a block outside the data area is a damaged directory.
-- **DRIVES.TXT:** a CR at the very end, with no LF after it, is a CR not before LF. The drives are mounted in order,
-  A to G, each with its size checked as it's mounted. Units 2–7 that no line names are unmounted first, so a unit
-  left from an earlier boot doesn't become a drive.
-- **The header:** the entry must be in `$C800–$FFFF` (block 62 through W3, past the I/O hole); each segment must
-  also lie inside the file (its record and length within the file's records); a segment may run from one of blocks
-  60–62 into the next; the reserved bytes aren't looked at. Everything is checked before anything is loaded.
+- **DRIVES.TXT:** a CR at the very end, with no LF after it, is a CR not before LF. A file of 16 MB or more is
+  refused (DRIVES.TXT IS TOO BIG). The drives are mounted in order, A to G, each with its size checked as it's
+  mounted, then the units table is read for two drives on one file. Units 2–7 that no line names are unmounted
+  first, so a unit left from an earlier boot doesn't become a drive.
+- **The header:** the entry must be in `$C800–$FFFF` (block 62 through W3, past the I/O hole) and in a segment;
+  each segment must not be empty, must start after the header (record 1 on) and lie inside the file (its record
+  and length within the file's records); a segment may run from one of blocks 60–62 into the next; the reserved
+  bytes aren't looked at, by OOLDR or by `mksys.py --check`, which refuses exactly what OOLDR does (so a later
+  minor version may use them). Everything is checked before anything is loaded.
+- **The card:** every wait for it, OOLDR's and the CP/M reader's, is bounded at about a second; then the command is
+  abandoned (CTRL's RESET, units staying mounted), OOLDR says SD TIMEOUT, and the reader returns `CRE_TIMEOUT`
+  (`system.inc`), which the CCP shows as READ ERROR. A drive the reader finds gone from the units table, or of
+  neither size, as OOLDR goes to read OODOS.SYS, is said by its line, as when mounting.
 - **Loading** maps W1 to a segment's first block and W2 to the next, and copies each record through a buffer, so a
   last part record writes only the segment's bytes. On a failure W1 and W2 go back to blocks 1 and 2.
 
@@ -485,10 +508,11 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   program's A, X, S and WIN0–WIN3 and the BIOS's two word parameters, `$0100` the stack, the SCB at `$0200`, the
   BDOS's and BIOS's variables from `$0300`, a sector's buffer at `$0800` and the way to the monitor at `$0A00`.
 - **The stub** leaves interrupts off for the whole call in phase 2 (no interrupt is enabled) and sets S to `$FF` at
-  each entry. Its two scratch bytes are used only before the switch; on the way out, with W1 free once the BDOS has
-  returned, it puts A and X on the program's own stack (W1 on its W0 block for that), under its P, and pulls them
-  after switching back. Measured: 108 cycles from `JSR $0203`'s target to the BDOS's first instruction,
-  90 from the BDOS's return to the program's next instruction.
+  each entry. It writes nothing in common memory: on the way in it pushes A, X and Y on the program's stack after
+  its P and reads them back through W1 (on the program's W0 block) once W0 is the system's; on the way out, with W1
+  free once the BDOS has returned, it puts A and X there under its P and pulls them after switching back.
+  Measured: 126 cycles from `JSR $0203`'s target to the BDOS's first instruction, 90 from the BDOS's return to the
+  program's next instruction.
 - **The program's memory from the BDOS** a byte at a time: its block, by the saved window, mapped into W2 for the
   byte and the BIOS's put back. The BIOS's sectors and MOVEs go by DMA to the physical address, a window at a time,
   so a buffer may cross windows mapped anywhere (READ and WRITE then go through the system block's buffer).
@@ -512,7 +536,8 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   end as CR; 2 expands a tab to the next eighth column by the SCB's column. 72 takes the address of a 10-byte block
   it fills: OODOS's version (major, minor), the BIOS's, the memory fitted and the memory for programs in KB (1,024
   and 320, banks 1–5, for 53–58 later), FARCALL's address; and returns that address in A/X. 104 sets the seconds
-  to 0; 105 returns them in A, X 0. A function 50 of a BIOS function past XMOVE returns A = X = `$FF`.
+  to 0; 105 returns them in A, X 0. A function 50 of a BIOS function past XMOVE returns A = X = `$FF`, and so does
+  one of BOOT, which would run cold boot again and format M: (a program ends by the warm boot).
 
 
 ## RSXs and programs ##
@@ -723,8 +748,8 @@ copyright and MIT notice.
   The test card's `/BOOT.BIN` is built with ca65 and ld65 too.
 - **Card images:** [`oodos/tools/make_card.sh`](../oodos/tools/make_card.sh) makes the test card with cpmtools,
   mkfs.fat and mtools in a throwaway container, from our own files, under faketime so the same sources make the
-  same card. It's committed as a sparse image, `emulator/test/host/sd/oodos.sparse` (184 KB): a 16 MB card,
-  FAT16 in an MBR partition, with `/BOOT.BIN`, `/OODOS/DRIVES.TXT` and `/OODOS/A.IMG` (`oodos-8m`, label mode
+  same card. It's committed as a sparse image, `emulator/test/host/sd/oodos.sparse` (oodos/README.md has its
+  size): a card (16 MB in phase 1, 32 MB from phase 2), FAT16 in an MBR partition, with `/BOOT.BIN`, `/OODOS/DRIVES.TXT` and `/OODOS/A.IMG` (`oodos-8m`, label mode
   0x31, files in users 0 and 3, one over two directory entries).
 - **Interoperability, both ways:**
   - **cpmtools writes, the OO-1 reads:** `test_oodos_card`, in ctest, mounts A.IMG through the card's own MOUNT
@@ -752,8 +777,9 @@ copyright and MIT notice.
 
 - **OOLDR and the CP/M reader:** [`oodos/ldr/`](../oodos/ldr/) builds `/BOOT.BIN` from `ooldr.s` and
   `oodos/sys/cpmread.s`, and a test OODOS.SYS from `testsys.s`: six segments in block 31 and blocks 60–62, one of
-  them over the first directory entry's end (record 256) and one over a logical extent's (record 128), and two
-  touching, the earlier loaded later, so a last part record written whole shows. Its cold boot writes the windows
+  them over the first directory entry's end (record 256) and one over a logical extent's (record 128) and from
+  block 60 into 61 (over `$F4000`, so W2 must be the next block), and two touching, the earlier loaded later, so a
+  last part record written whole shows. Its cold boot writes the windows
   and P it found to block 31 and stops. ld65 writes the header's records from the file offsets it gives.
 - **The card:** `make_card.sh` builds both in its container and puts them on the card, which is now 32 MB:
   `/BOOT.BIN` is OOLDR, A.IMG holds OODOS.SYS beside phase 1's files, and `/OODOS/B.IMG` is an empty `oodos-8m`
@@ -780,14 +806,14 @@ copyright and MIT notice.
   let by, a CR at the end let by, a drive named twice let by, paths compared in one case only, no overlap check,
   any image size taken, `oodos-32m` with `oodos-8m`'s EXM, block 63 allowed, a segment past the file's end let by,
   the BOM not skipped, nothing unmounted, segments over 16 KB let by, part full entries let by.
-- `test_oodos_card` follows the card (its size, the directory's entries, OO1.BIN's two entries now 10 and 12) and
-  `interop.sh` passes on it unchanged.
+- `test_oodos_card` follows the card (its size, the directory's entries, OO1.BIN's two entries, now 14 and 16:
+  below) and `interop.sh` passes on it unchanged.
 
 **Done (phase 2: together, 2026-10-27)**
 
 - **The card** carries the whole system: `/BOOT.BIN` is OOLDR, and A: holds OODOS.SYS (OODOS itself),
   TESTSYS.SYS (OOLDR's test system, which `test_oodos_boot` names OODOS.SYS in its own copy of the card),
-  HELLO.COM and HELLO.PRL. The sparse image is 366 KB.
+  HELLO.COM and HELLO.PRL.
 - **`test_oodos_e2e`, in ctest,** boots the committed card as its owner would: the monitor, `C80CR`, OOLDR, OODOS
   and `A>`; `hello world` runs HELLO.COM from A: through the CCP's reader, with its tail, its image byte for byte
   at `$0300` and the bytes past its BSS (set by the monitor first) untouched, and runs again after the warm boot;
@@ -833,6 +859,40 @@ copyright and MIT notice.
   FARCALL's CLD gone, Break leaving VEC, the label's mode, the leap years, the day of the week, the century bit,
   a DPB, the card's write-protect, the window split, ESC K, lowercase, scrolling, PGET's windows, ^X, the CCP's
   flag check, CON:'s TTY, the label's sector).
+
+**Done (phase 2: the review's fixes, 2026-10-27)**
+
+- **No skips, and a fresh card:** configuring the native tests fails without cc65, python3 and make, and
+  `test_oodos_sys` fails, not skips, without OODOS.SYS. CMake builds OOLDR, the test system and HELLO.PRL as it
+  builds OODOS.SYS, and `test_oodos_boot` fails ("the card is stale: run oodos/tools/make_card.sh") unless the
+  committed card holds exactly those, HELLO.COM and `oodos/card/DRIVES.TXT`. The host's cc65 and the container's
+  (Debian's 2.19 both) make the same bytes.
+- **`test_oodos_boot`** adds: `//`, `/./`, `/../`, a `/` at the end and `/` alone refused by line; names of dots
+  that aren't `.` or `..` taken; an 8.3 alias of a long name, and the same name in two directories, refused as
+  two drives on one file, the alias alone a drive; DRIVES.TXT of 16 MB and 16 bytes; an empty segment, one in
+  the header, an entry in no segment; a card that stays busy as OOLDR starts and as it reads OODOS.SYS (SD
+  TIMEOUT); A: unmounted or mounted again as a file of neither size just before (by its line); the staleness
+  check; and came_up() checks a segment crosses `$F4000`. The changes are made while OOLDR runs, at its labels
+  (from the build tree's `ooldr.lbl`), an instruction at a time.
+- **`test_oodos_sys`** adds: BIOSTEST's WRITE from a buffer across two windows (BOUNCE's write leg), checked on the
+  card; STUBTEST with the home block in W3 read-only (`NB_RO`), common memory unchanged; BANKTEST, SETBNK 1, SELMEM 1
+  and an XMOVE left by one program and a READ and a MOVE in bank 0 by the next, and function 50 of BOOT refused
+  with M:'s directory kept; HOLETEST, function 9 of a string in the hole, READ to the hole, to flash and to a
+  read-only window, MOVE to the hole and from flash, all refused with memory as it was, and a WRITE from a
+  read-only window taken; READ while the card is busy with a FLUSH (waited for), with channel 0 short of its
+  terminal count (1), with a command that never ends and a card busy from before (1 after 1.01 s, then reads
+  again); the CCP's reader on a busy card (READ ERROR after about 1.3 s); a clock in 2156 (no date, function
+  105 `$FF`, a 2156 date not set) and 2155 still read. XMOVE's banks are CP/M 3's in BIOSTEST.
+- `test_oodos_card`'s DRIVES.TXT reader refuses a CR at the very end and empty, `.` and `..` names, as OOLDR;
+  `check_tools.py` links a `.COM` to `$BFFC` and refuses one to `$BFFD` (com.cfg's TPA ends at `$BFFC`).
+- **Each check can fail:** each was seen to fail with the fix undone (XMOVE's banks, the idle wait, the terminal
+  count check, a 0.1 s timeout, each of the three resets at warm boot, BOOT let through, the stub's old scratch,
+  PGET's and PHYSOF's hole, flash and read-only checks one at a time, BOUNCE's write copy, the year check, the
+  reader's timeout, OOLDR's name check, units-table compare, empty, record 0 and entry checks, the size's top
+  byte, CRE_UNIT's and CRE_SIZE's messages, its timeout, W2 two blocks on, the staleness check by a changed
+  banner, test_oodos_card's CR and names, com.cfg's old size). Not testable on the emulator: UNITS waiting for
+  IDENTIFY's end (the card ends it with the last byte read), SAY_PATH's high byte (`slots` doesn't cross a page),
+  and PPUTY keeping X (no caller needs it yet).
 
 **Proposed**
 
