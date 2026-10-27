@@ -99,6 +99,7 @@ MODE:           .res    1              ;   the label's mode byte, 0 without one
 BIG:            .res    1              ;   bit 7: 16-bit block pointers (DSM > 255)
 OFFS:           .res    2              ;   the directory's first sector (OFF x 16)
 DPBP:           .res    2              ;   the DPB, in common memory
+EXMASK:         .res    1              ;   ~EXM & $1F: an extent's group
                 .res    CD_LEN - (* - CD)
 HBLK:           .res    1              ; the drive's hash block, and its base's high byte
 HBASE:          .res    1
@@ -121,7 +122,6 @@ BIOSDRV:        .res    1              ; the drive the BIOS has selected + 1, 0 
 AGE:            .res    2              ; the buffers' clock, for least recently used
 SMODE:          .res    1              ; FIND's mode
 FCBN:           .res    1              ; the FCB's bytes FCBIN read, 0 none
-EXMASK:         .res    1              ; ~EXM & $1F: an extent's group
 PEX3:           .res    1              ; SPAT's extent as a hash entry has it, and the mask
 MASK3:          .res    1
 PHASH:          .res    2              ; SPAT's name's hash

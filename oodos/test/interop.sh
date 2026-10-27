@@ -12,7 +12,9 @@
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
 # --written it is the card test_oodos_card saved (OODOS_CARD_OUT), and
 # 0:OO1.BIN, the file the OO-1 wrote, is checked too: cpmls -F's stamps and
-# its SFCB slots' bytes. cpmtools reads ./diskdefs, so it runs in /o. Exits
+# its SFCB slots' bytes: the stamps in its first entry's, 0 in its second's
+# (CP/M 3 keeps a file's stamps in its extent-zero entry's slot only, and
+# OODOS's BDOS leaves the others 0). cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
 # fsck.cpm 2.23 compares the stamps in an SFCB's first slot backwards: it
@@ -85,7 +87,7 @@ ok "A.IMG off the card's FAT (partition at byte $offset), 8 MB"
 entries=$(def oodos-8m maxdir)
 order=$(python3 -I test/sfcb.py "$img" "$entries" check "$work/allowed") || { echo "$order"; fail "sfcb.py: stamps out of order"; }
 echo "$order" | sed 's/^/     /'
-ok "sfcb.py: every file entry has an SFCB slot, updated no earlier than made"
+ok "sfcb.py: every file's first entry has an SFCB slot, each stamped one updated no earlier than made"
 
 fsck_clean oodos-8m "$img" "$work/allowed"
 ok "fsck.cpm is clean ($(grep -c . "$work/allowed" || true) first-slot warnings checked by sfcb.py)"
@@ -117,8 +119,9 @@ if [ "$written" = --written ]; then
   slots=$(python3 -I test/sfcb.py "$img" "$entries" slots 0 OO1.BIN)
   echo "$slots" | sed 's/^/     /'
   [ "$(echo "$slots" | wc -l)" = 2 ] || fail "0:OO1.BIN has not two entries"
-  ! echo "$slots" | grep -v " $want\$" >/dev/null || fail "0:OO1.BIN's SFCB slots aren't $want"
-  ok "0:OO1.BIN's two entries' SFCB slots hold $want"
+  [ "$(echo "$slots" | sed -n 1p)" = "16 $want" ] || fail "0:OO1.BIN's first entry (16)'s SFCB slot isn't $want"
+  [ "$(echo "$slots" | sed -n 2p)" = "17 0000000000000000" ] || fail "0:OO1.BIN's second entry (17)'s SFCB slot isn't 0"
+  ok "0:OO1.BIN's first entry's SFCB slot holds $want, its second's 0"
   cpmcp -f oodos-8m "$img" 0:OO1.BIN "$work/out" || fail "cpmcp 0:OO1.BIN"
   cmp -s "$work/OO1.BIN" "$work/out" || fail "0:OO1.BIN is not what the OO-1 wrote"
   ok "0:OO1.BIN, out by cpmcp, is what the OO-1 wrote"

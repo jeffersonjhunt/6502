@@ -28,8 +28,8 @@
 ;                    if it needs one; the next extent opened, or made, after
 ;                    128. A = 0, 1 no directory space, 2 the disk full
 ;   22 F_MAKE        a new entry for the FCB's extent (no '?'; not if it is
-;                    there already: File Exists), stamped as the label asks.
-;                    A = the directory code, $FF the directory full
+;                    there already: File Exists); extent 0's stamped as the
+;                    label asks. A = the directory code, $FF the directory full
 ;   23 F_RENAME      every extent of the FCB's file (and its XFCB) given the
 ;                    name at +16, its attributes kept. Neither name with '?',
 ;                    the new one not there (File Exists). A = the code, $FF
@@ -48,7 +48,7 @@
 ;   34 F_WRITERAND   as 33, written: the extent made if need be. A = 0, 2
 ;                    the disk full, 3, 5 no directory space, 6
 ;   35 F_SIZE        R0-R2 = the file's size in records: past its last. A = 0,
-;                    $FF none
+;                    $FF none (R0-R2 0)
 ;   36 F_RANDREC     R0-R2 = the record CR of the extent is
 ;   37 DRV_RESET     the drives in A/X's bits written back, dropped, logged
 ;                    out and read-write
@@ -60,7 +60,7 @@
 ;   98 DRV_FREE      the blocks of files written but not closed freed
 ;   99 F_TRUNCATE    the file (no '?') ends with record R0-R2, which must be
 ;                    in it and in an extent it has: later extents deleted,
-;                    blocks past it freed. A = 0, $FF
+;                    blocks past it freed, the update stamped. A = 0, $FF
 ;
 ; The FCB is read into F (33 bytes, 36 for 33-36, 40 and 99) and written
 ; back as the function changed it. An extent's state is the FCB's, as CP/M's:
@@ -332,9 +332,17 @@ F_OPEN:         LDA     #FCB_SEQ
                 LDY     #FCB_S1
                 LDA     (DPTR),Y
                 STA     FC + FCB_CR
-@access:        LDA     MODE
+@access:        LDA     MODE           ; the access, in extent 0's slot only
                 AND     #MODE_ACCESS
                 BEQ     @done
+                LDA     FC + FCB_S2
+                AND     #$3F
+                ORA     FC + FCB_EX
+                BNE     @done
+                LDA     CDRV           ; not on a read-only drive
+                JSR     DRVBIT
+                AND     ROVEC,X
+                BNE     @done
                 LDA     #0
                 JSR     STAMP
 @done:          JSR     FCBOUT
@@ -363,8 +371,14 @@ F_MAKE:         LDA     #FCB_SEQ
                 BCS     @new
                 LDA     #ER_EXISTS
                 JMP     DERR
-@new:           LDA     SCB_USER
-                JSR     MAKEENT
+@new:           LDA     FC + FCB_S2     ; extent 0: stamped (MAKEENT)
+                AND     #$3F
+                ORA     FC + FCB_EX
+                CMP     #1
+                LDA     SCB_USER
+                BCS     @make
+                ORA     #$80
+@make:          JSR     MAKEENT
                 BCC     @made
                 LDA     #$FF
                 JMP     RETA
@@ -396,7 +410,8 @@ F_CLOSE:        LDA     #FCB_SEQ
 
 ; F's extent, if written, into the directory: its entry found (made if it
 ; isn't there), the block pointers merged (one where the other has 0), EX
-; and RC the later, its blocks permanent, the update stamped. Carry set if
+; and RC the later, its blocks permanent, the update stamped (in the
+; file's extent-zero entry, STAMPU). Carry set if
 ; it can't be: two different blocks in one place, or no entry to be had.
 CLOSEX:         LDA     FC + FCB_S2
                 BPL     @written
@@ -485,12 +500,10 @@ CLOSEX:         LDA     FC + FCB_S2
                 STA     (DPTR),Y
 @put:           JSR     DIRPUT
                 JSR     MARKE
-                LDA     MODE
-                AND     #MODE_UPDATE
-                BEQ     @closed
-                LDA     #4
-                JSR     STAMP
-@closed:        LDA     FC + FCB_S2
+                JSR     EXTUSER
+                CLC
+                JSR     STAMPU
+                LDA     FC + FCB_S2
                 ORA     #S2_CLEAN
                 STA     FC + FCB_S2
                 CLC
@@ -547,6 +560,7 @@ OPENEXT:        LDY     #FCB_D
 @before:        LDX     #128
 @rc:            STX     FC + FCB_RC
                 LDA     FC + FCB_S2
+                AND     #$3F
                 ORA     #S2_CLEAN
                 STA     FC + FCB_S2
                 RTS
@@ -567,7 +581,7 @@ FEMPTY:         STZ     FC + FCB_RC
 ; F to extent NEXT: the one it has closed first (3 if it can't be), then
 ; found, or made if PCREATE (A) says (5 if the directory is full); carry
 ; clear, or set with A the error. Not found and not made: 4, F at NEXT
-; empty.
+; empty and marked S2_NOENT (5 too).
 POSITION:       STA     PCREATE
                 JSR     CLOSEX
                 BCC     @closed
@@ -606,11 +620,29 @@ POSITION:       STA     PCREATE
                 CLC
                 RTS
 @none:          LDA     #4
-                SEC
-                RTS
+                BRA     @noent
 @full:          LDA     #5
+@noent:         PHA                    ; a write here makes it (HAVEENT, SAMEEXT)
+                LDA     FC + FCB_S2
+                ORA     #S2_NOENT
+                STA     FC + FCB_S2
+                PLA
                 SEC
                 RTS
+
+; F's extent's entry made now if a read found none (S2_NOENT), so a write
+; that needs one and can't have it fails at once, as CP/M 3's do; carry set
+; if the directory is full.
+HAVEENT:        BIT     FC + FCB_S2
+                BVC     @have
+                JSR     EXTUSER
+                JSR     MAKEENT
+                BCS     @full
+                LDA     FC + FCB_S2
+                AND     #<~S2_NOENT
+                STA     FC + FCB_S2
+@have:          CLC
+@full:          RTS
 
 ; NEXT = F's extent + 1; carry set past the last (2047: 32 MB).
 NEXTEXT:        JSR     FEXT
@@ -958,13 +990,18 @@ F_SWRITE:       LDA     #FCB_SEQ
                 JSR     FCBOUT
                 LDA     #1
                 JMP     RETA
-@record:        JSR     WRITEREC
+@record:        JSR     HAVEENT
+                BCS     @nodir
+                JSR     WRITEREC
                 BCS     @full
                 INC     FC + FCB_CR
                 JSR     FCBOUT
                 JMP     RET0
 @full:          JSR     FCBOUT
                 LDA     #2
+                JMP     RETA
+@nodir:         JSR     FCBOUT
+                LDA     #1
                 JMP     RETA
 
 ; NEXT = R0-R2's extent, RRCR its record there; carry set past 32 MB (R2
@@ -986,8 +1023,13 @@ RANDPOS:        LDA     FC + FCB_R + 2
                 CLC
 @far:           RTS
 
-; Z set if NEXT is F's extent.
-SAMEEXT:        JSR     FEXT
+; Z set if NEXT is F's extent and F has its entry (not S2_NOENT: POSITION
+; looks again, or makes it).
+SAMEEXT:        BIT     FC + FCB_S2
+                BVC     @ext
+                LDA     #1             ; Z clear
+                RTS
+@ext:           JSR     FEXT
                 LDA     NEXT
                 CMP     T0
                 BNE     @done
@@ -1128,16 +1170,17 @@ F_SIZE:         LDA     #FCB_RAND
                 JSR     ESIZE
                 JSR     FINDNXT
                 BRA     @entry
-@all:           LDA     FOUND
-                BNE     @size
-                LDA     #$FF
-                JMP     RETA
-@size:          LDX     #2
+@all:           LDX     #2             ; 0 if there's none, as CP/M 2.2's
 @r:             LDA     SZ,X
                 STA     FC + FCB_R,X
                 DEX
                 BPL     @r
+                LDA     FOUND
+                BNE     @size
                 JSR     FCBOUT
+                LDA     #$FF
+                JMP     RETA
+@size:          JSR     FCBOUT
                 JMP     RET0
 
 ; ---------------------------------------------------------------------------
@@ -1381,8 +1424,9 @@ F_TRUNC:        LDA     #FCB_RAND
                 JSR     NOWILD
                 JSR     RODRV
                 JSR     RANDPOS
-                BCS     @refused
-                LDA     SCB_USER
+                BCC     @r
+                JMP     @refused
+@r:             LDA     SCB_USER
                 LDX     #SM_ANYEX
                 JSR     SETPAT
                 STZ     SZ
@@ -1435,7 +1479,10 @@ F_TRUNC:        LDA     #FCB_RAND
 @ends:          JSR     TCUT
 @kept:          JSR     FINDNXT
                 BRA     @entry
-@done:          JMP     RET0
+@done:          LDA     SCB_USER       ; the update, in extent 0's slot
+                SEC
+                JSR     STAMPU
+                JMP     RET0
 @refused:       LDA     #$FF
                 JMP     RETA
 
@@ -1463,8 +1510,8 @@ EGROUP:         JSR     DEXT
 @done:          RTS
 
 ; The entry at DPTR (of R's group) ends at R: EX and S2 R's extent, RC its
-; record + 1, the pointers after R's block freed and cleared; the update
-; stamped.
+; record + 1, the pointers after R's block freed and cleared (F_TRUNC
+; stamps the update in the extent-zero entry when they're all done).
 TCUT:           LDY     #FCB_EX
                 LDA     NEXT
                 AND     #$1F
@@ -1517,11 +1564,5 @@ TCUT:           LDY     #FCB_EX
                 INY
                 STA     (DPTR),Y
                 BRA     @pointer
-@put:           JSR     DIRPUT
-                LDA     MODE
-                AND     #MODE_UPDATE
-                BEQ     @done
-                LDA     #4
-                JMP     STAMP
-@done:          RTS
+@put:           JMP     DIRPUT
 

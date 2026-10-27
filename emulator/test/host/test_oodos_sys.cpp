@@ -1782,7 +1782,7 @@ void stamptest(Booted &r, char drive)
     r.set_time(2026, 11, 3, 9, 15, 0);
     const size_t from = start(r, "stamptest.com", std::string(" ") + drive);
     REQUIRE(r.until("MADE?", ms(5000), from));
-    check("STAMP   DAT", t1, none); // made: its creation stamp, no update yet
+    check("STAMP   DAT", t1, t1); // made (extent 0): its creation and update stamps
     r.set_time(2026, 11, 4, 18, 30, 0);
     r.type(" ");
     REQUIRE(r.until("CLOSED?", ms(5000), from));
@@ -1790,19 +1790,25 @@ void stamptest(Booted &r, char drive)
     r.set_time(2026, 12, 31, 23, 59, 0);
     r.type(" ");
     REQUIRE(r.until("MODE?", ms(5000), from));
-    check("EMPTY   DAT", t3, none); // closed unwritten: no update
+    check("EMPTY   DAT", t3, t3); // closed unwritten: make's stamps, no more
     if (drive == 'M')
         r.poke(MDISK + 12, 0x61); // the label: access and update stamps
     r.set_time(2027, 1, 1, 0, 1, 0);
     r.type(" ");
     REQUIRE(r.until("OPENED?", ms(5000), from));
     check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // an access stamp only if the label asks
+    r.set_time(2027, 2, 2, 12, 0, 0);
+    r.type(" ");
+    REQUIRE(r.until("UNSTAMPED?", ms(5000), from));
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // opened at extent 1, then on a read-only drive: none
     r.type(" ");
     CHECK(r.until("STAMPTEST DONE", ms(5000), from));
     const std::string o = r.out.substr(from);
     CHECK_EQ(field(o, "WRITE"), std::string("00"));
     CHECK_EQ(field(o, "RESET"), std::string("00 00"));
     CHECK_EQ(field(o, "OPEN").substr(2), std::string(" 00"));
+    CHECK_EQ(field(o, "OPEN1").substr(2), std::string(" 00"));   // found: extent 0's entry holds extent 1
+    CHECK_EQ(field(o, "OPENRO").substr(2), std::string(" 00"));
 }
 
 TEST(stamps_on_m_creation_update_and_access_byte_for_byte)

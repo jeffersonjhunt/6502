@@ -25,6 +25,7 @@ FCB_R           = 33                   ; r0-r2
 FCB_SEQ         = 33                   ; bytes read and written back: sequential
 FCB_RAND        = 36                   ; and random
 S2_CLEAN        = $80
+S2_NOENT        = $40                  ; a read found no entry for the extent: a write makes it
 
 ENTRY_LEN       = 32
 DIR_FREE        = $E5
@@ -72,7 +73,7 @@ SM_ANYEX        = $08                  ; any extent
 ; bdosdisk.s
 .global SELECT, DSLOT, LOADCD, SAVECD, GETBUF, FLUSHD, PURGED, DIRENT, DIRPUT
 .global HASHPUT, NHASH, SETPAT, PATDERIV, FIND, FINDNXT, FINDFREE, MAKEENT
-.global ALVBIT, ALVSET, ALVCLR, ALVFREE, MARKE, FREEE, EPTR, STAMP, WBACKX
+.global ALVBIT, ALVSET, ALVCLR, ALVFREE, MARKE, FREEE, EPTR, STAMP, STAMPU, WBACKX
 .global DIRREC
 ; bdosfile.s
 .global F_RESET, F_SELECT, F_OPEN, F_CLOSE, F_SFIRST, F_SNEXT, F_DELETE

@@ -41,9 +41,12 @@
 ;
 ; Stamps: an entry's SFCB is entry i | 3, its 10 bytes from 1 + (i & 3) x 10:
 ; creation (or access), update, the password mode and a reserved byte.
-; MAKEENT sets them as the label's mode says (the creation, or access, stamp
-; the time; the update 0); CLOSEX stamps the update after a write, and Open
-; the access if the mode asks. The time is BIOS TIME's in the SCB. A
+; CP/M 3 keeps a file's stamps in its extent-zero entry's slot only: a made
+; entry's slot is cleared, and Make of extent 0 stamps the creation (or
+; access) and the update as the label's mode says (INITSTAMP); CLOSEX and
+; truncate stamp the update in the extent-zero entry's slot whichever extent
+; they changed (STAMPU), and Open of extent 0 the access if the mode asks.
+; Later extents' slots stay 0. The time is BIOS TIME's in the SCB. A
 ; directory without SFCBs gets none.
 
 .setcpu "65C02"
@@ -65,10 +68,11 @@ AP:             .res    2              ; ALVBIT's byte of the vector
 AMASK:          .res    1              ; and its bit
 MK:             .res    1              ; MARKE's and FREEE's pointer
 NBYTES:         .res    2              ; ALVFREE's bytes to go
-MKU:            .res    1              ; MAKEENT's user
+MKU:            .res    1              ; MAKEENT's user, bit 7: Make's extent 0
 STW:            .res    1              ; STAMP's stamp: 0 or 4
 STOFS:          .res    1              ; the slot's offset in its SFCB
 SDID:           .res    2              ; the entry SFCBAT came from
+UDID:           .res    2              ; the entry STAMPU came from
 LOGL:           .res    1              ; LOGIN: a label seen
 .exportzp DBCB, AP, AMASK, MK
 
@@ -868,15 +872,16 @@ FINDFREE:       LDA     #SM_FREE
                 STZ     DIDX + 1
                 JMP     FIND
 
-; A new entry for F's name and extent, of user A, in the first free one:
-; no blocks, RC 0, the attributes but f5'-f8', its SFCB slot made (STAMP's
-; INITSTAMP). DIDX, DPTR at it, carry clear; carry set if the directory is
-; full.
+; A new entry for F's name and extent, of user A (bit 7 set: Make's extent
+; 0, stamped), in the first free one: no blocks, RC 0, the attributes but
+; f5'-f8', its SFCB slot made (INITSTAMP). DIDX, DPTR at it, carry clear;
+; carry set if the directory is full.
 MAKEENT:        STA     MKU
                 JSR     FINDFREE
                 BCC     @free
                 RTS
 @free:          LDA     MKU
+                AND     #$0F
                 STA     (DPTR)
                 LDY     #FCB_NAME
 @name:          LDA     FC,Y
@@ -955,8 +960,9 @@ STAMP:          STA     STW
                 JMP     SFCBPUT
 @none:          RTS
 
-; A made entry's SFCB slot, if the label asks for stamps: the first stamp
-; the time if it asks for creation or access stamps, the rest 0.
+; A made entry's SFCB slot, if the label asks for stamps: 0, and for Make's
+; extent 0 (MKU bit 7) the first stamp the time if the mode asks for
+; creation or access stamps, the update if it asks for those.
 INITSTAMP:      LDA     MODE
                 AND     #MODE_CREATE | MODE_UPDATE | MODE_ACCESS
                 BEQ     @none
@@ -969,14 +975,63 @@ INITSTAMP:      LDA     MODE
                 INY
                 DEX
                 BNE     @clear
+                BIT     MKU
+                BPL     @put
+                JSR     NOW
                 LDA     MODE
                 AND     #MODE_CREATE | MODE_ACCESS
-                BEQ     @put
-                JSR     NOW
+                BEQ     @update
                 LDY     STOFS
+                JSR     PUTNOW
+@update:        LDA     MODE
+                AND     #MODE_UPDATE
+                BEQ     @put
+                LDA     STOFS
+                CLC
+                ADC     #4
+                TAY
                 JSR     PUTNOW
 @put:           JMP     SFCBPUT
 @none:          RTS
+
+; The update stamp, if the label asks for them, in the slot of the file's
+; extent-zero entry (user A, F's name, EX and S2 0): with carry clear the
+; entry at DIDX/DPTR if it is that one, else (or carry set) looked for.
+; DIDX as it was; DPTR and SPAT changed.
+STAMPU:         TAX
+                LDA     MODE
+                AND     #MODE_UPDATE
+                BEQ     @done
+                LDA     DIDX
+                STA     UDID
+                LDA     DIDX + 1
+                STA     UDID + 1
+                BCS     @find
+                LDY     #FCB_S2
+                LDA     (DPTR),Y
+                AND     #$3F
+                BNE     @find
+                LDY     #FCB_EX
+                LDA     (DPTR),Y
+                AND     EXMASK
+                BEQ     @stamp
+@find:          TXA
+                LDX     #0
+                JSR     SETPAT
+                STZ     SPAT + 12
+                STZ     SPAT + 13
+                JSR     PATDERIV
+                STZ     DIDX
+                STZ     DIDX + 1
+                JSR     FIND
+                BCS     @back
+@stamp:         LDA     #4
+                JSR     STAMP
+@back:          LDA     UDID
+                STA     DIDX
+                LDA     UDID + 1
+                STA     DIDX + 1
+@done:          RTS
 
 ; The SCB's time from the clock (BIOS TIME), W2 kept.
 NOW:            LDA     #0

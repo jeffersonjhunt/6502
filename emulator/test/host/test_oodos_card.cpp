@@ -477,13 +477,14 @@ namespace
     constexpr size_t NEW_SIZE = 260 * RECORD;
     const std::array<uint8_t, 4> NEW_MADE = stamp(2026, 10, 25, 13, 45), NEW_UPDATED = stamp(2026, 10, 26, 15, 30);
 
-    /// A stand-in for OODOS's BDOS, until phase 3: makes the file on a drive in CP/M 3's layout,
-    /// sector by sector through the card (read, change, write back): entries in the first
-    /// free slots, blocks the first free ones, and both stamps in each entry's SFCB slot (as
-    /// cpmtools does; fsck.cpm checks them all). `fault`: "alloc" gives it a block another
-    /// file has; "stamp" puts each entry's stamps in the next entry's slot, the first entry's
-    /// update a minute later than the second's, so no slot holds what it should; "stamp-zero"
-    /// does the same in an SFCB whose slots were zeros, not mkfs.cpm's $E5s.
+    /// A stand-in for OODOS's BDOS, now only to be wrong on purpose: makes the file on a drive in
+    /// CP/M 3's layout, sector by sector through the card (read, change, write back): entries in
+    /// the first free slots, blocks the first free ones, both stamps in the first entry's SFCB
+    /// slot and zeros in the later entries' (as the BDOS keeps them: CP/M 3 reads a file's stamps
+    /// from its extent-zero entry only). `fault`: "alloc" gives it a block another file has;
+    /// "stamp" puts each entry's slot in the next entry's, the first entry's update a minute
+    /// later, so no slot holds what it should; "stamp-zero" does the same in an SFCB whose slots
+    /// were zeros, not mkfs.cpm's $E5s.
     void stand_in_bdos(Drive &d, unsigned user, const std::string &name83, const std::vector<uint8_t> &bytes,
                        const std::array<uint8_t, 4> &made, const std::array<uint8_t, 4> &updated,
                        const std::string &fault)
@@ -513,6 +514,8 @@ namespace
         const bool misplace = fault == "stamp" || fault == "stamp-zero";
         auto stamps_for = [&](unsigned k) {
             std::array<uint8_t, 10> st{}; // creation, update, then the password mode and a reserved byte
+            if (k != 0)
+                return st;                // a later extent's: zeros
             std::memcpy(st.data(), made.data(), 4);
             std::memcpy(st.data() + 4, updated.data(), 4);
             if (misplace && k == 0)
@@ -783,12 +786,13 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     CHECK_EQ(e[0], 16u); // the first free entries: an SFCB's first slot, the one fsck.cpm 2.23
     CHECK_EQ(e[1], 17u); // compares backwards
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
-    for (unsigned i : e)
-    {
-        const auto st = stamps_of(dir, i);
-        CHECK(st.first == NEW_MADE);
-        CHECK(st.second == NEW_UPDATED);
-    }
+    // The stamps in the extent-zero entry's slot only (CP/M 3 reads them there); the later entry's 0.
+    const auto st = stamps_of(dir, e[0]), later = stamps_of(dir, e[1]);
+    CHECK(st.first == NEW_MADE);
+    CHECK(st.second == NEW_UPDATED);
+    const std::array<uint8_t, 4> zero{};
+    CHECK(later.first == zero);
+    CHECK(later.second == zero);
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
     // Nothing else changed: the directory's second sector (entries 16 and 17, their SFCB in 19) and
     // 65 of records (a block's sectors the file doesn't reach are zeroed, as they were).
