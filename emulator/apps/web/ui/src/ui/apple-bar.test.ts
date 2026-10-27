@@ -8,7 +8,12 @@ import { keepCartridge, keptCartridge } from "./cartridge";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const $ = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
-const shown = (el: HTMLElement) => ["apple-insert", "apple-eject", "apple-start", "apple-reset", "apple-reboot"].filter((id) => !$(el, id).hidden);
+type Bar = ReturnType<typeof appleBar>;
+const shown = (bar: Bar) =>
+  ["apple-insert", "apple-eject", "apple-start", "apple-reset", "apple-reboot"].filter((id) => {
+    const el = bar.element.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? $(bar.resets, id);
+    return !el.hidden && !el.closest("[hidden]");
+  });
 
 async function pick(bar: HTMLElement, files: { name: string; bytes: Uint8Array }[]) {
   const input = $(bar, "apple-file") as HTMLInputElement;
@@ -31,13 +36,13 @@ describe("the Apple bar", () => {
     const { port, bar } = make();
     await bar.restore();
     expect(port.callsTo("insertCartridge")).toEqual([]); // nothing kept: nothing to put back
-    expect(shown(bar.element)).toEqual(["apple-insert"]);
+    expect(shown(bar)).toEqual(["apple-insert"]);
     await pick(bar.element, [{ name: "iie.rom", bytes: fakeIIeRom() }]);
     const [[c]] = port.callsTo("insertCartridge") as [[Cartridge]];
     expect(c.rom).toEqual(fakeIIeRom());
     expect(keptCartridge()?.rom).toEqual(fakeIIeRom());
-    expect(shown(bar.element)).toEqual(["apple-insert", "apple-eject", "apple-start"]);
-    expect($(bar.element, "apple-insert").textContent).toBe("IIe ROM ✓");
+    expect(shown(bar)).toEqual(["apple-eject", "apple-start"]);
+    expect($(bar.element, "apple-meta").textContent).toBe("16 KB · yours, kept in this browser");
     expect($(bar.element, "apple-note").textContent).toMatch(/No character ROM/);
   });
 
@@ -46,7 +51,7 @@ describe("the Apple bar", () => {
     await pick(bar.element, [{ name: "disk.dsk", bytes: new Uint8Array(143360) }]);
     expect(port.callsTo("insertCartridge")).toEqual([]);
     expect($(bar.element, "apple-note").textContent).toMatch(/^disk\.dsk: 143360 bytes is no IIe ROM/);
-    expect(shown(bar.element)).toEqual(["apple-insert"]);
+    expect(shown(bar)).toEqual(["apple-insert"]);
   });
 
   test("a file too big to be a ROM is not read; one that can't be read says so", async () => {
@@ -72,7 +77,7 @@ describe("the Apple bar", () => {
     await pick(bar.element, [{ name: "iie.rom", bytes: fakeIIeRom() }]);
     expect($(bar.element, "apple-note").textContent).toBe("Apple IIe ROM: want 16 KB");
     expect(keptCartridge()).toBeNull();
-    expect(shown(bar.element)).toEqual(["apple-insert"]);
+    expect(shown(bar)).toEqual(["apple-insert"]);
   });
 
   test("kept from last time: back in once connected; Eject takes it out and forgets it", async () => {
@@ -84,7 +89,7 @@ describe("the Apple bar", () => {
     await flush();
     expect(port.callsTo("insertCartridge")[1]).toEqual([null]);
     expect(keptCartridge()).toBeNull();
-    expect(shown(bar.element)).toEqual(["apple-insert"]);
+    expect(shown(bar)).toEqual(["apple-insert"]);
   });
 
   test("Start: START, then C806R at the monitor; in Apple II mode, the IIe's resets", async () => {
@@ -99,15 +104,39 @@ describe("the Apple bar", () => {
     expect(started()).toBe(1);
     port.onFrame(bar.update);
     port.emit({ apple: true, fixedHz: 1_020_484 });
-    expect(shown(bar.element)).toEqual(["apple-insert", "apple-eject", "apple-reset", "apple-reboot"]);
-    $(bar.element, "apple-reset").click();
+    expect(shown(bar)).toEqual(["apple-eject", "apple-reset", "apple-reboot"]);
+    $(bar.resets, "apple-reset").click();
     expect(port.callsTo("sendKey")).toEqual([[0xe0, true], [0x4c, true], [0x4c, false], [0xe0, false]]); // Ctrl-Delete
     port.calls.length = 0;
-    $(bar.element, "apple-reboot").click();
+    $(bar.resets, "apple-reboot").click();
     expect(port.callsTo("sendKey")).toEqual([[0xe0, true], [0xe3, true], [0x4c, true], [0x4c, false], [0xe3, false], [0xe0, false]]);
     port.emit({ powered: false, apple: false });
-    expect(shown(bar.element)).toContain("apple-start");
+    expect(shown(bar)).toContain("apple-start");
     expect(($(bar.element, "apple-start") as HTMLButtonElement).disabled).toBe(true); // power is off
+  });
+
+  test("each part has its own row: loaded and ejected alone, and only with the IIe ROM in", async () => {
+    const { port, bar } = make();
+    const boot = new Uint8Array(256);
+    boot.set([0xa2, 0x20, 0xa0, 0x00, 0xa2, 0x03, 0x86, 0x3c]);
+    expect(($(bar.element, "apple-boot-load") as HTMLButtonElement).disabled).toBe(true); // nothing to join yet
+    await pick(bar.element, [{ name: "iie.rom", bytes: fakeIIeRom() }]);
+    expect(($(bar.element, "apple-boot-load") as HTMLButtonElement).disabled).toBe(false);
+    const input = $(bar.element, "apple-boot-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File([boot], "p5.bin")] });
+    input.dispatchEvent(new Event("change"));
+    for (let i = 0; i < 5; ++i) await flush();
+    const c = port.callsTo("insertCartridge").at(-1)![0] as Cartridge;
+    expect(c.diskBoot).toEqual(boot);
+    expect(c.rom).toEqual(fakeIIeRom());
+    expect($(bar.element, "apple-boot-meta").textContent).toBe("256 bytes · yours, kept in this browser");
+    expect(keptCartridge()?.diskBoot).toEqual(boot);
+    expect($(bar.element, "apple-note").textContent).toMatch(/No Disk II sequencer/);
+    $(bar.element, "apple-boot-eject").click();
+    await flush();
+    expect((port.callsTo("insertCartridge").at(-1)![0] as Cartridge).diskBoot).toBeNull();
+    expect(keptCartridge()?.rom).toEqual(fakeIIeRom()); // the rest stays
+    expect($(bar.element, "apple-boot-meta").textContent).toBe("none: the IIe won't boot from the drive");
   });
 
   test("a backend without a cartridge slot: no bar", async () => {

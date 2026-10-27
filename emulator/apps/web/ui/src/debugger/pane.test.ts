@@ -9,7 +9,8 @@ function setup() {
   const port = new FakePort();
   port.labels.set("ECHO", 0xc951);
   const pane = debuggerPane(port);
-  document.body.replaceChildren(pane.element, pane.toggle);
+  document.body.replaceChildren(pane.element);
+  pane.setOpen(true); // the drawer shows it
   pane.connect();
   const q = <T extends Element>(sel: string) => pane.element.querySelector<T>(sel)!;
   return { port, pane, q };
@@ -39,8 +40,7 @@ describe("debugger pane", () => {
     q<HTMLButtonElement>('[data-tab="trace"]').click();
     expect(port.callsTo("watchRegisters").at(-1)).toEqual([false]);
     expect(port.callsTo("setTrace").at(-1)).toEqual([true, 1024]);
-    pane.toggle.click(); // close
-    expect(document.body.classList.contains("dbg-closed")).toBe(true);
+    pane.setOpen(false); // the drawer closes
     expect(port.callsTo("setTrace").at(-1)).toEqual([false, 1024]);
     expect(port.callsTo("watchRegisters").at(-1)).toEqual([false]);
   });
@@ -129,15 +129,6 @@ describe("debugger pane", () => {
     pane.update({ ...frame(), powered: true });
     expect(port.callsTo("cardWrite").length).toBe(before + 5);
     expect(port.callsTo("cardWrite").at(-1)).toEqual([0x0b, 0x03]);
-  });
-
-  test("open or closed is remembered", () => {
-    const { pane } = setup();
-    pane.toggle.click();
-    document.body.className = "";
-    const again = debuggerPane(new FakePort());
-    void again;
-    expect(document.body.classList.contains("dbg-closed")).toBe(true);
   });
 });
 

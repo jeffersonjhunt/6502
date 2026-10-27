@@ -1,13 +1,15 @@
 /**
- * The SD card's slot under the monitor: Insert SD card… (an image of your
- * own: whole 512-byte sectors, raw or FAT as a PC formats it), the card's
- * light (on while it works on a command), write-protect, Save card and
- * Eject. Shown when the machine has the card. C809R at the monitor lists
+ * The SD card's row in Settings: the card's light (on while it works on a
+ * command), its name and size, Protect (its write-protect switch), Save and
+ * Eject; Insert… (an image of your own: whole 512-byte sectors, raw or FAT
+ * as a PC formats it) while the slot is empty. And its pill in the status
+ * strip (SD and the size, the light mirrored), which opens Settings at the
+ * card. Shown when the machine has the card. C809R at the monitor lists
  * it, C80CR boots its /BOOT.BIN.
  *
  * The card stays in the page only: it is never uploaded, and not kept in
  * this browser either (a card is megabytes). Once the machine writes to it
- * the note says so, Save card downloads it with the writes, and leaving the
+ * the note says so, Save downloads it with the writes, and leaving the
  * page, Eject, or putting another card in asks first. A card over MAX_CARD
  * is refused before it is read: the core's memory stops at 2 GB.
  */
@@ -24,28 +26,49 @@ export function cardSize(sectors: number): string {
   return kb >= 1024 && kb % 1024 === 0 ? `${kb / 1024} MB` : kb >= 10240 ? `${Math.round(kb / 1024)} MB` : `${kb} KB`;
 }
 
-export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Array) => void, win: Pick<Window, "addEventListener" | "confirm"> = window) {
+export function sdBar(
+  port: MachinePort,
+  download: (name: string, bytes: Uint8Array) => void,
+  win: Pick<Window, "addEventListener" | "confirm"> = window,
+  hooks: { open?: () => void } = {},
+) {
   const picker = h("input", { type: "file", hidden: true, "data-testid": "sd-file" });
-  const light = h("span", { class: "disk-led", title: "The SD card's light: on while it works", "data-testid": "sd-light" });
-  const insert = h("button", { class: "tbtn", type: "button", "data-testid": "sd-insert" }, "Insert SD card…");
-  const protect = h("button", { class: "tbtn", type: "button", "aria-pressed": "false", title: "The card's write-protect switch", "data-testid": "sd-protect" }, "Write-protect");
-  const save = h("button", { class: "tbtn", type: "button", title: "Download the card as it is now, with the machine's writes", "data-testid": "sd-save" }, "Save card");
+  const light = h("span", { class: "led disk-led", title: "The SD card's light: on while it works", "data-testid": "sd-light" });
+  const name = h("div", { class: "name", "data-testid": "sd-name" }, "The slot");
+  const meta = h("div", { class: "meta", "data-testid": "sd-meta" }, "empty");
+  const insert = h("button", { class: "tbtn", type: "button", title: "A card image of your own (raw, or FAT as a PC formats it): it stays in this page", "data-testid": "sd-insert" }, "Insert…");
+  const protect = h("button", { class: "tbtn", type: "button", "aria-pressed": "false", title: "The card's write-protect switch", "data-testid": "sd-protect" }, "Protect");
+  const save = h("button", { class: "tbtn", type: "button", title: "Download the card as it is now, with the machine's writes", "data-testid": "sd-save" }, "Save");
   const eject = h("button", { class: "tbtn", type: "button", title: "Take the card out", "data-testid": "sd-eject" }, "Eject");
-  const note = h("span", { class: "apple-note", role: "status", "data-testid": "sd-note" });
-  const element = h("div", { class: "apple-bar sd-bar", hidden: true, "data-testid": "sd-bar" }, picker, light, insert, protect, save, eject, note);
+  const note = h("p", { class: "row-note", role: "status", "data-testid": "sd-note" });
+  const element = h(
+    "div",
+    { class: "row-wrap", hidden: true, "data-testid": "sd-bar" },
+    h("div", { class: "row" }, picker, light, h("div", { class: "what" }, name, meta), protect, save, eject, insert),
+    note,
+  );
+  const pillLight = h("span", { class: "led disk-led" });
+  const pillText = h("span", {});
+  const pill = h("button", { class: "pill", type: "button", hidden: true, "data-testid": "pill-sd" }, pillLight, pillText);
+  pill.addEventListener("click", () => hooks.open?.());
 
   let info: SdInfo | null = null;
+  let present = false;
   const HINT = "C809R lists the card; C80CR boots its /BOOT.BIN";
   const say = (text: string) => (note.textContent = text);
   /** Unsaved writes: may they go? */
-  const letGo = (doing: string) => !info?.changed || win.confirm(`${doing}? The machine's writes to ${info.name} aren't saved: Save card keeps them.`);
+  const letGo = (doing: string) => !info?.changed || win.confirm(`${doing}? The machine's writes to ${info.name} aren't saved: Save keeps them.`);
   const show = () => {
-    insert.textContent = info ? `${info.name} (${cardSize(info.sectors)})` : "Insert SD card…";
-    insert.title = info ? `${info.name} is in the slot. Click to put in another.` : "A card image of your own (raw, or FAT as a PC formats it): it stays in this page";
+    name.textContent = info ? info.name : "The slot";
+    meta.textContent = info ? `${cardSize(info.sectors)}${info.changed ? " · changed since loaded" : ""}` : "empty";
+    insert.hidden = !!info;
     protect.hidden = save.hidden = eject.hidden = !info;
     protect.setAttribute("aria-pressed", String(!!info?.writeProtected));
     protect.classList.toggle("on", !!info?.writeProtected);
     save.classList.toggle("on", !!info?.changed);
+    pill.hidden = !present || !info;
+    pillText.textContent = info ? `SD ${cardSize(info.sectors)}` : "";
+    pill.title = info ? `The SD card: ${info.name}${info.changed ? ", written to" : ""}. Open in Settings` : "";
   };
 
   insert.addEventListener("click", () => picker.click());
@@ -90,6 +113,7 @@ export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Ar
     info = null;
     say("");
     show();
+    insert.focus(); // Eject is gone: the keyboard stays on the row
   });
   // Unsaved writes: ask before the page goes, and the card with it.
   win.addEventListener("beforeunload", (e: Event) => {
@@ -98,13 +122,19 @@ export function sdBar(port: MachinePort, download: (name: string, bytes: Uint8Ar
   show();
 
   const update = (f: FrameState) => {
-    element.hidden = !f.sd;
-    light.classList.toggle("on", !!f.sd?.busy);
+    if (!!f.sd !== present) {
+      present = !!f.sd;
+      element.hidden = !present;
+      show();
+    }
+    const busy = !!f.sd?.busy;
+    light.classList.toggle("on", busy);
+    pillLight.classList.toggle("on", busy);
     if (info && f.sd && f.sd.changed !== info.changed) {
       info = { ...info, changed: f.sd.changed };
-      say(info.changed ? "Written to: Save card to keep it, as the page forgets it" : "");
+      say(info.changed ? "Written to: Save to keep it, as the page forgets it" : "");
       show();
     }
   };
-  return { element, update };
+  return { element, pill, update, loaded: () => !!info };
 }

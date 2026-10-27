@@ -1,36 +1,45 @@
 /**
- * The bar across the top: the badge and name, Run / Halt / Step through
- * the panel, the clock, the phosphor, and CAPS for the keyboard.
+ * The bar across the top, one row: back to the project page, the name,
+ * Run / Halt / Step through the panel, the clock; at the right, CAPS for
+ * the keyboard, Sound, and the Settings and Debugger toggles (the drawer
+ * binds them, ui/drawer.ts).
+ *
+ * On a phone (PHONE) the row keeps back, the name, Run or Halt (whichever
+ * the machine isn't doing), Sound and Settings, and the rest go under More:
+ * Step inst, Step cycle, the clock, CAPS and Debugger. The same buttons,
+ * moved: they keep their state and listeners.
  */
 
-import mark from "../assets/ooe-makers-mark.png";
-import { PHOSPHORS, type Phosphor } from "../crt/crt";
 import { CLOCKS_HZ, type Clock, type FrameState, type MachinePort } from "../port/machine-port";
 import { h, prefs, segmented } from "./dom";
+import { icon } from "./icons";
 import type { PanelState } from "./panel-state";
 
+/** Where the page is laid out for a phone. */
+export const PHONE = "(max-width: 600px)";
+
 export interface ToolbarHooks {
-  phosphor: (p: Phosphor) => void;
   caps: (on: boolean) => void;
-  /** Buttons for the right-hand end (the debugger's toggle). */
-  trailing?: HTMLElement[];
-  /** Where the badge links back to (the project page), if anywhere. */
+  /** Sound's switch (ui/sound-button.ts), at the right with the toggles. */
+  sound?: HTMLElement;
+  /** Where the back link goes (the project page), if anywhere. */
   home?: string;
 }
 
 const CLOCK_TEXT = ["1.02", "1.79", "3.58", "7.16 MHz"];
 
-/** The mark and the name; a link home when the page has one. */
-function badge(home: string | undefined): HTMLElement[] {
-  const img = h("img", { src: mark, alt: "One Off Endeavors" });
-  const ttl = h("div", { class: "ttl" }, "OO-1", h("span", {}, "One Off One"));
-  if (!home) return [img, ttl];
-  return [h("a", { class: "home", href: home, title: "The OO-1 project page", "data-testid": "tb-home" }, h("span", { class: "back" }, "←"), img, ttl)];
+/** A button whose text hides on a phone, leaving the icon (and the name, for a screen reader). */
+function toggle(name: "settings" | "debugger", text: string, title: string) {
+  return h("button", { class: "tbtn", type: "button", "aria-pressed": "false", title, "data-testid": `tb-${name}` }, icon(name), h("span", { class: "txt" }, text));
 }
 
 export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHooks) {
-  const run = h("button", { class: "tbtn", type: "button", title: "Run: HALT to ENABLE, then CONT", "data-testid": "tb-run" }, "▶ Run");
-  const halt = h("button", { class: "tbtn", type: "button", title: "Halt: the HALT switch", "data-testid": "tb-halt" }, "❚❚ Halt");
+  const back = hooks.home
+    ? h("a", { class: "home", href: hooks.home, "aria-label": "Back to the project page", title: "The OO-1 project page", "data-testid": "tb-home" }, icon("back"))
+    : null;
+  const ttl = h("div", { class: "ttl" }, "OO-1", h("span", {}, "One Off One"));
+  const run = h("button", { class: "tbtn", type: "button", title: "Run: HALT to ENABLE, then CONT", "data-testid": "tb-run" }, icon("run"), "Run");
+  const halt = h("button", { class: "tbtn", type: "button", title: "Halt: the HALT switch", "data-testid": "tb-halt" }, icon("halt"), "Halt");
   const stepInst = h("button", { class: "tbtn", type: "button", title: "Step one instruction (S INST, CONT)", "data-testid": "tb-step" }, "Step inst");
   const stepCycle = h(
     "button",
@@ -39,6 +48,7 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
       type: "button",
       disabled: !port.caps.busCycleStep,
       title: port.caps.busCycleStep ? "Step one bus cycle" : "Bus-cycle step: the emulator steps whole instructions",
+      "data-testid": "tb-step-cycle",
     },
     "Step cycle",
   );
@@ -63,28 +73,14 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
       prefs.set("clock", v);
     },
   );
-
-  const savedPhosphor = prefs.get("phosphor") as Phosphor | null;
-  const phosphor: Phosphor = savedPhosphor && savedPhosphor in PHOSPHORS ? savedPhosphor : "p3";
-  const phosphors = segmented<Phosphor>(
-    "Phosphor",
-    [
-      { value: "colour", text: "Colour", swatch: "linear-gradient(90deg,#e33,#3c3,#36f)" },
-      { value: "p1", text: "P1", swatch: PHOSPHORS.p1.fg },
-      { value: "p3", text: "P3", swatch: PHOSPHORS.p3.fg },
-      { value: "p4", text: "P4", swatch: PHOSPHORS.p4.fg },
-    ],
-    phosphor,
-    (p) => {
-      hooks.phosphor(p);
-      prefs.set("phosphor", p);
-    },
-  );
-  hooks.phosphor(phosphor);
+  const clockGroup = h("span", { class: "tb-clock" }, h("span", { class: "lbl" }, "Clock"), clocks.element);
 
   let capsOn = prefs.get("caps") !== "off";
-  const caps = h("button", { class: "tbtn", type: "button", title: "Send letters as capitals (the Woz Monitor wants them)" }, "CAPS");
-  const showCaps = () => caps.classList.toggle("on", capsOn);
+  const caps = h("button", { class: "tbtn", type: "button", "aria-pressed": "true", title: "Send letters as capitals (the Woz Monitor wants them)", "data-testid": "tb-caps" }, "CAPS");
+  const showCaps = () => {
+    caps.classList.toggle("on", capsOn);
+    caps.setAttribute("aria-pressed", String(capsOn));
+  };
   caps.addEventListener("click", () => {
     capsOn = !capsOn;
     showCaps();
@@ -94,23 +90,49 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
   showCaps();
   hooks.caps(capsOn);
 
-  const element = h(
-    "header",
-    { class: "tb" },
-    ...badge(hooks.home),
-    run,
-    halt,
-    stepInst,
-    stepCycle,
-    h("span", { class: "sep" }),
-    h("span", { class: "lbl" }, "Clock"),
-    clocks.element,
-    h("span", { class: "grow" }),
-    caps,
-    h("span", { class: "lbl" }, "Phosphor"),
-    phosphors.element,
-    ...(hooks.trailing?.length ? [h("span", { class: "sep" }), ...hooks.trailing] : []),
+  const settings = toggle("settings", "Settings", "Settings: ROMs, disks, the SD card, sound, display");
+  const debug = toggle("debugger", "Debugger", "Show or hide the debugger");
+
+  // More, on a phone: a disclosure holding the rest of the row.
+  const menu = h("div", { class: "tb-menu", id: "tb-menu", hidden: true, "data-testid": "tb-menu" });
+  const more = h(
+    "button",
+    { class: "tbtn icon", type: "button", "aria-expanded": "false", "aria-controls": "tb-menu", "aria-label": "More: step, clock, caps, debugger", "data-testid": "tb-more" },
+    icon("more"),
   );
+  const setMenu = (open: boolean) => {
+    menu.hidden = !open;
+    more.setAttribute("aria-expanded", String(open));
+  };
+  more.addEventListener("click", () => setMenu(menu.hidden === true));
+  menu.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    setMenu(false);
+    more.focus();
+  });
+  debug.addEventListener("click", () => setMenu(false)); // the drawer takes over
+  document.addEventListener("pointerdown", (e) => {
+    if (!menu.hidden && !menu.contains(e.target as Node) && !more.contains(e.target as Node)) setMenu(false);
+  });
+
+  const element = h("header", { class: "tb" });
+  const sep = () => h("span", { class: "sep" });
+  const grow = () => h("span", { class: "grow" });
+  const sound = hooks.sound ? [hooks.sound] : [];
+  const phone = typeof matchMedia === "function" ? matchMedia(PHONE) : null;
+  const layout = () => {
+    const lead = back ? [back, ttl] : [ttl];
+    if (phone?.matches) {
+      menu.replaceChildren(stepInst, stepCycle, clockGroup, caps, debug);
+      element.replaceChildren(...lead, grow(), run, halt, ...sound, settings, h("span", { class: "tb-more" }, more, menu));
+    } else {
+      setMenu(false);
+      element.replaceChildren(...lead, sep(), run, halt, stepInst, stepCycle, sep(), clockGroup, grow(), caps, ...sound, sep(), settings, debug);
+    }
+  };
+  phone?.addEventListener("change", layout);
+  layout();
 
   // Run, Halt and Step are the panel's own controls: dead unless the keyswitch is at RUN.
   const live = () => {
@@ -138,5 +160,10 @@ export function toolbar(port: MachinePort, panel: PanelState, hooks: ToolbarHook
     caps.disabled = !on;
     caps.title = on ? "Send letters as capitals (the Woz Monitor wants them)" : "The USB keyboard has its own Caps Lock (on at power-up)";
   };
-  return { element, update, setCapsEnabled };
+  /** Where focus goes back to from the drawer: `button`, or More if it is folded away in the menu. */
+  const focusBack = (button: HTMLElement) => {
+    if (menu.contains(button) && menu.hidden) return more;
+    return button;
+  };
+  return { element, update, setCapsEnabled, settings, debug, focusBack };
 }

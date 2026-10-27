@@ -1,8 +1,9 @@
 /**
- * The sound card's tune under the monitor, beside Sound: Play .sid… takes a
- * C64 tune of your own (PSID or RSID), straight onto the card as a host
- * program would start it; then its name and author, the song (◀ n of N ▶)
- * and Stop. The file stays in the page: it is not kept, and never uploaded.
+ * The sound card's tune: Play .sid… in Settings takes a C64 tune of your
+ * own (PSID or RSID), straight onto the card as a host program would start
+ * it; then the status strip's now-playing pill has its name and author, the
+ * song (n/m, with previous and next) and Stop. The file stays in the page:
+ * it is not kept, and never uploaded.
  *
  * Play .sid… turns Sound on there and then, in its click, before the
  * picker opens (the gesture a browser waits for: Safari may not start
@@ -17,27 +18,35 @@
 
 import type { FrameState, MachinePort, SidTune } from "../port/machine-port";
 import { h } from "./dom";
+import { icon } from "./icons";
 
 /** soundOn: Sound on if it is off. @returns whether it was off, so soundOff puts it back. */
 export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; soundOff: () => void }) {
   const picker = h("input", { type: "file", accept: ".sid", hidden: true, "data-testid": "sid-file" });
   const play = h("button", { class: "tbtn", type: "button", title: "A C64 .sid tune of your own, played on the sound card: it stays in this page. It plays while this tab is in front", "data-testid": "sid-play" }, "Play .sid…");
+  const note = h("p", { class: "row-note", role: "status", "data-testid": "sid-note" });
+  const element = h(
+    "div",
+    { class: "row-wrap", hidden: !port.caps.sid, "data-testid": "sid-bar" },
+    h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, "C64 tune"), h("div", { class: "meta" }, "a .sid file, played on the sound card")), play),
+    note,
+  );
+
   const title = h("span", { class: "sid-title", "data-testid": "sid-title" });
-  const prev = h("button", { class: "tbtn", type: "button", title: "The song before", "aria-label": "Previous song", "data-testid": "sid-prev" }, "◀");
+  const prev = h("button", { class: "tbtn sm", type: "button", title: "The song before", "aria-label": "Previous song", "data-testid": "sid-prev" }, icon("prev"));
   const song = h("span", { class: "sid-song", "data-testid": "sid-song" });
-  const next = h("button", { class: "tbtn", type: "button", title: "The next song", "aria-label": "Next song", "data-testid": "sid-next" }, "▶");
-  const stop = h("button", { class: "tbtn", type: "button", title: "Stop the tune", "data-testid": "sid-stop" }, "Stop");
-  const note = h("span", { class: "apple-note", role: "status", "data-testid": "sid-note" });
-  const element = h("div", { class: "apple-bar sid-bar", hidden: !port.caps.sid, "data-testid": "sid-bar" }, picker, play, title, prev, song, next, stop, note);
+  const next = h("button", { class: "tbtn sm", type: "button", title: "The next song", "aria-label": "Next song", "data-testid": "sid-next" }, icon("next"));
+  const stop = h("button", { class: "tbtn sm", type: "button", title: "Stop the tune", "aria-label": "Stop the tune", "data-testid": "sid-stop" }, icon("stop"));
+  const pill = h("div", { class: "pill playing", role: "group", "aria-label": "Now playing", hidden: true, "data-testid": "sid-pill" }, icon("note"), title, song, prev, next, stop);
 
   let tune: SidTune | null = null;
   const say = (text: string) => (note.textContent = text);
   const show = () => {
     title.textContent = tune ? [tune.name || "(untitled)", tune.author].filter(Boolean).join(" — ") + (tune.released ? ` (${tune.released})` : "") : "";
     title.title = tune ? `${title.textContent} · ${tune.clock}, ${tune.model}${tune.rsid ? ", RSID" : ""}` : "";
-    song.textContent = tune ? `song ${tune.song} of ${tune.songs}` : "";
-    for (const b of [prev, next, stop]) b.hidden = !tune;
-    title.hidden = song.hidden = !tune;
+    song.textContent = tune ? `${tune.song}/${tune.songs}` : "";
+    song.title = tune ? `Song ${tune.song} of ${tune.songs}` : "";
+    pill.hidden = !tune;
     prev.disabled = !tune || tune.song <= 1;
     next.disabled = !tune || tune.song >= tune.songs;
     play.textContent = tune ? "Another .sid…" : "Play .sid…";
@@ -74,7 +83,7 @@ export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; sound
     }
   });
   const go = async (n: number) => {
-    if (!tune) return; // ◀ and ▶ are disabled at the ends, and the port refuses a song it hasn't
+    if (!tune) return; // previous and next are disabled at the ends, and the port refuses a song it hasn't
     try {
       started(await port.playSong(n));
     } catch (err) {
@@ -100,5 +109,5 @@ export function sidBar(port: MachinePort, hooks: { soundOn: () => boolean; sound
       show();
     }
   };
-  return { element, update };
+  return { element, pill, update, playing: () => !!tune };
 }

@@ -1,17 +1,19 @@
 /**
- * The OO-1 workbench page (mockup C): the toolbar, the CRT monitor with the
- * serial terminal on it, the front panel in its rack, and the debugger
- * pane beside them. Everything talks to the machine through one MachinePort.
+ * The OO-1 workbench page: the toolbar, the CRT monitor, the status strip,
+ * the front panel in its rack, and the right-hand drawer that Settings and
+ * the debugger share (ui/drawer.ts). Everything talks to the machine
+ * through one MachinePort.
  *
- * The monitor's scenes: Text (the serial terminal), VGA (the video card)
- * and Apple II (the video card's IIe picture, filling the screen). Entering
- * Apple II mode, however it happens, switches to the Apple II scene; under
- * the monitor are the cartridge and the IIe's controls (ui/apple-bar.ts),
- * the Disk II's drive, the SD card's slot (ui/sd-bar.ts), and Sound, the
- * sound card through the speakers, with a .sid tune to play on it
- * (ui/sid-bar.ts).
+ * The monitor shows the screen and its input select: Terminal (the serial
+ * terminal, the Text scene) or Display (the video card: the VGA scene, or
+ * the Apple II scene in Apple II mode). It follows the machine
+ * (ui/screen.ts): into Apple II mode, or a picture of a program's own on
+ * the video card, and it switches to Display; back out, and to Terminal.
+ * The strip under it has the machine's state and what is loaded; the
+ * media themselves (the ROMs, the Disk II's drives, the SD card, a .sid
+ * tune) are in Settings, with the phosphor and the credits.
  *
- * Built with VITE_HOME_URL set, the badge links back to that page.
+ * Built with VITE_HOME_URL set, the back link goes to that page.
  */
 
 import "@fontsource/inter/400.css";
@@ -25,6 +27,7 @@ import "./styles/base.css";
 import "./styles/crt.css";
 import "./styles/panel.css";
 import "./styles/debugger.css";
+import "./styles/drawer.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
 import { isPaste, keyBytes, leavesScreen, pasteBytes } from "./crt/keyboard";
@@ -36,10 +39,16 @@ import { focusStop, h, prefs, segmented } from "./ui/dom";
 import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
 import { PanelState } from "./ui/panel-state";
-import { toolbar } from "./ui/toolbar";
+import { PHONE, toolbar } from "./ui/toolbar";
 import { appleBar } from "./ui/apple-bar";
+import { biosRow, keptBios } from "./ui/bios";
 import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
+import { drawer } from "./ui/drawer";
+import { fitWidth } from "./ui/fit";
+import { machineScreen, ScreenFollow, type Screen } from "./ui/screen";
+import { phosphorPicker, settingsPanel, type SettingsSection } from "./ui/settings";
+import { statusStrip } from "./ui/status-strip";
 import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
 import { sdBar } from "./ui/sd-bar";
@@ -77,6 +86,7 @@ function touchNote(): HTMLElement[] {
 
 function start(root: HTMLElement, port: MachinePort): void {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const phone = matchMedia(PHONE);
   const terminal = new Terminal();
   const panel = new PanelState(port);
   panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0 }); // the switches stay where they were left
@@ -99,13 +109,13 @@ function start(root: HTMLElement, port: MachinePort): void {
     soundOff: () => sound.turnOff(),
   });
   const bar = toolbar(port, panel, {
-    trailing: [dbg.toggle],
-    phosphor: (p) => {
-      crt.setPhosphor(p);
-      document.documentElement.style.setProperty("--halo", PHOSPHORS[p].halo);
-    },
+    sound: sound.element,
     caps: (on) => (caps = on),
     home: (import.meta.env.VITE_HOME_URL as string | undefined) || undefined,
+  });
+  const phosphor = phosphorPicker((p) => {
+    crt.setPhosphor(p);
+    document.documentElement.style.setProperty("--halo", PHOSPHORS[p].halo);
   });
 
   // The screen as text, for screen readers and tests.
@@ -126,9 +136,9 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("div", { class: "vign" }),
     h("div", { class: "gl" }),
   );
-  // The keyboard is the serial terminal's on the Text scene, and the USB
-  // card's on VGA and Apple II: a monitor and a USB keyboard are a whole
-  // computer. The mouse is the card's on VGA.
+  // The keyboard is the serial terminal's on Terminal, and the USB card's on
+  // Display: a monitor and a USB keyboard are a whole computer. The mouse is
+  // the card's on VGA.
   let scene: Scene = "text";
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
   const onUsb = () => scene !== "text" && port.caps.usb;
@@ -190,7 +200,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   let pasting = false;
   const stopTyping = h(
     "button",
-    { class: "tbtn stop-typing", type: "button", hidden: true, title: "What the paste has not typed yet is dropped", "data-testid": "stop-typing" },
+    { class: "tbtn sm stop-typing", type: "button", hidden: true, title: "What the paste has not typed yet is dropped", "data-testid": "stop-typing" },
     "Stop typing",
   );
   stopTyping.addEventListener("click", () => {
@@ -210,6 +220,13 @@ function start(root: HTMLElement, port: MachinePort): void {
     } else port.sendSerial(pasteBytes(text, caps));
   });
 
+  // The screen: Terminal or Display, following the machine (ui/screen.ts).
+  // Display is the Apple II scene in Apple II mode, VGA otherwise.
+  let apple = false;
+  const saved: Screen = prefs.get("screen") === "display" ? "display" : "terminal";
+  const follow = new ScreenFollow(saved);
+  const sceneFor = (s: Screen): Scene => (s === "terminal" ? "text" : apple ? "apple" : "vga");
+  const monLabel = h("span", { class: "lbl mon-label", "data-testid": "mon-label" });
   // The video card's frames are copied out only while its scene is showing.
   const showScene = (s: Scene) => {
     if (s !== scene) usbKeys.releaseAll();
@@ -223,29 +240,33 @@ function start(root: HTMLElement, port: MachinePort): void {
     glass.dataset.scene = s;
     port.watchVideo(s !== "text");
     if (s === "text") crt.clearVideo();
-    prefs.set("scene", s);
+    monLabel.textContent = s === "text" ? "Terminal · the serial line" : s === "apple" ? "Display · Apple IIe 560×384" : "Display · VGA 640×480";
   };
-  const savedScene = (["text", "vga", "apple"] as Scene[]).find((s) => s === prefs.get("scene")) ?? "text";
-  const scenes = segmented<Scene>(
-    "Scene",
+  const screens = segmented<Screen>(
+    "Screen",
     [
-      { value: "text", text: "Text", title: "The serial terminal" },
-      { value: "vga", text: "VGA", title: "The video card: VGA 640x480, what the BIOS puts on screen" },
-      { value: "apple", text: "Apple II", title: "Apple II mode: the IIe's picture, filling the screen" },
+      { value: "terminal", text: "Terminal", title: "The serial terminal" },
+      { value: "display", text: "Display", title: "The video card: VGA 640x480, or the IIe's picture in Apple II mode" },
     ],
-    savedScene,
+    follow.screen,
     (s) => {
-      showScene(s);
-      glass.focus(); // the keyboard is still the serial line's
+      follow.pick(s);
+      applyScreen();
+      glass.focus(); // the keyboard back on the screen, off the switch
     },
   );
-  showScene(savedScene);
-  const status = h("span", { class: "mon-status", "data-testid": "status" }, "STARTING");
-  const signal = h("span", {}, "VGA 640×480");
-  const apple = appleBar(port, {
+  screens.element.dataset.testid = "screen-switch";
+  const applyScreen = () => {
+    screens.select(follow.screen);
+    prefs.set("screen", follow.screen);
+    if (sceneFor(follow.screen) !== scene || !monLabel.textContent) showScene(sceneFor(follow.screen));
+  };
+  applyScreen();
+
+  const appleRoms = appleBar(port, {
     started: () => {
-      scenes.select("apple");
-      showScene("apple");
+      follow.pick("display"); // the Apple's picture, without waiting for the frame that says so
+      applyScreen();
       glass.focus(); // the IIe's keyboard
     },
     typed: () => glass.focus(),
@@ -256,56 +277,69 @@ function start(root: HTMLElement, port: MachinePort): void {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
-  const drive = diskBar(port, browserDiskStore(), download, apple.bootNeeds);
-  const card = sdBar(port, download);
-  const monitor = h(
-    "div",
-    { class: "mon" },
-    glass,
-    h("div", { class: "mon-foot" }, h("span", {}, h("i", {}), "OO-1 · ", signal, " · ", status, stopTyping), apple.element, scenes.element),
-    h("div", { class: "mon-foot mon-drive" }, drive.element),
-    h("div", { class: "mon-foot mon-sd" }, card.element),
-    h("div", { class: "mon-foot mon-sound" }, sound.element, tune.element), // the monitor's speaker, and a tune for it
-  );
+  const openSettings = (at: SettingsSection) => {
+    const head = settings.at(at);
+    drawer_.show("settings", { at: head });
+    drawer_.element.scrollTop = head.offsetTop - 12; // the drawer scrolls, not the page
+  };
+  const store = browserDiskStore();
+  const drives = [0, 1].map((d) => diskBar(port, store, download, { bootNeeds: appleRoms.bootNeeds, open: () => openSettings("disk") }, d));
+  const card = sdBar(port, download, window, { open: () => openSettings("sd") });
+  const bios = biosRow(() => location.reload());
+  const settings = settingsPanel({
+    roms: [bios.element, appleRoms.element],
+    drives: drives.map((d) => d.element),
+    sd: card.element,
+    sound: tune.element,
+    phosphor,
+  });
+
+  const monitor = h("div", { class: "mon" }, glass, h("div", { class: "mon-foot" }, monLabel, screens.element));
+  const strip = statusStrip({
+    pills: [...drives.map((d) => d.pill), card.pill, tune.pill],
+    trailing: [stopTyping, appleRoms.resets],
+    load: () => openSettings("roms"),
+  });
 
   const rack = frontPanel(panel);
-  // The BIOS's font is CC BY-SA 4.0 (backplane/bios/font): the page carries it, so it says whose it is.
-  const credits = h(
-    "p",
-    { class: "credits", "data-testid": "credits" },
-    "Screen font: IBM VGA 8×16 from ",
-    h("a", { href: "https://int10h.org/oldschool-pc-fonts/", target: "_blank", rel: "noopener" }, "VileR's Ultimate Oldschool PC Font Pack"),
-    ", ",
-    h("a", { href: "https://creativecommons.org/licenses/by-sa/4.0/", target: "_blank", rel: "noopener" }, "CC BY-SA 4.0"),
-    ". Apple II mode runs your own Apple IIe ROM and disks: they stay in this browser and are never uploaded. So does an SD card image, which stays in this page.",
+  const about = h("button", { class: "linkish", type: "button", "data-testid": "about-link" }, "About and credits");
+  about.addEventListener("click", () => openSettings("about"));
+  const note = h("p", { class: "page-note" }, "Your ROMs, disks and card images stay in this browser. ", about);
+  const bench = h("section", { class: "bench" }, ...touchNote(), h("div", { class: "mon-col" }, monitor, strip.element), fitWidth(rack.element), note, mirror);
+  const drawer_ = drawer(
+    {
+      settings: { element: settings.element, button: bar.settings, label: "Settings" },
+      debugger: { element: dbg.element, button: bar.debug, label: "Debugger", shown: (o) => dbg.setOpen(o) },
+    },
+    { focusBack: bar.focusBack, phone, behind: [bar.element, bench] },
   );
-  const bench = h("section", { class: "bench" }, ...touchNote(), monitor, rack.element, credits, mirror);
-  root.append(bar.element, h("main", { class: "wrap" }, bench, dbg.element), dbg.reopen);
+  settings.header.append(drawer_.closers.settings);
+  dbg.head.append(drawer_.closers.debugger);
+  root.append(bar.element, h("main", { class: "wrap" }, bench, drawer_.element));
+  drawer_.restore(); // the debugger, if it was left open
 
   let clockLabel = "7.16 MHz";
   let mirrored = "";
   let lastMirror = 0;
   let wasPowered = true;
-  let wasApple = false;
   port.onFrame((f) => {
-    if (f.apple !== wasApple) {
-      wasApple = f.apple;
+    if (f.apple !== apple) {
+      apple = f.apple;
       crt.setApple(f.apple);
-      signal.textContent = f.apple ? "APPLE IIe" : "VGA 640×480";
-      if (f.apple && scene !== "apple") {
-        scenes.select("apple"); // C806R typed, or Start Apple IIe: the Apple's picture
-        showScene("apple");
-      }
+      strip.signal.textContent = f.apple ? "APPLE IIe" : "VGA 640×480";
     }
+    // The machine's video mode changed (or Display's scene did, with Apple II mode): follow it.
+    if (follow.machine(machineScreen(f)) || sceneFor(follow.screen) !== scene) applyScreen();
     if (pasting && !f.keysQueued) pasting = false;
     const typing = pasting && f.keysQueued >= 40; // not for a line or two
     if (stopTyping.hidden === typing) stopTyping.hidden = !typing; // set only on a change: no restyle a frame
-    apple.update(f);
-    drive.update(f);
+    appleRoms.update(f);
+    for (const d of drives) d.update(f);
     card.update(f);
     speaker.feed(f);
     sound.update();
     tune.update(f);
+    strip.update(f.powered);
     if (f.serialOut.length) terminal.write(f.serialOut);
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
@@ -315,7 +349,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     rack.update(f);
     dbg.update(f);
     if (f.hz > 0) clockLabel = `${(f.hz / 1e6).toFixed(2)} MHz`;
-    status.textContent = statusText(f, clockLabel);
+    strip.status.textContent = statusText(f, clockLabel);
     const now = performance.now();
     crt.draw(now);
     if (now - lastMirror > 250) {
@@ -327,7 +361,7 @@ function start(root: HTMLElement, port: MachinePort): void {
 
   // The core threw: the machine is gone until a reload, and the screen says so rather than freeze on RUNNING.
   port.onFail((why) => {
-    status.textContent = "CRASHED";
+    strip.status.textContent = "CRASHED";
     terminal.write(new TextEncoder().encode(`\r\rThe emulator stopped: ${why}\rReload the page to start it again.\r`));
     crt.draw(performance.now());
     mirror.textContent = mirrored = terminal.text();
@@ -341,21 +375,25 @@ function start(root: HTMLElement, port: MachinePort): void {
   void document.fonts.load("20px VT323").then(() => crt.fontsReady());
   port
     .connect()
-    .then(async () => {
-      await apple.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
+    .then(async (opened) => {
+      bios.connected(opened.bios);
+      await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       panel.applyAll();
       port.setLights(true);
       sound.restore(); // left on last time: it plays from the first click or key
       dbg.connect();
       glass.focus();
-      await drive.restore(); // the disk kept from last time, which stays in through power cycles: last, as IndexedDB can be slow to answer
+      await Promise.all(drives.map((d) => d.restore())); // the disks kept from last time, which stay in through power cycles: last, as IndexedDB can be slow to answer
     })
     .catch((err: unknown) => {
-      status.textContent = "NO MACHINE";
-      terminal.write(new TextEncoder().encode(`\r${String(err instanceof Error ? err.message : err)}\r`));
+      strip.status.textContent = "NO MACHINE";
+      const why = String(err instanceof Error ? err.message : err);
+      // A BIOS of the owner's that won't open: say how to get the page's own back.
+      const mine = bios.mine ? `\rYour BIOS, ${bios.mine.name}, did not start. Settings, ROMs: Use built-in.\r` : "";
+      terminal.write(new TextEncoder().encode(`\r${why}\r${mine}`));
       crt.draw(performance.now());
       mirror.textContent = terminal.text();
     });
 }
 
-start(document.getElementById("app")!, new WasmPort());
+start(document.getElementById("app")!, new WasmPort({ bios: keptBios()?.bytes }));

@@ -68,13 +68,14 @@ describe("the SD slot", () => {
     expect(shown(bar.element)).toEqual(["sd-insert"]);
     await pick(bar.element, "card.img", new Uint8Array(2880 * 512));
     expect(port.callsTo("insertSd").map(([b, n]) => [(b as Uint8Array).length, n])).toEqual([[2880 * 512, "card.img"]]);
-    expect($(bar.element, "sd-insert").textContent).toBe("card.img (1440 KB)");
+    expect($(bar.element, "sd-name").textContent).toBe("card.img");
+    expect($(bar.element, "sd-meta").textContent).toBe("1440 KB");
     expect($(bar.element, "sd-note").textContent).toContain("C809R");
-    expect(shown(bar.element)).toEqual(["sd-insert", "sd-protect", "sd-save", "sd-eject"]);
+    expect(shown(bar.element)).toEqual(["sd-protect", "sd-save", "sd-eject"]);
     $(bar.element, "sd-eject").click();
     expect(port.callsTo("ejectSd")).toEqual([[]]);
     expect(shown(bar.element)).toEqual(["sd-insert"]);
-    expect($(bar.element, "sd-insert").textContent).toBe("Insert SD card…");
+    expect($(bar.element, "sd-meta").textContent).toBe("empty");
   });
 
   test("a card the port refuses says why", async () => {
@@ -101,7 +102,8 @@ describe("the SD slot", () => {
     await pick(bar.element, "card.img", new Uint8Array(512));
     expect(leaving()).toBe(false);
     port.emit(frame({ changed: true }));
-    expect($(bar.element, "sd-note").textContent).toContain("Save card");
+    expect($(bar.element, "sd-note").textContent).toBe("Written to: Save to keep it, as the page forgets it");
+    expect($(bar.element, "sd-meta").textContent).toBe("0.5 KB · changed since loaded");
     expect($(bar.element, "sd-save").classList.contains("on")).toBe(true);
     expect(leaving()).toBe(true);
     $(bar.element, "sd-save").click();
@@ -140,12 +142,32 @@ describe("the SD slot", () => {
     expect(asked[1]).toContain("card.img aren't saved");
     expect(port.callsTo("ejectSd").length).toBe(1); // kept
     expect(port.callsTo("insertSd").length).toBe(2);
-    expect($(bar.element, "sd-insert").textContent).toBe("card.img (0.5 KB)");
+    expect($(bar.element, "sd-name").textContent).toBe("card.img");
 
     answer.yes = true;
     await pick(bar.element, "other.img", new Uint8Array(1024));
     expect(asked.length).toBe(3);
-    expect($(bar.element, "sd-insert").textContent).toBe("other.img (1 KB)");
+    expect($(bar.element, "sd-name").textContent).toBe("other.img");
+    expect($(bar.element, "sd-meta").textContent).toBe("1 KB");
+  });
+
+  test("its pill: the card's size and light, while one is in; it opens Settings", async () => {
+    const port = new FakePort();
+    let opened = 0;
+    const win = { addEventListener: () => {}, confirm: () => true } as unknown as Window;
+    const bar = sdBar(port, () => {}, win, { open: () => ++opened });
+    port.onFrame(bar.update);
+    port.emit(frame({ present: false }));
+    expect(bar.pill.hidden).toBe(true);
+    await pick(bar.element, "card.img", new Uint8Array(65536 * 512), 65536 * 512);
+    port.emit(frame({ busy: true }));
+    expect(bar.pill.hidden).toBe(false);
+    expect(bar.pill.textContent).toBe("SD 32 MB");
+    expect(bar.pill.querySelector(".led")!.classList.contains("on")).toBe(true);
+    bar.pill.click();
+    expect(opened).toBe(1);
+    $(bar.element, "sd-eject").click();
+    expect(bar.pill.hidden).toBe(true);
   });
 
   test("with no card, frames change nothing and leaving doesn't ask", () => {

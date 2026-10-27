@@ -1,6 +1,6 @@
 /**
- * The debugger pane (mockup C): collapsible, at the right of the bench,
- * with tabs. CPU (registers and flags), Bus trace, Breakpoints and Devices
+ * The debugger (mockup C), in the right-hand drawer it shares with
+ * Settings (ui/drawer.ts, which opens and closes it), with tabs. CPU (registers and flags), Bus trace, Breakpoints and Devices
  * (the cards' registers) work; Memory comes later and shows as such.
  *
  * It costs nothing while closed: registers are watched only while the CPU
@@ -36,7 +36,7 @@ export function debuggerPane(port: MachinePort) {
   const devs = devicesView(port);
   const sections: Record<Tab, HTMLElement> = { cpu: regs.element, trace: trace.element, bps: bpv.element, dev: devs.element };
 
-  let open = prefs.get("dbg") !== "closed";
+  let open = false; // the drawer says
   let tab: Tab = (["cpu", "trace", "bps", "dev"] as Tab[]).find((t) => t === prefs.get("dbg.tab")) ?? "cpu";
   let connected = false;
 
@@ -56,17 +56,9 @@ export function debuggerPane(port: MachinePort) {
     return b;
   });
   const body = h("div", { class: "dbg-b", role: "tabpanel" });
-  const element = h(
-    "aside",
-    { class: "dbg", "aria-label": "Debugger", "data-testid": "debugger" },
-    h("div", { class: "dbg-h" }, h("div", { class: "tabs", role: "tablist" }, ...tabButtons)),
-    body,
-  );
-
-  const toggle = h("button", { class: "tbtn", type: "button", title: "Show or hide the debugger", "data-testid": "tb-debugger" }, "Debugger ◧");
-  const reopen = h("button", { class: "reopen", type: "button", "data-testid": "dbg-reopen" }, "◀ DEBUGGER");
-  toggle.addEventListener("click", () => setOpen(!open));
-  reopen.addEventListener("click", () => setOpen(true));
+  /** The header: the tabs, and room for the drawer's close button. */
+  const head = h("div", { class: "dbg-h" }, h("div", { class: "tabs", role: "tablist" }, ...tabButtons));
+  const element = h("aside", { class: "dbg", "aria-label": "Debugger", "data-testid": "debugger" }, head, body);
 
   /** Watch what the open tab shows, and nothing else. */
   const watch = () => {
@@ -84,14 +76,10 @@ export function debuggerPane(port: MachinePort) {
     polledAt = -1; // fresh now, not at the next poll
   }
 
+  /** Shown or hidden by the drawer: it watches only while shown. */
   function setOpen(o: boolean): void {
     open = o;
-    prefs.set("dbg", o ? "open" : "closed");
-    document.body.classList.toggle("dbg-closed", !o);
-    toggle.classList.toggle("on", o);
-    toggle.setAttribute("aria-pressed", String(o));
     watch();
-    // the monitor changes size with the pane; the CRT follows through its ResizeObserver
   }
 
   let lastPoll = 0;
@@ -133,6 +121,5 @@ export function debuggerPane(port: MachinePort) {
   };
 
   select(tab);
-  setOpen(open);
-  return { element, toggle, reopen, update, connect, breakpoints: bps };
+  return { element, head, setOpen, update, connect, breakpoints: bps };
 }

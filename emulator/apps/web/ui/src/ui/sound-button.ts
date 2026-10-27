@@ -1,11 +1,12 @@
 /**
- * The Sound switch under the monitor: the speaker on or off, kept for next time,
+ * The Sound switch in the toolbar: the speaker on or off, kept for next time,
  * with a level meter in the button while it plays. Its data-played and
  * data-peak are the speaker's, for tests.
  */
 
 import type { Speaker } from "../audio/speaker";
 import { h, prefs } from "./dom";
+import { icon } from "./icons";
 
 export function soundButton(speaker: Speaker, available: boolean) {
   const meter = h("i", { class: "meter", "aria-hidden": "true" });
@@ -19,8 +20,9 @@ export function soundButton(speaker: Speaker, available: boolean) {
       disabled: !available,
       title: available ? "The machine's sound through your speakers: the sound card, and the speaker ($C030 on the IIe). Silent while this tab is in the background" : "This machine has no sound to play here",
     },
+    icon("sound"),
+    h("span", { class: "txt" }, "Sound"),
     meter,
-    "Sound",
   );
   const show = () => {
     button.classList.toggle("on", speaker.on);

@@ -1,17 +1,19 @@
 /**
- * Apple II mode's controls under the monitor: the cartridge (the owner's
- * IIe ROM, and the Disk II card's PROMs, which ui/cartridge.ts sorts and
- * keeps in this browser), Start Apple IIe, and the IIe's two resets.
+ * Apple II mode's ROMs in Settings, one row each: the owner's IIe ROM
+ * (with Start Apple IIe), the character ROM, and the Disk II card's two
+ * PROMs, each loaded and ejected on its own (ui/cartridge.ts identifies
+ * them and keeps them in this browser); and the IIe's two resets, which
+ * the status strip shows in Apple II mode.
  *
  * Start Apple IIe is what the owner would do at the machine: START (a
  * hard reset, back to the BIOS whatever was running), then C806R at the
- * Woz Monitor. Ctrl-Reset and Reboot (Ctrl-Open Apple-Reset) are typed on
- * the USB keyboard, Ctrl-Delete being its Reset key, so they work exactly
- * as the keys do.
+ * Woz Monitor. Reset (Ctrl-Reset) and Reboot (Ctrl-Open Apple-Reset) are
+ * typed on the USB keyboard, Ctrl-Delete being its Reset key, so they work
+ * exactly as the keys do.
  */
 
 import type { Cartridge, FrameState, MachinePort } from "../port/machine-port";
-import { forgetCartridge, keepCartridge, keptCartridge, MAX_ROM_FILE, noRom, sortRoms, type RomFile } from "./cartridge";
+import { forgetCartridge, keepCartridge, keptCartridge, MAX_ROM_FILE, noRom, takePart, withoutPart, type RomFile, type RomPart } from "./cartridge";
 import { h } from "./dom";
 
 const L_CTRL = 0xe0;
@@ -42,7 +44,7 @@ export function notes(c: Cartridge): string {
   return n.join(". ");
 }
 
-/** What booting from the drive still needs, or "" (the drive bar's hint). */
+/** What booting from the drive still needs, or "" (the drive's hint). */
 export function bootNeeds(c: Cartridge | null): string {
   if (!c) return "the IIe ROM and the Disk II PROMs";
   if (!c.diskBoot && !c.diskSequencer) return "the Disk II PROMs";
@@ -51,38 +53,45 @@ export function bootNeeds(c: Cartridge | null): string {
   return "";
 }
 
+/** "16 KB", "256 bytes". */
+export function romSize(n: number): string {
+  return n >= 1024 && n % 1024 === 0 ? `${n / 1024} KB` : `${n} bytes`;
+}
+
 export interface AppleBarHooks {
-  /** Start Apple IIe was pressed: show the Apple II scene. */
+  /** Start Apple IIe was pressed: show the Apple's picture. */
   started: () => void;
   /** A reset was typed: the keyboard back to the screen, off the button. */
   typed?: () => void;
 }
 
+interface PartRow {
+  part: RomPart;
+  name: string;
+  /** The row's testids start with it. */
+  id: string;
+  /** What the row says with nothing in. */
+  none: string;
+}
+
+const PARTS: PartRow[] = [
+  { part: "rom", name: "Apple IIe ROM", id: "apple", none: "none: Apple II mode needs yours (16 KB, or the CD and EF halves)" },
+  { part: "chars", name: "IIe character ROM", id: "apple-chars", none: "none: the built-in font" },
+  { part: "diskBoot", name: "Disk II boot PROM", id: "apple-boot", none: "none: the IIe won't boot from the drive" },
+  { part: "diskSequencer", name: "Disk II sequencer PROM", id: "apple-seq", none: "none: the drive reads nothing" },
+];
+
 export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
-  const picker = h("input", { type: "file", multiple: true, hidden: true, "data-testid": "apple-file" });
-  const insert = h("button", { class: "tbtn", type: "button", "data-testid": "apple-insert" }, "Insert IIe ROM…");
-  const eject = h("button", { class: "tbtn", type: "button", title: "Take the IIe ROM out, and forget it in this browser", "data-testid": "apple-eject" }, "Eject");
+  const note = h("p", { class: "row-note", role: "status", "data-testid": "apple-note" });
   const start = h("button", { class: "tbtn", type: "button", title: "START, then C806R: the BIOS hands over to the IIe ROM", "data-testid": "apple-start" }, "▶ Start Apple IIe");
-  const reset = h("button", { class: "tbtn", type: "button", title: "Ctrl-Reset (Ctrl-Delete): the IIe's Reset; a BASIC program stays", "data-testid": "apple-reset" }, "Ctrl-Reset");
-  const reboot = h("button", { class: "tbtn", type: "button", title: "Ctrl-Open Apple-Reset: the IIe starts afresh", "data-testid": "apple-reboot" }, "Reboot");
-  const note = h("span", { class: "apple-note", role: "status", "data-testid": "apple-note" });
-  const element = h("div", { class: "apple-bar", "data-testid": "apple-bar" }, picker, insert, eject, start, reset, reboot, note);
+  const reset = h("button", { class: "tbtn", type: "button", title: "The IIe's Ctrl-Reset (Ctrl-Delete): a BASIC program stays", "data-testid": "apple-reset" }, "Reset");
+  const reboot = h("button", { class: "tbtn", type: "button", title: "Ctrl-Open Apple-Reset: the IIe starts afresh, booting from drive 1", "data-testid": "apple-reboot" }, "Reboot");
+  const resets = h("span", { class: "strip-group", hidden: true, "data-testid": "apple-resets" }, reset, reboot);
 
   let current: Cartridge | null = null;
-  let loaded = false;
+  let kept = true;
   let apple = false;
   let powered = true;
-  const show = () => {
-    insert.textContent = loaded ? "IIe ROM ✓" : "Insert IIe ROM…";
-    insert.title = loaded
-      ? "Your Apple IIe ROM is in the cartridge, kept in this browser only. Click to put in another, or add the Disk II's PROMs."
-      : "Your own Apple IIe ROM (16 KB, or the CD and EF halves), the character ROM, and the Disk II's two PROMs: they stay in this browser and are never uploaded";
-    insert.classList.toggle("on", loaded);
-    eject.hidden = !loaded;
-    start.hidden = !loaded || apple;
-    start.disabled = !powered;
-    reset.hidden = reboot.hidden = !apple;
-  };
   const say = (text: string) => (note.textContent = text);
 
   const plug = async (c: Cartridge | null): Promise<boolean> => {
@@ -93,37 +102,76 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
       return false;
     }
     current = c;
-    loaded = c !== null;
     show();
     return true;
   };
 
-  insert.addEventListener("click", () => picker.click());
-  picker.addEventListener("change", async () => {
-    const picked = Array.from(picker.files ?? []);
-    picker.value = ""; // the same files again is a change too
-    if (!picked.length) return;
-    const big = picked.find((f) => f.size > MAX_ROM_FILE);
-    if (big) return void say(noRom(big.name, big.size));
-    const files: RomFile[] = [];
-    for (const f of picked) {
-      try {
-        files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
-      } catch (err) {
-        return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+  const rows = PARTS.map((p) => {
+    const picker = h("input", { type: "file", multiple: p.part === "rom", hidden: true, "data-testid": `${p.id}-file` });
+    const load = h("button", { class: "tbtn", type: "button", "data-testid": p.id === "apple" ? "apple-insert" : `${p.id}-load` }, "Load…");
+    const eject = h(
+      "button",
+      { class: "tbtn", type: "button", title: p.part === "rom" ? "Take the cartridge out, and forget it in this browser" : `Take the ${p.name} out`, "data-testid": `${p.id}-eject` },
+      "Eject",
+    );
+    const meta = h("div", { class: "meta", "data-testid": `${p.id}-meta` });
+    const element = h("div", { class: "row" }, picker, h("div", { class: "what" }, h("div", { class: "name" }, p.name), meta), ...(p.part === "rom" ? [start] : []), load, eject);
+
+    load.addEventListener("click", () => picker.click());
+    picker.addEventListener("change", async () => {
+      const picked = Array.from(picker.files ?? []);
+      picker.value = ""; // the same files again is a change too
+      if (!picked.length) return;
+      const big = picked.find((f) => f.size > MAX_ROM_FILE);
+      if (big) return void say(noRom(big.name, big.size));
+      const files: RomFile[] = [];
+      for (const f of picked) {
+        try {
+          files.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+        } catch (err) {
+          return void say(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-    }
-    const c = sortRoms(files, current);
-    if (typeof c === "string") return void say(c);
-    if (!(await plug(c))) return;
-    say(keepCartridge(c) ? notes(c) : "In for now; this browser would not keep it");
+      const c = takePart(p.part, files, current);
+      if (typeof c === "string") return void say(c);
+      if (!(await plug(c))) return;
+      kept = keepCartridge(c);
+      show();
+      say(kept ? notes(c) : "In for now; this browser would not keep it");
+    });
+    eject.addEventListener("click", async () => {
+      const c = withoutPart(p.part, current);
+      if (!(await plug(c))) return;
+      if (c) kept = keepCartridge(c);
+      else forgetCartridge();
+      show();
+      say(c ? notes(c) : "");
+    });
+
+    const update = () => {
+      const bytes = current?.[p.part] ?? null;
+      meta.textContent = bytes ? `${romSize(bytes.length)} · yours, ${kept ? "kept in this browser" : "in for now"}` : p.none;
+      load.hidden = !!bytes;
+      eject.hidden = !bytes;
+      load.disabled = p.part !== "rom" && !current;
+      load.title =
+        p.part === "rom"
+          ? "Your own Apple IIe ROM (16 KB, or the CD and EF halves; the character ROM and PROMs may come with it): it stays in this browser and is never uploaded"
+          : current
+            ? `Your ${p.name}: it stays in this browser`
+            : "Load the Apple IIe ROM first";
+    };
+    return { element, update };
   });
-  eject.addEventListener("click", async () => {
-    if (await plug(null)) {
-      forgetCartridge();
-      say("");
-    }
-  });
+
+  const show = () => {
+    for (const r of rows) r.update();
+    start.hidden = !current || apple;
+    start.disabled = !powered;
+    resets.hidden = !apple;
+  };
+  const element = h("div", { class: "rows", "data-testid": "apple-bar" }, ...rows.map((r) => r.element), note);
+
   start.addEventListener("click", () => {
     startApple(port);
     hooks.started();
@@ -153,5 +201,5 @@ export function appleBar(port: MachinePort, hooks: AppleBarHooks) {
     powered = f.powered;
     show();
   };
-  return { element, restore, update, bootNeeds: () => bootNeeds(current) };
+  return { element, resets, restore, update, bootNeeds: () => bootNeeds(current) };
 }

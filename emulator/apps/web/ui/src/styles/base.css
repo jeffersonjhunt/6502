@@ -1,26 +1,29 @@
-/* Workbench tokens and the toolbar (mockup C). The page is dark by design:
-   a bench under a lamp, the CRT the brightest thing on it. */
+/* Workbench tokens, the toolbar and the page's buttons. The page is dark by
+   design: a bench under a lamp, the CRT the brightest thing on it. */
 :root {
   color-scheme: dark;
   --bg: #0b0a09;
   --bg2: #141311;
   --bg3: #1c1a17;
   --line: #2c2924;
+  --line2: #24211d;
   --text: #e8e4e0;
   --muted: #9a9590;
+  --dim: #6f6a64;
   --accent: #cc5500;
   --amber: #ffb000;
+  --red: #ff4a2a;
 }
 /* On body, not :root: a custom property resolves its var()s where it is
-   declared, so --scr has to sit where body.dbg-closed changes --dbg, or the
-   CRT never grows when the debugger closes. */
+   declared, so --scr has to sit where body.drawer-open changes --dbg, or the
+   CRT never grows when the drawer closes. */
 body {
-  --dbg: clamp(340px, 30vw, 460px);
-  /* room for the debugger beside, and the rack below */
-  --scr: max(280px, min(calc(100vw - var(--dbg) - 120px), 760px, calc((100vh - 400px) * 4 / 3)));
-}
-body.dbg-closed {
   --dbg: 0px;
+  /* room for the drawer beside, and the strip and the rack below */
+  --scr: max(280px, min(calc(100vw - var(--dbg) - 120px), 760px, calc((100vh - 480px) * 4 / 3)));
+}
+body.drawer-open {
+  --dbg: clamp(360px, 30vw, 440px);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -31,6 +34,7 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
 }
+[hidden] { display: none !important; }
 .sr-only {
   position: absolute;
   width: 1px;
@@ -40,71 +44,153 @@ body {
   white-space: pre;
 }
 
+/* The toolbar: one row. */
 .tb {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 16px;
+  padding: 10px 16px;
   background: var(--bg2);
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
+  position: relative;
 }
-.tb img { height: 18px; display: block; }
-.tb .ttl { font: 800 15px/1 Inter, sans-serif; letter-spacing: .02em; margin-right: 8px; }
-.tb .ttl span { color: var(--muted); font-weight: 500; margin-left: 6px; }
-.tb .home { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; border-radius: 6px; }
-.tb .home .back { color: var(--muted); font: 600 14px/1 Inter, sans-serif; }
-.tb .home:hover .back, .tb .home:focus-visible .back { color: var(--text); }
+.tb .ttl { display: flex; align-items: baseline; gap: 8px; margin-right: 6px; font: 800 17px/1 Inter, sans-serif; letter-spacing: .02em; }
+.tb .ttl span { color: var(--muted); font: 400 14px/1 Inter, sans-serif; letter-spacing: 0; }
+.tb .home { display: inline-flex; align-items: center; color: var(--muted); border-radius: 6px; }
+.tb .home .ico { width: 18px; height: 18px; }
+.tb .home:hover, .tb .home:focus-visible { color: var(--text); }
+.tb .home:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.tb-clock { display: inline-flex; align-items: center; gap: 10px; }
 .touch-note {
   display: flex; align-items: center; gap: 12px; justify-content: space-between;
   margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg2);
   font: 500 13px/1.4 Inter, sans-serif; color: var(--muted);
 }
+
+.ico { width: 16px; height: 16px; flex: none; }
 .tbtn {
-  font: 600 11.5px/1 Inter, sans-serif;
+  font: 500 13px/1 Inter, sans-serif;
   color: var(--text);
   background: var(--bg3);
   border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 7px 10px;
+  border-radius: 6px;
+  height: 30px;
+  padding: 0 12px;
   cursor: pointer;
   display: inline-flex;
   gap: 6px;
   align-items: center;
+  justify-content: center;
+  white-space: nowrap;
 }
+.tbtn .ico-run, .tbtn .ico-halt { width: 12px; height: 12px; }
+.tbtn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
+.tbtn.sm .ico { width: 10px; height: 10px; }
+.tbtn.icon { width: 34px; padding: 0; }
 .tbtn:hover:not(:disabled) { border-color: var(--amber); }
-.tbtn.on { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
-.tbtn:disabled { color: #5d5852; cursor: not-allowed; }
-/* The Sound switch's level meter: a bar that fills with the sound card's peak (--level, 0 to 1). */
-.tbtn.sound .meter { width: 4px; height: 12px; border-radius: 1px; background: linear-gradient(to top, var(--accent) calc(var(--level, 0) * 100%), var(--line) 0); }
-.tbtn:focus-visible, .seg button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.tbtn.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tbtn:disabled { color: var(--dim); cursor: not-allowed; }
+/* The Sound switch's level meter: a bar that fills with the sound card's peak (--level, 0 to 1), while it is on. */
+.tbtn.sound .meter { width: 4px; height: 14px; border-radius: 1px; background: linear-gradient(to top, var(--amber) calc(var(--level, 0) * 100%), var(--line) 0); }
+.tbtn.sound:not(.on) .meter { display: none; }
+.tbtn:focus-visible, .seg button:focus-visible, .pill:focus-visible, .linkish:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .sep { width: 1px; height: 22px; background: var(--line); }
 .grow { flex: 1; }
 .lbl { font: 600 10px/1 Inter, sans-serif; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button {
-  font: 600 11px/1 Inter, sans-serif;
+  font: 500 12px/1 Inter, sans-serif;
   color: var(--muted);
-  background: var(--bg3);
+  background: var(--bg2);
   border: 0;
   border-right: 1px solid var(--line);
-  padding: 7px 9px;
+  height: 28px;
+  padding: 0 10px;
   cursor: pointer;
   display: flex;
   gap: 6px;
   align-items: center;
 }
 .seg button:last-child { border-right: 0; }
-.seg button[aria-pressed="true"] { color: var(--text); background: #26231f; }
+.seg button[aria-pressed="true"] { color: var(--text); background: #2a2622; }
+.seg button:disabled { cursor: not-allowed; }
 .seg .sw8 { width: 9px; height: 9px; border-radius: 2px; }
+.linkish { font: inherit; color: var(--amber); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; border-radius: 2px; }
+.linkish:hover { color: #ffd06a; }
 
-.wrap { display: grid; grid-template-columns: 1fr var(--dbg); min-height: calc(100vh - 48px); }
-.bench { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px 16px 20px; min-width: 0; }
+/* Lights: the power LED, and the drives' and the card's (red, as the IIe's drive is). */
+.led { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #3a3530; }
+.led.power.on { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.led.disk-led { background: #3a1410; box-shadow: inset 0 0 2px #000; }
+.led.disk-led.on { background: var(--red); box-shadow: 0 0 6px var(--red); }
 
-@media (max-width: 600px) {
-  .tb { padding: 8px 12px; gap: 8px; }
-  .tb .lbl { display: none; }
+/* More, on a phone: the rest of the toolbar, dropped down under it. */
+.tb-more { position: relative; display: inline-flex; }
+.tb-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  min-width: 240px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2);
+  box-shadow: 0 12px 30px #000c;
 }
-.credits { margin: 0; font: 400 11px/1.5 Inter, sans-serif; color: var(--muted); text-align: center; }
-.credits a { color: inherit; text-underline-offset: 2px; }
-.credits a:hover, .credits a:focus-visible { color: var(--text); }
+.tb-menu .tb-clock { flex-wrap: wrap; }
+
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr) var(--dbg); min-height: calc(100vh - 51px); }
+.bench { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 16px 20px; min-width: 0; }
+/* The monitor and the strip under it, the strip as wide as the monitor: its
+   pills wrap rather than widen the column. */
+.mon-col { display: flex; flex-direction: column; gap: 14px; max-width: 100%; }
+
+/* The status strip. */
+.strip {
+  contain: inline-size;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 9px 14px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px;
+  font: 400 12px/1.3 Inter, sans-serif; color: var(--muted);
+}
+.strip-text { font: 600 10px/1.3 Inter, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+/* The real speed changes every second: digits of one width, so the strip keeps its size (laying it out again is costly in WebKit). */
+.mon-status { font-variant-numeric: tabular-nums; }
+.strip-group { display: inline-flex; gap: 8px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 13px; background: transparent;
+  font: 500 12px/1 Inter, sans-serif; color: #c9c4bf; max-width: 100%;
+}
+button.pill { cursor: pointer; }
+button.pill:hover { border-color: var(--amber); }
+.pill > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill.playing { border-color: var(--accent); padding: 0 4px 0 10px; color: var(--text); }
+.pill.playing .ico-note { width: 13px; height: 13px; color: var(--amber); }
+.sid-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30ch; }
+.sid-song { font: 400 11px/1 "JetBrains Mono", monospace; color: var(--muted); }
+.pill .tbtn.sm { height: 20px; padding: 0 6px; border-radius: 10px; }
+
+/* Under the panel. */
+.page-note { margin: 0; font: 400 12px/1.5 Inter, sans-serif; color: var(--muted); text-align: center; }
+.fit { width: 100%; overflow: hidden; position: relative; }
+.fit > .rack { position: relative; left: 50%; transform: translateX(-50%); transform-origin: top center; width: max-content; max-width: none; overflow: visible; }
+
+/* A phone: one header row, touch-sized targets, the strip's long words left out. */
+@media (max-width: 600px) {
+  .tb { padding: 8px 12px; gap: 6px; flex-wrap: nowrap; }
+  .tb .ttl span, .tb .txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tb .home { width: 28px; height: 44px; justify-content: center; }
+  .tb .tbtn { height: 44px; min-width: 44px; padding: 0 12px; font-size: 14px; border-radius: 8px; }
+  .tb .tbtn .ico { width: 18px; height: 18px; }
+  /* Run or Halt, whichever the machine isn't doing. */
+  .tb [data-testid="tb-run"].on, .tb [data-testid="tb-halt"].on { display: none; }
+  .tb-menu .tbtn { width: 100%; justify-content: flex-start; }
+  .tb-menu .txt { position: static; width: auto; height: auto; clip: auto; }
+  .tb-menu .seg { width: 100%; }
+  .tb-menu .seg button { flex: 1; justify-content: center; white-space: nowrap; padding: 0 8px; }
+  .tb-menu .lbl { display: block; width: 100%; }
+  .seg button { height: 44px; padding: 0 14px; font-size: 13px; }
+  .bench { padding: 14px 12px; gap: 14px; }
+  .mon-col { width: 100%; }
+  .strip { padding: 8px 10px; }
+  .strip-what { display: none; }
+  .strip .tbtn, .pill { min-height: 44px; border-radius: 22px; }
+  .pill .tbtn.sm { min-height: 36px; min-width: 36px; }
+  .linkish { min-height: 44px; }
+}
