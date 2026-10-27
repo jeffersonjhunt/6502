@@ -494,16 +494,6 @@ namespace
             r.poke(b * BLOCK + 0x3800 + i, r.phys(COMMON_PHYS + i));
     }
 
-    bool have_build()
-    {
-        if (read_bytes(SYS + "/OODOS.SYS").empty() || read_bytes(EMU_BIOS_ROM).empty())
-        {
-            std::printf("  no OODOS.SYS or bios.rom (cc65?): skipped\n");
-            return false;
-        }
-        return true;
-    }
-
     /// A booted rig with the committed card's A.IMG as A: and again, read-only, as B:.
     struct Booted : Rig
     {
@@ -546,8 +536,6 @@ TEST(oodos_sys_is_built_to_its_format)
 
 TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     CHECK(r.out.find("\r\nOODOS 0.2  2026-10-27 12:00:00\r\n\r\nA>") != std::string::npos);
@@ -571,8 +559,6 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
 
 TEST(m_is_formatted_as_mkfs_cpm_t_with_mode_0x31)
 {
-    if (!have_build())
-        return;
     const std::vector<uint8_t> want = sd_image("oodos-ram.sparse");
     REQUIRE(want.size() == 16 * SECTOR);
     CHECK_EQ(want[12], 0x31);
@@ -589,8 +575,6 @@ TEST(m_is_formatted_as_mkfs_cpm_t_with_mode_0x31)
 
 TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     // The BDOS stub's cost, on HELLO's first call: $0203 to the BDOS, and its return to HELLO.
@@ -626,8 +610,6 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
 
 TEST(biostest_reaches_every_bios_entry_through_function_50)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     r.set_time(2026, 10, 27, 15, 42, 7);
@@ -685,8 +667,6 @@ TEST(biostest_reaches_every_bios_entry_through_function_50)
 
 TEST(drives_come_from_the_units_table_32_mb_and_odd_sizes)
 {
-    if (!have_build())
-        return;
     Rig r(fat16_card({{"BIG.IMG", 65536u * 512}, {"ODD.IMG", 1000u * 512}, {"EIGHT.IMG", 16384u * 512}}));
     REQUIRE(r.ok);
     CHECK_EQ(r.mount(1, "/BIG.IMG"), 0);
@@ -706,8 +686,6 @@ TEST(drives_come_from_the_units_table_32_mb_and_odd_sizes)
 
 TEST(the_bdos_stub_keeps_all_four_windows_s_and_returns_d_clear)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     give_common(r, 20);                                   // the home block
@@ -729,8 +707,6 @@ TEST(the_bdos_stub_keeps_all_four_windows_s_and_returns_d_clear)
 
 TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     const uint16_t far = sym("FARCALL");
@@ -779,8 +755,6 @@ TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
 
 TEST(time_reads_and_sets_the_clock_through_the_scb)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     // A leap day.
@@ -820,8 +794,6 @@ TEST(time_reads_and_sets_the_clock_through_the_scb)
 
 TEST(the_crt_does_the_vt52_subset_and_lowercase)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     r.go("vt52test.com");
@@ -865,8 +837,6 @@ TEST(the_crt_does_the_vt52_subset_and_lowercase)
 
 TEST(keys_come_from_the_usb_keyboard_and_the_serial_line)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     r.poke_com(read_bytes(SYS + "/hello.com"));
@@ -891,23 +861,21 @@ TEST(keys_come_from_the_usb_keyboard_and_the_serial_line)
 
 TEST(function_10_edits_the_line_as_the_ccp_reads_it)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     size_t from = r.out.size();
     r.type("fx\x7Foo\r");                                    // DEL takes the x back
-    CHECK(r.until("FOO?\r\nA>", ms(1000), from));
+    CHECK(r.until("\nFOO?\r\nA>", ms(1000), from));
     CHECK(r.out.find("fx\b \boo\r\n", from) != std::string::npos);
     from = r.out.size();
     r.type("ba\x08r\x18qux\r");                              // BS, then ^X the whole line
-    CHECK(r.until("QUX?\r\nA>", ms(1000), from));
+    CHECK(r.until("\nQUX?\r\nA>", ms(1000), from));
     from = r.out.size();
     r.type("a\x01" "b\r");                                     // other control characters: nothing
-    CHECK(r.until("AB?\r\nA>", ms(1000), from));
+    CHECK(r.until("\nAB?\r\nA>", ms(1000), from));
     from = r.out.size();
     r.type(std::string(130, 'z') + "\r");                   // 126 fit
-    CHECK(r.until(std::string(126, 'Z') + "?\r\nA>", ms(3000), from));
+    CHECK(r.until("\n" + std::string(126, 'Z') + "?\r\nA>", ms(3000), from));
     CHECK(r.out.find(std::string(127, 'Z'), from) == std::string::npos);
     // ^C at the start of a line: the warm boot.
     bool warm = false;
@@ -921,8 +889,6 @@ TEST(function_10_edits_the_line_as_the_ccp_reads_it)
 
 TEST(the_console_functions_of_the_stand_in_bdos)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     r.poke_com(read_bytes(SYS + "/linetest.com"));
@@ -950,8 +916,6 @@ TEST(the_console_functions_of_the_stand_in_bdos)
 
 TEST(disk_errors_from_the_card_a_read_only_unit_and_no_card)
 {
-    if (!have_build())
-        return;
     Rig r;
     REQUIRE(r.ok);
     CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
@@ -975,8 +939,6 @@ TEST(disk_errors_from_the_card_a_read_only_unit_and_no_card)
 
 TEST(the_ccp_refuses_what_it_cant_run)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     size_t from = r.out.size();
@@ -984,9 +946,9 @@ TEST(the_ccp_refuses_what_it_cant_run)
     CHECK(r.until("\r\nA>", ms(1000), from + 2));
     from = r.out.size();
     r.type("FOO bar\r");
-    CHECK(r.until("FOO?\r\nA>", ms(1000), from));
+    CHECK(r.until("\nFOO?\r\nA>", ms(1000), from));
     r.type("TOOLONGNAME\r");
-    CHECK(r.until("TOOLONGNAME?\r\nA>", ms(1000), from));
+    CHECK(r.until("\nTOOLONGNAME?\r\nA>", ms(1000), from));
     std::vector<uint8_t> com = read_bytes(SYS + "/hello.com");
     REQUIRE(com.size() > 16);
     auto refused = [&](std::vector<uint8_t> c, const std::string &why) {
@@ -1025,8 +987,6 @@ TEST(the_ccp_refuses_what_it_cant_run)
 
 TEST(break_and_brk_reach_the_roms_monitor_with_w3_and_vec_on_block_63)
 {
-    if (!have_build())
-        return;
     {
         Booted r;
         REQUIRE(r.ok);
@@ -1061,8 +1021,6 @@ TEST(break_and_brk_reach_the_roms_monitor_with_w3_and_vec_on_block_63)
 
 TEST(an_irq_that_isnt_brk_returns)
 {
-    if (!have_build())
-        return;
     Booted r;
     REQUIRE(r.ok);
     const uint16_t irq = sym("IRQ");
@@ -1085,4 +1043,12 @@ TEST(an_irq_that_isnt_brk_returns)
     CHECK(o.find("IRQ RETURNED\r\n\r\nA>") != std::string::npos);
 }
 
-int main() { return run_all(); }
+int main()
+{
+    if (read_bytes(SYS + "/OODOS.SYS").empty() || read_bytes(EMU_BIOS_ROM).empty())
+    {
+        std::printf("no OODOS.SYS or bios.rom (needs ca65, ld65, python3 and make): skipped\n");
+        return SKIP;
+    }
+    return run_all();
+}

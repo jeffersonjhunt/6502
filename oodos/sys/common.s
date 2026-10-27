@@ -11,9 +11,9 @@
 ;   FARCALL a call into another block through W3 (from oodos/spike/gwbasic/farcall.s)
 ;   IRQ, NMI and the vectors
 ;
-; Common memory keeps no state: the stub's scratch bytes are written and read
-; between the entry and its switch to the system's windows, and on the way out
-; between the switch back and the return, with interrupts off. FARCALL's
+; Common memory keeps no state: the stub's two scratch bytes are written and
+; read only between the entry and its switch to the system's windows, with
+; interrupts off; on the way out the results go by the program's stack. FARCALL's
 ; operand is its own, in the caller's block, for the length of one call.
 
 .setcpu "65C02"
@@ -96,22 +96,30 @@ STUB:           PHP
                 LDA     ST_A
                 LDX     ST_X
                 JSR     BDOSENT
-STUBRET:        LDY     ST_W1          ; Y is not kept
-                STY     NB_WIN1
-                LDY     ST_W2
-                STY     NB_WIN2
-                STA     SC_A           ; block 62's scratch now
-                STX     SC_X
-                LDA     ST_W3
-                STA     SC_W3
-                LDX     ST_S
+STUBRET:        STA     ST_A           ; the results go on the program's stack,
+                STX     ST_X           ; under its P: no scratch on the way out
+                LDA     ST_W0
+                STA     NB_WIN1        ; its stack page at $4100, the BDOS done with W1
+                LDY     ST_S
+                LDA     ST_X
+                STA     $4100,Y        ; X at $0100 + S, A under it, for PLA and PLX
+                DEY
+                LDA     ST_A
+                STA     $4100,Y
+                DEY
+                LDA     ST_W1
+                STA     NB_WIN1
+                LDA     ST_W2
+                STA     NB_WIN2
+                TYA
+                TAX
+                LDY     ST_W3
                 LDA     ST_W0
                 STA     NB_WIN0        ; the program's zero page and stack
                 TXS
-                LDY     SC_W3
-                LDA     SC_A
-                LDX     SC_X
                 STY     NB_WIN3        ; the program's block, its copy of this
+                PLA
+                PLX
                 PLP
                 CLD
                 RTS
@@ -253,9 +261,7 @@ TRAMPEND:
 
 ; The stub's scratch
 SC_A:           .res    1
-SC_X:           .res    1
 SC_W0:          .res    1
-SC_W3:          .res    1
 
 .segment "VECTORS"
                 .word   NMI
