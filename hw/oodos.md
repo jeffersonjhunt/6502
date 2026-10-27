@@ -1047,7 +1047,8 @@ copyright and MIT notice.
   read-only unit writable at login (ERRTEST), truncate not freeing, 18 repeating an entry, delete not checking
   read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), RC 0 for an
   extent the entry goes past (FSTEST), UNITS not resetting a stuck card (the busy card), the CCP not calling 48
-  (LOGINTEST).
+  (LOGINTEST); and the CCP reading a last part record straight to its place, on a card made with it
+  (`test_oodos_e2e`). Each was put back and the card made again, byte for byte the committed one.
 
 **Proposed**
 
