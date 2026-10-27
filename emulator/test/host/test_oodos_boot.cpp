@@ -741,7 +741,7 @@ TEST(drive_a_gone_or_changed_before_oodos_sys_is_read)
 
 TEST(the_committed_card_is_what_the_sources_build)
 {
-    // OOLDR and the systems and HELLO the build tree has, from today's sources, are the card's:
+    // OOLDR, the systems, HELLO and WRITEOO1 the build tree has, from today's sources, are the card's:
     // a file on A: is its bytes, then whatever pads its last record.
     const std::string STALE = "the card is stale: run oodos/tools/make_card.sh";
     auto same = [&](const std::string &what, const Bytes &card, const Bytes &built, bool records) {
@@ -757,6 +757,7 @@ TEST(the_committed_card_is_what_the_sources_build)
     same("TESTSYS.SYS", a.file(TEST_NAME), read_file(EMU_OODOS_LDR_DIR "/OODOS.SYS"), true);
     same("HELLO.COM", a.file("HELLO   COM"), read_file(EMU_OODOS_SYS_DIR "/hello.com"), true);
     same("HELLO.PRL", a.file("HELLO   PRL"), read_file(EMU_OODOS_PRL_DIR "/hello.prl"), true);
+    same("WRITEOO1.COM", a.file("WRITEOO1COM"), read_file(EMU_OODOS_SYS_DIR "/writeoo1.com"), true);
     same("DRIVES.TXT", file_of(committed(), "/OODOS/DRIVES.TXT"), read_file(EMU_OODOS_CARD_DIR "/DRIVES.TXT"), false);
 }
 
