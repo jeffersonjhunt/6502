@@ -761,6 +761,23 @@ the chip and the bridge, the latter with 6502 code reading $C690-$C696 and
 taking the tick's interrupt; the terminal debugger's `rtc` and the WebUI's
 Devices tab show the time, which the WebUI sets from the page's clock.
 
+**The WebUI redesigned (2026-10-27).** The page as the approved mockups
+have it: one toolbar row (Run, Halt, Step, the clock; CAPS, Sound,
+Settings, Debugger), the monitor with only its screen and a Terminal |
+Display switch, a status strip under it, and one right-hand drawer that
+Settings and the debugger share. The media left the monitor for Settings:
+the BIOS (the built-in one, or a build of the owner's, kept in the browser,
+the page restarting on it), the IIe ROM, character ROM and the two Disk II
+PROMs a row each, both drives, the SD card, a `.sid` tune, the phosphor and
+the credits. The strip has the power light and status, pills for what is
+loaded (each opens Settings at its row), the tune playing, and in Apple II
+mode Reset and Reboot. Display follows the machine: Apple II mode, or the
+video card showing anything but the BIOS's own text screen (layer 0 alone,
+text 80x30 at its map: `FrameState.videoCard`), switches to it, and back
+to Terminal when that ends; a choice by hand holds until the machine's
+mode next changes. On a phone the toolbar folds into More, the panel
+scales to the width, and the drawer is a full-screen dialog.
+
 ## Backlog
 
 Decided to come later, not forgotten:
