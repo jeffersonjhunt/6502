@@ -5,13 +5,16 @@
 .ifndef SYSTEM_INC
 SYSTEM_INC = 1
 
-; The north bridge's windows (hw/design.md, "North bridge registers")
+; The north bridge's windows (hw/design.md, "North bridge registers").
+; backplane.inc has them too: include it first, and these step aside.
+.ifndef NB
 NB_WIN0         = $C680
 NB_WIN1         = $C681
 NB_WIN2         = $C682
 NB_WIN3         = $C683
 NB_VEC          = $C684
 NB_RO           = $40                  ; a window's read-only bit
+.endif
 ROM_BLOCK       = 63                   ; the ROM BIOS's RAM copy, the monitor's
 
 ; Blocks
