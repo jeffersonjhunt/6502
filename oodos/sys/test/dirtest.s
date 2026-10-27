@@ -29,6 +29,7 @@
 ;   DISKFULL nnnn aa      records written until the disk is full: 02
 ;   RANDFULL aa           a random write then: 02
 ;   FREEFULL xxxxxx       0
+;   ZEROFILL aa Y|N       record 3 of a block FULL.DAT had, 5 written: zeros
 ;   FREE98 xxxxxx xxxxxx  free with 40 records written, not closed; and
 ;                         after function 98
 ;   TRUNC aa xx SIZE xxxxxx R99 aa R100 aa TRUNCFREE Y|N
@@ -408,6 +409,27 @@ dirfull:
         SAY     "FREEFULL "
         jsr     showfree
         NAME    fcb, "FULL    DAT"
+        CALLF   F_DELETE, fcb
+        ; a block FULL.DAT had, taken again: zeroed, not its old records
+        NAME    fcb, "Z       DAT"
+        CALLF   F_MAKE, fcb
+        lda     #5
+        sta     RN
+        stz     RN+1
+        jsr     FILL
+        lda     #5
+        sta     fcb+33
+        CALLF   F_WRITERAND, fcb
+        lda     #3
+        sta     fcb+33
+        SAY     "ZEROFILL "
+        CALLF   F_READRAND, fcb
+        jsr     HEX2
+        jsr     SPACE
+        jsr     ZEROS
+        jsr     YESNO
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "Z       DAT"
         CALLF   F_DELETE, fcb
 
         ; blocks of a file not closed, freed by 98

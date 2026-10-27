@@ -1608,6 +1608,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"DISKFULL", "0370 02"},       // 55 free blocks of 16 records, then disk full
         {"RANDFULL", "02"},
         {"FREEFULL", "000000"},
+        {"ZEROFILL", "00 Y"},          // a block taken again is zeroed
         {"FREE98", "000340 000370"},   // 3 blocks held by a file not closed, freed by 98
         {"TRUNC", "00 00"},
         {"SIZE", "000064"},
