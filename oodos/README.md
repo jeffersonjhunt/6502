@@ -15,6 +15,9 @@ directory holds the work.
 - [`ldr/`](ldr/): OOLDR, the loader (`/BOOT.BIN`), and a test OODOS.SYS; [`sys/cpmread.s`](sys/cpmread.s), the
   read-only CP/M reader OOLDR and OODOS.SYS share (phase 2, below).
 - [`sys/`](sys/): OODOS.SYS, phase 2's system: common memory, the stand-in BDOS and CCP, the BIOS; below.
+- [`test/cpm3model.py`](test/cpm3model.py), [`test/modelscript.py`](test/modelscript.py),
+  [`test/modeltest.py`](test/modeltest.py), [`test/driver/`](test/driver/): the BDOS's model test (phase 3a,
+  below).
 
 
 ## Building a program ##
@@ -128,6 +131,58 @@ and is made again, with Docker:
 
 ```
 sys/test/make_mdisk.sh      # mkfs.cpm -f oodos-ram -t at 2026-10-27 12:00, the mode set to 0x31
+```
+
+
+## The BDOS's model test (phase 3a) ##
+
+A model of CP/M 3's file system, ours, in Python (standard library only), that seeded random scripts of file
+operations run on, compared with what the BDOS does on the emulator ([hw/oodos.md](../hw/oodos.md#testing)):
+
+| File | What |
+|---|---|
+| [`test/cpm3model.py`](test/cpm3model.py) | the model: functions 13–37, 40, 46, 48, 98, 99 on drive images; its header lists what it models and its choices where the manual is open |
+| [`test/modelscript.py`](test/modelscript.py) | the script and result formats (its header), the reference driver, the generator, the comparison |
+| [`test/modeltest.py`](test/modeltest.py) | the commands, below |
+| [`test/driver/`](test/driver/) | DRIVER.COM, which runs `A:SCRIPT.BIN` through the BDOS and writes `A:RESULT.BIN`; its own Makefile |
+| [`test/test_model.py`](test/test_model.py) | the model's tests: hand-worked CP/M 3 cases, the formats, the generator, the comparison |
+| [`test/model_cpmtools.sh`](test/model_cpmtools.sh) | the model's drives checked by cpmtools (Docker) |
+
+```
+make -C test/driver             # test/driver/build/driver.com, through the rules gate
+make -C test/driver check       # test_model.py: ends PASS 153
+python3 -I test/modeltest.py prepare --seed 7 --format oodos-8m --dir /tmp/m7 --driver test/driver/build/driver.com
+python3 -I test/modeltest.py show --dir /tmp/m7       # the script, an operation a line
+python3 -I test/modeltest.py predict --dir /tmp/m7    # the model's run: A.model.IMG, T.model.IMG, RESULT.model.BIN
+python3 -I test/modeltest.py check --dir /tmp/m7      # against A.out.IMG and T.out.IMG, what DRIVER left
+```
+
+`prepare` writes the seed's `SCRIPT.BIN`, an `oodos-8m` A: holding it and DRIVER.COM (`A.IMG`), and the drive
+under test, empty (`T.IMG`): `oodos-ram` is M:, the others B:. `check` prints the seed, each operation that
+differs and how (the first ten), the drive's entries and records that differ, and PASS or FAIL. `--compare
+exact` compares the drive byte for byte, for a BDOS that allocates as the model (`--alloc lowest`, the
+default, or `nearest`); `renumber`, the default, up to the blocks' numbering. `--loose-x` leaves X alone where
+the model's is 0.
+
+`test_oodos_model`, in ctest, runs DRIVER.COM with the model as its BDOS, for 9 seeds, and with the model made
+wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison with OODOS's own BDOS** is
+off until phase 3a's BDOS is in (the stand-in's file functions return `$FF`); one switch turns it on, from
+`emulator/`:
+
+```
+cmake --preset dev -DOODOS_MODEL_BDOS=ON && cmake --build --preset dev && ctest --preset dev -R test_oodos_model
+OODOS_MODEL_BDOS=1 ./build/dev/test/host/test_oodos_model        # or for one run
+OODOS_MODEL_BDOS=1 OODOS_MODEL_SEEDS=4,7 OODOS_MODEL_COMPARE=exact OODOS_MODEL_LOOSE_X=1 ./build/dev/test/host/test_oodos_model
+```
+
+The seeds' directories stay in the build tree (`build/dev/test/host/oodos_model/oodos-N`), with what DRIVER
+left, for `modeltest.py show` and `check` by hand. The cpmtools cross-check, at verify (the model's empty drives
+against `mkfs.cpm -t`'s, then each seed's drive by `fsck.cpm`, `cpmls -F` and `cpmcp`):
+
+```
+docker run --rm -v "$(hostpath oodos):/o:ro" \
+    debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
+    sh /o/test/model_cpmtools.sh 1 2 3 4 5 6 7 8 9 10 11 12      # ends PASS 15
 ```
 
 

@@ -463,7 +463,8 @@ class Generator:
     # --- emitting ---
     def room(self, op, args):
         s = len(self.script.encode()) + 1 + len(args)
-        return s <= SCRIPT_MAX - 64 and self.result_bytes + result_size(op, args) <= RESULT_MAX - 64
+        # DRIVER.COM stops a page and 64 bytes short of its buffers: room to spare
+        return s <= SCRIPT_MAX - 64 and self.result_bytes + result_size(op, args) <= RESULT_MAX - 512
 
     def emit(self, op, args):
         """Try an operation on the model; keep it if its outcome is fixed. @return its Rec or None"""

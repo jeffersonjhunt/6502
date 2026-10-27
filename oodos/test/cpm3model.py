@@ -50,7 +50,8 @@ Testing, "phase 3a: the model", Proposed):
   made by a write, sets its SFCB slot's create (or access) and update stamps to now, password mode and
   the reserved byte 0; writing a written FCB's entry back (close, or moving to another extent) sets its
   update stamp; open sets the access stamp only with $40. Delete, rename, 30 and 99 leave the SFCB as
-  it is. Now is what 104 last set (the driver sets the time before what stamps).
+  it is, and so does make on a drive whose mode keeps no stamps. Now is what 104 last set (the driver
+  sets the time before what stamps).
 - 13 resets every drive (R/O cleared, logged out), drive A current, the DMA $0280; 37 the drives in its
   vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 returns
   the address of a copy of the current drive's DPB (17 bytes). 27 returns $FFFF. 12 returns $0031.
