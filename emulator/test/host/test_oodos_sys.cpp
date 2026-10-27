@@ -815,6 +815,31 @@ TEST(time_reads_and_sets_the_clock_through_the_scb)
     CHECK_EQ(t[5], 0x83);
 }
 
+TEST(a_clock_past_2155_is_no_time)
+{
+    // The SCB's days are said to reach 2155: a clock in 2156 is read as no time (BIOS TIME's
+    // carry), so the banner has no date and function 105 returns $FF, the SCB left alone.
+    Rig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    r.set_time(2156, 3, 1, 10, 20, 30);
+    REQUIRE(r.boot());
+    CHECK(r.out.find("\r\nOODOS 0.2  \r\n\r\nA>") != std::string::npos);
+    std::string o = r.go("timetest.com");
+    const std::string t = field(o, "TIME");
+    CHECK_EQ(t.substr(t.size() - 2), std::string("FF"));
+    // Nor is a date past 2155 set: 1 January 2156 leaves the clock in March.
+    o = r.go("timetest.com", " " + hex(days(2156, 1, 1), 4) + " 09 15");
+    r.run(ms(5));
+    const auto c = r.bridge().rtc_time();
+    CHECK_EQ(c[5] & 0x1F, 0x03);
+    CHECK_EQ(c[6], 0x56);
+    // 2155 is still a time.
+    r.set_time(2155, 12, 31, 23, 0, 0);
+    o = r.go("timetest.com");
+    CHECK_EQ(field(o, "TIME").substr(0, 10), hex(days(2155, 12, 31), 4) + " 23 00");
+}
+
 TEST(the_crt_does_the_vt52_subset_and_lowercase)
 {
     Booted r;

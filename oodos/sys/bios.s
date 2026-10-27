@@ -1027,17 +1027,20 @@ DMAGO:          LDA     #DMA_CH3
 ; ---------------------------------------------------------------------------
 ; TIME: the north bridge's clock (hw/design.md, "Real-time clock") and the
 ; SCB's date (days from 1 January 1978, that day 1), hour, minute and second
-; (BCD). The bridge holds 2000-2199 (its century bit: 21xx); the days go to
-; 2155. Leap years are the DS3231's, every fourth, so the two always agree
-; (2100 has a 29 February in both); the day of the week is worked out from
-; the days, 1 January 1978 a Sunday (1).
+; (BCD). The bridge holds 2000-2199 (its century bit: 21xx); OODOS's days go
+; to 31 December 2155 (hw/oodos.md, "BIOS"): a clock past it is read as no
+; time (carry set, the SCB left as it was), and a date past it, or before
+; 2000, isn't set. Leap years are the DS3231's, every fourth, so the two
+; always agree (2100 has a 29 February in both); the day of the week is
+; worked out from the days, 1 January 1978 a Sunday (1).
 
 DAYS_2000       = 8035                 ; the days before 1 January 2000
+LAST_YEAR       = 155                  ; 2155, from 2000
 
 TIME:           CMP     #0
                 BEQ     TGET
                 JSR     DAYS2DATE
-                BCS     @done          ; before 2000: the bridge can't hold it
+                BCS     @done          ; before 2000 or past 2155: not set
                 LDA     SCB_SEC
                 STA     NB_SEC
                 LDA     SCB_MIN
@@ -1078,12 +1081,12 @@ TIME:           CMP     #0
 @done:          RTS
 
 TGET:           LDA     NB_SEC         ; latches the other six
-                STA     SCB_SEC
+                PHA
                 LDA     NB_MIN
-                STA     SCB_MIN
+                PHA
                 LDA     NB_HOUR
                 AND     #$3F
-                STA     SCB_HOUR
+                PHA
                 LDA     NB_YEAR
                 JSR     BCD2BIN
                 STA     TYEAR
@@ -1100,7 +1103,23 @@ TGET:           LDA     NB_SEC         ; latches the other six
                 LDA     NB_DATE
                 JSR     BCD2BIN
                 STA     TDATE
-                ; fall through
+                LDA     TYEAR
+                CMP     #LAST_YEAR + 1
+                BCS     @far
+                JSR     DATE2DAYS
+                PLA
+                STA     SCB_HOUR
+                PLA
+                STA     SCB_MIN
+                PLA
+                STA     SCB_SEC
+                CLC
+                RTS
+@far:           PLA                    ; past 2155: the SCB's days can't say it
+                PLA
+                PLA
+                SEC
+                RTS
 
 ; SCB_DATE from TYEAR, TMONTH and TDATE.
 DATE2DAYS:      LDA     #<DAYS_2000
@@ -1164,7 +1183,8 @@ MONTHLEN:       CPX     #2
 
 MDAYS:          .byte   31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
 
-; TYEAR, TMONTH and TDATE from SCB_DATE. Carry set if it's before 2000.
+; TYEAR, TMONTH and TDATE from SCB_DATE. Carry set if it's before 2000 or
+; past 2155.
 DAYS2DATE:      SEC
                 LDA     SCB_DATE
                 SBC     #<DAYS_2000
@@ -1192,7 +1212,8 @@ DAYS2DATE:      SEC
                 BRA     @month
 @date:          LDA     TDAYS
                 STA     TDATE
-                CLC
+                LDA     TYEAR
+                CMP     #LAST_YEAR + 1 ; carry: past 2155
                 RTS
 @early:         SEC
                 RTS

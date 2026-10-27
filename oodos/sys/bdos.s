@@ -28,7 +28,9 @@
 ;                   programs in KB (words), and FARCALL's address; A/X = FARCALL
 ;  104  T_SET       the DAT at A/X (days, hour, minute in BCD) into the clock,
 ;                   the seconds 0
-;  105  T_GET       the clock into the DAT at A/X; A = the seconds, BCD
+;  105  T_GET       the clock into the DAT at A/X; A = the seconds, BCD. A
+;                   clock past 2155 (BIOS TIME's carry): A = X = $FF, the DAT
+;                   left as it was
 ;
 ; and any other A = X = $FF.
 ;
@@ -281,7 +283,9 @@ F_TSET:         LDX     #0
 
 F_TGET:         LDA     #0
                 JSR     TIME
-                LDX     #0
+                BCC     @time
+                JMP     NOFUNC         ; past 2155
+@time:          LDX     #0
 @dat:           LDA     SCB_DATE,X
                 JSR     PPUT
                 INX
