@@ -177,7 +177,7 @@ CR_FIND:        STA     ptr
                 STA     src
                 BCC     @same
                 INC     src+1
-@same:          CMP     #<(sbuf + 512)  ; the low byte is 0 only at a page's end
+@same:          CMP     #<(sbuf + 512)  ; past the sector's last entry?
                 BNE     @entry
                 LDA     src+1
                 CMP     #>(sbuf + 512)

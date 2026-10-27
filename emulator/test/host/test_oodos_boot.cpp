@@ -285,10 +285,14 @@ namespace
         }
         Bytes card() const { return make_card(files()); }
     };
-    Parts parts()
+    const Parts &parts()
     {
-        const Bytes &c = committed();
-        return {file_of(c, "/BOOT.BIN"), file_of(c, "/OODOS/DRIVES.TXT"), file_of(c, "/OODOS/A.IMG"), file_of(c, "/OODOS/B.IMG")};
+        static const Parts p = [] {
+            const Bytes &c = committed();
+            return Parts{file_of(c, "/BOOT.BIN"), file_of(c, "/OODOS/DRIVES.TXT"), file_of(c, "/OODOS/A.IMG"),
+                         file_of(c, "/OODOS/B.IMG")};
+        }();
+        return p;
     }
     Bytes with_drives(const std::string &drives_txt)
     {
@@ -533,6 +537,7 @@ TEST(drives_txt_errors_by_their_line)
         {A + "B: /OODOS/B.IMG R\n", L + "2" + WORD},
         {A + "B: /OODOS/B.IMG\n\na: /OODOS/B.IMG\n", L + "4: A: NAMED TWICE"},
         {A + "# b\nB: /oodos/a.img RO\n", L + "3: /oodos/a.img IS DRIVE A: ALREADY"},
+        {"A: /oodos/a.img\nB: /OODOS/A.IMG\n", L + "2: /OODOS/A.IMG IS DRIVE A: ALREADY"}, // either way round
         {"A: /OODOS/A.IMG\rB: /OODOS/B.IMG\n", L + "1: A CR NOT BEFORE LF"},
         {A + "# B: one day\rC: /C.IMG\n", L + "2: A CR NOT BEFORE LF"}, // in a comment too
         {"A: /OODOS/A.IMG\r\r\n", L + "1: A CR NOT BEFORE LF"},

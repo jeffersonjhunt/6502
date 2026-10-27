@@ -111,7 +111,7 @@ START:          CLD
                 LDA     #SD_LIST
                 STA     SD_CMD
                 JSR     PUTBUF
-                BCS     @nodrives
+                BCS     @listed        ; it ended already: why, below
 @list:          JSR     GETBUF
                 BCS     @listed
                 LDA     #<buf
