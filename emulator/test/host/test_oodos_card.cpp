@@ -5,17 +5,20 @@
  *
  * sd/oodos.sparse is made by cpmtools, mkfs.fat and mtools
  * (oodos/tools/make_card.sh): /BOOT.BIN, /OODOS/DRIVES.TXT, and /OODOS/A.IMG,
- * an oodos-8m drive. Here the emulated card mounts A.IMG as unit 1 with its
- * own MOUNT, as OODOS will, and the sectors at LBA = track x SPT + sector
- * (the BIOS's arithmetic) hold each directory entry, SFCB stamp and record
- * where cpmtools put them. Drive is a test oracle for that addressing,
- * following the DPB worked out from oodos/diskdefs, not a file system.
+ * an oodos-8m drive. Here the emulated card reads DRIVES.TXT strictly, by
+ * its grammar (hw/oodos.md, "Drives"), and mounts A.IMG as unit 1 with its
+ * own MOUNT, as OODOS will; the n-th sector of block b, at LBA
+ * b x (BLS / 512) + n (512-byte sectors, no boot tracks), holds each
+ * directory entry, SFCB stamp and record where cpmtools put them. Drive is a
+ * test oracle for that addressing, following the DPB worked out from
+ * oodos/diskdefs, not a file system.
  *
  * The other way, a stand-in writer makes a file on A: through the card's
  * WRITE, and with OODOS_CARD_OUT set the card is saved there for
- * oodos/test/interop.sh to check with cpmtools. OODOS_CARD_FAULT=alloc or
- * =stamp makes the stand-in wrong on purpose, to see interop.sh fail.
- * Phase 3's BDOS replaces the stand-in: write_on_the_oo1() is the seam.
+ * oodos/test/interop.sh to check with cpmtools. OODOS_CARD_FAULT=alloc,
+ * =stamp or =stamp-zero makes the stand-in wrong on purpose, to see this
+ * test and interop.sh fail. Phase 3's BDOS replaces the stand-in:
+ * write_on_the_oo1() is the seam.
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
  * make_card.sh and interop.sh have it.
@@ -30,10 +33,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <set>
 #include <sstream>
@@ -162,6 +167,34 @@ namespace
             card.tick(ACCESS);
             return status() & SdCard::BUSY ? 0xFF : reg(SdCard::ERROR);
         }
+        /// The size of the file `name` in the directory `dir`, by LIST. @return false if it isn't there
+        bool size_of(const std::string &dir, const std::string &name, uint32_t &size)
+        {
+            set(SdCard::UNIT, 0);
+            set(SdCard::CMD, SdCard::LIST);
+            for (size_t i = 0; i < SECTOR; ++i)
+                set(SdCard::DATA, i < dir.size() ? static_cast<uint8_t>(dir[i]) : 0);
+            card.tick(ACCESS);
+            bool found = false;
+            while (status() & SdCard::DATA_READY)
+            {
+                uint8_t s[SECTOR];
+                for (size_t i = 0; i < SECTOR; ++i)
+                    s[i] = reg(SdCard::DATA);
+                for (size_t e = 0; e < SECTOR; e += SdCard::LIST_ENTRY)
+                {
+                    const std::string n(reinterpret_cast<const char *>(s + e + 8), strnlen(reinterpret_cast<const char *>(s + e + 8), SdCard::LIST_NAME));
+                    if (!found && n.size() == name.size() &&
+                        std::equal(n.begin(), n.end(), name.begin(), [](char x, char y) { return std::toupper(x) == std::toupper(y); }))
+                    {
+                        size = unsigned{s[e]} | unsigned{s[e + 1]} << 8 | unsigned{s[e + 2]} << 16 | unsigned{s[e + 3]} << 24;
+                        found = true;
+                    }
+                }
+                card.tick(SECTOR_TIME);
+            }
+            return found;
+        }
         void transfer(uint8_t cmd, unsigned unit, uint32_t lba)
         {
             set(SdCard::UNIT, static_cast<uint8_t>(unit));
@@ -205,12 +238,13 @@ namespace
         unsigned unit;
         Dpb dpb;
 
-        uint32_t lba(unsigned track, unsigned sector) const { return track * dpb.spt + sector; }
-        /// The `n`th sector of block `b`: the data area starts at track OFF.
+        /// The `n`th 512-byte sector of block `b`. A unit's sectors are 512 bytes and the SD drives
+        /// have no boot tracks, so it is b x (BLS / 512) + n.
         uint32_t block_lba(unsigned b, unsigned n) const
         {
-            const unsigned at = dpb.off * dpb.spt + b * (dpb.bls / dpb.seclen) + n;
-            return lba(at / dpb.spt, at % dpb.spt);
+            CHECK_EQ(dpb.seclen, unsigned{SECTOR});
+            CHECK_EQ(dpb.off, 0u);
+            return b * (dpb.bls / unsigned{SECTOR}) + n;
         }
         std::vector<uint8_t> block(unsigned b)
         {
@@ -320,54 +354,124 @@ namespace
         return used;
     }
 
-    /// DRIVES.TXT's path for a drive, as the loader will read it: "A: /PATH [RO]", # comments.
-    std::string drive_path(const std::string &text, char drive, bool &read_only)
+    /// DRIVES.TXT, read as the loader will (hw/oodos.md, "Drives"): each drive's image, or the first error.
+    struct Drives
     {
-        std::istringstream lines(text);
-        std::string line;
-        while (std::getline(lines, line))
+        struct Image
         {
-            line = line.substr(0, line.find('#'));
-            std::istringstream words(line);
-            std::string name, path, flag;
-            if (words >> name >> path && name.size() == 2 && name[1] == ':' && name[0] == drive)
+            std::string path;
+            bool read_only{false};
+        };
+        std::map<char, Image> drives; ///< 'A'-'G'
+        std::string error;            ///< "line n: why"; empty if the file is good
+    };
+    constexpr size_t MOUNT_PATH_MAX = SECTOR - 3; ///< MOUNT's sector: the unit, the flags, the path and its NUL
+
+    /// Parse DRIVES.TXT by its grammar: [blanks] drive ':' blanks path [blanks RO] [blanks] ['#' comment],
+    /// or a blank or comment line; LF or CR LF; a UTF-8 BOM first is skipped. Anything else is an error.
+    Drives parse_drives(std::string text)
+    {
+        Drives out;
+        if (text.compare(0, 3, "\xEF\xBB\xBF") == 0)
+            text.erase(0, 3);
+        unsigned n = 0;
+        auto bad = [&](const std::string &why) {
+            out.drives.clear();
+            out.error = "line " + std::to_string(n) + ": " + why;
+            return out;
+        };
+        auto upper = [](char c) { return static_cast<char>(std::toupper(static_cast<unsigned char>(c))); };
+        for (size_t at = 0; at < text.size();)
+        {
+            ++n;
+            const size_t end = std::min(text.find('\n', at), text.size());
+            std::string line = text.substr(at, end - at);
+            at = end + 1;
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            size_t i = 0;
+            auto blanks = [&]() {
+                const size_t from = i;
+                while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
+                    ++i;
+                return i > from;
+            };
+            blanks();
+            if (i == line.size() || line[i] == '#')
+                continue;
+            const char drive = upper(line[i]);
+            if (drive < 'A' || drive > 'G' || i + 1 >= line.size() || line[i + 1] != ':')
+                return bad("not a drive A-G and a colon");
+            i += 2;
+            if (!blanks())
+                return bad("no space or tab after the colon");
+            if (i == line.size() || line[i] != '/')
+                return bad("the path doesn't start with /");
+            const size_t from = i;
+            for (; i < line.size() && line[i] != ' ' && line[i] != '\t' && line[i] != '#'; ++i)
+                if (static_cast<unsigned char>(line[i]) < 0x20 || line[i] == 0x7F)
+                    return bad("a control character in the path");
+            const std::string path = line.substr(from, i - from);
+            if (path.size() > MOUNT_PATH_MAX)
+                return bad("the path is over " + std::to_string(MOUNT_PATH_MAX) + " bytes, more than MOUNT takes");
+            bool read_only = false;
+            if (blanks() && i + 2 <= line.size() && upper(line[i]) == 'R' && upper(line[i + 1]) == 'O' &&
+                (i + 2 == line.size() || line[i + 2] == ' ' || line[i + 2] == '\t' || line[i + 2] == '#'))
             {
-                read_only = words >> flag && flag == "RO";
-                return path;
+                read_only = true;
+                i += 2;
+                blanks();
             }
+            if (i < line.size() && line[i] != '#')
+                return bad("\"" + line.substr(i) + "\" after the path: only RO and a comment may follow");
+            if (out.drives.count(drive))
+                return bad(std::string(1, drive) + ": named twice");
+            for (const auto &d : out.drives)
+                if (d.second.path.size() == path.size() &&
+                    std::equal(path.begin(), path.end(), d.second.path.begin(), [&](char x, char y) { return upper(x) == upper(y); }))
+                    return bad(path + " is drive " + std::string(1, d.first) + ": already");
+            out.drives[drive] = {path, read_only};
         }
-        return "";
+        return out;
     }
 
-    /// The card mounted as the loader will: DRIVES.TXT read through unit 1, then A: as unit 1.
+    /// The card mounted as the loader will: DRIVES.TXT's size by LIST, the file read through unit 1,
+    /// then A: as unit 1.
     bool mount_a(Rig &r)
     {
-        if (r.mount(1, "/OODOS/DRIVES.TXT") != 0)
+        uint32_t size = 0;
+        if (!r.size_of("/OODOS", "DRIVES.TXT", size) || r.mount(1, "/OODOS/DRIVES.TXT") != 0)
             return false;
         std::string text;
         uint8_t s[SECTOR];
-        for (uint32_t n = 0; n < r.card.unit(1).sectors && r.read(1, n, s); ++n)
-            text.append(reinterpret_cast<const char *>(s), strnlen(reinterpret_cast<const char *>(s), SECTOR));
-        bool read_only = true;
-        const std::string a = drive_path(text, 'A', read_only);
-        return a == "/OODOS/A.IMG" && !read_only && r.mount(1, a) == 0;
+        for (uint32_t n = 0; text.size() < size && r.read(1, n, s); ++n)
+            text.append(reinterpret_cast<const char *>(s), std::min<size_t>(SECTOR, size - text.size()));
+        const Drives d = parse_drives(text);
+        if (!d.error.empty())
+            std::printf("  DRIVES.TXT: %s\n", d.error.c_str());
+        const auto a = d.drives.find('A');
+        return text.size() == size && a != d.drives.end() && a->second.path == "/OODOS/A.IMG" && !a->second.read_only &&
+               r.mount(1, a->second.path) == 0;
     }
 
     // ---- the OO-1's side ----------------------------------------------------
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
-    /// (two entries), seed 5, made 26 October 2026 13:45 and updated 15:30. The same day:
-    /// fsck.cpm 2.23 mixes up the days of an SFCB's first stamps when it compares them.
+    /// (two entries, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
+    /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
+    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself.
     const std::string NEW_NAME = "OO1     BIN";
     constexpr unsigned NEW_USER = 0, NEW_SEED = 5;
     constexpr size_t NEW_SIZE = 260 * RECORD;
-    const std::array<uint8_t, 4> NEW_MADE = stamp(2026, 10, 26, 13, 45), NEW_UPDATED = stamp(2026, 10, 26, 15, 30);
+    const std::array<uint8_t, 4> NEW_MADE = stamp(2026, 10, 25, 13, 45), NEW_UPDATED = stamp(2026, 10, 26, 15, 30);
 
     /// A stand-in for OODOS's BDOS, until phase 3: makes the file on a drive in CP/M 3's layout,
     /// sector by sector through the card (read, change, write back): entries in the first
     /// free slots, blocks the first free ones, and both stamps in each entry's SFCB slot (as
     /// cpmtools does; fsck.cpm checks them all). `fault`: "alloc" gives it a block another
-    /// file has, "stamp" puts each entry's stamps in the next entry's slot.
+    /// file has; "stamp" puts each entry's stamps in the next entry's slot, the first entry's
+    /// update a minute later than the second's, so no slot holds what it should; "stamp-zero"
+    /// does the same in an SFCB whose slots were zeros, not mkfs.cpm's $E5s.
     void stand_in_bdos(Drive &d, unsigned user, const std::string &name83, const std::vector<uint8_t> &bytes,
                        const std::array<uint8_t, 4> &made, const std::array<uint8_t, 4> &updated,
                        const std::string &fault)
@@ -394,13 +498,20 @@ namespace
             change(d.block_lba(static_cast<unsigned>(at / d.dpb.bls), static_cast<unsigned>(at % d.dpb.bls / SECTOR)),
                    at % SECTOR, data, n);
         };
-        uint8_t stamps[10] = {}; // creation, update, then the password mode and a reserved byte
-        std::memcpy(stamps, made.data(), 4);
-        std::memcpy(stamps + 4, updated.data(), 4);
+        const bool misplace = fault == "stamp" || fault == "stamp-zero";
+        auto stamps_for = [&](unsigned k) {
+            std::array<uint8_t, 10> st{}; // creation, update, then the password mode and a reserved byte
+            std::memcpy(st.data(), made.data(), 4);
+            std::memcpy(st.data() + 4, updated.data(), 4);
+            if (misplace && k == 0)
+                st[7] = static_cast<uint8_t>(st[7] + 1); // a minute later, in BCD (:30 is :31)
+            return st;
+        };
 
         const unsigned records = static_cast<unsigned>(bytes.size() / RECORD);
         const unsigned per_block = d.dpb.bls / RECORD;
         unsigned slot = 0;
+        std::set<unsigned> zeroed; // the SFCBs "stamp-zero" has cleared
         for (unsigned k = 0; k * d.dpb.entry_records() < records; ++k)
         {
             while (dir[slot * ENTRY] != 0xE5 || (slot & 3) == 3) // free, and not an SFCB's place
@@ -430,8 +541,14 @@ namespace
             }
             put(size_t{slot} * ENTRY, e, ENTRY);
             dir[slot * ENTRY] = static_cast<uint8_t>(user);
-            const unsigned in_sfcb = fault == "stamp" ? ((slot & 3) + 1) % 3 : slot & 3;
-            put(size_t{slot | 3} * ENTRY + 1 + in_sfcb * 10, stamps, sizeof stamps);
+            if (fault == "stamp-zero" && zeroed.insert(slot | 3).second)
+            {
+                const uint8_t zeros[30] = {};
+                put(size_t{slot | 3} * ENTRY + 1, zeros, sizeof zeros);
+            }
+            const unsigned in_sfcb = misplace ? ((slot & 3) + 1) % 3 : slot & 3;
+            const std::array<uint8_t, 10> st = stamps_for(k);
+            put(size_t{slot | 3} * ENTRY + 1 + in_sfcb * 10, st.data(), st.size());
         }
     }
 
@@ -492,12 +609,55 @@ TEST(drives_txt_names_a_and_the_card_mounts_it_as_unit_1)
     REQUIRE(mount_a(r));
     CHECK_EQ(r.card.unit(1).sectors, uint64_t{8 * 2048}); // all 8 MB: 1024 tracks of 16
     CHECK(!r.card.unit(1).read_only);
-    bool ro = false;
-    CHECK_EQ(drive_path("# none\r\nB: /X.IMG RO\r\n  A:   /Y.IMG # the system\r\n", 'B', ro), std::string("/X.IMG"));
-    CHECK(ro);
-    CHECK_EQ(drive_path("# none\r\nB: /X.IMG RO\r\n  A:   /Y.IMG # the system\r\n", 'A', ro), std::string("/Y.IMG"));
-    CHECK(!ro);
-    CHECK_EQ(drive_path("# A: /Z.IMG\r\n", 'A', ro), std::string(""));
+}
+
+TEST(drives_txt_is_read_by_its_grammar)
+{
+    const Drives d = parse_drives("\xEF\xBB\xBF# the drives\r\n\r\nb: /X.IMG ro\r\n  A:\t/Y.IMG # the system\n"
+                                  "\tc:  /DISKS/Long-name_1.DSK#close\n   \t\nD: /Z.IMG RO# no space\nE: /E.IMG\t");
+    CHECK_EQ(d.error, std::string(""));
+    CHECK_EQ(d.drives.size(), size_t{5});
+    const std::pair<char, Drives::Image> want[] = {
+        {'A', {"/Y.IMG", false}}, {'B', {"/X.IMG", true}}, {'C', {"/DISKS/Long-name_1.DSK", false}}, {'D', {"/Z.IMG", true}},
+        {'E', {"/E.IMG", false}}};
+    for (const auto &w : want)
+    {
+        const auto it = d.drives.find(w.first);
+        REQUIRE(it != d.drives.end());
+        CHECK_EQ(it->second.path, w.second.path);
+        CHECK_EQ(it->second.read_only, w.second.read_only);
+    }
+    CHECK(parse_drives("").drives.empty() && parse_drives("").error.empty());
+    CHECK_EQ(parse_drives("A: /" + std::string(MOUNT_PATH_MAX - 1, 'P')).drives.at('A').path.size(), MOUNT_PATH_MAX);
+
+    // Each a line the loader refuses, with its number.
+    const std::pair<std::string, std::string> bad[] = {
+        {"A: /C.IMG name-1.DSK\n", "line 1: \"name-1.DSK\" after the path"}, // a space in the path
+        {"# ok\nA: /X.IMG RW\n", "line 2: \"RW\" after the path"},          // not a flag: RW is the default
+        {"A: /X.IMG R0\n", "line 1: \"R0\" after the path"},
+        {"A: /X.IMG ROM\n", "line 1: \"ROM\" after the path"},
+        {"A: /X.IMG RO RO\n", "line 1: \"RO\" after the path"},
+        {"A: /X.IMG\rB: /Y.IMG\n", "line 1: a control character in the path"}, // a CR alone isn't a line end
+        {"A: /X.IMG\r\r\n", "line 1: a control character in the path"},
+        {"\n\nH: /X.IMG\n", "line 3: not a drive A-G and a colon"},
+        {"A /X.IMG\n", "line 1: not a drive A-G and a colon"},
+        {"AB: /X.IMG\n", "line 1: not a drive A-G and a colon"},
+        {"A:/X.IMG\n", "line 1: no space or tab after the colon"},
+        {"A:\n", "line 1: no space or tab after the colon"},
+        {"A: X.IMG\n", "line 1: the path doesn't start with /"},
+        {"A: #/X.IMG\n", "line 1: the path doesn't start with /"},
+        {"A: /" + std::string(MOUNT_PATH_MAX, 'P') + "\n", "line 1: the path is over 509 bytes"},
+        {"A: /X.IMG\nB: /Y.IMG\na: /Z.IMG\n", "line 3: A: named twice"},
+        {"A: /X.IMG\nB: /x.img RO\n", "line 2: /x.img is drive A: already"},
+        {"\xEF\xBB\xBF\xEF\xBB\xBF" "A: /X.IMG\n", "line 1: not a drive A-G and a colon"}, // one BOM only
+    };
+    for (const auto &b : bad)
+    {
+        const Drives e = parse_drives(b.first);
+        std::printf("  %s\n", e.error.c_str());
+        CHECK(e.error.compare(0, b.second.size(), b.second) == 0);
+        CHECK(e.drives.empty());
+    }
 }
 
 TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
@@ -505,9 +665,9 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
     Rig r;
     REQUIRE(mount_a(r));
     Drive a{r, 1, Dpb::from_diskdefs("oodos-8m")};
-    // The directory's first sector is track 0, sector 0: no boot tracks.
+    // The directory's first sector is the unit's first: no boot tracks.
     uint8_t s[SECTOR];
-    REQUIRE(r.read(1, a.lba(0, 0), s));
+    REQUIRE(r.read(1, a.block_lba(0, 0), s));
     CHECK_EQ(s[0], 0x20);
     CHECK_EQ(std::string(reinterpret_cast<const char *>(s + 1), 11), std::string("OODOS      "));
     CHECK_EQ(s[12], 0x31); // creation and update stamps
