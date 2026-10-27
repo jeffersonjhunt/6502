@@ -1102,6 +1102,34 @@ TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
     CHECK_EQ(banners, size_t{1});
 }
 
+TEST(neither_the_bdos_nor_the_bios_takes_the_io_hole_or_flash_for_ram)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    // Block 62's RAM under the hole, and block 4: as they were after.
+    r.poke(62 * BLOCK + 0x100, std::vector<uint8_t>(SECTOR, 0x3C));
+    r.poke(62 * BLOCK + 0x400, std::vector<uint8_t>(16, 0x3C));
+    r.poke(4 * BLOCK, std::vector<uint8_t>(SECTOR, 0x4D));
+    const std::string o = r.go("holetest.com");
+    CHECK_EQ(field(o, "STRING"), std::string("FFFF"));
+    CHECK_EQ(field(o, "HOLE"), std::string("01"));
+    CHECK_EQ(field(o, "ROM"), std::string("01"));
+    CHECK_EQ(field(o, "RO"), std::string("01"));
+    CHECK_EQ(field(o, "ROW"), std::string("00"));
+    CHECK_EQ(field(o, "MOVE"), std::string("FFFF"));
+    CHECK_EQ(field(o, "MOVER"), std::string("FFFF"));
+    CHECK_EQ(field(o, "OK"), std::string("00"));
+    bool kept = true;
+    for (uint32_t i = 0; i < SECTOR; ++i)
+        kept = kept && r.phys(62 * BLOCK + 0x100 + i) == 0x3C && r.phys(4 * BLOCK + i) == 0x4D;
+    for (uint32_t i = 0; i < 16; ++i)
+        kept = kept && r.phys(62 * BLOCK + 0x400 + i) == 0x3C;
+    CHECK(kept);
+    // ROW wrote block 4's bytes, read-only to the program but read all the same.
+    const std::vector<uint8_t> s = r.read_unit(1, 1023 * 16 + 13);
+    CHECK(std::all_of(s.begin(), s.end(), [](uint8_t b) { return b == 0x4D; }));
+}
+
 /// BANKTEST USE's READ, with `hook` called once when the BIOS gets to `label`. @return READ's
 /// result, and the cycles from `label` to SDRESET, if the BIOS gave up, in `waited`
 std::string read_with(Rig &r, const std::string &label, const std::function<void()> &hook, uint64_t &waited)

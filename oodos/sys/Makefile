@@ -15,7 +15,7 @@
 BUILD    ?= build
 PYTHON   = python3 -I
 SYSOBJS  = common bdos bios crt cold ccp cpmread
-PROGRAMS = hello biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest
+PROGRAMS = hello biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest
 AFLAGS   = -g -I . -I ../include -I ../../backplane/bios
 PFLAGS   = -g -I test -I ../include
 

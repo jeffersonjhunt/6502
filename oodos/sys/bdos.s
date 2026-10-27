@@ -35,7 +35,9 @@
 ; The program's memory (function 9's string, 10's buffer, 50's parameter
 ; block, 72's and 104/105's) is read and written a byte at a time through W2:
 ; PGET and PPUT map the block the program's own window had there, by the
-; saved WIN0-WIN3, and put the BIOS back after each byte.
+; saved WIN0-WIN3, and put the BIOS back after each byte. An address in the
+; I/O hole, $C000-$C7FF, isn't memory: the function stops there and returns
+; A = X = $FF (hw/oodos.md, "The system, phase 2").
 
 .setcpu "65C02"
 .include "sys.inc"
@@ -342,8 +344,9 @@ PDONE:          LDX     #BIOS_BLOCK
 @done:          PLX
                 RTS
 
-; A to the program's byte at PP + Y, PP left as it is. Keeps X.
-PPUTY:          PHA
+; A to the program's byte at PP + Y, PP left as it is. Keeps X and Y.
+PPUTY:          PHX
+                PHA
                 PHY
                 LDA     PP
                 PHA
@@ -364,11 +367,21 @@ PPUTY:          PHA
                 STA     PP
                 PLY
                 PLA
+                PLX
                 RTS
 
-; W2 on the block the program's window had at PP; TP its address there.
-PMAP:           LDA     PP + 1         ; the window: the top 2 bits
-                ROL     A
+; W2 on the block the program's window had at PP; TP its address there. An
+; address in the I/O hole ends the function: A = X = $FF, from BDOSENT's
+; own frame (the stub's JSR left S at $FD), the BIOS still in W2.
+PMAP:           LDA     PP + 1
+                CMP     #>CODE_WINDOW
+                BCS     @memory
+                CMP     #$C0
+                BCC     @memory
+                LDX     #$FD
+                TXS
+                JMP     NOFUNC
+@memory:        ROL     A              ; the window: the top 2 bits
                 ROL     A
                 ROL     A
                 AND     #3

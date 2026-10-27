@@ -39,19 +39,24 @@
 ;   DRVTBL   -                               A/X = the drive table (16 DPHs)
 ;   MULTIO   A = count                       A = 0 (READ and WRITE take one)
 ;   FLUSH    -                               A = 0 (nothing is held back)
-;   MOVE     A/X = count, BW1 = source,      A/X and BW2 = destination +
-;            BW2 = destination               count, BW1 = source + count
-;   TIME     A = 0 read the clock into the   -
-;            SCB, $FF set it from the SCB
+;   MOVE     A/X = count, BW1 = source       A/X and BW2 = destination +
+;            (CP/M's DE), BW2 = destination  count, BW1 = source + count; or
+;            (CP/M's HL)                     A = X = $FF, nothing moved
+;   TIME     A = 0 read the clock into the   carry set if the clock is past
+;            SCB, $FF set it from the SCB    2155 (the SCB left as it was)
 ;   SELMEM   A = bank                        - (the bank MOVE uses)
 ;   SETBNK   A = bank                        - (the bank of SETDMA's address)
 ;   XMOVE    A = source bank (CP/M's C),     - (for the next MOVE)
 ;            X = destination bank (B)
 ;
 ; Banks: 0 is the system's view (W0-W3 on 31, 60, 61, 62), 1 the program's
-; (the windows the BDOS stub saved); any other is taken as 0. Addresses in
-; either are turned into physical ones for the DMA controller, a window at a
-; time, so a buffer may cross windows mapped anywhere.
+; (the windows the BDOS stub saved); any other is taken as 0. Cold boot and
+; each warm boot (common.s's WARM) set SETBNK's and SELMEM's to 0 and drop a
+; pending XMOVE. Addresses in either are turned into physical ones for the
+; DMA controller, a window at a time, so a buffer may cross windows mapped
+; anywhere. An address in a window's I/O hole ($C000-$C7FF), in a window on
+; flash, or written in a read-only window, can't be: READ and WRITE return 1
+; and MOVE moves nothing, checked before a byte moves.
 ;
 ; Drives: A-G are SD units 1-7 as IDENTIFY's units table has them (16,384
 ; sectors oodos-8m, 65,536 oodos-32m; anything else isn't a drive), M: the
@@ -528,9 +533,13 @@ DISKIO:         LDA     SECTOR + 1     ; LBA = track x 16 + sector, sector 0-15
                 RTS
 @rw:            JSR     CROSSES
                 BCS     BOUNCE
-                LDX     #SIDE_S        ; straight to or from the buffer
-                JSR     DMASIDE
-                JSR     PHYSOF
+                LDA     DOP            ; straight to or from the buffer: the
+                BNE     @out           ; destination of a READ, the source of a WRITE
+                JSR     DMASIDE2
+                BRA     @phys
+@out:           JSR     DMASIDE
+@phys:          JSR     PHYSOF
+                BCS     @error         ; the I/O hole, flash, or read-only
                 JMP     SDIO
 
 ; READ or WRITE of an SD sector through SECBUF.
@@ -539,6 +548,7 @@ BOUNCE:         LDA     DOP
                 JSR     DMASIDE        ; the buffer to SECBUF, then SECBUF out
                 JSR     TOSECBUF
                 JSR     COPY512
+                BCS     @error
                 JSR     SECPH
                 JMP     SDIO
 @read:          JSR     SECPH          ; the sector to SECBUF, then on
@@ -547,8 +557,11 @@ BOUNCE:         LDA     DOP
                 JSR     FROMSECBUF
                 JSR     DMASIDE2
                 JSR     COPY512
+                BCS     @error
                 LDA     #0
 @done:          RTS
+@error:         LDA     #1
+                RTS
 
 SECPH:          LDA     #<SECBUF_PHYS
                 STA     SRCP
@@ -572,6 +585,7 @@ MDISK:          LDA     LBA + 1
                 JSR     MSIDE
                 JSR     DMASIDE2
 @go:            JSR     COPY512
+                BCS     @error
                 LDA     #0
                 RTS
 @error:         LDA     #1
@@ -790,6 +804,7 @@ MOVE:           STA     CNT
                 JSR     COPY
                 PLX
                 PLA
+                BCS     @refused       ; nothing moved: BW1 and BW2 as they were
                 PHA
                 CLC
                 ADC     BW1
@@ -807,14 +822,37 @@ MOVE:           STA     CNT
                 TAX
                 LDA     BW2
                 RTS
+@refused:       LDA     #$FF
+                TAX
+                RTS
 
 ; CNT bytes from side S to side D (SIDES): a bank of 0 or 1 is a CPU address
 ; through that bank's windows, PHYS a physical one. In chunks that cross no
-; window, each one DMA copy. Uses A, X, Y.
-COPY:
+; window, each one DMA copy. Carry set, and nothing copied, if a chunk can't
+; be (PHYSOF): a first pass only checks them. Uses A, X, Y.
+.assert CNT = SIDES + 8, error, "COPY saves SIDES and CNT together"
+COPY:           LDX     #9
+@save:          LDA     SIDES,X
+                STA     SAVED,X
+                DEX
+                BPL     @save
+                LDA     #$80
+                STA     DRY
+                JSR     CHUNKS
+                BCS     @done
+                LDX     #9
+@back:          LDA     SAVED,X
+                STA     SIDES,X
+                DEX
+                BPL     @back
+                STZ     DRY
+                JMP     CHUNKS
+@done:          RTS
+
+CHUNKS:
 @loop:          LDA     CNT
                 ORA     CNT + 1
-                BEQ     @done
+                BEQ     @all
                 LDA     CNT
                 STA     DCOUNT
                 LDA     CNT + 1
@@ -825,6 +863,7 @@ COPY:
                 JSR     CLIP
                 LDX     #SIDE_D
                 JSR     PHYSOF
+                BCS     @done
                 LDX     #2
 @dst:           LDA     SRCP,X
                 STA     DSTP,X
@@ -832,8 +871,11 @@ COPY:
                 BPL     @dst
                 LDX     #SIDE_S
                 JSR     PHYSOF
+                BCS     @done
+                BIT     DRY
+                BMI     @next
                 JSR     DMAGO
-                LDX     #SIDE_S
+@next:          LDX     #SIDE_S
                 JSR     ADVANCE
                 LDX     #SIDE_D
                 JSR     ADVANCE
@@ -845,6 +887,7 @@ COPY:
                 SBC     DCOUNT + 1
                 STA     CNT + 1
                 BRA     @loop
+@all:           CLC
 @done:          RTS
 
 ; DCOUNT = at most what is left of side X's window.
@@ -885,7 +928,9 @@ ADVANCE:        CLC
                 STA     SIDES + 3,X
                 RTS
 
-; SRCP = side X's physical address.
+; SRCP = side X's physical address; carry set if it has none the BIOS may
+; use: an address in $C000-$C7FF (the I/O hole, in either bank's W3), a
+; window on flash (NB_ROM), or the destination in a read-only window.
 PHYSOF:         LDA     SIDES + 1,X
                 STA     SRCP
                 LDA     SIDES,X
@@ -894,9 +939,14 @@ PHYSOF:         LDA     SIDES + 1,X
                 STA     SRCP + 1
                 LDA     SIDES + 3,X
                 STA     SRCP + 2
+                CLC
                 RTS
-@window:        LDA     SIDES + 2,X    ; the window: the address's top 2 bits
-                ROL     A
+@window:        LDA     SIDES + 2,X
+                CMP     #>CODE_WINDOW
+                BCS     @mem
+                CMP     #$C0
+                BCS     @no            ; the I/O hole
+@mem:           ROL     A              ; the window: the address's top 2 bits
                 ROL     A
                 ROL     A
                 AND     #3
@@ -906,7 +956,13 @@ PHYSOF:         LDA     SIDES + 1,X
                 LDA     ST_WIN,Y
                 BRA     @block
 @system:        LDA     SYSWIN,Y
-@block:         AND     #$3F           ; the block: A14-A19
+@block:         BIT     #NB_ROM
+                BNE     @no
+                CPX     #SIDE_D
+                BNE     @rw
+                BIT     #NB_RO
+                BNE     @no
+@rw:            AND     #$3F           ; the block: A14-A19
                 STA     TMP
                 LSR     A
                 LSR     A
@@ -921,6 +977,9 @@ PHYSOF:         LDA     SIDES + 1,X
                 AND     #$3F
                 ORA     TMP
                 STA     SRCP + 1
+                CLC
+                RTS
+@no:            SEC
                 RTS
 
 SYSWIN:         .byte   SYS_BLOCK, BDOS_BLOCK, BIOS_BLOCK, RES_BLOCK
