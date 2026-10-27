@@ -418,8 +418,11 @@ The attached RSX table, if any, follows on a later record (its record is in the 
   relocation. The zero page bases may be any offsets but ones that move as nothing does, or as a page does.
 - **No 16-bit pointers to zero page,** rule 2 below: mkprl.py refuses a zero page address that isn't the operand
   of a zero page or immediate instruction in `CODE` (it disassembles `CODE` from the first link's map), so a
-  `.word ptr` or `.byte ptr` in data, or an absolute operand, can't relocate quietly. mkprl.py refuses a zero page
-  size over `$F0` for a program, and over 16 for an RSX.
+  `.word ptr` or `.byte ptr` in data, or an absolute operand, can't relocate quietly. That covers pointers to the
+  program's own `ZEROPAGE` segment only, the addresses that move between the links: pointers to an overlay's
+  zero page (imported from its caller, so it doesn't move) and to absolute zero page addresses, in `CODE` or the
+  data segments, rely on the author. mkprl.py refuses a zero page size over `$F0` for a program, and over 16 for
+  an RSX.
 
 ### Rules for programs: the 65C816 ###
 
@@ -437,7 +440,9 @@ breaking them.
 
 OODOS's build checks them: `oodos/tools/rules.py` disassembles `CODE` (only `CODE`: data in other segments isn't
 looked at) of the `.COM` and of the `.PRL`'s first link, for rules 1, 3, 4 and rule 2's absolute operands, and
-mkprl.py finds rule 2's 16-bit pointers to zero page in any segment, by the zero page bitmap ([above](#the-prl-file)).
+mkprl.py finds rule 2's 16-bit pointers to zero page in any segment, by the zero page bitmap ([above](#the-prl-file)),
+but only those to the program's own `ZEROPAGE` segment: pointers to an overlay's imported zero page or to absolute
+zero page addresses, in `CODE` or the data segments, rely on the author.
 
 ## Apple II disks ##
 

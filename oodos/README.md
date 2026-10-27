@@ -47,16 +47,19 @@ Put it in `examples/NAME.s` and add NAME to `PROGRAMS` in the Makefile (or `make
 | `build/NAME.prl` | the `.PRL`: `mkprl.py` from three links with `cfg/prl.cfg`, `NAME.a` (page 3, zero page `$00`), `NAME.b` (page 4, `$02`) and `NAME.c` (page 5, `$05`) |
 | `build/NAME.map`, `.lbl` | ld65's map and labels for the `.COM` (`.a.map`, `.a.lbl` for the `.PRL`) |
 
-Segments: `ZEROPAGE` (BSS only, `$00`–`$EF`: initialized data there is a build error), `CODE`, `RODATA`, `DATA`
-and `BSS` (above the image, not in the file, not cleared). Only `CODE` is disassembled by the rules check, so keep
-data out of it. Any ld65 warning fails the build.
+Segments: `ZEROPAGE` (BSS only, `$00`–`$EF`: initialized data there is a build error; a `.PRL`'s is at most `$EB`
+bytes, as its third link puts it at `$05`), `CODE`, `RODATA`, `DATA` and `BSS` (above the image, not in the file,
+not cleared). Only `CODE` is disassembled by the rules check, so keep data out of it. Any ld65 warning fails the
+build.
 
 **The 65C816 rules** ([hw/oodos.md](../hw/oodos.md#rules-for-programs-the-65c816)) are checked by
 `tools/rules.py` in `CODE`, the `.COM`'s and the `.PRL`'s first link's (only `CODE`), and a violation fails the
 build: no RMB, SMB, BBR or BBS; zero page only through zero page operands; no absolute access to the stack page;
 no JSR or JMP out of the program but to `BDOS` (`$0203`) and `WBOOT` (`$0200`). Pass a zero page address in X, as
 `LDX #ptr`, never as a 16-bit pointer: mkprl.py refuses a zero page address anywhere but as the operand of a zero
-page or immediate instruction in `CODE` (`.word ptr` in data, for one).
+page or immediate instruction in `CODE` (`.word ptr` in data, for one). It checks pointers to the program's own
+`ZEROPAGE` segment only: pointers to an overlay's zero page (imported, so it doesn't move) or to absolute zero page
+addresses, in `CODE` or the data segments, rely on the author.
 
 **What a `.PRL` may contain:** addresses and their high and low bytes, and zero page addresses. mkprl.py refuses
 any byte that doesn't move between the three links as nothing does, as a page does (1, then 2) or as the zero page
@@ -192,6 +195,7 @@ write and close with the DS3231 set to the stamps' times, and the checks on both
 Two things cpmtools 2.23 does that OODOS needn't copy: `cpmcp` leaves an SFCB slot's password mode byte at $E5 (no
 matter with passwords off; `cpmls -F` shows it as "Read" protection), and `fsck.cpm` compares the stamps in an
 SFCB's first slot backwards: an entry there updated on a later day than it was made draws "Warning: Modification
-date earlier than creation date (extent=S/E)", and one updated earlier draws nothing. `interop.sh` checks the
-order with `sfcb.py` first, then lets that warning through for those entries only
+date earlier than creation date (extent=S/E)", and one updated on an earlier day draws nothing (same-day stamps are
+compared right). `interop.sh` checks the order with `sfcb.py` first, then lets that warning through for those
+entries only
 ([hw/oodos.md](../hw/oodos.md#testing)).
