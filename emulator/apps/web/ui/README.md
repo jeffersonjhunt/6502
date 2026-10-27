@@ -24,9 +24,10 @@ Click the screen and type: the BIOS boots to the Woz Monitor (`\`).
 Woz only knows capitals. Run, Halt and Step work through the front panel's
 HALT switch and CONT, as the real panel does. The toolbar is one row: back
 to the project page, Run, Halt, Step inst, Step cycle and the clock; then
-CAPS, Sound, Settings and Debugger. On a phone it keeps Run or Halt (the one
-the machine isn't doing), Sound and Settings, and the rest go under More;
-the front panel scales to the screen's width.
+CAPS, Sound, Settings and Debugger. Narrower than 1280px the steps and the
+clock go under More, so it stays one row. On a phone it keeps Run or Halt
+(the one the machine isn't doing), Sound and Settings, and the rest go under
+More; the front panel scales to the screen's width.
 
 The strip under the monitor has the power light, the machine's state
 (`OO-1 · VGA 640×480 · RUNNING · 7.16 MHz`), and a pill for each thing
@@ -34,7 +35,9 @@ loaded: D1 and D2 with the drives' lights, SD with the card's; a click on
 one opens Settings at its row. A tune playing has its own pill (song n/m,
 previous, next, stop), a long paste has Stop typing, and Apple II mode has
 the IIe's Reset and Reboot. With nothing loaded it says so, with a link to
-Settings.
+Settings. The pills stay while the power is off, their lights out. A BIOS
+of your own that prints nothing for five seconds gets a note there pointing
+to Use built-in.
 
 The front panel is the Console card's (hw/design.md, "Front Panel"). The
 lamps glow with the share of bus cycles each line was high and freeze on the
@@ -45,10 +48,11 @@ turns OFF (power off), RUN, LOCK (the panel is ignored). The switch register
 is remembered between visits.
 
 Settings and the debugger open in one drawer, at the right of the bench
-(over it on a narrow window, the whole screen on a phone); opening one
-closes the other, the toolbar's buttons toggle them, and Escape closes the
-drawer. The debugger starts closed on a first visit and opens again if it
-was left open. It has four working tabs. CPU: registers and flags, live. Bus trace: the latest cycles, as the
+(over it, as a modal dialog, on a window 980px wide or less; the whole
+screen on a phone); opening one closes the other, the toolbar's buttons
+toggle them, and Escape closes the drawer, focus going back to whatever
+opened it. The debugger starts closed on a first visit and opens again
+beside the page if it was left open. It has four working tabs. CPU: registers and flags, live. Bus trace: the latest cycles, as the
 bus spy writes them, recorded only while the tab is open. Breakpoints: add a
 label or address (`ECHO`, `C968`, or five hex digits for a physical one),
 arm one (the Console card has one comparator), choose fetch, read or write
@@ -79,10 +83,11 @@ with the same Woz Monitor session in the IBM VGA font, or in Apple II mode
 the IIe's picture. The phosphor (Settings, Display) is Colour as the card
 makes it, or P1/P3/P4 as a mono monitor shows it. The switch follows the
 machine: entering Apple II mode, or a program giving the video card a
-picture of its own (`C803R`'s demo, say: anything but the BIOS's text
-screen, layer 0 alone as the BIOS sets it up), puts it on Display; leaving
-it (START, the demo's end) puts it back on Terminal. A choice made by hand
-holds until the machine's video mode next changes. On Terminal the keyboard
+picture of its own (`C803R`'s demo, say: anything but a text screen on
+layer 0 alone, as a BIOS sets one up), puts it on Display; leaving it
+(START, the demo's end) puts it back on Terminal. A choice made by hand
+holds until the machine's video mode next changes, and is remembered for
+the next visit until then; the machine's own switches are not. On Terminal the keyboard
 is the serial terminal's; on Display it and the mouse are the USB card's, as
 HID usage codes from the physical keys (the card cooks them in its own US
 layout, with its own Caps Lock, so CAPS is off there). On Terminal, a character AltGr makes
@@ -99,13 +104,16 @@ Settings, in sections:
 - **ROMs.** The **BIOS**: the one built in, or **Load…** a build of your
   own (up to 512 KB, the flash): it is kept in this browser's localStorage
   and the page restarts the machine on it, its version read from its
-  greeting; **Use built-in** forgets it and restarts. Then Apple II mode's
+  greeting; **Use built-in** forgets it and restarts. Either asks first if
+  the restart would lose the SD card's unsaved writes or a drive's. Then Apple II mode's
   ROMs, a row each, each with Load… and Eject: the owner's **Apple IIe ROM**
   (16 KB, or the CD and EF halves; the character ROM and the PROMs may be
   picked with it), the **IIe character ROM**, and the Disk II's **boot
   PROM** and **sequencer PROM** (these need the IIe ROM in first). They are
   told apart by size and contents, not names, plugged into the cartridge,
-  and kept in this browser, never uploaded. With the IIe ROM in, its row has
+  and kept in this browser, never uploaded. Each Load or Eject plugs a new
+  cartridge, which restarts the machine: in Apple II mode it asks first.
+  Ejecting the IIe ROM keeps the other parts for the next one. With the IIe ROM in, its row has
   **Start Apple IIe**: START, then `C806R` at the monitor. Apple II mode, by
   the button or `C806R` typed, shows the IIe's 560x384 picture filling the
   screen, softened since it is not whole pixels, lights AMODE, and the
