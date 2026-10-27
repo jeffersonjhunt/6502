@@ -311,7 +311,8 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
   TIME is a handful of loads, and setting the time is seven stores and SET. No I²C in the BIOS.
 - A CR2032 keeps it running with the power off.
 - RTCCTL's TICK, once a second, can be an interrupt (bit 5 of IRQH, ID `0xD`) for a seconds tick; alarms set it too.
-- The emulator counts it in emulated time, from the host's clock at power-on.
+- The emulator counts it in emulated time, from the host's clock at power-on; the WebUI steps it back into line
+  with the host's clock when it falls 2 s out (design.md).
 
 
 ## Loading ##

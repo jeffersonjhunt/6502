@@ -616,6 +616,8 @@ TEST(sync_rtc_keeps_the_clock_with_the_hosts_and_a_time_someone_set)
     CHECK_EQ(rtc.ms(), 16u);
     s->sync_rtc(h + 5600); // within a second now
     CHECK_EQ(rtc.time().second, 5u);
+    s->sync_rtc(h + 8900); // 3.88 s: to the nearest second, four
+    CHECK_EQ(rtc.time().second, 9u);
     s->sync_rtc(h - 3000); // the host's clock went back (summer time ends): back with it
     CHECK(rtc.time() == (Ds3231::Time{2026, 10, 27, 11, 59, 57, 3}));
 

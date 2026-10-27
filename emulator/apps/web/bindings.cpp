@@ -89,7 +89,8 @@
  * The real-time clock, the north bridge's DS3231 (backplane_bridge.h):
  * setRtc(ms) sets it from the host's clock, milliseconds since 1970 on the
  * local wall clock (JavaScript's Date less its time-zone offset), the
- * fraction as far into the chip's second, and the bridge reads it at once; the chip keeps it through power cycles. rtc() is
+ * fraction as far into the chip's second, and the bridge reads it at once; the chip keeps it through power cycles.
+ * syncRtc(ms), the same clock, keeps it with the host's (Session::sync_rtc()). rtc() is
  * a Uint8Array(35) view: 0-6 SEC-YEAR as the bridge last read them,
  * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, 10 1 while a SET is pending (it reads
  * 0 in RTCCTL), then from 16 the DS3231's registers
@@ -426,6 +427,7 @@ namespace
             session_->set_rtc_time(Ds3231::from_seconds(static_cast<int64_t>(seconds)),
                                    static_cast<unsigned>(ms - seconds * 1000));
         }
+        void sync_rtc(double ms) { session_->sync_rtc(static_cast<int64_t>(std::floor(ms))); }
         val rtc()
         {
             const BackplaneBridge *b = session_->bridge();
@@ -658,6 +660,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("soundCpu", &WebMachine::sound_cpu)
         .function("soundVoice", &WebMachine::sound_voice)
         .function("setRtc", &WebMachine::set_rtc)
+        .function("syncRtc", &WebMachine::sync_rtc)
         .function("rtc", &WebMachine::rtc)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)

@@ -403,7 +403,7 @@ namespace ooe::emu
         }
         const int64_t behind = host_ms + rtc_offset_ms_ - chip_ms;
         if (behind >= RTC_SYNC_MS || behind <= -RTC_SYNC_MS)
-            rtc.step(behind / 1000); // toward zero: within a second, on the side it was
+            rtc.step((behind + (behind < 0 ? -500 : 500)) / 1000); // to the nearest second
     }
 
     Session::RunResult Session::run(uint64_t budget)

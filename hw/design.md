@@ -256,7 +256,11 @@ This is too much for a 74HC670 register file, which would also leave no room for
 - **Anything else** (the alarms, the control and status registers, the aging offset, the temperature) goes through
   RTCREG and RTCDATA, one register at a time.
 - **The emulator** counts the DS3231's time in emulated cycles from the host's clock at power-on, so tests are
-  repeatable and the tick keeps the CPU's time. It keeps the time across /RESET, as the battery does.
+  repeatable and the tick keeps the CPU's time. It keeps the time across /RESET, as the battery does. Where the
+  emulator can fall behind real time (the WebUI: a slow browser, a background tab, a pause, the power off), it steps
+  the count by whole seconds, to the nearest, once it is 2 s out from the host's clock, keeping the second's phase;
+  a time someone set is kept as its difference from the host's clock. Not at Max, which runs ahead by design
+  (2026-10-27).
 
 **Decided (2026-10-26), as the emulator models it,** where the above leaves room:
 

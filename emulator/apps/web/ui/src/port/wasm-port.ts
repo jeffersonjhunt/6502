@@ -112,6 +112,7 @@ export interface CoreMachine {
   sdCommands(): number;
   soundVoice(chip: number, voice: number): number;
   setRtc(ms: number): void;
+  syncRtc(ms: number): void;
   rtc(): Uint8Array;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
   appleMode(): boolean;
@@ -327,6 +328,9 @@ export class WasmPort implements MachinePort {
         ran += cycles;
         if (why !== 0 || !cycles || this.scheduler.now() >= until) break;
       }
+      // The DS3231 counts the CPU's time, so a slow frame, a background tab or a pause leaves it behind
+      // this computer's clock: it catches up as the machine runs. Max is meant to run ahead of it.
+      if (ran && clock !== "max") m.syncRtc(wallClock(new Date()));
     }
     this.ranUntil = this.scheduler.now();
     this.measure(ran, wall);

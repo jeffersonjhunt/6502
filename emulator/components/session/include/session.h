@@ -206,7 +206,7 @@ namespace ooe::emu
         /// Keep it with the host's clock, `host_ms` since 1970 on the same wall clock: call it
         /// as the machine runs. The clock counts emulated time, so a slow host (or a pause, or
         /// the power off) leaves it behind; once RTC_SYNC_MS out it steps by whole seconds to
-        /// within one, its phase kept. A time someone set (the CPU, set_rtc_time()) is kept as
+        /// within half of one, its phase kept. A time someone set (the CPU, set_rtc_time()) is kept as
         /// its difference from the host's clock, so the clock keeps that time instead.
         void sync_rtc(int64_t host_ms);
         static constexpr int64_t RTC_SYNC_MS = 2000;

@@ -112,6 +112,40 @@ describe("the real-time clock", () => {
     expect((await port.readClock())!.time[0]).toBe(0x08);
     port.close();
   });
+
+  test("the DS3231 catches up with this computer's clock as the machine runs, but not at Max or while off", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const at = (s: number) => vi.setSystemTime(new Date(2026, 9, 26, 13, 45, s, 500));
+    at(7);
+    const { port, clock, step } = await open();
+    const sec = async () => (await port.readClock())!.chip[0]; // the chip's own register, not the bridge's copy
+    step();
+    expect(await sec()).toBe(0x07);
+    at(17); // ten seconds this frame: a slow page, or a background tab
+    step();
+    expect(await sec()).toBe(0x17);
+    step();
+    expect(await sec()).toBe(0x17); // within the second it was: no more
+
+    clock.tick = 1; // Max runs until now() moves on
+    port.setClock("max");
+    at(27);
+    step();
+    clock.tick = 0;
+    expect(await sec()).toBe(0x17); // Max isn't kept to this computer's clock
+    port.setClock(NATIVE_HZ);
+    step();
+    expect(await sec()).toBe(0x27);
+
+    port.setPower(false);
+    at(37);
+    step();
+    expect(await sec()).toBe(0x27); // off, nothing runs: the next run catches up
+    port.setPower(true);
+    step();
+    expect(await sec()).toBe(0x37);
+    port.close();
+  });
 });
 
 describe("coreUrl", () => {
