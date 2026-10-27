@@ -9,11 +9,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* It stays in view as the page scrolls, and scrolls on its own. */
+  /* It stays in view as the page scrolls, and scrolls on its own: as tall as
+     the window under the toolbar (--tb-h, measured by main.ts), so its end is
+     in view before the page scrolls. */
   position: sticky;
   top: 0;
   align-self: start;
-  height: 100vh;
+  height: calc(100vh - var(--tb-h, 51px));
   overflow: auto;
 }
 .drawer > aside { display: flex; flex-direction: column; min-height: 0; flex: 1; }

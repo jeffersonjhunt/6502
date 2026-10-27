@@ -149,7 +149,7 @@ body {
   .tb-menu .txt { position: static; width: auto; height: auto; clip: auto; }
 }
 
-.wrap { display: grid; grid-template-columns: minmax(0, 1fr) var(--dbg); min-height: calc(100vh - 51px); }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr) var(--dbg); min-height: calc(100vh - var(--tb-h, 51px)); }
 .bench { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 16px 20px; min-width: 0; }
 /* The monitor and the strip under it, the strip as wide as the monitor: its
    pills wrap rather than widen the column. */

@@ -326,6 +326,8 @@ function start(root: HTMLElement, port: MachinePort): void {
   settings.header.append(drawer_.closers.settings);
   dbg.head.append(drawer_.closers.debugger);
   root.append(bar.element, h("main", { class: "wrap" }, bench, drawer_.element));
+  // The toolbar's height, for the drawer's (drawer.css): it changes as the row folds.
+  new ResizeObserver(() => document.body.style.setProperty("--tb-h", `${bar.element.offsetHeight}px`)).observe(bar.element);
   drawer_.restore(); // the debugger, if it was left open
 
   let clockLabel = "7.16 MHz";

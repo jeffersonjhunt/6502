@@ -67,6 +67,16 @@ test("Settings opened from the strip or the page: closing it puts focus back on 
   await expect(page.getByTestId("pill-d1")).toBeFocused();
 });
 
+test("beside the page, the drawer ends at the window's bottom: its last line in view before the page scrolls", async ({ page }) => {
+  await booted(page);
+  await openSettings(page);
+  const drawer = page.getByTestId("drawer");
+  await drawer.evaluate((d) => (d.scrollTop = d.scrollHeight));
+  const vh = page.viewportSize()!.height;
+  expect(Math.round((await drawer.boundingBox())!.y + (await drawer.boundingBox())!.height)).toBeLessThanOrEqual(vh);
+  expect((await page.getByTestId("credits").boundingBox())!.y + (await page.getByTestId("credits").boundingBox())!.height).toBeLessThanOrEqual(vh);
+});
+
 test("Settings' buttons each name their row: no two alike for a screen reader", async ({ page }) => {
   await booted(page);
   await openSettings(page);
