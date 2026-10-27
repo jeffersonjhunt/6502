@@ -102,4 +102,28 @@ describe("the BIOS row", () => {
     expect(asked).toEqual([]);
     expect(restarts).toBe(1);
   });
+
+  test("a browser that won't keep a new one: the one kept before stays, name and all", () => {
+    keepBios("mine.rom", new Uint8Array([1, 2, 3]));
+    const full = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    try {
+      expect(keepBios("new.rom", new Uint8Array(16))).toBe(false);
+    } finally {
+      full.mockRestore();
+    }
+    expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) });
+    const set = localStorage.setItem.bind(localStorage);
+    const noName = vi.spyOn(localStorage, "setItem").mockImplementation((k, v) => {
+      if (k === "oo1.bios-name" && v === "new.rom") throw new Error("QuotaExceededError");
+      set(k, v);
+    });
+    try {
+      expect(keepBios("new.rom", new Uint8Array(16))).toBe(false); // the bytes went in, the name didn't
+    } finally {
+      noName.mockRestore();
+    }
+    expect(keptBios()).toEqual({ name: "mine.rom", bytes: new Uint8Array([1, 2, 3]) });
+  });
 });

@@ -35,13 +35,17 @@ export function keptBios(): KeptBios | null {
   }
 }
 
-/** Keep it for next time; false if the browser would not (then nothing is kept). */
+/** Keep it for next time; false if the browser would not (then what was kept before stays). */
 export function keepBios(name: string, bytes: Uint8Array): boolean {
   const text = toBase64(bytes);
+  const was = { bios: prefs.get("bios"), "bios-name": prefs.get("bios-name") };
   prefs.set("bios", text);
   prefs.set("bios-name", name);
-  if (prefs.get("bios") === text) return true;
-  forgetBios();
+  if (prefs.get("bios") === text && prefs.get("bios-name") === name) return true;
+  for (const [key, value] of Object.entries(was)) {
+    if (value === null) prefs.remove(key);
+    else if (prefs.get(key) !== value) prefs.set(key, value);
+  }
   return false;
 }
 
