@@ -377,7 +377,7 @@ TEST(set_time_takes_the_milliseconds_into_the_second)
 
 TEST(seconds_is_from_seconds_backwards)
 {
-    // 2000-01-01, a leap day, the chip's 2100-02-29 being no leap day to from_seconds, 2199's last second
+    // 2000-01-01, 2000-02-29, 2026-10-26, 2100-01-01, 2100-03-01 and 2199's last second
     for (const int64_t at : {int64_t{946684800}, int64_t{951782400}, int64_t{1793012345}, int64_t{4102444800},
                              int64_t{4107542400}, int64_t{7258118399}})
     {
@@ -416,6 +416,13 @@ TEST(step_moves_the_count_and_keeps_the_phase_mode_and_day_numbering)
     CHECK_EQ(c.time().day, 1u);
     c.step(-86400);
     CHECK_EQ(c.time().day, 7u);
+
+    // Past 2199 is 2000 again, as the chip counts, and back
+    Ds3231 d = chip(Time{2199, 12, 31, 23, 59, 58, 3});
+    d.step(5);
+    CHECK(d.time() == (Time{2000, 1, 1, 0, 0, 3, 4}));
+    d.step(-5);
+    CHECK(d.time() == (Time{2199, 12, 31, 23, 59, 58, 3}));
 }
 
 TEST(sets_counts_the_times_writes)

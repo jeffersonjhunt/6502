@@ -115,7 +115,9 @@ namespace ooe::emu
         const unsigned day = day_;
         const bool mode12 = mode12_;
         const uint64_t phase = phase_;
-        set_time(from_seconds(was + seconds));
+        Time t = from_seconds(was + seconds);
+        t.year = (t.year % 200 + 200) % 200 + 2000; // the chip's 2000-2199, round and round
+        set_time(t);
         --sets_; // not a write: the host's clock, caught up with
         mode12_ = mode12;
         phase_ = phase;
