@@ -196,7 +196,7 @@ resident list. A leaner FARCALL (keeping only A and the flags) would roughly hal
   after, one far call nests in another, and S ends where it began. It found that the return path lost X (`TSX`),
   now kept, and that with the caller's D set FARCALL's own adds went decimal and returned to the wrong place, now
   a `CLD` (PLP gives D back): 263 cycles to 281.
-- **OODOS's rules** (rules.py, over the translated segments): no RMB, SMB, BBR or BBS; zero page only through
+- **OODOS's rules** ([`oodos/tools/rules.py`](../../tools/rules.py), over the translated segments): no RMB, SMB, BBR or BBS; zero page only through
   zero page operands; no absolute stack page access; no JSR or JMP out of the program but to the BDOS ($0203) or
   warm boot ($0200). 3,432 instructions, no problems. It found one on the way: an indirect `JMP (PTR2)`, now a pushed return address.
 
@@ -257,17 +257,16 @@ the project's oracle, settles it.
 | `mbf.py` | the reference model of GW-BASIC's arithmetic |
 | `basic.py` | a tokeniser and reference reader for test programs |
 | `check.py` | runs everything and compares |
-| `rules.py` | checks OODOS's rules on the translated segments |
 | `sizes.py` | the 8086 estimates, the comparison and the extrapolation (needs a GW-BASIC clone) |
 
 ```
 make            # spike.bin and spike.map
-make check      # rules.py, check.py and check.py --timing
+make check      # the rules (../../tools/rules.py), check.py and check.py --timing
 make sizes GWSRC=/path/to/GW-BASIC
 ```
 
 Derived from Microsoft GW-BASIC (1983), Copyright (c) Microsoft Corporation, MIT licence (LICENSE): the
 translation (`math1.s` `math2.s` `gwmain.s` `gweval.s` `bimisc.s` `tables.s` `gwbasic.inc`), `mbf.py`, written from
 its arithmetic, and `basic.py`, which has its tokens and precedences. The rest (`harness.s` `stubs.s` `farcall.s`
-`run6502.cpp` `spike.cfg` `Makefile` `check.py` `rules.py` `sizes.py`) is the project's own, under the repository's
+`run6502.cpp` `spike.cfg` `Makefile` `check.py` `sizes.py`) is the project's own, under the repository's
 licence.

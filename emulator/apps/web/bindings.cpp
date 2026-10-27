@@ -86,6 +86,16 @@
  * last call, left and right interleaved, as a Float32Array view into the
  * module's memory (copy it before the next call).
  *
+ * The real-time clock, the north bridge's DS3231 (backplane_bridge.h):
+ * setRtc(ms) sets it from the host's clock, milliseconds since 1970 on the
+ * local wall clock (JavaScript's Date less its time-zone offset), the
+ * fraction as far into the chip's second, and the bridge reads it at once; the chip keeps it through power cycles.
+ * syncRtc(ms), the same clock, keeps it with the host's (Session::sync_rtc()). rtc() is
+ * a Uint8Array(35) view: 0-6 SEC-YEAR as the bridge last read them,
+ * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, 10 1 while a SET is pending (it reads
+ * 0 in RTCCTL), then from 16 the DS3231's registers
+ * $00-$12; empty without the backplane's bridge.
+ *
  * A `.sid` tune: loadSid(bytes, song) starts it on the card (song 0: its
  * start song; false, with error(), if it is not one or there is no card),
  * sidSong(song) another song of it, stopSid() stops and forgets it.
@@ -98,6 +108,7 @@
 #include <emscripten/val.h>
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -410,6 +421,29 @@ namespace
                             c->timer_latch(), c->timer_running()};
         }
 
+        void set_rtc(double ms)
+        {
+            const double seconds = std::floor(ms / 1000);
+            session_->set_rtc_time(Ds3231::from_seconds(static_cast<int64_t>(seconds)),
+                                   static_cast<unsigned>(ms - seconds * 1000));
+        }
+        void sync_rtc(double ms) { session_->sync_rtc(static_cast<int64_t>(std::floor(ms))); }
+        val rtc()
+        {
+            const BackplaneBridge *b = session_->bridge();
+            if (!b)
+                return val(emscripten::typed_memory_view(size_t{0}, rtc_.data()));
+            for (unsigned i = 0; i < BackplaneBridge::TIME_REGS; ++i)
+                rtc_[i] = b->rtc_time()[i];
+            rtc_[7] = b->rtcctl();
+            rtc_[8] = b->peek(BackplaneBridge::RTCREG);
+            rtc_[9] = b->peek(BackplaneBridge::RTCDATA);
+            rtc_[10] = b->set_pending();
+            for (uint8_t r = 0; r < Ds3231::REGISTERS; ++r)
+                rtc_[RTC_CHIP + r] = b->rtc()->read(r);
+            return val(emscripten::typed_memory_view(rtc_.size(), rtc_.data()));
+        }
+
         int sound_voice(unsigned chip, unsigned voice) const
         {
             const SoundCard *c = session_->sound();
@@ -515,6 +549,8 @@ namespace
         std::string error_;
         double last_cycles_{0};
         std::array<float, LIGHT_COUNT> lights_{};
+        static constexpr size_t RTC_CHIP = 16;
+        std::array<uint8_t, RTC_CHIP + Ds3231::REGISTERS> rtc_{};
         std::vector<float> audio_ = std::vector<float>(2 * 24'000); ///< half a second at 48 kHz, as much as the card keeps
         std::vector<Session::TraceRow> rows_;
         std::vector<uint32_t> packed_;
@@ -623,6 +659,9 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("sdCommands", &WebMachine::sd_commands)
         .function("soundCpu", &WebMachine::sound_cpu)
         .function("soundVoice", &WebMachine::sound_voice)
+        .function("setRtc", &WebMachine::set_rtc)
+        .function("syncRtc", &WebMachine::sync_rtc)
+        .function("rtc", &WebMachine::rtc)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbQueued", &WebMachine::usb_queued)

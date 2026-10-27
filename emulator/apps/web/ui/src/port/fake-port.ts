@@ -5,6 +5,7 @@
 
 import type {
   AppleState,
+  ClockState,
   Cartridge,
   Clock,
   DiskFormat,
@@ -56,6 +57,8 @@ export class FakePort implements MachinePort {
   tune: SidTune | string = { name: "Fake Tune", author: "Nobody", released: "2026", songs: 3, song: 1, rsid: false, clock: "PAL", model: "8580", warnings: [] };
   /** What readSound() returns. */
   sound: SoundCpu | null = null;
+  /** What readClock() returns. */
+  clock: ClockState | null = null;
   private readonly listeners = new Set<(frame: FrameState) => void>();
 
   constructor(caps: Partial<PortCaps> = {}) {
@@ -191,6 +194,9 @@ export class FakePort implements MachinePort {
   }
   async readSound(): Promise<SoundCpu | null> {
     return this.sound;
+  }
+  async readClock(): Promise<ClockState | null> {
+    return this.clock;
   }
   setWriteProtect(drive: number, on: boolean): void {
     this.calls.push(["setWriteProtect", drive, on]);

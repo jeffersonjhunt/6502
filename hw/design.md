@@ -87,9 +87,10 @@ From the address becoming valid to read data being needed is the cycle time minu
 **Slow cards** hold the CPU with RDY wait states. At ÷2 that's mainly the RP2350 cards and the serial card.
 
 **Real-time clock (decided 2026-10-26): a DS3231 on the CPU card,** with a CR2032 to keep time with the power off.
-OODOS's date stamps need it ([oodos.md](oodos.md#real-time-clock)). *(Proposed.)* Its I²C lines go to the north
-bridge, on the same card: the RTC register at `$C687`. Its SQW output, at 1 Hz, can interrupt as the north bridge's
-ID `0xD`.
+OODOS's date stamps need it ([oodos.md](oodos.md#real-time-clock)). **Decided (2026-10-26): the north bridge owns
+it.** The bridge talks I²C to it and keeps the time in its own registers (RTCCTL and SEC–YEAR, below), so software
+never drives I²C; the DS3231's SQW, at 1 Hz, tells the bridge when to read the time again and can interrupt as the
+north bridge's ID `0xD`.
 
 
 ## Memory ##
@@ -178,10 +179,13 @@ the IIe (`$C680` is slot 6's ROM), and the north bridge registers are hidden unt
 | `$04` | VEC | read/write | the mapping of `$C000–$FFFF` while VPB is low | `$DF` |
 | `$05` | MODE | write | bit 0 APPLE: writing 1 enters Apple II mode (Apple map, clock ÷14, pulse /RESET); only a hard reset clears it. Bit 1 TURBO: reserved for ÷1 | `$00` |
 | `$06` | STATUS | read | bit 0: booted from RAM (/BOOTSEL); bit 1: the last reset was power-on; bits 4–7: north bridge revision | |
-| `$07` | RTC | read/write | *(proposed)* the DS3231's I²C, driven by software: bit 0 SCL, bit 1 SDA, both open drain (1 = released); reading bit 1 gives SDA | `$03` |
+| `$07` | RTCCTL | read/write | the real-time clock ([below](#real-time-clock)). Bit 7 TICK: a second passed or an alarm fired; write 1 to clear. Bit 6 TIE: TICK interrupts (bit 5 of IRQH, ID `0xD`). Bit 5 ALARM: the DS3231 flagged an alarm. Bit 2 LOST: the DS3231's oscillator stopped (OSF), so the time is invalid until set. Bit 1 SET: write 1 to send SEC–YEAR to the DS3231; a strobe, it reads 0, and BUSY shows the send pending. Bit 0 BUSY: the bridge is talking to the DS3231. Don't read-modify-write it: a TICK read as 1 and written back clears it | TICK, TIE and SET 0; LOST and ALARM follow the DS3231's status |
 | `$08` | IRQL | read | interrupt poll for IDs 0–7, using /IACK. 0 = interrupting | |
 | `$09` | IRQH | read | interrupt poll for IDs 8–F | |
 | `$0A`–`$0D` | WAIT0–WAIT3 | read/write | wait states the north bridge inserts for each module ID, 2 bits per ID: WAITn holds IDs 4n to 4n+3, the lowest ID in bits 1–0. Reserved for turbo; unused at ÷2 | `$00` |
+| `$10`–`$16` | SEC–YEAR | read/write | the time, in BCD as the DS3231's registers `$00–$06` (seconds, minutes, hours, day of week, date, month with the century in bit 7, year). Reading SEC latches all seven, so a read never straddles a second | |
+| `$17` | RTCREG | read/write | a DS3231 register number, for RTCDATA | `$00` |
+| `$18` | RTCDATA | read/write | that DS3231 register (the alarms, control, status, aging, temperature), read or written through the bridge; wait for BUSY clear. A write to the control register (`$0E`) has INTCN, RS2 and RS1 cleared: SQW is the bridge's | |
 | `$7F` | ID | read | north bridge type and revision | |
 
 With /BOOTSEL held at reset, WIN3 and VEC start at `$3F` (RAM block 63) instead of `$DF`.
@@ -226,13 +230,65 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
   filter. The double modes follow the same phase rule (dot x of 560 is bit x mod 4 of a lo-res colour): double hi-res
   colours each aligned 4 dots by their pattern; double lo-res shows aux nibbles rotated right a bit.
 
-This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. The north bridge
-is a CPLD, for example an ATF1508 (5 V), holding:
+This is too much for a 74HC670 register file, which would also leave no room for a turbo mode. **Decided
+(2026-10-26): the north bridge is two CPLDs or an FPGA with level shifting;** the part is open. It holds:
 
 - the native window registers;
 - the Apple switch logic;
 - the module decode;
-- the mode register.
+- the mode register;
+- the real-time clock's I²C controller and time registers.
+
+### Real-time clock ###
+
+**Decided (2026-10-26).** The DS3231 on the CPU card belongs to the north bridge:
+
+- **At power-on** the bridge sets the DS3231's square wave to 1 Hz (INTCN 0, RS 00) and reads the time. On every
+  falling edge of SQW it reads the seven time registers again into SEC–YEAR and sets TICK. The DS3231 holds its
+  RST low for about 250 ms after VCC rises and ignores I²C meanwhile, so its RST is part of the board's reset
+  chain: /RESET stays held until it goes high, and the bridge sets the chip up and reads the time after that.
+- **Alarms:** INT and SQW share a pin and the bridge needs SQW, so alarms can't use it. The bridge reads the
+  DS3231's status each second instead and sets ALARM and TICK when A1F or A2F is set; software clears the flag
+  through RTCREG/RTCDATA. The bridge keeps INTCN, RS2 and RS1 at 0 on RTCDATA writes to the control register, so
+  software can't take SQW from it.
+- **Setting the time:** write SEC–YEAR, then SET. The bridge writes them to the DS3231 (BUSY meanwhile), which
+  restarts its second from the write, and clears OSF, so LOST goes off.
+- **Anything else** (the alarms, the control and status registers, the aging offset, the temperature) goes through
+  RTCREG and RTCDATA, one register at a time.
+- **The emulator** counts the DS3231's time in emulated cycles from the host's clock at power-on, so tests are
+  repeatable and the tick keeps the CPU's time. It keeps the time across /RESET, as the battery does. Where the
+  emulator can fall behind real time (the WebUI: a slow browser, a background tab, a pause, the power off), it steps
+  the count by whole seconds, to the nearest, once it is 2 s out from the host's clock, keeping the second's phase;
+  a time someone set is kept as its difference from the host's clock. Not at Max, which runs ahead by design
+  (2026-10-27).
+
+**Decided (2026-10-26), as the emulator models it,** where the above leaves room:
+
+- **Timing.** The bridge does one I²C transaction at a time, at 400 kHz: 9 bits a byte and one for each START,
+  repeated START and STOP. BUSY is set from the request to the end, and the effect lands at the end. The second's read
+  (the seven time registers, then the status) is 132 bits, 330 µs, 2,363 cycles at 7.16 MHz; SET (the seven, then the
+  status) 112; an RTCDATA read 39, a write and its read-back 68. An SQW edge while that second's read is still waiting
+  is missed.
+- **At power-on** the bridge sets the DS3231 up and reads the time while /RESET is still held, so the first
+  instruction finds a valid time and BUSY clear. The emulated chip is ready at once: RST's 250 ms isn't modelled. It
+  clears only INTCN and RS2–RS1, keeping the rest of the control register. A hard reset that is not a power-on doesn't
+  set it up again; any reset clears TICK, TIE and RTCREG, and leaves LOST and ALARM to the DS3231's status.
+- **SEC–YEAR writes** go to a holding copy, which SET sends; reads always give the time. SET is a strobe that reads 0;
+  BUSY is on from the SET write until the send is done, and SEC–YEAR then hold what it sent. A TICK written back as
+  read would still clear it, so software writes RTCCTL with the bits it means. Writing the seconds restarts the
+  DS3231's second, so SQW falls if it was high, and a second's read (and TICK) follows the SET.
+- **RTCREG and RTCDATA:** writing RTCREG reads that register into RTCDATA; writing RTCDATA writes the register and
+  reads it back. No auto-increment. Registers past `$12` read `$FF`. A write to `$0E` goes with INTCN, RS2 and RS1
+  cleared, and reads back so; the rest of the control register is software's.
+- **ALARM and LOST** are the status register as the bridge last read it (A1F or A2F; OSF), so they clear when software
+  clears the flags through RTCDATA, at once.
+- **INT and the faster square waves** are in the emulated chip (`ds3231.h`), but on this board only the DS3231's own
+  power-on value, before the bridge's set-up, ever selects them.
+- **Day of the week** counts 1–7 with 1 for Sunday; the century bit set means 21xx.
+- **The chip** in the emulator starts with the host's local time, as far into its second as the host's clock is, and
+  OSF clear; its battery never runs flat, and it keeps the time through a power cycle, unless EOSC is set, which stops it there and sets OSF. Its leap-year rule is
+  the chip's, every fourth year, so 2100 gets a 29 February. The temperature is always 25.00 °C, the aging register is
+  kept but changes nothing, and BSY follows CONV and the chip's own conversion every 64 seconds (125 ms).
 
 ### Module decode ###
 
@@ -280,8 +336,8 @@ window registers.
    monitor back from the demo, a program, or the screen code itself. It doesn't put back W3 or VEC (Break works
    while they're the BIOS's: a program that moves VEC takes the NMI itself), memory (zero page, video memory's
    font, palette and text), DMA CONTROL, or the rest of any card's state (the monitor's entry, WOZMON, programs the
-   serial card afresh; only the RTC, not yet built, is left as it was). Other IRQs still
-   return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
+   serial card afresh). It turns the real-time clock's tick off (RTCCTL's TICK and TIE cleared); the time runs on.
+   Other IRQs still return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
    copies the flash again (unless the machine booted from RAM through /BOOTSEL). The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a

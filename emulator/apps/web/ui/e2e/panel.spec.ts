@@ -24,7 +24,7 @@ async function setSwitches(page: Page, value: number) {
 test("the lamps glow with the monitor's loop: code at $FCBxx, the 6551 at $0C3xx, the USB card at $0C5xx", async ({ page }) => {
   await booted(page);
   await expect.poll(() => lamp(page, "A19")).toBeGreaterThan(0.3);
-  expect(await lamp(page, "A14")).toBeGreaterThan(0.9); // high in all three (low only for the odd stack access)
+  await expect.poll(() => lamp(page, "A14")).toBeGreaterThan(0.9); // high in all three (low only for the odd stack access)
   expect(await lamp(page, "A13")).toBeLessThan(0.3); // low in all three
   expect(await lamp(page, "POWER")).toBe(1);
   expect(await lamp(page, "RUN")).toBe(1);

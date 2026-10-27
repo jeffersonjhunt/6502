@@ -6,8 +6,10 @@
 
 #include "machine.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -86,6 +88,24 @@ namespace ooe::emu
             return true;
         }
 
+        /// The host's local time, for a new DS3231, and `ms` into its second: the clock is right when the
+        /// emulator starts.
+        Ds3231::Time host_time(unsigned &ms)
+        {
+            const auto clock = std::chrono::system_clock::now();
+            const std::time_t now = std::chrono::system_clock::to_time_t(clock);
+            ms = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           clock - std::chrono::system_clock::from_time_t(now))
+                                           .count() %
+                                       1000);
+            std::tm local{};
+            localtime_r(&now, &local);
+            return Ds3231::Time{static_cast<unsigned>(local.tm_year + 1900), static_cast<unsigned>(local.tm_mon + 1),
+                                static_cast<unsigned>(local.tm_mday),      static_cast<unsigned>(local.tm_hour),
+                                static_cast<unsigned>(local.tm_min),       static_cast<unsigned>(local.tm_sec),
+                                static_cast<unsigned>(local.tm_wday + 1)}; // 1 = Sunday
+        }
+
         std::string strip_comment(const std::string &line)
         {
             const size_t hash = line.find('#');
@@ -133,12 +153,21 @@ namespace ooe::emu
                     return fail("northbridge: the caller already supplied a north bridge");
                 if (m->named_.count("northbridge"))
                     return fail("name 'northbridge' is already used");
-                auto bridge = std::make_unique<BackplaneBridge>(w.size() == 3);
+                std::shared_ptr<Ds3231> rtc = options.rtc;
+                if (!rtc && options.rtc_time)
+                    rtc = std::make_shared<Ds3231>(*options.rtc_time);
+                if (!rtc)
+                {
+                    unsigned ms = 0;
+                    const Ds3231::Time now = host_time(ms);
+                    rtc = std::make_shared<Ds3231>(now, false, ms);
+                }
+                auto bridge = std::make_unique<BackplaneBridge>(w.size() == 3, std::move(rtc));
                 bridge->attach(&m->bus_);
                 m->bus_.set_bridge(bridge.get());
                 m->bus_.map(Mapping{bus_address(Space::Io, BackplaneBridge::REGISTERS),
                                     bus_address(Space::Io, BackplaneBridge::REGISTERS + 0x7F), bridge.get(),
-                                    BackplaneBridge::MODULE, false});
+                                    BackplaneBridge::MODULE, true}); // the clock's TICK interrupt
                 // Apple II mode's $C000-$CFFF: the bridge sends it there only in that mode.
                 m->bus_.map(Mapping{bus_address(Space::Io, APPLE_IO), bus_address(Space::Io, APPLE_IO + 0xFFF),
                                     &bridge->apple_io(), BackplaneBridge::MODULE, false});

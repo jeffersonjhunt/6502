@@ -949,6 +949,31 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
     CHECK(has(b.run(BOOT, "300R\r"), "0300: 58Z"));
 }
 
+TEST(break_turns_the_clocks_tick_off_and_the_time_runs_on)
+{
+    Board b;
+    REQUIRE(b.ok());
+    BackplaneBridge *bridge = b.machine->backplane_bridge();
+    REQUIRE(bridge != nullptr);
+    bridge->set_cpu_hz(1'000'000); // a second in a million cycles
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    b.run(BOOT, "C687: 40\r");       // RTCCTL: TIE
+    b.run(1'100'000);                 // a second: TICK
+    REQUIRE(bus.irq());
+    REQUIRE((bus.peek(0xC687) & 0xC0) == 0xC0);
+    const uint8_t sec = bus.peek(0xC690);
+    b.cpu->nmi();
+    std::string out = b.run(20'000);
+    CHECK(!bus.irq());
+    CHECK_EQ(bus.peek(0xC687) & 0xC0, 0); // TICK and TIE off
+    CHECK(has(out + b.run(BOOT), "\\"));
+    b.run(1'100'000);
+    CHECK_NE(bus.peek(0xC690), sec);      // still counting
+    CHECK_EQ(bus.peek(0xC687) & 0x40, 0);
+}
+
 TEST(break_finds_the_screen_whatever_its_zero_page_says)
 {
     Board b;

@@ -10,13 +10,29 @@ NB_WIN3         = NB + $03             ; CPU $C000-$FFFF
 NB_VEC          = NB + $04             ; $C000-$FFFF while VPB is low
 NB_MODE         = NB + $05
 NB_STATUS       = NB + $06
+NB_RTCCTL       = NB + $07             ; the real-time clock (hw/design.md, "Real-time clock")
 NB_IRQL         = NB + $08
 NB_IRQH         = NB + $09
+NB_SEC          = NB + $10             ; SEC-YEAR: the DS3231's $00-$06, BCD; reading SEC latches all seven
+NB_MIN          = NB + $11
+NB_HOUR         = NB + $12
+NB_DAY          = NB + $13             ; day of the week, 1-7
+NB_DATE         = NB + $14
+NB_MONTH        = NB + $15             ; bit 7: the century
+NB_YEAR         = NB + $16
+NB_RTCREG       = NB + $17             ; a DS3231 register number: writing it reads the register...
+NB_RTCDATA      = NB + $18             ; ...into here; writing here writes it. Wait for BUSY clear
 NB_ID           = NB + $7F
 
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
 NB_STATUS_BOOTSEL = $01                ; booted from RAM (the bus spy loaded it)
+NB_RTC_TICK     = $80                  ; RTCCTL: a second passed or an alarm fired; write 1 to clear
+NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D)
+NB_RTC_ALARM    = $20                  ; RTCCTL: the DS3231 flagged an alarm (A1F or A2F)
+NB_RTC_LOST     = $04                  ; RTCCTL: the DS3231's oscillator stopped (OSF): set the time
+NB_RTC_SET      = $02                  ; RTCCTL: write 1 to send SEC-YEAR to the DS3231 (reads 0)
+NB_RTC_BUSY     = $01                  ; RTCCTL: the bridge is talking to the DS3231
 
 ; STAND-IN terminal: a 6551 in the serial card's block (module 6) until the
 ; TL16C552A card exists.

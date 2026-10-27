@@ -199,6 +199,20 @@ namespace ooe::emu
         const Symbols &symbols() const { return symbols_; }
         const std::string &machine_name() const { return config_.machine; }
 
+        // The DS3231 on the CPU card (nothing without the backplane's bridge). Its battery
+        // keeps it through power cycles, as a real one does.
+        /// Set its time (the host's clock, say), `ms` into the second, and the bridge's SEC-YEAR with it.
+        void set_rtc_time(const Ds3231::Time &t, unsigned ms = 0);
+        /// Keep it with the host's clock, `host_ms` since 1970 on the same wall clock: call it
+        /// as the machine runs. The clock counts emulated time, so a slow host (or a pause, or
+        /// the power off) leaves it behind; once RTC_SYNC_MS out it steps by whole seconds to
+        /// within half of one, its phase kept. A time someone set (the CPU, set_rtc_time()) is kept as
+        /// its difference from the host's clock, so the clock keeps that time instead.
+        void sync_rtc(int64_t host_ms);
+        static constexpr int64_t RTC_SYNC_MS = 2000;
+        /// The north bridge, which owns the clock, or nullptr.
+        const BackplaneBridge *bridge() const { return machine_->backplane_bridge(); }
+
         /// The video card, if the machine has one: frame() is the screen.
         const VideoCard *video() const { return machine_->video_card(); }
         /// The USB card, if the machine has one: the keyboard, mouse and game port.
@@ -268,6 +282,10 @@ namespace ooe::emu
         uint64_t next_service_{0};
         std::array<std::shared_ptr<DiskImage>, Disk2Card::DRIVES> disks_{};
         std::shared_ptr<SdMedia> sd_;
+        std::shared_ptr<Ds3231> rtc_; ///< the DS3231, once a machine has made one
+        const Ds3231 *rtc_synced_{nullptr}; ///< sync_rtc()'s chip, its sets() then and its time less the host's
+        uint32_t rtc_sets_{0};
+        int64_t rtc_offset_ms_{0};
         std::unique_ptr<SidFile> sid_;
         unsigned sid_song_{0};
         std::vector<std::string> sid_warnings_;

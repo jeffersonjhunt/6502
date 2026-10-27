@@ -598,6 +598,41 @@ TEST(a_machine_without_a_panel)
     CHECK(s->lights().addr[19] == 0.0f);
 }
 
+TEST(sync_rtc_keeps_the_clock_with_the_hosts_and_a_time_someone_set)
+{
+    auto s = open();
+    REQUIRE(s != nullptr);
+    const Ds3231 &rtc = *s->bridge()->rtc();
+    const Ds3231::Time noon{2026, 10, 27, 12, 0, 0, 3};
+    s->set_rtc_time(noon);
+    const int64_t h = rtc.seconds() * 1000; // the host's clock, the same as the chip's
+    s->sync_rtc(h);                         // the first call: no difference to keep
+    s->run(FRAME);                          // 16 ms of emulated time
+
+    s->sync_rtc(h + 1999); // behind, but not by RTC_SYNC_MS
+    CHECK(rtc.time() == noon);
+    s->sync_rtc(h + 5500); // 5.48 s behind: five seconds on, the phase kept
+    CHECK(rtc.time() == (Ds3231::Time{2026, 10, 27, 12, 0, 5, 3}));
+    CHECK_EQ(rtc.ms(), 16u);
+    s->sync_rtc(h + 5600); // within a second now
+    CHECK_EQ(rtc.time().second, 5u);
+    s->sync_rtc(h + 8900); // 3.88 s: to the nearest second, four
+    CHECK_EQ(rtc.time().second, 9u);
+    s->sync_rtc(h - 3000); // the host's clock went back (summer time ends): back with it
+    CHECK(rtc.time() == (Ds3231::Time{2026, 10, 27, 11, 59, 57, 3}));
+
+    // Someone sets it to another year: that's the time it keeps, not the host's
+    s->set_rtc_time(Ds3231::Time{2030, 1, 1, 0, 0, 0, 3});
+    s->sync_rtc(h);
+    s->sync_rtc(h + 10'000);
+    CHECK(rtc.time() == (Ds3231::Time{2030, 1, 1, 0, 0, 10, 3}));
+    // A power cycle keeps the chip on its battery, and the difference with it
+    std::string error;
+    REQUIRE(s->power_cycle(error));
+    s->sync_rtc(h + 20'000);
+    CHECK(s->bridge()->rtc()->time() == (Ds3231::Time{2030, 1, 1, 0, 0, 20, 3}));
+}
+
 TEST(errors_name_what_failed)
 {
     std::string error;

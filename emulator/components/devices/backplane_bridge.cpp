@@ -6,6 +6,9 @@
 
 #include "backplane_bridge.h"
 
+#include <algorithm>
+#include <cstdio>
+
 #include "emu_log.h"
 
 namespace ooe::emu
@@ -18,7 +21,12 @@ namespace ooe::emu
         constexpr uint32_t WINDOW_MASK = (1u << WINDOW_SHIFT) - 1;
     } // namespace
 
-    BackplaneBridge::BackplaneBridge(bool bootsel) : bootsel_(bootsel) { apply_reset(); }
+    BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc)
+        : bootsel_(bootsel), rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>())
+    {
+        apply_reset();
+        retime();
+    }
 
     void BackplaneBridge::apply_reset()
     {
@@ -36,7 +44,26 @@ namespace ooe::emu
         reset_wanted_ = false;
         // The machine's first reset is the power-on one; STATUS says so until the next.
         power_on_ = !reset_seen_;
+        if (!reset_seen_)
+        {
+            // Power-on, while /RESET is held: the square wave to 1 Hz, and the time read.
+            const uint8_t control = rtc_->read(Ds3231::CONTROL);
+            rtc_->write(Ds3231::CONTROL, control & ~SQW_BITS);
+            rtc_->take_edge();
+            read_time();
+            read_status();
+            latch_ = time_;
+        }
         reset_seen_ = true;
+        rtc_reset();
+        retime();
+    }
+
+    void BackplaneBridge::rtc_reset()
+    {
+        tick_ = false;
+        tie_ = false;
+        rtc_reg_ = 0;
     }
 
     void BackplaneBridge::reset_pulse()
@@ -45,6 +72,8 @@ namespace ooe::emu
         apply_reset();
         mode_ = apple; // /RESET alone never clears it
         apple_io_.reset();
+        rtc_reset();
+        retime();
     }
 
     bool BackplaneBridge::take_reset()
@@ -107,6 +136,8 @@ namespace ooe::emu
     {
         if ((offset == IRQL || offset == IRQH) && decoder_)
             decoder_->sync(); // the poll sees every card as of this cycle
+        if (offset == SEC)
+            latch_ = time_;
         return peek(offset);
     }
 
@@ -126,6 +157,8 @@ namespace ooe::emu
         case STATUS:
             return static_cast<uint8_t>(REVISION << 4 | (power_on_ ? STATUS_POWER_ON : 0) |
                                         (bootsel_ ? STATUS_BOOTSEL : 0));
+        case RTCCTL:
+            return rtcctl();
         case IRQL:
             return poll(false);
         case IRQH:
@@ -135,6 +168,19 @@ namespace ooe::emu
         case WAIT0 + 2:
         case WAIT0 + 3:
             return wait_[offset - WAIT0];
+        case SEC:
+            return time_[0];
+        case SEC + 1:
+        case SEC + 2:
+        case SEC + 3:
+        case SEC + 4:
+        case SEC + 5:
+        case SEC + 6:
+            return latch_[offset - SEC];
+        case RTCREG:
+            return rtc_reg_;
+        case RTCDATA:
+            return rtc_data_;
         case ID_REG:
             return ID;
         default:
@@ -162,6 +208,36 @@ namespace ooe::emu
                 reset_wanted_ = true; // the switch pulses /RESET
             }
             mode_ = static_cast<uint8_t>((data & (MODE_APPLE | MODE_TURBO)) | (mode_ & MODE_APPLE)); // APPLE only sets
+            retime();
+            break;
+        case RTCCTL:
+            if (data & RTC_TICK)
+                tick_ = false;
+            tie_ = (data & RTC_TIE) != 0;
+            if (data & RTC_SET)
+            {
+                Transaction t{Op::Set};
+                t.time = staged_;
+                queue(t);
+            }
+            break;
+        case SEC:
+        case SEC + 1:
+        case SEC + 2:
+        case SEC + 3:
+        case SEC + 4:
+        case SEC + 5:
+        case SEC + 6:
+            staged_[offset - SEC] = data;
+            break;
+        case RTCREG:
+            rtc_reg_ = data;
+            queue(Transaction{Op::Read, data});
+            break;
+        case RTCDATA:
+            if (rtc_reg_ == Ds3231::CONTROL)
+                data &= static_cast<uint8_t>(~SQW_BITS); // SQW is the bridge's
+            queue(Transaction{Op::Write, rtc_reg_, data});
             break;
         case WAIT0:
         case WAIT0 + 1:
@@ -172,5 +248,168 @@ namespace ooe::emu
         default:
             break; // read-only or unused
         }
+    }
+
+    // The real-time clock
+
+    void BackplaneBridge::set_cpu_hz(uint32_t hz)
+    {
+        cpu_hz_ = hz ? hz : NATIVE_HZ;
+        retime();
+    }
+
+    void BackplaneBridge::retime()
+    {
+        // What's left of the transaction under way takes the same time at the new clock, as a DS3231 conversion does.
+        const uint32_t hz = apple() ? APPLE_HZ : cpu_hz_;
+        if (!queue_.empty())
+            left_ = (left_ * hz + hz_ - 1) / hz_;
+        hz_ = hz;
+        rtc_->set_cpu_hz(hz);
+    }
+
+    uint64_t BackplaneBridge::cost(Op op) const
+    {
+        unsigned bits = 0;
+        switch (op)
+        {
+        case Op::Refresh:
+            bits = REFRESH_BITS;
+            break;
+        case Op::Set:
+            bits = SET_BITS;
+            break;
+        case Op::Read:
+            bits = READ_BITS + 9;
+            break;
+        case Op::Write:
+            bits = WRITE_BITS + 9 + READ_BITS + 9;
+            break;
+        }
+        return (uint64_t{bits} * hz_ + I2C_HZ - 1) / I2C_HZ;
+    }
+
+    void BackplaneBridge::queue(const Transaction &t)
+    {
+        if (t.op == Op::Refresh)
+            for (const Transaction &q : queue_)
+                if (q.op == Op::Refresh)
+                    return; // that edge is missed
+        if (queue_.empty())
+            left_ = cost(t.op);
+        queue_.push_back(t);
+    }
+
+    void BackplaneBridge::tick(uint64_t cycles)
+    {
+        while (cycles)
+        {
+            uint64_t step = std::min(cycles, rtc_->until_event());
+            if (!queue_.empty())
+                step = std::min(step, left_);
+            rtc_->advance(step);
+            cycles -= step;
+            if (!queue_.empty() && (left_ -= step) == 0)
+            {
+                const Transaction t = queue_.front();
+                queue_.pop_front();
+                if (!queue_.empty())
+                    left_ = cost(queue_.front().op);
+                finish(t);
+            }
+            if (rtc_->take_edge())
+                queue(Transaction{Op::Refresh});
+        }
+    }
+
+    void BackplaneBridge::read_time()
+    {
+        for (unsigned i = 0; i < TIME_REGS; ++i)
+            time_[i] = rtc_->read(static_cast<uint8_t>(i));
+    }
+
+    void BackplaneBridge::read_status() { status_ = rtc_->read(Ds3231::STATUS); }
+
+    void BackplaneBridge::finish(const Transaction &t)
+    {
+        switch (t.op)
+        {
+        case Op::Refresh:
+            read_time();
+            read_status();
+            tick_ = true;
+            break;
+        case Op::Set:
+            for (unsigned i = 0; i < TIME_REGS; ++i)
+                rtc_->write(static_cast<uint8_t>(i), t.time[i]);
+            // OSF to 0; a 1 leaves the alarm flags; EN32kHz as last read.
+            rtc_->write(Ds3231::STATUS, (status_ & Ds3231::EN32KHZ) | Ds3231::A2F | Ds3231::A1F);
+            time_ = t.time;
+            status_ = static_cast<uint8_t>(status_ & ~Ds3231::OSF);
+            break;
+        case Op::Read:
+            rtc_data_ = rtc_->read(t.reg);
+            if (t.reg == Ds3231::STATUS)
+                status_ = rtc_data_;
+            break;
+        case Op::Write:
+            rtc_->write(t.reg, t.data);
+            rtc_data_ = rtc_->read(t.reg);
+            if (t.reg == Ds3231::STATUS)
+                status_ = rtc_data_;
+            break;
+        }
+    }
+
+    void BackplaneBridge::set_rtc_time(const Ds3231::Time &t, unsigned ms)
+    {
+        rtc_->set_time(t, ms);
+        read_time();
+    }
+
+    uint8_t BackplaneBridge::rtcctl() const
+    {
+        // SET is a strobe: a pending one shows as BUSY, so writing back what was read can't resend it.
+        return static_cast<uint8_t>((tick_ ? RTC_TICK : 0) | (tie_ ? RTC_TIE : 0) |
+                                    (status_ & (Ds3231::A1F | Ds3231::A2F) ? RTC_ALARM : 0) |
+                                    (status_ & Ds3231::OSF ? RTC_LOST : 0) | (queue_.empty() ? 0 : RTC_BUSY));
+    }
+
+    bool BackplaneBridge::set_pending() const
+    {
+        return std::any_of(queue_.begin(), queue_.end(), [](const Transaction &t) { return t.op == Op::Set; });
+    }
+
+    std::string BackplaneBridge::describe_clock() const
+    {
+        const auto bcd = [](uint8_t v) { return (v >> 4) * 10u + (v & 0x0Fu); };
+        const std::array<uint8_t, TIME_REGS> &t = time_;
+        const bool h12 = (t[2] & Ds3231::HOUR_12) != 0;
+        const unsigned hour = h12 ? bcd(t[2] & 0x1F) % 12 + ((t[2] & Ds3231::HOUR_PM) ? 12u : 0u) : bcd(t[2] & 0x3F);
+        const unsigned year = 2000 + ((t[5] & Ds3231::CENTURY) ? 100u : 0u) + bcd(t[6]);
+        char buf[512];
+        std::string out;
+        std::snprintf(buf, sizeof buf, "time     %04u-%02u-%02u %02u:%02u:%02u  day %u%s\n", year, bcd(t[5] & 0x1F),
+                      bcd(t[4] & 0x3F), hour, bcd(t[1] & 0x7F), bcd(t[0] & 0x7F), t[3] & 7u, h12 ? "  (12 h)" : "");
+        out += buf;
+        const uint8_t ctl = rtcctl();
+        std::string flags;
+        for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{RTC_TICK, " TICK"}, {RTC_TIE, " TIE"},
+                                        {RTC_ALARM, " ALARM"}, {RTC_LOST, " LOST"}, {RTC_BUSY, " BUSY"}})
+            if (ctl & bit)
+                flags += name;
+        if (set_pending())
+            flags += " (SET)"; // SET reads 0: the queue says it's what BUSY waits on
+        std::snprintf(buf, sizeof buf, "RTCCTL   $%02X%s\n", ctl, flags.c_str());
+        out += buf;
+        const Ds3231 &r = *rtc_;
+        const auto reg = [&r](unsigned n) { return static_cast<unsigned>(r.read(static_cast<uint8_t>(n))); };
+        std::snprintf(buf, sizeof buf,
+                      "control  $%02X  status $%02X  aging $%02X  temperature %u.%02u C\n"
+                      "alarm 1  $%02X $%02X $%02X $%02X  alarm 2  $%02X $%02X $%02X\n",
+                      reg(Ds3231::CONTROL), reg(Ds3231::STATUS), reg(Ds3231::AGING), reg(Ds3231::TEMP_MSB),
+                      (reg(Ds3231::TEMP_LSB) >> 6) * 25, reg(7), reg(8), reg(9), reg(10), reg(11), reg(12), reg(13));
+        out += buf;
+        return out;
     }
 } // namespace ooe::emu

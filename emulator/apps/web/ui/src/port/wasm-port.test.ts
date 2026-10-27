@@ -4,13 +4,13 @@
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { FrameState } from "./machine-port";
 import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
-import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, type CoreModule, type Scheduler } from "./wasm-port";
+import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, wallClock, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
 const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
@@ -75,6 +75,78 @@ async function open() {
   };
   return { port, clock, step, until, output: () => out, clear: () => (out = "") };
 }
+
+describe("the real-time clock", () => {
+  afterEach(() => vi.useRealTimers());
+
+  test("wallClock is the local time as milliseconds since 1970", () => {
+    const d = new Date(2026, 9, 26, 13, 45, 7, 250); // local
+    expect(wallClock(d)).toBe(Date.UTC(2026, 9, 26, 13, 45, 7, 250));
+  });
+
+  test("connect sets the DS3231 from this computer's clock, and it counts in the CPU's time", async () => {
+    const before = new Date();
+    const { port, step } = await open();
+    const c = (await port.readClock())!;
+    const bcd = (v: number) => (v >> 4) * 10 + (v & 15);
+    // The wall clock as epoch milliseconds, not a local Date: no DST hour to land in twice
+    const at = Date.UTC(2000 + bcd(c.time[6]), bcd(c.time[5] & 0x1f) - 1, bcd(c.time[4]), bcd(c.time[2]), bcd(c.time[1]), bcd(c.time[0]));
+    expect(Math.abs(at - wallClock(before))).toBeLessThan(5000);
+    expect(c.time[3]).toBe(new Date(at).getUTCDay() + 1); // 1 = Sunday
+    expect(c.chip[0x11]).toBe(25);
+    expect(c.rtcctl & 0x04).toBe(0); // not LOST
+    expect(c.setPending).toBe(false); // the clock was set from outside, not by SET
+    for (let i = 0; i < 61; ++i) step(); // a second of emulated time
+    const later = (await port.readClock())!;
+    expect(later.rtcctl & 0x80).toBe(0x80); // TICK
+    expect(later.time.join()).not.toBe(c.time.join());
+    port.close();
+  });
+
+  test("the DS3231 starts as far into its second as this computer's clock is", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 26, 13, 45, 7, 950)); // 50 ms to the next second
+    const { port, step } = await open();
+    expect((await port.readClock())!.time[0]).toBe(0x07);
+    for (let i = 0; i < 6; ++i) step(); // 100 ms
+    expect((await port.readClock())!.time[0]).toBe(0x08);
+    port.close();
+  });
+
+  test("the DS3231 catches up with this computer's clock as the machine runs, but not at Max or while off", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const at = (s: number) => vi.setSystemTime(new Date(2026, 9, 26, 13, 45, s, 500));
+    at(7);
+    const { port, clock, step } = await open();
+    const sec = async () => (await port.readClock())!.chip[0]; // the chip's own register, not the bridge's copy
+    step();
+    expect(await sec()).toBe(0x07);
+    at(17); // ten seconds this frame: a slow page, or a background tab
+    step();
+    expect(await sec()).toBe(0x17);
+    step();
+    expect(await sec()).toBe(0x17); // within the second it was: no more
+
+    clock.tick = 1; // Max runs until now() moves on
+    port.setClock("max");
+    at(27);
+    step();
+    clock.tick = 0;
+    expect(await sec()).toBe(0x17); // Max isn't kept to this computer's clock
+    port.setClock(NATIVE_HZ);
+    step();
+    expect(await sec()).toBe(0x27);
+
+    port.setPower(false);
+    at(37);
+    step();
+    expect(await sec()).toBe(0x27); // off, nothing runs: the next run catches up
+    port.setPower(true);
+    step();
+    expect(await sec()).toBe(0x37);
+    port.close();
+  });
+});
 
 describe("coreUrl", () => {
   test("next to the page, with the build's version", () => {
