@@ -68,14 +68,14 @@ namespace ooe::emu
         return t;
     }
 
-    Ds3231::Ds3231(const Time &t, bool lost)
+    Ds3231::Ds3231(const Time &t, bool lost, unsigned ms)
     {
-        set_time(t);
+        set_time(t, ms);
         if (lost)
             status_ |= OSF;
     }
 
-    void Ds3231::set_time(const Time &t)
+    void Ds3231::set_time(const Time &t, unsigned ms)
     {
         sec_ = t.second;
         min_ = t.minute;
@@ -85,7 +85,7 @@ namespace ooe::emu
         month_ = t.month;
         year_ = t.year % 100;
         century_ = t.year >= 2100;
-        phase_ = 0;
+        phase_ = uint64_t{std::min(ms, 999u)} * hz_ / 1000;
     }
 
     Ds3231::Time Ds3231::time() const
@@ -186,8 +186,12 @@ namespace ooe::emu
 
     void Ds3231::set_cpu_hz(uint32_t hz)
     {
+        // The same fraction of the second, and of a conversion's time, at the new clock.
+        const uint32_t was = hz_;
         hz_ = hz ? hz : NATIVE_HZ;
-        phase_ = std::min<uint64_t>(phase_, hz_ - 1);
+        phase_ = phase_ * hz_ / was;
+        if (converting())
+            conv_until_ = now_ + ((conv_until_ - now_) * hz_ + was - 1) / was;
     }
 
     unsigned Ds3231::square_period() const
