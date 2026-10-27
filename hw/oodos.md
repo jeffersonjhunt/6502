@@ -592,6 +592,25 @@ Each phase is its own branch.
 - **A home block for GW-BASIC.** Letting a program keep one block mapped in W3 between far calls, and FARCALL
   return to it rather than to nothing, would move 4–6 KB of GW-BASIC out of the TPA. It changes FARCALL's design
   above; for phase 2, not needed for the 32 KB.
+
+  What it would cost (estimates from the spike's measured figures; the home block itself isn't built or timed):
+  - **Unchanged:** the core statement path stays resident in the TPA with no far calls (`I%=I%+1 : IF I%<1000
+    THEN 10` stays about 4,700 cycles a pass), and FARCALL already saves and restores whatever W3 holds, so it
+    stays 281 cycles.
+  - **Faster:** PRINT and INPUT in the home block make no far call: 281 cycles a statement, 1.4–1.8% of printing
+    a number.
+  - **Slower:** with GW-BASIC's block in W3, every BDOS entry and every interrupt handler in OODOS's block must
+    map that block in and back out (save, store, restore the window register): about 20–30 cycles each. Console
+    output is a BDOS call a character, so printing a number gains roughly 1–2% back, about cancelling the
+    PRINT saving. Interrupts at 60 Hz are about 0.02% of the CPU.
+  - **The hazard:** while a banked page is in W3 the home block is not, so a call from banked code into home code
+    is a far call. Single math in the home block would cost `$FOUT` (banked) 281 cycles per multiply or divide,
+    about 15% a number printed at ten of them. So the home block may hold only code the banked pages don't call;
+    what they share (the math core, the string core, variables) stays in the TPA. The 4–6 KB must be counted again
+    under that rule.
+
+  For phase 2: prototype it in the spike harness and time, with `check.py --timing`, the BDOS map-in stub, a
+  PRINT through the home block and `$FOUT` under the placement rule.
 - **A lean FARCALL**, keeping only A and the flags across the call, would save an estimated 100–140 of its 281
   cycles (not measured: reading the inline bytes, the return frame and the two window writes stay). Under 1% on
   PRINT, more on a graphics loop's far call a point, nothing on the core statement path. Against it:
