@@ -190,15 +190,15 @@ m.delete();
 // keeps it through a power cycle (the DS3231's battery).
 const clock = new oo1.Machine();
 check("rtc: open", clock.open("/machines/backplane.machine", "/roms/bios.rom", "/roms/bios.rom.lbl"), clock.error());
-const wall = Date.UTC(2026, 9, 26, 13, 45, 7) / 1000; // the local clock, as the page passes it
+const wall = Date.UTC(2026, 9, 26, 13, 45, 7, 950); // the local clock in ms, as the page passes it
 clock.setRtc(wall);
 const rtc = () => Array.from(clock.rtc());
 check("rtc: 35 bytes", rtc().length === 35, String(rtc().length));
 check("rtc: SEC-YEAR", rtc().slice(0, 7).join() === [0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26].join(), rtc().slice(0, 7).join());
 check("rtc: the DS3231's temperature", rtc()[16 + 0x11] === 0x19);
 check("rtc: RTCCTL clear", rtc()[7] === 0, String(rtc()[7]));
-for (let i = 0; i < 61; ++i) clock.run(FRAME); // a second and a bit at 7.16 MHz
-check("rtc: a second later", rtc()[0] === 0x08, String(rtc()[0]));
+for (let i = 0; i < 6; ++i) clock.run(FRAME); // 100 ms at 7.16 MHz, and the clock was 950 ms into its second
+check("rtc: the next second", rtc()[0] === 0x08, String(rtc()[0]));
 check("rtc: TICK", (rtc()[7] & 0x80) !== 0, String(rtc()[7]));
 check("rtc: power cycle", clock.powerCycle(), clock.error());
 check("rtc: kept through it", rtc()[0] === 0x08 && rtc()[6] === 0x26, rtc().slice(0, 7).join());

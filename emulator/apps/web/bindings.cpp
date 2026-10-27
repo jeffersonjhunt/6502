@@ -87,9 +87,9 @@
  * module's memory (copy it before the next call).
  *
  * The real-time clock, the north bridge's DS3231 (backplane_bridge.h):
- * setRtc(seconds) sets it from the host's clock, seconds since 1970 on the
- * local wall clock (JavaScript's Date less its time-zone offset), and the
- * bridge reads it at once; the chip keeps it through power cycles. rtc() is
+ * setRtc(ms) sets it from the host's clock, milliseconds since 1970 on the
+ * local wall clock (JavaScript's Date less its time-zone offset), the
+ * fraction as far into the chip's second, and the bridge reads it at once; the chip keeps it through power cycles. rtc() is
  * a Uint8Array(35) view: 0-6 SEC-YEAR as the bridge last read them,
  * 7 RTCCTL, 8 RTCREG, 9 RTCDATA, then from 16 the DS3231's registers
  * $00-$12; empty without the backplane's bridge.
@@ -106,6 +106,7 @@
 #include <emscripten/val.h>
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -418,7 +419,12 @@ namespace
                             c->timer_latch(), c->timer_running()};
         }
 
-        void set_rtc(double seconds) { session_->set_rtc_time(Ds3231::from_seconds(static_cast<int64_t>(seconds))); }
+        void set_rtc(double ms)
+        {
+            const double seconds = std::floor(ms / 1000);
+            session_->set_rtc_time(Ds3231::from_seconds(static_cast<int64_t>(seconds)),
+                                   static_cast<unsigned>(ms - seconds * 1000));
+        }
         val rtc()
         {
             const BackplaneBridge *b = session_->bridge();
