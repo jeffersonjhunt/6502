@@ -153,7 +153,7 @@ operations run on, compared with what the BDOS does on the emulator ([hw/oodos.m
 
 ```
 make -C test/driver             # test/driver/build/driver.com, through the rules gate
-make -C test/driver check       # test_model.py: ends PASS 153
+make -C test/driver check       # test_model.py: ends PASS 171
 python3 -I test/modeltest.py prepare --seed 7 --format oodos-8m --dir /tmp/m7 --driver test/driver/build/driver.com
 python3 -I test/modeltest.py show --dir /tmp/m7       # the script, an operation a line
 python3 -I test/modeltest.py predict --dir /tmp/m7    # the model's run: A.model.IMG, T.model.IMG, RESULT.model.BIN
@@ -168,14 +168,20 @@ default, or `nearest`); `renumber`, the default, up to the blocks' numbering. `-
 the model's is 0.
 
 `test_oodos_model`, in ctest, runs DRIVER.COM with the model as its BDOS, for 9 seeds, and with the model made
-wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison with OODOS's own BDOS** is
-off until phase 3a's BDOS is in (the stand-in's file functions return `$FF`); one switch turns it on, from
-`emulator/`:
+wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison with OODOS's own BDOS** is on
+(the CMake option `OODOS_MODEL_BDOS`; a build tree configured before it was on keeps OFF in its cache, so pass
+`-DOODOS_MODEL_BDOS=ON` once) for seeds 1, 4, 6, 14, 41 and 45, under 4 minutes under ASan. More seeds by hand,
+from `emulator/`: `OODOS_MODEL_SEEDS` takes a list and ranges, `OODOS_MODEL_ONLY=1` runs the comparison alone, so
+seeds can run a process each, and `OODOS_MODEL_CUT=N` runs only a seed's first N operations, to find where a
+difference starts (a release build is about ten times faster than ASan's):
 
 ```
 cmake --preset dev -DOODOS_MODEL_BDOS=ON && cmake --build --preset dev && ctest --preset dev -R test_oodos_model
-OODOS_MODEL_BDOS=1 ./build/dev/test/host/test_oodos_model        # or for one run
-OODOS_MODEL_BDOS=1 OODOS_MODEL_SEEDS=4,7 OODOS_MODEL_COMPARE=exact OODOS_MODEL_LOOSE_X=1 ./build/dev/test/host/test_oodos_model
+OODOS_MODEL_BDOS=0 ./build/dev/test/host/test_oodos_model        # without the comparison, for one run
+OODOS_MODEL_SEEDS=4,7-9 OODOS_MODEL_COMPARE=exact OODOS_MODEL_LOOSE_X=1 ./build/dev/test/host/test_oodos_model
+seq 1 600 | xargs -P 16 -I{} sh -c 'OODOS_MODEL_ONLY=1 OODOS_MODEL_SEEDS={} \
+    ./build/dev/test/host/test_oodos_model > /tmp/seed{}.log 2>&1'; grep -h "seed.*FAIL" /tmp/seed*.log   # 1-600 pass
+OODOS_MODEL_ONLY=1 OODOS_MODEL_SEEDS=14 OODOS_MODEL_CUT=213 ./build/dev/test/host/test_oodos_model
 ```
 
 The seeds' directories stay in the build tree (`build/dev/test/host/oodos_model/oodos-N`), with what DRIVER
@@ -278,7 +284,8 @@ b, LBA = b × (4096 / 512) + n, by the DPB it works out from `diskdefs`.
 with `OODOS_CARD_OUT` set the test saves the card there. `interop.sh` takes A.IMG off the card's FAT with mtools and checks every file entry's stamp order
 (`sfcb.py`), `fsck.cpm -n` (no Error or Warning lines, but the one below), the label's mode, `cpmls -F`'s two
 stamps for every file, and every file's contents by `cpmcp`; with `--written`, `0:OO1.BIN` too, and its two SFCB
-slots byte for byte. From the worktree's root:
+slots byte for byte: the stamps in its first entry's, 0 in its second's (CP/M 3 keeps a file's stamps in its
+extent-zero entry only; cpmtools stamps every entry, and `sfcb.py` takes either). From the worktree's root:
 
 ```
 cmake --build emulator/build/dev --target test_oodos_card

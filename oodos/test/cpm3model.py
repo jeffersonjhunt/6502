@@ -29,7 +29,11 @@ Testing, "phase 3a: the model", Proposed):
 - Sequential read and write: past the last record, read returns 1; a hole (no block) also returns 1.
   A write past CR 128 that needs a new entry and finds none returns 1; no block, 2. Random read: R2 over 3
   is 6; no entry for the extent, 4; past RC or a hole, 1. Random write: 6, then no entry space 5, no block
-  2. After a random read or write CR is the record's, not the next (the manual's rule).
+  2. After a random read or write CR is the record's, not the next (the manual's rule). A read that must
+  write a written extent back (moving to another) on a read-only drive returns A = $FF, X = 2, the FCB
+  as it was (as OODOS's BDOS: the implied close is refused). The FCB's S2 has the module and, as
+  OODOS's BDOS keeps them, $80 while the extent isn't written and $40 while it has no entry yet, so a
+  program's own FCB with the open one's name and place is a changed FCB, not the open one.
 - Open (15) clears S2 and opens the extent EX names; a file not in the current user but in user 0 with
   the SYS attribute (t2') opens from user 0, read only. Writes to it, or to a file whose t1' is set,
   return A = $FF, X = 3 (File R/O).
@@ -47,7 +51,8 @@ Testing, "phase 3a: the model", Proposed):
   f1'-f4' and t1'-t3' from the FCB to every extent, no '?'. File size (35) and truncate (99): the
   current user only, '?' is 9. File size puts 0 in R0-R2 when there's no such file (as CP/M 2.2 did).
 - Truncate (99) keeps records 0 to R: entries past R's extent are deleted, the one holding it gets EX and
-  RC for R and loses the blocks after R's. R at or past the end is A = $FF, X = 0. It stamps the
+  RC for R and loses the blocks after R's. R at or past the end is A = $FF, X = 0, and R2 over 3 is
+  A = $FF, X = 0 before the file is looked for (so before a read-only file's 3). It stamps the
   update, as a close after a write does (the manual doesn't say; OODOS's BDOS does).
 - Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access), only ever in the
   SFCB slot of a file's extent-zero entry (the manual: a slot is valid only for an extent-zero entry).
@@ -59,8 +64,9 @@ Testing, "phase 3a: the model", Proposed):
   rename and 30 leave the SFCB as it is, and so does make on a drive whose mode keeps no stamps. Now is
   what 104 last set (the driver sets the time before what stamps).
 - 13 resets every drive (R/O cleared, logged out), drive A current, the DMA $0280; 37 the drives in its
-  vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 returns
-  the address of a copy of the current drive's DPB (17 bytes). 27 returns $FFFF. 12 returns $0031.
+  vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 logs
+  the current drive in (the manual has it return $FFFF on an I/O error, so it reads the disk) and returns
+  the address of a copy of its DPB (17 bytes). 27 returns $FFFF. 12 returns $0031.
 - What a record holds: a block allocated by a write (21, 34) has every record undefined until written
   (the BDOS's deblocking may write whatever its buffer held); 40 fills the new block with zeros. Reading
   an undefined record succeeds and its data can't be predicted (Result.undefined).

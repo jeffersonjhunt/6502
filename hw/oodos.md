@@ -555,7 +555,9 @@ against, compared with what the BDOS does on the emulator.
   above, the stand-in's console, version, time, 50 and 72 kept. 27 returns `$FFFF`, 31 the address of a copy of
   the DPB in common memory. 44 (multi-sector) is 3b's: until then the count is 1.
 - **Date stamps from 3a:** every OODOS drive's label asks for creation and update stamps (mode 0x31), so making a
-  file stamps its SFCB slot's creation, and closing a written one its update, from TIME, as the label's mode says.
+  file stamps its creation and update, and closing a written one its update, from TIME, as the label's mode says,
+  in the SFCB slot of the file's extent-zero entry only (the Programmer's Guide, 2.3.8: a slot is valid only for an
+  extent-zero entry).
   Reading them (102), labels (100, 101), XFCBs and passwords are 3b's.
 - **Where it lives.** The BDOS's code is block 60, and what doesn't fit goes in block 62's code window (about 10 KB is
   free there). Its variables and the drives' allocation vectors (CP/M 3's two bits a block: 1 KB at most for an
@@ -603,7 +605,8 @@ against, compared with what the BDOS does on the emulator.
 - **A block a write takes is zeroed** (its sectors become new buffers of zeros, changed): records never written in
   it read as zeros, not as what the block held before, so function 40 is 34. CP/M 3 leaves them undefined.
 - **Allocation:** the lowest free block, not CP/M 3's nearest to the file's last; simpler, and the same on every run.
-- **Login:** SELDSK as a first select (the BIOS reads the units again), the DPB from common memory, then the whole
+- **Login:** SELDSK as a first select (the BIOS reads the units again), the DPB from common memory (EXM's mask kept
+  with the drive's other DPB values, a drive at a time), then the whole
   directory read once through the buffers: 64 sectors on `oodos-8m`, 128 on `oodos-32m`, 16 on M:. The first label's
   mode byte decides the stamps (none without a label). A read-only unit (IDENTIFY's flag) is a read-only drive from
   its login; a unit made read-only later is when its WRITE returns 2. Files are looked for up to the last entry that
@@ -627,13 +630,23 @@ against, compared with what the BDOS does on the emulator.
   low 7 bits and keeps each entry's attributes, its XFCBs renamed too. **30** sets every extent's f1'–f4' and
   t1'–t3', clears f5'–f8' on the disk, and with f6' sets S1 to CR.
 - **Extents** as CP/M's: moving past one closes it (if written) and finds the next, made for a write; a read that
-  finds none returns 1 (4 for 33) and leaves the FCB at the new extent, empty, so a write after it appends, its entry
-  made at the close if need be. Each entry is stamped as a file: creation when it's made (by Make or as the file
-  grows into it), update when it's closed after a write (by 16, or as the file moves on), so all a file's entries
-  have both, as cpmtools writes them. Make leaves the update 0.
+  finds none returns 1 (4 for 33) and leaves the FCB at the new extent, empty and marked (S2's `$40`; `$80` is "not
+  written"), so a write there makes its entry at once and a full directory is the write's error (1, or 5 for 34
+  and 40), not the close's. A read that must close a written extent on a read-only drive is Read Only (2).
+- **Stamps** (2026-10-27, after the model test; the Guide decides them: 2.3.8 and functions 15, 22): only in the
+  SFCB slot of a file's extent-zero entry. Make of extent 0 stamps the creation and the update (as the label's mode
+  asks); closing a written FCB, moving a written FCB on to another extent, and truncate stamp the update there
+  whichever extent they changed; Open of extent 0 stamps the access (in the creation's field, which they share) if
+  the mode asks, not on a read-only drive. A new entry's slot is cleared, so later extents' slots stay 0.
+  cpmtools stamps every entry of a file it writes; both read the first entry's.
 - **Truncate (99):** R0–R2 is the new last record; it must be before the file's end and in an extent with an entry,
-  else `$FF`. Later extents' entries are deleted; the one with R gets R's extent, RC (R mod 128) + 1, the pointers
-  after R's block freed and cleared, and the update stamp.
+  else `$FF` (R2 over 3 before the directory is read). Later extents' entries are deleted; the one with R gets R's
+  extent, RC (R mod 128) + 1, the pointers after R's block freed and cleared; the update is stamped in the
+  extent-zero entry's slot (the Guide doesn't say; a truncate changes the file).
+- **File size (35)** leaves R0–R2 0 for a file that isn't there (as CP/M 2.2's BDOS did).
+- **Rename (23)** checks the new name first: File Exists (8) before the old name's not found or File R/O (the Guide
+  lists the errors in no order). **31** selects the current drive, logging it in (the Guide has it return `$FFFF`
+  on an error, so it reads the disk).
 - **13** writes back and drops every buffer, logs every drive out and makes it read-write, A: current, the DMA
   address `$0280`; the user number stays. **37** does the first three for the drives in A/X. **28** makes the current
   drive read-only until one of them; **46** is (DSM + 1 − the blocks in use) × the records a block, from the current
@@ -1029,9 +1042,10 @@ copyright and MIT notice.
     and the program ended: what it prints after never shows): Read Only (a read-only unit, read-only from its login;
     and a unit made read-only under a written buffer, whose write-back fails), File Exists, ? in Filename, File R/O,
     Invalid Drive, and Disk I/O with the card taken out.
-  - **STAMPTEST** on M: and A:: every SFCB byte checked against the clock the test set at each step: creation at
-    make, update at the close after a write (a file closed unwritten has none), access at open on M: with the label's
-    mode made 0x61 behind the BDOS's back, none on A: (0x31).
+  - **STAMPTEST** on M: and A:: every SFCB byte checked against the clock the test set at each step: creation and
+    update at make, update at the close after a write (a file closed unwritten keeps make's), access at open on M:
+    with the label's mode made 0x61 behind the BDOS's back, none on A: (0x31), and none at extent 1 or on a
+    read-only drive.
   - **LOGINTEST:** A:'s login reads its 64 directory sectors once and a second select none; M:'s 16; an entry put in
     M:'s directory behind the BDOS's back isn't seen until 37 logs it out; an XFCB renamed and deleted with its file
     (f5': it alone); 4 records written and not closed are on M: only after the warm boot, whose 98 frees their block.
@@ -1040,7 +1054,9 @@ copyright and MIT notice.
 - **Interoperability:** `test_oodos_card` boots the committed card in a Session and runs **WRITEOO1** (on the card)
   at the prompt: `0:OO1.BIN` written by the real BDOS, the clock set by function 104 to its two stamps; its
   entries are now 16 and 17 (WRITEOO1.COM took 14), the first in an SFCB's first slot; 66 sectors change (the
-  directory's second and 65 of records). `interop.sh --written` passes on the card it saves (PASS 9), and on the
+  directory's second and 65 of records). Its stamps are in entry 16's slot, entry 17's is 0 (the stamps rule above),
+  as test_oodos_card, interop.sh and `sfcb.py` check: a file's first entry stamped and in order, a later extent's
+  slot 0 or (cpmtools's) in order. `interop.sh --written` passes on the card it saves (PASS 9), and on the
   committed card (PASS 6). `OODOS_CARD_FAULT` still runs the stand-in writer, wrong, to show interop.sh fail.
 - **Each check can fail:** the BDOS built with a bug, one at a time, fails the tests named: no full compare after the
   hash (DIRTEST), close not writing back (FSTEST, LOGINTEST), no buffer found again (FSTEST: the READ count), the jump
@@ -1082,15 +1098,26 @@ copyright and MIT notice.
   (`modeltest.py serve`, over a pipe), 9 seeds over the three formats, compared with the model's own run:
   driver, formats and reference driver agree. The model made wrong on purpose (no update stamp, an RC one
   short, open's directory code 0, a byte of data) fails the comparison, which names the seed and the
-  operation. DRIVER.COM runs under OODOS.SYS from A: (today it says `NO SCRIPT`), and the harness's images
+  operation. DRIVER.COM runs under OODOS.SYS from A: and says `DRIVER OK`, and the harness's images
   are checked: A:'s entries off the card, M:'s directory as cold boot made it, the model's mkfs at that minute.
   `test_oodos_model_py` is the model's own tests: the DPBs, mkfs against `sd/oodos-ram.sparse`, and hand-worked
   cases from the manual's rules, each a scenario and the directory bytes it leaves; the script format, the
   generator's determinism and the comparison finding a changed result, block, RC and stamp.
-- **Against OODOS's BDOS:** with `OODOS_MODEL_BDOS` on (`cmake --preset dev -DOODOS_MODEL_BDOS=ON`, or
-  `OODOS_MODEL_BDOS=1` for one run), each seed's A: (and B:, `oodos-8m` or `oodos-32m`, or M:) goes on a card,
-  OODOS.SYS boots on `backplane.machine`, `DRIVER` runs at the CCP, and the results and the drive under test
-  are compared with the model's. Off until 3a's BDOS is merged: the stand-in's file functions return `$FF`.
+- **Against OODOS's BDOS:** with `OODOS_MODEL_BDOS` on (the CMake option, on since 2026-10-27; `OODOS_MODEL_BDOS=0`
+  or `1` for one run), each seed's A: (and B:, `oodos-8m` or `oodos-32m`, or M:) goes on a card, OODOS.SYS boots
+  on `backplane.machine`, `DRIVER` runs at the CCP, and the results and the drive under test are compared with
+  the model's (`--compare renumber`, X compared). ctest runs seeds 1, 4, 6, 14, 41 and 45 (the three formats; each
+  BDOS bug the comparison found fails at least one of them), under 4 minutes under ASan (TIMEOUT 900); seeds
+  1–600 pass, run by hand (`OODOS_MODEL_SEEDS=1-600 OODOS_MODEL_ONLY=1`, a process a seed in parallel:
+  [oodos/README.md](../oodos/README.md)). `OODOS_MODEL_CUT=N` runs a seed's first N operations, to find where a
+  difference starts.
+- **What the comparison found** (2026-10-27, each settled by the Guide or, where it is silent, the BDOS's way, in
+  the BDOS's and the model's Proposed lists): stamps only in a file's extent-zero slot (both had stamped every
+  entry; the BDOS's make left the update 0); 35 of no file left R0–R2 as they were (BDOS); rename's error order
+  (model); 31 not logging in (model); EXM's mask not kept a drive at a time, so after another drive's login an
+  extent group's entry wasn't found and a second was made (BDOS); a write after a read that found no entry made
+  it only at the close (BDOS); truncate's R2 check order and a read closing a written extent on a read-only drive
+  (model); a program's own FCB of the open one's bytes taken for it (model: S2's state bits).
 - **cpmtools at verify** ([`oodos/test/model_cpmtools.sh`](../oodos/test/model_cpmtools.sh), Docker): the
   model's empty drives against `mkfs.cpm -t`'s, byte for byte; then each seed's drive through `fsck.cpm`,
   `cpmls -F` (every file's stamps) and `cpmcp` (every file's contents). fsck.cpm 2.23 takes a sparse file's
@@ -1106,14 +1133,21 @@ header has the full list):
 - **Allocation:** lowest free block first, or (a parameter) the nearest after the block before; the first
   free directory entry. The comparison takes the blocks' numbering as it finds it (`--compare renumber`) or,
   if the BDOS allocates the same way, byte for byte (`--compare exact`).
-- **Stamps:** make, and an entry made by a write, stamp creation and update (as cpmtools does, so an
-  update is never before a creation); writing a written FCB's entry back (close, or moving to another
-  extent) stamps the update. Delete, rename, 30 and 99 don't stamp. A mode without stamps leaves the SFCB.
+- **Stamps** (the Guide decides, 2.3.8 and function 22; settled with the BDOS 2026-10-27): only in the slot of
+  a file's extent-zero entry. Make (of extent 0) stamps creation and update; an entry made by a write gets a
+  cleared slot; writing a written FCB's entry back (close, or moving to another extent) and truncate stamp
+  the update in the extent-zero entry's slot; open of extent 0 the access, with `$40`, not on a read-only
+  drive. Delete, rename and 30 don't stamp. A mode without stamps leaves the SFCB.
 - **Results:** 15, 16 (a written FCB), 17, 18 and 22 return the entry's directory code; 19, 23 and 30 any of
   0–3; X is 0 on success (`--loose-x` doesn't compare it); 35 returns 0 or `$FF`; 13 returns 0 and logs no
-  drive in. Errors in the order drive (4), `?` (9), read-only drive (2), not found, read-only file (3),
-  exists (8). Delete refuses all if any match is read-only. Rename keeps the attributes.
-- **Truncate** (99) past the end is `$FF`; into a hole the model doesn't decide, and the generator avoids it.
+  drive in; 31 logs the current drive in. Errors in the order drive (4), `?` (9), read-only drive (2), not
+  found, read-only file (3), exists (8); rename checks the new name first (exists, then not found, then
+  read-only), as the BDOS does. Delete refuses all if any match is read-only. Rename keeps the attributes.
+  35 of no such file leaves R0–R2 0. A read that must close a written extent on a read-only drive is 2.
+- **Truncate** (99) past the end is `$FF`, and R2 over 3 is `$FF` before a read-only file's 3; into a hole the
+  model doesn't decide, and the generator avoids it.
+- **The FCB's S2** holds what OODOS's BDOS keeps there (`$80` not written, `$40` no entry for the extent yet),
+  so a program's own FCB of the same name and place isn't the open one (an FCB the program changed).
 - **What isn't decided** (an FCB used after its file was deleted or renamed or its drive reset, two FCBs on
   one file with one writing, sequential I/O after an error, the user changed under an open file) the model
   refuses, and the generator keeps out of the scripts.

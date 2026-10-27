@@ -20,12 +20,16 @@
  *     record count, a directory code, a byte of data): the comparison fails,
  *     naming the seed;
  *   - DRIVER.COM under OODOS: the CCP runs it from A: and it reports;
- *   - with OODOS_MODEL_BDOS on (the CMake option, or the environment
- *     variable OODOS_MODEL_BDOS=1 for one run): each seed run by DRIVER.COM
- *     under OODOS.SYS on backplane.machine, B: (oodos-8m, oodos-32m) on the
- *     card or M:, compared with the model. Off until phase 3a's BDOS is in:
- *     the stand-in BDOS's file functions return $FF. OODOS_MODEL_SEEDS
- *     (1,2,3...), OODOS_MODEL_COMPARE (renumber, exact), OODOS_MODEL_ALLOC
+ *   - with OODOS_MODEL_BDOS on (the CMake option, on by default; the
+ *     environment variable OODOS_MODEL_BDOS=0 or 1 for one run): each seed
+ *     run by DRIVER.COM under OODOS.SYS on backplane.machine, B: (oodos-8m,
+ *     oodos-32m) on the card or M:, compared with the model. The default
+ *     seeds (1, 4, 6, 14, 41, 45: the three formats, and each of the BDOS's
+ *     bugs the comparison found fails one of them) take about 3 minutes
+ *     under ASan; OODOS_MODEL_SEEDS (1,2,7-60...) chooses others,
+ *     OODOS_MODEL_ONLY=1 runs the comparison alone (so seeds can run in
+ *     parallel, a process each), OODOS_MODEL_CUT=N a seed's first N
+ *     operations. OODOS_MODEL_COMPARE (renumber, exact), OODOS_MODEL_ALLOC
  *     (lowest, nearest) and OODOS_MODEL_LOOSE_X=1 pass to modeltest.py check.
  */
 
@@ -634,14 +638,13 @@ TEST(a_wrong_bdos_is_caught)
 
 TEST(driver_runs_under_oodos)
 {
-    // Today's stand-in BDOS has no file functions: DRIVER can't open its script and says so. With
-    // phase 3a's BDOS it runs the script and says OK. Either way it was found, ran and came back.
+    // DRIVER found on A:, run through OODOS's BDOS, its script read and run, and back at the prompt.
     const std::string dir = seed_dir("oodos-smoke", 3);
     REQUIRE(prepare(3, dir));
     const std::vector<uint8_t> a = read_bytes(dir + "/A.IMG"), t = read_bytes(dir + "/T.IMG");
     const std::string said = run_on_oodos(dir, format_of(3), ms(120'000));
     CHECK(said.find("DRIVER: the model test's script") != std::string::npos);
-    CHECK(said.find("DRIVER OK") != std::string::npos || said.find("DRIVER: NO SCRIPT") != std::string::npos);
+    CHECK(said.find("DRIVER OK") != std::string::npos);
     CHECK(said.find("\r\nA>") != std::string::npos);
     std::printf("  OODOS: %s\n", said.c_str());
     // What the harness takes off the card and out of banks C-D: A:'s SCRIPT.BIN and DRIVER.COM entries
@@ -667,14 +670,20 @@ int main()
     if (env_on("OODOS_MODEL_BDOS", MODEL_BDOS))
     {
         static ::ooe::test::Registrar reg("oodos_matches_the_model", [] {
-            std::vector<unsigned> seeds = {1, 2, 3, 4, 5, 6};
+            std::vector<unsigned> seeds = {1, 4, 6, 14, 41, 45};
             if (const char *s = std::getenv("OODOS_MODEL_SEEDS"); s && *s)
             {
                 seeds.clear();
                 std::istringstream in(s);
                 std::string v;
-                while (std::getline(in, v, ','))
-                    seeds.push_back(static_cast<unsigned>(std::stoul(v)));
+                while (std::getline(in, v, ','))             // 7 or 7-60
+                {
+                    const size_t dash = v.find('-');
+                    const unsigned lo = static_cast<unsigned>(std::stoul(v.substr(0, dash)));
+                    const unsigned hi = dash == std::string::npos ? lo : static_cast<unsigned>(std::stoul(v.substr(dash + 1)));
+                    for (unsigned n = lo; n <= hi; ++n)
+                        seeds.push_back(n);
+                }
             }
             std::string extra;
             if (const char *c = std::getenv("OODOS_MODEL_COMPARE"); c && *c)

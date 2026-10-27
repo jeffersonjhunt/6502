@@ -320,6 +320,9 @@ def errors():
     eq((t.call(12), t.call(27), t.call(25)), ((0x31, 0), (0xFF, 0xFF), (0, 0)), "12: $0031; 27: $FFFF; 25: A:")
     t.call(13)
     eq(t.call(24), (0, 0), "13 logs every drive out")
+    t.call(31)
+    eq(t.call(24), (1, 0), "31 selects the current drive: A: logged in (it can meet an I/O error)")
+    t.call(13)
     t.call(14, 0)
     eq(t.call(24), (1, 0), "and 14 logs A: in")
 
@@ -489,6 +492,7 @@ def stamps_and_modes():
     t.fcb("A.TXT", FCB2)
     t.f(15, FCB2)
     eq(t.slot(1)[:8], T1 + T0, "nor on a read-only drive")
+    eq(t.m.read(FCB2, 36)[14], 0x80, "an FCB opened, not written: S2 $80, as OODOS's BDOS keeps it")
 
 
 def policy():
@@ -510,6 +514,28 @@ def policy():
         eq(t.dv.blocks(t.e(2))[3], want, "%s: B.DAT's fourth block (after 5-7, with 4 free): %d" % (alloc, want))
 
 
+def ro_and_r2():
+    print("A read-only drive under a written FCB; truncate past 32 MB")
+    t = Rig()
+    t.new("A.DAT", 128)
+    t.call(28)
+    eq(t.f(20), (0xFF, 2), "28, then a read past the written extent's end: closing it is Read Only (2)")
+    t.rand(300)
+    eq(t.f(33), (0xFF, 2), "and a random read in another extent: 2")
+    t.rand(5)
+    eq(t.f(33), (0, 0), "a random read in this one: read")
+    t.call(37, 1)
+    t.new("B.DAT", 20, FCB2)
+    t.f(16, FCB2)
+    t.fcb("B.DAT", FCB2)
+    t.m.write(FCB2 + 9, bytes([0xC4]))                  # t1': read-only
+    t.f(30, FCB2)
+    t.fcb("B.DAT", FCB2, r=262144)
+    eq(t.f(99, FCB2), (0xFF, 0), "truncate of a read-only file to R2 4: $FF, 0 (R checked before the file)")
+    t.fcb("B.DAT", FCB2, r=10)
+    eq(t.f(99, FCB2), (0xFF, 3), "to record 10: File R/O (3)")
+
+
 def unspecified():
     print("What CP/M 3 leaves open is refused before anything changes")
     t = Rig()
@@ -519,7 +545,9 @@ def unspecified():
     before = bytes(t.dv.img)
     for what, fn in (("a second FCB writing a file being written", lambda: t.write(1, FCB2)),
                      ("the user changed under an open FCB", lambda: (t.call(32, 4), t.write(1))),
-                     ("18 not after 17", lambda: t.call(18))):
+                     ("18 not after 17", lambda: t.call(18)),
+                     ("the open FCB's bytes written by the program, S2 0 (the BDOS's $80: not written)",
+                      lambda: (t.m.write(FCB2 + 14, b"\0"), t.f(20, FCB2)))):
         try:
             fn()
             ok(False, "%s: not refused" % what)
@@ -625,6 +653,7 @@ def main():
     truncate()
     stamps_and_modes()
     policy()
+    ro_and_r2()
     unspecified()
     scripts()
     print("FAIL %d (PASS %d)" % (failed, passed) if failed else "PASS %d" % passed)
