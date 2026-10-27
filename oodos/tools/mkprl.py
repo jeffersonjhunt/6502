@@ -10,8 +10,8 @@ and its zero page segment 2 above, c two pages above a and its zero page 5 above
 images must move in b and c as one of three classes: not at all; by a page (1, then 2: the high byte
 of an address in the image); or by the zero page offsets (2, then 5: a zero page address in the
 image). Anything else is refused, with where. So is a zero page address that isn't the operand of a
-zero page or immediate instruction in CODE (prog.a.map gives CODE): it would be a 16-bit pointer to
-zero page, against rule 2.
+zero page or immediate instruction in CODE (prog.a.map gives CODE): a 16-bit pointer to zero page, a
+byte of data or an absolute operand, against rule 2.
 
 The .PRL is a's header and image, then the page bitmap, then the zero page bitmap: a bit for each
 byte of the image, the first byte in bit 7 of the first bitmap byte. Each bitmap starts on a record
@@ -134,8 +134,8 @@ def make(a, b, c, code, name_a="a", name_b="b", name_c="c"):
             pages[i >> 3] |= 0x80 >> (i & 7)
         elif d == zp and ha["zpsize"]:
             if i not in operands:
-                raise Refused("%s: $%02X, a zero page address that isn't the operand of a zero page or immediate"
-                              " instruction in CODE: a 16-bit pointer to zero page (rule 2)" % (where, ia[i]))
+                raise Refused("%s: $%02X, a zero page address outside a CODE zero page/immediate operand (rule 2:"
+                              " keep zero page addresses to operands and immediates)" % (where, ia[i]))
             zps[i >> 3] |= 0x80 >> (i & 7)
         else:
             raise Refused("%s: $%02X, $%02X and $%02X in the three links, moving by %d and %d: neither a page"

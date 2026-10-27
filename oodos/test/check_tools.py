@@ -300,7 +300,7 @@ def mkprl_checks(hello, tmp):
         o = assemble(tmp, name, program(body, data))
         t = links(o, os.path.join(tmp, name))
         refused(lambda: mkprl.make(*t), "mkprl: %s" % (data.split(": ")[-1] + " in RODATA" if data else body.strip()),
-                "16-bit pointer to zero page")
+                "outside a CODE zero page/immediate operand (rule 2")
     o = assemble(tmp, "zpok", program("        .pc02\n        lda zp\n        sta (zp),y\n        ldx #zp\n        lda zp+1,x\n"
                                       "        lda (zp,x)\n        lda (zp)\n        ldx #<(zp+1)"))
     ok(mkprl.make(*links(o, os.path.join(tmp, "zpok"))) is not None,
@@ -371,7 +371,7 @@ def rules_checks(hello, tmp):
     ok(status and "rule 1" in out and not made, "make rule1.com with a planted RMB0 fails")
     # A 16-bit pointer to zero page passes the rules, which see CODE only, and stops at mkprl.
     status, out, made = build(tmp, "zpptr", "prl", program("        lda #<msg", "msg: .word zp"))
-    ok(status and "16-bit pointer to zero page" in out and not made, "make zpptr.prl with a planted .word zp fails")
+    ok(status and "outside a CODE zero page/immediate operand" in out and not made, "make zpptr.prl with a planted .word zp fails")
     # An initialized zero page byte: ld65 drops it with a warning, and the build fails, for both.
     for kind in ("com", "prl"):
         status, out, made = build(tmp, "zpinit", kind, program("        lda zp", zp="zp:     .byte 5"))
