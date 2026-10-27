@@ -7,7 +7,8 @@
 ;   DPB d <17 bytes>         its DPB, copied out of the system bank by XMOVE
 ;   WRITE d rr / READ d rr   a sector out and back: the last of the drive
 ;   SAME d Y|N               and whether it came back as it went
-;   BOUNCE d rr Y|N          the same READ into a buffer across $4000
+;   BOUNCE d rr Y|N          the same READ into a buffer across $4000, W1 on
+;                            block 4 for it, so the halves aren't one run
 ;   PAST A rr                READ A: past its last track
 ;   ERRORS M rr rr           READ M: past its last track, and a sector 16
 ;   LABEL M <16 bytes>       M: directory's first 16 bytes
@@ -29,7 +30,7 @@
         .include "printzp.inc"
 
 BUF     = $2000                         ; a sector's buffer
-CROSS   = $3F00                         ; one across W0 and W1
+CROSS   = $3F00                         ; one across W0 and W1, W1 moved to block 4
 
         .code
 start:  ldx     #0                      ; A-G, then M
@@ -65,6 +66,8 @@ start:  ldx     #0                      ; A-G, then M
         jsr     roundtrip
         lda     #'A'
         jsr     report
+        lda     #4                      ; W1 on block 4: $3F00-$40FF isn't one run
+        sta     NB_WIN1
         lda     #<CROSS
         ldx     #>CROSS
         jsr     setdma
@@ -80,6 +83,8 @@ start:  ldx     #0                      ; A-G, then M
         lda     #>CROSS
         jsr     compare
         jsr     CRLF
+        lda     #1                      ; W1 back
+        sta     NB_WIN1
 
         ; A: past its last track: the card refuses it
         lda     #<1024

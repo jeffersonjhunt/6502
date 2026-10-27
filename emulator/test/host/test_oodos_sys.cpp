@@ -673,6 +673,12 @@ TEST(biostest_reaches_every_bios_entry_through_function_50)
     }
     CHECK(card);
     CHECK(mdisk);
+    // BOUNCE's halves: $3F00-$3FFF in block 0, then $4000-$40FF in block 4 (W1 moved for it).
+    bool halves = true;
+    for (uint32_t i = 0; i < 256; ++i)
+        halves = halves && r.phys(0x3F00 + i) == static_cast<uint8_t>(i ^ 0x5A) &&
+                 r.phys(4 * BLOCK + i) == static_cast<uint8_t>(i ^ 0x5A);
+    CHECK(halves);
     // The read-only unit's write never reached the card: B: is the same file.
     CHECK(r.read_unit(2, 0)[0] == 0x20);
 }
