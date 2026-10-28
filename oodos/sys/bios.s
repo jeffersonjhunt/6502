@@ -1436,7 +1436,15 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
 ; $8000 a drive that isn't changed under the system, so no checksums. The
 ; DPBs are in common memory, so function 31 can give a program one.
 
+; What the BDOS and the BIOS assume of a DPB, checked as it's assembled.
 .macro DPB spt, bsh, exm, dsm, drm, al0, al1
+.assert spt = 64, error, "SPT: 16 sectors of 512 bytes a track, as LBA = track x 16 + sector"
+.assert bsh >= 3 && bsh <= 7, error, "BSH 3-7: a block of 2 sectors at least (RECSEC), of an extent at most (FPIDX)"
+.assert dsm < 4096, error, "DSM: 4,096 blocks at most, a 512-byte allocation vector"
+.assert drm < 2048, error, "DRM: 2,048 entries at most, the hash's 8 KB a drive"
+.assert (dsm + 1) << (bsh - 2) <= 65536, error, "the drive's sectors: LBA is 16 bits"
+.assert exm = (1 << (bsh - 3 - (dsm > 255))) - 1, error, "EXM: CP/M 3's, from BSH and DSM"
+.assert (al0 << 8 | al1) = ($FFFF << (16 - ((drm + 1) * 32 + (128 << bsh) - 1) / (128 << bsh))) & $FFFF, error, "AL0 and AL1: the directory's blocks"
                 .word   spt
                 .byte   bsh, (1 << bsh) - 1, exm
                 .word   dsm, drm
