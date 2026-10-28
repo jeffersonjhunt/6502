@@ -1097,18 +1097,24 @@ copyright and MIT notice.
 - **`test_oodos_model`, in ctest:** DRIVER.COM on the emulator's W65C02S with the model as its BDOS
   (`modeltest.py serve`, over a pipe), 9 seeds over the three formats, compared with the model's own run:
   driver, formats and reference driver agree. The model made wrong on purpose (no update stamp, an RC one
-  short, open's directory code 0, a byte of data) fails the comparison, which names the seed and the
-  operation. DRIVER.COM runs under OODOS.SYS from A: and says `DRIVER OK`, and the harness's images
+  short, open's directory code 0, a byte of data, an attribute bit in A:'s directory) fails the comparison,
+  which names the seed and the operation. DRIVER.COM runs under OODOS.SYS from A: and says `DRIVER OK`, and the harness's images
   are checked: A:'s entries off the card, M:'s directory as cold boot made it, the model's mkfs at that minute.
   `test_oodos_model_py` is the model's own tests: the DPBs, mkfs against `sd/oodos-ram.sparse`, and hand-worked
   cases from the manual's rules, each a scenario and the directory bytes it leaves; the script format, the
-  generator's determinism and the comparison finding a changed result, block, RC and stamp.
+  generator's determinism and the comparison finding a changed result, block, RC and stamp; `modeltest.py
+  sparse` letting a hole through but not a block past RC; the default seeds reaching every edge.
 - **Against OODOS's BDOS:** with `OODOS_MODEL_BDOS` on (the CMake option, on since 2026-10-27; `OODOS_MODEL_BDOS=0`
   or `1` for one run), each seed's A: (and B:, `oodos-8m` or `oodos-32m`, or M:) goes on a card, OODOS.SYS boots
   on `backplane.machine`, `DRIVER` runs at the CCP, and the results and the drive under test are compared with
-  the model's (`--compare renumber`, X compared). ctest runs seeds 1, 4, 6, 14, 41 and 45 (the three formats; each
-  BDOS bug the comparison found fails at least one of them), under 4 minutes under ASan (TIMEOUT 900); seeds
-  1–600 pass, run by hand (`OODOS_MODEL_SEEDS=1-600 OODOS_MODEL_ONLY=1`, a process a seed in parallel:
+  the model's (`--compare renumber`, X compared), then A:'s directory, SFCBs and files but RESULT.BIN's records
+  (the results, compared by their rules). Whatever stops a comparison (no RESULT.BIN, a script the model can't
+  predict, an image missing) is a FAIL. ctest runs seeds 1, 4, 6, 10, 14, 24, 41 and 45 (`modeltest.py seeds`:
+  the three formats; each BDOS bug the comparison found fails at least one of them; between them, which
+  `test_model.py` checks, a write's 2 on a full disk, make's $FF on a full directory on M: and on B:, and X 2 from a
+  read-only drive), about 7 minutes under ASan (TIMEOUT 1200). With the comparison off, its case says it's
+  skipped and the test exits 77, which ctest counts as skipped. Seeds 1–600 pass, run by hand
+  (`oodos/test/model_seeds.sh`, a process a seed in parallel, counting each seed's exit status and PASS line:
   [oodos/README.md](../oodos/README.md)). `OODOS_MODEL_CUT=N` runs a seed's first N operations, to find where a
   difference starts.
 - **What the comparison found** (2026-10-27, each settled by the Guide or, where it is silent, the BDOS's way, in
@@ -1122,7 +1128,8 @@ copyright and MIT notice.
   model's empty drives against `mkfs.cpm -t`'s, byte for byte; then each seed's drive through `fsck.cpm`,
   `cpmls -F` (every file's stamps) and `cpmcp` (every file's contents). fsck.cpm 2.23 takes a sparse file's
   last extent for a bad record count (it wants RC's records in that many blocks); those entries, and only
-  those, are let through, as interop.sh lets its first-slot warning.
+  those, are let through, as interop.sh lets its first-slot warning: a hole in the blocks RC needs. A block
+  past them is an RC too small, and fails.
 - **Each check can fail:** seen to fail with DRIVER.COM's pattern step wrong, the model's EXM from 1 KB
   blocks, no update stamp, CR advanced by a random write, user 0's files opened without SYS, the comparison
   skipping records or RC, and (cpmtools) block numbers high byte first and an update stamp a minute out.
