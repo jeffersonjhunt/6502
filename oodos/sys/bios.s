@@ -78,7 +78,7 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 
@@ -123,6 +123,8 @@ SIDE_D          = 4
 
 .segment "SYSBSS"
 DRVRO:          .res    SD_DRIVES      ; bit 1: the unit is read-only
+DRVCHG:         .res    1              ; bit n: unit n + 1 changed at a rescan (the BDOS clears it)
+UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
 
 .segment "BIOS"
 
@@ -366,6 +368,9 @@ SELDSK:         CMP     #16
                 CMP     #SD_DRIVES
                 BCS     @known
                 JSR     UNITS          ; a first select: what is mounted now
+                BCC     @known
+                PLA                    ; no units table: no drive this time
+                BRA     @none
 @known:         PLA
                 ASL     A
                 TAY
@@ -384,14 +389,13 @@ SELDSK:         CMP     #16
 
 UNITTAB         = SECBUF + $40         ; IDENTIFY's: 32 bytes a unit, 1-7
 
-; IDENTIFY's units table into DRVTAB, DPHs and DRVRO. A card that isn't
-; there or not started up, or doesn't answer within about a second, leaves
-; A-G empty; one still busy is reset (CTRL's RESET), as SDIO resets it.
-UNITS:          LDX     #2 * SD_DRIVES - 1
-@clear:         STZ     DRVTAB,X
-                DEX
-                BPL     @clear
-                JSR     CARDOK
+; IDENTIFY's units table into DRVTAB, DPHs and DRVRO, carry clear; each
+; unit whose entry isn't the last table's (its size, flags or file's name)
+; set in DRVCHG, for the BDOS to log its drive out, so a rescan leaves a
+; drive whose unit is as it was alone. A card that isn't there or not
+; started up, or doesn't answer within about a second, changes nothing,
+; carry set; one still busy is reset (CTRL's RESET), as SDIO resets it.
+UNITS:          JSR     CARDOK
                 BCS     @none
                 JSR     SDIDLE         ; a command written while BUSY is ignored
                 BCS     @stuck
@@ -402,7 +406,8 @@ UNITS:          LDX     #2 * SD_DRIVES - 1
                 JSR     SDDATA
                 BCC     @read
 @stuck:         JSR     SDRESET        ; abandoned, as SDIO does, so the next one can go
-@none:          RTS                    ; failed: no drives
+@none:          SEC                    ; failed: the drives as they were
+                RTS
 @read:          LDY     #0
 @lo:            LDA     SD_DATA
                 STA     SECBUF,Y
@@ -413,6 +418,32 @@ UNITS:          LDX     #2 * SD_DRIVES - 1
                 INY
                 BNE     @hi
                 JSR     SDIDLE         ; and IDENTIFY's end, before anything else
+                LDA     #1             ; each unit's entry against the last table's:
+                STA     SPTR           ; SPTR its bit, SPTR + 1 any byte not the same
+                LDY     #0
+@entry:         STZ     SPTR + 1
+                LDX     #32
+@byte:          LDA     UNITTAB,Y
+                CMP     UNITSAV,Y
+                BEQ     @same
+                STA     UNITSAV,Y
+                LDA     #1
+                STA     SPTR + 1
+@same:          INY
+                DEX
+                BNE     @byte
+                LDA     SPTR + 1
+                BEQ     @kept
+                LDA     SPTR
+                ORA     DRVCHG
+                STA     DRVCHG
+@kept:          ASL     SPTR
+                CPY     #SD_DRIVES * 32
+                BNE     @entry
+                LDX     #2 * SD_DRIVES - 1
+@clear:         STZ     DRVTAB,X
+                DEX
+                BPL     @clear
                 LDX     #0             ; X the drive, Y its entry
                 LDY     #0
 @unit:          LDA     UNITTAB + 4,Y
@@ -464,7 +495,8 @@ UNITS:          LDX     #2 * SD_DRIVES - 1
                 INX
                 CPX     #SD_DRIVES
                 BNE     @unit
-@done:          RTS
+@done:          CLC
+                RTS
 
 ; Carry clear if the card is there and started up.
 CARDOK:         LDA     SD_ID

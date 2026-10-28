@@ -51,7 +51,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import DRVRO
+.import DRVRO, DRVCHG
 
 DPH_DPB         = 12                   ; the DPH's DPB pointer
 
@@ -74,6 +74,7 @@ STOFS:          .res    1              ; the slot's offset in its SFCB
 SDID:           .res    2              ; the entry SFCBAT came from
 UDID:           .res    2              ; the entry STAMPU came from
 LOGL:           .res    1              ; LOGIN: a label seen
+CHG:            .res    1              ; CHANGED's drives to go
 .exportzp DBCB, AP, AMASK, MK
 
 .segment "BDOS"
@@ -96,6 +97,7 @@ SELECT:         STA     CDRV
                 JSR     DSLOT
                 BCS     @bad
                 STA     CSLOT
+                JSR     CHANGED        ; a rescan since (a program's SELDSK)
                 LDA     CDRV
                 JSR     DRVBIT
                 AND     LOGVEC,X
@@ -103,6 +105,44 @@ SELECT:         STA     CDRV
                 JMP     LOGIN
 @bad:           LDA     #ER_SELECT
                 JMP     DERR
+
+; The drives whose unit changed at a rescan of the units (the BIOS's
+; DRVCHG) logged out, read-write, their buffers dropped, not written: the
+; card's unit isn't what they came from. A drive not logged in has nothing
+; to drop; one whose unit is as it was is left alone.
+CHANGED:        LDA     DRVCHG
+                BEQ     @done
+                STA     CHG
+                STZ     DRVCHG
+                LDX     #0             ; X the drive
+@drive:         LSR     CHG
+                BCC     @next
+                PHX
+                TXA
+                JSR     DRVBIT
+                AND     LOGVEC,X
+                BEQ     @out
+                PLX
+                PHX
+                TXA
+                INC     A
+                JSR     PURGED
+                PLX
+                PHX
+                TXA
+                JSR     DRVBIT
+                EOR     #$FF
+                PHA
+                AND     LOGVEC,X
+                STA     LOGVEC,X
+                PLA
+                AND     ROVEC,X
+                STA     ROVEC,X
+@out:           PLX
+@next:          INX
+                LDA     CHG
+                BNE     @drive
+@done:          RTS
 
 ; CD from the slot's DTAB entry, and where its hash and ALV are (PLACES).
 LOADCD:         LDA     CSLOT
@@ -169,7 +209,8 @@ LOGIN:          JSR     PLACES
                 BNE     @dph
                 LDA     #ER_SELECT
                 JMP     DERR
-@dph:           LDA     CDRV
+@dph:           JSR     CHANGED        ; the units read again: others changed?
+                LDA     CDRV
                 INC     A
                 STA     BIOSDRV
                 LDA     #BIOS_BLOCK    ; the DPH is the BIOS's
