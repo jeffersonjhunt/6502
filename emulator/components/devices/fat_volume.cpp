@@ -175,7 +175,7 @@ namespace ooe::emu
 
     uint32_t FatVolume::next(uint32_t cluster) const
     {
-        uint8_t s[SECTOR];
+        uint8_t s[SECTOR]{}; // zeroed: GCC's -O2 can't see read_sector fill it, and -Werror stops the release build
         if (type_ == 12)
         {
             const uint64_t at = cluster + cluster / 2; // 1.5 bytes an entry, which may span two sectors
