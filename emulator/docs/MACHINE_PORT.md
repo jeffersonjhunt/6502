@@ -17,7 +17,7 @@ Everything in the port is something the real board can also do:
 | Card registers | `cardRead`, `cardWrite` | the card's SPI header, which the ESP32 plugs into |
 | Serial | `sendSerial`, `FrameState.serialOut` | the serial card |
 | Inspection | `readMemory`, `physical`, `resolve`, `readTrace`, `FrameState.lights`, `FrameState.regs` | memory and the latched cycle over SPI; the lamps; the bus spy's trace |
-| Video | `watchVideo`, `FrameState.video` | the video card's VGA output (a capture device, for the board) |
+| Video | `watchVideo`, `FrameState.video`, `FrameState.videoCard` | the video card's VGA output (a capture device, for the board); its CTRL and layer 0's setup, read without a bus cycle, so the page can tell a program's picture from the BIOS's text screen |
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
 | Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
 | Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the Floppy Emu in the drive's place: an image in, out, written back; the drive's light |
@@ -93,6 +93,11 @@ show the latched cycle, or what EXAM/DEP last touched.
   frame are used.
 - **Files:** the module has `backplane.machine`, the BIOS and its labels
   built in, so `connect()` needs no fetches beyond the module itself.
+  `connect()` answers the BIOS's version, read from the greeting in its ROM.
+- **The owner's BIOS:** `new WasmPort({ bios })` writes a ROM of the
+  owner's own build into the module's file system (and no further) and
+  opens the machine on it, with no labels (the built-in ones are another
+  build's). A new BIOS is a new machine: the page restarts to change it.
 - **Strings are bytes** (Latin-1), as a serial line is.
 - **Speed:** ~21 MHz under node; real time at 7.16 MHz is about a third of a
   core. If that is ever too much for the main thread, the same interface

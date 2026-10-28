@@ -10,7 +10,7 @@ import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
 import { fakeSid } from "./fake-sid";
-import { coreUrl, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, wallClock, type CoreModule, type Scheduler } from "./wasm-port";
+import { biosVersion, coreUrl, MAX_BIOS, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, wallClock, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
 const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
@@ -41,6 +41,14 @@ beforeAll(() => {
   load = async () => ((await import(pathToFileURL(core).href)) as { default: () => Promise<CoreModule> }).default();
 });
 
+/** Where "0.9" is in "BACKPLANE BIOS 0.9" in a ROM. */
+function biosVersionAt(rom: Uint8Array): number {
+  const text = Array.from(rom, (b) => String.fromCharCode(b)).join("");
+  const at = text.indexOf("BACKPLANE BIOS 0.9");
+  expect(at).toBeGreaterThanOrEqual(0);
+  return at + "BACKPLANE BIOS ".length;
+}
+
 const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
 const hex2 = (n: number) => n.toString(16).toUpperCase().padStart(2, "0");
 
@@ -55,12 +63,12 @@ async function biosLabel(name: string): Promise<number> {
   return parseInt(line![1], 16);
 }
 
-async function open() {
+async function open(bios?: Uint8Array) {
   const clock = new ManualClock();
-  const port = new WasmPort({ load, scheduler: clock });
+  const port = new WasmPort({ load, scheduler: clock, bios });
   const frames: FrameState[] = [];
   port.onFrame((f) => frames.push(f));
-  await port.connect();
+  const connected = await port.connect();
   let out = "";
   const step = (ms = FRAME_MS) => {
     clock.t += ms;
@@ -73,7 +81,7 @@ async function open() {
     for (let i = 0; i < max && !out.includes(want); ++i) step();
     return out.includes(want);
   };
-  return { port, clock, step, until, output: () => out, clear: () => (out = "") };
+  return { port, clock, step, until, connected, output: () => out, clear: () => (out = "") };
 }
 
 describe("the real-time clock", () => {
@@ -586,6 +594,38 @@ describe("WasmPort", () => {
     m.port.setPower(false);
     m.port.setPower(true);
     expect(m.step().soundRunning).toBe(false); // a power cycle: gone
+  });
+
+  test("the video card's registers in every frame: the BIOS's text screen, then the demo's own picture", async () => {
+    const m = await open();
+    expect(m.until(GREETING)).toBe(true);
+    expect(m.step().videoCard).toEqual({ ctrl: 0x03, layer0: 0x80, map0: 8 }); // VINIT: layer 0, text 80x30 at unit 8
+    m.port.sendSerial(ascii("C803R\r"));
+    let f = m.step();
+    for (let i = 0; i < 120 && f.videoCard?.ctrl !== 0x0f; ++i) f = m.step();
+    expect(f.videoCard?.ctrl).toBe(0x0f); // display, both layers, sprites
+    expect(f.videoCard!.layer0 & 7).toBe(2); // tiles
+    m.port.setPower(false);
+    expect(m.step().videoCard).toBeNull();
+  });
+
+  test("the owner's BIOS: opened instead of the built-in one, its version read from it", async () => {
+    const builtIn = await open();
+    expect(builtIn.connected.bios).toBe("0.9");
+    const core = await load();
+    const rom = core.FS!.readFile("/roms/bios.rom").slice();
+    const at = biosVersionAt(rom);
+    rom.set(ascii("7.7"), at); // a build of its own: "BACKPLANE BIOS 7.7"
+    const mine = await open(rom);
+    expect(mine.connected.bios).toBe("7.7");
+    expect(mine.until("BACKPLANE BIOS 7.7")).toBe(true);
+    expect(await mine.port.resolve("ECHO")).toBeNull(); // no labels: the built-in ones are another build's
+    expect(biosVersion(ascii("nothing here"))).toBe("");
+  });
+
+  test("a BIOS bigger than the flash is a rejection with the reason", async () => {
+    const port = new WasmPort({ load, scheduler: new ManualClock(), bios: new Uint8Array(MAX_BIOS + 1) });
+    await expect(port.connect()).rejects.toThrow(/cannot open/);
   });
 
   test("a machine that will not open is a rejection with the reason", async () => {

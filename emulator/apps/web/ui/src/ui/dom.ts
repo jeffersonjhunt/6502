@@ -62,6 +62,12 @@ export const prefs = {
   },
 };
 
+/** A button hid (`from`, picked or pressed): focus its counterpart, if focus was on it or has dropped to the page. */
+export function passFocus(from: HTMLElement, to: HTMLElement): void {
+  const at = document.activeElement;
+  if (!at || at === from || at === document.body) to.focus();
+}
+
 const TAB_STOPS = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]';
 
 /**

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
+import { openDebugger, openSettings, phosphor } from "./ui";
 
 // The real enhanced IIe in the browser, when the owner's ROMs are in the
 // gitignored fixtures (test/host/fixtures/apple2e, index.txt): picked as
@@ -41,12 +42,13 @@ test("the owner's enhanced IIe: boots to Applesoft, answers, Ctrl-Reset keeps th
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
     { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
   ]);
-  await expect(page.getByTestId("apple-insert")).toHaveText("IIe ROM ✓");
-  await expect(page.getByTestId("apple-note")).toHaveText("No Disk II PROMs: the drive needs its boot ROM and sequencer");
+  await expect(page.getByTestId("apple-meta")).toHaveText("16 KB · yours, kept in this browser");
+  await expect(page.getByTestId("apple-note")).toHaveText("The machine restarted. No Disk II PROMs: the drive needs its boot ROM and sequencer");
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await openSettings(page);
   await page.getByTestId("apple-start").click();
   await expect.poll(() => row(page, 0), { timeout: 10_000 }).toBeGreaterThan(50); // "Apple //e"
-  await page.getByRole("button", { name: "Colour" }).click();
+  await phosphor(page, "Colour");
   await page.waitForTimeout(1500);
   let prompt = -1; // the last lit row: the "]" and its cursor
   for (let r = 0; r < 24; ++r) if ((await row(page, r)) > 0) prompt = r;
@@ -88,9 +90,10 @@ test("a program pasted into the IIe, faster than Applesoft takes it, arrives who
     { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
   ]);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await openSettings(page);
   await page.getByTestId("apple-start").click();
   await expect.poll(() => row(page, 0), { timeout: 10_000 }).toBeGreaterThan(50);
-  await page.getByRole("button", { name: "Colour" }).click();
+  await phosphor(page, "Colour");
   await page.getByTestId("crt").click();
   const program = "10 GR\n20 FOR I = 0 TO 15: COLOR= I\n30 FOR X = I * 2 + 4 TO I * 2 + 5: VLIN 0,39 AT X: NEXT: NEXT\nRUN\n";
   await page.getByTestId("crt").evaluate((glass, text) => {
@@ -119,14 +122,16 @@ test("the Disk II boots The Oregon Trail from the owner's WOZ, the drive light o
     { name: P5, mimeType: "application/octet-stream", buffer: readFileSync(dir + P5) },
     { name: P6, mimeType: "application/octet-stream", buffer: readFileSync(dir + P6) },
   ]);
-  await expect(page.getByTestId("apple-note")).toHaveText("");          // nothing missing
+  await expect(page.getByTestId("apple-note")).toHaveText("The machine restarted"); // nothing missing
   await page.getByTestId("disk-file").setInputFiles({ name: "The Oregon Trail.woz", mimeType: "application/octet-stream", buffer: readFileSync(woz) });
-  await expect(page.getByTestId("disk-insert")).toHaveText("The Oregon Trail.woz");
+  await expect(page.getByTestId("disk-name")).toHaveText("Drive 1 · The Oregon Trail.woz");
   await expect(page.getByTestId("disk-note")).toHaveText("Start Apple IIe boots it");
-  await page.getByRole("button", { name: "Colour" }).click();
+  await phosphor(page, "Colour");
+  await openSettings(page);
   await page.getByTestId("apple-start").click();
   await expect(page.getByTestId("disk-light")).toHaveClass(/on/, { timeout: 10_000 });
   await expect(page.getByTestId("disk-note")).toHaveText("");
+  await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const video = page.getByTestId("dev-apple").locator('[data-reg="Video"]');
   await expect(video).toHaveText("hi-res · page 2", { timeout: 30_000 });
@@ -146,6 +151,7 @@ test("a disk put in at BASIC's prompt boots on Reboot, and the drive says so", a
     { name: P5, mimeType: "application/octet-stream", buffer: readFileSync(dir + P5) },
     { name: P6, mimeType: "application/octet-stream", buffer: readFileSync(dir + P6) },
   ]);
+  await openSettings(page);
   await page.getByTestId("apple-start").click();
   await expect(page.getByTestId("disk-note")).toHaveText(/^No disk: the IIe waits for one/, { timeout: 10_000 });
   await page.getByTestId("apple-reset").click(); // to BASIC
