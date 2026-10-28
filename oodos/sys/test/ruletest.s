@@ -88,6 +88,10 @@
 ;   Z   on B:: SWAPWB.TXT made, its record ($A5C3's) written, not closed;
 ;       SWAP?; then the program's end, whose warm boot reads the units
 ;       again before its 48, so the buffer is dropped
+;   P   on B:: PERM.DAT's record ($1404's) written and closed, its block
+;       the directory's; opened, the record written again in place
+;       ($A5C3's), not closed; FAULT? (that record won't write), then the
+;       program's end: the warm boot's 48 fails (said), 98 keeps the buffer
 ;   U   the user 5: USER SET
 ;   V   USER uu
 
@@ -157,6 +161,9 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'Z'
         bne     :+
         jmp     casez
+:       cmp     #'P'
+        bne     :+
+        jmp     casep
 :       cmp     #'X'
         bne     :+
         jmp     casex
@@ -645,6 +652,26 @@ casez:  lda     #1
         NAME    fcb, "SWAPWB  TXT"
         jsr     marked
         KEYWAIT "SWAP?"
+        jmp     done
+
+; ---------------------------------------------------------------------------
+
+casep:  lda     #1
+        sta     TDRV
+        NAME    fcb, "PERM    DAT"
+        lda     #$04
+        ldx     #$14
+        jsr     setrn
+        jsr     onerec
+        CALLF   F_CLOSE, fcb            ; its block in the permanent vector
+        NAME    fcb, "PERM    DAT"
+        CALLF   F_OPEN, fcb
+        lda     #$C3                    ; record 0 again, in its buffer
+        ldx     #$A5
+        jsr     setrn
+        jsr     FILL
+        CALLF   F_WRITE, fcb
+        KEYWAIT "FAULT?"
         jmp     done
 
 ; ---------------------------------------------------------------------------

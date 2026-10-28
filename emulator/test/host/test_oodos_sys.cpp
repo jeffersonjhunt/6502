@@ -2023,6 +2023,7 @@ TEST(a_buffer_that_wont_write_fails_only_the_close_that_needs_it)
     CHECK_EQ(field(o, "SRDCLOSE"), std::string("00 00"));
     CHECK_EQ(field(o, "SOKCLOSE"), std::string("00 00"));
     CHECK_EQ(field(o, "SCLOSE2"), std::string("FF 01")); // still not written: still fails
+    CHECK(o.find("OODOS Error On B: Disk I/O\r\nBDOS Function = 48") != std::string::npos); // the warm boot's
     const std::string t = ruletest(r, 'T');
     CHECK_EQ(field(t, "TRDCLOSE"), std::string("00 00"));
     CHECK_EQ(field(t, "TWCLOSE"), std::string("00 00"));
@@ -2039,6 +2040,32 @@ TEST(a_buffer_that_wont_write_fails_only_the_close_that_needs_it)
     CHECK_EQ(dir[rd[0] * 32 + 15], 2); // RC 2
     CHECK(b.record(dir, rd, 1) == pattern_record(0x1102));
     CHECK(b.entries_of(dir, 0, "BAD     DAT").size() == 1); // made, never closed: RC 0
+}
+
+TEST(the_warm_boot_keeps_a_closed_files_record_that_wont_write)
+{
+    // PERM.DAT closed, so its block is the directory's; its record written again in place and the
+    // program ends without a close, the card failing that record: the warm boot's 48 says Disk
+    // I/O on B:, and 98 keeps the buffer (the block isn't one it frees), so once the card writes
+    // the next warm boot's 48 puts the record on the card, where PERM.DAT's entry points.
+    Rig r;
+    REQUIRE(r.ok);
+    auto fm = faulty(r);
+    const std::vector<uint8_t> badrec = pattern_record(0xA5C3);
+    const std::string o = ruletest(r, 'P', {{"FAULT?", [&] { fm->bad = badrec; }}});
+    const size_t done = o.find("RULETEST DONE");
+    REQUIRE(done != std::string::npos);
+    CHECK(o.find("OODOS Error On B: Disk I/O\r\nBDOS Function = 48", done) != std::string::npos);
+    CHECK_EQ(on_card(r, badrec), size_t{0});
+    fm->bad.clear();
+    r.go("hello.com"); // a program's end: the warm boot's 48 with the card writing
+    CHECK_EQ(on_card(r, badrec), size_t{1});
+    CpmDisk b{r, 2};
+    const std::vector<uint8_t> dir = b.directory();
+    const std::vector<unsigned> es = b.entries_of(dir, 0, "PERM    DAT");
+    REQUIRE(es.size() == 1);
+    CHECK_EQ(dir[es[0] * 32 + 15], 1); // RC 1
+    CHECK(b.record(dir, es, 0) == badrec);
 }
 
 TEST(a_flush_writes_every_buffer_it_can_then_says_what_failed)
