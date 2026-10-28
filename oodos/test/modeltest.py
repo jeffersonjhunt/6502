@@ -95,8 +95,8 @@ def cmd_prepare(o):
 
 class Faulty(M.Bdos):
     """The model made wrong on purpose, for the test that the comparison can fail: the update stamp
-    never written, an entry's RC one short, open's directory code 0, a byte of record 5 of each extent
-    (the last two on the drive under test, not A:)."""
+    never written, an entry's RC one short, open's directory code 1 (the Guide's is 0), a byte of record
+    5 of each extent (the last two on the drive under test, not A:)."""
 
     fault = None
 
@@ -117,7 +117,7 @@ class Faulty(M.Bdos):
 
     def f15(self, a, x, mem):
         r = super().f15(a, x, mem)
-        return (0, r[1]) if self.fault == "code" and r[0] < 4 else r
+        return (1, r[1]) if self.fault == "code" and r[0] == 0 else r
 
     def _write_rec(self, s, dv, c, data, zero):
         if self.fault == "data" and c == 5 and s.drive:
