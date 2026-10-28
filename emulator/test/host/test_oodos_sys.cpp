@@ -1895,13 +1895,33 @@ TEST(a_rescan_of_the_units_logs_out_only_the_drives_that_changed)
     CHECK_EQ(dir[es2[0] * 32 + 15], 0); // RC 0
 }
 
-/// A card whose writes fail while `fail` is set, as a card that has gone bad would.
+/// A card whose writes fail while `fail` is set, as a card that has gone bad would; and, while
+/// `bad` is set, each write of a sector that starts with those bytes (one bad sector's).
 struct FaultyMedia : MemoryMedia
 {
     using MemoryMedia::MemoryMedia;
     bool fail{false};
-    bool write(uint64_t lba, const uint8_t *in) override { return !fail && MemoryMedia::write(lba, in); }
+    std::vector<uint8_t> bad;
+    bool write(uint64_t lba, const uint8_t *in) override
+    {
+        if (fail || (!bad.empty() && std::equal(bad.begin(), bad.end(), in)))
+            return false;
+        return MemoryMedia::write(lba, in);
+    }
 };
+
+/// The rig's card made a FaultyMedia, units 1 and 2 A.IMG and B.IMG, OODOS booted.
+std::shared_ptr<FaultyMedia> faulty(Rig &r)
+{
+    auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
+    r.media = fm;
+    r.sd().insert(fm, false);
+    r.run(ms(SdCard::INIT_MS + 10));
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    CHECK(r.boot());
+    return fm;
+}
 
 /// A rig whose units 1 and 2 are A.IMG and B.IMG, B: (unit 2) swapped for A.IMG at RULETEST's
 /// SWAP? (case `c`); the card's bytes then, and the output.
@@ -1984,6 +2004,73 @@ TEST(a_failed_write_back_keeps_the_buffer_so_the_close_fails_again)
     for (unsigned n = 0; n < 4; ++n)
         CHECK(b.record(dir, es, n) == pattern_record(n));
     CHECK(b.record(dir, es, 4) == std::vector<uint8_t>(RECORD, 0)); // dropped by the 37
+}
+
+TEST(a_buffer_that_wont_write_fails_only_the_close_that_needs_it)
+{
+    // BAD.DAT's record won't write (one bad sector): its close fails, and again, kept marked. A
+    // close that puts nothing of it in the directory doesn't fail on it: RD.DAT's, opened and
+    // only read, and OK.DAT's, written and its data on the card. After the warm boot, 98 has
+    // dropped the marked buffer (BAD.DAT wasn't closed, and its blocks are free): B:'s closes
+    // work, and once the card writes, the next warm boot's 48 has nothing of BAD.DAT's to write.
+    Rig r;
+    REQUIRE(r.ok);
+    auto fm = faulty(r);
+    const std::vector<uint8_t> badrec = pattern_record(0xA5C3);
+    const std::string o = ruletest(r, 'S', {{"FAULT?", [&] { fm->bad = badrec; }}});
+    CHECK_EQ(field(o, "SFLUSH"), std::string("00 00"));
+    CHECK_EQ(field(o, "SCLOSE1"), std::string("FF 01"));
+    CHECK_EQ(field(o, "SRDCLOSE"), std::string("00 00"));
+    CHECK_EQ(field(o, "SOKCLOSE"), std::string("00 00"));
+    CHECK_EQ(field(o, "SCLOSE2"), std::string("FF 01")); // still not written: still fails
+    const std::string t = ruletest(r, 'T');
+    CHECK_EQ(field(t, "TRDCLOSE"), std::string("00 00"));
+    CHECK_EQ(field(t, "TWCLOSE"), std::string("00 00"));
+    fm->bad.clear();
+    r.go("hello.com"); // a program's end: the warm boot's 48 with the card writing
+    CHECK_EQ(on_card(r, badrec), size_t{0});
+    CpmDisk b{r, 2};
+    const std::vector<uint8_t> dir = b.directory();
+    const std::vector<unsigned> ok = b.entries_of(dir, 0, "OK      DAT");
+    REQUIRE(ok.size() == 1);
+    CHECK(b.record(dir, ok, 0) == pattern_record(0x1202));
+    const std::vector<unsigned> rd = b.entries_of(dir, 0, "RD      DAT");
+    REQUIRE(rd.size() == 1);
+    CHECK_EQ(dir[rd[0] * 32 + 15], 2); // RC 2
+    CHECK(b.record(dir, rd, 1) == pattern_record(0x1102));
+    CHECK(b.entries_of(dir, 0, "BAD     DAT").size() == 1); // made, never closed: RC 0
+}
+
+TEST(a_flush_writes_every_buffer_it_can_then_says_what_failed)
+{
+    // Two changed buffers, G1.DAT's (first in 48's order) failing: 48 writes G2.DAT's all the
+    // same and returns Disk I/O; 48 with $FF drops every buffer, the failed one too, so once the
+    // card writes nothing of G1.DAT's reaches it.
+    Rig r;
+    REQUIRE(r.ok);
+    auto fm = faulty(r);
+    const std::vector<uint8_t> badrec = pattern_record(0xA5C3);
+    size_t g2 = 0;
+    const std::string o = ruletest(r, 'G', {{"FAULT?", [&] { fm->bad = badrec; }},
+                                            {"FLUSHED?", [&] { g2 = on_card(r, pattern_record(0x1303)); }},
+                                            {"GOOD?", [&] { fm->bad.clear(); }}});
+    CHECK_EQ(field(o, "GFLUSH"), std::string("FF 01"));
+    CHECK_EQ(g2, size_t{1});
+    CHECK_EQ(field(o, "GPURGE"), std::string("FF 01"));
+    CHECK_EQ(field(o, "GFLUSH2"), std::string("00 00"));
+    CHECK_EQ(on_card(r, badrec), size_t{0});
+}
+
+TEST(the_warm_boot_reads_the_units_so_a_swap_drops_the_buffers)
+{
+    // A record of B:'s in a buffer, unit 2's image swapped, and the program ends with no rescan
+    // of its own: the warm boot has the BIOS read the units before its 48, so the buffer is
+    // dropped, not written into the new image. The card is as it was at the swap.
+    Rig r;
+    REQUIRE(r.ok);
+    const auto [o, swapped] = swap_after_write(r, 'Z');
+    CHECK(r.media->bytes() == swapped);
+    CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{0});
 }
 
 TEST(the_bdos_bugs_the_model_comparison_found_each_a_directed_test)

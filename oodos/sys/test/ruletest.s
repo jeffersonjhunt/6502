@@ -70,6 +70,24 @@
 ;   E   on A: (oodos-32m, EXM 3) after M: (EXM 1) logged in: EXM.DAT, 384
 ;       records (extents 0-2, in one entry), closed: EXMENTS nn, its
 ;       entries (01)
+;   S   on B:: RD.DAT's record written and closed; OK.DAT's written, 48
+;       (SFLUSH aa xx), not closed; BAD.DAT's record ($A5C3's) written, not
+;       closed; FAULT? (the card's writes of that record fail, others not);
+;       SCLOSE1 aa xx (FF 01: its buffer kept, marked); RD.DAT opened, read
+;       and closed, SRDCLOSE aa xx, and OK.DAT closed, SOKCLOSE aa xx (00
+;       00: neither has a sector in the marked buffer); SCLOSE2 aa xx (FF
+;       01: BAD.DAT's still fails)
+;   T   after S's warm boot, the card as it was: on B:: RD.DAT opened and
+;       closed, TRDCLOSE aa xx; its record 1 written, TWCLOSE aa xx (00 00)
+;   G   13 (every buffer empty), then on B:: G1.DAT's record ($A5C3's)
+;       written, then G2.DAT's ($1303's), neither closed; FAULT? (G1.DAT's
+;       record won't write); GFLUSH aa xx: 48 (FF 01), FLUSHED? (G2.DAT's
+;       on the card all the same); GPURGE aa xx: 48 with $FF (FF 01, all
+;       dropped); GOOD? (the card writes); GFLUSH2 aa xx (00 00: nothing
+;       left to write)
+;   Z   on B:: SWAPWB.TXT made, its record ($A5C3's) written, not closed;
+;       SWAP?; then the program's end, whose warm boot reads the units
+;       again before its 48, so the buffer is dropped
 ;   U   the user 5: USER SET
 ;   V   USER uu
 
@@ -127,6 +145,18 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'F'
         bne     :+
         jmp     casef
+:       cmp     #'S'
+        bne     :+
+        jmp     cases
+:       cmp     #'T'
+        bne     :+
+        jmp     caset
+:       cmp     #'G'
+        bne     :+
+        jmp     caseg
+:       cmp     #'Z'
+        bne     :+
+        jmp     casez
 :       cmp     #'X'
         bne     :+
         jmp     casex
@@ -417,14 +447,25 @@ casec:  lda     #1
 done:   SAY     "RULETEST DONE"
         jmp     CRLF
 
-; `fcb` made, its record 0 $A5C3's pattern, not closed: in a buffer.
-marked: CALLF   F_MAKE, fcb
-        lda     #$C3
+; The FCB at FP (NAME's) made, its record 0 $A5C3's pattern (marked) or
+; RN's (onerec), not closed: in a buffer.
+marked: lda     #$C3
         sta     RN
         lda     #$A5
         sta     RN+1
+onerec: lda     FP
+        ldx     FP+1
+        ldy     #F_MAKE
+        jsr     BDOS
         jsr     FILL
-        CALLF   F_WRITE, fcb
+        lda     FP
+        ldx     FP+1
+        ldy     #F_WRITE
+        jmp     BDOS
+
+; RN = A/X.
+setrn:  sta     RN
+        stx     RN+1
         rts
 
 ; ---------------------------------------------------------------------------
@@ -533,6 +574,77 @@ casef:  lda     #1
         TRY     "FRESET ", DRV_RESET, 2
         KEYWAIT "FIXED2?"
         TRY     "FRESET2 ", DRV_RESET, 2
+        jmp     done
+
+; ---------------------------------------------------------------------------
+
+cases:  lda     #1
+        sta     TDRV
+        NAME    fcb, "RD      DAT"
+        lda     #$01
+        ldx     #$11
+        jsr     setrn
+        jsr     onerec
+        CALLF   F_CLOSE, fcb
+        NAME    fcb2, "OK      DAT"
+        lda     #$02
+        ldx     #$12
+        jsr     setrn
+        jsr     onerec
+        TRY     "SFLUSH ", DRV_FLUSH, 0 ; OK.DAT's record on the card
+        NAME    fcb3, "BAD     DAT"
+        jsr     marked
+        KEYWAIT "FAULT?"
+        TRY     "SCLOSE1 ", F_CLOSE, fcb3
+        NAME    fcb, "RD      DAT"
+        CALLF   F_OPEN, fcb
+        CALLF   F_READ, fcb
+        TRY     "SRDCLOSE ", F_CLOSE, fcb
+        TRY     "SOKCLOSE ", F_CLOSE, fcb2
+        TRY     "SCLOSE2 ", F_CLOSE, fcb3
+        jmp     done
+
+caset:  lda     #1
+        sta     TDRV
+        NAME    fcb, "RD      DAT"
+        CALLF   F_OPEN, fcb
+        TRY     "TRDCLOSE ", F_CLOSE, fcb
+        NAME    fcb, "RD      DAT"
+        CALLF   F_OPEN, fcb
+        lda     #1
+        sta     fcb+32
+        lda     #$02
+        ldx     #$11
+        jsr     setrn
+        jsr     FILL
+        CALLF   F_WRITE, fcb
+        TRY     "TWCLOSE ", F_CLOSE, fcb
+        jmp     done
+
+caseg:  CALLF   DRV_ALLRESET, 0         ; every buffer empty: G1.DAT's taken first
+        CALLF   F_DMAOFF, BUF
+        lda     #1
+        sta     TDRV
+        NAME    fcb, "G1      DAT"
+        jsr     marked
+        NAME    fcb2, "G2      DAT"
+        lda     #$03
+        ldx     #$13
+        jsr     setrn
+        jsr     onerec
+        KEYWAIT "FAULT?"
+        TRY     "GFLUSH ", DRV_FLUSH, 0
+        KEYWAIT "FLUSHED?"
+        TRY     "GPURGE ", DRV_FLUSH, $FF
+        KEYWAIT "GOOD?"
+        TRY     "GFLUSH2 ", DRV_FLUSH, 0
+        jmp     done
+
+casez:  lda     #1
+        sta     TDRV
+        NAME    fcb, "SWAPWB  TXT"
+        jsr     marked
+        KEYWAIT "SWAP?"
         jmp     done
 
 ; ---------------------------------------------------------------------------
