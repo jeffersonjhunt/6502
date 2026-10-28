@@ -608,7 +608,7 @@ against, compared with what the BDOS does on the emulator.
   needs it fails again rather than putting in an entry that points at a sector never written (2026-10-27, the
   review's second round); the least recently used buffer taken is one not marked, so one sector that can't be
   written doesn't stop the others coming and going. With all 32 marked, a sector not in a buffer can't be had:
-  each try writes the oldest marked one again, Disk I/O until the card writes again or 13 or 37 drops them. A
+  each try writes buffer 0 again, Disk I/O until the card writes again or 13 or 37 drops them. A
   read-only unit's failed write (2) drops the buffer and makes the drive read-only; a failed directory write
   drops its buffer too, so the directory in memory stays what the disk has. 13 and 37 drop a buffer they can't
   write, log the drive out all the same and return the first such error after; the warm boot's 48 (error mode
