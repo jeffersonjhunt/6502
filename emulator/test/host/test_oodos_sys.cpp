@@ -1861,9 +1861,13 @@ TEST(a_rescan_of_the_units_logs_out_only_the_drives_that_changed)
             r.sd().write(SdCard::CMD, SdCard::READ);
         }
     };
+    std::vector<uint8_t> swapped;
     const std::string o = ruletest(r, 'C', {{"BUSY?", [&] { armed = true; }},
                                             {"READY?", [&] { r.run(ms(SdCard::INIT_MS + 10)); }},
-                                            {"SWAP?", [&] { CHECK_EQ(r.mount(2, "/OODOS/A.IMG"), 0); }}});
+                                            {"SWAP?", [&] {
+                                                 CHECK_EQ(r.mount(2, "/OODOS/A.IMG"), 0);
+                                                 swapped = r.media->bytes();
+                                             }}});
     r.watch = nullptr;
     CHECK(stuck);
     CHECK_EQ(field(o, "SELA"), std::string("FF 04")); // no units table: A: isn't a drive this time
@@ -1882,6 +1886,155 @@ TEST(a_rescan_of_the_units_logs_out_only_the_drives_that_changed)
     const std::vector<unsigned> es = b.entries_of(dir, 0, "CHG1    TXT");
     REQUIRE(es.size() == 1);
     CHECK_EQ(dir[es[0] * 32 + 15], 1); // RC 1
+    // CHG2.TXT's record was in a buffer at the swap: dropped, not written to the new image, nor
+    // anywhere else on the card; B.IMG has its entry (made before the swap) and no record.
+    CHECK(r.media->bytes() == swapped);
+    CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{0});
+    const std::vector<unsigned> es2 = b.entries_of(dir, 0, "CHG2    TXT");
+    REQUIRE(es2.size() == 1);
+    CHECK_EQ(dir[es2[0] * 32 + 15], 0); // RC 0
+}
+
+/// A card whose writes fail while `fail` is set, as a card that has gone bad would.
+struct FaultyMedia : MemoryMedia
+{
+    using MemoryMedia::MemoryMedia;
+    bool fail{false};
+    bool write(uint64_t lba, const uint8_t *in) override { return !fail && MemoryMedia::write(lba, in); }
+};
+
+/// A rig whose units 1 and 2 are A.IMG and B.IMG, B: (unit 2) swapped for A.IMG at RULETEST's
+/// SWAP? (case `c`); the card's bytes then, and the output.
+std::pair<std::string, std::vector<uint8_t>> swap_after_write(Rig &r, char c)
+{
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    std::vector<uint8_t> swapped;
+    if (!r.boot())
+    {
+        CHECK(false);
+        return {};
+    }
+    const std::string o = ruletest(r, c, {{"SWAP?", [&] {
+                                               CHECK_EQ(r.mount(2, "/OODOS/A.IMG"), 0);
+                                               swapped = r.media->bytes();
+                                           }}});
+    return {o, swapped};
+}
+
+TEST(a_reset_after_a_swap_drops_the_old_images_buffers)
+{
+    // A record of B:'s in a buffer, unit 2's image swapped, then 37 of B:: the reset reads the
+    // units first, so the buffer is dropped, not written into the new image (the Guide's
+    // change-the-disk-then-reset). The card is as it was at the swap, after the warm boot too.
+    Rig r;
+    REQUIRE(r.ok);
+    const auto [o, swapped] = swap_after_write(r, 'R');
+    CHECK_EQ(field(o, "RESETB"), std::string("00 00"));
+    CHECK(r.media->bytes() == swapped);
+    CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{0});
+}
+
+TEST(the_warm_boots_flush_drops_a_swapped_drives_buffers)
+{
+    // The same, but a program's own SELDSK (a first select) reads the units, and the warm boot's
+    // 48 comes next: it drops B:'s buffer (CHANGED) before it writes anything back.
+    Rig r;
+    REQUIRE(r.ok);
+    const auto [o, swapped] = swap_after_write(r, 'W');
+    CHECK(field(o, "SELDSK") != "00 00"); // B: is a drive still: A.IMG
+    CHECK(r.media->bytes() == swapped);
+    CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{0});
+}
+
+TEST(a_failed_write_back_keeps_the_buffer_so_the_close_fails_again)
+{
+    // FAULT.DAT's record 3 in a changed buffer, the card's writes failing: each close fails
+    // (Disk I/O). The buffer is kept, so once the card writes again the close writes record 3
+    // before the entry, and the records read back (a dropped buffer: the entry put in over a
+    // sector never written, record 3 not there). Meanwhile BIG.DAT's 40 sectors still come and
+    // go through the other 31 buffers. Then 37 with the card failing drops what it can't write,
+    // says so, and logs B: out all the same: the next 37 has nothing to write.
+    Rig r;
+    REQUIRE(r.ok);
+    auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
+    r.media = fm;
+    r.sd().insert(fm, false);
+    r.run(ms(SdCard::INIT_MS + 10));
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    REQUIRE(r.boot());
+    const std::string o = ruletest(r, 'F', {{"FAULT?", [&] { fm->fail = true; }},
+                                            {"FIXED?", [&] { fm->fail = false; }},
+                                            {"FAULT2?", [&] { fm->fail = true; }},
+                                            {"FIXED2?", [&] { fm->fail = false; }}});
+    CHECK_EQ(field(o, "FWRITE"), std::string("00"));
+    CHECK_EQ(field(o, "FCLOSE1"), std::string("FF 01"));
+    CHECK_EQ(field(o, "FCLOSE2"), std::string("FF 01")); // the buffer kept: still not written
+    CHECK_EQ(field(o, "FBIG"), std::string("00"));       // and the other 31 still in use
+    CHECK_EQ(field(o, "FCLOSE3"), std::string("00 00"));
+    CHECK_EQ(field(o, "FREAD"), std::string("YYYY"));
+    CHECK_EQ(field(o, "FRESET"), std::string("FF 01"));
+    CHECK_EQ(field(o, "FRESET2"), std::string("00 00"));
+    CpmDisk b{r, 2};
+    const std::vector<uint8_t> dir = b.directory();
+    const std::vector<unsigned> es = b.entries_of(dir, 0, "FAULT   DAT");
+    REQUIRE(es.size() == 1);
+    CHECK_EQ(dir[es[0] * 32 + 15], 4); // RC 4
+    for (unsigned n = 0; n < 4; ++n)
+        CHECK(b.record(dir, es, n) == pattern_record(n));
+    CHECK(b.record(dir, es, 4) == std::vector<uint8_t>(RECORD, 0)); // dropped by the 37
+}
+
+TEST(the_bdos_bugs_the_model_comparison_found_each_a_directed_test)
+{
+    // Each of these the comparison with the model found (hw/oodos.md, "What the comparison
+    // found"), on M:: 35 of no file zeroes R0-R2; stamps only in the extent-zero entry's slot
+    // (ST.DAT's second entry, extent 2, has none, though M:'s label asks for creation and update
+    // stamps); a write into an extent a read found no entry for makes the entry at once, so a
+    // full directory is the write's own error (1 for 21, 5 for 34 and 40).
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = ruletest(r, 'X');
+    CHECK_EQ(field(o, "SIZENONE"), std::string("FF 00"));
+    CHECK_EQ(field(o, "SIZER"), std::string("000000"));
+    CHECK_EQ(field(o, "DIRFULL"), std::string("FF"));
+    CHECK_EQ(field(o, "SEQEND"), std::string("01"));
+    CHECK_EQ(field(o, "SEQW"), std::string("01"));
+    CHECK_EQ(field(o, "RREAD"), std::string("04 00"));
+    CHECK_EQ(field(o, "RWRITE"), std::string("05 00"));
+    CHECK_EQ(field(o, "RREADZ"), std::string("04 00"));
+    CHECK_EQ(field(o, "RWRITEZ"), std::string("05 00"));
+    CpmDisk m{r, 0};
+    const std::vector<uint8_t> dir = m.directory();
+    const std::vector<unsigned> es = m.entries_of(dir, 0, "ST      DAT");
+    REQUIRE(es.size() == 2);
+    auto slot = [&](unsigned i) {
+        const unsigned at = (i | 3) * 32 + 1 + (i & 3) * 10;
+        return std::vector<uint8_t>(dir.begin() + at, dir.begin() + at + 10);
+    };
+    const std::vector<uint8_t> first = slot(es[0]), second = slot(es[1]);
+    CHECK_EQ(dir[es[1] * 32 + 12], 2);                                   // extent 2
+    CHECK(std::vector<uint8_t>(first.begin(), first.begin() + 4) != std::vector<uint8_t>(4, 0)); // created
+    CHECK(std::vector<uint8_t>(first.begin() + 4, first.begin() + 8) != std::vector<uint8_t>(4, 0)); // updated
+    CHECK(second == std::vector<uint8_t>(10, 0));
+}
+
+TEST(exms_mask_is_each_drives_own)
+{
+    // A: oodos-32m (EXM 3: four extents an entry), logged in, then M: (EXM 1): 384 records on A:
+    // are one entry. With M:'s mask a write into extent 2 found no entry and made a second.
+    std::vector<uint8_t> card = fat16_card({{"BIG.IMG", 65536u * 512}});
+    auto word = [&](size_t at) { return size_t{card[at]} | size_t{card[at + 1]} << 8; };
+    const size_t root = (word(14) + card[16] * word(22)) * SECTOR;
+    const size_t data = root + word(17) * 32; // BIG.IMG is the first file
+    std::fill(card.begin() + static_cast<long>(data), card.begin() + static_cast<long>(data + 2048 * 32), 0xE5);
+    Rig r(card);
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/BIG.IMG"), 0);
+    REQUIRE(r.boot());
+    const std::string o = ruletest(r, 'E');
+    CHECK_EQ(field(o, "EXMENTS"), std::string("01"));
 }
 
 TEST(the_ccp_keeps_the_user_number_across_a_load)

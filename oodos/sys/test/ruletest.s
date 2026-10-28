@@ -36,15 +36,46 @@
 ;       xx (FF 02) TFREE1 xxxxxx
 ;   C   on B:: CHG1.TXT written, not closed; BUSY? (the card busy at the
 ;       next login); A: reset and selected: SELA aa xx (FF 04); READY?;
-;       CLOSEB aa xx (00 00: B:'s drive table kept); SELA2 aa xx; SWAP?
-;       (another image as unit 2); A: again: SELA3 aa xx, LOGV aa xx (01 00:
-;       B: logged out), NEWB aa xx (README.TXT found on the new image); A:
-;       again, the units as they were: SELA4 aa xx, LOGV2 aa xx (03 00)
+;       CLOSEB aa xx (00 00: B:'s drive table kept); SELA2 aa xx; CHG2.TXT
+;       made and its record ($A5C3's pattern) written, not closed; SWAP?
+;       (another image as unit 2); A: reset (the units read again: B:'s
+;       buffers dropped, not written to the new image) and selected: SELA3
+;       aa xx, LOGV aa xx (01 00: B: logged out), NEWB aa xx (README.TXT
+;       found on the new image); A: again, the units as they were: SELA4 aa
+;       xx, LOGV2 aa xx (03 00)
+;   R   on B:: SWAP37.TXT made, its record ($A5C3's) written, not closed;
+;       SWAP?; RESETB aa xx: 37 of B: (00 00), which reads the units first,
+;       so the old image's buffer is dropped, not written to the new one
+;   W   the same with SWAP48.TXT; SWAP?; a BIOS SELDSK of B: as a first
+;       select (the units read again: DRVCHG); SELDSK; then the program's
+;       end, the warm boot's 48, which drops B:'s buffer (CHANGED)
+;   F   on B:: BIG.DAT, 160 records, closed; FAULT.DAT's records 0-2
+;       written and closed, opened, record 3 written (one changed buffer):
+;       FWRITE aa; FAULT? (the card's writes fail); FCLOSE1 and FCLOSE2 aa
+;       xx (FF 01: the buffer kept, so a close tried again fails again);
+;       FBIG nn: BIG.DAT read, the reads that failed (00: GETBUF takes the
+;       kept buffer last, so other sectors still come and go); FIXED?; FCLOSE3 aa xx (00 00); B:
+;       reset, FREAD yyyy (records 0-3 read back, Y each); record 4
+;       written, FAULT2?; FRESET aa xx: 37 of B: (FF 01: the buffer dropped,
+;       B: logged out all the same); FIXED2?; FRESET2 aa xx (00 00:
+;       nothing left to write)
+;   X   on M:: SIZENONE aa xx SIZER xxxxxx: 35 of no file, R0-R2 $123456
+;       before: FF 00, 000000; ST.DAT, 300 records, closed (its second
+;       entry, extent 2, has no stamps: the test reads them); SEQ.DAT, 256
+;       records (extents 0-1, one entry), closed; the directory filled:
+;       DIRFULL aa; SEQ.DAT read to its end, SEQEND aa (01: extent 2 has no
+;       entry), then written: SEQW aa (01: no directory space, at once);
+;       RREAD aa xx (04) of record 256 and RWRITE aa xx (05) to it; RREADZ
+;       and RWRITEZ the same with 40
+;   E   on A: (oodos-32m, EXM 3) after M: (EXM 1) logged in: EXM.DAT, 384
+;       records (extents 0-2, in one entry), closed: EXMENTS nn, its
+;       entries (01)
 ;   U   the user 5: USER SET
 ;   V   USER uu
 
         .setcpu "65C02"
         .include "oodos.inc"
+        .include "system.inc"
 
         OODOS_HEADER
         .include "printzp.inc"
@@ -54,6 +85,7 @@ DRV_M   = 12
 
         .zeropage
 CNT:    .res    1                       ; make40's records to go
+CNT2:   .res    2                       ; a loop's count
 
 ; R0-R2 of `fcb` = r.
 .macro RREC fcb, r
@@ -86,6 +118,21 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'C'
         bne     :+
         jmp     casec
+:       cmp     #'R'
+        bne     :+
+        jmp     caser
+:       cmp     #'W'
+        bne     :+
+        jmp     casew
+:       cmp     #'F'
+        bne     :+
+        jmp     casef
+:       cmp     #'X'
+        bne     :+
+        jmp     casex
+:       cmp     #'E'
+        bne     :+
+        jmp     casee
 :       cmp     #'U'
         bne     :+
         lda     #5
@@ -354,6 +401,8 @@ casec:  lda     #1
         KEYWAIT "READY?"
         TRY     "CLOSEB ", F_CLOSE, fcb
         TRY     "SELA2 ", DRV_SET, 0
+        NAME    fcb, "CHG2    TXT"
+        jsr     marked                  ; in a buffer, not on the card
         KEYWAIT "SWAP?"
         CALLF   DRV_RESET, 1
         TRY     "SELA3 ", DRV_SET, 0
@@ -368,6 +417,253 @@ casec:  lda     #1
 done:   SAY     "RULETEST DONE"
         jmp     CRLF
 
+; `fcb` made, its record 0 $A5C3's pattern, not closed: in a buffer.
+marked: CALLF   F_MAKE, fcb
+        lda     #$C3
+        sta     RN
+        lda     #$A5
+        sta     RN+1
+        jsr     FILL
+        CALLF   F_WRITE, fcb
+        rts
+
+; ---------------------------------------------------------------------------
+
+caser:  lda     #1
+        sta     TDRV
+        NAME    fcb, "SWAP37  TXT"
+        jsr     marked
+        KEYWAIT "SWAP?"
+        TRY     "RESETB ", DRV_RESET, 2
+        jmp     done
+
+casew:  lda     #1
+        sta     TDRV
+        NAME    fcb, "SWAP48  TXT"
+        jsr     marked
+        KEYWAIT "SWAP?"
+        lda     #BIOS::SELDSK
+        ldx     #1
+        ldy     #0                      ; a first select: the units read again
+        jsr     bios
+        sta     RA
+        stx     RX
+        SAY     "SELDSK "
+        lda     RA
+        ldx     RX
+        jsr     RES
+        jmp     done
+
+; BIOS function A, with X and Y as its A and X, through function 50.
+bios:   sta     pb
+        stx     pb+1
+        sty     pb+2
+        lda     #<pb
+        ldx     #>pb
+        ldy     #S_BIOS
+        jmp     BDOS
+
+; ---------------------------------------------------------------------------
+
+casef:  lda     #1
+        sta     TDRV
+        NAME    fcb, "BIG     DAT"      ; 160 records: 40 sectors, more than the buffers
+        lda     #<160
+        ldx     #>160
+        jsr     makeN
+        NAME    fcb, "FAULT   DAT"
+        CALLF   F_MAKE, fcb
+        stz     RN+1
+        stz     RN
+@rec:   jsr     FILL
+        CALLF   F_WRITE, fcb
+        inc     RN
+        lda     RN
+        cmp     #3
+        bne     @rec
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "FAULT   DAT"
+        CALLF   F_OPEN, fcb
+        lda     #3
+        sta     fcb+32
+        jsr     FILL                    ; RN 3
+        SAY     "FWRITE "
+        CALLF   F_WRITE, fcb
+        jsr     HEX2
+        jsr     CRLF
+        KEYWAIT "FAULT?"
+        TRY     "FCLOSE1 ", F_CLOSE, fcb
+        TRY     "FCLOSE2 ", F_CLOSE, fcb
+        NAME    fcb2, "BIG     DAT"     ; every buffer taken in turn: but the kept one
+        CALLF   F_OPEN, fcb2
+        stz     CNT
+        lda     #160
+        sta     CNT2
+@big:   CALLF   F_READ, fcb2
+        cmp     #0
+        beq     :+
+        inc     CNT
+:       dec     CNT2
+        bne     @big
+        SAY     "FBIG "
+        lda     CNT
+        jsr     HEX2
+        jsr     CRLF
+        KEYWAIT "FIXED?"
+        TRY     "FCLOSE3 ", F_CLOSE, fcb
+        CALLF   DRV_RESET, 2            ; read from the card again
+        NAME    fcb, "FAULT   DAT"
+        CALLF   F_OPEN, fcb
+        SAY     "FREAD "
+        stz     RN
+@read:  CALLF   F_READ, fcb
+        jsr     CHECK
+        lda     #'Y'
+        bcc     :+
+        lda     #'N'
+:       jsr     PUTC
+        inc     RN
+        lda     RN
+        cmp     #4
+        bne     @read
+        jsr     CRLF
+        jsr     FILL                    ; RN 4, at CR 4
+        CALLF   F_WRITE, fcb
+        KEYWAIT "FAULT2?"
+        TRY     "FRESET ", DRV_RESET, 2
+        KEYWAIT "FIXED2?"
+        TRY     "FRESET2 ", DRV_RESET, 2
+        jmp     done
+
+; ---------------------------------------------------------------------------
+
+casex:  lda     #DRV_M
+        sta     TDRV
+        NAME    fcb, "NOFILE  DAT"
+        lda     #$56
+        sta     fcb+33
+        lda     #$34
+        sta     fcb+34
+        lda     #$12
+        sta     fcb+35
+        TRY     "SIZENONE ", F_SIZE, fcb
+        SAY     "SIZER "
+        lda     #<(fcb+33)
+        ldx     #>(fcb+33)
+        jsr     HEX6
+        jsr     CRLF
+        NAME    fcb, "ST      DAT"      ; extents 0-1 one entry, 2 another
+        lda     #<300
+        ldx     #>300
+        jsr     makeN
+        NAME    fcb, "SEQ     DAT"
+        lda     #<256
+        ldx     #>256
+        jsr     makeN
+        NAME    fcb3, "DF00    DAT"     ; the directory filled: DFAA.DAT ...
+        stz     CNT2
+@fill:  lda     CNT2
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        clc
+        adc     #'A'
+        sta     fcb3+3
+        lda     CNT2
+        and     #$0F
+        clc
+        adc     #'A'
+        sta     fcb3+4
+        stz     fcb3+12
+        stz     fcb3+14
+        stz     fcb3+15
+        CALLF   F_MAKE, fcb3
+        cmp     #$FF
+        beq     @full
+        inc     CNT2
+        bne     @fill
+@full:  sta     RA
+        SAY     "DIRFULL "
+        lda     RA
+        jsr     HEX2
+        jsr     CRLF
+        NAME    fcb, "SEQ     DAT"
+        CALLF   F_OPEN, fcb
+        stz     CNT2
+        stz     CNT2+1
+@read:  CALLF   F_READ, fcb
+        inc     CNT2
+        bne     @read
+        inc     CNT2+1
+        lda     CNT2+1
+        cmp     #1
+        bne     @read
+        SAY     "SEQEND "
+        CALLF   F_READ, fcb
+        jsr     HEX2
+        jsr     CRLF
+        SAY     "SEQW "
+        CALLF   F_WRITE, fcb
+        jsr     HEX2
+        jsr     CRLF
+        NAME    fcb2, "SEQ     DAT"
+        CALLF   F_OPEN, fcb2
+        RREC    fcb2, 256
+        TRY     "RREAD ", F_READRAND, fcb2
+        TRY     "RWRITE ", F_WRITERAND, fcb2
+        NAME    fcb2, "SEQ     DAT"
+        CALLF   F_OPEN, fcb2
+        RREC    fcb2, 256
+        TRY     "RREADZ ", F_READRAND, fcb2
+        TRY     "RWRITEZ ", F_WRITEZF, fcb2
+        jmp     done
+
+; `fcb` made with A/X records of 0s, closed.
+makeN:  sta     CNT2
+        stx     CNT2+1
+        CALLF   F_MAKE, fcb
+@rec:   CALLF   F_WRITE, fcb
+        lda     CNT2
+        bne     :+
+        dec     CNT2+1
+:       dec     CNT2
+        lda     CNT2
+        ora     CNT2+1
+        bne     @rec
+        CALLF   F_CLOSE, fcb
+        rts
+
+; ---------------------------------------------------------------------------
+
+casee:  stz     TDRV                    ; A:, then M: logged in
+        lda     #0
+        ldy     #DRV_SPACE
+        jsr     BDOS
+        lda     #DRV_M
+        ldy     #DRV_SPACE
+        jsr     BDOS
+        NAME    fcb, "EXM     DAT"
+        lda     #<384
+        ldx     #>384
+        jsr     makeN
+        NAME    fcb3, "EXM     DAT"
+        lda     #'?'
+        sta     fcb3+12                 ; every extent
+        stz     CNT
+        CALLF   F_SFIRST, fcb3
+@count: cmp     #$FF
+        beq     @counted
+        inc     CNT
+        CALLF   F_SNEXT, fcb3
+        bra     @count
+@counted:
+        SAY     "EXMENTS "
+        lda     CNT
+        jsr     HEX2
+        jsr     CRLF
+        jmp     done
+
         .rodata
 hrecs:  .word   0, 40, 200, 300, 600
 
@@ -378,3 +674,4 @@ hrecs:  .word   0, 40, 200, 300, 600
 fcb:    .res    36
 fcb2:   .res    36
 fcb3:   .res    36
+pb:     .res    8
