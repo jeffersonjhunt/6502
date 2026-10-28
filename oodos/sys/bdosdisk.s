@@ -20,8 +20,14 @@
 ; first if it changed. Directory changes are written at once (DIRPUT); a
 ; data sector when its buffer is taken, by 48, 13 or 37, at the warm boot
 ; (the CCP's 48), and before a close or an extent change writes the entry
-; that points at it (CLOSEX). A write that fails drops the buffer, so the
-; error isn't met again; a read-only unit's makes the drive read-only too.
+; that points at it (CLOSEX). A data write that fails keeps the buffer
+; changed, marked (BCB_DIRTY 2), so a close or a flush that needs it fails
+; again rather than putting in an entry that points at a sector never
+; written; GETBUF takes a marked buffer only when all 32 are, and tries its
+; write again (still failing: Disk I/O). A read-only unit's failure drops
+; the buffer and makes the drive read-only; so does a directory write's
+; (DIRPUT), the directory in memory kept as it is on the disk. 13 and 37
+; drop what they can't write, as they log the drive out, and say so after.
 ;
 ; The hash (ours, in memory only): 4 bytes a directory entry, in blocks 24-
 ; 27, 8 KB a slot (HBLK, HBASE): the entry's first byte (the user, $E5,
@@ -78,7 +84,10 @@ SDID:           .res    2              ; the entry SFCBAT came from
 UDID:           .res    2              ; the entry STAMPU came from
 LOGL:           .res    1              ; LOGIN: a label seen
 CHG:            .res    1              ; CHANGED's drives to go
-.exportzp DBCB, AP, AMASK, MK
+WBM:            .res    1              ; WBACK's mode: bit 7 drop, bit 6 return
+RERR:           .res    1              ; RFLUSH's first error, 0 none
+REDRV:          .res    1              ; and its drive
+.exportzp DBCB, AP, AMASK, MK, RERR
 
 .segment "BDOS"
 
@@ -108,6 +117,15 @@ SELECT:         STA     CDRV
                 JMP     LOGIN
 @bad:           LDA     #ER_SELECT
                 JMP     DERR
+
+; The card's units read again (a first select, of A:), then CHANGED: 13 and
+; 37 run it before they write anything back, so a drive whose image was
+; swapped since has its old buffers dropped, not written to the new one.
+RESCAN:         LDA     #0
+                TAX                    ; X 0: a first select
+                JSR     B_SELDSK
+                STZ     BIOSDRV        ; the BIOS has A: (or none): DISKOP selects again
+                JMP     CHANGED
 
 ; The drives whose unit changed at a rescan of the units (the BIOS's
 ; DRVCHG) logged out, read-write, their buffers dropped, not written: the
@@ -423,7 +441,8 @@ SAME:           LDA     BCB_DRV,X
                 CMP     LBA + 1
 @done:          RTS
 
-; X = an empty buffer, or the least recently used: AGE less its use the most.
+; X = an empty buffer, or the least recently used (AGE less its use the
+; most) but a marked one (a write that failed); buffer 0 if all are marked.
 VICTIM:         LDX     #NBCB - 1
 @empty:         LDA     BCB_DRV,X
                 BEQ     @done
@@ -446,7 +465,10 @@ VICTIM:         LDX     #NBCB - 1
                 LDA     VD
                 CMP     VBEST
                 BCC     @next
-@take:          LDA     VD
+@take:          LDA     BCB_DIRTY,X    ; one whose write failed: only if all are
+                CMP     #2
+                BEQ     @next
+                LDA     VD
                 STA     VBEST
                 LDA     VD + 1
                 STA     VBEST + 1
@@ -469,30 +491,47 @@ ZEROB:          LDA     #0
                 DEC     BPTR + 1
                 RTS
 
-; Buffer X written to its sector, X kept. A failure drops it and is an
-; error on its drive: Read Only (and the drive made so) for a read-only
-; unit, else Disk I/O.
-WBACKX:         LDA     #1
+; Buffer X written to its sector, X kept, carry clear. A failure is an
+; error on its drive: for a read-only unit Read Only, the drive made so, the
+; buffer dropped; else Disk I/O, the buffer kept changed and marked
+; (BCB_DIRTY 2), so what needs it written fails again until it is. WBACK
+; with WBM: bit 7 drop it on Disk I/O too (DIRPUT, RFLUSH), bit 6 no error
+; raised: carry set, A its code, EDRV the drive (RFLUSH).
+WBACKX:         STZ     WBM
+WBACK:          LDA     #1
                 JSR     DISKOP
                 BEQ     @done
                 PHA
                 LDA     BCB_DRV,X
                 DEC     A
                 STA     EDRV
-                STZ     BCB_DRV,X
-                STZ     BCB_DIRTY,X
                 PLA
                 CMP     #2
-                BNE     @io
+                BEQ     @ro
+                BIT     WBM
+                BMI     @drop
+                LDA     #2             ; kept, marked
+                STA     BCB_DIRTY,X
+                LDA     #ER_IO
+                BRA     @error
+@ro:            PHX
                 LDA     EDRV
                 JSR     DRVBIT
                 ORA     ROVEC,X
                 STA     ROVEC,X
+                PLX
                 LDA     #ER_RODISK
+                BRA     @dropit
+@drop:          LDA     #ER_IO
+@dropit:        STZ     BCB_DRV,X
+                STZ     BCB_DIRTY,X
+@error:         BIT     WBM
+                BVS     @back
                 JMP     DERR
-@io:            LDA     #ER_IO
-                JMP     DERR
+@back:          SEC
+                RTS
 @done:          STZ     BCB_DIRTY,X
+                CLC
                 RTS
 
 ; Buffer X read from its sector, X kept. A failure empties it: Disk I/O.
@@ -587,6 +626,40 @@ FLUSHD:         STA     FDRV
                 BPL     @buffer
                 RTS
 
+; Every changed buffer of drive A - 1 (0: of every drive) written back for
+; 13 and 37, which log it out: one that can't be is dropped, and the first
+; failure's code kept in RERR (the caller's 0 before) and its drive in
+; REDRV, for the function to say after its work is done.
+RFLUSH:         STA     FDRV
+                LDA     #$C0
+                STA     WBM
+                LDX     #NBCB - 1
+@buffer:        LDA     BCB_DIRTY,X
+                BEQ     @next
+                LDA     FDRV
+                BEQ     @write
+                CMP     BCB_DRV,X
+                BNE     @next
+@write:         JSR     WBACK
+                BCC     @next
+                LDY     RERR
+                BNE     @next
+                STA     RERR
+                LDA     EDRV
+                STA     REDRV
+@next:          DEX
+                BPL     @buffer
+                RTS
+
+; 13's and 37's end: 0, or RFLUSH's first failure as the error.
+RDONE:          LDA     RERR
+                BNE     @error
+                JMP     RET0
+@error:         LDA     REDRV
+                STA     EDRV
+                LDA     RERR
+                JMP     DERR
+
 ; Every buffer of drive A - 1 (0: of every drive) emptied, not written.
 PURGED:         STA     FDRV
                 LDX     #NBCB - 1
@@ -646,7 +719,9 @@ DIRENT:         LDA     DIDX + 1       ; the sector: OFFS + DIDX / 16
 DIRPUT:         LDX     DBCB
                 LDA     #1
                 STA     BCB_DIRTY,X
-                JSR     WBACKX
+                LDA     #$80           ; a failure drops it: memory as the disk is
+                STA     WBM
+                JSR     WBACK
 HASHPUT:        JSR     HASHE
                 JSR     HPSET
                 LDA     HBLK

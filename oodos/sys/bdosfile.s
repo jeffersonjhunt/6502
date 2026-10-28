@@ -3,8 +3,12 @@
 ; descriptions of the functions: the registers are hw/oodos.md's, a byte
 ; result in A with X 0; an error (bdos.s's DERR) as the error mode says.
 ;
-;   13 DRV_ALLRESET  every buffer written back and dropped, every drive logged
-;                    out and read-write; A: current, the DMA address $0280
+;   13 DRV_ALLRESET  the units read again (RESCAN: a drive whose image was
+;                    swapped has its buffers dropped), every buffer written
+;                    back and dropped, every drive logged out and read-write;
+;                    A: current, the DMA address $0280. A buffer that can't
+;                    be written is dropped too, and the first such error
+;                    said after (Disk I/O, Read Only)
 ;   14 DRV_SET       A = the drive (0-15) logged in and made current
 ;   15 F_OPEN        the FCB at A/X: extent EX (its S2 taken as 0); not in
 ;                    the user but in user 0 with the SYS attribute (t2'):
@@ -54,13 +58,14 @@
 ;   35 F_SIZE        R0-R2 = the file's size in records: past its last. A = 0,
 ;                    $FF none (R0-R2 0)
 ;   36 F_RANDREC     R0-R2 = the record CR of the extent is
-;   37 DRV_RESET     the drives in A/X's bits written back, dropped, logged
-;                    out and read-write
+;   37 DRV_RESET     as 13, for the drives in A/X's bits: written back,
+;                    dropped, logged out and read-write
 ;   40 F_WRITEZF     as 34: every block a write takes is zeroed anyway
 ;   42, 43           A = 0: there is nothing to lock
 ;   45 F_ERRMODE     the error mode = A
 ;   46 DRV_SPACE     drive A's free records, 3 bytes to the DMA address
-;   48 DRV_FLUSH     every changed buffer written; A = $FF: and dropped
+;   48 DRV_FLUSH     a swapped unit's drive's buffers dropped (CHANGED), then
+;                    every changed buffer written; A = $FF: and dropped
 ;   98 DRV_FREE      the blocks of files written but not closed freed
 ;   99 F_TRUNCATE    the file (no '?') ends with record R0-R2, which must be
 ;                    in it where it has data (an extent its entry has, below
@@ -75,7 +80,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.importzp DBCB, AP, AMASK, MK
+.importzp DBCB, AP, AMASK, MK, RERR
 
 DEF_DMA         = $0280                ; the base page's buffer
 
@@ -96,8 +101,10 @@ ETMP:           .res    1              ; EXT11's
 ; ---------------------------------------------------------------------------
 ; Drives
 
-F_RESET:        LDA     #0
-                JSR     FLUSHD
+F_RESET:        JSR     RESCAN         ; a swapped unit's drive: its buffers dropped
+                STZ     RERR
+                LDA     #0
+                JSR     RFLUSH
                 LDA     #0
                 JSR     PURGED
                 STZ     LOGVEC
@@ -110,7 +117,7 @@ F_RESET:        LDA     #0
                 STA     SCB_DMA
                 LDA     #>DEF_DMA
                 STA     SCB_DMA + 1
-                JMP     RET0
+                JMP     RDONE
 
 F_SELECT:       CMP     #16
                 BCC     @drive
@@ -160,7 +167,9 @@ F_USER:         CMP     #$FF
                 STA     SCB_USER
                 JMP     RET0
 
-F_DRESET:       LDA     PA             ; T2/T3 the drives, T4 each
+F_DRESET:       JSR     RESCAN         ; a swapped unit's drive: its buffers dropped
+                STZ     RERR
+                LDA     PA             ; T2/T3 the drives, T4 each
                 STA     T2
                 LDA     PX
                 STA     T3
@@ -171,7 +180,7 @@ F_DRESET:       LDA     PA             ; T2/T3 the drives, T4 each
                 BEQ     @next
                 LDA     T4
                 INC     A
-                JSR     FLUSHD
+                JSR     RFLUSH
                 LDA     T4
                 INC     A
                 JSR     PURGED
@@ -189,14 +198,15 @@ F_DRESET:       LDA     PA             ; T2/T3 the drives, T4 each
                 CMP     #16
                 BNE     @drive
                 STZ     SSON
-                JMP     RET0
+                JMP     RDONE
 
 F_LOCK:         JMP     RET0
 
 F_ERRMODE:      STA     SCB_ERRMODE
                 JMP     RET0
 
-F_FLUSH:        LDA     #0
+F_FLUSH:        JSR     CHANGED        ; a swapped unit's drive (a program's SELDSK): dropped
+                LDA     #0
                 JSR     FLUSHD
                 LDA     PA
                 CMP     #$FF
