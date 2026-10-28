@@ -61,7 +61,8 @@
 ; and MOVE moves nothing, checked before a byte moves.
 ;
 ; Drives: A-G are SD units 1-7 as IDENTIFY's units table has them (16,384
-; sectors oodos-8m, 65,536 oodos-32m; anything else isn't a drive), M: the
+; sectors oodos-8m, 65,536 oodos-32m; anything else isn't a drive; a first
+; select reads it again, and DRVCHG says which units changed), M: the
 ; RAM disk in banks C-D. LBA = track x 16 + sector. A sector moves by DMA:
 ; channel 0 between the card and the buffer, channel 3 for M: and copies.
 ; A buffer that crosses a window goes through SECBUF.

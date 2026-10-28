@@ -108,7 +108,7 @@ Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
@@ -153,7 +153,7 @@ operations run on, compared with what the BDOS does on the emulator ([hw/oodos.m
 
 ```
 make -C test/driver             # test/driver/build/driver.com, through the rules gate
-make -C test/driver check       # test_model.py: ends PASS 171
+make -C test/driver check       # test_model.py: ends PASS 194
 python3 -I test/modeltest.py prepare --seed 7 --format oodos-8m --dir /tmp/m7 --driver test/driver/build/driver.com
 python3 -I test/modeltest.py show --dir /tmp/m7       # the script, an operation a line
 python3 -I test/modeltest.py predict --dir /tmp/m7    # the model's run: A.model.IMG, T.model.IMG, RESULT.model.BIN

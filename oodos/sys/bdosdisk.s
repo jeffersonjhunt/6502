@@ -7,9 +7,10 @@
 ; DPB's fields and its high-water mark, kept per drive's slot in DTAB (A-G
 ; are slots 0-6, M: 7). SELECT logs a drive in on its first select after a
 ; reset (13, 37): SELDSK as a first select (the BIOS reads the card's units
-; again), the DPB from common memory, then the whole directory read once to
-; make the allocation vector and the hash, and the label's mode byte kept for
-; the stamps. A read-only unit (the units table's flag) makes the drive
+; again, and the drives whose unit changed are logged out: CHANGED), the DPB
+; from common memory, then the whole directory read once to make the
+; allocation vector and the hash, and the label's mode byte kept for the
+; stamps. A read-only unit (the units table's flag) makes the drive
 ; read-only. Every OODOS format has 512-byte sectors, 16 a track.
 ;
 ; Buffers. 32 sectors of 512 bytes in block 28 (BCB_BLOCK), mapped into W2
@@ -17,8 +18,9 @@
 ; when it was last used are in the system block. GETBUF finds a sector or
 ; takes the least recently used buffer (an empty one first), writing it back
 ; first if it changed. Directory changes are written at once (DIRPUT); a
-; data sector when its buffer is taken, at close, 48, 13 or 37, and at the
-; warm boot (the CCP's 48). A write that fails drops the buffer, so the
+; data sector when its buffer is taken, by 48, 13 or 37, at the warm boot
+; (the CCP's 48), and before a close or an extent change writes the entry
+; that points at it (CLOSEX). A write that fails drops the buffer, so the
 ; error isn't met again; a read-only unit's makes the drive read-only too.
 ;
 ; The hash (ours, in memory only): 4 bytes a directory entry, in blocks 24-
@@ -34,7 +36,8 @@
 ; bytes a slot in the system block (ALV_BASE): the current (every block in
 ; use, bit 7 of byte 0 block 0, as AL0 has it) and the permanent (the blocks
 ; the directory has). A write takes a block in the current one only; close
-; puts its entry's blocks in both; delete and truncate free them in both;
+; puts its entry's blocks in both; delete and truncate free them in both,
+; once the entry is written;
 ; function 98 makes the current the permanent again, freeing what unclosed
 ; files had. A newly taken block is zeroed (its sectors new buffers, zeros,
 ; changed), so a record never written in it reads as zeros.
