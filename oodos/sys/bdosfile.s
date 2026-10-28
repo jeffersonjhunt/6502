@@ -17,7 +17,8 @@
 ;                    A = 0, $FF none
 ;   16 F_CLOSE       the drive's changed buffers written back, then a written
 ;                    extent put in the directory (its blocks and RC merged),
-;                    stamped. A = 0, $FF
+;                    stamped. A = 0, $FF. A buffer that won't write fails
+;                    only the close of a file with a block there (Disk I/O)
 ;   17 F_SFIRST      the first entry the FCB matches ('?' any byte; '?' in
 ;                    EX any extent, else S2 taken as 0; '?' as the drive
 ;                    every entry, labels, SFCBs, XFCBs and free ones): its
@@ -65,8 +66,11 @@
 ;   45 F_ERRMODE     the error mode = A
 ;   46 DRV_SPACE     drive A's free records, 3 bytes to the DMA address
 ;   48 DRV_FLUSH     a swapped unit's drive's buffers dropped (CHANGED), then
-;                    every changed buffer written; A = $FF: and dropped
-;   98 DRV_FREE      the blocks of files written but not closed freed
+;                    every changed buffer written, past a failure, the one
+;                    that failed kept; A = $FF: and all dropped. Then the
+;                    first failure said (Disk I/O, Read Only)
+;   98 DRV_FREE      the blocks of files written but not closed freed, and
+;                    the buffers whose write failed dropped
 ;   99 F_TRUNCATE    the file (no '?') ends with record R0-R2, which must be
 ;                    in it where it has data (an extent its entry has, below
 ;                    RC there, in a block): later extents deleted, blocks
@@ -206,14 +210,14 @@ F_ERRMODE:      STA     SCB_ERRMODE
                 JMP     RET0
 
 F_FLUSH:        JSR     CHANGED        ; a swapped unit's drive (a program's SELDSK): dropped
-                LDA     #0
+                LDA     #0             ; every buffer tried, a failed one kept
                 JSR     FLUSHD
                 LDA     PA
                 CMP     #$FF
                 BNE     @kept
-                LDA     #0
+                LDA     #0             ; $FF: all dropped all the same
                 JSR     PURGED
-@kept:          JMP     RET0
+@kept:          JMP     RDONE          ; then the first failure said
 
 ; Free records: (DSM + 1 - the blocks in use) x the records a block, from
 ; the current vector, whose bits past DSM are never set.
@@ -274,8 +278,12 @@ F_FREE:         CMP     #16
                 JSR     POUT
                 JMP     RET0
 
-; Each logged-in drive's current vector made its permanent one again.
-F_FREEBLK:      STZ     T4
+; Each logged-in drive's current vector made its permanent one again, and
+; every marked buffer (a write that failed) dropped: 98 is the warm boot's
+; (the CCP's), so what wrote it has ended without a close that could have
+; written it, and its blocks are free now.
+F_FREEBLK:      JSR     PURGEM
+                STZ     T4
 @drive:         LDA     T4
                 JSR     DRVBIT
                 AND     LOGVEC,X
@@ -409,12 +417,64 @@ F_CLOSE:        LDA     #FCB_SEQ
                 BCS     @failed
                 JSR     FCBOUT
                 JMP     RET0
-@clean:         LDA     CDRV           ; nothing to put in the directory
-                INC     A
-                JSR     FLUSHD
+@clean:         LDA     CDRV           ; nothing to put in the directory, so a
+                INC     A              ; buffer that won't write is no failure
+                JSR     FLUSHD         ; of this close's
                 JMP     RET0
 @failed:        LDA     #$FF
                 JMP     RETA
+
+; Carry set if a marked buffer of drive CDRV (a write that failed) holds a
+; sector of a block F points at: an entry put in for F would point at a
+; sector never written. Another file's marked buffer is no matter to F's
+; close: its entry doesn't point there, or did already. T2/T3 the block.
+FMARKED:        LDX     #NBCB - 1
+@buffer:        LDA     BCB_DIRTY,X
+                CMP     #2
+                BNE     @next
+                LDA     BCB_DRV,X
+                DEC     A
+                CMP     CDRV
+                BNE     @next
+                SEC                    ; its block: (its sector - OFFS) / 2^(BSH - 2)
+                LDA     BCB_LO,X
+                SBC     OFFS
+                STA     T2
+                LDA     BCB_HI,X
+                SBC     OFFS + 1
+                STA     T3
+                BCC     @next          ; before the directory: no file's
+                LDY     BSH
+                DEY
+                DEY
+@shift:         LSR     T3
+                ROR     T2
+                DEY
+                BNE     @shift
+                PHX
+                JSR     NPTRS
+                STA     T4             ; F's pointers to go
+@ptr:           DEC     T4
+                BMI     @none
+                LDA     T4
+                JSR     FPTR           ; T0/T1
+                LDA     T0
+                ORA     T1
+                BEQ     @ptr           ; no block there
+                LDA     T0
+                CMP     T2
+                BNE     @ptr
+                LDA     T1
+                CMP     T3
+                BNE     @ptr
+                PLX
+                SEC
+                RTS
+@none:          PLX
+@next:          DEX
+                BPL     @buffer
+                CLC
+                RTS
 
 ; F's extent, if written, into the directory: the drive's changed buffers
 ; written back first (the file's data on the disk before the entry that
@@ -429,10 +489,17 @@ CLOSEX:         LDA     FC + FCB_S2
                 CLC                    ; not written: nothing to do
                 RTS
 @written:       JSR     RODRV
-                LDA     CDRV           ; a failed write-back is an error here,
-                INC     A              ; before the directory is touched
-                JSR     FLUSHD
-                JSR     EXTUSER
+                LDA     CDRV           ; the drive's buffers written back, then
+                INC     A              ; before the directory is touched: a
+                JSR     FLUSHD         ; unit found read-only Read Only, a
+                JSR     RODRV          ; sector of F's blocks not written
+                JSR     FMARKED        ; Disk I/O
+                BCC     @flushed
+                LDA     CDRV
+                STA     EDRV
+                LDA     #ER_IO
+                JMP     DERR
+@flushed:       JSR     EXTUSER
                 LDX     #0
                 JSR     SETPAT
                 STZ     DIDX

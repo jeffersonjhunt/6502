@@ -21,13 +21,16 @@
 ; data sector when its buffer is taken, by 48, 13 or 37, at the warm boot
 ; (the CCP's 48), and before a close or an extent change writes the entry
 ; that points at it (CLOSEX). A data write that fails keeps the buffer
-; changed, marked (BCB_DIRTY 2), so a close or a flush that needs it fails
-; again rather than putting in an entry that points at a sector never
-; written; GETBUF takes a marked buffer only when all 32 are, and tries its
-; write again (still failing: Disk I/O). A read-only unit's failure drops
-; the buffer and makes the drive read-only; so does a directory write's
-; (DIRPUT), the directory in memory kept as it is on the disk. 13 and 37
-; drop what they can't write, as they log the drive out, and say so after.
+; changed, marked (BCB_DIRTY 2), so a close whose entry would point at its
+; sector fails again rather than point at a sector never written (another
+; file's close doesn't); GETBUF takes a marked buffer only when all 32 are,
+; and tries its write again (still failing: Disk I/O). A read-only unit's
+; failure drops the buffer and makes the drive read-only; so does a
+; directory write's (DIRPUT), the directory in memory kept as it is on the
+; disk. 48 writes every buffer it can, then says the first failure; 13 and
+; 37 drop what they can't write, as they log the drive out, and say so
+; after; 98, the warm boot's, drops the marked ones: the program that wrote
+; them has ended, and their blocks are free.
 ;
 ; The hash (ours, in memory only): 4 bytes a directory entry, in blocks 24-
 ; 27, 8 KB a slot (HBLK, HBASE): the entry's first byte (the user, $E5,
@@ -612,27 +615,20 @@ DISKOP:         STA     DOPW
                 CMP     #0
                 RTS
 
-; Every changed buffer of drive A - 1 (A = 0: of every drive) written back.
-FLUSHD:         STA     FDRV
-                LDX     #NBCB - 1
-@buffer:        LDA     BCB_DIRTY,X
-                BEQ     @next
-                LDA     FDRV
-                BEQ     @write
-                CMP     BCB_DRV,X
-                BNE     @next
-@write:         JSR     WBACKX
-@next:          DEX
-                BPL     @buffer
-                RTS
+; Every changed buffer of drive A - 1 (A = 0: of every drive) written back,
+; carrying on past a failure: one that can't be is kept, marked (a read-only
+; unit's dropped, as WBACK has it), and the first failure's code is in RERR
+; and its drive in REDRV (0 none); carry set if there was one. No error is
+; raised: 48 says it after (RDONE), CLOSEX decides what fails its close.
+FLUSHD:         STZ     RERR
+                LDX     #$40
+                BRA     WFLUSH
 
-; Every changed buffer of drive A - 1 (0: of every drive) written back for
-; 13 and 37, which log it out: one that can't be is dropped, and the first
-; failure's code kept in RERR (the caller's 0 before) and its drive in
-; REDRV, for the function to say after its work is done.
-RFLUSH:         STA     FDRV
-                LDA     #$C0
-                STA     WBM
+; The same for 13 and 37, which log the drive out: one that can't be written
+; is dropped, and RERR (the caller's 0 before) keeps the first failure.
+RFLUSH:         LDX     #$C0
+WFLUSH:         STX     WBM
+                STA     FDRV
                 LDX     #NBCB - 1
 @buffer:        LDA     BCB_DIRTY,X
                 BEQ     @next
@@ -647,6 +643,20 @@ RFLUSH:         STA     FDRV
                 STA     RERR
                 LDA     EDRV
                 STA     REDRV
+@next:          DEX
+                BPL     @buffer
+                LDA     RERR
+                CMP     #1
+                RTS
+
+; Every marked buffer (a write that failed) dropped, whatever its drive: 98,
+; at the warm boot, when what wrote it has ended and its blocks are freed.
+PURGEM:         LDX     #NBCB - 1
+@buffer:        LDA     BCB_DIRTY,X
+                CMP     #2
+                BNE     @next
+                STZ     BCB_DRV,X
+                STZ     BCB_DIRTY,X
 @next:          DEX
                 BPL     @buffer
                 RTS

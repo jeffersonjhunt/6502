@@ -19,8 +19,12 @@
 ;           part record through LASTREC. A name it can't find is NAME?. The
 ;           user is put back as it was, whether the program runs or not
 ;
-; Each warm boot writes back what the BDOS holds (48) and frees the blocks
-; of files a program didn't close (98). The CCP's own calls return their
+; Each warm boot has the BIOS read the card's units again (function 50's
+; SELDSK of A:, a first select), so a unit whose image was swapped while the
+; program ran has its drive's buffers dropped by the 48 that follows, not
+; written to the new image; then it writes back what the BDOS holds (48)
+; and frees the blocks of files a program didn't close, with the buffers
+; whose write failed (98). The CCP's own calls return their
 ; errors (error mode $FF): an error loading is READ ERROR. A program starts
 ; in the default error mode, with the DMA address $0280.
 ;
@@ -68,6 +72,10 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 TXS
                 LDA     #$FF           ; the CCP's errors come back to it
                 LDY     #F_ERRMODE
+                JSR     BDOS
+                LDA     #<RESCANPB     ; the units read again (a first select of
+                LDX     #>RESCANPB     ; A:), so 48 drops a swapped unit's buffers
+                LDY     #S_BIOS
                 JSR     BDOS
                 LDA     #0             ; written back, and unclosed files' blocks freed
                 LDY     #DRV_FLUSH
@@ -412,6 +420,7 @@ STRING:         LDY     #C_WRITESTR
 BASEJMPS:       JMP     WARM           ; $0200
                 JMP     BDOS_ENTRY     ; $0203: so $0204 is $BFFD, the TPA's top + 1
                 JMP     STUB           ; $BFFD
+RESCANPB:       .byte   BIOS::SELDSK, 0, 0, 0, 0, 0, 0, 0 ; A: 0, X: 0 a first select
 MAGIC:          .byte   OODOS_MAGIC
 COMNAME:        .byte   "        COM"
 CRLF:           .byte   $0D, $0A, "$"
