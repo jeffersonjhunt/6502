@@ -13,7 +13,8 @@
 ;   SYSREAD aa xx / SYSWRITE aa xx   read it; write it: FF 03, File R/O
 ;   SEARCH3 aa xx         17 doesn't look in user 0: FF
 ;   DELRO / RENRO / WRITERO aa xx    A2 read-only (t1'): FF 03 each
-;   BYTECOUNT hh          f6': 30 sets A1's byte count, Open gives it in CR
+;   BYTECOUNT hh          30 with f6' sets A1's byte count, Open with CR $FF
+;                         gives it in CR
 ;   DELX aa xx / XKEPT aa xx  f5': Delete of XFCBs only, which A1 hasn't
 ;   BITS hh hh            B1 given f1' and t3': its entry's bytes 1 and 11
 ;   OPENBITS hh hh        and the FCB's after Open
@@ -243,7 +244,8 @@ start:  lda     #$FF                    ; errors come back
         jsr     HEX2
         jsr     CRLF
 
-        ; f6': the last record's byte count, set by 30, given by Open
+        ; the last record's byte count, set by 30 with f6', given by Open
+        ; with CR $FF (the Guide, function 15)
         NAME    fcb, "A1      TXT"
         lda     fcb+6
         ora     #$80
@@ -252,9 +254,8 @@ start:  lda     #$FF                    ; errors come back
         sta     fcb+32
         CALLF   F_ATTRIB, fcb
         NAME    fcb, "A1      TXT"
-        lda     fcb+6
-        ora     #$80
-        sta     fcb+6
+        lda     #$FF
+        sta     fcb+32
         CALLF   F_OPEN, fcb
         SAY     "BYTECOUNT "
         lda     fcb+32
