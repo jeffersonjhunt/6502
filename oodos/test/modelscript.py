@@ -850,6 +850,46 @@ def generate(seed, fmt, drive, **kw):
     return Generator(seed, fmt, drive, **kw).generate()
 
 
+# The seeds test_oodos_model compares OODOS's BDOS with the model on by default (modeltest.py seeds
+# prints them): the three formats, each BDOS bug the comparison found, and between them every edge in
+# EDGES (test_model.py checks they still do: a change to the generator moves what a seed reaches).
+DEFAULT_SEEDS = (1, 4, 6, 10, 14, 24, 41, 45)
+SEED_FORMATS = ("oodos-ram", "oodos-8m", "oodos-32m")
+EDGES = {
+    "disk": "a write's 2: no block free (a full disk)",
+    "dir-m": "MAKEN's $FF: a full directory, on M:",
+    "dir-b": "MAKEN's $FF: a full directory, on B: (oodos-8m or oodos-32m)",
+    "ro": "X 2: a read-only drive",
+}
+
+
+def format_of(seed):
+    """A seed's format, as test_oodos_model and model_cpmtools.sh go round them."""
+    return SEED_FORMATS[seed % 3]
+
+
+def edges(seed):
+    """The EDGES the seed's script reaches, run on the model as DRIVER.COM runs it."""
+    fmt = format_of(seed)
+    drive = 12 if fmt == "oodos-ram" else 1
+    sc = generate(seed, fmt, drive)
+    start = M.stamp(2026, 10, 27, 12, 0)
+    a = M.Drive("oodos-8m", M.mkfs(M.FORMATS["oodos-8m"], start))
+    put_file(a, 0, "SCRIPT.BIN", sc.encode(), start)
+    d = Driver(M.Bdos({0: a, drive: M.Drive(fmt, M.mkfs(M.FORMATS[fmt], start))}, now=start))
+    d.run(None)
+    got = set()
+    for r in d.recs:
+        f = {n: v for n, v, _, _ in r.fields}
+        if r.op in (OP_WRITE, OP_WRITEN) and f["A"] == 2:
+            got.add("disk")
+        if r.op == OP_MAKEN and f["A"] == 0xFF and f["X"] == 0:
+            got.add("dir-m" if drive == 12 else "dir-b")
+        if f.get("A") == 0xFF and f.get("X") == 2:
+            got.add("ro")
+    return got
+
+
 # ---------------------------------------------------------------------------- files, by the model
 
 def put_file(dv, user, name, data, now):
@@ -910,9 +950,12 @@ def compare_results(script, predicted, actual_data, out):
     return bad
 
 
-def compare_images(model_dv, actual, mode, out, label="drive"):
-    """The drive's directory and files: exactly, or up to the blocks' numbering. @return differences"""
+def compare_images(model_dv, actual, mode, out, label="drive", skip=()):
+    """The drive's directory and files: exactly, or up to the blocks' numbering; `skip`, (user, name)s
+    whose records aren't compared (their entries are). @return differences"""
     f = model_dv.fmt
+    skipped = {b for u, n in skip for i in model_dv.file_entries(u, M.fcb_name(n) if isinstance(n, str) else n)
+               for b in model_dv.blocks(model_dv.entry(i))}
     act = M.Drive(f, actual)
     bad = 0
     bmap = {}
@@ -950,6 +993,8 @@ def compare_images(model_dv, actual, mode, out, label="drive"):
     if len(set(bmap.values())) != len(bmap):
         note("two of the model's blocks are one of the BDOS's")
     for mb, ab in sorted(bmap.items()):
+        if mb in skipped:
+            continue
         for n in range(f.rpb):
             mdata, und = model_dv.read_rec(mb, n)
             if und:

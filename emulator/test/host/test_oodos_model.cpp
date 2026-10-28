@@ -17,20 +17,25 @@
  *     for seeds on all three formats: the comparison passes, so the driver,
  *     the script and result formats and the reference driver agree;
  *   - the same with the model made wrong on purpose (an update stamp, a
- *     record count, a directory code, a byte of data): the comparison fails,
- *     naming the seed;
+ *     record count, a directory code, a byte of data, an attribute on A:):
+ *     the comparison fails, naming the seed;
  *   - DRIVER.COM under OODOS: the CCP runs it from A: and it reports;
  *   - with OODOS_MODEL_BDOS on (the CMake option, on by default; the
  *     environment variable OODOS_MODEL_BDOS=0 or 1 for one run): each seed
  *     run by DRIVER.COM under OODOS.SYS on backplane.machine, B: (oodos-8m,
  *     oodos-32m) on the card or M:, compared with the model. The default
- *     seeds (1, 4, 6, 14, 41, 45: the three formats, and each of the BDOS's
- *     bugs the comparison found fails one of them) take about 3 minutes
- *     under ASan; OODOS_MODEL_SEEDS (1,2,7-60...) chooses others,
+ *     seeds (modeltest.py seeds: 1, 4, 6, 10, 14, 24, 41, 45, the three
+ *     formats; each of the BDOS's bugs the comparison found fails one of
+ *     them, and between them they fill a disk, a directory on M: and on B:
+ *     and meet a read-only drive, which test_model.py checks) take about 6
+ *     minutes under ASan; OODOS_MODEL_SEEDS (1,2,7-60...) chooses others,
  *     OODOS_MODEL_ONLY=1 runs the comparison alone (so seeds can run in
- *     parallel, a process each), OODOS_MODEL_CUT=N a seed's first N
- *     operations. OODOS_MODEL_COMPARE (renumber, exact), OODOS_MODEL_ALLOC
- *     (lowest, nearest) and OODOS_MODEL_LOOSE_X=1 pass to modeltest.py check.
+ *     parallel, a process each: oodos/test/model_seeds.sh), OODOS_MODEL_CUT=N
+ *     a seed's first N operations. OODOS_MODEL_COMPARE (renumber, exact),
+ *     OODOS_MODEL_ALLOC (lowest, nearest) and OODOS_MODEL_LOOSE_X=1 pass to
+ *     modeltest.py check; any other value fails the run before it starts.
+ *     With the comparison off, its case says it's skipped and the run exits
+ *     77, which ctest counts as skipped; with OODOS_MODEL_ONLY=1 too, it fails.
  */
 
 #include "harness.h"
@@ -46,6 +51,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -122,7 +128,7 @@ namespace
 
     std::string seed_dir(const std::string &tag, unsigned seed) { return WORK + "/" + tag + "-" + std::to_string(seed); }
 
-    /// The formats the seeds go round.
+    /// The formats the seeds go round (modelscript.format_of's, model_cpmtools.sh's).
     const char *format_of(unsigned seed)
     {
         static const char *const F[] = {"oodos-ram", "oodos-8m", "oodos-32m"};
@@ -133,7 +139,7 @@ namespace
     {
         std::string out, cut;
         if (const char *c = std::getenv("OODOS_MODEL_CUT"); c && *c)
-            cut = std::string(" --cut ") + c;                  // the script's first N operations only
+            cut = std::string(" --cut ") + c;                  // the script's first N operations only (main checked it)
         const int rc = modeltest("prepare --seed " + std::to_string(seed) + " --format " + format_of(seed) +
                                      " --dir " + quote(dir) + " --driver " + quote(DRIVER) + cut,
                                  out);
@@ -586,6 +592,94 @@ namespace
         const char *v = std::getenv(name);
         return v && *v ? std::string(v) != "0" : fallback;
     }
+
+    /// Seeds as OODOS_MODEL_SEEDS takes them: 7 or 7-60, comma-separated.
+    /// @return whether `text` is that; the seeds in `seeds`
+    bool parse_seeds(const std::string &text, std::vector<unsigned> &seeds)
+    {
+        seeds.clear();
+        std::istringstream in(text);
+        std::string v;
+        while (std::getline(in, v, ','))
+        {
+            const size_t dash = v.find('-');
+            const std::string lo = v.substr(0, dash), hi = dash == std::string::npos ? lo : v.substr(dash + 1);
+            if (lo.empty() || hi.empty() || lo.size() > 6 || hi.size() > 6 ||
+                lo.find_first_not_of("0123456789") != std::string::npos ||
+                hi.find_first_not_of("0123456789") != std::string::npos || std::stoul(lo) > std::stoul(hi))
+                return false;
+            for (unsigned n = static_cast<unsigned>(std::stoul(lo)); n <= std::stoul(hi); ++n)
+                seeds.push_back(n);
+        }
+        return !seeds.empty();
+    }
+
+    /// The environment's settings that reach modeltest.py's command line: only the values it takes, so
+    /// nothing else gets into the shell's. @return "" or what's wrong
+    std::string bad_settings()
+    {
+        auto value = [](const char *name) {
+            const char *v = std::getenv(name);
+            return std::string(v ? v : "");
+        };
+        const std::pair<const char *, std::vector<std::string>> choices[] = {
+            {"OODOS_MODEL_COMPARE", {"renumber", "exact"}}, {"OODOS_MODEL_ALLOC", {"lowest", "nearest"}}};
+        for (const auto &[name, allowed] : choices)
+        {
+            const std::string v = value(name);
+            if (!v.empty() && std::find(allowed.begin(), allowed.end(), v) == allowed.end())
+                return std::string(name) + "=" + v + ": not " + allowed[0] + " or " + allowed[1];
+        }
+        const std::string cut = value("OODOS_MODEL_CUT");
+        if (!cut.empty() && (cut.size() > 5 || cut.find_first_not_of("0123456789") != std::string::npos))
+            return "OODOS_MODEL_CUT=" + cut + ": not a number of operations";
+        std::vector<unsigned> seeds;
+        const std::string list = value("OODOS_MODEL_SEEDS");
+        if (!list.empty() && !parse_seeds(list, seeds))
+            return "OODOS_MODEL_SEEDS=" + list + ": not seeds (7 or 7-60, comma-separated)";
+        return "";
+    }
+
+    /// OODOS's BDOS against the model, seed by seed: OODOS_MODEL_SEEDS, or modeltest.py's default seeds
+    /// (between them every edge test_model.py checks: a full disk, a full directory on M: and on B:, a
+    /// read-only drive's X 2).
+    void compare_with_oodos()
+    {
+        std::vector<unsigned> seeds;
+        std::string out;
+        if (const char *s = std::getenv("OODOS_MODEL_SEEDS"); s && *s)
+            parse_seeds(s, seeds);
+        else
+        {
+            const bool listed = modeltest("seeds", out) == 0 && parse_seeds(out.substr(0, out.find('\n')), seeds);
+            if (!listed)
+                print_lines(out);
+            REQUIRE(listed);
+        }
+        std::string extra;
+        if (const char *c = std::getenv("OODOS_MODEL_COMPARE"); c && *c)
+            extra += std::string(" --compare ") + c;
+        if (const char *c = std::getenv("OODOS_MODEL_ALLOC"); c && *c)
+            extra += std::string(" --alloc ") + c;
+        if (env_on("OODOS_MODEL_LOOSE_X", false))
+            extra += " --loose-x";
+        for (const unsigned seed : seeds)
+        {
+            const std::string dir = seed_dir("oodos", seed);
+            REQUIRE(prepare(seed, dir));
+            const std::string said = run_on_oodos(dir, format_of(seed), ms(600'000));
+            CHECK(said.find("DRIVER OK") != std::string::npos);
+            const bool passed = check(dir, out, extra);
+            CHECK(passed);
+            print_lines(out);
+        }
+    }
+
+    void comparison_skipped()
+    {
+        std::printf("  skipped: OODOS_MODEL_BDOS off (the CMake option, or the environment's =0): OODOS's BDOS "
+                    "isn't compared with the model\n");
+    }
 } // namespace
 
 TEST(driver_is_a_com_that_fits)
@@ -621,7 +715,8 @@ TEST(the_model_as_the_bdos_agrees_with_itself)
 TEST(a_wrong_bdos_is_caught)
 {
     // Each fault on a seed whose script exercises it; check fails, and names the seed.
-    const std::pair<const char *, unsigned> cases[] = {{"update", 1}, {"rc", 1}, {"code", 2}, {"data", 1}};
+    const std::pair<const char *, unsigned> cases[] = {
+        {"update", 1}, {"rc", 1}, {"code", 2}, {"data", 1}, {"a-attr", 1}};
     for (const auto &[fault, seed] : cases)
     {
         const std::string dir = seed_dir(std::string("fault-") + fault, seed);
@@ -631,7 +726,8 @@ TEST(a_wrong_bdos_is_caught)
         CHECK(!check(dir, out));
         CHECK(out.find("seed " + std::to_string(seed) + ": op ") != std::string::npos ||
               out.find("seed " + std::to_string(seed) + ": M:") != std::string::npos ||
-              out.find("seed " + std::to_string(seed) + ": B:") != std::string::npos);
+              out.find("seed " + std::to_string(seed) + ": B:") != std::string::npos ||
+              out.find("seed " + std::to_string(seed) + ": A:") != std::string::npos);
         std::printf("  --fault %s: %s", fault, out.substr(0, out.find('\n') + 1).c_str());
     }
 }
@@ -665,45 +761,30 @@ constexpr bool MODEL_BDOS = false;
 
 int main()
 {
-    if (env_on("OODOS_MODEL_ONLY", false))
-        ::ooe::test::registry().clear();                    // the comparison alone: seeds run in parallel by hand
-    if (env_on("OODOS_MODEL_BDOS", MODEL_BDOS))
+    if (const std::string bad = bad_settings(); !bad.empty())
     {
-        static ::ooe::test::Registrar reg("oodos_matches_the_model", [] {
-            std::vector<unsigned> seeds = {1, 4, 6, 14, 41, 45};
-            if (const char *s = std::getenv("OODOS_MODEL_SEEDS"); s && *s)
-            {
-                seeds.clear();
-                std::istringstream in(s);
-                std::string v;
-                while (std::getline(in, v, ','))             // 7 or 7-60
-                {
-                    const size_t dash = v.find('-');
-                    const unsigned lo = static_cast<unsigned>(std::stoul(v.substr(0, dash)));
-                    const unsigned hi = dash == std::string::npos ? lo : static_cast<unsigned>(std::stoul(v.substr(dash + 1)));
-                    for (unsigned n = lo; n <= hi; ++n)
-                        seeds.push_back(n);
-                }
-            }
-            std::string extra;
-            if (const char *c = std::getenv("OODOS_MODEL_COMPARE"); c && *c)
-                extra += std::string(" --compare ") + c;
-            if (const char *c = std::getenv("OODOS_MODEL_ALLOC"); c && *c)
-                extra += std::string(" --alloc ") + c;
-            if (env_on("OODOS_MODEL_LOOSE_X", false))
-                extra += " --loose-x";
-            for (const unsigned seed : seeds)
-            {
-                const std::string dir = seed_dir("oodos", seed);
-                REQUIRE(prepare(seed, dir));
-                const std::string said = run_on_oodos(dir, format_of(seed), ms(600'000));
-                CHECK(said.find("DRIVER OK") != std::string::npos);
-                std::string out;
-                const bool passed = check(dir, out, extra);
-                CHECK(passed);
-                print_lines(out);
-            }
-        });
+        std::printf("FAIL %s\n", bad.c_str());
+        return 1;
     }
-    return ::ooe::test::run_all();
+    const bool only = env_on("OODOS_MODEL_ONLY", false), compared = env_on("OODOS_MODEL_BDOS", MODEL_BDOS);
+    if (only)
+        ::ooe::test::registry().clear();                    // the comparison alone: seeds run in parallel by hand
+    if (only && !compared)
+    {
+        std::printf("FAIL OODOS_MODEL_ONLY=1 runs the comparison alone, but OODOS_MODEL_BDOS is off: nothing to run\n");
+        return 1;
+    }
+    static ::ooe::test::Registrar reg("oodos_matches_the_model", compared ? compare_with_oodos : comparison_skipped);
+    if (::ooe::test::registry().empty())
+    {
+        std::printf("FAIL no cases to run\n");
+        return 1;
+    }
+    const int rc = ::ooe::test::run_all();
+    if (rc == 0 && !compared)
+    {
+        std::printf("skipped: OODOS_MODEL_BDOS off\n");
+        return 77;                                           // SKIP_RETURN_CODE: ctest counts it skipped
+    }
+    return rc;
 }

@@ -170,17 +170,21 @@ the model's is 0.
 `test_oodos_model`, in ctest, runs DRIVER.COM with the model as its BDOS, for 9 seeds, and with the model made
 wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison with OODOS's own BDOS** is on
 (the CMake option `OODOS_MODEL_BDOS`; a build tree configured before it was on keeps OFF in its cache, so pass
-`-DOODOS_MODEL_BDOS=ON` once) for seeds 1, 4, 6, 14, 41 and 45, under 4 minutes under ASan. More seeds by hand,
+`-DOODOS_MODEL_BDOS=ON` once; off, its case says it's skipped and ctest counts the test skipped) for seeds 1, 4, 6,
+10, 14, 24, 41 and 45 (`modeltest.py seeds`: between them a full disk, a full directory on M: and on B:, a read-only
+drive), about 6 minutes under ASan. More seeds by hand,
 from `emulator/`: `OODOS_MODEL_SEEDS` takes a list and ranges, `OODOS_MODEL_ONLY=1` runs the comparison alone, so
 seeds can run a process each, and `OODOS_MODEL_CUT=N` runs only a seed's first N operations, to find where a
-difference starts (a release build is about ten times faster than ASan's):
+difference starts (a release build is about ten times faster than ASan's). `model_seeds.sh` runs a process a seed
+and counts a seed passed only if it exited 0 and printed its PASS line; it exits non-zero unless all did.
+`OODOS_MODEL_COMPARE`, `OODOS_MODEL_ALLOC`, `OODOS_MODEL_CUT` and `OODOS_MODEL_SEEDS` take only their values (any
+other fails the run), and `OODOS_MODEL_ONLY=1` with the comparison off fails:
 
 ```
 cmake --preset dev -DOODOS_MODEL_BDOS=ON && cmake --build --preset dev && ctest --preset dev -R test_oodos_model
 OODOS_MODEL_BDOS=0 ./build/dev/test/host/test_oodos_model        # without the comparison, for one run
 OODOS_MODEL_SEEDS=4,7-9 OODOS_MODEL_COMPARE=exact OODOS_MODEL_LOOSE_X=1 ./build/dev/test/host/test_oodos_model
-seq 1 600 | xargs -P 16 -I{} sh -c 'OODOS_MODEL_ONLY=1 OODOS_MODEL_SEEDS={} \
-    ./build/dev/test/host/test_oodos_model > /tmp/seed{}.log 2>&1'; grep -h "seed.*FAIL" /tmp/seed*.log   # 1-600 pass
+sh ../oodos/test/model_seeds.sh -j 16 ./build/dev/test/host/test_oodos_model 1-600    # ends 600/600 seeds pass
 OODOS_MODEL_ONLY=1 OODOS_MODEL_SEEDS=14 OODOS_MODEL_CUT=213 ./build/dev/test/host/test_oodos_model
 ```
 

@@ -12,7 +12,8 @@
 # format by seed mod 3, as test_oodos_model's: oodos-ram, oodos-8m, oodos-32m), modeltest.py's run of the
 # script, and on the drive it leaves: the stamps' order (sfcb.py), fsck.cpm -n (no Error or Warning
 # lines but fsck.cpm 2.23's first-slot one, interop.sh's way, and its "Bad record count" for exactly
-# the entries whose last extent has a hole, which it takes for damage: modeltest.py sparse), cpmls -F
+# the entries whose last extent has a hole, which it takes for damage, and fails on an entry with a
+# block past its RC's: modeltest.py sparse), cpmls -F
 # (every file, with its first
 # entry's update and create stamps) and every file's contents by cpmcp (a hole reads as zeros). Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
@@ -56,7 +57,7 @@ for seed in ${*:-1 2 3 4 5 6}; do
   model predict --dir "$d" >/dev/null
   img="$d/T.model.IMG"
   order=$(python3 -I test/sfcb.py "$img" "$(def "$f" maxdir)" check "$d/allowed") || { echo "$order"; fail "seed $seed: sfcb.py"; }
-  model sparse --image "$img" --format "$f" >>"$d/allowed"
+  model sparse --image "$img" --format "$f" >>"$d/allowed" || fail "seed $seed: an RC too small for its blocks"
   fsck_model "$f" "$img" "$d/allowed"
   listing=$(cpmls -f "$f" -F "$img") || fail "seed $seed: cpmls -F"
   echo "$listing" | sed 's/^/     /'

@@ -1408,8 +1408,9 @@ TEST(the_ccps_load_gives_up_on_a_card_that_stays_busy)
 }
 
 /// FSTEST on a drive: its results, the last sector held back until close (a write-back at close),
-/// and the BIOS's READs while it reads the file back (deblocking: at most one a sector).
-void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = false)
+/// and the BIOS's READs while it reads the file back (deblocking: at most one a sector). `fresh`: no
+/// FSTEST has run on the drive before, so record 299's pattern is nowhere on it until the close.
+void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = false, bool fresh = true)
 {
     REQUIRE(r.ok);
     CpmDisk disk{r, drive == 'M' ? 0u : 1u};
@@ -1477,8 +1478,11 @@ void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = fals
     const size_t before = drive == 'M' ? in_memory(r, MDISK, MDISK_SIZE, last) : on_card(r, last);
     r.type(" ");
     REQUIRE(r.until("CLOSED?", ms(5000), from));
-    if (before == 0)
+    if (fresh)
+    {
+        CHECK_EQ(before, size_t{0});
         CHECK_EQ(drive == 'M' ? in_memory(r, MDISK, MDISK_SIZE, last) : on_card(r, last), size_t{1});
+    }
     const std::vector<uint8_t> dir = disk.directory();
     const std::vector<unsigned> es = disk.entries_of(dir, 0, "SEQ     DAT");
     if (!big) // CpmDisk knows oodos-8m and M:
@@ -1571,7 +1575,7 @@ TEST(a_program_s_bios_calls_leave_the_bdos_its_drive)
     fstest(r, 'A', 32);
     r.set_time(2026, 10, 27, 15, 42, 7);
     CHECK(r.go("biostest.com", "", ms(8000)).find("BIOSTEST DONE") != std::string::npos);
-    fstest(r, 'A', 32);
+    fstest(r, 'A', 32, false, false); // the first run's record 299 is on A:, deleted
 }
 
 TEST(fstest_on_an_oodos_32m_drive)

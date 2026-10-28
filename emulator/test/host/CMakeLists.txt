@@ -269,12 +269,12 @@ target_compile_definitions(test_oodos_boot PRIVATE
 # (oodos/test/driver's Makefile, through the rules gate). test_oodos_model_py
 # is the model's own tests; test_oodos_model runs DRIVER.COM with the model
 # as its BDOS, and under OODOS. OODOS_MODEL_BDOS (on) also compares OODOS's
-# own BDOS with the model (hw/oodos.md, "The BDOS, phase 3"), on six seeds
-# (about 4 minutes with the rest under ASan); more seeds by hand (oodos/README.md).
+# own BDOS with the model (hw/oodos.md, "The BDOS, phase 3"), on eight seeds
+# (about 6 minutes with the rest under ASan); more seeds by hand (oodos/README.md).
 
 option(OODOS_MODEL_BDOS "test_oodos_model: compare OODOS's BDOS with the model" ON)
 emu_add_test(test_oodos_model)
-set_tests_properties(test_oodos_model PROPERTIES TIMEOUT 900) # six seeds of BDOS calls under ASan: about 4 minutes
+set_tests_properties(test_oodos_model PROPERTIES TIMEOUT 1200) # eight seeds of BDOS calls under ASan: about 6 minutes
 set(OODOS_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_model")
 file(MAKE_DIRECTORY "${OODOS_MODEL_DIR}")
 add_custom_command(

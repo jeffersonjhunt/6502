@@ -11,9 +11,12 @@
         DIR/A.model.IMG, DIR/T.model.IMG and DIR/RESULT.model.BIN: the model's run of the script
     python3 -I modeltest.py check --dir DIR [--compare renumber|exact] [--alloc lowest|nearest] [--loose-x]
         the model's run against what DRIVER.COM left in DIR/A.out.IMG (RESULT.BIN) and DIR/T.out.IMG:
-        every result, then the drive's directory and files; prints the seed, each operation that differs
-        and how, and PASS or FAIL; exits 0 only on PASS
+        every result, then the drive's directory and files, then A:'s (all but RESULT.BIN's records,
+        which are the results); prints the seed, each operation
+        that differs and how, and PASS or FAIL (FAIL too for whatever stops the comparison: no
+        RESULT.BIN, a script the model can't predict, an image missing); exits 0 only on PASS
     python3 -I modeltest.py show --dir DIR       the script, an operation a line
+    python3 -I modeltest.py seeds                the seeds test_oodos_model compares by default, 1,4,...
     python3 -I modeltest.py files --image IMG --format F --out DIR
         each file on a drive image to DIR/USER/NAME.EXT (a hole as zeros; its last record cut to the byte
         count, S1, if its last entry has one and records, as cpmcp does), and a line for each: the user,
@@ -23,7 +26,8 @@
     python3 -I modeltest.py sparse --image IMG --format F
         fsck.cpm's "Bad record count" line for each entry whose last logical extent has a hole: fsck.cpm
         2.23 takes RC to need exactly that many blocks, so a sparse file (a random write past a gap,
-        as CP/M allows) draws it. model_cpmtools.sh lets those lines through, and only those
+        as CP/M allows) draws it. model_cpmtools.sh lets those lines through, and only those. An entry
+        with a block past those RC needs is no sparse file but an RC too small: on stderr, and exits 1
 
 --compare exact compares the images byte for byte (the BDOS allocating as --alloc); renumber, the
 default, the same but for the blocks' numbers, which need only be one to one. --loose-x doesn't compare
@@ -46,7 +50,7 @@ import modelscript as S        # noqa: E402
 
 START = M.stamp(2026, 10, 27, 12, 0)
 A_FMT = "oodos-8m"
-FAULTS = ("update", "rc", "code", "data")
+FAULTS = ("update", "rc", "code", "data", "a-attr")
 
 
 def drive_for(fmt):
@@ -97,7 +101,8 @@ def cmd_prepare(o):
 class Faulty(M.Bdos):
     """The model made wrong on purpose, for the test that the comparison can fail: the update stamp
     never written, an entry's RC one short, open's directory code 1 (the Guide's is 0), a byte of record
-    5 of each extent (the last two on the drive under test, not A:)."""
+    5 of each extent (the RC and the byte on the drive under test, not A:), and (a-attr) f2's attribute bit
+    set in each entry close writes on A:, which only A:'s directory shows."""
 
     fault = None
 
@@ -114,6 +119,11 @@ class Faulty(M.Bdos):
             if e[15] > 1:
                 e[15] -= 1
                 dv.set_entry(i, bytes(e))
+        if self.fault == "a-attr" and i is not None and not s.drive:
+            dv = self.drives[0]
+            e = bytearray(dv.entry(i))
+            e[2] |= 0x80
+            dv.set_entry(i, bytes(e))
         return i
 
     def f15(self, a, x, mem):
@@ -180,20 +190,19 @@ def cmd_predict(o):
     print("predicted: %d operations" % len(drv.recs))
 
 
-def cmd_check(o):
-    seed, fmt, drive = setup(o.dir)
+def check(o, seed, fmt, drive):
     script = S.Script.decode(read(os.path.join(o.dir, "SCRIPT.BIN")))
     out = []
     try:
         b, drv, _ = predict(o.dir, o.alloc)
     except M.Unspecified as e:
-        print("seed %d: the script isn't one the model can predict from this drive: %s" % (seed, e))
+        print("seed %d: FAIL: the script isn't one the model can predict from this drive: %s" % (seed, e))
         return 1
-    a_out = M.Drive(A_FMT, read(os.path.join(o.dir, "A.out.IMG")))
+    a_out = read(os.path.join(o.dir, "A.out.IMG"))
     t_out = read(os.path.join(o.dir, "T.out.IMG"))
-    res = a_out.read_file(0, "RESULT.BIN")
+    res = M.Drive(A_FMT, a_out).read_file(0, "RESULT.BIN")
     if res is None:
-        print("seed %d: no RESULT.BIN on A: (did DRIVER run?)" % seed)
+        print("seed %d: FAIL: no RESULT.BIN on A: (did DRIVER run?)" % seed)
         return 1
     preds = drv.recs
     if o.loose_x:
@@ -201,11 +210,32 @@ def cmd_check(o):
             r.fields = [(n, v, s, "any" if n == "X" and v == 0 else rule) for n, v, s, rule in r.fields]
     bad = S.compare_results(script, preds, res, out)
     bad += S.compare_images(b.drives[drive], t_out, o.compare, out, "%s: (%s)" % (chr(65 + drive), fmt))
+    # A:'s directory and SFCBs, and SCRIPT.BIN's and DRIVER.COM's records; RESULT.BIN's records are the
+    # results, compared above by their rules (what CP/M 3 leaves open isn't the model's to say).
+    bad += S.compare_images(b.drives[0], a_out, o.compare, out, "A: (%s)" % A_FMT, skip=[(0, "RESULT.BIN")])
     for line in out:
         print("seed %d: %s" % (seed, line))
     print("seed %d: %s, %d operations, %s %s" % (seed, "PASS" if not bad else "FAIL %d" % bad, len(script.ops),
                                                 fmt, o.compare))
     return 1 if bad else 0
+
+
+def cmd_check(o):
+    # Whatever stops the comparison is a FAIL line too, so that a run of many seeds can't miss one.
+    try:
+        seed, fmt, drive = setup(o.dir)
+    except (OSError, KeyError, ValueError) as e:
+        print("%s: FAIL: no setup (%s: %s)" % (o.dir, type(e).__name__, e))
+        return 1
+    try:
+        return check(o, seed, fmt, drive)
+    except Exception as e:                 # noqa: BLE001: a missing image, a bad script, a model error
+        print("seed %d: FAIL: %s: %s" % (seed, type(e).__name__, e))
+        return 1
+
+
+def cmd_seeds(o):
+    print(",".join(str(n) for n in S.DEFAULT_SEEDS))
 
 
 def cmd_show(o):
@@ -244,9 +274,12 @@ def cmd_files(o):
         print("%d %s %s %s %s" % (user, n, t or "-", cpmls_stamp(st[4:8]), cpmls_stamp(st[:4])))
 
 
-def cmd_sparse(o):
-    dv = M.Drive(o.format, read(o.image))
+def sparse(dv):
+    """Each entry's last logical extent against its RC. @return (fsck.cpm's "Bad record count" lines for
+    the entries with a hole in RC's blocks, which a sparse file has; what's wrong: an entry with a block
+    past RC's, which no file should have)"""
     f = dv.fmt
+    allowed, errors = [], []
     for i in dv.entries():
         e = dv.entry(i)
         if e[0] > 15:
@@ -255,9 +288,23 @@ def cmd_sparse(o):
         first, last = lo * 128 // f.rpb, (lo * 128 + 127) // f.rpb
         bl = dv.blocks(e)[first:last + 1]
         need = (e[15] + f.rpb - 1) // f.rpb
-        if any(b == 0 for b in bl[:need]) or any(bl[need:]):
-            nm = bytes(c & 0x7F for c in e[1:12]).decode()
-            print('Error: Bad record count (extent=%d, name="%s.%s", record count=%d)' % (i, nm[:8], nm[8:], e[15]))
+        nm = bytes(c & 0x7F for c in e[1:12]).decode()
+        if any(bl[need:]):
+            errors.append("entry %d (%s.%s): RC %d, but blocks %s past its %d" % (i, nm[:8], nm[8:], e[15],
+                                                                              bl[need:], need))
+        elif any(b == 0 for b in bl[:need]):
+            allowed.append('Error: Bad record count (extent=%d, name="%s.%s", record count=%d)' % (
+                i, nm[:8], nm[8:], e[15]))
+    return allowed, errors
+
+
+def cmd_sparse(o):
+    allowed, errors = sparse(M.Drive(o.format, read(o.image)))
+    for line in allowed:
+        print(line)
+    for line in errors:
+        print("modeltest.py sparse: %s" % line, file=sys.stderr)
+    return 1 if errors else 0
 
 
 def cmd_mkfs(o):
@@ -291,6 +338,7 @@ def main():
     q = sub.add_parser("sparse")
     q.add_argument("--image", required=True)
     q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
+    sub.add_parser("seeds")
     q = sub.add_parser("mkfs")
     q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
     q.add_argument("-o", required=True)
