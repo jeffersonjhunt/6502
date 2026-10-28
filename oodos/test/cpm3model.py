@@ -34,26 +34,32 @@ Testing, "phase 3a: the model", Proposed):
   as it was (as OODOS's BDOS: the implied close is refused). The FCB's S2 has the module and, as
   OODOS's BDOS keeps them, $80 while the extent isn't written and $40 while it has no entry yet, so a
   program's own FCB with the open one's name and place is a changed FCB, not the open one.
-- Open (15) clears S2 and opens the extent EX names; a file not in the current user but in user 0 with
-  the SYS attribute (t2') opens from user 0, read only. Writes to it, or to a file whose t1' is set,
-  return A = $FF, X = 3 (File R/O).
+- A program gives an FCB's bytes 0-12 (the Guide, 15 and 22): open, make and search (EX not '?') take
+  S2 as 0. Open (15) opens the extent EX names; a file not in the current user but in user 0 with the
+  SYS attribute (t2') opens from user 0, read only. Writes to it, or to a file whose t1' is set, return
+  A = $FF, X = 3 (File R/O). Open with CR $FF puts the last record's byte count (the entry's S1) in CR.
+- Make (22) makes extent EX's entry (stamped if EX is 0), every attribute 0 in it and in the FCB
+  (2.3.4); a name the user has in any extent is 8, File Exists.
 - Errors return (the driver sets 45 to $FF): A = $FF and X = CP/M 3's H: 2 R/O disk, 3 R/O file, 4 select
   error, 8 file exists, 9 '?' in the name. "Not found", "no directory space" and the like are A = $FF,
   X = 0. Checks go in this order: the drive, '?' (9), a read-only drive (2), not found, a read-only file
   (3), exists (8); but rename (23) checks the new name first: the drive, '?' in either name, a read-only
   drive, the new name exists (8), the old one not found, a read-only file (3), as OODOS's BDOS does (the
   manual lists the errors in no order).
-- Directory codes: 15, 16 (a written FCB), 17, 18 and 22 return the entry's index mod 4; 19, 23 and 30
-  return one of 0-3 (which isn't fixed: Result.loose). A close of an FCB not written returns 0 and
-  writes nothing. Success puts 0 in X.
+- Directory codes: 17 and 18 return the entry's index mod 4; the others return 0 on success (the
+  Guide, 2.3, after Table 2-8). A close of an FCB not written returns 0 and writes nothing. Success puts
+  0 in X.
 - Delete (19) takes '?' and all extents; if any match is R/O nothing is deleted. Rename (23) keeps the
   entries' attributes; '?' in either name is 9, a new name that exists is 8. Set attributes (30) copies
-  f1'-f4' and t1'-t3' from the FCB to every extent, no '?'. File size (35) and truncate (99): the
+  f1'-f4' and t1'-t3' from the FCB to every extent, no '?', and with f6' CR into every extent's S1, the
+  byte count. File size (35) and truncate (99): the
   current user only, '?' is 9. File size puts 0 in R0-R2 when there's no such file (as CP/M 2.2 did).
 - Truncate (99) keeps records 0 to R: entries past R's extent are deleted, the one holding it gets EX and
-  RC for R and loses the blocks after R's. R at or past the end is A = $FF, X = 0, and R2 over 3 is
-  A = $FF, X = 0 before the file is looked for (so before a read-only file's 3). It stamps the
-  update, as a close after a write does (the manual doesn't say; OODOS's BDOS does).
+  RC for R and loses the blocks after R's. R at or past the end, or where the file has no data (no
+  entry reaching R's extent, past RC there, no block: the Guide's "a region of the file where data
+  exists"), is A = $FF, X = 0, and R2 over 3 is A = $FF, X = 0 before the file is looked for (so before
+  a read-only file's 3). It stamps the update, as a close after a write does (the manual doesn't say;
+  OODOS's BDOS does).
 - Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access), only ever in the
   SFCB slot of a file's extent-zero entry (the manual: a slot is valid only for an extent-zero entry).
   A new entry's slot is cleared (its password mode and reserved byte 0 too); make (of extent 0) sets
@@ -76,7 +82,7 @@ changes anything, and the generator chooses something else: an FCB used after it
 renamed, changed by 30 or 99, or its drive reset (13, 37), or after 98 while it had blocks not yet
 closed; two FCBs on one file with either writing; sequential I/O or 36 after an error left the position
 uncertain; 18 not straight after 17 or 18; an FCB changed by the program (but for R0-R2); the current
-user or drive changed under an open FCB; truncating into a hole; make with EX, S2 or attributes set.
+user or drive changed under an open FCB; make with EX past 31.
 """
 
 import os
@@ -590,8 +596,6 @@ class Bdos:
             return 0xFF, 4
         if self.check_name(b):
             return 0xFF, 9
-        if b[32] == 0xFF:
-            raise Unspecified("open with CR $FF (the last record's byte count)")
         dv = self.use(d)
         name = bytes(c & 0x7F for c in b[1:12])
         ext = b[12] & 0x1F
@@ -606,15 +610,15 @@ class Bdos:
         e = dv.entry(i)
         s = Fcb(d, user, bytes(e[1:12]), ro or bool(e[9] & 0x80), b[0])
         s.opener = self.user
-        s.cr = b[32]
         self.load_ext(s, ext)
+        s.cr = s.s1 if b[32] == 0xFF else b[32]           # CR $FF: the last record's byte count
         self.fcbs[addr] = s
         self.put_fcb(addr, s, b, mem)
         if dv.mode & MODE_ACCESS and ext == 0 and not dv.ro:  # access overwrites a creation stamp
             o = dv.slot(i)
             if o is not None:
                 dv.img[o:o + 4] = self.now
-        return self.code(i), 0
+        return 0, 0
 
     def f16(self, a, x, mem):
         addr = a | x << 8
@@ -630,7 +634,7 @@ class Bdos:
         if i is None:
             return 0xFF, 0
         self.put_fcb(addr, s, b, mem)
-        return self.code(i), 0
+        return 0, 0
 
     def match(self, dv, e, pat, user):
         if e[0] != user:
@@ -652,7 +656,10 @@ class Bdos:
             self.search = None
             return 0xFF, 4
         self.use(d)
-        self.search = {"drive": d, "pat": bytes(b[:15]), "all": every, "user": self.user, "next": 0}
+        pat = bytearray(b[:15])
+        if pat[12] != 0x3F:
+            pat[14] = 0                                  # the program gives bytes 0-12: module 0
+        self.search = {"drive": d, "pat": bytes(pat), "all": every, "user": self.user, "next": 0}
         return self._next(mem)
 
     def f18(self, a, x, mem):
@@ -696,8 +703,7 @@ class Bdos:
             dv.set_entry(i, bytes(e))
         names = {dv.entry(i)[1:12] for i in hits}
         self.kill(lambda s: s.drive == d and s.user == self.user and any(same_name(s.name, n) for n in names))
-        self.loose = {"code"}
-        return self.code(hits[0]), 0
+        return 0, 0
 
     def _fcb_io(self, a, x, mem, op):
         addr = a | x << 8
@@ -793,23 +799,23 @@ class Bdos:
             return 0xFF, 4
         if self.check_name(b):
             return 0xFF, 9
-        if b[12] or b[14] or any(c & 0x80 for c in b[1:12]):
-            raise Unspecified("make with EX, S2 or attributes set")
+        if b[12] > 31:
+            raise Unspecified("make with EX past 31")
         dv = self.use(d)
         if dv.ro:
             return 0xFF, 2
-        name = bytes(b[1:12])
+        name = bytes(c & 0x7F for c in b[1:12])         # every attribute 0 (S2 isn't the program's)
         if dv.file_entries(self.user, name):
             return 0xFF, 8
         s = Fcb(d, self.user, name, False, b[0])
         s.opener = self.user
-        if self.new_entry(dv, s, 0, first=True) is None:
+        if self.new_entry(dv, s, b[12], first=b[12] == 0) is None:   # extent 0's stamped
             return 0xFF, 0
         self.kill(lambda o: o.drive == d and o.user == self.user and same_name(o.name, name))
         s.cr = b[32]
         self.fcbs[addr] = s
         self.put_fcb(addr, s, b, mem)
-        return self.code(s.entry), 0
+        return 0, 0
 
     def f23(self, a, x, mem):
         b = mem.read(a | x << 8, 36)
@@ -835,8 +841,7 @@ class Bdos:
                 e[1 + k] = (e[1 + k] & 0x80) | new[k]
             dv.set_entry(i, bytes(e))
         self.kill(lambda s: s.drive == d and s.user == self.user and same_name(s.name, old))
-        self.loose = {"code"}
-        return self.code(hits[0]), 0
+        return 0, 0
 
     def f24(self, a, x, mem):
         v = sum(1 << d for d, dv in self.drives.items() if dv.logged)
@@ -879,10 +884,11 @@ class Bdos:
             e = bytearray(dv.entry(i))
             for k in (1, 2, 3, 4, 9, 10, 11):
                 e[k] = (e[k] & 0x7F) | (b[k] & 0x80)
+            if b[6] & 0x80:                              # f6': the byte count, CR, into S1
+                e[13] = b[32]
             dv.set_entry(i, bytes(e))
         self.kill(lambda s: s.drive == d and s.user == self.user and same_name(s.name, name))
-        self.loose = {"code"}
-        return self.code(hits[0]), 0
+        return 0, 0
 
     def f31(self, a, x, mem):
         self.use(self.cur)                               # it selects: the manual has it return $FFFF on an I/O error
@@ -1039,13 +1045,13 @@ class Bdos:
         f = dv.fmt
         ext, c = r >> 7, r & 127
         keep = self.find_ext(dv, self.user, name, ext)
-        if keep is None:
-            raise Unspecified("truncate into a hole")
+        if keep is None:                                 # R must be where data is (the Guide)
+            return 0xFF, 0
         ke = dv.entry(keep)
         lo, dex = ext & 0x1F, ke[12] & 0x1F
         rc = 128 if lo < dex else ke[15] if lo == dex else 0
         if c >= rc or not dv.blocks(ke)[((ext & f.exm) * 128 + c) // f.rpb]:
-            raise Unspecified("truncate into a hole")
+            return 0xFF, 0
         for i in hits:
             e = bytearray(dv.entry(i))
             first = (e[14] & 0x3F) << 5 | e[12] & 0x1F & ~f.exm

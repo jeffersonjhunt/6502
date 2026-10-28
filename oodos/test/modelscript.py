@@ -440,6 +440,7 @@ class Generator:
 
     def __init__(self, seed, fmt, drive, nops=None, profile=None, a_fmt="oodos-8m"):
         self.rng = random.Random(seed)
+        self.rare = random.Random(seed + 0x10000)  # the rarer choices, so they leave rng's stream as it was
         self.seed, self.fmt, self.drive = seed, M.FORMATS[fmt], drive
         self.profile = profile or self.rng.choice(PROFILES)
         if self.profile == "diskfill" and self.fmt.size > 1 << 20:
@@ -597,9 +598,16 @@ class Generator:
         getattr(self, "g_" + kind)()
         self.since_time += 1
 
+    def s2(self):
+        """S2 as a program might leave it: the Guide has open, make and search take bytes 0-12 only."""
+        return self.rare.randrange(1, 256) if self.rare.random() < 0.08 else 0
+
     def g_open(self):
         k = self.spare_slot()
-        self.set_fcb(k, self.name(0.92), ex=self.rng.choice([0, 0, 0, 0, 0, 0, 1, 2, 3]))
+        name = self.name(0.92)
+        ex = self.rng.choice([0, 0, 0, 0, 0, 0, 1, 2, 3])
+        cr = 0xFF if self.rare.random() < 0.12 else 0   # $FF: open gives the byte count in CR
+        self.set_fcb(k, name, ex=ex, cr=cr, s2=self.s2())
         self.time()
         self.emit(OP_FCALL, [15, k])
 
@@ -607,7 +615,13 @@ class Generator:
         k = self.spare_slot()
         r = self.rng.random()
         name = self.name(0.2) if r < 0.85 else self.wild(self.name(0.2)) if r < 0.92 else self.name(1)
-        self.set_fcb(k, name)
+        if self.rare.random() < 0.15:                   # attributes, which make clears
+            name = bytearray(name)
+            for i in self.rare.sample(range(11), self.rare.randint(1, 4)):
+                name[i] |= 0x80
+            name = bytes(name)
+        ex = self.rare.choice([1, 2, 3, 8]) if self.rare.random() < 0.06 else 0   # File Exists: any extent
+        self.set_fcb(k, name, ex=ex, s2=self.s2())
         self.time(force=True)
         self.emit(OP_FCALL, [22, k])
 
@@ -681,7 +695,8 @@ class Generator:
                 n = self.wild(n)
             if r > 0.9:
                 n = b"???????????"
-            self.set_fcb(6, n, ex=0x3F if self.rng.random() < 0.5 else 0)
+            ex = 0x3F if self.rng.random() < 0.5 else 0
+            self.set_fcb(6, n, ex=ex, s2=self.s2())
 
     def g_search(self):
         self.search_fcb()
@@ -716,7 +731,11 @@ class Generator:
         for i in (0, 1, 2, 3, 8, 9, 10):
             if self.rng.random() < (0.25 if i < 8 else 0.35):
                 n[i] |= 0x80
-        self.set_fcb(6, bytes(n))
+        cr = 0
+        if self.rare.random() < 0.3:                    # f6': CR is the byte count, into S1
+            n[5] |= 0x80
+            cr = self.rare.randrange(129)
+        self.set_fcb(6, bytes(n), cr=cr)
         self.emit(OP_FCALL, [30, 6])
 
     def g_user(self):

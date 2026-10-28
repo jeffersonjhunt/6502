@@ -15,7 +15,8 @@
         and how, and PASS or FAIL; exits 0 only on PASS
     python3 -I modeltest.py show --dir DIR       the script, an operation a line
     python3 -I modeltest.py files --image IMG --format F --out DIR
-        each file on a drive image to DIR/USER/NAME.EXT (a hole as zeros), and a line for each: the user,
+        each file on a drive image to DIR/USER/NAME.EXT (a hole as zeros; its last record cut to the byte
+        count, S1, if its last entry has one and records, as cpmcp does), and a line for each: the user,
         the name, the type, its first entry's update and create stamps as cpmls -F shows them
     python3 -I modeltest.py mkfs --format F -o IMG
         an empty drive, as mkfs.cpm -t at 2026-10-27 12:00 with the label's mode set to 0x31
@@ -95,8 +96,8 @@ def cmd_prepare(o):
 
 class Faulty(M.Bdos):
     """The model made wrong on purpose, for the test that the comparison can fail: the update stamp
-    never written, an entry's RC one short, open's directory code 0, a byte of record 5 of each extent
-    (the last two on the drive under test, not A:)."""
+    never written, an entry's RC one short, open's directory code 1 (the Guide's is 0), a byte of record
+    5 of each extent (the last two on the drive under test, not A:)."""
 
     fault = None
 
@@ -117,7 +118,7 @@ class Faulty(M.Bdos):
 
     def f15(self, a, x, mem):
         r = super().f15(a, x, mem)
-        return (0, r[1]) if self.fault == "code" and r[0] < 4 else r
+        return (1, r[1]) if self.fault == "code" and r[0] == 0 else r
 
     def _write_rec(self, s, dv, c, data, zero):
         if self.fault == "data" and c == 5 and s.drive:
@@ -232,7 +233,12 @@ def cmd_files(o):
         first = min(dv.file_entries(user, nm), key=lambda j: ((dv.entry(j)[14] & 0x3F) << 5 | dv.entry(j)[12] & 0x1F, j))
         n, t = nm[:8].decode().rstrip(), nm[8:].decode().rstrip()
         os.makedirs(os.path.join(o.out, str(user)), exist_ok=True)
-        write(os.path.join(o.out, str(user), n + ("." + t if t else "")), dv.read_file(user, nm))
+        data = dv.read_file(user, nm)
+        last = max(dv.file_entries(user, nm), key=lambda j: ((dv.entry(j)[14] & 0x3F) << 5 | dv.entry(j)[12] & 0x1F, j))
+        count = dv.entry(last)[13]                      # the last record's byte count, as 30 set it (2.3.12):
+        if dv.entry(last)[15] and 0 < count < 128:      # cpmcp copies that much of the last extent's last record
+            data = data[:len(data) - 128 + count]
+        write(os.path.join(o.out, str(user), n + ("." + t if t else "")), data)
         sl = dv.slot(first)
         st = dv.img[sl:sl + 8] if sl is not None else bytes(8)
         print("%d %s %s %s %s" % (user, n, t or "-", cpmls_stamp(st[4:8]), cpmls_stamp(st[:4])))

@@ -331,7 +331,8 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
 - **Registers:** CP/M 3's C or E in A, BC in A/X, and MOVE's DE and HL (SECTRN's table too) in two words of the
   system's zero page, function 50's +4–5 and +6–7; a result in A, or A/X for HL. `bios.s`'s header has every
   entry. SELDSK's E (bit 0: selected before) is X; a first select reads IDENTIFY's units table again, so a unit
-  mounted since shows up. As CP/M 3's: MOVE copies BC bytes from DE (+4–5, the source) to HL (+6–7, the
+  mounted since shows up; a unit whose entry changed is marked in `DRVCHG`, for the BDOS (2026-10-27), and a table
+  that can't be read changes nothing (that select has no drive). As CP/M 3's: MOVE copies BC bytes from DE (+4–5, the source) to HL (+6–7, the
   destination) and returns HL past them; XMOVE's C, the source bank, is A, and its B, the destination bank, is X.
 - **Banks:** 0 is the system's view (31, 60, 61, 62; from 3a W2 the block its caller had there, `CALLW2`, below),
   1 the program's (the windows the stub saved); any other is taken as 0. SETBNK names SETDMA's; SELMEM sets the bank MOVE copies within, and moves no window (the BDOS reaches
@@ -586,10 +587,11 @@ against, compared with what the BDOS does on the emulator.
 **Proposed (3a, as built, 2026-10-27)** ([`oodos/sys/bdos.s`](../oodos/sys/bdos.s), [`bdosfile.s`](../oodos/sys/bdosfile.s),
 [`bdosdisk.s`](../oodos/sys/bdosdisk.s); the choices the manuals leave open are ours, marked so for the model test):
 
-- **Where it lives:** all of it fits block 60 (6,348 bytes of 16 KB), so nothing is in block 62's code window yet;
+- **Where it lives:** all of it fits block 60 (6,564 bytes of 16 KB), so nothing is in block 62's code window yet;
   `sys.cfg` has a `BDOS2` segment there, after the CCP's code and before its BSS, for when it doesn't. The system
-  block holds its zero page (the BDOS's and the BIOS's together, 181 of the 240 bytes), its variables (the FCB's copy,
-  the search's state, a table a drive, the buffers' tags: 402 bytes of `SYSBSS`'s 1,280 with the BIOS's) and the
+  block holds its zero page (the BDOS's and the BIOS's together, 180 of the 240 bytes), its variables (the FCB's copy,
+  the search's state, a table a drive, the buffers' tags: 627 bytes of `SYSBSS`'s 1,280 with the BIOS's, its copy of
+  the units table among them) and the
   allocation vectors at `$1000–$2FFF`, 1 KB a drive's slot (A–G slots 0–6, M: 7); the hash is 8 KB a slot in blocks
   24–27, the buffers block 28.
 - **The jump table:** every entry but BOOT and WBOOT goes through its own few instructions in common memory, which
@@ -599,9 +601,17 @@ against, compared with what the BDOS does on the emulator.
   them itself. Measured: **51 cycles** a call over the JMP alone (28 in, 23 out). Common memory holds 1,107 of its
   2,048 bytes, the BIOS's DPBs among them (function 31 returns one).
 - **Buffers:** 32 sectors, directory or data, the least recently used taken (an empty one first) by a 16-bit clock.
-  A directory change is written at once; a data sector when its buffer is taken, at close (the drive's), by 48, 13
-  and 37, and at the warm boot (the CCP calls 48 and 98 each time, in error mode `$FF`). A write that fails drops its
-  buffer, so the error isn't met again on the next flush.
+  A directory change is written at once; a data sector when its buffer is taken, by 48, 13 and 37, at the warm boot
+  (the CCP calls 48 and 98 each time, in error mode `$FF`), and (the drive's) before a close or an extent change
+  writes the entry that points at it: a failed write-back is that function's error, before the directory is
+  touched. A write that fails drops its buffer, so the error isn't met again on the next flush.
+- **The order of writes** (2026-10-27, from the review): data, then the entry that points at it (above); the
+  entry, then the blocks freed, for delete and truncate (their pointers kept until the entry is on the disk), so a
+  failed directory write leaves no entry on the disk whose blocks are free. A close merges F's block pointers with
+  the entry's only once it has checked them all: two different blocks for one place (two FCBs writing one file)
+  fail it, 3 to a read or write that moves on, and leave F and the entry as they were. A drive isn't logged out
+  on a failed directory write: the buffer is dropped, the hash and the vectors not yet changed, so they still
+  match what the disk has.
 - **A block a write takes is zeroed** (its sectors become new buffers of zeros, changed): records never written in
   it read as zeros, not as what the block held before, so function 40 is 34. CP/M 3 leaves them undefined.
 - **Allocation:** the lowest free block, not CP/M 3's nearest to the file's last; simpler, and the same on every run.
@@ -612,23 +622,30 @@ against, compared with what the BDOS does on the emulator.
   its login; a unit made read-only later is when its WRITE returns 2. Files are looked for up to the last entry that
   isn't free or an SFCB (a high-water mark); free entries, and 17's every entry, to the directory's end. The DPHs'
   CSV, ALV, BCB and HASH fields stay 0: the BDOS places its own, as above.
+- **A rescan of the units** (a login's SELDSK, or a program's) leaves a drive alone whose unit is as it was: the
+  BIOS keeps the last units table and marks each unit whose entry (its size, flags or file's name) changed
+  (`DRVCHG`); the BDOS logs those drives out if they were logged in, their buffers dropped unwritten (the card's
+  unit isn't what they came from), after the login's SELDSK and at each select. A failed IDENTIFY (a card busy
+  for a second, or none) changes nothing: that select has no drive, the others keep theirs. Two images of one
+  name and size swapped under a drive aren't told apart: the table is all the card says.
 - **The hash** is FIND's first look at each entry: its first byte, the name's 16-bit hash (each byte's low 7 bits
   XORed into a word turned left a bit before each) and the extent (EX's 5 bits, S2's low 3); then the entry is
   read and compared in full, so two names with one hash (HASHAG.TXT and HASHBA.TXT) are told apart.
-- **Directory codes:** Open, Make, Close, Search, Rename and Set Attributes return the entry's place in its record,
-  0–3 (the first entry's, for those that change several); Delete and Truncate 0; not found, or the directory full,
-  `$FF` with X 0. A closed file that wasn't written returns 0 without looking.
+- **Directory codes** (the Guide, 2.3, after Table 2-8; changed 2026-10-27, from the review): the searches return
+  the entry's place in its record, 0–3; every other function 0 on success; not found, or the directory full, `$FF`
+  with X 0. A closed file that wasn't written returns 0 without looking.
 - **Wildcards:** `?` in the name or type is ? in Filename (9) for 15, 22, 23 (either name), 30, 35 and 99; 17, 18
   and 19 take it. `?` as 17's drive byte: every entry of the current drive, to its end, free ones too, nothing
   compared. 18 goes on from 17's pattern, kept (not the FCB read again), until 13 or 37.
-- **Make** refuses a name and extent there already (File Exists, 8); the entry gets f1'–f4' and t1'–t3' as the FCB
-  has them, f5'–f8' clear, no blocks. **Open** looks in the current user, then (from another user) for user 0's
-  entry with t2': opened from there, f8' set, and the file read-only (File R/O on a write; its later extents are
-  user 0's too). It copies f1'–f4' and t1'–t3' from the entry, clears f7', and with f6' set gives the entry's byte
-  count (S1, as 30 sets it with f6') in CR. **Delete** checks every match first (File R/O: none deleted), then
-  deletes every extent and the file's XFCBs (user + 16); with f5', the XFCBs only. **Rename** takes the new name's
-  low 7 bits and keeps each entry's attributes, its XFCBs renamed too. **30** sets every extent's f1'–f4' and
-  t1'–t3', clears f5'–f8' on the disk, and with f6' sets S1 to CR.
+- **Bytes 0–12** are the program's (the Guide, 15 and 22): Open, Make and Search (EX not `?`) take S2 as 0.
+- **Make** refuses a name the user has in any extent (File Exists, 8); the entry, of extent EX, and the FCB get
+  every attribute 0 (the Guide, 2.3.4 and 22), no blocks. **Open** looks in the current user, then (from another
+  user) for user 0's entry with t2': opened from there, f8' set, and the file read-only (File R/O on a write; its
+  later extents are user 0's too). It copies f1'–f4' and t1'–t3' from the entry, clears f7', and with CR `$FF`
+  gives the entry's byte count (S1, as 30 sets it with f6') in CR. **Delete** checks every match first (File R/O:
+  none deleted), then deletes every extent and the file's XFCBs (user + 16); with f5', the XFCBs only. **Rename**
+  takes the new name's low 7 bits and keeps each entry's attributes, its XFCBs renamed too. **30** sets every
+  extent's f1'–f4' and t1'–t3', clears f5'–f8' on the disk, and with f6' sets S1 to CR.
 - **Extents** as CP/M's: moving past one closes it (if written) and finds the next, made for a write; a read that
   finds none returns 1 (4 for 33) and leaves the FCB at the new extent, empty and marked (S2's `$40`; `$80` is "not
   written"), so a write there makes its entry at once and a full directory is the write's error (1, or 5 for 34
@@ -639,8 +656,9 @@ against, compared with what the BDOS does on the emulator.
   whichever extent they changed; Open of extent 0 stamps the access (in the creation's field, which they share) if
   the mode asks, not on a read-only drive. A new entry's slot is cleared, so later extents' slots stay 0.
   cpmtools stamps every entry of a file it writes; both read the first entry's.
-- **Truncate (99):** R0–R2 is the new last record; it must be before the file's end and in an extent with an entry,
-  else `$FF` (R2 over 3 before the directory is read). Later extents' entries are deleted; the one with R gets R's
+- **Truncate (99):** R0–R2 is the new last record; it must be before the file's end and where the file has data
+  (the Guide: an entry reaching R's extent, R below RC if that's the entry's own, R's block there), else `$FF` (R2
+  over 3 before the directory is read). Later extents' entries are deleted; the one with R gets R's
   extent, RC (R mod 128) + 1, the pointers after R's block freed and cleared; the update is stamped in the
   extent-zero entry's slot (the Guide doesn't say; a truncate changes the file).
 - **File size (35)** leaves R0–R2 0 for a file that isn't there (as CP/M 2.2's BDOS did).
@@ -657,15 +675,20 @@ against, compared with what the BDOS does on the emulator.
 - **The stand-in CCP** sets user 0, opens `A:NAME.COM` and reads record 0 into its buffer: the header to `$0280`,
   checked, the image's first 112 bytes (or fewer) to `$0300`; then whole records straight to their place by the DMA
   address, and a last part record through its buffer. Open's `$FF` with X 0 is `NAME?`, any other error `READ ERROR`.
-  A program starts in the default error mode with the DMA address `$0280`.
+  The user is put back as it was before the program runs and after `NAME?` or an error. A program starts in the
+  default error mode with the DMA address `$0280`.
 - **Function 50** forgets which drive the BIOS has selected, so the BDOS selects its own again before its next
   sector: a program's SELDSK can't send the BDOS's reads to another drive.
 - **UNITS** (SELDSK's first select) resets a card it finds busy, as READ and WRITE do, so a login after a stuck card
   works.
-- **Measured** on `oodos-8m`, BDOSENT to its return: Open 5,213 cycles; a sequential read of a record in a buffered
-  sector 4,570, of one whose sector it reads 12,632; a write to a buffered sector 7,344, one that takes a new block
-  77,663, and 92,909 when that block's buffers are written back first. The stub adds 216. Most of a buffered read is
-  three DMA copies through MOVE: the FCB in and out, and the record.
+- **The DPBs** are checked as they're assembled (`bios.s`'s DPB macro): SPT 64, BSH 3–7, DSM under 4,096, DRM under
+  2,048, the drive's sectors in 16 bits, EXM as CP/M 3 works it out, AL0 and AL1 the directory's blocks: what the
+  BDOS and the BIOS assume of every drive.
+- **Measured** on `oodos-8m`, BDOSENT to its return: Open 5,327 cycles; a sequential read of a record in a buffered
+  sector 4,585, of one whose sector it reads 12,649; a write to a buffered sector 7,380, one that takes a new block
+  79,766, and 165,186 for the cheapest that writes buffers back first (one moving to the next extent, which writes
+  the drive's data back before the entry; before that order a write found changed buffers to take, 93,201). The
+  stub adds 216. Most of a buffered read is three DMA copies through MOVE: the FCB in and out, and the record.
 - OODOS.SYS is still 0.2: the version's minor isn't changed here (the coordinator's to decide).
 
 ## RSXs and programs ##
@@ -1030,7 +1053,8 @@ copyright and MIT notice.
     three extents, the last sector not on the disk until the close writes it back, at most a BIOS READ a sector
     reading back (77: 75 sectors and the directory's as two extents open), random reads in the file, past its end
     (1), into an extent with no entry (4) and past 32 MB (6), a sparse write at record 1000, a record of its block
-    zeros, 40, the size and 36, delete and the free space back; and the BDOS's cycles.
+    zeros, 40, the size and 36, delete and the free space back; no entry written by a close or an extent change
+    while the drive has data not written back; and the BDOS's cycles.
   - **DIRTEST** on M:: 17 and 18 with `?` in the name, the extent and the drive (all 256 entries, the label and 64
     SFCBs counted); users, a SYS file opened from user 3 and refused a write; read-only files refused delete, rename
     and write; f1', t3' and f6' set and read back; rename (attributes kept), File Exists and ? in Filename from make,
@@ -1049,6 +1073,16 @@ copyright and MIT notice.
   - **LOGINTEST:** A:'s login reads its 64 directory sectors once and a second select none; M:'s 16; an entry put in
     M:'s directory behind the BDOS's back isn't seen until 37 logs it out; an XFCB renamed and deleted with its file
     (f5': it alone); 4 records written and not closed are on M: only after the warm boot, whose 98 frees their block.
+  - **RULETEST** (2026-10-27, the review's findings, each against the Guide): on M:, the directory codes (0 but for
+    the searches); open with CR `$FF` giving the byte count, f6' not; S2 left set taken as 0 by open and search;
+    make clearing f1', f6', t1', t2' and S2 in the FCB and the entry (then writable), and File Exists for a file
+    there in another extent; two FCBs with different blocks for one record: the second's write at CR 128 and read
+    fail (1) with CR 80 and EX 0 kept, its random write 3 with CR the record's, nothing merged into it or (after the
+    sector's next write) into the entry on the disk; truncate to four records where the file has no data refused,
+    then to one where it has. On B: made read-only behind the BDOS's back: delete and truncate fail (Read Only)
+    with the free space as it was. On B: with the card busy as A: logs in: A: Invalid Drive, B:'s close after
+    still written; another image as B:'s unit: B: logged out at the next rescan, then read from the new one; a
+    rescan with nothing changed keeps B:. And the CCP: the user 5 kept across `HELLO` and `NOSUCH?`.
 - **The CCP** loads through the BDOS in every run (`hello` in `test_oodos_e2e`, from the card, with the bytes past
   its image untouched); a card that stays busy as it logs A: in is `READ ERROR`, and the next load works.
 - **Interoperability:** `test_oodos_card` boots the committed card in a Session and runs **WRITEOO1** (on the card)
@@ -1064,7 +1098,8 @@ copyright and MIT notice.
   logging out (LOGINTEST, STAMPTEST), the default mode returning (ERRTEST), any user 0 file opened from another
   user or none (DIRTEST), 98 freeing nothing (DIRTEST, LOGINTEST), a new block not zeroed (FSTEST, DIRTEST), a
   read-only unit writable at login (ERRTEST), truncate not freeing, 18 repeating an entry, delete not checking
-  read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), function 50 not
+  read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), each of the
+  review's fixes (RULETEST, FSTEST's write order: 280 entries written early on A: without it), function 50 not
   making the BDOS select its drive again (FSTEST after BIOSTEST), RC 0 for an
   extent the entry goes past (FSTEST), UNITS not resetting a stuck card (the busy card), the CCP not calling 48
   (LOGINTEST); and the CCP reading a last part record straight to its place, on a card made with it
@@ -1097,7 +1132,7 @@ copyright and MIT notice.
 - **`test_oodos_model`, in ctest:** DRIVER.COM on the emulator's W65C02S with the model as its BDOS
   (`modeltest.py serve`, over a pipe), 9 seeds over the three formats, compared with the model's own run:
   driver, formats and reference driver agree. The model made wrong on purpose (no update stamp, an RC one
-  short, open's directory code 0, a byte of data) fails the comparison, which names the seed and the
+  short, open's directory code 1, a byte of data) fails the comparison, which names the seed and the
   operation. DRIVER.COM runs under OODOS.SYS from A: and says `DRIVER OK`, and the harness's images
   are checked: A:'s entries off the card, M:'s directory as cold boot made it, the model's mkfs at that minute.
   `test_oodos_model_py` is the model's own tests: the DPBs, mkfs against `sd/oodos-ram.sparse`, and hand-worked
@@ -1118,6 +1153,11 @@ copyright and MIT notice.
   extent group's entry wasn't found and a second was made (BDOS); a write after a read that found no entry made
   it only at the close (BDOS); truncate's R2 check order and a read closing a written extent on a read-only drive
   (model); a program's own FCB of the open one's bytes taken for it (model: S2's state bits).
+- **The review's fixes** (2026-10-27, the Guide decides each; both the BDOS and the model): the directory codes
+  (0 but for 17 and 18), open's byte count with CR `$FF`, make's attributes cleared and File Exists for any
+  extent, S2 taken as 0 by open, make and search, truncate refused where there's no data (the model had left it
+  open), 30's byte count in S1 (the model hadn't it). The generator makes these from a second random stream, so
+  a seed's script is as it was up to its first such operation. Seeds 1–600 pass again.
 - **cpmtools at verify** ([`oodos/test/model_cpmtools.sh`](../oodos/test/model_cpmtools.sh), Docker): the
   model's empty drives against `mkfs.cpm -t`'s, byte for byte; then each seed's drive through `fsck.cpm`,
   `cpmls -F` (every file's stamps) and `cpmcp` (every file's contents). fsck.cpm 2.23 takes a sparse file's
@@ -1138,14 +1178,14 @@ header has the full list):
   cleared slot; writing a written FCB's entry back (close, or moving to another extent) and truncate stamp
   the update in the extent-zero entry's slot; open of extent 0 the access, with `$40`, not on a read-only
   drive. Delete, rename and 30 don't stamp. A mode without stamps leaves the SFCB.
-- **Results:** 15, 16 (a written FCB), 17, 18 and 22 return the entry's directory code; 19, 23 and 30 any of
-  0–3; X is 0 on success (`--loose-x` doesn't compare it); 35 returns 0 or `$FF`; 13 returns 0 and logs no
+- **Results:** 17 and 18 return the entry's directory code, the others 0 on success (the Guide, 2.3; settled
+  2026-10-27); X is 0 on success (`--loose-x` doesn't compare it); 35 returns 0 or `$FF`; 13 returns 0 and logs no
   drive in; 31 logs the current drive in. Errors in the order drive (4), `?` (9), read-only drive (2), not
   found, read-only file (3), exists (8); rename checks the new name first (exists, then not found, then
   read-only), as the BDOS does. Delete refuses all if any match is read-only. Rename keeps the attributes.
   35 of no such file leaves R0–R2 0. A read that must close a written extent on a read-only drive is 2.
-- **Truncate** (99) past the end is `$FF`, and R2 over 3 is `$FF` before a read-only file's 3; into a hole the
-  model doesn't decide, and the generator avoids it.
+- **Truncate** (99) past the end, or where the file has no data (the Guide), is `$FF`, and R2 over 3 is `$FF`
+  before a read-only file's 3.
 - **The FCB's S2** holds what OODOS's BDOS keeps there (`$80` not written, `$40` no entry for the extent yet),
   so a program's own FCB of the same name and place isn't the open one (an FCB the program changed).
 - **What isn't decided** (an FCB used after its file was deleted or renamed or its drive reset, two FCBs on

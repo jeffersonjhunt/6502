@@ -8,7 +8,7 @@
 FCB_DR          = 0                    ; the drive: 0 the current one, 1-16 A-P
 FCB_NAME        = 1                    ; f1-f8, t1-t3; bit 7 of each an attribute
 FCB_F5          = 5                    ; f5': delete XFCBs only (19)
-FCB_F6          = 6                    ; f6': set the byte count (30), get it (15)
+FCB_F6          = 6                    ; f6': set the byte count (30; open gives it for CR $FF)
 FCB_F7          = 7
 FCB_F8          = 8                    ; f8': opened from user 0 (a SYS file): read-only
 FCB_T1          = 9                    ; t1': read-only

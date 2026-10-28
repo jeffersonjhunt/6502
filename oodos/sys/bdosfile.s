@@ -6,17 +6,19 @@
 ;   13 DRV_ALLRESET  every buffer written back and dropped, every drive logged
 ;                    out and read-write; A: current, the DMA address $0280
 ;   14 DRV_SET       A = the drive (0-15) logged in and made current
-;   15 F_OPEN        the FCB at A/X: its extent; not in the user but in user
-;                    0 with the SYS attribute (t2'): opened read-only from
-;                    there, f8' set. RC as the extent has it; with f6', CR
-;                    the last record's byte count. A = the directory code
-;                    (the entry's place in its record, 0-3), $FF none
-;   16 F_CLOSE       a written extent put in the directory (its blocks and
-;                    RC merged), stamped, the drive's buffers written back
+;   15 F_OPEN        the FCB at A/X: extent EX (its S2 taken as 0); not in
+;                    the user but in user 0 with the SYS attribute (t2'):
+;                    opened read-only from there, f8' set. RC as the extent
+;                    has it; CR $FF: CR the last record's byte count (S1).
+;                    A = 0, $FF none
+;   16 F_CLOSE       the drive's changed buffers written back, then a written
+;                    extent put in the directory (its blocks and RC merged),
+;                    stamped. A = 0, $FF
 ;   17 F_SFIRST      the first entry the FCB matches ('?' any byte; '?' in
-;                    EX any extent; '?' as the drive every entry, labels,
-;                    SFCBs, XFCBs and free ones): its record to the DMA
-;                    address, A its directory code, $FF none
+;                    EX any extent, else S2 taken as 0; '?' as the drive
+;                    every entry, labels, SFCBs, XFCBs and free ones): its
+;                    record to the DMA address, A its directory code (its
+;                    place in the record, 0-3), $FF none
 ;   18 F_SNEXT       the next, as 17 asked
 ;   19 F_DELETE      every extent of each file the FCB matches ('?' too), and
 ;                    their XFCBs; with f5' the XFCBs only. A read-only one:
@@ -27,19 +29,21 @@
 ;   21 F_WRITE       the DMA address's record to CR, CR + 1, a block taken
 ;                    if it needs one; the next extent opened, or made, after
 ;                    128. A = 0, 1 no directory space, 2 the disk full
-;   22 F_MAKE        a new entry for the FCB's extent (no '?'; not if it is
-;                    there already: File Exists); extent 0's stamped as the
-;                    label asks. A = the directory code, $FF the directory full
+;   22 F_MAKE        a new entry for the FCB's extent EX (its S2 taken as 0;
+;                    no '?'; not if the file is there, any extent: File
+;                    Exists), every attribute clear in it and in the FCB;
+;                    extent 0's stamped as the label asks. A = 0, $FF the
+;                    directory full
 ;   23 F_RENAME      every extent of the FCB's file (and its XFCB) given the
 ;                    name at +16, its attributes kept. Neither name with '?',
-;                    the new one not there (File Exists). A = the code, $FF
+;                    the new one not there (File Exists). A = 0, $FF
 ;   24 DRV_LOGINVEC  A/X = the logged-in drives, bit 0 A:
 ;   26 F_DMAOFF      the DMA address = A/X
 ;   27 DRV_ALLOCVEC  A/X = $FFFF: the vector is in the system bank (46 has it)
 ;   28 DRV_SETRO     the current drive read-only until it is reset
 ;   29 DRV_ROVEC     A/X = the read-only drives
 ;   30 F_ATTRIB      f1'-f4' and t1'-t3' from the FCB into every extent; with
-;                    f6' the byte count (CR) into S1 too. A = the code, $FF
+;                    f6' the byte count (CR) into S1 too. A = 0, $FF
 ;   31 DRV_DPB       A/X = the current drive's DPB, in common memory
 ;   32 F_USERNUM     A = $FF: A = the user; else the user = A & 15
 ;   33 F_READRAND    the record R0-R2 (CR set to it, not moved on). A = 0, 1
@@ -59,8 +63,9 @@
 ;   48 DRV_FLUSH     every changed buffer written; A = $FF: and dropped
 ;   98 DRV_FREE      the blocks of files written but not closed freed
 ;   99 F_TRUNCATE    the file (no '?') ends with record R0-R2, which must be
-;                    in it and in an extent it has: later extents deleted,
-;                    blocks past it freed, the update stamped. A = 0, $FF
+;                    in it where it has data (an extent its entry has, below
+;                    RC there, in a block): later extents deleted, blocks
+;                    past it freed, the update stamped. A = 0, $FF
 ;
 ; The FCB is read into F (33 bytes, 36 for 33-36, 40 and 99) and written
 ; back as the function changed it. An extent's state is the FCB's, as CP/M's:
@@ -80,8 +85,7 @@ PCREATE:        .res    1              ; and whether it may make it
 RRCR:           .res    1              ; a random record's place in its extent
 WPY:            .res    1              ; WRITEREC: the pointer's place in F
 ZN:             .res    1              ; ZEROBLK's sectors to go
-FOUND:          .res    1              ; a search's first match: 1 found
-FIRST:          .res    2              ; and its entry
+FOUND:          .res    1              ; a search's match: 1 found
 TGL:            .res    1              ; F_TRUNC: R's extent's group
 TGH:            .res    1
 GRP:            .res    1              ; and whether an entry has it
@@ -301,6 +305,7 @@ F_FREEBLK:      STZ     T4
 F_OPEN:         LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     NOWILD
+                STZ     FC + FCB_S2     ; the program gives bytes 0-12: module 0
                 LDA     FC + FCB_F8     ; f8' is the BDOS's to set
                 AND     #$7F
                 STA     FC + FCB_F8
@@ -327,8 +332,9 @@ F_OPEN:         LDA     #FCB_SEQ
                 ORA     #$80
                 STA     FC + FCB_F8
 @found:         JSR     OPENEXT
-                BIT     FC + FCB_F6     ; f6': the byte count into CR
-                BPL     @access
+                LDA     FC + FCB_CR     ; CR $FF: the byte count into CR
+                CMP     #$FF
+                BNE     @access
                 LDY     #FCB_S1
                 LDA     (DPTR),Y
                 STA     FC + FCB_CR
@@ -346,9 +352,7 @@ F_OPEN:         LDA     #FCB_SEQ
                 LDA     #0
                 JSR     STAMP
 @done:          JSR     FCBOUT
-                LDA     DIDX
-                AND     #3
-                JMP     RETA
+                JMP     RET0
 @none:          LDA     #$FF
                 JMP     RETA
 
@@ -356,14 +360,16 @@ F_MAKE:         LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     NOWILD
                 JSR     RODRV
-                LDA     FC + FCB_F7
+                STZ     FC + FCB_S2     ; the program gives bytes 0-12: module 0
+                LDX     #FCB_NAME       ; every attribute 0, in the entry and F
+@attribute:     LDA     FC,X
                 AND     #$7F
-                STA     FC + FCB_F7
-                LDA     FC + FCB_F8
-                AND     #$7F
-                STA     FC + FCB_F8
-                LDA     SCB_USER
-                LDX     #0
+                STA     FC,X
+                INX
+                CPX     #FCB_EX
+                BNE     @attribute
+                LDA     SCB_USER        ; the file in any extent: File Exists
+                LDX     #SM_ANYEX
                 JSR     SETPAT
                 STZ     DIDX
                 STZ     DIDX + 1
@@ -371,9 +377,8 @@ F_MAKE:         LDA     #FCB_SEQ
                 BCS     @new
                 LDA     #ER_EXISTS
                 JMP     DERR
-@new:           LDA     FC + FCB_S2     ; extent 0: stamped (MAKEENT)
-                AND     #$3F
-                ORA     FC + FCB_EX
+@new:           LDA     FC + FCB_EX     ; extent 0: stamped (MAKEENT)
+                AND     #$1F
                 CMP     #1
                 LDA     SCB_USER
                 BCS     @make
@@ -384,23 +389,16 @@ F_MAKE:         LDA     #FCB_SEQ
                 JMP     RETA
 @made:          JSR     FEMPTY
                 JSR     FCBOUT
-                LDA     DIDX
-                AND     #3
-                JMP     RETA
+                JMP     RET0
 
 F_CLOSE:        LDA     #FCB_SEQ
                 JSR     FCBSEL
                 LDA     FC + FCB_S2
                 BMI     @clean
-                JSR     CLOSEX
+                JSR     CLOSEX         ; the drive's buffers written back first
                 BCS     @failed
-                LDA     CDRV
-                INC     A
-                JSR     FLUSHD
                 JSR     FCBOUT
-                LDA     DIDX
-                AND     #3
-                JMP     RETA
+                JMP     RET0
 @clean:         LDA     CDRV           ; nothing to put in the directory
                 INC     A
                 JSR     FLUSHD
@@ -408,16 +406,22 @@ F_CLOSE:        LDA     #FCB_SEQ
 @failed:        LDA     #$FF
                 JMP     RETA
 
-; F's extent, if written, into the directory: its entry found (made if it
-; isn't there), the block pointers merged (one where the other has 0), EX
-; and RC the later, its blocks permanent, the update stamped (in the
-; file's extent-zero entry, STAMPU). Carry set if
-; it can't be: two different blocks in one place, or no entry to be had.
+; F's extent, if written, into the directory: the drive's changed buffers
+; written back first (the file's data on the disk before the entry that
+; points at it); its entry found (made if it isn't there), the block
+; pointers merged (one where the other has 0), EX and RC the later, its
+; blocks permanent, the update stamped (in the file's extent-zero entry,
+; STAMPU). Carry set, F and the entry as they were, if it can't be: two
+; different blocks in one place (every pointer is checked before any is
+; merged), or no entry to be had.
 CLOSEX:         LDA     FC + FCB_S2
                 BPL     @written
                 CLC                    ; not written: nothing to do
                 RTS
 @written:       JSR     RODRV
+                LDA     CDRV           ; a failed write-back is an error here,
+                INC     A              ; before the directory is touched
+                JSR     FLUSHD
                 JSR     EXTUSER
                 LDX     #0
                 JSR     SETPAT
@@ -429,7 +433,31 @@ CLOSEX:         LDA     FC + FCB_S2
                 JSR     MAKEENT
                 BCC     @found
                 RTS                    ; no entry to be had
-@found:         STZ     MK
+@found:         STZ     MK             ; every pointer checked first
+@check:         LDY     MK
+                JSR     EPTR           ; BLK the entry's
+                LDA     MK
+                JSR     FPTR           ; T0/T1 F's
+                LDA     T0
+                ORA     T1
+                BEQ     @agree
+                LDA     BLK
+                ORA     BLK + 1
+                BEQ     @agree
+                LDA     BLK
+                CMP     T0
+                BNE     @conflict
+                LDA     BLK + 1
+                CMP     T1
+                BNE     @conflict
+@agree:         INC     MK
+                JSR     NPTRS
+                CMP     MK
+                BNE     @check
+                BRA     @merge
+@conflict:      SEC                    ; two blocks in one place: nothing changed
+                RTS
+@merge:         STZ     MK             ; then merged
 @pointer:       LDY     MK
                 JSR     EPTR           ; BLK the entry's
                 LDA     MK
@@ -446,7 +474,7 @@ CLOSEX:         LDA     FC + FCB_S2
                 BRA     @next
 @fhas:          LDA     BLK
                 ORA     BLK + 1
-                BNE     @both
+                BNE     @next          ; both: the same (checked)
                 LDA     MK             ; the entry has none: F's
                 JSR     EPLACE
                 LDA     T0
@@ -456,13 +484,6 @@ CLOSEX:         LDA     FC + FCB_S2
                 INY
                 LDA     T1
                 STA     (DPTR),Y
-                BRA     @next
-@both:          LDA     BLK
-                CMP     T0
-                BNE     @failed
-                LDA     BLK + 1
-                CMP     T1
-                BNE     @failed
 @next:          INC     MK
                 JSR     NPTRS
                 CMP     MK
@@ -507,8 +528,6 @@ CLOSEX:         LDA     FC + FCB_S2
                 ORA     #S2_CLEAN
                 STA     FC + FCB_S2
                 CLC
-                RTS
-@failed:        SEC
                 RTS
 
 ; F from the entry at DPTR, for F's extent: the block pointers, the
@@ -962,8 +981,12 @@ F_SREAD:        LDA     #FCB_SEQ
                 BCS     @end
                 LDA     #0
                 JSR     POSITION
-                STZ     FC + FCB_CR
-                BCS     @end
+                BCC     @moved
+                CMP     #3             ; 3: F still at its extent, CR as it was
+                BEQ     @end
+                STZ     FC + FCB_CR     ; 4: at the next, which has no entry
+                BRA     @end
+@moved:         STZ     FC + FCB_CR
 @record:        LDA     FC + FCB_CR
                 CMP     FC + FCB_RC
                 BCS     @end
@@ -985,11 +1008,14 @@ F_SWRITE:       LDA     #FCB_SEQ
                 BCS     @full          ; past 32 MB
                 LDA     #1
                 JSR     POSITION
-                STZ     FC + FCB_CR
-                BCC     @record
-                JSR     FCBOUT
+                BCC     @moved
+                CMP     #3             ; 3: F still at its extent, CR as it was
+                BEQ     @stay
+                STZ     FC + FCB_CR     ; 5: at the next, no entry to be had
+@stay:          JSR     FCBOUT
                 LDA     #1
                 JMP     RETA
+@moved:         STZ     FC + FCB_CR
 @record:        JSR     HAVEENT
                 BCS     @nodir
                 JSR     WRITEREC
@@ -1078,6 +1104,8 @@ F_RWRITE:       LDA     #FCB_RAND
                 JSR     POSITION
                 BCC     @here
                 PHA                    ; 3 or 5
+                LDA     RRCR           ; CR the record's, as a random read leaves it
+                STA     FC + FCB_CR
                 JSR     FCBOUT
                 PLA
                 JMP     RETA
@@ -1186,22 +1214,17 @@ F_SIZE:         LDA     #FCB_RAND
 ; ---------------------------------------------------------------------------
 ; The directory
 
-; Each entry F's pattern (SETPAT's, done) matches, FOUND 1 if any and FIRST
-; the first; File R/O for a read-only file's (not an XFCB's), if A says so.
+; Each entry F's pattern (SETPAT's, done) matches, FOUND 1 if any; File R/O
+; for a read-only file's (not an XFCB's), if A says so.
 FINDALL:        STA     T5
                 STZ     FOUND
                 STZ     DIDX
                 STZ     DIDX + 1
                 JSR     FIND
 @entry:         BCS     @done
-                LDA     FOUND
-                BNE     @more
-                INC     FOUND
-                LDA     DIDX
-                STA     FIRST
-                LDA     DIDX + 1
-                STA     FIRST + 1
-@more:          LDA     T5
+                LDA     #1
+                STA     FOUND
+                LDA     T5
                 BEQ     @next
                 LDA     (DPTR)
                 CMP     #16
@@ -1228,7 +1251,11 @@ F_SFIRST:       LDA     #FCB_SEQ
 @named:         JSR     FCBDRV
                 JSR     SELECT
                 LDX     #0
-@pattern:       LDA     SCB_USER
+@pattern:       LDA     FC + FCB_EX     ; S2 is the program's only with '?' in EX
+                CMP     #'?'
+                BEQ     @user
+                STZ     FC + FCB_S2
+@user:          LDA     SCB_USER
                 JSR     SETPAT
                 LDX     #13            ; for 18
 @save:          LDA     SPAT,X
@@ -1301,7 +1328,11 @@ F_DELETE:       LDA     #FCB_SEQ
                 BCS     @gone          ; an XFCB: always
                 BIT     FC + FCB_F5     ; f5': the XFCBs only
                 BMI     @next
+                LDA     #DIR_FREE      ; the entry gone on the disk, then its
+                STA     (DPTR)         ; blocks freed (its pointers are kept)
+                JSR     DIRPUT
                 JSR     FREEE
+                BRA     @next
 @gone:          LDA     #DIR_FREE
                 STA     (DPTR)
                 JSR     DIRPUT
@@ -1367,9 +1398,7 @@ F_RENAME:       LDA     #FCB_SEQ
                 JSR     DIRPUT
                 JSR     FINDNXT
                 BRA     @entry
-@done:          LDA     FIRST
-                AND     #3
-                JMP     RETA
+@done:          JMP     RET0
 
 F_ATTRIB:       LDA     #FCB_SEQ
                 JSR     FCBSEL
@@ -1412,13 +1441,12 @@ F_ATTRIB:       LDA     #FCB_SEQ
 @written:       JSR     DIRPUT
                 JSR     FINDNXT
                 BRA     @entry
-@done:          LDA     FIRST
-                AND     #3
-                JMP     RETA
+@done:          JMP     RET0
 
 ; Truncate: R0-R2 the new last record. Every extent checked first (none
-; read-only, the file larger than R, an entry for R's extent); then those
-; past R's extent's group deleted, and the one with it ending at R.
+; read-only, the file larger than R, R where an entry of its group has data:
+; TDATA); then those past R's extent's group deleted, and the one with it
+; ending at R.
 F_TRUNC:        LDA     #FCB_RAND
                 JSR     FCBSEL
                 JSR     NOWILD
@@ -1449,6 +1477,8 @@ F_TRUNC:        LDA     #FCB_RAND
 @rw:            JSR     ESIZE
                 JSR     EGROUP         ; Z set: R's group
                 BNE     @next
+                JSR     TDATA          ; and R where it has data
+                BCS     @next
                 LDA     #1
                 STA     GRP
 @next:          JSR     FINDNXT
@@ -1471,10 +1501,10 @@ F_TRUNC:        LDA     #FCB_RAND
                 JSR     EGROUP
                 BEQ     @ends
                 BCC     @kept          ; before R's group
-                JSR     FREEE          ; after it: gone
-                LDA     #DIR_FREE
-                STA     (DPTR)
+                LDA     #DIR_FREE      ; after it: gone on the disk, then its
+                STA     (DPTR)         ; blocks freed
                 JSR     DIRPUT
+                JSR     FREEE
                 BRA     @kept
 @ends:          JSR     TCUT
 @kept:          JSR     FINDNXT
@@ -1509,9 +1539,47 @@ EGROUP:         JSR     DEXT
                 CMP     TGL
 @done:          RTS
 
+; Carry clear if R is where the entry at DPTR (of R's group) has data: its
+; extent at or after R's, R below its RC if R's extent is the entry's, and
+; R's block pointer not 0 (the Guide: R in a region where data exists).
+; F's EX and CR R's (FPIDX's) after.
+TDATA:          JSR     DEXT           ; T2/T3 the entry's extent
+                LDA     T2
+                CMP     NEXT
+                BNE     @other
+                LDA     T3
+                CMP     NEXT + 1
+                BNE     @other
+                LDY     #FCB_RC        ; R's extent is the entry's: R below RC
+                LDA     RRCR
+                CMP     (DPTR),Y
+                BCS     @no
+                BRA     @block
+@other:         LDA     T2             ; before R's: no data there
+                CMP     NEXT
+                LDA     T3
+                SBC     NEXT + 1
+                BCC     @no
+@block:         LDA     NEXT
+                STA     FC + FCB_EX
+                LDA     RRCR
+                STA     FC + FCB_CR
+                JSR     FPIDX
+                TAY
+                JSR     EPTR
+                LDA     BLK
+                ORA     BLK + 1
+                BEQ     @no
+                CLC
+                RTS
+@no:            SEC
+                RTS
+
 ; The entry at DPTR (of R's group) ends at R: EX and S2 R's extent, RC its
-; record + 1, the pointers after R's block freed and cleared (F_TRUNC
-; stamps the update in the extent-zero entry when they're all done).
+; record + 1, the pointers after R's block cleared; the entry written, then
+; their blocks freed, from F's pointers, where the entry's are kept (truncate
+; writes no FCB back). F_TRUNC stamps the update in the extent-zero entry
+; when they're all done.
 TCUT:           LDY     #FCB_EX
                 LDA     NEXT
                 AND     #$1F
@@ -1534,35 +1602,53 @@ TCUT:           LDY     #FCB_EX
                 LDA     RRCR
                 INC     A
                 STA     (DPTR),Y
+                LDY     #FCB_D         ; the pointers, to free once it's written
+@keep:          LDA     (DPTR),Y
+                STA     FC,Y
+                INY
+                CPY     #FCB_CR
+                BNE     @keep
                 LDA     NEXT           ; R's pointer, as FPIDX works it out
                 STA     FC + FCB_EX
                 LDA     RRCR
                 STA     FC + FCB_CR
                 JSR     FPIDX
+                PHA
                 STA     MK
-@pointer:       INC     MK
+@clear:         INC     MK
                 JSR     NPTRS
                 CMP     MK
                 BEQ     @put
-                LDY     MK
-                JSR     EPTR
-                LDA     BLK
-                ORA     BLK + 1
-                BEQ     @pointer
-                LDA     DSM
-                CMP     BLK
-                LDA     DSM + 1
-                SBC     BLK + 1
-                BCC     @clear         ; past DSM: no block to free
-                JSR     ALVCLR
-@clear:         LDA     MK
+                LDA     MK
                 JSR     EPLACE
                 LDA     #0
                 STA     (DPTR),Y
                 BIT     BIG
-                BPL     @pointer
+                BPL     @clear
                 INY
                 STA     (DPTR),Y
-                BRA     @pointer
-@put:           JMP     DIRPUT
+                BRA     @clear
+@put:           JSR     DIRPUT
+                PLA
+                STA     MK
+@free:          INC     MK
+                JSR     NPTRS
+                CMP     MK
+                BEQ     @done
+                LDA     MK
+                JSR     FPTR           ; T0/T1 the pointer as it was
+                LDA     T0
+                STA     BLK
+                LDA     T1
+                STA     BLK + 1
+                ORA     BLK
+                BEQ     @free
+                LDA     DSM
+                CMP     BLK
+                LDA     DSM + 1
+                SBC     BLK + 1
+                BCC     @free          ; past DSM: no block to free
+                JSR     ALVCLR
+                BRA     @free
+@done:          RTS
 

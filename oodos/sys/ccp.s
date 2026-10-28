@@ -16,7 +16,8 @@
 ;           16 bytes) to $0280 and checked, then exactly the image's size,
 ;           from the file's 17th byte, to $0300: the first record's 112 bytes
 ;           (or fewer), whole records read straight to their place, a last
-;           part record through LASTREC. A name it can't find is NAME?
+;           part record through LASTREC. A name it can't find is NAME?. The
+;           user is put back as it was, whether the program runs or not
 ;
 ; Each warm boot writes back what the BDOS holds (48) and frees the blocks
 ; of files a program didn't close (98). The CCP's own calls return their
@@ -50,6 +51,7 @@ LEFT:           .res    2              ; the image's bytes still to load
 DEST:           .res    2              ; where the next record goes
 LASTREC:        .res    RECORD         ; a record of NAME.COM whose bytes are copied
 COUNT:          .res    1              ; COPYREC's bytes
+USAVE:          .res    1              ; the user, while NAME.COM is loaded from user 0
 
 .segment "RES"
 
@@ -111,7 +113,11 @@ PROMPT:         LDX     #$FF
                 CMP     #' '
                 BNE     @upper
 @end:           STX     WEND
-                TXA                    ; GO?
+                LDA     #$FF           ; the user, to put back after a load
+                LDY     #F_USERNUM
+                JSR     BDOS
+                STA     USAVE
+                LDA     WEND           ; GO?
                 SEC
                 SBC     WSTART
                 CMP     #2
@@ -130,10 +136,16 @@ PROMPT:         LDX     #$FF
 ; is written; then exactly the image's size, which follows the header, to
 ; $0300, so nothing past the image changes.
 ; An error, or the file ending inside the image: READ ERROR.
-RDERR:          LDA     #<READERR
+RDERR:          JSR     USERBACK
+                LDA     #<READERR
                 LDX     #>READERR
                 JSR     STRING
                 JMP     PROMPT
+
+; The user as it was before the command (LOADCOM sets 0).
+USERBACK:       LDA     USAVE
+                LDY     #F_USERNUM
+                JMP     BDOS
 
 NOFILE:         JMP     NONAME         ; NONAME is out of a branch's reach
 
@@ -284,7 +296,8 @@ COPYREC:        CLC                    ; the LDA's operand: LASTREC + A
 
 
 ; NAME?: the word as typed, in capitals, and a question mark.
-NONAME:         LDX     WSTART
+NONAME:         JSR     USERBACK
+                LDX     WSTART
 @char:          LDA     LINE + 2,X
                 PHX
                 JSR     PUTC
@@ -339,11 +352,13 @@ CHECKHDR:       LDX     #3
 @bad:           LDA     #<BADPROG
                 LDX     #>BADPROG
 @say:           JSR     STRING
+                JSR     USERBACK
                 JMP     PROMPT         ; a fresh stack: CHECKHDR's return is dropped
 
 ; Run it: the DMA address $0280 and the default error mode, the command
 ; tail over the header, the FCBs, a fresh stack, $0300.
-RUNTAIL:        LDA     #<BP_DMA
+RUNTAIL:        JSR     USERBACK       ; the program runs in the user it was given in
+                LDA     #<BP_DMA
                 LDX     #>BP_DMA
                 LDY     #F_DMAOFF
                 JSR     BDOS
