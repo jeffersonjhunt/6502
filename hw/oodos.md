@@ -602,7 +602,7 @@ against, compared with what the BDOS does on the emulator.
   2,048 bytes, the BIOS's DPBs among them (function 31 returns one).
 - **Buffers:** 32 sectors, directory or data, the least recently used taken (an empty one first) by a 16-bit clock.
   A directory change is written at once; a data sector when its buffer is taken, by 48, 13 and 37, at the warm boot
-  (the CCP has the BIOS read the units, then calls 48 and 98, each time, in error mode `$FF`), and (the drive's)
+  (the CCP has the BIOS read the units, then calls 48 and 98, each time, in error mode `$FE`), and (the drive's)
   before a close or an extent change writes the entry that points at it. A data write that fails (Disk I/O) keeps
   its buffer changed and marked, so a close whose entry would point at that sector (a block in the FCB's
   pointers) fails again rather than put in an entry that points at a sector never written (2026-10-27, the
@@ -615,8 +615,16 @@ against, compared with what the BDOS does on the emulator.
   its buffer too, so the directory in memory stays what the disk has. 48 writes every changed buffer it can,
   keeps the ones that fail marked (with `$FF` drops them all the same) and returns the first error after. 13 and
   37 drop a buffer they can't write, log the drive out all the same and return the first such error after. 98
-  (the warm boot's) drops the marked buffers: the program that wrote them has ended without a close that could
-  write them, and their blocks are free again, so they don't block the next program's closes.
+  (the warm boot's) drops the marked buffers of the blocks it frees, those not in the drive's permanent vector: an
+  unclosed file's new blocks, whose program has ended without a close that could write them, so they don't block
+  the next program's closes. A marked buffer of a block the directory has (a closed file's record written again in
+  place, by a program that ended without closing it) is kept, marked (2026-10-28, the review's fourth round): the
+  data is the file's, so the next warm boot's 48, a program's 48 or a close of the file tries it again, until the
+  card writes it or 13 or 37 drop it. One such buffer doesn't stop anything else: GETBUF passes it by, and only a
+  close of a file with that block fails on it. A sector before the data area is in no block, and is kept; nothing
+  marks one (the BDOS writes none), nor a directory sector (a failed directory write drops its buffer). The warm
+  boot says a failed write-back as the BDOS says its errors (`OODOS Error On B: Disk I/O`, `BDOS Function = 48`)
+  and goes on to the prompt; before, the CCP's error mode `$FF` dropped it unsaid.
 - **The order of writes** (2026-10-27, from the review): data, then the entry that points at it (above); the
   entry, then the blocks freed, for delete and truncate (their pointers kept until the entry is on the disk), so a
   failed directory write leaves no entry on the disk whose blocks are free. A close merges F's block pointers with
@@ -642,7 +650,8 @@ against, compared with what the BDOS does on the emulator.
   dropped, not written to the new one. So does the warm boot: the CCP has the BIOS read the units (function 50's
   SELDSK of A:, a first select) before its 48, so an image swapped while a program ran, under a record it wrote
   and didn't close, isn't written to. It costs the warm boot one IDENTIFY: 17,687 cycles from WBOOT to the
-  prompt, 2.5 ms at 7.16 MHz, against 3,544 without (2026-10-28, two units mounted). A failed IDENTIFY (a card busy
+  prompt, 2.5 ms at 7.16 MHz, against 3,544 without (2026-10-28, two units mounted); 17,989 with the error mode
+  `$FE` for the rescan, 48 and 98 and `$FF` after (one call more, 302 cycles). A failed IDENTIFY (a card busy
   for a second, or none) changes nothing: that select has no drive, the others keep theirs. Two images of one
   name and size swapped under a drive aren't told apart: the table is all the card says.
 - **The hash** is FIND's first look at each entry: its first byte, the name's 16-bit hash (each byte's low 7 bits
@@ -1108,7 +1117,9 @@ copyright and MIT notice.
     has nothing to write. One sector that won't write: its file's close fails, and again, while a file only read
     and a file whose data is on the card close; after the warm boot B:'s closes work and the sector is never
     written. Two changed buffers, the first failing: 48 writes the second and returns Disk I/O, 48 with `$FF`
-    drops both. What the comparison
+    drops both. A closed file's record written again in place and not closed, the card failing it at the warm
+    boot: the console says `OODOS Error On B: Disk I/O`, the buffer is kept, and the next warm boot, the card
+    writing, puts the record on the card. What the comparison
     with the model found, a test each: 35 of no file zeroing R0-R2; a file's second entry's SFCB slot 0 on M:
     (stamps only in extent zero's); after a read found no entry for extent 2, with the directory full, a write's
     1 (21) or 5 (34, 40) at once; and on an `oodos-32m` A: (EXM 3) after M: (EXM 1) logged in, 384 records in one
@@ -1134,7 +1145,8 @@ copyright and MIT notice.
   dropping its buffer, GETBUF taking a marked buffer first (RULETEST); the third round's: a close of a file not
   written failing on a marked buffer, a close failing on another file's, a close not checking its own (the one-sector
   case; the whole-card one passes without it, its directory write failing too), 98 not dropping them, 48
-  stopping at the first failure, the warm boot not reading the units (RULETEST); the comparison's finds: EXM's mask one
+  stopping at the first failure, the warm boot not reading the units (RULETEST); the fourth round's: 98 dropping a
+  marked buffer of a closed file's block, the warm boot not saying its 48's error (RULETEST); the comparison's finds: EXM's mask one
   for every drive, no S2 `$40`, 35 leaving R0-R2, a later extent's entry stamped at make or at close
   (RULETEST), function 50 not
   making the BDOS select its drive again (FSTEST after BIOSTEST), RC 0 for an
