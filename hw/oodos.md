@@ -1112,7 +1112,7 @@ copyright and MIT notice.
   predict, an image missing) is a FAIL. ctest runs seeds 1, 4, 6, 10, 14, 24, 41 and 45 (`modeltest.py seeds`:
   the three formats; each BDOS bug the comparison found fails at least one of them; between them, which
   `test_model.py` checks, a write's 2 on a full disk, make's $FF on a full directory on M: and on B:, and X 2 from a
-  read-only drive), about 7 minutes under ASan (TIMEOUT 1200). With the comparison off, its case says it's
+  read-only drive), about 6 minutes under ASan (TIMEOUT 1200). With the comparison off, its case says it's
   skipped and the test exits 77, which ctest counts as skipped. Seeds 1–600 pass, run by hand
   (`oodos/test/model_seeds.sh`, a process a seed in parallel, counting each seed's exit status and PASS line:
   [oodos/README.md](../oodos/README.md)). `OODOS_MODEL_CUT=N` runs a seed's first N operations, to find where a

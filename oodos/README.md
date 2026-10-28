@@ -172,7 +172,7 @@ wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison
 (the CMake option `OODOS_MODEL_BDOS`; a build tree configured before it was on keeps OFF in its cache, so pass
 `-DOODOS_MODEL_BDOS=ON` once; off, its case says it's skipped and ctest counts the test skipped) for seeds 1, 4, 6,
 10, 14, 24, 41 and 45 (`modeltest.py seeds`: between them a full disk, a full directory on M: and on B:, a read-only
-drive), about 7 minutes under ASan. More seeds by hand,
+drive), about 6 minutes under ASan. More seeds by hand,
 from `emulator/`: `OODOS_MODEL_SEEDS` takes a list and ranges, `OODOS_MODEL_ONLY=1` runs the comparison alone, so
 seeds can run a process each, and `OODOS_MODEL_CUT=N` runs only a seed's first N operations, to find where a
 difference starts (a release build is about ten times faster than ASan's). `model_seeds.sh` runs a process a seed
