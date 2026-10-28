@@ -24,8 +24,12 @@
 ; program ran has its drive's buffers dropped by the 48 that follows, not
 ; written to the new image; then it writes back what the BDOS holds (48)
 ; and frees the blocks of files a program didn't close, with the buffers
-; whose write failed (98). The CCP's own calls return their
-; errors (error mode $FF): an error loading is READ ERROR. A program starts
+; of those blocks whose write failed (98). A write-back that fails is said
+; as the BDOS says its errors (error mode $FE: "OODOS Error On B: Disk I/O",
+; "BDOS Function = 48"), and the warm boot goes on; a buffer of a closed
+; file's block is kept for the next 48 to try again. After that the CCP's
+; own calls return their errors (error mode $FF): an error loading is READ
+; ERROR. A program starts
 ; in the default error mode, with the DMA address $0280.
 ;
 ; Before a program runs, its header is checked as the loader checks it
@@ -70,8 +74,8 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BPL     @jmps
                 LDX     #$FF
                 TXS
-                LDA     #$FF           ; the CCP's errors come back to it
-                LDY     #F_ERRMODE
+                LDA     #$FE           ; a write-back that fails is said, and the
+                LDY     #F_ERRMODE     ; warm boot goes on
                 JSR     BDOS
                 LDA     #<RESCANPB     ; the units read again (a first select of
                 LDX     #>RESCANPB     ; A:), so 48 drops a swapped unit's buffers
@@ -81,6 +85,9 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 LDY     #DRV_FLUSH
                 JSR     BDOS
                 LDY     #DRV_FREE
+                JSR     BDOS
+                LDA     #$FF           ; the CCP's errors come back to it
+                LDY     #F_ERRMODE
                 JSR     BDOS
 PROMPT:         LDX     #$FF
                 TXS

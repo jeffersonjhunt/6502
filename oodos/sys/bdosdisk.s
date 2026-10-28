@@ -29,8 +29,10 @@
 ; directory write's (DIRPUT), the directory in memory kept as it is on the
 ; disk. 48 writes every buffer it can, then says the first failure; 13 and
 ; 37 drop what they can't write, as they log the drive out, and say so
-; after; 98, the warm boot's, drops the marked ones: the program that wrote
-; them has ended, and their blocks are free.
+; after; 98, the warm boot's, drops the marked ones whose blocks it frees
+; (an unclosed file's new blocks: the program that wrote them has ended),
+; and keeps one of a block the directory has (a closed file's record
+; written again in place) for the next 48 or close to write.
 ;
 ; The hash (ours, in memory only): 4 bytes a directory entry, in blocks 24-
 ; 27, 8 KB a slot (HBLK, HBASE): the entry's first byte (the user, $E5,
@@ -90,6 +92,7 @@ CHG:            .res    1              ; CHANGED's drives to go
 WBM:            .res    1              ; WBACK's mode: bit 7 drop, bit 6 return
 RERR:           .res    1              ; RFLUSH's first error, 0 none
 REDRV:          .res    1              ; and its drive
+PBX:            .res    1              ; PURGEM's buffer
 .exportzp DBCB, AP, AMASK, MK, RERR
 
 .segment "BDOS"
@@ -649,16 +652,78 @@ WFLUSH:         STX     WBM
                 CMP     #1
                 RTS
 
-; Every marked buffer (a write that failed) dropped, whatever its drive: 98,
-; at the warm boot, when what wrote it has ended and its blocks are freed.
+; 98's, at the warm boot: the marked buffers (a write that failed) dropped
+; whose blocks 98 frees, those not in their drive's permanent vector (a
+; file's written but not closed). One in a block the directory has (a record
+; of a closed file written again in place) is kept, marked: the next 48 or
+; close tries it again, and 13 and 37 drop it. A sector before the data area
+; is in no block, and is kept; one of a drive not logged in is dropped.
 PURGEM:         LDX     #NBCB - 1
 @buffer:        LDA     BCB_DIRTY,X
                 CMP     #2
                 BNE     @next
+                STX     PBX
+                JSR     PERMB
+                LDX     PBX
+                BCS     @next
                 STZ     BCB_DRV,X
                 STZ     BCB_DIRTY,X
 @next:          DEX
                 BPL     @buffer
+                RTS
+
+; Carry set if buffer PBX's sector is in a block of its drive's permanent
+; vector, or before the data area. CD its drive's.
+PERMB:          LDA     BCB_DRV,X
+                DEC     A
+                JSR     DRVBIT
+                AND     LOGVEC,X
+                BEQ     @no            ; not logged in: no vector
+                LDX     PBX
+                LDA     BCB_DRV,X
+                DEC     A
+                JSR     DSLOT
+                BCS     @no
+                STA     CSLOT
+                JSR     LOADCD
+                LDX     PBX
+                JSR     BCBBLK
+                BCS     @yes           ; no block
+                LDA     T2
+                STA     BLK
+                LDA     T3
+                STA     BLK + 1
+                JSR     ALVBIT
+                INC     AP + 1         ; the permanent vector's byte
+                INC     AP + 1
+                LDA     (AP)
+                AND     AMASK
+                BEQ     @no
+@yes:           SEC
+                RTS
+@no:            CLC
+                RTS
+
+; T2/T3 = buffer X's block on drive CD, (its sector - OFFS) / 2^(BSH - 2),
+; carry clear; carry set if the sector is before the data area. X kept.
+BCBBLK:         SEC
+                LDA     BCB_LO,X
+                SBC     OFFS
+                STA     T2
+                LDA     BCB_HI,X
+                SBC     OFFS + 1
+                STA     T3
+                BCC     @none
+                LDY     BSH
+                DEY
+                DEY
+@shift:         LSR     T3
+                ROR     T2
+                DEY
+                BNE     @shift
+                CLC
+                RTS
+@none:          SEC
                 RTS
 
 ; 13's and 37's end: 0, or RFLUSH's first failure as the error.

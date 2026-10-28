@@ -70,7 +70,7 @@
 ;                    that failed kept; A = $FF: and all dropped. Then the
 ;                    first failure said (Disk I/O, Read Only)
 ;   98 DRV_FREE      the blocks of files written but not closed freed, and
-;                    the buffers whose write failed dropped
+;                    the buffers of those blocks whose write failed dropped
 ;   99 F_TRUNCATE    the file (no '?') ends with record R0-R2, which must be
 ;                    in it where it has data (an extent its entry has, below
 ;                    RC there, in a block): later extents deleted, blocks
@@ -279,9 +279,10 @@ F_FREE:         CMP     #16
                 JMP     RET0
 
 ; Each logged-in drive's current vector made its permanent one again, and
-; every marked buffer (a write that failed) dropped: 98 is the warm boot's
-; (the CCP's), so what wrote it has ended without a close that could have
-; written it, and its blocks are free now.
+; the marked buffers (a write that failed) of the blocks that frees dropped
+; (PURGEM): 98 is the warm boot's (the CCP's), so what wrote them has ended
+; without a close, and those blocks are free now. A marked buffer of a block
+; the directory has is kept for a later 48 or close to write.
 F_FREEBLK:      JSR     PURGEM
                 STZ     T4
 @drive:         LDA     T4
@@ -436,21 +437,8 @@ FMARKED:        LDX     #NBCB - 1
                 DEC     A
                 CMP     CDRV
                 BNE     @next
-                SEC                    ; its block: (its sector - OFFS) / 2^(BSH - 2)
-                LDA     BCB_LO,X
-                SBC     OFFS
-                STA     T2
-                LDA     BCB_HI,X
-                SBC     OFFS + 1
-                STA     T3
-                BCC     @next          ; before the directory: no file's
-                LDY     BSH
-                DEY
-                DEY
-@shift:         LSR     T3
-                ROR     T2
-                DEY
-                BNE     @shift
+                JSR     BCBBLK         ; its block, T2/T3
+                BCS     @next          ; before the directory: no file's
                 PHX
                 JSR     NPTRS
                 STA     T4             ; F's pointers to go
