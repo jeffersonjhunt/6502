@@ -641,6 +641,44 @@ def scripts():
     ok(S.compare_images(dv, bytes(wr), "renumber", out) > 0, "a stamp changed: found: %s" % (out[0] if out else ""))
 
 
+def sparse_or_short():
+    print("modeltest.py sparse: a hole is let through, a block past RC is not")
+    import modeltest as T
+    t = Rig("oodos-8m")
+    rpb = t.dv.fmt.rpb
+    t.new("FULL.DAT", rpb + 1)                 # k * rpb + 1 records, k = 1: two blocks, the second one record
+    t.f(16)
+    t.new("HOLE.DAT")
+    t.rand(3 * rpb)
+    t.m.write(0x0800, S.pattern(9))
+    t.f(34)                                    # record 3 * rpb alone: blocks 0-2 of the extent a hole
+    t.f(16)
+    full, hole = t.dv.file_entries(0, M.fcb_name("FULL.DAT"))[0], t.dv.file_entries(0, M.fcb_name("HOLE.DAT"))[0]
+    eq((t.e(full)[15], t.e(hole)[15]), (rpb + 1, 3 * rpb + 1), "RCs %d and %d" % (rpb + 1, 3 * rpb + 1))
+    allowed, errors = T.sparse(t.dv)
+    eq((len(allowed), errors), (1, []), "the hole's entry let through, nothing wrong: %s" % allowed)
+    ok(allowed and "HOLE" in allowed[0], "and it's HOLE.DAT's")
+    # The rc fault's RC one short, at k * rpb + 1: RC needs one block, the entry has two. fsck.cpm calls
+    # it a bad record count, as a hole; it isn't one, and the comparison can't let it through.
+    e = bytearray(t.e(full))
+    e[15] -= 1
+    t.dv.set_entry(full, bytes(e))
+    allowed, errors = T.sparse(t.dv)
+    eq(len(allowed), 1, "an RC one short: not let through as a hole")
+    ok(len(errors) == 1 and "FULL" in errors[0], "but wrong: %s" % errors)
+
+
+def seeds():
+    print("The default seeds: between them, every edge")
+    reached = {}
+    for seed in S.DEFAULT_SEEDS:
+        for edge in S.edges(seed):
+            reached.setdefault(edge, seed)
+    for edge, what in S.EDGES.items():
+        ok(edge in reached, "%s, by %s" % (what, "seed %d" % reached[edge] if edge in reached else "no seed of %s"
+                                           % ",".join(map(str, S.DEFAULT_SEEDS))))
+
+
 def main():
     formats()
     mkfs()
@@ -656,6 +694,8 @@ def main():
     ro_and_r2()
     unspecified()
     scripts()
+    sparse_or_short()
+    seeds()
     print("FAIL %d (PASS %d)" % (failed, passed) if failed else "PASS %d" % passed)
     return 1 if failed else 0
 
