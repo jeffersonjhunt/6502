@@ -1426,7 +1426,24 @@ void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = fals
     std::vector<Call> calls;
     Call now{};
     uint64_t t0 = 0;
+    // An entry written (DIRPUT) while a close or an extent change (CLOSEX) runs, and any changed
+    // buffer of the drive's still not written back: the entry would be on the disk before the
+    // data it points at.
+    const uint16_t closex = sym("CLOSEX"), dirput = sym("DIRPUT"), bcb_drv = sym("BCB_DRV"),
+                   bcb_dirty = sym("BCB_DIRTY"), cdrv = sym("CDRV");
+    bool closing = false;
+    unsigned entries = 0, early = 0;
     r.watch = [&](uint16_t pc) {
+        if (pc == closex)
+            closing = true;
+        else if (pc == dirput && closing)
+        {
+            ++entries;
+            const uint8_t mine = static_cast<uint8_t>(r.machine->bus().peek(cdrv) + 1);
+            for (uint16_t i = 0; i < 32; ++i)
+                early += r.machine->bus().peek(static_cast<uint16_t>(bcb_dirty + i)) != 0 &&
+                         r.machine->bus().peek(static_cast<uint16_t>(bcb_drv + i)) == mine;
+        }
         if (pc == fl.at("rdbegin"))
             counting = true;
         else if (pc == fl.at("rdend"))
@@ -1442,6 +1459,7 @@ void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = fals
             now.zero = true;
         else if (pc == sym("BDOSENT"))
         {
+            closing = false;
             now = Call{r.cpu->regs().y, 0, false, false, false};
             t0 = r.cpu->cycles();
         }
@@ -1475,6 +1493,10 @@ void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = fals
     CHECK(r.until("FSTEST DONE", ms(20000), from));
     CHECK(r.until("\r\nA>", ms(3000), from));
     r.watch = nullptr;
+    std::printf("  %c: entries written by a close or an extent change: %u, with the drive's data not yet written: %u\n",
+                drive, entries, early);
+    CHECK(entries > 0);
+    CHECK_EQ(early, 0u); // the data first, then the entry that points at it
     const std::string o = r.out.substr(from);
     const unsigned free0 = hexval(field(o, "FREE0"));
     const unsigned blocks = (300 + free_records_per_block - 1) / free_records_per_block;
@@ -1574,7 +1596,7 @@ TEST(fstest_on_m_with_byte_pointers)
     fstest(r, 'M', 16);
     const std::string o = r.out;
     CHECK_EQ(field(o, "FREE0"), std::string("0003C0")); // 60 blocks of 16 records: an empty M:
-    CHECK_EQ(field(o, "MAKE"), std::string("01 00"));    // entry 1, after the label
+    CHECK_EQ(field(o, "MAKE"), std::string("00 00"));    // entry 1, after the label: 0, the Guide's code
 }
 
 TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
@@ -1591,7 +1613,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"ALL", "0100 LABEL 01 SFCB 40 FREE 00BC"}, // '?' as the drive: all 256, free ones too
         {"USER3", "01"},               // user 3 sees only its own
         {"OPEN3", "FF 00"},            // A1 isn't SYS yet
-        {"SYSOPEN", "01 00"},          // now it is: from user 0,
+        {"SYSOPEN", "00 00"},          // now it is: from user 0,
         {"F8", "80"},                  // f8' set
         {"SYSREAD", "00 00"},
         {"SYSWRITE", "FF 03"},         // File R/O
@@ -1615,7 +1637,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"OPENWILD", "FF 09"},
         {"HASHOPEN", "FF 00"},         // HASHBA.TXT's hash is HASHAG.TXT's: not taken for it
         {"HASHFIND", "FF 00"},
-        {"HASHAG", "02 00"},
+        {"HASHAG", "00 00"},
         {"BIGREN", "00 00"},
         {"BIGCOUNT", "02 OLDCOUNT 00"}, // both entries renamed
         {"BIGDEL", "00 00"},
@@ -1638,7 +1660,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"ROVEC", "00 10"},            // M:, bit 12
         {"ROWRITE", "FF 02"},
         {"ROVEC2", "00 00"},           // 37 made it writable
-        {"MAKEAGAIN", "02 00"},        // entry 10, after TR.DAT and W.DAT
+        {"MAKEAGAIN", "00 00"},        // made again: 0, the Guide's code for a make
         {"LOGIN", "00 10"},            // M: only
         {"DRIVE", "0C 00"},
         {"ALLOC", "FF FF"},
@@ -1738,6 +1760,140 @@ TEST(errors_return_say_or_end_the_program_as_the_error_mode_says)
         CHECK_EQ(field(o, "WPROVEC"), std::string("02 00"));
         CHECK(o.find("\r\nOODOS Error On B: Read Only\r\nBDOS Function = 22 File = WP2     .TXT\r\n") != std::string::npos);
     }
+}
+
+/// RULETEST's case `c` to its end, each prompt answered after its action ran.
+std::string ruletest(Rig &r, char c, const std::vector<std::pair<std::string, std::function<void()>>> &prompts = {})
+{
+    const size_t from = start(r, "ruletest.com", std::string(" ") + c);
+    for (const auto &[prompt, then] : prompts)
+    {
+        CHECK(r.until(prompt, ms(20000), from));
+        then();
+        r.type(" ");
+    }
+    CHECK(r.until("RULETEST DONE", ms(20000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    return r.out.substr(from);
+}
+
+TEST(the_bdos_follows_the_guide_where_the_review_found_it_did_not)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = ruletest(r, 'M');
+    const std::pair<const char *, const char *> want[] = {
+        {"MAKE", "00 00"},              // entry 1, but 0: the Guide's directory code (2.3)
+        {"OPEN", "00 00"},
+        {"CLOSE", "00 00"},
+        {"SWRITE3", "01 00"},           // the extent can't be closed: two blocks for record 32
+        {"SWCR", "80 EX 00"},           // and the FCB as it was, not at CR 0 of the same extent
+        {"FPTR1", "00"},                // nothing merged into it from the entry
+        {"SREAD3", "01 00"},
+        {"SRCR", "80"},
+        {"RWRITE3", "03 00"},
+        {"RWCR", "2C"},                 // CR the record's (300 mod 128), as 33's
+        {"XPTR0", "00"},                // nothing merged into the entry either, on the disk
+        {"ATTR", "00 00"},
+        {"BYTES", "55"},                // open with CR FF: the byte count (fn 15)
+        {"F6CR", "03"},                 // f6' is 30's: open leaves CR
+        {"OPENS2", "00 00 S2 80 RC 2D"}, // S2 1 taken as 0: extent 2, RC 45
+        {"SRCHS2", "01 00"},            // entry 5
+        {"MAKEATTR", "00 00"},
+        {"FCBATTR", "41 54 80"},        // every attribute 0 (fn 22), S2 the BDOS's
+        {"ATTRWRITE", "00 00"},         // t1' gone: not read-only
+        {"ENTATTR", "41 54 58 00"},
+        {"MAKEEXT", "FF 08"},           // the file is there, in another extent: File Exists
+        {"THOLE", "FF 00"},             // R where the file has no data (fn 99)
+        {"TNOBLK", "FF 00"},
+        {"TPASTRC", "FF 00"},
+        {"TNOEXT", "FF 00"},
+        {"TDATA", "00 00"},
+        {"TSIZE", "000029"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    if (o.find("RULETEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(delete_and_truncate_free_no_block_until_the_entry_is_written)
+{
+    // B: writable at its login, made read-only behind the BDOS's back: the directory's write
+    // fails (Read Only), and the blocks stay in use, as the entry on the disk still has them.
+    Rig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    REQUIRE(r.boot());
+    const std::string o = ruletest(r, 'D', {{"REMOUNT?", [&] { CHECK_EQ(r.mount(2, "/OODOS/B.IMG", true), 0); }},
+                                            {"WRITABLE?", [&] { CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0); }},
+                                            {"REMOUNT2?", [&] { CHECK_EQ(r.mount(2, "/OODOS/B.IMG", true), 0); }}});
+    CHECK_EQ(field(o, "DELRO"), std::string("FF 02"));
+    CHECK_EQ(field(o, "DFREE1"), field(o, "DFREE0"));
+    CHECK_EQ(field(o, "TRRO"), std::string("FF 02"));
+    CHECK_EQ(field(o, "TFREE1"), field(o, "TFREE0"));
+    CHECK(hexval(field(o, "DFREE0")) > 0);
+}
+
+TEST(a_rescan_of_the_units_logs_out_only_the_drives_that_changed)
+{
+    // A failed IDENTIFY (the card busy as A: logs in) leaves B:'s drive table, so its data is
+    // written after; another image under B: logs B: out at the next rescan; a rescan with
+    // nothing changed leaves B: logged in.
+    Rig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    REQUIRE(r.boot());
+    bool armed = false, stuck = false;
+    r.watch = [&](uint16_t pc) {
+        if (armed && !stuck && pc == sym("LOGIN"))
+        {
+            stuck = true;
+            r.sd().write(SdCard::CTRL, 0);
+            r.sd().write(SdCard::UNIT, 0);
+            r.sd().write(SdCard::COUNT, 1);
+            r.sd().write(SdCard::CMD, SdCard::READ);
+        }
+    };
+    const std::string o = ruletest(r, 'C', {{"BUSY?", [&] { armed = true; }},
+                                            {"READY?", [&] { r.run(ms(SdCard::INIT_MS + 10)); }},
+                                            {"SWAP?", [&] { CHECK_EQ(r.mount(2, "/OODOS/A.IMG"), 0); }}});
+    r.watch = nullptr;
+    CHECK(stuck);
+    CHECK_EQ(field(o, "SELA"), std::string("FF 04")); // no units table: A: isn't a drive this time
+    CHECK_EQ(field(o, "CLOSEB"), std::string("00 00")); // B: as it was: its data written
+    CHECK_EQ(field(o, "SELA2"), std::string("00 00"));
+    CHECK_EQ(field(o, "SELA3"), std::string("00 00"));
+    CHECK_EQ(field(o, "LOGV"), std::string("01 00"));   // B: changed: logged out
+    CHECK(field(o, "NEWB").substr(0, 2) != "FF");       // and read again: A.IMG's README.TXT
+    CHECK_EQ(field(o, "SELA4"), std::string("00 00"));
+    CHECK_EQ(field(o, "LOGV2"), std::string("03 00"));  // nothing changed: B: kept
+    // CHG1.TXT's record is on B.IMG, written at its close.
+    CpmDisk b{r, 2};
+    CHECK_EQ(b.entries_of(b.directory(), 0, "CHG1    TXT").size(), size_t{0}); // unit 2 is A.IMG now
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    const std::vector<uint8_t> dir = b.directory();
+    const std::vector<unsigned> es = b.entries_of(dir, 0, "CHG1    TXT");
+    REQUIRE(es.size() == 1);
+    CHECK_EQ(dir[es[0] * 32 + 15], 1); // RC 1
+}
+
+TEST(the_ccp_keeps_the_user_number_across_a_load)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    CHECK(r.go("ruletest.com", " U").find("USER SET") != std::string::npos);
+    size_t from = r.out.size();
+    r.type("HELLO\r"); // NAME.COM from user 0, then the user back
+    CHECK(r.until("Hello from OODOS", ms(4000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.go("ruletest.com", " V").find("USER 05") != std::string::npos);
+    from = r.out.size();
+    r.type("NOSUCH\r");
+    CHECK(r.until("NOSUCH?\r\nA>", ms(4000), from));
+    CHECK(r.go("ruletest.com", " V").find("USER 05") != std::string::npos);
 }
 
 /// A CP/M 3 date stamp: days (1 January 1978 day 1, the DS3231's leap years), hour and minute in BCD.
@@ -1878,8 +2034,8 @@ TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
     std::string o = r.out.substr(from);
     CHECK_EQ(field(o, "BEFORE"), std::string("FF 00")); // the directory as logged in
     CHECK_EQ(field(o, "RESET"), std::string("00 00"));
-    CHECK_EQ(field(o, "AFTER"), std::string("01 00"));  // read again: there
-    CHECK_EQ(field(o, "XREN"), std::string("01 00"));
+    CHECK_EQ(field(o, "AFTER"), std::string("00 00"));  // read again: there
+    CHECK_EQ(field(o, "XREN"), std::string("00 00"));
     CHECK_EQ(field(o, "XDEL"), std::string("00 00"));
     CHECK_EQ(field(o, "DEL"), std::string("00 00"));
     CHECK(m.entries_of(m.directory(), 0, "LATER   TXT").empty());
