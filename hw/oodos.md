@@ -604,7 +604,15 @@ against, compared with what the BDOS does on the emulator.
   A directory change is written at once; a data sector when its buffer is taken, by 48, 13 and 37, at the warm boot
   (the CCP calls 48 and 98 each time, in error mode `$FF`), and (the drive's) before a close or an extent change
   writes the entry that points at it: a failed write-back is that function's error, before the directory is
-  touched. A write that fails drops its buffer, so the error isn't met again on the next flush.
+  touched. A data write that fails (Disk I/O) keeps its buffer changed and marked, so a close or a flush that
+  needs it fails again rather than putting in an entry that points at a sector never written (2026-10-27, the
+  review's second round); the least recently used buffer taken is one not marked, so one sector that can't be
+  written doesn't stop the others coming and going. With all 32 marked, a sector not in a buffer can't be had:
+  each try writes the oldest marked one again, Disk I/O until the card writes again or 13 or 37 drops them. A
+  read-only unit's failed write (2) drops the buffer and makes the drive read-only; a failed directory write
+  drops its buffer too, so the directory in memory stays what the disk has. 13 and 37 drop a buffer they can't
+  write, log the drive out all the same and return the first such error after; the warm boot's 48 (error mode
+  `$FF`) leaves them marked.
 - **The order of writes** (2026-10-27, from the review): data, then the entry that points at it (above); the
   entry, then the blocks freed, for delete and truncate (their pointers kept until the entry is on the disk), so a
   failed directory write leaves no entry on the disk whose blocks are free. A close merges F's block pointers with
@@ -625,7 +633,9 @@ against, compared with what the BDOS does on the emulator.
 - **A rescan of the units** (a login's SELDSK, or a program's) leaves a drive alone whose unit is as it was: the
   BIOS keeps the last units table and marks each unit whose entry (its size, flags or file's name) changed
   (`DRVCHG`); the BDOS logs those drives out if they were logged in, their buffers dropped unwritten (the card's
-  unit isn't what they came from), after the login's SELDSK and at each select. A failed IDENTIFY (a card busy
+  unit isn't what they came from), after the login's SELDSK, at each select and at 48 (the warm boot's: after a
+  program's own SELDSK); 13 and 37 read the units again first (a first select of A:), so a disk changed and then
+  reset, as the Guide has it, has its old buffers dropped, not written to the new one. A failed IDENTIFY (a card busy
   for a second, or none) changes nothing: that select has no drive, the others keep theirs. Two images of one
   name and size swapped under a drive aren't told apart: the table is all the card says.
 - **The hash** is FIND's first look at each entry: its first byte, the name's 16-bit hash (each byte's low 7 bits
@@ -665,8 +675,9 @@ against, compared with what the BDOS does on the emulator.
 - **Rename (23)** checks the new name first: File Exists (8) before the old name's not found or File R/O (the Guide
   lists the errors in no order). **31** selects the current drive, logging it in (the Guide has it return `$FFFF`
   on an error, so it reads the disk).
-- **13** writes back and drops every buffer, logs every drive out and makes it read-write, A: current, the DMA
-  address `$0280`; the user number stays. **37** does the first three for the drives in A/X. **28** makes the current
+- **13** reads the units again (above), writes back and drops every buffer, logs every drive out and makes it
+  read-write, A: current, the DMA address `$0280`; the user number stays. **37** does the first four for the drives
+  in A/X. A buffer either can't write is dropped, and the first such error returned after the reset is done. **28** makes the current
   drive read-only until one of them; **46** is (DSM + 1 − the blocks in use) × the records a block, from the current
   vector; **48** with `$FF` drops the buffers too; **98** makes each logged drive's current vector its permanent one.
 - **Errors:** the codes are CP/M 3's (1 Disk I/O, 2 Read Only, 3 File R/O, 4 Invalid Drive, 8 File Exists, 9 ? in
@@ -1081,8 +1092,16 @@ copyright and MIT notice.
     sector's next write) into the entry on the disk; truncate to four records where the file has no data refused,
     then to one where it has. On B: made read-only behind the BDOS's back: delete and truncate fail (Read Only)
     with the free space as it was. On B: with the card busy as A: logs in: A: Invalid Drive, B:'s close after
-    still written; another image as B:'s unit: B: logged out at the next rescan, then read from the new one; a
-    rescan with nothing changed keeps B:. And the CCP: the user 5 kept across `HELLO` and `NOSUCH?`.
+    still written; another image as B:'s unit: B: logged out at the next rescan, then read from the new one, and
+    a record left in a buffer of B:'s at the swap dropped (the card byte for byte as at the swap); a rescan with
+    nothing changed keeps B:. The same record dropped by 37 of B: after the swap, and by the warm boot's 48 after a
+    program's own SELDSK. The card's writes failing under a close: each close fails (Disk I/O), BIG.DAT's 160
+    records still read meanwhile, and once the card writes again the close writes the record and the entry; 37
+    with the card failing drops the buffer (Disk I/O) and the next 37 has nothing to write. What the comparison
+    with the model found, a test each: 35 of no file zeroing R0-R2; a file's second entry's SFCB slot 0 on M:
+    (stamps only in extent zero's); after a read found no entry for extent 2, with the directory full, a write's
+    1 (21) or 5 (34, 40) at once; and on an `oodos-32m` A: (EXM 3) after M: (EXM 1) logged in, 384 records in one
+    entry, not two. And the CCP: the user 5 kept across `HELLO` and `NOSUCH?`.
 - **The CCP** loads through the BDOS in every run (`hello` in `test_oodos_e2e`, from the card, with the bytes past
   its image untouched); a card that stays busy as it logs A: in is `READ ERROR`, and the next load works.
 - **Interoperability:** `test_oodos_card` boots the committed card in a Session and runs **WRITEOO1** (on the card)
@@ -1099,7 +1118,11 @@ copyright and MIT notice.
   user or none (DIRTEST), 98 freeing nothing (DIRTEST, LOGINTEST), a new block not zeroed (FSTEST, DIRTEST), a
   read-only unit writable at login (ERRTEST), truncate not freeing, 18 repeating an entry, delete not checking
   read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), each of the
-  review's fixes (RULETEST, FSTEST's write order: 280 entries written early on A: without it), function 50 not
+  review's fixes (RULETEST, FSTEST's write order: 280 entries written early on A: without it), the second
+  round's: 37 not reading the units first, 48 not running CHANGED, CHANGED writing back, a failed write-back
+  dropping its buffer, GETBUF taking a marked buffer first (RULETEST); the comparison's finds: EXM's mask one
+  for every drive, no S2 `$40`, 35 leaving R0-R2, a later extent's entry stamped at make or at close
+  (RULETEST), function 50 not
   making the BDOS select its drive again (FSTEST after BIOSTEST), RC 0 for an
   extent the entry goes past (FSTEST), UNITS not resetting a stuck card (the busy card), the CCP not calling 48
   (LOGINTEST); and the CCP reading a last part record straight to its place, on a card made with it
@@ -1145,9 +1168,11 @@ copyright and MIT notice.
   the model's (`--compare renumber`, X compared), then A:'s directory, SFCBs and files but RESULT.BIN's records
   (the results, compared by their rules). Whatever stops a comparison (no RESULT.BIN, a script the model can't
   predict, an image missing) is a FAIL. ctest runs seeds 1, 4, 6, 10, 14, 24, 41 and 45 (`modeltest.py seeds`:
-  the three formats; each BDOS bug the comparison found fails at least one of them; between them, which
+  the three formats; between them, which
   `test_model.py` checks, a write's 2 on a full disk, make's $FF on a full directory on M: and on B:, and X 2 from a
-  read-only drive), about 6 minutes under ASan (TIMEOUT 1200). With the comparison off, its case says it's
+  read-only drive), about 6 minutes under ASan (TIMEOUT 1200). The BDOS bugs the comparison found each have a
+  directed test in RULETEST, which fails with its fix undone; the seeds were chosen before the generator's
+  second stream, so which of them would still find each isn't claimed. With the comparison off, its case says it's
   skipped and the test exits 77, which ctest counts as skipped. Seeds 1–600 pass, run by hand
   (`oodos/test/model_seeds.sh`, a process a seed in parallel, counting each seed's exit status and PASS line:
   [oodos/README.md](../oodos/README.md)). `OODOS_MODEL_CUT=N` runs a seed's first N operations, to find where a

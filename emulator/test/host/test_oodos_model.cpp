@@ -25,9 +25,9 @@
  *     run by DRIVER.COM under OODOS.SYS on backplane.machine, B: (oodos-8m,
  *     oodos-32m) on the card or M:, compared with the model. The default
  *     seeds (modeltest.py seeds: 1, 4, 6, 10, 14, 24, 41, 45, the three
- *     formats; each of the BDOS's bugs the comparison found fails one of
- *     them, and between them they fill a disk, a directory on M: and on B:
- *     and meet a read-only drive, which test_model.py checks) take about 6
+ *     formats; between them they fill a disk, a directory on M: and on B:
+ *     and meet a read-only drive, which test_model.py checks; the BDOS
+ *     bugs the comparison found have directed tests in RULETEST) take about 6
  *     minutes under ASan; OODOS_MODEL_SEEDS (1,2,7-60...) chooses others,
  *     OODOS_MODEL_ONLY=1 runs the comparison alone (so seeds can run in
  *     parallel, a process each: oodos/test/model_seeds.sh), OODOS_MODEL_CUT=N

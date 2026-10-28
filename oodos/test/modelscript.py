@@ -440,7 +440,9 @@ class Generator:
 
     def __init__(self, seed, fmt, drive, nops=None, profile=None, a_fmt="oodos-8m"):
         self.rng = random.Random(seed)
-        self.rare = random.Random(seed + 0x10000)  # the rarer choices, so they leave rng's stream as it was
+        # The rarer choices, from their own stream so rng's draws stay as they were; a seed's script is
+        # still another from its first rare choice on (and what it then meets with it).
+        self.rare = random.Random(seed + 0x10000)
         self.seed, self.fmt, self.drive = seed, M.FORMATS[fmt], drive
         self.profile = profile or self.rng.choice(PROFILES)
         if self.profile == "diskfill" and self.fmt.size > 1 << 20:
@@ -851,8 +853,10 @@ def generate(seed, fmt, drive, **kw):
 
 
 # The seeds test_oodos_model compares OODOS's BDOS with the model on by default (modeltest.py seeds
-# prints them): the three formats, each BDOS bug the comparison found, and between them every edge in
-# EDGES (test_model.py checks they still do: a change to the generator moves what a seed reaches).
+# prints them): the three formats, and between them every edge in EDGES (test_model.py checks they
+# still do: a change to the generator moves what a seed reaches). They were chosen before the rare
+# stream, so they aren't claimed to find the BDOS bugs the comparison found: RULETEST has a directed
+# test for each (test_oodos_sys).
 DEFAULT_SEEDS = (1, 4, 6, 10, 14, 24, 41, 45)
 SEED_FORMATS = ("oodos-ram", "oodos-8m", "oodos-32m")
 EDGES = {
