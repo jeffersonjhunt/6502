@@ -108,7 +108,7 @@ Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
@@ -175,9 +175,9 @@ the model's is 0.
 `test_oodos_model`, in ctest, runs DRIVER.COM with the model as its BDOS, for 9 seeds, and with the model made
 wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison with OODOS's own BDOS** is on
 (the CMake option `OODOS_MODEL_BDOS`; a build tree configured before it was on keeps OFF in its cache, so pass
-`-DOODOS_MODEL_BDOS=ON` once; off, its case says it's skipped and ctest counts the test skipped) for seeds 1, 4, 6,
-10, 14, 24, 41 and 45 (`modeltest.py seeds`: between them a full disk, a full directory on M: and on B:, a read-only
-drive), about 6 minutes under ASan. More seeds by hand,
+`-DOODOS_MODEL_BDOS=ON` once; off, its case says it's skipped and ctest counts the test skipped) for seeds 1, 2, 4,
+14, 24, 30, 34 and 42 (`modeltest.py seeds`, from phase 3b1: between them a full disk, a full directory on M: and on
+B:, a read-only drive, a Password Error and a multi-sector call cut short), about 6 minutes under ASan. More seeds by hand,
 from `emulator/`: `OODOS_MODEL_SEEDS` takes a list and ranges, `OODOS_MODEL_ONLY=1` runs the comparison alone, so
 seeds can run a process each, and `OODOS_MODEL_CUT=N` runs only a seed's first N operations, to find where a
 difference starts (a release build is about ten times faster than ASan's). `model_seeds.sh` runs a process a seed
@@ -250,7 +250,7 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 ## The test card ##
 
 `tools/make_card.sh` makes the card the emulator's tests use, `emulator/test/host/sd/oodos.sparse` (committed,
-389 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
+394 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
 
 | On the card | What |
 |---|---|
