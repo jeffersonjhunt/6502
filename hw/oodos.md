@@ -858,7 +858,15 @@ tests.
   only blanks and tabs, then NUL or CR, follow; the delimiter's address if one follows them; else the address of
   the first blank after the name. A string of blanks to NUL or CR returns 0 and the FCB blank (drive 0). An empty
   name (`=X`, `.TXT`) isn't an error: the fields are blank.
-- **Where it lives:** the console functions, 47, 49, 107–112 and 152 are `bdossys.s`, in block 60 with the rest.
+- **Where it lives:** the console functions, 47, 49, 107–112 and 152 are `bdossys.s`, in block 60 with the rest:
+  2,104 bytes, block 60 now 8,791 of 16,384 (3a's 6,868), so `BDOS2` is still unused. 25 bytes of `SYSBSS` (652
+  of 1,280 now), no zero page (182 of 240, two fewer: the old function 10's), and the two lines, 512 bytes at
+  `$0B00–$0CFF` of the system block, outside `SYSBSS`, which cold boot clears with the rest. The CCP grows by 189
+  bytes (1,329 of block 62's code window); common memory is as it was (1,107 of 2,048).
+- **Measured** (`test_oodos_sys`, BDOSENT to its return): function 2, 5,226 cycles a character to the screen and the
+  serial line, of which the look at the console is 265 (the serial card's wait for its character, 3,840, is most of
+  the rest); function 11 with no key, 324; function 10, a key into the line (INSERT to the next key), 6,071 on
+  average over SYSTEST's 146, most of it the echo's BIOS CONOUT.
 
 ## RSXs and programs ##
 
@@ -1402,6 +1410,23 @@ copyright and MIT notice.
     a command of 127 shown and run as 126; with `$FF`, M: and user 5 the CCP's from then on, HELLO still loaded
     from user 0), **108** (set and read; kept across the warm boot; 0 for a program the CCP starts, the code as it
     was for a chained one; `$FFFD` for the default error mode's end).
+- **Each check can fail** (2026-10-28): OODOS.SYS built with each of 70 faults, one at a time, fails
+  `test_oodos_sys`: 49 gone; no look before output; ^Q and ^P not dropped; ^S ^C not ending; ^P not turning echo
+  over; 6 not taking the kept key; 11's ^C-only mode ignored; mode bit 3 ignored, in the ^S scan and in function 10;
+  raw mode ignored; printer echo ignored, or sent to the console; 110's set, 109's set and 49's byte set ignored; 9
+  ignoring the delimiter; 111 not expanding tabs and 112 expanding them; 3, 4, 5 and 7 on the console's devices, 8
+  never ready; 1 echoing nothing; each of function 10's ^A, ^B, ^F, ^G, ^K, ^X, ^W, ^E, ^R a no-op, ^U keeping no
+  previous line, the line never becoming the previous one, rub/del never echoing, ^H always a backspace, no new
+  row at the width, no initial string, no BEL when full, control characters not shown `^X`, ^C after the first
+  key dropped, ^C at the start a character, a size of 0 taken as 0; 152 without `*`, without the 128 limit,
+  taking `Q:`, returning the delimiter for the first blank, without the control character error, without `|`;
+  107 wrong; 49 writing past `$63` and taking an offset past it; 47's drive and user not the CCP's, a command cut
+  at 127, not shown; the CCP not putting its drive, its user, the delimiter, the console mode or the count back,
+  not zeroing the return code, or zeroing a chained one; no `$FFFD`, no `$FFFE`, no error drive; the BIOS's
+  AUXIN waiting on no device; cold boot without the count's or rub/del's default; ESAY's messages changed. Four
+  that passed at first (4 and 5 on the console, ^R's row, ^U's previous line) and 7's got checks of their own.
+- **The model comparison** is 3a's, unchanged by 3b2: seeds 1–600 pass, DRIVER.COM under the new console and CCP.
+  The test card is made again (OODOS.SYS); `interop.sh` passes both ways (PASS 9, PASS 6).
 - **Tests changed** because the Guide changes what they asserted: function 10's ^A is the cursor left (was
   ignored), other control characters are the line's (were ignored), a ^C after a character is a character
   (was ignored), a dropped key is a BEL; LINETEST's DMA buffer gets a 0 at +2 (with A/X 0 the buffer's string is
