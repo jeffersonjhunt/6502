@@ -66,6 +66,8 @@ namespace
     constexpr uint32_t BLOCK = 0x4000;
     constexpr uint32_t COMMON_PHYS = 62 * BLOCK + 0x3800; ///< $F800 in block 62
     constexpr uint32_t SYS_BLOCK_PHYS = 31 * BLOCK;      ///< bank 0's $0000
+    constexpr uint32_t RES_PHYS = 62 * BLOCK;            ///< block 62's $C000
+    constexpr uint8_t C_WRITE_FN = 2, C_STAT_FN = 11;    ///< BDOS functions, for timing
     constexpr uint32_t SCREEN = 0x82000;
     constexpr uint16_t NB = 0xC680;
     constexpr uint8_t ROM_BLOCK_RO = 0x40 | 63;
@@ -365,14 +367,20 @@ namespace
                 run(30'000);
             }
         }
-        /// Keys on the USB keyboard: down, a gap, up, a gap. Letters, digits, space and CR.
+        /// Keys on the USB keyboard: down, a gap, up, a gap. Letters (Caps Lock is on: capitals),
+        /// digits, space, CR, DEL, and the control characters $01-$1A as Ctrl and a letter.
         void type_usb(const std::string &text)
         {
             UsbCard *usb = machine->usb_card();
             for (const char ch : text)
             {
                 uint8_t usage = 0;
-                if (ch >= 'A' && ch <= 'Z')
+                const bool ctrl = ch >= 0x01 && ch <= 0x1A && ch != '\r';
+                if (ctrl)
+                    usage = static_cast<uint8_t>(0x04 + ch - 1);
+                else if (ch == 0x7F)
+                    usage = UsbCard::DELETE;
+                else if (ch >= 'A' && ch <= 'Z')
                     usage = static_cast<uint8_t>(0x04 + ch - 'A');
                 else if (ch >= 'a' && ch <= 'z')
                     usage = static_cast<uint8_t>(0x04 + ch - 'a');
@@ -384,10 +392,20 @@ namespace
                     usage = 0x2C;
                 else if (ch == '\r')
                     usage = 0x28;
+                if (ctrl)
+                {
+                    usb->key(UsbCard::LEFT_CTRL, true);
+                    run(ms(20));
+                }
                 usb->key(usage, true);
                 run(ms(20));
                 usb->key(usage, false);
                 run(ms(20));
+                if (ctrl)
+                {
+                    usb->key(UsbCard::LEFT_CTRL, false);
+                    run(ms(20));
+                }
             }
         }
 
@@ -1074,8 +1092,11 @@ TEST(function_10_edits_the_line_as_the_ccp_reads_it)
     r.type("ba\x08r\x18qux\r");                              // BS, then ^X the whole line
     CHECK(r.until("\nQUX?\r\nA>", ms(1000), from));
     from = r.out.size();
-    r.type("a\x01" "b\r");                                     // other control characters: nothing
-    CHECK(r.until("\nAB?\r\nA>", ms(1000), from));
+    r.type("a\x01" "b\r");                                     // ^A: the cursor left (3b2, the Guide)
+    CHECK(r.until("\nBA?\r\nA>", ms(1000), from));
+    from = r.out.size();
+    r.type("a\x19" "b\r");                                     // other control characters: in the line
+    CHECK(r.until("a^Yb\r\nA\x19" "B?\r\nA>", ms(1000), from));
     from = r.out.size();
     r.type(std::string(130, 'z') + "\r");                   // 126 fit
     CHECK(r.until("\n" + std::string(126, 'Z') + "?\r\nA>", ms(3000), from));
@@ -1084,10 +1105,10 @@ TEST(function_10_edits_the_line_as_the_ccp_reads_it)
     bool warm = false;
     r.watch = [&](uint16_t pc) { warm = warm || pc == sym("WARM"); };
     from = r.out.size();
-    r.type("x\x03\x7F\x03");                               // not after a character: only at the start
+    r.type("x\x03\x7F\x7F\x03");                           // after a character, a character: ^C
     CHECK(r.until("\r\nA>", ms(1000), from));
     CHECK(warm);
-    CHECK(r.out.find("x\b \b", from) != std::string::npos);
+    CHECK(r.out.find("x^C\b\b  \b\b\b \b", from) != std::string::npos);
 }
 
 TEST(the_console_functions_of_the_stand_in_bdos)
@@ -1114,7 +1135,7 @@ TEST(the_console_functions_of_the_stand_in_bdos)
     CHECK(o.find("\nRAW? GOT 72\r\n") != std::string::npos);   // not
     CHECK_EQ(field(o, "WAIT"), std::string("01 GOT 73"));
     CHECK(o.find("\nQ\r\na       b\r\n") != std::string::npos);
-    CHECK(o.find("LINE?hello wo\r COUNT 08 hello wo\r\n") != std::string::npos);
+    CHECK(o.find("LINE?hello wo\a\a\a\r COUNT 08 hello wo\r\n") != std::string::npos); // a BEL each dropped
 }
 
 TEST(disk_errors_from_the_card_a_read_only_unit_and_no_card)
@@ -2112,15 +2133,17 @@ TEST(a_ctrl_c_at_the_prompt_with_nothing_wrong_gives_a_fresh_prompt)
     CHECK(r.until("\r\nA>", ms(3000), from));
     CHECK_EQ(resets, 1u);
     CHECK_EQ(r.out.substr(from), std::string("\r\nA>"));
-    r.poke(SYS_BLOCK_PHYS + 0x023E, std::vector<uint8_t>{1}); // B: current (SCB_DISK)
+    const uint32_t ccpdrv = RES_PHYS + sym("CCPDRV") - 0xC000;
+    r.poke(ccpdrv, std::vector<uint8_t>{1}); // the CCP's drive B: (3b2: the CCP keeps its own)
     from = r.out.size();
     r.type("\x03");
     CHECK(r.until("\r\nB>", ms(3000), from)); // still B:, though 13 makes A: current
     CHECK_EQ(resets, 2u);
-    r.poke(SYS_BLOCK_PHYS + 0x023E, std::vector<uint8_t>{0});
+    r.poke(ccpdrv, std::vector<uint8_t>{0});
+    r.poke(SYS_BLOCK_PHYS + 0x023E, std::vector<uint8_t>{0}); // and current now (SCB_DISK)
     from = r.out.size();
-    r.type("x\x03\r");
-    CHECK(r.until("\nX?\r\nA>", ms(3000), from));
+    r.type("x\x03\r"); // a ^C after a character is a character (3b2, the Guide)
+    CHECK(r.until("\nX\x03?\r\nA>", ms(3000), from));
     CHECK_EQ(resets, 2u);
     r.poke_com(read_bytes(SYS + "/linetest.com"));
     from = r.out.size();
@@ -2245,20 +2268,25 @@ TEST(exms_mask_is_each_drives_own)
     CHECK_EQ(field(o, "EXMENTS"), std::string("01"));
 }
 
-TEST(the_ccp_keeps_the_user_number_across_a_load)
+TEST(the_ccp_keeps_its_own_user_number_and_puts_it_back_after_a_load)
 {
+    // 3b2: a program's 32 lasts only as long as it runs (the Guide, 2.3.5): the CCP's user, 0,
+    // comes back at the warm boot. 47 with $FF makes the program's user the CCP's (systest's
+    // chain test has more); the CCP still loads NAME.COM from user 0 and puts its user back.
     Booted r;
     REQUIRE(r.ok);
     CHECK(r.go("ruletest.com", " U").find("USER SET") != std::string::npos);
-    size_t from = r.out.size();
-    r.type("HELLO\r"); // NAME.COM from user 0, then the user back
-    CHECK(r.until("Hello from OODOS", ms(4000), from));
-    CHECK(r.until("\r\nA>", ms(3000), from));
-    CHECK(r.go("ruletest.com", " V").find("USER 05") != std::string::npos);
+    CHECK(r.go("ruletest.com", " V").find("USER 00") != std::string::npos);
+    size_t from = start(r, "systest.com", " U"); // user 5 and M:, then 47 of HELLO with $FF
+    CHECK(r.until("\r\nM>HELLO\r\nHello from OODOS", ms(4000), from));
+    CHECK(r.until("\r\nM>", ms(3000), r.out.find("Hello from OODOS", from)));
+    from = start(r, "ruletest.com", " V");
+    CHECK(r.until("USER 05\r\n\r\nM>", ms(4000), from));
     from = r.out.size();
     r.type("NOSUCH\r");
-    CHECK(r.until("NOSUCH?\r\nA>", ms(4000), from));
-    CHECK(r.go("ruletest.com", " V").find("USER 05") != std::string::npos);
+    CHECK(r.until("NOSUCH?\r\nM>", ms(4000), from));
+    from = start(r, "ruletest.com", " V");
+    CHECK(r.until("USER 05\r\n\r\nM>", ms(4000), from));
 }
 
 /// A CP/M 3 date stamp: days (1 January 1978 day 1, the DS3231's leap years), hour and minute in BCD.
@@ -2419,6 +2447,466 @@ TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
     const size_t mark = r.out.size();
     fstest(r, 'M', 16);
     CHECK_EQ(field(r.out.substr(mark), "FREE0"), std::string("0003C0"));
+}
+
+// ---- phase 3b2: the system extras ------------------------------------------------------------
+
+TEST(function_49_gets_and_sets_the_scb_at_cp_m_3s_offsets)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = r.go("systest.com", " S");
+    const std::pair<const char *, const char *> want[] = {
+        {"VER", "31 00"},      {"DMA", "80 02"},     {"WIDTH", "4F"},       {"PAGE", "18"},
+        {"RUB", "00 FF"},      {"DELIM", "24 00"},   {"MULTI", "01 00"},    {"CHAIN0", "00 FF"},
+        {"FLAGS", "80"},       {"COMBASE", "00 F8"}, {"PAST", "00 00"},     {"PASTFF", "00 00"},
+        {"SETPAST", "00 00"},  {"LAST", "00 00"},    {"LASTGET", "34 00"},  {"LAST62", "00 34"},
+        {"RESOP", "00 00"},    {"USERF0", "00 00"},  {"USERF", "EF BE"},    {"ERR", "FF 04"},
+        {"ERRDRV", "0F"},      {"EMODE", "FE"},      {"DMA26", "34 12"},    {"DMA49", "N"},
+        {"DISK", "0C 00"},     {"USER", "07 00"},    {"CMODE", "00 03"},    {"D49", "AB"},
+        {"AUX0", "1A 00"},     {"AUXL", "1A 00"},    {"DATE", "Y"},         {"LISTF", "00"},
+        {"VERSION", "31 00"}};
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    CHECK(o.find("\nABC COLUMN 03\r\n") != std::string::npos);
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + 0x0264), 0); // past the SCB: never written
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + 0x0263), 0);
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + 0x0205), 0x31); // put back as it was
+}
+
+namespace
+{
+    /// SYSTEST's console case, its keys on the serial line or the USB keyboard (AUX: is the serial
+    /// line, so AUX?'s is always there). @return what it printed
+    std::string console_case(Rig &r, bool usb)
+    {
+        auto key = [&](const std::string &k) {
+            if (usb)
+                r.type_usb(k);
+            else
+                r.type(k);
+        };
+        const size_t from = start(r, "systest.com", " C");
+        auto at = [&](const std::string &q) {
+            const bool ok = r.until(q, ms(3000), from);
+            if (!ok)
+                r.tail();
+            return ok;
+        };
+        if (!at("AUX?"))
+            return "";
+        r.type("q");
+        if (!at("KEEP?"))
+            return "";
+        key("k");
+        if (!at("STOP?"))
+            return "";
+        key("\x13");
+        r.run(ms(50));
+        const size_t stop = r.out.find("STOP?", from) + 5;
+        CHECK_EQ(r.out.substr(stop), std::string()); // stopped
+        key("x");
+        r.run(ms(20));
+        CHECK_EQ(r.out.substr(stop), std::string("\a")); // a BEL for a key that isn't ^Q
+        key("\x11");
+        if (!at("PE?"))
+            return "";
+        key("\x13");
+        key("\x10");
+        key("\x11");
+        if (!at("PPOO??"))
+            return "";
+        key("\x13");
+        key("\x10");
+        key("\x11");
+        if (!at("DROP?"))
+            return "";
+        key("\x11");
+        key("\x10");
+        key("z");
+        if (!at("RAW1?"))
+            return "";
+        key("\x13");
+        if (!at("CC?"))
+            return "";
+        key("a");
+        key("b");
+        key("\x03");
+        if (!at("S11?"))
+            return "";
+        key("\x11");
+        key("w");
+        if (!at("NC?"))
+            return "";
+        key("\x13");
+        key("\x03");
+        r.run(ms(20));
+        CHECK(r.out.find("NC?\a", from) != std::string::npos); // ^C after ^S: a BEL, not the end
+        key("\x11");
+        if (!r.until("\r\nA>", ms(3000), from))
+            r.tail();
+        return r.out.substr(from);
+    }
+
+    void check_console(const std::string &o, bool usb)
+    {
+        const std::string k = usb ? "K" : "k", w = usb ? "W" : "w", z = usb ? "Z" : "z";
+        CHECK_EQ(field(o, "MODE0"), std::string("00 00"));
+        CHECK_EQ(field(o, "MODE1"), std::string("00 03"));
+        CHECK_EQ(field(o, "DLM0"), std::string("24 00"));
+        CHECK_EQ(field(o, "DLM1"), std::string("X25"));
+        CHECK(o.find("\nPBLK\r\nP       Q\r\nP\tQ\t\r\nZB<>\r\n") != std::string::npos);
+        CHECK(o.find("\nLST LLIST\tX\r\n") != std::string::npos); // 5 and 112 on LST: as they are
+        CHECK(o.find("\nEECCHHOO\r\nRAW\r\n") != std::string::npos); // printer echo; none raw
+        CHECK(o.find("\nAUX A\r\n") != std::string::npos);
+        CHECK_EQ(field(o, "AUXIST"), std::string("00 00"));
+        CHECK_EQ(field(o, "AUXOST"), std::string("FF 00"));
+        CHECK(o.find("\nAUX? GOT 71\r\n") != std::string::npos);
+        CHECK(o.find("\nKEEP?z ST 01 FE FF K " + k + (usb ? "4B" : "6B") + "\r\n") != std::string::npos);
+        CHECK(o.find("\nSTOP?\aAB\r\n") != std::string::npos);
+        CHECK(o.find("\nPE?\aXXYYPPOO??XY\r\n") != std::string::npos);
+        CHECK(o.find("\nDROP?" + z + (usb ? "5A" : "7A") + "\r\n") != std::string::npos);
+        CHECK(o.find("\nRAW1?13\r\n") != std::string::npos);
+        CHECK(o.find("\nCC?01 00\r\n") != std::string::npos);
+        CHECK(o.find("\nS11?01 " + w + (usb ? "57" : "77") + "\r\n") != std::string::npos);
+        CHECK(o.find("\nNC?\aAB\r\n") != std::string::npos);
+    }
+} // namespace
+
+TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_serial_line)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    // What the look before each character costs: function 2 of HELLO's characters, and 11 with
+    // no key and the console mode 0 (S11?'s polling), which is that look.
+    const uint16_t bdosent = sym("BDOSENT"), stubret = sym("STUBRET");
+    uint64_t in = 0, total = 0, n = 0, stotal = 0, sn = 0;
+    int fn = -1;
+    bool plain = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == bdosent)
+        {
+            fn = r.cpu->regs().y, in = r.cpu->cycles();
+            plain = r.phys(SYS_BLOCK_PHYS + 0x0233) == 0 && r.phys(SYS_BLOCK_PHYS + 0x0234) == 0;
+        }
+        else if (pc == stubret)
+        {
+            if (fn == C_WRITE_FN && plain && n < 1000)
+                total += r.cpu->cycles() - in, ++n;
+            else if (fn == C_STAT_FN && plain && r.cpu->regs().a == 0)
+                stotal += r.cpu->cycles() - in, ++sn;
+            fn = -1;
+        }
+    };
+    const std::string o = console_case(r, false);
+    total = n = 0; // function 2's from HELLO alone
+    r.go("hello.com");
+    r.watch = nullptr;
+    check_console(o, false);
+    bool echoed = false; // printer echo went to LST: (the serial line), not the screen twice
+    for (unsigned row = 0; row < 30; ++row)
+        echoed = echoed || r.row(row) == "ECHO";
+    CHECK(echoed);
+    REQUIRE(n > 0);
+    REQUIRE(sn > 0);
+    std::printf("  function 2, BDOSENT to its return: %llu cycles a character (%llu of them); 11 with no key: %llu\n",
+                static_cast<unsigned long long>(total / n), static_cast<unsigned long long>(n),
+                static_cast<unsigned long long>(stotal / sn));
+}
+
+TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_usb_keyboard)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    check_console(console_case(r, true), true);
+}
+
+TEST(a_ctrl_s_ctrl_c_ends_the_program_and_function_10s_ctrl_c_too)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    size_t from = start(r, "systest.com", " X");
+    REQUIRE(r.until("XC?", ms(3000), from));
+    r.type("\x13");
+    r.type("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.out.find("AB", from) == std::string::npos);
+    CHECK(r.out.find("NOT ENDED", from) == std::string::npos);
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + 0x0210) | r.phys(SYS_BLOCK_PHYS + 0x0211) << 8, 0xFFFE);
+    from = start(r, "systest.com", " W");
+    REQUIRE(r.until("L?", ms(3000), from));
+    r.type_usb("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.out.find("NOT ENDED", from) == std::string::npos);
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + 0x0210) | r.phys(SYS_BLOCK_PHYS + 0x0211) << 8, 0xFFFE);
+}
+
+namespace
+{
+    /// Function 10's cases in SYSTEST's L, in order: the keys, the line it should read.
+    struct LineCase
+    {
+        std::string keys, line;
+    };
+    const std::vector<LineCase> &line_cases()
+    {
+        static const std::vector<LineCase> c = {
+            {"abc\x01\x01X\r", "aXbc"},           // ^A twice, then typing inserts
+            {"abc\x02X\r", "Xabc"},               // ^B to the start
+            {"abc\x02\x02Y\r", "abcY"},           // ^B there: to the end
+            {"abcd\x01\x01\x07\r", "abd"},        // ^G the character at the cursor
+            {"abcd\x01\x01\x0B\r", "ab"},         // ^K from it
+            {"abcd\x01\x01\x18\r", "cd"},         // ^X before it
+            {"abcd\x01\x01\x08\r", "acd"},        // BS in the middle
+            {"ab\x01\x06\x06" "c\r", "abc"},      // ^F, and at the end nothing
+            {"a\x19" "b\x1A\r", "a\x19" "b\x1A"}, // other control characters are the line's
+            {"x\x03y\r", "x\x03y"},               // ^C after the first key
+            {"\x17\r", "x\x03y"},                 // ^W: the previous line
+            {"ab\x17" "c\r", "abc"},              // ^W in a line: to its end
+            {"abc\x15\x17\r", "abc"},             // ^U: the previous line, then recalled
+            {"abc\x01\x05\r", "abc"},             // ^E
+            {"abc\x01\x12\r", "abc"},             // ^R
+            {"ab\x10" "c\r", "abc"},              // ^P: printer echo on
+            {"\x10\r", ""},                       // and off
+            {"abc\x7F\r", "ab"},                  // DEL, as BS (SCB $2F $FF)
+            {std::string(32, 'q') + "\r", std::string(30, 'q')}, // full: two BELs
+            {"abcdef\x01\x01\x01\x01\x01\x01\x7F\r", "abcdef"}, // DEL at the start: nothing
+            {"a\x01\x01\x08\x7F\x06\x06" "b\r", "ab"},
+            {"abcd\r", "abc"},                    // a buffer of 3
+            {"ab\r", "a"},                        // of 0, which is 1
+            {"X\r", "INITX"},                     // the DMA buffer's string first
+            {"", "AB"},                           // its CR: back at once
+            {"\r", "ABC"},                        // its ^A
+            {"abc\x7F\x7F\r", "a"},               // rub/del echoing (SCB $2F 0)
+            {"ab\x08\r", "a"},                    // ^H as rub/del (SCB $2E $FF)
+            {"abcdefghijkl\r", "abcdefghijkl"},   // a width of 9
+            {"abcdefghij\x02X\r", "Xabcdefghij"}, // there, ^B back over a row's start
+            {"\x03" "a\r", "\x03" "a"},           // console mode bit 3: ^C a character
+        };
+        return c;
+    }
+    std::string hexs(const std::string &b)
+    {
+        static const char *d = "0123456789ABCDEF";
+        std::string h;
+        for (const unsigned char c : b)
+            h += d[c >> 4], h += d[c & 15];
+        return h;
+    }
+
+    /// SYSTEST's L with each case's keys from the serial line or the USB keyboard (capitals:
+    /// Caps Lock). @return what it printed
+    std::string line_case(Rig &r, bool usb)
+    {
+        const size_t from = start(r, "systest.com", " L");
+        size_t at = from;
+        for (const LineCase &c : line_cases())
+        {
+            // The next question, L? or I?, after the last answer.
+            size_t q = std::string::npos;
+            const uint64_t end = r.cpu->cycles() + ms(3000);
+            while (r.cpu->cycles() < end)
+            {
+                const size_t l = r.out.find("L?", at), i = r.out.find("I?", at);
+                q = std::min(l, i);
+                if (q != std::string::npos)
+                    break;
+                r.run(20'000);
+            }
+            if (q == std::string::npos)
+            {
+                r.tail();
+                return "";
+            }
+            if (usb)
+                r.type_usb(c.keys);
+            else
+                r.type(c.keys);
+            if (!r.until("=", ms(3000), q))
+            {
+                r.tail();
+                return "";
+            }
+            at = r.out.find("=", q);
+        }
+        if (!r.until("\r\nA>", ms(3000), at))
+            r.tail();
+        return r.out.substr(from);
+    }
+
+    void check_lines(const std::string &o, bool usb)
+    {
+        size_t at = 0;
+        for (const LineCase &c : line_cases())
+        {
+            std::string line = c.line;
+            if (usb && c.line != "INITX" && c.line != "AB" && c.line != "ABC")
+                for (char &ch : line)
+                    ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+            if (usb && c.line == "INITX")
+                line = "INITX";
+            char n[3];
+            std::snprintf(n, sizeof n, "%02X", static_cast<unsigned>(line.size()));
+            const std::string want = "=" + std::string(n) + " " + hexs(line) + "\r\n";
+            const size_t f = o.find("=", at);
+            CHECK_EQ(o.substr(f, want.size()), want);
+            at = f + 1;
+        }
+    }
+} // namespace
+
+TEST(function_10_edits_the_line_as_the_banked_cp_m_3s_from_the_serial_line)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const uint16_t insert = sym("INSERT"), loop = sym("LOOP");
+    uint64_t in = 0, total = 0, n = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == insert)
+            in = r.cpu->cycles();
+        else if (pc == loop && in)
+            total += r.cpu->cycles() - in, ++n, in = 0;
+    };
+    const std::string o = line_case(r, false);
+    r.watch = nullptr;
+    check_lines(o, false);
+    // What the screen got, for some.
+    CHECK(o.find("L?abc\b\bXbc\b\b\bX\r") != std::string::npos);        // inserting
+    CHECK(o.find("L?abcd\b\bd \b\b\r") != std::string::npos);            // ^G: d moved back, the end blanked
+    CHECK(o.find("L?a^Yb^Z\r") != std::string::npos);                   // control characters as ^X
+    CHECK(o.find("L?x^Cy\r") != std::string::npos);
+    CHECK(o.find("L?abc\r\nabc\r") != std::string::npos);               // ^U: a new row; ^W the line
+    CHECK(o.find("L?abc\b\r\nc\b\r") != std::string::npos);             // ^E: the rest on a new row
+    CHECK(o.find("L?ab\ac\r") != std::string::npos);                    // ^P: a BEL as echo goes on
+    CHECK(o.find("L?" + std::string(30, 'q') + "\a\a\r") != std::string::npos); // full
+    CHECK(o.find("L?abc\a\r") != std::string::npos);                  // a buffer of 3
+    CHECK(o.find("L?abccb\r") != std::string::npos);                    // rub/del's echo
+    CHECK(o.find("L?abb\r") != std::string::npos);
+    CHECK(o.find("L?abcdefg\r\nhijkl\r") != std::string::npos);         // the width: a new row
+    CHECK(o.find("\r\nabcdefghi\b\b\b\b\b\b\b\b\bXabcdefgh\b\b\b\b\b\b\b\b\bX\r") != std::string::npos);
+    CHECK(o.find("I?INITX\r") != std::string::npos);
+    CHECK(o.find("I?AB\r=") != std::string::npos);
+    CHECK(o.find("L?^Ca\r") != std::string::npos);
+    REQUIRE(n > 0);
+    std::printf("  function 10, a key into the line (INSERT to the next key): %llu cycles on average (%llu keys)\n",
+                static_cast<unsigned long long>(total / n), static_cast<unsigned long long>(n));
+}
+
+TEST(function_10_edits_the_line_as_the_banked_cp_m_3s_from_the_usb_keyboard)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    check_lines(line_case(r, true), true);
+}
+
+TEST(function_152_parses_a_file_specification_as_the_guide_says)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = r.go("systest.com", " P");
+    struct P
+    {
+        int ret; ///< -1 an error, 0 the end, else the offset + 1 of what it returns
+        unsigned drive;
+        std::string name, type, pw;
+    };
+    const std::vector<P> want = {
+        {0, 2, "FOO", "TXT", "PW"},    {13, 0, "FOO", "BAR", ""}, {4, 0, "FOO", "", ""},
+        {0, 0, "????????", "???", ""}, {0, 0, "X???????", "C??", ""}, {-1, 0, "", "", ""},
+        {-1, 0, "", "", ""},           {-1, 0, "", "", ""},       {-1, 0, "", "", ""},
+        {0, 16, "X", "", ""},          {-1, 0, "", "", ""},       {-1, 0, "", "", ""},
+        {3, 0, "5A", "", ""},          {0, 2, "", "", ""},        {0, 0, "", "", ""},
+        {0, 0, "", "", ""},            {-1, 0, "", "", ""},       {4, 0, "A", "B", ""},
+        {2, 0, "A", "", ""},           {1, 0, "", "", ""},        {-1, 0, "", "", ""},
+        {0, 0, "A", "", "P*W"},        {0, 0, "ABC", "", ""},     {2, 0, "A", "", ""},
+        {-1, 0, "", "", ""},           {3, 0, "AB", "", ""},      {0, 0, "A", "", ""},
+        {0, 0, "A", "TXT", "PASSWORD"}, {0, 13, "README", "", ""}, {2, 0, "A", "", ""},
+        {-1, 0, "", "", ""},           {0, 0, "", "TYP", ""},     {4, 0, "A", "", "B"},
+    };
+    auto pad = [](std::string s, size_t n) { return s + std::string(n - s.size(), ' '); };
+    for (size_t i = 0; i < want.size(); ++i)
+    {
+        char key[8];
+        std::snprintf(key, sizeof key, "P%02X", static_cast<unsigned>(i));
+        const std::string f = field(o, key);
+        REQUIRE(f.size() == 4 + 1 + 4 + 1 + 52);
+        const unsigned str = hexval(f.substr(0, 4)), ret = hexval(f.substr(5, 4));
+        const P &w = want[i];
+        std::string fcb;
+        if (w.ret < 0)
+            fcb = std::string(26, '\xAA');
+        else
+            fcb = std::string(1, static_cast<char>(w.drive)) + pad(w.name, 8) + pad(w.type, 3) +
+                  std::string(4, '\0') + pad(w.pw, 8) + "\xAA\xAA";
+        const unsigned want_ret = w.ret < 0 ? 0xFFFF : w.ret == 0 ? 0 : str + w.ret - 1;
+        if (ret != want_ret || f.substr(10) != hexs(fcb))
+            std::printf("  case %zu: %s\n", i, f.c_str());
+        CHECK_EQ(ret, want_ret);
+        CHECK_EQ(f.substr(10), hexs(fcb));
+    }
+}
+
+TEST(function_107_returns_oodos_s_serial_number)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    CHECK_EQ(field(r.go("systest.com", " N"), "SER"), std::string("4F4F44000001"));
+}
+
+TEST(function_47_chains_and_the_ccp_keeps_its_own_drive_and_user)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    // A program's drive doesn't outlast it: the CCP's A: comes back.
+    size_t from = start(r, "systest.com", " D");
+    CHECK(r.until("ON M\r\n\r\nA>", ms(4000), from));
+    CHECK(field(r.go("systest.com", " V"), "UD") == "00 00");
+    // 47 with 0: HELLO runs, shown after the prompt, with the CCP's drive and user.
+    from = start(r, "systest.com", " H");
+    CHECK(r.until("\r\nA>HELLO\r\nHello from OODOS", ms(4000), from));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("Hello from OODOS", from)));
+    CHECK(field(r.go("systest.com", " V"), "UD") == "00 00");
+    // A command longer than the tail holds: 126 characters of it.
+    from = start(r, "systest.com", " J");
+    const std::string cmd = "HELLO " + std::string(116, 'y') + "zzzz";
+    CHECK(r.until("\r\nA>" + cmd + "\r\nHello from OODOS", ms(4000), from));
+    CHECK(r.out.find(cmd + "z", from) == std::string::npos);
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("Hello from OODOS", from)));
+    // 47 with $FF: M: and user 5 are the CCP's from then on.
+    from = start(r, "systest.com", " U");
+    const bool chained = r.until("\r\nM>HELLO\r\nHello from OODOS", ms(4000), from);
+    if (!chained)
+        r.tail();
+    CHECK(chained);
+    CHECK(r.until("\r\nM>", ms(3000), r.out.find("Hello from OODOS", from)));
+    from = start(r, "systest.com", " V");
+    CHECK(r.until("UD 05 0C\r\n\r\nM>", ms(4000), from));
+}
+
+TEST(function_108_s_return_code_is_kept_for_the_next_program)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    auto code = [&] { return r.phys(SYS_BLOCK_PHYS + 0x0210) | r.phys(SYS_BLOCK_PHYS + 0x0211) << 8; };
+    int at_start = -1; // the code as each program starts at $0300
+    r.watch = [&](uint16_t pc) {
+        if (pc == 0x0300 && r.nb(0) == 0)
+            at_start = code();
+    };
+    CHECK_EQ(field(r.go("systest.com", " Q"), "CODE"), std::string("34 12"));
+    CHECK_EQ(code(), 0x1234);                    // kept across the warm boot
+    r.go("hello.com");
+    CHECK_EQ(at_start, 0);                       // the CCP's 0 for a program it starts
+    size_t from = start(r, "systest.com", " K"); // 4321, then 47 of HELLO
+    CHECK(r.until("Hello from OODOS", ms(4000), from));
+    CHECK_EQ(at_start, 0x4321);                  // a chained program gets it as it was
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("Hello from OODOS", from)));
+    from = start(r, "systest.com", " E");        // the default error mode: ended, $FFFD
+    CHECK(r.until("OODOS Error On P: Invalid Drive\r\nBDOS Function = 15 File = X       .   \r\n", ms(3000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.out.find("NOT ENDED", from) == std::string::npos);
+    CHECK_EQ(code(), 0xFFFD);
+    r.watch = nullptr;
 }
 
 int main()
