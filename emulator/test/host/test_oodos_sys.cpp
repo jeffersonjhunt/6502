@@ -2068,6 +2068,100 @@ TEST(the_warm_boot_keeps_a_closed_files_record_that_wont_write)
     CHECK(b.record(dir, es, 0) == badrec);
 }
 
+TEST(a_ctrl_c_at_the_prompt_resets_the_disk_system)
+{
+    // Case P's kept buffer, the card still failing its record: ^C at A> is function 13 (the
+    // Guide, 1.6.2), which drops the buffer and says so, then the prompt. The next warm boot's 48
+    // has nothing to write, and once the card writes the record never reaches it.
+    Rig r;
+    REQUIRE(r.ok);
+    auto fm = faulty(r);
+    const std::vector<uint8_t> badrec = pattern_record(0xA5C3);
+    ruletest(r, 'P', {{"FAULT?", [&] { fm->bad = badrec; }}});
+    unsigned resets = 0;
+    r.watch = [&](uint16_t pc) { resets += pc == sym("F_RESET"); };
+    size_t from = r.out.size();
+    r.type("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK_EQ(resets, 1u);
+    std::string o = r.out.substr(from);
+    CHECK(o.find("OODOS Error On B: Disk I/O\r\nBDOS Function = 13\r\n") != std::string::npos);
+    CHECK(o.find("Function = 48") == std::string::npos);
+    o = r.go("hello.com"); // the card still failing: nothing to write
+    CHECK(o.find("Disk I/O") == std::string::npos);
+    fm->bad.clear();
+    r.go("hello.com");
+    CHECK_EQ(on_card(r, badrec), size_t{0});
+    CHECK_EQ(resets, 1u); // a program's end is the warm boot, not 13
+}
+
+TEST(a_ctrl_c_at_the_prompt_with_nothing_wrong_gives_a_fresh_prompt)
+{
+    // ^C as the prompt's first key: 13 with nothing to say, the drive that was current selected
+    // again, a fresh prompt. ^C after a character does nothing, and ^C in a program's own line
+    // input is the warm boot, as it was: no 13.
+    Booted r;
+    REQUIRE(r.ok);
+    unsigned resets = 0, warms = 0;
+    r.watch = [&](uint16_t pc) {
+        resets += pc == sym("F_RESET");
+        warms += pc == sym("WARM");
+    };
+    size_t from = r.out.size();
+    r.type("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK_EQ(resets, 1u);
+    CHECK_EQ(r.out.substr(from), std::string("\r\nA>"));
+    r.poke(SYS_BLOCK_PHYS + 0x023E, std::vector<uint8_t>{1}); // B: current (SCB_DISK)
+    from = r.out.size();
+    r.type("\x03");
+    CHECK(r.until("\r\nB>", ms(3000), from)); // still B:, though 13 makes A: current
+    CHECK_EQ(resets, 2u);
+    r.poke(SYS_BLOCK_PHYS + 0x023E, std::vector<uint8_t>{0});
+    from = r.out.size();
+    r.type("x\x03\r");
+    CHECK(r.until("\nX?\r\nA>", ms(3000), from));
+    CHECK_EQ(resets, 2u);
+    r.poke_com(read_bytes(SYS + "/linetest.com"));
+    from = r.out.size();
+    r.type("GO\r");
+    REQUIRE(r.until("KEY?", ms(2000), from));
+    r.type("k");
+    REQUIRE(r.until("RAW?", ms(2000), from));
+    r.type("r");
+    REQUIRE(r.until("WAIT ", ms(2000), from));
+    r.run(ms(20));
+    r.type("s");
+    REQUIRE(r.until("LINE?", ms(2000), from));
+    warms = 0;
+    r.type("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK_EQ(warms, 1u);
+    CHECK_EQ(resets, 2u);
+}
+
+TEST(a_ctrl_c_at_the_prompt_makes_a_read_only_drive_writable)
+{
+    // A drive left read-only, as a Read Only error or 28 leaves it (its bit in ROVEC poked: an
+    // error's from a unit made read-only doesn't last, as the warm boot's rescan finds the unit
+    // changed and logs the drive out): the warm boot keeps it, and ^C at the prompt, 13, makes
+    // every drive read-write again.
+    Rig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    REQUIRE(r.boot());
+    const uint32_t rovec = SYS_BLOCK_PHYS + sym("ROVEC");
+    r.poke(rovec, std::vector<uint8_t>{0x03, 0x00}); // A: and B:
+    r.go("hello.com");
+    CHECK_EQ(r.phys(rovec), 0x03); // kept across the warm boot
+    const size_t from = r.out.size();
+    r.type("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK_EQ(r.phys(rovec), 0x00);
+    CHECK_EQ(r.phys(rovec + 1), 0x00);
+}
+
 TEST(a_flush_writes_every_buffer_it_can_then_says_what_failed)
 {
     // Two changed buffers, G1.DAT's (first in 48's order) failing: 48 writes G2.DAT's all the

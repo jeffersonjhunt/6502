@@ -29,8 +29,18 @@
 ; "BDOS Function = 48"), and the warm boot goes on; a buffer of a closed
 ; file's block is kept for the next 48 to try again. After that the CCP's
 ; own calls return their errors (error mode $FF): an error loading is READ
-; ERROR. A program starts
-; in the default error mode, with the DMA address $0280.
+; ERROR. A program starts in the default error mode, with the DMA address
+; $0280.
+;
+; A ^C typed at the prompt, as the line's first key, is function 10's warm
+; boot too, but the CCP resets the disk system for it (the Programmer's
+; Guide, 1.6.2), as the warm boot doesn't: function 13, in error mode $FE,
+; then the drive that was current selected again. 13 writes back what it
+; can and drops what it can't, a kept buffer too, saying the first failure
+; ("BDOS Function = 13"), and makes every drive read-write. The rescan, 48
+; and 98 aren't run again: they ran at the warm boot before the prompt, and
+; 13 rescans itself. ATPROMPT says the warm boot came from the prompt's
+; line; a ^C anywhere else (in a program's function 10) is the warm boot.
 ;
 ; Before a program runs, its header is checked as the loader checks it
 ; (hw/oodos.md, "The program header"): the magic number, no flags (a .COM),
@@ -60,6 +70,7 @@ DEST:           .res    2              ; where the next record goes
 LASTREC:        .res    RECORD         ; a record of NAME.COM whose bytes are copied
 COUNT:          .res    1              ; COPYREC's bytes
 USAVE:          .res    1              ; the user, while NAME.COM is loaded from user 0
+DSAVE:          .res    1              ; the current drive, while 13 runs
 
 .segment "RES"
 
@@ -77,7 +88,19 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 LDA     #$FE           ; a write-back that fails is said, and the
                 LDY     #F_ERRMODE     ; warm boot goes on
                 JSR     BDOS
-                LDA     #<RESCANPB     ; the units read again (a first select of
+                LDA     ATPROMPT       ; a ^C at the prompt: 13, not the warm boot's
+                BEQ     @warm          ; 48 and 98 (they ran before that prompt)
+                STZ     ATPROMPT
+                LDY     #DRV_GET       ; the current drive, which 13 makes A:
+                JSR     BDOS
+                STA     DSAVE
+                LDY     #DRV_ALLRESET
+                JSR     BDOS
+                LDA     DSAVE
+                LDY     #DRV_SET
+                JSR     BDOS
+                BRA     @own
+@warm:          LDA     #<RESCANPB     ; the units read again (a first select of
                 LDX     #>RESCANPB     ; A:), so 48 drops a swapped unit's buffers
                 LDY     #S_BIOS
                 JSR     BDOS
@@ -86,7 +109,7 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 JSR     BDOS
                 LDY     #DRV_FREE
                 JSR     BDOS
-                LDA     #$FF           ; the CCP's errors come back to it
+@own:           LDA     #$FF           ; the CCP's errors come back to it
                 LDY     #F_ERRMODE
                 JSR     BDOS
 PROMPT:         LDX     #$FF
@@ -103,10 +126,13 @@ PROMPT:         LDX     #$FF
                 JSR     PUTC
                 LDA     #LINE_MAX
                 STA     LINE
+                LDA     #1             ; a ^C now is function 10's warm boot from the
+                STA     ATPROMPT       ; prompt
                 LDA     #<LINE
                 LDX     #>LINE
                 LDY     #C_READSTR
                 JSR     BDOS
+                STZ     ATPROMPT
                 LDA     #$0A           ; function 10 echoed the CR
                 JSR     PUTC
                 LDX     #0             ; X: the line's index
@@ -434,3 +460,5 @@ CRLF:           .byte   $0D, $0A, "$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 READERR:        .byte   "READ ERROR$"
+ATPROMPT:       .byte   0              ; 1 while function 10 reads the prompt's line: in
+                                       ; the file, so 0 from the cold boot
