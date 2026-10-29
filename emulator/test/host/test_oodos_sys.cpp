@@ -2494,8 +2494,19 @@ namespace
                 r.tail();
             return ok;
         };
+        if (!at("A7?"))
+            return "";
+        r.type_usb("j"); // CON:'s keyboard, not AUX:'s line
         if (!at("AUX?"))
             return "";
+        // 4 and 5 (LST: put on the serial line) went to the serial line only, and printer echo too:
+        // the screen has each once.
+        bool lst = false, aux = false, echo = false;
+        for (unsigned row = 0; row < 30; ++row)
+            lst = lst || r.row(row) == "LST", aux = aux || r.row(row) == "AUX", echo = echo || r.row(row) == "ECHO";
+        CHECK(lst);
+        CHECK(aux);
+        CHECK(echo);
         r.type("q");
         if (!at("KEEP?"))
             return "";
@@ -2562,6 +2573,7 @@ namespace
         CHECK(o.find("\nAUX A\r\n") != std::string::npos);
         CHECK_EQ(field(o, "AUXIST"), std::string("00 00"));
         CHECK_EQ(field(o, "AUXOST"), std::string("FF 00"));
+        CHECK(o.find("\nA7?00 J4A\r\n") != std::string::npos); // 7: the USB key isn't AUX:'s
         CHECK(o.find("\nAUX? GOT 71\r\n") != std::string::npos);
         CHECK(o.find("\nKEEP?z ST 01 FE FF K " + k + (usb ? "4B" : "6B") + "\r\n") != std::string::npos);
         CHECK(o.find("\nSTOP?\aAB\r\n") != std::string::npos);
@@ -2608,10 +2620,6 @@ TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_seria
     r.go("hello.com");
     r.watch = nullptr;
     check_console(o, false);
-    bool echoed = false; // printer echo went to LST: (the serial line), not the screen twice
-    for (unsigned row = 0; row < 30; ++row)
-        echoed = echoed || r.row(row) == "ECHO";
-    CHECK(echoed);
     if (n && ln)
         std::printf("  function 2, BDOSENT to its return: %llu cycles a character (%llu of them), the look at the console %llu of them\n",
                     static_cast<unsigned long long>(total / n), static_cast<unsigned long long>(n),
@@ -2673,7 +2681,7 @@ namespace
             {"x\x03y\r", "x\x03y"},               // ^C after the first key
             {"\x17\r", "x\x03y"},                 // ^W: the previous line
             {"ab\x17" "c\r", "abc"},              // ^W in a line: to its end
-            {"abc\x15\x17\r", "abc"},             // ^U: the previous line, then recalled
+            {"wxyz\x15\x17\r", "wxyz"},           // ^U: the previous line (a new length), then recalled
             {"abc\x01\x05\r", "abc"},             // ^E
             {"abc\x01\x12\r", "abc"},             // ^R
             {"ab\x10" "c\r", "abc"},              // ^P: printer echo on
@@ -2785,7 +2793,8 @@ TEST(function_10_edits_the_line_as_the_banked_cp_m_3s_from_the_serial_line)
     CHECK(o.find("L?abcd\b\bd \b\b\r") != std::string::npos);            // ^G: d moved back, the end blanked
     CHECK(o.find("L?a^Yb^Z\r") != std::string::npos);                   // control characters as ^X
     CHECK(o.find("L?x^Cy\r") != std::string::npos);
-    CHECK(o.find("L?abc\r\nabc\r") != std::string::npos);               // ^U: a new row; ^W the line
+    CHECK(o.find("L?wxyz\r\nwxyz\r") != std::string::npos);             // ^U: a new row; ^W the line
+    CHECK(o.find("L?abc\b\r\nabc\b\r") != std::string::npos);           // ^R: the line again on a new row
     CHECK(o.find("L?abc\b\r\nc\b\r") != std::string::npos);             // ^E: the rest on a new row
     CHECK(o.find("L?ab\ac\r") != std::string::npos);                    // ^P: a BEL as echo goes on
     CHECK(o.find("L?" + std::string(30, 'q') + "\a\a\r") != std::string::npos); // full

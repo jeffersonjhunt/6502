@@ -8,7 +8,8 @@
 ;       (the error mode, the DMA address, the drive, the user, the console
 ;       mode, the delimiter, the AUX: vector, the date, the version)
 ;   C   the console: 109, 110, 111 (tabs, raw, empty), 5 and 112 and
-;       printer echo with LST: on the serial line, 4, 7, 8, 3 (AUX?), a key
+;       printer echo with LST: on the serial line, 4, 7, 8, 7 with a key on
+;       the USB keyboard (A7?), 3 (AUX?), a key
 ;       kept by the output's look (KEEP?), ^S and ^Q (STOP?), ^S ^P (PE?,
 ;       PO?), ^Q and ^P alone dropped by 1 (DROP?), 1 with mode bit 1
 ;       (RAW1?), 11 with mode bit 0 (CC?), 11 keeping a key (S11?), ^S ^C
@@ -302,6 +303,17 @@ casec:  TRY     "MODE0 ", C_MODE, $FFFF ; 00 00
         jsr     CRLF
         TRY     "AUXIST ", A_STATIN, 0  ; 00 00
         TRY     "AUXOST ", A_STATOUT, 0 ; FF 00
+        HOLD    "A7?"                   ; a key on the USB keyboard: CON:'s, not AUX:'s
+        ldy     #A_STATIN               ; at once: no output to look at it first
+        jsr     BDOS
+        sta     SAVE
+        lda     SAVE
+        jsr     HEX2                    ; 00
+        jsr     SPACE
+        ldy     #C_READ
+        jsr     BDOS
+        jsr     HEX2                    ; J4A
+        jsr     CRLF
         SAY     "AUX?"
         ldy     #A_READ
         jsr     BDOS
