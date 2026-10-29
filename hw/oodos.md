@@ -727,6 +727,68 @@ against, compared with what the BDOS does on the emulator.
   stub adds 216. Most of a buffered read is three DMA copies through MOVE: the FCB in and out, and the record.
 - OODOS.SYS is still 0.2: the version's minor isn't changed here (the coordinator's to decide).
 
+**Decided (2026-10-28): 3b in two parts, each reviewed and merged on its own:** 3b1 the file extras (44, labels
+100 and 101, 102, 103, 106, passwords, the stamps the label asks for), 3b2 the system extras (the SCB, the full
+console set, 47, 107, 108, 152), built side by side.
+
+- **Passwords are enforced** as the Programmer's Guide says: the read, write and delete modes in a file's XFCB,
+  the password in the DMA buffer's first 8 bytes or the default one (106), on the functions it names; turned on
+  per drive by the directory label (bit 7 of its data byte), so a drive without it behaves exactly as before.
+- **The model and the random comparison grow to cover 3b1's file functions;** 3b2's console, SCB, chain and
+  parse get directed tests.
+
+**Proposed (3b1)** (the Guide: 2.3.6–2.3.8, 2.3.10, 2.3.13 and functions 15, 19–23, 30, 33, 34, 40, 44, 99–103,
+106; where it is silent the choice is ours, marked so):
+
+- **On the disk, byte for byte CP/M 3's** (cpmtools reads both): the label is `$20`, the name and type, the data
+  byte (12), the password's key (13), 0 (14, 15), the password (16–23), its creation and update stamps (24–31). An
+  XFCB is 16 + the user, the file's name and type, the mode (12: bit 7 read, 6 write, 5 delete), the key (13), 0
+  (14, 15), the password (16–23), 0 (24–31). The password is kept as cpmtools reads it (CP/M 3's): its 8 bytes in
+  reverse order, each XORed with the key, the sum of the 8. The password mode is also in the file's SFCB slot (its
+  byte 8), kept equal to the XFCB's.
+- **The label (100)** (ours where marked): the first `$20` entry, or a new one in the first free entry (`$FF` if
+  there's none). Its name and type are the FCB's bytes 1–11 as they are; its data byte is FCB byte 12's bits 7–4
+  and bit 0 set (ours); stamps asked for (bits 6–4) on a directory without SFCBs (its entry 3 isn't one, ours) are
+  `$FF`, nothing done. A label's password, if it has one, must be supplied (Password Error, 7, else), whatever
+  bit 7 says; with byte 12's bit 0 the new one is the DMA buffer's bytes 8–15. 100 stamps the label's update, and
+  its creation when it makes it, whatever the mode (ours: the Guide says the label is stamped). The drive's stamp
+  and password modes are the new byte's from then on. A read-only drive is Read Only (2).
+- **101** returns the label's byte 12 as the disk has it, 0 without a label.
+- **No password** (ours): a password of 8 blanks, or 8 zero bytes (as `mkfs.cpm` leaves a label's), is none, and
+  anything supplied matches it; 100 writes a zero field back as 8 blanks (cpmtools's `fsck.cpm` wants a printable
+  password once bit 7 is set). Otherwise the 8 bytes must match exactly (no case folded, ours). The default
+  password is 8 blanks from the cold boot, kept until 106 replaces it (the warm boot keeps it: the Guide).
+- **Protected files,** with the label's bit 7 set and an XFCB whose mode has any of bits 7–5, unless the DMA
+  buffer's first 8 bytes or the default password match: Open (15) of a read-protected file is Password Error;
+  of a write-protected one it opens with f7' set, and a write is File R/O (3), as the Guide has it. Delete (19,
+  with f5' too), rename (23), 30 and truncate (99) of a protected file are Password Error. Searches aren't
+  affected. **The order** (ours): Password Error is the last check, so a call that fails for another reason fails
+  as before (delete: a read-only match is 3 before a protected one is 7). Delete and rename check the XFCBs their
+  name matches.
+- **Make (22) with f6'** and passwords on makes the file's XFCB too: the password the DMA buffer's bytes 0–7, the
+  mode its byte 8 (bits 7–5, ours). It needs two free entries, or an XFCB of the name to use again, else `$FF` and
+  nothing made (ours). Without passwords on, f6' is ignored.
+- **103** makes or changes the file's XFCB: the mode FCB byte 12's bits 7–5, a new password (with bit 0) the DMA
+  buffer's bytes 8–15; without bit 0 a new XFCB's password is blanks, an old one's kept (ours). A protected file's
+  password must be supplied. `$FF` with X 0: no label or passwords off, the file not found, no free entry. The
+  order (ours): the drive (4), `?` (9), a read-only drive (2), passwords off, not found, Password Error, no room.
+  Delete with f5' (the XFCBs only) sets the slot's mode byte to 0.
+- **102** puts the XFCB's mode in FCB byte 12 (0 without one, whatever the label's bit 7 says: an XFCB is a password
+  assigned) and the file's extent-zero SFCB slot's stamps in bytes 24–31 (zeros without one); the current user's
+  file only, any extent found (ours). The Guide's 102 lists the delete mode as bit 4 where 2.3.6 and 103 have bit
+  5; OODOS returns the byte the XFCB holds (bit 5), taking 4 for a slip.
+- **Stamps** as 3a's, by the label's mode now that 100 can change it: create and access share the first field
+  (both may be asked for; `fsck.cpm` calls that an error, the Guide doesn't), open of extent 0 stamps the access.
+- **The multi-sector count (44)** is the SCB's byte at `$4A`, CP/M 3's offset, its one home (`SCB_MULTI`); 1 to
+  128, else `$FF` and the count kept. The CCP sets it to 1 before it loads each program. 20, 21, 33, 34 and 40
+  with a count N are N calls, the records at the DMA address + 128 × k (the DMA address itself unchanged): they stop
+  at the first that doesn't succeed, and an error but a physical one (A = `$FF`) returns X = the records done
+  before it (the Guide's H). A physical error returns as with a count of 1 (X its code), the FCB as the records
+  done left it. 33, 34 and 40 put R0–R2 back to the first record's; EX and CR are the last record tried's (ours:
+  N calls leave them so).
+- **What's in memory:** the default password and the DMA buffer's 16 bytes in the system block, the label's
+  place found when 100 needs it.
+
 ## RSXs and programs ##
 
 **Decided (2026-10-26): CP/M 3's split. `.COM` files load at a fixed address; `.PRL` files are relocatable.**
