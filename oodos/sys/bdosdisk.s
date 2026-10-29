@@ -61,7 +61,8 @@
 ; truncate stamp the update in the extent-zero entry's slot whichever extent
 ; they changed (STAMPU), and Open of extent 0 the access if the mode asks.
 ; Later extents' slots stay 0. The time is BIOS TIME's in the SCB. A
-; directory without SFCBs gets none.
+; directory without SFCBs gets none. A made entry's slot is cleared even
+; when the label asks for no stamps (3b1: 102 reads it).
 
 .setcpu "65C02"
 .include "bdos.inc"
@@ -1159,13 +1160,11 @@ STAMP:          STA     STW
                 JMP     SFCBPUT
 @none:          RTS
 
-; A made entry's SFCB slot, if the label asks for stamps: 0, and for Make's
-; extent 0 (MKU bit 7) the first stamp the time if the mode asks for
-; creation or access stamps, the update if it asks for those.
-INITSTAMP:      LDA     MODE
-                AND     #MODE_CREATE | MODE_UPDATE | MODE_ACCESS
-                BEQ     @none
-                JSR     SFCBAT
+; A made entry's SFCB slot, if it has one: 0 (no stamp made, no password:
+; the Guide, 2.3.8 and 102), whatever the label asks; and for Make's extent
+; 0 (MKU bit 7) the first stamp the time if the mode asks for creation or
+; access stamps, the update if it asks for those.
+INITSTAMP:      JSR     SFCBAT
                 BCS     @none
                 LDY     STOFS
                 LDX     #SFCB_SLOT
@@ -1176,6 +1175,9 @@ INITSTAMP:      LDA     MODE
                 BNE     @clear
                 BIT     MKU
                 BPL     @put
+                LDA     MODE
+                AND     #MODE_CREATE | MODE_UPDATE | MODE_ACCESS
+                BEQ     @put
                 JSR     NOW
                 LDA     MODE
                 AND     #MODE_CREATE | MODE_ACCESS
