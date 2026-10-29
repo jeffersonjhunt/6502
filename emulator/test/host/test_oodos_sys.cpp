@@ -2500,12 +2500,16 @@ TEST(labels_xfcbs_and_passwords_as_the_programmers_guide_has_them)
                                     {"XGONE?", [&] {
                                          const std::vector<uint8_t> d = m.directory();
                                          CHECK(xfcb_of(d, 0, "P       DAT") < 0);
-                                         CHECK_EQ(slot_mode(d, m.entries_of(d, 0, "P       DAT").at(0)), 0);
+                                         const std::vector<unsigned> es = m.entries_of(d, 0, "P       DAT");
+                                         REQUIRE(!es.empty()); // f5': the file is still there
+                                         CHECK_EQ(slot_mode(d, es[0]), 0);
                                      }},
                                     {"QXFCB?", [&] {
                                          const std::vector<uint8_t> d = m.directory();
                                          check_xfcb(d, 0, "Q       DAT", 0x20, "QPASS   ");
-                                         CHECK_EQ(slot_mode(d, m.entries_of(d, 0, "Q       DAT").at(0)), 0x20);
+                                         const std::vector<unsigned> es = m.entries_of(d, 0, "Q       DAT");
+                                         REQUIRE(!es.empty());
+                                         CHECK_EQ(slot_mode(d, es[0]), 0x20);
                                      }},
                                     {"QGONE?", [&] {
                                          const std::vector<uint8_t> d = m.directory();
@@ -2532,7 +2536,8 @@ TEST(labels_xfcbs_and_passwords_as_the_programmers_guide_has_them)
     // byte the same; 102 gave its stamps (read when the mode was read's, 80).
     REQUIRE(!dir.empty());
     check_xfcb(dir, 0, "P       DAT", 0x40, "SECRET  ");
-    const unsigned p = m.entries_of(dir, 0, "P       DAT").at(0);
+    REQUIRE(!m.entries_of(dir, 0, "P       DAT").empty());
+    const unsigned p = m.entries_of(dir, 0, "P       DAT")[0];
     CHECK_EQ(slot_mode(dir, p), 0x40);
     char stamps[17];
     const uint8_t *sl = &dir[(p | 3) * 32 + 1 + (p & 3) * 10];
@@ -2602,7 +2607,27 @@ TEST(the_multi_sector_count_reads_and_writes_n_records_a_call)
     Booted r;
     REQUIRE(r.ok);
     CpmDisk m{r, 0};
+    // Each BDOS call's cycles, BDOSENT to STUBRET, by its function: the first 21s are MW8 and MW128,
+    // the first 20s MR128 and MREND.
+    std::map<uint8_t, std::vector<uint64_t>> took;
+    uint8_t fn = 0;
+    uint64_t t0 = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == sym("BDOSENT"))
+        {
+            fn = r.cpu->regs().y;
+            t0 = r.cpu->cycles();
+        }
+        else if (pc == sym("STUBRET"))
+            took[fn].push_back(r.cpu->cycles() - t0);
+    };
     const std::string o = xtratest(r, 'S');
+    r.watch = nullptr;
+    if (took[21].size() >= 2 && took[20].size() >= 1)
+        std::printf("  M: BDOS cycles: 21 of 8 records %llu, of 128 %llu (%llu a record); 20 of 128 %llu (%llu a record)\n",
+                    static_cast<unsigned long long>(took[21][0]), static_cast<unsigned long long>(took[21][1]),
+                    static_cast<unsigned long long>(took[21][1] / 128), static_cast<unsigned long long>(took[20][0]),
+                    static_cast<unsigned long long>(took[20][0] / 128));
     const std::pair<const char *, const char *> want[] = {
         {"M0", "FF 00"},     {"M129", "FF 00"},   {"M128", "00 00"},   {"M1", "00 00"},     {"MW8", "00 00"},
         {"MW8CR", "08"},     {"MW128", "00 00"},  {"MW128CR", "08"},   {"MW128EX", "01"},   {"MR128", "00 00"},
@@ -2676,7 +2701,7 @@ TEST(write_protection_lasts_into_the_next_extent_and_a_new_slot_is_clear)
     CHECK_EQ(field(o, "ZSTAMPS"), std::string("00 00"));
     CHECK_EQ(field(o, "ZSTAMPV"), std::string("0000000000000000"));
     const std::vector<uint8_t> d = m2.directory();
-    CHECK_EQ(m2.entries_of(d, 0, "Z       DAT").at(0), 1u);
+    CHECK(m2.entries_of(d, 0, "Z       DAT") == std::vector<unsigned>{1u});
     CHECK(std::vector<uint8_t>(d.begin() + 3 * 32 + 11, d.begin() + 3 * 32 + 21) == std::vector<uint8_t>(10, 0));
 }
 
