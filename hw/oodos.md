@@ -1399,7 +1399,10 @@ header has the full list):
   CCP leaving the count (C, D), a slot left as it was with no stamps asked for (Z), none kept as zeros (N), 102
   without its mode or stamps, open ignoring read mode, 100 taking no new password, the next record's DMA address
   not moved on. The model made wrong three ways (a password not reversed, X 0 for the records done, 101's bit 7
-  dropped) fails the comparison on most seeds with passwords or multi-sector calls (26, 13 and 8 of 40).
+  dropped) fails the comparison on most seeds with passwords or multi-sector calls (26, 13 and 8 of 40). And
+  cpmtools: the model's Prot all None fails `cpmls -F`'s check (seed 2), a key byte unlike the one the password
+  was XORed with fails `fsck.cpm` (a password not printable); a key that isn't the sum, used consistently, it
+  can't see (it decodes by the byte), which the hand-worked case in `test_model.py` and the comparison do.
 
 **Proposed (phase 3b1: the model's choices,** as the BDOS's, in its Proposed list above; `cpm3model.py`'s header
 has them): the multi-sector count's N calls, its physical errors not modelled (the model has no I/O errors); a
