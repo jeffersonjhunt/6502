@@ -48,6 +48,16 @@
 ;   Q   the same by 34: PR.DAT's records 0-63 (44 64), FAULT?, from record
 ;       64 with 44 128: QWRITE aa xx (FF 01) QR rrrrrr (000040: R back) QCR
 ;       cc
+;   W   on M:: passwords on (100, $B0); W.DAT made with f6' (write mode,
+;       WPASS), 129 records, closed; opened without the password; 128 read
+;       (44 128) then one more (record 128, extent 1): WRD aa xx (00 00);
+;       WRX1 aa xx (FF 03: f7' kept into extent 1)
+;   Z   on M:: the label asking for no stamps (100, $00: ZLBL 00 00); DIRTY?
+;       (the test fills entry 1's SFCB slot); Z.DAT made (entry 1), closed;
+;       ZSTAMPS aa xx ZSTAMPV (102: 00 00, zeros); the slot all 0
+;   C   44 = 128, and the program ends: COUNT SET
+;   D   CNT.DAT made on M:, one 21 from BIG: DCR cc (01: the CCP set the
+;       count to 1 for this program)
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -140,6 +150,20 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'Q'
         bne     :+
         jmp     caseq
+:       cmp     #'W'
+        bne     :+
+        jmp     casew
+:       cmp     #'Z'
+        bne     :+
+        jmp     casez
+:       cmp     #'C'
+        bne     :+
+        CALLF   F_MULTISEC, 128
+        SAY     "COUNT SET"
+        jmp     CRLF
+:       cmp     #'D'
+        bne     :+
+        jmp     cased
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -513,6 +537,71 @@ caseq:  lda     #1
         jsr     HEX6
         jsr     CRLF
         BYTE    "QCR ", fcb+32
+        jmp     done
+
+; ---------------------------------------------------------------------------
+
+casew:  lda     #DRV_M
+        sta     TDRV
+        jsr     zero16
+        NAME    lfcb, "PWON    LBL"
+        EXB     lfcb, $B0
+        CALLF   DRV_SETLABEL, lfcb
+        PW      BUF, "WPASS   "
+        lda     #$40
+        sta     BUF+8
+        NAME    fcb, "W       DAT"
+        ATTR    fcb, 6
+        CALLF   F_MAKE, fcb
+        CALLF   F_DMAOFF, BIG
+        RECS    0, 128
+        jsr     fillbig
+        CALLF   F_MULTISEC, 128
+        CALLF   F_WRITE, fcb
+        CALLF   F_MULTISEC, 1
+        CALLF   F_WRITE, fcb
+        CALLF   F_CLOSE, fcb
+        CALLF   F_DMAOFF, BUF
+        jsr     zero16
+        NAME    fcb, "W       DAT"
+        CALLF   F_OPEN, fcb
+        CALLF   F_DMAOFF, BIG
+        CALLF   F_MULTISEC, 128
+        CALLF   F_READ, fcb
+        CALLF   F_MULTISEC, 1
+        TRY     "WRD ", F_READ, fcb
+        TRY     "WRX1 ", F_WRITE, fcb
+        jmp     done
+
+casez:  lda     #DRV_M
+        sta     TDRV
+        NAME    lfcb, "NOSTAMPSLBL"
+        EXB     lfcb, $00
+        TRY     "ZLBL ", DRV_SETLABEL, lfcb
+        KEYWAIT "DIRTY?"
+        NAME    fcb, "Z       DAT"
+        CALLF   F_MAKE, fcb
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "Z       DAT"
+        TRY     "ZSTAMPS ", F_TIMEDATE, fcb
+        SAY     "ZSTAMPV "
+        lda     #<(fcb+24)
+        sta     PTR
+        lda     #>(fcb+24)
+        sta     PTR+1
+        ldx     #8
+        jsr     HEXN
+        jsr     CRLF
+        jmp     done
+
+cased:  lda     #DRV_M
+        sta     TDRV
+        CALLF   F_DMAOFF, BIG
+        NAME    fcb, "CNT     DAT"
+        CALLF   F_MAKE, fcb
+        CALLF   F_WRITE, fcb
+        BYTE    "DCR ", fcb+32
+        CALLF   F_CLOSE, fcb
         jmp     done
 
 ; ---------------------------------------------------------------------------

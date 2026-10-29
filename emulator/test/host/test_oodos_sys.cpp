@@ -2653,6 +2653,45 @@ TEST(a_physical_error_in_a_multi_sector_write_keeps_the_records_done_in_the_fcb)
     }
 }
 
+TEST(write_protection_lasts_into_the_next_extent_and_a_new_slot_is_clear)
+{
+    // On M:: a write-protected file opened without its password stays read-only after a read moves
+    // it on to extent 1 (f7' kept); with the label asking for no stamps, a new file's SFCB slot is
+    // cleared all the same, so 102 reads zeros, not what was there.
+    Booted r;
+    REQUIRE(r.ok);
+    std::string o = xtratest(r, 'W');
+    CHECK_EQ(field(o, "WRD"), std::string("00 00"));
+    CHECK_EQ(field(o, "WRX1"), std::string("FF 03"));
+    Booted r2;
+    REQUIRE(r2.ok);
+    CpmDisk m2{r2, 0};
+    o = xtratest(r2, 'Z', {{"DIRTY?", [&] {
+                               std::vector<uint8_t> s = m2.sector(0);
+                               CHECK_EQ(s[3 * 32], 0x21);
+                               std::fill(s.begin() + 3 * 32 + 11, s.begin() + 3 * 32 + 21, 0xAA); // entry 1's slot
+                               m2.put(0, s);
+                           }}});
+    CHECK_EQ(field(o, "ZLBL"), std::string("00 00"));
+    CHECK_EQ(field(o, "ZSTAMPS"), std::string("00 00"));
+    CHECK_EQ(field(o, "ZSTAMPV"), std::string("0000000000000000"));
+    const std::vector<uint8_t> d = m2.directory();
+    CHECK_EQ(m2.entries_of(d, 0, "Z       DAT").at(0), 1u);
+    CHECK(std::vector<uint8_t>(d.begin() + 3 * 32 + 11, d.begin() + 3 * 32 + 21) == std::vector<uint8_t>(10, 0));
+}
+
+TEST(the_ccp_starts_each_program_with_a_multi_sector_count_of_1)
+{
+    // XTRATEST C leaves 44 at 128 as it ends; the next program's one 21 writes one record.
+    Booted r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "xtratest.com", " C");
+    CHECK(r.until("COUNT SET", ms(5000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    const std::string o = xtratest(r, 'D');
+    CHECK_EQ(field(o, "DCR"), std::string("01"));
+}
+
 int main()
 {
     // ctest stays hermetic with no skips (hw/oodos.md, "Testing"): CMake requires the tools
