@@ -129,6 +129,11 @@ At the stand-in CCP, `NAME` runs `NAME.COM` from drive A, user 0, loaded through
 card). To run something by hand instead, put a `.COM`'s header at `$0280` and its image at `$0300` and type `GO`,
 as test_oodos_sys does; `GO M` gives the program the tail ` M` (FSTEST and STAMPTEST take their drive so).
 
+A write-back that fails at the warm boot is said as the BDOS says its errors (`OODOS Error On B: Disk I/O`, `BDOS
+Function = 48`), and the buffer of a closed file's record is kept for the next try. ^C as the first key at the
+prompt resets the disk system (function 13, as CP/M 3's CCP does): it writes what it can, drops what it can't and
+says so (`BDOS Function = 13`), makes every drive read-write, and gives a fresh prompt on the same drive.
+
 M:'s format is checked against what cpmtools makes, kept as `emulator/test/host/sd/oodos-ram.sparse`; it was made,
 and is made again, with Docker:
 
