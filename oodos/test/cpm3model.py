@@ -1,7 +1,7 @@
 """A model of CP/M 3's file system, for OODOS's randomized BDOS test (hw/oodos.md, "The BDOS, phase 3").
 
-Ours, written from the CP/M 3 Programmer's Guide's descriptions of BDOS functions 13-37, 40, 46, 48, 98
-and 99, at the level a program sees them: what each returns (A, and X as CP/M 3's H) and what it leaves in
+Ours, written from the CP/M 3 Programmer's Guide's descriptions of BDOS functions 13-37, 40, 44, 46, 48,
+98-103 and 106, at the level a program sees them: what each returns (A, and X as CP/M 3's H) and what it leaves in
 the FCB, the DMA buffer and on the disk. Its state is the drives' images, laid out as CP/M 3 lays them out:
 directory entries, SFCBs, the label and the blocks, so an image can be compared byte for byte with one the
 BDOS wrote, and checked by cpmtools.
@@ -62,12 +62,13 @@ Testing, "phase 3a: the model", Proposed):
   OODOS's BDOS does).
 - Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access), only ever in the
   SFCB slot of a file's extent-zero entry (the manual: a slot is valid only for an extent-zero entry).
-  A new entry's slot is cleared (its password mode and reserved byte 0 too); make (of extent 0) sets
-  its create (or access) and update stamps to now, an entry made by a write gets none. Writing a written
+  A new entry's slot is cleared (its password mode and reserved byte 0 too), whatever the mode asks
+  (3b1: so 102 never reads another file's); make (of extent 0) sets its create (or access) and update
+  stamps to now as the mode asks, an entry made by a write gets none. Writing a written
   FCB's entry back (close, or moving to another extent) and truncate set the update stamp in the
   file's extent-zero entry's slot, whichever extent they changed. Open of extent 0 sets the access
   stamp with $40 (over the creation stamp, the field they share), not on a read-only drive. Delete,
-  rename and 30 leave the SFCB as it is, and so does make on a drive whose mode keeps no stamps. Now is
+  rename and 30 leave the SFCB as it is. Now is
   what 104 last set (the driver sets the time before what stamps).
 - 13 resets every drive (R/O cleared, logged out), drive A current, the DMA $0280; 37 the drives in its
   vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 logs
@@ -76,6 +77,24 @@ Testing, "phase 3a: the model", Proposed):
 - What a record holds: a block allocated by a write (21, 34) has every record undefined until written
   (the BDOS's deblocking may write whatever its buffer held); 40 fills the new block with zeros. Reading
   an undefined record succeeds and its data can't be predicted (Result.undefined).
+
+- Phase 3b1 (hw/oodos.md, "The BDOS, phase 3", Proposed (3b1)): the multi-sector count (44, 1-128, else
+  $FF): 20, 21, 33, 34 and 40 with a count N are N calls, record k at the DMA address + 128 k, to the first
+  that doesn't return 0: A that, X the records done before it, but a physical error's (A = $FF) X its
+  code; 33, 34 and 40 put R0-R2 back to the first record's. Labels (100, 101): the label's data byte (FCB
+  byte 12's bits 7-4, bit 0 set), name, its password (bytes 13, 16-23) and stamps (24-31: creation when
+  made, update every time); bit 0 of FCB byte 12 a new password from the DMA buffer's bytes 8-15; stamps
+  asked for without SFCBs (entry 3 isn't one) $FF; a label's password must be given (X 7). XFCBs (user +
+  16): made by 22 with f6' (the password the DMA buffer's 0-7, the mode its byte 8, bits 7-5; two free
+  entries needed, or an XFCB of the name) and 103 (the mode FCB byte 12's bits 7-5, bit 0 a new password
+  from the DMA's 8-15; a new one's password otherwise blanks), followed by 19 and 23, deleted alone by 19
+  with f5'. The mode is also kept in the file's extent-zero SFCB slot (byte 8). Passwords are kept as CP/M
+  3 keeps them (the key, the sum of the 8 bytes, at 13; the bytes reversed, XORed with it, at 16-23), 8
+  blanks or 8 zeros is none (kept as blanks). With the label's bit 7: a protected file (its XFCB has a
+  mode bit) needs its password, the DMA buffer's first 8 bytes or the default (106: none from the start),
+  for 19, 23, 30 and 99 (X 7, the last check) and for 15 in read mode; 15 in write mode opens it read-only
+  (writes X 3). 102 gives the XFCB's mode (0 without) in byte 12 and the extent-zero slot's stamps in
+  24-31 (0 without), the current user's file in any extent.
 
 Where CP/M 3 leaves behaviour open in a way a test can't settle, the model raises Unspecified before it
 changes anything, and the generator chooses something else: an FCB used after its file was deleted,
@@ -93,7 +112,31 @@ SFCB = 0x21
 LABEL = 0x20
 TPA_DMA = 0x0280
 MAX_EXT = 2047                          # S2 63, EX 31: 32 MB files
-MODE_CREATE, MODE_UPDATE, MODE_ACCESS = 0x10, 0x20, 0x40
+MODE_CREATE, MODE_UPDATE, MODE_ACCESS, MODE_PASSWORD = 0x10, 0x20, 0x40, 0x80
+XFCB_MODES = 0xE0
+BLANK_PW = b" " * 8
+
+
+def pw_none(pw):
+    """8 blanks or 8 zero bytes: no password, which anything matches."""
+    return pw == BLANK_PW or pw == bytes(8)
+
+
+def pw_decode(e):
+    """An entry's password (an XFCB's or the label's), as CP/M 3 keeps it."""
+    return bytes(e[23 - j] ^ e[13] for j in range(8))
+
+
+def pw_encode(e, pw):
+    """The entry with password pw kept: the key at 13, the bytes reversed and XORed with it at 16-23."""
+    if pw_none(pw):
+        pw = BLANK_PW
+    e = bytearray(e)
+    key = sum(pw) & 0xFF
+    e[13] = key
+    for j in range(8):
+        e[23 - j] = pw[j] ^ key
+    return bytes(e)
 
 
 class Unspecified(Exception):
@@ -335,6 +378,8 @@ class Bdos:
         self.alloc = alloc
         self.dpb_addr = dpb_addr
         self.cur, self.user, self.dma, self.errmode = 0, 0, TPA_DMA, 0
+        self.multi = 1                       # 44's count
+        self.defpw = bytes(8)                # 106's: none
         self.search = None
         self.fcbs = {}
         self.out = bytearray()               # console output
@@ -380,7 +425,7 @@ class Bdos:
         o = dv.slot(i)
         if o is None:
             return
-        if made and dv.mode & (MODE_CREATE | MODE_ACCESS | MODE_UPDATE):
+        if made:                                         # cleared whatever the mode (102 reads it)
             cre = self.now if first and dv.mode & (MODE_CREATE | MODE_ACCESS) else bytes(4)
             upd = self.now if first and dv.mode & MODE_UPDATE else bytes(4)
             dv.img[o:o + 10] = cre + upd + b"\0\0"
@@ -548,6 +593,107 @@ class Bdos:
     def check_name(self, b):
         return has_wild(b[1:12])
 
+    # ------------------------------------------------------------------ passwords (3b1)
+    def given(self, pw, mem):
+        """Whether pw is given: none, the DMA buffer's first 8 bytes, or the default password."""
+        return pw_none(pw) or pw == bytes(mem.read(self.dma, 8)) or pw == self.defpw
+
+    def xfcb_of(self, dv, user, name):
+        for i in dv.entries():
+            e = dv.entry(i)
+            if e[0] == user + 16 and same_name(e[1:12], name):
+                return i
+        return None
+
+    def locked(self, dv, e, mem):
+        """An XFCB that protects its file, whose password isn't given (with the label's passwords on)."""
+        return bool(dv.mode & MODE_PASSWORD and e[12] & XFCB_MODES and not self.given(pw_decode(e), mem))
+
+    def protected(self, dv, user, name, mem):
+        """user:name's XFCB's mode if it is protected and its password isn't given, else 0."""
+        x = self.xfcb_of(dv, user, name)
+        if x is None:
+            return 0
+        e = dv.entry(x)
+        return e[12] & XFCB_MODES if self.locked(dv, e, mem) else 0
+
+    def slot_mode(self, dv, user, name, mode):
+        """The mode into the SFCB slot (its byte 8) of user:name's extent-zero entry, if it has one."""
+        i = self.find_ext(dv, user, name, 0)
+        if i is None:
+            return
+        o = dv.slot(i)
+        if o is not None:
+            dv.img[o + 8] = mode
+
+    def put_xfcb(self, dv, user, name, mode, pw, x=None):
+        """user:name's XFCB, in entry x or the first free one: the mode, the password, the rest 0."""
+        if x is None:
+            x = self.free_entry(dv)
+        e = bytearray(32)
+        e[0] = user + 16
+        e[1:12] = bytes(c & 0x7F for c in name)
+        e[12] = mode
+        dv.set_entry(x, pw_encode(bytes(e), pw))
+        self.slot_mode(dv, user, name, mode)
+
+    def label_of(self, dv):
+        for i in dv.entries():
+            if dv.entry(i)[0] == LABEL:
+                return i
+        return None
+
+    # ------------------------------------------------------------------ multi-sector I/O (3b1)
+    def _multi(self, one, a, x, mem, random):
+        """A record function the multi-sector count's times: N calls, record k at the DMA + 128 k."""
+        n = self.multi
+        addr = a | x << 8
+        if n > 1 and one == self._f21:                   # a run past the largest file: open, refused
+            s = self.fcbs.get(addr)
+            if s is not None and s.ext * 128 + s.cr + n > MAX_EXT * 128 + 128:
+                raise Unspecified("a multi-sector write past the largest file")
+        dma, r0 = self.dma, bytes(mem.read(addr + 33, 3))
+        undefined, done = False, 0
+        try:
+            for k in range(n):
+                self.dma = dma + RECORD * k
+                if random and k:
+                    r = (r0[0] | r0[1] << 8 | r0[2] << 16) + k
+                    mem.write(addr + 33, bytes([r & 0xFF, r >> 8 & 0xFF, r >> 16 & 0xFF]))
+                try:
+                    ra, rx = one(a, x, mem)
+                except Unspecified:
+                    if k:
+                        raise RuntimeError("a multi-sector call: Unspecified after %d records" % k)
+                    raise
+                undefined = undefined or self.undefined
+                if ra:
+                    break
+                done += 1
+        finally:
+            self.dma = dma
+            if random and (done or n > 1):
+                mem.write(addr + 33, r0)
+        self.undefined = undefined
+        if ra == 0:
+            return 0, 0
+        return ra, rx if ra == 0xFF else done
+
+    def f20(self, a, x, mem):
+        return self._multi(self._f20, a, x, mem, False)
+
+    def f21(self, a, x, mem):
+        return self._multi(self._f21, a, x, mem, False)
+
+    def f33(self, a, x, mem):
+        return self._multi(self._f33, a, x, mem, True)
+
+    def f34(self, a, x, mem):
+        return self._multi(lambda a, x, mem: self._wrand(a, x, mem, False), a, x, mem, True)
+
+    def f40(self, a, x, mem):
+        return self._multi(lambda a, x, mem: self._wrand(a, x, mem, True), a, x, mem, True)
+
     # ------------------------------------------------------------------ functions
     def f0(self, a, x, mem):
         raise Unspecified("warm boot")
@@ -607,8 +753,11 @@ class Bdos:
                 i, user, ro = j, 0, True
         if i is None:
             return 0xFF, 0
+        prot = self.protected(dv, user, name, mem)
+        if prot & 0x80:
+            return 0xFF, 7                               # read mode, no password
         e = dv.entry(i)
-        s = Fcb(d, user, bytes(e[1:12]), ro or bool(e[9] & 0x80), b[0])
+        s = Fcb(d, user, bytes(e[1:12]), ro or bool(e[9] & 0x80) or bool(prot & 0x40), b[0])
         s.opener = self.user
         self.load_ext(s, ext)
         s.cr = s.s1 if b[32] == 0xFF else b[32]           # CR $FF: the last record's byte count
@@ -690,19 +839,28 @@ class Bdos:
             return 0xFF, 2
         pat = bytearray(b[:15])
         pat[12] = 0x3F
-        hits = [i for i in dv.entries() if self.match(dv, dv.entry(i), pat, self.user)]
-        if not hits:
+        files = [i for i in dv.entries() if self.match(dv, dv.entry(i), pat, self.user)]
+        xfcbs = [i for i in dv.entries() if self.match(dv, dv.entry(i), pat, self.user + 16)]
+        if not files and not xfcbs:
             return 0xFF, 0
-        if any(dv.entry(i)[9] & 0x80 for i in hits):
+        if any(dv.entry(i)[9] & 0x80 for i in files):
             return 0xFF, 3
-        for i in hits:
+        if any(self.locked(dv, dv.entry(i), mem) for i in xfcbs):
+            return 0xFF, 7                               # the password, last
+        only = bool(b[5] & 0x80)                         # f5': the XFCBs only
+        for i in sorted(xfcbs + ([] if only else files)):
             e = bytearray(dv.entry(i))
-            dv.alv.difference_update(dv.blocks(e))
-            dv.alv.update(range(dv.fmt.dir_blocks))
+            if e[0] >= 16:
+                if only:
+                    self.slot_mode(dv, e[0] - 16, bytes(c & 0x7F for c in e[1:12]), 0)
+            else:
+                dv.alv.difference_update(dv.blocks(e))
+                dv.alv.update(range(dv.fmt.dir_blocks))
             e[0] = E5
             dv.set_entry(i, bytes(e))
-        names = {dv.entry(i)[1:12] for i in hits}
-        self.kill(lambda s: s.drive == d and s.user == self.user and any(same_name(s.name, n) for n in names))
+        if not only:
+            names = {dv.entry(i)[1:12] for i in files}
+            self.kill(lambda s: s.drive == d and s.user == self.user and any(same_name(s.name, n) for n in names))
         return 0, 0
 
     def _fcb_io(self, a, x, mem, op):
@@ -714,7 +872,7 @@ class Bdos:
             raise Unspecified("%s: two FCBs on one file, one writing" % op)
         return addr, s, b
 
-    def f20(self, a, x, mem):
+    def _f20(self, a, x, mem):
         addr, s, b = self._fcb_io(a, x, mem, "read")
         if s.uncertain:
             raise Unspecified("read: the position is uncertain after an error")
@@ -765,7 +923,7 @@ class Bdos:
         s.modified = True
         return 0
 
-    def f21(self, a, x, mem):
+    def _f21(self, a, x, mem):
         addr, s, b = self._fcb_io(a, x, mem, "write")
         if s.uncertain:
             raise Unspecified("write: the position is uncertain after an error")
@@ -807,10 +965,18 @@ class Bdos:
         name = bytes(c & 0x7F for c in b[1:12])         # every attribute 0 (S2 isn't the program's)
         if dv.file_entries(self.user, name):
             return 0xFF, 8
+        xfcb = bool(b[6] & 0x80 and dv.mode & MODE_PASSWORD)     # f6' with passwords on: an XFCB too
+        if xfcb:
+            x = self.xfcb_of(dv, self.user, name)
+            if x is None and sum(1 for i in dv.entries() if dv.entry(i)[0] == E5) < 2:
+                return 0xFF, 0                           # no room for the file and its XFCB
         s = Fcb(d, self.user, name, False, b[0])
         s.opener = self.user
         if self.new_entry(dv, s, b[12], first=b[12] == 0) is None:   # extent 0's stamped
             return 0xFF, 0
+        if xfcb:
+            pw = mem.read(self.dma, 9)
+            self.put_xfcb(dv, self.user, name, pw[8] & XFCB_MODES, pw[:8], x)
         self.kill(lambda o: o.drive == d and o.user == self.user and same_name(o.name, name))
         s.cr = b[32]
         self.fcbs[addr] = s
@@ -831,11 +997,14 @@ class Bdos:
         if dv.file_entries(self.user, new):              # checked first, as OODOS's BDOS does
             return 0xFF, 8
         hits = dv.file_entries(self.user, old)
-        if not hits:
+        xfcbs = dv.file_entries(self.user + 16, old)
+        if not hits and not xfcbs:
             return 0xFF, 0
         if any(dv.entry(i)[9] & 0x80 for i in hits):
             return 0xFF, 3
-        for i in hits:
+        if any(self.locked(dv, dv.entry(i), mem) for i in xfcbs):
+            return 0xFF, 7
+        for i in hits + xfcbs:
             e = bytearray(dv.entry(i))
             for k in range(11):
                 e[1 + k] = (e[1 + k] & 0x80) | new[k]
@@ -880,6 +1049,8 @@ class Bdos:
         hits = dv.file_entries(self.user, name)
         if not hits:
             return 0xFF, 0
+        if self.protected(dv, self.user, name, mem):
+            return 0xFF, 7
         for i in hits:
             e = bytearray(dv.entry(i))
             for k in (1, 2, 3, 4, 9, 10, 11):
@@ -908,7 +1079,7 @@ class Bdos:
         r = b[33] | b[34] << 8 | b[35] << 16
         return addr, s, b, r
 
-    def f33(self, a, x, mem):
+    def _f33(self, a, x, mem):
         addr, s, b, r = self._random(a, x, mem, "random read")
         dv = self.drives[s.drive]
         if b[35] > 3:
@@ -959,12 +1130,6 @@ class Bdos:
         self.put_fcb(addr, s, b, mem)
         return e, 0
 
-    def f34(self, a, x, mem):
-        return self._wrand(a, x, mem, False)
-
-    def f40(self, a, x, mem):
-        return self._wrand(a, x, mem, True)
-
     def f35(self, a, x, mem):
         addr = a | x << 8
         b = mem.read(addr, 36)
@@ -994,6 +1159,12 @@ class Bdos:
                 dv.logged = False
                 dv.ro = False
         self.kill(lambda s: v >> s.drive & 1)
+        return 0, 0
+
+    def f44(self, a, x, mem):
+        if not 1 <= a <= 128:
+            return 0xFF, 0
+        self.multi = a
         return 0, 0
 
     def f45(self, a, x, mem):
@@ -1052,6 +1223,8 @@ class Bdos:
         rc = 128 if lo < dex else ke[15] if lo == dex else 0
         if c >= rc or not dv.blocks(ke)[((ext & f.exm) * 128 + c) // f.rpb]:
             return 0xFF, 0
+        if self.protected(dv, self.user, name, mem):
+            return 0xFF, 7
         for i in hits:
             e = bytearray(dv.entry(i))
             first = (e[14] & 0x3F) << 5 | e[12] & 0x1F & ~f.exm
@@ -1071,6 +1244,104 @@ class Bdos:
         dv.alv.update(range(f.dir_blocks))
         self.stamp_slot(dv, keep)
         self.kill(lambda s: s.drive == d and s.user == self.user and same_name(s.name, name))
+        return 0, 0
+
+    def f100(self, a, x, mem):
+        addr = a | x << 8
+        b = mem.read(addr, 36)
+        d = self.drive_of(b[0])
+        if d is None:
+            return 0xFF, 4
+        dv = self.use(d)
+        if dv.ro:
+            return 0xFF, 2
+        if b[12] & (MODE_CREATE | MODE_UPDATE | MODE_ACCESS) and dv.entry(3)[0] != SFCB:
+            return 0xFF, 0                               # stamps need SFCBs (entry 3 one)
+        i = self.label_of(dv)
+        pw = mem.read(self.dma, 16)
+        if i is not None:
+            e = bytearray(dv.entry(i))
+            old = pw_decode(e)
+            if not self.given(old, mem):
+                return 0xFF, 7
+        else:
+            i = self.free_entry(dv)
+            if i is None:
+                return 0xFF, 0
+            e = bytearray(32)
+            e[24:28] = self.now                          # made: its creation
+            old = BLANK_PW
+        e[0] = LABEL
+        e[1:12] = b[1:12]
+        e[12] = b[12] & 0xF0 | 1
+        e[28:32] = self.now
+        dv.set_entry(i, pw_encode(bytes(e), pw[8:16] if b[12] & 1 else old))
+        dv.mode = e[12]
+        return 0, 0
+
+    def f101(self, a, x, mem):
+        d = a & 0xFF
+        if d > 15:
+            return 0xFF, 4
+        if d not in self.drives:
+            return 0xFF, 4
+        return self.use(d).mode, 0
+
+    def f102(self, a, x, mem):
+        addr = a | x << 8
+        b = bytearray(mem.read(addr, 36))
+        d = self.drive_of(b[0])
+        if d is None:
+            return 0xFF, 4
+        if self.check_name(b):
+            return 0xFF, 9
+        dv = self.use(d)
+        name = bytes(c & 0x7F for c in b[1:12])
+        if not dv.file_entries(self.user, name):
+            return 0xFF, 0
+        x = self.xfcb_of(dv, self.user, name)
+        b[12] = dv.entry(x)[12] if x is not None else 0
+        b[24:32] = bytes(8)
+        i = self.find_ext(dv, self.user, name, 0)
+        o = dv.slot(i) if i is not None else None
+        if o is not None:
+            b[24:32] = dv.img[o:o + 8]
+        mem.write(addr, bytes(b[:33]))
+        return 0, 0
+
+    def f103(self, a, x, mem):
+        addr = a | x << 8
+        b = mem.read(addr, 36)
+        d = self.drive_of(b[0])
+        if d is None:
+            return 0xFF, 4
+        if self.check_name(b):
+            return 0xFF, 9
+        dv = self.use(d)
+        if dv.ro:
+            return 0xFF, 2
+        if not dv.mode & MODE_PASSWORD:
+            return 0xFF, 0
+        name = bytes(c & 0x7F for c in b[1:12])
+        if not dv.file_entries(self.user, name):
+            return 0xFF, 0
+        x = self.xfcb_of(dv, self.user, name)
+        if x is not None:
+            e = dv.entry(x)
+            if self.locked(dv, e, mem):
+                return 0xFF, 7
+            old = pw_decode(e)
+        else:
+            if self.free_entry(dv) is None:
+                return 0xFF, 0
+            old = BLANK_PW
+        pw = mem.read(self.dma, 16)
+        self.put_xfcb(dv, self.user, name, b[12] & XFCB_MODES, pw[8:16] if b[12] & 1 else old, x)
+        return 0, 0
+
+    def f106(self, a, x, mem):
+        self.defpw = bytes(mem.read(a | x << 8, 8))
+        self.loose = {"a", "x"}
         return 0, 0
 
     def f104(self, a, x, mem):

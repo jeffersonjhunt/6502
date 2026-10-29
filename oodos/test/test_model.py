@@ -471,12 +471,12 @@ def truncate():
 def stamps_and_modes():
     print("Stamps by the label's mode")
     for mode, want, what in ((0x31, T0 + T1, "0x31: creation and update"), (0x11, T0 + bytes(4), "0x11: creation only"),
-                             (0x21, bytes(4) + T1, "0x21: update only"), (0x01, None, "0x01: none")):
+                             (0x21, bytes(4) + T1, "0x21: update only"), (0x01, None, "0x01: none, the slot cleared")):
         t = Rig(mode=mode)
         t.new("A.TXT", 1, when=T1)
         t.f(16)
         got = t.slot(1)
-        eq(got[:8] if want else got, want or h("e5") * 10, "label mode %s" % what)
+        eq(got[:8] if want else got, want or bytes(10), "label mode %s" % what)
     t = Rig(mode=0x71)
     t.new("A.TXT", 257)
     t.f(16)
@@ -493,6 +493,98 @@ def stamps_and_modes():
     t.f(15, FCB2)
     eq(t.slot(1)[:8], T1 + T0, "nor on a read-only drive")
     eq(t.m.read(FCB2, 36)[14], 0x80, "an FCB opened, not written: S2 $80, as OODOS's BDOS keeps it")
+
+
+def file_extras():
+    print("Phase 3b1: labels, XFCBs and passwords, 102, the multi-sector count")
+    t = Rig()
+    pw = lambda text: t.m.write(0x0800, text.encode() if isinstance(text, str) else text)
+    # "SECRET  ": the key is the bytes' sum, 0x206 & 0xFF = 0x06; kept reversed, each XOR 0x06
+    secret = h("06 0000 2626524354454355")
+    eq(M.pw_encode(bytes(32), b"SECRET  ")[13:24], secret, "a password kept as CP/M 3 keeps it (cpmtools reads it)")
+    eq(M.pw_decode(M.pw_encode(bytes(32), b"QPASS   ")), b"QPASS   ", "and read back")
+    eq(M.pw_encode(bytes(32), bytes(8))[13:24], h("00 0000") + b" " * 8, "none (8 zeros) kept as 8 blanks")
+    eq(t.call(101), (0x31, 0), "101: the label's byte, 0x31 from mkfs")
+    t.fcb("A", raw=b"MYDISK  LBL", ex=0xB1)
+    pw(bytes(8) + b"LABELPW ")
+    t.b.now = T1
+    eq(t.f(100), (0, 0), "100: passwords on, the label's password LABELPW (bit 0: the DMA's 8-15)")
+    key = sum(b"LABELPW ") & 0xFF
+    want = bytes([0x20]) + b"MYDISK  LBL" + bytes([0xB1, key, 0, 0]) + bytes(c ^ key for c in b" WPLEBAL") + T0 + T1
+    eq(t.e(0), want, "the label: its name, byte, password and stamps (creation mkfs's, update now)")
+    eq(t.call(101), (0xB1, 0), "101: 0xB1")
+    pw(bytes(16))
+    t.fcb("A", raw=b"MYDISK  LBL", ex=0xB0)
+    eq(t.f(100), (0xFF, 7), "100 without the label's password: Password Error")
+    t.fcb("A", raw=b"MYDISK  LBL", ex=0x30)
+    pw(b"LABELPW ")
+    t.f(100)
+    eq(t.e(0)[13:24], want[13:24], "100 without bit 0 keeps the password")
+    t.fcb("A", raw=b"MYDISK  LBL", ex=0xB0)
+    t.f(100)
+    # make with f6': the file in entry 1, its XFCB in entry 2 (the next free); its slot's mode byte
+    pw(b"SECRET  " + bytes([0x80]))
+    f = bytearray(M.fcb_name("P.DAT"))
+    f[5] |= 0x80
+    t.fcb("P.DAT", raw=bytes(f))
+    eq(t.f(22), (0, 0), "make P.DAT with f6' (read mode)")
+    t.f(16)
+    eq(t.e(2), bytes([16]) + M.fcb_name("P.DAT") + bytes([0x80]) + secret + bytes(8), "its XFCB, entry 2")
+    eq(t.slot(1)[8], 0x80, "the mode in the file's slot, byte 8")
+    pw(bytes(16))
+    t.fcb("P.DAT")
+    eq(t.f(15), (0xFF, 7), "open, read mode, no password: Password Error")
+    pw(b"SECRET  ")
+    t.fcb("P.DAT")
+    eq(t.f(15), (0, 0), "open with the password in the DMA buffer")
+    t.fcb("P.DAT", ex=0x40)
+    eq(t.f(103), (0, 0), "103: write mode, the password kept")
+    eq((t.e(2)[12], t.e(2)[13:24], t.slot(1)[8]), (0x40, secret, 0x40), "the XFCB and the slot")
+    pw(bytes(16))
+    t.fcb("P.DAT")
+    eq(t.f(15), (0, 0), "open, write mode, no password: opened")
+    eq(t.write(1)[0], (0xFF, 3), "but read-only: File R/O")
+    for fn, want, what in ((19, (0xFF, 7), "delete without the password"), (30, (0xFF, 7), "30 without it"),
+                           (99, (0xFF, 0), "truncate of the empty file: refused first, the password last")):
+        t.fcb("P.DAT")
+        eq(t.f(fn), want, what)
+    t.fcb("P.DAT", ex=0)
+    t.m.write(FCB + 17, M.fcb_name("R.DAT"))
+    eq(t.f(23), (0xFF, 7), "rename without it")
+    t.m.write(0x0900, b"SECRET  ")
+    eq(t.call(106, 0x00, 0x09)[0], 0, "106: the default password")
+    f = bytearray(M.fcb_name("P.DAT"))
+    f[4] |= 0x80
+    t.fcb("P.DAT", raw=bytes(f))
+    eq(t.f(19), (0, 0), "delete with f5', by the default: the XFCB only")
+    eq((t.e(2)[0], t.e(1)[0], t.slot(1)[8]), (M.E5, 0, 0), "the XFCB gone, the file there, its slot's mode 0")
+    t.fcb("P.DAT")
+    eq(t.f(102), (0, 0), "102")
+    b = t.m.read(FCB, 36)
+    eq((b[12], b[24:32]), (0, T1 + T1), "102: mode 0, the creation and update stamps")
+    # the multi-sector count
+    eq([t.call(44, n)[0] for n in (0, 129, 255, 128, 1)], [0xFF, 0xFF, 0xFF, 0, 0], "44: 1-128")
+    t.fcb("M.DAT")
+    t.f(22)
+    for k in range(3):
+        t.m.write(0x0800 + 128 * k, S.pattern(0x300 + k))
+    t.call(44, 3)
+    eq(t.f(21), (0, 0), "21 with 44 = 3: three records")
+    eq(t.m.read(FCB, 36)[32], 3, "CR 3")
+    t.f(16)
+    t.fcb("M.DAT")
+    t.f(15)
+    t.call(44, 5)
+    t.m.write(0x0800, bytes(5 * 128))
+    eq(t.f(20), (1, 3), "20 with 44 = 5 of a 3-record file: A 1, X 3 read")
+    eq(t.m.read(0x0800, 3 * 128 + 1), S.pattern(0x300) + S.pattern(0x301) + S.pattern(0x302) + b"\0",
+       "the three at the DMA address + 128 k, the fourth's place untouched")
+    t.call(44, 4)
+    t.rand(1)
+    eq(t.f(33), (1, 2), "33 from record 1: 2 read, then 1")
+    b = t.m.read(FCB, 36)
+    eq((b[32], b[33:36]), (3, h("010000")), "CR record 3's (the last tried), R0-R2 back to 1")
+    t.call(44, 1)
 
 
 def policy():
@@ -751,6 +843,7 @@ def main():
     full()
     truncate()
     stamps_and_modes()
+    file_extras()
     policy()
     ro_and_r2()
     guide_rules()
