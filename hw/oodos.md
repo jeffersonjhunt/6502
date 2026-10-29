@@ -624,7 +624,8 @@ against, compared with what the BDOS does on the emulator.
   close of a file with that block fails on it. A sector before the data area is in no block, and is kept; nothing
   marks one (the BDOS writes none), nor a directory sector (a failed directory write drops its buffer). The warm
   boot says a failed write-back as the BDOS says its errors (`OODOS Error On B: Disk I/O`, `BDOS Function = 48`)
-  and goes on to the prompt; before, the CCP's error mode `$FF` dropped it unsaid.
+  and goes on to the prompt; before, the CCP's error mode `$FF` dropped it unsaid. A buffer kept so, of a sector
+  that stays bad, fails every later program's 48 until 13 or 37 drops it: a ^C at the prompt is 13 (below).
 - **The order of writes** (2026-10-27, from the review): data, then the entry that points at it (above); the
   entry, then the blocks freed, for delete and truncate (their pointers kept until the entry is on the disk), so a
   failed directory write leaves no entry on the disk whose blocks are free. A close merges F's block pointers with
@@ -704,6 +705,14 @@ against, compared with what the BDOS does on the emulator.
   address, and a last part record through its buffer. Open's `$FF` with X 0 is `NAME?`, any other error `READ ERROR`.
   The user is put back as it was before the program runs and after `NAME?` or an error. A program starts in the
   default error mode with the DMA address `$0280`.
+- **^C at the prompt** resets the disk system, as the Programmer's Guide says CP/M 3's CCP does (1.6.2; the warm
+  boot doesn't), 2026-10-28 from the review: the prompt's first key, which is function 10's warm boot, as anywhere.
+  The CCP marks the prompt's line read (`ATPROMPT`, set only while its function 10 runs), and the warm boot that
+  finds it marked runs 13 in error mode `$FE` instead of the rescan, 48 and 98, which ran before that prompt; then
+  the drive that was current is selected again and the prompt comes back. 13 writes what it can, drops what it
+  can't (a kept buffer of a bad sector too) and says the first failure (`OODOS Error On B: Disk I/O`, `BDOS
+  Function = 13`), and makes every drive read-write. Both keyboards and the serial line give ^C as `$03`. A ^C
+  after a character, or in a program's own line input, does as before; Break is the monitor's, as before.
 - **Function 50** forgets which drive the BIOS has selected, so the BDOS selects its own again before its next
   sector: a program's SELDSK can't send the BDOS's reads to another drive.
 - **UNITS** (SELDSK's first select) resets a card it finds busy, as READ and WRITE do, so a login after a stuck card
