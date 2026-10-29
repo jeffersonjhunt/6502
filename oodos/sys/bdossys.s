@@ -308,16 +308,16 @@ CTLCEND:        LDA     #$FE
 COUT:           PHA
                 LDA     SCB_CONMODE
                 AND     #CM_NOSTOP
-                BNE     @raw
+                BNE     LOOKED
                 LDA     KEPTF          ; one kept: not looked at again
-                BNE     @raw
+                BNE     LOOKED
                 JSR     B_CONST
-                BEQ     @raw
+                BEQ     LOOKED
                 JSR     B_CONIN
                 JSR     FILTER
-                BCS     @raw
+                BCS     LOOKED
                 JSR     KEEP
-@raw:           LDA     SCB_CONMODE
+LOOKED:         LDA     SCB_CONMODE
                 AND     #CM_RAW
                 STA     ORAW
                 PLA

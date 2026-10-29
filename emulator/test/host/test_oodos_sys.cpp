@@ -2580,12 +2580,16 @@ TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_seria
     REQUIRE(r.ok);
     // What the look before each character costs: function 2 of HELLO's characters, and 11 with
     // no key and the console mode 0 (S11?'s polling), which is that look.
-    const uint16_t bdosent = sym("BDOSENT"), stubret = sym("STUBRET");
-    uint64_t in = 0, total = 0, n = 0, stotal = 0, sn = 0;
+    const uint16_t bdosent = sym("BDOSENT"), stubret = sym("STUBRET"), cout = sym("COUT"), looked = sym("LOOKED");
+    uint64_t in = 0, total = 0, n = 0, stotal = 0, sn = 0, lin = 0, ltotal = 0, ln = 0;
     int fn = -1;
     bool plain = false;
     r.watch = [&](uint16_t pc) {
-        if (pc == bdosent)
+        if (pc == cout && fn == C_WRITE_FN && plain)
+            lin = r.cpu->cycles();
+        else if (pc == looked && lin)
+            ltotal += r.cpu->cycles() - lin, ++ln, lin = 0;
+        else if (pc == bdosent)
         {
             fn = r.cpu->regs().y, in = r.cpu->cycles();
             plain = r.phys(SYS_BLOCK_PHYS + 0x0233) == 0 && r.phys(SYS_BLOCK_PHYS + 0x0234) == 0;
@@ -2600,7 +2604,7 @@ TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_seria
         }
     };
     const std::string o = console_case(r, false);
-    total = n = 0; // function 2's from HELLO alone
+    total = n = ltotal = ln = 0; // function 2's from HELLO alone
     r.go("hello.com");
     r.watch = nullptr;
     check_console(o, false);
@@ -2608,11 +2612,16 @@ TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_seria
     for (unsigned row = 0; row < 30; ++row)
         echoed = echoed || r.row(row) == "ECHO";
     CHECK(echoed);
-    REQUIRE(n > 0);
-    REQUIRE(sn > 0);
-    std::printf("  function 2, BDOSENT to its return: %llu cycles a character (%llu of them); 11 with no key: %llu\n",
-                static_cast<unsigned long long>(total / n), static_cast<unsigned long long>(n),
-                static_cast<unsigned long long>(stotal / sn));
+    if (n && ln)
+        std::printf("  function 2, BDOSENT to its return: %llu cycles a character (%llu of them), the look at the console %llu of them\n",
+                    static_cast<unsigned long long>(total / n), static_cast<unsigned long long>(n),
+                    static_cast<unsigned long long>(ltotal / ln));
+    if (sn)
+        std::printf("  function 11 with no key, BDOSENT to its return: %llu cycles\n",
+                    static_cast<unsigned long long>(stotal / sn));
+    CHECK(n > 0);
+    CHECK(ln > 0);
+    CHECK(sn > 0);
 }
 
 TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_usb_keyboard)
