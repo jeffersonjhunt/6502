@@ -2118,9 +2118,9 @@ TEST(a_ctrl_c_at_the_prompt_resets_the_disk_system)
 
 TEST(a_ctrl_c_at_the_prompt_with_nothing_wrong_gives_a_fresh_prompt)
 {
-    // ^C as the prompt's first key: 13 with nothing to say, the drive that was current selected
-    // again, a fresh prompt. ^C after a character does nothing, and ^C in a program's own line
-    // input is the warm boot, as it was: no 13.
+    // ^C as the prompt's first key: 13 with nothing to say, the CCP's drive current again, a
+    // fresh prompt. ^C after a character is a character of the line (3b2, the Guide), and ^C in
+    // a program's own line input is the warm boot, as it was: no 13.
     Booted r;
     REQUIRE(r.ok);
     unsigned resets = 0, warms = 0;

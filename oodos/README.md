@@ -97,18 +97,18 @@ And phase 1's tooling:
 
 ## The system: OODOS.SYS ##
 
-Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3a's BDOS
+Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3a's BDOS and 3b2's system extras
 ([hw/oodos.md](../hw/oodos.md#the-bdos-phase-3)), in [`sys/`](sys/):
 
 | File | What |
 |---|---|
 | `common.s` | common memory, `$F800–$FFFF` in block 62: the BIOS's jump table, the BDOS stub, the warm boot, FARCALL, IRQ, Break and BRK, the vectors |
-| `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdos.inc` | the BDOS, block 60: the entry, the console and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps |
+| `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdossys.s`, `bdos.inc` | the BDOS, block 60: the entry and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps; the system extras (phase 3b2: the console set and function 10's line editing, the SCB, chain, the return code, the serial number, parse filename) |
 | `bios.s`, `crt.s` | the BIOS, block 61: drives, M:, TIME, MOVE, the devices; the text screen's VT52 subset |
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), SYSTEST (phase 3b2's functions against the Guide), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com

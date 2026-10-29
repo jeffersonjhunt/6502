@@ -709,10 +709,12 @@ against, compared with what the BDOS does on the emulator.
   boot doesn't), 2026-10-28 from the review: the prompt's first key, which is function 10's warm boot, as anywhere.
   The CCP marks the prompt's line read (`ATPROMPT`, set only while its function 10 runs), and the warm boot that
   finds it marked runs 13 in error mode `$FE` instead of the rescan, 48 and 98, which ran before that prompt; then
-  the drive that was current is selected again and the prompt comes back. 13 writes what it can, drops what it
+  the drive that was current is selected again (from 3b2, the CCP's own drive, made current through the SCB) and
+  the prompt comes back. 13 writes what it can, drops what it
   can't (a kept buffer of a bad sector too) and says the first failure (`OODOS Error On B: Disk I/O`, `BDOS
   Function = 13`), and makes every drive read-write. Both keyboards and the serial line give ^C as `$03`. A ^C
-  after a character, or in a program's own line input, does as before; Break is the monitor's, as before.
+  in a program's own line input is the warm boot, as before (from 3b2, a ^C after the line's first key is a
+  character of the line, as the Guide says); Break is the monitor's, as before.
 - **Function 50** forgets which drive the BIOS has selected, so the BDOS selects its own again before its next
   sector: a program's SELDSK can't send the BDOS's reads to another drive.
 - **UNITS** (SELDSK's first select) resets a card it finds busy, as READ and WRITE do, so a login after a stuck card
@@ -767,7 +769,10 @@ tests.
   own, which 1.7 calls the CCP's and the prompt shows: a program's 14 or 32 changes the BDOS's, and the warm boot
   puts the CCP's back (2.3.5: "the CCP's user number is restored"). Until 3b2 the stand-in CCP took whatever a
   program left; now it starts with A:, user 0, and only function 47 changes them (phase 4's CCP has `B:` and
-  `USER`).
+  `USER`). There is no copy of them in the base page (CP/M 2's byte at `0004`): OODOS's base page has the BDOS's
+  `JMP` where CP/M's 0003–0004 are.
+- **The page length and page mode** (1C, 2C) are set and kept for the CCP and the utilities (phase 4); the BDOS
+  doesn't use them, as CP/M 3's doesn't.
 - **The console mode (109),** CP/M 3's bits: 0, function 11 reports only ^C; 1, no ^S, ^Q or ^P handling in
   functions 1, 2, 9, 11 and 111; 2, raw output (no tab expansion, no printer echo) for 2, 9 and 111; 3, no ^C
   ending a program. Bits 8 and 9 (for a redirecting RSX) and the rest are kept and not looked at. 109 with
@@ -1361,6 +1366,47 @@ copyright and MIT notice.
 - **Each check can fail:** seen to fail with DRIVER.COM's pattern step wrong, the model's EXM from 1 KB
   blocks, no update stamp, CR advanced by a random write, user 0's files opened without SYS, the comparison
   skipping records or RC, and (cpmtools) block numbers high byte first and an update stamp a minute out.
+
+**Done (phase 3b2: the system extras, 2026-10-28)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **SYSTEST** ([`oodos/sys/test/systest.s`](../oodos/sys/test/systest.s)), a case by the tail's first letter, run by
+  `test_oodos_sys`, which types at its questions:
+  - **the SCB (49):** each field cold boot sets read at its offset (the version, the DMA address, the width and
+    page length, ^H and rub/del, the delimiter, the multi-sector count, the search chain, the flags, the common
+    base); past `$63` (`$64`, `$FF`) nothing and 0, a word set at `$63` only that byte (`$0264` never written),
+    a reserved operation a get, the user flags; and each set's effect: the error mode set by 49 returning an
+    open's Invalid Drive (with the error drive, `0F`), 45's mode read back, 26's DMA address read back, a search's
+    record landing at an address 49 set, the drive and user (25 and 32 see them), the console mode (109 sees it),
+    the delimiter (9 stops at it), AUXIN on nothing and on LPT (^Z), the date as 105 gives it, the column, the
+    version byte changed with 12 still `$0031`. And what a program leaves (the delimiter `#`, mode 8, count 7)
+    the CCP has put back for the next.
+  - **the console,** from the serial line and, in a second run, the USB keyboard: 109 and 110 read and set, 9
+    stopping at 110's delimiter, 111 with a tab expanded, raw (mode bit 2), and empty, 5 and 112 with LST: put on
+    the serial line by 49 (as they are) and printer echo (each character twice there, once on the screen, none in
+    raw mode), 4 on AUX:, 7 and 8, 3 reading AUX:, a key kept by 2's look and then seen by 11 and 6 and read by
+    1, ^S stopping output (nothing more until a key; a BEL for x; ^Q goes on), ^S ^P ^Q turning printer echo on
+    (a BEL) and off, ^Q and ^P alone dropped by 1, ^S read by 1 in mode bit 1, 11 in mode bit 0 dropping a and b
+    and taking ^C, 11 dropping ^Q and keeping w, ^S ^C a BEL in mode bit 3; ^S ^C ending a program, and function
+    10's ^C as the first key, with the return code `$FFFE`.
+  - **function 10,** from both: 31 lines, each its count and bytes, and on the serial line what the screen got:
+    ^A, ^B both ways, ^G, ^K, ^X, BS in the middle, ^F, other control characters as `^X`, ^C after the first key,
+    ^W both ways, ^U then ^W, ^E, ^R, ^P (a BEL), DEL as BS, a full buffer (a BEL each), DEL at the start, a
+    buffer of 3 and of 0, the DMA buffer's string (typed on, a CR in it, a ^A in it), rub/del's echo (SCB 2F 0)
+    and ^H as rub/del (2E `$FF`), a width of 9 (a new row; ^B back over a row's start typing the line again), ^C a
+    character in mode bit 3.
+  - **152:** 33 strings, each the result and the FCB's bytes 0–25 (24 and 25 untouched): drives (`b:`, `p:`, `m:`,
+    `q:`, `1:`, `@:`, `5a:`), `*` in the name and type and after it, too long name, type and password, control
+    characters, DEL and `$80`, every delimiter case (`=`, `,`, `|`, `.` after the type, `:` third, a tab, blanks
+    then a word), CR and NUL, blanks only, empty, an empty name, a password with `*`, 140 blanks (the 128 read).
+  - **107** (`4F4F44000001`), **47** (a program's M: not outlasting it; chain with 0, the CCP's A: and user 0 kept;
+    a command of 127 shown and run as 126; with `$FF`, M: and user 5 the CCP's from then on, HELLO still loaded
+    from user 0), **108** (set and read; kept across the warm boot; 0 for a program the CCP starts, the code as it
+    was for a chained one; `$FFFD` for the default error mode's end).
+- **Tests changed** because the Guide changes what they asserted: function 10's ^A is the cursor left (was
+  ignored), other control characters are the line's (were ignored), a ^C after a character is a character
+  (was ignored), a dropped key is a BEL; LINETEST's DMA buffer gets a 0 at +2 (with A/X 0 the buffer's string is
+  typed first); the ^C-at-the-prompt test sets the CCP's drive (was the SCB's current drive); the CCP's user
+  test has a program's user end with it, and 47's `$FF` give it to the CCP (a program's 32 lasted before).
 
 **Proposed (phase 3a: the model's choices,** where the manual leaves a behaviour open; `cpm3model.py`'s
 header has the full list):
