@@ -30,7 +30,7 @@
 ; file's block is kept for the next 48 to try again. After that the CCP's
 ; own calls return their errors (error mode $FF): an error loading is READ
 ; ERROR. A program starts in the default error mode, with the DMA address
-; $0280.
+; $0280 and a multi-sector count of 1 (set at each warm boot, function 44).
 ;
 ; A ^C typed at the prompt, as the line's first key, is function 10's warm
 ; boot too, but the CCP resets the disk system for it (the Programmer's
@@ -85,6 +85,9 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BPL     @jmps
                 LDX     #$FF
                 TXS
+                LDA     #1             ; a multi-sector count of 1, for its loads and
+                LDY     #F_MULTISEC    ; each program (the Guide, 44)
+                JSR     BDOS
                 LDA     #$FE           ; a write-back that fails is said, and the
                 LDY     #F_ERRMODE     ; warm boot goes on
                 JSR     BDOS

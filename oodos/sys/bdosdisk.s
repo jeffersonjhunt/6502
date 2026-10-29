@@ -1105,11 +1105,19 @@ MAKEENT:        STA     MKU
                 CPY     #ENTRY_LEN
                 BNE     @zero
                 JSR     DIRPUT
-                LDA     DIDX           ; past the high-water mark: it moves
+                JSR     HWMUP
+                JSR     INITSTAMP
+                JSR     DIRENT
+                CLC
+                RTS
+
+; Entry DIDX now used: past the high-water mark, the mark moves (and CD is
+; saved). Keeps DIDX, DPTR and T0-T5.
+HWMUP:          LDA     DIDX
                 CMP     HWM
                 LDA     DIDX + 1
                 SBC     HWM + 1
-                BCC     @stamps
+                BCC     @done
                 CLC
                 LDA     DIDX
                 ADC     #1
@@ -1117,11 +1125,8 @@ MAKEENT:        STA     MKU
                 LDA     DIDX + 1
                 ADC     #0
                 STA     HWM + 1
-                JSR     SAVECD
-@stamps:        JSR     INITSTAMP
-                JSR     DIRENT
-                CLC
-                RTS
+                JMP     SAVECD
+@done:          RTS
 
 ; The 128-byte directory record holding the entry at DPTR, to the DMA
 ; address (17, 18).
