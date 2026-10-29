@@ -1,6 +1,6 @@
 """Reads an OODOS drive's SFCB date stamps, for interop.sh: on its own, not trusting fsck.cpm's check.
 
-    python3 -I sfcb.py IMAGE ENTRIES check ALLOWED   # every file entry's stamps, in order
+    python3 -I sfcb.py IMAGE ENTRIES check ALLOWED [any]  # every file entry's stamps, in order
     python3 -I sfcb.py IMAGE ENTRIES slots U NAME.EXT  # each entry of U:NAME.EXT: its slot's 8 stamp bytes
     python3 -I sfcb.py stamp 2026-10-26 15:30         # a stamp's 4 bytes, as hex
 
@@ -10,10 +10,13 @@ then update, each 2 bytes of days (1 January 1978 is day 1), then hour and minut
 
 CP/M 3 keeps a file's stamps in its extent-zero entry's slot only (the entry of its lowest extent here);
 OODOS's BDOS leaves a later extent's slot 0, cpmtools stamps it as the first. check fails if a file's
-first entry has no SFCB, or an entry's update is before its creation (a later extent's slot may be
-all 0). fsck.cpm 2.23 compares an SFCB's first slot backwards, so it warns when the update is on a
-later day than the creation; check writes that warning, for exactly those entries, to ALLOWED, the
-lines fsck_clean lets through.
+first entry has no SFCB, or, when the label asks for creation and update stamps and not access ones,
+an entry's update is before its creation (a later extent's slot may be all 0). A label that asked for
+other stamps (phase 3b1's 100) may have left a field 0, or an access after the update, which isn't out
+of order: "any" (the label was set while the files were written) checks no order. fsck.cpm 2.23 warns "Modification date earlier than creation date" when the label asks for
+creation stamps and its sums say so, and it sums an SFCB's first slot's bytes crosswise (so it warns
+when the update is on a later day than the creation); check works out exactly what it will warn, by
+its sums, and writes those lines to ALLOWED, the lines fsck_clean lets through.
 """
 
 import datetime
@@ -44,6 +47,17 @@ def slot(dir, i):
     return sfcb[1 + (i & 3) * 10:1 + (i & 3) * 10 + 8]
 
 
+def fsck_sums(sfcb, k):
+    """fsck.cpm 2.23's creation and modification of an SFCB's slot k, as it sums them (slot 0 crosswise)."""
+    b = sfcb[1:]
+    h = 0x60                                                 # its hours and minutes, BCD, by 0x60
+    if k == 0:
+        return ((b[4] + (b[1] << 8)) * h * h + b[2] * h + b[3], (b[0] + (b[5] << 8)) * h * h + b[6] * h + b[7])
+    o = 10 * k
+    return ((b[o] + (b[o + 1] << 8)) * h * h + b[o + 2] * h + b[o + 3],
+            (b[o + 4] + (b[o + 5] << 8)) * h * h + b[o + 6] * h + b[o + 7])
+
+
 def main():
     a = sys.argv[1:]
     if a[0] == "stamp":
@@ -54,6 +68,9 @@ def main():
     files = [i for i in range(n) if dir[i][0] <= 15]
     if cmd == "check":
         allowed, bad, zero = [], 0, 0
+        label = next((e[12] for e in dir if e[0] == 0x20), None)
+        ordered = label is not None and label & 0x70 == 0x30 and a[4:] != ["any"]  # creation, update
+        cnotatime = label is None or label & 0x10                 # fsck.cpm's: creation stamps
         first = {}
         for i in files:
             key, ext = dir[i][:12], (dir[i][14] & 0x3F) << 5 | dir[i][12] & 0x1F
@@ -71,15 +88,17 @@ def main():
                 zero += 1
                 continue
             made, updated = s[:4], s[4:]
-            if when(updated) < when(made):
+            if ordered and when(updated) < when(made):
                 print("entry %d: updated %s before it was made %s" % (i, updated.hex(), made.hex()))
                 bad += 1
-            if i & 3 == 0 and when(updated)[0] > when(made)[0]:
+            created, modified = fsck_sums(dir[i | 3], i & 3)
+            if cnotatime and modified < created:
                 allowed.append("Warning: Modification date earlier than creation date (extent=%d/%d)" % (i | 3, i))
         with open(a[3], "w") as f:
             f.write("".join(l + "\n" for l in allowed))
-        print("%d file entries, their stamps in order (%d later extents' slots 0); %d first-slot entries a day "
-              "or more apart" % (len(files), zero, len(allowed)))
+        print("%d file entries, their stamps %s (%d later extents' slots 0); fsck.cpm's sums warn of %d" % (
+            len(files), "in order" if ordered else "as the label's 0x%02X has them" % (label or 0), zero,
+            len(allowed)))
         return 1 if bad else 0
     if cmd == "slots":
         user, name = int(a[3]), a[4].split(".")

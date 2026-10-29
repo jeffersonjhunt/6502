@@ -20,7 +20,12 @@
     python3 -I modeltest.py files --image IMG --format F --out DIR
         each file on a drive image to DIR/USER/NAME.EXT (a hole as zeros; its last record cut to the byte
         count, S1, if its last entry has one and records, as cpmcp does), and a line for each: the user,
-        the name, the type, its first entry's update and create stamps as cpmls -F shows them
+        the name, the type, its first entry's update and create stamps as cpmls -F shows them, and its
+        password mode as cpmls -F's Prot (None, Read, Write, Delete: the slot's byte 8, the XFCB's mode)
+    python3 -I modeltest.py label --image IMG --format F
+        fsck.cpm's line for a label asking for both creation and access stamps (cpmtools 2.23 calls that an
+        error; the Guide has them share the field, and OODOS's BDOS takes it), for model_cpmtools.sh to let
+        through; and on stderr what fsck.cpm checks of the drive's passwords: its XFCBs and the label's
     python3 -I modeltest.py mkfs --format F -o IMG
         an empty drive, as mkfs.cpm -t at 2026-10-27 12:00 with the label's mode set to 0x31
     python3 -I modeltest.py sparse --image IMG --format F
@@ -270,8 +275,9 @@ def cmd_files(o):
             data = data[:len(data) - 128 + count]
         write(os.path.join(o.out, str(user), n + ("." + t if t else "")), data)
         sl = dv.slot(first)
-        st = dv.img[sl:sl + 8] if sl is not None else bytes(8)
-        print("%d %s %s %s %s" % (user, n, t or "-", cpmls_stamp(st[4:8]), cpmls_stamp(st[:4])))
+        st = dv.img[sl:sl + 9] if sl is not None else bytes(9)
+        prot = "Read" if st[8] & 0x80 else "Write" if st[8] & 0x40 else "Delete" if st[8] & 0x20 else "None"
+        print("%d %s %s %s %s %s" % (user, n, t or "-", cpmls_stamp(st[4:8]), cpmls_stamp(st[:4]), prot))
 
 
 def sparse(dv):
@@ -307,6 +313,19 @@ def cmd_sparse(o):
     return 1 if errors else 0
 
 
+def cmd_label(o):
+    dv = M.Drive(o.format, read(o.image))
+    xfcbs = sum(1 for i in dv.entries() if 16 <= dv.entry(i)[0] < 32 and dv.entry(i)[12] & M.XFCB_MODES)
+    for i in dv.entries():
+        e = dv.entry(i)
+        if e[0] == M.LABEL:
+            if e[12] & M.MODE_ACCESS and e[12] & M.MODE_CREATE:
+                print("Error: Bit 4 and 6 can only be exclusively be set (extent=%d, label byte=0x%02x)" % (i, e[12]))
+            print("modeltest.py label: the label's byte 0x%02X%s, %d XFCBs with a mode" % (
+                e[12], ", its password" if e[12] & M.MODE_PASSWORD else "", xfcbs), file=sys.stderr)
+            break
+
+
 def cmd_mkfs(o):
     write(o.o, M.mkfs(M.FORMATS[o.format], START))
 
@@ -336,6 +355,9 @@ def main():
     q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
     q.add_argument("--out", required=True)
     q = sub.add_parser("sparse")
+    q.add_argument("--image", required=True)
+    q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
+    q = sub.add_parser("label")
     q.add_argument("--image", required=True)
     q.add_argument("--format", required=True, choices=sorted(M.FORMATS))
     sub.add_parser("seeds")
