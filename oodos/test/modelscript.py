@@ -20,8 +20,11 @@ the slot's EX, CR, R0, R1, R2 after the call):
     01 FCB   slot, bytes 0-15, CR, R0, R1, R2: set an FCB, bytes 16-31 zero      -> op
     02 NAME2 slot, bytes 16-31 (rename's new name)                              -> op
     03 RAND  slot, R0, R1, R2                                                   -> op
-    10 FCALL fn, slot: the function with A/X = the FCB (15-17, 19, 22, 23, 30, 35, 36, 99)
-                                                    -> op A X FCB, and for 17 with A < 4 the 32-byte entry
+    04 DMA16 16 bytes into the DMA buffer's first 16 (a password, a new one, a mode) -> op
+    05 PASSWD 8 bytes: function 106 with them        -> op A X
+    10 FCALL fn, slot: the function with A/X = the FCB (15-17, 19, 22, 23, 30, 35, 36, 99, 100, 102, 103)
+                                                    -> op A X FCB, and for 17 with A < 4 the 32-byte entry,
+                                                       for 102 the FCB's bytes 24-31
     11 NEXT  function 18                            -> op A X, and with A < 4 the entry
     12 READ  fn (20, 33), slot: the DMA buffer filled with $5A first, then the call
                                                     -> op A X FCB S1 S2 (the record's checksum)
@@ -33,6 +36,9 @@ the slot's EX, CR, R0, R1, R2 after the call):
                                                        T1 T2 (bytes 16-31)
     17 MAKEN slot, n (2): n times, FCB bytes 6-8 the number in three digits, bytes 12-35 zero, 22 then
              16, to the first make that fails       -> op A X made (2): A and X the last make's
+    18 MULTI fn (20, 21, 33, 34, 40), slot, n (1-32), tag (2): 44 = n, the DMA address the multi-sector
+             buffer (n records: $5A for a read, record k the pattern of tag + k for a write), the call, the
+             DMA address the driver's own and 44 = 1 again -> op A X FCB S1 S2 (the n records' checksum)
     20 CALL  fn, A, X: any other function           -> op A X
     21 FREE  drive: function 46                      -> op A X and the DMA buffer's first 3 bytes
     22 DPB   function 31: the 17 bytes at the address it returns -> op A X DPB
@@ -44,7 +50,7 @@ The pattern of tag t: byte i is ((t & $FF) + i * ((t >> 8) | 1)) XOR i. A checks
 DRIVER.COM first sets error mode $FF (45), resets (13), sets its DMA, user 0, and reads A:SCRIPT.BIN a
 record at a time (26 to each, 20) to its end or 16 KB, and closes it. After the operations it does 48, 13,
 user 0, deletes and makes A:RESULT.BIN, writes the results (26 to each record, 21), closes it and prints
-"DRIVER OK". RESULT.BIN: "OOMR", version 1, a status (0 run, 1 no or bad script, 2 results full), the
+"DRIVER OK". RESULT.BIN (DRIVER.COM sets 44 to 1 first): "OOMR", version 1, a status (0 run, 1 no or bad script, 2 results full), the
 operations run (2), the results' length (2), 6 reserved, then the results, zeros to the record's end.
 """
 
@@ -59,16 +65,19 @@ RESULT_MAX = 24576
 NSLOTS = 8
 FILL = 0x5A
 
-OP_FCB, OP_NAME2, OP_RAND = 0x01, 0x02, 0x03
-OP_FCALL, OP_NEXT, OP_READ, OP_WRITE, OP_WRITEN, OP_READN, OP_SALL, OP_MAKEN = range(0x10, 0x18)
+OP_FCB, OP_NAME2, OP_RAND, OP_DMA16, OP_PASSWD = 0x01, 0x02, 0x03, 0x04, 0x05
+OP_FCALL, OP_NEXT, OP_READ, OP_WRITE, OP_WRITEN, OP_READN, OP_SALL, OP_MAKEN, OP_MULTI = range(0x10, 0x19)
 OP_CALL, OP_FREE, OP_DPB, OP_TIME = 0x20, 0x21, 0x22, 0x23
+MBUF, MBUF_RECS = 0xC000, 32           # DRIVER.COM's multi-sector buffer (the model's address)
 
-ARGS = {OP_FCB: 21, OP_NAME2: 17, OP_RAND: 4, OP_FCALL: 2, OP_NEXT: 0, OP_READ: 2, OP_WRITE: 4,
-        OP_WRITEN: 5, OP_READN: 3, OP_SALL: 1, OP_MAKEN: 3, OP_CALL: 3, OP_FREE: 1, OP_DPB: 0, OP_TIME: 4}
-NAMES = {OP_FCB: "FCB", OP_NAME2: "NAME2", OP_RAND: "RAND", OP_FCALL: "FCALL", OP_NEXT: "NEXT",
-         OP_READ: "READ", OP_WRITE: "WRITE", OP_WRITEN: "WRITEN", OP_READN: "READN", OP_SALL: "SALL",
-         OP_MAKEN: "MAKEN", OP_CALL: "CALL", OP_FREE: "FREE", OP_DPB: "DPB", OP_TIME: "TIME"}
-FCALLS = (15, 16, 17, 19, 22, 23, 30, 35, 36, 99)
+ARGS = {OP_FCB: 21, OP_NAME2: 17, OP_RAND: 4, OP_DMA16: 16, OP_PASSWD: 8, OP_FCALL: 2, OP_NEXT: 0,
+        OP_READ: 2, OP_WRITE: 4, OP_WRITEN: 5, OP_READN: 3, OP_SALL: 1, OP_MAKEN: 3, OP_MULTI: 5, OP_CALL: 3,
+        OP_FREE: 1, OP_DPB: 0, OP_TIME: 4}
+NAMES = {OP_FCB: "FCB", OP_NAME2: "NAME2", OP_RAND: "RAND", OP_DMA16: "DMA16", OP_PASSWD: "PASSWD",
+         OP_FCALL: "FCALL", OP_NEXT: "NEXT", OP_READ: "READ", OP_WRITE: "WRITE", OP_WRITEN: "WRITEN",
+         OP_READN: "READN", OP_SALL: "SALL", OP_MAKEN: "MAKEN", OP_MULTI: "MULTI", OP_CALL: "CALL",
+         OP_FREE: "FREE", OP_DPB: "DPB", OP_TIME: "TIME"}
+FCALLS = (15, 16, 17, 19, 22, 23, 30, 35, 36, 99, 100, 102, 103)
 
 
 def pattern(tag):
@@ -135,6 +144,12 @@ def describe(op, args):
         return "%s slot %d n %d" % (n, args[0], args[1] | args[2] << 8)
     if op == OP_CALL:
         return "CALL %d A=$%02X X=$%02X" % tuple(args)
+    if op == OP_MULTI:
+        return "MULTI %d slot %d n %d tag $%04X" % (args[0], args[1], args[2], args[3] | args[4] << 8)
+    if op == OP_DMA16:
+        return "DMA16 %r %r" % (bytes(args[:8]), bytes(args[8:]))
+    if op == OP_PASSWD:
+        return "PASSWD %r" % bytes(args)
     if op == OP_TIME:
         return "TIME day %d %02X:%02X" % (args[0] | args[1] << 8, args[2], args[3])
     return "%s %s" % (n, args.hex())
@@ -165,11 +180,13 @@ class Rec:
 
 def result_size(op, args, a=None):
     """What DRIVER.COM appends for this operation; for FCALL 17 and NEXT, A decides."""
-    base = {OP_FCB: 1, OP_NAME2: 1, OP_RAND: 1, OP_FCALL: 8, OP_NEXT: 3, OP_READ: 10, OP_WRITE: 8,
-            OP_WRITEN: 10, OP_READN: 12, OP_SALL: 9, OP_MAKEN: 5, OP_CALL: 3, OP_FREE: 6, OP_DPB: 20,
-            OP_TIME: 3}[op]
+    base = {OP_FCB: 1, OP_NAME2: 1, OP_RAND: 1, OP_DMA16: 1, OP_PASSWD: 3, OP_FCALL: 8, OP_NEXT: 3,
+            OP_READ: 10, OP_WRITE: 8, OP_WRITEN: 10, OP_READN: 12, OP_SALL: 9, OP_MAKEN: 5, OP_MULTI: 10,
+            OP_CALL: 3, OP_FREE: 6, OP_DPB: 20, OP_TIME: 3}[op]
     if (op == OP_NEXT or op == OP_FCALL and args[0] == 17) and (a is None or a < 4):
         base += 32
+    if op == OP_FCALL and args[0] == 102:
+        base += 8
     return base
 
 
@@ -196,7 +213,7 @@ def split_results(script, data):
 class Driver:
     """DRIVER.COM's steps, on the model: the same BDOS calls in the same order. Its predictions are Recs."""
 
-    FCB0, DMA, DAT, SCRIPT, RESULT, IOFCB = 0x1000, 0x0F00, 0x0EF0, 0x2000, 0x6000, 0x0E00
+    FCB0, DMA, DAT, SCRIPT, RESULT, IOFCB, PWBUF = 0x1000, 0x0F00, 0x0EF0, 0x2000, 0x6000, 0x0E00, 0x0EE0
 
     def __init__(self, bdos, mem=None):
         self.b = bdos
@@ -245,6 +262,7 @@ class Driver:
         data = RMAGIC + bytes([VERSION, status]) + struct.pack("<HH", ran, len(body)) + bytes(6) + body
         data += bytes(-len(data) % 128)
         self.mem.write(self.RESULT, data)
+        self.call(44, 1)
         self.call(48, 0)
         self.call(13)
         self.call(32, 0)
@@ -298,6 +316,12 @@ class Driver:
             mem.write(self.slot(args[0]) + 16, args[1:17])
         elif op == OP_RAND:
             mem.write(self.slot(args[0]) + 33, args[1:4])
+        elif op == OP_DMA16:
+            mem.write(self.DMA, args[:16])
+        elif op == OP_PASSWD:
+            mem.write(self.PWBUF, args[:8])
+            a, x = self.addr_call(106, self.PWBUF)
+            self.ax(rec, a, x)
         elif op == OP_FCALL:
             fn, k = args
             a, x = self.addr_call(fn, self.slot(k))
@@ -305,6 +329,24 @@ class Driver:
             self.fcb5(rec, k)
             if fn == 17 and a < 4:
                 rec.add("entry", mem.read(self.DMA + 32 * a, 32), 32)
+            if fn == 102:
+                rec.add("stamps", mem.read(self.slot(k) + 24, 8), 8)
+        elif op == OP_MULTI:
+            fn, k, n, tag = args[0], args[1], args[2], args[3] | args[4] << 8
+            for j in range(n):
+                mem.write(MBUF + 128 * j, bytes([FILL]) * 128 if fn in (20, 33) else pattern((tag + j) & 0xFFFF))
+            self.call(44, n)
+            self.addr_call(26, MBUF)
+            try:
+                a, x = self.addr_call(fn, self.slot(k))
+                undefined = self.b.undefined
+                loose = self.b.loose
+            finally:
+                self.addr_call(26, self.DMA)
+                self.call(44, 1)
+            self.ax(rec, a, x, loose)
+            self.fcb5(rec, k)
+            rec.add("sum", bytes(fletcher(mem.read(MBUF, 128 * n))), 2, "any" if undefined else "eq")
         elif op == OP_NEXT:
             a, x = self.call(18)
             self.ax(rec, a, x)
@@ -426,6 +468,14 @@ class Driver:
 NAMES_POOL = ["DATA.BIN", "LOG.TXT", "A", "B.C", "FILE1.TMP", "FILE2.TMP", "BIG.DAT", "X.Y", "SPARSE.DAT",
               "ZZZZZZZZ.ZZZ", "Q1", "Q2.$$$"]
 USERS = [0, 0, 0, 1, 3, 15]
+# Phase 3b1's choices, from their own stream (Generator.xtra)
+XTRA_P = 0.12                          # a step's chance of being one of them
+PASSWORDS = [b"SECRET  ", b"LABELPW ", b"QPASS   ", b"        ", b"PW1     ", b"ZZZZZZZZ", bytes(8)]
+LABEL_NAMES = [b"UNLABELED  ", b"MYDISK  LBL", b"OODOS      ", b"TEST    DSK"]
+LABEL_MODES = [0xB1, 0xB0, 0xB1, 0xB0, 0x31, 0x30, 0xF1, 0x71, 0x81, 0x80, 0x01, 0x11, 0x21, 0x41, 0x61,
+               0xD1, 0x90, 0x00, 0xA1]
+XFCB_MODES = [0x80, 0x40, 0x20, 0x81, 0x41, 0x21, 0x01, 0x00, 0xE1, 0xC0]
+COUNTS = [1, 2, 3, 4, 7, 8, 15, 16, 17, 31, 32]
 PROFILES = ("mixed", "mixed", "sparse", "users", "dirfill", "diskfill")
 INVALID_DRIVE = 7                      # H:: never a drive on the OO-1
 
@@ -443,6 +493,9 @@ class Generator:
         # The rarer choices, from their own stream so rng's draws stay as they were; a seed's script is
         # still another from its first rare choice on (and what it then meets with it).
         self.rare = random.Random(seed + 0x10000)
+        # Phase 3b1's operations (labels, XFCBs, passwords, the multi-sector count), from a third, so a
+        # seed's script is as phase 3a's up to the first of them (and what it meets of them after).
+        self.xtra = random.Random(seed + 0x20000)
         self.seed, self.fmt, self.drive = seed, M.FORMATS[fmt], drive
         self.profile = profile or self.rng.choice(PROFILES)
         if self.profile == "diskfill" and self.fmt.size > 1 << 20:
@@ -575,6 +628,13 @@ class Generator:
 
     # --- the steps ---
     def step(self):
+        if self.xtra.random() < XTRA_P:
+            kinds = {"label": 2, "getlabel": 1, "xfcb": 3, "stamps": 2, "defpw": 1, "pwop": 6, "multi": 7,
+                     "count": 1}
+            kind = self.xtra.choices(list(kinds), weights=list(kinds.values()))[0]
+            getattr(self, "x_" + kind)()
+            self.since_time += 1
+            return
         rng = self.rng
         p = self.profile
         w = {"open": 8, "make": 8, "close": 6, "write": 14, "read": 10, "rand": 12, "size": 4, "setrand": 3,
@@ -621,6 +681,8 @@ class Generator:
             name = bytearray(name)
             for i in self.rare.sample(range(11), self.rare.randint(1, 4)):
                 name[i] |= 0x80
+            if self.passwords_on():
+                name[5] &= 0x7F                         # f6' would make an XFCB of the DMA's bytes
             name = bytes(name)
         ex = self.rare.choice([1, 2, 3, 8]) if self.rare.random() < 0.06 else 0   # File Exists: any extent
         self.set_fcb(k, name, ex=ex, s2=self.s2())
@@ -817,9 +879,139 @@ class Generator:
         if not dv.logged:
             return self.emit(OP_FREE, [self.drive])
         n = max(1, len(dv.free_blocks()) * self.fmt.rpb + self.rng.randint(-3, 3))
+        s = self.bdos.fcbs[self.drv.slot(k)]
+        n = max(1, min(n, M.MAX_EXT * 128 + 127 - (s.ext * 128 + s.cr)))   # not past the largest file
         self.time(force=True)
         self.emit(OP_WRITEN, [k, n & 0xFF, n >> 8 & 0xFF, self.tag & 0xFF, self.tag >> 8])
         self.tag = (self.tag + n) & 0xFFFF
+
+    # --- phase 3b1's: labels, XFCBs, passwords, the multi-sector count (self.xtra's choices only) ---
+    def dv(self):
+        return self.bdos.drives[self.drive]
+
+    def passwords_on(self):
+        return bool(self.dv().mode & M.MODE_PASSWORD)
+
+    def x_name(self, existing=0.85):
+        dv = self.dv()
+        if dv.logged and self.xtra.random() < existing:
+            names = sorted({bytes(c & 0x7F for c in dv.entry(i)[1:12]) for i in dv.entries()
+                            if dv.entry(i)[0] in (self.user(), self.user() + 16)})
+            if names:
+                return self.xtra.choice(names)
+        return M.fcb_name(self.xtra.choice(NAMES_POOL))
+
+    def x_pw(self, right, p=0.7):
+        """A password to give: the right one (if it has one) with p, else one of PASSWORDS."""
+        return right if right is not None and self.xtra.random() < p else self.xtra.choice(PASSWORDS)
+
+    def x_file_pw(self, name):
+        x = self.bdos.xfcb_of(self.dv(), self.user(), name)
+        return M.pw_decode(self.dv().entry(x)) if x is not None else None
+
+    def x_dma(self, first, second):
+        self.emit(OP_DMA16, list(first) + list(second))
+
+    def x_spare(self):
+        busy = set(self.open_slots(any_user=True))
+        free = [k for k in range(6) if k not in busy]
+        return self.xtra.choice(free) if free else self.xtra.randrange(6)
+
+    def x_label(self):
+        dv = self.dv()
+        i = self.bdos.label_of(dv)
+        right = M.pw_decode(dv.entry(i)) if i is not None else None
+        self.x_dma(self.x_pw(right, 0.8), self.xtra.choice(PASSWORDS))
+        self.set_fcb(6, self.xtra.choice(LABEL_NAMES), dr=self.drive + 1, ex=self.xtra.choice(LABEL_MODES))
+        self.emit(OP_FCALL, [100, 6])
+
+    def x_getlabel(self):
+        r = self.xtra.random()
+        self.emit(OP_CALL, [101, self.drive if r < 0.85 else INVALID_DRIVE if r < 0.93 else 0, 0])
+
+    def x_xfcb(self):
+        name = self.x_name()
+        self.x_dma(self.x_pw(self.x_file_pw(name)), self.xtra.choice(PASSWORDS))
+        self.set_fcb(6, name, dr=self.drive + 1, ex=self.xtra.choice(XFCB_MODES))
+        self.emit(OP_FCALL, [103, 6])
+
+    def x_stamps(self):
+        name = self.x_name()
+        if self.xtra.random() < 0.05:
+            name = name[:3] + b"?" + name[4:]
+        self.set_fcb(6, name, dr=self.drive + 1)
+        self.emit(OP_FCALL, [102, 6])
+
+    def x_defpw(self):
+        name = self.x_name()
+        self.emit(OP_PASSWD, list(self.x_pw(self.x_file_pw(name), 0.5)))
+
+    def x_pwop(self):
+        """A function that tests for a password (or make with f6'), the DMA buffer's password the right
+        one or another."""
+        x = self.xtra
+        name = self.x_name(0.9)
+        self.x_dma(self.x_pw(self.x_file_pw(name), 0.5), bytes([x.choice(XFCB_MODES) & 0xE0]) + bytes(7))
+        op = x.choice(["open", "open", "delete", "rename", "attr", "truncate", "make", "make"])
+        dr = self.drive + 1
+        if op == "open":
+            k = self.x_spare()
+            self.set_fcb(k, name, dr=dr)
+            self.emit(OP_FCALL, [15, k])
+        elif op == "make":
+            k = self.x_spare()
+            name = bytearray(name if x.random() < 0.2 else M.fcb_name(x.choice(NAMES_POOL)))
+            name[5] |= 0x80                              # f6': an XFCB too, with passwords on
+            self.x_dma(self.xtra.choice(PASSWORDS[:-1]), bytes([x.choice(XFCB_MODES) & 0xE0]) + bytes(7))
+            self.set_fcb(k, bytes(name), dr=dr)
+            self.emit(OP_FCALL, [22, k])
+        elif op == "delete":
+            name = bytearray(name)
+            if x.random() < 0.35:
+                name[4] |= 0x80                          # f5': the XFCBs only
+            self.set_fcb(6, bytes(name), dr=dr)
+            self.emit(OP_FCALL, [19, 6])
+        elif op == "rename":
+            self.set_fcb(6, name, dr=dr)
+            new = M.fcb_name(x.choice(NAMES_POOL))
+            self.emit(OP_NAME2, [6, dr] + list(new) + [0, 0, 0, 0])
+            self.emit(OP_FCALL, [23, 6])
+        elif op == "attr":
+            n = bytearray(name)
+            for i in (0, 8, 9):
+                if x.random() < 0.3:
+                    n[i] |= 0x80
+            self.set_fcb(6, bytes(n))
+            self.emit(OP_FCALL, [30, 6])
+        else:
+            size = self.dv().file_size(self.user(), name) if self.dv().logged else None
+            self.set_fcb(6, name, dr=dr, r=x.randrange(size + 1) if size else 0)
+            self.emit(OP_FCALL, [99, 6])
+
+    def x_multi(self):
+        x = self.xtra
+        ks = self.open_slots()
+        if not ks:
+            return
+        k = x.choice(ks)
+        fn = x.choice([20, 20, 21, 21, 33, 34, 40])
+        n = x.choice(COUNTS)
+        if fn in (33, 34, 40):
+            st = self.bdos.fcbs[self.drv.slot(k)]
+            size = self.dv().file_size(st.user, st.name) or 0
+            epe = (self.fmt.exm + 1) * 128
+            r = x.choice([size - 1, size, size + 1, size - n, size - n // 2, 0, 127 - n // 2, epe - n // 2,
+                          x.randrange(size + 64), 262143 - n // 2, 262144 - n])
+            r = max(0, r)
+            self.emit(OP_RAND, [k, r & 0xFF, r >> 8 & 0xFF, r >> 16 & 0xFF])
+        tag = x.randrange(65536)
+        self.emit(OP_MULTI, [fn, k, n, tag & 0xFF, tag >> 8])
+
+    def x_count(self):
+        v = self.xtra.choice([0, 129, 200, 255, 1, 2, 64, 128])
+        self.emit(OP_CALL, [44, v, 0])
+        if 1 < v <= 128:
+            self.emit(OP_CALL, [44, 1, 0])               # DRIVER.COM's buffers are a record
 
     def generate(self):
         self.emit(OP_CALL, [14, self.drive, 0])
@@ -857,13 +1049,15 @@ def generate(seed, fmt, drive, **kw):
 # still do: a change to the generator moves what a seed reaches). They were chosen before the rare
 # stream, so they aren't claimed to find the BDOS bugs the comparison found: RULETEST has a directed
 # test for each (test_oodos_sys).
-DEFAULT_SEEDS = (1, 4, 6, 10, 14, 24, 41, 45)
+DEFAULT_SEEDS = (1, 2, 4, 14, 24, 30, 34, 42)
 SEED_FORMATS = ("oodos-ram", "oodos-8m", "oodos-32m")
 EDGES = {
     "disk": "a write's 2: no block free (a full disk)",
     "dir-m": "MAKEN's $FF: a full directory, on M:",
     "dir-b": "MAKEN's $FF: a full directory, on B: (oodos-8m or oodos-32m)",
     "ro": "X 2: a read-only drive",
+    "pw": "X 7: Password Error, a label's or a protected file's",
+    "multi": "a multi-sector call stopped after some records: X the records done",
 }
 
 
@@ -891,6 +1085,10 @@ def edges(seed):
             got.add("dir-m" if drive == 12 else "dir-b")
         if f.get("A") == 0xFF and f.get("X") == 2:
             got.add("ro")
+        if f.get("A") == 0xFF and f.get("X") == 7:
+            got.add("pw")
+        if r.op == OP_MULTI and f["A"] not in (0, 0xFF) and f["X"]:
+            got.add("multi")
     return got
 
 
