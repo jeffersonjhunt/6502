@@ -15,10 +15,11 @@
 ;                WRITE through a buffer that crosses a window
 ;   $0A00-$0A0F  the way to the monitor (common.s: TRAMP), written there
 ;                each time
+;   $0B00-$0CFF  function 10's line and the previous line (bdossys.s)
 ;   $1000-$2FFF  the drives' allocation vectors (ALV), 1 KB a drive's slot
 ;                (bdosdisk.s), made at each login
 ;
-; Cold boot clears $0000-$0AFF.
+; Cold boot clears $0000-$0CFF.
 
 .include "backplane.inc"                ; first: system.inc defers to it
 .include "system.inc"
@@ -49,10 +50,17 @@ SCB             = $0200
 SECBUF          = $0800
 SECBUF_PHYS     = SYS_BLOCK * $4000 + SECBUF
 TRAMP           = $0A00
-SYS_CLEAR_END   = $0B00
+LINEBUF         = $0B00                ; function 10's line, 255 bytes
+PREVBUF         = $0C00                ; the previous line
+SYS_CLEAR_END   = $0D00
 
-; The SCB's fields that OODOS keeps (CP/M 3's offsets)
+; The SCB's fields (CP/M 3's offsets: the Programmer's Guide, Appendix A)
 SCB_VERSION     = SCB + $05            ; $31
+SCB_USERFLAGS   = SCB + $06            ; 4 bytes, the program's
+SCB_RETCODE     = SCB + $10            ; the program return code (108)
+SCB_CCPFLAGS    = SCB + $17            ; OODOS's, in a reserved byte: function 47's
+CCP_CHAIN       = $80                  ;   a command waits at $0280
+CCP_CHAINDU     = $40                  ;   with the program's drive and user
 SCB_WIDTH       = SCB + $1A            ; console width - 1
 SCB_COLUMN      = SCB + $1B            ; the console's column
 SCB_PAGELEN     = SCB + $1C
@@ -61,15 +69,30 @@ SCB_COVEC       = SCB + $24
 SCB_AIVEC       = SCB + $26
 SCB_AOVEC       = SCB + $28
 SCB_LOVEC       = SCB + $2A
+SCB_PAGEMODE    = SCB + $2C
+SCB_CTLH        = SCB + $2E            ; $FF: ^H is rub/del (echoes what it takes)
+SCB_RUBOUT      = SCB + $2F            ; $FF: rub/del is ^H (takes back, erased)
+SCB_CONMODE     = SCB + $33            ; the console mode (109), a word
+CM_CTLC         = $01                  ;   11 reports only ^C
+CM_NOSTOP       = $02                  ;   no ^S, ^Q, ^P handling
+CM_RAW          = $04                  ;   no tabs or printer echo for 2, 9, 111
+CM_NOCTLC       = $08                  ;   no ^C ending the program
 SCB_DELIM       = SCB + $37            ; function 9's end, '$'
+SCB_LISTFLAG    = SCB + $38            ; printer echo (^P): non-zero on
 SCB_DMA         = SCB + $3C            ; the program's DMA address
 SCB_DISK        = SCB + $3E            ; the current drive
 SCB_USER        = SCB + $44
+SCB_MULTI       = SCB + $4A            ; the multi-sector count (44), 1 by default
 SCB_ERRMODE     = SCB + $4B            ; function 45's: $FF return, $FE return and say, else default
+SCB_DRVCHAIN    = SCB + $4C            ; the drive search chain, 4 bytes, $FF ends it
+SCB_TEMPDRV     = SCB + $50
+SCB_ERRDRV      = SCB + $51            ; the drive of the last error
+SCB_FLAGS       = SCB + $57            ; bit 7: the long error messages
 SCB_DATE        = SCB + $58            ; days, 1 January 1978 day 1
 SCB_HOUR        = SCB + $5A            ; BCD
 SCB_MIN         = SCB + $5B
 SCB_SEC         = SCB + $5C
+SCB_COMBASE     = SCB + $5D            ; common memory's base, $F800
 SCB_LEN         = $64
 
 ; Character devices (DEVTBL's order) and their bits in a vector's high byte

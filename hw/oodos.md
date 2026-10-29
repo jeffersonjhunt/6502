@@ -836,8 +836,9 @@ tests.
 - **107** returns OODOS's serial number, six bytes, the same in every copy (ours): `4F 4F 44 00 00 01`, "OOD"
   (the program header's magic) and serial 1.
 - **The CCP at each warm boot** (the Guide: what it initializes when it loads a program, and its own strings need
-  `$`): the console mode 0, the delimiter `$` and the multi-sector count 1; its drive selected (its user set) for
-  the prompt, A: if its drive can't be selected; then 47's command, if one waits. A program starts with the
+  `$`): the console mode 0, the delimiter `$` and the multi-sector count 1; its drive and user made current again for
+  the prompt (the drive through the SCB, ours: 14 would log it in, and the warm boot has logged in nothing
+  since 3a); then 47's command, if one waits. A program starts with the
   return code 0, unless chained to.
 - **152** parses `{d:}filename{.typ}{;password}` (the Guide: no user number, so `5A:X` is the name `5A`, ended by
   the colon, its third character) into bytes 0–23 of the FCB: the drive (0 if none; `A`–`P`, either case, 1–16),
