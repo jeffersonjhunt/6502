@@ -13,8 +13,12 @@ directory holds the work.
 - [`test/cpmtools.sh`](test/cpmtools.sh), [`test/sfcb.py`](test/sfcb.py): what `check_diskdefs.sh` and
   `interop.sh` share, and interop's own reading of the date stamps.
 - [`ldr/`](ldr/): OOLDR, the loader (`/BOOT.BIN`), and a test OODOS.SYS; [`sys/cpmread.s`](sys/cpmread.s), the
-  read-only CP/M reader OOLDR and OODOS.SYS share (phase 2, below).
-- [`sys/`](sys/): OODOS.SYS, phase 2's system: common memory, the stand-in BDOS and CCP, the BIOS; below.
+  read-only CP/M reader OOLDR links (phase 2, below).
+- [`sys/`](sys/): OODOS.SYS: common memory, the BDOS (phase 3a: the file system), the stand-in CCP, the BIOS;
+  below.
+- [`test/cpm3model.py`](test/cpm3model.py), [`test/modelscript.py`](test/modelscript.py),
+  [`test/modeltest.py`](test/modeltest.py), [`test/driver/`](test/driver/): the BDOS's model test (phase 3a,
+  below).
 
 
 ## Building a program ##
@@ -93,17 +97,18 @@ And phase 1's tooling:
 
 ## The system: OODOS.SYS ##
 
-Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)), in [`sys/`](sys/):
+Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3a's BDOS
+([hw/oodos.md](../hw/oodos.md#the-bdos-phase-3)), in [`sys/`](sys/):
 
 | File | What |
 |---|---|
 | `common.s` | common memory, `$F800–$FFFF` in block 62: the BIOS's jump table, the BDOS stub, the warm boot, FARCALL, IRQ, Break and BRK, the vectors |
-| `bdos.s` | the stand-in BDOS, block 60 |
+| `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdos.inc` | the BDOS, block 60: the entry, the console and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps |
 | `bios.s`, `crt.s` | the BIOS, block 61: drives, M:, TIME, MOVE, the devices; the text screen's VT52 subset |
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
@@ -117,17 +122,85 @@ without cc65, python3 and make, as ctest has no skips):
 
 ```
 ctest --preset dev -R test_oodos_sys
-./build/dev/test/host/test_oodos_sys     # the cases, and the stub's and FARCALL's cycles
+./build/dev/test/host/test_oodos_sys     # the cases; the stub's, FARCALL's, the jump table's and the BDOS's cycles
 ```
 
-At the stand-in CCP, `NAME` runs `NAME.COM` from drive A, user 0 (`HELLO` on the test card). To run something
-by hand instead, put a `.COM`'s header at `$0280` and its image at `$0300` and type `GO`, as test_oodos_sys does.
+At the stand-in CCP, `NAME` runs `NAME.COM` from drive A, user 0, loaded through the BDOS (`HELLO` on the test
+card). To run something by hand instead, put a `.COM`'s header at `$0280` and its image at `$0300` and type `GO`,
+as test_oodos_sys does; `GO M` gives the program the tail ` M` (FSTEST and STAMPTEST take their drive so).
+
+A write-back that fails at the warm boot is said as the BDOS says its errors (`OODOS Error On B: Disk I/O`, `BDOS
+Function = 48`), and the buffer of a closed file's record is kept for the next try. ^C as the first key at the
+prompt resets the disk system (function 13, as CP/M 3's CCP does): it writes what it can, drops what it can't and
+says so (`BDOS Function = 13`), makes every drive read-write, and gives a fresh prompt on the same drive.
 
 M:'s format is checked against what cpmtools makes, kept as `emulator/test/host/sd/oodos-ram.sparse`; it was made,
 and is made again, with Docker:
 
 ```
 sys/test/make_mdisk.sh      # mkfs.cpm -f oodos-ram -t at 2026-10-27 12:00, the mode set to 0x31
+```
+
+
+## The BDOS's model test (phase 3a) ##
+
+A model of CP/M 3's file system, ours, in Python (standard library only), that seeded random scripts of file
+operations run on, compared with what the BDOS does on the emulator ([hw/oodos.md](../hw/oodos.md#testing)):
+
+| File | What |
+|---|---|
+| [`test/cpm3model.py`](test/cpm3model.py) | the model: functions 13–37, 40, 46, 48, 98, 99 on drive images; its header lists what it models and its choices where the manual is open |
+| [`test/modelscript.py`](test/modelscript.py) | the script and result formats (its header), the reference driver, the generator, the comparison |
+| [`test/modeltest.py`](test/modeltest.py) | the commands, below |
+| [`test/driver/`](test/driver/) | DRIVER.COM, which runs `A:SCRIPT.BIN` through the BDOS and writes `A:RESULT.BIN`; its own Makefile |
+| [`test/test_model.py`](test/test_model.py) | the model's tests: hand-worked CP/M 3 cases, the formats, the generator, the comparison |
+| [`test/model_cpmtools.sh`](test/model_cpmtools.sh) | the model's drives checked by cpmtools (Docker) |
+
+```
+make -C test/driver             # test/driver/build/driver.com, through the rules gate
+make -C test/driver check       # test_model.py: ends PASS 194
+python3 -I test/modeltest.py prepare --seed 7 --format oodos-8m --dir /tmp/m7 --driver test/driver/build/driver.com
+python3 -I test/modeltest.py show --dir /tmp/m7       # the script, an operation a line
+python3 -I test/modeltest.py predict --dir /tmp/m7    # the model's run: A.model.IMG, T.model.IMG, RESULT.model.BIN
+python3 -I test/modeltest.py check --dir /tmp/m7      # against A.out.IMG and T.out.IMG, what DRIVER left
+```
+
+`prepare` writes the seed's `SCRIPT.BIN`, an `oodos-8m` A: holding it and DRIVER.COM (`A.IMG`), and the drive
+under test, empty (`T.IMG`): `oodos-ram` is M:, the others B:. `check` prints the seed, each operation that
+differs and how (the first ten), the drive's entries and records that differ, and PASS or FAIL. `--compare
+exact` compares the drive byte for byte, for a BDOS that allocates as the model (`--alloc lowest`, the
+default, or `nearest`); `renumber`, the default, up to the blocks' numbering. `--loose-x` leaves X alone where
+the model's is 0.
+
+`test_oodos_model`, in ctest, runs DRIVER.COM with the model as its BDOS, for 9 seeds, and with the model made
+wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison with OODOS's own BDOS** is on
+(the CMake option `OODOS_MODEL_BDOS`; a build tree configured before it was on keeps OFF in its cache, so pass
+`-DOODOS_MODEL_BDOS=ON` once; off, its case says it's skipped and ctest counts the test skipped) for seeds 1, 4, 6,
+10, 14, 24, 41 and 45 (`modeltest.py seeds`: between them a full disk, a full directory on M: and on B:, a read-only
+drive), about 6 minutes under ASan. More seeds by hand,
+from `emulator/`: `OODOS_MODEL_SEEDS` takes a list and ranges, `OODOS_MODEL_ONLY=1` runs the comparison alone, so
+seeds can run a process each, and `OODOS_MODEL_CUT=N` runs only a seed's first N operations, to find where a
+difference starts (a release build is about ten times faster than ASan's). `model_seeds.sh` runs a process a seed
+and counts a seed passed only if it exited 0 and printed its PASS line; it exits non-zero unless all did.
+`OODOS_MODEL_COMPARE`, `OODOS_MODEL_ALLOC`, `OODOS_MODEL_CUT` and `OODOS_MODEL_SEEDS` take only their values (any
+other fails the run), and `OODOS_MODEL_ONLY=1` with the comparison off fails:
+
+```
+cmake --preset dev -DOODOS_MODEL_BDOS=ON && cmake --build --preset dev && ctest --preset dev -R test_oodos_model
+OODOS_MODEL_BDOS=0 ./build/dev/test/host/test_oodos_model        # without the comparison, for one run
+OODOS_MODEL_SEEDS=4,7-9 OODOS_MODEL_COMPARE=exact OODOS_MODEL_LOOSE_X=1 ./build/dev/test/host/test_oodos_model
+sh ../oodos/test/model_seeds.sh -j 16 ./build/dev/test/host/test_oodos_model 1-600    # ends 600/600 seeds pass
+OODOS_MODEL_ONLY=1 OODOS_MODEL_SEEDS=14 OODOS_MODEL_CUT=213 ./build/dev/test/host/test_oodos_model
+```
+
+The seeds' directories stay in the build tree (`build/dev/test/host/oodos_model/oodos-N`), with what DRIVER
+left, for `modeltest.py show` and `check` by hand. The cpmtools cross-check, at verify (the model's empty drives
+against `mkfs.cpm -t`'s, then each seed's drive by `fsck.cpm`, `cpmls -F` and `cpmcp`):
+
+```
+docker run --rm -v "$(hostpath oodos):/o:ro" \
+    debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
+    sh /o/test/model_cpmtools.sh 1 2 3 4 5 6 7 8 9 10 11 12      # ends PASS 15
 ```
 
 
@@ -177,13 +250,13 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 ## The test card ##
 
 `tools/make_card.sh` makes the card the emulator's tests use, `emulator/test/host/sd/oodos.sparse` (committed,
-367 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
+389 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
 
 | On the card | What |
 |---|---|
 | `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
 | `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` and `0:HELLO.PRL` |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM`, `0:HELLO.PRL` and `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below) |
 | `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
 It runs everything (make, ca65 and ld65 for OOLDR and OODOS.SYS, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
@@ -194,9 +267,9 @@ disk ids, so the same sources make the same card; it prints the packages' versio
 oodos/tools/make_card.sh
 ```
 
-Run it after changing anything on the card: `test_oodos_boot` builds OOLDR, both systems, HELLO.COM and HELLO.PRL
-from the sources and fails, with "the card is stale: run oodos/tools/make_card.sh", unless the card holds exactly
-those (and `card/DRIVES.TXT`).
+Run it after changing anything on the card: `test_oodos_boot` builds OOLDR, both systems, HELLO.COM, HELLO.PRL
+and WRITEOO1.COM from the sources and fails, with "the card is stale: run oodos/tools/make_card.sh", unless the card
+holds exactly those (and `card/DRIVES.TXT`).
 
 `mkfs.cpm` writes only the directory, and the file grows as `cpmcp` writes; an SD unit is its file's size, so the
 script makes A.IMG 8 MB first (`truncate`), the unused blocks zeros. mkfs.fat's boot code is zeroed, as
@@ -214,12 +287,14 @@ which needs Docker and is run by hand, and at each phase's verify.
 as OOLDR will, and finds the label, the SFCBs, each file's entries, stamps and records in the n-th sector of block
 b, LBA = b × (4096 / 512) + n, by the DPB it works out from `diskdefs`.
 
-**The OO-1 to cpmtools.** In the same test a stand-in for the BDOS writes `0:OO1.BIN` (260 records, two entries,
-made 2026-10-25 13:45, updated 2026-10-26 15:30) through the card's WRITE; with `OODOS_CARD_OUT` set it saves the
-card there. `interop.sh` takes A.IMG off the card's FAT with mtools and checks every file entry's stamp order
+**The OO-1 to cpmtools.** In the same test OODOS writes `0:OO1.BIN` (260 records, two entries, made 2026-10-25
+13:45, updated 2026-10-26 15:30): the card booted in a Session as its owner would (C80CR, OOLDR, OODOS.SYS) and
+`WRITEOO1` typed at the prompt, which sets the clock by function 104 for each stamp and writes through the BDOS;
+with `OODOS_CARD_OUT` set the test saves the card there. `interop.sh` takes A.IMG off the card's FAT with mtools and checks every file entry's stamp order
 (`sfcb.py`), `fsck.cpm -n` (no Error or Warning lines, but the one below), the label's mode, `cpmls -F`'s two
 stamps for every file, and every file's contents by `cpmcp`; with `--written`, `0:OO1.BIN` too, and its two SFCB
-slots byte for byte. From the worktree's root:
+slots byte for byte: the stamps in its first entry's, 0 in its second's (CP/M 3 keeps a file's stamps in its
+extent-zero entry only; cpmtools stamps every entry, and `sfcb.py` takes either). From the worktree's root:
 
 ```
 cmake --build emulator/build/dev --target test_oodos_card
@@ -234,11 +309,8 @@ docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath emulator/test/host/s
 
 `OODOS_CARD_FAULT=alloc` (a block README.TXT has), `=stamp` (each entry's stamps in the next one's slot, the first
 entry's update a minute later, so no slot is right) or `=stamp-zero` (the same in an SFCB of zeros, not $E5s)
-makes the stand-in wrong on purpose: the test then fails, and `interop.sh` fails on the card it saved.
-
-**Phase 3** replaces the stand-in: `write_on_the_oo1()` in `test_oodos_card.cpp` is the seam. It gets the card
-with A: mounted and must leave `0:OO1.BIN` on it; the BDOS will do that in a Session, a test program calling make,
-write and close with the DS3231 set to the stamps' times, and the checks on both sides stay as they are.
+has phase 1's stand-in writer make the file instead, wrong on purpose: the test then fails, and `interop.sh` fails
+on the card it saved.
 
 Two things cpmtools 2.23 does that OODOS needn't copy: `cpmcp` leaves an SFCB slot's password mode byte at $E5 (no
 matter with passwords off; `cpmls -F` shows it as "Read" protection), and `fsck.cpm` compares the stamps in an
@@ -263,7 +335,7 @@ make -C ldr clean
 | File | What |
 |---|---|
 | [`ldr/ooldr.s`](ldr/ooldr.s), [`ldr/ldr.cfg`](ldr/ldr.cfg) | OOLDR: at `$1000`, everything below `$4000`, zero page `$00–$1F` |
-| [`sys/cpmread.s`](sys/cpmread.s) | the read-only CP/M reader: CR_INIT, CR_FIND, CR_SEEK, CR_READ; its zero page and buffers are the `CRZP` and `CRBSS` segments, placed by whoever links it |
+| [`sys/cpmread.s`](sys/cpmread.s) | the read-only CP/M reader: CR_INIT, CR_FIND, CR_SEEK, CR_READ; its zero page and buffers are the `CRZP` and `CRBSS` segments, placed by whoever links it (OOLDR; OODOS.SYS's CCP loads through the BDOS since phase 3a) |
 | [`ldr/testsys.s`](ldr/testsys.s), [`ldr/testsys.cfg`](ldr/testsys.cfg) | the test OODOS.SYS: six segments in block 31 and blocks 60–62, one from block 60 into 61, a cold boot that writes the windows and P it found to `$7FF00` and stops |
 
 It builds with the host's cc65 as with the container's (Debian's 2.19 both), byte for byte. To try it: `make -C ldr`,

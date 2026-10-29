@@ -13,11 +13,12 @@
  * test oracle for that addressing, following the DPB worked out from
  * oodos/diskdefs, not a file system.
  *
- * The other way, a stand-in writer makes a file on A: through the card's
- * WRITE, and with OODOS_CARD_OUT set the card is saved there for
- * oodos/test/interop.sh to check with cpmtools. OODOS_CARD_FAULT=alloc,
- * =stamp or =stamp-zero makes the stand-in wrong on purpose, to see this
- * test and interop.sh fail. Phase 3's BDOS replaces the stand-in:
+ * The other way, OODOS's BDOS makes a file on A:: the card booted in a
+ * Session as its owner would (C80CR, OOLDR, OODOS.SYS) and WRITEOO1.COM,
+ * on the card, run at the CCP's prompt; with OODOS_CARD_OUT set the card is
+ * saved there for oodos/test/interop.sh to check with cpmtools.
+ * OODOS_CARD_FAULT=alloc, =stamp or =stamp-zero has a stand-in writer make
+ * the file instead, wrong on purpose, to see this test and interop.sh fail.
  * write_on_the_oo1() is the seam.
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
@@ -467,21 +468,23 @@ namespace
     // ---- the OO-1's side ----------------------------------------------------
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
-    /// (two entries, the second in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
+    /// (two entries, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
     /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
-    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself.
+    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself. WRITEOO1.COM
+    /// (oodos/sys/test/writeoo1.s) knows the same.
     const std::string NEW_NAME = "OO1     BIN";
     constexpr unsigned NEW_USER = 0, NEW_SEED = 5;
     constexpr size_t NEW_SIZE = 260 * RECORD;
     const std::array<uint8_t, 4> NEW_MADE = stamp(2026, 10, 25, 13, 45), NEW_UPDATED = stamp(2026, 10, 26, 15, 30);
 
-    /// A stand-in for OODOS's BDOS, until phase 3: makes the file on a drive in CP/M 3's layout,
-    /// sector by sector through the card (read, change, write back): entries in the first
-    /// free slots, blocks the first free ones, and both stamps in each entry's SFCB slot (as
-    /// cpmtools does; fsck.cpm checks them all). `fault`: "alloc" gives it a block another
-    /// file has; "stamp" puts each entry's stamps in the next entry's slot, the first entry's
-    /// update a minute later than the second's, so no slot holds what it should; "stamp-zero"
-    /// does the same in an SFCB whose slots were zeros, not mkfs.cpm's $E5s.
+    /// A stand-in for OODOS's BDOS, now only to be wrong on purpose: makes the file on a drive in
+    /// CP/M 3's layout, sector by sector through the card (read, change, write back): entries in
+    /// the first free slots, blocks the first free ones, both stamps in the first entry's SFCB
+    /// slot and zeros in the later entries' (as the BDOS keeps them: CP/M 3 reads a file's stamps
+    /// from its extent-zero entry only). `fault`: "alloc" gives it a block another file has;
+    /// "stamp" puts each entry's slot in the next entry's, the first entry's update a minute
+    /// later, so no slot holds what it should; "stamp-zero" does the same in an SFCB whose slots
+    /// were zeros, not mkfs.cpm's $E5s.
     void stand_in_bdos(Drive &d, unsigned user, const std::string &name83, const std::vector<uint8_t> &bytes,
                        const std::array<uint8_t, 4> &made, const std::array<uint8_t, 4> &updated,
                        const std::string &fault)
@@ -511,6 +514,8 @@ namespace
         const bool misplace = fault == "stamp" || fault == "stamp-zero";
         auto stamps_for = [&](unsigned k) {
             std::array<uint8_t, 10> st{}; // creation, update, then the password mode and a reserved byte
+            if (k != 0)
+                return st;                // a later extent's: zeros
             std::memcpy(st.data(), made.data(), 4);
             std::memcpy(st.data() + 4, updated.data(), 4);
             if (misplace && k == 0)
@@ -562,12 +567,42 @@ namespace
         }
     }
 
-    /// The seam: the OO-1 writes 0:OO1.BIN onto A: of the card in `r`, mounted by mount_a().
-    /// Phase 3 runs OODOS's BDOS here instead, in a Session with the card in its slot.
+    /// The seam: the OO-1 writes 0:OO1.BIN onto A: of the card in `r`, mounted by mount_a(). OODOS
+    /// itself, in a Session with a copy of the card in its slot: the monitor, C80CR, OOLDR, OODOS
+    /// and its prompt, then WRITEOO1, and the card back into `r`. A fault: the stand-in, wrong.
     void write_on_the_oo1(Rig &r, const std::string &fault)
     {
-        Drive a{r, 1, Dpb::from_diskdefs("oodos-8m")};
-        stand_in_bdos(a, NEW_USER, NEW_NAME, pattern_file(NEW_SEED, NEW_SIZE), NEW_MADE, NEW_UPDATED, fault);
+        if (!fault.empty())
+        {
+            Drive a{r, 1, Dpb::from_diskdefs("oodos-8m")};
+            stand_in_bdos(a, NEW_USER, NEW_NAME, pattern_file(NEW_SEED, NEW_SIZE), NEW_MADE, NEW_UPDATED, fault);
+            return;
+        }
+        constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
+        std::string error, out;
+        std::unique_ptr<Session> s = Session::create({EMU_MACHINE_DIR "/backplane.machine", EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
+        auto card = std::make_shared<MemoryMedia>(r.media->bytes(), CARD);
+        REQUIRE(s != nullptr && s->insert_sd(card, error));
+        auto until = [&](const std::string &text, size_t from, int frames) {
+            for (int i = 0; i < frames && out.find(text, from) == std::string::npos && !s->stopped(); ++i)
+            {
+                s->run(FRAME);
+                out += s->take_output();
+            }
+            const bool found = out.find(text, from) != std::string::npos;
+            if (!found)
+                std::printf("  never saw '%s' in '%s'\n", text.c_str(), out.substr(from).c_str());
+            return found;
+        };
+        REQUIRE(until("BACKPLANE BIOS 0.9\r\\\r", 0, 120));
+        size_t from = out.size();
+        s->send("C80CR\r");
+        REQUIRE(until("\nA>", from, 900));
+        from = out.size();
+        s->send("WRITEOO1\r");
+        CHECK(until("OO1.BIN WRITTEN\r\n", from, 1800));
+        CHECK(until("\nA>", from, 120));
+        r.media = card;
     }
 
     std::string env(const char *name)
@@ -678,7 +713,7 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
         free += dir[i * ENTRY] == 0xE5;
     }
     CHECK_EQ(sfcbs, 256u);
-    CHECK_EQ(free, 1024u - 256 - 1 - 10); // the label, and nine files' ten entries
+    CHECK_EQ(free, 1024u - 256 - 1 - 11); // the label, and ten files' eleven entries
     // The label's own stamps, in its bytes 24-31: made at make_card.sh's moment.
     CHECK(std::equal(MADE.begin(), MADE.end(), dir.begin() + 24));
     allocation(a, dir);
@@ -748,21 +783,23 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     allocation(a, dir);
     const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
     REQUIRE(e.size() == 2u);
-    CHECK_EQ(e[0], 14u); // the first free entries, not an SFCB's (15)
-    CHECK_EQ(e[1], 16u); // an SFCB's first slot: the one fsck.cpm 2.23 compares backwards
+    CHECK_EQ(e[0], 16u); // the first free entries: an SFCB's first slot, the one fsck.cpm 2.23
+    CHECK_EQ(e[1], 17u); // compares backwards
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
-    for (unsigned i : e)
-    {
-        const auto st = stamps_of(dir, i);
-        CHECK(st.first == NEW_MADE);
-        CHECK(st.second == NEW_UPDATED);
-    }
+    // The stamps in the extent-zero entry's slot only (CP/M 3 reads them there); the later entry's 0.
+    const auto st = stamps_of(dir, e[0]), later = stamps_of(dir, e[1]);
+    CHECK(st.first == NEW_MADE);
+    CHECK(st.second == NEW_UPDATED);
+    const std::array<uint8_t, 4> zero{};
+    CHECK(later.first == zero);
+    CHECK(later.second == zero);
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
-    // Nothing else changed: the directory's first two sectors (entries 14 and 16, the SFCBs in 15 and 19) and 65 of records.
+    // Nothing else changed: the directory's second sector (entries 16 and 17, their SFCB in 19) and
+    // 65 of records (a block's sectors the file doesn't reach are zeroed, as they were).
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
         sectors += std::memcmp(before.data() + n * SECTOR, r.media->bytes().data() + n * SECTOR, SECTOR) != 0;
-    CHECK_EQ(sectors, size_t{2 + 65});
+    CHECK_EQ(sectors, size_t{1 + 65});
 }
 
 int main()

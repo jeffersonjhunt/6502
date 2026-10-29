@@ -25,8 +25,10 @@
 #                      OODOS.SYS in its own copy of the card
 #     0:HELLO.COM      oodos/examples/hello.s, for the CCP to run
 #     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
-#                      loader; it also puts test_oodos_card's file over an
-#                      SFCB's first slot (entries 14 and 16)
+#                      loader
+#     0:WRITEOO1.COM   oodos/sys/test/writeoo1.s: test_oodos_card runs it to
+#                      write 0:OO1.BIN through the BDOS, in entries 16 and
+#                      17, the first in an SFCB's first slot
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
@@ -80,20 +82,21 @@ with open(dst, 'w') as f:
             f.write('%d %s\n' % (n, s.hex()))
 PY
 
-# OOLDR, OODOS.SYS, the test system and HELLO.COM, from their sources, in a
-# copy laid out as the repo is (/o and /b are read-only).
+# OOLDR, OODOS.SYS, the test system, HELLO.COM and WRITEOO1.COM, from their
+# sources, in a copy laid out as the repo is (/o and /b are read-only).
 mkdir -p src/oodos src/backplane/bios
 cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools src/oodos/
 cp /b/backplane.inc src/backplane/bios/
 rm -rf src/oodos/ldr/build src/oodos/sys/build
 make -s -C src/oodos/ldr
-make -s -C src/oodos/sys build/OODOS.SYS build/hello.com
+make -s -C src/oodos/sys build/OODOS.SYS build/hello.com build/writeoo1.com
 make -s -C src/oodos build/hello.prl
 cp src/oodos/ldr/build/BOOT.BIN BOOT.BIN
 cp src/oodos/ldr/build/OODOS.SYS TESTSYS.SYS
 cp src/oodos/sys/build/OODOS.SYS OODOS.SYS
 cp src/oodos/sys/build/hello.com HELLO.COM
 cp src/oodos/build/hello.prl HELLO.PRL
+cp src/oodos/sys/build/writeoo1.com WRITEOO1.COM
 
 # A.IMG: made, its label's mode set to 0x31 (oodos/README.md), the files in.
 cp /o/diskdefs diskdefs
@@ -110,7 +113,7 @@ python3 text.py USER3.TXT 'A FILE IN USER 3.'
 python3 gen.py SMALL.BIN 384 3
 at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
-at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL 0:
+at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL WRITEOO1.COM 0:
 fsck.cpm -f oodos-8m -n A.IMG
 cpmls -f oodos-8m -F A.IMG
 

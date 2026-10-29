@@ -331,10 +331,11 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
 - **Registers:** CP/M 3's C or E in A, BC in A/X, and MOVE's DE and HL (SECTRN's table too) in two words of the
   system's zero page, function 50's +4–5 and +6–7; a result in A, or A/X for HL. `bios.s`'s header has every
   entry. SELDSK's E (bit 0: selected before) is X; a first select reads IDENTIFY's units table again, so a unit
-  mounted since shows up. As CP/M 3's: MOVE copies BC bytes from DE (+4–5, the source) to HL (+6–7, the
+  mounted since shows up; a unit whose entry changed is marked in `DRVCHG`, for the BDOS (2026-10-27), and a table
+  that can't be read changes nothing (that select has no drive). As CP/M 3's: MOVE copies BC bytes from DE (+4–5, the source) to HL (+6–7, the
   destination) and returns HL past them; XMOVE's C, the source bank, is A, and its B, the destination bank, is X.
-- **Banks:** 0 is the system's view (31, 60, 61, 62), 1 the program's (the windows the stub saved); any other is
-  taken as 0. SETBNK names SETDMA's; SELMEM sets the bank MOVE copies within, and moves no window (the BDOS reaches
+- **Banks:** 0 is the system's view (31, 60, 61, 62; from 3a W2 the block its caller had there, `CALLW2`, below),
+  1 the program's (the windows the stub saved); any other is taken as 0. SETBNK names SETDMA's; SELMEM sets the bank MOVE copies within, and moves no window (the BDOS reaches
   the program's memory by physical address, never by switching under itself); XMOVE's two banks are for the next
   MOVE only. Cold boot and every warm boot set SETBNK's and SELMEM's banks to 0 and drop a pending XMOVE, so
   nothing a program left reaches the next.
@@ -539,6 +540,192 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   to 0; 105 returns them in A, X 0. A function 50 of a BIOS function past XMOVE returns A = X = `$FF`, and so does
   one of BOOT, which would run cold boot again and format M: (a program ends by the warm boot).
 
+
+
+## The BDOS, phase 3 ##
+
+**Decided (2026-10-27): three parts, each reviewed and merged on its own.** 3a the file system core; 3b CP/M 3's
+extras (the SCB, multi-sector I/O, labels, reading stamps, XFCBs and passwords, chain, the full console set,
+107, 108, 152); 3c the memory functions 51–58 and OODOS's 73–74. **A randomized model test** comes with 3a: a model
+of CP/M 3's file system, ours, in Python, written from the manuals, that random sequences of file operations run
+against, compared with what the BDOS does on the emulator.
+
+**Proposed (3a)**
+
+- **Functions:** 13–37, 40, 42–43 (succeed, do nothing), 45, 46, 48, 98 and 99, as CP/M 3's, with the registers
+  above, the stand-in's console, version, time, 50 and 72 kept. 27 returns `$FFFF`, 31 the address of a copy of
+  the DPB in common memory. 44 (multi-sector) is 3b's: until then the count is 1.
+- **Date stamps from 3a:** every OODOS drive's label asks for creation and update stamps (mode 0x31), so making a
+  file stamps its creation and update, and closing a written one its update, from TIME, as the label's mode says,
+  in the SFCB slot of the file's extent-zero entry only (the Programmer's Guide, 2.3.8: a slot is valid only for an
+  extent-zero entry).
+  Reading them (102), labels (100, 101), XFCBs and passwords are 3b's.
+- **Where it lives.** The BDOS's code is block 60, and what doesn't fit goes in block 62's code window (about 10 KB is
+  free there). Its variables and the drives' allocation vectors (CP/M 3's two bits a block: 1 KB at most for an
+  `oodos-32m` drive) are in the system block. The hash tables (4 bytes a directory entry: 4 KB an `oodos-8m`
+  drive, 8 KB an `oodos-32m`, 1 KB M:) are in blocks 24–27, and the directory and data buffers (BCBs, 512 bytes
+  each) in block 28: banks 6–7, as [Banking](#banking) planned. Blocks 29–30 are spare.
+- **Reaching them:** the BDOS maps a hash or buffer block into W2 while it works on it. Each entry of the BIOS's
+  jump table puts W2 back on the BIOS (block 61) for the call and returns it as it was, so the BDOS needn't care
+  which block W2 holds when it calls the BIOS.
+- **The hash** is in memory only and ours: per entry the user (or a free/other mark), a hash of the name and the
+  extent number, so a search compares four bytes before it reads the entry.
+- **Deblocking:** the BDOS reads and writes 512-byte physical sectors through the BCBs, least recently used first,
+  and writes a changed buffer back when it's reused, at close, function 48, a drive reset (13, 37) and a warm boot.
+- **Login** (the first select after a reset): the directory is read once to build the allocation vector and the
+  hash, and the label read for the stamp mode. An SD drive is fixed media (CKS `$8000`, no checksums).
+- **Errors** as CP/M 3's, with the error mode of 45: by default the BDOS says `OODOS Error On A: Disk I/O` (or Read
+  Only, File R/O, Invalid Drive) and the function and file, and ends the program; in return mode it returns
+  A = `$FF` and X = the code (CP/M 3's H).
+- **The stand-in CCP** loads `NAME.COM` through the BDOS (Open, Read), not OOLDR's reader, so every program run
+  exercises it; OODOS.SYS no longer links `cpmread.s`. The real CCP is phase 4.
+- **The model test:** [`oodos/test/`](../oodos/test/)'s model and a driver program (a `.COM`) that runs a script of
+  operations from a file and writes what each returned; a ctest runs the same seeded scripts on the model and on
+  OODOS in the emulator and compares the results and the drives' files and directories. The model's images are
+  checked by cpmtools too, at verify.
+
+**Proposed (3a, as built, 2026-10-27)** ([`oodos/sys/bdos.s`](../oodos/sys/bdos.s), [`bdosfile.s`](../oodos/sys/bdosfile.s),
+[`bdosdisk.s`](../oodos/sys/bdosdisk.s); the choices the manuals leave open are ours, marked so for the model test):
+
+- **Where it lives:** all of it fits block 60 (6,564 bytes of 16 KB), so nothing is in block 62's code window yet;
+  `sys.cfg` has a `BDOS2` segment there, after the CCP's code and before its BSS, for when it doesn't. The system
+  block holds its zero page (the BDOS's and the BIOS's together, 180 of the 240 bytes), its variables (the FCB's copy,
+  the search's state, a table a drive, the buffers' tags: 627 bytes of `SYSBSS`'s 1,280 with the BIOS's, its copy of
+  the units table among them) and the
+  allocation vectors at `$1000–$2FFF`, 1 KB a drive's slot (A–G slots 0–6, M: 7); the hash is 8 KB a slot in blocks
+  24–27, the buffers block 28.
+- **The jump table:** every entry but BOOT and WBOOT goes through its own few instructions in common memory, which
+  keep W2 as the caller had it (on the stack, and in `CALLW2`, `$FC`), put W2 on block 61, call the BIOS, and put
+  W2 back, keeping A, X, Y and the carry (N and Z follow A). Bank 0's `$8000–$BFFF`, to the BIOS's READ, WRITE and
+  MOVE, is `CALLW2`'s block, so the BDOS reads a sector straight into the buffer it has in W2. The BIOS calls none of
+  them itself. Measured: **51 cycles** a call over the JMP alone (28 in, 23 out). Common memory holds 1,107 of its
+  2,048 bytes, the BIOS's DPBs among them (function 31 returns one).
+- **Buffers:** 32 sectors, directory or data, the least recently used taken (an empty one first) by a 16-bit clock.
+  A directory change is written at once; a data sector when its buffer is taken, by 48, 13 and 37, at the warm boot
+  (the CCP has the BIOS read the units, then calls 48 and 98, each time, in error mode `$FE`), and (the drive's)
+  before a close or an extent change writes the entry that points at it. A data write that fails (Disk I/O) keeps
+  its buffer changed and marked, so a close whose entry would point at that sector (a block in the FCB's
+  pointers) fails again rather than put in an entry that points at a sector never written (2026-10-27, the
+  review's second round), before the directory is touched; the close of another file on the drive, written or
+  only read, doesn't fail on it (the third round): its entry doesn't point there, or did before. The least
+  recently used buffer taken is one not marked, so one sector that can't be written doesn't stop the others
+  coming and going. With all 32 marked, a sector not in a buffer can't be had: each try writes buffer 0 again,
+  Disk I/O until the card writes again or 13, 37 or the warm boot drops them. A read-only unit's failed write (2)
+  drops the buffer and makes the drive read-only (a close then fails Read Only); a failed directory write drops
+  its buffer too, so the directory in memory stays what the disk has. 48 writes every changed buffer it can,
+  keeps the ones that fail marked (with `$FF` drops them all the same) and returns the first error after. 13 and
+  37 drop a buffer they can't write, log the drive out all the same and return the first such error after. 98
+  (the warm boot's) drops the marked buffers of the blocks it frees, those not in the drive's permanent vector: an
+  unclosed file's new blocks, whose program has ended without a close that could write them, so they don't block
+  the next program's closes. A marked buffer of a block the directory has (a closed file's record written again in
+  place, by a program that ended without closing it) is kept, marked (2026-10-28, the review's fourth round): the
+  data is the file's, so the next warm boot's 48, a program's 48 or a close of the file tries it again, until the
+  card writes it or 13 or 37 drop it. One such buffer doesn't stop anything else: GETBUF passes it by, and only a
+  close of a file with that block fails on it. A sector before the data area is in no block, and is kept; nothing
+  marks one (the BDOS writes none), nor a directory sector (a failed directory write drops its buffer). The warm
+  boot says a failed write-back as the BDOS says its errors (`OODOS Error On B: Disk I/O`, `BDOS Function = 48`)
+  and goes on to the prompt; before, the CCP's error mode `$FF` dropped it unsaid. A buffer kept so, of a sector
+  that stays bad, fails every later program's 48 until 13 or 37 drops it: a ^C at the prompt is 13 (below).
+- **The order of writes** (2026-10-27, from the review): data, then the entry that points at it (above); the
+  entry, then the blocks freed, for delete and truncate (their pointers kept until the entry is on the disk), so a
+  failed directory write leaves no entry on the disk whose blocks are free. A close merges F's block pointers with
+  the entry's only once it has checked them all: two different blocks for one place (two FCBs writing one file)
+  fail it, 3 to a read or write that moves on, and leave F and the entry as they were. A drive isn't logged out
+  on a failed directory write: the buffer is dropped, the hash and the vectors not yet changed, so they still
+  match what the disk has.
+- **A block a write takes is zeroed** (its sectors become new buffers of zeros, changed): records never written in
+  it read as zeros, not as what the block held before, so function 40 is 34. CP/M 3 leaves them undefined.
+- **Allocation:** the lowest free block, not CP/M 3's nearest to the file's last; simpler, and the same on every run.
+- **Login:** SELDSK as a first select (the BIOS reads the units again), the DPB from common memory (EXM's mask kept
+  with the drive's other DPB values, a drive at a time), then the whole
+  directory read once through the buffers: 64 sectors on `oodos-8m`, 128 on `oodos-32m`, 16 on M:. The first label's
+  mode byte decides the stamps (none without a label). A read-only unit (IDENTIFY's flag) is a read-only drive from
+  its login; a unit made read-only later is when its WRITE returns 2. Files are looked for up to the last entry that
+  isn't free or an SFCB (a high-water mark); free entries, and 17's every entry, to the directory's end. The DPHs'
+  CSV, ALV, BCB and HASH fields stay 0: the BDOS places its own, as above.
+- **A rescan of the units** (a login's SELDSK, or a program's) leaves a drive alone whose unit is as it was: the
+  BIOS keeps the last units table and marks each unit whose entry (its size, flags or file's name) changed
+  (`DRVCHG`); the BDOS logs those drives out if they were logged in, their buffers dropped unwritten (the card's
+  unit isn't what they came from), after the login's SELDSK, at each select and at 48; 13 and 37 read the units
+  again first (a first select of A:), so a disk changed and then reset, as the Guide has it, has its old buffers
+  dropped, not written to the new one. So does the warm boot: the CCP has the BIOS read the units (function 50's
+  SELDSK of A:, a first select) before its 48, so an image swapped while a program ran, under a record it wrote
+  and didn't close, isn't written to. It costs the warm boot one IDENTIFY: 17,687 cycles from WBOOT to the
+  prompt, 2.5 ms at 7.16 MHz, against 3,544 without (2026-10-28, two units mounted); 17,989 with the error mode
+  `$FE` for the rescan, 48 and 98 and `$FF` after (one call more, 302 cycles). A failed IDENTIFY (a card busy
+  for a second, or none) changes nothing: that select has no drive, the others keep theirs. Two images of one
+  name and size swapped under a drive aren't told apart: the table is all the card says.
+- **The hash** is FIND's first look at each entry: its first byte, the name's 16-bit hash (each byte's low 7 bits
+  XORed into a word turned left a bit before each) and the extent (EX's 5 bits, S2's low 3); then the entry is
+  read and compared in full, so two names with one hash (HASHAG.TXT and HASHBA.TXT) are told apart.
+- **Directory codes** (the Guide, 2.3, after Table 2-8; changed 2026-10-27, from the review): the searches return
+  the entry's place in its record, 0–3; every other function 0 on success; not found, or the directory full, `$FF`
+  with X 0. A closed file that wasn't written returns 0 without looking.
+- **Wildcards:** `?` in the name or type is ? in Filename (9) for 15, 22, 23 (either name), 30, 35 and 99; 17, 18
+  and 19 take it. `?` as 17's drive byte: every entry of the current drive, to its end, free ones too, nothing
+  compared. 18 goes on from 17's pattern, kept (not the FCB read again), until 13 or 37.
+- **Bytes 0–12** are the program's (the Guide, 15 and 22): Open, Make and Search (EX not `?`) take S2 as 0.
+- **Make** refuses a name the user has in any extent (File Exists, 8); the entry, of extent EX, and the FCB get
+  every attribute 0 (the Guide, 2.3.4 and 22), no blocks. **Open** looks in the current user, then (from another
+  user) for user 0's entry with t2': opened from there, f8' set, and the file read-only (File R/O on a write; its
+  later extents are user 0's too). It copies f1'–f4' and t1'–t3' from the entry, clears f7', and with CR `$FF`
+  gives the entry's byte count (S1, as 30 sets it with f6') in CR. **Delete** checks every match first (File R/O:
+  none deleted), then deletes every extent and the file's XFCBs (user + 16); with f5', the XFCBs only. **Rename**
+  takes the new name's low 7 bits and keeps each entry's attributes, its XFCBs renamed too. **30** sets every
+  extent's f1'–f4' and t1'–t3', clears f5'–f8' on the disk, and with f6' sets S1 to CR.
+- **Extents** as CP/M's: moving past one closes it (if written) and finds the next, made for a write; a read that
+  finds none returns 1 (4 for 33) and leaves the FCB at the new extent, empty and marked (S2's `$40`; `$80` is "not
+  written"), so a write there makes its entry at once and a full directory is the write's error (1, or 5 for 34
+  and 40), not the close's. A read that must close a written extent on a read-only drive is Read Only (2).
+- **Stamps** (2026-10-27, after the model test; the Guide decides them: 2.3.8 and functions 15, 22): only in the
+  SFCB slot of a file's extent-zero entry. Make of extent 0 stamps the creation and the update (as the label's mode
+  asks); closing a written FCB, moving a written FCB on to another extent, and truncate stamp the update there
+  whichever extent they changed; Open of extent 0 stamps the access (in the creation's field, which they share) if
+  the mode asks, not on a read-only drive. A new entry's slot is cleared, so later extents' slots stay 0.
+  cpmtools stamps every entry of a file it writes; both read the first entry's.
+- **Truncate (99):** R0–R2 is the new last record; it must be before the file's end and where the file has data
+  (the Guide: an entry reaching R's extent, R below RC if that's the entry's own, R's block there), else `$FF` (R2
+  over 3 before the directory is read). Later extents' entries are deleted; the one with R gets R's
+  extent, RC (R mod 128) + 1, the pointers after R's block freed and cleared; the update is stamped in the
+  extent-zero entry's slot (the Guide doesn't say; a truncate changes the file).
+- **File size (35)** leaves R0–R2 0 for a file that isn't there (as CP/M 2.2's BDOS did).
+- **Rename (23)** checks the new name first: File Exists (8) before the old name's not found or File R/O (the Guide
+  lists the errors in no order). **31** selects the current drive, logging it in (the Guide has it return `$FFFF`
+  on an error, so it reads the disk).
+- **13** reads the units again (above), writes back and drops every buffer, logs every drive out and makes it
+  read-write, A: current, the DMA address `$0280`; the user number stays. **37** does the first four for the drives
+  in A/X. A buffer either can't write is dropped, and the first such error returned after the reset is done. **28** makes the current
+  drive read-only until one of them; **46** is (DSM + 1 − the blocks in use) × the records a block, from the current
+  vector; **48** with `$FF` drops the buffers too; **98** makes each logged drive's current vector its permanent one.
+- **Errors:** the codes are CP/M 3's (1 Disk I/O, 2 Read Only, 3 File R/O, 4 Invalid Drive, 8 File Exists, 9 ? in
+  Filename). The message is `OODOS Error On A: Disk I/O`, then `BDOS Function = 15` and, for a function with an FCB,
+  ` File = README  .TXT` (the name's 8 and the type's 3 as the FCB has them), CR LF after each.
+- **The stand-in CCP** sets user 0, opens `A:NAME.COM` and reads record 0 into its buffer: the header to `$0280`,
+  checked, the image's first 112 bytes (or fewer) to `$0300`; then whole records straight to their place by the DMA
+  address, and a last part record through its buffer. Open's `$FF` with X 0 is `NAME?`, any other error `READ ERROR`.
+  The user is put back as it was before the program runs and after `NAME?` or an error. A program starts in the
+  default error mode with the DMA address `$0280`.
+- **^C at the prompt** resets the disk system, as the Programmer's Guide says CP/M 3's CCP does (1.6.2; the warm
+  boot doesn't), 2026-10-28 from the review: the prompt's first key, which is function 10's warm boot, as anywhere.
+  The CCP marks the prompt's line read (`ATPROMPT`, set only while its function 10 runs), and the warm boot that
+  finds it marked runs 13 in error mode `$FE` instead of the rescan, 48 and 98, which ran before that prompt; then
+  the drive that was current is selected again and the prompt comes back. 13 writes what it can, drops what it
+  can't (a kept buffer of a bad sector too) and says the first failure (`OODOS Error On B: Disk I/O`, `BDOS
+  Function = 13`), and makes every drive read-write. Both keyboards and the serial line give ^C as `$03`. A ^C
+  after a character, or in a program's own line input, does as before; Break is the monitor's, as before.
+- **Function 50** forgets which drive the BIOS has selected, so the BDOS selects its own again before its next
+  sector: a program's SELDSK can't send the BDOS's reads to another drive.
+- **UNITS** (SELDSK's first select) resets a card it finds busy, as READ and WRITE do, so a login after a stuck card
+  works.
+- **The DPBs** are checked as they're assembled (`bios.s`'s DPB macro): SPT 64, BSH 3–7, DSM under 4,096, DRM under
+  2,048, the drive's sectors in 16 bits, EXM as CP/M 3 works it out, AL0 and AL1 the directory's blocks: what the
+  BDOS and the BIOS assume of every drive.
+- **Measured** on `oodos-8m`, BDOSENT to its return: Open 5,327 cycles; a sequential read of a record in a buffered
+  sector 4,585, of one whose sector it reads 12,649; a write to a buffered sector 7,380, one that takes a new block
+  79,766, and 165,186 for the cheapest that writes buffers back first (one moving to the next extent, which writes
+  the drive's data back before the entry; before that order a write found changed buffers to take, 93,201). The
+  stub adds 216. Most of a buffered read is three DMA copies through MOVE: the FCB in and out, and the record.
+- OODOS.SYS is still 0.2: the version's minor isn't changed here (the coordinator's to decide).
 
 ## RSXs and programs ##
 
@@ -893,6 +1080,184 @@ copyright and MIT notice.
   banner, test_oodos_card's CR and names, com.cfg's old size). Not testable on the emulator: UNITS waiting for
   IDENTIFY's end (the card ends it with the last byte read), SAY_PATH's high byte (`slots` doesn't cross a page),
   and PPUTY keeping X (no caller needs it yet).
+
+**Done (phase 3a: the BDOS, 2026-10-27)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **Test programs** ([`oodos/sys/test/`](../oodos/sys/test/), `.COM`s through the rules gate, with `fs.inc`'s
+  helpers), run by `test_oodos_sys` on the emulator, each line a result it checks:
+  - **FSTEST** on A: (`oodos-8m`), on an `oodos-32m` drive and on M: (byte pointers): 300 records out and back over
+    three extents, the last sector not on the disk until the close writes it back, at most a BIOS READ a sector
+    reading back (77: 75 sectors and the directory's as two extents open), random reads in the file, past its end
+    (1), into an extent with no entry (4) and past 32 MB (6), a sparse write at record 1000, a record of its block
+    zeros, 40, the size and 36, delete and the free space back; no entry written by a close or an extent change
+    while the drive has data not written back; and the BDOS's cycles.
+  - **DIRTEST** on M:: 17 and 18 with `?` in the name, the extent and the drive (all 256 entries, the label and 64
+    SFCBs counted); users, a SYS file opened from user 3 and refused a write; read-only files refused delete, rename
+    and write; f1', t3' and f6' set and read back; rename (attributes kept), File Exists and ? in Filename from make,
+    rename and open; two names with one hash; a two-entry file renamed and deleted; the directory full (186 makes)
+    and emptied by `F???????.TXT`; the disk full (02, sequential and random); a block taken again zeroed; 98 freeing
+    an unclosed file's blocks; truncate; 28, 29 and 37; 24, 25, 27, 31's DPB, 12, 42, 43, 46 and 14 of drives that
+    aren't; 48; 13.
+  - **ERRTEST:** each error code's path in mode `$FF` (returned), `$FE` (said, then returned) and the default (said,
+    and the program ended: what it prints after never shows): Read Only (a read-only unit, read-only from its login;
+    and a unit made read-only under a written buffer, whose write-back fails), File Exists, ? in Filename, File R/O,
+    Invalid Drive, and Disk I/O with the card taken out.
+  - **STAMPTEST** on M: and A:: every SFCB byte checked against the clock the test set at each step: creation and
+    update at make, update at the close after a write (a file closed unwritten keeps make's), access at open on M:
+    with the label's mode made 0x61 behind the BDOS's back, none on A: (0x31), and none at extent 1 or on a
+    read-only drive.
+  - **LOGINTEST:** A:'s login reads its 64 directory sectors once and a second select none; M:'s 16; an entry put in
+    M:'s directory behind the BDOS's back isn't seen until 37 logs it out; an XFCB renamed and deleted with its file
+    (f5': it alone); 4 records written and not closed are on M: only after the warm boot, whose 98 frees their block.
+  - **RULETEST** (2026-10-27, the review's findings, each against the Guide): on M:, the directory codes (0 but for
+    the searches); open with CR `$FF` giving the byte count, f6' not; S2 left set taken as 0 by open and search;
+    make clearing f1', f6', t1', t2' and S2 in the FCB and the entry (then writable), and File Exists for a file
+    there in another extent; two FCBs with different blocks for one record: the second's write at CR 128 and read
+    fail (1) with CR 80 and EX 0 kept, its random write 3 with CR the record's, nothing merged into it or (after the
+    sector's next write) into the entry on the disk; truncate to four records where the file has no data refused,
+    then to one where it has. On B: made read-only behind the BDOS's back: delete and truncate fail (Read Only)
+    with the free space as it was. On B: with the card busy as A: logs in: A: Invalid Drive, B:'s close after
+    still written; another image as B:'s unit: B: logged out at the next rescan, then read from the new one, and
+    a record left in a buffer of B:'s at the swap dropped (the card byte for byte as at the swap); a rescan with
+    nothing changed keeps B:. The same record dropped by 37 of B: after the swap, and by the warm boot's 48 after a
+    program's own SELDSK, and by the warm boot's own rescan with none. The card's writes failing under a close:
+    each close fails (Disk I/O), BIG.DAT's 160 records still read meanwhile, and once the card writes again the
+    close writes the record and the entry; 37 with the card failing drops the buffer (Disk I/O) and the next 37
+    has nothing to write. One sector that won't write: its file's close fails, and again, while a file only read
+    and a file whose data is on the card close; after the warm boot B:'s closes work and the sector is never
+    written. Two changed buffers, the first failing: 48 writes the second and returns Disk I/O, 48 with `$FF`
+    drops both. A closed file's record written again in place and not closed, the card failing it at the warm
+    boot: the console says `OODOS Error On B: Disk I/O`, the buffer is kept, and the next warm boot, the card
+    writing, puts the record on the card. What the comparison
+    with the model found, a test each: 35 of no file zeroing R0-R2; a file's second entry's SFCB slot 0 on M:
+    (stamps only in extent zero's); after a read found no entry for extent 2, with the directory full, a write's
+    1 (21) or 5 (34, 40) at once; and on an `oodos-32m` A: (EXM 3) after M: (EXM 1) logged in, 384 records in one
+    entry, not two. And the CCP: the user 5 kept across `HELLO` and `NOSUCH?`.
+- **The CCP** loads through the BDOS in every run (`hello` in `test_oodos_e2e`, from the card, with the bytes past
+  its image untouched); a card that stays busy as it logs A: in is `READ ERROR`, and the next load works.
+- **Interoperability:** `test_oodos_card` boots the committed card in a Session and runs **WRITEOO1** (on the card)
+  at the prompt: `0:OO1.BIN` written by the real BDOS, the clock set by function 104 to its two stamps; its
+  entries are now 16 and 17 (WRITEOO1.COM took 14), the first in an SFCB's first slot; 66 sectors change (the
+  directory's second and 65 of records). Its stamps are in entry 16's slot, entry 17's is 0 (the stamps rule above),
+  as test_oodos_card, interop.sh and `sfcb.py` check: a file's first entry stamped and in order, a later extent's
+  slot 0 or (cpmtools's) in order. `interop.sh --written` passes on the card it saves (PASS 9), and on the
+  committed card (PASS 6). `OODOS_CARD_FAULT` still runs the stand-in writer, wrong, to show interop.sh fail.
+- **Each check can fail:** the BDOS built with a bug, one at a time, fails the tests named: no full compare after the
+  hash (DIRTEST), close not writing back (FSTEST, LOGINTEST), no buffer found again (FSTEST: the READ count), the jump
+  table not putting W2 back or bank 0's W2 the BIOS's (nearly all), no update or creation stamp (STAMPTEST), 37 not
+  logging out (LOGINTEST, STAMPTEST), the default mode returning (ERRTEST), any user 0 file opened from another
+  user or none (DIRTEST), 98 freeing nothing (DIRTEST, LOGINTEST), a new block not zeroed (FSTEST, DIRTEST), a
+  read-only unit writable at login (ERRTEST), truncate not freeing, 18 repeating an entry, delete not checking
+  read-only files, make taking a name there, rename taking the new name's attributes (DIRTEST), each of the
+  review's fixes (RULETEST, FSTEST's write order: 280 entries written early on A: without it), the second
+  round's: 37 not reading the units first, 48 not running CHANGED, CHANGED writing back, a failed write-back
+  dropping its buffer, GETBUF taking a marked buffer first (RULETEST); the third round's: a close of a file not
+  written failing on a marked buffer, a close failing on another file's, a close not checking its own (the one-sector
+  case; the whole-card one passes without it, its directory write failing too), 98 not dropping them, 48
+  stopping at the first failure, the warm boot not reading the units (RULETEST); the fourth round's: 98 dropping a
+  marked buffer of a closed file's block, the warm boot not saying its 48's error (RULETEST); the comparison's finds: EXM's mask one
+  for every drive, no S2 `$40`, 35 leaving R0-R2, a later extent's entry stamped at make or at close
+  (RULETEST), function 50 not
+  making the BDOS select its drive again (FSTEST after BIOSTEST), RC 0 for an
+  extent the entry goes past (FSTEST), UNITS not resetting a stuck card (the busy card), the CCP not calling 48
+  (LOGINTEST); and the CCP reading a last part record straight to its place, on a card made with it
+  (`test_oodos_e2e`). Each was put back and the card made again, byte for byte the committed one.
+
+**Done (phase 3a: the model, 2026-10-27)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **The model** ([`oodos/test/cpm3model.py`](../oodos/test/cpm3model.py), Python's standard library only): CP/M 3's
+  file system at the level of functions 13–37, 40, 46, 48, 98 and 99 on an `oodos-8m`, `oodos-32m` or `oodos-ram`
+  drive, the DPB worked out from `oodos/diskdefs`. Its state is the drives' images, laid out as CP/M 3 lays them
+  out (the label, an SFCB every fourth entry, the entries, the blocks), so an image compares byte for byte with
+  one the BDOS wrote and cpmtools reads it. User numbers, attributes, extents and EXM, random records and sparse
+  files, a full directory and a full disk, rename and delete across extents, `?` searches, read-only drives and
+  files, SYS files in user 0, temporary blocks (98) and date stamps by the label's mode.
+- **The script** ([`oodos/test/modelscript.py`](../oodos/test/modelscript.py) has the format): `SCRIPT.BIN`, a
+  16-byte header (`OOMS`, version 1, the drive, the count and length of the operations, the seed) and
+  operations of an opcode and its arguments: set an FCB (one of 8), its rename half or its random record; call
+  a function on an FCB; 18; read or write a record (20, 33; 21, 34, 40), the written one a pattern of a 16-bit
+  tag; n sequential writes or reads; 17 and 18 to the end; n makes and closes; any other function; 46; 31;
+  104. `RESULT.BIN` has, for each, the opcode, A, X, the FCB's EX, CR and R0–R2, and what the call left (a
+  record's checksum, the entry found, the free space, the DPB).
+- **The generator** makes a seed's script by running each candidate operation on the model and keeping it,
+  aiming at the edges: extent and entry boundaries, records 0, 65,535, 262,143 and 262,144, a directory filled
+  to its last entry and a disk to its last block, `?` in names, other users' files and user 0's SYS files,
+  read-only drives and files, a select of a drive that isn't. The time is set (104) before what stamps, a
+  minute apart or days. Its profiles: mixed, sparse, users, dirfill, diskfill (`oodos-ram` only).
+- **DRIVER.COM** ([`oodos/test/driver/`](../oodos/test/driver/)): reads `A:SCRIPT.BIN`, runs it through `JSR
+  $0203` with error mode `$FF`, keeps the results in memory and writes `A:RESULT.BIN` at the end. Only CP/M 3's
+  documented functions; a `.COM` through the rules gate. `modelscript.Driver` is the same steps on the model.
+- **`test_oodos_model`, in ctest:** DRIVER.COM on the emulator's W65C02S with the model as its BDOS
+  (`modeltest.py serve`, over a pipe), 9 seeds over the three formats, compared with the model's own run:
+  driver, formats and reference driver agree. The model made wrong on purpose (no update stamp, an RC one
+  short, open's directory code 1, a byte of data, an attribute bit in A:'s directory) fails the comparison,
+  which names the seed and the operation. DRIVER.COM runs under OODOS.SYS from A: and says `DRIVER OK`, and the harness's images
+  are checked: A:'s entries off the card, M:'s directory as cold boot made it, the model's mkfs at that minute.
+  `test_oodos_model_py` is the model's own tests: the DPBs, mkfs against `sd/oodos-ram.sparse`, and hand-worked
+  cases from the manual's rules, each a scenario and the directory bytes it leaves; the script format, the
+  generator's determinism and the comparison finding a changed result, block, RC and stamp; `modeltest.py
+  sparse` letting a hole through but not a block past RC; the default seeds reaching every edge.
+- **Against OODOS's BDOS:** with `OODOS_MODEL_BDOS` on (the CMake option, on since 2026-10-27; `OODOS_MODEL_BDOS=0`
+  or `1` for one run), each seed's A: (and B:, `oodos-8m` or `oodos-32m`, or M:) goes on a card, OODOS.SYS boots
+  on `backplane.machine`, `DRIVER` runs at the CCP, and the results and the drive under test are compared with
+  the model's (`--compare renumber`, X compared), then A:'s directory, SFCBs and files but RESULT.BIN's records
+  (the results, compared by their rules). Whatever stops a comparison (no RESULT.BIN, a script the model can't
+  predict, an image missing) is a FAIL. ctest runs seeds 1, 4, 6, 10, 14, 24, 41 and 45 (`modeltest.py seeds`:
+  the three formats; between them, which
+  `test_model.py` checks, a write's 2 on a full disk, make's $FF on a full directory on M: and on B:, and X 2 from a
+  read-only drive), about 6 minutes under ASan (TIMEOUT 1200). The BDOS bugs the comparison found each have a
+  directed test in RULETEST, which fails with its fix undone; the seeds were chosen before the generator's
+  second stream, so which of them would still find each isn't claimed. With the comparison off, its case says it's
+  skipped and the test exits 77, which ctest counts as skipped. Seeds 1–600 pass, run by hand
+  (`oodos/test/model_seeds.sh`, a process a seed in parallel, counting each seed's exit status and PASS line:
+  [oodos/README.md](../oodos/README.md)). `OODOS_MODEL_CUT=N` runs a seed's first N operations, to find where a
+  difference starts.
+- **What the comparison found** (2026-10-27, each settled by the Guide or, where it is silent, the BDOS's way, in
+  the BDOS's and the model's Proposed lists): stamps only in a file's extent-zero slot (both had stamped every
+  entry; the BDOS's make left the update 0); 35 of no file left R0–R2 as they were (BDOS); rename's error order
+  (model); 31 not logging in (model); EXM's mask not kept a drive at a time, so after another drive's login an
+  extent group's entry wasn't found and a second was made (BDOS); a write after a read that found no entry made
+  it only at the close (BDOS); truncate's R2 check order and a read closing a written extent on a read-only drive
+  (model); a program's own FCB of the open one's bytes taken for it (model: S2's state bits).
+- **The review's fixes** (2026-10-27, the Guide decides each; both the BDOS and the model): the directory codes
+  (0 but for 17 and 18), open's byte count with CR `$FF`, make's attributes cleared and File Exists for any
+  extent, S2 taken as 0 by open, make and search, truncate refused where there's no data (the model had left it
+  open), 30's byte count in S1 (the model hadn't it). The generator makes these from a second random stream, so
+  a seed's script is as it was up to its first such operation. Seeds 1–600 pass again.
+- **cpmtools at verify** ([`oodos/test/model_cpmtools.sh`](../oodos/test/model_cpmtools.sh), Docker): the
+  model's empty drives against `mkfs.cpm -t`'s, byte for byte; then each seed's drive through `fsck.cpm`,
+  `cpmls -F` (every file's stamps) and `cpmcp` (every file's contents). fsck.cpm 2.23 takes a sparse file's
+  last extent for a bad record count (it wants RC's records in that many blocks); those entries, and only
+  those, are let through, as interop.sh lets its first-slot warning: a hole in the blocks RC needs. A block
+  past them is an RC too small, and fails.
+- **Each check can fail:** seen to fail with DRIVER.COM's pattern step wrong, the model's EXM from 1 KB
+  blocks, no update stamp, CR advanced by a random write, user 0's files opened without SYS, the comparison
+  skipping records or RC, and (cpmtools) block numbers high byte first and an update stamp a minute out.
+
+**Proposed (phase 3a: the model's choices,** where the manual leaves a behaviour open; `cpm3model.py`'s
+header has the full list):
+
+- **Allocation:** lowest free block first, or (a parameter) the nearest after the block before; the first
+  free directory entry. The comparison takes the blocks' numbering as it finds it (`--compare renumber`) or,
+  if the BDOS allocates the same way, byte for byte (`--compare exact`).
+- **Stamps** (the Guide decides, 2.3.8 and function 22; settled with the BDOS 2026-10-27): only in the slot of
+  a file's extent-zero entry. Make (of extent 0) stamps creation and update; an entry made by a write gets a
+  cleared slot; writing a written FCB's entry back (close, or moving to another extent) and truncate stamp
+  the update in the extent-zero entry's slot; open of extent 0 the access, with `$40`, not on a read-only
+  drive. Delete, rename and 30 don't stamp. A mode without stamps leaves the SFCB.
+- **Results:** 17 and 18 return the entry's directory code, the others 0 on success (the Guide, 2.3; settled
+  2026-10-27); X is 0 on success (`--loose-x` doesn't compare it); 35 returns 0 or `$FF`; 13 returns 0 and logs no
+  drive in; 31 logs the current drive in. Errors in the order drive (4), `?` (9), read-only drive (2), not
+  found, read-only file (3), exists (8); rename checks the new name first (exists, then not found, then
+  read-only), as the BDOS does. Delete refuses all if any match is read-only. Rename keeps the attributes.
+  35 of no such file leaves R0–R2 0. A read that must close a written extent on a read-only drive is 2.
+- **Truncate** (99) past the end, or where the file has no data (the Guide), is `$FF`, and R2 over 3 is `$FF`
+  before a read-only file's 3.
+- **The FCB's S2** holds what OODOS's BDOS keeps there (`$80` not written, `$40` no entry for the extent yet),
+  so a program's own FCB of the same name and place isn't the open one (an FCB the program changed).
+- **What isn't decided** (an FCB used after its file was deleted or renamed or its drive reset, two FCBs on
+  one file with one writing, sequential I/O after an error, the user changed under an open file) the model
+  refuses, and the generator keeps out of the scripts.
 
 **Proposed**
 

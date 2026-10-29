@@ -49,8 +49,10 @@
 ;   XMOVE    A = source bank (CP/M's C),     - (for the next MOVE)
 ;            X = destination bank (B)
 ;
-; Banks: 0 is the system's view (W0-W3 on 31, 60, 61, 62), 1 the program's
-; (the windows the BDOS stub saved); any other is taken as 0. Cold boot and
+; Banks: 0 is the system's view (W0, W1 and W3 on 31, 60 and 62, W2 the
+; block its caller had there, CALLW2: the BIOS's own, 61, unless the BDOS
+; called with a hash or buffer block in W2), 1 the program's (the windows
+; the BDOS stub saved); any other is taken as 0. Cold boot and
 ; each warm boot (common.s's WARM) set SETBNK's and SELMEM's to 0 and drop a
 ; pending XMOVE. Addresses in either are turned into physical ones for the
 ; DMA controller, a window at a time, so a buffer may cross windows mapped
@@ -59,7 +61,8 @@
 ; and MOVE moves nothing, checked before a byte moves.
 ;
 ; Drives: A-G are SD units 1-7 as IDENTIFY's units table has them (16,384
-; sectors oodos-8m, 65,536 oodos-32m; anything else isn't a drive), M: the
+; sectors oodos-8m, 65,536 oodos-32m; anything else isn't a drive; a first
+; select reads it again, and DRVCHG says which units changed), M: the
 ; RAM disk in banks C-D. LBA = track x 16 + sector. A sector moves by DMA:
 ; channel 0 between the card and the buffer, channel 3 for M: and copies.
 ; A buffer that crosses a window goes through SECBUF.
@@ -76,7 +79,7 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 
@@ -121,6 +124,8 @@ SIDE_D          = 4
 
 .segment "SYSBSS"
 DRVRO:          .res    SD_DRIVES      ; bit 1: the unit is read-only
+DRVCHG:         .res    1              ; bit n: unit n + 1 changed at a rescan (the BDOS clears it)
+UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
 
 .segment "BIOS"
 
@@ -364,6 +369,9 @@ SELDSK:         CMP     #16
                 CMP     #SD_DRIVES
                 BCS     @known
                 JSR     UNITS          ; a first select: what is mounted now
+                BCC     @known
+                PLA                    ; no units table: no drive this time
+                BRA     @none
 @known:         PLA
                 ASL     A
                 TAY
@@ -382,24 +390,25 @@ SELDSK:         CMP     #16
 
 UNITTAB         = SECBUF + $40         ; IDENTIFY's: 32 bytes a unit, 1-7
 
-; IDENTIFY's units table into DRVTAB, DPHs and DRVRO. A card that isn't
-; there or not started up, or doesn't answer within about a second, leaves
-; A-G empty.
-UNITS:          LDX     #2 * SD_DRIVES - 1
-@clear:         STZ     DRVTAB,X
-                DEX
-                BPL     @clear
-                JSR     CARDOK
+; IDENTIFY's units table into DRVTAB, DPHs and DRVRO, carry clear; each
+; unit whose entry isn't the last table's (its size, flags or file's name)
+; set in DRVCHG, for the BDOS to log its drive out, so a rescan leaves a
+; drive whose unit is as it was alone. A card that isn't there or not
+; started up, or doesn't answer within about a second, changes nothing,
+; carry set; one still busy is reset (CTRL's RESET), as SDIO resets it.
+UNITS:          JSR     CARDOK
                 BCS     @none
                 JSR     SDIDLE         ; a command written while BUSY is ignored
-                BCS     @none
+                BCS     @stuck
                 STZ     SD_CTRL
                 STZ     SD_UNIT
                 LDA     #SD_IDENTIFY
                 STA     SD_CMD
                 JSR     SDDATA
                 BCC     @read
-@none:          RTS                    ; failed: no drives
+@stuck:         JSR     SDRESET        ; abandoned, as SDIO does, so the next one can go
+@none:          SEC                    ; failed: the drives as they were
+                RTS
 @read:          LDY     #0
 @lo:            LDA     SD_DATA
                 STA     SECBUF,Y
@@ -410,6 +419,32 @@ UNITS:          LDX     #2 * SD_DRIVES - 1
                 INY
                 BNE     @hi
                 JSR     SDIDLE         ; and IDENTIFY's end, before anything else
+                LDA     #1             ; each unit's entry against the last table's:
+                STA     SPTR           ; SPTR its bit, SPTR + 1 any byte not the same
+                LDY     #0
+@entry:         STZ     SPTR + 1
+                LDX     #32
+@byte:          LDA     UNITTAB,Y
+                CMP     UNITSAV,Y
+                BEQ     @same
+                STA     UNITSAV,Y
+                LDA     #1
+                STA     SPTR + 1
+@same:          INY
+                DEX
+                BNE     @byte
+                LDA     SPTR + 1
+                BEQ     @kept
+                LDA     SPTR
+                ORA     DRVCHG
+                STA     DRVCHG
+@kept:          ASL     SPTR
+                CPY     #SD_DRIVES * 32
+                BNE     @entry
+                LDX     #2 * SD_DRIVES - 1
+@clear:         STZ     DRVTAB,X
+                DEX
+                BPL     @clear
                 LDX     #0             ; X the drive, Y its entry
                 LDY     #0
 @unit:          LDA     UNITTAB + 4,Y
@@ -461,7 +496,8 @@ UNITS:          LDX     #2 * SD_DRIVES - 1
                 INX
                 CPX     #SD_DRIVES
                 BNE     @unit
-@done:          RTS
+@done:          CLC
+                RTS
 
 ; Carry clear if the card is there and started up.
 CARDOK:         LDA     SD_ID
@@ -956,6 +992,9 @@ PHYSOF:         LDA     SIDES + 1,X
                 LDA     ST_WIN,Y
                 BRA     @block
 @system:        LDA     SYSWIN,Y
+                CPY     #2
+                BNE     @block
+                LDA     CALLW2         ; W2: the caller's, through the jump table
 @block:         BIT     #NB_ROM
                 BNE     @no
                 CPX     #SIDE_D
@@ -1395,9 +1434,18 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
 ; drive, with no translation and no buffers yet (the BDOS's, phase 3).
 ;
 ; SPT is in 128-byte records; PSH 2 and PHM 3 are 512-byte sectors; CKS
-; $8000 a drive that isn't changed under the system, so no checksums.
+; $8000 a drive that isn't changed under the system, so no checksums. The
+; DPBs are in common memory, so function 31 can give a program one.
 
+; What the BDOS and the BIOS assume of a DPB, checked as it's assembled.
 .macro DPB spt, bsh, exm, dsm, drm, al0, al1
+.assert spt = 64, error, "SPT: 16 sectors of 512 bytes a track, as LBA = track x 16 + sector"
+.assert bsh >= 3 && bsh <= 7, error, "BSH 3-7: a block of 2 sectors at least (RECSEC), of an extent at most (FPIDX)"
+.assert dsm < 4096, error, "DSM: 4,096 blocks at most, a 512-byte allocation vector"
+.assert drm < 2048, error, "DRM: 2,048 entries at most, the hash's 8 KB a drive"
+.assert (dsm + 1) << (bsh - 2) <= 65536, error, "the drive's sectors: LBA is 16 bits"
+.assert exm = (1 << (bsh - 3 - (dsm > 255))) - 1, error, "EXM: CP/M 3's, from BSH and DSM"
+.assert (al0 << 8 | al1) = ($FFFF << (16 - ((drm + 1) * 32 + (128 << bsh) - 1) / (128 << bsh))) & $FFFF, error, "AL0 and AL1: the directory's blocks"
                 .word   spt
                 .byte   bsh, (1 << bsh) - 1, exm
                 .word   dsm, drm
@@ -1407,6 +1455,8 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
                 .byte   2, 3           ; PSH, PHM
 .endmacro
 
+.pushseg
+.segment "COMMON"
 ; oodos-8m: 4 KB blocks, 2,048 of them, 1,024 entries in 8 blocks
 DPB8M:          DPB     64, 5, 1, 2047, 1023, $FF, $00
 ; oodos-32m: 8 KB blocks, 4,096 of them, 2,048 entries in 8 blocks
@@ -1414,6 +1464,7 @@ DPB32M:         DPB     64, 6, 3, 4095, 2047, $FF, $00
 ; oodos-ram: 2 KB blocks, 64 of them (so EXM counts 1 KB), 256 entries in 4
 DPBM:           DPB     64, 4, 1, 63, 255, $F0, $00
 .assert DPB32M - DPB8M = DPB_LEN, error, "a DPB is 17 bytes"
+.popseg
 
 .macro DPH dpb
                 .word   0              ; XLT: no translation

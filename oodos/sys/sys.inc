@@ -15,6 +15,8 @@
 ;                WRITE through a buffer that crosses a window
 ;   $0A00-$0A0F  the way to the monitor (common.s: TRAMP), written there
 ;                each time
+;   $1000-$2FFF  the drives' allocation vectors (ALV), 1 KB a drive's slot
+;                (bdosdisk.s), made at each login
 ;
 ; Cold boot clears $0000-$0AFF.
 
@@ -34,6 +36,10 @@ ST_W3           = ST_WIN + 3
 ; 50's +4-5 and +6-7.
 BW1             = $F8
 BW2             = $FA
+; The jump table's entries (common.s): W2 as its caller had it, which bank
+; 0's $8000-$BFFF means to the BIOS (bios.s's PHYSOF), and A for a moment.
+CALLW2          = $FC
+JTA             = $FD
 
 ; A jump table entry as an operand: system.inc's BIOS_ENTRY is in brackets,
 ; which ca65 takes as JMP's and JSR's indirect mode.
@@ -59,6 +65,7 @@ SCB_DELIM       = SCB + $37            ; function 9's end, '$'
 SCB_DMA         = SCB + $3C            ; the program's DMA address
 SCB_DISK        = SCB + $3E            ; the current drive
 SCB_USER        = SCB + $44
+SCB_ERRMODE     = SCB + $4B            ; function 45's: $FF return, $FE return and say, else default
 SCB_DATE        = SCB + $58            ; days, 1 January 1978 day 1
 SCB_HOUR        = SCB + $5A            ; BCD
 SCB_MIN         = SCB + $5B
@@ -80,6 +87,11 @@ SD_DRIVES       = 7                    ; A-G, units 1-7
 SD_SECTORS_8M   = 16384
 SD_SECTORS_32M  = 65536
 SPT_PHYS        = 16                   ; 512-byte sectors a track, every format
+
+; The BDOS's memory in banks 6-7 (hw/oodos.md, "The BDOS, phase 3")
+HASH_BLOCK      = 24                   ; 24-27: the directory hash, 8 KB a drive's slot
+BCB_BLOCK       = 28                   ; 32 sector buffers of 512 bytes
+ALV_BASE        = $1000                ; the allocation vectors, in the system block
 
 ; Versions
 OODOS_MAJOR     = SYS_MAJOR

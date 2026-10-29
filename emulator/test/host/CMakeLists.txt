@@ -262,6 +262,41 @@ target_compile_definitions(test_oodos_boot PRIVATE
         EMU_OODOS_PRL_DIR="${OODOS_PRL_DIR}"
         EMU_OODOS_CARD_DIR="${OODOS_SRC}/card")
 
+# --- OODOS: the BDOS's model test --------------------------------------------
+#
+# oodos/test/: the model of CP/M 3's file system, the generator and the
+# comparison (Python), and DRIVER.COM, which runs a script through the BDOS
+# (oodos/test/driver's Makefile, through the rules gate). test_oodos_model_py
+# is the model's own tests; test_oodos_model runs DRIVER.COM with the model
+# as its BDOS, and under OODOS. OODOS_MODEL_BDOS (on) also compares OODOS's
+# own BDOS with the model (hw/oodos.md, "The BDOS, phase 3"), on eight seeds
+# (about 6 minutes with the rest under ASan); more seeds by hand (oodos/README.md).
+
+option(OODOS_MODEL_BDOS "test_oodos_model: compare OODOS's BDOS with the model" ON)
+emu_add_test(test_oodos_model)
+set_tests_properties(test_oodos_model PROPERTIES TIMEOUT 1200) # eight seeds of BDOS calls under ASan: about 6 minutes
+set(OODOS_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_model")
+file(MAKE_DIRECTORY "${OODOS_MODEL_DIR}")
+add_custom_command(
+        OUTPUT "${OODOS_MODEL_DIR}/driver.com"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}/test/driver" "BUILD=${OODOS_MODEL_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        DEPENDS "${OODOS_SRC}/test/driver/driver.s" "${OODOS_SRC}/test/driver/Makefile"
+                "${OODOS_SRC}/include/oodos.inc" "${OODOS_SRC}/cfg/com.cfg" "${OODOS_SRC}/tools/rules.py"
+        VERBATIM)
+add_custom_target(oodos_driver ALL DEPENDS "${OODOS_MODEL_DIR}/driver.com")
+add_dependencies(test_oodos_model oodos_driver oodos_sys backplane_bios)
+target_compile_definitions(test_oodos_model PRIVATE
+        EMU_OODOS_SRC="${OODOS_SRC}"
+        EMU_OODOS_DRIVER="${OODOS_MODEL_DIR}/driver.com"
+        EMU_OODOS_MODEL_DIR="${OODOS_MODEL_DIR}"
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_OODOS_MODEL_BDOS=$<BOOL:${OODOS_MODEL_BDOS}>
+        EMU_PYTHON="${Python3_EXECUTABLE}"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+add_test(NAME test_oodos_model_py COMMAND "${Python3_EXECUTABLE}" -I "${OODOS_SRC}/test/test_model.py")
+set_tests_properties(test_oodos_model_py PROPERTIES TIMEOUT 600)
+
 # --- the sound card's test driver --------------------------------------------
 #
 # test/host/sound/driver.s, for the card's 6510: assembled here so

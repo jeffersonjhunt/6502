@@ -6,6 +6,10 @@
 ;   $F800   the BIOS's jump table: CP/M 3's 30 entries in CP/M 3's order
 ;           (system.inc's BIOS), for the BDOS: they jump into block 61, so
 ;           they work only with the system's windows. Programs use function 50.
+;           Each but BOOT and WBOOT goes through its own entry below, which
+;           puts W2 on the BIOS for the call and back as it was, so the BDOS
+;           may keep a hash or buffer block in W2 (hw/oodos.md, "The BDOS,
+;           phase 3"); CALLW2 says which, for bank 0's $8000-$BFFF
 ;   STUB    the BDOS's entry ($BFFD jumps here, $0203 jumps there)
 ;   WARM    the warm boot: the program's windows, a fresh stack, the CCP
 ;   FARCALL a call into another block through W3 (from oodos/spike/gwbasic/farcall.s)
@@ -29,37 +33,87 @@
 .segment "JUMPS"
 JUMPS:          JMP     COLD           ; BOOT
                 JMP     WARM           ; WBOOT
-                JMP     CONST
-                JMP     CONIN
-                JMP     CONOUT
-                JMP     LIST
-                JMP     AUXOUT
-                JMP     AUXIN
-                JMP     HOME
-                JMP     SELDSK
-                JMP     SETTRK
-                JMP     SETSEC
-                JMP     SETDMA
-                JMP     READ
-                JMP     WRITE
-                JMP     LISTST
-                JMP     SECTRN
-                JMP     CONOST
-                JMP     AUXIST
-                JMP     AUXOST
-                JMP     DEVTBL
-                JMP     DEVINI
-                JMP     DRVTBL
-                JMP     MULTIO
-                JMP     FLUSH
-                JMP     MOVE
-                JMP     TIME
-                JMP     SELMEM
-                JMP     SETBNK
-                JMP     XMOVE
+                JMP     W_CONST
+                JMP     W_CONIN
+                JMP     W_CONOUT
+                JMP     W_LIST
+                JMP     W_AUXOUT
+                JMP     W_AUXIN
+                JMP     W_HOME
+                JMP     W_SELDSK
+                JMP     W_SETTRK
+                JMP     W_SETSEC
+                JMP     W_SETDMA
+                JMP     W_READ
+                JMP     W_WRITE
+                JMP     W_LISTST
+                JMP     W_SECTRN
+                JMP     W_CONOST
+                JMP     W_AUXIST
+                JMP     W_AUXOST
+                JMP     W_DEVTBL
+                JMP     W_DEVINI
+                JMP     W_DRVTBL
+                JMP     W_MULTIO
+                JMP     W_FLUSH
+                JMP     W_MOVE
+                JMP     W_TIME
+                JMP     W_SELMEM
+                JMP     W_SETBNK
+                JMP     W_XMOVE
 .assert * = BIOS_ENTRY(BIOS::COUNT), error, "the jump table is CP/M 3's 30 entries"
 
 .segment "COMMON"
+
+; The jump table's entries: each calls its BIOS entry with W2 on the BIOS
+; (block 61), CALLW2 the block its caller had there, and puts that block
+; back in W2 after, keeping A, X, Y and the carry the entry returns (N and Z
+; then follow A). The BIOS calls none of them itself, so CALLW2 is its
+; caller's. A goes through JTA, as the stack holds the old W2.
+.macro BIOSW target
+                STA     JTA
+                LDA     NB_WIN2
+                STA     CALLW2
+                PHA
+                LDA     #BIOS_BLOCK
+                STA     NB_WIN2
+                LDA     JTA
+                JSR     target
+                JMP     W2BACK
+.endmacro
+W_CONST:        BIOSW   CONST
+W_CONIN:        BIOSW   CONIN
+W_CONOUT:       BIOSW   CONOUT
+W_LIST:         BIOSW   LIST
+W_AUXOUT:       BIOSW   AUXOUT
+W_AUXIN:        BIOSW   AUXIN
+W_HOME:         BIOSW   HOME
+W_SELDSK:       BIOSW   SELDSK
+W_SETTRK:       BIOSW   SETTRK
+W_SETSEC:       BIOSW   SETSEC
+W_SETDMA:       BIOSW   SETDMA
+W_READ:         BIOSW   READ
+W_WRITE:        BIOSW   WRITE
+W_LISTST:       BIOSW   LISTST
+W_SECTRN:       BIOSW   SECTRN
+W_CONOST:       BIOSW   CONOST
+W_AUXIST:       BIOSW   AUXIST
+W_AUXOST:       BIOSW   AUXOST
+W_DEVTBL:       BIOSW   DEVTBL
+W_DEVINI:       BIOSW   DEVINI
+W_DRVTBL:       BIOSW   DRVTBL
+W_MULTIO:       BIOSW   MULTIO
+W_FLUSH:        BIOSW   FLUSH
+W_MOVE:         BIOSW   MOVE
+W_TIME:         BIOSW   TIME
+W_SELMEM:       BIOSW   SELMEM
+W_SETBNK:       BIOSW   SETBNK
+W_XMOVE:        BIOSW   XMOVE
+W2BACK:         STA     JTA            ; the caller's W2 back
+                PLA
+                STA     NB_WIN2
+                LDA     JTA
+                RTS
 
 ; The BDOS's entry: the program's JSR $0203 lands here through $BFFD, the
 ; function in Y, the parameter in A and X. The program's P, A, X and Y go on
