@@ -47,11 +47,11 @@
 ; the multi-sector count 1. The CCP keeps its own drive and user (CCPDRV,
 ; CCPUSR: A:, user 0 from the cold boot; the Guide, 1.7 and 2.3.5), which
 ; a program's 14 or 32 doesn't change: it makes them current again for the
-; prompt, the drive by the SCB, so it isn't logged in until it's used. Function 47 leaves a request in the
-; SCB ($17): with CCP_CHAINDU the program's drive and user become the
-; CCP's; then the command at $0280, to its 0, is shown after the prompt as
-; if typed and run. A program starts with the return code 0 (108), unless
-; chained to.
+; prompt, the drive by the SCB, so it isn't logged in until it's used.
+; Function 47 leaves a request in the SCB ($17): with CCP_CHAINDU the
+; program's drive and user become the CCP's; then the command at $0280, to
+; its 0, is shown after the prompt as if typed and run. A program starts
+; with the return code 0 (108), unless chained to.
 ;
 ; Before a program runs, its header is checked as the loader checks it
 ; (hw/oodos.md, "The program header"): the magic number, no flags (a .COM),
