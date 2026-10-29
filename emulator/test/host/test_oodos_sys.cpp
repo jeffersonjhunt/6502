@@ -2455,9 +2455,10 @@ TEST(function_49_gets_and_sets_the_scb_at_cp_m_3s_offsets)
 {
     Booted r;
     REQUIRE(r.ok);
+    r.go("systest.com", " Z"); // what a program leaves the CCP puts back: '$', mode 0, count 1
     const std::string o = r.go("systest.com", " S");
     const std::pair<const char *, const char *> want[] = {
-        {"VER", "31 00"},      {"DMA", "80 02"},     {"WIDTH", "4F"},       {"PAGE", "18"},
+        {"CMODE0", "00 00"},   {"VER", "31 00"},      {"DMA", "80 02"},     {"WIDTH", "4F"},       {"PAGE", "18"},
         {"RUB", "00 FF"},      {"DELIM", "24 00"},   {"MULTI", "01 00"},    {"CHAIN0", "00 FF"},
         {"FLAGS", "80"},       {"COMBASE", "00 F8"}, {"PAST", "00 00"},     {"PASTFF", "00 00"},
         {"SETPAST", "00 00"},  {"LAST", "00 00"},    {"LASTGET", "34 00"},  {"LAST62", "00 34"},

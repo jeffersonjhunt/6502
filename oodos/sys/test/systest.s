@@ -29,6 +29,8 @@
 ;   E   in the default error mode, open of Q:X: the program ended
 ;   X   ^S, then ^C (XC?): the program ended
 ;   W   function 10, then ^C as the first key (W?): the program ended
+;   Z   the delimiter '#', the console mode 8 and the multi-sector count 7
+;       left for the CCP to put back
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -124,6 +126,7 @@ nocase: SAY     "NO CASE"
 
 ; ---------------------------------------------------------------------------
 cases:  stz     TDRV
+        SHOWW   "CMODE0 ", $33          ; 00 00
         SHOWW   "VER ", $05             ; 31 00
         SHOWW   "DMA ", $3C             ; 80 02
         SHOWB   "WIDTH ", $1A           ; 4F
@@ -625,11 +628,16 @@ casew:  lda     #30
         SAY     "NOT ENDED"
         jmp     CRLF
 
+casez:  CALLF   C_DELIMIT, '#'
+        CALLF   C_MODE, $0008
+        SCBSETB $4A, 7
+        rts
+
         .rodata
-CASES:  .byte   "SCLPNUHVDJQKEXW"
+CASES:  .byte   "SCLPNUHVDJQKEXWZ"
 CASES_LEN = * - CASES
 CJUMPS: .word   cases, casec, casel, casep, casen, caseu, caseh, casev, cased, casej
-        .word   caseq, casek, casee, casex, casew
+        .word   caseq, casek, casee, casex, casew, casez
 hashs:  .byte   "AB#CD$"
 pcts:   .byte   "X%Y$"
 tabs:   .byte   "P", 9, "Q"
