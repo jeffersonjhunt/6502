@@ -982,6 +982,90 @@ tests.
 - **Where it lives:** block 60 10,227 bytes of 16,384 (`BDOS2` still unused); the zero page 201 of 240; `SYSBSS`
   701 of 1,280; the CCP's code window 1,323 bytes; common memory 1,107 of 2,048, as it was.
 
+**Decided (2026-10-30): phase 3c, the memory functions (51–58) and OODOS's 73 and 74.**
+
+1. **Allocatable memory is banks 1–5 only:** 20 blocks of 16 KB, 320 KB, as function 72 already reports. The
+   granularity is a 16 KB block (1,024 paragraphs): lengths round up, bases are block boundaries.
+2. **Function 51's DMA segment applies to disk transfers only,** as in CP/M-86: the records of 20, 21, 33, 34 and
+   40 (single and multi-sector), and the directory record 17 and 18 return in the DMA buffer. Console strings (9,
+   10, 111 ...) and FCBs stay CPU addresses. `$FFFF`, the default, set at cold boot and every warm boot, means the
+   DMA address is the program's CPU address, as before. 3b1's range check (`MRANGE`) checks the physical range
+   when a segment is set.
+3. **Function 74 refuses A:,** the system drive. It mounts and unmounts B:–G: only, and logs that drive out so the
+   next access sees the new image.
+4. **Testing:** directed tests for every function; the random model comparison gains a DMA segment, so file I/O
+   through physical addresses is compared with the model; 53–58, 73 and 74 get directed tests only.
+
+**Proposed (3c)** (the choices where this document and CP/M-86 are silent are ours, and say so):
+
+- **The dispatch** is widened first: the "no handler" test is `CPX #$FF` (it was `BMI`, which capped FJUMPS at 64
+  handlers, all used); FJUMPS may hold 127. Two cycles a call more.
+- **51** takes the segment in A/X and returns A = X = 0; any value is taken, and checked when a record moves. The
+  physical address is segment × 16 + the DMA address (26's, the SCB's `$3C`). **What a segment may reach** (ours):
+  any RAM but OODOS's own: banks 0–5, 8–B (video memory) and E; refused are banks 6–7 (the hash, the buffers, the
+  system block), C–D (M:) and blocks 60–63 (the BDOS, the BIOS, block 62, the ROM BIOS's copy), and anything past
+  `$FFFFF`. Flash has no physical address (a window's ROM bit), so it can't be named. A DMA address whose records
+  run past `$FFFF` is refused as without a segment. Refused memory is the error any memory that isn't gets: A = X
+  = `$FF` and nothing done, checked before the first record for 20, 21, 33, 34 and 40 (after the FCB's drive and
+  a write's R/O checks, as `MRANGE` is now), and at the move for 17 and 18 (their search goes on, as with a DMA
+  address in the I/O hole now). Function 13 sets the DMA address to `$0280` and keeps the segment (CP/M-86's 13:
+  "relative to the current DMA segment base"). What else uses the DMA address stays the program's CPU address:
+  46's free space, the passwords 15, 19, 22, 23, 30, 99, 100 and 103 read there, and 10's buffer with A/X = 0
+  (ours: decision 2's "disk transfers only").
+- **The BIOS's XMOVE** takes a physical bank, `$80` + A16–A19 (ours): MOVE's address on that side is then the
+  physical address's low 16 bits. The BDOS moves a segment's records so. Function 50 passes it on, as it passes
+  bank 0, the system's view, now.
+- **52** takes the address of 4 bytes it fills (ours): the DMA address (+0–1, CP/M-86's BX) and the segment (+2–3,
+  its ES); A = X = 0.
+- **The MCB** is CP/M-86's: +0–1 M_BASE (a paragraph), +2–3 M_LENGTH (paragraphs), +4 M_EXT. Results (ours, as
+  OODOS maps CP/M's): A = 0 done, A = `$FF` with X 0 no memory (CP/M-86's AL `$FF`), A = X = `$FF` an MCB that
+  isn't memory (the I/O hole), nothing written. A length is rounded up to whole blocks (0 is none: `$FF`); a
+  length out is the blocks' (× 1,024). A base must be a block's first paragraph in banks 1–5 (`$1000`, `$1400`,
+  ... `$5C00`), else `$FF`.
+  - **53** (MC_MAX): the largest run of free blocks, at most the length asked: M_BASE its base (the lowest of
+    equal runs), M_LENGTH its length, M_EXT 1 if a free block is left outside it, else 0. It allocates nothing,
+    as this document's table has it ("the largest free run").
+  - **54** (MC_ABSMAX): the same from M_BASE: the run of free blocks starting there, at most the length asked;
+    shorter if a block in it is taken (ours), `$FF` if the base's own block is.
+  - **55** (MC_ALLOC): the lowest run of free blocks of the length; M_BASE its base, M_LENGTH the length rounded.
+  - **56** (MC_ABSALLOC): the length from M_BASE, all of it free, else `$FF` and nothing allocated (ours: no
+    shrinking); M_LENGTH the length rounded.
+  - **57** (MC_FREE): M_EXT `$FF` frees everything, as 58 (CP/M-86's); otherwise M_BASE must be an allocation's
+    base, and that whole allocation is freed; a base that isn't one is `$FF`, nothing freed (ours: CP/M-86 can
+    free a region's top part; OODOS frees whole allocations).
+  - **58** (MC_ALLFREE) frees every allocation; A = X = 0.
+- **Who owns an allocation** (ours): the running program. The warm boot frees all, as 58, and sets the segment
+  back to `$FFFF`, in common memory's WARM, so a program that ends any way leaks nothing. The map is a byte a
+  block in `SYSBSS`, 20 bytes: 0 free, `$81` an allocation's first block, 1 a later one.
+- **73** takes the address of 4 bytes (ours): +0–1 a CPU address in, the program's; out +0–1 the offset (0–15)
+  and +2–3 the paragraph, so the physical address is paragraph × 16 + offset (and 51 with the paragraph and 26
+  with the offset name it), through the windows the stub saved (W3 a far call's block, if one is mapped). A = X
+  = 0. An address in the I/O hole, or in a window on flash, is A = X = `$FF`, the 4 bytes as they were; a
+  read-only window translates (it is RAM).
+- **74** takes the address of a block laid out as the card's MOUNT sector, with a drive for the unit (ours): +0
+  the drive (0–15, as 14's: 1–6 are B:–G:), +1 the flags (bit 0 read-only), +2 the path to its NUL, as DRIVES.TXT
+  has it: from the root, `/`-separated, no name empty, `.` or `..` (so no `//` and no `/` at the end), no space,
+  tab, `#`, control character or DEL, at most 509 bytes. An empty path unmounts the drive. In order: the drive
+  (B:–G:), the path, then the drive's changed buffers written back: one that fails refuses the call, nothing
+  mounted and the buffers kept (marked, as a write-back that fails keeps them now). Then the drive's buffers are
+  dropped and it is logged out, read-write; the card's MOUNT (or UNMOUNT); the units read again (a rescan, as
+  13's); then the new unit checked: 16,384 or 65,536 sectors, and no other unit on a file of the same name (the
+  units table's 24 bytes, DRIVES.TXT's rule). A unit that fails those is unmounted again: the drive has no image.
+  A drive unmounted (or left so) is no drive: a later access is Invalid Drive (4), as a drive DRIVES.TXT doesn't
+  name. A = 0 done; else A = `$FF` and X (ours; 74 returns its errors whatever the error mode, and says nothing):
+  1 a write-back or the card failed (no card, no FAT, a timeout), 4 not a drive 74 changes (A:, M:, H:–P:), `$10`
+  the path refused, `$11` not found (or a directory), `$12` the image's size, `$13` another drive's file. Unmounting
+  a drive with nothing mounted is done (A = 0).
+- **The BIOS's mount** (ours) is `SDMNT`, a routine of block 61 the BDOS calls directly (with W2 on block 61),
+  not through the jump table, so programs reach it only by 74: the card's MOUNT of the system block's sector
+  buffer, or UNMOUNT of a unit, through `SDIO`, which now takes its command from a table by `DOP` (0 READ, 1 WRITE,
+  2 UNMOUNT, 3 MOUNT; bit 0 the DMA's direction) and lets UNMOUNT end with nothing moved. Six instructions more.
+- **The model comparison:** `cpm3model.py` gains 51, 50's XMOVE and MOVE for the forms DRIVER uses, and physical
+  memory of its own; a segment's records go there, refused as the BDOS refuses them. A new operation, SMULTI,
+  sets a segment and a DMA address, runs a transfer, clears them, and DRIVER moves the records between its buffer
+  and the physical address by function 50 before and after, so their bytes are compared. The generator makes
+  them from a fourth random stream, so a seed's script is as before up to its first.
+
 ## RSXs and programs ##
 
 **Decided (2026-10-26): CP/M 3's split. `.COM` files load at a fixed address; `.PRL` files are relocatable.**
