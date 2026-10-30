@@ -497,7 +497,8 @@ ISWILD:         LDX     #FCB_NAME
 
 ; PIN: A bytes from the program's BW1 to the system's BW2 (bank 0: W2 the
 ; block the BDOS has there); POUT from the system's BW1 to the program's
-; BW2. By the BIOS's XMOVE and MOVE; memory it refuses ends the function.
+; BW2. By the BIOS's XMOVE and MOVE; memory MOVE refuses (its carry) ends
+; the function.
 PIN:            PHA
                 LDA     #BANK_PROG
                 LDX     #BANK_SYS
@@ -509,10 +510,7 @@ PCOPY:          JSR     B_XMOVE
                 PLA
                 LDX     #0
                 JSR     B_MOVE
-                CMP     #$FF
-                BNE     @done
-                CPX     #$FF
-                BNE     @done
+                BCC     @done          ; MOVE's carry: A/X $FFFF may be an end, $xFF7F + 128
                 JMP     ABORT
 @done:          RTS
 

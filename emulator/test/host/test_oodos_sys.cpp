@@ -3393,10 +3393,12 @@ TEST(function_51_s_dma_segment_moves_records_to_and_from_physical_memory)
                     static_cast<unsigned long long>(took[2]), static_cast<unsigned long long>(took[3]));
     check_fields(o, {
         {"GET0", "8002FFFF"}, {"GET1", "00000010"}, {"DMK", "00 00"}, {"DW4", "00 00"}, {"DCL", "00 00"},
-        {"DRD", "Y"}, {"DR2", "00 00"}, {"DR2CHK", "Y"}, {"DRX", "00 00"}, {"DRXCHK", "Y"}, {"DRC", "00 00"},
+        {"DRD", "Y"}, {"DR2", "00 00"}, {"DR2CHK", "Y"}, {"DRF", "00 00"}, {"DRFCR", "01"}, {"DRFCHK", "Y"},
+        {"DRX", "00 00"}, {"DRXCHK", "Y"}, {"DRC", "00 00"},
         {"DRS", "00 00"}, {"D17", "01 00"}, {"D17CHK", "Y"}, {"D18", "FF 00"}, {"DRST", "FF FF"},
         {"DRSTCHK", "Y"}, {"DRB6", "FF FF"}, {"DRM", "FF FF"},
         {"DRBD", "FF FF"}, {"DRPAST", "FF FF"}, {"DRWRAP", "FF FF"}, {"DRM16", "01 04"}, {"DRM17", "FF FF"},
+        {"DR255", "01 04"}, {"DR255X", "FF FF"},
         {"DWMCR0", "04"}, {"DWM", "FF FF"}, {"DWMCR", "04"}, {"D17M", "FF FF"}, {"DFREE", "00 00"},
         {"DFREECPU", "Y"}, {"GET13", "80023412"},
     });
@@ -3428,7 +3430,9 @@ TEST(xmove_takes_a_physical_bank_through_function_50)
     REQUIRE(r.ok);
     const std::string o = memtest(r, 'B');
     check_fields(o, {{"BTO", "80 20"}, {"BCHK", "Y"}});
-    CHECK(field(o, "BFROM") != "<no BFROM>");
+    const std::string end = field(o, "BEND"); // BUF + 128, as MEMTEST has it: low, high
+    REQUIRE(end.size() == 4);
+    CHECK_EQ(field(o, "BFROM"), end.substr(0, 2) + " " + end.substr(2, 2));
     for (uint32_t i = 0; i < REC32; ++i)
         CHECK_EQ(r.phys(0x12000 + i), static_cast<uint8_t>(i));
 }
@@ -3439,19 +3443,27 @@ TEST(cp_m_86_s_memory_functions_hand_out_banks_1_to_5_by_the_block)
     REQUIRE(r.ok);
     const std::string o = memtest(r, 'M');
     check_fields(o, {
-        {"MAX", "00 00"}, {"MAXM", "0010005000"}, {"MAX1", "00 00"}, {"MAX1M", "0010000401"}, {"MAX0", "FF 00"},
+        {"MAX", "00 00"}, {"MAXM", "0010005000"}, {"MXA", "FF 00"}, {"MXAM", "0000000400"}, {"MXF", "00 00"},
+        {"MXFM", "0010000000"}, {"MAX1", "00 00"}, {"MAX1M", "0010000401"}, {"M1A", "00 00"}, {"M1AM", "0014000400"},
+        {"M1F", "00 00"}, {"M1FM", "0010000000"}, {"M1AF", "00 00"}, {"M1AFM", "0014000000"}, {"MAX0", "FF 00"},
         {"MAX0M", "3412000007"}, {"AL1", "00 00"}, {"AL1M", "0010000800"}, {"AL2", "00 00"}, {"AL2M", "0018000800"},
         {"AB1", "00 00"}, {"AB1M", "0020000400"}, {"AB2", "FF 00"}, {"AB2M", "001C000400"}, {"AB3", "FF 00"},
         {"AB3M", "0011000400"}, {"AB4", "FF 00"}, {"AB4M", "000C000400"}, {"AB5", "FF 00"}, {"AB5M", "0060000400"},
         {"AB6", "FF 00"}, {"AB6M", "001C000C00"}, {"AB7", "FF 00"}, {"AB7M", "0024000000"}, {"AM1", "FF 00"},
-        {"AM1M", "0010000400"}, {"AM2", "00 00"}, {"AM2M", "0024003C00"}, {"AM3", "00 00"}, {"AM3M", "0024000C01"},
-        {"AM4", "FF 00"}, {"AM4M", "001CFFFF00"}, {"MAX2", "00 00"}, {"MAX2M", "0024003C00"}, {"FR1", "FF 00"},
+        {"AM1M", "0010000400"}, {"AM2", "00 00"}, {"AM2M", "0024003C00"}, {"AM2F", "00 00"}, {"AM2FM", "0024000000"},
+        {"AM3", "00 00"}, {"AM3M", "0024000C01"}, {"AM3F", "00 00"}, {"AM3FM", "0024000000"},
+        {"AM4", "FF 00"}, {"AM4M", "001CFFFF00"}, {"MAX2", "00 00"}, {"MAX2M", "0024003C00"}, {"MAX2F", "00 00"},
+        {"MAX2FM", "0024000000"}, {"FR1", "FF 00"},
         {"FR1M", "001C000000"}, {"FR2", "00 00"}, {"FR2M", "0018000000"}, {"FR3", "FF 00"}, {"FR3M", "0018000000"},
         {"AB8", "FF 00"}, {"AB8M", "0018000C00"},
         {"AL3", "FF 00"}, {"AL3M", "0000005000"}, {"MAX3", "00 00"}, {"MAX3M", "0024003C01"}, {"FRALL", "00 00"},
-        {"FRALLM", "00000000FF"}, {"MAX4", "00 00"}, {"MAX4M", "0010005000"}, {"AL4", "00 00"},
+        {"FRALLM", "00000000FF"}, {"MAX4", "00 00"}, {"MAX4M", "0010005000"}, {"MAX4F", "00 00"},
+        {"MAX4FM", "0010000000"}, {"AL4", "00 00"},
         {"AL4M", "0010005000"}, {"AL5", "FF 00"}, {"AL5M", "0000010000"}, {"ALLFREE", "00 00"}, {"MAX5", "00 00"},
-        {"MAX5M", "0010005000"}, {"MHOLE", "FF FF"}, {"AL6", "00 00"}, {"AL6M", "0010000400"},
+        {"MAX5M", "0010005000"}, {"MHOLE", "FF FF"}, {"MAX5F", "00 00"}, {"MAX5FM", "0010000000"}, {"TA", "00 00"},
+        {"TAM", "0010000C00"}, {"TS", "FF 00"}, {"TSM", "0014000400"}, {"TB", "00 00"}, {"TBM", "0014010800"},
+        {"TC", "00 00"}, {"TCM", "0014000800"}, {"TD", "00 00"}, {"TDM", "0010000000"}, {"TE", "00 00"},
+        {"TEM", "0014000000"}, {"AL6", "00 00"}, {"AL6M", "0010000400"},
     });
     // AL6's block, left allocated as the program ended, freed by the warm boot.
     const std::string w = memtest(r, 'W');
@@ -3497,6 +3509,17 @@ TEST(function_74_mounts_and_unmounts_b_to_g_as_drives_txt_has_paths)
     r.run(ms(SdCard::INIT_MS + 10));
     REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0); // A: only
     REQUIRE(r.boot());
+    // RSCN?: the card taken out as 74's rescan starts (the BIOS's UNITS, W2 on block 61), after
+    // its MOUNT worked; RMEND?: put back, A.IMG and B.IMG on units 1 and 3 again.
+    bool pull = false;
+    const uint16_t units = sym("UNITS");
+    r.watch = [&](uint16_t pc) {
+        if (pull && pc == units && r.nb(2) == 61)
+        {
+            pull = false;
+            r.sd().eject();
+        }
+    };
     const std::string o = memtest(r, 'N',
                                   {{"SECT?", [&] {
                                         std::vector<uint8_t> s = r.read_unit(3, 0);
@@ -3507,7 +3530,15 @@ TEST(function_74_mounts_and_unmounts_b_to_g_as_drives_txt_has_paths)
                                         write_unit(r, 3, 0, s);
                                     }},
                                    {"FAULT?", [&] { fm->fail = true; }},
-                                   {"MEND?", [&] { fm->fail = false; }}});
+                                   {"MEND?", [&] { fm->fail = false; }},
+                                   {"RSCN?", [&] { pull = true; }},
+                                   {"RMEND?", [&] {
+                                        r.sd().insert(fm, false);
+                                        r.run(ms(SdCard::INIT_MS + 10));
+                                        CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+                                        CHECK_EQ(r.mount(3, "/OODOS/B.IMG"), 0); // for the checks below
+                                    }}});
+    r.watch = nullptr;
     check_fields(o, {
         {"NA", "FF 04"}, {"NM", "FF 04"}, {"NH", "FF 04"}, {"NP1", "FF 10"}, {"NP2", "FF 10"}, {"NP3", "FF 10"},
         {"NP4", "FF 10"}, {"NP5", "FF 10"}, {"NP6", "FF 10"}, {"NP7", "FF 10"}, {"NP8", "FF 10"}, {"NP9", "FF 10"},
@@ -3516,7 +3547,7 @@ TEST(function_74_mounts_and_unmounts_b_to_g_as_drives_txt_has_paths)
         {"NC17", "FF 00"}, {"NCW", "00 00"}, {"NC2", "00 00"}, {"NCY", "02 00"}, {"NUC", "00 00"},
         {"NUCSEL", "FF 04"}, {"NUC2", "00 00"}, {"NRO", "00 00"}, {"NROMK", "FF 02"}, {"NC3", "00 00"},
         {"NWW", "00 00"}, {"NWB", "FF 01"}, {"NWBSEL", "00 00"}, {"NWB2", "00 00"}, {"NC4", "00 00"},
-        {"NWBCHK", "Y"},
+        {"NWBCHK", "Y"}, {"NRS", "FF 01"},
     });
     // What C: wrote went to B.IMG (unit 3, mounted by 74), the record written again after the
     // card's writes came back among it, and Y.DAT as the test put it there.

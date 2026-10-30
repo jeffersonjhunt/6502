@@ -12,13 +12,16 @@
 ;                   segment (+2-3). A = X = 0
 ;   53  MC_MAX      the MCB at A/X (+0-1 M_BASE, a paragraph; +2-3 M_LENGTH,
 ;                   paragraphs; +4 M_EXT): the largest run of free blocks, at
-;                   most M_LENGTH: its base and length, M_EXT 1 if a free
-;                   block is left outside it. Allocates nothing
+;                   most M_LENGTH rounded up to whole blocks, allocated, as
+;                   CP/M-86's: its base and length, M_EXT 1 if a free block
+;                   is left outside it
 ;   54  MC_ABSMAX   the same, the run from M_BASE
 ;   55  MC_ALLOC    M_LENGTH allocated, the lowest run that has it: M_BASE
 ;   56  MC_ABSALLOC M_LENGTH allocated at M_BASE, all of it free
-;   57  MC_FREE     M_EXT $FF: everything freed (58); else the allocation
-;                   whose base is M_BASE
+;   57  MC_FREE     M_EXT $FF: everything freed (58); else M_BASE an
+;                   allocation's base: all of it freed; or a later block of
+;                   one, M_LENGTH reaching its end: freed from there on, its
+;                   head kept
 ;   58  MC_ALLFREE  every allocation freed
 ;   73  O_PHYSADDR  A/X = 4 bytes: a CPU address (+0-1) in; out the offset
 ;                   (+0-1, 0-15) and the paragraph (+2-3) of its physical
@@ -175,9 +178,10 @@ SEGADR:         LDA     DMASEG + 1
                 INC     SG + 2
 @done:          RTS
 
-; Carry set if SG to SG + A/Y (at most $3FFF on: two blocks) isn't all
-; memory a segment may reach: past $FFFFF, or in a block of OODOS's own
-; (BLKOK). Keeps X.
+; Carry set if SG to SG + A/Y (at most $7FFF on: 49 may set a multi-sector
+; count of 255, three blocks) isn't all memory a segment may reach: past
+; $FFFFF, or a block of OODOS's own (BLKOK), each block from the first to
+; the last checked. Keeps X.
 SEGOK:          CLC
                 ADC     SG
                 STA     SGE
@@ -190,13 +194,17 @@ SEGOK:          CLC
                 CMP     #$10
                 BCS     @no            ; past $FFFFF
                 PHX
-                LDX     #SG
-                JSR     BLKOF
-                JSR     BLKOK
-                BCS     @out
                 LDX     #SGE
                 JSR     BLKOF
-                JSR     BLKOK
+                STA     SGE            ; the last block (SGE's done with)
+                LDX     #SG
+                JSR     BLKOF          ; the first
+@block:         JSR     BLKOK          ; (keeps A)
+                BCS     @out
+                CMP     SGE
+                INC     A
+                BCC     @block         ; short of the last
+                CLC
 @out:           PLX
                 RTS
 @no:            SEC
@@ -314,9 +322,30 @@ RUN:            STZ     MRUN
                 BRA     @block
 @done:          RTS
 
-; MBLK's base = block MIDX, its length MRUN blocks, its M_EXT 1 if a free
-; block is left outside them; then out to the program (53, 54).
-SAYRUN:         STZ     MBLK
+; MRUN blocks from MIDX allocated (53, 54): MBLK's base and length
+; theirs, its M_EXT 1 if a free block is left; then out to the program.
+SAYRUN:         JSR     MARK
+                LDX     #AMAP_LEN - 1
+                LDA     #0
+@count:         LDY     AMAP,X
+                BNE     @taken
+                LDA     #1
+@taken:         DEX
+                BPL     @count
+                STA     MBLK + 4
+                JMP     MCBOUT
+
+; MRUN blocks from MIDX allocated: MBLK's base block MIDX, its length MRUN
+; blocks.
+MARK:           LDX     MIDX
+                LDA     #MAP_FIRST
+                LDY     MRUN
+@block:         STA     AMAP,X
+                LDA     #MAP_MORE
+                INX
+                DEY
+                BNE     @block
+                STZ     MBLK
                 LDA     MIDX
                 CLC
                 ADC     #FIRST_BLOCK
@@ -328,19 +357,7 @@ SAYRUN:         STZ     MBLK
                 ASL     A
                 ASL     A
                 STA     MBLK + 3
-                LDX     #AMAP_LEN - 1  ; the free blocks, less the run's
-                LDA     #0
-@count:         LDY     AMAP,X
-                BNE     @taken
-                INC     A
-@taken:         DEX
-                BPL     @count
-                SEC
-                SBC     MRUN
-                BEQ     @ext
-                LDA     #1
-@ext:           STA     MBLK + 4
-                JMP     MCBOUT
+                RTS
 
 ; MRUN = at most MNEED.
 CLAMP:          LDA     MRUN
@@ -421,28 +438,9 @@ F_MCABSALL:     LDX     #5
                 ; on: TAKE
 
 ; MNEED blocks from MIDX allocated; the MCB's base and length theirs.
-TAKE:           LDX     MIDX
-                LDA     #MAP_FIRST
-                LDY     MNEED
-@block:         STA     AMAP,X
-                LDA     #MAP_MORE
-                INX
-                DEY
-                BNE     @block
-                LDA     MNEED
+TAKE:           LDA     MNEED
                 STA     MRUN
-                STZ     MBLK
-                LDA     MIDX
-                CLC
-                ADC     #FIRST_BLOCK
-                ASL     A
-                ASL     A
-                STA     MBLK + 1
-                STZ     MBLK + 2
-                LDA     MRUN
-                ASL     A
-                ASL     A
-                STA     MBLK + 3
+                JSR     MARK
                 JMP     MCBOUT
 
 NOMEM2:         BRA     NOMEM
@@ -457,7 +455,25 @@ F_MCFREE:       LDX     #5
                 LDX     MIDX
                 LDA     AMAP,X
                 CMP     #MAP_FIRST
-                BNE     NOMEM2
+                BEQ     @block         ; an allocation's base: all of it
+                CMP     #MAP_MORE
+                BNE     NOMEM2         ; a free block
+                JSR     NEED           ; a later block: its tail, if M_LENGTH reaches the end
+                BCS     NOMEM2
+                LDX     MIDX
+@end:           INX
+                CPX     #AMAP_LEN
+                BCS     @ends
+                LDA     AMAP,X
+                CMP     #MAP_MORE
+                BEQ     @end
+@ends:          TXA                    ; the tail's blocks
+                SEC
+                SBC     MIDX
+                CMP     MNEED
+                BEQ     @tail
+                BCS     NOMEM2         ; short of the end
+@tail:          LDX     MIDX
 @block:         STZ     AMAP,X
                 INX
                 CPX     #AMAP_LEN
@@ -620,6 +636,8 @@ F_MOUNT:        JSR     PGET           ; the drive: B:-G:
 @done:          JSR     RESCAN
                 JMP     RET0
 @mounted:       JSR     RESCAN         ; the units again: the new one's size and name
+                LDX     #ER_CARD
+                BCS     @wrong         ; not read: the table is the old one's
                 LDA     MDRV
                 ASL     A
                 ASL     A

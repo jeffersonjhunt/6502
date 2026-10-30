@@ -128,11 +128,22 @@ SELECT:         STA     CDRV
 ; The card's units read again (a first select, of A:), then CHANGED: 13 and
 ; 37 run it before they write anything back, so a drive whose image was
 ; swapped since has its old buffers dropped, not written to the new one.
+; Carry set if they couldn't be read (SELDSK's 0: no units table, the BIOS's
+; copy as it was); 74 checks it.
 RESCAN:         LDA     #0
                 TAX                    ; X 0: a first select
                 JSR     B_SELDSK
                 STZ     BIOSDRV        ; the BIOS has A: (or none): DISKOP selects again
-                JMP     CHANGED
+                STX     CHG            ; (CHANGED's, set again there)
+                ORA     CHG
+                CMP     #1             ; carry clear: no DPH
+                ROR     A
+                EOR     #$80           ; bit 7: failed
+                PHA
+                JSR     CHANGED
+                PLA
+                ASL     A
+                RTS
 
 ; The drives whose unit changed at a rescan of the units (the BIOS's
 ; DRVCHG) logged out, read-write, their buffers dropped, not written: the

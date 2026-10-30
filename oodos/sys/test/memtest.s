@@ -268,6 +268,25 @@ cased:  lda     #DRV_M
         plp
         SAY     "DR2CHK "
         jsr     YESNO
+; record 0 by 20 to $1FF7F: MOVE's end, $FFFF, is no refusal
+        SEG     $1FF7, $000F
+        stz     fcb+32
+        TRY     "DRF ", F_READ, fcb
+        BYTES   "DRFCR ", fcb+32, 1
+        BLK     7
+        lda     #<(WIN2 + $3F7F)
+        sta     WP
+        lda     #>(WIN2 + $3F7F)
+        sta     WP+1
+        stz     PI
+        stz     PI+1
+        lda     #128
+        jsr     patn
+        php
+        BLK     2
+        plp
+        SAY     "DRFCHK "
+        jsr     YESNO
 ; record 3 across $1FFFF/$20000
         BLK     7
         lda     #$E7
@@ -395,6 +414,16 @@ cased:  lda     #DRV_M
         TRY     "DRM16 ", F_READRAND, fcb
         CALLF   F_MULTISEC, 17
         TRY     "DRM17 ", F_READRAND, fcb
+        lda     #$4A                    ; 49: a count of 255, three blocks' span
+        sta     get
+        lda     #$FF
+        sta     get+1
+        sta     get+2
+        CALLF   S_SCB, get
+        SEG     $2BF8, 0                ; blocks 10-12
+        TRY     "DR255 ", F_READRAND, fcb
+        SEG     $5BF8, 0                ; blocks 22-24
+        TRY     "DR255X ", F_READRAND, fcb
         CALLF   F_MULTISEC, 1
         SEG     $C000, 0
         BYTES   "DWMCR0 ", fcb+32, 1
@@ -425,8 +454,7 @@ cased:  lda     #DRV_M
         CALLF   DRV_ALLRESET, 0
         CALLF   F_DMAGET, get
         BYTES   "GET13 ", get, 4
-        CALLF   F_DMASEG, $FFFF
-        jmp     done
+        jmp     done                    ; the segment left set: W sees WARM reset it
 
 ; ---------------------------------------------------------------------------
 ; W: what the warm boot left
@@ -443,8 +471,18 @@ casew:  CALLF   F_DMAOFF, $0280
 
 casem:  MCB     0, $5000, 0
         MTRY    "MAX", MC_MAX
+        MCB     0, $0400, 0             ; 53 allocated all 20
+        MTRY    "MXA", MC_ALLOC
+        MCB     $1000, 0, 0             ; and 57 frees it
+        MTRY    "MXF", MC_FREE
         MCB     0, 1, 0
         MTRY    "MAX1", MC_MAX
+        MCB     0, $0400, 0             ; 55 doesn't get 53's block
+        MTRY    "M1A", MC_ALLOC
+        MCB     $1000, 0, 0
+        MTRY    "M1F", MC_FREE
+        MCB     $1400, 0, 0
+        MTRY    "M1AF", MC_FREE
         MCB     $1234, 0, 7
         MTRY    "MAX0", MC_MAX
         MCB     0, $0800, 0
@@ -469,13 +507,19 @@ casem:  MCB     0, $5000, 0
         MTRY    "AM1", MC_ABSMAX
         MCB     $2400, $FFFF, 0
         MTRY    "AM2", MC_ABSMAX
+        MCB     $2400, 0, 0
+        MTRY    "AM2F", MC_FREE
         MCB     $2400, $0801, 0
         MTRY    "AM3", MC_ABSMAX
+        MCB     $2400, 0, 0
+        MTRY    "AM3F", MC_FREE
         MCB     $1C00, $FFFF, 0
         MTRY    "AM4", MC_ABSMAX
         MCB     0, $FFFF, 0
         MTRY    "MAX2", MC_MAX
-        MCB     $1C00, 0, 0
+        MCB     $2400, 0, 0
+        MTRY    "MAX2F", MC_FREE
+        MCB     $1C00, 0, 0             ; AL2's second block, a length of 0
         MTRY    "FR1", MC_FREE
         MCB     $1800, 0, 0
         MTRY    "FR2", MC_FREE
@@ -491,6 +535,8 @@ casem:  MCB     0, $5000, 0
         MTRY    "FRALL", MC_FREE
         MCB     0, $FFFF, 0
         MTRY    "MAX4", MC_MAX
+        MCB     $1000, 0, 0
+        MTRY    "MAX4F", MC_FREE
         MCB     0, $5000, 0
         MTRY    "AL4", MC_ALLOC
         MCB     0, $0001, 0
@@ -499,6 +545,20 @@ casem:  MCB     0, $5000, 0
         MCB     0, $FFFF, 0
         MTRY    "MAX5", MC_MAX
         TRY     "MHOLE ", MC_MAX, $C000
+        MCB     $1000, 0, 0
+        MTRY    "MAX5F", MC_FREE
+        MCB     0, $0C00, 0             ; 57 of a tail: blocks 4-6
+        MTRY    "TA", MC_ALLOC
+        MCB     $1400, $0400, 0         ; 5 only: short of the end
+        MTRY    "TS", MC_FREE
+        MCB     $1400, $0801, 0         ; 5 and 6, rounded past the end: freed
+        MTRY    "TB", MC_FREE
+        MCB     0, $0800, 0             ; 4 kept: 5 and 6 the lowest two free
+        MTRY    "TC", MC_ALLOC
+        MCB     $1000, 0, 0             ; the head alone
+        MTRY    "TD", MC_FREE
+        MCB     $1400, 0, 0
+        MTRY    "TE", MC_FREE
         MCB     0, $0400, 0             ; one left for the warm boot to free
         MTRY    "AL6", MC_ALLOC
         jmp     done
@@ -580,6 +640,7 @@ caseb:  ldx     #127
         lda     RA
         ldx     RX
         jsr     RES
+        BYTES   "BEND ", bend, 2
         ldx     #127
 :       txa
         cmp     BUF,x
@@ -592,6 +653,10 @@ caseb:  ldx     #127
 :       SAY     "BCHK "
         jsr     YESNO
         jmp     done
+
+        .rodata
+bend:   .word   BUF + 128               ; BFROM's A/X: the end of the move to BUF
+        .code
 
 ; Function 50's XMOVE, A the source bank, X the destination.
 xmove:  sta     bpb+1
@@ -690,6 +755,9 @@ casen:  MOUNT   "NA ", 0, "/OODOS/B.IMG"
 :       SAY     "NWBCHK "
         jsr     YESNO
         CALLF   DRV_SET, 0
+        KEYWAIT "RSCN?"                 ; the test takes the card out at the rescan
+        MOUNT   "NRS ", DRV_C, "/OODOS/B.IMG"
+        KEYWAIT "RMEND?"                ; and puts it back, A.IMG on unit 1
         jmp     done
 
 ; mblk: the drive Y, the path at A/X (to its NUL) from +2.

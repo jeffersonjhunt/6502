@@ -40,8 +40,11 @@
 ;   MULTIO   A = count                       A = 0 (READ and WRITE take one)
 ;   FLUSH    -                               A = 0 (nothing is held back)
 ;   MOVE     A/X = count, BW1 = source       A/X and BW2 = destination +
-;            (CP/M's DE), BW2 = destination  count, BW1 = source + count; or
-;            (CP/M's HL)                     A = X = $FF, nothing moved
+;            (CP/M's DE), BW2 = destination  count, BW1 = source + count,
+;            (CP/M's HL)                     carry clear; or A = X = $FF,
+;                                            carry set, nothing moved (an
+;                                            end of $FFFF is a move: the
+;                                            carry tells them apart)
 ;   TIME     A = 0 read the clock into the   carry set if the clock is past
 ;            SCB, $FF set it from the SCB    2155 (the SCB left as it was)
 ;   SELMEM   A = bank                        - (the bank MOVE uses)
@@ -891,8 +894,9 @@ MOVE:           STA     CNT
                 STA     BW2 + 1
                 TAX
                 LDA     BW2
+                CLC                    ; moved: carry clear, whatever A/X are
                 RTS
-@refused:       LDA     #$FF
+@refused:       LDA     #$FF           ; carry set (COPY's)
                 TAX
                 RTS
 
