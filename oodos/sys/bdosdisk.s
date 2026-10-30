@@ -61,7 +61,8 @@
 ; truncate stamp the update in the extent-zero entry's slot whichever extent
 ; they changed (STAMPU), and Open of extent 0 the access if the mode asks.
 ; Later extents' slots stay 0. The time is BIOS TIME's in the SCB. A
-; directory without SFCBs gets none.
+; directory without SFCBs gets none. A made entry's slot is cleared even
+; when the label asks for no stamps (3b1: 102 reads it).
 
 .setcpu "65C02"
 .include "bdos.inc"
@@ -1105,11 +1106,19 @@ MAKEENT:        STA     MKU
                 CPY     #ENTRY_LEN
                 BNE     @zero
                 JSR     DIRPUT
-                LDA     DIDX           ; past the high-water mark: it moves
+                JSR     HWMUP
+                JSR     INITSTAMP
+                JSR     DIRENT
+                CLC
+                RTS
+
+; Entry DIDX now used: past the high-water mark, the mark moves (and CD is
+; saved). Keeps DIDX, DPTR and T0-T5.
+HWMUP:          LDA     DIDX
                 CMP     HWM
                 LDA     DIDX + 1
                 SBC     HWM + 1
-                BCC     @stamps
+                BCC     @done
                 CLC
                 LDA     DIDX
                 ADC     #1
@@ -1117,11 +1126,8 @@ MAKEENT:        STA     MKU
                 LDA     DIDX + 1
                 ADC     #0
                 STA     HWM + 1
-                JSR     SAVECD
-@stamps:        JSR     INITSTAMP
-                JSR     DIRENT
-                CLC
-                RTS
+                JMP     SAVECD
+@done:          RTS
 
 ; The 128-byte directory record holding the entry at DPTR, to the DMA
 ; address (17, 18).
@@ -1154,12 +1160,15 @@ STAMP:          STA     STW
                 JMP     SFCBPUT
 @none:          RTS
 
-; A made entry's SFCB slot, if the label asks for stamps: 0, and for Make's
-; extent 0 (MKU bit 7) the first stamp the time if the mode asks for
+; A made entry's SFCB slot, if it has one: 0 (no stamp made, no password:
+; the Guide, 2.3.8 and 102), whatever the label asks, but byte 8 the mode of
+; an XFCB the file already has, for an extent-zero entry (NEWMODE); and for
+; Make's extent 0 (MKU bit 7) the first stamp the time if the mode asks for
 ; creation or access stamps, the update if it asks for those.
-INITSTAMP:      LDA     MODE
-                AND     #MODE_CREATE | MODE_UPDATE | MODE_ACCESS
-                BEQ     @none
+INITSTAMP:      LDA     MKU
+                AND     #$0F
+                JSR     NEWMODE
+                PHA
                 JSR     SFCBAT
                 BCS     @none
                 LDY     STOFS
@@ -1169,8 +1178,17 @@ INITSTAMP:      LDA     MODE
                 INY
                 DEX
                 BNE     @clear
+                LDA     STOFS
+                CLC
+                ADC     #8
+                TAY
+                PLA
+                STA     (DPTR),Y       ; the password mode
                 BIT     MKU
                 BPL     @put
+                LDA     MODE
+                AND     #MODE_CREATE | MODE_UPDATE | MODE_ACCESS
+                BEQ     @put
                 JSR     NOW
                 LDA     MODE
                 AND     #MODE_CREATE | MODE_ACCESS
@@ -1186,7 +1204,8 @@ INITSTAMP:      LDA     MODE
                 TAY
                 JSR     PUTNOW
 @put:           JMP     SFCBPUT
-@none:          RTS
+@none:          PLA
+                RTS
 
 ; The update stamp, if the label asks for them, in the slot of the file's
 ; extent-zero entry (user A, F's name, EX and S2 0): with carry clear the

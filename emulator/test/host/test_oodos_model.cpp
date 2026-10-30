@@ -24,10 +24,11 @@
  *     environment variable OODOS_MODEL_BDOS=0 or 1 for one run): each seed
  *     run by DRIVER.COM under OODOS.SYS on backplane.machine, B: (oodos-8m,
  *     oodos-32m) on the card or M:, compared with the model. The default
- *     seeds (modeltest.py seeds: 1, 4, 6, 10, 14, 24, 41, 45, the three
- *     formats; between them they fill a disk, a directory on M: and on B:
- *     and meet a read-only drive, which test_model.py checks; the BDOS
- *     bugs the comparison found have directed tests in RULETEST) take about 6
+ *     seeds (modeltest.py seeds: 1, 2, 4, 14, 24, 30, 34, 42, the three
+ *     formats; between them they fill a disk, a directory on M: and on B:,
+ *     meet a read-only drive, a Password Error and a multi-sector call cut
+ *     short, which test_model.py checks; the BDOS bugs the comparison found
+ *     have directed tests in RULETEST and XTRATEST) take about 6
  *     minutes under ASan; OODOS_MODEL_SEEDS (1,2,7-60...) chooses others,
  *     OODOS_MODEL_ONLY=1 runs the comparison alone (so seeds can run in
  *     parallel, a process each: oodos/test/model_seeds.sh), OODOS_MODEL_CUT=N
@@ -714,7 +715,9 @@ TEST(the_model_as_the_bdos_agrees_with_itself)
 
 TEST(a_wrong_bdos_is_caught)
 {
-    // Each fault on a seed whose script exercises it; check fails, and names the seed.
+    // Each fault on a seed whose script exercises it; check fails, and names the seed. (data's moved
+    // to seed 2 with phase 3b1's third stream, and back to seed 1 with the review's operations: seed 2's
+    // script now keeps no record 5 it writes.)
     const std::pair<const char *, unsigned> cases[] = {
         {"update", 1}, {"rc", 1}, {"code", 2}, {"data", 1}, {"a-attr", 1}};
     for (const auto &[fault, seed] : cases)

@@ -2449,6 +2449,402 @@ TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
     CHECK_EQ(field(r.out.substr(mark), "FREE0"), std::string("0003C0"));
 }
 
+// ---- phase 3b1: the file extras ----------------------------------------------------------
+
+/// XTRATEST's case `c` to its end, each prompt answered after its action ran.
+std::string xtratest(Rig &r, char c, const std::vector<std::pair<std::string, std::function<void()>>> &prompts = {})
+{
+    const size_t from = start(r, "xtratest.com", std::string(" ") + c);
+    for (const auto &[prompt, then] : prompts)
+    {
+        CHECK(r.until(prompt, ms(20000), from));
+        then();
+        r.type(" ");
+    }
+    CHECK(r.until("XTRATEST DONE", ms(60000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    return r.out.substr(from);
+}
+
+/// Bytes 13-23 of an entry holding `pw` as CP/M 3 keeps it (and cpmtools reads it): the key, the
+/// 8 bytes' sum, at 13; 14 and 15 as `s2rc`; the bytes in reverse order, each XORed with the key.
+std::vector<uint8_t> kept_pw(const std::string &pw, uint8_t s2 = 0, uint8_t rc = 0)
+{
+    uint8_t key = 0;
+    for (char c : pw)
+        key = static_cast<uint8_t>(key + static_cast<uint8_t>(c));
+    std::vector<uint8_t> out = {key, s2, rc};
+    for (unsigned j = 0; j < 8; ++j)
+        out.push_back(static_cast<uint8_t>(static_cast<uint8_t>(pw[7 - j]) ^ key));
+    return out;
+}
+
+/// An XFCB (user u + 16) of a name in a directory: its entry's number, or -1.
+int xfcb_of(const std::vector<uint8_t> &dir, unsigned u, const std::string &name83)
+{
+    for (unsigned i = 0; i * 32 < dir.size(); ++i)
+        if (dir[i * 32] == 16 + u && std::equal(name83.begin(), name83.end(), dir.begin() + i * 32 + 1))
+            return static_cast<int>(i);
+    return -1;
+}
+
+/// The password mode byte of entry i's SFCB slot.
+uint8_t slot_mode(const std::vector<uint8_t> &dir, unsigned i) { return dir[(i | 3) * 32 + 1 + (i & 3) * 10 + 8]; }
+
+/// What an XFCB of u's `name83` should be: the mode, the password kept, the rest 0.
+void check_xfcb(const std::vector<uint8_t> &dir, unsigned u, const std::string &name83, uint8_t mode, const std::string &pw)
+{
+    const int x = xfcb_of(dir, u, name83);
+    REQUIRE(x >= 0);
+    std::vector<uint8_t> want = {static_cast<uint8_t>(16 + u)};
+    want.insert(want.end(), name83.begin(), name83.end());
+    want.push_back(mode);
+    const std::vector<uint8_t> k = kept_pw(pw);
+    want.insert(want.end(), k.begin(), k.end());
+    want.resize(32, 0);
+    const std::vector<uint8_t> got(dir.begin() + x * 32, dir.begin() + x * 32 + 32);
+    CHECK(got == want);
+    if (got != want)
+        for (unsigned b = 0; b < 32; ++b)
+            std::printf("  XFCB byte %u: %02X, want %02X\n", b, got[b], want[b]);
+}
+
+TEST(labels_xfcbs_and_passwords_as_the_programmers_guide_has_them)
+{
+    // On M:: the label's passwords and stamps (100, 101); an XFCB in read mode, then write mode
+    // (103), read back (102); open, write, delete, rename, 30 and truncate of a protected file
+    // without its password, and with it from the DMA buffer or the default (106); make with f6';
+    // delete with f5'; File R/O before Password Error; and the bytes on the disk, as cpmtools
+    // reads them (the key, the password reversed and XORed).
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    const std::vector<uint8_t> label0 = m.sector(0);
+    r.set_time(2026, 11, 5, 10, 30, 0);
+    const auto now = dat(2026, 11, 5, 10, 30);
+    std::vector<uint8_t> dir;
+    const std::string o = xtratest(r, 'L',
+                                   {{"XFCB?", [&] { dir = m.directory(); }},
+                                    {"XGONE?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         CHECK(xfcb_of(d, 0, "P       DAT") < 0);
+                                         const std::vector<unsigned> es = m.entries_of(d, 0, "P       DAT");
+                                         REQUIRE(!es.empty()); // f5': the file is still there
+                                         CHECK_EQ(slot_mode(d, es[0]), 0);
+                                     }},
+                                    {"QXFCB?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         check_xfcb(d, 0, "Q       DAT", 0x20, "QPASS   ");
+                                         const std::vector<unsigned> es = m.entries_of(d, 0, "Q       DAT");
+                                         REQUIRE(!es.empty());
+                                         CHECK_EQ(slot_mode(d, es[0]), 0x20);
+                                     }},
+                                    {"QGONE?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         CHECK(xfcb_of(d, 0, "Q       DAT") < 0);
+                                         CHECK(m.entries_of(d, 0, "Q       DAT").empty());
+                                     }}});
+    const std::pair<const char *, const char *> want[] = {
+        {"GETL", "31 00"},  {"XOFF", "FF 00"},   {"LSET", "00 00"},    {"GETL2", "B1 00"},   {"LNOPW", "FF 07"},
+        {"LPW", "00 00"},   {"XSET", "00 00"},   {"STAMPS", "00 00"},  {"STMODE", "80"},     {"OPNOPW", "FF 07"},
+        {"OPPW", "00 00"},  {"OPF7", "20"},      {"XWRITE", "00 00"},  {"OPW", "00 00"},     {"OPWF7", "A0"},
+        {"WRF7", "FF 03"},  {"RDF7", "00 00"},   {"DELNOPW", "FF 07"}, {"RENNOPW", "FF 07"}, {"ATTNOPW", "FF 07"},
+        {"TRNOPW", "FF 07"}, {"DEFPW", "00 00"}, {"XDEL5", "00 00"},   {"STAMPS2", "00 00"}, {"STMODE2", "00"},
+        {"MAKEQ", "00 00"}, {"CLOSEQ", "00 00"}, {"OPQ", "00 00"},     {"OPQF7", "20"},      {"WRQ", "00 00"},
+        {"ATTQ", "00 00"},  {"DELQRO", "FF 03"}, {"ATTQ2", "00 00"},   {"DELQNO", "FF 07"},  {"DELQ", "00 00"},
+        {"LOFF", "00 00"},  {"GETL3", "31 00"},  {"XOFF2", "FF 00"},   {"LON", "00 00"},     {"MAKES", "00 00"},
+        {"OPSDEF", "00 00"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    // In error mode $FE the error is said as CP/M 3 says it, then returned.
+    CHECK(o.find("OPSNO \r\nOODOS Error On M: Password Error\r\nBDOS Function = 15 File = S       .DAT\r\nFF 07") !=
+          std::string::npos);
+    // At XFCB?: P.DAT's XFCB in write mode, SECRET kept from the read mode's 103; its slot's mode
+    // byte the same; 102 gave its stamps (read when the mode was read's, 80).
+    REQUIRE(!dir.empty());
+    check_xfcb(dir, 0, "P       DAT", 0x40, "SECRET  ");
+    REQUIRE(!m.entries_of(dir, 0, "P       DAT").empty());
+    const unsigned p = m.entries_of(dir, 0, "P       DAT")[0];
+    CHECK_EQ(slot_mode(dir, p), 0x40);
+    char stamps[17];
+    const uint8_t *sl = &dir[(p | 3) * 32 + 1 + (p & 3) * 10];
+    std::snprintf(stamps, sizeof stamps, "%02X%02X%02X%02X%02X%02X%02X%02X", sl[0], sl[1], sl[2], sl[3], sl[4], sl[5],
+                  sl[6], sl[7]);
+    CHECK_EQ(field(o, "STAMPV"), std::string(stamps));
+    // The label, last set by LON ($B1, its password LABELPW kept): the name, the byte, the key and
+    // the password, its creation stamp the cold boot's, its update now.
+    const std::vector<uint8_t> l = m.sector(0);
+    std::vector<uint8_t> wantl = {0x20};
+    const std::string name = "MYDISK  LBL";
+    wantl.insert(wantl.end(), name.begin(), name.end());
+    wantl.push_back(0xB1);
+    const std::vector<uint8_t> k = kept_pw("LABELPW ", label0[14], label0[15]);
+    wantl.insert(wantl.end(), k.begin(), k.end());
+    wantl.insert(wantl.end(), label0.begin() + 24, label0.begin() + 28);
+    wantl.insert(wantl.end(), now.begin(), now.end());
+    CHECK(std::vector<uint8_t>(l.begin(), l.begin() + 32) == wantl);
+    for (unsigned i = 0; i < 32; ++i)
+        if (l[i] != wantl[i])
+            std::printf("  label byte %u: %02X, want %02X\n", i, l[i], wantl[i]);
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(a_label_asking_for_stamps_needs_sfcbs)
+{
+    // M:'s SFCBs and label taken away behind the BDOS's back, M: reset: 101 is 0; 100 asking for
+    // stamps is $FF, without them it makes a label in the first free entry (its password none, 8
+    // blanks; its creation and update stamps now); 102 gives zeros for the stamps.
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    r.set_time(2026, 11, 6, 8, 5, 0);
+    const auto now = dat(2026, 11, 6, 8, 5);
+    const std::string o = xtratest(r, 'N', {{"NOSFCB?", [&] {
+                                                 for (uint32_t n = 0; n < 16; ++n)
+                                                 {
+                                                     std::vector<uint8_t> s = m.sector(n);
+                                                     for (unsigned e = 0; e < 16; ++e)
+                                                         if (s[e * 32] == 0x21 || s[e * 32] == 0x20)
+                                                             std::fill(s.begin() + e * 32, s.begin() + e * 32 + 32, 0xE5);
+                                                     m.put(n, s);
+                                                 }
+                                             }}});
+    CHECK_EQ(field(o, "GETL0"), std::string("00 00"));
+    CHECK_EQ(field(o, "NSTAMP"), std::string("FF 00"));
+    CHECK_EQ(field(o, "NPLAIN"), std::string("00 00"));
+    CHECK_EQ(field(o, "GETLN"), std::string("81 00"));
+    CHECK_EQ(field(o, "NSTAMPS"), std::string("00 00"));
+    CHECK_EQ(field(o, "NSTAMPV"), std::string("0000000000000000"));
+    const std::vector<uint8_t> l = m.sector(0);
+    CHECK_EQ(std::string(l.begin() + 1, l.begin() + 12), std::string("NOSTAMP LBL"));
+    CHECK_EQ(l[12], 0x81);
+    const std::vector<uint8_t> k = kept_pw("        ");
+    CHECK(std::vector<uint8_t>(l.begin() + 13, l.begin() + 24) == k);
+    CHECK(std::vector<uint8_t>(l.begin() + 24, l.begin() + 28) == now);
+    CHECK(std::vector<uint8_t>(l.begin() + 28, l.begin() + 32) == now);
+}
+
+TEST(the_multi_sector_count_reads_and_writes_n_records_a_call)
+{
+    // On M:: 44's range; sequential and random reads and writes of N records, each at the DMA
+    // address + 128 x k; the end of the file after some (A 1, X the records read), R0-R2 back to
+    // the first record's, CR the last record tried's; a physical error's code in X, not a count;
+    // and a disk filled 128 records a call, the last call's X what was left.
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    // Each BDOS call's cycles, BDOSENT to STUBRET, by its function: the first 21s are MW8 and MW128,
+    // the first 20s MR128 and MREND.
+    std::map<uint8_t, std::vector<uint64_t>> took;
+    uint8_t fn = 0;
+    uint64_t t0 = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == sym("BDOSENT"))
+        {
+            fn = r.cpu->regs().y;
+            t0 = r.cpu->cycles();
+        }
+        else if (pc == sym("STUBRET"))
+            took[fn].push_back(r.cpu->cycles() - t0);
+    };
+    const std::string o = xtratest(r, 'S');
+    r.watch = nullptr;
+    if (took[21].size() >= 2 && took[20].size() >= 1)
+        std::printf("  M: BDOS cycles: 21 of 8 records %llu, of 128 %llu (%llu a record); 20 of 128 %llu (%llu a record)\n",
+                    static_cast<unsigned long long>(took[21][0]), static_cast<unsigned long long>(took[21][1]),
+                    static_cast<unsigned long long>(took[21][1] / 128), static_cast<unsigned long long>(took[20][0]),
+                    static_cast<unsigned long long>(took[20][0] / 128));
+    const std::pair<const char *, const char *> want[] = {
+        {"M0", "FF 00"},     {"M129", "FF 00"},   {"M128", "00 00"},   {"M1", "00 00"},     {"MW8", "00 00"},
+        {"MW8CR", "08"},     {"MW128", "00 00"},  {"MW128CR", "08"},   {"MW128EX", "01"},   {"MR128", "00 00"},
+        {"MRCHK", "Y"},      {"MREND", "01 08"},  {"MRECHK", "Y"},     {"MRECR", "08"},     {"MRR", "01 02"},
+        {"MRRR", "000086"},  {"MRRCR", "08"},     {"MRRCHK", "Y"},     {"MRW", "00 00"},    {"MRWR", "0000C8"},
+        {"MRWCR", "4A"},     {"MRZ", "00 00"},    {"MWRO", "FF 03"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    const std::vector<uint8_t> d = m.directory();
+    const std::vector<unsigned> es = m.entries_of(d, 0, "MS      DAT");
+    for (unsigned n : {0u, 7u, 8u, 127u, 128u, 135u, 200u, 201u, 202u, 300u, 301u})
+        CHECK(m.record(d, es, n) == pattern_record(n));
+    const unsigned free = hexval(field(o, "MFREE")), calls = hexval(field(o, "MCALLS"));
+    const std::string full = field(o, "MFULL");
+    CHECK_EQ(full.substr(0, 2), std::string("02"));
+    std::printf("  M: %u records free, %u calls of 128, then %s\n", free, calls, full.c_str());
+    CHECK_EQ(calls * 128 + hexval(full.substr(3, 2)), free);
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(a_physical_error_in_a_multi_sector_write_keeps_the_records_done_in_the_fcb)
+{
+    // On B:, the card's writes failing from FAULT?: a sequential write of 128 records after 64
+    // fails (Disk I/O) moving to extent 1, after 64 more; the FCB is written back as they left it
+    // (CR 128 of extent 0), not left as it was. The same by 34 from record 64: R0-R2 back to 64,
+    // CR record 127's.
+    for (const char c : {'P', 'Q'})
+    {
+        Rig r;
+        REQUIRE(r.ok);
+        auto fm = faulty(r);
+        const std::string o = xtratest(r, c, {{"FAULT?", [&] { fm->fail = true; }}});
+        fm->fail = false;
+        if (c == 'P')
+        {
+            CHECK_EQ(field(o, "PWRITE"), std::string("FF 01"));
+            CHECK_EQ(field(o, "PCR"), std::string("80"));
+            CHECK_EQ(field(o, "PEX"), std::string("00"));
+        }
+        else
+        {
+            CHECK_EQ(field(o, "QWRITE"), std::string("FF 01"));
+            CHECK_EQ(field(o, "QR"), std::string("000040"));
+            CHECK_EQ(field(o, "QCR"), std::string("7F"));
+        }
+    }
+}
+
+TEST(a_multi_sector_call_whose_records_are_not_all_program_memory_does_nothing)
+{
+    // On M:: N records at the DMA address that reach the I/O hole, wrap past $FFFF or, for a
+    // read, a read-only window are refused before the first (A = X = $FF), as one record there
+    // is: no block taken, the FCB as it was, no byte of memory moved. 16 records to $BFFF are
+    // all program memory.
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = xtratest(r, 'H');
+    const std::pair<const char *, const char *> want[] = {
+        {"HWR", "FF FF"}, {"HWRCR", "00"}, {"HW17", "FF FF"},  {"HWRAP", "FF FF"}, {"HW16", "00 00"},
+        {"HW16CR", "10"}, {"HRD", "FF FF"}, {"HRDCHK", "Y"},    {"HRO", "FF FF"},   {"HROCHK", "Y"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    CHECK(field(o, "HFREE0").rfind("<no", 0) != 0);
+    CHECK_EQ(field(o, "HFREE1"), field(o, "HFREE0"));
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(a_files_extent_zero_made_after_its_xfcb_keeps_the_xfcbs_mode_in_its_slot)
+{
+    // On M:, passwords on: E.DAT made at extent 16, then 103 (read mode); F.DAT made at extent 16
+    // with f6' (write mode). Neither has an extent-zero entry for the XFCB's mode to go to, until a
+    // 34 of record 0 makes one: its SFCB slot's mode byte is the XFCB's, not 0 (the Guide, 2.3.8).
+    // G.DAT as E.DAT, but the label's passwords off before the 34: its slot takes the mode all the same.
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    std::vector<uint8_t> d;
+    const std::string o = xtratest(r, 'E', {{"ESLOT?", [&] { d = m.directory(); }}});
+    for (const char *k : {"EXF", "EW0", "EMF", "FW0", "EGX", "EOFF", "GW0"})
+        CHECK_EQ(field(o, k), std::string("00 00"));
+    REQUIRE(!d.empty());
+    for (const auto &[name, mode] :
+         {std::pair<std::string, uint8_t>{"E       DAT", 0x80}, {"F       DAT", 0x40}, {"G       DAT", 0x80}})
+    {
+        const std::vector<unsigned> es = m.entries_of(d, 0, name);
+        REQUIRE(es.size() == 2);
+        CHECK_EQ(unsigned{d[es[0] * 32 + 12]}, 0u); // extent 0's entry first
+        CHECK_EQ(unsigned{slot_mode(d, es[0])}, unsigned{mode});
+        CHECK_EQ(xfcb_of(d, 0, name) >= 0, true);
+    }
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(delete_with_f5_and_a_wildcard_and_a_sys_files_password_from_another_user)
+{
+    // On M:, passwords on: 19 with f5' of V?.DAT deletes V1's and V2's XFCBs (each slot's mode 0),
+    // not W1's; user 0's protected SYS file opened from user 1 needs user 0's XFCB's password.
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    const auto slot_of = [&](const std::vector<uint8_t> &d, const std::string &name) {
+        const std::vector<unsigned> es = m.entries_of(d, 0, name);
+        return es.empty() ? -1 : int{slot_mode(d, es[0])};
+    };
+    const std::string o = xtratest(r, 'V',
+                                   {{"VSET?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         for (const char *n : {"V1      DAT", "V2      DAT", "W1      DAT"})
+                                         {
+                                             check_xfcb(d, 0, n, 0x80, "VPASS   ");
+                                             CHECK_EQ(slot_of(d, n), 0x80);
+                                         }
+                                     }},
+                                    {"VDEL?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         for (const char *n : {"V1      DAT", "V2      DAT"})
+                                         {
+                                             CHECK(xfcb_of(d, 0, n) < 0);
+                                             CHECK_EQ(slot_of(d, n), 0); // the file kept, its mode 0
+                                         }
+                                         check_xfcb(d, 0, "W1      DAT", 0x80, "VPASS   ");
+                                         CHECK_EQ(slot_of(d, "W1      DAT"), 0x80);
+                                     }}});
+    const std::pair<const char *, const char *> want[] = {
+        {"VDEL", "00 00"}, {"VSYS", "00 00"}, {"VSYSNO", "FF 07"}, {"VSYSPW", "00 00"}, {"VSYSF8", "A0"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(write_protection_lasts_into_the_next_extent_and_a_new_slot_is_clear)
+{
+    // On M:: a write-protected file opened without its password stays read-only after a read moves
+    // it on to extent 1 (f7' kept); with the label asking for no stamps, a new file's SFCB slot is
+    // cleared all the same, so 102 reads zeros, not what was there.
+    Booted r;
+    REQUIRE(r.ok);
+    std::string o = xtratest(r, 'W');
+    CHECK_EQ(field(o, "WRD"), std::string("00 00"));
+    CHECK_EQ(field(o, "WRX1"), std::string("FF 03"));
+    Booted r2;
+    REQUIRE(r2.ok);
+    CpmDisk m2{r2, 0};
+    o = xtratest(r2, 'Z', {{"DIRTY?", [&] {
+                               std::vector<uint8_t> s = m2.sector(0);
+                               CHECK_EQ(s[3 * 32], 0x21);
+                               std::fill(s.begin() + 3 * 32 + 11, s.begin() + 3 * 32 + 21, 0xAA); // entry 1's slot
+                               m2.put(0, s);
+                           }}});
+    CHECK_EQ(field(o, "ZLBL"), std::string("00 00"));
+    CHECK_EQ(field(o, "ZSTAMPS"), std::string("00 00"));
+    CHECK_EQ(field(o, "ZSTAMPV"), std::string("0000000000000000"));
+    const std::vector<uint8_t> d = m2.directory();
+    CHECK(m2.entries_of(d, 0, "Z       DAT") == std::vector<unsigned>{1u});
+    CHECK(std::vector<uint8_t>(d.begin() + 3 * 32 + 11, d.begin() + 3 * 32 + 21) == std::vector<uint8_t>(10, 0));
+}
+
+TEST(the_ccp_starts_each_program_with_a_multi_sector_count_of_1)
+{
+    // XTRATEST C leaves 44 at 128 as it ends; the next program's one 21 writes one record.
+    Booted r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "xtratest.com", " C");
+    CHECK(r.until("COUNT SET", ms(5000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    const std::string o = xtratest(r, 'D');
+    CHECK_EQ(field(o, "DCR"), std::string("01"));
+}
+
+TEST(functions_44_and_49_share_the_multi_sector_count)
+{
+    // One byte, the SCB's $4A: 44's count is what 49 reads, and 49's is what a 21 writes by.
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = xtratest(r, 'K');
+    CHECK_EQ(field(o, "KGET"), std::string("05 FF")); // X the next byte: the error mode, $FF
+    CHECK_EQ(field(o, "KSET"), std::string("00 00"));
+    CHECK_EQ(field(o, "KW"), std::string("00 00"));
+    CHECK_EQ(field(o, "KCR"), std::string("03")); // 3 records: 49's count, not 44's 5
+    CHECK_EQ(field(o, "KGET7"), std::string("07 FF"));
+}
+
 // ---- phase 3b2: the system extras ------------------------------------------------------------
 
 TEST(function_49_gets_and_sets_the_scb_at_cp_m_3s_offsets)

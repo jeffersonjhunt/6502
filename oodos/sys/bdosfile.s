@@ -14,7 +14,9 @@
 ;                    the user but in user 0 with the SYS attribute (t2'):
 ;                    opened read-only from there, f8' set. RC as the extent
 ;                    has it; CR $FF: CR the last record's byte count (S1).
-;                    A = 0, $FF none
+;                    A protected file (bdosxtra.s) without its password:
+;                    Password Error in read mode, f7' set (read-only) in
+;                    write mode. A = 0, $FF none
 ;   16 F_CLOSE       the drive's changed buffers written back, then a written
 ;                    extent put in the directory (its blocks and RC merged),
 ;                    stamped. A = 0, $FF. A buffer that won't write fails
@@ -26,22 +28,27 @@
 ;                    place in the record, 0-3), $FF none
 ;   18 F_SNEXT       the next, as 17 asked
 ;   19 F_DELETE      every extent of each file the FCB matches ('?' too), and
-;                    their XFCBs; with f5' the XFCBs only. A read-only one:
-;                    none are deleted (File R/O). A = 0, $FF none
+;                    their XFCBs; with f5' the XFCBs only (their files'
+;                    slots' mode 0). A read-only one: none are deleted (File
+;                    R/O); nor a protected one without its password
+;                    (Password Error). A = 0, $FF none
 ;   20 F_READ        the record CR of the extent to the DMA address, CR + 1;
 ;                    the next extent opened after 128. A = 0, 1 the end of
-;                    the file (or a record never written)
+;                    the file (or a record never written). 20, 21, 33, 34
+;                    and 40 do the multi-sector count's records (44): MULTI
 ;   21 F_WRITE       the DMA address's record to CR, CR + 1, a block taken
 ;                    if it needs one; the next extent opened, or made, after
 ;                    128. A = 0, 1 no directory space, 2 the disk full
 ;   22 F_MAKE        a new entry for the FCB's extent EX (its S2 taken as 0;
 ;                    no '?'; not if the file is there, any extent: File
 ;                    Exists), every attribute clear in it and in the FCB;
-;                    extent 0's stamped as the label asks. A = 0, $FF the
-;                    directory full
+;                    extent 0's stamped as the label asks; with f6' and
+;                    passwords on, its XFCB too (the DMA buffer's password
+;                    and mode). A = 0, $FF the directory full
 ;   23 F_RENAME      every extent of the FCB's file (and its XFCB) given the
 ;                    name at +16, its attributes kept. Neither name with '?',
-;                    the new one not there (File Exists). A = 0, $FF
+;                    the new one not there (File Exists), the old one's
+;                    password given if it's protected. A = 0, $FF
 ;   24 DRV_LOGINVEC  A/X = the logged-in drives, bit 0 A:
 ;   26 F_DMAOFF      the DMA address = A/X
 ;   27 DRV_ALLOCVEC  A/X = $FFFF: the vector is in the system bank (46 has it)
@@ -80,7 +87,8 @@
 ; back as the function changed it. An extent's state is the FCB's, as CP/M's:
 ; EX and S2 the extent, its block pointers and RC (as Open sets it), S2's
 ; bit 7 set while it hasn't been written. A write needs the drive writable
-; (Read Only) and the file too (File R/O: t1', or opened from user 0).
+; (Read Only) and the file too (File R/O: t1', or opened from user 0, or
+; f7'). Password Error is checked after every other error (hw/oodos.md).
 
 .setcpu "65C02"
 .include "bdos.inc"
@@ -99,6 +107,15 @@ TGL:            .res    1              ; F_TRUNC: R's extent's group
 TGH:            .res    1
 GRP:            .res    1              ; and whether an entry has it
 ETMP:           .res    1              ; EXT11's
+RDMA:           .res    2              ; READREC's and WRITEREC's record: the DMA address + 128 x k
+MBODY:          .res    2              ; MULTI's record function
+MLEFT:          .res    1              ; its records to go
+MDONE:          .res    1              ; and done
+MON:            .res    1              ; 1 once one is done: a physical error keeps them (MERR)
+MRAND:          .res    1              ; bit 6: random, R0-R2 back to RSAVE at the end; 7: a read
+MKPW:           .res    1              ; F_MAKE: bit 7, f6' with passwords on: an XFCB too
+RSAVE:          .res    3
+DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for
 
 .segment "BDOS"
 
@@ -325,9 +342,12 @@ F_OPEN:         LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     NOWILD
                 STZ     FC + FCB_S2     ; the program gives bytes 0-12: module 0
-                LDA     FC + FCB_F8     ; f8' is the BDOS's to set
+                LDA     FC + FCB_F8     ; f8' and f7' are the BDOS's to set
                 AND     #$7F
                 STA     FC + FCB_F8
+                LDA     FC + FCB_F7
+                AND     #$7F
+                STA     FC + FCB_F7
                 LDA     SCB_USER
                 LDX     #0
                 JSR     SETPAT
@@ -350,7 +370,8 @@ F_OPEN:         LDA     #FCB_SEQ
 @user0:         LDA     FC + FCB_F8
                 ORA     #$80
                 STA     FC + FCB_F8
-@found:         JSR     OPENEXT
+@found:         JSR     OPENPW
+                JSR     OPENEXT
                 LDA     FC + FCB_CR     ; CR $FF: the byte count into CR
                 CMP     #$FF
                 BNE     @access
@@ -375,11 +396,52 @@ F_OPEN:         LDA     #FCB_SEQ
 @none:          LDA     #$FF
                 JMP     RETA
 
+; The file at DPTR (DIDX) opened from user EXTUSER: protected (PWFILE)
+; without its password given, Password Error in read mode, f7' (read-only)
+; in write mode. DIDX and DPTR as they were.
+OPENPW:         BIT     MODE
+                BPL     @done          ; passwords off
+                LDA     DIDX
+                STA     DSAVE
+                LDA     DIDX + 1
+                STA     DSAVE + 1
+                JSR     EXTUSER
+                JSR     PWFILE
+                BCC     @back
+                ASL     A              ; carry: read, N: write
+                BCC     @write
+                LDA     #ER_PASSWORD
+                JMP     DERR
+@write:         BPL     @back
+                LDA     FC + FCB_F7
+                ORA     #$80
+                STA     FC + FCB_F7
+@back:          LDA     DSAVE
+                STA     DIDX
+                LDA     DSAVE + 1
+                STA     DIDX + 1
+                JMP     DIRENT
+@done:          RTS
+
+; Password Error unless user A's file F names is unprotected or its password
+; given (PWFILE); then FIND's pattern F's name in any extent of user A again.
+PWNEED:         PHA
+                JSR     PWFILE
+                BCC     @given
+                LDA     #ER_PASSWORD
+                JMP     DERR
+@given:         PLA
+                LDX     #SM_ANYEX
+                JMP     SETPAT
+
 F_MAKE:         LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     NOWILD
                 JSR     RODRV
                 STZ     FC + FCB_S2     ; the program gives bytes 0-12: module 0
+                LDA     FC + FCB_F6     ; f6' with passwords on: an XFCB too
+                AND     MODE
+                STA     MKPW
                 LDX     #FCB_NAME       ; every attribute 0, in the entry and F
 @attribute:     LDA     FC,X
                 AND     #$7F
@@ -396,7 +458,11 @@ F_MAKE:         LDA     #FCB_SEQ
                 BCS     @new
                 LDA     #ER_EXISTS
                 JMP     DERR
-@new:           LDA     FC + FCB_EX     ; extent 0: stamped (MAKEENT)
+@new:           BIT     MKPW
+                BPL     @room
+                JSR     MKROOM         ; and its XFCB's
+                BCS     @full
+@room:          LDA     FC + FCB_EX     ; extent 0: stamped (MAKEENT)
                 AND     #$1F
                 CMP     #1
                 LDA     SCB_USER
@@ -404,9 +470,12 @@ F_MAKE:         LDA     #FCB_SEQ
                 ORA     #$80
 @make:          JSR     MAKEENT
                 BCC     @made
-                LDA     #$FF
+@full:          LDA     #$FF
                 JMP     RETA
-@made:          JSR     FEMPTY
+@made:          BIT     MKPW
+                BPL     @empty
+                JSR     MKXFCB         ; the DMA buffer's password and mode
+@empty:         JSR     FEMPTY
                 JSR     FCBOUT
                 JMP     RET0
 
@@ -596,7 +665,7 @@ CLOSEX:         LDA     FC + FCB_S2
                 RTS
 
 ; F from the entry at DPTR, for F's extent: the block pointers, the
-; attributes (f1'-f4', t1'-t3'; f7' clear, f8' as it is), RC: 128 if the
+; attributes (f1'-f4', t1'-t3'; f7' and f8' as they are), RC: 128 if the
 ; entry goes past F's extent, 0 if it doesn't reach it, else its own. S2's
 ; bit 7 set: not written.
 OPENEXT:        LDY     #FCB_D
@@ -620,9 +689,6 @@ OPENEXT:        LDY     #FCB_D
 @skip:          INY
                 CPY     #FCB_EX
                 BNE     @attribute
-                LDA     FC + FCB_F7
-                AND     #$7F
-                STA     FC + FCB_F7
                 JSR     FEXT
                 JSR     DEXT
                 LDY     #FCB_RC
@@ -810,10 +876,11 @@ RODRV:          LDA     CDRV
                 JMP     DERR
 
 ; The drive and the file must be writable: Read Only, File R/O (t1', or
-; opened from user 0).
+; opened from user 0, or without a write-protected file's password: f7').
 WCHECK:         JSR     RODRV
                 LDA     FC + FCB_T1
                 ORA     FC + FCB_F8
+                ORA     FC + FCB_F7
                 BMI     @ro
                 RTS
 @ro:            LDA     #ER_ROFILE
@@ -934,7 +1001,7 @@ RECPTR:         LDA     T4
                 STA     RECP + 1
                 RTS
 
-; Record CR of F's extent to the DMA address; carry set if it has no block.
+; Record CR of F's extent to RDMA; carry set if it has no block.
 READREC:        JSR     FPIDX
                 JSR     FPTR
                 LDA     T0
@@ -953,16 +1020,16 @@ READREC:        JSR     FPIDX
                 STA     BW1
                 LDA     RECP + 1
                 STA     BW1 + 1
-                LDA     SCB_DMA
+                LDA     RDMA
                 STA     BW2
-                LDA     SCB_DMA + 1
+                LDA     RDMA + 1
                 STA     BW2 + 1
                 LDA     #128
                 JSR     POUT
                 CLC
                 RTS
 
-; The DMA address's record to record CR of F's extent: a block taken (the
+; RDMA's record to record CR of F's extent: a block taken (the
 ; first free, zeroed) if it has none; RC at least CR + 1; F written. Carry
 ; set if the drive is full.
 WRITEREC:       JSR     FPIDX
@@ -991,9 +1058,9 @@ WRITEREC:       JSR     FPIDX
                 LDA     #0
                 JSR     GETBUF
                 JSR     RECPTR
-                LDA     SCB_DMA
+                LDA     RDMA
                 STA     BW1
-                LDA     SCB_DMA + 1
+                LDA     RDMA + 1
                 STA     BW1 + 1
                 LDA     RECP
                 STA     BW2
@@ -1038,9 +1105,142 @@ ZEROBLK:        LDA     BLM            ; (BLM + 1) / 4 sectors
                 BNE     @sector
                 RTS
 
+; The multi-sector count (44, the SCB's): a read or write of N records is N
+; calls (the Guide, 2.3.10), each record at the DMA address + 128 x k, F
+; read once and written back once. MULTI runs the record function at A/X
+; (A = 0, or its error, F changed) to the first that isn't 0: A that, X the
+; records done before it (the Guide's H); a physical error (DERR) returns
+; as it does, F written back as the records done left it (MERR). MRAND's
+; bit 6: R0-R2 moved on a record each time, and put back at the end. Carry
+; set: a read, the records to the program's memory. All N records' memory
+; is checked first (MRANGE): memory refused, A = X = $FF and nothing done.
+MULTI:          STA     MBODY
+                STX     MBODY + 1
+                ROR     MRAND          ; the carry to bit 7, random to bit 6
+                LDA     SCB_DMA
+                STA     RDMA
+                LDA     SCB_DMA + 1
+                STA     RDMA + 1
+                LDA     SCB_MULTI
+                BNE     @count
+                INC     A              ; 0, never set: 1
+@count:         STA     MLEFT
+                JSR     MRANGE
+                BCC     @ok
+                JMP     ABORT
+@ok:            STZ     MDONE
+@record:        JSR     @call
+                TAY
+                BNE     @stop
+                INC     MDONE
+                DEC     MLEFT
+                BEQ     @stop
+                LDA     #1
+                STA     MON
+                CLC
+                LDA     RDMA
+                ADC     #128
+                STA     RDMA
+                BCC     @rand
+                INC     RDMA + 1
+@rand:          BIT     MRAND
+                BVC     @record
+                INC     FC + FCB_R
+                BNE     @record
+                INC     FC + FCB_R + 1
+                BNE     @record
+                INC     FC + FCB_R + 2
+                BRA     @record
+@call:          JMP     (MBODY)
+@stop:          STZ     MON
+                PHY
+                JSR     MBACK
+                PLA
+                BEQ     @done
+                LDX     MDONE
+                JMP     RETAX
+@done:          JMP     RET0
+
+; F back to the program, R0-R2 the first record's if random.
+MBACK:          BIT     MRAND
+                BVC     @out
+                LDX     #2
+@r:             LDA     RSAVE,X
+                STA     FC + FCB_R,X
+                DEX
+                BPL     @r
+@out:           JMP     FCBOUT
+
+; Carry set if the MLEFT records at the DMA address aren't all the
+; program's memory: past $FFFF, in the I/O hole, on flash (NB_ROM), or a
+; read's in a read-only window (PCOPY's rule, the BIOS's PHYSOF), a page at
+; a time. Uses A, X, Y, T1.
+MRANGE:         LDA     MLEFT          ; 128 x N - 1: (N - 1) / 2 and $7F, or $FF
+                DEC     A
+                LSR     A
+                STA     T1
+                LDA     #0
+                ROR     A
+                ORA     #$7F
+                CLC
+                ADC     SCB_DMA
+                LDA     T1
+                ADC     SCB_DMA + 1
+                BCS     @no            ; past $FFFF
+                STA     T1             ; the last record's last page
+                LDY     SCB_DMA + 1
+@page:          TYA
+                CMP     #>CODE_WINDOW
+                BCS     @mem
+                CMP     #$C0
+                BCS     @no            ; the I/O hole
+@mem:           ROL     A              ; the window: the page's top 2 bits
+                ROL     A
+                ROL     A
+                AND     #3
+                TAX
+                LDA     ST_WIN,X
+                BIT     #NB_ROM
+                BNE     @no
+                BIT     MRAND
+                BPL     @next
+                AND     #NB_RO
+                BNE     @no
+@next:          CPY     T1
+                BEQ     @yes
+                INY
+                BRA     @page
+@yes:           CLC
+                RTS
+@no:            SEC
+                RTS
+
+; DERR's, before a physical error returns: a multi-sector call's records
+; done kept in the program's FCB.
+MERR:           LDA     MON
+                BEQ     @none
+                STZ     MON
+                JMP     MBACK
+@none:          RTS
+
+; MRAND random (MULTI moves it to bit 6), R0-R2 kept to put back.
+RSTART:         LDA     #$80
+                STA     MRAND
+                LDX     #2
+@r:             LDA     FC + FCB_R,X
+                STA     RSAVE,X
+                DEX
+                BPL     @r
+                RTS
+
 F_SREAD:        LDA     #FCB_SEQ
                 JSR     FCBSEL
-                LDA     FC + FCB_CR
+                STZ     MRAND
+                LDA     #<SREAD1
+                LDX     #>SREAD1
+                SEC                    ; a read
+                JMP     MULTI
+SREAD1:         LDA     FC + FCB_CR
                 BPL     @record
                 JSR     NEXTEXT        ; past the extent's end: the next one
                 BCS     @end
@@ -1058,16 +1258,20 @@ F_SREAD:        LDA     #FCB_SEQ
                 JSR     READREC
                 BCS     @end
                 INC     FC + FCB_CR
-                JSR     FCBOUT
-                JMP     RET0
-@end:           JSR     FCBOUT
-                LDA     #1
-                JMP     RETA
+                LDA     #0
+                RTS
+@end:           LDA     #1
+                RTS
 
 F_SWRITE:       LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     WCHECK
-                LDA     FC + FCB_CR
+                STZ     MRAND
+                LDA     #<SWRITE1
+                LDX     #>SWRITE1
+                CLC                    ; a write
+                JMP     MULTI
+SWRITE1:        LDA     FC + FCB_CR
                 BPL     @record
                 JSR     NEXTEXT
                 BCS     @full          ; past 32 MB
@@ -1075,25 +1279,21 @@ F_SWRITE:       LDA     #FCB_SEQ
                 JSR     POSITION
                 BCC     @moved
                 CMP     #3             ; 3: F still at its extent, CR as it was
-                BEQ     @stay
+                BEQ     @nodir
                 STZ     FC + FCB_CR     ; 5: at the next, no entry to be had
-@stay:          JSR     FCBOUT
-                LDA     #1
-                JMP     RETA
+                BRA     @nodir
 @moved:         STZ     FC + FCB_CR
 @record:        JSR     HAVEENT
                 BCS     @nodir
                 JSR     WRITEREC
                 BCS     @full
                 INC     FC + FCB_CR
-                JSR     FCBOUT
-                JMP     RET0
-@full:          JSR     FCBOUT
-                LDA     #2
-                JMP     RETA
-@nodir:         JSR     FCBOUT
-                LDA     #1
-                JMP     RETA
+                LDA     #0
+                RTS
+@full:          LDA     #2
+                RTS
+@nodir:         LDA     #1
+                RTS
 
 ; NEXT = R0-R2's extent, RRCR its record there; carry set past 32 MB (R2
 ; over 3).
@@ -1130,7 +1330,12 @@ SAMEEXT:        BIT     FC + FCB_S2
 
 F_RREAD:        LDA     #FCB_RAND
                 JSR     FCBSEL
-                JSR     RANDPOS
+                JSR     RSTART
+                LDA     #<RREAD1
+                LDX     #>RREAD1
+                SEC                    ; a read
+                JMP     MULTI
+RREAD1:         JSR     RANDPOS
                 BCS     @far
                 JSR     SAMEEXT
                 BEQ     @here
@@ -1140,28 +1345,31 @@ F_RREAD:        LDA     #FCB_RAND
                 PHA                    ; 3 or 4
                 LDA     RRCR
                 STA     FC + FCB_CR
-                JSR     FCBOUT
                 PLA
-                JMP     RETA
+                RTS
 @here:          LDA     RRCR
                 STA     FC + FCB_CR
                 CMP     FC + FCB_RC
                 BCS     @unwritten
                 JSR     READREC
                 BCS     @unwritten
-                JSR     FCBOUT
-                JMP     RET0
-@unwritten:     JSR     FCBOUT
-                LDA     #1
-                JMP     RETA
+                LDA     #0
+                RTS
+@unwritten:     LDA     #1
+                RTS
 @far:           LDA     #6
-                JMP     RETA
+                RTS
 
 F_RWRITEZ:
 F_RWRITE:       LDA     #FCB_RAND
                 JSR     FCBSEL
                 JSR     WCHECK
-                JSR     RANDPOS
+                JSR     RSTART
+                LDA     #<RWRITE1
+                LDX     #>RWRITE1
+                CLC                    ; a write
+                JMP     MULTI
+RWRITE1:        JSR     RANDPOS
                 BCS     @far
                 JSR     SAMEEXT
                 BEQ     @here
@@ -1171,20 +1379,18 @@ F_RWRITE:       LDA     #FCB_RAND
                 PHA                    ; 3 or 5
                 LDA     RRCR           ; CR the record's, as a random read leaves it
                 STA     FC + FCB_CR
-                JSR     FCBOUT
                 PLA
-                JMP     RETA
+                RTS
 @here:          LDA     RRCR
                 STA     FC + FCB_CR
                 JSR     WRITEREC
                 BCS     @full
-                JSR     FCBOUT
-                JMP     RET0
-@full:          JSR     FCBOUT
-                LDA     #2
-                JMP     RETA
+                LDA     #0
+                RTS
+@full:          LDA     #2
+                RTS
 @far:           LDA     #6
-                JMP     RETA
+                RTS
 
 ; RR = extent T0/T1's record A: T0/T1 x 128 + A.
 RECOF:          PHA
@@ -1384,7 +1590,8 @@ F_DELETE:       LDA     #FCB_SEQ
                 BNE     @delete
                 LDA     #$FF
                 JMP     RETA
-@delete:        STZ     DIDX
+@delete:        JSR     PWALL          ; nor protected without its password
+                STZ     DIDX
                 STZ     DIDX + 1
                 JSR     FIND
 @entry:         BCS     @done
@@ -1398,7 +1605,10 @@ F_DELETE:       LDA     #FCB_SEQ
                 JSR     DIRPUT
                 JSR     FREEE
                 BRA     @next
-@gone:          LDA     #DIR_FREE
+@gone:          BIT     FC + FCB_F5     ; the XFCB only: its file's slot's mode 0
+                BPL     @xgone
+                JSR     XCLEAR
+@xgone:         LDA     #DIR_FREE
                 STA     (DPTR)
                 JSR     DIRPUT
 @next:          JSR     FINDNXT
@@ -1445,7 +1655,8 @@ F_RENAME:       LDA     #FCB_SEQ
                 BNE     @rename
                 LDA     #$FF
                 JMP     RETA
-@rename:        STZ     DIDX
+@rename:        JSR     PWALL
+                STZ     DIDX
                 STZ     DIDX + 1
                 JSR     FIND
 @entry:         BCS     @done
@@ -1478,7 +1689,9 @@ F_ATTRIB:       LDA     #FCB_SEQ
                 BNE     @set
                 LDA     #$FF
                 JMP     RETA
-@set:           STZ     DIDX
+@set:           LDA     SCB_USER
+                JSR     PWNEED
+                STZ     DIDX
                 STZ     DIDX + 1
                 JSR     FIND
 @entry:         BCS     @done
@@ -1559,6 +1772,8 @@ F_TRUNC:        LDA     #FCB_RAND
                 LDA     FC + FCB_R + 2
                 SBC     SZ + 2
                 BCS     @refused
+                LDA     SCB_USER       ; then the password, last
+                JSR     PWNEED
                 STZ     DIDX
                 STZ     DIDX + 1
                 JSR     FIND

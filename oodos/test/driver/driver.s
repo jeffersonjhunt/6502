@@ -7,8 +7,8 @@
 ; Only CP/M 3's documented functions, with OODOS's registers: the function
 ; in Y, a byte in A, a word in A (low) and X (high); the result in A and X.
 ; Error mode $FF (45) first, so an error comes back as A = $FF, X = the code.
-; It keeps 8 FCBs, its own DMA buffer, the script (16 KB at most) and the
-; results (24 KB) in BSS; the operations' results go to memory and are
+; It keeps 8 FCBs, its own DMA buffer, a buffer for multi-sector I/O (32
+; records), the script (16 KB at most) and the results (24 KB) in BSS; the operations' results go to memory and are
 ; written at the end, so the script's searches and drive resets aren't
 ; disturbed by the driver's own file I/O on A:.
 
@@ -18,6 +18,7 @@
 
 SCRIPT_MAX      = 16384
 RESULT_MAX      = 24576
+MBUF_RECS       = 32                    ; MULTI's records at most
 NSLOTS          = 8
 FCBLEN          = 36
 FILL            = $5A
@@ -207,6 +208,15 @@ op_fcall:
         cmp     #F_SFIRST
         bne     :+
         jsr     entry
+:       lda     fn                      ; 102: the stamps it put in bytes 24-31
+        cmp     #F_TIMEDATE
+        bne     :++
+        ldy     #24
+:       lda     (fp),y
+        jsr     put
+        iny
+        cpy     #32
+        bne     :-
 :       jmp     opdone
 
 ; NEXT: 18, A X and the entry.
@@ -490,8 +500,126 @@ op_time:
         jsr     putax
         jmp     opdone
 
+; DMA16: the DMA buffer's first 16 bytes (a password, a new one, a mode).
+op_dma16:
+        ldx     #0
+:       jsr     get
+        sta     dmabuf,x
+        inx
+        cpx     #16
+        bne     :-
+        jmp     opdone
+
+; PASSWD: 106 with the 8 bytes that follow: A X.
+op_passwd:
+        ldx     #0
+:       jsr     get
+        sta     pwbuf,x
+        inx
+        cpx     #8
+        bne     :-
+        lda     #<pwbuf
+        ldx     #>pwbuf
+        ldy     #F_PASSWD
+        jsr     BDOS
+        sta     ra
+        stx     rx
+        jsr     putax
+        jmp     opdone
+
+; MULTI fn, slot, n, tag: 44 = n, the DMA address mbuf (n records: FILL for
+; a read, record k the pattern of tag + k for a write), the call, then the
+; DMA address ours and 44 = 1 again: A X FCB, and mbuf's n records' sums.
+op_multi:
+        jsr     get
+        sta     fn
+        jsr     slot
+        jsr     get                     ; n, a byte: 1-32
+        sta     cnt
+        stz     cnt+1
+        stz     done
+        stz     done+1
+        jsr     get
+        sta     tag
+        jsr     get
+        sta     tag+1
+        jsr     mbufat
+@fill:  jsr     more
+        bcc     @filled
+        lda     fn
+        cmp     #F_READ
+        beq     @reads
+        cmp     #F_READRAND
+        beq     @reads
+        jsr     patptr
+        inc     tag
+        bne     @next
+        inc     tag+1
+        bra     @next
+@reads: ldy     #127
+        lda     #FILL
+:       sta     (ptr),y
+        dey
+        bpl     :-
+@next:  jsr     nextptr
+        jsr     bump
+        bra     @fill
+@filled:
+        lda     cnt
+        ldy     #F_MULTISEC
+        jsr     BDOS
+        lda     #<mbuf
+        ldx     #>mbuf
+        ldy     #F_DMAOFF
+        jsr     BDOS
+        jsr     fcall
+        jsr     setdma
+        lda     #1
+        ldy     #F_MULTISEC
+        jsr     BDOS
+        jsr     putax
+        jsr     fcb5
+        stz     s1
+        stz     s2
+        stz     done
+        stz     done+1
+        jsr     mbufat
+@sum:   jsr     more
+        bcc     @end
+        ldy     #0
+:       lda     (ptr),y
+        jsr     add1
+        iny
+        bpl     :-
+        jsr     nextptr
+        jsr     bump
+        bra     @sum
+@end:   lda     s1
+        jsr     put
+        lda     s2
+        jsr     put
+        jmp     opdone
+
+; ptr at mbuf; nextptr the next record.
+mbufat: lda     #<mbuf
+        sta     ptr
+        lda     #>mbuf
+        sta     ptr+1
+        rts
+nextptr:
+        clc
+        lda     ptr
+        adc     #128
+        sta     ptr
+        bcc     :+
+        inc     ptr+1
+:       rts
+
 ; --- the end: RESULT.BIN ---
-finish: lda     #'O'                    ; the header: "OOMR", 1, status, ran, length
+finish: lda     #1                      ; 44 back to 1, for the driver's own I/O
+        ldy     #F_MULTISEC
+        jsr     BDOS
+        lda     #'O'                    ; the header: "OOMR", 1, status, ran, length
         sta     results
         sta     results+1
         lda     #'M'
@@ -699,7 +827,11 @@ fill:   ldx     #127
         bpl     :-
         rts
 pattern:
-        lda     tag
+        lda     #<dmabuf
+        sta     ptr
+        lda     #>dmabuf
+        sta     ptr+1
+patptr: lda     tag                     ; the tag's pattern at ptr
         sta     acc
         lda     tag+1
         ora     #1
@@ -707,7 +839,7 @@ pattern:
         ldy     #0
 :       tya
         eor     acc
-        sta     dmabuf,y
+        sta     (ptr),y
         clc
         lda     acc
         adc     step
@@ -770,10 +902,10 @@ putdone:
         jmp     put
 
         .rodata
-optab:  .word   badop, op_fcb, op_name2, op_rand, badop, badop, badop, badop      ; $00
+optab:  .word   badop, op_fcb, op_name2, op_rand, op_dma16, op_passwd, badop, badop ; $00
         .word   badop, badop, badop, badop, badop, badop, badop, badop
         .word   op_fcall, op_next, op_read, op_write, op_writen, op_readn, op_sall, op_maken ; $10
-        .word   badop, badop, badop, badop, badop, badop, badop, badop
+        .word   op_multi, badop, badop, badop, badop, badop, badop, badop
         .word   op_call, op_free, op_dpb, op_time                                  ; $20
 OPCOUNT = (* - optab) / 2
 fcblo:  .repeat NSLOTS, i
@@ -800,6 +932,8 @@ fcbs:   .res    NSLOTS * FCBLEN
 io:     .res    FCBLEN
 dmabuf: .res    128
 dat:    .res    4
+pwbuf:  .res    8
+mbuf:   .res    MBUF_RECS * 128
 script: .res    SCRIPT_MAX
 results:
         .res    RESULT_MAX

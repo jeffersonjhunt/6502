@@ -30,7 +30,7 @@
 ; file's block is kept for the next 48 to try again. After that the CCP's
 ; own calls return their errors (error mode $FF): an error loading is READ
 ; ERROR. A program starts in the default error mode, with the DMA address
-; $0280.
+; $0280 and a multi-sector count of 1 (set at each warm boot, function 44).
 ;
 ; A ^C typed at the prompt while the line is empty is function 10's warm
 ; boot too, but the CCP resets the disk system for it (the Programmer's
@@ -43,8 +43,9 @@
 ; function 10) is the warm boot.
 ;
 ; Then, at every warm boot, what the Guide has the CCP set for a program:
-; the console mode 0, the delimiter '$' (its own strings need it too) and
-; the multi-sector count 1. The CCP keeps its own drive and user (CCPDRV,
+; the console mode 0 and the delimiter '$' (its own strings need it too);
+; the multi-sector count 1 is set first (44, above), so the CCP's own
+; loads have it too. The CCP keeps its own drive and user (CCPDRV,
 ; CCPUSR: A:, user 0 from the cold boot; the Guide, 1.7 and 2.3.5), which
 ; a program's 14 or 32 doesn't change: it makes them current again for the
 ; prompt, the drive by the SCB, so it isn't logged in until it's used.
@@ -97,6 +98,9 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BPL     @jmps
                 LDX     #$FF
                 TXS
+                LDA     #1             ; a multi-sector count of 1, for its loads and
+                LDY     #F_MULTISEC    ; each program (the Guide, 44)
+                JSR     BDOS
                 LDA     #$FE           ; a write-back that fails is said, and the
                 LDY     #F_ERRMODE     ; warm boot goes on
                 JSR     BDOS
@@ -124,10 +128,6 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 JSR     BDOS
                 LDA     #'$'           ; the delimiter '$',
                 LDY     #C_DELIMIT
-                JSR     BDOS
-                LDA     #<MULTIPB      ; the multi-sector count 1
-                LDX     #>MULTIPB
-                LDY     #S_SCB
                 JSR     BDOS
                 LDA     #<CHAINPB      ; 47's request, then none
                 LDX     #>CHAINPB
@@ -544,7 +544,6 @@ CRLF:           .byte   $0D, $0A, "$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 READERR:        .byte   "READ ERROR$"
-MULTIPB:        .byte   <(SCB_MULTI - SCB), $FF, 1, 0   ; 49: set the multi-sector count 1
 CHAINPB:        .byte   <(SCB_CCPFLAGS - SCB), 0, 0, 0  ;   get 47's request
 NOCHAINPB:      .byte   <(SCB_CCPFLAGS - SCB), $FF, 0, 0 ;  and none
 DISKPB:         .byte   <(SCB_DISK - SCB), $FF, 0, 0    ;   set the current drive: CCPDRV

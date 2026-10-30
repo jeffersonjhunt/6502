@@ -26,12 +26,13 @@
 ;                   left as it was
 ;
 ; and bdosfile.s's 13-37, 40, 42, 43, 45, 46, 48, 98 and 99, and
-; bdossys.s's console (1-11), 47, 49, 107-112 and 152. Any other returns
-; A = X = $FF.
+; bdossys.s's console (1-11), 47, 49, 107-112 and 152, and bdosxtra.s's 44,
+; 100-103 and 106. Any other returns A = X = $FF.
 ;
 ; Errors (hw/oodos.md, "The BDOS, phase 3"): DERR with CP/M 3's code. In
 ; the default error mode it says "OODOS Error On A: Disk I/O" (or Read
-; Only, File R/O, Invalid Drive, File Exists, ? in Filename), then "BDOS
+; Only, File R/O, Invalid Drive, Password Error, File Exists, ? in
+; Filename), then "BDOS
 ; Function = n" and, for a function with an FCB, "File = NAME    .TYP", and
 ; ends the program by the warm boot, the return code $FFFD; mode $FE says it
 ; and returns, $FF only returns: A = $FF and X = the code. The SCB's error
@@ -140,6 +141,7 @@ BDOSENT:        STA     PA
                 STX     PP + 1
                 STY     FUNC
                 STZ     FCBN
+                STZ     MON
                 LDA     SCB_DISK
                 STA     EDRV
                 CPY     #NFUNC
@@ -170,24 +172,27 @@ FJUMPS:
                 .word   F_AOSTAT, F_CHAIN, F_SCB, F_SERIAL
                 .word   F_RETCODE, F_CONMODE, F_DELIM, F_PBLOCK
                 .word   F_LBLOCK, F_PARSE
+                .word   F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS ; 116: 3b1's
+                .word   F_WXFCB, F_DEFPW
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
                 .byte   30, 32, 34, 36, 38, 40, 42, 44, 46, 48 ; 20-29
                 .byte   50, 52, 54, 56, 58, 60, 62, 64, $FF, $FF ; 30-39
-                .byte   66, $FF, 68, 68, $FF, 70, 72, 98, 74, 100 ; 40-49
+                .byte   66, $FF, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
                 .byte   76, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
                 .byte   $FF, $FF, 78, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 70-79
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
-                .byte   $FF, $FF, $FF, $FF, 84, 86 ; 100-105
-                .byte   $FF, 102, 104, 106, 108, 110, 112 ; 106-112
+                .byte   118, 120, 122, 124, 84, 86 ; 100-105
+                .byte   126, 102, 104, 106, 108, 110, 112 ; 106-112
                 .res    152 - 113, $FF ; 113-151
                 .byte   114 ; 152
 .assert * - FIDX = NFUNC, error, "FIDX has every function to 152"
 ; The dispatch's BMI NOFUNC takes an offset of 128 or more for none: FJUMPS
-; holds at most 64 handlers (offsets 0-126).
+; holds at most 64 handlers (offsets 0-126), and has 64 now: another wants
+; another dispatch.
 .assert FIDX - FJUMPS <= 128, error, "FJUMPS has more than 64 handlers: its offsets must stay below 128"
 
 F_TERM:         JMP     WARM
@@ -315,7 +320,8 @@ DERR:           STA     ECODE
                 LDA     #$FF
                 STA     SCB_RETCODE + 1
                 JMP     WARM
-@back:          LDA     #$FF
+@back:          JSR     MERR           ; a multi-sector call's records done kept
+                LDA     #$FF
                 LDX     ECODE
                 BRA     RETAX
 
@@ -414,13 +420,15 @@ EIO:            .byte   "Disk I/O", 0
 ERO:            .byte   "Read Only", 0
 EROF:           .byte   "File R/O", 0
 ESEL:           .byte   "Invalid Drive", 0
+EPASS:          .byte   "Password Error", 0
 EEXIST:         .byte   "File Exists", 0
 EWILD:          .byte   "? in Filename", 0
 EFUNC:          .byte   ASCII_CR, ASCII_LF, "BDOS Function = ", 0
 EFILE:          .byte   " File = ", 0
 .assert * - ESTR < 256, error, "ESTR's offsets are a byte"
-ECODES:         .byte   ER_IO, ER_RODISK, ER_ROFILE, ER_SELECT, ER_EXISTS, ER_WILD
-ENAMES:         .byte   EIO - ESTR, ERO - ESTR, EROF - ESTR, ESEL - ESTR, EEXIST - ESTR, EWILD - ESTR
+ECODES:         .byte   ER_IO, ER_RODISK, ER_ROFILE, ER_SELECT, ER_PASSWORD, ER_EXISTS, ER_WILD
+ENAMES:         .byte   EIO - ESTR, ERO - ESTR, EROF - ESTR, ESEL - ESTR, EPASS - ESTR, EEXIST - ESTR
+                .byte   EWILD - ESTR
 ENAMES_LEN      = * - ENAMES
 
 ; ---------------------------------------------------------------------------

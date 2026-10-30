@@ -9,7 +9,7 @@ FCB_DR          = 0                    ; the drive: 0 the current one, 1-16 A-P
 FCB_NAME        = 1                    ; f1-f8, t1-t3; bit 7 of each an attribute
 FCB_F5          = 5                    ; f5': delete XFCBs only (19)
 FCB_F6          = 6                    ; f6': set the byte count (30; open gives it for CR $FF)
-FCB_F7          = 7
+FCB_F7          = 7                    ; f7': opened without a write-protected file's password: read-only
 FCB_F8          = 8                    ; f8': opened from user 0 (a SYS file): read-only
 FCB_T1          = 9                    ; t1': read-only
 FCB_T2          = 10                   ; t2': SYS
@@ -35,12 +35,16 @@ SFCB_SLOT       = 10                   ; an entry's stamps in its SFCB: 1 + slot
 MODE_ACCESS     = $40                  ; the label's mode: access stamps (in the first)
 MODE_UPDATE     = $20                  ;   update stamps
 MODE_CREATE     = $10                  ;   creation stamps
+MODE_PASSWORD   = $80                  ;   passwords on
+XFCB_MODES      = $E0                  ; an XFCB's mode: bit 7 read, 6 write, 5 delete
+PW_LEN          = 8
 
 ; Errors: X when the error mode returns them (CP/M 3's H)
 ER_IO           = 1                    ; Disk I/O
 ER_RODISK       = 2                    ; Read Only
 ER_ROFILE       = 3                    ; File R/O
 ER_SELECT       = 4                    ; Invalid Drive
+ER_PASSWORD     = 7                    ; Password Error
 ER_EXISTS       = 8                    ; File Exists
 ER_WILD         = 9                    ; ? in Filename
 
@@ -60,7 +64,7 @@ SM_ANYEX        = $08                  ; any extent
 .globalzp CDRV, CSLOT, CD, BSH, BLM, EXM, DSM, DRM, HWM, MODE, BIG, OFFS, DPBP
 .globalzp HBLK, HBASE, ALVP, LBA, BPTR, DPTR, DIDX, HP, LIM, HV, H0, H3, NP, BLK
 .globalzp RECP, GBNEW, LASTB, BIOSDRV, AGE, SMODE, FCBN, EXMASK, PEX3, MASK3, PHASH
-.globalzp SZ, RR
+.globalzp SZ, RR, RDMA, MON
 ; The system block
 .global FC, SPAT, SSAVE, SSMODE, SSDRV, SSIDX, SSON, DTAB, LOGVEC, ROVEC, FCBP
 .global BCB_DRV, BCB_LO, BCB_HI, BCB_DIRTY, BCB_AGEL, BCB_AGEH
@@ -76,12 +80,17 @@ SM_ANYEX        = $08                  ; any extent
 .global HASHPUT, NHASH, SETPAT, PATDERIV, FIND, FINDNXT, FINDFREE, MAKEENT
 .global ALVBIT, ALVSET, ALVCLR, ALVFREE, MARKE, FREEE, EPTR, STAMP, STAMPU, WBACKX
 .global DIRREC, RESCAN, CHANGED, RFLUSH, RDONE, PURGEM, BCBBLK
+.global SFCBAT, SFCBPUT, SFREST, NOW, PUTNOW, HWMUP, INITSTAMP
+.globalzp STOFS
 ; bdosfile.s
 .global F_RESET, F_SELECT, F_OPEN, F_CLOSE, F_SFIRST, F_SNEXT, F_DELETE
 .global F_SREAD, F_SWRITE, F_MAKE, F_RENAME, F_LOGIN, F_DMA, F_ALLOC, F_SETRO
 .global F_ROVEC, F_ATTRIB, F_DPB, F_USER, F_RREAD, F_RWRITE, F_SIZE, F_SETRAND
 .global F_DRESET, F_RWRITEZ, F_LOCK, F_ERRMODE, F_FREE, F_FLUSH, F_FREEBLK
-.global F_TRUNC
+.global F_TRUNC, MERR, EXTUSER, RODRV, NOWILD
+; bdosxtra.s
+.global F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS, F_WXFCB, F_DEFPW
+.global PWFILE, PWALL, MKXFCB, MKROOM, XCLEAR, NEWMODE
 ; bdossys.s
 .global F_READ, F_WRITE, F_AREAD, F_AWRITE, F_LWRITE, F_RAWIO, F_AISTAT, F_AOSTAT
 .global F_STRING, F_LINE, F_STAT, F_CHAIN, F_SCB, F_SERIAL, F_RETCODE, F_CONMODE
