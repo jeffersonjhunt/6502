@@ -3337,6 +3337,231 @@ TEST(function_108_s_return_code_is_kept_for_the_next_program)
     r.watch = nullptr;
 }
 
+// ---- phase 3c: the memory functions -----------------------------------------------------
+
+/// MEMTEST's case `c` to its end, each prompt answered after its action ran.
+std::string memtest(Rig &r, char c, const std::vector<std::pair<std::string, std::function<void()>>> &prompts = {})
+{
+    const size_t from = start(r, "memtest.com", std::string(" ") + c);
+    for (const auto &[prompt, then] : prompts)
+    {
+        CHECK(r.until(prompt, ms(20000), from));
+        then();
+        r.type(" ");
+    }
+    CHECK(r.until("MEMTEST DONE", ms(60000), from));
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    if (std::getenv("MEMTEST_SHOW"))
+        std::printf("%s\n", r.out.substr(from).c_str());
+    return r.out.substr(from);
+}
+
+/// Each key's value in `o`, against the table.
+void check_fields(const std::string &o, const std::vector<std::pair<const char *, const char *>> &want)
+{
+    for (const auto &w : want)
+    {
+        const std::string got = field(o, w.first);
+        CHECK_EQ(got, std::string(w.second));
+        if (got != w.second)
+            std::printf("  %s: %s, want %s\n", w.first, got.c_str(), w.second);
+    }
+}
+
+TEST(function_51_s_dma_segment_moves_records_to_and_from_physical_memory)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    // Each 33's cycles, BDOSENT to STUBRET: the third and fourth are DRC and DRS, a buffered record
+    // to the CPU's DMA address and then through a segment.
+    std::vector<uint64_t> took;
+    uint64_t t0 = 0;
+    bool in33 = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == sym("BDOSENT"))
+        {
+            in33 = r.cpu->regs().y == 33;
+            t0 = r.cpu->cycles();
+        }
+        else if (pc == sym("STUBRET") && in33)
+            took.push_back(r.cpu->cycles() - t0);
+    };
+    const std::string o = memtest(r, 'D');
+    r.watch = nullptr;
+    if (took.size() >= 4)
+        std::printf("  M: 33 of a buffered record: %llu cycles to the CPU, %llu through a DMA segment\n",
+                    static_cast<unsigned long long>(took[2]), static_cast<unsigned long long>(took[3]));
+    check_fields(o, {
+        {"GET0", "8002FFFF"}, {"GET1", "00000010"}, {"DMK", "00 00"}, {"DW4", "00 00"}, {"DCL", "00 00"},
+        {"DRD", "Y"}, {"DR2", "00 00"}, {"DR2CHK", "Y"}, {"DRF", "00 00"}, {"DRFCR", "01"}, {"DRFCHK", "Y"},
+        {"DRX", "00 00"}, {"DRXCHK", "Y"}, {"DRC", "00 00"},
+        {"DRS", "00 00"}, {"D17", "01 00"}, {"D17CHK", "Y"}, {"D18", "FF 00"}, {"DRST", "FF FF"},
+        {"DRSTCHK", "Y"}, {"DRB6", "FF FF"}, {"DRM", "FF FF"},
+        {"DRBD", "FF FF"}, {"DRPAST", "FF FF"}, {"DRWRAP", "FF FF"}, {"DRM16", "01 04"}, {"DRM17", "FF FF"},
+        {"DR255", "01 04"}, {"DR255X", "FF FF"},
+        {"DWMCR0", "04"}, {"DWM", "FF FF"}, {"DWMCR", "04"}, {"D17M", "FF FF"}, {"DFREE", "00 00"},
+        {"DFREECPU", "Y"}, {"GET13", "80023412"},
+    });
+    // The records' bytes, against M:'s (the test's oracle, read behind OODOS's back): records 0-3
+    // were written from $10000, 1-2 read to $14100, 3 to $1FFC0 across banks 1 and 2.
+    CpmDisk m{r, 0};
+    const std::vector<uint8_t> d = m.directory();
+    const std::vector<unsigned> es = m.entries_of(d, 0, "D       DAT");
+    REQUIRE(!es.empty());
+    auto phys_at = [&](uint32_t a) {
+        std::vector<uint8_t> b(REC32);
+        for (uint32_t i = 0; i < REC32; ++i)
+            b[i] = r.phys(a + i);
+        return b;
+    };
+    for (unsigned k = 0; k < 4; ++k)
+        CHECK(m.record(d, es, k) == phys_at(0x10000 + k * REC32));
+    CHECK(m.record(d, es, 1) == phys_at(0x14100));
+    CHECK(m.record(d, es, 2) == phys_at(0x14180));
+    CHECK(m.record(d, es, 3) == phys_at(0x1FFC0));
+    // The warm boot sets the segment back to none.
+    const std::string w = memtest(r, 'W');
+    check_fields(w, {{"WGET", "8002FFFF"}, {"WMAX", "00 00"}, {"WMAXM", "0010005000"}});
+}
+
+TEST(xmove_takes_a_physical_bank_through_function_50)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = memtest(r, 'B');
+    check_fields(o, {{"BTO", "80 20"}, {"BCHK", "Y"}});
+    const std::string end = field(o, "BEND"); // BUF + 128, as MEMTEST has it: low, high
+    REQUIRE(end.size() == 4);
+    CHECK_EQ(field(o, "BFROM"), end.substr(0, 2) + " " + end.substr(2, 2));
+    for (uint32_t i = 0; i < REC32; ++i)
+        CHECK_EQ(r.phys(0x12000 + i), static_cast<uint8_t>(i));
+}
+
+TEST(cp_m_86_s_memory_functions_hand_out_banks_1_to_5_by_the_block)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = memtest(r, 'M');
+    check_fields(o, {
+        {"MAX", "00 00"}, {"MAXM", "0010005000"}, {"MXA", "FF 00"}, {"MXAM", "0000000400"}, {"MXF", "00 00"},
+        {"MXFM", "0010000000"}, {"MAX1", "00 00"}, {"MAX1M", "0010000401"}, {"M1A", "00 00"}, {"M1AM", "0014000400"},
+        {"M1F", "00 00"}, {"M1FM", "0010000000"}, {"M1AF", "00 00"}, {"M1AFM", "0014000000"}, {"MAX0", "FF 00"},
+        {"MAX0M", "3412000007"}, {"AL1", "00 00"}, {"AL1M", "0010000800"}, {"AL2", "00 00"}, {"AL2M", "0018000800"},
+        {"AB1", "00 00"}, {"AB1M", "0020000400"}, {"AB2", "FF 00"}, {"AB2M", "001C000400"}, {"AB3", "FF 00"},
+        {"AB3M", "0011000400"}, {"AB4", "FF 00"}, {"AB4M", "000C000400"}, {"AB5", "FF 00"}, {"AB5M", "0060000400"},
+        {"AB6", "FF 00"}, {"AB6M", "001C000C00"}, {"AB7", "FF 00"}, {"AB7M", "0024000000"}, {"AM1", "FF 00"},
+        {"AM1M", "0010000400"}, {"AM2", "00 00"}, {"AM2M", "0024003C00"}, {"AM2F", "00 00"}, {"AM2FM", "0024000000"},
+        {"AM3", "00 00"}, {"AM3M", "0024000C01"}, {"AM3F", "00 00"}, {"AM3FM", "0024000000"},
+        {"AM4", "FF 00"}, {"AM4M", "001CFFFF00"}, {"MAX2", "00 00"}, {"MAX2M", "0024003C00"}, {"MAX2F", "00 00"},
+        {"MAX2FM", "0024000000"}, {"FR1", "FF 00"},
+        {"FR1M", "001C000000"}, {"FR2", "00 00"}, {"FR2M", "0018000000"}, {"FR3", "FF 00"}, {"FR3M", "0018000000"},
+        {"AB8", "FF 00"}, {"AB8M", "0018000C00"},
+        {"AL3", "FF 00"}, {"AL3M", "0000005000"}, {"MAX3", "00 00"}, {"MAX3M", "0024003C01"}, {"FRALL", "00 00"},
+        {"FRALLM", "00000000FF"}, {"MAX4", "00 00"}, {"MAX4M", "0010005000"}, {"MAX4F", "00 00"},
+        {"MAX4FM", "0010000000"}, {"AL4", "00 00"},
+        {"AL4M", "0010005000"}, {"AL5", "FF 00"}, {"AL5M", "0000010000"}, {"ALLFREE", "00 00"}, {"MAX5", "00 00"},
+        {"MAX5M", "0010005000"}, {"MHOLE", "FF FF"}, {"MAX5F", "00 00"}, {"MAX5FM", "0010000000"}, {"TA", "00 00"},
+        {"TAM", "0010000C00"}, {"TS", "FF 00"}, {"TSM", "0014000400"}, {"TB", "00 00"}, {"TBM", "0014010800"},
+        {"TC", "00 00"}, {"TCM", "0014000800"}, {"TD", "00 00"}, {"TDM", "0010000000"}, {"TE", "00 00"},
+        {"TEM", "0014000000"},
+        {"TX", "00 00"}, {"TXM", "0010000C00"}, {"TXE", "00 00"}, {"TXEM", "0014000800"}, {"TXC", "00 00"},
+        {"TXCM", "0014000800"}, {"TXH", "00 00"}, {"TXHM", "0010000000"}, {"TXT", "00 00"}, {"TXTM", "0014000000"},
+        {"AL6", "00 00"}, {"AL6M", "0010000400"},
+    });
+    // AL6's block, left allocated as the program ended, freed by the warm boot.
+    const std::string w = memtest(r, 'W');
+    check_fields(w, {{"WGET", "8002FFFF"}, {"WMAX", "00 00"}, {"WMAXM", "0010005000"}});
+}
+
+TEST(function_73_gives_a_cpu_address_s_paragraph_and_offset)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = memtest(r, 'P');
+    check_fields(o, {
+        {"P0300", "00 00"}, {"P0300M", "00003000"}, {"P4123", "00 00"}, {"P4123M", "03001204"}, {"P8FFF", "00 00"},
+        {"P8FFFM", "0F00FF08"}, {"PC900", "00 00"}, {"PC900M", "000090F8"}, {"PHOLE", "FF FF"},
+        {"PHOLEM", "00C00000"}, {"PC7FF", "FF FF"}, {"PC7FFM", "FFC70000"}, {"P37", "00 00"}, {"P37M", "00000194"},
+        {"PFL", "FF FF"}, {"PFLM", "00400000"}, {"PRO", "00 00"}, {"PROM", "00000004"}, {"PBLK", "FF FF"},
+    });
+}
+
+/// A card unit's sector written through the card's registers while OODOS waits at a prompt.
+void write_unit(Rig &r, unsigned unit, uint32_t lba, const std::vector<uint8_t> &s)
+{
+    r.sd().write(SdCard::UNIT, static_cast<uint8_t>(unit));
+    for (unsigned i = 0; i < 4; ++i)
+        r.sd().write(static_cast<uint8_t>(SdCard::LBA + i), static_cast<uint8_t>(lba >> (8 * i)));
+    r.sd().write(SdCard::COUNT, 1);
+    r.sd().write(SdCard::COUNT + 1, 0);
+    r.sd().write(SdCard::CMD, SdCard::WRITE);
+    r.run(ms(1));
+    for (const uint8_t b : s)
+        r.sd().write(SdCard::DATA, b);
+    r.run(ms(1));
+    r.sd().write(SdCard::UNIT, 0);
+}
+
+TEST(function_74_mounts_and_unmounts_b_to_g_as_drives_txt_has_paths)
+{
+    Rig r;
+    REQUIRE(r.ok);
+    auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
+    r.media = fm;
+    r.sd().insert(fm, false);
+    r.run(ms(SdCard::INIT_MS + 10));
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0); // A: only
+    REQUIRE(r.boot());
+    // RSCN?: the card taken out as 74's rescan starts (the BIOS's UNITS, W2 on block 61), after
+    // its MOUNT worked; RMEND?: put back, A.IMG and B.IMG on units 1 and 3 again.
+    bool pull = false;
+    const uint16_t units = sym("UNITS");
+    r.watch = [&](uint16_t pc) {
+        if (pull && pc == units && r.nb(2) == 61)
+        {
+            pull = false;
+            r.sd().eject();
+        }
+    };
+    const std::string o = memtest(r, 'N',
+                                  {{"SECT?", [&] {
+                                        std::vector<uint8_t> s = r.read_unit(3, 0);
+                                        std::vector<uint8_t> e(32, 0);
+                                        const std::string y = "Y       DAT";
+                                        std::copy(y.begin(), y.end(), e.begin() + 1);
+                                        std::copy(e.begin(), e.end(), s.begin() + 64); // entry 2
+                                        write_unit(r, 3, 0, s);
+                                    }},
+                                   {"FAULT?", [&] { fm->fail = true; }},
+                                   {"MEND?", [&] { fm->fail = false; }},
+                                   {"RSCN?", [&] { pull = true; }},
+                                   {"RMEND?", [&] {
+                                        r.sd().insert(fm, false);
+                                        r.run(ms(SdCard::INIT_MS + 10));
+                                        CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+                                        CHECK_EQ(r.mount(3, "/OODOS/B.IMG"), 0); // for the checks below
+                                    }}});
+    r.watch = nullptr;
+    check_fields(o, {
+        {"NA", "FF 04"}, {"NM", "FF 04"}, {"NH", "FF 04"}, {"NP1", "FF 10"}, {"NP2", "FF 10"}, {"NP3", "FF 10"},
+        {"NP4", "FF 10"}, {"NP5", "FF 10"}, {"NP6", "FF 10"}, {"NP7", "FF 10"}, {"NP8", "FF 10"}, {"NP9", "FF 10"},
+        {"NLONG", "FF 10"}, {"NLEN", "FF 11"}, {"NNF", "FF 11"}, {"NDIR", "FF 11"}, {"NSZ", "FF 12"},
+        {"NSZSEL", "FF 04"}, {"NSAME", "FF 13"}, {"NSAMESEL", "FF 04"}, {"NC", "00 00"}, {"NCSEL", "00 00"},
+        {"NC17", "FF 00"}, {"NCW", "00 00"}, {"NC2", "00 00"}, {"NCY", "02 00"}, {"NUC", "00 00"},
+        {"NUCSEL", "FF 04"}, {"NUC2", "00 00"}, {"NRO", "00 00"}, {"NROMK", "FF 02"}, {"NC3", "00 00"},
+        {"NWW", "00 00"}, {"NWB", "FF 01"}, {"NWBSEL", "00 00"}, {"NWB2", "00 00"}, {"NC4", "00 00"},
+        {"NWBCHK", "Y"}, {"NRS", "FF 01"},
+    });
+    // What C: wrote went to B.IMG (unit 3, mounted by 74), the record written again after the
+    // card's writes came back among it, and Y.DAT as the test put it there.
+    CpmDisk c{r, 3};
+    const std::vector<uint8_t> d = c.directory();
+    const std::vector<unsigned> xs = c.entries_of(d, 0, "X       DAT");
+    REQUIRE(!xs.empty());
+    CHECK(c.record(d, xs, 0) == std::vector<uint8_t>(REC32, 0xC3));
+    CHECK(!c.entries_of(d, 0, "Y       DAT").empty());
+}
+
 int main()
 {
     // ctest stays hermetic with no skips (hw/oodos.md, "Testing"): CMake requires the tools

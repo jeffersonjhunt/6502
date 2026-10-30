@@ -182,7 +182,9 @@ back in A (low) and X (high), as CP/M 3 returns it in A and HL.
 
 **Common memory is in every block W3 maps.** Whatever block is in W3, its top 2 KB is the same copy of common
 memory, put there by OODOS when the block is allocated for code. So the BDOS entry, the interrupt entry and the far
-call table are always at the same addresses, and a far call can swap W3 without losing them. Common memory keeps
+call table are always at the same addresses, and a far call can swap W3 without losing them. *(Not built yet: 3c's
+53–56 allocate blocks but copy nothing into them, so a program puts common memory in a block it far calls
+itself; deferred to phase 7, below.)* Common memory keeps
 no state of its own: that lives in the system's zero page block.
 
 **Entering the BDOS.** The stub in common memory saves the program's stack pointer and window registers, points
@@ -255,16 +257,16 @@ assumes).
 |---|---|---|
 | 51 | F_DMASEG | set the DMA "segment": the paragraph the DMA address counts from, so a read or write reaches any physical memory. `$FFFF`, the default, means the DMA address is the program's CPU address, as in CP/M 3 |
 | 52 | F_DMAGET | return the DMA segment and address |
-| 53 | MC_MAX | the largest free run of memory, in an MCB |
+| 53 | MC_MAX | allocate the largest free run of memory, in an MCB |
 | 54 | MC_ABSMAX | the same, at a given base |
 | 55 | MC_ALLOC | allocate memory: the MCB's length in, its base out |
 | 56 | MC_ABSALLOC | allocate memory at a given base |
-| 57 | MC_FREE | free one allocation |
+| 57 | MC_FREE | free an allocation, or its top part (from a later block to its end) |
 | 58 | MC_ALLFREE | free everything the program allocated |
 
 - **The MCB** is CP/M-86's: base (a paragraph, 2 bytes), length (paragraphs, 2 bytes), and an extra byte.
-- **Granularity is a 16 KB block,** 1024 paragraphs: lengths round up, bases are block boundaries. Only the blocks
-  that are user memory (banks 1–5 and what's left of the others) are handed out.
+- **Granularity is a 16 KB block,** 1024 paragraphs: lengths round up, bases are block boundaries. Only banks 1–5
+  are handed out, 20 blocks (decided 2026-10-30, [phase 3c](#the-bdos-phase-3)).
 - **Warm boot frees** everything a program allocated, as 58 does, so a program that stops early leaks nothing.
 - MP/M's memory functions (128–130) were the alternative. They describe memory segments of a multi-process
   system, and fit less well.
@@ -275,7 +277,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 
 | No. | What |
 |---|---|
-| 72 | OODOS's version, the BIOS's version, the memory fitted and free, and the address of the far call table |
+| 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
 | 75–97 | reserved for OODOS |
@@ -289,6 +291,8 @@ common memory holds a small table, found through function 72, beside the BIOS's 
   JSR there, and put W3 back on the way out. The block's code may call FARCALL again; the table keeps a stack of
   the blocks. The program's own memory, `$0000–$BFFF`, stays mapped throughout, so banked code sees all of it.
 - A block allocated for code gets common memory copied into its top 2 KB, so 12 KB of each is the program's.
+  *(Not done yet: 3c allocates blocks without it; deferred to phase 7, with the home block and the lean FARCALL,
+  under [Open Questions](#open-questions).)*
 - **FARPEEK, FARPOKE, FARMOVE:** bytes and runs of bytes at physical addresses, for DEF SEG, PEEK, POKE, BLOAD and
   BSAVE. FARMOVE uses the DMA controller.
 
@@ -341,7 +345,9 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
   nothing a program left reaches the next.
 - **What isn't memory:** an address in a window's I/O hole (`$C000–$C7FF`), a window on flash (`NB_ROM`), or a
   read-only window as the destination, has no physical address the BIOS may use: READ and WRITE return 1 and MOVE
-  moves nothing and returns A = X = `$FF`, all checked before a byte moves. The BDOS's functions stop at a program
+  moves nothing and returns A = X = `$FF` with the carry set, all checked before a byte moves. A move that is
+  done clears the carry (phase 3c's review): its end can itself be `$FFFF`, a move to `$FF7F` of 128 bytes, so
+  the BDOS goes by the carry. The BDOS's functions stop at a program
   address in the hole and return A = X = `$FF`.
 - **The DPBs:** worked out from `oodos/diskdefs`, with CKS `$8000` (a drive not changed under the system: no
   checksums), OFF 0, PSH 2 and PHM 3. SELDSK's DPHs have no translation and no buffers until phase 3.
@@ -428,6 +434,9 @@ A machine with no OODOS card still boots to the monitor as now.
 - **The program's memory from the system:** through the saved windows, as physical addresses, by DMA
   (MOVE/XMOVE, or a byte at a time where that's all it is).
 - **Programs call the BIOS through function 50 only.** The jump table in common memory is the BDOS's.
+  Function 50 gives the program its own flags back, so MOVE's carry (and TIME's) stops at the BDOS: a program's
+  MOVE that returns `$FFFF` either was refused or ended at `$FFFF`, and the program tells which by whether its
+  destination + count is `$FFFF`.
 
 **Common memory** (`$F800–$FFFF`, the same in every block W3 maps) holds:
 
@@ -536,7 +545,7 @@ windows and a fresh stack. An unknown name prints `NAME?`, as CP/M does. Warm bo
   BS and DEL, ^X, and ^C at the start of a line (the warm boot), ignores other control characters and echoes the
   end as CR; 2 expands a tab to the next eighth column by the SCB's column. 72 takes the address of a 10-byte block
   it fills: OODOS's version (major, minor), the BIOS's, the memory fitted and the memory for programs in KB (1,024
-  and 320, banks 1–5, for 53–58 later), FARCALL's address; and returns that address in A/X. 104 sets the seconds
+  and 320, banks 1–5, the total 53–58 hand out, fixed: not what is free), FARCALL's address; and returns that address in A/X. 104 sets the seconds
   to 0; 105 returns them in A, X 0. A function 50 of a BIOS function past XMOVE returns A = X = `$FF`, and so does
   one of BOOT, which would run cold boot again and format M: (a program ends by the warm boot).
 
@@ -970,9 +979,9 @@ tests.
 
 **3b1 and 3b2 together (merged 2026-10-30):**
 
-- **One dispatch table:** FJUMPS has 64 handlers, the most its offsets allow (the `.assert`, 0–126): 3a's 44, 3b2's
-  14 at offsets 88–114 (3, 4, 5, 7, 8, 47, 49, 107–112, 152), 3b1's 6 at 116–126 (44, 100–103, 106); NFUNC 153. A
-  function past these needs another dispatch.
+- **One dispatch table:** FJUMPS has 64 handlers, the most its offsets allowed then (the `.assert`, 0–126): 3a's 44,
+  3b2's 14 at offsets 88–114 (3, 4, 5, 7, 8, 47, 49, 107–112, 152), 3b1's 6 at 116–126 (44, 100–103, 106); NFUNC
+  153. A function past these needed another dispatch: 3c's widened it (below).
 - **One multi-sector count,** the SCB's `$4A` (`SCB_MULTI`, in `sys.inc`): 44 sets it (1–128), 49 reads and sets it
   (any byte, as CP/M 3; a count over 128 set so is taken as it is, 0 as 1), and the CCP sets it to 1 once at each
   warm boot, by 44, before its own loads (3b2's set by 49 later in the warm boot dropped). XTRATEST K: 44's 5 read
@@ -981,6 +990,136 @@ tests.
   or `$FF`, a multi-sector call's records done are kept (3b1's `MERR`) before it returns.
 - **Where it lives:** block 60 10,227 bytes of 16,384 (`BDOS2` still unused); the zero page 201 of 240; `SYSBSS`
   701 of 1,280; the CCP's code window 1,323 bytes; common memory 1,107 of 2,048, as it was.
+
+**Decided (2026-10-30): phase 3c, the memory functions (51–58) and OODOS's 73 and 74.**
+
+1. **Allocatable memory is banks 1–5 only:** 20 blocks of 16 KB, 320 KB, as function 72 already reports. The
+   granularity is a 16 KB block (1,024 paragraphs): lengths round up, bases are block boundaries.
+2. **Function 51's DMA segment applies to disk transfers only,** as in CP/M-86: the records of 20, 21, 33, 34 and
+   40 (single and multi-sector), and the directory record 17 and 18 return in the DMA buffer. Console strings (9,
+   10, 111 ...) and FCBs stay CPU addresses. `$FFFF`, the default, set at cold boot and every warm boot, means the
+   DMA address is the program's CPU address, as before. 3b1's range check (`MRANGE`) checks the physical range
+   when a segment is set.
+3. **Function 74 refuses A:,** the system drive. It mounts and unmounts B:–G: only, and logs that drive out so the
+   next access sees the new image.
+4. **Testing:** directed tests for every function; the random model comparison gains a DMA segment, so file I/O
+   through physical addresses is compared with the model; 53–58, 73 and 74 get directed tests only.
+
+**Proposed (3c)** (the choices where this document and CP/M-86 are silent are ours, and say so):
+
+- **The dispatch** is widened first: the "no handler" test is `CPX #$FF` (it was `BMI`, which capped FJUMPS at 64
+  handlers, all used); FJUMPS may hold 127. Two cycles a call more.
+- **51** takes the segment in A/X and returns A = X = 0; any value is taken, and checked when a record moves. The
+  physical address is segment × 16 + the DMA address (26's, the SCB's `$3C`). **What a segment may reach** (ours):
+  any RAM but OODOS's own: banks 0–5, 8–B (video memory) and E (native mode may use bank E: the BIOS's `C806R`
+  copies the IIe ROM into it from the cartridge each time Apple mode starts); refused are banks 6–7 (the hash, the buffers, the
+  system block), C–D (M:) and blocks 60–63 (the BDOS, the BIOS, block 62, the ROM BIOS's copy), and anything past
+  `$FFFFF`. Flash has no physical address (a window's ROM bit), so it can't be named. A DMA address whose records
+  run past `$FFFF` is refused as without a segment. Refused memory is the error any memory that isn't gets: A = X =
+  `$FF` and nothing done, checked before the first record for 20, 21, 33, 34 and 40 (after the FCB's drive and a
+  write's R/O checks, as `MRANGE` is now), and at the move for 17 and 18 (their search goes on, as with a DMA
+  address in the I/O hole now). Function 13 sets the DMA address to `$0280` and keeps the segment (ours). What else
+  uses the DMA address stays the program's CPU address: 46's free space, the passwords 15, 19, 22, 23, 30, 99, 100
+  and 103 read there, and 10's buffer with A/X = 0 (ours: decision 2's "disk transfers only").
+- **The BIOS's XMOVE** takes a physical bank, `$80` + A16–A19 (ours): MOVE's address on that side is then the
+  physical address's low 16 bits. The BDOS moves a segment's records so. Function 50 passes it on, as it passes
+  bank 0, the system's view, now.
+- **52** takes the address of 4 bytes it fills (ours): the DMA address (+0–1, CP/M-86's BX) and the segment (+2–3,
+  its ES); A = X = 0.
+- **The MCB** is CP/M-86's: +0–1 M_BASE (a paragraph), +2–3 M_LENGTH (paragraphs), +4 M_EXT. Results (ours, as
+  OODOS maps CP/M's): A = 0 done, A = `$FF` with X 0 no memory (CP/M-86's AL `$FF`), A = X = `$FF` an MCB that
+  isn't memory (the I/O hole), nothing written. A length is rounded up to whole blocks (0 is none: `$FF`); a
+  length out is the blocks' (× 1,024). A base must be a block's first paragraph in banks 1–5 (`$1000`, `$1400`,
+  ... `$5C00`), else `$FF`.
+  - **53** (MC_MAX): the largest run of free blocks, at most the length asked (rounded up to whole blocks),
+    allocated, as CP/M-86's: M_BASE its base (the lowest of equal runs), M_LENGTH its length, M_EXT 1 if a free
+    block is left outside it, else 0. (3c first allocated nothing; review, 2026-10-30: CP/M-86's 53 and 54
+    allocate the run they report.)
+  - **54** (MC_ABSMAX): the same from M_BASE: the run of free blocks starting there, at most the length asked,
+    allocated; shorter if a block in it is taken (ours), `$FF` if the base's own block is.
+  - **55** (MC_ALLOC): the lowest run of free blocks of the length; M_BASE its base, M_LENGTH the length rounded.
+  - **56** (MC_ABSALLOC): the length from M_BASE, all of it free, else `$FF` and nothing allocated (ours: no
+    shrinking); M_LENGTH the length rounded.
+  - **57** (MC_FREE): M_EXT `$FF` frees everything, as 58 (CP/M-86's); otherwise M_BASE an allocation's base
+    frees that whole allocation, whatever M_LENGTH; M_BASE a later block of one, with M_LENGTH (rounded up to
+    blocks) reaching the allocation's end, frees from M_BASE to that end and keeps its head allocated, as CP/M-86
+    frees a region's top part. The rule where CP/M-86 is silent is ours: a length past the end frees only to it;
+    a shorter one, a length of 0, a free block or any other base is `$FF`, nothing freed.
+  - **58** (MC_ALLFREE) frees every allocation; A = X = 0.
+- **Who owns an allocation** (ours): the running program. The warm boot frees all, as 58, and sets the segment
+  back to `$FFFF`, in common memory's WARM, so a program that ends any way leaks nothing. The map is a byte a
+  block in `SYSBSS`, 20 bytes: 0 free, `$81` an allocation's first block, 1 a later one.
+- **73** takes the address of 4 bytes (ours): +0–1 a CPU address in, the program's; out +0–1 the offset (0–15)
+  and +2–3 the paragraph, so the physical address is paragraph × 16 + offset (and 51 with the paragraph and 26
+  with the offset name it), through the windows the stub saved (W3 a far call's block, if one is mapped). A = X
+  = 0. An address in the I/O hole, or in a window on flash, is A = X = `$FF`, the 4 bytes as they were; a
+  read-only window translates (it is RAM).
+- **74** takes the address of a block laid out as the card's MOUNT sector, with a drive for the unit (ours): +0
+  the drive (0–15, as 14's: 1–6 are B:–G:), +1 the flags (bit 0 read-only), +2 the path to its NUL, as DRIVES.TXT
+  has it: from the root, `/`-separated, no name empty, `.` or `..` (so no `//` and no `/` at the end), no space,
+  tab, `#`, control character or DEL, at most 509 bytes. An empty path unmounts the drive. In order: the drive
+  (B:–G:), the path, then the drive's changed buffers written back: one that fails refuses the call, nothing
+  mounted and the buffers kept (marked, as a write-back that fails keeps them now). Then the drive's buffers are
+  dropped and it is logged out, read-write; the card's MOUNT (or UNMOUNT); the units read again (a rescan, as
+  13's; a rescan that fails, the units table not read, unmounts the unit again and is 1, the card failed); then
+  the new unit checked: 16,384 or 65,536 sectors, and no other unit on a file of the same name (the
+  units table's 24 bytes, DRIVES.TXT's rule). A unit that fails those is unmounted again: the drive has no image.
+  A drive unmounted (or left so) is no drive: a later access is Invalid Drive (4), as a drive DRIVES.TXT doesn't
+  name. A = 0 done; else A = `$FF` and X (ours; 74 returns its errors whatever the error mode, and says nothing):
+  1 a write-back or the card failed (no card, no FAT, a timeout), 4 not a drive 74 changes (A:, M:, H:–P:), `$10`
+  the path refused, `$11` not found (or a directory), `$12` the image's size, `$13` another drive's file. Unmounting
+  a drive with nothing mounted is done (A = 0).
+- **The BIOS's mount** (ours) is `SDMNT`, a routine of block 61 the BDOS calls directly (with W2 on block 61),
+  not through the jump table, so programs reach it only by 74: the card's MOUNT of the system block's sector
+  buffer, or UNMOUNT of a unit, through `SDIO`, which now takes its command from a table by `DOP` (0 READ, 1 WRITE,
+  2 UNMOUNT, 3 MOUNT; bit 0 the DMA's direction) and lets UNMOUNT end with nothing moved. Six instructions more.
+- **The model comparison:** `cpm3model.py` gains 51, 50's XMOVE and MOVE for the forms DRIVER uses, and physical
+  memory of its own; a segment's records go there, refused as the BDOS refuses them. A new operation, SMULTI,
+  sets a segment and a DMA address, runs a transfer, clears them, and DRIVER moves the records between its buffer
+  and the physical address by function 50 before and after, so their bytes are compared. The generator makes
+  them from a fourth random stream, so a seed's script is as before up to its first.
+
+**Proposed (3c, as built, 2026-10-30)** ([`oodos/sys/bdosmem.s`](../oodos/sys/bdosmem.s), with changes to `bdos.s`,
+`bdosfile.s`, `bdosdisk.s`, `common.s` and `bios.s`; the list above is what was built, and these are the details):
+
+- **The dispatch:** FJUMPS has 74 handlers, 3c's 10 at offsets 128–146 (51–58, 73, 74); NFUNC is still 153. The
+  `.assert` allows 127 and fires on 128 (checked on a scratch copy with 63 and 64 more). Measured, every call
+  2 cycles more: Open 5,340 cycles to 5,342, function 11 with no key 327 to 329.
+- **The records** go through `DOUT` and `DIN` (`bdos.s`), which are `POUT` and `PIN` without a segment; with one,
+  `DSEG` (`bdosmem.s`) works out segment × 16 + the DMA address, checks the record's 128 bytes (`SEGOK`: the end
+  past `$FFFFF`, each block from the first to the last against OODOS's own, `BLKOK`: 49 can set a multi-sector
+  count of 255, a span of three blocks), and has the BIOS's MOVE copy them
+  with XMOVE's physical bank. `MRANGE` checks the whole multi-sector run the same way first. 17 and 18's record
+  (`DIRREC`) goes by `DOUT`.
+- **The map** is `AMAP`, 20 bytes of `SYSBSS`; `MBLK` holds the program's MCB (or 52's and 73's 4 bytes), read
+  whole by `PGET` before anything is written, so one in the I/O hole is refused with nothing changed.
+- **74** reads the drive, the flags and the path by `PGET` straight into the system block's sector buffer
+  (`SECBUF`, MOUNT's sector: the unit, the flags, the path, zeros after), checking the path as it goes; then
+  `FLUSHD` for the drive (its buffers never cross a window, so the write-back doesn't use `SECBUF`), `PURGED`, the
+  drive's bits out of the login and read-only vectors (and a search on it ended), `SDMNT`, `RESCAN`, and the new
+  unit's size and name from the BIOS's copy of the units table (`UNITSAV`). The card's ERROR says not found (8)
+  and nothing to unmount (6).
+- **Where it lives:** block 60 11,588 bytes of 16,384 (10,227 at 3b's merge, 11,558 before the review's fixes;
+  `BDOS2` still unused); the zero page 210 of 240 (201: a physical address and its end, 74's pointer); `SYSBSS`
+  737 of 1,280 (701: the segment, the map, the MCB, 74's and the memory functions' state); the BIOS 3,276 bytes
+  (3,240: `XBANK`, MOVE's A16–A19 and its carry, `SDMNT`, `SDIO`'s table); common memory 1,123 of 2,048 (1,107:
+  WARM's 16 bytes); the CCP's code as it was (1,323).
+- **Measured** (`test_oodos_sys`, BDOSENT to its return, on M:): a buffered record by 33, 7,938 cycles to the
+  CPU's DMA address and 8,176 through a segment (7,890 and 8,196 before the review's fixes, which put a read to
+  `$1FF7F` before it): the segment costs about 250–300 cycles a record (its address, the
+  range check, and XMOVE's physical bank).
+- **Found while testing:** 74 tested `PGET`'s flags for the path's NUL, and they are X's (its `PLX`): MEMTEST's
+  paths all came back not found. It compares A now.
+- **The review's fixes (2026-10-30):** the BIOS's MOVE says by its carry whether it moved (`PCOPY` took a
+  segment's record ending at `$FFFF`, physical `$1FF7F` on, for a refusal and ended the function); 53 and 54
+  allocate their run; 57 frees an allocation's tail; `SEGOK` checks every block of the span; 74 refuses a mount
+  whose rescan failed (`RESCAN` gives a carry: SELDSK's 0; that is also A: with no image, so a card with
+  nothing on A: refuses every 74, which can't happen while OODOS runs from A:: accepted at round 2); the warm boot's segment reset is tested from a
+  segment MEMTEST D leaves set. Each fix's test fails without it, but `SEGOK`'s: OODOS's own blocks come in runs
+  of 4 or 8 (24–31, 48–55, 60–63), so no span of at most three blocks has an allowed first and last block around
+  a refused one, and the first-and-last check refused the same spans. Common memory in an allocated block is
+  deferred (phase 7, [Open Questions](#open-questions)).
+- OODOS.SYS is still 0.2.
 
 ## RSXs and programs ##
 
@@ -1664,6 +1803,60 @@ has them): the multi-sector count's N calls, its physical errors not modelled (t
 run that would pass the largest file is refused (the generator keeps out); an orphan XFCB (none whose file was
 made with it) is never made, so make with f6' reusing one and rename onto one aren't in the scripts.
 
+**Done (phase 3c, 2026-10-30)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **MEMTEST** ([`oodos/sys/test/memtest.s`](../oodos/sys/test/memtest.s), test_oodos_sys's cases), against the 3c
+  list above: on M:, 4 records written from `$1000:0` and read back to the CPU; 2 read by 33 to `$1401:$00F0`, 1 to
+  `$1FFC:0` across banks 1 and 2, 1 by 20 to `$1FF7:$000F` (MOVE's end `$FFFF`: the FCB moved on), 17's record to `$1800:0`, each with the bytes around them as they were, and
+  test_oodos_sys comparing the physical bytes with M:'s records read behind OODOS's back; refused, A = X = `$FF`
+  with nothing moved: a record from block 23 into 24, banks 6, C and F, past `$FFFFF`, an offset past `$FFFF`, 17
+  records from `$5F80:0` (16 reach `$5FFFF` exactly: 4 read, then the end), a write and a 17 on M:'s banks (the
+  FCB as it was); 49's multi-sector count of 255 over three blocks, read and refused; 46 with a segment to the
+  CPU's buffer; 13 keeping the segment; the warm boot clearing the one MEMTEST D leaves. 53–58
+  through 46 calls (each rounding, base, taken, partial, M_EXT and free case above; 53 and 54's run allocated, so
+  55 can't have it and 57 frees it; 57 of a tail, the head kept, and of one short of the end), an MCB in the I/O
+  hole, and a block left allocated freed by the warm boot. 73 in each window, W3 on block 62, a window on block 37, on flash
+  (refused) and read-only. 74 on a card with A: alone: A:, M: and H: refused (4); nine paths DRIVES.TXT refuses
+  (`$10`), 510 bytes refused and 509 taken (then not found); not found and a directory (`$11`); `/BOOT.BIN` (`$12`)
+  and A:'s own image (`$13`), each leaving C: no drive; B.IMG mounted as C: (in lower case), a file written there;
+  a directory entry put in its first sector behind OODOS's back and the same image mounted again: 17 finds it, the
+  drive was logged out; unmounted (C: then Invalid Drive), unmounted again (done); read-only (make: 2); a record
+  written in place and the card's writes failing: the unmount refused (1), C: still there, then done once they
+  work, and the record on the card; the card taken out at a mount's rescan: refused (1). XMOVE's physical bank through function 50, there and back.
+- **The model** (`cpm3model.py`) has 51, 52 and 50's XMOVE and MOVE, and physical memory of its own;
+  `test_model.py` has hand-worked cases (records to and from `$10000`, `$14100` and `$18000`, the seven refusals
+  with nothing moved, a 17 refused and its search gone on, 46 to the CPU's buffer, 13 keeping the segment, 50 both
+  ways, the edges of what a segment may reach, SMULTI through the reference driver, and seed 1's script as without
+  segments up to its first SMULTI). **The script** has SMULTI (above, and `modelscript.py`'s header); **the
+  generator** makes it from a fourth stream, 4% of the steps: a read, a write (20, 21, 33, 34, 40, 1–32 records) or
+  a search (17, 18), three in four at a physical address in banks 1–5 (their first and last bytes, across a 64 KB
+  bank and a block, anywhere), the rest where a segment may not reach (into bank 6, M:'s banks, block 60, past 1 MB,
+  an offset past `$FFFF`). The default seeds are as they were; between them they reach every edge, and the two new
+  ones (records moved through a segment, a segment refused). Over seeds 1–100: 434 SMULTIs in 99 seeds, 128 done
+  (61 of more than a record, 63 across a 64 KB bank), 98 refused, 9 cut short by a file's end. The `rc` fault of
+  `test_oodos_model` moved to seed 4: on seed 1's new script the faulty model meets what CP/M 3 leaves open and
+  DRIVER can't finish.
+- **The comparison** passes seeds 1–600 (`model_seeds.sh`, a Release tree); it found no difference.
+- **cpmtools at verify** (`model_cpmtools.sh`, seeds 1–60): PASS 63.
+- **Each check can fail:** OODOS.SYS built with each of these, one at a time, fails the case named (MEMTEST's, in
+  test_oodos_sys): 51 not storing the segment's high byte (D: GET1, DW4, DRD, DR2); 52's bytes swapped (GET1,
+  GET13); a segment reaching bank 6 (DRST, DRB6, DRM17), or `SEGOK` checking only the first block (DRST, DRM17);
+  `MRANGE` checking no segment (DRM17: `DSEG` still refuses each record); 17 and 18 ignoring the segment (D17CHK,
+  D17M); 53's M_EXT always 0 (MAX1, AM3, MAX3); 54 not kept to the length (AM3); 55 marking only an allocation's
+  first block (AL2, AB2, AM2); 56 shrinking (AB8, added for it: AB6's run had its first block taken, so the first
+  try passed); 57 freeing from a later block with a length of 0 (FR1, FR2); 58 freeing nothing (MAX4, AL4, AL5); the warm boot freeing
+  no block (W) or keeping the segment (W, D and five other cases: the cold boot's 0 sends the CCP's own loads to
+  physical memory); 73's offset not 0–15 (P4123, P8FFF, P37) or a window on flash translated (PFL); 74 taking A:
+  (NA, NSAME, NC), `//` and a `/` at the end (NP2, NP5, NP6), a tab (NP9), any length (NLONG), any size (NSZ),
+  another drive's file (NSAME), not logging the drive out (NCY), mounting after a failed write-back (NWB, NWBSEL,
+  NWBCHK), or calling the unmount of nothing an error (NUC2); XMOVE taking no physical bank (D and B), MOVE without
+  its A16–A19 (D, B); 13 clearing the segment (GET13). In the comparison: the BDOS letting a segment reach bank 6
+  fails seeds 1 and 34 (their SMULTI's A); the model's records ignoring the segment fails seeds 14 and 24 of 1, 2,
+  4, 14 and 24 (their mirrored SMULTI's sums). The review fixes' own: PCOPY deciding by A = X = `$FF` (DRF,
+  DRFCR); 53 marking nothing (MAXM, MXA, M1AM); 57 freeing only at a base (TB, TCM, TE), or refusing a tail that
+  exactly reaches the end (TXE, TXC); 74 ignoring the rescan's carry (NRS); the warm boot keeping a segment
+  MEMTEST D left set (WGET); BEND one byte off (BFROM).
+
 **Proposed**
 
 - **The emulator** runs OODOS in native tests (BDOS functions, the CCP, RSXs, the Apple driver) and in the WebUI's
@@ -1727,3 +1920,9 @@ Each phase is its own branch.
   Leaning (2026-10-27): keep the full FARCALL as the interface; if phase 2's timing shows far calls matter
   somewhere (graphics), a lean variant private to GW-BASIC's dispatchers, whose targets take nothing in X or Y.
   Time a lean prototype with `check.py --timing` first.
+- **Common memory in an allocated block** (deferred to phase 7, 2026-10-30, with the two questions above). FARCALL
+  needs common memory in the top 2 KB of a block it maps into W3 ([Far calls](#far-calls)), but 3c's 53–56
+  allocate blocks and copy nothing into them. Phase 7 decides how a block is marked for code (a flag in the MCB,
+  or a function of OODOS's own), who copies common memory in (OODOS at allocation, or FARCALL's first use), and
+  how that fits a home block and a lean FARCALL. Until then a program copies common memory into a block itself
+  (test_oodos_sys puts it in FARTEST's and STUBTEST's blocks by hand).

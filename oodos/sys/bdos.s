@@ -15,10 +15,13 @@
 ;   50  S_BIOS      the BIOS parameter block at A/X: +0 the function, +1 A,
 ;                   +2 X, +3 Y, +4-5 and +6-7 the words (BW1, BW2); returns
 ;                   the BIOS's A/X. BOOT (0), which would run cold boot again
-;                   and wipe M:, and any function past XMOVE return A = X = $FF
+;                   and wipe M:, and any function past XMOVE return A = X = $FF.
+;                   The program gets its own flags back: MOVE's carry stays
+;                   here, so a MOVE ending at $FFFF looks like a refusal
 ;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
-;                   programs in KB (words), and FARCALL's address; A/X = FARCALL
+;                   programs in KB (words: the total, fixed, not what is
+;                   free), and FARCALL's address; A/X = FARCALL
 ;  104  T_SET       the DAT at A/X (days, hour, minute in BCD) into the clock,
 ;                   the seconds 0
 ;  105  T_GET       the clock into the DAT at A/X; A = the seconds, BCD. A
@@ -27,7 +30,8 @@
 ;
 ; and bdosfile.s's 13-37, 40, 42, 43, 45, 46, 48, 98 and 99, and
 ; bdossys.s's console (1-11), 47, 49, 107-112 and 152, and bdosxtra.s's 44,
-; 100-103 and 106. Any other returns A = X = $FF.
+; 100-103 and 106, and bdosmem.s's 51-58, 73 and 74 (phase 3c). Any other
+; returns A = X = $FF.
 ;
 ; Errors (hw/oodos.md, "The BDOS, phase 3"): DERR with CP/M 3's code. In
 ; the default error mode it says "OODOS Error On A: Disk I/O" (or Read
@@ -40,7 +44,8 @@
 ;
 ; The program's memory: FCBs, records and the like by the BIOS's MOVE
 ; (PIN, POUT: the DMA controller, through the program's windows the stub
-; saved); function 9's string, 10's buffer, 50's parameter block, 72's and
+; saved; the records of 17, 18, 20, 21, 33, 34 and 40 by DIN and DOUT, to a
+; physical address with a DMA segment, 51); function 9's string, 10's buffer, 50's parameter block, 72's and
 ; 104/105's a byte at a time through W2 (PGET, PPUT map the block the
 ; program's own window had there). An address in the I/O hole, $C000-
 ; $C7FF, isn't memory: the function stops there and returns A = X = $FF
@@ -54,7 +59,7 @@
 ASCII_CR        = $0D
 ASCII_LF        = $0A
 MEM_FITTED      = 1024                 ; KB
-MEM_PROGRAMS    = 320                  ; KB: banks 1-5, for functions 53-58 (later)
+MEM_PROGRAMS    = AMAP_LEN * 16        ; KB: banks 1-5, 53-58's 20 blocks, all of them
 NFUNC           = 153                  ; FIDX's functions, 0-152
 
 .zeropage
@@ -147,7 +152,8 @@ BDOSENT:        STA     PA
                 CPY     #NFUNC
                 BCS     NOFUNC
                 LDX     FIDX,Y
-                BMI     NOFUNC
+                CPX     #$FF
+                BEQ     NOFUNC
                 LDA     PA
                 JMP     (FJUMPS,X)
 NOFUNC:
@@ -174,15 +180,18 @@ FJUMPS:
                 .word   F_LBLOCK, F_PARSE
                 .word   F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS ; 116: 3b1's
                 .word   F_WXFCB, F_DEFPW
+                .word   F_DMASEG, F_DMAGET, F_MCMAX, F_MCABSMAX ; 128: 3c's
+                .word   F_MCALLOC, F_MCABSALL, F_MCFREE, F_MCALLFREE
+                .word   F_PHYS, F_MOUNT
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
                 .byte   30, 32, 34, 36, 38, 40, 42, 44, 46, 48 ; 20-29
                 .byte   50, 52, 54, 56, 58, 60, 62, 64, $FF, $FF ; 30-39
                 .byte   66, $FF, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
-                .byte   76, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 50-59
+                .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
-                .byte   $FF, $FF, 78, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 70-79
+                .byte   $FF, $FF, 78, 144, 146, $FF, $FF, $FF, $FF, $FF ; 70-79
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105
@@ -190,10 +199,10 @@ FIDX:
                 .res    152 - 113, $FF ; 113-151
                 .byte   114 ; 152
 .assert * - FIDX = NFUNC, error, "FIDX has every function to 152"
-; The dispatch's BMI NOFUNC takes an offset of 128 or more for none: FJUMPS
-; holds at most 64 handlers (offsets 0-126), and has 64 now: another wants
-; another dispatch.
-.assert FIDX - FJUMPS <= 128, error, "FJUMPS has more than 64 handlers: its offsets must stay below 128"
+; The dispatch's CPX #$FF takes only $FF for none (BMI, before phase 3c, took
+; 128 and up, so 64 handlers at most): FJUMPS holds at most 127 handlers, its
+; offsets 0-252, every one below 255.
+.assert FIDX - FJUMPS <= 254, error, "FJUMPS has more than 127 handlers: its offsets must stay below 255"
 
 F_TERM:         JMP     WARM
 
@@ -491,7 +500,8 @@ ISWILD:         LDX     #FCB_NAME
 
 ; PIN: A bytes from the program's BW1 to the system's BW2 (bank 0: W2 the
 ; block the BDOS has there); POUT from the system's BW1 to the program's
-; BW2. By the BIOS's XMOVE and MOVE; memory it refuses ends the function.
+; BW2. By the BIOS's XMOVE and MOVE; memory MOVE refuses (its carry) ends
+; the function.
 PIN:            PHA
                 LDA     #BANK_PROG
                 LDX     #BANK_SYS
@@ -503,12 +513,30 @@ PCOPY:          JSR     B_XMOVE
                 PLA
                 LDX     #0
                 JSR     B_MOVE
-                CMP     #$FF
-                BNE     @done
-                CPX     #$FF
-                BNE     @done
+                BCC     @done          ; MOVE's carry: A/X $FFFF may be an end, $xFF7F + 128
                 JMP     ABORT
 @done:          RTS
+
+; The DMA buffer's records (17, 18, 20, 21, 33, 34, 40): DOUT A bytes (a
+; record at most) from the system's BW1 to the DMA address at BW2, DIN from
+; the DMA address at BW1 to the system's BW2. Without a DMA segment (51) the
+; program's CPU address (PIN, POUT); with one, the physical address segment
+; x 16 + it (bdosmem.s's DSEG: memory a segment may not reach ends the
+; function, A = X = $FF), moved by the BIOS's XMOVE with a physical bank.
+DOUT:           LDX     #BW2
+                JSR     DSEG
+                BCC     POUT
+                PHA
+                LDA     #BANK_SYS
+                LDX     SG + 2
+                BRA     PCOPY
+DIN:            LDX     #BW1
+                JSR     DSEG
+                BCC     PIN
+                PHA
+                LDA     SG + 2
+                LDX     #BANK_SYS
+                BRA     PCOPY
 
 ; A = drive n's bit in a vector, X its byte (0 or 1).
 DRVBIT:         PHA

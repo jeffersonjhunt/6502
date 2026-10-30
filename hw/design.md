@@ -112,7 +112,7 @@ The north bridge turns every CPU access into a 20-bit physical address (A0–A19
 | 6–7 | `$60000–$7FFFF` | user memory, RAM disk | unused |
 | 8–B | `$80000–$BFFFF` | video memory (snooped by the video card) | unused |
 | C–D | `$C0000–$DFFFF` | user memory, RAM disk | unused |
-| E | `$E0000–$EFFFF` | Apple IIe ROM image | IIe ROM (`$C100–$FFFF`), write-protected |
+| E | `$E0000–$EFFFF` | user memory; the Apple IIe ROM image once Apple mode starts | IIe ROM (`$C100–$FFFF`), write-protected |
 | F | `$F0000–$FFFFF` | BIOS, Monitor, BASIC, DOS, write-protected | unused |
 
 ### Native mode: four windows of 16 KB ###
@@ -313,9 +313,10 @@ window registers.
 2. The BIOS points W2 at RAM block 63 and copies itself from W3 into W2.
 3. It writes `$7F` to WIN3 (RAM block 63, read-only). The code it is running is now the RAM copy at the same
    addresses, so execution carries on without a jump. It then sets VEC to match.
-4. It copies the rest of the system software into bank F, and the Apple IIe ROM image into bank E, through a window
-   set to ROM space. The CPU does the copying, because the DMA controller only reaches RAM; 64 KB takes about
-   0.1 s, once per boot.
+4. It copies the rest of the system software into bank F through a window set to ROM space. The CPU does the
+   copying, because the DMA controller only reaches RAM; 64 KB takes about 0.1 s, once per boot. The Apple IIe ROM
+   image isn't copied at boot: `$C806` (Apple II mode, below) copies it from the cartridge into bank E (`$EC000`)
+   each time Apple mode starts, so native mode may use bank E as RAM.
 5. From then on the system software runs from RAM. That's the "top of RAM" requirement. It also leaves the flash
    free to be reprogrammed while the machine runs, and keeps a turbo mode possible.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).

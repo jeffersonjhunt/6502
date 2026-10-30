@@ -877,6 +877,129 @@ def sparse_or_short():
     ok(len(errors) == 1 and "FULL" in errors[0], "but wrong: %s" % errors)
 
 
+def dma_segment():
+    print("Phase 3c: the DMA segment (51, 52), 50's XMOVE and MOVE, SMULTI")
+    t = Rig()
+    eq(t.call(51, 0x00, 0x10), (0, 0), "51: the segment $1000")
+    t.call(26, 0x00, 0x00)
+    t.m.write(0x0900, bytes(4))
+    t.call(52, 0x00, 0x09)
+    eq(t.m.read(0x0900, 4), h("0000 0010"), "52: the DMA address 0, the segment $1000")
+    for k in range(4):
+        t.b.phys[0x10000 + 128 * k:0x10080 + 128 * k] = S.pattern(0x300 + k)
+    t.fcb("SEG.DAT")
+    t.f(22)
+    t.call(44, 4)
+    eq(t.f(21), (0, 0), "21 of 4 records from $1000:0, physical $10000")
+    t.call(44, 1)
+    t.call(51, 0xFF, 0xFF)
+    t.f(16)
+    t.fcb("SEG.DAT")
+    t.f(15)
+    t.call(26, 0x00, 0x08)
+    got = []
+    for k in range(4):
+        t.f(20)
+        got.append(t.dma())
+    eq(got, [S.pattern(0x300 + k) for k in range(4)], "read back to the CPU: the records physical memory had")
+    eq(t.m.read(0x0000, 128), bytes(128), "and the CPU's $0000, the DMA address without a segment, untouched")
+    # records 1-2 to $1401:$00F0, physical $14100
+    t.call(51, 0x01, 0x14)
+    t.call(26, 0xF0, 0x00)
+    t.call(44, 2)
+    t.rand(1)
+    eq(t.f(33), (0, 0), "33 of 2 to $1401:$00F0")
+    eq(bytes(t.b.phys[0x14100:0x14200]), S.pattern(0x301) + S.pattern(0x302), "records 1 and 2 at $14100")
+    eq(bytes(t.b.phys[0x140F0:0x14100]) + bytes(t.b.phys[0x14200:0x14210]), bytes(32), "nothing around them")
+    eq(t.r(), 1, "R0-R2 put back")
+    # refused: nothing moved, the FCB as it was
+    t.rand(0)
+    before, phys = t.m.read(FCB, 36), bytes(t.b.phys)
+    for seg, off, n, what in ((0x5FF0, 0xF0, 1, "from block 23 into 24"), (0x6000, 0, 1, "bank 6"),
+                              (0xC000, 0, 1, "M:'s banks"), (0xF000, 0, 1, "the BDOS's block 60"),
+                              (0xFFF0, 0x100, 1, "past $FFFFF"), (0x1000, 0xFFC0, 1, "the offset past $FFFF"),
+                              (0x5F80, 0, 17, "17 records from $5F800, past block 23")):
+        t.call(51, seg & 0xFF, seg >> 8)
+        t.call(26, off & 0xFF, off >> 8)
+        t.call(44, n)
+        t.rand(0)
+        eq(t.f(33), (0xFF, 0xFF), "a segment's records refused: %s" % what)
+    ok(t.m.read(FCB, 36) == before and t.b.phys == phys, "nothing moved, the FCB as it was")
+    t.call(51, 0x80, 0x5F)
+    t.call(26, 0, 0)
+    t.call(44, 16)
+    eq(t.f(33), (1, 4), "16 records from $5F80:0, to $5FFFF exactly: 4 read, then the end")
+    t.call(44, 1)
+    t.call(51, 0x00, 0xC0)
+    t.rand(0)
+    eq(t.f(34), (0xFF, 0xFF), "a write to M:'s banks: refused")
+    # 17 and 18
+    t.call(51, 0x00, 0x18)
+    t.fcb("SEG.DAT", addr=FCB2)
+    a, x = t.f(17, FCB2)
+    eq((a, x), (1, 0), "17 with a segment: SEG.DAT, entry 1")
+    eq(bytes(t.b.phys[0x18020:0x18020 + 12]), bytes([0]) + M.fcb_name("SEG.DAT"), "its record at $18000")
+    t.call(51, 0x00, 0xC0)
+    t.fcb("?", addr=FCB2, raw=b"???????????")
+    eq(t.f(17, FCB2), (0xFF, 0xFF), "17 with the segment on M:: refused")
+    t.call(51, 0x00, 0x18)
+    eq(t.call(18), (0xFF, 0), "and the search moved on past SEG.DAT, as the BDOS's")
+    # 46 and passwords stay the CPU's; 13 keeps the segment
+    t.call(51, 0x00, 0x10)
+    t.call(26, 0x00, 0x08)
+    t.m.write(0x0800, h("e7e7e7"))
+    t.call(46)
+    ok(t.m.read(0x0800, 3) != h("e7e7e7") and bytes(t.b.phys[0x10800:0x10803]) == bytes(3),
+       "46 with a segment: the CPU's DMA buffer")
+    t.call(51, 0x34, 0x12)
+    t.call(13)
+    t.call(52, 0x00, 0x09)
+    eq(t.m.read(0x0900, 4), h("8002 3412"), "13: the DMA address $0280, the segment kept")
+    t.call(51, 0xFF, 0xFF)
+    # 50: XMOVE and MOVE, physical both ways
+    t.m.write(0x0A00, S.pattern(0x777))
+    t.m.write(0x0B00, bytes([29, 1, 0x82, 0, 0, 0, 0, 0]))
+    t.call(50, 0x00, 0x0B)
+    t.m.write(0x0B00, bytes([25, 128, 0, 0, 0x00, 0x0A, 0x40, 0x30]))
+    eq(t.call(50, 0x00, 0x0B), (0xC0, 0x30), "50's MOVE to $23040 (XMOVE bank $82): A/X its end")
+    eq(bytes(t.b.phys[0x23040:0x230C0]), S.pattern(0x777), "the bytes there")
+    t.m.write(0x0B00, bytes([25, 128, 0, 0, 0x00, 0x0A, 0x40, 0x30]))
+    try:
+        t.call(50, 0x00, 0x0B)
+        ok(False, "a MOVE without an XMOVE: not refused")
+    except M.Unspecified:
+        ok(True, "a MOVE without an XMOVE: Unspecified (DRIVER always gives one)")
+    eq((M.seg_ok(0x5FF80, 128), M.seg_ok(0x5FF81, 128), M.seg_ok(0x80000, 1), M.seg_ok(0xE0000, 1),
+        M.seg_ok(0xEFFFF, 1), M.seg_ok(0xF0000, 1), M.seg_ok(0xFFFFF, 2), M.seg_ok(0x00000, 1)),
+       (True, False, True, True, True, False, False, True), "where a segment may reach: banks 0-5, 8-B, E")
+
+    # SMULTI: the reference driver's operation, and the generator's fourth stream
+    r = S.Driver(M.Bdos({0: M.Drive("oodos-8m", M.mkfs(M.FORMATS["oodos-8m"], T0)),
+                         12: M.Drive("oodos-ram", M.mkfs(M.FORMATS["oodos-ram"], T0))}, now=T0))
+    r.apply(S.OP_CALL, bytes([14, 12, 0]))
+    r.apply(S.OP_FCB, bytes([0]) + bytes([13]) + M.fcb_name("SM.DAT") + bytes(4) + bytes(4))
+    r.apply(S.OP_FCALL, bytes([22, 0]))
+    w = r.apply(S.OP_SMULTI, bytes([21, 0, 3, 0x34, 0x12, 0x00, 0x20, 0x40, 0x00, 1]))
+    eq([v for n, v, _, _ in w.fields if n in ("A", "X")], [0, 0], "SMULTI 21 of 3 at $2000:$0040, mirrored")
+    eq(bytes(r.b.phys[0x20040:0x201C0]), b"".join(S.pattern(0x1234 + j) for j in range(3)),
+       "the records went through $20040 (50's MOVE there first)")
+    eq(r.b.seg, M.NO_SEG, "and the segment is cleared after")
+    eq(w.size(), S.result_size(S.OP_SMULTI, b""), "its result: op A X FCB S1 S2")
+    rf = r.apply(S.OP_SMULTI, bytes([21, 0, 1, 0, 0, 0x00, 0xC0, 0, 0, 0]))
+    eq([v for n, v, _, _ in rf.fields if n in ("A", "X")], [0xFF, 0xFF], "SMULTI on M:'s banks: refused")
+    old = S.SEG_P
+    try:
+        S.SEG_P = 0
+        plain = S.Generator(1, "oodos-ram", 12).generate().ops
+    finally:
+        S.SEG_P = old
+    seg = S.Generator(1, "oodos-ram", 12).generate().ops
+    j = next(i for i, (op, _) in enumerate(seg) if op == S.OP_SMULTI)
+    k = j - 1 if seg[j - 1][0] == S.OP_RAND else j
+    eq(seg[:k], plain[:k], "seed 1: the script as without segments up to its first SMULTI (op %d)" % j)
+    ok(any(op == S.OP_SMULTI for op, _ in seg), "and it has them (%d)" % sum(op == S.OP_SMULTI for op, _ in seg))
+
+
 def seeds():
     print("The default seeds: between them, every edge")
     reached = {}
@@ -906,6 +1029,7 @@ def main():
     unspecified()
     scripts()
     sparse_or_short()
+    dma_segment()
     seeds()
     print("FAIL %d (PASS %d)" % (failed, passed) if failed else "PASS %d" % passed)
     return 1 if failed else 0

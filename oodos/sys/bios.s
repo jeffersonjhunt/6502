@@ -40,8 +40,11 @@
 ;   MULTIO   A = count                       A = 0 (READ and WRITE take one)
 ;   FLUSH    -                               A = 0 (nothing is held back)
 ;   MOVE     A/X = count, BW1 = source       A/X and BW2 = destination +
-;            (CP/M's DE), BW2 = destination  count, BW1 = source + count; or
-;            (CP/M's HL)                     A = X = $FF, nothing moved
+;            (CP/M's DE), BW2 = destination  count, BW1 = source + count,
+;            (CP/M's HL)                     carry clear; or A = X = $FF,
+;                                            carry set, nothing moved (an
+;                                            end of $FFFF is a move: the
+;                                            carry tells them apart)
 ;   TIME     A = 0 read the clock into the   carry set if the clock is past
 ;            SCB, $FF set it from the SCB    2155 (the SCB left as it was)
 ;   SELMEM   A = bank                        - (the bank MOVE uses)
@@ -52,7 +55,10 @@
 ; Banks: 0 is the system's view (W0, W1 and W3 on 31, 60 and 62, W2 the
 ; block its caller had there, CALLW2: the BIOS's own, 61, unless the BDOS
 ; called with a hash or buffer block in W2), 1 the program's (the windows
-; the BDOS stub saved); any other is taken as 0. Cold boot and
+; the BDOS stub saved); any other is taken as 0, but that XMOVE's may also
+; be $80 + A16-A19 (phase 3c): that side of the next MOVE is then a
+; physical address, its low 16 bits MOVE's (the BDOS's DMA segment, function
+; 51, moves records so). Cold boot and
 ; each warm boot (common.s's WARM) set SETBNK's and SELMEM's to 0 and drop a
 ; pending XMOVE. Addresses in either are turned into physical ones for the
 ; DMA controller, a window at a time, so a buffer may cross windows mapped
@@ -81,7 +87,7 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 
@@ -90,6 +96,9 @@ DPH_LEN         = 25
 DPH_DPB         = 12                   ; the DPH's DPB pointer
 PHYS            = $80                  ; a copy side's bank: a physical address
 SD_WRITE        = $30                  ; CMD
+SD_UNMOUNT      = $A1
+DOP_UNMOUNT     = 2                    ; SDIO's DOP: 0 READ, 1 WRITE, 2 UNMOUNT, 3 MOUNT
+DOP_MOUNT       = 3                    ;   (bit 0 the DMA's direction)
 SD_WRITE_PROTECTED = 5                 ; ERROR
 
 .zeropage
@@ -102,7 +111,7 @@ CURBANK:        .res    1              ; SELMEM's
 XPEND:          .res    1              ; XMOVE's banks wait for the next MOVE
 XSRC:           .res    1
 XDST:           .res    1
-DOP:            .res    1              ; 0 READ, 1 WRITE
+DOP:            .res    1              ; 0 READ, 1 WRITE (SDIO: 2 UNMOUNT, 3 MOUNT)
 LBA:            .res    3
 SIDES:          .res    8              ; COPY's source, then destination: bank, address (3)
 CNT:            .res    2
@@ -347,18 +356,22 @@ SETBNK:         JSR     BANK
 SELMEM:         JSR     BANK
                 STA     CURBANK
                 RTS
-XMOVE:          JSR     BANK           ; C, the source, then B, the destination
+XMOVE:          JSR     XBANK          ; C, the source, then B, the destination
                 STA     XSRC
                 TXA
-                JSR     BANK
+                JSR     XBANK
                 STA     XDST
                 LDA     #1
                 STA     XPEND
                 RTS
+XBANK:          CMP     #PHYS + $10    ; XMOVE's: PHYS + A16-A19 stays, a physical address
+                BCS     BANK
+                CMP     #PHYS
+                BCS     BANKED
 BANK:           CMP     #BANK_PROG     ; 1 stays 1, the rest are 0
-                BEQ     @done
+                BEQ     BANKED
                 LDA     #BANK_SYS
-@done:          RTS
+BANKED:         RTS
 
 DRVTBL:         LDA     #<DRVTAB
                 LDX     #>DRVTAB
@@ -715,6 +728,7 @@ SDIO:           JSR     CARDOK
                 LDA     #>512
                 STA     DMA0_COUNT + 1
                 LDA     DOP
+                AND     #1             ; DOP's bit 0: the direction
                 ASL     A
                 ASL     A
                 ORA     #DMA_DEMAND_IN ; demand; DIR 00 card to memory, 01 memory to card
@@ -739,11 +753,9 @@ SDIO:           JSR     CARDOK
                 STZ     SD_COUNT + 1
                 LDA     #SD_CTRL_DMA
                 STA     SD_CTRL
-                LDA     #SD_READ
                 LDX     DOP
-                BEQ     @cmd
-                LDA     #SD_WRITE
-@cmd:           STA     SD_CMD
+                LDA     SDCMDS,X
+                STA     SD_CMD
 SDWAIT:         JSR     SDIDLE
                 BCC     SDEND
                 JSR     SDRESET        ; abandon it
@@ -766,11 +778,26 @@ SDEND:          LDA     DMA_STATUS     ; channel 0's terminal count, in bit 0
                 RTS
 @ended:         TYA                    ; no error: were all 512 bytes moved?
                 LSR     A
-                BCC     @error
-                LDA     #0
+                BCS     @moved
+                LDA     DOP            ; UNMOUNT moves none
+                CMP     #DOP_UNMOUNT
+                BNE     @error
+@moved:         LDA     #0
                 RTS
 @error:         LDA     #1
                 RTS
+
+SDCMDS:         .byte   SD_READ, SD_WRITE, SD_UNMOUNT, SD_MOUNT ; by DOP
+
+; The card's MOUNT of SECBUF's sector (A = DOP_MOUNT), or UNMOUNT of unit X
+; + 1 (A = DOP_UNMOUNT), for the BDOS's function 74, which calls it
+; directly with W2 on this block (no jump table entry: programs reach it
+; only by 74). As SDIO: A = 0, or 1 failed (the card's ERROR says why,
+; but for no card or a timeout). The BIOS's drive (CURDRV) is then X's.
+SDMNT:          STA     DOP
+                STX     CURDRV
+                JSR     SECPH
+                JMP     SDIO
 
 SDRESET:        LDA     #SD_CTRL_RESET ; the command abandoned; units stay mounted
                 STA     SD_CTRL
@@ -833,8 +860,12 @@ MOVE:           STA     CNT
                 STZ     XPEND
                 LDA     XSRC
                 STA     SIDES + SIDE_S
+                AND     #$0F           ; a physical bank's A16-A19 (PHYSOF reads it only then)
+                STA     SIDES + SIDE_S + 3
                 LDA     XDST
                 STA     SIDES + SIDE_D
+                AND     #$0F
+                STA     SIDES + SIDE_D + 3
 @banks:         LDA     BW1
                 STA     SIDES + SIDE_S + 1
                 LDA     BW1 + 1
@@ -863,8 +894,9 @@ MOVE:           STA     CNT
                 STA     BW2 + 1
                 TAX
                 LDA     BW2
+                CLC                    ; moved: carry clear, whatever A/X are
                 RTS
-@refused:       LDA     #$FF
+@refused:       LDA     #$FF           ; carry set (COPY's)
                 TAX
                 RTS
 

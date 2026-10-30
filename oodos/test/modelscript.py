@@ -39,6 +39,14 @@ the slot's EX, CR, R0, R1, R2 after the call):
     18 MULTI fn (20, 21, 33, 34, 40), slot, n (1-32), tag (2): 44 = n, the DMA address the multi-sector
              buffer (n records: $5A for a read, record k the pattern of tag + k for a write), the call, the
              DMA address the driver's own and 44 = 1 again -> op A X FCB S1 S2 (the n records' checksum)
+    19 SMULTI fn (17, 18, 20, 21, 33, 34, 40), slot, n (1-32), tag (2), segment (2), offset (2), mirror: phase
+             3c's DMA segment. The multi-sector buffer's n records filled as MULTI's ($5A for 17, 18 and the
+             reads); with mirror, moved to the physical address segment x 16 + offset by function 50 (XMOVE
+             1 to $80 + A16-A19, then MOVE); 44 = n (not for 17 and 18), 51 = the segment, 26 = the offset, the
+             call (18's without an FCB), then 51 $FFFF, the DMA address the driver's own, 44 = 1; with mirror
+             the records moved back by 50 -> op A X FCB S1 S2 (the n records' checksum; for 17 and 18 the
+             entry A's, if A < 4). The generator sets mirror only where a segment may reach, so DRIVER
+             never moves bytes where the BDOS refuses them
     20 CALL  fn, A, X: any other function           -> op A X
     21 FREE  drive: function 46                      -> op A X and the DMA buffer's first 3 bytes
     22 DPB   function 31: the 17 bytes at the address it returns -> op A X DPB
@@ -58,6 +66,7 @@ import random
 import struct
 
 import cpm3model as M
+from cpm3model import BIOS_MOVE, BIOS_XMOVE
 
 MAGIC, RMAGIC, VERSION = b"OOMS", b"OOMR", 1
 SCRIPT_MAX = 16384                      # DRIVER.COM's buffers
@@ -67,15 +76,16 @@ FILL = 0x5A
 
 OP_FCB, OP_NAME2, OP_RAND, OP_DMA16, OP_PASSWD = 0x01, 0x02, 0x03, 0x04, 0x05
 OP_FCALL, OP_NEXT, OP_READ, OP_WRITE, OP_WRITEN, OP_READN, OP_SALL, OP_MAKEN, OP_MULTI = range(0x10, 0x19)
+OP_SMULTI = 0x19
 OP_CALL, OP_FREE, OP_DPB, OP_TIME = 0x20, 0x21, 0x22, 0x23
 MBUF, MBUF_RECS = 0xC000, 32           # DRIVER.COM's multi-sector buffer (the model's address)
 
 ARGS = {OP_FCB: 21, OP_NAME2: 17, OP_RAND: 4, OP_DMA16: 16, OP_PASSWD: 8, OP_FCALL: 2, OP_NEXT: 0,
-        OP_READ: 2, OP_WRITE: 4, OP_WRITEN: 5, OP_READN: 3, OP_SALL: 1, OP_MAKEN: 3, OP_MULTI: 5, OP_CALL: 3,
+        OP_READ: 2, OP_WRITE: 4, OP_WRITEN: 5, OP_READN: 3, OP_SALL: 1, OP_MAKEN: 3, OP_MULTI: 5, OP_SMULTI: 10, OP_CALL: 3,
         OP_FREE: 1, OP_DPB: 0, OP_TIME: 4}
 NAMES = {OP_FCB: "FCB", OP_NAME2: "NAME2", OP_RAND: "RAND", OP_DMA16: "DMA16", OP_PASSWD: "PASSWD",
          OP_FCALL: "FCALL", OP_NEXT: "NEXT", OP_READ: "READ", OP_WRITE: "WRITE", OP_WRITEN: "WRITEN",
-         OP_READN: "READN", OP_SALL: "SALL", OP_MAKEN: "MAKEN", OP_MULTI: "MULTI", OP_CALL: "CALL",
+         OP_READN: "READN", OP_SALL: "SALL", OP_MAKEN: "MAKEN", OP_MULTI: "MULTI", OP_SMULTI: "SMULTI", OP_CALL: "CALL",
          OP_FREE: "FREE", OP_DPB: "DPB", OP_TIME: "TIME"}
 FCALLS = (15, 16, 17, 19, 22, 23, 30, 35, 36, 99, 100, 102, 103)
 
@@ -146,6 +156,10 @@ def describe(op, args):
         return "CALL %d A=$%02X X=$%02X" % tuple(args)
     if op == OP_MULTI:
         return "MULTI %d slot %d n %d tag $%04X" % (args[0], args[1], args[2], args[3] | args[4] << 8)
+    if op == OP_SMULTI:
+        return "SMULTI %d slot %d n %d tag $%04X at $%04X:$%04X%s" % (
+            args[0], args[1], args[2], args[3] | args[4] << 8, args[5] | args[6] << 8, args[7] | args[8] << 8,
+            " mirrored" if args[9] else "")
     if op == OP_DMA16:
         return "DMA16 %r %r" % (bytes(args[:8]), bytes(args[8:]))
     if op == OP_PASSWD:
@@ -181,7 +195,7 @@ class Rec:
 def result_size(op, args, a=None):
     """What DRIVER.COM appends for this operation; for FCALL 17 and NEXT, A decides."""
     base = {OP_FCB: 1, OP_NAME2: 1, OP_RAND: 1, OP_DMA16: 1, OP_PASSWD: 3, OP_FCALL: 8, OP_NEXT: 3,
-            OP_READ: 10, OP_WRITE: 8, OP_WRITEN: 10, OP_READN: 12, OP_SALL: 9, OP_MAKEN: 5, OP_MULTI: 10,
+            OP_READ: 10, OP_WRITE: 8, OP_WRITEN: 10, OP_READN: 12, OP_SALL: 9, OP_MAKEN: 5, OP_MULTI: 10, OP_SMULTI: 10,
             OP_CALL: 3, OP_FREE: 6, OP_DPB: 20, OP_TIME: 3}[op]
     if (op == OP_NEXT or op == OP_FCALL and args[0] == 17) and (a is None or a < 4):
         base += 32
@@ -214,6 +228,7 @@ class Driver:
     """DRIVER.COM's steps, on the model: the same BDOS calls in the same order. Its predictions are Recs."""
 
     FCB0, DMA, DAT, SCRIPT, RESULT, IOFCB, PWBUF = 0x1000, 0x0F00, 0x0EF0, 0x2000, 0x6000, 0x0E00, 0x0EE0
+    BPB = 0x0ED0                               # function 50's parameter block
 
     def __init__(self, bdos, mem=None):
         self.b = bdos
@@ -229,6 +244,13 @@ class Driver:
 
     def addr_call(self, fn, addr):
         return self.call(fn, addr & 0xFF, addr >> 8)
+
+    def bios_move(self, src, dst, n, frm, to):
+        """Function 50's XMOVE (banks src, dst), then its MOVE of n bytes from frm to to."""
+        self.mem.write(self.BPB, bytes([BIOS_XMOVE, src, dst, 0, 0, 0, 0, 0]))
+        self.addr_call(50, self.BPB)
+        self.mem.write(self.BPB, bytes([BIOS_MOVE, n & 0xFF, n >> 8, 0, frm & 0xFF, frm >> 8, to & 0xFF, to >> 8]))
+        self.addr_call(50, self.BPB)
 
     def io_fcb(self, name):
         f = bytearray(36)
@@ -347,6 +369,37 @@ class Driver:
             self.ax(rec, a, x, loose)
             self.fcb5(rec, k)
             rec.add("sum", bytes(fletcher(mem.read(MBUF, 128 * n))), 2, "any" if undefined else "eq")
+        elif op == OP_SMULTI:
+            fn, k, n, tag = args[0], args[1], args[2], args[3] | args[4] << 8
+            seg, off, mirror = args[5] | args[6] << 8, args[7] | args[8] << 8, args[9]
+            search = fn in (17, 18)
+            for j in range(n):
+                mem.write(MBUF + 128 * j, bytes([FILL]) * 128 if fn in (17, 18, 20, 33)
+                          else pattern((tag + j) & 0xFFFF))
+            p = seg * 16 + off
+            if mirror:
+                self.bios_move(1, 0x80 | p >> 16, 128 * n, MBUF, p & 0xFFFF)
+            if not search:
+                self.call(44, n)
+            self.call(51, seg & 0xFF, seg >> 8)
+            self.addr_call(26, off)
+            try:
+                a, x = self.call(18) if fn == 18 else self.addr_call(fn, self.slot(k))
+                undefined = self.b.undefined
+                loose = self.b.loose
+            finally:
+                self.call(51, 0xFF, 0xFF)
+                self.addr_call(26, self.DMA)
+                if not search:
+                    self.call(44, 1)
+            if mirror:
+                self.bios_move(0x80 | p >> 16, 1, 128 * n, p & 0xFFFF, MBUF)
+            self.ax(rec, a, x, loose)
+            self.fcb5(rec, k)
+            if search:
+                rec.add("sum", bytes(fletcher(mem.read(MBUF + 32 * a, 32) if a < 4 else b"")), 2)
+            else:
+                rec.add("sum", bytes(fletcher(mem.read(MBUF, 128 * n))), 2, "any" if undefined else "eq")
         elif op == OP_NEXT:
             a, x = self.call(18)
             self.ax(rec, a, x)
@@ -476,6 +529,9 @@ LABEL_MODES = [0xB1, 0xB0, 0xB1, 0xB0, 0x31, 0x30, 0xF1, 0x71, 0x81, 0x80, 0x01,
                0xD1, 0x90, 0x00, 0xA1]
 XFCB_MODES = [0x80, 0x40, 0x20, 0x81, 0x41, 0x21, 0x01, 0x00, 0xE1, 0xC0]
 COUNTS = [1, 2, 3, 4, 7, 8, 15, 16, 17, 31, 32]
+# Phase 3c's DMA segment, from its own stream (Generator.segr): records through physical memory
+SEG_P = 0.04                           # a step's chance of being one
+SEG_COUNTS = [1, 1, 1, 2, 3, 4, 8, 16, 32]
 # Delete with f5' of a wildcard, so several XFCBs go in one call: f5 (byte 5) a space in each, not a '?'
 F5_WILDS = [b"????    ???", b"Q?      ???", b"?       ???"]
 PROFILES = ("mixed", "mixed", "sparse", "users", "dirfill", "diskfill")
@@ -498,6 +554,8 @@ class Generator:
         # Phase 3b1's operations (labels, XFCBs, passwords, the multi-sector count), from a third, so a
         # seed's script is as phase 3a's up to the first of them (and what it meets of them after).
         self.xtra = random.Random(seed + 0x20000)
+        # Phase 3c's DMA segment (SMULTI), from a fourth, so a seed's script is as before up to its first.
+        self.segr = random.Random(seed + 0x30000)
         self.seed, self.fmt, self.drive = seed, M.FORMATS[fmt], drive
         self.profile = profile or self.rng.choice(PROFILES)
         if self.profile == "diskfill" and self.fmt.size > 1 << 20:
@@ -632,6 +690,12 @@ class Generator:
 
     # --- the steps ---
     def step(self):
+        if self.segr.random() < SEG_P:
+            ops = len(self.script.ops)
+            self.x_seg()
+            if len(self.script.ops) > ops:
+                self.since_time += 1
+                return
         if self.xtra.random() < XTRA_P:
             kinds = {"label": 2, "getlabel": 1, "xfcb": 3, "stamps": 2, "defpw": 1, "pwop": 6, "multi": 7,
                      "count": 1}
@@ -1101,6 +1165,44 @@ class Generator:
         tag = x.randrange(65536)
         self.emit(OP_MULTI, [fn, k, n, tag & 0xFF, tag >> 8])
 
+    def x_seg(self):
+        """SMULTI: a transfer with a DMA segment, its records in banks 1-5 (mirrored: DRIVER moves them by
+        function 50) or where a segment may not reach (refused, not mirrored)."""
+        g = self.segr
+        kind = g.choices(["read", "write", "search", "next"], weights=[5, 4, 2, 1])[0]
+        if kind in ("search", "next"):
+            fn, n, k = (17 if kind == "search" else 18), 1, g.randrange(6)
+        else:
+            ks = self.open_slots()
+            if not ks:
+                return
+            k = g.choice(ks)
+            fn = g.choice([20, 20, 33] if kind == "read" else [21, 21, 34, 40])
+            n = g.choice(SEG_COUNTS)
+            if fn in (33, 34, 40):
+                st = self.bdos.fcbs[self.drv.slot(k)]
+                size = self.dv().file_size(st.user, st.name) or 0
+                r = max(0, g.choice([size - 1, size, size - n, 0, g.randrange(size + 16)]))
+                self.emit(OP_RAND, [k, r & 0xFF, r >> 8 & 0xFF, r >> 16 & 0xFF])
+        length = 128 * n
+        if g.random() < 0.75:                       # banks 1-5: $10000-$5FFFF
+            p = g.choice([0x10000, 0x5FFFF + 1 - length, 0x1FFFF + 1 - length // 2, 0x13FFF + 1 - length // 2,
+                          0x20000, g.randrange(0x10000, 0x60000 - length)])
+            off = g.choice([0, p & 0xF, min(p, 0x10000 - length), g.randrange(min(p, 0x10000 - length) + 1)])
+        else:                                       # refused
+            p, off = g.choice([
+                (0x60000, 0), (0x60000 - 64, 0x30), (0x5FFFF + 1 - length + 16, 0x10),
+                (0xC0000 + g.randrange(0x20000), 0x40), (0xF0000, 0), (0xF8000 + 0x10, 0x10),
+                (0x100100, 0x200), (0x1FFC0, 0x10000 - 64), (0x10000, 0xFFFF)])
+        off -= (off - p) % 16                       # p - off a paragraph's
+        if off < 0:
+            off += 16
+        seg = (p - off) // 16
+        assert 0 <= seg < 0xFFFF and 0 <= off <= 0xFFFF and seg * 16 + off == p
+        mirror = int(off + length <= 0x10000 and M.seg_ok(p, length))
+        tag = g.randrange(65536)
+        self.emit(OP_SMULTI, [fn, k, n, tag & 0xFF, tag >> 8, seg & 0xFF, seg >> 8, off & 0xFF, off >> 8, mirror])
+
     def x_count(self):
         v = self.xtra.choice([0, 129, 200, 255, 1, 2, 64, 128])
         self.emit(OP_CALL, [44, v, 0])
@@ -1152,6 +1254,8 @@ EDGES = {
     "ro": "X 2: a read-only drive",
     "pw": "X 7: Password Error, a label's or a protected file's",
     "multi": "a multi-sector call stopped after some records: X the records done",
+    "seg": "a DMA segment's records moved in banks 1-5 (SMULTI, mirrored, A 0)",
+    "seg-refused": "a DMA segment where it may not reach: A = X = $FF (SMULTI)",
 }
 
 
@@ -1183,6 +1287,10 @@ def edges(seed):
             got.add("pw")
         if r.op == OP_MULTI and f["A"] not in (0, 0xFF) and f["X"]:
             got.add("multi")
+        if r.op == OP_SMULTI and f["A"] == 0:
+            got.add("seg")
+        if r.op == OP_SMULTI and f["A"] == 0xFF and f["X"] == 0xFF:
+            got.add("seg-refused")
     return got
 
 

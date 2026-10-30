@@ -97,18 +97,18 @@ And phase 1's tooling:
 
 ## The system: OODOS.SYS ##
 
-Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3a's BDOS, 3b1's file extras and 3b2's system extras
+Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3a's BDOS, 3b1's file extras, 3b2's system extras and 3c's memory functions
 ([hw/oodos.md](../hw/oodos.md#the-bdos-phase-3)), in [`sys/`](sys/):
 
 | File | What |
 |---|---|
 | `common.s` | common memory, `$F800–$FFFF` in block 62: the BIOS's jump table, the BDOS stub, the warm boot, FARCALL, IRQ, Break and BRK, the vectors |
-| `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdosxtra.s`, `bdossys.s`, `bdos.inc` | the BDOS, block 60: the entry and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps; the file extras (phase 3b1: labels, XFCBs, passwords, the multi-sector count); the system extras (phase 3b2: the console set and function 10's line editing, the SCB, chain, the return code, the serial number, parse filename) |
+| `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdosxtra.s`, `bdossys.s`, `bdosmem.s`, `bdos.inc` | the BDOS, block 60: the entry and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps; the file extras (phase 3b1: labels, XFCBs, passwords, the multi-sector count); the system extras (phase 3b2: the console set and function 10's line editing, the SCB, chain, the return code, the serial number, parse filename); the memory functions (phase 3c: the DMA segment, CP/M-86's memory blocks, a CPU address's physical one, mounting drives) |
 | `bios.s`, `crt.s` | the BIOS, block 61: drives, M:, TIME, MOVE, the devices; the text screen's VT52 subset |
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), SYSTEST (phase 3b2's functions against the Guide), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), SYSTEST (phase 3b2's functions against the Guide), MEMTEST (phase 3c's 51–58, 73, 74 and XMOVE's physical bank), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
@@ -149,7 +149,7 @@ operations run on, compared with what the BDOS does on the emulator ([hw/oodos.m
 
 | File | What |
 |---|---|
-| [`test/cpm3model.py`](test/cpm3model.py) | the model: functions 13–37, 40, 46, 48, 98, 99 on drive images; its header lists what it models and its choices where the manual is open |
+| [`test/cpm3model.py`](test/cpm3model.py) | the model: functions 13–37, 40, 44, 46, 48, 98–103 and 106 on drive images, and 3c's DMA segment (50–52) with physical memory of its own; its header lists what it models and its choices where the manual is open |
 | [`test/modelscript.py`](test/modelscript.py) | the script and result formats (its header), the reference driver, the generator, the comparison |
 | [`test/modeltest.py`](test/modeltest.py) | the commands, below |
 | [`test/driver/`](test/driver/) | DRIVER.COM, which runs `A:SCRIPT.BIN` through the BDOS and writes `A:RESULT.BIN`; its own Makefile |
@@ -158,7 +158,7 @@ operations run on, compared with what the BDOS does on the emulator ([hw/oodos.m
 
 ```
 make -C test/driver             # test/driver/build/driver.com, through the rules gate
-make -C test/driver check       # test_model.py: ends PASS 194
+make -C test/driver check       # test_model.py: ends PASS 298
 python3 -I test/modeltest.py prepare --seed 7 --format oodos-8m --dir /tmp/m7 --driver test/driver/build/driver.com
 python3 -I test/modeltest.py show --dir /tmp/m7       # the script, an operation a line
 python3 -I test/modeltest.py predict --dir /tmp/m7    # the model's run: A.model.IMG, T.model.IMG, RESULT.model.BIN
@@ -177,7 +177,8 @@ wrong on purpose (`serve --fault`), and DRIVER under OODOS.SYS. **The comparison
 (the CMake option `OODOS_MODEL_BDOS`; a build tree configured before it was on keeps OFF in its cache, so pass
 `-DOODOS_MODEL_BDOS=ON` once; off, its case says it's skipped and ctest counts the test skipped) for seeds 1, 2, 4,
 14, 24, 30, 34 and 42 (`modeltest.py seeds`, from phase 3b1: between them a full disk, a full directory on M: and on
-B:, a read-only drive, a Password Error and a multi-sector call cut short), about 6 minutes under ASan. More seeds by hand,
+B:, a read-only drive, a Password Error and a multi-sector call cut short; from phase 3c, records moved through a DMA
+segment in banks 1–5 and a segment refused where it may not reach), about 6 minutes under ASan. More seeds by hand,
 from `emulator/`: `OODOS_MODEL_SEEDS` takes a list and ranges, `OODOS_MODEL_ONLY=1` runs the comparison alone, so
 seeds can run a process each, and `OODOS_MODEL_CUT=N` runs only a seed's first N operations, to find where a
 difference starts (a release build is about ten times faster than ASan's). `model_seeds.sh` runs a process a seed

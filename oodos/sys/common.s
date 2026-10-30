@@ -28,6 +28,7 @@
 .import SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
 .importzp DMABANK, CURBANK, XPEND
+.import DMASEG, AMAP
 .export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI
 
 .segment "JUMPS"
@@ -190,8 +191,9 @@ STUBRET:        STA     ST_A           ; the results go on the program's stack,
                 RTS
 
 ; The warm boot: from $0200, function 0 and the BIOS's WBOOT, in any window
-; state. The BIOS's banks back to 0 and no XMOVE pending, so nothing a
-; program set reaches the next; then the program's windows (blocks 0-2, 62),
+; state. The BIOS's banks back to 0 and no XMOVE pending, the BDOS's DMA
+; segment none and its memory blocks free (phase 3c), so nothing a program
+; set reaches the next; then the program's windows (blocks 0-2, 62),
 ; VEC on 62, a fresh stack, D clear and interrupts off, and the CCP.
 WARM:           SEI
                 CLD
@@ -203,6 +205,13 @@ WARM:           SEI
                 STZ     DMABANK        ; BANK_SYS: .assert below
                 STZ     CURBANK
                 STZ     XPEND
+                LDA     #$FF           ; no DMA segment (51), and every block freed (58):
+                STA     DMASEG         ; what a program set or took ends with it
+                STA     DMASEG + 1
+                LDX     #AMAP_LEN - 1
+@free:          STZ     AMAP,X
+                DEX
+                BPL     @free
                 STZ     NB_WIN0
                 LDA     #1
                 STA     NB_WIN1
@@ -222,8 +231,9 @@ WARM:           SEI
 ; maps the block into W3, calls the target, and maps the caller's block
 ; back. A, X, Y and the flags reach the target as the caller left them, and
 ; come back as the target left them. The old block goes on the 6502's stack,
-; so far calls nest. The block must have common memory in its top 2 KB, as
-; OODOS puts there in a block allocated for code. This is OODOS's code, not
+; so far calls nest. The block must have common memory in its top 2 KB:
+; OODOS doesn't put it there yet (53-56 copy nothing; hw/oodos.md defers it
+; to phase 7), so the program copies it in itself. This is OODOS's code, not
 ; a program's: it reads its frame in page 1 by address, and modifies its own
 ; operand, in the block it is leaving.
 FARCALL:        PHP
