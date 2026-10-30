@@ -747,7 +747,9 @@ console set, 47, 107, 108, 152), built side by side.
   bit 7 read, 6 write, 5 delete), the key (13), 0 (14, 15), the password (16–23), 0 (24–31). The password is kept as
   cpmtools decodes it (CP/M 3's): its 8 bytes in reverse order, each XORed with the key, the 8 bytes' sum. The
   password mode is also in the file's extent-zero SFCB slot (its byte 8), kept equal to the XFCB's: by make with
-  f6', 103, and 19 with f5' (0).
+  f6', 103, and 19 with f5' (0); and when the extent-zero entry is made after the XFCB (make at a later extent,
+  with f6' or then 103, and a write of extent 0), the new slot takes the XFCB's mode (the Guide, 2.3.8: 0 only for
+  a file not protected).
 - **The label (100)** (ours where marked): the first `$20` entry, or a new one in the first free entry (`$FF` if
   there's none). Its name and type are the FCB's bytes 1–11 as they are; its data byte is FCB byte 12's bits 7–4
   and bit 0 set (ours); stamps asked for (bits 6–4) on a directory without SFCBs (its entry 3 isn't one, ours) are
@@ -773,6 +775,10 @@ console set, 47, 107, 108, 152), built side by side.
 - **Make (22) with f6'** and passwords on makes the file's XFCB too: the password the DMA buffer's bytes 0–7, the
   mode its byte 8 (bits 7–5, ours), in the first free entry after the file's. It needs two free entries, or an
   XFCB of the name to use again, else `$FF` and nothing made (ours). Without passwords on, f6' is ignored.
+- **An orphaned XFCB** (one whose file is gone, as a non-banked CP/M 3, which has no XFCBs, can leave) is left
+  alone (ours): rename's File Exists check of the new name looks at files only, so renaming a file that has an
+  XFCB onto an orphan's name leaves two XFCBs of the name (the first found counts), and make with f6' takes an
+  orphan over without its password.
 - **103** makes or changes the file's XFCB: the mode FCB byte 12's bits 7–5, a new password (with bit 0) the DMA
   buffer's bytes 8–15; without bit 0 a new XFCB's password is none, an old one's kept (ours). A protected file's
   password must be given. `$FF` with X 0: no label or passwords off, the file not found, no free entry. The order
@@ -789,27 +795,36 @@ console set, 47, 107, 108, 152), built side by side.
   protected (2.3.8, 102), and a slot left as it was would give another file's. Found by cpmtools at verify
   (`fsck.cpm` read `mkfs.cpm`'s `$E5`s as stamps).
 - **The multi-sector count (44)** is the SCB's byte at `$4A`, CP/M 3's offset, its one home (`SCB_MULTI` in
-  `bdos.inc`); 1 to 128, else A = `$FF` and the count kept. The CCP sets it to 1 at each warm boot, before its own
-  loads and each program (the Guide, 44); a count of 0 (never set) is taken as 1. 20, 21, 33, 34 and 40 with a count N
+  `sys.inc`, with the other SCB offsets); 1 to 128, else A = `$FF` and the count kept. The CCP sets it to 1 at
+  each warm boot, before its own loads and each program (the Guide, 44); a count of 0 (never set) is taken as 1. 20, 21, 33, 34 and 40 with a count N
   are N calls, the FCB read once and written back once, record k at the DMA address + 128 × k (the DMA address
   itself unchanged): they stop at the first that doesn't succeed, and an error but a physical one (A = `$FF`)
   returns X = the records done before it (the Guide's H). 33, 34 and 40 put R0–R2 back to the first record's; EX
   and CR are the last record tried's (ours: N calls leave them so). A physical error (DERR) returns as with a count
   of 1 (X its code), and once a record is done the FCB is written back as the call left it (ours: N calls would
   keep the records done): 20 and 21 at the record after the last done, 33, 34 and 40 with R0–R2 put back and CR
-  the record that failed's.
-- **Where it lives:** block 60, now 8,129 bytes of 16 KB (6,868 before 3b1), so block 62's `BDOS2` is still unused;
+  the last record whose place was set: the one that failed if it failed being read or written, the last one done
+  if it failed moving to a new extent (XTRATEST Q: 64 records from 64, then extent 1's move fails, CR `$7F`).
+  **The memory first** (ours): before the first record the whole of it, the DMA address to + 128 × N, must be the
+  program's memory, else A = X = `$FF` with nothing done and the FCB as it was, the error a record there gets
+  (PIN and POUT's, "What isn't memory"): past `$FFFF`, in the I/O hole, on flash, or for a read (20, 33) in a
+  read-only window. N calls would do the records before it; refusing it whole keeps the BIOS's rule that all is
+  checked before a byte moves, and a write never takes a block it doesn't keep. A count of 1 is checked the same
+  way, so a read to memory that isn't is `$FF` even at the file's end.
+- **Where it lives:** block 60, now 8,281 bytes of 16 KB (6,868 before 3b1), so block 62's `BDOS2` is still unused;
   the zero page 203 of the 240 bytes (184 before), `SYSBSS` 676 of 1,280 (627 before): the default password, the
-  DMA buffer's 16 bytes, an entry's password decoded, `XCLEAR`'s save of the search; the multi-sector loop's state
-  in the zero page. The CCP's code is 7 bytes more (block 62's code window: 1,147 bytes). The label's place is
+  DMA buffer's 16 bytes, an entry's password decoded, `XCLEAR`'s and `NEWMODE`'s save of the search; the
+  multi-sector loop's state in the zero page. The CCP's code is 7 bytes more (block 62's code window: 1,147 bytes). The label's place is
   found when 100 needs it, not kept.
 - **Measured** (`oodos-8m`, BDOSENT to its return, FSTEST with a count of 1, against 3a's): Open 5,359 cycles
   (5,327); a sequential read of a record in a buffered sector 4,679 (4,585), of one whose sector it reads 12,763
   (12,649); a write to a buffered sector 7,490 (7,380), one that takes a new block 77,965, the cheapest that writes
   buffers back first 164,188. The count's loop costs about 100 cycles a call, the record's address and an indirect
-  call; passwords off cost a `BIT` in open and nothing elsewhere. With a count of 128 on M:, a read is 550,107
-  cycles, 4,297 a record (against 4,723 for one buffered record a call: the FCB is copied in and out once a call),
-  and a write 776,646, 6,067 a record. The warm boot makes one more BDOS call (44): the stub's 216 cycles and a
+  call; passwords off cost a `BIT` in open and nothing elsewhere. With a count of 128 on M:, a read is 553,186
+  cycles, 4,321 a record (against 4,723 for one buffered record a call: the FCB is copied in and out once a call),
+  and a write 779,555, 6,090 a record. The check of the records' memory first costs about 45 cycles a page they
+  cover (about 3,000 for 128 records, 550,107 and 776,646 before it; about 100 for one record, not in the
+  figures above). The warm boot makes one more BDOS call (44): the stub's 216 cycles and a
   few more (not measured).
 
 ## RSXs and programs ##
@@ -1363,28 +1378,46 @@ header has the full list):
   R0–R2 put back and CR the record tried, 34 and 40 of 3 and 2; File R/O as a code, not a count; M: filled 128
   records a call, the last call's X what was left; on B: with the card's writes failing, a 128-record write (21)
   and one by 34 failing (FF 01) after 64 records with the FCB as they left it; and a program ending with 44 at 128
-  leaving the next at 1.
+  leaving the next at 1. **Added by the review** (H, E, V): records not all program memory (32 from `$B800`
+  into the I/O hole, 17 from `$B800`, 2 from `$FF80` past `$FFFF`, a read of 8 half in a read-only window)
+  refused at once, no block taken, the FCB and memory as they were, and 16 from `$B800` to `$BFFF` written; a
+  file's extent 0 made after its XFCB (make at extent 16, then 103; make at extent 16 with f6'; then a 34 of
+  record 0) with the XFCB's mode in its slot; delete with f5' of `V?.DAT` taking two XFCBs (each slot's mode 0)
+  and leaving W1.DAT's; user 0's read-protected SYS file opened from user 1, refused without its password (FF 07)
+  and opened with it (f8').
 - **The model** (`cpm3model.py`) has 44, 100–103 and 106, the multi-sector count on 20, 21, 33, 34 and 40, the
   protection on 15, 19, 22, 23, 30 and 99, XFCBs followed by delete and rename; hand-worked cases in
   `test_model.py` (a password's bytes worked out by hand, the label's and an XFCB's 32 bytes, each protection, 102,
-  44's range, 20 and 33 cut short). **The script** has three new operations: DMA16 (the DMA buffer's first 16
+  44's range, 20 and 33 cut short, records past `$FFFF` refused, extent 0's slot made after the XFCB by 103 and
+  by make with f6'). The model's memory has its own addresses (MBUF at `$C000`), so it has no I/O hole or flash:
+  only past `$FFFF` is refused there. **The script** has three new operations: DMA16 (the DMA buffer's first 16
   bytes: a password, a new one, a mode), PASSWD (106) and MULTI (a call with a count of 1–32 from DRIVER.COM's
   own 4 KB buffer, 44 set back to 1 after); FCALL takes 100, 102 (with the FCB's bytes 24–31) and 103. DRIVER.COM
   sets 44 to 1 before it writes RESULT.BIN. **The generator** makes them from a third random stream (12% of the
   steps: labels with passwords on and off and every stamp mode, XFCBs in each mode, 102, the default password,
   each protected function with the right password or another, make with f6', 1–32 records by each of the five
-  functions near a file's end and R's edges, 44's edges), so a seed's script is 3a's up to its first; with
+  functions near a file's end and R's edges, 44's edges; from the review: delete with f5' of a wildcard that
+  matches two or more of the user's XFCBs, two protected files made first if it has fewer; user 0's protected
+  file opened from another user, made SYS and the user changed first if need be; make at extent 16, with f6' or
+  then 103, and a 34 of record 0, so extent 0 comes after the XFCB), so a seed's script is 3a's up to its first; with
   passwords on a 3a make's f6' is cleared (the DMA buffer's bytes would be its password). The default seeds are
   1, 2, 4, 14, 24, 30, 34 and 42: the third stream moved what 6, 10, 41 and 45 reached, and the new edges are a
-  Password Error and a multi-sector call cut short.
+  Password Error and a multi-sector call cut short (the review's operations left them on every edge). A candidate
+  the model refuses has its memory put back as well as its log (a WRITEN's first record left in the DMA buffer
+  could match a password later, and seed 348's script then didn't replay).
 - **The comparison** of OODOS's BDOS with the model passes seeds 1–600 (`model_seeds.sh`, a Release tree); it found
   no difference in 3b1's operations, the model and the BDOS written from the same reading of the Guide. Over seeds
-  1–100 the scripts have 184 labels set and 10 refused for their password, 64 XFCBs written by 103, 49 Password
-  Errors (15: 18, 19: 8, 23: 4, 30: 8, 99: 1, 100: 10), 125 writes refused File R/O (f7', t1' or user 0's), 390
-  multi-sector calls (37 cut short, X the records done), and passwords on at the end of 45.
-- **cpmtools at verify** (`model_cpmtools.sh`): `cpmls -F`'s Prot (from the slot's byte 8) for every file against
-  the model's XFCB mode; `fsck.cpm` decodes each XFCB's password, and the label's with passwords on, by the key, and
-  fails one that isn't printable; its "Bit 4 and 6" error for a label asking for creation and access stamps is
+  1–100 the scripts have (counted again after the review's operations, by a count that gives the generator before
+  them 184, 10, 63, 44, 136, 390, 37 and 45) 183 labels set and 9 refused for their
+  password, 71 XFCBs written by 103, 47 Password Errors (15: 12, 19: 11, 23: 7, 30: 7, 99: 1, 100: 9), 162 writes
+  refused File R/O (f7', t1' or user 0's), 369 multi-sector calls (43 cut short, X the records done), and
+  passwords on at the end of 50. Over seeds 1–600: a delete with f5' taking two or more XFCBs in 29 seeds, an
+  open of user 0's protected SYS file from another user in 50, and a protected file's extent 0 made after its
+  XFCB in 20.
+- **cpmtools at verify** (`model_cpmtools.sh`): `cpmls -F`'s Prot (cpmtools reads the slot's byte 8) for every file
+  against the mode of its XFCB in the model's image (`modeltest.py files` reads the XFCB, not the slot, so a slot
+  that drifts from its XFCB fails: the model with the extent-zero fix undone fails seed 26); `fsck.cpm` decodes
+  each XFCB's password, and the label's with passwords on, by the key, and fails one that isn't printable; its "Bit 4 and 6" error for a label asking for creation and access stamps is
   let through (`modeltest.py label`); `sfcb.py` works out fsck.cpm's date warnings by its own sums and checks the
   stamps' order only where the label always asked for creation and update. It found the slot a make left on a
   drive whose label asked for no stamps (`mkfs.cpm`'s `$E5`s, read as a bad hour and minute): both the BDOS and the
@@ -1398,8 +1431,10 @@ header has the full list):
   checked, stamps set without SFCBs (N), f5' and 103 not setting the slot's mode, make with f6' making no XFCB, the
   CCP leaving the count (C, D), a slot left as it was with no stamps asked for (Z), none kept as zeros (N), 102
   without its mode or stamps, open ignoring read mode, 100 taking no new password, the next record's DMA address
-  not moved on. The model made wrong three ways (a password not reversed, X 0 for the records done, 101's bit 7
-  dropped) fails the comparison on most seeds with passwords or multi-sector calls (26, 13 and 8 of 40). And
+  not moved on; from the review: no check of the records' memory first (H: blocks taken, memory overwritten), a
+  new extent-zero slot's mode 0 (E), the open of a SYS file checking the current user's XFCB, the search not put
+  back after f5' clears a slot (V, and L's f5' and LOGINTEST's XFCBs). The model made wrong three ways (a password not reversed, X 0 for the records
+  done, 101's bit 7 dropped) fails the comparison on most seeds with passwords or multi-sector calls (26, 13 and 8 of 40). And
   cpmtools: the model's Prot all None fails `cpmls -F`'s check (seed 2), a key byte unlike the one the password
   was XORed with fails `fsck.cpm` (a password not printable); a key that isn't the sum, used consistently, it
   can't see (it decodes by the byte), which the hand-worked case in `test_model.py` and the comparison do.
