@@ -706,7 +706,7 @@ against, compared with what the BDOS does on the emulator.
   The user is put back as it was before the program runs and after `NAME?` or an error. A program starts in the
   default error mode with the DMA address `$0280`.
 - **^C at the prompt** resets the disk system, as the Programmer's Guide says CP/M 3's CCP does (1.6.2; the warm
-  boot doesn't), 2026-10-28 from the review: the prompt's first key, which is function 10's warm boot, as anywhere.
+  boot doesn't), 2026-10-28 from the review: a ^C while the prompt's line is empty, which is function 10's warm boot, as anywhere.
   The CCP marks the prompt's line read (`ATPROMPT`, set only while its function 10 runs), and the warm boot that
   finds it marked runs 13 in error mode `$FE` instead of the rescan, 48 and 98, which ran before that prompt; then
   the drive that was current is selected again (from 3b2, the CCP's own drive, made current through the SCB) and the
@@ -789,7 +789,9 @@ tests.
   output's look (ours: the Guide names ^C only after ^S).
 - **The kept key** is taken first by 1, 6 (`$FF` and `$FD`; `$FE` reports it), 10 and 11 (ours: the Guide's
   function 6 bypasses the BDOS's handling, but a key it ignored would sit there unread). The warm boot doesn't
-  drop it, so a key typed during a program's output reaches the next prompt, as typed ahead.
+  drop it, so a key typed during a program's output reaches the next prompt, as typed ahead. A ^C kept so,
+  typed ahead or found by 11 in mode bit 0 and left unread by a program that then ends, is the prompt's ^C: a
+  second warm boot, with 13 (accepted 2026-10-30 from the review, as CP/M 2.2 leaves such a key in the BIOS).
 - **Printer echo** is the SCB's list output flag (38): while it's on (non-zero), what functions 1, 2, 9, 10 and
   111 echo or write to the console goes to LST: too, but not in raw mode (bit 2) for 2, 9 and 111; 6's output
   never. ^P in function 10, anywhere in the line, or after a ^S, turns it over, to 1 or 0.

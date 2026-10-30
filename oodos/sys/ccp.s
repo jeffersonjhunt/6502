@@ -32,7 +32,7 @@
 ; ERROR. A program starts in the default error mode, with the DMA address
 ; $0280.
 ;
-; A ^C typed at the prompt, as the line's first key, is function 10's warm
+; A ^C typed at the prompt while the line is empty is function 10's warm
 ; boot too, but the CCP resets the disk system for it (the Programmer's
 ; Guide, 1.6.2), as the warm boot doesn't: function 13, in error mode $FE.
 ; 13 writes back what it can and drops what it can't, a kept buffer too,

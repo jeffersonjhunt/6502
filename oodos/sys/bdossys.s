@@ -533,7 +533,7 @@ L_HOME:         LDA     LP             ; to the start, or from there to the end
                 JSR     MOVERIGHT
 @done:          JMP     LOOP
 
-L_CTLC:         LDA     LN             ; the first key of an empty line: the warm
+L_CTLC:         LDA     LN             ; a ^C while the line is empty: the warm
                 BNE     @char          ; boot, unless console mode bit 3
                 LDA     SCB_CONMODE
                 AND     #CM_NOCTLC
