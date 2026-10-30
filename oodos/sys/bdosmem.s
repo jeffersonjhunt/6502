@@ -557,8 +557,9 @@ F_MOUNT:        JSR     PGET           ; the drive: B:-G:
                 STA     MP + 1
                 STZ     MLEN
                 STZ     MLEN + 1
-                JSR     PGET
+                JSR     PGET           ; (PGET's flags are X's)
                 STA     (MP)
+                CMP     #0
                 BEQ     @path          ; empty: unmount
                 CMP     #'/'
                 BNE     @bad           ; from the root
@@ -704,6 +705,7 @@ PATH:           JSR     MNEXT
                 STA     DOTS
 @byte:          JSR     PGET
                 STA     (MP)
+                CMP     #0
                 BEQ     ENDNAME        ; the NUL: the last name ends
                 CMP     #'#'
                 BEQ     @no
