@@ -13,7 +13,9 @@
 ;       (00000010); D.DAT made (DMK), 4 records written from $10000 (44 4:
 ;       DW4 00 00), closed with no segment (DCL); read back to the CPU: DRD
 ;       Y; records 1-2 by 33 to $1401:$00F0, $14100 (DR2 00 00, DR2CHK Y: the
-;       bytes around them as they were); record 3 to $1FFC:0, across banks
+;       bytes around them as they were); record 0 by 20 to $1FF7:$000F
+;       (DRF 00 00, DRFCR 01, DRFCHK Y: MOVE's end is $FFFF, no refusal);
+;       record 3 to $1FFC:0, across banks
 ;       1 and 2 (DRX, DRXCHK Y); again to the CPU (DRC) and to $11000 (DRS),
 ;       the test's cycles of each; 17 to $1800:0 (D17 0n 00, D17CHK Y: the
 ;       entry there), 18 (D18 FF 00); refused, FF FF, nothing moved: DRST
@@ -21,27 +23,36 @@
 ;       ($C000, M:), DRBD ($F000, the BDOS), DRPAST ($FFF0:$0100, past
 ;       $FFFFF), DRWRAP ($1000:$FFC0, past $FFFF); 44 16 from $5F80:0, to
 ;       $5FFFF: DRM16 01 04 (4 records, then the end); 44 17: DRM17 FF FF;
+;       49's count of 255, three blocks: DR255 01 04 ($2BF8:0, blocks
+;       10-12), DR255X FF FF ($5BF8:0, 22-24);
 ;       DWM (21 to $C000: FF FF) DWMCR (the FCB's CR as it was: 04); D17M
 ;       (17 to $C000: FF FF); 46 with a segment: DFREE 00 00 DFREECPU Y (to
 ;       the CPU's DMA buffer); 51 $1234 then 13: GET13 (80023412: 13 keeps
-;       the segment)
-;   W   after a warm boot: WGET (8002FFFF), WMAX 00 00 WMAXM (53 of $FFFF:
-;       0010005000, all 20 blocks free)
+;       the segment, left set for W)
+;   W   after a warm boot: WGET (8002FFFF: WARM reset D's segment), WMAX
+;       00 00 WMAXM (53 of $FFFF: 0010005000, all 20 blocks free)
 ;   M   CP/M-86's memory, each "KEY aa xx" then "KEYM" and the MCB (base,
-;       length, ext): MAX (53 $5000: 0010005000), MAX1 (53 1: 0010000401),
-;       MAX0 (53 0: FF 00, the MCB as it was); AL1 (55 $0800: 0010000800),
+;       length, ext); 53 and 54 allocate their run, freed by 57 (xxF, 00
+;       00) where the next needs it: MAX (53 $5000: 0010005000), MXA (55:
+;       FF 00, MAX took all), MXF; MAX1 (53 1: 0010000401), M1A (55 1
+;       block: 0014000400, not MAX1's), M1F, M1AF; MAX0 (53 0: FF 00, the
+;       MCB as it was); AL1 (55 $0800: 0010000800),
 ;       AL2 (55 $0401, two blocks: 0018000800); AB1 (56 $2000 $0400:
 ;       0020000400); FF 00 for AB2 ($1C00, taken), AB3 ($1100, not a
 ;       block's), AB4 ($0C00, bank 0), AB5 ($6000, bank 6), AB6 ($1C00 3
 ;       blocks, the first taken), AB7 (a length of 0); AM1 (54 $1000, taken:
 ;       FF 00), AM2 (54 $2400 $FFFF: the 15 free, 0024003C00), AM3 (54
 ;       $2400 $0801: three, M_EXT 1), AM4 (54 of a taken block: FF 00); MAX2
-;       (0024003C00); FR1 (57 $1C00, not a base: FF 00), FR2 (57 $1800: 00
+;       (0024003C00); FR1 (57 $1C00, AL2's second block, a length of 0: FF
+;       00), FR2 (57 $1800: 00
 ;       00), FR3 (again: FF 00); AB8 (56 $1800 3 blocks, the third taken:
 ;       FF 00); AL3 (55 $5000: FF 00); MAX3 (M_EXT 1:
 ;       0024003C01); FRALL (57 with M_EXT $FF: 00 00); MAX4 (0010005000); AL4
 ;       (all 20), AL5 (none left: FF 00); ALLFREE (58: 00 00); MAX5; MHOLE
-;       (an MCB in the I/O hole: FF FF); AL6 (a block left for the warm boot)
+;       (an MCB in the I/O hole: FF FF); 57 of a tail: TA (55 3 blocks:
+;       0010000C00), TS (57 $1400 1 block, short of the end: FF 00), TB
+;       (57 $1400 $0801: 00 00), TC (55 2: 0014000800, block 4 kept), TD
+;       (57 $1000, the head alone), TE; AL6 (a block left for the warm boot)
 ;   P   73, "KEY aa xx" then "KEYM" and the 4 bytes: P0300 (00003000),
 ;       P4123 (03001204), P8FFF (0F00FF08), PC900 (000090F8: block 62);
 ;       PHOLE, PC7FF (the I/O hole: FF FF, the bytes as they were); P37 (W1
@@ -49,7 +60,8 @@
 ;       00000004); PBLK (the 4 bytes in the I/O hole: FF FF)
 ;   B   the BIOS's XMOVE with a physical bank, through function 50: BUF's
 ;       128 bytes (0-127) to $12000 (bank $81): BTO aa xx (MOVE's: the end,
-;       $2080); BUF zeroed, back from there: BFROM aa xx (BUF + 128), BCHK Y
+;       $2080); BUF zeroed, back from there: BFROM aa xx (BUF + 128), BEND
+;       (BUF + 128, low then high, for the test), BCHK Y
 ;   N   74, units 1 (A.IMG) only: NA, NM, NH (FF 04); NP1-NP9 (bad paths:
 ;       FF 10); NLONG (510 bytes: FF 10), NLEN (509: FF 11); NNF, NDIR (FF
 ;       11); NSZ (/BOOT.BIN: FF 12) NSZSEL (14 of C: FF 04); NSAME
@@ -62,7 +74,9 @@
 ;       00) NWW (X.DAT's record 0 written again, not closed); FAULT? (the
 ;       card's writes fail); NWB (FF 01: not written back) NWBSEL (00 00:
 ;       C: is still there); MEND? (they work again); NWB2 (00 00); NC4 (00
-;       00) NWBCHK Y (the record as written)
+;       00) NWBCHK Y (the record as written); RSCN? (the test takes the
+;       card out at 74's rescan); NRS (B.IMG on C:: FF 01, the rescan
+;       failed); RMEND? (the card back)
 
         .setcpu "65C02"
         .include "oodos.inc"

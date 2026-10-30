@@ -18,7 +18,8 @@
 ;                   and wipe M:, and any function past XMOVE return A = X = $FF
 ;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
-;                   programs in KB (words), and FARCALL's address; A/X = FARCALL
+;                   programs in KB (words: the total, fixed, not what is
+;                   free), and FARCALL's address; A/X = FARCALL
 ;  104  T_SET       the DAT at A/X (days, hour, minute in BCD) into the clock,
 ;                   the seconds 0
 ;  105  T_GET       the clock into the DAT at A/X; A = the seconds, BCD. A
@@ -56,7 +57,7 @@
 ASCII_CR        = $0D
 ASCII_LF        = $0A
 MEM_FITTED      = 1024                 ; KB
-MEM_PROGRAMS    = AMAP_LEN * 16        ; KB: banks 1-5, 53-58's 20 blocks
+MEM_PROGRAMS    = AMAP_LEN * 16        ; KB: banks 1-5, 53-58's 20 blocks, all of them
 NFUNC           = 153                  ; FIDX's functions, 0-152
 
 .zeropage

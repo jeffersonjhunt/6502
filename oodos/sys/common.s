@@ -231,8 +231,9 @@ WARM:           SEI
 ; maps the block into W3, calls the target, and maps the caller's block
 ; back. A, X, Y and the flags reach the target as the caller left them, and
 ; come back as the target left them. The old block goes on the 6502's stack,
-; so far calls nest. The block must have common memory in its top 2 KB, as
-; OODOS puts there in a block allocated for code. This is OODOS's code, not
+; so far calls nest. The block must have common memory in its top 2 KB:
+; OODOS doesn't put it there yet (53-56 copy nothing; hw/oodos.md defers it
+; to phase 7), so the program copies it in itself. This is OODOS's code, not
 ; a program's: it reads its frame in page 1 by address, and modifies its own
 ; operand, in the block it is leaving.
 FARCALL:        PHP
