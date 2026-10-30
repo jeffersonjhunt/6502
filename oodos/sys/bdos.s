@@ -147,7 +147,8 @@ BDOSENT:        STA     PA
                 CPY     #NFUNC
                 BCS     NOFUNC
                 LDX     FIDX,Y
-                BMI     NOFUNC
+                CPX     #$FF
+                BEQ     NOFUNC
                 LDA     PA
                 JMP     (FJUMPS,X)
 NOFUNC:
@@ -190,10 +191,10 @@ FIDX:
                 .res    152 - 113, $FF ; 113-151
                 .byte   114 ; 152
 .assert * - FIDX = NFUNC, error, "FIDX has every function to 152"
-; The dispatch's BMI NOFUNC takes an offset of 128 or more for none: FJUMPS
-; holds at most 64 handlers (offsets 0-126), and has 64 now: another wants
-; another dispatch.
-.assert FIDX - FJUMPS <= 128, error, "FJUMPS has more than 64 handlers: its offsets must stay below 128"
+; The dispatch's CPX #$FF takes only $FF for none (BMI, before phase 3c, took
+; 128 and up, so 64 handlers at most): FJUMPS holds at most 127 handlers, its
+; offsets 0-252, every one below 255.
+.assert FIDX - FJUMPS <= 254, error, "FJUMPS has more than 127 handlers: its offsets must stay below 255"
 
 F_TERM:         JMP     WARM
 

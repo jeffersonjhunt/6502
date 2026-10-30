@@ -970,9 +970,9 @@ tests.
 
 **3b1 and 3b2 together (merged 2026-10-30):**
 
-- **One dispatch table:** FJUMPS has 64 handlers, the most its offsets allow (the `.assert`, 0–126): 3a's 44, 3b2's
-  14 at offsets 88–114 (3, 4, 5, 7, 8, 47, 49, 107–112, 152), 3b1's 6 at 116–126 (44, 100–103, 106); NFUNC 153. A
-  function past these needs another dispatch.
+- **One dispatch table:** FJUMPS has 64 handlers, the most its offsets allowed then (the `.assert`, 0–126): 3a's 44,
+  3b2's 14 at offsets 88–114 (3, 4, 5, 7, 8, 47, 49, 107–112, 152), 3b1's 6 at 116–126 (44, 100–103, 106); NFUNC
+  153. A function past these needed another dispatch: 3c's widened it (below).
 - **One multi-sector count,** the SCB's `$4A` (`SCB_MULTI`, in `sys.inc`): 44 sets it (1–128), 49 reads and sets it
   (any byte, as CP/M 3; a count over 128 set so is taken as it is, 0 as 1), and the CCP sets it to 1 once at each
   warm boot, by 44, before its own loads (3b2's set by 49 later in the warm boot dropped). XTRATEST K: 44's 5 read
