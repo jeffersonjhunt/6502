@@ -55,6 +55,25 @@
 ;   Z   on M:: the label asking for no stamps (100, $00: ZLBL 00 00); DIRTY?
 ;       (the test fills entry 1's SFCB slot); Z.DAT made (entry 1), closed;
 ;       ZSTAMPS aa xx ZSTAMPV (102: 00 00, zeros); the slot all 0
+;   H   on M:: a call's records not all program memory, refused before the
+;       first (A = X = $FF), nothing done: HFREE0 xxxxxx (46); H.DAT made;
+;       HWR aa xx (21 of 32 from $B800, 16 in the I/O hole: FF FF) HWRCR cc
+;       (00); HW17 (17 from $B800: FF FF); HWRAP (2 from $FF80, past $FFFF:
+;       FF FF); HFREE1 (46: no block taken); HW16 (16 from $B800, to $BFFF:
+;       00 00) HW16CR (10); closed, opened; HRD (20 of 32 to $B800: FF FF)
+;       HRDCHK Y ($B800-$B8FF as they were); W1 read-only: HRO (20 of 8 to
+;       $3E00, half in W1: FF FF) HROCHK Y ($3E00-$3FFF as they were)
+;   E   on M:: passwords on (100, $B0); a file's extent 0 made after its
+;       XFCB: E.DAT made at extent 16, 103 read mode (EXF 00); F.DAT made at
+;       extent 16 with f6' (write mode, FPASS: EMF 00); each a 34 of record
+;       0 (EW0, FW0: 00 00), closed; ESLOT? (the test reads their extent-zero
+;       slots: the XFCBs' modes, 80 and 40)
+;   V   on M:: passwords on; V1.DAT, V2.DAT and W1.DAT made with f6' (read
+;       mode, VPASS); VSET?; 19 of V?.DAT with f5' and VPASS (VDEL 00 00);
+;       VDEL? (V1's and V2's XFCBs gone, their slots' modes 0, W1's kept);
+;       S0.DAT made in user 0 with f6' (read mode, SYSPW), t2' set (30 with
+;       SYSPW: VSYS 00 00); in user 1, opened without it: VSYSNO (FF 07,
+;       user 0's XFCB); with it: VSYSPW (00 00) VSYSF8 (f8' set: A0)
 ;   C   44 = 128, and the program ends: COUNT SET
 ;   D   CNT.DAT made on M:, one 21 from BIG: DCR cc (01: the CCP set the
 ;       count to 1 for this program)
@@ -156,6 +175,15 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'Z'
         bne     :+
         jmp     casez
+:       cmp     #'H'
+        bne     :+
+        jmp     caseh
+:       cmp     #'E'
+        bne     :+
+        jmp     casee
+:       cmp     #'V'
+        bne     :+
+        jmp     casev
 :       cmp     #'C'
         bne     :+
         CALLF   F_MULTISEC, 128
@@ -594,6 +622,163 @@ casez:  lda     #DRV_M
         jsr     CRLF
         jmp     done
 
+caseh:  lda     #DRV_M
+        sta     TDRV
+        jsr     hfree
+        SAY     "HFREE0 "
+        jsr     hfreesay
+        NAME    fcb, "H       DAT"
+        CALLF   F_MAKE, fcb
+        CALLF   F_MULTISEC, 32
+        CALLF   F_DMAOFF, $B800
+        TRY     "HWR ", F_WRITE, fcb
+        BYTE    "HWRCR ", fcb+32
+        CALLF   F_MULTISEC, 17
+        CALLF   F_DMAOFF, $B800
+        TRY     "HW17 ", F_WRITE, fcb
+        CALLF   F_MULTISEC, 2
+        CALLF   F_DMAOFF, $FF80
+        TRY     "HWRAP ", F_WRITE, fcb
+        jsr     hfree
+        SAY     "HFREE1 "
+        jsr     hfreesay
+        CALLF   F_MULTISEC, 16
+        CALLF   F_DMAOFF, $B800
+        TRY     "HW16 ", F_WRITE, fcb
+        BYTE    "HW16CR ", fcb+32
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "H       DAT"
+        CALLF   F_OPEN, fcb
+        ldx     #0                      ; $B800-$B8FF $E7
+        lda     #$E7
+:       sta     $B800,x
+        dex
+        bne     :-
+        CALLF   F_MULTISEC, 32
+        CALLF   F_DMAOFF, $B800
+        TRY     "HRD ", F_READ, fcb
+        ldx     #0
+:       lda     $B800,x
+        cmp     #$E7
+        bne     :+
+        dex
+        bne     :-
+        clc
+        bra     :++
+:       sec
+:       SAY     "HRDCHK "
+        jsr     YESNO
+; a read-only window: $3E00-$3FFF in W0, $4000-$41FF in W1
+        jsr     e7big
+        lda     #NB_RO | 1              ; W1's own block, read-only
+        sta     NB_WIN1
+        CALLF   F_MULTISEC, 8
+        CALLF   F_DMAOFF, $3E00
+        TRY     "HRO ", F_READ, fcb
+        lda     #1
+        sta     NB_WIN1
+        ldx     #0
+:       lda     $3E00,x
+        cmp     #$E7
+        bne     :+
+        lda     $3F00,x
+        cmp     #$E7
+        bne     :+
+        dex
+        bne     :-
+        clc
+        bra     :++
+:       sec
+:       SAY     "HROCHK "
+        jsr     YESNO
+        CALLF   F_DMAOFF, BIG
+        CALLF   F_CLOSE, fcb
+        jmp     done
+
+; 46 of M: to BUF; then said.
+hfree:  CALLF   F_DMAOFF, BUF
+        CALLF   DRV_SPACE, DRV_M
+        rts
+hfreesay:
+        lda     #<BUF
+        ldx     #>BUF
+        jsr     HEX6
+        jmp     CRLF
+
+casee:  lda     #DRV_M
+        sta     TDRV
+        jsr     pwon
+        NAME    fcb, "E       DAT"
+        EXB     fcb, 16
+        CALLF   F_MAKE, fcb
+        NAME    lfcb, "E       DAT"
+        EXB     lfcb, $80
+        TRY     "EXF ", F_WRITEXFCB, lfcb
+        RREC    fcb, 0
+        TRY     "EW0 ", F_WRITERAND, fcb
+        CALLF   F_CLOSE, fcb
+        PW      BUF, "FPASS   "
+        lda     #$40
+        sta     BUF+8
+        NAME    fcb, "F       DAT"
+        ATTR    fcb, 6
+        EXB     fcb, 16
+        TRY     "EMF ", F_MAKE, fcb
+        RREC    fcb, 0
+        TRY     "FW0 ", F_WRITERAND, fcb
+        CALLF   F_CLOSE, fcb
+        KEYWAIT "ESLOT?"
+        jmp     done
+
+casev:  lda     #DRV_M
+        sta     TDRV
+        jsr     pwon
+        PW      BUF, "VPASS   "
+        lda     #$80
+        sta     BUF+8
+        NAME    fcb, "V1      DAT"
+        jsr     vmake
+        NAME    fcb, "V2      DAT"
+        jsr     vmake
+        NAME    fcb, "W1      DAT"
+        jsr     vmake
+        KEYWAIT "VSET?"
+        NAME    fcb, "V?      DAT"
+        ATTR    fcb, 5
+        TRY     "VDEL ", F_DELETE, fcb
+        KEYWAIT "VDEL?"
+; user 0's SYS file, from user 1
+        PW      BUF, "SYSPW   "
+        NAME    fcb, "S0      DAT"
+        jsr     vmake
+        PW      BUF, "SYSPW   "
+        NAME    fcb, "S0      DAT"
+        ATTR    fcb, 10
+        TRY     "VSYS ", F_ATTRIB, fcb
+        CALLF   F_USERNUM, 1
+        jsr     zero16
+        NAME    fcb, "S0      DAT"
+        TRY     "VSYSNO ", F_OPEN, fcb
+        PW      BUF, "SYSPW   "
+        NAME    fcb, "S0      DAT"
+        TRY     "VSYSPW ", F_OPEN, fcb
+        BYTE    "VSYSF8 ", fcb+8
+        CALLF   F_USERNUM, 0
+        jmp     done
+
+; fcb made with f6' (the DMA buffer's password and mode), closed.
+vmake:  ATTR    fcb, 6
+        CALLF   F_MAKE, fcb
+        CALLF   F_CLOSE, fcb
+        rts
+
+; M:'s label: passwords on, no stamps asked for, no password of its own.
+pwon:   jsr     zero16
+        NAME    lfcb, "PWON    LBL"
+        EXB     lfcb, $80
+        CALLF   DRV_SETLABEL, lfcb
+        rts
+
 cased:  lda     #DRV_M
         sta     TDRV
         CALLF   F_DMAOFF, BIG
@@ -682,3 +867,4 @@ fcb:    .res    36
 lfcb:   .res    36
 dpw:    .res    8
 BIG:    .res    BIGRECS * 128
+        .assert BIG <= $3E00 && BIG + BIGRECS * 128 >= $4200, lderror, "case H's $3E00-$41FF is in BIG"

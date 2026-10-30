@@ -2678,6 +2678,91 @@ TEST(a_physical_error_in_a_multi_sector_write_keeps_the_records_done_in_the_fcb)
     }
 }
 
+TEST(a_multi_sector_call_whose_records_are_not_all_program_memory_does_nothing)
+{
+    // On M:: N records at the DMA address that reach the I/O hole, wrap past $FFFF or, for a
+    // read, a read-only window are refused before the first (A = X = $FF), as one record there
+    // is: no block taken, the FCB as it was, no byte of memory moved. 16 records to $BFFF are
+    // all program memory.
+    Booted r;
+    REQUIRE(r.ok);
+    const std::string o = xtratest(r, 'H');
+    const std::pair<const char *, const char *> want[] = {
+        {"HWR", "FF FF"}, {"HWRCR", "00"}, {"HW17", "FF FF"},  {"HWRAP", "FF FF"}, {"HW16", "00 00"},
+        {"HW16CR", "10"}, {"HRD", "FF FF"}, {"HRDCHK", "Y"},    {"HRO", "FF FF"},   {"HROCHK", "Y"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    CHECK(field(o, "HFREE0").rfind("<no", 0) != 0);
+    CHECK_EQ(field(o, "HFREE1"), field(o, "HFREE0"));
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(a_files_extent_zero_made_after_its_xfcb_keeps_the_xfcbs_mode_in_its_slot)
+{
+    // On M:, passwords on: E.DAT made at extent 16, then 103 (read mode); F.DAT made at extent 16
+    // with f6' (write mode). Neither has an extent-zero entry for the XFCB's mode to go to, until a
+    // 34 of record 0 makes one: its SFCB slot's mode byte is the XFCB's, not 0 (the Guide, 2.3.8).
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    std::vector<uint8_t> d;
+    const std::string o = xtratest(r, 'E', {{"ESLOT?", [&] { d = m.directory(); }}});
+    for (const char *k : {"EXF", "EW0", "EMF", "FW0"})
+        CHECK_EQ(field(o, k), std::string("00 00"));
+    REQUIRE(!d.empty());
+    for (const auto &[name, mode] : {std::pair<std::string, uint8_t>{"E       DAT", 0x80}, {"F       DAT", 0x40}})
+    {
+        const std::vector<unsigned> es = m.entries_of(d, 0, name);
+        REQUIRE(es.size() == 2);
+        CHECK_EQ(unsigned{d[es[0] * 32 + 12]}, 0u); // extent 0's entry first
+        CHECK_EQ(unsigned{slot_mode(d, es[0])}, unsigned{mode});
+        CHECK_EQ(xfcb_of(d, 0, name) >= 0, true);
+    }
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
+TEST(delete_with_f5_and_a_wildcard_and_a_sys_files_password_from_another_user)
+{
+    // On M:, passwords on: 19 with f5' of V?.DAT deletes V1's and V2's XFCBs (each slot's mode 0),
+    // not W1's; user 0's protected SYS file opened from user 1 needs user 0's XFCB's password.
+    Booted r;
+    REQUIRE(r.ok);
+    CpmDisk m{r, 0};
+    const auto slot_of = [&](const std::vector<uint8_t> &d, const std::string &name) {
+        const std::vector<unsigned> es = m.entries_of(d, 0, name);
+        return es.empty() ? -1 : int{slot_mode(d, es[0])};
+    };
+    const std::string o = xtratest(r, 'V',
+                                   {{"VSET?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         for (const char *n : {"V1      DAT", "V2      DAT", "W1      DAT"})
+                                         {
+                                             check_xfcb(d, 0, n, 0x80, "VPASS   ");
+                                             CHECK_EQ(slot_of(d, n), 0x80);
+                                         }
+                                     }},
+                                    {"VDEL?", [&] {
+                                         const std::vector<uint8_t> d = m.directory();
+                                         for (const char *n : {"V1      DAT", "V2      DAT"})
+                                         {
+                                             CHECK(xfcb_of(d, 0, n) < 0);
+                                             CHECK_EQ(slot_of(d, n), 0); // the file kept, its mode 0
+                                         }
+                                         check_xfcb(d, 0, "W1      DAT", 0x80, "VPASS   ");
+                                         CHECK_EQ(slot_of(d, "W1      DAT"), 0x80);
+                                     }}});
+    const std::pair<const char *, const char *> want[] = {
+        {"VDEL", "00 00"}, {"VSYS", "00 00"}, {"VSYSNO", "FF 07"}, {"VSYSPW", "00 00"}, {"VSYSF8", "A0"},
+    };
+    for (const auto &w : want)
+        CHECK_EQ(field(o, w.first), std::string(w.second));
+    if (o.find("XTRATEST DONE") == std::string::npos)
+        r.tail(2000);
+}
+
 TEST(write_protection_lasts_into_the_next_extent_and_a_new_slot_is_clear)
 {
     // On M:: a write-protected file opened without its password stays read-only after a read moves
