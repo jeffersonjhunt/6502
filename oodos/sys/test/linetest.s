@@ -8,7 +8,8 @@
 ;   WAIT 01 GOT 73           11 until a key waits, then 6 ($FF) reads it
 ;   Q                        6: out, raw
 ;   a       b                2: a tab to column 8
-;   LINE?... COUNT 08 hello wo   10 into the DMA buffer (A/X = 0), its size 8
+;   LINE?... COUNT 08 hello wo   10 into the DMA buffer (A/X = 0), its size 8,
+;                            its initial string empty (a 0 at +2)
 ;
 ; then function 0, the warm boot.
 
@@ -79,8 +80,9 @@ start:  lda     #<vermsg
         jsr     PUTC
         jsr     CRLF
 
-        lda     #8                      ; function 10 into the DMA buffer, $0280
-        sta     BP_DMA
+        lda     #8                      ; function 10 into the DMA buffer, $0280,
+        sta     BP_DMA                  ; with no string to start from
+        stz     BP_DMA + 2
         lda     #<linemsg
         ldx     #>linemsg
         jsr     PUTS

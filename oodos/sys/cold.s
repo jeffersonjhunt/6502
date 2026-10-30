@@ -21,7 +21,7 @@ COLD:           SEI
                 STA     NB_WIN0
                 LDX     #$FF
                 TXS
-                LDA     #0             ; $0000-$0AFF; the stack is empty
+                LDA     #0             ; $0000-$0CFF; the stack is empty
                 TAX
 @clear:
 .repeat >SYS_CLEAR_END, page
@@ -132,7 +132,12 @@ SCBINIT:        .byte   <(SCB_VERSION - SCB), $31
                 .byte   <(SCB_AIVEC + 1 - SCB), VEC_TTY           ; AUX: is TTY
                 .byte   <(SCB_AOVEC + 1 - SCB), VEC_TTY
                 .byte   <(SCB_LOVEC + 1 - SCB), VEC_LPT           ; LST: is LPT
+                .byte   <(SCB_RUBOUT - SCB), $FF                  ; rub/del erases, as ^H
                 .byte   <(SCB_DELIM - SCB), '$'
+                .byte   <(SCB_MULTI - SCB), 1
+                .byte   <(SCB_DRVCHAIN + 1 - SCB), $FF            ; the default drive alone
+                .byte   <(SCB_FLAGS - SCB), $80                   ; the long error messages
+                .byte   <(SCB_COMBASE + 1 - SCB), >COMMON
                 .byte   <(SCB_DMA - SCB), <BP_DMA
                 .byte   <(SCB_DMA + 1 - SCB), >BP_DMA
 SCBINIT_LEN     = * - SCBINIT

@@ -11,16 +11,6 @@
 ; "Registers"). A byte result comes back with X 0. Functions here:
 ;
 ;    0  P_TERMCPM   the warm boot
-;    1  C_READ      A = a console character, echoed
-;    2  C_WRITE     A to the console; a tab is spaces to the next eighth column
-;    6  C_RAWIO     A = $FF: A = a character, or 0 if none; $FE: A = the
-;                   status; $FD: A = a character, waited for; else A out, raw
-;    9  C_WRITESTR  the string at A/X, to the SCB's delimiter ('$')
-;   10  C_READSTR   a line into the buffer at A/X (0: the DMA address): +0
-;                   its size, +1 the count read, then the characters. BS and
-;                   DEL take one back, ^X the line; CR or LF ends it, echoed
-;                   as CR; ^C at the start of the line is a warm boot
-;   11  C_STAT      A = 1 a character waits, 0 none
 ;   12  S_BDOSVER   A/X = $0031
 ;   50  S_BIOS      the BIOS parameter block at A/X: +0 the function, +1 A,
 ;                   +2 X, +3 Y, +4-5 and +6-7 the words (BW1, BW2); returns
@@ -36,15 +26,17 @@
 ;                   left as it was
 ;
 ; and bdosfile.s's 13-37, 40, 42, 43, 45, 46, 48, 98 and 99, and
-; bdosxtra.s's 44, 100-103 and 106. Any other returns A = X = $FF.
+; bdossys.s's console (1-11), 47, 49, 107-112 and 152, and bdosxtra.s's 44,
+; 100-103 and 106. Any other returns A = X = $FF.
 ;
 ; Errors (hw/oodos.md, "The BDOS, phase 3"): DERR with CP/M 3's code. In
 ; the default error mode it says "OODOS Error On A: Disk I/O" (or Read
 ; Only, File R/O, Invalid Drive, Password Error, File Exists, ? in
 ; Filename), then "BDOS
 ; Function = n" and, for a function with an FCB, "File = NAME    .TYP", and
-; ends the program by the warm boot; mode $FE says it and returns, $FF only
-; returns: A = $FF and X = the code.
+; ends the program by the warm boot, the return code $FFFD; mode $FE says it
+; and returns, $FF only returns: A = $FF and X = the code. The SCB's error
+; drive is the drive, in any mode.
 ;
 ; The program's memory: FCBs, records and the like by the BIOS's MOVE
 ; (PIN, POUT: the DMA controller, through the program's windows the stub
@@ -59,24 +51,17 @@
 .import WARM, FARCALL
 .export BDOSENT
 
-ASCII_TAB       = $09
-ASCII_CTLC      = $03
-ASCII_CTLX      = $18
-ASCII_BS        = $08
-ASCII_DEL       = $7F
 ASCII_CR        = $0D
 ASCII_LF        = $0A
 MEM_FITTED      = 1024                 ; KB
 MEM_PROGRAMS    = 320                  ; KB: banks 1-5, for functions 53-58 (later)
-NFUNC           = 107                  ; FIDX's functions, 0-106
+NFUNC           = 153                  ; FIDX's functions, 0-152
 
 .zeropage
 PA:             .res    1              ; the parameter
 PX:             .res    1
 PP:             .res    2              ; a program address, for PGET and PPUT
 TP:             .res    2              ; where PMAP put it, in W2
-COUNT:          .res    1
-SIZE:           .res    1
 BIOSV:          .res    2
 FUNC:           .res    1              ; the function, for an error's message
 EDRV:           .res    1              ; the drive an error is on
@@ -183,78 +168,37 @@ FJUMPS:
                 .word   F_DRESET, F_RWRITEZ, F_LOCK, F_ERRMODE
                 .word   F_FREE, F_FLUSH, F_BIOS, F_OODOS
                 .word   F_FREEBLK, F_TRUNC, F_TSET, F_TGET
-                .word   F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS ; 3b1's
+                .word   F_AREAD, F_AWRITE, F_LWRITE, F_AISTAT ; 88: 3b2's
+                .word   F_AOSTAT, F_CHAIN, F_SCB, F_SERIAL
+                .word   F_RETCODE, F_CONMODE, F_DELIM, F_PBLOCK
+                .word   F_LBLOCK, F_PARSE
+                .word   F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS ; 116: 3b1's
                 .word   F_WXFCB, F_DEFPW
 FIDX:
-                .byte   0, 2, 4, $FF, $FF, $FF, 6, $FF, $FF, 8 ; 0-9
+                .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
                 .byte   30, 32, 34, 36, 38, 40, 42, 44, 46, 48 ; 20-29
                 .byte   50, 52, 54, 56, 58, 60, 62, 64, $FF, $FF ; 30-39
-                .byte   66, $FF, 68, 68, 88, 70, 72, $FF, 74, $FF ; 40-49
+                .byte   66, $FF, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
                 .byte   76, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
                 .byte   $FF, $FF, 78, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 70-79
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
-                .byte   90, 92, 94, 96, 84, 86, 98 ; 100-106
-.assert * - FIDX = NFUNC, error, "FIDX has every function to 106"
+                .byte   118, 120, 122, 124, 84, 86 ; 100-105
+                .byte   126, 102, 104, 106, 108, 110, 112 ; 106-112
+                .res    152 - 113, $FF ; 113-151
+                .byte   114 ; 152
+.assert * - FIDX = NFUNC, error, "FIDX has every function to 152"
+; The dispatch's BMI NOFUNC takes an offset of 128 or more for none: FJUMPS
+; holds at most 64 handlers (offsets 0-126), and has 64 now: another wants
+; another dispatch.
+.assert FIDX - FJUMPS <= 128, error, "FJUMPS has more than 64 handlers: its offsets must stay below 128"
 
 F_TERM:         JMP     WARM
 
-F_READ:         JSR     B_CONIN
-                PHA
-                CMP     #' '
-                BCS     @echo
-                CMP     #ASCII_CR
-                BEQ     @echo
-                CMP     #ASCII_LF
-                BEQ     @echo
-                CMP     #ASCII_BS
-                BEQ     @echo
-                CMP     #ASCII_TAB
-                BNE     @done
-@echo:          JSR     OUT
-@done:          PLA
-                LDX     #0
-                RTS
-
-F_WRITE:        JSR     OUT
-                LDA     #0
-                TAX
-                RTS
-
-F_RAWIO:        CMP     #$FF
-                BNE     @status
-                JSR     B_CONST
-                BEQ     ZERO
-                JSR     B_CONIN
-                LDX     #0
-                RTS
-@status:        CMP     #$FE
-                BNE     @input
-                JSR     B_CONST
-                LDX     #0
-                RTS
-@input:         CMP     #$FD
-                BNE     @output
-                JSR     B_CONIN
-                LDX     #0
-                RTS
-@output:        JSR     B_CONOUT
 ZERO:           LDA     #0
                 TAX
-                RTS
-
-F_STRING:       JSR     PGET
-                CMP     SCB_DELIM
-                BEQ     ZERO
-                JSR     OUT
-                BRA     F_STRING
-
-F_STAT:         JSR     B_CONST
-                BEQ     ZERO
-                LDA     #1
-                LDX     #0
                 RTS
 
 F_VERSION:      LDA     #$31
@@ -264,72 +208,6 @@ F_VERSION:      LDA     #$31
 F_DRIVE:        LDA     SCB_DISK
                 LDX     #0
                 RTS
-
-; A line, with what CP/M's line editing has that a terminal needs.
-F_LINE:         LDA     PA
-                ORA     PX
-                BNE     @buffer
-                LDA     SCB_DMA        ; 0: the DMA address
-                STA     PP
-                LDA     SCB_DMA + 1
-                STA     PP + 1
-@buffer:        JSR     PGET           ; +0 its size; PP is +1, the count
-                STA     SIZE
-                STZ     COUNT
-@key:           JSR     B_CONIN
-                CMP     #ASCII_CR
-                BEQ     @end
-                CMP     #ASCII_LF
-                BEQ     @end
-                CMP     #ASCII_BS
-                BEQ     @back
-                CMP     #ASCII_DEL
-                BEQ     @back
-                CMP     #ASCII_CTLX
-                BEQ     @cancel
-                CMP     #ASCII_CTLC
-                BNE     @char
-                LDX     COUNT
-                BNE     @key
-                JMP     WARM           ; ^C at the start: the warm boot
-@char:          CMP     #' '
-                BCC     @key           ; other control characters: nothing
-                LDX     COUNT
-                CPX     SIZE
-                BCS     @key           ; full
-                PHA
-                JSR     OUT
-                PLA
-                LDY     COUNT          ; at +2 + COUNT: PP + 1 + COUNT
-                INY
-                JSR     PPUTY
-                INC     COUNT
-                BRA     @key
-@back:          LDA     COUNT
-                BEQ     @key
-                JSR     RUBOUT
-                DEC     COUNT
-                BRA     @key
-@cancel:        LDA     COUNT
-                BEQ     @key
-                JSR     RUBOUT
-                DEC     COUNT
-                BRA     @cancel
-@end:           LDA     #ASCII_CR
-                JSR     OUT
-                LDA     COUNT
-                LDY     #0
-                JSR     PPUTY
-                LDA     #0
-                TAX
-                RTS
-
-RUBOUT:         LDA     #ASCII_BS
-                JSR     OUT
-                LDA     #' '
-                JSR     OUT
-                LDA     #ASCII_BS
-                JMP     OUT
 
 ; The BIOS for the program: its parameter block in, a JSR through the jump
 ; table, A and X out. The BIOS's drive may be another after it, so the BDOS
@@ -405,33 +283,6 @@ F_TGET:         LDA     #0
                 LDX     #0
                 RTS
 
-; The console's output, keeping the SCB's column: a tab to the next eighth
-; column, as CP/M's.
-OUT:            CMP     #ASCII_TAB
-                BNE     @char
-@tab:           LDA     #' '
-                JSR     @char
-                LDA     SCB_COLUMN
-                AND     #7
-                BNE     @tab
-                RTS
-@char:          PHA
-                CMP     #' '
-                BCS     @print
-                CMP     #ASCII_CR
-                BNE     @bs
-                STZ     SCB_COLUMN
-                BRA     @out
-@bs:            CMP     #ASCII_BS
-                BNE     @out
-                LDA     SCB_COLUMN
-                BEQ     @out
-                DEC     SCB_COLUMN
-                BRA     @out
-@print:         INC     SCB_COLUMN
-@out:           PLA
-                JMP     B_CONOUT
-
 ; ---------------------------------------------------------------------------
 ; Errors and returns
 
@@ -455,6 +306,8 @@ ABORT:          LDA     #$FF
 
 ; An error, CP/M 3's code in A, on drive EDRV: as the error mode says.
 DERR:           STA     ECODE
+                LDA     EDRV
+                STA     SCB_ERRDRV
                 LDA     SCB_ERRMODE
                 CMP     #$FF
                 BEQ     @back
@@ -462,7 +315,11 @@ DERR:           STA     ECODE
                 LDA     SCB_ERRMODE
                 CMP     #$FE
                 BEQ     @back
-                JMP     WARM           ; the default: the program ends
+                LDA     #$FD           ; the default: the program ends, $FFFD
+                STA     SCB_RETCODE
+                LDA     #$FF
+                STA     SCB_RETCODE + 1
+                JMP     WARM
 @back:          JSR     MERR           ; a multi-sector call's records done kept
                 LDA     #$FF
                 LDX     ECODE
@@ -676,6 +533,11 @@ DRVBIT:         PHA
 B_CONST:        JMP     JT(BIOS::CONST)
 B_CONIN:        JMP     JT(BIOS::CONIN)
 B_CONOUT:       JMP     JT(BIOS::CONOUT)
+B_LIST:         JMP     JT(BIOS::LIST)
+B_AUXOUT:       JMP     JT(BIOS::AUXOUT)
+B_AUXIN:        JMP     JT(BIOS::AUXIN)
+B_AUXIST:       JMP     JT(BIOS::AUXIST)
+B_AUXOST:       JMP     JT(BIOS::AUXOST)
 B_TIME:         JMP     JT(BIOS::TIME)
 B_SELDSK:       JMP     JT(BIOS::SELDSK)
 B_SETTRK:       JMP     JT(BIOS::SETTRK)

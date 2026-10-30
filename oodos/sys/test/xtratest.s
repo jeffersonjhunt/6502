@@ -76,6 +76,10 @@
 ;       S0.DAT made in user 0 with f6' (read mode, SYSPW), t2' set (30 with
 ;       SYSPW: VSYS 00 00); in user 1, opened without it: VSYSNO (FF 07,
 ;       user 0's XFCB); with it: VSYSPW (00 00) VSYSF8 (f8' set: A0)
+;   K   44 and 49 on the one count (the SCB's $4A): 44 5, then 49's get:
+;       KGET aa xx (05 FF: X the next byte, the error mode); 49 sets 3:
+;       KSET aa xx (00 00); K.DAT made on M:, one 21 from BIG: KW aa xx
+;       (00 00) KCR cc (03: 49's count); 44 7, then 49's get: KGET7 (07 FF)
 ;   C   44 = 128, and the program ends: COUNT SET
 ;   D   CNT.DAT made on M:, one 21 from BIG: DCR cc (01: the CCP set the
 ;       count to 1 for this program)
@@ -186,6 +190,9 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'V'
         bne     :+
         jmp     casev
+:       cmp     #'K'
+        bne     :+
+        jmp     casek
 :       cmp     #'C'
         bne     :+
         CALLF   F_MULTISEC, 128
@@ -795,6 +802,23 @@ pwon:   jsr     zero16
         CALLF   DRV_SETLABEL, lfcb
         rts
 
+casek:  CALLF   F_MULTISEC, 5
+        TRY     "KGET ", S_SCB, kget
+        TRY     "KSET ", S_SCB, kset
+        lda     #DRV_M
+        sta     TDRV
+        CALLF   F_DMAOFF, BIG
+        NAME    fcb, "K       DAT"
+        CALLF   F_MAKE, fcb
+        RECS    0, 3
+        jsr     fillbig
+        TRY     "KW ", F_WRITE, fcb
+        BYTE    "KCR ", fcb+32
+        CALLF   F_CLOSE, fcb
+        CALLF   F_MULTISEC, 7
+        TRY     "KGET7 ", S_SCB, kget
+        jmp     done
+
 cased:  lda     #DRV_M
         sta     TDRV
         CALLF   F_DMAOFF, BIG
@@ -874,6 +898,8 @@ e7big:  jsr     bigat
 
         .rodata
 rname:  .byte   "R       DAT"
+kget:   .byte   $4A, 0, 0, 0            ; 49: get the multi-sector count
+kset:   .byte   $4A, $FF, 3, 0          ; 49: set it to 3
 
         .include "print.inc"
         .include "fs.inc"

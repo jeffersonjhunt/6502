@@ -70,7 +70,9 @@
 ; Character devices (DEVTBL): 0 CRT, the video card's 80x30 text and the USB
 ; keyboard (crt.s); 1 TTY, the serial card (the 6551 for now); 2 LPT, which
 ; takes and drops. CONIN, CONOUT and the rest go to the devices their SCB
-; vector names (bit 15 device 0).
+; vector names (bit 15 device 0). Input from a vector with no device that
+; has input (none, or LPT alone) is ^Z at once, as CP/M 3 has a device that
+; isn't there.
 
 .setcpu "65C02"
 .include "sys.inc"
@@ -152,6 +154,10 @@ AUXIST:         LDA     SCB_AIVEC + 1
 
 CONIN:          LDA     SCB_CIVEC + 1
 ANYIN:          STA     TMP            ; the first device in the vector with input
+                AND     #VEC_CRT | VEC_TTY
+                BNE     @poll
+                LDA     #$1A           ; none has input (LPT alone, or none): ^Z
+                RTS
 @poll:          LDA     TMP
                 STA     DVEC
                 LDX     #0
