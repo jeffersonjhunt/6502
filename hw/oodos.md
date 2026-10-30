@@ -143,6 +143,9 @@ Each line is one of these, and anything else is an error:
 |---|---|---|
 | `$0200` | `$0000` | `JMP` warm boot |
 | `$0203` | `$0005` | `JMP` to the BDOS, or the top RSX. Its operand, `$0204–$0205`, is the top of the TPA + 1, as CP/M's address 6 |
+| `$0250` | `$0050` | the drive the program was loaded from, 1–16 (phase 4) |
+| `$0251` | `$0051` | the first command-tail specification's password: its address (2 bytes), then its length (`$0253`) |
+| `$0254` | `$0054` | the second's, the same way (`$0254–$0256`) |
 | `$025C` | `$005C` | the default FCB |
 | `$026C` | `$006C` | the second FCB |
 | `$0280` | `$0080` | the default DMA buffer and the command tail |
@@ -1121,6 +1124,127 @@ tests.
   deferred (phase 7, [Open Questions](#open-questions)).
 - OODOS.SYS is still 0.2.
 
+## The CCP, phase 4 ##
+
+**Decided (2026-10-30)**
+
+1. **Phase 4 is two parts:** 4a the real CCP and its built-in commands; 4b the transient utilities (DIR's full
+   form, TYPE, ERASE, RENAME, PIP, DATE, INITDIR, SET, SHOW, DEVICE). **SUBMIT moves to phase 5,** with GET and
+   PUT: in CP/M 3 it is an RSX ([Phases](#phases)).
+2. **ca65,** as the rest of OODOS. What the CCP and 4b's utilities both need (decimal input and output, a file's
+   name shown, a Y/N question, paged output with ^C) is one include library, not two copies.
+3. **The User's Guide's forms, in our own words:** every built-in's forms and options as the CP/M 3 User's Guide
+   gives them, its output's layout followed. What can't apply to OODOS is refused, and said here as ours.
+4. **Testing:** directed emulator tests for each command and option, the output compared line for line; what ERA
+   and REN leave on a card checked by cpmtools (`cpmls`, `fsck.cpm`, `cpmcp`), as phase 3 did. No model of the
+   CCP.
+
+**Proposed (4a)** (the User's Guide, sections 1.2, 2.3–2.6, 4 and 5's DIR, ERASE, RENAME, SETDEF, TYPE and USER;
+where it is silent the choice is ours, and says so):
+
+- **Where it lives:** block 62's code window, resident, in place of the stand-in (`oodos/sys/ccp.s`), running as a
+  program does (the program's windows, stack and BDOS entry). It uses none of the program's zero page (ours: its
+  pointers are in its code, as the stand-in's were), so a program's zero page is the program's alone. The shared
+  code is `oodos/include/cmd.inc`, assembled into the CCP and, in 4b, into each utility.
+- **The prompt** is CP/M 3's: the CCP's user number when it isn't 0, its drive, `>`: `A>`, `5A>`, `12M>`. The CCP
+  keeps its own drive and user (`CCPDRV`, `CCPUSR`, 3b2) and makes them current at each warm boot.
+- **The line** is function 10's, up to 255 characters (ours: the most 10 takes), every letter taken as a capital
+  (the Guide, 1.2): the command and its tail, so a program's tail is in capitals. Blanks may come before the
+  command. An empty line, or blanks, is the prompt again. A ^C at the prompt with the line empty resets the disk
+  system (function 13), as since 3a.
+- **Several commands, `!`:** a line `A!B!C` runs A, then B, then C (the Guide, 4.5). Each one after the first is
+  shown after a new prompt, as it was typed (its case kept), then run. The rest of the line is kept across a
+  program's warm boot. A program ended by ^C (the return code `$FFFE`) drops the rest, and so does a built-in
+  stopped by ^C (ours). Function 47's command takes the place of what is left of a line (ours: the Guide doesn't
+  say), and may hold `!` itself.
+- **Conditional commands, `:`** (the Guide's SUBMIT, and the Programmer's Guide's 108): a command whose first
+  character is `:` runs only if the return code says the previous command succeeded: anything but `$FF00–$FFFF`
+  (ours: `$FFFF`, which 108 can't set, counts as a failure too). It applies to any command of a line, the first
+  or one after `!`. A skipped command leaves the code as it was, so `:A!:B` skips both after a failure.
+- **The return code** (108, the SCB's `$10`): 0 as a program not chained to starts (3b2); `$FFFD` and `$FFFE` from
+  the BDOS for an error's end and a ^C. **Ours:** a built-in sets it too, 0 when it did what was asked and `$FF00`
+  when it said an error (`No File`, a BDOS error, a command refused with `?`); so does the CCP for `NAME?`, `READ
+  ERROR` and a program it won't run. A built-in stopped by ^C sets `$FFFE`. Empty lines, comments and skipped
+  commands leave it.
+- **Comments:** a command whose first character is `;` does nothing (ours: as in a SUBMIT file).
+- **The keyword** runs from the first character to a blank or the command's end. In order:
+  - `GO`: the stand-in's (phase 2), kept for the tests: the image at `$0300` whose header is at `$0280`.
+  - a built-in's name, with no drive or type: `DIR`, `DIRSYS` or `DIRS`, `ERASE` or `ERA`, `RENAME` or `REN`,
+    `TYPE` or `TYP`, `USER` or `USE` (the Guide's Table 4-1 and its short forms);
+  - `d:`, or a user number and a drive, `5B:`: the drive change (below);
+  - else a program: `{d:}NAME{.COM}{;password}`. A type but `COM` is refused: `.SUB` with
+    `NAME.SUB: no SUBMIT yet` until phase 5 (ours), any other type, `.PRL` among them, as `NAME?` (the CCP runs
+    `.COM`s only, as CP/M 3's; a `.PRL` is phase 5's loader's). A keyword 152 refuses, or with `?` or `*`, is
+    `NAME?`.
+  - **Ours:** a built-in's name with a drive (`A:DIR`) runs the program (`DIR.COM` from A:), so a utility of a
+    built-in's name can always be reached; a user number goes only with a drive change (`5B:HELLO` is
+    `5B:HELLO?`).
+- **The tail:** what follows the keyword, its leading blank too, at `$0280` (the length, the characters, a 0
+  after them). At most 126 characters, the tail's room; a longer one is `Command tail too long` (ours), nothing
+  run. **The default FCBs** are parsed from it by 152, as CP/M 3's CCP does: the first file specification's
+  drive, name and type at `$025C`, the second's at `$026C`, bytes 12–15 of each 0, and `$027C–$027F` 0 (ours). A
+  delimiter after the first (`=`, `,` and the rest of 152's) is passed over before the second, so `NEW=OLD` and
+  `B:=A:X` fill both. An option list in brackets, `[...]`, is passed over and isn't a specification (ours). One
+  that 152 refuses leaves its FCB blank and stops the parse (ours: the CCP doesn't check a program's tail, the
+  Guide, 1.2). **Passwords:** `$0251–$0252` the address of the first specification's password in the tail
+  (`$0280`'s copy), `$0253` its length, `$0254–$0256` the second's; 0 and 0 for none, as CP/M 3's base page has
+  them. **`$0250`** is the drive the program was loaded from, 1–16 (CP/M 3's `0050H`).
+- **Running a program:** without a drive, the SCB's drive search chain (`$4C–$4F`: 0 the default drive, 1–16
+  A–P, `$FF` the end; cold boot's is the default drive alone, 3b2), each drive by one Open, which tries the
+  current user and then user 0's SYS file (3a), so the Guide's four places for a chain of two (4.4.2) are two
+  Opens. With a drive, that drive only. A chain drive that isn't one is passed over, and an explicit one is not
+  found (ours). The password, if given, is in the DMA buffer at the Open (3b1). Not found: the keyword and `?`
+  (`NAME?`, the Guide, 1.2); a Password Error: `Password Error`; any other error, or a file that ends inside its
+  image: `READ ERROR`, as the stand-in. Then the loader's checks of the header (magic, flags, page, size: `NO
+  PROGRAM`, `BAD PROGRAM HEADER`, as the stand-in), the image, the tail, the return code, the error mode, the
+  DMA address `$0280`, and `$0300`. **The display mode** (SETDEF's `[DISPLAY]`, the Guide): when the SCB's
+  `$18` bit 7 is set (ours, in a reserved byte; SETDEF, 4b or later, sets it), the CCP says where the program came
+  from before it runs: `A:HELLO    COM`, and ` (User 0)` when it was user 0's SYS file opened from another user.
+  The filetype search order (SETDEF's `[ORDER]`) is `.COM` alone until SUBMIT, phase 5.
+- **The drive change** (`B:`, `5B:`; the Guide, 2.4–2.5): the drive selected by 14 in error mode `$FE`, so one
+  that isn't a drive is said as the BDOS says it (`OODOS Error On Q: Invalid Drive`) and the CCP's drive stays.
+  Then it is the CCP's drive, and the user number, if given (0–15), its user.
+- **USER** `{n}` (the Guide's USER): 0–15, the CCP's user from then on. Without a number it asks
+  `Enter User #: ` and reads a line (the Guide). Anything but a number 0–15 is the command and `?` (ours).
+- **DIR** `{d:}` or `{filespec}` and **DIRSYS** (`DIRS`): the names of the current user's files on the drive,
+  DIR those without the SYS attribute and DIRSYS those with it, in the directory's order (the built-in doesn't
+  sort; DIR.COM's options do), each file once (its extent-zero entry). A line starts with the drive, `A: `, and
+  the names follow as `NAME     TYP`, 8 and 3 characters, `" : "` between, as the Guide's examples show; as many
+  as fit in the console width (the SCB's `$1A`) without its last column, `$1A` / 15 of them, 5 at 80 columns
+  (ours). No drive and no name is every file; a name with no type matches a blank type (ours: the FCB as 152 makes
+  it). Nothing matched: `No File`. Files of the other kind matched too: after the list, on its own line,
+  `SYSTEM FILE(S) EXIST` (DIR) or `NON-SYSTEM FILE(S) EXIST` (DIRSYS), as the Guide has them. An error (a drive
+  that isn't) is the BDOS's, in error mode `$FE`.
+- **Paging** (the Guide: DIR and TYPE stop when the screen is full, SETDEF's `[PAGE]`): when the SCB's page mode
+  (`$2C`) is 0, the default, the built-in stops after the page length (`$1C`, 24) less one lines, shows
+  `Press a key for more` (ours: the Guide says only that it waits), waits for a key, rubs the message out and
+  goes on; a ^C there stops it. Page lengths under 2 don't stop (ours). A ^C typed while DIR or TYPE writes stops
+  them too: they run in console mode bit 0, where 11 reports only ^C (3b2), and look before each line (DIR) and
+  each character (TYPE). ^S and ^Q are the BDOS's, as for any output.
+- **ERA** `filespec` (`ERASE`): the current user's matching files deleted (19), its password, if given, in the
+  DMA buffer. A name with `?` or `*` asks first, as the Guide does: `ERASE B:*.TXT (Y/N)?`, the specification as
+  typed (its password not shown, ours), and a line is read: `Y` or `y` first deletes, anything else doesn't. A
+  single name isn't asked about (the Guide asks for wildcards only). Nothing matched: `No File`. A file or drive
+  that is read-only, or a password that doesn't match, is the BDOS's error, said in mode `$FE`.
+- **REN** `new=old` (`RENAME`): `old`'s drive, if given, or `new`'s; given both, they must be the same, else the
+  command and `?`. `old` not there: `No File`. `new` there already: `Not renamed: NEW.TYP file already exists,
+  delete (Y/N)?` (the Guide's RENAME, in our words), and a `Y` deletes it (with `new`'s password, if given) and
+  renames; anything else renames nothing. Then 23, `old`'s password in the DMA buffer; its errors are the BDOS's.
+- **TYPE** `filespec` (`TYP`): the file's bytes to the console (2, so tabs are expanded) to the first ^Z or its
+  end, paged as above, counting lines by LF; its password, if given, in the DMA buffer at the Open. Not there:
+  `No File`. Each byte goes out as it is (ours: a binary file shows what it shows; a `.COM` shows `OOD`, its
+  magic number, and stops at the ^Z after it).
+- **Handed to a utility** (the Guide, 4.2: options a built-in can't do need `DIR.COM`, `ERASE.COM`,
+  `RENAME.COM`, `TYPE.COM`): `DIR` or `DIRS` with an option list (`[FULL]`) or more than one specification;
+  `ERA` with an option list (`[CONFIRM]`) or none; `REN` with no tail or a wildcard; `TYPE` with an option list
+  (`[NO PAGE]`) or none. The utility is found and run as any program, with the tail as typed; `DIRSYS`'s gets
+  `SYS` added to its options (`[SYS,FULL]`, or ` [SYS]` after the tail with none; ours, so DIR.COM lists what
+  DIRSYS would). Not found: `DIR.COM required` (the Guide's message names no file; ours names it). 4b writes them.
+- **Errors in a built-in's form** (more specifications than it takes, a specification 152 refuses, a wildcard
+  TYPE, a tail after `d:`): the command as it was given, in capitals, and `?` (ours, as `NAME?`).
+- **Error modes:** the CCP's own calls return their errors (`$FF`), as the stand-in's; the built-ins' file calls
+  say them (`$FE`), so `OODOS Error On A: File R/O` and its function and file are the message.
+
 ## RSXs and programs ##
 
 **Decided (2026-10-26): CP/M 3's split. `.COM` files load at a fixed address; `.PRL` files are relocatable.**
@@ -1873,9 +1997,11 @@ Each phase is its own branch.
 2. **OOLDR and the BIOS:** common memory, the banking stub, the SD drives, the console, TIME.
 3. **The BDOS:** the file system, deblocking, hashing, multi-sector I/O, the SCB, date stamps, labels and
    passwords.
-4. **The CCP and utilities:** the built-in commands; DIR, TYPE, ERA, REN, PIP, SUBMIT, DATE, INITDIR, SET, SHOW,
-   DEVICE.
-5. **RSXs:** the loader, chaining, GENCOM; GET, PUT and SUBMIT as RSXs.
+4. **The CCP and utilities,** two parts (decided 2026-10-30): **4a** the CCP and its built-in commands; **4b** the
+   transient utilities: DIR's full form, TYPE, ERASE, RENAME, PIP, DATE, INITDIR, SET, SHOW, DEVICE, and SETDEF
+   (4b or later: the CCP already reads its search chain and display mode).
+5. **RSXs:** the loader, chaining, GENCOM; GET, PUT and SUBMIT as RSXs (SUBMIT moved here from phase 4,
+   2026-10-30).
 6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3
    exchange utility.
 7. **GW-BASIC.**
