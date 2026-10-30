@@ -709,12 +709,12 @@ against, compared with what the BDOS does on the emulator.
   boot doesn't), 2026-10-28 from the review: the prompt's first key, which is function 10's warm boot, as anywhere.
   The CCP marks the prompt's line read (`ATPROMPT`, set only while its function 10 runs), and the warm boot that
   finds it marked runs 13 in error mode `$FE` instead of the rescan, 48 and 98, which ran before that prompt; then
-  the drive that was current is selected again (from 3b2, the CCP's own drive, made current through the SCB) and
-  the prompt comes back. 13 writes what it can, drops what it
-  can't (a kept buffer of a bad sector too) and says the first failure (`OODOS Error On B: Disk I/O`, `BDOS
-  Function = 13`), and makes every drive read-write. Both keyboards and the serial line give ^C as `$03`. A ^C
-  in a program's own line input is the warm boot, as before (from 3b2, a ^C after the line's first key is a
-  character of the line, as the Guide says); Break is the monitor's, as before.
+  the drive that was current is selected again (from 3b2, the CCP's own drive, made current through the SCB) and the
+  prompt comes back. 13 writes what it can, drops what it can't (a kept buffer of a bad sector too) and says the
+  first failure (`OODOS Error On B: Disk I/O`, `BDOS Function = 13`), and makes every drive read-write. Both
+  keyboards and the serial line give ^C as `$03`. A ^C in a program's own line input is the warm boot, as before
+  (from 3b2, a ^C while the line isn't empty is a character of the line, as the Guide says); Break is the monitor's,
+  as before.
 - **Function 50** forgets which drive the BIOS has selected, so the BDOS selects its own again before its next
   sector: a program's SELDSK can't send the BDOS's reads to another drive.
 - **UNITS** (SELDSK's first select) resets a card it finds busy, as READ and WRITE do, so a login after a stuck card
@@ -753,17 +753,18 @@ tests.
   DERR reports. The user flags (06–09) are the program's; the rest of the reserved bytes are 0 but `$17`,
   OODOS's: function 47's request to the CCP (bit 7 a command waits at `$0280`, bit 6 with the program's drive and
   user).
-- **49's parameter block** is CP/M 3's: the offset, the operation (0 get, `$FF` set a byte, `$FE` set a word),
-  the word. A get returns the word at the offset in A/X (A the byte, as CP/M 3's A and L; X the next, as H; 0 at
-  `$63`); a set returns A = X = 0 and a word set at `$63` sets only that byte (ours: the SCB ends there). An offset
-  past `$63` does nothing and returns A = X = 0, as the Guide says. The operations `$01–$FD`, reserved in the
-  Guide, are taken as a get (ours). **Every byte may be set,** as in CP/M 3 (the Guide warns, but doesn't refuse),
-  and because the BDOS has no other copy, a set takes effect at once: the DMA address is 26's (here it does
-  work, unlike CP/M 3's), the drive and user are 14's and 32's (not checked: a drive that isn't fails Invalid
-  Drive when a function uses it), the error mode is 45's, the console mode 109's, the delimiter 110's, the width
-  function 10's, the vectors the BIOS's devices. The date and time are the clock as last read: the BDOS reads the
-  clock into them for each stamp and for 105, so a set lasts until then; 104 sets the clock. 12 returns `$0031`
-  whatever 05 holds.
+- **49's parameter block** is CP/M 3's: the offset, the operation (0 get, `$FF` set a byte, `$FE` set a word), the
+  word. A get returns the word at the offset in A/X (A the byte, as CP/M 3's A and L; X the next, as H; 0 at `$63`);
+  a set returns A = X = 0 and a word set at `$63` sets only that byte (ours: the SCB ends there). An offset past
+  `$63` does nothing and returns A = X = 0, as the Guide says. The operations `$01–$FD`, reserved in the Guide, are
+  taken as a get (ours). **Every byte may be set,** as in CP/M 3 (the Guide warns, but doesn't refuse), and because
+  the BDOS has no other copy, a set takes effect at once: the DMA address is 26's (here it does work, unlike CP/M
+  3's), the drive and user are 14's and 32's (the drive not checked: one that isn't fails Invalid Drive when a
+  function uses it; the user kept to 0–15 as 32 keeps it, its low four bits, 2026-10-29 from the review: a user of
+  16 or more would make directory entries that aren't files), the error mode is 45's, the console mode 109's, the
+  delimiter 110's, the width function 10's, the vectors the BIOS's devices. The date and time are the clock as last
+  read: the BDOS reads the clock into them for each stamp and for 105, so a set lasts until then; 104 sets the
+  clock. 12 returns `$0031` whatever 05 holds.
 - **CP/M 3's two current drives and users** (the Guide, 1.7 and 2.3.5, against Appendix A): the SCB's 3E and 44 are
   the BDOS's current drive and user, as Appendix A and functions 14, 25 and 32 have them, and the CCP keeps its
   own, which 1.7 calls the CCP's and the prompt shows: a program's 14 or 32 changes the BDOS's, and the warm boot
@@ -792,41 +793,44 @@ tests.
 - **Printer echo** is the SCB's list output flag (38): while it's on (non-zero), what functions 1, 2, 9, 10 and
   111 echo or write to the console goes to LST: too, but not in raw mode (bit 2) for 2, 9 and 111; 6's output
   never. ^P in function 10, anywhere in the line, or after a ^S, turns it over, to 1 or 0.
-- **Function 1** echoes graphic characters, CR, LF, BS and tab (expanded), as the Guide lists; other control
-  characters come back unechoed, ^C among them. **2** expands a tab to the next eighth column (not in raw mode);
-  every character counts in the SCB's column, BS back one, CR to 0. **6:** `$FF` a key or 0, `$FE` `$FF` or 0,
-  `$FD` a key waited for, anything else written as it is (no column, no handling). **9** writes to 110's
-  delimiter; **111** writes the CCB's (address, length) characters, as 9 does; **112** sends them to LST: as they
-  are. **11** returns 1 if a key waits (kept, or in the BIOS: then read and kept, after the ^S/^Q/^P handling),
-  0 if not; with mode bit 1 it is the BIOS's status, nothing read. With mode bit 0 it reads waiting keys until a
-  ^C, which it returns as 1 and takes; the others are dropped (ours: a kept key would stop the next ^C being
-  seen, and DIR and TYPE, which use the mode, want only ^C). **110** with `$FFFF` returns the delimiter in A, else
-  sets it from A. **12** returns `$0031`.
+- **Function 1** echoes graphic characters (`$20`–`$7E`), CR, LF, BS and tab (expanded), as the Guide lists; other
+  characters come back unechoed and take no column: control characters, ^C among them, DEL and bytes over `$7F`.
+  **2** expands a tab to the next eighth column (not in raw mode); every character counts in the SCB's column, BS
+  back one, CR to 0. **6:** `$FF` a key or 0, `$FE` `$FF` or 0, `$FD` a key waited for, anything else written as it
+  is (no column, no handling). **9** writes to 110's delimiter; **111** writes the CCB's (address, length)
+  characters, as 9 does; **112** sends them to LST: as they are. **11** returns 1 if a key waits (kept, or in the
+  BIOS: then read and kept, after the ^S/^Q/^P handling), 0 if not; with mode bit 1 it is the BIOS's status, nothing
+  read. With mode bit 0 it reads waiting keys until a ^C, which it returns as 1 and keeps, so 11 stays 1 and the
+  next 1 or 6 reads the ^C; the others are dropped (ours, 2026-10-29 from the review: the Guide says only that 11
+  returns 01H when a ^C has been typed; a kept key that isn't ^C would stop the next ^C being seen, and DIR and
+  TYPE, which use the mode, want only ^C). **110** with `$FFFF` returns the delimiter in A, else sets it from A.
+  **12** returns `$0031`.
 - **AUX: and LST:** (3, 4, 5, 7, 8, 112), as the BIOS has them: AUX: is TTY, the serial line, which is also part
   of CON:, so function 3 and the console read the same line and a key goes to whichever asks first; LST: is LPT,
   which drops what it's sent and is always ready, as the Guide has an output device that isn't there do nothing.
   7 and 8 return `$FF` or 0. The BIOS's input from a vector with no input device (none, or LPT alone, as a
   program may set with 49) returns ^Z at once, as the Guide has it, where it waited for ever before.
 - **Function 10** is the banked CP/M 3's (the Guide's Table 3-3), on a line kept in the system block (`$0B00`, and
-  the previous line at `$0C00`, 255 bytes each): the cursor anywhere in the line, typing inserting at it.
-  rub/del and ^H (backspace: the character before the cursor taken out; with 2E `$FF` or 2F 0, at the line's
-  end, rub/del's echo of the taken character instead, as the Guide says), ^A and ^F left and right, ^B to the
-  start (or from there to the end), ^E the line on from the cursor shown on a new row, ^G the character at the
-  cursor taken out, ^K everything from it, ^X everything before it, ^R the line typed again on a new row, ^U the
-  line to the cursor made the previous line, the line emptied and a new row, ^W the previous line back into an
-  empty line (or the cursor to the end), ^P printer echo, CR and LF end it (the whole line, wherever the
-  cursor: it becomes the previous line). Any other control character is part of the line and shown as `^X`;
-  ^C as the first key of an empty line is the warm boot (return code `$FFFE`, unless mode bit 3: then it's a
-  character). A character past the buffer's size is dropped with a BEL; a size of 0 is 1. With A/X = 0 the
-  buffer is at the DMA address and its characters, to a 0 (or the size), are taken as typed first, so a CR among
-  them returns at once. The end echoes CR only, as since phase 2. **Ours, where the Guide is silent on the
-  screen:** the line is shown on rows of the console width (SCB 1A, columns 0–79 by default), never writing the
-  width's last column (the Guide says typing there mustn't advance the terminal, and the OO-1's screen does);
-  a row starts where the cursor was, the first one at function 10's start; typing at the end of a full row starts
-  a new one (CR LF), typing in the middle pushes what doesn't fit off the row's right, and a move or deletion to
-  before the row's start types the line again on a new row, from as far back as fits; a deleted or moved
-  character is erased with BS, space and BS. ^U and ^R print no `#` (CP/M 2.2's): the Guide names none. A ^C
-  after the line's first key is a character, shown `^C` (the Guide); it isn't the warm boot.
+  the previous line at `$0C00`, 255 bytes each): the cursor anywhere in the line, typing inserting at it. rub/del
+  and ^H (backspace: the character before the cursor taken out; with 2E `$FF` or 2F 0, at the line's end, rub/del's
+  echo of the taken character instead, as the Guide says), ^A and ^F left and right, ^B to the start (or from there
+  to the end), ^E the line on from the cursor shown on a new row, ^G the character at the cursor taken out, ^K
+  everything from it, ^X everything before it, ^R the line typed again on a new row, ^U the line to the cursor made
+  the previous line, the line emptied and a new row, ^W the previous line back into an empty line (or the cursor to
+  the end), ^P printer echo, CR and LF end it (the whole line, wherever the cursor: it becomes the previous line).
+  Any other control character is part of the line and shown as `^X`; ^C while the line is empty (at its start,
+  nothing typed or all of it taken out again) is the warm boot (return code `$FFFE`, unless mode bit 3: then it's a
+  character). A character past the buffer's size is dropped with a BEL; a size of 0 is 1. With A/X = 0 the buffer is
+  at the DMA address and its characters, to a 0 (or the size), are taken as typed first, so a CR among them returns
+  at once. The end echoes CR only, as since phase 2. **Ours, where the Guide is silent on the screen:** the line is
+  shown on rows of the console width (SCB 1A, columns 0–79 by default), never writing the width's last column (the
+  Guide says typing there mustn't advance the terminal, and the OO-1's screen does); a row starts where the cursor
+  was, the first one at function 10's start; typing at the end of a full row starts a new one (CR LF), typing in the
+  middle pushes what doesn't fit off the row's right, and a move or deletion to before the row's start types the
+  line again on a new row, from as far back as fits; a deleted or moved character is erased with BS, space and BS.
+  ^U and ^R print no `#` (CP/M 2.2's): the Guide names none. A ^C in a line that isn't empty is a character, shown
+  `^C` (the Guide); it isn't the warm boot. Rub/del's echo (2F 0, or ^H with 2E `$FF`) keeps to the rows as typing
+  does: an echo that doesn't fit starts a new row.
 - **Function 47** takes E = `$FF` (the program's drive and user to the CCP) or anything else (the CCP's), sets the
   SCB's `$17` and ends the program by the warm boot. The command is the program's at `$0280`, to its 0, as the
   Guide says, at most 126 characters (the tail's room; more are cut off, ours). The stand-in CCP, at the warm boot
@@ -859,14 +863,14 @@ tests.
   the first blank after the name. A string of blanks to NUL or CR returns 0 and the FCB blank (drive 0). An empty
   name (`=X`, `.TXT`) isn't an error: the fields are blank.
 - **Where it lives:** the console functions, 47, 49, 107–112 and 152 are `bdossys.s`, in block 60 with the rest:
-  2,104 bytes, block 60 now 8,791 of 16,384 (3a's 6,868), so `BDOS2` is still unused. 25 bytes of `SYSBSS` (652
+  2,132 bytes, block 60 now 8,819 of 16,384 (3a's 6,868), so `BDOS2` is still unused. 25 bytes of `SYSBSS` (652
   of 1,280 now), no zero page (182 of 240, two fewer: the old function 10's), and the two lines, 512 bytes at
   `$0B00–$0CFF` of the system block, outside `SYSBSS`, which cold boot clears with the rest. The CCP grows by 189
   bytes (1,329 of block 62's code window); common memory is as it was (1,107 of 2,048).
-- **Measured** (`test_oodos_sys`, BDOSENT to its return): function 2, 5,226 cycles a character to the screen and the
+- **Measured** (`test_oodos_sys`, BDOSENT to its return): function 2, 5,706 cycles a character to the screen and the
   serial line, of which the look at the console is 265 (the serial card's wait for its character, 3,840, is most of
-  the rest); function 11 with no key, 324; function 10, a key into the line (INSERT to the next key), 6,071 on
-  average over SYSTEST's 146, most of it the echo's BIOS CONOUT.
+  the rest); function 11 with no key, 323; function 10, a key into the line (INSERT to the next key), 5,994 on
+  average over SYSTEST's 154, most of it the echo's BIOS CONOUT.
 
 ## RSXs and programs ##
 
@@ -1379,29 +1383,30 @@ copyright and MIT notice.
 
 - **SYSTEST** ([`oodos/sys/test/systest.s`](../oodos/sys/test/systest.s)), a case by the tail's first letter, run by
   `test_oodos_sys`, which types at its questions:
-  - **the SCB (49):** each field cold boot sets read at its offset (the version, the DMA address, the width and
-    page length, ^H and rub/del, the delimiter, the multi-sector count, the search chain, the flags, the common
-    base); past `$63` (`$64`, `$FF`) nothing and 0, a word set at `$63` only that byte (`$0264` never written),
-    a reserved operation a get, the user flags; and each set's effect: the error mode set by 49 returning an
-    open's Invalid Drive (with the error drive, `0F`), 45's mode read back, 26's DMA address read back, a search's
-    record landing at an address 49 set, the drive and user (25 and 32 see them), the console mode (109 sees it),
-    the delimiter (9 stops at it), AUXIN on nothing and on LPT (^Z), the date as 105 gives it, the column, the
-    version byte changed with 12 still `$0031`. And what a program leaves (the delimiter `#`, mode 8, count 7)
+  - **the SCB (49):** each field cold boot sets read at its offset (the version, the DMA address, the width and page
+    length, ^H and rub/del, the delimiter, the multi-sector count, the search chain, the flags, the common base);
+    past `$63` (`$64`, `$FF`) nothing and 0, a word set at `$63` only that byte (`$0264` never written), a reserved
+    operation a get, the user flags; and each set's effect: the error mode set by 49 returning an open's Invalid
+    Drive (with the error drive, `0F`), 45's mode read back, 26's DMA address read back, a search's record landing
+    at an address 49 set, the drive and user (25 and 32 see them; a user of `$25` kept as 05), the console mode (109
+    sees it), the delimiter (9 stops at it), AUXIN on nothing and on LPT (^Z), the date as 105 gives it, the column,
+    the version byte changed with 12 still `$0031`. And what a program leaves (the delimiter `#`, mode 8, count 7)
     the CCP has put back for the next.
   - **the console,** from the serial line and, in a second run, the USB keyboard: 109 and 110 read and set, 9
     stopping at 110's delimiter, 111 with a tab expanded, raw (mode bit 2), and empty, 5 and 112 with LST: put on
     the serial line by 49 (as they are) and printer echo (each character twice there, once on the screen, none in
-    raw mode), 4 on AUX:, 7 and 8, 3 reading AUX:, a key kept by 2's look and then seen by 11 and 6 and read by
-    1, ^S stopping output (nothing more until a key; a BEL for x; ^Q goes on), ^S ^P ^Q turning printer echo on
-    (a BEL) and off, ^Q and ^P alone dropped by 1, ^S read by 1 in mode bit 1, 11 in mode bit 0 dropping a and b
-    and taking ^C, 11 dropping ^Q and keeping w, ^S ^C a BEL in mode bit 3; ^S ^C ending a program, and function
-    10's ^C as the first key, with the return code `$FFFE`.
-  - **function 10,** from both: 31 lines, each its count and bytes, and on the serial line what the screen got:
-    ^A, ^B both ways, ^G, ^K, ^X, BS in the middle, ^F, other control characters as `^X`, ^C after the first key,
-    ^W both ways, ^U then ^W, ^E, ^R, ^P (a BEL), DEL as BS, a full buffer (a BEL each), DEL at the start, a
-    buffer of 3 and of 0, the DMA buffer's string (typed on, a CR in it, a ^A in it), rub/del's echo (SCB 2F 0)
-    and ^H as rub/del (2E `$FF`), a width of 9 (a new row; ^B back over a row's start typing the line again), ^C a
-    character in mode bit 3.
+    raw mode), 4 on AUX:, 7 and 8, 3 reading AUX:, a key kept by 2's look and then seen by 11 and 6 and read by 1,
+    ^S stopping output (nothing more until a key; a BEL for x; ^Q goes on), ^S ^P ^Q turning printer echo on (a BEL)
+    and off, ^Q and ^P alone dropped by 1, ^S read by 1 in mode bit 1, 11 in mode bit 0 dropping a and b and keeping
+    ^C (6 reads it), 11 dropping ^Q and keeping w, ^S ^C a BEL in mode bit 3; ^S ^C ending a program, and function
+    10's ^C as the first key, with the return code `$FFFE`; 1 of DEL, `$C1` and a echoing only the a (the column
+    03).
+  - **function 10,** from both: 32 lines, each its count and bytes, and on the serial line what the screen got: ^A,
+    ^B both ways, ^G, ^K, ^X, BS in the middle, ^F, other control characters as `^X`, ^C after the first key, ^W
+    both ways, ^U then ^W, ^E, ^R, ^P (a BEL), DEL as BS, a full buffer (a BEL each), DEL at the start, a buffer of
+    3 and of 0, the DMA buffer's string (typed on, a CR in it, a ^A in it), rub/del's echo (SCB 2F 0) and ^H as
+    rub/del (2E `$FF`), a width of 9 (a new row; ^B back over a row's start typing the line again; rub/del's echo on
+    a new row), ^C a character in mode bit 3.
   - **152:** 33 strings, each the result and the FCB's bytes 0–25 (24 and 25 untouched): drives (`b:`, `p:`, `m:`,
     `q:`, `1:`, `@:`, `5a:`), `*` in the name and type and after it, too long name, type and password, control
     characters, DEL and `$80`, every delimiter case (`=`, `,`, `|`, `.` after the type, `:` third, a tab, blanks
@@ -1432,6 +1437,11 @@ copyright and MIT notice.
   (was ignored), a dropped key is a BEL; LINETEST's DMA buffer gets a 0 at +2 (with A/X 0 the buffer's string is
   typed first); the ^C-at-the-prompt test sets the CCP's drive (was the SCB's current drive); the CCP's user
   test has a program's user end with it, and 47's `$FF` give it to the CCP (a program's 32 lasted before).
+- **The review's fixes** (2026-10-29): 11 in mode bit 0 keeps the ^C, so SYSTEST's CC? has 6 read it (03, was
+  nothing); rub/del's echo at the width starts a new row; 49 keeps the user to 0–15; function 1 echoes neither DEL
+  nor a byte over `$7F`; an `.assert` makes a 65th FJUMPS handler a build error. Each new check fails with its fix
+  taken out (the four BDOS fixes out together: 5 failures in 5 cases, each the new check), and the `.assert` fires
+  on 65 handlers and not on 64.
 
 **Proposed (phase 3a: the model's choices,** where the manual leaves a behaviour open; `cpm3model.py`'s
 header has the full list):
