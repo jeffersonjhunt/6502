@@ -715,10 +715,11 @@ TEST(the_model_as_the_bdos_agrees_with_itself)
 
 TEST(a_wrong_bdos_is_caught)
 {
-    // Each fault on a seed whose script exercises it; check fails, and names the seed. (Seed 1's
-    // script since phase 3b1 keeps no record 5 it writes: data's is seed 2.)
+    // Each fault on a seed whose script exercises it; check fails, and names the seed. (data's moved
+    // to seed 2 with phase 3b1's third stream, and back to seed 1 with the review's operations: seed 2's
+    // script now keeps no record 5 it writes.)
     const std::pair<const char *, unsigned> cases[] = {
-        {"update", 1}, {"rc", 1}, {"code", 2}, {"data", 2}, {"a-attr", 1}};
+        {"update", 1}, {"rc", 1}, {"code", 2}, {"data", 1}, {"a-attr", 1}};
     for (const auto &[fault, seed] : cases)
     {
         const std::string dir = seed_dir(std::string("fault-") + fault, seed);
