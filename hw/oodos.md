@@ -261,7 +261,7 @@ assumes).
 | 54 | MC_ABSMAX | the same, at a given base |
 | 55 | MC_ALLOC | allocate memory: the MCB's length in, its base out |
 | 56 | MC_ABSALLOC | allocate memory at a given base |
-| 57 | MC_FREE | free one allocation |
+| 57 | MC_FREE | free an allocation, or its top part (from a later block to its end) |
 | 58 | MC_ALLFREE | free everything the program allocated |
 
 - **The MCB** is CP/M-86's: base (a paragraph, 2 bytes), length (paragraphs, 2 bytes), and an extra byte.
@@ -434,6 +434,9 @@ A machine with no OODOS card still boots to the monitor as now.
 - **The program's memory from the system:** through the saved windows, as physical addresses, by DMA
   (MOVE/XMOVE, or a byte at a time where that's all it is).
 - **Programs call the BIOS through function 50 only.** The jump table in common memory is the BDOS's.
+  Function 50 gives the program its own flags back, so MOVE's carry (and TIME's) stops at the BDOS: a program's
+  MOVE that returns `$FFFF` either was refused or ended at `$FFFF`, and the program tells which by whether its
+  destination + count is `$FFFF`.
 
 **Common memory** (`$F800–$FFFF`, the same in every block W3 maps) holds:
 
@@ -1110,7 +1113,8 @@ tests.
 - **The review's fixes (2026-10-30):** the BIOS's MOVE says by its carry whether it moved (`PCOPY` took a
   segment's record ending at `$FFFF`, physical `$1FF7F` on, for a refusal and ended the function); 53 and 54
   allocate their run; 57 frees an allocation's tail; `SEGOK` checks every block of the span; 74 refuses a mount
-  whose rescan failed (`RESCAN` gives a carry: SELDSK's 0); the warm boot's segment reset is tested from a
+  whose rescan failed (`RESCAN` gives a carry: SELDSK's 0; that is also A: with no image, so a card with
+  nothing on A: refuses every 74, which can't happen while OODOS runs from A:: accepted at round 2); the warm boot's segment reset is tested from a
   segment MEMTEST D leaves set. Each fix's test fails without it, but `SEGOK`'s: OODOS's own blocks come in runs
   of 4 or 8 (24–31, 48–55, 60–63), so no span of at most three blocks has an allowed first and last block around
   a refused one, and the first-and-last check refused the same spans. Common memory in an allocated block is
@@ -1840,7 +1844,7 @@ made with it) is never made, so make with f6' reusing one and rename onto one ar
   `MRANGE` checking no segment (DRM17: `DSEG` still refuses each record); 17 and 18 ignoring the segment (D17CHK,
   D17M); 53's M_EXT always 0 (MAX1, AM3, MAX3); 54 not kept to the length (AM3); 55 marking only an allocation's
   first block (AL2, AB2, AM2); 56 shrinking (AB8, added for it: AB6's run had its first block taken, so the first
-  try passed); 57 freeing from a later block (FR1, FR2); 58 freeing nothing (MAX4, AL4, AL5); the warm boot freeing
+  try passed); 57 freeing from a later block with a length of 0 (FR1, FR2); 58 freeing nothing (MAX4, AL4, AL5); the warm boot freeing
   no block (W) or keeping the segment (W, D and five other cases: the cold boot's 0 sends the CCP's own loads to
   physical memory); 73's offset not 0–15 (P4123, P8FFF, P37) or a window on flash translated (PFL); 74 taking A:
   (NA, NSAME, NC), `//` and a `/` at the end (NP2, NP5, NP6), a tab (NP9), any length (NLONG), any size (NSZ),
@@ -1848,7 +1852,10 @@ made with it) is never made, so make with f6' reusing one and rename onto one ar
   NWBCHK), or calling the unmount of nothing an error (NUC2); XMOVE taking no physical bank (D and B), MOVE without
   its A16–A19 (D, B); 13 clearing the segment (GET13). In the comparison: the BDOS letting a segment reach bank 6
   fails seeds 1 and 34 (their SMULTI's A); the model's records ignoring the segment fails seeds 14 and 24 of 1, 2,
-  4, 14 and 24 (their mirrored SMULTI's sums).
+  4, 14 and 24 (their mirrored SMULTI's sums). The review fixes' own: PCOPY deciding by A = X = `$FF` (DRF,
+  DRFCR); 53 marking nothing (MAXM, MXA, M1AM); 57 freeing only at a base (TB, TCM, TE), or refusing a tail that
+  exactly reaches the end (TXE, TXC); 74 ignoring the rescan's carry (NRS); the warm boot keeping a segment
+  MEMTEST D left set (WGET); BEND one byte off (BFROM).
 
 **Proposed**
 

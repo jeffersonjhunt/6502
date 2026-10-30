@@ -3463,7 +3463,10 @@ TEST(cp_m_86_s_memory_functions_hand_out_banks_1_to_5_by_the_block)
         {"MAX5M", "0010005000"}, {"MHOLE", "FF FF"}, {"MAX5F", "00 00"}, {"MAX5FM", "0010000000"}, {"TA", "00 00"},
         {"TAM", "0010000C00"}, {"TS", "FF 00"}, {"TSM", "0014000400"}, {"TB", "00 00"}, {"TBM", "0014010800"},
         {"TC", "00 00"}, {"TCM", "0014000800"}, {"TD", "00 00"}, {"TDM", "0010000000"}, {"TE", "00 00"},
-        {"TEM", "0014000000"}, {"AL6", "00 00"}, {"AL6M", "0010000400"},
+        {"TEM", "0014000000"},
+        {"TX", "00 00"}, {"TXM", "0010000C00"}, {"TXE", "00 00"}, {"TXEM", "0014000800"}, {"TXC", "00 00"},
+        {"TXCM", "0014000800"}, {"TXH", "00 00"}, {"TXHM", "0010000000"}, {"TXT", "00 00"}, {"TXTM", "0014000000"},
+        {"AL6", "00 00"}, {"AL6M", "0010000400"},
     });
     // AL6's block, left allocated as the program ended, freed by the warm boot.
     const std::string w = memtest(r, 'W');

@@ -52,7 +52,8 @@
 ;       (an MCB in the I/O hole: FF FF); 57 of a tail: TA (55 3 blocks:
 ;       0010000C00), TS (57 $1400 1 block, short of the end: FF 00), TB
 ;       (57 $1400 $0801: 00 00), TC (55 2: 0014000800, block 4 kept), TD
-;       (57 $1000, the head alone), TE; AL6 (a block left for the warm boot)
+;       (57 $1000, the head alone), TE; TX-TXT the same with 57 $1400
+;       $0800, just to the end (TXE 00 00, TXC 0014000800); AL6 (a block left for the warm boot)
 ;   P   73, "KEY aa xx" then "KEYM" and the 4 bytes: P0300 (00003000),
 ;       P4123 (03001204), P8FFF (0F00FF08), PC900 (000090F8: block 62);
 ;       PHOLE, PC7FF (the I/O hole: FF FF, the bytes as they were); P37 (W1
@@ -573,6 +574,16 @@ casem:  MCB     0, $5000, 0
         MTRY    "TD", MC_FREE
         MCB     $1400, 0, 0
         MTRY    "TE", MC_FREE
+        MCB     0, $0C00, 0             ; a tail exactly to the end: blocks 4-6
+        MTRY    "TX", MC_ALLOC
+        MCB     $1400, $0800, 0         ; 5 and 6, just reaching the end: freed
+        MTRY    "TXE", MC_FREE
+        MCB     0, $0800, 0             ; 4 kept: 5 and 6 the lowest two free
+        MTRY    "TXC", MC_ALLOC
+        MCB     $1000, 0, 0
+        MTRY    "TXH", MC_FREE
+        MCB     $1400, 0, 0
+        MTRY    "TXT", MC_FREE
         MCB     0, $0400, 0             ; one left for the warm boot to free
         MTRY    "AL6", MC_ALLOC
         jmp     done

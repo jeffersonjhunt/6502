@@ -15,7 +15,9 @@
 ;   50  S_BIOS      the BIOS parameter block at A/X: +0 the function, +1 A,
 ;                   +2 X, +3 Y, +4-5 and +6-7 the words (BW1, BW2); returns
 ;                   the BIOS's A/X. BOOT (0), which would run cold boot again
-;                   and wipe M:, and any function past XMOVE return A = X = $FF
+;                   and wipe M:, and any function past XMOVE return A = X = $FF.
+;                   The program gets its own flags back: MOVE's carry stays
+;                   here, so a MOVE ending at $FFFF looks like a refusal
 ;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
 ;                   programs in KB (words: the total, fixed, not what is

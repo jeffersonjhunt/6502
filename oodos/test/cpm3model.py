@@ -391,11 +391,12 @@ BIOS_MOVE, BIOS_XMOVE = 25, 29
 
 def seg_ok(p, n):
     """The n bytes at physical p are memory a DMA segment may reach (hw/oodos.md, phase 3c): any RAM but
-    OODOS's own, blocks 24-31 (banks 6-7), 48-55 (C-D, M:) and 60-63, and nothing past $FFFFF."""
+    OODOS's own, blocks 24-31 (banks 6-7), 48-55 (C-D, M:) and 60-63, and nothing past $FFFFF; every block
+    of the span, as SEGOK checks."""
     end = p + n - 1
     if end >= PHYS_SIZE:
         return False
-    return all(not (24 <= b < 32 or 48 <= b < 56 or b >= 60) for b in (p >> 14, end >> 14))
+    return all(not (24 <= b < 32 or 48 <= b < 56 or b >= 60) for b in range(p >> 14, (end >> 14) + 1))
 
 
 class Bdos:
