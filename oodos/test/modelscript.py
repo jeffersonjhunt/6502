@@ -476,6 +476,8 @@ LABEL_MODES = [0xB1, 0xB0, 0xB1, 0xB0, 0x31, 0x30, 0xF1, 0x71, 0x81, 0x80, 0x01,
                0xD1, 0x90, 0x00, 0xA1]
 XFCB_MODES = [0x80, 0x40, 0x20, 0x81, 0x41, 0x21, 0x01, 0x00, 0xE1, 0xC0]
 COUNTS = [1, 2, 3, 4, 7, 8, 15, 16, 17, 31, 32]
+# Delete with f5' of a wildcard, so several XFCBs go in one call: f5 (byte 5) a space in each, not a '?'
+F5_WILDS = [b"????    ???", b"Q?      ???", b"?       ???"]
 PROFILES = ("mixed", "mixed", "sparse", "users", "dirfill", "diskfill")
 INVALID_DRIVE = 7                      # H:: never a drive on the OO-1
 
@@ -527,10 +529,12 @@ class Generator:
         args = bytes(args)
         if not self.room(op, args):
             raise StopIteration
+        mem = bytes(self.drv.mem.b)
         try:
             rec = self.drv.apply(op, args)
         except M.Unspecified:
             self.drv.log.pop()
+            self.drv.mem.b[:] = mem                # what it wrote first (WRITEN's record) undone too
             return None
         self.script.ops.append((op, args))
         self.result_bytes += rec.size()
@@ -952,8 +956,14 @@ class Generator:
         x = self.xtra
         name = self.x_name(0.9)
         self.x_dma(self.x_pw(self.x_file_pw(name), 0.5), bytes([x.choice(XFCB_MODES) & 0xE0]) + bytes(7))
-        op = x.choice(["open", "open", "delete", "rename", "attr", "truncate", "make", "make"])
+        op = x.choice(["open", "open", "delete", "rename", "attr", "truncate", "make", "make", "sysopen", "f5wild"])
         dr = self.drive + 1
+        if op == "sysopen":
+            name = self.x_sys0(name)
+            op = "open"
+        if op == "f5wild":
+            self.x_f5wild()
+            return
         if op == "open":
             k = self.x_spare()
             self.set_fcb(k, name, dr=dr)
@@ -963,11 +973,24 @@ class Generator:
             name = bytearray(name if x.random() < 0.2 else M.fcb_name(x.choice(NAMES_POOL)))
             name[5] |= 0x80                              # f6': an XFCB too, with passwords on
             self.x_dma(self.xtra.choice(PASSWORDS[:-1]), bytes([x.choice(XFCB_MODES) & 0xE0]) + bytes(7))
-            self.set_fcb(k, bytes(name), dr=dr)
+            later = x.random() < 0.25                    # at extent 16: extent 0 made after the XFCB
+            by103 = later and x.random() < 0.5           # (2.3.8), the XFCB by make or by 103
+            if by103:
+                name[5] &= 0x7F
+            self.set_fcb(k, bytes(name), dr=dr, ex=16 if later else 0)
             self.emit(OP_FCALL, [22, k])
+            if by103:
+                self.set_fcb(6, bytes(name), dr=dr, ex=x.choice([0x80, 0x40, 0x20]))
+                self.emit(OP_FCALL, [103, 6])
+            if later:
+                tag = x.randrange(65536)
+                self.emit(OP_RAND, [k, 0, 0, 0])
+                self.emit(OP_WRITE, [34, k, tag & 0xFF, tag >> 8])
         elif op == "delete":
             name = bytearray(name)
             if x.random() < 0.35:
+                if x.random() < 0.5:
+                    name = self.x_wild()
                 name[4] |= 0x80                          # f5': the XFCBs only
             self.set_fcb(6, bytes(name), dr=dr)
             self.emit(OP_FCALL, [19, 6])
@@ -987,6 +1010,77 @@ class Generator:
             size = self.dv().file_size(self.user(), name) if self.dv().logged else None
             self.set_fcb(6, name, dr=dr, r=x.randrange(size + 1) if size else 0)
             self.emit(OP_FCALL, [99, 6])
+
+    def x_protect(self, pw):
+        """A new file made with f6' (a protecting mode, password pw) and closed. @return its name"""
+        x = self.xtra
+        k = self.x_spare()
+        name = M.fcb_name(x.choice(NAMES_POOL))
+        n = bytearray(name)
+        n[5] |= 0x80
+        self.x_dma(pw, bytes([x.choice([0x80, 0x40, 0x20, 0xC0])]) + bytes(7))
+        self.set_fcb(k, bytes(n), dr=self.drive + 1)
+        self.emit(OP_FCALL, [22, k])
+        self.emit(OP_FCALL, [16, k])
+        return name
+
+    def x_f5wild(self):
+        """Delete with f5' of a wildcard matching two or more of the user's XFCBs (two protected files
+        made first, one password, if the user has fewer), the password the right one most times."""
+        x, dv = self.xtra, self.dv()
+        if not dv.logged or not dv.mode & M.MODE_PASSWORD:
+            return
+        pw = x.choice(PASSWORDS[:3])
+        if sum(1 for i in dv.entries() if dv.entry(i)[0] == self.user() + 16) < 2:
+            self.x_protect(pw)
+            self.x_protect(pw)
+        name = self.x_wild()
+        name[4] |= 0x80
+        self.x_dma(self.x_pw(pw, 0.8), bytes(8))
+        self.set_fcb(6, bytes(name), dr=self.drive + 1)
+        self.emit(OP_FCALL, [19, 6])
+
+    def x_wild(self):
+        """A wildcard for delete with f5': two of the user's XFCBs' names, '?' where they differ (so it
+        matches both, and maybe more), or one of F5_WILDS."""
+        x, dv = self.xtra, self.dv()
+        xs = sorted({bytes(c & 0x7F for c in dv.entry(i)[1:12]) for i in dv.entries()
+                     if dv.entry(i)[0] == self.user() + 16}) if dv.logged else []
+        if len(xs) < 2:
+            return bytearray(x.choice(F5_WILDS))
+        a, b = x.sample(xs, 2)
+        return bytearray(c if c == d else 0x3F for c, d in zip(a, b))
+
+    def x_sys0(self, name):
+        """User 0's protected file opened from another user (CP/M 3's SYS rule): user 0's XFCB's
+        password, the right one half the time. A protected file in user 0 made SYS first (30, with its
+        password), and the user changed from 0, if need be. @return the name to open"""
+        x, dv = self.xtra, self.dv()
+        if not dv.logged or not dv.mode & M.MODE_PASSWORD:
+            return name
+        prot = sorted({bytes(c & 0x7F for c in dv.entry(i)[1:12]) for i in dv.entries()
+                       if dv.entry(i)[0] == 16 and dv.entry(i)[12] & M.XFCB_MODES
+                       and self.bdos.find_ext(dv, 0, bytes(c & 0x7F for c in dv.entry(i)[1:12]), 0) is not None})
+        if not prot and self.user() == 0:
+            prot = [self.x_protect(x.choice(PASSWORDS[:3]))]
+            if self.bdos.xfcb_of(dv, 0, prot[0]) is None or self.bdos.find_ext(dv, 0, prot[0], 0) is None:
+                return name
+        if not prot:
+            return name
+        name = x.choice(prot)
+        right = M.pw_decode(dv.entry(self.bdos.xfcb_of(dv, 0, name)))
+        if not dv.entry(self.bdos.find_ext(dv, 0, name, 0))[10] & 0x80:
+            if self.user() != 0:
+                return name
+            self.x_dma(right, bytes(8))
+            n = bytearray(name)
+            n[9] |= 0x80                                 # t2': SYS
+            self.set_fcb(6, bytes(n), dr=self.drive + 1)
+            self.emit(OP_FCALL, [30, 6])
+        if self.user() == 0:
+            self.emit(OP_CALL, [32, x.choice([1, 3, 15]), 0])
+        self.x_dma(self.x_pw(right, 0.5), bytes(8))
+        return name
 
     def x_multi(self):
         x = self.xtra
