@@ -16,7 +16,8 @@
 ;       with mode bit 3 (NC?)
 ;   L   function 10's editing: lines of 30 (L?), then of 3 and of 0, the
 ;       buffer at the DMA address with its string, rub/del echoing, a width
-;       of 9, ^C with mode bit 3; each "=nn hh..." the count and the line
+;       of 9 (rub/del's echo there too), ^C with mode bit 3; each "=nn hh..."
+;       the count and the line
 ;   P   152: each "Pnn ssss rrrr ff.." the string's address, the result,
 ;       the FCB's bytes 0-25 (filled with AA first)
 ;   N   107: SER and the 6 bytes
@@ -32,6 +33,7 @@
 ;   W   function 10, then ^C as the first key (W?): the program ended
 ;   Z   the delimiter '#', the console mode 8 and the multi-sector count 7
 ;       left for the CCP to put back
+;   G   1 of DEL, C1 and a (G?): only the a echoed, the column 03
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -164,10 +166,10 @@ cases:  stz     TDRV
         SHOWW   "USERF ", $06           ; EF BE
         SCBSETB $4B, $FF                ; the error mode by 49: errors return
         NAME    FCB, "X          "
-        lda     #16                     ; Q:
+        lda     #16                     ; P:
         sta     FCB
         TRY     "ERR ", F_OPEN, FCB     ; FF 04
-        SHOWB   "ERRDRV ", $51          ; 10
+        SHOWB   "ERRDRV ", $51          ; 0F
         CALLF   F_ERRMODE, $FE
         SHOWB   "EMODE ", $4B           ; FE
         CALLF   F_ERRMODE, $FF
@@ -192,6 +194,8 @@ cases:  stz     TDRV
         SCBSETB $3E, 0
         SCBSETB $44, 7                  ; the user
         TRY     "USER ", F_USERNUM, $FF ; 07 00
+        SCBSETB $44, $25                ; 0-15, as 32 sets it
+        SHOWB   "USER49 ", $44          ; 05
         SCBSETB $44, 0
         SCBSETW $33, $0300              ; the console mode
         TRY     "CMODE ", C_MODE, $FFFF ; 00 03
@@ -359,14 +363,14 @@ casec:  TRY     "MODE0 ", C_MODE, $FFFF ; 00 00
         CALLF   C_MODE, 0
         jsr     CRLF
         CALLF   C_MODE, CM_CTLCST
-        SAY     "CC?"                   ; a, b, ^C: 11 only for the ^C
+        SAY     "CC?"                   ; a, b, ^C: 11 only for the ^C, kept
 @cc:    ldy     #C_STAT
         jsr     BDOS
         cmp     #0
         beq     @cc
         jsr     HEX2
         jsr     SPACE
-        lda     #$FF                    ; nothing left
+        lda     #$FF                    ; the ^C (03): 11 kept it
         ldy     #C_RAWIO
         jsr     BDOS
         jsr     HEX2
@@ -447,6 +451,10 @@ casel:  lda     #LINES30
         jsr     line
         lda     #30
         jsr     line
+        SCBSETB $2F, 0                  ; there, rub/del's echo
+        lda     #30
+        jsr     line
+        SCBSETB $2F, $FF
         SCBSETB $1A, 79
         CALLF   C_MODE, CM_NOCTLCX      ; ^C a character
         lda     #30
@@ -640,16 +648,40 @@ casew:  lda     #30
         SAY     "NOT ENDED"
         jmp     CRLF
 
+caseg:  SAY     "G?"                    ; DEL, C1, a: only the a echoed
+        ldx     #0
+@key:   phx
+        ldy     #C_READ
+        jsr     BDOS
+        plx
+        sta     DAT,x
+        inx
+        cpx     #3
+        bne     @key
+        SCBGET  $1B
+        sta     SAVE
+        lda     #<DAT
+        sta     PTR
+        lda     #>DAT
+        sta     PTR+1
+        jsr     SPACE
+        ldx     #3
+        jsr     HEXN                    ; 7FC161
+        SAY     " COLUMN "
+        lda     SAVE
+        jsr     HEX2                    ; 03
+        jmp     CRLF
+
 casez:  CALLF   C_DELIMIT, '#'
         CALLF   C_MODE, $0008
         SCBSETB $4A, 7
         rts
 
         .rodata
-CASES:  .byte   "SCLPNUHVDJQKEXWZ"
+CASES:  .byte   "SCLPNUHVDJQKEXWZG"
 CASES_LEN = * - CASES
 CJUMPS: .word   cases, casec, casel, casep, casen, caseu, caseh, casev, cased, casej
-        .word   caseq, casek, casee, casex, casew, casez
+        .word   caseq, casek, casee, casex, casew, casez, caseg
 hashs:  .byte   "AB#CD$"
 pcts:   .byte   "X%Y$"
 tabs:   .byte   "P", 9, "Q"

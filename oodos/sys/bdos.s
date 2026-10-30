@@ -186,6 +186,9 @@ FIDX:
                 .res    152 - 113, $FF ; 113-151
                 .byte   114 ; 152
 .assert * - FIDX = NFUNC, error, "FIDX has every function to 152"
+; The dispatch's BMI NOFUNC takes an offset of 128 or more for none: FJUMPS
+; holds at most 64 handlers (offsets 0-126).
+.assert FIDX - FJUMPS <= 128, error, "FJUMPS has more than 64 handlers: its offsets must stay below 128"
 
 F_TERM:         JMP     WARM
 

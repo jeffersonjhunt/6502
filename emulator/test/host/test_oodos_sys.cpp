@@ -2464,7 +2464,7 @@ TEST(function_49_gets_and_sets_the_scb_at_cp_m_3s_offsets)
         {"SETPAST", "00 00"},  {"LAST", "00 00"},    {"LASTGET", "34 00"},  {"LAST62", "00 34"},
         {"RESOP", "00 00"},    {"USERF0", "00 00"},  {"USERF", "EF BE"},    {"ERR", "FF 04"},
         {"ERRDRV", "0F"},      {"EMODE", "FE"},      {"DMA26", "34 12"},    {"DMA49", "N"},
-        {"DISK", "0C 00"},     {"USER", "07 00"},    {"CMODE", "00 03"},    {"D49", "AB"},
+        {"DISK", "0C 00"},     {"USER", "07 00"},     {"USER49", "05"},    {"CMODE", "00 03"},    {"D49", "AB"},
         {"AUX0", "1A 00"},     {"AUXL", "1A 00"},    {"DATE", "Y"},         {"LISTF", "00"},
         {"VERSION", "31 00"}};
     for (const auto &w : want)
@@ -2580,7 +2580,7 @@ namespace
         CHECK(o.find("\nPE?\aXXYYPPOO??XY\r\n") != std::string::npos);
         CHECK(o.find("\nDROP?" + z + (usb ? "5A" : "7A") + "\r\n") != std::string::npos);
         CHECK(o.find("\nRAW1?13\r\n") != std::string::npos);
-        CHECK(o.find("\nCC?01 00\r\n") != std::string::npos);
+        CHECK(o.find("\nCC?01 03\r\n") != std::string::npos); // 11 keeps the ^C for 6 to read
         CHECK(o.find("\nS11?01 " + w + (usb ? "57" : "77") + "\r\n") != std::string::npos);
         CHECK(o.find("\nNC?\aAB\r\n") != std::string::npos);
     }
@@ -2637,6 +2637,17 @@ TEST(the_console_functions_with_the_console_mode_and_printer_echo_from_the_usb_k
     Booted r;
     REQUIRE(r.ok);
     check_console(console_case(r, true), true);
+}
+
+TEST(function_1_echoes_only_graphic_characters)
+{
+    Booted r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "systest.com", " G");
+    REQUIRE(r.until("G?", ms(3000), from));
+    r.type("\x7F\xC1" "a"); // DEL and C1 returned, not echoed, no column
+    CHECK(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.out.find("\nG?a 7FC161 COLUMN 03\r\n", from) != std::string::npos);
 }
 
 TEST(a_ctrl_s_ctrl_c_ends_the_program_and_function_10s_ctrl_c_too)
@@ -2699,6 +2710,7 @@ namespace
             {"ab\x08\r", "a"},                    // ^H as rub/del (SCB $2E $FF)
             {"abcdefghijkl\r", "abcdefghijkl"},   // a width of 9
             {"abcdefghij\x02X\r", "Xabcdefghij"}, // there, ^B back over a row's start
+            {"abcdefg\x7F\r", "abcdef"},          // there, rub/del's echo on a new row
             {"\x03" "a\r", "\x03" "a"},           // console mode bit 3: ^C a character
         };
         return c;
@@ -2802,6 +2814,7 @@ TEST(function_10_edits_the_line_as_the_banked_cp_m_3s_from_the_serial_line)
     CHECK(o.find("L?abccb\r") != std::string::npos);                    // rub/del's echo
     CHECK(o.find("L?abb\r") != std::string::npos);
     CHECK(o.find("L?abcdefg\r\nhijkl\r") != std::string::npos);         // the width: a new row
+    CHECK(o.find("L?abcdefg\r\ng\r") != std::string::npos);             // rub/del's echo: one too
     CHECK(o.find("\r\nabcdefghi\b\b\b\b\b\b\b\b\bXabcdefgh\b\b\b\b\b\b\b\b\bX\r") != std::string::npos);
     CHECK(o.find("I?INITX\r") != std::string::npos);
     CHECK(o.find("I?AB\r=") != std::string::npos);

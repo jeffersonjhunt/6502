@@ -21,7 +21,7 @@ COLD:           SEI
                 STA     NB_WIN0
                 LDX     #$FF
                 TXS
-                LDA     #0             ; $0000-$0AFF; the stack is empty
+                LDA     #0             ; $0000-$0CFF; the stack is empty
                 TAX
 @clear:
 .repeat >SYS_CLEAR_END, page

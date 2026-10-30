@@ -88,6 +88,8 @@ F_READ:         JSR     GETKEY
                 JSR     FILTER
                 BCS     F_READ         ; ^S, ^Q, ^P: handled, not returned
                 PHA
+                CMP     #ASCII_DEL     ; graphic characters echoed (DEL and
+                BCS     @done          ; over it aren't), and CR, LF, BS, tab
                 CMP     #' '
                 BCS     @echo
                 CMP     #ASCII_CR
@@ -177,7 +179,7 @@ F_STAT:         LDA     SCB_CONMODE
                 JSR     B_CONST
                 BEQ     CZERO
                 BRA     @yes
-@ctlc:          LDA     KEPTF          ; keys read, to a ^C, which is taken
+@ctlc:          LDA     KEPTF          ; keys read, to a ^C, which is kept
                 BNE     @read
                 JSR     B_CONST
                 BEQ     CZERO
@@ -185,8 +187,9 @@ F_STAT:         LDA     SCB_CONMODE
                 JSR     FILTER
                 BCS     @ctlc
                 CMP     #ASCII_CTLC
-                BEQ     @yes
-                BRA     @ctlc          ; others dropped
+                BNE     @ctlc          ; others dropped
+                JSR     KEEP           ; for the next 1 or 6 to read
+                BRA     @yes
 
 ; 111: the CCB at A/X, its characters as function 2 writes them.
 F_PBLOCK:       JSR     CCB
@@ -565,7 +568,12 @@ RUBECHO:        LDA     LP             ; at the line's end: taken out and echoed
                 BNE     BACKSP         ; within it: as a backspace
                 DEC     LN
                 DEC     LP
-                LDX     LP
+                JSR     FITS           ; the echo as typing: a new row if it
+                BCS     @echo          ; doesn't fit
+                LDA     SCB_COLUMN
+                BEQ     @echo          ; a row's start: shown all the same
+                JSR     NEWROW
+@echo:          LDX     LP
                 JSR     ECHOX
                 LDA     LP             ; the row from here, as typed past
                 STA     LV
@@ -868,6 +876,9 @@ F_SCB:          JSR     PGET           ; T0 the offset, T1 the operation, T2/T3 
                 STA     SCB + 1,X
 @byte:          LDA     T2
                 STA     SCB,X
+                LDA     SCB_USER       ; the user 0-15, as function 32 sets it
+                AND     #$0F
+                STA     SCB_USER
 @none:          JMP     CZERO
 
 ; 107: OODOS's serial number.
