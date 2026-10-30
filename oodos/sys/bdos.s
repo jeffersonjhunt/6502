@@ -175,15 +175,18 @@ FJUMPS:
                 .word   F_LBLOCK, F_PARSE
                 .word   F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS ; 116: 3b1's
                 .word   F_WXFCB, F_DEFPW
+                .word   F_DMASEG, F_DMAGET, F_MCMAX, F_MCABSMAX ; 128: 3c's
+                .word   F_MCALLOC, F_MCABSALL, F_MCFREE, F_MCALLFREE
+                .word   F_PHYS, F_MOUNT
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
                 .byte   30, 32, 34, 36, 38, 40, 42, 44, 46, 48 ; 20-29
                 .byte   50, 52, 54, 56, 58, 60, 62, 64, $FF, $FF ; 30-39
                 .byte   66, $FF, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
-                .byte   76, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 50-59
+                .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
-                .byte   $FF, $FF, 78, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 70-79
+                .byte   $FF, $FF, 78, 144, 146, $FF, $FF, $FF, $FF, $FF ; 70-79
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105
@@ -510,6 +513,27 @@ PCOPY:          JSR     B_XMOVE
                 BNE     @done
                 JMP     ABORT
 @done:          RTS
+
+; The DMA buffer's records (17, 18, 20, 21, 33, 34, 40): DOUT A bytes (a
+; record at most) from the system's BW1 to the DMA address at BW2, DIN from
+; the DMA address at BW1 to the system's BW2. Without a DMA segment (51) the
+; program's CPU address (PIN, POUT); with one, the physical address segment
+; x 16 + it (bdosmem.s's DSEG: memory a segment may not reach ends the
+; function, A = X = $FF), moved by the BIOS's XMOVE with a physical bank.
+DOUT:           LDX     #BW2
+                JSR     DSEG
+                BCC     POUT
+                PHA
+                LDA     #BANK_SYS
+                LDX     SG + 2
+                BRA     PCOPY
+DIN:            LDX     #BW1
+                JSR     DSEG
+                BCC     PIN
+                PHA
+                LDA     SG + 2
+                LDX     #BANK_SYS
+                BRA     PCOPY
 
 ; A = drive n's bit in a vector, X its byte (0 or 1).
 DRVBIT:         PHA

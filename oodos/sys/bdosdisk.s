@@ -1130,7 +1130,7 @@ HWMUP:          LDA     DIDX
 @done:          RTS
 
 ; The 128-byte directory record holding the entry at DPTR, to the DMA
-; address (17, 18).
+; address (17, 18), through a DMA segment if there is one (DOUT).
 DIRREC:         LDA     DPTR
                 AND     #$80
                 STA     BW1
@@ -1141,7 +1141,7 @@ DIRREC:         LDA     DPTR
                 LDA     SCB_DMA + 1
                 STA     BW2 + 1
                 LDA     #128
-                JMP     POUT
+                JMP     DOUT
 
 ; ---------------------------------------------------------------------------
 ; Stamps

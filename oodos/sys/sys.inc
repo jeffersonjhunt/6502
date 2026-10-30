@@ -115,6 +115,7 @@ SPT_PHYS        = 16                   ; 512-byte sectors a track, every format
 HASH_BLOCK      = 24                   ; 24-27: the directory hash, 8 KB a drive's slot
 BCB_BLOCK       = 28                   ; 32 sector buffers of 512 bytes
 ALV_BASE        = $1000                ; the allocation vectors, in the system block
+AMAP_LEN        = 20                   ; the memory functions' blocks: banks 1-5 (bdosmem.s)
 
 ; Versions
 OODOS_MAJOR     = SYS_MAJOR

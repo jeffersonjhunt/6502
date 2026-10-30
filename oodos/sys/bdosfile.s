@@ -1025,7 +1025,7 @@ READREC:        JSR     FPIDX
                 LDA     RDMA + 1
                 STA     BW2 + 1
                 LDA     #128
-                JSR     POUT
+                JSR     DOUT
                 CLC
                 RTS
 
@@ -1067,7 +1067,7 @@ WRITEREC:       JSR     FPIDX
                 LDA     RECP + 1
                 STA     BW2 + 1
                 LDA     #128
-                JSR     PIN
+                JSR     DIN
                 LDX     LASTB
                 LDA     #1
                 STA     BCB_DIRTY,X
@@ -1174,7 +1174,9 @@ MBACK:          BIT     MRAND
 ; Carry set if the MLEFT records at the DMA address aren't all the
 ; program's memory: past $FFFF, in the I/O hole, on flash (NB_ROM), or a
 ; read's in a read-only window (PCOPY's rule, the BIOS's PHYSOF), a page at
-; a time. Uses A, X, Y, T1.
+; a time. With a DMA segment (51), past $FFFF too, then the physical range
+; segment x 16 + the DMA address on, which must be memory a segment may
+; reach (bdosmem.s's SEGOK). Uses A, X, Y, T1.
 MRANGE:         LDA     MLEFT          ; 128 x N - 1: (N - 1) / 2 and $7F, or $FF
                 DEC     A
                 LSR     A
@@ -1188,7 +1190,21 @@ MRANGE:         LDA     MLEFT          ; 128 x N - 1: (N - 1) / 2 and $7F, or $F
                 ADC     SCB_DMA + 1
                 BCS     @no            ; past $FFFF
                 STA     T1             ; the last record's last page
-                LDY     SCB_DMA + 1
+                LDA     DMASEG
+                AND     DMASEG + 1
+                CMP     #$FF
+                BEQ     @cpu
+                LDX     #RDMA          ; MULTI's copy of the DMA address
+                JSR     SEGADR
+                LDA     MLEFT          ; 128 x N - 1 again, A/Y
+                DEC     A
+                LSR     A
+                TAY
+                LDA     #0
+                ROR     A
+                ORA     #$7F
+                JMP     SEGOK
+@cpu:           LDY     SCB_DMA + 1
 @page:          TYA
                 CMP     #>CODE_WINDOW
                 BCS     @mem
