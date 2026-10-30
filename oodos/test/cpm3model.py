@@ -62,7 +62,8 @@ Testing, "phase 3a: the model", Proposed):
   OODOS's BDOS does).
 - Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access), only ever in the
   SFCB slot of a file's extent-zero entry (the manual: a slot is valid only for an extent-zero entry).
-  A new entry's slot is cleared (its password mode and reserved byte 0 too), whatever the mode asks
+  A new entry's slot is cleared (its password mode, but a protected file's extent 0's, and reserved
+  byte 0 too), whatever the mode asks
   (3b1: so 102 never reads another file's); make (of extent 0) sets its create (or access) and update
   stamps to now as the mode asks, an entry made by a write gets none. Writing a written
   FCB's entry back (close, or moving to another extent) and truncate set the update stamp in the
@@ -81,14 +82,17 @@ Testing, "phase 3a: the model", Proposed):
 - Phase 3b1 (hw/oodos.md, "The BDOS, phase 3", Proposed (3b1)): the multi-sector count (44, 1-128, else
   $FF): 20, 21, 33, 34 and 40 with a count N are N calls, record k at the DMA address + 128 k, to the first
   that doesn't return 0: A that, X the records done before it, but a physical error's (A = $FF) X its
-  code; 33, 34 and 40 put R0-R2 back to the first record's. Labels (100, 101): the label's data byte (FCB
+  code; 33, 34 and 40 put R0-R2 back to the first record's. N records past $FFFF are A = X = $FF before
+  the first, nothing done; the BDOS refuses records in the I/O hole or on flash the same way, which the
+  model's flat memory (its own addresses, MBUF at $C000) doesn't have. Labels (100, 101): the label's data byte (FCB
   byte 12's bits 7-4, bit 0 set), name, its password (bytes 13, 16-23) and stamps (24-31: creation when
   made, update every time); bit 0 of FCB byte 12 a new password from the DMA buffer's bytes 8-15; stamps
   asked for without SFCBs (entry 3 isn't one) $FF; a label's password must be given (X 7). XFCBs (user +
   16): made by 22 with f6' (the password the DMA buffer's 0-7, the mode its byte 8, bits 7-5; two free
   entries needed, or an XFCB of the name) and 103 (the mode FCB byte 12's bits 7-5, bit 0 a new password
   from the DMA's 8-15; a new one's password otherwise blanks), followed by 19 and 23, deleted alone by 19
-  with f5'. The mode is also kept in the file's extent-zero SFCB slot (byte 8). Passwords are kept as CP/M
+  with f5'. The mode is also kept in the file's extent-zero SFCB slot (byte 8), also when that entry is
+  made after the XFCB (its mode, not 0). Passwords are kept as CP/M
   3 keeps them (the key, the sum of the 8 bytes, at 13; the bytes reversed, XORed with it, at 16-23), 8
   blanks or 8 zeros is none (kept as blanks). With the label's bit 7: a protected file (its XFCB has a
   mode bit) needs its password, the DMA buffer's first 8 bytes or the default (106: none from the start),
@@ -569,6 +573,11 @@ class Bdos:
         e[14] = ext >> 5
         dv.set_entry(i, bytes(e))
         self.stamp_slot(dv, i, made=True, first=first)
+        o = dv.slot(i)
+        if o is not None and dv.mode & MODE_PASSWORD and ext >> 5 == 0 and ext & 0x1F & ~dv.fmt.exm == 0:
+            x = self.xfcb_of(dv, s.user, s.name)         # extent 0 made after the XFCB: its mode (2.3.8)
+            if x is not None:
+                dv.img[o + 8] = dv.entry(x)[12] & XFCB_MODES
         self.kill(lambda o: o in self.sharers(s))
         s.entry, s.ext = i, ext
         s.map, s.rc, s.s1 = [0] * dv.fmt.slots, 0, 0
@@ -648,6 +657,8 @@ class Bdos:
         """A record function the multi-sector count's times: N calls, record k at the DMA + 128 k."""
         n = self.multi
         addr = a | x << 8
+        if self.dma + RECORD * n > 0x10000:
+            return 0xFF, 0xFF                            # past $FFFF: refused, nothing done
         if n > 1 and one == self._f21:                   # a run past the largest file: open, refused
             s = self.fcbs.get(addr)
             if s is not None and s.ext * 128 + s.cr + n > MAX_EXT * 128 + 128:
