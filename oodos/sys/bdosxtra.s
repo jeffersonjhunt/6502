@@ -30,7 +30,8 @@
 ; is none, which anything matches. On the disk the password is CP/M 3's (as
 ; cpmtools reads it): byte 13 the key, the sum of the 8 bytes; bytes 16-23
 ; the bytes in reverse order, each XORed with the key. The XFCB's mode is
-; also kept in the file's extent-zero SFCB slot, its byte 8 (SLOTF).
+; also kept in the file's extent-zero SFCB slot, its byte 8 (SLOTF; and
+; NEWMODE when that entry is made after the XFCB).
 
 .setcpu "65C02"
 .include "bdos.inc"
@@ -45,7 +46,7 @@ LNEW:           .res    1              ; F_SETLBL: 1 a new label
 DEFPW:          .res    PW_LEN         ; 106's: none (zeros) from the cold boot
 PWB:            .res    2 * PW_LEN     ; the DMA buffer's first 16 bytes
 PWE:            .res    PW_LEN         ; an entry's password, decoded
-XSAVE:          .res    17             ; XCLEAR's SPAT, SMODE and DIDX
+XSAVE:          .res    17             ; XCLEAR's and NEWMODE's SPAT, SMODE and DIDX
 
 .segment "BDOS"
 
@@ -367,17 +368,7 @@ EXT0:           STZ     SPAT + 12
 ; Delete with f5' (the XFCBs only): the XFCB at DPTR, being deleted, leaves
 ; its file unprotected, so the file's slot's mode byte is 0. FIND's pattern
 ; and place kept.
-XCLEAR:         LDX     #13
-@save:          LDA     SPAT,X
-                STA     XSAVE,X
-                DEX
-                BPL     @save
-                LDA     SMODE
-                STA     XSAVE + 14
-                LDA     DIDX
-                STA     XSAVE + 15
-                LDA     DIDX + 1
-                STA     XSAVE + 16
+XCLEAR:         JSR     FSAVE
                 LDA     (DPTR)
                 AND     #$0F
                 STA     SPAT
@@ -390,7 +381,52 @@ XCLEAR:         LDX     #13
                 BNE     @name
                 STZ     XMODE
                 JSR     SLOTX
-                LDX     #13
+                JMP     FBACK
+
+; A = the password mode a new entry's SFCB slot starts with (INITSTAMP),
+; the entry user A's, F's name and extent: with passwords on, for an
+; extent-zero one (EX in group 0, S2 0), its file's XFCB's, so a file
+; protected before its extent 0 was made stays so in the slot (the Guide,
+; 2.3.8); else 0. DIDX, DPTR and FIND's pattern kept.
+NEWMODE:        BIT     MODE
+                BPL     @zero          ; passwords off
+                TAX
+                LDA     FC + FCB_EX
+                AND     EXMASK
+                BNE     @zero
+                LDA     FC + FCB_S2
+                AND     #$3F
+                BNE     @zero
+                PHX
+                JSR     FSAVE
+                PLA
+                JSR     XFIND
+                LDA     #0
+                BCS     @back
+                LDY     #FCB_EX
+                LDA     (DPTR),Y
+                AND     #XFCB_MODES
+@back:          PHA
+                JSR     FBACK
+                PLA
+                RTS
+@zero:          LDA     #0
+                RTS
+
+; FIND's pattern and place to XSAVE; FBACK puts them back, DPTR too.
+FSAVE:          LDX     #13
+@save:          LDA     SPAT,X
+                STA     XSAVE,X
+                DEX
+                BPL     @save
+                LDA     SMODE
+                STA     XSAVE + 14
+                LDA     DIDX
+                STA     XSAVE + 15
+                LDA     DIDX + 1
+                STA     XSAVE + 16
+                RTS
+FBACK:          LDX     #13
 @back:          LDA     XSAVE,X
                 STA     SPAT,X
                 DEX

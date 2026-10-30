@@ -112,7 +112,7 @@ MBODY:          .res    2              ; MULTI's record function
 MLEFT:          .res    1              ; its records to go
 MDONE:          .res    1              ; and done
 MON:            .res    1              ; 1 once one is done: a physical error keeps them (MERR)
-MRAND:          .res    1              ; bit 7: random, R0-R2 back to RSAVE at the end
+MRAND:          .res    1              ; bit 6: random, R0-R2 back to RSAVE at the end; 7: a read
 MKPW:           .res    1              ; F_MAKE: bit 7, f6' with passwords on: an XFCB too
 RSAVE:          .res    3
 DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for
@@ -1111,9 +1111,12 @@ ZEROBLK:        LDA     BLM            ; (BLM + 1) / 4 sectors
 ; (A = 0, or its error, F changed) to the first that isn't 0: A that, X the
 ; records done before it (the Guide's H); a physical error (DERR) returns
 ; as it does, F written back as the records done left it (MERR). MRAND's
-; bit 7: R0-R2 moved on a record each time, and put back at the end.
+; bit 6: R0-R2 moved on a record each time, and put back at the end. Carry
+; set: a read, the records to the program's memory. All N records' memory
+; is checked first (MRANGE): memory refused, A = X = $FF and nothing done.
 MULTI:          STA     MBODY
                 STX     MBODY + 1
+                ROR     MRAND          ; the carry to bit 7, random to bit 6
                 LDA     SCB_DMA
                 STA     RDMA
                 LDA     SCB_DMA + 1
@@ -1122,7 +1125,10 @@ MULTI:          STA     MBODY
                 BNE     @count
                 INC     A              ; 0, never set: 1
 @count:         STA     MLEFT
-                STZ     MDONE
+                JSR     MRANGE
+                BCC     @ok
+                JMP     ABORT
+@ok:            STZ     MDONE
 @record:        JSR     @call
                 TAY
                 BNE     @stop
@@ -1138,7 +1144,7 @@ MULTI:          STA     MBODY
                 BCC     @rand
                 INC     RDMA + 1
 @rand:          BIT     MRAND
-                BPL     @record
+                BVC     @record
                 INC     FC + FCB_R
                 BNE     @record
                 INC     FC + FCB_R + 1
@@ -1157,13 +1163,57 @@ MULTI:          STA     MBODY
 
 ; F back to the program, R0-R2 the first record's if random.
 MBACK:          BIT     MRAND
-                BPL     @out
+                BVC     @out
                 LDX     #2
 @r:             LDA     RSAVE,X
                 STA     FC + FCB_R,X
                 DEX
                 BPL     @r
 @out:           JMP     FCBOUT
+
+; Carry set if the MLEFT records at the DMA address aren't all the
+; program's memory: past $FFFF, in the I/O hole, on flash (NB_ROM), or a
+; read's in a read-only window (PCOPY's rule, the BIOS's PHYSOF), a page at
+; a time. Uses A, X, Y, T1.
+MRANGE:         LDA     MLEFT          ; 128 x N - 1: (N - 1) / 2 and $7F, or $FF
+                DEC     A
+                LSR     A
+                STA     T1
+                LDA     #0
+                ROR     A
+                ORA     #$7F
+                CLC
+                ADC     SCB_DMA
+                LDA     T1
+                ADC     SCB_DMA + 1
+                BCS     @no            ; past $FFFF
+                STA     T1             ; the last record's last page
+                LDY     SCB_DMA + 1
+@page:          TYA
+                CMP     #>CODE_WINDOW
+                BCS     @mem
+                CMP     #$C0
+                BCS     @no            ; the I/O hole
+@mem:           ROL     A              ; the window: the page's top 2 bits
+                ROL     A
+                ROL     A
+                AND     #3
+                TAX
+                LDA     ST_WIN,X
+                BIT     #NB_ROM
+                BNE     @no
+                BIT     MRAND
+                BPL     @next
+                AND     #NB_RO
+                BNE     @no
+@next:          CPY     T1
+                BEQ     @yes
+                INY
+                BRA     @page
+@yes:           CLC
+                RTS
+@no:            SEC
+                RTS
 
 ; DERR's, before a physical error returns: a multi-sector call's records
 ; done kept in the program's FCB.
@@ -1173,7 +1223,7 @@ MERR:           LDA     MON
                 JMP     MBACK
 @none:          RTS
 
-; MRAND random, R0-R2 kept to put back.
+; MRAND random (MULTI moves it to bit 6), R0-R2 kept to put back.
 RSTART:         LDA     #$80
                 STA     MRAND
                 LDX     #2
@@ -1188,6 +1238,7 @@ F_SREAD:        LDA     #FCB_SEQ
                 STZ     MRAND
                 LDA     #<SREAD1
                 LDX     #>SREAD1
+                SEC                    ; a read
                 JMP     MULTI
 SREAD1:         LDA     FC + FCB_CR
                 BPL     @record
@@ -1218,6 +1269,7 @@ F_SWRITE:       LDA     #FCB_SEQ
                 STZ     MRAND
                 LDA     #<SWRITE1
                 LDX     #>SWRITE1
+                CLC                    ; a write
                 JMP     MULTI
 SWRITE1:        LDA     FC + FCB_CR
                 BPL     @record
@@ -1281,6 +1333,7 @@ F_RREAD:        LDA     #FCB_RAND
                 JSR     RSTART
                 LDA     #<RREAD1
                 LDX     #>RREAD1
+                SEC                    ; a read
                 JMP     MULTI
 RREAD1:         JSR     RANDPOS
                 BCS     @far
@@ -1314,6 +1367,7 @@ F_RWRITE:       LDA     #FCB_RAND
                 JSR     RSTART
                 LDA     #<RWRITE1
                 LDX     #>RWRITE1
+                CLC                    ; a write
                 JMP     MULTI
 RWRITE1:        JSR     RANDPOS
                 BCS     @far

@@ -1161,10 +1161,15 @@ STAMP:          STA     STW
 @none:          RTS
 
 ; A made entry's SFCB slot, if it has one: 0 (no stamp made, no password:
-; the Guide, 2.3.8 and 102), whatever the label asks; and for Make's extent
-; 0 (MKU bit 7) the first stamp the time if the mode asks for creation or
-; access stamps, the update if it asks for those.
-INITSTAMP:      JSR     SFCBAT
+; the Guide, 2.3.8 and 102), whatever the label asks, but byte 8 the mode of
+; an XFCB the file already has, for an extent-zero entry (NEWMODE); and for
+; Make's extent 0 (MKU bit 7) the first stamp the time if the mode asks for
+; creation or access stamps, the update if it asks for those.
+INITSTAMP:      LDA     MKU
+                AND     #$0F
+                JSR     NEWMODE
+                PHA
+                JSR     SFCBAT
                 BCS     @none
                 LDY     STOFS
                 LDX     #SFCB_SLOT
@@ -1173,6 +1178,12 @@ INITSTAMP:      JSR     SFCBAT
                 INY
                 DEX
                 BNE     @clear
+                LDA     STOFS
+                CLC
+                ADC     #8
+                TAY
+                PLA
+                STA     (DPTR),Y       ; the password mode
                 BIT     MKU
                 BPL     @put
                 LDA     MODE
@@ -1193,7 +1204,8 @@ INITSTAMP:      JSR     SFCBAT
                 TAY
                 JSR     PUTNOW
 @put:           JMP     SFCBPUT
-@none:          RTS
+@none:          PLA
+                RTS
 
 ; The update stamp, if the label asks for them, in the slot of the file's
 ; extent-zero entry (user A, F's name, EX and S2 0): with carry clear the

@@ -38,7 +38,6 @@ MODE_CREATE     = $10                  ;   creation stamps
 MODE_PASSWORD   = $80                  ;   passwords on
 XFCB_MODES      = $E0                  ; an XFCB's mode: bit 7 read, 6 write, 5 delete
 PW_LEN          = 8
-SCB_MULTI       = SCB + $4A            ; function 44's multi-sector count, 1-128 (CP/M 3's offset)
 
 ; Errors: X when the error mode returns them (CP/M 3's H)
 ER_IO           = 1                    ; Disk I/O
@@ -90,4 +89,4 @@ SM_ANYEX        = $08                  ; any extent
 .global F_TRUNC, MERR, EXTUSER, RODRV, NOWILD
 ; bdosxtra.s
 .global F_MULTI, F_SETLBL, F_GETLBL, F_STAMPS, F_WXFCB, F_DEFPW
-.global PWFILE, PWALL, MKXFCB, MKROOM, XCLEAR
+.global PWFILE, PWALL, MKXFCB, MKROOM, XCLEAR, NEWMODE

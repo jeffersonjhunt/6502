@@ -65,6 +65,7 @@ SCB_DELIM       = SCB + $37            ; function 9's end, '$'
 SCB_DMA         = SCB + $3C            ; the program's DMA address
 SCB_DISK        = SCB + $3E            ; the current drive
 SCB_USER        = SCB + $44
+SCB_MULTI       = SCB + $4A            ; function 44's multi-sector count, 1-128 (CP/M 3's offset)
 SCB_ERRMODE     = SCB + $4B            ; function 45's: $FF return, $FE return and say, else default
 SCB_DATE        = SCB + $58            ; days, 1 January 1978 day 1
 SCB_HOUR        = SCB + $5A            ; BCD
