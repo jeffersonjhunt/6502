@@ -1,8 +1,8 @@
 """A model of CP/M 3's file system, for OODOS's randomized BDOS test (hw/oodos.md, "The BDOS, phase 3").
 
 Ours, written from the CP/M 3 Programmer's Guide's descriptions of BDOS functions 13-37, 40, 44, 46, 48,
-98-103 and 106, at the level a program sees them: what each returns (A, and X as CP/M 3's H) and what it leaves in
-the FCB, the DMA buffer and on the disk. Its state is the drives' images, laid out as CP/M 3 lays them out:
+98-103 and 106 (and phase 3c's 50-52, below), at the level a program sees them: what each returns (A, and
+X as CP/M 3's H) and what it leaves in the FCB, the DMA buffer and on the disk. Its state is the drives' images, laid out as CP/M 3 lays them out:
 directory entries, SFCBs, the label and the blocks, so an image can be compared byte for byte with one the
 BDOS wrote, and checked by cpmtools.
 
@@ -99,6 +99,15 @@ Testing, "phase 3a: the model", Proposed):
   for 19, 23, 30 and 99 (X 7, the last check) and for 15 in read mode; 15 in write mode opens it read-only
   (writes X 3). 102 gives the XFCB's mode (0 without) in byte 12 and the extent-zero slot's stamps in
   24-31 (0 without), the current user's file in any extent.
+
+- Phase 3c (hw/oodos.md, "The BDOS, phase 3", Proposed (3c)): the DMA segment, 51 ($FFFF none, the default;
+  13 sets the DMA address and keeps it, ours), 52 (the DMA address and the segment, 4 bytes). With one,
+  the records of 17, 18, 20, 21, 33, 34 and 40 go to and from physical memory of the model's own (Bdos.phys, 1
+  MB) at segment x 16 + the DMA address; 46's result and the passwords stay at the CPU's. A segment's records
+  where it may not reach (seg_ok: blocks 24-31, 48-55, 60-63, past $FFFFF) or past an offset of $FFFF are
+  A = X = $FF: for 20, 21, 33, 34 and 40 before the first record, as self.past; for 17 and 18 once the search
+  has moved on. 50 is modelled only as DRIVER uses it: XMOVE (BIOS 29) of banks 1 (the program's) or $80 +
+  A16-A19 (physical), then MOVE (25), which returns the destination + the count.
 
 Where CP/M 3 leaves behaviour open in a way a test can't settle, the model raises Unspecified before it
 changes anything, and the generator chooses something else: an FCB used after its file was deleted,
@@ -778,7 +787,7 @@ class Bdos:
             dv.ro = False
         self.kill(lambda s: True)
         self.cur = 0
-        self.dma = TPA_DMA                   # the segment kept (3c: CP/M-86's 13 sets the offset)
+        self.dma = TPA_DMA                   # the segment kept (3c, ours)
         return 0, 0
 
     def f14(self, a, x, mem):

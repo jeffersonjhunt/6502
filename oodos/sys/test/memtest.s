@@ -14,7 +14,8 @@
 ;       DW4 00 00), closed with no segment (DCL); read back to the CPU: DRD
 ;       Y; records 1-2 by 33 to $1401:$00F0, $14100 (DR2 00 00, DR2CHK Y: the
 ;       bytes around them as they were); record 3 to $1FFC:0, across banks
-;       1 and 2 (DRX, DRXCHK Y); 17 to $1800:0 (D17 0n 00, D17CHK Y: the
+;       1 and 2 (DRX, DRXCHK Y); again to the CPU (DRC) and to $11000 (DRS),
+;       the test's cycles of each; 17 to $1800:0 (D17 0n 00, D17CHK Y: the
 ;       entry there), 18 (D18 FF 00); refused, FF FF, nothing moved: DRST
 ;       ($5FF0:$00F0, from block 23 into 24; DRSTCHK Y), DRB6 ($6000), DRM
 ;       ($C000, M:), DRBD ($F000, the BDOS), DRPAST ($FFF0:$0100, past
@@ -311,6 +312,13 @@ cased:  lda     #DRV_M
         plp
         SAY     "DRXCHK "
         jsr     YESNO
+        CALLF   F_DMASEG, $FFFF         ; record 3 again, buffered: to the CPU, then to $11000
+        CALLF   F_DMAOFF, BUF
+        RREC    3
+        TRY     "DRC ", F_READRAND, fcb
+        SEG     $1100, 0
+        RREC    3
+        TRY     "DRS ", F_READRAND, fcb
 ; 17 and 18 to $18000
         BLK     6
         lda     #$E7

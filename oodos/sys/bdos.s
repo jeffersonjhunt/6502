@@ -27,7 +27,8 @@
 ;
 ; and bdosfile.s's 13-37, 40, 42, 43, 45, 46, 48, 98 and 99, and
 ; bdossys.s's console (1-11), 47, 49, 107-112 and 152, and bdosxtra.s's 44,
-; 100-103 and 106. Any other returns A = X = $FF.
+; 100-103 and 106, and bdosmem.s's 51-58, 73 and 74 (phase 3c). Any other
+; returns A = X = $FF.
 ;
 ; Errors (hw/oodos.md, "The BDOS, phase 3"): DERR with CP/M 3's code. In
 ; the default error mode it says "OODOS Error On A: Disk I/O" (or Read
@@ -40,7 +41,8 @@
 ;
 ; The program's memory: FCBs, records and the like by the BIOS's MOVE
 ; (PIN, POUT: the DMA controller, through the program's windows the stub
-; saved); function 9's string, 10's buffer, 50's parameter block, 72's and
+; saved; the records of 17, 18, 20, 21, 33, 34 and 40 by DIN and DOUT, to a
+; physical address with a DMA segment, 51); function 9's string, 10's buffer, 50's parameter block, 72's and
 ; 104/105's a byte at a time through W2 (PGET, PPUT map the block the
 ; program's own window had there). An address in the I/O hole, $C000-
 ; $C7FF, isn't memory: the function stops there and returns A = X = $FF
@@ -54,7 +56,7 @@
 ASCII_CR        = $0D
 ASCII_LF        = $0A
 MEM_FITTED      = 1024                 ; KB
-MEM_PROGRAMS    = 320                  ; KB: banks 1-5, for functions 53-58 (later)
+MEM_PROGRAMS    = AMAP_LEN * 16        ; KB: banks 1-5, 53-58's 20 blocks
 NFUNC           = 153                  ; FIDX's functions, 0-152
 
 .zeropage

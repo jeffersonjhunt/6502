@@ -3372,11 +3372,30 @@ TEST(function_51_s_dma_segment_moves_records_to_and_from_physical_memory)
 {
     Booted r;
     REQUIRE(r.ok);
+    // Each 33's cycles, BDOSENT to STUBRET: the third and fourth are DRC and DRS, a buffered record
+    // to the CPU's DMA address and then through a segment.
+    std::vector<uint64_t> took;
+    uint64_t t0 = 0;
+    bool in33 = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == sym("BDOSENT"))
+        {
+            in33 = r.cpu->regs().y == 33;
+            t0 = r.cpu->cycles();
+        }
+        else if (pc == sym("STUBRET") && in33)
+            took.push_back(r.cpu->cycles() - t0);
+    };
     const std::string o = memtest(r, 'D');
+    r.watch = nullptr;
+    if (took.size() >= 4)
+        std::printf("  M: 33 of a buffered record: %llu cycles to the CPU, %llu through a DMA segment\n",
+                    static_cast<unsigned long long>(took[2]), static_cast<unsigned long long>(took[3]));
     check_fields(o, {
         {"GET0", "8002FFFF"}, {"GET1", "00000010"}, {"DMK", "00 00"}, {"DW4", "00 00"}, {"DCL", "00 00"},
-        {"DRD", "Y"}, {"DR2", "00 00"}, {"DR2CHK", "Y"}, {"DRX", "00 00"}, {"DRXCHK", "Y"}, {"D17", "01 00"},
-        {"D17CHK", "Y"}, {"D18", "FF 00"}, {"DRST", "FF FF"}, {"DRSTCHK", "Y"}, {"DRB6", "FF FF"}, {"DRM", "FF FF"},
+        {"DRD", "Y"}, {"DR2", "00 00"}, {"DR2CHK", "Y"}, {"DRX", "00 00"}, {"DRXCHK", "Y"}, {"DRC", "00 00"},
+        {"DRS", "00 00"}, {"D17", "01 00"}, {"D17CHK", "Y"}, {"D18", "FF 00"}, {"DRST", "FF FF"},
+        {"DRSTCHK", "Y"}, {"DRB6", "FF FF"}, {"DRM", "FF FF"},
         {"DRBD", "FF FF"}, {"DRPAST", "FF FF"}, {"DRWRAP", "FF FF"}, {"DRM16", "01 04"}, {"DRM17", "FF FF"},
         {"DWMCR0", "04"}, {"DWM", "FF FF"}, {"DWMCR", "04"}, {"D17M", "FF FF"}, {"DFREE", "00 00"},
         {"DFREECPU", "Y"}, {"GET13", "80023412"},
