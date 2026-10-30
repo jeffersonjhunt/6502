@@ -66,8 +66,10 @@
 ;   E   on M:: passwords on (100, $B0); a file's extent 0 made after its
 ;       XFCB: E.DAT made at extent 16, 103 read mode (EXF 00); F.DAT made at
 ;       extent 16 with f6' (write mode, FPASS: EMF 00); each a 34 of record
-;       0 (EW0, FW0: 00 00), closed; ESLOT? (the test reads their extent-zero
-;       slots: the XFCBs' modes, 80 and 40)
+;       0 (EW0, FW0: 00 00), closed; G.DAT made at extent 16, 103 read mode
+;       (EGX 00), passwords off (100, $00: EOFF 00 00), a 34 of record 0
+;       (GW0 00 00), closed; ESLOT? (the test reads their extent-zero slots:
+;       the XFCBs' modes, 80, 40 and 80)
 ;   V   on M:: passwords on; V1.DAT, V2.DAT and W1.DAT made with f6' (read
 ;       mode, VPASS); VSET?; 19 of V?.DAT with f5' and VPASS (VDEL 00 00);
 ;       VDEL? (V1's and V2's XFCBs gone, their slots' modes 0, W1's kept);
@@ -726,6 +728,20 @@ casee:  lda     #DRV_M
         TRY     "EMF ", F_MAKE, fcb
         RREC    fcb, 0
         TRY     "FW0 ", F_WRITERAND, fcb
+        CALLF   F_CLOSE, fcb
+; G.DAT: its XFCB made with passwords on, its extent 0 with them off
+        NAME    fcb, "G       DAT"
+        EXB     fcb, 16
+        CALLF   F_MAKE, fcb
+        NAME    lfcb, "G       DAT"
+        EXB     lfcb, $80
+        TRY     "EGX ", F_WRITEXFCB, lfcb
+        jsr     zero16
+        NAME    lfcb, "PWON    LBL"
+        EXB     lfcb, $00
+        TRY     "EOFF ", DRV_SETLABEL, lfcb
+        RREC    fcb, 0
+        TRY     "GW0 ", F_WRITERAND, fcb
         CALLF   F_CLOSE, fcb
         KEYWAIT "ESLOT?"
         jmp     done

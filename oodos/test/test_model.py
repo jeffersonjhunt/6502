@@ -618,6 +618,19 @@ def file_extras():
     t.fcb("Z.DAT")
     eq(t.f(102), (0, 0), "102")
     eq(t.m.read(FCB, 36)[12], 0x40, "102: the XFCB's mode")
+    # extent 0 made with the label's passwords off: its slot takes the XFCB's mode all the same
+    t.fcb("G.DAT", ex=16)
+    eq(t.f(22), (0, 0), "make G.DAT at extent 16")
+    t.fcb("G.DAT", addr=0x0A00, ex=0x80)
+    pw(bytes(16))
+    eq(t.f(103, 0x0A00), (0, 0), "103: read mode")
+    t.fcb("A", addr=0x0B00, raw=b"MYDISK  LBL", ex=0x30)
+    pw(b"LABELPW ")
+    eq(t.f(100, 0x0B00), (0, 0), "100: the label's passwords off")
+    t.rand(0)
+    eq(t.write(1, fn=34)[0], (0, 0), "34 of record 0: extent 0 made")
+    g0 = t.b.find_ext(t.dv, 0, M.fcb_name("G.DAT"), 0)
+    eq(t.slot(g0)[8], 0x80, "its slot's mode the XFCB's, 0x80, passwords off or not")
 
 
 def policy():

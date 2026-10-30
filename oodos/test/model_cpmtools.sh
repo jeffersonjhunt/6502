@@ -15,10 +15,10 @@
 # the entries whose last extent has a hole, which it takes for damage, and fails on an entry with a
 # block past its RC's: modeltest.py sparse; and its "Bit 4 and 6" for a label asking for creation and
 # access stamps, which the Guide allows: modeltest.py label. fsck.cpm decodes each XFCB's password, and
-# the label's with passwords on, and fails one that isn't printable), cpmls -F
-# (every file, with its first
-# entry's update and create stamps and its password mode, the slot's against the XFCB's) and every file's contents by cpmcp (a hole reads as zeros). Exits
-# non-zero on the first failure; "PASS n" at the end counts the checks.
+# the label's with passwords on, and fails one that isn't printable), cpmls -F (every file, with its
+# first entry's update and create stamps and its password mode: an extent-zero slot's against the XFCB's,
+# a later extent's 0) and every file's contents by cpmcp (a hole reads as zeros). Exits non-zero on the
+# first failure; "PASS n" at the end counts the checks.
 set -eu
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq cpmtools faketime python3 >/dev/null 2>&1

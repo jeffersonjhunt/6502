@@ -746,10 +746,12 @@ console set, 47, 107, 108, 152), built side by side.
   update stamps (24–31). An XFCB is 16 + the user, the file's name and type (their low 7 bits, ours), the mode (12:
   bit 7 read, 6 write, 5 delete), the key (13), 0 (14, 15), the password (16–23), 0 (24–31). The password is kept as
   cpmtools decodes it (CP/M 3's): its 8 bytes in reverse order, each XORed with the key, the 8 bytes' sum. The
-  password mode is also in the file's extent-zero SFCB slot (its byte 8), kept equal to the XFCB's: by make with
-  f6', 103, and 19 with f5' (0); and when the extent-zero entry is made after the XFCB (make at a later extent,
-  with f6' or then 103, and a write of extent 0), the new slot takes the XFCB's mode (the Guide, 2.3.8: 0 only for
-  a file not protected).
+  password mode is also in the file's extent-zero SFCB slot (its byte 8), equal to the XFCB's whenever the file
+  has an extent-zero entry with a slot: set by make with f6', 103, and 19 with f5' (0); and when the extent-zero
+  entry is made after the XFCB (make at a later extent, with f6' or then 103, and a write of extent 0), the new slot
+  takes the XFCB's mode, whether the label's passwords are on or off then (ours: an XFCB is made only with them on;
+  the Guide, 2.3.8: 0 only for a file not protected). A later extent's slot is 0, so a file with an XFCB but no
+  extent-zero entry has its mode in no slot (cpmls -F, which reads the lowest extent's, shows none).
 - **The label (100)** (ours where marked): the first `$20` entry, or a new one in the first free entry (`$FF` if
   there's none). Its name and type are the FCB's bytes 1–11 as they are; its data byte is FCB byte 12's bits 7–4
   and bit 0 set (ours); stamps asked for (bits 6–4) on a directory without SFCBs (its entry 3 isn't one, ours) are

@@ -2704,15 +2704,17 @@ TEST(a_files_extent_zero_made_after_its_xfcb_keeps_the_xfcbs_mode_in_its_slot)
     // On M:, passwords on: E.DAT made at extent 16, then 103 (read mode); F.DAT made at extent 16
     // with f6' (write mode). Neither has an extent-zero entry for the XFCB's mode to go to, until a
     // 34 of record 0 makes one: its SFCB slot's mode byte is the XFCB's, not 0 (the Guide, 2.3.8).
+    // G.DAT as E.DAT, but the label's passwords off before the 34: its slot takes the mode all the same.
     Booted r;
     REQUIRE(r.ok);
     CpmDisk m{r, 0};
     std::vector<uint8_t> d;
     const std::string o = xtratest(r, 'E', {{"ESLOT?", [&] { d = m.directory(); }}});
-    for (const char *k : {"EXF", "EW0", "EMF", "FW0"})
+    for (const char *k : {"EXF", "EW0", "EMF", "FW0", "EGX", "EOFF", "GW0"})
         CHECK_EQ(field(o, k), std::string("00 00"));
     REQUIRE(!d.empty());
-    for (const auto &[name, mode] : {std::pair<std::string, uint8_t>{"E       DAT", 0x80}, {"F       DAT", 0x40}})
+    for (const auto &[name, mode] :
+         {std::pair<std::string, uint8_t>{"E       DAT", 0x80}, {"F       DAT", 0x40}, {"G       DAT", 0x80}})
     {
         const std::vector<unsigned> es = m.entries_of(d, 0, name);
         REQUIRE(es.size() == 2);

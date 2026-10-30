@@ -92,7 +92,7 @@ Testing, "phase 3a: the model", Proposed):
   entries needed, or an XFCB of the name) and 103 (the mode FCB byte 12's bits 7-5, bit 0 a new password
   from the DMA's 8-15; a new one's password otherwise blanks), followed by 19 and 23, deleted alone by 19
   with f5'. The mode is also kept in the file's extent-zero SFCB slot (byte 8), also when that entry is
-  made after the XFCB (its mode, not 0). Passwords are kept as CP/M
+  made after the XFCB (its mode, not 0, with the label's passwords on or off). Passwords are kept as CP/M
   3 keeps them (the key, the sum of the 8 bytes, at 13; the bytes reversed, XORed with it, at 16-23), 8
   blanks or 8 zeros is none (kept as blanks). With the label's bit 7: a protected file (its XFCB has a
   mode bit) needs its password, the DMA buffer's first 8 bytes or the default (106: none from the start),
@@ -574,9 +574,9 @@ class Bdos:
         dv.set_entry(i, bytes(e))
         self.stamp_slot(dv, i, made=True, first=first)
         o = dv.slot(i)
-        if o is not None and dv.mode & MODE_PASSWORD and ext >> 5 == 0 and ext & 0x1F & ~dv.fmt.exm == 0:
-            x = self.xfcb_of(dv, s.user, s.name)         # extent 0 made after the XFCB: its mode (2.3.8)
-            if x is not None:
+        if o is not None and ext >> 5 == 0 and ext & 0x1F & ~dv.fmt.exm == 0:
+            x = self.xfcb_of(dv, s.user, s.name)         # extent 0 made after the XFCB: its mode (2.3.8),
+            if x is not None:                            # the label's passwords on or off
                 dv.img[o + 8] = dv.entry(x)[12] & XFCB_MODES
         self.kill(lambda o: o in self.sharers(s))
         s.entry, s.ext = i, ext

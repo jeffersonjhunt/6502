@@ -384,13 +384,12 @@ XCLEAR:         JSR     FSAVE
                 JMP     FBACK
 
 ; A = the password mode a new entry's SFCB slot starts with (INITSTAMP),
-; the entry user A's, F's name and extent: with passwords on, for an
-; extent-zero one (EX in group 0, S2 0), its file's XFCB's, so a file
-; protected before its extent 0 was made stays so in the slot (the Guide,
-; 2.3.8); else 0. DIDX, DPTR and FIND's pattern kept.
-NEWMODE:        BIT     MODE
-                BPL     @zero          ; passwords off
-                TAX
+; the entry user A's, F's name and extent: for an extent-zero one (EX in
+; group 0, S2 0), its file's XFCB's, so a file protected before its extent
+; 0 was made stays so in the slot (the Guide, 2.3.8); else 0. Whatever the
+; label's bit 7 is now: the slot always shows the XFCB's mode, which is
+; made only with passwords on. DIDX, DPTR and FIND's pattern kept.
+NEWMODE:        TAX
                 LDA     FC + FCB_EX
                 AND     EXMASK
                 BNE     @zero
