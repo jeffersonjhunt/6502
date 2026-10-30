@@ -213,7 +213,7 @@ target_compile_definitions(test_iie PRIVATE
 # the tools are required: configuring fails without them.
 
 emu_add_test(test_oodos_sys)
-set_tests_properties(test_oodos_sys PROPERTIES TIMEOUT 600) # a dozen boots, seconds of machine time, under ASan
+set_tests_properties(test_oodos_sys PROPERTIES TIMEOUT 1800) # dozens of boots and minutes of machine time under ASan: about 600 s alone, more under load
 set(OODOS_SRC "${PROJECT_SOURCE_DIR}/../oodos")
 set(OODOS_SYS_SRC "${OODOS_SRC}/sys")
 set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")

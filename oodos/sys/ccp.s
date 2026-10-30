@@ -32,15 +32,26 @@
 ; ERROR. A program starts in the default error mode, with the DMA address
 ; $0280.
 ;
-; A ^C typed at the prompt, as the line's first key, is function 10's warm
+; A ^C typed at the prompt while the line is empty is function 10's warm
 ; boot too, but the CCP resets the disk system for it (the Programmer's
-; Guide, 1.6.2), as the warm boot doesn't: function 13, in error mode $FE,
-; then the drive that was current selected again. 13 writes back what it
-; can and drops what it can't, a kept buffer too, saying the first failure
-; ("BDOS Function = 13"), and makes every drive read-write. The rescan, 48
-; and 98 aren't run again: they ran at the warm boot before the prompt, and
-; 13 rescans itself. ATPROMPT says the warm boot came from the prompt's
-; line; a ^C anywhere else (in a program's function 10) is the warm boot.
+; Guide, 1.6.2), as the warm boot doesn't: function 13, in error mode $FE.
+; 13 writes back what it can and drops what it can't, a kept buffer too,
+; saying the first failure ("BDOS Function = 13"), and makes every drive
+; read-write. The rescan, 48 and 98 aren't run again: they ran at the warm
+; boot before the prompt, and 13 rescans itself. ATPROMPT says the warm
+; boot came from the prompt's line; a ^C anywhere else (in a program's
+; function 10) is the warm boot.
+;
+; Then, at every warm boot, what the Guide has the CCP set for a program:
+; the console mode 0, the delimiter '$' (its own strings need it too) and
+; the multi-sector count 1. The CCP keeps its own drive and user (CCPDRV,
+; CCPUSR: A:, user 0 from the cold boot; the Guide, 1.7 and 2.3.5), which
+; a program's 14 or 32 doesn't change: it makes them current again for the
+; prompt, the drive by the SCB, so it isn't logged in until it's used.
+; Function 47 leaves a request in the SCB ($17): with CCP_CHAINDU the
+; program's drive and user become the CCP's; then the command at $0280, to
+; its 0, is shown after the prompt as if typed and run. A program starts
+; with the return code 0 (108), unless chained to.
 ;
 ; Before a program runs, its header is checked as the loader checks it
 ; (hw/oodos.md, "The program header"): the magic number, no flags (a .COM),
@@ -70,7 +81,8 @@ DEST:           .res    2              ; where the next record goes
 LASTREC:        .res    RECORD         ; a record of NAME.COM whose bytes are copied
 COUNT:          .res    1              ; COPYREC's bytes
 USAVE:          .res    1              ; the user, while NAME.COM is loaded from user 0
-DSAVE:          .res    1              ; the current drive, while 13 runs
+CHAINF:         .res    1              ; 47's request, as the SCB had it
+CHAINED:        .res    1              ; 1: the line is 47's command
 
 .segment "RES"
 
@@ -91,13 +103,7 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 LDA     ATPROMPT       ; a ^C at the prompt: 13, not the warm boot's
                 BEQ     @warm          ; 48 and 98 (they ran before that prompt)
                 STZ     ATPROMPT
-                LDY     #DRV_GET       ; the current drive, which 13 makes A:
-                JSR     BDOS
-                STA     DSAVE
                 LDY     #DRV_ALLRESET
-                JSR     BDOS
-                LDA     DSAVE
-                LDY     #DRV_SET
                 JSR     BDOS
                 BRA     @own
 @warm:          LDA     #<RESCANPB     ; the units read again (a first select of
@@ -112,18 +118,51 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
 @own:           LDA     #$FF           ; the CCP's errors come back to it
                 LDY     #F_ERRMODE
                 JSR     BDOS
-PROMPT:         LDX     #$FF
-                TXS
-                LDA     #<CRLF
-                LDX     #>CRLF
-                JSR     STRING
+                LDA     #0             ; a program's settings: the console mode 0,
+                TAX
+                LDY     #C_MODE
+                JSR     BDOS
+                LDA     #'$'           ; the delimiter '$',
+                LDY     #C_DELIMIT
+                JSR     BDOS
+                LDA     #<MULTIPB      ; the multi-sector count 1
+                LDX     #>MULTIPB
+                LDY     #S_SCB
+                JSR     BDOS
+                LDA     #<CHAINPB      ; 47's request, then none
+                LDX     #>CHAINPB
+                LDY     #S_SCB
+                JSR     BDOS
+                STA     CHAINF
+                LDA     #<NOCHAINPB
+                LDX     #>NOCHAINPB
+                LDY     #S_SCB
+                JSR     BDOS
+                LDA     CHAINF         ; the program's drive and user the CCP's?
+                AND     #CCP_CHAINDU
+                BEQ     @drive
                 LDY     #DRV_GET
                 JSR     BDOS
-                CLC
-                ADC     #'A'
-                JSR     PUTC
-                LDA     #'>'
-                JSR     PUTC
+                STA     CCPDRV
+                LDA     #$FF
+                LDY     #F_USERNUM
+                JSR     BDOS
+                STA     CCPUSR
+@drive:         LDA     CCPDRV         ; the CCP's drive (by the SCB: 14 would log
+                STA     DISKPB + 2     ; it in) and user
+                LDA     #<DISKPB
+                LDX     #>DISKPB
+                LDY     #S_SCB
+                JSR     BDOS
+                LDA     CCPUSR
+                LDY     #F_USERNUM
+                JSR     BDOS
+                LDA     CHAINF
+                BMI     CHAIN
+PROMPT:         LDX     #$FF
+                TXS
+                STZ     CHAINED
+                JSR     SAYPROMPT
                 LDA     #LINE_MAX
                 STA     LINE
                 LDA     #1             ; a ^C now is function 10's warm boot from the
@@ -133,7 +172,7 @@ PROMPT:         LDX     #$FF
                 LDY     #C_READSTR
                 JSR     BDOS
                 STZ     ATPROMPT
-                LDA     #$0A           ; function 10 echoed the CR
+GOTLINE:        LDA     #$0A           ; function 10 echoed the CR
                 JSR     PUTC
                 LDX     #0             ; X: the line's index
 @space:         CPX     LINE + 1
@@ -171,6 +210,45 @@ PROMPT:         LDX     #$FF
                 CMP     #'O'
                 BNE     LOADCOM
                 JMP     RUNHDR
+
+; 47's command: from $0280 to its 0 (LINE_MAX at most) into the line,
+; shown after the prompt as if typed.
+CHAIN:          LDX     #0
+@copy:          LDA     BP_DMA,X
+                BEQ     @end
+                CPX     #LINE_MAX
+                BEQ     @end
+                STA     LINE + 2,X
+                INX
+                BRA     @copy
+@end:           STX     LINE + 1
+                LDA     #1
+                STA     CHAINED
+                JSR     SAYPROMPT
+                LDX     #0
+@show:          CPX     LINE + 1
+                BEQ     @shown
+                LDA     LINE + 2,X
+                PHX
+                JSR     PUTC
+                PLX
+                INX
+                BRA     @show
+@shown:         LDA     #$0D
+                JSR     PUTC
+                JMP     GOTLINE
+
+; CR LF and the prompt: the current drive's letter and '>'.
+SAYPROMPT:      LDA     #<CRLF
+                LDX     #>CRLF
+                JSR     STRING
+                LDY     #DRV_GET
+                JSR     BDOS
+                CLC
+                ADC     #'A'
+                JSR     PUTC
+                LDA     #'>'
+                JMP     PUTC
 
 ; NAME.COM from drive A, user 0, through the BDOS: record 0 to LASTREC,
 ; its header (the first 16 bytes) to $0280 and checked before anything else
@@ -406,7 +484,13 @@ RUNTAIL:        JSR     USERBACK       ; the program runs in the user it was giv
                 LDA     #0
                 LDY     #F_ERRMODE
                 JSR     BDOS
-                LDY     #0             ; the tail: after the command word
+                LDA     CHAINED        ; the return code 0, unless chained to
+                BNE     @code
+                LDA     #0
+                TAX
+                LDY     #P_CODE
+                JSR     BDOS
+@code:          LDY     #0             ; the tail: after the command word
                 LDX     WEND
 @tail:          CPX     LINE + 1
                 BEQ     @tailed
@@ -460,5 +544,11 @@ CRLF:           .byte   $0D, $0A, "$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 READERR:        .byte   "READ ERROR$"
+MULTIPB:        .byte   <(SCB_MULTI - SCB), $FF, 1, 0   ; 49: set the multi-sector count 1
+CHAINPB:        .byte   <(SCB_CCPFLAGS - SCB), 0, 0, 0  ;   get 47's request
+NOCHAINPB:      .byte   <(SCB_CCPFLAGS - SCB), $FF, 0, 0 ;  and none
+DISKPB:         .byte   <(SCB_DISK - SCB), $FF, 0, 0    ;   set the current drive: CCPDRV
 ATPROMPT:       .byte   0              ; 1 while function 10 reads the prompt's line: in
                                        ; the file, so 0 from the cold boot
+CCPDRV:         .byte   0              ; the CCP's drive and user, A: and 0 from the
+CCPUSR:         .byte   0              ; cold boot
