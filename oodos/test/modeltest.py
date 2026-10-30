@@ -276,7 +276,12 @@ def cmd_files(o):
         write(os.path.join(o.out, str(user), n + ("." + t if t else "")), data)
         sl = dv.slot(first)
         st = dv.img[sl:sl + 9] if sl is not None else bytes(9)
-        prot = "Read" if st[8] & 0x80 else "Write" if st[8] & 0x40 else "Delete" if st[8] & 0x20 else "None"
+        # The mode cpmls -F reads from the slot's byte 8 must be the file's XFCB's (the Guide, 2.3.8): taken
+        # from the XFCB, not the slot, so a slot that has drifted from it fails (a file without a slot has none)
+        x = next((j for j in dv.entries() if dv.entry(j)[0] == user + 16
+                  and bytes(c & 0x7F for c in dv.entry(j)[1:12]) == nm), None)
+        mode = dv.entry(x)[12] if x is not None and sl is not None else 0
+        prot = "Read" if mode & 0x80 else "Write" if mode & 0x40 else "Delete" if mode & 0x20 else "None"
         print("%d %s %s %s %s %s" % (user, n, t or "-", cpmls_stamp(st[4:8]), cpmls_stamp(st[:4]), prot))
 
 

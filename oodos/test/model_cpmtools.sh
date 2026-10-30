@@ -17,7 +17,7 @@
 # access stamps, which the Guide allows: modeltest.py label. fsck.cpm decodes each XFCB's password, and
 # the label's with passwords on, and fails one that isn't printable), cpmls -F
 # (every file, with its first
-# entry's update and create stamps and its password mode) and every file's contents by cpmcp (a hole reads as zeros). Exits
+# entry's update and create stamps and its password mode, the slot's against the XFCB's) and every file's contents by cpmcp (a hole reads as zeros). Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 set -eu
 apt-get update -qq >/dev/null 2>&1
@@ -74,7 +74,7 @@ for seed in ${*:-1 2 3 4 5 6}; do
     [ "$ext" = - ] && ext=""
     file=$name${ext:+.$ext}
     # cpmls -F: "Directory For Drive A:  User n", then a line a file: name, type, ..., the password
-    # mode (Prot, from the slot), update, create.
+    # mode (Prot, from the slot's byte 8; modeltest.py files gives the XFCB's), update, create.
     echo "$listing" | awk -v u="$user" -v n="$name" -v e="$ext" -v s="$upd_d $upd_t  $cre_d $cre_t" -v p="$prot" '
       /^Directory For Drive/ { cur = $NF + 0 }
       cur == u + 0 && $1 == n && (e == "" || $2 == e) && index($0, sprintf("%-7s", p) s) { found = 1 }
