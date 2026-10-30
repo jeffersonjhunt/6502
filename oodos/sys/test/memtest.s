@@ -37,7 +37,8 @@
 ;       FF 00), AM2 (54 $2400 $FFFF: the 15 free, 0024003C00), AM3 (54
 ;       $2400 $0801: three, M_EXT 1), AM4 (54 of a taken block: FF 00); MAX2
 ;       (0024003C00); FR1 (57 $1C00, not a base: FF 00), FR2 (57 $1800: 00
-;       00), FR3 (again: FF 00); AL3 (55 $5000: FF 00); MAX3 (M_EXT 1:
+;       00), FR3 (again: FF 00); AB8 (56 $1800 3 blocks, the third taken:
+;       FF 00); AL3 (55 $5000: FF 00); MAX3 (M_EXT 1:
 ;       0024003C01); FRALL (57 with M_EXT $FF: 00 00); MAX4 (0010005000); AL4
 ;       (all 20), AL5 (none left: FF 00); ALLFREE (58: 00 00); MAX5; MHOLE
 ;       (an MCB in the I/O hole: FF FF); AL6 (a block left for the warm boot)
@@ -480,6 +481,8 @@ casem:  MCB     0, $5000, 0
         MTRY    "FR2", MC_FREE
         MCB     $1800, 0, 0
         MTRY    "FR3", MC_FREE
+        MCB     $1800, $0C00, 0         ; 6 and 7 free, 8 taken by AB1: no shrinking
+        MTRY    "AB8", MC_ABSALLOC
         MCB     0, $5000, 0
         MTRY    "AL3", MC_ALLOC
         MCB     0, $FFFF, 0
