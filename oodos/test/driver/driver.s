@@ -8,7 +8,8 @@
 ; in Y, a byte in A, a word in A (low) and X (high); the result in A and X.
 ; Error mode $FF (45) first, so an error comes back as A = $FF, X = the code.
 ; It keeps 8 FCBs, its own DMA buffer, a buffer for multi-sector I/O (32
-; records), the script (16 KB at most) and the results (24 KB) in BSS; the operations' results go to memory and are
+; records, also SMULTI's, which phase 3c's DMA segment moves to physical
+; memory and back by function 50's XMOVE and MOVE), the script (16 KB at most) and the results (24 KB) in BSS; the operations' results go to memory and are
 ; written at the end, so the script's searches and drive resets aren't
 ; disturbed by the driver's own file I/O on A:.
 
@@ -19,6 +20,8 @@
 SCRIPT_MAX      = 16384
 RESULT_MAX      = 24576
 MBUF_RECS       = 32                    ; MULTI's records at most
+BIOS_MOVE       = 25                    ; function 50's
+BIOS_XMOVE      = 29
 NSLOTS          = 8
 FCBLEN          = 36
 FILL            = $5A
@@ -44,6 +47,12 @@ t1:     .res    1
 t2:     .res    1
 status: .res    1
 dig:    .res    3                       ; MAKEN's counter, in ASCII
+sseg:   .res    2                       ; SMULTI's segment, offset and mirror, in order
+soff:   .res    2
+mirror: .res    1
+plo:    .res    1                       ; and its physical address: the low 16 bits,
+phi:    .res    1
+pbank:  .res    1                       ; XMOVE's bank, $80 + A16-A19
 
         .code
 start:  lda     #<banner
@@ -543,28 +552,7 @@ op_multi:
         sta     tag
         jsr     get
         sta     tag+1
-        jsr     mbufat
-@fill:  jsr     more
-        bcc     @filled
-        lda     fn
-        cmp     #F_READ
-        beq     @reads
-        cmp     #F_READRAND
-        beq     @reads
-        jsr     patptr
-        inc     tag
-        bne     @next
-        inc     tag+1
-        bra     @next
-@reads: ldy     #127
-        lda     #FILL
-:       sta     (ptr),y
-        dey
-        bpl     :-
-@next:  jsr     nextptr
-        jsr     bump
-        bra     @fill
-@filled:
+        jsr     mfill
         lda     cnt
         ldy     #F_MULTISEC
         jsr     BDOS
@@ -599,6 +587,231 @@ op_multi:
         lda     s2
         jsr     put
         jmp     opdone
+
+; mbuf's cnt records: FILL for a read or a search (fn 17, 18, 20, 33),
+; record k the pattern of tag + k for a write. done counts them.
+mfill:  jsr     mbufat
+@fill:  jsr     more
+        bcc     @filled
+        lda     fn
+        cmp     #F_READ
+        beq     @reads
+        cmp     #F_READRAND
+        beq     @reads
+        cmp     #F_SFIRST
+        beq     @reads
+        cmp     #F_SNEXT
+        beq     @reads
+        jsr     patptr
+        inc     tag
+        bne     @next
+        inc     tag+1
+        bra     @next
+@reads: ldy     #127
+        lda     #FILL
+:       sta     (ptr),y
+        dey
+        bpl     :-
+@next:  jsr     nextptr
+        jsr     bump
+        bra     @fill
+@filled:
+        rts
+
+; SMULTI fn, slot, n, tag, segment, offset, mirror (phase 3c): mbuf's n
+; records filled as MULTI's, and with mirror moved to the physical address
+; segment x 16 + offset by function 50 (XMOVE, its bank $80 + A16-A19, then
+; MOVE); 44 = n (not for 17 or 18), 51 = the segment, 26 = the offset, the
+; call (18's without an FCB); then 51 $FFFF, the DMA address ours, 44 = 1;
+; with mirror the records moved back to mbuf. A X FCB, and the sums of mbuf's
+; n records (17, 18: of the entry A, if A < 4).
+op_smulti:
+        jsr     get
+        sta     fn
+        jsr     slot
+        jsr     get                     ; n, a byte: 1-32
+        sta     cnt
+        stz     cnt+1
+        stz     done
+        stz     done+1
+        jsr     get
+        sta     tag
+        jsr     get
+        sta     tag+1
+        ldx     #0
+:       jsr     get                     ; the segment, the offset, mirror
+        sta     sseg,x
+        inx
+        cpx     #5
+        bne     :-
+        lda     sseg                    ; the physical address's middle byte:
+        lsr     a                       ; the segment / 16's low byte
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     t1
+        lda     sseg+1
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        ora     t1
+        sta     t1
+        lda     sseg+1
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     pbank
+        lda     sseg
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        clc
+        adc     soff
+        sta     plo
+        lda     t1
+        adc     soff+1
+        sta     phi
+        lda     pbank
+        adc     #0
+        ora     #$80
+        sta     pbank
+        jsr     mfill
+        lda     mirror
+        beq     :+
+        lda     #1                      ; mbuf to the physical address
+        ldx     pbank
+        jsr     xmove
+        lda     #<mbuf
+        sta     bpb+4
+        lda     #>mbuf
+        sta     bpb+5
+        lda     plo
+        sta     bpb+6
+        lda     phi
+        sta     bpb+7
+        jsr     move
+:       jsr     search
+        beq     :+
+        lda     cnt
+        ldy     #F_MULTISEC
+        jsr     BDOS
+:       lda     sseg
+        ldx     sseg+1
+        ldy     #F_DMASEG
+        jsr     BDOS
+        lda     soff
+        ldx     soff+1
+        ldy     #F_DMAOFF
+        jsr     BDOS
+        lda     fn
+        cmp     #F_SNEXT
+        bne     @fcb
+        ldy     #F_SNEXT
+        jsr     BDOS
+        sta     ra
+        stx     rx
+        bra     @called
+@fcb:   jsr     fcall
+@called:
+        lda     #$FF
+        tax
+        ldy     #F_DMASEG
+        jsr     BDOS
+        jsr     setdma
+        jsr     search
+        beq     :+
+        lda     #1
+        ldy     #F_MULTISEC
+        jsr     BDOS
+:       lda     mirror
+        beq     :+
+        lda     pbank                   ; and back
+        ldx     #1
+        jsr     xmove
+        lda     plo
+        sta     bpb+4
+        lda     phi
+        sta     bpb+5
+        lda     #<mbuf
+        sta     bpb+6
+        lda     #>mbuf
+        sta     bpb+7
+        jsr     move
+:       jsr     putax
+        jsr     fcb5
+        stz     s1
+        stz     s2
+        jsr     search
+        bne     @records
+        lda     ra                      ; 17, 18: entry A's sums
+        cmp     #4
+        bcs     @sums
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        tax
+        ldy     #32
+:       lda     mbuf,x
+        jsr     add1
+        inx
+        dey
+        bne     :-
+        bra     @sums
+@records:
+        stz     done
+        stz     done+1
+        jsr     mbufat
+@sum:   jsr     more
+        bcc     @sums
+        ldy     #0
+:       lda     (ptr),y
+        jsr     add1
+        iny
+        bpl     :-
+        jsr     nextptr
+        jsr     bump
+        bra     @sum
+@sums:  lda     s1
+        jsr     put
+        lda     s2
+        jsr     put
+        jmp     opdone
+
+; Z set if fn is a search (17, 18).
+search: lda     fn
+        cmp     #F_SFIRST
+        beq     :+
+        cmp     #F_SNEXT
+:       rts
+
+; Function 50's XMOVE: A the source bank, X the destination.
+xmove:  sta     bpb+1
+        stx     bpb+2
+        lda     #BIOS_XMOVE
+        sta     bpb
+        lda     #<bpb
+        ldx     #>bpb
+        ldy     #S_BIOS
+        jmp     BDOS
+
+; Function 50's MOVE of cnt records, from bpb+4 to bpb+6.
+move:   lda     #BIOS_MOVE
+        sta     bpb
+        lda     cnt                     ; x 128
+        lsr     a
+        sta     bpb+2
+        lda     #0
+        ror     a
+        sta     bpb+1
+        lda     #<bpb
+        ldx     #>bpb
+        ldy     #S_BIOS
+        jmp     BDOS
 
 ; ptr at mbuf; nextptr the next record.
 mbufat: lda     #<mbuf
@@ -905,7 +1118,7 @@ putdone:
 optab:  .word   badop, op_fcb, op_name2, op_rand, op_dma16, op_passwd, badop, badop ; $00
         .word   badop, badop, badop, badop, badop, badop, badop, badop
         .word   op_fcall, op_next, op_read, op_write, op_writen, op_readn, op_sall, op_maken ; $10
-        .word   op_multi, badop, badop, badop, badop, badop, badop, badop
+        .word   op_multi, op_smulti, badop, badop, badop, badop, badop, badop
         .word   op_call, op_free, op_dpb, op_time                                  ; $20
 OPCOUNT = (* - optab) / 2
 fcblo:  .repeat NSLOTS, i
@@ -934,6 +1147,7 @@ dmabuf: .res    128
 dat:    .res    4
 pwbuf:  .res    8
 mbuf:   .res    MBUF_RECS * 128
+bpb:    .res    8                       ; function 50's parameter block
 script: .res    SCRIPT_MAX
 results:
         .res    RESULT_MAX

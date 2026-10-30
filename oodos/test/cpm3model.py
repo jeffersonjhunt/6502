@@ -375,6 +375,20 @@ class Fcb:
         self.image = None                    # bytes 0-32 as last written
 
 
+NO_SEG = 0xFFFF
+PHYS_SIZE = 1 << 20
+BIOS_MOVE, BIOS_XMOVE = 25, 29
+
+
+def seg_ok(p, n):
+    """The n bytes at physical p are memory a DMA segment may reach (hw/oodos.md, phase 3c): any RAM but
+    OODOS's own, blocks 24-31 (banks 6-7), 48-55 (C-D, M:) and 60-63, and nothing past $FFFFF."""
+    end = p + n - 1
+    if end >= PHYS_SIZE:
+        return False
+    return all(not (24 <= b < 32 or 48 <= b < 56 or b >= 60) for b in (p >> 14, end >> 14))
+
+
 class Bdos:
     def __init__(self, drives, now=None, alloc="lowest", dpb_addr=0xF900):
         self.drives = drives
@@ -383,6 +397,9 @@ class Bdos:
         self.dpb_addr = dpb_addr
         self.cur, self.user, self.dma, self.errmode = 0, 0, TPA_DMA, 0
         self.multi = 1                       # 44's count
+        self.seg = NO_SEG                    # 51's DMA segment (3c)
+        self.phys = bytearray(PHYS_SIZE)     # physical memory, where a segment's records go
+        self.xmove = None                    # 50's XMOVE banks, for the next MOVE
         self.past = False                    # the call's records go past $FFFF: its first refuses it
         self.defpw = bytes(8)                # 106's: none
         self.search = None
@@ -400,7 +417,7 @@ class Bdos:
             raise Unspecified("function %d is not modelled" % fn)
         keep = self.search
         r = f(a, x, mem)
-        if fn not in (17, 18) and self.search is keep and fn not in (2, 9, 12, 25, 26, 45, 104, 105):
+        if fn not in (17, 18) and self.search is keep and fn not in (2, 9, 12, 25, 26, 45, 50, 51, 52, 104, 105):
             self.search = None
         return r
 
@@ -417,6 +434,30 @@ class Bdos:
 
     def code(self, i):
         return i & 3
+
+    # ------------------------------------------------------------------ the DMA segment (3c)
+    def phys_dma(self):
+        return self.seg * 16 + self.dma
+
+    def seg_refused(self, n):
+        """With a segment, n records at the DMA address that a segment may not reach (seg_ok), or past
+        $FFFF. Without one False: the CPU's own checks are self.past's."""
+        if self.seg == NO_SEG:
+            return False
+        return self.dma + RECORD * n > 0x10000 or not seg_ok(self.phys_dma(), RECORD * n)
+
+    def dma_put(self, mem, data):
+        if self.seg == NO_SEG:
+            mem.write(self.dma, data)
+        else:
+            p = self.phys_dma()
+            self.phys[p:p + len(data)] = data
+
+    def dma_get(self, mem):
+        if self.seg == NO_SEG:
+            return mem.read(self.dma, RECORD)
+        p = self.phys_dma()
+        return bytes(self.phys[p:p + RECORD])
 
     def stamp_slot(self, dv, i, made=False, first=False):
         """A made entry's slot: 0, and with `first` (make's extent 0) the create (or access) and update
@@ -660,7 +701,7 @@ class Bdos:
         before MRANGE: the FCB's drive and, for a write, the R/O drive and R/O file."""
         n = self.multi
         addr = a | x << 8
-        self.past = self.dma + RECORD * n > 0x10000
+        self.past = self.dma + RECORD * n > 0x10000 or self.seg_refused(n)
         if n > 1 and one == self._f21 and not self.past:  # a run past the largest file: open, refused
             s = self.fcbs.get(addr)
             if s is not None and s.ext * 128 + s.cr + n > MAX_EXT * 128 + 128:
@@ -737,7 +778,7 @@ class Bdos:
             dv.ro = False
         self.kill(lambda s: True)
         self.cur = 0
-        self.dma = TPA_DMA
+        self.dma = TPA_DMA                   # the segment kept (3c: CP/M-86's 13 sets the offset)
         return 0, 0
 
     def f14(self, a, x, mem):
@@ -839,7 +880,9 @@ class Bdos:
             e = dv.entry(i)
             if q["all"] or self.match(dv, e, q["pat"], q["user"]):
                 o = dv.fmt.dir_off + (i & ~3) * 32
-                mem.write(self.dma, bytes(dv.img[o:o + RECORD]))
+                if self.seg_refused(1):                  # the search has moved on, as the BDOS's
+                    return 0xFF, 0xFF
+                self.dma_put(mem, bytes(dv.img[o:o + RECORD]))
                 return self.code(i), 0
         return 0xFF, 0
 
@@ -915,7 +958,7 @@ class Bdos:
             self.put_fcb(addr, s, b, mem)
             return 1, 0
         data, und = dv.read_rec(blk, off % dv.fmt.rpb)
-        mem.write(self.dma, data)
+        self.dma_put(mem, data)
         self.undefined = und
         s.cr = c + 1
         self.put_fcb(addr, s, b, mem)
@@ -958,7 +1001,7 @@ class Bdos:
                 self.put_fcb(addr, s, b, mem)
                 return 1, 0
             s.cr = 0
-        data = mem.read(self.dma, RECORD)
+        data = self.dma_get(mem)
         r = self._write_rec(s, dv, s.cr, data, False)
         if r:
             s.uncertain = True
@@ -1121,7 +1164,7 @@ class Bdos:
             self.put_fcb(addr, s, b, mem)
             return 1, 0
         data, und = dv.read_rec(blk, off % dv.fmt.rpb)
-        mem.write(self.dma, data)
+        self.dma_put(mem, data)
         self.undefined = und
         s.uncertain = False
         self.put_fcb(addr, s, b, mem)
@@ -1146,7 +1189,7 @@ class Bdos:
             self.put_fcb(addr, s, b, mem)
             return 5, 0
         s.cr = c
-        data = mem.read(self.dma, RECORD)
+        data = self.dma_get(mem)
         e = self._write_rec(s, dv, c, data, zero)
         s.uncertain = bool(e)
         self.put_fcb(addr, s, b, mem)
@@ -1364,6 +1407,45 @@ class Bdos:
     def f106(self, a, x, mem):
         self.defpw = bytes(mem.read(a | x << 8, 8))
         self.loose = {"a", "x"}
+        return 0, 0
+
+    def f50(self, a, x, mem):
+        """Direct BIOS calls: only XMOVE and MOVE, as DRIVER moves records to and from physical memory with
+        them; a bank is 1 (the program's) or $80 + A16-A19 (phase 3c's physical one)."""
+        blk = mem.read(a | x << 8, 8)
+        fn, ra, rx = blk[0], blk[1], blk[2]
+        bw1, bw2 = blk[4] | blk[5] << 8, blk[6] | blk[7] << 8
+        self.loose = {"a", "x"}
+        if fn == BIOS_XMOVE:
+            self.xmove = (ra, rx)
+            return 0, 0
+        if fn != BIOS_MOVE or self.xmove is None:
+            raise Unspecified("function 50: BIOS %d (only XMOVE, then MOVE, are modelled)" % fn)
+        (src, dst), self.xmove = self.xmove, None
+        n = ra | rx << 8
+        for bank in (src, dst):
+            if bank != 1 and not 0x80 <= bank <= 0x8F:
+                raise Unspecified("function 50: XMOVE bank $%02X" % bank)
+        if src == 1:
+            data = mem.read(bw1, n)
+        else:
+            p = (src & 0x0F) << 16 | bw1
+            data = bytes(self.phys[p:p + n])
+        if dst == 1:
+            mem.write(bw2, data)
+        else:
+            p = (dst & 0x0F) << 16 | bw2
+            self.phys[p:p + n] = data
+        e = (bw2 + n) & 0xFFFF
+        self.loose = set()
+        return e & 0xFF, e >> 8
+
+    def f51(self, a, x, mem):
+        self.seg = a | x << 8
+        return 0, 0
+
+    def f52(self, a, x, mem):
+        mem.write(a | x << 8, bytes([self.dma & 0xFF, self.dma >> 8, self.seg & 0xFF, self.seg >> 8]))
         return 0, 0
 
     def f104(self, a, x, mem):
