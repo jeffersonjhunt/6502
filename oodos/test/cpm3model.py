@@ -83,8 +83,8 @@ Testing, "phase 3a: the model", Proposed):
   $FF): 20, 21, 33, 34 and 40 with a count N are N calls, record k at the DMA address + 128 k, to the first
   that doesn't return 0: A that, X the records done before it, but a physical error's (A = $FF) X its
   code; 33, 34 and 40 put R0-R2 back to the first record's. N records past $FFFF are A = X = $FF before
-  the first, nothing done; the BDOS refuses records in the I/O hole or on flash the same way, which the
-  model's flat memory (its own addresses, MBUF at $C000) doesn't have. Labels (100, 101): the label's data byte (FCB
+  the first, nothing done, after the FCB's checks and a write's R/O drive and file (the BDOS's order);
+  the BDOS refuses records in the I/O hole or on flash the same way, which the model's flat memory (its own addresses, MBUF at $C000) doesn't have. Labels (100, 101): the label's data byte (FCB
   byte 12's bits 7-4, bit 0 set), name, its password (bytes 13, 16-23) and stamps (24-31: creation when
   made, update every time); bit 0 of FCB byte 12 a new password from the DMA buffer's bytes 8-15; stamps
   asked for without SFCBs (entry 3 isn't one) $FF; a label's password must be given (X 7). XFCBs (user +
@@ -383,6 +383,7 @@ class Bdos:
         self.dpb_addr = dpb_addr
         self.cur, self.user, self.dma, self.errmode = 0, 0, TPA_DMA, 0
         self.multi = 1                       # 44's count
+        self.past = False                    # the call's records go past $FFFF: its first refuses it
         self.defpw = bytes(8)                # 106's: none
         self.search = None
         self.fcbs = {}
@@ -654,12 +655,13 @@ class Bdos:
 
     # ------------------------------------------------------------------ multi-sector I/O (3b1)
     def _multi(self, one, a, x, mem, random):
-        """A record function the multi-sector count's times: N calls, record k at the DMA + 128 k."""
+        """A record function the multi-sector count's times: N calls, record k at the DMA + 128 k. Records
+        past $FFFF are refused (FF FF, nothing done) by the first call, after the checks the BDOS makes
+        before MRANGE: the FCB's drive and, for a write, the R/O drive and R/O file."""
         n = self.multi
         addr = a | x << 8
-        if self.dma + RECORD * n > 0x10000:
-            return 0xFF, 0xFF                            # past $FFFF: refused, nothing done
-        if n > 1 and one == self._f21:                   # a run past the largest file: open, refused
+        self.past = self.dma + RECORD * n > 0x10000
+        if n > 1 and one == self._f21 and not self.past:  # a run past the largest file: open, refused
             s = self.fcbs.get(addr)
             if s is not None and s.ext * 128 + s.cr + n > MAX_EXT * 128 + 128:
                 raise Unspecified("a multi-sector write past the largest file")
@@ -677,12 +679,13 @@ class Bdos:
                     if k:
                         raise RuntimeError("a multi-sector call: Unspecified after %d records" % k)
                     raise
+                self.past = False
                 undefined = undefined or self.undefined
                 if ra:
                     break
                 done += 1
         finally:
-            self.dma = dma
+            self.dma, self.past = dma, False
             if random and (done or n > 1):
                 mem.write(addr + 33, r0)
         self.undefined = undefined
@@ -885,6 +888,8 @@ class Bdos:
 
     def _f20(self, a, x, mem):
         addr, s, b = self._fcb_io(a, x, mem, "read")
+        if self.past:                                    # past $FFFF (MRANGE): refused
+            return 0xFF, 0xFF
         if s.uncertain:
             raise Unspecified("read: the position is uncertain after an error")
         dv = self.drives[s.drive]
@@ -943,6 +948,8 @@ class Bdos:
             return 0xFF, 2
         if s.ro:
             return 0xFF, 3
+        if self.past:                                    # past $FFFF (MRANGE): refused
+            return 0xFF, 0xFF
         if s.cr >= 128:
             if s.ext >= MAX_EXT:
                 raise Unspecified("write past the largest file")
@@ -1093,6 +1100,8 @@ class Bdos:
     def _f33(self, a, x, mem):
         addr, s, b, r = self._random(a, x, mem, "random read")
         dv = self.drives[s.drive]
+        if self.past:                                    # past $FFFF (MRANGE): refused
+            return 0xFF, 0xFF
         if b[35] > 3:
             s.uncertain = True
             return 6, 0
@@ -1125,6 +1134,8 @@ class Bdos:
             return 0xFF, 2
         if s.ro:
             return 0xFF, 3
+        if self.past:                                    # past $FFFF (MRANGE): refused
+            return 0xFF, 0xFF
         if b[35] > 3:
             s.uncertain = True
             return 6, 0

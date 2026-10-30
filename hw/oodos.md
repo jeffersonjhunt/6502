@@ -807,13 +807,14 @@ console set, 47, 107, 108, 152), built side by side.
   keep the records done): 20 and 21 at the record after the last done, 33, 34 and 40 with R0–R2 put back and CR
   the last record whose place was set: the one that failed if it failed being read or written, the last one done
   if it failed moving to a new extent (XTRATEST Q: 64 records from 64, then extent 1's move fails, CR `$7F`).
-  **The memory first** (ours): before the first record the whole of it, the DMA address to + 128 × N, must be the
-  program's memory, else A = X = `$FF` with nothing done and the FCB as it was, the error a record there gets
-  (PIN and POUT's, "What isn't memory"): past `$FFFF`, in the I/O hole, on flash, or for a read (20, 33) in a
-  read-only window. N calls would do the records before it; refusing it whole keeps the BIOS's rule that all is
-  checked before a byte moves, and a write never takes a block it doesn't keep. A count of 1 is checked the same
-  way, so a read to memory that isn't is `$FF` even at the file's end.
-- **Where it lives:** block 60, now 8,281 bytes of 16 KB (6,868 before 3b1), so block 62's `BDOS2` is still unused;
+  **The memory first** (ours): before the first record, after the FCB's drive and, for a write (21, 34, 40), the
+  R/O drive and R/O file checks (`FCBSEL`, `WCHECK`, then `MRANGE`), the whole of it, the DMA address to + 128 ×
+  N, must be the program's memory, else A = X = `$FF` with nothing done and the FCB as it was, the error a record
+  there gets (PIN and POUT's, "What isn't memory"): past `$FFFF`, in the I/O hole, on flash, or for a read (20,
+  33) in a read-only window. N calls would do the records before it; refusing it whole keeps the BIOS's rule that
+  all is checked before a byte moves, and a write never takes a block it doesn't keep. A count of 1 is checked the
+  same way, so a read to memory that isn't is `$FF` even at the file's end.
+- **Where it lives:** block 60, now 8,277 bytes of 16 KB (6,868 before 3b1), so block 62's `BDOS2` is still unused;
   the zero page 203 of the 240 bytes (184 before), `SYSBSS` 676 of 1,280 (627 before): the default password, the
   DMA buffer's 16 bytes, an entry's password decoded, `XCLEAR`'s and `NEWMODE`'s save of the search; the
   multi-sector loop's state in the zero page. The CCP's code is 7 bytes more (block 62's code window: 1,147 bytes). The label's place is
@@ -1384,15 +1385,16 @@ header has the full list):
   into the I/O hole, 17 from `$B800`, 2 from `$FF80` past `$FFFF`, a read of 8 half in a read-only window)
   refused at once, no block taken, the FCB and memory as they were, and 16 from `$B800` to `$BFFF` written; a
   file's extent 0 made after its XFCB (make at extent 16, then 103; make at extent 16 with f6'; then a 34 of
-  record 0) with the XFCB's mode in its slot; delete with f5' of `V?.DAT` taking two XFCBs (each slot's mode 0)
-  and leaving W1.DAT's; user 0's read-protected SYS file opened from user 1, refused without its password (FF 07)
-  and opened with it (f8').
+  record 0; and make at extent 16, 103, the label's passwords off, then the 34) with the XFCB's mode in its
+  slot; delete with f5' of `V?.DAT` taking two XFCBs (each slot's mode 0) and leaving W1.DAT's; user 0's
+  read-protected SYS file opened from user 1, refused without its password (FF 07) and opened with it (f8').
 - **The model** (`cpm3model.py`) has 44, 100–103 and 106, the multi-sector count on 20, 21, 33, 34 and 40, the
   protection on 15, 19, 22, 23, 30 and 99, XFCBs followed by delete and rename; hand-worked cases in
   `test_model.py` (a password's bytes worked out by hand, the label's and an XFCB's 32 bytes, each protection, 102,
-  44's range, 20 and 33 cut short, records past `$FFFF` refused, extent 0's slot made after the XFCB by 103 and
-  by make with f6'). The model's memory has its own addresses (MBUF at `$C000`), so it has no I/O hole or flash:
-  only past `$FFFF` is refused there. **The script** has three new operations: DMA16 (the DMA buffer's first 16
+  44's range, 20 and 33 cut short, records past `$FFFF` refused, after the R/O file's File R/O, extent 0's slot
+  made after the XFCB by 103 and by make with f6', and with the label's passwords off). The model's memory has
+  its own addresses (MBUF at `$C000`), so it has no I/O hole or flash: only past `$FFFF` is refused there. **The
+  script** has three new operations: DMA16 (the DMA buffer's first 16
   bytes: a password, a new one, a mode), PASSWD (106) and MULTI (a call with a count of 1–32 from DRIVER.COM's
   own 4 KB buffer, 44 set back to 1 after); FCALL takes 100, 102 (with the FCB's bytes 24–31) and 103. DRIVER.COM
   sets 44 to 1 before it writes RESULT.BIN. **The generator** makes them from a third random stream (12% of the
