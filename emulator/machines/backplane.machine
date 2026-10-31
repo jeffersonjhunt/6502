@@ -69,6 +69,8 @@ ram   C0000-FFFFF  module=3  name=ram_d
 rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
 rom   80000-FFFFF  space=flash  module=5  name=rom_b  -   # the cartridge: empty unless --apple-rom
 
+# The VIA's line must come after the 6551's: the later mapping answers
+# (test_joyports checks it).
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
 via6522   340-34F  space=io  name=via  irq          # the serial card's VIA, over the 6551's mirror
 joyports  name=joysticks  via=via                    # on PA0-4 and PB0-4
