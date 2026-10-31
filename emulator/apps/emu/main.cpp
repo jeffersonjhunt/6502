@@ -220,6 +220,9 @@ namespace
         if (const BackplaneBridge *bridge = machine.backplane_bridge())
             debugger.add_view("rtc", "   rtc                 the real-time clock: time, RTCCTL, the DS3231's registers\n",
                               [bridge] { return bridge->describe_clock(); });
+        if (JoystickPorts *joy = machine.joysticks())
+            debugger.add_command("joy", "   joy [1|2 STATE]     the joysticks: show, or hold one (u d l r f, uf, - for none)\n",
+                                 [joy](const std::vector<std::string> &args) { return joy->command(args); });
         int rc = 0;
         for (const std::string &b : settings.breaks)
         {

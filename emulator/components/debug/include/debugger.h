@@ -27,7 +27,8 @@
  *   q  quit                end the emulator
  *
  * A machine adds views of its own devices (add_view()): the backplane's
- * `rtc`, the north bridge's real-time clock.
+ * `rtc`, the north bridge's real-time clock; and commands that take
+ * arguments (add_command()): its `joy`, the joysticks.
  *
  * Addresses and values are hex, with or without `$`, or a label from the
  * symbols; counts are decimal. Fetch uses Bus::peek(), so looking at a 6821
@@ -109,7 +110,13 @@ namespace ooe::emu
         /// line in the help, before `q`, ending in '\n'.
         void add_view(std::string name, std::string help, std::function<std::string()> show)
         {
-            views_.push_back(View{std::move(name), std::move(help), std::move(show)});
+            views_.push_back(View{std::move(name), std::move(help), std::move(show), nullptr});
+        }
+        /// A command `name` given the words after it (none, or some); its reply is what `run` returns.
+        void add_command(std::string name, std::string help,
+                         std::function<std::string(const std::vector<std::string> &args)> run)
+        {
+            views_.push_back(View{std::move(name), std::move(help), nullptr, std::move(run)});
         }
 
         /// Registers, flags and the next instruction.
@@ -142,6 +149,7 @@ namespace ooe::emu
         {
             std::string name, help;
             std::function<std::string()> show;
+            std::function<std::string(const std::vector<std::string> &)> run; ///< instead of show
         };
         std::vector<View> views_;
     };

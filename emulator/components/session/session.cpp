@@ -154,6 +154,9 @@ namespace ooe::emu
                 d->insert(i, disks_[i]);
         if (SdCard *sd = machine_->sd_card(); sd && sd_) // and the SD card in its slot
             sd->insert(sd_, false);
+        if (JoystickPorts *j = machine_->joysticks()) // and the joysticks as the host holds them
+            for (unsigned i = 0; i < JoystickPorts::STICKS; ++i)
+                j->set(i, sticks_[i]);
 
         recorder_->attach(&machine_->bus());
         recorder_->clear(); // the old machine's cycles are not this one's
@@ -263,6 +266,14 @@ namespace ooe::emu
     {
         cpu_hz_ = hz;
         clock_cards();
+    }
+
+    void Session::set_joystick(unsigned n, uint8_t pressed)
+    {
+        n %= JoystickPorts::STICKS;
+        sticks_[n] = static_cast<uint8_t>(pressed & JoystickPorts::ALL);
+        if (JoystickPorts *j = machine_->joysticks())
+            j->set(n, sticks_[n]);
     }
 
     void Session::set_audio_rate(uint32_t rate)

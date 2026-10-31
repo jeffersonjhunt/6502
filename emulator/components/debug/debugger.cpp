@@ -262,8 +262,13 @@ namespace ooe::emu
             return help;
         }
         for (const View &v : views_)
-            if (cmd == v.name)
-                return w.size() == 1 ? v.show() : bad;
+        {
+            if (cmd != v.name)
+                continue;
+            if (v.run)
+                return v.run(std::vector<std::string>(w.begin() + 1, w.end()));
+            return w.size() == 1 ? v.show() : bad;
+        }
         if (cmd == "r" || cmd == "run")
         {
             halted_ = false;

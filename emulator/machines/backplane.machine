@@ -44,8 +44,18 @@
 # (sd_card.h): sectors through DATA, by CPU or DMA channel 0. `emulator --sd
 # FILE` puts a card image in its slot, written through.
 #
-# The terminal is a STAND-IN: a 6551 in the serial card's I/O block
-# ($C300, module 6) until the TL16C552A is modelled.
+# The serial card (module 6, $C300): its TL16C552A isn't modelled yet, so
+# the terminal is a STAND-IN, a 6551 at $C300-$C303 (mirrored through the
+# block, as before: the BIOS and OODOS use $C300-$C303 only). The card's
+# W65C22S VIA is real (via6522.h), at $C340-$C34F: the later line answers
+# there, over the 6551's mirror. Both pull IRQL bit 6 (module 6). The
+# card's INTSTAT ($C322) isn't modelled: $C322 is still the 6551's mirror
+# (its command register), so a handler tells the VIA by its IFR. The VIA's
+# ports are the two joysticks (joystick_ports.h): joystick 1 on PA0-PA4,
+# joystick 2 on PB0-PB4, up/down/left/right/fire, 0 when pressed; the
+# rest pulled up, so `LDA $C341` `AND #$1F` reads $1F with nothing pressed.
+# The WebUI drives them from gamepads or its keys; the terminal app's
+# debugger has `joy`.
 #
 #   emulator --machine machines/backplane.machine --rom bios.rom
 
@@ -60,6 +70,8 @@ rom   00000-7FFFF  space=flash  module=4  name=rom_a  bios.rom
 rom   80000-FFFFF  space=flash  module=5  name=rom_b  -   # the cartridge: empty unless --apple-rom
 
 acia6551  300-37F  space=io  name=terminal  irq     # stand-in serial card
+via6522   340-34F  space=io  name=via  irq          # the serial card's VIA, over the 6551's mirror
+joyports  name=joysticks  via=via                    # on PA0-4 and PB0-4
 sd        380-3FF  space=io  name=sd  irq  drq=0
 dma       400-47F  space=io  name=dma  irq
 video     480-4FF  space=io  name=video  irq

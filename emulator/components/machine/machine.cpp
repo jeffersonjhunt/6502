@@ -15,6 +15,7 @@
 #include <sstream>
 
 #include "acia6551.h"
+#include "joystick_ports.h"
 #include "backplane_bridge.h"
 #include "console_card.h"
 #include "dma_controller.h"
@@ -176,7 +177,7 @@ namespace ooe::emu
                 m->devices_.push_back(std::move(bridge));
                 continue;
             }
-            if (type == "hd44780" || type == "ps2kbd")
+            if (type == "hd44780" || type == "ps2kbd" || type == "joyports")
             {
                 std::unordered_map<std::string, std::string> opt;
                 for (size_t i = 1; i < w.size(); ++i)
@@ -210,6 +211,16 @@ namespace ooe::emu
                         opt.erase(k);
                     p = std::make_unique<ViaLcd>(*via, data, rs, rw, e, cols, rows);
                 }
+                else if (type == "joyports")
+                {
+                    if (m->joysticks_)
+                        return fail("joyports: only one per machine");
+                    for (const char *k : {"name", "via"})
+                        opt.erase(k);
+                    auto j = std::make_unique<JoystickPorts>(*via);
+                    m->joysticks_ = j.get();
+                    p = std::move(j);
+                }
                 else
                 {
                     if (!parse_pins(opt["data"], data) || data.count != 8)
@@ -230,7 +241,7 @@ namespace ooe::emu
                 type != "sound" && type != "sd")
                 return fail("unknown type '" + type +
                             "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
-                            "usb, disk2, sound, sd, hd44780 or ps2kbd)");
+                            "usb, disk2, sound, sd, hd44780, ps2kbd or joyports)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))
