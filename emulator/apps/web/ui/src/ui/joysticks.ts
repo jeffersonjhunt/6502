@@ -3,24 +3,35 @@
  * joystick ports"), from this computer: gamepads, and keys for those
  * without one.
  *
- * Gamepads (the Gamepad API): the first two connected, in the browser's
- * order, are joysticks 1 and 2. A direction is the d-pad (buttons 12-15 in
- * the standard mapping) or the left stick past half way (DEAD_ZONE), so a
- * diagonal is two; fire is any of the four face buttons (0-3), since a
- * 2600 stick has one button and a pad's player presses whichever. A
- * browser shows a pad only once a button on it is pressed.
+ * Gamepads (the Gamepad API): a pad, once the browser shows it, takes the
+ * lowest free stick and keeps it (by Gamepad.index) until it disconnects;
+ * then that stick is free for the next pad, a third one already there
+ * included. A direction is the left stick past half way (DEAD_ZONE), so a
+ * diagonal is two. A pad in the standard mapping also has its d-pad
+ * (buttons 12-15) for directions and any of its four face buttons (0-3)
+ * for fire, since a 2600 stick has one button and a pad's player presses
+ * whichever; any other pad's buttons are numbered as its maker chose, so
+ * only button 0 is fire. A browser shows a pad only once a button on it
+ * is pressed.
  *
  * Keys, off by default: on Terminal and Display alike they would take the
  * arrows and Space from the serial and USB keyboards, so they do only
  * while Settings' Keys switch is on (remembered). Then joystick 1 is the
  * arrows and Space, joystick 2 W A S D and the left Shift, by physical key
  * (KeyboardEvent.code), whatever the layout. A stick's state is its pad's
- * and its keys' together.
+ * and its keys' together. A key with Ctrl, Alt or Meta is a shortcut, the
+ * keyboards' and not a stick's, and its key-up goes after it: a stick
+ * takes only the key-ups of the presses it took. While the left Shift is
+ * joystick 2's fire, the other keys reach the keyboards unshifted
+ * (shiftTaken(); the right Shift still shifts).
  *
  * Settings' Joysticks section has the switch and a row a stick: the pad
- * driving it (or none) and a light while anything on it is pressed. The
- * strip's JOY pill shows while a pad is connected or the keys are on, and
- * opens Settings there. Only changes go to the port.
+ * driving it (or none) and a light while anything on it is pressed, which
+ * a screen reader reads as what is pressed. The strip's JOY pill shows
+ * while a pad is connected or the keys are on, and opens Settings there.
+ * Only changes go to the port. Whether the machine has the ports is known
+ * once it is open (caps.joysticks): connected() then shows or hides all
+ * this, and sends what was pressed before.
  */
 
 import { STICK, type MachinePort } from "../port/machine-port";
@@ -34,6 +45,8 @@ export interface PadLike {
   readonly index: number;
   readonly id: string;
   readonly connected: boolean;
+  /** "standard": the W3C layout, d-pad 12-15, face buttons 0-3. */
+  readonly mapping?: string;
   readonly axes: readonly number[];
   readonly buttons: readonly { readonly pressed: boolean }[];
 }
@@ -43,12 +56,14 @@ export function padBits(pad: PadLike): number {
   const b = (i: number) => !!pad.buttons[i]?.pressed;
   const x = pad.axes[0] ?? 0;
   const y = pad.axes[1] ?? 0;
+  const standard = pad.mapping === "standard";
+  const d = (i: number) => standard && b(i);
   let bits = 0;
-  if (b(12) || y < -DEAD_ZONE) bits |= STICK.UP;
-  if (b(13) || y > DEAD_ZONE) bits |= STICK.DOWN;
-  if (b(14) || x < -DEAD_ZONE) bits |= STICK.LEFT;
-  if (b(15) || x > DEAD_ZONE) bits |= STICK.RIGHT;
-  if (b(0) || b(1) || b(2) || b(3)) bits |= STICK.FIRE;
+  if (d(12) || y < -DEAD_ZONE) bits |= STICK.UP;
+  if (d(13) || y > DEAD_ZONE) bits |= STICK.DOWN;
+  if (d(14) || x < -DEAD_ZONE) bits |= STICK.LEFT;
+  if (d(15) || x > DEAD_ZONE) bits |= STICK.RIGHT;
+  if (b(0) || d(1) || d(2) || d(3)) bits |= STICK.FIRE;
   return bits;
 }
 
@@ -97,6 +112,11 @@ export function joysticks(
   const padState = [0, 0];
   const sent = [0, 0];
   let names: (string | null)[] = [null, null];
+  /** Each stick's pad, by Gamepad.index. */
+  const slots: (number | null)[] = [null, null];
+  /** The keys whose press a stick took: only their key-ups are its. */
+  const taken = new Set<string>();
+  let rightShift = false;
 
   const toggle = h(
     "button",
@@ -104,6 +124,7 @@ export function joysticks(
       class: "tbtn",
       type: "button",
       "aria-pressed": "false",
+      "aria-label": "Joystick keys",
       title: "Joystick 1 on the arrows and Space, joystick 2 on W A S D and the left Shift: they leave the terminal and the USB keyboard while on",
       "data-testid": "joy-keys",
     },
@@ -116,7 +137,13 @@ export function joysticks(
     toggle,
   );
   const rows = [0, 1].map((n) => {
-    const light = h("span", { class: "led disk-led", title: `Joystick ${n + 1}: on while anything on it is pressed`, "data-testid": `joy${n + 1}-light` });
+    const light = h("span", {
+      class: "led disk-led",
+      role: "img",
+      "aria-label": `Joystick ${n + 1}: nothing pressed`,
+      title: `Joystick ${n + 1}: on while anything on it is pressed`,
+      "data-testid": `joy${n + 1}-light`,
+    });
     const meta = h("div", { class: "meta", "data-testid": `joy${n + 1}-meta` });
     const element = h("div", { class: "row", "data-testid": `joy${n + 1}` }, light, h("div", { class: "what" }, h("div", { class: "name" }, `Joystick ${n + 1}`), meta));
     return { element, light, meta };
@@ -134,9 +161,11 @@ export function joysticks(
   const send = () => {
     for (const n of [0, 1]) {
       const bits = keyBits[n] | padState[n];
-      if (bits !== sent[n] && port.caps.joysticks) port.setJoystick(n, bits);
+      if (bits === sent[n]) continue;
+      if (port.caps.joysticks) port.setJoystick(n, bits);
       sent[n] = bits;
       rows[n].light.classList.toggle("on", bits !== 0);
+      rows[n].light.setAttribute("aria-label", `Joystick ${n + 1}: ${bits ? describe(bits).replaceAll(" ", ", ") : "nothing pressed"}`);
     }
   };
   const show = () => {
@@ -156,6 +185,8 @@ export function joysticks(
   };
   const releaseKeys = () => {
     keyBits[0] = keyBits[1] = 0;
+    taken.clear();
+    rightShift = false;
     send();
   };
   toggle.addEventListener("click", () => {
@@ -167,9 +198,14 @@ export function joysticks(
 
   /** A key on the screen: true if it was a joystick's (the caller keeps it from the keyboards). */
   const key = (e: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "metaKey">, down: boolean): boolean => {
+    if (e.code === "ShiftRight") rightShift = down; // the keyboards' always: it still shifts
     if (!keysOn || !port.caps.joysticks) return false;
     const k = KEYS[e.code];
-    if (!k || (down && (e.ctrlKey || e.altKey || e.metaKey))) return false; // a shortcut, not a stick
+    if (!k) return false;
+    if (down) {
+      if (e.ctrlKey || e.altKey || e.metaKey) return false; // a shortcut, not a stick
+      taken.add(e.code);
+    } else if (!taken.delete(e.code)) return false; // its press went to the keyboards: so does this
     const [n, bit] = k;
     keyBits[n] = down ? keyBits[n] | bit : keyBits[n] & ~bit;
     send();
@@ -184,14 +220,29 @@ export function joysticks(
     } catch {
       list = []; // a browser that refuses (a permissions policy): no pads
     }
-    const live = list.filter((p): p is PadLike => !!p && p.connected).sort((a, b) => a.index - b.index);
-    const now = [0, 1].map((n) => (live[n] ? padName(live[n].id) : null));
-    for (const n of [0, 1]) padState[n] = live[n] ? padBits(live[n]) : 0;
+    const live = new Map<number, PadLike>();
+    for (const p of list) if (p && p.connected) live.set(p.index, p);
+    for (const n of [0, 1]) if (slots[n] !== null && !live.has(slots[n]!)) slots[n] = null; // gone: the stick is free
+    for (const index of [...live.keys()].sort((a, b) => a - b)) {
+      const free = slots.indexOf(null);
+      if (free < 0) break;
+      if (!slots.includes(index)) slots[free] = index; // a new pad: the lowest free stick
+    }
+    const pad = (n: number) => (slots[n] === null ? undefined : live.get(slots[n]!));
+    const now = [0, 1].map((n) => (pad(n) ? padName(pad(n)!.id) : null));
+    for (const n of [0, 1]) padState[n] = pad(n) ? padBits(pad(n)!) : 0;
     send();
     if (now[0] !== names[0] || now[1] !== names[1]) {
       names = now;
       show();
     }
+  };
+  /** The machine is open: caps.joysticks says whether it has the ports. */
+  const connected = () => {
+    element.hidden = !port.caps.joysticks;
+    if (!port.caps.joysticks) releaseKeys();
+    else for (const n of [0, 1]) if (sent[n]) port.setJoystick(n, sent[n]); // pressed before it started
+    show();
   };
   show();
   return {
@@ -200,6 +251,9 @@ export function joysticks(
     key,
     poll,
     releaseKeys,
+    connected,
+    /** The left Shift is joystick 2's fire now and the right Shift isn't held: other keys go unshifted. */
+    shiftTaken: () => taken.has("ShiftLeft") && !rightShift,
     /** The Keys switch. */
     keysOn: () => keysOn,
     /** What each stick has pressed, as last sent. */

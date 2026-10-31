@@ -7,9 +7,9 @@ import { DEAD_ZONE, describe as describeBits, joysticks, padBits, padName, type 
 
 const $ = (el: HTMLElement, id: string) => el.querySelector<HTMLElement>(`[data-testid="${id}"]`)!;
 
-/** A mocked Gamepad: `pressed` button numbers, the left stick at x, y. */
-function pad(index: number, pressed: number[] = [], x = 0, y = 0, id = `Pad ${index} (STANDARD GAMEPAD Vendor: 045e Product: 02fd)`): PadLike {
-  return { index, id, connected: true, axes: [x, y, 0, 0], buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i) })) };
+/** A mocked Gamepad in the standard mapping: `pressed` button numbers, the left stick at x, y. */
+function pad(index: number, pressed: number[] = [], x = 0, y = 0, id = `Pad ${index} (STANDARD GAMEPAD Vendor: 045e Product: 02fd)`, mapping = "standard"): PadLike {
+  return { index, id, connected: true, mapping, axes: [x, y, 0, 0], buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i) })) };
 }
 
 function make(caps: { joysticks?: boolean } = {}) {
@@ -46,6 +46,13 @@ describe("a gamepad's bits", () => {
     expect(padBits(pad(0, [0, 12, 15]))).toBe(STICK.FIRE | STICK.UP | STICK.RIGHT);
   });
 
+  test("a pad not in the standard mapping: its left stick and button 0, nothing else", () => {
+    const odd = (pressed: number[], x = 0, y = 0) => pad(0, pressed, x, y, "Odd Stick", "");
+    for (const b of [1, 2, 3, 12, 13, 14, 15]) expect(padBits(odd([b]))).toBe(0); // its maker's numbering: unknown
+    expect(padBits(odd([0]))).toBe(STICK.FIRE);
+    expect(padBits(odd([], -1, 1))).toBe(STICK.LEFT | STICK.DOWN);
+  });
+
   test("a pad with fewer buttons or axes reads what it has", () => {
     expect(padBits({ index: 0, id: "x", connected: true, axes: [1], buttons: [{ pressed: true }] })).toBe(STICK.RIGHT | STICK.FIRE);
   });
@@ -65,7 +72,7 @@ describe("the joysticks", () => {
     document.body.replaceChildren();
   });
 
-  test("the first two gamepads are joysticks 1 and 2; only changes are sent", () => {
+  test("pads take the lowest free stick and keep it until they go; only changes are sent", () => {
     const { pads, j, sent } = make();
     j.poll();
     expect(sent()).toEqual([]); // nothing pressed, nothing to say
@@ -82,12 +89,30 @@ describe("the joysticks", () => {
       [0, STICK.UP],
       [1, STICK.FIRE],
     ]);
-    pads[0] = null; // unplugged: joystick 1 lets go, and the next pad moves up
+    // Unplugged: joystick 1 is free, and the waiting third pad takes it; joystick 2 keeps its pad.
+    pads[0] = null;
     j.poll();
-    expect(sent().slice(2)).toEqual([
-      [0, STICK.FIRE],
-      [1, STICK.DOWN],
-    ]);
+    expect(sent().slice(2)).toEqual([[0, STICK.DOWN]]);
+    expect($(j.element, "joy1-meta").textContent).toBe("Gamepad: Pad 3");
+    expect($(j.element, "joy2-meta").textContent).toBe("Gamepad: Pad 2");
+    // Pad 0 back: both sticks are taken, so it waits; pad 2 going frees joystick 2 for it.
+    pads[0] = pad(0, [14]);
+    j.poll();
+    expect(sent()).toHaveLength(3);
+    pads[2] = null;
+    j.poll();
+    expect(sent().slice(3)).toEqual([[1, STICK.LEFT]]);
+    expect($(j.element, "joy2-meta").textContent).toBe("Gamepad: Pad 0");
+  });
+
+  test("a pad with a lower index than the one on joystick 1 does not take it over", () => {
+    const { pads, j } = make();
+    pads[3] = pad(3);
+    j.poll();
+    pads[1] = pad(1);
+    j.poll();
+    expect($(j.element, "joy1-meta").textContent).toBe("Gamepad: Pad 3");
+    expect($(j.element, "joy2-meta").textContent).toBe("Gamepad: Pad 1");
   });
 
   test("Settings shows which pad drives each stick, a light while pressed, and the strip's pill", () => {
@@ -142,6 +167,7 @@ describe("the joysticks", () => {
     expect(j.state()[0]).toBe(STICK.FIRE);
     expect(key("KeyQ", true)).toBe(false); // not a stick's: the keyboard's
     expect(key("ArrowLeft", true, { ctrlKey: true })).toBe(false); // a shortcut
+    expect(key("ArrowLeft", false)).toBe(false); // ...and its key-up goes with it
     expect(sent()).toEqual([
       [0, STICK.UP],
       [0, STICK.UP | STICK.FIRE],
@@ -154,6 +180,80 @@ describe("the joysticks", () => {
     // A new page: still on.
     const again = make();
     expect(again.j.keysOn()).toBe(true);
+  });
+
+  test("a stick takes the key-ups of its own presses only", () => {
+    const { j, key, sent } = make();
+    $(j.element, "joy-keys").click();
+    expect(key("ArrowDown", false)).toBe(false); // pressed before Keys went on: the keyboard's
+    expect(key("ArrowDown", true)).toBe(true);
+    expect(key("ArrowDown", true)).toBe(true); // the host's auto-repeat
+    expect(key("ArrowDown", false)).toBe(true);
+    expect(key("ArrowDown", false)).toBe(false);
+    expect(sent()).toEqual([
+      [0, STICK.DOWN],
+      [0, 0],
+    ]);
+  });
+
+  test("the left Shift as fire is taken from the keyboards' shifting, unless the right Shift is held", () => {
+    const { j, key } = make();
+    expect(j.shiftTaken()).toBe(false);
+    key("ShiftLeft", true);
+    expect(j.shiftTaken()).toBe(false); // Keys off: the left Shift is the keyboards'
+    key("ShiftLeft", false);
+    $(j.element, "joy-keys").click();
+    key("ShiftLeft", true);
+    expect(j.shiftTaken()).toBe(true);
+    key("ShiftRight", true);
+    expect(j.shiftTaken()).toBe(false);
+    key("ShiftRight", false);
+    expect(j.shiftTaken()).toBe(true);
+    key("ShiftLeft", false);
+    expect(j.shiftTaken()).toBe(false);
+    key("ShiftLeft", true);
+    j.releaseKeys();
+    expect(j.shiftTaken()).toBe(false);
+  });
+
+  test("each light says what is pressed; the switch is named for what it does", () => {
+    const { pads, j, key } = make();
+    const light = $(j.element, "joy1-light");
+    expect(light.getAttribute("role")).toBe("img");
+    expect(light.getAttribute("aria-label")).toBe("Joystick 1: nothing pressed");
+    expect($(j.element, "joy2-light").getAttribute("aria-label")).toBe("Joystick 2: nothing pressed");
+    expect($(j.element, "joy-keys").getAttribute("aria-label")).toBe("Joystick keys");
+    pads[0] = pad(0, [12, 0]);
+    j.poll();
+    expect(light.getAttribute("aria-label")).toBe("Joystick 1: up, fire");
+    $(j.element, "joy-keys").click();
+    key("KeyA", true);
+    expect($(j.element, "joy2-light").getAttribute("aria-label")).toBe("Joystick 2: left");
+    pads[0] = pad(0);
+    j.poll();
+    expect(light.getAttribute("aria-label")).toBe("Joystick 1: nothing pressed");
+  });
+
+  test("connected(): a machine without the ports hides them and takes no keys; with them, what was held before is sent", () => {
+    const before = make({ joysticks: false });
+    before.pads[0] = pad(0, [0]);
+    before.j.poll(); // a pad held while the machine starts
+    expect(before.sent()).toEqual([]);
+    before.port.caps.joysticks = true; // open: it has them
+    before.j.connected();
+    expect(before.j.element.hidden).toBe(false);
+    expect(before.sent()).toEqual([[0, STICK.FIRE]]);
+
+    const none = make({ joysticks: true });
+    $(none.j.element, "joy-keys").click();
+    none.port.caps.joysticks = false; // open: a machine without the ports
+    none.j.connected();
+    expect(none.j.element.hidden).toBe(true);
+    expect(none.j.pill.hidden).toBe(true);
+    expect(none.key("ArrowUp", true)).toBe(false); // the keyboard's
+    none.pads[0] = pad(0, [12]);
+    none.j.poll();
+    expect(none.sent()).toEqual([]);
   });
 
   test("a stick is its pad and its keys together; Keys off lets the keys go", () => {

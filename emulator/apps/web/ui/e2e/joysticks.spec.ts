@@ -7,7 +7,7 @@ import { openSettings } from "./ui";
 
 const GREETING = "BACKPLANE BIOS 0.9";
 
-type Pad = { index: number; id: string; connected: boolean; axes: number[]; buttons: { pressed: boolean }[] };
+type Pad = { index: number; id: string; connected: boolean; mapping: string; axes: number[]; buttons: { pressed: boolean }[] };
 
 async function booted(page: Page) {
   await page.addInitScript(() => {
@@ -28,6 +28,7 @@ async function plug(page: Page, index: number, id: string, pressed: number[]) {
         index: i as number,
         id: name as string,
         connected: true,
+        mapping: "standard",
         axes: [0, 0, 0, 0],
         buttons: Array.from({ length: 17 }, (_, b) => ({ pressed: (down as number[]).includes(b) })),
       };

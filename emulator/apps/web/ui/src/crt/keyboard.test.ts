@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isPaste, keyBytes, leavesScreen, pasteBytes } from "./keyboard";
+import { isPaste, keyBytes, leavesScreen, pasteBytes, unshifted } from "./keyboard";
 
 type Mods = Partial<{ code: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; shiftKey: boolean; altGraph: boolean }>;
 const key = (k: string, { altGraph = false, ...mods }: Mods = {}) => ({
@@ -79,4 +79,19 @@ test("F6 leaves the screen, Shift+F6 back the other way; with Ctrl, Alt or Cmd i
   expect(leavesScreen(key("F6", { code: "F6", altKey: true }))).toBe(0);
   expect(leavesScreen(key("Tab", { code: "Tab" }))).toBe(0);
   expect(leavesScreen(key("Escape", { code: "Escape" }))).toBe(0);
+});
+
+test("unshifted: letters lower, a US key's shifted character its own, another layout's left alone", () => {
+  const u = (k: string, code: string) => unshifted(key(k, { code, shiftKey: true }));
+  expect(u("Q", "KeyQ").key).toBe("q");
+  expect(u("Ä", "Quote").key).toBe("ä");
+  expect(u("!", "Digit1").key).toBe("1");
+  expect(u('"', "Quote").key).toBe("'");
+  expect(u("~", "Backquote").key).toBe("`");
+  expect(u("/", "Digit7").key).toBe("/"); // German Shift+7: its unshifted 7 is unknown here
+  expect(u("Enter", "Enter").key).toBe("Enter");
+  const e = u("Q", "KeyQ");
+  expect(e.shiftKey).toBe(false);
+  expect(e.code).toBe("KeyQ");
+  expect(e.getModifierState?.("Shift")).toBe(false);
 });

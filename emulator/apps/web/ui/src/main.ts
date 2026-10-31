@@ -30,7 +30,8 @@ import "./styles/debugger.css";
 import "./styles/drawer.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
-import { isPaste, keyBytes, leavesScreen, pasteBytes } from "./crt/keyboard";
+import { leavesScreen, pasteBytes } from "./crt/keyboard";
+import { screenKeys } from "./crt/screen-keys";
 import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
@@ -146,6 +147,8 @@ function start(root: HTMLElement, port: MachinePort): void {
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
   const onUsb = () => scene !== "text" && port.caps.usb;
   const onMouse = () => scene === "vga" && port.caps.usb;
+  // The joysticks' keys, the USB keyboard's or the terminal's (crt/screen-keys.ts).
+  const keys = screenKeys({ sticks, usb: usbKeys, onUsb, caps: () => caps, serial: (bytes) => port.sendSerial(bytes) });
   // Tab and Escape are the machine's, so F6 is the way off the screen by keyboard.
   const leave = (way: 1 | -1) => {
     if (!focusStop(glass, way)) glass.blur();
@@ -156,22 +159,10 @@ function start(root: HTMLElement, port: MachinePort): void {
       e.preventDefault();
       return leave(way);
     }
-    if (sticks.key(e, true)) {
-      e.preventDefault(); // the Keys switch is on: a joystick's, not the keyboards'
-      return;
-    }
-    if (isPaste(e)) return; // the browser's: its paste event types the text, below
-    if (onUsb()) {
-      if (usbKeys.down(e)) e.preventDefault();
-      return;
-    }
-    const bytes = keyBytes(e, caps);
-    if (!bytes) return;
-    e.preventDefault();
-    port.sendSerial(bytes);
+    if (keys.down(e)) e.preventDefault();
   });
   glass.addEventListener("keyup", (e) => {
-    if (sticks.key(e, false) || usbKeys.up(e)) e.preventDefault();
+    if (keys.up(e)) e.preventDefault();
   });
   glass.addEventListener("blur", () => (usbKeys.releaseAll(), sticks.releaseKeys()));
   window.addEventListener("blur", () => (usbKeys.releaseAll(), sticks.releaseKeys()));
@@ -402,6 +393,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     .connect()
     .then(async (opened) => {
       bios.connected(opened.bios);
+      sticks.connected(); // the machine says whether it has the joystick ports
       await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       panel.applyAll();
       port.setLights(true);

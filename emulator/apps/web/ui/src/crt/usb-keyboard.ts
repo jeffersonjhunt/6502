@@ -97,7 +97,7 @@ export class UsbKeyboard {
   }
 
   /** @returns true if the event went to the machine (the page should not act on it too) */
-  down(e: KeyboardEvent): boolean {
+  down(e: Pick<KeyboardEvent, "code" | "shiftKey" | "ctrlKey" | "altKey" | "metaKey">): boolean {
     if (e.metaKey && e.code !== "MetaLeft" && e.code !== "MetaRight") return false; // the browser's shortcut
     const usage = usageFor(e.code);
     if (usage === null) return false;
@@ -113,7 +113,7 @@ export class UsbKeyboard {
     return true; // auto-repeat is the card's job: repeats from the host are swallowed
   }
 
-  up(e: KeyboardEvent): boolean {
+  up(e: Pick<KeyboardEvent, "code">): boolean {
     const usage = usageFor(e.code);
     if (usage === null || !this.held.has(usage)) return false;
     this.held.delete(usage);
