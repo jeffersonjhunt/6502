@@ -61,6 +61,7 @@ SCB_RETCODE     = SCB + $10            ; the program return code (108)
 SCB_CCPFLAGS    = SCB + $17            ; OODOS's, in a reserved byte: function 47's
 CCP_CHAIN       = $80                  ;   a command waits at $0280
 CCP_CHAINDU     = $40                  ;   with the program's drive and user
+SCB_CCPDISP     = SCB + $18            ; OODOS's, reserved in CP/M 3: bit 7 SETDEF's [DISPLAY]
 SCB_WIDTH       = SCB + $1A            ; console width - 1
 SCB_COLUMN      = SCB + $1B            ; the console's column
 SCB_PAGELEN     = SCB + $1C
