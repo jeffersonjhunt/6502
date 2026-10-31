@@ -922,8 +922,8 @@ TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_i
                           "\nA: Password Protection = ON\r",
                           "\nA:PATTERN.DAT Protection = Write\r",
                           "\nA:TESTSYS.SYS Protection = Delete\r",
-                          "\nINITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
-                          "Do you really want to re-format the directory: A (Y/N)? ",
+                          ("\nINITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                           "Do you really want to re-format the directory: A (Y/N)? "),
                           "\nA: Create = ON\r\nA: Update = ON\r",
                           "\nA: Label = OODOS.4B1\r"};
     bool all = true;
