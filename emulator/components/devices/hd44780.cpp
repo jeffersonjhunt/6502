@@ -183,8 +183,16 @@ namespace ooe::emu
 
     void ViaLcd::update()
     {
-        // A pin is high only if the VIA drives it high; undriven pins read low.
-        auto driven = [this](Via6522::Port p) { return static_cast<uint8_t>(via_.output(p) & via_.ddr(p)); };
+        // A line the VIA drives is what it drives; one it lets go (a DDR bit
+        // cleared, as /RESET clears them all) keeps the level it was last
+        // driven to, so E going undriven while high latches nothing.
+        for (const Via6522::Port p : {Via6522::Port::A, Via6522::Port::B})
+        {
+            const uint8_t ddr = via_.ddr(p);
+            uint8_t &level = level_[p == Via6522::Port::A ? 0 : 1];
+            level = static_cast<uint8_t>((via_.output(p) & ddr) | (level & ~ddr));
+        }
+        auto driven = [this](Via6522::Port p) { return level_[p == Via6522::Port::A ? 0 : 1]; };
         auto pin = [&](const ViaPin &p) { return (driven(p.port) & p.mask()) != 0; };
 
         const auto bits = static_cast<uint8_t>((driven(data_.port) & data_.mask()) >> data_.first);

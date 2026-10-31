@@ -134,6 +134,22 @@ TEST(four_bit_after_a_one_nibble_function_set)
     CHECK_EQ(l.lcd.lcd().line(1), std::string("x               "));
 }
 
+TEST(reset_with_e_high_latches_nothing)
+{
+    // /RESET makes every VIA line an input: E floats where it was, no falling edge.
+    Lcd8 l8;
+    l8.send(0x38, 0);
+    l8.via.write(ORB, 'Z');
+    l8.via.write(ORA, Lcd8::RS | Lcd8::E);
+    const uint64_t before8 = l8.lcd.lcd().version();
+    l8.via.bus_reset();
+    CHECK_EQ(l8.lcd.lcd().version(), before8);
+    Lcd4 l4;
+    l4.via.write(ORB, Lcd4::E);
+    l4.via.bus_reset();
+    CHECK(!l4.lcd.lcd().used());
+}
+
 TEST(ddram_wraps_between_lines_and_display_shifts)
 {
     Lcd8 l;

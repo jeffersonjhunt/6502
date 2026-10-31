@@ -112,5 +112,8 @@ namespace ooe::emu
         ViaPins data_;
         ViaPin rs_, rw_, e_;
         Hd44780 lcd_;
+        /// Each port's lines as the LCD sees them: driven, or as last driven
+        /// (a line the VIA lets go floats where it was; that is no edge).
+        std::array<uint8_t, 2> level_{};
     };
 } // namespace ooe::emu
