@@ -2,9 +2,11 @@
  * Where a key on the screen goes (main.ts listens; F6, which leaves the
  * screen, is its own). First the joysticks, while their Keys switch is on
  * (ui/joysticks.ts); then the browser's paste chords; then the USB
- * keyboard on Display, or the serial terminal on Terminal. A key-up is the
- * joysticks' only if they took its press, else the USB keyboard's, so a
- * shortcut such as Ctrl+Left, which goes past the sticks, is let go too.
+ * keyboard on Display, or the serial terminal on Terminal. Who has a key
+ * is decided on its first press and kept until its key-up: its repeats
+ * and its key-up go there too, whatever Ctrl, Alt or Meta did meanwhile.
+ * So a shortcut such as Ctrl+Left, which goes past the sticks, is let go
+ * on the USB keyboard, and an arrow held as a stick stays the stick's.
  *
  * While the left Shift is held as joystick 2's fire, the keyboards see the
  * other keys unshifted (keyboard.ts unshifted()): that Shift is a fire
@@ -15,7 +17,7 @@ import { isPaste, keyBytes, unshifted, type KeyLike } from "./keyboard";
 import type { UsbKeyboard } from "./usb-keyboard";
 
 /** As much of a KeyboardEvent as is read. */
-export type ScreenKey = KeyLike & { code: string; shiftKey: boolean };
+export type ScreenKey = KeyLike & { code: string; shiftKey: boolean; repeat?: boolean };
 
 /** The joysticks' side (ui/joysticks.ts). */
 export interface StickKeys {

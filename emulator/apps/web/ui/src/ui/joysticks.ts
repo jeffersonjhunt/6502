@@ -20,8 +20,11 @@
  * arrows and Space, joystick 2 W A S D and the left Shift, by physical key
  * (KeyboardEvent.code), whatever the layout. A stick's state is its pad's
  * and its keys' together. A key with Ctrl, Alt or Meta is a shortcut, the
- * keyboards' and not a stick's, and its key-up goes after it: a stick
- * takes only the key-ups of the presses it took. While the left Shift is
+ * keyboards' and not a stick's. Who has a key is decided on its first
+ * (not auto-repeated) press and kept until it is let go: its repeats and
+ * its key-up go to the same one, whatever Ctrl, Alt or Meta do meanwhile,
+ * so a held arrow never moves between a stick and the USB keyboard, and
+ * no key is left held on either. While the left Shift is
  * joystick 2's fire, the other keys reach the keyboards unshifted
  * (shiftTaken(); the right Shift still shifts).
  *
@@ -114,8 +117,8 @@ export function joysticks(
   let names: (string | null)[] = [null, null];
   /** Each stick's pad, by Gamepad.index. */
   const slots: (number | null)[] = [null, null];
-  /** The keys whose press a stick took: only their key-ups are its. */
-  const taken = new Set<string>();
+  /** Who has each held joystick key, from its first press to its key-up: true a stick, false the keyboards. */
+  const owner = new Map<string, boolean>();
   let rightShift = false;
 
   const toggle = h(
@@ -185,7 +188,7 @@ export function joysticks(
   };
   const releaseKeys = () => {
     keyBits[0] = keyBits[1] = 0;
-    taken.clear();
+    owner.clear();
     rightShift = false;
     send();
   };
@@ -197,17 +200,23 @@ export function joysticks(
   });
 
   /** A key on the screen: true if it was a joystick's (the caller keeps it from the keyboards). */
-  const key = (e: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "metaKey">, down: boolean): boolean => {
+  const key = (e: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "metaKey"> & { repeat?: boolean }, down: boolean): boolean => {
     if (e.code === "ShiftRight") rightShift = down; // the keyboards' always: it still shifts
-    if (!keysOn || !port.caps.joysticks) return false;
     const k = KEYS[e.code];
-    if (!k) return false;
-    if (down) {
-      if (e.ctrlKey || e.altKey || e.metaKey) return false; // a shortcut, not a stick
-      taken.add(e.code);
-    } else if (!taken.delete(e.code)) return false; // its press went to the keyboards: so does this
-    const [n, bit] = k;
-    keyBits[n] = down ? keyBits[n] | bit : keyBits[n] & ~bit;
+    const had = owner.get(e.code);
+    if (!down) {
+      owner.delete(e.code);
+      if (!had) return false; // its press went to the keyboards (or came before Keys): so does this
+      keyBits[k[0]] &= ~k[1];
+      send();
+      return true;
+    }
+    if (had !== undefined) return had; // a repeat goes where the first press went
+    if (!k || e.repeat || !keysOn || !port.caps.joysticks) return false; // a repeat of a press from before: the keyboards'
+    const stick = !(e.ctrlKey || e.altKey || e.metaKey); // with one, a shortcut: the keyboards'
+    owner.set(e.code, stick);
+    if (!stick) return false;
+    keyBits[k[0]] |= k[1];
     send();
     return true;
   };
@@ -253,7 +262,7 @@ export function joysticks(
     releaseKeys,
     connected,
     /** The left Shift is joystick 2's fire now and the right Shift isn't held: other keys go unshifted. */
-    shiftTaken: () => taken.has("ShiftLeft") && !rightShift,
+    shiftTaken: () => owner.get("ShiftLeft") === true && !rightShift,
     /** The Keys switch. */
     keysOn: () => keysOn,
     /** What each stick has pressed, as last sent. */
