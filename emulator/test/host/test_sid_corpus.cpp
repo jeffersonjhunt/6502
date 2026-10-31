@@ -3,8 +3,11 @@
  * @brief Real `.sid` tunes, from the owner's fixtures, on the card.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * Every file in fixtures/SIDs (gitignored: the tunes are their composers')
- * is played. A PSID with a play routine must be called on time in its
+ * A sample of the `.sid` files under fixtures/SIDs, subfolders included
+ * (gitignored: the tunes are their composers'; the owner's HVSC copy is
+ * tens of thousands), is played: SID_COUNT of them (12; 0 for all), picked
+ * by SID_SEED (printed, so a failure can be run again; random if unset).
+ * Each A PSID with a play routine must be called on time in its
  * first two seconds (VBI: 50 or 60 a second, less one for init; CIA: at
  * least once), its 6510 must not jam, and it must gate a voice with the
  * volume up within ten (some open with seconds of silence). RSIDs and
@@ -20,10 +23,13 @@
 #include "sound_card.h"
 
 #include <algorithm>
-#include <dirent.h>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace ooe::test;
@@ -33,21 +39,43 @@ namespace
 {
     const std::string FOLDER = std::string(EMU_FIXTURE_DIR) + "/SIDs";
 
+    /// Every tune under FOLDER, as paths relative to it, sorted.
     std::vector<std::string> tunes()
     {
+        namespace fs = std::filesystem;
         std::vector<std::string> names;
-        if (DIR *d = opendir(FOLDER.c_str()))
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(FOLDER, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec))
         {
-            while (const dirent *e = readdir(d))
-            {
-                const std::string n = e->d_name;
-                if (n.size() > 4 && (n.substr(n.size() - 4) == ".sid" || n.substr(n.size() - 4) == ".SID"))
-                    names.push_back(n);
-            }
-            closedir(d);
+            const std::string n = it->path().filename().string();
+            if (it->is_regular_file(ec) && n.size() > 4 &&
+                (n.substr(n.size() - 4) == ".sid" || n.substr(n.size() - 4) == ".SID"))
+                names.push_back(fs::relative(it->path(), FOLDER, ec).string());
         }
         std::sort(names.begin(), names.end());
         return names;
+    }
+
+    unsigned long env_or(const char *name, unsigned long dflt)
+    {
+        const char *v = std::getenv(name);
+        return v && *v ? std::strtoul(v, nullptr, 0) : dflt;
+    }
+
+    /// SID_COUNT of `all` (0: every one), chosen by SID_SEED, in path order.
+    std::vector<std::string> sample(std::vector<std::string> all)
+    {
+        const unsigned long count = env_or("SID_COUNT", 12);
+        const unsigned long seed = env_or("SID_SEED", std::random_device{}());
+        std::printf("  %zu tunes; SID_SEED=%lu SID_COUNT=%lu\n", all.size(), seed, count);
+        if (count == 0 || count >= all.size())
+            return all;
+        std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));
+        std::shuffle(all.begin(), all.end(), rng);
+        all.resize(count);
+        std::sort(all.begin(), all.end());
+        return all;
     }
 
     struct Result
@@ -89,10 +117,10 @@ namespace
     }
 } // namespace
 
-TEST(every_tune_plays_or_at_least_runs)
+TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
 {
     unsigned played = 0, ran = 0;
-    for (const std::string &name : tunes())
+    for (const std::string &name : sample(tunes()))
     {
         std::ifstream in(FOLDER + "/" + name, std::ios::binary);
         const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
