@@ -406,10 +406,9 @@ ISALL:          LDA     UT_WLEN
 @no:            CLC
                 RTS
 
-; DRIVE=ALL: every logged-in drive (function 24), A to P. The plan's reading
-; (the Guide's table: "all accessed drives"); its example says the drives of
-; the search chain instead, and that is not decided: this routine alone
-; makes the choice, so a change is made here.
+; DRIVE=ALL: every logged-in drive (function 24), A to P. The Guide's table
+; ("all accessed drives") followed over its example (the drives of the search
+; chain): decided by the user, 2026-10-31. This routine alone makes the choice.
 ALLDRVS:        LDY     #DRV_LOGINVEC
                 JSR     BDOS
                 STA     VEC

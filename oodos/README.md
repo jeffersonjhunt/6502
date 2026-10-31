@@ -94,7 +94,8 @@ hello on `spike/gwbasic/run6502` (the emulator's W65C02S), so it needs a C++ com
 And phase 1's tooling:
 
 - [`tools/make_card.sh`](tools/make_card.sh): makes the test card, from [`card/`](card/).
-- [`test/interop.sh`](test/interop.sh): checks a card with cpmtools, the committed one or one the OO-1 wrote.
+- [`test/interop.sh`](test/interop.sh): checks a card with cpmtools, the committed one or one the OO-1 wrote
+  (`--written`, `--ccp`, `--utils`).
 
 
 ## The system: OODOS.SYS ##
@@ -184,6 +185,27 @@ start:  jsr     UT_INIT
 ```
 make utils                  # build/NAME.com for each utils/NAME.s
 ```
+
+The ten of phase 4b1 (PIP is 4b2's). `tools/make_card.sh` builds them and puts them on the test card's A:, user 0,
+SYS, as HELLO.COM, so the CCP finds them from any user by the search chain:
+
+| File | What |
+|---|---|
+| [`utils/dir.s`](utils/dir.s) | DIR.COM: CP/M 3's DIR with options: the built-in's short form sorted, over several drives; FULL, SIZE and DATE with totals; every option of the Guide's Table 5-5. `DRIVE=ALL` is the logged-in drives (below). 7,418 bytes. `test_oodos_utils_dir` |
+| [`utils/type.s`](utils/type.s), [`utils/erase.s`](utils/erase.s), [`utils/rename.s`](utils/rename.s) | TYPE.COM, ERASE.COM, RENAME.COM: the forms the built-ins hand over (TYPE's `[PAGE]`/`[NOPAGE]` and wildcards, each file under its name; ERASE's `[CONFIRM]`; RENAME's wildcards, `NEW.TYP=OLD.TYP` for each) and the prompts when no file is given; the built-ins' own forms as they do them. 4,011, 3,962 and 4,250 bytes. `test_oodos_utils_files` |
+| [`utils/set.s`](utils/set.s) | SET.COM: a file's attributes (30), password and mode (103); a drive read-only (28) or read-write (37); the label (100: its name, password, protection and stamp modes); the default password (106). 6,563 bytes. `test_oodos_utils_set` |
+| [`utils/initdir.s`](utils/initdir.s) | INITDIR.COM: a directory given SFCBs, its entries in their places moved first, or the SFCBs taken away or their stamps cleared, through the BIOS (function 50). 5,040 bytes. `test_oodos_utils_set` |
+| [`utils/show.s`](utils/show.s) | SHOW.COM: a drive's free space, its label, its users, its free directory entries and its characteristics (the DPB). 5,282 bytes. `test_oodos_utils_sys` |
+| [`utils/date.s`](utils/date.s) | DATE.COM: the date and time, once or each second, or the clock set at a key, its seconds kept. 4,341 bytes. `test_oodos_utils_sys` |
+| [`utils/device.s`](utils/device.s) | DEVICE.COM: the BIOS's character devices and the SCB's assignments, shown and set; the console's width and page. 5,477 bytes. `test_oodos_utils_sys` |
+| [`utils/setdef.s`](utils/setdef.s) | SETDEF.COM: the drive search chain, the temporary drive, the type order, the display and page modes, shown and set. 4,526 bytes. `test_oodos_utils_sys` |
+
+Sizes are the `.COM`s', the 16-byte header among them; ld65 links all of `util.inc` into each (a later phase may
+split it). Two choices the user decided (2026-10-31): **DIR's `DRIVE=ALL`** is the logged-in drives (function 24,
+in one routine, `ALLDRVS` in `dir.s`), as the Guide's Table 5-5 has it, where its example says the drives of the
+search chain; and **a utility that writes nothing** (ERASE of one name, a DEVICE assignment, SET's
+`[DEFAULT=pw]`) leaves one blank line before the next prompt (the line typed, then `\r\n\r\nA>`) that a built-in
+doesn't (`\r\r\nA>`): the CCP ends the command's line (the LF it owes, `CM_LFDUE`) before any program runs.
 
 The emulator's build runs `make utils` into its build tree (`oodos_utils`) for the `test_oodos_utils` suites, which
 put each on M: behind OODOS's back (`oodos_rig.h`'s `put_util`) and run it from the CCP. `test_oodos_utils`
@@ -305,16 +327,16 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 ## The test card ##
 
 `tools/make_card.sh` makes the card the emulator's tests use, `emulator/test/host/sd/oodos.sparse` (committed,
-398 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
+502 KB; `sd_images.h` expands it): a 32 MB card with an MBR and FAT16 in partition 1, holding
 
 | On the card | What |
 |---|---|
 | `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
 | `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` (SYS, so the CCP finds it from any user), `0:HELLO.PRL` and `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below) |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` (SYS, so the CCP finds it from any user), `0:HELLO.PRL`, `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below), then phase 4b1's ten utilities, `0:DATE.COM` to `0:TYPE.COM` ([`utils/`](utils/), above), SYS as HELLO.COM: 19 files, 21 entries |
 | `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
-It runs everything (make, ca65 and ld65 for OOLDR and OODOS.SYS, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
+It runs everything (make, ca65 and ld65 for OOLDR, OODOS.SYS and the utilities, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
 throwaway `debian:bookworm`, pinned by digest, under faketime, every stamp 2026-10-26 12:00, with fixed volume and
 disk ids, so the same sources make the same card; it prints the packages' versions:
 
@@ -322,9 +344,9 @@ disk ids, so the same sources make the same card; it prints the packages' versio
 oodos/tools/make_card.sh
 ```
 
-Run it after changing anything on the card: `test_oodos_boot` builds OOLDR, both systems, HELLO.COM, HELLO.PRL
-and WRITEOO1.COM from the sources and fails, with "the card is stale: run oodos/tools/make_card.sh", unless the card
-holds exactly those (and `card/DRIVES.TXT`).
+Run it after changing anything on the card: `test_oodos_boot` builds OOLDR, both systems, HELLO.COM, HELLO.PRL,
+WRITEOO1.COM and the utilities from the sources and fails, with "the card is stale: run oodos/tools/make_card.sh",
+unless the card holds exactly those (and `card/DRIVES.TXT`), each utility a SYS file.
 
 `mkfs.cpm` writes only the directory, and the file grows as `cpmcp` writes; an SD unit is its file's size, so the
 script makes A.IMG 8 MB first (`truncate`), the unused blocks zeros. mkfs.fat's boot code is zeroed, as
@@ -363,12 +385,29 @@ docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath emulator/test/host/s
 OODOS_CCP_OUT=$PWD/oodos/build/ccp.img emulator/build/dev/test/host/test_oodos_card
 docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath oodos/build):/c:ro" \
     $bookworm sh /o/test/interop.sh /c/ccp.img --ccp              # after the CCP's ERA and REN: PASS 7
+OODOS_UTILS_OUT=$PWD/oodos/build/utils.img emulator/build/dev/test/host/test_oodos_card
+docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath oodos/build):/c:ro" \
+    $bookworm sh /o/test/interop.sh /c/utils.img --utils          # after ERASE, RENAME, SET, INITDIR: PASS 8
 ```
 
 **The CCP's ERA and REN** (phase 4a): the same test runs the CCP on the card, `REN README.DOC=README.TXT`, `REN
 PATTERN.DAT=PATTERN.BIN` (two entries), `ERA SMALL.BIN` in user 3 and `ERA *.PRL` (answered Y); with
 `OODOS_CCP_OUT` it saves that card, and `interop.sh --ccp` checks it: `fsck.cpm`, the stamps kept by the renames,
 the erased files gone from `cpmls -F`, the renamed ones' contents by `cpmcp`.
+
+**The utilities** (phase 4b1): the same test runs the card's own ERASE, RENAME, SET and INITDIR from A: on A:: `ERA
+*.PRL [CONFIRM]` (Y), `REN *.DAT=*.BIN` (PATTERN.BIN), `SET README.TXT [RO, ARCHIVE=ON, F1=ON]`, `SET WRITEOO1.COM
+[SYS]`, `INITDIR A:` (Y: its SFCBs taken away, the label's stamp bits cleared), `SET [PROTECT=ON]`, `SET
+PATTERN.DAT [PASSWORD=SECRET, PROTECT=WRITE]` and `SET TESTSYS.SYS [PASSWORD=OTHER, PROTECT=DELETE]` (two XFCBs,
+in the free SFCB places 3 and 7), `INITDIR A:` again (Y: the XFCBs moved to 13 and 29 and the SFCBs made, every
+stamp 0), `SET [CREATE=ON, UPDATE=ON]` and `SET [NAME=OODOS.4B1]`; with `OODOS_UTILS_OUT` it saves that card, and
+`interop.sh --utils` checks it: `fsck.cpm`, the label (`OODOS   4B1`, mode 0xB1), `cpmls -F`'s attributes (README.TXT
+`1   R A`, WRITEOO1.COM `S`), protections (`Write`, `Delete`, the rest `None`) and stamps (0, which `cpmls` shows as
+12/31/77 00:00), the erased and renamed files, an SFCB in every fourth entry and nowhere else, the two XFCBs where
+INITDIR moved them with their modes, and the files' contents by `cpmcp`. cpmtools lists an XFCB as a file of user
+16 and more, of no bytes; it reads a file whatever its password. Seen to fail on the committed card and the `--ccp`
+one (the label), and on copies of the saved card with one byte wrong: an XFCB's mode, an SFCB freed, README.TXT's
+archive bit, a slot's mode, the label's mode, an XFCB left in an SFCB's place.
 
 `OODOS_CARD_FAULT=alloc` (a block README.TXT has), `=stamp` (each entry's stamps in the next one's slot, the first
 entry's update a minute later, so no slot is right) or `=stamp-zero` (the same in an SFCB of zeros, not $E5s)
