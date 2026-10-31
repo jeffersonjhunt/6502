@@ -2102,6 +2102,9 @@ Each phase is its own branch.
    2026-10-30).
 6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3
    exchange utility.
+   *Proposed (2026-10-30), not yet numbered:* the game and device services ([oolib.md](oolib.md)) as a phase
+   before GW-BASIC, whose SCREEN, PLAY, STICK and ON TIMER are written on them: the interrupt dispatcher and the
+   VIA's system tick first. Its open questions are the owner's to settle first.
 7. **GW-BASIC.**
 8. **The website:** an OODOS card in the WebUI with OODOS, GW-BASIC and demo programs, all ours or MIT.
 
