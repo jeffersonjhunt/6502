@@ -1134,8 +1134,9 @@ paddles; the VIA's ports are native only.
 
 **The part.** The W65C22S, still made by WDC, is rated to 14 MHz at 5 V, so it runs at ÷2 with **no wait states**:
 the CPLD selects it with PS0–PS3 = 6 and A6–A4 = `100`, A0–A3 go to RS0–RS3, and it takes PHI2 from the backplane.
-Its IRQB goes to the CPLD, which shows it as INTSTAT bit 3 and pulls bit 6 of IRQL. /RESET clears it: every port
-line an input, the timers stopped, interrupts off.
+Its IRQB goes to the CPLD, which shows it as INTSTAT bit 3 and pulls bit 6 of IRQL. /RESET leaves every port
+line an input and every interrupt off, the timers' included: their counters run on (the chip doesn't clear them), but
+neither interrupts until a program loads it.
 
 **Registers** (`$C340` + RS, WDC's order):
 
