@@ -1347,7 +1347,7 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    pressed, the rest pulled up. The TL16C552A isn't modelled yet, so a 6551 still stands in for the terminal at
    `$C300–$C303`, mirrored through the rest of the block as before; the VIA answers its 16 bytes over that
    mirror. INTSTAT isn't modelled: `$C322` is still the 6551's mirror, so for now a handler tells the VIA by its
-   IFR. In the WebUI the first two gamepads drive the sticks, and keys too once Settings turns them on; the
+   IFR. In the WebUI gamepads drive the sticks, each keeping its stick until it goes, and keys too once Settings turns them on; the
    terminal app's debugger has `joy`.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.

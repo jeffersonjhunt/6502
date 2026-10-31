@@ -796,13 +796,17 @@ holds the sticks through power cycles. test_joyports runs 6502 code on
 backplane.machine that reads both sticks in a T1 handler at the 1 kHz
 tick's latch, 7,157: an interrupt every 7,159 cycles, IRQL $BF each time.
 The terminal debugger's `joy 1 uf` holds a stick (`Debugger::add_command`,
-a view with arguments). The WebUI: the first two gamepads, by the Gamepad
-API (the d-pad or the left stick past half way; any face button fires),
+a view with arguments). The WebUI: gamepads, by the Gamepad API, each
+taking the lowest free stick until it disconnects (the left stick past
+half way; in the standard mapping the d-pad too, and any face button
+fires; else button 0),
 and, with Settings' Keys switch on (off by default, so they never take the
 terminal's or the USB keyboard's keys), the arrows and Space for joystick
 1, W A S D and left Shift for 2. Settings' Joysticks section names the pad
 on each and lights while one is pressed; the strip's JOY pill shows while
-any is connected. `MachinePort.setJoystick`.
+any is connected. `MachinePort.setJoystick`; `caps.joysticks` comes from
+the core's `hasJoysticks()` once the machine is open, and the UI then
+sends what was held before it started.
 
 ## Backlog
 

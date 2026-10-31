@@ -144,14 +144,19 @@ Settings, in sections:
   the page: not kept, never uploaded.
 - **Joysticks.** The serial card's two digital joysticks (`LDA $C341` reads
   joystick 1, `$C340` joystick 2, a bit 0 while pressed: up, down, left,
-  right, fire). The first two gamepads drive them (the browser shows a pad
-  once a button on it is pressed): the d-pad or the left stick past half
-  way for the directions, any of the four face buttons for fire. Each
-  stick's row names its pad, with a light while anything is pressed.
+  right, fire), shown when the machine has them. Gamepads drive them (the
+  browser shows a pad once a button on it is pressed): each pad takes the
+  lowest free stick and keeps it until it disconnects. The left stick past
+  half way is the directions; a pad in the standard mapping also has its
+  d-pad, and any of its four face buttons fires; another pad fires with
+  button 0. Each stick's row names its pad, with a light while anything
+  is pressed (a screen reader reads what).
   **Keys**, off by default, adds a keyboard for those without a pad: the
   arrows and Space are joystick 1, W A S D and the left Shift joystick 2,
   by physical key. While it is on those keys go to the joysticks, not the
-  terminal or the USB keyboard; it is remembered. The strip's **JOY** pill
+  terminal or the USB keyboard (with Ctrl, Alt or Meta they are still the
+  keyboards'), and while the left Shift is held as fire the other keys go
+  unshifted (the right Shift still shifts); it is remembered. The strip's **JOY** pill
   shows which sticks have a pad or keys and opens this section.
 - **Display.** The phosphor.
 - **About.** The credits: the screen font is VileR's (CC BY-SA 4.0); Inter,
