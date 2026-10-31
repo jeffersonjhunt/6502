@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import type { FrameState } from "./machine-port";
+import { STICK, type FrameState } from "./machine-port";
 import { typeText, usageFor } from "../crt/usb-keyboard";
 import { startApple, typeReset } from "../ui/apple-bar";
 import { fakeIIeRom } from "./fake-iie";
@@ -484,6 +484,25 @@ describe("WasmPort", () => {
     expect(Array.from(await m.port.readMemory(0xf0000 | echo!, 4, "physical"))).toEqual(
       Array.from(await m.port.readMemory(echo!, 4, "cpu")),
     );
+  });
+
+  test("the joysticks: the monitor reads them at $C341 and $C340, and they stay held through a power cycle", async () => {
+    const m = await open();
+    m.until(GREETING);
+    m.clear();
+    m.port.sendSerial(ascii("C340.C341\r"));
+    expect(m.until("C340: FF FF")).toBe(true); // nothing pressed: pulled up
+    m.port.setJoystick(0, STICK.UP | STICK.FIRE);
+    m.port.setJoystick(1, STICK.LEFT);
+    m.clear();
+    m.port.sendSerial(ascii("C340.C341\r"));
+    expect(m.until("C340: FB EE")).toBe(true); // 0 while pressed
+    m.port.setPower(false);
+    m.step();
+    m.port.setPower(true);
+    expect(Array.from(await m.port.readMemory(0xc340, 2, "io"))).toEqual([0xfb, 0xee]);
+    m.port.setJoystick(0, 0);
+    expect(Array.from(await m.port.readMemory(0xc341, 1, "io"))).toEqual([0xff]);
   });
 
   test("power off stops the clock; power on is a cold start", async () => {
