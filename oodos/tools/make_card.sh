@@ -28,13 +28,17 @@
 #     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
 #                      loader
 #     0:WRITEOO1.COM   oodos/sys/test/writeoo1.s: test_oodos_card runs it to
-#                      write 0:OO1.BIN through the BDOS, in entries 29 and
-#                      30, the first entries free
+#                      write 0:OO1.BIN through the BDOS, in entries 32 and
+#                      33, the first in an SFCB's first slot
 #     0:DATE.COM ...   phase 4b's utilities (oodos/utils/, make utils), one
 #                      .COM each utils/NAME.s, in its name's order: DATE,
 #                      DEVICE, DIR, ERASE, INITDIR, RENAME, SET, SETDEF,
 #                      SHOW, TYPE; SYS, as HELLO.COM (hw/oodos.md, "The
 #                      utilities, phase 4b")
+#     0:SPACER1.TXT    text, one line each, last: two more entries, so the
+#     0:SPACER2.TXT    first free one is an SFCB's first slot (32), where
+#                      WRITEOO1 puts OO1.BIN: fsck.cpm 2.23 compares that
+#                      slot's stamps backwards, a case interop.sh checks
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
@@ -129,6 +133,11 @@ at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
 at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL WRITEOO1.COM 0:
 at cpmcp -f oodos-8m A.IMG $utils 0:
+# Two entries more (21 to 23) put the first free entry at 32, an SFCB's first
+# slot, as 16 was before the utilities: OO1.BIN's first entry lands there.
+python3 text.py SPACER1.TXT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
+python3 text.py SPACER2.TXT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
+at cpmcp -f oodos-8m A.IMG SPACER1.TXT SPACER2.TXT 0:
 at cpmchattr -f oodos-8m A.IMG s 0:HELLO.COM
 for u in $utils; do at cpmchattr -f oodos-8m A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n A.IMG

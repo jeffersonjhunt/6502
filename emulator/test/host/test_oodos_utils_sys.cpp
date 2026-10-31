@@ -829,7 +829,7 @@ TEST(the_cards_show_date_device_and_setdef_run_from_a_as_the_builds_do)
     REQUIRE(r.ok);
     Dir a(r, 1);
     same(run(r, "a:show a:[dir]"), "A: Number of free directory entries: " + std::to_string(a.free_entries()));
-    CHECK_EQ(a.free_entries(), 1024u - 256 - 1 - 21); // the label, and 19 files' 21 entries, ten utilities among them
+    CHECK_EQ(a.free_entries(), 1024u - 256 - 1 - 23); // the label, and 21 files' 23 entries, ten utilities among them
     same(run(r, "a:show [label]"), lines(label_lines('A', a.e(static_cast<unsigned>(a.label())))));
     same(run(r, "a:show [drive]"), lines(drive_lines('A', a)));
     same(run(r, "a:setdef"), lines(setdef_lines({"M:", "Default"})));

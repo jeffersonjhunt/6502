@@ -333,7 +333,7 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 |---|---|
 | `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
 | `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` (SYS, so the CCP finds it from any user), `0:HELLO.PRL`, `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below), then phase 4b1's ten utilities, `0:DATE.COM` to `0:TYPE.COM` ([`utils/`](utils/), above), SYS as HELLO.COM: 19 files, 21 entries |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` (SYS, so the CCP finds it from any user), `0:HELLO.PRL`, `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below), then phase 4b1's ten utilities, `0:DATE.COM` to `0:TYPE.COM` ([`utils/`](utils/), above), SYS as HELLO.COM, and `0:SPACER1.TXT` and `0:SPACER2.TXT`, a line each, so that the first free entry is an SFCB's first slot (32), where `0:OO1.BIN` lands (below): 21 files, 23 entries |
 | `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
 It runs everything (make, ca65 and ld65 for OOLDR, OODOS.SYS and the utilities, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
@@ -399,7 +399,7 @@ the erased files gone from `cpmls -F`, the renamed ones' contents by `cpmcp`.
 *.PRL [CONFIRM]` (Y), `REN *.DAT=*.BIN` (PATTERN.BIN), `SET README.TXT [RO, ARCHIVE=ON, F1=ON]`, `SET WRITEOO1.COM
 [SYS]`, `INITDIR A:` (Y: its SFCBs taken away, the label's stamp bits cleared), `SET [PROTECT=ON]`, `SET
 PATTERN.DAT [PASSWORD=SECRET, PROTECT=WRITE]` and `SET TESTSYS.SYS [PASSWORD=OTHER, PROTECT=DELETE]` (two XFCBs,
-in the free SFCB places 3 and 7), `INITDIR A:` again (Y: the XFCBs moved to 13 and 29 and the SFCBs made, every
+in the free SFCB places 3 and 7), `INITDIR A:` again (Y: the XFCBs moved to 13 and 32 and the SFCBs made, every
 stamp 0), `SET [CREATE=ON, UPDATE=ON]` and `SET [NAME=OODOS.4B1]`; with `OODOS_UTILS_OUT` it saves that card, and
 `interop.sh --utils` checks it: `fsck.cpm`, the label (`OODOS   4B1`, mode 0xB1), `cpmls -F`'s attributes (README.TXT
 `1   R A`, WRITEOO1.COM `S`), protections (`Write`, `Delete`, the rest `None`) and stamps (0, which `cpmls` shows as

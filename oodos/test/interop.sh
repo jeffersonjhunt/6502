@@ -25,7 +25,7 @@
 # WRITEOO1.COM SYS; INITDIR took the SFCBs away, SET turned password
 # protection on and gave PATTERN.DAT (Write) and TESTSYS.SYS (Delete)
 # passwords, so XFCBs in the free SFCB places, then INITDIR made the SFCBs
-# again, the XFCBs moved out first (to 13, HELLO.PRL's, and 29), every stamp
+# again, the XFCBs moved out first (to 13, HELLO.PRL's, and 32), every stamp
 # 0; SET asked the label for creation and update stamps again and named it
 # OODOS.4B1 (its mode 0xB1).
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
@@ -35,9 +35,8 @@
 # warns "Modification date earlier than creation date (extent=S/E)" for an
 # entry E (E & 3 = 0, its SFCB S = E | 3) updated on a later day than it was
 # made, and misses one updated before. OO1.BIN, made a day before its update,
-# had its first entry there until phase 4b's utilities came before it (now
-# entries 29 and 30, an SFCB's second and third slots). So sfcb.py checks
-# every file entry's stamp order itself first, and fsck_clean lets through only that warning, only for
+# has its first entry there (32: make_card.sh's two spacers keep it so). So
+# sfcb.py checks every file entry's stamp order itself first, and fsck_clean lets through only that warning, only for
 # first-slot entries sfcb.py found a day or more apart and in order.
 set -eu
 card=$1
@@ -142,8 +141,8 @@ if [ "$written" = --written ]; then
   slots=$(python3 -I test/sfcb.py "$img" "$entries" slots 0 OO1.BIN)
   echo "$slots" | sed 's/^/     /'
   [ "$(echo "$slots" | wc -l)" = 2 ] || fail "0:OO1.BIN has not two entries"
-  [ "$(echo "$slots" | sed -n 1p)" = "29 $want" ] || fail "0:OO1.BIN's first entry (29)'s SFCB slot isn't $want"
-  [ "$(echo "$slots" | sed -n 2p)" = "30 0000000000000000" ] || fail "0:OO1.BIN's second entry (30)'s SFCB slot isn't 0"
+  [ "$(echo "$slots" | sed -n 1p)" = "32 $want" ] || fail "0:OO1.BIN's first entry (32)'s SFCB slot isn't $want"
+  [ "$(echo "$slots" | sed -n 2p)" = "33 0000000000000000" ] || fail "0:OO1.BIN's second entry (33)'s SFCB slot isn't 0"
   ok "0:OO1.BIN's first entry's SFCB slot holds $want, its second's 0"
   cpmcp -f oodos-8m "$img" 0:OO1.BIN "$work/out" || fail "cpmcp 0:OO1.BIN"
   cmp -s "$work/OO1.BIN" "$work/out" || fail "0:OO1.BIN is not what the OO-1 wrote"
@@ -200,8 +199,8 @@ PY
   echo "$dir" | sed 's/^/     /'
   [ "$(echo "$dir" | sed -n 1p)" = "sfcbs $((entries / 4)) other 0" ] || fail "not an SFCB in every fourth entry, and only there"
   [ "$(echo "$dir" | sed -n '2,$p')" = "xfcb 13 0 PATTERN DAT 40
-xfcb 29 0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (13, Write) and TESTSYS.SYS's (29, Delete)"
-  ok "an SFCB every fourth entry; the XFCBs in 13 and 29, Write and Delete"
+xfcb 32 0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (13, Write) and TESTSYS.SYS's (32, Delete)"
+  ok "an SFCB every fourth entry; the XFCBs in 13 and 32, Write and Delete"
   for f in 0:README.TXT:README.TXT 0:PATTERN.DAT:PATTERN.BIN 3:USER3.TXT:USER3.TXT 3:SMALL.BIN:SMALL.BIN; do
     name=${f%:*}
     cpmcp -f oodos-8m "$img" "$name" "$work/out" || fail "cpmcp $name"

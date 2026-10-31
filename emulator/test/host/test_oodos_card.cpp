@@ -471,10 +471,10 @@ namespace
     // ---- the OO-1's side ----------------------------------------------------
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
-    /// (two entries, the first free: 29 and 30, an SFCB's second and third slots), seed 5, made 25 October 2026 13:45 and
+    /// (two entries, the first free: 32 and 33, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
     /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
-    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself, should a file's
-    /// first entry land there. WRITEOO1.COM
+    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself (make_card.sh's
+    /// SPACER1.TXT and SPACER2.TXT keep it there). WRITEOO1.COM
     /// (oodos/sys/test/writeoo1.s) knows the same.
     const std::string NEW_NAME = "OO1     BIN";
     constexpr unsigned NEW_USER = 0, NEW_SEED = 5;
@@ -767,7 +767,7 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
         free += dir[i * ENTRY] == 0xE5;
     }
     CHECK_EQ(sfcbs, 256u);
-    CHECK_EQ(free, 1024u - 256 - 1 - 21); // the label, and nineteen files' 21 entries (ten utilities')
+    CHECK_EQ(free, 1024u - 256 - 1 - 23); // the label, and 21 files' 23 entries (ten utilities', two spacers)
     // The label's own stamps, in its bytes 24-31: made at make_card.sh's moment.
     CHECK(std::equal(MADE.begin(), MADE.end(), dir.begin() + 24));
     allocation(a, dir);
@@ -837,8 +837,8 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     allocation(a, dir);
     const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
     REQUIRE(e.size() == 2u);
-    CHECK_EQ(e[0], 29u); // the first free entries, after the utilities': an SFCB's second and
-    CHECK_EQ(e[1], 30u); // third slots
+    CHECK_EQ(e[0], 32u); // the first free entries, after the utilities and the spacers: an SFCB's
+    CHECK_EQ(e[1], 33u); // first slot, the one fsck.cpm 2.23 compares backwards
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
     // The stamps in the extent-zero entry's slot only (CP/M 3 reads them there); the later entry's 0.
     const auto st = stamps_of(dir, e[0]), later = stamps_of(dir, e[1]);
@@ -848,7 +848,7 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     CHECK(later.first == zero);
     CHECK(later.second == zero);
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
-    // Nothing else changed: the directory's second sector (entries 29 and 30, their SFCB in 31) and
+    // Nothing else changed: the directory's third sector (entries 32 and 33, their SFCB in 35) and
     // 65 of records (a block's sectors the file doesn't reach are zeroed, as they were).
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
@@ -981,7 +981,7 @@ TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_i
     REQUIRE(xp.size() == 1u);
     REQUIRE(xt.size() == 1u);
     CHECK_EQ(xp[0], 13u); // HELLO.PRL's, the lowest free entry not an SFCB's place
-    CHECK_EQ(xt[0], 29u);
+    CHECK_EQ(xt[0], 32u); // the next, past the spacers
     CHECK_EQ(dir[xp[0] * ENTRY + 12] & 0xE0, 0x40);
     CHECK_EQ(dir[xt[0] * ENTRY + 12] & 0xE0, 0x20);
     auto mode = [&](unsigned i) { return dir[(i | 3) * ENTRY + 1 + (i & 3) * 10 + 8]; };
