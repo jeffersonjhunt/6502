@@ -4,8 +4,8 @@
  * @file via6522.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief W65C22 VIA: two ports with handshake lines, two timers.
- * @version 0.6.0
- * @date 2026-10-19
+ * @version 0.7.0
+ * @date 2026-10-30
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -33,6 +33,12 @@
  * or writing the port clears its C1/C2 flags, except C2 in "independent"
  * mode; reading T1C-L or writing T1C-H/T1L-H clears T1; T2C-L/T2C-H clear
  * T2; writing 1s to IFR clears them). IRQ is IFR & IER.
+ *
+ * /RESET (bus_reset()) clears every register but the timers' counters
+ * and latches and SR, as the W65C22S does: both ports inputs, ACR 0 (T1
+ * one-shot, PB7 its own), PCR 0, no flags, no enables. It also disarms
+ * both timers, so the counters run on but nothing times out until a
+ * program loads one: the timers are stopped, as hw/design.md puts it.
  *
  * Not modelled: the shift register (SR is a plain register and never
  * interrupts), input latching (ACR bits 0-1), and CA2/CB2 handshake and
@@ -88,6 +94,7 @@ namespace ooe::emu
         bool irq() const override { return (ifr_ & ier_ & 0x7F) != 0; }
         bool timed() const override { return true; }
         void tick(uint64_t cycles) override;
+        void bus_reset() override;
 
         // --- the peripheral side -------------------------------------------
         void listen(Listener l) { listeners_.push_back(std::move(l)); }

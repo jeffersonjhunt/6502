@@ -172,6 +172,17 @@ namespace ooe::emu
         }
     }
 
+    void Via6522::bus_reset()
+    {
+        ora_ = orb_ = ddra_ = ddrb_ = 0;
+        acr_ = pcr_ = ifr_ = ier_ = 0;
+        t1_armed_ = t2_armed_ = false;
+        t1_reload_ = false;
+        pb7_ = true;
+        notify(Port::A);
+        notify(Port::B); // every pin an input now
+    }
+
     // --- timers ------------------------------------------------------------
     //
     // A counter decrements once per cycle, but not in the cycle that loaded
