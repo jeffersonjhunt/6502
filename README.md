@@ -3,6 +3,9 @@
 
 This is just a bunch of random sudo projects for working on the MOS 6502 CPU.
 
+Writing code for the OO-1 (the backplane computer and OODOS)? Read [AGENTS.md](AGENTS.md) first; the books are in
+[docs/](docs/README.md).
+
 ## External Refs ##
 
 https://www.applefritter.com/replica/chapter7
