@@ -1152,6 +1152,11 @@ where it is silent the choice is ours, and says so):
   (the Guide, 1.2): the command and its tail, so a program's tail is in capitals. Blanks may come before the
   command. An empty line, or blanks, is the prompt again. A ^C at the prompt with the line empty resets the disk
   system (function 13), as since 3a.
+- **The layout** is the Guide's: a command that writes nothing has the next prompt on the next line (`A>B:`, then
+  `B>`), with no blank line between. Function 10 echoes only the CR that ends a line, and the CCP owes the LF: it
+  is written before the first thing the command writes (a program's output, a built-in's, a message), and is the
+  prompt's own CR LF when there is nothing (ours: `cmd.inc`'s `CM_LFDUE`). A program's output that ends with CR LF
+  is followed by the prompt's CR LF, so a blank line, as in the Guide's examples.
 - **Several commands, `!`:** a line `A!B!C` runs A, then B, then C (the Guide, 4.5). Each one after the first is
   shown after a new prompt, as it was typed (its case kept), then run. The rest of the line is kept across a
   program's warm boot. A program ended by ^C (the return code `$FFFE`) drops the rest, and so does a built-in
@@ -1192,8 +1197,9 @@ where it is silent the choice is ours, and says so):
 - **Running a program:** without a drive, the SCB's drive search chain (`$4C–$4F`: 0 the default drive, 1–16
   A–P, `$FF` the end; cold boot's is the default drive alone, 3b2), each drive by one Open, which tries the
   current user and then user 0's SYS file (3a), so the Guide's four places for a chain of two (4.4.2) are two
-  Opens. With a drive, that drive only. A chain drive that isn't one is passed over, and an explicit one is not
-  found (ours). The password, if given, is in the DMA buffer at the Open (3b1). Not found: the keyword and `?`
+  Opens. With a drive, that drive only. A chain drive the BDOS can't select (Invalid Drive) is passed over; the
+  drive given, or the CCP's own, is `READ ERROR` (ours: Invalid Drive is also a card that failed a login, as the
+  stand-in said). The password, if given, is in the DMA buffer at the Open (3b1). Not found: the keyword and `?`
   (`NAME?`, the Guide, 1.2); a Password Error: `Password Error`; any other error, or a file that ends inside its
   image: `READ ERROR`, as the stand-in. Then the loader's checks of the header (magic, flags, page, size: `NO
   PROGRAM`, `BAD PROGRAM HEADER`, as the stand-in), the image, the tail, the return code, the error mode, the
@@ -1223,13 +1229,13 @@ where it is silent the choice is ours, and says so):
   each character (TYPE). ^S and ^Q are the BDOS's, as for any output.
 - **ERA** `filespec` (`ERASE`): the current user's matching files deleted (19), its password, if given, in the
   DMA buffer. A name with `?` or `*` asks first, as the Guide does: `ERASE B:*.TXT (Y/N)?`, the specification as
-  typed (its password not shown, ours), and a line is read: `Y` or `y` first deletes, anything else doesn't. A
-  single name isn't asked about (the Guide asks for wildcards only). Nothing matched: `No File`. A file or drive
+  typed (its password not shown, ours), and a line is read: `Y` or `y` first deletes, anything else doesn't (the
+  return code 0: done as asked, ours). A single name isn't asked about (the Guide asks for wildcards only). Nothing matched: `No File`. A file or drive
   that is read-only, or a password that doesn't match, is the BDOS's error, said in mode `$FE`.
 - **REN** `new=old` (`RENAME`): `old`'s drive, if given, or `new`'s; given both, they must be the same, else the
   command and `?`. `old` not there: `No File`. `new` there already: `Not renamed: NEW.TYP file already exists,
   delete (Y/N)?` (the Guide's RENAME, in our words), and a `Y` deletes it (with `new`'s password, if given) and
-  renames; anything else renames nothing. Then 23, `old`'s password in the DMA buffer; its errors are the BDOS's.
+  renames; anything else renames nothing (the return code `$FF00`: not renamed, ours). Then 23, `old`'s password in the DMA buffer; its errors are the BDOS's.
 - **TYPE** `filespec` (`TYP`): the file's bytes to the console (2, so tabs are expanded) to the first ^Z or its
   end, paged as above, counting lines by LF; its password, if given, in the DMA buffer at the Open. Not there:
   `No File`. Each byte goes out as it is (ours: a binary file shows what it shows; a `.COM` shows `OOD`, its
@@ -1244,6 +1250,30 @@ where it is silent the choice is ours, and says so):
   TYPE, a tail after `d:`): the command as it was given, in capitals, and `?` (ours, as `NAME?`).
 - **Error modes:** the CCP's own calls return their errors (`$FF`), as the stand-in's; the built-ins' file calls
   say them (`$FE`), so `OODOS Error On A: File R/O` and its function and file are the message.
+
+**Proposed (4a, as built, 2026-10-30)** ([`oodos/sys/ccp.s`](../oodos/sys/ccp.s),
+[`oodos/include/cmd.inc`](../oodos/include/cmd.inc); the list above is what was built, and these are the details):
+
+- **No BDOS or BIOS change.** The CCP uses 152 for the keyword and the tail's specifications, 17 and 18 for DIR,
+  15 and 20 for TYPE and loading, 19 and 23 for ERA and REN, 49 for the SCB's width, page mode and length, search
+  chain and display flag (`SCB_CCPDISP`, `$18`, in `sys.inc`), 108 for the return code. The stand-in's warm boot
+  work (the rescan, 48, 98; 13 for a ^C at the prompt; 47's request) is kept as it was.
+- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,576 bytes (the CCP 4,288, its
+  shared `cmd.inc` among them; the stand-in's was 1,323), then its BSS, 982 bytes (the line of 255, the command,
+  the tail, three FCBs, a record), 5,558 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
+  and BIOS's 210 of 240 as they were), `SYSBSS` 737 of 1,280, common memory 1,123 of 2,048 and block 60 11,588 as
+  they were. Its state across a program (the rest of a `!` line, `ATPROMPT`, `PENDING`, `CCPDRV`, `CCPUSR`) is in
+  block 62, which no program maps.
+- **`cmd.inc`** is included into the CCP's `RES` segment with its data there too (`CMD_DATA`, `CMD_BSS`, and
+  `CMD_BREAK`, where a ^C during paged output goes, are the includer's); a utility includes it into `CODE` with its
+  data in `RODATA` and `BSS`, as `tools/rules.py` wants. Its pointers are in its own instructions, so it uses no
+  zero page and keeps the 65C816 rules. `CM_LFDUE` is the LF owed after a line read (above).
+- **The test card:** `0:HELLO.COM` is a SYS file now (`cpmchattr`, `make_card.sh`), so the CCP finds it from any
+  user, as CP/M 3 keeps its programs.
+- **The User's Guide** (`cpm3-usr.txt`, OCR'd) decided the forms, the messages it gives (`No File`, `SYSTEM FILE(S)
+  EXIST`, `NON-SYSTEM FILE(S) EXIST`, `ERASE spec (Y/N)?`, `Enter User #:`, `NAME?`), the prompt, the layout of
+  DIR's lines and of `!`'s commands, the search order and the display mode's line; the rest, marked ours above,
+  is OODOS's.
 
 ## RSXs and programs ##
 
@@ -1980,6 +2010,38 @@ made with it) is never made, so make with f6' reusing one and rename onto one ar
   DRFCR); 53 marking nothing (MAXM, MXA, M1AM); 57 freeing only at a base (TB, TCM, TE), or refusing a tail that
   exactly reaches the end (TXE, TXC); 74 ignoring the rescan's carry (NRS); the warm boot keeping a segment
   MEMTEST D left set (WGET); BEND one byte off (BFROM).
+
+**Done (phase 4a: the CCP, 2026-10-30)** ([oodos/README.md](../oodos/README.md) has the commands)
+
+- **`test_oodos_ccp`,** a new suite, boots OODOS.SYS as `test_oodos_sys` does (their machinery moved, unchanged, to
+  `emulator/test/host/oodos_rig.h`), types command lines and compares what each says, line for line, with the
+  Guide: the line (capitals, blanks, comments, 255 characters, a tail of 126 and 127); `!` with each command shown,
+  `:` after a failure (NAME?, a built-in's, a program's 108) and a success, a skipped one keeping the code, a ^C's
+  end dropping the rest; `d:`, `nd:`, users 0–15 and 16, a tail after `d:`, Q:, an unmounted H:; USER, USE and
+  USER's question; DIR and DIRSYS on M: (five names a line, two at a width of 40, one at 15; SYS files' messages
+  both ways, No File, `*` and `?`, a blank type, another user's files, a drive that isn't, a specification 152
+  refuses); a page of 4 stopping DIR and TYPE (a key goes on, ^C at the stop ends the line with `$FFFE`), page
+  mode off and a page of 1 not stopping, ^C while TYPE and DIR write; TYPE (tabs, ^Z, a `.COM`'s `OOD`, user 0's
+  SYS file from user 4, a wildcard and two names refused); ERA (one name, a wildcard answered N, then Y, nothing
+  left, read-only, the password not shown in the question); REN (both drives' forms, No File, a name there
+  answered N, then Y, two drives, its forms, read-only); passwords given to TYPE, ERA and a program (M:'s label's
+  passwords on and XFCBs put there behind OODOS's back); each built-in's utility not found and found (ARGS.COM,
+  [`oodos/sys/test/args.s`](../oodos/sys/test/args.s), as DIR.COM, TYPE.COM, ERASE.COM, RENAME.COM: the tail as
+  given, DIRSYS's SYS added), `d:DIR` the program; programs by drive, the current drive, the user and user 0's SYS
+  files, `.COM`, `.SUB`, `.PRL`, wildcards, a long name, `5B:NAME`; the search chain (the default drive first or
+  M:, drives that aren't passed over, a given drive alone); the display mode with and without ` (User 0)`; the
+  tail, both FCBs (passwords, `=`, `,`, `B:=A:*.C`, an option list, nothing, one 152 refuses), the passwords'
+  places and lengths, the load drive, the drive and user, the return code 0 at the start.
+- **cpmtools:** `test_oodos_card` runs the CCP on the committed card (`REN README.DOC=README.TXT`, `REN
+  PATTERN.DAT=PATTERN.BIN` of two entries, `ERA SMALL.BIN` in user 3, `ERA *.PRL` answered Y), checks the image,
+  and with `OODOS_CCP_OUT` saves it; `interop.sh --ccp` passes on it (PASS 7: `fsck.cpm` clean, the stamps kept by
+  the renames, the erased files gone from `cpmls -F`, the contents by `cpmcp`), and fails on a card without them.
+- **Tests changed** because the Guide changes what they asserted (each listed in the commit): a tail is in capitals
+  (`test_oodos_sys`'s GO and `test_oodos_e2e`'s HELLO print ` WORLD`); a line holds 255 characters, not 126; a
+  command that writes nothing has the next prompt on the next line (the VT52 test's scroll takes six empty lines,
+  not three); the prompt shows the user (`5M>`); a program comes from the current drive and user or user 0's SYS
+  file, so SYSTEST's chain is to `A:HELLO` and the card's HELLO.COM is SYS (`test_oodos_e2e` reads its entry with
+  the attributes off).
 
 **Proposed**
 
