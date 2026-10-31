@@ -100,7 +100,7 @@ live on the backplane. Signal details are in [design.md](design.md#backplane-sig
 | 0x3     | RAM D                      |
 | 0x4     | ROM A                      |
 | 0x5     | ROM B (Game Cart)          |
-| 0x6     | Serial A/B & Parallel      |
+| 0x6     | Serial A/B, Parallel & VIA |
 | 0x7     | Mass Storage               |
 | 0x8     | DMA Controller             |
 | 0x9     | Video                      |

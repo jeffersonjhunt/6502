@@ -38,7 +38,8 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
   ======================== backplane: A0-A19, D0-D7, PS0-PS3, RWB, RDY, BE, DRQ/DACK ... ========================
        |           |          |          |          |           |           |           |            |
      RAM A-D     ROM A     DMA ctl    video      sound      Disk II      SD       COM1/COM2/   USB/game    bus spy
-     (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)  (Floppy Emu) storage     LPT          port      (ESP32)
+     (1 MB)     (flash)    (4 ch)     (VGA)     (2x SID)  (Floppy Emu) storage   LPT, VIA,      port      (ESP32)
+                                                                                 joysticks
 ```
 
 
@@ -984,6 +985,8 @@ AMODE is high.
 - USB keyboard and mouse.
 - The game port goes on the same card as the USB ports.
 - Two serial ports (COM1, COM2) and a parallel port.
+- **Proposed (2026-10-30):** a W65C22S VIA on the serial card, for timers, two digital joystick ports and a user port
+  ([below](#the-via-and-the-joystick-ports)).
 
 **Proposed: the USB card**
 
@@ -1072,7 +1075,8 @@ Raw codes are USB HID usages rather than PC scancodes: one byte, what the keyboa
 The card follows the Apple keyboard's conventions: arrows give `$08`, `$15`, `$0A`, `$0B`; Delete gives `$7F`; Caps
 Lock behaves as on the IIe; Ctrl-Reset pulses /RESET (see [Apple II Mode](#apple-ii-mode)).
 
-**Proposed: the serial and parallel card** (module ID 6, "Serial A/B & Parallel")
+**Proposed: the serial and parallel card** (module ID 6, "Serial A/B, Parallel & VIA"; the VIA and the joystick
+ports added 2026-10-30, [below](#the-via-and-the-joystick-ports))
 
 - TI's TL16C552A: two 16550-compatible UARTs with 16-byte FIFOs and an IEEE 1284 bidirectional parallel port, in
   one chip. It is the classic PC combination for COM1, COM2 and LPT1.
@@ -1092,13 +1096,14 @@ Lock behaves as on the IIe; Ctrl-Reset pulses /RESET (see [Apple II Mode](#apple
 | `$C308–$C30F` | COM2: the same |
 | `$C310–$C312` | LPT: data, status, control, as at a PC's LPT base + 0–2 |
 | `$C320–$C323` | card registers |
+| `$C340–$C34F` | the W65C22S VIA, its 16 registers in WDC's order ([below](#the-via-and-the-joystick-ports)) |
 | `$C37F` | ID: card type and revision |
 
 | Offset | Name | Access | Purpose |
 |---|---|---|---|
 | `$20` | DMASEL1 | read/write | the source on DRQ1: 0 none, 1 COM1 receive, 2 COM1 transmit, 3 COM2 receive, 4 COM2 transmit, 5 LPT output |
 | `$21` | DMASEL3 | read/write | the same for DRQ3, so a second stream can use the general-purpose channel |
-| `$22` | INTSTAT | read | bit 0 COM1, bit 1 COM2, bit 2 LPT: which part is interrupting. Any of them pulls bit 6 of IRQL (ID 6) low. The enables stay in the chip's IER and LPT control registers |
+| `$22` | INTSTAT | read | bit 0 COM1, bit 1 COM2, bit 2 LPT, bit 3 the VIA: which part is interrupting. Any of them pulls bit 6 of IRQL (ID 6) low. The enables stay in the chip's IER and LPT control registers |
 | `$23` | LPTCTL | read/write | bit 0 AUTOSTROBE: in DMA mode the card generates STROBE itself |
 
 - **DMA routing.** On /DACK1 or /DACK3 the CPLD selects the chosen source's data register (chip select, A0–A2 = 0,
@@ -1116,6 +1121,65 @@ Lock behaves as on the IIe; Ctrl-Reset pulses /RESET (see [Apple II Mode](#apple
   and at serial speeds it costs nothing.
 - **Apple mode:** the block is hidden. A stock IIe has no serial card; a Super Serial Card emulation in slot 2 would
   be a later extra.
+
+#### The VIA and the joystick ports ####
+
+**Proposed (2026-10-30).** A WDC W65C22S on the serial card gives the board what it otherwise lacks, timers that
+interrupt at any rate, and two digital joystick ports for native games.
+
+**Why.** Without it, the only time sources are the video card's vertical blank (60 Hz) and scan-line interrupts and
+the DS3231's 1 Hz tick ([oolib.md](oolib.md), open question 7). The Apple-style game port stays on the USB card: IIe
+software reads it a bit an address, merged with the Open and Closed Apple keys, and the RP2350 times its 558
+paddles; the VIA's ports are native only.
+
+**The part.** The W65C22S, still made by WDC, is rated to 14 MHz at 5 V, so it runs at ÷2 with **no wait states**:
+the CPLD selects it with PS0–PS3 = 6 and A6–A4 = `100`, A0–A3 go to RS0–RS3, and it takes PHI2 from the backplane.
+Its IRQB goes to the CPLD, which shows it as INTSTAT bit 3 and pulls bit 6 of IRQL. /RESET clears it: every port
+line an input, the timers stopped, interrupts off.
+
+**Registers** (`$C340` + RS, WDC's order):
+
+| Offset | Name | Purpose |
+|---|---|---|
+| `$0` | ORB/IRB | port B: joystick 2 and the user port |
+| `$1` | ORA/IRA | port A: joystick 1 and the user port, with handshake |
+| `$2`–`$3` | DDRB, DDRA | data direction, 1 = output |
+| `$4`–`$7` | T1C-L, T1C-H, T1L-L, T1L-H | timer 1: counter and latches |
+| `$8`–`$9` | T2C-L, T2C-H | timer 2 |
+| `$A` | SR | the shift register (CB1 clock, CB2 data) |
+| `$B` | ACR | timer modes, shift register mode, latching |
+| `$C` | PCR | CA1, CA2, CB1, CB2 control |
+| `$D`–`$E` | IFR, IER | interrupt flags and enables |
+| `$F` | ORA/IRA | port A without handshake |
+
+**The ports:**
+
+| Lines | Use |
+|---|---|
+| PA0–PA4 | joystick 1: up, down, left, right, fire |
+| PB0–PB4 | joystick 2: the same |
+| PA5–PA7, PB5 | the user port: general I/O |
+| PB6 | the user port; also timer 2's pulse-counting input |
+| PB7 | the user port; also timer 1's square-wave output |
+| CA1, CA2, CB1, CB2 | the user port's handshake and shift register lines |
+
+**Joystick ports.** Two DE-9 males in the Atari and Commodore pinout, so the digital joysticks made for the 2600,
+the C64 and the Amiga plug straight in: pin 1 up, 2 down, 3 left, 4 right, 6 fire, 8 ground, 7 +5 V (for
+joysticks with autofire or LEDs; a polyfuse limits it). Each switch closes to ground, so a line reads **0 when
+pressed**; 10 kΩ pull-ups to +5 V keep the rest at 1, since the VIA's inputs have none. Pins 5 and 9 (the paddles
+and second buttons of the C64 and Amiga) aren't connected. Sega pads, which need a select line on pin 7, aren't
+supported. A game reads a stick with one load: `LDA $C341`, then `AND #$1F`.
+
+**The user port.** The other ten lines and the four control lines go to a 2×10 pin header with +5 V and ground, for
+an LCD, a sensor, a second keyboard or anything a hobbyist builds, as on the C64's and BBC Micro's user ports.
+
+**Timers.** Both count PHI2, 7.16 MHz.
+- **Timer 1** in free-running mode is OODOS's system tick (proposed: 1 kHz, a latch of 7,157, since a free-running period is the latch + 2 cycles: 7,159 cycles, 0.002% fast; [oolib.md](oolib.md)).
+  It could also drive PB7 as a square wave.
+- **Timer 2** is the program's: a one-shot delay, or a count of pulses on PB6.
+
+**In Apple mode** the VIA is hidden with the rest of the card, its timers' interrupts are never seen (IRQL is
+native-only), and the joystick ports are unused: the IIe's game port is the USB card's.
 
 **Module IDs (decided)** for the new cards, using the free IDs `0x8`–`0xD`:
 

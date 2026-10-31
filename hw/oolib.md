@@ -33,7 +33,8 @@ their own. The hardware is in [design.md](design.md); OODOS, the operating syste
 | Keyboard | USB card `$C580`, ID B: cooked KEY (ASCII, repeat) and a raw event FIFO (HID usage + press/release) | OODOS's console reads only KEY today |
 | Mouse | USB card `$C590`–`$C59A`: buttons, relative or absolute X/Y, wheel | Absolute mode suits a pointer sprite |
 | Game port | USB card `$C5A0`–`$C5A5`: four paddles 0–255, three buttons | Apple-style joystick |
-| Timing | Vertical blank (60 Hz), the scan-line interrupt, the DS3231's 1 Hz TICK (ID D) | **No general-purpose timer** on the board (the CIA is inside the sound card's 6510 map) |
+| Joysticks | Two digital DE-9 ports (Atari/Commodore pinout) on the serial card's W65C22S, `$C341` and `$C340` bits 0–4, 0 = pressed (proposed 2026-10-30) | One load reads a stick; no interrupt needed |
+| Timing | Vertical blank (60 Hz), the scan-line interrupt, the DS3231's 1 Hz TICK (ID D), and the W65C22S's two timers at 7.16 MHz (proposed 2026-10-30) | Timer 1 is OODOS's system tick; timer 2 is the program's |
 | DMA | Controller `$C400`, ID 8: four channels (0 storage, 1 serial, 2 USB / sound RAM, 3 general: copies and blits); memory to memory at 2 cycles a byte | OODOS's BIOS uses channels 0 and 3 today |
 | Interrupts | IRQL/IRQH at `$C688`: one bit per module ID | OODOS enables none yet (phase 2: the console is polled) |
 
@@ -88,8 +89,9 @@ Function numbers, register conventions and error codes are left for the design s
 
 - **Ticks:** the frame counter is the clock for games: 1/60 s.
 - **Seconds and the date:** CP/M 3's function 105 and the SCB, as now.
-- **Finer than a frame:** only the scan-line interrupt (a line is about 31.8 µs). A hardware timer would need a card
-  change (open question 7).
+- **Finer than a frame:** the W65C22S's timer 1 as OODOS's system tick (proposed: 1 kHz), for `ON TIMER`, music
+  tempo off the frame rate and short delays; timer 2 for a program's own one-shot. The scan-line interrupt (a line
+  is about 31.8 µs) still serves raster effects.
 - **Delays:** "wait n frames", built on the frame counter.
 
 ### Input ###
@@ -99,7 +101,9 @@ Function numbers, register conventions and error codes are left for the design s
   count of each.
 - **Keys held now:** a 256-bit map (32 bytes) by HID usage, kept from the raw events, so `IF key held` is one
   load and an AND.
-- **The joystick and paddles:** read at each vertical blank into the event area (paddles 0–255, buttons).
+- **The joystick and paddles:** read at each vertical blank into the event area (paddles 0–255, buttons), and the
+  two digital joysticks as one byte each (a game may also read them itself from the VIA, one load). GW-BASIC's STICK
+  and STRIG take either.
 - **The mouse:** position (absolute mode with limits) and buttons in the event area; an optional pointer sprite
   OODOS moves at each vertical blank.
 - **The console keeps working.** Function 6 and the console functions still get characters from KEY, as CP/M
@@ -218,9 +222,9 @@ end:    RTS: the warm boot stops the music, the hooks and DMA, and puts the cons
    format (as long as it's free to use)? A converter from MIDI or from a tracker on Linux?
 6. **DMA channels.** May a program own channel 1 or 3 outright for a streaming effect, or does everything go
    through OODOS's queue?
-7. **A hardware timer.** Nothing on the board gives interrupts finer than a scan line or at a rate other than the
-   frame. Add a timer to a card (the USB card's RP2350 could give one at little cost), or live with the scan-line
-   interrupt?
+7. **A hardware timer.** *Proposed answer (2026-10-30): a W65C22S on the serial card* ([design.md](design.md#the-via-and-the-joystick-ports)),
+   timer 1 OODOS's system tick, timer 2 and the ports for programs. Left to settle: the tick's rate (1 kHz
+   proposed) and whether programs may hook it as they hook the frame.
 8. **Asset formats and tools.** Which formats, and which Linux tools (a PNG to tiles converter, a palette tool, a
    map editor's export) come with OOLIB?
 9. **Where OOLIB's code lives.** Linked into each program (as proposed), or also kept in an allocated block and
