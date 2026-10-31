@@ -219,11 +219,19 @@ emu_add_test(test_oodos_sys)
 set_tests_properties(test_oodos_sys PROPERTIES TIMEOUT 1800) # dozens of boots and minutes of machine time under ASan: about 600 s alone, more under load
 emu_add_test(test_oodos_ccp)
 set_tests_properties(test_oodos_ccp PROPERTIES TIMEOUT 1800) # the CCP's cases (phase 4a), test_oodos_sys's machinery
+# Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
+# machinery. A new suite is its name here and its .cpp.
+set(OODOS_UTILS_SUITES test_oodos_utils)
+foreach(name ${OODOS_UTILS_SUITES})
+    emu_add_test(${name})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
+endforeach()
 set(OODOS_SRC "${PROJECT_SOURCE_DIR}/../oodos")
 set(OODOS_SYS_SRC "${OODOS_SRC}/sys")
 set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")
 set(OODOS_LDR_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_ldr")
 set(OODOS_PRL_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_prl")
+set(OODOS_UTILS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_utils")
 find_package(Python3 COMPONENTS Interpreter)
 find_program(EMU_MAKE make)
 if(NOT (EMU_CA65 AND EMU_LD65 AND Python3_FOUND AND EMU_MAKE))
@@ -251,10 +259,29 @@ add_custom_command(
                 "${OODOS_PRL_DIR}/hello.prl"
         DEPENDS ${oodos_deps}
         VERBATIM)
+# The utilities: every oodos/utils/*.s there is (the Makefile's wildcard), so a stamp stands for them.
+file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s")
+add_custom_command(
+        OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${OODOS_UTILS_DIR}/utils.stamp"
+        DEPENDS ${oodos_deps} ${oodos_utils_deps}
+        VERBATIM)
 add_custom_target(oodos_sys ALL DEPENDS "${OODOS_SYS_DIR}/OODOS.SYS")
+add_custom_target(oodos_utils ALL DEPENDS "${OODOS_UTILS_DIR}/utils.stamp")
 add_custom_target(oodos_ldr ALL DEPENDS "${OODOS_LDR_DIR}/BOOT.BIN" "${OODOS_PRL_DIR}/hello.prl")
 add_dependencies(test_oodos_sys oodos_sys backplane_bios)
 add_dependencies(test_oodos_ccp oodos_sys backplane_bios)
+foreach(name ${OODOS_UTILS_SUITES})
+    add_dependencies(${name} oodos_sys oodos_utils backplane_bios)
+    target_compile_definitions(${name} PRIVATE
+            EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+            EMU_OODOS_UTILS_DIR="${OODOS_UTILS_DIR}"
+            EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+            EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+            EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+            EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+endforeach()
 add_dependencies(test_oodos_boot oodos_sys oodos_ldr backplane_bios)
 target_compile_definitions(test_oodos_sys PRIVATE
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"

@@ -1,6 +1,8 @@
 # OODOS's programs (README.md). Needs cc65 (ca65, ld65) and python3.
 #
-#   make            # build/NAME.com and build/NAME.prl for each of PROGRAMS
+#   make            # build/NAME.com and build/NAME.prl for each of PROGRAMS,
+#                   # and the utilities
+#   make utils      # build/NAME.com for each utils/NAME.s (phase 4b's)
 #   make check      # the tools' tests (test/check_tools.py)
 #
 # Each program is SRC/NAME.s, assembled once and linked as a .COM at $0300
@@ -9,6 +11,10 @@
 # $05, and compared by mkprl.py. The CODE of the .COM and of the .PRL's
 # first link is checked against the 65C816 rules (tools/rules.py); a
 # violation fails the build, and so does any ld65 warning.
+#
+# The utilities (hw/oodos.md, "The utilities, phase 4b") are every
+# utils/NAME.s there is, .COMs only, through the same gate; each includes
+# include/cmd.inc and include/util.inc. A new one needs no change here.
 
 SRC      ?= examples
 BUILD    ?= build
@@ -23,13 +29,21 @@ LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2
 
 COMS = $(PROGRAMS:%=$(BUILD)/%.com)
 PRLS = $(PROGRAMS:%=$(BUILD)/%.prl)
+UTILS = $(patsubst utils/%.s,%,$(wildcard utils/*.s))
+UTIL_COMS = $(UTILS:%=$(BUILD)/%.com)
+UTIL_INCS = include/oodos.inc include/cmd.inc include/util.inc
 
-all: $(COMS) $(PRLS)
+all: $(COMS) $(PRLS) $(UTIL_COMS)
+
+utils: $(UTIL_COMS) | $(BUILD)
 
 $(BUILD):
 	mkdir -p $@
 
 $(BUILD)/%.o: $(SRC)/%.s include/oodos.inc | $(BUILD)
+	ca65 $(AFLAGS) $< -o $@
+
+$(UTILS:%=$(BUILD)/%.o): $(BUILD)/%.o: utils/%.s $(UTIL_INCS) | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
 
 $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
@@ -52,5 +66,5 @@ check: all
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all check clean
+.PHONY: all utils check clean
 .SECONDARY:
