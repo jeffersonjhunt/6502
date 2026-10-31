@@ -94,11 +94,12 @@ TEST(the_via_answers_c340_and_the_6551_keeps_the_rest_of_the_block)
     bus.write(0xC303, 0x1F);
     CHECK_EQ(acia->control(), 0x1F);
     // The VIA in $C340-$C34F: 16 registers, WDC's order.
-    bus.write(DDRB, 0x0B);
-    CHECK_EQ(via->ddr(Via6522::Port::B), 0x0B);
+    bus.write(DDRB, 0x5A);
+    CHECK_EQ(via->ddr(Via6522::Port::B), 0x5A);
     CHECK_EQ(acia->command(), 0x0B); // $C342 is DDRB, not the 6551's command
     bus.write(0xC34E, 0x80 | Via6522::IRQ_T2);
     CHECK_EQ(bus.peek(IER), 0x80 | Via6522::IRQ_T2);
+    CHECK_EQ(acia->command(), 0x0B); // $C34E is IER, not the 6551's command mirror
     CHECK_EQ(acia->control(), 0x1F);
     // Module 6, wired: the VIA is in the I/O hole's block for ID 6.
     const Mapping *map = nullptr; // the later mapping answers, as the decoder looks
