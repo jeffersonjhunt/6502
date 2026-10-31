@@ -194,6 +194,8 @@ namespace ooe::emu
                 auto *via = dynamic_cast<Via6522 *>(m->find(opt["via"]));
                 if (!via)
                     return fail(type + ": via=NAME must name a via6522 described above");
+                if (type == "joyports" && m->joysticks_)
+                    return fail("joyports: only one per machine");
                 // The joysticks take both of a VIA's ports; nothing else can share it.
                 const std::string &other = via_users[via];
                 if (!other.empty() && (type == "joyports" || other == "joyports"))
@@ -219,8 +221,6 @@ namespace ooe::emu
                 }
                 else if (type == "joyports")
                 {
-                    if (m->joysticks_)
-                        return fail("joyports: only one per machine");
                     for (const char *k : {"name", "via"})
                         opt.erase(k);
                     auto j = std::make_unique<JoystickPorts>(*via);

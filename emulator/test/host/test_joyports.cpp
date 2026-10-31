@@ -193,7 +193,11 @@ TEST(machine_file_errors_name_the_joyports_line)
     CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\nvia6522 8010-801F name=w\njoyports via=v\n"
                           "joyports via=w\n",
                           "j.machine", opt, error));
-    CHECK(error.find("only one") != std::string::npos);
+    CHECK(error.find("j.machine:5: joyports: only one per machine") == 0);
+    // Two on one VIA: still "only one", not "a VIA of its own".
+    CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\njoyports via=v\njoyports via=v\n", "j.machine",
+                          opt, error));
+    CHECK(error.find("j.machine:4: joyports: only one per machine") == 0);
     CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\njoyports via=v port=A\n", "j.machine", opt, error));
     CHECK(error.find("unknown option 'port'") != std::string::npos);
     // The joysticks take both ports: no LCD or keyboard on the same VIA, before or after.
