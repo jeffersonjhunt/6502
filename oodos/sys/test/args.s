@@ -1,5 +1,5 @@
 ; ARGS: what the CCP gave a program (hw/oodos.md, "The CCP, phase 4"), for
-; test_oodos_sys's CCP cases. test_oodos_sys.cpp copies it onto drives
+; test_oodos_ccp.cpp's cases. test_oodos_ccp.cpp copies it onto drives
 ; under other names, each copy's tag (the 4 bytes after "TAG:") its own,
 ; so a case can tell which copy ran. It prints:
 ;
