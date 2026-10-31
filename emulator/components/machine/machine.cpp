@@ -15,12 +15,12 @@
 #include <sstream>
 
 #include "acia6551.h"
-#include "joystick_ports.h"
 #include "backplane_bridge.h"
 #include "console_card.h"
 #include "dma_controller.h"
 #include "emu_log.h"
 #include "hd44780.h"
+#include "joystick_ports.h"
 #include "memory_devices.h"
 #include "pia6821.h"
 #include "ps2_keyboard.h"
