@@ -2,7 +2,7 @@
 
 ## Chain ##
 
-Clock -> CPU + North Bridge (one card) -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (Level Shift Driver) -> I/O (Serial/Parallel)
+CPU + North Bridge + Clock (one card) -> RAM -> ROM -> Bus Spy (ESP32) -> LSD (Level Shift Driver) -> I/O (Serial/Parallel)
 
 ## Notes: ##
 
@@ -109,7 +109,7 @@ live on the backplane. Signal details are in [design.md](design.md#backplane-sig
 | 0xC     | Disk II Controller         |
 | 0xD     | North Bridge (registers)   |
 | 0xE     | Console                    |
-| 0xF     | Clock                      |
+| 0xF     | (free: the clock moved onto the CPU card, 2026-10-30) |
 
 
 

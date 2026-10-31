@@ -22,17 +22,19 @@ Card pin-outs and the module ID list are in [modules.md](modules.md), the front 
 ## Overview ##
 
 ```
-                 +-----------+     +--------------+
-14.31818 MHz -->|  clock    |     |              |
-    crystal      |  divider  |---->|  W65C02S     |  A0-A15, D0-D7, RWB, SYNC, VPB
-                 | /1 /2 /14 | PHI2|  CPU card    |-----------+
-                 |           |     +--------------+           |
-                 +-----------+                                v
-                                                    +------------------+
-                                                    |  north bridge    |  CPU address -> 20-bit address
-                                                    |  (CPLD)          |  20-bit address -> module ID (PS0-PS3)
-                                                    +------------------+
-                                                              |
+  +-------------------------------- CPU card ---------------------------------+
+  |                +-----------+      +-----------+                           |
+  |  14.31818 MHz->|  clock    | PHI2 |  W65C02S  |  A0-A15, D0-D7, RWB,      |
+  |     crystal    |  divider  |----->|           |  SYNC, VPB                |
+  |                | /1 /2 /14 |      +-----------+                           |
+  |                +-----------+            |                                 |
+  |                      ^ speed            v                                 |
+  |                      |        +------------------+                        |
+  |                      +--------|  north bridge    |  CPU address -> 20-bit |
+  |  DS3231 RTC --- I2C --------->|  (CPLD)          |  address -> module ID  |
+  |                               +------------------+  (PS0-PS3)             |
+  +-----------------------------------------|---------------------------------+
+                                            |
   ======================== backplane: A0-A19, D0-D7, PS0-PS3, RWB, RDY, BE, DRQ/DACK ... ========================
        |           |          |          |          |           |           |           |            |
      RAM A-D     ROM A     DMA ctl    video      sound      Disk II      SD       COM1/COM2/   USB/game    bus spy
@@ -59,7 +61,10 @@ divided down from it:
 
 **Proposed**
 
-- **A synchronous divider** on the clock card, selected by the north bridge's mode register (and, if turbo is ever
+- **The clock is on the CPU card (decided 2026-10-30).** The crystal and the divider sit beside the CPU and the
+  north bridge, which selects the speed: PHI2 never crosses the backplane to reach the CPU, and there is no
+  separate clock card. Module ID `0xF`, once the clock's, is free.
+- **A synchronous divider** on the CPU card, selected by the north bridge's mode register (and, if turbo is ever
   added, a speed bit). Every speed comes from the same crystal, so switching is just changing the divider at a
   cycle boundary while PHI2 is low. The divider never produces a short pulse, so it needs no clock multiplexer.
 - **Clock lines on the backplane.** The OSC line (B30) carries the 14.31818 MHz master at all times. In Apple mode
@@ -918,7 +923,7 @@ the tables leave open:
 
 **Entering.** Native software writes the mode register.
 
-1. The north bridge switches to the Apple mapping, and the clock card switches to the Apple clock.
+1. The north bridge switches to the Apple mapping, and switches the CPU card's divider to the Apple clock.
 2. The DMA controller goes idle and the video card switches to Apple modes.
 3. The north bridge pulses /RESET.
 4. The CPU starts from the IIe ROM image's reset vector in bank E, as a IIe does at power-on.
