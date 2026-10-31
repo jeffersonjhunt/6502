@@ -75,24 +75,54 @@ Function numbers, register conventions and error codes are left for the design s
 ### Interrupts and the frame ###
 
 - **An interrupt dispatcher in OODOS.** Common memory's IRQ entry reads IRQL/IRQH and runs the handler of each card
-  interrupting: video, USB, sound mailbox, DMA terminal count, the clock's TICK. It is the piece everything else in
-  layers 1 and 2 needs, so it is built first.
+  interrupting: video, USB, sound mailbox, DMA terminal count, the clock's TICK, and the serial card's VIA (its
+  INTSTAT bit 3, then the VIA's IFR: timer 1, timer 2, CA1/CA2, CB1/CB2, the shift register). It is the piece
+  everything else in layers 1 and 2 needs, so it is built first.
 - **The frame counter:** counted at each vertical blank, in the event area (32 bits: about 2.3 years).
 - **Wait for the next frame:** a call that returns at the next vertical blank (or the program polls the counter).
 - **A frame hook:** a routine of the program's that OODOS calls at each vertical blank, for music cues, palette
   fades and scrolling. It runs in an interrupt, so it has rules (open question 3): which windows are mapped, how
-  long it may take, no BDOS calls, none of the program's zero page unless it says so.
+  long it may take, no BDOS calls, none of the program's zero page unless it says so, and never a write to the
+  VIA's ACR, IER or IFR (see [The VIA is shared](#the-via-is-shared)).
 - **A scan-line hook:** the same at a chosen line, for split screens (a status bar over a scrolling map).
 - **Sprite collision:** the collision groups at the last vertical blank, in the event area, and optionally a hook.
 
 ### Timing ###
 
-- **Ticks:** the frame counter is the clock for games: 1/60 s.
+Two clocks, both in the event area:
+
+- **The frame counter** (vertical blank, 1/60 s) is the clock for anything drawn: animation, scrolling, sprite
+  moves.
+- **The millisecond counter** (32 bits, about 49 days) is OODOS's system tick: the VIA's timer 1, free-running at
+  1 kHz (proposed; open question 11). It is the clock for anything that isn't tied to the picture: game logic
+  timers, input sampling, `ON TIMER`, timeouts, and sound effects sequenced on the main CPU.
+- **A tick hook:** a program routine OODOS calls every *n* ms, as the frame hook is called every frame, with the
+  same rules and a tighter budget (open question 3), since it runs up to 60 times as often.
+- **Delays:** "wait *n* frames" and "wait *n* ms", built on the two counters.
 - **Seconds and the date:** CP/M 3's function 105 and the SCB, as now.
-- **Finer than a frame:** the W65C22S's timer 1 as OODOS's system tick (proposed: 1 kHz), for `ON TIMER`, music
-  tempo off the frame rate and short delays; timer 2 for a program's own one-shot. The scan-line interrupt (a line
-  is about 31.8 µs) still serves raster effects.
-- **Delays:** "wait n frames", built on the frame counter.
+- **Raster effects:** the scan-line interrupt (a line is about 31.8 µs), as before.
+- **Timer 2 is the program's,** through OODOS (below): a one-shot after *n* cycles (up to 65,535, about 9.2 ms),
+  or a count of pulses on the user port's PB6. Its interrupt reaches the program as a hook, or the program polls
+  its flag.
+- **What the tick costs.** Every tick is an interrupt: the dispatcher's entry and exit, the counter and the input
+  sampling below, about 100 cycles, is 100,000 cycles a second at 1 kHz, about 1.4% of the CPU; a tick hook adds
+  its own. Music is unaffected: the sound card's 6510 keeps time for tunes with its own CIA.
+
+#### The VIA is shared ####
+
+Timer 1 is OODOS's and timer 2, the ports and the shift register are the program's, but they share the VIA's control
+registers: the ACR holds both timers' modes, the shift register's mode and the ports' latching; the IFR and IER hold
+every interrupt's flag and enable. A program that writes them directly can stop the system tick or take its
+interrupt without knowing it. So:
+
+- **OODOS owns ACR, IER and IFR.** A program sets timer 2's mode, the shift register's mode, the ports' latching and
+  its interrupts through OODOS calls that change only its own bits.
+- **A program may write** timer 2's counter, the shift register, the port registers and the DDRs, and PCR's bits for
+  the lines it has claimed (the user port's handshake lines).
+- **Every VIA interrupt goes through OODOS's dispatcher,** which clears the flags and calls the program's hook for
+  its own (timer 2, CA1/CA2, CB1/CB2, the shift register). A program has no raw IRQ handler of its own.
+- **The warm boot** stops timer 2, turns off the program's interrupts, puts the shift register off and every port
+  line back to an input (the joystick lines are inputs anyway), and leaves timer 1 running.
 
 ### Input ###
 
@@ -101,9 +131,17 @@ Function numbers, register conventions and error codes are left for the design s
   count of each.
 - **Keys held now:** a 256-bit map (32 bytes) by HID usage, kept from the raw events, so `IF key held` is one
   load and an AND.
-- **The joystick and paddles:** read at each vertical blank into the event area (paddles 0–255, buttons), and the
-  two digital joysticks as one byte each (a game may also read them itself from the VIA, one load). GW-BASIC's STICK
-  and STRIG take either.
+- **Controllers, not devices.** Game input comes from three kinds of hardware: the two digital joysticks on the
+  VIA, the Apple-style joystick on the USB card's game port (two paddles and buttons), and USB gamepads later. The
+  event area presents them all as **numbered controllers in one format**: four direction bits and the fire
+  buttons, plus an analogue X and Y (0–255) where the device has one. A digital stick gives X and Y at 0, 128 or
+  255; the Apple joystick gives directions where X or Y is past a threshold (open question 12). A game asks for
+  *controller 1* and works with whatever is plugged in; which hardware is which controller is open question 12.
+- **Sampled every tick,** so a press shorter than a frame isn't missed, and fire presses and releases go into the
+  event queue with the millisecond count, as keys do. A game may still read a digital stick itself from the VIA
+  (`LDA $C341`, one load), as the hardware allows.
+- **The paddles themselves** (0–255 each, all four) stay in the event area for games that want paddles, not a
+  joystick. GW-BASIC's STICK and STRIG read controllers.
 - **The mouse:** position (absolute mode with limits) and buttons in the event area; an optional pointer sprite
   OODOS moves at each vertical blank.
 - **The console keeps working.** Function 6 and the console functions still get characters from KEY, as CP/M
@@ -143,11 +181,18 @@ The card's 6510 can be used three ways; the services cover all three, one at a t
   a call stops the driver and hands the SIDs over.
 - **The speaker:** a beep (pitch and length), timed by OODOS.
 
+### The user port ###
+
+- The VIA's ten spare lines and four handshake lines are raw I/O for hobby hardware (an LCD, sensors, a second
+  keyboard). OOLIB doesn't wrap them: a program drives them itself, within the rules above.
+- **A claim call** gives them to one owner at a time, so a program and an RSX can't both drive them; the warm boot
+  frees the claim (open question 6).
+
 ### DMA ###
 
 - **Channels have owners.** OODOS keeps channel 0 (storage). Channel 3 (copies and blits) is shared: OOLIB and the
   BIOS both use it, so a call takes it and gives it back, or OODOS queues copies for it. Channel 2 loads the sound
-  card's RAM. Which channels a program may own outright is open question 6.
+  card's RAM. Which channels a program may own outright is part of open question 6.
 - **Copy and fill** between any physical addresses, checked as 3c's segment is (none of OODOS's own memory).
 
 ### Files and assets ###
@@ -165,13 +210,14 @@ The card's 6510 can be used three ways; the services cover all three, one at a t
 ## What a program sees, in brief ##
 
 ```
-setup:  OODOS: open the event area (address, size); set the frame hook
+setup:  OODOS: open the event area (address, size); set the frame hook (and a tick hook, if it wants one)
         OOLIB: set layer 0 to tiles, layer 1 to text; load tiles, map, palette, sprites
         OODOS: start the music driver; play tune 1
-loop:   read the event area: frame counter, keys held, joystick, events
+loop:   read the event area: frame and ms counters, keys held, controllers, events
         OOLIB: move sprites in the shadow table, put map entries, scroll
         OODOS: wait for the next frame (the sprite table goes to the card then)
-end:    RTS: the warm boot stops the music, the hooks and DMA, and puts the console back
+end:    RTS: the warm boot stops the music, the hooks, timer 2 and DMA, frees the user port, and puts the
+        console back
 ```
 
 
@@ -184,8 +230,8 @@ end:    RTS: the warm boot stops the music, the hooks and DMA, and puts the cons
 | SOUND, PLAY, BEEP | the music driver; the speaker |
 | INKEY$, INPUT$ | the console (function 6) |
 | ON KEY, KEY(n) | the event queue, keys held |
-| STICK, STRIG, ON STRIG | the game port in the event area |
-| ON TIMER, TIMER | the frame counter and the frame hook |
+| STICK, STRIG, ON STRIG | controllers 1 and 2 in the event area (fire events for ON STRIG) |
+| ON TIMER, TIMER | the millisecond counter and the tick hook |
 | ON PLAY | the music driver's sync points |
 | DEF SEG, PEEK, POKE, BLOAD, BSAVE | physical memory by DMA (3c), video banks included |
 
@@ -197,12 +243,12 @@ end:    RTS: the warm boot stops the music, the hooks and DMA, and puts the cons
 - **RSXs** (OODOS phase 5) see the services like any program; an RSX that hooks the frame shares the dispatcher's
   list.
 - **The warm boot** stops everything a program started (hooks, the music driver and any tune, DMA channels it
-  took, the pointer sprite), empties the event queue, closes the event area, and puts the video card back to the
+  took, timer 2, its VIA interrupts and the user port's claim, the pointer sprite), empties the event queue, closes the event area, and puts the video card back to the
   console's text screen and font.
 - **Apple II mode** is untouched: these are native-mode services.
 - **Phasing (proposed):** a new OODOS phase before GW-BASIC (between 6 and 7, or before 6), in steps:
-  1. the interrupt dispatcher, the frame counter and the event area;
-  2. input: the event queue, keys held, the joystick and mouse;
+  1. the interrupt dispatcher, the system tick (VIA timer 1), the frame and millisecond counters and the event area;
+  2. input: the event queue, keys held, controllers, the mouse;
   3. sound: the music driver, `.sid` playback, the speaker;
   4. OOLIB graphics and the sprite upload;
   5. a demo game of ours, which tests it all together and goes on the website's card (phase 8).
@@ -214,20 +260,28 @@ end:    RTS: the warm boot stops the music, the hooks and DMA, and puts the cons
    program that checks), or may OO-1 programs simply assume the hardware?
 2. **Calls into OODOS.** New function numbers one per service (75 on, as 72–74), or one function with a service
    number and a parameter block (as 50 does for the BIOS)?
-3. **The frame hook's rules.** Which of the program's windows are mapped while it runs, how long it may take (a
-   budget in cycles), whether it may call OOLIB, and whether it gets a zero-page slice of its own.
+3. **The hooks' rules** (frame, tick, scan line, timer 2). Which of the program's windows are mapped while one
+   runs, how long each may take (a budget in cycles: the tick hook's must be far smaller than the frame hook's),
+   whether it may call OOLIB, whether it gets a zero-page slice of its own, and the VIA rule (never ACR, IER or
+   IFR).
 4. **Keys during a game.** May a game turn off the console's handling of ^C, ^S and ^P (CP/M 3's console mode,
    function 109, already has bits for this), and should the event queue then get those keys instead?
 5. **The music format.** Our own tune format for the driver (notes, instruments, effects), or an existing tracker
    format (as long as it's free to use)? A converter from MIDI or from a tracker on Linux?
-6. **DMA channels.** May a program own channel 1 or 3 outright for a streaming effect, or does everything go
-   through OODOS's queue?
-7. **A hardware timer.** *Proposed answer (2026-10-30): a W65C22S on the serial card* ([design.md](design.md#the-via-and-the-joystick-ports)),
-   timer 1 OODOS's system tick, timer 2 and the ports for programs. Left to settle: the tick's rate (1 kHz
-   proposed) and whether programs may hook it as they hook the frame.
+6. **What a program may own outright.** DMA channel 1 or 3 for a streaming effect, timer 2, the user port, the
+   SIDs directly: which may a program claim for itself (and the warm boot take back), and which only through
+   OODOS's calls or queue?
+7. **A hardware timer.** *Answered (proposed 2026-10-30): a W65C22S on the serial card*
+   ([design.md](design.md#the-via-and-the-joystick-ports)): timer 1 is OODOS's system tick, timer 2 and the ports are
+   the program's, and programs may hook the tick (with question 3's rules). The rate is question 11.
 8. **Asset formats and tools.** Which formats, and which Linux tools (a PNG to tiles converter, a palette tool, a
    map editor's export) come with OOLIB?
 9. **Where OOLIB's code lives.** Linked into each program (as proposed), or also kept in an allocated block and
    reached by FARCALL for programs short of TPA space (GW-BASIC is)?
 10. **The console during a game.** May a game use the text layer for its own status line while the console's
     output goes elsewhere, or does any console output put the console's text screen back?
+11. **The tick rate.** Fixed at 1 kHz (about 1.4% of the CPU before any hook), or settable by a program within
+    limits (say 100 Hz to 4 kHz), which every other user of the millisecond counter then has to allow for?
+12. **The controller model.** How many controllers the event area has; how the hardware is numbered by default (the
+    two digital sticks as 1 and 2, the Apple joystick as 3?); whether a game or the user (a setting kept on the card)
+    picks which is which; and the Apple joystick's thresholds for directions.
