@@ -3,7 +3,9 @@
 **Status: draft (2026-10-30). Nothing here is decided yet.** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
-[oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own.
+[oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
+are settled in the books' phase G3 ([docs/README.md](../docs/README.md#phases)), which writes the Programmer's
+Guide's chapter 8 on what is decided.
 
 
 ## Goals ##
