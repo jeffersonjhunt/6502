@@ -36,8 +36,7 @@ using namespace ooe::emu;
 namespace
 {
     constexpr uint16_t VIA = 0xC340;
-    constexpr uint16_t ORB = VIA + 0x0, ORA = VIA + 0x1, DDRB = VIA + 0x2, DDRA = VIA + 0x3, T1CL = VIA + 0x4,
-                       ACR = VIA + 0xB, IER = VIA + 0xE;
+    constexpr uint16_t ORB = VIA + 0x0, ORA = VIA + 0x1, DDRB = VIA + 0x2, DDRA = VIA + 0x3, T1CL = VIA + 0x4, IER = VIA + 0xE;
     constexpr uint16_t IRQL = 0xC680 + BackplaneBridge::IRQL;
     using J = JoystickPorts;
 
