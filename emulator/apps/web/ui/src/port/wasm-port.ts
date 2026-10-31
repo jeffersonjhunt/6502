@@ -124,6 +124,9 @@ export interface CoreMachine {
   appleMode(): boolean;
   appleSwitches(): number;
   peekIo(offset: number): number;
+  hasJoysticks(): boolean;
+  setJoystick(n: number, bits: number): void;
+  joystick(n: number): number;
   hasUsb(): boolean;
   usbKey(usage: number, down: boolean): void;
   usbQueued(): number;
@@ -232,7 +235,7 @@ export function wallClock(d: Date): number {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true, sd: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true, sd: true, joysticks: false }; // joysticks: once open, if the machine has the ports
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -290,6 +293,7 @@ export class WasmPort implements MachinePort {
       throw new Error(`cannot open ${this.files.machine}: ${why}`);
     }
     this.m = m;
+    this.caps.joysticks = m.hasJoysticks();
     m.setRtc(wallClock(new Date())); // the DS3231, set as the owner would set it
     this.setClock(this.clock); // the video card keeps time by it
     m.setAudioRate(this.audioRate);
@@ -512,6 +516,10 @@ export class WasmPort implements MachinePort {
 
   stopTyping(): void {
     this.m?.usbDropKeys();
+  }
+
+  setJoystick(stick: number, pressed: number): void {
+    this.m?.setJoystick(stick & 1, pressed & 0x1f);
   }
 
   sendMouse(mouse: MouseInput): void {

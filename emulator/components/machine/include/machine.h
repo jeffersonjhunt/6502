@@ -4,8 +4,8 @@
  * @file machine.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
  * @brief A machine built from a plain-text description.
- * @version 0.8.0
- * @date 2026-10-23
+ * @version 0.9.0
+ * @date 2026-10-30
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
@@ -38,7 +38,9 @@
  * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most
  * one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board; a 4-byte 6551 in an I/O
- * block, every 4).
+ * block, every 4). Mappings may overlap, and the later line answers: so a
+ * chip can sit in another's mirror, as the backplane's VIA does at io
+ * 340-34F, inside the stand-in 6551's 300-37F.
  *
  * Without a `northbridge` line every CPU address is memory with A16-A19
  * low. `northbridge backplane [bootsel]` fits the backplane's north bridge
@@ -52,8 +54,10 @@
  *
  *   hd44780  name=lcd  via=via  data=PB0-3  rs=PB4  rw=PB5  e=PB6  [size=16x2]
  *   ps2kbd   name=keyboard  via=via  data=PA0-7        (strobes CA1)
+ *   joyports name=joysticks  via=via                    (PA0-4 and PB0-4; joystick_ports.h)
  *
- * `data=` is 4 or 8 consecutive pins of one port (8 for ps2kbd). Errors
+ * `data=` is 4 or 8 consecutive pins of one port (8 for ps2kbd); joyports
+ * takes the whole of both ports, at most one per machine. Errors
  * name the file and line.
  */
 
@@ -70,6 +74,7 @@
 #include "sound_card.h"
 #include "decoder.h"
 #include "device.h"
+#include "joystick_ports.h"
 #include "peripheral.h"
 #include "usb_card.h"
 #include "video_card.h"
@@ -128,6 +133,8 @@ namespace ooe::emu
         SoundCard *sound_card() const { return sound_card_; }
         /// The mass storage card, if the description has one (`sd`): an SD card behind an RP2350.
         SdCard *sd_card() const { return sd_card_; }
+        /// The joystick ports, if the description has them (`joyports`).
+        JoystickPorts *joysticks() const { return joysticks_; }
         /// The backplane's north bridge (Apple II mode's switches), if the description has one.
         const BackplaneBridge *backplane_bridge() const { return dynamic_cast<const BackplaneBridge *>(bridge_); }
         BackplaneBridge *backplane_bridge() { return dynamic_cast<BackplaneBridge *>(bridge_); }
@@ -164,6 +171,7 @@ namespace ooe::emu
         Disk2Card *disk2_card_{nullptr};     ///< owned through devices_
         SoundCard *sound_card_{nullptr};     ///< owned through devices_
         SdCard *sd_card_{nullptr};           ///< owned through devices_
+        JoystickPorts *joysticks_{nullptr};  ///< owned through peripherals_
         std::vector<std::unique_ptr<Peripheral>> peripherals_;
         std::unordered_map<std::string, Peripheral *> named_peripherals_;
     };

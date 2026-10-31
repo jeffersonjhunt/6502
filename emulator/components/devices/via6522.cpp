@@ -32,8 +32,12 @@ namespace ooe::emu
         uint8_t dir = ddr(port);
         if (port == Port::B && (acr_ & ACR_T1_PB7))
             dir = static_cast<uint8_t>(dir | 0x80); // PB7 is T1's, whatever DDRB says
-        const uint8_t in = port == Port::A ? in_a_ : in_b_;
-        return static_cast<uint8_t>((output(port) & dir) | (in & ~dir));
+        if (port == Port::B) // IRB: an output bit reads ORB, whatever the pin does
+            return static_cast<uint8_t>((output(port) & dir) | (in_b_ & ~dir));
+        // IRA: every bit is the pin. An output's pin is what the VIA drives,
+        // pulled low by anything outside driving it low (a pressed switch).
+        const uint8_t pin_out = static_cast<uint8_t>(ora_ & (in_a_ | ~driven_a_));
+        return static_cast<uint8_t>((pin_out & dir) | (in_a_ & ~dir));
     }
 
     void Via6522::notify(Port port)
@@ -172,6 +176,17 @@ namespace ooe::emu
         }
     }
 
+    void Via6522::bus_reset()
+    {
+        ora_ = orb_ = ddra_ = ddrb_ = 0;
+        acr_ = pcr_ = ifr_ = ier_ = 0;
+        t1_armed_ = t2_armed_ = false;
+        t1_reload_ = false;
+        pb7_ = true;
+        notify(Port::A);
+        notify(Port::B); // every pin an input now
+    }
+
     // --- timers ------------------------------------------------------------
     //
     // A counter decrements once per cycle, but not in the cycle that loaded
@@ -263,6 +278,8 @@ namespace ooe::emu
     void Via6522::drive(Port port, uint8_t mask, uint8_t value)
     {
         uint8_t &in = port == Port::A ? in_a_ : in_b_;
+        if (port == Port::A)
+            driven_a_ = static_cast<uint8_t>(driven_a_ | mask);
         const uint8_t before = in;
         in = static_cast<uint8_t>((in & ~mask) | (value & mask));
         // T2 in pulse-counting mode: one count per PB6 falling edge.
@@ -275,6 +292,12 @@ namespace ooe::emu
                 t2_armed_ = false;
             }
         }
+    }
+
+    void Via6522::release(Port port, uint8_t mask)
+    {
+        if (port == Port::A)
+            driven_a_ = static_cast<uint8_t>(driven_a_ & ~mask);
     }
 
     void Via6522::edge(bool &line, bool level, bool rising_active, uint8_t flag)

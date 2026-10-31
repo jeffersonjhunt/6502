@@ -9,7 +9,9 @@
  * count: a load of N reaches 0 after N+1 ticks and times out on the next,
  * so a read in the cycle after that (N+2 after the write) is the first to
  * see the flag, the datasheet's N+1.5. Free-running mode repeats every
- * N+2. The last case runs a timer
+ * N+2 (the 1 kHz tick hw/design.md gives OODOS among them), and /RESET
+ * leaves every line an input, the timers stopped and interrupts off. The
+ * last case runs a timer
  * interrupt through the CPU and decoder, which is what the lockstep timing
  * in the decoder is for.
  */
@@ -60,6 +62,29 @@ TEST(ports_mix_outputs_and_inputs_and_tell_listeners)
     v.write(ORA, 0x42);
     CHECK_EQ(v.read(ORA_NH), 0x42);
     CHECK_EQ(v.output(P::A), 0x42);
+}
+
+TEST(port_a_reads_its_pins_and_port_b_reads_orb_for_outputs)
+{
+    // On the 6522, IRA is the pins for every bit; IRB is ORB for output bits.
+    Via6522 v;
+    v.write(DDRA, 0xFF); // nothing drives port A yet: the outputs read back
+    v.write(ORA, 0xA5);
+    CHECK_EQ(v.read(ORA), 0xA5);
+    v.drive(P::A, 0xFF, 0xFF); // pulled up
+    v.drive(P::B, 0xFF, 0xFF);
+    v.write(DDRA, 0x01);
+    v.write(ORA, 0x01); // PA0 driven high...
+    v.write(DDRB, 0x01);
+    v.write(ORB, 0x01); // ...and PB0
+    v.drive(P::A, 0x01, 0x00); // a switch pulls both low
+    v.drive(P::B, 0x01, 0x00);
+    CHECK_EQ(v.read(ORA), 0xFE);    // the pin
+    CHECK_EQ(v.read(ORA_NH), 0xFE);
+    CHECK_EQ(v.read(ORB), 0xFF);    // ORB
+    v.write(ORA, 0x00);
+    v.drive(P::A, 0x01, 0x01); // driven low, pulled up: low
+    CHECK_EQ(v.read(ORA), 0xFE);
 }
 
 TEST(control_line_edges_follow_the_pcr)
@@ -233,6 +258,75 @@ TEST(peek_has_no_side_effects)
         v.peek(r);
     CHECK(v.ifr() & Via6522::IRQ_CA1);
     CHECK(t1_flag(v));
+}
+
+TEST(the_oodos_tick_latch_7157_interrupts_every_7159_cycles)
+{
+    // hw/design.md: a free-running period is the latch + 2, so 7,157 gives
+    // 7,159 cycles of 7.16 MHz, 1 kHz. Count the cycles between flags.
+    Via6522 v;
+    v.write(ACR, Via6522::ACR_T1_FREE_RUN);
+    load_t1(v, 7157);
+    v.tick(7157 + 2); // the first timeout, N+2 ticks after the write
+    CHECK(t1_flag(v));
+    for (int i = 0; i < 5; ++i)
+    {
+        v.read(T1CL);
+        uint64_t n = 0;
+        while (!t1_flag(v))
+        {
+            v.tick(1);
+            ++n;
+        }
+        CHECK_EQ(n, uint64_t{7159});
+    }
+}
+
+TEST(reset_makes_every_line_an_input_stops_the_timers_and_masks_interrupts)
+{
+    Via6522 v;
+    std::vector<std::pair<uint8_t, uint8_t>> seen_b;
+    v.listen([&](P port, uint8_t out, uint8_t ddr) {
+        if (port == P::B)
+            seen_b.emplace_back(out, ddr);
+    });
+    v.drive(P::A, 0xFF, 0x5A);
+    v.drive(P::B, 0xFF, 0x3C);
+    v.write(DDRA, 0xFF);
+    v.write(ORA, 0x00);
+    v.write(DDRB, 0x0F);
+    v.write(ORB, 0xFF);
+    v.write(ACR, Via6522::ACR_T1_FREE_RUN | Via6522::ACR_T1_PB7);
+    v.write(PCR, 0xEE);
+    v.write(IER, 0xFF);
+    load_t1(v, 100);
+    v.write(T2CL, 50);
+    v.write(T2CH, 0);
+    v.set_ca1(true);
+    v.set_ca1(false);
+    CHECK(v.irq());
+
+    v.bus_reset();
+    CHECK_EQ(v.peek(DDRA), 0x00);
+    CHECK_EQ(v.peek(DDRB), 0x00);
+    CHECK_EQ(v.peek(ACR), 0x00);
+    CHECK_EQ(v.peek(PCR), 0x00);
+    CHECK_EQ(v.peek(IFR), 0x00);
+    CHECK_EQ(v.peek(IER), 0x80); // all off; bit 7 reads 1
+    CHECK(!v.irq());
+    CHECK_EQ(v.peek(ORA), 0x5A); // the pins, as the outside drives them
+    CHECK_EQ(v.peek(ORB), 0x3C);
+    CHECK(seen_b.back() == std::make_pair(uint8_t{0x00}, uint8_t{0x00})); // the listeners hear the pins let go
+    CHECK_EQ(v.peek(T1LL), 100); // the latches are kept
+    // The counters run on, but neither timer is armed: no flag, however long.
+    v.tick(0x30000);
+    CHECK_EQ(v.peek(IFR), 0x00);
+    // A program's load starts one again.
+    v.write(IER, 0x80 | Via6522::IRQ_T1);
+    load_t1(v, 10);
+    v.tick(12);
+    CHECK(t1_flag(v));
+    CHECK(v.irq());
 }
 
 TEST(timer_interrupts_through_the_cpu_in_lockstep)

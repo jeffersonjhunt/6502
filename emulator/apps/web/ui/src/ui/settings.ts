@@ -1,15 +1,18 @@
 /**
  * The Settings drawer's content, in sections: ROMs (the BIOS, and Apple II
  * mode's ROMs), Disk II (the two drives), SD card, Sound (a .sid tune),
+ * Joysticks (the serial card's two: gamepads, and the Keys switch),
  * Display (the phosphor) and About (the credits). The rows are the media's
- * own (ui/bios.ts, apple-bar.ts, disk-bar.ts, sd-bar.ts, sid-bar.ts); a
+ * own (ui/bios.ts, apple-bar.ts, disk-bar.ts, sd-bar.ts, sid-bar.ts, joysticks.ts); a
  * section with nothing to show on this machine (no SD card, say) hides.
+ * Joysticks, heading and all, is hidden until the machine is open and has
+ * the ports (show(), from main.ts with caps.joysticks).
  */
 
 import { PHOSPHORS, type Phosphor } from "../crt/crt";
 import { h, prefs, segmented } from "./dom";
 
-export type SettingsSection = "roms" | "disk" | "sd" | "sound" | "display" | "about";
+export type SettingsSection = "roms" | "disk" | "sd" | "sound" | "joysticks" | "display" | "about";
 
 /** Colour, P1, P3 or P4, remembered; `onPick` hears the kept one at once. */
 export function phosphorPicker(onPick: (p: Phosphor) => void): HTMLElement {
@@ -68,14 +71,17 @@ export interface SettingsParts {
   drives: HTMLElement[];
   sd: HTMLElement;
   sound: HTMLElement;
+  joysticks: HTMLElement;
   phosphor: HTMLElement;
 }
 
 export function settingsPanel(parts: SettingsParts) {
   const heads = {} as Record<SettingsSection, HTMLElement>;
+  const sections = {} as Record<SettingsSection, HTMLElement>;
   const section = (id: SettingsSection, title: string, ...body: HTMLElement[]) => {
     heads[id] = h("h3", { class: "lbl", id: `set-${id}`, tabindex: "-1" }, title);
-    return h("section", { class: `set-sec set-${id}`, "aria-labelledby": `set-${id}`, "data-testid": `settings-${id}` }, heads[id], ...body);
+    sections[id] = h("section", { class: `set-sec set-${id}`, "aria-labelledby": `set-${id}`, "data-testid": `settings-${id}` }, heads[id], ...body);
+    return sections[id];
   };
   const header = h("div", { class: "drawer-h" }, h("h2", {}, "Settings"));
   const element = h(
@@ -89,11 +95,17 @@ export function settingsPanel(parts: SettingsParts) {
       section("disk", "Disk II", ...parts.drives),
       section("sd", "SD card", parts.sd),
       section("sound", "Sound", parts.sound),
+      section("joysticks", "Joysticks", parts.joysticks),
       section("display", "Display", h("div", { class: "row plain" }, h("span", { class: "name" }, "Phosphor"), parts.phosphor)),
       section("about", "About", credits()),
     ),
   );
+  sections.joysticks.hidden = true; // until the machine says it has them
   /** The heading to show and focus for a section. */
   const at = (s: SettingsSection) => heads[s];
-  return { element, header, at };
+  /** Show or hide a whole section, its heading included. */
+  const show = (s: SettingsSection, on: boolean) => {
+    sections[s].hidden = !on;
+  };
+  return { element, header, at, show };
 }

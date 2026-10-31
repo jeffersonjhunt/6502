@@ -1134,8 +1134,9 @@ paddles; the VIA's ports are native only.
 
 **The part.** The W65C22S, still made by WDC, is rated to 14 MHz at 5 V, so it runs at ÷2 with **no wait states**:
 the CPLD selects it with PS0–PS3 = 6 and A6–A4 = `100`, A0–A3 go to RS0–RS3, and it takes PHI2 from the backplane.
-Its IRQB goes to the CPLD, which shows it as INTSTAT bit 3 and pulls bit 6 of IRQL. /RESET clears it: every port
-line an input, the timers stopped, interrupts off.
+Its IRQB goes to the CPLD, which shows it as INTSTAT bit 3 and pulls bit 6 of IRQL. /RESET leaves every port
+line an input and every interrupt off, the timers' included: their counters run on (the chip doesn't clear them), but
+neither interrupts until a program loads it.
 
 **Registers** (`$C340` + RS, WDC's order):
 
@@ -1341,6 +1342,13 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
 8. **The mass storage card:** the registers, the raw card through DATA by CPU or DMA, then FAT mounting, the BIOS
    and the WebUI. *(Emulated 2026-10-25: the card, raw sectors and IDENTIFY; FAT, MOUNT, UNMOUNT and LIST; the
    BIOS's listing and boot; the card in the WebUI.)*
+9. **The serial card's VIA and joysticks** ([above](#the-via-and-the-joystick-ports)). *(Emulated 2026-10-30: the
+   W65C22S at `$C340–$C34F`, its IRQ on IRQL bit 6, and the two joysticks on PA0–PA4 and PB0–PB4, 0 when
+   pressed, the rest pulled up. The TL16C552A isn't modelled yet, so a 6551 still stands in for the terminal at
+   `$C300–$C303`, mirrored through the rest of the block as before; the VIA answers its 16 bytes over that
+   mirror. INTSTAT isn't modelled: `$C322` is still the 6551's mirror, so for now a handler tells the VIA by its
+   IFR. In the WebUI gamepads drive the sticks, each keeping its stick until it goes, and keys too once Settings turns them on; the
+   terminal app's debugger has `joy`.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 

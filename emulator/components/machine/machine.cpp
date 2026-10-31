@@ -20,6 +20,7 @@
 #include "dma_controller.h"
 #include "emu_log.h"
 #include "hd44780.h"
+#include "joystick_ports.h"
 #include "memory_devices.h"
 #include "pia6821.h"
 #include "ps2_keyboard.h"
@@ -118,6 +119,7 @@ namespace ooe::emu
     {
         std::unique_ptr<Machine> m(new Machine(options.bridge));
         bool rom_overridden = false;
+        std::unordered_map<const Via6522 *, std::string> via_users; // the last peripheral type on each VIA
         int lineno = 0;
         std::istringstream lines(text);
         std::string line;
@@ -176,7 +178,7 @@ namespace ooe::emu
                 m->devices_.push_back(std::move(bridge));
                 continue;
             }
-            if (type == "hd44780" || type == "ps2kbd")
+            if (type == "hd44780" || type == "ps2kbd" || type == "joyports")
             {
                 std::unordered_map<std::string, std::string> opt;
                 for (size_t i = 1; i < w.size(); ++i)
@@ -192,6 +194,13 @@ namespace ooe::emu
                 auto *via = dynamic_cast<Via6522 *>(m->find(opt["via"]));
                 if (!via)
                     return fail(type + ": via=NAME must name a via6522 described above");
+                if (type == "joyports" && m->joysticks_)
+                    return fail("joyports: only one per machine");
+                // The joysticks take both of a VIA's ports; nothing else can share it.
+                const std::string &other = via_users[via];
+                if (!other.empty() && (type == "joyports" || other == "joyports"))
+                    return fail(type + ": via '" + opt["via"] + "' already has " + other +
+                                " on it, and joyports needs a VIA of its own");
                 ViaPins data;
                 std::unique_ptr<Peripheral> p;
                 if (type == "hd44780")
@@ -210,6 +219,14 @@ namespace ooe::emu
                         opt.erase(k);
                     p = std::make_unique<ViaLcd>(*via, data, rs, rw, e, cols, rows);
                 }
+                else if (type == "joyports")
+                {
+                    for (const char *k : {"name", "via"})
+                        opt.erase(k);
+                    auto j = std::make_unique<JoystickPorts>(*via);
+                    m->joysticks_ = j.get();
+                    p = std::move(j);
+                }
                 else
                 {
                     if (!parse_pins(opt["data"], data) || data.count != 8)
@@ -222,6 +239,7 @@ namespace ooe::emu
                     return fail(type + ": unknown option '" + opt.begin()->first + "'");
                 if (!name.empty())
                     m->named_peripherals_[name] = p.get();
+                via_users[via] = type;
                 m->peripherals_.push_back(std::move(p));
                 continue;
             }
@@ -230,7 +248,7 @@ namespace ooe::emu
                 type != "sound" && type != "sd")
                 return fail("unknown type '" + type +
                             "' (want cpu, northbridge, ram, rom, pia6821, via6522, acia6551, dma, console, video, "
-                            "usb, disk2, sound, sd, hd44780 or ps2kbd)");
+                            "usb, disk2, sound, sd, hd44780, ps2kbd or joyports)");
 
             Mapping map;
             if (w.size() < 2 || !parse_range(w[1], map.first, map.last))

@@ -40,6 +40,8 @@ export interface PortCaps {
   sid: boolean;
   /** insertSd() and the rest work: the SD card's slot. */
   sd: boolean;
+  /** setJoystick() reaches the serial card's two joystick ports. Known once connect() resolves (the machine file says). */
+  joysticks: boolean;
 }
 
 /** A .sid tune on the sound card (playSid). */
@@ -303,6 +305,9 @@ export interface FrameState {
   audio: Float32Array | null;
 }
 
+/** setJoystick()'s bits, 1 = pressed (the port's lines read 0 for these: hw/design.md, "The VIA and the joystick ports"). */
+export const STICK = { UP: 0x01, DOWN: 0x02, LEFT: 0x04, RIGHT: 0x08, FIRE: 0x10 } as const;
+
 export type PanelKey = "load" | "exam" | "dep" | "cont" | "start";
 
 /** Native clock 7.15909 MHz; the Apple II modes run ~1.02 MHz. */
@@ -360,6 +365,13 @@ export interface MachinePort {
   stopTyping(): void;
   /** The USB mouse: an absolute position (0-639, 0-479), buttons (bit 0 left, 1 right, 2 middle), wheel steps. */
   sendMouse(mouse: MouseInput): void;
+
+  /**
+   * A digital joystick on the serial card's VIA (0: joystick 1, PA0-PA4; 1:
+   * joystick 2, PB0-PB4): what is pressed now, STICK bits. It stays so,
+   * through power cycles too, until the next call, as a stick on the desk.
+   */
+  setJoystick(stick: number, pressed: number): void;
 
   /**
    * Memory without bus cycles: CPU addresses (through the windows), physical,

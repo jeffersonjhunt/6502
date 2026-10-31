@@ -217,6 +217,11 @@ namespace ooe::emu
         const VideoCard *video() const { return machine_->video_card(); }
         /// The USB card, if the machine has one: the keyboard, mouse and game port.
         UsbCard *usb() const { return machine_->usb_card(); }
+        /// The serial card's joystick ports, if the machine has them (`joyports`).
+        JoystickPorts *joysticks() const { return machine_->joysticks(); }
+        /// What joystick `n` (0 or 1) has pressed (JoystickPorts::UP and the rest): the
+        /// host's stick, held through power cycles as it is on the desk. Nothing without the ports.
+        void set_joystick(unsigned n, uint8_t pressed);
         /// The clock the caller runs the CPU at, so the video and USB cards keep
         /// real time: 60 frames a second, key repeat and the paddles, at any
         /// speed (0: 7.16 MHz). Kept across power cycles.
@@ -271,6 +276,7 @@ namespace ooe::emu
 
         // The panel's physical state, kept across power cycles
         uint32_t switches_{0};
+        std::array<uint8_t, JoystickPorts::STICKS> sticks_{};
         uint32_t cpu_hz_{0};
         uint32_t audio_rate_{0};
         std::vector<float> sid_audio_, speaker_audio_; ///< made, not yet mixed: the sources end a frame or so apart

@@ -183,17 +183,36 @@ namespace ooe::emu
 
     void ViaLcd::update()
     {
-        // A pin is high only if the VIA drives it high; undriven pins read low.
-        auto driven = [this](Via6522::Port p) { return static_cast<uint8_t>(via_.output(p) & via_.ddr(p)); };
+        // A line the VIA drives is what it drives; one it lets go (a DDR bit
+        // cleared, as /RESET clears them all) keeps the level it was last
+        // driven to, so E going undriven while high latches nothing. That
+        // models the line floating through reset: the first level driven
+        // after it is compared with the last one driven before it, so if a
+        // program left E high and its first DDR write after reset drives E
+        // low, that is a falling edge and latches whatever RS, R/W and the
+        // data lines are then (driven, or still floating where they were).
+        for (const Via6522::Port p : {Via6522::Port::A, Via6522::Port::B})
+        {
+            const uint8_t ddr = via_.ddr(p);
+            uint8_t &level = level_[p == Via6522::Port::A ? 0 : 1];
+            level = static_cast<uint8_t>((via_.output(p) & ddr) | (level & ~ddr));
+        }
+        auto driven = [this](Via6522::Port p) { return level_[p == Via6522::Port::A ? 0 : 1]; };
         auto pin = [&](const ViaPin &p) { return (driven(p.port) & p.mask()) != 0; };
 
         const auto bits = static_cast<uint8_t>((driven(data_.port) & data_.mask()) >> data_.first);
         const auto data = static_cast<uint8_t>(data_.count == 4 ? bits << 4 : bits); // 4 wires: D7-D4
         lcd_.pins(pin(rs_), pin(rw_), pin(e_), data);
 
-        uint8_t out = 0;
-        if (lcd_.driving())
-            out = static_cast<uint8_t>(data_.count == 4 ? lcd_.data_out() >> 4 : lcd_.data_out());
+        // The LCD drives D7..D0 only in a read cycle (E high, R/W high) and
+        // lets them go otherwise, so an output the VIA drives on them reads
+        // back as driven.
+        if (!lcd_.driving())
+        {
+            via_.release(data_.port, data_.mask());
+            return;
+        }
+        const auto out = static_cast<uint8_t>(data_.count == 4 ? lcd_.data_out() >> 4 : lcd_.data_out());
         via_.drive(data_.port, data_.mask(), static_cast<uint8_t>(out << data_.first));
     }
 } // namespace ooe::emu

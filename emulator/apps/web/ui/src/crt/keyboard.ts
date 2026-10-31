@@ -40,6 +40,47 @@ export function keyBytes(e: KeyLike, caps: boolean, mac = IS_MAC): Uint8Array | 
   return Uint8Array.of(c);
 }
 
+// A US keyboard's digits and punctuation, by KeyboardEvent.code: each without Shift and with it.
+const US_CODES = [
+  "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8", "Digit9", "Digit0", "Minus", "Equal",
+  "BracketLeft", "BracketRight", "Backslash", "Semicolon", "Quote", "Backquote", "Comma", "Period", "Slash",
+];
+const US_PLAIN = "1234567890-=[]\\;'`,./";
+const US_SHIFTED = '!@#$%^&*()_+{}|:"~<>?';
+
+/**
+ * The key as it is without Shift, for when a Shift that is down isn't the
+ * typist's (the left Shift held as a joystick's fire): a letter in lower
+ * case, or upper case while Caps Lock is on, as it would come unshifted
+ * (kept as it came where that case is more than one character, as `İ`
+ * lowercases to two); a digit or punctuation what its key makes unshifted,
+ * where the event is what Shift makes on that key on a US keyboard
+ * (another layout's is left as it came: there is no knowing its unshifted
+ * character).
+ */
+export function unshifted(e: KeyLike & { code: string }): KeyLike & { code: string; shiftKey: false } {
+  let key = e.key;
+  const lower = key.toLowerCase();
+  const upper = key.toUpperCase();
+  if (key.length === 1 && lower !== upper) {
+    const plain = e.getModifierState?.("CapsLock") ? upper : lower;
+    if (plain.length === 1) key = plain;
+  } else {
+    const i = US_CODES.indexOf(e.code);
+    if (i >= 0 && US_SHIFTED[i] === key) key = US_PLAIN[i];
+  }
+  // Fields by name: a KeyboardEvent's are getters on its prototype, which a spread would miss.
+  return {
+    key,
+    code: e.code,
+    ctrlKey: e.ctrlKey,
+    altKey: e.altKey,
+    metaKey: e.metaKey,
+    shiftKey: false,
+    getModifierState: (m: string) => m !== "Shift" && (e.getModifierState?.(m) ?? false),
+  };
+}
+
 /**
  * Ctrl+V, Ctrl+Shift+V or Shift+Insert: the browser's paste, so the page gets the text (Cmd+V on the Mac is anyway).
  * The V key's code only where the layout's letter isn't Latin (Russian): on Dvorak it is K, and Ctrl+K is the machine's.

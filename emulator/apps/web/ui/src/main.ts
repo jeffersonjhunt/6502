@@ -11,7 +11,7 @@
  * the video card, and it switches to Display; back out, and to Terminal.
  * The strip under it has the machine's state and what is loaded; the
  * media themselves (the ROMs, the Disk II's drives, the SD card, a .sid
- * tune) are in Settings, with the phosphor and the credits.
+ * tune) are in Settings, with the joysticks, the phosphor and the credits.
  *
  * Built with VITE_HOME_URL set, the back link goes to that page.
  */
@@ -30,7 +30,8 @@ import "./styles/debugger.css";
 import "./styles/drawer.css";
 
 import { Crt, PHOSPHORS, type Scene } from "./crt/crt";
-import { isPaste, keyBytes, leavesScreen, pasteBytes } from "./crt/keyboard";
+import { leavesScreen, pasteBytes } from "./crt/keyboard";
+import { screenKeys } from "./crt/screen-keys";
 import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
@@ -53,6 +54,7 @@ import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
 import { sdBar } from "./ui/sd-bar";
 import { sidBar } from "./ui/sid-bar";
+import { joysticks } from "./ui/joysticks";
 
 const TERMINAL_LABEL = "Terminal: click and type. F6 leaves the screen";
 
@@ -139,10 +141,14 @@ function start(root: HTMLElement, port: MachinePort): void {
   // The keyboard is the serial terminal's on Terminal, and the USB card's on
   // Display: a monitor and a USB keyboard are a whole computer. The mouse is
   // the card's on VGA.
+  // The serial card's joysticks: gamepads, and keys while Settings' Keys switch is on (ui/joysticks.ts).
+  const sticks = joysticks(port, undefined, { open: (from) => openSettings("joysticks", from) });
   let scene: Scene = "text";
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
   const onUsb = () => scene !== "text" && port.caps.usb;
   const onMouse = () => scene === "vga" && port.caps.usb;
+  // The joysticks' keys, the USB keyboard's or the terminal's (crt/screen-keys.ts).
+  const keys = screenKeys({ sticks, usb: usbKeys, onUsb, caps: () => caps, serial: (bytes) => port.sendSerial(bytes) });
   // Tab and Escape are the machine's, so F6 is the way off the screen by keyboard.
   const leave = (way: 1 | -1) => {
     if (!focusStop(glass, way)) glass.blur();
@@ -153,21 +159,13 @@ function start(root: HTMLElement, port: MachinePort): void {
       e.preventDefault();
       return leave(way);
     }
-    if (isPaste(e)) return; // the browser's: its paste event types the text, below
-    if (onUsb()) {
-      if (usbKeys.down(e)) e.preventDefault();
-      return;
-    }
-    const bytes = keyBytes(e, caps);
-    if (!bytes) return;
-    e.preventDefault();
-    port.sendSerial(bytes);
+    if (keys.down(e)) e.preventDefault();
   });
   glass.addEventListener("keyup", (e) => {
-    if (usbKeys.up(e)) e.preventDefault();
+    if (keys.up(e)) e.preventDefault();
   });
-  glass.addEventListener("blur", () => usbKeys.releaseAll());
-  window.addEventListener("blur", () => usbKeys.releaseAll());
+  glass.addEventListener("blur", () => (usbKeys.releaseAll(), sticks.releaseKeys()));
+  window.addEventListener("blur", () => (usbKeys.releaseAll(), sticks.releaseKeys()));
 
   // The USB mouse, on VGA: where the pointer is on the picture, in its 640x480.
   const vgaPoint = (e: MouseEvent) => {
@@ -301,13 +299,15 @@ function start(root: HTMLElement, port: MachinePort): void {
     drives: drives.map((d) => d.element),
     sd: card.element,
     sound: tune.element,
+    joysticks: sticks.element,
     phosphor,
   });
+  settings.show("joysticks", port.caps.joysticks); // false until the machine is open
 
   const monitor = h("div", { class: "mon" }, glass, h("div", { class: "mon-foot" }, monLabel, screens.element));
   const strip = statusStrip({
     pills: [...drives.map((d) => d.pill), card.pill, tune.pill],
-    trailing: [bios.quiet, stopTyping, appleRoms.resets],
+    trailing: [sticks.pill, bios.quiet, stopTyping, appleRoms.resets],
     load: (from) => openSettings("roms", from),
   });
 
@@ -351,6 +351,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     speaker.feed(f);
     sound.update();
     tune.update(f);
+    sticks.poll();
     strip.update(f.powered);
     if (f.serialOut.length) {
       terminal.write(f.serialOut);
@@ -393,6 +394,8 @@ function start(root: HTMLElement, port: MachinePort): void {
     .connect()
     .then(async (opened) => {
       bios.connected(opened.bios);
+      sticks.connected(); // the machine says whether it has the joystick ports
+      settings.show("joysticks", port.caps.joysticks);
       await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       panel.applyAll();
       port.setLights(true);
