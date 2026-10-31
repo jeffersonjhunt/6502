@@ -1674,7 +1674,7 @@ the choices it left open marked ours):
   typed) that the built-ins don't (`\r\r\nA>`). Accepted: the plan's "the same bytes" holds when the command
   writes something.
 - **The card:** `make_card.sh` builds the ten (`make utils`) and puts them on A: in user 0 as SYS files, after the
-  files it had, then two one-line text files, `SPACER1.TXT` and `SPACER2.TXT` (ours): 21 files in 23 entries, so
+  files it had, then two one-line text files, `SPACER1.DAT` and `SPACER2.DAT` (ours; typed DAT so that a `dir *.txt` on A:, as test_oodos_ccp runs, doesn't list them): 21 files in 23 entries, so
   WRITEOO1's `0:OO1.BIN` lands in entries 32 and 33, the first in an SFCB's first slot, as 16 was before; the ten
   alone would have put it in 29 and 30, and fsck.cpm 2.23's backwards first-slot case would no longer be exercised
   by `--written` (with the spacers its sums warn of 1, let through as before). `test_oodos_boot` checks each utility on the card against the

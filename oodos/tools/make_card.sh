@@ -35,8 +35,8 @@
 #                      DEVICE, DIR, ERASE, INITDIR, RENAME, SET, SETDEF,
 #                      SHOW, TYPE; SYS, as HELLO.COM (hw/oodos.md, "The
 #                      utilities, phase 4b")
-#     0:SPACER1.TXT    text, one line each, last: two more entries, so the
-#     0:SPACER2.TXT    first free one is an SFCB's first slot (32), where
+#     0:SPACER1.DAT    text, one line each, last: two more entries, so the
+#     0:SPACER2.DAT    first free one is an SFCB's first slot (32), where
 #                      WRITEOO1 puts OO1.BIN: fsck.cpm 2.23 compares that
 #                      slot's stamps backwards, a case interop.sh checks
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
@@ -135,9 +135,9 @@ at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL WRITEOO1.CO
 at cpmcp -f oodos-8m A.IMG $utils 0:
 # Two entries more (21 to 23) put the first free entry at 32, an SFCB's first
 # slot, as 16 was before the utilities: OO1.BIN's first entry lands there.
-python3 text.py SPACER1.TXT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
-python3 text.py SPACER2.TXT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
-at cpmcp -f oodos-8m A.IMG SPACER1.TXT SPACER2.TXT 0:
+python3 text.py SPACER1.DAT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
+python3 text.py SPACER2.DAT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
+at cpmcp -f oodos-8m A.IMG SPACER1.DAT SPACER2.DAT 0:
 at cpmchattr -f oodos-8m A.IMG s 0:HELLO.COM
 for u in $utils; do at cpmchattr -f oodos-8m A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n A.IMG
