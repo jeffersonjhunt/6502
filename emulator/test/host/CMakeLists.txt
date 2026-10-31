@@ -221,7 +221,7 @@ emu_add_test(test_oodos_ccp)
 set_tests_properties(test_oodos_ccp PROPERTIES TIMEOUT 1800) # the CCP's cases (phase 4a), test_oodos_sys's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_utils test_oodos_utils_set test_oodos_utils_files)
+set(OODOS_UTILS_SUITES test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
