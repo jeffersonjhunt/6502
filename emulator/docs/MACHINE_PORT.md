@@ -19,6 +19,7 @@ Everything in the port is something the real board can also do:
 | Inspection | `readMemory`, `physical`, `resolve`, `readTrace`, `FrameState.lights`, `FrameState.regs` | memory and the latched cycle over SPI; the lamps; the bus spy's trace |
 | Video | `watchVideo`, `FrameState.video`, `FrameState.videoCard` | the video card's VGA output (a capture device, for the board); its CTRL and layer 0's setup, read without a bus cycle, so the page can tell a program's picture from the BIOS's text screen |
 | USB | `sendKey`, `sendMouse` | the USB card's keyboard and mouse (the board: a USB keyboard and mouse plugged into it) |
+| Joysticks | `setJoystick` (`caps.joysticks`) | the serial card's two DE-9 joystick ports (the board: joysticks plugged into them; a backend without the ports says `joysticks: false`) |
 | Apple II mode | `insertCartridge`, `readApple`, `FrameState.apple` | the cartridge (ROM B) with the owner's IIe ROM in it, and the Disk II card's PROMs; the north bridge's MODE and the IIe's switches, read without a bus cycle; the AMODE lamp |
 | Disk II | `insertDisk`, `ejectDisk`, `readDiskInfo`, `saveDisk`, `setWriteProtect`, `readDisk2`, `FrameState.disk` | the Floppy Emu in the drive's place: an image in, out, written back; the drive's light |
 | SD card | `insertSd`, `ejectSd`, `readSdInfo`, `saveSd`, `setSdWriteProtect`, `FrameState.sd` | the card in the mass storage card's slot: an image in, out, saved with the machine's writes; the card's light |

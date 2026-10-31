@@ -74,7 +74,12 @@ modules, the 512 KB flash, the DMA controller, the video card ($C480: VGA
 card ($C380: an SD card behind an RP2350; `--sd FILE` puts a card image in its
 slot, written through) and the Console card (the front
 panel at $C700: its breakpoint and HALT stop at the debugger as "panel"), with a
-6551 at $C300 standing in for the serial card. At reset the north bridge maps the top 16 KB of the flash at
+6551 at $C300 standing in for the serial card's UARTs. The serial card's W65C22S
+VIA is modelled, at $C340 (IRQL bit 6), with its two digital joysticks:
+`LDA $C341` reads joystick 1, `LDA $C340` joystick 2, bits 0-4 up, down, left,
+right and fire, 0 while pressed. The terminal app has no joystick of its own:
+`joy 1 uf` at the `debug>` prompt holds joystick 1 up with fire pressed, `joy 1 -`
+lets go, `joy` shows both. The WebUI drives them from gamepads, or keys. At reset the north bridge maps the top 16 KB of the flash at
 $C000-$FFFF, read-only, so the ROM image is the whole flash with the BIOS in
 its last 16 KB ($C800-$FFFF is visible; $C000-$C7FF is the I/O hole):
 

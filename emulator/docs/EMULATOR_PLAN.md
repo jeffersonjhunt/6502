@@ -778,6 +778,32 @@ to Terminal when that ends; a choice by hand holds until the machine's
 mode next changes. On a phone the toolbar folds into More, the panel
 scales to the width, and the drawer is a full-screen dialog.
 
+**The serial card's VIA and joysticks (2026-10-30), step 9.** hw/design.md's
+W65C22S, `via6522 340-34F space=io name=via irq`, in module 6's block: the
+later line answers, so it sits over the stand-in 6551's mirror (`acia6551
+300-37F`), which keeps $C300-$C303, all the BIOS and OODOS use. Its IRQ is
+IRQL bit 6. INTSTAT ($C322) isn't modelled: it is still the 6551's mirror,
+so a handler tells the VIA by its IFR until the TL16C552A and the CPLD's
+registers are. `Via6522` already had the W65C22S's timers (T1 one-shot
+N+1.5, free-running N+2, PB7; T2 one-shot and PB6 counting) and IFR/IER; it
+gains /RESET (bus_reset()): every register but the counters, latches and SR
+cleared, both timers disarmed, so the lines are inputs, the timers stopped
+and the interrupts off. The Ben Eater machines see it too, as their 6522's
+RESB is wired. `JoystickPorts` (`joyports name=joysticks via=via`) is the
+two DE-9s: joystick 1 on PA0-PA4, joystick 2 on PB0-PB4, up, down, left,
+right, fire, 0 when pressed, and every other line pulled up. The session
+holds the sticks through power cycles. test_joyports runs 6502 code on
+backplane.machine that reads both sticks in a T1 handler at the 1 kHz
+tick's latch, 7,157: an interrupt every 7,159 cycles, IRQL $BF each time.
+The terminal debugger's `joy 1 uf` holds a stick (`Debugger::add_command`,
+a view with arguments). The WebUI: the first two gamepads, by the Gamepad
+API (the d-pad or the left stick past half way; any face button fires),
+and, with Settings' Keys switch on (off by default, so they never take the
+terminal's or the USB keyboard's keys), the arrows and Space for joystick
+1, W A S D and left Shift for 2. Settings' Joysticks section names the pad
+on each and lights while one is pressed; the strip's JOY pill shows while
+any is connected. `MachinePort.setJoystick`.
+
 ## Backlog
 
 Decided to come later, not forgotten:

@@ -142,6 +142,17 @@ Settings, in sections:
   stops it, and the note says what the card can't give a tune (a third
   SID; an RSID's VIC-II, without which most stay silent). The file stays in
   the page: not kept, never uploaded.
+- **Joysticks.** The serial card's two digital joysticks (`LDA $C341` reads
+  joystick 1, `$C340` joystick 2, a bit 0 while pressed: up, down, left,
+  right, fire). The first two gamepads drive them (the browser shows a pad
+  once a button on it is pressed): the d-pad or the left stick past half
+  way for the directions, any of the four face buttons for fire. Each
+  stick's row names its pad, with a light while anything is pressed.
+  **Keys**, off by default, adds a keyboard for those without a pad: the
+  arrows and Space are joystick 1, W A S D and the left Shift joystick 2,
+  by physical key. While it is on those keys go to the joysticks, not the
+  terminal or the USB keyboard; it is remembered. The strip's **JOY** pill
+  shows which sticks have a pad or keys and opens this section.
 - **Display.** The phosphor.
 - **About.** The credits: the screen font is VileR's (CC BY-SA 4.0); Inter,
   JetBrains Mono and VT323 are under the SIL Open Font License, bundled
@@ -189,7 +200,7 @@ src/port/             MachinePort, WasmPort (the WebAssembly core), FakePort (fo
 src/crt/              Terminal (80x30 text model), Crt (canvas renderer), keyboards
 src/panel/            the front panel: lamps, switches, keyswitch, readouts
 src/debugger/         the pane: registers, bus trace, breakpoints (the card's comparator)
-src/ui/               toolbar, drawer, Settings and its rows (BIOS, cartridge, drives, SD, tune), the strip,
+src/ui/               toolbar, drawer, Settings and its rows (BIOS, cartridge, drives, SD, tune, joysticks), the strip,
                       the screen's follow logic, panel state (every physical control, one path to the port), DOM helpers
 src/styles/           mockup C's tokens, toolbar and monitor
 e2e/                  Playwright
