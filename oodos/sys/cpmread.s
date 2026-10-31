@@ -1,6 +1,7 @@
 ; A read-only CP/M 3 file reader for OODOS's SD drives (hw/oodos.md, "The
-; system, phase 2"). OOLDR links it to find and read OODOS.SYS, and the
-; stand-in CCP in OODOS.SYS to run NAME.COM from A:: one reader for both.
+; system, phase 2"). OOLDR links it to find and read OODOS.SYS. (Phase 2's
+; stand-in CCP ran NAME.COM with it too; since phase 3 programs load through
+; the BDOS.)
 ; Written from the CP/M 3 manuals' description of the directory.
 ;
 ; It talks to the SD card through its registers, a byte at a time through

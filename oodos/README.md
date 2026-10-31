@@ -14,7 +14,7 @@ directory holds the work.
   `interop.sh` share, and interop's own reading of the date stamps.
 - [`ldr/`](ldr/): OOLDR, the loader (`/BOOT.BIN`), and a test OODOS.SYS; [`sys/cpmread.s`](sys/cpmread.s), the
   read-only CP/M reader OOLDR links (phase 2, below).
-- [`sys/`](sys/): OODOS.SYS: common memory, the BDOS (phase 3a: the file system), the stand-in CCP, the BIOS;
+- [`sys/`](sys/): OODOS.SYS: common memory, the BDOS (phase 3), the CCP (phase 4a), the BIOS;
   below.
 - [`test/cpm3model.py`](test/cpm3model.py), [`test/modelscript.py`](test/modelscript.py),
   [`test/modeltest.py`](test/modeltest.py), [`test/driver/`](test/driver/): the BDOS's model test (phase 3a,
