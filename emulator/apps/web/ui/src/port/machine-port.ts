@@ -40,7 +40,7 @@ export interface PortCaps {
   sid: boolean;
   /** insertSd() and the rest work: the SD card's slot. */
   sd: boolean;
-  /** setJoystick() reaches the serial card's two joystick ports. */
+  /** setJoystick() reaches the serial card's two joystick ports. Known once connect() resolves (the machine file says). */
   joysticks: boolean;
 }
 

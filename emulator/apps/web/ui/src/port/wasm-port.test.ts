@@ -505,6 +505,26 @@ describe("WasmPort", () => {
     expect(Array.from(await m.port.readMemory(0xc341, 1, "io"))).toEqual([0xff]);
   });
 
+  test("caps.joysticks: known once open, from the machine file", async () => {
+    const port = new WasmPort({ load, scheduler: new ManualClock() });
+    expect(port.caps.joysticks).toBe(false); // not open: nothing to say yet
+    await port.connect();
+    expect(port.caps.joysticks).toBe(true); // backplane.machine has the ports
+    port.close();
+    // The same machine without its joyports line: no ports.
+    const without = async () => {
+      const c = await load();
+      const text = new TextDecoder().decode(c.FS!.readFile("/machines/backplane.machine"));
+      c.FS!.writeFile("/machines/no-joy.machine", new TextEncoder().encode(text.replace(/^joyports .*$/m, "")));
+      return c;
+    };
+    const plain = new WasmPort({ load: without, scheduler: new ManualClock(), machine: "/machines/no-joy.machine" });
+    await plain.connect();
+    expect(plain.caps.joysticks).toBe(false);
+    plain.setJoystick(0, STICK.UP); // nothing there to take it: no harm
+    plain.close();
+  });
+
   test("power off stops the clock; power on is a cold start", async () => {
     const m = await open();
     m.until(GREETING);

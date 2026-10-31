@@ -235,7 +235,7 @@ export function wallClock(d: Date): number {
 }
 
 export class WasmPort implements MachinePort {
-  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true, sd: true, joysticks: true };
+  readonly caps: PortCaps = { registers: true, trace: true, busCycleStep: false, video: true, usb: true, power: true, cartridge: true, disk: true, audio: true, sid: true, sd: true, joysticks: false }; // joysticks: once open, if the machine has the ports
 
   private readonly load: () => Promise<CoreModule>;
   private readonly scheduler: Scheduler;
@@ -293,6 +293,7 @@ export class WasmPort implements MachinePort {
       throw new Error(`cannot open ${this.files.machine}: ${why}`);
     }
     this.m = m;
+    this.caps.joysticks = m.hasJoysticks();
     m.setRtc(wallClock(new Date())); // the DS3231, set as the owner would set it
     this.setClock(this.clock); // the video card keeps time by it
     m.setAudioRate(this.audioRate);
