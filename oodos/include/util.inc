@@ -141,6 +141,30 @@
 ;   UT_MEM      UT_MLO the first byte past the program's BSS, UT_MHI the
 ;               top of the TPA + 1 ($0204's word: the BDOS's entry, or an
 ;               RSX's below it); A/X UT_MHI - UT_MLO, the bytes between
+;
+; Files (TYPE, ERASE, RENAME): a specification's files, read first, then
+; worked on one by one (a file call between 17 and 18 would end the search)
+;
+;   UT_FDRIVE   A an FCB's drive byte (0 the current drive, UT_DRV0; 1-16
+;               A-P) as a drive 0-15, for UT_PUTDRV
+;   UT_ISWILD   carry set if any of the 11 bytes at A/X is '?'
+;   UT_PWSET    the 8 bytes at A/X (a password, as UT_SPEC leaves it at an
+;               FCB's 16-23) copied to UT_REC, and the DMA address UT_REC
+;               (26): where the BDOS looks for it at 15, 19 and 23
+;   UT_NAMES    the names of the current user's files that match the FCB at
+;               A/X (its drive byte and bytes 1-11, '?' any), each once (17
+;               and 18 with the extent 0: the extent-zero entry, as the
+;               built-ins' DIR), in the directory's order, bit 7 of each
+;               byte dropped, read into memory from past the BSS to the
+;               TPA's top ($0204's word); the DMA address UT_REC. Out:
+;               carry clear and A/X (and UT_NCNT) the count, a word, the
+;               first for UT_NNEXT; carry set and A $FF an error the BDOS
+;               said, or 1: more than fit (nothing worked on)
+;   UT_NNEXT    the next name: carry clear and A/X its 11 bytes' address;
+;               carry set when none is left
+;   UT_SAID     after an error the BDOS said (its message starts with CR LF,
+;               which ends a line owed, and ends with CR LF): nothing owed,
+;               neither an LF nor a line (CM_NOEOL); then UT_FAIL
 
 .ifndef UTIL_INC
 UTIL_INC = 1
@@ -1371,5 +1395,156 @@ UT_MEM:         LDA     #<(__BSS_RUN__ + __BSS_SIZE__)
                 TAX
                 PLA
                 RTS
+
+; ---- files (TYPE, ERASE, RENAME) -----------------------------------------
+
+UT_NLIST        = __BSS_RUN__ + __BSS_SIZE__ ; the names: past the BSS
+
+.pushseg
+.segment CMD_BSS
+UT_NCNT:        .res    2              ; UT_NAMES's count
+UT_NLEFT:       .res    2              ; UT_NNEXT's names left
+UT_NPTR:        .res    2              ; the next name, or the list's end
+.popseg
+
+UT_FDRIVE:      DEC     A              ; 1-16: 0-15
+                BPL     @done
+                LDA     UT_DRV0
+@done:          RTS
+
+UT_ISWILD:      STA     @src + 1
+                STX     @src + 2
+                LDY     #10
+@src:           LDA     $FFFF,Y
+                CMP     #'?'
+                BEQ     @yes
+                DEY
+                BPL     @src
+                CLC
+                RTS
+@yes:           SEC
+                RTS
+
+UT_PWSET:       STA     @src + 1
+                STX     @src + 2
+                LDY     #7
+@src:           LDA     $FFFF,Y
+                STA     UT_REC,Y
+                DEY
+                BPL     @src
+                LDA     #<UT_REC
+                LDX     #>UT_REC
+                LDY     #F_DMAOFF
+                JMP     BDOS
+
+UT_NAMES:       STA     @src + 1
+                STX     @src + 2
+                LDY     #35            ; UT_QFCB: the drive and name, the rest 0
+@fcb:           LDA     #0
+                CPY     #12
+                BCS     @put
+@src:           LDA     $FFFF,Y
+@put:           STA     UT_QFCB,Y
+                DEY
+                BPL     @fcb
+                STZ     UT_NCNT
+                STZ     UT_NCNT + 1
+                LDA     #<UT_NLIST
+                STA     UT_NPTR
+                LDA     #>UT_NLIST
+                STA     UT_NPTR + 1
+                LDA     #<UT_REC
+                LDX     #>UT_REC
+                LDY     #F_DMAOFF
+                JSR     BDOS
+                LDA     #<UT_QFCB
+                LDX     #>UT_QFCB
+                LDY     #F_SFIRST
+@search:        JSR     BDOS
+                CMP     #$FF
+                BEQ     @end
+                ASL     A              ; x 32, + 1: its name in UT_REC
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                INC     A
+                TAX
+                CLC                    ; room for 11 more, to the TPA's top?
+                LDA     UT_NPTR
+                ADC     #11
+                STA     UT_T
+                LDA     UT_NPTR + 1
+                ADC     #0
+                STA     UT_T + 1
+                LDA     BP_TOP         ; the top less the end: below 0, full
+                CMP     UT_T
+                LDA     BP_TOP + 1
+                SBC     UT_T + 1
+                BCC     @full
+                LDA     UT_NPTR
+                STA     @dst + 1
+                LDA     UT_NPTR + 1
+                STA     @dst + 2
+                LDY     #0
+@name:          LDA     UT_REC,X
+                AND     #$7F
+@dst:           STA     $FFFF,Y
+                INX
+                INY
+                CPY     #11
+                BNE     @name
+                LDA     UT_T           ; past it
+                STA     UT_NPTR
+                LDA     UT_T + 1
+                STA     UT_NPTR + 1
+                INC     UT_NCNT
+                BNE     @next
+                INC     UT_NCNT + 1
+@next:          LDY     #F_SNEXT
+                BRA     @search
+@end:           CPX     #0
+                BEQ     @all
+                LDA     #$FF           ; the BDOS's error, said
+                SEC
+                RTS
+@full:          LDA     #1
+                SEC
+                RTS
+@all:           LDA     #<UT_NLIST
+                STA     UT_NPTR
+                LDA     #>UT_NLIST
+                STA     UT_NPTR + 1
+                LDA     UT_NCNT
+                STA     UT_NLEFT
+                LDX     UT_NCNT + 1
+                STX     UT_NLEFT + 1
+                CLC
+                RTS
+
+UT_NNEXT:       LDA     UT_NLEFT
+                ORA     UT_NLEFT + 1
+                BNE     @one
+                SEC
+                RTS
+@one:           LDA     UT_NLEFT
+                BNE     @dec
+                DEC     UT_NLEFT + 1
+@dec:           DEC     UT_NLEFT
+                LDA     UT_NPTR        ; its address, then past it
+                LDX     UT_NPTR + 1
+                PHA
+                CLC
+                ADC     #11
+                STA     UT_NPTR
+                BCC     @done
+                INC     UT_NPTR + 1
+@done:          PLA
+                CLC
+                RTS
+
+UT_SAID:        STZ     CM_LFDUE
+                JSR     CM_NOEOL
+                JMP     UT_FAIL
 
 .endif
