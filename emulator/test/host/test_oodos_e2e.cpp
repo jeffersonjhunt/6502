@@ -63,7 +63,10 @@ namespace
         for (unsigned i = 0; i < ENTRIES; ++i)
         {
             const uint8_t *e = &img[i * ENTRY];
-            if (e[0] != 0 || e[12] > 1 || std::string(e + 1, e + 12) != name83)
+            std::string name(e + 1, e + 12);
+            for (char &c : name)
+                c = static_cast<char>(c & 0x7F); // the attributes off: HELLO.COM is SYS
+            if (e[0] != 0 || e[12] > 1 || name != name83)
                 continue;
             Bytes out;
             const unsigned records = (e[12] & 1) * 128 + e[15];
@@ -185,7 +188,7 @@ TEST(the_ccp_runs_hello_com_from_a_and_comes_back)
 
     const std::string said = m.command("hello world");
     CHECK(said.find("Hello from OODOS\r\n") != std::string::npos);
-    CHECK(said.find(" world") != std::string::npos); // its command tail, printed back
+    CHECK(said.find(" WORLD") != std::string::npos); // its command tail, printed back, in capitals (4a)
     // Exactly the image at $0300, nothing past it
     size_t wrong = 0;
     for (unsigned i = 0; i < size; ++i)

@@ -6,7 +6,7 @@
 #
 #   docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath DIR):/c:ro" \
 #       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
-#       sh /o/test/interop.sh /c/CARD [--written]
+#       sh /o/test/interop.sh /c/CARD [--written | --ccp]
 #
 # CARD is a raw card image or a sparse one (oo1-sparse, as
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
@@ -14,7 +14,12 @@
 # 0:OO1.BIN, the file the OO-1 wrote, is checked too: cpmls -F's stamps and
 # its SFCB slots' bytes: the stamps in its first entry's, 0 in its second's
 # (CP/M 3 keeps a file's stamps in its extent-zero entry's slot only, and
-# OODOS's BDOS leaves the others 0). cpmtools reads ./diskdefs, so it runs in /o. Exits
+# OODOS's BDOS leaves the others 0). With --ccp it is the card
+# test_oodos_card saved after the CCP's ERA and REN (OODOS_CCP_OUT, phase
+# 4a): 0:README.TXT renamed README.DOC and 0:PATTERN.BIN (two entries)
+# PATTERN.DAT, their stamps and contents kept; 3:SMALL.BIN and 0:HELLO.PRL
+# erased, gone from the listing; the rest as make_card.sh made it.
+# cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
 # fsck.cpm 2.23 compares the stamps in an SFCB's first slot backwards: it
@@ -101,16 +106,18 @@ echo "$listing" | sed 's/^/     /'
 stamped() {
   echo "$listing" | grep -E "^$1 +$2 .* $3  $4 *\$" >/dev/null || fail "$1.$2: not stamped update $3, created $4"
 }
-for f in 'README TXT' 'PATTERN BIN' 'USER3 TXT' 'SMALL BIN'; do
-  stamped $f '10/26/26 12:00' '10/26/26 12:00'
-done
-ok "cpmls -F: the card's four files, made and updated 10/26/26 12:00"
+if [ "$written" != --ccp ]; then
+  for f in 'README TXT' 'PATTERN BIN' 'USER3 TXT' 'SMALL BIN'; do
+    stamped $f '10/26/26 12:00' '10/26/26 12:00'
+  done
+  ok "cpmls -F: the card's four files, made and updated 10/26/26 12:00"
 
-for f in 0:README.TXT 0:PATTERN.BIN 3:USER3.TXT 3:SMALL.BIN; do
-  cpmcp -f oodos-8m "$img" "$f" "$work/out" || fail "cpmcp $f"
-  cmp -s "$work/${f#?:}" "$work/out" || fail "$f is not what make_card.sh put there"
-done
-ok "the card's files, out by cpmcp, unchanged"
+  for f in 0:README.TXT 0:PATTERN.BIN 3:USER3.TXT 3:SMALL.BIN; do
+    cpmcp -f oodos-8m "$img" "$f" "$work/out" || fail "cpmcp $f"
+    cmp -s "$work/${f#?:}" "$work/out" || fail "$f is not what make_card.sh put there"
+  done
+  ok "the card's files, out by cpmcp, unchanged"
+fi
 
 if [ "$written" = --written ]; then
   stamped OO1 BIN '10/26/26 15:30' '10/25/26 13:45'
@@ -125,6 +132,22 @@ if [ "$written" = --written ]; then
   cpmcp -f oodos-8m "$img" 0:OO1.BIN "$work/out" || fail "cpmcp 0:OO1.BIN"
   cmp -s "$work/OO1.BIN" "$work/out" || fail "0:OO1.BIN is not what the OO-1 wrote"
   ok "0:OO1.BIN, out by cpmcp, is what the OO-1 wrote"
+elif [ "$written" = --ccp ]; then
+  for f in 'README DOC' 'PATTERN DAT' 'USER3 TXT'; do
+    stamped $f '10/26/26 12:00' '10/26/26 12:00'
+  done
+  ok "cpmls -F: README.DOC and PATTERN.DAT, renamed, keep their stamps; USER3.TXT is as it was"
+  for f in 'README +TXT' 'PATTERN +BIN' 'SMALL +BIN' 'HELLO +PRL'; do
+    if echo "$listing" | grep -E "^$f " >/dev/null; then fail "cpmls -F still lists $f"; fi
+  done
+  echo "$listing" | grep -E '^HELLO +COM ' >/dev/null || fail "cpmls -F: HELLO.COM is gone"
+  ok "cpmls -F: README.TXT, PATTERN.BIN, 3:SMALL.BIN and HELLO.PRL gone, HELLO.COM kept"
+  for f in 0:README.DOC:README.TXT 0:PATTERN.DAT:PATTERN.BIN 3:USER3.TXT:USER3.TXT; do
+    name=${f%:*}
+    cpmcp -f oodos-8m "$img" "$name" "$work/out" || fail "cpmcp $name"
+    cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:} as make_card.sh made it"
+  done
+  ok "README.DOC, PATTERN.DAT and USER3.TXT, out by cpmcp, are what make_card.sh made"
 elif [ -n "$written" ]; then
   fail "$written: not an option"
 fi

@@ -21,7 +21,7 @@
 ;   P   152: each "Pnn ssss rrrr ff.." the string's address, the result,
 ;       the FCB's bytes 0-25 (filled with AA first)
 ;   N   107: SER and the 6 bytes
-;   U   user 5 and M:, then 47 of "HELLO" with $FF: the CCP's
+;   U   user 5 and M:, then 47 of "A:HELLO" with $FF: the CCP's
 ;   H   the same with 0: not the CCP's
 ;   V   UD uu dd: the user and the drive
 ;   D   M: selected, then the end: the CCP's drive comes back
@@ -568,8 +568,8 @@ caseh:  lda     #0
 chainm: sta     SAVE
         CALLF   F_USERNUM, 5
         CALLF   DRV_SET, DRV_M
-        ldx     #HELLOC_LEN - 1
-@cmd:   lda     helloc,x
+        ldx     #HELLOA_LEN - 1
+@cmd:   lda     helloa,x
         sta     BP_DMA,x
         dex
         bpl     @cmd
@@ -694,6 +694,8 @@ init3:  .byte   "AC", 1, "B", 0
 INIT3_LEN = * - init3
 helloc: .byte   "HELLO", 0
 HELLOC_LEN = * - helloc
+helloa: .byte   "A:HELLO", 0            ; from A: whatever the drive (phase 4a's search)
+HELLOA_LEN = * - helloa
 ; 152's strings, each to its 0 (test_oodos_sys.cpp has them too)
 pstrs:  .byte   "b:foo.txt;pw", 0                       ; 00
         .byte   "  ", 9, "foo.bar  =x", 0               ; 01

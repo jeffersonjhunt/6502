@@ -105,10 +105,11 @@ Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3
 | `common.s` | common memory, `$F800–$FFFF` in block 62: the BIOS's jump table, the BDOS stub, the warm boot, FARCALL, IRQ, Break and BRK, the vectors |
 | `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdosxtra.s`, `bdossys.s`, `bdosmem.s`, `bdos.inc` | the BDOS, block 60: the entry and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps; the file extras (phase 3b1: labels, XFCBs, passwords, the multi-sector count); the system extras (phase 3b2: the console set and function 10's line editing, the SCB, chain, the return code, the serial number, parse filename); the memory functions (phase 3c: the DMA segment, CP/M-86's memory blocks, a CPU address's physical one, mounting drives) |
 | `bios.s`, `crt.s` | the BIOS, block 61: drives, M:, TIME, MOVE, the devices; the text screen's VT52 subset |
-| `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the stand-in CCP, with `GO` |
+| `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the CCP (phase 4a, [hw/oodos.md](../hw/oodos.md#the-ccp-phase-4)): the prompt, `!` and `:`, the built-ins `DIR`, `DIRSYS`, `ERA`, `REN`, `TYPE`, `USER`, `d:`, and `GO`; programs by the search chain |
+| [`include/cmd.inc`](include/cmd.inc) | the CCP's console helpers, for 4b's utilities too: paged output with ^C, a Y/N question, a file's name shown, decimal in and out |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), SYSTEST (phase 3b2's functions against the Guide), MEMTEST (phase 3c's 51–58, 73, 74 and XMOVE's physical bank), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: ARGS (what the CCP gave a program, phase 4a), BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), SYSTEST (phase 3b2's functions against the Guide), MEMTEST (phase 3c's 51–58, 73, 74 and XMOVE's physical bank), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
@@ -125,9 +126,20 @@ ctest --preset dev -R test_oodos_sys
 ./build/dev/test/host/test_oodos_sys     # the cases; the stub's, FARCALL's, the jump table's and the BDOS's cycles
 ```
 
-At the stand-in CCP, `NAME` runs `NAME.COM` from drive A, user 0, loaded through the BDOS (`HELLO` on the test
-card). To run something by hand instead, put a `.COM`'s header at `$0280` and its image at `$0300` and type `GO`,
-as test_oodos_sys does; `GO M` gives the program the tail ` M` (FSTEST and STAMPTEST take their drive so).
+At the CCP, `NAME` runs `NAME.COM` from the current drive and user, or user 0's SYS file, along the SCB's drive
+search chain (`HELLO` on the test card, which is SYS, from any user); `DIR`, `TYPE`, `ERA`, `REN`, `USER` and `B:`
+are built in, as the CP/M 3 User's Guide has them. To run something by hand instead, put a `.COM`'s header at
+`$0280` and its image at `$0300` and type `GO`, as test_oodos_sys does; `GO M` gives the program the tail ` M`
+(FSTEST and STAMPTEST take their drive so).
+
+`test_oodos_ccp` types command lines at the CCP and compares what each says, line for line, with the Guide (files
+put on M: behind OODOS's back, ARGS.COM among them under other names):
+
+```
+ctest --preset dev -R test_oodos_ccp
+./build/dev/test/host/test_oodos_ccp
+OODOS_SYS_DIR=/some/build ./build/dev/test/host/test_oodos_ccp   # another build of sys/ (a fault put in on purpose)
+```
 
 A write-back that fails at the warm boot is said as the BDOS says its errors (`OODOS Error On B: Disk I/O`, `BDOS
 Function = 48`), and the buffer of a closed file's record is kept for the next try. ^C as the first key at the
@@ -257,7 +269,7 @@ It ends `PASS 18`; `fsck.cpm` must print no Error or Warning line. Checked with 
 |---|---|
 | `/BOOT.BIN` | OOLDR, [`ldr/ooldr.s`](ldr/ooldr.s) (phase 2, below) |
 | `/OODOS/DRIVES.TXT` | [`card/DRIVES.TXT`](card/DRIVES.TXT): `A: /OODOS/A.IMG`, `B: /OODOS/B.IMG` |
-| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM`, `0:HELLO.PRL` and `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below) |
+| `/OODOS/A.IMG` | `oodos-8m`, all 8 MB, label mode 0x31: `0:README.TXT`, `0:PATTERN.BIN` (36 KB, two directory entries), `3:USER3.TXT`, `3:SMALL.BIN`, `0:OODOS.SYS` (OODOS, [`sys/`](sys/)), `0:TESTSYS.SYS`, OOLDR's test system ([`ldr/testsys.s`](ldr/testsys.s): 260 records, two entries), `0:HELLO.COM` (SYS, so the CCP finds it from any user), `0:HELLO.PRL` and `0:WRITEOO1.COM` ([`sys/test/writeoo1.s`](sys/test/writeoo1.s), below) |
 | `/OODOS/B.IMG` | `oodos-8m`, all 8 MB, label mode 0x31, empty |
 
 It runs everything (make, ca65 and ld65 for OOLDR and OODOS.SYS, mkfs.cpm, cpmcp, mkfs.fat, mtools, sfdisk) in a
@@ -306,7 +318,15 @@ docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath oodos/build):/c:ro" 
     $bookworm sh /o/test/interop.sh /c/written.img --written      # ends PASS 9
 docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath emulator/test/host/sd):/c:ro" \
     $bookworm sh /o/test/interop.sh /c/oodos.sparse               # the committed card: PASS 6
+OODOS_CCP_OUT=$PWD/oodos/build/ccp.img emulator/build/dev/test/host/test_oodos_card
+docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath oodos/build):/c:ro" \
+    $bookworm sh /o/test/interop.sh /c/ccp.img --ccp              # after the CCP's ERA and REN: PASS 7
 ```
+
+**The CCP's ERA and REN** (phase 4a): the same test runs the CCP on the card, `REN README.DOC=README.TXT`, `REN
+PATTERN.DAT=PATTERN.BIN` (two entries), `ERA SMALL.BIN` in user 3 and `ERA *.PRL` (answered Y); with
+`OODOS_CCP_OUT` it saves that card, and `interop.sh --ccp` checks it: `fsck.cpm`, the stamps kept by the renames,
+the erased files gone from `cpmls -F`, the renamed ones' contents by `cpmcp`.
 
 `OODOS_CARD_FAULT=alloc` (a block README.TXT has), `=stamp` (each entry's stamps in the next one's slot, the first
 entry's update a minute later, so no slot is right) or `=stamp-zero` (the same in an SFCB of zeros, not $E5s)
