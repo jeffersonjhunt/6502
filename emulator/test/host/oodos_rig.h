@@ -9,7 +9,11 @@
  * started; then keys on the serial line or the USB keyboard, GO with a
  * .COM, the card's sectors, M:'s directory and physical memory read behind
  * OODOS's back. The includer includes harness.h first and has the
- * EMU_OODOS_* definitions CMakeLists.txt gives test_oodos_sys.
+ * EMU_OODOS_* definitions CMakeLists.txt gives test_oodos_sys. For phase 4,
+ * oodos_rig::ccp's CcpRig: command lines typed at the CCP, files put on M:
+ * before it is logged in (past 16 KB too), a utility put there (put_util,
+ * with EMU_OODOS_UTILS_DIR), the SCB and its search chain set, for
+ * test_oodos_ccp and test_oodos_utils.
  */
 
 #pragma once
@@ -25,6 +29,7 @@
 #include "usb_card.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -633,4 +638,189 @@ namespace oodos_rig
 
     /// A 24-bit hex field as a number.
     inline unsigned hexval(const std::string &s) { return static_cast<unsigned>(std::stoul(s, nullptr, 16)); }
+
+    // ---- phase 4: the CCP and the utilities ---------------------------------------------------
+
+    /// test_oodos_ccp's and test_oodos_utils' machinery: command lines typed at the CCP, files put
+    /// on M: behind OODOS's back. In a namespace of its own, so test_oodos_sys's names don't meet it.
+    namespace ccp
+    {
+        constexpr uint32_t SCB_PHYS = SYS_BLOCK_PHYS + 0x200; ///< the SCB, CP/M 3's offsets
+        constexpr unsigned M_BLS = 2048, M_DIRBLOCKS = 4, M_BLOCKS = 64; ///< M:'s 128 KB
+
+        /// A file for M:'s directory. Its last record is ^Z-padded.
+        struct MFile
+        {
+            unsigned user;
+            std::string name83; ///< 8 + 3, blank-padded
+            std::vector<uint8_t> data;
+            bool sys = false, ro = false;
+        };
+
+        inline std::vector<uint8_t> bytes(const std::string &s) { return std::vector<uint8_t>(s.begin(), s.end()); }
+
+        /// ARGS.COM with its tag (the 4 bytes after "TAG:") made `tag`.
+        inline std::vector<uint8_t> args(const std::string &tag)
+        {
+            std::vector<uint8_t> b = read_bytes(SYS + "/args.com");
+            const std::string mark = "TAG:----";
+            const auto at = std::search(b.begin(), b.end(), mark.begin(), mark.end());
+            CHECK(at != b.end() && tag.size() == 4);
+            if (at != b.end() && tag.size() == 4)
+                std::copy(tag.begin(), tag.end(), at + 4);
+            return b;
+        }
+
+        /// The password as the BDOS keeps it in an XFCB (bytes 13-15, 16-23): the key, 0, 0, then
+        /// the 8 bytes reversed and XORed with the key, their sum (3b1).
+        inline std::vector<uint8_t> kept_pw(const std::string &pw8)
+        {
+            uint8_t key = 0;
+            for (const char c : pw8)
+                key = static_cast<uint8_t>(key + static_cast<uint8_t>(c));
+            std::vector<uint8_t> out = {key, 0, 0};
+            for (unsigned j = 0; j < 8; ++j)
+                out.push_back(static_cast<uint8_t>(static_cast<uint8_t>(pw8[7 - j]) ^ key));
+            return out;
+        }
+
+        /// The serial line with its CRs and LFs shown, for a failure.
+        inline std::string vis(const std::string &s)
+        {
+            std::string t;
+            for (const char c : s)
+                t += c == '\r' ? std::string("\\r") : c == '\n' ? std::string("\\n") : std::string(1, c);
+            return t;
+        }
+
+        /// OODOS.SYS booted with the card's A.IMG as A: and B.IMG (empty) as B:.
+        struct CcpRig : Rig
+        {
+            unsigned entry = 0, block = M_DIRBLOCKS; ///< M:'s last entry and next block put_m() used
+
+            CcpRig()
+            {
+                if (!ok)
+                    return;
+                ok = mount(1, "/OODOS/A.IMG") == 0 && mount(2, "/OODOS/B.IMG") == 0;
+                set_time(2026, 10, 30, 12, 0, 0);
+                ok = ok && boot();
+            }
+
+            unsigned free_entry()
+            {
+                do
+                    ++entry;
+                while (phys(MDISK + entry * 32) != 0xE5);
+                return entry;
+            }
+            /// Files into M:'s directory and blocks, behind OODOS's back: before M: is logged in.
+            void put_m(const std::vector<MFile> &files)
+            {
+                for (const MFile &f : files)
+                {
+                    const unsigned at = free_entry();
+                    const unsigned records = static_cast<unsigned>((f.data.size() + RECORD - 1) / RECORD);
+                    REQUIRE(records >= 1 && records <= 256); // one entry: 16 blocks of 2 KB, EXM 1
+                    REQUIRE(block + (records * RECORD + M_BLS - 1) / M_BLS <= M_BLOCKS);
+                    std::vector<uint8_t> e(32, 0);
+                    e[0] = static_cast<uint8_t>(f.user);
+                    for (unsigned i = 0; i < 11; ++i)
+                        e[1 + i] = static_cast<uint8_t>(f.name83[i]);
+                    e[9] = static_cast<uint8_t>(e[9] | (f.ro ? 0x80 : 0));
+                    e[10] = static_cast<uint8_t>(e[10] | (f.sys ? 0x80 : 0));
+                    e[12] = static_cast<uint8_t>((records - 1) / 128);       // EX: 0, or 1 past 16 KB
+                    e[15] = static_cast<uint8_t>(records - e[12] * 128u); // RC: the last 16 KB's records
+                    std::vector<uint8_t> data = f.data;
+                    data.resize(size_t{records} * RECORD, 0x1A);
+                    for (unsigned k = 0; k * M_BLS < data.size(); ++k)
+                    {
+                        e[16 + k] = static_cast<uint8_t>(block);
+                        for (size_t i = 0; i < M_BLS && k * M_BLS + i < data.size(); ++i)
+                            poke(MDISK + block * M_BLS + static_cast<uint32_t>(i), data[k * M_BLS + i]);
+                        ++block;
+                    }
+                    poke(MDISK + at * 32, e);
+                }
+            }
+            /// An XFCB for a file of M:'s, its mode (bit 7 read, 6 write, 5 delete) and password,
+            /// and M:'s label's passwords on.
+            void xfcb_m(unsigned user, const std::string &name83, uint8_t mode, const std::string &pw8)
+            {
+                const unsigned at = free_entry();
+                std::vector<uint8_t> e(32, 0);
+                e[0] = static_cast<uint8_t>(user + 16);
+                for (unsigned i = 0; i < 11; ++i)
+                    e[1 + i] = static_cast<uint8_t>(name83[i]);
+                e[12] = mode;
+                const std::vector<uint8_t> k = kept_pw(pw8);
+                std::copy(k.begin(), k.end(), e.begin() + 13);
+                poke(MDISK + at * 32, e);
+                poke(MDISK + 12, static_cast<uint8_t>(phys(MDISK + 12) | 0x80));
+            }
+            /// M:'s entry of a name (user, 8 + 3, attributes ignored): its number, or -1.
+            int m_entry(unsigned user, const std::string &name83)
+            {
+                for (unsigned i = 0; i < 256; ++i)
+                {
+                    bool match = phys(MDISK + i * 32) == user;
+                    for (unsigned c = 0; c < 11 && match; ++c)
+                        match = (phys(MDISK + i * 32 + 1 + c) & 0x7F) == static_cast<uint8_t>(name83[c]);
+                    if (match)
+                        return static_cast<int>(i);
+                }
+                return -1;
+            }
+            void scb(unsigned offset, uint8_t v) { poke(SCB_PHYS + offset, v); }
+            /// The SCB's drive search chain ($4C-$4F: 0 the default drive, 1-16 A-P), `$FF` after the
+            /// last if there are fewer than four: chain({0, 13}) is the default drive, then M:.
+            void chain(const std::vector<uint8_t> &drives)
+            {
+                REQUIRE(drives.size() >= 1 && drives.size() <= 4);
+                for (unsigned i = 0; i < 4; ++i)
+                    scb(0x4C + i, i < drives.size() ? drives[i] : 0xFF);
+            }
+    #ifdef EMU_OODOS_UTILS_DIR
+            /// A built utility (oodos/utils/NAME.s, `make -C oodos utils`) on M: as user 0's SYS file
+            /// NAME.COM, as make_card.sh puts it on A:; before M: is logged in, as put_m(). `dir` is
+            /// another build's (a test program's, or a fault put in on purpose).
+            void put_util(const std::string &name, const std::string &dir = EMU_OODOS_UTILS_DIR)
+            {
+                const std::vector<uint8_t> com = read_bytes(dir + "/" + name + ".com");
+                REQUIRE(!com.empty() && name.size() <= 8);
+                std::string name83 = name;
+                for (char &c : name83)
+                    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                name83.resize(8, ' ');
+                put_m({{0, name83 + "COM", com, true}});
+            }
+    #endif
+
+            /// Type `line` and wait for a CR LF and `prompt` after its echo. @return all from the echo on
+            std::string cmd(const std::string &line, const std::string &prompt = "A>")
+            {
+                return to(line, "\r\n" + prompt);
+            }
+            /// Type `line` and wait for `end` after its echo. @return all from the echo on
+            std::string to(const std::string &line, const std::string &end, uint64_t budget = ms(8000))
+            {
+                const size_t from = out.size();
+                type(line + "\r");
+                if (!until(end, budget, from + line.size()))
+                {
+                    std::printf("  '%s': never saw '%s' in '%s'\n", line.c_str(), vis(end).c_str(), vis(out.substr(from)).c_str());
+                    return {};
+                }
+                return out.substr(from);
+            }
+        };
+
+        /// `got` is `want`, both shown if not.
+        inline void same(const std::string &got, const std::string &want)
+        {
+            CHECK(got == want);
+            if (got != want)
+                std::printf("  got  '%s'\n  want '%s'\n", vis(got).c_str(), vis(want).c_str());
+        }
+    } // namespace ccp
 } // namespace oodos_rig
