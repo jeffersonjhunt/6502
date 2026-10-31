@@ -47,7 +47,8 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const std::string UTILS = EMU_OODOS_UTILS_DIR;
+    /// oodos/utils's build: the build tree's, or OODOS_UTILS_DIR's (a fault put in on purpose).
+    const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
     const std::string FH = "    Name     Bytes   Recs   Attributes   Prot      Update          Create";
     const std::string FHA = "    Name     Bytes   Recs   Attributes   Prot      Update          Access";
     const std::string FD = "------------ ------ ------ ------------ ------ --------------  --------------";
