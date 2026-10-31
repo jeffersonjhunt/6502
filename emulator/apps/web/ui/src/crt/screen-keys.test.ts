@@ -167,4 +167,14 @@ describe("the screen's keys", () => {
     keys.down(ev("KeyQ", "Q", { shiftKey: true })); // a Shift the page never saw go down: the typist's
     expect(String.fromCharCode(...serial)).toBe("Q");
   });
+
+  test("joystick 2's fire on the left Shift with Caps Lock on: letters reach the terminal upper case, as unshifted", () => {
+    const { keys, ev, serial, keysOn } = make(false);
+    keysOn();
+    const capsLock = { getModifierState: (m: string) => m === "CapsLock" };
+    keys.down(ev("ShiftLeft", "Shift", { shiftKey: true, ...capsLock }));
+    keys.down(ev("KeyQ", "q", { shiftKey: true, ...capsLock })); // Shift and Caps Lock: the browser says lower case
+    keys.down(ev("Digit1", "!", { shiftKey: true, ...capsLock }));
+    expect(String.fromCharCode(...serial)).toBe("Q1");
+  });
 });

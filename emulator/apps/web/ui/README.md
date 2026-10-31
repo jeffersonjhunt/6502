@@ -156,7 +156,10 @@ Settings, in sections:
   by physical key. While it is on those keys go to the joysticks, not the
   terminal or the USB keyboard (with Ctrl, Alt or Meta they are still the
   keyboards'), and while the left Shift is held as fire the other keys go
-  unshifted (the right Shift still shifts); it is remembered. The strip's **JOY** pill
+  unshifted (the right Shift still shifts; Caps Lock still makes letters
+  upper case). Unshifting a digit or punctuation key follows the US
+  layout: on another layout such a key comes as Shift made it. The switch
+  is remembered. The strip's **JOY** pill
   shows which sticks have a pad or keys and opens this section.
 - **Display.** The phosphor.
 - **About.** The credits: the screen font is VileR's (CC BY-SA 4.0); Inter,

@@ -51,14 +51,21 @@ const US_SHIFTED = '!@#$%^&*()_+{}|:"~<>?';
 /**
  * The key as it is without Shift, for when a Shift that is down isn't the
  * typist's (the left Shift held as a joystick's fire): a letter in lower
- * case; a digit or punctuation what its key makes unshifted, where the
- * event is what Shift makes on that key on a US keyboard (another layout's
- * is left as it came: there is no knowing its unshifted character).
+ * case, or upper case while Caps Lock is on, as it would come unshifted
+ * (kept as it came where that case is more than one character, as `İ`
+ * lowercases to two); a digit or punctuation what its key makes unshifted,
+ * where the event is what Shift makes on that key on a US keyboard
+ * (another layout's is left as it came: there is no knowing its unshifted
+ * character).
  */
 export function unshifted(e: KeyLike & { code: string }): KeyLike & { code: string; shiftKey: false } {
   let key = e.key;
-  if (key.length === 1 && key.toLowerCase() !== key) key = key.toLowerCase();
-  else {
+  const lower = key.toLowerCase();
+  const upper = key.toUpperCase();
+  if (key.length === 1 && lower !== upper) {
+    const plain = e.getModifierState?.("CapsLock") ? upper : lower;
+    if (plain.length === 1) key = plain;
+  } else {
     const i = US_CODES.indexOf(e.code);
     if (i >= 0 && US_SHIFTED[i] === key) key = US_PLAIN[i];
   }
