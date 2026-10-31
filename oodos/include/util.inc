@@ -135,6 +135,12 @@
 ;   UT_PUTDRV   drive A as "A:"
 ;   UT_SAY      the '$' string at A/X, then a line owed (CM_EOL)
 ;   UT_BLANKS   A blanks (0: none)
+;
+; Memory (SET and INITDIR): what a utility may use past its BSS
+;
+;   UT_MEM      UT_MLO the first byte past the program's BSS, UT_MHI the
+;               top of the TPA + 1 ($0204's word: the BDOS's entry, or an
+;               RSX's below it); A/X UT_MHI - UT_MLO, the bytes between
 
 .ifndef UTIL_INC
 UTIL_INC = 1
@@ -1338,5 +1344,32 @@ UT_BLANKS:      TAX
                 DEX
                 BNE     @blank
 @done:          RTS
+
+; ---- memory (SET and INITDIR) --------------------------------------------
+
+.import __BSS_RUN__, __BSS_SIZE__
+.pushseg
+.segment CMD_BSS
+UT_MLO:         .res    2
+UT_MHI:         .res    2
+.popseg
+
+UT_MEM:         LDA     #<(__BSS_RUN__ + __BSS_SIZE__)
+                STA     UT_MLO
+                LDA     #>(__BSS_RUN__ + __BSS_SIZE__)
+                STA     UT_MLO + 1
+                LDA     BP_TOP
+                STA     UT_MHI
+                LDA     BP_TOP + 1
+                STA     UT_MHI + 1
+                SEC
+                LDA     UT_MHI
+                SBC     UT_MLO
+                PHA
+                LDA     UT_MHI + 1
+                SBC     UT_MLO + 1
+                TAX
+                PLA
+                RTS
 
 .endif
