@@ -16,7 +16,7 @@ BUILD    ?= build
 PYTHON   = python3 -I
 SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios crt cold ccp
 PROGRAMS = hello args biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest memtest \
-           fstest dirtest errtest stamptest logintest ruletest xtratest systest writeoo1
+           fstest dirtest errtest stamptest logintest ruletest xtratest systest writeoo1 cmdtest
 AFLAGS   = -g -I . -I ../include -I ../../backplane/bios
 PFLAGS   = -g -I test -I ../include
 
@@ -44,7 +44,7 @@ $(BUILD)/OODOS.SYS: $(SYSOBJS:%=$(BUILD)/%.o) sys.cfg mksys.py
 $(BUILD)/hello.p.o: ../examples/hello.s ../include/oodos.inc | $(BUILD)
 	ca65 $(PFLAGS) $< -o $@
 
-$(BUILD)/%.p.o: test/%.s test/print.inc test/printzp.inc test/fs.inc test/fszp.inc ../include/oodos.inc ../include/system.inc | $(BUILD)
+$(BUILD)/%.p.o: test/%.s test/print.inc test/printzp.inc test/fs.inc test/fszp.inc ../include/oodos.inc ../include/system.inc ../include/cmd.inc | $(BUILD)
 	ca65 $(PFLAGS) $< -o $@
 
 $(BUILD)/%.com: $(BUILD)/%.p.o ../cfg/com.cfg ../tools/rules.py

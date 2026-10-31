@@ -20,12 +20,15 @@
 ;   CM_FLUSH    an LF owed, written
 ;   CM_CRLF     CR, LF (an LF owed is one of them)
 ;   CM_PAGE     start paged output: the SCB's page mode ($2C, 0 on) and
-;               length ($1C); console mode bit 0, so 11 reports only ^C
-;   CM_UNPAGE   console mode 0 again
+;               length ($1C); the console mode (109) kept, and bit 0 set
+;               in it, so 11 reports only ^C
+;   CM_UNPAGE   the console mode CM_PAGE kept, back
 ;   CM_NL       CR, LF, a line counted (CM_LINE)
 ;   CM_LINE     a line ended: past the page, "Press a key for more", a
 ;               key waited for (^C: CMD_BREAK), the message rubbed out
-;   CM_BRK      a ^C waiting? CMD_BREAK. Another key is left alone
+;   CM_BRK      a ^C waiting? CMD_BREAK. Another key is left alone: a
+;               key is taken only in console mode bit 0 (CM_PAGE's), where
+;               11 reports only ^C; without it, nothing is taken
 ;   CM_DIRNM    the 11 bytes at A/X as a directory listing has them:
 ;               "NAME     TYP", bit 7 of each dropped
 ;   CM_FNAME    the 11 bytes at A/X as a name is typed: "NAME.TYP",
@@ -58,6 +61,7 @@ CM_PLEN:        .res    1              ; lines to a stop, 0: none
 CM_NUM:         .res    2              ; CM_DECIN's and CM_DECOUT's number
 CM_DIG:         .res    1              ; digits seen or written
 CM_T:           .res    1
+CM_MODE:        .res    2              ; the console mode CM_PAGE found
 CM_ANS:         .res    2 + 16         ; CM_READ's line: its size, count, characters
 .segment CMD_DATA
 CM_PBMODE:      .byte   $2C, 0, 0, 0   ; 49: get the page mode
@@ -116,13 +120,18 @@ CM_PAGE:        STZ     CM_LINES
                 BCC     @mode          ; under 2: no stops (a page of one line)
                 DEC     A              ; the last line is the message's
                 STA     CM_PLEN
-@mode:          LDA     #1             ; 11 reports only ^C
-                LDX     #0
+@mode:          LDA     #$FF           ; the console mode kept, then bit 0 set:
+                TAX                    ; 11 reports only ^C
+                LDY     #C_MODE
+                JSR     BDOS
+                STA     CM_MODE
+                STX     CM_MODE + 1
+                ORA     #1
                 LDY     #C_MODE
                 JMP     BDOS
 
-CM_UNPAGE:      LDA     #0
-                TAX
+CM_UNPAGE:      LDA     CM_MODE
+                LDX     CM_MODE + 1
                 LDY     #C_MODE
                 JMP     BDOS
 
@@ -151,6 +160,12 @@ CM_BRK:         LDY     #C_STAT
                 JSR     BDOS
                 CMP     #0
                 BEQ     @none
+                LDA     #$FF           ; console mode bit 0? Else it may be any
+                TAX                    ; key: left alone
+                LDY     #C_MODE
+                JSR     BDOS
+                LSR     A
+                BCC     @none
                 LDA     #$FF           ; take it: a ^C in console mode bit 0
                 LDY     #C_RAWIO
                 JSR     BDOS
