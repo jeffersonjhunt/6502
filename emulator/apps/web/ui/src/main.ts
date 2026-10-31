@@ -11,7 +11,7 @@
  * the video card, and it switches to Display; back out, and to Terminal.
  * The strip under it has the machine's state and what is loaded; the
  * media themselves (the ROMs, the Disk II's drives, the SD card, a .sid
- * tune) are in Settings, with the phosphor and the credits.
+ * tune) are in Settings, with the joysticks, the phosphor and the credits.
  *
  * Built with VITE_HOME_URL set, the back link goes to that page.
  */
@@ -53,6 +53,7 @@ import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
 import { sdBar } from "./ui/sd-bar";
 import { sidBar } from "./ui/sid-bar";
+import { joysticks } from "./ui/joysticks";
 
 const TERMINAL_LABEL = "Terminal: click and type. F6 leaves the screen";
 
@@ -139,6 +140,8 @@ function start(root: HTMLElement, port: MachinePort): void {
   // The keyboard is the serial terminal's on Terminal, and the USB card's on
   // Display: a monitor and a USB keyboard are a whole computer. The mouse is
   // the card's on VGA.
+  // The serial card's joysticks: gamepads, and keys while Settings' Keys switch is on (ui/joysticks.ts).
+  const sticks = joysticks(port, undefined, { open: (from) => openSettings("joysticks", from) });
   let scene: Scene = "text";
   const usbKeys = new UsbKeyboard((usage, down) => port.sendKey(usage, down));
   const onUsb = () => scene !== "text" && port.caps.usb;
@@ -153,6 +156,10 @@ function start(root: HTMLElement, port: MachinePort): void {
       e.preventDefault();
       return leave(way);
     }
+    if (sticks.key(e, true)) {
+      e.preventDefault(); // the Keys switch is on: a joystick's, not the keyboards'
+      return;
+    }
     if (isPaste(e)) return; // the browser's: its paste event types the text, below
     if (onUsb()) {
       if (usbKeys.down(e)) e.preventDefault();
@@ -164,10 +171,10 @@ function start(root: HTMLElement, port: MachinePort): void {
     port.sendSerial(bytes);
   });
   glass.addEventListener("keyup", (e) => {
-    if (usbKeys.up(e)) e.preventDefault();
+    if (sticks.key(e, false) || usbKeys.up(e)) e.preventDefault();
   });
-  glass.addEventListener("blur", () => usbKeys.releaseAll());
-  window.addEventListener("blur", () => usbKeys.releaseAll());
+  glass.addEventListener("blur", () => (usbKeys.releaseAll(), sticks.releaseKeys()));
+  window.addEventListener("blur", () => (usbKeys.releaseAll(), sticks.releaseKeys()));
 
   // The USB mouse, on VGA: where the pointer is on the picture, in its 640x480.
   const vgaPoint = (e: MouseEvent) => {
@@ -301,13 +308,14 @@ function start(root: HTMLElement, port: MachinePort): void {
     drives: drives.map((d) => d.element),
     sd: card.element,
     sound: tune.element,
+    joysticks: sticks.element,
     phosphor,
   });
 
   const monitor = h("div", { class: "mon" }, glass, h("div", { class: "mon-foot" }, monLabel, screens.element));
   const strip = statusStrip({
     pills: [...drives.map((d) => d.pill), card.pill, tune.pill],
-    trailing: [bios.quiet, stopTyping, appleRoms.resets],
+    trailing: [sticks.pill, bios.quiet, stopTyping, appleRoms.resets],
     load: (from) => openSettings("roms", from),
   });
 
@@ -351,6 +359,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     speaker.feed(f);
     sound.update();
     tune.update(f);
+    sticks.poll();
     strip.update(f.powered);
     if (f.serialOut.length) {
       terminal.write(f.serialOut);

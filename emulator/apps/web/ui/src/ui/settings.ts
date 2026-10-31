@@ -1,15 +1,16 @@
 /**
  * The Settings drawer's content, in sections: ROMs (the BIOS, and Apple II
  * mode's ROMs), Disk II (the two drives), SD card, Sound (a .sid tune),
+ * Joysticks (the serial card's two: gamepads, and the Keys switch),
  * Display (the phosphor) and About (the credits). The rows are the media's
- * own (ui/bios.ts, apple-bar.ts, disk-bar.ts, sd-bar.ts, sid-bar.ts); a
+ * own (ui/bios.ts, apple-bar.ts, disk-bar.ts, sd-bar.ts, sid-bar.ts, joysticks.ts); a
  * section with nothing to show on this machine (no SD card, say) hides.
  */
 
 import { PHOSPHORS, type Phosphor } from "../crt/crt";
 import { h, prefs, segmented } from "./dom";
 
-export type SettingsSection = "roms" | "disk" | "sd" | "sound" | "display" | "about";
+export type SettingsSection = "roms" | "disk" | "sd" | "sound" | "joysticks" | "display" | "about";
 
 /** Colour, P1, P3 or P4, remembered; `onPick` hears the kept one at once. */
 export function phosphorPicker(onPick: (p: Phosphor) => void): HTMLElement {
@@ -68,6 +69,7 @@ export interface SettingsParts {
   drives: HTMLElement[];
   sd: HTMLElement;
   sound: HTMLElement;
+  joysticks: HTMLElement;
   phosphor: HTMLElement;
 }
 
@@ -89,6 +91,7 @@ export function settingsPanel(parts: SettingsParts) {
       section("disk", "Disk II", ...parts.drives),
       section("sd", "SD card", parts.sd),
       section("sound", "Sound", parts.sound),
+      section("joysticks", "Joysticks", parts.joysticks),
       section("display", "Display", h("div", { class: "row plain" }, h("span", { class: "name" }, "Phosphor"), parts.phosphor)),
       section("about", "About", credits()),
     ),
