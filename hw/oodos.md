@@ -590,7 +590,7 @@ against, compared with what the BDOS does on the emulator.
   Only, File R/O, Invalid Drive) and the function and file, and ends the program; in return mode it returns
   A = `$FF` and X = the code (CP/M 3's H).
 - **The stand-in CCP** loads `NAME.COM` through the BDOS (Open, Read), not OOLDR's reader, so every program run
-  exercises it; OODOS.SYS no longer links `cpmread.s`. The real CCP is phase 4.
+  exercises it; OODOS.SYS no longer links `cpmread.s`. The real CCP is phase 4a, which loads the same way.
 - **The model test:** [`oodos/test/`](../oodos/test/)'s model and a driver program (a `.COM`) that runs a script of
   operations from a file and writes what each returned; a ctest runs the same seeded scripts on the model and on
   OODOS in the emulator and compares the results and the drives' files and directories. The model's images are
@@ -940,15 +940,16 @@ tests.
   does: an echo that doesn't fit starts a new row.
 - **Function 47** takes E = `$FF` (the program's drive and user to the CCP) or anything else (the CCP's), sets the
   SCB's `$17` and ends the program by the warm boot. The command is the program's at `$0280`, to its 0, as the
-  Guide says, at most 126 characters (the tail's room; more are cut off, ours). The stand-in CCP, at the warm boot
-  after its usual work, shows its prompt and the command, as if typed (ours: the Guide doesn't say), and runs it.
+  Guide says, at most 126 characters (the tail's room; more are cut off, ours). The CCP (the stand-in until 4a), at
+  the warm boot after its usual work, shows its prompt and the command, as if typed (ours: the Guide doesn't say),
+  and runs it.
   With `$FF` the CCP's own drive and user become the program's, and stay so after the chained program (the
   Guide: "initializes the default drive and user number to the current program values"); otherwise it keeps its
   own. The chained program gets the return code as it was.
 - **108:** the SCB's return code (10–11): `$FFFF` returns it in A/X, any other value sets it. The CCP sets it to 0
   as it starts a program that wasn't chained to; the BDOS sets `$FFFD` when it ends a program for an error (the
   default error mode) and `$FFFE` for a ^C (function 10's, after ^S); the warm boot keeps it, for the next
-  program. The stand-in CCP has no conditional commands (phase 4).
+  program. The CCP's conditional commands (`:`, phase 4a) read it.
 - **107** returns OODOS's serial number, six bytes, the same in every copy (ours): `4F 4F 44 00 00 01`, "OOD"
   (the program header's magic) and serial 1.
 - **The CCP at each warm boot** (the Guide: what it initializes when it loads a program, and its own strings need
