@@ -150,6 +150,37 @@ TEST(reset_with_e_high_latches_nothing)
     CHECK(!l4.lcd.lcd().used());
 }
 
+TEST(first_ddr_write_after_reset_compares_with_the_level_before_it)
+{
+    // E floated high through the reset; the first DDR write drives it low
+    // (ORA is 0 after reset): a falling edge, latching RS as driven now (0)
+    // and the data lines still floating at 'Z' ($5A: CGRAM address $1A).
+    Lcd8 l8;
+    l8.send(0x38, 0);
+    l8.via.write(ORB, 'Z');
+    l8.via.write(ORA, Lcd8::RS | Lcd8::E);
+    const uint64_t before8 = l8.lcd.lcd().version();
+    l8.via.bus_reset();
+    l8.via.write(DDRA, 0xE0);
+    CHECK_EQ(l8.lcd.lcd().version(), before8 + 1);
+    CHECK_EQ(l8.lcd.lcd().address_counter(), 0x1A);
+    l8.via.write(DDRB, 0xFF); // E stays low: nothing more
+    CHECK_EQ(l8.lcd.lcd().version(), before8 + 1);
+
+    // E low before the reset: driving it low again is no edge.
+    Lcd4 l4;
+    l4.via.bus_reset();
+    l4.via.write(DDRB, 0xFF);
+    CHECK(!l4.lcd.lcd().used());
+    // E high before it: the same write latches one (8-bit) transfer.
+    Lcd4 h4;
+    h4.via.write(ORB, Lcd4::E);
+    h4.via.bus_reset();
+    CHECK(!h4.lcd.lcd().used());
+    h4.via.write(DDRB, 0xFF);
+    CHECK(h4.lcd.lcd().used());
+}
+
 TEST(port_a_outputs_on_the_data_lines_read_back_when_the_lcd_is_not_reading_out)
 {
     // An LCD with its data on port A: PA outputs written high read high

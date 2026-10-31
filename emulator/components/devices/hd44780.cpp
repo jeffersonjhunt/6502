@@ -185,7 +185,12 @@ namespace ooe::emu
     {
         // A line the VIA drives is what it drives; one it lets go (a DDR bit
         // cleared, as /RESET clears them all) keeps the level it was last
-        // driven to, so E going undriven while high latches nothing.
+        // driven to, so E going undriven while high latches nothing. That
+        // models the line floating through reset: the first level driven
+        // after it is compared with the last one driven before it, so if a
+        // program left E high and its first DDR write after reset drives E
+        // low, that is a falling edge and latches whatever RS, R/W and the
+        // data lines are then (driven, or still floating where they were).
         for (const Via6522::Port p : {Via6522::Port::A, Via6522::Port::B})
         {
             const uint8_t ddr = via_.ddr(p);

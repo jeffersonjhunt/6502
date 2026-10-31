@@ -36,7 +36,8 @@
  * (4 or 8 of them), RS, R/W and E on any pins, as a machine description
  * wires it (hd44780 line, machine.h). It drives the data lines only in a
  * read cycle and releases them otherwise (Via6522::release()), so outputs
- * the VIA drives there read back as driven.
+ * the VIA drives there read back as driven. A line the VIA stops driving
+ * (a DDR bit cleared, /RESET) floats at its last driven level.
  */
 
 #include <array>
@@ -115,7 +116,8 @@ namespace ooe::emu
         ViaPin rs_, rw_, e_;
         Hd44780 lcd_;
         /// Each port's lines as the LCD sees them: driven, or as last driven
-        /// (a line the VIA lets go floats where it was; that is no edge).
+        /// (a line the VIA lets go floats where it was; that is no edge, but
+        /// the next level driven is compared with it, as after a reset).
         std::array<uint8_t, 2> level_{};
     };
 } // namespace ooe::emu
