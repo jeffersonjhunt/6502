@@ -154,8 +154,10 @@ Settings, in sections:
   **Keys**, off by default, adds a keyboard for those without a pad: the
   arrows and Space are joystick 1, W A S D and the left Shift joystick 2,
   by physical key. While it is on those keys go to the joysticks, not the
-  terminal or the USB keyboard (with Ctrl, Alt or Meta they are still the
-  keyboards'), and while the left Shift is held as fire the other keys go
+  terminal or the USB keyboard, except that a key pressed with Ctrl, Alt
+  or Meta goes to the keyboards; a key stays with whichever took its first
+  press until it is let go, whatever Ctrl, Alt or Meta do meanwhile. While
+  the left Shift is held as fire the other keys go
   unshifted (the right Shift still shifts; Caps Lock still makes letters
   upper case). Unshifting a digit or punctuation key follows the US
   layout: on another layout such a key comes as Shift made it. The switch
