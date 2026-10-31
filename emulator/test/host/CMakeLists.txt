@@ -214,6 +214,8 @@ target_compile_definitions(test_iie PRIVATE
 
 emu_add_test(test_oodos_sys)
 set_tests_properties(test_oodos_sys PROPERTIES TIMEOUT 1800) # dozens of boots and minutes of machine time under ASan: about 600 s alone, more under load
+emu_add_test(test_oodos_ccp)
+set_tests_properties(test_oodos_ccp PROPERTIES TIMEOUT 1800) # the CCP's cases (phase 4a), test_oodos_sys's machinery
 set(OODOS_SRC "${PROJECT_SOURCE_DIR}/../oodos")
 set(OODOS_SYS_SRC "${OODOS_SRC}/sys")
 set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")
@@ -249,8 +251,15 @@ add_custom_command(
 add_custom_target(oodos_sys ALL DEPENDS "${OODOS_SYS_DIR}/OODOS.SYS")
 add_custom_target(oodos_ldr ALL DEPENDS "${OODOS_LDR_DIR}/BOOT.BIN" "${OODOS_PRL_DIR}/hello.prl")
 add_dependencies(test_oodos_sys oodos_sys backplane_bios)
+add_dependencies(test_oodos_ccp oodos_sys backplane_bios)
 add_dependencies(test_oodos_boot oodos_sys oodos_ldr backplane_bios)
 target_compile_definitions(test_oodos_sys PRIVATE
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_oodos_ccp PRIVATE
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
