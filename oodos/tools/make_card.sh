@@ -23,7 +23,8 @@
 #     0:TESTSYS.SYS    OOLDR's test system (oodos/ldr/testsys.s), 268
 #                      records, two entries: test_oodos_boot names it
 #                      OODOS.SYS in its own copy of the card
-#     0:HELLO.COM      oodos/examples/hello.s, for the CCP to run
+#     0:HELLO.COM      oodos/examples/hello.s, for the CCP to run; SYS, so
+#                      the CCP finds it from any user (phase 4a)
 #     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
 #                      loader
 #     0:WRITEOO1.COM   oodos/sys/test/writeoo1.s: test_oodos_card runs it to
@@ -114,6 +115,7 @@ python3 gen.py SMALL.BIN 384 3
 at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
 at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL WRITEOO1.COM 0:
+at cpmchattr -f oodos-8m A.IMG s 0:HELLO.COM
 fsck.cpm -f oodos-8m -n A.IMG
 cpmls -f oodos-8m -F A.IMG
 

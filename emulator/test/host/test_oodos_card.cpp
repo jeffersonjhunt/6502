@@ -605,6 +605,56 @@ namespace
         r.media = card;
     }
 
+    /// OODOS's CCP on the card in `r` (a copy in a Session, booted as its owner would: the monitor,
+    /// C80CR, OOLDR, OODOS), each of `lines` typed and run to the next prompt or question (Y/N),
+    /// which the next line answers; then the card back into `r`.
+    /// @return what the CCP said
+    std::string ccp_on_the_oo1(Rig &r, const std::vector<std::string> &lines)
+    {
+        constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
+        std::string error, out;
+        std::unique_ptr<Session> s = Session::create({EMU_MACHINE_DIR "/backplane.machine", EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
+        auto card = std::make_shared<MemoryMedia>(r.media->bytes(), CARD);
+        if (!s || !s->insert_sd(card, error))
+        {
+            CHECK(false);
+            return {};
+        }
+        auto until = [&](const std::string &text, size_t from, int frames) {
+            for (int i = 0; i < frames && out.find(text, from) == std::string::npos && !s->stopped(); ++i)
+            {
+                s->run(FRAME);
+                out += s->take_output();
+            }
+            const bool found = out.find(text, from) != std::string::npos;
+            if (!found)
+                std::printf("  never saw '%s' in '%s'\n", text.c_str(), out.substr(from).c_str());
+            return found;
+        };
+        size_t from = 0;
+        const bool up = until("BACKPLANE BIOS 0.9\r\\\r", 0, 120) && (from = out.size(), s->send("C80CR\r"), until("\nA>", from, 900));
+        CHECK(up);
+        if (!up)
+            return {};
+        const size_t said = out.size();
+        for (const std::string &line : lines)
+        {
+            from = out.size();
+            s->send(line + "\r");
+            // To the prompt (A>, 3A>), or a question (Y/N), which the next line answers
+            for (int i = 0; i < 600 && out.find("A>", from + line.size()) == std::string::npos &&
+                                out.find("(Y/N)?", from + line.size()) == std::string::npos; ++i)
+            {
+                s->run(FRAME);
+                out += s->take_output();
+            }
+            s->run(10 * FRAME);
+            out += s->take_output();
+        }
+        r.media = card;
+        return out.substr(said);
+    }
+
     std::string env(const char *name)
     {
         const char *v = std::getenv(name);
@@ -800,6 +850,45 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
         sectors += std::memcmp(before.data() + n * SECTOR, r.media->bytes().data() + n * SECTOR, SECTOR) != 0;
     CHECK_EQ(sectors, size_t{1 + 65});
+}
+
+TEST(the_ccp_erases_and_renames_on_a_and_the_card_is_saved_for_interop_sh)
+{
+    // Phase 4a's ERA and REN, by the CCP on the committed card: what they leave on A.IMG checked
+    // here and, with OODOS_CCP_OUT, by interop.sh --ccp with cpmtools (fsck.cpm, cpmls -F, cpmcp).
+    Rig r;
+    REQUIRE(mount_a(r));
+    const std::string said = ccp_on_the_oo1(r, {"ren readme.doc=readme.txt", "ren pattern.dat=pattern.bin",
+                                                "user 3", "era small.bin", "user 0", "era *.prl", "y"});
+    CHECK(said.find("ERASE *.PRL (Y/N)?") != std::string::npos);
+    CHECK(said.find("No File") == std::string::npos);
+    CHECK(said.find("?\r\n") == std::string::npos); // no command refused
+    const std::string out = env("OODOS_CCP_OUT");
+    if (!out.empty())
+    {
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(r.media->bytes().data()),
+                static_cast<std::streamsize>(r.media->bytes().size()));
+        CHECK(f.good());
+        std::printf("  the card saved to %s\n", out.c_str());
+    }
+    Rig again(r.media->bytes());
+    REQUIRE(mount_a(again));
+    Drive a{again, 1, Dpb::from_diskdefs("oodos-8m")};
+    const std::vector<uint8_t> dir = a.directory();
+    allocation(a, dir);
+    CHECK(entries_of(dir, 0, "README  TXT").empty());
+    CHECK(entries_of(dir, 0, "PATTERN BIN").empty());
+    CHECK(entries_of(dir, 3, "SMALL   BIN").empty());
+    CHECK(entries_of(dir, 0, "HELLO   PRL").empty());
+    CHECK(records_of(a, dir, entries_of(dir, 0, "README  DOC")) ==
+          text_file({"THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.",
+                     "OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD."}));
+    const std::vector<unsigned> pat = entries_of(dir, 0, "PATTERN DAT");
+    CHECK_EQ(pat.size(), size_t{2}); // both entries renamed
+    CHECK(records_of(a, dir, pat) == pattern_file(1, 36864));
+    CHECK(records_of(a, dir, entries_of(dir, 3, "USER3   TXT")) == text_file({"A FILE IN USER 3."}));
+    CHECK(!entries_of(dir, 0, "HELLO   COM").empty());
 }
 
 int main()
