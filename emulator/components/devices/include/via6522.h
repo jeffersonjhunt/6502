@@ -45,6 +45,11 @@
  * pulse outputs (they stay high). CA2/CB2 as inputs and as manual outputs
  * (PCR 110/111) are modelled.
  *
+ * Reading port A reads its pins, outputs included: an output bit reads
+ * what the VIA drives, low if a peripheral drives that pin low too.
+ * Reading port B reads ORB for its output bits and the pins for its
+ * inputs, as on the chip.
+ *
  * The peripheral side mirrors Pia6821: listeners are told about the pins
  * the VIA drives whenever an output register, a DDR or PB7 changes, and
  * peripherals drive input pins by mask, so several can share a port (an
@@ -126,6 +131,7 @@ namespace ooe::emu
 
         uint8_t ora_{0}, orb_{0}, ddra_{0}, ddrb_{0};
         uint8_t in_a_{0}, in_b_{0};
+        uint8_t driven_a_{0}; ///< port A pins a peripheral drives: an output there reads in_a_ too
         uint16_t t1_{0xFFFF}, t1_latch_{0xFFFF}, t2_{0xFFFF};
         uint8_t t2_latch_lo_{0xFF};
         bool t1_reload_{false}; ///< free-run: reload from the latch on the next cycle

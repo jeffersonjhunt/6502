@@ -64,6 +64,29 @@ TEST(ports_mix_outputs_and_inputs_and_tell_listeners)
     CHECK_EQ(v.output(P::A), 0x42);
 }
 
+TEST(port_a_reads_its_pins_and_port_b_reads_orb_for_outputs)
+{
+    // On the 6522, IRA is the pins for every bit; IRB is ORB for output bits.
+    Via6522 v;
+    v.write(DDRA, 0xFF); // nothing drives port A yet: the outputs read back
+    v.write(ORA, 0xA5);
+    CHECK_EQ(v.read(ORA), 0xA5);
+    v.drive(P::A, 0xFF, 0xFF); // pulled up
+    v.drive(P::B, 0xFF, 0xFF);
+    v.write(DDRA, 0x01);
+    v.write(ORA, 0x01); // PA0 driven high...
+    v.write(DDRB, 0x01);
+    v.write(ORB, 0x01); // ...and PB0
+    v.drive(P::A, 0x01, 0x00); // a switch pulls both low
+    v.drive(P::B, 0x01, 0x00);
+    CHECK_EQ(v.read(ORA), 0xFE);    // the pin
+    CHECK_EQ(v.read(ORA_NH), 0xFE);
+    CHECK_EQ(v.read(ORB), 0xFF);    // ORB
+    v.write(ORA, 0x00);
+    v.drive(P::A, 0x01, 0x01); // driven low, pulled up: low
+    CHECK_EQ(v.read(ORA), 0xFE);
+}
+
 TEST(control_line_edges_follow_the_pcr)
 {
     Via6522 v;

@@ -136,11 +136,25 @@ TEST(sticks_read_0_when_pressed_and_everything_else_is_pulled_up)
     CHECK_EQ(bus.read(ORA), 0xE0);
     joy->set(0, 0);
     CHECK_EQ(bus.read(ORA) & 0x1F, 0x1F);
-    // A user port line made an output reads its output register; the stick's lines stay inputs.
+    // A user port line made an output reads the pin, low as driven; the stick's lines stay inputs.
     bus.write(DDRA, 0x80);
     bus.write(ORA, 0x00);
     joy->set(0, J::DOWN);
     CHECK_EQ(bus.read(ORA), 0x7D);
+    // A stick line driven high reads 0 on port A while its switch is pressed (the pin)...
+    bus.write(DDRA, 0x01);
+    bus.write(ORA, 0x01);
+    joy->set(0, J::UP);
+    CHECK_EQ(bus.read(ORA), 0xFE);
+    // ...and 1 on port B, which reads ORB for an output.
+    bus.write(DDRB, 0x01);
+    bus.write(ORB, 0x01);
+    joy->set(1, J::UP);
+    CHECK_EQ(bus.read(ORB), 0xFF);
+    bus.write(DDRB, 0x00);
+    CHECK_EQ(bus.read(ORB), 0xFE);
+    joy->set(0, J::DOWN);
+    joy->set(1, J::RIGHT);
     // /RESET: every line an input again, and the pull-ups still there.
     bus.reset();
     CHECK_EQ(bus.peek(DDRA), 0x00);

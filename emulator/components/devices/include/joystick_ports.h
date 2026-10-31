@@ -19,7 +19,9 @@
  *
  * The host says what is pressed (set()), as bits that are 1 for pressed;
  * the lines are their inverse. A line the VIA drives as an output reads
- * its output register, as on the chip (the switch would short it: don't).
+ * as on the chip: port A reads the pin, so a pressed switch reads 0
+ * whatever ORA holds; port B reads ORB (the switch shorts a driven-high
+ * line either way: don't).
  *
  * The terminal app has no host joystick: its debugger's `joy 1 uf` holds
  * joystick 1 up with fire pressed, `joy 1 -` lets go, `joy` shows both.
