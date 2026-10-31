@@ -260,6 +260,11 @@ TEST(several_commands_run_in_turn_and_conditional_ones_only_after_a_success)
     CHECK(o.find("ARGS M0") != std::string::npos);
     CHECK(o.find("A>hello") == std::string::npos);
     CHECK(o.find("Hello") == std::string::npos);
+    // 47's command takes the place of the rest of the line (ours): SYSTEST H chains to A:HELLO
+    r.poke_com(read_bytes(SYS + "/systest.com"));
+    o = r.to("GO H!dir *.txt", "\r\nA>A:HELLO\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    r.run(ms(500));
+    CHECK(r.out.find("README", r.out.rfind("A:HELLO")) == std::string::npos);
     // A built-in's failure is a failure too (ours), and its success a success
     same(r.to("dir nosuch!:hello", "A>:hello\r\r\nA>"), "dir nosuch!:hello\r\nNo File\r\nA>:hello\r\r\nA>");
     same(r.to("user 99!:user 3", "A>:user 3\r\r\nA>"), "user 99!:user 3\r\nUSER 99?\r\nA>:user 3\r\r\nA>");
@@ -477,7 +482,7 @@ TEST(era_deletes_a_name_and_asks_before_a_wildcard)
     same(r.cmd("n"), "n\r\r\nA>");
 }
 
-TEST(era_type_and_a_program_take_a_password_after_the_name)
+TEST(era_ren_type_and_a_program_take_a_password_after_the_name)
 {
     Ccp r;
     REQUIRE(r.ok);
@@ -490,11 +495,18 @@ TEST(era_type_and_a_program_take_a_password_after_the_name)
     same(r.cmd("type m:secret.txt;sesame"), "type m:secret.txt;sesame\r\nHIDDEN\r\n\r\nA>");
     same(r.cmd("m:sargs"), "m:sargs\r\nPassword Error\r\nA>");
     CHECK_EQ(field(r.cmd("m:sargs;open x"), "ARGS"), std::string("PW  "));
-    o = r.cmd("era m:secret.txt;wrong");
-    CHECK(o.find("Password Error") != std::string::npos);
+    // REN: old's password (its XFCB is renamed with it, 3b1)
+    o = r.cmd("ren m:hid.txt=secret.txt");
+    CHECK(o.find("OODOS Error On M: Password Error\r\nBDOS Function = 23") != std::string::npos);
     CHECK(r.m_entry(0, "SECRET  TXT") >= 0);
-    same(r.cmd("era m:secret.txt;sesame"), "era m:secret.txt;sesame\r\r\nA>");
+    same(r.cmd("ren m:hid.txt=secret.txt;sesame"), "ren m:hid.txt=secret.txt;sesame\r\r\nA>");
     CHECK_EQ(r.m_entry(0, "SECRET  TXT"), -1);
+    CHECK(r.m_entry(0, "HID     TXT") >= 0);
+    o = r.cmd("era m:hid.txt;wrong");
+    CHECK(o.find("Password Error") != std::string::npos);
+    CHECK(r.m_entry(0, "HID     TXT") >= 0);
+    same(r.cmd("era m:hid.txt;sesame"), "era m:hid.txt;sesame\r\r\nA>");
+    CHECK_EQ(r.m_entry(0, "HID     TXT"), -1);
 }
 
 // ---- REN -------------------------------------------------------------------------------------

@@ -1206,7 +1206,8 @@ where it is silent the choice is ours, and says so):
   DMA address `$0280`, and `$0300`. **The display mode** (SETDEF's `[DISPLAY]`, the Guide): when the SCB's
   `$18` bit 7 is set (ours, in a reserved byte; SETDEF, 4b or later, sets it), the CCP says where the program came
   from before it runs: `A:HELLO    COM`, and ` (User 0)` when it was user 0's SYS file opened from another user.
-  The filetype search order (SETDEF's `[ORDER]`) is `.COM` alone until SUBMIT, phase 5.
+  The filetype search order (SETDEF's `[ORDER]`) is `.COM` alone until SUBMIT, phase 5, and so is
+  `PROFILE.SUB` at cold boot (the Guide, 4.5): the CCP doesn't look for it yet.
 - **The drive change** (`B:`, `5B:`; the Guide, 2.4–2.5): the drive selected by 14 in error mode `$FE`, so one
   that isn't a drive is said as the BDOS says it (`OODOS Error On Q: Invalid Drive`) and the CCP's drive stays.
   Then it is the CCP's drive, and the user number, if given (0–15), its user.
@@ -2017,15 +2018,15 @@ made with it) is never made, so make with f6' reusing one and rename onto one ar
   `emulator/test/host/oodos_rig.h`), types command lines and compares what each says, line for line, with the
   Guide: the line (capitals, blanks, comments, 255 characters, a tail of 126 and 127); `!` with each command shown,
   `:` after a failure (NAME?, a built-in's, a program's 108) and a success, a skipped one keeping the code, a ^C's
-  end dropping the rest; `d:`, `nd:`, users 0–15 and 16, a tail after `d:`, Q:, an unmounted H:; USER, USE and
+  end dropping the rest, 47's command taking its place; `d:`, `nd:`, users 0–15 and 16, a tail after `d:`, Q:, an unmounted H:; USER, USE and
   USER's question; DIR and DIRSYS on M: (five names a line, two at a width of 40, one at 15; SYS files' messages
   both ways, No File, `*` and `?`, a blank type, another user's files, a drive that isn't, a specification 152
   refuses); a page of 4 stopping DIR and TYPE (a key goes on, ^C at the stop ends the line with `$FFFE`), page
   mode off and a page of 1 not stopping, ^C while TYPE and DIR write; TYPE (tabs, ^Z, a `.COM`'s `OOD`, user 0's
   SYS file from user 4, a wildcard and two names refused); ERA (one name, a wildcard answered N, then Y, nothing
   left, read-only, the password not shown in the question); REN (both drives' forms, No File, a name there
-  answered N, then Y, two drives, its forms, read-only); passwords given to TYPE, ERA and a program (M:'s label's
-  passwords on and XFCBs put there behind OODOS's back); each built-in's utility not found and found (ARGS.COM,
+  answered N, then Y, two drives, its forms, read-only); passwords given to TYPE, ERA, REN and a program (M:'s
+  label's passwords on and XFCBs put there behind OODOS's back); each built-in's utility not found and found (ARGS.COM,
   [`oodos/sys/test/args.s`](../oodos/sys/test/args.s), as DIR.COM, TYPE.COM, ERASE.COM, RENAME.COM: the tail as
   given, DIRSYS's SYS added), `d:DIR` the program; programs by drive, the current drive, the user and user 0's SYS
   files, `.COM`, `.SUB`, `.PRL`, wildcards, a long name, `5B:NAME`; the search chain (the default drive first or
@@ -2036,6 +2037,15 @@ made with it) is never made, so make with f6' reusing one and rename onto one ar
   PATTERN.DAT=PATTERN.BIN` of two entries, `ERA SMALL.BIN` in user 3, `ERA *.PRL` answered Y), checks the image,
   and with `OODOS_CCP_OUT` saves it; `interop.sh --ccp` passes on it (PASS 7: `fsck.cpm` clean, the stamps kept by
   the renames, the erased files gone from `cpmls -F`, the contents by `cpmcp`), and fails on a card without them.
+- **Each check can fail:** OODOS.SYS built with each of 30 faults, one at a time (`OODOS_SYS_DIR`), fails
+  `test_oodos_ccp`, each in the case named: DIR listing SYS files with the rest, or five names a line whatever the
+  width (DIR's, and paging's); ERA not asking, or showing the password; REN not looking for the new name, not
+  asking, or taking two drives; TYPE past the ^Z (TYPE's and three more); USER taking 16; `d:` not checked by 14;
+  `!`'s commands not shown; `:` ignored; the search chain ignored; the display mode ignored; no second FCB; a
+  password's place one off; no page stops; no ^C looked for; no hand-off; a ^C's end not dropping the rest; no
+  capitals; the LF owed not written before a program (8 cases); a built-in's failure as a success; a tail of 127
+  taken; DIRSYS's SYS not added; the load drive 0; `.SUB` as any type; an unreadable given drive passed over;
+  option lists not seen; no user in the prompt.
 - **Tests changed** because the Guide changes what they asserted (each listed in the commit): a tail is in capitals
   (`test_oodos_sys`'s GO and `test_oodos_e2e`'s HELLO print ` WORLD`); a line holds 255 characters, not 126; a
   command that writes nothing has the next prompt on the next line (the VT52 test's scroll takes six empty lines,
