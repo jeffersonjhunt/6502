@@ -1,8 +1,11 @@
 ; CMDTEST: cmd.inc's console mode handling (hw/oodos.md, "The CCP, phase
 ; 4"), for test_oodos_ccp.cpp, which types what it waits for. It prints:
 ;
-;   PAGE n UNPAGE n     the console mode after CM_PAGE (10 set before it:
-;                       11 wanted) and after CM_UNPAGE (10 again)
+;   NOOP n              the console mode after a CM_UNPAGE with no CM_PAGE
+;                       before it (10 set before it: 10 wanted)
+;   PAGE n UNPAGE n     the console mode after CM_PAGE called twice (11
+;                       wanted) and after one CM_UNPAGE (10 again: the
+;                       second CM_PAGE kept the first's mode)
 ;   KEY?                then waits for a key, in console mode 0, and calls
 ;                       CM_BRK, which must leave it alone
 ;   KEPT n              the key 6 then reads (its code)
@@ -25,7 +28,13 @@ start:  lda     #10                     ; a program's console mode, kept by
         ldx     #0                      ; CM_PAGE and put back by CM_UNPAGE
         ldy     #C_MODE
         jsr     BDOS
+        jsr     CM_UNPAGE               ; not paged: nothing
+        lda     #<snoop
+        ldx     #>snoop
+        jsr     CM_PUTS
+        jsr     mode
         jsr     CM_PAGE
+        jsr     CM_PAGE                 ; again: the first's mode kept
         lda     #<spage
         ldx     #>spage
         jsr     CM_PUTS
@@ -92,7 +101,8 @@ mode:   lda     #$FF
         .include "cmd.inc"
 
         .rodata
-spage:  .byte   "PAGE $"
+snoop:  .byte   "NOOP $"
+spage:  .byte   " PAGE $"
 sunpage: .byte  " UNPAGE $"
 skey:   .byte   "KEY?", 13, 10, '$'
 skept:  .byte   "KEPT $"

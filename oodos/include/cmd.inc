@@ -21,8 +21,16 @@
 ;   CM_CRLF     CR, LF (an LF owed is one of them)
 ;   CM_PAGE     start paged output: the SCB's page mode ($2C, 0 on) and
 ;               length ($1C); the console mode (109) kept, and bit 0 set
-;               in it, so 11 reports only ^C
-;   CM_UNPAGE   the console mode CM_PAGE kept, back
+;               in it, so 11 reports only ^C. Called again while paged, it
+;               keeps the mode the first kept (CM_PAGED). A mode with bits
+;               CP/M 3 leaves undefined set so that it ORs to $FFFF would
+;               be a get to 109, so bit 0 isn't set: such a mode is taken
+;               not to happen
+;   CM_UNPAGE   the console mode CM_PAGE kept, back; without a CM_PAGE
+;               before it, nothing
+;   CM_PAGED    1 while paged; in CMD_DATA, so it starts 0 with the image
+;               (a program's BSS isn't cleared). A user that sets the
+;               console mode itself in between clears it (the CCP does)
 ;   CM_NL       CR, LF, a line counted (CM_LINE)
 ;   CM_LINE     a line ended: past the page, "Press a key for more", a
 ;               key waited for (^C: CMD_BREAK), the message rubbed out
@@ -61,9 +69,10 @@ CM_PLEN:        .res    1              ; lines to a stop, 0: none
 CM_NUM:         .res    2              ; CM_DECIN's and CM_DECOUT's number
 CM_DIG:         .res    1              ; digits seen or written
 CM_T:           .res    1
-CM_MODE:        .res    2              ; the console mode CM_PAGE found
+CM_MODE:        .res    2              ; the console mode CM_PAGE found (CM_PAGED)
 CM_ANS:         .res    2 + 16         ; CM_READ's line: its size, count, characters
 .segment CMD_DATA
+CM_PAGED:       .byte   0              ; 1: CM_MODE holds the mode to put back
 CM_PBMODE:      .byte   $2C, 0, 0, 0   ; 49: get the page mode
 CM_PBLEN:       .byte   $1C, 0, 0, 0   ;     and the page length
 CM_MORE:        .byte   "Press a key for more$"
@@ -120,20 +129,31 @@ CM_PAGE:        STZ     CM_LINES
                 BCC     @mode          ; under 2: no stops (a page of one line)
                 DEC     A              ; the last line is the message's
                 STA     CM_PLEN
-@mode:          LDA     #$FF           ; the console mode kept, then bit 0 set:
+@mode:          LDA     CM_PAGED       ; paged already: its mode is kept, bit 0 set
+                BNE     @kept
+                LDA     #$FF           ; the console mode kept, then bit 0 set:
                 TAX                    ; 11 reports only ^C
                 LDY     #C_MODE
                 JSR     BDOS
                 STA     CM_MODE
                 STX     CM_MODE + 1
+                LDA     #1
+                STA     CM_PAGED
+                LDA     CM_MODE
                 ORA     #1
-                LDY     #C_MODE
-                JMP     BDOS
-
-CM_UNPAGE:      LDA     CM_MODE
                 LDX     CM_MODE + 1
                 LDY     #C_MODE
                 JMP     BDOS
+@kept:          RTS
+
+CM_UNPAGE:      LDA     CM_PAGED       ; not paged: nothing to put back
+                BEQ     @none
+                STZ     CM_PAGED
+                LDA     CM_MODE
+                LDX     CM_MODE + 1
+                LDY     #C_MODE
+                JMP     BDOS
+@none:          RTS
 
 CM_NL:          JSR     CM_CRLF
 CM_LINE:        LDA     CM_PLEN

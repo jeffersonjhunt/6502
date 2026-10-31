@@ -237,15 +237,18 @@ NEXTCMD:        LDX     #$FF
                 STZ     CHAINED        ; only the first of 47's line was chained to
                 JSR     SAYPROMPT
                 LDX     LPOS
-@blank:         CPX     LINE + 1       ; past blanks and tabs
-                BEQ     @shown
+@blank:         CPX     LINE + 1       ; past blanks, tabs and empty commands' '!'s
+                BEQ     @start
                 LDA     LINE + 2,X
                 CMP     #' '
                 BEQ     @past
                 CMP     #TAB
-                BNE     @show
+                BEQ     @past
+                CMP     #'!'
+                BNE     @start
 @past:          INX
                 BRA     @blank
+@start:         STX     LPOS           ; the command starts here, for RUNCMD
 @show:          CPX     LINE + 1
                 BEQ     @shown
                 LDA     LINE + 2,X
@@ -260,7 +263,8 @@ NEXTCMD:        LDX     #$FF
 
 ; The command at LPOS: to CMD in capitals, to a '!' or the line's end (a 0
 ; ends it too, as 152 and the tail's 0 would), its trailing blanks and tabs
-; dropped. A '!' with only blanks after it leaves nothing pending.
+; dropped. A '!' with only blanks, tabs and '!'s after it leaves nothing
+; pending; NEXTCMD skips the empty commands between '!'s.
 RUNCMD:         LDX     #$FF
                 TXS
                 LDX     LPOS
@@ -285,6 +289,8 @@ RUNCMD:         LDX     #$FF
                 CMP     #' '
                 BEQ     @rest
                 CMP     #TAB
+                BEQ     @rest
+                CMP     #'!'           ; an empty command
                 BEQ     @rest
                 LDA     #1
                 STA     PENDING
@@ -407,7 +413,8 @@ ERRSAY:         LDA     #$FE           ; errors said, then returned
 ERRMODE:        LDY     #F_ERRMODE
                 JMP     BDOS
 
-CONMODE0:       LDA     #0
+CONMODE0:       STZ     CM_PAGED       ; (cmd.inc's: paging ends with the mode)
+                LDA     #0
                 TAX
                 LDY     #C_MODE
                 JMP     BDOS

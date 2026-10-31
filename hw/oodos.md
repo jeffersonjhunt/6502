@@ -1160,7 +1160,8 @@ where it is silent the choice is ours, and says so):
   is followed by the prompt's CR LF, so a blank line, as in the Guide's examples.
 - **Several commands, `!`:** a line `A!B!C` runs A, then B, then C (the Guide, 4.5). Each one after the first is
   shown after a new prompt, as it was typed (its case kept, its leading blanks and tabs not shown), then run. A
-  `!` with nothing after it but blanks and tabs leaves nothing to run (ours: no empty prompt). The rest of the line is kept across a
+  `!` with nothing after it but blanks, tabs and more `!`s leaves nothing to run, and an empty command between two
+  `!`s (`A!!B`, `A! !B`) is skipped (ours: no empty prompt). The rest of the line is kept across a
   program's warm boot. A program ended by ^C (the return code `$FFFE`) drops the rest, and so does a built-in
   stopped by ^C (ours). Function 47's command takes the place of what is left of a line (ours: the Guide doesn't
   say), and may hold `!` itself.
@@ -1242,7 +1243,7 @@ where it is silent the choice is ours, and says so):
   command and `?`. `old` not there: `No File`. `new` there already: `Not renamed: NEW.TYP file already exists,
   delete (Y/N)?` (the Guide's RENAME, in our words), and a `Y` deletes it (with `new`'s password, if given) and
   renames; anything else renames nothing (the return code `$FF00`: not renamed, ours). Then 23, `old`'s password in the DMA buffer; its errors are the BDOS's.
-  `new` and `old` the same file once the drive is decided (`REN X.TXT=X.TXT`, or `REN B:X.TXT=X.TXT` on B:) is
+  `new` and `old` the same file once the drive is decided (`REN X.TXT=X.TXT`, or `REN B:X.TXT=X.TXT` from any drive, since `old` is on `new`'s drive) is
   the command and `?` (ours), before anything is looked for: else `new` would be found there already, and a `Y`
   would delete the only copy.
 - **TYPE** `filespec` (`TYP`): the file's bytes to the console (2, so tabs are expanded) to the first ^Z or its
@@ -1268,9 +1269,9 @@ where it is silent the choice is ours, and says so):
   15 and 20 for TYPE and loading, 19 and 23 for ERA and REN, 49 for the SCB's width, page mode and length, search
   chain and display flag (`SCB_CCPDISP`, `$18`, in `sys.inc`), 108 for the return code. The stand-in's warm boot
   work (the rescan, 48, 98; 13 for a ^C at the prompt; 47's request) is kept as it was.
-- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,668 bytes (the CCP 4,380, its
+- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,709 bytes (the CCP 4,421, its
   shared `cmd.inc` among them; the stand-in's was 1,323), then its BSS, 984 bytes (the line of 255, the command,
-  the tail, three FCBs, a record), 5,652 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
+  the tail, three FCBs, a record), 5,693 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
   and BIOS's 210 of 240 as they were), `SYSBSS` 737 of 1,280, common memory 1,123 of 2,048 and block 60 11,588 as
   they were. Its state across a program (the rest of a `!` line, `ATPROMPT`, `PENDING`, `CCPDRV`, `CCPUSR`) is in
   block 62, which is W3 while a program runs: only the TPA rule (a program keeps to `$0300–$BFFC`) keeps it
@@ -1280,7 +1281,10 @@ where it is silent the choice is ours, and says so):
   data in `RODATA` and `BSS`, as `tools/rules.py` wants. Its pointers are in its own instructions, so it uses no
   zero page and keeps the 65C816 rules. `CM_LFDUE` is the LF owed after a line read (above). `CM_PAGE` reads the
   console mode (109), keeps it and sets bit 0 in it; `CM_UNPAGE` puts the kept mode back, so a utility leaves a
-  mode its caller set as it was. `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
+  mode its caller set as it was. A flag, `CM_PAGED`, in the library's constant data so that it starts 0 with the
+  image (a program's BSS isn't cleared), makes a `CM_UNPAGE` without a `CM_PAGE` do nothing and a second `CM_PAGE`
+  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 to `$FFFF` would be
+  a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
   ^C; in another mode it leaves the key alone, so it is safe without `CM_PAGE`. The CCP sets mode 0 after each
   built-in in any case. `CMDTEST` (`oodos/sys/test/cmdtest.s`) tests both in `test_oodos_ccp`.
 - **The test card:** `0:HELLO.COM` is a SYS file now (`cpmchattr`, `make_card.sh`), so the CCP finds it from any

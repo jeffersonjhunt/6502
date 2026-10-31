@@ -272,6 +272,16 @@ TEST(several_commands_run_in_turn_and_conditional_ones_only_after_a_success)
         r.run(ms(500));
         same(r.out.substr(from), echo + "\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"); // 10 shows a tab as ^I
     }
+    // An empty command between two '!'s is skipped: no empty prompt (ours)
+    for (const auto &[line, echo] : {std::pair<std::string, std::string>{"hello!!hello", "hello!!hello"},
+                                     {"hello! !hello", "hello! !hello"}})
+    {
+        const size_t from = r.out.size();
+        r.to(line, "\r\nA>hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+        r.run(ms(500));
+        same(r.out.substr(from), echo + "\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>hello\r\nHello from OODOS"
+                                        "\r\nHello from OODOS\r\n\r\n\r\nA>");
+    }
     // 47's command takes the place of the rest of the line (ours): SYSTEST H chains to A:HELLO
     r.poke_com(read_bytes(SYS + "/systest.com"));
     o = r.to("GO H!dir *.txt", "\r\nA>A:HELLO\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
@@ -586,12 +596,12 @@ TEST(cmd_inc_keeps_a_programs_console_mode_and_cm_brk_takes_only_a_ctrl_c)
     r.poke_com(read_bytes(SYS + "/cmdtest.com"));
     const size_t from = r.out.size();
     REQUIRE(!r.to("GO", "KEY?\r\n").empty());
-    CHECK(r.out.find("PAGE 11 UNPAGE 10\r\n", from) != std::string::npos);
+    CHECK(r.out.find("NOOP 10 PAGE 11 UNPAGE 10\r\n", from) != std::string::npos);
     r.type("x");
     REQUIRE(r.until("BRK?\r\n", ms(3000), from));
     r.type("\x03");
     REQUIRE(r.until("\r\nA>", ms(3000), from));
-    same(r.out.substr(from), "GO\r\nPAGE 11 UNPAGE 10\r\nKEY?\r\nKEPT 120\r\nBRK?\r\nBROKE MODE 0\r\n\r\nA>");
+    same(r.out.substr(from), "GO\r\nNOOP 10 PAGE 11 UNPAGE 10\r\nKEY?\r\nKEPT 120\r\nBRK?\r\nBROKE MODE 0\r\n\r\nA>");
 }
 
 // ---- the utilities ---------------------------------------------------------------------------
