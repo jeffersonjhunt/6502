@@ -1,0 +1,695 @@
+[
+ {
+  "number": 0,
+  "name": "P_TERMCPM",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 1,
+  "name": "C_READ",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 2,
+  "name": "C_WRITE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 3,
+  "name": "A_READ",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 4,
+  "name": "A_WRITE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 5,
+  "name": "L_WRITE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 6,
+  "name": "C_RAWIO",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 7,
+  "name": "A_STATIN",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 8,
+  "name": "A_STATOUT",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 9,
+  "name": "C_WRITESTR",
+  "documented": true,
+  "anchor": "bdos-9",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
+ },
+ {
+  "number": 10,
+  "name": "C_READSTR",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 11,
+  "name": "C_STAT",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 12,
+  "name": "S_BDOSVER",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 13,
+  "name": "DRV_ALLRESET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 14,
+  "name": "DRV_SET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 15,
+  "name": "F_OPEN",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 16,
+  "name": "F_CLOSE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 17,
+  "name": "F_SFIRST",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 18,
+  "name": "F_SNEXT",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 19,
+  "name": "F_DELETE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 20,
+  "name": "F_READ",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 21,
+  "name": "F_WRITE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 22,
+  "name": "F_MAKE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 23,
+  "name": "F_RENAME",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 24,
+  "name": "DRV_LOGINVEC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 25,
+  "name": "DRV_GET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 26,
+  "name": "F_DMAOFF",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 27,
+  "name": "DRV_ALLOCVEC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 28,
+  "name": "DRV_SETRO",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 29,
+  "name": "DRV_ROVEC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 30,
+  "name": "F_ATTRIB",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 31,
+  "name": "DRV_DPB",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 32,
+  "name": "F_USERNUM",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 33,
+  "name": "F_READRAND",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 34,
+  "name": "F_WRITERAND",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 35,
+  "name": "F_SIZE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 36,
+  "name": "F_RANDREC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 37,
+  "name": "DRV_RESET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 40,
+  "name": "F_WRITEZF",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 42,
+  "name": "F_LOCK",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 43,
+  "name": "F_UNLOCK",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 44,
+  "name": "F_MULTISEC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 45,
+  "name": "F_ERRMODE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 46,
+  "name": "DRV_SPACE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 47,
+  "name": "P_CHAIN",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 48,
+  "name": "DRV_FLUSH",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 49,
+  "name": "S_SCB",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 50,
+  "name": "S_BIOS",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 51,
+  "name": "F_DMASEG",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 52,
+  "name": "F_DMAGET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 53,
+  "name": "MC_MAX",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 54,
+  "name": "MC_ABSMAX",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 55,
+  "name": "MC_ALLOC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 56,
+  "name": "MC_ABSALLOC",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 57,
+  "name": "MC_FREE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 58,
+  "name": "MC_ALLFREE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 59,
+  "name": "P_LOAD",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 60,
+  "name": "P_RSX",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 72,
+  "name": "O_VERSION",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 73,
+  "name": "O_PHYSADDR",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 74,
+  "name": "O_MOUNT",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 98,
+  "name": "DRV_FREE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 99,
+  "name": "F_TRUNCATE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 100,
+  "name": "DRV_SETLABEL",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 101,
+  "name": "DRV_GETLABEL",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 102,
+  "name": "F_TIMEDATE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 103,
+  "name": "F_WRITEXFCB",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 104,
+  "name": "T_SET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 105,
+  "name": "T_GET",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 106,
+  "name": "F_PASSWD",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 107,
+  "name": "S_SERIAL",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 108,
+  "name": "P_CODE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 109,
+  "name": "C_MODE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 110,
+  "name": "C_DELIMIT",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 111,
+  "name": "C_WRITEBLK",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 112,
+  "name": "L_WRITEBLK",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
+  "number": 152,
+  "name": "F_PARSE",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ }
+]

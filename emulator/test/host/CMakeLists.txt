@@ -306,6 +306,45 @@ target_compile_definitions(test_oodos_boot PRIVATE
         EMU_OODOS_UTILS_DIR="${OODOS_UTILS_DIR}"
         EMU_OODOS_CARD_DIR="${OODOS_SRC}/card")
 
+# --- the books (docs/) ------------------------------------------------------
+#
+# test_docs: docs/tools/check_docs.py, the books held to oodos.inc and
+# backplane.inc (entries, the unwritten list, anchors, links, listings, the
+# indexes); test_docs_check: its own cases, each check made to fail on a
+# broken copy of the tree. test_docs_examples: each docs/examples program,
+# built by docs/examples/Makefile through oodos/Makefile's rules, run from
+# the CCP (oodos_rig.h's CcpRig) and its output compared with NAME.out.
+
+get_filename_component(DOCS_SRC "${PROJECT_SOURCE_DIR}/../docs" ABSOLUTE)
+add_test(NAME test_docs COMMAND "${Python3_EXECUTABLE}" -I -B "${DOCS_SRC}/tools/check_docs.py")
+add_test(NAME test_docs_check COMMAND "${Python3_EXECUTABLE}" -I -B "${DOCS_SRC}/tools/test_check_docs.py")
+set_tests_properties(test_docs test_docs_check PROPERTIES TIMEOUT 120)
+emu_add_test(test_docs_examples)
+set_tests_properties(test_docs_examples PROPERTIES TIMEOUT 600) # a boot and a command a program, under ASan
+set(DOCS_EXAMPLES_DIR "${CMAKE_CURRENT_BINARY_DIR}/docs_examples")
+file(GLOB docs_examples CONFIGURE_DEPENDS "${DOCS_SRC}/examples/*.s")
+set(docs_example_coms)
+foreach(src ${docs_examples})
+    get_filename_component(name "${src}" NAME_WE)
+    list(APPEND docs_example_coms "${DOCS_EXAMPLES_DIR}/${name}.com")
+endforeach()
+add_custom_command(
+        OUTPUT ${docs_example_coms}
+        COMMAND "${EMU_MAKE}" -s -C "${DOCS_SRC}/examples" "BUILD=${DOCS_EXAMPLES_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        DEPENDS ${docs_examples} "${DOCS_SRC}/examples/Makefile" "${OODOS_SRC}/Makefile"
+                "${OODOS_SRC}/include/oodos.inc" "${OODOS_SRC}/cfg/com.cfg" "${OODOS_SRC}/tools/rules.py"
+        VERBATIM)
+add_custom_target(docs_examples ALL DEPENDS ${docs_example_coms})
+add_dependencies(test_docs_examples docs_examples oodos_sys backplane_bios)
+target_compile_definitions(test_docs_examples PRIVATE
+        EMU_DOCS_EXAMPLES_SRC="${DOCS_SRC}/examples"
+        EMU_DOCS_EXAMPLES_BUILD="${DOCS_EXAMPLES_DIR}"
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+
 # --- OODOS: the BDOS's model test --------------------------------------------
 #
 # oodos/test/: the model of CP/M 3's file system, the generator and the
