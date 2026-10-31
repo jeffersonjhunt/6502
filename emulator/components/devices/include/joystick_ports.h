@@ -26,7 +26,8 @@
  * The terminal app has no host joystick: its debugger's `joy 1 uf` holds
  * joystick 1 up with fire pressed, `joy 1 -` lets go, `joy` shows both.
  *
- * In a machine description, after the via6522 line it hangs off:
+ * In a machine description, after the via6522 line it hangs off, which
+ * must have nothing else on it (the sticks take both ports):
  *
  *   joyports  name=joysticks  via=via
  */

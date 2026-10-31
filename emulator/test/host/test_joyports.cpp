@@ -190,11 +190,24 @@ TEST(machine_file_errors_name_the_joyports_line)
     CHECK(!Machine::build("ram 0000-FFFF\njoyports via=nope\n", "j.machine", opt, error));
     CHECK(error.find("j.machine:2") == 0);
     CHECK(error.find("via=NAME") != std::string::npos);
-    CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\njoyports via=v\njoyports via=v\n", "j.machine", opt,
-                          error));
+    CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\nvia6522 8010-801F name=w\njoyports via=v\n"
+                          "joyports via=w\n",
+                          "j.machine", opt, error));
     CHECK(error.find("only one") != std::string::npos);
     CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\njoyports via=v port=A\n", "j.machine", opt, error));
     CHECK(error.find("unknown option 'port'") != std::string::npos);
+    // The joysticks take both ports: no LCD or keyboard on the same VIA, before or after.
+    CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\nhd44780 via=v data=PB0-3 rs=PB4 rw=PB5 e=PB6\n"
+                          "joyports via=v\n",
+                          "j.machine", opt, error));
+    CHECK(error.find("j.machine:4: joyports: via 'v' already has hd44780 on it") == 0);
+    CHECK(!Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\njoyports via=v\nps2kbd via=v data=PA0-7\n",
+                          "j.machine", opt, error));
+    CHECK(error.find("j.machine:4: ps2kbd: via 'v' already has joyports on it") == 0);
+    // Another VIA is fine.
+    CHECK(Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\nvia6522 8010-801F name=w\njoyports via=v\n"
+                         "ps2kbd via=w data=PA0-7\n",
+                         "j.machine", opt, error) != nullptr);
     auto m = Machine::build("ram 0000-7FFF\nvia6522 8000-800F name=v\njoyports via=v name=sticks\n", "j.machine", opt,
                             error);
     REQUIRE(m != nullptr);

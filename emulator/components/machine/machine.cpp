@@ -119,6 +119,7 @@ namespace ooe::emu
     {
         std::unique_ptr<Machine> m(new Machine(options.bridge));
         bool rom_overridden = false;
+        std::unordered_map<const Via6522 *, std::string> via_users; // the last peripheral type on each VIA
         int lineno = 0;
         std::istringstream lines(text);
         std::string line;
@@ -193,6 +194,11 @@ namespace ooe::emu
                 auto *via = dynamic_cast<Via6522 *>(m->find(opt["via"]));
                 if (!via)
                     return fail(type + ": via=NAME must name a via6522 described above");
+                // The joysticks take both of a VIA's ports; nothing else can share it.
+                const std::string &other = via_users[via];
+                if (!other.empty() && (type == "joyports" || other == "joyports"))
+                    return fail(type + ": via '" + opt["via"] + "' already has " + other +
+                                " on it, and joyports needs a VIA of its own");
                 ViaPins data;
                 std::unique_ptr<Peripheral> p;
                 if (type == "hd44780")
@@ -233,6 +239,7 @@ namespace ooe::emu
                     return fail(type + ": unknown option '" + opt.begin()->first + "'");
                 if (!name.empty())
                     m->named_peripherals_[name] = p.get();
+                via_users[via] = type;
                 m->peripherals_.push_back(std::move(p));
                 continue;
             }
