@@ -16,6 +16,8 @@ directory holds the work.
   read-only CP/M reader OOLDR links (phase 2, below).
 - [`sys/`](sys/): OODOS.SYS: common memory, the BDOS (phase 3), the CCP (phase 4a), the BIOS;
   below.
+- [`utils/`](utils/): the transient utilities (phase 4b), `make utils`, with
+  [`include/util.inc`](include/util.inc); below.
 - [`test/cpm3model.py`](test/cpm3model.py), [`test/modelscript.py`](test/modelscript.py),
   [`test/modeltest.py`](test/modeltest.py), [`test/driver/`](test/driver/): the BDOS's model test (phase 3a,
   below).
@@ -106,10 +108,10 @@ Phase 2's system ([hw/oodos.md](../hw/oodos.md#the-system-phase-2)) with phase 3
 | `bdos.s`, `bdosfile.s`, `bdosdisk.s`, `bdosxtra.s`, `bdossys.s`, `bdosmem.s`, `bdos.inc` | the BDOS, block 60: the entry and errors; the file functions; the drives, buffers, directory hash, allocation vectors and stamps; the file extras (phase 3b1: labels, XFCBs, passwords, the multi-sector count); the system extras (phase 3b2: the console set and function 10's line editing, the SCB, chain, the return code, the serial number, parse filename); the memory functions (phase 3c: the DMA segment, CP/M-86's memory blocks, a CPU address's physical one, mounting drives) |
 | `bios.s`, `crt.s` | the BIOS, block 61: drives, M:, TIME, MOVE, the devices; the text screen's VT52 subset |
 | `cold.s`, `ccp.s` | block 62's code window: cold boot (OODOS.SYS's entry) and the CCP (phase 4a, [hw/oodos.md](../hw/oodos.md#the-ccp-phase-4)): the prompt, `!` and `:`, the built-ins `DIR`, `DIRSYS`, `ERA`, `REN`, `TYPE`, `USER`, `d:`, and `GO`; programs by the search chain |
-| [`include/cmd.inc`](include/cmd.inc) | the CCP's console helpers, for 4b's utilities too: paged output with ^C, a Y/N question, a file's name shown, decimal in and out |
+| [`include/cmd.inc`](include/cmd.inc) | the CCP's console helpers, for 4b's utilities too: paged output with ^C, a Y/N question, a file's name shown, decimal in and out, a line owed (`CM_EOL`, the utilities') |
 | `sys.inc`, `sys.cfg` | the system block's layout and the SCB; the one ld65 link, a file for each block's part |
 | `mksys.py` | makes OODOS.SYS of those parts (its header: hw/oodos.md), and reads one as OOLDR will |
-| `test/` | the test programs (`.COM`s: ARGS (what the CCP gave a program, phase 4a), BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), SYSTEST (phase 3b2's functions against the Guide), MEMTEST (phase 3c's 51–58, 73, 74 and XMOVE's physical bank), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
+| `test/` | the test programs (`.COM`s: ARGS (what the CCP gave a program, phase 4a), CMDTEST and UTTEST (`cmd.inc`'s and `util.inc`'s routines), BIOSTEST, STUBTEST, FARTEST, TIMETEST, LINETEST, WPTEST, IRQTEST, VT52TEST, BANKTEST, HOLETEST; the BDOS's FSTEST, DIRTEST, ERRTEST, STAMPTEST, LOGINTEST, RULETEST (the review's findings against the Programmer's Guide, and the model comparison's), XTRATEST (phase 3b1's labels, XFCBs, passwords and multi-sector count), SYSTEST (phase 3b2's functions against the Guide), MEMTEST (phase 3c's 51–58, 73, 74 and XMOVE's physical bank), with `fs.inc` and `fszp.inc`; WRITEOO1, on the card), `check_mksys.py`, `make_mdisk.sh` |
 
 ```
 make -C sys             # sys/build/OODOS.SYS and the test programs, sys/build/NAME.com
@@ -151,6 +153,46 @@ and is made again, with Docker:
 
 ```
 sys/test/make_mdisk.sh      # mkfs.cpm -f oodos-ram -t at 2026-10-27 12:00, the mode set to 0x31
+```
+
+
+## The utilities (phase 4b) ##
+
+The transient utilities ([hw/oodos.md](../hw/oodos.md#the-utilities-phase-4b)) are `.COM`s, one a file,
+`utils/NAME.s`. The Makefile builds every one there is (a wildcard: a new one needs no change to it), through the
+65C816 rules gate as any program, into `build/NAME.com`; `make` builds them too. Each includes `oodos.inc`, then
+`cmd.inc` and [`include/util.inc`](include/util.inc), whose header lists every routine: the tail and its option
+list, file specifications by 152, a line read, 24-bit numbers in fields with commas, dates and times, the directory
+by 17 with `?` (the label, SFCBs, a password decoded, a name compared), drives and their DPBs, and the end (the
+return code, the drive put back, `UT_BREAK` for a ^C). A utility starts with `UT_INIT` and separates its lines
+with `CM_EOL`, so its last line is ended by the prompt's CR LF:
+
+```
+        .include "oodos.inc"
+        .define CMD_DATA "RODATA"
+        .define CMD_BSS "BSS"
+CMD_BREAK = UT_BREAK                    ; a ^C at a page's stop: $FFFE, the warm boot
+        OODOS_HEADER
+        .code
+start:  jsr     UT_INIT
+        ...
+        jmp     UT_EXIT
+        .include "cmd.inc"
+        .include "util.inc"
+```
+
+```
+make utils                  # build/NAME.com for each utils/NAME.s
+```
+
+The emulator's build runs `make utils` into its build tree (`oodos_utils`) for the `test_oodos_utils` suites, which
+put each on M: behind OODOS's back (`oodos_rig.h`'s `put_util`) and run it from the CCP. `test_oodos_utils`
+itself runs UTTEST (`sys/test/uttest.s`), every routine of `util.inc` and `CM_EOL`, each line compared:
+
+```
+ctest --preset dev -R test_oodos_utils
+./build/dev/test/host/test_oodos_utils
+OODOS_SYS_DIR=/some/build ./build/dev/test/host/test_oodos_utils   # another build of sys/ (UTTEST with a fault)
 ```
 
 
