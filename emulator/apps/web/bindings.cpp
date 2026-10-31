@@ -42,6 +42,11 @@
  * usbMouseButtons(bits), usbMouseWheel(steps); usbQueued() is how many key changes wait
  * (a paste typing), usbDropKeys() stops it. Without a card they do nothing.
  *
+ * The serial card's joysticks (joystick_ports.h): hasJoysticks() if the
+ * machine has the ports; setJoystick(n, bits) says what stick n (0 or 1)
+ * has pressed, bit 0 up, 1 down, 2 left, 3 right, 4 fire, held through
+ * power cycles; joystick(n) reads it back.
+ *
  * Apple II mode: loadCartridge(rom, chars, boot, sequencer) plugs the
  * owner's IIe ROM (16 KB, $C000-$FFFF) and character ROM (4 or 8 KB, or ""
  * for none) into the cartridge, and the Disk II card's two PROMs (256 bytes
@@ -490,6 +495,13 @@ namespace
 
         unsigned peek_io(unsigned offset) const { return session_->peek_io(static_cast<uint16_t>(offset & 0xFFF)); }
 
+        bool has_joysticks() const { return session_->joysticks() != nullptr; }
+        void set_joystick(unsigned n, unsigned bits) { session_->set_joystick(n, static_cast<uint8_t>(bits)); }
+        unsigned joystick(unsigned n) const
+        {
+            const JoystickPorts *j = session_->joysticks();
+            return j ? j->pressed(n) : 0;
+        }
         bool has_usb() const { return session_->usb() != nullptr; }
         void usb_key(unsigned usage, bool down)
         {
@@ -662,6 +674,9 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("setRtc", &WebMachine::set_rtc)
         .function("syncRtc", &WebMachine::sync_rtc)
         .function("rtc", &WebMachine::rtc)
+        .function("hasJoysticks", &WebMachine::has_joysticks)
+        .function("setJoystick", &WebMachine::set_joystick)
+        .function("joystick", &WebMachine::joystick)
         .function("hasUsb", &WebMachine::has_usb)
         .function("usbKey", &WebMachine::usb_key)
         .function("usbQueued", &WebMachine::usb_queued)
