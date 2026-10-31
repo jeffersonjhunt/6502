@@ -302,6 +302,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     joysticks: sticks.element,
     phosphor,
   });
+  settings.show("joysticks", port.caps.joysticks); // false until the machine is open
 
   const monitor = h("div", { class: "mon" }, glass, h("div", { class: "mon-foot" }, monLabel, screens.element));
   const strip = statusStrip({
@@ -394,6 +395,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     .then(async (opened) => {
       bios.connected(opened.bios);
       sticks.connected(); // the machine says whether it has the joystick ports
+      settings.show("joysticks", port.caps.joysticks);
       await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       panel.applyAll();
       port.setLights(true);

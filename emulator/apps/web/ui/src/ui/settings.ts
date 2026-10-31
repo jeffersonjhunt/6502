@@ -5,6 +5,8 @@
  * Display (the phosphor) and About (the credits). The rows are the media's
  * own (ui/bios.ts, apple-bar.ts, disk-bar.ts, sd-bar.ts, sid-bar.ts, joysticks.ts); a
  * section with nothing to show on this machine (no SD card, say) hides.
+ * Joysticks, heading and all, is hidden until the machine is open and has
+ * the ports (show(), from main.ts with caps.joysticks).
  */
 
 import { PHOSPHORS, type Phosphor } from "../crt/crt";
@@ -75,9 +77,11 @@ export interface SettingsParts {
 
 export function settingsPanel(parts: SettingsParts) {
   const heads = {} as Record<SettingsSection, HTMLElement>;
+  const sections = {} as Record<SettingsSection, HTMLElement>;
   const section = (id: SettingsSection, title: string, ...body: HTMLElement[]) => {
     heads[id] = h("h3", { class: "lbl", id: `set-${id}`, tabindex: "-1" }, title);
-    return h("section", { class: `set-sec set-${id}`, "aria-labelledby": `set-${id}`, "data-testid": `settings-${id}` }, heads[id], ...body);
+    sections[id] = h("section", { class: `set-sec set-${id}`, "aria-labelledby": `set-${id}`, "data-testid": `settings-${id}` }, heads[id], ...body);
+    return sections[id];
   };
   const header = h("div", { class: "drawer-h" }, h("h2", {}, "Settings"));
   const element = h(
@@ -96,7 +100,12 @@ export function settingsPanel(parts: SettingsParts) {
       section("about", "About", credits()),
     ),
   );
+  sections.joysticks.hidden = true; // until the machine says it has them
   /** The heading to show and focus for a section. */
   const at = (s: SettingsSection) => heads[s];
-  return { element, header, at };
+  /** Show or hide a whole section, its heading included. */
+  const show = (s: SettingsSection, on: boolean) => {
+    sections[s].hidden = !on;
+  };
+  return { element, header, at, show };
 }

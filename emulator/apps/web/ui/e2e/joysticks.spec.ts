@@ -61,6 +61,7 @@ test("a gamepad is joystick 1: Settings names it, the strip shows it, the monito
 test("Keys, off by default, make the arrows and Space joystick 1 and W A S D joystick 2, and leave the rest to the terminal", async ({ page }) => {
   await booted(page);
   await openSettings(page);
+  await expect(page.getByTestId("settings-joysticks").getByRole("heading", { name: "Joysticks" })).toBeVisible(); // the machine has the ports
   await expect(page.getByTestId("joy-keys")).toHaveAttribute("aria-pressed", "false");
   await page.getByTestId("joy-keys").click();
   await expect(page.getByTestId("joy-keys")).toHaveAttribute("aria-pressed", "true");
