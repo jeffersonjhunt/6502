@@ -326,7 +326,9 @@ TEST(show_space_is_each_logged_in_drives_access_mode_and_free_kilobytes)
     SysRig r({"show"});
     REQUIRE(r.ok);
     r.put_m({{0, "ONE     TXT", std::vector<uint8_t>(5000, 'x')}, {3, "TWO     DAT", bytes("2")}});
-    // From the chain: A: is logged in, and M: by the search that found SHOW.COM
+    // A: logged in by the built-in DIR, and M: by the search that found SHOW.COM (M: first on the
+    // chain, so the search no longer logs A: in)
+    same(r.cmd("dir a:x"), "dir a:x\r\nNo File\r\nA>");
     const std::string all = run(r, "show");
     Dir a(r, 1), m(r, 0);
     same(all, lines({space_line('A', false, a.free_kb()), space_line('M', false, m.free_kb())}));
@@ -916,8 +918,8 @@ TEST(setdef_sets_the_temporary_drive_the_order_display_and_page_modes)
     r.type(" ");
     REQUIRE(r.until("\r\nA>", ms(5000), from));
     const std::string rub = "Press a key for more\r                    \r";
-    same(r.out.substr(from), "setdef [page]\r\nDrive Search Path:\r\n1st Drive            - Default\r\n"
-                             "2nd Drive            - M:\r\n" + rub + "\r\nSearch Order         - COM\r\n"
+    same(r.out.substr(from), "setdef [page]\r\nDrive Search Path:\r\n1st Drive            - M:\r\n"
+                             "2nd Drive            - Default\r\n" + rub + "\r\nSearch Order         - COM\r\n"
                              "Temporary Drive      - Default\r\n" + rub + "Console Page Mode    - On\r\n"
                              "Program Name Display - Off\r\nA>");
     CHECK_EQ(unsigned{r.scbv(0x2C)}, 0u);

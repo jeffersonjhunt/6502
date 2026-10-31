@@ -741,6 +741,8 @@ TEST(initdir_says_the_bioss_read_and_write_errors_and_leaves_the_card_as_it_was)
     CpmDisk b{r, 2};
     const std::vector<uint8_t> card = fm->bytes(), dir = b.directory();
     REQUIRE(dir[3 * 32] == 0x21); // mkfs.cpm -t's: SFCBs
+    // A: logged in first, as the CCP's warm boot needs it (M: first on the chain: the search doesn't)
+    same(r.cmd("dir a:x"), "dir a:x\r\nNo File\r\nA>");
     // Its reads failing once the question is answered
     REQUIRE(!r.to("initdir b:", "(Y/N)? ").empty());
     fm->rfail = true;

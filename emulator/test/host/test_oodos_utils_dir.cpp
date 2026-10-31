@@ -740,10 +740,10 @@ TEST(the_cards_a_is_listed_as_its_directory_says_and_its_empty_b_is_no_file)
     CHECK(n >= 17); // README, PATTERN, OODOS.SYS, TESTSYS, HELLO.COM, HELLO.PRL, WRITEOO1, the ten utilities
     CHECK(files.count("PATTERN BIN") == 1 && files["PATTERN BIN"].recs == 288); // two entries
     CHECK(files.count("DIR     COM") == 1 && files["DIR     COM"].attr == "Sys RW"); // make_card.sh's
-    same(r.said("dir a: [full]"), lines(want));
+    same(r.said("dir a: [full,nopage]"), lines(want)); // more than a page since the utilities
     CHECK(r.succeeded());
     // The card's own DIR.COM, from A:, says the same
-    same(r.said("a:dir a: [full]"), lines(want));
+    same(r.said("a:dir a: [full,nopage]"), lines(want));
     CHECK(r.succeeded());
     // The empty B: (a label, SFCBs, no files)
     same(r.said("dir b: [full]"), "No File");
