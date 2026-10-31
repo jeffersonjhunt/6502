@@ -237,16 +237,19 @@ NEXTCMD:        LDX     #$FF
                 STZ     CHAINED        ; only the first of 47's line was chained to
                 JSR     SAYPROMPT
                 LDX     LPOS
-@blank:         CPX     LINE + 1
+@blank:         CPX     LINE + 1       ; past blanks and tabs
                 BEQ     @shown
                 LDA     LINE + 2,X
                 CMP     #' '
+                BEQ     @past
+                CMP     #TAB
                 BNE     @show
-                INX
+@past:          INX
                 BRA     @blank
 @show:          CPX     LINE + 1
                 BEQ     @shown
                 LDA     LINE + 2,X
+                BEQ     @shown         ; a 0 ends the line (RUNCMD)
                 CMP     #'!'
                 BEQ     @shown
                 JSR     PUTC
@@ -255,7 +258,9 @@ NEXTCMD:        LDX     #$FF
 @shown:         JSR     SHOWN
                 ; falls through
 
-; The command at LPOS: to CMD in capitals, to a '!' or the line's end.
+; The command at LPOS: to CMD in capitals, to a '!' or the line's end (a 0
+; ends it too, as 152 and the tail's 0 would), its trailing blanks and tabs
+; dropped. A '!' with only blanks after it leaves nothing pending.
 RUNCMD:         LDX     #$FF
                 TXS
                 LDX     LPOS
@@ -263,6 +268,7 @@ RUNCMD:         LDX     #$FF
 @copy:          CPX     LINE + 1
                 BEQ     @eol
                 LDA     LINE + 2,X
+                BEQ     @eol
                 INX
                 CMP     #'!'
                 BEQ     @bang
@@ -271,11 +277,29 @@ RUNCMD:         LDX     #$FF
                 INY
                 BRA     @copy
 @bang:          STX     LPOS
+@rest:          CPX     LINE + 1       ; anything after it?
+                BEQ     @eol
+                LDA     LINE + 2,X
+                BEQ     @eol
+                INX
+                CMP     #' '
+                BEQ     @rest
+                CMP     #TAB
+                BEQ     @rest
                 LDA     #1
                 STA     PENDING
                 BRA     @split
 @eol:           STZ     PENDING
-@split:         LDA     #0
+@split:         CPY     #0             ; trailing blanks and tabs dropped
+                BEQ     @trimmed
+                LDA     CMD - 1,Y
+                CMP     #' '
+                BEQ     @cut
+                CMP     #TAB
+                BNE     @trimmed
+@cut:           DEY
+                BRA     @split
+@trimmed:       LDA     #0
                 STA     CMD,Y
                 STY     CMDLEN
                 LDX     #0
@@ -825,6 +849,14 @@ B_REN:          JSR     BIENTER
                 JMP     HANDOFF
 @old:           LDA     OP2
 @drive:         STA     LOADDRV        ; (the drive, for a moment)
+                LDX     #10            ; new the same file as old: refused (a Y to
+@same:          LDA     OP1 + 1,X      ; delete new would delete the only copy)
+                CMP     OP2 + 1,X
+                BNE     @differ
+                DEX
+                BPL     @same
+                JMP     BADCMD
+@differ:        LDA     LOADDRV
                 LDY     #24            ; old there?
                 JSR     SETSFCB
                 JSR     SEARCH
@@ -897,6 +929,7 @@ B_TYPE:         JSR     BIENTER
                 LDY     #0
                 JSR     WILD
                 BCC     @one
+                BRA     @util          ; a wildcard: TYPE.COM's
 @bad:           JMP     BADCMD
 @util:          LDX     #<(UTYPE - UNAMES)
                 JMP     HANDOFF

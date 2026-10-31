@@ -22,6 +22,7 @@
  *   - ERA: one name, wildcards asked about, read-only, passwords;
  *   - REN: new=old, No File, a name there already asked about;
  *   - the utilities the built-ins hand their options to, found or not;
+ *   - cmd.inc: the console mode CM_PAGE keeps, CM_BRK's ^C (CMDTEST);
  *   - programs: the drive, the user, user 0's SYS files, the search
  *     chain, .COM, .SUB and other types, a password, the display mode;
  *   - the tail and the default FCBs, the passwords' places and the load
@@ -260,11 +261,25 @@ TEST(several_commands_run_in_turn_and_conditional_ones_only_after_a_success)
     CHECK(o.find("ARGS M0") != std::string::npos);
     CHECK(o.find("A>hello") == std::string::npos);
     CHECK(o.find("Hello") == std::string::npos);
+    // The next command shown past its blanks and tabs too
+    o = r.to("hello!\thello", "\r\nA>hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    CHECK(o.find("\r\nA>hello\r\nHello from OODOS") != std::string::npos);
+    // A '!' with nothing after it, or only blanks, leaves nothing to run: one prompt after
+    for (const auto &[line, echo] : {std::pair<std::string, std::string>{"hello!", "hello!"}, {"hello! \t ", "hello! ^I "}})
+    {
+        const size_t from = r.out.size();
+        r.cmd(line);
+        r.run(ms(500));
+        same(r.out.substr(from), echo + "\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"); // 10 shows a tab as ^I
+    }
     // 47's command takes the place of the rest of the line (ours): SYSTEST H chains to A:HELLO
     r.poke_com(read_bytes(SYS + "/systest.com"));
     o = r.to("GO H!dir *.txt", "\r\nA>A:HELLO\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    CHECK(o.find("A>A:HELLO\r\nHello from OODOS") != std::string::npos); // the chain ran
     r.run(ms(500));
-    CHECK(r.out.find("README", r.out.rfind("A:HELLO")) == std::string::npos);
+    const size_t chained = r.out.rfind("A:HELLO");
+    REQUIRE(chained != std::string::npos);
+    CHECK(r.out.find("README", chained) == std::string::npos);
     // A built-in's failure is a failure too (ours), and its success a success
     same(r.to("dir nosuch!:hello", "A>:hello\r\r\nA>"), "dir nosuch!:hello\r\nNo File\r\nA>:hello\r\r\nA>");
     same(r.to("user 99!:user 3", "A>:user 3\r\r\nA>"), "user 99!:user 3\r\nUSER 99?\r\nA>:user 3\r\r\nA>");
@@ -437,7 +452,7 @@ TEST(type_shows_a_file_to_its_ctrl_z_with_tabs_expanded)
     same(r.cmd("type m:stop.txt"), "type m:stop.txt\r\nBEFORE\r\n\r\nA>");
     same(r.cmd("type m:prog.com"), "type m:prog.com\r\nOOD\r\nA>"); // the magic's ^Z (ours)
     same(r.cmd("type m:nosuch.txt"), "type m:nosuch.txt\r\nNo File\r\nA>");
-    same(r.cmd("type m:*.txt"), "type m:*.txt\r\nTYPE M:*.TXT?\r\nA>");
+    same(r.cmd("type m:*.txt"), "type m:*.txt\r\nTYPE.COM required\r\nA>"); // a wildcard: the utility's
     same(r.cmd("type m:one.txt two.txt"), "type m:one.txt two.txt\r\nTYPE M:ONE.TXT TWO.TXT?\r\nA>");
     // User 0's SYS file from another user, as Open finds it (the Guide, 4.4.1)
     same(r.cmd("4m:", "4M>"), "4m:\r\r\n4M>");
@@ -537,6 +552,15 @@ TEST(ren_renames_new_equals_old_and_asks_before_replacing)
     CHECK_EQ(r.m_entry(0, "TWO     TXT"), new2);
     CHECK_EQ(r.phys(MDISK + static_cast<uint32_t>(two) * 32), 0xE5);
     same(r.cmd("type m:two.txt"), "type m:two.txt\r\nONE\r\n\r\nA>");
+    // New the same file as old (by the drive rule): refused, nothing asked, the file kept
+    same(r.cmd("ren m:three.dat=three.dat"), "ren m:three.dat=three.dat\r\nREN M:THREE.DAT=THREE.DAT?\r\nA>");
+    same(r.to("ren three.dat=m:three.dat!:hello", "A>:hello\r\r\nA>"), "ren three.dat=m:three.dat!:hello\r\nREN THREE.DAT=M:THREE.DAT?\r\nA>:hello\r\r\nA>");
+    same(r.cmd("m:", "M>"), "m:\r\r\nM>");
+    same(r.cmd("ren m:three.dat=three.dat", "M>"), "ren m:three.dat=three.dat\r\nREN M:THREE.DAT=THREE.DAT?\r\nM>");
+    same(r.cmd("ren three.dat=three.dat", "M>"), "ren three.dat=three.dat\r\nREN THREE.DAT=THREE.DAT?\r\nM>");
+    same(r.cmd("a:"), "a:\r\r\nA>");
+    CHECK(r.m_entry(0, "THREE   DAT") >= 0);
+    same(r.cmd("type m:three.dat"), "type m:three.dat\r\n3\r\nA>");
     // Its forms
     same(r.cmd("ren b:x=m:y"), "ren b:x=m:y\r\nREN B:X=M:Y?\r\nA>"); // two drives
     same(r.cmd("ren x"), "ren x\r\nREN X?\r\nA>");
@@ -549,6 +573,25 @@ TEST(ren_renames_new_equals_old_and_asks_before_replacing)
     const std::string o = r.cmd("ren m:rw.dat=ro.dat");
     CHECK(o.find("OODOS Error On M: File R/O\r\nBDOS Function = 23") != std::string::npos);
     CHECK(r.m_entry(0, "RO      DAT") >= 0);
+}
+
+// ---- cmd.inc ---------------------------------------------------------------------------------
+
+TEST(cmd_inc_keeps_a_programs_console_mode_and_cm_brk_takes_only_a_ctrl_c)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    // CMDTEST (oodos/sys/test/cmdtest.s): CM_PAGE sets bit 0 in the mode it found, CM_UNPAGE puts it
+    // back; CM_BRK in mode 0 leaves a key for the program; after CM_PAGE it takes a ^C
+    r.poke_com(read_bytes(SYS + "/cmdtest.com"));
+    const size_t from = r.out.size();
+    REQUIRE(!r.to("GO", "KEY?\r\n").empty());
+    CHECK(r.out.find("PAGE 11 UNPAGE 10\r\n", from) != std::string::npos);
+    r.type("x");
+    REQUIRE(r.until("BRK?\r\n", ms(3000), from));
+    r.type("\x03");
+    REQUIRE(r.until("\r\nA>", ms(3000), from));
+    same(r.out.substr(from), "GO\r\nPAGE 11 UNPAGE 10\r\nKEY?\r\nKEPT 120\r\nBRK?\r\nBROKE MODE 0\r\n\r\nA>");
 }
 
 // ---- the utilities ---------------------------------------------------------------------------
@@ -575,6 +618,9 @@ TEST(options_go_to_the_built_ins_utilities_with_the_tail_as_given)
     CHECK_EQ(field(o, "TAIL"), std::string("0A [ A B [SYS]]"));
     CHECK_EQ(field(r.cmd("type x [nopage]", "M>"), "ARGS"), std::string("TYPE"));
     CHECK_EQ(field(r.cmd("type", "M>"), "ARGS"), std::string("TYPE"));
+    o = r.cmd("type *.txt", "M>");
+    CHECK_EQ(field(o, "ARGS"), std::string("TYPE"));
+    CHECK_EQ(field(o, "TAIL"), std::string("06 [ *.TXT]"));
     CHECK_EQ(field(r.cmd("era x [c]", "M>"), "ARGS"), std::string("ERA "));
     CHECK_EQ(field(r.cmd("erase", "M>"), "ARGS"), std::string("ERA "));
     CHECK_EQ(field(r.cmd("ren", "M>"), "ARGS"), std::string("REN "));
@@ -704,6 +750,10 @@ TEST(the_tail_and_the_default_fcbs_are_parsed_as_cp_m_3s_ccp_does)
     o = r.cmd("m:args toolongname.x two");
     CHECK_EQ(field(o, "F1"), blank);
     CHECK_EQ(field(o, "F2"), blank + "00000000");
+    // Trailing blanks and tabs aren't the tail's; a 0 (^@) ends the line
+    CHECK_EQ(field(r.cmd("m:args a  \t "), "TAIL"), std::string("02 [ A]"));
+    CHECK_EQ(field(r.cmd(std::string("m:args a\0b c", 12)), "TAIL"), std::string("02 [ A]"));
+    CHECK(r.cmd("m:args " + std::string(125, 'x') + "    ").find(" " + std::string(125, 'X') + "]\r\n") != std::string::npos);
     // The return code starts at 0 whatever the last program left
     CHECK_EQ(field(r.cmd("m:args @f"), "RC"), std::string("0000"));
     CHECK_EQ(field(r.cmd("m:args"), "RC"), std::string("0000"));
