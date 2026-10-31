@@ -34,7 +34,9 @@
  *
  * ViaLcd connects one to a Via6522: data on consecutive pins of one port
  * (4 or 8 of them), RS, R/W and E on any pins, as a machine description
- * wires it (hd44780 line, machine.h).
+ * wires it (hd44780 line, machine.h). It drives the data lines only in a
+ * read cycle and releases them otherwise (Via6522::release()), so outputs
+ * the VIA drives there read back as driven.
  */
 
 #include <array>

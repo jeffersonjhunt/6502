@@ -150,6 +150,28 @@ TEST(reset_with_e_high_latches_nothing)
     CHECK(!l4.lcd.lcd().used());
 }
 
+TEST(port_a_outputs_on_the_data_lines_read_back_when_the_lcd_is_not_reading_out)
+{
+    // An LCD with its data on port A: PA outputs written high read high
+    // while the LCD isn't driving them (it releases them after a read).
+    Via6522 via;
+    ViaLcd lcd(via, {P::A, 0, 8}, {P::B, 5}, {P::B, 6}, {P::B, 7}, 16, 2);
+    constexpr uint8_t E = 0x80, RW = 0x40;
+    via.write(DDRB, 0xE0);
+    via.write(DDRA, 0xFF);
+    via.write(ORA, 0xA5);
+    CHECK_EQ(via.read(ORA), 0xA5);
+    // A read cycle: the LCD drives AC (0), then lets go.
+    via.write(DDRA, 0x00);
+    via.write(ORB, RW);
+    via.write(ORB, RW | E);
+    CHECK_EQ(via.read(ORA), 0x00);
+    via.write(ORB, RW);
+    via.write(DDRA, 0xFF);
+    via.write(ORA, 0xFF);
+    CHECK_EQ(via.read(ORA), 0xFF);
+}
+
 TEST(ddram_wraps_between_lines_and_display_shifts)
 {
     Lcd8 l;

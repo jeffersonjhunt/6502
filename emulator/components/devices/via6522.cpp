@@ -294,6 +294,12 @@ namespace ooe::emu
         }
     }
 
+    void Via6522::release(Port port, uint8_t mask)
+    {
+        if (port == Port::A)
+            driven_a_ = static_cast<uint8_t>(driven_a_ & ~mask);
+    }
+
     void Via6522::edge(bool &line, bool level, bool rising_active, uint8_t flag)
     {
         if (level != line && level == rising_active)

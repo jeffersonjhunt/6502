@@ -199,9 +199,15 @@ namespace ooe::emu
         const auto data = static_cast<uint8_t>(data_.count == 4 ? bits << 4 : bits); // 4 wires: D7-D4
         lcd_.pins(pin(rs_), pin(rw_), pin(e_), data);
 
-        uint8_t out = 0;
-        if (lcd_.driving())
-            out = static_cast<uint8_t>(data_.count == 4 ? lcd_.data_out() >> 4 : lcd_.data_out());
+        // The LCD drives D7..D0 only in a read cycle (E high, R/W high) and
+        // lets them go otherwise, so an output the VIA drives on them reads
+        // back as driven.
+        if (!lcd_.driving())
+        {
+            via_.release(data_.port, data_.mask());
+            return;
+        }
+        const auto out = static_cast<uint8_t>(data_.count == 4 ? lcd_.data_out() >> 4 : lcd_.data_out());
         via_.drive(data_.port, data_.mask(), static_cast<uint8_t>(out << data_.first));
     }
 } // namespace ooe::emu

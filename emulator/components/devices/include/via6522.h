@@ -52,8 +52,9 @@
  *
  * The peripheral side mirrors Pia6821: listeners are told about the pins
  * the VIA drives whenever an output register, a DDR or PB7 changes, and
- * peripherals drive input pins by mask, so several can share a port (an
- * LCD on four bits of port B and its control lines on three more).
+ * peripherals drive pins by mask, so several can share a port (an LCD on
+ * four bits of port B and its control lines on three more). A peripheral
+ * drives a pin until it releases it (release()).
  */
 
 #include <cstdint>
@@ -103,8 +104,15 @@ namespace ooe::emu
 
         // --- the peripheral side -------------------------------------------
         void listen(Listener l) { listeners_.push_back(std::move(l)); }
-        /// Drive the input pins in `mask` to `value`; other pins keep theirs.
+        /// Drive the pins in `mask` to `value`; other pins keep theirs. On
+        /// port A a driven pin pulls an output bit low too (driven 0 reads 0).
         void drive(Port port, uint8_t mask, uint8_t value);
+        /// Stop driving the pins in `mask`: a port A output bit there reads
+        /// what ORA drives again, and an input keeps the level it was last
+        /// driven to (nothing models a pull either way). A peripheral that
+        /// outputs only some of the time (an LCD's read cycle) drives then
+        /// and releases after.
+        void release(Port port, uint8_t mask);
         void set_ca1(bool level);
         void set_ca2(bool level);
         void set_cb1(bool level);
@@ -131,7 +139,7 @@ namespace ooe::emu
 
         uint8_t ora_{0}, orb_{0}, ddra_{0}, ddrb_{0};
         uint8_t in_a_{0}, in_b_{0};
-        uint8_t driven_a_{0}; ///< port A pins a peripheral drives: an output there reads in_a_ too
+        uint8_t driven_a_{0}; ///< port A pins a peripheral drives, until released: an output there reads in_a_ too
         uint16_t t1_{0xFFFF}, t1_latch_{0xFFFF}, t2_{0xFFFF};
         uint8_t t2_latch_lo_{0xFF};
         bool t1_reload_{false}; ///< free-run: reload from the latch on the next cycle
