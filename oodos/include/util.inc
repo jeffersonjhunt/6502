@@ -165,6 +165,22 @@
 ;   UT_SAID     after an error the BDOS said (its message starts with CR LF,
 ;               which ends a line owed, and ends with CR LF): nothing owed,
 ;               neither an LF nor a line (CM_NOEOL); then UT_FAIL
+;
+; The system (SHOW, DATE, DEVICE, SETDEF)
+;
+;   UT_OAT      an option list where the tail is: UT_IDX at its '[', it is
+;               the one UT_OPT reads next (UT_OPTS finds only the tail's
+;               first). DEVICE has one after each device
+;   UT_OCLOSE   after UT_OPT's UT_OEND: carry clear and UT_IDX past the ']';
+;               carry set if the list wasn't closed
+;   UT_SCBGET   A an SCB offset: A/X the word there (49)
+;   UT_SCBSET   A an SCB offset, X the byte: set there (49)
+;   UT_SCBSETW  A an SCB offset: the word at UT_SCBW set there (49)
+;   UT_SCBW     the word UT_SCBSETW sets
+;   UT_BIOS     a BIOS call by 50: A the function (system.inc's BIOS::),
+;               X its A, Y its X, UT_BPB + 4-5 and + 6-7 its two words
+;               (set them first); A/X the BIOS's A/X
+;   UT_BPB      function 50's parameter block, 8 bytes
 
 .ifndef UTIL_INC
 UTIL_INC = 1
@@ -1546,5 +1562,61 @@ UT_NNEXT:       LDA     UT_NLEFT
 UT_SAID:        STZ     CM_LFDUE
                 JSR     CM_NOEOL
                 JMP     UT_FAIL
+; ---- the system (SHOW, DATE, DEVICE, SETDEF) -----------------------------
+
+.pushseg
+.segment CMD_BSS
+UT_SCBPB:       .res    4              ; 49's: the offset, the mode, the value
+UT_SCBW:        .res    2
+UT_BPB:         .res    8              ; 50's: the function, A, X, Y, two words
+.popseg
+
+UT_OAT:         LDX     UT_IDX
+                INX
+                STX     UT_OIDX
+                STZ     UT_VST
+                RTS
+
+UT_OCLOSE:      LDX     UT_OIDX
+                LDA     UT_TAIL,X
+                CMP     #']'
+                BNE     @open
+                INX
+                STX     UT_IDX
+                CLC
+                RTS
+@open:          SEC
+                RTS
+
+UT_SCBGET:      STA     UT_SCBPB
+                STZ     UT_SCBPB + 1   ; 0: get
+                BRA     UT_SCBCALL
+
+UT_SCBSET:      STA     UT_SCBPB
+                LDA     #$FF           ; $FF: set a byte
+                STA     UT_SCBPB + 1
+                STX     UT_SCBPB + 2
+                STZ     UT_SCBPB + 3
+UT_SCBCALL:     LDA     #<UT_SCBPB
+                LDX     #>UT_SCBPB
+                LDY     #S_SCB
+                JMP     BDOS
+
+UT_SCBSETW:     STA     UT_SCBPB
+                LDA     #$FE           ; $FE: set a word
+                STA     UT_SCBPB + 1
+                LDA     UT_SCBW
+                STA     UT_SCBPB + 2
+                LDA     UT_SCBW + 1
+                STA     UT_SCBPB + 3
+                BRA     UT_SCBCALL
+
+UT_BIOS:        STA     UT_BPB
+                STX     UT_BPB + 1
+                STY     UT_BPB + 2
+                LDA     #<UT_BPB
+                LDX     #>UT_BPB
+                LDY     #S_BIOS
+                JMP     BDOS
 
 .endif
