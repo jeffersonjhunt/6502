@@ -102,7 +102,7 @@ emu_add_test(test_sound)
 emu_add_test(test_sid)
 emu_add_test(test_sid_audio)
 emu_add_test(test_sid_file)
-emu_add_test(test_sid_corpus) # the owner's tunes, in fixtures/SIDs; skips without them
+emu_add_test(test_sid_corpus) # a sample of the owner's tunes, under fixtures/SIDs; skips without them
 emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)
