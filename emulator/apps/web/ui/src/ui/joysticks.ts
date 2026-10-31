@@ -19,13 +19,18 @@
  * while Settings' Keys switch is on (remembered). Then joystick 1 is the
  * arrows and Space, joystick 2 W A S D and the left Shift, by physical key
  * (KeyboardEvent.code), whatever the layout. A stick's state is its pad's
- * and its keys' together. A key with Ctrl, Alt or Meta is a shortcut, the
- * keyboards' and not a stick's. Who has a key is decided on its first
- * (not auto-repeated) press and kept until it is let go: its repeats and
- * its key-up go to the same one, whatever Ctrl, Alt or Meta do meanwhile,
- * so a held arrow never moves between a stick and the USB keyboard, and
- * no key is left held on either. While the left Shift is
- * joystick 2's fire, the other keys reach the keyboards unshifted
+ * and its keys' together. A key pressed with Ctrl, Alt or Meta is a
+ * shortcut, the keyboards' and not a stick's. Who has a key is decided on
+ * its first press and kept until it is let go: its repeats and its key-up
+ * go to the same one, whatever Ctrl, Alt or Meta do meanwhile, so a held
+ * arrow never moves between a stick and the USB keyboard, and no key is
+ * left held on either. Two cases have no first press to go by: a repeat
+ * of a key no one has (it was held while the page lost focus, which lets
+ * go of everything) is taken as a press, a stick's unless Ctrl, Alt or
+ * Meta is down; and a new press of a key someone still has means its
+ * key-up went missing (macOS drops those for keys let go while Cmd is
+ * held), so it is let go there and decided afresh. While the left Shift
+ * is joystick 2's fire, the other keys reach the keyboards unshifted
  * (shiftTaken(); the right Shift still shifts).
  *
  * Settings' Joysticks section has the switch and a row a stick: the pad
@@ -211,14 +216,22 @@ export function joysticks(
       send();
       return true;
     }
-    if (had !== undefined) return had; // a repeat goes where the first press went
-    if (!k || e.repeat || !keysOn || !port.caps.joysticks) return false; // a repeat of a press from before: the keyboards'
+    if (had !== undefined) {
+      if (e.repeat) return had; // a repeat goes where the first press went
+      // A new press of a key still held: its key-up went missing (macOS drops
+      // those for keys let go under Cmd). Let go of it, then decide afresh;
+      // screen-keys has the USB keyboard let go of it if a stick takes it now.
+      owner.delete(e.code);
+      if (had) keyBits[k[0]] &= ~k[1];
+    }
+    // A repeat with no one holding it is of a key held from before (focus
+    // lost and back, or Keys just on): the stick's from here, as a press.
+    if (!k || !keysOn || !port.caps.joysticks) return false; // a lost key-up is only ever had while on
     const stick = !(e.ctrlKey || e.altKey || e.metaKey); // with one, a shortcut: the keyboards'
     owner.set(e.code, stick);
-    if (!stick) return false;
-    keyBits[k[0]] |= k[1];
+    if (stick) keyBits[k[0]] |= k[1];
     send();
-    return true;
+    return stick;
   };
 
   /** Once a frame: read the pads. */

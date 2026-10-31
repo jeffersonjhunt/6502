@@ -7,6 +7,10 @@
  * and its key-up go there too, whatever Ctrl, Alt or Meta did meanwhile.
  * So a shortcut such as Ctrl+Left, which goes past the sticks, is let go
  * on the USB keyboard, and an arrow held as a stick stays the stick's.
+ * A key held through a focus loss is the stick's from its next repeat,
+ * and a key whose key-up went missing is decided afresh on its next
+ * press (ui/joysticks.ts); if a stick takes a key the USB keyboard still
+ * holds, the USB keyboard lets go of it.
  *
  * While the left Shift is held as joystick 2's fire, the keyboards see the
  * other keys unshifted (keyboard.ts unshifted()): that Shift is a fire
@@ -36,7 +40,10 @@ export function screenKeys(o: {
   return {
     /** @returns true if the page should not act on it too (preventDefault) */
     down(e: ScreenKey): boolean {
-      if (o.sticks.key(e, true)) return true; // the Keys switch is on: a joystick's
+      if (o.sticks.key(e, true)) {
+        o.usb.up(e); // a stick's now: if the USB keyboard still held it (its key-up went missing), let go
+        return true;
+      }
       const k = e.shiftKey && o.sticks.shiftTaken() ? unshifted(e) : e;
       if (isPaste(k)) return false; // the browser's: its paste event types the text
       if (o.onUsb()) return o.usb.down(k);

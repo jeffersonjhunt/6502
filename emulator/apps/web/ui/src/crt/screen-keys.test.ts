@@ -13,9 +13,10 @@ function make(usb: boolean) {
   const sticks = joysticks(port, () => []);
   const usbSent: [number, boolean][] = [];
   const serial: number[] = [];
+  const usbKeys = new UsbKeyboard((u, d) => usbSent.push([u, d]));
   const keys = screenKeys({
     sticks,
-    usb: new UsbKeyboard((u, d) => usbSent.push([u, d])),
+    usb: usbKeys,
     onUsb: () => usb,
     caps: () => false,
     serial: (b) => serial.push(...b),
@@ -31,10 +32,10 @@ function make(usb: boolean) {
     ...mods,
   });
   const keysOn = () => sticks.element.querySelector<HTMLElement>('[data-testid="joy-keys"]')!.click();
-  return { port, sticks, keys, ev, usbSent, serial, keysOn };
+  return { port, sticks, usbKeys, keys, ev, usbSent, serial, keysOn };
 }
 
-const SHIFT_L = 0xe1, SHIFT_R = 0xe5, CTRL_L = 0xe0, LEFT = 0x50, Q = 0x14, DIGIT1 = 0x1e;
+const SHIFT_L = 0xe1, SHIFT_R = 0xe5, CTRL_L = 0xe0, LEFT = 0x50, UP = 0x52, Q = 0x14, DIGIT1 = 0x1e;
 
 describe("the screen's keys", () => {
   beforeEach(() => prefs.remove("joy-keys"));
@@ -104,15 +105,80 @@ describe("the screen's keys", () => {
   });
 
   test("losing focus lets go of who had each key: the next press is decided afresh", () => {
-    const { port, keys, ev, usbSent, keysOn, sticks } = make(true);
+    const { port, keys, ev, usbSent, keysOn, sticks, usbKeys } = make(true);
     keysOn();
     keys.down(ev("ControlLeft", "Control", { ctrlKey: true }));
     keys.down(ev("ArrowLeft", "ArrowLeft", { ctrlKey: true }));
-    sticks.releaseKeys(); // main.ts on blur, with the USB keyboard's releaseAll()
+    usbKeys.releaseAll(); // main.ts on blur
+    sticks.releaseKeys();
     usbSent.length = 0;
     expect(keys.down(ev("ArrowLeft", "ArrowLeft"))).toBe(true);
     expect(usbSent).toEqual([]);
     expect(port.callsTo("setJoystick")).toEqual([[0, STICK.LEFT]]);
+  });
+
+  for (const usb of [false, true])
+    test(`a stick key held through a focus loss: its repeats after are the stick's, its key-up lets go (${usb ? "Display" : "Terminal"})`, () => {
+      const { port, keys, ev, usbSent, serial, keysOn, sticks } = make(usb);
+      keysOn();
+      keys.down(ev("ArrowUp", "ArrowUp"));
+      sticks.releaseKeys(); // main.ts on blur; focus back, the arrow still held
+      expect(keys.down(ev("ArrowUp", "ArrowUp", { repeat: true }))).toBe(true);
+      expect(keys.down(ev("ArrowUp", "ArrowUp", { repeat: true }))).toBe(true);
+      expect(sticks.state()).toEqual([STICK.UP, 0]);
+      expect(keys.up(ev("ArrowUp", "ArrowUp"))).toBe(true);
+      expect(sticks.state()).toEqual([0, 0]);
+      expect(usbSent).toEqual([]);
+      expect(serial).toEqual([]);
+      expect(port.callsTo("setJoystick")).toEqual([
+        [0, STICK.UP],
+        [0, 0],
+        [0, STICK.UP],
+        [0, 0],
+      ]);
+    });
+
+  test("Cmd+Up's key-up went missing (macOS): the next plain Up is the stick's", () => {
+    const { port, keys, ev, usbSent, keysOn, sticks } = make(true);
+    keysOn();
+    keys.down(ev("MetaLeft", "Meta", { metaKey: true }));
+    expect(keys.down(ev("ArrowUp", "ArrowUp", { metaKey: true }))).toBe(false); // the browser's
+    keys.up(ev("MetaLeft", "Meta")); // no ArrowUp up came
+    expect(keys.down(ev("ArrowUp", "ArrowUp"))).toBe(true);
+    expect(sticks.state()).toEqual([STICK.UP, 0]);
+    expect(usbSent.filter(([u]) => u === UP)).toEqual([]);
+    expect(port.callsTo("setJoystick")).toEqual([[0, STICK.UP]]);
+  });
+
+  test("a stick's key-up went missing: the same key with Meta is the keyboards', and the stick lets go", () => {
+    const { port, keys, ev, keysOn, sticks } = make(true);
+    keysOn();
+    keys.down(ev("ArrowUp", "ArrowUp")); // no up came
+    keys.down(ev("MetaLeft", "Meta", { metaKey: true }));
+    expect(keys.down(ev("ArrowUp", "ArrowUp", { metaKey: true }))).toBe(false); // the browser's (Cmd+Up)
+    expect(sticks.state()).toEqual([0, 0]);
+    expect(port.callsTo("setJoystick")).toEqual([
+      [0, STICK.UP],
+      [0, 0],
+    ]);
+  });
+
+  test("Ctrl+Left's key-up went missing: the next plain Left is the stick's, and the USB keyboard lets go of Left", () => {
+    const { keys, ev, usbSent, keysOn, sticks } = make(true);
+    keysOn();
+    keys.down(ev("ControlLeft", "Control", { ctrlKey: true }));
+    keys.down(ev("ArrowLeft", "ArrowLeft", { ctrlKey: true }));
+    keys.up(ev("ControlLeft", "Control")); // no ArrowLeft up came
+    expect(keys.down(ev("ArrowLeft", "ArrowLeft"))).toBe(true);
+    expect(sticks.state()).toEqual([STICK.LEFT, 0]);
+    expect(usbSent).toEqual([
+      [CTRL_L, true],
+      [LEFT, true],
+      [CTRL_L, false],
+      [LEFT, false],
+    ]);
+    expect(keys.up(ev("ArrowLeft", "ArrowLeft"))).toBe(true);
+    expect(sticks.state()).toEqual([0, 0]);
   });
 
   test("joystick 2's fire on the left Shift: the USB keyboard gets the other keys unshifted; the right Shift still shifts", () => {

@@ -187,7 +187,7 @@ describe("the joysticks", () => {
     $(j.element, "joy-keys").click();
     expect(key("ArrowDown", false)).toBe(false); // pressed before Keys went on: the keyboard's
     expect(key("ArrowDown", true)).toBe(true);
-    expect(key("ArrowDown", true)).toBe(true); // the host's auto-repeat
+    expect(key("ArrowDown", true, { repeat: true })).toBe(true); // the host's auto-repeat
     expect(key("ArrowDown", false)).toBe(true);
     expect(key("ArrowDown", false)).toBe(false);
     expect(sent()).toEqual([
