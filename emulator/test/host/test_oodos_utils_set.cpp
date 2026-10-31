@@ -76,7 +76,7 @@ namespace
     {
         r.put_util("set");
         r.put_util("initdir");
-        r.chain({0, 13});
+        r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
     }
 
     /// M:'s directory, behind OODOS's back.
@@ -528,7 +528,7 @@ TEST(initdir_gives_a_directory_sfcbs_moving_what_is_in_their_places)
     plain_m(r, label("TESTDISK   ", 0x81), 3);
     r.put_util("set");     // 1
     r.put_util("initdir"); // 2
-    r.chain({0, 13});
+    r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
     r.entry = 3;
     r.put_m({{0, "ONE     TXT", bytes("ONE\r\n")}, {0, "TWO     TXT", bytes("TWO\r\n")}}); // 4, 5
     r.xfcb_m(0, "ONE     TXT", 0x80, "SECRET  ");                                     // 6
@@ -593,7 +593,7 @@ TEST(initdir_asks_first_and_needs_room_for_the_sfcbs)
         REQUIRE(r.ok);
         plain_m(r, label("FULL       ", 0x01), 0);
         r.put_util("initdir"); // 1
-        r.chain({0, 13});
+        r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
         for (unsigned i = 2; i < used; ++i)
         {
             char n[24];
@@ -679,7 +679,7 @@ TEST(initdir_needs_a_drive_that_is_writable_and_memory_for_what_it_moves)
     plain_m(r, label("SMALL      ", 0x01), 0);
     r.put_util("set");     // 1
     r.put_util("initdir"); // 2
-    r.chain({0, 13});
+    r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
     r.poke(MDISK + 3 * 32, entry(0, "AT3     DAT"));
     r.poke(MDISK + 7 * 32, entry(0, "AT7     DAT"));
     r.poke(MDISK + 8 * 32, entry(16, "AT7     DAT")); // an XFCB, to keep too

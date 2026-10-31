@@ -134,7 +134,7 @@ namespace
             com = patched.empty() ? read_bytes(UTILS + "/dir.com") : patched;
             REQUIRE(!com.empty());
             put_m({{0, "DIR     COM", com, true}});
-            chain({0, 13});
+            chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
             if (files)
                 put_files();
         }
@@ -294,10 +294,10 @@ TEST(the_ccps_hand_offs_run_dir_com_by_the_search_chain_with_the_tail_as_typed)
 {
     DirRig r;
     REQUIRE(r.ok);
-    r.chain({0}); // not on the chain: the built-in says so
+    r.chain({2}); // not on the chain (B:, the card's empty drive; A: has the card's): the built-in says so
     same(r.said("dir [full]"), "DIR.COM required");
     same(r.said("dirs [size]"), "DIR.COM required");
-    r.chain({0, 13});
+    r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
     same(r.said("dir a b"), "No File"); // A:'s user 0 has neither
     same(r.said("dirs m: [size]"), lines(heading('M', 0) + std::vector<std::string>{
                                             "M: " + sized("DIR     COM", r.com_kb()) + " : " + sized("GAMMA   COM", 2)} +
@@ -562,7 +562,7 @@ TEST(a_ctrl_c_typed_while_dir_writes_stops_it)
     }
     r.put_m(files);
     r.scb(0x1A, 14); // one a line
-    r.chain({0, 13, 1}); // HELLO.COM from A:, for succeeded()
+    r.chain({13, 0, 1}); // M:'s DIR.COM first; HELLO.COM from A:, for succeeded()
     same(r.cmd("7m:", "7M>"), "7m:\r\r\n7M>");
     const size_t from = r.out.size();
     r.type("dir [nopage,size]\r");
@@ -737,9 +737,13 @@ TEST(the_cards_a_is_listed_as_its_directory_says_and_its_empty_b_is_no_file)
         tk += f.blocks * 4, tr += f.recs, tb += (f.recs + 7) / 8, ++n;
     }
     want = want + totals(tk, tr, n, tb, 'A', used, a.entries() - sfcbs);
-    CHECK(n >= 7); // README, PATTERN, OODOS.SYS, TESTSYS, HELLO.COM, HELLO.PRL, WRITEOO1
+    CHECK(n >= 17); // README, PATTERN, OODOS.SYS, TESTSYS, HELLO.COM, HELLO.PRL, WRITEOO1, the ten utilities
     CHECK(files.count("PATTERN BIN") == 1 && files["PATTERN BIN"].recs == 288); // two entries
+    CHECK(files.count("DIR     COM") == 1 && files["DIR     COM"].attr == "Sys RW"); // make_card.sh's
     same(r.said("dir a: [full]"), lines(want));
+    CHECK(r.succeeded());
+    // The card's own DIR.COM, from A:, says the same
+    same(r.said("a:dir a: [full]"), lines(want));
     CHECK(r.succeeded());
     // The empty B: (a label, SFCBs, no files)
     same(r.said("dir b: [full]"), "No File");

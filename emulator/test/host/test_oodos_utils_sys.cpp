@@ -84,7 +84,7 @@ namespace
                 return;
             for (const std::string &u : utils)
                 put_util(u, UTILS);
-            chain({0, 13});
+            chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
         }
         uint8_t scbv(unsigned offset) const { return phys(SCB_PHYS + offset); }
     };
@@ -819,18 +819,39 @@ namespace
     }
 } // namespace
 
+TEST(the_cards_show_date_device_and_setdef_run_from_a_as_the_builds_do)
+{
+    // The committed card's own copies (make_card.sh put them on A:, user 0, SYS): run by A:NAME,
+    // what they say as the build's on M: say it (test_oodos_boot checks they are the same bytes)
+    SysRig r;
+    REQUIRE(r.ok);
+    Dir a(r, 1);
+    same(run(r, "a:show a:[dir]"), "A: Number of free directory entries: " + std::to_string(a.free_entries()));
+    CHECK_EQ(a.free_entries(), 1024u - 256 - 1 - 21); // the label, and 19 files' 21 entries, ten utilities among them
+    same(run(r, "a:show [label]"), lines(label_lines('A', a.e(static_cast<unsigned>(a.label())))));
+    same(run(r, "a:show [drive]"), lines(drive_lines('A', a)));
+    same(run(r, "a:setdef"), lines(setdef_lines({"M:", "Default"})));
+    same(run(r, "a:device names"), run(r, "m:device names"));
+    same(run(r, "a:device values"), lines(values_lines(r)));
+    CHECK(run(r, "a:date").substr(0, 13) == "Fri 10/30/26 "); // CcpRig's clock
+    CHECK(succeeded(r));
+    // From the chain without M: (the default drive, A:, alone): found on A:
+    r.chain({0});
+    same(run(r, "show [dir]"), "A: Number of free directory entries: " + std::to_string(a.free_entries()));
+}
+
 TEST(setdef_shows_and_sets_the_drive_search_chain)
 {
     SysRig r({"setdef"});
     REQUIRE(r.ok);
     r.put_m({{0, "ARGS    COM", args("M0  ")}}); // (before M: is logged in)
-    same(run(r, "setdef"), lines(setdef_lines({"Default", "M:"})));
+    same(run(r, "setdef"), lines(setdef_lines({"M:", "Default"})));
     CHECK(succeeded(r));
     // The chain decides where a program is found
     same(run(r, "setdef *"), lines(setdef_lines({"Default"})));
     CHECK(chain_of(r) == std::vector<unsigned>({0, 0xFF, 0xFF, 0xFF}));
     same(r.cmd("args"), "args\r\nARGS?\r\nA>");
-    same(r.cmd("setdef"), "setdef\r\nSETDEF?\r\nA>"); // M: is out of the chain
+    same(run(r, "setdef"), lines(setdef_lines({"Default"}))); // M: is out of the chain: A:'s, the card's
     same(run(r, "m:setdef m:,*"), lines(setdef_lines({"M:", "Default"})));
     CHECK(chain_of(r) == std::vector<unsigned>({13, 0, 0xFF, 0xFF}));
     CHECK_EQ(field(r.cmd("args"), "ARGS"), std::string("M0  "));
@@ -863,24 +884,24 @@ TEST(setdef_sets_the_temporary_drive_the_order_display_and_page_modes)
     for (unsigned i = 0; i < 6; ++i)
         files.push_back({0, "F" + std::to_string(i) + "      TXT", bytes("x")});
     r.put_m(files);
-    same(run(r, "setdef [temporary=c:]"), lines(setdef_lines({"Default", "M:"}, "C:")));
+    same(run(r, "setdef [temporary=c:]"), lines(setdef_lines({"M:", "Default"}, "C:")));
     CHECK_EQ(unsigned{r.scbv(0x50)}, 3u);
-    same(run(r, "setdef [temp=*]"), lines(setdef_lines({"Default", "M:"})));
+    same(run(r, "setdef [temp=*]"), lines(setdef_lines({"M:", "Default"})));
     CHECK_EQ(unsigned{r.scbv(0x50)}, 0u);
-    same(run(r, "setdef [order=(com)]"), lines(setdef_lines({"Default", "M:"})));
-    same(run(r, "setdef [order=com]"), lines(setdef_lines({"Default", "M:"})));
+    same(run(r, "setdef [order=(com)]"), lines(setdef_lines({"M:", "Default"})));
+    same(run(r, "setdef [order=com]"), lines(setdef_lines({"M:", "Default"})));
     CHECK(succeeded(r));
     // DISPLAY: $18's bit 7, the rest kept; the CCP says where a program came from
     r.scb(0x18, 0x05);
-    same(run(r, "setdef [display]"), lines(setdef_lines({"Default", "M:"}, "Default", true, true)));
+    same(run(r, "setdef [display]"), lines(setdef_lines({"M:", "Default"}, "Default", true, true)));
     CHECK_EQ(unsigned{r.scbv(0x18)}, 0x85u);
     CHECK(r.cmd("args").find("args\r\nM:ARGS     COM\r\nARGS M0  \r\n") != std::string::npos);
-    same(run(r, "setdef [no display]"), "M:SETDEF   COM\r\n" + lines(setdef_lines({"Default", "M:"}))); // still on as it ran
+    same(run(r, "setdef [no display]"), "M:SETDEF   COM\r\n" + lines(setdef_lines({"M:", "Default"}))); // still on as it ran
     CHECK_EQ(unsigned{r.scbv(0x18)}, 0x05u);
     CHECK(r.cmd("args").find("args\r\nARGS M0  \r\n") != std::string::npos);
     // PAGE: $2C 0 on, $FF off; the CCP's DIR pages by it
     r.scb(0x1C, 4); // a page of 4: 3 lines, then the stop
-    same(run(r, "setdef [nopage]"), lines(setdef_lines({"Default", "M:"}, "Default", false)));
+    same(run(r, "setdef [nopage]"), lines(setdef_lines({"M:", "Default"}, "Default", false)));
     CHECK_EQ(unsigned{r.scbv(0x2C)}, 0xFFu);
     r.scb(0x1A, 14); // DIR: one name a line
     same(run(r, "dir m:*.txt"), lines({"M: F0       TXT", "M: F1       TXT", "M: F2       TXT", "M: F3       TXT",
@@ -939,7 +960,7 @@ TEST(setdef_says_each_error_and_sets_nothing)
     same(run(r, "setdef [page] [display]"), "Invalid delimiter.");
     same(run(r, "setdef m: [display,temporary=q:]"), "Invalid drive.");
     CHECK(!succeeded(r));
-    CHECK(chain_of(r) == std::vector<unsigned>({0, 13, 0xFF, 0xFF}));
+    CHECK(chain_of(r) == std::vector<unsigned>({13, 0, 0xFF, 0xFF}));
     CHECK(r.scbv(0x50) == 0 && (r.scbv(0x18) & 0x80) == 0 && r.scbv(0x2C) == 0);
 }
 

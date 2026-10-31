@@ -490,7 +490,7 @@ TEST(rename_com_renames_each_file_of_a_wildcard)
         same(r.cmd("m:rename" + tail), "m:rename" + tail + "\r\nInvalid wildcard.\r\nA>");
     failed(r);
     // Through the CCP: REN with a wildcard hands it over, found by the search chain
-    r.chain({0, 13});
+    r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
     // (a BDOS error's CR LF ends the line owed before it)
     same(r.cmd("ren m:*.dt=*.dat"), "ren m:*.dt=*.dat\r\nTHREE.DT=THREE.DAT\r\nOODOS Error On M: File R/O\r\n"
                                     "BDOS Function = 23 File = RO      .DAT\r\nFOUR.DT=FOUR.DAT\r\nA>");
@@ -535,12 +535,30 @@ TEST(rename_com_asks_for_the_names_and_says_its_errors)
 
 // ---- the CCP's hand-offs ---------------------------------------------------------------------
 
+TEST(the_cards_type_com_shows_its_readme_txt_from_a)
+{
+    // The committed card's own TYPE.COM (make_card.sh put it on A:, user 0, SYS), by A:TYPE and
+    // by the CCP's hand-off along the default chain (A:): the card's README.TXT, then its user 3's
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::string readme = "THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.\r\n"
+                               "OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD.\r\n";
+    same(r.cmd("a:type readme.txt"), "a:type readme.txt\r\n" + readme + "\r\nA>");
+    ok(r);
+    same(r.cmd("type readme.* [nopage]"), "type readme.* [nopage]\r\nA:README.TXT\r\n" + readme + "\r\nA>");
+    same(r.cmd("3a:", "3A>"), "3a:\r\r\n3A>");
+    same(r.cmd("type *.txt", "3A>"), "type *.txt\r\nA:USER3.TXT\r\nA FILE IN USER 3.\r\n\r\n3A>");
+    same(r.cmd("0a:"), "0a:\r\r\nA>");
+}
+
 TEST(the_built_ins_hand_their_other_forms_to_the_utilities_on_the_search_chain)
 {
     CcpRig r;
     REQUIRE(r.ok);
     files(r);
-    // Not on the search chain (the default drive alone): "X.COM required"
+    // Not on the search chain (B:, the card's empty drive: A:, the default, has them since
+    // make_card.sh put them there): "X.COM required"
+    r.chain({2});
     same(r.cmd("type m:*.txt"), "type m:*.txt\r\nTYPE.COM required\r\nA>");
     same(r.cmd("type"), "type\r\nTYPE.COM required\r\nA>");
     same(r.cmd("era"), "era\r\nERASE.COM required\r\nA>");
@@ -548,8 +566,8 @@ TEST(the_built_ins_hand_their_other_forms_to_the_utilities_on_the_search_chain)
     same(r.cmd("ren"), "ren\r\nRENAME.COM required\r\nA>");
     same(r.cmd("ren *.x=*.y"), "ren *.x=*.y\r\nRENAME.COM required\r\nA>");
     failed(r);
-    // The default drive, then M:: found there, from any user (user 0's SYS files)
-    r.chain({0, 13});
+    // M:, then the default drive: found on M:, from any user (user 0's SYS files)
+    r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
     same(r.cmd("type m:*.dat"), "type m:*.dat\r\nM:THREE.DAT\r\n3\r\nM:RO.DAT\r\nR\r\nM:FOUR.DAT\r\n4\r\nA>");
     ok(r);
     same(r.cmd("type m:one.txt [nopage]"), "type m:one.txt [nopage]\r\nONE\r\n\r\nA>");

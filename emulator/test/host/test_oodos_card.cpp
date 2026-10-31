@@ -19,7 +19,10 @@
  * saved there for oodos/test/interop.sh to check with cpmtools.
  * OODOS_CARD_FAULT=alloc, =stamp or =stamp-zero has a stand-in writer make
  * the file instead, wrong on purpose, to see this test and interop.sh fail.
- * write_on_the_oo1() is the seam.
+ * write_on_the_oo1() is the seam. The CCP's ERA and REN (phase 4a) and the
+ * utilities on A: (phase 4b1: ERASE, RENAME, SET, INITDIR) change A: through
+ * the CCP the same way, the cards saved by OODOS_CCP_OUT and OODOS_UTILS_OUT
+ * for interop.sh --ccp and --utils.
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
  * make_card.sh and interop.sh have it.
@@ -468,9 +471,10 @@ namespace
     // ---- the OO-1's side ----------------------------------------------------
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
-    /// (two entries, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
+    /// (two entries, the first free: 29 and 30, an SFCB's second and third slots), seed 5, made 25 October 2026 13:45 and
     /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
-    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself. WRITEOO1.COM
+    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself, should a file's
+    /// first entry land there. WRITEOO1.COM
     /// (oodos/sys/test/writeoo1.s) knows the same.
     const std::string NEW_NAME = "OO1     BIN";
     constexpr unsigned NEW_USER = 0, NEW_SEED = 5;
@@ -763,7 +767,7 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
         free += dir[i * ENTRY] == 0xE5;
     }
     CHECK_EQ(sfcbs, 256u);
-    CHECK_EQ(free, 1024u - 256 - 1 - 11); // the label, and ten files' eleven entries
+    CHECK_EQ(free, 1024u - 256 - 1 - 21); // the label, and nineteen files' 21 entries (ten utilities')
     // The label's own stamps, in its bytes 24-31: made at make_card.sh's moment.
     CHECK(std::equal(MADE.begin(), MADE.end(), dir.begin() + 24));
     allocation(a, dir);
@@ -833,8 +837,8 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     allocation(a, dir);
     const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
     REQUIRE(e.size() == 2u);
-    CHECK_EQ(e[0], 16u); // the first free entries: an SFCB's first slot, the one fsck.cpm 2.23
-    CHECK_EQ(e[1], 17u); // compares backwards
+    CHECK_EQ(e[0], 29u); // the first free entries, after the utilities': an SFCB's second and
+    CHECK_EQ(e[1], 30u); // third slots
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
     // The stamps in the extent-zero entry's slot only (CP/M 3 reads them there); the later entry's 0.
     const auto st = stamps_of(dir, e[0]), later = stamps_of(dir, e[1]);
@@ -844,7 +848,7 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     CHECK(later.first == zero);
     CHECK(later.second == zero);
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
-    // Nothing else changed: the directory's second sector (entries 16 and 17, their SFCB in 19) and
+    // Nothing else changed: the directory's second sector (entries 29 and 30, their SFCB in 31) and
     // 65 of records (a block's sectors the file doesn't reach are zeroed, as they were).
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
@@ -889,6 +893,106 @@ TEST(the_ccp_erases_and_renames_on_a_and_the_card_is_saved_for_interop_sh)
     CHECK(records_of(a, dir, pat) == pattern_file(1, 36864));
     CHECK(records_of(a, dir, entries_of(dir, 3, "USER3   TXT")) == text_file({"A FILE IN USER 3."}));
     CHECK(!entries_of(dir, 0, "HELLO   COM").empty());
+}
+
+TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_interop_sh)
+{
+    // Phase 4b1's ERASE, RENAME, SET and INITDIR, from the card's A: (make_card.sh put them there),
+    // on A: itself: what they leave checked here and, with OODOS_UTILS_OUT, by interop.sh --utils
+    // with cpmtools. INITDIR recovers A:'s SFCBs, SET gives two files XFCBs in the free SFCB places
+    // (3 and 7, the first free), then INITDIR makes the SFCBs again, moving those two out first.
+    Rig r;
+    REQUIRE(mount_a(r));
+    const std::string said = ccp_on_the_oo1(r, {"era *.prl [confirm]", "y",
+                                                "ren *.dat=*.bin",
+                                                "set readme.txt [ro, archive=on, f1=on]",
+                                                "set writeoo1.com [sys]",
+                                                "initdir a:", "y",
+                                                "set [protect=on]",
+                                                "set pattern.dat [password=secret, protect=write]",
+                                                "set testsys.sys [password=other, protect=delete]",
+                                                "initdir a:", "y",
+                                                "set [create=on, update=on]",
+                                                "set [name=oodos.4b1]"});
+    const char *want[] = {"ERASE A:HELLO.PRL (Y/N)? ",
+                          "\nPATTERN.DAT=PATTERN.BIN\r",
+                          "\nA:README.TXT set to Read Only (RO), Archive=ON, F1=ON\r",
+                          "\nA:WRITEOO1.COM set to System (SYS)\r",
+                          "\nDirectory already re-formatted.\r\nDo you wish to recover date/time directory space (Y/N)? ",
+                          "\nA: Password Protection = ON\r",
+                          "\nA:PATTERN.DAT Protection = Write\r",
+                          "\nA:TESTSYS.SYS Protection = Delete\r",
+                          "\nINITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                          "Do you really want to re-format the directory: A (Y/N)? ",
+                          "\nA: Create = ON\r\nA: Update = ON\r",
+                          "\nA: Label = OODOS.4B1\r"};
+    bool all = true;
+    for (const char *w : want)
+        if (said.find(w) == std::string::npos)
+        {
+            std::printf("  not said: '%s'\n", w);
+            all = false;
+        }
+    for (const char *w : {"?\r\n", "Error", "Invalid", "not found", "Wrong", "Password:", "Password Error", "Not ", "No File"})
+        if (said.find(w) != std::string::npos)
+        {
+            std::printf("  said '%s'\n", w); // a command refused, or a message not asked for
+            all = false;
+        }
+    if (!all)
+        std::printf("  said: '%s'\n", said.c_str());
+    CHECK(all);
+    const std::string out = env("OODOS_UTILS_OUT");
+    if (!out.empty())
+    {
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(r.media->bytes().data()),
+                static_cast<std::streamsize>(r.media->bytes().size()));
+        CHECK(f.good());
+        std::printf("  the card saved to %s\n", out.c_str());
+    }
+    Rig again(r.media->bytes());
+    REQUIRE(mount_a(again));
+    Drive a{again, 1, Dpb::from_diskdefs("oodos-8m")};
+    const std::vector<uint8_t> dir = a.directory();
+    allocation(a, dir);
+    // The label: its new name, passwords enforced, creation and update stamps (0x80 | 0x31)
+    CHECK_EQ(std::string(reinterpret_cast<const char *>(&dir[1]), 11), std::string("OODOS   4B1"));
+    CHECK_EQ(unsigned{dir[12]}, 0xB1u);
+    unsigned sfcbs = 0;
+    for (unsigned i = 3; i < 1024; i += 4)
+        sfcbs += dir[i * ENTRY] == 0x21;
+    CHECK_EQ(sfcbs, 256u); // made again
+    CHECK(entries_of(dir, 0, "HELLO   PRL").empty());
+    CHECK(entries_of(dir, 0, "PATTERN BIN").empty());
+    const std::vector<unsigned> pat = entries_of(dir, 0, "PATTERN DAT");
+    CHECK_EQ(pat.size(), size_t{2});
+    CHECK(records_of(a, dir, pat) == pattern_file(1, 36864));
+    const std::vector<unsigned> readme = entries_of(dir, 0, "README  TXT");
+    REQUIRE(readme.size() == 1u);
+    const uint8_t *e = &dir[readme[0] * ENTRY];
+    CHECK((e[1] & 0x80) && (e[9] & 0x80) && (e[11] & 0x80) && !(e[10] & 0x80)); // F1, RO, archived; not SYS
+    const std::vector<unsigned> w1 = entries_of(dir, 0, "WRITEOO1COM");
+    REQUIRE(w1.size() == 1u);
+    CHECK(dir[w1[0] * ENTRY + 10] & 0x80);
+    // The XFCBs (16 + the user), moved out of the SFCBs' places, the modes in them and in the
+    // files' SFCB slots (bit 7 Read, 6 Write, 5 Delete); every stamp 0, as INITDIR makes them.
+    const std::vector<unsigned> xp = entries_of(dir, 16, "PATTERN DAT"), xt = entries_of(dir, 16, "TESTSYS SYS");
+    REQUIRE(xp.size() == 1u);
+    REQUIRE(xt.size() == 1u);
+    CHECK_EQ(xp[0], 13u); // HELLO.PRL's, the lowest free entry not an SFCB's place
+    CHECK_EQ(xt[0], 29u);
+    CHECK_EQ(dir[xp[0] * ENTRY + 12] & 0xE0, 0x40);
+    CHECK_EQ(dir[xt[0] * ENTRY + 12] & 0xE0, 0x20);
+    auto mode = [&](unsigned i) { return dir[(i | 3) * ENTRY + 1 + (i & 3) * 10 + 8]; };
+    CHECK_EQ(mode(pat[0]) & 0xE0, 0x40);
+    CHECK_EQ(mode(entries_of(dir, 0, "TESTSYS SYS").at(0)) & 0xE0, 0x20);
+    const std::array<uint8_t, 4> zero{};
+    CHECK(stamps_of(dir, pat[0]).first == zero && stamps_of(dir, pat[0]).second == zero);
+    CHECK(records_of(a, dir, readme) ==
+          text_file({"THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.",
+                     "OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD."}));
+    CHECK(records_of(a, dir, entries_of(dir, 3, "SMALL   BIN")) == pattern_file(3, 384));
 }
 
 int main()

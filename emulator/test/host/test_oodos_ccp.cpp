@@ -312,7 +312,9 @@ TEST(type_shows_a_file_to_its_ctrl_z_with_tabs_expanded)
     same(r.cmd("type m:stop.txt"), "type m:stop.txt\r\nBEFORE\r\n\r\nA>");
     same(r.cmd("type m:prog.com"), "type m:prog.com\r\nOOD\r\nA>"); // the magic's ^Z (ours)
     same(r.cmd("type m:nosuch.txt"), "type m:nosuch.txt\r\nNo File\r\nA>");
+    r.chain({2}); // B:, the card's empty drive: A: has the utilities (make_card.sh), so off the chain
     same(r.cmd("type m:*.txt"), "type m:*.txt\r\nTYPE.COM required\r\nA>"); // a wildcard: the utility's
+    r.chain({0});
     same(r.cmd("type m:one.txt two.txt"), "type m:one.txt two.txt\r\nTYPE M:ONE.TXT TWO.TXT?\r\nA>");
     // User 0's SYS file from another user, as Open finds it (the Guide, 4.4.1)
     same(r.cmd("4m:", "4M>"), "4m:\r\r\n4M>");
@@ -349,8 +351,10 @@ TEST(era_deletes_a_name_and_asks_before_a_wildcard)
     CHECK(o.find("OODOS Error On M: File R/O\r\nBDOS Function = 19") != std::string::npos);
     CHECK(r.m_entry(0, "RO      DAT") >= 0);
     // The utility's forms, and a second name
+    r.chain({2}); // B:, the card's empty drive: A: has the utilities (make_card.sh), so off the chain
     same(r.cmd("era"), "era\r\nERASE.COM required\r\nA>");
     same(r.cmd("era x [confirm]"), "era x [confirm]\r\nERASE.COM required\r\nA>");
+    r.chain({0});
     same(r.cmd("era a b"), "era a b\r\nERA A B?\r\nA>");
     // The password isn't shown in the question
     same(r.to("era m:*.dat;pw", "(Y/N)?"), "era m:*.dat;pw\r\nERASE M:*.DAT (Y/N)?");
@@ -427,8 +431,10 @@ TEST(ren_renames_new_equals_old_and_asks_before_replacing)
     same(r.cmd("ren a b"), "ren a b\r\nREN A B?\r\nA>");
     same(r.cmd("ren =x"), "ren =x\r\nREN =X?\r\nA>");
     same(r.cmd("ren m:x="), "ren m:x=\r\nREN M:X=?\r\nA>");
+    r.chain({2}); // B:, the card's empty drive: A: has the utilities (make_card.sh), so off the chain
     same(r.cmd("ren"), "ren\r\nRENAME.COM required\r\nA>"); // the utility's forms
     same(r.cmd("ren *.x=*.y"), "ren *.x=*.y\r\nRENAME.COM required\r\nA>");
+    r.chain({0});
     // Read-only: the BDOS's error, said
     const std::string o = r.cmd("ren m:rw.dat=ro.dat");
     CHECK(o.find("OODOS Error On M: File R/O\r\nBDOS Function = 23") != std::string::npos);
@@ -460,11 +466,13 @@ TEST(options_go_to_the_built_ins_utilities_with_the_tail_as_given)
 {
     Ccp r;
     REQUIRE(r.ok);
+    r.chain({2}); // B:, the card's empty drive: A: has the utilities (make_card.sh), so off the chain
     same(r.cmd("dir [full]"), "dir [full]\r\nDIR.COM required\r\nA>");
     same(r.cmd("dir a b"), "dir a b\r\nDIR.COM required\r\nA>"); // two specifications
     same(r.cmd("dirs [size]"), "dirs [size]\r\nDIR.COM required\r\nA>");
     same(r.cmd("type"), "type\r\nTYPE.COM required\r\nA>");
     same(r.cmd("type x [nopage]"), "type x [nopage]\r\nTYPE.COM required\r\nA>");
+    r.chain({0});
     r.put_m({{0, "DIR     COM", args("DIR ")}, {0, "TYPE    COM", args("TYPE")},
              {0, "ERASE   COM", args("ERA ")}, {0, "RENAME  COM", args("REN ")}});
     same(r.cmd("m:", "M>"), "m:\r\r\nM>");
@@ -489,7 +497,9 @@ TEST(options_go_to_the_built_ins_utilities_with_the_tail_as_given)
     CHECK_EQ(field(o, "TAIL"), std::string("0C [ *.NEW=*.OLD]"));
     // A drive before a built-in's name runs the program of that name (ours)
     CHECK_EQ(field(r.cmd("m:dir x", "M>"), "ARGS"), std::string("DIR "));
-    same(r.cmd("a:dir", "M>"), "a:dir\r\nA:DIR?\r\nM>");
+    same(r.cmd("a:era", "M>"), "a:era\r\nA:ERA?\r\nM>"); // none on A:
+    same(r.cmd("a:dir", "M>"), // the card's DIR.COM (make_card.sh), sorting M:'s
+         "a:dir\r\nM: DIR      COM : ERASE    COM : RENAME   COM : TYPE     COM\r\nM>");
     same(r.cmd("dir", "M>"), "dir\r\nM: DIR      COM : TYPE     COM : ERASE    COM : RENAME   COM\r\nM>"); // the built-in
 }
 

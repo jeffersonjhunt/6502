@@ -210,8 +210,8 @@ target_compile_definitions(test_iie PRIVATE
 #
 # oodos/sys's Makefile builds OODOS.SYS and its test programs (ca65, ld65,
 # python3) into the build tree, for test_oodos_sys; oodos/ldr's builds OOLDR
-# and its test system, and oodos's Makefile HELLO.PRL, for test_oodos_boot,
-# which checks the committed card's copies against them (and reads OOLDR's
+# and its test system, and oodos's Makefile HELLO.PRL and the utilities, for
+# test_oodos_boot, which checks the committed card's copies against them (and reads OOLDR's
 # labels). ctest stays hermetic with no skips (hw/oodos.md, "Testing"), so
 # the tools are required: configuring fails without them.
 
@@ -282,7 +282,7 @@ foreach(name ${OODOS_UTILS_SUITES})
             EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
             EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 endforeach()
-add_dependencies(test_oodos_boot oodos_sys oodos_ldr backplane_bios)
+add_dependencies(test_oodos_boot oodos_sys oodos_ldr oodos_utils backplane_bios)
 target_compile_definitions(test_oodos_sys PRIVATE
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
@@ -299,6 +299,7 @@ target_compile_definitions(test_oodos_boot PRIVATE
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
         EMU_OODOS_LDR_DIR="${OODOS_LDR_DIR}"
         EMU_OODOS_PRL_DIR="${OODOS_PRL_DIR}"
+        EMU_OODOS_UTILS_DIR="${OODOS_UTILS_DIR}"
         EMU_OODOS_CARD_DIR="${OODOS_SRC}/card")
 
 # --- OODOS: the BDOS's model test --------------------------------------------
