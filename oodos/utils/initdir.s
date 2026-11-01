@@ -483,12 +483,13 @@ DUPS:           LDA     MTOP
                 LDA     R + 1
                 SBC     MTOP + 1
                 BCS     @next
-                LDY     #31
-@cmp:           LDA     (P),Y
+                LDY     #0             ; from the user and name up: they differ
+@cmp:           LDA     (P),Y          ; first, the block pointers' zeros last
                 CMP     (R),Y
                 BNE     @other
-                DEY
-                BPL     @cmp
+                INY
+                CPY     #32
+                BNE     @cmp
                 LDA     #E_FREE        ; its copy: not moved again
                 STA     (R)
                 LDA     USED
