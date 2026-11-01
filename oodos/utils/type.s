@@ -12,7 +12,7 @@
 ;
 ; Errors: "Try 'PAGE' or 'NO PAGE'" for any other option (a value, a
 ; second list, one not closed too: ours), "Invalid drive." (the Guide) for
-; a drive letter past P, "Invalid file specification." for any other 152
+; a drive other than A to P, "Invalid file specification." for any other 152
 ; refuses, a second one or a delimiter with nothing after it (ours), the
 ; BDOS's said (error mode $FE). The return code: $FF00 after an error or No File, $FFFE for a ^C.
 
@@ -246,7 +246,7 @@ spec:   lda     #<fcb
         bne     @refused
         clc
         rts
-@refused:                               ; a letter past P before a ':' (UT_IDX
+@refused:                               ; any but A-P before a ':' (UT_IDX
         ldx     UT_IDX                  ; at it): the Guide's Invalid drive.
         lda     UT_TAIL + 1,x
         cmp     #':'
