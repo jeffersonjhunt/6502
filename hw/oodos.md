@@ -1296,8 +1296,8 @@ where it is silent the choice is ours, and says so):
   console mode (109), keeps it and sets bit 0 in it; `CM_UNPAGE` puts the kept mode back, so a utility leaves a
   mode its caller set as it was. A flag, `CM_PAGED`, in the library's constant data so that it starts 0 with the
   image (a program's BSS isn't cleared), makes a `CM_UNPAGE` without a `CM_PAGE` do nothing and a second `CM_PAGE`
-  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 to `$FFFF` would be
-  a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
+  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 (`CM_PAGE`) or 5 (a
+  stop) to `$FFFF` would be a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
   ^C; in another mode it leaves the key alone, so it is safe without `CM_PAGE`. The CCP sets mode 0 after each
   built-in in any case. `CMDTEST` (`oodos/sys/test/cmdtest.s`) tests both in `test_oodos_ccp`.
 - **The test card:** `0:HELLO.COM` is a SYS file now (`cpmchattr`, `make_card.sh`), so the CCP finds it from any
@@ -1597,8 +1597,8 @@ the choices it left open marked ours):
   review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
   DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
   feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
-  each when the quiet stops became `cmd.inc`'s for every program; after the third, INITDIR 13 for its copies kept
-  from a recover). ld65 links all
+  each when the quiet stops became `cmd.inc`'s for every program; after the third, INITDIR 13 for leaving a stopped
+  re-format's copies to the re-format, not a recover). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
