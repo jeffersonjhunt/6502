@@ -1481,8 +1481,9 @@ prefix.
 - **DIR:** `A: Number of free directory entries: 24` (entries that are free, not SFCBs).
 - **DRIVE:** `    A: Drive Characteristics` then, each number right in 7 with commas (ours), the record capacity
   ((DSM+1) × BLS / 128), the kilobytes ((DSM+1) × BLS / 1024), the directory entries (DRM+1), the checked ones
-  (CKS's low 15 bits: 0, fixed media), records an entry ((EXM+1) × 128), records a block (BLM+1), sectors a track
-  (the DPB's SPT, 128-byte sectors, ours) and bytes a physical record (128 × 2^PSH), with the Guide's words.
+  (CKS's low 15 bits × 4, the check vector having a byte for each directory record of 4 entries: 0, fixed media),
+  records an entry ((EXM+1) × 128), records a block (BLM+1), sectors a track (the DPB's SPT, 128-byte sectors,
+  ours) and bytes a physical record (128 × 2^PSH), with the Guide's words.
 - **Errors** (Appendix A): `Unrecognized drive.` (a letter past P), `Unrecognized option.`, `Unrecognized
   input.` (anything else); a drive that isn't (`H:`) is the BDOS's error.
 

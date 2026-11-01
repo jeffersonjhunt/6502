@@ -227,7 +227,7 @@ namespace
                 num(recs, 7) + ": 128 Byte Record Capacity",
                 num(recs / 8, 7) + ": Kilobyte Drive Capacity",
                 num(word(p, 7) + 1, 7) + ": 32 Byte Directory Entries",
-                num(word(p, 11) & 0x7FFF, 7) + ": Checked Directory Entries",
+                num((word(p, 11) & 0x7FFF) * 4, 7) + ": Checked Directory Entries", // a CKS byte a record
                 num((p[4] + 1u) * 128, 7) + ": Records / Directory Entry",
                 num(p[3] + 1u, 7) + ": Records / Block",
                 num(word(p, 0), 7) + ": Sectors / Track",
@@ -435,6 +435,27 @@ TEST(show_dir_counts_the_free_entries_and_drive_the_dpbs_numbers)
                  "    256: 32 Byte Directory Entries", "      0: Checked Directory Entries",
                  "    256: Records / Directory Entry", "     16: Records / Block", "     64: Sectors / Track",
                  "    512: Bytes / Physical Record"}));
+    CHECK(succeeded(r));
+}
+
+TEST(show_drive_counts_four_checked_entries_a_cks_byte)
+{
+    // Every OODOS DPB has CKS $8000 (fixed media): M:'s, in common memory, given a check vector's size
+    // for the run (the BDOS doesn't read CKS), one byte a directory record of 4 entries.
+    SysRig r({"show"});
+    REQUIRE(r.ok);
+    const uint32_t cks = COMMON_PHYS + (sym("DPBM") - 0xF800u) + 11;
+    REQUIRE(r.phys(cks) == 0x00 && r.phys(cks + 1) == 0x80);
+    auto checked = [&](uint8_t lo, uint8_t hi) {
+        r.poke(cks, std::vector<uint8_t>{lo, hi});
+        const std::string o = run(r, "show m:[drive]");
+        const size_t at = o.find(": Checked Directory Entries");
+        return at == std::string::npos || at < 7 ? o : o.substr(at - 7, 7);
+    };
+    same(checked(0x40, 0x00), "    256"); // a removable drive's (DRM + 1) / 4
+    same(checked(0x10, 0x80), "     64"); // bit 15, a permanent drive's, not counted
+    same(checked(0xFF, 0x7F), "131,068");
+    same(checked(0x00, 0x80), "      0"); // as it was
     CHECK(succeeded(r));
 }
 
