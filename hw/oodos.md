@@ -1242,7 +1242,9 @@ where it is silent the choice is ours, and says so):
 - **Paging** (the Guide: DIR and TYPE stop when the screen is full, SETDEF's `[PAGE]`): when the SCB's page mode
   (`$2C`) is 0, the default, the built-in stops after the page length (`$1C`, 24) less one lines, shows
   `Press a key for more` (ours: the Guide says only that it waits), waits for a key, rubs the message out and
-  goes on; a ^C there stops it. Page lengths under 2 don't stop (ours). A ^C typed while DIR or TYPE writes stops
+  goes on; a ^C there stops it. The message and its rubout are written in console mode bit 2 (raw), so with
+  ^P on they stay off the printout (ours, `cmd.inc`'s, every program's that pages with it). Page lengths under 2
+  don't stop (ours). A ^C typed while DIR or TYPE writes stops
   them too: they run in console mode bit 0, where 11 reports only ^C (3b2), and look before each line (DIR) and
   each character (TYPE). ^S and ^Q are the BDOS's, as for any output.
 - **ERA** `filespec` (`ERASE`): the current user's matching files deleted (19), its password, if given, in the
@@ -1280,9 +1282,9 @@ where it is silent the choice is ours, and says so):
   15 and 20 for TYPE and loading, 19 and 23 for ERA and REN, 49 for the SCB's width, page mode and length, search
   chain and display flag (`SCB_CCPDISP`, `$18`, in `sys.inc`), 108 for the return code. The stand-in's warm boot
   work (the rescan, 48, 98; 13 for a ^C at the prompt; 47's request) is kept as it was.
-- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,747 bytes, `$C800–$DA8A` (the CCP 4,459, 38 more since 4b1's `CM_EOL`; its
+- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,773 bytes, `$C800–$DAA4` (the CCP 4,485: 38 more since 4b1's `CM_EOL`, 26 for its stops kept off the printer echo; its
   shared `cmd.inc` among them; the stand-in's was 1,323), then its BSS, 984 bytes (the line of 255, the command,
-  the tail, three FCBs, a record), 5,731 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
+  the tail, three FCBs, a record), 5,757 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
   and BIOS's 210 of 240 as they were), `SYSBSS` 737 of 1,280, common memory 1,123 of 2,048 and block 60 11,588 as
   they were. Its state across a program (the rest of a `!` line, `ATPROMPT`, `PENDING`, `CCPDRV`, `CCPUSR`) is in
   block 62, which is W3 while a program runs: only the TPA rule (a program keeps to `$0300–$BFFC`) keeps it
@@ -1396,7 +1398,7 @@ it is silent the choice is ours, and says so):
   (ours: a drive with date stamps has three quarters of its entries for files).
 - **FF:** a form feed to LST: (function 5) first when the printer echo is on (the SCB's `$38`), and with
   `LENGTH=` each time the heading is written again; without `LENGTH=` FF turns paging off, with it paging stays
-  on (the Guide), its stops on the screen only (ours: their message and its rubout aren't echoed to LST:).
+  on (the Guide), its stops on the screen only (as every paged program's: `cmd.inc`, above).
   **NOPAGE:** no stops.
 - **Errors** (Appendix A): `Illegal Option or Modifier.` (an unknown or ambiguous option, a bad value),
   `Options not grouped together.` (a second list), `Illegal command tail.` (a specification 152 refuses, a
@@ -1590,11 +1592,12 @@ saved by `OODOS_UTILS_OUT`).
 [`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
 the choices it left open marked ours):
 
-- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,608, TYPE 4,121, ERASE
-  4,065, RENAME 4,426, SET 6,740, INITDIR 5,571, SHOW 5,356, DATE 4,410, DEVICE 5,553, SETDEF 4,605 (after the first
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,608, TYPE 4,147, ERASE
+  4,091, RENAME 4,452, SET 6,766, INITDIR 5,597, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
   review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
   DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
-  feed and its quiet stops, SET 36 for its read-only check and INITDIR 50 for its stopped recover). ld65 links all
+  feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
+  each when the quiet stops became `cmd.inc`'s for every program). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1642,8 +1645,8 @@ the choices it left open marked ours):
   entries' order, the same memory message. At most 64 specifications, else `Illegal command tail.` **Departure:**
   `Illegal command tail.` for a specification 152 refuses is reached only by `M:DIR` typed, as the CCP refuses it
   first; for a delimiter with nothing after it, by the CCP's hand-off too (`DIR M:, [FULL]`: the CCP takes `M:,`).
-  A page stop's message and its rubout are written in console mode bit 2 (raw, no printer echo: `cmd.inc`'s
-  `CMD_QUIETSTOP`, DIR's alone), so a printout made with ^P has no stop on it.
+  A page stop's message and its rubout are written in console mode bit 2 (raw, no printer echo: `cmd.inc`'s,
+  for every program that pages with it, the built-ins too), so a printout made with ^P has no stop on it.
   **Decided (2026-10-31, the user's):** `DRIVE=ALL` is the logged-in drives (function 24): the Guide's Table
   5-5 says "all accessed drives" and its example the drives of the search chain, and the table was followed. It is
   one routine, `ALLDRVS` in `dir.s`.

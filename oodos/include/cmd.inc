@@ -8,14 +8,10 @@
 ;   CMD_DATA    the name of the segment for its constant data ("RODATA"
 ;               in a program: data in CODE would meet tools/rules.py)
 ;   CMD_BSS     the name of the segment for its variables
-;   CMD_BREAK   a label: where a ^C typed during paged output goes
-;
-;   CMD_QUIETSTOP (optional, any value) the stop's message and its rubout
-;               written in console mode bit 2 (raw: no printer echo), so
-;               they don't reach LST: with ^P on; the mode CM_PAGE kept,
-;               bit 0 set, back after; a ^C there leaves the raw mode for
-;               CMD_BREAK to put back (UT_BREAK does: CM_UNPAGE). Without
-;               it, the BDOS echoes them
+;   CMD_BREAK   a label: where a ^C typed during paged output goes; a ^C
+;               at a page's stop leaves the stop's console mode (bit 2,
+;               raw: the stop not on the printer echo) for it to put back
+;               (UT_BREAK does: CM_UNPAGE; the CCP's BIBREAK: CONMODE0)
 ;
 ; and include oodos.inc. Its code goes in the segment current at the
 ; .include. Every routine may change A, X and Y unless it says otherwise;
@@ -199,13 +195,11 @@ CM_LINE:        LDA     CM_PLEN
                 CMP     CM_PLEN
                 BCC     CM_BRK
                 STZ     CM_LINES
-.ifdef CMD_QUIETSTOP
-                LDA     CM_MODE        ; raw output: no printer echo
+                LDA     CM_MODE        ; raw output: the stop not on the printer echo
                 ORA     #5
                 LDX     CM_MODE + 1
                 LDY     #C_MODE
                 JSR     BDOS
-.endif
                 LDA     #<CM_MORE
                 LDX     #>CM_MORE
                 JSR     CM_PUTS
@@ -216,16 +210,12 @@ CM_LINE:        LDA     CM_PLEN
                 BEQ     @brk
                 LDA     #<CM_RUB
                 LDX     #>CM_RUB
-.ifdef CMD_QUIETSTOP
                 JSR     CM_PUTS
                 LDA     CM_MODE        ; CM_PAGE's mode again
                 ORA     #1
                 LDX     CM_MODE + 1
                 LDY     #C_MODE
                 JMP     BDOS
-.else
-                JMP     CM_PUTS
-.endif
 @brk:           JMP     CMD_BREAK
 
 CM_BRK:         LDY     #C_STAT

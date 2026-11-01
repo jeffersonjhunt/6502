@@ -296,6 +296,64 @@ TEST(dir_and_type_stop_at_a_full_page_and_a_ctrl_c_stops_them)
     CHECK(r.out.find("F39", from) == std::string::npos);
 }
 
+TEST(a_page_stop_is_the_screens_only_with_the_printer_echo_on)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    std::string text;
+    for (unsigned i = 1; i <= 9; ++i)
+        text += "LINE " + std::to_string(i) + "\r\n";
+    r.put_m({{0, "ONE     TXT", bytes("1")}, {0, "TWO     TXT", bytes("2")}, {0, "THREE   TXT", bytes("3")},
+             {0, "FOUR    TXT", bytes("4")}, {0, "TEXT    TXT", bytes(text)}});
+    r.scb(0x1A, 14); // DIR: one name a line
+    r.scb(0x1C, 4);  // a page of 4: 3 lines, then the stop
+    // CONOUT: the screen only, LST: the serial line and the echo on (^P): the serial line is the printout
+    r.scb(0x25, 0x80);
+    r.scb(0x2B, 0x40);
+    r.scb(0x38, 1);
+    r.cmd(";"); // (a comment: the prompt waiting as the echo went on has a '>' of its own to settle)
+    // A stop is seen as the serial line going quiet before the prompt, and a key typed
+    auto printed = [&](const std::string &line, unsigned want) {
+        const size_t from = r.out.size();
+        r.type(line + "\r");
+        unsigned stops = 0, quiet = 0;
+        size_t seen = r.out.size();
+        for (int i = 0; i < 4000; ++i)
+        {
+            r.run(20'000);
+            if (r.out.size() >= from + 4 && r.out.compare(r.out.size() - 4, 4, "\r\nA>") == 0)
+                break;
+            quiet = r.out.size() == seen ? quiet + 1 : 0;
+            seen = r.out.size();
+            if (quiet == 100) // (0.28 s without a character: waiting at a stop)
+            {
+                ++stops;
+                quiet = 0;
+                r.type(" ");
+            }
+        }
+        CHECK_EQ(stops, want);
+        return r.out.substr(from);
+    };
+    same(printed("dir m:*.txt", 1), "dir m:*.txt\r\nM: ONE      TXT\r\nM: TWO      TXT\r\nM: THREE    TXT\r\n"
+                                    "M: FOUR     TXT\r\nM: TEXT     TXT\r\nA>");
+    r.scb(0x1A, 79);
+    same(printed("type m:text.txt", 3), "type m:text.txt\r\n" + text + "\r\nA>");
+    // ^C at a stop: the echo still on after it (the CCP's mode back), the stop not on the printout
+    const size_t from = r.out.size();
+    r.type("type m:text.txt\r");
+    for (int i = 0; i < 100 && r.out.find("LINE 3\r\n", from) == std::string::npos; ++i)
+        r.run(20'000);
+    r.run(ms(300));
+    r.type("\x03");
+    REQUIRE(r.until("\r\nA>", ms(3000), from));
+    same(r.out.substr(from), "type m:text.txt\r\nLINE 1\r\nLINE 2\r\nLINE 3\r\n\r\nA>");
+    same(r.cmd(";echo"), ";echo\r\r\nA>");
+    r.scb(0x38, 0);
+    r.scb(0x2B, 0x20);
+    r.scb(0x25, 0xC0);
+}
+
 // ---- TYPE ------------------------------------------------------------------------------------
 
 TEST(type_shows_a_file_to_its_ctrl_z_with_tabs_expanded)

@@ -29,7 +29,6 @@
         .define CMD_DATA "RODATA"
         .define CMD_BSS "BSS"
 CMD_BREAK = UT_BREAK
-CMD_QUIETSTOP = 1                      ; a stop's message not to the printer (FF)
 
         OODOS_HEADER
 
