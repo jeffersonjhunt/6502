@@ -1362,7 +1362,7 @@ it is silent the choice is ours, and says so):
   Mixing.` A drive that isn't: the BDOS's error (mode `$FE`), and the next drive.
 - **Sorted** by the name and type, the attribute bits dropped (ours: by byte), unless `NOSORT`: the directory's
   order. The files of a drive are read into memory first (17 with `?`, every entry): a drive with more than fit
-  is `Not Enough Memory for Sort` (the Guide), nothing listed for it.
+  is `Not Enough Memory for Sort.` (the Guide), nothing listed for it.
 - **Each drive and user with files found** has its heading, `Directory For Drive A:  User  0` and a blank line
   (the Guide's examples, as `cpmls -F` writes it); with `MESSAGE`, every one searched has it, and `No File` after
   it when nothing is there (the Guide: MESSAGE shows where it is searching and the file not found message).
@@ -1376,10 +1376,10 @@ it is silent the choice is ours, and says so):
   The name and type (12), kilobytes allocated (6, `k`), records (6: the last entry's extent × 128 + its RC),
   attributes (12: `Dir` or `Sys`, `RW` or `RO`, `A` when archived; with `ATT` the user attributes, F1–F4 as `1`–`4`
   in their places: `Sys RO A1 3 `), the password mode (6: `Read`, `Write`, `Delete` or `None`, from the file's
-  XFCB; blank when the drive has no label, the Guide), the update stamp and, under `Create` or `Access` as the
-  label's mode says (`Create` when it asks for neither, ours), the other (14 each, blank without a stamp). The
-  heading again every `LENGTH=` lines (5–65535, ours: 16 bits; default the page length less 1, so a page starts
-  with it; the Guide: one screen).
+  XFCB), the update stamp and, under `Create` or `Access` as the label's mode says (`Create` when it asks for
+  neither, ours), the other (14 each, blank without a stamp); Prot and both stamps blank when the drive has no
+  label (the Guide). The heading again every `LENGTH=` lines (5–65535, ours: 16 bits; default the page length
+  less 1, at least 5, so a page starts with it; the Guide: one screen).
 - **SIZE:** the drive, then `NAME     TYP` and the kilobytes (6, `k`), `" : "` between, as many as fit in the
   console width without its last column (the built-in's rule), each line starting `A: `.
 - **DATE** (ours, the Guide shows none): the name and type, the update stamp and the other, under the FULL
@@ -1393,7 +1393,8 @@ it is silent the choice is ours, and says so):
   / 8, rounded up: the Guide), `Used/Max` the drive's entries that aren't free or SFCBs, of all but the SFCBs
   (ours: a drive with date stamps has three quarters of its entries for files).
 - **FF:** a form feed to LST: (function 5) first when the printer echo is on (the SCB's `$38`), and with
-  `LENGTH=` each time the heading is written again; FF turns paging off (the Guide). **NOPAGE:** no stops.
+  `LENGTH=` each time the heading is written again; without `LENGTH=` FF turns paging off, with it paging stays
+  on (the Guide). **NOPAGE:** no stops.
 - **Errors** (Appendix A): `Illegal Option or Modifier.` (an unknown or ambiguous option, a bad value),
   `Options not grouped together.` (a second list), `Illegal command tail.` (a specification 152 refuses, a `[`
   not closed), `No File`; the return code `$FF00` after any, and after `No File`.
@@ -1577,7 +1578,7 @@ saved by `OODOS_UTILS_OUT`).
 [`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
 the choices it left open marked ours):
 
-- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,418, TYPE 4,011, ERASE
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,481, TYPE 4,011, ERASE
   3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,282, DATE 4,341, DEVICE 5,477, SETDEF 4,526. ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
@@ -1595,12 +1596,21 @@ the choices it left open marked ours):
   the code is `$FF00`; a ^C is `$FFFE`.
 - **DIR** (functions 14, 17, 18, 24, 25, 26, 31, 32, 45, 49 for `$1A`, `$1C`, `$2C`, `$38`, 5, 108, 109). Its records
   go from its BSS to the TPA's top, about 40 KB, some 1,190 files a drive. **Ours:** `$FF00` after any error, any
-  `No File`, `Date and Time Stamping Inactive`, `Not Enough Memory for Sort` and a drive the BDOS refused; the
+  `No File`, `Date and Time Stamping Inactive`, `Not Enough Memory for Sort.` and a drive the BDOS refused; the
   last `No File` only when nothing was found anywhere and `MESSAGE` isn't given; the groups (a drive and user)
-  apart by a blank line, and a BDOS error followed by one; for a refused drive the line owed is left to the BDOS's
-  CR LF. `LENGTH=` counts every line from the start of the output, and the heading falls due at `LENGTH=` and is
-  written only before a file's line; the page length less one is the default only when paging is on (`NOPAGE`,
-  `FF`, or the SCB's page mode off without `LENGTH=`: no repeats; never for `SIZE`). `FF` sends its form feed to LST:
+  apart by a blank line, and a BDOS error followed by one; for a refused drive, or a directory read that fails,
+  the line owed is left to the BDOS's CR LF. `LENGTH=` counts every line from the start of the output, the
+  heading's own among them, over every group; the heading falls due at `LENGTH=` and is written only before a
+  file's line, and not when the line that made it due was the heading's own last (so never twice running); the
+  page length less one (at least 5, `LENGTH=`'s least) is the default only when paging is on (`NOPAGE`, `FF`
+  without `LENGTH=`, or the SCB's page mode off, without `LENGTH=`: no repeats; never for `SIZE`). DATE shows
+  the stamps on a drive without a label too (FULL doesn't, the Guide). **Speed:** each entry's record is found
+  by a search of those made so far, and the pointers are sorted by insertion, so both grow as the square of the
+  files. Measured on M: (60 and 190 files in random order): the lookup about 64 n² cycles, the sort about
+  43 n², the BDOS's scan about 4,600 an entry; so a full `oodos-8m` drive (768 files) takes some 9–10 s at
+  7.16 MHz before its first line, and a full `oodos-32m` (about 1,190 files, what fits) some 22 s (the review
+  estimated 5 s and 15–20 s). Accepted for 4b1; a ^C
+  is looked for every 16 entries read and every 16 pointers placed, so either can be stopped (`$FFFE`). `FF` sends its form feed to LST:
   only with the printer echo on (`$38`), first and before each repeated heading. SIZE's item is `NAME TYP` and the
   kilobytes in 5 and `k`, `" : "` between, the width / 21 items a line (at least 1). DATE's layout is FULL's first
   12 heading columns and its last two; DATE on a drive without SFCBs is `Date and Time Stamping Inactive` for that
@@ -1687,7 +1697,8 @@ the choices it left open marked ours):
   stamps, the SFCBs and the XFCBs INITDIR moved, `cpmcp`; seen to fail on wrong images. cpmtools lists an XFCB as
   a file of user 16 and more, with no bytes, and shows a stamp of 0 days as `12/31/77 00:00`.
 - **For later phases:** `oodos-32m` (2,048 entries) can hold more files than DIR's ~1,190, so `Not Enough Memory
-  for Sort` there; `put_m` tests must clear SFCB slots (MFORMAT leaves `$E5`, which reads as dates); SETDEF's
+  for Sort.` there; DIR's lookup and sort could be made faster than the square of the files (a sorted insert
+  with a binary search, a shell sort: DIR's as-built note has the times); `put_m` tests must clear SFCB slots (MFORMAT leaves `$E5`, which reads as dates); SETDEF's
   `ORDER` and `SUB` wait for SUBMIT (phase 5); DEVICE's baud rates and XON wait for a BIOS that sets them;
   `CONOUT:=LPT` or `CONIN:=NULL` takes the console away, as in CP/M 3.
 
