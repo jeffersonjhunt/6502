@@ -633,6 +633,20 @@ TEST(length_repeats_the_heading_and_paging_starts_each_page_with_it)
     same(r.out.substr(from), "dir m: [full]\r\n" + lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1]}) +
                                  "\r\nPress a key for more\r\nA>");
     CHECK(!r.succeeded());
+    // A page of 21 (a stop every 20 lines), the default LENGTH=20: due on user 3's heading's last line, the
+    // page's last, so the next page starts with the heading again (not with the file's line)
+    r.scb(0x1C, 21);
+    {
+        same(r.paged("dir m: [full,user=all]"),
+             pages(heading('M', 0) + fhead() + f + user0_totals(r) + sep + heading('M', 3) + fhead() + fhead() +
+                       std::vector<std::string>{full("THREE   TXT", 2, 1, "Dir RW", "None")} +
+                       totals(2, 1, 1, 1, 'M', r.used(), 192) + sep + heading('M', 12) + fhead() +
+                       std::vector<std::string>{full("TWELVE  TXT", 2, 1, "Dir RW", "None")} +
+                       totals(2, 1, 1, 1, 'M', r.used(), 192),
+                   20));
+        CHECK(r.succeeded());
+    }
+    r.scb(0x1C, 24);
     // NOPAGE: no stops and, without LENGTH=, no heading again
     same(r.said("dir m: [nopage]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
     same(r.said("dir m: [no page]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
@@ -694,6 +708,39 @@ TEST(ff_sends_a_form_feed_to_lst_when_the_printer_echo_is_on_and_without_length_
          "\f" + lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]}) + "\r\n\f" +
              lines(fhead() + std::vector<std::string>{f[1], f[2], f[3]}) + "\r\n\f" +
              lines(fhead() + std::vector<std::string>{f[4], f[5]} + user0_totals(r)));
+    // LENGTH=5, the least: due on the heading's own last line, the first form feed after it (5 lines), the
+    // heading on the new sheet, and so on each 5 lines
+    r.scb(0x1C, 48);
+    same(r.said("dir m: [ff,length=5]"),
+         "\f" + lines(heading('M', 0) + fhead()) + "\r\n\f" + lines(fhead() + std::vector<std::string>{f[0], f[1]}) +
+             "\r\n\f" + lines(fhead() + std::vector<std::string>{f[2], f[3]}) + "\r\n\f" +
+             lines(fhead() + std::vector<std::string>{f[4], f[5]} + user0_totals(r)));
+    // Paged too, a page of 8 (a stop every 7 lines): the stops are the screen's only, so a stop is seen as
+    // the serial line going quiet before the prompt, and a key typed; the printout is as unpaged
+    r.scb(0x1C, 8);
+    {
+        const size_t from = r.out.size();
+        r.type("dir m: [ff,length=6]\r");
+        unsigned stops = 0, quiet = 0;
+        size_t seen = r.out.size();
+        for (int i = 0; i < 4000; ++i)
+        {
+            r.run(20'000);
+            if (r.out.size() >= from + 4 && r.out.compare(r.out.size() - 4, 4, "\r\nA>") == 0)
+                break;
+            quiet = r.out.size() == seen ? quiet + 1 : 0;
+            seen = r.out.size();
+            if (quiet == 100) // (0.28 s without a character: waiting at a stop)
+            {
+                ++stops;
+                quiet = 0;
+                r.type(" ");
+            }
+        }
+        CHECK_EQ(stops, 2u);
+        same(r.out.substr(from), "dir m: [ff,length=6]\r\n" + ff + "\r\nA>");
+    }
+    r.scb(0x1C, 24);
     same(r.said("dir m: [length=6,nopage]"), // without FF: no form feeds
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
                std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} +
@@ -719,6 +766,10 @@ TEST(each_error_has_its_message_and_the_return_code_ff00)
     err("m:dir m:toolongname [full]", "Illegal command tail."); // (the CCP refuses it before DIR.COM:)
     err("dir m:toolongname [full]", "DIR M:TOOLONGNAME [FULL]?");
     err("m:dir m:x m:toolongname", "Illegal command tail.");
+    // A delimiter with nothing after it but blanks and the options (util.inc's UT_SPEC): refused
+    err("m:dir m:,", "Illegal command tail.");
+    err("dir m:, [full]", "Illegal command tail.");
+    err("dir m:x m:, [size]", "Illegal command tail.");
     for (const char *o : {"[bogus]", "[d]", "[n]", "[length=4]", "[length=70000]", "[length]", "[length=x]",
                           "[length=(5,6)]", "[user=16]", "[user]", "[user=x]", "[user=(1,x)]", "[user=(1,2]",
                           "[drive=q]", "[drive]", "[drive=(a,q)]", "[full=1]", "[nosort=on]", "[disk=]"})

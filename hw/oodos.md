@@ -1396,10 +1396,12 @@ it is silent the choice is ours, and says so):
   (ours: a drive with date stamps has three quarters of its entries for files).
 - **FF:** a form feed to LST: (function 5) first when the printer echo is on (the SCB's `$38`), and with
   `LENGTH=` each time the heading is written again; without `LENGTH=` FF turns paging off, with it paging stays
-  on (the Guide). **NOPAGE:** no stops.
+  on (the Guide), its stops on the screen only (ours: their message and its rubout aren't echoed to LST:).
+  **NOPAGE:** no stops.
 - **Errors** (Appendix A): `Illegal Option or Modifier.` (an unknown or ambiguous option, a bad value),
-  `Options not grouped together.` (a second list), `Illegal command tail.` (a specification 152 refuses, a `[`
-  not closed), `No File`; the return code `$FF00` after any, and after `No File`.
+  `Options not grouped together.` (a second list), `Illegal command tail.` (a specification 152 refuses, a
+  delimiter with nothing after it but blanks and the option list, as `DIR M:, [FULL]`, a `[` not closed), `No
+  File`; the return code `$FF00` after any, and after `No File`.
 
 **TYPE** (5-114; `TYPE.COM`): `TYPE {filespec {[PAGE]|[NO PAGE]}}`.
 
@@ -1588,10 +1590,11 @@ saved by `OODOS_UTILS_OUT`).
 [`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
 the choices it left open marked ours):
 
-- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,550, TYPE 4,121, ERASE
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,608, TYPE 4,121, ERASE
   4,065, RENAME 4,426, SET 6,704, INITDIR 5,521, SHOW 5,356, DATE 4,410, DEVICE 5,553, SETDEF 4,605 (after the first review:
   69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
-  DEVICE's and SETDEF's own fixes besides). ld65 links all
+  DEVICE's and SETDEF's own fixes besides; DIR 58 more after the second, for its heading after a page stop or form
+  feed and its quiet stops). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1616,7 +1619,9 @@ the choices it left open marked ours):
   apart by a blank line, and a BDOS error followed by one; for a refused drive, or a directory read that fails,
   the line owed is left to the BDOS's CR LF. `LENGTH=` counts every line from the start of the output, the
   heading's own among them, over every group; the heading falls due at `LENGTH=` and is written only before a
-  file's line, and not when the line that made it due was the heading's own last (so never twice running); the
+  file's line, and not when the line that made it due was the heading's own last (so never twice running on a
+  page) unless a page stop or, with `FF` and the printer echo on, a form feed comes between (so a page or sheet
+  still starts with it, and `[FF,LENGTH=5]`'s first form feed comes after 5 lines); the
   page length less one (at least 5, `LENGTH=`'s least) is the default only when paging is on (`NOPAGE`, `FF`
   without `LENGTH=`, or the SCB's page mode off, without `LENGTH=`: no repeats; never for `SIZE`). DATE shows
   the stamps on a drive without a label too (FULL doesn't, the Guide). **Speed:** each entry's record is found
@@ -1636,7 +1641,10 @@ the choices it left open marked ours):
   drive given twice listed once. `EXCLUDE` with no specification is `No File`. `NOSORT` is the extent-zero
   entries' order, the same memory message. At most 64 specifications, else `Illegal command tail.` **Departure:**
   `Illegal command tail.` for a specification 152 refuses is reached only by `M:DIR` typed, as the CCP refuses it
-  first. **Decided (2026-10-31, the user's):** `DRIVE=ALL` is the logged-in drives (function 24): the Guide's Table
+  first; for a delimiter with nothing after it, by the CCP's hand-off too (`DIR M:, [FULL]`: the CCP takes `M:,`).
+  A page stop's message and its rubout are written in console mode bit 2 (raw, no printer echo: `cmd.inc`'s
+  `CMD_QUIETSTOP`, DIR's alone), so a printout made with ^P has no stop on it.
+  **Decided (2026-10-31, the user's):** `DRIVE=ALL` is the logged-in drives (function 24): the Guide's Table
   5-5 says "all accessed drives" and its example the drives of the search chain, and the table was followed. It is
   one routine, `ALLDRVS` in `dir.s`.
 - **Every utility's calls** through `cmd.inc` and `util.inc`: 25 and 45 at the start, 14 at the end, 108 for the
