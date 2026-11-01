@@ -167,6 +167,8 @@
 ;   UT_SAID     after an error the BDOS said (its message starts with CR LF,
 ;               which ends a line owed, and ends with CR LF): nothing owed,
 ;               neither an LF nor a line (CM_NOEOL); then UT_FAIL
+;   UT_ISRO     carry set if drive A (0-15) is read-only (29: made so by 28,
+;               or found so by a write), for the Guide's Drive Read Only
 ;
 ; The system (SHOW, DATE, DEVICE, SETDEF)
 ;
@@ -1449,6 +1451,21 @@ UT_FDRIVE:      DEC     A              ; 1-16: 0-15
                 BPL     @done
                 LDA     UT_DRV0
 @done:          RTS
+
+UT_ISRO:        STA     UT_T + 2       ; the drive (UT_T: scratch, as UT_NOUT's)
+                LDY     #DRV_ROVEC
+                JSR     BDOS
+                STA     UT_T
+                STX     UT_T + 1
+                LDX     UT_T + 2
+                BEQ     @bit
+@shift:         LSR     UT_T + 1
+                ROR     UT_T
+                DEX
+                BNE     @shift
+@bit:           LDA     UT_T
+                LSR     A              ; bit 0 into the carry
+                RTS
 
 UT_ISWILD:      STA     @src + 1
                 STX     @src + 2

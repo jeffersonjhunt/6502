@@ -13,8 +13,10 @@
 ;
 ; Errors: "Missing delimiter or Unrecognized Option" for any other option,
 ; a value, a second list or one not closed (ours), or a second name;
-; "Invalid file specification." for one 152 refuses; the BDOS's said
-; (error mode $FE). The return code: $FF00 after an error or No File, 0
+; "Invalid file specification." for one 152 refuses or a delimiter with
+; nothing after it (ERASE X.TXT,); "Drive Read Only" (the Guide) for a
+; read-only drive (29), checked before each 19, the end; else the BDOS's
+; said (error mode $FE). The return code: $FF00 after an error or No File, 0
 ; when a question kept the files.
 
         .setcpu "65C02"
@@ -111,10 +113,18 @@ each:   lda     #<fcb
 
 ; Delete (19) the 11 bytes at A/X on fcb's drive, fcb's password in the DMA
 ; buffer. Carry clear: done; carry set and A 0: nothing matched (nothing
-; said), $FF: an error the BDOS said (UT_SAID's).
+; said), $FF: an error the BDOS said (UT_SAID's). A read-only drive: the
+; Guide's Drive Read Only, the end.
 delete: sta     @src + 1
         stx     @src + 2
         lda     fcb
+        jsr     UT_FDRIVE
+        jsr     UT_ISRO
+        bcc     :+
+        lda     #<sro
+        ldx     #>sro
+        jmp     failsay
+:       lda     fcb
         sta     wfcb
         ldy     #10
 @src:   lda     $FFFF,y
@@ -215,6 +225,7 @@ syn:    .byte   " (Y/N)?$"
 syneach: .byte  " (Y/N)? $"
 sopt:   .byte   "Missing delimiter or Unrecognized Option$"
 sinv:   .byte   "Invalid file specification.$"
+sro:    .byte   "Drive Read Only$"
 snofile: .byte  "No File$"
 smem:   .byte   "Not Enough Memory$"
 

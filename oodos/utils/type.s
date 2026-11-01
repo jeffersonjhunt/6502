@@ -11,9 +11,10 @@
 ;               empty line, or one with no file specification, ends it
 ;
 ; Errors: "Try 'PAGE' or 'NO PAGE'" for any other option (a value, a
-; second list, one not closed too: ours), "Invalid file specification."
-; for one 152 refuses or a second one (ours), the BDOS's said (error mode
-; $FE). The return code: $FF00 after an error or No File, $FFFE for a ^C.
+; second list, one not closed too: ours), "Invalid drive." (the Guide) for
+; a drive letter past P, "Invalid file specification." for any other 152
+; refuses, a second one or a delimiter with nothing after it (ours), the
+; BDOS's said (error mode $FE). The return code: $FF00 after an error or No File, $FFFE for a ^C.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -96,7 +97,7 @@ wild:   lda     #<fcb
         lda     #<(wfcb + 1)
         ldx     #>(wfcb + 1)
         jsr     CM_FNAME
-        jsr     CM_NL
+        jsr     CM_EOL                  ; owed: a BDOS error's CR LF ends it
         lda     #<wfcb
         ldx     #>wfcb
         jsr     typeone
@@ -182,7 +183,6 @@ typeone:
         jsr     CM_EOL
 :       clc
         rts
-@dst    = @src                          ; (one pointer is enough)
 
 ; Paging: the SCB's, or the option's.
 page:   jsr     CM_PAGE
@@ -235,7 +235,7 @@ spec:   lda     #<fcb
         jsr     UT_SPEC
         bcc     @one
         cmp     #0
-        bne     @bad
+        bne     @refused
         sec
         rts
 @one:   lda     #<wfcb
@@ -243,9 +243,22 @@ spec:   lda     #<fcb
         jsr     UT_SPEC
         bcc     @bad                    ; a second
         cmp     #0
-        bne     @bad
+        bne     @refused
         clc
         rts
+@refused:                               ; a letter past P before a ':' (UT_IDX
+        ldx     UT_IDX                  ; at it): the Guide's Invalid drive.
+        lda     UT_TAIL + 1,x
+        cmp     #':'
+        bne     @bad
+        lda     UT_TAIL,x
+        sec
+        sbc     #'A'
+        cmp     #16
+        bcc     @bad
+        lda     #<sdrive
+        ldx     #>sdrive
+        bra     failsay
 @bad:   lda     #<sinv
         ldx     #>sinv
         bra     failsay
@@ -263,6 +276,7 @@ OPTAB:  .byte   "PAGE", 0, "NOPAGE", 0, 0
 sask:   .byte   "Enter filename: $"
 stry:   .byte   "Try 'PAGE' or 'NO PAGE'$"
 sinv:   .byte   "Invalid file specification.$"
+sdrive: .byte   "Invalid drive.$"
 snofile: .byte  "No File$"
 smem:   .byte   "Not Enough Memory$"
 

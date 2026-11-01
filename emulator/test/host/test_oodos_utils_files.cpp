@@ -89,6 +89,42 @@ namespace
     void failed(CcpRig &r, const std::string &prompt = "A>") { same(r.cmd(":hello", prompt), ":hello\r\r\n" + prompt); }
 
     bool on_m(CcpRig &r, unsigned user, const std::string &name83) { return r.m_entry(user, name83) >= 0; }
+
+    /// Numbered lines ("TAG 00001" and CR LF) to fill `records` records, the last one in part.
+    std::string numbered(const std::string &tag, unsigned records)
+    {
+        std::string t;
+        for (unsigned i = 1; t.size() <= (records - 1) * RECORD; ++i)
+        {
+            char line[32];
+            std::snprintf(line, sizeof line, "%s %05u\r\n", tag.c_str(), i);
+            t += line;
+        }
+        return t;
+    }
+
+    /// A user 0 file of M:'s in two directory entries: the first of 256 records (EX 1, as put_m
+    /// makes it), then one of EX 2 for the rest, put behind OODOS's back as put_m puts one.
+    /// `second` is the second entry's number.
+    void put_two_entries(CcpRig &r, const std::string &name83, const std::string &text, unsigned &second)
+    {
+        REQUIRE(text.size() > 256 * RECORD && text.size() <= 256 * RECORD + M_BLS);
+        r.put_m({{0, name83, bytes(text.substr(0, 256 * RECORD))}});
+        std::vector<uint8_t> rest = bytes(text.substr(256 * RECORD));
+        const unsigned records = static_cast<unsigned>((rest.size() + RECORD - 1) / RECORD);
+        rest.resize(size_t{records} * RECORD, 0x1A);
+        const unsigned at = r.free_entry();
+        std::vector<uint8_t> e(32, 0);
+        for (unsigned i = 0; i < 11; ++i)
+            e[1 + i] = static_cast<uint8_t>(name83[i]);
+        e[12] = 2;
+        e[15] = static_cast<uint8_t>(records);
+        e[16] = static_cast<uint8_t>(r.block);
+        r.poke(MDISK + r.block * M_BLS, rest);
+        ++r.block;
+        r.poke(MDISK + at * 32, e);
+        second = at;
+    }
 } // namespace
 
 // ---- TYPE ------------------------------------------------------------------------------------
@@ -135,8 +171,9 @@ TEST(type_com_takes_a_password_after_the_name)
     ok(r);
     // Without it: each said by the BDOS, the next name on a line of its own, the return code $FF00
     o = r.cmd("m:type m:se*.txt");
-    same(o, "m:type m:se*.txt\r\nM:SECRET.TXT\r\n\r\nOODOS Error On M: Password Error\r\nBDOS Function = 15 File = SECRET  .TXT\r\n"
-            "M:SECOND.TXT\r\n\r\nOODOS Error On M: Password Error\r\nBDOS Function = 15 File = SECOND  .TXT\r\n\r\nA>");
+    // (the BDOS's CR LF ends the name's line, as RENAME's: no blank line)
+    same(o, "m:type m:se*.txt\r\nM:SECRET.TXT\r\nOODOS Error On M: Password Error\r\nBDOS Function = 15 File = SECRET  .TXT\r\n"
+            "M:SECOND.TXT\r\nOODOS Error On M: Password Error\r\nBDOS Function = 15 File = SECOND  .TXT\r\n\r\nA>");
     failed(r);
 }
 
@@ -220,6 +257,38 @@ TEST(type_com_shows_each_file_of_a_wildcard_under_its_name)
     failed(r);
 }
 
+TEST(type_and_erase_take_files_past_16_kb_and_of_two_directory_entries)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    // BIG1.BIG: 140 records, one entry (EX 1: a second logical extent); BIG2.BIG: 259 records,
+    // two entries (EX 1, then EX 2)
+    const std::string one = numbered("BIG1", 140), two = numbered("BIG2", 259);
+    r.put_m({{0, "BIG1    BIG", bytes(one)}});
+    unsigned second = 0;
+    put_two_entries(r, "BIG2    BIG", two, second);
+    const int first = r.m_entry(0, "BIG2    BIG");
+    REQUIRE(first >= 0 && static_cast<unsigned>(first) != second);
+    r.put_util("type");
+    r.put_util("erase");
+    const uint64_t long_run = ms(120000);
+    same(r.to("m:type m:big1.big [nopage]", "\r\nA>", long_run), "m:type m:big1.big [nopage]\r\n" + one + "\r\nA>");
+    same(r.to("m:type m:big2.big [nopage]", "\r\nA>", long_run), "m:type m:big2.big [nopage]\r\n" + two + "\r\nA>");
+    ok(r);
+    // A wildcard: each file once, whatever its entries
+    same(r.to("m:type m:*.big [nopage]", "\r\nA>", long_run),
+         "m:type m:*.big [nopage]\r\nM:BIG1.BIG\r\n" + one + "M:BIG2.BIG\r\n" + two + "\r\nA>");
+    ok(r);
+    // CONFIRM: each asked about once; BIG2.BIG's two entries go together
+    same(r.to("m:erase m:*.big [confirm]", "(Y/N)? "), "m:erase m:*.big [confirm]\r\nERASE M:BIG1.BIG (Y/N)? ");
+    same(r.to("n", "(Y/N)? "), "n\r\nERASE M:BIG2.BIG (Y/N)? ");
+    same(r.cmd("y"), "y\r\r\nA>");
+    ok(r);
+    CHECK(on_m(r, 0, "BIG1    BIG"));
+    CHECK_EQ(r.phys(MDISK + static_cast<uint32_t>(first) * 32), 0xE5);
+    CHECK_EQ(r.phys(MDISK + second * 32), 0xE5);
+}
+
 TEST(type_com_asks_for_a_name_and_says_its_errors)
 {
     CcpRig r;
@@ -242,8 +311,19 @@ TEST(type_com_asks_for_a_name_and_says_its_errors)
                                    " m:one.txt [pagex]"})
         same(r.cmd("m:type" + tail), "m:type" + tail + "\r\nTry 'PAGE' or 'NO PAGE'\r\nA>");
     failed(r);
-    for (const std::string tail : {" toolongname.txt", " m:one.txt two.txt", " a=b", " q:x"})
+    // A delimiter with nothing after it is refused too, as a second specification
+    for (const std::string tail : {" toolongname.txt", " m:one.txt two.txt", " a=b", " a:toolongname.txt", " m:one.txt,",
+                                   " m:one.txt=", " m:one.txt .", " m:one.txt|", " m:one.txt, [page]"})
         same(r.cmd("m:type" + tail), "m:type" + tail + "\r\nInvalid file specification.\r\nA>");
+    failed(r);
+    // A drive letter past P: the Guide's Invalid drive.
+    for (const std::string tail : {" q:x", " q:*.txt", " @:x"})
+        same(r.cmd("m:type" + tail), "m:type" + tail + "\r\nInvalid drive.\r\nA>");
+    failed(r);
+    same(r.to("m:type", "Enter filename: "), "m:type\r\nEnter filename: ");
+    same(r.cmd("m:one.txt,"), "m:one.txt,\r\nInvalid file specification.\r\nA>");
+    same(r.to("m:type", "Enter filename: "), "m:type\r\nEnter filename: ");
+    same(r.cmd("z:one.txt"), "z:one.txt\r\nInvalid drive.\r\nA>");
     failed(r);
     // A drive that isn't: the BDOS's error, said
     const std::string o = r.cmd("m:type h:x.txt");
@@ -377,7 +457,13 @@ TEST(erase_com_asks_for_a_name_and_says_its_errors)
     for (const std::string tail : {" x [y]", " x [confirm=1]", " x [c] [c]", " x [c", " a b", " a=b", " [conf,x]"})
         same(r.cmd("m:erase" + tail), "m:erase" + tail + "\r\nMissing delimiter or Unrecognized Option\r\nA>");
     failed(r);
-    same(r.cmd("m:erase toolongname.txt"), "m:erase toolongname.txt\r\nInvalid file specification.\r\nA>");
+    // A delimiter with nothing after it: refused, nothing deleted
+    for (const std::string tail : {" toolongname.txt", " m:three.dat,", " m:three.dat=", " m:three.dat .", " m:three.dat|",
+                                   " m:three.dat, [c]", " m:three.dat,[c]"})
+        same(r.cmd("m:erase" + tail), "m:erase" + tail + "\r\nInvalid file specification.\r\nA>");
+    failed(r);
+    same(r.to("m:erase", "Enter filename: "), "m:erase\r\nEnter filename: ");
+    same(r.cmd("m:three.dat,"), "m:three.dat,\r\nInvalid file specification.\r\nA>");
     failed(r);
     CHECK(on_m(r, 0, "THREE   DAT"));
 }
@@ -414,11 +500,16 @@ TEST(rename_com_renames_new_equals_old_as_the_built_in_does)
     CHECK_EQ(r.phys(MDISK + static_cast<uint32_t>(two) * 32), 0xE5);
     ok(r);
     same(r.cmd("type m:two.txt"), "type m:two.txt\r\nONE\r\n\r\nA>");
-    // Read-only: the BDOS's error, said
-    as_builtin(r, "ren m:rw.dat=ro.dat", "m:rename m:rw.dat=ro.dat",
-               "\r\nOODOS Error On M: File R/O\r\nBDOS Function = 23 File = RO      .DAT\r\n");
-    CHECK(on_m(r, 0, "RO      DAT"));
+    // Read-only: the built-in leaves it to the BDOS (File R/O); RENAME.COM says the Guide's message,
+    // before asking about a new name there already
+    same(wrote(r.cmd("ren m:rw.dat=ro.dat"), "ren m:rw.dat=ro.dat"),
+         "\r\nOODOS Error On M: File R/O\r\nBDOS Function = 23 File = RO      .DAT\r\n");
+    same(r.cmd("m:rename m:rw.dat=ro.dat"), "m:rename m:rw.dat=ro.dat\r\nNot renamed, filespec read only.\r\nA>");
     failed(r);
+    same(r.cmd("m:rename m:four.dat=ro.dat"), "m:rename m:four.dat=ro.dat\r\nNot renamed, filespec read only.\r\nA>");
+    failed(r);
+    CHECK(on_m(r, 0, "RO      DAT"));
+    CHECK(on_m(r, 0, "FOUR    DAT"));
     // Another user's file isn't there
     same(r.cmd("m:rename m:x.txt=other.txt"), "m:rename m:x.txt=other.txt\r\nNo File\r\nA>");
 }
@@ -491,9 +582,10 @@ TEST(rename_com_renames_each_file_of_a_wildcard)
     failed(r);
     // Through the CCP: REN with a wildcard hands it over, found by the search chain
     r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
-    // (a BDOS error's CR LF ends the line owed before it)
-    same(r.cmd("ren m:*.dt=*.dat"), "ren m:*.dt=*.dat\r\nTHREE.DT=THREE.DAT\r\nOODOS Error On M: File R/O\r\n"
-                                    "BDOS Function = 23 File = RO      .DAT\r\nFOUR.DT=FOUR.DAT\r\nA>");
+    // (a read-only file not renamed, the others are)
+    same(r.cmd("ren m:*.dt=*.dat"), "ren m:*.dt=*.dat\r\nTHREE.DT=THREE.DAT\r\nNot renamed, filespec read only.\r\n"
+                                    "FOUR.DT=FOUR.DAT\r\nA>");
+    failed(r);
 }
 
 TEST(rename_com_asks_for_the_names_and_says_its_errors)
@@ -509,7 +601,7 @@ TEST(rename_com_asks_for_the_names_and_says_its_errors)
     ok(r);
     same(r.to("m:rename", "Enter New Name: "), "m:rename\r\nEnter New Name: ");
     same(r.to("m:*.q", "Enter Old Name: "), "m:*.q\r\nEnter Old Name: ");
-    same(r.cmd("*.dat"), "*.dat\r\nTHREE.Q=THREE.DAT\r\nOODOS Error On M: File R/O\r\nBDOS Function = 23 File = RO      .DAT\r\nFOUR.Q=FOUR.DAT\r\nA>");
+    same(r.cmd("*.dat"), "*.dat\r\nTHREE.Q=THREE.DAT\r\nNot renamed, filespec read only.\r\nFOUR.Q=FOUR.DAT\r\nA>");
     failed(r);
     // An empty line ends it
     same(r.to("m:rename", "Enter New Name: "), "m:rename\r\nEnter New Name: ");
@@ -525,12 +617,59 @@ TEST(rename_com_asks_for_the_names_and_says_its_errors)
     same(r.to("m:rename", "Enter New Name: "), "m:rename\r\nEnter New Name: ");
     same(r.to("m:y.txt", "Enter Old Name: "), "m:y.txt\r\nEnter Old Name: ");
     same(r.cmd("a b"), "a b\r\nIncorrect file specification.\r\nA>");
-    // Its forms
-    for (const std::string tail : {" x", " a b", " =x", " m:x=", " b:x=m:y", " a=b=c", " a,b", " a=b [x]",
+    // An option list in a line asked for, as in the tail
+    same(r.to("m:rename", "Enter New Name: "), "m:rename\r\nEnter New Name: ");
+    same(r.cmd("m:z.prn [x]"), "m:z.prn [x]\r\nIncorrect file specification.\r\nA>");
+    same(r.to("m:rename", "Enter New Name: "), "m:rename\r\nEnter New Name: ");
+    same(r.to("m:z.prn", "Enter Old Name: "), "m:z.prn\r\nEnter Old Name: ");
+    same(r.cmd("x.prn [x]"), "x.prn [x]\r\nIncorrect file specification.\r\nA>");
+    failed(r);
+    CHECK(on_m(r, 0, "X       PRN"));
+    // Its forms (a delimiter with nothing after it among them)
+    for (const std::string tail : {" x", " a b", " =x", " m:x=", " b:x=m:y", " a=b=c", " a,b", " a=b [x]", " a=b=",
+                                   " a=b,", " m:x.txt=two.txt,", " m:x.txt=two.txt=", " m:x.txt=two.txt .",
+                                   " m:x.txt=two.txt|", " m:x.txt=two.txt, [x]",
                                    " toolongname.x=y", " x=toolongname.y", " m:two.txt=two.txt", " *.txt=m:*.txt"})
         same(r.cmd("m:rename" + tail), "m:rename" + tail + "\r\nIncorrect file specification.\r\nA>");
     failed(r);
     CHECK(on_m(r, 0, "TWO     TXT"));
+}
+
+TEST(erase_and_rename_say_drive_read_only_for_a_read_only_drive)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    files(r);
+    r.put_util("set");
+    CHECK(r.cmd("m:set m: [ro]").find("M: set to Read Only (RO)") != std::string::npos);
+    // The built-ins leave it to the BDOS
+    CHECK(r.cmd("era m:one.txt").find("OODOS Error On M: Read Only") != std::string::npos);
+    CHECK(r.cmd("ren m:x.txt=one.txt").find("OODOS Error On M: Read Only") != std::string::npos);
+    // The utilities: the Guide's Drive Read Only, the return code $FF00, nothing changed
+    same(r.cmd("m:erase m:one.txt"), "m:erase m:one.txt\r\nDrive Read Only\r\nA>");
+    failed(r);
+    same(r.to("m:erase m:*.txt", "(Y/N)?"), "m:erase m:*.txt\r\nERASE M:*.TXT (Y/N)?");
+    same(r.cmd("y"), "y\r\nDrive Read Only\r\nA>");
+    failed(r);
+    // CONFIRM: said at the first Y, and nothing more asked
+    same(r.to("m:erase m:*.txt [confirm]", "(Y/N)? "), "m:erase m:*.txt [confirm]\r\nERASE M:ONE.TXT (Y/N)? ");
+    same(r.to("n", "(Y/N)? "), "n\r\nERASE M:TWO.TXT (Y/N)? ");
+    same(r.cmd("y"), "y\r\nDrive Read Only\r\nA>");
+    failed(r);
+    same(r.cmd("m:rename m:x.txt=one.txt"), "m:rename m:x.txt=one.txt\r\nDrive Read Only\r\nA>");
+    failed(r);
+    same(r.cmd("m:rename m:two.txt=one.txt"), "m:rename m:two.txt=one.txt\r\nDrive Read Only\r\nA>"); // not asked
+    same(r.cmd("m:rename m:*.new=*.txt"), "m:rename m:*.new=*.txt\r\nDrive Read Only\r\nA>");
+    failed(r);
+    // From the current drive (no drive given) too
+    same(r.cmd("m:", "M>"), "m:\r\r\nM>");
+    same(r.cmd("m:erase one.txt", "M>"), "m:erase one.txt\r\nDrive Read Only\r\nM>");
+    same(r.cmd("m:rename x.txt=one.txt", "M>"), "m:rename x.txt=one.txt\r\nDrive Read Only\r\nM>");
+    same(r.cmd("a:"), "a:\r\r\nA>");
+    for (const char *name : {"ONE     TXT", "TWO     TXT", "TABS    TXT", "NOLF    TXT"})
+        CHECK(on_m(r, 0, name));
+    CHECK(!on_m(r, 0, "X       TXT"));
+    CHECK(!on_m(r, 0, "ONE     NEW"));
 }
 
 // ---- the CCP's hand-offs ---------------------------------------------------------------------
