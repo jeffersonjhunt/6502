@@ -1409,9 +1409,9 @@ it is silent the choice is ours, and says so):
 - **A wildcard** (ours, the Guide is silent): each matching file of the current user in turn, in the directory's
   order, its name on a line of its own first (`M:ONE.TXT`), then its bytes.
 - **No file specification:** `Enter filename: ` and a line read (the Guide), then as above; an empty line ends it.
-- **Errors:** `Try 'PAGE' or 'NO PAGE'` for any other option (the Guide), `Invalid drive.` for a drive letter past
-  P (Appendix A, which gives TYPE this one), `Invalid file specification.` for any other one 152 refuses (Appendix
-  A), else the BDOS's (`Password Error` among them).
+- **Errors:** `Try 'PAGE' or 'NO PAGE'` for any other option (the Guide), `Invalid drive.` for a drive other
+  than A to P (Appendix A, which gives TYPE this one), `Invalid file specification.` for any other one 152 refuses
+  (Appendix A), else the BDOS's (`Password Error` among them).
 
 **ERASE** (5-38; `ERASE.COM`): `ERASE {filespec} {[CONFIRM]}`, `CONFIRM` or any prefix (`C`).
 
@@ -1643,12 +1643,12 @@ the choices it left open marked ours):
   return code; 2, 6, 9, 11 and 109 for writing, paging and a ^C, 49 for the SCB's page mode and length, 10 for a
   line read (a prompt, a Y/N answer), 152 for a file specification, 26 and 17, 18 for a wildcard's names. The
   lists below are each utility's own besides.
-- **TYPE** (15, 20, 49). **Ours:** `[PAGE=x]`, a second
+- **TYPE** (15, 20, 26, 49). **Ours:** `[PAGE=x]`, a second
   list or one not closed is `Try 'PAGE' or 'NO PAGE'`; of `PAGE` and `NOPAGE` the last given wins; a second
-  specification is `Invalid file specification.`; `Invalid drive.` only for a letter past P before a `:` (a drive
-  that isn't, `H:`, is the BDOS's `Invalid Drive`); asked for (`Enter filename: `) once, an empty line ending it, and
-  options typed in that line taken; a wildcard's names are read first, the current user's SYS files among them,
-  each name line with its drive; a file that doesn't end in LF owes a line before the next name; the password given
+  specification is `Invalid file specification.`; `Invalid drive.` only for a character other than A to P before
+  a `:` (`Q:`, `@:`; a drive that isn't, `H:`, is the BDOS's `Invalid Drive`); asked for (`Enter filename: `)
+  once, an empty line ending it, and options typed in that line taken; a wildcard's names are read first, the
+  current user's SYS files among them, each name line with its drive; a file that doesn't end in LF owes a line before the next name; the password given
   is used for every file; a page length under 2 never stops.
 - **ERASE** (19, 26, 29). **Ours:** `[CONFIRM=1]`, a second list or one not closed is `Missing delimiter or
   Unrecognized Option`; the drive is always in CONFIRM's question, which ends with a blank (the built-in's wildcard
