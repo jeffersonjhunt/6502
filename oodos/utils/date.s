@@ -260,28 +260,29 @@ ptime:  jsr     num
 @bad:   sec
         rts
 
-; DATE SET: the date and the time asked for, an empty line keeping each.
+; DATE SET: the date and the time asked for, an empty line (or one of only
+; blanks and tabs) keeping each.
 dset:   stz     keepd
         stz     keept
         lda     #<sasked
         ldx     #>sasked
         jsr     UT_READ
+        jsr     UT_SKIP
         bne     @date
         inc     keepd
         bra     @time
-@date:  jsr     UT_SKIP
-        jsr     pdate
+@date:  jsr     pdate
         jcs     illegal
         jsr     UT_SKIP
         jne     illegal
 @time:  lda     #<saskt
         ldx     #>saskt
         jsr     UT_READ
+        jsr     UT_SKIP
         bne     @t
         inc     keept
         bra     setit
-@t:     jsr     UT_SKIP
-        jsr     ptime
+@t:     jsr     ptime
         jcs     illegal
         jsr     UT_SKIP
         jne     illegal

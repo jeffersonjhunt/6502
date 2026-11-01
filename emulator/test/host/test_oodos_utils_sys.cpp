@@ -19,7 +19,7 @@
  *   - DATE: the display, CONTINUOUS stopped by a key, a time specification
  *     checked (months, days, leap years, hours, minutes, seconds) and set
  *     at the key with its seconds, DATE SET's prompts with empty lines
- *     keeping their parts, the errors, no clock;
+ *     (or only blanks) keeping their parts, the errors, no clock;
  *   - DEVICE: the full display and its prompt (a line taken as a command),
  *     NAMES, VALUES, a physical and a logical device and their other
  *     names, assignments and NULL, input and output checked, the baud rate
@@ -227,7 +227,7 @@ namespace
                 num(recs, 7) + ": 128 Byte Record Capacity",
                 num(recs / 8, 7) + ": Kilobyte Drive Capacity",
                 num(word(p, 7) + 1, 7) + ": 32 Byte Directory Entries",
-                num(word(p, 11) & 0x7FFF, 7) + ": Checked Directory Entries",
+                num((word(p, 11) & 0x7FFF) * 4, 7) + ": Checked Directory Entries", // a CKS byte a record
                 num((p[4] + 1u) * 128, 7) + ": Records / Directory Entry",
                 num(p[3] + 1u, 7) + ": Records / Block",
                 num(word(p, 0), 7) + ": Sectors / Track",
@@ -438,6 +438,27 @@ TEST(show_dir_counts_the_free_entries_and_drive_the_dpbs_numbers)
     CHECK(succeeded(r));
 }
 
+TEST(show_drive_counts_four_checked_entries_a_cks_byte)
+{
+    // Every OODOS DPB has CKS $8000 (fixed media): M:'s, in common memory, given a check vector's size
+    // for the run (the BDOS doesn't read CKS), one byte a directory record of 4 entries.
+    SysRig r({"show"});
+    REQUIRE(r.ok);
+    const uint32_t cks = COMMON_PHYS + (sym("DPBM") - 0xF800u) + 11;
+    REQUIRE(r.phys(cks) == 0x00 && r.phys(cks + 1) == 0x80);
+    auto checked = [&](uint8_t lo, uint8_t hi) {
+        r.poke(cks, std::vector<uint8_t>{lo, hi});
+        const std::string o = run(r, "show m:[drive]");
+        const size_t at = o.find(": Checked Directory Entries");
+        return at == std::string::npos || at < 7 ? o : o.substr(at - 7, 7);
+    };
+    same(checked(0x40, 0x00), "    256"); // a removable drive's (DRM + 1) / 4
+    same(checked(0x10, 0x80), "     64"); // bit 15, a permanent drive's, not counted
+    same(checked(0xFF, 0x7F), "131,068");
+    same(checked(0x00, 0x80), "      0"); // as it was
+    CHECK(succeeded(r));
+}
+
 TEST(show_refuses_what_it_doesnt_know)
 {
     SysRig r({"show"});
@@ -617,6 +638,20 @@ TEST(date_set_asks_for_the_date_and_time_an_empty_line_keeping_each)
     REQUIRE(r.until("\r\nA>", ms(3000), from));
     t = now(r);
     CHECK(t.year == 2030 && t.month == 12 && t.date == 25 && t.hour == 8 && t.minute == 15);
+    // A line of only blanks and tabs is an empty one: both kept again
+    from = r.out.size();
+    r.type("date set\r");
+    REQUIRE(r.until("(MM/DD/YY): ", ms(3000), from));
+    r.type("   \r");
+    REQUIRE(r.until("(HH:MM:SS): ", ms(3000), from));
+    r.type(" \t \r");
+    REQUIRE(r.until("Press any key to set time", ms(3000), from));
+    r.type(" ");
+    REQUIRE(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.out.find("Illegal", from) == std::string::npos);
+    t = now(r);
+    CHECK(t.year == 2030 && t.month == 12 && t.date == 25 && t.hour == 8);
+    CHECK(succeeded(r));
     // A bad line: refused there, nothing set
     from = r.out.size();
     r.type("date set\r");
@@ -754,6 +789,8 @@ TEST(device_refuses_baud_rates_and_xon_and_says_each_error)
     same(run(r, "device tty [noxon"), "Invalid option.");
     same(run(r, "device foo:=crt"), "Bad Logical Device Assignment");
     same(run(r, "device =crt"), "Bad Logical Device Assignment");
+    same(run(r, "device crt = tty"), "Bad Logical Device Assignment"); // a physical device: no assignment to it
+    same(run(r, "device tty=null"), "Bad Logical Device Assignment");
     same(run(r, "device con:=foo"), "Invalid Physical device.");
     same(run(r, "device con:="), "Invalid Physical device.");
     same(run(r, "device con:=null,crt"), "Invalid Physical device.");
@@ -783,7 +820,8 @@ TEST(device_console_shows_and_sets_the_width_and_page)
     CHECK(r.scbv(0x1A) == 0 && r.scbv(0x1C) == 255);
     r.scb(0x1A, 79); // (function 10 shows the typed line on rows of the width)
     for (const char *bad : {"device console [columns=0]", "device console [columns=257]", "device console [lines=256]",
-                            "device console [columns]", "device console [columns=abc]", "device console [lines=-1]"})
+                            "device console [columns]", "device console [columns=abc]", "device console [lines=-1]",
+                            "device console [columns=(40,50)]", "device console [lines=(16)]"}) // one number, no list
         same(run(r, bad), "Invalid number.");
     same(run(r, "device console [size]"), "Invalid option.");
     same(run(r, "device console [page=1]"), "Invalid option.");
@@ -952,6 +990,8 @@ TEST(setdef_says_each_error_and_sets_nothing)
     same(run(r, "setdef [order=(com]"), "Invalid type for ORDER option.");
     same(run(r, "setdef [temporary=q:]"), "Invalid drive.");
     same(run(r, "setdef [temporary=cc]"), "Invalid drive.");
+    same(run(r, "setdef [temporary=(c:,d:)]"), "Invalid drive."); // one drive, no list
+    same(run(r, "setdef [temporary=(m:)]"), "Invalid drive.");
     same(run(r, "setdef [temporary]"), "Invalid option.");
     same(run(r, "setdef [order]"), "Invalid option.");
     same(run(r, "setdef [foo]"), "Invalid option.");

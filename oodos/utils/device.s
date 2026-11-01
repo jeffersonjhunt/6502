@@ -125,11 +125,7 @@ devtbl: lda     #BIOS::DEVTBL
         lda     #BIOS::XMOVE
         ldx     #0                      ; from bank 0, the system's (CP/M's C)
         ldy     #1                      ; to bank 1, the program's (B)
-        jsr     UT_BIOS
-        lda     #<tbl                   ; (XMOVE's call left them; again)
-        sta     UT_BPB + 6
-        lda     #>tbl
-        sta     UT_BPB + 7
+        jsr     UT_BIOS                 ; (function 50 only reads the block)
         lda     #BIOS::MOVE
         ldx     #NDEVMAX * 8
         ldy     #0
@@ -289,6 +285,8 @@ command: jsr    rdword
         bcs     @unk
         sta     dev
         jsr     UT_SKIP
+        cmp     #'='                    ; an assignment to a physical device
+        jeq     badlog
         cmp     #'['
         bne     @show
         lda     dev
@@ -478,6 +476,9 @@ console: jsr    UT_OAT
         bra     @opt
 @value: sta     t                       ; COLUMNS 1, LINES 2: a number
         lda     UT_HASV
+        jeq     badnum
+        jsr     UT_VALUE                ; one number: a list is none
+        cmp     #1
         jeq     badnum
         jsr     UT_VITEM
         jcs     badnum

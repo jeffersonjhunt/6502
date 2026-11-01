@@ -1481,8 +1481,9 @@ prefix.
 - **DIR:** `A: Number of free directory entries: 24` (entries that are free, not SFCBs).
 - **DRIVE:** `    A: Drive Characteristics` then, each number right in 7 with commas (ours), the record capacity
   ((DSM+1) × BLS / 128), the kilobytes ((DSM+1) × BLS / 1024), the directory entries (DRM+1), the checked ones
-  (CKS's low 15 bits: 0, fixed media), records an entry ((EXM+1) × 128), records a block (BLM+1), sectors a track
-  (the DPB's SPT, 128-byte sectors, ours) and bytes a physical record (128 × 2^PSH), with the Guide's words.
+  (CKS's low 15 bits × 4, the check vector having a byte for each directory record of 4 entries: 0, fixed media),
+  records an entry ((EXM+1) × 128), records a block (BLM+1), sectors a track (the DPB's SPT, 128-byte sectors,
+  ours) and bytes a physical record (128 × 2^PSH), with the Guide's words.
 - **Errors** (Appendix A): `Unrecognized drive.` (a letter past P), `Unrecognized option.`, `Unrecognized
   input.` (anything else); a drive that isn't (`H:`) is the BDOS's error.
 
@@ -1578,7 +1579,7 @@ saved by `OODOS_UTILS_OUT`).
 the choices it left open marked ours):
 
 - **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,418, TYPE 4,011, ERASE
-  3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,282, DATE 4,341, DEVICE 5,477, SETDEF 4,526. ld65 links all
+  3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,287, DATE 4,341, DEVICE 5,484, SETDEF 4,536. ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1652,21 +1653,25 @@ the choices it left open marked ours):
   (`AND $1F`) 0; a label with a blank type is shown `NAME`, not `NAME.`
 - **DATE** (6, 10, 49, 50, 105). It sets the clock by the SCB's `$58` word and `$5A`–`$5C` (BCD, by 49), then the
   BIOS's TIME with A `$FF` (50). **Ours:** numbers of one or two digits, blanks between parts allowed; `SET` in
-  full, `CONTINUOUS` any prefix; the parts kept by `DATE SET`'s empty lines are read at the key; a bad line ends
-  `DATE SET` with the error; `No clock` only when a kept part needs the clock; any key, a ^C too, ends CONTINUOUS
-  with 0; DATE isn't paged (console mode bit 0 would hide the key).
+  full, `CONTINUOUS` any prefix; a `DATE SET` line of only blanks and tabs is an empty one; the parts kept by
+  `DATE SET`'s empty lines are read at the key; a bad line ends `DATE SET` with the error; `No clock` only when a
+  kept part needs the clock; any key, a ^C too, ends CONTINUOUS with 0; DATE isn't paged (console mode bit 0
+  would hide the key).
 - **DEVICE** (10, 49, 50: DEVTBL, XMOVE from bank 0 to 1, MOVE 24 bytes, so at most 3 devices). **Ours:** `End of
   line expected` after the command is done, then `$FF00`; `NAMES`, `VALUES`, `NULL` in full, device names exact
-  (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`;
+  (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`, as
+  is a physical device's name with `=` (`DEVICE CRT = TTY`);
   `NULL` alone (`NULL,CRT` refused); commas between devices, else `Invalid delimiter.`; an option list on a logical
-  device but the console is `Invalid option.`; `COLUMNS` or `LINES` without a value is `Invalid number.`;
+  device but the console is `Invalid option.`; `COLUMNS` or `LINES` without a value, or with a list, is `Invalid
+  number.`;
   assignments write nothing; NAMES is the two headings and the devices, VALUES the heading and five lines; a list
   not closed is `Invalid option.`; no padding after a line's last field. **Departure:** the prompt is `Enter new
   assignment or hit RETURN: `, with a colon, as the Guide prints it (the plan had none).
 - **SETDEF** (49, 108, 109). It keeps `$18`'s other bits; the chain is `$4C`–`$4F`, the temporary drive `$50`, the
   page mode `$2C`. **Ours:** commas between drives, else `Invalid delimiter.`; a trailing comma or a bad drive
-  `Invalid drive.`; `*` and the current drive's letter are distinct entries; a second list or one not closed, a
-  stray value, `TEMPORARY` or `ORDER` without one, `Invalid option.`; an option given twice, the last wins; `SUB` in
+  `Invalid drive.`, as is a list for `TEMPORARY`; `*` and the current drive's letter are distinct entries; a
+  second list, or anything after the list, `Invalid delimiter.`; a list not closed, a stray value, `TEMPORARY` or
+  `ORDER` without one, `Invalid option.`; an option given twice, the last wins; `SUB` in
   `ORDER` is `ORDER=(SUB): no SUBMIT yet`. SHOW, DEVICE and SETDEF are paged.
 - **The layout, decided (2026-10-31, the user's):** the CCP ends the command's line (the LF it owes, `CM_LFDUE`,
   by `RUNTAIL`'s `CM_FLUSH`) before any program runs, so a utility that writes nothing (ERASE of one name, a DEVICE

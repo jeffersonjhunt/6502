@@ -195,10 +195,10 @@ SYS, as HELLO.COM, so the CCP finds them from any user by the search chain:
 | [`utils/type.s`](utils/type.s), [`utils/erase.s`](utils/erase.s), [`utils/rename.s`](utils/rename.s) | TYPE.COM, ERASE.COM, RENAME.COM: the forms the built-ins hand over (TYPE's `[PAGE]`/`[NOPAGE]` and wildcards, each file under its name; ERASE's `[CONFIRM]`; RENAME's wildcards, `NEW.TYP=OLD.TYP` for each) and the prompts when no file is given; the built-ins' own forms as they do them. 4,011, 3,962 and 4,250 bytes. `test_oodos_utils_files` |
 | [`utils/set.s`](utils/set.s) | SET.COM: a file's attributes (30), password and mode (103); a drive read-only (28) or read-write (37); the label (100: its name, password, protection and stamp modes); the default password (106). 6,563 bytes. `test_oodos_utils_set` |
 | [`utils/initdir.s`](utils/initdir.s) | INITDIR.COM: a directory given SFCBs, its entries in their places moved first, or the SFCBs taken away or their stamps cleared, through the BIOS (function 50). 5,040 bytes. `test_oodos_utils_set` |
-| [`utils/show.s`](utils/show.s) | SHOW.COM: a drive's free space, its label, its users, its free directory entries and its characteristics (the DPB). 5,282 bytes. `test_oodos_utils_sys` |
+| [`utils/show.s`](utils/show.s) | SHOW.COM: a drive's free space, its label, its users, its free directory entries and its characteristics (the DPB). 5,287 bytes. `test_oodos_utils_sys` |
 | [`utils/date.s`](utils/date.s) | DATE.COM: the date and time, once or each second, or the clock set at a key, its seconds kept. 4,341 bytes. `test_oodos_utils_sys` |
-| [`utils/device.s`](utils/device.s) | DEVICE.COM: the BIOS's character devices and the SCB's assignments, shown and set; the console's width and page. 5,477 bytes. `test_oodos_utils_sys` |
-| [`utils/setdef.s`](utils/setdef.s) | SETDEF.COM: the drive search chain, the temporary drive, the type order, the display and page modes, shown and set. 4,526 bytes. `test_oodos_utils_sys` |
+| [`utils/device.s`](utils/device.s) | DEVICE.COM: the BIOS's character devices and the SCB's assignments, shown and set; the console's width and page. 5,484 bytes. `test_oodos_utils_sys` |
+| [`utils/setdef.s`](utils/setdef.s) | SETDEF.COM: the drive search chain, the temporary drive, the type order, the display and page modes, shown and set. 4,536 bytes. `test_oodos_utils_sys` |
 
 Sizes are the `.COM`s', the 16-byte header among them; ld65 links all of `util.inc` into each (a later phase may
 split it). Two choices the user decided (2026-10-31): **DIR's `DRIVE=ALL`** is the logged-in drives (function 24,
@@ -209,7 +209,12 @@ doesn't (`\r\r\nA>`): the CCP ends the command's line (the LF it owes, `CM_LFDUE
 
 The emulator's build runs `make utils` into its build tree (`oodos_utils`) for the `test_oodos_utils` suites, which
 put each on M: behind OODOS's back (`oodos_rig.h`'s `put_util`) and run it from the CCP. `test_oodos_utils`
-itself runs UTTEST (`sys/test/uttest.s`), every routine of `util.inc` and `CM_EOL`, each line compared:
+itself runs UTTEST (`sys/test/uttest.s`), each line compared: `CM_EOL` and the routines of `util.inc`'s sections
+from the start and the end to the drives and writing (`UT_BACK`, `UT_PUTDRV` and `UT_BLANKS` only through the
+routines that call them). The memory, files and system sections (`UT_MEM`, `UT_NAMES`, `UT_NNEXT`, `UT_PWSET`,
+`UT_ISWILD`, `UT_FDRIVE`, `UT_SAID`, `UT_OAT`, `UT_OCLOSE`, `UT_SCBGET`, `UT_SCBSET`, `UT_SCBSETW`, `UT_BIOS`)
+UTTEST doesn't call: they are tested only through the utilities that use them, in the other `test_oodos_utils`
+suites. UTTEST runs so:
 
 ```
 ctest --preset dev -R test_oodos_utils

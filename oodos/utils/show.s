@@ -478,14 +478,16 @@ drive:  jsr     UT_DPB
         lda     #<sents
         ldx     #>sents
         jsr     line
-        lda     UT_DPBC + 11            ; CKS's low 15 bits
-        ldx     UT_DPBC + 12
-        pha
+        lda     UT_DPBC + 11            ; CKS's low 15 bits x 4: a byte of
+        ldx     UT_DPBC + 12            ; the check vector a directory
+        pha                             ; record of 4 entries
         txa
         and     #$7F
         tax
         pla
         jsr     setn
+        lda     #2
+        jsr     UT_SHLN
         lda     #<schk
         ldx     #>schk
         jsr     line

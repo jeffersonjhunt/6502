@@ -14,7 +14,9 @@
 #
 # The utilities (hw/oodos.md, "The utilities, phase 4b") are every
 # utils/NAME.s there is, .COMs only, through the same gate; each includes
-# include/cmd.inc and include/util.inc. A new one needs no change here.
+# include/cmd.inc and include/util.inc, and some include/system.inc (the
+# BIOS entries, for function 50): each is rebuilt when any of them changes.
+# A new one needs no change here.
 
 SRC      ?= examples
 BUILD    ?= build
@@ -31,7 +33,7 @@ COMS = $(PROGRAMS:%=$(BUILD)/%.com)
 PRLS = $(PROGRAMS:%=$(BUILD)/%.prl)
 UTILS = $(patsubst utils/%.s,%,$(wildcard utils/*.s))
 UTIL_COMS = $(UTILS:%=$(BUILD)/%.com)
-UTIL_INCS = include/oodos.inc include/cmd.inc include/util.inc
+UTIL_INCS = include/oodos.inc include/system.inc include/cmd.inc include/util.inc
 
 all: $(COMS) $(PRLS) $(UTIL_COMS)
 

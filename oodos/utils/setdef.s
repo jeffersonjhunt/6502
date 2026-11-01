@@ -131,7 +131,10 @@ opts:   jsr     UT_OAT
         jeq     badopt
         lda     t
         bne     @order
-        jsr     UT_VITEM                ; TEMPORARY=d:
+        jsr     UT_VALUE                ; TEMPORARY=d:, one drive: a list is
+        cmp     #1                      ; none
+        jeq     baddrv
+        jsr     UT_VITEM
         jcs     baddrv
         jsr     UT_WDRIVE
         jcs     baddrv
