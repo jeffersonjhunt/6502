@@ -1296,8 +1296,8 @@ where it is silent the choice is ours, and says so):
   console mode (109), keeps it and sets bit 0 in it; `CM_UNPAGE` puts the kept mode back, so a utility leaves a
   mode its caller set as it was. A flag, `CM_PAGED`, in the library's constant data so that it starts 0 with the
   image (a program's BSS isn't cleared), makes a `CM_UNPAGE` without a `CM_PAGE` do nothing and a second `CM_PAGE`
-  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 to `$FFFF` would be
-  a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
+  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 (`CM_PAGE`) or 5 (a
+  stop) to `$FFFF` would be a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
   ^C; in another mode it leaves the key alone, so it is safe without `CM_PAGE`. The CCP sets mode 0 after each
   built-in in any case. `CMDTEST` (`oodos/sys/test/cmdtest.s`) tests both in `test_oodos_ccp`.
 - **The test card:** `0:HELLO.COM` is a SYS file now (`cpmchattr`, `make_card.sh`), so the CCP finds it from any
@@ -1593,11 +1593,12 @@ saved by `OODOS_UTILS_OUT`).
 the choices it left open marked ours):
 
 - **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,608, TYPE 4,147, ERASE
-  4,091, RENAME 4,452, SET 6,766, INITDIR 5,597, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
+  4,091, RENAME 4,452, SET 6,766, INITDIR 5,610, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
   review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
   DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
   feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
-  each when the quiet stops became `cmd.inc`'s for every program). ld65 links all
+  each when the quiet stops became `cmd.inc`'s for every program; after the third, INITDIR 13 for leaving a stopped
+  re-format's copies to the re-format, not a recover). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1706,8 +1707,9 @@ the choices it left open marked ours):
   as one without SFCBs (the question asked). A recover writes sector 0 first, so one stopped leaves entry 3 free
   and later places SFCBs: a directory with an SFCB in a place but not in entry 3 is `Directory partly
   re-formatted.` and `Do you wish to recover date/time directory space (Y/N)? `, `Y` finishing the recover, `N`
-  going on to the re-format's question. The copies are looked for comparing from byte 0 up (the user and name
-  differ first). A drive used between the two tries may hold two different copies of
+  going on to the re-format's question; but if entries in places also have copies outside them (a re-format stopped
+  after such a recover), only `Directory partly re-formatted.` and the re-format's question, since a recover would
+  leave both copies. The copies are looked for comparing from byte 0 up (the user and name differ first). **Accepted (2026-11-01, the user's):** that look is every entry outside the SFCB places against every listed one, so on a nearly full 32M drive (1,536 entries) the question comes after about 11 s with nothing shown; comparing the block pointer first was measured at about 8 s on a real drive and slower on one of empty entries, and not taken. A drive used between the two tries may hold two different copies of
   an entry: run INITDIR again first. Cold boot's M: has SFCBs holding `$E5`
   past their first byte, so after `stamps cleared` a slot's bytes 8, 9 and 31 stay `$E5` (as designed).
 - **SHOW** (14, 17, 18, 24, 25, 26, 29, 31, 32, 45, 46, 49, 108, 109). **Ours:** `[]` is SPACE; an option with a

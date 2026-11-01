@@ -33,9 +33,9 @@
 ;               length ($1C); the console mode (109) kept, and bit 0 set
 ;               in it, so 11 reports only ^C. Called again while paged, it
 ;               keeps the mode the first kept (CM_PAGED). A mode with bits
-;               CP/M 3 leaves undefined set so that it ORs to $FFFF would
-;               be a get to 109, so bit 0 isn't set: such a mode is taken
-;               not to happen
+;               CP/M 3 leaves undefined set so that it ORs with 1 (here)
+;               or 5 (a stop, CM_LINE) to $FFFF would be a get to 109, so
+;               the bits aren't set: such a mode is taken not to happen
 ;   CM_UNPAGE   the console mode CM_PAGE kept, back; without a CM_PAGE
 ;               before it, nothing
 ;   CM_PAGED    1 while paged; in CMD_DATA, so it starts 0 with the image
@@ -43,7 +43,11 @@
 ;               console mode itself in between clears it (the CCP does)
 ;   CM_NL       CR, LF, a line counted (CM_LINE)
 ;   CM_LINE     a line ended: past the page, "Press a key for more", a
-;               key waited for (^C: CMD_BREAK), the message rubbed out
+;               key waited for (^C: CMD_BREAK), the message rubbed out.
+;               The message and its rubout are in console mode bit 2 too
+;               (CM_MODE|5: off the printer echo), and CM_PAGE's mode
+;               (CM_MODE|1) is set again after, so a mode a program sets
+;               itself while paged is undone at the next stop
 ;   CM_BRK      a ^C waiting? CMD_BREAK. Another key is left alone: a
 ;               key is taken only in console mode bit 0 (CM_PAGE's), where
 ;               11 reports only ^C; without it, nothing is taken
