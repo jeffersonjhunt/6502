@@ -125,11 +125,7 @@ devtbl: lda     #BIOS::DEVTBL
         lda     #BIOS::XMOVE
         ldx     #0                      ; from bank 0, the system's (CP/M's C)
         ldy     #1                      ; to bank 1, the program's (B)
-        jsr     UT_BIOS
-        lda     #<tbl                   ; (XMOVE's call left them; again)
-        sta     UT_BPB + 6
-        lda     #>tbl
-        sta     UT_BPB + 7
+        jsr     UT_BIOS                 ; (function 50 only reads the block)
         lda     #BIOS::MOVE
         ldx     #NDEVMAX * 8
         ldy     #0
