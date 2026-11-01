@@ -119,6 +119,7 @@ SEARCHED:       .res    1              ; 1: a drive's directory was read
 ANYOUT:         .res    1              ; 1: a group or message written
 LCOUNT:         .res    2              ; lines since the last heading
 DUE:            .res    1              ; 1: a heading before the next file line
+HDRJUST:        .res    1              ; 1: the heading the last line written
 VARSEND:
 LISTK:          .res    1              ; UT_OPTS's answer
 CURUSR:         .res    1
@@ -1370,7 +1371,8 @@ TABHDR:         LDA     FORMAT
                 PUTS    S_DDASH
 @end:           JSR     EOL
                 JSR     BLANK
-                STZ     DUE            ; a heading just written isn't due again
+                LDA     #1             ; (EOL clears it: a line since)
+                STA     HDRJUST
                 RTS
 
 ; The last column's heading: Access when the label asks for access stamps,
@@ -1421,10 +1423,21 @@ ONEFILE:        LDY     #R_BLKS        ; kilobytes: blocks << BSHIFT
                 JMP     ITEM
 @line:          LDA     DUE            ; LENGTH's lines since the heading: again
                 BEQ     @name
+                JSR     CM_FLUSH       ; (a stop, a form feed at the new line's start)
                 LDA     FLAGS + O_FF
+                BEQ     @noff
+                LDA     ECHO
+                BEQ     @noff
+                JSR     LSTFF          ; a new sheet: the heading on it
+                BRA     @head
+@noff:          LDA     HDRJUST        ; due on the heading's own last line: not
+                BEQ     @head          ; again, unless a stop just began a page
+                LDA     CM_PLEN
+                BEQ     @skip
+                LDA     CM_LINES
                 BEQ     @head
-                JSR     CM_FLUSH       ; (the form feed at the new line's start)
-                JSR     LSTFF
+@skip:          STZ     DUE
+                BRA     @name
 @head:          JSR     TABHDR
 @name:          JSR     PUTNAME
                 LDA     FORMAT
@@ -1653,6 +1666,7 @@ BLANK1:         LDA     #' '
 ; first), so with paging's default the heading starts each page.
 EOL:            JSR     CM_EOL
                 STZ     DUE
+                STZ     HDRJUST
                 INC     LCOUNT
                 BNE     @len
                 INC     LCOUNT + 1

@@ -633,6 +633,20 @@ TEST(length_repeats_the_heading_and_paging_starts_each_page_with_it)
     same(r.out.substr(from), "dir m: [full]\r\n" + lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1]}) +
                                  "\r\nPress a key for more\r\nA>");
     CHECK(!r.succeeded());
+    // A page of 21 (a stop every 20 lines), the default LENGTH=20: due on user 3's heading's last line, the
+    // page's last, so the next page starts with the heading again (not with the file's line)
+    r.scb(0x1C, 21);
+    {
+        same(r.paged("dir m: [full,user=all]"),
+             pages(heading('M', 0) + fhead() + f + user0_totals(r) + sep + heading('M', 3) + fhead() + fhead() +
+                       std::vector<std::string>{full("THREE   TXT", 2, 1, "Dir RW", "None")} +
+                       totals(2, 1, 1, 1, 'M', r.used(), 192) + sep + heading('M', 12) + fhead() +
+                       std::vector<std::string>{full("TWELVE  TXT", 2, 1, "Dir RW", "None")} +
+                       totals(2, 1, 1, 1, 'M', r.used(), 192),
+                   20));
+        CHECK(r.succeeded());
+    }
+    r.scb(0x1C, 24);
     // NOPAGE: no stops and, without LENGTH=, no heading again
     same(r.said("dir m: [nopage]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
     same(r.said("dir m: [no page]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
@@ -694,6 +708,14 @@ TEST(ff_sends_a_form_feed_to_lst_when_the_printer_echo_is_on_and_without_length_
          "\f" + lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]}) + "\r\n\f" +
              lines(fhead() + std::vector<std::string>{f[1], f[2], f[3]}) + "\r\n\f" +
              lines(fhead() + std::vector<std::string>{f[4], f[5]} + user0_totals(r)));
+    // LENGTH=5, the least: due on the heading's own last line, the first form feed after it (5 lines), the
+    // heading on the new sheet, and so on each 5 lines
+    r.scb(0x1C, 48);
+    same(r.said("dir m: [ff,length=5]"),
+         "\f" + lines(heading('M', 0) + fhead()) + "\r\n\f" + lines(fhead() + std::vector<std::string>{f[0], f[1]}) +
+             "\r\n\f" + lines(fhead() + std::vector<std::string>{f[2], f[3]}) + "\r\n\f" +
+             lines(fhead() + std::vector<std::string>{f[4], f[5]} + user0_totals(r)));
+    r.scb(0x1C, 24);
     same(r.said("dir m: [length=6,nopage]"), // without FF: no form feeds
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
                std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} +
