@@ -205,6 +205,11 @@ TEST(file_specifications_are_parsed_by_152_past_the_option_list)
     same(ut(r, "S A TOOLONGNAME.X Y"), lines({"S 3 4 - 00 A          ;         {A} Z", "ERR 5"}));
     same(ut(r, "S"), "NONE");
     same(ut(r, "S [ONLY OPTIONS]"), "NONE");
+    // A delimiter with nothing after it but blanks and option lists: refused, at its specification
+    same(ut(r, "S A,"), "ERR 3");
+    same(ut(r, "S A B= [X] "), lines({"S 3 4 - 00 A          ;         {A} Z", "ERR 5"}));
+    same(ut(r, "S A .[X"), "ERR 3");
+    same(ut(r, "S A,[X] B"), lines({"S 3 4 , 00 A          ;         {A} Z", "S 9 10 - 00 B          ;         {B} Z", "NONE"}));
 }
 
 TEST(a_line_read_is_the_tail_in_capitals)

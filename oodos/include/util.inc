@@ -65,8 +65,10 @@
 ;               the name and type, the password at 16-23, 12-15 and 24-35 0.
 ;               Out: carry clear, UT_IDX after it and the delimiter after
 ;               it ('=', ','; not a blank or '['), which is in UT_SDELIM (0:
-;               none); carry set and A 0 none left, $FF one 152 refuses
-;               (UT_IDX at it). UT_SPAT is where it starts, UT_SEND where
+;               none); carry set and A 0 none left, $FF one 152 refuses,
+;               or one whose delimiter has nothing after it but blanks and
+;               option lists (A, or A= [X]: a specification missing; UT_IDX
+;               at it either way). UT_SPAT is where it starts, UT_SEND where
 ;               152 stopped. From a line read: UT_READ, then UT_SPEC
 ;   UT_PUTSPEC  the last specification as typed, its password not shown
 ;
@@ -745,6 +747,26 @@ UT_SPEC:        STA     UT_PFCB + 2
                 BEQ     @done
                 STA     UT_SDELIM      ; another delimiter: passed over
                 INX
+                TXA                    ; nothing after it but blanks and
+                TAY                    ; option lists: refused
+@look:          LDA     UT_TAIL,Y
+                BEQ     @trail
+                CMP     #' '
+                BEQ     @skip
+                CMP     #UTC_TAB
+                BEQ     @skip
+                CMP     #'['
+                BNE     @done
+@inlist:        INY
+                LDA     UT_TAIL,Y
+                BEQ     @trail
+                CMP     #']'
+                BNE     @inlist
+@skip:          INY
+                BRA     @look
+@trail:         LDA     #$FF
+                SEC
+                RTS
 @done:          STX     UT_IDX
                 LDA     #0
                 CLC
