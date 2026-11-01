@@ -27,7 +27,8 @@
 # passwords, so XFCBs in the free SFCB places, then INITDIR made the SFCBs
 # again, the XFCBs moved out first (to 13, HELLO.PRL's, and 32), every stamp
 # 0; SET asked the label for creation and update stamps again and named it
-# OODOS.4B1 (its mode 0xB1).
+# OODOS.4B1 (its mode 0xB1). Every file cpmls -F lists, in every user, is
+# matched against a table of its attributes and protection, its stamps 0.
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
@@ -164,21 +165,59 @@ elif [ "$written" = --ccp ]; then
   done
   ok "README.DOC, PATTERN.DAT and USER3.TXT, out by cpmcp, are what make_card.sh made"
 elif [ "$written" = --utils ]; then
-  # A line of cpmls -F: the name, kilobytes, records, the attributes (F1-F4 as 1-4, R for RO, S
-  # for SYS, A for archived, in that order of columns), the protection, then the two stamps,
-  # 0 (cpmls shows day 0 as 12/31/77 00:00) since INITDIR made the SFCBs again.
-  line() {
-    echo "$listing" | grep -E "^$1 +$2 +[0-9]+k +[0-9]+ $3 +$4 +12/31/77 00:00  12/31/77 00:00 *\$" >/dev/null ||
-      fail "$1.$2: not listed with attributes '$3', protection $4 and stamps 0"
-  }
-  line README TXT '1   R A' None
-  line PATTERN DAT '   ' Write
-  line TESTSYS SYS '   ' Delete
-  line WRITEOO1 COM ' +S' None
-  for f in 'OODOS SYS' 'USER3 TXT' 'SMALL BIN' 'HELLO COM' 'DIR COM' 'ERASE COM' 'RENAME COM' 'SET COM' 'INITDIR COM'; do
-    line $f '.*' None
-  done
-  ok "cpmls -F: README.TXT 1 R A, WRITEOO1.COM S, PATTERN.DAT Write, TESTSYS.SYS Delete, the rest None; stamps 0"
+  # Every file line of cpmls -F, in each user's group, against the table below, and no other:
+  # its attributes (F1-F4 as 1-4, R for RO, S for SYS, A for archived, by column), its
+  # protection, and both stamps 0 (cpmls shows day 0 as 12/31/77 00:00) since INITDIR made the
+  # SFCBs again. cpmls lists an XFCB as a file of user 16 and more.
+  cat >"$work/want" <<'TXT'
+0 DATE.COM S None
+0 DEVICE.COM S None
+0 DIR.COM S None
+0 ERASE.COM S None
+0 HELLO.COM S None
+0 INITDIR.COM S None
+0 OODOS.SYS - None
+0 PATTERN.DAT - Write
+0 README.TXT 1RA None
+0 RENAME.COM S None
+0 SET.COM S None
+0 SETDEF.COM S None
+0 SHOW.COM S None
+0 SPACER1.DAT - None
+0 SPACER2.DAT - None
+0 TESTSYS.SYS - Delete
+0 TYPE.COM S None
+0 WRITEOO1.COM S None
+3 SMALL.BIN - None
+3 USER3.TXT - None
+16 PATTERN.DAT - None
+16 TESTSYS.SYS - None
+TXT
+  cat >"$work/files.py" <<'PY'
+import re, sys
+want = sorted(l.split() for l in open(sys.argv[1]) if l.strip())
+got, user = [], None
+for l in sys.stdin.read().split('\n'):
+    m = re.match(r'Directory For Drive [A-P]:  User +(\d+)', l)
+    f = re.match(r'(\S+) +(\S*) +\d+k +\d+ (.*?) *(None|Read|Write|Delete) +(.*)$', l)
+    if m:
+        user = int(m.group(1))
+    elif f:
+        prot = f.group(4)
+        if f.group(5).split() != ['12/31/77', '00:00', '12/31/77', '00:00']:
+            prot += '/stamped:' + '_'.join(f.group(5).split())
+        got.append([str(user), f.group(1) + '.' + f.group(2), ''.join(f.group(3).split()) or '-', prot])
+got.sort()
+for x in want:
+    if x not in got:
+        print('missing or different:', ' '.join(x))
+for x in got:
+    if x not in want:
+        print('listed:', ' '.join(x))
+PY
+  diffs=$(echo "$listing" | python3 -I "$work/files.py" "$work/want")
+  [ -z "$diffs" ] || { echo "$diffs" | sed 's/^/     /'; fail "cpmls -F's files are not the table's"; }
+  ok "cpmls -F: all $(grep -c . "$work/want") files as the table: README.TXT 1 R A, the .COMs S, PATTERN.DAT Write, TESTSYS.SYS Delete, the rest None; stamps 0"
   for f in 'PATTERN +BIN' 'HELLO +PRL'; do
     if echo "$listing" | grep -E "^$f " >/dev/null; then fail "cpmls -F still lists $f"; fi
   done

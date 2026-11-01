@@ -401,13 +401,14 @@ the erased files gone from `cpmls -F`, the renamed ones' contents by `cpmcp`.
 PATTERN.DAT [PASSWORD=SECRET, PROTECT=WRITE]` and `SET TESTSYS.SYS [PASSWORD=OTHER, PROTECT=DELETE]` (two XFCBs,
 in the free SFCB places 3 and 7), `INITDIR A:` again (Y: the XFCBs moved to 13 and 32 and the SFCBs made, every
 stamp 0), `SET [CREATE=ON, UPDATE=ON]` and `SET [NAME=OODOS.4B1]`; with `OODOS_UTILS_OUT` it saves that card, and
-`interop.sh --utils` checks it: `fsck.cpm`, the label (`OODOS   4B1`, mode 0xB1), `cpmls -F`'s attributes (README.TXT
-`1   R A`, WRITEOO1.COM `S`), protections (`Write`, `Delete`, the rest `None`) and stamps (0, which `cpmls` shows as
-12/31/77 00:00), the erased and renamed files, an SFCB in every fourth entry and nowhere else, the two XFCBs where
+`interop.sh --utils` checks it: `fsck.cpm`, the label (`OODOS   4B1`, mode 0xB1), every file `cpmls -F` lists (all 22,
+users 0, 3 and 16, and no others) against a table of attributes (README.TXT `1   R A`, the .COMs `S`), protections
+(`Write`, `Delete`, the rest `None`) and stamps (0, which `cpmls` shows as 12/31/77 00:00), the erased and renamed files, an SFCB in every fourth entry and nowhere else, the two XFCBs where
 INITDIR moved them with their modes, and the files' contents by `cpmcp`. cpmtools lists an XFCB as a file of user
 16 and more, of no bytes; it reads a file whatever its password. Seen to fail on the committed card and the `--ccp`
 one (the label), and on copies of the saved card with one byte wrong: an XFCB's mode, an SFCB freed, README.TXT's
-archive bit, a slot's mode, the label's mode, an XFCB left in an SFCB's place.
+archive bit, a slot's mode, the label's mode, an XFCB left in an SFCB's place; and, by the table, TYPE.COM made RO,
+SPACER1.DAT given F3, DATE.COM stamped (each passed the check before it).
 
 `OODOS_CARD_FAULT=alloc` (a block README.TXT has), `=stamp` (each entry's stamps in the next one's slot, the first
 entry's update a minute later, so no slot is right) or `=stamp-zero` (the same in an SFCB of zeros, not $E5s)
