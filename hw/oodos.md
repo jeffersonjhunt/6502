@@ -1338,8 +1338,10 @@ it is silent the choice is ours, and says so):
 - **Paging** as the built-ins: the SCB's page mode (`$2C`, 0 on) and length (`$1C`); `Press a key for more` and a
   key, ^C there or while writing stops it (`cmd.inc`). A utility's `[NOPAGE]`, where it has one, turns it off; its
   `[PAGE]` turns it on whatever the SCB says (ours).
-- **Drives:** a utility that works on another drive selects it (14) and selects the current one again before it
-  ends, so the current drive is as it was (ours; the CCP's warm boot puts its own back in any case).
+- **Drives:** a drive is given in the FCB's byte where a call takes one (TYPE, ERASE, RENAME); a utility that needs
+  a drive current for its calls (DIR, SET, INITDIR, SHOW) selects it (14); and every utility, as it ends, selects the
+  drive current at its start again (14), so the current drive is as it was (ours; the CCP's warm boot puts its own
+  back in any case).
 - **Dates** are `MM/DD/YY`, the year's last two digits (the Guide), from CP/M 3's days (1 January 1978 day 1, a
   Sunday); times `HH:MM` (DIR, SHOW) or `HH:MM:SS` (DATE). A stamp of 0 days is no stamp: blanks.
 
@@ -1406,8 +1408,9 @@ it is silent the choice is ours, and says so):
 - **A wildcard** (ours, the Guide is silent): each matching file of the current user in turn, in the directory's
   order, its name on a line of its own first (`M:ONE.TXT`), then its bytes.
 - **No file specification:** `Enter filename: ` and a line read (the Guide), then as above; an empty line ends it.
-- **Errors:** `Try 'PAGE' or 'NO PAGE'` for any other option (the Guide), `Invalid file specification.` for one
-  152 refuses (Appendix A), else the BDOS's (`Password Error` among them).
+- **Errors:** `Try 'PAGE' or 'NO PAGE'` for any other option (the Guide), `Invalid drive.` for a drive letter past
+  P (Appendix A, which gives TYPE this one), `Invalid file specification.` for any other one 152 refuses (Appendix
+  A), else the BDOS's (`Password Error` among them).
 
 **ERASE** (5-38; `ERASE.COM`): `ERASE {filespec} {[CONFIRM]}`, `CONFIRM` or any prefix (`C`).
 
@@ -1418,21 +1421,25 @@ it is silent the choice is ours, and says so):
   read first (17, 18), then asked about. A single name with CONFIRM is asked about too.
 - **No file specification:** `Enter filename: ` (ours, as TYPE), an empty line ends it.
 - **Errors:** `Missing delimiter or Unrecognized Option` (Appendix A) for any other option or a second name,
-  `Invalid file specification.` for one 152 refuses.
+  `Invalid file specification.` for one 152 refuses, `Drive Read Only` (Appendix A) for a read-only drive (29,
+  before each 19), else the BDOS's.
 
 **RENAME** (5-81 to 5-83; `RENAME.COM`): `RENAME {new-filespec=old-filespec}`.
 
 - **Names without wildcards:** the built-in's: the drive rule, `No File`, `Not renamed: NEW.TYP file already
-  exists, delete (Y/N)?`, the BDOS's errors (`File R/O` among them), the same file refused.
+  exists, delete (Y/N)?`, the same file refused; for a read-only drive `Drive Read Only` and for an old file
+  that is read-only `Not renamed, filespec read only.` (Appendix A gives RENAME both; the built-in leaves them
+  to the BDOS), else the BDOS's errors.
 - **Wildcards** (the Guide): the new name's `?`s (after `*` is filled out) must be where the old name's are, else
   `Invalid wildcard.` (Appendix A); each matching file of the current user becomes the new name with the old
   one's characters in the `?` places. The names are read first, then renamed one by one, each asked about if the
-  new name is there already, as above. Each rename done is shown on a line, `NEW.TYP=OLD.TYP` (ours, from the
-  Guide's example after the prompts).
+  new name is there already, as above. Each rename done is shown on a line, `NEW.TYP=OLD.TYP`, as the command
+  is typed (ours: the Guide's example after the prompts shows the old name first, `Y       PRN=X               PRN`,
+  in padded name and type fields; we kept the typed order and the built-in's `NAME.TYP`).
 - **No tail:** `Enter New Name: ` and `Enter Old Name: ` (the Guide), each a line read, then as above, its line
   shown; an empty line ends it.
 - **Errors:** `Incorrect file specification.` (Appendix A) for a form that isn't `new=old` or a specification
-  152 refuses, `No File`.
+  152 refuses, `No File`, and the two read-only messages above.
 
 **SET** (5-86 to 5-94; `SET.COM`): `SET [options]`, `SET d: [options]`, `SET filespec [options]`.
 
@@ -1577,8 +1584,9 @@ saved by `OODOS_UTILS_OUT`).
 [`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
 the choices it left open marked ours):
 
-- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,418, TYPE 4,011, ERASE
-  3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,282, DATE 4,341, DEVICE 5,477, SETDEF 4,526. ld65 links all
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,487, TYPE 4,121, ERASE
+  4,065, RENAME 4,426, SET 6,632, INITDIR 5,109, SHOW 5,351, DATE 4,410, DEVICE 5,546, SETDEF 4,595 (69 bytes each
+  more after the first review: `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1586,12 +1594,15 @@ the choices it left open marked ours):
 - **`util.inc`** grew a section per area: *memory* (`UT_MEM`: from the end of BSS to the TPA's top, the room in
   A/X); *files* (`UT_FDRIVE`, the drive a specification names; `UT_ISWILD`; `UT_PWSET`, a password to the DMA
   buffer; `UT_NAMES` and `UT_NNEXT`, a wildcard's names read into memory first, then taken one by one, since a file
-  call between 17 and 18 ends the search; `UT_SAID`, after an error the BDOS said, so nothing more is owed);
+  call between 17 and 18 ends the search; `UT_SAID`, after an error the BDOS said, so nothing more is owed; `UT_ISRO`, a drive read-only by 29, for ERASE's and RENAME's `Drive Read Only`);
   *the system* (`UT_OAT`, an option list wherever it is in the tail; `UT_OCLOSE`; `UT_SCBGET`, `UT_SCBSET`,
   `UT_SCBSETW`/`UT_SCBW`, the SCB by 49; `UT_BIOS`/`UT_BPB`, a BIOS call by 50).
 - **For all of them (ours):** the tail is parsed and checked before anything is changed; the return code is `$FF00`
-  after any message, `No directory label exists.` and `No File` among them; a drive is given in the FCB's byte, so
-  the current drive is never changed; after a BDOS error a utility goes on with the next file, if there is one, and
+  after any message, `No directory label exists.` and `No File` among them; a specification whose delimiter has
+  nothing after it but blanks and option lists (`ERASE X.TXT,`, `RENAME A=B=`) is refused as a bad one, the
+  utility's message for a specification 152 refuses (`UT_SPEC`); TYPE, ERASE and RENAME give a drive in the FCB's
+  byte and leave the current drive alone, DIR, SET, INITDIR and SHOW select the drive they work on (14), and every
+  utility's end (`UT_END`) selects the one current at its start again (14); after a BDOS error a utility goes on with the next file, if there is one, and
   the code is `$FF00`; a ^C is `$FFFE`.
 - **DIR** (functions 14, 17, 18, 24, 25, 26, 31, 32, 45, 49 for `$1A`, `$1C`, `$2C`, `$38`, 5, 108, 109). Its records
   go from its BSS to the TPA's top, about 40 KB, some 1,190 files a drive. **Ours:** `$FF00` after any error, any
@@ -1614,19 +1625,29 @@ the choices it left open marked ours):
   first. **Decided (2026-10-31, the user's):** `DRIVE=ALL` is the logged-in drives (function 24): the Guide's Table
   5-5 says "all accessed drives" and its example the drives of the search chain, and the table was followed. It is
   one routine, `ALLDRVS` in `dir.s`.
-- **TYPE** (15, 20, 17, 18, 49, 109, 2; all the files utilities use 26, 45, 108, 152). **Ours:** `[PAGE=x]`, a second
+- **Every utility's calls** through `cmd.inc` and `util.inc`: 25 and 45 at the start, 14 at the end, 108 for the
+  return code; 2, 6, 9, 11 and 109 for writing, paging and a ^C, 49 for the SCB's page mode and length, 10 for a
+  line read (a prompt, a Y/N answer), 152 for a file specification, 26 and 17, 18 for a wildcard's names. The
+  lists below are each utility's own besides.
+- **TYPE** (15, 20, 49). **Ours:** `[PAGE=x]`, a second
   list or one not closed is `Try 'PAGE' or 'NO PAGE'`; of `PAGE` and `NOPAGE` the last given wins; a second
-  specification is `Invalid file specification.`; asked for (`Enter filename: `) once, an empty line ending it, and
+  specification is `Invalid file specification.`; `Invalid drive.` only for a letter past P before a `:` (a drive
+  that isn't, `H:`, is the BDOS's `Invalid Drive`); asked for (`Enter filename: `) once, an empty line ending it, and
   options typed in that line taken; a wildcard's names are read first, the current user's SYS files among them,
   each name line with its drive; a file that doesn't end in LF owes a line before the next name; the password given
   is used for every file; a page length under 2 never stops.
-- **ERASE** (19, 17, 18). **Ours:** `[CONFIRM=1]`, a second list or one not closed is `Missing delimiter or
+- **ERASE** (19, 26, 29). **Ours:** `[CONFIRM=1]`, a second list or one not closed is `Missing delimiter or
   Unrecognized Option`; the drive is always in CONFIRM's question, which ends with a blank (the built-in's wildcard
-  question has none); a single name with CONFIRM is asked about too.
-- **RENAME** (17, 19, 23). **Ours:** any option list, a blank name, two drives, more or fewer than two names, a
-  specification 152 refuses, and new the same file as old (`*.TXT=*.TXT` too) are `Incorrect file specification.`
-  (where the built-in says the command and `?`); an N leaves `$FF00`; the `NEW=OLD` line has no drive; a wildcard's
-  `?` places must be exactly the same, else `Invalid wildcard.`
+  question has none); a single name with CONFIRM is asked about too; `Drive Read Only` is checked by 29 just before
+  each 19 (after a wildcard's question, at CONFIRM's first Y) and ends ERASE, so it covers a drive made read-only
+  by 28 (SET) or found so by an earlier write; a write-protected unit not yet written is still the BDOS's `Read
+  Only`.
+- **RENAME** (17, 19, 23, 26, 29). **Ours:** any option list (in the tail or a line asked for), a blank name, two
+  drives, more or fewer than two names, a specification 152 refuses, and new the same file as old (`*.TXT=*.TXT`
+  too) are `Incorrect file specification.` (where the built-in says the command and `?`); an N leaves `$FF00`; the
+  `NEW=OLD` line has no drive; a wildcard's `?` places must be exactly the same, else `Invalid wildcard.`; for each
+  file, before anything else, a read-only drive (29) is `Drive Read Only` and ends RENAME, and an old file with
+  t1' set (17) is `Not renamed, filespec read only.`, on to the next; any other refusal of 23 is the BDOS's.
 - **SET** (152, 14, 17, 18, 26, 28, 30, 31, 32, 37, 49, 100, 101, 103, 106, 108, 109). **Ours:** everything checked
   before anything changes; a drive's options done in the order `DEFAULT`, `RW`, the label's options as given, `RO`;
   a file's 30 before its 103; one 100 for each label option, an option given twice taking its first place and last
