@@ -21,7 +21,9 @@
 ; and the sort grow as the square of the files; a ^C stops either.
 ;
 ; Lines are separated by CM_EOL (cmd.inc), so the last is ended by the
-; prompt's CR LF; EOL here also counts them for LENGTH's headings.
+; prompt's CR LF. Each line begins with LINE (NEWLN, NEEDLN, SEPLN), which
+; counts it, and at a page's stop or LENGTH='s count starts the page or
+; sheet with the column heading.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -117,10 +119,18 @@ FAILED:         .res    1              ; 1: the return code $FF00
 FOUNDANY:       .res    1
 SEARCHED:       .res    1              ; 1: a drive's directory was read
 ANYOUT:         .res    1              ; 1: a group or message written
-LCOUNT:         .res    2              ; lines since the last heading
-DUE:            .res    1              ; 1: a heading before the next file line
-HDRJUST:        .res    1              ; 1: the heading the last line written
+LCOUNT:         .res    2              ; lines on the sheet (LENGTH='s)
+TOP:            .res    1              ; 1: a page or sheet begun, nothing on it yet
+SEEN:           .res    1              ; 1: and it shows: a stop, or a form feed sent
+TABLE:          .res    1              ; 1: in a group under its column heading
+INHDR:          .res    1              ; 1: the column heading being written
+PAGEN:          .res    1              ; lines a page, 0: none (or too few)
+HEADOK:         .res    1              ; 1: the heading fits a page, with a line
 VARSEND:
+NEED:           .res    1              ; LINE's lines to keep together
+SEPF:           .res    1              ; 1: LINE's line a blank that separates
+SUM:            .res    2
+OPENK:          .res    1
 LISTK:          .res    1              ; UT_OPTS's answer
 CURUSR:         .res    1
 CURD:           .res    1              ; the drive listed
@@ -231,6 +241,7 @@ START:          JSR     UT_INIT
                 BNE     @rc
                 LDA     SEARCHED
                 BEQ     @rc
+                LDA     #1
                 JSR     SEPAR
                 SAYS    S_NOFILE
                 LDA     #1
@@ -524,7 +535,7 @@ SPECDRVS:       LDA     NSPEC
                 BNE     @spec
                 RTS
 
-; Paging, LENGTH's default, the printer's form feed, the names a line, the
+; Paging, the heading's room on a page, the printer's form feed, the names a line, the
 ; room for records.
 SETUP:          JSR     CM_PAGE
                 LDA     FLAGS + O_NOPAGE
@@ -534,15 +545,16 @@ SETUP:          JSR     CM_PAGE
                 LDA     HASLEN
                 BNE     @paged
 @nopage:        STZ     CM_PLEN
-@paged:         LDA     HASLEN         ; no LENGTH=: a heading each page, when paged,
-                BNE     @len           ; and LENGTH='s least, 5, for a short page
+@paged:         STZ     PAGEN          ; a page of under 4 lines: the heading and
+                LDA     #1             ; a file don't fit, so not written again
+                STA     HEADOK
                 LDA     CM_PLEN
-                BEQ     @deflen
-                CMP     #5
-                BCS     @deflen
-                LDA     #5
-@deflen:        STA     LENGTH
-                STZ     LENGTH + 1
+                BEQ     @len
+                CMP     #4
+                BCS     @plen
+                STZ     HEADOK
+                BRA     @len
+@plen:          STA     PAGEN
 @len:           LDA     #SCB_ECHO
                 JSR     SCBGET
                 STA     ECHO
@@ -672,6 +684,7 @@ DODRIVE:        LDA     CM_EOLDUE      ; a line owed is held back: if the select
 ; A drive's message on a line of its own.
 DRVMSG:         PHA
                 PHX
+                LDA     #1
                 JSR     SEPAR
                 PLX
                 PLA
@@ -1273,7 +1286,12 @@ GROUP:          STZ     GOPEN
                 LDA     GOPEN
                 BNE     @open
                 INC     GOPEN
-                JSR     OPENHDR
+                LDA     #1             ; kept with the heading: SIZE's first line,
+                LDX     FORMAT         ; or the column heading and the first file
+                CPX     #FM_SIZE
+                BEQ     @size
+                LDA     #4
+@size:          JSR     OPENHDR
                 LDA     FORMAT
                 CMP     #FM_SIZE
                 BEQ     @open
@@ -1288,6 +1306,7 @@ GROUP:          STZ     GOPEN
                 JMP     CLOSEGRP
 @none:          LDA     FLAGS + O_MSG
                 BEQ     @done
+                LDA     #1             ; kept with it: No File
                 JSR     OPENHDR
                 LDA     #1
                 STA     FAILED
@@ -1334,19 +1353,29 @@ LISTED:         LDA     (RP)
 @no:            CLC
                 RTS
 
-; A line before the group's heading if anything is written already.
-SEPAR:          LDA     FORMAT
-                CMP     #FM_SHORT
+; A blank line before a group's heading or a message, if anything is
+; written already, and not at a page's top; A the lines to keep with it.
+SEPAR:          LDX     FORMAT
+                CPX     #FM_SHORT
                 BEQ     @done
-                LDA     ANYOUT
+                LDX     ANYOUT
                 BEQ     @first
-                JSR     BLANK
+                INC     A
+                JSR     SEPLN
+                BCS     @first
+                JSR     EOL
 @first:         LDA     #1
                 STA     ANYOUT
 @done:          RTS
 
-; "Directory For Drive A:  User  0" and a blank line.
-OPENHDR:        JSR     SEPAR
+; "Directory For Drive A:  User  0" and a blank line, kept with the A
+; lines after them.
+OPENHDR:        CLC
+                ADC     #2
+                STA     OPENK
+                JSR     SEPAR
+                LDA     OPENK
+                JSR     NEEDLN
                 PUTS    S_DIRFOR
                 LDA     CURD
                 JSR     UT_PUTDRV
@@ -1356,23 +1385,31 @@ OPENHDR:        JSR     SEPAR
                 JSR     EOL
                 JMP     BLANK
 
-; FULL's or DATE's column headings, dashes and a blank line.
-TABHDR:         LDA     FORMAT
+; FULL's or DATE's column headings, dashes and a blank line, kept with a
+; file's line; then the group's table under it (TABLE).
+TABHDR:         LDA     #1
+                STA     INHDR
+                LDA     #4
+                JSR     NEEDLN
+                LDA     FORMAT
                 CMP     #FM_DATE
                 BEQ     @date
                 PUTS    S_FHEAD
                 JSR     PUTOTHER
                 JSR     EOL
+                JSR     NEWLN
                 PUTS    S_FDASH
                 BRA     @end
 @date:          PUTS    S_DHEAD
                 JSR     PUTOTHER
                 JSR     EOL
+                JSR     NEWLN
                 PUTS    S_DDASH
 @end:           JSR     EOL
                 JSR     BLANK
-                LDA     #1             ; (EOL clears it: a line since)
-                STA     HDRJUST
+                STZ     INHDR
+                LDA     #1
+                STA     TABLE
                 RTS
 
 ; The last column's heading: Access when the label asks for access stamps,
@@ -1421,25 +1458,8 @@ ONEFILE:        LDY     #R_BLKS        ; kilobytes: blocks << BSHIFT
                 CMP     #FM_SIZE
                 BNE     @line
                 JMP     ITEM
-@line:          LDA     DUE            ; LENGTH's lines since the heading: again
-                BEQ     @name
-                JSR     CM_FLUSH       ; (a stop, a form feed at the new line's start)
-                LDA     FLAGS + O_FF
-                BEQ     @noff
-                LDA     ECHO
-                BEQ     @noff
-                JSR     LSTFF          ; a new sheet: the heading on it
-                BRA     @head
-@noff:          LDA     HDRJUST        ; due on the heading's own last line: not
-                BEQ     @head          ; again, unless a stop just began a page
-                LDA     CM_PLEN
-                BEQ     @skip
-                LDA     CM_LINES
-                BEQ     @head
-@skip:          STZ     DUE
-                BRA     @name
-@head:          JSR     TABHDR
-@name:          JSR     PUTNAME
+@line:          JSR     NEWLN
+                JSR     PUTNAME
                 LDA     FORMAT
                 CMP     #FM_DATE
                 BEQ     @stamps
@@ -1483,6 +1503,7 @@ ADDTO:          PHA
 ; kilobytes): the drive first, " : " between, a line ended when full.
 ITEM:           LDA     COL
                 BNE     @sep
+                JSR     NEWLN
                 LDA     CURD
                 JSR     UT_PUTDRV
                 JSR     BLANK1
@@ -1581,7 +1602,12 @@ PUTPROT:        LDA     HASLBL
 CLOSEGRP:       LDA     COL            ; SIZE's last line
                 BEQ     @totals
                 JSR     EOL
-@totals:        JSR     BLANK
+@totals:        LDA     #3             ; the blank and the totals together
+                JSR     SEPLN
+                BCS     @bytes
+                JSR     EOL
+@bytes:         LDA     #2
+                JSR     NEEDLN
                 PUTS    S_TBYTES
                 LDA     #<TKB
                 LDX     #>TKB
@@ -1600,6 +1626,7 @@ CLOSEGRP:       LDA     COL            ; SIZE's last line
                 LDY     #4
                 JSR     PUTAX
                 JSR     EOL
+                JSR     NEWLN
                 PUTS    S_TBLKS
                 LDA     #<TBLK
                 LDX     #>TBLK
@@ -1638,7 +1665,9 @@ CLOSEGRP:       LDA     COL            ; SIZE's last line
                 PLA
                 LDY     #4
                 JSR     PUTAX
-                JMP     EOL
+                JSR     EOL
+                STZ     TABLE          ; the group's last line
+                RTS
 
 ; ---- writing -------------------------------------------------------------
 
@@ -1661,37 +1690,140 @@ PUTA3:          LDX     #0
 BLANK1:         LDA     #' '
                 JMP     CM_PUTC
 
-; A line ended (owed: CM_EOL) and counted: at LENGTH's count a heading is
-; due, written before the next file line (and not if another line comes
-; first), so with paging's default the heading starts each page.
-EOL:            JSR     CM_EOL
-                STZ     DUE
-                STZ     HDRJUST
+; A line ended, owed (CM_EOL): the next line's LINE ends it.
+EOL:            JMP     CM_EOL
+
+; An empty line.
+BLANK:          JSR     NEWLN
+                JMP     EOL
+
+; The '$' string at A/X on a line.
+SAYLN:          PHA
+                PHX
+                JSR     NEWLN
+                PLX
+                PLA
+                JSR     CM_PUTS
+                JMP     EOL
+
+; A line begins: every line DIR writes starts here. The line owed is ended
+; (paging counts it, and its stop may come); then a page or sheet is begun
+; if the lines to keep together (NEED, this one among them, and the column
+; heading's 3 when one is to come) don't fit the rest of it: LENGTH='s
+; count (the sheet: a form feed with FF and the printer echo on) or the
+; page (CM_STOP). At a page's or sheet's top, in a group's table, the
+; column heading is written first; a blank that separates (SEPLN) is left
+; out instead where the top shows (a stop, a form feed): carry set. The
+; line counted (carry clear).
+NEWLN:          LDA     #1
+NEEDLN:         STA     NEED
+                STZ     SEPF
+                BRA     LINE
+SEPLN:          STA     NEED
+                LDA     #1
+                STA     SEPF
+LINE:           LDA     CM_EOLDUE
+                PHA
+                JSR     CM_FLUSH
+                PLA
+                BEQ     @sheet
+                LDA     CM_PLEN        ; a line ended and the count begun again:
+                BEQ     @sheet         ; paging's stop came
+                LDA     CM_LINES
+                BNE     @sheet
+                LDA     #1
+                STA     TOP
+                STA     SEEN
+@sheet:         JSR     SHEET
+                LDA     PAGEN          ; the page
+                BEQ     @top
+                LDA     CM_LINES
+                BEQ     @top
+                JSR     WANT
+                CLC
+                ADC     CM_LINES
+                BCS     @stop
+                CMP     PAGEN
+                BEQ     @top
+                BCC     @top
+@stop:          JSR     CM_STOP
+                LDA     #1
+                STA     TOP
+                STA     SEEN
+                JSR     SHEET          ; the sheet again, the heading now to come
+@top:           LDA     TOP
+                BEQ     @count
+                LDA     SEPF
+                BEQ     @head
+                LDA     SEEN           ; a blank at a top that shows: left out
+                BEQ     @count
+                SEC
+                RTS
+@head:          JSR     HEADS
+                BEQ     @count
+                JSR     TABHDR         ; (its own lines through LINE)
+                JSR     CM_FLUSH
+@count:         STZ     TOP
+                STZ     SEEN
                 INC     LCOUNT
-                BNE     @len
+                BNE     @done
                 INC     LCOUNT + 1
-@len:           LDA     LENGTH
+@done:          CLC
+                RTS
+
+; A: NEED, and the column heading's 3 if it is to come (at the top).
+WANT:           LDA     TOP
+                BEQ     @need
+                JSR     HEADS
+                BEQ     @need
+                LDA     NEED
+                CLC
+                ADC     #3
+                RTS
+@need:          LDA     NEED
+                RTS
+
+; Z clear: the column heading goes at a page's or sheet's top here.
+HEADS:          LDA     TABLE
+                BEQ     @done
+                LDA     INHDR
+                BNE     @no
+                LDA     HEADOK
+@done:          RTS
+@no:            LDA     #0
+                RTS
+
+; LENGTH='s sheet: begun if the lines wanted don't fit the rest of it
+; (none on it yet: they go on it), a form feed sent (FF, the echo on).
+SHEET:          LDA     LENGTH
                 ORA     LENGTH + 1
                 BEQ     @done
                 LDA     LCOUNT
-                CMP     LENGTH
-                BNE     @done
+                ORA     LCOUNT + 1
+                BEQ     @done
+                JSR     WANT
+                CLC
+                ADC     LCOUNT
+                STA     SUM
                 LDA     LCOUNT + 1
-                CMP     LENGTH + 1
-                BNE     @done
+                ADC     #0
+                STA     SUM + 1
+                LDA     LENGTH         ; LENGTH >= the lines: they fit
+                CMP     SUM
+                LDA     LENGTH + 1
+                SBC     SUM + 1
+                BCS     @done
                 STZ     LCOUNT
                 STZ     LCOUNT + 1
                 LDA     #1
-                STA     DUE
+                STA     TOP
+                LDA     FLAGS + O_FF
+                BEQ     @done
+                LDA     ECHO
+                BEQ     @done
+                STA     SEEN
+                JMP     LSTFF
 @done:          RTS
-
-; An empty line: the one owed ended, another owed.
-BLANK:          JSR     CM_FLUSH
-                JMP     EOL
-
-; The '$' string at A/X, then the line ended.
-SAYLN:          JSR     CM_PUTS
-                JMP     EOL
 
 .rodata
 ; The most bytes the records and their pointers take: all the TPA has. A

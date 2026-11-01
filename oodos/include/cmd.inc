@@ -48,6 +48,8 @@
 ;               (CM_MODE|5: off the printer echo), and CM_PAGE's mode
 ;               (CM_MODE|1) is set again after, so a mode a program sets
 ;               itself while paged is undone at the next stop
+;   CM_STOP     CM_LINE's stop now, at a line's start, whatever the count;
+;               the count begun again (DIR's, to keep lines on one page)
 ;   CM_BRK      a ^C waiting? CMD_BREAK. Another key is left alone: a
 ;               key is taken only in console mode bit 0 (CM_PAGE's), where
 ;               11 reports only ^C; without it, nothing is taken
@@ -198,7 +200,7 @@ CM_LINE:        LDA     CM_PLEN
                 LDA     CM_LINES
                 CMP     CM_PLEN
                 BCC     CM_BRK
-                STZ     CM_LINES
+CM_STOP:        STZ     CM_LINES
                 LDA     CM_MODE        ; raw output: the stop not on the printer echo
                 ORA     #5
                 LDX     CM_MODE + 1
