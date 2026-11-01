@@ -30,7 +30,8 @@
  *     made small, as an RSX below the BDOS would), the BIOS's read and
  *     write failing on a card's drive; nothing written when the moves
  *     find no place or the drive's reset fails; a re-format a write error
- *     stopped, at four points, finished by the next INITDIR.
+ *     stopped, at five points, and a recover, finished by the next INITDIR;
+ *     SET's label options on a read-only drive refused before anything.
  */
 
 #include "harness.h"
@@ -235,6 +236,25 @@ namespace
             return MemoryMedia::write(lba, in);
         }
     };
+
+    /// The card made a FaultyMedia, A.IMG and B.IMG mounted again and OODOS booted (cold boot
+    /// formats M: again), SET and INITDIR on M:, A: logged in (the CCP's warm boot needs it).
+    std::shared_ptr<FaultyMedia> faulty(CcpRig &r)
+    {
+        auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
+        r.media = fm;
+        r.sd().insert(fm, false);
+        r.run(ms(SdCard::INIT_MS + 10));
+        const bool up = r.mount(1, "/OODOS/A.IMG") == 0 && r.mount(2, "/OODOS/B.IMG") == 0 && r.boot();
+        CHECK(up);
+        if (!up)
+            return nullptr;
+        r.entry = 0;
+        r.block = M_DIRBLOCKS;
+        tools(r);
+        same(r.cmd("dir a:x"), "dir a:x\r\nNo File\r\nA>"); // (M: first on the chain: the search doesn't)
+        return fm;
+    }
 
     /// A sector of a card's unit written by the card's WRITE, behind OODOS's back.
     void write_unit(CcpRig &r, unsigned unit, uint32_t lba, const std::vector<uint8_t> &s)
@@ -529,6 +549,12 @@ TEST(set_changes_no_default_password_when_the_labels_checks_fail)
     same(r.cmd("wrong"), "wrong\r\nWrong Password\r\nA>");
     CHECK(!succeeded(r));
     CHECK(r.cmd("type m:one.txt").find("OODOS Error On M: Password Error") != std::string::npos);
+    // A read-only drive (28): Drive Read Only before the password is asked, the default not set
+    same(run(r, "set m: [ro]"), "M: set to Read Only (RO)");
+    same(run(r, "set m: [default=secret, name=other]"), "Drive Read Only");
+    CHECK(!succeeded(r));
+    CHECK(r.cmd("type m:one.txt").find("OODOS Error On M: Password Error") != std::string::npos);
+    same(run(r, "set m: [rw]"), "M: set to Read Write (RW)");
     CHECK(mdir(r) == before);
     // Right: the label renamed, then the default set
     REQUIRE(!r.to("set m: [default=secret, name=other]", "Password: ").empty());
@@ -931,21 +957,11 @@ TEST(initdir_says_the_bioss_read_and_write_errors_and_leaves_the_card_as_it_was)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
-    r.media = fm;
-    r.sd().insert(fm, false);
-    r.run(ms(SdCard::INIT_MS + 10));
-    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
-    REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
-    REQUIRE(r.boot()); // cold boot formats M: again
-    r.entry = 0;
-    r.block = M_DIRBLOCKS;
-    tools(r);
+    const auto fm = faulty(r);
+    REQUIRE(fm);
     CpmDisk b{r, 2};
     const std::vector<uint8_t> card = fm->bytes(), dir = b.directory();
     REQUIRE(dir[3 * 32] == 0x21); // mkfs.cpm -t's: SFCBs
-    // A: logged in first, as the CCP's warm boot needs it (M: first on the chain: the search doesn't)
-    same(r.cmd("dir a:x"), "dir a:x\r\nNo File\r\nA>");
     // Its reads failing once the question is answered
     REQUIRE(!r.to("initdir b:", "(Y/N)? ").empty());
     fm->rfail = true;
@@ -1032,25 +1048,18 @@ TEST(initdir_finishes_a_re_format_a_write_error_stopped)
     // B: (a card's: its writes can fail) without SFCBs: sector 0 and 1's entries in use but 5 and
     // 21, so the eight in SFCB places move to 5, 21 and sector 2's 32-38: three writes, then the 64
     // sectors' SFCBs. A write fails after k: 0 (nothing written), 1 (the moves half made), 3 (the
-    // moves made, sector 0's SFCBs not), 5 (sectors 0 and 1's SFCBs made). INITDIR says so, and run
-    // again it finishes the job: nothing lost, nothing twice.
-    for (const int k : {0, 1, 3, 5})
+    // moves made, sector 0's SFCBs not), 4 (sector 0's SFCBs made, sector 1's places still the
+    // originals, each with its copy outside: both the partly test and the copies decide), 5
+    // (sectors 0 and 1's SFCBs made). INITDIR says so, and run again it finishes the job: nothing
+    // lost, nothing twice.
+    for (const int k : {0, 1, 3, 4, 5})
     {
         std::printf("  a write failing after %d\n", k);
         CcpRig r;
         REQUIRE(r.ok);
-        auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
-        r.media = fm;
-        r.sd().insert(fm, false);
-        r.run(ms(SdCard::INIT_MS + 10));
-        REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
-        REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
-        REQUIRE(r.boot());
-        r.entry = 0;
-        r.block = M_DIRBLOCKS;
-        tools(r);
+        const auto fm = faulty(r);
+        REQUIRE(fm);
         CpmDisk b{r, 2};
-        same(r.cmd("dir a:x"), "dir a:x\r\nNo File\r\nA>");
         // B:'s SFCBs taken away first (INITDIR's own), then its first 32 entries written
         REQUIRE(!r.to("initdir b:", "(Y/N)? ").empty());
         same(r.cmd("y"), "y\r\r\nA>");
@@ -1091,10 +1100,13 @@ TEST(initdir_finishes_a_re_format_a_write_error_stopped)
             CHECK(partly == before);
         if (k == 1) // F03 at 5 and in 3 too
             CHECK(std::equal(partly.begin() + 3 * 32, partly.begin() + 4 * 32, partly.begin() + 5 * 32));
-        CHECK_EQ(partly[3 * 32], k == 5 ? 0x21 : before[3 * 32]);
+        CHECK_EQ(partly[3 * 32], k >= 4 ? 0x21 : before[3 * 32]);
+        if (k == 4) // sector 1's places the originals still
+            for (unsigned i = 19; i < 32; i += 4)
+                CHECK(std::equal(partly.begin() + i * 32, partly.begin() + i * 32 + 32, before.begin() + i * 32));
         // Again: the rest done
         const std::string q = r.to("initdir b:", "(Y/N)? ");
-        same(q, std::string("initdir b:\r\n") + (k == 5 ? "Directory partly re-formatted.\r\n" : "") +
+        same(q, std::string("initdir b:\r\n") + (k >= 4 ? "Directory partly re-formatted.\r\n" : "") +
                     "INITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
                     "Do you really want to re-format the directory: B (Y/N)? ");
         fm->writes = 0;
@@ -1107,6 +1119,85 @@ TEST(initdir_finishes_a_re_format_a_write_error_stopped)
         same(r.cmd("dir b:f1*.*").substr(0, 22), "dir b:f1*.*\r\nB: F10   ");
     }
 }
+
+TEST(initdir_finishes_a_recover_a_write_error_stopped)
+{
+    // B: (a card's: its writes can fail) with mkfs.cpm -t's SFCBs, recovered: its 64 sectors written,
+    // sector 0 first. A write fails after k: 0 (nothing written), 1 (sector 0's SFCBs free: entry 3
+    // free, the BDOS then seeing no SFCBs), 40. Run again, INITDIR finds SFCBs in places but not
+    // entry 3, says so and asks to recover first: N goes on to the re-format's question, Y finishes.
+    for (const int k : {0, 1, 40})
+    {
+        std::printf("  a write failing after %d\n", k);
+        CcpRig r;
+        REQUIRE(r.ok);
+        const auto fm = faulty(r);
+        REQUIRE(fm);
+        CpmDisk b{r, 2};
+        const std::vector<uint8_t> before = b.directory();
+        REQUIRE(before[0] == 0x20 && before[3 * 32] == 0x21);
+        std::vector<uint8_t> want = before;
+        for (unsigned i = 3; i < b.entries(); i += 4)
+            std::fill(want.begin() + i * 32, want.begin() + i * 32 + 32, 0xE5);
+        want[12] &= 0x8F;
+        const std::string have = "Directory already re-formatted.\r\n"
+                                 "Do you wish to recover date/time directory space (Y/N)? ";
+        if (k == 1)
+        {
+            // Clearing the stamps isn't a re-format: a write error there says only that
+            same(r.to("initdir b:", "(Y/N)? "), "initdir b:\r\n" + have);
+            REQUIRE(!r.to("n", "(Y/N)? ").empty());
+            fm->wleft = 1;
+            same(r.cmd("y"), "y\r\nDisk Write Error\r\nA>");
+            fm->wleft = -1;
+            CHECK(!succeeded(r));
+            std::vector<uint8_t> cleared = before; // sector 0's slots' stamps 0, the rest as it was
+            for (unsigned i = 3; i < 16; i += 4)
+                for (unsigned k3 = 0; k3 < 3; ++k3)
+                    std::fill(cleared.begin() + i * 32 + 1 + 10 * k3, cleared.begin() + i * 32 + 1 + 10 * k3 + 8, 0);
+            CHECK(b.directory() == cleared);
+        }
+        same(r.to("initdir b:", "(Y/N)? "), "initdir b:\r\n" + have);
+        fm->writes = 0;
+        fm->wleft = k;
+        same(r.cmd("y"), k ? "y\r\nDisk Write Error\r\nDirectory partly re-formatted: run INITDIR again.\r\nA>"
+                           : "y\r\nDisk Write Error\r\nA>");
+        fm->wleft = -1;
+        CHECK_EQ(fm->writes, static_cast<unsigned>(k));
+        CHECK(!succeeded(r));
+        const std::vector<uint8_t> partly = b.directory();
+        const size_t done = static_cast<size_t>(k) * SECTOR; // sectors 0 to k-1 recovered, the rest not
+        CHECK(std::equal(partly.begin(), partly.begin() + static_cast<long>(done), want.begin()));
+        CHECK(std::equal(partly.begin() + static_cast<long>(done), partly.end(), before.begin() + static_cast<long>(done)));
+        // Again
+        const std::string q = r.to("initdir b:", "(Y/N)? ");
+        if (k == 0)
+            same(q, "initdir b:\r\n" + have);
+        else
+            same(q, "initdir b:\r\nDirectory partly re-formatted.\r\n"
+                    "Do you wish to recover date/time directory space (Y/N)? ");
+        if (k == 40)
+        {
+            // N: the re-format offered instead (N again: nothing); then the recover asked for again
+            same(r.to("n", "(Y/N)? "), "n\r\nINITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                                        "Do you really want to re-format the directory: B (Y/N)? ");
+            same(r.cmd("n"), "n\r\r\nA>");
+            CHECK(b.directory() == partly);
+            REQUIRE(!r.to("initdir b:", "(Y/N)? ").empty());
+        }
+        fm->writes = 0;
+        same(r.cmd("y"), "y\r\r\nA>");
+        CHECK(succeeded(r));
+        CHECK_EQ(fm->writes, 64u);
+        CHECK(b.directory() == want);
+        // The BDOS sees no SFCBs, and INITDIR offers to make them, nothing partly
+        same(run(r, "set b: [create=on]"), "Directory needs to be reformatted for date/time stamps.");
+        same(r.to("initdir b:", "(Y/N)? "), "initdir b:\r\nINITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                                             "Do you really want to re-format the directory: B (Y/N)? ");
+        same(r.cmd("n"), "n\r\r\nA>");
+    }
+}
+
 
 int main()
 {

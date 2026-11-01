@@ -28,7 +28,11 @@
 ; finished by the next INITDIR: an entry in an SFCB's place with a copy
 ; already outside them isn't moved again, and a directory whose entry 3
 ; is an SFCB but another place isn't is one without SFCBs ("Directory
-; partly re-formatted.", then the question).
+; partly re-formatted.", then the question). A recover is tracked the same
+; way: one a write error stopped leaves entry 3 free and later places still
+; SFCBs, and the next INITDIR, finding an SFCB in a place but not in entry
+; 3, says "Directory partly re-formatted." and asks to recover first (Y
+; finishes it; N goes on to the re-format's question).
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -55,6 +59,7 @@ R:              .res    2              ; an entry an SFCB's slot is for
 START:          JSR     UT_INIT
                 STZ     MAKING
                 STZ     WROTE
+                STZ     NOSF
                 LDA     #<FCB          ; d: and nothing else
                 LDX     #>FCB
                 JSR     UT_SPEC
@@ -131,8 +136,10 @@ START:          JSR     UT_INIT
                 JSR     UT_SFCBS
                 BCS     QUIT
                 CMP     #0
-                BEQ     MAKE
-                JSR     PARTLY
+                BNE     @have
+                INC     NOSF           ; entry 3 not an SFCB
+                BRA     MAKE
+@have:          JSR     PARTLY
                 BCS     @partly
                 JMP     HAVE
 @partly:        LDA     #<SPARTLY
@@ -150,7 +157,18 @@ FAIL:           JSR     UT_SAY
 ; ---- a directory without SFCBs -------------------------------------------
 
 MAKE:           JSR     LOOK
-                LDA     NENT + 1       ; room: in use <= three quarters
+                LDA     HALF           ; an SFCB in a place but not in entry 3:
+                AND     NOSF           ; a recover a write error stopped
+                BEQ     @room0
+                LDA     #<SPARTLY
+                LDX     #>SPARTLY
+                JSR     UT_SAY
+                LDA     #<SRECOVER
+                LDX     #>SRECOVER
+                JSR     ASKQ
+                BCC     @room0         ; N: on to the re-format
+                JMP     RECOVER
+@room0:         LDA     NENT + 1       ; room: in use <= three quarters
                 LSR     A
                 STA     T + 1
                 LDA     NENT
@@ -369,7 +387,7 @@ SLOTMODE:       LDA     (R)
 ; The directory by 17: USED its entries in use but SFCBs in their places,
 ; each other entry in an SFCB's place kept from UT_MLO up (to MTOP), each
 ; XFCB's user, name and mode from the top down (to XLOW); NOMEM 1 if they
-; didn't fit. Then DUPS.
+; didn't fit; HALF 1 if a place holds an SFCB. Then DUPS.
 LOOK:           JSR     UT_MEM
                 LDA     UT_MLO
                 STA     MTOP
@@ -382,6 +400,7 @@ LOOK:           JSR     UT_MEM
                 STZ     USED
                 STZ     USED + 1
                 STZ     NOMEM
+                STZ     HALF
                 JSR     UT_SCAN
 @entry:         BCC     @look
                 CPX     #0
@@ -399,7 +418,11 @@ LOOK:           JSR     UT_MEM
                 BNE     @used
                 LDA     (P)            ; in an SFCB's place: to move
                 CMP     #E_SFCB
-                BEQ     @x             ; (an SFCB there stays)
+                BNE     @move
+                LDA     #1             ; (an SFCB there stays)
+                STA     HALF
+                BRA     @x
+@move:
                 LDA     #32
                 JSR     ROOM
                 BCS     @used
@@ -483,12 +506,13 @@ DUPS:           LDA     MTOP
                 LDA     R + 1
                 SBC     MTOP + 1
                 BCS     @next
-                LDY     #31
-@cmp:           LDA     (P),Y
+                LDY     #0             ; from the user and name up: they differ
+@cmp:           LDA     (P),Y          ; first, the block pointers' zeros last
                 CMP     (R),Y
                 BNE     @other
-                DEY
-                BPL     @cmp
+                INY
+                CPY     #32
+                BNE     @cmp
                 LDA     #E_FREE        ; its copy: not moved again
                 STA     (R)
                 LDA     USED
@@ -582,17 +606,21 @@ HAVE:           LDA     #<SALREADY
                 LDA     #<SRECOVER
                 LDX     #>SRECOVER
                 JSR     ASKQ
-                BCS     @recover
+                BCS     RECOVER
                 LDA     #<SCLEAR
                 LDX     #>SCLEAR
                 JSR     ASKQ
                 BCS     @clear
                 JMP     UT_EXIT
-@recover:       LDA     #1
-                STA     RECOV
-                BRA     @go
 @clear:         STZ     RECOV
-@go:            JSR     RESET
+                BRA     GO
+
+; Every SFCB freed, its writes tracked as a re-format's (MAKING): a write
+; error once one is made says to run INITDIR again, which finishes it.
+RECOVER:        LDA     #1
+                STA     RECOV
+                STA     MAKING
+GO:             JSR     RESET
                 CMP     #0
                 BEQ     @reset
                 JMP     QUIT           ; the BDOS said why: nothing written
@@ -831,8 +859,10 @@ SLOT:           .res    1
 DIRTY:          .res    1
 RECOV:          .res    1
 DRY:            .res    1              ; 1: the first pass not written
-MAKING:         .res    1              ; 1: SFCBs being made
+MAKING:         .res    1              ; 1: SFCBs being made or recovered
 WROTE:          .res    1              ; 1: and something written
+NOSF:           .res    1              ; 1: entry 3 not an SFCB
+HALF:           .res    1              ; 1: a place holds an SFCB
 T:              .res    2
 PB:             .res    8              ; function 50's parameter block
 BUF:            .res    512            ; a directory sector
