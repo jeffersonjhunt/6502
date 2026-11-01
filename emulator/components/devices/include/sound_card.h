@@ -248,6 +248,8 @@ namespace ooe::emu
         bool frame_enabled() const { return vic_mask_ & FRAMEEN_IRQ; }
         /// $D011/$D012 read the raster line (FRAMEEN bit 1).
         bool raster_shown() const { return vic_mask_ & FRAMEEN_RASTER; }
+        /// The raster line the frame is on (what $D012/$D011 read with FRAMEEN bit 1).
+        unsigned raster_line() const;
 
     private:
         /// What the card's 6510 sees.
@@ -278,8 +280,6 @@ namespace ooe::emu
         bool vic_irq() const { return vic_flags_ & vic_mask_ & 0x01; }
         /// The frame's clock: a frame each FRAME_PAL or FRAME_NTSC SID clocks.
         void vic_tick(unsigned cycles);
-        /// The raster line the frame is on.
-        unsigned raster_line() const;
         void reset_cpu();
         uint64_t now() const;
         /// Clock the SIDs up to now(). Const: the debugger looks through peek().

@@ -398,7 +398,9 @@ namespace ooe::emu
     {
         const bool ntsc = ctrl_ & CTRL_NTSC;
         const uint32_t period = ntsc ? FRAME_NTSC : FRAME_PAL;
-        const uint32_t into = vic_count_ ? period - vic_count_ : 0; // clocks into this frame
+        // Clocks into this frame. A clock switched without RESET can leave more than an NTSC
+        // frame to count (vic_tick counts it out); the line stays at 0 until it is in range.
+        const uint32_t into = vic_count_ && vic_count_ < period ? period - vic_count_ : 0;
         return into / (period / (ntsc ? LINES_NTSC : LINES_PAL));
     }
 

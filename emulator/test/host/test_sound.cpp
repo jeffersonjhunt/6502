@@ -511,6 +511,25 @@ TEST(without_frameen_bit_1_d011_and_d012_read_ff)
     CHECK(!c.raster_shown());
 }
 
+TEST(the_raster_line_stays_in_the_frame_when_ctrl_changes_the_clock)
+{
+    // Early in a PAL frame (19,656 clocks), switch to NTSC (17,095) without RESET.
+    SoundCard c;
+    start(c, 0x1000, {0xA9, 0x02, 0x8D, 0x04, 0xDE, 0x4C, 0x05, 0x10}); // FRAMEEN = 2; JMP *
+    host(c, 2'000ull * SoundCard::NATIVE_HZ / SoundCard::PAL_HZ);
+    c.write(SoundCard::CTRL, SoundCard::CTRL_RUN | SoundCard::CTRL_NTSC);
+    for (unsigned i = 0; i < 400; ++i)
+    {
+        const unsigned line = c.raster_line();
+        const unsigned seen = c.cpu_bus().peek(0xD012) | (c.cpu_bus().peek(0xD011) & 0x80u) << 1;
+        CHECK(line < SoundCard::LINES_NTSC);
+        CHECK_EQ(seen, line);
+        if (line >= SoundCard::LINES_NTSC)
+            break;
+        host(c, 50 * 7);
+    }
+}
+
 TEST(ctrl_reset_restarts_the_6510_and_the_cia)
 {
     SoundCard c;
