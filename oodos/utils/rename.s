@@ -16,10 +16,14 @@
 ;               then as above, each done shown
 ;
 ; Errors: "Incorrect file specification." for a form that isn't new=old
-; (an option list, a blank name, two drives, more or fewer names: ours), a
+; (an option list, in the tail or a line asked for, a blank name, two
+; drives, more or fewer names, a delimiter with nothing after it: ours), a
 ; specification 152 refuses, and new the same file as old once the drive
 ; is decided (ours, as the built-in refuses it: a Y to delete new would
-; delete old); No File; the BDOS's said (error mode $FE). The return code:
+; delete old); No File; the Guide's "Drive Read Only" for a read-only
+; drive (29, before anything is changed, the end) and "Not renamed,
+; filespec read only." for old read-only (on to the next); else the
+; BDOS's said (error mode $FE). The return code:
 ; $FF00 after an error, No File, or a file not renamed.
 
         .setcpu "65C02"
@@ -208,8 +212,36 @@ wild:   ldx     #10
         bra     @next
 
 ; Rename oname to nname on the drive: new there already asked about first.
-; Shown when done, if shown is set.
-one:    lda     #<nname
+; Shown when done, if shown is set. First the Guide's own messages: a
+; read-only drive (29) is Drive Read Only, the end; old read-only (t1') is
+; not renamed.
+one:    lda     drive
+        jsr     UT_FDRIVE
+        jsr     UT_ISRO
+        bcc     @rw
+        lda     #<sro
+        ldx     #>sro
+        jmp     failsay
+@rw:    lda     #<oname
+        ldx     #>oname
+        jsr     search
+        bcc     @found
+        cmp     #0
+        beq     @new                    ; not there: 23 says so
+        rts                             ; said
+@found: asl     a                       ; its entry in UT_REC, 32 bytes each
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        tax
+        lda     UT_REC + 9,x
+        bpl     @new
+        lda     #<snotro
+        ldx     #>snotro
+        jsr     UT_SAY
+        jmp     UT_FAIL
+@new:   lda     #<nname
         ldx     #>nname
         jsr     search
         bcc     @exists
@@ -322,9 +354,11 @@ search: jsr     setw
 
 ; A name asked for: the prompt at A/X, the line's specification to got. An
 ; empty line, or none in it, ends RENAME; anything but one specification
-; is incorrect.
+; (an option list too, as in the tail) is incorrect.
 askone: jsr     UT_READ
         beq     @end
+        jsr     UT_OPTS
+        bne     @bad                    ; no options, as in the tail
         lda     #<got
         ldx     #>got
         jsr     UT_SPEC
@@ -352,6 +386,8 @@ snotren: .byte  "Not renamed: $"
 sexists: .byte  " file already exists, delete (Y/N)?$"
 sinc:   .byte   "Incorrect file specification.$"
 swild:  .byte   "Invalid wildcard.$"
+sro:    .byte   "Drive Read Only$"
+snotro: .byte   "Not renamed, filespec read only.$"
 snofile: .byte  "No File$"
 smem:   .byte   "Not Enough Memory$"
 

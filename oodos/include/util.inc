@@ -65,8 +65,10 @@
 ;               the name and type, the password at 16-23, 12-15 and 24-35 0.
 ;               Out: carry clear, UT_IDX after it and the delimiter after
 ;               it ('=', ','; not a blank or '['), which is in UT_SDELIM (0:
-;               none); carry set and A 0 none left, $FF one 152 refuses
-;               (UT_IDX at it). UT_SPAT is where it starts, UT_SEND where
+;               none); carry set and A 0 none left, $FF one 152 refuses,
+;               or one whose delimiter has nothing after it but blanks and
+;               option lists (A, or A= [X]: a specification missing; UT_IDX
+;               at it either way). UT_SPAT is where it starts, UT_SEND where
 ;               152 stopped. From a line read: UT_READ, then UT_SPEC
 ;   UT_PUTSPEC  the last specification as typed, its password not shown
 ;
@@ -165,6 +167,8 @@
 ;   UT_SAID     after an error the BDOS said (its message starts with CR LF,
 ;               which ends a line owed, and ends with CR LF): nothing owed,
 ;               neither an LF nor a line (CM_NOEOL); then UT_FAIL
+;   UT_ISRO     carry set if drive A (0-15) is read-only (29: made so by 28,
+;               or found so by a write), for the Guide's Drive Read Only
 ;
 ; The system (SHOW, DATE, DEVICE, SETDEF)
 ;
@@ -745,6 +749,26 @@ UT_SPEC:        STA     UT_PFCB + 2
                 BEQ     @done
                 STA     UT_SDELIM      ; another delimiter: passed over
                 INX
+                TXA                    ; nothing after it but blanks and
+                TAY                    ; option lists: refused
+@look:          LDA     UT_TAIL,Y
+                BEQ     @trail
+                CMP     #' '
+                BEQ     @skip
+                CMP     #UTC_TAB
+                BEQ     @skip
+                CMP     #'['
+                BNE     @done
+@inlist:        INY
+                LDA     UT_TAIL,Y
+                BEQ     @trail
+                CMP     #']'
+                BNE     @inlist
+@skip:          INY
+                BRA     @look
+@trail:         LDA     #$FF
+                SEC
+                RTS
 @done:          STX     UT_IDX
                 LDA     #0
                 CLC
@@ -1427,6 +1451,21 @@ UT_FDRIVE:      DEC     A              ; 1-16: 0-15
                 BPL     @done
                 LDA     UT_DRV0
 @done:          RTS
+
+UT_ISRO:        STA     UT_T + 2       ; the drive (UT_T: scratch, as UT_NOUT's)
+                LDY     #DRV_ROVEC
+                JSR     BDOS
+                STA     UT_T
+                STX     UT_T + 1
+                LDX     UT_T + 2
+                BEQ     @bit
+@shift:         LSR     UT_T + 1
+                ROR     UT_T
+                DEX
+                BNE     @shift
+@bit:           LDA     UT_T
+                LSR     A              ; bit 0 into the carry
+                RTS
 
 UT_ISWILD:      STA     @src + 1
                 STX     @src + 2

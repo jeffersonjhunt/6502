@@ -191,14 +191,14 @@ SYS, as HELLO.COM, so the CCP finds them from any user by the search chain:
 
 | File | What |
 |---|---|
-| [`utils/dir.s`](utils/dir.s) | DIR.COM: CP/M 3's DIR with options: the built-in's short form sorted, over several drives; FULL, SIZE and DATE with totals; every option of the Guide's Table 5-5. `DRIVE=ALL` is the logged-in drives (below). 7,481 bytes. `test_oodos_utils_dir` |
-| [`utils/type.s`](utils/type.s), [`utils/erase.s`](utils/erase.s), [`utils/rename.s`](utils/rename.s) | TYPE.COM, ERASE.COM, RENAME.COM: the forms the built-ins hand over (TYPE's `[PAGE]`/`[NOPAGE]` and wildcards, each file under its name; ERASE's `[CONFIRM]`; RENAME's wildcards, `NEW.TYP=OLD.TYP` for each) and the prompts when no file is given; the built-ins' own forms as they do them. 4,011, 3,962 and 4,250 bytes. `test_oodos_utils_files` |
-| [`utils/set.s`](utils/set.s) | SET.COM: a file's attributes (30), password and mode (103); a drive read-only (28) or read-write (37); the label (100: its name, password, protection and stamp modes); the default password (106). 6,635 bytes. `test_oodos_utils_set` |
-| [`utils/initdir.s`](utils/initdir.s) | INITDIR.COM: a directory given SFCBs, its entries in their places moved first, or the SFCBs taken away or their stamps cleared, through the BIOS (function 50); one a write error stopped finished the next time. 5,452 bytes. `test_oodos_utils_set` |
-| [`utils/show.s`](utils/show.s) | SHOW.COM: a drive's free space, its label, its users, its free directory entries and its characteristics (the DPB). 5,282 bytes. `test_oodos_utils_sys` |
-| [`utils/date.s`](utils/date.s) | DATE.COM: the date and time, once or each second, or the clock set at a key, its seconds kept. 4,341 bytes. `test_oodos_utils_sys` |
-| [`utils/device.s`](utils/device.s) | DEVICE.COM: the BIOS's character devices and the SCB's assignments, shown and set; the console's width and page. 5,484 bytes. `test_oodos_utils_sys` |
-| [`utils/setdef.s`](utils/setdef.s) | SETDEF.COM: the drive search chain, the temporary drive, the type order, the display and page modes, shown and set. 4,536 bytes. `test_oodos_utils_sys` |
+| [`utils/dir.s`](utils/dir.s) | DIR.COM: CP/M 3's DIR with options: the built-in's short form sorted, over several drives; FULL, SIZE and DATE with totals; every option of the Guide's Table 5-5. `DRIVE=ALL` is the logged-in drives (below). 7,550 bytes. `test_oodos_utils_dir` |
+| [`utils/type.s`](utils/type.s), [`utils/erase.s`](utils/erase.s), [`utils/rename.s`](utils/rename.s) | TYPE.COM, ERASE.COM, RENAME.COM: the forms the built-ins hand over (TYPE's `[PAGE]`/`[NOPAGE]` and wildcards, each file under its name; ERASE's `[CONFIRM]`; RENAME's wildcards, `NEW.TYP=OLD.TYP` for each) and the prompts when no file is given; the built-ins' own forms as they do them. 4,121, 4,065 and 4,426 bytes. `test_oodos_utils_files` |
+| [`utils/set.s`](utils/set.s) | SET.COM: a file's attributes (30), password and mode (103); a drive read-only (28) or read-write (37); the label (100: its name, password, protection and stamp modes); the default password (106). 6,704 bytes. `test_oodos_utils_set` |
+| [`utils/initdir.s`](utils/initdir.s) | INITDIR.COM: a directory given SFCBs, its entries in their places moved first, or the SFCBs taken away or their stamps cleared, through the BIOS (function 50); one a write error stopped finished the next time. 5,521 bytes. `test_oodos_utils_set` |
+| [`utils/show.s`](utils/show.s) | SHOW.COM: a drive's free space, its label, its users, its free directory entries and its characteristics (the DPB). 5,356 bytes. `test_oodos_utils_sys` |
+| [`utils/date.s`](utils/date.s) | DATE.COM: the date and time, once or each second, or the clock set at a key, its seconds kept. 4,410 bytes. `test_oodos_utils_sys` |
+| [`utils/device.s`](utils/device.s) | DEVICE.COM: the BIOS's character devices and the SCB's assignments, shown and set; the console's width and page. 5,553 bytes. `test_oodos_utils_sys` |
+| [`utils/setdef.s`](utils/setdef.s) | SETDEF.COM: the drive search chain, the temporary drive, the type order, the display and page modes, shown and set. 4,605 bytes. `test_oodos_utils_sys` |
 
 Sizes are the `.COM`s', the 16-byte header among them; ld65 links all of `util.inc` into each (a later phase may
 split it). Two choices the user decided (2026-10-31): **DIR's `DRIVE=ALL`** is the logged-in drives (function 24,
@@ -406,13 +406,14 @@ the erased files gone from `cpmls -F`, the renamed ones' contents by `cpmcp`.
 PATTERN.DAT [PASSWORD=SECRET, PROTECT=WRITE]` and `SET TESTSYS.SYS [PASSWORD=OTHER, PROTECT=DELETE]` (two XFCBs,
 in the free SFCB places 3 and 7), `INITDIR A:` again (Y: the XFCBs moved to 13 and 32 and the SFCBs made, every
 stamp 0), `SET [CREATE=ON, UPDATE=ON]` and `SET [NAME=OODOS.4B1]`; with `OODOS_UTILS_OUT` it saves that card, and
-`interop.sh --utils` checks it: `fsck.cpm`, the label (`OODOS   4B1`, mode 0xB1), `cpmls -F`'s attributes (README.TXT
-`1   R A`, WRITEOO1.COM `S`), protections (`Write`, `Delete`, the rest `None`) and stamps (0, which `cpmls` shows as
-12/31/77 00:00), the erased and renamed files, an SFCB in every fourth entry and nowhere else, the two XFCBs where
+`interop.sh --utils` checks it: `fsck.cpm`, the label (`OODOS   4B1`, mode 0xB1), every file `cpmls -F` lists (all 22,
+users 0, 3 and 16, and no others) against a table of attributes (README.TXT `1   R A`, the .COMs `S`), protections
+(`Write`, `Delete`, the rest `None`) and stamps (0, which `cpmls` shows as 12/31/77 00:00), the erased and renamed files, an SFCB in every fourth entry and nowhere else, the two XFCBs where
 INITDIR moved them with their modes, and the files' contents by `cpmcp`. cpmtools lists an XFCB as a file of user
 16 and more, of no bytes; it reads a file whatever its password. Seen to fail on the committed card and the `--ccp`
 one (the label), and on copies of the saved card with one byte wrong: an XFCB's mode, an SFCB freed, README.TXT's
-archive bit, a slot's mode, the label's mode, an XFCB left in an SFCB's place.
+archive bit, a slot's mode, the label's mode, an XFCB left in an SFCB's place; and, by the table, TYPE.COM made RO,
+SPACER1.DAT given F3, DATE.COM stamped (each passed the check before it).
 
 `OODOS_CARD_FAULT=alloc` (a block README.TXT has), `=stamp` (each entry's stamps in the next one's slot, the first
 entry's update a minute later, so no slot is right) or `=stamp-zero` (the same in an SFCB of zeros, not $E5s)
