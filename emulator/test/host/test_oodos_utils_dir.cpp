@@ -20,10 +20,13 @@
  *     Inactive);
  *   - USER=, DRIVE= (ALL: the logged-in drives), DISK=, EXCLUDE, DIR, SYS,
  *     RO, RW, NOSORT, MESSAGE, LENGTH=, FF (LST: put on the serial line),
- *     NOPAGE, paging and ^C, several specifications and drives;
+ *     NOPAGE, paging and ^C (while writing, and while a directory of 150
+ *     files is read or sorted), several specifications and drives, LENGTH='s
+ *     count over several groups;
  *   - every error message, the return code after each (`:hello` runs only
- *     after a success), Not Enough Memory for Sort (DIR.COM's DIRROOM made
- *     small, by dir.lbl), a drive that isn't;
+ *     after a success), Not Enough Memory for Sort. (DIR.COM's DIRROOM made
+ *     small, by dir.lbl), a drive that isn't, a directory read that fails (a
+ *     card whose reads fail, from B:'s 64th entry);
  *   - the card's A: against its directory read behind OODOS's back, and
  *     its empty B:.
  */
@@ -123,6 +126,23 @@ namespace
     }
     std::vector<std::string> fhead(const std::string &h = FH) { return {h, FD, ""}; }
 
+    /// Lines as paging writes them: a stop after each `plen` lines, its message rubbed out by the key.
+    std::string pages(const std::vector<std::string> &ls, size_t plen)
+    {
+        std::string s;
+        for (size_t i = 0; i < ls.size(); ++i)
+            s += (!i ? "" : i % plen ? "\r\n" : "\r\nPress a key for more\r                    \r") + ls[i];
+        return s;
+    }
+
+    /// A card whose reads fail while `fail` is set, as a card gone bad would.
+    struct ReadFaultMedia : MemoryMedia
+    {
+        using MemoryMedia::MemoryMedia;
+        bool fail{false};
+        bool read(uint64_t lba, uint8_t *out) override { return !fail && MemoryMedia::read(lba, out); }
+    };
+
     /// The rig: DIR.COM on M: (or `com`, a changed copy), the chain the default drive then M:.
     struct DirRig : CcpRig
     {
@@ -218,6 +238,31 @@ namespace
         {
             const std::string o = cmd(line, prompt);
             const std::string head = line + "\r\n", end = "\r\n" + prompt;
+            if (o.size() < head.size() + end.size() || o.compare(0, head.size(), head) != 0 ||
+                o.compare(o.size() - end.size(), end.size(), end) != 0)
+                return "<" + o + ">";
+            return o.substr(head.size(), o.size() - head.size() - end.size());
+        }
+        /// A command's output, a key typed at each stop paging makes, as said() has it.
+        std::string paged(const std::string &line, const std::string &prompt = "A>")
+        {
+            const size_t from = out.size();
+            type(line + "\r");
+            size_t at = from;
+            for (int i = 0; i < 2000; ++i)
+            {
+                run(20'000);
+                const size_t stop = out.find("Press a key for more", at);
+                if (stop != std::string::npos)
+                {
+                    type(" ");
+                    at = stop + 1;
+                }
+                else if (out.size() >= from + prompt.size() + 2 &&
+                         out.compare(out.size() - prompt.size() - 2, prompt.size() + 2, "\r\n" + prompt) == 0)
+                    break;
+            }
+            const std::string o = out.substr(from), head = line + "\r\n", end = "\r\n" + prompt;
             if (o.size() < head.size() + end.size() || o.compare(0, head.size(), head) != 0 ||
                 o.compare(o.size() - end.size(), end.size(), end) != 0)
                 return "<" + o + ">";
@@ -347,7 +392,8 @@ TEST(full_heads_its_last_column_access_or_create_as_the_label_asks_and_prot_need
                    totals(2, 1, 1, 1, 'M', r.used(), 192)));
     }
     {
-        // No label: Prot blank; the last column Create
+        // No label: Prot and the stamps blank (the Guide: they need a label); the last column
+        // Create. DATE still shows the stamps (ours: the Guide shows no DATE listing)
         DirRig r(false);
         REQUIRE(r.ok);
         r.put_m({{0, "ONE     TXT", bytes("1")}});
@@ -355,9 +401,12 @@ TEST(full_heads_its_last_column_access_or_create_as_the_label_asks_and_prot_need
         r.slot(r.at(0, "ONE     TXT"), stamp(2026, 3, 4, 5, 6), stamp(2026, 7, 8, 9, 10));
         r.poke(MDISK, 0xE5);
         same(r.said("dir m:one.txt [full]"),
-             lines(heading('M', 0) + fhead() +
-                   std::vector<std::string>{full("ONE     TXT", 2, 1, "Dir RW", "", when(2026, 7, 8, 9, 10),
-                                                 when(2026, 3, 4, 5, 6))} +
+             lines(heading('M', 0) + fhead() + std::vector<std::string>{full("ONE     TXT", 2, 1, "Dir RW", "")} +
+                   totals(2, 1, 1, 1, 'M', r.used(), 192)));
+        same(r.said("dir m:one.txt [date]"),
+             lines(heading('M', 0) +
+                   std::vector<std::string>{DH, DD, "",
+                                            dated("ONE     TXT", when(2026, 7, 8, 9, 10), when(2026, 3, 4, 5, 6))} +
                    totals(2, 1, 1, 1, 'M', r.used(), 192)));
     }
 }
@@ -498,6 +547,16 @@ TEST(exclude_dir_sys_ro_rw_and_nosort_choose_and_order_the_files)
     same(r.said("dir m:nosuch [size]"), "No File");
     same(r.said("dir m:nosuch [size,message]"), lines(heading('M', 0) + std::vector<std::string>{"No File"}));
     CHECK(!r.succeeded());
+    // The Guide's DIR [SIZE,RW]D: (5-28): the specification straight after the list
+    same(r.said("dir [size,rw]m:"), one({"ALPHA   TXT", "BIG     DAT", "DIR     COM", "ZED        "}));
+    // MESSAGE with FULL: the groups with files as without it, and each without its heading and No File
+    same(r.said("dir m:*.txt [message,user=(0,5,3)]"),
+         lines(heading('M', 0) + fhead() + std::vector<std::string>{user0_full(r)[0]} +
+               totals(2, 3, 1, 1, 'M', r.used(), 192) + std::vector<std::string>{""} + heading('M', 3) + fhead() +
+               std::vector<std::string>{full("THREE   TXT", 2, 1, "Dir RW", "None")} +
+               totals(2, 1, 1, 1, 'M', r.used(), 192) + std::vector<std::string>{""} + heading('M', 5) +
+               std::vector<std::string>{"No File"}));
+    CHECK(!r.succeeded());
 }
 
 // ---- headings, paging, FF ----------------------------------------------------------------------
@@ -512,6 +571,41 @@ TEST(length_repeats_the_heading_and_paging_starts_each_page_with_it)
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
                std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} +
                user0_totals(r)));
+    // The least, 5: the heading's own lines count, and it is never written twice running
+    same(r.said("dir m: [length=5]"), lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1], f[2], f[3], f[4]} +
+                                            fhead() + std::vector<std::string>{f[5]} + user0_totals(r)));
+    // The most, 65535: never again
+    same(r.said("dir m: [length=65535]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
+    // Several groups (NOPAGE: more than a page): the count goes on across them. LENGTH=20 falls due on user 3's heading's
+    // last line (its 20th): not again before its file
+    const std::vector<std::string> g3 = heading('M', 3) + fhead() +
+                                        std::vector<std::string>{full("THREE   TXT", 2, 1, "Dir RW", "None")} +
+                                        totals(2, 1, 1, 1, 'M', r.used(), 192);
+    const std::vector<std::string> g12 = heading('M', 12) + fhead() +
+                                         std::vector<std::string>{full("TWELVE  TXT", 2, 1, "Dir RW", "None")} +
+                                         totals(2, 1, 1, 1, 'M', r.used(), 192);
+    const std::vector<std::string> sep{""};
+    same(r.said("dir m: [user=all,length=20,nopage]"),
+         lines(heading('M', 0) + fhead() + f + user0_totals(r) + sep + g3 + sep + g12));
+    // LENGTH=10: again before user 0's sixth file; then due on the blank after user 3's and user
+    // 12's "Directory For" lines, and the column headings that follow are the heading
+    same(r.said("dir m: [user=all,length=10,nopage]"),
+         lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1], f[2], f[3], f[4]} + fhead() +
+               std::vector<std::string>{f[5]} + user0_totals(r) + sep + g3 + sep + g12));
+    // DATE too, a group a user: due on each heading's last line (5), not again
+    same(r.said("dir m:*.txt [date,user=all,length=5,nopage]"),
+         lines(heading('M', 0) + std::vector<std::string>{DH, DD, "", dated("ALPHA   TXT", when(2026, 10, 2, 10, 45),
+                                                                            when(2026, 10, 1, 9, 30))} +
+               totals(2, 3, 1, 1, 'M', r.used(), 192) + sep + heading('M', 3) +
+               std::vector<std::string>{DH, DD, "", dated("THREE   TXT")} + totals(2, 1, 1, 1, 'M', r.used(), 192) +
+               sep + heading('M', 12) + std::vector<std::string>{DH, DD, "", dated("TWELVE  TXT")} +
+               totals(2, 1, 1, 1, 'M', r.used(), 192)));
+    // A page of 4 (a stop every 3 lines): the default is LENGTH='s least, 5, not 3
+    r.scb(0x1C, 4);
+    same(r.paged("dir m: [full]"), pages(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1], f[2], f[3], f[4]} +
+                                             fhead() + std::vector<std::string>{f[5]} + user0_totals(r),
+                                         3));
+    CHECK(r.succeeded());
     // A page of 8: a stop every 7 lines; the heading starts the next page
     r.scb(0x1C, 8);
     size_t from = r.out.size();
@@ -574,14 +668,21 @@ TEST(a_ctrl_c_typed_while_dir_writes_stops_it)
     same(r.cmd("0a:"), "0a:\r\r\nA>");
 }
 
-TEST(ff_sends_a_form_feed_to_lst_when_the_printer_echo_is_on_and_turns_paging_off)
+TEST(ff_sends_a_form_feed_to_lst_when_the_printer_echo_is_on_and_without_length_turns_paging_off)
 {
     DirRig r;
     REQUIRE(r.ok);
     const std::vector<std::string> f = user0_full(r);
-    r.scb(0x1C, 8); // FF turns paging off: no stops on a page of 8
+    r.scb(0x1C, 8); // FF without LENGTH= turns paging off: no stops on a page of 8
     // The printer echo off: no form feed
     same(r.said("dir m: [ff]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
+    // With LENGTH=, paging stays on (the Guide: FF turns it off only without LENGTH=)
+    const std::vector<std::string> by6 = heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
+                                         std::vector<std::string>{f[1], f[2], f[3]} + fhead() +
+                                         std::vector<std::string>{f[4], f[5]} + user0_totals(r);
+    same(r.paged("dir m: [ff,length=6]"), pages(by6, 7));
+    CHECK(r.succeeded());
+    r.scb(0x1C, 24); // (a page longer than the listing: no stops below)
     // CONOUT: the screen only, LST: the serial line and the echo on: the serial line has what the
     // console was given once, and the form feeds: one first, one each heading LENGTH= writes again
     r.scb(0x25, 0x80);
@@ -642,6 +743,87 @@ TEST(each_error_has_its_message_and_the_return_code_ff00)
     CHECK(r.succeeded());
 }
 
+TEST(a_directory_read_that_fails_is_the_bdoss_error_laid_out_as_a_refused_drives)
+{
+    DirRig r(false);
+    REQUIRE(r.ok);
+    // The card made one whose reads can fail, its units mounted again; B: read from it
+    auto fm = std::make_shared<ReadFaultMedia>(r.media->bytes(), "card");
+    r.media = fm;
+    r.sd().insert(fm, false);
+    r.run(ms(SdCard::INIT_MS + 10));
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
+    r.put_files();
+    // B:'s reads fail from its directory's 64th entry on, once logged in (the BDOS's mode $FE: its
+    // message, 18 returning $FF), and work again for the next drive
+    const std::map<std::string, uint16_t> lbl = labels(UTILS + "/dir.lbl");
+    const uint16_t snext = lbl.at("UT_SNEXT"), dodrive = lbl.at("DODRIVE"), curd = lbl.at("CURD"),
+                   ent = lbl.at("UT_ENT");
+    bool failed = false;
+    r.watch = [&](uint16_t pc) {
+        auto &bus = r.machine->bus();
+        if (pc == snext && bus.peek(curd) == 1 && (bus.peek(ent) | bus.peek(static_cast<uint16_t>(ent + 1)) << 8) >= 64)
+            failed = fm->fail = true;
+        else if (pc == dodrive)
+            fm->fail = false;
+    };
+    const std::vector<std::string> twelve = heading('M', 12) + std::vector<std::string>{"M: " + sized("TWELVE  TXT", 2)} +
+                                            totals(2, 1, 1, 1, 'M', r.used(), 192);
+    const std::string err = "\r\nOODOS Error On B: Disk I/O\r\nBDOS Function = 18\r\n";
+    // First: a blank line after the message, then the next drive's heading
+    same(r.said("dir [size,user=12,drive=(b,m)]"), err + "\r\n" + lines(twelve));
+    CHECK(failed);
+    CHECK(!r.succeeded());
+    // After a group: the line owed is ended by the message's CR LF, not again after it
+    failed = false;
+    same(r.said("dir [size,user=12,drive=(m,b,a),message]"),
+         lines(twelve) + err + "\r\n" + lines(heading('A', 12) + std::vector<std::string>{"No File"}));
+    CHECK(failed);
+    CHECK(!r.succeeded());
+    r.watch = nullptr;
+}
+
+TEST(a_ctrl_c_while_dir_reads_or_sorts_a_big_directory_stops_it_before_it_writes)
+{
+    for (const char *at : {"FIND", "SORTP"})
+    {
+        std::printf("  ^C at %s\n", at);
+        DirRig r(false);
+        REQUIRE(r.ok);
+        for (unsigned i = 0; i < 150; ++i) // entries without blocks, in reverse order: the sort's worst
+        {
+            char n[12];
+            std::snprintf(n, sizeof n, "F%03u    DAT", 149 - i);
+            r.raw(7, n, 0, 0, {});
+        }
+        r.chain({13, 0, 1}); // M:'s DIR.COM first; HELLO.COM from A:, for succeeded()
+        same(r.cmd("7m:", "7M>"), "7m:\r\r\n7M>");
+        const std::map<std::string, uint16_t> lbl = labels(UTILS + "/dir.lbl");
+        const uint16_t pc0 = lbl.at(at), sortp = lbl.at("SORTP");
+        bool hit = false, sorted = false; // a ^C while reading: stopped there, the sort not begun
+        r.watch = [&](uint16_t pc) {
+            sorted = sorted || (hit && pc == sortp && std::strcmp(at, "FIND") == 0);
+            hit = hit || pc == pc0;
+        };
+        const size_t from = r.out.size();
+        r.type("dir [nopage,size]");
+        for (int i = 0; i < 2000 && !r.console->key('\r'); ++i)
+            r.run(1'000);
+        for (int i = 0; i < 40000 && !hit; ++i)
+            r.run(200);
+        REQUIRE(hit);
+        for (int i = 0; i < 2000 && !r.console->key(0x03); ++i)
+            r.run(1'000);
+        REQUIRE(r.until("\r\n7M>", ms(3000), from));
+        r.watch = nullptr;
+        CHECK(!sorted);
+        same(r.out.substr(from), "dir [nopage,size]\r\n\r\n7M>"); // nothing written
+        CHECK(!r.succeeded("7M>"));
+        same(r.cmd("0a:"), "0a:\r\r\nA>");
+    }
+}
+
 TEST(a_drive_with_more_files_than_fit_is_not_enough_memory_for_sort)
 {
     // DIR.COM with DIRROOM (dir.lbl) three records' room: 3 x (32 + 2)
@@ -653,12 +835,12 @@ TEST(a_drive_with_more_files_than_fit_is_not_enough_memory_for_sort)
     com[at] = 3 * 34, com[at + 1] = 0;
     DirRig r(true, com);
     REQUIRE(r.ok);
-    same(r.said("dir m: [size]"), "Not Enough Memory for Sort");
+    same(r.said("dir m: [size]"), "Not Enough Memory for Sort.");
     CHECK(!r.succeeded());
-    same(r.said("m:dir m:"), "Not Enough Memory for Sort");
-    same(r.said("dir m: [nosort,size]"), "Not Enough Memory for Sort");
+    same(r.said("m:dir m:"), "Not Enough Memory for Sort.");
+    same(r.said("dir m: [nosort,size]"), "Not Enough Memory for Sort.");
     // Three fit (the names not asked for take no room; an XFCB's file does)
-    same(r.said("dir m:*.dat m:zed m:alpha.txt [size]"), "Not Enough Memory for Sort");
+    same(r.said("dir m:*.dat m:zed m:alpha.txt [size]"), "Not Enough Memory for Sort.");
     same(r.said("dir m:*.dat m:alpha.txt [size]"),
          lines(heading('M', 0) +
                std::vector<std::string>{"M: " + sized("ALPHA   TXT", 2) + " : " + sized("BETA    DAT", 2) + " : " +
@@ -666,7 +848,7 @@ TEST(a_drive_with_more_files_than_fit_is_not_enough_memory_for_sort)
                totals(38, 270, 3, 36, 'M', r.used(), 192)));
     // The drive after one that didn't fit is listed
     same(r.said("dir [size,drive=(m,b),message]"),
-         lines(std::vector<std::string>{"Not Enough Memory for Sort", ""} + heading('B', 0) +
+         lines(std::vector<std::string>{"Not Enough Memory for Sort.", ""} + heading('B', 0) +
                std::vector<std::string>{"No File"}));
 }
 

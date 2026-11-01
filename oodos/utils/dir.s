@@ -17,7 +17,8 @@
 ; (its entries' blocks and records summed, its extent-zero entry's name,
 ; attributes and SFCB stamps, its XFCB's mode), then a pointer to each,
 ; sorted. What doesn't fit between the program and the TPA's top is "Not
-; Enough Memory for Sort", nothing listed for that drive.
+; Enough Memory for Sort.", nothing listed for that drive. Both the lookup
+; and the sort grow as the square of the files; a ^C stops either.
 ;
 ; Lines are separated by CM_EOL (cmd.inc), so the last is ended by the
 ; prompt's CR LF; EOL here also counts them for LENGTH's headings.
@@ -526,13 +527,20 @@ SPECDRVS:       LDA     NSPEC
 ; room for records.
 SETUP:          JSR     CM_PAGE
                 LDA     FLAGS + O_NOPAGE
-                ORA     FLAGS + O_FF   ; FF turns paging off (the Guide)
-                BEQ     @paged
-                STZ     CM_PLEN
-@paged:         LDA     HASLEN         ; no LENGTH=: a heading each page, when paged
-                BNE     @len
+                BNE     @nopage
+                LDA     FLAGS + O_FF   ; FF without LENGTH= turns paging off (the
+                BEQ     @paged         ; Guide); with it, a form feed every n lines
+                LDA     HASLEN
+                BNE     @paged
+@nopage:        STZ     CM_PLEN
+@paged:         LDA     HASLEN         ; no LENGTH=: a heading each page, when paged,
+                BNE     @len           ; and LENGTH='s least, 5, for a short page
                 LDA     CM_PLEN
-                STA     LENGTH
+                BEQ     @deflen
+                CMP     #5
+                BCS     @deflen
+                LDA     #5
+@deflen:        STA     LENGTH
                 STZ     LENGTH + 1
 @len:           LDA     #SCB_ECHO
                 JSR     SCBGET
@@ -620,11 +628,15 @@ DODRIVE:        LDA     CM_EOLDUE      ; a line owed is held back: if the select
                 JSR     COLLECT
                 BCC     @read
                 CMP     #0
-                BEQ     @said
-                LDA     #<S_NOMEM
+                BNE     @nomem
+                JSR     UT_SAID        ; the BDOS said why: its CR LF ends the
+                LDA     #1             ; line owed, as for a refused drive
+                STA     ANYOUT
+                BRA     @failed
+@nomem:         LDA     #<S_NOMEM
                 LDX     #>S_NOMEM
                 JSR     DRVMSG
-@said:          LDA     #1
+@failed:        LDA     #1
                 STA     FAILED
                 RTS
 @read:          LDA     FORMAT
@@ -730,7 +742,11 @@ COLLECT:        STZ     NREC
                 BCS     @next
                 JSR     XFCBENT
                 BCS     @full
-@next:          JSR     UT_SNEXT
+@next:          LDA     UT_ENT         ; a ^C every 16 entries: FIND's lookup is
+                AND     #$0F           ; slow on a big directory
+                BNE     @snext
+                JSR     CM_BRK
+@snext:         JSR     UT_SNEXT
                 JMP     @entry
 @full:          LDA     #$FF
                 RTS
@@ -1120,7 +1136,11 @@ SORTP:          LDA     NREC
                 STA     (JP),Y
                 JSR     IPNEXT
                 JSR     CNTDEC
-                LDA     CNT
+                LDA     CNT            ; a ^C every 16 placed: the sort is slow
+                AND     #$0F           ; on a big directory
+                BNE     @more
+                JSR     CM_BRK
+@more:          LDA     CNT
                 ORA     CNT + 1
                 BNE     @outer
                 RTS
@@ -1349,7 +1369,9 @@ TABHDR:         LDA     FORMAT
                 JSR     EOL
                 PUTS    S_DDASH
 @end:           JSR     EOL
-                JMP     BLANK
+                JSR     BLANK
+                STZ     DUE            ; a heading just written isn't due again
+                RTS
 
 ; The last column's heading: Access when the label asks for access stamps,
 ; else Create.
@@ -1420,6 +1442,11 @@ ONEFILE:        LDY     #R_BLKS        ; kilobytes: blocks << BSHIFT
                 JSR     PUTATTR
                 JSR     BLANK1
                 JSR     PUTPROT
+                LDA     HASLBL         ; FULL's stamps: only with a label (the Guide)
+                BNE     @stamps
+                LDA     #31
+                JSR     UT_BLANKS
+                JMP     EOL
 @stamps:        JSR     BLANK1
                 LDA     #R_STU
                 JSR     RADDR
@@ -1654,7 +1681,7 @@ SAYLN:          JSR     CM_PUTS
 
 .rodata
 ; The most bytes the records and their pointers take: all the TPA has. A
-; test makes it less, to see Not Enough Memory for Sort (it patches the
+; test makes it less, to see Not Enough Memory for Sort. (it patches the
 ; .COM at this label, from dir.lbl).
 DIRROOM:        .word   $FFFF
 OPTAB:          .byte   "ATT", 0, "DATE", 0, "DIR", 0, "DISK", 0, "DRIVE", 0
@@ -1669,7 +1696,7 @@ S_TAIL:         .byte   "Illegal command tail.$"
 S_OPT:          .byte   "Illegal Option or Modifier.$"
 S_FORMAT:       .byte   "Illegal Format Value.$"
 S_MIX:          .byte   "Illegal Global/Local Drive Spec Mixing.$"
-S_NOMEM:        .byte   "Not Enough Memory for Sort$"
+S_NOMEM:        .byte   "Not Enough Memory for Sort.$"
 S_INACT:        .byte   "Date and Time Stamping Inactive$"
 S_NOFILE:       .byte   "No File$"
 S_SYSEX:        .byte   "SYSTEM FILE(S) EXIST$"
