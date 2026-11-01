@@ -90,6 +90,12 @@ namespace ooe::emu
                 w(0x4C, idle);
                 irq = here(); // the KERNAL's entry: PHA TXA PHA TYA PHA, JMP ($0314)
                 b({0x48, 0x8A, 0x48, 0x98, 0x48});
+                if (vbi && set_0314) // a frame goes to the handler even if init has pointed $0314 at its own
+                {
+                    b({0xA5, 0x01, 0x48, 0xA9, 0x37, 0x85, 0x01}); // LDA $01 PHA, I/O in
+                    w(0xAD, 0xDE03), b({0x4A, 0x68, 0x85, 0x01});  // LDA $DE03 LSR (C: a frame) PLA STA $01
+                    b({0xB0, 0x03});                               // BCS handler, past the JMP
+                }
                 if (set_0314 || !play) // a tune over $0314 has its own there; with play, the handler is ours
                     w(0x6C, 0x0314);
                 handler = here();

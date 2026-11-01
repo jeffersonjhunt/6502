@@ -383,6 +383,25 @@ TEST(a_vbi_tune_that_retimes_cia_1_in_init_still_plays_once_a_frame)
     }
 }
 
+TEST(a_vbi_tune_that_points_0314_at_its_own_handler_is_still_played_once_a_frame)
+{
+    // init: volume up, $0314 -> $1020, RTS. play ($1018): INC $D400 RTS.
+    // $1020, the tune's own: INC $D401, JMP $EA31 (which knows only the CIA).
+    std::vector<uint8_t> code = {0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x14, 0x03, 0xA9, 0x10, 0x8D, 0x15, 0x03, 0x60};
+    code.resize(0x18, 0xEA);
+    for (const int b : {0xEE, 0x00, 0xD4, 0x60})
+        code.push_back(static_cast<uint8_t>(b));
+    code.resize(0x20, 0xEA);
+    for (const int b : {0xEE, 0x01, 0xD4, 0x4C, 0x31, 0xEA})
+        code.push_back(static_cast<uint8_t>(b));
+    Header h;
+    h.play = 0x1018;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+    CHECK_EQ(p.frames, 50u);
+    CHECK_EQ(p.reg(0x00), 50);
+    CHECK_EQ(p.reg(0x01), 0); // the frame never went its way
+}
+
 TEST(a_cia_song_that_retimes_cia_1_in_init_plays_at_its_rate)
 {
     Header h;

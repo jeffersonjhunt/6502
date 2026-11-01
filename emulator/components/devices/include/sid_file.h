@@ -32,6 +32,9 @@
  *   a frame whatever init does to the CIA. The stub's handler plays only when
  *   $DE03 says a frame came, clearing it; any other interrupt (the CIA's,
  *   if init turned it on) it acknowledges by reading $DC0D and leaves. A
+ *   frame goes to the handler even when init has pointed $0314 at a handler
+ *   of its own, which knows only the C64's interrupts and would leave the
+ *   frame's set (an interrupt storm); the rest still go through $0314. A
  *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
  *   not on the card;
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,

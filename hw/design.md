@@ -723,7 +723,8 @@ tune; the WebUI's tune bar then says the machine stopped it.
   timer A (the KERNAL's `$4025`/`$4295` for a CIA song or an RSID, with its interrupt on; a frame,
   with it off, for a VBI song, whose play comes from the card's frame interrupt at `$DE03` instead, so init
   retiming the CIA doesn't change its rate; the handler plays only on a frame and acknowledges any
-  other interrupt at `$DC0D`), banks `$01` for init's address, calls init with the song less one in
+  other interrupt at `$DC0D`, and the interrupt entry sends a frame to it even past a `$0314` that init
+  has repointed), banks `$01` for init's address, calls init with the song less one in
   A, and waits in a `JMP` loop.
 - **`$01` for a routine** follows PSID players: `$37` below `$A000`, `$36` below `$D000`, `$34` in
   `$D000-$DFFF`, `$35` above. On the card only `$34` differs (there are no ROMs), so I/O comes back
