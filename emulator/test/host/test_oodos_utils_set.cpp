@@ -31,6 +31,8 @@
  *     write failing on a card's drive; nothing written when the moves
  *     find no place or the drive's reset fails; a re-format a write error
  *     stopped, at five points, and a recover, finished by the next INITDIR;
+ *     a recover stopped, the drive used, then a re-format stopped: the next
+ *     INITDIR re-formats (no recover offered), each file once after;
  *     SET's label options on a read-only drive refused before anything.
  */
 
@@ -1196,6 +1198,92 @@ TEST(initdir_finishes_a_recover_a_write_error_stopped)
                                              "Do you really want to re-format the directory: B (Y/N)? ");
         same(r.cmd("n"), "n\r\r\nA>");
     }
+}
+
+
+TEST(initdir_re_formats_rather_than_recovers_when_copies_say_a_re_format_was_stopped)
+{
+    // A recover stopped after sector 0 (entries 3, 7, 11 and 15 free, later places still SFCBs),
+    // then the drive used: two files in sector 0's freed places 3 and 7, each with a block (put
+    // there behind OODOS's back, as the BDOS would, the lowest free entries first: B: has only its
+    // label). INITDIR, N to the recover, Y to the re-format, whose first pass (the two moves, to 1
+    // and 2) is written and whose second is stopped by a write error: each file twice in sector 0.
+    // The next INITDIR finds those copies, so it offers the re-format, not the recover (which
+    // would leave both): after it, each file once, no two entries sharing a block.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const auto fm = faulty(r);
+    REQUIRE(fm);
+    CpmDisk b{r, 2};
+    const std::vector<uint8_t> before = b.directory();
+    REQUIRE(before[0] == 0x20 && before[3 * 32] == 0x21);
+    for (unsigned i = 1; i < b.entries(); ++i)
+        REQUIRE(i % 4 == 3 ? before[i * 32] == 0x21 : before[i * 32] == 0xE5);
+    const std::string again = "Directory partly re-formatted: run INITDIR again.";
+    same(r.to("initdir b:", "(Y/N)? "), "initdir b:\r\nDirectory already re-formatted.\r\n"
+                                         "Do you wish to recover date/time directory space (Y/N)? ");
+    fm->wleft = 1;
+    same(r.cmd("y"), "y\r\nDisk Write Error\r\n" + again + "\r\nA>");
+    fm->wleft = -1;
+    std::vector<uint8_t> d = b.directory();
+    for (unsigned i = 3; i < 16; i += 4)
+        REQUIRE(d[i * 32] == 0xE5);
+    REQUIRE(d[19 * 32] == 0x21);
+    // The drive used
+    const unsigned at[2] = {3, 7}, blk[2] = {100, 101};
+    for (unsigned f = 0; f < 2; ++f)
+    {
+        char n[24];
+        std::snprintf(n, sizeof n, "G%02u     DAT", at[f]);
+        std::vector<uint8_t> e = entry(0, n, 0, 8);
+        e[16] = static_cast<uint8_t>(blk[f]);
+        std::copy(e.begin(), e.end(), d.begin() + at[f] * 32);
+    }
+    write_unit(r, 2, 0, std::vector<uint8_t>(d.begin(), d.begin() + SECTOR));
+    const std::vector<uint8_t> used = b.directory();
+    REQUIRE(used == d);
+    const std::vector<uint8_t> want = reformatted(used);
+    CHECK_EQ(want[1 * 32 + 1], 'G'); // G03 moved to 1, G07 to 2
+    CHECK_EQ(want[2 * 32 + 2], '0');
+    // N to the recover, Y to the re-format: the moves written, the SFCBs' first sector not
+    same(r.to("initdir b:", "(Y/N)? "), "initdir b:\r\nDirectory partly re-formatted.\r\n"
+                                         "Do you wish to recover date/time directory space (Y/N)? ");
+    same(r.to("n", "(Y/N)? "), "n\r\nINITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                                "Do you really want to re-format the directory: B (Y/N)? ");
+    fm->writes = 0;
+    fm->wleft = 1;
+    same(r.cmd("y"), "y\r\nDisk Write Error\r\n" + again + "\r\nA>");
+    fm->wleft = -1;
+    CHECK_EQ(fm->writes, 1u);
+    const std::vector<uint8_t> partly = b.directory();
+    for (unsigned f = 0; f < 2; ++f) // each file in its place and at 1 or 2
+        CHECK(std::equal(partly.begin() + at[f] * 32, partly.begin() + at[f] * 32 + 32, partly.begin() + (f + 1) * 32));
+    CHECK_EQ(partly[11 * 32], 0xE5);
+    CHECK_EQ(partly[19 * 32], 0x21);
+    // Again: partly, and the re-format offered; the copies kept, the places' originals SFCBs
+    same(r.to("initdir b:", "(Y/N)? "), "initdir b:\r\nDirectory partly re-formatted.\r\n"
+                                         "INITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                                         "Do you really want to re-format the directory: B (Y/N)? ");
+    fm->writes = 0;
+    same(r.cmd("y"), "y\r\r\nA>");
+    CHECK(succeeded(r));
+    CHECK_EQ(fm->writes, 64u); // nothing left to move: the SFCBs
+    const std::vector<uint8_t> after = b.directory();
+    CHECK(after == want);
+    CHECK(kept(after) == kept(used));
+    std::map<unsigned, unsigned> owners; // block: the entries naming it
+    for (unsigned i = 0; i < b.entries(); ++i)
+    {
+        const uint8_t *e = &after[i * 32];
+        if (e[0] < 16)
+            for (unsigned k = 0; k < 8; ++k)
+                if (const unsigned bk = b.pointer(e, k))
+                    ++owners[bk];
+    }
+    CHECK_EQ(owners.size(), 2u);
+    for (const auto &o : owners)
+        CHECK_EQ(o.second, 1u);
+    same(r.cmd("dir b:g*.*"), "dir b:g*.*\r\nB: G03      DAT : G07      DAT\r\nA>");
 }
 
 

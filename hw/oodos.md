@@ -1593,11 +1593,12 @@ saved by `OODOS_UTILS_OUT`).
 the choices it left open marked ours):
 
 - **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,608, TYPE 4,147, ERASE
-  4,091, RENAME 4,452, SET 6,766, INITDIR 5,597, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
+  4,091, RENAME 4,452, SET 6,766, INITDIR 5,610, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
   review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
   DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
   feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
-  each when the quiet stops became `cmd.inc`'s for every program). ld65 links all
+  each when the quiet stops became `cmd.inc`'s for every program; after the third, INITDIR 13 for its copies kept
+  from a recover). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1706,8 +1707,9 @@ the choices it left open marked ours):
   as one without SFCBs (the question asked). A recover writes sector 0 first, so one stopped leaves entry 3 free
   and later places SFCBs: a directory with an SFCB in a place but not in entry 3 is `Directory partly
   re-formatted.` and `Do you wish to recover date/time directory space (Y/N)? `, `Y` finishing the recover, `N`
-  going on to the re-format's question. The copies are looked for comparing from byte 0 up (the user and name
-  differ first). A drive used between the two tries may hold two different copies of
+  going on to the re-format's question; but if entries in places also have copies outside them (a re-format stopped
+  after such a recover), only `Directory partly re-formatted.` and the re-format's question, since a recover would
+  leave both copies. The copies are looked for comparing from byte 0 up (the user and name differ first). A drive used between the two tries may hold two different copies of
   an entry: run INITDIR again first. Cold boot's M: has SFCBs holding `$E5`
   past their first byte, so after `stamps cleared` a slot's bytes 8, 9 and 31 stay `$E5` (as designed).
 - **SHOW** (14, 17, 18, 24, 25, 26, 29, 31, 32, 45, 46, 49, 108, 109). **Ours:** `[]` is SPACE; an option with a

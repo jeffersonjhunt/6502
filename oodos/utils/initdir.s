@@ -32,7 +32,10 @@
 ; way: one a write error stopped leaves entry 3 free and later places still
 ; SFCBs, and the next INITDIR, finding an SFCB in a place but not in entry
 ; 3, says "Directory partly re-formatted." and asks to recover first (Y
-; finishes it; N goes on to the re-format's question).
+; finishes it; N goes on to the re-format's question). Unless entries in
+; places have copies outside them too (a re-format stopped after such a
+; recover): a recover would leave both, so it goes to the re-format's
+; question, which drops the originals.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -163,6 +166,8 @@ MAKE:           JSR     LOOK
                 LDA     #<SPARTLY
                 LDX     #>SPARTLY
                 JSR     UT_SAY
+                LDA     COPIES         ; and a re-format after it: re-format
+                BNE     @room0
                 LDA     #<SRECOVER
                 LDX     #>SRECOVER
                 JSR     ASKQ
@@ -387,7 +392,7 @@ SLOTMODE:       LDA     (R)
 ; The directory by 17: USED its entries in use but SFCBs in their places,
 ; each other entry in an SFCB's place kept from UT_MLO up (to MTOP), each
 ; XFCB's user, name and mode from the top down (to XLOW); NOMEM 1 if they
-; didn't fit; HALF 1 if a place holds an SFCB. Then DUPS.
+; didn't fit; HALF 1 if a place holds an SFCB. Then DUPS (COPIES).
 LOOK:           JSR     UT_MEM
                 LDA     UT_MLO
                 STA     MTOP
@@ -401,6 +406,7 @@ LOOK:           JSR     UT_MEM
                 STZ     USED + 1
                 STZ     NOMEM
                 STZ     HALF
+                STZ     COPIES
                 JSR     UT_SCAN
 @entry:         BCC     @look
                 CPX     #0
@@ -475,7 +481,7 @@ LOOK:           JSR     UT_MEM
 
 ; The entries to move that have an exact copy already outside the SFCBs'
 ; places (left by a re-format that failed partway): taken off the list, and
-; off USED.
+; off USED; COPIES 1 if there were any.
 DUPS:           LDA     MTOP
                 CMP     UT_MLO
                 BNE     @scan
@@ -515,6 +521,8 @@ DUPS:           LDA     MTOP
                 BNE     @cmp
                 LDA     #E_FREE        ; its copy: not moved again
                 STA     (R)
+                LDA     #1
+                STA     COPIES
                 LDA     USED
                 BNE     @dec
                 DEC     USED + 1
@@ -863,6 +871,7 @@ MAKING:         .res    1              ; 1: SFCBs being made or recovered
 WROTE:          .res    1              ; 1: and something written
 NOSF:           .res    1              ; 1: entry 3 not an SFCB
 HALF:           .res    1              ; 1: a place holds an SFCB
+COPIES:         .res    1              ; 1: DUPS found copies
 T:              .res    2
 PB:             .res    8              ; function 50's parameter block
 BUF:            .res    512            ; a directory sector
