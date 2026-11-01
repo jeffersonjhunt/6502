@@ -210,11 +210,12 @@ doesn't (`\r\r\nA>`): the CCP ends the command's line (the LF it owes, `CM_LFDUE
 The emulator's build runs `make utils` into its build tree (`oodos_utils`) for the `test_oodos_utils` suites, which
 put each on M: behind OODOS's back (`oodos_rig.h`'s `put_util`) and run it from the CCP. `test_oodos_utils`
 itself runs UTTEST (`sys/test/uttest.s`), each line compared: `CM_EOL` and the routines of `util.inc`'s sections
-from the start and the end to the drives and writing (`UT_BACK`, `UT_PUTDRV` and `UT_BLANKS` only through the
-routines that call them). The memory, files and system sections (`UT_MEM`, `UT_NAMES`, `UT_NNEXT`, `UT_PWSET`,
-`UT_ISWILD`, `UT_FDRIVE`, `UT_SAID`, `UT_OAT`, `UT_OCLOSE`, `UT_SCBGET`, `UT_SCBSET`, `UT_SCBSETW`, `UT_BIOS`)
-UTTEST doesn't call: they are tested only through the utilities that use them, in the other `test_oodos_utils`
-suites. UTTEST runs so:
+from the start and the end to the drives and writing, `UT_PUT2`, `UT_BACK` and `UT_BLANKS` only through the
+routines that call them (`UT_PUTDATE`; `UT_END`; `UT_NOUT` and `UT_PUTSTAMP`), and `UT_PEEK`, `UT_STN` and
+`UT_PUTDRV` not at all (nothing in `util.inc` calls them). Those three and the memory, files and system sections
+(`UT_MEM`, `UT_FDRIVE`, `UT_ISWILD`, `UT_PWSET`, `UT_NAMES`, `UT_NNEXT`, `UT_SAID`, `UT_ISRO`, `UT_OAT`,
+`UT_OCLOSE`, `UT_SCBGET`, `UT_SCBSET`, `UT_SCBSETW`, `UT_BIOS`) are tested only through the utilities that use
+them, in the other `test_oodos_utils` suites. UTTEST runs so:
 
 ```
 ctest --preset dev -R test_oodos_utils
