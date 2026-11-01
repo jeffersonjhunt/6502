@@ -38,8 +38,10 @@
  *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
  *   not on the card;
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
- *   then JMP ($0314); straight to the stub's handler for a tune with a
- *   play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
+ *   then JMP ($0314); for a VBI song, a check of $DE03 first, with $01
+ *   saved and I/O banked in, that takes a frame to the stub's handler, about
+ *   20 cycles before any other interrupt reaches $0314; straight to the
+ *   stub's handler for a tune with a play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
  *   $FEBC, for tunes that install their own interrupt at $0314 and leave
  *   through them;
  * - init called with the song (0-based) in A; then, if the tune has a play

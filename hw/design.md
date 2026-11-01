@@ -667,6 +667,7 @@ it commands.
   | `$D400` | SID A |
   | `$D420` or `$D500` | SID B (CTRL bit 3) |
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
+  | `$DE03`/`$DE04` | FRAME and FRAMEEN: the card's frame interrupt, for the host's player stub, and the raster line's switch (below) |
   | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status (bit 0: a byte from the host is waiting; bit 1: the card's last byte hasn't been taken) |
 
   RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
@@ -697,7 +698,8 @@ it commands.
 - **The mailbox** is one byte each way. A second MBOUT before the card has taken the first replaces it, and the
   same for the card's byte; STATUS says when a box is full.
 - **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2.
-- **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, from the 6510's reset.
+- **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, while RUN is set, from
+  the 6510's reset.
   Its interrupt is the card's own, for the host's player stub, at addresses the C64 leaves free so a tune can't
   turn it on by accident: `$DE03` FRAME (bit 0 latches at each frame's start and a 1 written there clears it;
   bit 7 reads 1 while it pulls /IRQ; the other bits read 0) and `$DE04` FRAMEEN (bit 0 lets it interrupt;

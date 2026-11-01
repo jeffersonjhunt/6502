@@ -34,9 +34,12 @@
  *                SID B is: $D420-$D43F, or $D500-$D51F with CTRL bit 3
  *   $DC00        CIA 1, imitated: timer A ($DC04/$DC05), its interrupt
  *                ($DC0D) and control ($DC0E), repeating every 16 bytes
+ *   $DE03/$DE04  FRAME and FRAMEEN: the card's frame interrupt, for the
+ *                host's stub, and the raster line's switch (below)
  *   $DE00/$DE01  the mailbox and its status
  *
- * The rest of $D000-$DFFF (the rest of the VIC-II, colour RAM, CIA 2) reads $FF
+ * The rest of $D000-$DFFF (the rest of the VIC-II, colour RAM, CIA 2, the
+ * rest of $DE00-$DFFF) reads $FF
  * and ignores writes while I/O is in. The timer counts down one each SID
  * clock and underflows after latch + 1 of them: it reloads from the latch,
  * sets ICR bit 0, and pulls the 6510's /IRQ while ICR's mask has bit 0.
@@ -44,8 +47,9 @@
  * Writing the latch's high byte while the timer is stopped loads it too.
  *
  * The frame: a C64's, 19,656 SID clocks PAL (312 lines of 63) or 17,095
- * NTSC (263 of 65), counted from the 6510's reset whether it uses it or
- * not; the raster line above is where in it the clock is. Its interrupt is
+ * NTSC (263 of 65), counted while RUN is set from the 6510's reset, whether
+ * it uses it or not (it stops with the 6510); the raster line above is
+ * where in it the clock is. Its interrupt is
  * the card's own, for the host's player stub (sid_file.h), at addresses the
  * C64 leaves free so a tune can't turn it on by accident: $DE03 FRAME bit 0
  * latches at each frame's start and a 1 written there clears it, bit 7 reads
