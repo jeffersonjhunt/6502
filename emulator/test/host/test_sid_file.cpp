@@ -354,6 +354,46 @@ TEST(a_cia_song_plays_at_the_kernals_rate)
     CHECK_EQ(vbi.frames, 50u);
 }
 
+/// COUNTER, but init also sets CIA 1's timer A to 20,454 clocks (about 48 Hz),
+/// as some VBI tunes' do; `cia_irq_on` has it turn the timer's interrupt on too.
+std::vector<uint8_t> retimed(bool cia_irq_on)
+{
+    std::vector<uint8_t> c = {0x8D, 0x00, 0xC0, 0xA9, 0x0F, 0x8D, 0x18, 0xD4, // song to $C000, volume up
+                              0xA9, 0xE5, 0x8D, 0x04, 0xDC, 0xA9, 0x4F, 0x8D, 0x05, 0xDC}; // latch $4FE5
+    if (cia_irq_on)
+        c.insert(c.end(), {0xA9, 0x81, 0x8D, 0x0D, 0xDC}); // LDA #$81 STA $DC0D
+    c.insert(c.end(), {0x60, 0xEE, 0x00, 0xD4, 0x60}); // RTS; play, its last 4 bytes: INC $D400 RTS
+    return c;
+}
+
+TEST(a_vbi_tune_that_retimes_cia_1_in_init_still_plays_once_a_frame)
+{
+    // The frame comes from the card's frame interrupt ($DE03), not timer A,
+    // so the 48 Hz timer neither slows it nor, with its interrupt on, adds calls.
+    for (const bool irq_on : {false, true})
+    {
+        Header h;
+        const std::vector<uint8_t> code = retimed(irq_on);
+        h.play = static_cast<uint16_t>(0x1000 + code.size() - 4);
+        Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+        CHECK_EQ(p.frames, 50u);
+        CHECK_EQ(p.reg(0x00), 50);
+        CHECK_EQ(p.card.timer_latch(), 0x4FE5); // the tune's timer is left as it set it
+        CHECK(p.card.frame_enabled());
+    }
+}
+
+TEST(a_cia_song_that_retimes_cia_1_in_init_plays_at_its_rate)
+{
+    Header h;
+    const std::vector<uint8_t> code = retimed(false);
+    h.play = static_cast<uint16_t>(0x1000 + code.size() - 4), h.speed = 0x1;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK); // 48 periods of 20,454 and a bit
+    CHECK_EQ(p.frames, 48u);
+    CHECK_EQ(p.reg(0x00), 48);
+    CHECK(!p.card.frame_enabled());
+}
+
 /// Three play periods, from the 2nd sync point to the 5th, in SID clocks. The
 /// interrupt waits for the stub's 3-cycle JMP to end, so one period can be a
 /// clock or two out; three of them come back to the same phase.

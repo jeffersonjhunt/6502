@@ -40,8 +40,15 @@
  * CRA bit 0 starts it, bit 3 makes it one-shot, bit 4 loads the latch now.
  * Writing the latch's high byte while the timer is stopped loads it too.
  *
- * CTRL RESET resets the 6510 (its vector at $FFFC in the card's RAM) and the
- * CIA. The usual start: RUN = 0, load the code through RAMDATA, write the
+ * The frame: a C64's, 19,656 SID clocks PAL or 17,095 NTSC, counted from
+ * the 6510's reset whether it uses it or not. Its interrupt is
+ * the card's own, for the host's player stub (sid_file.h), at addresses the
+ * C64 leaves free so a tune can't turn it on by accident: $DE03 FRAME bit 0
+ * latches at each frame's start and a 1 written there clears it, bit 7 reads
+ * 1 while it pulls /IRQ (the other bits read 0); $DE04 FRAMEEN bit 0 lets it.
+ *
+ * CTRL RESET resets the 6510 (its vector at $FFFC in the card's RAM), the
+ * CIA and the frame (its interrupt off, the frame starting over). The usual start: RUN = 0, load the code through RAMDATA, write the
  * reset vector, then CTRL = RUN | RESET. Time: the card is a timed device,
  * ticked in host CPU cycles; set_cpu_hz() says how fast those are (0: 7.16
  * MHz, also for a host run flat out), so the card keeps its own clock's
@@ -136,6 +143,9 @@ namespace ooe::emu
         static constexpr uint32_t PAL_HZ = 985'248, NTSC_HZ = 1'022'727, NATIVE_HZ = 7'159'090;
         /// CIA 1's registers the card imitates (offsets from $DC00).
         static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
+        /// The frame interrupt's registers ($DE03 FRAME, $DE04 FRAMEEN) and the frame in SID clocks and lines.
+        static constexpr uint16_t CARD_FRAME = 0xDE03, CARD_FRAME_EN = 0xDE04;
+        static constexpr uint32_t FRAME_PAL = 19'656, FRAME_NTSC = 17'095;
         static constexpr uint8_t CRA_START = 0x01, CRA_ONE_SHOT = 0x08, CRA_LOAD = 0x10;
 
         SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
@@ -225,6 +235,9 @@ namespace ooe::emu
         bool timer_running() const { return cia_cra_ & CRA_START; }
         /// ICR's flags as they stand (bit 0: timer A underflowed), without acknowledging them.
         uint8_t timer_flags() const { return cia_flags_; }
+        /// The frame interrupt: FRAME's latch (bit 0) and FRAMEEN's enable (bit 0).
+        uint8_t frame_flags() const { return vic_flags_; }
+        bool frame_enabled() const { return vic_mask_ & 0x01; }
 
     private:
         /// What the card's 6510 sees.
@@ -252,6 +265,9 @@ namespace ooe::emu
         uint8_t cia_read(unsigned reg);
         void cia_write(unsigned reg, uint8_t data);
         bool cia_irq() const { return cia_flags_ & cia_mask_ & 0x01; }
+        bool vic_irq() const { return vic_flags_ & vic_mask_ & 0x01; }
+        /// The frame's clock: a frame each FRAME_PAL or FRAME_NTSC SID clocks.
+        void vic_tick(unsigned cycles);
         void reset_cpu();
         uint64_t now() const;
         /// Clock the SIDs up to now(). Const: the debugger looks through peek().
@@ -289,5 +305,7 @@ namespace ooe::emu
         uint8_t ddr_{0}, port_{0};
         uint16_t cia_latch_{0xFFFF}, cia_counter_{0xFFFF};
         uint8_t cia_cra_{0}, cia_flags_{0}, cia_mask_{0};
+        uint32_t vic_count_{0}; ///< SID clocks to the next frame (0: a frame from now)
+        uint8_t vic_flags_{0}, vic_mask_{0};
     };
 } // namespace ooe::emu

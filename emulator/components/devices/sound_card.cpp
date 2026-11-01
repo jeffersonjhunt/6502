@@ -56,7 +56,7 @@ namespace ooe::emu
             step_start_ = cpu_.cycles();
             in_step_ = true;
             cia_tick(cpu_.step());
-            if (cia_irq())
+            if (cia_irq() || vic_irq())
             {
                 const uint64_t entry = cpu_.cycles();
                 cpu_.irq(); // ignored while I is set; level-sensitive, so it comes back
@@ -321,6 +321,10 @@ namespace ooe::emu
             return static_cast<uint8_t>((port_ & ddr_) | (~ddr_ & (0x3F | (port_ & 0xC0))));
         if (addr < 0xD000 || addr > 0xDFFF || !io_in())
             return ram_[addr];
+        if (addr == CARD_FRAME)
+            return static_cast<uint8_t>(vic_flags_ | (vic_irq() ? 0x80 : 0));
+        if (addr == CARD_FRAME_EN)
+            return vic_mask_;
         if (addr >= 0xD400 && addr < 0xD800)
             return sid_read(sid_at(addr), addr & 0x1F);
         if (addr >= 0xDC00 && addr < 0xDD00)
@@ -364,6 +368,10 @@ namespace ooe::emu
             ram_[addr] = data; // $00 and $01 too
             return;
         }
+        if (addr == CARD_FRAME) // writing 1 clears the latch
+            vic_flags_ = static_cast<uint8_t>(vic_flags_ & ~data & 0x01);
+        if (addr == CARD_FRAME_EN)
+            vic_mask_ = static_cast<uint8_t>(data & 0x01);
         if (addr >= 0xD400 && addr < 0xD800)
             sid_write(sid_at(addr), addr & 0x1F, data);
         else if (addr >= 0xDC00 && addr < 0xDD00)
@@ -378,10 +386,31 @@ namespace ooe::emu
     {
         cia_latch_ = cia_counter_ = 0xFFFF;
         cia_cra_ = cia_flags_ = cia_mask_ = 0;
+        vic_count_ = 0;
+        vic_flags_ = vic_mask_ = 0;
+    }
+
+    void SoundCard::vic_tick(unsigned cycles)
+    {
+        const uint32_t period = ctrl_ & CTRL_NTSC ? FRAME_NTSC : FRAME_PAL;
+        if (vic_count_ == 0)
+            vic_count_ = period;
+        while (cycles)
+        {
+            if (vic_count_ > cycles)
+            {
+                vic_count_ -= cycles;
+                return;
+            }
+            cycles -= vic_count_;
+            vic_count_ = period;
+            vic_flags_ |= 0x01;
+        }
     }
 
     void SoundCard::cia_tick(unsigned cycles)
     {
+        vic_tick(cycles); // the frame interrupt keeps the same clock
         if (!(cia_cra_ & CRA_START))
             return;
         while (cycles)

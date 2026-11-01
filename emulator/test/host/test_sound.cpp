@@ -385,6 +385,71 @@ TEST(cia_one_shot_stops_and_reading_icr_acknowledges)
     CHECK_EQ(c.timer_flags(), 0x00);
 }
 
+TEST(the_frame_interrupt_comes_once_a_frame_until_de03_is_cleared)
+{
+    // $1100: LDA #1 STA $DE03 (clear), INC $20, RTI. Main: $DE04 = 1, CLI, JMP *.
+    for (const bool ntsc : {false, true})
+    {
+        SoundCard c;
+        c.ram()[0xFFFE] = 0x00;
+        c.ram()[0xFFFF] = 0x11;
+        uint16_t a = 0x1100;
+        for (const unsigned b : {0xA9u, 0x01u, 0x8Du, 0x03u, 0xDEu, 0xE6u, 0x20u, 0x40u})
+            c.ram()[a++] = static_cast<uint8_t>(b);
+        start(c, 0x1000, {0xA9, 0x01, 0x8D, 0x04, 0xDE, 0x58, 0x4C, 0x06, 0x10},
+              ntsc ? SoundCard::CTRL_NTSC : 0);
+        const uint32_t hz = ntsc ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
+        const uint32_t frame = ntsc ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL;
+        host(c, (100ull * frame + frame / 2) * SoundCard::NATIVE_HZ / hz);
+        CHECK_EQ(c.ram()[0x20], 100);
+        CHECK(c.frame_enabled());
+        CHECK_EQ(c.timer_flags(), 0x00); // CIA 1 not involved
+    }
+}
+
+TEST(the_frame_latch_is_de03_bit_0_and_neither_cias_icr_nor_the_vic_reach_it)
+{
+    SoundCard c;
+    c.ram()[0xFFFE] = 0x00; // an interrupt would land on the JAM at $1100
+    c.ram()[0xFFFF] = 0x11;
+    c.ram()[0x1100] = 0x02;
+    start(c, 0x1000,
+          {
+              0xAD, 0x03, 0xDE, // LDA $DE03     no frame yet: $00
+              0x85, 0x40,       // STA $40
+              0xA9, 0xFF,       // LDA #$FF
+              0x8D, 0x1A, 0xD0, // STA $D01A     the VIC-II's enable: nothing here
+              0x58,             // CLI
+              0xA2, 0x10,       // LDX #$10      wait over a frame: 16 x 256 x 5 clocks
+              0xA0, 0x00,       // LDY #0
+              0x88,             // DEY
+              0xD0, 0xFD,       // BNE *-1
+              0xCA,             // DEX
+              0xD0, 0xF8,       // BNE *-6
+              0x78,             // SEI
+              0xAD, 0x0D, 0xDC, // LDA $DC0D     CIA 1's ICR: not the frame's
+              0xAD, 0x19, 0xD0, // LDA $D019     the VIC-II's: $FF, as on main
+              0x85, 0x44,       // STA $44
+              0xAD, 0x03, 0xDE, // LDA $DE03     latched, its interrupt off: $01
+              0x85, 0x41,       // STA $41
+              0xA9, 0x01,       // LDA #1
+              0x8D, 0x03, 0xDE, // STA $DE03     cleared
+              0xAD, 0x03, 0xDE, // LDA $DE03
+              0x85, 0x42,       // STA $42
+              0xAD, 0x04, 0xDE, // LDA $DE04     off: $00
+              0x85, 0x43,       // STA $43
+              0x02,             // JAM
+          });
+    host(c, HOST_SECOND / 10);
+    CHECK(c.cpu().state() == Cpu6502::State::Stopped);
+    CHECK(c.cpu().regs().pc != 0x1101); // not by an interrupt
+    CHECK_EQ(c.ram()[0x40], 0x00);
+    CHECK_EQ(c.ram()[0x41], 0x01);
+    CHECK_EQ(c.ram()[0x42], 0x00);
+    CHECK_EQ(c.ram()[0x43], 0x00);
+    CHECK_EQ(c.ram()[0x44], 0xFF);
+}
+
 TEST(ctrl_reset_restarts_the_6510_and_the_cia)
 {
     SoundCard c;

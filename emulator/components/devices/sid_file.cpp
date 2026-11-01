@@ -52,9 +52,10 @@ namespace ooe::emu
             uint8_t song, init_bank, play_bank;
             uint16_t latch;
             bool set_0314;
+            bool vbi; ///< play on the card's frame interrupt ($DE03), not CIA 1's timer
 
             // labels, filled by the first pass
-            uint16_t idle{0}, irq{0}, handler{0}, ack{0}, exit{0}, nmi{0}, frame{0};
+            uint16_t idle{0}, irq{0}, handler{0}, not_frame{0}, ack{0}, exit{0}, nmi{0}, frame{0};
 
             std::vector<uint8_t> emit()
             {
@@ -71,8 +72,10 @@ namespace ooe::emu
                 b({0xA9, 0x37, 0x85, 0x01});       // I/O in to set up the CIA
                 b({0xA9, latch & 0xFF}), w(0x8D, 0xDC04);
                 b({0xA9, latch >> 8}), w(0x8D, 0xDC05);
-                b({0xA9, 0x81}), w(0x8D, 0xDC0D); // timer A's interrupt on
-                b({0xA9, 0x11}), w(0x8D, 0xDC0E); // load and start, continuous
+                b({0xA9, vbi ? 0x7F : 0x81}), w(0x8D, 0xDC0D); // timer A's interrupt on (off for VBI)
+                b({0xA9, 0x11}), w(0x8D, 0xDC0E);              // load and start, continuous
+                if (vbi)
+                    b({0xA9, 0x01}), w(0x8D, 0xDE03), w(0x8D, 0xDE04); // the frame interrupt, cleared and on
                 if (set_0314)
                 {
                     b({0xA9, handler_vector & 0xFF}), w(0x8D, 0x0314);
@@ -92,11 +95,21 @@ namespace ooe::emu
                 handler = here();
                 if (play)
                 {
-                    b({0xA5, 0x01, 0x48});             // LDA $01 PHA
+                    b({0xA5, 0x01, 0x48}); // LDA $01 PHA
+                    if (vbi)               // a frame? Else the CIA, which a tune's init may have turned on
+                    {
+                        b({0xA9, 0x37, 0x85, 0x01}), w(0xAD, 0xDE03), b({0x29, 0x01}); // I/O in, LDA $DE03 AND #1
+                        b({0xF0, (not_frame - (here() + 2)) & 0xFF}), w(0x8D, 0xDE03); // BEQ not_frame, clear it
+                    }
                     b({0xA9, play_bank, 0x85, 0x01}); // bank for play
                     w(0x20, play);
                     b({0xA9, 0x37, 0x85, 0x01});       // I/O in for the mailbox and the CIA
                     w(0xEE, frame), w(0xAD, frame), w(0x8D, 0xDE00);
+                    if (vbi)
+                    {
+                        b({0x68, 0x85, 0x01}), w(0x4C, exit); // PLA STA $01, to exit
+                        not_frame = here();
+                    }
                     w(0xAD, 0xDC0D);       // acknowledge
                     b({0x68, 0x85, 0x01}); // PLA STA $01
                     w(0x4C, static_cast<uint16_t>(here() + 6)); // past ack's 3 bytes to exit
@@ -227,7 +240,8 @@ namespace ooe::emu
                   bank_for(f.init),
                   bank_for(f.play),
                   static_cast<uint16_t>(f.rsid || f.cia_timed(song) ? (ntsc ? 0x4295 : 0x4025) : (ntsc ? 17095 - 1 : 19656 - 1)),
-                  !overlaps(f, 0x0314, 0x0315)};
+                  !overlaps(f, 0x0314, 0x0315),
+                  f.play && !f.rsid && !f.cia_timed(song)};
         std::vector<uint8_t> code;
         for (const unsigned p : pages)
         {

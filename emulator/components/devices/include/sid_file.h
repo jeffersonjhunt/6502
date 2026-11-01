@@ -23,10 +23,17 @@
  *
  * - $01 banked for the routine's address ($37 below $A000, $36 below $D000,
  *   $34 inside $D000-$DFFF, $35 above), the stack at $FF, decimal clear;
- * - CIA 1's timer A running with its interrupt on: every 19,656 clocks (PAL)
- *   or 17,095 (NTSC), a C64's frame, for a VBI song; the KERNAL's own $4025
+ * - CIA 1's timer A running: with its interrupt on at the KERNAL's own $4025
  *   or $4295 for a CIA song or an RSID (which expects the C64 as the KERNAL
- *   leaves it), which init may reprogram;
+ *   leaves it), which init may reprogram; for a VBI song with a play routine,
+ *   at a frame (19,656 clocks PAL, 17,095 NTSC) with its interrupt off, and
+ *   the card's frame interrupt ($DE03/$DE04, sound_card.h) on instead, as a
+ *   PSID player uses the VIC-II's raster interrupt: so a VBI song plays once
+ *   a frame whatever init does to the CIA. The stub's handler plays only when
+ *   $DE03 says a frame came, clearing it; any other interrupt (the CIA's,
+ *   if init turned it on) it acknowledges by reading $DC0D and leaves. A
+ *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
+ *   not on the card;
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
  *   then JMP ($0314); straight to the stub's handler for a tune with a
  *   play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and

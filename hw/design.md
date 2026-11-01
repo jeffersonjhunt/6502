@@ -696,6 +696,11 @@ it commands.
 - **The mailbox** is one byte each way. A second MBOUT before the card has taken the first replaces it, and the
   same for the card's byte; STATUS says when a box is full.
 - **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2.
+- **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, from the 6510's reset.
+  Its interrupt is the card's own, for the host's player stub, at addresses the C64 leaves free so a tune can't
+  turn it on by accident: `$DE03` FRAME (bit 0 latches at each frame's start and a 1 written there clears it;
+  bit 7 reads 1 while it pulls /IRQ; the other bits read 0) and `$DE04` FRAMEEN (bit 0 lets it interrupt).
+  /RESET and CTRL RESET turn it off and start the frame over.
 - **/RESET** stops the card's 6510 (CTRL is cleared), pulls the SIDs' /RES, and empties the mailbox. The card's
   RAM keeps its contents.
 
@@ -714,8 +719,10 @@ tune; the WebUI's tune bar then says the machine stopped it.
 
 - **The stub** goes on a free page: the one the header names (not `$00` or `$01`, the port and the stack), else `$FF00`, `$FE00`, `$0400`, `$C000`
   or `$0200`, the first the tune leaves alone and that misses `$0314` when the stub sets it. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
-  timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
-  song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
+  timer A (the KERNAL's `$4025`/`$4295` for a CIA song or an RSID, with its interrupt on; a frame,
+  with it off, for a VBI song, whose play comes from the card's frame interrupt at `$DE03` instead, so init
+  retiming the CIA doesn't change its rate; the handler plays only on a frame and acknowledges any
+  other interrupt at `$DC0D`), banks `$01` for init's address, calls init with the song less one in
   A, and waits in a `JMP` loop.
 - **`$01` for a routine** follows PSID players: `$37` below `$A000`, `$36` below `$D000`, `$34` in
   `$D000-$DFFF`, `$35` above. On the card only `$34` differs (there are no ROMs), so I/O comes back
