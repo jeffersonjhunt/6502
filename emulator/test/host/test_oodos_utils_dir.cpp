@@ -766,6 +766,10 @@ TEST(each_error_has_its_message_and_the_return_code_ff00)
     err("m:dir m:toolongname [full]", "Illegal command tail."); // (the CCP refuses it before DIR.COM:)
     err("dir m:toolongname [full]", "DIR M:TOOLONGNAME [FULL]?");
     err("m:dir m:x m:toolongname", "Illegal command tail.");
+    // A delimiter with nothing after it but blanks and the options (util.inc's UT_SPEC): refused
+    err("m:dir m:,", "Illegal command tail.");
+    err("dir m:, [full]", "Illegal command tail.");
+    err("dir m:x m:, [size]", "Illegal command tail.");
     for (const char *o : {"[bogus]", "[d]", "[n]", "[length=4]", "[length=70000]", "[length]", "[length=x]",
                           "[length=(5,6)]", "[user=16]", "[user]", "[user=x]", "[user=(1,x)]", "[user=(1,2]",
                           "[drive=q]", "[drive]", "[drive=(a,q)]", "[full=1]", "[nosort=on]", "[disk=]"})
