@@ -1665,8 +1665,9 @@ the choices it left open marked ours):
   assignment or hit RETURN: `, with a colon, as the Guide prints it (the plan had none).
 - **SETDEF** (49, 108, 109). It keeps `$18`'s other bits; the chain is `$4C`–`$4F`, the temporary drive `$50`, the
   page mode `$2C`. **Ours:** commas between drives, else `Invalid delimiter.`; a trailing comma or a bad drive
-  `Invalid drive.`; `*` and the current drive's letter are distinct entries; a second list or one not closed, a
-  stray value, `TEMPORARY` or `ORDER` without one, `Invalid option.`; an option given twice, the last wins; `SUB` in
+  `Invalid drive.`; `*` and the current drive's letter are distinct entries; a second list, or anything after the
+  list, `Invalid delimiter.`; a list not closed, a stray value, `TEMPORARY` or `ORDER` without one, `Invalid
+  option.`; an option given twice, the last wins; `SUB` in
   `ORDER` is `ORDER=(SUB): no SUBMIT yet`. SHOW, DEVICE and SETDEF are paged.
 - **The layout, decided (2026-10-31, the user's):** the CCP ends the command's line (the LF it owes, `CM_LFDUE`,
   by `RUNTAIL`'s `CM_FLUSH`) before any program runs, so a utility that writes nothing (ERASE of one name, a DEVICE
