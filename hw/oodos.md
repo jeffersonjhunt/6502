@@ -1439,7 +1439,8 @@ it is silent the choice is ours, and says so):
 - **File options** (with a file specification; Table 5-16): `DIR`, `SYS`, `RO`, `RW`, `ARCHIVE=ON|OFF`,
   `F1=ON|OFF` to `F4=ON|OFF` (30, every other attribute as the entry has it); `PASSWORD=pw` and
   `PROTECT=READ|WRITE|DELETE|NONE` (103: a new password, or the mode; a file given a password without a mode is
-  `READ` if it had no XFCB, keeps its mode if it had: ours; `NONE` makes the mode 0, so the file is unprotected;
+  `READ` if it had no XFCB, keeps its mode if it had: ours; `NONE` makes the mode 0, so the file is unprotected,
+  and deletes its password (Table 5-17) unless `PASSWORD=` gives a new one;
   `READ`, `WRITE` or `DELETE` on a file with no password and none given: `Assign a Password to this file.`). A
   wildcard is each matching file of the current user, read first; the file's password, if it has one, after the
   name (`SET X.TXT;OLD [PASSWORD=NEW]`). Each file done: `M:ONE.TXT set to System (SYS), Read Only (RO)`, the
@@ -1491,7 +1492,8 @@ prefix.
 - **A directory without SFCBs:** `INITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.` and `Do you really
   want to re-format the directory: M (Y/N)? ` (the Guide); `Y` makes every fourth entry an SFCB: the entries in
   those places (files, XFCBs, the label) are moved to free entries first, written before the SFCBs over them
-  (ours: a failure between leaves two copies, never none). Each SFCB's stamps are 0, and its password modes those
+  (ours: a failure between leaves two copies, never none, and the next INITDIR finishes the job). Each SFCB's
+  stamps are 0, and its password modes those
   of the files' XFCBs (as the BDOS keeps them, 3b1). Not room for them (more entries in use than three quarters of
   the directory): `Not enough room in directory.` (the Guide), nothing changed. The label's stamp bits aren't set:
   SET does that (the Guide).
@@ -1578,7 +1580,7 @@ saved by `OODOS_UTILS_OUT`).
 the choices it left open marked ours):
 
 - **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,418, TYPE 4,011, ERASE
-  3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,282, DATE 4,341, DEVICE 5,477, SETDEF 4,526. ld65 links all
+  3,962, RENAME 4,250, SET 6,635, INITDIR 5,452, SHOW 5,282, DATE 4,341, DEVICE 5,477, SETDEF 4,526. ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1592,7 +1594,7 @@ the choices it left open marked ours):
 - **For all of them (ours):** the tail is parsed and checked before anything is changed; the return code is `$FF00`
   after any message, `No directory label exists.` and `No File` among them; a drive is given in the FCB's byte, so
   the current drive is never changed; after a BDOS error a utility goes on with the next file, if there is one, and
-  the code is `$FF00`; a ^C is `$FFFE`.
+  the code is `$FF00` (SET too: a file whose 30 is refused isn't given its 103); a ^C is `$FFFE`.
 - **DIR** (functions 14, 17, 18, 24, 25, 26, 31, 32, 45, 49 for `$1A`, `$1C`, `$2C`, `$38`, 5, 108, 109). Its records
   go from its BSS to the TPA's top, about 40 KB, some 1,190 files a drive. **Ours:** `$FF00` after any error, any
   `No File`, `Date and Time Stamping Inactive`, `Not Enough Memory for Sort` and a drive the BDOS refused; the
@@ -1628,7 +1630,8 @@ the choices it left open marked ours):
   (where the built-in says the command and `?`); an N leaves `$FF00`; the `NEW=OLD` line has no drive; a wildcard's
   `?` places must be exactly the same, else `Invalid wildcard.`
 - **SET** (152, 14, 17, 18, 26, 28, 30, 31, 32, 37, 49, 100, 101, 103, 106, 108, 109). **Ours:** everything checked
-  before anything changes; a drive's options done in the order `DEFAULT`, `RW`, the label's options as given, `RO`;
+  before anything changes (the label's SFCB check and password among it, so a failed one leaves the default
+  password too); a drive's options done in the order `DEFAULT`, `RW`, the label's options as given, `RO`;
   a file's 30 before its 103; one 100 for each label option, an option given twice taking its first place and last
   value, a new label password used for the 100s after it; the label's password asked once, and only when the label
   has one (8 blanks or zeros are none), at most 8 characters, in capitals, compared here; `PROTECT=` takes
@@ -1637,14 +1640,26 @@ the choices it left open marked ours):
   password (`[PASSWORD=]` on a file without an XFCB refused so); the `Protection =` line names the highest mode bit;
   `DEFAULT=` takes no file; `Invalid option` also for a second list or one not closed, `Invalid file
   specification.` for a second specification or `a=b`, `Not Enough Memory` for a wildcard's names that don't fit,
-  `Directory full` when 100 or 103 return `$FF` with X 0; 30 clears F5'–F8'; a wildcard's lines are paged.
+  `Directory full` when 100 or 103 return `$FF` with X 0 (that one ends SET); 30 clears F5'–F8'; a wildcard's
+  lines are paged. `PROTECT=NONE` without `PASSWORD=` writes 8 blanks as the new password (103's bit 0): the
+  password is deleted. A file's mode and whether it has a password come from its first XFCB in directory order,
+  as the BDOS takes it. On a drive without SFCBs every label option writes the label without its stamp bits (6–4),
+  as 100 refuses them there: a label made elsewhere is repaired, not `Directory full`.
 - **INITDIR** (14, 17, 18, 26, 29, 37, 50: SELDSK, SETTRK, SETSEC, SETDMA, SETBNK 1, READ, WRITE; 108). It assumes
   512-byte sectors, 16 a track, as OODOS's drives have. **Ours:** the tail is `d:` alone, else `Invalid drive.`;
   29 before 37; room and memory checked before the question; room is the entries in use at most three quarters of
   the directory, an SFCB (`$21`) already in its place not moved; moved entries go to the lowest free entries, in
   their order; a slot's mode is that of the first XFCB of its file in directory order, `AND $E0`; clearing the
   stamps zeroes a slot's bytes 0–7 and keeps 8, 9 and 31; recovering writes 32 `$E5`s over each SFCB and ANDs the
-  label's mode with `$8F`; a BIOS error resets the drive (37) and fails. Cold boot's M: has SFCBs holding `$E5`
+  label's mode with `$8F`; a BIOS error resets the drive (37) and fails. The 37 before the first write is checked
+  (the BDOS says its error; nothing written). The moves are made once without writing first: if the BIOS's sectors
+  haven't the free entries for every one (the BDOS's view and the disk's differing), `Not enough room in
+  directory.` and nothing written. A BIOS error once a re-format has written something adds `Directory partly
+  re-formatted: run INITDIR again.`, and the next INITDIR finishes it: an entry in an SFCB's place with an exact
+  copy outside them (the first try's) isn't moved again nor counted for room, an SFCB in its place isn't counted,
+  and a directory whose entry 3 is an SFCB but another place isn't is `Directory partly re-formatted.`, then made
+  as one without SFCBs (the question asked). A drive used between the two tries may hold two different copies of
+  an entry: run INITDIR again first. Cold boot's M: has SFCBs holding `$E5`
   past their first byte, so after `stamps cleared` a slot's bytes 8, 9 and 31 stay `$E5` (as designed).
 - **SHOW** (14, 17, 18, 24, 25, 26, 29, 31, 32, 45, 46, 49, 108, 109). **Ours:** `[]` is SPACE; an option with a
   value, or a second, is `Unrecognized option.`; anything after the list, a second list, one not closed or a drive

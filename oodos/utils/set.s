@@ -365,15 +365,15 @@ PROTKIND:       LDX     #0
 
 ; ---- a drive's options ---------------------------------------------------
 
-DRIVE:          LDA     GIVEN + O_DEF
-                BEQ     @label
+DRIVE:          LDA     NLORD          ; the label's checks (they may fail) first
+                BEQ     @def
+                JSR     LABEL
+@def:           LDA     GIVEN + O_DEF
+                BEQ     @rw
                 LDA     #<DEFPW
                 LDX     #>DEFPW
                 LDY     #F_PASSWD
                 JSR     BDOS
-@label:         LDA     NLORD
-                BEQ     @rw
-                JSR     LABEL
 @rw:            LDA     GIVEN + O_RW
                 BEQ     @lops
                 LDA     #1             ; the drive's bit
@@ -425,7 +425,9 @@ QUIT:           JSR     UT_FAIL
                 JMP     UT_EXIT
 
 ; The label as it is (or a new one's: LABEL, no modes, no password); stamps
-; asked for need SFCBs; its password asked for if it has one.
+; asked for need SFCBs, and without them the label's own stamp bits are
+; dropped (100 refuses them there: a label made elsewhere); its password
+; asked for if it has one.
 LABEL:          LDA     GIVEN + O_CREATE
                 AND     VAL + O_CREATE
                 STA     T
@@ -436,11 +438,13 @@ LABEL:          LDA     GIVEN + O_CREATE
                 LDA     GIVEN + O_UPDATE
                 AND     VAL + O_UPDATE
                 ORA     T
-                BEQ     @find
+                STA     T
                 JSR     UT_SFCBS
                 BCS     QUIT
-                CMP     #0
+                STA     HASSF
                 BNE     @find
+                LDA     T
+                BEQ     @find
                 LDA     #<SREFORM
                 LDX     #>SREFORM
                 JMP     FAIL
@@ -467,7 +471,10 @@ LABEL:          LDA     GIVEN + O_CREATE
                 BPL     @copy
                 LDA     UT_LBL + 12
                 AND     #$F0
-                STA     LMODE
+                LDX     HASSF
+                BNE     @mode
+                AND     #L_PW
+@mode:          STA     LMODE
                 LDA     #<UT_LBL
                 LDX     #>UT_LBL
                 JSR     UT_PWDEC
@@ -682,6 +689,7 @@ FILES:          LDA     GIVEN + O_PW
                 LDA     ATTOPS
                 BEQ     @pws
                 JSR     ATTRIB
+                BCS     @next          ; refused, said: on to the next file
 @pws:           LDA     PWOPS
                 BEQ     @next
                 JSR     PROTECT
@@ -799,6 +807,9 @@ XFCBS:          JSR     UT_SCAN
                 INY
                 CPY     #11
                 BNE     @cmp
+                LDY     #R_FLAGS       ; the first XFCB of the name counts (the BDOS's)
+                LDA     (P),Y
+                BNE     @next
                 LDY     #12            ; its mode
                 LDA     (Q),Y
                 LDY     #R_MODE
@@ -862,7 +873,7 @@ NEWMODE:        LDA     GIVEN + O_PROT
                 RTS
 
 ; The file at P by 30: its attributes as they are, changed as asked; then
-; its line.
+; its line, carry clear. Carry set if the BDOS refused it (said).
 ATTRIB:         JSR     PFCB
                 LDX     #3             ; f5'-f8' aren't the disk's (f6' would set S1)
 @inter:         LDA     WFCB + 5,X
@@ -894,8 +905,10 @@ ATTRIB:         JSR     PFCB
                 LDX     #>WFCB
                 LDY     #F_ATTRIB
                 JSR     BDOS
-                JSR     BDOSOK
-                JSR     PUTFILE        ; "M:ONE.TXT set to System (SYS), ..."
+                JSR     FBDOSOK
+                BCC     @done
+                RTS
+@done:          JSR     PUTFILE        ; "M:ONE.TXT set to System (SYS), ..."
                 LDA     #<SSETTO
                 LDX     #>SSETTO
                 JSR     CM_PUTS
@@ -931,23 +944,40 @@ ATTRIB:         JSR     PFCB
 @snext:         INY
                 CPY     #O_F4 + 1
                 BNE     @shown
+                CLC
                 JMP     CM_EOL
 
 ; The file at P by 103: its mode as NEWMODE has it, a new password if one
-; was given; then its line.
+; was given (NONE without one: 8 blanks, the password deleted, the Guide);
+; then its line. Nothing if the BDOS refused it (said).
 PROTECT:        JSR     PFCB
                 JSR     NEWMODE
                 STA     T
                 LDA     GIVEN + O_PW   ; bit 0: a new password, the DMA's 8-15
-                ORA     T
+                BNE     @bits
+                LDA     GIVEN + O_PROT
+                BEQ     @bits
+                LDA     VAL + O_PROT
+                CMP     #V_NONE
+                LDA     #0
+                BCC     @bits          ; READ, WRITE, DELETE
+                LDX     #7
+                LDA     #' '
+@blank:         STA     PWBUF + 8,X
+                DEX
+                BPL     @blank
+                LDA     #1
+@bits:          ORA     T
                 STA     WFCB + 12
                 JSR     SETDMA
                 LDA     #<WFCB
                 LDX     #>WFCB
                 LDY     #F_WRITEXFCB
                 JSR     BDOS
-                JSR     BDOSOK
-                JSR     PUTFILE
+                JSR     FBDOSOK
+                BCC     @done
+                RTS
+@done:          JSR     PUTFILE
                 LDA     #<SPROTEQ
                 LDX     #>SPROTEQ
                 JSR     CM_PUTS
@@ -1012,6 +1042,19 @@ BDOSOK:         CMP     #$FF
                 LDX     #>SFULL
                 JMP     FAIL
 @said:          JMP     QUIT
+
+; A file's call's A, as BDOSOK, but for an error the BDOS said: the return
+; code $FF00 and carry set, so SET goes on with the next file; else carry
+; clear.
+FBDOSOK:        CMP     #$FF
+                BNE     @ok
+                CPX     #0
+                BEQ     BDOSOK
+                JSR     UT_SAID
+                SEC
+                RTS
+@ok:            CLC
+                RTS
 
 ; The records: FIRST P at the first, carry set if there are none; NEXT
 ; the next, carry set past the last.
@@ -1175,3 +1218,4 @@ LPW:            .res    8              ; the label's password, as typed
 LNAME:          .res    11             ; the label's name
 LNEW:           .res    11             ; NAME='s
 LMODE:          .res    1              ; the label's byte 12, bits 7-4
+HASSF:          .res    1              ; 1: the drive has SFCBs
