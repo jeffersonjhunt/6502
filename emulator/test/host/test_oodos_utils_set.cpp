@@ -529,6 +529,12 @@ TEST(set_changes_no_default_password_when_the_labels_checks_fail)
     same(r.cmd("wrong"), "wrong\r\nWrong Password\r\nA>");
     CHECK(!succeeded(r));
     CHECK(r.cmd("type m:one.txt").find("OODOS Error On M: Password Error") != std::string::npos);
+    // A read-only drive (28): Drive Read Only before the password is asked, the default not set
+    same(run(r, "set m: [ro]"), "M: set to Read Only (RO)");
+    same(run(r, "set m: [default=secret, name=other]"), "Drive Read Only");
+    CHECK(!succeeded(r));
+    CHECK(r.cmd("type m:one.txt").find("OODOS Error On M: Password Error") != std::string::npos);
+    same(run(r, "set m: [rw]"), "M: set to Read Write (RW)");
     CHECK(mdir(r) == before);
     // Right: the label renamed, then the default set
     REQUIRE(!r.to("set m: [default=secret, name=other]", "Password: ").empty());

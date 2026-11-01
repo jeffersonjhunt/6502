@@ -9,7 +9,8 @@
 ;                            CREATE= ACCESS= UPDATE= (100, one a label
 ;                            option), DEFAULT= (106)
 ;
-; Everything is checked before anything is changed; then a drive's are done
+; Everything is checked before anything is changed (a label option on a
+; read-only drive, 29, without RW: Drive Read Only); then a drive's are done
 ; in the order DEFAULT, RW, the label's options as given, RO (ours), and a
 ; file's by 30, then 103, each file in the directory's order. The BDOS says
 ; its own errors (error mode $FE).
@@ -367,7 +368,15 @@ PROTKIND:       LDX     #0
 
 DRIVE:          LDA     NLORD          ; the label's checks (they may fail) first
                 BEQ     @def
-                JSR     LABEL
+                LDA     GIVEN + O_RW   ; a read-only drive (29) can't take the
+                BNE     @label         ; label: Drive Read Only (unless RW first)
+                LDA     DRV
+                JSR     UT_ISRO
+                BCC     @label
+                LDA     #<SDRVRO
+                LDX     #>SDRVRO
+                JMP     FAIL
+@label:         JSR     LABEL
 @def:           LDA     GIVEN + O_DEF
                 BEQ     @rw
                 LDA     #<DEFPW
@@ -1183,6 +1192,7 @@ SLABFILE:       .byte   "Cannot label a drive with a file referenced$"
 SNOFILE:        .byte   "File not found.$"
 SWRONG:         .byte   "Wrong Password$"
 SREFORM:        .byte   "Directory needs to be reformatted for date/time stamps.$"
+SDRVRO:         .byte   "Drive Read Only$"
 SASSIGN:        .byte   "Assign a Password to this file.$"
 SPWOFF:         .byte   "Password protection is off: SET [PROTECT=ON]$"
 SNOMEM:         .byte   "Not Enough Memory$"
