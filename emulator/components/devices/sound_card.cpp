@@ -321,9 +321,9 @@ namespace ooe::emu
             return static_cast<uint8_t>((port_ & ddr_) | (~ddr_ & (0x3F | (port_ & 0xC0))));
         if (addr < 0xD000 || addr > 0xDFFF || !io_in())
             return ram_[addr];
-        if (addr == 0xD011) // the raster line's ninth bit; the rest as nothing drives them
+        if (addr == 0xD011 && raster_shown()) // the raster line's ninth bit; the rest as nothing drives them
             return static_cast<uint8_t>(0x7F | (raster_line() >> 8) << 7);
-        if (addr == 0xD012)
+        if (addr == 0xD012 && raster_shown())
             return static_cast<uint8_t>(raster_line());
         if (addr == CARD_FRAME)
             return static_cast<uint8_t>(vic_flags_ | (vic_irq() ? 0x80 : 0));
@@ -375,7 +375,7 @@ namespace ooe::emu
         if (addr == CARD_FRAME) // writing 1 clears the latch
             vic_flags_ = static_cast<uint8_t>(vic_flags_ & ~data & 0x01);
         if (addr == CARD_FRAME_EN)
-            vic_mask_ = static_cast<uint8_t>(data & 0x01);
+            vic_mask_ = static_cast<uint8_t>(data & (FRAMEEN_IRQ | FRAMEEN_RASTER));
         if (addr >= 0xD400 && addr < 0xD800)
             sid_write(sid_at(addr), addr & 0x1F, data);
         else if (addr >= 0xDC00 && addr < 0xDD00)

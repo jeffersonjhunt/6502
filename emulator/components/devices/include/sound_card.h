@@ -27,9 +27,9 @@
  *                but 6 and 7, unconnected, hold what was last written, so
  *                DDR $2F with $37 reads $37 as on a C64. Writes to $00/$01
  *                go to the RAM under them too.
- *   $D011/$D012  the VIC-II's raster line, read only, from the card's frame
- *                (below): $D012 its low 8 bits, $D011 bit 7 its ninth (the
- *                rest of $D011 reads 1)
+ *   $D011/$D012  with FRAMEEN bit 1 (below), the VIC-II's raster line, read
+ *                only, from the card's frame: $D012 its low 8 bits, $D011
+ *                bit 7 its ninth (the rest of $D011 reads 1); $FF without
  *   $D400        SID A, repeating every 32 bytes to $D7FF, except where
  *                SID B is: $D420-$D43F, or $D500-$D51F with CTRL bit 3
  *   $DC00        CIA 1, imitated: timer A ($DC04/$DC05), its interrupt
@@ -49,10 +49,13 @@
  * the card's own, for the host's player stub (sid_file.h), at addresses the
  * C64 leaves free so a tune can't turn it on by accident: $DE03 FRAME bit 0
  * latches at each frame's start and a 1 written there clears it, bit 7 reads
- * 1 while it pulls /IRQ (the other bits read 0); $DE04 FRAMEEN bit 0 lets it.
+ * 1 while it pulls /IRQ (the other bits read 0); $DE04 FRAMEEN bit 0 lets it,
+ * and bit 1 shows the raster line at $D011/$D012. The stub sets bit 1 for
+ * a PSID only: an RSID expects a whole C64, and one that gets past a raster
+ * wait it can't otherwise pass may go on to what the card lacks and jam.
  *
  * CTRL RESET resets the 6510 (its vector at $FFFC in the card's RAM), the
- * CIA and the frame (its interrupt off, the frame starting over). The usual start: RUN = 0, load the code through RAMDATA, write the
+ * CIA and the frame (FRAMEEN clear, the frame starting over). The usual start: RUN = 0, load the code through RAMDATA, write the
  * reset vector, then CTRL = RUN | RESET. Time: the card is a timed device,
  * ticked in host CPU cycles; set_cpu_hz() says how fast those are (0: 7.16
  * MHz, also for a host run flat out), so the card keeps its own clock's
@@ -149,6 +152,7 @@ namespace ooe::emu
         static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
         /// The frame interrupt's registers ($DE03 FRAME, $DE04 FRAMEEN) and the frame in SID clocks and lines.
         static constexpr uint16_t CARD_FRAME = 0xDE03, CARD_FRAME_EN = 0xDE04;
+        static constexpr uint8_t FRAMEEN_IRQ = 0x01, FRAMEEN_RASTER = 0x02;
         static constexpr uint32_t FRAME_PAL = 19'656, FRAME_NTSC = 17'095, LINES_PAL = 312, LINES_NTSC = 263;
         static constexpr uint8_t CRA_START = 0x01, CRA_ONE_SHOT = 0x08, CRA_LOAD = 0x10;
 
@@ -241,7 +245,9 @@ namespace ooe::emu
         uint8_t timer_flags() const { return cia_flags_; }
         /// The frame interrupt: FRAME's latch (bit 0) and FRAMEEN's enable (bit 0).
         uint8_t frame_flags() const { return vic_flags_; }
-        bool frame_enabled() const { return vic_mask_ & 0x01; }
+        bool frame_enabled() const { return vic_mask_ & FRAMEEN_IRQ; }
+        /// $D011/$D012 read the raster line (FRAMEEN bit 1).
+        bool raster_shown() const { return vic_mask_ & FRAMEEN_RASTER; }
 
     private:
         /// What the card's 6510 sees.

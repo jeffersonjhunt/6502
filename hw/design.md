@@ -663,7 +663,7 @@ it commands.
   |---|---|
   | `$0000–$FFFF` | 64 KB RAM |
   | `$0001` | the 6510 port, for tunes that bank I/O out of the way |
-  | `$D011`/`$D012` | the VIC-II's raster line, read only, from the card's frame (below): `$D012` its low 8 bits, `$D011` bit 7 its ninth; 312 lines of 63 SID clocks PAL, 263 of 65 NTSC |
+  | `$D011`/`$D012` | with FRAMEEN bit 1 (below), the VIC-II's raster line, read only, from the card's frame: `$D012` its low 8 bits, `$D011` bit 7 its ninth; 312 lines of 63 SID clocks PAL, 263 of 65 NTSC. `$FF` without |
   | `$D400` | SID A |
   | `$D420` or `$D500` | SID B (CTRL bit 3) |
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
@@ -700,7 +700,9 @@ it commands.
 - **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, from the 6510's reset.
   Its interrupt is the card's own, for the host's player stub, at addresses the C64 leaves free so a tune can't
   turn it on by accident: `$DE03` FRAME (bit 0 latches at each frame's start and a 1 written there clears it;
-  bit 7 reads 1 while it pulls /IRQ; the other bits read 0) and `$DE04` FRAMEEN (bit 0 lets it interrupt).
+  bit 7 reads 1 while it pulls /IRQ; the other bits read 0) and `$DE04` FRAMEEN (bit 0 lets it interrupt;
+  bit 1 shows the raster line at `$D011`/`$D012`). The host's stub sets bit 1 for a PSID and not for an RSID:
+  an RSID expects a whole C64, and one let past a raster wait can go on to CIA 2 or timer B and jam.
   /RESET and CTRL RESET turn it off and start the frame over.
 - **/RESET** stops the card's 6510 (CTRL is cleared), pulls the SIDs' /RES, and empties the mailbox. The card's
   RAM keeps its contents.

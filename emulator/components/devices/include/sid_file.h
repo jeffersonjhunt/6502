@@ -48,7 +48,8 @@
  *
  * A tune with play = 0 (RSID, or a PSID that installs its own interrupt)
  * runs from init on its own. The card has no VIC-II (only its raster line,
- * to read), CIA 2 or ROMs: a tune that needs the raster interrupt, CIA 2's
+ * to read, which the stub shows a PSID and not an RSID: FRAMEEN bit 1 in
+ * sound_card.h), CIA 2 or ROMs: a tune that needs the raster interrupt, CIA 2's
  * NMIs, BASIC or KERNAL calls
  * beyond those exits runs but stays silent or stops. A third SID is beyond
  * the card; a second one plays only at $D420 or $D500.

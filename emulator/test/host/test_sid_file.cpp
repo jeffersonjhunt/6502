@@ -413,6 +413,27 @@ TEST(a_cia_song_that_retimes_cia_1_in_init_plays_at_its_rate)
     CHECK(!p.card.frame_enabled());
 }
 
+TEST(an_rsid_reads_ff_at_d011_and_d012_and_a_psid_the_raster_line)
+{
+    // init: $D012 to $C001, $D011 to $C002, wait for $D012 = 200 (a PSID gets there), RTS.
+    const std::vector<uint8_t> code = {0xAD, 0x12, 0xD0, 0x8D, 0x01, 0xC0, 0xAD, 0x11, 0xD0, 0x8D, 0x02, 0xC0,
+                                       0xAD, 0x12, 0xD0, 0xC9, 0xC8, 0xD0, 0xF9, 0x8D, 0x03, 0xC0, 0x60};
+    Header h; // play 0
+    h.rsid = true;
+    Played r(parsed(h, code), 2 * PAL_FRAME);
+    CHECK_EQ(r.card.ram()[0xC001], 0xFF);
+    CHECK_EQ(r.card.ram()[0xC002], 0xFF);
+    CHECK_EQ(r.card.ram()[0xC003], 0x00); // still waiting
+    CHECK(!r.card.raster_shown());
+    h.rsid = false;
+    Played p(parsed(h, code), 2 * PAL_FRAME);
+    CHECK(p.card.ram()[0xC001] < 2); // line 0 or 1, at once
+    CHECK_EQ(p.card.ram()[0xC002], 0x7F);
+    CHECK_EQ(p.card.ram()[0xC003], 200);
+    CHECK(p.card.raster_shown());
+    CHECK(!p.card.frame_enabled()); // play 0: no frame interrupt
+}
+
 TEST(an_init_that_waits_for_a_raster_line_returns)
 {
     // init: song to $C000, volume up, wait for $D012 = 200, RTS. play: INC $D400.

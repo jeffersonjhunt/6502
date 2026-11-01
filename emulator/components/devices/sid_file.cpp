@@ -52,7 +52,8 @@ namespace ooe::emu
             uint8_t song, init_bank, play_bank;
             uint16_t latch;
             bool set_0314;
-            bool vbi; ///< play on the card's frame interrupt ($DE03), not CIA 1's timer
+            bool vbi;    ///< play on the card's frame interrupt ($DE03), not CIA 1's timer
+            bool raster; ///< show the raster line at $D011/$D012 (a PSID)
 
             // labels, filled by the first pass
             uint16_t idle{0}, irq{0}, handler{0}, not_frame{0}, ack{0}, exit{0}, nmi{0}, frame{0};
@@ -75,7 +76,9 @@ namespace ooe::emu
                 b({0xA9, vbi ? 0x7F : 0x81}), w(0x8D, 0xDC0D); // timer A's interrupt on (off for VBI)
                 b({0xA9, 0x11}), w(0x8D, 0xDC0E);              // load and start, continuous
                 if (vbi)
-                    b({0xA9, 0x01}), w(0x8D, 0xDE03), w(0x8D, 0xDE04); // the frame interrupt, cleared and on
+                    b({0xA9, 0x01}), w(0x8D, 0xDE03); // the frame interrupt cleared
+                if (vbi || raster)                    // FRAMEEN: the frame interrupt on, the raster line shown
+                    b({0xA9, (vbi ? 0x01 : 0) | (raster ? 0x02 : 0)}), w(0x8D, 0xDE04);
                 if (set_0314)
                 {
                     b({0xA9, handler_vector & 0xFF}), w(0x8D, 0x0314);
@@ -247,7 +250,8 @@ namespace ooe::emu
                   bank_for(f.play),
                   static_cast<uint16_t>(f.rsid || f.cia_timed(song) ? (ntsc ? 0x4295 : 0x4025) : (ntsc ? 17095 - 1 : 19656 - 1)),
                   !overlaps(f, 0x0314, 0x0315),
-                  f.play && !f.rsid && !f.cia_timed(song)};
+                  f.play && !f.rsid && !f.cia_timed(song),
+                  !f.rsid};
         std::vector<uint8_t> code;
         for (const unsigned p : pages)
         {

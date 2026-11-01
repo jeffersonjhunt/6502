@@ -450,14 +450,16 @@ TEST(the_frame_latch_is_de03_bit_0_and_neither_cias_icr_nor_the_vic_reach_it)
     CHECK_EQ(c.ram()[0x44], 0xFF);
 }
 
-TEST(d012_and_d011_bit_7_read_the_raster_line)
+TEST(d012_and_d011_bit_7_read_the_raster_line_with_frameen_bit_1)
 {
-    // Wait for line 256+ ($D011 bit 7), note $D012; wait for it to clear, note $D012 again.
+    // FRAMEEN = 2; wait for line 256+ ($D011 bit 7), note $D012; wait for it to clear, note $D012 again.
     for (const bool ntsc : {false, true})
     {
         SoundCard c;
         start(c, 0x1000,
               {
+                  0xA9, 0x02,       // LDA #2
+                  0x8D, 0x04, 0xDE, // STA $DE04    the raster line shown, no interrupt
                   0x2C, 0x11, 0xD0, // BIT $D011
                   0x10, 0xFB,       // BPL *-3      to line 256
                   0xAD, 0x12, 0xD0, // LDA $D012
@@ -479,7 +481,34 @@ TEST(d012_and_d011_bit_7_read_the_raster_line)
         CHECK(c.ram()[0x40] <= 1);  // line 256 or 257, as the 4-cycle BIT lands
         CHECK(c.ram()[0x41] <= 1);  // line 0 or 1
         CHECK_EQ(c.ram()[0x42], 0x7F);
+        CHECK(c.raster_shown());
+        CHECK(!c.frame_enabled());
     }
+}
+
+TEST(without_frameen_bit_1_d011_and_d012_read_ff)
+{
+    SoundCard c;
+    start(c, 0x1000,
+          {
+              0xA2, 0x00,       // LDX #0       over a frame: note $D012 and $D011 at 256 points
+              0xAD, 0x12, 0xD0, // LDA $D012
+              0x2D, 0x11, 0xD0, // AND $D011
+              0x9D, 0x00, 0x20, // STA $2000,X
+              0xA0, 0x10,       // LDY #16
+              0x88,             // DEY
+              0xD0, 0xFD,       // BNE *-1
+              0xE8,             // INX
+              0xD0, 0xEF,       // BNE to the LDA
+              0x02,             // JAM
+          });
+    host(c, HOST_SECOND / 10);
+    CHECK(c.cpu().state() == Cpu6502::State::Stopped);
+    unsigned ff = 0;
+    for (unsigned i = 0; i < 256; ++i)
+        ff += c.ram()[0x2000 + i] == 0xFF ? 1 : 0;
+    CHECK_EQ(ff, 256u);
+    CHECK(!c.raster_shown());
 }
 
 TEST(ctrl_reset_restarts_the_6510_and_the_cia)
