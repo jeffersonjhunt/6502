@@ -467,6 +467,25 @@ TEST(an_rsid_after_a_psid_on_the_same_card_reads_ff_and_gets_no_frames)
     CHECK(!card.raster_shown());
 }
 
+TEST(missing_io_leaves_out_what_the_card_answers)
+{
+    CHECK(missing_io(0xDE03, false, false) == nullptr); // the stub's frame interrupt
+    CHECK(missing_io(0xDE03, true, false) == nullptr);
+    CHECK(missing_io(0xDE04, true, false) == nullptr);
+    CHECK(missing_io(0xDE00, true, false) == nullptr);
+    CHECK(missing_io(0xD418, true, false) == nullptr);
+    CHECK(missing_io(0xDC0D, false, false) == nullptr);
+    CHECK(missing_io(0xD012, false, true) == nullptr); // the raster line, shown
+    CHECK(missing_io(0xD011, false, true) == nullptr);
+    CHECK_EQ(std::string(missing_io(0xD012, false, false)), std::string("VIC-II")); // not shown: $FF
+    CHECK_EQ(std::string(missing_io(0xD012, true, true)), std::string("VIC-II"));   // a raster compare, ignored
+    CHECK_EQ(std::string(missing_io(0xD019, false, true)), std::string("VIC-II"));
+    CHECK_EQ(std::string(missing_io(0xDE05, false, false)), std::string("expansion I/O"));
+    CHECK_EQ(std::string(missing_io(0xDF00, true, false)), std::string("expansion I/O"));
+    CHECK_EQ(std::string(missing_io(0xDC06, true, false)), std::string("CIA 1 timer B"));
+    CHECK_EQ(std::string(missing_io(0xDD0D, false, false)), std::string("CIA 2"));
+}
+
 TEST(an_init_that_waits_for_a_raster_line_returns)
 {
     // init: song to $C000, volume up, wait for $D012 = 200, RTS. play: INC $D400.

@@ -334,4 +334,26 @@ namespace ooe::emu
         }
         card.write(SoundCard::CTRL, plan.ctrl);
     }
+
+    const char *missing_io(uint16_t addr, bool write, bool raster_shown)
+    {
+        if ((addr == 0xD011 || addr == 0xD012) && !write && raster_shown)
+            return nullptr;
+        if (addr < 0xD400)
+            return "VIC-II";
+        if (addr >= 0xD800 && addr < 0xDC00)
+            return "colour RAM";
+        if (addr >= 0xDC00 && addr < 0xDD00)
+        {
+            const unsigned r = addr & 0x0F;
+            if (r == SoundCard::CIA_TA_LO || r == SoundCard::CIA_TA_HI || r == SoundCard::CIA_ICR || r == SoundCard::CIA_CRA)
+                return nullptr;
+            return r == 0x06 || r == 0x07 || r == 0x0F ? "CIA 1 timer B" : "CIA 1 ports/TOD";
+        }
+        if (addr >= 0xDD00 && addr < 0xDE00)
+            return "CIA 2";
+        if (addr > 0xDE01 && addr != SoundCard::CARD_FRAME && addr != SoundCard::CARD_FRAME_EN)
+            return "expansion I/O";
+        return nullptr;
+    }
 } // namespace ooe::emu

@@ -133,4 +133,11 @@ namespace ooe::emu
     /// Carry out `plan` through the card's host registers: stop, load, start;
     /// and set the chips' model, as the card's owner would set the jumper.
     void start_sid(SoundCard &card, const SidPlan &plan);
+
+    /// The C64 I/O the card lacks that an access to `addr` ($D000-$DFFF, I/O
+    /// in) reaches: "VIC-II", "colour RAM", "CIA 1 timer B", "CIA 1
+    /// ports/TOD", "CIA 2" or "expansion I/O"; nullptr where the card answers
+    /// (the SIDs, CIA 1's timer A, the mailbox, $DE03/$DE04, and $D011/$D012
+    /// reads while `raster_shown`). For sidcheck's report of what a tune missed.
+    const char *missing_io(uint16_t addr, bool write, bool raster_shown);
 } // namespace ooe::emu
