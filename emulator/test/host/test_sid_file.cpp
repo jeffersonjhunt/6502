@@ -394,6 +394,19 @@ TEST(a_cia_song_that_retimes_cia_1_in_init_plays_at_its_rate)
     CHECK(!p.card.frame_enabled());
 }
 
+TEST(an_init_that_waits_for_a_raster_line_returns)
+{
+    // init: song to $C000, volume up, wait for $D012 = 200, RTS. play: INC $D400.
+    const std::vector<uint8_t> code = {0x8D, 0x00, 0xC0, 0xA9, 0x0F, 0x8D, 0x18, 0xD4, // init
+                                       0xAD, 0x12, 0xD0, 0xC9, 0xC8, 0xD0, 0xF9, 0x60, // LDA $D012 CMP #200 BNE; RTS
+                                       0xEE, 0x00, 0xD4, 0x60};                        // play
+    Header h;
+    h.play = 0x1010;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+    CHECK_EQ(p.frames, 50u);
+    CHECK_EQ(p.reg(0x00), 50);
+}
+
 /// Three play periods, from the 2nd sync point to the 5th, in SID clocks. The
 /// interrupt waits for the stub's 3-cycle JMP to end, so one period can be a
 /// clock or two out; three of them come back to the same phase.

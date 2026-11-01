@@ -321,6 +321,10 @@ namespace ooe::emu
             return static_cast<uint8_t>((port_ & ddr_) | (~ddr_ & (0x3F | (port_ & 0xC0))));
         if (addr < 0xD000 || addr > 0xDFFF || !io_in())
             return ram_[addr];
+        if (addr == 0xD011) // the raster line's ninth bit; the rest as nothing drives them
+            return static_cast<uint8_t>(0x7F | (raster_line() >> 8) << 7);
+        if (addr == 0xD012)
+            return static_cast<uint8_t>(raster_line());
         if (addr == CARD_FRAME)
             return static_cast<uint8_t>(vic_flags_ | (vic_irq() ? 0x80 : 0));
         if (addr == CARD_FRAME_EN)
@@ -388,6 +392,14 @@ namespace ooe::emu
         cia_cra_ = cia_flags_ = cia_mask_ = 0;
         vic_count_ = 0;
         vic_flags_ = vic_mask_ = 0;
+    }
+
+    unsigned SoundCard::raster_line() const
+    {
+        const bool ntsc = ctrl_ & CTRL_NTSC;
+        const uint32_t period = ntsc ? FRAME_NTSC : FRAME_PAL;
+        const uint32_t into = vic_count_ ? period - vic_count_ : 0; // clocks into this frame
+        return into / (period / (ntsc ? LINES_NTSC : LINES_PAL));
     }
 
     void SoundCard::vic_tick(unsigned cycles)

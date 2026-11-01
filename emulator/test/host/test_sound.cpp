@@ -450,6 +450,38 @@ TEST(the_frame_latch_is_de03_bit_0_and_neither_cias_icr_nor_the_vic_reach_it)
     CHECK_EQ(c.ram()[0x44], 0xFF);
 }
 
+TEST(d012_and_d011_bit_7_read_the_raster_line)
+{
+    // Wait for line 256+ ($D011 bit 7), note $D012; wait for it to clear, note $D012 again.
+    for (const bool ntsc : {false, true})
+    {
+        SoundCard c;
+        start(c, 0x1000,
+              {
+                  0x2C, 0x11, 0xD0, // BIT $D011
+                  0x10, 0xFB,       // BPL *-3      to line 256
+                  0xAD, 0x12, 0xD0, // LDA $D012
+                  0x85, 0x40,       // STA $40
+                  0x2C, 0x11, 0xD0, // BIT $D011
+                  0x30, 0xFB,       // BMI *-3      to line 0
+                  0xAD, 0x12, 0xD0, // LDA $D012
+                  0x85, 0x41,       // STA $41
+                  0xAD, 0x12, 0xD0, // LDA $D012    wait for line 100
+                  0xC9, 0x64,       // CMP #100
+                  0xD0, 0xF9,       // BNE *-5
+                  0xAD, 0x11, 0xD0, // LDA $D011
+                  0x85, 0x42,       // STA $42
+                  0x02,             // JAM
+              },
+              ntsc ? SoundCard::CTRL_NTSC : 0);
+        host(c, HOST_SECOND / 10);
+        CHECK(c.cpu().state() == Cpu6502::State::Stopped);
+        CHECK(c.ram()[0x40] <= 1);  // line 256 or 257, as the 4-cycle BIT lands
+        CHECK(c.ram()[0x41] <= 1);  // line 0 or 1
+        CHECK_EQ(c.ram()[0x42], 0x7F);
+    }
+}
+
 TEST(ctrl_reset_restarts_the_6510_and_the_cia)
 {
     SoundCard c;

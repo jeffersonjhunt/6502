@@ -663,6 +663,7 @@ it commands.
   |---|---|
   | `$0000–$FFFF` | 64 KB RAM |
   | `$0001` | the 6510 port, for tunes that bank I/O out of the way |
+  | `$D011`/`$D012` | the VIC-II's raster line, read only, from the card's frame (below): `$D012` its low 8 bits, `$D011` bit 7 its ninth; 312 lines of 63 SID clocks PAL, 263 of 65 NTSC |
   | `$D400` | SID A |
   | `$D420` or `$D500` | SID B (CTRL bit 3) |
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |

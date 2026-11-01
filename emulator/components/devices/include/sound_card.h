@@ -27,21 +27,25 @@
  *                but 6 and 7, unconnected, hold what was last written, so
  *                DDR $2F with $37 reads $37 as on a C64. Writes to $00/$01
  *                go to the RAM under them too.
+ *   $D011/$D012  the VIC-II's raster line, read only, from the card's frame
+ *                (below): $D012 its low 8 bits, $D011 bit 7 its ninth (the
+ *                rest of $D011 reads 1)
  *   $D400        SID A, repeating every 32 bytes to $D7FF, except where
  *                SID B is: $D420-$D43F, or $D500-$D51F with CTRL bit 3
  *   $DC00        CIA 1, imitated: timer A ($DC04/$DC05), its interrupt
  *                ($DC0D) and control ($DC0E), repeating every 16 bytes
  *   $DE00/$DE01  the mailbox and its status
  *
- * The rest of $D000-$DFFF (the C64's VIC-II, colour RAM, CIA 2) reads $FF
+ * The rest of $D000-$DFFF (the rest of the VIC-II, colour RAM, CIA 2) reads $FF
  * and ignores writes while I/O is in. The timer counts down one each SID
  * clock and underflows after latch + 1 of them: it reloads from the latch,
  * sets ICR bit 0, and pulls the 6510's /IRQ while ICR's mask has bit 0.
  * CRA bit 0 starts it, bit 3 makes it one-shot, bit 4 loads the latch now.
  * Writing the latch's high byte while the timer is stopped loads it too.
  *
- * The frame: a C64's, 19,656 SID clocks PAL or 17,095 NTSC, counted from
- * the 6510's reset whether it uses it or not. Its interrupt is
+ * The frame: a C64's, 19,656 SID clocks PAL (312 lines of 63) or 17,095
+ * NTSC (263 of 65), counted from the 6510's reset whether it uses it or
+ * not; the raster line above is where in it the clock is. Its interrupt is
  * the card's own, for the host's player stub (sid_file.h), at addresses the
  * C64 leaves free so a tune can't turn it on by accident: $DE03 FRAME bit 0
  * latches at each frame's start and a 1 written there clears it, bit 7 reads
@@ -145,7 +149,7 @@ namespace ooe::emu
         static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
         /// The frame interrupt's registers ($DE03 FRAME, $DE04 FRAMEEN) and the frame in SID clocks and lines.
         static constexpr uint16_t CARD_FRAME = 0xDE03, CARD_FRAME_EN = 0xDE04;
-        static constexpr uint32_t FRAME_PAL = 19'656, FRAME_NTSC = 17'095;
+        static constexpr uint32_t FRAME_PAL = 19'656, FRAME_NTSC = 17'095, LINES_PAL = 312, LINES_NTSC = 263;
         static constexpr uint8_t CRA_START = 0x01, CRA_ONE_SHOT = 0x08, CRA_LOAD = 0x10;
 
         SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
@@ -268,6 +272,8 @@ namespace ooe::emu
         bool vic_irq() const { return vic_flags_ & vic_mask_ & 0x01; }
         /// The frame's clock: a frame each FRAME_PAL or FRAME_NTSC SID clocks.
         void vic_tick(unsigned cycles);
+        /// The raster line the frame is on.
+        unsigned raster_line() const;
         void reset_cpu();
         uint64_t now() const;
         /// Clock the SIDs up to now(). Const: the debugger looks through peek().
