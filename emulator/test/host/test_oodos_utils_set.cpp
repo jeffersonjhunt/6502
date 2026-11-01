@@ -19,13 +19,18 @@
  *   - SET's label options (100): the name, its password asked for and
  *     checked, protection, the stamp modes; a label made where none was;
  *   - SET's file passwords and modes (103), passwords off, a mode without
- *     a password, the default password (106);
+ *     a password, the default password (106), left as it was when the
+ *     label's checks fail; a wildcard going on past a file the BDOS
+ *     refuses; NONE deleting the password; a file's first XFCB counting;
+ *     a label's stamp bits dropped where there are no SFCBs;
  *   - INITDIR on a directory without SFCBs (entries in SFCB places moved,
  *     the XFCBs' modes in the slots), one nearly full and one too full,
  *     the answer N; one with SFCBs: recovered, stamps cleared, left; its
  *     errors: no drive, a read-only drive, too little memory (the TPA
  *     made small, as an RSX below the BDOS would), the BIOS's read and
- *     write failing on a card's drive.
+ *     write failing on a card's drive; nothing written when the moves
+ *     find no place or the drive's reset fails; a re-format a write error
+ *     stopped, at four points, finished by the next INITDIR.
  */
 
 #include "harness.h"
@@ -33,6 +38,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -103,6 +111,13 @@ namespace
     }
     /// The SFCB slot of M:'s entry `e`: its 10 bytes (the two stamps, the mode, a reserved byte).
     std::vector<uint8_t> slot(CcpRig &r, int e) { return mbytes(r, e | 3, 1 + 10 * (e & 3), 10); }
+
+    /// The SFCB slot of entry `e` in a directory image.
+    std::vector<uint8_t> slot_of(const std::vector<uint8_t> &d, unsigned e)
+    {
+        const size_t at = (e | 3) * 32 + 1 + 10 * (e & 3);
+        return std::vector<uint8_t>(d.begin() + static_cast<long>(at), d.begin() + static_cast<long>(at) + 10);
+    }
 
     /// M:'s XFCB of a name (user + 16), -1 if none.
     int m_xfcb(CcpRig &r, unsigned user, const std::string &name83) { return r.m_entry(user + 16, name83); }
@@ -201,14 +216,72 @@ namespace
     }
 
     /// A card whose reads or writes fail while `rfail` or `wfail` is set, as a card that has gone
-    /// bad would (test_oodos_sys's FaultyMedia, with reads).
+    /// bad would (test_oodos_sys's FaultyMedia, with reads); or whose writes fail once `wleft` more
+    /// have been made (-1: never). `writes` counts the writes made.
     struct FaultyMedia : MemoryMedia
     {
         using MemoryMedia::MemoryMedia;
         bool rfail{false}, wfail{false};
+        int wleft{-1};
+        unsigned writes{0};
         bool read(uint64_t lba, uint8_t *out) override { return !rfail && MemoryMedia::read(lba, out); }
-        bool write(uint64_t lba, const uint8_t *in) override { return !wfail && MemoryMedia::write(lba, in); }
+        bool write(uint64_t lba, const uint8_t *in) override
+        {
+            if (wfail || wleft == 0)
+                return false;
+            if (wleft > 0)
+                --wleft;
+            ++writes;
+            return MemoryMedia::write(lba, in);
+        }
     };
+
+    /// A sector of a card's unit written by the card's WRITE, behind OODOS's back.
+    void write_unit(CcpRig &r, unsigned unit, uint32_t lba, const std::vector<uint8_t> &s)
+    {
+        REQUIRE(s.size() == SECTOR);
+        r.sd().write(SdCard::UNIT, static_cast<uint8_t>(unit));
+        for (unsigned i = 0; i < 4; ++i)
+            r.sd().write(static_cast<uint8_t>(SdCard::LBA + i), static_cast<uint8_t>(lba >> (8 * i)));
+        r.sd().write(SdCard::COUNT, 1);
+        r.sd().write(SdCard::COUNT + 1, 0);
+        r.sd().write(SdCard::CMD, SdCard::WRITE);
+        for (const uint8_t b : s)
+            r.sd().write(SdCard::DATA, b);
+        r.run(ms(1));
+        r.sd().write(SdCard::UNIT, 0);
+        CHECK(r.read_unit(unit, lba) == s);
+    }
+
+    /// INITDIR's RESET (37), the first time it is called: `at` run, then its return made `a`, `x`
+    /// if `fail` (as a 37 that couldn't write a buffer back). @return set when it was called
+    std::shared_ptr<bool> on_reset(CcpRig &r, std::function<void()> at, bool fail = false)
+    {
+        const std::map<std::string, uint16_t> l = labels(EMU_OODOS_UTILS_DIR "/initdir.lbl");
+        CHECK(l.count("RESET"));
+        const uint16_t reset = l.count("RESET") ? l.at("RESET") : 0;
+        auto called = std::make_shared<bool>(false);
+        auto back = std::make_shared<int>(-1);
+        r.watch = [&r, reset, at, fail, called, back](uint16_t pc) {
+            if (!*called && pc == reset)
+            {
+                *called = true;
+                const uint8_t sp = r.cpu->regs().s; // the JSR's return address, less 1
+                *back = (r.phys(0x0101u + sp) | r.phys(0x0102u + sp) << 8) + 1;
+                at();
+            }
+            else if (fail && *back >= 0 && pc == *back)
+            {
+                *back = -1;
+                Registers g = r.cpu->regs();
+                g.a = 0xFF;
+                g.x = 1;
+                g.p = static_cast<uint8_t>(g.p & ~Cpu6502::FLAG_Z);
+                r.cpu->set_regs(g);
+            }
+        };
+        return called;
+    }
 } // namespace
 
 // ---- SET: a file's attributes ----------------------------------------------------------------
@@ -436,6 +509,62 @@ TEST(set_makes_a_label_where_there_is_none_and_its_stamps_are_then_made)
     CHECK_EQ(mbyte(r, 0, 28), today & 0xFF);
 }
 
+TEST(set_changes_no_default_password_when_the_labels_checks_fail)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    // A directory without SFCBs, passwords on, the label's password LBLPW; a protected file
+    plain_m(r, label("PLAIN      ", 0x81, "LBLPW   "), 0);
+    r.put_util("set");
+    r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
+    r.put_m({{0, "ONE     TXT", bytes("ONE\r\n")}});
+    r.xfcb_m(0, "ONE     TXT", 0x80, "SECRET  ");
+    const std::vector<uint8_t> before = mdir(r);
+    // Stamps without SFCBs: refused before the label's password is asked, the default not set
+    same(run(r, "set m: [default=secret, create=on]"), "Directory needs to be reformatted for date/time stamps.");
+    CHECK(!succeeded(r));
+    CHECK(r.cmd("type m:one.txt").find("OODOS Error On M: Password Error") != std::string::npos);
+    // The label's password wrong: the same
+    same(r.to("set m: [default=secret, name=other]", "Password: "), "set m: [default=secret, name=other]\r\nPassword: ");
+    same(r.cmd("wrong"), "wrong\r\nWrong Password\r\nA>");
+    CHECK(!succeeded(r));
+    CHECK(r.cmd("type m:one.txt").find("OODOS Error On M: Password Error") != std::string::npos);
+    CHECK(mdir(r) == before);
+    // Right: the label renamed, then the default set
+    REQUIRE(!r.to("set m: [default=secret, name=other]", "Password: ").empty());
+    same(r.cmd("lblpw"), "lblpw\r\nM: Label = OTHER\r\nA>");
+    same(r.cmd("type m:one.txt"), "type m:one.txt\r\nONE\r\n\r\nA>");
+}
+
+TEST(set_drops_a_labels_stamp_bits_on_a_directory_without_sfcbs)
+{
+    // A label asking for create and update stamps on a directory without SFCBs (made elsewhere):
+    // any label option writes it without them, as 100 would refuse them; UPDATE=OFF's CREATE too
+    struct Case
+    {
+        const char *line, *says;
+        uint8_t mode;
+        const char *name;
+    };
+    const Case cases[] = {{"set m: [update=off]", "M: Update = OFF", 0x01, "STAMPS     "},
+                          {"set m: [name=fixed]", "M: Label = FIXED", 0x01, "FIXED      "},
+                          {"set m: [protect=on]", "M: Password Protection = ON", 0x81, "STAMPS     "}};
+    for (const Case &c : cases)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        plain_m(r, label("STAMPS     ", 0x31), 0);
+        r.put_util("set");
+        r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
+        same(run(r, "set m: [create=on]"), "Directory needs to be reformatted for date/time stamps.");
+        CHECK_EQ(mbyte(r, 0, 12), 0x31);
+        same(run(r, c.line), c.says);
+        CHECK(succeeded(r));
+        CHECK_EQ(mbyte(r, 0, 12), c.mode);
+        CHECK(mbytes(r, 0, 1, 11) == bytes(c.name));
+    }
+}
+
 // ---- SET: a file's password and mode ---------------------------------------------------------
 
 TEST(set_gives_files_passwords_and_modes_the_bdos_then_asks_for)
@@ -506,15 +635,89 @@ TEST(set_gives_files_passwords_and_modes_the_bdos_then_asks_for)
     same(r.cmd("type m:two.txt"), "type m:two.txt\r\nTWO\r\n\r\nA>");
     same(run(r, "set [default=]"), "");
     CHECK(r.cmd("type m:two.txt").find("Password Error") != std::string::npos);
-    // NONE: mode 0, the file unprotected; the password kept
+    // NONE: mode 0, the file unprotected; its password deleted (the Guide's Table 5-17), so a mode
+    // asked for later needs a new one
     same(run(r, "set m:two.txt;new [protect=none]"), "M:TWO.TXT Protection = None");
     CHECK_EQ(mbyte(r, x2, 12), 0x00);
     CHECK_EQ(slot(r, two)[8], 0x00);
-    CHECK(mbytes(r, x2, 13, 11) == kept_pw("NEW     "));
+    CHECK(mbytes(r, x2, 13, 11) == kept_pw("        "));
     same(r.cmd("type m:two.txt"), "type m:two.txt\r\nTWO\r\n\r\nA>");
+    same(run(r, "set m:two.txt [protect=read]"), "Assign a Password to this file.");
+    CHECK(!succeeded(r));
+    CHECK_EQ(mbyte(r, x2, 12), 0x00);
     // A password for a file with an XFCB keeps its mode
     same(run(r, "set m:two.txt [pa=other]"), "M:TWO.TXT Protection = None");
     CHECK(mbytes(r, x2, 13, 11) == kept_pw("OTHER   "));
+    // NONE with a new password: the mode 0, the new password kept
+    same(run(r, "set m:one.txt;new [protect=none, password=third]"), "M:ONE.TXT Protection = None");
+    CHECK_EQ(mbyte(r, x1, 12), 0x00);
+    CHECK(mbytes(r, x1, 13, 11) == kept_pw("THIRD   "));
+}
+
+TEST(set_goes_on_with_the_next_file_after_one_the_bdos_refuses)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    tools(r);
+    r.put_m({{0, "ONE     TXT", bytes("ONE\r\n")}, {0, "TWO     TXT", bytes("TWO\r\n")}, {0, "THREE   TXT", bytes("3\r\n")}});
+    const int one = r.m_entry(0, "ONE     TXT"), two = r.m_entry(0, "TWO     TXT"), three = r.m_entry(0, "THREE   TXT");
+    // Passwords on; TWO.TXT's another than the others'
+    r.xfcb_m(0, "ONE     TXT", 0x80, "SECRET  ");
+    r.xfcb_m(0, "TWO     TXT", 0x80, "OTHER   ");
+    r.xfcb_m(0, "THREE   TXT", 0x80, "SECRET  ");
+    const int x2 = m_xfcb(r, 0, "TWO     TXT"), x3 = m_xfcb(r, 0, "THREE   TXT");
+    // 30: TWO.TXT refused (the BDOS says so), its 103 not tried; ONE and THREE done; $FF00
+    std::string o = run(r, "set m:*.txt;secret [ro, protect=write]");
+    const std::string bdos = "\r\nOODOS Error On M: Password Error\r\nBDOS Function = 30";
+    const size_t at = o.find(bdos);
+    CHECK(at != std::string::npos);
+    CHECK_EQ(o.substr(0, at), lines({"M:ONE.TXT set to Read Only (RO)", "M:ONE.TXT Protection = Write"}));
+    const size_t after = o.find("M:THREE.TXT", at);
+    CHECK(after != std::string::npos && o.find("\r\n", at + bdos.size()) < after); // the BDOS's line ended
+    if (after != std::string::npos)
+        CHECK_EQ(o.substr(after), lines({"M:THREE.TXT set to Read Only (RO)", "M:THREE.TXT Protection = Write"}));
+    CHECK(o.find("M:TWO.TXT") == std::string::npos);
+    CHECK(!succeeded(r));
+    CHECK_EQ(mbyte(r, one, 9) & 0x80, 0x80);
+    CHECK_EQ(mbyte(r, two, 9) & 0x80, 0);
+    CHECK_EQ(mbyte(r, three, 9) & 0x80, 0x80);
+    CHECK_EQ(mbyte(r, x2, 12), 0x80);
+    CHECK_EQ(mbyte(r, x3, 12), 0x40);
+    // 103 alone: the same
+    o = run(r, "set m:*.txt;secret [protect=delete]");
+    CHECK(o.find("\r\nOODOS Error On M: Password Error\r\nBDOS Function = 103") != std::string::npos);
+    CHECK(o.find("M:ONE.TXT Protection = Delete") == 0);
+    const std::string last = "\r\nM:THREE.TXT Protection = Delete";
+    CHECK(o.size() >= last.size() && o.compare(o.size() - last.size(), last.size(), last) == 0);
+    CHECK(!succeeded(r));
+    CHECK_EQ(mbyte(r, x2, 12), 0x80);
+    CHECK_EQ(mbyte(r, x3, 12), 0x20);
+}
+
+TEST(set_takes_a_files_first_xfcb_as_the_bdos_does)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    tools(r);
+    r.put_m({{0, "ONE     TXT", bytes("ONE\r\n")}});
+    // Two XFCBs of the name (as a rename onto an orphan's leaves): the first's mode 0 and a
+    // password, the second's READ and none. The BDOS takes the first.
+    r.xfcb_m(0, "ONE     TXT", 0x00, "SECRET  ");
+    r.xfcb_m(0, "ONE     TXT", 0x80, "        ");
+    const int x1 = m_xfcb(r, 0, "ONE     TXT");
+    int x2 = -1;
+    for (unsigned i = static_cast<unsigned>(x1) + 1; i < M_ENTRIES && x2 < 0; ++i)
+        if (mbyte(r, static_cast<int>(i), 0) == 16 && mbytes(r, static_cast<int>(i), 1, 11) == bytes("ONE     TXT"))
+            x2 = static_cast<int>(i);
+    REQUIRE(x1 >= 0 && x2 > x1);
+    same(r.cmd("type m:one.txt"), "type m:one.txt\r\nONE\r\n\r\nA>"); // mode 0: not protected
+    // The kept mode is the first's (0, no line but None); a mode needs no new password: it has one
+    same(run(r, "set m:one.txt [protect=read]"), "M:ONE.TXT Protection = Read");
+    CHECK(succeeded(r));
+    CHECK_EQ(mbyte(r, x1, 12), 0x80);
+    CHECK(mbytes(r, x1, 13, 11) == kept_pw("SECRET  "));
+    CHECK_EQ(mbyte(r, x2, 12), 0x80);
+    CHECK(r.cmd("type m:one.txt").find("Password Error") != std::string::npos);
 }
 
 // ---- INITDIR: a directory without SFCBs ------------------------------------------------------
@@ -767,6 +970,142 @@ TEST(initdir_says_the_bioss_read_and_write_errors_and_leaves_the_card_as_it_was)
     want[12] &= 0x8F;
     CHECK(b.directory() == want);
     same(run(r, "set b: [create=on]"), "Directory needs to be reformatted for date/time stamps.");
+}
+
+TEST(initdir_writes_nothing_unless_every_entry_finds_a_place_and_the_reset_worked)
+{
+    // A directory without SFCBs, two entries in SFCB places to move
+    auto setup = [](CcpRig &r) {
+        plain_m(r, label("SMALL      ", 0x01), 0);
+        r.put_util("initdir"); // 1
+        r.chain({13, 0}); // M: first: the build's utilities, before the card's on A: (make_card.sh)
+        r.poke(MDISK + 3 * 32, entry(0, "AT3     DAT"));
+        r.poke(MDISK + 7 * 32, entry(0, "AT7     DAT"));
+    };
+    {
+        // The free entries taken behind the BDOS's back once INITDIR has counted them (as if its
+        // view and the disk's differed): no place for the moves, so no SFCB written over them
+        CcpRig r;
+        REQUIRE(r.ok);
+        setup(r);
+        REQUIRE(!r.to("initdir m:", "(Y/N)? ").empty());
+        std::vector<uint8_t> filled;
+        const auto called = on_reset(r, [&] {
+            for (unsigned i = 0; i < M_ENTRIES; ++i)
+                if (i % 4 != 3 && r.phys(MDISK + i * 32) == 0xE5)
+                {
+                    char n[24];
+                    std::snprintf(n, sizeof n, "X%03u    DAT", i);
+                    r.poke(MDISK + i * 32, entry(5, n));
+                }
+            filled = mdir(r);
+        });
+        same(r.cmd("y"), "y\r\nNot enough room in directory.\r\nA>");
+        r.watch = nullptr;
+        CHECK(*called);
+        CHECK(!succeeded(r));
+        CHECK(mdir(r) == filled);
+    }
+    {
+        // 37 failing before the first write (a buffer it couldn't write back: the BDOS says so):
+        // nothing written
+        CcpRig r;
+        REQUIRE(r.ok);
+        setup(r);
+        const std::vector<uint8_t> before = mdir(r);
+        REQUIRE(!r.to("initdir m:", "(Y/N)? ").empty());
+        const auto called = on_reset(r, [] {}, true);
+        same(r.cmd("y"), "y\r\r\nA>");
+        r.watch = nullptr;
+        CHECK(*called);
+        CHECK(!succeeded(r));
+        CHECK(mdir(r) == before);
+        // Then it works
+        REQUIRE(!r.to("initdir m:", "(Y/N)? ").empty());
+        same(r.cmd("y"), "y\r\r\nA>");
+        CHECK(mdir(r) == reformatted(before));
+    }
+}
+
+TEST(initdir_finishes_a_re_format_a_write_error_stopped)
+{
+    // B: (a card's: its writes can fail) without SFCBs: sector 0 and 1's entries in use but 5 and
+    // 21, so the eight in SFCB places move to 5, 21 and sector 2's 32-38: three writes, then the 64
+    // sectors' SFCBs. A write fails after k: 0 (nothing written), 1 (the moves half made), 3 (the
+    // moves made, sector 0's SFCBs not), 5 (sectors 0 and 1's SFCBs made). INITDIR says so, and run
+    // again it finishes the job: nothing lost, nothing twice.
+    for (const int k : {0, 1, 3, 5})
+    {
+        std::printf("  a write failing after %d\n", k);
+        CcpRig r;
+        REQUIRE(r.ok);
+        auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
+        r.media = fm;
+        r.sd().insert(fm, false);
+        r.run(ms(SdCard::INIT_MS + 10));
+        REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+        REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
+        REQUIRE(r.boot());
+        r.entry = 0;
+        r.block = M_DIRBLOCKS;
+        tools(r);
+        CpmDisk b{r, 2};
+        same(r.cmd("dir a:x"), "dir a:x\r\nNo File\r\nA>");
+        // B:'s SFCBs taken away first (INITDIR's own), then its first 32 entries written
+        REQUIRE(!r.to("initdir b:", "(Y/N)? ").empty());
+        same(r.cmd("y"), "y\r\r\nA>");
+        std::vector<uint8_t> d = b.directory();
+        REQUIRE(d[0] == 0x20 && d[3 * 32] == 0xE5);
+        for (unsigned i = 1; i < 32; ++i)
+        {
+            if (i == 5 || i == 21)
+                continue;
+            char n[24];
+            std::snprintf(n, sizeof n, "F%02u     DAT", i);
+            std::vector<uint8_t> e = entry(i == 9 ? 2 : 0, n);
+            if (i == 7) // F04.DAT's XFCB, in a place: its mode to F04's slot
+            {
+                e = entry(16, "F04     DAT");
+                e[12] = 0x80;
+            }
+            std::copy(e.begin(), e.end(), d.begin() + i * 32);
+        }
+        write_unit(r, 2, 0, std::vector<uint8_t>(d.begin(), d.begin() + SECTOR));
+        write_unit(r, 2, 1, std::vector<uint8_t>(d.begin() + SECTOR, d.begin() + 2 * SECTOR));
+        const std::vector<uint8_t> before = b.directory();
+        REQUIRE(before == d);
+        const std::vector<uint8_t> want = reformatted(before);
+        CHECK_EQ(want[5 * 32 + 1], 'F'); // F03 moved to 5
+        CHECK(slot_of(want, 4)[8] == 0x80);
+
+        REQUIRE(!r.to("initdir b:", "(Y/N)? ").empty());
+        fm->writes = 0;
+        fm->wleft = k;
+        same(r.cmd("y"), k ? "y\r\nDisk Write Error\r\nDirectory partly re-formatted: run INITDIR again.\r\nA>"
+                           : "y\r\nDisk Write Error\r\nA>");
+        fm->wleft = -1;
+        CHECK_EQ(fm->writes, static_cast<unsigned>(k));
+        CHECK(!succeeded(r));
+        const std::vector<uint8_t> partly = b.directory();
+        if (k == 0)
+            CHECK(partly == before);
+        if (k == 1) // F03 at 5 and in 3 too
+            CHECK(std::equal(partly.begin() + 3 * 32, partly.begin() + 4 * 32, partly.begin() + 5 * 32));
+        CHECK_EQ(partly[3 * 32], k == 5 ? 0x21 : before[3 * 32]);
+        // Again: the rest done
+        const std::string q = r.to("initdir b:", "(Y/N)? ");
+        same(q, std::string("initdir b:\r\n") + (k == 5 ? "Directory partly re-formatted.\r\n" : "") +
+                    "INITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.\r\n"
+                    "Do you really want to re-format the directory: B (Y/N)? ");
+        fm->writes = 0;
+        same(r.cmd("y"), "y\r\r\nA>");
+        CHECK(succeeded(r));
+        CHECK_EQ(fm->writes, k <= 0 ? 67u : k == 1 ? 66u : 64u); // the moves left, then the SFCBs
+        const std::vector<uint8_t> after = b.directory();
+        CHECK(after == want);
+        CHECK(kept(after) == kept(before));
+        same(r.cmd("dir b:f1*.*").substr(0, 22), "dir b:f1*.*\r\nB: F10   ");
+    }
 }
 
 int main()

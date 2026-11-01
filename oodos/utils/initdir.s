@@ -19,7 +19,16 @@
 ; SFCB is written, its stamps 0 and its password modes the XFCBs' of the
 ; files whose extent-zero entries its group has. What is kept in memory
 ; meanwhile (the entries to move, from the BSS's end up, and the XFCBs'
-; users, names and modes, from the TPA's top down) must fit.
+; users, names and modes, from the TPA's top down) must fit. The move is
+; made once without writing first: if the disk hasn't the free entries
+; for every one, nothing is written.
+;
+; A re-format that failed partway (a BIOS error once something was
+; written: "Directory partly re-formatted: run INITDIR again.", ours) is
+; finished by the next INITDIR: an entry in an SFCB's place with a copy
+; already outside them isn't moved again, and a directory whose entry 3
+; is an SFCB but another place isn't is one without SFCBs ("Directory
+; partly re-formatted.", then the question).
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -44,6 +53,8 @@ R:              .res    2              ; an entry an SFCB's slot is for
 .code
 
 START:          JSR     UT_INIT
+                STZ     MAKING
+                STZ     WROTE
                 LDA     #<FCB          ; d: and nothing else
                 LDX     #>FCB
                 JSR     UT_SPEC
@@ -73,8 +84,9 @@ START:          JSR     UT_INIT
                 STA     DRV
                 JSR     UT_SELECT
                 CMP     #0
-                BNE     QUIT           ; the BDOS said why
-                LDY     #DRV_ROVEC     ; read-only?
+                BEQ     @sel
+                JMP     QUIT           ; the BDOS said why
+@sel:           LDY     #DRV_ROVEC     ; read-only?
                 JSR     BDOS
                 STA     T
                 STX     T + 1
@@ -120,7 +132,13 @@ START:          JSR     UT_INIT
                 BCS     QUIT
                 CMP     #0
                 BEQ     MAKE
+                JSR     PARTLY
+                BCS     @partly
                 JMP     HAVE
+@partly:        LDA     #<SPARTLY
+                LDX     #>SPARTLY
+                JSR     UT_SAY
+                JMP     MAKE
 
 QUIT:           JSR     UT_FAIL
                 JMP     UT_EXIT
@@ -176,7 +194,13 @@ MAKE:           JSR     LOOK
                 BCS     @yes
                 JMP     UT_EXIT
 @yes:           JSR     RESET
-                LDA     UT_MLO         ; the moved entries, from the first
+                CMP     #0
+                BEQ     @reset
+                JMP     QUIT           ; the BDOS said why: nothing written
+@reset:         LDA     #1
+                STA     MAKING
+                STA     DRY            ; the first pass once without writing
+@pass1:         LDA     UT_MLO         ; the moved entries, from the first
                 STA     Q
                 LDA     UT_MLO + 1
                 STA     Q + 1
@@ -185,7 +209,7 @@ MAKE:           JSR     LOOK
                 CMP     MTOP
                 LDA     Q + 1
                 SBC     MTOP + 1
-                BCS     @bpass         ; all moved
+                BCS     @placed        ; all moved
                 JSR     RDSEC
                 STZ     DIRTY
                 LDA     #<BUF
@@ -218,11 +242,26 @@ MAKE:           JSR     LOOK
                 BNE     @aent
                 LDA     DIRTY
                 BEQ     @aon
+                LDA     DRY
+                BNE     @aon
                 JSR     WRSEC
 @aon:           INC     SECT
                 LDA     SECT
                 CMP     NSEC
                 BNE     @apass
+@placed:        LDA     Q              ; every one placed? Else no SFCB written
+                CMP     MTOP
+                LDA     Q + 1
+                SBC     MTOP + 1
+                BCS     @all
+                JSR     RESET
+                LDA     #<SNOROOM
+                LDX     #>SNOROOM
+                JMP     FAIL
+@all:           LDA     DRY            ; then again, written
+                BEQ     @bpass
+                STZ     DRY
+                JMP     @pass1
 @bpass:         STZ     SECT           ; second pass: the SFCBs
 @bsec:          JSR     RDSEC
                 LDA     #<BUF
@@ -327,9 +366,10 @@ SLOTMODE:       LDA     (R)
 @none:          LDA     #0
                 RTS
 
-; The directory by 17: USED its entries in use, each entry in an SFCB's
-; place kept from UT_MLO up (to MTOP), each XFCB's user, name and mode from
-; the top down (to XLOW); NOMEM 1 if they didn't fit.
+; The directory by 17: USED its entries in use but SFCBs in their places,
+; each other entry in an SFCB's place kept from UT_MLO up (to MTOP), each
+; XFCB's user, name and mode from the top down (to XLOW); NOMEM 1 if they
+; didn't fit. Then DUPS.
 LOOK:           JSR     UT_MEM
                 LDA     UT_MLO
                 STA     MTOP
@@ -346,26 +386,23 @@ LOOK:           JSR     UT_MEM
 @entry:         BCC     @look
                 CPX     #0
                 BNE     @fail          ; the scan failed: said
-                RTS
+                JMP     DUPS
 @fail:          JMP     QUIT
 @look:          STA     P
                 STX     P + 1
                 LDA     (P)
                 CMP     #E_FREE
                 BEQ     @next
-                INC     USED
-                BNE     @place
-                INC     USED + 1
-@place:         LDA     UT_ENT
+                LDA     UT_ENT
                 AND     #3
                 CMP     #3
-                BNE     @x
+                BNE     @used
                 LDA     (P)            ; in an SFCB's place: to move
                 CMP     #E_SFCB
-                BEQ     @x
+                BEQ     @x             ; (an SFCB there stays)
                 LDA     #32
                 JSR     ROOM
-                BCS     @x
+                BCS     @used
                 LDY     #31
 @keep:          LDA     (P),Y
                 STA     (Q),Y
@@ -375,8 +412,11 @@ LOOK:           JSR     UT_MEM
                 LDA     MTOP
                 ADC     #32
                 STA     MTOP
-                BCC     @x
+                BCC     @used
                 INC     MTOP + 1
+@used:          INC     USED
+                BNE     @x
+                INC     USED + 1
 @x:             LDA     (P)            ; an XFCB: kept
                 CMP     #16
                 BCC     @next
@@ -409,6 +449,106 @@ LOOK:           JSR     UT_MEM
                 STA     (Q),Y
 @next:          JSR     UT_SNEXT
                 JMP     @entry
+
+; The entries to move that have an exact copy already outside the SFCBs'
+; places (left by a re-format that failed partway): taken off the list, and
+; off USED.
+DUPS:           LDA     MTOP
+                CMP     UT_MLO
+                BNE     @scan
+                LDA     MTOP + 1
+                CMP     UT_MLO + 1
+                BNE     @scan
+                RTS                    ; none to move
+@scan:          JSR     UT_SCAN
+@entry:         BCC     @look
+                CPX     #0
+                BEQ     @pack
+                JMP     QUIT           ; the scan failed: said
+@look:          STA     P
+                STX     P + 1
+                LDA     (P)
+                CMP     #E_FREE
+                BEQ     @next
+                LDA     UT_ENT
+                AND     #3
+                CMP     #3
+                BEQ     @next
+                LDA     UT_MLO
+                STA     R
+                LDA     UT_MLO + 1
+                STA     R + 1
+@rec:           LDA     R
+                CMP     MTOP
+                LDA     R + 1
+                SBC     MTOP + 1
+                BCS     @next
+                LDY     #31
+@cmp:           LDA     (P),Y
+                CMP     (R),Y
+                BNE     @other
+                DEY
+                BPL     @cmp
+                LDA     #E_FREE        ; its copy: not moved again
+                STA     (R)
+                LDA     USED
+                BNE     @dec
+                DEC     USED + 1
+@dec:           DEC     USED
+                BRA     @next
+@other:         JSR     RNEXT32
+                BRA     @rec
+@next:          JSR     UT_SNEXT
+                BRA     @entry
+@pack:          LDA     UT_MLO         ; the list without them
+                STA     Q
+                STA     R
+                LDA     UT_MLO + 1
+                STA     Q + 1
+                STA     R + 1
+@prec:          LDA     R
+                CMP     MTOP
+                LDA     R + 1
+                SBC     MTOP + 1
+                BCS     @end
+                LDA     (R)
+                CMP     #E_FREE
+                BEQ     @pnext
+                LDY     #31
+@pcopy:         LDA     (R),Y
+                STA     (Q),Y
+                DEY
+                BPL     @pcopy
+                JSR     QNEXT32
+@pnext:         JSR     RNEXT32
+                BRA     @prec
+@end:           LDA     Q
+                STA     MTOP
+                LDA     Q + 1
+                STA     MTOP + 1
+                RTS
+
+; Carry set if an SFCB's place (3, 7, ...) holds anything but an SFCB.
+PARTLY:         JSR     UT_SCAN
+@entry:         BCC     @look
+                CPX     #0
+                BNE     @fail
+                CLC
+                RTS
+@fail:          JMP     QUIT           ; the scan failed: said
+@look:          STA     P
+                STX     P + 1
+                LDA     UT_ENT
+                AND     #3
+                CMP     #3
+                BNE     @next
+                LDA     (P)
+                CMP     #E_SFCB
+                BNE     @yes
+@next:          JSR     UT_SNEXT
+                BRA     @entry
+@yes:           SEC
+                RTS
 
 ; Room for A bytes more between MTOP and XLOW? Carry clear, Q MTOP; carry
 ; set and NOMEM 1 if not.
@@ -453,7 +593,10 @@ HAVE:           LDA     #<SALREADY
                 BRA     @go
 @clear:         STZ     RECOV
 @go:            JSR     RESET
-                STZ     SECT
+                CMP     #0
+                BEQ     @reset
+                JMP     QUIT           ; the BDOS said why: nothing written
+@reset:         STZ     SECT
 @sec:           JSR     RDSEC
                 LDA     #<BUF
                 STA     P
@@ -529,16 +672,15 @@ RESET:          LDA     #1
                 JMP     BDOS
 
 ; Sector SECT of the directory into BUF, or from it: "Disk Read Error" or
-; "Disk Write Error" (ours) and the end if the BIOS can't.
+; "Disk Write Error" (ours) and the end if the BIOS can't (IOERR).
 RDSEC:          JSR     PLACE
                 LDA     #BIOS::READ
                 JSR     BIOS0
                 CMP     #0
                 BEQ     @ok
-                JSR     RESET
                 LDA     #<SRDERR
                 LDX     #>SRDERR
-                JMP     FAIL
+                JMP     IOERR
 @ok:            RTS
 
 WRSEC:          JSR     PLACE
@@ -549,11 +691,27 @@ WRSEC:          JSR     PLACE
                 JSR     BIOSPB
                 CMP     #0
                 BEQ     @ok
-                JSR     RESET
                 LDA     #<SWRERR
                 LDX     #>SWRERR
+                JMP     IOERR
+@ok:            LDA     MAKING         ; a re-format has written
+                STA     WROTE
+                RTS
+
+; A BIOS error: the drive reset, the message at A/X; and once a re-format
+; has written something, what to do (ours); the end.
+IOERR:          PHA
+                PHX
+                JSR     RESET
+                PLX
+                PLA
+                JSR     UT_SAY
+                LDA     WROTE
+                BNE     @partly
+                JMP     QUIT
+@partly:        LDA     #<SAGAIN
+                LDX     #>SAGAIN
                 JMP     FAIL
-@ok:            RTS
 
 ; The BIOS at SECT: SELDSK (selected before: no rescan), SETTRK OFF + SECT
 ; / 16, SETSEC SECT mod 16, SETDMA BUF, SETBNK 1 (the program's).
@@ -629,6 +787,14 @@ QNEXT32:        LDA     Q
                 INC     Q + 1
 @done:          RTS
 
+RNEXT32:        LDA     R
+                CLC
+                ADC     #32
+                STA     R
+                BCC     @done
+                INC     R + 1
+@done:          RTS
+
         .include "cmd.inc"
         .include "util.inc"
 
@@ -645,6 +811,8 @@ SRECOVER:       .byte   "Do you wish to recover date/time directory space$"
 SCLEAR:         .byte   "Do you want the existing date/time stamps cleared$"
 SRDERR:         .byte   "Disk Read Error$"
 SWRERR:         .byte   "Disk Write Error$"
+SPARTLY:        .byte   "Directory partly re-formatted.$"
+SAGAIN:         .byte   "Directory partly re-formatted: run INITDIR again.$"
 
         .bss
 FCB:            .res    36
@@ -662,6 +830,9 @@ SECT:           .res    1
 SLOT:           .res    1
 DIRTY:          .res    1
 RECOV:          .res    1
+DRY:            .res    1              ; 1: the first pass not written
+MAKING:         .res    1              ; 1: SFCBs being made
+WROTE:          .res    1              ; 1: and something written
 T:              .res    2
 PB:             .res    8              ; function 50's parameter block
 BUF:            .res    512            ; a directory sector
