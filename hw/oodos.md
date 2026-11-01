@@ -1589,9 +1589,9 @@ saved by `OODOS_UTILS_OUT`).
 the choices it left open marked ours):
 
 - **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,550, TYPE 4,121, ERASE
-  4,065, RENAME 4,426, SET 6,704, INITDIR 5,521, SHOW 5,356, DATE 4,410, DEVICE 5,553, SETDEF 4,605 (after the first review:
+  4,065, RENAME 4,426, SET 6,740, INITDIR 5,571, SHOW 5,356, DATE 4,410, DEVICE 5,553, SETDEF 4,605 (after the first review:
   69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
-  DEVICE's and SETDEF's own fixes besides). ld65 links all
+  DEVICE's and SETDEF's own fixes besides; after the second, 36 bytes for SET's read-only check and 50 for INITDIR's stopped recover). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1662,9 +1662,10 @@ the choices it left open marked ours):
   `NEW=OLD` line has no drive; a wildcard's `?` places must be exactly the same, else `Invalid wildcard.`; for each
   file, before anything else, a read-only drive (29) is `Drive Read Only` and ends RENAME, and an old file with
   t1' set (17) is `Not renamed, filespec read only.`, on to the next; any other refusal of 23 is the BDOS's.
-- **SET** (152, 14, 17, 18, 26, 28, 30, 31, 32, 37, 49, 100, 101, 103, 106, 108, 109). **Ours:** everything checked
-  before anything changes (the label's SFCB check and password among it, so a failed one leaves the default
-  password too); a drive's options done in the order `DEFAULT`, `RW`, the label's options as given, `RO`;
+- **SET** (152, 14, 17, 18, 26, 28, 29, 30, 31, 32, 37, 49, 100, 101, 103, 106, 108, 109). **Ours:** everything
+  checked before anything changes (the label's SFCB check and password among it, and a label option on a drive
+  read-only by 29 without `RW` is `Drive Read Only` before the password is asked, so a failed one leaves the default
+  password too; a unit read-only itself, with `RW`, is still the BDOS's refusal after `DEFAULT=`); a drive's options done in the order `DEFAULT`, `RW`, the label's options as given, `RO`;
   a file's 30 before its 103; one 100 for each label option, an option given twice taking its first place and last
   value, a new label password used for the 100s after it; the label's password asked once, and only when the label
   has one (8 blanks or zeros are none), at most 8 characters, in capitals, compared here; `PROTECT=` takes
@@ -1687,11 +1688,15 @@ the choices it left open marked ours):
   label's mode with `$8F`; a BIOS error resets the drive (37) and fails. The 37 before the first write is checked
   (the BDOS says its error; nothing written). The moves are made once without writing first: if the BIOS's sectors
   haven't the free entries for every one (the BDOS's view and the disk's differing), `Not enough room in
-  directory.` and nothing written. A BIOS error once a re-format has written something adds `Directory partly
-  re-formatted: run INITDIR again.`, and the next INITDIR finishes it: an entry in an SFCB's place with an exact
+  directory.` and nothing written. A BIOS error once a re-format or a recover has written something adds `Directory
+  partly re-formatted: run INITDIR again.` (clearing the stamps doesn't), and the next INITDIR finishes it: an entry in an SFCB's place with an exact
   copy outside them (the first try's) isn't moved again nor counted for room, an SFCB in its place isn't counted,
   and a directory whose entry 3 is an SFCB but another place isn't is `Directory partly re-formatted.`, then made
-  as one without SFCBs (the question asked). A drive used between the two tries may hold two different copies of
+  as one without SFCBs (the question asked). A recover writes sector 0 first, so one stopped leaves entry 3 free
+  and later places SFCBs: a directory with an SFCB in a place but not in entry 3 is `Directory partly
+  re-formatted.` and `Do you wish to recover date/time directory space (Y/N)? `, `Y` finishing the recover, `N`
+  going on to the re-format's question. The copies are looked for comparing from byte 0 up (the user and name
+  differ first). A drive used between the two tries may hold two different copies of
   an entry: run INITDIR again first. Cold boot's M: has SFCBs holding `$E5`
   past their first byte, so after `stamps cleared` a slot's bytes 8, 9 and 31 stay `$E5` (as designed).
 - **SHOW** (14, 17, 18, 24, 25, 26, 29, 31, 32, 45, 46, 49, 108, 109). **Ours:** `[]` is SPACE; an option with a
