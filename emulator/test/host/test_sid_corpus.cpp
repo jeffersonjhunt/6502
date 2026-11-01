@@ -7,23 +7,27 @@
  * (gitignored: the tunes are their composers'; the owner's HVSC copy is
  * tens of thousands), is played: SID_COUNT of them (12; 0 for all), picked
  * by SID_SEED (printed, so a failure can be run again; random if unset).
- * A PSID with a play routine must be called on time for two seconds from
- * its first call (VBI: 50 or 60 a second, less one for the host's polling;
- * CIA: at least once). The window starts there, not at the start, because
- * init may run for frames (some take eight) with interrupts held off, and
- * those frames' interrupts fold into one, as on a C64. Its 6510 must not
- * jam, and it must be heard within ten seconds (some open with seconds of
- * silence): the card's audio, in windows of 1,024 samples at 22,050 Hz,
- * must swing by more than 0.01 RMS about its mean in five of them, so a
- * click (the volume turned up) isn't a sound but a voice gated apart from
- * its waveform is. RSIDs and PSIDs that install their own interrupt are run
- * too, to show they don't jam; many need more of the VIC-II than the card
- * has, so silence isn't a failure for them. Nor for a PSID that turns the
- * VIC-II's raster interrupt on itself (a write of bit 0 to $D01A, seen on
- * the 6510's bus) and is then never played by the stub: it is judged as a
- * play-0 tune, and counted; one the stub does play is judged as any other.
- * RSIDs that are BASIC programs, which the card can't run, are skipped and
- * counted. Without the fixtures it skips.
+ * A PSID with a play routine must be called first within a second, then
+ * on time for two seconds from that call (VBI: 50 or 60 a second, less one
+ * for the host's polling and at most two over; CIA: at least once). The
+ * window starts there, not at the start, because init may run for frames
+ * (some take eight) with interrupts held off, and those frames' interrupts
+ * fold into one, as on a C64. Its 6510 must not jam, and it must be heard
+ * within ten seconds (some open with seconds of silence): the card's audio,
+ * in windows of 1,024 samples at 22,050 Hz, must swing by more than 0.01
+ * RMS about its mean in five windows in a row, so a click or a volume step
+ * isn't a sound but a voice gated apart from its waveform is. RSIDs and
+ * PSIDs that install their own interrupt are run too, to show they don't
+ * jam; many need more of the VIC-II than the card has, so silence isn't a
+ * failure for them. Nor for a PSID that turns the VIC-II's raster interrupt
+ * on itself (a write of bit 0 to $D01A, seen on the 6510's bus) and is then
+ * never played by the stub, as long as it takes no more than 8 interrupts a
+ * frame (a storm, which the card's frame makes of a tune that took $FFFE and
+ * can't acknowledge it, fails): it is judged as a play-0 tune, and counted;
+ * one the stub does play is judged as any other. RSIDs that are BASIC
+ * programs, which plan_sid refuses, are skipped and counted. The rule
+ * itself is checked on synthetic tunes, fixtures or not; without the
+ * fixtures only the sample is skipped.
  */
 
 #include "harness.h"
@@ -95,26 +99,32 @@ namespace
         std::string error;
         bool jammed{false};
         unsigned frames{0}; ///< in the `on_time` clocks from the first
+        uint64_t from{0};   ///< the first frame, in clocks from the start (0: none)
         bool sounded{false};
         bool own_raster{false}; ///< it turned the VIC-II's raster interrupt on ($D01A bit 0) itself
+        uint64_t irqs{0};       ///< interrupt entries: reads of the vector at $FFFE
+        uint64_t clocks{0};     ///< how long it ran
     };
 
-    /// Watches the 6510 for a write of bit 0 to $D01A with I/O in.
-    struct RasterWatch : CycleObserver
+    /// Watches the 6510: a write of bit 0 to $D01A with I/O in, and each IRQ vector pull.
+    struct Watch : CycleObserver
     {
         const SoundCard &card;
-        bool seen{false};
-        explicit RasterWatch(const SoundCard &c) : card(c) {}
+        bool raster{false};
+        uint64_t irqs{0};
+        explicit Watch(const SoundCard &c) : card(c) {}
         void on_cycle(const BusCycle &c) override
         {
             if (c.write && c.addr == 0xD01A && (c.data & 0x01) && card.io_visible())
-                seen = true;
+                raster = true;
+            if (!c.write && c.vector_pull && c.addr == 0xFFFE)
+                ++irqs;
         }
     };
 
     /// Audio: windows of WINDOW samples at RATE; a tune has sounded once LOUD
-    /// of them (about a quarter second in all) swing by more than LEVEL RMS
-    /// about their mean, so turning the volume up, a click, isn't a sound.
+    /// of them in a row (about a quarter second) swing by more than LEVEL RMS
+    /// about their mean, so a click, or a volume step now and then, isn't a sound.
     constexpr uint32_t RATE = 22050;
     constexpr size_t WINDOW = 1024;
     constexpr unsigned LOUD = 5;
@@ -131,23 +141,23 @@ namespace
         SoundCard card;
         card.set_cpu_hz(f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ);
         card.set_audio_rate(RATE);
-        RasterWatch watch(card);
+        Watch watch(card);
         card.set_cpu_observer(&watch);
         start_sid(card, *plan);
-        uint64_t from = 0; // the first frame's
         bool first = false;
         std::vector<float> buf(2 * WINDOW);
         std::vector<double> window;
         unsigned loud = 0;
-        for (uint64_t t = 0; (t < from + on_time || (!r.sounded && t < most)) && !r.jammed; t += 256)
+        uint64_t t = 0;
+        for (; (t < r.from + on_time || (!r.sounded && t < most)) && !r.jammed; t += 256)
         {
             card.tick(256);
             if (card.peek(SoundCard::STATUS) & SoundCard::STATUS_TO_HOST)
             {
                 card.read(SoundCard::MBIN);
                 if (!first)
-                    first = true, from = t;
-                r.frames += t < from + on_time ? 1 : 0;
+                    first = true, r.from = t;
+                r.frames += t < r.from + on_time ? 1 : 0;
             }
             r.jammed = card.cpu().state() == Cpu6502::State::Stopped;
             for (size_t n; !r.sounded && (n = card.take_audio(buf.data(), WINDOW)) > 0;)
@@ -162,7 +172,7 @@ namespace
                     mean /= WINDOW;
                     for (const double v : window)
                         sq += (v - mean) * (v - mean);
-                    loud += std::sqrt(sq / WINDOW) > LEVEL ? 1 : 0;
+                    loud = std::sqrt(sq / WINDOW) > LEVEL ? loud + 1 : 0;
                     window.clear();
                 }
             if (!r.sounded && loud >= LOUD)
@@ -172,22 +182,37 @@ namespace
             }
         }
         card.set_cpu_observer(nullptr);
-        r.own_raster = watch.seen;
+        r.own_raster = watch.raster;
+        r.irqs = watch.irqs;
+        r.clocks = t;
         return r;
     }
 
-    /// The rule. A PSID with a play routine must be called on time and sound,
-    /// unless the stub never called it because the tune took the raster
-    /// interrupt itself (like a play-0 tune, which needs more VIC-II than the
-    /// card has); every tune must start and not jam.
+    /// Interrupts a frame a tune may take when judged only on running: a
+    /// multi-speed player or a raster split takes a few (8 covers an 8x
+    /// tune); a source no one acknowledges, such as the card's frame for a
+    /// tune that has taken $FFFE, takes hundreds.
+    constexpr uint64_t IRQS_A_FRAME = 8;
+
+    /// The rule. A PSID with a play routine must be called first within a
+    /// second, then on time for the window (a VBI song neither late nor
+    /// more than twice over), and must sound; unless the stub never called
+    /// it because it took the raster interrupt itself (like a play-0 tune,
+    /// which needs more VIC-II than the card has) and its interrupts stayed
+    /// in bounds. Every tune must start and not jam.
     bool passes(const SidFile &f, const Result &r)
     {
         if (!r.error.empty() || r.jammed)
             return false;
-        if (!f.play || (r.own_raster && r.frames == 0))
+        const uint32_t hz = f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
+        if (!f.play)
             return true;
-        const unsigned want = f.cia_timed(f.start_song) ? 1 : 2 * (f.ntsc() ? 60 : 50) - 1;
-        return r.frames >= want && r.sounded;
+        if (r.own_raster && r.frames == 0)
+            return r.irqs <= IRQS_A_FRAME * (r.clocks / (f.ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL) + 1);
+        const bool cia = f.cia_timed(f.start_song);
+        const unsigned rate = f.ntsc() ? 60 : 50;
+        const unsigned want = cia ? 1 : 2 * rate - 1;
+        return r.frames >= want && (cia || r.frames <= 2 * rate + 2) && r.from <= hz && r.sounded;
     }
 
     /// A PSID: load and init $1000, play $1000 + `play_at`, PAL.
@@ -207,9 +232,20 @@ namespace
     void run_rule(const char *what, const SidFile &f, bool want_pass)
     {
         const Result r = play(f, 2ull * SoundCard::PAL_HZ, 10ull * SoundCard::PAL_HZ);
-        std::printf("  %s: %u frames, %s, %s\n", what, r.frames, r.sounded ? "sounded" : "silent",
-                    passes(f, r) ? "passes" : "fails");
+        std::printf("  %s: %u frames from %.2f s, %llu IRQs, %s, %s\n", what, r.frames,
+                    static_cast<double>(r.from) / SoundCard::PAL_HZ, static_cast<unsigned long long>(r.irqs),
+                    r.sounded ? "sounded" : "silent", passes(f, r) ? "passes" : "fails");
         CHECK_EQ(passes(f, r), want_pass);
+    }
+
+    /// init's start: volume up, voice 1 a gated sawtooth (sustain 15).
+    const std::vector<uint8_t> SAW = {0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x01, 0xD4,
+                                      0xA9, 0xF0, 0x8D, 0x06, 0xD4, 0xA9, 0x21, 0x8D, 0x04, 0xD4};
+
+    std::vector<uint8_t> operator+(std::vector<uint8_t> a, const std::vector<uint8_t> &b)
+    {
+        a.insert(a.end(), b.begin(), b.end());
+        return a;
     }
 } // namespace
 
@@ -217,29 +253,56 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
 {
     // init: volume up, RTS; play (at $1006): RTS. On time, never a voice.
     run_rule("volume up, no voice", synthetic({0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0x60, 0x60}, 6), false);
-    // init: volume up; voice 1 a sawtooth, gated (sustain 15), RTS; play: RTS.
-    run_rule("a gated sawtooth",
-             synthetic({0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x01, 0xD4, 0xA9, 0xF0, 0x8D, 0x06, 0xD4, 0xA9, 0x21,
-                        0x8D, 0x04, 0xD4, 0x60, 0x60},
-                       21),
-             true);
-    // A voice that sounds with its gate written apart from its waveform: gate
-    // alone in init, then sawtooth without gate on each play (attack, then release).
+    // No voice, but play flips the volume between 0 and 15 every 32 frames:
+    // INC $C000, LDA $C000, AND #$1F, BNE out, LDA $D418, EOR #$0F, STA $D418, out: RTS.
+    run_rule("a volume step every 32 frames, no voice",
+             synthetic({0x60, 0xEE, 0x00, 0xC0, 0xAD, 0x00, 0xC0, 0x29, 0x1F, 0xD0, 0x08, 0xAD, 0x18, 0xD4, 0x49, 0x0F,
+                        0x8D, 0x18, 0xD4, 0x60},
+                       1),
+             false);
+    run_rule("a gated sawtooth", synthetic(SAW + std::vector<uint8_t>{0x60, 0x60}, 21), true);
+    // Gate and waveform never written together: init gates voice 1 with no
+    // waveform (attack 0, sustain 15, release 15); from the third play call,
+    // when the attack has long reached full, play writes a sawtooth without
+    // the gate, so the voice sounds through its slow release.
+    // play: INC $C000, LDA $C000, CMP #3, BCC out, LDA #$20, STA $D404, out: RTS.
     run_rule("gate and waveform written apart",
-             synthetic({0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x01, 0xD4, 0xA9, 0x0F, 0x8D, 0x06, 0xD4, 0xA9, 0x01,
-                        0x8D, 0x04, 0xD4, 0x60, 0xA9, 0x20, 0x8D, 0x04, 0xD4, 0x60},
-                       21),
+             synthetic({0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x01, 0xD4, 0xA9, 0x00, 0x8D, 0x05, 0xD4, 0xA9, 0xFF,
+                        0x8D, 0x06, 0xD4, 0xA9, 0x01, 0x8D, 0x04, 0xD4, 0x60, //
+                        0xEE, 0x00, 0xC0, 0xAD, 0x00, 0xC0, 0xC9, 0x03, 0x90, 0x05, 0xA9, 0x20, 0x8D, 0x04, 0xD4, 0x60},
+                       26),
              true);
+    // init runs about 8 frames (LDX #123: DEY 256 times each) before it
+    // returns: the window starts at the first call, so it is on time.
+    run_rule("an init of 8 frames",
+             synthetic(SAW + std::vector<uint8_t>{0xA2, 0x7B, 0xA0, 0x00, 0x88, 0xD0, 0xFD, 0xCA, 0xD0, 0xF8, 0x60, 0x60}, 31),
+             true);
+    // ...but not one that keeps the first call more than a second away (LDX #0 x 4: about 1.3 s).
+    run_rule("an init of 1.3 s",
+             synthetic(SAW + std::vector<uint8_t>{0xA9, 0x04, 0x85, 0x40, 0xA2, 0x00, 0xA0, 0x00, 0x88, 0xD0, 0xFD, 0xCA,
+                                                  0xD0, 0xF8, 0xC6, 0x40, 0xD0, 0xF2, 0x60, 0x60},
+                       39),
+             false);
+    // Twice a frame, as the host sees it: play also writes the mailbox and waits
+    // 600 clocks for the host to take it. STA $DE00, LDX #120, DEX, BNE, RTS.
+    run_rule("two sync points a frame",
+             synthetic(SAW + std::vector<uint8_t>{0x60, 0x8D, 0x00, 0xDE, 0xA2, 0x78, 0xCA, 0xD0, 0xFD, 0x60}, 21), false);
     // A tune that takes the raster interrupt itself: init sets $D01A and its
-    // own $FFFE (an RTI), so the stub never plays; it runs, so passes. The same
-    // with a jam fails, and one that turns $D01A on but is played stays judged.
+    // own $FFFE (an RTI) and stays with I set, so the stub never plays and no
+    // interrupt comes; it runs, so passes.
     run_rule("its own raster interrupt",
+             synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x12, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x4C,
+                        0x0F, 0x10, 0x40, 0x60},
+                       0x13),
+             true);
+    // The same with CLI: the card's frame, which its handler can't acknowledge, storms.
+    run_rule("its own raster interrupt, storming",
              synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x13, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x58, 0x4C,
                         0x10, 0x10, 0x40, 0x60},
                        0x14),
-             true);
+             false);
     run_rule("its own raster interrupt, jamming",
-             synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x11, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x58, 0x02,
+             synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x11, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x02,
                         0x40, 0x60},
                        0x12),
              false);
@@ -248,8 +311,14 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
 
 TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
 {
+    const std::vector<std::string> all = tunes();
+    if (all.empty())
+    {
+        std::printf("  SKIP: no .sid files in %s\n", FOLDER.c_str());
+        return;
+    }
     unsigned played = 0, ran = 0, basic = 0, raster = 0;
-    for (const std::string &name : sample(tunes()))
+    for (const std::string &name : sample(all))
     {
         std::ifstream in(FOLDER + "/" + name, std::ios::binary);
         const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
@@ -261,8 +330,9 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
             CHECK(f.has_value());
             continue;
         }
-        if (f->rsid && (f->flags & SidFile::FLAG_BASIC)) // plan_sid refuses it: the card has no C64 BASIC
+        if (f->rsid && (f->flags & SidFile::FLAG_BASIC)) // the card has no C64 BASIC
         {
+            CHECK(!plan_sid(*f, 0, error)); // refused, so skipping it hides nothing
             ++basic;
             continue;
         }
@@ -270,8 +340,9 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
         const Result r = play(*f, 2ull * hz, 10ull * hz);
         const bool ok = passes(*f, r);
         if (!ok)
-            std::printf("  %s: %s%s, %u frames, %s\n", name.c_str(), r.error.c_str(), r.jammed ? "jammed" : "",
-                        r.frames, r.sounded ? "sounded" : "silent");
+            std::printf("  %s: %s%s, %u frames from %.2f s, %llu IRQs, %s\n", name.c_str(), r.error.c_str(),
+                        r.jammed ? "jammed" : "", r.frames, static_cast<double>(r.from) / hz,
+                        static_cast<unsigned long long>(r.irqs), r.sounded ? "sounded" : "silent");
         CHECK(ok);
         if (!f->play)
             ++ran;
@@ -284,12 +355,4 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
                 played, ran, raster, basic);
 }
 
-int main()
-{
-    if (tunes().empty())
-    {
-        std::printf("SKIP: no .sid files in %s\n", FOLDER.c_str());
-        return SKIP;
-    }
-    return run_all();
-}
+int main() { return run_all(); }
