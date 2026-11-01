@@ -15,8 +15,10 @@
  * fold into one, as on a C64. Its 6510 must not jam, and it must be heard
  * within ten seconds (some open with seconds of silence): the card's audio,
  * in windows of 1,024 samples at 22,050 Hz, must swing by more than 0.01
- * RMS about its mean in five windows in a row, so a click or a volume step
- * isn't a sound but a voice gated apart from its waveform is. RSIDs and
+ * RMS about its mean in five windows anywhere in the run, so a single click
+ * (the volume turned up) isn't a sound but a voice gated apart from its
+ * waveform is, and so are volume-register writes repeated (a 6581 plays
+ * digis that way) and short staccato notes. RSIDs and
  * PSIDs that install their own interrupt are run too, to show they don't
  * jam; many need more of the VIC-II than the card has, so silence isn't a
  * failure for them. Nor for a PSID that turns the VIC-II's raster interrupt
@@ -123,8 +125,10 @@ namespace
     };
 
     /// Audio: windows of WINDOW samples at RATE; a tune has sounded once LOUD
-    /// of them in a row (about a quarter second) swing by more than LEVEL RMS
-    /// about their mean, so a click, or a volume step now and then, isn't a sound.
+    /// of them, anywhere in the run, swing by more than LEVEL RMS about their
+    /// mean. One click (the volume turned up) makes one or two, so isn't a
+    /// sound; volume writes repeated are, as on a 6581 (digis), and so are
+    /// staccato notes, whose windows are loud a few at a time.
     constexpr uint32_t RATE = 22050;
     constexpr size_t WINDOW = 1024;
     constexpr unsigned LOUD = 5;
@@ -172,7 +176,7 @@ namespace
                     mean /= WINDOW;
                     for (const double v : window)
                         sq += (v - mean) * (v - mean);
-                    loud = std::sqrt(sq / WINDOW) > LEVEL ? loud + 1 : 0;
+                    loud += std::sqrt(sq / WINDOW) > LEVEL ? 1 : 0;
                     window.clear();
                 }
             if (!r.sounded && loud >= LOUD)
@@ -251,15 +255,9 @@ namespace
 
 TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
 {
-    // init: volume up, RTS; play (at $1006): RTS. On time, never a voice.
+    // init: volume up, RTS; play (at $1006): RTS. On time, never a voice:
+    // one click, which must not count as a sound.
     run_rule("volume up, no voice", synthetic({0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0x60, 0x60}, 6), false);
-    // No voice, but play flips the volume between 0 and 15 every 32 frames:
-    // INC $C000, LDA $C000, AND #$1F, BNE out, LDA $D418, EOR #$0F, STA $D418, out: RTS.
-    run_rule("a volume step every 32 frames, no voice",
-             synthetic({0x60, 0xEE, 0x00, 0xC0, 0xAD, 0x00, 0xC0, 0x29, 0x1F, 0xD0, 0x08, 0xAD, 0x18, 0xD4, 0x49, 0x0F,
-                        0x8D, 0x18, 0xD4, 0x60},
-                       1),
-             false);
     run_rule("a gated sawtooth", synthetic(SAW + std::vector<uint8_t>{0x60, 0x60}, 21), true);
     // Gate and waveform never written together: init gates voice 1 with no
     // waveform (attack 0, sustain 15, release 15); from the third play call,
