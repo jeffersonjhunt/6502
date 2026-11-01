@@ -1653,9 +1653,10 @@ the choices it left open marked ours):
   (`AND $1F`) 0; a label with a blank type is shown `NAME`, not `NAME.`
 - **DATE** (6, 10, 49, 50, 105). It sets the clock by the SCB's `$58` word and `$5A`–`$5C` (BCD, by 49), then the
   BIOS's TIME with A `$FF` (50). **Ours:** numbers of one or two digits, blanks between parts allowed; `SET` in
-  full, `CONTINUOUS` any prefix; the parts kept by `DATE SET`'s empty lines are read at the key; a bad line ends
-  `DATE SET` with the error; `No clock` only when a kept part needs the clock; any key, a ^C too, ends CONTINUOUS
-  with 0; DATE isn't paged (console mode bit 0 would hide the key).
+  full, `CONTINUOUS` any prefix; a `DATE SET` line of only blanks and tabs is an empty one; the parts kept by
+  `DATE SET`'s empty lines are read at the key; a bad line ends `DATE SET` with the error; `No clock` only when a
+  kept part needs the clock; any key, a ^C too, ends CONTINUOUS with 0; DATE isn't paged (console mode bit 0
+  would hide the key).
 - **DEVICE** (10, 49, 50: DEVTBL, XMOVE from bank 0 to 1, MOVE 24 bytes, so at most 3 devices). **Ours:** `End of
   line expected` after the command is done, then `$FF00`; `NAMES`, `VALUES`, `NULL` in full, device names exact
   (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`;

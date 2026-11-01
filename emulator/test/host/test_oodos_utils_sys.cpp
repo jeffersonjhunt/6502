@@ -19,7 +19,7 @@
  *   - DATE: the display, CONTINUOUS stopped by a key, a time specification
  *     checked (months, days, leap years, hours, minutes, seconds) and set
  *     at the key with its seconds, DATE SET's prompts with empty lines
- *     keeping their parts, the errors, no clock;
+ *     (or only blanks) keeping their parts, the errors, no clock;
  *   - DEVICE: the full display and its prompt (a line taken as a command),
  *     NAMES, VALUES, a physical and a logical device and their other
  *     names, assignments and NULL, input and output checked, the baud rate
@@ -638,6 +638,20 @@ TEST(date_set_asks_for_the_date_and_time_an_empty_line_keeping_each)
     REQUIRE(r.until("\r\nA>", ms(3000), from));
     t = now(r);
     CHECK(t.year == 2030 && t.month == 12 && t.date == 25 && t.hour == 8 && t.minute == 15);
+    // A line of only blanks and tabs is an empty one: both kept again
+    from = r.out.size();
+    r.type("date set\r");
+    REQUIRE(r.until("(MM/DD/YY): ", ms(3000), from));
+    r.type("   \r");
+    REQUIRE(r.until("(HH:MM:SS): ", ms(3000), from));
+    r.type(" \t \r");
+    REQUIRE(r.until("Press any key to set time", ms(3000), from));
+    r.type(" ");
+    REQUIRE(r.until("\r\nA>", ms(3000), from));
+    CHECK(r.out.find("Illegal", from) == std::string::npos);
+    t = now(r);
+    CHECK(t.year == 2030 && t.month == 12 && t.date == 25 && t.hour == 8);
+    CHECK(succeeded(r));
     // A bad line: refused there, nothing set
     from = r.out.size();
     r.type("date set\r");
