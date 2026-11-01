@@ -285,6 +285,8 @@ command: jsr    rdword
         bcs     @unk
         sta     dev
         jsr     UT_SKIP
+        cmp     #'='                    ; an assignment to a physical device
+        jeq     badlog
         cmp     #'['
         bne     @show
         lda     dev

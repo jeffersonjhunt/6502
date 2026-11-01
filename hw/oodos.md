@@ -1579,7 +1579,7 @@ saved by `OODOS_UTILS_OUT`).
 the choices it left open marked ours):
 
 - **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,418, TYPE 4,011, ERASE
-  3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,282, DATE 4,341, DEVICE 5,477, SETDEF 4,526. ld65 links all
+  3,962, RENAME 4,250, SET 6,563, INITDIR 5,040, SHOW 5,287, DATE 4,341, DEVICE 5,484, SETDEF 4,536. ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1659,7 +1659,8 @@ the choices it left open marked ours):
   would hide the key).
 - **DEVICE** (10, 49, 50: DEVTBL, XMOVE from bank 0 to 1, MOVE 24 bytes, so at most 3 devices). **Ours:** `End of
   line expected` after the command is done, then `$FF00`; `NAMES`, `VALUES`, `NULL` in full, device names exact
-  (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`;
+  (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`, as
+  is a physical device's name with `=` (`DEVICE CRT = TTY`);
   `NULL` alone (`NULL,CRT` refused); commas between devices, else `Invalid delimiter.`; an option list on a logical
   device but the console is `Invalid option.`; `COLUMNS` or `LINES` without a value, or with a list, is `Invalid
   number.`;

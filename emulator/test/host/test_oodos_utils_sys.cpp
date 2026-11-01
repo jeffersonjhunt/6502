@@ -789,6 +789,8 @@ TEST(device_refuses_baud_rates_and_xon_and_says_each_error)
     same(run(r, "device tty [noxon"), "Invalid option.");
     same(run(r, "device foo:=crt"), "Bad Logical Device Assignment");
     same(run(r, "device =crt"), "Bad Logical Device Assignment");
+    same(run(r, "device crt = tty"), "Bad Logical Device Assignment"); // a physical device: no assignment to it
+    same(run(r, "device tty=null"), "Bad Logical Device Assignment");
     same(run(r, "device con:=foo"), "Invalid Physical device.");
     same(run(r, "device con:="), "Invalid Physical device.");
     same(run(r, "device con:=null,crt"), "Invalid Physical device.");
