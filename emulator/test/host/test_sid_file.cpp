@@ -434,6 +434,31 @@ TEST(an_rsid_reads_ff_at_d011_and_d012_and_a_psid_the_raster_line)
     CHECK(!p.card.frame_enabled()); // play 0: no frame interrupt
 }
 
+TEST(an_rsid_after_a_psid_on_the_same_card_reads_ff_and_gets_no_frames)
+{
+    // The WebUI plays tunes one after another on one card: what the PSID's
+    // stub turned on (FRAMEEN 3) must not reach the RSID that follows.
+    const std::vector<uint8_t> code = {0xAD, 0x12, 0xD0, 0x8D, 0x01, 0xC0, 0xAD, 0x11, 0xD0, 0x8D, 0x02, 0xC0, 0x60, // init
+                                       0xEE, 0x00, 0xD4, 0x60};                                                     // play
+    Header h;
+    h.play = 0x100D;
+    std::string error;
+    SoundCard card;
+    card.set_cpu_hz(SoundCard::PAL_HZ);
+    start_sid(card, *plan_sid(parsed(h, code), 0, error));
+    card.tick(3 * PAL_FRAME);
+    CHECK(card.frame_enabled());
+    CHECK(card.raster_shown());
+    CHECK(card.ram()[0xC002] != 0xFF);
+    h.rsid = true, h.play = 0;
+    start_sid(card, *plan_sid(parsed(h, code), 0, error));
+    card.tick(3 * PAL_FRAME);
+    CHECK_EQ(card.ram()[0xC001], 0xFF);
+    CHECK_EQ(card.ram()[0xC002], 0xFF);
+    CHECK(!card.frame_enabled());
+    CHECK(!card.raster_shown());
+}
+
 TEST(an_init_that_waits_for_a_raster_line_returns)
 {
     // init: song to $C000, volume up, wait for $D012 = 200, RTS. play: INC $D400.

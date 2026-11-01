@@ -542,6 +542,24 @@ TEST(ctrl_reset_restarts_the_6510_and_the_cia)
     CHECK_EQ(c.cpu_resets(), 2u);
 }
 
+TEST(ctrl_reset_clears_frameen_and_the_frame_latch)
+{
+    SoundCard c;
+    start(c, 0x1000, {0xA9, 0x03, 0x8D, 0x04, 0xDE, 0x4C, 0x05, 0x10}); // FRAMEEN = 3 (I set: no interrupt); JMP *
+    host(c, 30'000ull * SoundCard::NATIVE_HZ / SoundCard::PAL_HZ);         // past a frame
+    CHECK(c.frame_enabled());
+    CHECK(c.raster_shown());
+    CHECK_EQ(c.frame_flags(), 0x01);
+    c.write(SoundCard::CTRL, SoundCard::CTRL_RESET);
+    CHECK(!c.frame_enabled());
+    CHECK(!c.raster_shown());
+    CHECK_EQ(c.frame_flags(), 0x00);
+    CHECK_EQ(c.raster_line(), 0u); // the frame starts over
+    c.write(SoundCard::CTRL, SoundCard::CTRL_RUN); // I/O in by the port's pull-ups
+    CHECK_EQ(c.cpu_bus().peek(0xD012), 0xFF);
+    CHECK_EQ(c.cpu_bus().peek(0xD011), 0xFF);
+}
+
 TEST(on_the_backplane_at_c500_with_its_interrupt_on_irqh_bit_2)
 {
     std::string error;
