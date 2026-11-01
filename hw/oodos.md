@@ -1709,7 +1709,7 @@ the choices it left open marked ours):
   re-formatted.` and `Do you wish to recover date/time directory space (Y/N)? `, `Y` finishing the recover, `N`
   going on to the re-format's question; but if entries in places also have copies outside them (a re-format stopped
   after such a recover), only `Directory partly re-formatted.` and the re-format's question, since a recover would
-  leave both copies. The copies are looked for comparing from byte 0 up (the user and name differ first). A drive used between the two tries may hold two different copies of
+  leave both copies. The copies are looked for comparing from byte 0 up (the user and name differ first). **Accepted (2026-11-01, the user's):** that look is every entry outside the SFCB places against every listed one, so on a nearly full 32M drive (1,536 entries) the question comes after about 11 s with nothing shown; comparing the block pointer first was measured at about 8 s on a real drive and slower on one of empty entries, and not taken. A drive used between the two tries may hold two different copies of
   an entry: run INITDIR again first. Cold boot's M: has SFCBs holding `$E5`
   past their first byte, so after `stamps cleared` a slot's bytes 8, 9 and 31 stay `$E5` (as designed).
 - **SHOW** (14, 17, 18, 24, 25, 26, 29, 31, 32, 45, 46, 49, 108, 109). **Ours:** `[]` is SPACE; an option with a
