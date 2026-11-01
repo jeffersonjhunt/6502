@@ -715,6 +715,31 @@ TEST(ff_sends_a_form_feed_to_lst_when_the_printer_echo_is_on_and_without_length_
          "\f" + lines(heading('M', 0) + fhead()) + "\r\n\f" + lines(fhead() + std::vector<std::string>{f[0], f[1]}) +
              "\r\n\f" + lines(fhead() + std::vector<std::string>{f[2], f[3]}) + "\r\n\f" +
              lines(fhead() + std::vector<std::string>{f[4], f[5]} + user0_totals(r)));
+    // Paged too, a page of 8 (a stop every 7 lines): the stops are the screen's only, so a stop is seen as
+    // the serial line going quiet before the prompt, and a key typed; the printout is as unpaged
+    r.scb(0x1C, 8);
+    {
+        const size_t from = r.out.size();
+        r.type("dir m: [ff,length=6]\r");
+        unsigned stops = 0, quiet = 0;
+        size_t seen = r.out.size();
+        for (int i = 0; i < 4000; ++i)
+        {
+            r.run(20'000);
+            if (r.out.size() >= from + 4 && r.out.compare(r.out.size() - 4, 4, "\r\nA>") == 0)
+                break;
+            quiet = r.out.size() == seen ? quiet + 1 : 0;
+            seen = r.out.size();
+            if (quiet == 100) // (0.28 s without a character: waiting at a stop)
+            {
+                ++stops;
+                quiet = 0;
+                r.type(" ");
+            }
+        }
+        CHECK_EQ(stops, 2u);
+        same(r.out.substr(from), "dir m: [ff,length=6]\r\n" + ff + "\r\nA>");
+    }
     r.scb(0x1C, 24);
     same(r.said("dir m: [length=6,nopage]"), // without FF: no form feeds
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
