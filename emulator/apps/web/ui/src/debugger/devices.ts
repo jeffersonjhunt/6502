@@ -175,6 +175,11 @@ export function sidFilter(r: Uint8Array): string {
 }
 
 /** The card's 6510 in a line: its registers, and whether it runs. */
+/** The card's frame ($DE03/$DE04): the raster line, the interrupt, and whether $D011/$D012 show the line. */
+export function frameText(c: SoundCpu): string {
+  return `line ${c.raster} · interrupt ${c.frameEn & 1 ? "on" : "off"}${c.frame & 1 ? " · pending" : ""} · $D012 ${c.frameEn & 2 ? "shows it" : "reads $FF"}`;
+}
+
 export function soundCpuText(c: SoundCpu, running: boolean): string {
   const regs = `PC $${hex(c.pc, 4)} · A $${hex(c.a, 2)} X $${hex(c.x, 2)} Y $${hex(c.y, 2)} S $${hex(c.s, 2)} P $${hex(c.p, 2)}`;
   return `${regs} · ${c.jammed ? "jammed (CTRL RESET)" : running ? "running" : "held"}`;
@@ -331,6 +336,7 @@ export function devicesView(port: MachinePort) {
           ...row("6510", soundCpuText(cpu, !!(ctrl & 2))),
           ...row("Port", soundPortText(cpu)),
           ...row("Timer A", `$${hex(cpu.timer, 4)} of $${hex(cpu.latch, 4)} · ${cpu.timerOn ? "counting" : "stopped"}`),
+          ...row("Frame", frameText(cpu)),
         ]
       : [];
     soundRows.replaceChildren(

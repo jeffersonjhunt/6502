@@ -173,6 +173,7 @@ namespace
         double cycles;
         unsigned ddr, port, timer, latch;
         bool timer_on;
+        unsigned frame, frame_en, raster; ///< $DE03 FRAME, $DE04 FRAMEEN, the raster line
     };
 
     /// `Machine` in JavaScript (ooe::emu::Machine is the description).
@@ -423,7 +424,9 @@ namespace
             const Registers &r = c->cpu().regs();
             return SoundCpu{true, r.pc, r.a, r.x, r.y, r.s, r.p, static_cast<unsigned>(c->cpu().state()),
                             static_cast<double>(c->cpu().cycles()), c->port_ddr(), c->port_data(), c->timer(),
-                            c->timer_latch(), c->timer_running()};
+                            c->timer_latch(), c->timer_running(), c->frame_flags(),
+                            (c->frame_enabled() ? SoundCard::FRAMEEN_IRQ : 0u) | (c->raster_shown() ? SoundCard::FRAMEEN_RASTER : 0u),
+                            c->raster_line()};
         }
 
         void set_rtc(double ms)
@@ -606,7 +609,10 @@ EMSCRIPTEN_BINDINGS(oo1)
         .field("port", &SoundCpu::port)
         .field("timer", &SoundCpu::timer)
         .field("latch", &SoundCpu::latch)
-        .field("timerOn", &SoundCpu::timer_on);
+        .field("timerOn", &SoundCpu::timer_on)
+        .field("frame", &SoundCpu::frame)
+        .field("frameEn", &SoundCpu::frame_en)
+        .field("raster", &SoundCpu::raster);
     class_<WebMachine>("Machine")
         .constructor<>()
         .function("open", &WebMachine::open)
