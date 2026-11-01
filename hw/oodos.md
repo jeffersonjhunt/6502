@@ -1382,8 +1382,8 @@ it is silent the choice is ours, and says so):
   in their places: `Sys RO A1 3 `), the password mode (6: `Read`, `Write`, `Delete` or `None`, from the file's
   XFCB), the update stamp and, under `Create` or `Access` as the label's mode says (`Create` when it asks for
   neither, ours), the other (14 each, blank without a stamp); Prot and both stamps blank when the drive has no
-  label (the Guide). The heading again every `LENGTH=` lines (5–65535, ours: 16 bits; default the page length
-  less 1, at least 5, so a page starts with it; the Guide: one screen).
+  label (the Guide). The heading again every `LENGTH=` lines (5–65535, ours: 16 bits) and, when paged, at each page's top
+  (the Guide: one screen), so a page or sheet starts with it.
 - **SIZE:** the drive, then `NAME     TYP` and the kilobytes (6, `k`), `" : "` between, as many as fit in the
   console width without its last column (the built-in's rule), each line starting `A: `.
 - **DATE** (ours, the Guide shows none): the name and type, the update stamp and the other, under the FULL
@@ -1397,7 +1397,7 @@ it is silent the choice is ours, and says so):
   / 8, rounded up: the Guide), `Used/Max` the drive's entries that aren't free or SFCBs, of all but the SFCBs
   (ours: a drive with date stamps has three quarters of its entries for files).
 - **FF:** a form feed to LST: (function 5) first when the printer echo is on (the SCB's `$38`), and with
-  `LENGTH=` each time the heading is written again; without `LENGTH=` FF turns paging off, with it paging stays
+  `LENGTH=` every `LENGTH=` lines (the Guide), each sheet starting with the heading; without `LENGTH=` FF turns paging off, with it paging stays
   on (the Guide), its stops on the screen only (as every paged program's: `cmd.inc`, above).
   **NOPAGE:** no stops.
 - **Errors** (Appendix A): `Illegal Option or Modifier.` (an unknown or ambiguous option, a bad value),
@@ -1592,12 +1592,13 @@ saved by `OODOS_UTILS_OUT`).
 [`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
 the choices it left open marked ours):
 
-- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,608, TYPE 4,147, ERASE
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,848, TYPE 4,147, ERASE
   4,091, RENAME 4,452, SET 6,766, INITDIR 5,597, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
   review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
   DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
   feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
-  each when the quiet stops became `cmd.inc`'s for every program). ld65 links all
+  each when the quiet stops became `cmd.inc`'s for every program; after the third, DIR 240 more for its lines' one
+  routine, `LINE`). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1620,13 +1621,23 @@ the choices it left open marked ours):
   `No File`, `Date and Time Stamping Inactive`, `Not Enough Memory for Sort.` and a drive the BDOS refused; the
   last `No File` only when nothing was found anywhere and `MESSAGE` isn't given; the groups (a drive and user)
   apart by a blank line, and a BDOS error followed by one; for a refused drive, or a directory read that fails,
-  the line owed is left to the BDOS's CR LF. `LENGTH=` counts every line from the start of the output, the
-  heading's own among them, over every group; the heading falls due at `LENGTH=` and is written only before a
-  file's line, and not when the line that made it due was the heading's own last (so never twice running on a
-  page) unless a page stop or, with `FF` and the printer echo on, a form feed comes between (so a page or sheet
-  still starts with it, and `[FF,LENGTH=5]`'s first form feed comes after 5 lines); the
-  page length less one (at least 5, `LENGTH=`'s least) is the default only when paging is on (`NOPAGE`, `FF`
-  without `LENGTH=`, or the SCB's page mode off, without `LENGTH=`: no repeats; never for `SIZE`). DATE shows
+  the line owed is left to the BDOS's CR LF. Every line DIR writes (a file's, each heading line, the blanks,
+  totals, messages) begins in one routine (`LINE`), which counts it for the page (paging's stops) and for
+  `LENGTH=`'s sheet (its lines over every group, the heading's own among them), so neither holds more than its
+  lines: a page the SCB's page length less one, a sheet `LENGTH=`. A sheet ends when its count is reached, with a
+  form feed under `FF` and the printer echo on. Lines that belong together go to the next page or sheet when they
+  don't fit the rest of this one (ours): a group's `Directory For` line, its blank, its column heading and first
+  file; the column heading and a file; the blank and the two totals lines. On a new page or sheet, within a FULL or
+  DATE group (its files and totals), the column heading comes first, so it is never written twice running; a
+  blank that only separates (between groups, before the totals) is left out at a top that shows, after a stop
+  or a form feed (ours; a sheet without one keeps it). With
+  `LENGTH=` and paging both, the heading starts each page and each sheet, and the printer has the screen's
+  lines (ours). Without `LENGTH=` there is no sheet count (`NOPAGE`, `FF` without `LENGTH=`, the SCB's page mode
+  off: no repeats); SIZE and the short form have no column heading, so their pages and sheets only hold their
+  lines. A page under 5 lines (4 or fewer and the stop's) is too short for the heading and a file, so the heading
+  isn't written again there (ours). The page's stop for lines kept together is `cmd.inc`'s `CM_STOP`
+  (`CM_LINE`'s own stop, a label added for DIR; no other program's bytes changed). A line the BDOS writes (a
+  refused drive's error) isn't counted. DATE shows
   the stamps on a drive without a label too (FULL doesn't, the Guide). **Speed:** each entry's record is found
   by a search of those made so far, and the pointers are sorted by insertion, so both grow as the square of the
   files. Measured on M: (60 and 190 files in random order): the lookup about 64 n² cycles, the sort about
@@ -1634,7 +1645,7 @@ the choices it left open marked ours):
   7.16 MHz before its first line, and a full `oodos-32m` (about 1,190 files, what fits) some 22 s (the review
   estimated 5 s and 15–20 s). Accepted for 4b1; a ^C
   is looked for every 16 entries read and every 16 pointers placed, so either can be stopped (`$FFFE`). `FF` sends its form feed to LST:
-  only with the printer echo on (`$38`), first and before each repeated heading. SIZE's item is `NAME TYP` and the
+  only with the printer echo on (`$38`), first and at each sheet's end. SIZE's item is `NAME TYP` and the
   kilobytes in 5 and `k`, `" : "` between, the width / 21 items a line (at least 1). DATE's layout is FULL's first
   12 heading columns and its last two; DATE on a drive without SFCBs is `Date and Time Stamping Inactive` for that
   drive only. FULL's lines are of fixed width (trailing blanks kept). A file's extent-zero entry is the one with S2
