@@ -818,7 +818,8 @@ TEST(device_console_shows_and_sets_the_width_and_page)
     CHECK(r.scbv(0x1A) == 0 && r.scbv(0x1C) == 255);
     r.scb(0x1A, 79); // (function 10 shows the typed line on rows of the width)
     for (const char *bad : {"device console [columns=0]", "device console [columns=257]", "device console [lines=256]",
-                            "device console [columns]", "device console [columns=abc]", "device console [lines=-1]"})
+                            "device console [columns]", "device console [columns=abc]", "device console [lines=-1]",
+                            "device console [columns=(40,50)]", "device console [lines=(16)]"}) // one number, no list
         same(run(r, bad), "Invalid number.");
     same(run(r, "device console [size]"), "Invalid option.");
     same(run(r, "device console [page=1]"), "Invalid option.");
@@ -987,6 +988,8 @@ TEST(setdef_says_each_error_and_sets_nothing)
     same(run(r, "setdef [order=(com]"), "Invalid type for ORDER option.");
     same(run(r, "setdef [temporary=q:]"), "Invalid drive.");
     same(run(r, "setdef [temporary=cc]"), "Invalid drive.");
+    same(run(r, "setdef [temporary=(c:,d:)]"), "Invalid drive."); // one drive, no list
+    same(run(r, "setdef [temporary=(m:)]"), "Invalid drive.");
     same(run(r, "setdef [temporary]"), "Invalid option.");
     same(run(r, "setdef [order]"), "Invalid option.");
     same(run(r, "setdef [foo]"), "Invalid option.");

@@ -475,6 +475,9 @@ console: jsr    UT_OAT
 @value: sta     t                       ; COLUMNS 1, LINES 2: a number
         lda     UT_HASV
         jeq     badnum
+        jsr     UT_VALUE                ; one number: a list is none
+        cmp     #1
+        jeq     badnum
         jsr     UT_VITEM
         jcs     badnum
         jsr     UT_WDEC

@@ -1661,15 +1661,16 @@ the choices it left open marked ours):
   line expected` after the command is done, then `$FF00`; `NAMES`, `VALUES`, `NULL` in full, device names exact
   (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`;
   `NULL` alone (`NULL,CRT` refused); commas between devices, else `Invalid delimiter.`; an option list on a logical
-  device but the console is `Invalid option.`; `COLUMNS` or `LINES` without a value is `Invalid number.`;
+  device but the console is `Invalid option.`; `COLUMNS` or `LINES` without a value, or with a list, is `Invalid
+  number.`;
   assignments write nothing; NAMES is the two headings and the devices, VALUES the heading and five lines; a list
   not closed is `Invalid option.`; no padding after a line's last field. **Departure:** the prompt is `Enter new
   assignment or hit RETURN: `, with a colon, as the Guide prints it (the plan had none).
 - **SETDEF** (49, 108, 109). It keeps `$18`'s other bits; the chain is `$4C`–`$4F`, the temporary drive `$50`, the
   page mode `$2C`. **Ours:** commas between drives, else `Invalid delimiter.`; a trailing comma or a bad drive
-  `Invalid drive.`; `*` and the current drive's letter are distinct entries; a second list, or anything after the
-  list, `Invalid delimiter.`; a list not closed, a stray value, `TEMPORARY` or `ORDER` without one, `Invalid
-  option.`; an option given twice, the last wins; `SUB` in
+  `Invalid drive.`, as is a list for `TEMPORARY`; `*` and the current drive's letter are distinct entries; a
+  second list, or anything after the list, `Invalid delimiter.`; a list not closed, a stray value, `TEMPORARY` or
+  `ORDER` without one, `Invalid option.`; an option given twice, the last wins; `SUB` in
   `ORDER` is `ORDER=(SUB): no SUBMIT yet`. SHOW, DEVICE and SETDEF are paged.
 - **The layout, decided (2026-10-31, the user's):** the CCP ends the command's line (the LF it owes, `CM_LFDUE`,
   by `RUNTAIL`'s `CM_FLUSH`) before any program runs, so a utility that writes nothing (ERASE of one name, a DEVICE
