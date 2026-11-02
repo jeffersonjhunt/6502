@@ -284,7 +284,7 @@ class Check:
                 self.fail(f"{self.rel(path)}:{n}", f"entry {cur['id']}: its ### heading must follow the anchor")
                 cur = None
                 continue
-            if cur and h:
+            if cur and h and len(h.group(1)) <= 4:
                 if len(h.group(1)) == 4:
                     cur["order"].append(h.group(2))
                     cur["fields"][h.group(2)] = []

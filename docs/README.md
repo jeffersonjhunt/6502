@@ -70,6 +70,8 @@ order:
 - [templates/utility.md](templates/utility.md): a built-in command or utility (Forms, Options, Output, Errors,
   Since, Status, CP/M 3; Examples optional).
 
+The fields are `####` headings. A field may have its own `#####` headings; they are part of that field.
+
 **To add an entry:**
 
 1. Copy the template's block into the right chapter, in order (functions by number, registers by address).
