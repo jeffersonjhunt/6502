@@ -2,7 +2,8 @@
 #
 # check_docs.py lets an entry the sources call for be missing only if it is here, and fails
 # on a name here that is written now (take it off) or that names nothing in the sources. G1
-# empties the functions and utilities, G2 the registers. The util- names are checked against
+# empties the functions and the commands there are now, G2 the registers; PIP comes off in
+# phase 4b2, SUBMIT, GET and PUT in phase 5. The util- names are checked against
 # oodos/utils/*.s, the CCP's built-ins (BINAMES in oodos/sys/ccp.s, by the long name) and
 # check_docs.py's PLANNED, the commands with no source yet (hw/oodos.md, "Phases").
 
@@ -170,13 +171,15 @@ util-type    # and TYPE.COM's
 util-user
 util-go      # ours
 
-# Utilities (phase 4b, PIP 4b2): G1
+# Utilities (phase 4b1): G1
 util-set
 util-show
 util-initdir
 util-date
 util-device
 util-setdef
+
+# PIP (phase 4b2)
 util-pip
 
 # With the RSXs (phase 5)

@@ -149,9 +149,10 @@ listings, entries or Technical Reference sections: a check that examined nothing
 **What isn't written yet** is listed in [tools/unwritten.txt](tools/unwritten.txt), one anchor a line. A missing
 entry fails the check unless it's listed there; a listed one that has been written, or that names nothing in the
 sources, fails it too; for a command, the sources are the utilities, the built-ins and `PLANNED`. So the list can
-only shrink: G1 empties its functions and utilities, G2 its registers. An equate, function, utility or built-in
-added to the sources fails the check until it gets an entry or a line on the list, which is the point: the books
-can't fall behind the code without someone saying so. `make coverage` lists both sides.
+only shrink: G1 empties its functions and the commands there are now, G2 its registers. PIP comes off with phase
+4b2, and SUBMIT, GET and PUT with phase 5, when their entries are written with them. An equate, function, utility or
+built-in added to the sources fails the check until it gets an entry or a line on the list, which is the point: the
+books can't fall behind the code without someone saying so. `make coverage` lists both sides.
 
 [tools/test_check_docs.py](tools/test_check_docs.py) is the check's own test: it copies the tree, breaks the copy
 one way at a time (a function or an equate with no entry, an entry for one that doesn't exist, a wrong heading, a
