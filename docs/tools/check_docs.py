@@ -26,7 +26,7 @@ Checks, against the sources the books describe:
   - a listing marked <!-- listing: path --> is that file, byte for byte, and
     a listed example under docs/examples has its expected output beside it;
     a marker that isn't one fails, and so does a code block under an entry's
-    #### Example with no marker before it;
+    #### Example (or a deeper heading under it) with no marker before it;
     no example has a utility's name (oodos/Makefile would build the utility)
     or a name longer than 8 characters;
   - every section of the Technical Reference carries a status tag, and it
@@ -523,7 +523,7 @@ class Check:
             lines = text.splitlines()
             code = {n: c for n, _, c in self.lines_outside_code(text)}
             links += self.links_in(path, lines, code)
-            example = False  # under an entry's #### Example, whose code must be a listing
+            example = False  # under an entry's #### Example (and its deeper headings), whose code must be a listing
             for n, line in enumerate(lines, 1):
                 if code[n]:
                     if example and not code.get(n - 1):
@@ -533,7 +533,7 @@ class Check:
                                                                "marker: show a file in docs/examples, so it's tested")
                     continue
                 h = HEADING.match(line)
-                if h:
+                if h and len(h.group(1)) <= 4:
                     example = h.group(1) == "####" and h.group(2) == "Example"
                 m = LISTING.match(line)
                 if m:

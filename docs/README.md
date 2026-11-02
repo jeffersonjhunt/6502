@@ -135,8 +135,8 @@ make -C docs index      # regenerate index/*.json
 - every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md,
   and every one in hw/*.md and README.md into docs/, resolves, to its file and its anchor (reference-style links
   aren't read);
-- listings are their files, listed examples are tested, and an entry's Example is a listing; an example's name
-  is 8 characters at most and isn't a utility's;
+- listings are their files, listed examples are tested, and an entry's Example, headings under it too, is a
+  listing; an example's name is 8 characters at most and isn't a utility's;
 - every Technical Reference section has a status tag;
 - the indexes are what the entries generate.
 
