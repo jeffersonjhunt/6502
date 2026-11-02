@@ -36,11 +36,15 @@
  *   of its own, which knows only the C64's interrupts and would leave the
  *   frame's set (an interrupt storm); the rest still go through $0314. A
  *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
- *   not on the card;
+ *   not on the card. So when init returns having pointed $FFFE away from
+ *   the stub, whose entry is then never run, the stub turns the frame
+ *   interrupt off (FRAMEEN bit 1 alone, the raster line kept): the tune runs
+ *   on the interrupts it set up, as on a C64. One that takes $FFFE and turns
+ *   interrupts on inside an init that never returns still gets the frame;
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
  *   then JMP ($0314); for a VBI song, a check of $DE03 first, with $01
- *   saved and I/O banked in, that takes a frame to the stub's handler, about
- *   20 cycles before any other interrupt reaches $0314; straight to the
+ *   saved and I/O banked in, that takes a frame to the stub's handler, 26
+ *   cycles before any other interrupt reaches $0314; straight to the
  *   stub's handler for a tune with a play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
  *   $FEBC, for tunes that install their own interrupt at $0314 and leave
  *   through them;
@@ -122,6 +126,7 @@ namespace ooe::emu
         Sid::Model model{Sid::Model::Mos6581}; ///< the chips' jumper, as the tune wants
         uint16_t stub{0};          ///< where the stub sits
         uint16_t frame{0};         ///< the stub's frame counter, written to the mailbox after each play
+        uint16_t returned{0};      ///< where init returns to in the stub: the 6510 fetching it means init is done
         std::vector<std::string> warnings; ///< what about the tune the card can't give it
     };
 

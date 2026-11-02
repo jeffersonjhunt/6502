@@ -56,7 +56,7 @@ namespace ooe::emu
             bool raster; ///< show the raster line at $D011/$D012 (a PSID)
 
             // labels, filled by the first pass
-            uint16_t idle{0}, irq{0}, handler{0}, not_frame{0}, ack{0}, exit{0}, nmi{0}, frame{0};
+            uint16_t returned{0}, own{0}, keep{0}, idle{0}, irq{0}, handler{0}, not_frame{0}, ack{0}, exit{0}, nmi{0}, frame{0};
 
             std::vector<uint8_t> emit()
             {
@@ -86,8 +86,18 @@ namespace ooe::emu
                 }
                 b({0xA9, init_bank, 0x85, 0x01});
                 b({0xA9, song}), w(0x20, init);
+                returned = here();
                 if (init_bank == 0x34) // I/O back for the interrupt; $35 and $36 differ from $37 only in ROMs
                     b({0xA9, 0x37, 0x85, 0x01});
+                if (vbi) // init took $FFFE: its handler can't acknowledge the frame, so the frame stops interrupting
+                {
+                    w(0xAD, 0xFFFE), b({0xC9, irq & 0xFF, 0xD0, (own - (here() + 4)) & 0xFF}); // LDA $FFFE CMP BNE own
+                    w(0xAD, 0xFFFF), b({0xC9, irq >> 8, 0xF0, (keep - (here() + 4)) & 0xFF});  // LDA $FFFF CMP BEQ keep
+                    own = here();
+                    b({0xA5, 0x01, 0x48, 0xA9, 0x37, 0x85, 0x01});                     // LDA $01 PHA, I/O in
+                    b({0xA9, raster ? 0x02 : 0x00}), w(0x8D, 0xDE04), b({0x68, 0x85, 0x01}); // FRAMEEN: the line only; PLA STA $01
+                    keep = here();
+                }
                 b({0x58}); // CLI
                 idle = here();
                 w(0x4C, idle);
@@ -275,6 +285,7 @@ namespace ooe::emu
         }
         plan.stub = stub.at;
         plan.frame = stub.frame;
+        plan.returned = stub.returned;
         plan.blocks.push_back({f.load, f.data});
         plan.blocks.push_back({stub.at, code});
 

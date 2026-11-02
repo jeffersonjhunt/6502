@@ -736,7 +736,11 @@ tune; the WebUI's tune bar then says the machine stopped it.
 - **The KERNAL's interrupt path** is imitated: `$FFFE` pushes A, X and Y and jumps through `$0314`,
   and `$EA31`, `$EA7E`, `$EA81` and `$FEBC` acknowledge the CIA and return, wherever the tune
   leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run. A tune with
-  a play routine that loads over `$0314` goes straight to the stub's handler instead.
+  a play routine that loads over `$0314` goes straight to the stub's handler instead. For a VBI song,
+  whose frame interrupt only the stub can acknowledge, a frame reaches the stub's handler even past a
+  repointed `$0314`, and if init returns with `$FFFE` pointing elsewhere the stub turns the frame
+  interrupt off (FRAMEEN bit 0) so the tune's own handler isn't stormed; a tune that takes `$FFFE`
+  and enables interrupts inside an init that never returns still is.
 - **A sync point:** after each play call the stub writes the call's number (mod 256) to the
   mailbox, so the host can count frames.
 - **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3

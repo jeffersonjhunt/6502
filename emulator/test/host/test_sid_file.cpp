@@ -410,6 +410,27 @@ TEST(a_vbi_tune_that_points_0314_at_its_own_handler_is_still_played_once_a_frame
     }
 }
 
+TEST(a_vbi_tune_that_takes_fffe_in_init_gets_no_frame_interrupt_it_cant_acknowledge)
+{
+    // init: CIA 1's interrupt on, $FFFE -> $1020, RTS. play ($1018): INC $D400 RTS.
+    // $1020, the tune's own: INC $D401, LDA $DC0D (acknowledged), RTI. It knows
+    // nothing of $DE03, so the stub turns the frame interrupt off once init returns.
+    std::vector<uint8_t> code = {0xA9, 0x81, 0x8D, 0x0D, 0xDC, 0xA9, 0x20, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x60};
+    code.resize(0x18, 0xEA);
+    for (const int b : {0xEE, 0x00, 0xD4, 0x60})
+        code.push_back(static_cast<uint8_t>(b));
+    code.resize(0x20, 0xEA);
+    for (const int b : {0xEE, 0x01, 0xD4, 0xAD, 0x0D, 0xDC, 0x40})
+        code.push_back(static_cast<uint8_t>(b));
+    Header h;
+    h.play = 0x1018;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+    CHECK_EQ(p.frames, 0u);
+    CHECK_EQ(p.reg(0x01), 50); // the CIA's, a frame apart: no storm
+    CHECK(!p.card.frame_enabled());
+    CHECK(p.card.raster_shown()); // the line stays
+}
+
 TEST(a_cia_song_that_retimes_cia_1_in_init_plays_at_its_rate)
 {
     Header h;
