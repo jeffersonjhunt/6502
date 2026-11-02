@@ -58,6 +58,42 @@ All: the card's type and revision, `$E1`.
 **emulated**
 """
 
+# A utility entry as the template has it, for a command that isn't one.
+FROB = """
+<a id="util-frob"></a>
+### FROB: nothing
+
+#### Forms
+
+```
+FROB
+```
+
+#### Options
+
+None.
+
+#### Output
+
+None.
+
+#### Errors
+
+None.
+
+#### Since
+
+Not yet.
+
+#### Status
+
+**proposed**
+
+#### CP/M 3
+
+None.
+"""
+
 
 def links_out(root):
     """The files outside docs/ and hw/ that docs/ and AGENTS.md link to."""
@@ -179,6 +215,9 @@ CASES = [
      lambda r: edit(r, UNWRITTEN, "util-setdef\n", "util-setdeff\n"), "util-setdeff names nothing in the sources"),
     ("a new utility's source with no entry",
      lambda r: write(r, UTILS + "/newone.s", "; a new utility\n"), "no entry util-newone (oodos/utils/newone.s)"),
+    ("a utility entry for a command that isn't one",
+     lambda r: append(r, "docs/oodos-users-guide/05-utilities.md", FROB),
+     "util-frob: no oodos/utils/frob.s, built-in or planned command"),
     ("an entry missing a template heading",
      lambda r: edit(r, PG7, "#### Cycles\n\nNot measured.", "Not measured."), "no '#### Cycles'"),
     ("an entry's headings out of order",

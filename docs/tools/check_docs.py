@@ -14,7 +14,8 @@ Checks, against the sources the books describe:
     entry's address and equates are an equate's, and its Module the module's
     ID and name (MODULES);
   - every utility (oodos/utils/NAME.s), every built-in command (ccp.s's
-    BINAMES, by its long name) and each command PLANNED has a util- entry;
+    BINAMES, by its long name) and each command PLANNED has a util- entry,
+    and every util- entry is one of them;
   - an entry not written yet is named in docs/tools/unwritten.txt, and a name
     there that is written now (or names nothing) fails, so the list shrinks;
   - entries follow their template's headings (docs/templates/), in order;
@@ -463,6 +464,8 @@ class Check:
                 return
             if e["id"] != f"util-{m.group(1).lower()}":
                 self.fail(where, f"{e['id']}: the heading says {m.group(1)}")
+            if e["id"] not in self.commands:
+                self.fail(where, f"{e['id']}: no oodos/utils/{e['id'][5:]}.s, built-in or planned command")
 
     def status(self, e, where, allowed):
         text = e["fields"].get("Status", "")

@@ -128,7 +128,7 @@ make -C docs index      # regenerate index/*.json
   every register entry's address and equates are backplane.inc's, and its Module the right module's ID and name;
 - every utility (`oodos/utils/NAME.s`), every built-in command (`BINAMES` in `oodos/sys/ccp.s`, by its long
   name) and every command planned with no source yet (`PLANNED` in check_docs.py: PIP, SUBMIT, GET, PUT) has an
-  entry;
+  entry, and every command's entry is one of them;
 - entries follow their template's headings, in order, with a known status;
 - every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md,
   and every one in hw/*.md and README.md into docs/, resolves, to its file and its anchor (reference-style links
