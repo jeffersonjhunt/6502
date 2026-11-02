@@ -80,8 +80,9 @@
  * commands it has started (a light: one between two frames is activity).
  *
  * The sound card's 6510 (sound_card.h): soundCpu() is its registers, state
- * (0 running, 2 jammed), cycles, port (ddr, port) and CIA 1's timer A
- * (timer, latch, timerOn), or has: false without the card. Its registers
+ * (0 running, 2 jammed), cycles, port (ddr, port), CIA 1's timer A
+ * (timer, latch, timerOn) and the card's frame (frame: $DE03, frameEn:
+ * $DE04 as bits 0-1, raster: the line), or has: false without the card. Its registers
  * at $C500 are peekIo's. soundVoice(chip, voice) is that voice's envelope:
  * bits 0-7 the level, 8-9 the phase (0 attack, 1 decay/sustain, 2
  * release), bit 10 held at 0; -1 without the card.
