@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 
 const FRAME = 119318; // 7.15909 MHz / 60
 const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
+const SPLASH_TIME = 36_500_000; // cycles: the boot splash's 5 s (300 frames), and a little (test_bios)
 const failures = [];
 const check = (name, ok, detail = "") => {
   if (!ok) failures.push(detail ? `${name}: ${detail}` : name);
@@ -70,8 +71,13 @@ check("boot: the banner and prompt", boot === GREETING, show(boot));
 m.send("C680.C684\r");
 check("serial round trip", runUntil("C680: 00 01 02 7F 7F").includes("C680: 00 01 02 7F 7F"));
 
-// The video card: the BIOS's screen, as frames the page can draw.
+// The video card: the BIOS's screen, as frames the page can draw, once the
+// boot splash (splash.s) has covered it for its 5 s and its tune has stopped.
 check("video: the backplane has its card", m.hasVideo());
+check("splash: on behind the greeting", (m.peekIo(0x489) & 1) === 1 && m.soundRunning(), `SPLASH=${m.peekIo(0x489)}`);
+m.run(SPLASH_TIME);
+check("splash: over, and the boot tune stopped the card", m.peekIo(0x489) === 0 && !m.soundRunning(),
+      `SPLASH=${m.peekIo(0x489)} sound=${m.soundRunning()}`);
 const pixels = m.videoFrame();
 check("video: a 640x480 RGBA frame", pixels instanceof Uint8Array && pixels.length === 640 * 480 * 4, String(pixels.length));
 const at = (x, y) => Array.from(pixels.subarray((y * 640 + x) * 4, (y * 640 + x) * 4 + 4)).join(",");

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, phosphor } from "./ui";
+import { openDebugger, pastSplash, phosphor } from "./ui";
 
 // Display: the video card's frames (the VGA scene), as the BIOS draws its screen.
 
@@ -35,6 +35,7 @@ function litInRow(page: Page, row: number) {
 
 test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
   // The B of BACKPLANE (row 1): glyph row 2 is 11111100. P3 amber, at light grey's brightness.
@@ -47,6 +48,7 @@ test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", as
 
 test("typing shows on VGA too, and the scene is remembered", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();
   await expect.poll(() => pixel(page, 0, 18)).not.toEqual([0, 0, 0]);
   expect(await litInRow(page, 4)).toBe(0);
@@ -63,19 +65,21 @@ test("typing shows on VGA too, and the scene is remembered", async ({ page }) =>
 
 test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const dev = page.getByTestId("dev-video");
   await expect(dev.locator('[data-reg="CTRL"]')).toHaveText("$03  display · layer 0");
   await expect(dev.locator('[data-reg="Layer 0"]')).toHaveText("text 80×30 · text $82000 · font $80400 · blink");
   await expect(dev.locator('[data-reg="Beam"]')).toContainText("line ");
-  // The sound card, as the BIOS leaves it: nothing touches it yet.
+  // The sound card, as the boot tune leaves it: the tune ran on the NTSC clock and stopped itself ($DE02),
+  // which clears RUN and zeroes the SIDs; its 240 Hz player timer is left counting.
   const sound = page.getByTestId("dev-sound");
-  await expect(sound.locator('[data-reg="CTRL"]')).toHaveText("$00  PAL 0.985 MHz · 6510 stopped · SID B at $D420");
+  await expect(sound.locator('[data-reg="CTRL"]')).toHaveText("$01  NTSC 1.023 MHz · 6510 stopped · SID B at $D420");
   await expect(sound.locator('[data-reg="SID A"]')).toHaveText("volume 0 · filter off · OSC3 $00 ENV3 $00");
   await expect(sound.locator('[data-reg="A1"]')).toHaveText("$0000 · no waveform · ADSR 0 0 0 0 · env $00 held at 0");
-  await expect(sound.locator('[data-reg="6510"]')).toContainText("· held"); // never started
-  await expect(sound.locator('[data-reg="Timer A"]')).toHaveText("$FFFF of $FFFF · stopped");
+  await expect(sound.locator('[data-reg="6510"]')).toContainText("· held");
+  await expect(sound.locator('[data-reg="Timer A"]')).toHaveText(/^\$[0-9A-F]{4} of \$10A4 · counting$/);
 });
 
 test("the page credits its fonts, in Settings' About", async ({ page }) => {
@@ -111,6 +115,7 @@ function colours(page: Page) {
 
 test("C803R runs the video demo on VGA, and a key goes back to the monitor", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();
   await phosphor(page, "Colour");
   await expect.poll(() => pixel(page, 0, 18)).toEqual([170, 170, 170]);
