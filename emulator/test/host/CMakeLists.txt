@@ -56,6 +56,7 @@ if(EMSCRIPTEN)
                 EMU_BIOS_ROM="${EMU_BIOS_DIR}/bios.rom"
                 EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
     endforeach()
+    target_compile_definitions(test_bios PRIVATE EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash")
     return()
 endif()
 
@@ -177,6 +178,7 @@ target_compile_definitions(test_rom_boot PRIVATE
 set(BIOS_DIR "${EMU_BIOS_DIR}")
 target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"

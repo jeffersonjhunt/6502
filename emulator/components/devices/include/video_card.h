@@ -12,7 +12,7 @@
  * hw/design.md ("Video", "Video registers") is the spec. Registers at $C480:
  *
  *   $00 CTRL  $01 BORDER  $02 PALBASE  $03 SPRBASE  $04 IEN  $05 ISR
- *   $06-$07 LINE  $08 STATUS  $7F ID
+ *   $06-$07 LINE  $08 STATUS  $09 SPLASH  $7F ID
  *   layer n at $10 + n x $10:  +0 CONFIG  +1 MAPBASE  +2 TILEBASE
  *                              +3-4 HSCROLL  +5-6 VSCROLL  +7 PALOFS
  *
@@ -91,6 +91,21 @@
  * front (3); 0 is off. Opaque pixels of two sprites on one spot whose
  * groups share a bit are a collision: at the vertical blank after it,
  * STATUS COLL holds the shared groups and ISR's collision bit is set.
+ *
+ * Boot splash (SPLASH, hw/design.md "Boot splash"): the One Off Endeavors
+ * logo and the VINTAGE FAST stamp, drawn by the card itself from its own ROM (splash_rom.h, the FPGA's
+ * block RAM: splashgen.py makes both), not from video memory, so the BIOS
+ * can start it before anything is in the video banks. Writing SPLASH bit 0
+ * starts it at the next vertical blank; it covers the whole screen, whatever
+ * CTRL says, for the ROM's 300 frames (5 s), and then the card goes back to
+ * its layers by itself and bit 0 clears. Writing 0 stops it at the next
+ * vertical blank. /RESET stops it. Each frame, each of the logo's parts sits
+ * at its home plus an offset from its curve in the ROM, shaken in y by the
+ * shake curve: moving parts through a box filter as wide as the curve says
+ * (motion blur: on the card, a running sum over a delay line), the stamp
+ * scaled about its centre (two accumulators) in its ink. The brightest part
+ * wins; then the glint, and the fade over the last frames. splashgen.py's Rom.render_frame() is the same
+ * rule in Python, and the reference.
  */
 
 #include <array>
@@ -125,6 +140,7 @@ namespace ooe::emu
             ISR = 0x05,
             LINE = 0x06,
             STATUS = 0x08,
+            SPLASH = 0x09,
             LAYER0 = 0x10,
             LAYER1 = 0x20,
             ID_REG = 0x7F,
@@ -141,6 +157,7 @@ namespace ooe::emu
         static constexpr uint8_t DISPLAY = 0x01, LAYER0_ON = 0x02, LAYER1_ON = 0x04, SPRITES_ON = 0x08;
         static constexpr uint8_t VBLANK = 0x01, LINE_MATCH = 0x02, COLLISION = 0x04;
         static constexpr uint8_t IN_VBLANK = 0x80;
+        static constexpr uint8_t SPLASH_ON = 0x01; ///< SPLASH: playing (or about to, at the next vertical blank)
         static constexpr uint8_t TEXT80 = 0, TEXT40 = 1, TILE = 2, BITMAP256 = 3, BITMAP512 = 4, MONO = 5;
         static constexpr uint8_t BLINK = 0x80; ///< CONFIG: attribute bit 7 blinks
         static constexpr uint8_t TILE16 = 0x08, TILE8BPP = 0x10; ///< CONFIG, tile layers: 16x16 tiles, 8 bits
@@ -183,6 +200,8 @@ namespace ooe::emu
         uint64_t frames() const { return frames_; }
         /// The line the beam is on, 0-524 (480 on: vertical blank).
         unsigned beam_line() const { return y_; }
+        /// The splash's frame on the screen now, or -1 when the layers are.
+        int splash_frame() const { return splash_live_ ? static_cast<int>(splash_frame_) : -1; }
 
         /// 12-bit palette colour (0x0RGB) as a frame() pixel.
         static uint32_t rgba(uint16_t rgb12);
@@ -221,6 +240,10 @@ namespace ooe::emu
         uint8_t apple(uint32_t bank, uint16_t addr) const { return apple_ram_ ? apple_ram_[bank << 16 | addr] : 0; }
         /// Line `ly` of the 320x240 sprite space; sprite collisions are noted for the frame.
         void draw_sprites(unsigned ly, SpritePixel *line);
+        /// The boot splash's line y, from the card's ROM.
+        void draw_splash(unsigned y, uint32_t *out) const;
+        /// Vertical blank: start, advance or end the splash.
+        void splash_vblank();
 
         const uint8_t *vram_{nullptr};
         const uint8_t *apple_ram_{nullptr};
@@ -240,6 +263,9 @@ namespace ooe::emu
         uint8_t frame_coll_{0}; ///< groups that collided in the frame being drawn
         uint16_t match_line_{0};
         std::array<Layer, 2> layers_{};
+        uint8_t splash_{0};          ///< SPLASH as written (bit 0); cleared when it ends
+        bool splash_live_{false};    ///< on the screen, since a vertical blank
+        unsigned splash_frame_{0};
 
         std::vector<uint32_t> front_, back_;
     };

@@ -66,6 +66,12 @@ namespace ooe::emu
             const uint64_t n = cpu_.cycles() - step_start_;
             clock_ += n;
             owed_ -= static_cast<int64_t>(n);
+            if (!(ctrl_ & CTRL_RUN)) // it stopped itself ($DE02): the SIDs' clock runs on
+            {
+                if (owed_ > 0)
+                    clock_ += static_cast<uint64_t>(owed_);
+                owed_ = 0;
+            }
         }
     }
 
@@ -370,6 +376,8 @@ namespace ooe::emu
             cia_write(addr & 0x0F, data);
         else if (addr == 0xDE00)
             card_send(data);
+        else if (addr == 0xDE02)
+            ctrl_ = static_cast<uint8_t>(ctrl_ & ~CTRL_RUN); // STOP: the 6510 stops itself
     }
 
     // --- CIA 1, as far as tunes need it -------------------------------------------

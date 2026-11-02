@@ -7,7 +7,9 @@
 #include "video_card.h"
 
 #include "backplane_bridge.h"
+#include "splash_rom.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace ooe::emu
@@ -23,6 +25,53 @@ namespace ooe::emu
         uint8_t hi(uint16_t v) { return static_cast<uint8_t>(v >> 8); }
         void set_lo(uint16_t &v, uint8_t b) { v = static_cast<uint16_t>((v & 0xFF00) | b); }
         void set_hi(uint16_t &v, uint8_t b, uint16_t mask) { v = static_cast<uint16_t>(((b << 8) | (v & 0xFF)) & mask); }
+
+        // The splash ROM's layout, version 3 (splashgen.py's docstring).
+        namespace splash
+        {
+            const uint8_t *const ROM = splash_rom::DATA;
+            unsigned u16(unsigned at) { return ROM[at] | ROM[at + 1] << 8; }
+            unsigned parts() { return ROM[5]; }
+            unsigned curves() { return ROM[6]; }
+            unsigned band() { return ROM[7]; }
+            unsigned frames() { return u16(8); }
+            unsigned glint_start() { return u16(10); }
+            unsigned glint_speed() { return ROM[12]; }
+            unsigned fade() { return ROM[13]; }
+            unsigned shake_start() { return u16(14); }
+            unsigned shake_curve() { return ROM[16]; }
+            constexpr unsigned PALETTE = 0x20, PARTS = 0x80, CURVES = 0xE0, PART_SIZE = 12;
+            constexpr uint8_t MIRROR = 0x01, ZOOM = 0x02, INK = 0x04;
+            /// Curve c's raw entry for frame t of it; 0 past its end (home, sharp, whole).
+            unsigned raw(unsigned c, int t)
+            {
+                if (c >= curves() || t < 0 || t >= ROM[CURVES + 4 * c + 2])
+                    return 0;
+                return u16(u16(CURVES + 4 * c) + 2 * static_cast<unsigned>(t));
+            }
+
+            struct Step
+            {
+                bool visible{true};
+                int offset{0};
+                unsigned blur{0}, flash{0};
+            };
+            /// A moving part's (or the shake's) entry: offset, blur, flash.
+            Step step(unsigned c, int t)
+            {
+                Step s;
+                const unsigned e = raw(c, t);
+                if (!e)
+                    return s;
+                s.visible = e & 0x8000;
+                s.offset = static_cast<int>(e & 0x7FF);
+                if (s.offset & 0x400)
+                    s.offset -= 0x800;
+                s.blur = (e >> 11) & 7;
+                s.flash = (e >> 14) & 1;
+                return s;
+            }
+        } // namespace splash
     } // namespace
 
     VideoCard::VideoCard() : front_(WIDTH * HEIGHT, BLACK), back_(WIDTH * HEIGHT, BLACK) { set_cpu_hz(NATIVE_HZ); }
@@ -50,6 +99,9 @@ namespace ooe::emu
         coll_ = frame_coll_ = 0;
         match_line_ = 0;
         layers_ = {};
+        splash_ = 0;
+        splash_live_ = false;
+        splash_frame_ = 0;
     }
 
     void VideoCard::set_cpu_hz(uint32_t hz)
@@ -105,6 +157,8 @@ namespace ooe::emu
             return hi(static_cast<uint16_t>(beam_line()));
         case STATUS:
             return static_cast<uint8_t>((beam_line() >= HEIGHT ? IN_VBLANK : 0) | coll_);
+        case SPLASH:
+            return splash_;
         case ID_REG:
             return ID;
         default:
@@ -174,6 +228,9 @@ namespace ooe::emu
         case LINE + 1:
             set_hi(match_line_, data, SCROLL_MASK);
             break;
+        case SPLASH:
+            splash_ = data & SPLASH_ON;
+            break;
         default:
             break;
         }
@@ -232,6 +289,7 @@ namespace ooe::emu
             l.live_hscroll = l.hscroll;
             l.live_vscroll = l.vscroll;
         }
+        splash_vblank();
         front_.swap(back_);
         ++frames_;
         isr_ |= VBLANK;
@@ -249,6 +307,11 @@ namespace ooe::emu
         if (bridge_ && bridge_->apple())
         {
             draw_apple(y, out); // the IIe's display; the native registers are out of reach
+            return;
+        }
+        if (splash_live_)
+        {
+            draw_splash(y, out); // the whole screen, whatever CTRL says
             return;
         }
         if (!(ctrl_ & DISPLAY))
@@ -631,5 +694,123 @@ namespace ooe::emu
         }
         const bool ok = std::fwrite(rgb.data(), 1, rgb.size(), f) == rgb.size();
         return std::fclose(f) == 0 && ok;
+    }
+    // --- the boot splash ----------------------------------------------------------
+
+    void VideoCard::splash_vblank()
+    {
+        if (!(splash_ & SPLASH_ON))
+        {
+            splash_live_ = false; // stopped: the layers from this frame
+            return;
+        }
+        if (!splash_live_)
+        {
+            splash_live_ = true; // started: frame 0 is the frame about to be drawn
+            splash_frame_ = 0;
+        }
+        else if (++splash_frame_ >= splash::frames())
+        {
+            splash_live_ = false; // over: the layers again, and SPLASH reads 0
+            splash_ = 0;
+            splash_frame_ = 0;
+        }
+    }
+
+    void VideoCard::draw_splash(unsigned y, uint32_t *out) const
+    {
+        const int f = static_cast<int>(splash_frame_);
+        const int shake = splash::shake_curve() < splash::curves()
+                              ? splash::step(splash::shake_curve(), f - static_cast<int>(splash::shake_start())).offset
+                              : 0;
+        std::array<uint8_t, WIDTH> v{};    // palette index 0-47 at each x
+        std::array<uint8_t, WIDTH> best{}; // its intensity: the brightest part wins, a later one on a tie
+        std::array<int, 1024> sums{};      // a row's coverage (0-3) as prefix sums
+        auto put = [&](int x, int i, unsigned high) {
+            if (i > 0 && i >= best[x])
+            {
+                best[x] = static_cast<uint8_t>(i);
+                v[x] = static_cast<uint8_t>(i | high);
+            }
+        };
+        for (unsigned p = 0; p < splash::parts(); ++p)
+        {
+            const unsigned e = splash::PARTS + p * splash::PART_SIZE;
+            const unsigned image = splash::u16(e), w = splash::u16(e + 2), h = splash::u16(e + 4);
+            const int home_x = static_cast<int>(splash::u16(e + 6)), home_y = static_cast<int>(splash::u16(e + 8));
+            const int t = f - splash::ROM[e + 10];
+            const uint8_t flags = splash::ROM[e + 11];
+            const unsigned curve = (flags >> 4) & 3, ink = flags & splash::INK ? 32 : 0;
+            if (t < 0 || w + 1 > sums.size())
+                continue;
+            const unsigned stride = (w + 3) / 4;
+            const int iw = static_cast<int>(w), ih = static_cast<int>(h);
+            auto cov = [&](unsigned c, unsigned sy) { return (splash::ROM[image + sy * stride + (c >> 2)] >> (6 - 2 * (c & 3))) & 3; };
+            auto floor_div256 = [](int n) { return n >= 0 ? n / 256 : -((-n + 255) / 256); };
+            if (flags & splash::ZOOM)
+            {
+                // Scaled about its centre: the source steps inv/256 a pixel. (On the card: an
+                // accumulator stepped by inv each pixel, another each line; one read a pixel.)
+                const unsigned c = splash::raw(curve, t);
+                if (c && !(c & 0x8000))
+                    continue;
+                const int inv = c ? static_cast<int>(c & 0x7FF) : 256, level = c ? static_cast<int>((c >> 11) & 15) : 15;
+                const int cx = home_x + iw / 2, cy = home_y + ih / 2 + shake;
+                const int sy = ih / 2 + floor_div256((static_cast<int>(y) - cy) * inv);
+                if (sy < 0 || sy >= ih || inv <= 0)
+                    continue;
+                for (int x = 0; x < static_cast<int>(WIDTH); ++x)
+                {
+                    const int sx = iw / 2 + floor_div256((x - cx) * inv);
+                    if (sx >= 0 && sx < iw)
+                        put(x, (cov(static_cast<unsigned>(sx), static_cast<unsigned>(sy)) * 5 * (level + 1)) >> 4, ink);
+                }
+                continue;
+            }
+            splash::Step s = splash::step(curve, t);
+            if (!s.visible)
+                continue;
+            if (flags & splash::MIRROR)
+                s.offset = -s.offset;
+            const int sy = static_cast<int>(y) - (home_y + shake);
+            if (sy < 0 || sy >= ih)
+                continue;
+            // The row's coverage as prefix sums: a box of any width is one subtraction. (The card
+            // keeps a running sum over a delay line instead, as the pixels stream past.)
+            for (unsigned c = 0; c < w; ++c)
+                sums[c + 1] = sums[c] + cov(c, static_cast<unsigned>(sy));
+            const int bw = 1 << s.blur, lo = bw / 2, hi = bw - lo;
+            const int left = home_x + s.offset;
+            for (int x = std::max(0, left - hi + 1); x < std::min<int>(WIDTH, left + iw + lo); ++x)
+            {
+                const int sx = x - left; // the box is sx - lo .. sx + hi - 1, clipped to the image
+                const int a = std::clamp(sx - lo, 0, iw), b = std::clamp(sx + hi, 0, iw);
+                put(x, ((sums[b] - sums[a]) * 5) >> s.blur, s.flash << 4 | ink);
+            }
+        }
+        if (f >= static_cast<int>(splash::glint_start()))
+        {
+            const int pos = (f - static_cast<int>(splash::glint_start())) * static_cast<int>(splash::glint_speed()) -
+                            static_cast<int>(splash::band()) - 240;
+            if (pos < static_cast<int>(WIDTH))
+                for (unsigned x = 0; x < WIDTH; ++x)
+                {
+                    const int d = static_cast<int>(x + y / 2) - pos;
+                    if (v[x] && v[x] < 32 && d >= 0 && d < static_cast<int>(splash::band())) // ink doesn't shine
+                        v[x] |= 16;
+                }
+        }
+        const int k = static_cast<int>(splash::frames()) - f;
+        if (k <= 1 << splash::fade())
+            for (uint8_t &c : v)
+            {
+                const int i = ((c & 15) * k) >> splash::fade();
+                c = i ? static_cast<uint8_t>((c & 0x30) | i) : 0;
+            }
+        for (unsigned x = 0; x < WIDTH; ++x)
+        {
+            const unsigned at = splash::PALETTE + 2u * v[x];
+            out[x] = rgba(static_cast<uint16_t>((splash::ROM[at + 1] & 0x0F) << 8 | splash::ROM[at]));
+        }
     }
 } // namespace ooe::emu

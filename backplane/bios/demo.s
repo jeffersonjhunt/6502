@@ -80,6 +80,7 @@ VWIN    = $8000                        ; W2
 DEMO_MAIN:
                 LDA     #$00
                 STA     VIDEO_CTRL     ; off while it is set up (the card keeps its timing)
+                STZ     VIDEO_SPLASH   ; and the boot splash, if it's still on: the screen is ours
 
                 ; graphics from flash (W1) into video memory (W2)
                 LDA     #VBLOCK0 + 1   ; $84000-$87FFF: text, tiles, map

@@ -1,0 +1,5 @@
+preview/
+__pycache__/
+*.o
+# The stamp's font (stamp.py): freeware, but not ours to redistribute.
+fonts/

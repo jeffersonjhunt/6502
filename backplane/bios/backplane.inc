@@ -70,6 +70,7 @@ VIDEO_PALBASE   = VIDEO + $02
 VIDEO_SPRBASE   = VIDEO + $03
 VIDEO_IEN       = VIDEO + $04
 VIDEO_STATUS    = VIDEO + $08          ; bit 7: in vertical blank
+VIDEO_SPLASH    = VIDEO + $09          ; the boot splash (splash.s)
 VIDEO_L0        = VIDEO + $10          ; layer 0
 VIDEO_L0_CONFIG = VIDEO_L0 + 0
 VIDEO_L0_MAP    = VIDEO_L0 + 1
@@ -88,6 +89,7 @@ VIDEO_TILE      = $02                  ; CONFIG: tiles, 8x8 at 4 bits...
 VIDEO_MAP_W64   = $20                  ; ...from a map 64 wide (32 high)
 VIDEO_ALL       = $0F                  ; CTRL: display, both layers, sprites
 VIDEO_ID_V1     = $91
+VIDEO_SPLASH_ON = $01                  ; SPLASH: play it (clears itself at the end)
 
 ; Zero page and low RAM, and who has them:
 ;
@@ -157,7 +159,11 @@ DMA_ENABLE      = $01                  ; CTRL
 SOUND           = $C500
 SOUND_SIDS      = $3D                  ; $00-$3C: SID A, a gap, SID B
 SOUND_CTRL      = SOUND + $40
+SOUND_NTSC      = $01                  ; CTRL: the SIDs' clock is NTSC's
 SOUND_RUN       = $02                  ; CTRL: the card's 6510 runs
+SOUND_RESET     = $04                  ; CTRL: reset the card's 6510 (vector at its $FFFC)
+SOUND_RAMADDR   = SOUND + $43          ; the card's RAM: address, then data,
+SOUND_RAMDATA   = SOUND + $45          ;   which moves the address on
 SOUND_IEN       = SOUND + $42
 SOUND_ID        = SOUND + $7F
 SOUND_ID_V1     = $A1

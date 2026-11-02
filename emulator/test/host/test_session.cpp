@@ -387,6 +387,7 @@ TEST(the_speaker_and_the_sids_mix_into_the_same_stream)
     auto s = booted();
     REQUIRE(s != nullptr);
     std::string out;
+    s->run(7'159'090 * 51 / 10); // past the boot splash, whose tune has the card until it stops it
     s->set_audio_rate(48'000);
     // A SID note on both sides, from the monitor...
     for (const char *line : {"C540: 10\r", "C500: 00 10 00 00 11 00 F0\r", "C518: 0F\r"})

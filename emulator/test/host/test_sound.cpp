@@ -468,3 +468,18 @@ int main()
 {
     return run_all();
 }
+
+TEST(a_write_to_de02_stops_the_6510_itself)
+{
+    // The boot splash's tune ends this way: the SIDs are the host's again, as after a reset.
+    SoundCard c;
+    start(c, 0x1000, {0xE6, 0x10, 0xA5, 0x10, 0xC9, 0x05, 0xD0, 0xF8, // INC $10; LDA $10; CMP #5; BNE
+                      0x8D, 0x02, 0xDE,                                  // STA $DE02
+                      0xE6, 0x11, 0x4C, 0x0B, 0x10});                    // INC $11; JMP (back to INC)
+    host(c, HOST_SECOND / 100);
+    CHECK_EQ(c.ctrl() & SoundCard::CTRL_RUN, 0);
+    CHECK_EQ(c.ram()[0x10], 5);
+    CHECK_EQ(c.ram()[0x11], 0); // nothing after the write ran
+    c.write(VOICE1_FREQ_LO, 0x34); // and the host has the SIDs
+    CHECK_EQ(c.sid(0)[VOICE1_FREQ_LO], 0x34);
+}

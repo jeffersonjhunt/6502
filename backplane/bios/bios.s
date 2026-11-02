@@ -8,9 +8,11 @@
 ;   2. points W3 and VEC at the copy, read-only, and carries on in RAM with no
 ;      jump, because the copy sits at the same CPU addresses,
 ;   3. puts W2 back on RAM block 2, so the map is RAM blocks 0, 1, 2 and 63,
-;   4. turns on the video card's text screen (video.s) and the USB keyboard
+;   4. starts the boot splash and its sound (splash.s), if there are such
+;      cards; they play by themselves for 5 s while the boot goes on,
+;   5. turns on the video card's text screen (video.s) and the USB keyboard
 ;      (input.s), if there are such cards,
-;   5. greets the terminal and enters the Woz Monitor.
+;   6. greets the terminal and enters the Woz Monitor.
 ;
 ; $C800 is reset, $C803 the video demo, $C806 Apple II mode, $C809 the SD
 ; card's directory and $C80C a boot from it: C803R and so on from the
@@ -31,7 +33,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT
+.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH
 .export BREAK
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
@@ -114,6 +116,7 @@ COPY:           LDA     (SRC),Y
                 STA     ACIA_CTRL
                 LDA     #$0B           ; no parity, no echo, no interrupts
                 STA     ACIA_CMD
+                JSR     SPLASH         ; the logo and its sound, 5 s on their own
                 JSR     VINIT          ; the screen, so ECHO writes there too
                 JSR     KINIT          ; the USB keyboard, if there is one (input.s)
                 LDX     #$00
@@ -152,7 +155,7 @@ IRQ:            PHA
                 RTI
 
 ; Stop what would go on behind the monitor: every DMA channel, the SD card's
-; command, the sound card's 6510 and SIDs; and turn off the interrupts that
+; command, the boot splash, the sound card's 6510 and SIDs; and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on). What it doesn't know (a program's own state) is left
 ; alone; the serial card the monitor's entry (WOZMON) programs afresh.
@@ -187,6 +190,7 @@ QUIET:
                 CMP     #VIDEO_ID_V1
                 BNE     @sound
                 STZ     VIDEO_IEN
+                STZ     VIDEO_SPLASH   ; the boot splash, if it's still on
 @sound:         LDA     SOUND_ID
                 CMP     #SOUND_ID_V1
                 BNE     @panel

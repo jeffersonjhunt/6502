@@ -328,7 +328,9 @@ window registers.
 6. The flash can be reprogrammed from software, so the BIOS can be updated in place (for example, an SST39SF040).
 7. *(Emulator BIOS 0.3.)* The BIOS turns on an 80x30 text screen: an 8x16 font from flash block 30, a 16-colour
    palette, and layer 0 in video memory, so the monitor shows on VGA as well as the serial line. It starts with
-   fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29. *(BIOS 0.4.)* The monitor takes keys
+   fixed entry points: `$C800` reset, `$C803` a video demo in flash block 29. *(Proposed 2026-10-31.)* Before the
+   text screen, it starts the [boot splash](#boot-splash) and its sound, which run for 5 s on their own; the
+   serial line has the monitor at once. *(BIOS 0.4.)* The monitor takes keys
    from the serial line or the USB keyboard, and Pause/Break breaks into it. *(BIOS 0.5.)* `$C806` enters Apple II
    mode, with the IIe ROM image taken from the cartridge (ROM B). *(BIOS 0.7, proposed.)* The SD card: `$C809`
    lists the card's root directory, and `$C80C` boots from it. The boot mounts `/BOOT.BIN` as unit 1, reads it to
@@ -565,6 +567,7 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 | `$05` | ISR | read; write 1 to clear | the same bits, pending; any of them pulls bit 1 of IRQH (ID 9) low |
 | `$06`–`$07` | LINE | read/write | write: the 10-bit scan line for the line interrupt. Read: the line being drawn now |
 | `$08` | STATUS | read | bit 7 in vertical blank; bits 0–3 COLL, the collision groups in the last collision |
+| `$09` | SPLASH | read/write | bit 0: play the boot splash from the card's own ROM ([Boot splash](#boot-splash)); clears itself when it ends |
 | `$7F` | ID | read | card type and revision |
 
 **Layers** (layer 0 at `$10`, layer 1 at `$20`):
@@ -625,6 +628,97 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
 - **Collisions:** opaque pixels of two drawn sprites on the same spot whose groups share a bit. At the vertical
   blank after the frame, STATUS COLL holds the shared groups and ISR bit 2 is set.
 
+### Boot splash ###
+
+**Proposed (2026-10-31).** The One Off Endeavors logo builds itself in 5 s at power-on. The card draws it from a
+ROM of its own (block RAM in the FPGA), not from the video banks, so it runs before the BIOS has put anything in
+video memory, costs the CPU one register write, and keeps going while the boot carries on behind it. The sound
+card plays its sound alongside ([below](#the-splashs-sound)).
+
+**What it shows.**
+
+- The two Os and the ≡ of the icon scream in from the left as a pack, 8 frames apart, then DIGITAL MANUFACTURING
+  from the right. Each comes in at up to 160 pixels a frame, motion-blurred, overshoots home by 9 pixels, holds a
+  frame, snaps back with a short blur and flashes white as it lands.
+- The logo is whole at 1.4 s. Half a second later VINTAGE FAST is rubber-stamped under it: a bordered imprint set
+  in Phillip Cavette's distressed stamp face "4990810", tilted 4°, in red ink with thin patches. It starts as a faint ghost 2.2 times
+  its size, as if held above the page towards you, and comes down in 4 frames, darkening. It lands at 1.97 s at
+  full ink, squashes 4 %, springs back, and the page jolts.
+- A glint crosses the logo (not the ink) from 2.8 s, and the last 8 frames fade it out; the card then shows its
+  layers again.
+
+**The register.** SPLASH (`$C489`) bit 0:
+
+- Written 1, the splash starts at the next vertical blank, latched like the base registers, and covers the whole
+  screen, whatever CTRL says, for the ROM's 300 frames. Then the card goes back to its layers by itself and bit 0
+  reads 0. A program that wants the screen sooner writes 0 (the demo does).
+- Written 0, it stops at the next vertical blank. /RESET stops it.
+- The vertical blank and line interrupts carry on as usual underneath.
+
+**The ROM** (32 KB, made from the logo by `backplane/bios/splash/splashgen.py`, which also writes the FPGA's
+`$readmemh` file and the emulator's copy), version 3:
+
+| Offset | Contents |
+|---|---|
+| `$0000` | Header, 32 bytes: `OOES`, version, part and curve counts, glint band width, frame count (300), glint start frame and speed, fade length (log2), shake start frame and curve |
+| `$0020` | Palette: 48 entries in the card's 12-bit format. 0–15 the logo's ramp (0 the background), 16–31 the bright ramp for the flash and the glint, 32–47 the ink |
+| `$0080` | Parts, up to 8 of 12 bytes: image offset, width, height, home X and Y, start frame, flags (mirrored: from the right; zoom: the curve scales it; ink: the ink ramp; which curve) |
+| `$00E0` | Curves, up to 4: offset and length |
+| `$00F0` | Curve data, 2 bytes a frame since a part's start. A moving part's: an offset from home in x (11 bits, signed), blur (0–6), flash, visible. A zooming part's: 1/scale in 256ths, ink level (0–15), visible. After its end, a part sits at home, sharp and whole. The shake curve moves every part in y |
+| then | Images at 2 bits a pixel (coverage 0–3), rows padded to a byte, leftmost pixel in the high bits. The two Os share one image |
+
+**The pixel rule**, per part on each pixel, after the shake:
+
+- **A part moving across:** the image's coverage summed over a box of 2^blur pixels centred on the part's source
+  column, times 5, shifted right by blur. In the FPGA the box is a running sum: each part streams its row through
+  a 64-pixel delay line, adding the pixel coming in and subtracting the one leaving, so it costs no extra memory
+  reads. At most three such parts touch one line.
+- **The zooming part (the stamp):** scaled about its centre, the source column and row stepping 1/scale a pixel
+  (in the FPGA, two accumulators, one stepped each pixel and one each line: no multiplies, one read a pixel). Its
+  coverage times 5 times (level + 1) / 16. The tilt is drawn into its image, so there's no rotation.
+- Either gives an intensity of 0–15. With the flash, the part uses the bright ramp; with ink, the ink ramp. The
+  brightest part wins (a later one on a tie), so the stamp's faint ghost passes behind the logo.
+- Then the glint, a diagonal band 40 pixels wide moving 16 pixels a frame from frame 170, moves the logo's covered
+  pixels to the bright ramp. Over the last 8 frames the intensity scales down to 0.
+
+`splashgen.py`'s `Rom.render_frame()` is the reference, and the emulator matches it pixel for pixel
+(`test_video`).
+
+#### The splash's sound ####
+
+The sound card plays it from a 2 KB program for its 6510 (`backplane/bios/splash/bootsnd.s`; also a stereo PSID,
+`bootsnd.sid`, for any SID player). SID A is left and SID B right. Play runs 240 times a second, four ticks to a
+video frame, so pitches glide rather than step.
+
+**Four MotoGP bikes** scream past, one for each part of the logo, each a voice on both SIDs:
+
+- **Pitch:** Doppler from a bike at 85 m/s passing 7 m away, on an inline-4 near 17,000 rpm, glided between frames.
+  There's a random wobble each tick for the engine's roughness, and at the upshift just after the pass, two ticks
+  of noise: the quickshifter's crack.
+- **Panning:** the chips' master volumes, slewed so they never click. Each chip also routes the bikes on its far
+  side through a low-pass filter, so every bike pans on its own: the far ear hears it dull.
+- **Distance:** the voices' sustain levels, which a SID can lower mid-note.
+- The fourth bike passes alone, so it has the other voices too: a sawtooth an octave down for body, and a noise
+  roar whose brightness follows its pitch.
+
+**The stamp:**
+
+- A push of air as it comes down: noise rising through a low-pass that opens, over its 4 frames.
+- The thunk as it lands: a thump (a pulse for the punch, then a triangle) falling from 120 Hz to 35 Hz.
+- A rubbery smack: noise through a resonant low-pass snapping shut.
+- The handle's wooden knock: a triangle at 196 Hz left and 203 Hz right.
+- All of it gone by 2.4 s; the rest of the splash is quiet.
+
+The tune is voiced for 8580 mode, and works on a 6581.
+
+The BIOS (`splash.s`) loads it at `$1000` through RAMDATA, points the card's reset vector at its boot entry
+(`$1006`), writes SPLASH, waits for the vertical blank the splash starts on, and sets CTRL to RUN, RESET and NTSC.
+The tune calls play once at once and then from CIA 1's timer at 240 Hz, so its frame *n* sounds with the picture's
+frame *n*. When it's over it zeroes the SIDs' oscillators (TEST) and registers and writes `$DE02`, which stops the
+card's 6510 and hands the SIDs back to the host, as after a reset. Break (QUIET) stops both early. A program that
+takes the card within the first 5 s finds the tune's voices still in the SIDs, so it silences them first, as QUIET
+does.
+
 
 ## Sound ##
 
@@ -667,6 +761,7 @@ it commands.
   | `$D420` or `$D500` | SID B (CTRL bit 3) |
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
   | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status (bit 0: a byte from the host is waiting; bit 1: the card's last byte hasn't been taken) |
+  | `$DE02` | STOP *(proposed 2026-10-31)*: any write clears CTRL RUN, so a one-shot such as the [boot splash's sound](#the-splashs-sound) hands the SIDs back when it's done |
 
   RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
   later.

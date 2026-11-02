@@ -32,6 +32,8 @@
  *   $DC00        CIA 1, imitated: timer A ($DC04/$DC05), its interrupt
  *                ($DC0D) and control ($DC0E), repeating every 16 bytes
  *   $DE00/$DE01  the mailbox and its status
+ *   $DE02        STOP: any write clears CTRL RUN, so a one-shot (the boot
+ *                splash's tune) hands the SIDs back to the host when done
  *
  * The rest of $D000-$DFFF (the C64's VIC-II, colour RAM, CIA 2) reads $FF
  * and ignores writes while I/O is in. The timer counts down one each SID

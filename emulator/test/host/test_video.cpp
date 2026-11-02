@@ -1073,3 +1073,119 @@ int main()
 {
     return run_all();
 }
+
+// --- the boot splash (hw/design.md, "Boot splash") ----------------------------
+
+namespace
+{
+    /// FNV-1a over a frame's pixels, as splashgen.py's reference model hashes them.
+    uint32_t frame_hash(const VideoCard &card)
+    {
+        uint32_t h = 2166136261u;
+        for (unsigned i = 0; i < VideoCard::WIDTH * VideoCard::HEIGHT; ++i)
+            h = (h ^ card.frame()[i]) * 16777619u;
+        return h;
+    }
+    constexpr unsigned SPLASH_FRAMES = 300; // the ROM's: 5 s
+} // namespace
+
+TEST(splash_starts_at_the_next_vertical_blank_and_reset_stops_it)
+{
+    Rig r;
+    CHECK_EQ(r.card.peek(VideoCard::SPLASH), 0x00);
+    CHECK_EQ(r.card.splash_frame(), -1);
+    r.reg(VideoCard::SPLASH, 0xFF);
+    CHECK_EQ(r.card.peek(VideoCard::SPLASH), VideoCard::SPLASH_ON); // only bit 0 is kept
+    CHECK_EQ(r.card.splash_frame(), -1);                           // not until the vertical blank
+    r.card.tick(VBLANK_AT + 1);
+    CHECK_EQ(r.card.splash_frame(), 0);
+    r.frames();
+    CHECK_EQ(r.card.splash_frame(), 1);
+    r.card.bus_reset();
+    CHECK_EQ(r.card.peek(VideoCard::SPLASH), 0x00);
+    CHECK_EQ(r.card.splash_frame(), -1);
+}
+
+TEST(splash_draws_what_the_reference_model_draws)
+{
+    // Frames hashed by splashgen.py's Rom.render_frame(): the motion, the blur, the overshoot
+    // and snap, the flash, the stamp pressed down (its zoom and ink) with its squash, the shake,
+    // the glint and the fade, pixel for pixel. The display is off and video
+    // memory empty: the splash needs neither. After a new ROM, remake the hashes in
+    // backplane/bios/splash with:
+    //   python3 -c "import splashgen as g, numpy as np; r = g.Rom(open('splash.bin','rb').read())
+    //   lut = [0xFF000000 | (gb & 15) * 17 << 16 | (gb >> 4) * 17 << 8 | (rr & 15) * 17 for gb, rr in r.pal]
+    //   for f in [0, 12, 22, 30, 38, 76, 84, 112, 114, 115, 116, 117, 118, 119, 120, 200, 230, 295, 299]:
+    //       h = 2166136261
+    //       for v in np.array(lut, np.uint64)[r.render_frame(f)].ravel().tolist(): h = (h ^ v) * 16777619 & 0xFFFFFFFF
+    //       print(f, hex(h))"
+    struct Want
+    {
+        unsigned frame;
+        uint32_t hash;
+    };
+    const Want want[] = {
+        {0, 0xA8005DC5u},
+        {12, 0x627D1440u},
+        {22, 0x7480CCA2u},
+        {30, 0xCFD2A459u},
+        {38, 0x76F7F03Fu},
+        {76, 0xD275B0ADu},
+        {84, 0xA027DEBBu},
+        {112, 0xB8D94E05u},
+        {114, 0x6881DC87u},
+        {115, 0x866A2917u},
+        {116, 0x3CA025AFu},
+        {117, 0x94468B65u},
+        {118, 0xF6B67A51u},
+        {119, 0x69C1768Du},
+        {120, 0x7FC5A629u},
+        {200, 0xC765A906u},
+        {230, 0x07C0B651u},
+        {295, 0x1D7745D1u},
+        {299, 0xE09BEC07u},
+    };
+    Rig r;
+    r.reg(VideoCard::SPLASH, VideoCard::SPLASH_ON);
+    r.frames(2); // the vertical blank that starts it, then frame 0 drawn and shown
+    unsigned shown = 0;
+    for (const Want &w : want)
+    {
+        r.frames(w.frame - shown);
+        shown = w.frame;
+        std::printf("  frame %u\n", w.frame);
+        CHECK_EQ(frame_hash(r.card), w.hash);
+    }
+}
+
+TEST(splash_ends_by_itself_and_the_layers_come_back)
+{
+    Rig r;
+    r.colour(0, GREY);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY);
+    r.reg(VideoCard::SPLASH, VideoCard::SPLASH_ON);
+    r.frames(SPLASH_FRAMES); // the vertical blank that starts it (frame 0), and 299 more
+    CHECK_EQ(r.card.splash_frame(), static_cast<int>(SPLASH_FRAMES - 1));
+    CHECK_EQ(r.card.peek(VideoCard::SPLASH), VideoCard::SPLASH_ON);
+    r.frames(1); // the last frame shown, and the vertical blank that shows it ends the splash
+    CHECK_EQ(r.card.splash_frame(), -1);
+    CHECK_EQ(r.card.peek(VideoCard::SPLASH), 0x00);
+    CHECK_NE(r.px(320, 240), rgba(GREY));
+    r.frames(1);
+    CHECK_EQ(r.px(320, 240), rgba(GREY)); // entry 0: no layer on
+}
+
+TEST(splash_written_0_stops_at_the_next_vertical_blank)
+{
+    Rig r;
+    r.reg(VideoCard::SPLASH, VideoCard::SPLASH_ON);
+    r.frames(40);
+    CHECK(r.card.splash_frame() > 0);
+    r.reg(VideoCard::SPLASH, 0);
+    CHECK(r.card.splash_frame() > 0); // latched, as the other registers
+    r.frames(1);
+    CHECK_EQ(r.card.splash_frame(), -1);
+    r.reg(VideoCard::SPLASH, VideoCard::SPLASH_ON); // and again from the top
+    r.frames(1);
+    CHECK_EQ(r.card.splash_frame(), 0);
+}

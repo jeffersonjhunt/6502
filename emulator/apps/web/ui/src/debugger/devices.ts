@@ -410,6 +410,7 @@ export function devicesView(port: MachinePort) {
       ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${base(r[3])}${r[8] & 0x0f ? ` · collided: groups $${hex(r[8] & 0x0f, 1)}` : ""}`),
       ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
       ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
+      ...row("Splash", `$${hex(r[9], 2)}  ${r[9] & 1 ? "playing (the card's ROM covers the screen)" : "off"}`),
     );
   };
   return { element, refresh };
