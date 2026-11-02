@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { onTerminal } from "./ui";
 
 async function booted(page: Page) {
   await page.goto("./");
@@ -23,6 +24,7 @@ async function setSwitches(page: Page, value: number) {
 
 test("the lamps glow with the monitor's loop: code at $FCBxx, the 6551 at $0C3xx, the USB card at $0C5xx", async ({ page }) => {
   await booted(page);
+  await onTerminal(page); // the serial line's screen, drawn at once
   await expect.poll(() => lamp(page, "A19")).toBeGreaterThan(0.3);
   await expect.poll(() => lamp(page, "A14")).toBeGreaterThan(0.9); // high in all three (low only for the odd stack access)
   expect(await lamp(page, "A13")).toBeLessThan(0.3); // low in all three
@@ -115,7 +117,7 @@ test("Apple II mode locks the clock at 1.02 MHz until a cold start", async ({ pa
   await booted(page);
   const clock = page.getByRole("group", { name: "Clock" });
   await expect(clock.getByRole("button", { name: "7.16 MHz" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByTestId("crt").click();
+  await onTerminal(page);
   await page.keyboard.type("C685: 1");                   // MODE: Apple II mode (no IIe ROM: it just sits there)
   await page.keyboard.press("Enter");
   await expect(clock.getByRole("button", { name: "1.02" })).toHaveAttribute("aria-pressed", "true");

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, openSettings } from "./ui";
+import { onTerminal, openDebugger, openSettings } from "./ui";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { bios, hex4, loadBiosLabels } from "./bios-labels";
@@ -13,6 +13,7 @@ const GREETING = "BACKPLANE BIOS 0.9";
 async function booted(page: Page) {
   await page.goto("./");
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+  await onTerminal(page); // the monitor is typed at on the serial line
   await loadBiosLabels(page);
 }
 

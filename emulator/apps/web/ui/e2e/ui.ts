@@ -42,3 +42,15 @@ export async function pastSplash(page: Page): Promise<void> {
   if (!wasOpen) await page.getByTestId("tb-debugger").click();
   await expect(page.getByTestId("debugger")).toBeVisible({ visible: wasOpen });
 }
+
+/**
+ * Pick Terminal by hand, for a test that types at the monitor or reads the serial line's screen. The page boots to
+ * Display, where the keys are the USB card's: it makes characters from the keys pressed and Shift, so Playwright's
+ * ":" (the ; key without Shift) arrives as ";". A pick holds until the machine next switches, and the BIOS's screen
+ * doesn't switch it.
+ */
+export async function onTerminal(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Terminal" }).click();
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text");
+  await expect(page.getByTestId("crt")).toBeFocused();
+}

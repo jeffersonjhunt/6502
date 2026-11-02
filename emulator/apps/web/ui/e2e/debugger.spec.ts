@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger } from "./ui";
+import { onTerminal, openDebugger } from "./ui";
 import { bios, hex4, inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 async function booted(page: Page) {
@@ -67,7 +67,7 @@ test("a write breakpoint can pull /NMI instead: the monitor restarts, nothing ha
   await row.locator('[data-flag="fetch"]').uncheck();
   await row.locator('[data-flag="nmi"]').check();
   await expect(row).toContainText("armed → /NMI");
-  await page.getByTestId("crt").click();
+  await onTerminal(page);
   await page.keyboard.type("300: 7");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("bp-hit-text")).toHaveText("hit: 00300  data 07  write");
