@@ -1,0 +1,749 @@
+[
+ {
+  "equate": "ACIA",
+  "address": "$C300",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "ACIA_DATA",
+  "address": "$C300",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "ACIA_STATUS",
+  "address": "$C301",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "ACIA_CMD",
+  "address": "$C302",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "ACIA_CTRL",
+  "address": "$C303",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD",
+  "address": "$C380",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_CTRL",
+  "address": "$C380",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_STATUS",
+  "address": "$C381",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_ERROR",
+  "address": "$C382",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_CMD",
+  "address": "$C383",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_UNIT",
+  "address": "$C384",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_LBA",
+  "address": "$C386",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_COUNT",
+  "address": "$C38A",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_DATA",
+  "address": "$C38C",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_IEN",
+  "address": "$C390",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SD_ID",
+  "address": "$C3FF",
+  "module": "7",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA",
+  "address": "$C400",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA0_ADDR",
+  "address": "$C400",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA0_COUNT",
+  "address": "$C404",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA0_MODE",
+  "address": "$C406",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA0_CTRL",
+  "address": "$C407",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA3_ADDR",
+  "address": "$C430",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA3_COUNT",
+  "address": "$C434",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA3_MODE",
+  "address": "$C436",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA3_CTRL",
+  "address": "$C437",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA3_DEST",
+  "address": "$C438",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA_STATUS",
+  "address": "$C440",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA_CONTROL",
+  "address": "$C441",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA_ABORT",
+  "address": "$C442",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DMA_ID",
+  "address": "$C47F",
+  "module": "8",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO",
+  "address": "$C480",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_CTRL",
+  "address": "$C480",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_BORDER",
+  "address": "$C481",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_PALBASE",
+  "address": "$C482",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_SPRBASE",
+  "address": "$C483",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_IEN",
+  "address": "$C484",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_STATUS",
+  "address": "$C488",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_SPLASH",
+  "address": "$C489",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0",
+  "address": "$C490",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0_CONFIG",
+  "address": "$C490",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0_MAP",
+  "address": "$C491",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0_TILE",
+  "address": "$C492",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0_HSCROLL",
+  "address": "$C493",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0_VSCROLL",
+  "address": "$C495",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L0_PALOFS",
+  "address": "$C497",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L1",
+  "address": "$C4A0",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_L1_CONFIG",
+  "address": "$C4A0",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIDEO_ID",
+  "address": "$C4FF",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND",
+  "address": "$C500",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_CTRL",
+  "address": "$C540",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_IEN",
+  "address": "$C542",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_RAMADDR",
+  "address": "$C543",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_RAMDATA",
+  "address": "$C545",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_ID",
+  "address": "$C57F",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "USB",
+  "address": "$C580",
+  "module": "B",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "USB_KEY",
+  "address": "$C580",
+  "module": "B",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "USB_KEYCLR",
+  "address": "$C581",
+  "module": "B",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "USB_KBCFG",
+  "address": "$C587",
+  "module": "B",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "USB_IEN",
+  "address": "$C5B0",
+  "module": "B",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "USB_ID",
+  "address": "$C5FF",
+  "module": "B",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB",
+  "address": "$C680",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN0",
+  "address": "$C680",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN1",
+  "address": "$C681",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN2",
+  "address": "$C682",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_WIN3",
+  "address": "$C683",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_VEC",
+  "address": "$C684",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_MODE",
+  "address": "$C685",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_STATUS",
+  "address": "$C686",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_RTCCTL",
+  "address": "$C687",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_IRQL",
+  "address": "$C688",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_IRQH",
+  "address": "$C689",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_SEC",
+  "address": "$C690",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_MIN",
+  "address": "$C691",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_HOUR",
+  "address": "$C692",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_DAY",
+  "address": "$C693",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_DATE",
+  "address": "$C694",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_MONTH",
+  "address": "$C695",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_YEAR",
+  "address": "$C696",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_RTCREG",
+  "address": "$C697",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_RTCDATA",
+  "address": "$C698",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "NB_ID",
+  "address": "$C6FF",
+  "module": "D",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "CONSOLE_IEN",
+  "address": "$C718",
+  "module": "E",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "CONSOLE_ID",
+  "address": "$C77F",
+  "module": "E",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ }
+]

@@ -1,0 +1,188 @@
+# Entries not written yet, one anchor a line (docs/README.md, "Checking the books").
+#
+# check_docs.py lets an entry the sources call for be missing only if it is here, and fails
+# on a name here that is written now (take it off) or that names nothing in the sources. G1
+# empties the functions and the commands there are now, G2 the registers; PIP comes off in
+# phase 4b2, SUBMIT, GET and PUT in phase 5. The util- names are checked against
+# oodos/utils/*.s, the CCP's built-ins (BINAMES in oodos/sys/ccp.s, by the long name) and
+# check_docs.py's PLANNED, the commands with no source yet (hw/oodos.md, "Phases").
+
+# BDOS functions (oodos/include/oodos.inc): G1
+bdos-0   # P_TERMCPM
+bdos-1   # C_READ
+bdos-2   # C_WRITE
+bdos-3   # A_READ
+bdos-4   # A_WRITE
+bdos-5   # L_WRITE
+bdos-6   # C_RAWIO
+bdos-7   # A_STATIN
+bdos-8   # A_STATOUT
+bdos-10  # C_READSTR
+bdos-11  # C_STAT
+bdos-12  # S_BDOSVER
+bdos-13  # DRV_ALLRESET
+bdos-14  # DRV_SET
+bdos-15  # F_OPEN
+bdos-16  # F_CLOSE
+bdos-17  # F_SFIRST
+bdos-18  # F_SNEXT
+bdos-19  # F_DELETE
+bdos-20  # F_READ
+bdos-21  # F_WRITE
+bdos-22  # F_MAKE
+bdos-23  # F_RENAME
+bdos-24  # DRV_LOGINVEC
+bdos-25  # DRV_GET
+bdos-26  # F_DMAOFF
+bdos-27  # DRV_ALLOCVEC
+bdos-28  # DRV_SETRO
+bdos-29  # DRV_ROVEC
+bdos-30  # F_ATTRIB
+bdos-31  # DRV_DPB
+bdos-32  # F_USERNUM
+bdos-33  # F_READRAND
+bdos-34  # F_WRITERAND
+bdos-35  # F_SIZE
+bdos-36  # F_RANDREC
+bdos-37  # DRV_RESET
+bdos-40  # F_WRITEZF
+bdos-42  # F_LOCK
+bdos-43  # F_UNLOCK
+bdos-44  # F_MULTISEC
+bdos-45  # F_ERRMODE
+bdos-46  # DRV_SPACE
+bdos-47  # P_CHAIN
+bdos-48  # DRV_FLUSH
+bdos-49  # S_SCB
+bdos-50  # S_BIOS
+bdos-51  # F_DMASEG
+bdos-52  # F_DMAGET
+bdos-53  # MC_MAX
+bdos-54  # MC_ABSMAX
+bdos-55  # MC_ALLOC
+bdos-56  # MC_ABSALLOC
+bdos-57  # MC_FREE
+bdos-58  # MC_ALLFREE
+bdos-59  # P_LOAD
+bdos-60  # P_RSX
+bdos-72  # O_VERSION
+bdos-73  # O_PHYSADDR
+bdos-74  # O_MOUNT
+bdos-98  # DRV_FREE
+bdos-99  # F_TRUNCATE
+bdos-100 # DRV_SETLABEL
+bdos-101 # DRV_GETLABEL
+bdos-102 # F_TIMEDATE
+bdos-103 # F_WRITEXFCB
+bdos-104 # T_SET
+bdos-105 # T_GET
+bdos-106 # F_PASSWD
+bdos-107 # S_SERIAL
+bdos-108 # P_CODE
+bdos-109 # C_MODE
+bdos-110 # C_DELIMIT
+bdos-111 # C_WRITEBLK
+bdos-112 # L_WRITEBLK
+bdos-152 # F_PARSE
+
+# I/O registers (backplane/bios/backplane.inc): G2
+reg-c300  # ACIA, ACIA_DATA
+reg-c301  # ACIA_STATUS
+reg-c302  # ACIA_CMD
+reg-c303  # ACIA_CTRL
+reg-c380  # SD, SD_CTRL
+reg-c381  # SD_STATUS
+reg-c382  # SD_ERROR
+reg-c383  # SD_CMD
+reg-c384  # SD_UNIT
+reg-c386  # SD_LBA
+reg-c38a  # SD_COUNT
+reg-c38c  # SD_DATA
+reg-c390  # SD_IEN
+reg-c3ff  # SD_ID
+reg-c400  # DMA, DMA0_ADDR
+reg-c404  # DMA0_COUNT
+reg-c406  # DMA0_MODE
+reg-c407  # DMA0_CTRL
+reg-c430  # DMA3_ADDR
+reg-c434  # DMA3_COUNT
+reg-c436  # DMA3_MODE
+reg-c437  # DMA3_CTRL
+reg-c438  # DMA3_DEST
+reg-c440  # DMA_STATUS
+reg-c441  # DMA_CONTROL
+reg-c442  # DMA_ABORT
+reg-c47f  # DMA_ID
+reg-c480  # VIDEO, VIDEO_CTRL
+reg-c481  # VIDEO_BORDER
+reg-c482  # VIDEO_PALBASE
+reg-c483  # VIDEO_SPRBASE
+reg-c484  # VIDEO_IEN
+reg-c488  # VIDEO_STATUS
+reg-c489  # VIDEO_SPLASH
+reg-c490  # VIDEO_L0, VIDEO_L0_CONFIG
+reg-c491  # VIDEO_L0_MAP
+reg-c492  # VIDEO_L0_TILE
+reg-c493  # VIDEO_L0_HSCROLL
+reg-c495  # VIDEO_L0_VSCROLL
+reg-c497  # VIDEO_L0_PALOFS
+reg-c4a0  # VIDEO_L1, VIDEO_L1_CONFIG
+reg-c4ff  # VIDEO_ID
+reg-c500  # SOUND
+reg-c540  # SOUND_CTRL
+reg-c542  # SOUND_IEN
+reg-c543  # SOUND_RAMADDR
+reg-c545  # SOUND_RAMDATA
+reg-c57f  # SOUND_ID
+reg-c580  # USB, USB_KEY
+reg-c581  # USB_KEYCLR
+reg-c587  # USB_KBCFG
+reg-c5b0  # USB_IEN
+reg-c5ff  # USB_ID
+reg-c680  # NB, NB_WIN0
+reg-c681  # NB_WIN1
+reg-c682  # NB_WIN2
+reg-c683  # NB_WIN3
+reg-c684  # NB_VEC
+reg-c685  # NB_MODE
+reg-c686  # NB_STATUS
+reg-c687  # NB_RTCCTL
+reg-c688  # NB_IRQL
+reg-c689  # NB_IRQH
+reg-c690  # NB_SEC
+reg-c691  # NB_MIN
+reg-c692  # NB_HOUR
+reg-c693  # NB_DAY
+reg-c694  # NB_DATE
+reg-c695  # NB_MONTH
+reg-c696  # NB_YEAR
+reg-c697  # NB_RTCREG
+reg-c698  # NB_RTCDATA
+reg-c6ff  # NB_ID
+reg-c718  # CONSOLE_IEN
+reg-c77f  # CONSOLE_ID
+
+# Built-in commands (phase 4a): G1
+util-dir     # DIR, and DIR.COM's forms (4b)
+util-dirsys
+util-erase   # ERA, and ERASE.COM's
+util-rename  # REN, and RENAME.COM's
+util-type    # and TYPE.COM's
+util-user
+util-go      # ours
+
+# Utilities (phase 4b1): G1
+util-set
+util-show
+util-initdir
+util-date
+util-device
+util-setdef
+
+# PIP (phase 4b2)
+util-pip
+
+# With the RSXs (phase 5)
+util-submit
+util-get
+util-put

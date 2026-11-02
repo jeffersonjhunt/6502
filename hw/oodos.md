@@ -2576,6 +2576,11 @@ made with it) is never made, so make with f6' reusing one and rename onto one ar
 
 Each phase is its own branch.
 
+**The books (decided 2026-10-31):** OODOS's reference is three books in [docs/](../docs/README.md), written in
+phases of their own: G0 the skeleton and its checks; G1 the Programmer's Guide for phases 0–4 and the User's Guide;
+G2 the OO-1 Technical Reference; G3 with the OOLIB phase. After G3, no phase below is done until its chapters,
+entries and indexes in docs/ are.
+
 0. **This document,** its open questions settled, the `diskdefs` file, and the GW-BASIC size spike.
 1. **Tooling:** the build, card images, the interoperability tests, the DS3231 in the emulator.
 2. **OOLDR and the BIOS:** common memory, the banking stub, the SD drives, the console, TIME.

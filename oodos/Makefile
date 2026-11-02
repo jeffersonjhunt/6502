@@ -10,7 +10,8 @@
 # 3 with the zero page at $00, page 4 with it at $02 and page 5 with it at
 # $05, and compared by mkprl.py. The CODE of the .COM and of the .PRL's
 # first link is checked against the 65C816 rules (tools/rules.py); a
-# violation fails the build, and so does any ld65 warning.
+# violation fails the build, and so does any ld65 warning. Each is rebuilt
+# when any include/*.inc changes, as it may include any of them.
 #
 # The utilities (hw/oodos.md, "The utilities, phase 4b") are every
 # utils/NAME.s there is, .COMs only, through the same gate; each includes
@@ -42,7 +43,7 @@ utils: $(UTIL_COMS) | $(BUILD)
 $(BUILD):
 	mkdir -p $@
 
-$(BUILD)/%.o: $(SRC)/%.s include/oodos.inc | $(BUILD)
+$(BUILD)/%.o: $(SRC)/%.s $(wildcard include/*.inc) | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
 
 $(UTILS:%=$(BUILD)/%.o): $(BUILD)/%.o: utils/%.s $(UTIL_INCS) | $(BUILD)
