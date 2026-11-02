@@ -28,6 +28,7 @@
 
 using namespace ooe::test;
 using namespace oodos_rig;
+using namespace oodos_rig::ccp;
 
 namespace
 {
