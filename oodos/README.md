@@ -191,7 +191,7 @@ SYS, as HELLO.COM, so the CCP finds them from any user by the search chain:
 
 | File | What |
 |---|---|
-| [`utils/dir.s`](utils/dir.s) | DIR.COM: CP/M 3's DIR with options: the built-in's short form sorted, over several drives; FULL, SIZE and DATE with totals; every option of the Guide's Table 5-5. `DRIVE=ALL` is the logged-in drives (below). 7,848 bytes. `test_oodos_utils_dir` |
+| [`utils/dir.s`](utils/dir.s) | DIR.COM: CP/M 3's DIR with options: the built-in's short form sorted, over several drives; FULL, SIZE and DATE with totals; every option of the Guide's Table 5-5. `DRIVE=ALL` is the logged-in drives (below). 7,868 bytes. `test_oodos_utils_dir` |
 | [`utils/type.s`](utils/type.s), [`utils/erase.s`](utils/erase.s), [`utils/rename.s`](utils/rename.s) | TYPE.COM, ERASE.COM, RENAME.COM: the forms the built-ins hand over (TYPE's `[PAGE]`/`[NOPAGE]` and wildcards, each file under its name; ERASE's `[CONFIRM]`; RENAME's wildcards, `NEW.TYP=OLD.TYP` for each) and the prompts when no file is given; the built-ins' own forms as they do them. 4,147, 4,091 and 4,452 bytes. `test_oodos_utils_files` |
 | [`utils/set.s`](utils/set.s) | SET.COM: a file's attributes (30), password and mode (103); a drive read-only (28) or read-write (37); the label (100: its name, password, protection and stamp modes); the default password (106). 6,766 bytes. `test_oodos_utils_set` |
 | [`utils/initdir.s`](utils/initdir.s) | INITDIR.COM: a directory given SFCBs, its entries in their places moved first, or the SFCBs taken away or their stamps cleared, through the BIOS (function 50); a re-format or recover a write error stopped finished the next time. 5,610 bytes. `test_oodos_utils_set` |

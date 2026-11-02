@@ -227,7 +227,7 @@ foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
 endforeach()
-set_tests_properties(test_oodos_utils_dir PROPERTIES TIMEOUT 3600) # its page and sheet sweep: some 60 listings more
+set_tests_properties(test_oodos_utils_dir PROPERTIES TIMEOUT 3600) # its page and sheet sweep (some 25 listings): ~1,460 s at load 2, more in a parallel run
 set(OODOS_SRC "${PROJECT_SOURCE_DIR}/../oodos")
 set(OODOS_SYS_SRC "${OODOS_SRC}/sys")
 set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")
