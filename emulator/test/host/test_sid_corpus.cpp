@@ -7,12 +7,14 @@
  * (gitignored: the tunes are their composers'; the owner's HVSC copy is
  * tens of thousands), is played: SID_COUNT of them (12; 0 for all), picked
  * by SID_SEED (printed, so a failure can be run again; random if unset).
- * A PSID with a play routine must be called first within a second, then
- * on time for two seconds from that call (VBI: 50 or 60 a second, less one
- * for the host's polling and at most two over; CIA: at least once). The
- * window starts there, not at the start, because init may run for frames
- * (some take eight) with interrupts held off, and those frames' interrupts
- * fold into one, as on a C64. Its 6510 must not jam, and it must be heard
+ * A PSID with a play routine must be called first within two frames of
+ * init's return (seen as the 6510 fetching the stub's instruction after
+ * its JSR to init, SidPlan::returned), then on time for two seconds from
+ * that call (VBI: 50 or 60 a second, less one for the host's polling and at
+ * most two over; CIA: at least once). Init's own length isn't the card's
+ * doing (some take over a second, as on a C64), and the window starts at
+ * the first call, not at the start, because the frames init spans with
+ * interrupts held off fold into one. Its 6510 must not jam, and it must be heard
  * within ten seconds (some open with seconds of silence): the card's audio,
  * in windows of 1,024 samples at 22,050 Hz, must swing by more than 0.01
  * RMS about its mean in five windows anywhere in the run, so a single click
@@ -101,26 +103,34 @@ namespace
         std::string error;
         bool jammed{false};
         unsigned frames{0}; ///< in the `on_time` clocks from the first
-        uint64_t from{0};   ///< the first frame, in clocks from the start (0: none)
+        uint64_t from{0};   ///< the first frame, in clocks from the start (0: none); printed only
+        int64_t late{-1};   ///< SID clocks from init's return to the first frame (0: it came first; -1: no frame)
         bool sounded{false};
         bool own_raster{false}; ///< it turned the VIC-II's raster interrupt on ($D01A bit 0) itself
         uint64_t irqs{0};       ///< interrupt entries: reads of the vector at $FFFE
         uint64_t clocks{0};     ///< how long it ran
     };
 
-    /// Watches the 6510: a write of bit 0 to $D01A with I/O in, and each IRQ vector pull.
+    /// Watches the 6510: a write of bit 0 to $D01A with I/O in, each IRQ
+    /// vector pull, and init's return: the opcode fetch at the address in the
+    /// stub that init's RTS lands on (SidPlan::returned).
     struct Watch : CycleObserver
     {
         const SoundCard &card;
+        const uint16_t returned_to;
         bool raster{false};
         uint64_t irqs{0};
-        explicit Watch(const SoundCard &c) : card(c) {}
+        bool returned{false};
+        uint64_t returned_at{0}; ///< in SID clocks
+        Watch(const SoundCard &c, uint16_t at) : card(c), returned_to(at) {}
         void on_cycle(const BusCycle &c) override
         {
             if (c.write && c.addr == 0xD01A && (c.data & 0x01) && card.io_visible())
                 raster = true;
             if (!c.write && c.vector_pull && c.addr == 0xFFFE)
                 ++irqs;
+            if (c.sync && c.addr == returned_to && !returned)
+                returned = true, returned_at = card.sid_clocks();
         }
     };
 
@@ -145,7 +155,7 @@ namespace
         SoundCard card;
         card.set_cpu_hz(f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ);
         card.set_audio_rate(RATE);
-        Watch watch(card);
+        Watch watch(card, plan->returned);
         card.set_cpu_observer(&watch);
         start_sid(card, *plan);
         bool first = false;
@@ -160,7 +170,11 @@ namespace
             {
                 card.read(SoundCard::MBIN);
                 if (!first)
+                {
                     first = true, r.from = t;
+                    const uint64_t now = card.sid_clocks();
+                    r.late = watch.returned ? static_cast<int64_t>(now - watch.returned_at) : 0;
+                }
                 r.frames += t < r.from + on_time ? 1 : 0;
             }
             r.jammed = card.cpu().state() == Cpu6502::State::Stopped;
@@ -198,8 +212,13 @@ namespace
     /// tune that has taken $FFFE, takes hundreds.
     constexpr uint64_t IRQS_A_FRAME = 8;
 
-    /// The rule. A PSID with a play routine must be called first within a
-    /// second, then on time for the window (a VBI song neither late nor
+    /// Frames the card may take, from init's return, to the first play call:
+    /// the frame (or CIA period) then pending, and play's own run.
+    constexpr uint64_t LATE_FRAMES = 2;
+
+    /// The rule. A PSID with a play routine must be called first within
+    /// LATE_FRAMES frames of init's return (however long init itself runs, as
+    /// on a C64), then on time for the window (a VBI song neither late nor
     /// more than twice over), and must sound; unless the stub never called
     /// it because it took the raster interrupt itself (like a play-0 tune,
     /// which needs more VIC-II than the card has) and its interrupts stayed
@@ -208,15 +227,16 @@ namespace
     {
         if (!r.error.empty() || r.jammed)
             return false;
-        const uint32_t hz = f.ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
+        const uint32_t frame = f.ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL;
         if (!f.play)
             return true;
         if (r.own_raster && r.frames == 0)
-            return r.irqs <= IRQS_A_FRAME * (r.clocks / (f.ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL) + 1);
+            return r.irqs <= IRQS_A_FRAME * (r.clocks / frame + 1);
         const bool cia = f.cia_timed(f.start_song);
         const unsigned rate = f.ntsc() ? 60 : 50;
         const unsigned want = cia ? 1 : 2 * rate - 1;
-        return r.frames >= want && (cia || r.frames <= 2 * rate + 2) && r.from <= hz && r.sounded;
+        const bool started = r.late >= 0 && static_cast<uint64_t>(r.late) <= LATE_FRAMES * frame;
+        return r.frames >= want && (cia || r.frames <= 2 * rate + 2) && started && r.sounded;
     }
 
     /// A PSID: load and init $1000, play $1000 + `play_at`, PAL.
@@ -236,8 +256,9 @@ namespace
     void run_rule(const char *what, const SidFile &f, bool want_pass)
     {
         const Result r = play(f, 2ull * SoundCard::PAL_HZ, 10ull * SoundCard::PAL_HZ);
-        std::printf("  %s: %u frames from %.2f s, %llu IRQs, %s, %s\n", what, r.frames,
-                    static_cast<double>(r.from) / SoundCard::PAL_HZ, static_cast<unsigned long long>(r.irqs),
+        std::printf("  %s: %u frames from %.2f s (%.2f frames after init), %llu IRQs, %s, %s\n", what, r.frames,
+                    static_cast<double>(r.from) / SoundCard::PAL_HZ, static_cast<double>(r.late) / SoundCard::FRAME_PAL,
+                    static_cast<unsigned long long>(r.irqs),
                     r.sounded ? "sounded" : "silent", passes(f, r) ? "passes" : "fails");
         CHECK_EQ(passes(f, r), want_pass);
     }
@@ -275,11 +296,14 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
     run_rule("an init of 8 frames",
              synthetic(SAW + std::vector<uint8_t>{0xA2, 0x7B, 0xA0, 0x00, 0x88, 0xD0, 0xFD, 0xCA, 0xD0, 0xF8, 0x60, 0x60}, 31),
              true);
-    // ...but not one that keeps the first call more than a second away (LDX #0 x 4: about 1.3 s).
+    // ...and so is one of 1.3 s (LDX #0 x 4), as such an init would be on a C64.
     run_rule("an init of 1.3 s",
              synthetic(SAW + std::vector<uint8_t>{0xA9, 0x04, 0x85, 0x40, 0xA2, 0x00, 0xA0, 0x00, 0x88, 0xD0, 0xFD, 0xCA,
                                                   0xD0, 0xF8, 0xC6, 0x40, 0xD0, 0xF2, 0x60, 0x60},
                        39),
+             true);
+    // A card that never starts the frames after init: here init turns FRAMEEN off ($DE04 = 0).
+    run_rule("no frame after init (FRAMEEN off)", synthetic(SAW + std::vector<uint8_t>{0xA9, 0x00, 0x8D, 0x04, 0xDE, 0x60, 0x60}, 26),
              false);
     // Twice a frame, as the host sees it: play also writes the mailbox and waits
     // 600 clocks for the host to take it. STA $DE00, LDX #120, DEX, BNE, RTS.
@@ -293,7 +317,17 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
                         0x0F, 0x10, 0x40, 0x60},
                        0x13),
              true);
-    // The same with CLI: the card's frame, which its handler can't acknowledge, storms.
+    // A tune that takes $FFFE, turns CIA 1's interrupt and the raster
+    // interrupt on, and returns: the stub turns the frame off, and the tune
+    // takes the CIA's interrupts (its handler acknowledges $DC0D), 50 a second.
+    // $D01A=1, $DC0D=$81, $FFFE -> $1018, RTS. $1018: LDA $DC0D, RTI. play $101C: RTS.
+    run_rule("its own raster interrupt, on the CIA's",
+             synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x81, 0x8D, 0x0D, 0xDC, 0xA9, 0x18, 0x8D, 0xFE, 0xFF, 0xA9,
+                        0x10, 0x8D, 0xFF, 0xFF, 0x60, 0xEA, 0xEA, 0xEA, 0xAD, 0x0D, 0xDC, 0x40, 0x60},
+                       0x1C),
+             true);
+    // With CLI inside an init that never returns, the stub can't turn the
+    // frame off: it storms the tune's handler, which can't acknowledge it.
     run_rule("its own raster interrupt, storming",
              synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x13, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x58, 0x4C,
                         0x10, 0x10, 0x40, 0x60},
@@ -316,6 +350,8 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
         return;
     }
     unsigned played = 0, ran = 0, basic = 0, raster = 0;
+    double latest_vbi = 0, latest_cia = 0; // frames from init's return to the first call
+    std::string latest_vbi_name, latest_cia_name;
     for (const std::string &name : sample(all))
     {
         std::ifstream in(FOLDER + "/" + name, std::ios::binary);
@@ -338,10 +374,18 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
         const Result r = play(*f, 2ull * hz, 10ull * hz);
         const bool ok = passes(*f, r);
         if (!ok)
-            std::printf("  %s: %s%s, %u frames from %.2f s, %llu IRQs, %s\n", name.c_str(), r.error.c_str(),
-                        r.jammed ? "jammed" : "", r.frames, static_cast<double>(r.from) / hz,
+            std::printf("  %s: %s%s, %u frames from %.2f s (%.2f frames after init), %llu IRQs, %s\n", name.c_str(),
+                        r.error.c_str(), r.jammed ? "jammed" : "", r.frames, static_cast<double>(r.from) / hz,
+                        static_cast<double>(r.late) / (f->ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL),
                         static_cast<unsigned long long>(r.irqs), r.sounded ? "sounded" : "silent");
         CHECK(ok);
+        if (f->play && r.late >= 0 && !(r.own_raster && r.frames == 0))
+        {
+            const double frames = static_cast<double>(r.late) / (f->ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL);
+            double &most = f->cia_timed(f->start_song) ? latest_cia : latest_vbi;
+            if (frames > most)
+                most = frames, (f->cia_timed(f->start_song) ? latest_cia_name : latest_vbi_name) = name;
+        }
         if (!f->play)
             ++ran;
         else if (r.own_raster && r.frames == 0)
@@ -351,6 +395,8 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
     }
     std::printf("  %u tunes played, %u run on their own interrupt, %u PSIDs on their own raster interrupt, %u skipped as BASIC programs\n",
                 played, ran, raster, basic);
+    std::printf("  the first call after init's return: VBI at most %.2f frames (%s), CIA %.2f (%s)\n", latest_vbi,
+                latest_vbi_name.c_str(), latest_cia, latest_cia_name.c_str());
 }
 
 int main() { return run_all(); }
