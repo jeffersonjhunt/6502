@@ -18,7 +18,8 @@ Checks, against the sources the books describe:
     there that is written now (or names nothing) fails, so the list shrinks;
   - entries follow their template's headings (docs/templates/), in order;
   - every anchor the indexes name exists; no anchor twice; every relative link
-    in docs/ and AGENTS.md resolves, to a file and to its anchor;
+    in docs/ and AGENTS.md, and every one in hw/*.md and README.md into docs/,
+    resolves, to a file and to its anchor;
   - a listing marked <!-- listing: path --> is that file, byte for byte, and
     a listed example under docs/examples has its expected output beside it;
     a marker that isn't one fails, and so does a code block under an entry's
@@ -464,22 +465,41 @@ class Check:
             return None
         return m.group(1)
 
+    def links_in(self, path, lines, code, into=None):
+        """Check a file's relative links (with into, only those to a file under it); how many."""
+        # Links, whose text may run over lines: code blocks and code spans blanked first
+        prose = "\n".join("" if code[n] else re.sub(r"`[^`]*`", "", line) for n, line in enumerate(lines, 1))
+        links = 0
+        for m in LINK.finditer(prose):
+            target = m.group(1) or m.group(2)
+            if re.match(r"^[a-z][a-z0-9+.-]*:", target):
+                continue  # http:, mailto:
+            if into:
+                file = target.partition("#")[0]
+                dest = os.path.normpath(os.path.join(os.path.dirname(path), file)) if file else path
+                if not dest.startswith(into + os.sep):
+                    continue
+            links += 1
+            self.link(path, prose.count("\n", 0, m.start()) + 1, target)
+        return links
+
     def links_and_listings(self, files):
         links = listings = 0
         examples = os.path.join(self.docs, "examples")
+        # The design record and the repository's README, for their links into the books only
+        hw = os.path.join(self.root, "hw")
+        others = [os.path.join(hw, f) for f in sorted(os.listdir(hw)) if f.endswith(".md")] if os.path.isdir(hw) else []
+        others += [p for p in (os.path.join(self.root, "README.md"),) if os.path.isfile(p)]
+        for path in others:
+            text = self.read(path)
+            links += self.links_in(path, text.splitlines(), {n: c for n, _, c in self.lines_outside_code(text)},
+                                   into=self.docs)
         for path in files:
             text = self.read(path)
             self.anchors(path)  # duplicates
             lines = text.splitlines()
             code = {n: c for n, _, c in self.lines_outside_code(text)}
-            # Links, whose text may run over lines: code blocks and code spans blanked first
-            prose = "\n".join("" if code[n] else re.sub(r"`[^`]*`", "", line) for n, line in enumerate(lines, 1))
-            for m in LINK.finditer(prose):
-                target = m.group(1) or m.group(2)
-                if re.match(r"^[a-z][a-z0-9+.-]*:", target):
-                    continue  # http:, mailto:
-                links += 1
-                self.link(path, prose.count("\n", 0, m.start()) + 1, target)
+            links += self.links_in(path, lines, code)
             example = False  # under an entry's #### Example, whose code must be a listing
             for n, line in enumerate(lines, 1):
                 if code[n]:

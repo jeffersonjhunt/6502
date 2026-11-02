@@ -3,10 +3,11 @@
 
     python3 -I -B docs/tools/test_check_docs.py
 
-Copies what the check reads (docs/, hw/, AGENTS.md, the two includes, the
-utilities' sources, ccp.s and the files the books link to) into a scratch directory, checks the copy as it is
-(it must pass), then breaks a fresh copy one way at a time and expects the
-check to fail, saying what it found. Python 3's standard library only.
+Copies what the check reads (docs/, hw/, AGENTS.md, README.md, the two
+includes, the utilities' sources, ccp.s and the files the books link to)
+into a scratch directory, checks the copy as it is (it must pass), then
+breaks a fresh copy one way at a time and expects the check to fail, saying
+what it found. Python 3's standard library only.
 """
 
 import os
@@ -85,7 +86,7 @@ def copy_tree(dest):
     ignore = shutil.ignore_patterns("build", "__pycache__")
     for d in ("docs", "hw", UTILS):
         shutil.copytree(os.path.join(REPO, d), os.path.join(dest, d), ignore=ignore)
-    for f in sorted({"AGENTS.md", INC, BP, CCP} | links_out(REPO)):
+    for f in sorted({"AGENTS.md", "README.md", INC, BP, CCP} | links_out(REPO)):
         src = os.path.join(REPO, f)
         if os.path.isdir(src):
             os.makedirs(os.path.join(dest, f), exist_ok=True)  # a link to a directory: it need only exist
@@ -205,6 +206,12 @@ CASES = [
     ("a link to a heading of hw/ that isn't there",
      lambda r: append(r, "docs/oodos-users-guide/06-errors.md", "\nSee [it](../../hw/oodos.md#no-such-heading).\n"),
      "no anchor no-such-heading in hw/oodos.md"),
+    ("a link from hw/ into docs/ to a file that isn't there",
+     lambda r: append(r, "hw/oodos.md", "\nSee [nothing](../docs/no-such-file.md).\n"),
+     "link to ../docs/no-such-file.md: no docs/no-such-file.md"),
+    ("a link from README.md into docs/ to an anchor that isn't there",
+     lambda r: edit(r, "README.md", "](docs/README.md)", "](docs/README.md#no-such-heading)"),
+     "no anchor no-such-heading in docs/README.md"),
     ("a listing that isn't its file",
      lambda r: edit(r, "docs/examples/writestr.s", "; the function in Y", "; Y: the function"),
      "listing of ../examples/writestr.s differs from the file at its line 11"),

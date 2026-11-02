@@ -130,8 +130,9 @@ make -C docs index      # regenerate index/*.json
   name) and every command planned with no source yet (`PLANNED` in check_docs.py: PIP, SUBMIT, GET, PUT) has an
   entry;
 - entries follow their template's headings, in order, with a known status;
-- every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md
-  resolves, to its file and its anchor;
+- every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md,
+  and every one in hw/*.md and README.md into docs/, resolves, to its file and its anchor (reference-style links
+  aren't read);
 - listings are their files, listed examples are tested, and an entry's Example is a listing; an example's name
   is 8 characters at most and isn't a utility's;
 - every Technical Reference section has a status tag;
