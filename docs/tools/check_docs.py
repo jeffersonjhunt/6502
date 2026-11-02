@@ -19,6 +19,7 @@ Checks, against the sources the books describe:
     in docs/ and AGENTS.md resolves, to a file and to its anchor;
   - a listing marked <!-- listing: path --> is that file, byte for byte, and
     a listed example under docs/examples has its expected output beside it;
+    no example has a utility's name (oodos/Makefile would build the utility);
   - every section of the Technical Reference carries a status tag;
   - docs/index/*.json are what the entries generate.
 
@@ -122,6 +123,11 @@ class Check:
             total += -v if sign == "-" else v
         stripped = re.sub(rf"[+\-\s]|{term_re}", "", expr)
         return None if stripped else total
+
+    def utilities(self):
+        """The transient utilities: each oodos/utils/NAME.s's NAME, sorted."""
+        path = os.path.join(self.root, "oodos", "utils")
+        return sorted(f[:-2] for f in os.listdir(path) if f.endswith(".s")) if os.path.isdir(path) else []
 
     # ---- the books --------------------------------------------------------------------------
 
@@ -251,6 +257,7 @@ class Check:
         addrs = {}
         for name, a in regs.items():
             addrs.setdefault(a, []).append(name)
+        self.utils = self.utilities()
         templates = self.templates()
         files = self.md_files()
         self.counts.update(functions=len(fns), equates=len(regs), addresses=len(addrs), files=len(files))
@@ -437,8 +444,14 @@ class Check:
                     listings += 1
                     self.listing(path, n, lines, m, examples)
         for name in sorted(os.listdir(examples)) if os.path.isdir(examples) else []:
-            if name.endswith(".s") and not os.path.exists(os.path.join(examples, name[:-2] + ".out")):
+            if not name.endswith(".s"):
+                continue
+            if not os.path.exists(os.path.join(examples, name[:-2] + ".out")):
                 self.fail(f"docs/examples/{name}", "no expected output beside it (.out): it isn't tested")
+            if name[:-2] in self.utils:
+                self.fail(f"docs/examples/{name}", f"{name[:-2]} is a utility's name: oodos/Makefile builds "
+                                                   f"oodos/utils/{name} for it, so the book would show this file "
+                                                   f"and the test run that one")
         self.counts.update(links=links, listings=listings)
         if links == 0:
             self.fail("check_docs", "examined no links")

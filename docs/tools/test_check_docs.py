@@ -3,8 +3,8 @@
 
     python3 -I -B docs/tools/test_check_docs.py
 
-Copies what the check reads (docs/, hw/, AGENTS.md, the two includes and the
-files the books link to) into a scratch directory, checks the copy as it is
+Copies what the check reads (docs/, hw/, AGENTS.md, the two includes, the
+utilities' sources and the files the books link to) into a scratch directory, checks the copy as it is
 (it must pass), then breaks a fresh copy one way at a time and expects the
 check to fail, saying what it found. Python 3's standard library only.
 """
@@ -24,6 +24,7 @@ TR12 = "docs/oo1-technical-reference/12-front-panel.md"
 INC = "oodos/include/oodos.inc"
 BP = "backplane/bios/backplane.inc"
 UNWRITTEN = "docs/tools/unwritten.txt"
+UTILS = "oodos/utils"
 
 # A register entry as the template has it, for $C77F.
 CONSOLE_ID = """
@@ -81,7 +82,7 @@ def targets(root, path):
 
 def copy_tree(dest):
     ignore = shutil.ignore_patterns("build", "__pycache__")
-    for d in ("docs", "hw"):
+    for d in ("docs", "hw", UTILS):
         shutil.copytree(os.path.join(REPO, d), os.path.join(dest, d), ignore=ignore)
     for f in sorted({"AGENTS.md", INC, BP} | links_out(REPO)):
         src = os.path.join(REPO, f)
@@ -110,6 +111,11 @@ def edit(root, rel, old, new, count=1):
 
 def append(root, rel, text):
     with open(os.path.join(root, rel), "a", encoding="utf-8") as f:
+        f.write(text)
+
+
+def write(root, rel, text):
+    with open(os.path.join(root, rel), "w", encoding="utf-8") as f:
         f.write(text)
 
 
@@ -198,6 +204,9 @@ CASES = [
     ("a listed example with no expected output",
      lambda r: os.remove(os.path.join(r, "docs/examples/writestr.out")),
      "an example with no expected output isn't tested"),
+    ("an example with a utility's name",
+     lambda r: (write(r, "docs/examples/date.s", "; not DATE.COM\n"), write(r, "docs/examples/date.out", "")),
+     "date is a utility's name"),
     ("a Technical Reference section with no status tag",
      lambda r: append(r, "docs/oo1-technical-reference/14-emulator-notes.md", "\n## Untagged\n\nText.\n"),
      "section 'Untagged' doesn't start with 'Status:"),

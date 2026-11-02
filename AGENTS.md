@@ -41,7 +41,9 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
 - **Link configs:** [`oodos/cfg/com.cfg`](oodos/cfg/com.cfg) for a `.COM`, [`oodos/cfg/prl.cfg`](oodos/cfg/prl.cfg)
   for a `.PRL`.
 - **Build** with oodos's Makefile, which runs the rules gate and fails on any ld65 warning:
-  `make -C oodos SRC=$PWD/myprog PROGRAMS=name BUILD=$PWD/build`. [docs/examples/](docs/examples/) does the same for
+  `make -C oodos SRC=$PWD/myprog PROGRAMS=name BUILD=$PWD/build $PWD/build/name.com`. Name the target: without it,
+  make builds `all`, which is every utility and a `.PRL` too. Don't give a program a utility's name (one of
+  `oodos/utils/*.s`): the Makefile builds the utility instead. [docs/examples/](docs/examples/) does the same for
   the books' examples ([its Makefile](docs/examples/Makefile)).
 - **Test** on the emulator with the rig in
   [`emulator/test/host/oodos_rig.h`](emulator/test/host/oodos_rig.h): `CcpRig` boots OODOS.SYS, `put_m()` puts a
