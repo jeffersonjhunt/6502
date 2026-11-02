@@ -333,6 +333,15 @@
   "status": null
  },
  {
+  "equate": "VIDEO_SPLASH",
+  "address": "$C489",
+  "module": "9",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
   "equate": "VIDEO_L0",
   "address": "$C490",
   "module": "9",
@@ -443,6 +452,24 @@
  {
   "equate": "SOUND_IEN",
   "address": "$C542",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_RAMADDR",
+  "address": "$C543",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_RAMDATA",
+  "address": "$C545",
   "module": "A",
   "documented": false,
   "anchor": null,
