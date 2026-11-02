@@ -4,10 +4,9 @@
 ; Endeavors logo and the VINTAGE FAST stamp, built from the card's own ROM in
 ; 5 s, after which the card goes back to its layers by itself. If the sound
 ; card answers too, start the splash's sound with it: load splash/bootsnd.bin
-; into the card at
-; $1000, point the card's reset vector at its boot entry, and start the
-; card's 6510 at the vertical blank where the splash starts, so the tune's
-; frame n plays with the picture's frame n.
+; into the card at $1000, point the card's reset vector at its boot entry,
+; and start the card's 6510 at the vertical blank where the splash starts,
+; so the tune's frame n plays with the picture's frame n.
 ;
 ; The BIOS doesn't wait for either. The monitor is up behind the splash (the
 ; serial line has it at once, the screen when the splash ends), and the tune
