@@ -1,26 +1,21 @@
 import { describe, expect, test } from "vitest";
-import { machineScreen, ScreenFollow, textScreen } from "./screen";
+import { machineScreen, ScreenFollow } from "./screen";
 
-const BIOS = { ctrl: 0x03, layer0: 0x80, map0: 8 };
+const BIOS = { ctrl: 0x03, splash: 0 };
 
 describe("what the machine asks the monitor for", () => {
-  test("the BIOS's text screen is the terminal's; a program's picture is the display's", () => {
-    expect(textScreen(BIOS)).toBe(true);
-    expect(machineScreen({ apple: false, videoCard: BIOS })).toBe("terminal");
-    expect(machineScreen({ apple: false, videoCard: null })).toBe("terminal"); // no card, or power off
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, ctrl: 0 } })).toBe("terminal"); // display off
-    expect(machineScreen({ apple: false, videoCard: { ctrl: 0x0f, layer0: 0x22, map0: 20 } })).toBe("display"); // C803R's demo
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, ctrl: 0x07 } })).toBe("display"); // a second layer over the text
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, ctrl: 0x0b } })).toBe("display"); // sprites over it
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x02 } })).toBe("display"); // tiles
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x05 } })).toBe("display"); // a bitmap
-    expect(machineScreen({ apple: true, videoCard: { ...BIOS, ctrl: 0 } })).toBe("display"); // Apple II mode
+  test("anything on the video card is the display's, as a real monitor shows it", () => {
+    expect(machineScreen({ apple: false, videoCard: { ctrl: 0, splash: 1 } })).toBe("display"); // the boot splash, before VINIT
+    expect(machineScreen({ apple: false, videoCard: { ...BIOS, splash: 1 } })).toBe("display"); // the splash over the BIOS's screen
+    expect(machineScreen({ apple: false, videoCard: BIOS })).toBe("display"); // the BIOS's screen after it
+    expect(machineScreen({ apple: false, videoCard: { ctrl: 0x0f, splash: 0 } })).toBe("display"); // C803R's demo
+    expect(machineScreen({ apple: true, videoCard: { ctrl: 0, splash: 0 } })).toBe("display"); // Apple II mode
   });
 
-  test("a BIOS of the owner's with its own text setup: still the terminal's", () => {
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x01 } })).toBe("terminal"); // 40 columns
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, map0: 16 } })).toBe("terminal"); // its text elsewhere
-    expect(machineScreen({ apple: false, videoCard: { ...BIOS, layer0: 0x00 } })).toBe("terminal"); // no blink
+  test("the terminal's with no video card, power off, or the card's display off", () => {
+    expect(machineScreen({ apple: false, videoCard: null })).toBe("terminal");
+    expect(machineScreen({ apple: false, videoCard: { ctrl: 0, splash: 0 } })).toBe("terminal");
+    expect(machineScreen({ apple: false, videoCard: { ctrl: 0x02, splash: 0 } })).toBe("terminal"); // a layer on, the display off
   });
 });
 
@@ -50,9 +45,12 @@ describe("following the machine", () => {
     expect(s.screen).toBe("terminal");
   });
 
-  test("a screen kept from last time holds while the machine boots to the BIOS", () => {
-    const s = new ScreenFollow("display");
-    expect(s.machine("terminal")).toBe(false);
+  test("a terminal kept from last time gives way to the splash at power-on, and Display stays", () => {
+    const s = new ScreenFollow("terminal");
+    expect(s.machine("terminal")).toBe(false); // power on: the card not set up yet
+    expect(s.machine("display")).toBe(true); // the splash
+    expect(s.screen).toBe("display");
+    expect(s.machine("display")).toBe(false); // the BIOS's screen after it: no change
     expect(s.screen).toBe("display");
   });
 

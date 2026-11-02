@@ -236,14 +236,12 @@ export interface TraceRow {
 }
 
 /**
- * What the video card is set to show (hw/design.md, "Video registers"):
- * CTRL, and layer 0's CONFIG and MAPBASE. Enough to tell the BIOS's own
- * text screen (layer 0 alone, text 80x30 at its map) from a program's.
+ * Whether the video card shows anything (hw/design.md, "Video registers"):
+ * CTRL, and SPLASH, the boot splash its own ROM puts up whatever CTRL says.
  */
 export interface VideoRegs {
   ctrl: number;
-  layer0: number;
-  map0: number;
+  splash: number;
 }
 
 /** The video card's last finished frame: VGA 640x480, R G B A per pixel, row by row. */

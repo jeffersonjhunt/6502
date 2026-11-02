@@ -651,15 +651,16 @@ describe("WasmPort", () => {
     expect(m.step().soundRunning).toBe(false); // a power cycle: gone
   });
 
-  test("the video card's registers in every frame: the BIOS's text screen, then the demo's own picture", async () => {
+  test("the video card's registers in every frame: the splash, the BIOS's text screen, then the demo's picture", async () => {
     const m = await open();
     expect(m.until(GREETING)).toBe(true);
-    expect(m.step().videoCard).toEqual({ ctrl: 0x03, layer0: 0x80, map0: 8 }); // VINIT: layer 0, text 80x30 at unit 8
+    expect(m.step().videoCard).toEqual({ ctrl: 0x03, splash: 0x01 }); // VINIT's layer 0, under the splash
+    await m.pastSplash();
+    expect(m.step().videoCard).toEqual({ ctrl: 0x03, splash: 0x00 });
     m.port.sendSerial(ascii("C803R\r"));
     let f = m.step();
     for (let i = 0; i < 120 && f.videoCard?.ctrl !== 0x0f; ++i) f = m.step();
     expect(f.videoCard?.ctrl).toBe(0x0f); // display, both layers, sprites
-    expect(f.videoCard!.layer0 & 7).toBe(2); // tiles
     m.port.setPower(false);
     expect(m.step().videoCard).toBeNull();
   });

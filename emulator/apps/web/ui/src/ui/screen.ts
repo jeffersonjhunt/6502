@@ -3,38 +3,29 @@
  * machine. Terminal is the serial line (the Text scene); Display is the
  * video card (the VGA scene, or the Apple II scene in Apple II mode).
  *
- * The machine asks for Display when it is in Apple II mode, or when the
- * video card shows a picture of a program's own. A text screen on the
- * card (layer 0 alone, in a text mode) is the BIOS's serial session
- * mirrored, whoever's BIOS set it up and however, so it counts as
- * Terminal's, as does the card's display off. ScreenFollow switches when what the machine asks
- * for changes, and only then: a choice made by hand holds until it does.
- * Only that choice is remembered for next time, and only until the machine
- * next switches: a visit starts on the user's pick, or the terminal the
- * machine boots to, never on a switch the machine made last time.
+ * The machine asks for Display whenever the video card shows anything: its
+ * boot splash at power-on, then the BIOS's screen, a program's picture, or
+ * Apple II mode. So it boots to Display, as a real OO-1 does to its monitor,
+ * and stays there. It asks for Terminal with no video card, or with the
+ * card's display off. ScreenFollow switches when what the machine asks for
+ * changes, and only then: a choice made by hand holds until it does. Only
+ * that choice is remembered for next time, and only until the machine next
+ * switches; the splash at power-on is such a switch, so every visit starts
+ * on Display.
  */
 
-import type { FrameState, VideoRegs } from "../port/machine-port";
+import type { FrameState } from "../port/machine-port";
 
 export type Screen = "terminal" | "display";
 
 const DISPLAY = 0x01; // CTRL: the display on
-const LAYERS = 0x0e; // CTRL: layer 0, layer 1, sprites
-const LAYER0_ONLY = 0x02;
-const TYPE = 0x07; // CONFIG: the layer's type
-const TEXT_40 = 1; // text 80x30 is 0, 40x30 is 1; tiles and bitmaps above
-
-/** The video card shows a text screen on layer 0, and nothing else: a BIOS's, any BIOS's. */
-export function textScreen(v: VideoRegs): boolean {
-  return (v.ctrl & DISPLAY) !== 0 && (v.ctrl & LAYERS) === LAYER0_ONLY && (v.layer0 & TYPE) <= TEXT_40;
-}
+const PLAYING = 0x01; // SPLASH: the splash covers the screen
 
 /** The screen the machine asks for in this frame. */
 export function machineScreen(f: Pick<FrameState, "apple" | "videoCard">): Screen {
   if (f.apple) return "display";
   const v = f.videoCard;
-  if (!v || !(v.ctrl & DISPLAY) || textScreen(v)) return "terminal";
-  return "display";
+  return v && (v.ctrl & DISPLAY || v.splash & PLAYING) ? "display" : "terminal";
 }
 
 /** Where the user's pick is remembered (prefs). */
