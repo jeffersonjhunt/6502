@@ -21,6 +21,8 @@ Checks, against the sources the books describe:
     in docs/ and AGENTS.md resolves, to a file and to its anchor;
   - a listing marked <!-- listing: path --> is that file, byte for byte, and
     a listed example under docs/examples has its expected output beside it;
+    a marker that isn't one fails, and so does a code block under an entry's
+    #### Example with no marker before it;
     no example has a utility's name (oodos/Makefile would build the utility);
   - every section of the Technical Reference carries a status tag;
   - docs/index/*.json are what the entries generate.
@@ -50,6 +52,7 @@ ENTRY_ID = re.compile(r"^(bdos-\d+|reg-[0-9a-f]{4}|util-[a-z0-9]+)$")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|!\[[^\]]*\]\(([^)\s]+)\)")
 LISTING = re.compile(r"^<!--\s*listing:\s*(\S+?)(?::(\d+)-(\d+))?\s*-->\s*$")
+LISTING_ANY = re.compile(r"^\s*<!--\s*listing")
 STATUS_LINE = re.compile(r"^Status: \*\*(\w+)\*\*")
 FN_HEAD = re.compile(r"^### (\d+) ([A-Z][A-Z0-9_]*): \S.*$")
 REG_HEAD = re.compile(r"^### \$([0-9A-F]{4}) ([A-Z][A-Z0-9_]*): \S.*$")
@@ -476,13 +479,25 @@ class Check:
                     continue  # http:, mailto:
                 links += 1
                 self.link(path, prose.count("\n", 0, m.start()) + 1, target)
+            example = False  # under an entry's #### Example, whose code must be a listing
             for n, line in enumerate(lines, 1):
                 if code[n]:
+                    if example and not code.get(n - 1):
+                        before = next((l for l in reversed(lines[:n - 1]) if l.strip()), "")
+                        if not LISTING.match(before):
+                            self.fail(f"{self.rel(path)}:{n}", "a code block under #### Example with no listing "
+                                                               "marker: show a file in docs/examples, so it's tested")
                     continue
+                h = HEADING.match(line)
+                if h:
+                    example = h.group(1) == "####" and h.group(2) == "Example"
                 m = LISTING.match(line)
                 if m:
                     listings += 1
                     self.listing(path, n, lines, m, examples)
+                elif LISTING_ANY.match(line):
+                    self.fail(f"{self.rel(path)}:{n}", "a listing marker that isn't '<!-- listing: path -->' or "
+                                                       "'<!-- listing: path:A-B -->'")
         for name in sorted(os.listdir(examples)) if os.path.isdir(examples) else []:
             if not name.endswith(".s"):
                 continue
@@ -495,6 +510,8 @@ class Check:
         self.counts.update(links=links, listings=listings)
         if links == 0:
             self.fail("check_docs", "examined no links")
+        if listings == 0:
+            self.fail("check_docs", "examined no listings")
 
     def link(self, path, n, target):
         where = f"{self.rel(path)}:{n}"

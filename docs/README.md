@@ -102,8 +102,9 @@ A book shows a file with a listing marker, then a fenced block:
 ```
 ````
 
-`<!-- listing: path:10-20 -->` shows lines 10-20 only. The check fails a listing that differs from its file, and a
-listed example without a `.out`, so a book can't show code that isn't tested.
+`<!-- listing: path:10-20 -->` shows lines 10-20 only. The check fails a listing that differs from its file, a
+listed example without a `.out`, a marker that isn't one of these two, and a code block under an entry's
+`#### Example` with no marker before it, so a book can't show code that isn't tested.
 
 ## Checking the books
 
@@ -125,13 +126,13 @@ make -C docs index      # regenerate index/*.json
 - entries follow their template's headings, in order, with a known status;
 - every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md
   resolves, to its file and its anchor;
-- listings are their files, and listed examples are tested;
+- listings are their files, listed examples are tested, and an entry's Example is a listing;
 - every Technical Reference section has a status tag;
 - the indexes are what the entries generate.
 
 It prints how many function numbers, equates, utilities, built-ins, files, entries, links and listings it
-examined, and fails if it found no function numbers, equates, utilities, built-ins, Markdown files, links or
-entries: a check that examined nothing hasn't passed.
+examined, and fails if it found no function numbers, equates, utilities, built-ins, Markdown files, links,
+listings or entries: a check that examined nothing hasn't passed.
 
 **What isn't written yet** is listed in [tools/unwritten.txt](tools/unwritten.txt), one anchor a line. A missing
 entry fails the check unless it's listed there; a listed one that has been written, or that names nothing in the
