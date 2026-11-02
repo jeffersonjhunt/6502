@@ -94,8 +94,10 @@ isn't what the entries generate. Kept by hand, an index would be a third copy to
 
 [examples/](examples/) holds every program a book shows. Each `NAME.s` is an OODOS `.COM`, built by
 [examples/Makefile](examples/Makefile) through oodos's own rules (`oodos.inc`, `cfg/com.cfg`, the 65C816 rules
-gate). `NAME.out` beside it is what it prints when typed at the CCP. `test_docs_examples`, in the emulator's
-native tests, puts each one on `M:`, runs it from the prompt and compares what it prints with its `.out`.
+gate). `NAME` is 8 characters at most, as it goes on `M:` as `NAME.COM`, and isn't a utility's, which
+oodos/Makefile would build instead. `NAME.out` beside it is what it prints when typed at the CCP.
+`test_docs_examples`, in the emulator's native tests, puts each one on `M:`, runs it from the prompt and compares
+what it prints with its `.out`.
 
 A book shows a file with a listing marker, then a fenced block:
 
@@ -130,7 +132,8 @@ make -C docs index      # regenerate index/*.json
 - entries follow their template's headings, in order, with a known status;
 - every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md
   resolves, to its file and its anchor;
-- listings are their files, listed examples are tested, and an entry's Example is a listing;
+- listings are their files, listed examples are tested, and an entry's Example is a listing; an example's name
+  is 8 characters at most and isn't a utility's;
 - every Technical Reference section has a status tag;
 - the indexes are what the entries generate.
 

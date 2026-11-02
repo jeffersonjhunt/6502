@@ -46,10 +46,10 @@ namespace
         return out;
     }
 
-    /// NAME as M:'s directory has it: 8 + 3, blank-padded, capitals.
+    /// NAME (8 characters at most: the test requires it) as M:'s directory has it: 8 + 3, blank-padded, capitals.
     std::string name83(const std::string &name)
     {
-        std::string n = name.substr(0, 8);
+        std::string n = name;
         std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         n.resize(8, ' ');
         return n + "COM";
@@ -75,6 +75,16 @@ TEST(each_example_prints_what_its_out_file_says)
     const std::vector<std::string> names = examples();
     std::printf("  %zu examples in %s\n", names.size(), SRC.c_str());
     REQUIRE(!names.empty()); // none examined is a failure, not a pass
+    std::vector<std::string> on_m;
+    for (const std::string &n : names)
+    {
+        if (n.size() > 8)
+            std::printf("  %s: longer than M:'s 8.3 names hold\n", n.c_str());
+        REQUIRE(n.size() <= 8);
+        on_m.push_back(name83(n));
+    }
+    std::sort(on_m.begin(), on_m.end());
+    REQUIRE(std::adjacent_find(on_m.begin(), on_m.end()) == on_m.end()); // two examples, one name on M:
     CcpRig r;
     REQUIRE(r.ok);
     std::vector<MFile> files;

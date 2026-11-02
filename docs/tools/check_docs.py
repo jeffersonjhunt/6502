@@ -23,7 +23,8 @@ Checks, against the sources the books describe:
     a listed example under docs/examples has its expected output beside it;
     a marker that isn't one fails, and so does a code block under an entry's
     #### Example with no marker before it;
-    no example has a utility's name (oodos/Makefile would build the utility);
+    no example has a utility's name (oodos/Makefile would build the utility)
+    or a name longer than 8 characters;
   - every section of the Technical Reference carries a status tag;
   - docs/index/*.json are what the entries generate.
 
@@ -503,6 +504,9 @@ class Check:
                 continue
             if not os.path.exists(os.path.join(examples, name[:-2] + ".out")):
                 self.fail(f"docs/examples/{name}", "no expected output beside it (.out): it isn't tested")
+            if len(name[:-2]) > 8:
+                self.fail(f"docs/examples/{name}", "a name longer than 8 characters: the test puts it on M:, "
+                                                   "whose names are 8.3")
             if name[:-2] in self.utils:
                 self.fail(f"docs/examples/{name}", f"{name[:-2]} is a utility's name: oodos/Makefile builds "
                                                    f"oodos/utils/{name} for it, so the book would show this file "
