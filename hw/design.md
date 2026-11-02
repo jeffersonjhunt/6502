@@ -757,9 +757,11 @@ it commands.
   |---|---|
   | `$0000–$FFFF` | 64 KB RAM |
   | `$0001` | the 6510 port, for tunes that bank I/O out of the way |
+  | `$D011`/`$D012` | with FRAMEEN bit 1 (below), the VIC-II's raster line, read only, from the card's frame: `$D012` its low 8 bits, `$D011` bit 7 its ninth; 312 lines of 63 SID clocks PAL, 263 of 65 NTSC. `$FF` without |
   | `$D400` | SID A |
   | `$D420` or `$D500` | SID B (CTRL bit 3) |
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
+  | `$DE03`/`$DE04` | FRAME and FRAMEEN: the card's frame interrupt, for the host's player stub, and the raster line's switch (below) |
   | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status (bit 0: a byte from the host is waiting; bit 1: the card's last byte hasn't been taken) |
   | `$DE02` | STOP *(proposed 2026-10-31)*: any write clears CTRL RUN, so a one-shot such as the [boot splash's sound](#the-splashs-sound) hands the SIDs back when it's done |
 
@@ -791,6 +793,14 @@ it commands.
 - **The mailbox** is one byte each way. A second MBOUT before the card has taken the first replaces it, and the
   same for the card's byte; STATUS says when a box is full.
 - **RAMDATA** is always ready, so DRQ stays asserted; `backplane.machine` wires it to DMA channel 2.
+- **The frame.** The card counts a C64's frame, 19,656 SID clocks PAL or 17,095 NTSC, while RUN is set, from
+  the 6510's reset.
+  Its interrupt is the card's own, for the host's player stub, at addresses the C64 leaves free so a tune can't
+  turn it on by accident: `$DE03` FRAME (bit 0 latches at each frame's start and a 1 written there clears it;
+  bit 7 reads 1 while it pulls /IRQ; the other bits read 0) and `$DE04` FRAMEEN (bit 0 lets it interrupt;
+  bit 1 shows the raster line at `$D011`/`$D012`). The host's stub sets bit 1 for a PSID and not for an RSID:
+  an RSID expects a whole C64, and one let past a raster wait can go on to CIA 2 or timer B and jam.
+  /RESET and CTRL RESET turn it off and start the frame over.
 - **/RESET** stops the card's 6510 (CTRL is cleared), pulls the SIDs' /RES, and empties the mailbox. The card's
   RAM keeps its contents.
 
@@ -809,8 +819,11 @@ tune; the WebUI's tune bar then says the machine stopped it.
 
 - **The stub** goes on a free page: the one the header names (not `$00` or `$01`, the port and the stack), else `$FF00`, `$FE00`, `$0400`, `$C000`
   or `$0200`, the first the tune leaves alone and that misses `$0314` when the stub sets it. It sets `$00`/`$01` to `$2F`/`$37`, programs CIA 1's
-  timer A (19,656 clocks for a PAL frame, 17,095 for NTSC; the KERNAL's `$4025`/`$4295` for a CIA
-  song or an RSID) with its interrupt on, banks `$01` for init's address, calls init with the song less one in
+  timer A (the KERNAL's `$4025`/`$4295` for a CIA song or an RSID, with its interrupt on; a frame,
+  with it off, for a VBI song, whose play comes from the card's frame interrupt at `$DE03` instead, so init
+  retiming the CIA doesn't change its rate; the handler plays only on a frame and acknowledges any
+  other interrupt at `$DC0D`, and the interrupt entry sends a frame to it even past a `$0314` that init
+  has repointed), banks `$01` for init's address, calls init with the song less one in
   A, and waits in a `JMP` loop.
 - **`$01` for a routine** follows PSID players: `$37` below `$A000`, `$36` below `$D000`, `$34` in
   `$D000-$DFFF`, `$35` above. On the card only `$34` differs (there are no ROMs), so I/O comes back
@@ -818,7 +831,11 @@ tune; the WebUI's tune bar then says the machine stopped it.
 - **The KERNAL's interrupt path** is imitated: `$FFFE` pushes A, X and Y and jumps through `$0314`,
   and `$EA31`, `$EA7E`, `$EA81` and `$FEBC` acknowledge the CIA and return, wherever the tune
   leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run. A tune with
-  a play routine that loads over `$0314` goes straight to the stub's handler instead.
+  a play routine that loads over `$0314` goes straight to the stub's handler instead. For a VBI song,
+  whose frame interrupt only the stub can acknowledge, a frame reaches the stub's handler even past a
+  repointed `$0314`. A tune's own `$FFFE` entry that passes on to `$0314`, KERNAL-style, reaches the
+  stub's handler and plays; one whose handler never passes on to `$0314` nor clears `$DE03` is
+  stormed by the pending frame, a limit of the card (the corpus test's storming case stands for it).
 - **A sync point:** after each play call the stub writes the call's number (mod 256) to the
   mailbox, so the host can count frames.
 - **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3

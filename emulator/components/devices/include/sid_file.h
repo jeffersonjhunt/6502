@@ -23,13 +23,30 @@
  *
  * - $01 banked for the routine's address ($37 below $A000, $36 below $D000,
  *   $34 inside $D000-$DFFF, $35 above), the stack at $FF, decimal clear;
- * - CIA 1's timer A running with its interrupt on: every 19,656 clocks (PAL)
- *   or 17,095 (NTSC), a C64's frame, for a VBI song; the KERNAL's own $4025
+ * - CIA 1's timer A running: with its interrupt on at the KERNAL's own $4025
  *   or $4295 for a CIA song or an RSID (which expects the C64 as the KERNAL
- *   leaves it), which init may reprogram;
+ *   leaves it), which init may reprogram; for a VBI song with a play routine,
+ *   at a frame (19,656 clocks PAL, 17,095 NTSC) with its interrupt off, and
+ *   the card's frame interrupt ($DE03/$DE04, sound_card.h) on instead, as a
+ *   PSID player uses the VIC-II's raster interrupt: so a VBI song plays once
+ *   a frame whatever init does to the CIA. The stub's handler plays only when
+ *   $DE03 says a frame came, clearing it; any other interrupt (the CIA's,
+ *   if init turned it on) it acknowledges by reading $DC0D and leaves. A
+ *   frame goes to the handler even when init has pointed $0314 at a handler
+ *   of its own, which knows only the C64's interrupts and would leave the
+ *   frame's set (an interrupt storm); the rest still go through $0314. A
+ *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
+ *   not on the card. A tune that points $FFFE at an entry of its own (code
+ *   under the KERNAL often does) still plays if that entry passes on to
+ *   $0314, as the KERNAL's does, since $0314 is the stub's handler. One
+ *   whose own handler, from init or play, never passes on to $0314 nor
+ *   clears $DE03 is a limit of the card: the frame stays pending and storms
+ *   it (the corpus test's storming case fails on it);
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
- *   then JMP ($0314); straight to the stub's handler for a tune with a
- *   play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
+ *   then JMP ($0314); for a VBI song, a check of $DE03 first, with $01
+ *   saved and I/O banked in, that takes a frame to the stub's handler, 26
+ *   cycles before any other interrupt reaches $0314; straight to the
+ *   stub's handler for a tune with a play routine that loads over $0314), and the KERNAL's exits at $EA31, $EA7E, $EA81 and
  *   $FEBC, for tunes that install their own interrupt at $0314 and leave
  *   through them;
  * - init called with the song (0-based) in A; then, if the tune has a play
@@ -37,8 +54,10 @@
  *   frame's number to the mailbox, a sync point for the host.
  *
  * A tune with play = 0 (RSID, or a PSID that installs its own interrupt)
- * runs from init on its own. The card has no VIC-II, CIA 2 or ROMs: a tune
- * that needs the raster interrupt, CIA 2's NMIs, BASIC or KERNAL calls
+ * runs from init on its own. The card has no VIC-II (only its raster line,
+ * to read, which the stub shows a PSID and not an RSID: FRAMEEN bit 1 in
+ * sound_card.h), CIA 2 or ROMs: a tune that needs the raster interrupt, CIA 2's
+ * NMIs, BASIC or KERNAL calls
  * beyond those exits runs but stays silent or stops. A third SID is beyond
  * the card; a second one plays only at $D420 or $D500.
  */
@@ -108,6 +127,7 @@ namespace ooe::emu
         Sid::Model model{Sid::Model::Mos6581}; ///< the chips' jumper, as the tune wants
         uint16_t stub{0};          ///< where the stub sits
         uint16_t frame{0};         ///< the stub's frame counter, written to the mailbox after each play
+        uint16_t returned{0};      ///< where init returns to in the stub: the 6510 fetching it means init is done
         std::vector<std::string> warnings; ///< what about the tune the card can't give it
     };
 
@@ -121,4 +141,11 @@ namespace ooe::emu
     /// Carry out `plan` through the card's host registers: stop, load, start;
     /// and set the chips' model, as the card's owner would set the jumper.
     void start_sid(SoundCard &card, const SidPlan &plan);
+
+    /// The C64 I/O the card lacks that an access to `addr` ($D000-$DFFF, I/O
+    /// in) reaches: "VIC-II", "colour RAM", "CIA 1 timer B", "CIA 1
+    /// ports/TOD", "CIA 2" or "expansion I/O"; nullptr where the card answers
+    /// (the SIDs, CIA 1's timer A, the mailbox, $DE03/$DE04, and $D011/$D012
+    /// reads while `raster_shown`). For sidcheck's report of what a tune missed.
+    const char *missing_io(uint16_t addr, bool write, bool raster_shown);
 } // namespace ooe::emu

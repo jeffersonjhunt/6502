@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -177,7 +177,7 @@ describe("Devices tab", () => {
     port.memory.set(SOUND + 0x40, 0x02);
     const held: Envelope = { level: 0, phase: "release", held: true };
     const cpu: SoundCpu = {
-      pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0x1234, latch: 0x4cf8, timerOn: true,
+      pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0x1234, latch: 0x4cf8, timerOn: true, frame: 1, frameEn: 3, raster: 0x123,
       envelopes: [{ level: 0x88, phase: "decay/sustain", held: false }, held, held, held, held, { level: 0x40, phase: "attack", held: false }],
     };
     port.sound = cpu;
@@ -186,6 +186,8 @@ describe("Devices tab", () => {
     expect(text(v.element, "6510")).toBe("PC $1023 · A $01 X $02 Y $03 S $FD P $24 · running");
     expect(text(v.element, "Port")).toBe("DDR $2F · $37 · I/O in");
     expect(text(v.element, "Timer A")).toBe("$1234 of $4CF8 · counting");
+    expect(text(v.element, "Frame")).toBe("line 291 · interrupt on · pending · $D012 shows it");
+    expect(frameText({ ...cpu, frame: 0, frameEn: 0, raster: 0 })).toBe("line 0 · interrupt off · $D012 reads $FF");
     expect(text(v.element, "A1")).toBe("$0000 · no waveform · ADSR 0 0 0 0 · env $88 decay/sustain");
     expect(text(v.element, "A2")).toBe("$0000 · no waveform · ADSR 0 0 0 0 · env $00 held at 0");
     expect(text(v.element, "B3")).toBe("$0000 · no waveform · ADSR 0 0 0 0 · env $40 attack");

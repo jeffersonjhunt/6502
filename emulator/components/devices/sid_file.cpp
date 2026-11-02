@@ -52,9 +52,11 @@ namespace ooe::emu
             uint8_t song, init_bank, play_bank;
             uint16_t latch;
             bool set_0314;
+            bool vbi;    ///< play on the card's frame interrupt ($DE03), not CIA 1's timer
+            bool raster; ///< show the raster line at $D011/$D012 (a PSID)
 
             // labels, filled by the first pass
-            uint16_t idle{0}, irq{0}, handler{0}, ack{0}, exit{0}, nmi{0}, frame{0};
+            uint16_t returned{0}, idle{0}, irq{0}, handler{0}, not_frame{0}, ack{0}, exit{0}, nmi{0}, frame{0};
 
             std::vector<uint8_t> emit()
             {
@@ -71,8 +73,12 @@ namespace ooe::emu
                 b({0xA9, 0x37, 0x85, 0x01});       // I/O in to set up the CIA
                 b({0xA9, latch & 0xFF}), w(0x8D, 0xDC04);
                 b({0xA9, latch >> 8}), w(0x8D, 0xDC05);
-                b({0xA9, 0x81}), w(0x8D, 0xDC0D); // timer A's interrupt on
-                b({0xA9, 0x11}), w(0x8D, 0xDC0E); // load and start, continuous
+                b({0xA9, vbi ? 0x7F : 0x81}), w(0x8D, 0xDC0D); // timer A's interrupt on (off for VBI)
+                b({0xA9, 0x11}), w(0x8D, 0xDC0E);              // load and start, continuous
+                if (vbi)
+                    b({0xA9, 0x01}), w(0x8D, 0xDE03); // the frame interrupt cleared
+                if (vbi || raster)                    // FRAMEEN: the frame interrupt on, the raster line shown
+                    b({0xA9, (vbi ? 0x01 : 0) | (raster ? 0x02 : 0)}), w(0x8D, 0xDE04);
                 if (set_0314)
                 {
                     b({0xA9, handler_vector & 0xFF}), w(0x8D, 0x0314);
@@ -80,6 +86,7 @@ namespace ooe::emu
                 }
                 b({0xA9, init_bank, 0x85, 0x01});
                 b({0xA9, song}), w(0x20, init);
+                returned = here();
                 if (init_bank == 0x34) // I/O back for the interrupt; $35 and $36 differ from $37 only in ROMs
                     b({0xA9, 0x37, 0x85, 0x01});
                 b({0x58}); // CLI
@@ -87,16 +94,32 @@ namespace ooe::emu
                 w(0x4C, idle);
                 irq = here(); // the KERNAL's entry: PHA TXA PHA TYA PHA, JMP ($0314)
                 b({0x48, 0x8A, 0x48, 0x98, 0x48});
+                if (vbi && set_0314) // a frame goes to the handler even if init has pointed $0314 at its own
+                {
+                    b({0xA5, 0x01, 0x48, 0xA9, 0x37, 0x85, 0x01}); // LDA $01 PHA, I/O in
+                    w(0xAD, 0xDE03), b({0x4A, 0x68, 0x85, 0x01});  // LDA $DE03 LSR (C: a frame) PLA STA $01
+                    b({0xB0, 0x03});                               // BCS handler, past the JMP
+                }
                 if (set_0314 || !play) // a tune over $0314 has its own there; with play, the handler is ours
                     w(0x6C, 0x0314);
                 handler = here();
                 if (play)
                 {
-                    b({0xA5, 0x01, 0x48});             // LDA $01 PHA
+                    b({0xA5, 0x01, 0x48}); // LDA $01 PHA
+                    if (vbi)               // a frame? Else the CIA, which a tune's init may have turned on
+                    {
+                        b({0xA9, 0x37, 0x85, 0x01}), w(0xAD, 0xDE03), b({0x29, 0x01}); // I/O in, LDA $DE03 AND #1
+                        b({0xF0, (not_frame - (here() + 2)) & 0xFF}), w(0x8D, 0xDE03); // BEQ not_frame, clear it
+                    }
                     b({0xA9, play_bank, 0x85, 0x01}); // bank for play
                     w(0x20, play);
                     b({0xA9, 0x37, 0x85, 0x01});       // I/O in for the mailbox and the CIA
                     w(0xEE, frame), w(0xAD, frame), w(0x8D, 0xDE00);
+                    if (vbi)
+                    {
+                        b({0x68, 0x85, 0x01}), w(0x4C, exit); // PLA STA $01, to exit
+                        not_frame = here();
+                    }
                     w(0xAD, 0xDC0D);       // acknowledge
                     b({0x68, 0x85, 0x01}); // PLA STA $01
                     w(0x4C, static_cast<uint16_t>(here() + 6)); // past ack's 3 bytes to exit
@@ -227,7 +250,9 @@ namespace ooe::emu
                   bank_for(f.init),
                   bank_for(f.play),
                   static_cast<uint16_t>(f.rsid || f.cia_timed(song) ? (ntsc ? 0x4295 : 0x4025) : (ntsc ? 17095 - 1 : 19656 - 1)),
-                  !overlaps(f, 0x0314, 0x0315)};
+                  !overlaps(f, 0x0314, 0x0315),
+                  f.play && !f.rsid && !f.cia_timed(song),
+                  !f.rsid};
         std::vector<uint8_t> code;
         for (const unsigned p : pages)
         {
@@ -251,6 +276,7 @@ namespace ooe::emu
         }
         plan.stub = stub.at;
         plan.frame = stub.frame;
+        plan.returned = stub.returned;
         plan.blocks.push_back({f.load, f.data});
         plan.blocks.push_back({stub.at, code});
 
@@ -309,5 +335,27 @@ namespace ooe::emu
                 card.write(SoundCard::RAMDATA, byte);
         }
         card.write(SoundCard::CTRL, plan.ctrl);
+    }
+
+    const char *missing_io(uint16_t addr, bool write, bool raster_shown)
+    {
+        if ((addr == 0xD011 || addr == 0xD012) && !write && raster_shown)
+            return nullptr;
+        if (addr < 0xD400)
+            return "VIC-II";
+        if (addr >= 0xD800 && addr < 0xDC00)
+            return "colour RAM";
+        if (addr >= 0xDC00 && addr < 0xDD00)
+        {
+            const unsigned r = addr & 0x0F;
+            if (r == SoundCard::CIA_TA_LO || r == SoundCard::CIA_TA_HI || r == SoundCard::CIA_ICR || r == SoundCard::CIA_CRA)
+                return nullptr;
+            return r == 0x06 || r == 0x07 || r == 0x0F ? "CIA 1 timer B" : "CIA 1 ports/TOD";
+        }
+        if (addr >= 0xDD00 && addr < 0xDE00)
+            return "CIA 2";
+        if (addr > 0xDE01 && addr != SoundCard::CARD_FRAME && addr != SoundCard::CARD_FRAME_EN)
+            return "expansion I/O";
+        return nullptr;
     }
 } // namespace ooe::emu

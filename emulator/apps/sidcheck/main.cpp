@@ -59,23 +59,7 @@ namespace
         {
             if (c.addr < 0xD000 || c.addr > 0xDFFF || !card_.io_visible())
                 return;
-            const char *what = nullptr;
-            if (c.addr < 0xD400)
-                what = "VIC-II";
-            else if (c.addr >= 0xD800 && c.addr < 0xDC00)
-                what = "colour RAM";
-            else if (c.addr >= 0xDC00 && c.addr < 0xDD00)
-            {
-                const unsigned r = c.addr & 0x0F;
-                if (r != SoundCard::CIA_TA_LO && r != SoundCard::CIA_TA_HI && r != SoundCard::CIA_ICR &&
-                    r != SoundCard::CIA_CRA)
-                    what = r == 0x06 || r == 0x07 || r == 0x0F ? "CIA 1 timer B" : "CIA 1 ports/TOD";
-            }
-            else if (c.addr >= 0xDD00 && c.addr < 0xDE00)
-                what = "CIA 2";
-            else if (c.addr > 0xDE01)
-                what = "expansion I/O";
-            if (what)
+            if (const char *what = missing_io(c.addr, c.write, card_.raster_shown()))
                 ++seen_[what];
         }
         std::string summary() const

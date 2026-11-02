@@ -354,6 +354,171 @@ TEST(a_cia_song_plays_at_the_kernals_rate)
     CHECK_EQ(vbi.frames, 50u);
 }
 
+/// COUNTER, but init also sets CIA 1's timer A to 20,454 clocks (about 48 Hz),
+/// as some VBI tunes' do; `cia_irq_on` has it turn the timer's interrupt on too.
+std::vector<uint8_t> retimed(bool cia_irq_on)
+{
+    std::vector<uint8_t> c = {0x8D, 0x00, 0xC0, 0xA9, 0x0F, 0x8D, 0x18, 0xD4, // song to $C000, volume up
+                              0xA9, 0xE5, 0x8D, 0x04, 0xDC, 0xA9, 0x4F, 0x8D, 0x05, 0xDC}; // latch $4FE5
+    if (cia_irq_on)
+        c.insert(c.end(), {0xA9, 0x81, 0x8D, 0x0D, 0xDC}); // LDA #$81 STA $DC0D
+    c.insert(c.end(), {0x60, 0xEE, 0x00, 0xD4, 0x60}); // RTS; play, its last 4 bytes: INC $D400 RTS
+    return c;
+}
+
+TEST(a_vbi_tune_that_retimes_cia_1_in_init_still_plays_once_a_frame)
+{
+    // The frame comes from the card's frame interrupt ($DE03), not timer A,
+    // so the 48 Hz timer neither slows it nor, with its interrupt on, adds calls.
+    for (const bool irq_on : {false, true})
+    {
+        Header h;
+        const std::vector<uint8_t> code = retimed(irq_on);
+        h.play = static_cast<uint16_t>(0x1000 + code.size() - 4);
+        Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+        CHECK_EQ(p.frames, 50u);
+        CHECK_EQ(p.reg(0x00), 50);
+        CHECK_EQ(p.card.timer_latch(), 0x4FE5); // the tune's timer is left as it set it
+        CHECK(p.card.frame_enabled());
+    }
+}
+
+TEST(a_vbi_tune_that_points_0314_at_its_own_handler_is_still_played_once_a_frame)
+{
+    // init: volume up, $0314 -> $1020, (with `cia`, CIA 1's interrupt on), RTS.
+    // play ($1018): INC $D400 RTS. $1020, the tune's own: INC $D401, JMP $EA31
+    // (which acknowledges only the CIA). Frames go to the stub; the CIA's
+    // interrupts, a frame apart, still reach the tune's handler.
+    for (const bool cia : {false, true})
+    {
+        std::vector<uint8_t> code = {0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x20, 0x8D, 0x14, 0x03, 0xA9, 0x10, 0x8D, 0x15, 0x03};
+        if (cia)
+            code.insert(code.end(), {0xA9, 0x81, 0x8D, 0x0D, 0xDC});
+        code.push_back(0x60);
+        code.resize(0x18, 0xEA);
+        for (const int b : {0xEE, 0x00, 0xD4, 0x60})
+            code.push_back(static_cast<uint8_t>(b));
+        code.resize(0x20, 0xEA);
+        for (const int b : {0xEE, 0x01, 0xD4, 0x4C, 0x31, 0xEA})
+            code.push_back(static_cast<uint8_t>(b));
+        Header h;
+        h.play = 0x1018;
+        Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+        CHECK_EQ(p.frames, 50u);
+        CHECK_EQ(p.reg(0x00), 50);
+        CHECK_EQ(p.reg(0x01), cia ? 50 : 0); // the frame never went its way; the CIA did
+    }
+}
+
+TEST(a_vbi_tune_whose_own_fffe_entry_chains_to_0314_is_played_once_a_frame)
+{
+    // init: $FFFE -> $1020, volume up, RTS. play ($1018): INC $D400 RTS.
+    // $1020, the tune's entry, as code under the KERNAL has it: PHA TXA PHA
+    // TYA PHA, JMP ($0314), which is the stub's handler: it sees the frame.
+    std::vector<uint8_t> code = {0xA9, 0x20, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0x60};
+    code.resize(0x18, 0xEA);
+    for (const int b : {0xEE, 0x00, 0xD4, 0x60})
+        code.push_back(static_cast<uint8_t>(b));
+    code.resize(0x20, 0xEA);
+    for (const int b : {0x48, 0x8A, 0x48, 0x98, 0x48, 0x6C, 0x14, 0x03})
+        code.push_back(static_cast<uint8_t>(b));
+    Header h;
+    h.play = 0x1018;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+    CHECK_EQ(p.frames, 50u);
+    CHECK_EQ(p.reg(0x00), 50);
+    CHECK(p.card.frame_enabled());
+}
+
+TEST(a_cia_song_that_retimes_cia_1_in_init_plays_at_its_rate)
+{
+    Header h;
+    const std::vector<uint8_t> code = retimed(false);
+    h.play = static_cast<uint16_t>(0x1000 + code.size() - 4), h.speed = 0x1;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK); // 48 periods of 20,454 and a bit
+    CHECK_EQ(p.frames, 48u);
+    CHECK_EQ(p.reg(0x00), 48);
+    CHECK(!p.card.frame_enabled());
+}
+
+TEST(an_rsid_reads_ff_at_d011_and_d012_and_a_psid_the_raster_line)
+{
+    // init: $D012 to $C001, $D011 to $C002, wait for $D012 = 200 (a PSID gets there), RTS.
+    const std::vector<uint8_t> code = {0xAD, 0x12, 0xD0, 0x8D, 0x01, 0xC0, 0xAD, 0x11, 0xD0, 0x8D, 0x02, 0xC0,
+                                       0xAD, 0x12, 0xD0, 0xC9, 0xC8, 0xD0, 0xF9, 0x8D, 0x03, 0xC0, 0x60};
+    Header h; // play 0
+    h.rsid = true;
+    Played r(parsed(h, code), 2 * PAL_FRAME);
+    CHECK_EQ(r.card.ram()[0xC001], 0xFF);
+    CHECK_EQ(r.card.ram()[0xC002], 0xFF);
+    CHECK_EQ(r.card.ram()[0xC003], 0x00); // still waiting
+    CHECK(!r.card.raster_shown());
+    h.rsid = false;
+    Played p(parsed(h, code), 2 * PAL_FRAME);
+    CHECK(p.card.ram()[0xC001] < 2); // line 0 or 1, at once
+    CHECK_EQ(p.card.ram()[0xC002], 0x7F);
+    CHECK_EQ(p.card.ram()[0xC003], 200);
+    CHECK(p.card.raster_shown());
+    CHECK(!p.card.frame_enabled()); // play 0: no frame interrupt
+}
+
+TEST(an_rsid_after_a_psid_on_the_same_card_reads_ff_and_gets_no_frames)
+{
+    // The WebUI plays tunes one after another on one card: what the PSID's
+    // stub turned on (FRAMEEN 3) must not reach the RSID that follows.
+    const std::vector<uint8_t> code = {0xAD, 0x12, 0xD0, 0x8D, 0x01, 0xC0, 0xAD, 0x11, 0xD0, 0x8D, 0x02, 0xC0, 0x60, // init
+                                       0xEE, 0x00, 0xD4, 0x60};                                                     // play
+    Header h;
+    h.play = 0x100D;
+    std::string error;
+    SoundCard card;
+    card.set_cpu_hz(SoundCard::PAL_HZ);
+    start_sid(card, *plan_sid(parsed(h, code), 0, error));
+    card.tick(3 * PAL_FRAME);
+    CHECK(card.frame_enabled());
+    CHECK(card.raster_shown());
+    CHECK(card.ram()[0xC002] != 0xFF);
+    h.rsid = true, h.play = 0;
+    start_sid(card, *plan_sid(parsed(h, code), 0, error));
+    card.tick(3 * PAL_FRAME);
+    CHECK_EQ(card.ram()[0xC001], 0xFF);
+    CHECK_EQ(card.ram()[0xC002], 0xFF);
+    CHECK(!card.frame_enabled());
+    CHECK(!card.raster_shown());
+}
+
+TEST(missing_io_leaves_out_what_the_card_answers)
+{
+    CHECK(missing_io(0xDE03, false, false) == nullptr); // the stub's frame interrupt
+    CHECK(missing_io(0xDE03, true, false) == nullptr);
+    CHECK(missing_io(0xDE04, true, false) == nullptr);
+    CHECK(missing_io(0xDE00, true, false) == nullptr);
+    CHECK(missing_io(0xD418, true, false) == nullptr);
+    CHECK(missing_io(0xDC0D, false, false) == nullptr);
+    CHECK(missing_io(0xD012, false, true) == nullptr); // the raster line, shown
+    CHECK(missing_io(0xD011, false, true) == nullptr);
+    CHECK_EQ(std::string(missing_io(0xD012, false, false)), std::string("VIC-II")); // not shown: $FF
+    CHECK_EQ(std::string(missing_io(0xD012, true, true)), std::string("VIC-II"));   // a raster compare, ignored
+    CHECK_EQ(std::string(missing_io(0xD019, false, true)), std::string("VIC-II"));
+    CHECK_EQ(std::string(missing_io(0xDE05, false, false)), std::string("expansion I/O"));
+    CHECK_EQ(std::string(missing_io(0xDF00, true, false)), std::string("expansion I/O"));
+    CHECK_EQ(std::string(missing_io(0xDC06, true, false)), std::string("CIA 1 timer B"));
+    CHECK_EQ(std::string(missing_io(0xDD0D, false, false)), std::string("CIA 2"));
+}
+
+TEST(an_init_that_waits_for_a_raster_line_returns)
+{
+    // init: song to $C000, volume up, wait for $D012 = 200, RTS. play: INC $D400.
+    const std::vector<uint8_t> code = {0x8D, 0x00, 0xC0, 0xA9, 0x0F, 0x8D, 0x18, 0xD4, // init
+                                       0xAD, 0x12, 0xD0, 0xC9, 0xC8, 0xD0, 0xF9, 0x60, // LDA $D012 CMP #200 BNE; RTS
+                                       0xEE, 0x00, 0xD4, 0x60};                        // play
+    Header h;
+    h.play = 0x1010;
+    Played p(parsed(h, code), 50 * PAL_FRAME + SLACK);
+    CHECK_EQ(p.frames, 50u);
+    CHECK_EQ(p.reg(0x00), 50);
+}
+
 /// Three play periods, from the 2nd sync point to the 5th, in SID clocks. The
 /// interrupt waits for the stub's 3-cycle JMP to end, so one period can be a
 /// clock or two out; three of them come back to the same phase.

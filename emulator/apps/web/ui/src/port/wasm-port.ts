@@ -120,7 +120,7 @@ export interface CoreMachine {
   setRtc(ms: number): void;
   syncRtc(ms: number): void;
   rtc(): Uint8Array;
-  soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean };
+  soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean; frame: number; frameEn: number; raster: number };
   appleMode(): boolean;
   appleSwitches(): number;
   peekIo(offset: number): number;

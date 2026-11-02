@@ -127,6 +127,10 @@ export interface SoundCpu {
   timer: number;
   latch: number;
   timerOn: boolean;
+  /** The card's frame: $DE03 FRAME (bit 0 latched), $DE04 FRAMEEN (bit 0 interrupt, bit 1 raster line shown), the line. */
+  frame: number;
+  frameEn: number;
+  raster: number;
   /** Each voice's envelope, SID A's three then SID B's. */
   envelopes: Envelope[];
 }

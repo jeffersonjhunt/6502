@@ -356,6 +356,68 @@ TEST(the_6510s_interrupt_entry_takes_sid_clocks_too)
     CHECK_EQ(c.cpu().cycles() - cpu0, c.sid_clocks() - sid0);
 }
 
+TEST(cia_timer_a_reloads_from_the_latch_a_new_latch_waits_and_load_strobes)
+{
+    // Continuous, latch 99: five underflows; the latch to 199 while it runs
+    // (taking effect at the next underflow); five more; then CRA = $11, LOAD
+    // and start, which reloads at once. The host watches the counter jump up.
+    SoundCard c;
+    c.set_cpu_hz(SoundCard::PAL_HZ); // a tick is a SID clock
+    start(c, 0x1000,
+          {
+              0xA9, 0x63, 0x8D, 0x04, 0xDC, // LDA #99 STA $DC04
+              0xA9, 0x00, 0x8D, 0x05, 0xDC, // LDA #0 STA $DC05     stopped: loads the counter
+              0xA9, 0x01, 0x8D, 0x0E, 0xDC, // LDA #1 STA $DC0E     start, continuous
+              0xA2, 0x05,                   // LDX #5
+              0xAD, 0x0D, 0xDC,             // LDA $DC0D           wait for an underflow
+              0x29, 0x01,                   // AND #1
+              0xF0, 0xF9,                   // BEQ the LDA
+              0xCA, 0xD0, 0xF6,             // DEX BNE the LDA
+              0xA9, 0xC7, 0x8D, 0x04, 0xDC, // LDA #199 STA $DC04  running: the latch only
+              0xA2, 0x05,                   // LDX #5
+              0xAD, 0x0D, 0xDC, 0x29, 0x01, 0xF0, 0xF9, 0xCA, 0xD0, 0xF6,
+              0xA2, 0x20, 0xCA, 0xD0, 0xFD, // LDX #32 DEX BNE: into the period
+              0xA9, 0x11, 0x8D, 0x0E, 0xDC, // LDA #$11 STA $DC0E  LOAD and start
+              0x4C, 0x40, 0x10,             // JMP *
+          },
+          0);
+    struct Jump
+    {
+        uint64_t at;
+        unsigned from, to;
+    };
+    std::vector<Jump> jumps;
+    unsigned last = c.timer();
+    for (unsigned i = 0; i < 4000; ++i)
+    {
+        c.tick(1);
+        if (c.timer() > last)
+            jumps.push_back({c.sid_clocks(), last, c.timer()});
+        last = c.timer();
+    }
+    // When each reload happened, to the clock (the counter has counted on
+    // by however far the instruction ran past it), and the periods between:
+    // -1 marks the strobe, which reloads mid-period.
+    std::vector<long> seq;
+    uint64_t prev = 0;
+    for (size_t k = 0; k < jumps.size(); ++k)
+    {
+        const Jump &j = jumps[k];
+        const unsigned latch = j.to <= 99 ? 99 : 199;
+        const uint64_t when = j.at - (latch - j.to);
+        if (j.from > 8)
+            seq.push_back(-1);
+        else if (k)
+            seq.push_back(static_cast<long>(when - prev));
+        prev = when;
+    }
+    // Five periods of 100 (the fifth runs out after the latch became 199:
+    // a new latch waits for the underflow), four of 200, the strobe, 200s.
+    CHECK(seq.size() >= 12);
+    for (size_t k = 0; k < seq.size(); ++k)
+        CHECK_EQ(seq[k], k < 5 ? 100L : k < 9 ? 200L : k == 9 ? -1L : 200L);
+}
+
 TEST(cia_one_shot_stops_and_reading_icr_acknowledges)
 {
     SoundCard c;
@@ -385,6 +447,151 @@ TEST(cia_one_shot_stops_and_reading_icr_acknowledges)
     CHECK_EQ(c.timer_flags(), 0x00);
 }
 
+TEST(the_frame_interrupt_comes_once_a_frame_until_de03_is_cleared)
+{
+    // $1100: LDA #1 STA $DE03 (clear), INC $20, RTI. Main: $DE04 = 1, CLI, JMP *.
+    for (const bool ntsc : {false, true})
+    {
+        SoundCard c;
+        c.ram()[0xFFFE] = 0x00;
+        c.ram()[0xFFFF] = 0x11;
+        uint16_t a = 0x1100;
+        for (const unsigned b : {0xA9u, 0x01u, 0x8Du, 0x03u, 0xDEu, 0xE6u, 0x20u, 0x40u})
+            c.ram()[a++] = static_cast<uint8_t>(b);
+        start(c, 0x1000, {0xA9, 0x01, 0x8D, 0x04, 0xDE, 0x58, 0x4C, 0x06, 0x10},
+              ntsc ? SoundCard::CTRL_NTSC : 0);
+        const uint32_t hz = ntsc ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
+        const uint32_t frame = ntsc ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL;
+        host(c, (100ull * frame + frame / 2) * SoundCard::NATIVE_HZ / hz);
+        CHECK_EQ(c.ram()[0x20], 100);
+        CHECK(c.frame_enabled());
+        CHECK_EQ(c.timer_flags(), 0x00); // CIA 1 not involved
+    }
+}
+
+TEST(the_frame_latch_is_de03_bit_0_and_neither_cias_icr_nor_the_vic_reach_it)
+{
+    SoundCard c;
+    c.ram()[0xFFFE] = 0x00; // an interrupt would land on the JAM at $1100
+    c.ram()[0xFFFF] = 0x11;
+    c.ram()[0x1100] = 0x02;
+    start(c, 0x1000,
+          {
+              0xAD, 0x03, 0xDE, // LDA $DE03     no frame yet: $00
+              0x85, 0x40,       // STA $40
+              0xA9, 0xFF,       // LDA #$FF
+              0x8D, 0x1A, 0xD0, // STA $D01A     the VIC-II's enable: nothing here
+              0x58,             // CLI
+              0xA2, 0x10,       // LDX #$10      wait over a frame: 16 x 256 x 5 clocks
+              0xA0, 0x00,       // LDY #0
+              0x88,             // DEY
+              0xD0, 0xFD,       // BNE *-1
+              0xCA,             // DEX
+              0xD0, 0xF8,       // BNE *-6
+              0x78,             // SEI
+              0xAD, 0x0D, 0xDC, // LDA $DC0D     CIA 1's ICR: not the frame's
+              0xAD, 0x19, 0xD0, // LDA $D019     the VIC-II's: $FF, as on main
+              0x85, 0x44,       // STA $44
+              0xAD, 0x03, 0xDE, // LDA $DE03     latched, its interrupt off: $01
+              0x85, 0x41,       // STA $41
+              0xA9, 0x01,       // LDA #1
+              0x8D, 0x03, 0xDE, // STA $DE03     cleared
+              0xAD, 0x03, 0xDE, // LDA $DE03
+              0x85, 0x42,       // STA $42
+              0xAD, 0x04, 0xDE, // LDA $DE04     off: $00
+              0x85, 0x43,       // STA $43
+              0x02,             // JAM
+          });
+    host(c, HOST_SECOND / 10);
+    CHECK(c.cpu().state() == Cpu6502::State::Stopped);
+    CHECK(c.cpu().regs().pc != 0x1101); // not by an interrupt
+    CHECK_EQ(c.ram()[0x40], 0x00);
+    CHECK_EQ(c.ram()[0x41], 0x01);
+    CHECK_EQ(c.ram()[0x42], 0x00);
+    CHECK_EQ(c.ram()[0x43], 0x00);
+    CHECK_EQ(c.ram()[0x44], 0xFF);
+}
+
+TEST(d012_and_d011_bit_7_read_the_raster_line_with_frameen_bit_1)
+{
+    // FRAMEEN = 2; wait for line 256+ ($D011 bit 7), note $D012; wait for it to clear, note $D012 again.
+    for (const bool ntsc : {false, true})
+    {
+        SoundCard c;
+        start(c, 0x1000,
+              {
+                  0xA9, 0x02,       // LDA #2
+                  0x8D, 0x04, 0xDE, // STA $DE04    the raster line shown, no interrupt
+                  0x2C, 0x11, 0xD0, // BIT $D011
+                  0x10, 0xFB,       // BPL *-3      to line 256
+                  0xAD, 0x12, 0xD0, // LDA $D012
+                  0x85, 0x40,       // STA $40
+                  0x2C, 0x11, 0xD0, // BIT $D011
+                  0x30, 0xFB,       // BMI *-3      to line 0
+                  0xAD, 0x12, 0xD0, // LDA $D012
+                  0x85, 0x41,       // STA $41
+                  0xAD, 0x12, 0xD0, // LDA $D012    wait for line 100
+                  0xC9, 0x64,       // CMP #100
+                  0xD0, 0xF9,       // BNE *-5
+                  0xAD, 0x11, 0xD0, // LDA $D011
+                  0x85, 0x42,       // STA $42
+                  0x02,             // JAM
+              },
+              ntsc ? SoundCard::CTRL_NTSC : 0);
+        host(c, HOST_SECOND / 10);
+        CHECK(c.cpu().state() == Cpu6502::State::Stopped);
+        CHECK(c.ram()[0x40] <= 1);  // line 256 or 257, as the 4-cycle BIT lands
+        CHECK(c.ram()[0x41] <= 1);  // line 0 or 1
+        CHECK_EQ(c.ram()[0x42], 0x7F);
+        CHECK(c.raster_shown());
+        CHECK(!c.frame_enabled());
+    }
+}
+
+TEST(without_frameen_bit_1_d011_and_d012_read_ff)
+{
+    SoundCard c;
+    start(c, 0x1000,
+          {
+              0xA2, 0x00,       // LDX #0       over a frame: note $D012 and $D011 at 256 points
+              0xAD, 0x12, 0xD0, // LDA $D012
+              0x2D, 0x11, 0xD0, // AND $D011
+              0x9D, 0x00, 0x20, // STA $2000,X
+              0xA0, 0x10,       // LDY #16
+              0x88,             // DEY
+              0xD0, 0xFD,       // BNE *-1
+              0xE8,             // INX
+              0xD0, 0xEF,       // BNE to the LDA
+              0x02,             // JAM
+          });
+    host(c, HOST_SECOND / 10);
+    CHECK(c.cpu().state() == Cpu6502::State::Stopped);
+    unsigned ff = 0;
+    for (unsigned i = 0; i < 256; ++i)
+        ff += c.ram()[0x2000 + i] == 0xFF ? 1 : 0;
+    CHECK_EQ(ff, 256u);
+    CHECK(!c.raster_shown());
+}
+
+TEST(the_raster_line_stays_in_the_frame_when_ctrl_changes_the_clock)
+{
+    // Early in a PAL frame (19,656 clocks), switch to NTSC (17,095) without RESET.
+    SoundCard c;
+    start(c, 0x1000, {0xA9, 0x02, 0x8D, 0x04, 0xDE, 0x4C, 0x05, 0x10}); // FRAMEEN = 2; JMP *
+    host(c, 2'000ull * SoundCard::NATIVE_HZ / SoundCard::PAL_HZ);
+    c.write(SoundCard::CTRL, SoundCard::CTRL_RUN | SoundCard::CTRL_NTSC);
+    for (unsigned i = 0; i < 400; ++i)
+    {
+        const unsigned line = c.raster_line();
+        const unsigned seen = c.cpu_bus().peek(0xD012) | (c.cpu_bus().peek(0xD011) & 0x80u) << 1;
+        CHECK(line < SoundCard::LINES_NTSC);
+        CHECK_EQ(seen, line);
+        if (line >= SoundCard::LINES_NTSC)
+            break;
+        host(c, 50 * 7);
+    }
+}
+
 TEST(ctrl_reset_restarts_the_6510_and_the_cia)
 {
     SoundCard c;
@@ -395,6 +602,24 @@ TEST(ctrl_reset_restarts_the_6510_and_the_cia)
     CHECK(!c.timer_running());
     CHECK_EQ(c.cpu().regs().pc, 0x1000);
     CHECK_EQ(c.cpu_resets(), 2u);
+}
+
+TEST(ctrl_reset_clears_frameen_and_the_frame_latch)
+{
+    SoundCard c;
+    start(c, 0x1000, {0xA9, 0x03, 0x8D, 0x04, 0xDE, 0x4C, 0x05, 0x10}); // FRAMEEN = 3 (I set: no interrupt); JMP *
+    host(c, 30'000ull * SoundCard::NATIVE_HZ / SoundCard::PAL_HZ);         // past a frame
+    CHECK(c.frame_enabled());
+    CHECK(c.raster_shown());
+    CHECK_EQ(c.frame_flags(), 0x01);
+    c.write(SoundCard::CTRL, SoundCard::CTRL_RESET);
+    CHECK(!c.frame_enabled());
+    CHECK(!c.raster_shown());
+    CHECK_EQ(c.frame_flags(), 0x00);
+    CHECK_EQ(c.raster_line(), 0u); // the frame starts over
+    c.write(SoundCard::CTRL, SoundCard::CTRL_RUN); // I/O in by the port's pull-ups
+    CHECK_EQ(c.cpu_bus().peek(0xD012), 0xFF);
+    CHECK_EQ(c.cpu_bus().peek(0xD011), 0xFF);
 }
 
 TEST(on_the_backplane_at_c500_with_its_interrupt_on_irqh_bit_2)
