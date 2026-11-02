@@ -125,7 +125,7 @@ make -C docs index      # regenerate index/*.json
 - every function number in `oodos/include/oodos.inc` has an entry, with oodos.inc's name, and every entry's
   number is there;
 - every I/O register equate in `backplane/bios/backplane.inc` (an address in `$C000-$C7FF`) has an entry, and
-  every register entry's address, equates and module are backplane.inc's;
+  every register entry's address and equates are backplane.inc's, and its Module the right module's ID and name;
 - every utility (`oodos/utils/NAME.s`), every built-in command (`BINAMES` in `oodos/sys/ccp.s`, by its long
   name) and every command planned with no source yet (`PLANNED` in check_docs.py: PIP, SUBMIT, GET, PUT) has an
   entry;
@@ -140,7 +140,7 @@ make -C docs index      # regenerate index/*.json
 
 It prints how many function numbers, equates, utilities, built-ins, files, entries, links and listings it
 examined, and fails if it found no function numbers, equates, utilities, built-ins, Markdown files, links,
-listings or entries: a check that examined nothing hasn't passed.
+listings, entries or Technical Reference sections: a check that examined nothing hasn't passed.
 
 **What isn't written yet** is listed in [tools/unwritten.txt](tools/unwritten.txt), one anchor a line. A missing
 entry fails the check unless it's listed there; a listed one that has been written, or that names nothing in the

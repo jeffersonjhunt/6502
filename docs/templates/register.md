@@ -10,7 +10,8 @@ entry that leaves one out, renames one or moves one. Only **Notes** may be left 
 - **The heading** is `### $ADDR NAME: what it is`: the address, the equate a program uses, and a few words.
 - **Equates:** every equate in backplane.inc with this address, each in backticks (a module's base and its first
   register share one). The check fails if one is missing or has another address.
-- **Module:** the module's ID in hex first (the address's: `($ADDR - $C000) / $80`), then the card's name.
+- **Module:** the module's ID in hex first (the address's: `($ADDR - $C000) / $80`), then the card's name, in
+  the words `MODULES` in `check_docs.py` has for it (`console`, `north bridge`).
 - **Access:** R, W or R/W, and what a read or write does besides (a read that clears a flag, a write that starts
   something).
 - **Bits:** a table of bit, name and meaning, bit 7 first; or "All: " and what the byte holds.

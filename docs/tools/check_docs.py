@@ -11,7 +11,8 @@ Checks, against the sources the books describe:
     Programmer's Guide, and every entry's number and name are there;
   - every I/O register equate in backplane/bios/backplane.inc (an address in
     $C000-$C7FF) has an entry in the Technical Reference, and every register
-    entry's address and equates are an equate's;
+    entry's address and equates are an equate's, and its Module the module's
+    ID and name (MODULES);
   - every utility (oodos/utils/NAME.s), every built-in command (ccp.s's
     BINAMES, by its long name) and each command PLANNED has a util- entry;
   - an entry not written yet is named in docs/tools/unwritten.txt, and a name
@@ -26,7 +27,8 @@ Checks, against the sources the books describe:
     #### Example with no marker before it;
     no example has a utility's name (oodos/Makefile would build the utility)
     or a name longer than 8 characters;
-  - every section of the Technical Reference carries a status tag;
+  - every section of the Technical Reference carries a status tag, and it
+    examined some;
   - docs/index/*.json are what the entries generate.
 
 It says how many of each it examined, and fails if it examined none of the
@@ -448,6 +450,11 @@ class Check:
             mod = (addr - 0xC000) >> 7
             if not re.match(rf"^{mod:X}\b", module):
                 self.fail(where, f"{e['id']}: ${addr:04X} is module {mod:X}'s; its Module says '{module[:20]}'")
+            elif mod not in MODULES:
+                self.fail(where, f"{e['id']}: module {mod:X} has no name in check_docs.py's MODULES")
+            elif MODULES[mod].lower() not in module.lower():
+                self.fail(where, f"{e['id']}: module {mod:X} is the {MODULES[mod]} card; its Module says "
+                                 f"'{module[:30]}'")
             e["module"] = f"{mod:X}"
         else:
             m = UTIL_HEAD.match(e["heading"])
@@ -607,6 +614,8 @@ class Check:
                     self.fail(f"{self.rel(path)}:{i + 1}", f"section '{h.group(2)}' doesn't start with "
                                                            f"'Status: **built**', '**emulated**' or '**proposed**'")
         self.counts["sections"] = sections
+        if sections == 0:
+            self.fail("check_docs", "examined no Technical Reference sections")
 
     def index(self, fns, regs, written, write):
         def where(e):
