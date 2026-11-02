@@ -1631,12 +1631,14 @@ the choices it left open marked ours):
   file; the column heading and a file; the blank and the two totals lines. On a new page or sheet, within a FULL or
   DATE group (its files and totals), the column heading comes first, shown or not, so it is never written twice
   running; the blank before the totals is left out at such a top, the heading's own blank standing for it, so
-  the listing is the same with the printer echo on or off but for the form feeds (ours). The blank between
-  groups is left out at a top that shows, after a stop or a form feed (ours; a sheet without one keeps it). On a
+  a group's totals come out the same with the printer echo on or off (ours). The blank between groups is left
+  out at a top that shows, after a stop or a form feed, and kept on a sheet that doesn't show (`LENGTH=` without
+  `FF`, or the echo off), so there the later sheets start a line later than with the echo on (ours). On a
   page of 5 (4 lines and the stop) the heading and the two totals lines don't fit together: the heading wins,
   so the totals are split over two pages, each under the heading (ours). With
   `LENGTH=` and paging both, the heading starts each page and each sheet, and the printer has the screen's
-  lines (ours). Without `LENGTH=` there is no sheet count (`NOPAGE`, `FF` without `LENGTH=`, the SCB's page mode
+  lines (ours); when exactly 5 lines are left on the page at a sheet's top, the page stops one line early, its
+  room counted for the totals' blank the heading now stands for (accepted, 2026-11-01: never over-full). Without `LENGTH=` there is no sheet count (`NOPAGE`, `FF` without `LENGTH=`, the SCB's page mode
   off: no repeats); SIZE and the short form have no column heading, so their pages and sheets only hold their
   lines. A page under 5 lines (4 or fewer and the stop's) is too short for the heading and a file, so the heading
   isn't written again at its stops (ours); `LENGTH=`'s sheets on such a page still start with it. The page's stop
