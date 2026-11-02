@@ -241,12 +241,14 @@ find_program(EMU_MAKE make)
 if(NOT (EMU_CA65 AND EMU_LD65 AND Python3_FOUND AND EMU_MAKE))
     message(FATAL_ERROR "emu: the OODOS tests need cc65 (ca65, ld65), python3 and make")
 endif()
+file(GLOB oodos_includes CONFIGURE_DEPENDS "${OODOS_SRC}/include/*.inc")
 file(GLOB oodos_deps CONFIGURE_DEPENDS
         "${OODOS_SYS_SRC}/*.s" "${OODOS_SYS_SRC}/*.inc" "${OODOS_SYS_SRC}/*.cfg" "${OODOS_SYS_SRC}/*.py"
         "${OODOS_SYS_SRC}/Makefile" "${OODOS_SYS_SRC}/test/*.s" "${OODOS_SYS_SRC}/test/*.inc"
         "${OODOS_SRC}/ldr/*.s" "${OODOS_SRC}/ldr/*.cfg" "${OODOS_SRC}/ldr/Makefile" "${OODOS_SRC}/Makefile"
-        "${OODOS_SRC}/include/*.inc" "${OODOS_SRC}/cfg/*.cfg" "${OODOS_SRC}/tools/*.py"
+        "${OODOS_SRC}/cfg/*.cfg" "${OODOS_SRC}/tools/*.py"
         "${OODOS_SRC}/examples/*.s" "${EMU_BIOS_SRC}/backplane.inc")
+list(APPEND oodos_deps ${oodos_includes})
 add_custom_command(
         OUTPUT "${OODOS_SYS_DIR}/OODOS.SYS" "${OODOS_SYS_DIR}/oodos.lbl"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SYS_SRC}" "BUILD=${OODOS_SYS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -331,8 +333,8 @@ endforeach()
 add_custom_command(
         OUTPUT ${docs_example_coms}
         COMMAND "${EMU_MAKE}" -s -C "${DOCS_SRC}/examples" "BUILD=${DOCS_EXAMPLES_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
-        DEPENDS ${docs_examples} "${DOCS_SRC}/examples/Makefile" "${OODOS_SRC}/Makefile"
-                "${OODOS_SRC}/include/oodos.inc" "${OODOS_SRC}/cfg/com.cfg" "${OODOS_SRC}/tools/rules.py"
+        DEPENDS ${docs_examples} ${oodos_includes} "${DOCS_SRC}/examples/Makefile" "${OODOS_SRC}/Makefile"
+                "${OODOS_SRC}/cfg/com.cfg" "${OODOS_SRC}/tools/rules.py"
         VERBATIM)
 add_custom_target(docs_examples ALL DEPENDS ${docs_example_coms})
 add_dependencies(test_docs_examples docs_examples oodos_sys backplane_bios)
