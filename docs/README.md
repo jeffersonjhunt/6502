@@ -28,6 +28,10 @@ The books are written in phases of their own (decided 2026-10-31):
 
 After G3, an OODOS phase isn't done until its chapters, entries and indexes are.
 
+**Open for G2:** where a register with no equate in backplane.inc gets its source of truth: the VIA at `$C340`,
+the SID's registers, most of the video card's. The check refuses a register entry without an equate today, so
+these can't be entries until that is settled.
+
 ## Status tags
 
 Every section of the Technical Reference, and every entry, says how far what it describes has got:

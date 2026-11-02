@@ -10,8 +10,8 @@ Read this before writing a program, a driver or a test for the OO-1. It is short
   `07-function-reference.md#bdos-N`; [docs/index/functions.json](docs/index/functions.json) lists them all with
   their anchors.
 - **The BIOS, a driver, OOLIB, or code on the bare machine or in ROM:** the
-  [OO-1 Technical Reference](docs/oo1-technical-reference/README.md); every register is in
-  [docs/index/registers.json](docs/index/registers.json).
+  [OO-1 Technical Reference](docs/oo1-technical-reference/README.md); every register that an equate in
+  [`backplane.inc`](backplane/bios/backplane.inc) names is in [docs/index/registers.json](docs/index/registers.json).
 - **What a user types at `A>`:** the [OODOS User's Guide](docs/oodos-users-guide/README.md).
 - **Why something is the way it is:** [hw/oodos.md](hw/oodos.md), [hw/design.md](hw/design.md),
   [hw/oolib.md](hw/oolib.md).
