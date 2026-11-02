@@ -30,7 +30,7 @@ namespace ooe::emu
         namespace splash
         {
             const uint8_t *const ROM = splash_rom::DATA;
-            unsigned u16(unsigned at) { return ROM[at] | ROM[at + 1] << 8; }
+            unsigned u16(unsigned at) { return static_cast<unsigned>(ROM[at] | ROM[at + 1] << 8); }
             unsigned parts() { return ROM[5]; }
             unsigned curves() { return ROM[6]; }
             unsigned band() { return ROM[7]; }
@@ -727,10 +727,11 @@ namespace ooe::emu
         std::array<uint8_t, WIDTH> best{}; // its intensity: the brightest part wins, a later one on a tie
         std::array<int, 1024> sums{};      // a row's coverage (0-3) as prefix sums
         auto put = [&](int x, int i, unsigned high) {
-            if (i > 0 && i >= best[x])
+            const auto at = static_cast<size_t>(x);
+            if (i > 0 && i >= best[at])
             {
-                best[x] = static_cast<uint8_t>(i);
-                v[x] = static_cast<uint8_t>(i | high);
+                best[at] = static_cast<uint8_t>(i);
+                v[at] = static_cast<uint8_t>(static_cast<unsigned>(i) | high);
             }
         };
         for (unsigned p = 0; p < splash::parts(); ++p)
@@ -785,7 +786,7 @@ namespace ooe::emu
             {
                 const int sx = x - left; // the box is sx - lo .. sx + hi - 1, clipped to the image
                 const int a = std::clamp(sx - lo, 0, iw), b = std::clamp(sx + hi, 0, iw);
-                put(x, ((sums[b] - sums[a]) * 5) >> s.blur, s.flash << 4 | ink);
+                put(x, ((sums[static_cast<size_t>(b)] - sums[static_cast<size_t>(a)]) * 5) >> s.blur, s.flash << 4 | ink);
             }
         }
         if (f >= static_cast<int>(splash::glint_start()))
