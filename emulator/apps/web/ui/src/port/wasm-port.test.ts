@@ -16,6 +16,8 @@ const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url)
 const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
 const FRAME_MS = 1000 / 60;
 const NATIVE_HZ = 7_159_090;
+/** Frames at 7.16 MHz to wait out the boot splash's 5 s (300 frames) and its tune, and a little: test_bios's SPLASH_TIME. */
+const SPLASH_FRAMES = Math.ceil((36_500_000 / NATIVE_HZ) * 60);
 
 class ManualClock implements Scheduler {
   t = 0;
@@ -81,7 +83,17 @@ async function open(bios?: Uint8Array) {
     for (let i = 0; i < max && !out.includes(want); ++i) step();
     return out.includes(want);
   };
-  return { port, clock, step, until, connected, output: () => out, clear: () => (out = "") };
+  /** The BIOS starts the video card's splash and the sound card's boot tune (splash.s): wait both out, as test_bios does. */
+  const splash = async () => (await port.readMemory(0x489, 1, "io"))[0]; // the video card's SPLASH ($C489)
+  const pastSplash = async () => {
+    let f = frames[frames.length - 1];
+    expect(await splash(), "the splash is on").toBe(1);
+    expect(f.soundRunning, "the boot tune is playing").toBe(true);
+    for (let i = 0; i < SPLASH_FRAMES; ++i) f = step();
+    expect(await splash(), "the splash is over").toBe(0);
+    expect(f.soundRunning, "the tune stopped the card ($DE02)").toBe(false);
+  };
+  return { port, clock, step, until, pastSplash, connected, output: () => out, clear: () => (out = "") };
 }
 
 describe("the real-time clock", () => {
@@ -380,6 +392,7 @@ describe("WasmPort", () => {
   test("the video card's frames: only when watched, only when new, at 60 a second", async () => {
     const m = await open();
     m.until(GREETING);
+    await m.pastSplash();
     expect(m.step().video).toBeNull();          // not watched
     m.port.watchVideo(true);
     let f = m.step();
@@ -544,6 +557,7 @@ describe("WasmPort", () => {
   test("the sound card's sound: only when listening, a frame's worth a frame, kept through a power cycle", async () => {
     const m = await open();
     m.until(GREETING);
+    await m.pastSplash();
     expect(m.step().audio).toBeNull(); // not listening: none made
     m.port.listen(48_000);
     // SID A from the monitor: $1000 (about 245 Hz), a triangle, attack 0, sustain F, volume 15
@@ -577,6 +591,7 @@ describe("WasmPort", () => {
   test("the speaker ($C030 in Apple II mode, $C5A6 here) is in the sound too, on both sides", async () => {
     const m = await open();
     m.until(GREETING);
+    await m.pastSplash();
     m.port.listen(48_000);
     // LDA $C5A6, then three rounds of 256 DEXes, JMP $0300: a 926 Hz square.
     m.port.sendSerial(ascii("300: AD A6 C5 A0 03 A2 00 CA D0 FD 88 D0 F8 4C 00 03\r"));
@@ -601,6 +616,7 @@ describe("WasmPort", () => {
   test("a .sid tune: onto the card, its songs, heard, stopped; a bad file refused, the tune playing on", async () => {
     const m = await open();
     m.until(GREETING);
+    await m.pastSplash();
     m.port.listen(48_000);
     expect(m.step().soundRunning).toBe(false);
     const t = await m.port.playSid(fakeSid({ songs: 3, name: "Test Tone", flags: 0x24 }));
