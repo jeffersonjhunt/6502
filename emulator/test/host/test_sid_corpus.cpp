@@ -7,8 +7,8 @@
  * (gitignored: the tunes are their composers'; the owner's HVSC copy is
  * tens of thousands), is played: SID_COUNT of them (12; 0 for all), picked
  * by SID_SEED (printed, so a failure can be run again; random if unset).
- * A PSID with a play routine must be called first within two frames of
- * init's return (seen as the 6510 fetching the stub's instruction after
+ * A PSID with a play routine must be called first within two frames (a CIA
+ * song: two of its timer's periods, if longer) of init's return (seen as the 6510 fetching the stub's instruction after
  * its JSR to init, SidPlan::returned), then on time for two seconds from
  * that call (VBI: 50 or 60 a second, less one for the host's polling and at
  * most two over; CIA: at least once). Init's own length isn't the card's
@@ -105,6 +105,7 @@ namespace
         unsigned frames{0}; ///< in the `on_time` clocks from the first
         uint64_t from{0};   ///< the first frame, in clocks from the start (0: none); printed only
         int64_t late{-1};   ///< SID clocks from init's return to the first frame (0: it came first; -1: no frame)
+        uint32_t period{0}; ///< CIA 1 timer A's period at the first frame, in SID clocks
         bool sounded{false};
         bool own_raster{false}; ///< it turned the VIC-II's raster interrupt on ($D01A bit 0) itself
         uint64_t irqs{0};       ///< interrupt entries: reads of the vector at $FFFE
@@ -174,6 +175,7 @@ namespace
                     first = true, r.from = t;
                     const uint64_t now = card.sid_clocks();
                     r.late = watch.returned ? static_cast<int64_t>(now - watch.returned_at) : 0;
+                    r.period = card.timer_latch() + 1u;
                 }
                 r.frames += t < r.from + on_time ? 1 : 0;
             }
@@ -213,11 +215,13 @@ namespace
     constexpr uint64_t IRQS_A_FRAME = 8;
 
     /// Frames the card may take, from init's return, to the first play call:
-    /// the frame (or CIA period) then pending, and play's own run.
+    /// the frame then pending, and play's own run. For a CIA song, periods of
+    /// its timer if longer: init may set it slow (one sample has a tune at
+    /// 8.7 frames a call).
     constexpr uint64_t LATE_FRAMES = 2;
 
     /// The rule. A PSID with a play routine must be called first within
-    /// LATE_FRAMES frames of init's return (however long init itself runs, as
+    /// LATE_FRAMES frames (or, for a slower CIA song, timer periods) of init's return (however long init itself runs, as
     /// on a C64), then on time for the window (a VBI song neither late nor
     /// more than twice over), and must sound; unless the stub never called
     /// it because it took the raster interrupt itself (like a play-0 tune,
@@ -235,17 +239,18 @@ namespace
         const bool cia = f.cia_timed(f.start_song);
         const unsigned rate = f.ntsc() ? 60 : 50;
         const unsigned want = cia ? 1 : 2 * rate - 1;
-        const bool started = r.late >= 0 && static_cast<uint64_t>(r.late) <= LATE_FRAMES * frame;
+        const uint64_t tick = cia ? std::max<uint64_t>(frame, r.period) : frame;
+        const bool started = r.late >= 0 && static_cast<uint64_t>(r.late) <= LATE_FRAMES * tick;
         return r.frames >= want && (cia || r.frames <= 2 * rate + 2) && started && r.sounded;
     }
 
-    /// A PSID: load and init $1000, play $1000 + `play_at`, PAL.
-    SidFile synthetic(std::vector<uint8_t> code, uint16_t play_at)
+    /// A PSID: load and init $1000, play $1000 + `play_at`, PAL; VBI, or on the CIA.
+    SidFile synthetic(std::vector<uint8_t> code, uint16_t play_at, bool cia = false)
     {
         std::vector<uint8_t> b(0x7C, 0);
         b[0] = 'P', b[1] = 'S', b[2] = 'I', b[3] = 'D', b[5] = 2, b[7] = 0x7C;
         b[0x08] = 0x10, b[0x0A] = 0x10, b[0x0C] = static_cast<uint8_t>(0x10 + (play_at >> 8)), b[0x0D] = static_cast<uint8_t>(play_at);
-        b[0x0F] = 1, b[0x11] = 1, b[0x77] = 0x14;
+        b[0x0F] = 1, b[0x11] = 1, b[0x15] = cia ? 1 : 0, b[0x77] = 0x14;
         b.insert(b.end(), code.begin(), code.end());
         std::string error;
         const auto f = parse_sid(b, error);
@@ -301,6 +306,14 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
              synthetic(SAW + std::vector<uint8_t>{0xA9, 0x04, 0x85, 0x40, 0xA2, 0x00, 0xA0, 0x00, 0x88, 0xD0, 0xFD, 0xCA,
                                                   0xD0, 0xF8, 0xC6, 0x40, 0xD0, 0xF2, 0x60, 0x60},
                        39),
+             true);
+    // A CIA song whose init sets the timer to $FFFF (3.3 frames): its first
+    // call may come up to two of those after init. LDA #$FF STA $DC04 STA $DC05,
+    // LDA #$11 STA $DC0E (loaded now, so the first period is the slow one).
+    run_rule("a CIA song with a slow timer",
+             synthetic(SAW + std::vector<uint8_t>{0xA9, 0xFF, 0x8D, 0x04, 0xDC, 0x8D, 0x05, 0xDC, 0xA9, 0x11, 0x8D, 0x0E, 0xDC,
+                                                  0x60, 0x60},
+                       34, true),
              true);
     // A card that never starts the frames after init: here init turns FRAMEEN off ($DE04 = 0).
     run_rule("no frame after init (FRAMEEN off)", synthetic(SAW + std::vector<uint8_t>{0xA9, 0x00, 0x8D, 0x04, 0xDE, 0x60, 0x60}, 26),
