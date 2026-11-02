@@ -356,6 +356,68 @@ TEST(the_6510s_interrupt_entry_takes_sid_clocks_too)
     CHECK_EQ(c.cpu().cycles() - cpu0, c.sid_clocks() - sid0);
 }
 
+TEST(cia_timer_a_reloads_from_the_latch_a_new_latch_waits_and_load_strobes)
+{
+    // Continuous, latch 99: five underflows; the latch to 199 while it runs
+    // (taking effect at the next underflow); five more; then CRA = $11, LOAD
+    // and start, which reloads at once. The host watches the counter jump up.
+    SoundCard c;
+    c.set_cpu_hz(SoundCard::PAL_HZ); // a tick is a SID clock
+    start(c, 0x1000,
+          {
+              0xA9, 0x63, 0x8D, 0x04, 0xDC, // LDA #99 STA $DC04
+              0xA9, 0x00, 0x8D, 0x05, 0xDC, // LDA #0 STA $DC05     stopped: loads the counter
+              0xA9, 0x01, 0x8D, 0x0E, 0xDC, // LDA #1 STA $DC0E     start, continuous
+              0xA2, 0x05,                   // LDX #5
+              0xAD, 0x0D, 0xDC,             // LDA $DC0D           wait for an underflow
+              0x29, 0x01,                   // AND #1
+              0xF0, 0xF9,                   // BEQ the LDA
+              0xCA, 0xD0, 0xF6,             // DEX BNE the LDA
+              0xA9, 0xC7, 0x8D, 0x04, 0xDC, // LDA #199 STA $DC04  running: the latch only
+              0xA2, 0x05,                   // LDX #5
+              0xAD, 0x0D, 0xDC, 0x29, 0x01, 0xF0, 0xF9, 0xCA, 0xD0, 0xF6,
+              0xA2, 0x20, 0xCA, 0xD0, 0xFD, // LDX #32 DEX BNE: into the period
+              0xA9, 0x11, 0x8D, 0x0E, 0xDC, // LDA #$11 STA $DC0E  LOAD and start
+              0x4C, 0x40, 0x10,             // JMP *
+          },
+          0);
+    struct Jump
+    {
+        uint64_t at;
+        unsigned from, to;
+    };
+    std::vector<Jump> jumps;
+    unsigned last = c.timer();
+    for (unsigned i = 0; i < 4000; ++i)
+    {
+        c.tick(1);
+        if (c.timer() > last)
+            jumps.push_back({c.sid_clocks(), last, c.timer()});
+        last = c.timer();
+    }
+    // When each reload happened, to the clock (the counter has counted on
+    // by however far the instruction ran past it), and the periods between:
+    // -1 marks the strobe, which reloads mid-period.
+    std::vector<long> seq;
+    uint64_t prev = 0;
+    for (size_t k = 0; k < jumps.size(); ++k)
+    {
+        const Jump &j = jumps[k];
+        const unsigned latch = j.to <= 99 ? 99 : 199;
+        const uint64_t when = j.at - (latch - j.to);
+        if (j.from > 8)
+            seq.push_back(-1);
+        else if (k)
+            seq.push_back(static_cast<long>(when - prev));
+        prev = when;
+    }
+    // Five periods of 100 (the fifth runs out after the latch became 199:
+    // a new latch waits for the underflow), four of 200, the strobe, 200s.
+    CHECK(seq.size() >= 12);
+    for (size_t k = 0; k < seq.size(); ++k)
+        CHECK_EQ(seq[k], k < 5 ? 100L : k < 9 ? 200L : k == 9 ? -1L : 200L);
+}
+
 TEST(cia_one_shot_stops_and_reading_icr_acknowledges)
 {
     SoundCard c;
