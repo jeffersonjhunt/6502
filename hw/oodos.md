@@ -1592,13 +1592,14 @@ saved by `OODOS_UTILS_OUT`).
 [`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
 the choices it left open marked ours):
 
-- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,848, TYPE 4,147, ERASE
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,868, TYPE 4,147, ERASE
   4,091, RENAME 4,452, SET 6,766, INITDIR 5,610, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
   review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
   DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
   feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
   each when the quiet stops became `cmd.inc`'s for every program; after the third, DIR 240 more for its lines' one
-  routine, `LINE`, and INITDIR 13 for leaving a stopped re-format's copies to the re-format, not a recover). ld65 links all
+  routine, `LINE`, and INITDIR 13 for leaving a stopped re-format's copies to the re-format, not a recover; after the
+  fourth, DIR 20 more for the heading at a sheet's top that doesn't show and on a short page's sheets). ld65 links all
   of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
   as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
   directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
@@ -1628,16 +1629,21 @@ the choices it left open marked ours):
   form feed under `FF` and the printer echo on. Lines that belong together go to the next page or sheet when they
   don't fit the rest of this one (ours): a group's `Directory For` line, its blank, its column heading and first
   file; the column heading and a file; the blank and the two totals lines. On a new page or sheet, within a FULL or
-  DATE group (its files and totals), the column heading comes first, so it is never written twice running; a
-  blank that only separates (between groups, before the totals) is left out at a top that shows, after a stop
-  or a form feed (ours; a sheet without one keeps it). With
+  DATE group (its files and totals), the column heading comes first, shown or not, so it is never written twice
+  running; the blank before the totals is left out at such a top, the heading's own blank standing for it, so
+  the listing is the same with the printer echo on or off but for the form feeds (ours). The blank between
+  groups is left out at a top that shows, after a stop or a form feed (ours; a sheet without one keeps it). On a
+  page of 5 (4 lines and the stop) the heading and the two totals lines don't fit together: the heading wins,
+  so the totals are split over two pages, each under the heading (ours). With
   `LENGTH=` and paging both, the heading starts each page and each sheet, and the printer has the screen's
   lines (ours). Without `LENGTH=` there is no sheet count (`NOPAGE`, `FF` without `LENGTH=`, the SCB's page mode
   off: no repeats); SIZE and the short form have no column heading, so their pages and sheets only hold their
   lines. A page under 5 lines (4 or fewer and the stop's) is too short for the heading and a file, so the heading
-  isn't written again there (ours). The page's stop for lines kept together is `cmd.inc`'s `CM_STOP`
+  isn't written again at its stops (ours); `LENGTH=`'s sheets on such a page still start with it. The page's stop
+  for lines kept together is `cmd.inc`'s `CM_STOP`
   (`CM_LINE`'s own stop, a label added for DIR; no other program's bytes changed). A line the BDOS writes (a
-  refused drive's error) isn't counted. DATE shows
+  refused drive's error, a directory read that fails), and the line owed that its CR LF ends, isn't counted, so
+  a page or sheet after one can hold that many lines more (ours). DATE shows
   the stamps on a drive without a label too (FULL doesn't, the Guide). **Speed:** each entry's record is found
   by a search of those made so far, and the pointers are sorted by insertion, so both grow as the square of the
   files. Measured on M: (60 and 190 files in random order): the lookup about 64 n² cycles, the sort about
