@@ -40,8 +40,10 @@
 #include <array>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -746,6 +748,61 @@ namespace
         }
         return v;
     }
+    /// The kind of `whole[i]`, a line of a FULL listing unpaged, for where a page or sheet runs out: a group's
+    /// "Directory For" line, its blank, the column heading's two lines and its blank, the first file, one in the
+    /// middle, the last, the blank before the totals, each totals line, the blank between groups. "" for none.
+    std::string kind(const std::vector<std::string> &whole, size_t i)
+    {
+        auto at = [&](size_t k) { return k < whole.size() ? whole[k] : std::string("-"); };
+        auto file = [&](size_t k) {
+            const std::string l = at(k);
+            return !l.empty() && l != "-" && l != FH && l != FD && !starts(l, "Directory For") && !starts(l, "Total");
+        };
+        const std::string l = at(i);
+        if (starts(l, "Directory For"))
+            return "Directory For";
+        if (starts(l, "Total Bytes"))
+            return "Total Bytes";
+        if (starts(l, "Total 1k Blocks"))
+            return "Total 1k Blocks";
+        if (l == FH)
+            return "column heading";
+        if (l == FD)
+            return "its dashes";
+        if (l.empty())
+            return starts(at(i - 1), "Directory For") ? "Directory For's blank"
+                   : at(i - 1) == FD                  ? "column heading's blank"
+                   : starts(at(i + 1), "Total Bytes") ? "totals' blank"
+                   : starts(at(i + 1), "Directory For") ? "between groups"
+                                                        : "";
+        if (!file(i))
+            return "";
+        return !file(i - 1) ? "first file" : !file(i + 1) ? "last file" : "a middle file";
+    }
+    /// Where each page or sheet but the last of `pages` (checked against `whole` by check_pages) ran out: the
+    /// line of `whole` its `most` lines would have ended on had they all been the listing's, from where it
+    /// started (a heading written again at its top taken off them). Its kind, each.
+    std::vector<std::string> ran_out(const std::vector<std::vector<std::string>> &pages, size_t most,
+                                     const std::vector<std::string> &whole)
+    {
+        std::vector<std::string> v;
+        size_t got = 0; // lines of `whole` before this page's
+        bool own = false;
+        for (size_t p = 0; p < pages.size(); ++p)
+        {
+            const std::vector<std::string> &l = pages[p];
+            size_t i = 0;
+            if (p && column_head(l, 0) && !own)
+                i = 3;
+            if (p && i < l.size() && (starts(l[i], "Directory For") || starts(l[i], "Total Bytes")))
+                ++got; // (its blank left out)
+            if (p + 1 < pages.size() && got + most - i - 1 < whole.size())
+                v.push_back(kind(whole, got + most - i - 1));
+            got += l.size() - i;
+            own = got >= 2 && got <= whole.size() && starts(whole[got - 2], "Directory For") && whole[got - 1].empty();
+        }
+        return v;
+    }
 } // namespace
 
 TEST(a_page_and_a_sheet_start_with_the_heading_and_hold_at_most_their_lines)
@@ -769,17 +826,47 @@ TEST(a_page_and_a_sheet_start_with_the_heading_and_hold_at_most_their_lines)
     r.scb(0x2C, 0);
     REQUIRE(whole.size() == 56);
     REQUIRE(wshort.size() > 10);
-    // Paged (the SCB's page length n: n - 1 lines and the stop), the default LENGTH=
-    for (unsigned n = 5; n <= 30; ++n)
+    // Not every n (a listing is some 20-70 s under ASan, the more pages the longer), but enough that the pages and
+    // sheets between them run out on every kind of line the listing has (kind(): each line of a group's opening,
+    // of its column heading, its first, a middle and its last file, the totals' blank and lines, the blank
+    // between groups), checked below by ran_out(). Paged (the SCB's page length n: n - 1 lines and the stop),
+    // the default LENGTH=: 5 and 6, the shortest (5: the dashes, first and last file, each totals line; 6: the
+    // column heading's blank, the totals' blank), 12 ("Directory For"), 19 (its blank), 22 (between groups:
+    // the page's last line), 25 (the column heading: a stop would split it), and one longer than the listing
+    std::set<std::string> out;
+    for (unsigned n : {5u, 6u, 12u, 19u, 22u, 25u, 60u})
     {
         r.scb(0x1C, static_cast<uint8_t>(n));
         const std::string at = "n=" + std::to_string(n) + " ";
-        same(at + check_pages(as_pages(r.paged("dir m: [full,user=all]")), n - 1, whole, true), at);
+        const auto pages = as_pages(r.paged("dir m: [full,user=all]"));
+        same(at + check_pages(pages, n - 1, whole, true), at);
+        for (const std::string &k : ran_out(pages, n - 1, whole))
+            out.insert(k);
     }
-    // DATE, SIZE (no column heading) and the short form at a few
-    REQUIRE(wsize.size() == 32);
-    for (unsigned n : {5u, 9u})
+    // A page of 4 or less: the heading not written again (too short for it and a file), so a stop each n - 1
+    // lines of the listing, nothing kept together, a separating blank (the totals', between groups) left out at
+    // a top, as at any
+    r.scb(0x1C, 4);
     {
+        std::vector<std::vector<std::string>> want(1);
+        for (size_t i = 0; i < whole.size(); ++i)
+        {
+            const bool sep = whole[i].empty() && i + 1 < whole.size() &&
+                             (starts(whole[i + 1], "Total Bytes") || starts(whole[i + 1], "Directory For"));
+            if (want.back().size() == 3)
+                want.emplace_back();
+            if (!(sep && want.size() > 1 && want.back().empty()))
+                want.back().push_back(whole[i]);
+        }
+        std::string w;
+        for (size_t p = 0; p < want.size(); ++p)
+            w += (p ? "\r\nPress a key for more\r                    \r" : "") + lines(want[p]);
+        same("n=4 " + r.paged("dir m: [full,user=all]"), "n=4 " + w);
+    }
+    // DATE, SIZE (no column heading) and the short form at one
+    REQUIRE(wsize.size() == 32);
+    {
+        const unsigned n = 9;
         r.scb(0x1C, static_cast<uint8_t>(n));
         const std::string at = "n=" + std::to_string(n) + " ";
         same(at + check_pages(as_pages(r.paged("dir m: [date,user=all]")), n - 1, wdate, true), at);
@@ -789,31 +876,69 @@ TEST(a_page_and_a_sheet_start_with_the_heading_and_hold_at_most_their_lines)
         r.scb(0x1A, 79);
     }
     r.scb(0x1C, 24);
-    // FF and LENGTH=n, the printer echo on (LST the serial line, CONOUT the screen only), the page mode off
+    const std::set<std::string> kinds = {"Directory For", "Directory For's blank", "column heading", "its dashes",
+                                         "column heading's blank", "first file", "a middle file", "last file",
+                                         "totals' blank", "Total Bytes", "Total 1k Blocks", "between groups"};
+    same(lines(std::vector<std::string>(out.begin(), out.end())), lines(std::vector<std::string>(kinds.begin(), kinds.end())));
+    // FF and LENGTH=n, the printer echo on (LST the serial line, CONOUT the screen only), the page mode off. A
+    // sheet is a page one line longer, so the same kinds at one less: 5 (the column heading's blank, last file,
+    // the totals' blank, Total 1k Blocks), 6 (the first file, between groups), 10 ("Directory For", the dashes),
+    // 12 (its blank), 19 (the column heading, Total Bytes), and one longer than the listing
     r.scb(0x2C, 1);
     r.scb(0x25, 0x80);
     r.scb(0x2B, 0x40);
     r.scb(0x38, 1);
     r.cmd(";");
-    for (unsigned n = 5; n <= 30; ++n)
+    out.clear();
+    std::map<unsigned, std::vector<std::string>> unseen; // the printout of a sheet that doesn't show
+    for (unsigned n : {5u, 6u, 10u, 12u, 19u, 60u})
     {
         const std::string at = "length=" + std::to_string(n) + " ";
         std::string bad;
         const auto sheets = as_sheets(r.said("dir m: [full,user=all,ff,length=" + std::to_string(n) + "]"), bad);
         same(at + bad + check_pages(sheets, n, whole, true), at);
+        for (const std::string &k : ran_out(sheets, n, whole))
+            out.insert(k);
+        // Without the form feeds, the same lines, the heading still in the totals' blank's place, up to the first
+        // sheet that starts with a group (the blank before it is kept where the top doesn't show, so the sheets
+        // after may fall otherwise); with how many sheets start with the totals before it
+        std::vector<std::string> &u = unseen[n];
+        for (size_t p = 0; p < sheets.size() && !(p && !sheets[p].empty() && starts(sheets[p][0], "Directory For")); ++p)
+        {
+            u.insert(u.end(), sheets[p].begin(), sheets[p].end());
+            if (p && column_head(sheets[p], 0) && sheets[p].size() > 3 && starts(sheets[p][3], "Total Bytes"))
+                u.insert(u.begin(), "+"); // (counted at the front, taken off below)
+        }
     }
-    for (unsigned n : {5u, 13u})
+    same(lines(std::vector<std::string>(out.begin(), out.end())), lines(std::vector<std::string>(kinds.begin(), kinds.end())));
+    // A sheet that doesn't show (LENGTH= without FF) at two where the totals start one (5: after the last file;
+    // 19: their blank and the first line fit, not the second): as with the form feeds, as far as they compare
+    auto as_unseen = [&](unsigned n, const std::string &o) {
+        std::vector<std::string> u = unseen[n];
+        while (!u.empty() && u[0] == "+")
+            u.erase(u.begin());
+        std::vector<std::string> l = split(o, "\r\n");
+        l.resize(std::min(l.size(), u.size()));
+        return "length=" + std::to_string(n) + " " + (l == u ? "" : "differs:\n" + lines(l) + "\n---- with FF:\n" + lines(u));
+    };
+    for (unsigned n : {5u, 19u})
     {
-        const std::string at = "length=" + std::to_string(n) + " ";
+        CHECK(!unseen[n].empty() && unseen[n][0] == "+");
+        same(as_unseen(n, r.said("dir m: [full,user=all,length=" + std::to_string(n) + "]")), "length=" + std::to_string(n) + " ");
+    }
+    {
+        const std::string at = "length=13 ";
         std::string bad;
-        const auto dsheets = as_sheets(r.said("dir m: [date,user=all,ff,length=" + std::to_string(n) + "]"), bad);
-        same(at + bad + check_pages(dsheets, n, wdate, true), at);
-        const auto ssheets = as_sheets(r.said("dir m: [size,user=all,ff,length=" + std::to_string(n) + "]"), bad);
-        same(at + bad + check_pages(ssheets, n, wsize, false), at);
+        const auto dsheets = as_sheets(r.said("dir m: [date,user=all,ff,length=13]"), bad);
+        same(at + bad + check_pages(dsheets, 13, wdate, true), at);
+        const auto ssheets = as_sheets(r.said("dir m: [size,user=all,ff,length=13]"), bad);
+        same(at + bad + check_pages(ssheets, 13, wsize, false), at);
     }
     r.scb(0x38, 0);
     r.scb(0x2B, 0x20);
     r.scb(0x25, 0xC0);
+    // FF with the echo off: no form feeds, the sheets as without FF
+    same(as_unseen(5, r.said("dir m: [full,user=all,ff,length=5]")), "length=5 ");
     r.scb(0x2C, 0);
     r.cmd(";");
 }
