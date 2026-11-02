@@ -119,6 +119,9 @@ make -C docs index      # regenerate index/*.json
   number is there;
 - every I/O register equate in `backplane/bios/backplane.inc` (an address in `$C000-$C7FF`) has an entry, and
   every register entry's address, equates and module are backplane.inc's;
+- every utility (`oodos/utils/NAME.s`), every built-in command (`BINAMES` in `oodos/sys/ccp.s`, by its long
+  name) and every command planned with no source yet (`PLANNED` in check_docs.py: PIP, SUBMIT, GET, PUT) has an
+  entry;
 - entries follow their template's headings, in order, with a known status;
 - every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md
   resolves, to its file and its anchor;
@@ -126,15 +129,16 @@ make -C docs index      # regenerate index/*.json
 - every Technical Reference section has a status tag;
 - the indexes are what the entries generate.
 
-It prints how many function numbers, equates, files, entries, links and listings it examined, and fails if it
-found no function numbers, equates, Markdown files, links or entries: a check that examined nothing hasn't
-passed.
+It prints how many function numbers, equates, utilities, built-ins, files, entries, links and listings it
+examined, and fails if it found no function numbers, equates, utilities, built-ins, Markdown files, links or
+entries: a check that examined nothing hasn't passed.
 
 **What isn't written yet** is listed in [tools/unwritten.txt](tools/unwritten.txt), one anchor a line. A missing
 entry fails the check unless it's listed there; a listed one that has been written, or that names nothing in the
-sources, fails it too. So the list can only shrink: G1 empties its functions and utilities, G2 its registers. An
-equate or function added to the sources fails the check until it gets an entry or a line on the list, which is
-the point: the books can't fall behind the code without someone saying so. `make coverage` lists both sides.
+sources, fails it too; for a command, the sources are the utilities, the built-ins and `PLANNED`. So the list can
+only shrink: G1 empties its functions and utilities, G2 its registers. An equate, function, utility or built-in
+added to the sources fails the check until it gets an entry or a line on the list, which is the point: the books
+can't fall behind the code without someone saying so. `make coverage` lists both sides.
 
 [tools/test_check_docs.py](tools/test_check_docs.py) is the check's own test: it copies the tree, breaks the copy
 one way at a time (a function or an equate with no entry, an entry for one that doesn't exist, a wrong heading, a

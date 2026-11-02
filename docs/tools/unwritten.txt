@@ -2,8 +2,9 @@
 #
 # check_docs.py lets an entry the sources call for be missing only if it is here, and fails
 # on a name here that is written now (take it off) or that names nothing in the sources. G1
-# empties the functions and utilities, G2 the registers. Utilities have no source to check
-# against: their names below are the plan (hw/oodos.md, "Phases").
+# empties the functions and utilities, G2 the registers. The util- names are checked against
+# oodos/utils/*.s, the CCP's built-ins (BINAMES in oodos/sys/ccp.s, by the long name) and
+# check_docs.py's PLANNED, the commands with no source yet (hw/oodos.md, "Phases").
 
 # BDOS functions (oodos/include/oodos.inc): G1
 bdos-0   # P_TERMCPM

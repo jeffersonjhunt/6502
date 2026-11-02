@@ -4,7 +4,7 @@
     python3 -I -B docs/tools/test_check_docs.py
 
 Copies what the check reads (docs/, hw/, AGENTS.md, the two includes, the
-utilities' sources and the files the books link to) into a scratch directory, checks the copy as it is
+utilities' sources, ccp.s and the files the books link to) into a scratch directory, checks the copy as it is
 (it must pass), then breaks a fresh copy one way at a time and expects the
 check to fail, saying what it found. Python 3's standard library only.
 """
@@ -25,6 +25,7 @@ INC = "oodos/include/oodos.inc"
 BP = "backplane/bios/backplane.inc"
 UNWRITTEN = "docs/tools/unwritten.txt"
 UTILS = "oodos/utils"
+CCP = "oodos/sys/ccp.s"
 
 # A register entry as the template has it, for $C77F.
 CONSOLE_ID = """
@@ -84,7 +85,7 @@ def copy_tree(dest):
     ignore = shutil.ignore_patterns("build", "__pycache__")
     for d in ("docs", "hw", UTILS):
         shutil.copytree(os.path.join(REPO, d), os.path.join(dest, d), ignore=ignore)
-    for f in sorted({"AGENTS.md", INC, BP} | links_out(REPO)):
+    for f in sorted({"AGENTS.md", INC, BP, CCP} | links_out(REPO)):
         src = os.path.join(REPO, f)
         if os.path.isdir(src):
             os.makedirs(os.path.join(dest, f), exist_ok=True)  # a link to a directory: it need only exist
@@ -168,6 +169,12 @@ CASES = [
      lambda r: append(r, UNWRITTEN, "bdos-9\n"), "bdos-9 is written now: take it off the list"),
     ("an unwritten name that names nothing",
      lambda r: append(r, UNWRITTEN, "bdos-201\n"), "bdos-201 names nothing in the sources"),
+    ("a utility with no entry and off the list",
+     lambda r: drop_line(r, UNWRITTEN, r"^util-type\b"), "no entry util-type (oodos/utils/type.s)"),
+    ("a utility misspelled on the list",
+     lambda r: edit(r, UNWRITTEN, "util-setdef\n", "util-setdeff\n"), "util-setdeff names nothing in the sources"),
+    ("a new utility's source with no entry",
+     lambda r: write(r, UTILS + "/newone.s", "; a new utility\n"), "no entry util-newone (oodos/utils/newone.s)"),
     ("an entry missing a template heading",
      lambda r: edit(r, PG7, "#### Cycles\n\nNot measured.", "Not measured."), "no '#### Cycles'"),
     ("an entry's headings out of order",

@@ -12,6 +12,8 @@ Checks, against the sources the books describe:
   - every I/O register equate in backplane/bios/backplane.inc (an address in
     $C000-$C7FF) has an entry in the Technical Reference, and every register
     entry's address and equates are an equate's;
+  - every utility (oodos/utils/NAME.s), every built-in command (ccp.s's
+    BINAMES, by its long name) and each command PLANNED has a util- entry;
   - an entry not written yet is named in docs/tools/unwritten.txt, and a name
     there that is written now (or names nothing) fails, so the list shrinks;
   - entries follow their template's headings (docs/templates/), in order;
@@ -36,6 +38,9 @@ import sys
 BOOKS = ("oodos-programmers-guide", "oo1-technical-reference", "oodos-users-guide")
 SW_STATUS = ("built", "proposed")              # OODOS's functions and utilities
 HW_STATUS = ("built", "emulated", "proposed")  # the machine's registers and sections
+# Commands with no source yet, from the plan (hw/oodos.md, "Phases"): PIP is phase 4b2's; SUBMIT, GET and PUT
+# phase 5's, as RSXs.
+PLANNED = ("pip", "submit", "get", "put")
 MODULES = {0x6: "serial", 0x7: "storage", 0x8: "DMA", 0x9: "video", 0xA: "sound", 0xB: "USB",
            0xD: "north bridge", 0xE: "console"}
 
@@ -128,6 +133,30 @@ class Check:
         """The transient utilities: each oodos/utils/NAME.s's NAME, sorted."""
         path = os.path.join(self.root, "oodos", "utils")
         return sorted(f[:-2] for f in os.listdir(path) if f.endswith(".s")) if os.path.isdir(path) else []
+
+    def builtins(self):
+        """The CCP's built-in commands, lower case: BINAMES in oodos/sys/ccp.s, each handler's first name, which is
+        its long one (DIRSYS, not DIRS)."""
+        path = os.path.join(self.root, "oodos", "sys", "ccp.s")
+        out, handlers, name, on = [], set(), None, False
+        for line in self.read(path).splitlines():
+            if line.startswith("BINAMES:"):
+                on = True
+            elif not on:
+                continue
+            m = re.search(r'\.byte\s+\d+,\s*"([A-Z0-9]+)"', line)
+            if m:
+                name = m.group(1)
+                continue
+            m = re.search(r"\.word\s+(\w+)", line)
+            if m and name:
+                if m.group(1) not in handlers:
+                    handlers.add(m.group(1))
+                    out.append(name.lower())
+                name = None
+            elif re.search(r"\.byte\s+0\s*(;|$)", line):
+                break
+        return out
 
     # ---- the books --------------------------------------------------------------------------
 
@@ -258,10 +287,19 @@ class Check:
         for name, a in regs.items():
             addrs.setdefault(a, []).append(name)
         self.utils = self.utilities()
+        builtins = self.builtins()
+        commands = {f"util-{u}": f"oodos/utils/{u}.s" for u in self.utils}
+        for b in builtins:
+            commands.setdefault(f"util-{b}", "a built-in in ccp.s")
+        for p in PLANNED:
+            commands.setdefault(f"util-{p}", "planned")
+        self.commands = commands
         templates = self.templates()
         files = self.md_files()
-        self.counts.update(functions=len(fns), equates=len(regs), addresses=len(addrs), files=len(files))
+        self.counts.update(functions=len(fns), equates=len(regs), addresses=len(addrs), files=len(files),
+                           utilities=len(self.utils), builtins=len(builtins))
         for what, n in (("function numbers in oodos.inc", len(fns)), ("I/O equates in backplane.inc", len(regs)),
+                        ("utilities in oodos/utils", len(self.utils)), ("built-ins in ccp.s", len(builtins)),
                         ("Markdown files", len(files))):
             if n == 0:
                 self.fail("check_docs", f"examined no {what}")
@@ -285,7 +323,7 @@ class Check:
             self.fail("check_docs", "examined no entries")
 
         # What should exist, what is allowlisted
-        expected = {f"bdos-{n}" for n in fns} | {f"reg-{a:04x}" for a in addrs}
+        expected = {f"bdos-{n}" for n in fns} | {f"reg-{a:04x}" for a in addrs} | set(commands)
         unwritten = self.unwritten()
         for anchor in sorted(expected - set(written), key=sort_key):
             if anchor not in unwritten:
@@ -294,7 +332,7 @@ class Check:
         for anchor, n in sorted(unwritten.items(), key=lambda kv: sort_key(kv[0])):
             if anchor in written:
                 self.fail(f"docs/tools/unwritten.txt:{n}", f"{anchor} is written now: take it off the list")
-            elif not anchor.startswith("util-") and anchor not in expected:
+            elif anchor not in expected:
                 self.fail(f"docs/tools/unwritten.txt:{n}", f"{anchor} names nothing in the sources")
         self.counts["unwritten"] = len(unwritten)
 
@@ -316,6 +354,8 @@ class Check:
     def describe(self, anchor, fns, addrs):
         if anchor.startswith("bdos-"):
             return fns.get(int(anchor[5:]), "?")
+        if anchor.startswith("util-"):
+            return self.commands.get(anchor, "?")
         return ", ".join(addrs.get(int(anchor[4:], 16), ["?"]))
 
     def unwritten(self):
@@ -566,7 +606,8 @@ class Check:
     def report(self):
         c = self.counts
         print(f"check_docs: {c.get('functions', 0)} function numbers, {c.get('equates', 0)} I/O equates at "
-              f"{c.get('addresses', 0)} addresses; {c.get('files', 0)} Markdown files, {c.get('entries', 0)} "
+              f"{c.get('addresses', 0)} addresses, {c.get('utilities', 0)} utilities, {c.get('builtins', 0)} built-ins; "
+              f"{c.get('files', 0)} Markdown files, {c.get('entries', 0)} "
               f"entries, {c.get('unwritten', 0)} unwritten, {c.get('links', 0)} links, {c.get('listings', 0)} "
               f"listings, {c.get('sections', 0)} Technical Reference sections")
         for f in self.failures:
