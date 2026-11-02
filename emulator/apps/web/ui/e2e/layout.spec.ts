@@ -94,7 +94,7 @@ test("the monitor follows the machine: Display from power-on, after the splash a
   const crt = page.getByTestId("crt");
   const sprites = page.getByTestId("dev-video").locator('[data-reg="Sprites"]');
   await expect(crt).toHaveAttribute("data-scene", "vga"); // the splash, on the card
-  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480");
+  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD");
   await pastSplash(page);
   await expect(crt).toHaveAttribute("data-scene", "vga"); // the BIOS's own screen: Display still
   await openDebugger(page);

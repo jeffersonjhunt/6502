@@ -47,7 +47,7 @@ import { diskBar } from "./ui/disk-bar";
 import { browserDiskStore } from "./ui/disk-store";
 import { drawer, OVERLAY } from "./ui/drawer";
 import { fitWidth } from "./ui/fit";
-import { machineScreen, ScreenFollow, type Screen } from "./ui/screen";
+import { machineSource, ScreenFollow, type Screen } from "./ui/screen";
 import { phosphorPicker, settingsPanel, type SettingsSection } from "./ui/settings";
 import { statusStrip } from "./ui/status-strip";
 import { Speaker } from "./audio/speaker";
@@ -232,19 +232,22 @@ function start(root: HTMLElement, port: MachinePort): void {
     bar.setCapsEnabled(!onUsb());
     glass.setAttribute(
       "aria-label",
-      !onUsb() ? TERMINAL_LABEL : `${s === "apple" ? "Apple IIe" : "VGA"} screen: click and type on the USB keyboard. F6 leaves the screen`,
+      !onUsb() ? TERMINAL_LABEL : `${s === "apple" ? "Apple IIe" : "VGA"} screen: click and type on the USB keyboard, a US layout. F6 leaves the screen`,
     );
     crt.setScene(s);
     glass.dataset.scene = s;
     port.watchVideo(s !== "text");
     if (s === "text") crt.clearVideo();
-    monLabel.textContent = s === "text" ? "TERMINAL · THE SERIAL LINE" : s === "apple" ? "DISPLAY · APPLE IIe 560×384" : "DISPLAY · VGA 640×480";
+    monLabel.textContent = s === "text" ? "TERMINAL · THE SERIAL LINE" : `${s === "apple" ? "DISPLAY · APPLE IIe 560×384" : "DISPLAY · VGA 640×480"} · US KEYBOARD`;
+    // The USB card makes characters from the keys as a US keyboard has them, as a real OO-1's does; the serial
+    // terminal takes the browser's, in the visitor's own layout.
+    monLabel.title = s === "text" ? "Your keyboard types in its own layout" : "The USB card's keyboard is a US layout; on another layout, Terminal types yours";
   };
   const screens = segmented<Screen>(
     "Screen",
     [
       { value: "terminal", text: "Terminal", title: "The serial terminal" },
-      { value: "display", text: "Display", title: "The video card: VGA 640x480, or the IIe's picture in Apple II mode" },
+      { value: "display", text: "Display", title: "The video card: VGA 640x480, or the IIe's picture in Apple II mode; its keyboard is the USB card's, a US layout" },
     ],
     follow.screen,
     (s) => {
@@ -340,8 +343,8 @@ function start(root: HTMLElement, port: MachinePort): void {
       crt.setApple(f.apple);
       strip.signal.textContent = f.apple ? "APPLE IIe" : "VGA 640×480";
     }
-    // The machine's video mode changed (or Display's scene did, with Apple II mode): follow it.
-    if (follow.machine(machineScreen(f)) || sceneFor(follow.screen) !== scene) applyScreen();
+    // The machine's source changed (or Display's scene did, with Apple II mode): follow it.
+    if (follow.machine(machineSource(f)) || sceneFor(follow.screen) !== scene) applyScreen();
     if (pasting && !f.keysQueued) pasting = false;
     const typing = pasting && f.keysQueued >= 40; // not for a line or two
     if (stopTyping.hidden === typing) stopTyping.hidden = !typing; // set only on a change: no restyle a frame

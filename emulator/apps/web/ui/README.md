@@ -85,16 +85,22 @@ terminal; **Display** is the video card's output: VGA, which the BIOS fills
 with the same Woz Monitor session in the IBM VGA font, or in Apple II mode
 the IIe's picture. The phosphor (Settings, Display) is Colour as the card
 makes it, or P1/P3/P4 as a mono monitor shows it. The switch follows the
-machine: the video card showing anything (its boot splash at power-on, then
-the BIOS's screen, `C803R`'s demo) or Apple II mode puts it on Display, so
-the page boots to Display, as a real OO-1 does to its monitor, and stays
-there. With no video card, or its display off, it is on Terminal. A choice
-made by hand holds until the machine's video mode next changes, and is
-remembered for the next visit until then; the machine's own switches are
-not, and the splash at power-on is one, so every visit starts on Display. On Terminal the keyboard
+machine's source: the video card showing anything (its boot splash at
+power-on, then the BIOS's screen, `C803R`'s demo) puts it on Display, and
+so does Apple II mode, so the page boots to Display, as a real OO-1 does to
+its monitor, and stays there. With no video card, or its display off, it is
+on Terminal. A choice made by hand holds until the source next changes (a
+power-on, the display turned off or on, Apple II mode entered or left), and
+is remembered for the next visit until then; the machine's own switches are
+not, and the splash at power-on is one, so every visit starts on Display. A
+program that blanks the display while it sets up, as the demo does, may or
+may not take a Terminal picked by hand to Display: frames sample the card,
+and a blank shorter than one can fall between them. On Terminal the keyboard
 is the serial terminal's; on Display it and the mouse are the USB card's, as
 HID usage codes from the physical keys (the card cooks them in its own US
-layout, with its own Caps Lock, so CAPS is off there). On Terminal, a character AltGr makes
+layout, with its own Caps Lock, so CAPS is off there; the label under the
+screen says US KEYBOARD, as a visitor on another layout types other
+characters there, and Terminal takes their own). On Terminal, a character AltGr makes
 (or Option, on the Mac) is typed as it is. Ctrl+V and Shift+Insert paste
 (Cmd+V on the Mac, where Ctrl+V is the machine's ^V). Tab and Escape are
 the machine's, so F6 takes the keyboard off the screen to what follows it,

@@ -121,6 +121,7 @@ test("Apple II mode locks the clock at 1.02 MHz until a cold start", async ({ pa
   await page.keyboard.type("C685: 1");                   // MODE: Apple II mode (no IIe ROM: it just sits there)
   await page.keyboard.press("Enter");
   await expect(clock.getByRole("button", { name: "1.02" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "apple"); // a switch: off Terminal, to the Apple's picture
   await expect(clock.getByRole("button", { name: "7.16 MHz" })).toBeDisabled();
   const key = page.getByTestId("keyswitch");
   await key.click(); // LOCK

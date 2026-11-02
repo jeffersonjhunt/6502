@@ -96,7 +96,7 @@ test("at power-on the splash shows on Display, and the monitor stays on Display 
   await expect(crt).toHaveAttribute("data-scene", "vga");
   await pastSplash(page); // the splash playing, then over
   await expect(crt).toHaveAttribute("data-scene", "vga"); // the BIOS's screen, where a real OO-1 leaves you
-  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480", { useInnerText: true });
+  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD", { useInnerText: true });
   await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
 });
 
@@ -104,7 +104,8 @@ test("Display is the video card, Terminal the serial line; the monitor says whic
   await booted(page);
   const label = page.getByTestId("mon-label");
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // it boots to Display; not in Apple II mode: VGA
-  await expect(label).toHaveText("DISPLAY · VGA 640×480", { useInnerText: true }); // as rendered
+  await expect(label).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD", { useInnerText: true }); // as rendered
+  await expect(label).toHaveAttribute("title", /US layout; on another layout, Terminal types yours/);
   await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Terminal" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text");
@@ -114,7 +115,7 @@ test("Display is the video card, Terminal the serial line; the monitor says whic
   await expect(page.getByTestId("crt-text")).toContainText(GREETING);
   await page.getByRole("button", { name: "Display" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
-  await expect(label).toHaveText("DISPLAY · VGA 640×480", { useInnerText: true });
+  await expect(label).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD", { useInnerText: true });
 });
 
 test("Step cycle is disabled: the emulator steps whole instructions", async ({ page }) => {

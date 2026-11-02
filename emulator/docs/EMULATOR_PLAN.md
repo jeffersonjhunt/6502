@@ -776,7 +776,10 @@ anything (its boot splash, then the BIOS's screen, a program's picture:
 `FrameState.videoCard`) or Apple II mode switches to it, so the page boots
 to Display as a real OO-1 does to its monitor, and stays there; Terminal
 when there is no video card or its display is off. A choice by hand holds
-until the machine's mode next changes. On a phone the toolbar folds into More, the panel
+until the source (serial, VGA, Apple II) next changes: a power-on, the
+display turned off or on, Apple II mode entered or left. A blank shorter
+than a frame, as the demo makes while it sets up, may be missed. Display's
+label says US KEYBOARD: the USB card cooks keys in a US layout. On a phone the toolbar folds into More, the panel
 scales to the width, and the drawer is a full-screen dialog.
 
 **The serial card's VIA and joysticks (2026-10-30), step 9.** hw/design.md's
