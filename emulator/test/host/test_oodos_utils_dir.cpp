@@ -569,17 +569,20 @@ TEST(length_repeats_the_heading_and_paging_starts_each_page_with_it)
     REQUIRE(r.ok);
     const std::vector<std::string> f = user0_full(r);
     const std::vector<std::string> t0 = user0_totals(r), t0top(t0.begin() + 1, t0.end()); // (without its blank)
-    // LENGTH=6: each 6 lines a new sheet (unseen without FF), the column heading first while in the group's table
+    // LENGTH=6: each 6 lines a new sheet (unseen without FF), the column heading first while in the group's table.
+    // The blank and the totals don't fit the third sheet's last line, so the fourth starts with them: the
+    // heading, its blank standing for theirs, as with a form feed
     same(r.said("dir m: [length=6]"),
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
-               std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} +
-               user0_totals(r)));
+               std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} + fhead() +
+               t0top));
     // The least, 5: the heading's own lines count. The column heading and a file don't fit the first sheet's
     // last 3 lines, so the second starts with them (and the heading isn't written twice); the third and fourth
-    // start with the heading; the blank and the totals start the fifth (a sheet that doesn't show keeps its blank)
+    // start with the heading; the totals start the fifth, under the heading (its blank for theirs)
     same(r.said("dir m: [length=5]"),
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1]} + fhead() +
-               std::vector<std::string>{f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} + t0));
+               std::vector<std::string>{f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} + fhead() +
+               t0top));
     // The most, 65535: never again
     same(r.said("dir m: [length=65535]"), lines(heading('M', 0) + fhead() + f + user0_totals(r)));
     // Several groups (NOPAGE: more than a page): the count goes on across them. LENGTH=20: user 3's group (with
@@ -597,17 +600,28 @@ TEST(length_repeats_the_heading_and_paging_starts_each_page_with_it)
     same(r.said("dir m: [user=all,length=10,nopage]"),
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0], f[1], f[2], f[3], f[4]} + fhead() +
                std::vector<std::string>{f[5]} + user0_totals(r) + sep + g3 + sep + g12));
-    // DATE too, a group a user: each group's column heading and file, and each blank and totals, start a sheet
+    // DATE too, a group a user: each group's column heading and file, and its totals under the heading again
+    // (its blank for theirs), start a sheet; the blank between groups, a sheet that doesn't show keeps
+    auto t2 = [&](unsigned recs) {
+        const std::vector<std::string> t = totals(2, recs, 1, 1, 'M', r.used(), 192);
+        return std::vector<std::string>{DH, DD, "", t[1], t[2]};
+    };
     same(r.said("dir m:*.txt [date,user=all,length=5,nopage]"),
          lines(heading('M', 0) + std::vector<std::string>{DH, DD, "", dated("ALPHA   TXT", when(2026, 10, 2, 10, 45),
                                                                             when(2026, 10, 1, 9, 30))} +
-               totals(2, 3, 1, 1, 'M', r.used(), 192) + sep + heading('M', 3) +
-               std::vector<std::string>{DH, DD, "", dated("THREE   TXT")} + totals(2, 1, 1, 1, 'M', r.used(), 192) +
-               sep + heading('M', 12) + std::vector<std::string>{DH, DD, "", dated("TWELVE  TXT")} +
-               totals(2, 1, 1, 1, 'M', r.used(), 192)));
+               t2(3) + sep + heading('M', 3) + std::vector<std::string>{DH, DD, "", dated("THREE   TXT")} + t2(1) +
+               sep + heading('M', 12) + std::vector<std::string>{DH, DD, "", dated("TWELVE  TXT")} + t2(1)));
     // A page of 4 (a stop every 3 lines): too short for the heading and a file, so not written again
     r.scb(0x1C, 4);
     same(r.paged("dir m: [full]"), pages(heading('M', 0) + fhead() + f + t0, 3));
+    CHECK(r.succeeded());
+    // LENGTH= on that page: the stops are still the page's, without the heading, but each sheet starts with it
+    // (the sheets as LENGTH=6's above)
+    same(r.paged("dir m: [length=6]"),
+         pages(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
+                   std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} +
+                   fhead() + t0top,
+               3));
     CHECK(r.succeeded());
     // A page of 8: a stop every 7 lines; the heading starts each page; the blank before the totals is left out
     // at a page's top
@@ -894,10 +908,10 @@ TEST(ff_sends_a_form_feed_to_lst_when_the_printer_echo_is_on_and_without_length_
         same(r.out.substr(from), "dir m: [ff,length=6]\r\n" + ff + "\r\nA>");
     }
     r.scb(0x1C, 24);
-    same(r.said("dir m: [length=6,nopage]"), // without FF: no form feeds
+    same(r.said("dir m: [length=6,nopage]"), // without FF: no form feeds, the printout else the same
          lines(heading('M', 0) + fhead() + std::vector<std::string>{f[0]} + fhead() +
-               std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} +
-               user0_totals(r)));
+               std::vector<std::string>{f[1], f[2], f[3]} + fhead() + std::vector<std::string>{f[4], f[5]} + fhead() +
+               t0top));
     r.scb(0x38, 0);
     r.scb(0x2B, 0x20);
     r.scb(0x25, 0xC0);

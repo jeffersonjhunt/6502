@@ -122,6 +122,7 @@ ANYOUT:         .res    1              ; 1: a group or message written
 LCOUNT:         .res    2              ; lines on the sheet (LENGTH='s)
 TOP:            .res    1              ; 1: a page or sheet begun, nothing on it yet
 SEEN:           .res    1              ; 1: and it shows: a stop, or a form feed sent
+SHTOP:          .res    1              ; 1: and LENGTH='s sheet begun there
 TABLE:          .res    1              ; 1: in a group under its column heading
 INHDR:          .res    1              ; 1: the column heading being written
 PAGEN:          .res    1              ; lines a page, 0: none (or too few)
@@ -1712,9 +1713,11 @@ SAYLN:          PHA
 ; heading's 3 when one is to come) don't fit the rest of it: LENGTH='s
 ; count (the sheet: a form feed with FF and the printer echo on) or the
 ; page (CM_STOP). At a page's or sheet's top, in a group's table, the
-; column heading is written first; a blank that separates (SEPLN) is left
-; out instead where the top shows (a stop, a form feed): carry set. The
-; line counted (carry clear).
+; column heading is written first, shown or not; a blank that separates
+; (SEPLN) is left out there, the heading's own blank standing for it, and
+; at any top that shows (a stop, a form feed): carry set. The line counted
+; (carry clear). The heading isn't written again at a page too short for it
+; (HEADOK), but is at LENGTH='s sheet on such a page (SHTOP).
 NEWLN:          LDA     #1
 NEEDLN:         STA     NEED
                 STZ     SEPF
@@ -1756,8 +1759,12 @@ LINE:           LDA     CM_EOLDUE
                 LDA     SEPF
                 BEQ     @head
                 LDA     SEEN           ; a blank at a top that shows: left out
-                BEQ     @count
-                SEC
+                BNE     @drop
+                JSR     HEADS          ; one at a top that doesn't, in a group's
+                BEQ     @count         ; table: the heading first, its blank in
+                JSR     TABHDR         ; this one's place, as where it shows
+                JSR     CM_FLUSH
+@drop:          SEC
                 RTS
 @head:          JSR     HEADS
                 BEQ     @count
@@ -1765,6 +1772,7 @@ LINE:           LDA     CM_EOLDUE
                 JSR     CM_FLUSH
 @count:         STZ     TOP
                 STZ     SEEN
+                STZ     SHTOP
                 INC     LCOUNT
                 BNE     @done
                 INC     LCOUNT + 1
@@ -1788,7 +1796,8 @@ HEADS:          LDA     TABLE
                 BEQ     @done
                 LDA     INHDR
                 BNE     @no
-                LDA     HEADOK
+                LDA     HEADOK         ; (a page too short for it: a sheet's top
+                ORA     SHTOP          ; still has it)
 @done:          RTS
 @no:            LDA     #0
                 RTS
@@ -1817,6 +1826,7 @@ SHEET:          LDA     LENGTH
                 STZ     LCOUNT + 1
                 LDA     #1
                 STA     TOP
+                STA     SHTOP
                 LDA     FLAGS + O_FF
                 BEQ     @done
                 LDA     ECHO
