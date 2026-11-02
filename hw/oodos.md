@@ -1140,6 +1140,16 @@ tests.
    and REN leave on a card checked by cpmtools (`cpmls`, `fsck.cpm`, `cpmcp`), as phase 3 did. No model of the
    CCP.
 
+**Decided (2026-10-31)**
+
+1. **4b is two branches:** **4b1** DIR's full form, TYPE, ERASE, RENAME, SET, SHOW, INITDIR, DATE, DEVICE and
+   SETDEF; **4b2** PIP alone, every form and option of the User's Guide, its devices mapped to OODOS's CRT, TTY and
+   LPT, what can't apply refused and said here.
+2. **Phase 4's decisions hold for both:** ca65; shared code in `cmd.inc` (or include files beside it), not copied
+   per utility; the User's Guide's forms and options in full, in our own words, its output's layout followed; what
+   can't apply to OODOS refused and said here as ours; directed tests line for line, and cpmtools for what lands
+   on a card.
+
 **Proposed (4a)** (the User's Guide, sections 1.2, 2.3–2.6, 4 and 5's DIR, ERASE, RENAME, SETDEF, TYPE and USER;
 where it is silent the choice is ours, and says so):
 
@@ -1232,7 +1242,9 @@ where it is silent the choice is ours, and says so):
 - **Paging** (the Guide: DIR and TYPE stop when the screen is full, SETDEF's `[PAGE]`): when the SCB's page mode
   (`$2C`) is 0, the default, the built-in stops after the page length (`$1C`, 24) less one lines, shows
   `Press a key for more` (ours: the Guide says only that it waits), waits for a key, rubs the message out and
-  goes on; a ^C there stops it. Page lengths under 2 don't stop (ours). A ^C typed while DIR or TYPE writes stops
+  goes on; a ^C there stops it. The message and its rubout are written in console mode bit 2 (raw), so with
+  ^P on they stay off the printout (ours, `cmd.inc`'s, every program's that pages with it). Page lengths under 2
+  don't stop (ours). A ^C typed while DIR or TYPE writes stops
   them too: they run in console mode bit 0, where 11 reports only ^C (3b2), and look before each line (DIR) and
   each character (TYPE). ^S and ^Q are the BDOS's, as for any output.
 - **ERA** `filespec` (`ERASE`): the current user's matching files deleted (19), its password, if given, in the
@@ -1270,9 +1282,9 @@ where it is silent the choice is ours, and says so):
   15 and 20 for TYPE and loading, 19 and 23 for ERA and REN, 49 for the SCB's width, page mode and length, search
   chain and display flag (`SCB_CCPDISP`, `$18`, in `sys.inc`), 108 for the return code. The stand-in's warm boot
   work (the rescan, 48, 98; 13 for a ^C at the prompt; 47's request) is kept as it was.
-- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,709 bytes (the CCP 4,421, its
+- **Where it lives:** block 62's code window, resident: cold boot and the CCP 4,773 bytes, `$C800–$DAA4` (the CCP 4,485: 38 more since 4b1's `CM_EOL`, 26 for its stops kept off the printer echo; its
   shared `cmd.inc` among them; the stand-in's was 1,323), then its BSS, 984 bytes (the line of 255, the command,
-  the tail, three FCBs, a record), 5,693 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
+  the tail, three FCBs, a record), 5,757 of the window's 12,288 (`BDOS2` still unused). No zero page (the BDOS's
   and BIOS's 210 of 240 as they were), `SYSBSS` 737 of 1,280, common memory 1,123 of 2,048 and block 60 11,588 as
   they were. Its state across a program (the rest of a `!` line, `ATPROMPT`, `PENDING`, `CCPDRV`, `CCPUSR`) is in
   block 62, which is W3 while a program runs: only the TPA rule (a program keeps to `$0300–$BFFC`) keeps it
@@ -1284,8 +1296,8 @@ where it is silent the choice is ours, and says so):
   console mode (109), keeps it and sets bit 0 in it; `CM_UNPAGE` puts the kept mode back, so a utility leaves a
   mode its caller set as it was. A flag, `CM_PAGED`, in the library's constant data so that it starts 0 with the
   image (a program's BSS isn't cleared), makes a `CM_UNPAGE` without a `CM_PAGE` do nothing and a second `CM_PAGE`
-  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 to `$FFFF` would be
-  a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
+  keep the first's mode; the CCP clears it whenever it sets mode 0. A kept mode that ORs with 1 (`CM_PAGE`) or 5 (a
+  stop) to `$FFFF` would be a get to 109, so it isn't set: it needs bits CP/M 3 leaves undefined (accepted). `CM_BRK` takes a waiting key only in console mode bit 0, where 11 reports only
   ^C; in another mode it leaves the key alone, so it is safe without `CM_PAGE`. The CCP sets mode 0 after each
   built-in in any case. `CMDTEST` (`oodos/sys/test/cmdtest.s`) tests both in `test_oodos_ccp`.
 - **The test card:** `0:HELLO.COM` is a SYS file now (`cpmchattr`, `make_card.sh`), so the CCP finds it from any
@@ -1294,6 +1306,479 @@ where it is silent the choice is ours, and says so):
   EXIST`, `NON-SYSTEM FILE(S) EXIST`, `ERASE spec (Y/N)?`, `Enter User #:`, `NAME?`), the prompt, the layout of
   DIR's lines and of `!`'s commands, the search order and the display mode's line; the rest, marked ours above,
   is OODOS's.
+
+### The utilities, phase 4b ###
+
+**Proposed (4b1)** (the User's Guide: 2.7, 2.10, 3.5, 4.2–4.4, section 5's DATE, DEVICE, DIR, ERASE, INITDIR,
+RENAME, SET, SETDEF, SHOW and TYPE, and Appendix A's messages; pages cited as the Guide numbers them, 5-19; where
+it is silent the choice is ours, and says so):
+
+**For all of them**
+
+- **Where they live:** each a `.COM`, `oodos/utils/NAME.s`, built by `oodos/Makefile` (`make utils`: through the
+  65C816 rules gate and with no ld65 warning, as every program) and put on the card's A: by `make_card.sh`, in
+  user 0 with the SYS attribute (ours, as `HELLO.COM`: the CCP finds them from any user, and DIR doesn't list
+  them). The CCP's hand-offs (`DIR [FULL]`, `ERA` with none, `REN *.X=*.Y`, `TYPE *.TXT`) find them by the search
+  chain, as any program.
+- **Shared code:** `cmd.inc`, as the CCP has it, and `oodos/include/util.inc` beside it for what only the
+  utilities need (the CCP doesn't include it): the option list's parser, numbers of 24 bits with commas and in a
+  field, dates and times, the directory read by 17 with `?`, the label, a drive's DPB, a file specification by
+  152. A routine two utilities need is there, not in either.
+- **The layout:** a utility's lines are separated, not ended, by CR LF (ours: `cmd.inc`'s `CM_EOL`, a line owed
+  and written before the next output, counted for paging there), so its last line is ended by the prompt's CR
+  LF, with no blank line, as after a built-in: `DIR.COM`'s short form and the built-in's are the same bytes. TYPE
+  writes the file's bytes as they are, as the built-in.
+- **Options** (the Guide, 5.2 and DIR's 5-21): in brackets, anywhere in the tail, separated by commas or blanks;
+  `name`, `name=value` or `name=(v,v,...)`; any unambiguous prefix of a name (an exact name wins: DIR's `DIR`
+  isn't ambiguous with `DISK`); `NO` then a blank before a name is one word (`[NO PAGE]` is `[NOPAGE]`, ours). One
+  option list a command; a second, a `[` not closed, an unknown name or an ambiguous prefix is the utility's error
+  (below). The tail is in capitals already (the CCP's).
+- **The return code** (108, ours, as the built-ins): 0 done as asked, `$FF00` an error said, `$FFFE` stopped by
+  ^C (at a page's stop, or while writing). **Errors of the BDOS** (a drive that isn't, a read-only drive or file,
+  a password that doesn't match) are said by the BDOS in error mode `$FE`, as the built-ins' are, except where
+  the Guide gives the utility a message of its own for them (named below).
+- **Paging** as the built-ins: the SCB's page mode (`$2C`, 0 on) and length (`$1C`); `Press a key for more` and a
+  key, ^C there or while writing stops it (`cmd.inc`). A utility's `[NOPAGE]`, where it has one, turns it off; its
+  `[PAGE]` turns it on whatever the SCB says (ours).
+- **Drives:** a drive is given in the FCB's byte where a call takes one (TYPE, ERASE, RENAME); a utility that needs
+  a drive current for its calls (DIR, SET, INITDIR, SHOW) selects it (14); and every utility, as it ends, selects the
+  drive current at its start again (14), so the current drive is as it was (ours; the CCP's warm boot puts its own
+  back in any case).
+- **Dates** are `MM/DD/YY`, the year's last two digits (the Guide), from CP/M 3's days (1 January 1978 day 1, a
+  Sunday); times `HH:MM` (DIR, SHOW) or `HH:MM:SS` (DATE). A stamp of 0 days is no stamp: blanks.
+
+**DIR** (5-19 to 5-28; `DIR.COM`): `DIR {d:} [options]`, `DIR {filespec} {filespec} ... [options]`.
+
+- **Without an option list** (two specifications or more, as the CCP hands them, or `A:DIR` typed): the
+  built-in's listing and messages, each drive given in turn, the names sorted (ours: DIR.COM sorts unless
+  `NOSORT`; the built-in doesn't).
+- **With one, the format is FULL** unless SIZE or DATE is given (the Guide: FULL is the default with options; FULL
+  and SIZE both, or DATE with either, `Illegal Format Value`, ours where the Guide gives the message no case). The
+  options (Table 5-5): `ATT`, `DATE`, `DIR`, `DRIVE=ALL|d|(d,...)` (`DISK=` too), `EXCLUDE`, `FF`, `FULL`,
+  `LENGTH=n`, `MESSAGE`, `NOPAGE`, `NOSORT`, `RO`, `RW`, `SIZE`, `SYS`, `USER=ALL|n|(n,...)`.
+- **What is listed:** for each drive (the specifications' own, in the order first given; or `DRIVE=`'s; or the
+  current), each user (`USER=`'s, in order 0–15; or the current), the files matching any specification (none
+  given: all), or with `EXCLUDE` matching none. `DIR` and `SYS` keep only files of that kind, `RO` and `RW` only
+  those; both of a pair, or neither, is both (ours). A file is its extent-zero entry, as the built-in's: its
+  records and kilobytes are counted over all its entries. `DRIVE=ALL` is every logged-in drive (function 24; the
+  Guide's table says "all accessed drives", which settles its example's looser "drives in the drive search
+  chain", ours), A to P. A drive in a specification and `DRIVE=` together: `Illegal Global/Local Drive Spec
+  Mixing.` A drive that isn't: the BDOS's error (mode `$FE`), and the next drive.
+- **Sorted** by the name and type, the attribute bits dropped (ours: by byte), unless `NOSORT`: the directory's
+  order. The files of a drive are read into memory first (17 with `?`, every entry): a drive with more than fit
+  is `Not Enough Memory for Sort.` (the Guide), nothing listed for it.
+- **Each drive and user with files found** has its heading, `Directory For Drive A:  User  0` and a blank line
+  (the Guide's examples, as `cpmls -F` writes it); with `MESSAGE`, every one searched has it, and `No File` after
+  it when nothing is there (the Guide: MESSAGE shows where it is searching and the file not found message).
+- **FULL** (the Guide's sample, its columns as `cpmls -F` has them):
+  ```
+      Name     Bytes   Recs   Attributes   Prot      Update          Create
+  ------------ ------ ------ ------------ ------ --------------  --------------
+
+  README   TXT     4k      1 Dir RW       None   10/26/26 12:00  10/26/26 12:00
+  ```
+  The name and type (12), kilobytes allocated (6, `k`), records (6: the last entry's extent × 128 + its RC),
+  attributes (12: `Dir` or `Sys`, `RW` or `RO`, `A` when archived; with `ATT` the user attributes, F1–F4 as `1`–`4`
+  in their places: `Sys RO A1 3 `), the password mode (6: `Read`, `Write`, `Delete` or `None`, from the file's
+  XFCB), the update stamp and, under `Create` or `Access` as the label's mode says (`Create` when it asks for
+  neither, ours), the other (14 each, blank without a stamp); Prot and both stamps blank when the drive has no
+  label (the Guide). The heading again every `LENGTH=` lines (5–65535, ours: 16 bits) and, when paged, at each page's top
+  (the Guide: one screen), so a page or sheet starts with it.
+- **SIZE:** the drive, then `NAME     TYP` and the kilobytes (6, `k`), `" : "` between, as many as fit in the
+  console width without its last column (the built-in's rule), each line starting `A: `.
+- **DATE** (ours, the Guide shows none): the name and type, the update stamp and the other, under the FULL
+  layout's last two headings; `Date and Time Stamping Inactive` (the Guide) on a drive without SFCBs.
+- **Totals,** after each drive and user's FULL, SIZE or DATE list (the Guide: for that drive and user area):
+  ```
+  Total Bytes     =      8k  Total Records =       2  Files Found =    2
+  Total 1k Blocks =      2   Used/Max Dir Entries For Drive A:   12/ 768
+  ```
+  `Total Bytes` the kilobytes allocated, `Total 1k Blocks` the 1 KB blocks the records need (each file's records
+  / 8, rounded up: the Guide), `Used/Max` the drive's entries that aren't free or SFCBs, of all but the SFCBs
+  (ours: a drive with date stamps has three quarters of its entries for files).
+- **FF:** a form feed to LST: (function 5) first when the printer echo is on (the SCB's `$38`), and with
+  `LENGTH=` every `LENGTH=` lines (the Guide), each sheet starting with the heading; without `LENGTH=` FF turns paging off, with it paging stays
+  on (the Guide), its stops on the screen only (as every paged program's: `cmd.inc`, above).
+  **NOPAGE:** no stops.
+- **Errors** (Appendix A): `Illegal Option or Modifier.` (an unknown or ambiguous option, a bad value),
+  `Options not grouped together.` (a second list), `Illegal command tail.` (a specification 152 refuses, a
+  delimiter with nothing after it but blanks and the option list, as `DIR M:, [FULL]`, a `[` not closed), `No
+  File`; the return code `$FF00` after any, and after `No File`.
+
+**TYPE** (5-114; `TYPE.COM`): `TYPE {filespec {[PAGE]|[NO PAGE]}}`.
+
+- **One file:** the built-in's: its bytes to the first ^Z or its end, by function 2, paged by LF, its password
+  given after the name (`;pw`), `No File`. `[PAGE]` stops at each page whatever the SCB's page mode, `[NOPAGE]`
+  never (ours); neither: the SCB's, as the built-in.
+- **A wildcard** (ours, the Guide is silent): each matching file of the current user in turn, in the directory's
+  order, its name on a line of its own first (`M:ONE.TXT`), then its bytes.
+- **No file specification:** `Enter filename: ` and a line read (the Guide), then as above; an empty line ends it.
+- **Errors:** `Try 'PAGE' or 'NO PAGE'` for any other option (the Guide), `Invalid drive.` for a drive other
+  than A to P (Appendix A, which gives TYPE this one), `Invalid file specification.` for any other one 152 refuses
+  (Appendix A), else the BDOS's (`Password Error` among them).
+
+**ERASE** (5-38; `ERASE.COM`): `ERASE {filespec} {[CONFIRM]}`, `CONFIRM` or any prefix (`C`).
+
+- **Without CONFIRM** the built-in's: a single name deleted (19), a wildcard asked about first
+  (`ERASE M:*.TXT (Y/N)?`), `No File`, the BDOS's errors.
+- **CONFIRM:** each matching file asked about in turn, `ERASE M:ONE.TXT (Y/N)? ` (ours: the Guide says each is
+  shown with a question mark), `Y` deletes it (19, with the password given), anything else keeps it; the names are
+  read first (17, 18), then asked about. A single name with CONFIRM is asked about too.
+- **No file specification:** `Enter filename: ` (ours, as TYPE), an empty line ends it.
+- **Errors:** `Missing delimiter or Unrecognized Option` (Appendix A) for any other option or a second name,
+  `Invalid file specification.` for one 152 refuses, `Drive Read Only` (Appendix A) for a read-only drive (29,
+  before each 19), else the BDOS's.
+
+**RENAME** (5-81 to 5-83; `RENAME.COM`): `RENAME {new-filespec=old-filespec}`.
+
+- **Names without wildcards:** the built-in's: the drive rule, `No File`, `Not renamed: NEW.TYP file already
+  exists, delete (Y/N)?`, the same file refused; for a read-only drive `Drive Read Only` and for an old file
+  that is read-only `Not renamed, filespec read only.` (Appendix A gives RENAME both; the built-in leaves them
+  to the BDOS), else the BDOS's errors.
+- **Wildcards** (the Guide): the new name's `?`s (after `*` is filled out) must be where the old name's are, else
+  `Invalid wildcard.` (Appendix A); each matching file of the current user becomes the new name with the old
+  one's characters in the `?` places. The names are read first, then renamed one by one, each asked about if the
+  new name is there already, as above. Each rename done is shown on a line, `NEW.TYP=OLD.TYP`, as the command
+  is typed (ours: the Guide's example after the prompts shows the old name first, `Y       PRN=X               PRN`,
+  in padded name and type fields; we kept the typed order and the built-in's `NAME.TYP`).
+- **No tail:** `Enter New Name: ` and `Enter Old Name: ` (the Guide), each a line read, then as above, its line
+  shown; an empty line ends it.
+- **Errors:** `Incorrect file specification.` (Appendix A) for a form that isn't `new=old` or a specification
+  152 refuses, `No File`, and the two read-only messages above.
+
+**SET** (5-86 to 5-94; `SET.COM`): `SET [options]`, `SET d: [options]`, `SET filespec [options]`.
+
+- **File options** (with a file specification; Table 5-16): `DIR`, `SYS`, `RO`, `RW`, `ARCHIVE=ON|OFF`,
+  `F1=ON|OFF` to `F4=ON|OFF` (30, every other attribute as the entry has it); `PASSWORD=pw` and
+  `PROTECT=READ|WRITE|DELETE|NONE` (103: a new password, or the mode; a file given a password without a mode is
+  `READ` if it had no XFCB, keeps its mode if it had: ours; `NONE` makes the mode 0, so the file is unprotected,
+  and deletes its password (Table 5-17) unless `PASSWORD=` gives a new one;
+  `READ`, `WRITE` or `DELETE` on a file with no password and none given: `Assign a Password to this file.`). A
+  wildcard is each matching file of the current user, read first; the file's password, if it has one, after the
+  name (`SET X.TXT;OLD [PASSWORD=NEW]`). Each file done: `M:ONE.TXT set to System (SYS), Read Only (RO)`, the
+  attributes asked for in the table's order (`Directory (DIR)`, `System (SYS)`, `Read Write (RW)`, `Read Only
+  (RO)`, `Archive=ON` or `OFF`, `F1=ON` ...; ours), and for 103 `M:ONE.TXT Protection = Write` (`Read`, `Write`,
+  `Delete`, `None`; the password isn't shown, ours).
+- **Drive options** (no file specification; `d:` or the current drive): `RO` (14, then 28, the current drive
+  selected again) and `RW` (37: the drive reset, read-write unless its unit is read-only), `M: set to Read Only
+  (RO)` and `Read Write (RW)`; `NAME=name.typ` (100: the label's name), `PASSWORD=pw` and `PASSWORD=` (the
+  label's password, or none), `PROTECT=ON|OFF` (the label's bit 7: passwords enforced on the drive), `CREATE=`,
+  `ACCESS=` and `UPDATE=ON|OFF` (the label's bits 4, 6 and 5: `ACCESS=ON` clears CREATE and `CREATE=ON` ACCESS,
+  the Guide). Each label option changes the label by one 100, its other bits kept (101 read first; a drive with no
+  label gets one, named `LABEL` as the Guide's default when `NAME=` isn't given, ours), then one line: `M: Label =
+  NAME.TYP`, `M: Label Password set` or `removed`, `M: Password Protection = ON`, `M: Create = ON` (`Access`,
+  `Update`) (ours). A label with a password asks for it, `Password: `, and a line is read (the Guide: SET always
+  prompts); a wrong one is `Wrong Password` (Appendix A). Stamps asked for on a drive without SFCBs: `Directory
+  needs to be reformatted for date/time stamps.` (Appendix A), nothing changed.
+- **`DEFAULT=pw`** (106): the default password, no file or drive (ours: nothing written).
+- **Errors** (Appendix A): `No options specified` (none, or no list), `Cannot set both RO and RW.`, `Cannot set
+  both SYS and DIR.`, `Cannot have both create and access time stamps`, `Option only for drives.` (a drive option
+  with a file), `Option requires a file reference.` (a file option without one), `Cannot label a drive with a
+  file referenced` (`NAME=` with a file), `File not found.`, `Invalid file specification.`, and for an unknown
+  option or value `Invalid option` (ours: Appendix A gives SET none). Password protection off when a file's
+  password or mode is set (the label's bit 7 clear, or no label): `Password protection is off: SET [PROTECT=ON]`
+  (ours), nothing changed.
+
+**SHOW** (5-99 to 5-102; `SHOW.COM`): `SHOW {d:}{[SPACE|LABEL|USERS|DIR|DRIVE]}`, one option, any unambiguous
+prefix.
+
+- **SPACE** (or none): `A: RW, Space:     8,064K` (the access mode by 29, the free kilobytes by 46, with commas,
+  right in 9, ours), for `d:` or, without one, each logged-in drive (24), A to P (the Guide).
+- **LABEL:** `Label for drive A:`, a blank line, the Guide's two heading lines, dashes, and the label: its name
+  and type as `NAME.TYP` (12), `Passwds Reqd` `on` or `off` (bit 7), `Stamp Create` (or `Access`, as the label
+  asks for; `Create` when neither, ours) and `Stamp Update` `on` or `off`, the label's own creation and update
+  stamps (`MM/DD/YY HH:MM`). No label: `No directory label exists.` (Appendix A).
+- **USERS:** `Active User :  n` (the current), `Active Files:` and the users that have files, `A: # of files:` and
+  each one's count under it (4 a column, ours; a file is its extent-zero entry, as DIR), then the free entries
+  (as DIR's line below).
+- **DIR:** `A: Number of free directory entries: 24` (entries that are free, not SFCBs).
+- **DRIVE:** `    A: Drive Characteristics` then, each number right in 7 with commas (ours), the record capacity
+  ((DSM+1) × BLS / 128), the kilobytes ((DSM+1) × BLS / 1024), the directory entries (DRM+1), the checked ones
+  (CKS's low 15 bits × 4, the check vector having a byte for each directory record of 4 entries: 0, fixed media),
+  records an entry ((EXM+1) × 128), records a block (BLM+1), sectors a track (the DPB's SPT, 128-byte sectors,
+  ours) and bytes a physical record (128 × 2^PSH), with the Guide's words.
+- **Errors** (Appendix A): `Unrecognized drive.` (a letter past P), `Unrecognized option.`, `Unrecognized
+  input.` (anything else); a drive that isn't (`H:`) is the BDOS's error.
+
+**INITDIR** (5-52; `INITDIR.COM`): `INITDIR d:`, the drive required (`Invalid drive.` without one, ours).
+
+- **A directory without SFCBs:** `INITDIR WILL ACTIVATE TIME STAMPS FOR SPECIFIED DRIVE.` and `Do you really
+  want to re-format the directory: M (Y/N)? ` (the Guide); `Y` makes every fourth entry an SFCB: the entries in
+  those places (files, XFCBs, the label) are moved to free entries first, written before the SFCBs over them
+  (ours: a failure between leaves two copies, never none, and the next INITDIR finishes the job). Each SFCB's
+  stamps are 0, and its password modes those
+  of the files' XFCBs (as the BDOS keeps them, 3b1). Not room for them (more entries in use than three quarters of
+  the directory): `Not enough room in directory.` (the Guide), nothing changed. The label's stamp bits aren't set:
+  SET does that (the Guide).
+- **A directory with them:** `Directory already re-formatted.` and `Do you wish to recover date/time directory
+  space (Y/N)? `; `Y` makes every SFCB free and clears the label's stamp bits (ours: a label mustn't ask for stamps
+  where there are no SFCBs, as 100 refuses it). `N`: `Do you want the existing date/time stamps cleared (Y/N)? `;
+  `Y` zeroes every SFCB's stamps, their password modes kept (ours).
+- **How:** the directory's sectors read and written by the BIOS through function 50 (SELDSK, SETTRK, SETSEC,
+  SETBNK 1, SETDMA, READ, WRITE: no BDOS or BIOS change), the drive reset (37) before, so its buffers are written
+  back, and after, so the BDOS reads the new directory at its next login. The entries to move and the XFCBs'
+  modes are kept in memory: a directory with more than fit is `Not Enough Memory` (Appendix A), nothing changed.
+  A read-only drive (29) is `Drive Read Only` (Appendix A's words); a sector the BIOS can't read or write, `Disk
+  Read Error` or `Disk Write Error` (ours). No label password is asked (ours: the Guide names none).
+
+**DATE** (5-11 to 5-13; `DATE.COM`): `DATE {CONTINUOUS}`, `DATE {time-specification}`, `DATE SET`.
+
+- **DATE:** `Sat 10/31/26 12:00:00`, the day from the days (105), then the date and the time with seconds. `DATE
+  C` (`CONTINUOUS` or any prefix, ours) writes it again on the same line (CR first) each second until a key, which
+  is taken (ours).
+- **`DATE MM/DD/YY HH:MM:SS`:** checked (month 1–12, the day in the month, leap years every fourth as the clock's,
+  hour 0–23, minute and second 0–59; the year 20YY, ours: OODOS's clock holds 2000 on), then `Press any key to
+  set time`, a key, the clock set (the SCB's date, hour, minute and second by 49, then the BIOS's TIME by 50, so
+  the seconds are kept: 104 would make them 0), and the date and time shown as above.
+- **`DATE SET`:** `Enter today's date (MM/DD/YY): ` and `Enter the time (HH:MM:SS): `, each a line read, an empty
+  one keeping that part (the Guide), then as above.
+- **Errors:** `Illegal date/time specification.` (Appendix A) for anything else; a clock past 2155 (105's `$FF`):
+  `No clock` (ours).
+
+**DEVICE** (5-14 to 5-18, 3.5; `DEVICE.COM`): over the BIOS's DEVTBL, read by function 50's DEVTBL and its 24
+bytes copied by MOVE (XMOVE from bank 0, where W2 is the BIOS's block in a function 50 call), and the SCB's
+redirection vectors (`$22`–`$2B`, by 49: bit 15 CRT, 14 TTY, 13 LPT).
+
+- **DEVICE:** `Physical Devices:`, `I=Input,O=Output,S=Serial,X=Xon-Xoff`, the devices three a line (the name in
+  6, the baud rate in 5 or `NONE`, the letters it has, in a field of 21, ours), a blank line, `Current
+  Assignments:` and a line each for `CONIN:`, `CONOUT:`, `AUXIN:`, `AUXOUT:` and `LST:` (`CONOUT: = CRT TTY`, or
+  `Null Device`), a blank line, then `Enter new assignment or hit RETURN` and a line read, taken as a DEVICE
+  command's tail (an empty one: nothing).
+- **NAMES:** the physical devices only; **VALUES:** the assignments only; **a physical device** (`DEVICE TTY`):
+  its line; **a logical one** (`DEVICE CON:`): its lines. The logical names and their others (the Guide):
+  `CONIN:`, `CONOUT:`, `AUXIN:`, `AUXOUT:`, `LST:`, `CON:` and `CONSOLE:` (both console vectors), `KEYBOARD`
+  (CONIN:), `AUX:` and `AUXILIARY:` (both auxiliary ones), `PRINTER` (LST:); the colon optional (ours).
+- **`DEVICE logical = physical {[options]} {,physical {[options]}...}`** sets the vector to those devices;
+  `= NULL` to none. A device without input in an input vector, or without output in an output one, is `Invalid
+  Physical device.` (ours).
+- **Options of a physical device** (Table 5-4; also `DEVICE physical [options]`): a baud rate, `XON`, `NOXON`.
+  OODOS's BIOS sets neither (no device has CP/M 3's soft-baud bit, and none does XON/XOFF): a baud rate is `Baud
+  rate cannot be set for this device` (Appendix A), `XON` `Xon-Xoff cannot be set for this device` (ours),
+  `NOXON` is taken (it is so already, ours).
+- **`DEVICE CONSOLE [PAGE]`:** `Console width set to 80 columns` and `Console page set to 24 lines` (ours, the
+  Guide shows none): the SCB's `$1A` + 1 and `$1C`. `[COLUMNS=n, LINES=n]` sets them (columns 1–256, lines 0–255,
+  ours: under 2 is no stops, as the built-ins) and shows them so.
+- **Errors** (Appendix A): `Bad Logical Device Assignment`, `Invalid Physical device.`, `Invalid option.`,
+  `Invalid number.`, `Invalid delimiter.`, `End of line expected`.
+
+**SETDEF** (5-95 to 5-98; `SETDEF.COM`): `SETDEF {d:{,d:{,d:{,d:}}}} {[TEMPORARY=d:] | [ORDER=(typ{,typ})]}`,
+`SETDEF [DISPLAY|NO DISPLAY]`, `SETDEF [PAGE|NO PAGE]`; the options together in one list (ours).
+
+- **The drive chain** (the SCB's `$4C`–`$4F`: 0 the default drive, 1–16 A–P, `$FF` the end): up to four, `*` the
+  default drive (the Guide). `TEMPORARY=d:` is `$50` (0 the default, `*`). `DISPLAY`/`NODISPLAY` is the CCP's
+  display flag (`$18` bit 7, 4a), `PAGE`/`NOPAGE` the page mode (`$2C`: 0 on, `$FF` off). `ORDER=(COM)` is taken;
+  a `SUB` in it is `ORDER=(SUB): no SUBMIT yet` (ours: the CCP runs `.COM`s only until phase 5).
+- **SETDEF** alone, and after a change, shows them (ours, the Guide shows none):
+  ```
+  Drive Search Path:
+  1st Drive            - Default
+  2nd Drive            - M:
+
+  Search Order         - COM
+  Temporary Drive      - Default
+  Console Page Mode    - On
+  Program Name Display - Off
+  ```
+- **Errors** (Appendix A): `Drive defined twice in search Path`, `More than four drives specified.`, `Invalid
+  drive.`, `Invalid option.`, `Invalid type for ORDER option.`, `Invalid delimiter.`
+
+**Testing:** `test_oodos_utils` (`oodos_rig.h`, as `test_oodos_ccp`): each utility put on M: as a SYS file behind
+OODOS's back, run from the CCP (the search chain or `M:`), every form and option and error above compared line for
+line, and what each leaves on M: read back; one case from the committed card's A:, where `make_card.sh` put them.
+What ERASE, RENAME, SET and INITDIR leave on a card is checked by cpmtools too (`interop.sh --utils`, the card
+saved by `OODOS_UTILS_OUT`).
+
+**Proposed (4b1, as built, 2026-10-31)** ([`oodos/utils/`](../oodos/utils/),
+[`oodos/include/util.inc`](../oodos/include/util.inc); the plan above is what was built, and these are the details,
+the choices it left open marked ours):
+
+- **No BDOS or BIOS change.** Sizes are the `.COM`s', the 16-byte header among them: DIR 7,868, TYPE 4,147, ERASE
+  4,091, RENAME 4,452, SET 6,766, INITDIR 5,610, SHOW 5,382, DATE 4,436, DEVICE 5,579, SETDEF 4,631 (after the first
+  review: 69 bytes each for `UT_SPEC`'s trailing-delimiter check and `UT_ISRO`, and DIR's, SET's, INITDIR's, SHOW's,
+  DEVICE's and SETDEF's own fixes besides; after the second, DIR 58 more for its heading after a page stop or form
+  feed and its quiet stops, SET 36 for its read-only check, INITDIR 50 for its stopped recover, and the others 26
+  each when the quiet stops became `cmd.inc`'s for every program; after the third, DIR 240 more for its lines' one
+  routine, `LINE`, and INITDIR 13 for leaving a stopped re-format's copies to the re-format, not a recover; after the
+  fourth, DIR 20 more for the heading at a sheet's top that doesn't show and on a short page's sheets). ld65 links all
+  of `util.inc` into each, its sections a utility doesn't call among them (a later phase may split it, or link it
+  as a library). Each fits the TPA with tens of KB to spare; what a utility reads into memory (names, a drive's
+  directory, entries to move) goes from the end of its BSS to the TPA's top (`$0204`'s word, `UT_MEM`), so an RSX
+  below the BDOS shrinks it.
+- **`util.inc`** grew a section per area: *memory* (`UT_MEM`: from the end of BSS to the TPA's top, the room in
+  A/X); *files* (`UT_FDRIVE`, the drive a specification names; `UT_ISWILD`; `UT_PWSET`, a password to the DMA
+  buffer; `UT_NAMES` and `UT_NNEXT`, a wildcard's names read into memory first, then taken one by one, since a file
+  call between 17 and 18 ends the search; `UT_SAID`, after an error the BDOS said, so nothing more is owed; `UT_ISRO`, a drive read-only by 29, for ERASE's and RENAME's `Drive Read Only`);
+  *the system* (`UT_OAT`, an option list wherever it is in the tail; `UT_OCLOSE`; `UT_SCBGET`, `UT_SCBSET`,
+  `UT_SCBSETW`/`UT_SCBW`, the SCB by 49; `UT_BIOS`/`UT_BPB`, a BIOS call by 50).
+- **For all of them (ours):** the tail is parsed and checked before anything is changed; the return code is `$FF00`
+  after any message, `No directory label exists.` and `No File` among them; a specification whose delimiter has
+  nothing after it but blanks and option lists (`ERASE X.TXT,`, `RENAME A=B=`) is refused as a bad one, the
+  utility's message for a specification 152 refuses (`UT_SPEC`); TYPE, ERASE and RENAME give a drive in the FCB's
+  byte and leave the current drive alone, DIR, SET, INITDIR and SHOW select the drive they work on (14), and every
+  utility's end (`UT_END`) selects the one current at its start again (14); after a BDOS error a utility goes on with the next file, if there is one, and
+  the code is `$FF00` (SET too: a file whose 30 is refused isn't given its 103); a ^C is `$FFFE`.
+- **DIR** (functions 14, 17, 18, 24, 25, 26, 31, 32, 45, 49 for `$1A`, `$1C`, `$2C`, `$38`, 5, 108, 109). Its records
+  go from its BSS to the TPA's top, about 40 KB, some 1,190 files a drive. **Ours:** `$FF00` after any error, any
+  `No File`, `Date and Time Stamping Inactive`, `Not Enough Memory for Sort.` and a drive the BDOS refused; the
+  last `No File` only when nothing was found anywhere and `MESSAGE` isn't given; the groups (a drive and user)
+  apart by a blank line, and a BDOS error followed by one; for a refused drive, or a directory read that fails,
+  the line owed is left to the BDOS's CR LF. Every line DIR writes (a file's, each heading line, the blanks,
+  totals, messages) begins in one routine (`LINE`), which counts it for the page (paging's stops) and for
+  `LENGTH=`'s sheet (its lines over every group, the heading's own among them), so neither holds more than its
+  lines: a page the SCB's page length less one, a sheet `LENGTH=`. A sheet ends when its count is reached, with a
+  form feed under `FF` and the printer echo on. Lines that belong together go to the next page or sheet when they
+  don't fit the rest of this one (ours): a group's `Directory For` line, its blank, its column heading and first
+  file; the column heading and a file; the blank and the two totals lines. On a new page or sheet, within a FULL or
+  DATE group (its files and totals), the column heading comes first, shown or not, so it is never written twice
+  running; the blank before the totals is left out at such a top, the heading's own blank standing for it, so
+  a group's totals come out the same with the printer echo on or off (ours). The blank between groups is left
+  out at a top that shows, after a stop or a form feed, and kept on a sheet that doesn't show (`LENGTH=` without
+  `FF`, or the echo off), so there the later sheets start a line later than with the echo on (ours). On a
+  page of 5 (4 lines and the stop) the heading and the two totals lines don't fit together: the heading wins,
+  so the totals are split over two pages, each under the heading (ours). With
+  `LENGTH=` and paging both, the heading starts each page and each sheet, and the printer has the screen's
+  lines (ours); when exactly 5 lines are left on the page at a sheet's top, the page stops one line early, its
+  room counted for the totals' blank the heading now stands for (accepted, 2026-11-01: never over-full). Without `LENGTH=` there is no sheet count (`NOPAGE`, `FF` without `LENGTH=`, the SCB's page mode
+  off: no repeats); SIZE and the short form have no column heading, so their pages and sheets only hold their
+  lines. A page under 5 lines (4 or fewer and the stop's) is too short for the heading and a file, so the heading
+  isn't written again at its stops (ours); `LENGTH=`'s sheets on such a page still start with it. The page's stop
+  for lines kept together is `cmd.inc`'s `CM_STOP`
+  (`CM_LINE`'s own stop, a label added for DIR; no other program's bytes changed). A line the BDOS writes (a
+  refused drive's error, a directory read that fails), and the line owed that its CR LF ends, isn't counted, so
+  a page or sheet after one can hold that many lines more (ours). DATE shows
+  the stamps on a drive without a label too (FULL doesn't, the Guide). **Speed:** each entry's record is found
+  by a search of those made so far, and the pointers are sorted by insertion, so both grow as the square of the
+  files. Measured on M: (60 and 190 files in random order): the lookup about 64 n² cycles, the sort about
+  43 n², the BDOS's scan about 4,600 an entry; so a full `oodos-8m` drive (768 files) takes some 9–10 s at
+  7.16 MHz before its first line, and a full `oodos-32m` (about 1,190 files, what fits) some 22 s (the review
+  estimated 5 s and 15–20 s). Accepted for 4b1; a ^C
+  is looked for every 16 entries read and every 16 pointers placed, so either can be stopped (`$FFFE`). `FF` sends its form feed to LST:
+  only with the printer echo on (`$38`), first and at each sheet's end. SIZE's item is `NAME TYP` and the
+  kilobytes in 5 and `k`, `" : "` between, the width / 21 items a line (at least 1). DATE's layout is FULL's first
+  12 heading columns and its last two; DATE on a drive without SFCBs is `Date and Time Stamping Inactive` for that
+  drive only. FULL's lines are of fixed width (trailing blanks kept). A file's extent-zero entry is the one with S2
+  0 and EX without EXM's bits 0, its attributes and stamps the file's; a file without one, or an XFCB without its
+  file, isn't listed. Prot comes from the XFCB's mode bits (`Read`, `Write`, `Delete`, else `None`); the last
+  column is `Access` when the label's bit 6 is set. `USER=` takes ALL or 0–15; `DRIVE=` ALL, `d`, `d:` or `*`, a
+  drive given twice listed once. `EXCLUDE` with no specification is `No File`. `NOSORT` is the extent-zero
+  entries' order, the same memory message. At most 64 specifications, else `Illegal command tail.` **Departure:**
+  `Illegal command tail.` for a specification 152 refuses is reached only by `M:DIR` typed, as the CCP refuses it
+  first; for a delimiter with nothing after it, by the CCP's hand-off too (`DIR M:, [FULL]`: the CCP takes `M:,`).
+  A page stop's message and its rubout are written in console mode bit 2 (raw, no printer echo: `cmd.inc`'s,
+  for every program that pages with it, the built-ins too), so a printout made with ^P has no stop on it.
+  **Decided (2026-10-31, the user's):** `DRIVE=ALL` is the logged-in drives (function 24): the Guide's Table
+  5-5 says "all accessed drives" and its example the drives of the search chain, and the table was followed. It is
+  one routine, `ALLDRVS` in `dir.s`.
+- **Every utility's calls** through `cmd.inc` and `util.inc`: 25 and 45 at the start, 14 at the end, 108 for the
+  return code; 2, 6, 9, 11 and 109 for writing, paging and a ^C, 49 for the SCB's page mode and length, 10 for a
+  line read (a prompt, a Y/N answer), 152 for a file specification, 26 and 17, 18 for a wildcard's names. The
+  lists below are each utility's own besides.
+- **TYPE** (15, 20, 26, 49). **Ours:** `[PAGE=x]`, a second
+  list or one not closed is `Try 'PAGE' or 'NO PAGE'`; of `PAGE` and `NOPAGE` the last given wins; a second
+  specification is `Invalid file specification.`; `Invalid drive.` only for a character other than A to P before
+  a `:` (`Q:`, `@:`; a drive that isn't, `H:`, is the BDOS's `Invalid Drive`); asked for (`Enter filename: `)
+  once, an empty line ending it, and options typed in that line taken; a wildcard's names are read first, the
+  current user's SYS files among them, each name line with its drive; a file that doesn't end in LF owes a line before the next name; the password given
+  is used for every file; a page length under 2 never stops.
+- **ERASE** (19, 26, 29). **Ours:** `[CONFIRM=1]`, a second list or one not closed is `Missing delimiter or
+  Unrecognized Option`; the drive is always in CONFIRM's question, which ends with a blank (the built-in's wildcard
+  question has none); a single name with CONFIRM is asked about too; `Drive Read Only` is checked by 29 just before
+  each 19 (after a wildcard's question, at CONFIRM's first Y) and ends ERASE, so it covers a drive made read-only
+  by 28 (SET) or found so by an earlier write; a write-protected unit not yet written is still the BDOS's `Read
+  Only`.
+- **RENAME** (17, 19, 23, 26, 29). **Ours:** any option list (in the tail or a line asked for), a blank name, two
+  drives, more or fewer than two names, a specification 152 refuses, and new the same file as old (`*.TXT=*.TXT`
+  too) are `Incorrect file specification.` (where the built-in says the command and `?`); an N leaves `$FF00`; the
+  `NEW=OLD` line has no drive; a wildcard's `?` places must be exactly the same, else `Invalid wildcard.`; for each
+  file, before anything else, a read-only drive (29) is `Drive Read Only` and ends RENAME, and an old file with
+  t1' set (17) is `Not renamed, filespec read only.`, on to the next; any other refusal of 23 is the BDOS's.
+- **SET** (152, 14, 17, 18, 26, 28, 29, 30, 31, 32, 37, 49, 100, 101, 103, 106, 108, 109). **Ours:** everything
+  checked before anything changes (the label's SFCB check and password among it, and a label option on a drive
+  read-only by 29 without `RW` is `Drive Read Only` before the password is asked, so a failed one leaves the default
+  password too; a unit read-only itself, with `RW`, is still the BDOS's refusal after `DEFAULT=`); a drive's options done in the order `DEFAULT`, `RW`, the label's options as given, `RO`;
+  a file's 30 before its 103; one 100 for each label option, an option given twice taking its first place and last
+  value, a new label password used for the 100s after it; the label's password asked once, and only when the label
+  has one (8 blanks or zeros are none), at most 8 characters, in capitals, compared here; `PROTECT=` takes
+  `READ`–`NONE` for a file and `ON`/`OFF` for a drive, the wrong one `Option only for drives.` or `Option requires
+  a file reference.`; values are whole words; `Assign a Password to this file.` when a mode isn't 0 and there is no
+  password (`[PASSWORD=]` on a file without an XFCB refused so); the `Protection =` line names the highest mode bit;
+  `DEFAULT=` takes no file; `Invalid option` also for a second list or one not closed, `Invalid file
+  specification.` for a second specification or `a=b`, `Not Enough Memory` for a wildcard's names that don't fit,
+  `Directory full` when 100 or 103 return `$FF` with X 0 (that one ends SET); 30 clears F5'–F8'; a wildcard's
+  lines are paged. `PROTECT=NONE` without `PASSWORD=` writes 8 blanks as the new password (103's bit 0): the
+  password is deleted. A file's mode and whether it has a password come from its first XFCB in directory order,
+  as the BDOS takes it. On a drive without SFCBs every label option writes the label without its stamp bits (6–4),
+  as 100 refuses them there: a label made elsewhere is repaired, not `Directory full`.
+- **INITDIR** (14, 17, 18, 26, 29, 37, 50: SELDSK, SETTRK, SETSEC, SETDMA, SETBNK 1, READ, WRITE; 108). It assumes
+  512-byte sectors, 16 a track, as OODOS's drives have. **Ours:** the tail is `d:` alone, else `Invalid drive.`;
+  29 before 37; room and memory checked before the question; room is the entries in use at most three quarters of
+  the directory, an SFCB (`$21`) already in its place not moved; moved entries go to the lowest free entries, in
+  their order; a slot's mode is that of the first XFCB of its file in directory order, `AND $E0`; clearing the
+  stamps zeroes a slot's bytes 0–7 and keeps 8, 9 and 31; recovering writes 32 `$E5`s over each SFCB and ANDs the
+  label's mode with `$8F`; a BIOS error resets the drive (37) and fails. The 37 before the first write is checked
+  (the BDOS says its error; nothing written). The moves are made once without writing first: if the BIOS's sectors
+  haven't the free entries for every one (the BDOS's view and the disk's differing), `Not enough room in
+  directory.` and nothing written. A BIOS error once a re-format or a recover has written something adds `Directory
+  partly re-formatted: run INITDIR again.` (clearing the stamps doesn't), and the next INITDIR finishes it: an entry in an SFCB's place with an exact
+  copy outside them (the first try's) isn't moved again nor counted for room, an SFCB in its place isn't counted,
+  and a directory whose entry 3 is an SFCB but another place isn't is `Directory partly re-formatted.`, then made
+  as one without SFCBs (the question asked). A recover writes sector 0 first, so one stopped leaves entry 3 free
+  and later places SFCBs: a directory with an SFCB in a place but not in entry 3 is `Directory partly
+  re-formatted.` and `Do you wish to recover date/time directory space (Y/N)? `, `Y` finishing the recover, `N`
+  going on to the re-format's question; but if entries in places also have copies outside them (a re-format stopped
+  after such a recover), only `Directory partly re-formatted.` and the re-format's question, since a recover would
+  leave both copies. The copies are looked for comparing from byte 0 up (the user and name differ first). **Accepted (2026-11-01, the user's):** that look is every entry outside the SFCB places against every listed one, so on a nearly full 32M drive (1,536 entries) the question comes after about 11 s with nothing shown; comparing the block pointer first was measured at about 8 s on a real drive and slower on one of empty entries, and not taken. A drive used between the two tries may hold two different copies of
+  an entry: run INITDIR again first. Cold boot's M: has SFCBs holding `$E5`
+  past their first byte, so after `stamps cleared` a slot's bytes 8, 9 and 31 stay `$E5` (as designed).
+- **SHOW** (14, 17, 18, 24, 25, 26, 29, 31, 32, 45, 46, 49, 108, 109). **Ours:** `[]` is SPACE; an option with a
+  value, or a second, is `Unrecognized option.`; anything after the list, a second list, one not closed or a drive
+  after it, `Unrecognized input.`; USERS counts SYS files; the extent-zero test is S2 0 and EX without EXM's bits
+  (`AND $1F`) 0; a label with a blank type is shown `NAME`, not `NAME.`
+- **DATE** (6, 10, 49, 50, 105). It sets the clock by the SCB's `$58` word and `$5A`–`$5C` (BCD, by 49), then the
+  BIOS's TIME with A `$FF` (50). **Ours:** numbers of one or two digits, blanks between parts allowed; `SET` in
+  full, `CONTINUOUS` any prefix; a `DATE SET` line of only blanks and tabs is an empty one; the parts kept by
+  `DATE SET`'s empty lines are read at the key; a bad line ends `DATE SET` with the error; `No clock` only when a
+  kept part needs the clock; any key, a ^C too, ends CONTINUOUS with 0; DATE isn't paged (console mode bit 0
+  would hide the key).
+- **DEVICE** (10, 49, 50: DEVTBL, XMOVE from bank 0 to 1, MOVE 24 bytes, so at most 3 devices). **Ours:** `End of
+  line expected` after the command is done, then `$FF00`; `NAMES`, `VALUES`, `NULL` in full, device names exact
+  (`CONSOL` refused); an unknown word is `Invalid Physical device.`, or `Bad Logical Device Assignment` with `=`, as
+  is a physical device's name with `=` (`DEVICE CRT = TTY`);
+  `NULL` alone (`NULL,CRT` refused); commas between devices, else `Invalid delimiter.`; an option list on a logical
+  device but the console is `Invalid option.`; `COLUMNS` or `LINES` without a value, or with a list, is `Invalid
+  number.`;
+  assignments write nothing; NAMES is the two headings and the devices, VALUES the heading and five lines; a list
+  not closed is `Invalid option.`; no padding after a line's last field. **Departure:** the prompt is `Enter new
+  assignment or hit RETURN: `, with a colon, as the Guide prints it (the plan had none).
+- **SETDEF** (49, 108, 109). It keeps `$18`'s other bits; the chain is `$4C`–`$4F`, the temporary drive `$50`, the
+  page mode `$2C`. **Ours:** commas between drives, else `Invalid delimiter.`; a trailing comma or a bad drive
+  `Invalid drive.`, as is a list for `TEMPORARY`; `*` and the current drive's letter are distinct entries; a
+  second list, or anything after the list, `Invalid delimiter.`; a list not closed, a stray value, `TEMPORARY` or
+  `ORDER` without one, `Invalid option.`; an option given twice, the last wins; `SUB` in
+  `ORDER` is `ORDER=(SUB): no SUBMIT yet`. SHOW, DEVICE and SETDEF are paged.
+- **The layout, decided (2026-10-31, the user's):** the CCP ends the command's line (the LF it owes, `CM_LFDUE`,
+  by `RUNTAIL`'s `CM_FLUSH`) before any program runs, so a utility that writes nothing (ERASE of one name, a DEVICE
+  assignment, `SET [DEFAULT=pw]`) leaves one blank line before the next prompt (`\r\n\r\nA>` after the line
+  typed) that the built-ins don't (`\r\r\nA>`). Accepted: the plan's "the same bytes" holds when the command
+  writes something.
+- **The card:** `make_card.sh` builds the ten (`make utils`) and puts them on A: in user 0 as SYS files, after the
+  files it had, then two one-line text files, `SPACER1.DAT` and `SPACER2.DAT` (ours; typed DAT so that a `dir *.txt` on A:, as test_oodos_ccp runs, doesn't list them): 21 files in 23 entries, so
+  WRITEOO1's `0:OO1.BIN` lands in entries 32 and 33, the first in an SFCB's first slot, as 16 was before; the ten
+  alone would have put it in 29 and 30, and fsck.cpm 2.23's backwards first-slot case would no longer be exercised
+  by `--written` (with the spacers its sums warn of 1, let through as before). `test_oodos_boot` checks each utility on the card against the
+  build and its SYS attribute.
+- **Tests:** a suite an area (`test_oodos_utils_set`, `_files`, `_dir`, `_sys`), the utilities put on M: and the
+  search chain M: first, then the default drive, so the build's copies run, not the card's; `X.COM required` with
+  the chain B: alone. Each suite has a case for the card's own copies on A: (TYPE on README.TXT, DIR's FULL of A:,
+  SHOW, SETDEF, DEVICE and DATE), and `test_oodos_card` runs ERASE, RENAME, SET and INITDIR from the card on A:
+  for `interop.sh --utils` (`OODOS_UTILS_OUT`): `fsck.cpm`, the label, `cpmls -F`'s attributes, protections and
+  stamps, the SFCBs and the XFCBs INITDIR moved, `cpmcp`; seen to fail on wrong images. cpmtools lists an XFCB as
+  a file of user 16 and more, with no bytes, and shows a stamp of 0 days as `12/31/77 00:00`.
+- **For later phases:** `oodos-32m` (2,048 entries) can hold more files than DIR's ~1,190, so `Not Enough Memory
+  for Sort.` there; DIR's lookup and sort could be made faster than the square of the files (a sorted insert
+  with a binary search, a shell sort: DIR's as-built note has the times); `put_m` tests must clear SFCB slots (MFORMAT leaves `$E5`, which reads as dates); SETDEF's
+  `ORDER` and `SUB` wait for SUBMIT (phase 5); DEVICE's baud rates and XON wait for a BIOS that sets them;
+  `CONOUT:=LPT` or `CONIN:=NULL` takes the console away, as in CP/M 3.
 
 ## RSXs and programs ##
 
@@ -2097,8 +2582,8 @@ Each phase is its own branch.
 3. **The BDOS:** the file system, deblocking, hashing, multi-sector I/O, the SCB, date stamps, labels and
    passwords.
 4. **The CCP and utilities,** two parts (decided 2026-10-30): **4a** the CCP and its built-in commands; **4b** the
-   transient utilities: DIR's full form, TYPE, ERASE, RENAME, PIP, DATE, INITDIR, SET, SHOW, DEVICE, and SETDEF
-   (4b or later: the CCP already reads its search chain and display mode).
+   transient utilities, two branches (decided 2026-10-31): **4b1** DIR's full form, TYPE, ERASE, RENAME, SET,
+   SHOW, INITDIR, DATE, DEVICE and SETDEF; **4b2** PIP.
 5. **RSXs:** the loader, chaining, GENCOM; GET, PUT and SUBMIT as RSXs (SUBMIT moved here from phase 4,
    2026-10-30).
 6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3

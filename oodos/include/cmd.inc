@@ -8,24 +8,34 @@
 ;   CMD_DATA    the name of the segment for its constant data ("RODATA"
 ;               in a program: data in CODE would meet tools/rules.py)
 ;   CMD_BSS     the name of the segment for its variables
-;   CMD_BREAK   a label: where a ^C typed during paged output goes
+;   CMD_BREAK   a label: where a ^C typed during paged output goes; a ^C
+;               at a page's stop leaves the stop's console mode (bit 2,
+;               raw: the stop not on the printer echo) for it to put back
+;               (UT_BREAK does: CM_UNPAGE; the CCP's BIBREAK: CONMODE0)
 ;
 ; and include oodos.inc. Its code goes in the segment current at the
 ; .include. Every routine may change A, X and Y unless it says otherwise;
 ; the BDOS keeps none of them.
 ;
 ;   CM_PUTC     A to the console (function 2); keeps X and Y. An LF owed
-;               (CM_LFDUE) goes first
-;   CM_PUTS     the '$'-ended string at A/X (function 9), an LF owed first
-;   CM_FLUSH    an LF owed, written
-;   CM_CRLF     CR, LF (an LF owed is one of them)
+;               (CM_LFDUE) goes first, then a line owed (CM_EOL)
+;   CM_PUTS     the '$'-ended string at A/X (function 9), what is owed first
+;   CM_FLUSH    an LF owed, written; then a line owed: CR, LF and CM_LINE,
+;               so paging counts it and may stop there, its message at the
+;               new line's start
+;   CM_CRLF     CR, LF (an LF owed is one of them; a line owed goes first)
+;   CM_EOL      a line owed: the line ended by the next output (CM_PUTC,
+;               CM_PUTS, CM_FLUSH), so a utility's last line is left for
+;               the prompt's CR LF to end (hw/oodos.md, "The utilities").
+;               Keeps A, X and Y. The CCP doesn't use it
+;   CM_NOEOL    a line owed, dropped (a utility's end); keeps A, X and Y
 ;   CM_PAGE     start paged output: the SCB's page mode ($2C, 0 on) and
 ;               length ($1C); the console mode (109) kept, and bit 0 set
 ;               in it, so 11 reports only ^C. Called again while paged, it
 ;               keeps the mode the first kept (CM_PAGED). A mode with bits
-;               CP/M 3 leaves undefined set so that it ORs to $FFFF would
-;               be a get to 109, so bit 0 isn't set: such a mode is taken
-;               not to happen
+;               CP/M 3 leaves undefined set so that it ORs with 1 (here)
+;               or 5 (a stop, CM_LINE) to $FFFF would be a get to 109, so
+;               the bits aren't set: such a mode is taken not to happen
 ;   CM_UNPAGE   the console mode CM_PAGE kept, back; without a CM_PAGE
 ;               before it, nothing
 ;   CM_PAGED    1 while paged; in CMD_DATA, so it starts 0 with the image
@@ -33,7 +43,13 @@
 ;               console mode itself in between clears it (the CCP does)
 ;   CM_NL       CR, LF, a line counted (CM_LINE)
 ;   CM_LINE     a line ended: past the page, "Press a key for more", a
-;               key waited for (^C: CMD_BREAK), the message rubbed out
+;               key waited for (^C: CMD_BREAK), the message rubbed out.
+;               The message and its rubout are in console mode bit 2 too
+;               (CM_MODE|5: off the printer echo), and CM_PAGE's mode
+;               (CM_MODE|1) is set again after, so a mode a program sets
+;               itself while paged is undone at the next stop
+;   CM_STOP     CM_LINE's stop now, at a line's start, whatever the count;
+;               the count begun again (DIR's, to keep lines on one page)
 ;   CM_BRK      a ^C waiting? CMD_BREAK. Another key is left alone: a
 ;               key is taken only in console mode bit 0 (CM_PAGE's), where
 ;               11 reports only ^C; without it, nothing is taken
@@ -48,6 +64,8 @@
 ;               and a line that ends the output needs none
 ;
 ;   CM_LFDUE    1: an LF is owed; set it after reading a line
+;   CM_EOLDUE   1: a line is owed (CM_EOL); in CMD_DATA, so it starts 0
+;               with the image
 ;   CM_ASK      CM_READ, carry set if its first non-blank is Y or y
 ;   CM_DECIN    a decimal number 0-255 from the string at A/X, index Y:
 ;               A the number, Y past its digits, carry set if there were
@@ -73,6 +91,7 @@ CM_MODE:        .res    2              ; the console mode CM_PAGE found (CM_PAGE
 CM_ANS:         .res    2 + 16         ; CM_READ's line: its size, count, characters
 .segment CMD_DATA
 CM_PAGED:       .byte   0              ; 1: CM_MODE holds the mode to put back
+CM_EOLDUE:      .byte   0              ; 1: a line is owed (CM_EOL)
 CM_PBMODE:      .byte   $2C, 0, 0, 0   ; 49: get the page mode
 CM_PBLEN:       .byte   $1C, 0, 0, 0   ;     and the page length
 CM_MORE:        .byte   "Press a key for more$"
@@ -100,12 +119,31 @@ CM_PUTS:        PHA
                 JMP     BDOS
 
 CM_FLUSH:       LDA     CM_LFDUE
-                BEQ     @done
+                BEQ     @line
                 STZ     CM_LFDUE
                 LDA     #CMC_LF
                 LDY     #C_WRITE
-                JMP     BDOS
+                JSR     BDOS
+@line:          LDA     CM_EOLDUE
+                BEQ     @done
+                STZ     CM_EOLDUE
+                LDA     #CMC_CR
+                LDY     #C_WRITE
+                JSR     BDOS
+                LDA     #CMC_LF
+                LDY     #C_WRITE
+                JSR     BDOS
+                JMP     CM_LINE
 @done:          RTS
+
+CM_EOL:         PHA
+                LDA     #1
+                STA     CM_EOLDUE
+                PLA
+                RTS
+
+CM_NOEOL:       STZ     CM_EOLDUE
+                RTS
 
 CM_CRLF:        STZ     CM_LFDUE
                 LDA     #CMC_CR
@@ -162,7 +200,12 @@ CM_LINE:        LDA     CM_PLEN
                 LDA     CM_LINES
                 CMP     CM_PLEN
                 BCC     CM_BRK
-                STZ     CM_LINES
+CM_STOP:        STZ     CM_LINES
+                LDA     CM_MODE        ; raw output: the stop not on the printer echo
+                ORA     #5
+                LDX     CM_MODE + 1
+                LDY     #C_MODE
+                JSR     BDOS
                 LDA     #<CM_MORE
                 LDX     #>CM_MORE
                 JSR     CM_PUTS
@@ -173,7 +216,12 @@ CM_LINE:        LDA     CM_PLEN
                 BEQ     @brk
                 LDA     #<CM_RUB
                 LDX     #>CM_RUB
-                JMP     CM_PUTS
+                JSR     CM_PUTS
+                LDA     CM_MODE        ; CM_PAGE's mode again
+                ORA     #1
+                LDX     CM_MODE + 1
+                LDY     #C_MODE
+                JMP     BDOS
 @brk:           JMP     CMD_BREAK
 
 CM_BRK:         LDY     #C_STAT

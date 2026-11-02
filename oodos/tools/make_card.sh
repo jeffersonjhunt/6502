@@ -28,8 +28,17 @@
 #     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
 #                      loader
 #     0:WRITEOO1.COM   oodos/sys/test/writeoo1.s: test_oodos_card runs it to
-#                      write 0:OO1.BIN through the BDOS, in entries 16 and
-#                      17, the first in an SFCB's first slot
+#                      write 0:OO1.BIN through the BDOS, in entries 32 and
+#                      33, the first in an SFCB's first slot
+#     0:DATE.COM ...   phase 4b's utilities (oodos/utils/, make utils), one
+#                      .COM each utils/NAME.s, in its name's order: DATE,
+#                      DEVICE, DIR, ERASE, INITDIR, RENAME, SET, SETDEF,
+#                      SHOW, TYPE; SYS, as HELLO.COM (hw/oodos.md, "The
+#                      utilities, phase 4b")
+#     0:SPACER1.DAT    text, one line each, last: two more entries, so the
+#     0:SPACER2.DAT    first free one is an SFCB's first slot (32), where
+#                      WRITEOO1 puts OO1.BIN: fsck.cpm 2.23 compares that
+#                      slot's stamps backwards, a case interop.sh checks
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
@@ -83,15 +92,23 @@ with open(dst, 'w') as f:
             f.write('%d %s\n' % (n, s.hex()))
 PY
 
-# OOLDR, OODOS.SYS, the test system, HELLO.COM and WRITEOO1.COM, from their
-# sources, in a copy laid out as the repo is (/o and /b are read-only).
+# OOLDR, OODOS.SYS, the test system, HELLO.COM, WRITEOO1.COM and the
+# utilities, from their sources, in a copy laid out as the repo is (/o and /b
+# are read-only).
 mkdir -p src/oodos src/backplane/bios
-cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools src/oodos/
+cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils src/oodos/
 cp /b/backplane.inc src/backplane/bios/
-rm -rf src/oodos/ldr/build src/oodos/sys/build
+rm -rf src/oodos/ldr/build src/oodos/sys/build src/oodos/build
 make -s -C src/oodos/ldr
 make -s -C src/oodos/sys build/OODOS.SYS build/hello.com build/writeoo1.com
 make -s -C src/oodos build/hello.prl
+make -s -C src/oodos utils
+utils=
+for s in src/oodos/utils/*.s; do
+  n=$(basename "$s" .s | tr a-z A-Z)
+  cp "src/oodos/build/$(basename "$s" .s).com" "$n.COM"
+  utils="$utils $n.COM"
+done
 cp src/oodos/ldr/build/BOOT.BIN BOOT.BIN
 cp src/oodos/ldr/build/OODOS.SYS TESTSYS.SYS
 cp src/oodos/sys/build/OODOS.SYS OODOS.SYS
@@ -115,7 +132,14 @@ python3 gen.py SMALL.BIN 384 3
 at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
 at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL WRITEOO1.COM 0:
+at cpmcp -f oodos-8m A.IMG $utils 0:
+# Two entries more (21 to 23) put the first free entry at 32, an SFCB's first
+# slot, as 16 was before the utilities: OO1.BIN's first entry lands there.
+python3 text.py SPACER1.DAT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
+python3 text.py SPACER2.DAT "A SPACER: OO1.BIN'S FIRST ENTRY IN AN SFCB'S FIRST SLOT."
+at cpmcp -f oodos-8m A.IMG SPACER1.DAT SPACER2.DAT 0:
 at cpmchattr -f oodos-8m A.IMG s 0:HELLO.COM
+for u in $utils; do at cpmchattr -f oodos-8m A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n A.IMG
 cpmls -f oodos-8m -F A.IMG
 

@@ -20,9 +20,9 @@
  * Some refusals need the card changed while OOLDR runs (a unit gone, a card
  * that stays busy): a Hook stops boot() at one of OOLDR's labels for that.
  *
- * CMake builds OOLDR, both systems and HELLO from the sources (oodos/ldr,
- * oodos/sys, oodos/Makefile) into the build tree; the committed card must
- * hold exactly those, or it is stale.
+ * CMake builds OOLDR, both systems, HELLO and the utilities from the sources
+ * (oodos/ldr, oodos/sys, oodos/Makefile) into the build tree; the committed
+ * card must hold exactly those, or it is stale.
  */
 
 #include "harness.h"
@@ -34,6 +34,7 @@
 #include "session.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -741,7 +742,7 @@ TEST(drive_a_gone_or_changed_before_oodos_sys_is_read)
 
 TEST(the_committed_card_is_what_the_sources_build)
 {
-    // OOLDR, the systems, HELLO and WRITEOO1 the build tree has, from today's sources, are the card's:
+    // OOLDR, the systems, HELLO, WRITEOO1 and the utilities the build tree has, from today's sources, are the card's:
     // a file on A: is its bytes, then whatever pads its last record.
     const std::string STALE = "the card is stale: run oodos/tools/make_card.sh";
     auto same = [&](const std::string &what, const Bytes &card, const Bytes &built, bool records) {
@@ -758,6 +759,16 @@ TEST(the_committed_card_is_what_the_sources_build)
     same("HELLO.COM", a.file("HELLO   COM"), read_file(EMU_OODOS_SYS_DIR "/hello.com"), true);
     same("HELLO.PRL", a.file("HELLO   PRL"), read_file(EMU_OODOS_PRL_DIR "/hello.prl"), true);
     same("WRITEOO1.COM", a.file("WRITEOO1COM"), read_file(EMU_OODOS_SYS_DIR "/writeoo1.com"), true);
+    // Phase 4b's utilities (make utils), each in user 0 with the SYS attribute (t2's bit 7)
+    for (const char *u : {"DATE", "DEVICE", "DIR", "ERASE", "INITDIR", "RENAME", "SET", "SETDEF", "SHOW", "TYPE"})
+    {
+        std::string name83 = std::string(u) + std::string(8 - std::strlen(u), ' ') + "COM", lower = u;
+        for (char &c : lower)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        same(std::string(u) + ".COM", a.file(name83), read_file(EMU_OODOS_UTILS_DIR "/" + lower + ".com"), true);
+        const std::vector<unsigned> e = a.entries_of(0, name83);
+        CHECK(!e.empty() && (a.dir(e[0])[10] & 0x80) != 0);
+    }
     same("DRIVES.TXT", file_of(committed(), "/OODOS/DRIVES.TXT"), read_file(EMU_OODOS_CARD_DIR "/DRIVES.TXT"), false);
 }
 

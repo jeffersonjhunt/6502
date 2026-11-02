@@ -6,7 +6,7 @@
 #
 #   docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath DIR):/c:ro" \
 #       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
-#       sh /o/test/interop.sh /c/CARD [--written | --ccp]
+#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils]
 #
 # CARD is a raw card image or a sparse one (oo1-sparse, as
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
@@ -18,7 +18,17 @@
 # test_oodos_card saved after the CCP's ERA and REN (OODOS_CCP_OUT, phase
 # 4a): 0:README.TXT renamed README.DOC and 0:PATTERN.BIN (two entries)
 # PATTERN.DAT, their stamps and contents kept; 3:SMALL.BIN and 0:HELLO.PRL
-# erased, gone from the listing; the rest as make_card.sh made it.
+# erased, gone from the listing; the rest as make_card.sh made it. With
+# --utils it is the card test_oodos_card saved after phase 4b1's utilities
+# (OODOS_UTILS_OUT): ERASE's [CONFIRM] erased 0:HELLO.PRL, RENAME's wildcard
+# made PATTERN.BIN PATTERN.DAT, SET made README.TXT RO, archived and F1, and
+# WRITEOO1.COM SYS; INITDIR took the SFCBs away, SET turned password
+# protection on and gave PATTERN.DAT (Write) and TESTSYS.SYS (Delete)
+# passwords, so XFCBs in the free SFCB places, then INITDIR made the SFCBs
+# again, the XFCBs moved out first (to 13, HELLO.PRL's, and 32), every stamp
+# 0; SET asked the label for creation and update stamps again and named it
+# OODOS.4B1 (its mode 0xB1). Every file cpmls -F lists, in every user, is
+# matched against a table of its attributes and protection, its stamps 0.
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
@@ -26,8 +36,8 @@
 # warns "Modification date earlier than creation date (extent=S/E)" for an
 # entry E (E & 3 = 0, its SFCB S = E | 3) updated on a later day than it was
 # made, and misses one updated before. OO1.BIN, made a day before its update,
-# has its first entry there. So sfcb.py checks every file entry's stamp order
-# itself first, and fsck_clean lets through only that warning, only for
+# has its first entry there (32: make_card.sh's two spacers keep it so). So
+# sfcb.py checks every file entry's stamp order itself first, and fsck_clean lets through only that warning, only for
 # first-slot entries sfcb.py found a day or more apart and in order.
 set -eu
 card=$1
@@ -97,8 +107,14 @@ ok "sfcb.py: every file's first entry has an SFCB slot, each stamped one updated
 fsck_clean oodos-8m "$img" "$work/allowed"
 ok "fsck.cpm is clean ($(grep -c . "$work/allowed" || true) first-slot warnings checked by sfcb.py)"
 
-[ "$(od -An -tu1 -j12 -N1 "$img" | tr -d ' ')" = 49 ] || fail "the label's mode is not 0x31"
-ok "the label's mode is 0x31: creation and update stamps"
+if [ "$written" = --utils ]; then
+  [ "$(od -An -tu1 -j12 -N1 "$img" | tr -d ' ')" = 177 ] || fail "the label's mode is not 0xB1"
+  [ "$(dd if="$img" bs=1 skip=1 count=11 status=none)" = 'OODOS   4B1' ] || fail "the label is not OODOS.4B1"
+  ok "the label is OODOS.4B1, its mode 0xB1: passwords, creation and update stamps"
+else
+  [ "$(od -An -tu1 -j12 -N1 "$img" | tr -d ' ')" = 49 ] || fail "the label's mode is not 0x31"
+  ok "the label's mode is 0x31: creation and update stamps"
+fi
 
 listing=$(cpmls -f oodos-8m -F "$img") || fail "cpmls -F"
 echo "$listing" | sed 's/^/     /'
@@ -106,7 +122,7 @@ echo "$listing" | sed 's/^/     /'
 stamped() {
   echo "$listing" | grep -E "^$1 +$2 .* $3  $4 *\$" >/dev/null || fail "$1.$2: not stamped update $3, created $4"
 }
-if [ "$written" != --ccp ]; then
+if [ "$written" != --ccp ] && [ "$written" != --utils ]; then
   for f in 'README TXT' 'PATTERN BIN' 'USER3 TXT' 'SMALL BIN'; do
     stamped $f '10/26/26 12:00' '10/26/26 12:00'
   done
@@ -126,8 +142,8 @@ if [ "$written" = --written ]; then
   slots=$(python3 -I test/sfcb.py "$img" "$entries" slots 0 OO1.BIN)
   echo "$slots" | sed 's/^/     /'
   [ "$(echo "$slots" | wc -l)" = 2 ] || fail "0:OO1.BIN has not two entries"
-  [ "$(echo "$slots" | sed -n 1p)" = "16 $want" ] || fail "0:OO1.BIN's first entry (16)'s SFCB slot isn't $want"
-  [ "$(echo "$slots" | sed -n 2p)" = "17 0000000000000000" ] || fail "0:OO1.BIN's second entry (17)'s SFCB slot isn't 0"
+  [ "$(echo "$slots" | sed -n 1p)" = "32 $want" ] || fail "0:OO1.BIN's first entry (32)'s SFCB slot isn't $want"
+  [ "$(echo "$slots" | sed -n 2p)" = "33 0000000000000000" ] || fail "0:OO1.BIN's second entry (33)'s SFCB slot isn't 0"
   ok "0:OO1.BIN's first entry's SFCB slot holds $want, its second's 0"
   cpmcp -f oodos-8m "$img" 0:OO1.BIN "$work/out" || fail "cpmcp 0:OO1.BIN"
   cmp -s "$work/OO1.BIN" "$work/out" || fail "0:OO1.BIN is not what the OO-1 wrote"
@@ -148,6 +164,88 @@ elif [ "$written" = --ccp ]; then
     cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:} as make_card.sh made it"
   done
   ok "README.DOC, PATTERN.DAT and USER3.TXT, out by cpmcp, are what make_card.sh made"
+elif [ "$written" = --utils ]; then
+  # Every file line of cpmls -F, in each user's group, against the table below, and no other:
+  # its attributes (F1-F4 as 1-4, R for RO, S for SYS, A for archived, by column), its
+  # protection, and both stamps 0 (cpmls shows day 0 as 12/31/77 00:00) since INITDIR made the
+  # SFCBs again. cpmls lists an XFCB as a file of user 16 and more.
+  cat >"$work/want" <<'TXT'
+0 DATE.COM S None
+0 DEVICE.COM S None
+0 DIR.COM S None
+0 ERASE.COM S None
+0 HELLO.COM S None
+0 INITDIR.COM S None
+0 OODOS.SYS - None
+0 PATTERN.DAT - Write
+0 README.TXT 1RA None
+0 RENAME.COM S None
+0 SET.COM S None
+0 SETDEF.COM S None
+0 SHOW.COM S None
+0 SPACER1.DAT - None
+0 SPACER2.DAT - None
+0 TESTSYS.SYS - Delete
+0 TYPE.COM S None
+0 WRITEOO1.COM S None
+3 SMALL.BIN - None
+3 USER3.TXT - None
+16 PATTERN.DAT - None
+16 TESTSYS.SYS - None
+TXT
+  cat >"$work/files.py" <<'PY'
+import re, sys
+want = sorted(l.split() for l in open(sys.argv[1]) if l.strip())
+got, user = [], None
+for l in sys.stdin.read().split('\n'):
+    m = re.match(r'Directory For Drive [A-P]:  User +(\d+)', l)
+    f = re.match(r'(\S+) +(\S*) +\d+k +\d+ (.*?) *(None|Read|Write|Delete) +(.*)$', l)
+    if m:
+        user = int(m.group(1))
+    elif f:
+        prot = f.group(4)
+        if f.group(5).split() != ['12/31/77', '00:00', '12/31/77', '00:00']:
+            prot += '/stamped:' + '_'.join(f.group(5).split())
+        got.append([str(user), f.group(1) + '.' + f.group(2), ''.join(f.group(3).split()) or '-', prot])
+got.sort()
+for x in want:
+    if x not in got:
+        print('missing or different:', ' '.join(x))
+for x in got:
+    if x not in want:
+        print('listed:', ' '.join(x))
+PY
+  diffs=$(echo "$listing" | python3 -I "$work/files.py" "$work/want")
+  [ -z "$diffs" ] || { echo "$diffs" | sed 's/^/     /'; fail "cpmls -F's files are not the table's"; }
+  ok "cpmls -F: all $(grep -c . "$work/want") files as the table: README.TXT 1 R A, the .COMs S, PATTERN.DAT Write, TESTSYS.SYS Delete, the rest None; stamps 0"
+  for f in 'PATTERN +BIN' 'HELLO +PRL'; do
+    if echo "$listing" | grep -E "^$f " >/dev/null; then fail "cpmls -F still lists $f"; fi
+  done
+  ok "cpmls -F: HELLO.PRL erased, PATTERN.BIN renamed"
+  # The directory itself: an SFCB in every fourth entry again, and the XFCBs (cpmls -F lists
+  # them as user 16's) where INITDIR moved them, with their modes (bit 7 Read, 6 Write, 5 Delete).
+  cat >"$work/xfcb.py" <<'PY'
+import sys
+d = open(sys.argv[1], 'rb').read(int(sys.argv[2]) * 32)
+e = [d[i * 32:(i + 1) * 32] for i in range(len(d) // 32)]
+print('sfcbs', sum(1 for i in range(3, len(e), 4) if e[i][0] == 0x21),
+      'other', sum(1 for i in range(len(e)) if e[i][0] == 0x21 and i & 3 != 3))
+for i, x in enumerate(e):
+    if 16 <= x[0] <= 31:
+        print('xfcb', i, x[0] - 16, x[1:12].decode('ascii', 'replace'), '%02x' % (x[12] & 0xE0))
+PY
+  dir=$(python3 -I "$work/xfcb.py" "$img" "$entries")
+  echo "$dir" | sed 's/^/     /'
+  [ "$(echo "$dir" | sed -n 1p)" = "sfcbs $((entries / 4)) other 0" ] || fail "not an SFCB in every fourth entry, and only there"
+  [ "$(echo "$dir" | sed -n '2,$p')" = "xfcb 13 0 PATTERN DAT 40
+xfcb 32 0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (13, Write) and TESTSYS.SYS's (32, Delete)"
+  ok "an SFCB every fourth entry; the XFCBs in 13 and 32, Write and Delete"
+  for f in 0:README.TXT:README.TXT 0:PATTERN.DAT:PATTERN.BIN 3:USER3.TXT:USER3.TXT 3:SMALL.BIN:SMALL.BIN; do
+    name=${f%:*}
+    cpmcp -f oodos-8m "$img" "$name" "$work/out" || fail "cpmcp $name"
+    cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:} as make_card.sh made it"
+  done
+  ok "README.TXT, PATTERN.DAT, USER3.TXT and SMALL.BIN, out by cpmcp, are what make_card.sh made"
 elif [ -n "$written" ]; then
   fail "$written: not an option"
 fi
