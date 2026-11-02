@@ -219,9 +219,11 @@ namespace
     constexpr uint64_t IRQS_A_FRAME = 8;
 
     /// Frames the card may take, from init's return, to a VBI song's first
-    /// play call: the frame then pending, and play's own run. A CIA song's
-    /// first call is the tune's timer's doing (one in the samples sets it to
-    /// call play about every 8.7 frames), so only has to come.
+    /// play call: the frame then pending, and play's own run. A CIA song is
+    /// judged only on being called: its rate is the tune's timer and play
+    /// together (one in the samples keeps the KERNAL's 60 Hz timer but runs
+    /// a play of about 8.7 frames, so is called about every 9.2), and CIA 1's
+    /// timer itself is checked in test_sound.
     constexpr uint64_t LATE_FRAMES = 2;
 
     /// The rule. A PSID with a play routine must be called first within
