@@ -129,6 +129,8 @@ make -C docs index      # regenerate index/*.json
 - every utility (`oodos/utils/NAME.s`), every built-in command (`BINAMES` in `oodos/sys/ccp.s`, by its long
   name) and every command planned with no source yet (`PLANNED` in check_docs.py: PIP, SUBMIT, GET, PUT) has an
   entry, and every command's entry is one of them;
+- a line among oodos.inc's functions or in `BINAMES` that the check can't read fails it, so nothing is passed
+  over;
 - entries follow their template's headings, in order, with a known status;
 - every anchor the indexes name exists, no anchor is there twice, and every relative link in docs/ and AGENTS.md,
   and every one in hw/*.md and README.md into docs/, resolves, to its file and its anchor (reference-style links

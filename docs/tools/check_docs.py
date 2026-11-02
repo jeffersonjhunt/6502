@@ -15,7 +15,8 @@ Checks, against the sources the books describe:
     ID and name (MODULES);
   - every utility (oodos/utils/NAME.s), every built-in command (ccp.s's
     BINAMES, by its long name) and each command PLANNED has a util- entry,
-    and every util- entry is one of them;
+    and every util- entry is one of them; a line among oodos.inc's functions
+    or in BINAMES that it can't read fails;
   - an entry not written yet is named in docs/tools/unwritten.txt, and a name
     there that is written now (or names nothing) fails, so the list shrinks;
   - entries follow their template's headings (docs/templates/), in order;
@@ -84,16 +85,20 @@ class Check:
     # ---- the sources ------------------------------------------------------------------------
 
     def functions(self):
-        """oodos.inc's BDOS function numbers: {number: name}, from its "BDOS functions" comment on."""
+        """oodos.inc's BDOS function numbers: {number: name}, from its "BDOS functions" comment on. An equate there
+        it can't evaluate fails."""
         path = os.path.join(self.root, "oodos", "include", "oodos.inc")
         out, on = {}, False
         for n, line in enumerate(self.read(path).splitlines(), 1):
             if line.startswith("; BDOS functions"):
                 on = True
             elif on:
-                m = re.match(r"^([A-Z][A-Z0-9_]*)\s*=\s*(\d+)\b", line)
+                m = re.match(r"^([A-Za-z_]\w*)\s*=\s*([^;]*?)\s*(?:;.*)?$", line)
                 if m:
-                    num = int(m.group(2))
+                    num = self.value(m.group(2), {})
+                    if num is None:
+                        self.fail(f"{self.rel(path)}:{n}", f"can't evaluate {m.group(1)} = {m.group(2)}")
+                        continue
                     if num in out:
                         self.fail(f"{self.rel(path)}:{n}", f"function {num} twice ({out[num]}, {m.group(1)})")
                     out[num] = m.group(1)
@@ -144,26 +149,34 @@ class Check:
 
     def builtins(self):
         """The CCP's built-in commands, lower case: BINAMES in oodos/sys/ccp.s, each handler's first name, which is
-        its long one (DIRSYS, not DIRS)."""
+        its long one (DIRSYS, not DIRS). A line there it can't read fails."""
         path = os.path.join(self.root, "oodos", "sys", "ccp.s")
         out, handlers, name, on = [], set(), None, False
-        for line in self.read(path).splitlines():
+        for n, line in enumerate(self.read(path).splitlines(), 1):
             if line.startswith("BINAMES:"):
                 on = True
+                line = line[len("BINAMES:"):]
             elif not on:
                 continue
-            m = re.search(r'\.byte\s+\d+,\s*"([A-Z0-9]+)"', line)
-            if m:
-                name = m.group(1)
+            body = line.split(";", 1)[0].strip()
+            if not body:
                 continue
-            m = re.search(r"\.word\s+(\w+)", line)
-            if m and name:
-                if m.group(1) not in handlers:
+            m = re.match(r'^\.byte\s+([^,"]+?)\s*,\s*"([A-Z0-9]+)"$', body)
+            if m and self.value(m.group(1), {}) is not None:
+                name = m.group(2)
+                continue
+            m = re.match(r"^\.word\s+(\w+)$", body)
+            if m:
+                if name and m.group(1) not in handlers:
                     handlers.add(m.group(1))
                     out.append(name.lower())
                 name = None
-            elif re.search(r"\.byte\s+0\s*(;|$)", line):
+                continue
+            m = re.match(r"^\.byte\s+(\S+)$", body)
+            if m and self.value(m.group(1), {}) == 0:
                 break
+            self.fail(f"{self.rel(path)}:{n}", f"BINAMES: '{body}' isn't '.byte length, \"NAME\"', '.word handler' "
+                                               f"or the '.byte 0' that ends it")
         return out
 
     # ---- the books --------------------------------------------------------------------------
