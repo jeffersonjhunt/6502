@@ -87,7 +87,7 @@ stand-in ROM the tests write themselves.
 **`.sid` tunes** (HVSC's and others) are their composers' copyright and are
 never fetched or vendored either. Put your own in `fixtures/SIDs/` (any depth: a whole HVSC
 copy is fine, as the test plays a sample) for `test_sid_corpus`; without
-them it skips the sample (its check of the rule on synthetic tunes still runs). `test_sid_file` builds its own
+them it skips the sample (its check of the rule on synthetic tunes still runs). `SID_DIR` points it at another folder instead. `test_sid_file` builds its own
 tunes from a few hand-assembled bytes.
 
 ## Things to know

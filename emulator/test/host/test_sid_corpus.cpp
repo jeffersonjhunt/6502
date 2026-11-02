@@ -31,8 +31,9 @@
  * can't acknowledge it, fails): it is judged as a play-0 tune, and counted;
  * one the stub does play is judged as any other. RSIDs that are BASIC
  * programs, which plan_sid refuses, are skipped and counted. The rule
- * itself is checked on synthetic tunes, fixtures or not; without the
- * fixtures only the sample is skipped.
+ * itself is checked on synthetic tunes and on made-up results, fixtures or
+ * not; without the fixtures only the sample is skipped. SID_DIR names
+ * another folder of tunes instead of fixtures/SIDs.
  */
 
 #include "harness.h"
@@ -58,7 +59,11 @@ using namespace ooe::emu;
 
 namespace
 {
-    const std::string FOLDER = std::string(EMU_FIXTURE_DIR) + "/SIDs";
+    /// Where the tunes are: SID_DIR, else fixtures/SIDs.
+    const std::string FOLDER = [] {
+        const char *dir = std::getenv("SID_DIR");
+        return dir && *dir ? std::string(dir) : std::string(EMU_FIXTURE_DIR) + "/SIDs";
+    }();
 
     /// Every tune under FOLDER, as paths relative to it, sorted.
     std::vector<std::string> tunes()
@@ -328,17 +333,16 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
                         0x0F, 0x10, 0x40, 0x60},
                        0x13),
              true);
-    // A tune that takes $FFFE, turns CIA 1's interrupt and the raster
-    // interrupt on, and returns: the stub turns the frame off, and the tune
-    // takes the CIA's interrupts (its handler acknowledges $DC0D), 50 a second.
-    // $D01A=1, $DC0D=$81, $FFFE -> $1018, RTS. $1018: LDA $DC0D, RTI. play $101C: RTS.
-    run_rule("its own raster interrupt, on the CIA's",
-             synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x81, 0x8D, 0x0D, 0xDC, 0xA9, 0x18, 0x8D, 0xFE, 0xFF, 0xA9,
-                        0x10, 0x8D, 0xFF, 0xFF, 0x60, 0xEA, 0xEA, 0xEA, 0xAD, 0x0D, 0xDC, 0x40, 0x60},
-                       0x1C),
+    // A tune with its own $FFFE entry that passes on KERNAL-style: PHA TXA
+    // PHA TYA PHA, JMP ($0314), the stub's handler. It plays once a frame.
+    // init: the saw, $FFFE -> $1020, RTS. play ($101F): RTS.
+    run_rule("chained $FFFE",
+             synthetic(SAW + std::vector<uint8_t>{0xA9, 0x20, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x60, 0x60,
+                                                  0x48, 0x8A, 0x48, 0x98, 0x48, 0x6C, 0x14, 0x03},
+                       31),
              true);
-    // With CLI inside an init that never returns, the stub can't turn the
-    // frame off: it storms the tune's handler, which can't acknowledge it.
+    // A tune whose own $FFFE handler (an RTI) neither passes on to $0314 nor
+    // clears $DE03: the pending frame storms it, a limit of the card.
     run_rule("its own raster interrupt, storming",
              synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0xA9, 0x13, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF, 0x58, 0x4C,
                         0x10, 0x10, 0x40, 0x60},
@@ -350,6 +354,24 @@ TEST(the_rule_fails_a_silent_tune_and_passes_a_sounding_one)
                        0x12),
              false);
     run_rule("$D01A on, played, silent", synthetic({0xA9, 0x01, 0x8D, 0x1A, 0xD0, 0x60, 0x60}, 6), false);
+}
+
+TEST(the_rule_bounds_a_vbi_songs_first_call_after_init)
+{
+    // Results as play() would make them: on time, heard; only `late` differs.
+    const SidFile f = synthetic({0x60, 0x60}, 1);
+    Result r;
+    r.frames = 101, r.sounded = true, r.irqs = 101, r.clocks = 2 * SoundCard::PAL_HZ;
+    r.late = static_cast<int64_t>(1.9 * SoundCard::FRAME_PAL);
+    CHECK(passes(f, r));
+    r.late = 3 * SoundCard::FRAME_PAL;
+    CHECK(!passes(f, r));
+    r.late = -1; // never a call after init
+    CHECK(!passes(f, r));
+    r.late = 3 * SoundCard::FRAME_PAL; // a CIA song: its timer's doing
+    SidFile cia = f;
+    cia.speed = 1;
+    CHECK(passes(cia, r));
 }
 
 TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
