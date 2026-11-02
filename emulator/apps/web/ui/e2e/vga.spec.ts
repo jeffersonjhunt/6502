@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, phosphor } from "./ui";
+import { openDebugger, pastSplash, phosphor } from "./ui";
 
 // Display: the video card's frames (the VGA scene), as the BIOS draws its screen.
 
@@ -35,6 +35,7 @@ function litInRow(page: Page, row: number) {
 
 test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
   // The B of BACKPLANE (row 1): glyph row 2 is 11111100. P3 amber, at light grey's brightness.
@@ -47,6 +48,7 @@ test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", as
 
 test("typing shows on VGA too, and the scene is remembered", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();
   await expect.poll(() => pixel(page, 0, 18)).not.toEqual([0, 0, 0]);
   expect(await litInRow(page, 4)).toBe(0);
@@ -111,6 +113,7 @@ function colours(page: Page) {
 
 test("C803R runs the video demo on VGA, and a key goes back to the monitor", async ({ page }) => {
   await booted(page);
+  await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();
   await phosphor(page, "Colour");
   await expect.poll(() => pixel(page, 0, 18)).toEqual([170, 170, 170]);
