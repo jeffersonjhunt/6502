@@ -36,11 +36,12 @@
  *   of its own, which knows only the C64's interrupts and would leave the
  *   frame's set (an interrupt storm); the rest still go through $0314. A
  *   tune never reaches the frame interrupt: the VIC-II's $D019/$D01A are
- *   not on the card. So when init returns having pointed $FFFE away from
- *   the stub, whose entry is then never run, the stub turns the frame
- *   interrupt off (FRAMEEN bit 1 alone, the raster line kept): the tune runs
- *   on the interrupts it set up, as on a C64. One that takes $FFFE and turns
- *   interrupts on inside an init that never returns still gets the frame;
+ *   not on the card. A tune that points $FFFE at an entry of its own (code
+ *   under the KERNAL often does) still plays if that entry passes on to
+ *   $0314, as the KERNAL's does, since $0314 is the stub's handler. One
+ *   whose own handler, from init or play, never passes on to $0314 nor
+ *   clears $DE03 is a limit of the card: the frame stays pending and storms
+ *   it (the corpus test's storming case fails on it);
  * - the IRQ vector at $FFFE entering as the KERNAL does (A, X, Y pushed,
  *   then JMP ($0314); for a VBI song, a check of $DE03 first, with $01
  *   saved and I/O banked in, that takes a frame to the stub's handler, 26

@@ -738,9 +738,9 @@ tune; the WebUI's tune bar then says the machine stopped it.
   leaves them free, so tunes that install their own interrupt at `$0314` or `$FFFE` run. A tune with
   a play routine that loads over `$0314` goes straight to the stub's handler instead. For a VBI song,
   whose frame interrupt only the stub can acknowledge, a frame reaches the stub's handler even past a
-  repointed `$0314`, and if init returns with `$FFFE` pointing elsewhere the stub turns the frame
-  interrupt off (FRAMEEN bit 0) so the tune's own handler isn't stormed; a tune that takes `$FFFE`
-  and enables interrupts inside an init that never returns still is.
+  repointed `$0314`. A tune's own `$FFFE` entry that passes on to `$0314`, KERNAL-style, reaches the
+  stub's handler and plays; one whose handler never passes on to `$0314` nor clears `$DE03` is
+  stormed by the pending frame, a limit of the card (the corpus test's storming case stands for it).
 - **A sync point:** after each play call the stub writes the call's number (mod 256) to the
   mailbox, so the host can count frames.
 - **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3
