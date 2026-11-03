@@ -327,7 +327,11 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
   TTY, LST: is LPT.
 - **The terminal** is a VT52 subset: CR, LF, BS, BEL, `ESC A B C D` (cursor), `ESC H` (home), `ESC J` and `ESC K`
   (erase to the end of the screen and of the line), `ESC E` (clear) and `ESC Y` row column (each + 32).
-  Lowercase stays lowercase.
+  Lowercase stays lowercase. **The serial line gets the same as ANSI (2026-11-03),** which a PC's terminal program
+  reads and VT52 isn't: TTY's output turns `ESC A`–`D`, `H`, `J` and `K` into `ESC [` and the letter, `ESC E` into
+  `ESC [H ESC [2J`, and `ESC Y` into `ESC [`row`;`col`H` (from 1, past the screen's edge its last, as the screen
+  has it), and drops another ESC pair, as the screen does. The WebUI's Terminal reads that ANSI; the native app
+  passes it to the host's terminal.
 - **TIME** with A = 0 reads the bridge into the SCB's date (days from 1 January 1978, day 1 that day), hour,
   minute and second (BCD); with A = `$FF` it sets the bridge from them, the day of the week worked out.
 - **Interrupts:** none enabled in phase 2; the console is polled. BRK, and Break (NMI), go to the ROM's monitor
@@ -1811,7 +1815,17 @@ call only the BDOS and the warm boot), and only OODOS may map the cartridge to l
 back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and only a reset ends
 Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator: Settings, ROMs)", the
 return code `$FF00`, and OODOS goes on. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes
-(its ID byte and a loop at reset), not Apple's.
+(its ID byte and a loop at reset), not Apple's. *(2026-11-03: WOZMON clears the screen first, as CLEAR does,
+below.)*
+
+### Clearing the screen: CLEAR and CLS ###
+
+**Done (2026-11-03).** Two utilities more of ours, asked for by the owner. **CLEAR** clears the screen: it writes
+`ESC E`, so the text screen is cleared and a terminal on the serial line gets ANSI's clear (above, "The terminal").
+**CLS** clears it too, then lists the files: it chains to `DIR` with its own tail (function 47), so `CLS`, `CLS
+[SYS]` and `CLS *.COM [SIZE]` are DIR's listings on a clear screen, the CCP's prompt and the DIR command at the
+top, as a chained command shows (function 47, above). A tail that doesn't fit 47's 126 characters after `DIR` is
+cut off at its 123rd. Tested by `test_oodos_utils_rom`, with WOZMON's clear.
 
 ### The program header ###
 

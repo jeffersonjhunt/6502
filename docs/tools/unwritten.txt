@@ -181,6 +181,8 @@ util-device
 util-setdef
 util-wozmon  # ours
 util-apple2  # ours
+util-clear   # ours
+util-cls     # ours
 
 # PIP (phase 4b2)
 util-pip

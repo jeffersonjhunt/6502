@@ -137,6 +137,8 @@ SIDE_D          = 4
 DRVRO:          .res    SD_DRIVES      ; bit 1: the unit is read-only
 DRVCHG:         .res    1              ; bit n: unit n + 1 changed at a rescan (the BDOS clears it)
 UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
+TESC:           .res    1              ; TTYOUT: 0, 1 after ESC, 2 after ESC Y, 3 after its row
+TROW:           .res    1              ; ESC Y's row, from 0
 
 .segment "BIOS"
 
@@ -298,9 +300,106 @@ TTYIN:          JSR     TTYIST
                 BEQ     TTYIN
                 LDA     ACIA_DATA
                 RTS
+; The screen's VT52 subset (crt.s) goes out on the serial line as ANSI, as a
+; PC's terminal program and the WebUI's Terminal read it: ESC A-D, H, J and K
+; as ESC [ and the same letter; ESC E (clear) as ESC [H ESC [2J; ESC Y row
+; col as ESC [row;colH, counted from 1 there, a row or column past the
+; screen's edge its last, as crt.s has it. Other ESC pairs are dropped, as
+; the screen drops them. Uses A, X, Y.
+TTYOUT:         LDX     TESC
+                BNE     @esc
+                CMP     #$1B
+                BEQ     @begin
+                JMP     TTYPUT
+@begin:         LDA     #1
+                STA     TESC
+                RTS
+@esc:           CPX     #1
+                BNE     @arg
+                STZ     TESC
+                CMP     #'E'
+                BEQ     @clear
+                CMP     #'Y'
+                BEQ     @move
+                LDX     #TTYKEYS_LEN - 1
+@find:          CMP     TTYKEYS,X
+                BEQ     @csi
+                DEX
+                BPL     @find
+                RTS                    ; not one of ours
+@csi:           JMP     CSI
+@clear:         LDA     #'H'
+                JSR     CSI
+                JSR     CSIOPEN
+                LDA     #'2'
+                JSR     TTYPUT
+                LDA     #'J'
+                BRA     TTYPUT
+@move:          LDA     #2
+                STA     TESC
+                RTS
+@arg:           SEC                    ; ESC Y's row, then its column
+                SBC     #32
+                CPX     #2
+                BNE     @col
+                CMP     #TTY_ROWS
+                BCC     @row
+                LDA     #TTY_ROWS - 1
+@row:           STA     TROW
+                LDA     #3
+                STA     TESC
+                RTS
+@col:           STZ     TESC
+                CMP     #TTY_COLS
+                BCC     @at
+                LDA     #TTY_COLS - 1
+@at:            PHA
+                JSR     CSIOPEN
+                LDA     TROW
+                INC     A
+                JSR     TTYDEC
+                LDA     #';'
+                JSR     TTYPUT
+                PLA
+                INC     A
+                JSR     TTYDEC
+                LDA     #'H'
+                BRA     TTYPUT
+
+TTYKEYS:        .byte   "ABCDHJK"
+TTYKEYS_LEN     = * - TTYKEYS
+TTY_ROWS        = 30                   ; crt.s's screen
+TTY_COLS        = 80
+
+; ESC [ and then A; CSIOPEN only the ESC [.
+CSI:            PHA
+                JSR     CSIOPEN
+                PLA
+                BRA     TTYPUT
+CSIOPEN:        LDA     #$1B
+                JSR     TTYPUT
+                LDA     #'['
+                BRA     TTYPUT
+
+; A, 1-99, in decimal.
+TTYDEC:         LDX     #'0' - 1       ; the tens
+                SEC
+@ten:           INX
+                SBC     #10
+                BCS     @ten
+                ADC     #10 + '0'      ; the units (the carry is clear)
+                PHA
+                CPX     #'0'
+                BEQ     @units
+                TXA
+                JSR     TTYPUT
+@units:         PLA
+                ; fall through
+
 ; The W65C51N's transmit-empty flag is stuck, so wait out the character, as
 ; the ROM's ECHO does: 3 x 256 x 5 cycles, 3,840, over 10 bits at 19,200.
-TTYOUT:         STA     ACIA_DATA
+; Uses A and Y.
+TTYPUT:         STA     ACIA_DATA
                 LDY     #3
 @outer:         LDA     #0
 @inner:         DEC     A

@@ -93,12 +93,12 @@ test("WOZMON leaves OODOS for the monitor, and a power cycle boots the demo card
   const crt = page.getByTestId("crt-text");
   await expect(crt).toContainText("A>", { timeout: 30_000 });
   await command(page, "WOZMON");
-  await expect(crt).toContainText(/WOZMON\s*\\\s*$/); // the monitor's prompt: its entry sets the serial card up afresh
+  await expect(crt).toHaveText(/^\s*\\\s*$/); // the screen cleared, then the monitor's prompt alone
   await command(page, "C683");
   await expect(crt).toContainText("C683: 7F");
   await powerCycle(page);
   await onTerminal(page);
-  await expect(crt).not.toContainText("WOZMON", { timeout: 15_000 }); // the terminal starts afresh at power-on
+  await expect(crt).not.toContainText("C683", { timeout: 15_000 }); // the terminal starts afresh at power-on
   await expect(crt).toContainText(BOOTING, { timeout: 15_000 });
   await expect(crt).toContainText("A>", { timeout: 30_000 }); // booted again
 });
@@ -118,6 +118,22 @@ test("a demo card that never arrives doesn't hold the page up: power-on is the W
   await expect(crt).not.toContainText(BOOTING);
   await command(page, "C683");
   await expect(crt).toContainText("C683: 7F");
+});
+
+test("CLEAR clears the Terminal, and CLS clears it and lists the files", async ({ page }) => {
+  await page.goto("./");
+  await openSettings(page);
+  await expect(page.getByTestId("sd-name")).toHaveText("oodos-demo.img", { timeout: 15_000 });
+  await page.getByTestId("settings-close").click();
+  await powerOn(page);
+  await onTerminal(page);
+  const crt = page.getByTestId("crt-text");
+  await expect(crt).toContainText("A>", { timeout: 30_000 });
+  await command(page, "CLEAR");
+  await expect(crt).toHaveText(/^\s*A>$/); // only the prompt, and no stray [ or E
+  await command(page, "CLS");
+  await expect(crt).toContainText("SYSTEM FILE(S) EXIST");
+  await expect(crt).toHaveText(/^\s*A>DIR\s+A: README\s+TXT : OODOS\s+SYS\s+SYSTEM FILE\(S\) EXIST\s*A>$/);
 });
 
 test("?sd=empty leaves the slot empty", async ({ page }) => {
