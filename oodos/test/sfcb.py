@@ -13,10 +13,12 @@ OODOS's BDOS leaves a later extent's slot 0, cpmtools stamps it as the first. ch
 first entry has no SFCB, or, when the label asks for creation and update stamps and not access ones,
 an entry's update is before its creation (a later extent's slot may be all 0). A label that asked for
 other stamps (phase 3b1's 100) may have left a field 0, or an access after the update, which isn't out
-of order: "any" (the label was set while the files were written) checks no order. fsck.cpm 2.23 warns "Modification date earlier than creation date" when the label asks for
-creation stamps and its sums say so, and it sums an SFCB's first slot's bytes crosswise (so it warns
-when the update is on a later day than the creation); check works out exactly what it will warn, by
-its sums, and writes those lines to ALLOWED, the lines fsck_clean lets through.
+of order: "any" (the label was set while the files were written) checks no order. fsck.cpm warns
+"Modification date earlier than creation date" when the label asks for creation stamps and its sums say
+so; check works out exactly what it will warn, by its sums, and writes those lines to ALLOWED, the lines
+fsck_clean lets through: with the stamps in order, none. The sums are those of fsck_fixed.sh's fsck.cpm,
+which reads an SFCB's first slot straight; cpmtools 2.23's own read its days' low bytes crosswise
+(cpmtools-fsck-stamps.patch).
 """
 
 import datetime
@@ -48,11 +50,9 @@ def slot(dir, i):
 
 
 def fsck_sums(sfcb, k):
-    """fsck.cpm 2.23's creation and modification of an SFCB's slot k, as it sums them (slot 0 crosswise)."""
+    """fsck.cpm's creation and modification of an SFCB's slot k, as it sums them (fsck_fixed.sh's)."""
     b = sfcb[1:]
     h = 0x60                                                 # its hours and minutes, BCD, by 0x60
-    if k == 0:
-        return ((b[4] + (b[1] << 8)) * h * h + b[2] * h + b[3], (b[0] + (b[5] << 8)) * h * h + b[6] * h + b[7])
     o = 10 * k
     return ((b[o] + (b[o + 1] << 8)) * h * h + b[o + 2] * h + b[o + 3],
             (b[o + 4] + (b[o + 5] << 8)) * h * h + b[o + 6] * h + b[o + 7])

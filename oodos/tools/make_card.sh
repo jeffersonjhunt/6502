@@ -36,9 +36,10 @@
 #                      SETDEF, SHOW, TYPE, WOZMON; SYS, as HELLO.COM
 #                      (hw/oodos.md, "The utilities, phase 4b"). Twelve, so
 #                      the first free entry is an SFCB's first slot (32),
-#                      where WRITEOO1 puts OO1.BIN: fsck.cpm 2.23 compares
-#                      that slot's stamps backwards, a case interop.sh
-#                      checks (with ten, two spacer files did it)
+#                      where WRITEOO1 puts OO1.BIN: cpmtools 2.23's fsck.cpm
+#                      compares that slot's stamps crosswise, and interop.sh's
+#                      fixed one (fsck_fixed.sh) must pass it (with ten, two
+#                      spacer files did it)
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # The demo card (demo.sparse), the one the WebUI puts in its slot at each

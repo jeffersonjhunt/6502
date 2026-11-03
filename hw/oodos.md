@@ -2022,13 +2022,17 @@ copyright and MIT notice.
     committed card the same way. A wrong allocation or misplaced stamps, made on purpose (in an SFCB of mkfs.cpm's
     `$E5`s or of zeros), fail both.
   - **fsck.cpm by its report:** it exits 0 after some errors, a bad stamp for one, so `check_diskdefs.sh` and
-    `interop.sh` fail on any Error or Warning line it prints (`oodos/test/cpmtools.sh`). One exception, in
-    `interop.sh` only: **cpmtools 2.23's fsck.cpm compares the stamps in an SFCB's first slot backwards.** For a
-    file entry E with E mod 4 = 0 it warns "Modification date earlier than creation date (extent=S/E)" when the
-    update is on a later day than the creation, and says nothing when it's earlier; the other slots are compared
-    right. So `oodos/test/sfcb.py` reads every file entry's stamps itself and fails one updated before it was
-    made, and only then is that warning let through, for exactly the first-slot entries it found a day or more
-    apart and in order. The OO-1's test file is made a day before it's updated, so the case is always exercised.
+    `interop.sh` fail on any Error or Warning line it prints (`oodos/test/cpmtools.sh`). **cpmtools 2.23's fsck.cpm
+    compares the stamps in an SFCB's first slot crosswise.** For a file entry E with E mod 4 = 0 it warns
+    "Modification date earlier than creation date (extent=S/E)" when the update is on a later day than the
+    creation, and says nothing when it's earlier; the other slots are compared right. `oodos/test/sfcb.py` reads
+    every file entry's stamps itself and fails one updated before it was made. Until 2026-11-03 that warning was
+    then let through, for exactly the first-slot entries sfcb.py found a day or more apart and in order. **Since
+    2026-11-03 the tests' fsck.cpm is fixed** (`oodos/test/fsck_fixed.sh`, `cpmtools-fsck-stamps.patch`): the
+    owner asked, once the source showed why. `fsck.cpm.c` takes each day's low byte from the other stamp for the
+    first slot only; every cpmtools to date is 2.23 (Debian bookworm 2.23-4, trixie and sid 2.23-7, upstream), and
+    no report of it was found, so the patch is offered upstream. Nothing is let through now. The OO-1's test file
+    is made a day before it's updated, in a first slot, so the fixed fsck.cpm must pass the very case.
   - **Decided (2026-10-26): ctest stays hermetic,** with no skips, on committed images; the checks that need
     Docker are scripts like `check_diskdefs.sh` and `interop.sh`, run by hand and at each phase's verify.
   - Phase 3 puts the BDOS where the stand-in is, running in the emulator; the checks on both sides stay.

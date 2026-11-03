@@ -11,7 +11,7 @@
 # set to 0x31: the directory byte for byte, for each format. Then, for each seed (1-6 by default; its
 # format by seed mod 3, as test_oodos_model's: oodos-ram, oodos-8m, oodos-32m), modeltest.py's run of the
 # script, and on the drive it leaves: the stamps' order (sfcb.py), fsck.cpm -n (no Error or Warning
-# lines but fsck.cpm 2.23's first-slot one, interop.sh's way, its "Bad record count" for exactly
+# lines but, fsck.cpm being fsck_fixed.sh's, its "Bad record count" for exactly
 # the entries whose last extent has a hole, which it takes for damage, and fails on an entry with a
 # block past its RC's: modeltest.py sparse; and its "Bit 4 and 6" for a label asking for creation and
 # access stamps, which the Guide allows: modeltest.py label. fsck.cpm decodes each XFCB's password, and
@@ -22,6 +22,8 @@
 set -eu
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq cpmtools faketime python3 >/dev/null 2>&1
+. /o/test/fsck_fixed.sh
+fsck_fixed
 dpkg-query -W -f '${Package} ${Version}\n' cpmtools faketime python3 | sed 's/^/     /'
 cd /o
 . "$(dirname "$0")/cpmtools.sh"
