@@ -32,18 +32,20 @@
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
-# fsck.cpm 2.23 compares the stamps in an SFCB's first slot backwards: it
-# warns "Modification date earlier than creation date (extent=S/E)" for an
-# entry E (E & 3 = 0, its SFCB S = E | 3) updated on a later day than it was
-# made, and misses one updated before. OO1.BIN, made a day before its update,
-# has its first entry there (32: make_card.sh's two spacers keep it so). So
-# sfcb.py checks every file entry's stamp order itself first, and fsck_clean lets through only that warning, only for
-# first-slot entries sfcb.py found a day or more apart and in order.
+# fsck.cpm is fsck_fixed.sh's: cpmtools 2.23's own compares the stamps in an
+# SFCB's first slot crosswise, warning "Modification date earlier than
+# creation date (extent=S/E)" for an entry E (E & 3 = 0, its SFCB S = E | 3)
+# updated on a later day than it was made and missing one updated before
+# (cpmtools-fsck-stamps.patch). OO1.BIN, made a day before its update, has
+# its first entry there (32), so the fixed fsck.cpm must pass it clean.
+# sfcb.py checks every file entry's stamp order itself first, as well.
 set -eu
 card=$1
 written=${2:-}
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq cpmtools mtools python3 >/dev/null 2>&1
+. "$(dirname "$0")/fsck_fixed.sh"
+fsck_fixed
 dpkg-query -W -f '${Package} ${Version}\n' cpmtools mtools python3 | sed 's/^/     /'
 cd /o
 . "$(dirname "$0")/cpmtools.sh"
@@ -105,7 +107,8 @@ echo "$order" | sed 's/^/     /'
 ok "sfcb.py: every file's first entry has an SFCB slot, each stamped one updated no earlier than made"
 
 fsck_clean oodos-8m "$img" "$work/allowed"
-ok "fsck.cpm is clean ($(grep -c . "$work/allowed" || true) first-slot warnings checked by sfcb.py)"
+[ ! -s "$work/allowed" ] || fail "sfcb.py expects fsck.cpm warnings: $(cat "$work/allowed")"
+ok "fsck.cpm is clean"
 
 if [ "$written" = --utils ]; then
   [ "$(od -An -tu1 -j12 -N1 "$img" | tr -d ' ')" = 177 ] || fail "the label's mode is not 0xB1"

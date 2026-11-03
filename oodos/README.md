@@ -423,11 +423,14 @@ on the card it saved.
 
 Two things cpmtools 2.23 does that OODOS needn't copy: `cpmcp` leaves an SFCB slot's password mode byte at $E5 (no
 matter with passwords off; `cpmls -F` shows it as "Read" protection), and `fsck.cpm` compares the stamps in an
-SFCB's first slot backwards: an entry there updated on a later day than it was made draws "Warning: Modification
+SFCB's first slot crosswise: an entry there updated on a later day than it was made draws "Warning: Modification
 date earlier than creation date (extent=S/E)", and one updated on an earlier day draws nothing (same-day stamps are
-compared right). `interop.sh` checks the order with `sfcb.py` first, then lets that warning through for those
-entries only
-([hw/oodos.md](../hw/oodos.md#testing)).
+compared right). It takes each day's low byte from the other stamp (`fsck.cpm.c`, the first slot's `created=` and
+`modified=`; the second and third slots' are right), in every cpmtools to date, 2.23 (checked 2026-11-03: Debian
+bookworm, trixie and sid, and upstream). So the tests run a fixed one: `test/fsck_fixed.sh` builds `fsck.cpm` from
+Debian's cpmtools source with [`test/cpmtools-fsck-stamps.patch`](test/cpmtools-fsck-stamps.patch), in the
+container, and `check_diskdefs.sh`, `interop.sh` and `model_cpmtools.sh` use it; `interop.sh` checks the order with
+`sfcb.py` too ([hw/oodos.md](../hw/oodos.md#testing)).
 
 
 ## The loader (phase 2) ##
