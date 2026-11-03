@@ -25,7 +25,7 @@
 # WRITEOO1.COM SYS; INITDIR took the SFCBs away, SET turned password
 # protection on and gave PATTERN.DAT (Write) and TESTSYS.SYS (Delete)
 # passwords, so XFCBs in the free SFCB places, then INITDIR made the SFCBs
-# again, the XFCBs moved out first (to 13, HELLO.PRL's, and 32), every stamp
+# again, the XFCBs moved out first (to HELLO.PRL's entry and the first free), every stamp
 # 0; SET asked the label for creation and update stamps again and named it
 # OODOS.4B1 (its mode 0xB1). Every file cpmls -F lists, in every user, is
 # matched against a table of its attributes and protection, its stamps 0.
@@ -36,8 +36,8 @@
 # SFCB's first slot crosswise, warning "Modification date earlier than
 # creation date (extent=S/E)" for an entry E (E & 3 = 0, its SFCB S = E | 3)
 # updated on a later day than it was made and missing one updated before
-# (cpmtools-fsck-stamps.patch). OO1.BIN, made a day before its update, has
-# its first entry there (32), so the fixed fsck.cpm must pass it clean.
+# (cpmtools-fsck-stamps.patch). OO1.BIN is made a day before its update, so
+# wherever its first entry lands, the fixed fsck.cpm must pass it clean.
 # sfcb.py checks every file entry's stamp order itself first, as well.
 set -eu
 card=$1
@@ -145,8 +145,8 @@ if [ "$written" = --written ]; then
   slots=$(python3 -I test/sfcb.py "$img" "$entries" slots 0 OO1.BIN)
   echo "$slots" | sed 's/^/     /'
   [ "$(echo "$slots" | wc -l)" = 2 ] || fail "0:OO1.BIN has not two entries"
-  [ "$(echo "$slots" | sed -n 1p)" = "32 $want" ] || fail "0:OO1.BIN's first entry (32)'s SFCB slot isn't $want"
-  [ "$(echo "$slots" | sed -n 2p)" = "33 0000000000000000" ] || fail "0:OO1.BIN's second entry (33)'s SFCB slot isn't 0"
+  [ "$(echo "$slots" | sed -n 1p | cut -d' ' -f2)" = "$want" ] || fail "0:OO1.BIN's first entry's SFCB slot isn't $want"
+  [ "$(echo "$slots" | sed -n 2p | cut -d' ' -f2)" = 0000000000000000 ] || fail "0:OO1.BIN's second entry's SFCB slot isn't 0"
   ok "0:OO1.BIN's first entry's SFCB slot holds $want, its second's 0"
   cpmcp -f oodos-8m "$img" 0:OO1.BIN "$work/out" || fail "cpmcp 0:OO1.BIN"
   cmp -s "$work/OO1.BIN" "$work/out" || fail "0:OO1.BIN is not what the OO-1 wrote"
@@ -172,30 +172,25 @@ elif [ "$written" = --utils ]; then
   # its attributes (F1-F4 as 1-4, R for RO, S for SYS, A for archived, by column), its
   # protection, and both stamps 0 (cpmls shows day 0 as 12/31/77 00:00) since INITDIR made the
   # SFCBs again. cpmls lists an XFCB as a file of user 16 and more.
+  # The utilities' lines come from oodos/utils (one .COM each NAME.s, SYS), the rest from here.
   cat >"$work/want" <<'TXT'
-0 APPLE2.COM S None
-0 DATE.COM S None
-0 DEVICE.COM S None
-0 DIR.COM S None
-0 ERASE.COM S None
 0 HELLO.COM S None
-0 INITDIR.COM S None
 0 OODOS.SYS - None
 0 PATTERN.DAT - Write
 0 README.TXT 1RA None
-0 RENAME.COM S None
-0 SET.COM S None
-0 SETDEF.COM S None
-0 SHOW.COM S None
 0 TESTSYS.SYS - Delete
-0 TYPE.COM S None
-0 WOZMON.COM S None
 0 WRITEOO1.COM S None
 3 SMALL.BIN - None
 3 USER3.TXT - None
 16 PATTERN.DAT - None
 16 TESTSYS.SYS - None
 TXT
+  n=0
+  for u in /o/utils/*.s; do
+    echo "0 $(basename "$u" .s | tr a-z A-Z).COM S None" >>"$work/want"
+    n=$((n + 1))
+  done
+  [ "$n" -gt 0 ] || fail "no utilities in /o/utils"
   cat >"$work/files.py" <<'PY'
 import re, sys
 want = sorted(l.split() for l in open(sys.argv[1]) if l.strip())
@@ -233,16 +228,17 @@ d = open(sys.argv[1], 'rb').read(int(sys.argv[2]) * 32)
 e = [d[i * 32:(i + 1) * 32] for i in range(len(d) // 32)]
 print('sfcbs', sum(1 for i in range(3, len(e), 4) if e[i][0] == 0x21),
       'other', sum(1 for i in range(len(e)) if e[i][0] == 0x21 and i & 3 != 3))
-for i, x in enumerate(e):
+for i, x in enumerate(e):  # where each is, test_oodos_card checks: here, not in an SFCB's place
     if 16 <= x[0] <= 31:
-        print('xfcb', i, x[0] - 16, x[1:12].decode('ascii', 'replace'), '%02x' % (x[12] & 0xE0))
+        print('xfcb', 'in an SFCB place' if i & 3 == 3 else '', x[0] - 16, x[1:12].decode('ascii', 'replace'),
+              '%02x' % (x[12] & 0xE0))
 PY
   dir=$(python3 -I "$work/xfcb.py" "$img" "$entries")
   echo "$dir" | sed 's/^/     /'
   [ "$(echo "$dir" | sed -n 1p)" = "sfcbs $((entries / 4)) other 0" ] || fail "not an SFCB in every fourth entry, and only there"
-  [ "$(echo "$dir" | sed -n '2,$p')" = "xfcb 13 0 PATTERN DAT 40
-xfcb 32 0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (13, Write) and TESTSYS.SYS's (32, Delete)"
-  ok "an SFCB every fourth entry; the XFCBs in 13 and 32, Write and Delete"
+  [ "$(echo "$dir" | sed -n '2,$p')" = "xfcb  0 PATTERN DAT 40
+xfcb  0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (Write) and TESTSYS.SYS's (Delete), outside the SFCBs' places"
+  ok "an SFCB every fourth entry; the XFCBs outside their places, Write and Delete"
   for f in 0:README.TXT:README.TXT 0:PATTERN.DAT:PATTERN.BIN 3:USER3.TXT:USER3.TXT 3:SMALL.BIN:SMALL.BIN; do
     name=${f%:*}
     cpmcp -f oodos-8m "$img" "$name" "$work/out" || fail "cpmcp $name"

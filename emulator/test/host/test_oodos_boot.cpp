@@ -37,6 +37,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -752,6 +753,28 @@ TEST(drive_a_gone_or_changed_before_oodos_sys_is_read)
             {ldr_label("SYS_A"), [&](Session &s) { command(s, SdCard::MOUNT, std::string("\x01\x00/BOOT.BIN", 11)); }});
 }
 
+/// The utilities' names, in capitals, one for each oodos/utils/NAME.s, sorted.
+std::vector<std::string> utilities()
+{
+    std::vector<std::string> us;
+    for (const auto &f : std::filesystem::directory_iterator(EMU_OODOS_UTILS_SRC))
+        if (f.path().extension() == ".s")
+        {
+            std::string u = f.path().stem().string();
+            for (char &c : u)
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            us.push_back(u);
+        }
+    std::sort(us.begin(), us.end());
+    return us;
+}
+
+/// A utility's directory name: NAME padded to 8, then COM.
+std::string u83(const std::string &u)
+{
+    return u + std::string(8 - u.size(), ' ') + "COM";
+}
+
 /// A card's files are what today's sources build: OOLDR, OODOS.SYS, HELLO and the utilities, then `more` (a
 /// name on A: and its build). A file on A: is its bytes, then whatever pads its last record; each .COM in user 0 with
 /// the SYS attribute (t2's bit 7). @return A: as on the card.
@@ -773,12 +796,14 @@ Drive built_card(const Bytes &card, const std::string &script, const std::vector
     for (const auto &[name83, bytes] : more)
         same(name83, a.file(name83), bytes, true);
     // The utilities (make utils): every oodos/utils/NAME.s
-    for (const char *u : {"APPLE2", "DATE", "DEVICE", "DIR", "ERASE", "INITDIR", "RENAME", "SET", "SETDEF", "SHOW", "TYPE", "WOZMON"})
+    const std::vector<std::string> us = utilities();
+    CHECK(!us.empty()); // none found would check nothing
+    for (const std::string &u : us)
     {
-        std::string name83 = std::string(u) + std::string(8 - std::strlen(u), ' ') + "COM", lower = u;
+        std::string name83 = u83(u), lower = u;
         for (char &c : lower)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        same(std::string(u) + ".COM", a.file(name83), read_file(EMU_OODOS_UTILS_DIR "/" + lower + ".com"), true);
+        same(u + ".COM", a.file(name83), read_file(EMU_OODOS_UTILS_DIR "/" + lower + ".com"), true);
         const std::vector<unsigned> e = a.entries_of(0, name83);
         CHECK(!e.empty() && (a.dir(e[0])[10] & 0x80) != 0);
     }
@@ -811,9 +836,9 @@ TEST(the_demo_card_is_what_the_sources_build_and_nothing_of_the_tests)
             c = static_cast<char>(c & 0x7F);
         names.insert(std::to_string(e[0]) + ":" + n);
     }
-    const std::set<std::string> want = {"0:APPLE2  COM", "0:DATE    COM", "0:DEVICE  COM", "0:DIR     COM", "0:ERASE   COM",
-                                        "0:HELLO   COM", "0:INITDIR COM", "0:OODOS   SYS", "0:README  TXT", "0:RENAME  COM",
-                                        "0:SET     COM", "0:SETDEF  COM", "0:SHOW    COM", "0:TYPE    COM", "0:WOZMON  COM"};
+    std::set<std::string> want = {"0:HELLO   COM", "0:OODOS   SYS", "0:README  TXT"};
+    for (const std::string &u : utilities())
+        want.insert("0:" + u83(u));
     CHECK(names == want);
     for (const auto &n : names)
         if (!want.count(n))
