@@ -214,13 +214,14 @@ clock.delete();
 // The SD card's save: a copy that fails leaves the writes unsaved, so the page still warns.
 const sd = new oo1.Machine();
 check("sd: open", sd.open("/machines/backplane.machine", "/roms/bios.rom", "/roms/bios.rom.lbl"), sd.error());
-check("sd: a card goes in", sd.insertSd(new Uint8Array(64 * 512), "card.img"), sd.error());
 let sdOut = ""; // booted first: keys sent before the monitor runs are lost
 for (let i = 0; i < 60 && !sdOut.includes(GREETING); ++i) {
   sd.run(FRAME);
   sdOut += sd.takeOutput();
 }
 check("sd: boots", sdOut.includes(GREETING), show(sdOut));
+// The card goes in at the prompt: one in at power-on would be booted (BIOS 0.10), and a blank one can't be.
+check("sd: a card goes in", sd.insertSd(new Uint8Array(64 * 512), "card.img"), sd.error());
 // WRITE sector 0, $AA throughout, by a CPU loop typed at the monitor (as e2e/sd.spec.ts does),
 // then JMP back to the monitor.
 sd.send("1000: A9 01 8D 8A C3 9C 8B C3 9C 84 C3 9C 86 C3 A9 30 8D 83 C3\r");
