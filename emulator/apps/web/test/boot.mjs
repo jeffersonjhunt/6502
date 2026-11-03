@@ -10,7 +10,7 @@
 import { pathToFileURL } from "node:url";
 
 const FRAME = 119318; // 7.15909 MHz / 60
-const GREETING = "\rBACKPLANE BIOS 0.9\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.10\r\\\r";
 const SPLASH_TIME = 36_500_000; // cycles: the boot splash's 5 s (300 frames), and a little (test_bios)
 const failures = [];
 const check = (name, ok, detail = "") => {

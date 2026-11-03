@@ -427,28 +427,39 @@ namespace
             b.s->run(FRAME);
             b.out += b.s->take_output();
             const size_t ldr = b.out.find("\rOOLDR ");
-            if (ldr != std::string::npos && b.out.find("\r\\", ldr) != std::string::npos)
+            if (ldr != std::string::npos && b.out.find("\r\\\r", ldr) != std::string::npos)
+            {
+                // The monitor's whole prompt, and a frame more: the screen's copy of it drawn (VPUTC has W2 on
+                // video memory while it draws), so the windows read are the ones the monitor waits with.
+                b.s->run(FRAME);
+                b.out += b.s->take_output();
                 break;
+            }
         }
     }
 
-    /// Booted to the monitor with `media` in the slot, then C80CR.
+    /// Booted to the monitor, then `media` put in the slot (in at power-on, the BIOS would boot it), then C80CR.
     Boot boot(std::shared_ptr<SdMedia> media, const Hook &hook = {})
     {
         Boot b;
         std::string error;
         b.s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
-        if (!b.s || !b.s->insert_sd(std::move(media), error))
+        if (!b.s)
+        {
+            std::printf("  %s\n", error.c_str());
+            return b;
+        }
+        std::string out;
+        for (int i = 0; i < 120 && out.find("BACKPLANE BIOS 0.10\r\\\r") == std::string::npos; ++i)
+        {
+            b.s->run(FRAME);
+            out += b.s->take_output();
+        }
+        if (!b.s->insert_sd(std::move(media), error))
         {
             std::printf("  %s\n", error.c_str());
             b.s.reset();
             return b;
-        }
-        std::string out;
-        for (int i = 0; i < 120 && out.find("BACKPLANE BIOS 0.9\r\\\r") == std::string::npos; ++i)
-        {
-            b.s->run(FRAME);
-            out += b.s->take_output();
         }
         c80c(b, hook);
         return b;

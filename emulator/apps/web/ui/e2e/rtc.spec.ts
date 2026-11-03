@@ -7,7 +7,7 @@ import { openDebugger, powerOn } from "./ui";
 async function booted(page: Page) {
   await page.goto("./");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
 }
 
 test("the Devices tab shows the clock, set from this computer's, and it ticks", async ({ page }) => {

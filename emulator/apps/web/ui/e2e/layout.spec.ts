@@ -5,7 +5,7 @@ import { openDebugger, openSettings, pastSplash, powerOn } from "./ui";
 // for Settings and the debugger, the status strip, the monitor following
 // the machine, a BIOS of your own, the bundled fonts, and a phone's width.
 
-const GREETING = "BACKPLANE BIOS 0.9";
+const GREETING = "BACKPLANE BIOS 0.10";
 
 async function booted(page: Page, greeting = GREETING) {
   await page.goto("./");
@@ -167,18 +167,18 @@ async function builtInBios(page: Page): Promise<Buffer> {
 test("a BIOS of your own: the machine restarts on it, it is kept, and Use built-in goes back", async ({ page }) => {
   await booted(page);
   await openSettings(page);
-  await expect(page.getByTestId("bios-meta")).toHaveText("built-in 0.9 · or load your own build");
+  await expect(page.getByTestId("bios-meta")).toHaveText("built-in 0.10 · or load your own build");
   const rom = await builtInBios(page);
-  const at = rom.indexOf("BACKPLANE BIOS 0.9") + "BACKPLANE BIOS ".length;
-  rom.write("7.7", at, "latin1"); // a build of its own
+  const at = rom.indexOf("BACKPLANE BIOS 0.10") + "BACKPLANE BIOS ".length;
+  rom.write("7.77", at, "latin1"); // a build of its own
   await page.getByTestId("bios-file").setInputFiles({ name: "my-bios.rom", mimeType: "application/octet-stream", buffer: rom });
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 7.7", { timeout: 15_000 }); // the page restarted on it
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 7.77", { timeout: 15_000 }); // the page restarted on it
   await openSettings(page);
-  await expect(page.getByTestId("bios-meta")).toHaveText("yours: my-bios.rom · 7.7 · kept in this browser");
+  await expect(page.getByTestId("bios-meta")).toHaveText("yours: my-bios.rom · 7.77 · kept in this browser");
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 7.7", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 7.77", { timeout: 15_000 });
   await openSettings(page);
   await page.getByTestId("bios-builtin").click();
   await powerOn(page);
