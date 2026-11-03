@@ -4,7 +4,7 @@ import { onTerminal, openDebugger, pastSplash, phosphor, powerOn } from "./ui";
 // Display: the video card's frames (the VGA scene), as the BIOS draws its screen.
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
 }

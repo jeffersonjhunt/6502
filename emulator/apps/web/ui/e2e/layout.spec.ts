@@ -8,7 +8,7 @@ import { openDebugger, openSettings, pastSplash, powerOn } from "./ui";
 const GREETING = "BACKPLANE BIOS 0.10";
 
 async function booted(page: Page, greeting = GREETING) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(greeting, { timeout: 15_000 });
 }

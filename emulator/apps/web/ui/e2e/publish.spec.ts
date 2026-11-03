@@ -10,7 +10,7 @@ test("the core and its wasm are fetched with the build's version", async ({ page
   page.on("request", (r) => {
     if (r.url().includes("/core/")) core.push(r.url());
   });
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
   const mjs = core.find((u) => u.includes("oo1.mjs"));
@@ -21,7 +21,7 @@ test("the core and its wasm are fetched with the build's version", async ({ page
 });
 
 test("a desktop gets no touch note", async ({ page }) => {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
   await expect(page.getByTestId("touch-note")).toHaveCount(0);
@@ -32,7 +32,7 @@ test.describe("on a touch screen", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "isMobile is Chromium's");
 
   test("says the terminal needs a keyboard, once", async ({ page }) => {
-    await page.goto("./");
+    await page.goto("./?sd=empty");
     const note = page.getByTestId("touch-note");
     await expect(note).toContainText("needs a keyboard");
     await note.getByRole("button", { name: "OK" }).click();

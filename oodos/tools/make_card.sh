@@ -1,11 +1,11 @@
 #!/bin/sh
-# Builds the OODOS test card: a FAT card image as a PC would make one
+# Builds the OODOS cards: the test card, a FAT card image as a PC would make one
 # (mkfs.fat, mtools, sfdisk) holding an OODOS drive made by cpmtools, so the
 # emulator's tests read what Linux writes (hw/oodos.md, "Testing"). Needs
 # Docker; everything runs in a throwaway debian:bookworm, pinned by digest,
 # under faketime, so the same sources make the same card; it prints the
 # packages' versions it used. Writes emulator/test/host/sd/oodos.sparse
-# (sd_images.h reads it):
+# (sd_images.h reads it), and the demo card beside it, demo.sparse:
 #
 #   oodos/tools/make_card.sh
 #
@@ -40,6 +40,17 @@
 #                      that slot's stamps backwards, a case interop.sh
 #                      checks (with ten, two spacer files did it)
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
+#
+# The demo card (demo.sparse), the one the WebUI puts in its slot at each
+# visit (its build makes public/core/demo-card.img.gz of it): the same
+# layout, the FAT volume labelled OODOS DEMO, and only what a visitor runs,
+# nothing of the tests':
+#
+#   /BOOT.BIN, /OODOS/DRIVES.TXT   as the test card's
+#   /OODOS/A.IMG       oodos-8m, label mode 0x31: README.TXT (what to try,
+#                      in our words), OODOS.SYS, HELLO.COM and the utilities
+#                      (SYS, as on the test card)
+#   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty: B: to work on
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
 # different run in each record; test_oodos_card.cpp and interop.sh know the
@@ -159,5 +170,51 @@ printf 'label: dos\nlabel-id: 0x0001dd05\nstart=2048, type=06\n' | sfdisk -q car
 dd if=part.img of=card.img bs=512 seek=2048 conv=notrunc status=none
 python3 sparse.py card.img /out/oodos.sparse
 chown $(stat -c %u /out) /out/oodos.sparse
+
+# The demo card: its drives as the test card's, in demo/.
+mkdir demo
+at mkfs.cpm -f oodos-8m -t -L OODOS demo/A.IMG
+truncate -s 8M demo/A.IMG
+printf '\061' | dd of=demo/A.IMG bs=1 seek=12 conv=notrunc status=none
+python3 text.py demo/README.TXT \
+    "This is the OO-1's demo card: OODOS on drive A:, and drive B:" \
+    "empty, to work on. The page makes the card afresh at each visit:" \
+    "Settings, SD card, Save keeps what you write." \
+    "" \
+    "Things to try at A>:" \
+    "  DIR             the files on A:" \
+    "  TYPE README.TXT this file" \
+    "  HELLO           a small program, run from A:" \
+    "  SHOW            the drives and their space" \
+    "  DATE            the date and time" \
+    "  B:              drive B:, and A: to come back" \
+    "  WOZMON          leave OODOS for the ROM's Woz Monitor" \
+    "  APPLE2          restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \
+    "" \
+    "RESET boots OODOS again. A key during the logo at power-on goes" \
+    "to the Woz Monitor instead, and so does a power-on with no card."
+at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils 0:
+at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
+for u in $utils; do at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
+fsck.cpm -f oodos-8m -n demo/A.IMG
+cpmls -f oodos-8m -F demo/A.IMG
+at mkfs.cpm -f oodos-8m -t -L WORK demo/B.IMG
+truncate -s 8M demo/B.IMG
+printf '\061' | dd of=demo/B.IMG bs=1 seek=12 conv=notrunc status=none
+fsck.cpm -f oodos-8m -n demo/B.IMG
+python3 -c "open('demo/part.img', 'wb').truncate((32 * 2048 - 2048) * 512)"
+at mkfs.fat -F 16 -s 4 -i 0001DD06 -n 'OODOS DEMO' demo/part.img >/dev/null
+python3 noboot.py demo/part.img
+at mmd -i demo/part.img ::/OODOS
+at mcopy -i demo/part.img BOOT.BIN ::/BOOT.BIN
+at mcopy -i demo/part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
+at mcopy -i demo/part.img demo/A.IMG ::/OODOS/A.IMG
+at mcopy -i demo/part.img demo/B.IMG ::/OODOS/B.IMG
+mdir -i demo/part.img -/ ::/
+python3 -c "open('demo/card.img', 'wb').truncate(32 * 2048 * 512)"
+printf 'label: dos\nlabel-id: 0x0001dd06\nstart=2048, type=06\n' | sfdisk -q demo/card.img
+dd if=demo/part.img of=demo/card.img bs=512 seek=2048 conv=notrunc status=none
+python3 sparse.py demo/card.img /out/demo.sparse
+chown $(stat -c %u /out) /out/demo.sparse
 INNER
-ls -l "$out/oodos.sparse"
+ls -l "$out/oodos.sparse" "$out/demo.sparse"

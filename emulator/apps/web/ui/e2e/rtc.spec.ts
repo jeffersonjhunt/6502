@@ -5,7 +5,7 @@ import { openDebugger, powerOn } from "./ui";
 // computer's clock when the page opened, and counting.
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
 }

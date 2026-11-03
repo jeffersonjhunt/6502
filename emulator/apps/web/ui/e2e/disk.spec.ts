@@ -7,7 +7,7 @@ import { inKeyLoop, loadBiosLabels } from "./bios-labels";
 // saved, and out. Booting real disks is iie.spec.ts's, with the owner's.
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await loadBiosLabels(page);

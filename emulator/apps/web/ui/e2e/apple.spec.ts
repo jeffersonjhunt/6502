@@ -7,7 +7,7 @@ import { fakeIIeRom } from "../src/port/fake-iie";
 // Devices tab, and the ROM kept in this browser across a reload.
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
 }

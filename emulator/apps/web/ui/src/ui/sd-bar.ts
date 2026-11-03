@@ -12,10 +12,31 @@
  * the note says so, Save downloads it with the writes, and leaving the
  * page, Eject, or putting another card in asks first. A card over MAX_CARD
  * is refused before it is read: the core's memory stops at 2 GB.
+ *
+ * At each visit the page puts its demo card in (demo(): OODOS, its
+ * utilities and a README, made afresh from the build's copy each time), so
+ * power-on boots OODOS. Insert… stays while it's in: a card of your own
+ * takes its place. Eject it and the next power-on is the Woz Monitor.
  */
 
 import type { FrameState, MachinePort, SdInfo } from "../port/machine-port";
 import { h, passFocus } from "./dom";
+
+/** The demo card's name in the slot. */
+export const DEMO_NAME = "oodos-demo.img";
+
+/**
+ * The demo card from `url` (demo-card.img.gz, next to the core), unzipped. A server that sent it already unzipped
+ * (Content-Encoding: gzip) is fine too: the gzip magic says which.
+ */
+export async function fetchDemoCard(url: string, get: typeof fetch = fetch): Promise<Uint8Array> {
+  const r = await get(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`.trim());
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+  const out = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(out).arrayBuffer());
+}
 
 /** The biggest card the page takes: the core holds it, and its memory stops at 2 GB. */
 export const MAX_CARD = 1024 * 1024 * 1024;
@@ -54,14 +75,16 @@ export function sdBar(
 
   let info: SdInfo | null = null;
   let present = false;
+  let demoIn = false; // the slot has the page's demo card, as it went in (a card of the visitor's replaces it)
   const HINT = "C809R lists the card; C80CR boots its /BOOT.BIN";
+  const DEMO_HINT = "The demo card: power-on boots OODOS from it. Eject it for the Woz Monitor, or Insert… a card of your own";
   const say = (text: string) => (note.textContent = text);
   /** Unsaved writes: may they go? */
   const letGo = (doing: string) => !info?.changed || win.confirm(`${doing}? The machine's writes to ${info.name} aren't saved: Save keeps them.`);
   const show = () => {
     name.textContent = info ? info.name : "The slot";
     meta.textContent = info ? `${cardSize(info.sectors)}${info.changed ? " · changed since loaded" : ""}` : "empty";
-    insert.hidden = !!info;
+    insert.hidden = !!info && !demoIn;
     protect.hidden = save.hidden = eject.hidden = !info;
     protect.setAttribute("aria-pressed", String(!!info?.writeProtected));
     protect.classList.toggle("on", !!info?.writeProtected);
@@ -83,6 +106,7 @@ export function sdBar(
     if (!letGo(`Put ${f.name} in`)) return;
     try {
       info = await port.insertSd(new Uint8Array(await f.arrayBuffer()), f.name);
+      demoIn = false;
       say(HINT);
     } catch (err) {
       say(String(err instanceof Error ? err.message : err));
@@ -112,6 +136,7 @@ export function sdBar(
     if (!letGo("Eject the card")) return;
     port.ejectSd();
     info = null;
+    demoIn = false;
     say("");
     show();
     passFocus(eject, insert); // Eject is gone: the keyboard stays on the row
@@ -146,11 +171,29 @@ export function sdBar(
     element.hidden = false;
     show();
   };
+  /**
+   * The demo card in the slot, if it's empty: `load` fetches it. A card that won't load leaves the slot empty and says
+   * why (power-on is then the monitor, as with no card).
+   */
+  const demo = async (load: () => Promise<Uint8Array>) => {
+    if (!port.caps.sd || info) return;
+    try {
+      const bytes = await load();
+      if (info) return; // a card of the visitor's went in meanwhile
+      info = await port.insertSd(bytes, DEMO_NAME);
+      demoIn = true;
+      say(DEMO_HINT);
+    } catch (err) {
+      say(`The demo card didn't load: ${String(err instanceof Error ? err.message : err)}`);
+    }
+    show();
+  };
   return {
     element,
     pill,
     update,
     connected,
+    demo,
     loaded: () => !!info,
     /** The card's name while it has writes not saved, else null. */
     unsaved: () => (info?.changed ? info.name : null),

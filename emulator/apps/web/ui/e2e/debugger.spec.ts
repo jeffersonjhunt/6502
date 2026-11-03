@@ -3,7 +3,7 @@ import { onTerminal, openDebugger, powerOn } from "./ui";
 import { bios, hex4, inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await powerOn(page);

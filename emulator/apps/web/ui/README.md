@@ -143,8 +143,16 @@ Settings, in sections:
   **Eject**, or **Insert…** for a `.woz`, `.dsk`, `.do` or `.po`. The IIe
   boots drive 1 on Start. The disks are kept in this browser (IndexedDB),
   with what was written to them, never uploaded.
-- **SD card.** A card image of your own in the mass storage card's slot:
-  whole 512-byte sectors, raw or FAT as a PC formats it. `C809R` at the
+- **SD card.** At each visit the page puts its demo card in the slot
+  (`oodos-demo.img`: OODOS, its utilities and a README, from
+  `emulator/test/host/sd/demo.sparse`, which `oodos/tools/make_card.sh`
+  makes; the build gzips it to `core/demo-card.img.gz`), so power-on boots
+  OODOS after the splash, and a key during the splash is the monitor.
+  `?sd=empty` on the page's URL leaves the slot empty (the e2e tests that
+  want the monitor use it). **Insert…** puts a card image of your own in
+  its place: whole 512-byte sectors, raw or FAT as a PC formats it; a card
+  with a `/BOOT.BIN` is booted at power-on the same way. Ejected, power-on
+  is the monitor. `C809R` at the
   monitor lists the card's root, and `C80CR` boots its `/BOOT.BIN`. The
   light is on while it works on a command; Protect is the card's switch,
   Save downloads it with what the machine wrote, Eject takes it out. The

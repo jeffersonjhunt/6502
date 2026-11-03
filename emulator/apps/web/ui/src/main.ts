@@ -35,7 +35,7 @@ import { screenKeys } from "./crt/screen-keys";
 import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
-import { WasmPort } from "./port/wasm-port";
+import { coreUrl, WasmPort } from "./port/wasm-port";
 import { focusStop, h, prefs, segmented } from "./ui/dom";
 import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
@@ -52,7 +52,7 @@ import { phosphorPicker, settingsPanel, type SettingsSection } from "./ui/settin
 import { statusStrip } from "./ui/status-strip";
 import { Speaker } from "./audio/speaker";
 import { soundButton } from "./ui/sound-button";
-import { sdBar } from "./ui/sd-bar";
+import { fetchDemoCard, sdBar } from "./ui/sd-bar";
 import { sidBar } from "./ui/sid-bar";
 import { joysticks } from "./ui/joysticks";
 
@@ -423,6 +423,9 @@ function start(root: HTMLElement, port: MachinePort): void {
       settings.show("joysticks", port.caps.joysticks);
       await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       await card.connected(); // the SD row, shown with the machine still off
+      // The demo card in the slot, fresh each visit, so power-on boots OODOS; ?sd=empty leaves the slot empty.
+      if (new URLSearchParams(location.search).get("sd") !== "empty")
+        await card.demo(() => fetchDemoCard(coreUrl("demo-card.img.gz", document.baseURI, import.meta.env.VITE_CORE_VERSION as string | undefined)));
       panel.applyAll();
       port.setLights(true);
       sound.restore(); // left on last time: it plays from the first click or key
