@@ -12,7 +12,10 @@
 ;      cards; they play by themselves for 5 s while the boot goes on,
 ;   5. turns on the video card's text screen (video.s) and the USB keyboard
 ;      (input.s), if there are such cards,
-;   6. greets the terminal and enters the Woz Monitor.
+;   6. greets the terminal, and
+;   7. boots the SD card's /BOOT.BIN once the splash is over, if the card has
+;      one (sd.s, AUTOBOOT: a key during the splash is the monitor instead),
+;      or else enters the Woz Monitor.
 ;
 ; $C800 is reset, $C803 the video demo, $C806 Apple II mode, $C809 the SD
 ; card's directory and $C80C a boot from it: C803R and so on from the
@@ -33,7 +36,7 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH
+.import WOZMON, ECHO, VINIT, VSCREEN, DEMO, KINIT, APPLE, SDCAT, SDBOOT, SPLASH, AUTOBOOT
 .export BREAK
 
 SRC   = $00                            ; copy pointers (Woz Monitor uses $24-$2B)
@@ -125,7 +128,7 @@ BANNER:         LDA     GREETING,X
                 JSR     ECHO
                 INX
                 BNE     BANNER
-MONITOR:        JMP     WOZMON
+MONITOR:        JMP     AUTOBOOT       ; the SD card's /BOOT.BIN after the splash, or the monitor (sd.s)
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
 ; blocks 0-2 (W3 and VEC are the BIOS's), the cards quiet, the text screen
@@ -208,7 +211,7 @@ QUIET:
                 STZ     CONSOLE_IEN
 @done:          RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.9", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.10", $0D, 0
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI

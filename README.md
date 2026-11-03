@@ -33,8 +33,8 @@ flat out. Nothing is logged unless you ask:
 the programs in `eater/src` (see `emulator/README.md`).
 
 `emulator/machines/backplane.machine` is the backplane computer being designed
-in `hw/design.md`; `backplane/bios` is its BIOS, which boots to the Woz
-Monitor (`make -C backplane/bios`, then see `emulator/README.md`).
+in `hw/design.md`; `backplane/bios` is its BIOS, which boots an SD card's
+`/BOOT.BIN` (OODOS, on an OODOS card) or else the Woz Monitor (`make -C backplane/bios`, then see `emulator/README.md`).
 
 Ctrl-] stops it at a debugger prompt (`h` for help). `--halt`, `--break`,
 `--symbols`, `--load` and `--trace` are for bring-up; see

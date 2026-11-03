@@ -7,6 +7,9 @@
 ;          that returns comes back to the monitor. Windows 0-2 go back to
 ;          their reset blocks first, so $1000 is where the DMA puts it.
 ;
+; At reset (AUTOBOOT, bios.s's last step) the same boot, after the splash,
+; if the card has a /BOOT.BIN; a key during the splash is the monitor.
+;
 ; $C80F is ECHO, for a program loaded this way to print with: the character
 ; in A; A and X are kept.
 ;
@@ -15,14 +18,15 @@
 
 .setcpu "65C02"
 .include "backplane.inc"
-.import WOZMON, ECHO, PRBYTE
-.export SDCAT, SDBOOT
+.import WOZMON, ECHO, PRBYTE, KEYHIT
+.export SDCAT, SDBOOT, AUTOBOOT
 
 BUF     = $0400
 PTR     = SD_ZP                        ; $F0-$F1: into BUF, or a message
 ENTRIES = SD_ZP + 2                    ; entries left in this sector
 SECTORS = SD_ZP + 3                    ; BOOT.BIN's
 WHAT    = SD_ZP + 4                    ; $F4-$F5: the path a command names, for "not on the card"
+QUIET   = SD_ZP + 6                    ; bit 7: say nothing (AUTOBOOT's look at the card)
 LOAD    = $1000
 MAX_SECTORS = 88                       ; $1000-$BFFF
 
@@ -30,7 +34,8 @@ MAX_SECTORS = 88                       ; $1000-$BFFF
 
 QUIT:           JMP     WOZMON         ; within a branch of SDCAT's start
 
-SDCAT:          LDA     #<ROOT
+SDCAT:          STZ     QUIET          ; each failure said
+                LDA     #<ROOT
                 STA     WHAT
                 LDA     #>ROOT
                 STA     WHAT+1
@@ -109,7 +114,38 @@ SDCAT:          LDA     #<ROOT
                 BRA     @sector
 @out:           JMP     WOZMON
 
-SDBOOT:         STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at reset:
+SDBOOT:         STZ     QUIET          ; C80CR: each failure said
+                JSR     PREP
+                BCS     @out
+                JMP     LOADRUN
+@out:           JMP     WOZMON
+
+; The reset's last step (bios.s), after the greeting: /BOOT.BIN, if the card
+; has one, once the splash is over; saying nothing if there is no card, or no
+; BOOT.BIN on it, and going to the monitor as before. A key while the splash
+; plays is the monitor instead. With no video card there is no splash to wait
+; for, and it boots at once.
+AUTOBOOT:       LDA     #$80
+                STA     QUIET
+                JSR     PREP
+                STZ     QUIET
+                BCS     @monitor
+                LDX     #MAUTO - MSGS
+                JSR     SAY
+@wait:          JSR     KEYHIT         ; a key: the monitor (the key is taken)
+                BCS     @monitor
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V1
+                BNE     @boot          ; no video card: no splash to wait for
+                LDA     VIDEO_SPLASH
+                AND     #VIDEO_SPLASH_ON
+                BNE     @wait
+@boot:          JMP     LOADRUN
+@monitor:       JMP     WOZMON
+
+; /BOOT.BIN mounted as unit 1 and its size in SECTORS, the windows as at
+; reset. Carry set if it can't be booted, having said why (unless QUIET).
+PREP:           STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at reset:
                 LDA     #1             ; the DMA writes physical $01000 on, and the
                 STA     NB_WIN1        ; load is called at CPU $1000
                 LDA     #2
@@ -119,13 +155,12 @@ SDBOOT:         STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
                 LDA     #>BOOTBIN
                 STA     WHAT+1
                 JSR     START
-                BCS     @out
+                BCS     @no
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BEQ     @dma
                 LDX     #MNODMA - MSGS
-                JSR     SAY
-@out:           JMP     WOZMON
+                BRA     @say
 @dma:           JSR     CLEARBUF       ; MOUNT 1 "/BOOT.BIN"
                 LDA     #1
                 STA     BUF
@@ -138,13 +173,13 @@ SDBOOT:         STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
 @mount:         LDA     #SD_MOUNT
                 STA     SD_CMD
                 JSR     PUTBUF
-                BCS     @out
+                BCS     @no
                 JSR     WAITDONE
-                BCS     @out
+                BCS     @no
                 LDA     #SD_IDENTIFY   ; its size, from the units table
                 STA     SD_CMD
                 JSR     GETSECT
-                BCS     @out
+                BCS     @no
                 LDA     BUF + $41
                 ORA     BUF + $42
                 ORA     BUF + $43
@@ -157,10 +192,15 @@ SDBOOT:         STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
                 BRA     @say
 @empty:         LDX     #MEMPTY - MSGS
 @say:           JSR     SAY
-                BRA     @out
+                SEC
+@no:            RTS
 @fits:          STA     SECTORS
+                CLC
+                RTS
 
-                STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
+; Read SECTORS of unit 1 to $1000 by DMA and call it; back to the monitor if
+; it returns, or the read fails (said).
+LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
                 LDA     #>LOAD
                 STA     DMA0_ADDR + 1
                 STZ     DMA0_ADDR + 2
@@ -242,7 +282,9 @@ WAITDONE:       LDA     SD_STATUS
                 CLC
                 RTS
 
-FAILED:         LDA     SD_ERROR
+FAILED:         BIT     QUIET          ; the boot at reset looking: nothing to say
+                BMI     @quiet
+                LDA     SD_ERROR
                 CMP     #SD_NOT_FOUND
                 BNE     @code
                 LDX     #MNOTFOUND - MSGS ; "NOT ON THE CARD: " and the path
@@ -261,7 +303,7 @@ FAILED:         LDA     SD_ERROR
                 JSR     PRBYTE
                 LDX     #MCR - MSGS
 @say:           JSR     SAY
-                SEC
+@quiet:         SEC
                 RTS
 
 ; BUF into DATA, a whole sector, once there is room. Carry set if the
@@ -292,8 +334,10 @@ CLEARBUF:       LDA     #0
                 BNE     @clear
                 RTS
 
-; The message at MSGS + X, to its 0. Keeps nothing.
-SAY:            LDA     MSGS,X
+; The message at MSGS + X, to its 0, unless QUIET. Keeps nothing.
+SAY:            BIT     QUIET
+                BMI     @done
+                LDA     MSGS,X
                 BEQ     @done
                 JSR     ECHO
                 INX
@@ -312,4 +356,5 @@ MNOTFOUND:      .byte   $0D, "NOT ON THE CARD: ", 0
 MERROR:         .byte   $0D, "SD ERROR ", 0
 MBIG:           .byte   $0D, "BOOT.BIN IS OVER 44 KB", $0D, 0
 MEMPTY:         .byte   $0D, "BOOT.BIN IS EMPTY", $0D, 0
+MAUTO:          .byte   $0D, "BOOTING THE SD CARD: A KEY FOR THE MONITOR", $0D, 0
 MCR:            .byte   $0D, 0

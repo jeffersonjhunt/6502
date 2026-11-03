@@ -347,7 +347,11 @@ window registers.
    font, palette and text), DMA CONTROL, or the rest of any card's state (the monitor's entry, WOZMON, programs the
    serial card afresh). It turns the real-time clock's tick off (RTCCTL's TICK and TIE cleared); the time runs on.
    Other IRQs still return at once. `$C800` goes back to the flash and starts from its reset vector, as a hard reset does, so it
-   copies the flash again (unless the machine booted from RAM through /BOOTSEL). The BIOS's memory-to-memory
+   copies the flash again (unless the machine booted from RAM through /BOOTSEL). *(BIOS 0.10, 2026-11-02.)* After
+   the greeting, the BIOS boots the SD card by itself, as `$C80C` does, if the card holds a `/BOOT.BIN`: it says
+   "BOOTING THE SD CARD: A KEY FOR THE MONITOR" and waits for the splash to end (at once with no video card); a key
+   pressed meanwhile is taken, and the machine goes to the monitor instead. With no card, or no `/BOOT.BIN`, it
+   says nothing more and enters the monitor, as before. An OODOS card so boots OODOS at power-on. The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
    program has set. The master enable is the whole controller's, so any channel a program has left armed runs during

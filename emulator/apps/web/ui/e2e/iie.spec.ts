@@ -38,14 +38,14 @@ test.skip(!have, "the owner's IIe ROMs are not in test/host/fixtures/apple2e");
 test("the owner's enhanced IIe: boots to Applesoft, answers, Ctrl-Reset keeps the screen", async ({ page }) => {
   await page.goto("./");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
     { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
   ]);
   await expect(page.getByTestId("apple-meta")).toHaveText("16 KB · yours, kept in this browser");
   await expect(page.getByTestId("apple-note")).toHaveText("The machine restarted. No Disk II PROMs: the drive needs its boot ROM and sequencer");
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await openSettings(page);
   await page.getByTestId("apple-start").click();
   await expect.poll(() => row(page, 0), { timeout: 10_000 }).toBeGreaterThan(50); // "Apple //e"
@@ -86,12 +86,12 @@ function pixel(page: Page, x: number, y: number) {
 test("a program pasted into the IIe, faster than Applesoft takes it, arrives whole and runs", async ({ page }) => {
   await page.goto("./");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
     { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
   ]);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await openSettings(page);
   await page.getByTestId("apple-start").click();
   await expect.poll(() => row(page, 0), { timeout: 10_000 }).toBeGreaterThan(50);
@@ -118,7 +118,7 @@ test("the Disk II boots The Oregon Trail from the owner's WOZ, the drive light o
   test.setTimeout(120_000);
   await page.goto("./");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
     { name: CHARS, mimeType: "application/octet-stream", buffer: readFileSync(dir + CHARS) },
@@ -149,7 +149,7 @@ test("a disk put in at BASIC's prompt boots on Reboot, and the drive says so", a
   test.skip(!existsSync(woz) || !existsSync(dir + P5) || !existsSync(dir + P6), "no WOZ or Disk II PROMs among the fixtures");
   await page.goto("./");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
     { name: P5, mimeType: "application/octet-stream", buffer: readFileSync(dir + P5) },

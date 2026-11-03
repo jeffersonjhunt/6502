@@ -58,7 +58,7 @@ namespace
         return b;
     }
 
-    /// Booted to the monitor, with `image` (if any) in the slot.
+    /// Booted to the monitor, then `image` (if any) put in the slot: a card there at power-on is booted (AUTOBOOT).
     std::unique_ptr<Session> booted(const std::string &image, const std::string &machine = MACHINE)
     {
         std::string error;
@@ -68,17 +68,78 @@ namespace
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
+        std::string out;
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.10\r\\\r"))
+            return nullptr;
         if (!image.empty() && !s->insert_sd(sd_image(image), image, error))
         {
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
-        std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.9\r\\\r"))
+        return s;
+    }
+
+    /// Powered on with `image` already in the slot, as AUTOBOOT finds it; `out` gets what it says.
+    std::unique_ptr<Session> powered_on_with(const std::string &image, std::string &out)
+    {
+        std::string error;
+        auto s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
+        if (!s || !s->insert_sd(sd_image(image), image, error))
+        {
+            std::printf("  %s\n", error.c_str());
+            return nullptr;
+        }
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.10\r"))
             return nullptr;
         return s;
     }
+
+    constexpr int SPLASH_FRAMES = 360; // the splash's 306 and some
+    const std::string BOOTING = "\rBOOTING THE SD CARD: A KEY FOR THE MONITOR\r";
 } // namespace
+
+TEST(at_power_on_a_card_with_boot_bin_is_booted_once_the_splash_is_over)
+{
+    std::string out;
+    auto s = powered_on_with("fat12.sparse", out);
+    REQUIRE(s != nullptr);
+    REQUIRE(run_until(*s, out, BOOTING));
+    CHECK_EQ(s->peek(0xC489) & 0x01, 0x01); // the splash still on: not yet
+    for (int i = 0; i < 60; ++i)
+        s->run(FRAME), out += s->take_output();
+    CHECK(out.find("BOOTED FROM SD") == std::string::npos); // a second on: still waiting
+    REQUIRE(run_until(*s, out, "\rBOOTED FROM SD\r", SPLASH_FRAMES));
+    CHECK_EQ(s->peek(0xC489) & 0x01, 0x00); // the splash over first
+    REQUIRE(run_until(*s, out, "\\\r"));  // it returned: the monitor
+    CHECK_EQ(s->peek_physical(0x01000), 0xA2);
+    CHECK_EQ(out.find("\\\r"), out.size() - 2); // no monitor before it: the boot came first
+}
+
+TEST(a_key_during_the_splash_is_the_monitor_instead)
+{
+    std::string out;
+    auto s = powered_on_with("fat12.sparse", out);
+    REQUIRE(s != nullptr);
+    REQUIRE(run_until(*s, out, BOOTING));
+    s->send("X");                                       // taken: not the monitor's
+    REQUIRE(run_until(*s, out, BOOTING + "\\\r"));
+    for (int i = 0; i < SPLASH_FRAMES; ++i)
+        s->run(FRAME), out += s->take_output();
+    CHECK(out.find("BOOTED FROM SD") == std::string::npos);
+    s->send("C80CR\r");                                // and the card boots as ever from there
+    REQUIRE(run_until(*s, out, "\rBOOTED FROM SD\r"));
+}
+
+TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
+{
+    std::string out;
+    auto s = powered_on_with("fat16.sparse", out);
+    REQUIRE(s != nullptr);
+    REQUIRE(run_until(*s, out, "\\\r"));
+    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.10\r\\\r")); // no error, no wait
+    s->send("C809R\r");                                // and C809R still says what it finds
+    REQUIRE(run_until(*s, out, "\\\r"));
+}
 
 TEST(c809_lists_the_card_and_its_root)
 {

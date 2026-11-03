@@ -395,7 +395,8 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
 
 **Proposed**
 
-1. The BIOS's `C80CR` boots `/BOOT.BIN` from the FAT card, as now. For OODOS that's **OOLDR**, a loader in the
+1. The BIOS boots `/BOOT.BIN` from the FAT card: by itself at power-on, once the splash is over (BIOS 0.10; a key
+   during the splash is the monitor instead), or with `C80CR` from the monitor. For OODOS that's **OOLDR**, a loader in the
    spirit of CPMLDR.
 2. OOLDR mounts the drives from `/OODOS/DRIVES.TXT` and reads **`OODOS.SYS`** from drive A's own CP/M file system,
    with a small read-only BDOS of its own.
@@ -2054,8 +2055,8 @@ copyright and MIT notice.
 - **The card** carries the whole system: `/BOOT.BIN` is OOLDR, and A: holds OODOS.SYS (OODOS itself),
   TESTSYS.SYS (OOLDR's test system, which `test_oodos_boot` names OODOS.SYS in its own copy of the card),
   HELLO.COM and HELLO.PRL.
-- **`test_oodos_e2e`, in ctest,** boots the committed card as its owner would: the monitor, `C80CR`, OOLDR, OODOS
-  and `A>`; `hello world` runs HELLO.COM from A: through the CCP's reader, with its tail, its image byte for byte
+- **`test_oodos_e2e`, in ctest,** boots the committed card as its owner would: power on with the card in, the BIOS
+  boots it after the splash (BIOS 0.10), OOLDR, OODOS and `A>`; and from the monitor with `C80CR`; `hello world` runs HELLO.COM from A: through the CCP's reader, with its tail, its image byte for byte
   at `$0300` and the bytes past its BSS (set by the monitor first) untouched, and runs again after the warm boot;
   a name not on A:, a `.SYS` not a `.COM` and a name over 8 characters say `NAME?`. Seen to fail with the image
   loaded from the file's start instead of after its header.

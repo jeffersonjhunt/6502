@@ -5,7 +5,7 @@ import { onTerminal, openSettings, powerOn } from "./ui";
 // browser's own has no pads in a headless run) and the Keys switch, read
 // back by the Woz Monitor at $C340 (joystick 2) and $C341 (joystick 1).
 
-const GREETING = "BACKPLANE BIOS 0.9";
+const GREETING = "BACKPLANE BIOS 0.10";
 
 type Pad = { index: number; id: string; connected: boolean; mapping: string; axes: number[]; buttons: { pressed: boolean }[] };
 
