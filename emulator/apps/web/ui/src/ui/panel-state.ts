@@ -13,7 +13,9 @@
  * The keyswitch: OFF is power off; RUN is normal; LOCK is the card's LOCK
  * (hw/design.md), so the panel's keys and switches do nothing. Turning it
  * from OFF to RUN is a cold start. While it is not at RUN the panel takes
- * no input, as on the machine.
+ * no input, as on the machine. The page starts it at OFF: the visitor's
+ * turn of the key powers the machine on, and is the click a browser waits
+ * for before it plays sound, so the boot splash's tune is heard.
  */
 
 import type { MachinePort, PanelKey } from "../port/machine-port";
@@ -58,9 +60,9 @@ export class PanelState {
     this.notify();
   }
 
-  /** Before connecting: where the switches were left (a remembered SWR). */
+  /** Before connecting: where the switches were left (a remembered SWR), and the key at OFF or RUN, never LOCK. */
   restore(sw: Partial<PanelSwitches>): void {
-    this.sw = { ...this.sw, ...sw, key: "run" };
+    this.sw = { ...this.sw, ...sw, key: sw.key === "off" ? "off" : "run" };
     this.sw.swr &= 0xfffff;
     this.notify();
   }

@@ -163,6 +163,8 @@ export interface WasmPortOptions {
   symbols?: string;
   /** The owner's BIOS ROM, to open the machine on instead of `rom`. */
   bios?: Uint8Array;
+  /** Open with the power on (the default), or off until setPower(true): a cold start then. */
+  powered?: boolean;
 }
 
 export const MAX_FRAME_MS = 100;
@@ -274,6 +276,7 @@ export class WasmPort implements MachinePort {
       symbols: options.symbols ?? "/roms/bios.rom.lbl",
     };
     this.bios = options.bios;
+    this.powered = options.powered ?? true;
   }
 
   async connect(): Promise<{ machine: string; bios?: string }> {
@@ -478,7 +481,8 @@ export class WasmPort implements MachinePort {
     this.powered = on;
     this.hz = 0;
     this.videoSeen = -1;
-    if (on && !this.machine.powerCycle()) throw new Error(`power on failed: ${this.machine.error()}`);
+    // Before connect() has opened it, the machine opens powered as set here: a cold start either way.
+    if (on && this.m && !this.m.powerCycle()) throw new Error(`power on failed: ${this.m.error()}`);
   }
 
   setSwitches(swr: number): void {
@@ -596,6 +600,10 @@ export class WasmPort implements MachinePort {
   ejectSd(): void {
     this.m?.ejectSd();
     this.sdName = "";
+  }
+
+  async hasSd(): Promise<boolean> {
+    return this.machine.sdStatus() >= 0;
   }
 
   async readSdInfo(): Promise<SdInfo | null> {

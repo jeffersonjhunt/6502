@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, openSettings, phosphor } from "./ui";
+import { openDebugger, openSettings, phosphor, powerOn } from "./ui";
 
 // The real enhanced IIe in the browser, when the owner's ROMs are in the
 // gitignored fixtures (test/host/fixtures/apple2e, index.txt): picked as
@@ -37,6 +37,7 @@ test.skip(!have, "the owner's IIe ROMs are not in test/host/fixtures/apple2e");
 
 test("the owner's enhanced IIe: boots to Applesoft, answers, Ctrl-Reset keeps the screen", async ({ page }) => {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
@@ -84,6 +85,7 @@ function pixel(page: Page, x: number, y: number) {
 
 test("a program pasted into the IIe, faster than Applesoft takes it, arrives whole and runs", async ({ page }) => {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
@@ -115,6 +117,7 @@ test("the Disk II boots The Oregon Trail from the owner's WOZ, the drive light o
   test.skip(!existsSync(woz) || !existsSync(dir + P5) || !existsSync(dir + P6), "no WOZ or Disk II PROMs among the fixtures");
   test.setTimeout(120_000);
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },
@@ -145,6 +148,7 @@ test("a disk put in at BASIC's prompt boots on Reboot, and the drive says so", a
   const woz = `${process.env.OO1_DISKS_DIR ?? fileURLToPath(new URL("../../../../test/host/fixtures/disks/", import.meta.url))}/The Oregon Trail - Disk 1, Side A.woz`;
   test.skip(!existsSync(woz) || !existsSync(dir + P5) || !existsSync(dir + P6), "no WOZ or Disk II PROMs among the fixtures");
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await page.getByTestId("apple-file").setInputFiles([
     { name: ROM, mimeType: "application/octet-stream", buffer: readFileSync(dir + ROM) },

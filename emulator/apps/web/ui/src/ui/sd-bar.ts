@@ -139,10 +139,18 @@ export function sdBar(
       show();
     }
   };
+  /** Once connected: whether the machine has the slot, asked now, as the page starts it off. */
+  const connected = async () => {
+    if (!port.caps.sd || present || !(await port.hasSd())) return;
+    present = true;
+    element.hidden = false;
+    show();
+  };
   return {
     element,
     pill,
     update,
+    connected,
     loaded: () => !!info,
     /** The card's name while it has writes not saved, else null. */
     unsaved: () => (info?.changed ? info.name : null),

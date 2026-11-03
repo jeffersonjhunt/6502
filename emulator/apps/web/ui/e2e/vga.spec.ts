@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { onTerminal, openDebugger, pastSplash, phosphor } from "./ui";
+import { onTerminal, openDebugger, pastSplash, phosphor, powerOn } from "./ui";
 
 // Display: the video card's frames (the VGA scene), as the BIOS draws its screen.
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
 }
 
@@ -59,6 +60,7 @@ test("typing shows on VGA too, and a reload opens on VGA again", async ({ page }
   await expect.poll(() => litInRow(page, 3)).toBeGreaterThan(40); // the command, under the prompt
   await expect.poll(() => litInRow(page, 5)).toBeGreaterThan(40); // the answer
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // opens on VGA again...
   await openDebugger(page);

@@ -20,6 +20,7 @@ export function fitWidth(inner: HTMLElement): HTMLElement {
     inner.style.transform = s < 1 ? `translateX(-50%) scale(${s.toFixed(4)})` : "translateX(-50%)";
     box.style.height = `${Math.ceil(inner.offsetHeight * s)}px`;
     box.dataset.scale = s.toFixed(3);
+    inner.style.setProperty("--fit", s.toFixed(4)); // for what has to stay a size to touch however small (the key)
   };
   if (typeof ResizeObserver !== "undefined") {
     const watch = new ResizeObserver(fit);

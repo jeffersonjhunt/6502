@@ -1,13 +1,47 @@
 import { expect, test, type Page } from "@playwright/test";
-import { onTerminal, openSettings, pastSplash, phosphor } from "./ui";
+import { onTerminal, openSettings, pastSplash, phosphor, powerOn } from "./ui";
 
 const GREETING = "BACKPLANE BIOS 0.9";
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("status")).toContainText("RUNNING");
 }
+
+test("the page starts the machine off: the dark screen says to turn the key, and the key's turn is a cold start", async ({ page }) => {
+  await page.goto("./");
+  const key = page.getByTestId("keyswitch");
+  const hint = page.getByTestId("power-hint");
+  await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });
+  await expect(key).toHaveAttribute("data-pos", "off");
+  await expect(hint).toBeVisible();
+  await expect(hint).toContainText("Turn the key to RUN");
+  await expect(page.getByTestId("crt")).toHaveAttribute("aria-describedby", "power-hint"); // said to a screen reader too
+  await page.waitForTimeout(1000);
+  await expect(page.getByTestId("crt-text")).toHaveText(""); // nothing has run
+  await page.screenshot({ path: `test-results/off-${test.info().project.name}.png` });
+  await key.click();
+  await expect(key).toHaveAttribute("data-pos", "run");
+  await expect(hint).toBeHidden();
+  await expect(page.getByTestId("crt")).not.toHaveAttribute("aria-describedby", /./);
+  await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // the splash
+  await expect(page.getByTestId("crt")).toBeFocused(); // the keyboard on the screen, off the key
+  await page.reload(); // and every visit starts off
+  await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });
+  await expect(key).toHaveAttribute("data-pos", "off");
+  await openSettings(page); // off, the cards' rows are there to put a disk or a card in
+  await expect(page.getByTestId("sd-bar")).toBeVisible();
+  await expect(page.getByTestId("disk-bar")).toBeVisible();
+  await page.getByTestId("settings-close").click();
+  await key.focus();
+  await page.keyboard.press("Enter"); // turned from the keyboard: the focus stays on the key, to turn it on again
+  await expect(key).toHaveAttribute("data-pos", "run");
+  await expect(key).toBeFocused();
+  await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+});
 
 test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {
   await booted(page);

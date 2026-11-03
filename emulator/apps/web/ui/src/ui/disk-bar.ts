@@ -174,6 +174,12 @@ export function diskBar(port: MachinePort, store: DiskStore, download: (name: st
   /** Once connected: the disk kept from last time goes back in, unless one was picked while the browser looked for it. */
   const restore = async () => {
     if (!port.caps.disk) return;
+    // Whether the machine has the card, asked now: the page starts it off, and frames say so only while it runs.
+    if (!present && (await port.readDisk2()) !== null) {
+      present = true;
+      element.hidden = false;
+      show();
+    }
     const d = await store.get(drive);
     if (d && !picked && (await put(d, d.bytes))) show();
   };

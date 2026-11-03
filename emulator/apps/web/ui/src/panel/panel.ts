@@ -99,7 +99,12 @@ export interface FrontPanel {
   update(frame: FrameState): void;
 }
 
-export function frontPanel(panel: PanelState): FrontPanel {
+export interface FrontPanelHooks {
+  /** The key turned from OFF with the mouse or a touch: the visitor starting the machine (not a keyboard turn). */
+  startedByHand?: () => void;
+}
+
+export function frontPanel(panel: PanelState, hooks: FrontPanelHooks = {}): FrontPanel {
   const grid = h("div", { class: "pgrid", role: "group", "aria-label": "Lamps and switches" });
   const cols: string[] = [];
   for (let g = 0; g < 5; g++) {
@@ -194,8 +199,15 @@ export function frontPanel(panel: PanelState): FrontPanel {
   });
 
   // Brand, keyswitch and readouts.
-  const key = h("button", { class: "keysw", type: "button", "data-testid": "keyswitch" });
-  key.addEventListener("click", () => panel.turn());
+  // The button is the key's touch area, the knob inside it the key you see: on a phone the panel is scaled down
+  // whole, and the area grows to stay 44px across there (panel.css).
+  const key = h("button", { class: "keysw", type: "button", "data-testid": "keyswitch" }, h("span", { class: "knob" }));
+  key.addEventListener("click", (e) => {
+    const fromOff = panel.switches.key === "off";
+    panel.turn();
+    // detail is 0 for a click made by Enter or Space: a keyboard user stepping the key keeps the focus on it.
+    if (fromOff && e.detail > 0) hooks.startedByHand?.();
+  });
   const readSwr = h("span", { "data-testid": "readout-swr" });
   const readAddr = h("span", { "data-testid": "readout-addr" });
   const readData = h("span", { "data-testid": "readout-data" });
@@ -209,7 +221,13 @@ export function frontPanel(panel: PanelState): FrontPanel {
       h("div", { class: "lg" }, "OO", h("span", {}, "-"), "1"),
       h("div", { class: "sb" }, "ONE OFF ONE"),
     ),
-    h("div", { class: "krow" }, key, h("small", {}, "OFF", h("br"), "RUN", h("br"), "LOCK")),
+    // The positions around the key, each where the slot points at it (OFF -50°, RUN up, LOCK +50°).
+    h(
+      "div",
+      { class: "kdial", "data-testid": "keydial" },
+      key,
+      ...(["off", "run", "lock"] as const).map((p) => h("span", { class: "kl", "data-at": p, "aria-hidden": "true" }, p.toUpperCase())),
+    ),
   );
   const readouts = h(
     "div",

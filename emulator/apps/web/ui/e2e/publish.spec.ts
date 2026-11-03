@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { powerOn } from "./ui";
 
 // What publishing the page depends on: the core is fetched with the build's
 // version (so a cache cannot serve an old one), and a touch screen is told
@@ -10,6 +11,7 @@ test("the core and its wasm are fetched with the build's version", async ({ page
     if (r.url().includes("/core/")) core.push(r.url());
   });
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
   const mjs = core.find((u) => u.includes("oo1.mjs"));
   const wasm = core.find((u) => u.includes("oo1.wasm"));
@@ -20,6 +22,7 @@ test("the core and its wasm are fetched with the build's version", async ({ page
 
 test("a desktop gets no touch note", async ({ page }) => {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
   await expect(page.getByTestId("touch-note")).toHaveCount(0);
 });
@@ -35,6 +38,7 @@ test.describe("on a touch screen", () => {
     await note.getByRole("button", { name: "OK" }).click();
     await expect(note).toHaveCount(0);
     await page.reload();
+    await powerOn(page);
     await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
     await expect(note).toHaveCount(0);
   });
@@ -56,5 +60,6 @@ test("served without the trailing slash, it goes to the slash and boots", async 
   }
   await page.goto(`${dir}?from=site`);
   await expect(page).toHaveURL(new URL(`${dir}/?from=site`, baseURL).href);
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
 });

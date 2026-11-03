@@ -47,6 +47,8 @@ export class FakePort implements MachinePort {
   saved = new Uint8Array([1, 2, 3]);
   /** The SD slot: what readSdInfo() returns, and insertSd() sets. */
   sdCard: SdInfo | null = null;
+  /** What hasSd() answers. */
+  sdSlot = false;
   /** insertSd() rejects with this, if set. */
   sdError: string | null = null;
   /** What saveSd() returns. */
@@ -163,6 +165,9 @@ export class FakePort implements MachinePort {
   ejectSd(): void {
     this.calls.push(["ejectSd"]);
     this.sdCard = null;
+  }
+  async hasSd(): Promise<boolean> {
+    return this.sdSlot;
   }
   async readSdInfo(): Promise<SdInfo | null> {
     return this.sdCard ? { ...this.sdCard } : null;

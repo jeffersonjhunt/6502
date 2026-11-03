@@ -1,7 +1,20 @@
 import { expect, type Page } from "@playwright/test";
 
 // The drawer's two panels, and the controls that live in them: the
-// debugger's tabs, and Settings' media rows and phosphor.
+// debugger's tabs, and Settings' media rows and phosphor. And the keyswitch,
+// which the page starts at OFF.
+
+/**
+ * Turn the key to RUN, once the core is open (the strip says POWER OFF): the page starts the machine off, and a
+ * cold start is the visitor's turn of the key.
+ */
+export async function powerOn(page: Page): Promise<void> {
+  const key = page.getByTestId("keyswitch");
+  await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });
+  await expect(key).toHaveAttribute("data-pos", "off");
+  await key.click();
+  await expect(key).toHaveAttribute("data-pos", "run");
+}
 
 /** Show the debugger (it starts closed on a first visit). */
 export async function openDebugger(page: Page): Promise<void> {

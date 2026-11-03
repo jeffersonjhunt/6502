@@ -8,8 +8,9 @@
  * first, in the page, and only then keeps or forgets: so the page's own
  * prompt on leaving can't stop a restart the choice was already saved for.
  *
- * Yours that prints nothing for QUIET_MS gets a hint in the status strip
- * (quiet), pointing to Use built-in.
+ * Yours that prints nothing for QUIET_MS after power-on gets a hint in the
+ * status strip (quiet), pointing to Use built-in. Counted from power-on, not
+ * from the page opening the machine: the page starts it off.
  */
 
 import { MAX_BIOS } from "../port/wasm-port";
@@ -141,7 +142,13 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
   const connected = (v: string | undefined) => {
     version = v ?? "";
     show();
-    if (mine) setTimeout(() => (quiet.hidden = heard), QUIET_MS);
+  };
+  let waiting: ReturnType<typeof setTimeout> | undefined;
+  /** The power came on: yours has QUIET_MS from now to say something. */
+  const poweredOn = () => {
+    if (!mine || heard) return;
+    clearTimeout(waiting);
+    waiting = setTimeout(() => (quiet.hidden = heard), QUIET_MS);
   };
   /** The serial line said something. */
   const spoke = () => {
@@ -149,5 +156,5 @@ export function biosRow(restart: () => void, hooks: BiosHooks = {}) {
     heard = true;
     quiet.hidden = true;
   };
-  return { element, connected, mine, quiet, spoke };
+  return { element, connected, poweredOn, mine, quiet, spoke };
 }

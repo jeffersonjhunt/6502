@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, openSettings } from "./ui";
+import { openDebugger, openSettings, powerOn } from "./ui";
 import { fakeIIeRom } from "../src/port/fake-iie";
 
 // Apple II mode in the browser, with a stand-in IIe ROM (Apple's is never
@@ -8,6 +8,7 @@ import { fakeIIeRom } from "../src/port/fake-iie";
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
 }
 
@@ -80,6 +81,7 @@ test("the ROM is kept in this browser: back after a reload; Eject forgets it", a
   await insert(page);
   await page.reload();
   await expect(page.getByTestId("apple-meta")).toHaveText("16 KB · yours, kept in this browser", { timeout: 15_000 });
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await page.getByTestId("crt").click();
   await page.keyboard.type("C806R"); // typed at the monitor works as well as the button
@@ -92,6 +94,7 @@ test("the ROM is kept in this browser: back after a reload; Eject forgets it", a
   await expect(page.getByTestId("apple-insert")).toBeVisible();
   expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("oo1.apple")))).toEqual([]);
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await expect(page.getByTestId("apple-meta")).toHaveText(/^none/);
 });
