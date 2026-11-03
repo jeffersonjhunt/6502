@@ -6,7 +6,7 @@ const GREETING = "BACKPLANE BIOS 0.10";
 const peak = async (page: import("@playwright/test").Page) => Number(await page.getByTestId("tb-sound").getAttribute("data-peak"));
 
 test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop", async ({ page }) => {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "false");
@@ -33,7 +33,7 @@ test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop",
 });
 
 test("a file that isn't a tune is refused, and says why", async ({ page }) => {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await page.getByTestId("sid-file").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });

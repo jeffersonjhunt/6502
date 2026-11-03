@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { onTerminal, powerOn } from "./ui";
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await powerOn(page);

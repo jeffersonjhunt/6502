@@ -15,7 +15,7 @@ async function booted(page: Page) {
     w.pads = [];
     Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => w.pads });
   });
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await onTerminal(page); // the monitor is typed at on the serial line

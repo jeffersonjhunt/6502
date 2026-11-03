@@ -4,7 +4,7 @@ import { onTerminal, pastSplash, powerOn } from "./ui";
 const GREETING = "BACKPLANE BIOS 0.10";
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
 }

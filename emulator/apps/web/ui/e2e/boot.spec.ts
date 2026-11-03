@@ -4,14 +4,14 @@ import { onTerminal, openSettings, pastSplash, phosphor, powerOn } from "./ui";
 const GREETING = "BACKPLANE BIOS 0.10";
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("status")).toContainText("RUNNING");
 }
 
 test("the page starts the machine off: the dark screen says to turn the key, and the key's turn is a cold start", async ({ page }) => {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   const key = page.getByTestId("keyswitch");
   const hint = page.getByTestId("power-hint");
   await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });
@@ -159,14 +159,14 @@ test("Step cycle is disabled: the emulator steps whole instructions", async ({ p
 
 test("a missing core says so instead of a blank screen", async ({ page }) => {
   await page.route("**/core/oo1.mjs?*", (route) => route.fulfill({ status: 404, body: "" })); // ?v=<version>
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await expect(page.getByTestId("status")).toHaveText("NO MACHINE");
   await expect(page.getByTestId("crt-text")).not.toBeEmpty();
 });
 
 test("a missing wasm says so too", async ({ page }) => {
   await page.route("**/core/oo1.wasm?*", (route) => route.fulfill({ status: 404, body: "" }));
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await expect(page.getByTestId("status")).toHaveText("NO MACHINE");
 });
 

@@ -43,6 +43,7 @@
 #include <map>
 #include <sstream>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -751,27 +752,28 @@ TEST(drive_a_gone_or_changed_before_oodos_sys_is_read)
             {ldr_label("SYS_A"), [&](Session &s) { command(s, SdCard::MOUNT, std::string("\x01\x00/BOOT.BIN", 11)); }});
 }
 
-TEST(the_committed_card_is_what_the_sources_build)
+/// A card's files are what today's sources build: OOLDR, OODOS.SYS, HELLO and the utilities, then `more` (a
+/// name on A: and its build). A file on A: is its bytes, then whatever pads its last record; each .COM in user 0 with
+/// the SYS attribute (t2's bit 7). @return A: as on the card.
+Drive built_card(const Bytes &card, const std::string &script, const std::vector<std::pair<std::string, Bytes>> &more = {})
 {
-    // OOLDR, the systems, HELLO, WRITEOO1 and the utilities the build tree has, from today's sources, are the card's:
-    // a file on A: is its bytes, then whatever pads its last record.
-    const std::string STALE = "the card is stale: run oodos/tools/make_card.sh";
-    auto same = [&](const std::string &what, const Bytes &card, const Bytes &built, bool records) {
+    const std::string STALE = "the card is stale: run " + script;
+    auto same = [&](const std::string &what, const Bytes &on, const Bytes &built, bool records) {
         const size_t size = records ? (built.size() + RECORD - 1) / RECORD * RECORD : built.size();
-        const bool ok = !built.empty() && card.size() == size && std::equal(built.begin(), built.end(), card.begin());
-        std::printf("  %s: %zu bytes built, %zu on the card%s\n", what.c_str(), built.size(), card.size(),
+        const bool ok = !built.empty() && on.size() == size && std::equal(built.begin(), built.end(), on.begin());
+        std::printf("  %s: %zu bytes built, %zu on the card%s\n", what.c_str(), built.size(), on.size(),
                     ok ? "" : (": " + STALE).c_str());
         CHECK(ok);
     };
-    same("/BOOT.BIN", file_of(committed(), "/BOOT.BIN"), read_file(EMU_OODOS_LDR_DIR "/BOOT.BIN"), false);
-    Drive a = Drive::of(file_of(committed(), "/OODOS/A.IMG"));
+    same("/BOOT.BIN", file_of(card, "/BOOT.BIN"), read_file(EMU_OODOS_LDR_DIR "/BOOT.BIN"), false);
+    same("DRIVES.TXT", file_of(card, "/OODOS/DRIVES.TXT"), read_file(EMU_OODOS_CARD_DIR "/DRIVES.TXT"), false);
+    Drive a = Drive::of(file_of(card, "/OODOS/A.IMG"));
     same("OODOS.SYS", a.file(SYS_NAME), read_file(EMU_OODOS_SYS_DIR "/OODOS.SYS"), true);
-    same("TESTSYS.SYS", a.file(TEST_NAME), read_file(EMU_OODOS_LDR_DIR "/OODOS.SYS"), true);
     same("HELLO.COM", a.file("HELLO   COM"), read_file(EMU_OODOS_SYS_DIR "/hello.com"), true);
-    same("HELLO.PRL", a.file("HELLO   PRL"), read_file(EMU_OODOS_PRL_DIR "/hello.prl"), true);
-    same("WRITEOO1.COM", a.file("WRITEOO1COM"), read_file(EMU_OODOS_SYS_DIR "/writeoo1.com"), true);
-    // Phase 4b's utilities (make utils), each in user 0 with the SYS attribute (t2's bit 7)
-    for (const char *u : {"DATE", "DEVICE", "DIR", "ERASE", "INITDIR", "RENAME", "SET", "SETDEF", "SHOW", "TYPE"})
+    for (const auto &[name83, bytes] : more)
+        same(name83, a.file(name83), bytes, true);
+    // The utilities (make utils): every oodos/utils/NAME.s
+    for (const char *u : {"APPLE2", "DATE", "DEVICE", "DIR", "ERASE", "INITDIR", "RENAME", "SET", "SETDEF", "SHOW", "TYPE", "WOZMON"})
     {
         std::string name83 = std::string(u) + std::string(8 - std::strlen(u), ' ') + "COM", lower = u;
         for (char &c : lower)
@@ -780,7 +782,65 @@ TEST(the_committed_card_is_what_the_sources_build)
         const std::vector<unsigned> e = a.entries_of(0, name83);
         CHECK(!e.empty() && (a.dir(e[0])[10] & 0x80) != 0);
     }
-    same("DRIVES.TXT", file_of(committed(), "/OODOS/DRIVES.TXT"), read_file(EMU_OODOS_CARD_DIR "/DRIVES.TXT"), false);
+    return a;
+}
+
+TEST(the_committed_card_is_what_the_sources_build)
+{
+    // OOLDR, the systems, HELLO, WRITEOO1 and the utilities the build tree has, from today's sources, are the card's.
+    built_card(committed(), "oodos/tools/make_card.sh",
+               {{TEST_NAME, read_file(EMU_OODOS_LDR_DIR "/OODOS.SYS")},
+                {"HELLO   PRL", read_file(EMU_OODOS_PRL_DIR "/hello.prl")},
+                {"WRITEOO1COM", read_file(EMU_OODOS_SYS_DIR "/writeoo1.com")}});
+}
+
+TEST(the_demo_card_is_what_the_sources_build_and_nothing_of_the_tests)
+{
+    // The WebUI's card (sd/demo.sparse): the same programs, from today's sources, and on A: only those and
+    // README.TXT, in user 0; B: empty. Nothing else on the card.
+    const Bytes demo = sd_image("demo.sparse");
+    Drive a = built_card(demo, "oodos/tools/make_card.sh");
+    std::set<std::string> names;
+    for (unsigned i = 0; i < a.entries; ++i)
+    {
+        const uint8_t *e = a.dir(i);
+        if (e[0] == 0xE5 || e[0] >= 0x20)
+            continue; // free, an SFCB or the label
+        std::string n(e + 1, e + 12);
+        for (char &c : n)
+            c = static_cast<char>(c & 0x7F);
+        names.insert(std::to_string(e[0]) + ":" + n);
+    }
+    const std::set<std::string> want = {"0:APPLE2  COM", "0:DATE    COM", "0:DEVICE  COM", "0:DIR     COM", "0:ERASE   COM",
+                                        "0:HELLO   COM", "0:INITDIR COM", "0:OODOS   SYS", "0:README  TXT", "0:RENAME  COM",
+                                        "0:SET     COM", "0:SETDEF  COM", "0:SHOW    COM", "0:TYPE    COM", "0:WOZMON  COM"};
+    CHECK(names == want);
+    for (const auto &n : names)
+        if (!want.count(n))
+            std::printf("  on A: and not wanted: %s\n", n.c_str());
+    CHECK(!a.file("README  TXT").empty());
+    Drive b = Drive::of(file_of(demo, "/OODOS/B.IMG"));
+    unsigned used = 0;
+    for (unsigned i = 0; i < b.entries; ++i)
+        used += b.dir(i)[0] < 0x10;
+    CHECK_EQ(used, 0u);
+    MemoryMedia media(demo, "demo");
+    std::string error;
+    auto v = FatVolume::open(media, error);
+    REQUIRE(v != nullptr);
+    std::vector<std::string> top, oodos;
+    for (const auto &[dir, list] : {std::pair<const char *, std::vector<std::string> *>{"/", &top}, {"/OODOS", &oodos}})
+    {
+        std::vector<FatVolume::Entry> es;
+        REQUIRE(v->list(dir, es) == FatVolume::Status::Ok);
+        for (const auto &e : es)
+            if (e.name != "." && e.name != "..")
+                list->push_back(e.name);
+    }
+    std::sort(top.begin(), top.end());
+    std::sort(oodos.begin(), oodos.end());
+    CHECK((top == std::vector<std::string>{"BOOT.BIN", "OODOS"}));
+    CHECK((oodos == std::vector<std::string>{"A.IMG", "B.IMG", "DRIVES.TXT"}));
 }
 
 TEST(drives_it_cannot_mount)

@@ -11,7 +11,7 @@ import { bios, hex4, loadBiosLabels } from "./bios-labels";
 const GREETING = "BACKPLANE BIOS 0.10";
 
 async function booted(page: Page) {
-  await page.goto("./");
+  await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await onTerminal(page); // the monitor is typed at on the serial line

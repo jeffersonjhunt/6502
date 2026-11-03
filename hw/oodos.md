@@ -2006,6 +2006,11 @@ copyright and MIT notice.
   same card. It's committed as a sparse image, `emulator/test/host/sd/oodos.sparse` (oodos/README.md has its
   size): a card (16 MB in phase 1, 32 MB from phase 2), FAT16 in an MBR partition, with `/BOOT.BIN`, `/OODOS/DRIVES.TXT` and `/OODOS/A.IMG` (`oodos-8m`, label mode
   0x31, files in users 0 and 3, one over two directory entries).
+- **The demo card** (2026-11-03): `make_card.sh` makes a second card in the same run, `sd/demo.sparse`, which the
+  WebUI puts in its SD slot at every visit, so a visitor's power-on boots OODOS: the same layout, A: only OODOS.SYS,
+  HELLO.COM, the utilities and a README of what to try, B: empty, nothing of the tests'. `test_oodos_boot` checks it
+  is what today's sources build and holds nothing else; `test_oodos_e2e` boots it from power-on and runs its
+  README's examples.
 - **Interoperability, both ways:**
   - **cpmtools writes, the OO-1 reads:** `test_oodos_card`, in ctest, mounts A.IMG through the card's own MOUNT
     (after reading DRIVES.TXT by its grammar, as OOLDR will) and finds every entry, SFCB stamp and record in the

@@ -2,7 +2,8 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { FrameState, SdStatus } from "../port/machine-port";
-import { cardSize, MAX_CARD, sdBar } from "./sd-bar";
+import { gzipSync } from "node:zlib";
+import { cardSize, DEMO_NAME, fetchDemoCard, MAX_CARD, sdBar } from "./sd-bar";
 
 const flush = async () => {
   for (let i = 0; i < 6; ++i) await new Promise((r) => setTimeout(r, 0));
@@ -221,6 +222,52 @@ describe("the SD slot", () => {
     expect(bar.element.hidden).toBe(false);
     expect(bar.pill.hidden).toBe(false);
     expect(bar.pill.querySelector(".led")!.classList.contains("on")).toBe(false);
+  });
+
+  test("the demo card goes in an empty slot, says so, and Insert… stays for a card of your own", async () => {
+    const { port, bar } = make();
+    await bar.demo(async () => new Uint8Array(65536 * 512));
+    expect(port.callsTo("insertSd").map(([b, n]) => [(b as Uint8Array).length, n])).toEqual([[65536 * 512, DEMO_NAME]]);
+    expect($(bar.element, "sd-name").textContent).toBe(DEMO_NAME);
+    expect($(bar.element, "sd-meta").textContent).toBe("32 MB");
+    expect($(bar.element, "sd-note").textContent).toContain("power-on boots OODOS");
+    expect(shown(bar.element)).toEqual(["sd-insert", "sd-protect", "sd-save", "sd-eject"]);
+    await pick(bar.element, "mine.img", new Uint8Array(2880 * 512)); // yours takes its place
+    expect(port.callsTo("insertSd").map(([, n]) => n)).toEqual([DEMO_NAME, "mine.img"]);
+    expect($(bar.element, "sd-name").textContent).toBe("mine.img");
+    expect($(bar.element, "sd-note").textContent).toContain("C809R");
+    expect(shown(bar.element)).toEqual(["sd-protect", "sd-save", "sd-eject"]); // and Insert… goes, as for any card
+  });
+
+  test("Eject takes the demo card out: the slot empty, as for any card", async () => {
+    const { port, bar } = make();
+    await bar.demo(async () => new Uint8Array(1024));
+    $(bar.element, "sd-eject").click();
+    expect(port.callsTo("ejectSd")).toEqual([[]]);
+    expect(shown(bar.element)).toEqual(["sd-insert"]);
+    expect($(bar.element, "sd-meta").textContent).toBe("empty");
+  });
+
+  test("the demo card isn't put over a card already in, and one that won't load says why", async () => {
+    const { port, bar } = make();
+    await pick(bar.element, "mine.img", new Uint8Array(1024));
+    await bar.demo(async () => new Uint8Array(1024));
+    expect(port.callsTo("insertSd").map(([, n]) => n)).toEqual(["mine.img"]);
+    const empty = make();
+    await empty.bar.demo(async () => {
+      throw new Error("404 Not Found");
+    });
+    expect(empty.port.callsTo("insertSd")).toHaveLength(0);
+    expect($(empty.bar.element, "sd-note").textContent).toBe("The demo card didn't load: 404 Not Found");
+    expect(shown(empty.bar.element)).toEqual(["sd-insert"]);
+  });
+
+  test("the demo card's fetch: gzipped, or sent already unzipped; a failed one throws", async () => {
+    const card = new Uint8Array(4096).map((_, i) => (i * 7) & 0xff);
+    const get = (body: Uint8Array, status = 200) => (async () => new Response(new Uint8Array(body), { status, statusText: status === 200 ? "OK" : "Not Found" })) as unknown as typeof fetch;
+    expect(await fetchDemoCard("x", get(gzipSync(card)))).toEqual(card);
+    expect(await fetchDemoCard("x", get(card))).toEqual(card);
+    await expect(fetchDemoCard("x", get(new Uint8Array(0), 404))).rejects.toThrow("404 Not Found");
   });
 
   test("with no card, frames change nothing and leaving doesn't ask", () => {

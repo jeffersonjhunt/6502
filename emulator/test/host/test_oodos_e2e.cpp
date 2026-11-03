@@ -180,6 +180,30 @@ TEST(power_on_boots_the_card_after_the_splash_to_the_prompt)
     CHECK(!m.s->stopped());
 }
 
+TEST(the_demo_card_boots_at_power_on_and_runs_what_its_readme_says)
+{
+    // The WebUI's card (sd/demo.sparse), as a visitor has it: in at power-on, nothing typed until A>.
+    // Then a few of the README's things to try.
+    Oo1 m;
+    std::string error;
+    m.s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
+    REQUIRE(m.s != nullptr);
+    m.card = std::make_shared<MemoryMedia>(sd_image("demo.sparse"), "demo");
+    REQUIRE(m.s->insert_sd(m.card, error));
+    REQUIRE(m.until("\nA>", 0, 1200));
+    CHECK(m.out.find("\\\r") == std::string::npos); // never the monitor
+    const std::string readme = m.command("TYPE README.TXT");
+    CHECK(readme.find("This is the OO-1's demo card") != std::string::npos);
+    CHECK(readme.find("WOZMON") != std::string::npos);
+    const std::string dir = m.command("DIR");
+    CHECK(dir.find("README") != std::string::npos);
+    CHECK(dir.find("TESTSYS") == std::string::npos); // nothing of the tests'
+    CHECK(m.command("HELLO").find("Hello from OODOS") != std::string::npos);
+    const size_t from = m.out.size();
+    m.s->send("B:\r");
+    CHECK(m.until("\nB>", from)); // B:, empty, to work on
+}
+
 TEST(c80cr_boots_oodos_from_the_card_to_the_prompt)
 {
     Oo1 m = booted();
