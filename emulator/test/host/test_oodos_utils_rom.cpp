@@ -69,7 +69,7 @@ TEST(wozmon_leaves_oodos_for_the_roms_monitor)
 {
     RomRig r;
     REQUIRE(r.ok);
-    REQUIRE(!r.to("WOZMON", "\r\\\r").empty());          // the ROM's Break: a CR, its prompt
+    REQUIRE(!r.to("WOZMON", "\r\n\\\r").empty());  // the CCP's CR LF, then the ROM's Break: its prompt, a CR
     CHECK_EQ(r.nb(3), 0x40 | 63);                          // W3 and VEC on the ROM's copy, read-only
     CHECK_EQ(r.nb(4), 0x40 | 63);
     CHECK_EQ(r.nb(0), 0);                                  // windows 0-2 as at reset
@@ -102,4 +102,9 @@ TEST(apple2_with_a_iie_rom_restarts_in_apple_ii_mode)
     const uint16_t pc = r.cpu->regs().pc;
     CHECK(pc >= LOOP && pc < LOOP + 3);                    // at the ROM's reset, as a IIe at power-on
     CHECK(r.out.find("No IIe ROM") == std::string::npos);
+}
+
+int main()
+{
+    return run_all();
 }
