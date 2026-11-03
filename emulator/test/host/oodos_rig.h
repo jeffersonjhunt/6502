@@ -269,10 +269,12 @@ namespace oodos_rig
         std::function<void(uint16_t pc)> watch;                    ///< before each instruction, if set
         bool ok{false};
 
-        explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"))
+        /// `apple_rom`: a IIe ROM image's path for the cartridge (none by default), as MachineOptions takes it.
+        explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"), std::vector<std::string> apple_rom = {})
         {
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
+            opt.apple_rom = std::move(apple_rom);
             std::string error;
             machine = Machine::build(read_text(EMU_MACHINE_DIR "/backplane.machine"), "backplane.machine", opt, error);
             if (machine)
@@ -316,6 +318,11 @@ namespace oodos_rig
                 if (watch)
                     watch(cpu->regs().pc);
                 cpu->step();
+                if (machine->bus().take_reset()) // Apple II mode's /RESET, as Session's run loop takes it
+                {
+                    machine->bus().pulse_reset();
+                    cpu->reset();
+                }
                 if (machine->bus().irq())
                     cpu->irq();
                 if (machine->usb_card()->take_nmi())
@@ -698,7 +705,7 @@ namespace oodos_rig
         {
             unsigned entry = 0, block = M_DIRBLOCKS; ///< M:'s last entry and next block put_m() used
 
-            CcpRig()
+            explicit CcpRig(std::vector<std::string> apple_rom = {}) : Rig(sd_image("oodos.sparse"), std::move(apple_rom))
             {
                 if (!ok)
                     return;

@@ -22,6 +22,11 @@
 ;                   minor), the BIOS's, the memory fitted and the memory for
 ;                   programs in KB (words: the total, fixed, not what is
 ;                   free), and FARCALL's address; A/X = FARCALL
+;   75  O_ROM       leave OODOS for the ROM BIOS, not to come back: A = 0 the
+;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
+;                   Apple II mode (the ROM's C806), if the cartridge holds a
+;                   IIe ROM, else A = X = $FF and OODOS goes on; any other A,
+;                   A = X = $FF
 ;  104  T_SET       the DAT at A/X (days, hour, minute in BCD) into the clock,
 ;                   the seconds 0
 ;  105  T_GET       the clock into the DAT at A/X; A = the seconds, BCD. A
@@ -53,7 +58,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import WARM, FARCALL
+.import WARM, FARCALL, NMI, ROMAPPLE
 .export BDOSENT
 
 ASCII_CR        = $0D
@@ -182,7 +187,7 @@ FJUMPS:
                 .word   F_WXFCB, F_DEFPW
                 .word   F_DMASEG, F_DMAGET, F_MCMAX, F_MCABSMAX ; 128: 3c's
                 .word   F_MCALLOC, F_MCABSALL, F_MCFREE, F_MCALLFREE
-                .word   F_PHYS, F_MOUNT
+                .word   F_PHYS, F_MOUNT, F_ROM
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
@@ -191,7 +196,7 @@ FIDX:
                 .byte   66, $FF, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
                 .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
-                .byte   $FF, $FF, 78, 144, 146, $FF, $FF, $FF, $FF, $FF ; 70-79
+                .byte   $FF, $FF, 78, 144, 146, 148, $FF, $FF, $FF, $FF ; 70-79
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105
@@ -213,6 +218,23 @@ ZERO:           LDA     #0
 F_VERSION:      LDA     #$31
                 LDX     #0
                 RTS
+
+; 75: leave for the ROM BIOS. The cartridge is looked at through W2, which
+; each call's jump table puts back on the BIOS anyway.
+F_ROM:          CMP     #0
+                BNE     @apple
+                JMP     NMI            ; the monitor, as Break goes there
+@apple:         CMP     #1
+                BNE     @no
+                LDA     #CART_WINDOW
+                STA     NB_WIN2
+                LDA     $8000 + IIE_ID
+                LDX     #BIOS_BLOCK
+                STX     NB_WIN2
+                CMP     #$06
+                BNE     @no            ; no IIe ROM: say so to the program, and go on
+                JMP     ROMAPPLE
+@no:            JMP     RETFF
 
 F_DRIVE:        LDA     SCB_DISK
                 LDX     #0

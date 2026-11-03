@@ -15,6 +15,8 @@ NB_WIN3         = $C683
 NB_VEC          = $C684
 NB_RO           = $40                  ; a window's read-only bit
 .endif
+CART_WINDOW     = $C0 | 32             ; flash (bit 7) block 32, read-only: the cartridge, the IIe ROM's 16 KB
+IIE_ID          = $3BB3                ; where the ROM BIOS looks in it: $FBB3, $06 on a IIe
 ROM_BLOCK       = 63                   ; the ROM BIOS's RAM copy, the monitor's
 
 ; Blocks

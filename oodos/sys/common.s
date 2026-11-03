@@ -29,7 +29,7 @@
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
 .importzp DMABANK, CURBANK, XPEND
 .import DMASEG, AMAP
-.export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI
+.export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI, ROMAPPLE
 
 .segment "JUMPS"
 JUMPS:          JMP     COLD           ; BOOT
@@ -341,6 +341,30 @@ TRAMPSRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TR
                 STA     NB_VEC
                 JMP     ($FFFA)        ; block 63's: the ROM's BREAK
 TRAMPEND:
+
+; Apple II mode for function 75: as NMI leaves for the ROM, but to its $C806
+; (APPLE: it checks the IIe ROM again, copies it to bank E, clears banks 0-3
+; and switches the machine over; it never comes back), with interrupts off
+; and windows 0-2 on RAM blocks 0-2, as the monitor's C806R runs it.
+ROMAPPLE:       SEI
+                STZ     NB_WIN0
+                LDA     #1
+                STA     NB_WIN1
+                LDA     #2
+                STA     NB_WIN2
+                LDX     #$FF
+                TXS
+                LDX     #APPLEEND - APPLESRC - 1
+@copy:          LDA     APPLESRC,X
+                STA     TRAMP,X
+                DEX
+                BPL     @copy
+                JMP     TRAMP
+APPLESRC:       LDA     #NB_RO | ROM_BLOCK ; position-independent: it runs at TRAMP
+                STA     NB_WIN3
+                STA     NB_VEC
+                JMP     $C806          ; the ROM's APPLE
+APPLEEND:
 
 .segment "VECTORS"
                 .word   NMI

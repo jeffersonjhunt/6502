@@ -283,7 +283,8 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75–97 | reserved for OODOS |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. WOZMON.COM and APPLE2.COM use it (2026-11-02) |
+| 76–97 | reserved for OODOS |
 
 ### Far calls ###
 
@@ -1797,6 +1798,18 @@ the choices it left open marked ours):
   number, the next entry, the previous entry, the remove flag, the non-banked flag, the name), and a slice of
   `$F0–$FF`.
 - **GENCOM** attaches RSXs to a program, as in CP/M 3. GET, PUT and SUBMIT are RSXs.
+
+### Leaving OODOS: WOZMON and APPLE2 ###
+
+**Done (2026-11-02).** Two utilities of ours, for the machine OODOS runs on rather than CP/M's, each a `.COM` in
+`oodos/utils` as the others: **WOZMON** leaves OODOS for the ROM BIOS's Woz Monitor, and **APPLE2** restarts the
+machine in Apple II mode, the cartridge's IIe ROM started as a IIe starts at power-on. Both call function 75
+(above, "OODOS's own"): a program can't jump to the ROM itself (W3 is OODOS's block 62, and the rules let a program
+call only the BDOS and the warm boot), and only OODOS may map the cartridge to look for a IIe ROM. Neither comes
+back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and only a reset ends
+Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator: Settings, ROMs)", the
+return code `$FF00`, and OODOS goes on. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes
+(its ID byte and a loop at reset), not Apple's.
 
 ### The program header ###
 
