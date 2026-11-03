@@ -12,6 +12,8 @@
 set -eu
 apt-get update -qq >/dev/null 2>&1
 apt-get install -y -qq cpmtools >/dev/null 2>&1
+. /o/test/fsck_fixed.sh
+fsck_fixed
 dpkg-query -W -f '${Package} ${Version}\n' cpmtools | sed 's/^/     /'
 cd /o
 . "$(dirname "$0")/cpmtools.sh"

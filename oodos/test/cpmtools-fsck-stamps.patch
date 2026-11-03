@@ -1,0 +1,27 @@
+cpmtools 2.23's fsck.cpm, fixed for OODOS's tests: oodos/test/fsck_fixed.sh
+applies this to Debian's own cpmtools source and builds fsck.cpm from it. The
+change is to cpmtools (GPL 3, Michael Haardt); these lines are offered to it.
+
+fsck.cpm: read an SFCB's first slot's stamps from their own bytes
+
+An SFCB's first slot keeps its creation stamp in bytes 1-4 (the day, low byte
+first, then the hour and the minute) and its update stamp in bytes 5-8, as the
+second and third slots keep theirs in 11-18 and 21-28, which fsck.cpm reads
+right. For the first slot it took the low byte of each day from the other
+stamp, so an entry there made on one day and updated on a later one drew
+"Modification date earlier than creation date", and one whose stamps really
+were in the wrong order drew nothing.
+
+--- a/fsck.cpm.c
++++ b/fsck.cpm.c
+@@ -310,8 +310,8 @@
+         bcdCheck(dir->name[3],60,sb->cnotatime ? "creation date" : "access date","minute",extent,extent2);
+         bcdCheck(dir->name[6],24,"modification date","hour",extent,extent2);
+         bcdCheck(dir->name[7],60,"modification date","minute",extent,extent2);
+-        created=(dir->name[4]+(dir->name[1]<<8))*(0x60*0x60)+dir->name[2]*0x60+dir->name[3];
+-        modified=(dir->name[0]+(dir->name[5]<<8))*(0x60*0x60)+dir->name[6]*0x60+dir->name[7];
++        created=(dir->name[0]+(dir->name[1]<<8))*(0x60*0x60)+dir->name[2]*0x60+dir->name[3];
++        modified=(dir->name[4]+(dir->name[5]<<8))*(0x60*0x60)+dir->name[6]*0x60+dir->name[7];
+         if (sb->cnotatime && modified<created)
+         {
+           printf("Warning: Modification date earlier than creation date (extent=%d/%d)\n",extent,extent2);

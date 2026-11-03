@@ -472,8 +472,8 @@ namespace
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
     /// (two entries, the first free: 32 and 33, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
-    /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
-    /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself (make_card.sh's
+    /// updated 26 October 15:30: a day apart, the case cpmtools 2.23's fsck.cpm gets crosswise in an
+    /// SFCB's first slot (hw/oodos.md, "Testing"), which interop.sh's fixed one must pass (make_card.sh's
     /// twelve utilities keep it there). WRITEOO1.COM
     /// (oodos/sys/test/writeoo1.s) knows the same.
     const std::string NEW_NAME = "OO1     BIN";
@@ -834,7 +834,7 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
     REQUIRE(e.size() == 2u);
     CHECK_EQ(e[0], 32u); // the first free entries, after the utilities and the spacers: an SFCB's
-    CHECK_EQ(e[1], 33u); // first slot, the one fsck.cpm 2.23 compares backwards
+    CHECK_EQ(e[1], 33u); // first slot, the one cpmtools 2.23's fsck.cpm compares crosswise
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
     // The stamps in the extent-zero entry's slot only (CP/M 3 reads them there); the later entry's 0.
     const auto st = stamps_of(dir, e[0]), later = stamps_of(dir, e[1]);
