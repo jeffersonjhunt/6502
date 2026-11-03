@@ -183,6 +183,7 @@ python3 text.py demo/README.TXT \
     "" \
     "Things to try at A>:" \
     "  DIR             the files on A:" \
+    "  DIR [SYS]       the commands: HELLO, WOZMON, APPLE2 and the rest" \
     "  TYPE README.TXT this file" \
     "  HELLO           a small program, run from A:" \
     "  SHOW            the drives and their space" \
