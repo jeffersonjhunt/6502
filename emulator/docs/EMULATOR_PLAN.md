@@ -771,11 +771,15 @@ the page restarting on it), the IIe ROM, character ROM and the two Disk II
 PROMs a row each, both drives, the SD card, a `.sid` tune, the phosphor and
 the credits. The strip has the power light and status, pills for what is
 loaded (each opens Settings at its row), the tune playing, and in Apple II
-mode Reset and Reboot. Display follows the machine: Apple II mode, or the
-video card showing anything but the BIOS's own text screen (layer 0 alone,
-text 80x30 at its map: `FrameState.videoCard`), switches to it, and back
-to Terminal when that ends; a choice by hand holds until the machine's
-mode next changes. On a phone the toolbar folds into More, the panel
+mode Reset and Reboot. Display follows the machine: the video card showing
+anything (its boot splash, then the BIOS's screen, a program's picture:
+`FrameState.videoCard`) or Apple II mode switches to it, so the page boots
+to Display as a real OO-1 does to its monitor, and stays there; Terminal
+when there is no video card or its display is off. A choice by hand holds
+until the source (serial, VGA, Apple II) next changes: a power-on, the
+display turned off or on, Apple II mode entered or left. A blank shorter
+than a frame, as the demo makes while it sets up, may be missed. Display's
+label says US KEYBOARD: the USB card cooks keys in a US layout. On a phone the toolbar folds into More, the panel
 scales to the width, and the drawer is a full-screen dialog.
 
 **The serial card's VIA and joysticks (2026-10-30), step 9.** hw/design.md's

@@ -406,10 +406,10 @@ export class WasmPort implements MachinePort {
     return state;
   }
 
-  /** CTRL ($C480), layer 0's CONFIG and MAPBASE ($C490, $C491), read with no bus cycle. */
+  /** CTRL ($C480) and SPLASH ($C489), read with no bus cycle. */
   private readVideoRegs(m: CoreMachine): VideoRegs | null {
     if (!m.hasVideo()) return null;
-    return { ctrl: m.peekIo(0x480), layer0: m.peekIo(0x490), map0: m.peekIo(0x491) };
+    return { ctrl: m.peekIo(0x480), splash: m.peekIo(0x489) };
   }
 
   private readSdStatus(m: CoreMachine): SdStatus | null {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, pastSplash, phosphor } from "./ui";
+import { onTerminal, openDebugger, pastSplash, phosphor } from "./ui";
 
 // Display: the video card's frames (the VGA scene), as the BIOS draws its screen.
 
@@ -46,10 +46,10 @@ test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", as
   await page.screenshot({ path: `test-results/vga-${test.info().project.name}.png` });
 });
 
-test("typing shows on VGA too, and the scene is remembered", async ({ page }) => {
+test("typing shows on VGA too, and a reload opens on VGA again", async ({ page }) => {
   await booted(page);
   await pastSplash(page);
-  await page.getByRole("button", { name: "Display" }).click();
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // where it boots to
   await expect.poll(() => pixel(page, 0, 18)).not.toEqual([0, 0, 0]);
   expect(await litInRow(page, 4)).toBe(0);
   await page.getByTestId("crt").click();
@@ -59,8 +59,11 @@ test("typing shows on VGA too, and the scene is remembered", async ({ page }) =>
   await expect.poll(() => litInRow(page, 3)).toBeGreaterThan(40); // the command, under the prompt
   await expect.poll(() => litInRow(page, 5)).toBeGreaterThan(40); // the answer
   await page.reload();
-  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
-  await expect.poll(() => pixel(page, 0, 18), { timeout: 15_000 }).not.toEqual([0, 0, 0]);
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // opens on VGA again...
+  await openDebugger(page);
+  await page.locator('[data-tab="dev"]').click();
+  await expect(page.getByTestId("dev-video").locator('[data-reg="Splash"]')).toContainText("playing"); // ...the splash on it
 });
 
 test("the Devices tab decodes the video card's registers", async ({ page }) => {
@@ -116,7 +119,7 @@ function colours(page: Page) {
 test("C803R runs the video demo on VGA, and a key goes back to the monitor", async ({ page }) => {
   await booted(page);
   await pastSplash(page);
-  await page.getByRole("button", { name: "Display" }).click();
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
   await phosphor(page, "Colour");
   await expect.poll(() => pixel(page, 0, 18)).toEqual([170, 170, 170]);
   expect(await colours(page)).toBeLessThan(5); // the text screen: grey on black
@@ -130,10 +133,9 @@ test("C803R runs the video demo on VGA, and a key goes back to the monitor", asy
   await page.screenshot({ path: `test-results/vga-demo-${test.info().project.name}.png` });
   await page.getByTestId("crt").click();
   await page.keyboard.press("x");
-  // The demo over, the machine's on the BIOS's screen again: the monitor follows it back to Terminal.
-  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text", { timeout: 10_000 });
-  await page.getByRole("button", { name: "Display" }).click();
+  // The demo over, the machine's on the BIOS's screen again, and the monitor stays on Display.
   await expect.poll(() => pixel(page, 0, 18), { timeout: 10_000 }).toEqual([170, 170, 170]); // the screen as it was
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
   await expect.poll(() => colours(page)).toBeLessThan(5);
   await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\");
 });
@@ -143,8 +145,10 @@ test("on VGA the keyboard is the USB card's; on Terminal it is the serial line's
   await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
   const key = page.getByTestId("dev-usb").locator('[data-reg="KEY"]');
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // it boots to Display...
+  await expect(page.getByRole("button", { name: "CAPS" })).toBeDisabled(); // ...the USB card's keyboard
+  await onTerminal(page);
   await expect(page.getByRole("button", { name: "CAPS" })).toBeEnabled();
-  await page.getByTestId("crt").click();
   await page.keyboard.type("C680");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("crt-text")).toContainText("C680: 00");

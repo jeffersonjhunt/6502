@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openSettings } from "./ui";
+import { openDebugger, openSettings, pastSplash } from "./ui";
 
 // The page's layout (the approved redesign): one toolbar row, one drawer
 // for Settings and the debugger, the status strip, the monitor following
@@ -89,38 +89,59 @@ test("Settings' buttons each name their row: no two alike for a screen reader", 
   expect(names).toEqual(expect.arrayContaining(["Load the IIe character ROM", "Eject drive 2", "Save drive 1's disk", "Protect drive 2's disk", "Load a BIOS of your own"]));
 });
 
-test("the monitor follows the machine: the demo's picture switches to Display, its end back to Terminal; a choice by hand holds", async ({ page }) => {
+test("the monitor follows the machine: Display from power-on, after the splash and through the demo", async ({ page }) => {
   await booted(page);
   const crt = page.getByTestId("crt");
-  await expect(crt).toHaveAttribute("data-scene", "text"); // the BIOS's own screen on the card is the terminal's
+  const sprites = page.getByTestId("dev-video").locator('[data-reg="Sprites"]');
+  await expect(crt).toHaveAttribute("data-scene", "vga"); // the splash, on the card
+  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD");
+  await pastSplash(page);
+  await expect(crt).toHaveAttribute("data-scene", "vga"); // the BIOS's own screen: Display still
+  await openDebugger(page);
+  await page.locator('[data-tab="dev"]').click();
   await crt.click();
   await page.keyboard.type("C803R");
   await page.keyboard.press("Enter");
-  await expect(crt).toHaveAttribute("data-scene", "vga", { timeout: 10_000 }); // by itself
-  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480");
-  await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Terminal" }).click(); // by hand, while the demo runs
-  await page.waitForTimeout(1000);
-  await expect(crt).toHaveAttribute("data-scene", "text"); // it holds
-  await page.keyboard.press("x"); // the demo ends: the machine is back on the BIOS's screen
-  await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\", { timeout: 10_000 });
-  await page.keyboard.type("C803R");
-  await page.keyboard.press("Enter");
-  await expect(crt).toHaveAttribute("data-scene", "vga", { timeout: 10_000 }); // a change again: followed
+  await expect(sprites).toHaveText(/^on · /, { timeout: 10_000 }); // the demo runs...
+  await expect(crt).toHaveAttribute("data-scene", "vga"); // ...on Display
   await page.keyboard.press("x");
-  await expect(crt).toHaveAttribute("data-scene", "text", { timeout: 10_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("C803: 4C\\", { timeout: 10_000 });
+  await expect(sprites).toHaveText(/^off · /);
+  await expect(crt).toHaveAttribute("data-scene", "vga"); // its end: Display still
 });
 
-test("a switch the machine made is not remembered: the next visit opens on the terminal it boots to", async ({ page }) => {
+// A pick holds until the machine next switches: the splash's end and the BIOS's screen aren't switches. (A program
+// that blanks the display and turns it back on, as the demo does while it sets up, is one, if a frame catches the
+// blank; so the demo isn't used here.)
+test("Terminal picked by hand holds: through the splash's end and the monitor's work", async ({ page }) => {
   await booted(page);
   const crt = page.getByTestId("crt");
+  await expect(crt).toHaveAttribute("data-scene", "vga");
+  await page.getByRole("button", { name: "Terminal" }).click(); // by hand, while the splash plays
+  await expect(crt).toHaveAttribute("data-scene", "text");
+  await pastSplash(page);
+  await expect(crt).toHaveAttribute("data-scene", "text"); // the splash over: it holds
   await crt.click();
-  await page.keyboard.type("C803R");
+  await page.keyboard.type("C680.C684");
   await page.keyboard.press("Enter");
-  await expect(crt).toHaveAttribute("data-scene", "vga", { timeout: 10_000 }); // the demo's, by itself
+  await expect(page.getByTestId("crt-text")).toContainText("C680: 00 01 02 7F 7F");
+  await page.waitForTimeout(1000);
+  await expect(crt).toHaveAttribute("data-scene", "text");
+  await expect(page.getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("the next visit opens on Display: the splash at power-on is the machine's switch, even after Terminal by hand", async ({ page }) => {
+  await booted(page);
+  const crt = page.getByTestId("crt");
+  await expect(crt).toHaveAttribute("data-scene", "vga");
+  await page.getByRole("button", { name: "Terminal" }).click(); // by hand, and remembered...
+  await expect(crt).toHaveAttribute("data-scene", "text");
   await page.reload();
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
-  await expect(crt).toHaveAttribute("data-scene", "text");
+  await expect(crt).toHaveAttribute("data-scene", "vga"); // ...until the machine switched
+  await page.reload();
+  await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+  await expect(crt).toHaveAttribute("data-scene", "vga");
 });
 
 /** The core's own bios.rom, as the page loads it (bios-labels.ts reads its labels the same way). */

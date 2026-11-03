@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openSettings, phosphor } from "./ui";
+import { onTerminal, openSettings, pastSplash, phosphor } from "./ui";
 
 const GREETING = "BACKPLANE BIOS 0.9";
 
@@ -41,6 +41,7 @@ test("Halt holds the CPU, Run lets it go: a key typed while halted echoes after"
 
 test("the whole screen stays inside the glass, typing line included, after it scrolls", async ({ page }) => {
   await booted(page);
+  await onTerminal(page);
   await page.getByTestId("crt").click();
   for (let i = 0; i < 16; i++) {
     await page.keyboard.type("C680.C684");
@@ -89,18 +90,32 @@ test("phosphor sets the glow and is remembered", async ({ page }) => {
   expect(await halo()).toBe("#33ff6614");
 });
 
+test("at power-on the splash shows on Display, and the monitor stays on Display after it", async ({ page }) => {
+  await booted(page);
+  const crt = page.getByTestId("crt");
+  await expect(crt).toHaveAttribute("data-scene", "vga");
+  await pastSplash(page); // the splash playing, then over
+  await expect(crt).toHaveAttribute("data-scene", "vga"); // the BIOS's screen, where a real OO-1 leaves you
+  await expect(page.getByTestId("mon-label")).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD", { useInnerText: true });
+  await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("Display is the video card, Terminal the serial line; the monitor says which", async ({ page }) => {
   await booted(page);
   const label = page.getByTestId("mon-label");
-  await expect(label).toHaveText("TERMINAL · THE SERIAL LINE", { useInnerText: true }); // as rendered
-  await page.getByRole("button", { name: "Display" }).click();
-  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // not in Apple II mode: VGA
-  await expect(label).toHaveText("DISPLAY · VGA 640×480");
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // it boots to Display; not in Apple II mode: VGA
+  await expect(label).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD", { useInnerText: true }); // as rendered
+  await expect(label).toHaveAttribute("title", /US layout; on another layout, Terminal types yours/);
   await expect(page.getByRole("button", { name: "Display" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Terminal" }).click();
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "text");
+  await expect(label).toHaveText("TERMINAL · THE SERIAL LINE", { useInnerText: true });
+  await expect(page.getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("crt")).toBeFocused(); // the keyboard back on the screen
   await expect(page.getByTestId("crt-text")).toContainText(GREETING);
+  await page.getByRole("button", { name: "Display" }).click();
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga");
+  await expect(label).toHaveText("DISPLAY · VGA 640×480 · US KEYBOARD", { useInnerText: true });
 });
 
 test("Step cycle is disabled: the emulator steps whole instructions", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { pastSplash } from "./ui";
+import { onTerminal, pastSplash } from "./ui";
 
 const GREETING = "BACKPLANE BIOS 0.9";
 
@@ -22,6 +22,7 @@ const peak = async (page: Page) => Number(await page.getByTestId("tb-sound").get
 test("Sound plays the sound card: a note set up from the monitor reaches the speaker", async ({ page }) => {
   await booted(page);
   await pastSplash(page);
+  await onTerminal(page);
   const sound = page.getByTestId("tb-sound");
   await expect(sound).toBeEnabled();
   await expect(sound).toHaveAttribute("aria-pressed", "false");

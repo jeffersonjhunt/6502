@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openSettings } from "./ui";
+import { onTerminal, openSettings } from "./ui";
 
 // The serial card's joysticks from the page: a mocked Gamepad API (the
 // browser's own has no pads in a headless run) and the Keys switch, read
@@ -17,6 +17,7 @@ async function booted(page: Page) {
   });
   await page.goto("./");
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+  await onTerminal(page); // the monitor is typed at on the serial line
 }
 
 /** A pad in the browser's list at `index`, `pressed` its buttons. */
