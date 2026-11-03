@@ -1641,6 +1641,25 @@ TEST(leaving_for_the_rom_writes_the_buffers_back_first)
     CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{1});
 }
 
+TEST(leaving_for_the_rom_drops_a_swapped_drives_buffers_as_48_does)
+{
+    // As the warm boot's 48 after a program's SELDSK read the units (case W): 75's write-back
+    // drops B:'s buffer (CHANGED), so nothing of the old image's is written into the new one.
+    Rig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    REQUIRE(r.boot());
+    const size_t from = start(r, "ruletest.com", " Y");
+    REQUIRE(r.until("SWAP?", ms(20000), from));
+    CHECK_EQ(r.mount(2, "/OODOS/A.IMG"), 0);
+    const std::vector<uint8_t> swapped = r.media->bytes();
+    r.type(" ");
+    CHECK(r.until("\n\\\r", ms(20000), from)); // the ROM's Break: its prompt
+    CHECK(r.media->bytes() == swapped);
+    CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{0});
+}
+
 TEST(the_bdos_bugs_the_model_comparison_found_each_a_directed_test)
 {
     // Each of these the comparison with the model found (hw/oodos.md, "What the comparison

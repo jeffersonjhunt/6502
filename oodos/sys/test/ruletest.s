@@ -52,6 +52,8 @@
 ;   W   the same with SWAP48.TXT; SWAP?; a BIOS SELDSK of B: as a first
 ;       select (the units read again: DRVCHG); SELDSK; then the program's
 ;       end, the warm boot's 48, which drops B:'s buffer (CHANGED)
+;   Y   the same with SWAP75.TXT, but after the SELDSK 75 with A = 0, to the
+;       ROM's monitor: its write-back drops B:'s buffer too (CHANGED)
 ;   F   on B:: BIG.DAT, 160 records, closed; FAULT.DAT's records 0-2
 ;       written and closed, opened, record 3 written (one changed buffer):
 ;       FWRITE aa; FAULT? (the card's writes fail); FCLOSE1 and FCLOSE2 aa
@@ -149,6 +151,9 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'Q'
         bne     :+
         jmp     caseq
+:       cmp     #'Y'
+        bne     :+
+        jmp     casey
 :       cmp     #'W'
         bne     :+
         jmp     casew
@@ -506,6 +511,20 @@ casew:  lda     #1
         lda     RA
         ldx     RX
         jsr     RES
+        jmp     done
+
+casey:  lda     #1
+        sta     TDRV
+        NAME    fcb, "SWAP75  TXT"
+        jsr     marked
+        KEYWAIT "SWAP?"
+        lda     #BIOS::SELDSK
+        ldx     #1
+        ldy     #0                      ; a first select: the units read again
+        jsr     bios
+        lda     #0                      ; the monitor: not back
+        ldy     #O_ROM
+        jsr     BDOS
         jmp     done
 
 ; BIOS function A, with X and Y as its A and X, through function 50.

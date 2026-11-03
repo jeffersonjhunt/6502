@@ -222,11 +222,13 @@ F_VERSION:      LDA     #$31
                 RTS
 
 ; 75: leave for the ROM BIOS. The changed buffers are written back first, as
-; 48 does (a failure is not a reason to stay: the program asked to leave).
+; 48 does (a swapped unit's dropped; a failure is not a reason to stay: the
+; program asked to leave).
 ; The cartridge is looked at through W2, put back on the BIOS after.
 F_ROM:          CMP     #2
                 BCS     @no
                 PHA
+                JSR     CHANGED        ; as 48: a swapped unit's drive dropped, not written
                 LDA     #0             ; every drive's
                 JSR     FLUSHD
                 PLA
