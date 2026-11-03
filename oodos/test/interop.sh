@@ -170,6 +170,7 @@ elif [ "$written" = --utils ]; then
   # protection, and both stamps 0 (cpmls shows day 0 as 12/31/77 00:00) since INITDIR made the
   # SFCBs again. cpmls lists an XFCB as a file of user 16 and more.
   cat >"$work/want" <<'TXT'
+0 APPLE2.COM S None
 0 DATE.COM S None
 0 DEVICE.COM S None
 0 DIR.COM S None
@@ -183,10 +184,9 @@ elif [ "$written" = --utils ]; then
 0 SET.COM S None
 0 SETDEF.COM S None
 0 SHOW.COM S None
-0 SPACER1.DAT - None
-0 SPACER2.DAT - None
 0 TESTSYS.SYS - Delete
 0 TYPE.COM S None
+0 WOZMON.COM S None
 0 WRITEOO1.COM S None
 3 SMALL.BIN - None
 3 USER3.TXT - None

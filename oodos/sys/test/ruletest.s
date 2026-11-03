@@ -46,9 +46,14 @@
 ;   R   on B:: SWAP37.TXT made, its record ($A5C3's) written, not closed;
 ;       SWAP?; RESETB aa xx: 37 of B: (00 00), which reads the units first,
 ;       so the old image's buffer is dropped, not written to the new one
+;   Q   on B:: ROM75.TXT made, its record ($A5C3's) written, not closed;
+;       then 75 with A = 0, to the ROM's monitor: the record written back
+;       first, so it is on the card
 ;   W   the same with SWAP48.TXT; SWAP?; a BIOS SELDSK of B: as a first
 ;       select (the units read again: DRVCHG); SELDSK; then the program's
 ;       end, the warm boot's 48, which drops B:'s buffer (CHANGED)
+;   Y   the same with SWAP75.TXT, but after the SELDSK 75 with A = 0, to the
+;       ROM's monitor: its write-back drops B:'s buffer too (CHANGED)
 ;   F   on B:: BIG.DAT, 160 records, closed; FAULT.DAT's records 0-2
 ;       written and closed, opened, record 3 written (one changed buffer):
 ;       FWRITE aa; FAULT? (the card's writes fail); FCLOSE1 and FCLOSE2 aa
@@ -143,6 +148,12 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'R'
         bne     :+
         jmp     caser
+:       cmp     #'Q'
+        bne     :+
+        jmp     caseq
+:       cmp     #'Y'
+        bne     :+
+        jmp     casey
 :       cmp     #'W'
         bne     :+
         jmp     casew
@@ -502,6 +513,20 @@ casew:  lda     #1
         jsr     RES
         jmp     done
 
+casey:  lda     #1
+        sta     TDRV
+        NAME    fcb, "SWAP75  TXT"
+        jsr     marked
+        KEYWAIT "SWAP?"
+        lda     #BIOS::SELDSK
+        ldx     #1
+        ldy     #0                      ; a first select: the units read again
+        jsr     bios
+        lda     #0                      ; the monitor: not back
+        ldy     #O_ROM
+        jsr     BDOS
+        jmp     done
+
 ; BIOS function A, with X and Y as its A and X, through function 50.
 bios:   sta     pb
         stx     pb+1
@@ -645,6 +670,15 @@ caseg:  CALLF   DRV_ALLRESET, 0         ; every buffer empty: G1.DAT's taken fir
         TRY     "GPURGE ", DRV_FLUSH, $FF
         KEYWAIT "GOOD?"
         TRY     "GFLUSH2 ", DRV_FLUSH, 0
+        jmp     done
+
+caseq:  lda     #1
+        sta     TDRV
+        NAME    fcb, "ROM75   TXT"
+        jsr     marked
+        lda     #0                      ; the monitor: not back
+        ldy     #O_ROM
+        jsr     BDOS
         jmp     done
 
 casez:  lda     #1

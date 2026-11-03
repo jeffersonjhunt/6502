@@ -549,6 +549,15 @@
   "status": null
  },
  {
+  "number": 75,
+  "name": "O_ROM",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "since": null,
+  "status": null
+ },
+ {
   "number": 98,
   "name": "DRV_FREE",
   "documented": false,

@@ -283,7 +283,8 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75–97 | reserved for OODOS |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. WOZMON.COM and APPLE2.COM use it (2026-11-02) |
+| 76–97 | reserved for OODOS |
 
 ### Far calls ###
 
@@ -1766,7 +1767,8 @@ the choices it left open marked ours):
   files it had, then two one-line text files, `SPACER1.DAT` and `SPACER2.DAT` (ours; typed DAT so that a `dir *.txt` on A:, as test_oodos_ccp runs, doesn't list them): 21 files in 23 entries, so
   WRITEOO1's `0:OO1.BIN` lands in entries 32 and 33, the first in an SFCB's first slot, as 16 was before; the ten
   alone would have put it in 29 and 30, and fsck.cpm 2.23's backwards first-slot case would no longer be exercised
-  by `--written` (with the spacers its sums warn of 1, let through as before). `test_oodos_boot` checks each utility on the card against the
+  by `--written` (with the spacers its sums warn of 1, let through as before). *(2026-11-02: WOZMON and APPLE2, two utilities more,
+  take the spacers' two entries, and the spacers are gone: 21 files, 23 entries still.)* `test_oodos_boot` checks each utility on the card against the
   build and its SYS attribute.
 - **Tests:** a suite an area (`test_oodos_utils_set`, `_files`, `_dir`, `_sys`), the utilities put on M: and the
   search chain M: first, then the default drive, so the build's copies run, not the card's; `X.COM required` with
@@ -1798,6 +1800,18 @@ the choices it left open marked ours):
   number, the next entry, the previous entry, the remove flag, the non-banked flag, the name), and a slice of
   `$F0–$FF`.
 - **GENCOM** attaches RSXs to a program, as in CP/M 3. GET, PUT and SUBMIT are RSXs.
+
+### Leaving OODOS: WOZMON and APPLE2 ###
+
+**Done (2026-11-02).** Two utilities of ours, for the machine OODOS runs on rather than CP/M's, each a `.COM` in
+`oodos/utils` as the others: **WOZMON** leaves OODOS for the ROM BIOS's Woz Monitor, and **APPLE2** restarts the
+machine in Apple II mode, the cartridge's IIe ROM started as a IIe starts at power-on. Both call function 75
+(above, "OODOS's own"): a program can't jump to the ROM itself (W3 is OODOS's block 62, and the rules let a program
+call only the BDOS and the warm boot), and only OODOS may map the cartridge to look for a IIe ROM. Neither comes
+back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and only a reset ends
+Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator: Settings, ROMs)", the
+return code `$FF00`, and OODOS goes on. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes
+(its ID byte and a loop at reset), not Apple's.
 
 ### The program header ###
 

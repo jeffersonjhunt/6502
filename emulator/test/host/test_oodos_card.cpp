@@ -474,7 +474,7 @@ namespace
     /// (two entries, the first free: 32 and 33, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
     /// updated 26 October 15:30: a day apart, the case fsck.cpm 2.23 gets backwards in an SFCB's
     /// first slot (hw/oodos.md, "Testing"), which interop.sh checks for itself (make_card.sh's
-    /// SPACER1.DAT and SPACER2.DAT keep it there). WRITEOO1.COM
+    /// twelve utilities keep it there). WRITEOO1.COM
     /// (oodos/sys/test/writeoo1.s) knows the same.
     const std::string NEW_NAME = "OO1     BIN";
     constexpr unsigned NEW_USER = 0, NEW_SEED = 5;

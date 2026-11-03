@@ -68,6 +68,7 @@ bdos-60  # P_RSX
 bdos-72  # O_VERSION
 bdos-73  # O_PHYSADDR
 bdos-74  # O_MOUNT
+bdos-75  # O_ROM
 bdos-98  # DRV_FREE
 bdos-99  # F_TRUNCATE
 bdos-100 # DRV_SETLABEL
@@ -178,6 +179,8 @@ util-initdir
 util-date
 util-device
 util-setdef
+util-wozmon  # ours
+util-apple2  # ours
 
 # PIP (phase 4b2)
 util-pip
