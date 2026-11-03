@@ -598,19 +598,16 @@ namespace
                 std::printf("  never saw '%s' in '%s'\n", text.c_str(), out.substr(from).c_str());
             return found;
         };
-        REQUIRE(until("BACKPLANE BIOS 0.9\r\\\r", 0, 120));
+        REQUIRE(until("\nA>", 0, 1200)); // power-on: the BIOS boots the card after the splash (AUTOBOOT)
         size_t from = out.size();
-        s->send("C80CR\r");
-        REQUIRE(until("\nA>", from, 900));
-        from = out.size();
         s->send("WRITEOO1\r");
         CHECK(until("OO1.BIN WRITTEN\r\n", from, 1800));
         CHECK(until("\nA>", from, 120));
         r.media = card;
     }
 
-    /// OODOS's CCP on the card in `r` (a copy in a Session, booted as its owner would: the monitor,
-    /// C80CR, OOLDR, OODOS), each of `lines` typed and run to the next prompt or question (Y/N),
+    /// OODOS's CCP on the card in `r` (a copy in a Session, booted as its owner would: power on, the
+    /// BIOS boots the card after the splash, OOLDR, OODOS), each of `lines` typed and run to the next prompt or question (Y/N),
     /// which the next line answers; then the card back into `r`.
     /// @return what the CCP said
     std::string ccp_on_the_oo1(Rig &r, const std::vector<std::string> &lines)
@@ -635,15 +632,14 @@ namespace
                 std::printf("  never saw '%s' in '%s'\n", text.c_str(), out.substr(from).c_str());
             return found;
         };
-        size_t from = 0;
-        const bool up = until("BACKPLANE BIOS 0.9\r\\\r", 0, 120) && (from = out.size(), s->send("C80CR\r"), until("\nA>", from, 900));
+        const bool up = until("\nA>", 0, 1200); // the BIOS boots the card after the splash
         CHECK(up);
         if (!up)
             return {};
         const size_t said = out.size();
         for (const std::string &line : lines)
         {
-            from = out.size();
+            const size_t from = out.size();
             s->send(line + "\r");
             // To the prompt (A>, 3A>), or a question (Y/N), which the next line answers
             for (int i = 0; i < 600 && out.find("A>", from + line.size()) == std::string::npos &&

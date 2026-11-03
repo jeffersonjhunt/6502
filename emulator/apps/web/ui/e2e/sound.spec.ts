@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { onTerminal, pastSplash, powerOn } from "./ui";
 
-const GREETING = "BACKPLANE BIOS 0.9";
+const GREETING = "BACKPLANE BIOS 0.10";
 
 async function booted(page: Page) {
   await page.goto("./");

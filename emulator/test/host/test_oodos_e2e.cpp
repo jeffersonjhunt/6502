@@ -114,21 +114,27 @@ namespace
         }
     };
 
-    /// The committed card in the slot, booted to the monitor; `before` is typed there, then C80CR.
+    /// Booted to the monitor, the committed card put in the slot; `before` is typed there, then C80CR.
+    /// (A card in at power-on is booted by itself: power_on_boots_the_card.)
     Oo1 booted(const std::string &before = {})
     {
         Oo1 m;
         std::string error;
         m.s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
         m.card = std::make_shared<MemoryMedia>(sd_image("oodos.sparse"), "card");
-        if (!m.s || !m.s->insert_sd(m.card, error))
+        if (!m.s)
+        {
+            std::printf("  %s\n", error.c_str());
+            return m;
+        }
+        if (!m.until("BACKPLANE BIOS 0.10\r\\\r", 0, 120))
+            return m;
+        if (!m.s->insert_sd(m.card, error))
         {
             std::printf("  %s\n", error.c_str());
             m.s.reset();
             return m;
         }
-        if (!m.until("BACKPLANE BIOS 0.9\r\\\r", 0, 120))
-            return m;
         if (!before.empty())
         {
             m.s->send(before + "\r");
@@ -152,6 +158,27 @@ namespace
     unsigned image_size() { return hello()[6] | hello()[7] << 8; } // the header's size word (OH_SIZE)
     unsigned bss_size() { return hello()[8] | hello()[9] << 8; }   // and its BSS (OH_BSS), which HELLO writes
 } // namespace
+
+TEST(power_on_boots_the_card_after_the_splash_to_the_prompt)
+{
+    // As the WebUI and a real OO-1 with the card in do it: nothing typed. The BIOS greets, waits out the splash,
+    // boots /BOOT.BIN (OOLDR), and OOLDR OODOS.
+    Oo1 m;
+    std::string error;
+    m.s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
+    REQUIRE(m.s != nullptr);
+    REQUIRE(m.s->insert_sd(std::make_shared<MemoryMedia>(sd_image("oodos.sparse"), "card"), error));
+    REQUIRE(m.until("\nA>", 0, 1200));
+    const size_t greeted = m.out.find("BACKPLANE BIOS 0.10\r");
+    const size_t booting = m.out.find("\rBOOTING THE SD CARD: A KEY FOR THE MONITOR\r");
+    const size_t ooldr = m.out.find("\rOOLDR 0.2\r");
+    CHECK(greeted != std::string::npos);
+    CHECK(booting != std::string::npos && booting > greeted);
+    CHECK(ooldr != std::string::npos && ooldr > booting);
+    CHECK(m.out.find("\\\r") == std::string::npos); // never the monitor
+    CHECK_EQ(m.s->peek(0xC489) & 0x01, 0x00);           // the splash had ended
+    CHECK(!m.s->stopped());
+}
 
 TEST(c80cr_boots_oodos_from_the_card_to_the_prompt)
 {
