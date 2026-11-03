@@ -79,12 +79,12 @@ namespace
         return s;
     }
 
-    /// Powered on with `image` already in the slot, as AUTOBOOT finds it; `out` gets what it says.
-    std::unique_ptr<Session> powered_on_with(const std::string &image, std::string &out)
+    /// Powered on with `card` already in the slot, as AUTOBOOT finds it; `out` gets what it says.
+    std::unique_ptr<Session> powered_on_with(const std::vector<uint8_t> &card, std::string &out, const std::string &machine = MACHINE)
     {
         std::string error;
-        auto s = Session::create({MACHINE, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
-        if (!s || !s->insert_sd(sd_image(image), image, error))
+        auto s = Session::create({machine, EMU_BIOS_ROM, EMU_BIOS_ROM ".lbl"}, error);
+        if (!s || !s->insert_sd(card, "card", error))
         {
             std::printf("  %s\n", error.c_str());
             return nullptr;
@@ -92,6 +92,23 @@ namespace
         if (!run_until(*s, out, "BACKPLANE BIOS 0.10\r"))
             return nullptr;
         return s;
+    }
+    std::unique_ptr<Session> powered_on_with(const std::string &image, std::string &out)
+    {
+        return powered_on_with(sd_image(image), out);
+    }
+
+    /// backplane.machine without the line that starts `card` ("\nvideo "): written beside the test, for `booted`.
+    std::string machine_without(const std::string &card, const std::string &path)
+    {
+        std::ifstream in(MACHINE);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const size_t at = text.find("\n" + card + " ");
+        CHECK(at != std::string::npos);
+        if (at != std::string::npos)
+            text.erase(at + 1, text.find('\n', at + 1) - at);
+        std::ofstream(path) << text;
+        return path;
     }
 
     constexpr int SPLASH_FRAMES = 360; // the splash's 306 and some
@@ -139,6 +156,42 @@ TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
     CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.10\r\\\r")); // no error, no wait
     s->send("C809R\r");                                // and C809R still says what it finds
     REQUIRE(run_until(*s, out, "\\\r"));
+}
+
+TEST(at_power_on_a_boot_bin_that_cant_be_booted_says_why)
+{
+    std::string out;
+    auto s = powered_on_with(boot_bin_cut_to(0), out); // there, but empty: not "nothing to boot"
+    REQUIRE(s != nullptr);
+    REQUIRE(run_until(*s, out, "\rBOOT.BIN IS EMPTY\r\\\r"));
+    CHECK(out.find(BOOTING) == std::string::npos);
+}
+
+TEST(with_no_video_card_a_key_has_two_seconds_before_the_boot)
+{
+    const std::string path = machine_without("video", "test_bios_sd_novideo.machine");
+    {
+        std::string out;
+        auto s = powered_on_with(sd_image("fat12.sparse"), out, path);
+        REQUIRE(s != nullptr);
+        REQUIRE(run_until(*s, out, BOOTING));
+        for (int i = 0; i < 60; ++i) // a second: still waiting
+            s->run(FRAME), out += s->take_output();
+        CHECK(out.find("BOOTED FROM SD") == std::string::npos);
+        REQUIRE(run_until(*s, out, "\rBOOTED FROM SD\r", 240)); // and then it boots, with no key
+    }
+    {
+        std::string out;
+        auto s = powered_on_with(sd_image("fat12.sparse"), out, path);
+        REQUIRE(s != nullptr);
+        REQUIRE(run_until(*s, out, BOOTING));
+        s->send("X");
+        REQUIRE(run_until(*s, out, BOOTING + "\\\r"));
+        for (int i = 0; i < 240; ++i)
+            s->run(FRAME), out += s->take_output();
+        CHECK(out.find("BOOTED FROM SD") == std::string::npos);
+    }
+    std::remove(path.c_str());
 }
 
 TEST(c809_lists_the_card_and_its_root)

@@ -26,8 +26,9 @@ PTR     = SD_ZP                        ; $F0-$F1: into BUF, or a message
 ENTRIES = SD_ZP + 2                    ; entries left in this sector
 SECTORS = SD_ZP + 3                    ; BOOT.BIN's
 WHAT    = SD_ZP + 4                    ; $F4-$F5: the path a command names, for "not on the card"
-QUIET   = SD_ZP + 6                    ; bit 7: say nothing (AUTOBOOT's look at the card)
+QUIET   = SD_ZP + 6                    ; bit 7: AUTOBOOT's look: no card, or no BOOT.BIN, is nothing to say
 LOAD    = $1000
+NOSPLASH = 5                           ; AUTOBOOT's wait for a key with no splash: about 2 s at 7.16 MHz
 MAX_SECTORS = 88                       ; $1000-$BFFF
 
 .segment "SD"
@@ -121,10 +122,12 @@ SDBOOT:         STZ     QUIET          ; C80CR: each failure said
 @out:           JMP     WOZMON
 
 ; The reset's last step (bios.s), after the greeting: /BOOT.BIN, if the card
-; has one, once the splash is over; saying nothing if there is no card, or no
-; BOOT.BIN on it, and going to the monitor as before. A key while the splash
-; plays is the monitor instead. With no video card there is no splash to wait
-; for, and it boots at once.
+; has one, once the splash is over; saying nothing if there is no SD card, an
+; empty slot, or no BOOT.BIN on it (QUIET), and going to the monitor as
+; before. A BOOT.BIN that can't be booted is said, as C80CR says it. A key
+; while the splash plays is the monitor instead; with no video card, a key in
+; the next 2 s or so (NOSPLASH, at 7.16 MHz). A card that doesn't start up is
+; given up on at a key too (START).
 AUTOBOOT:       LDA     #$80
                 STA     QUIET
                 JSR     PREP
@@ -136,10 +139,23 @@ AUTOBOOT:       LDA     #$80
                 BCS     @monitor
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V1
-                BNE     @boot          ; no video card: no splash to wait for
+                BNE     @nosplash
                 LDA     VIDEO_SPLASH
                 AND     #VIDEO_SPLASH_ON
                 BNE     @wait
+                BRA     @boot
+@nosplash:      LDA     #NOSPLASH      ; no splash to wait for: a while for a key anyway,
+                STA     ENTRIES        ; 65,536 looks at the keys each, about 0.4 s
+                STZ     PTR
+                STZ     PTR+1
+@count:         JSR     KEYHIT
+                BCS     @monitor
+                DEC     PTR
+                BNE     @count
+                DEC     PTR+1
+                BNE     @count
+                DEC     ENTRIES
+                BNE     @count
 @boot:          JMP     LOADRUN
 @monitor:       JMP     WOZMON
 
@@ -156,12 +172,7 @@ PREP:           STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
                 STA     WHAT+1
                 JSR     START
                 BCS     @no
-                LDA     DMA_ID
-                CMP     #DMA_ID_V1
-                BEQ     @dma
-                LDX     #MNODMA - MSGS
-                BRA     @say
-@dma:           JSR     CLEARBUF       ; MOUNT 1 "/BOOT.BIN"
+                JSR     CLEARBUF       ; MOUNT 1 "/BOOT.BIN"
                 LDA     #1
                 STA     BUF
                 LDX     #0
@@ -195,7 +206,12 @@ PREP:           STZ     NB_WIN0        ; RAM blocks 0-2 at $0000-$BFFF, as at re
                 SEC
 @no:            RTS
 @fits:          STA     SECTORS
-                CLC
+                LDA     DMA_ID         ; the load is by DMA: found, but no controller to read it
+                CMP     #DMA_ID_V1
+                BEQ     @dma
+                LDX     #MNODMA - MSGS
+                BRA     @say
+@dma:           CLC
                 RTS
 
 ; Read SECTORS of unit 1 to $1000 by DMA and call it; back to the monitor if
@@ -235,7 +251,10 @@ LOADRUN:        STZ     DMA0_ADDR      ; channel 0: to $01000, a sector a 512
                 JSR     LOAD
 @quit:          JMP     WOZMON
 
-; Is there a card, started up? Carry set if not, having said so.
+; Is there a card, started up? Carry set if not, having said so (but not when
+; QUIET: AUTOBOOT, for whom no card is nothing to say). In AUTOBOOT a card that
+; doesn't start up is given up on at a key (taken), so it can't hold the
+; machine from its monitor.
 START:          LDA     SD_ID
                 CMP     #SD_ID_V1
                 BEQ     @wait
@@ -245,12 +264,19 @@ START:          LDA     SD_ID
                 BIT     #SD_PRESENT
                 BEQ     @empty
                 BIT     #SD_READY
-                BEQ     @wait          ; starting up
-                CLC
+                BNE     @ready
+                BIT     QUIET          ; starting up
+                BPL     @wait
+                JSR     KEYHIT
+                BCC     @wait
+                RTS                    ; carry set: a key, the monitor
+@ready:         CLC
                 RTS
 @empty:         LDX     #MEMPTYSLOT - MSGS
-@fail:          JSR     SAY
-                SEC
+@fail:          BIT     QUIET
+                BMI     @quiet
+                JSR     SAY
+@quiet:         SEC
                 RTS
 
 ; Wait for a sector out of DATA, into BUF. Carry set if the command ended
@@ -282,11 +308,11 @@ WAITDONE:       LDA     SD_STATUS
                 CLC
                 RTS
 
-FAILED:         BIT     QUIET          ; the boot at reset looking: nothing to say
-                BMI     @quiet
-                LDA     SD_ERROR
+FAILED:         LDA     SD_ERROR
                 CMP     #SD_NOT_FOUND
                 BNE     @code
+                BIT     QUIET          ; AUTOBOOT: no BOOT.BIN is nothing to say
+                BMI     @quiet
                 LDX     #MNOTFOUND - MSGS ; "NOT ON THE CARD: " and the path
                 JSR     SAY
                 LDY     #0
@@ -334,10 +360,8 @@ CLEARBUF:       LDA     #0
                 BNE     @clear
                 RTS
 
-; The message at MSGS + X, to its 0, unless QUIET. Keeps nothing.
-SAY:            BIT     QUIET
-                BMI     @done
-                LDA     MSGS,X
+; The message at MSGS + X, to its 0. Keeps nothing.
+SAY:            LDA     MSGS,X
                 BEQ     @done
                 JSR     ECHO
                 INX
