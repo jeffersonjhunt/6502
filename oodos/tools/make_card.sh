@@ -133,8 +133,6 @@ at cpmcp -f oodos-8m A.IMG README.TXT PATTERN.BIN 0:
 at cpmcp -f oodos-8m A.IMG USER3.TXT SMALL.BIN 3:
 at cpmcp -f oodos-8m A.IMG OODOS.SYS TESTSYS.SYS HELLO.COM HELLO.PRL WRITEOO1.COM 0:
 at cpmcp -f oodos-8m A.IMG $utils 0:
-# Two entries more (21 to 23) put the first free entry at 32, an SFCB's first
-# slot, as 16 was before the utilities: OO1.BIN's first entry lands there.
 at cpmchattr -f oodos-8m A.IMG s 0:HELLO.COM
 for u in $utils; do at cpmchattr -f oodos-8m A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n A.IMG

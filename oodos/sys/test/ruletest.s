@@ -46,6 +46,9 @@
 ;   R   on B:: SWAP37.TXT made, its record ($A5C3's) written, not closed;
 ;       SWAP?; RESETB aa xx: 37 of B: (00 00), which reads the units first,
 ;       so the old image's buffer is dropped, not written to the new one
+;   Q   on B:: ROM75.TXT made, its record ($A5C3's) written, not closed;
+;       then 75 with A = 0, to the ROM's monitor: the record written back
+;       first, so it is on the card
 ;   W   the same with SWAP48.TXT; SWAP?; a BIOS SELDSK of B: as a first
 ;       select (the units read again: DRVCHG); SELDSK; then the program's
 ;       end, the warm boot's 48, which drops B:'s buffer (CHANGED)
@@ -143,6 +146,9 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'R'
         bne     :+
         jmp     caser
+:       cmp     #'Q'
+        bne     :+
+        jmp     caseq
 :       cmp     #'W'
         bne     :+
         jmp     casew
@@ -645,6 +651,15 @@ caseg:  CALLF   DRV_ALLRESET, 0         ; every buffer empty: G1.DAT's taken fir
         TRY     "GPURGE ", DRV_FLUSH, $FF
         KEYWAIT "GOOD?"
         TRY     "GFLUSH2 ", DRV_FLUSH, 0
+        jmp     done
+
+caseq:  lda     #1
+        sta     TDRV
+        NAME    fcb, "ROM75   TXT"
+        jsr     marked
+        lda     #0                      ; the monitor: not back
+        ldy     #O_ROM
+        jsr     BDOS
         jmp     done
 
 casez:  lda     #1

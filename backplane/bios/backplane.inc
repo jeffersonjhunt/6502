@@ -26,6 +26,9 @@ NB_ID           = NB + $7F
 
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
+CART_BLOCK      = 32                   ; flash block: the cartridge's first 16 KB, a IIe ROM as at $C000-$FFFF
+IIE_ID_AT       = $3BB3                ; in it ($FBB3): IIE_ID if it is a IIe's (apple.s, OODOS's 75)
+IIE_ID          = $06
 NB_STATUS_BOOTSEL = $01                ; booted from RAM (the bus spy loaded it)
 NB_RTC_TICK     = $80                  ; RTCCTL: a second passed or an alarm fired; write 1 to clear
 NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D)

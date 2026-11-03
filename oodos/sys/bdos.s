@@ -26,7 +26,9 @@
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
 ;                   Apple II mode (the ROM's C806), if the cartridge holds a
 ;                   IIe ROM, else A = X = $FF and OODOS goes on; any other A,
-;                   A = X = $FF
+;                   A = X = $FF. The changed buffers are written back first
+;                   (as 48), but a file left open isn't closed: close it
+;                   first
 ;  104  T_SET       the DAT at A/X (days, hour, minute in BCD) into the clock,
 ;                   the seconds 0
 ;  105  T_GET       the clock into the DAT at A/X; A = the seconds, BCD. A
@@ -219,19 +221,23 @@ F_VERSION:      LDA     #$31
                 LDX     #0
                 RTS
 
-; 75: leave for the ROM BIOS. The cartridge is looked at through W2, which
-; each call's jump table puts back on the BIOS anyway.
-F_ROM:          CMP     #0
+; 75: leave for the ROM BIOS. The changed buffers are written back first, as
+; 48 does (a failure is not a reason to stay: the program asked to leave).
+; The cartridge is looked at through W2, put back on the BIOS after.
+F_ROM:          CMP     #2
+                BCS     @no
+                PHA
+                LDA     #0             ; every drive's
+                JSR     FLUSHD
+                PLA
                 BNE     @apple
                 JMP     NMI            ; the monitor, as Break goes there
-@apple:         CMP     #1
-                BNE     @no
-                LDA     #CART_WINDOW
+@apple:         LDA     #NB_ROM | NB_RO | CART_BLOCK ; the cartridge, as the ROM BIOS looks
                 STA     NB_WIN2
-                LDA     $8000 + IIE_ID
+                LDA     $8000 + IIE_ID_AT
                 LDX     #BIOS_BLOCK
                 STX     NB_WIN2
-                CMP     #$06
+                CMP     #IIE_ID
                 BNE     @no            ; no IIe ROM: say so to the program, and go on
                 JMP     ROMAPPLE
 @no:            JMP     RETFF

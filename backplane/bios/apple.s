@@ -28,7 +28,7 @@
 .import WOZMON, ECHO
 .export APPLE
 
-CART      = NB_ROM | NB_RO | 32        ; the cartridge's first 16 KB, through W1
+CART      = NB_ROM | NB_RO | CART_BLOCK ; the cartridge's first 16 KB, through W1
 CART_CPU  = $4000
 IIE_BLOCK = 59                         ; RAM block 59: $EC000-$EFFFF, bank E's $C000-$FFFF
 ZERO_BLOCK = 58                        ; $E8000-$EBFFF: the fill's zero byte at its top
@@ -54,8 +54,8 @@ APPLE:
                 JMP     NODMA_SAY
 @dma:           LDA     #CART
                 STA     NB_WIN1
-                LDA     CART_CPU + $3BB3 ; $FBB3 in the image: $06 on a IIe
-                CMP     #$06
+                LDA     CART_CPU + IIE_ID_AT ; $FBB3 in the image: a IIe's?
+                CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROM_SAY
 @rom:

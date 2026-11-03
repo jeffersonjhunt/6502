@@ -283,7 +283,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. WOZMON.COM and APPLE2.COM use it (2026-11-02) |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. WOZMON.COM and APPLE2.COM use it (2026-11-02) |
 | 76–97 | reserved for OODOS |
 
 ### Far calls ###

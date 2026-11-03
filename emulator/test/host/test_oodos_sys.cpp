@@ -1627,6 +1627,20 @@ TEST(the_warm_boot_reads_the_units_so_a_swap_drops_the_buffers)
     CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{0});
 }
 
+TEST(leaving_for_the_rom_writes_the_buffers_back_first)
+{
+    // 75 with A = 0 from a program with a file written and not closed: the record is on the card
+    // once the monitor runs (a reset boots OODOS again, and nothing would write it after).
+    Rig r;
+    REQUIRE(r.ok);
+    CHECK_EQ(r.mount(1, "/OODOS/A.IMG"), 0);
+    CHECK_EQ(r.mount(2, "/OODOS/B.IMG"), 0);
+    REQUIRE(r.boot());
+    const size_t from = start(r, "ruletest.com", " Q");
+    CHECK(r.until("\n\\\r", ms(20000), from)); // the ROM's Break: its prompt
+    CHECK_EQ(on_card(r, pattern_record(0xA5C3)), size_t{1});
+}
+
 TEST(the_bdos_bugs_the_model_comparison_found_each_a_directed_test)
 {
     // Each of these the comparison with the model found (hw/oodos.md, "What the comparison
