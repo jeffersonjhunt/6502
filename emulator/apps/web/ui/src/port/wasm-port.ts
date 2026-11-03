@@ -602,6 +602,10 @@ export class WasmPort implements MachinePort {
     this.sdName = "";
   }
 
+  async hasSd(): Promise<boolean> {
+    return this.machine.sdStatus() >= 0;
+  }
+
   async readSdInfo(): Promise<SdInfo | null> {
     const m = this.machine;
     const v = m.sdInfo();

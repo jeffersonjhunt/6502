@@ -86,20 +86,24 @@ function touchNote(): HTMLElement[] {
   return [note];
 }
 
+/**
+ * Whether the page starts the machine on. Off: the visitor's turn of the key is the cold start, and the click a
+ * browser waits for before it plays sound, so the boot splash's tune is heard. The panel's key and the port both
+ * start from this.
+ */
+const START_ON = false;
+
 function start(root: HTMLElement, port: MachinePort): void {
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const overlay = matchMedia(OVERLAY);
   const terminal = new Terminal();
   const panel = new PanelState(port);
-  // The switches stay where they were left; the key starts at OFF (ui/panel-state.ts), as the port does.
-  panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0, key: "off" });
+  // The switches stay where they were left; the key starts at OFF (ui/panel-state.ts), as the port does (START_ON).
+  panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0, key: START_ON ? "run" : "off" });
   let key = panel.switches.key;
   panel.onChange((sw) => {
     prefs.set("swr", String(sw.swr));
-    if (key === "off" && sw.key !== "off") {
-      terminal.clear(); // power on: a fresh screen
-      glass.focus(); // and the keyboard on it, off the key
-    }
+    if (key === "off" && sw.key !== "off") terminal.clear(); // power on: a fresh screen
     key = sw.key;
   });
 
@@ -326,7 +330,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     load: (from) => openSettings("roms", from),
   });
 
-  const rack = frontPanel(panel);
+  const rack = frontPanel(panel, { startedByHand: () => glass.focus() }); // the keyboard on the screen, off the key
   const about = h("button", { class: "linkish", type: "button", "data-testid": "about-link" }, "About and credits");
   about.addEventListener("click", () => openSettings("about", about));
   const note = h("p", { class: "page-note" }, "Your ROMs, disks and card images stay in this browser. ", about);
@@ -348,7 +352,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   let clockLabel = "7.16 MHz";
   let mirrored = "";
   let lastMirror = 0;
-  let wasPowered = true;
+  let wasPowered = false; // the page starts the machine off
   port.onFrame((f) => {
     if (f.apple !== apple) {
       apple = f.apple;
@@ -374,6 +378,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     }
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
+    if (f.powered && !wasPowered) bios.poweredOn(); // a BIOS of your own's time to speak starts now
     if (powerHint.hidden === !f.powered) {
       powerHint.hidden = f.powered;
       if (f.powered) glass.removeAttribute("aria-describedby");
@@ -417,6 +422,7 @@ function start(root: HTMLElement, port: MachinePort): void {
       sticks.connected(); // the machine says whether it has the joystick ports
       settings.show("joysticks", port.caps.joysticks);
       await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
+      await card.connected(); // the SD row, shown with the machine still off
       panel.applyAll();
       port.setLights(true);
       sound.restore(); // left on last time: it plays from the first click or key
@@ -435,4 +441,4 @@ function start(root: HTMLElement, port: MachinePort): void {
     });
 }
 
-start(document.getElementById("app")!, new WasmPort({ bios: keptBios()?.bytes, powered: false }));
+start(document.getElementById("app")!, new WasmPort({ bios: keptBios()?.bytes, powered: START_ON }));

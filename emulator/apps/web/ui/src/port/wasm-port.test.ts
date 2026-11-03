@@ -824,6 +824,8 @@ describe("opened with the power off, as the page does", () => {
     };
     for (let i = 0; i < 30; ++i) expect(step().powered).toBe(false);
     expect(out).toBe(""); // not a byte from the BIOS
+    expect(await port.hasSd()).toBe(true); // its cards answer while it's off: the page shows their rows
+    expect(await port.readDisk2()).not.toBeNull();
     port.setPower(true);
     for (let i = 0; i < 60 && !out.includes(GREETING); ++i) step();
     expect(out).toContain(GREETING);

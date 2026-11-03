@@ -32,6 +32,15 @@ test("the page starts the machine off: the dark screen says to turn the key, and
   await page.reload(); // and every visit starts off
   await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });
   await expect(key).toHaveAttribute("data-pos", "off");
+  await openSettings(page); // off, the cards' rows are there to put a disk or a card in
+  await expect(page.getByTestId("sd-bar")).toBeVisible();
+  await expect(page.getByTestId("disk-bar")).toBeVisible();
+  await page.getByTestId("settings-close").click();
+  await key.focus();
+  await page.keyboard.press("Enter"); // turned from the keyboard: the focus stays on the key, to turn it on again
+  await expect(key).toHaveAttribute("data-pos", "run");
+  await expect(key).toBeFocused();
+  await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
 });
 
 test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {

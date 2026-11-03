@@ -135,13 +135,13 @@ test("Apple II mode locks the clock at 1.02 MHz until a cold start", async ({ pa
 test("the keyswitch's slot points at the position it is at: OFF, RUN and LOCK sit at its angles, and that one is lit", async ({ page }) => {
   await booted(page);
   // Where the slot ends up, not the turn: WebKit reports a pseudo-element's style stale while it animates.
-  await page.addStyleTag({ content: ".keysw::after, .kdial .kl { transition: none !important; }" });
+  await page.addStyleTag({ content: ".keysw .knob::after, .kdial .kl { transition: none !important; }" });
   const key = page.getByTestId("keyswitch");
   const dial = page.getByTestId("keydial");
   /** The slot's angle, and each label's direction from the key's centre, in degrees clockwise from up. */
   const angles = () =>
     dial.evaluate((d) => {
-      const k = d.querySelector(".keysw")!;
+      const k = d.querySelector(".keysw .knob")!;
       const m = new DOMMatrix(getComputedStyle(k, "::after").transform);
       const slot = (Math.atan2(m.b, m.a) * 180) / Math.PI;
       const kr = k.getBoundingClientRect();

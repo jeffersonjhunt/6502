@@ -69,6 +69,26 @@ describe("front panel", () => {
     expect(q('[data-ctl="halt"]').getAttribute("aria-pressed")).toBe("true");
   });
 
+  test("the key turned from OFF by a click starts the machine by hand; by Enter or Space, the focus stays on the key", () => {
+    const port = new FakePort();
+    const state = new PanelState(port);
+    state.restore({ key: "off" });
+    let started = 0;
+    const fp = frontPanel(state, { startedByHand: () => ++started });
+    document.body.replaceChildren(fp.element);
+    const key = fp.element.querySelector<HTMLButtonElement>('[data-testid="keyswitch"]')!;
+    key.click(); // detail 0: as Enter or Space click a button
+    expect(state.switches.key).toBe("run");
+    expect(started).toBe(0);
+    key.click(); // LOCK
+    key.click(); // OFF
+    key.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); // the mouse: RUN
+    expect(state.switches.key).toBe("run");
+    expect(started).toBe(1);
+    key.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); // RUN to LOCK: not a start
+    expect(started).toBe(1);
+  });
+
   test("keyswitch: RUN, LOCK (switches dead), OFF (power off), RUN (cold start)", () => {
     const { port, q } = setup();
     const key = q<HTMLButtonElement>('[data-testid="keyswitch"]');

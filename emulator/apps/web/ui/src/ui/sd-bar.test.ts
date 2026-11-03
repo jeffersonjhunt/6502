@@ -63,6 +63,25 @@ describe("the SD slot", () => {
     expect($(bar.element, "sd-light").classList.contains("on")).toBe(false);
   });
 
+  test("the page starts the machine off: the row shows once connected, from the slot itself, and a card can go in", async () => {
+    const { port, bar } = make();
+    port.sdSlot = true;
+    port.emit({ ...frame(null), powered: false }); // off: a frame says nothing of the card
+    expect(bar.element.hidden).toBe(true);
+    await bar.connected();
+    expect(bar.element.hidden).toBe(false);
+    port.emit({ ...frame(null), powered: false });
+    expect(bar.element.hidden).toBe(false);
+    await pick(bar.element, "card.img", new Uint8Array(1024));
+    expect(port.callsTo("insertSd")).toHaveLength(1);
+  });
+
+  test("a machine without the slot: still hidden once connected", async () => {
+    const { bar } = make();
+    await bar.connected();
+    expect(bar.element.hidden).toBe(true);
+  });
+
   test("a card picked goes in, says how to use it, and Eject takes it out", async () => {
     const { port, bar } = make();
     expect(shown(bar.element)).toEqual(["sd-insert"]);

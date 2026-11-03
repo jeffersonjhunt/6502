@@ -57,6 +57,7 @@
   letter-spacing: .14em;
   color: var(--muted);
   white-space: nowrap;
+  pointer-events: none; /* a touch on a label is the key's */
   transition: color .2s;
 }
 .kdial .kl[data-at="off"] { left: 23.5px; top: 23.4px; }
@@ -65,21 +66,34 @@
 .kdial:has(.keysw[data-pos="off"]) .kl[data-at="off"],
 .kdial:has(.keysw[data-pos="run"]) .kl[data-at="run"],
 .kdial:has(.keysw[data-pos="lock"]) .kl[data-at="lock"] { color: var(--amber); }
+/* The key: a touch area at least 44px across once the panel is scaled (--fit, ui/fit.ts), centred on the knob. */
 .keysw {
+  --hit: max(36px, calc(44px / var(--fit, 1)));
   position: absolute;
-  left: 30px;
-  top: 26px;
-  width: 36px;
-  height: 36px;
+  left: calc(48px - var(--hit) / 2);
+  top: calc(44px - var(--hit) / 2);
+  width: var(--hit);
+  height: var(--hit);
   border: 0;
   padding: 0;
   border-radius: 50%;
+  background: none;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.keysw .knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border-radius: 50%;
   background: radial-gradient(circle at 40% 35%, #d8d4cc, #8a857c 50%, #3a3733);
   box-shadow: 0 2px 3px #000;
 }
 /* the slot: from the centre out to the rim, turning about the centre */
-.keysw::after {
+.keysw .knob::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -92,7 +106,7 @@
   transform-origin: 50% 100%;
   transition: transform .2s;
 }
-.keysw::before {
+.keysw .knob::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -103,9 +117,10 @@
   border-radius: 50%;
   background: #222;
 }
-.keysw[data-pos="off"]::after { transform: rotate(-50deg); }
-.keysw[data-pos="lock"]::after { transform: rotate(50deg); }
-.keysw:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+.keysw[data-pos="off"] .knob::after { transform: rotate(-50deg); }
+.keysw[data-pos="lock"] .knob::after { transform: rotate(50deg); }
+.keysw:focus-visible { outline: none; }
+.keysw:focus-visible .knob { outline: 2px solid var(--amber); outline-offset: 3px; }
 
 .face { display: flex; flex-direction: column; gap: 6px; }
 .pgrid { display: grid; align-items: center; row-gap: 3px; }

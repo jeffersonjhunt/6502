@@ -134,6 +134,9 @@ describe("the BIOS row", () => {
       let opened: HTMLElement | null = null;
       const row = biosRow(() => {}, { open: (from) => (opened = from) });
       row.connected(undefined);
+      vi.advanceTimersByTime(QUIET_MS * 3); // the page starts the machine off: no time counts until the key
+      expect(row.quiet.hidden).toBe(true);
+      row.poweredOn();
       vi.advanceTimersByTime(QUIET_MS - 1);
       expect(row.quiet.hidden).toBe(true);
       vi.advanceTimersByTime(1);
@@ -145,12 +148,14 @@ describe("the BIOS row", () => {
       expect(row.quiet.hidden).toBe(true);
       const talks = biosRow(() => {});
       talks.connected(undefined);
+      talks.poweredOn();
       talks.spoke();
       vi.advanceTimersByTime(QUIET_MS);
       expect(talks.quiet.hidden).toBe(true);
       localStorage.clear();
       const builtIn = biosRow(() => {}); // the page's own: no hint
       builtIn.connected("0.9");
+      builtIn.poweredOn();
       vi.advanceTimersByTime(QUIET_MS);
       expect(builtIn.quiet.hidden).toBe(true);
     } finally {

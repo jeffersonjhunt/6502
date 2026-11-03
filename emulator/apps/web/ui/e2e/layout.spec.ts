@@ -276,6 +276,10 @@ test.describe("on a phone", () => {
         .filter((r) => r.width < 44 || r.height < 44).length,
     );
     expect(small).toBe(0);
+    // The keyswitch too, the only way to start the machine: the panel is scaled down whole, its touch area isn't.
+    const key = (await page.getByTestId("keyswitch").boundingBox())!;
+    expect(Math.min(key.width, key.height)).toBeGreaterThanOrEqual(43.9);
+    expect(key.x).toBeGreaterThanOrEqual(0);
     await page.getByTestId("tb-more").click();
     await expect(page.getByTestId("tb-menu")).toBeVisible();
     await expect(page.getByTestId("tb-menu").getByRole("group", { name: "Clock" })).toBeVisible();

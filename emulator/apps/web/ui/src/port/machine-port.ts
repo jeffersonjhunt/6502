@@ -416,6 +416,8 @@ export interface MachinePort {
   insertSd(bytes: Uint8Array, name: string): Promise<SdInfo>;
   ejectSd(): void;
   readSdInfo(): Promise<SdInfo | null>;
+  /** Whether the machine has the SD card's slot, asked whether it is on or off (a frame says only while it runs). */
+  hasSd(): Promise<boolean>;
   /** The card as a file, with the machine's writes; it counts as saved (changed goes false). */
   saveSd(): Promise<Uint8Array>;
   /** The card's write-protect switch. */
