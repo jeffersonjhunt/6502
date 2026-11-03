@@ -103,6 +103,23 @@ test("WOZMON leaves OODOS for the monitor, and a power cycle boots the demo card
   await expect(crt).toContainText("A>", { timeout: 30_000 }); // booted again
 });
 
+test("a demo card that never arrives doesn't hold the page up: power-on is the Woz Monitor", async ({ page }) => {
+  await page.route("**/demo-card.img.gz*", () => {}); // never answered
+  await page.goto("./");
+  await expect(page.getByTestId("crt")).toBeFocused({ timeout: 15_000 }); // the last of the start-up
+  await openSettings(page);
+  await expect(page.getByTestId("sd-meta")).toHaveText("empty");
+  await page.getByTestId("settings-close").click();
+  await powerOn(page);
+  await onTerminal(page);
+  const crt = page.getByTestId("crt-text");
+  await expect(crt).toContainText(GREETING, { timeout: 15_000 });
+  await page.waitForTimeout(8_000); // past the splash
+  await expect(crt).not.toContainText(BOOTING);
+  await command(page, "C683");
+  await expect(crt).toContainText("C683: 7F");
+});
+
 test("?sd=empty leaves the slot empty", async ({ page }) => {
   await page.goto("./?sd=empty");
   await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });

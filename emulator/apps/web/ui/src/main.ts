@@ -423,9 +423,11 @@ function start(root: HTMLElement, port: MachinePort): void {
       settings.show("joysticks", port.caps.joysticks);
       await appleRoms.restore(); // a power cycle, if a cartridge was kept: before the panel's state goes out
       await card.connected(); // the SD row, shown with the machine still off
-      // The demo card in the slot, fresh each visit, so power-on boots OODOS; ?sd=empty leaves the slot empty.
+      // The demo card in the slot, fresh each visit, so power-on boots OODOS; ?sd=empty leaves the slot empty. Not
+      // waited for: the page starts without it, a power-on before it arrives is the Woz Monitor (no card), and a card
+      // the visitor inserts first stays in (demo() says why it failed, if it does).
       if (new URLSearchParams(location.search).get("sd") !== "empty")
-        await card.demo(() => fetchDemoCard(coreUrl("demo-card.img.gz", document.baseURI, import.meta.env.VITE_CORE_VERSION as string | undefined)));
+        void card.demo(() => fetchDemoCard(coreUrl("demo-card.img.gz", document.baseURI, import.meta.env.VITE_CORE_VERSION as string | undefined)));
       panel.applyAll();
       port.setLights(true);
       sound.restore(); // left on last time: it plays from the first click or key

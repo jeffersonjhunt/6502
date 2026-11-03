@@ -191,8 +191,9 @@ python3 text.py demo/README.TXT \
     "  WOZMON          leave OODOS for the ROM's Woz Monitor" \
     "  APPLE2          restart as an Apple IIe (your IIe ROM: Settings, ROMs)" \
     "" \
-    "RESET boots OODOS again. A key during the logo at power-on goes" \
-    "to the Woz Monitor instead, and so does a power-on with no card."
+    "START, on the front panel, boots OODOS again. A key during the logo" \
+    "at power-on goes to the Woz Monitor instead, and so does a power-on" \
+    "with no card."
 at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils 0:
 at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
 for u in $utils; do at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
