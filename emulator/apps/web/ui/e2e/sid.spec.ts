@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDebugger, openSettings } from "./ui";
+import { openDebugger, openSettings, powerOn } from "./ui";
 import { fakeSid } from "../src/port/fake-sid";
 
 const GREETING = "BACKPLANE BIOS 0.9";
@@ -7,6 +7,7 @@ const peak = async (page: import("@playwright/test").Page) => Number(await page.
 
 test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop", async ({ page }) => {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "false");
   await openSettings(page);
@@ -33,6 +34,7 @@ test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop",
 
 test("a file that isn't a tune is refused, and says why", async ({ page }) => {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await page.getByTestId("sid-file").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
   await expect(page.getByTestId("sid-note")).toHaveText("notes.txt: not a .sid file (no PSID or RSID header)");

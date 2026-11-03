@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, openSettings, pastSplash } from "./ui";
+import { openDebugger, openSettings, pastSplash, powerOn } from "./ui";
 
 // The page's layout (the approved redesign): one toolbar row, one drawer
 // for Settings and the debugger, the status strip, the monitor following
@@ -9,6 +9,7 @@ const GREETING = "BACKPLANE BIOS 0.9";
 
 async function booted(page: Page, greeting = GREETING) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(greeting, { timeout: 15_000 });
 }
 
@@ -137,9 +138,11 @@ test("the next visit opens on Display: the splash at power-on is the machine's s
   await page.getByRole("button", { name: "Terminal" }).click(); // by hand, and remembered...
   await expect(crt).toHaveAttribute("data-scene", "text");
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(crt).toHaveAttribute("data-scene", "vga"); // ...until the machine switched
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(crt).toHaveAttribute("data-scene", "vga");
 });
@@ -169,13 +172,16 @@ test("a BIOS of your own: the machine restarts on it, it is kept, and Use built-
   const at = rom.indexOf("BACKPLANE BIOS 0.9") + "BACKPLANE BIOS ".length;
   rom.write("7.7", at, "latin1"); // a build of its own
   await page.getByTestId("bios-file").setInputFiles({ name: "my-bios.rom", mimeType: "application/octet-stream", buffer: rom });
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 7.7", { timeout: 15_000 }); // the page restarted on it
   await openSettings(page);
   await expect(page.getByTestId("bios-meta")).toHaveText("yours: my-bios.rom · 7.7 · kept in this browser");
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 7.7", { timeout: 15_000 });
   await openSettings(page);
   await page.getByTestId("bios-builtin").click();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   expect(await page.evaluate(() => localStorage.getItem("oo1.bios"))).toBeNull();
 });
@@ -184,7 +190,8 @@ test("a BIOS that runs nothing useful: Settings still takes you back to the page
   await booted(page);
   await openSettings(page);
   await page.getByTestId("bios-file").setInputFiles({ name: "blank.rom", mimeType: "application/octet-stream", buffer: Buffer.alloc(4096, 0xff) });
-  await expect(page.getByTestId("status")).toContainText(/RUNNING|HALTED|STOPPED/, { timeout: 15_000 }); // restarted, on it
+  await powerOn(page); // the page started again, the machine off
+  await expect(page.getByTestId("status")).toContainText(/RUNNING|HALTED|STOPPED/, { timeout: 15_000 }); // on it
   await page.waitForTimeout(500);
   await expect(page.getByTestId("crt-text")).not.toContainText("BACKPLANE BIOS");
   // Silent: the strip points the way back.
@@ -195,6 +202,7 @@ test("a BIOS that runs nothing useful: Settings still takes you back to the page
   await openSettings(page);
   await expect(page.getByTestId("bios-meta")).toHaveText("yours: blank.rom · kept in this browser"); // no version to read from it
   await page.getByTestId("bios-builtin").click();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
 });
 
@@ -241,6 +249,7 @@ test.describe("on a narrow window", () => {
     expect(await page.locator(".bench").evaluate((b) => (b as HTMLElement).inert)).toBe(false);
     await page.getByTestId("tb-debugger").click();
     await page.reload();
+    await powerOn(page);
     await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
     await expect(page.getByTestId("drawer")).toBeHidden();
   });

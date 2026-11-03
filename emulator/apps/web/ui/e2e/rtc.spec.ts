@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger } from "./ui";
+import { openDebugger, powerOn } from "./ui";
 
 // The north bridge's real-time clock on the Devices tab: set from this
 // computer's clock when the page opened, and counting.
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
 }
 

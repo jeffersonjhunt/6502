@@ -29,6 +29,23 @@
 .mon-glass .vign { background: radial-gradient(ellipse 80% 75% at 50% 50%, #0000 55%, #000c 100%); }
 .mon-glass .gl { background: radial-gradient(ellipse 55% 35% at 28% 10%, #ffffff10, #0000 70%); }
 .mon-glass .halo { box-shadow: inset 0 0 80px var(--halo, #ffb00014); }
+/* the machine off: how to turn it on, on the dark glass */
+.mon-glass .power-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10%;
+  text-align: center;
+  pointer-events: none;
+  color: #8d877f;
+  font: 500 13px/1.4 Inter, sans-serif;
+}
+.mon-glass .power-hint[hidden] { display: none; }
+.mon-glass .power-hint strong { color: var(--amber); font: 700 15px/1.2 Inter, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
 .mon-foot {
   display: flex;
   justify-content: space-between;

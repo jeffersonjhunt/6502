@@ -19,7 +19,12 @@ npm run dev                          # http://localhost:5173
 from anywhere). `OO1_CORE_DIR` points at a core built elsewhere. Node 22 or
 later is recommended (Vite 8 and Vitest 5 ask for it); 20.19 works.
 
-Click the screen and type: the BIOS boots to the Woz Monitor (`\`).
+The page starts the machine off, its key at OFF, and the dark screen says to
+turn the key to RUN: that click is a cold start, and the one a browser waits
+for before it plays sound, so with Sound on the boot splash's tune is heard.
+The keyboard goes to the screen; type, and the BIOS is at the Woz Monitor
+(`\`). Whatever is kept (a BIOS of your own, the IIe ROM, the disks) goes in
+while it is off, and the drive rows show at once.
 `C680.C684` shows the north bridge's windows. CAPS is on by default, since
 Woz only knows capitals. Run, Halt and Step work through the front panel's
 HALT switch and CONT, as the real panel does. The toolbar is one row: back
@@ -47,7 +52,8 @@ lamps glow with the share of bus cycles each line was high and freeze on the
 latched cycle when halted; the readouts under them spell it out. To look at
 memory: HALT down, set the switch register to a physical address, LOAD
 ADRS, EXAM (again to step on); set bits 7-0 and DEP to store. The keyswitch
-turns OFF (power off), RUN, LOCK (the panel is ignored). The switch register
+turns OFF (power off), RUN, LOCK (the panel is ignored); its slot points at
+the position it is at, each label at the slot's angle, the current one lit. The switch register
 is remembered between visits.
 
 Settings and the debugger open in one drawer, at the right of the bench
@@ -113,8 +119,9 @@ Settings, in sections:
 
 - **ROMs.** The **BIOS**: the one built in, or **Load…** a build of your
   own (up to 512 KB, the flash): it is kept in this browser's localStorage
-  and the page restarts the machine on it, its version read from its
-  greeting; **Use built-in** forgets it and restarts. Either asks first if
+  and the page starts again on it, the machine off until the key is turned,
+  its version read from its greeting; **Use built-in** forgets it and starts
+  again. Either asks first if
   the restart would lose the SD card's unsaved writes or a drive's. Then Apple II mode's
   ROMs, a row each, each with Load… and Eject: the owner's **Apple IIe ROM**
   (16 KB, or the CD and EF halves; the character ROM and the PROMs may be

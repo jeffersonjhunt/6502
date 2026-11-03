@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { onTerminal, openSettings } from "./ui";
+import { onTerminal, openSettings, powerOn } from "./ui";
 
 // The serial card's joysticks from the page: a mocked Gamepad API (the
 // browser's own has no pads in a headless run) and the Keys switch, read
@@ -16,6 +16,7 @@ async function booted(page: Page) {
     Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => w.pads });
   });
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await onTerminal(page); // the monitor is typed at on the serial line
 }
@@ -76,6 +77,7 @@ test("Keys, off by default, make the arrows and Space joystick 1 and W A S D joy
   await readSticks(page, "FF FF");
   // Remembered: still on after a reload.
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("pill-joy")).toHaveText("JOY 1 2");
 });

@@ -47,10 +47,28 @@
 .brand .lg { font: 800 32px/1 Inter, sans-serif; letter-spacing: -.02em; margin-top: 8px; }
 .brand .lg span { color: var(--accent); }
 .brand .sb { font: 600 8.5px/1.4 Inter, sans-serif; letter-spacing: .2em; color: var(--muted); }
-.krow { display: flex; gap: 8px; align-items: center; }
-.krow small { font: 600 8px/1.5 Inter, sans-serif; letter-spacing: .14em; color: var(--muted); }
+/* The keyswitch: the key, its slot pointing at one of three positions around it. The dial's box is 96 x 64; the
+   key's centre is at (48, 44), and each label sits 32px from it at the slot's angle: OFF -50deg, RUN 0, LOCK +50deg. */
+.kdial { position: relative; width: 96px; height: 64px; }
+.kdial .kl {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font: 600 8px/1 Inter, sans-serif;
+  letter-spacing: .14em;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color .2s;
+}
+.kdial .kl[data-at="off"] { left: 23.5px; top: 23.4px; }
+.kdial .kl[data-at="run"] { left: 48px; top: 12px; }
+.kdial .kl[data-at="lock"] { left: 72.5px; top: 23.4px; }
+.kdial:has(.keysw[data-pos="off"]) .kl[data-at="off"],
+.kdial:has(.keysw[data-pos="run"]) .kl[data-at="run"],
+.kdial:has(.keysw[data-pos="lock"]) .kl[data-at="lock"] { color: var(--amber); }
 .keysw {
-  position: relative;
+  position: absolute;
+  left: 30px;
+  top: 26px;
   width: 36px;
   height: 36px;
   border: 0;
@@ -60,17 +78,30 @@
   background: radial-gradient(circle at 40% 35%, #d8d4cc, #8a857c 50%, #3a3733);
   box-shadow: 0 2px 3px #000;
 }
+/* the slot: from the centre out to the rim, turning about the centre */
 .keysw::after {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
   width: 5px;
-  height: 22px;
-  margin: -11px 0 0 -2.5px;
-  border-radius: 2px;
+  height: 15px;
+  margin: -15px 0 0 -2.5px;
+  border-radius: 2.5px 2.5px 1px 1px;
   background: #222;
+  transform-origin: 50% 100%;
   transition: transform .2s;
+}
+.keysw::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: #222;
 }
 .keysw[data-pos="off"]::after { transform: rotate(-50deg); }
 .keysw[data-pos="lock"]::after { transform: rotate(50deg); }

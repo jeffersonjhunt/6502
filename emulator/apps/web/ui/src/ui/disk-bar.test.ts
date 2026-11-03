@@ -102,6 +102,28 @@ describe("the drive", () => {
     expect((await store.get(0))?.writeProtected).toBe(true);
   });
 
+  test("the page starts the machine off: the row shows once connected, from the card itself, and the kept disk can be saved", async () => {
+    const { port, store, bar, downloads } = make();
+    port.disk2 = STATUS; // the machine has the card
+    await store.put(0, { name: "old.po", bytes: new Uint8Array([1]), writeProtected: false, format: "po" });
+    port.emit({ ...frame(null), powered: false }); // off: a frame says nothing of the card
+    expect(bar.element.hidden).toBe(true);
+    await bar.restore();
+    expect(bar.element.hidden).toBe(false);
+    port.emit({ ...frame(null), powered: false });
+    expect(bar.element.hidden).toBe(false); // still off: it stays
+    expect(shown(bar.element)).toEqual(["disk-protect", "disk-save", "disk-eject"]);
+    $(bar.element, "disk-save").click();
+    await flush();
+    expect(downloads.map(([n]) => n)).toEqual(["old.po"]);
+  });
+
+  test("a machine without the card: still hidden once connected", async () => {
+    const { bar } = make();
+    await bar.restore();
+    expect(bar.element.hidden).toBe(true);
+  });
+
   test("kept from last time: back in once connected, write-protect and all", async () => {
     const { port, store, bar } = make();
     await store.put(0, { name: "old.po", bytes: new Uint8Array([1]), writeProtected: true, format: "po" });

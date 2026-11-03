@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { onTerminal, pastSplash } from "./ui";
+import { onTerminal, pastSplash, powerOn } from "./ui";
 
 const GREETING = "BACKPLANE BIOS 0.9";
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
 }
 
@@ -48,6 +49,7 @@ test("left on, Sound comes back on after a reload, and plays from the first clic
   await page.getByTestId("tb-sound").click();
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "true");
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "true");
   await page.getByTestId("crt").click(); // the gesture a browser waits for

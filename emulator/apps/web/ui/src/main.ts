@@ -91,11 +91,15 @@ function start(root: HTMLElement, port: MachinePort): void {
   const overlay = matchMedia(OVERLAY);
   const terminal = new Terminal();
   const panel = new PanelState(port);
-  panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0 }); // the switches stay where they were left
+  // The switches stay where they were left; the key starts at OFF (ui/panel-state.ts), as the port does.
+  panel.restore({ swr: Number(prefs.get("swr") ?? 0) || 0, key: "off" });
   let key = panel.switches.key;
   panel.onChange((sw) => {
     prefs.set("swr", String(sw.swr));
-    if (key === "off" && sw.key !== "off") terminal.clear(); // power on: a fresh screen
+    if (key === "off" && sw.key !== "off") {
+      terminal.clear(); // power on: a fresh screen
+      glass.focus(); // and the keyboard on it, off the key
+    }
     key = sw.key;
   });
 
@@ -120,6 +124,13 @@ function start(root: HTMLElement, port: MachinePort): void {
     document.documentElement.style.setProperty("--halo", PHOSPHORS[p].halo);
   });
 
+  // While the machine is off (as the page starts it), the dark screen says how to turn it on.
+  const powerHint = h(
+    "div",
+    { class: "power-hint", id: "power-hint", "data-testid": "power-hint", hidden: true },
+    h("strong", {}, "Turn the key to RUN"),
+    h("span", {}, "on the front panel, to power the OO-1 on"),
+  );
   // The screen as text, for screen readers and tests.
   const mirror = h("pre", { class: "sr-only", role: "log", "aria-live": "polite", "data-testid": "crt-text" });
   const glass = h(
@@ -137,6 +148,7 @@ function start(root: HTMLElement, port: MachinePort): void {
     h("div", { class: "scan" }),
     h("div", { class: "vign" }),
     h("div", { class: "gl" }),
+    powerHint,
   );
   // The keyboard is the serial terminal's on Terminal, and the USB card's on
   // Display: a monitor and a USB keyboard are a whole computer. The mouse is
@@ -362,6 +374,11 @@ function start(root: HTMLElement, port: MachinePort): void {
     }
     if (f.video) crt.setVideo(f.video);
     else if (!f.powered && wasPowered) crt.clearVideo(); // the monitor loses its signal
+    if (powerHint.hidden === !f.powered) {
+      powerHint.hidden = f.powered;
+      if (f.powered) glass.removeAttribute("aria-describedby");
+      else glass.setAttribute("aria-describedby", "power-hint");
+    }
     wasPowered = f.powered;
     crt.setPowered(f.powered);
     bar.update(f);
@@ -418,4 +435,4 @@ function start(root: HTMLElement, port: MachinePort): void {
     });
 }
 
-start(document.getElementById("app")!, new WasmPort({ bios: keptBios()?.bytes }));
+start(document.getElementById("app")!, new WasmPort({ bios: keptBios()?.bytes, powered: false }));

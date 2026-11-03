@@ -58,3 +58,16 @@ test("toolbar actions do nothing unless the keyswitch is at RUN", () => {
   panel.halt();
   expect(port.calls.length).toBe(before);
 });
+
+test("the page starts the key at OFF; a remembered LOCK is never restored; OFF to RUN powers on", () => {
+  const port = new FakePort();
+  const panel = new PanelState(port);
+  panel.restore({ key: "off" });
+  expect(panel.switches.key).toBe("off");
+  expect(panel.live).toBe(false);
+  panel.turn(); // RUN
+  expect(panel.switches.key).toBe("run");
+  expect(port.calls).toContainEqual(["setPower", true]);
+  panel.restore({ key: "lock" });
+  expect(panel.switches.key).toBe("run");
+});

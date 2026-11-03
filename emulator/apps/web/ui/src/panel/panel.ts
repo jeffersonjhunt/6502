@@ -209,7 +209,13 @@ export function frontPanel(panel: PanelState): FrontPanel {
       h("div", { class: "lg" }, "OO", h("span", {}, "-"), "1"),
       h("div", { class: "sb" }, "ONE OFF ONE"),
     ),
-    h("div", { class: "krow" }, key, h("small", {}, "OFF", h("br"), "RUN", h("br"), "LOCK")),
+    // The positions around the key, each where the slot points at it (OFF -50°, RUN up, LOCK +50°).
+    h(
+      "div",
+      { class: "kdial", "data-testid": "keydial" },
+      key,
+      ...(["off", "run", "lock"] as const).map((p) => h("span", { class: "kl", "data-at": p, "aria-hidden": "true" }, p.toUpperCase())),
+    ),
   );
   const readouts = h(
     "div",

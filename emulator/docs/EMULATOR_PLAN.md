@@ -779,7 +779,11 @@ when there is no video card or its display is off. A choice by hand holds
 until the source (serial, VGA, Apple II) next changes: a power-on, the
 display turned off or on, Apple II mode entered or left. A blank shorter
 than a frame, as the demo makes while it sets up, may be missed. Display's
-label says US KEYBOARD: the USB card cooks keys in a US layout. On a phone the toolbar folds into More, the panel
+label says US KEYBOARD: the USB card cooks keys in a US layout. The page
+starts the machine off (2026-11-02): the dark screen says to turn the key to
+RUN, which is the cold start and the click a browser needs before it plays,
+so the splash's tune is heard; the keyswitch's labels sit at its slot's
+angles. On a phone the toolbar folds into More, the panel
 scales to the width, and the drawer is a full-screen dialog.
 
 **The serial card's VIA and joysticks (2026-10-30), step 9.** hw/design.md's

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDebugger, openSettings } from "./ui";
+import { openDebugger, openSettings, powerOn } from "./ui";
 import { inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 // The Disk II's drive in the browser with a made-up 140 KB disk (no Apple
@@ -8,6 +8,7 @@ import { inKeyLoop, loadBiosLabels } from "./bios-labels";
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await loadBiosLabels(page);
 }
@@ -62,6 +63,7 @@ test("a disk goes in, shows on the Devices tab, stays through a reload, saves, a
   await expect(page.getByTestId("disk-insert")).toBeFocused(); // the keyboard stays on the row
   await expect(page.getByTestId("pill-d1")).toBeHidden();
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
   await expect(page.getByTestId("disk-meta")).toHaveText("empty");
 });

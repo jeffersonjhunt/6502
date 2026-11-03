@@ -806,3 +806,41 @@ describe("WasmPort", () => {
     expect((await m.port.readDisk2())?.drive).toBe(0);
   });
 });
+
+describe("opened with the power off, as the page does", () => {
+  test("nothing runs until the power comes on: then a cold start to the greeting", async () => {
+    const clock = new ManualClock();
+    const port = new WasmPort({ load, scheduler: clock, powered: false });
+    const frames: FrameState[] = [];
+    port.onFrame((f) => frames.push(f));
+    await port.connect();
+    let out = "";
+    const step = () => {
+      clock.t += FRAME_MS;
+      port.frame();
+      const f = frames[frames.length - 1];
+      out += String.fromCharCode(...f.serialOut);
+      return f;
+    };
+    for (let i = 0; i < 30; ++i) expect(step().powered).toBe(false);
+    expect(out).toBe(""); // not a byte from the BIOS
+    port.setPower(true);
+    for (let i = 0; i < 60 && !out.includes(GREETING); ++i) step();
+    expect(out).toContain(GREETING);
+    expect(frames[frames.length - 1].videoCard?.splash).toBe(1); // the splash, from the cold start
+    port.close();
+  });
+
+  test("the power turned on before the core has opened: it opens running", async () => {
+    const clock = new ManualClock();
+    const port = new WasmPort({ load, scheduler: clock, powered: false });
+    port.setPower(true); // a quick visitor: the key turned while the core still loads
+    let f: FrameState | null = null;
+    port.onFrame((frame) => (f = frame));
+    await port.connect();
+    clock.t += FRAME_MS;
+    port.frame();
+    expect(f!.powered).toBe(true);
+    port.close();
+  });
+});

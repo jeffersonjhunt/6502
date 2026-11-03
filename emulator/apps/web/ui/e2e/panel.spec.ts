@@ -1,10 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { onTerminal } from "./ui";
+import { onTerminal, powerOn } from "./ui";
 
 async function booted(page: Page) {
   await page.goto("./");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.9", { timeout: 15_000 });
 }
 
@@ -130,3 +131,35 @@ test("Apple II mode locks the clock at 1.02 MHz until a cold start", async ({ pa
   await expect(clock.getByRole("button", { name: "7.16 MHz" })).toBeEnabled();
   await expect(clock.getByRole("button", { name: "7.16 MHz" })).toHaveAttribute("aria-pressed", "true");
 });
+
+test("the keyswitch's slot points at the position it is at: OFF, RUN and LOCK sit at its angles, and that one is lit", async ({ page }) => {
+  await booted(page);
+  // Where the slot ends up, not the turn: WebKit reports a pseudo-element's style stale while it animates.
+  await page.addStyleTag({ content: ".keysw::after, .kdial .kl { transition: none !important; }" });
+  const key = page.getByTestId("keyswitch");
+  const dial = page.getByTestId("keydial");
+  /** The slot's angle, and each label's direction from the key's centre, in degrees clockwise from up. */
+  const angles = () =>
+    dial.evaluate((d) => {
+      const k = d.querySelector(".keysw")!;
+      const m = new DOMMatrix(getComputedStyle(k, "::after").transform);
+      const slot = (Math.atan2(m.b, m.a) * 180) / Math.PI;
+      const kr = k.getBoundingClientRect();
+      const [cx, cy] = [kr.left + kr.width / 2, kr.top + kr.height / 2];
+      const labels: Record<string, { angle: number; lit: boolean }> = {};
+      for (const l of d.querySelectorAll<HTMLElement>(".kl")) {
+        const r = l.getBoundingClientRect();
+        const angle = (Math.atan2(r.left + r.width / 2 - cx, cy - (r.top + r.height / 2)) * 180) / Math.PI;
+        labels[l.dataset.at!] = { angle, lit: getComputedStyle(l).color === "rgb(255, 176, 0)" };
+      }
+      return { slot, labels };
+    });
+  for (const pos of ["run", "lock", "off"]) {
+    await expect(key).toHaveAttribute("data-pos", pos);
+    const { slot, labels } = await angles();
+    expect(Math.abs(labels[pos].angle - slot), `${pos}: slot ${slot}, label ${labels[pos].angle}`).toBeLessThan(6);
+    for (const other of Object.keys(labels)) expect(labels[other].lit, other).toBe(other === pos);
+    await key.click();
+  }
+});
+

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { onTerminal, openDebugger, openSettings } from "./ui";
+import { onTerminal, openDebugger, openSettings, powerOn } from "./ui";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { bios, hex4, loadBiosLabels } from "./bios-labels";
@@ -12,6 +12,7 @@ const GREETING = "BACKPLANE BIOS 0.9";
 
 async function booted(page: Page) {
   await page.goto("./");
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await onTerminal(page); // the monitor is typed at on the serial line
   await loadBiosLabels(page);
@@ -90,6 +91,7 @@ test("the machine's writes are noted, and Save card downloads them; the page doe
   await expect(page.getByTestId("sd-save")).not.toHaveClass(/on/);
 
   await page.reload(); // saved: nothing to ask about, and the card is gone with the page
+  await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
   await expect(page.getByTestId("sd-meta")).toHaveText("empty");
 });
