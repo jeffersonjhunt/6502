@@ -1766,7 +1766,8 @@ the choices it left open marked ours):
   files it had, then two one-line text files, `SPACER1.DAT` and `SPACER2.DAT` (ours; typed DAT so that a `dir *.txt` on A:, as test_oodos_ccp runs, doesn't list them): 21 files in 23 entries, so
   WRITEOO1's `0:OO1.BIN` lands in entries 32 and 33, the first in an SFCB's first slot, as 16 was before; the ten
   alone would have put it in 29 and 30, and fsck.cpm 2.23's backwards first-slot case would no longer be exercised
-  by `--written` (with the spacers its sums warn of 1, let through as before). `test_oodos_boot` checks each utility on the card against the
+  by `--written` (with the spacers its sums warn of 1, let through as before). *(2026-11-02: WOZMON and APPLE2, two utilities more,
+  take the spacers' two entries, and the spacers are gone: 21 files, 23 entries still.)* `test_oodos_boot` checks each utility on the card against the
   build and its SYS attribute.
 - **Tests:** a suite an area (`test_oodos_utils_set`, `_files`, `_dir`, `_sys`), the utilities put on M: and the
   search chain M: first, then the default drive, so the build's copies run, not the card's; `X.COM required` with
