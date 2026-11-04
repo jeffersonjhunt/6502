@@ -104,6 +104,7 @@ emu_add_test(test_sid)
 emu_add_test(test_sid_audio)
 emu_add_test(test_sid_file)
 emu_add_test(test_sid_corpus) # a sample of the owner's tunes, under fixtures/SIDs; skips without them
+target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMAKE_CURRENT_LIST_DIR}/sid_known_failures.txt")
 emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)

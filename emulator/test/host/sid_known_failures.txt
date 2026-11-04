@@ -1,0 +1,154 @@
+# The tunes in the owner's HVSC copy (fixtures/SIDs, gitignored) that test_sid_corpus fails today, found by
+# playing all 61,349 on 2026-11-04 (SID_COUNT=0, SID_SHARD=i/16): 148 of them. The sample leaves them out, so it
+# fails only on something new; the_known_failures_still_fail plays every one and fails when one passes, so a fix
+# takes it off here. A path relative to fixtures/SIDs, a tab, what the test saw: its error, the frames played on
+# time from the first call, how late that call came after init returned, the interrupts taken, and whether it
+# was heard. Only the paths are here, never a tune.
+C64Music/DEMOS/A-F/Amiga.sid	129 frames from 0.02 s (1.10 frames after init), 641 IRQs, silent
+C64Music/DEMOS/A-F/Compotune_Digi.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/DEMOS/M-R/Red_Baron_Birthday_Disk_III.sid	101 frames from 0.02 s (1.18 frames after init), 501 IRQs, silent
+C64Music/DEMOS/UNKNOWN/Floppy_Disk_Construction_Set.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 47 IRQs, silent
+C64Music/DEMOS/UNKNOWN/Master_Composer/O_Holy_Night.sid	121 frames from 0.02 s (0.98 frames after init), 600 IRQs, silent
+C64Music/DEMOS/UNKNOWN/Xmas_Demo.sid	120 frames from 0.02 s (0.84 frames after init), 599 IRQs, silent
+C64Music/GAMES/A-F/Atock.sid	121 frames from 0.02 s (0.86 frames after init), 599 IRQs, silent
+C64Music/GAMES/A-F/Blockbusters_1988.sid	97 frames from 0.02 s (0.99 frames after init), 101 IRQs, sounded
+C64Music/GAMES/A-F/Circus_Charlie.sid	120 frames from 0.02 s (0.25 frames after init), 598 IRQs, silent
+C64Music/GAMES/A-F/Cliffhanger.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 141 IRQs, silent
+C64Music/GAMES/A-F/Death_Trap_64.sid	120 frames from 0.02 s (0.83 frames after init), 599 IRQs, silent
+C64Music/GAMES/G-L/Heli-Jump.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 11422 IRQs, silent
+C64Music/GAMES/G-L/Hole_in_One.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 453 IRQs, silent
+C64Music/GAMES/G-L/Ice_Palace_1984.sid	120 frames from 0.02 s (0.84 frames after init), 599 IRQs, silent
+C64Music/GAMES/M-R/Man_from_N-10.sid	121 frames from 0.02 s (1.01 frames after init), 599 IRQs, silent
+C64Music/GAMES/M-R/Mysterious_Mountain.sid	121 frames from 0.02 s (0.31 frames after init), 599 IRQs, silent
+C64Music/GAMES/M-R/Phalsberg.sid	11 frames from 0.37 s (9.24 frames after init), 12 IRQs, sounded
+C64Music/GAMES/M-R/Plumb_Crazy.sid	120 frames from 0.02 s (0.84 frames after init), 599 IRQs, silent
+C64Music/GAMES/M-R/Quest.sid	120 frames from 0.02 s (0.55 frames after init), 599 IRQs, silent
+C64Music/GAMES/M-R/Reversi.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 34430 IRQs, sounded
+C64Music/GAMES/S-Z/Space_Ace_2101.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/GAMES/S-Z/Titans.sid	120 frames from 0.02 s (0.84 frames after init), 599 IRQs, silent
+C64Music/GAMES/S-Z/Toccata.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/GAMES/S-Z/Trener.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/GAMES/S-Z/Trouble_Bubble.sid	121 frames from 0.02 s (0.86 frames after init), 599 IRQs, silent
+C64Music/GAMES/S-Z/UFO_Strike.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 6186 IRQs, silent
+C64Music/MUSICIANS/0-9/4-Mat/MiniSEQ_Demo_Songs.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 1408 IRQs, silent
+C64Music/MUSICIANS/0-9/4-Mat/MiniSEQ_Loop_Song.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 1408 IRQs, silent
+C64Music/MUSICIANS/A/Ames_John/Teen_Spirit_4_melody.sid	120 frames from 0.02 s (1.04 frames after init), 598 IRQs, silent
+C64Music/MUSICIANS/A/Anakonda/BPM_Record_2.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/A/Ash_and_Dave/Digital_Acid.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 1 IRQs, silent
+C64Music/MUSICIANS/A/Astovel/Trance_digi.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 448 IRQs, silent
+C64Music/MUSICIANS/B/Bakewell_Dwayne/Misfortune.sid	0 frames from 0.00 s (-0.00 frames after init), 753283 IRQs, silent
+C64Music/MUSICIANS/B/Bakewell_Dwayne/My_Cherie_Amour.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Bakewell_Dwayne/Olympic_Fanfare.sid	101 frames from 0.02 s (1.05 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Bjerregaard_Johannes/Dragon_Sword.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Bjerregaard_Johannes/Spy_vs_Spy_III.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Blanchette_Francois/Creepspread_II.sid	121 frames from 0.02 s (0.85 frames after init), 599 IRQs, silent
+C64Music/MUSICIANS/B/Blues_Muz/Gallefoss_Glenn/Leon_Latex.sid	101 frames from 0.02 s (1.05 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Blues_Muz/Roestoeen_Kristian/In_Memoriam_BHF.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Bond_Alan/Aztec_quick-step.sid	2 frames from 0.02 s (1.12 frames after init), 2 IRQs, sounded
+C64Music/MUSICIANS/B/Bond_Alan/Blizzard.sid	2 frames from 0.02 s (1.09 frames after init), 2 IRQs, sounded
+C64Music/MUSICIANS/B/Bond_Alan/Darkness.sid	2 frames from 0.02 s (1.09 frames after init), 2 IRQs, sounded
+C64Music/MUSICIANS/B/Bond_Alan/Egypt.sid	2 frames from 0.02 s (1.12 frames after init), 2 IRQs, sounded
+C64Music/MUSICIANS/B/Bond_Alan/Rocks_in_Space_Deluxe.sid	61 frames from 0.05 s (2.12 frames after init), 62 IRQs, sounded
+C64Music/MUSICIANS/B/Bond_Alan/Soulless.sid	2 frames from 0.02 s (1.12 frames after init), 2 IRQs, sounded
+C64Music/MUSICIANS/B/Bond_Alan/Toothpaste.sid	2 frames from 0.02 s (1.12 frames after init), 2 IRQs, sounded
+C64Music/MUSICIANS/B/Bosch_Roel/Super_Deal.sid	101 frames from 0.02 s (1.06 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/B/Brandt_Georg/Street_Gang.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 1 IRQs, silent
+C64Music/MUSICIANS/C/Callet_Charles/Iznogoud.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/C/Cane/Starlight.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/C/Cannon_Matthew/Navy_Seals.sid	0 frames from 0.00 s (-0.00 frames after init), 752688 IRQs, silent
+C64Music/MUSICIANS/C/Cannon_Matthew/Untouchables.sid	0 frames from 0.00 s (-0.00 frames after init), 1399320 IRQs, silent
+C64Music/MUSICIANS/C/Clarke_Peter/Tai-Pan_tape_version.sid	0 frames from 0.00 s (-0.00 frames after init), 262718 IRQs, silent
+C64Music/MUSICIANS/C/Crowley_Owen/Worktunes/Experiment_001.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/C/Crowley_Owen/Worktunes/Owen_014.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/C/Cyberbrain/Voodoo_People_part_1.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/D/Denithor/Affections.sid	0 frames from 0.00 s (-0.00 frames after init), 101 IRQs, sounded
+C64Music/MUSICIANS/D/Detert_Thomas/Parsec.sid	0 frames from 0.00 s (-0.00 frames after init), 886798 IRQs, silent
+C64Music/MUSICIANS/D/Drumtex/Captain_Cloudberry_loader.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/E/Eclipse/Night.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/E/Eclipse/Suicide.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/F/FAME/Hendriks_Michael/Shogun.sid	0 frames from 0.00 s (-0.00 frames after init), 1397919 IRQs, silent
+C64Music/MUSICIANS/F/FieserWolF/All_the_Way_to_Reusel.sid	101 frames from 0.02 s (1.05 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/F/Flotsam/Kinesys_6510.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/F/Follin_Tim/Peter_Pack_Rat.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 67 IRQs, silent
+C64Music/MUSICIANS/F/Fredrik/Vals_i_Gryning.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/H/Haard_Lars/Blood_n_Guts.sid	0 frames from 0.00 s (-0.00 frames after init), 120 IRQs, sounded
+C64Music/MUSICIANS/H/Hawes_Chuck/Ave_Maria.sid	123 frames from 0.02 s (0.97 frames after init), 613 IRQs, silent
+C64Music/MUSICIANS/H/Hawes_Chuck/Widor.sid	123 frames from 0.02 s (0.97 frames after init), 613 IRQs, silent
+C64Music/MUSICIANS/H/Hermit/3SID_Tracker_Demo_1_3SID.sid	1 frames from 0.00 s (0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/H/Hermit/Earmind_3SID.sid	1 frames from 0.00 s (0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/H/Hoernell_Karl/Scuttlebutt_64.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/J/Joeli_Jani/Nine_Nights_from_the_Black_Moon.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/J/Joseph_Richard/Wicked.sid	jammed, 121 frames from 0.10 s (0.04 frames after init), 120 IRQs, silent
+C64Music/MUSICIANS/K/Koloncsak_Zsolt/Novotrade_Intro.sid	0 frames from 0.00 s (-0.00 frames after init), 747773 IRQs, silent
+C64Music/MUSICIANS/K/Kramer_Cees/Snoopy.sid	80 frames from 0.02 s (0.41 frames after init), 100 IRQs, sounded
+C64Music/MUSICIANS/L/Lft/Foerklaedd_Gud_beta.sid	84 frames from 0.02 s (0.85 frames after init), 418 IRQs, silent
+C64Music/MUSICIANS/L/Lft/Foerklaedd_Gud_delta.sid	84 frames from 0.02 s (0.85 frames after init), 418 IRQs, silent
+C64Music/MUSICIANS/L/Lft/Foerklaedd_Gud_epsilon.sid	84 frames from 0.02 s (0.85 frames after init), 418 IRQs, silent
+C64Music/MUSICIANS/L/Lft/Foerklaedd_Gud_eta.sid	84 frames from 0.02 s (0.87 frames after init), 418 IRQs, silent
+C64Music/MUSICIANS/L/Lft/Foerklaedd_Gud_gamma.sid	84 frames from 0.02 s (0.85 frames after init), 418 IRQs, silent
+C64Music/MUSICIANS/L/Lft/Foerklaedd_Gud_zeta.sid	84 frames from 0.02 s (0.87 frames after init), 418 IRQs, silent
+C64Music/MUSICIANS/L/Lft/Fratres_Arvo_Paert_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 106 IRQs, sounded
+C64Music/MUSICIANS/M/Mad_Scientist/Cursed_Key.sid	13 frames from 0.33 s (8.26 frames after init), 14 IRQs, sounded
+C64Music/MUSICIANS/M/Magnar/Lash_tune_1.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/M/Maktone/Explorer.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/M/Martinland/Koalaminne.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/M/Mcee/Finally_I-Play.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/M/Mcee/No_Limits.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/M/Mcee/She_Drives_Me_Crazy.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/M/Mercury/Yeti.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/M/Mindflow/Matador.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/M/Monte_Boyd/Snow_Wars.sid	101 frames from 0.02 s (1.01 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/O/Ouwehand_Reyn/Help.sid	101 frames from 0.02 s (1.00 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/P/Peet/Harvy.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/P/Peet/Revolution_glenz.sid	101 frames from 0.02 s (1.00 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/P/Peet/Vari.sid	0 frames from 0.00 s (-0.00 frames after init), 753426 IRQs, silent
+C64Music/MUSICIANS/P/Pernet/Mega_Digi.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/P/Psych858o/Industrial_Dawn.sid	101 frames from 0.02 s (0.99 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/P/Puterman/Re_struction.sid	101 frames from 0.02 s (1.06 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/R/Ramos/Gouitar_Song.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/R/Recanatese_Luigi/Arrivo_v1.sid	69 frames from 0.02 s (0.84 frames after init), 343 IRQs, silent
+C64Music/MUSICIANS/R/Recanatese_Luigi/El_Joe.sid	0 frames from 0.00 s (-0.00 frames after init), 1 IRQs, silent
+C64Music/MUSICIANS/R/Recanatese_Luigi/Elia.sid	69 frames from 0.02 s (0.84 frames after init), 343 IRQs, silent
+C64Music/MUSICIANS/R/Recanatese_Luigi/Guerra.sid	69 frames from 0.02 s (0.84 frames after init), 343 IRQs, silent
+C64Music/MUSICIANS/R/Red_Duijckaerts_Roger/Big_Fun.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/R/Rockin_Limited/Schaefers_Joerg/Dreamix.sid	0 frames from 0.00 s (-0.00 frames after init), 96 IRQs, sounded
+C64Music/MUSICIANS/S/SIDwave/Mazza_Blauze.sid	101 frames from 0.02 s (1.05 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/S/Sanyo/Tropical_Storm_tune_3.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/S/Sanyo/Tropical_Storm_tune_6.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/S/Shock/Buddha.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/S/Shock/Its_Too_Late.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/S/Shock/Road_Running.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/S/Shock/Suns_Shining.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/S/Shogoon/Lullaby_for_Teddy_Bear_2SID.sid	1 frames from 0.02 s (0.91 frames after init), 2 IRQs, silent
+C64Music/MUSICIANS/S/Sir/Megablast_part_3.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 689 IRQs, silent
+C64Music/MUSICIANS/S/Sorex/Utter_hardcore_power_mix.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/S/Stainless_Steel/Cosmic.sid	101 frames from 0.02 s (1.06 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/S/Street_Tuff/G-Spot_tinitus_remix.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/S/Summers_Paul/Strategic_Defence_Initiative.sid	1 frames from 0.02 s (1.07 frames after init), 819284 IRQs, silent
+C64Music/MUSICIANS/S/Svensson_Roger/Jump.sid	0 frames from 0.00 s (-0.00 frames after init), 1 IRQs, sounded
+C64Music/MUSICIANS/T/TSM/Fiki_Fiki_2SID.sid	1 frames from 0.02 s (1.06 frames after init), 1 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Aliens_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Cybo_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Eviltwin_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Fidelity_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Finity_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Giovanni_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Ring-a-sync_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Sauceage_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/Televicious/Symphonic_2SID.sid	0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/T/The_Gee/Ready_or_Not.sid	101 frames from 0.02 s (1.02 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/T/Toy/BrumBrum.sid	121 frames from 0.02 s (0.86 frames after init), 599 IRQs, silent
+C64Music/MUSICIANS/U/Uctumi/Power_of_Two_2SID.sid	1 frames from 0.02 s (1.06 frames after init), 1 IRQs, silent
+C64Music/MUSICIANS/V/Vincenzo/Butterfly_Effect.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/V/Vincenzo/Quad_Core_tune_3.sid	101 frames from 0.02 s (0.95 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/W/Walt/Amiga_Works_part_1.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 112 IRQs, silent
+C64Music/MUSICIANS/W/Warlock/Their_Law.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/W/Warner_Silas/Beyond_Castle_Wolfenstein.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 259 IRQs, silent
+C64Music/MUSICIANS/W/Warner_Silas/Castle_Wolfenstein.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 259 IRQs, silent
+C64Music/MUSICIANS/W/Waz/Digital_Acid_Zaw_Remix.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 1 IRQs, silent
+C64Music/MUSICIANS/W/Widding_Roy_Johan/City_Bomber_4k.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/W/Widding_Roy_Johan/Panic_in_the_Bank.sid	101 frames from 0.02 s (1.03 frames after init), 501 IRQs, silent
+C64Music/MUSICIANS/Y/Yaemon/Echo_Hawk.sid	jammed, 0 frames from 0.00 s (-0.00 frames after init), 4 IRQs, silent
+C64Music/MUSICIANS/Y/Yattaman/Disco_Invader.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+C64Music/MUSICIANS/Y/Yattaman/Piejo_kury_piejo.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
+legacy/kinesys_6510.sid	101 frames from 0.02 s (1.04 frames after init), 501 IRQs, silent

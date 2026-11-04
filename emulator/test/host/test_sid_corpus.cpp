@@ -7,6 +7,8 @@
  * (gitignored: the tunes are their composers'; the owner's HVSC copy is
  * tens of thousands), is played: SID_COUNT of them (12; 0 for all), picked
  * by SID_SEED (printed, so a failure can be run again; random if unset).
+ * SID_SHARD=i/n keeps every n-th of those from the i-th (0-based), so a
+ * sweep of them all (SID_COUNT=0) can run as n processes.
  * A PSID with a play routine must be called first within two frames of
  * init's return for a VBI song (a CIA song's timer is the tune's to set, so
  * its first call only has to come); the test sees init return as the 6510
@@ -45,10 +47,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <optional>
 #include <random>
 #include <string>
 #include <system_error>
@@ -95,12 +100,27 @@ namespace
         const unsigned long count = env_or("SID_COUNT", 12);
         const unsigned long seed = env_or("SID_SEED", std::random_device{}());
         std::printf("  %zu tunes; SID_SEED=%lu SID_COUNT=%lu\n", all.size(), seed, count);
-        if (count == 0 || count >= all.size())
-            return all;
-        std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));
-        std::shuffle(all.begin(), all.end(), rng);
-        all.resize(count);
-        std::sort(all.begin(), all.end());
+        if (count != 0 && count < all.size())
+        {
+            std::mt19937 rng(static_cast<std::mt19937::result_type>(seed));
+            std::shuffle(all.begin(), all.end(), rng);
+            all.resize(count);
+            std::sort(all.begin(), all.end());
+        }
+        unsigned long i = 0, n = 1;
+        if (const char *shard = std::getenv("SID_SHARD"); shard && *shard)
+        {
+            if (std::sscanf(shard, "%lu/%lu", &i, &n) != 2 || n == 0 || i >= n)
+            {
+                std::printf("  SID_SHARD=%s: not i/n with i < n\n", shard);
+                return {};
+            }
+            std::vector<std::string> kept;
+            for (size_t k = i; k < all.size(); k += n)
+                kept.push_back(all[k]);
+            all = std::move(kept);
+            std::printf("  SID_SHARD=%lu/%lu: %zu of them\n", i, n, all.size());
+        }
         return all;
     }
 
@@ -376,52 +396,108 @@ TEST(the_rule_bounds_a_vbi_songs_first_call_after_init)
     CHECK(passes(cia, r));
 }
 
+namespace
+{
+    /// One tune, read from FOLDER and judged by passes(): `why` says what it did when it fails.
+    struct Outcome
+    {
+        std::optional<SidFile> f;
+        Result r;
+        bool basic{false}; ///< an RSID that needs C64 BASIC, refused by plan_sid (so not played)
+        bool ok{false};
+        std::string why;
+    };
+
+    Outcome judge(const std::string &name)
+    {
+        Outcome o;
+        std::ifstream in(FOLDER + "/" + name, std::ios::binary);
+        if (!in)
+        {
+            o.why = "not in " + FOLDER;
+            return o;
+        }
+        const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+        std::string error;
+        o.f = parse_sid(bytes, error);
+        if (!o.f)
+        {
+            o.why = error;
+            return o;
+        }
+        if (o.f->rsid && (o.f->flags & SidFile::FLAG_BASIC)) // the card has no C64 BASIC
+        {
+            o.basic = true;
+            o.ok = !plan_sid(*o.f, 0, error); // refused, so skipping it hides nothing
+            o.why = o.ok ? "" : "a BASIC tune plan_sid takes";
+            return o;
+        }
+        const uint32_t hz = o.f->ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
+        o.r = play(*o.f, 2ull * hz, 10ull * hz);
+        o.ok = passes(*o.f, o.r);
+        char line[200];
+        std::snprintf(line, sizeof line, "%u frames from %.2f s (%.2f frames after init), %llu IRQs, %s", o.r.frames,
+                      static_cast<double>(o.r.from) / hz,
+                      static_cast<double>(o.r.late) / (o.f->ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL),
+                      static_cast<unsigned long long>(o.r.irqs), o.r.sounded ? "sounded" : "silent");
+        const std::string err = o.r.error + (o.r.jammed ? "jammed" : "");
+        o.why = err.empty() ? line : err + ", " + line;
+        return o;
+    }
+
+    /// sid_known_failures.txt: the tunes passes() fails today, path to what they did (a tab between; '#' a
+    /// comment). The sample leaves them out; the_known_failures_still_fail plays them.
+    std::map<std::string, std::string> known_failures()
+    {
+        std::map<std::string, std::string> known;
+        std::ifstream in(EMU_SID_KNOWN_FAILURES);
+        for (std::string line; std::getline(in, line);)
+        {
+            if (line.empty() || line[0] == '#')
+                continue;
+            const size_t tab = line.find('\t');
+            known[line.substr(0, tab)] = tab == std::string::npos ? "" : line.substr(tab + 1);
+        }
+        return known;
+    }
+} // namespace
+
 TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
 {
-    const std::vector<std::string> all = tunes();
+    std::vector<std::string> all = tunes();
     if (all.empty())
     {
         std::printf("  SKIP: no .sid files in %s\n", FOLDER.c_str());
         return;
     }
+    const std::map<std::string, std::string> known = known_failures();
+    REQUIRE(!known.empty()); // the list read: an empty one would let them all into the sample
+    all.erase(std::remove_if(all.begin(), all.end(), [&](const std::string &n) { return known.count(n) != 0; }), all.end());
+    std::printf("  %zu known failures left out (sid_known_failures.txt)\n", known.size());
     unsigned played = 0, ran = 0, basic = 0, raster = 0;
     double latest_vbi = 0, latest_cia = 0; // frames from init's return to the first call
     std::string latest_vbi_name, latest_cia_name;
     for (const std::string &name : sample(all))
     {
-        std::ifstream in(FOLDER + "/" + name, std::ios::binary);
-        const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-        std::string error;
-        const auto f = parse_sid(bytes, error);
-        if (!f)
+        const Outcome o = judge(name);
+        if (!o.ok)
+            std::printf("  %s\t%s\n", name.c_str(), o.why.c_str()); // a line for sid_known_failures.txt
+        CHECK(o.ok);
+        if (!o.f || o.basic)
         {
-            std::printf("  %s: %s\n", name.c_str(), error.c_str());
-            CHECK(f.has_value());
+            basic += o.basic;
             continue;
         }
-        if (f->rsid && (f->flags & SidFile::FLAG_BASIC)) // the card has no C64 BASIC
+        const SidFile &f = *o.f;
+        const Result &r = o.r;
+        if (f.play && r.late >= 0 && !(r.own_raster && r.frames == 0))
         {
-            CHECK(!plan_sid(*f, 0, error)); // refused, so skipping it hides nothing
-            ++basic;
-            continue;
-        }
-        const uint32_t hz = f->ntsc() ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ;
-        const Result r = play(*f, 2ull * hz, 10ull * hz);
-        const bool ok = passes(*f, r);
-        if (!ok)
-            std::printf("  %s: %s%s, %u frames from %.2f s (%.2f frames after init), %llu IRQs, %s\n", name.c_str(),
-                        r.error.c_str(), r.jammed ? "jammed" : "", r.frames, static_cast<double>(r.from) / hz,
-                        static_cast<double>(r.late) / (f->ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL),
-                        static_cast<unsigned long long>(r.irqs), r.sounded ? "sounded" : "silent");
-        CHECK(ok);
-        if (f->play && r.late >= 0 && !(r.own_raster && r.frames == 0))
-        {
-            const double frames = static_cast<double>(r.late) / (f->ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL);
-            double &most = f->cia_timed(f->start_song) ? latest_cia : latest_vbi;
+            const double frames = static_cast<double>(r.late) / (f.ntsc() ? SoundCard::FRAME_NTSC : SoundCard::FRAME_PAL);
+            double &most = f.cia_timed(f.start_song) ? latest_cia : latest_vbi;
             if (frames > most)
-                most = frames, (f->cia_timed(f->start_song) ? latest_cia_name : latest_vbi_name) = name;
+                most = frames, (f.cia_timed(f.start_song) ? latest_cia_name : latest_vbi_name) = name;
         }
-        if (!f->play)
+        if (!f.play)
             ++ran;
         else if (r.own_raster && r.frames == 0)
             ++raster;
@@ -432,6 +508,37 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
                 played, ran, raster, basic);
     std::printf("  the first call after init's return: VBI at most %.2f frames (%s), CIA %.2f (%s)\n", latest_vbi,
                 latest_vbi_name.c_str(), latest_cia, latest_cia_name.c_str());
+}
+
+TEST(the_known_failures_still_fail)
+{
+    // Every tune on the list still fails, until it's fixed: one that passes now is taken off the list, and
+    // one that isn't in the collection is said (the list is of the owner's HVSC copy).
+    if (tunes().empty())
+    {
+        std::printf("  SKIP: no .sid files in %s\n", FOLDER.c_str());
+        return;
+    }
+    const std::map<std::string, std::string> known = known_failures();
+    REQUIRE(!known.empty());
+    unsigned failing = 0;
+    for (const auto &[name, was] : known)
+    {
+        const Outcome o = judge(name);
+        if (!o.f && o.why.rfind("not in ", 0) == 0)
+        {
+            std::printf("  %s: not in the collection; take it off sid_known_failures.txt\n", name.c_str());
+            CHECK(o.f.has_value());
+        }
+        else if (o.ok)
+        {
+            std::printf("  %s: passes now (it was: %s); take it off sid_known_failures.txt\n", name.c_str(), was.c_str());
+            CHECK(!o.ok);
+        }
+        else
+            ++failing;
+    }
+    std::printf("  %u of %zu known failures still fail\n", failing, known.size());
 }
 
 int main() { return run_all(); }
