@@ -90,6 +90,7 @@
 .export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
+.export TESC                           ; and TTYOUT's escape state
 
 DPB_LEN         = 17
 DPH_LEN         = 25

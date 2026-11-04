@@ -1,6 +1,8 @@
 ; VT52TEST: the CRT's VT52 subset and lowercase (bios.s, crt.s), for
 ; test_oodos_sys.cpp to find on the video card's text screen (it scrolls it
-; afterwards from the CCP), and as ANSI on the serial line (bios.s's TTYOUT). A character at a time by function 2, since ESC
+; afterwards from the CCP), and as ANSI on the serial line (bios.s's TTYOUT).
+; It ends in the middle of an ESC Y, so the CCP's prompt shows whole only if
+; the warm boot ends the sequence on both (common.s's WARM). A character at a time by function 2, since ESC
 ; Y's operands can be '$'.
 
         .setcpu "65C02"
@@ -51,4 +53,5 @@ text:   .byte   ESC, 'E'                ; clear
         .byte   ESC, 'Z'                ; not one of ours: dropped
         at      25, 0
         .byte   7, "END"
+        .byte   ESC, 'Y'                ; and an ESC Y left unended: the warm boot ends it
         .byte   0

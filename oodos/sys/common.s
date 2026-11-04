@@ -27,7 +27,8 @@
 .import CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .import SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.importzp DMABANK, CURBANK, XPEND
+.importzp DMABANK, CURBANK, XPEND, CESC
+.import TESC
 .import DMASEG, AMAP
 .export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI, ROMAPPLE
 
@@ -205,6 +206,8 @@ WARM:           SEI
                 STZ     DMABANK        ; BANK_SYS: .assert below
                 STZ     CURBANK
                 STZ     XPEND
+                STZ     CESC           ; the screen's and the serial line's escape
+                STZ     TESC           ; sequences: one a program left unended ends here
                 LDA     #$FF           ; no DMA segment (51), and every block freed (58):
                 STA     DMASEG         ; what a program set or took ends with it
                 STA     DMASEG + 1

@@ -443,6 +443,9 @@ TEST(the_crt_does_the_vt52_subset_and_lowercase)
                              "\x1b[30;80H"            // ESC Y past both edges; ESC Z dropped
                              "\x1b[26;1H\aEND";
     CHECK_EQ(tty.substr(0, tty.rfind("\r\nA>")).substr(tty.find("\x1b")), ansi);
+    // It ends in an ESC Y, its row and column never sent: the warm boot ended it, so the prompt is
+    // whole on the serial line (go() found its CR LF A>) and on the screen (row 26, below).
+    CHECK(tty.size() >= 4 && tty.substr(tty.size() - 4) == "\r\nA>");
     CHECK_EQ(r.row(0), std::string("Line one"));
     CHECK_EQ(r.row(1), std::string("lower case"));
     CHECK_EQ(r.row(2), std::string());

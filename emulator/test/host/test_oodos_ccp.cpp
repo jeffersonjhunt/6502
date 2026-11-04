@@ -569,6 +569,7 @@ TEST(clear_and_cls_clear_the_screen_and_cls_then_lists_as_dir)
 {
     Ccp r;
     REQUIRE(r.ok);
+    r.put_m({{0, "CLS     COM", args("CLS ")}}); // before M: is logged in
     const std::string cleared = "\x1b[H\x1b[2J"; // ESC E, as the serial line has it
     auto blank_from = [&](unsigned from) {
         for (unsigned row = from; row < 30; ++row)
@@ -593,6 +594,9 @@ TEST(clear_and_cls_clear_the_screen_and_cls_then_lists_as_dir)
     }
     r.chain({2}); // no DIR.COM to hand the options to
     same(r.cmd("cls [full]"), "cls [full]\r\n" + cleared + "DIR.COM required\r\nA>");
+    // A CLS.COM on a card (many CP/M disks have one) runs with a drive before its name.
+    CHECK_EQ(field(r.cmd("m:cls"), "ARGS"), std::string("CLS "));
+    CHECK_EQ(r.cmd("cls").find("ARGS"), std::string::npos); // the name alone is the built-in
 }
 
 // ---- programs --------------------------------------------------------------------------------

@@ -1817,7 +1817,8 @@ ROM. Neither comes back: the monitor starts afresh (a reset, or `C80CR` with the
 only a reset ends Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator:
 Settings, ROMs)", the return code `$FF00`, and OODOS goes on. They were `.COM`s in `oodos/utils` for a day; the
 owner asked for them in the CCP, with CLEAR and CLS, so leaving OODOS works on any card, from any drive and user
-(112 bytes in the CCP, APPLE2's message 59 of them). Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes (its
+(112 bytes in the CCP, APPLE2's message 59 of them). A program of the same name on a card runs only with a drive
+before it (`A:WOZMON`), as for any built-in. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes (its
 ID byte and a loop at reset), not Apple's.
 
 ### Clearing the screen: CLEAR and CLS ###
@@ -1827,8 +1828,10 @@ ours): no `.COM` on the card, so they work from any drive and user. **CLEAR** cl
 so the text screen is cleared and a terminal on the serial line gets ANSI's clear (above, "The terminal"). **CLS**
 clears it too, then is DIR with its tail: the built-in's listing, or, for an option list or more than one
 specification, DIR.COM's, handed the tail as DIR hands it (`CLS [SYS]`, `CLS *.COM [SIZE]`). They were `.COM`s
-for a day; the owner asked for built-ins, like DIRSYS's `DIRS`. The CCP grew 36 bytes. Tested by
-`test_oodos_ccp`; WOZMON's clear by `test_oodos_utils_rom`.
+for a day; the owner asked for built-ins, like DIRSYS's `DIRS`. The CCP grew 36 bytes. A program of the same
+name, such as the `CLS.COM` many CP/M disks have, runs only with a drive before it (`A:CLS`): a built-in's name
+alone is the built-in, a drive and the name the program (above, "The CCP"). Tested by `test_oodos_ccp`; WOZMON's
+clear by `test_oodos_utils_rom`.
 
 ### The program header ###
 
