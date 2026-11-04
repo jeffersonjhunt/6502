@@ -283,7 +283,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. WOZMON.COM and APPLE2.COM use it (2026-11-02) |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
 | 76–97 | reserved for OODOS |
 
 ### Far calls ###
@@ -327,7 +327,11 @@ CONOST, AUXIST, AUXOST, DEVTBL, DEVINI, DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELME
   TTY, LST: is LPT.
 - **The terminal** is a VT52 subset: CR, LF, BS, BEL, `ESC A B C D` (cursor), `ESC H` (home), `ESC J` and `ESC K`
   (erase to the end of the screen and of the line), `ESC E` (clear) and `ESC Y` row column (each + 32).
-  Lowercase stays lowercase.
+  Lowercase stays lowercase. **The serial line gets the same as ANSI (2026-11-03),** which a PC's terminal program
+  reads and VT52 isn't: TTY's output turns `ESC A`–`D`, `H`, `J` and `K` into `ESC [` and the letter, `ESC E` into
+  `ESC [H ESC [2J`, and `ESC Y` into `ESC [`row`;`col`H` (from 1, past the screen's edge its last, as the screen
+  has it), and drops another ESC pair, as the screen does. The WebUI's Terminal reads that ANSI; the native app
+  passes it to the host's terminal.
 - **TIME** with A = 0 reads the bridge into the SCB's date (days from 1 January 1978, day 1 that day), hour,
   minute and second (BCD); with A = `$FF` it sets the bridge from them, the day of the week worked out.
 - **Interrupts:** none enabled in phase 2; the console is polled. BRK, and Break (NMI), go to the ROM's monitor
@@ -1193,7 +1197,8 @@ where it is silent the choice is ours, and says so):
     **Ours,** a seventh built-in that CP/M 3 doesn't have: it shadows a `GO.COM`, which runs only with a drive
     typed (`A:GO`), and it runs whatever image is at `$0300` once the header passes the loader's checks.
   - a built-in's name, with no drive or type: `DIR`, `DIRSYS` or `DIRS`, `ERASE` or `ERA`, `RENAME` or `REN`,
-    `TYPE` or `TYP`, `USER` or `USE` (the Guide's Table 4-1 and its short forms);
+    `TYPE` or `TYP`, `USER` or `USE` (the Guide's Table 4-1 and its short forms), and ours, `CLEAR` and `CLS`
+    (2026-11-03, "Clearing the screen" below);
   - `d:`, or a user number and a drive, `5B:`: the drive change (below);
   - else a program: `{d:}NAME{.COM}{;password}`. A type but `COM` is refused: `.SUB` with
     `NAME.SUB: no SUBMIT yet` until phase 5 (ours), any other type, `.PRL` among them, as `NAME?` (the CCP runs
@@ -1803,15 +1808,30 @@ the choices it left open marked ours):
 
 ### Leaving OODOS: WOZMON and APPLE2 ###
 
-**Done (2026-11-02).** Two utilities of ours, for the machine OODOS runs on rather than CP/M's, each a `.COM` in
-`oodos/utils` as the others: **WOZMON** leaves OODOS for the ROM BIOS's Woz Monitor, and **APPLE2** restarts the
-machine in Apple II mode, the cartridge's IIe ROM started as a IIe starts at power-on. Both call function 75
-(above, "OODOS's own"): a program can't jump to the ROM itself (W3 is OODOS's block 62, and the rules let a program
-call only the BDOS and the warm boot), and only OODOS may map the cartridge to look for a IIe ROM. Neither comes
-back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and only a reset ends
-Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator: Settings, ROMs)", the
-return code `$FF00`, and OODOS goes on. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes
-(its ID byte and a loop at reset), not Apple's.
+**Done (2026-11-02); built-ins since 2026-11-03.** Two commands of ours, for the machine OODOS runs on rather than
+CP/M's: **WOZMON** clears the screen (as CLEAR, below) and leaves OODOS for the ROM BIOS's Woz Monitor, and
+**APPLE2** restarts the machine in Apple II mode, the cartridge's IIe ROM started as a IIe starts at power-on. Both
+call function 75 (above, "OODOS's own"): a program can't jump to the ROM itself (W3 is OODOS's block 62, and the
+rules let a program call only the BDOS and the warm boot), and only OODOS may map the cartridge to look for a IIe
+ROM. Neither comes back: the monitor starts afresh (a reset, or `C80CR` with the card in, boots OODOS again), and
+only a reset ends Apple II mode. Without a IIe ROM, APPLE2 says "No IIe ROM in the cartridge (the emulator:
+Settings, ROMs)", the return code `$FF00`, and OODOS goes on. They were `.COM`s in `oodos/utils` for a day; the
+owner asked for them in the CCP, with CLEAR and CLS, so leaving OODOS works on any card, from any drive and user
+(112 bytes in the CCP, APPLE2's message 59 of them). A program of the same name on a card runs only with a drive
+before it (`A:WOZMON`), as for any built-in. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes (its
+ID byte and a loop at reset), not Apple's.
+
+### Clearing the screen: CLEAR and CLS ###
+
+**Done (2026-11-03).** Two built-ins of ours, asked for by the owner, in the CCP beside DIR and the rest (as GO is
+ours): no `.COM` on the card, so they work from any drive and user. **CLEAR** clears the screen: it writes `ESC E`,
+so the text screen is cleared and a terminal on the serial line gets ANSI's clear (above, "The terminal"). **CLS**
+clears it too, then is DIR with its tail: the built-in's listing, or, for an option list or more than one
+specification, DIR.COM's, handed the tail as DIR hands it (`CLS [SYS]`, `CLS *.COM [SIZE]`). They were `.COM`s
+for a day; the owner asked for built-ins, like DIRSYS's `DIRS`. The CCP grew 36 bytes. A program of the same
+name, such as the `CLS.COM` many CP/M disks have, runs only with a drive before it (`A:CLS`): a built-in's name
+alone is the built-in, a drive and the name the program (above, "The CCP"). Tested by `test_oodos_ccp`; WOZMON's
+clear by `test_oodos_utils_rom`.
 
 ### The program header ###
 

@@ -22,6 +22,8 @@
  *   - ERA: one name, wildcards asked about, read-only, passwords;
  *   - REN: new=old, No File, a name there already asked about;
  *   - the utilities the built-ins hand their options to, found or not;
+ *   - CLEAR and CLS (ours): the screen cleared, ANSI's clear on the serial
+ *     line; CLS then DIR's listing, DIR.COM's for its options;
  *   - cmd.inc: the console mode CM_PAGE keeps, CM_BRK's ^C (CMDTEST);
  *   - programs: the drive, the user, user 0's SYS files, the search
  *     chain, .COM, .SUB and other types, a password, the display mode;
@@ -559,6 +561,42 @@ TEST(options_go_to_the_built_ins_utilities_with_the_tail_as_given)
     same(r.cmd("a:dir", "M>"), // the card's DIR.COM (make_card.sh), sorting M:'s
          "a:dir\r\nM: DIR      COM : ERASE    COM : RENAME   COM : TYPE     COM\r\nM>");
     same(r.cmd("dir", "M>"), "dir\r\nM: DIR      COM : TYPE     COM : ERASE    COM : RENAME   COM\r\nM>"); // the built-in
+}
+
+// ---- CLEAR and CLS (ours) --------------------------------------------------------------------
+
+TEST(clear_and_cls_clear_the_screen_and_cls_then_lists_as_dir)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "CLS     COM", args("CLS ")}}); // before M: is logged in
+    const std::string cleared = "\x1b[H\x1b[2J"; // ESC E, as the serial line has it
+    auto blank_from = [&](unsigned from) {
+        for (unsigned row = from; row < 30; ++row)
+            if (!r.row(row).empty())
+                return false;
+        return true;
+    };
+    r.cmd("dir");
+    REQUIRE(!blank_from(2));
+    same(r.cmd("clear"), "clear\r\n" + cleared + "\r\nA>");
+    CHECK_EQ(r.row(0), std::string());                  // the prompt's CR LF from the top, then A>
+    CHECK_EQ(r.row(1), std::string("A>"));
+    CHECK(blank_from(2));
+    same(r.cmd("clear whatever"), "clear whatever\r\n" + cleared + "\r\nA>"); // the tail ignored
+    // CLS: DIR's listing on the cleared screen, the built-in's or DIR.COM's (the card's, on A:).
+    for (const std::string tail : {"", " *.com", " [sys]", " *.com [size]"})
+    {
+        const std::string dir = r.cmd("dir" + tail), head = "dir" + tail + "\r\n";
+        REQUIRE(dir.size() > head.size() + 4);
+        same(r.cmd("cls" + tail), "cls" + tail + "\r\n" + cleared + dir.substr(head.size()));
+        CHECK_EQ(r.row(0), dir.substr(head.size(), dir.find('\r', head.size()) - head.size()));
+    }
+    r.chain({2}); // no DIR.COM to hand the options to
+    same(r.cmd("cls [full]"), "cls [full]\r\n" + cleared + "DIR.COM required\r\nA>");
+    // A CLS.COM on a card (many CP/M disks have one) runs with a drive before its name.
+    CHECK_EQ(field(r.cmd("m:cls"), "ARGS"), std::string("CLS "));
+    CHECK_EQ(r.cmd("cls").find("ARGS"), std::string::npos); // the name alone is the built-in
 }
 
 // ---- programs --------------------------------------------------------------------------------

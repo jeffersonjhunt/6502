@@ -25,7 +25,7 @@
  *     the spike's register checks, and its cycles;
  *   - TIME against the clock: a leap day, 2099 into 2100, setting it back
  *     from the SCB (the day of the week, the century);
- *   - the VT52 subset and lowercase on the video card's text memory;
+ *   - the VT52 subset and lowercase on the video card's text memory, and as ANSI on the serial line;
  *   - keys from the USB keyboard and the serial line; the CCP's refusals;
  *   - Break and BRK into the ROM's monitor with W3 and VEC on block 63; an
  *     IRQ that returns.
@@ -426,7 +426,26 @@ TEST(the_crt_does_the_vt52_subset_and_lowercase)
 {
     Booted r;
     REQUIRE(r.ok);
-    r.go("vt52test.com");
+    const std::string tty = r.go("vt52test.com");
+    // The serial line has the same as ANSI, as a PC's terminal program and the WebUI's Terminal read it.
+    const std::string ansi = "\x1b[H\x1b[2J"
+                             "\x1b[HLine one\r\nlower case"
+                             "\x1b[6;11HAT 5,10"
+                             "\x1b[H\x1b[B\x1b[B\x1b[B\x1b[C\x1b[CX"
+                             "\x1b[11;1HERASE ME TO THE END"
+                             "\x1b[11;6H\x1b[K"
+                             "\x1b[13;1Habc\x1b[D\x1b[DZ\x1b[AU"
+                             "\x1b[21;1HJJJ\r\nKKK\r\nLLL"
+                             "\x1b[22;2H\x1b[J"
+                             "\x1b[15;1HAB\bC"
+                             "\x1b[16;1H\r        T"
+                             "\x1b[17;79HWRAP"
+                             "\x1b[30;80H"            // ESC Y past both edges; ESC Z dropped
+                             "\x1b[26;1H\aEND";
+    CHECK_EQ(tty.substr(0, tty.rfind("\r\nA>")).substr(tty.find("\x1b")), ansi);
+    // It ends in an ESC Y, its row and column never sent: the warm boot ended it, so the prompt is
+    // whole on the serial line (go() found its CR LF A>) and on the screen (row 26, below).
+    CHECK(tty.size() >= 4 && tty.substr(tty.size() - 4) == "\r\nA>");
     CHECK_EQ(r.row(0), std::string("Line one"));
     CHECK_EQ(r.row(1), std::string("lower case"));
     CHECK_EQ(r.row(2), std::string());

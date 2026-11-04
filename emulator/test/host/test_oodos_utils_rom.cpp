@@ -1,13 +1,13 @@
 /**
  * @file test_oodos_utils_rom.cpp
- * @brief Leaving OODOS for the ROM BIOS: function 75 (O_ROM), WOZMON.COM and APPLE2.COM (hw/oodos.md, "OODOS's own").
+ * @brief Leaving OODOS for the ROM BIOS: function 75 (O_ROM), by the CCP's WOZMON and APPLE2 (hw/oodos.md, "OODOS's own").
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * OODOS.SYS booted as test_oodos_ccp boots it (oodos_rig.h's CcpRig), the two
- * utilities put on M: and run from the CCP:
+ * OODOS.SYS booted as test_oodos_ccp boots it (oodos_rig.h's CcpRig), and the
+ * CCP's two built-ins of ours that call function 75 typed at its prompt:
  *
- *   - WOZMON: the ROM's monitor, with W3 and VEC back on the ROM's block (63)
- *     and windows 0-2 on RAM blocks 0-2, and it answers;
+ *   - WOZMON: the screen cleared, then the ROM's monitor, with W3 and VEC back
+ *     on the ROM's block (63) and windows 0-2 on RAM blocks 0-2, and it answers;
  *   - APPLE2 with no IIe ROM in the cartridge: it says so, the return code
  *     $FF00, and OODOS goes on;
  *   - APPLE2 with one: the machine restarts in Apple II mode, at the ROM's
@@ -31,21 +31,14 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
-
-    /// A rig with WOZMON and APPLE2 on M:, the search chain the default drive, then M:.
+    /// The CCP's rig, and the north bridge's registers.
     struct RomRig : CcpRig
     {
-        explicit RomRig(std::vector<std::string> apple_rom = {}) : CcpRig(std::move(apple_rom))
-        {
-            if (!ok)
-                return;
-            put_util("wozmon", UTILS);
-            put_util("apple2", UTILS);
-            chain({13, 0});
-        }
+        explicit RomRig(std::vector<std::string> apple_rom = {}) : CcpRig(std::move(apple_rom)) {}
         uint8_t nb(unsigned reg) { return machine->bus().read(static_cast<uint16_t>(0xC680 + reg)); }
     };
+
+    const std::string CLEARED = "\x1b[H\x1b[2J"; ///< ESC E on the serial line
 
     constexpr uint16_t LOOP = 0xFA00; ///< the stand-in ROM's reset vector: JMP to itself
 
@@ -69,7 +62,9 @@ TEST(wozmon_leaves_oodos_for_the_roms_monitor)
 {
     RomRig r;
     REQUIRE(r.ok);
-    REQUIRE(!r.to("WOZMON", "\r\n\\\r").empty());  // the CCP's CR LF, then the ROM's Break: its prompt, a CR
+    r.cmd("DIR");                                         // something on the screen
+    // The CCP's CR LF, the clear, then the ROM's Break: its prompt, a CR.
+    REQUIRE(!r.to("WOZMON", "\r\n" + CLEARED + "\\\r").empty());
     CHECK_EQ(r.nb(3), 0x40 | 63);                          // W3 and VEC on the ROM's copy, read-only
     CHECK_EQ(r.nb(4), 0x40 | 63);
     CHECK_EQ(r.nb(0), 0);                                  // windows 0-2 as at reset

@@ -307,6 +307,7 @@ target_compile_definitions(test_oodos_boot PRIVATE
         EMU_OODOS_LDR_DIR="${OODOS_LDR_DIR}"
         EMU_OODOS_PRL_DIR="${OODOS_PRL_DIR}"
         EMU_OODOS_UTILS_DIR="${OODOS_UTILS_DIR}"
+        EMU_OODOS_UTILS_SRC="${OODOS_SRC}/utils"
         EMU_OODOS_CARD_DIR="${OODOS_SRC}/card")
 
 # --- the books (docs/) ------------------------------------------------------

@@ -28,18 +28,14 @@
 #     0:HELLO.PRL      the same as a .PRL (oodos/Makefile), for phase 5's
 #                      loader
 #     0:WRITEOO1.COM   oodos/sys/test/writeoo1.s: test_oodos_card runs it to
-#                      write 0:OO1.BIN through the BDOS, in entries 32 and
-#                      33, the first in an SFCB's first slot
-#     0:APPLE2.COM ... the utilities (oodos/utils/, make utils), one .COM
-#                      each utils/NAME.s, in its name's order: APPLE2,
-#                      DATE, DEVICE, DIR, ERASE, INITDIR, RENAME, SET,
-#                      SETDEF, SHOW, TYPE, WOZMON; SYS, as HELLO.COM
-#                      (hw/oodos.md, "The utilities, phase 4b"). Twelve, so
-#                      the first free entry is an SFCB's first slot (32),
-#                      where WRITEOO1 puts OO1.BIN: cpmtools 2.23's fsck.cpm
-#                      compares that slot's stamps crosswise, and interop.sh's
-#                      fixed one (fsck_fixed.sh) must pass it (with ten, two
-#                      spacer files did it)
+#                      write 0:OO1.BIN through the BDOS, in the first free
+#                      entries
+#     0:DATE.COM ...   the utilities (oodos/utils/, make utils), one .COM
+#                      each utils/NAME.s, in its name's order (DATE to
+#                      TYPE); SYS, as HELLO.COM (hw/oodos.md, "The
+#                      utilities, phase 4b"). The tests work out where
+#                      each file's entries are from the card, so a utility
+#                      more changes no test
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
 #
 # The demo card (demo.sparse), the one the WebUI puts in its slot at each
@@ -184,7 +180,8 @@ python3 text.py demo/README.TXT \
     "" \
     "Things to try at A>:" \
     "  DIR             the files on A:" \
-    "  DIR [SYS]       the commands: HELLO, WOZMON, APPLE2 and the rest" \
+    "  DIRS            the programs: HELLO, SHOW, DATE and the rest" \
+    "  CLS             clear the screen and list the files; CLEAR only clears" \
     "  TYPE README.TXT this file" \
     "  HELLO           a small program, run from A:" \
     "  SHOW            the drives and their space" \

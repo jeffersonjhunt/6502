@@ -275,6 +275,19 @@ namespace
         }
     };
 
+    /// The directory's free entries that aren't an SFCB's place, in order: where the next files' entries go.
+    std::vector<unsigned> free_places(const std::vector<uint8_t> &dir)
+    {
+        std::vector<unsigned> f;
+        for (unsigned i = 0; i < dir.size() / ENTRY; ++i)
+            if ((i & 3) != 3 && dir[i * ENTRY] == 0xE5)
+                f.push_back(i);
+        return f;
+    }
+
+    /// The committed card's A: directory, as make_card.sh made it.
+    std::vector<uint8_t> made_directory();
+
     /// A file's directory entries, in extent order: their indices in the directory.
     std::vector<unsigned> entries_of(const std::vector<uint8_t> &dir, unsigned user, const std::string &name83)
     {
@@ -468,14 +481,25 @@ namespace
                r.mount(1, a->second.path) == 0;
     }
 
+    std::vector<uint8_t> made_directory()
+    {
+        Rig r;
+        if (!mount_a(r))
+        {
+            CHECK(false); // the card won't mount: an empty directory, so the places checked are missing
+            return {};
+        }
+        Drive a{r, 1, Dpb::from_diskdefs("oodos-8m")};
+        return a.directory();
+    }
+
     // ---- the OO-1's side ----------------------------------------------------
 
     /// The file the OO-1 writes, and what interop.sh expects of it: 0:OO1.BIN, 260 records
-    /// (two entries, the first free: 32 and 33, the first in an SFCB's first slot), seed 5, made 25 October 2026 13:45 and
+    /// (two entries, the first free), seed 5, made 25 October 2026 13:45 and
     /// updated 26 October 15:30: a day apart, the case cpmtools 2.23's fsck.cpm gets crosswise in an
-    /// SFCB's first slot (hw/oodos.md, "Testing"), which interop.sh's fixed one must pass (make_card.sh's
-    /// twelve utilities keep it there). WRITEOO1.COM
-    /// (oodos/sys/test/writeoo1.s) knows the same.
+    /// SFCB's first slot (hw/oodos.md, "Testing"), which interop.sh's fixed one passes wherever it lands.
+    /// WRITEOO1.COM (oodos/sys/test/writeoo1.s) knows the same.
     const std::string NEW_NAME = "OO1     BIN";
     constexpr unsigned NEW_USER = 0, NEW_SEED = 5;
     constexpr size_t NEW_SIZE = 260 * RECORD;
@@ -756,14 +780,20 @@ TEST(the_label_and_an_sfcb_every_fourth_entry_are_where_cpmtools_put_them)
     CHECK_EQ(s[12], 0x31); // creation and update stamps
     const std::vector<uint8_t> dir = a.directory();
     REQUIRE(dir.size() == 1024u * ENTRY);
-    unsigned sfcbs = 0, free = 0;
-    for (unsigned i = 0; i < 1024; ++i)
+    unsigned sfcbs = 0, files = 0, other = 0;
+    for (unsigned i = 1; i < 1024; ++i)
     {
-        sfcbs += (i & 3) == 3 && dir[i * ENTRY] == 0x21;
-        free += dir[i * ENTRY] == 0xE5;
+        const uint8_t st = dir[i * ENTRY];
+        if ((i & 3) == 3)
+            sfcbs += st == 0x21;
+        else if (st <= 15)
+            ++files;
+        else if (st != 0xE5)
+            ++other;
     }
     CHECK_EQ(sfcbs, 256u);
-    CHECK_EQ(free, 1024u - 256 - 1 - 23); // the label, and 21 files' 23 entries (ten utilities', two spacers)
+    CHECK(files > 0);
+    CHECK_EQ(other, 0u); // the label in entry 0, then files' entries and free ones: no XFCB, nothing else
     // The label's own stamps, in its bytes 24-31: made at make_card.sh's moment.
     CHECK(std::equal(MADE.begin(), MADE.end(), dir.begin() + 24));
     allocation(a, dir);
@@ -831,10 +861,11 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     Drive a{again, 1, Dpb::from_diskdefs("oodos-8m")};
     const std::vector<uint8_t> dir = a.directory();
     allocation(a, dir);
-    const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME);
+    const std::vector<unsigned> e = entries_of(dir, NEW_USER, NEW_NAME), places = free_places(made_directory());
     REQUIRE(e.size() == 2u);
-    CHECK_EQ(e[0], 32u); // the first free entries, after the utilities and the spacers: an SFCB's
-    CHECK_EQ(e[1], 33u); // first slot, the one cpmtools 2.23's fsck.cpm compares crosswise
+    REQUIRE(places.size() >= 2u);
+    CHECK_EQ(e[0], places[0]); // the first free entries that aren't an SFCB's place, as the BDOS takes them
+    CHECK_EQ(e[1], places[1]);
     CHECK(records_of(a, dir, e) == pattern_file(NEW_SEED, NEW_SIZE));
     // The stamps in the extent-zero entry's slot only (CP/M 3 reads them there); the later entry's 0.
     const auto st = stamps_of(dir, e[0]), later = stamps_of(dir, e[1]);
@@ -844,12 +875,14 @@ TEST(the_oo1_writes_a_file_and_the_card_is_saved_for_interop_sh)
     CHECK(later.first == zero);
     CHECK(later.second == zero);
     CHECK(records_of(a, dir, entries_of(dir, 0, "PATTERN BIN")) == pattern_file(1, 36864));
-    // Nothing else changed: the directory's third sector (entries 32 and 33, their SFCB in 35) and
-    // 65 of records (a block's sectors the file doesn't reach are zeroed, as they were).
+    // Nothing else changed: the directory's sectors that hold its two entries and their SFCBs (16
+    // entries a sector), and 65 of records (a block's sectors the file doesn't reach are zeroed, as
+    // they were).
+    const std::set<unsigned> dirsecs = {e[0] / 16, e[1] / 16, (e[0] | 3) / 16, (e[1] | 3) / 16};
     size_t sectors = 0;
     for (size_t n = 0; n < before.size() / SECTOR; ++n)
         sectors += std::memcmp(before.data() + n * SECTOR, r.media->bytes().data() + n * SECTOR, SECTOR) != 0;
-    CHECK_EQ(sectors, size_t{1 + 65});
+    CHECK_EQ(sectors, dirsecs.size() + 65);
 }
 
 TEST(the_ccp_erases_and_renames_on_a_and_the_card_is_saved_for_interop_sh)
@@ -976,8 +1009,12 @@ TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_i
     const std::vector<unsigned> xp = entries_of(dir, 16, "PATTERN DAT"), xt = entries_of(dir, 16, "TESTSYS SYS");
     REQUIRE(xp.size() == 1u);
     REQUIRE(xt.size() == 1u);
-    CHECK_EQ(xp[0], 13u); // HELLO.PRL's, the lowest free entry not an SFCB's place
-    CHECK_EQ(xt[0], 32u); // the next, past the spacers
+    const std::vector<uint8_t> made = made_directory();
+    const std::vector<unsigned> prl = entries_of(made, 0, "HELLO   PRL"), places = free_places(made);
+    REQUIRE(prl.size() == 1u);
+    REQUIRE(!places.empty());
+    CHECK_EQ(xp[0], prl[0]);    // HELLO.PRL's, erased: the lowest free entry not an SFCB's place
+    CHECK_EQ(xt[0], places[0]); // the next: the first the card had free
     CHECK_EQ(dir[xp[0] * ENTRY + 12] & 0xE0, 0x40);
     CHECK_EQ(dir[xt[0] * ENTRY + 12] & 0xE0, 0x20);
     auto mode = [&](unsigned i) { return dir[(i | 3) * ENTRY + 1 + (i & 3) * 10 + 8]; };

@@ -29,6 +29,7 @@
 .import DMAGO
 .importzp SRCP, DSTP, DCOUNT
 .export CRTINIT, CRTOUT
+.exportzp CESC                         ; WARM resets it
 
 COLS            = 80
 ROWS            = 30
