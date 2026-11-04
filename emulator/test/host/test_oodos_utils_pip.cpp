@@ -264,6 +264,9 @@ TEST(pip_takes_a_sources_password_and_gives_a_destination_one)
     CHECK(o.find("Password Error") != std::string::npos);
     same(pip(r, "m:y.txt=m:locked.txt;key"), "");
     same(text(m_data(r, 0, "Y       TXT")), "OPEN\r\n");
+    // A named destination without one: none, though its source has one (the Guide)
+    same(pip(r, "m:named.txt=m:secret.txt;sesame"), "");
+    CHECK(r.m_entry(16, "NAMED   TXT") < 0);
     // To another user by d: alone: the source's password and mode
     same(pip(r, "m:[g2]=m:secret.txt;sesame"), "");
     const int y = r.m_entry(18, "SECRET  TXT");
@@ -283,6 +286,14 @@ TEST(pip_alone_asks_for_a_command_a_line_until_an_empty_one)
     same(o, "m:pip\r\nOODOS PIP 0.2\r\n*m:a.txt=m:one.txt\r\n*m:b.txt=m:nosuch.txt\r\nFILE NOT FOUND - NOSUCH.TXT\r\n*\r\r\nA>");
     same(text(m_data(r, 0, "A       TXT")), "ONE\r\n");
     failed(r); // an error among them: the return code
+    // A ^C at '*' (function 10's warm boot) after a copy to user 5: the CCP's user again (the CCP
+    // makes its own drive and user current after any program)
+    o = r.to("m:pip", "\r\n*");
+    o += r.to("m:[g5]=m:two.txt", "\r\n*");
+    r.type("\x03");
+    CHECK(r.until("\r\nA>", ms(3000), r.out.size() - 2));
+    same(r.cmd("dir m:two.txt"), "dir m:two.txt\r\nM: TWO      TXT\r\nA>"); // still user 0
+    CHECK(r.m_entry(5, "TWO     TXT") >= 0);
 }
 
 namespace

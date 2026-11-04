@@ -1825,7 +1825,7 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   character written. Joined by records, a text source's last record is cut at its first ^Z (`[O]`: not).
 - **Options** (letters, packed or with blanks between, a number straight after its letter; S and Q a string to
   a ^Z): **A** only files whose archive bit is clear, the bit set on each source after its copy; **C** `COPY
-  NAME.TYP (Y/N)?` before each (ours: the Guide gives none); **Dn** a line cut after column n; **E** what is
+  NAME.TYP (Y/N)?` before each file copied to a drive (ours: the Guide gives no words, and joins none); **Dn** a line cut after column n; **E** what is
   written echoed to the console; **F** form feeds dropped; **Gn** the source's user (the destination's, after
   it), 0-15, else `INVALID USER NUMBER`; **H** each line an Intel hex record checked (`:`, hex digits, the length,
   the checksum): `INVALID DIGIT`, `CHECKSUM ERROR`, `RECORD TOO LONG` (over 80 characters) or `UNEXPECTED END OF HEX
@@ -1844,6 +1844,32 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   is the question above), `USER ABORTED` (^C, between records or characters: the temporary file deleted); a wrong
   password, and the BDOS's other errors, the BDOS's own message (error mode $FE, as 4b1's utilities). After
   an error in the `*` mode the next command is asked for; from a tail, the end. The return code is $FF00 after any.
+
+**Proposed (4b2, as built, 2026-11-04)** ([`oodos/utils/pip.s`](../oodos/utils/pip.s); the plan above is what was
+built, and these are the details):
+
+- **No BDOS or BIOS change.** PIP.COM is 8,661 bytes. It keeps its pointers in zero page (four bytes), unlike
+  `cmd.inc` and `util.inc`, which write theirs into their own code.
+- **One pipeline.** The command is split at `=` and `,` outside option lists (an S or Q string may hold either),
+  each entry's options a byte a letter, its password kept apart from its FCB (an open overwrites FCB bytes 16-31).
+  By records, a source is read a record ahead, so its last record is known (joined text is cut at its ^Z there);
+  by characters, each byte goes through Z, S, H or F/L/U, then N, T, D and P, then E. Everything a file
+  destination gets goes into a record buffer, written to `NAME.$$$` with a CRC kept for V.
+- **Users.** Each entry's user is its G, else the one PIP started in. PIP sets the BDOS's current user before every
+  call, since the BDOS finds a file's next extent in the current user, and puts the starting user back at the end.
+- **^C:** PIP sets console mode bit 0 while it runs, as `CM_PAGE` does, so function 11 reports only ^C and function
+  6 then reads it. In mode 0, 11 keeps a waiting key for function 1, and 6 would never see it. It puts the mode back
+  at the end. A ^C typed while the CCP is still loading PIP waits for the CCP, as in CP/M.
+- **Tests:** `test_oodos_utils_pip`, ten cases. They compare PIP's output line for line, and read what it leaves on
+  M: back from M:'s directory and blocks: copies and joins, wildcards and their list, users, attributes, the
+  read-only question, V, A, C, passwords both ways, the `*` mode, every device, every character option, H and I,
+  a file past an extent, a full disk, a read-only `NAME.$$$`, and ^C. `test_oodos_card` runs PIP from the card on
+  A: and saves the card for `interop.sh --pip`, where cpmtools reads the copies back with `cpmcp`. Both are seen
+  to fail on a fault put in on purpose.
+- **Found on the way:**
+  - OODOS's console takes a typed LF as a CR, so `CON:`'s "CR and LF for a new line" gives CR CR.
+  - The User's Guide lists K among the options that keep a transfer by records, and says nothing more about it.
+    PIP takes K as leaving out the `COPYING -` list (ours).
 
 ## RSXs and programs ##
 

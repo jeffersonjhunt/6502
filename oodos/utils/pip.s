@@ -168,6 +168,7 @@ command:
         stx     cmdsp
         stz     tmpopen
         stz     nent
+        stz     ddrive
         jsr     split
         jsr     check
         lda     e_kind                  ; the destination's kind
@@ -731,6 +732,8 @@ todrive:
 @differ:
         lda     #K_FILE                 ; each copy a file, named as its source
         sta     e_kind
+        lda     #1                      ; (a drive alone: the source's password too)
+        sta     ddrive
         ldx     #1
         jsr     collect                 ; the names, read first
         lda     ncount
@@ -2142,9 +2145,11 @@ passwd: lda     e_pw
         dey
         bpl     :-
         bra     @set
-@src:   lda     single
+@src:   lda     ddrive                  ; d: alone: the source's, if given
         beq     @none
-        lda     e_pw + 8                ; the source's, if given
+        lda     single
+        beq     @none
+        lda     e_pw + 8
         cmp     #' '
         beq     @none
         lda     e_user + 1              ; its mode (102)
@@ -2357,6 +2362,7 @@ nleft:  .res    2
 listing: .res   1                       ; 1: COPYING - and the names
 curname: .res   2                       ; a wildcard copy's directory bytes (0 high: none)
 single: .res    1                       ; 1: one file copied alone
+ddrive: .res    1                       ; 1: the destination was a drive alone
 cur:    .res    1                       ; the source being copied
 charmode: .res  1
 ieof:   .res    1

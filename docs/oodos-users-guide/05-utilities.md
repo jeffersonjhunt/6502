@@ -66,7 +66,7 @@ In square brackets after a source (the destination takes `[Gn]` alone); letters 
 number straight after its letter:
 
 - **A** only files not backed up since they last changed (archive bit clear); each is marked backed up after.
-- **C** asks `COPY NAME.TYP (Y/N)?` before each file.
+- **C** asks `COPY NAME.TYP (Y/N)?` before each file copied to a drive.
 - **Dn** cuts each line after column n.
 - **E** shows what is written on the console as it goes.
 - **F** drops form feeds.
