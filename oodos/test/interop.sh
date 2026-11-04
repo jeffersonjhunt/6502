@@ -6,7 +6,7 @@
 #
 #   docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath DIR):/c:ro" \
 #       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
-#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils]
+#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils | --pip]
 #
 # CARD is a raw card image or a sparse one (oo1-sparse, as
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
@@ -29,6 +29,11 @@
 # 0; SET asked the label for creation and update stamps again and named it
 # OODOS.4B1 (its mode 0xB1). Every file cpmls -F lists, in every user, is
 # matched against a table of its attributes and protection, its stamps 0.
+# With --pip it is the card test_oodos_card saved after phase 4b2's PIP
+# (OODOS_PIP_OUT): 0:COPY.TXT a copy of README.TXT, 5:PATTERN.BIN of
+# PATTERN.BIN (two entries), 0:JOINED.TXT README.TXT and 3:USER3.TXT joined,
+# 0:LOWER.TXT README.TXT in lower case; each out by cpmcp against what it
+# should be, and no NAME.$$$ left.
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
@@ -94,6 +99,10 @@ python3 "$work/gen.py" "$work/OO1.BIN" 33280 5
 python3 "$work/text.py" "$work/README.TXT" 'THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.' \
     'OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD.'
 python3 "$work/text.py" "$work/USER3.TXT" 'A FILE IN USER 3.'
+python3 "$work/text.py" "$work/JOINED.TXT" 'THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.' \
+    'OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD.' 'A FILE IN USER 3.'
+python3 "$work/text.py" "$work/LOWER.TXT" 'this is an oodos drive, made on linux by cpmtools.' \
+    'oodos reads it as drive a:, sd unit 1, /oodos/a.img on the card.'
 
 offset=$(python3 "$work/card.py" "$card" "$work/card.img") || fail "$card: not a card image"
 img="$work/A.IMG"
@@ -125,7 +134,16 @@ echo "$listing" | sed 's/^/     /'
 stamped() {
   echo "$listing" | grep -E "^$1 +$2 .* $3  $4 *\$" >/dev/null || fail "$1.$2: not stamped update $3, created $4"
 }
-if [ "$written" != --ccp ] && [ "$written" != --utils ]; then
+if [ "$written" = --pip ]; then
+  for f in 0:COPY.TXT:README.TXT 5:PATTERN.BIN:PATTERN.BIN 0:JOINED.TXT:JOINED.TXT 0:LOWER.TXT:LOWER.TXT; do
+    name=${f%:*}
+    cpmcp -f oodos-8m "$img" "$name" "$work/out" || fail "cpmcp $name"
+    cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:}"
+  done
+  ok "PIP's copies, out by cpmcp: COPY.TXT, 5:PATTERN.BIN, JOINED.TXT and LOWER.TXT as they should be"
+  if echo "$listing" | grep -E '^\S+ +\$\$\$ ' >/dev/null; then fail "cpmls -F lists a NAME.\$\$\$"; fi
+  ok "cpmls -F: no NAME.\$\$\$ left"
+elif [ "$written" != --ccp ] && [ "$written" != --utils ]; then
   for f in 'README TXT' 'PATTERN BIN' 'USER3 TXT' 'SMALL BIN'; do
     stamped $f '10/26/26 12:00' '10/26/26 12:00'
   done

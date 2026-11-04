@@ -205,6 +205,7 @@ python3 text.py demo/README.TXT \
     "  DIRS            the programs: HELLO, SHOW, DATE and the rest" \
     "  CLS             clear the screen and list the files; CLEAR only clears" \
     "  TYPE README.TXT this file" \
+    "  PIP B:=*.TXT    copy files, here the .TXTs to drive B:" \
     "  HELLO           a small program, run from A:" \
     "  SHOW            the drives and their space" \
     "  DATE            the date and time" \
