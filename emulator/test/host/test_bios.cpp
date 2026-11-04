@@ -90,6 +90,10 @@ namespace
             }
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
+            // The clock starts on a second, not at the host's time: its ticks then fall at the same cycles
+            // every run (a whole second of cycles apart), so a test that watches for one, or for none, can't
+            // be caught by a tick landing at a moment of the host's choosing.
+            opt.rtc_time = Ds3231::Time{2026, 10, 26, 12, 0, 0, 2}; // a Monday
             opt.apple_rom = std::move(apple_rom);
             opt.apple_chars = std::move(apple_chars);
             std::string error;
