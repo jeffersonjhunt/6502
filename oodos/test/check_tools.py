@@ -159,8 +159,13 @@ def header_checks(hello):
     ok(hc["rsxcount"] == 0 and hc["rsxrec"] == 0, "hello.com: no attached RSXs")
     n = mkprl.bitmap_len(hp["size"])
     pr, zr = mkprl.bitmap_records(hp["size"])
-    ok((pr, zr) == (2, 3) and len(prl) == 4 * 128 and not any(prl[16 + hp["size"]:256]),
-       "hello.prl: %d bytes of image, zeros to record 2, the page bitmap there, the zero page's at 3" % hp["size"])
+    # Worked out here, not by mkprl: the header and image in whole records, then each bitmap, a bit a byte.
+    want_pr = -(-(16 + hp["size"]) // 128)
+    want_zr = want_pr + -(-((hp["size"] + 7) // 8) // 128)
+    ok((pr, zr) == (want_pr, want_zr) and len(prl) == (2 * want_zr - want_pr) * 128
+       and not any(prl[16 + hp["size"]:pr * 128]),
+       "hello.prl: %d bytes of image, zeros to record %d, the page bitmap there, the zero page's at %d"
+       % (hp["size"], want_pr, want_zr))
     pages = sum(bin(b).count("1") for b in prl[pr * 128:pr * 128 + n])
     zps = sum(bin(b).count("1") for b in prl[zr * 128:zr * 128 + n])
     ok(pages > 0 and zps > 0 and not any(prl[pr * 128 + n:zr * 128]) and not any(prl[zr * 128 + n:]),
@@ -215,8 +220,10 @@ def loader_checks(hello, tmp):
         dirty[r * 128 + n:(r + 1) * 128] = bytes([0xFF]) * (128 - n)
     got, changed = under_sentinels(bytes(dirty), 0x80)
     ok(got == mkprl.load(prl, 0x80) and not changed, "hello.prl with its bitmaps' padding all ones: the padding is ignored")
-    refused(lambda: mkprl.load(prl[:3 * 128], 0x40), "hello.prl without its zero page bitmap's record", "ends at record 3")
-    refused(lambda: mkprl.load(prl[:2 * 128], 0x40), "hello.prl without its bitmaps", "before its bitmaps")
+    pr, zr = mkprl.bitmap_records(mkprl.header(prl)["size"])
+    refused(lambda: mkprl.load(prl[:zr * 128], 0x40), "hello.prl without its zero page bitmap's record",
+            "ends at record %d" % zr)
+    refused(lambda: mkprl.load(prl[:pr * 128], 0x40), "hello.prl without its bitmaps", "before its bitmaps")
     # The refusals.
     refused(lambda: mkprl.load(prl, 0x80, 0xEE), "hello.prl with its 3 bytes of zero page at $EE", "below $F0")
     ok(mkprl.load(prl, 0x80, 0xED) == link(hello + ".o", PRL_CFG, os.path.join(tmp, "d"), 0x80, 0xED)[16:],
