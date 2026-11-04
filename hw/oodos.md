@@ -1788,6 +1788,63 @@ the choices it left open marked ours):
   `ORDER` and `SUB` wait for SUBMIT (phase 5); DEVICE's baud rates and XON wait for a BIOS that sets them;
   `CONOUT:=LPT` or `CONIN:=NULL` takes the console away, as in CP/M 3.
 
+### PIP, phase 4b2 ###
+
+**Proposed (4b2, 2026-11-04)** (the User's Guide's PIP, 5-63 to 5-76, and Appendix A's messages; where it is
+silent the choice is ours, and says so). `oodos/utils/pip.s`, a utility as 4b1's are (`cmd.inc`, `util.inc`, SYS
+in user 0 on the card); the owner chose to implement every option, H and I among them, and the banner
+`OODOS PIP 0.2`.
+
+- **Forms:** `dest=src{,src}`, where a destination is a file specification (a password after `;`), a drive `d:`,
+  or a device, with `[Gn]` its only option; a source a file specification, a drive (the short form), or a
+  device, each with an option list.
+  - **One file:** `d:=src`, `dest=d:` (the name from the other side), `dest=src` (renamed on the way).
+  - **Wildcards:** `d:=*.TYP`, each match copied under its own name, `COPYING -` and a line a name. A wildcard
+    destination is refused (ours) unless it is all wildcards (`B:*.*`, the same as `B:`); a wildcard source with a
+    file destination too (ours: what it would mean isn't the Guide's).
+  - **Joining:** `dest=a,b,c`, left to right. A source of the destination's own drive, user and name is refused
+    (ours), and so is a copy onto itself (`B:=B:X`, the same user): `INVALID FORMAT`.
+  - **No tail:** `OODOS PIP 0.2`, then a `*` prompt a command, until an empty line (or ^C) ends it. The line is
+    taken in capitals, except the strings of S and Q (ours: from the tail they are in capitals, as the CCP makes
+    every tail).
+- **Devices:** `CON:` (in: function 1, typed and echoed, ^Z ends it; out: 2), `AUX:` (3 and 4), `LST:` (5),
+  `PRN:` (LST: with `[T8 N P60]` on each source), `NUL:` (a source: 64 zero bytes), `EOF:` (a source: one ^Z). A
+  device as a destination of NUL: or EOF:, or LST: or PRN: as a source: `INVALID DESTINATION`/`INVALID SOURCE`. On
+  OODOS CON: is CRT and TTY, AUX: TTY, LST: LPT (DEVICE moves them; LPT takes and drops, no parallel port yet).
+- **How a file is written:** to `NAME.$$$` on the destination's drive and user (one there deleted first; a
+  read-only one: `CAN'T DELETE TEMP FILE`, the end), then, closed: the destination deleted if there (read-only:
+  `DESTINATION IS R/O, DELETE (Y/N)?`, Y deletes it, N is `**NOT DELETED**` and the temporary file's deletion;
+  `[W]` deletes it without asking), and the temporary file renamed. A failed write (a full disk) is `DISK WRITE
+  ERROR - NAME.TYP` and the temporary file deleted; a read-only drive `R/O DISK` before anything is written.
+- **Attributes:** a file copied alone takes its source's RO, SYS and F1-F4 (and its archive bit clear, so it is
+  backed up again: ours); a joined one none (ours). **Passwords:** a source's after `;` is given to the BDOS to
+  open it; a destination with one gets it in READ mode (the XFCB, 103); `d:` alone gives the copy its source's
+  password and mode, when the source's was given (ours: one not given can't have opened it).
+- **Block or character:** a transfer is by records unless a source has an option other than A, C, Gn, K, O, R,
+  V and W, or a device is on either side; then by characters, to the source's first ^Z, a ^Z after the last
+  character written. Joined by records, a text source's last record is cut at its first ^Z (`[O]`: not).
+- **Options** (letters, packed or with blanks between, a number straight after its letter; S and Q a string to
+  a ^Z): **A** only files whose archive bit is clear, the bit set on each source after its copy; **C** `COPY
+  NAME.TYP (Y/N)?` before each (ours: the Guide gives none); **Dn** a line cut after column n; **E** what is
+  written echoed to the console; **F** form feeds dropped; **Gn** the source's user (the destination's, after
+  it), 0-15, else `INVALID USER NUMBER`; **H** each line an Intel hex record checked (`:`, hex digits, the length,
+  the checksum): `INVALID DIGIT`, `CHECKSUM ERROR`, `RECORD TOO LONG` (over 80 characters) or `UNEXPECTED END OF HEX
+  FILE`, each with the file's name, the copy ended (ours: the Guide's `CORRECT ERROR, TYPE RETURN OR CTRL-Z`
+  is for a paper-tape reader's second try, which a file can't give); **I** H, and `:00` records dropped; **K** no
+  `COPYING` list (ours: the Guide names K among the options that keep a record transfer, and no more); **L** and
+  **U** letters to lower or upper case; **N** a line number at each line's start, `     1: ` (six places and a
+  colon: ours), **N2** `000001` and a tab; **O** no ^Z ends a file; **Pn** a form feed at the start and every n
+  lines (P or P1: 60); **Qs** the copy ends after the string s, **Ss** it starts at s (both kept), else `QUIT NOT
+  FOUND`/`START NOT FOUND` at the source's end; **R** SYS files read (found by wildcards too); **Tn** tabs to
+  every nth column; **V** the destination read back and compared (a CRC of what was written, ours), `VERIFY ERROR
+  - NAME.TYP`; **W** read-only destinations deleted without asking; **Z** bit 7 of each character cleared. In what
+  order (ours): Z, S and Q on the source's characters, then F, L or U, D, T, N and P on what is written, E last.
+- **Errors** (Appendix A's): `INVALID FORMAT`, `INVALID SEPARATOR`, `BAD PARAMETER`, `INVALID USER NUMBER`, `FILE
+  NOT FOUND - NAME.TYP`, `R/O DISK`, `R/O FILE` (a destination read-only when asked about it
+  is the question above), `USER ABORTED` (^C, between records or characters: the temporary file deleted); a wrong
+  password, and the BDOS's other errors, the BDOS's own message (error mode $FE, as 4b1's utilities). After
+  an error in the `*` mode the next command is asked for; from a tail, the end. The return code is $FF00 after any.
+
 ## RSXs and programs ##
 
 **Decided (2026-10-26): CP/M 3's split. `.COM` files load at a fixed address; `.PRL` files are relocatable.**
