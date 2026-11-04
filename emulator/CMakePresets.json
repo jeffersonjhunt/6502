@@ -91,9 +91,6 @@
       "configurePreset": "fast",
       "output": {
         "outputOnFailure": true
-      },
-      "execution": {
-        "jobs": 16
       }
     },
     {
