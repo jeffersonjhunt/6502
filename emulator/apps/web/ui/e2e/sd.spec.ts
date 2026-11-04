@@ -35,7 +35,7 @@ async function command(page: Page, line: string) {
   await page.keyboard.press("Enter");
 }
 
-test("a FAT card goes in, C809R lists it and C80CR boots its BOOT.BIN", async ({ page }) => {
+test("a FAT card goes in, C809R lists it and C80CR boots its BOOT.BIN", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   await openSettings(page);
   await expect(page.getByTestId("sd-bar")).toBeVisible();

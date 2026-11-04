@@ -5,7 +5,7 @@ import { powerOn } from "./ui";
 // version (so a cache cannot serve an old one), and a touch screen is told
 // it needs a keyboard.
 
-test("the core and its wasm are fetched with the build's version", async ({ page }) => {
+test("the core and its wasm are fetched with the build's version", { tag: "@smoke" }, async ({ page }) => {
   const core: string[] = [];
   page.on("request", (r) => {
     if (r.url().includes("/core/")) core.push(r.url());

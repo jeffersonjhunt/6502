@@ -21,7 +21,7 @@ async function addBreakpoint(page: Page, text: string) {
   await expect(page.getByTestId("bp-row").last()).toContainText(text.toUpperCase().replace(/^\$/, ""));
 }
 
-test("CPU tab: live registers; halted, Step moves PC one instruction", async ({ page }) => {
+test("CPU tab: live registers; halted, Step moves PC one instruction", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   await page.locator('[data-tab="cpu"]').click();
   const pcNow = async () => parseInt((await page.getByTestId("reg-pc").textContent()) ?? "", 16);

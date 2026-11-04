@@ -26,6 +26,16 @@
       }
     },
     {
+      "name": "fast",
+      "displayName": "Optimised + tests, no sanitizers: the quick tier (tools/check.sh quick)",
+      "binaryDir": "${sourceDir}/build/fast",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "EMU_SANITIZE": "OFF",
+        "EMU_BUILD_TESTS": "ON"
+      }
+    },
+    {
       "name": "trace",
       "displayName": "Debug with EMU_LOGV tracing compiled in",
       "inherits": "dev",
@@ -56,6 +66,10 @@
       "configurePreset": "release"
     },
     {
+      "name": "fast",
+      "configurePreset": "fast"
+    },
+    {
       "name": "trace",
       "configurePreset": "trace"
     },
@@ -68,6 +82,13 @@
     {
       "name": "dev",
       "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "fast",
+      "configurePreset": "fast",
       "output": {
         "outputOnFailure": true
       }
