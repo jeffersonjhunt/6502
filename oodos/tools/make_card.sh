@@ -41,14 +41,13 @@
 # The demo card (demo.sparse), the one the WebUI puts in its slot at each
 # visit (its build makes public/core/demo-card.img.gz of it): the same
 # layout, the FAT volume labelled OODOS DEMO, and only what a visitor runs,
-# nothing of the tests':
+# nothing of the tests'. Its stamps, FAT and CP/M, are the date of the last
+# commit to what goes on it (the oodos/ files copied in below and
+# backplane.inc, the committer's date in UTC), so a visitor sees when it was
+# made and the same commit still makes the same card; the test card keeps its
+# fixed moment, which the tests read:
 #
 #   /BOOT.BIN, /OODOS/DRIVES.TXT   as the test card's
-# Its stamps, FAT and CP/M, are the date of the last commit to its sources
-# (oodos/ and backplane.inc, the committer's date in UTC), so a visitor sees
-# when it was made and the same commit still makes the same card; the test
-# card keeps its fixed moment, which the tests read:
-#
 #   /OODOS/A.IMG       oodos-8m, label mode 0x31: README.TXT (what to try,
 #                      in our words), OODOS.SYS, HELLO.COM and the utilities
 #                      (SYS, as on the test card)
@@ -62,8 +61,11 @@ set -eu
 image=debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/emulator/test/host/sd"
-src="oodos backplane/bios/backplane.inc"
-# shellcheck disable=SC2086 # src is two paths
+# What the container copies in (below), and so what's on the cards: a commit
+# elsewhere in oodos/ (its tests, its README) leaves the stamp as it was.
+src="oodos/Makefile oodos/include oodos/sys oodos/ldr oodos/examples oodos/cfg oodos/tools
+     oodos/utils oodos/card oodos/diskdefs backplane/bios/backplane.inc"
+# shellcheck disable=SC2086 # src is a list of paths
 stamp=$(cd "$root" && TZ=UTC git -c safe.directory='*' log -1 --format=%cd \
     --date=format-local:'%Y-%m-%d %H:%M:%S' -- $src)
 if [ -z "$stamp" ]; then
@@ -72,7 +74,7 @@ if [ -z "$stamp" ]; then
 fi
 # shellcheck disable=SC2086
 if [ -n "$(cd "$root" && git -c safe.directory='*' status --porcelain -- $src)" ]; then
-    echo "make_card: $src have uncommitted changes; the demo card is stamped $stamp, the last commit's" >&2
+    echo "make_card: the card's sources have uncommitted changes; the demo card is stamped $stamp, the last commit's" >&2
 fi
 echo "the demo card's stamps: $stamp"
 docker run --rm -i -e DEMO_STAMP="$stamp" -v "$(hostpath "$root/oodos"):/o:ro" \

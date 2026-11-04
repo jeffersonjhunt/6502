@@ -58,13 +58,20 @@ putstr: lda     #0
         bne     @loop
 @done:  rts
 
-; The command tail, a count then the characters, at the DMA buffer. The '$'
-; goes after them, so a count over 126 is cut to 126 to keep it in the buffer.
+; The command tail, a count then the characters, at the DMA buffer, or
+; " (none)" for none. The '$' goes after them, so a count over 126 is cut to
+; 126 to keep it in the buffer.
 tail:   lda     #<label
         ldx     #>label
         ldy     #C_WRITESTR
         jsr     BDOS
-        lda     #<(BP_DMA + 1)
+        lda     BP_DMA
+        bne     @some
+        lda     #<none
+        ldx     #>none
+        ldy     #C_WRITESTR
+        jmp     BDOS
+@some:  lda     #<(BP_DMA + 1)
         sta     ptr
         lda     #>(BP_DMA + 1)
         sta     ptr+1
@@ -85,6 +92,7 @@ crlf:   lda     #<nl
 msg:    .byte   "Hello from OODOS, a whole line by C_WRITESTR", 13, 10, '$'
 msg2:   .byte   "Hello from OODOS, a character at a time by C_WRITE", 13, 10, '$'
 label:  .byte   "The command tail:$"
+none:   .byte   " (none)$"
 nl:     .byte   13, 10, '$'
 table:  .word   tail, crlf
 tabend:

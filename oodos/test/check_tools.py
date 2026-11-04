@@ -417,9 +417,13 @@ def run_checks(hello, tmp):
                            capture_output=True)
         after = read(os.path.join(tmp, "after"))
         n = min(count, 126)
-        ok(p.returncode == 0 and p.stdout == lines + chars[:n] + b"\r\n" and after[1 + n] == ord("$")
+        if n:
+            said, ended, how = chars[:n], after[1 + n] == ord("$"), "prints %d, its '$' at $%04X" % (n, 0x281 + n)
+        else:  # no tail: " (none)", and the buffer left as it was
+            said, ended, how = b" (none)", after[1:128] == chars, "prints (none), the buffer untouched"
+        ok(p.returncode == 0 and p.stdout == lines + said + b"\r\n" and ended
            and after[0x80:0x80 + len(image)] == image,
-           "hello with a %d-character tail prints %d, its '$' at $%04X, the image unchanged" % (count, n, 0x281 + n))
+           "hello with a %d-character tail %s, the image unchanged" % (count, how))
 
 
 def main():

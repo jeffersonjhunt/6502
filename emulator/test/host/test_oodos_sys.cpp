@@ -229,7 +229,7 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
     CHECK_EQ(r.nb(3), 62);
     // Again, so the warm boot leaves things as cold boot did.
     const std::string again = r.go("hello.com");
-    CHECK(again.find(HELLO_SAYS + "\r\n\r\nA>") != std::string::npos);
+    CHECK(again.find(HELLO_SAYS + " (none)\r\n\r\nA>") != std::string::npos);
 }
 
 TEST(biostest_reaches_every_bios_entry_through_function_50)

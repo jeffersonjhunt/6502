@@ -2057,9 +2057,9 @@ copyright and MIT notice.
 - **The demo card** (2026-11-03): `make_card.sh` makes a second card in the same run, `sd/demo.sparse`, which the
   WebUI puts in its SD slot at every visit, so a visitor's power-on boots OODOS: the same layout, A: only OODOS.SYS,
   HELLO.COM, the utilities and a README of what to try, B: empty, nothing of the tests'. Its files are stamped with
-  the date of the last commit to its sources (`oodos/` and `backplane.inc`), not the test card's fixed
-  moment, so a visitor sees when it was made; the card is committed after its sources, so the same commit still
-  makes the same card. `test_oodos_boot` checks it
+  the date of the last commit to what goes on it (the `oodos/` sources make_card copies in, and `backplane.inc`;
+  not oodos/'s tests or README), not the test card's fixed moment, so a visitor sees when it was made; the card is
+  committed after its sources, so the same commit still makes the same card. `test_oodos_boot` checks it
   is what today's sources build and holds nothing else; `test_oodos_e2e` boots it from power-on and runs its
   README's examples.
 - **Interoperability, both ways:**
