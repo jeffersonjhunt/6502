@@ -86,11 +86,29 @@ TEST(oodos_sys_is_built_to_its_format)
                 s.segments[1].second.size(), s.segments[2].second.size(), s.segments[3].second.size());
 }
 
+/// The ROM BIOS's version, as its greeting in bios.rom has it ("0.10"): what the boot status shows.
+std::string bios_version()
+{
+    const std::string rom = read_text(EMU_BIOS_ROM), key = "BACKPLANE BIOS ";
+    const size_t at = rom.find(key);
+    if (at == std::string::npos)
+        return "<no greeting in bios.rom>";
+    const size_t from = at + key.size();
+    return rom.substr(from, rom.find_first_of(std::string(" \r\0", 3), from) - from);
+}
+
+/// The boot status's three lines (cold.s's STATUS) for backplane.machine with A: and B: of 8 MB.
+std::string boot_status()
+{
+    return "BIOS " + bios_version() + "   47K TPA\r\nA: 8M   B: 8M   M: 128K\r\n"
+           "Cards: video, sound, SD, USB keyboard, DMA, panel\r\n";
+}
+
 TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
 {
     Booted r;
     REQUIRE(r.ok);
-    CHECK(r.out.find("\r\nOODOS 0.2  2026-10-27 12:00:00\r\n\r\nA>") != std::string::npos);
+    CHECK(r.out.find("\r\nOODOS 0.2  2026-10-27 12:00:00\r\n" + boot_status() + "\r\nA>") != std::string::npos);
     // Waiting for a line, in the BDOS: the system's windows.
     CHECK_EQ(r.nb(0), 31);
     CHECK_EQ(r.nb(1), 60);
@@ -104,9 +122,39 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     CHECK_EQ(r.phys(0x0204) | r.phys(0x0205) << 8, 0xBFFD);
     CHECK_EQ(r.phys(0xBFFD), 0x4C);
     CHECK_EQ(r.phys(0xBFFE) | r.phys(0xBFFF) << 8, sym("STUB"));
-    // The banner on the screen too.
+    // The banner on the screen too, and the status under it.
     CHECK_EQ(r.row(1), std::string("OODOS 0.2  2026-10-27 12:00:00"));
-    CHECK_EQ(r.row(3), std::string("A>"));
+    CHECK_EQ(r.row(2), "BIOS " + bios_version() + "   47K TPA");
+    CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K"));
+    CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, USB keyboard, DMA, panel"));
+    CHECK_EQ(r.row(6), std::string("A>"));
+}
+
+TEST(the_boot_status_says_what_it_finds_and_what_it_doesnt)
+{
+    // Fewer cards: the SD card and the DMA controller OODOS boots by, and the serial card. Its drives as
+    // the card has them: A: alone, then B: of 32 MB.
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine"), fewer;
+    std::istringstream lines(text);
+    for (std::string l; std::getline(lines, l);)
+        if (l.rfind("video", 0) != 0 && l.rfind("sound", 0) != 0 && l.rfind("usb", 0) != 0 && l.rfind("console", 0) != 0)
+            fewer += l + "\n";
+    Rig r(fat16_card({{"A.IMG", 16384u * 512}, {"BIG.IMG", 65536u * 512}}), {}, fewer);
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/BIG.IMG") == 0);
+    REQUIRE(r.boot());
+    CHECK(r.out.find("\r\nBIOS " + bios_version() + "   47K TPA\r\nA: 8M   B: 32M   M: 128K\r\nCards: SD, DMA\r\n\r\nA>") !=
+          std::string::npos);
+    // No ROM greeting in block 63 (a ROM of the owner's without one, or a loader's own): "?".
+    Rig q;
+    REQUIRE(q.ok);
+    REQUIRE(q.mount(1, "/OODOS/A.IMG") == 0);
+    for (uint32_t a = 63 * 0x4000 + 0x0800; a < 64 * 0x4000; ++a)
+        if (q.phys(a) == 'B')
+            q.poke(a, uint8_t{'b'}); // every B changed, so no greeting is found
+    REQUIRE(q.boot());
+    CHECK(q.out.find("\r\nBIOS ?   47K TPA\r\nA: 8M   M: 128K\r\n") != std::string::npos);
 }
 
 TEST(m_is_formatted_as_mkfs_cpm_t_with_mode_0x31)
@@ -406,7 +454,7 @@ TEST(a_clock_past_2155_is_no_time)
     REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
     r.set_time(2156, 3, 1, 10, 20, 30);
     REQUIRE(r.boot());
-    CHECK(r.out.find("\r\nOODOS 0.2  \r\n\r\nA>") != std::string::npos);
+    CHECK(r.out.find("\r\nOODOS 0.2  \r\nBIOS ") != std::string::npos); // no date, then the status
     std::string o = r.go("timetest.com");
     const std::string t = field(o, "TIME");
     CHECK_EQ(t.substr(t.size() - 2), std::string("FF"));

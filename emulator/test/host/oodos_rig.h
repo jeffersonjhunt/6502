@@ -270,13 +270,16 @@ namespace oodos_rig
         bool ok{false};
 
         /// `apple_rom`: a IIe ROM image's path for the cartridge (none by default), as MachineOptions takes it.
-        explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"), std::vector<std::string> apple_rom = {})
+        /// `machine_text`: a machine description in place of backplane.machine's (fewer cards, say).
+        explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"), std::vector<std::string> apple_rom = {},
+                     const std::string &machine_text = {})
         {
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
             opt.apple_rom = std::move(apple_rom);
             std::string error;
-            machine = Machine::build(read_text(EMU_MACHINE_DIR "/backplane.machine"), "backplane.machine", opt, error);
+            machine = Machine::build(machine_text.empty() ? read_text(EMU_MACHINE_DIR "/backplane.machine") : machine_text,
+                                     "backplane.machine", opt, error);
             if (machine)
                 console = make_console(*machine, error);
             if (!console)
@@ -325,7 +328,7 @@ namespace oodos_rig
                 }
                 if (machine->bus().irq())
                     cpu->irq();
-                if (machine->usb_card()->take_nmi())
+                if (UsbCard *usb = machine->usb_card(); usb && usb->take_nmi()) // a machine may have none
                     cpu->nmi();
                 if (cpu->cycles() % 64 > 7)
                     continue;

@@ -1833,6 +1833,34 @@ name, such as the `CLS.COM` many CP/M disks have, runs only with a drive before 
 alone is the built-in, a drive and the name the program (above, "The CCP"). Tested by `test_oodos_ccp`; WOZMON's
 clear by `test_oodos_utils_rom`.
 
+### The boot status ###
+
+**Done (2026-11-03),** asked for by the owner, who chose the layout: three lines under the cold boot's banner,
+before the first prompt, on the serial line and the screen alike (`oodos/sys/cold.s`, STATUS):
+
+```
+OODOS 0.2  2026-11-03 12:00:00
+BIOS 0.10   47K TPA
+A: 8M   B: 8M   M: 128K
+Cards: video, sound, SD, USB keyboard, DMA, panel
+```
+
+- **BIOS:** the word after `BACKPLANE BIOS ` in the ROM BIOS's own greeting, found in its copy in RAM block 63
+  (where the ROM copies itself at reset) through W1, then W1 the BDOS's again before anything is printed (the
+  screen's output takes W1). So the ROM says which it is and no BIOS changed for it; `?` when there's no greeting
+  there (a ROM of the owner's without one). The owner chose this over a version at a fixed address, a BIOS
+  release.
+- **TPA:** what a program gets, `$0300` to the BDOS's entry (`BDOS_ENTRY`, `$BFFD`), in whole KB: 47K.
+- **Drives:** each the BIOS's drive table has, A-P, its size from its DPB, (DSM + 1) blocks of `128 << BSH`
+  bytes, in MB when it is whole MB (8M, 32M), else in KB (M:'s 128K).
+- **Cards:** each whose ID register reads its card's ID, in that order: the video card, the sound card, the SD
+  card, the USB keyboard, the DMA controller, the front panel; `none` if none. The serial card has no ID
+  register, and the console runs on it.
+
+574 bytes of cold boot, in block 62's code window. Tested by `test_oodos_sys`: the banner and the status on both
+outputs, the BIOS's version as `bios.rom`'s greeting has it, a machine with only the SD card and the DMA
+controller and drives of 8 MB and 32 MB, and a block 63 with no greeting.
+
 ### The program header ###
 
 **Decided (2026-10-26).** 16 bytes at the start of every `.COM` and `.PRL`, in the file only: the image after it is what
