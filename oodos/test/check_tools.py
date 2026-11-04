@@ -399,7 +399,8 @@ def run_checks(hello, tmp):
     image = read(hello + ".com")[16:]
     with open(os.path.join(tmp, "hello.bin"), "wb") as f:
         f.write(image)
-    line = b"Hello from OODOS\r\n"
+    lines = (b"Hello from OODOS, a whole line by C_WRITESTR\r\n"
+             b"Hello from OODOS, a character at a time by C_WRITE\r\nThe command tail:")
     chars = bytes(0x41 + i % 26 for i in range(127))
     for count in (0, 5, 126, 127, 255):
         with open(os.path.join(tmp, "dma"), "wb") as f:
@@ -409,7 +410,7 @@ def run_checks(hello, tmp):
                            capture_output=True)
         after = read(os.path.join(tmp, "after"))
         n = min(count, 126)
-        ok(p.returncode == 0 and p.stdout == line + line + chars[:n] + b"\r\n" and after[1 + n] == ord("$")
+        ok(p.returncode == 0 and p.stdout == lines + chars[:n] + b"\r\n" and after[1 + n] == ord("$")
            and after[0x80:0x80 + len(image)] == image,
            "hello with a %d-character tail prints %d, its '$' at $%04X, the image unchanged" % (count, n, 0x281 + n))
 

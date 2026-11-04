@@ -335,7 +335,7 @@ TEST(a_line_owed_is_counted_for_paging_and_a_utilitys_last_line_is_the_prompts)
     same(r.out.substr(from), "GO P 9\r\nLINE 1\r\nLINE 2\r\nLINE 3\r\nPress a key for more\r                    \r"
                              "LINE 4\r\nLINE 5\r\nLINE 6\r\nPress a key for more\r                    \r"
                              "LINE 7\r\nLINE 8\r\nLINE 9\r\nA>");
-    same(r.cmd(":hello"), ":hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"); // done: 0
+    same(r.cmd(":hello"), ":hello\r\n" + HELLO_SAYS + "\r\n\r\nA>"); // done: 0
     // ^C at the stop: CMD_BREAK, UT_BREAK's $FFFE (':' skips)
     r.poke_com(read_bytes(SYS + "/uttest.com"));
     from = r.out.size();

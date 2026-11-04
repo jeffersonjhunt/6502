@@ -73,8 +73,8 @@ TEST(the_line_is_taken_in_capitals_and_blank_lines_and_comments_do_nothing)
     same(r.cmd("   "), "   \r\r\nA>");
     same(r.cmd("; a comment"), "; a comment\r\r\nA>");
     // The command and its tail in capitals (the Guide, 1.2): HELLO prints its tail back
-    same(r.cmd("hello world"), "hello world\r\nHello from OODOS\r\nHello from OODOS\r\n WORLD\r\n\r\nA>");
-    same(r.cmd("   hello"), "   hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"); // blanks first
+    same(r.cmd("hello world"), "hello world\r\n" + HELLO_SAYS + " WORLD\r\n\r\nA>");
+    same(r.cmd("   hello"), "   hello\r\n" + HELLO_SAYS + "\r\n\r\nA>"); // blanks first
     same(r.cmd("nosuch"), "nosuch\r\nNOSUCH?\r\nA>");                                    // the Guide's DJR?
     same(r.cmd("nosuch tail"), "nosuch tail\r\nNOSUCH?\r\nA>");                          // the keyword alone
     same(r.cmd("dircopysys.com"), "dircopysys.com\r\nDIRCOPYSYS.COM?\r\nA>");            // and the Guide's
@@ -95,14 +95,14 @@ TEST(several_commands_run_in_turn_and_conditional_ones_only_after_a_success)
     REQUIRE(r.ok);
     r.put_m({{0, "ARGS    COM", args("M0  ")}});
     // Each after the first shown after a prompt, as it was typed (the Guide, 4.5)
-    same(r.to("hello!hello", "\r\nA>hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"),
-         "hello!hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    same(r.to("hello!hello", "\r\nA>hello\r\n" + HELLO_SAYS + "\r\n\r\nA>"),
+         "hello!hello\r\n" + HELLO_SAYS + "\r\n\r\nA>hello\r\n" + HELLO_SAYS + "\r\n\r\nA>");
     // NAME? is a failure, so ':' skips; a comment does nothing; then DIR
     same(r.to("nosuch!:hello! ;x!dir *.txt", "A>dir *.txt\r\nA: README   TXT\r\nA>"),
          "nosuch!:hello! ;x!dir *.txt\r\nNOSUCH?\r\nA>:hello\r\r\nA>;x\r\r\nA>dir *.txt\r\nA: README   TXT\r\nA>");
     // A success, so ':' runs
-    same(r.to("dir *.txt!:hello", "A>:hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"),
-         "dir *.txt!:hello\r\nA: README   TXT\r\nA>:hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    same(r.to("dir *.txt!:hello", "A>:hello\r\n" + HELLO_SAYS + "\r\n\r\nA>"),
+         "dir *.txt!:hello\r\nA: README   TXT\r\nA>:hello\r\n" + HELLO_SAYS + "\r\n\r\nA>");
     // A program's failure ($FF00 by 108) is the next's condition; a skipped one keeps the code
     std::string o = r.to("m:args @f!:hello!:hello!m:args", "A>m:args\r\nARGS M0  \r\n");
     CHECK(o.find("RC 0000\r\n\r\nA>:hello\r\r\nA>:hello\r\r\nA>m:args\r\nARGS M0  \r\n") != std::string::npos);
@@ -114,7 +114,7 @@ TEST(several_commands_run_in_turn_and_conditional_ones_only_after_a_success)
     CHECK(o.find("A>hello") == std::string::npos);
     CHECK(o.find("Hello") == std::string::npos);
     // The next command shown past its blanks and tabs too
-    o = r.to("hello!\thello", "\r\nA>hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    o = r.to("hello!\thello", "\r\nA>hello\r\n" + HELLO_SAYS + "\r\n\r\nA>");
     CHECK(o.find("\r\nA>hello\r\nHello from OODOS") != std::string::npos);
     // A '!' with nothing after it, or only blanks, leaves nothing to run: one prompt after
     for (const auto &[line, echo] : {std::pair<std::string, std::string>{"hello!", "hello!"}, {"hello! \t ", "hello! ^I "}})
@@ -122,21 +122,20 @@ TEST(several_commands_run_in_turn_and_conditional_ones_only_after_a_success)
         const size_t from = r.out.size();
         r.cmd(line);
         r.run(ms(500));
-        same(r.out.substr(from), echo + "\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>"); // 10 shows a tab as ^I
+        same(r.out.substr(from), echo + "\r\n" + HELLO_SAYS + "\r\n\r\nA>"); // 10 shows a tab as ^I
     }
     // An empty command between two '!'s is skipped: no empty prompt (ours)
     for (const auto &[line, echo] : {std::pair<std::string, std::string>{"hello!!hello", "hello!!hello"},
                                      {"hello! !hello", "hello! !hello"}})
     {
         const size_t from = r.out.size();
-        r.to(line, "\r\nA>hello\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+        r.to(line, "\r\nA>hello\r\n" + HELLO_SAYS + "\r\n\r\nA>");
         r.run(ms(500));
-        same(r.out.substr(from), echo + "\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>hello\r\nHello from OODOS"
-                                        "\r\nHello from OODOS\r\n\r\n\r\nA>");
+        same(r.out.substr(from), echo + "\r\n" + HELLO_SAYS + "\r\n\r\nA>hello\r\n" + HELLO_SAYS + "\r\n\r\nA>");
     }
     // 47's command takes the place of the rest of the line (ours): SYSTEST H chains to A:HELLO
     r.poke_com(read_bytes(SYS + "/systest.com"));
-    o = r.to("GO H!dir *.txt", "\r\nA>A:HELLO\r\nHello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>");
+    o = r.to("GO H!dir *.txt", "\r\nA>A:HELLO\r\n" + HELLO_SAYS + "\r\n\r\nA>");
     CHECK(o.find("A>A:HELLO\r\nHello from OODOS") != std::string::npos); // the chain ran
     r.run(ms(500));
     const size_t chained = r.out.rfind("A:HELLO");

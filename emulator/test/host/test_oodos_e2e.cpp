@@ -238,7 +238,7 @@ TEST(the_ccp_runs_hello_com_from_a_and_comes_back)
         REQUIRE(m.s->peek_physical(guard + i) == SENTINEL);
 
     const std::string said = m.command("hello world");
-    CHECK(said.find("Hello from OODOS\r\n") != std::string::npos);
+    CHECK(said.find("Hello from OODOS, a whole line by C_WRITESTR\r\n") != std::string::npos);
     CHECK(said.find(" WORLD") != std::string::npos); // its command tail, printed back, in capitals (4a)
     // Exactly the image at $0300, nothing past it
     size_t wrong = 0;
@@ -250,7 +250,7 @@ TEST(the_ccp_runs_hello_com_from_a_and_comes_back)
 
     // Again: the warm boot came back to a CCP that can load a second time
     const std::string again = m.command("HELLO");
-    CHECK(again.find("Hello from OODOS\r\n") != std::string::npos);
+    CHECK(again.find("Hello from OODOS, a whole line by C_WRITESTR\r\n") != std::string::npos);
 }
 
 TEST(a_name_not_on_a_is_name_question_mark)
