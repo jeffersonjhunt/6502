@@ -1842,7 +1842,7 @@ before the first prompt, on the serial line and the screen alike (`oodos/sys/col
 OODOS 0.2  2026-11-03 12:00:00
 BIOS 0.10   47K TPA
 A: 8M   B: 8M   M: 128K
-Cards: video, sound, SD, USB keyboard, DMA, panel
+Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
 ```
 
 - **BIOS:** the word after `BACKPLANE BIOS ` in the ROM BIOS's own greeting, found in its copy in RAM block 63
@@ -1854,10 +1854,11 @@ Cards: video, sound, SD, USB keyboard, DMA, panel
 - **Drives:** each the BIOS's drive table has, A-P, its size from its DPB, (DSM + 1) blocks of `128 << BSH`
   bytes, in MB when it is whole MB (8M, 32M), else in KB (M:'s 128K).
 - **Cards:** each whose ID register reads its card's ID, in that order: the video card, the sound card, the SD
-  card, the USB keyboard, the DMA controller, the front panel; `none` if none. The serial card has no ID
+  card, the Disk II controller (its native-mode ID at `$C67F`, added 2026-11-04), the USB keyboard, the DMA
+  controller, the front panel; `none` if none. The serial card has no ID
   register, and the console runs on it.
 
-574 bytes of cold boot, in block 62's code window. Tested by `test_oodos_sys`: the banner and the status on both
+587 bytes of cold boot (574, and 13 for the Disk II from 2026-11-04), in block 62's code window. Tested by `test_oodos_sys`: the banner and the status on both
 outputs, the BIOS's version as `bios.rom`'s greeting has it, a machine with only the SD card and the DMA
 controller and drives of 8 MB and 32 MB, and a block 63 with no greeting.
 

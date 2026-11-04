@@ -540,6 +540,24 @@
   "status": null
  },
  {
+  "equate": "DISK2",
+  "address": "$C600",
+  "module": "C",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "DISK2_ID",
+  "address": "$C67F",
+  "module": "C",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
   "equate": "NB",
   "address": "$C680",
   "module": "D",
