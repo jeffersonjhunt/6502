@@ -101,7 +101,7 @@ std::string bios_version()
 std::string boot_status()
 {
     return "BIOS " + bios_version() + "   47K TPA\r\nA: 8M   B: 8M   M: 128K\r\n"
-           "Cards: video, sound, SD, USB keyboard, DMA, panel\r\n";
+           "Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel\r\n";
 }
 
 TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
@@ -126,7 +126,7 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     CHECK_EQ(r.row(1), std::string("OODOS 0.2  2026-10-27 12:00:00"));
     CHECK_EQ(r.row(2), "BIOS " + bios_version() + "   47K TPA");
     CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K"));
-    CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, USB keyboard, DMA, panel"));
+    CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel"));
     CHECK_EQ(r.row(6), std::string("A>"));
 }
 
@@ -137,7 +137,8 @@ TEST(the_boot_status_says_what_it_finds_and_what_it_doesnt)
     std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine"), fewer;
     std::istringstream lines(text);
     for (std::string l; std::getline(lines, l);)
-        if (l.rfind("video", 0) != 0 && l.rfind("sound", 0) != 0 && l.rfind("usb", 0) != 0 && l.rfind("console", 0) != 0)
+        if (l.rfind("video", 0) != 0 && l.rfind("sound", 0) != 0 && l.rfind("disk2", 0) != 0 && l.rfind("usb", 0) != 0 &&
+            l.rfind("console", 0) != 0)
             fewer += l + "\n";
     Rig r(fat16_card({{"A.IMG", 16384u * 512}, {"BIG.IMG", 65536u * 512}}), {}, fewer);
     REQUIRE(r.ok);

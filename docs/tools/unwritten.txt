@@ -140,6 +140,8 @@ reg-c581  # USB_KEYCLR
 reg-c587  # USB_KBCFG
 reg-c5b0  # USB_IEN
 reg-c5ff  # USB_ID
+reg-c600  # DISK2
+reg-c67f  # DISK2_ID
 reg-c680  # NB, NB_WIN0
 reg-c681  # NB_WIN1
 reg-c682  # NB_WIN2

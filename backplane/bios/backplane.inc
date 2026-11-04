@@ -171,6 +171,12 @@ SOUND_IEN       = SOUND + $42
 SOUND_ID        = SOUND + $7F
 SOUND_ID_V1     = $A1
 
+; Disk II controller (module C), slot 6 in Apple II mode. In native mode only its ID answers in its block
+; (hw/design.md, "Disk II controller clone"); the switches there are still to come in the emulator.
+DISK2           = $C600
+DISK2_ID        = DISK2 + $7F
+DISK2_ID_V1     = $C1
+
 ; Console card (module E): the front panel.
 CONSOLE_IEN     = $C718
 CONSOLE_ID      = $C77F

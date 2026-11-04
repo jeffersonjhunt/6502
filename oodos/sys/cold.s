@@ -318,6 +318,7 @@ CARD_LEN        = 5
 CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V1, CVIDEO
                 CARD    SOUND_ID, SOUND_ID_V1, CSOUND
                 CARD    SD_ID, SD_ID_V1, CSD
+                CARD    DISK2_ID, DISK2_ID_V1, CDISK2
                 CARD    USB_ID, USB_ID_V1, CUSB
                 CARD    DMA_ID, DMA_ID_V1, CDMA
                 CARD    CONSOLE_ID, CONSOLE_ID_V1, CPANEL
@@ -382,6 +383,7 @@ SNONE:          .byte   "none", 0
 CVIDEO:         .byte   "video", 0
 CSOUND:         .byte   "sound", 0
 CSD:            .byte   "SD", 0
+CDISK2:         .byte   "Disk II", 0
 CUSB:           .byte   "USB keyboard", 0
 CDMA:           .byte   "DMA", 0
 CPANEL:         .byte   "panel", 0
