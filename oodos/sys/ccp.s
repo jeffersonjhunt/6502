@@ -30,6 +30,7 @@
 ;   GO              the image at $0300, its header at $0280 (phase 2's)
 ;   DIR, DIRSYS (DIRS), ERASE (ERA), RENAME (REN), TYPE (TYP), USER (USE)
 ;                   the built-ins, or their utilities for forms they can't do
+;   CLEAR, CLS      ours: the screen cleared; CLS then DIR, as DIR does it
 ;   d:, nd:         the CCP's drive (and user)
 ;   {d:}NAME{.COM}{;pw}
 ;                   NAME.COM: from d:, or each drive of the SCB's search
@@ -569,12 +570,24 @@ PASSWD:         LDX     #0
                 BNE     @pw
                 RTS
 
+CLEARSCR:       LDA     #<CLEARS
+                LDX     #>CLEARS
+                JMP     STRING
+
 ; Search (17) for SFCB: A = $FF none (X 0) or an error (X its code, said).
 SEARCH:         LDA     #<SFCB
                 LDX     #>SFCB
                 LDY     #F_SFIRST
                 JMP     BDOS
 
+; CLEAR and CLS (ours, 2026-11-03): the screen cleared by ESC E, which the
+; BIOS sends on the serial line as ANSI's clear. CLEAR's tail is ignored; CLS
+; is DIR with its tail on the cleared screen, DIR.COM's forms included.
+B_CLEAR:        JSR     BIENTER
+                JSR     CLEARSCR
+                JMP     BIOK
+B_CLS:          JSR     CLEARSCR
+                ; fall through
 ; DIR and DIRSYS (DIRS).
 B_DIR:          STZ     WANTSYS
                 BRA     DIRBOTH
@@ -1747,6 +1760,10 @@ BINAMES:        .byte   3, "DIR"       ; the built-ins (the Guide's Table 4-1, i
                 .word   B_USER
                 .byte   2, "GO"        ; ours, phase 2's
                 .word   RUNHDR
+                .byte   5, "CLEAR"     ; ours, 2026-11-03
+                .word   B_CLEAR
+                .byte   3, "CLS"
+                .word   B_CLS
                 .byte   0
 UNAMES:                                ; their utilities
 UDIR:           .byte   "DIR     COM"
@@ -1756,6 +1773,7 @@ UTYPE:          .byte   "TYPE    COM"
 SYSINS:         .byte   "SYS,"
 SYSADD:         .byte   " [SYS]"
 SEP:            .byte   " : $"
+CLEARS:         .byte   27, 'E', '$'   ; ESC E: the screen's clear
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 READERR:        .byte   "READ ERROR$"

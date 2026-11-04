@@ -1,5 +1,5 @@
 ; WOZMON.COM: leave OODOS for the ROM BIOS's Woz Monitor (function 75, A = 0),
-; as Break does, the screen cleared first (ESC E, as CLEAR.COM does). Not
+; as Break does, the screen cleared first (ESC E, as the CCP's CLEAR does). Not
 ; OODOS's to come back from: the monitor starts afresh with the BIOS's
 ; windows, its cards quiet and its text screen, and a reset (or C80CR, with
 ; the card still in) boots OODOS again. The tail is ignored.
@@ -10,7 +10,7 @@
         OODOS_HEADER
 
         .code
-start:  lda     #<clear                 ; the screen cleared first, as CLEAR.COM does
+start:  lda     #<clear                 ; the screen cleared first, as the CCP's CLEAR does
         ldx     #>clear
         ldy     #C_WRITESTR
         jsr     BDOS

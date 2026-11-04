@@ -1197,7 +1197,8 @@ where it is silent the choice is ours, and says so):
     **Ours,** a seventh built-in that CP/M 3 doesn't have: it shadows a `GO.COM`, which runs only with a drive
     typed (`A:GO`), and it runs whatever image is at `$0300` once the header passes the loader's checks.
   - a built-in's name, with no drive or type: `DIR`, `DIRSYS` or `DIRS`, `ERASE` or `ERA`, `RENAME` or `REN`,
-    `TYPE` or `TYP`, `USER` or `USE` (the Guide's Table 4-1 and its short forms);
+    `TYPE` or `TYP`, `USER` or `USE` (the Guide's Table 4-1 and its short forms), and ours, `CLEAR` and `CLS`
+    (2026-11-03, "Clearing the screen" below);
   - `d:`, or a user number and a drive, `5B:`: the drive change (below);
   - else a program: `{d:}NAME{.COM}{;password}`. A type but `COM` is refused: `.SUB` with
     `NAME.SUB: no SUBMIT yet` until phase 5 (ours), any other type, `.PRL` among them, as `NAME?` (the CCP runs
@@ -1820,12 +1821,13 @@ below.)*
 
 ### Clearing the screen: CLEAR and CLS ###
 
-**Done (2026-11-03).** Two utilities more of ours, asked for by the owner. **CLEAR** clears the screen: it writes
-`ESC E`, so the text screen is cleared and a terminal on the serial line gets ANSI's clear (above, "The terminal").
-**CLS** clears it too, then lists the files: it chains to `DIR` with its own tail (function 47), so `CLS`, `CLS
-[SYS]` and `CLS *.COM [SIZE]` are DIR's listings on a clear screen, the CCP's prompt and the DIR command at the
-top, as a chained command shows (function 47, above). A tail that doesn't fit 47's 126 characters after `DIR` is
-cut off at its 123rd. Tested by `test_oodos_utils_rom`, with WOZMON's clear.
+**Done (2026-11-03).** Two built-ins of ours, asked for by the owner, in the CCP beside DIR and the rest (as GO is
+ours): no `.COM` on the card, so they work from any drive and user. **CLEAR** clears the screen: it writes `ESC E`,
+so the text screen is cleared and a terminal on the serial line gets ANSI's clear (above, "The terminal"). **CLS**
+clears it too, then is DIR with its tail: the built-in's listing, or, for an option list or more than one
+specification, DIR.COM's, handed the tail as DIR hands it (`CLS [SYS]`, `CLS *.COM [SIZE]`). They were `.COM`s
+for a day; the owner asked for built-ins, like DIRSYS's `DIRS`. The CCP grew 36 bytes. Tested by
+`test_oodos_ccp`; WOZMON's clear by `test_oodos_utils_rom`.
 
 ### The program header ###
 

@@ -1,7 +1,6 @@
 /**
  * @file test_oodos_utils_rom.cpp
- * @brief Leaving OODOS for the ROM BIOS: function 75 (O_ROM), WOZMON.COM and APPLE2.COM (hw/oodos.md, "OODOS's own");
- *        and clearing the screen, CLEAR.COM and CLS.COM.
+ * @brief Leaving OODOS for the ROM BIOS: function 75 (O_ROM), WOZMON.COM and APPLE2.COM (hw/oodos.md, "OODOS's own").
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * OODOS.SYS booted as test_oodos_ccp boots it (oodos_rig.h's CcpRig), the two
@@ -13,9 +12,7 @@
  *     $FF00, and OODOS goes on;
  *   - APPLE2 with one: the machine restarts in Apple II mode, at the ROM's
  *     reset vector. The ROM here is a stand-in made by the test, not Apple's:
- *     the byte the ROM BIOS checks ($FBB3 = $06) and a reset vector to a loop;
- *   - CLEAR: the text screen cleared, and ANSI's clear on the serial line;
- *   - CLS: cleared, then DIR's listing with the same tail, as DIR gives it.
+ *     the byte the ROM BIOS checks ($FBB3 = $06) and a reset vector to a loop.
  */
 
 #include "harness.h"
@@ -36,7 +33,7 @@ namespace
 {
     const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
 
-    /// A rig with WOZMON, APPLE2, CLEAR and CLS on M:, the search chain the default drive, then M:.
+    /// A rig with WOZMON and APPLE2 on M:, the search chain the default drive, then M:.
     struct RomRig : CcpRig
     {
         explicit RomRig(std::vector<std::string> apple_rom = {}) : CcpRig(std::move(apple_rom))
@@ -45,23 +42,12 @@ namespace
                 return;
             put_util("wozmon", UTILS);
             put_util("apple2", UTILS);
-            put_util("clear", UTILS);
-            put_util("cls", UTILS);
             chain({13, 0});
         }
         uint8_t nb(unsigned reg) { return machine->bus().read(static_cast<uint16_t>(0xC680 + reg)); }
     };
 
     const std::string CLEARED = "\x1b[H\x1b[2J"; ///< ESC E on the serial line
-
-    /// The text screen's rows from `from` on are blank.
-    bool blank_from(RomRig &r, unsigned from)
-    {
-        for (unsigned row = from; row < 30; ++row)
-            if (!r.row(row).empty())
-                return false;
-        return true;
-    }
 
     constexpr uint16_t LOOP = 0xFA00; ///< the stand-in ROM's reset vector: JMP to itself
 
@@ -94,40 +80,6 @@ TEST(wozmon_leaves_oodos_for_the_roms_monitor)
     CHECK_EQ(r.nb(1), 1);
     CHECK_EQ(r.nb(2), 2);
     CHECK(!r.to("C683", "C683: 7F").empty());            // and the monitor answers
-}
-
-TEST(clear_clears_the_screen_and_the_serial_lines_terminal)
-{
-    RomRig r;
-    REQUIRE(r.ok);
-    r.cmd("DIR");
-    REQUIRE(!blank_from(r, 2));
-    same(r.cmd("CLEAR"), "CLEAR\r\n" + CLEARED + "\r\nA>");
-    CHECK_EQ(r.row(0), std::string());                     // from the top: the prompt's CR LF, then A>
-    CHECK_EQ(r.row(1), std::string("A>"));
-    CHECK(blank_from(r, 2));
-    same(r.cmd("CLEAR WHATEVER"), "CLEAR WHATEVER\r\n" + CLEARED + "\r\nA>"); // the tail ignored
-}
-
-TEST(cls_clears_the_screen_then_lists_as_dir_with_its_tail)
-{
-    RomRig r;
-    REQUIRE(r.ok);
-    for (const std::string tail : {"", " [SYS]", " *.COM [SIZE]"})
-    {
-        const std::string dir = r.cmd("DIR" + tail);       // "DIR..." echoed, its listing, the prompt
-        REQUIRE(dir.size() > 20);
-        // Cleared, then the chained command as the CCP shows it, and DIR's listing.
-        same(r.to("CLS" + tail, dir), "CLS" + tail + "\r\n" + CLEARED + "\r\nA>" + dir);
-        CHECK_EQ(r.row(1), "A>DIR" + tail);
-    }
-    // A tail of 126, the most the CCP takes: DIR gets its first 123, the rest of 47's 126.
-    std::string tail = " ";
-    while (tail.size() < 126)
-        tail += "A*.*  ";
-    tail.resize(126);
-    CHECK(!r.to("CLS" + tail, "\r\nA>DIR" + tail.substr(0, 123) + "\r\n").empty());
-    CHECK(!r.to("", "A>").empty());                        // and the CCP goes on
 }
 
 TEST(apple2_without_a_iie_rom_says_so_and_oodos_goes_on)

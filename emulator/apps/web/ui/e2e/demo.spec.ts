@@ -133,7 +133,7 @@ test("CLEAR clears the Terminal, and CLS clears it and lists the files", async (
   await expect(crt).toHaveText(/^\s*A>$/); // only the prompt, and no stray [ or E
   await command(page, "CLS");
   await expect(crt).toContainText("SYSTEM FILE(S) EXIST");
-  await expect(crt).toHaveText(/^\s*A>DIR\s+A: README\s+TXT : OODOS\s+SYS\s+SYSTEM FILE\(S\) EXIST\s*A>$/);
+  await expect(crt).toHaveText(/^\s*A: README\s+TXT : OODOS\s+SYS\s+SYSTEM FILE\(S\) EXIST\s*A>$/); // from the top
 });
 
 test("?sd=empty leaves the slot empty", async ({ page }) => {
