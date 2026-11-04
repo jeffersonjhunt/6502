@@ -60,6 +60,9 @@ namespace oodos_rig
     /// oodos/sys's build: the build tree's, or OODOS_SYS_DIR's (a build of a changed copy, to see a
     /// test fail on a fault put in on purpose).
     inline const std::string SYS = std::getenv("OODOS_SYS_DIR") ? std::getenv("OODOS_SYS_DIR") : EMU_OODOS_SYS_DIR;
+    /// What HELLO (oodos/examples/hello.s) prints before its command tail: a line whole by
+    /// C_WRITESTR, one a character at a time by C_WRITE, and the tail's label.
+    inline const std::string HELLO_SAYS = "Hello from OODOS, a whole line by C_WRITESTR\r\nHello from OODOS, a character at a time by C_WRITE\r\nThe command tail:";
 
     inline std::vector<uint8_t> read_bytes(const std::string &path)
     {

@@ -41,7 +41,7 @@ test("the demo card is in at every visit, and power-on boots OODOS from it to A>
   await expect(crt).toContainText("This is the OO-1's demo card");
   await expect(crt).toContainText(/with no card\.\s*A>$/); // the prompt again: a key typed while OODOS writes waits, only one
   await command(page, "HELLO");
-  await expect(crt).toContainText("Hello from OODOS");
+  await expect(crt).toContainText("Hello from OODOS, a character at a time by C_WRITE");
   await page.screenshot({ path: `test-results/demo-${test.info().project.name}.png` });
 });
 

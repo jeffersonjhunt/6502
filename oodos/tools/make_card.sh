@@ -41,7 +41,11 @@
 # The demo card (demo.sparse), the one the WebUI puts in its slot at each
 # visit (its build makes public/core/demo-card.img.gz of it): the same
 # layout, the FAT volume labelled OODOS DEMO, and only what a visitor runs,
-# nothing of the tests':
+# nothing of the tests'. Its stamps, FAT and CP/M, are the date of the last
+# commit to what goes on it (the oodos/ files copied in below and
+# backplane.inc, the committer's date in UTC), so a visitor sees when it was
+# made and the same commit still makes the same card; the test card keeps its
+# fixed moment, which the tests read:
 #
 #   /BOOT.BIN, /OODOS/DRIVES.TXT   as the test card's
 #   /OODOS/A.IMG       oodos-8m, label mode 0x31: README.TXT (what to try,
@@ -57,7 +61,23 @@ set -eu
 image=debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/emulator/test/host/sd"
-docker run --rm -i -v "$(hostpath "$root/oodos"):/o:ro" \
+# What the container copies in (below), and so what's on the cards: a commit
+# elsewhere in oodos/ (its tests, its README) leaves the stamp as it was.
+src="oodos/Makefile oodos/include oodos/sys oodos/ldr oodos/examples oodos/cfg oodos/tools
+     oodos/utils oodos/card oodos/diskdefs backplane/bios/backplane.inc"
+# shellcheck disable=SC2086 # src is a list of paths
+stamp=$(cd "$root" && TZ=UTC git -c safe.directory='*' log -1 --format=%cd \
+    --date=format-local:'%Y-%m-%d %H:%M:%S' -- $src)
+if [ -z "$stamp" ]; then
+    echo "make_card: no commit of $src to stamp the demo card with" >&2
+    exit 1
+fi
+# shellcheck disable=SC2086
+if [ -n "$(cd "$root" && git -c safe.directory='*' status --porcelain -- $src)" ]; then
+    echo "make_card: the card's sources have uncommitted changes; the demo card is stamped $stamp, the last commit's" >&2
+fi
+echo "the demo card's stamps: $stamp"
+docker run --rm -i -e DEMO_STAMP="$stamp" -v "$(hostpath "$root/oodos"):/o:ro" \
     -v "$(hostpath "$root/backplane/bios"):/b:ro" -v "$(hostpath "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
 apt-get -qq install -y dosfstools mtools fdisk cpmtools cc65 make python3 faketime >/dev/null
@@ -67,6 +87,8 @@ cd /tmp
 export MTOOLS_SKIP_CHECK=1 TZ=UTC
 # Every stamp, FAT and CP/M, is this moment.
 at() { faketime '2026-10-26 12:00:00' "$@"; }
+# The demo card's, the sources' last commit.
+demo_at() { faketime "$DEMO_STAMP" "$@"; }
 
 cat > gen.py <<'PY'
 import sys
@@ -170,7 +192,7 @@ chown $(stat -c %u /out) /out/oodos.sparse
 
 # The demo card: its drives as the test card's, in demo/.
 mkdir demo
-at mkfs.cpm -f oodos-8m -t -L OODOS demo/A.IMG
+demo_at mkfs.cpm -f oodos-8m -t -L OODOS demo/A.IMG
 truncate -s 8M demo/A.IMG
 printf '\061' | dd of=demo/A.IMG bs=1 seek=12 conv=notrunc status=none
 python3 text.py demo/README.TXT \
@@ -193,23 +215,23 @@ python3 text.py demo/README.TXT \
     "START, on the front panel, boots OODOS again. A key during the logo" \
     "at power-on goes to the Woz Monitor instead, and so does a power-on" \
     "with no card."
-at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils 0:
-at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
-for u in $utils; do at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
+demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils 0:
+demo_at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
+for u in $utils; do demo_at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n demo/A.IMG
 cpmls -f oodos-8m -F demo/A.IMG
-at mkfs.cpm -f oodos-8m -t -L WORK demo/B.IMG
+demo_at mkfs.cpm -f oodos-8m -t -L WORK demo/B.IMG
 truncate -s 8M demo/B.IMG
 printf '\061' | dd of=demo/B.IMG bs=1 seek=12 conv=notrunc status=none
 fsck.cpm -f oodos-8m -n demo/B.IMG
 python3 -c "open('demo/part.img', 'wb').truncate((32 * 2048 - 2048) * 512)"
-at mkfs.fat -F 16 -s 4 -i 0001DD06 -n 'OODOS DEMO' demo/part.img >/dev/null
+demo_at mkfs.fat -F 16 -s 4 -i 0001DD06 -n 'OODOS DEMO' demo/part.img >/dev/null
 python3 noboot.py demo/part.img
-at mmd -i demo/part.img ::/OODOS
-at mcopy -i demo/part.img BOOT.BIN ::/BOOT.BIN
-at mcopy -i demo/part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
-at mcopy -i demo/part.img demo/A.IMG ::/OODOS/A.IMG
-at mcopy -i demo/part.img demo/B.IMG ::/OODOS/B.IMG
+demo_at mmd -i demo/part.img ::/OODOS
+demo_at mcopy -i demo/part.img BOOT.BIN ::/BOOT.BIN
+demo_at mcopy -i demo/part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
+demo_at mcopy -i demo/part.img demo/A.IMG ::/OODOS/A.IMG
+demo_at mcopy -i demo/part.img demo/B.IMG ::/OODOS/B.IMG
 mdir -i demo/part.img -/ ::/
 python3 -c "open('demo/card.img', 'wb').truncate(32 * 2048 * 512)"
 printf 'label: dos\nlabel-id: 0x0001dd06\nstart=2048, type=06\n' | sfdisk -q demo/card.img

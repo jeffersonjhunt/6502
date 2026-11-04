@@ -1,5 +1,6 @@
-; HELLO: prints a line through the BDOS twice, once with C_WRITESTR and once a
-; character at a time, then the command tail. Built as both a .COM and a .PRL,
+; HELLO: prints two lines through the BDOS, each saying how: one whole with
+; C_WRITESTR and one a character at a time with C_WRITE; then the command tail,
+; labelled. Built as both a .COM and a .PRL,
 ; it gives the tools every kind of relocation: absolute operands, address
 ; words, high bytes as immediates, a zero page pointer, and a zero page
 ; address as an immediate.
@@ -18,8 +19,8 @@ start:  lda     #<msg                   ; C_WRITESTR: the address in A and X
         ldy     #C_WRITESTR
         jsr     BDOS
         ldx     #ptr                    ; a zero page address passed in X
-        lda     #<msg
-        ldy     #>msg
+        lda     #<msg2
+        ldy     #>msg2
         jsr     setptr
         jsr     putstr
         ldx     #0                      ; the routines through a table
@@ -57,9 +58,20 @@ putstr: lda     #0
         bne     @loop
 @done:  rts
 
-; The command tail, a count then the characters, at the DMA buffer. The '$'
-; goes after them, so a count over 126 is cut to 126 to keep it in the buffer.
-tail:   lda     #<(BP_DMA + 1)
+; The command tail, a count then the characters, at the DMA buffer, or
+; " (none)" for none. The '$' goes after them, so a count over 126 is cut to
+; 126 to keep it in the buffer.
+tail:   lda     #<label
+        ldx     #>label
+        ldy     #C_WRITESTR
+        jsr     BDOS
+        lda     BP_DMA
+        bne     @some
+        lda     #<none
+        ldx     #>none
+        ldy     #C_WRITESTR
+        jmp     BDOS
+@some:  lda     #<(BP_DMA + 1)
         sta     ptr
         lda     #>(BP_DMA + 1)
         sta     ptr+1
@@ -77,7 +89,10 @@ crlf:   lda     #<nl
         jmp     BDOS
 
         .rodata
-msg:    .byte   "Hello from OODOS", 13, 10, '$'
+msg:    .byte   "Hello from OODOS, a whole line by C_WRITESTR", 13, 10, '$'
+msg2:   .byte   "Hello from OODOS, a character at a time by C_WRITE", 13, 10, '$'
+label:  .byte   "The command tail:$"
+none:   .byte   " (none)$"
 nl:     .byte   13, 10, '$'
 table:  .word   tail, crlf
 tabend:

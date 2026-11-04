@@ -192,6 +192,8 @@ namespace ooe::emu
         bool irq() { return machine_->bus().irq(); }
         uint8_t peek(uint16_t addr) const { return machine_->bus().peek(addr); }
         uint8_t peek_physical(uint32_t physical) const { return machine_->bus().peek_physical(physical); }
+        /// A byte into RAM at a physical address, no cycle taken (a test's setup).
+        void write_physical(uint32_t physical, uint8_t data) { machine_->bus().write_physical(physical, data); }
         /// What A0-A19 carry for a CPU address now (the windows as they are).
         uint32_t physical(uint16_t addr) const { return machine_->bus().physical(addr); }
         /// "C800", "$C800" or a label (a label wins over hex; `$` forces hex).

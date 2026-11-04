@@ -41,7 +41,7 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const std::string HELLO = "Hello from OODOS\r\nHello from OODOS\r\n\r\n";
+    const std::string HELLO = HELLO_SAYS + " (none)\r\n";
 
     /// M:'s files: text in user 0 (one without a last LF, one with tabs, a SYS one), a .COM, a
     /// read-only one, one in user 3; then the three utilities.

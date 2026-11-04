@@ -220,7 +220,7 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
                 static_cast<unsigned long long>(j3 - j2));
     CHECK_EQ(j1 - j0 - 3 + j3 - j2, uint64_t{51});
     // The tail in capitals, as the CCP takes the whole line (phase 4a, the Guide, 1.2)
-    CHECK(o.find("GO world\r\nHello from OODOS\r\nHello from OODOS\r\n WORLD\r\n\r\nA>") != std::string::npos);
+    CHECK(o.find("GO world\r\n" + HELLO_SAYS + " WORLD\r\n\r\nA>") != std::string::npos);
     REQUIRE(t3 != 0);
     std::printf("  the BDOS stub: %llu cycles in (JSR $0203 to the BDOS), %llu out (its RTS to the program's)\n",
                 static_cast<unsigned long long>(t1 - t0), static_cast<unsigned long long>(t3 - t2));
@@ -229,7 +229,7 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
     CHECK_EQ(r.nb(3), 62);
     // Again, so the warm boot leaves things as cold boot did.
     const std::string again = r.go("hello.com");
-    CHECK(again.find("Hello from OODOS\r\nHello from OODOS\r\n\r\n\r\nA>") != std::string::npos);
+    CHECK(again.find(HELLO_SAYS + " (none)\r\n\r\nA>") != std::string::npos);
 }
 
 TEST(biostest_reaches_every_bios_entry_through_function_50)
@@ -540,12 +540,12 @@ TEST(keys_come_from_the_usb_keyboard_and_the_serial_line)
     r.poke_com(read_bytes(SYS + "/hello.com"));
     size_t from = r.out.size();
     r.type_usb("go\r");                                      // Caps Lock is on: GO
-    CHECK(r.until("Hello from OODOS\r\n", ms(3000), from));
+    CHECK(r.until("Hello from OODOS, a whole line by C_WRITESTR\r\n", ms(3000), from));
     CHECK(r.until("\r\nA>", ms(3000), from + 20));
     r.poke_com(read_bytes(SYS + "/hello.com"));             // the tail went over its header
     from = r.out.size();
     r.type("go\r");                                          // lowercase on the serial line
-    CHECK(r.until("Hello from OODOS\r\n", ms(3000), from));
+    CHECK(r.until("Hello from OODOS, a whole line by C_WRITESTR\r\n", ms(3000), from));
     CHECK(r.until("\r\nA>", ms(3000), from + 20));
     from = r.out.size();
     r.type("abc\r");                                         // echoed as typed; the CCP's capitals

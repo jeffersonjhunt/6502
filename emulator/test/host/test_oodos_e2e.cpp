@@ -33,7 +33,7 @@ namespace
     const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
     constexpr size_t SECTOR = 512, RECORD = 128, ENTRY = 32, HEADER = 16;
     constexpr uint8_t SENTINEL = 0x5A;
-    constexpr unsigned GUARD = 32; // bytes past HELLO's image the monitor sets to SENTINEL first
+    constexpr unsigned GUARD = 32; // bytes past HELLO's image set to SENTINEL before it runs
 
     using Bytes = std::vector<uint8_t>;
 
@@ -114,9 +114,9 @@ namespace
         }
     };
 
-    /// Booted to the monitor, the committed card put in the slot; `before` is typed there, then C80CR.
+    /// Booted to the monitor, the committed card put in the slot, then C80CR.
     /// (A card in at power-on is booted by itself: power_on_boots_the_card.)
-    Oo1 booted(const std::string &before = {})
+    Oo1 booted()
     {
         Oo1 m;
         std::string error;
@@ -134,15 +134,6 @@ namespace
             std::printf("  %s\n", error.c_str());
             m.s.reset();
             return m;
-        }
-        if (!before.empty())
-        {
-            m.s->send(before + "\r");
-            for (int i = 0; i < 30; ++i) // the monitor takes the line (it prints no prompt after a store)
-            {
-                m.s->run(FRAME);
-                m.out += m.s->take_output();
-            }
         }
         const size_t from = m.out.size();
         m.s->send("C80CR\r");
@@ -224,21 +215,19 @@ TEST(the_ccp_runs_hello_com_from_a_and_comes_back)
     // The image follows the 16-byte header in the file, so it ends inside a record: some of record
     // 0 and part of the last, each copied through the CCP's buffer
     REQUIRE(size > RECORD - HEADER && (HEADER + size) % RECORD != 0 && HEADER + size <= hello().size());
-    // GUARD bytes past the image and its BSS set to SENTINEL by the monitor before C80CR: neither the
-    // load nor HELLO may touch them
+    // GUARD bytes past the image and its BSS set to SENTINEL once OODOS is up: neither the load nor
+    // HELLO may touch them. (Not before the boot: past $03FF they're the BIOS's SD sector buffer, which
+    // the boot writes.)
     const unsigned guard = 0x300 + size + bss_size();
-    char at[8];
-    std::snprintf(at, sizeof at, "%X:", guard);
-    std::string fill = at;
-    for (unsigned i = 0; i < GUARD; ++i)
-        fill += " 5A";
-    Oo1 m = booted(fill);
+    Oo1 m = booted();
     REQUIRE(m.s != nullptr);
+    for (unsigned i = 0; i < GUARD; ++i)
+        m.s->write_physical(guard + i, SENTINEL);
     for (unsigned i = 0; i < GUARD; ++i)
         REQUIRE(m.s->peek_physical(guard + i) == SENTINEL);
 
     const std::string said = m.command("hello world");
-    CHECK(said.find("Hello from OODOS\r\n") != std::string::npos);
+    CHECK(said.find("Hello from OODOS, a whole line by C_WRITESTR\r\n") != std::string::npos);
     CHECK(said.find(" WORLD") != std::string::npos); // its command tail, printed back, in capitals (4a)
     // Exactly the image at $0300, nothing past it
     size_t wrong = 0;
@@ -250,7 +239,7 @@ TEST(the_ccp_runs_hello_com_from_a_and_comes_back)
 
     // Again: the warm boot came back to a CCP that can load a second time
     const std::string again = m.command("HELLO");
-    CHECK(again.find("Hello from OODOS\r\n") != std::string::npos);
+    CHECK(again.find("Hello from OODOS, a whole line by C_WRITESTR\r\n") != std::string::npos);
 }
 
 TEST(a_name_not_on_a_is_name_question_mark)
