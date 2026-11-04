@@ -57,9 +57,12 @@ Two tiers, run by `tools/check.sh` (it says what each step took and which failed
   built optimised without the sanitizers (`--preset fast`, under a minute); the WebAssembly build and its tests;
   vitest; the e2e smoke set (the tests tagged `@smoke`, `npm run e2e:smoke`). `--url URL` runs the smoke set
   against the deployed page too.
-- **`tools/check.sh full`**, before production: the same, but the native tests under ASan/UBSan (`--preset dev`,
-  about 15 minutes), the whole e2e suite (and against `--url URL`), and interop (cpmtools reading the cards OODOS
-  writes, in Docker).
+- **`tools/check.sh full`**, only for a production release candidate: the same, but the native tests under
+  ASan/UBSan (`--preset dev`, 30 minutes or more), the whole e2e suite (and against `--url URL`), and interop
+  (cpmtools reading the cards OODOS writes, in Docker).
+
+The sanitizers are too slow for anything but a release candidate. Between those, a sanitizer build is for an error
+found in testing that the logs can't explain: `cmake --preset dev && cmake --build --preset dev`, then that one test.
 
 The refactor plan is `emulator/docs/EMULATOR_PLAN.md`; the baseline it starts
 from is tagged `beta`.
