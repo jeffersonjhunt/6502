@@ -59,6 +59,15 @@ start:  jsr     UT_INIT
         ldy     #F_USERNUM
         jsr     BDOS
         sta     user0
+        lda     #$FF                    ; the console mode, kept; bit 0 on, so 11
+        tax                             ; reports only ^C and 6 then reads it
+        ldy     #C_MODE
+        jsr     BDOS
+        sta     mode0
+        stx     mode0 + 1
+        ora     #1
+        ldy     #C_MODE
+        jsr     BDOS
         lda     BP_DMA
         beq     prompt
         stz     inter
@@ -76,9 +85,13 @@ prompt: lda     #1
         jsr     command
         bra     @line
 
-; The end: the user PIP found put back.
+; The end: the user and the console mode PIP found put back.
 leave:  lda     user0
         ldy     #F_USERNUM
+        jsr     BDOS
+        lda     mode0
+        ldx     mode0 + 1
+        ldy     #C_MODE
         jsr     BDOS
         jmp     UT_EXIT
 
@@ -1433,8 +1446,8 @@ records:
         bra     records
 @done:  rts
 
-; ^C between records: USER ABORTED. Another key typed is left (ours: not
-; from CON:, whose keys are the copy's).
+; ^C between records or 128 characters: USER ABORTED. In console mode bit 0
+; (set at the start) 11 reports only a ^C and drops other keys typed.
 chkbrk: ldy     #C_STAT
         jsr     BDOS
         cmp     #0
@@ -2303,6 +2316,7 @@ opthi:
         .bss
 inter:  .res    1                       ; 1: the '*' mode
 user0:  .res    1                       ; the user PIP was started in
+mode0:  .res    2                       ; and the console mode
 cmdsp:  .res    1                       ; the stack at the command's start
 lbuf:   .res    128                     ; a line read (function 10)
 rl_list: .res   1                       ; readline: in an option list

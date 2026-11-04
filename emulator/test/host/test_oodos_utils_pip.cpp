@@ -394,4 +394,47 @@ TEST(pip_checks_hex_records_with_h_and_drops_00_records_with_i)
     same(m_text(r, "O       HEX"), ":03000000010203F7\r\n:03000000010203F7\r\n:00000001FF\r\n");
 }
 
+TEST(pip_copies_files_past_an_extent_and_says_a_full_disk_a_read_only_temporary_file_and_a_ctrl_c)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> big(256 * RECORD);
+    for (size_t i = 0; i < big.size(); ++i)
+        big[i] = static_cast<uint8_t>(i * 13 + (i >> 7));
+    r.put_m({{0, "BIG     DAT", big},
+             {0, "LOCK    $$$", bytes("x"), false, true},
+             {0, "LINE    HEX", bytes(":" + std::string(90, '0') + "\r\n")},
+             {0, "LETTERS TXT", std::vector<uint8_t>(64 * RECORD, 'a')}});
+    r.put_util("pip");
+    // 32 KB, two logical extents in one entry; joined twice, 64 KB in two entries
+    same(pip(r, "m:big2.dat=m:big.dat"), "");
+    CHECK(m_data(r, 0, "BIG2    DAT") == big);
+    same(r.cmd("era m:big2.dat"), "era m:big2.dat\r\r\nA>"); // room for 64 KB more
+    same(pip(r, "m:big3.dat=m:big.dat[o],m:big.dat[o]"), "");
+    std::vector<uint8_t> two = big;
+    two.insert(two.end(), big.begin(), big.end());
+    CHECK(m_data(r, 0, "BIG3    DAT") == two);
+    // M: has no room for 96 KB more: the temporary file gone, nothing left behind
+    same(pip(r, "m:full.dat=m:big.dat[o],m:big.dat[o],m:big.dat[o]"), "DISK WRITE ERROR - FULL.DAT");
+    failed(r);
+    CHECK(r.m_entry(0, "FULL    $$$") < 0);
+    CHECK(r.m_entry(0, "FULL    DAT") < 0);
+    // A read-only NAME.$$$ in the way
+    same(pip(r, "m:lock.txt=m:big.dat"), "CAN'T DELETE TEMP FILE");
+    // H: a line over 80 characters
+    same(pip(r, "m:o.hex=m:line.hex[h]"), "RECORD TOO LONG - LINE.HEX");
+    // ^C during a copy (a second into it, PIP running: one typed while the CCP loads it waits for
+    // the CCP, as in CP/M): USER ABORTED, the temporary file deleted
+    same(r.cmd("era m:big3.dat"), "era m:big3.dat\r\r\nA>");
+    const size_t from = r.out.size();
+    r.type("m:pip m:c.dat=m:letters.txt[e]\r"); // E: each character echoed, so it takes seconds
+    r.run(ms(1000));
+    r.type("\x03");
+    CHECK(r.until("USER ABORTED\r\nA>", ms(20000), from));
+    CHECK(r.m_entry(0, "C       $$$") < 0);
+    CHECK(r.m_entry(0, "C       DAT") < 0);
+    // AUX: is the serial line
+    same(pip(r, "aux:=m:lock.$$$"), "x");
+}
+
 int main() { return run_all(); }
