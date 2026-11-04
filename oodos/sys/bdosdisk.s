@@ -68,8 +68,6 @@
 .include "bdos.inc"
 .import DRVRO, DRVCHG
 
-DPH_DPB         = 12                   ; the DPH's DPB pointer
-
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
 FDRV:           .res    1              ; FLUSHD's and PURGED's

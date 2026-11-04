@@ -94,7 +94,6 @@
 
 DPB_LEN         = 17
 DPH_LEN         = 25
-DPH_DPB         = 12                   ; the DPH's DPB pointer
 PHYS            = $80                  ; a copy side's bank: a physical address
 SD_WRITE        = $30                  ; CMD
 SD_UNMOUNT      = $A1
