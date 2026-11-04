@@ -31,6 +31,7 @@
 ;   DIR, DIRSYS (DIRS), ERASE (ERA), RENAME (REN), TYPE (TYP), USER (USE)
 ;                   the built-ins, or their utilities for forms they can't do
 ;   CLEAR, CLS      ours: the screen cleared; CLS then DIR, as DIR does it
+;   WOZMON, APPLE2  ours: leave OODOS for the ROM (function 75)
 ;   d:, nd:         the CCP's drive (and user)
 ;   {d:}NAME{.COM}{;pw}
 ;                   NAME.COM: from d:, or each drive of the SCB's search
@@ -587,7 +588,28 @@ B_CLEAR:        JSR     BIENTER
                 JSR     CLEARSCR
                 JMP     BIOK
 B_CLS:          JSR     CLEARSCR
-                ; fall through
+                BRA     B_DIR
+
+; WOZMON and APPLE2 (ours, 2026-11-03): leave OODOS for the ROM BIOS by
+; function 75, which writes back the changed buffers first. WOZMON clears
+; the screen, then the Woz Monitor, as Break; it doesn't come back. APPLE2
+; restarts in Apple II mode if the cartridge holds a IIe ROM, and otherwise
+; says so, the return code $FF00, and OODOS goes on. Their tails are ignored.
+B_WOZMON:       JSR     BIENTER
+                JSR     CLEARSCR
+                LDA     #0             ; the monitor
+                LDY     #O_ROM
+                JSR     BDOS
+                JMP     BIOK           ; never: 75 with A = 0 doesn't return
+B_APPLE2:       JSR     BIENTER
+                LDA     #1             ; Apple II mode
+                LDY     #O_ROM
+                JSR     BDOS           ; back only if there is no IIe ROM
+                LDA     #<NOIIE
+                LDX     #>NOIIE
+                JMP     FAILSAY
+
+
 ; DIR and DIRSYS (DIRS).
 B_DIR:          STZ     WANTSYS
                 BRA     DIRBOTH
@@ -1764,6 +1786,10 @@ BINAMES:        .byte   3, "DIR"       ; the built-ins (the Guide's Table 4-1, i
                 .word   B_CLEAR
                 .byte   3, "CLS"
                 .word   B_CLS
+                .byte   6, "WOZMON"
+                .word   B_WOZMON
+                .byte   6, "APPLE2"
+                .word   B_APPLE2
                 .byte   0
 UNAMES:                                ; their utilities
 UDIR:           .byte   "DIR     COM"
@@ -1774,6 +1800,7 @@ SYSINS:         .byte   "SYS,"
 SYSADD:         .byte   " [SYS]"
 SEP:            .byte   " : $"
 CLEARS:         .byte   27, 'E', '$'   ; ESC E: the screen's clear
+NOIIE:          .byte   "No IIe ROM in the cartridge (the emulator: Settings, ROMs)$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 READERR:        .byte   "READ ERROR$"

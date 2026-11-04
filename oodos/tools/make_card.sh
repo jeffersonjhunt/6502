@@ -30,9 +30,9 @@
 #     0:WRITEOO1.COM   oodos/sys/test/writeoo1.s: test_oodos_card runs it to
 #                      write 0:OO1.BIN through the BDOS, in the first free
 #                      entries
-#     0:APPLE2.COM ... the utilities (oodos/utils/, make utils), one .COM
-#                      each utils/NAME.s, in its name's order (APPLE2 to
-#                      WOZMON); SYS, as HELLO.COM (hw/oodos.md, "The
+#     0:DATE.COM ...   the utilities (oodos/utils/, make utils), one .COM
+#                      each utils/NAME.s, in its name's order (DATE to
+#                      TYPE); SYS, as HELLO.COM (hw/oodos.md, "The
 #                      utilities, phase 4b"). The tests work out where
 #                      each file's entries are from the card, so a utility
 #                      more changes no test
@@ -180,7 +180,8 @@ python3 text.py demo/README.TXT \
     "" \
     "Things to try at A>:" \
     "  DIR             the files on A:" \
-    "  DIR [SYS]       the commands: HELLO, WOZMON, APPLE2 and the rest" \
+    "  DIRS            the programs: HELLO, SHOW, DATE and the rest" \
+    "  CLS             clear the screen and list the files; CLEAR only clears" \
     "  TYPE README.TXT this file" \
     "  HELLO           a small program, run from A:" \
     "  SHOW            the drives and their space" \

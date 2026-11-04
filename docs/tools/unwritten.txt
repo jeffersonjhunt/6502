@@ -173,6 +173,8 @@ util-user
 util-go      # ours
 util-clear   # ours
 util-cls     # ours
+util-wozmon  # ours
+util-apple2  # ours
 
 # Utilities (phase 4b1): G1
 util-set
@@ -181,8 +183,6 @@ util-initdir
 util-date
 util-device
 util-setdef
-util-wozmon  # ours
-util-apple2  # ours
 
 # PIP (phase 4b2)
 util-pip
