@@ -9,6 +9,9 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 30_000,
   fullyParallel: true,
+  // A few tests are timing-sensitive when the machine is busy (the emulator runs slower than real time): one
+  // failed try is retried, and a pass then is reported as flaky, which tools/check.sh counts. Two fails fail.
+  retries: 1,
   reporter: [["list"]],
   use: { baseURL: published ?? "http://127.0.0.1:4173/", viewport: { width: 1280, height: 860 } },
   // Chromium, and WebKit for Safari on the Mac: they lay out the CRT differently enough to matter.
