@@ -117,11 +117,14 @@ namespace
         return s;
     }
 
-    /// PIP's line, and what it wrote.
+    /// PIP's line, and what it wrote. The CCP echoes a ^Z typed in it as "^Z".
     std::string pip(CcpRig &r, const std::string &tail, const std::string &prompt = "A>")
     {
         const std::string line = "m:pip " + tail;
-        return wrote(r.cmd(line, prompt), line, prompt);
+        std::string echo;
+        for (const char c : line)
+            echo += c == '\x1A' ? std::string("^Z") : std::string(1, c);
+        return wrote(r.cmd(line, prompt), echo, prompt);
     }
 
     void ok(CcpRig &r, const std::string &prompt = "A>") { same(r.cmd(":hello", prompt), ":hello\r\n" + HELLO + "\r\n" + prompt); }
@@ -280,6 +283,115 @@ TEST(pip_alone_asks_for_a_command_a_line_until_an_empty_one)
     same(o, "m:pip\r\nOODOS PIP 0.2\r\n*m:a.txt=m:one.txt\r\n*m:b.txt=m:nosuch.txt\r\nFILE NOT FOUND - NOSUCH.TXT\r\n*\r\r\nA>");
     same(text(m_data(r, 0, "A       TXT")), "ONE\r\n");
     failed(r); // an error among them: the return code
+}
+
+namespace
+{
+    /// Text files for the character options.
+    void texts(CcpRig &r)
+    {
+        r.put_m({{0, "MIXED   TXT", bytes("Hello, World\r\nSecond line\r\n")},
+                 {0, "TABS    TXT", bytes("A\tB\tC\r\nxy\tz\r\n")},
+                 {0, "LONG    TXT", bytes("0123456789ABCDEF\r\nshort\r\n")},
+                 {0, "FEEDS   TXT", bytes("PAGE1\r\n\x0CPAGE2\r\n")},
+                 {0, "HIGH    TXT", bytes("\xC1\xC2\xC3\r\n")},
+                 {0, "LETTER  TXT", bytes("To whom.\r\nDEAR SIR, it is so.\r\nSINCERELY, me\r\nP.S.\r\n")},
+                 {0, "GOOD    HEX", bytes(":03000000010203F7\r\n:00000001FF\r\n")},
+                 {0, "BADSUM  HEX", bytes(":03000000010203F8\r\n:00000001FF\r\n")},
+                 {0, "BADDIG  HEX", bytes(":03000000010G03F7\r\n")},
+                 {0, "NOEND   HEX", bytes(":03000000010203F7\r\n")}});
+        r.put_util("pip");
+    }
+
+    std::string m_text(CcpRig &r, const std::string &name83) { return text(m_data(r, 0, name83)); }
+} // namespace
+
+TEST(pip_copies_to_and_from_the_devices)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    texts(r);
+    same(pip(r, "con:=m:mixed.txt"), "Hello, World\r\nSecond line\r\n");
+    ok(r);
+    same(pip(r, "lst:=m:mixed.txt"), ""); // LST: is LPT, which takes and drops
+    same(pip(r, "prn:=m:mixed.txt"), "");
+    // NUL: 64 zeros, EOF: a ^Z: a file's end
+    same(pip(r, "m:z.dat=nul:,eof:"), "");
+    std::vector<uint8_t> z = m_data(r, 0, "Z       DAT");
+    REQUIRE(z.size() == 128);
+    CHECK(std::all_of(z.begin(), z.begin() + 64, [](uint8_t b) { return b == 0; }));
+    CHECK_EQ(z[64], 0x1A);
+    // CON: typed, to a ^Z (OODOS's console takes a typed LF as a CR)
+    const size_t from = r.out.size();
+    r.type("m:pip m:typed.txt=con:\r");
+    REQUIRE(r.until("con:\r\n", ms(3000), from));
+    r.type("hi there\rbye\x1A");
+    CHECK(r.until("\r\nA>", ms(8000), from + 24));
+    same(text(m_data(r, 0, "TYPED   TXT")), "hi there\rbye");
+    // Errors: NUL: and EOF: are sources, LST: and PRN: destinations
+    same(pip(r, "nul:=m:mixed.txt"), "INVALID DESTINATION");
+    failed(r);
+    same(pip(r, "m:x.txt=lst:"), "INVALID SOURCE");
+    same(pip(r, "m:x.txt=xyz:"), "INVALID SOURCE");
+    same(pip(r, "xyz:=m:mixed.txt"), "INVALID DESTINATION");
+}
+
+TEST(pip_changes_the_characters_as_its_options_say)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    texts(r);
+    same(pip(r, "m:o.txt=m:mixed.txt[u]"), "");
+    same(m_text(r, "O       TXT"), "HELLO, WORLD\r\nSECOND LINE\r\n");
+    same(pip(r, "m:o.txt=m:mixed.txt[l]"), "");
+    same(m_text(r, "O       TXT"), "hello, world\r\nsecond line\r\n");
+    same(pip(r, "m:o.txt=m:tabs.txt[t4]"), "");
+    same(m_text(r, "O       TXT"), "A   B   C\r\nxy  z\r\n");
+    same(pip(r, "m:o.txt=m:long.txt[d10]"), "");
+    same(m_text(r, "O       TXT"), "0123456789\r\nshort\r\n");
+    same(pip(r, "m:o.txt=m:feeds.txt[f]"), "");
+    same(m_text(r, "O       TXT"), "PAGE1\r\nPAGE2\r\n");
+    same(pip(r, "m:o.txt=m:high.txt[z]"), "");
+    same(m_text(r, "O       TXT"), "ABC\r\n");
+    same(pip(r, "m:o.txt=m:mixed.txt[n]"), "");
+    same(m_text(r, "O       TXT"), "     1: Hello, World\r\n     2: Second line\r\n");
+    same(pip(r, "m:o.txt=m:mixed.txt[n2]"), "");
+    same(m_text(r, "O       TXT"), "000001\tHello, World\r\n000002\tSecond line\r\n");
+    same(pip(r, "m:o.txt=m:mixed.txt[n2t8]"), ""); // N2's tab expanded by T
+    same(m_text(r, "O       TXT"), "000001  Hello, World\r\n000002  Second line\r\n");
+    same(pip(r, "m:o.txt=m:mixed.txt[p1]"), ""); // a form feed first, and every 60 lines
+    same(m_text(r, "O       TXT"), "\x0CHello, World\r\nSecond line\r\n");
+    same(pip(r, "m:o.txt=m:feeds.txt[fp2]"), "");
+    same(m_text(r, "O       TXT"), "\x0CPAGE1\r\nPAGE2\r\n\x0C");
+    // S and Q: from the start string to the quit string, both kept (the tail in capitals)
+    same(pip(r, "m:o.txt=m:letter.txt[sdear sir\x1Aqsincerely\x1A]"), "");
+    same(m_text(r, "O       TXT"), "DEAR SIR, it is so.\r\nSINCERELY");
+    same(pip(r, "m:o.txt=m:letter.txt[snothing\x1A]"), "START NOT FOUND");
+    failed(r);
+    same(pip(r, "m:o.txt=m:letter.txt[qnothing\x1A]"), "QUIT NOT FOUND");
+    same(pip(r, "m:o.txt=m:letter.txt[s\x1A]"), "BAD PARAMETER"); // an empty string (ours)
+    same(pip(r, "m:o.txt=m:letter.txt[snothing]"), "BAD PARAMETER"); // no ^Z
+    // E: echoed as it is written
+    same(pip(r, "m:o.txt=m:mixed.txt[eu]"), "HELLO, WORLD\r\nSECOND LINE\r\n");
+    // Joined by characters: each to its ^Z, one ^Z at the end
+    same(pip(r, "m:o.txt=m:mixed.txt[u],m:long.txt[d4]"), "");
+    same(m_text(r, "O       TXT"), "HELLO, WORLD\r\nSECOND LINE\r\n0123\r\nshor\r\n");
+}
+
+TEST(pip_checks_hex_records_with_h_and_drops_00_records_with_i)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    texts(r);
+    same(pip(r, "m:o.hex=m:good.hex[h]"), "");
+    same(m_text(r, "O       HEX"), ":03000000010203F7\r\n:00000001FF\r\n");
+    ok(r);
+    same(pip(r, "m:o.hex=m:badsum.hex[h]"), "CHECKSUM ERROR - BADSUM.HEX");
+    failed(r);
+    same(pip(r, "m:o.hex=m:baddig.hex[h]"), "INVALID DIGIT - BADDIG.HEX");
+    same(pip(r, "m:o.hex=m:noend.hex[h]"), "UNEXPECTED END OF HEX FILE - NOEND.HEX");
+    same(pip(r, "m:o.hex=m:good.hex[i],m:good.hex[h]"), ""); // I: the first one's :00 record dropped
+    same(m_text(r, "O       HEX"), ":03000000010203F7\r\n:03000000010203F7\r\n:00000001FF\r\n");
 }
 
 int main() { return run_all(); }
