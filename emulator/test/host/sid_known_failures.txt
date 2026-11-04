@@ -1,9 +1,10 @@
 # The tunes in the owner's HVSC copy (fixtures/SIDs, gitignored) that test_sid_corpus fails today, found by
 # playing all 61,349 on 2026-11-04 (SID_COUNT=0, SID_SHARD=i/16): 148 of them. The sample leaves them out, so it
-# fails only on something new; the_known_failures_still_fail plays every one and fails when one passes, so a fix
-# takes it off here. A path relative to fixtures/SIDs, a tab, what the test saw: its error, the frames played on
-# time from the first call, how late that call came after init returned, the interrupts taken, and whether it
-# was heard. Only the paths are here, never a tune.
+# fails only on something new. With SID_KNOWN_FAILURES=1 (for work on them; the tiers don't),
+# the_known_failures_still_fail plays every one and fails when one passes, so a fix takes it off here. A path
+# relative to fixtures/SIDs, a tab, what the test saw: its error, the frames played on time from the first call,
+# how late that call came after init returned, the interrupts taken, and whether it was heard. Only the paths
+# are here, never a tune.
 C64Music/DEMOS/A-F/Amiga.sid	129 frames from 0.02 s (1.10 frames after init), 641 IRQs, silent
 C64Music/DEMOS/A-F/Compotune_Digi.sid	the tune covers the 6510's vectors, 0 frames from 0.00 s (-0.00 frames after init), 0 IRQs, silent
 C64Music/DEMOS/M-R/Red_Baron_Birthday_Disk_III.sid	101 frames from 0.02 s (1.18 frames after init), 501 IRQs, silent

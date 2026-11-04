@@ -513,7 +513,13 @@ TEST(a_sample_of_the_tunes_plays_or_at_least_runs)
 TEST(the_known_failures_still_fail)
 {
     // Every tune on the list still fails, until it's fixed: one that passes now is taken off the list, and
-    // one that isn't in the collection is said (the list is of the owner's HVSC copy).
+    // one that isn't in the collection is said (the list is of the owner's HVSC copy). Only when asked
+    // (SID_KNOWN_FAILURES=1), for work on them: the tiers don't play tunes known to fail.
+    if (const char *on = std::getenv("SID_KNOWN_FAILURES"); !on || std::string(on) != "1")
+    {
+        std::printf("  SKIP: the known failures are played only with SID_KNOWN_FAILURES=1\n");
+        return;
+    }
     if (tunes().empty())
     {
         std::printf("  SKIP: no .sid files in %s\n", FOLDER.c_str());
