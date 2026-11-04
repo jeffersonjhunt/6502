@@ -23,9 +23,10 @@
 # Needs: cmake, make, python3, node (npm ci done in emulator/apps/web/ui),
 # Docker for the WebAssembly build and interop, and the fixtures
 # (emulator/tools/fetch_fixtures.py; without them, tests skip: the e2e line
-# says how many). Docker's bind mounts resolve on the daemon's host: from
-# inside a container, set HOSTPATH to a command that maps a local path to
-# the host's, as emulator/tools/web_build.sh takes it.
+# says how many). The WebAssembly build bind-mounts the checkout, and a bind
+# mount resolves on the Docker daemon's host: from inside a container, set
+# HOSTPATH to a command that maps a local path to the host's, as
+# emulator/tools/web_build.sh takes it. Interop needs no mount.
 set -u
 
 tier=${1:-}
@@ -46,7 +47,7 @@ emu=$repo/emulator
 ui=$emu/apps/web/ui
 logs=${CHECK_LOGS:-$(mktemp -d)}
 mkdir -p "$logs"
-map=${HOSTPATH:-$(command -v hostpath || true)}
+map=${HOSTPATH:-$(command -v hostpath || true)} # for web_build.sh's bind mount
 summary=$logs/summary
 : >"$summary"
 unset OO1_BASE_URL # the local build unless --url
@@ -96,22 +97,22 @@ e2e() { # $1: the page's URL, or empty for the local build; then --grep @smoke, 
         npx playwright test "$@" # OO1_BASE_URL unset, not empty: empty would be a URL of "/"
     fi
 }
-# A local path as the Docker daemon's host sees it.
-host() {
-    if [ -n "$map" ]; then "$map" "$1"; else echo "$1"; fi
-}
+# interop: cpmtools, in a pinned Debian, reads the committed card and the three cards test_oodos_card writes as
+# OODOS does. oodos/ and the cards go into the container through tar on stdin, not a bind mount: a mount
+# resolves on the Docker daemon's host, which may not have this path (a build in a container).
 interop() {
     image=$(grep -o 'debian:bookworm@sha256:[0-9a-f]*' "$repo/oodos/tools/make_card.sh" | head -1)
-    out=$logs/cards
-    mkdir -p "$out"
-    OODOS_CARD_OUT=$out/written.img OODOS_CCP_OUT=$out/ccp.img OODOS_UTILS_OUT=$out/utils.img \
+    stage=$logs/interop
+    rm -rf "$stage" && mkdir -p "$stage/c" || return 1
+    OODOS_CARD_OUT=$stage/c/written.img OODOS_CCP_OUT=$stage/c/ccp.img OODOS_UTILS_OUT=$stage/c/utils.img \
         "$emu/build/$1/test/host/test_oodos_card" || return 1
-    o=$(host "$repo/oodos")
-    sd=$(host "$emu/test/host/sd")
-    c=$(host "$out")
-    docker run --rm -v "$o:/o:ro" -v "$sd:/c:ro" "$image" sh /o/test/interop.sh /c/oodos.sparse || return 1
-    for m in written ccp utils; do
-        docker run --rm -v "$o:/o:ro" -v "$c:/c:ro" "$image" sh /o/test/interop.sh "/c/$m.img" "--$m" || return 1
+    cp "$emu/test/host/sd/oodos.sparse" "$stage/c/" || return 1
+    for card in "oodos.sparse" "written.img --written" "ccp.img --ccp" "utils.img --utils"; do
+        set -- $card
+        tar -c --exclude=build -C "$repo" oodos -C "$stage" c |
+            docker run --rm -i "$image" sh -c \
+                'mkdir /x && tar -x -C /x && ln -s /x/oodos /o && ln -s /x/c /c && sh /o/test/interop.sh "/c/$1" $2' \
+                sh "$1" "${2:-}" || return 1
     done
 }
 
