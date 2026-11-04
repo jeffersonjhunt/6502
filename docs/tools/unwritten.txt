@@ -186,9 +186,6 @@ util-date
 util-device
 util-setdef
 
-# PIP (phase 4b2)
-util-pip
-
 # With the RSXs (phase 5)
 util-submit
 util-get

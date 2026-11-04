@@ -21,8 +21,8 @@
  * the file instead, wrong on purpose, to see this test and interop.sh fail.
  * write_on_the_oo1() is the seam. The CCP's ERA and REN (phase 4a) and the
  * utilities on A: (phase 4b1: ERASE, RENAME, SET, INITDIR) change A: through
- * the CCP the same way, the cards saved by OODOS_CCP_OUT and OODOS_UTILS_OUT
- * for interop.sh --ccp and --utils.
+ * the CCP the same way, the cards saved by OODOS_CCP_OUT, OODOS_UTILS_OUT and
+ * OODOS_PIP_OUT for interop.sh --ccp, --utils and --pip.
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
  * make_card.sh and interop.sh have it.
@@ -922,6 +922,56 @@ TEST(the_ccp_erases_and_renames_on_a_and_the_card_is_saved_for_interop_sh)
     CHECK(records_of(a, dir, pat) == pattern_file(1, 36864));
     CHECK(records_of(a, dir, entries_of(dir, 3, "USER3   TXT")) == text_file({"A FILE IN USER 3."}));
     CHECK(!entries_of(dir, 0, "HELLO   COM").empty());
+}
+
+TEST(pip_on_a_copies_joins_and_changes_files_and_the_card_is_saved_for_interop_sh)
+{
+    // Phase 4b2's PIP, from the card's A:, on A: itself: a copy, a drive's copy into user 5 (PATTERN.BIN,
+    // two entries), two files joined (README.TXT and 3:USER3.TXT), one by characters ([L]); checked here
+    // and, with OODOS_PIP_OUT, by interop.sh --pip with cpmtools.
+    Rig r;
+    REQUIRE(mount_a(r));
+    const std::string said = ccp_on_the_oo1(r, {"pip copy.txt=readme.txt", "pip a:[g5]=pattern.bin",
+                                                "pip joined.txt=readme.txt,user3.txt[g3]",
+                                                "pip lower.txt=readme.txt[l]"});
+    bool clean = true;
+    for (const char *w : {"INVALID", "BAD", "NOT FOUND", "ERROR", "Error", "R/O", "?\r\n"})
+        if (said.find(w) != std::string::npos)
+        {
+            std::printf("  said '%s': '%s'\n", w, said.c_str());
+            clean = false;
+        }
+    CHECK(clean);
+    const std::string out = env("OODOS_PIP_OUT");
+    if (!out.empty())
+    {
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(r.media->bytes().data()),
+                static_cast<std::streamsize>(r.media->bytes().size()));
+        CHECK(f.good());
+        std::printf("  the card saved to %s\n", out.c_str());
+    }
+    Rig again(r.media->bytes());
+    REQUIRE(mount_a(again));
+    Drive a{again, 1, Dpb::from_diskdefs("oodos-8m")};
+    const std::vector<uint8_t> dir = a.directory();
+    allocation(a, dir);
+    const std::string l1 = "THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.",
+                      l2 = "OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD.";
+    CHECK(records_of(a, dir, entries_of(dir, 0, "COPY    TXT")) == text_file({l1, l2}));
+    const std::vector<unsigned> pat = entries_of(dir, 5, "PATTERN BIN");
+    CHECK_EQ(pat.size(), size_t{2});
+    CHECK(records_of(a, dir, pat) == pattern_file(1, 36864));
+    CHECK(records_of(a, dir, entries_of(dir, 0, "JOINED  TXT")) == text_file({l1, l2, "A FILE IN USER 3."}));
+    std::string low1 = l1, low2 = l2;
+    for (char &c : low1)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char &c : low2)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    CHECK(records_of(a, dir, entries_of(dir, 0, "LOWER   TXT")) == text_file({low1, low2}));
+    for (const char *t : {"COPY    $$$", "JOINED  $$$", "LOWER   $$$"})
+        CHECK(entries_of(dir, 0, t).empty());
+    CHECK(entries_of(dir, 5, "PATTERN $$$").empty());
 }
 
 TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_interop_sh)
