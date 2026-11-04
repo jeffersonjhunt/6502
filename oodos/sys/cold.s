@@ -25,6 +25,7 @@ DRV:            .res    1
 FIRST:          .res    1
 FIRST2:         .res    1
 SHIFT:          .res    1
+CIDX:           .res    1              ; CARDS' place in CARDTAB
 VER:            .res    VER_MAX + 1
 
 .segment "RES"
@@ -281,24 +282,20 @@ CARDS:          LDA     #<SCARDS
                 LDA     (SP0)
                 CMP     CARDTAB + 2,X
                 BNE     @next
-                PHX
+                STX     CIDX
                 LDA     FIRST
                 BEQ     @name
                 LDA     #<SCOMMA
                 LDX     #>SCOMMA
                 JSR     PUTS
 @name:          INC     FIRST
-                PLX
-                PHX
-                LDA     CARDTAB + 3,X
-                LDY     CARDTAB + 4,X
-                TAX
-                TYA
-                PHA
-                TXA
-                PLX
-                JSR     PUTS
-                PLX
+                LDX     CIDX
+                LDA     CARDTAB + 3,X  ; its name
+                STA     SP2
+                LDA     CARDTAB + 4,X
+                STA     SP2 + 1
+                JSR     PUTSP
+                LDX     CIDX
 @next:          TXA
                 CLC
                 ADC     #CARD_LEN
@@ -326,10 +323,10 @@ CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V1, CVIDEO
                 CARD    CONSOLE_ID, CONSOLE_ID_V1, CPANEL
 CARDTAB_LEN     = * - CARDTAB
 
-; The 0-ended string at A/X.
+; The 0-ended string at A/X; PUTSP, at SP2.
 PUTS:           STA     SP2
                 STX     SP2 + 1
-                LDY     #0
+PUTSP:          LDY     #0
 @char:          LDA     (SP2),Y
                 BEQ     @done
                 PHY
