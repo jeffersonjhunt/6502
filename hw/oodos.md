@@ -1858,9 +1858,9 @@ Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
   controller, the front panel; `none` if none. The serial card has no ID
   register, and the console runs on it.
 
-587 bytes of cold boot (574, and 13 for the Disk II from 2026-11-04), in block 62's code window. Tested by `test_oodos_sys`: the banner and the status on both
-outputs, the BIOS's version as `bios.rom`'s greeting has it, a machine with only the SD card and the DMA
-controller and drives of 8 MB and 32 MB, and a block 63 with no greeting.
+587 bytes of cold boot (574, and 13 for the Disk II from 2026-11-04), in block 62's code window. Tested by
+`test_oodos_sys`: the banner and the status on both outputs, the BIOS's version as `bios.rom`'s greeting has it, a
+machine with only the SD card and the DMA controller and drives of 8 MB and 32 MB, and a block 63 with no greeting.
 
 ### The program header ###
 
