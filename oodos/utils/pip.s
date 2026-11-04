@@ -744,16 +744,17 @@ todrive:
         ldx     #>(e_fcb + 37)
         jsr     UT_ISWILD
         stz     listing
-        bcc     @each
+        bcc     tdeach
         lda     opts1 + 'K' - 'A'       ; COPYING - unless K or C
         ora     opts1 + 'C' - 'A'
-        bne     @each
+        bne     tdeach
         lda     #1
         sta     listing
         lda     #<scopying
         ldx     #>scopying
         jsr     UT_SAY
-@each:  jsr     nextname
+tdeach: stz     skipok                  ; (a file skipped comes back here)
+        jsr     nextname
         bcc     :+
         rts
 :       ldy     #10                     ; the source's name and the copy's
@@ -775,7 +776,7 @@ todrive:
         ldx     #>syn
         jsr     CM_PUTS
         jsr     CM_ASK
-        bcc     @each
+        bcc     tdeach
 @noask: lda     listing
         beq     @copy
         lda     #<(e_fcb + 1)
@@ -788,11 +789,26 @@ todrive:
         sta     curname + 1
         lda     #1
         sta     single
+        tsx                             ; a source that won't open: skipped
+        stx     filesp
+        lda     #1
+        sta     skipok
         jsr     xfer
+        stz     skipok
         lda     opts1 + 'A' - 'A'
-        beq     @each
+        beq     tdeach
         jsr     archive
-        bra     @each
+        bra     tdeach
+
+; A file of a copy to a drive that the BDOS wouldn't open (it said why):
+; skipped, the Guide's way: the return code $FF00, the temporary file
+; deleted, the next file.
+skipped:
+        jsr     UT_SAID
+        jsr     droptmp
+        ldx     filesp
+        txs
+        jmp     tdeach
 
 ; To a file: the sources joined, left to right; a source drive takes the
 ; destination's name (one source alone). A wildcard on either side:
@@ -1357,6 +1373,9 @@ opensrc:
         lda     #<snotfnd
         ldx     #>snotfnd
         jmp     failsrc
+:       lda     skipok
+        beq     :+
+        jmp     skipped
 :       jmp     said
 @ok:    stz     ieof
         lda     #<ibuf2                 ; the first record read ahead
@@ -1953,9 +1972,18 @@ maketmp:
         ldy     #F_MAKE
         jsr     BDOS
         cmp     #$FF
-        bne     :+
+        bne     @made
+        cpx     #0                      ; X 0: no directory space, the BDOS silent
+        beq     :+
         jmp     said
-:       lda     #1
+:       lda     #<(e_fcb + 1)
+        sta     ptr
+        lda     #>(e_fcb + 1)
+        sta     ptr + 1
+        lda     #<swrite
+        ldx     #>swrite
+        jmp     failnm
+@made:  lda     #1
         sta     tmpopen
         rts
 
@@ -2363,6 +2391,8 @@ listing: .res   1                       ; 1: COPYING - and the names
 curname: .res   2                       ; a wildcard copy's directory bytes (0 high: none)
 single: .res    1                       ; 1: one file copied alone
 ddrive: .res    1                       ; 1: the destination was a drive alone
+skipok: .res    1                       ; 1: a source that won't open is skipped
+filesp: .res    1                       ; the stack before a drive copy's file
 cur:    .res    1                       ; the source being copied
 charmode: .res  1
 ieof:   .res    1

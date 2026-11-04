@@ -1840,9 +1840,12 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   - NAME.TYP`; **W** read-only destinations deleted without asking; **Z** bit 7 of each character cleared. In what
   order (ours): Z, S and Q on the source's characters, then F, L or U, D, T, N and P on what is written, E last.
 - **Errors** (Appendix A's): `INVALID FORMAT`, `INVALID SEPARATOR`, `BAD PARAMETER`, `INVALID USER NUMBER`, `FILE
-  NOT FOUND - NAME.TYP`, `R/O DISK`, `R/O FILE` (a destination read-only when asked about it
-  is the question above), `USER ABORTED` (^C, between records or characters: the temporary file deleted); a wrong
-  password, and the BDOS's other errors, the BDOS's own message (error mode $FE, as 4b1's utilities). After
+  NOT FOUND - NAME.TYP`, `R/O DISK` (a read-only destination file is the question above), `USER ABORTED` (^C,
+  between records or characters: the temporary file deleted); a full directory, `DISK WRITE ERROR - NAME.TYP`
+  too (ours: the Guide's PIP has no message of its own for it); a wrong password, and the BDOS's other errors,
+  the BDOS's own message (error mode $FE, as 4b1's utilities). In a copy to a drive a file the BDOS won't open is
+  skipped and the copy goes on with the next, as the Guide says of a wrong password; any other error ends the
+  command. After
   an error in the `*` mode the next command is asked for; from a tail, the end. The return code is $FF00 after any.
 
 **Proposed (4b2, as built, 2026-11-04)** ([`oodos/utils/pip.s`](../oodos/utils/pip.s); the plan above is what was

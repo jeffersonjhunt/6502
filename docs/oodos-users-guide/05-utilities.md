@@ -106,11 +106,12 @@ TWO.TXT
 - `INVALID DESTINATION`, `INVALID SOURCE`: a device on the wrong side, or a name with `:` that isn't a device.
 - `FILE NOT FOUND - NAME.TYP`; `R/O DISK`; `CAN'T DELETE TEMP FILE` (a read-only `NAME.$$$` in the way).
 - `DESTINATION IS R/O, DELETE (Y/N)?`: N is `**NOT DELETED**`.
-- `DISK WRITE ERROR - NAME.TYP`: the disk is full. `VERIFY ERROR - NAME.TYP`: V found a difference.
+- `DISK WRITE ERROR - NAME.TYP`: the disk, or its directory, is full. `VERIFY ERROR - NAME.TYP`: V found a difference.
 - `START NOT FOUND`, `QUIT NOT FOUND`: S's or Q's text wasn't in the source.
 - `INVALID DIGIT`, `CHECKSUM ERROR`, `RECORD TOO LONG`, `UNEXPECTED END OF HEX FILE`, each with the file's name: H.
 - `USER ABORTED`: ^C during a copy.
-- A wrong password, and other disk errors, as OODOS reports them.
+- A wrong password, and other disk errors, as OODOS reports them. Copying to a drive, PIP skips a file it can't
+  open and goes on with the next.
 
 A copy that fails leaves nothing behind: PIP writes to `NAME.$$$` and renames it only when it is complete.
 

@@ -448,4 +448,44 @@ TEST(pip_copies_files_past_an_extent_and_says_a_full_disk_a_read_only_temporary_
     same(pip(r, "aux:=m:lock.$$$"), "x");
 }
 
+TEST(pip_skips_a_file_it_cant_open_in_a_copy_to_a_drive)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "ONE     TXT", bytes("ONE\r\n")}, {0, "SECRET  TXT", bytes("HIDDEN\r\n")}, {0, "TWO     TXT", bytes("TWO\r\n")}});
+    r.xfcb_m(0, "SECRET  TXT", 0x80, "SESAME  ");
+    r.put_util("pip");
+    // The Guide: a file whose password fails is skipped and noted, the copy goes on
+    const std::string o = pip(r, "m:[g2]=m:*.txt");
+    CHECK(o.find("COPYING -\r\nONE.TXT\r\nSECRET.TXT\r\nOODOS Error On M: Password Error\r\n") == 0);
+    CHECK(o.size() >= 7 && o.compare(o.size() - 7, 7, "TWO.TXT") == 0);
+    failed(r);
+    same(text(m_data(r, 2, "ONE     TXT")), "ONE\r\n");
+    same(text(m_data(r, 2, "TWO     TXT")), "TWO\r\n");
+    CHECK(r.m_entry(2, "SECRET  TXT") < 0);
+    CHECK(r.m_entry(2, "SECRET  $$$") < 0);
+}
+
+TEST(pip_says_a_full_directory_as_a_write_error)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "ONE     TXT", bytes("ONE\r\n")}});
+    r.put_util("pip");
+    // Every entry M: has left taken by an empty file, before M: is logged in (OODOS hashes its
+    // directory then): no room for NAME.$$$
+    for (unsigned i = 0, n = 0; i < 256; ++i)
+        if (r.phys(MDISK + i * 32) == 0xE5)
+        {
+            std::vector<uint8_t> e(32, 0);
+            char name[12];
+            std::snprintf(name, sizeof name, "FILL%04uDAT", n++);
+            for (unsigned c = 0; c < 11; ++c)
+                e[1 + c] = static_cast<uint8_t>(name[c]);
+            r.poke(MDISK + i * 32, e);
+        }
+    same(pip(r, "m:x.txt=m:one.txt"), "DISK WRITE ERROR - X.TXT");
+    failed(r);
+}
+
 int main() { return run_all(); }
