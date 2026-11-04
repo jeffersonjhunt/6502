@@ -51,6 +51,16 @@ python3 tools/fetch_fixtures.py
 cmake --preset dev && cmake --build --preset dev && ctest --preset dev
 ```
 
+Two tiers, run by `tools/check.sh` (it says what each step took and which failed):
+
+- **`tools/check.sh quick`**, before a build goes to staging, a few minutes: the oodos checks; every native test,
+  built optimised without the sanitizers (`--preset fast`, under a minute); the WebAssembly build and its tests;
+  vitest; the e2e smoke set (the tests tagged `@smoke`, `npm run e2e:smoke`). `--url URL` runs the smoke set
+  against the deployed page too.
+- **`tools/check.sh full`**, before production: the same, but the native tests under ASan/UBSan (`--preset dev`,
+  about 15 minutes), the whole e2e suite (and against `--url URL`), and interop (cpmtools reading the cards OODOS
+  writes, in Docker).
+
 The refactor plan is `emulator/docs/EMULATOR_PLAN.md`; the baseline it starts
 from is tagged `beta`.
 

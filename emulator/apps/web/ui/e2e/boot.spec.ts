@@ -10,7 +10,7 @@ async function booted(page: Page) {
   await expect(page.getByTestId("status")).toContainText("RUNNING");
 }
 
-test("the page starts the machine off: the dark screen says to turn the key, and the key's turn is a cold start", async ({ page }) => {
+test("the page starts the machine off: the dark screen says to turn the key, and the key's turn is a cold start", { tag: "@smoke" }, async ({ page }) => {
   await page.goto("./?sd=empty");
   const key = page.getByTestId("keyswitch");
   const hint = page.getByTestId("power-hint");
@@ -43,13 +43,13 @@ test("the page starts the machine off: the dark screen says to turn the key, and
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
 });
 
-test("boots the BIOS to the Woz Monitor on the CRT", async ({ page }) => {
+test("boots the BIOS to the Woz Monitor on the CRT", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.10\n\\$/);
   await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 
-test("typing reaches the monitor: CAPS on, Enter is CR", async ({ page }) => {
+test("typing reaches the monitor: CAPS on, Enter is CR", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   await page.getByTestId("crt").click();
   await page.keyboard.type("c680.c684");

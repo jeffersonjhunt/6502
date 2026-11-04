@@ -88,7 +88,7 @@ test("LOAD ADRS, DEP and EXAM through physical memory, and the monitor sees the 
   await expect(page.getByTestId("crt-text")).toContainText("0300: 42 42");
 });
 
-test("keyswitch: LOCK ignores the panel, OFF powers down, RUN is a cold start", async ({ page }) => {
+test("keyswitch: LOCK ignores the panel, OFF powers down, RUN is a cold start", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   const key = page.getByTestId("keyswitch");
   await key.click(); // LOCK

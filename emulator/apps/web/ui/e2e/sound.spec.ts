@@ -20,7 +20,7 @@ async function monitor(page: Page, line: string) {
 const played = async (page: Page) => Number(await page.getByTestId("tb-sound").getAttribute("data-played"));
 const peak = async (page: Page) => Number(await page.getByTestId("tb-sound").getAttribute("data-peak"));
 
-test("Sound plays the sound card: a note set up from the monitor reaches the speaker", async ({ page }) => {
+test("Sound plays the sound card: a note set up from the monitor reaches the speaker", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   await pastSplash(page);
   await onTerminal(page);

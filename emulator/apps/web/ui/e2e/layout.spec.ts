@@ -206,7 +206,7 @@ test("a BIOS that runs nothing useful: Settings still takes you back to the page
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
 });
 
-test("the fonts are the page's own: Inter and JetBrains Mono load, and nothing is fetched from elsewhere", async ({ page, baseURL }) => {
+test("the fonts are the page's own: Inter and JetBrains Mono load, and nothing is fetched from elsewhere", { tag: "@smoke" }, async ({ page, baseURL }) => {
   const outside: string[] = [];
   page.on("request", (r) => {
     if (new URL(r.url()).origin !== new URL(baseURL!).origin && !r.url().startsWith("data:")) outside.push(r.url());

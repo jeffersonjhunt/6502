@@ -34,7 +34,7 @@ function litInRow(page: Page, row: number) {
   }, row);
 }
 
-test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", async ({ page }) => {
+test("VGA shows the BIOS's screen pixel for pixel, in the phosphor's colour", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
   await pastSplash(page);
   await page.getByRole("button", { name: "Display" }).click();

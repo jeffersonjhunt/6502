@@ -24,7 +24,7 @@ async function powerCycle(page: Page) {
   await expect(key).toHaveAttribute("data-pos", "run");
 }
 
-test("the demo card is in at every visit, and power-on boots OODOS from it to A>", async ({ page }) => {
+test("the demo card is in at every visit, and power-on boots OODOS from it to A>", { tag: "@smoke" }, async ({ page }) => {
   await page.goto("./");
   await openSettings(page);
   await expect(page.getByTestId("sd-name")).toHaveText("oodos-demo.img", { timeout: 15_000 });
@@ -120,7 +120,7 @@ test("a demo card that never arrives doesn't hold the page up: power-on is the W
   await expect(crt).toContainText("C683: 7F");
 });
 
-test("CLEAR clears the Terminal, and CLS clears it and lists the files", async ({ page }) => {
+test("CLEAR clears the Terminal, and CLS clears it and lists the files", { tag: "@smoke" }, async ({ page }) => {
   await page.goto("./");
   await openSettings(page);
   await expect(page.getByTestId("sd-name")).toHaveText("oodos-demo.img", { timeout: 15_000 });
