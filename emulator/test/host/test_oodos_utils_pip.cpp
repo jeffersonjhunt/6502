@@ -190,4 +190,96 @@ TEST(pip_copies_a_wildcards_files_each_under_its_name_and_joins_files)
     same(pip(r, "lst:=nul:,m:one.txt,eof:"), ""); // devices: the next stage's
 }
 
+TEST(pip_asks_before_a_read_only_destination_unless_w_and_verifies_with_v)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    files(r);
+    // N: not deleted, the copy dropped, the old file as it was
+    std::string o = r.to("m:pip m:ro.txt=m:one.txt", "DELETE (Y/N)?");
+    same(wrote(o + r.cmd("n"), "m:pip m:ro.txt=m:one.txt"), "DESTINATION IS R/O, DELETE (Y/N)?n\r\n**NOT DELETED**");
+    failed(r);
+    same(text(m_data(r, 0, "RO      TXT")), "READ ONLY\r\n");
+    CHECK(r.m_entry(0, "RO      $$$") < 0);
+    // Y: deleted, the copy in its place (its source's attributes, none)
+    o = r.to("m:pip m:ro.txt=m:one.txt", "DELETE (Y/N)?");
+    same(wrote(o + r.cmd("y"), "m:pip m:ro.txt=m:one.txt"), "DESTINATION IS R/O, DELETE (Y/N)?y\r"); // the answer's CR, then the prompt's
+    ok(r);
+    same(text(m_data(r, 0, "RO      TXT")), "ONE\r\n");
+    CHECK_EQ(attrs(r, 0, "RO      TXT"), 0);
+    // A read-only copy over it, then [W] writes over it without asking
+    same(pip(r, "m:[g5]=m:ro.txt"), "");
+    same(pip(r, "m:ro.txt[g5]=m:two.txt[w]"), "");
+    same(text(m_data(r, 5, "RO      TXT")), "TWO\r\n");
+    // [V]: read back and compared
+    same(pip(r, "m:v.txt=m:three.txt[v]"), "");
+    ok(r);
+    CHECK(m_data(r, 0, "V       TXT") == m_data(r, 0, "THREE   TXT"));
+}
+
+TEST(pip_asks_with_c_and_copies_only_unarchived_files_with_a)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    files(r);
+    // [C]: each asked about, Y copied, N not
+    std::string line = "m:pip m:[g6]=m:t*.txt[c]";
+    std::string o = r.to(line, "COPY TWO.TXT (Y/N)?"); // in the directory's order
+    o += r.to("n", "COPY THREE.TXT (Y/N)?");
+    o += r.cmd("y");
+    same(wrote(o, line), "COPY TWO.TXT (Y/N)?n\r\nCOPY THREE.TXT (Y/N)?y\r");
+    CHECK(r.m_entry(6, "TWO     TXT") < 0);
+    CHECK(m_data(r, 6, "THREE   TXT") == m_data(r, 0, "THREE   TXT"));
+    // [A]: the files not archived copied, each source then archived; again, none
+    same(pip(r, "m:[g7]=m:*.txt[a]"), "COPYING -\r\nONE.TXT\r\nTWO.TXT\r\nTHREE.TXT\r\nRO.TXT");
+    CHECK_EQ(attrs(r, 0, "ONE     TXT"), 4);
+    CHECK_EQ(attrs(r, 0, "RO      TXT"), 5);
+    CHECK_EQ(attrs(r, 7, "ONE     TXT"), 0); // the copy not archived
+    same(pip(r, "m:[g8]=m:*.txt[a]"), "FILE NOT FOUND - ????????.TXT");
+}
+
+TEST(pip_takes_a_sources_password_and_gives_a_destination_one)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "SECRET  TXT", bytes("HIDDEN\r\n")}, {0, "OPEN    TXT", bytes("OPEN\r\n")}});
+    r.xfcb_m(0, "SECRET  TXT", 0x80, "SESAME  ");
+    r.put_util("pip");
+    std::string o = r.cmd("m:pip m:x.txt=m:secret.txt");
+    CHECK(o.find("OODOS Error On M: Password Error") != std::string::npos);
+    CHECK(r.m_entry(0, "X       TXT") < 0);
+    CHECK(r.m_entry(0, "X       $$$") < 0);
+    failed(r);
+    same(pip(r, "m:x.txt=m:secret.txt;sesame"), "");
+    same(text(m_data(r, 0, "X       TXT")), "HIDDEN\r\n");
+    // A destination's: its XFCB, READ mode
+    same(pip(r, "m:locked.txt;key=m:open.txt"), "");
+    const int x = r.m_entry(16, "LOCKED  TXT");
+    REQUIRE(x >= 0);
+    CHECK_EQ(r.phys(MDISK + static_cast<uint32_t>(x) * 32 + 12) & 0xE0, 0x80);
+    o = r.cmd("m:pip m:y.txt=m:locked.txt");
+    CHECK(o.find("Password Error") != std::string::npos);
+    same(pip(r, "m:y.txt=m:locked.txt;key"), "");
+    same(text(m_data(r, 0, "Y       TXT")), "OPEN\r\n");
+    // To another user by d: alone: the source's password and mode
+    same(pip(r, "m:[g2]=m:secret.txt;sesame"), "");
+    const int y = r.m_entry(18, "SECRET  TXT");
+    REQUIRE(y >= 0);
+    CHECK_EQ(r.phys(MDISK + static_cast<uint32_t>(y) * 32 + 12) & 0xE0, 0x80);
+}
+
+TEST(pip_alone_asks_for_a_command_a_line_until_an_empty_one)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    files(r);
+    std::string o = r.to("m:pip", "\r\n*");
+    o += r.to("m:a.txt=m:one.txt", "\r\n*");
+    o += r.to("m:b.txt=m:nosuch.txt", "\r\n*");
+    o += r.cmd("");
+    same(o, "m:pip\r\nOODOS PIP 0.2\r\n*m:a.txt=m:one.txt\r\n*m:b.txt=m:nosuch.txt\r\nFILE NOT FOUND - NOSUCH.TXT\r\n*\r\r\nA>");
+    same(text(m_data(r, 0, "A       TXT")), "ONE\r\n");
+    failed(r); // an error among them: the return code
+}
+
 int main() { return run_all(); }
