@@ -263,6 +263,8 @@ xfcb  0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (Write) and T
     cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:} as make_card.sh made it"
   done
   ok "README.TXT, PATTERN.DAT, USER3.TXT and SMALL.BIN, out by cpmcp, are what make_card.sh made"
+elif [ "$written" = --pip ]; then
+  : # its copies are checked above
 elif [ -n "$written" ]; then
   fail "$written: not an option"
 fi
