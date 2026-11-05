@@ -68,9 +68,10 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
 
 ## Functions OODOS hasn't
 
-38, 39 and 41, MP/M's drive access and test-and-write, and every number no Digital Research system gives a meaning.
-Each returns A = X = `$FF`. CP/M 3 answers 38 and 39 with success (A = 0) and 41 with `$FF`, so a program that
-calls 38 or 39 and checks A sees a failure on OODOS.
+41, MP/M's test-and-write, returns A = `$FF` with X 0, as CP/M 3 answers it. Every number no Digital Research system
+gives a meaning returns A = X = `$FF`. 38 and 39, MP/M's drive access and free drive
+([DRV_ACCESS](07-function-reference.md#bdos-38), [DRV_FREEDRV](07-function-reference.md#bdos-39)), return A = X = 0,
+the success CP/M 3 answers them with.
 
 ## Each function
 
@@ -80,12 +81,13 @@ Beyond the registers, which change for every function as above:
 |---|---|---|
 | 0 | `P_TERMCPM` | the warm boot also frees the program's memory blocks and its DMA segment |
 | 6 | `C_RAWIO` | `$FF`, `$FD` and `$FE` see a key the BDOS kept back, so none is lost |
-| 10 | `C_READSTR` | how a long line lays out over the screen's rows, and no mark for ^U and ^R; 255 characters at most |
+| 10 | `C_READSTR` | how a long line lays out over the screen's rows; no `#` for ^U and ^R; ^C ends the program only in an empty line; 255 characters at most |
 | 11 | `C_STAT` | in ^C-only mode other keys are dropped and the ^C kept for the next input |
 | 13 | `DRV_ALLRESET` | the DMA address goes back to `$0280`; the card's units are read again first, so a swapped image loses its unwritten buffers |
+| 16 | `F_CLOSE` | f5' is ignored: every close leaves the FCB open |
 | 19 | `F_DELETE` | a password is checked after every other reason to refuse |
-| 20, 33 | `F_READ`, `F_READRAND` | the DMA segment; a multi-sector buffer is checked whole first, and a call whose buffer isn't all memory moves nothing; codes 9 (20) and 10 are never returned |
-| 21, 34 | `F_WRITE`, `F_WRITERAND` | the DMA segment; a new block is the lowest free one, and zeroed; the update is stamped at the close, not the first write; t3' isn't cleared; codes 9 (21) and 10 are never returned |
+| 20, 33 | `F_READ`, `F_READRAND` | the DMA segment; a multi-sector buffer is checked whole first, and a call whose buffer isn't all memory moves nothing; 20 says 1 where an extent can't be closed as it moves on; codes 9 and 10 are never returned |
+| 21, 34 | `F_WRITE`, `F_WRITERAND` | the DMA segment; a new block is the lowest free one, and zeroed; 21 says 1 where an extent can't be closed as it moves on; codes 9 and 10 are never returned |
 | 22 | `F_MAKE` | the password mode is byte 8's bits 7-5; a make that can't have both its entries makes neither |
 | 23 | `F_RENAME` | File Exists is checked before the old name is looked for |
 | 27 | `DRV_ALLOCVEC` | returns `$FFFF`: the vectors are in the system's memory. Function 46 gives the free space |
@@ -101,10 +103,10 @@ Beyond the registers, which change for every function as above:
 | 57 | `MC_FREE` | a length past an allocation's end frees only to its end |
 | 59 | `P_LOAD` | any program may call it; a `.COM` loads only at `$0300`; a file with RSXs attached is refused (only the CCP attaches them); X says why a load is refused; A/X = 0 only removes |
 | 98 | `DRV_FREE` | drops the failed buffers of the blocks it frees |
-| 99 | `F_TRUNCATE` | stamps the update |
+| 99 | `F_TRUNCATE` | stamps the update and clears t3' in the entry that ends at R |
 | 100 | `DRV_SETLABEL` | the label's stored mode has bit 0 set, saying a label is there; it is stamped whatever its mode; stamps asked for without SFCBs return `$FF` |
 | 103 | `F_WRITEXFCB` | a new XFCB without a password given has none |
-| 104, 105 | `T_SET`, `T_GET` | the clock holds 2000-2155; 105 returns `$FF` past it |
+| 104, 105 | `T_SET`, `T_GET` | the clock holds 2000-2155: 104 of a date outside it sets the SCB's date, not the clock; 105 returns `$FF` past it |
 | 107 | `S_SERIAL` | the same number in every copy |
 | 152 | `F_PARSE` | bytes 24-35 are left alone; a failed parse leaves the FCB as it was |
 

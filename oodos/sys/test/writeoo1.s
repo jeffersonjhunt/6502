@@ -4,7 +4,10 @@
 ; test_oodos_card.cpp and oodos/test/interop.sh expect it: made at 2026-10-25
 ; 13:45 and updated at 2026-10-26 15:30, the clock set for each by function
 ; 104. The update comes from writing a record of each entry again, at the
-; later time: record 0 by function 21, record 259 by 34, then the close.
+; later time: record 0 by function 21, the first write since the open, which
+; stamps it (the Guide, 21 and 34); then, the clock set to 16:45, record 259
+; by 34 and the close, which stamp nothing (nor did the writes after make,
+; whose stamp stood).
 ; On the test card, for test_oodos_card's Session to run as WRITEOO1.
 ;
 ;   step aa xx            a step that failed: MAKE, WRITE, CLOSE, OPEN,
@@ -84,6 +87,7 @@ wopened:
         SAY     "REWRITE "
         jmp     failed
 wrewrote:
+        CALLF   T_SET, later            ; not stamped: the update is the first write's
         lda     #<(RECORDS - 1)
         sta     RN
         sta     fcb+33
@@ -147,6 +151,8 @@ made:   .word   17830                   ; 2026-10-25, days from 1 January 1978 (
 updated:
         .word   17831                   ; 2026-10-26
         .byte   $15, $30
+later:  .word   17831                   ; 2026-10-26, not to be seen
+        .byte   $16, $45
 
         .bss
 fcb:    .res    36

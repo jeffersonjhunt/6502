@@ -101,8 +101,8 @@ Each file has attributes, kept with it in the directory:
 - **RO or RW:** a read-only file can be read, but not written, erased or renamed: those are
   `OODOS Error On A: File R/O`.
 - **Archive:** marks a file as backed up. PIP's `[A]`, copying to a drive, copies only files without it, and sets it on
-  each after the copy; a copy PIP makes has it clear. OODOS doesn't clear it when a file changes, as CP/M 3 does:
-  `SET [ARCHIVE=OFF]` does.
+  each after the copy; a copy PIP makes has it clear. OODOS clears it when a program writes to the file, as CP/M 3
+  does, so a file changed since its backup is copied again; `SET [ARCHIVE=OFF]` clears it too.
 - **F1 to F4:** for the user's own use; OODOS doesn't look at them.
 
 [SET](05-utilities.md#set) sets them (`SET README.TXT [RO]`), and DIR.COM's `[FULL]` shows them.

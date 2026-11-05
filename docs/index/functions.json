@@ -342,6 +342,24 @@
   "status": "built"
  },
  {
+  "number": 38,
+  "name": "DRV_ACCESS",
+  "documented": true,
+  "anchor": "bdos-38",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
+ },
+ {
+  "number": 39,
+  "name": "DRV_FREEDRV",
+  "documented": true,
+  "anchor": "bdos-39",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
+ },
+ {
   "number": 40,
   "name": "F_WRITEZF",
   "documented": true,

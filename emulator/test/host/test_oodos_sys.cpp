@@ -928,14 +928,24 @@ void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = fals
     uint64_t t0 = 0;
     // An entry written (DIRPUT) while a close or an extent change (CLOSEX) runs, and any changed
     // buffer of the drive's still not written back: the entry would be on the disk before the
-    // data it points at.
+    // data it points at. CLOSEX's run ends at its return address: what the call writes after
+    // it (a new extent's entry, a first write's update stamp or cleared t3') points at no data
+    // CLOSEX's entry doesn't.
     const uint16_t closex = sym("CLOSEX"), dirput = sym("DIRPUT"), bcb_drv = sym("BCB_DRV"),
                    bcb_dirty = sym("BCB_DIRTY"), cdrv = sym("CDRV");
     bool closing = false;
+    uint16_t closed = 0; // CLOSEX's return: the byte after its caller's JSR
     unsigned entries = 0, early = 0;
     r.watch = [&](uint16_t pc) {
         if (pc == closex)
+        {
             closing = true;
+            const uint8_t s = r.cpu->regs().s;
+            auto pulled = [&](unsigned k) { return r.machine->bus().peek(static_cast<uint16_t>(0x0100 | ((s + k) & 0xFF))); };
+            closed = static_cast<uint16_t>((pulled(1) | pulled(2) << 8) + 1);
+        }
+        else if (pc == closed && closing)
+            closing = false;
         else if (pc == dirput && closing)
         {
             ++entries;
@@ -1106,9 +1116,56 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
 {
     Booted r;
     REQUIRE(r.ok);
+    // What a write's own directory writes (WROTE's, from its entry to its return) change in M:'s
+    // directory: an entry's t3' cleared, and an SFCB's update stamps, nothing else (the entry it
+    // writes for t3' points at no data that isn't on the disk yet).
+    constexpr uint32_t DIRBYTES = 4 * 2048; // M:'s directory: 4 blocks of 2 KB, from MDISK
+    const uint16_t wrote = sym("WROTE");
+    uint16_t wrote_ret = 0;
+    bool writing = false;
+    std::vector<uint8_t> before(DIRBYTES);
+    unsigned t3s = 0, stamps = 0, other = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == wrote)
+        {
+            writing = true;
+            const uint8_t sp = r.cpu->regs().s;
+            auto pulled = [&](unsigned k) { return r.machine->bus().peek(static_cast<uint16_t>(0x0100 | ((sp + k) & 0xFF))); };
+            wrote_ret = static_cast<uint16_t>((pulled(1) | pulled(2) << 8) + 1);
+            for (uint32_t i = 0; i < DIRBYTES; ++i)
+                before[i] = r.phys(MDISK + i);
+        }
+        else if (writing && pc == wrote_ret)
+        {
+            writing = false;
+            for (uint32_t i = 0; i < DIRBYTES; ++i)
+            {
+                const uint8_t now = r.phys(MDISK + i);
+                if (now == before[i])
+                    continue;
+                const uint32_t e = i & ~31u, k = i & 31u;
+                if (before[e] == 0x21 && k >= 1 && k <= 30 && (k - 1) % 10 >= 4 && (k - 1) % 10 <= 7)
+                    ++stamps; // an SFCB slot's update stamp
+                else if (before[e] < 0x20 && k == 11 && before[i] == (now | 0x80) && (now & 0x80) == 0)
+                    ++t3s;    // a file entry's t3' cleared
+                else
+                {
+                    ++other;
+                    std::printf("  WROTE changed directory byte %u (entry %u, byte %u): %02X to %02X\n",
+                                static_cast<unsigned>(i), static_cast<unsigned>(e / 32), static_cast<unsigned>(k),
+                                before[i], now);
+                }
+            }
+        }
+    };
     const size_t from = start(r, "dirtest.com");
     CHECK(r.until("DIRTEST DONE", ms(60000), from));
     CHECK(r.until("\r\nA>", ms(3000), from));
+    r.watch = nullptr;
+    std::printf("  M: WROTE's directory writes: %u t3' cleared, %u stamp bytes, %u other bytes\n", t3s, stamps, other);
+    CHECK(t3s > 0);    // AR.TXT's
+    CHECK(stamps > 0); // first writes after an open
+    CHECK_EQ(other, 0u);
     const std::string o = r.out.substr(from);
     const std::pair<const char *, const char *> want[] = {
         {"SEARCH", "A1 A2"},           // A?.TXT, in the directory's order
@@ -1129,6 +1186,11 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"XKEPT", "01 00"},
         {"BITS", "C2 D4"},             // f1' and t3' on the disk
         {"OPENBITS", "C2 D4"},         // and in the FCB after Open
+        {"AROPEN", "D4"},              // AR.TXT archived: t3' in the FCB from the entry
+        {"AREAD", "00 00"},
+        {"ARREAD", "D4"},              // a read leaves it
+        {"ARWRITE", "00 00"},
+        {"ARBITS", "54 54"},           // a write clears it, in the entry and the FCB (the Guide, 2.3.4)
         {"REN", "00 00"},
         {"SEARCHB1", "FF 00"},
         {"SEARCHC1", "00 00"},
@@ -1154,6 +1216,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"ZEROFILL", "00 Y"},          // a block taken again is zeroed
         {"FREE98", "000340 000370"},   // 3 blocks held by a file not closed, freed by 98
         {"TRUNC", "00 00"},
+        {"TRBIT", "54"},               // archived, then truncated: t3' cleared (ours: the file changed)
         {"SIZE", "000064"},
         {"R99", "00Y R100 01"},
         {"TRUNCFREE", "Y"},            // 12 of its 19 blocks freed
@@ -1170,6 +1233,9 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"VERSION", "31 00"},
         {"LOCK", "00 00"},
         {"UNLOCK", "00 00"},
+        {"ACCESS", "00 00"},           // MP/M's 38 and 39: success, as CP/M 3 answers them
+        {"FREEDRV", "00 00"},
+        {"TESTW", "FF 00"},            // MP/M's 41: A = $FF, H (X) 0, as CP/M 3 answers it
         {"SIZEGONE", "FF 00"},
         {"SNEXTEND", "FF 00"},
         {"FREEBAD", "FF 04"},          // Invalid Drive: F: isn't mounted
@@ -1838,8 +1904,8 @@ void stamptest(Booted &r, char drive)
                 std::printf("  %s SFCB byte %u: %02X, want %02X\n", name.c_str(), k, got[k], want[k]);
     };
     const std::vector<uint8_t> none = {0, 0, 0, 0};
-    const auto t1 = dat(2026, 11, 3, 9, 15), t2 = dat(2026, 11, 4, 18, 30), t3 = dat(2026, 12, 31, 23, 59),
-               t4 = dat(2027, 1, 1, 0, 1);
+    const auto t1 = dat(2026, 11, 3, 9, 15), t3 = dat(2026, 12, 31, 23, 59), t4 = dat(2027, 1, 1, 0, 1),
+               t5 = dat(2027, 1, 9, 7, 45);
     r.set_time(2026, 11, 3, 9, 15, 0);
     const size_t from = start(r, "stamptest.com", std::string(" ") + drive);
     REQUIRE(r.until("MADE?", ms(5000), from));
@@ -1847,7 +1913,7 @@ void stamptest(Booted &r, char drive)
     r.set_time(2026, 11, 4, 18, 30, 0);
     r.type(" ");
     REQUIRE(r.until("CLOSED?", ms(5000), from));
-    check("STAMP   DAT", t1, t2); // written and closed: the update
+    check("STAMP   DAT", t1, t1); // written and closed: make stamped the update, so neither does (the Guide, 21)
     r.set_time(2026, 12, 31, 23, 59, 0);
     r.type(" ");
     REQUIRE(r.until("MODE?", ms(5000), from));
@@ -1857,15 +1923,26 @@ void stamptest(Booted &r, char drive)
     r.set_time(2027, 1, 1, 0, 1, 0);
     r.type(" ");
     REQUIRE(r.until("OPENED?", ms(5000), from));
-    check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // an access stamp only if the label asks
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t1); // an access stamp only if the label asks
+    r.set_time(2027, 1, 9, 7, 45, 0);
+    r.type(" ");
+    REQUIRE(r.until("WROTE?", ms(5000), from));
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t5); // the first write since the open: the update, at once
+    r.set_time(2027, 1, 20, 16, 10, 0);
+    r.type(" ");
+    REQUIRE(r.until("REWRITTEN?", ms(5000), from));
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t5); // a later write and the close: no stamp
     r.set_time(2027, 2, 2, 12, 0, 0);
     r.type(" ");
     REQUIRE(r.until("UNSTAMPED?", ms(5000), from));
-    check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // opened at extent 1, then on a read-only drive: none
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t5); // opened at extent 1, then on a read-only drive: none
     r.type(" ");
     CHECK(r.until("STAMPTEST DONE", ms(5000), from));
     const std::string o = r.out.substr(from);
     CHECK_EQ(field(o, "WRITE"), std::string("00"));
+    CHECK_EQ(field(o, "REWRITE"), std::string("00"));
+    CHECK_EQ(field(o, "AGAIN"), std::string("00"));
+    CHECK_EQ(field(o, "CLOSE2").substr(2), std::string(" 00"));
     CHECK_EQ(field(o, "RESET"), std::string("00 00"));
     CHECK_EQ(field(o, "OPEN").substr(2), std::string(" 00"));
     CHECK_EQ(field(o, "OPEN1").substr(2), std::string(" 00"));   // found: extent 0's entry holds extent 1

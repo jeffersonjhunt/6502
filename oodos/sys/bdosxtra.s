@@ -13,7 +13,8 @@
 ;                    given. Stamps asked for without SFCBs, or no free entry
 ;                    for a new label: A = $FF. Its update stamped, and its
 ;                    creation when made. A = 0
-;  101 DRV_GETLABEL  A = drive A's label's byte 12, 0 without one
+;  101 DRV_GETLABEL  A = the label's byte 12 of the drive A names (0-15,
+;                    A: 0), 0 without one
 ;  102 F_TIMEDATE    the FCB's byte 12 = its file's XFCB's mode (0 none),
 ;                    bytes 24-31 its extent-zero entry's stamps (0 none). A
 ;                    = 0, $FF no file

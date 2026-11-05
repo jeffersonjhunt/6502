@@ -52,6 +52,7 @@ D_EOF   = 6
         .zeropage
 ptr:    .res    2
 ptr2:   .res    2
+ptr3:   .res    2                       ; seen's, its own
 
         .code
 start:  jsr     UT_INIT
@@ -941,8 +942,11 @@ realdrv:
 
 ; Entry X's matching files, each once (the extent-zero entries), read into
 ; memory past the BSS: 11 bytes each, as the directory has them (its
-; attributes in bit 7). SYS files only with R; with A only those not
-; archived. Out: ncount, and nextname's place the first.
+; attributes in bit 7). SYS files only with R. With A, only those not
+; archived: every extent's entry looked at, since the BDOS clears t3' only
+; in the entry of an extent written (the Guide, 2.3.4: archived if all of
+; them have it), a file named once, by its first entry without t3'. Out:
+; ncount, and nextname's place the first.
 collect:
         stx     t1
         jsr     optptr                  ; the source's options, kept for the copies
@@ -966,7 +970,11 @@ collect:
         iny
         cpy     #36
         bne     :-
-        jsr     UT_MEM
+        lda     opts1 + 'A' - 'A'       ; A: every extent ('?' in EX)
+        beq     :+
+        lda     #'?'
+        sta     sfcb + 12
+:       jsr     UT_MEM
         lda     UT_MLO
         sta     nlist
         sta     nput
@@ -987,8 +995,9 @@ collect:
         cmp     #$FF
         bne     @found
         cpx     #0
-        beq     @done
+        beq     @end
         jmp     said
+@end:   jmp     @done
 @found: asl     a                       ; its entry: UT_REC + A * 32
         asl     a
         asl     a
@@ -1010,7 +1019,11 @@ collect:
         bpl     :+
         lda     opts1 + 'A' - 'A'
         bne     @skip
-:       lda     nput + 1                ; room for 11 more?
+:       lda     opts1 + 'A' - 'A'       ; A: a name collected already, passed over
+        beq     @new
+        jsr     seen
+        bcs     @skip
+@new:   lda     nput + 1                ; room for 11 more?
         cmp     UT_MHI + 1
         bcc     @room
         lda     nput
@@ -1052,6 +1065,38 @@ collect:
         lda     ncount + 1
         sta     nleft + 1
         rts
+
+; Carry set if the 11 bytes at ptr2 name a file collected already (nlist to
+; nput, their low 7 bits). ptr3 changed; ptr and ptr2 kept.
+seen:
+        lda     nlist
+        sta     ptr3
+        lda     nlist + 1
+        sta     ptr3 + 1
+@name:  lda     ptr3
+        cmp     nput
+        bne     @cmp
+        lda     ptr3 + 1
+        cmp     nput + 1
+        bne     @cmp
+        clc
+        rts
+@cmp:   ldy     #10
+@byte:  lda     (ptr3),y
+        eor     (ptr2),y
+        and     #$7F
+        bne     @next
+        dey
+        bpl     @byte
+        sec
+        rts
+@next:  lda     ptr3
+        clc
+        adc     #11
+        sta     ptr3
+        bcc     @name
+        inc     ptr3 + 1
+        bra     @name
 
 ; The next name collected: carry clear and ptr2 at its 11 bytes; carry set
 ; when none is left.

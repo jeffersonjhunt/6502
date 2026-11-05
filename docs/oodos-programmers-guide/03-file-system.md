@@ -63,12 +63,14 @@ f1' is bit 7 of byte 1, t1' bit 7 of byte 9. The rest of each byte is the charac
 | f8' | the FCB only | set by Open: opened from user 0, so read-only |
 | t1' | the directory | read-only: a write is File R/O (3), and so are delete and rename |
 | t2' | the directory | SYS: DIR leaves the file out, and other users may open it from user 0 |
-| t3' | the directory | archive: set once the file has been backed up |
+| t3' | the directory | archive: set once the file has been backed up, cleared by a write |
 
 Function 30 sets f1'–f4' and t1'–t3' on every extent of a file, from the FCB, and clears f5'–f8' there; Open copies
 the directory's attributes into the FCB. Make (22) clears them all, on the disk and in the FCB. SET and PIP's A option
-set t3'. Unlike CP/M 3, whose BDOS clears t3' on an entry a file is written through, OODOS's leaves it as it is, so
-a file changed after a backup still has it set.
+set t3'. A write (21, 34, 40) clears t3' in the directory entry of the extent it writes, and in the FCB, as CP/M 3's
+BDOS does; so does truncate (99), in the entry that ends at the new last record. Only that extent's entry changes,
+so a file has been backed up and not changed since only if every one of its entries has t3': a backup program reads
+them all, by function 17 with `?` in EX, as PIP's A option does.
 
 With f6', function 30 also puts the FCB's CR into the entry's byte count (S1), the bytes used in the file's last
 record; Open with CR `$FF` gives it back in CR.
@@ -150,8 +152,9 @@ Each stamp is CP/M 3's date and time, 4 bytes: the day as a word, 1 January 1978
 minute in BCD. Functions 104 and 105 set and read the clock in the same form.
 
 - **Creation:** made by Make (22) of extent 0, when the mode asks.
-- **Update:** made by Make of extent 0, by closing a file that was written, by moving a written FCB on to another
-  extent and by truncate (99), when the mode asks.
+- **Update:** made by Make of extent 0, by the first write (21, 34, 40) since the file was opened, and by truncate
+  (99), when the mode asks. Only once an open: the writes after it, a close and a move to another extent make none,
+  and a write after Make of extent 0 none either, Make having made it.
 - **Access:** made by Open (15) of extent 0 on a drive that isn't read-only, when the mode asks. It overwrites the
   creation stamp.
 
