@@ -66,10 +66,18 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
 
 ### Phase 1 — low-risk, high-confidence (each independent, bench-gated)
 
-1. **O(1) `find()`.** Replace the reverse linear scan (decoder.cpp:188) with
-   a page/segment table over the 20-bit bus address space, preserving the
-   "later mapping wins" overlap rule (decoder.h:32). This is exactly what
-   decoder.h:39 anticipated.
+1. ~~**O(1) `find()`.**~~ **Scrapped after the experiment.** A 2 KiB
+   page/segment table (one index per page of the mapped span) is the wrong
+   shape for this bus: mappings are added at build time but can be arbitrarily
+   small and adjacent — the real `backplane.machine` has 18, and `test_decoder`
+   maps a 4-byte PIA inside a 32 KB ROM and three 16-byte chips back to back.
+   Mappings that share a page collide in the table and last-wins gives the
+   wrong chip (the `later_mapping_wins` / `timed_devices` cases break).
+   `find()`'s 15.3% is not the scan's fault — with ≤18 mappings the reverse
+   scan is trivial; the 15.3% is the *per-access measurement equal to
+   route and device by construction*, i.e. the cost of one more function in
+   the per-access chain. The per-instruction cost is better attacked where
+   it actually is: the run loop (Phase 2.6).
 2. **Default-bridge RAM fast path.** When the bridge is the no-window
    default, skip the virtual `route()` call and index the RAM vector
    directly (decoder.cpp:229/251).
@@ -106,6 +114,34 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
 
 **Order:** 0 → 1.1 → 1.2 → 1.3 → 2.6 → 3.8 → 3.7 → 1.4 → 1.5 → 3.9
 (heaviest wins, cheapest risk, first).
+
+## Tested, not a win (recorded so they are not retried)
+
+These were built, benched against the 11.2 MHz baseline, and **reverted**:
+
+- **1.1 O(1) `find()`** — the wrong structure (see the Phase 1.1 note above);
+  a page table collides on tiny/adjacent mappings and returns the wrong chip.
+- **1.3 gate `CycleTee` when empty** — does not apply: the tee is never empty.
+  The session always attaches the bus recorder and the Console card
+  (session.cpp:163-166), the latter watches every cycle for its lights and
+  breakpoint, and the former already early-returns when tracing is off
+  (session.cpp:62). There is no empty-tee fast path to take.
+- **1.4 cache `cmos()`** — made it *slower* (11.2 → 9.8 MHz). A `cmos_` bool
+  member pushed the hot `model_`/`regs_` out of a register at the ~15
+  call-sites per instruction. The `== Model::W65C02S` comparison is cheaper
+  than the extra load.
+- **3.7 `-flto`** — no gain (11.2 → 11.1, within noise). The cost is dynamic
+  dispatch (the per-access `route`/`find`/`device` virtual chain) and the
+  embind boundary, not cross-translation-unit inlining.
+
+Conclusion: the "safe" per-access and build-flag levers do not move the
+needle. The remaining wins are structural and carry cycle-accuracy risk, so
+each must be gated on the host Harte/Dormann/`test_decoder` suites, not just
+the bench: **1.2 (the RAM fast path, folding `route`+`find`+`device` for the
+four RAM blocks)** and **2.6 (gating the run loop's per-instruction
+`irq()`/`sync()`/`may_run()`/`take_reset()`/`take_nmi()` polling)**, with
+**3.8 (one embind `step_frame`)** as the JS-side cut that needs no C++
+cycle reasoning.
 
 ## Baseline
 
