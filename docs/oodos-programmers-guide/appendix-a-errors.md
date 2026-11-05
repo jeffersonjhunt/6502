@@ -15,8 +15,8 @@ fail three ways:
   or on flash; a read into a read-only window; or, with a DMA segment, memory OODOS keeps for itself. The function
   stops and returns A = X = `$FF`, whatever the error mode, and says nothing.
 
-A function number OODOS doesn't have returns A = X = `$FF`: 38, 39, 41, 61–71, 76–97, 113–151, and 153 on. So does
-60 when no RSX takes it.
+A function number OODOS doesn't have returns A = X = `$FF`: 41, 61–71, 76–97, 113–151, and 153 on. So does 60 when
+no RSX takes it. 38 and 39, MP/M's, return A = X = 0, as CP/M 3 answers them.
 
 ## Physical errors
 

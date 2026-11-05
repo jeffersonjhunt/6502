@@ -216,7 +216,8 @@ Digital Research's systems wherever one has the function; no number means one th
 - **Out:** CP/M's A and L in A, its B and H in X. A word result is A (low) and X (high), as CP/M 3's HL.
 - **Errors** follow CP/M 3: A = `$FF` and X = the physical error code (CP/M 3's H) when the error mode
   (function 45) returns errors.
-- Y and the flags are not kept. The decimal flag is clear on return.
+- Y is not kept. The flags come back as they were before the call (the stub's `PLP`), but with the decimal flag
+  clear (ours: CP/M 3 keeps no 8080 flags either).
 
 ### CP/M 3's functions ###
 
@@ -232,14 +233,17 @@ All of these do what CP/M 3's do, with the registers above.
 | 98–112 | free blocks, truncate, directory labels, date stamps and XFCBs, date and time, passwords, serial number, return code, console mode, output delimiter, print and list block |
 | 152 | parse filename |
 
-Not in CP/M 3, and not here: 38, 39 and 41 (MP/M's drive access and test-and-write).
+Not in CP/M 3: 38, 39 and 41 (MP/M's drive access, free drive and test-and-write). 38 and 39 return 0, as CP/M 3
+answers them (2026-11-04: they returned `$FF` before); 41 returns A = X = `$FF`, as a function OODOS hasn't (CP/M
+3's A = `$FF` has H 0).
 
 **Where the 6502 changes things:**
 
 - **12** returns `$0031`, as CP/M 3. Programs that need OODOS itself use function 72.
 - **27** (allocation vector): in banked CP/M 3 the vector is in the system bank, and here it is too. It returns
   `$FFFF`; function 46 gives the free space.
-- **31** returns the address of a copy of the DPB in common memory.
+- **31** returns the address of the drive's DPB in common memory: the BIOS's own, not a copy (ours, so it is
+  readable from any bank; a program mustn't change it).
 - **49:** the SCB keeps CP/M 3's offsets for every field CP/M 3 documents.
 - **50:** the BIOS parameter block is OODOS's: +0 the BIOS function, +1 A, +2 X, +3 Y, +4–5 and +6–7 two words
   (for MOVE and XMOVE's addresses and counts).
@@ -248,7 +252,9 @@ Not in CP/M 3, and not here: 38, 39 and 41 (MP/M's drive access and test-and-wri
   its own (its header's zero page size must be 0, or it's refused): it uses its caller's, by importing the
   caller's zero page symbols when it's linked ([The .PRL file](#the-prl-file)).
 - **104, 105** use CP/M 3's DAT (days from 1 January 1978, hour and minute in BCD); 105 returns the seconds, BCD, in
-  A. Both go to the DS3231.
+  A. Both go to the DS3231. 104 puts the DAT in the SCB, then sets the clock from it: a date before 2000 or past
+  2155 sets the SCB but not the clock (ours: the clock holds 2000–2155), and returns 0 all the same; the SCB has it
+  until the BDOS next reads the clock (a stamp, 105).
 
 ### Memory: CP/M-86's functions ###
 
@@ -283,7 +289,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
 | 76–97 | reserved for OODOS |
 
 ### Far calls ###
@@ -572,7 +578,8 @@ against, compared with what the BDOS does on the emulator.
 
 - **Functions:** 13–37, 40, 42–43 (succeed, do nothing), 45, 46, 48, 98 and 99, as CP/M 3's, with the registers
   above, the stand-in's console, version, time, 50 and 72 kept. 27 returns `$FFFF`, 31 the address of a copy of
-  the DPB in common memory. 44 (multi-sector) is 3b's: until then the count is 1.
+  the DPB in common memory (as built, the BIOS's own DPB there, not a copy: the BDOS section above). 44
+  (multi-sector) is 3b's: until then the count is 1.
 - **Date stamps from 3a:** every OODOS drive's label asks for creation and update stamps (mode 0x31), so making a
   file stamps its creation and update, and closing a written one its update, from TIME, as the label's mode says,
   in the SFCB slot of the file's extent-zero entry only (the Programmer's Guide, 2.3.8: a slot is valid only for an
@@ -648,7 +655,8 @@ against, compared with what the BDOS does on the emulator.
   entry, then the blocks freed, for delete and truncate (their pointers kept until the entry is on the disk), so a
   failed directory write leaves no entry on the disk whose blocks are free. A close merges F's block pointers with
   the entry's only once it has checked them all: two different blocks for one place (two FCBs writing one file)
-  fail it, 3 to a read or write that moves on, and leave F and the entry as they were. A drive isn't logged out
+  fail it, 3 to a random read or write that moves on (33, 34, 40), 1 to a sequential one (20, 21: the Guide lists
+  no 3 for them; ours), and leave F and the entry as they were. A drive isn't logged out
   on a failed directory write: the buffer is dropped, the hash and the vectors not yet changed, so they still
   match what the disk has.
 - **A block a write takes is zeroed** (its sectors become new buffers of zeros, changed): records never written in
@@ -678,9 +686,15 @@ against, compared with what the BDOS does on the emulator.
   read and compared in full, so two names with one hash (HASHAG.TXT and HASHBA.TXT) are told apart.
 - **Directory codes** (the Guide, 2.3, after Table 2-8; changed 2026-10-27, from the review): the searches return
   the entry's place in its record, 0–3; every other function 0 on success; not found, or the directory full, `$FF`
-  with X 0. A closed file that wasn't written returns 0 without looking.
-- **Wildcards:** `?` in the name or type is ? in Filename (9) for 15, 22, 23 (either name), 30, 35 and 99; 17, 18
-  and 19 take it. `?` as 17's drive byte: every entry of the current drive, to its end, free ones too, nothing
+  with X 0. A close of an FCB not written since it was opened or last closed writes the drive's changed buffers
+  back (a failure there ignored: nothing of this close's depends on it) and returns 0 without looking in the
+  directory. f5' (the Guide's partial close) is ignored: every close leaves the FCB open, as a partial close does
+  (ours). **9 and 10 are never returned** (ours) by 20, 21, 33 and 34: a close that fails leaves the FCB as it was,
+  still usable (the Guide's 9 is an FCB a failed close invalidated), and a changed medium is found when the units
+  are read again (13, 37, a login, the warm boot), its drive's buffers dropped, not by the FCB (the Guide's 10).
+- **Wildcards:** `?` in the name or type is ? in Filename (9) for 15, 22, 23 (either name), 30, 35 and 99, after the
+  FCB's drive is selected (ours: the Guide lists the errors in no order), so a drive that isn't there is Invalid
+  Drive (4) first, and one that is is logged in before the name is looked at; 17, 18 and 19 take it. `?` as 17's drive byte: every entry of the current drive, to its end, free ones too, nothing
   compared. 18 goes on from 17's pattern, kept (not the FCB read again), until 13 or 37.
 - **Bytes 0–12** are the program's (the Guide, 15 and 22): Open, Make and Search (EX not `?`) take S2 as 0.
 - **Make** refuses a name the user has in any extent (File Exists, 8); the entry, of extent EX, and the FCB get
@@ -700,12 +714,14 @@ against, compared with what the BDOS does on the emulator.
   asks); closing a written FCB, moving a written FCB on to another extent, and truncate stamp the update there
   whichever extent they changed; Open of extent 0 stamps the access (in the creation's field, which they share) if
   the mode asks, not on a read-only drive. A new entry's slot is cleared, so later extents' slots stay 0.
-  cpmtools stamps every entry of a file it writes; both read the first entry's.
+  cpmtools stamps every entry of a file it writes; both read the first entry's. **Changed (2026-11-04, item 10):**
+  the update is the first write's, not the close's ([below](#the-archive-bit-and-the-update-stamp-item-10)).
 - **Truncate (99):** R0–R2 is the new last record; it must be before the file's end and where the file has data
   (the Guide: an entry reaching R's extent, R below RC if that's the entry's own, R's block there), else `$FF` (R2
   over 3 before the directory is read). Later extents' entries are deleted; the one with R gets R's
-  extent, RC (R mod 128) + 1, the pointers after R's block freed and cleared; the update is stamped in the
-  extent-zero entry's slot (the Guide doesn't say; a truncate changes the file).
+  extent, RC (R mod 128) + 1, the pointers after R's block freed and cleared, and (from 2026-11-04) its archive
+  attribute t3' cleared; the update is stamped in the extent-zero entry's slot (the Guide doesn't say; a truncate
+  changes the file).
 - **File size (35)** leaves R0–R2 0 for a file that isn't there (as CP/M 2.2's BDOS did).
 - **Rename (23)** checks the new name first: File Exists (8) before the old name's not found or File R/O (the Guide
   lists the errors in no order). **31** selects the current drive, logging it in (the Guide has it return `$FFFF`
@@ -933,7 +949,8 @@ tests.
   the end), ^P printer echo, CR and LF end it (the whole line, wherever the cursor: it becomes the previous line).
   Any other control character is part of the line and shown as `^X`; ^C while the line is empty (at its start,
   nothing typed or all of it taken out again) is the warm boot (return code `$FFFE`, unless mode bit 3: then it's a
-  character). A character past the buffer's size is dropped with a BEL; a size of 0 is 1. With A/X = 0 the buffer is
+  character; ours: the Guide has a ^C at the line's start end the program, and a line with characters after the
+  cursor at its start isn't empty here). A character past the buffer's size is dropped with a BEL; a size of 0 is 1. With A/X = 0 the buffer is
   at the DMA address and its characters, to a 0 (or the size), are taken as typed first, so a CR among them returns
   at once. The end echoes CR only, as since phase 2. **Ours, where the Guide is silent on the screen:** the line is
   shown on rows of the console width (SCB 1A, columns 0–79 by default), never writing the width's last column (the
@@ -941,7 +958,8 @@ tests.
   was, the first one at function 10's start; typing at the end of a full row starts a new one (CR LF), typing in the
   middle pushes what doesn't fit off the row's right, and a move or deletion to before the row's start types the
   line again on a new row, from as far back as fits; a deleted or moved character is erased with BS, space and BS.
-  ^U and ^R print no `#` (CP/M 2.2's): the Guide names none. A ^C in a line that isn't empty is a character, shown
+  ^U and ^R print no `#` (ours: CP/M 3's, as CP/M 2.2's, put a `#` at the cursor before the new row, as its User's
+  Guide shows; the Programmer's Guide's Table 3-3 names none, and the new row shows the change). A ^C in a line that isn't empty is a character, shown
   `^C` (the Guide); it isn't the warm boot. Rub/del's echo (2F 0, or ^H with 2E `$FF`) keeps to the rows as typing
   does: an echo that doesn't fit starts a new row.
 - **Function 47** takes E = `$FF` (the program's drive and user to the CCP) or anything else (the CCP's), sets the
@@ -949,9 +967,9 @@ tests.
   Guide says, at most 126 characters (the tail's room; more are cut off, ours). The CCP (the stand-in until 4a), at
   the warm boot after its usual work, shows its prompt and the command, as if typed (ours: the Guide doesn't say),
   and runs it.
-  With `$FF` the CCP's own drive and user become the program's, and stay so after the chained program (the
-  Guide: "initializes the default drive and user number to the current program values"); otherwise it keeps its
-  own. The chained program gets the return code as it was.
+  With `$FF` the CCP's own drive and user become the program's, and stay so after the chained program (ours: the
+  Guide has the CCP set the default drive and user to the program's for the chained program; here they are the
+  CCP's own from then on, so the prompt after it shows them too); otherwise it keeps its own. The chained program gets the return code as it was.
 - **108:** the SCB's return code (10–11): `$FFFF` returns it in A/X, any other value sets it. The CCP sets it to 0
   as it starts a program that wasn't chained to; the BDOS sets `$FFFD` when it ends a program for an error (the
   default error mode) and `$FFFE` for a ^C (function 10's, after ^S); the warm boot keeps it, for the next
@@ -1131,6 +1149,47 @@ tests.
   deferred (phase 7, [Open Questions](#open-questions)).
 - OODOS.SYS is still 0.2.
 
+### The archive bit and the update stamp (item 10) ###
+
+**Decided (2026-11-04): as CP/M 3 has them**, found by G1 where the code differed from the Guide.
+
+- **The archive attribute (t3')** (the Guide, 2.3.4: the file system resets it in a directory FCB that has been
+  issued a write): a write, 21, 34 or 40 (each record of a multi-sector call), clears t3' in the directory entry of
+  the extent it writes, at that write, and in the FCB. The FCB's t3', which Open and each move to another extent
+  copy from the entry (`OPENEXT`), says whether the entry has it, so the first write of an extent whose entry is
+  archived finds the entry, clears it and writes it at once (`WROTE`), and the writes after cost a `BIT`. The entry
+  written so has only its t3' changed, so it points at no data not yet on the disk. Only that extent's entry: an
+  archive program reads every entry of a file (17 with `?` in EX), as the Guide says, and a file is archived only
+  if all of them are; PIP's `[A]` does so ([PIP](#pip-phase-4b2)). A read, a close or a move to another extent
+  leaves it. **Truncate (99)** clears it in the entry that ends at R (ours: the Guide names writes; a truncated file
+  has changed, and a backup must take it again). Make (22) clears every attribute already; 30 sets it.
+- **The update stamp** (the Guide, 21 and 34: a write stamps it if the label asks for update stamps and the file
+  "has not already been stamped for update by a previous Make or Write"): at Make of extent 0, as before, and at
+  the first write (21, 34, 40) since the FCB was opened (15), once; no later write of that open stamps it, whatever
+  its extent, and neither does a close or a move to another extent (before item 10 the close and each move of a
+  written FCB did, so a file written and never closed had no new update stamp). A Make of a later extent (EX not 0)
+  makes no stamp, so its first write does. The FCB's S1, which the Guide reserves for the system, holds it: bit 7
+  (`S1_STAMPED`) set once the stamp is made; Open clears S1, Make of extent 0 sets it. A close keeps it (ours: the
+  FCB stays open after a close, so writing it again without an Open isn't a new open). Truncate stamps the update
+  as before. The time is TIME's at the write.
+- **The model** (`cpm3model.py`) does both; its cases in `test_model.py` were the close's moment and are the first
+  write's now, with the archive's added (two extents, a read, writes to each, a truncate). The random comparison
+  covers both (30 sets t3' in about a third of its calls, and the clock moves between operations).
+- **Tested:** DIRTEST's `AR` lines (archived by 30, kept by a read, cleared in the entry and the FCB by a write),
+  STAMPTEST (make's update stands through a write and the close; the first write after an open stamps, a later
+  write and the close don't), WRITEOO1 (the clock set later before its second write and close: `test_oodos_card`
+  and `interop.sh --written` find the first write's time) and PIP's `[A]` of a file whose second entry isn't
+  archived. FSTEST's check that a close's entry follows its data ends at `CLOSEX`'s return: the stamp's SFCB and a
+  cleared t3' come after it in the same call and point at nothing new.
+- **Measured again** (2026-11-04, `test_oodos_sys`, BDOSENT to its return, as 3a and 3b1 measured them: FSTEST's
+  first run on `oodos-8m`, the least of each kind; the multi-sector test on M:). 3b1's figures (above) predate 3c's
+  dispatch and the phases since; on main before item 10 (08efa8a), then with it: Open 6,759, 6,694; a sequential
+  read of a record in a buffered sector 4,915, 4,914, of one whose sector it reads 13,071, 13,069; a write to a
+  buffered sector 7,794, 7,818 (`WROTE`'s two `BIT`s and its call, 24), one that takes a new block 78,427, 78,451,
+  the cheapest that writes buffers back first 167,132, 161,986 (a move to the next extent no longer stamps). With a
+  count of 128 on M:, a read 563,099, 562,907 (4,397 a record), a write 789,453, 786,294 (6,142 a record). The stub
+  is 220 (130 in, 90 out: 5a's door for 59 is 4 of them).
+
 ## The CCP, phase 4 ##
 
 **Decided (2026-10-30)**
@@ -1233,7 +1292,8 @@ where it is silent the choice is ours, and says so):
   The filetype search order (SETDEF's `[ORDER]`) is `.COM` alone until SUBMIT, phase 5, and so is
   `PROFILE.SUB` at cold boot (the Guide, 4.5): the CCP doesn't look for it yet.
 - **The drive change** (`B:`, `5B:`; the Guide, 2.4–2.5): the drive selected by 14 in error mode `$FE`, so one
-  that isn't a drive is said as the BDOS says it (`OODOS Error On Q: Invalid Drive`) and the CCP's drive stays.
+  that isn't a drive is said as the BDOS says it (`OODOS Error On H: Invalid Drive`, a drive with no image) and the
+  CCP's drive stays; a letter past P (`Q:`) is no drive change but a command, `Q:?`.
   Then it is the CCP's drive, and the user number, if given (0–15), its user.
 - **USER** `{n}` (the Guide's USER): 0–15, the CCP's user from then on. Without a number it asks
   `Enter User #: ` and reads a line (the Guide). Anything but a number 0–15 is the command and `?` (ours).
@@ -1360,7 +1420,7 @@ it is silent the choice is ours, and says so):
   built-in's listing and messages, each drive given in turn, the names sorted (ours: DIR.COM sorts unless
   `NOSORT`; the built-in doesn't).
 - **With one, the format is FULL** unless SIZE or DATE is given (the Guide: FULL is the default with options; FULL
-  and SIZE both, or DATE with either, `Illegal Format Value`, ours where the Guide gives the message no case). The
+  and SIZE both, or DATE with either, `Illegal Format Value.`, ours where the Guide gives the message no case). The
   options (Table 5-5): `ATT`, `DATE`, `DIR`, `DRIVE=ALL|d|(d,...)` (`DISK=` too), `EXCLUDE`, `FF`, `FULL`,
   `LENGTH=n`, `MESSAGE`, `NOPAGE`, `NOSORT`, `RO`, `RW`, `SIZE`, `SYS`, `USER=ALL|n|(n,...)`.
 - **What is listed:** for each drive (the specifications' own, in the order first given; or `DRIVE=`'s; or the
@@ -1824,7 +1884,9 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   V and W, or a device is on either side; then by characters, to the source's first ^Z, a ^Z after the last
   character written. Joined by records, a text source's last record is cut at its first ^Z (`[O]`: not).
 - **Options** (letters, packed or with blanks between, a number straight after its letter; S and Q a string to
-  a ^Z): **A** only files whose archive bit is clear, the bit set on each source after its copy; **C** `COPY
+  a ^Z): **A** only files whose archive bit is clear (in any of their entries, from 2026-11-04: the BDOS clears it
+  in the entry of the extent written, so every entry is read, a file named once), the bit set on each source after
+  its copy; **C** `COPY
   NAME.TYP (Y/N)?` before each file copied to a drive (ours: the Guide gives no words, and joins none); **Dn** a line cut after column n; **E** what is
   written echoed to the console; **F** form feeds dropped; **Gn** the source's user (the destination's, after
   it), 0-15, else `INVALID USER NUMBER`; **H** each line an Intel hex record checked (`:`, hex digits, the length,
@@ -1969,8 +2031,10 @@ values from the link.
 
 - **The loader** reads the first record into the DMA buffer and refuses the file if bytes 0–3 aren't the magic
   number or a flag bit it doesn't know is set. It refuses a `.COM` whose link page isn't `$03`, a `.PRL` at a page
-  below `$03`, an image and BSS that don't fit below the top of the TPA (`$0204`), and a zero page that doesn't
-  fit (below). Then it reads **exactly the image's size bytes** of image: the first record's 112 bytes after the
+  below `$03`, an image and BSS that don't fit below the top of the TPA (`$0204`), and an overlay with a zero page
+  of its own, or an RSX whose zero page doesn't fit in what is left of `$F0–$FF` ([The RSXs, phase
+  5](#the-rsxs-phase-5)). A program's zero page base and size aren't checked (ours, as built: com.cfg links its
+  segment in `$00–$EF`, which ld65 enforces). Then it reads **exactly the image's size bytes** of image: the first record's 112 bytes after the
   header, or as many as the image has if it's smaller, are moved to the load address; the following whole records
   can be read straight to their place; and a last part-record goes through the DMA buffer, only the image's bytes
   of it moved. Nothing after the image (a `.PRL`'s bitmaps, the attached RSX table, the attached RSXs) is ever
@@ -2737,7 +2801,9 @@ copyright and MIT notice.
     and a unit made read-only under a written buffer, whose write-back fails), File Exists, ? in Filename, File R/O,
     Invalid Drive, and Disk I/O with the card taken out.
   - **STAMPTEST** on M: and A:: every SFCB byte checked against the clock the test set at each step: creation and
-    update at make, update at the close after a write (a file closed unwritten keeps make's), access at open on M:
+    update at make, which a write after it and the close keep (a file closed unwritten keeps make's too); the
+    update at the first write after an open, which a later write and the close keep (from 2026-11-04: the close's
+    before); access at open on M:
     with the label's mode made 0x61 behind the BDOS's back, none on A: (0x31), and none at extent 1 or on a
     read-only drive.
   - **LOGINTEST:** A:'s login reads its 64 directory sectors once and a second select none; M:'s 16; an entry put in
@@ -2770,7 +2836,8 @@ copyright and MIT notice.
 - **The CCP** loads through the BDOS in every run (`hello` in `test_oodos_e2e`, from the card, with the bytes past
   its image untouched); a card that stays busy as it logs A: in is `READ ERROR`, and the next load works.
 - **Interoperability:** `test_oodos_card` boots the committed card in a Session and runs **WRITEOO1** (on the card)
-  at the prompt: `0:OO1.BIN` written by the real BDOS, the clock set by function 104 to its two stamps; its
+  at the prompt: `0:OO1.BIN` written by the real BDOS, the clock set by function 104 to its two stamps (and, from
+  2026-11-04, later again before its second write and close, which don't stamp); its
   entries are now 16 and 17 (WRITEOO1.COM took 14), the first in an SFCB's first slot; 66 sectors change (the
   directory's second and 65 of records). Its stamps are in entry 16's slot, entry 17's is 0 (the stamps rule above),
   as test_oodos_card, interop.sh and `sfcb.py` check: a file's first entry stamped and in order, a later extent's

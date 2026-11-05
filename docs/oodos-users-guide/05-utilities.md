@@ -719,8 +719,10 @@ PIP dest-filespec{[Gn]}=device{[options]}
 In square brackets after a source (the destination takes `[Gn]` alone); letters together or with blanks between, a
 number straight after its letter:
 
-- **A** only files whose archive bit is clear; each is marked backed up (the bit set) after. Only for a copy to a
-  drive: a file-to-file copy of a file with the bit set says `FILE NOT FOUND`.
+- **A** only files whose archive bit is clear, files changed since they were last backed up; each is marked backed
+  up (the bit set) after. A large file has its bit in each part (each directory entry), and a write clears only the
+  part's it wrote, so any part clear is enough. Only for a copy to a drive: a file-to-file copy of a file with the
+  bit set says `FILE NOT FOUND`.
 - **C** asks `COPY NAME.TYP (Y/N)?` before each file copied to a drive, and leaves out the `COPYING -` list.
 - **Dn** cuts each line after column n.
 - **E** shows what is written on the console as it goes.

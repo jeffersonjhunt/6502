@@ -76,7 +76,7 @@ Testing, "phase 3a: the model", Proposed):
 - 13 resets every drive (R/O cleared, logged out), drive A current, the DMA $0280; 37 the drives in its
   vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 logs
   the current drive in (the manual has it return $FFFF on an I/O error, so it reads the disk) and returns
-  the address of a copy of its DPB (17 bytes). 27 returns $FFFF. 12 returns $0031.
+  the address of its DPB (17 bytes; OODOS's is the BIOS's own, in common memory). 27 returns $FFFF. 12 returns $0031.
 - The archive attribute (t3'): a write (21, 34, 40) clears it in the entry of the extent it
   writes (the Guide, 2.3.4: the file system resets it in a directory FCB issued a write), and in
   the FCB; the FCB takes each extent's attributes from its entry as it moves there, as OODOS's

@@ -30,8 +30,8 @@ A program calls the BDOS with `JSR BDOS`, the base page's `$0203` ([`oodos.inc`]
 loaded, `$0203` jumps to the lowest RSX instead: [chapter 6](06-program-formats.md#rsxs)). The stub
 keeps the program's stack pointer, flags and windows, switches to the system's windows and stack, calls the BDOS and
 puts everything back. The program's zero page, `$00`-`$EF`, is never touched: the BDOS works on a zero page and a stack
-of its own. Interrupts are off while the BDOS runs. The stub costs 216 cycles a call, 126 in and 90 out
-(`test_oodos_sys`).
+of its own. Interrupts are off while the BDOS runs. The stub costs 220 cycles a call, 130 in and 90 out
+(`test_oodos_sys`, measured again 2026-11-04; the 4 more in are phase 5a's door for function 59).
 
 **Addresses** a program passes (an FCB, a string, a buffer, a parameter block) are its own CPU addresses, in
 `$0000`-`$BFFF`; the BDOS reaches them through the windows the stub saved. An address in the I/O hole,
