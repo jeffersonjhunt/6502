@@ -30,5 +30,5 @@ Appendices:
 - F. [Building with ca65 and cc65](appendix-f-building.md)
 - G. [How OODOS differs from CP/M 3](appendix-g-differences.md)
 
-**Written so far:** the skeleton (G0) and [function 9](07-function-reference.md#bdos-9). The rest is G1's, for
-what OODOS phases 0-4 have built.
+**Written so far:** the skeleton (G0), and G1: chapters 1-7 and the appendices, for what OODOS phases 0-4 have
+built. Functions 47, 59 and 60, RSXs and chaining come with phase 5; chapter 8 with OOLIB (G3).
