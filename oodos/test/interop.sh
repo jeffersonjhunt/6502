@@ -6,7 +6,7 @@
 #
 #   docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath DIR):/c:ro" \
 #       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
-#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils | --pip]
+#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils | --pip | --rsx]
 #
 # CARD is a raw card image or a sparse one (oo1-sparse, as
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
@@ -33,7 +33,11 @@
 # (OODOS_PIP_OUT): 0:COPY.TXT a copy of README.TXT, 5:PATTERN.BIN of
 # PATTERN.BIN (two entries), 0:JOINED.TXT README.TXT and 3:USER3.TXT joined,
 # 0:LOWER.TXT README.TXT in lower case; each out by cpmcp against what it
-# should be, and no NAME.$$$ left.
+# should be, and no NAME.$$$ left. With --rsx it is the card test_oodos_card
+# saved after phase 5b's GENCOM and PUT (OODOS_RSX_OUT): 0:H2.COM, PIP's copy of
+# HELLO.COM given two SCB entries by GENCOM, against tools/gencom.py's of
+# HELLO.COM with the same; 0:PUTOUT.TXT, PUT's file of TYPE README.TXT, its
+# text (the prompt's LF, then README.TXT's lines) to its ^Z; no NAME.$$$ left.
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
@@ -141,6 +145,22 @@ if [ "$written" = --pip ]; then
     cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:}"
   done
   ok "PIP's copies, out by cpmcp: COPY.TXT, 5:PATTERN.BIN, JOINED.TXT and LOWER.TXT as they should be"
+  if echo "$listing" | grep -E '^\S+ +\$\$\$ ' >/dev/null; then fail "cpmls -F lists a NAME.\$\$\$"; fi
+  ok "cpmls -F: no NAME.\$\$\$ left"
+elif [ "$written" = --rsx ]; then
+  cpmcp -f oodos-8m "$img" 0:HELLO.COM "$work/hello.com" || fail "cpmcp 0:HELLO.COM"
+  cpmcp -f oodos-8m "$img" 0:H2.COM "$work/h2.com" || fail "cpmcp 0:H2.COM"
+  python3 -I tools/gencom.py "$work/hello.com" --scb 34,02 --scb 06,5A -o "$work/want.com" || fail "gencom.py"
+  cmp -s "$work/want.com" "$work/h2.com" || fail "H2.COM is not gencom.py's HELLO.COM with SCB entries 34,02 and 06,5A"
+  ok "GENCOM's H2.COM, out by cpmcp, is gencom.py's, byte for byte"
+  cpmcp -f oodos-8m "$img" 0:PUTOUT.TXT "$work/put" || fail "cpmcp 0:PUTOUT.TXT"
+  printf '\n' >"$work/putwant"
+  python3 -I -c 'import sys; sys.stdout.buffer.write(open(sys.argv[1], "rb").read().split(b"\x1a")[0])' \
+    "$work/README.TXT" >>"$work/putwant"
+  python3 -I -c 'import sys; sys.stdout.buffer.write(open(sys.argv[1], "rb").read().split(b"\x1a")[0])' \
+    "$work/put" >"$work/puttext"
+  cmp -s "$work/putwant" "$work/puttext" || fail "PUTOUT.TXT is not an LF and README.TXT's text"
+  ok "PUT's PUTOUT.TXT, out by cpmcp: an LF, then README.TXT's text, to its ^Z"
   if echo "$listing" | grep -E '^\S+ +\$\$\$ ' >/dev/null; then fail "cpmls -F lists a NAME.\$\$\$"; fi
   ok "cpmls -F: no NAME.\$\$\$ left"
 elif [ "$written" != --ccp ] && [ "$written" != --utils ]; then
@@ -263,8 +283,8 @@ xfcb  0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (Write) and T
     cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:} as make_card.sh made it"
   done
   ok "README.TXT, PATTERN.DAT, USER3.TXT and SMALL.BIN, out by cpmcp, are what make_card.sh made"
-elif [ "$written" = --pip ]; then
-  : # its copies are checked above
+elif [ "$written" = --pip ] || [ "$written" = --rsx ]; then
+  : # checked above
 elif [ -n "$written" ]; then
   fail "$written: not an option"
 fi

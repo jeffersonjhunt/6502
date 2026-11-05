@@ -93,6 +93,21 @@ RT_LEN          = 16
 RT_SCBOFF       = 0                    ; an SCB entry's offset and value, in place of RT_REC
 RT_SCBVAL       = 1
 
+; The function bytes of 60 OODOS's RSXs take (rsx.inc's RSXs, GET.COM, PUT.COM) (128-255, the system's: the
+; Programmer's Guide, bdos-60), the block's first byte:
+
+RXF_GETFILE     = $80                  ; GET.COM: an input file (GET's RSX)
+RXF_GETSTOP     = $81                  ; GET CONSOLE: the newest active GET's ends
+RXF_PUTFILE     = $90                  ; PUT.COM: an output file (PUT's RSX)
+RXF_PUTSTOP     = $91                  ; PUT ... TO CONSOLE/PRINTER: the active PUT of the kind ends
+RXF_PUTASK      = $92                  ; is a PUT of the kind sending output to a file?
+RXF_PUTCMD      = $93                  ; PUT.COM runs: a PUT armed for the next command waits for the one after
+
+SCB_CCPST       = $19                  ; the CCP's state: bit 7 it runs, bit 6 a command does,
+RX_CCP          = $80                  ;   bits 0-5 the commands' count (hw/oodos.md, 5a, 5b)
+RX_CMD          = $40
+RX_COUNT        = $3F
+
 ; The base page: CP/M's page 0 at $0200.
 BP_WBOOT        = $0200                ; JMP warm boot
 BP_BDOS         = $0203                ; JMP to the BDOS or the top RSX

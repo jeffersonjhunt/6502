@@ -44,7 +44,6 @@
 FCB_R0          = 33                   ; the FCB's random record, R0-R2
 RSX_MAX         = 15                   ; as many as one GENCOM header holds (ours)
 RECORD          = 128
-SCB_CCPST       = $19                  ; the SCB's byte for redirecting RSXs (ours)
 
 .segment "RESBSS"
 TBASE:          .res    RSX_MAX        ; each RSX's first page, 0 the highest (oldest)
@@ -1025,10 +1024,19 @@ APPLYSCB:       LDX     #0
 @done:          STZ     SCBN
                 RTS
 
-; CCPST to the SCB.
-CCPSET:         LDA     CCPST
-                LDX     #SCB_CCPST
-                ; falls through
+; CCPST to the SCB, through $0203: so a redirecting RSX sees the CCP's state
+; change as it goes down the chain (5b).
+CCPSET:         LDA     #SCB_CCPST
+                STA     SCBPB
+                LDA     #$FF
+                STA     SCBPB + 1
+                LDA     CCPST
+                STA     SCBPB + 2
+                LDA     #<SCBPB
+                LDX     #>SCBPB
+                LDY     #S_SCB
+                JMP     BP_BDOS
+
 ; SCB byte X = A, by 49.
 SCBSET:         STX     SCBPB
                 STA     SCBPB + 2

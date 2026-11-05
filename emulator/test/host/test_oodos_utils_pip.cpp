@@ -57,44 +57,6 @@ namespace
         r.put_util("pip");
     }
 
-    /// M:'s file (user, 8 + 3): its bytes, from its entries in extent order (EXM 1: an entry's
-    /// records (EX & 1) * 128 + RC), its blocks' pointers 8-bit. Empty if there is none.
-    std::vector<uint8_t> m_data(CcpRig &r, unsigned user, const std::string &name83)
-    {
-        std::vector<std::pair<unsigned, unsigned>> es; // extent, entry
-        for (unsigned i = 0; i < 256; ++i)
-        {
-            const uint32_t a = MDISK + i * 32;
-            bool match = r.phys(a) == user;
-            for (unsigned c = 0; c < 11 && match; ++c)
-                match = (r.phys(a + 1 + c) & 0x7F) == static_cast<uint8_t>(name83[c]);
-            if (match)
-                es.push_back({r.phys(a + 12) + 32u * r.phys(a + 14), i});
-        }
-        std::sort(es.begin(), es.end());
-        std::vector<uint8_t> data;
-        for (const auto &[ext, i] : es)
-        {
-            const uint32_t a = MDISK + i * 32;
-            const unsigned records = (ext & 1u) * 128 + r.phys(a + 15), per = M_BLS / unsigned{RECORD};
-            for (unsigned k = 0; k * per < records; ++k)
-            {
-                const unsigned block = r.phys(a + 16 + k);
-                const unsigned n = std::min(per, records - k * per);
-                for (uint32_t b = 0; b < n * unsigned{RECORD}; ++b)
-                    data.push_back(r.phys(MDISK + block * M_BLS + b));
-            }
-        }
-        return data;
-    }
-
-    /// The bytes as a string, to the first ^Z (a text file's end).
-    std::string text(const std::vector<uint8_t> &d)
-    {
-        std::string s(d.begin(), d.end());
-        return s.substr(0, s.find('\x1A'));
-    }
-
     /// M:'s entry bytes 9-11's bit 7: RO, SYS, archived; -1 if the file isn't there.
     int attrs(CcpRig &r, unsigned user, const std::string &name83)
     {

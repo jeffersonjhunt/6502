@@ -225,7 +225,7 @@ TEST(fifteen_rsxs_fill_the_table_and_a_sixteenth_is_refused)
     has(o, std::string(15, 'A') + "# T=B106 ");
     CHECK_EQ(nrsx(r), 15u);
     o = r.cmd("m:rqa #");
-    has(o, "BAD PROGRAM HEADER");
+    has(o, "Insufficient Memory");
     hasnt(o, "A#");
     CHECK_EQ(nrsx(r), 15u);
     CHECK_EQ(top(r), 0xB106u);
@@ -264,9 +264,9 @@ TEST(a_program_that_fits_alone_but_not_with_its_rsxs_is_refused_and_they_go_agai
     std::string o = r.cmd("m:big T");
     has(o, "T=BFFD ");                              // to $BFFD exactly: it runs
     o = r.cmd("m:bigpast T");
-    has(o, "BAD PROGRAM HEADER");
+    has(o, "Insufficient Memory");
     o = r.cmd("m:biga T");
-    has(o, "BAD PROGRAM HEADER");                   // to $BFFD with A at $BF00: refused
+    has(o, "Insufficient Memory");                   // to $BFFD with A at $BF00: refused
     CHECK_EQ(nrsx(r), 0u);
     CHECK_EQ(top(r), 0xBFFDu);
 }
@@ -349,7 +349,7 @@ TEST(an_rsx_only_com_keeps_its_rsxs_for_the_next_program_then_they_go)
     o = r.cmd("dir m:rqn.com");                     // a built-in between doesn't end it
     CHECK_EQ(nrsx(r), 1u);
     r.type("\x03");                                 // nor a warm boot (a ^C at the prompt)
-    r.run(ms(300));
+    CHECK(r.reprompt());
     CHECK_EQ(nrsx(r), 1u);
     o = r.cmd("m:rsxq # T");
     has(o, "C# T=BF06 ");                           // its remove flag $FF, still there
@@ -418,7 +418,7 @@ TEST(every_end_of_a_program_reaches_the_rsxs_as_function_0_once)
     }
     // ^C in function 10
     r.type("m:rsxq K\r");
-    r.run(ms(300));
+    CHECK(r.calls(r.C_READSTR_FN));                      // RSXQ waits for its line
     const size_t from = r.out.size();
     r.type("\x03");
     CHECK(r.until("A>", ms(3000), from));
@@ -431,7 +431,7 @@ TEST(every_end_of_a_program_reaches_the_rsxs_as_function_0_once)
     n = m;
     // A ^C at the prompt is a warm boot too
     r.type("\x03");
-    r.run(ms(300));
+    CHECK(r.reprompt());
     m = fn0(r.cmd("m:rsxq ?A"), 'A');
     CHECK_EQ(m, n + 2);
 }
@@ -453,19 +453,35 @@ TEST(the_scb_19_says_the_ccp_runs_and_counts_its_commands)
     Ccp r;
     REQUIRE(r.ok);
     r.put_m({on_m("RSXQ    COM", "rsxq.com")});
-    CHECK(r.phys(SCB_PHYS + 0x19) & 0x80);          // at the prompt: the CCP runs
+    CHECK_EQ(r.phys(SCB_PHYS + 0x19) & 0xC0, 0x80); // at the prompt: the CCP runs, no command does
     std::string o = r.cmd("m:rsxq S19");
     const size_t at = o.find("S19=");
     REQUIRE(at != std::string::npos);
     const unsigned v = hexval(o.substr(at + 4, 2));
-    CHECK_EQ(v & 0x80, 0u);                         // a program runs
+    CHECK_EQ(v & 0xC0, 0x40);                       // a program runs: a command, not the CCP
     r.cmd("dir m:");                                // a built-in counts
     o = r.cmd("m:rsxq S19");
-    has(o, "S19=" + hex((v + 2) & 0x7F, 2));
+    has(o, "S19=" + hex(0x40 | ((v + 2) & 0x3F), 2));
     o = r.to("m:rsxq S19!m:rsxq S19", "A>m:rsxq S19\r\n");
-    r.run(ms(800));
-    has(r.out, "S19=" + hex((v + 4) & 0x7F, 2));     // each of a ! line's
-    CHECK(r.phys(SCB_PHYS + 0x19) & 0x80);
+    CHECK(r.until("\r\nA>", ms(3000), r.out.rfind("A>m:rsxq S19\r\n") + 15));
+    has(r.out, "S19=" + hex(0x40 | ((v + 4) & 0x3F), 2)); // each of a ! line's
+    CHECK_EQ(r.phys(SCB_PHYS + 0x19) & 0xC0, 0x80);
+    // A built-in runs with bit 6 set and the CCP's bit 7: DIR's output is a command's (5b's PUT); at the next
+    // prompt both are as before
+    bool seen = false;
+    const uint16_t sayprompt = sym("SAYPROMPT"), dir = sym("B_DIR");
+    r.watch = [&](uint16_t pc) {
+        if (pc == dir)
+            seen = true;
+        if (seen && pc == sayprompt)
+        {
+            CHECK_EQ(r.phys(SCB_PHYS + 0x19) & 0xC0, 0xC0); // still the command's, before the prompt clears it
+            seen = false;
+        }
+    };
+    r.cmd("dir m:");
+    r.watch = nullptr;
+    CHECK_EQ(r.phys(SCB_PHYS + 0x19) & 0xC0, 0x80);
     // The program's own bytes, $06-$09, are left alone through programs, built-ins and a ! line
     for (unsigned i = 0; i < 4; ++i)
         r.scb(0x06 + i, static_cast<uint8_t>(0x11 * (i + 1)));
@@ -473,7 +489,7 @@ TEST(the_scb_19_says_the_ccp_runs_and_counts_its_commands)
     has(o, "S06=11 S07=22 S08=33 S09=44 ");
     r.cmd("dir m:");
     r.to("m:rsxq!m:rsxq", "A>m:rsxq\r\n");
-    r.run(ms(800));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.rfind("A>m:rsxq\r\n") + 10));
     for (unsigned i = 0; i < 4; ++i)
         CHECK_EQ(r.phys(SCB_PHYS + 0x06 + i), 0x11 * (i + 1));
 }
@@ -503,7 +519,7 @@ TEST(an_empty_com_is_no_program_and_go_is_checked_against_the_lowest_rsx)
     r.cmd("m:rqa");
     r.poke_com(bss_to(built("rsxq.com"), 0xBFFD));
     o = r.cmd("go T");
-    has(o, "BAD PROGRAM HEADER");
+    has(o, "Insufficient Memory");
     r.poke_com(bss_to(built("rsxq.com"), 0xBF00));
     o = r.cmd("go T");
     has(o, "T=BF06 ");

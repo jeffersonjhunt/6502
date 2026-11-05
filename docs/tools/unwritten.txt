@@ -88,5 +88,3 @@ reg-c77f  # CONSOLE_ID
 
 # Commands with the RSXs (phase 5)
 util-submit
-util-get
-util-put

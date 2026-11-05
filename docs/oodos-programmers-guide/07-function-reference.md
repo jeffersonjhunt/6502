@@ -2613,7 +2613,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OODOS's own RSXs use 128-255.
+The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OODOS's own RSXs use 128-255 (GET's
+`$80` and `$81`, PUT's `$90`-`$92`: [chapter 6](06-program-formats.md#rsxs)).
 
 <a id="bdos-72"></a>
 ### 72 O_VERSION: OODOS's version and FARCALL
