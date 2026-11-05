@@ -9,6 +9,19 @@ test("Play .sid: a tune of our own onto the card, Sound on, heard, songs, Stop",
   await page.goto("./?sd=empty");
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText(GREETING, { timeout: 15_000 });
+  // The splash's tune stopped first, every voice down to 0: a tune chosen while it holds a note at $FF starts
+  // frozen at 0 (its attack wraps). Only this WebUI button can come in that early, never a program after the boot.
+  // Pause/Break on the USB keyboard: the BIOS's QUIET stops the card and turns its gates off.
+  await openDebugger(page);
+  await page.locator('[data-tab="dev"]').click();
+  await page.getByTestId("crt").click();
+  await page.keyboard.press("Pause");
+  const sound = page.getByTestId("dev-sound");
+  await expect(sound.locator('[data-reg="CTRL"]')).toContainText("6510 stopped", { timeout: 20_000 });
+  for (const voice of ["A1", "A2", "A3", "B1", "B2", "B3"])
+    await expect(sound.locator(`[data-reg="${voice}"]`)).toContainText("held at 0", { timeout: 20_000 });
+  await page.getByTestId("tb-debugger").click();
+  await expect(page.getByTestId("debugger")).toBeHidden();
   await expect(page.getByTestId("tb-sound")).toHaveAttribute("aria-pressed", "false");
   await openSettings(page);
   const chooser = page.waitForEvent("filechooser");
