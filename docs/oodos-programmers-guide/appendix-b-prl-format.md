@@ -3,8 +3,8 @@
 The .PRL file byte by byte: the header, the image, the two relocation bitmaps.
 
 The design record, for the reasons: [hw/oodos.md, "The .PRL file"](../../hw/oodos.md#the-prl-file). How a `.PRL` is
-made and what it is for: [chapter 6](06-program-formats.md#prl-files). OODOS 0.2 builds `.PRL`s but loads none
-yet; function 59 and the RSX loader come with phase 5.
+made and what it is for: [chapter 6](06-program-formats.md#prl-files). Function 59 loads one as an overlay, and the
+loader loads RSXs, `.PRL`s with flag bit 1 too ([chapter 6](06-program-formats.md#rsxs)).
 
 ## The layout
 
@@ -17,7 +17,8 @@ The file is records of 128 bytes. With `size` the image's size in bytes (header 
 | p = ⌈(16 + size) / 128⌉ | ⌈size / 8⌉ | the page bitmap; zeros to the end of its last record |
 | p + ⌈⌈size / 8⌉ / 128⌉ | ⌈size / 8⌉ | the zero page bitmap; zeros to the end of its last record |
 
-An attached RSX table (GENCOM, phase 5) would follow on a later record, the one header offset 14 names.
+An attached RSX table (gencom.py, GENCOM) follows a `.COM`'s image on a later record, the one header offset 14 names
+([chapter 6](06-program-formats.md#rsxs)).
 
 ## The bitmaps
 

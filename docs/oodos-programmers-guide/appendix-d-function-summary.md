@@ -67,6 +67,8 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [56](07-function-reference.md#bdos-56) | `MC_ABSALLOC` | allocate memory at a base | A/X = the MCB | A = 0, `$FF` |
 | [57](07-function-reference.md#bdos-57) | `MC_FREE` | free memory | A/X = the MCB | A = 0, `$FF` |
 | [58](07-function-reference.md#bdos-58) | `MC_ALLFREE` | free all memory | — | A/X = 0 |
+| [59](07-function-reference.md#bdos-59) | `P_LOAD` | load an overlay | A/X = an opened FCB, R0-R1 the address; 0 removal only | A = 0, `$FE`, 1, `$FF` |
+| [60](07-function-reference.md#bdos-60) | `P_RSX` | call an RSX | A/X = the RSX parameter block | the RSX's; `$FF` if none takes it |
 | [72](07-function-reference.md#bdos-72) | `O_VERSION` | OODOS's version and FARCALL | A/X = 10 bytes to fill | A/X = FARCALL |
 | [73](07-function-reference.md#bdos-73) | `O_PHYSADDR` | a CPU address's physical address | A/X = 4 bytes | A = 0, `$FF` |
 | [74](07-function-reference.md#bdos-74) | `O_MOUNT` | mount or unmount an SD drive | A/X = the drive, flags, path | A = 0, `$FF` |
@@ -88,5 +90,5 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [112](07-function-reference.md#bdos-112) | `L_WRITEBLK` | write a block of characters to LST: | A/X = the CCB | A/X = 0 |
 | [152](07-function-reference.md#bdos-152) | `F_PARSE` | parse a file name into an FCB | A/X = the parse block | A/X = what follows, 0, or `$FFFF` |
 
-Functions 59 (`P_LOAD`) and 60 (`P_RSX`) come with phase 5, the RSX loader. A function number OODOS doesn't have returns
-A = X = `$FF`: 38, 39 and 41, 59-71, 76-97, 113-151 and 153 on ([appendix A](appendix-a-errors.md)).
+A function number OODOS doesn't have returns A = X = `$FF`: 38, 39 and 41, 61-71, 76-97, 113-151 and 153 on
+([appendix A](appendix-a-errors.md)).

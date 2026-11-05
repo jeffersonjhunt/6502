@@ -224,6 +224,8 @@ emu_add_test(test_oodos_sys)
 set_tests_properties(test_oodos_sys PROPERTIES TIMEOUT 1800) # dozens of boots and minutes of machine time under ASan: about 600 s alone, more under load
 emu_add_test(test_oodos_ccp)
 set_tests_properties(test_oodos_ccp PROPERTIES TIMEOUT 1800) # the CCP's cases (phase 4a), test_oodos_sys's machinery
+emu_add_test(test_oodos_rsx)
+set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
 set(OODOS_UTILS_SUITES test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip)
@@ -280,6 +282,7 @@ add_custom_target(oodos_utils ALL DEPENDS "${OODOS_UTILS_DIR}/utils.stamp")
 add_custom_target(oodos_ldr ALL DEPENDS "${OODOS_LDR_DIR}/BOOT.BIN" "${OODOS_PRL_DIR}/hello.prl")
 add_dependencies(test_oodos_sys oodos_sys backplane_bios)
 add_dependencies(test_oodos_ccp oodos_sys backplane_bios)
+add_dependencies(test_oodos_rsx oodos_sys backplane_bios)
 foreach(name ${OODOS_UTILS_SUITES})
     add_dependencies(${name} oodos_sys oodos_utils backplane_bios)
     target_compile_definitions(${name} PRIVATE
@@ -298,6 +301,12 @@ target_compile_definitions(test_oodos_sys PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_oodos_ccp PRIVATE
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_oodos_rsx PRIVATE
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
         EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"

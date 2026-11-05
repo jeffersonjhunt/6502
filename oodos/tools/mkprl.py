@@ -98,6 +98,29 @@ def zp_operands(image, base, code):
     return out
 
 
+RSX_PREFIX_LEN = 27  # the prefix's bytes (include/oodos.inc's RSX_*)
+RSX_START, RSX_NEXT, RSX_REMOVE, RSX_NONBANK, RSX_NAME = 6, 9, 14, 15, 16
+
+
+def rsx_prefix(image, base, name):
+    """An RSX's prefix (hw/oodos.md, "The RSXs, phase 5"), as RSX_PREFIX makes it, or Refused: offset 6
+    a JMP into the image (base: where it is linked), offset 9 a JMP, the remove and non-banked flags
+    0 or $FF, the name printable and space padded."""
+    if len(image) < RSX_PREFIX_LEN:
+        raise Refused("%s: an RSX of %d bytes: its prefix alone is %d" % (name, len(image), RSX_PREFIX_LEN))
+    entry = image[RSX_START + 1] | image[RSX_START + 2] << 8
+    if image[RSX_START] != 0x4C or not base <= entry < base + len(image):
+        raise Refused("%s: offset 6 isn't a JMP into the RSX: no RSX prefix (RSX_PREFIX, include/oodos.inc)" % name)
+    if image[RSX_NEXT] != 0x4C:
+        raise Refused("%s: offset 9 isn't a JMP: no RSX prefix" % name)
+    for off, what in ((RSX_REMOVE, "remove"), (RSX_NONBANK, "non-banked")):
+        if image[off] not in (0, 0xFF):
+            raise Refused("%s: the %s flag is $%02X: 0 or $FF" % (name, what, image[off]))
+    nm = bytes(image[RSX_NAME:RSX_NAME + 8])
+    if any(not 0x20 <= ch <= 0x7E for ch in nm) or nm[0] == 0x20 or nm.rstrip(b" ").find(b" ") >= 0:
+        raise Refused("%s: the RSX's name %r isn't printable and space padded" % (name, nm))
+
+
 def make(a, b, c, code, name_a="a", name_b="b", name_c="c"):
     """The .PRL from the three links, or Refused naming the first byte that isn't a relocation.
     code: CODE's first and last address in a, from its map (code_range), or None for no CODE."""
@@ -113,6 +136,8 @@ def make(a, b, c, code, name_a="a", name_b="b", name_c="c"):
                           % (f, ha[f], name_a, hb[f], name_b, hc[f], name_c))
     if ha["flags"] & F_RSX and ha["zpsize"] > RSX_ZP_MAX:
         raise Refused("%s: an RSX with %d bytes of zero page: an RSX has at most 16, in $F0-$FF" % (name_a, ha["zpsize"]))
+    if ha["flags"] & F_RSX:
+        rsx_prefix(a[HEADER:HEADER + ha["size"]], ha["page"] << 8, name_a)
     if ha["zpsize"] > ZP_RSX:
         raise Refused("%s: %d bytes of zero page: a program has at most $F0, $00-$EF" % (name_a, ha["zpsize"]))
     zp = ((hb["zpbase"] - ha["zpbase"]) & 0xFF, (hc["zpbase"] - ha["zpbase"]) & 0xFF)
@@ -163,6 +188,12 @@ def load(data, page=None, zp=None, top=TOP, name="the file", kind="program", mem
                                                  "an RSX" if kind == "rsx" else "a " + kind))
     if kind == "rsx" and not reloc:
         raise Refused("%s: an RSX must be a .PRL" % name)
+    if kind == "rsx":  # as OODOS's loader: offsets 6 and 9 JMPs, and not a non-banked RSX
+        im = data[HEADER:HEADER + size]
+        if size < RSX_PREFIX_LEN or im[RSX_START] != 0x4C or im[RSX_NEXT] != 0x4C:
+            raise Refused("%s: offsets 6 and 9 aren't JMPs: no RSX prefix, which the loader refuses" % name)
+        if im[RSX_NONBANK] == 0xFF:
+            raise Refused("%s: a non-banked RSX, which OODOS's loader passes over" % name)
     if page is None:
         page = h["page"]
     if zp is None:

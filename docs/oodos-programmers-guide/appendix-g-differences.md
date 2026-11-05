@@ -49,7 +49,14 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
 - **The `.PRL`** is OODOS's own layout: the header, the image, then a page bitmap and a zero page bitmap, each on a
   record ([appendix B](appendix-b-prl-format.md)). It relocates zero page addresses as well as pages.
 - **The 65C816 rules,** checked by the build ([chapter 6](06-program-formats.md#rules-for-programs-the-65c816)).
-- **The CCP runs `.COM`s only** until phase 5; RSXs, GENCOM, overlays (59) and SUBMIT come with it.
+- **The CCP runs `.COM`s only,** and a typed `NAME.PRL` is refused (CP/M 3's CCP loads it as a `.COM`). The CCP is
+  resident, not a transient, so there is no LOADER RSX: OODOS's loader is always there, and the CCP loads programs by
+  function 59 ([chapter 6](06-program-formats.md#rsxs)). SUBMIT and `.SUB` files come with phase 5c.
+- **RSXs** are `.RSX` files in OODOS's `.PRL` layout with CP/M 3's 27-byte prefix. The loader keeps a table of up to
+  15, and writes `$0203` and their links again from it at every warm boot. Every end of a program reaches them as
+  function 0, once: a `JMP WBOOT`, an RTS or an error's end too. The SCB's `$19` says whether the CCP or a program
+  runs.
+- **The attached RSX table** follows the `.COM`'s image, not a header page before it, and may hold SCB entries.
 
 ## Functions OODOS adds
 
@@ -63,7 +70,7 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
 
 38, 39 and 41, MP/M's drive access and test-and-write, and every number no Digital Research system gives a meaning.
 Each returns A = X = `$FF`. CP/M 3 answers 38 and 39 with success (A = 0) and 41 with `$FF`, so a program that
-calls 38 or 39 and checks A sees a failure on OODOS. 59 and 60 return `$FF` too, until phase 5.
+calls 38 or 39 and checks A sees a failure on OODOS.
 
 ## Each function
 
@@ -92,6 +99,7 @@ Beyond the registers, which change for every function as above:
 | 50 | `S_BIOS` | the parameter block is OODOS's (A, X, Y and two words); BOOT is refused |
 | 52 | `F_DMAGET` | writes the DMA address and segment to 4 bytes, where CP/M-86 returns them in registers |
 | 57 | `MC_FREE` | a length past an allocation's end frees only to its end |
+| 59 | `P_LOAD` | any program may call it; a `.COM` loads only at `$0300`; a file with RSXs attached is refused (only the CCP attaches them); X says why a load is refused; A/X = 0 only removes |
 | 98 | `DRV_FREE` | drops the failed buffers of the blocks it frees |
 | 99 | `F_TRUNCATE` | stamps the update |
 | 100 | `DRV_SETLABEL` | the label's stored mode has bit 0 set, saying a label is there; it is stamped whatever its mode; stamps asked for without SFCBs return `$FF` |

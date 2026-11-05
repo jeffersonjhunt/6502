@@ -26,8 +26,8 @@ A program calls the BDOS with `JSR BDOS`, the base page's `$0203` ([`oodos.inc`]
         jsr     BDOS
 ```
 
-`$0203` jumps to `$BFFD`, the last three bytes of the TPA, which jump to the BDOS's stub in common memory (from phase 5,
-`$0203` may jump to an RSX instead: [hw/oodos.md, "RSXs and programs"](../../hw/oodos.md#rsxs-and-programs)). The stub
+`$0203` jumps to `$BFFD`, the last three bytes of the TPA, which jump to the BDOS's stub in common memory (with RSXs
+loaded, `$0203` jumps to the lowest RSX instead: [chapter 6](06-program-formats.md#rsxs)). The stub
 keeps the program's stack pointer, flags and windows, switches to the system's windows and stack, calls the BDOS and
 puts everything back. The program's zero page, `$00`-`$EF`, is never touched: the BDOS works on a zero page and a stack
 of its own. Interrupts are off while the BDOS runs. The stub costs 216 cycles a call, 126 in and 90 out
@@ -55,14 +55,15 @@ is the image after them. One module of a program writes them with `OODOS_HEADER`
 | 8 | 2 | `OH_BSS` | BSS: the bytes the program needs above its image, not in the file and not cleared |
 | 10 | 1 | `OH_ZPBASE` | where the image's zero page segment starts |
 | 11 | 1 | `OH_ZPSIZE` | that segment's size, at most `$F0` for a program |
-| 12 | 1 | `OH_RSXCOUNT` | the attached RSXs (phase 5), 0 for none |
+| 12 | 1 | `OH_RSXCOUNT` | the attached RSX table's entries, 0 for none |
 | 13 | 1 | | reserved, 0 |
-| 14 | 2 | `OH_RSXREC` | the record of the attached RSX table (phase 5), 0 for none |
+| 14 | 2 | `OH_RSXREC` | the record of the attached RSX table, 0 for none |
 
 **The CCP loads a `.COM`** only if the magic number is there (else `NO PROGRAM`), no flag is set, the link page is
-`$03`, and the image and its BSS end by `$BFFC`, the TPA's top (else `BAD PROGRAM HEADER`). It reads exactly the
-image's size to `$0300`: nothing past the image changes, and the BSS isn't cleared. A `.PRL` and an RSX are the
-phase 5 loader's ([chapter 6](06-program-formats.md)).
+`$03`, and the image and its BSS end by the TPA's top, `$BFFC` or below the lowest RSX (else `BAD PROGRAM HEADER`).
+It loads it by function 59, its attached RSXs first, then exactly the image's size to `$0300`: nothing past the image
+changes, and the BSS isn't cleared. A `.PRL` loads only as an overlay, by 59, and an RSX only attached
+([chapter 6](06-program-formats.md)).
 
 ## The base page
 
@@ -72,7 +73,7 @@ constants:
 | Address | CP/M | oodos.inc | What |
 |---|---|---|---|
 | `$0200` | `$0000` | `BP_WBOOT`, `WBOOT` | `JMP` to the warm boot |
-| `$0203` | `$0005` | `BP_BDOS`, `BDOS` | `JMP` to the BDOS (from phase 5, the top RSX) |
+| `$0203` | `$0005` | `BP_BDOS`, `BDOS` | `JMP` to the BDOS, or the lowest RSX |
 | `$0204` | `$0006` | `BP_TOP` | that `JMP`'s operand: the top of the TPA + 1, `$BFFD` |
 | `$0250` | `$0050` | | the drive the program was loaded from, 1-16 (A: is 1) |
 | `$0251` | `$0051` | | the first file specification's password: its address in the tail (2 bytes), then its length (`$0253`) |

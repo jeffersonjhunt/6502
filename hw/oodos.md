@@ -2046,6 +2046,425 @@ mkprl.py finds rule 2's 16-bit pointers to zero page in any segment, by the zero
 but only those to the program's own `ZEROPAGE` segment: pointers to an overlay's imported zero page or to absolute
 zero page addresses, in `CODE` or the data segments, rely on the author.
 
+## The RSXs, phase 5 ##
+
+**Proposed (phase 5, 2026-11-04; revised the same day after a review against the manuals)** (the Programmer's
+Guide, 1.6.2–1.6.5, 2.2.1, 3's functions 49, 59 and 60, 4.4; the User's Guide's GENCOM, GET, PUT and SUBMIT, 3.4,
+and Appendix A's messages; where they are silent the choice is ours, and says so). Nothing of it is built. The
+design it fills in is [RSXs and programs](#rsxs-and-programs), [The program header](#the-program-header) and
+[The .PRL file](#the-prl-file), decided 2026-10-26. Each stage reads its part of the Guides again at its start, as
+4a and 4b did, and says here what changed.
+
+**What there is now (main, de9866a)**
+
+- **Function 47** is built (3b2): the command at `$0280` to the CCP, `$FF` for the program's drive and user, the
+  return code kept, the CCP showing and running the command at the warm boot (`CHAINF`, `CCP_CHAINDU`). Phase 5
+  adds only what RSXs and SUBMIT change around it (below).
+- **Functions 59 and 60** have no handler: the BDOS's dispatch returns A = X = `$FF` for both (`FIDX`).
+- **The CCP's loader** (`LOADCOM`, `CHECKHDR` in `oodos/sys/ccp.s`) loads a `.COM` at `$0300` and refuses any
+  header flag: no `.PRL`, no RSX, and the attached RSX fields (12, 14) are not looked at, so a GENCOM'd `.COM`
+  would run today without its RSXs. Its size check is against the constant `$BFFD`, not `$0204`. An image of size
+  0 jumps to whatever `$0300` holds.
+- **The warm boot** (common.s's `WARM`, then the CCP) writes `$0203`'s `JMP $BFFD` again each time, so nothing can
+  stay linked on `$0203` across a program; function 0 and a program's `RTS` go to the CCP without passing `$0203`.
+- **The tools:** `mkprl.py` makes `.PRL`s and loads them as OODOS will, RSXs (`--rsx --zp`) and overlays
+  (`--overlay`) among them, and refuses an RSX's zero page over 16; `oodos.inc` has the `RSX_*` prefix offsets and
+  the `OH_*` header; `check_tools.py` tests both. There is no link config for an RSX, no prefix macro and no GENCOM.
+- **Room:** block 62's code window holds cold boot and the CCP, 5,509 bytes, and their BSS, 984: 6,493 of 12,288.
+  Common memory 1,164 of 2,048. Block 60 (the BDOS) 11,632 of 16,384. The system's zero page 232 of 240.
+
+**The loader (ours: one, resident)**
+
+- **CP/M 3's CCP is a transient** and loads programs through the LOADER, an RSX of its own at the chain's end;
+  OODOS's CCP is resident in block 62, so the loader is too (ours: no LOADER RSX, decided 2026-11-04). It is CCP
+  code, in block 62's code window, and runs in the program's context (its windows and stack, W3 on block 62),
+  calling the BDOS at `$BFFD`, the chain's end, so no RSX sees its reads. **Function 59 is its door,** and the CCP
+  loads every program through it as well, so there is one loader, not two. The CCP's `LOADCOM` and `CHECKHDR`
+  become the loader's.
+- **How 59 reaches it:** `$BFFD`'s `JMP` goes to a few bytes in common memory ahead of the stub: Y = 59 puts W3 on
+  block 62 (the caller's block kept on its stack), calls the loader, and puts it back; any other function goes on to
+  the stub. So an RSX above can still take 59 first, and the BDOS never runs the loader inside itself. About 4
+  cycles more a BDOS call. Since the loader is always there, 59 never gives CP/M 3's "no loader" answer (A = `$FF`,
+  H = 0), and any program may call it: CP/M 3 lets only a program with an RSX header call 59, to keep its LOADER
+  resident; GENCOM's `[LOADER]` is accepted and does nothing (ours).
+- **What 59 does** (the Guide's: A/X the FCB, opened by the caller; the load address in its R0–R1, low then high):
+  - A `.PRL` loads at any page start from `$0300`, relocated as [The .PRL file](#the-prl-file) says. A `.COM` loads
+    only at `$0300`, its link page: **ours,** CP/M 3 loads an absolute file anywhere from `0100H`, but OODOS's
+    absolute file names its one page, and `.PRL` is how a file loads elsewhere (decided 2026-11-04). An `.RSX` is
+    refused (RSXs come attached, below).
+  - The image and BSS must end at or below the lowest RSX's first byte (`$0204`'s word − 6), or `$BFFD` with none:
+    the Guide's, a load never overlays an RSX. Ours: a `.PRL` needs room for its image and BSS only, not for its
+    header and bitmaps too as CP/M 3's does, since OODOS's loader reads the bitmaps through its own buffer.
+  - An overlay has no zero page of its own (its header's size 0), as decided.
+  - **The caller's state is put back:** its DMA address and DMA segment (51), error mode, multi-sector count and
+    current user are saved, the loader's own set (its record buffer in block 62, `$FFFF`, returned errors, 1),
+    and all put back before 59 returns (ours: CP/M 3's LOADER runs in the caller's BDOS state too, but the Guide
+    doesn't say what it leaves).
+  - **Returns** (the Guide's): A = 0 done; A = `$FE` an address the loader won't take or no room for the file; else
+    function 20's: A = 1 the file ended inside its image, A = `$FF` and X the physical error. **Ours:** a header the
+    loader refuses (magic, flags, page) and a zero page that doesn't fit are `$FE` too, with X saying which (0 the
+    address or the room, 1 the header, 2 zero page). A refusal leaves nothing past the image changed.
+  - **Removal:** the Guide has the LOADER take out the RSXs whose remove flag is set at each call of 59 (4.4.1),
+    and the CCP calls it at each warm boot. So every 59 does that first (but the one case below); **59 with A/X = 0**
+    (ours) loads nothing and only does that, so a program can drop an RSX it is done with at once.
+- **Attached RSXs** (header bytes 12 and 14, the table in [The program header](#the-program-header)): loaded before
+  the program's image, in the table's order, each below the one before; the last loaded is the first `$0203`
+  reaches, as the Guide has the most recently loaded first. An RSX whose non-banked flag (offset 15) is `$FF` is
+  passed over: OODOS is banked (the Guide's, 4.4.1). **An RSX of a name already in the chain is loaded again,
+  below it** (the Guide's 1.6.5: a SUBMIT file may hold more SUBMITs and GETs, each with its RSX; decided
+  2026-11-04: a GET inside a GET file stacks too), and the newer one serves first. If any refusal stops the load,
+  the RSXs it had linked are taken out again and `$0204` is as it was (ours).
+- **SCB entries** (GENCOM's `[SCB=(offset,value)]`, decided 2026-11-04): an entry of the attached RSX table whose
+  flags byte has bit 1 set (ours) is no RSX but an SCB byte, its offset and value in the entry's first two bytes;
+  the loader sets each, by 49, after the CCP's warm boot settings (console mode 0 and the rest) and before the
+  program starts, so a program can be given, say, console mode bits 8 and 9 for GET (the Guide's 2.2.1). The
+  offset must be `$00`–`$63` (OODOS's SCB ends at `$63`; the Guide's GENCOM allows to `$64`, ours), and the
+  BDOS's own rules for 49 hold (a word at `$63` its one byte).
+- **An RSX-only `.COM`** (GENCOM's `[NULL]`: image size 0, RSXs attached): the RSXs are loaded and the CCP goes back
+  to its prompt, the return code 0. **The warm boot right after it removes nothing** (the Guide's 1.6.4), so an
+  RSX loaded so with its remove flag `$FF` stays for the next program, which can call it, and goes at the warm boot
+  after that program. A `.COM` of size 0 with no RSXs is `NO PROGRAM` (ours).
+
+**Where RSXs go, and the chain**
+
+- **In memory:** each RSX's image and BSS at the highest page start where they end at or below the bottom of what
+  is above: the lowest RSX's first byte, or `$BFFD` for the first. So a first RSX of 253 bytes or less sits at
+  `$BF00` and ends by `$BFFC`; RSXs never move once loaded.
+- **The chain:** `$0203`'s `JMP` goes to the lowest RSX's offset 6 (its prefix's first `JMP`), so `$0204` is that
+  RSX's first byte + 6, as the Guide has location 6 point just past the serial number with or without RSXs; its
+  offset 9 `JMP`s to the next RSX's offset 6, and the highest RSX's to `$BFFD`. An RSX makes its own BDOS calls,
+  and passes on what it doesn't take, through its offset 9, never `$0203`, which would reach it again (the
+  Guide's). The TPA's top + 1 is the lowest RSX's first byte (the Guide's 1.6.2, step 5), so a program loaded never
+  covers an RSX's serial number; a program that sizes itself from `$0204` can still reach those six bytes, as in
+  CP/M 3.
+- **The prefix** ([The program header](#the-program-header)), the 27 bytes the Guide's 4.4.1 gives, which the RSX
+  sets three of: the **remove flag** (14), the **non-banked flag** (15) and the **name** (16). The loader writes the
+  rest: the serial number (107's six bytes), offset 9's operand, **offset 12** and the **loader flag** (24), 0 in
+  every RSX it loads, as the Guide's LOADER does (only CP/M 3's LOADER has `$FF` there, and OODOS has none). Offset
+  12 is the address of the preceding entry: `$0203`, the base page's `JMP`, for the first RSX in the chain (the
+  Guide's location 5, moved up as the base page is: **decided here,** not `$0204`, the operand), and for the others
+  the offset 9 `JMP` of the RSX before it in the chain (ours: the Guide says only "the preceding RSX"; that `JMP`
+  is what `$0203` is for the first). **The remove flag is the RSX's own,** never set or cleared by the loader: an
+  RSX that serves one program has `$FF` in its file, so the warm boot after that program removes it; one that must
+  stay has 0 and sets `$FF` itself when it is done (as GET does at its file's end). `RSX_PREFIX name, entry,
+  remove` in `oodos.inc` writes it, the remove flag an argument.
+- **The loader's table (ours):** block 62 keeps a list of what it loaded (each RSX's first page, its pages, its
+  zero page slice, its name), up to 15 RSXs, as many as one GENCOM header can attach, about 200 bytes. The warm
+  boot builds `$0203`, `$0204` and every offset 9 and 12 again from it, so a program that changed `$0203` (the TPA
+  rule forbids it, but CP/M programs have done it) doesn't break the chain for the next. A sixteenth RSX is refused
+  (`$FE`, ours).
+- **Zero page:** each RSX gets the lowest free run of `$F0–$FF` of its header's size, relocated there by its zero
+  page bitmap; one that doesn't fit is refused (`$FE`, X = 2), not overlapped, as decided. A removed RSX's slice is
+  free again. OODOS's own RSXs (GET, PUT, SUBMIT) use none (their pointers in their own code, as `cmd.inc`'s), so
+  16 bytes stay for others, and stacked GETs and SUBMITs never run out of it.
+- **Removal:** at each warm boot (but the one after an RSX-only `.COM`) and each 59, every RSX whose remove flag is
+  `$FF` is taken out of the chain and the table, its zero page freed. Memory comes back only from the bottom: when
+  the lowest goes, the TPA's top rises to the next one, or `$BFFD`; a removed RSX above a lower one that stays
+  keeps its memory until that one goes too (the Guide's 1.6.4). Cold boot starts with none.
+- **Every end of a program reaches the RSXs (ours, decided 2026-11-04):** the warm boot, however it comes (a
+  program's `RTS` or `JMP $0200`, function 0, a ^C, the BDOS ending a program for an error, 47), calls `$0203` with
+  function 0 once, in the program's windows and a fresh stack, before the removal and the CCP; the BDOS's function
+  0, reached so, goes straight on to the CCP (a flag in block 62). So PUT can close its file and GET stop when the
+  program they serve ends.
+- **What the CCP is doing (ours):** one of the SCB's bytes the Guide reserves for the system (`$12`–`$19`, beside
+  `$17` and `$18`, which OODOS already uses; never `$06`–`$09`, the program's own) holds two things for redirecting
+  RSXs: bit 7 set while the CCP runs (its prompt, its built-ins) and clear while a program runs, and in bits 0–6 a
+  count the CCP steps as it starts each command, a built-in or a program, from the prompt, a `!` line, 47, SUBMIT or
+  GET. GET and PUT without `[SYSTEM]` serve "the next command" (the User's Guide's, DIR among them in its 3.4) by
+  that count: from the step after they were set up to the next step, or the program's function 0.
+
+**Function 60** (call an RSX, the Guide's): A/X the RSX parameter block: a function byte, a count of words, the
+words. The BDOS, reached because no RSX took it, returns A = X = `$FF` (as now). An RSX takes the calls whose
+function byte is its own and passes the rest on. Function bytes 0–127 are for programs' RSXs, 128–255 the system's
+(the Guide's): **OODOS's own RSXs use 128–255** (each listed in its source and in bdos-60's entry), and that is how
+GET.COM, PUT.COM and SUBMIT.COM give their RSX its file.
+
+**Function 47** (the rest of it): a chained command can name a program with RSXs attached, a `.SUB` (5c), or an
+RSX-only `.COM`, and each loads as typed; with SUBMIT running, the chained command runs first and the SUBMIT file
+goes on after it, which falls out of the CCP's order: 47's command, then the next line read. No BDOS change.
+
+**Writing an RSX** (ours, for the Programmer's Guide):
+
+- `oodos/cfg/rsx.cfg`: `prl.cfg` with the RSX flag (`$03`) and a `RSXHDR` segment first in the image;
+  `RSX_PREFIX name, entry, remove` in `oodos.inc` writes the 27 bytes. `make -C oodos` builds `NAME.RSX` by
+  mkprl.py's three links, as a `.PRL`.
+- **The file type is `.RSX`** (the Guide's; decided 2026-11-04), the `.PRL` format with flag bit 1; mkprl.py
+  checks the prefix (offset 6 a `JMP` into the image, offset 9 a `JMP`, the remove and non-banked flags 0 or `$FF`,
+  the name printable and space padded) and refuses an RSX without it.
+- The 65C816 rules hold, rule 4 read for an RSX as: the BDOS only through its own offset 9, and `$0200`. An RSX
+  runs in the caller's context: the caller's stack (a few bytes of it), zero page only its slice. Its own BDOS calls
+  (a file of its own) must save and put back what the caller had (the DMA address and segment, the user, the error
+  mode, the multi-sector count): `oodos/include/rsx.inc` does it once for all of OODOS's RSXs.
+
+**GENCOM** (5b; `oodos/utils/gencom.s`, a utility as 4b's; and `oodos/tools/gencom.py` for the build, which does
+the same to the byte, ours). The User's Guide's forms:
+
+- `GENCOM name rsx {rsx...} {[LOADER | SCB=(offset,value),...]}`: `NAME.COM` with `RSX.RSX` attached, in the order
+  given; on a `.COM` GENCOM made already, an RSX of a name attached there replaces it
+  (`Duplicate RSX in header. Replacing old by new`) and a new one is added.
+- `GENCOM name [LOADER | SCB=(offset,value),...]`: a header with no RSXs, only its SCB entries (or nothing, for
+  `LOADER`).
+- `GENCOM rsx {rsx...} [NULL {SCB=(offset,value),...}]`: an RSX-only `.COM`, named after the first RSX.
+- `GENCOM name`: what GENCOM added taken off, the `.COM` as it was.
+- **The header** has room for 15 entries, the RSXs and the SCB pairs together (the Guide's); OODOS's table takes
+  15 entries of 16 bytes, which is two records. The loader's 15 RSXs (above) mean any one file's RSXs load into an
+  empty chain; with RSXs already there, the sixteenth is refused.
+- **Messages** (Appendix A's, in OODOS's layout): `First submitted file must be a COM file`, `COM file found and NULL
+  option`, `Duplicate input RSX` (the same RSX named twice: one used), `Invalid RSX type`, wildcards refused,
+  `Total file size exceeds 64K`, `No more space in the header for RSXs or SCB initialization`, `Unrecognized
+  option`, `No modifier for this option`, the SCB option's missing parenthesis, missing value and `Invalid SCB
+  offset`, `Read only`, `Password Error`, `Cannot delete file`, a file not found.
+- It writes `NAME.$$$` and renames it, as PIP does. GET.COM, PUT.COM and SUBMIT.COM are made on the build by
+  gencom.py, and GENCOM.COM's output compared with gencom.py's byte for byte in a test.
+
+**GET** (5b): console input from a file. GET.COM is a program with OODOS's input RSX attached (remove flag 0: it
+stays until its file is done); the program parses the command, opens the file, and gives the RSX the file by 60.
+
+- `GET {CONSOLE INPUT FROM} FILE filespec {[ECHO | NO ECHO]}`: the next command's console input (functions 1, 6's
+  input, 10, and 11's and 6's status) comes from the file, while it runs; the CCP's prompt still reads the keyboard.
+  When the file runs out first, the program reads the keyboard; when the program ends first, its input is the
+  keyboard's again. Either way the RSX then sets its remove flag. `[ECHO]`, the default: what is read is shown as
+  if typed; `[NO ECHO]`: not (the program's output and the prompts still are).
+- `GET {CONSOLE INPUT FROM} FILE filespec [SYSTEM]`: from now, the CCP's command lines and every program's input
+  from the file, until its end or a `GET CONSOLE` line in it. `[SYSTEM]` and `[ECHO]`/`[NO ECHO]` are one or the
+  other (the Guide's form).
+- `GET {CONSOLE INPUT FROM} CONSOLE`: the keyboard again now; in a GET file it ends that file's input.
+- **A GET in a GET file** loads a second input RSX below the first (stacked, decided 2026-11-04): the newer file
+  serves until it ends, then the older goes on.
+- **Status** (11, and 6's `$FE`) while a file serves input goes by console mode bits 8 and 9 (the Guide's 2.2.1):
+  0 and 0 conditional (false, but true for a status call straight after another, so a program waiting on status
+  gets its character and one only looking for a stop key doesn't stop); bit 9 alone always false; bit 8 alone
+  always true; both: no redirection for that program at all. GENCOM's SCB entries can set them for a program.
+- **Messages:** the sign-on `Getting console input from file: NAME.TYP` (the User's Guide's 3.4); `Invalid command`,
+  `Invalid delimiter`, `Invalid option`, `Invalid option modifier`, `End of line expected`, `Insufficient Memory`,
+  `Auxiliary device redirection not implemented` (AUX isn't redirected), and a file not found, before anything
+  changes.
+
+**PUT** (5b): console or printer output to a file. PUT.COM, with OODOS's output RSX attached. CONSOLE or PRINTER
+is always named:
+
+- `PUT CONSOLE {OUTPUT TO} FILE filespec {[options]}`: the next command's console output (functions 2, 9, 111 and
+  6's output), a built-in's too (the User's Guide's 3.4 puts DIR's listing in a file so), goes to the file; the
+  file is closed when that command ends.
+- `PUT PRINTER {OUTPUT TO} FILE filespec {[options]}`: the same for LST: (5 and 112).
+- `PUT CONSOLE {OUTPUT TO} CONSOLE`, `PUT PRINTER {OUTPUT TO} PRINTER`: back to the device now, the file closed.
+- **Options,** which combine (`[ECHO,SYSTEM]`): `[ECHO]` the output to the device as well, the default for the
+  console; `[NO ECHO]` to the file only, the default for the printer; `[FILTER]` control characters written to the
+  file as `^` and a character (ESC as `^[`); `[NO FILTER]`, the default, as they are; `[SYSTEM]` everything from now,
+  the CCP's output too, until the `PUT ... TO CONSOLE` (or `PRINTER`) form.
+- **Under `[NO ECHO]`** a program that asks for console input gets the prompt `PUT>` first, so the user knows it
+  waits (the Guide's).
+- **The file:** one there already is asked about, `File already exists Delete it? (Y/N)`: Y deletes it, N ends PUT;
+  a read-only one is an error. `Do you want another file? (Y/N)` offers output to another file (when PUT asks it
+  is settled at 5b's start: the Guide gives the question, not the moment). Ours: written as `NAME.$$$` and renamed
+  at the close, so a reset leaves the old file, not half a new one. `PUT ERROR: FILE ERASED` when the file can't be
+  closed because it was deleted under PUT.
+- **Messages:** the sign-on `Putting console output to file: NAME.TYP` (3.4; the printer's alike), and GET's
+  command errors above.
+- **Not caught (ours, as an RSX above the BDOS can't see them):** what the BDOS writes itself: function 10's echo,
+  its error messages (`OODOS Error On ...`) and ^P's printer echo.
+
+**SUBMIT** (5c): a file of commands. SUBMIT.COM, with the input RSX attached (the same one as GET's, ours: a
+SUBMIT file is console input for the CCP).
+
+- `SUBMIT`, `SUBMIT filespec`, `SUBMIT filespec arg ...`; the type `.SUB` if none is given. `SUBMIT` alone asks
+  `Enter File to Submit: ` for the rest. Not found: `No 'SUB' file found`.
+- **Parameters:** `$1` to `$9` are the arguments; one not given is nothing, arguments past the file's last are
+  ignored. `$0` is valid too (the Guide allows `$0`–`$9` and says no more: ours, decided 2026-11-04, the file's name as given);
+  any other character after `$` is `Parameter Error`. `$$` is `$`; `^` and a letter is that control character, `^^`
+  a `^`. A line holds at most 128 characters. A byte `$FF` in the file is `Invalid ASCII character`. Errors are
+  shown `Error on line nnnnn:` and the message, nothing run.
+- **The lines:** SUBMIT.COM writes the expanded lines to a temporary file of type `$$$` on the temporary drive (the
+  SCB's `$50`; the Guide's), and the RSX gives them to the CCP's function 10 one at a time, each shown after the
+  prompt as if typed (the RSX echoes it, so `cmd.inc`'s owed LF still holds). Its errors: no directory space on
+  the temporary drive, `Disk write error`, `Random Read` (the temporary file unreadable).
+- **Program input:** a line starting with `<` is input for the program running, not a command: its function 10
+  (and 1) take it; `<` alone is a CR. A program that wants more than the `<` lines give reads the keyboard, and the
+  next command line waits until it ends; `<` lines left when it ends are skipped with the warning `WARNING: Program
+  input ignored`. `;` and `:` lines are the CCP's comments and conditionals, as now.
+- **SUBMIT inside SUBMIT:** CP/M 3 stacks a second SUBMIT RSX with a temporary file of its own, and the inner file's
+  lines run first, then the rest of the outer. **Ours:** the same, stacked as GET is; too many levels is
+  `Insufficient Memory` (the Guide's), at the loader's 15 RSXs or a full temporary drive. (The first plan's one
+  temporary file rewritten for each level is dropped: stacking is what the Guide describes, and GET in a SUBMIT
+  file stacks the same way.)
+- **The end:** the last line read, the temporary file is deleted and the RSX sets its remove flag. A program ended
+  by ^C (the return code `$FFFE`) ends every SUBMIT level, their temporary files deleted (ours, decided 2026-11-04,
+  as a `!` line's rest is dropped). A temporary file a reset left is deleted by the next SUBMIT, never resumed (ours).
+- **The CCP:** `NAME.SUB` typed, or found by the search order, is run as `SUBMIT NAME.SUB` and the tail (the
+  Guide's 1.6.2), replacing `NAME.SUB: no SUBMIT yet`; SUBMIT.COM is then found by the CCP's usual search (the drive
+  chain, user 0's SYS file), and not found is `SUBMIT?` as for any command. **The search order** (SETDEF's
+  `[ORDER=(COM)]`, `(COM,SUB)`, `(SUB,COM)`, `(SUB)`): the first type is tried on every drive of the chain, each
+  with user 0's SYS file, before the second type on any (the Guide's). It is two bits of a system-reserved SCB
+  byte, `$12`–`$19` (ours; which, at 5c's start), and SETDEF takes `SUB` instead of `ORDER=(SUB): no SUBMIT yet`.
+  **`PROFILE.SUB`** on the default drive at cold boot (user 0, since cold boot starts there) is run as `SUBMIT
+  PROFILE` before the first command is read (the Guide's 1.6.2; decided 2026-11-04). The demo card gets none, so it
+  boots as now.
+
+**Stages (decided 2026-11-04: three branches, each merged on its own)**
+
+| Stage | Branch | What | Size (estimates) |
+|---|---|---|---|
+| **5a** | `feat/oodos-rsx-loader` | `rsx.cfg`, `RSX_PREFIX`, mkprl.py's RSX checks, gencom.py; the resident loader with 59 (`.COM`, `.PRL` overlays, attached RSXs stacked, SCB entries, A/X = 0), the chain, the table, zero page slices, removal (and the RSX-only exception) and function 0 at the warm boot; the CCP loading through 59, its checks against the lowest RSX, RSX-only `.COM`s, `NO PROGRAM` for an empty one; 60's RSX parameter block; the CCP's SCB byte | loader 1.8–2.3 KB in block 62 (of 5.8 KB free), its table about 200 bytes; common memory +40–60 bytes; BDOS +0–50 |
+| **5b** | `feat/oodos-get-put` | GENCOM.COM; `rsx.inc`; the input RSX and GET.COM; the output RSX and PUT.COM; the card gets them | GENCOM 2.5–3.5 KB; input RSX about 1.2 KB and GET.COM 1.5 KB; output RSX 1 KB and PUT.COM 2 KB |
+| **5c** | `feat/oodos-submit` | SUBMIT.COM on the input RSX; the CCP's `.SUB`, search order and `PROFILE.SUB`; SETDEF's `SUB` | SUBMIT.COM 2–2.5 KB; the CCP +200–300 bytes; SETDEF +50 |
+
+Tests are about as much again as the code, in lines, as in 4b: of the order of 2,500–3,000 lines of C++ over the
+three and a dozen small test programs and RSXs in `oodos/sys/test`.
+
+**Testing** (as phases 3 and 4: directed tests line for line, cpmtools for what lands on a card, and each check
+seen to fail on a fault put in on purpose):
+
+- **5a, `test_oodos_rsx`** (a new suite, on `oodos_rig.h`'s `CcpRig`), with test RSXs of its own: one that counts a
+  function's calls and passes them on, one that answers 60, one with remove flag 0 that sets it itself, one with
+  `$FF`, one with zero page, one that records function 0. Cases: one, two and three RSXs loaded (each's page,
+  `$0204`, every offset 9 and 12, the serial number, the loader flag 0, the remove flag as the file had it, read
+  back from memory and compared with mkprl.py's `--load` of the same file at the same page and zero page, byte for
+  byte); calls passing down the chain in order; the CCP's own calls through them; zero page slices given,
+  relocated and freed, and a seventeenth byte refused; a sixteenth RSX refused; the same RSX attached to two
+  programs run one after the other, stacked; an RSX or a program too big, and a program that fits alone but not
+  with its RSXs (the RSXs taken out again, `$0204` as it was); non-banked entries passed over; SCB entries set
+  after the CCP's settings; an RSX-only `.COM` back to the prompt, its `$FF` RSX still there for the next program
+  and gone after it; an empty `.COM` `NO PROGRAM`; removal of the lowest, the highest and a middle one at the warm
+  boot (the TPA's top rising only from the bottom); function 0 seen once at each kind of end (`RTS`,
+  `JMP $0200`, function 0, ^C in 10, ^C after ^S, an error's end, 47); a `$0203` a program overwrote mended at the
+  warm boot; the CCP's byte (bit 7 and the count) through a prompt, a `!` line, a built-in and a program; 59
+  loading a `.PRL` overlay (at two pages, its bytes as mkprl.py has them), and refusing each way (not a page, below
+  `$0300`, over an RSX, zero page, a bad header, a short file, a `.COM` not at `$0300`, an `.RSX`), with A's and X's
+  values; the caller's DMA address, DMA segment, error mode, multi-sector count and user the same after 59 as
+  before; 59 removing flagged RSXs, and with 0 only that; 60 with no RSX and with one; 47 to a program with RSXs;
+  `UT_MEM` (4b's utilities) seeing the lower top. `check_tools.py`: `rsx.cfg`'s links, mkprl.py's prefix checks
+  and refusals, gencom.py's add, replace, remove, `[NULL]`, `[SCB=]` and the 15 entries.
+- **5b, `test_oodos_utils_rsx`:** GENCOM's every form and message, its files read back from M: and compared with
+  gencom.py's; GET's and PUT's every form, option and message, line for line, with a test program that reads by 1,
+  6, 10 and 11 and writes by 2, 6, 9, 111, 5 and 112; the four status modes of bits 8 and 9; `[SYSTEM]` on the CCP's
+  lines, ended by the file and by a `GET CONSOLE` line; a GET inside a GET file; PUT of a built-in (DIR) and of a
+  program, the file closed at its end; `PUT>`; the delete question both ways and read-only; the end at the file's
+  end and at the program's; the caller's state across an RSX's own file calls (as for 59); what PUT left on M:
+  read back.
+- **5c, in the same suite:** SUBMIT's arguments, `$0`, `$$`, `^`, `^^`, a bad parameter, `$FF`, a line of 128 and of
+  129, `<` lines and `<` alone, leftover `<` lines' warning, a program wanting more than they give, `;` and `:`
+  lines, `SUBMIT` alone, nesting (two levels and the RSXs stacked, too many levels), a GET in a SUBMIT file, 47
+  inside a SUBMIT, a ^C's end, the search order every way (the first type on every drive before the second),
+  SETDEF's `ORDER`, `PROFILE.SUB` at cold boot and its absence, a temporary file a reset left, a full temporary
+  drive; the temporary files gone from M: after.
+- **cpmtools:** `test_oodos_card` runs GENCOM, PUT and SUBMIT on the committed card and saves it; `interop.sh` gains
+  a `--rsx` set where `cpmcp` reads GENCOM's `.COM` back (equal to gencom.py's), PUT's file (its text), and `cpmls`
+  shows no temporary file left; `fsck.cpm` clean.
+- **Timing** (`test_oodos_rsx`, as 3b2's): a BDOS call's cost through no, one and three pass-through RSXs, and a
+  GENCOM'd program's load against a plain one's.
+- **The checks of a stage:** staging builds get `tools/check.sh quick` only; the sanitizer suite and
+  `tools/check.sh full` only for a production release candidate (the owner's rule).
+
+**The books.** After the stage that builds it, each entry is written in docs/ on that stage's branch, once G1 has
+merged (so the two never edit the same files at once): 5a the Programmer's Guide's chapter 6 RSXs and Chaining
+sections, `bdos-59` and `bdos-60`, `bdos-47`'s note on RSXs and SUBMIT (G1 writes the entry), appendix C's new SCB
+bits, appendix G's differences (the resident loader, 59 open to every program, `.COM` overlays only at `$0300`,
+function 0 at every end, the table, the CCP's SCB byte); 5b `util-gencom` (a new name: check_docs.py's `PLANNED`
+and `unwritten.txt` gain it, docs/'s change), `util-get`, `util-put`; 5c `util-submit`, the User's Guide's `.SUB`
+and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
+
+**Risks**
+
+- **An RSX's own calls disturbing the program** (its DMA address and segment, user, error mode, multi-sector count,
+  console mode): the commonest way such code goes wrong. One `rsx.inc` for all of them, and tests that compare the
+  program's state before and after.
+- **"The next command"** for GET and PUT rests on the CCP's SCB byte being stepped at every way a command starts;
+  one missed (a chained command, a `!` line) and redirection lasts a command too long. Each way has a case.
+- **The warm boot through the chain:** an RSX that hangs on function 0 hangs every warm boot. Break (NMI) still
+  reaches the monitor, and a reset is a cold boot with no RSXs.
+- **Block 62's state** (the table, the line, the CCP's state) and the RSXs themselves are in memory a program can
+  reach, kept only by the TPA rule, as now.
+- **Zero page:** 16 bytes, handed out first fit, can fragment. OODOS's RSXs take none.
+- **The Guides' gaps,** marked ours above: offset 12's value past the first RSX, `$0`'s meaning, when PUT asks for
+  another file, 59 with no FCB. A stage that reads the Guides otherwise follows them and says so here.
+- **Cost:** each pass-through RSX adds its filter (about 15–30 cycles) to every BDOS call, and 59's door 4 cycles to
+  all; measured in 5a.
+- **The books in parallel:** phase 5's entries wait for G1's merge, or the two branches conflict in docs/.
+
+**Proposed (5a, as built, 2026-11-04)** ([`oodos/sys/loader.s`](../oodos/sys/loader.s), `ccp.s`, `common.s`;
+[`oodos/tools/gencom.py`](../oodos/tools/gencom.py); the plan above is what was built, and these are the details):
+
+- **Where it lives:** the loader is 1,968 bytes of block 62's code window and 285 of its BSS (the table, a record,
+  the headers, the caller's state); with cold boot and the CCP, 7,388 bytes and 1,269 of BSS, 8,657 of 12,288.
+  Common memory 1,186 of 2,048 (59's door, `LDOOR`, 22 bytes: `STUB` starts with `CPY #59`, so `$BFFD` still
+  jumps to `STUB`). The BDOS 11,637 (function 0's 5). No zero page anywhere: the loader's pointers are in its own
+  instructions.
+- **59's X codes** are 0 an address or no room, 1 a header, 2 zero page, 4 RSXs attached to a program's file
+  (below), and **3 not a program** (no magic number,
+  an empty file, or a size of 0 with nothing attached; mine: the CCP needs it to say `NO PROGRAM`). Called by the
+  CCP (the SCB's `$19` bit 7, kept in block 62 as `CCPST`) the loader takes a `.COM` only, so `NAME.COM` holding a
+  `.PRL` is `BAD PROGRAM HEADER` as before. Bit 7 of the flags (breaks the 65C816 rules) is refused, as the CCP
+  refused it.
+- **Records are read by 33,** one at a time, R0–R2 set for each, so the image, the bitmaps, the table and each RSX
+  are read where they are, with no sequential position to keep (mine). The DMA goes to the record's place in the
+  TPA for whole records, else to the loader's buffer in block 62 (a CPU address in W3, which the stub saves).
+- **The order:** the header checked; the attached table read entry by entry (SCB entries kept, non-banked ones
+  passed over, RSXs loaded and relocated, their serial number by 107 and loader flag 0); `LINK`; then the program's
+  fit against the lowest RSX, its image, and a `.PRL`'s relocation. An RSX whose prefix alone says non-banked is
+  found so only after its image is read below the lowest RSX; that memory is free TPA, so nothing is lost but the
+  read (mine).
+- **The chain:** `LINK` writes `$0203`'s `JMP`, `$0204`, and each RSX's offsets 9–13 from the table at every
+  warm boot and after every load or removal. An RSX's name in the table is its file's (gencom.py's, as GENCOM's
+  replace by name); the loader keeps no names.
+- **Function 0:** the CCP's warm boot sends it down the chain once when there are RSXs; the BDOS's function 0
+  sets `WBF` before its warm boot, so a program's own function 0, which the RSXs saw on its way, isn't sent
+  again (mine): every end is seen exactly once. Then the removal, then the CCP's usual warm boot work.
+- **`KEEP`:** 1 once an RSX-only `.COM` is loaded (no warm boot follows it: the CCP goes on to its prompt), 2
+  once the next program starts; the warm boot removes nothing while it is 1, and a program's 59 nothing while it
+  isn't 0. So the RSXs stay through built-ins and a ^C at the prompt, serve the next program, and go after it.
+- **The SCB's `$19`** is `CCPST`: bit 7 set at each warm boot, cleared as a program starts; bits 0–6 stepped as
+  each command starts (a keyword reached: not an empty line, a comment or a skipped `:` command).
+- **SCB entries** from a CCP load are set by `APPLYSCB` as the program starts, after the CCP's own settings; an
+  RSX-only `.COM`'s at once; a program's 59's before 59 returns.
+- **mkprl.py** checks the prefix when it makes an RSX (`make`), not when it loads one (`--load`): the 6502
+  loader checks offsets 6 and 9 are `JMP`s and the non-banked flag, and the rest is the build's.
+- **Measured** (`test_oodos_rsx`): `JSR $0203` to the BDOS's first instruction is 130 cycles with no RSX (126
+  before the door's `CPY`), 165 through one pass-through RSX, 240 through three.
+- **Tests:** `test_oodos_rsx`, 21 cases (the plan's list above, and the review's fixes), with five test RSXs
+  (`oodos/sys/test/trsx.inc`), RSXQ (a program that does what its tail says) built plain and with RSXs by
+  gencom.py, OVLT (59 by a program) and two overlays. `check_tools.py` gains rsx.cfg's links, the prefix's
+  refusals and gencom.py's table, replace, strip, `[NULL]`, SCB entries and limits (PASS 119). Each check was seen
+  to fail on a fault put in on purpose: 33 in the system (each failing the case it should), 10 in the tools; two
+  that passed at first (the RSX-only exception at a ^C's warm boot, the table's non-banked flag alone) got cases
+  of their own. One check changed: an RSX without its prefix, which mkprl.py made before, is now refused.
+
+**After the review of 5a (2026-11-04, the owner's triage):**
+
+- **59's door clears the decimal flag** before the loader (the stub did, but only for the BDOS). A caller's D was in
+  fact harmless, since the loader's first BDOS call clears it, but nothing should rest on that.
+- **A program's 59 removes its own one-program RSX,** as the Guide has it, kept: an RSX meant to outlive its
+  program's overlay loads starts with its remove flag 0 and sets it when done, as CP/M 3's do (bdos-59 says so).
+- **`KEEP` marks the RSXs it keeps** (`TKEEP`, `KEEPNEW`): the RSX-only `.COM`'s, so the next program's 59 and
+  the warm boots before it remove the other flagged RSXs as usual; the warm boot after that program clears the
+  marks (`UNKEEP`) and removes them.
+- **Only the CCP's loads attach RSXs:** a program's 59 of a file with RSXs attached is refused, A = `$FE`,
+  **X = 4** (ours), before anything is loaded.
+- **mkprl.py `--load`** checks an RSX's offsets 6 and 9 and refuses a non-banked one, as the 6502 loader does.
+- **The warm boot drops an RSX a program wrote over** (offset 6 or 9 not a `JMP`: `CHECKRSX`, before `LINK`), so it
+  can't hang the warm boot's function 0.
+- **Measured, a load** (the CCP's search's Open to `$0300`, `test_oodos_rsx`): RSXQ, 544 bytes, 78,266 cycles; with
+  one 130-byte RSX attached 138,688, with two 215,481; SYSTEST, 3,971 bytes, 343,142 (10,723 a record). 4b2's
+  CCP, reading the image sequentially, took 60,635 for RSXQ and 311,608 for SYSTEST: 59's state kept and put
+  back costs about 17,000 cycles a load, the random reads about 10% on a larger file. 48 ms for SYSTEST at
+  7.16 MHz: not slow, so the reads stay random.
+- **Where it lives now:** block 62's code window 8,762 of 12,288 (7,477 of code, 1,285 of BSS); common memory
+  1,187 of 2,048.
+- **The version stays 0.2** through 5a (the owner: one bump, after 5c, the books' "Since" lines with it).
+
+**Decided (2026-11-04, the owner, on this plan):** the loader in block 62 with the CCP, 59 through common memory;
+every end of a program reaching the RSXs as function 0; three branches, 5a–5c; SUBMIT's lines in temporary files,
+nesting stacked (ours, as marked above); a ^C ending a program ending the SUBMIT; `PROFILE.SUB` from the default
+drive at cold boot, and none on the demo card; GENCOM's `[SCB=...]` supported, as entries of the attached RSX
+table, counted in the 15; the file type `.RSX`; a `.COM` overlay anywhere but `$0300` refused (ours); a GET inside
+a GET file stacking, as in CP/M 3.
+
+**Decided (2026-11-04, the owner, on the revised plan):**
+
+1. **A typed `NAME.PRL` at the prompt stays refused,** `NAME?` as since 4a (ours: the Guide's CCP loads it as a
+   `.COM`, 1.6.2, step 3; on OODOS a `.PRL` is for 59, and its zero page rules differ from a program's).
+2. **`$0` in a SUBMIT file is the SUB file's name as given in the command** (`START`, or `B:START.SUB`; ours: the
+   Guide allows `$0` and says no more).
+
 ## Apple II disks ##
 
 **Decided (2026-10-26): two jobs, in this order.** The details are proposed.
@@ -2752,7 +3171,7 @@ entries and indexes in docs/ are.
    transient utilities, two branches (decided 2026-10-31): **4b1** DIR's full form, TYPE, ERASE, RENAME, SET,
    SHOW, INITDIR, DATE, DEVICE and SETDEF; **4b2** PIP.
 5. **RSXs:** the loader, chaining, GENCOM; GET, PUT and SUBMIT as RSXs (SUBMIT moved here from phase 4,
-   2026-10-30).
+   2026-10-30). Proposed in three stages, 5a–5c: [The RSXs, phase 5](#the-rsxs-phase-5).
 6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3
    exchange utility.
    *Proposed (2026-10-30), not yet numbered:* the game and device services ([oolib.md](oolib.md)) as a phase

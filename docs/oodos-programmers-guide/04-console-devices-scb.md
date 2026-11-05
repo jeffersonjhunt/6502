@@ -41,7 +41,7 @@ bits:
 - **Bit 3, no ^C:** a ^C doesn't end the program. At a line's start (function 10) it is a character of the line;
   after a ^S it rings the bell, as any key but ^Q and ^P does there.
 
-The other bits are kept and not looked at (8 and 9 are for a redirecting RSX, phase 5). The CCP sets the mode to 0
+The other bits are kept and not looked at (8 and 9 are for an RSX that redirects the console, GET's with phase 5b). The CCP sets the mode to 0
 at each warm boot, so a program starts with all of the handling and needn't put the mode back.
 
 Function 6 is the way past all of it: `$FF`, `$FE` and `$FD` read with no handling (taking a kept key first), and a

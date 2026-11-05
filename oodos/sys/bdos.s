@@ -60,7 +60,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import WARM, FARCALL, NMI, ROMAPPLE
+.import WARM, FARCALL, NMI, ROMAPPLE, WBF
 .export BDOSENT
 
 ASCII_CR        = $0D
@@ -211,7 +211,11 @@ FIDX:
 ; offsets 0-252, every one below 255.
 .assert FIDX - FJUMPS <= 254, error, "FJUMPS has more than 127 handlers: its offsets must stay below 255"
 
-F_TERM:         JMP     WARM
+; 0: the warm boot. The RSXs saw this call on its way here, so the CCP's
+; warm boot doesn't send them another (WBF, loader.s; ours).
+F_TERM:         LDA     #1
+                STA     WBF
+                JMP     WARM
 
 ZERO:           LDA     #0
                 TAX

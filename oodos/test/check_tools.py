@@ -20,6 +20,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PRL_CFG = os.path.join(ROOT, "cfg", "prl.cfg")
+RSX_CFG = os.path.join(ROOT, "cfg", "rsx.cfg")
 COM_CFG = os.path.join(ROOT, "cfg", "com.cfg")
 SPIKE = os.path.join(ROOT, "spike", "gwbasic")
 LINKS = ((3, 0), (4, 2), (5, 5))  # the Makefile's: (page, zero page base) of a, b and c
@@ -28,6 +29,10 @@ sys.dont_write_bytecode = True  # no __pycache__ in tools/
 spec = importlib.util.spec_from_file_location("mkprl", os.path.join(ROOT, "tools", "mkprl.py"))
 mkprl = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mkprl)
+spec = importlib.util.spec_from_file_location("gencom", os.path.join(ROOT, "tools", "gencom.py"))
+gencom = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gencom)
+gencom.mkprl, gencom.Refused = mkprl, mkprl.Refused  # one Refused for both
 
 passed = failed = 0
 SENTINEL = 0xA5
@@ -240,9 +245,17 @@ def loader_checks(hello, tmp):
        "hello.prl flagged as breaking the 65C816 rules (bit 7) still loads")
     # RSXs: a slice of $F0-$FF.
     refused(lambda: mkprl.load(prl, 0x40, kind="rsx"), "hello.prl loaded as an RSX", "not an RSX")
-    rsx = patched(prl, flags=mkprl.F_RELOC | mkprl.F_RSX)
+    jmps = bytearray(prl)  # (opcodes, not relocated: offsets 6 and 9 made JMPs, as the loader wants)
+    jmps[16 + 6] = jmps[16 + 9] = 0x4C
+    jmps = bytes(jmps)
+    rsx = patched(jmps, flags=mkprl.F_RELOC | mkprl.F_RSX)
+    refused(lambda: mkprl.load(patched(prl, flags=mkprl.F_RELOC | mkprl.F_RSX), 0xA0, 0xFD, kind="rsx"),
+            "an RSX whose offsets 6 and 9 aren't JMPs", "aren't JMPs")
+    nb = bytearray(rsx)
+    nb[16 + 15] = 0xFF
+    refused(lambda: mkprl.load(bytes(nb), 0xA0, 0xFD, kind="rsx"), "a non-banked RSX", "passes over")
     refused(lambda: mkprl.load(rsx, 0x40), "an RSX loaded as a program", "an RSX, loaded as a program")
-    want = bytearray(mkprl.load(prl, 0xA0, 0))
+    want = bytearray(mkprl.load(jmps, 0xA0, 0))
     for i in zp_marked(prl):
         want[i] = (want[i] + 0xFD) & 0xFF
     ok(mkprl.load(rsx, 0xA0, 0xFD, kind="rsx") == want, "an RSX's 3 bytes of zero page at $FD, the last free")
@@ -294,7 +307,8 @@ def mkprl_checks(hello, tmp):
     rsx = [patched(x, flags=mkprl.F_RELOC | mkprl.F_RSX, zpsize=17) for x in (a, b, c)]
     refused(lambda: mkprl.make(*rsx, code), "mkprl: an RSX with 17 bytes of zero page", "at most 16")
     rsx = [patched(x, flags=mkprl.F_RELOC | mkprl.F_RSX) for x in (a, b, c)]
-    ok(mkprl.header(mkprl.make(*rsx, code))["flags"] == 3, "mkprl: an RSX with 3 bytes of zero page")
+    refused(lambda: mkprl.make(*rsx, code), "mkprl: an RSX without the prefix (phase 5: rsx_checks makes one)",
+            "no RSX prefix")
     # Expressions that aren't relocations: three times an address, and twice, which moves by 2 then 4
     # (two links took it for the zero page).
     for name, expr in (("times3", ">(msg*3)"), ("times2", ">(msg*2)")):
@@ -426,6 +440,88 @@ def run_checks(hello, tmp):
            "hello with a %d-character tail %s, the image unchanged" % (count, how))
 
 
+def rsx_source(name="TESTR", remove="$FF", zp=4, extra=""):
+    return ('        .include "oodos.inc"\n        OODOS_HEADER\n        RSX_PREFIX "%s", entry, %s\n'
+            "        .zeropage\nzc:     .res %d\n        .code\nentry:  inc zc\n        lda tab\n"
+            "        jmp prefix + RSX_NEXT\n%s        .rodata\ntab:    .word entry\n"
+            "        .segment \"RSXHDR\"\nprefix = * - RSX_PREFIX_LEN\n" % (name, remove, zp, extra))
+
+
+def rsx_links(tmp, name, source, cfg=RSX_CFG):
+    obj = assemble(tmp, name, source)
+    three = [link(obj, cfg, os.path.join(tmp, "%s.%d" % (name, k)), page, zp) for k, (page, zp) in enumerate(LINKS)]
+    return three + [mkprl.code_range(os.path.join(tmp, name + ".0.map"))]
+
+
+def rsx_checks(tmp):
+    """cfg/rsx.cfg and RSX_PREFIX make an RSX mkprl takes; mkprl refuses one without its prefix."""
+    a, b, c, code = rsx_links(tmp, "rsx", rsx_source())
+    rsx = mkprl.make(a, b, c, code)
+    h = mkprl.header(rsx)
+    image = rsx[16:16 + h["size"]]
+    ok(h["flags"] == 3 and h["zpsize"] == 4 and image[6] == 0x4C and image[9:12] == b"\x4c\x00\x00"
+       and image[14] == 0xFF and image[15] == 0 and image[16:24] == b"TESTR   " and image[24:27] == bytes(3),
+       "rsx.cfg and RSX_PREFIX: flags $03, the prefix (JMP entry, JMP 0, the remove flag $FF, the name)")
+    got = mkprl.load(rsx, 0xBF, 0xF4, kind="rsx")
+    direct = link(assemble(tmp, "rsxd", rsx_source()), RSX_CFG, os.path.join(tmp, "rsxd"), 0xBF, 0)
+    ok(got[7:9] == direct[16 + 7:16 + 9] and got[27:29] == bytes([0xE6, 0xF4]),
+       "the RSX loaded at $BF00: its entry relocated, its zero page at $F4")
+    for what, src, expect in (
+            ("no prefix", '        .include "oodos.inc"\n        OODOS_HEADER\n        .code\nentry: rts\n', "prefix"),
+            ("a remove flag of 7", rsx_source(remove="7"), "remove flag"),
+            ("a name with a blank inside", rsx_source(name="A B"), "name")):
+        refused(lambda s=src: mkprl.make(*rsx_links(tmp, "bad", s)), "an RSX with %s" % what, expect)
+    patched_links = [bytearray(x) for x in (a, b, c)]
+    for x in patched_links:
+        x[16 + 15] = 1
+    refused(lambda: mkprl.make(*patched_links, code), "an RSX with a non-banked flag of 1", "non-banked flag")
+    refused(lambda: mkprl.load(rsx, 0xBF, 0xF4), "an RSX loaded as a program", "an RSX")
+    return rsx
+
+
+def gencom_checks(hello, rsx, tmp):
+    """gencom.py's attached RSX table, as hw/oodos.md has it; its refusals."""
+    com = read(hello + ".com")
+    rsx2 = mkprl.make(*rsx_links(tmp, "rsx2", rsx_source(name="OTHER", remove="0", zp=2)))
+    out = gencom.gencom(com, [("A/ONE.RSX", rsx), ("B/TWO.RSX", rsx2)])
+    h = mkprl.header(out)
+    t = mkprl.records(16 + h["size"])
+    e0, e1 = out[t * 128:t * 128 + 16], out[t * 128 + 16:t * 128 + 32]
+    r0, r1 = e0[0] | e0[1] << 8, e1[0] | e1[1] << 8
+    ok(out[16:16 + h["size"]] == com[16:] and h["rsxcount"] == 2 and h["rsxrec"] == t
+       and e0[2] == 0 and e0[3:11] == b"ONE     " and e1[3:11] == b"TWO     " and r0 == t + 1
+       and out[r0 * 128:r0 * 128 + len(rsx)] == rsx and r1 == r0 + len(rsx) // 128
+       and out[r1 * 128:r1 * 128 + len(rsx2)] == rsx2 and len(out) % 128 == 0,
+       "gencom: the image, then the table on a record (2 entries), each RSX whole on its records")
+    again = gencom.gencom(out, [("ONE.RSX", rsx2)])
+    ha = mkprl.header(again)
+    ta = ha["rsxrec"] * 128
+    ra = again[ta] | again[ta + 1] << 8
+    ok(ha["rsxcount"] == 2 and again[ta + 3:ta + 11] == b"ONE     " and again[ra * 128:ra * 128 + len(rsx2)] == rsx2,
+       "gencom: an RSX of a name attached already replaced, in its place")
+    strip = gencom.gencom(out, strip=True)
+    ok(strip == mkprl.pad(com[:12] + bytes(4) + com[16:]), "gencom --strip: the .COM as it was, to a record")
+    null = gencom.gencom(None, [("X/NUL.RSX", rsx)], null=True)
+    hn = mkprl.header(null)
+    ok(hn["size"] == 0 and hn["flags"] == 0 and hn["page"] == 3 and hn["rsxcount"] == 1 and hn["rsxrec"] == 1,
+       "gencom --null: an image of size 0, the table at record 1")
+    scb = gencom.gencom(com, [], [(0x34, 0x02), (0x06, 0x5A), (0x34, 0x03)])
+    hs = mkprl.header(scb)
+    ts = hs["rsxrec"] * 128
+    ok(hs["rsxcount"] == 2 and scb[ts:ts + 3] == bytes([0x34, 0x03, 2]) and scb[ts + 16:ts + 19] == bytes([0x06, 0x5A, 2]),
+       "gencom --scb: SCB entries (flags RT_SCB, the offset and value), one offset given again replaced")
+    dup = gencom.gencom(com, [("ONE.RSX", rsx), ("ONE.RSX", rsx2)])
+    hd = mkprl.header(dup)
+    rd = dup[hd["rsxrec"] * 128] | dup[hd["rsxrec"] * 128 + 1] << 8
+    ok(hd["rsxcount"] == 1 and dup[rd * 128:rd * 128 + len(rsx)] == rsx, "gencom: an RSX named twice taken once, the first")
+    many = [("R%02d.RSX" % i, rsx) for i in range(15)]
+    ok(mkprl.header(gencom.gencom(com, many))["rsxcount"] == 15, "gencom: 15 entries")
+    refused(lambda: gencom.gencom(com, many, [(0x10, 1)]), "gencom: a 16th entry", "room for 15")
+    refused(lambda: gencom.gencom(com, [], [(0x64, 1)]), "gencom: SCB offset $64", "offset")
+    refused(lambda: gencom.gencom(read(hello + ".prl"), [("A.RSX", rsx)]), "gencom: a .PRL as the .COM", "not a .COM")
+    refused(lambda: gencom.gencom(com, [("H.RSX", com)]), "gencom: a .COM as an RSX", "not an RSX")
+
+
 def main():
     built = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
     with tempfile.TemporaryDirectory() as tmp:
@@ -441,6 +537,10 @@ def main():
         loader_checks(hello, tmp)
         print("mkprl")
         mkprl_checks(hello, tmp)
+        print("RSXs")
+        rsx = rsx_checks(tmp)
+        print("gencom")
+        gencom_checks(hello, rsx, tmp)
         print("The magic number")
         magic_checks(hello)
         print("The TPA's top")

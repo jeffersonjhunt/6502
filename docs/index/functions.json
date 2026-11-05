@@ -506,20 +506,20 @@
  {
   "number": 59,
   "name": "P_LOAD",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-59",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 60,
   "name": "P_RSX",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-60",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 72,
