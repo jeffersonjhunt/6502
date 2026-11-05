@@ -2270,7 +2270,7 @@ SUBMIT file is console input for the CCP).
 - `SUBMIT`, `SUBMIT filespec`, `SUBMIT filespec arg ...`; the type `.SUB` if none is given. `SUBMIT` alone asks
   `Enter File to Submit: ` for the rest. Not found: `No 'SUB' file found`.
 - **Parameters:** `$1` to `$9` are the arguments; one not given is nothing, arguments past the file's last are
-  ignored. `$0` is valid too (the Guide allows `$0`–`$9` and says no more: ours, the file's name as given);
+  ignored. `$0` is valid too (the Guide allows `$0`–`$9` and says no more: ours, decided 2026-11-04, the file's name as given);
   any other character after `$` is `Parameter Error`. `$$` is `$`; `^` and a letter is that control character, `^^`
   a `^`. A line holds at most 128 characters. A byte `$FF` in the file is `Invalid ASCII character`. Errors are
   shown `Error on line nnnnn:` and the message, nothing run.
@@ -2388,13 +2388,12 @@ drive at cold boot, and none on the demo card; GENCOM's `[SCB=...]` supported, a
 table, counted in the 15; the file type `.RSX`; a `.COM` overlay anywhere but `$0300` refused (ours); a GET inside
 a GET file stacking, as in CP/M 3.
 
-**For the owner to decide** (each with the recommendation):
+**Decided (2026-11-04, the owner, on the revised plan):**
 
-1. **A typed `NAME.PRL` at the prompt.** The Guide's CCP takes a `PRL` type as it takes `COM` and loads it as a
-   `.COM` (1.6.2, step 3); 4a's CCP says `NAME?` (ours, 2026-10-30). Proposed: keep 4a's refusal, since a `.PRL`
-   on OODOS is for 59 and its zero page rules differ from a program's; or run it, relocated to `$0300`.
-2. **What `$0` stands for in a SUBMIT file.** The Guide allows it and says no more. Proposed: the SUB file's name
-   as given in the command (`START`, or `B:START.SUB`); or nothing, as an argument not given.
+1. **A typed `NAME.PRL` at the prompt stays refused,** `NAME?` as since 4a (ours: the Guide's CCP loads it as a
+   `.COM`, 1.6.2, step 3; on OODOS a `.PRL` is for 59, and its zero page rules differ from a program's).
+2. **`$0` in a SUBMIT file is the SUB file's name as given in the command** (`START`, or `B:START.SUB`; ours: the
+   Guide allows `$0` and says no more).
 
 ## Apple II disks ##
 
