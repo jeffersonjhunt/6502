@@ -76,15 +76,18 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
    `find()`'s 15.3% is not the scan's fault — with ≤18 mappings the reverse
    scan is trivial; the 15.3% is the *per-access measurement equal to
    route and device by construction*, i.e. the cost of one more function in
-   the per-access chain. The per-instruction cost is better attacked where
-   it actually is: the run loop (Phase 2.6).
-2. **RAM fast path** (decoder.cpp `access`/`read`/`write`). See the
-   "Where the wall-time actually goes" note: ~36% of wall-time is
-   `route`+`find`+`device` on the four RAM blocks (91% of accesses), but a
-   safe version must duplicate the backplane bridge's live window routing in
-   the Decoder — real cycle-accuracy risk. The "skip `catch_up` for RAM"
-   variant was built and measured: **0.0% gain** (the `catch_up` cost is the
-   timed devices' `tick()`, not the RAM no-op). Defer unless 2.6 falls short.
+    the per-access chain. The per-instruction cost was thought to be better
+    attacked in the run loop (Phase 2.6), but 2.6 measured not-a-win in a
+    clean build — the real per-access cost is the `route`+`find`+`device`
+    dispatch this is about.
+ 2. **RAM fast path** (decoder.cpp `access`/`read`/`write`). See the
+    "Where the wall-time actually goes" note: ~36% of wall-time is
+    `route`+`find`+`device` on the four RAM blocks (91% of accesses), but a
+    safe version must duplicate the backplane bridge's live window routing in
+    the Decoder — real cycle-accuracy risk. The "skip `catch_up` for RAM"
+    variant was built and measured: **0.0% gain** (the `catch_up` cost is the
+    timed devices' `tick()`, not the RAM no-op). This is now the top
+    remaining structural target, since 2.6 measured not-a-win.
 3. **Gate the always-on observer.** Short-circuit `CycleTee::on_cycle`
    (bus_cycle.h:54) when no observer is attached, so the per-cycle virtual
    call and observer-vector loop disappear in normal (non-trace) runs.
@@ -96,12 +99,15 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
 
 ### Phase 2 — structural
 
-6. **Batch the run-loop per-instruction checks** (session.cpp:420): defer
-   `sync()` of timed devices until their scheduled cycle elapses, and gate
-   IRQ / `may_run` / reset / NMI on a "device asserted" flag a device sets,
-   instead of polling every instruction. Timing-safe: a timed device only
-   ticks to the cycle an access needs (decoder.cpp:214 `catch_up`). Likely
-   the largest cycle-count and per-instruction cut.
+6. **Batch the run-loop per-instruction checks** (session.cpp:420).
+   **Investigated, not a win** — see the "2.6: the run loop's
+   per-instruction polling — measured, not a win" note. In a *clean* Release
+   build the loop is already ~30 MHz host; the `take_*` edges are 3-line
+   bool reads (batching them: 30.3 → 30.5, noise), `irq()` and `may_run()`
+   must stay per-instruction (level IRQ; fetch breakpoints), and ticking only
+   the IRQ-wired timed devices saves 0.0%. The wall-sampler profile that made
+   this look like ~54% of wall-time was the sampler's own overhead. The real
+   per-access cost is the `route`→`find`→`device` dispatch — **1.2 / 2.3**.
 
 ### Phase 3 — build flags and the JS boundary
 
@@ -122,8 +128,10 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
    and speaker audio) with `-msimd128`. Pure per-line / per-sample work,
    cycle-accuracy unaffected; helps frame pacing.
 
-**Order:** 0 → 1.1 → 1.2 → 1.3 → 2.6 → 3.8 → 3.7 → 1.4 → 1.5 → 3.9
-(heaviest wins, cheapest risk, first).
+**Order:** 0 → 1.1 → 1.2 → 1.3 → 3.8 → 3.7 → 1.4 → 2.6 → 1.5 → 3.9
+(heaviest wins, cheapest risk, first). 1.1/1.3/2.6/3.7/1.4/3.8 are
+**measured, not a win** (see "Tested, not a win"); 1.2 is the top remaining
+structural target.
 
 ## Tested, not a win (recorded so they are not retried)
 
@@ -143,15 +151,21 @@ These were built, benched against the 11.2 MHz baseline, and **reverted**:
 - **3.7 `-flto`** — no gain (11.2 → 11.1, within noise). The cost is dynamic
   dispatch (the per-access `route`/`find`/`device` virtual chain) and the
   embind boundary, not cross-translation-unit inlining.
+- **2.6 batch the run-loop polling** — not a win in a *clean* build (30.3 →
+  30.5 MHz for batching the latched `take_*`; 0.0% for ticking only the
+  IRQ-wired timed devices in `irq()`). The per-instruction `irq()`/`may_run()`
+  must stay per-instruction and the `take_*` are trivial bools. See the 2.6
+  note. The wall-sampler that motivated it inflated the stages it timed.
 
-Conclusion: the "safe" per-access and build-flag levers do not move the
-needle. The remaining wins are structural and carry cycle-accuracy risk, so
-each must be gated on the host Harte/Dormann/`test_decoder` suites, not just
-the bench: **1.2 (the RAM fast path, folding `route`+`find`+`device` for the
-four RAM blocks)** and **2.6 (gating the run loop's per-instruction
-`irq()`/`sync()`/`may_run()`/`take_reset()`/`take_nmi()` polling)**, with
-**3.8 (one embind `step_frame`)** as the JS-side cut that needs no C++
-cycle reasoning.
+Conclusion: the "safe" per-access, build-flag **and run-loop** levers do not
+move the needle in a clean build. The remaining win is structural and carries
+cycle-accuracy risk, so it must be gated on the host Harte/Dormann/
+`test_decoder` suites *and* the Session-based card tests, not just the bench:
+**1.2 (the RAM fast path, folding `route`+`find`+`device` for the four RAM
+blocks)** — ~36% of wall-time is that dispatch on the four RAM blocks (91% of
+accesses) — at the cost of duplicating the backplane bridge's live window
+routing in the Decoder. **3.8 (one embind `step_frame`)**, already done, is
+the JS-side cut that needed no C++ cycle reasoning.
 
 ### Where the wall-time actually goes (measured, host Release -O3)
 
@@ -190,47 +204,40 @@ the gain is bounded by what -O3 already inlines). The cleaner structural
 attack is **2.6** (the run loop's per-instruction polling) plus making the
 chain inline-able, which avoids duplicating bridge logic.
 
-### Where the run loop's wall-time goes (measured, 2.6)
+ ### 2.6: the run loop's per-instruction polling — measured, not a win
 
-A throwaway `steady_clock` sampler around each per-instruction stage of
-`Session::run` (session.cpp:420), BIOS boot, 13.9 M instructions / 40 M
-cycles, host Release -O3:
+A throwaway `steady_clock` sampler around each stage of `Session::run`
+(session.cpp:420) *looked* like the per-instruction polling dominated: `step`
+~35%, `irq()`/`sync()` ~25%, `take_*` ~14.5%, `may_run` ~7.5%, `service`
+~7.3% — ~54% of wall-time on polling. **That profile was the sampler's own
+overhead, not the machine's cost.** Measured the right way — a *clean*
+Release -O3 build, no sampler, the same 40 M-cycle BIOS boot the wasm bench
+runs — the loop is already **~30 MHz host** (the wasm's 11.2 MHz is
+wasm-side overhead, not the C++ loop), and the safe sub-wins are not wins:
 
-| run-loop stage | % of wall-clock | note |
-|---|---|---|
-| `step` (the instruction + its whole bus chain) | ~35% | the actual work |
-| `irq()`/`sync()` | ~25% | `sync()` ticks timed devices + the `irq_wired_` loop (8 virtual `irq()` calls) |
-| `take_*` (start before; reset×2, nmi×2 after) | ~14.5% | latched edge flags, false ~always; `bus().take_reset()` is a virtual forward |
-| `may_run(pc)` | ~7.5% | must run before every instruction (fetch breakpoints) |
-| `service` | ~7.3% | already batched every 64 cycles |
-| **the per-instruction polling** | **~54%** | bigger than the `step()` itself |
+- **Batching the latched `take_*` edges** (Apple/Ctrl-Reset `/RESET`,
+  Pause/Break `/NMI`) from every instruction to the 64-cycle `service()`
+  cadence: **30.3 → 30.5 MHz, within noise — not a win.** Every `take_*` is
+  a 3-line bool read-and-clear (`console_card.cpp:115`, `usb_card.cpp:204`,
+  `backplane_bridge.cpp:79`); calling them every instruction is a register
+  load + branch. The sampler's "14.5%" was the cost of *timing* them. (The
+  change was built and passed the Session-based card gate — test_session's
+  Apple-II-mode reset tests, test_oodos_*, test_sd — so it is *safe*, it is
+  just not worth it.)
+- **Ticking only the timed∩IRQ-wired devices in `irq()`** (not all timed):
+  **0.0%**. In the backplane 5 of 6 timed devices are IRQ-wired, so the set
+  barely changes; `irq()`'s cost is the *fixed* per-instruction overhead
+  (the 8 virtual `irq()` calls + the `tick()`s + the `synced` checks), paid
+  every instruction even though the IRQ line almost never changes.
 
-Findings (throwaway sampler reverted; tree clean at the 3.8 commit, gate
-green):
-
-- **Ticking only the timed∩IRQ-wired devices in `irq()` (not all timed) saved
-  0.0%** (15.1 → 14.9 MHz). In the backplane, 5 of 6 timed devices are
-  IRQ-wired, so the set is almost unchanged. The cost of `irq()` is **not**
-  the number of `tick()`s — it is the *fixed* per-instruction overhead: the
-  8 virtual `irq()` calls in the `irq_wired_` loop, the 5 `tick()` calls, and
-  the `s.synced < now_` checks, **paid every instruction even though the IRQ
-  line almost never changes**.
-- So the safe 2.6 is to **stop polling the IRQ line (and the latched `take_*`
-  edges) every instruction** — only when they *could* have changed. Both
-  carry a cycle-accuracy tradeoff:
-  - **IRQ**: level-sensitive, sampled at instruction boundaries on the board.
-    Skipping a poll means an assert/deassert pair inside the gap is missed →
-    the IRQ is taken late. Correct only if the "could have changed" predicate
-    is exact (a device's IRQ can only change on its tick or a bus access).
-  - **`take_*`**: latched edges. `reset_wanted_` can be raised by a *CPU
-    write* to the MODE register mid-`step()`, so a host-side "dirty" flag is
-    not enough; batching across N instructions takes a START/NMI/reset N
-    instructions late (a sub-cycle timing difference the pure-CPU Harte/
-    Dormann suites won't catch, but the card tests might).
-
-Both are real, measurable, and ~54% of wall-time — but each must be designed
-so the "could have changed" predicate is exact, and gated on the *card* tests
-(test_bios/test_backplane), not just Harte/Dormann.
+So the per-instruction polling is **already as cheap as it gets** in a clean
+build: `irq()` must stay per-instruction (level-sensitive, sampled at
+instruction boundaries), `may_run(pc)` must stay per-instruction (fetch
+breakpoints halt *before* the instruction), and the `take_*` are trivial
+bools. **2.6 has no safe win.** The real wall-time is the `step()` and its
+bus chain (the `route`→`find`→`device` dispatch, ~the "step" bucket), which is
+**1.2 / 2.3** territory — not the run loop. The wall-sampler method is now
+known to *inflate* the stages it times; use a clean build for real numbers.
 
 ## Baseline
 
