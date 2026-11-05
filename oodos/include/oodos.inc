@@ -159,6 +159,8 @@ F_WRITERAND     = 34
 F_SIZE          = 35
 F_RANDREC       = 36
 DRV_RESET       = 37
+DRV_ACCESS      = 38                   ; MP/M's: here, as CP/M 3, nothing done, A = 0
+DRV_FREEDRV     = 39                   ; MP/M's: here, as CP/M 3, nothing done, A = 0
 F_WRITEZF       = 40
 F_LOCK          = 42
 F_UNLOCK        = 43

@@ -72,6 +72,7 @@
 ;   37 DRV_RESET     as 13, for the drives in A/X's bits: written back,
 ;                    dropped, logged out and read-write
 ;   40 F_WRITEZF     as 34: every block a write takes is zeroed anyway
+;   41               A = $FF, X 0: MP/M's test and write, as CP/M 3 answers it
 ;   38, 39, 42, 43   A = 0: there is nothing to lock (MP/M's drive access
 ;                    and free, and record locks, answered as CP/M 3 does)
 ;   45 F_ERRMODE     the error mode = A
@@ -230,6 +231,11 @@ F_DRESET:       JSR     RESCAN         ; a swapped unit's drive: its buffers dro
                 JMP     RDONE
 
 F_LOCK:         JMP     RET0           ; 38, 39, 42, 43
+
+; 41, MP/M's test and write record: not supported, A = $FF with X 0, as
+; CP/M 3 answers it (its H 0).
+F_TESTW:        LDA     #$FF
+                JMP     RETA
 
 F_ERRMODE:      STA     SCB_ERRMODE
                 JMP     RET0
