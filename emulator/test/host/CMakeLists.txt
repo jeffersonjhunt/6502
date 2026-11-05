@@ -114,7 +114,7 @@ emu_add_test(test_sd_fat)
 emu_add_test(test_bios_sd)
 emu_add_test(test_oodos_card)
 set_tests_properties(test_bios_sd PROPERTIES TIMEOUT 300) # the boot at power-on waits out the 5 s splash: ~115 s alone under ASan
-set_tests_properties(test_oodos_card PROPERTIES TIMEOUT 600) # three Sessions booting the card and running the CCP, the utilities among them, under ASan
+set_tests_properties(test_oodos_card PROPERTIES TIMEOUT 1800) # each case boots the card through the 5 s splash: about 710 s alone under ASan (2026-11-05)
 emu_add_test(test_oodos_boot)
 set_tests_properties(test_oodos_boot PROPERTIES TIMEOUT 600) # dozens of boots from 17-33 MB cards, under ASan
 emu_add_test(test_oodos_e2e)
