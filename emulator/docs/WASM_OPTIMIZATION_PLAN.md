@@ -103,11 +103,17 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
 
 7. **`-flto=thin`** on the `oo1` target (`apps/web/CMakeLists.txt`,
    `INTERPROCEDURAL_OPTIMIZATION`), keeping `-O3`.
-8. **Cut the embind chatter** (wasm-port.ts:375): the ~10 per-frame calls
-   (`run`, `lastCycles`, `takeOutput`, `cycles`, `halted`, `stopped`, `irq`,
+8. **Cut the embind chatter** (wasm-port.ts `advance`): the per-frame status
+   reads (`run`, `lastCycles`, `cycles`, `halted`, `stopped`, `irq`,
    `fixedHz`, `appleMode`, `soundRunning`, `usbQueued`) collapse into one
-   `step_frame(budget)` returning a struct / typed view — about two
-   crossings a frame instead of ten.
+   `stepFrame(budget)` returning a `StepFrame` struct — one crossing per run
+   slice instead of two for the run plus eight for the status after.
+   **Done.** Not a raw-MHz win (the bench's run loop bypasses it; 11.2 →
+   11.3, noise) — a *frame-pacing* win: fewer JS↔wasm crossings a browser
+   frame leaves more of the frame budget to the run. Verified: 276/276 UI
+   tests + `tsc --noEmit` clean against the real wasm module; the two
+   hand-clocked tests that wrapped `run` to advance a ManualClock now wrap
+   `stepFrame` (and the wasm-abort test patches `stepFrame` to throw).
 9. **SIMD the per-pixel / per-sample math** (the `VideoCard` draw, the SID
    and speaker audio) with `-msimd128`. Pure per-line / per-sample work,
    cycle-accuracy unaffected; helps frame pacing.

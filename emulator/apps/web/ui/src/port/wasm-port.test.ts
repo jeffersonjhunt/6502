@@ -251,11 +251,11 @@ describe("WasmPort", () => {
           return new Proxy(m, {
             get(target, key) {
               const v = Reflect.get(target, key) as unknown;
-              if (key === "run")
+              if (key === "stepFrame")
                 return (n: number) => {
-                  const why = target.run(n);
-                  clock.t += target.lastCycles() / 6_000; // 6,000 cycles a ms
-                  return why;
+                  const frame = target.stepFrame(n);
+                  clock.t += frame.ran / 6_000; // 6,000 cycles a ms
+                  return frame;
                 };
               return typeof v === "function" ? v.bind(target) : v;
             },
@@ -327,7 +327,7 @@ describe("WasmPort", () => {
     m.until(GREETING);
     const failures: string[] = [];
     m.port.onFail((why) => failures.push(why));
-    (m.port as unknown as { m: { run: () => number } }).m.run = () => {
+    (m.port as unknown as { m: { stepFrame: () => unknown } }).m.stepFrame = () => {
       throw new Error("RuntimeError: unreachable");
     };
     const asked = m.clock.requests;

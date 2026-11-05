@@ -60,11 +60,26 @@ import type {
 import { CLOCKS_HZ } from "./machine-port";
 
 /** The embind class from bindings.cpp. */
+/** One run slice plus the machine's status as the run left it (one crossing a frame). */
+export interface StepFrame {
+  ran: number;
+  why: number;
+  cycles: number;
+  halted: boolean;
+  stopped: boolean;
+  irq: boolean;
+  fixedHz: number;
+  apple: boolean;
+  soundRunning: boolean;
+  usbQueued: number;
+}
+
 export interface CoreMachine {
   open(machine: string, rom: string, symbols: string): boolean;
   error(): string;
   run(budget: number): number;
   lastCycles(): number;
+  stepFrame(budget: number): StepFrame;
   powerCycle(): boolean;
   hasCard(): boolean;
   setSwitches(swr: number): void;
@@ -367,16 +382,16 @@ export class WasmPort implements MachinePort {
     let ran = 0;
     const fixed = this.powered ? m.fixedHz() : 0; // Apple II mode: the clock card follows the mode
     const clock: Clock = fixed || this.clock;
+    let frame: StepFrame | null = null; // the run's last slice, as the run left it
     if (this.powered) {
       const budget = clock === "max" ? Infinity : Math.round((clock * dt) / 1000);
       const gap = Math.min(Math.max(now - this.ranUntil, 0), MAX_FRAME_MS); // drawing, the listeners, the browser, the wait for vsync
       const page = (this.page = this.page ? this.page + (gap - this.page) / PAGE_SMOOTHING : gap);
       const until = now + (clock === "max" ? MAX_FRAME_BUDGET_MS : Math.max(FIXED_FRAME_BUDGET_MS, FIXED_FRAME_SHARE * page));
       while (ran < budget) {
-        const why = m.run(Math.min(MAX_SLICE, budget - ran));
-        const cycles = m.lastCycles();
-        ran += cycles;
-        if (why !== 0 || !cycles || this.scheduler.now() >= until) break;
+        frame = m.stepFrame(Math.min(MAX_SLICE, budget - ran));
+        ran += frame.ran;
+        if (frame.why !== 0 || !frame.ran || this.scheduler.now() >= until) break;
       }
       // The DS3231 counts the CPU's time, so a slow frame, a background tab or a pause leaves it behind
       // this computer's clock: it catches up as the machine runs. Max is meant to run ahead of it.
@@ -387,16 +402,16 @@ export class WasmPort implements MachinePort {
 
     const out = this.powered ? stringToBytes(m.takeOutput()) : new Uint8Array(0);
     const state: FrameState = {
-      cycles: m.cycles(),
+      cycles: frame ? frame.cycles : m.cycles(),
       powered: this.powered,
-      halted: this.powered && m.halted(),
-      stopped: this.powered && m.stopped(),
-      irq: this.powered && m.irq(),
+      halted: this.powered && (frame ? frame.halted : m.halted()),
+      stopped: this.powered && (frame ? frame.stopped : m.stopped()),
+      irq: this.powered && (frame ? frame.irq : m.irq()),
       hz: this.hz,
-      fixedHz: this.powered ? m.fixedHz() : 0, // as the run left it, as everything here is
-      apple: this.powered && m.appleMode(),
-      soundRunning: this.powered && m.soundRunning(),
-      keysQueued: this.powered ? m.usbQueued() : 0,
+      fixedHz: frame ? frame.fixedHz : fixed, // as the run left it, as everything here is
+      apple: this.powered && (frame ? frame.apple : m.appleMode()),
+      soundRunning: this.powered && (frame ? frame.soundRunning : m.soundRunning()),
+      keysQueued: this.powered ? (frame ? frame.usbQueued : m.usbQueued()) : 0,
       disk: this.powered ? this.readDiskStatus(m) : null,
       sd: this.powered ? this.readSdStatus(m) : null,
       videoCard: this.powered ? this.readVideoRegs(m) : null,

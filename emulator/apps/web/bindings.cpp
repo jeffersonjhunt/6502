@@ -159,6 +159,23 @@ namespace
         unsigned pc, a, x, y, s, p;
     };
 
+    /// One run slice plus the machine's status as the run left it, so a frame is
+    /// one crossing instead of run/lastCycles/cycles/halted/stopped/irq/fixedHz/
+    /// appleMode/soundRunning/usbQueued (docs/WASM_OPTIMIZATION_PLAN.md, 3.8).
+    struct StepFrame
+    {
+        double ran{0};       ///< cycles this slice (RunResult.cycles)
+        int why{0};          ///< 0 budget, 1 halted, 2 STP (RunResult.why)
+        double cycles{0};    ///< total bus cycles so far (Session::cycles)
+        bool halted{false};
+        bool stopped{false};
+        bool irq{false};
+        double fixedHz{0};   ///< the clock the mode fixes (0: pace by the card's)
+        bool apple{false};   ///< Apple II mode
+        bool soundRunning{false};
+        unsigned usbQueued{0};
+    };
+
     struct SidInfo
     {
         bool has{false};
@@ -204,6 +221,27 @@ namespace
             return static_cast<int>(r.why);
         }
         double last_cycles() const { return last_cycles_; }
+        /// Run one slice and read the status the run left: one crossing for what
+        /// was run + lastCycles + cycles + halted + stopped + irq + fixedHz +
+        /// appleMode + soundRunning + usbQueued. The caller still decides when to
+        /// stop the frame's run loop (a wall-clock budget, a stop).
+        StepFrame step_frame(double budget)
+        {
+            const Session::RunResult r = session_->run(static_cast<uint64_t>(budget));
+            last_cycles_ = static_cast<double>(r.cycles);
+            StepFrame s;
+            s.ran = last_cycles_;
+            s.why = static_cast<int>(r.why);
+            s.cycles = static_cast<double>(session_->cycles());
+            s.halted = session_->halted();
+            s.stopped = session_->stopped();
+            s.irq = session_->irq();
+            s.fixedHz = session_->fixed_hz();
+            s.apple = session_->apple_mode();
+            s.soundRunning = sound_running();
+            s.usbQueued = usb_queued();
+            return s;
+        }
         bool power_cycle()
         {
             error_.clear();
@@ -609,6 +647,17 @@ EMSCRIPTEN_BINDINGS(oo1)
         .field("catchUp", &Profile::catch_up)
         .field("wait", &Profile::wait)
         .field("total", &Profile::total);
+    value_object<StepFrame>("StepFrame")
+        .field("ran", &StepFrame::ran)
+        .field("why", &StepFrame::why)
+        .field("cycles", &StepFrame::cycles)
+        .field("halted", &StepFrame::halted)
+        .field("stopped", &StepFrame::stopped)
+        .field("irq", &StepFrame::irq)
+        .field("fixedHz", &StepFrame::fixedHz)
+        .field("apple", &StepFrame::apple)
+        .field("soundRunning", &StepFrame::soundRunning)
+        .field("usbQueued", &StepFrame::usbQueued);
     value_object<SidInfo>("SidInfo")
         .field("has", &SidInfo::has)
         .field("name", &SidInfo::name)
@@ -645,6 +694,7 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("error", &WebMachine::error)
         .function("run", &WebMachine::run)
         .function("lastCycles", &WebMachine::last_cycles)
+        .function("stepFrame", &WebMachine::step_frame)
         .function("powerCycle", &WebMachine::power_cycle)
         .function("hasCard", &WebMachine::has_card)
         .function("setSwitches", &WebMachine::set_switches)
