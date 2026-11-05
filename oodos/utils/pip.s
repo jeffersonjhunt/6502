@@ -52,6 +52,7 @@ D_EOF   = 6
         .zeropage
 ptr:    .res    2
 ptr2:   .res    2
+ptr3:   .res    2                       ; seen's, its own
 
         .code
 start:  jsr     UT_INIT
@@ -1066,22 +1067,22 @@ collect:
         rts
 
 ; Carry set if the 11 bytes at ptr2 name a file collected already (nlist to
-; nput, their low 7 bits). ptr changed.
+; nput, their low 7 bits). ptr3 changed; ptr and ptr2 kept.
 seen:
         lda     nlist
-        sta     ptr
+        sta     ptr3
         lda     nlist + 1
-        sta     ptr + 1
-@name:  lda     ptr
+        sta     ptr3 + 1
+@name:  lda     ptr3
         cmp     nput
         bne     @cmp
-        lda     ptr + 1
+        lda     ptr3 + 1
         cmp     nput + 1
         bne     @cmp
         clc
         rts
 @cmp:   ldy     #10
-@byte:  lda     (ptr),y
+@byte:  lda     (ptr3),y
         eor     (ptr2),y
         and     #$7F
         bne     @next
@@ -1089,12 +1090,12 @@ seen:
         bpl     @byte
         sec
         rts
-@next:  lda     ptr
+@next:  lda     ptr3
         clc
         adc     #11
-        sta     ptr
+        sta     ptr3
         bcc     @name
-        inc     ptr + 1
+        inc     ptr3 + 1
         bra     @name
 
 ; The next name collected: carry clear and ptr2 at its 11 bytes; carry set
