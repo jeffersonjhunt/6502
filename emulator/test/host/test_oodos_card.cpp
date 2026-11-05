@@ -1015,7 +1015,7 @@ TEST(gencom_and_put_on_a_and_the_card_is_saved_for_interop_sh)
     CHECK(put.size() >= want.size() && std::string(put.begin(), put.begin() + static_cast<long>(want.size())) == want);
     const std::vector<uint8_t> h2 = records_of(a, dir, entries_of(dir, 0, "H2      COM"));
     REQUIRE(h2.size() >= 16);
-    const size_t t = (h2[14] | h2[15] << 8) * size_t{128};   // the attached table: two SCB entries
+    const size_t t = static_cast<size_t>(h2[14] | h2[15] << 8) * 128; // the attached table: two SCB entries
     CHECK(h2[12] == 2 && h2.size() == t + 128 && h2[t] == 0x34 && h2[t + 1] == 0x02 && h2[t + 2] == 2 &&
           h2[t + 16] == 0x06 && h2[t + 17] == 0x5A && h2[t + 18] == 2);
     for (const char *tmp : {"PUTOUT  $$$", "H2      $$$"})
