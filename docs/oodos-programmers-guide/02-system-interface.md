@@ -30,8 +30,8 @@ A program calls the BDOS with `JSR BDOS`, the base page's `$0203` ([`oodos.inc`]
 loaded, `$0203` jumps to the lowest RSX instead: [chapter 6](06-program-formats.md#rsxs)). The stub
 keeps the program's stack pointer, flags and windows, switches to the system's windows and stack, calls the BDOS and
 puts everything back. The program's zero page, `$00`-`$EF`, is never touched: the BDOS works on a zero page and a stack
-of its own. Interrupts are off while the BDOS runs. The stub costs 216 cycles a call, 126 in and 90 out
-(`test_oodos_sys`).
+of its own. Interrupts are off while the BDOS runs. The stub costs 220 cycles a call, 130 in and 90 out
+(`test_oodos_sys`, measured again 2026-11-04; the 4 more in are phase 5a's door for function 59).
 
 **Addresses** a program passes (an FCB, a string, a buffer, a parameter block) are its own CPU addresses, in
 `$0000`-`$BFFF`; the BDOS reaches them through the windows the stub saved. An address in the I/O hole,
@@ -122,7 +122,7 @@ CP/M 3's layout.
 | 1-8 | f1-f8 | the name, capitals, blank-padded; bit 7 of each is an attribute |
 | 9-11 | t1-t3 | the type, the same way; bit 7 of t1 is read-only, of t2 SYS, of t3 archive |
 | 12 | EX | the extent number |
-| 13 | S1 | the last record's byte count, kept in the directory |
+| 13 | S1 | in an entry, the last record's byte count; in an open FCB, the BDOS's: bit 7 set once this open's update is stamped ([function 21](07-function-reference.md#bdos-21)) |
 | 14 | S2 | the BDOS's: the extent number's high bits, and its own state |
 | 15 | RC | the records in this extent |
 | 16-31 | D0-D15 | the extent's blocks, the BDOS's; a rename's new name; a label's and an XFCB's password |

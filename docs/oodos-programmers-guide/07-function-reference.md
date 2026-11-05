@@ -522,8 +522,9 @@ OODOS 0.2
 #### CP/M 3
 
 The editing is the banked CP/M 3's, but for the registers: the buffer's address goes in A and X, where CP/M 3
-takes it in DE. Ours, where CP/M 3 doesn't say: how the line is laid out on the screen's rows, and that ^U and ^R
-print no mark. A line holds at most 255 characters.
+takes it in DE. Ours, where CP/M 3 doesn't say: how the line is laid out on the screen's rows. Ours, where it
+differs: ^U and ^R print no mark, where CP/M 3 puts a `#` before the new row; and ^C ends the program only in an
+empty line, where CP/M 3 takes one at the line's start. A line holds at most 255 characters.
 
 <a id="bdos-11"></a>
 ### 11 C_STAT: is a console key waiting?
@@ -741,8 +742,8 @@ An FCB in the I/O hole (`$C000`–`$C7FF`) returns A = X = `$FF`, with nothing d
 
 #### Cycles
 
-5,342 cycles on an `oodos-8m` drive, BDOSENT to its return, measured by `test_oodos_sys`'s FSTEST
-([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3), phase 3c). The BDOS stub adds 216.
+6,694 cycles on an `oodos-8m` drive, BDOSENT to its return, measured by `test_oodos_sys`'s FSTEST
+([hw/oodos.md](../../hw/oodos.md#the-archive-bit-and-the-update-stamp-item-10), 2026-11-04). The BDOS stub adds 220.
 
 #### Since
 
@@ -788,7 +789,7 @@ The same, but for the registers: the FCB's address goes in A and X, where CP/M 3
   an entry pointing at a sector that wasn't written.
 - The extent's block pointers are merged with its entry's, EX and RC the later, the blocks made permanent (a later
   [function 98](#bdos-98) won't free them).
-- The update is stamped in the file's extent-zero SFCB slot, if the label asks for update stamps.
+- No stamp: the update is stamped by the first write after the open ([function 21](#bdos-21)), not by the close.
 - The FCB is marked not written (S2's bit 7), and stays open: the program may go on reading and writing it.
 
 #### Cycles
@@ -805,7 +806,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers.
+The same, but for the registers, and f5' (a partial close) is ignored: every close leaves the FCB open, as a partial
+close does (ours).
 
 <a id="bdos-17"></a>
 ### 17 F_SFIRST: search for the first match
@@ -965,7 +967,9 @@ The same, but for the registers. Password Error is checked last, after every oth
 
 As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
 when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it;
-4 Invalid Drive. In return mode, the FCB is written back as the records read before the error left it.
+4 Invalid Drive. In return mode, the FCB is written back as the records read before the error left it. A written
+extent the read can't close as it moves on (the FCB and the entry name two blocks for one place) is A = 1, the FCB
+left at its extent: [function 33](#bdos-33) says 3.
 
 The DMA buffer is checked first, all of it for a multi-sector count: past `$FFFF`, in the I/O hole, on flash or in
 a read-only window, or with a DMA segment memory OODOS keeps for itself, is A = X = `$FF`.
@@ -979,10 +983,10 @@ a read-only window, or with a DMA segment memory OODOS keeps for itself, is A = 
 
 #### Cycles
 
-Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 4,679 cycles for a record in a
-sector already in a buffer, 12,763 when the sector must be read ([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3),
-phase 3b1; phase 3c's dispatch adds 2 to every call). With a count of 128 on M:, 553,186 cycles, 4,321 a record. The
-BDOS stub adds 216.
+Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 4,914 cycles for a record in a
+sector already in a buffer, 13,069 when the sector must be read; with a count of 128 on M:, 562,907 cycles, 4,397 a
+record ([hw/oodos.md](../../hw/oodos.md#the-archive-bit-and-the-update-stamp-item-10), measured again 2026-11-04).
+The BDOS stub adds 220.
 
 #### Since
 
@@ -1024,6 +1028,11 @@ As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.
 user 0, or is write-protected and was opened without its password. Then 1 Disk I/O. The DMA buffer is
 checked after those, as [function 20](#bdos-20) checks it (a read-only window may be written from).
 
+A write writes the directory itself when it clears an entry's t3' or makes the update stamp (below), and that
+write can fail (1 Disk I/O, or 2 Read Only for a unit found read-only) after the record is already in a buffer. In
+return mode the call then says the error with CR not moved on: write the record again, or close the file, as for
+any physical error.
+
 #### Side effects
 
 - A record in a block the file doesn't have yet takes the lowest free block, which is zeroed: a record of it never
@@ -1032,13 +1041,23 @@ checked after those, as [function 20](#bdos-20) checks it (a read-only window ma
 - Multi-sector and the DMA segment as [function 20](#bdos-20).
 - The data stays in the BDOS's buffers until a buffer is needed, a close, [function 48](#bdos-48), a drive reset
   or the warm boot writes it back.
+- **The archive attribute:** a write clears t3' in the directory entry of the extent it writes, at once, and in the
+  FCB ([chapter 3](03-file-system.md#file-attributes)). The other extents' entries keep theirs.
+- **The update stamp:** the first write since the file was opened stamps the update in the file's extent-zero SFCB
+  slot, if the label asks for update stamps, at once; the writes after it don't, nor does the close. After a make of
+  extent 0, which stamped it, no write of that FCB does. The FCB's S1 (byte 13) remembers it: bit 7 set once the
+  stamp is made; Open clears it and Make of extent 0 sets it. An FCB put together by hand from a directory entry,
+  not opened, carries whatever byte 13 it was given (an entry's byte count of 128 reads as stamped): open a file
+  with [function 15](#bdos-15) or make it with [function 22](#bdos-22) before writing it.
 
 #### Cycles
 
-Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 7,490 cycles to a sector in a
-buffer, 77,965 for a record that takes a new block, 164,188 for the cheapest that must write buffers back first
-([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3), phase 3b1; phase 3c's dispatch adds 2 to every call). With a
-count of 128 on M:, 779,555 cycles, 6,090 a record. The BDOS stub adds 216.
+Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 7,818 cycles to a sector in a
+buffer, 78,451 for a record that takes a new block, 161,986 for the cheapest that must write buffers back first; with
+a count of 128 on M:, 786,294 cycles, 6,142 a record
+([hw/oodos.md](../../hw/oodos.md#the-archive-bit-and-the-update-stamp-item-10), measured again 2026-11-04). The
+first write after an open writes the stamp's SFCB, and a write to an archived extent its entry, besides. The BDOS
+stub adds 220.
 
 #### Since
 
@@ -1055,11 +1074,10 @@ The same, but for the registers and the DMA segment, and choices of ours:
 - a new block is the lowest free one, and is zeroed, where CP/M 3 leaves the records of it not yet written as they
   happen to be;
 - a multi-sector buffer is checked whole before the first record;
-- the update is stamped when the extent is closed ([function 16](#bdos-16)), where CP/M 3 stamps it at the first
-  write, so a file written and never closed has no new update stamp;
-- a write leaves the archive attribute (t3') as it is, where CP/M 3's BDOS clears it
-  ([chapter 3](03-file-system.md#file-attributes));
+- a written extent it can't close as it moves on is A = 1, as no directory space (CP/M 3 lists no 3 for 21);
 - codes 9 and 10 aren't returned, as for [function 20](#bdos-20).
+
+The update stamp and the archive attribute are CP/M 3's: the first write's, and cleared by a write.
 
 <a id="bdos-22"></a>
 ### 22 F_MAKE: make a file
@@ -1088,7 +1106,9 @@ hole returns A = X = `$FF`.
 #### Side effects
 
 - A new directory entry for extent EX, every attribute clear.
-- Extent 0's entry is stamped with the creation and the update, as the label asks.
+- Extent 0's entry is stamped with the creation and the update, as the label asks; this FCB's writes then make no
+  update stamp ([function 21](#bdos-21)). A make of another extent stamps nothing, and the FCB's first write the
+  update.
 - With f6' and passwords on, the file's XFCB too, in a free entry after the file's. It needs two free entries (or
   an XFCB of the name to use again), else `$FF` and nothing is made. Without passwords on, f6' is ignored.
 
@@ -1575,8 +1595,9 @@ R0–R2 and the FCB are left as [function 33](#bdos-33) leaves them.
 
 #### Errors
 
-As [function 21](#bdos-21): 4 Invalid Drive, 2 Read Only, 3 File R/O before anything is written, then 1 Disk I/O;
-as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)).
+As [function 21](#bdos-21): 4 Invalid Drive, 2 Read Only, 3 File R/O before anything is written, then 1 Disk I/O,
+also from the directory write a write may make (t3', the update stamp); as the error mode says
+([function 45](#bdos-45), [appendix A](appendix-a-errors.md)).
 
 #### Side effects
 
@@ -1585,6 +1606,8 @@ as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.
   took, or past RC, returns 1; one in an extent with no entry, 4; and 3 if the extent the FCB is at can't be closed
   to move there ([chapter 3](03-file-system.md#random-records)).
 - Multi-sector and the DMA segment as [function 33](#bdos-33).
+- The archive attribute and the update stamp as [function 21](#bdos-21): t3' cleared in the extent's entry, the
+  update stamped by the first write since the open.
 
 #### Cycles
 
@@ -1600,8 +1623,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers and the DMA segment; a new block is zeroed and the lowest free one, the update
-is stamped at the close, t3' isn't cleared, and code 10 isn't returned, all as for [function 21](#bdos-21).
+The same, but for the registers and the DMA segment; a new block is zeroed and the lowest free one, and code 10
+isn't returned, all as for [function 21](#bdos-21). Its update stamp and archive attribute are CP/M 3's, as 21's.
 
 <a id="bdos-35"></a>
 ### 35 F_SIZE: a file's size
@@ -1724,6 +1747,80 @@ OODOS 0.2
 
 The same, but for the registers: the vector goes in A and X, where CP/M 3 takes DE. The units are read again
 first, as for 13 (ours).
+
+<a id="bdos-38"></a>
+### 38 DRV_ACCESS: claim drives
+
+#### Entry
+
+- Y = 38 (`DRV_ACCESS`). Anything in A and X is ignored.
+
+#### Exit
+
+- A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None.
+
+#### Side effects
+
+None: one program runs at a time, so there is no drive to claim.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same: an MP/M function CP/M 3 doesn't support, answered with success. A program written for MP/M may call it
+before using a drive; on OODOS, as on CP/M 3, it does nothing. (Until 2026-11-04 OODOS answered it with A = X = `$FF`.)
+
+<a id="bdos-39"></a>
+### 39 DRV_FREEDRV: release drives
+
+#### Entry
+
+- Y = 39 (`DRV_FREEDRV`). Anything in A and X is ignored.
+
+#### Exit
+
+- A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None.
+
+#### Side effects
+
+None: one program runs at a time, so there is no drive to release.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same: an MP/M function CP/M 3 doesn't support, answered with success. A program written for MP/M may call it
+when it is done with a drive; on OODOS, as on CP/M 3, it does nothing. (Until 2026-11-04 OODOS answered it with A = X = `$FF`.)
 
 <a id="bdos-40"></a>
 ### 40 F_WRITEZF: write a random record, zero-filled
@@ -2863,7 +2960,7 @@ then 7 Password Error. 1 Disk I/O. An FCB in the I/O hole returns A = X = `$FF`.
 #### Side effects
 
 - The extents after R0–R2's are deleted; the one with it ends there (RC is R mod 128, plus 1), and its pointers
-  after R's block are cleared. Each entry is written before its blocks are freed.
+  after R's block are cleared, and its archive attribute (t3'). Each entry is written before its blocks are freed.
 - The update is stamped in the file's extent-zero SFCB slot, if the label asks for update stamps.
 
 An FCB open on the file is out of date after: close it without writing, or open it again.
@@ -2882,7 +2979,7 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers. Stamping the update, and the order of the errors, are ours.
+The same, but for the registers. Stamping the update, clearing t3', and the order of the errors, are ours.
 
 <a id="bdos-100"></a>
 ### 100 DRV_SETLABEL: make or change a directory label
@@ -3095,8 +3192,8 @@ of the errors.
 
 #### Errors
 
-- A date before 2000 or past 2155 doesn't set the clock, and nothing says so. The hour and the minute aren't
-  checked.
+- A date before 2000 or past 2155 doesn't set the clock, and nothing says so: the SCB has it until the BDOS next
+  reads the clock (a stamp, [function 105](#bdos-105)). The hour and the minute aren't checked.
 - An address in the I/O hole: A = X = `$FF`.
 
 #### Side effects

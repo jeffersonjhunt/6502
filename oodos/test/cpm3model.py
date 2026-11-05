@@ -58,23 +58,29 @@ Testing, "phase 3a: the model", Proposed):
   RC for R and loses the blocks after R's. R at or past the end, or where the file has no data (no
   entry reaching R's extent, past RC there, no block: the Guide's "a region of the file where data
   exists"), is A = $FF, X = 0, and R2 over 3 is A = $FF, X = 0 before the file is looked for (so before
-  a read-only file's 3). It stamps the update, as a close after a write does (the manual doesn't say;
-  OODOS's BDOS does).
+  a read-only file's 3). It stamps the update and clears the archive attribute (t3') of the entry that
+  ends at R, as a write does (the manual doesn't say; OODOS's BDOS does: a truncate changes the file).
 - Date stamps, by the label's mode (byte 12: $10 create, $20 update, $40 access), only ever in the
   SFCB slot of a file's extent-zero entry (the manual: a slot is valid only for an extent-zero entry).
   A new entry's slot is cleared (its password mode, but a protected file's extent 0's, and reserved
   byte 0 too), whatever the mode asks
   (3b1: so 102 never reads another file's); make (of extent 0) sets its create (or access) and update
-  stamps to now as the mode asks, an entry made by a write gets none. Writing a written
-  FCB's entry back (close, or moving to another extent) and truncate set the update stamp in the
-  file's extent-zero entry's slot, whichever extent they changed. Open of extent 0 sets the access
+  stamps to now as the mode asks, an entry made by a write gets none. The first write after the
+  open (21, 34, 40: the Guide's "not already stamped for update by a previous Make or Write"), so
+  none after a make of extent 0, and truncate set the update stamp in the file's extent-zero
+  entry's slot, whichever extent they changed; a close, or moving to another extent, stamps nothing
+  (item 10, 2026-11-04: before, the close stamped it). Open of extent 0 sets the access
   stamp with $40 (over the creation stamp, the field they share), not on a read-only drive. Delete,
   rename and 30 leave the SFCB as it is. Now is
   what 104 last set (the driver sets the time before what stamps).
 - 13 resets every drive (R/O cleared, logged out), drive A current, the DMA $0280; 37 the drives in its
   vector. 28 sets the current drive R/O. 46 puts the free records, 3 bytes, in the DMA buffer. 31 logs
   the current drive in (the manual has it return $FFFF on an I/O error, so it reads the disk) and returns
-  the address of a copy of its DPB (17 bytes). 27 returns $FFFF. 12 returns $0031.
+  the address of its DPB (17 bytes; OODOS's is the BIOS's own, in common memory). 27 returns $FFFF. 12 returns $0031.
+- The archive attribute (t3'): a write (21, 34, 40) clears it in the entry of the extent it
+  writes (the Guide, 2.3.4: the file system resets it in a directory FCB issued a write), and in
+  the FCB; the FCB takes each extent's attributes from its entry as it moves there, as OODOS's
+  BDOS does.
 - What a record holds: a block allocated by a write (21, 34) has every record undefined until written
   (the BDOS's deblocking may write whatever its buffer held); 40 fills the new block with zeros. Reading
   an undefined record succeeds and its data can't be predicted (Result.undefined).
@@ -378,6 +384,7 @@ class Fcb:
         self.entry = None                    # the directory entry of the current extent
         self.map, self.rc, self.s1 = [], 0, 0
         self.modified = False
+        self.stamped = False                 # this open's update stamp made: by make of extent 0, or a write
         self.stale = False                   # its file or drive changed under it
         self.closed = False
         self.uncertain = False               # an error left the position open
@@ -548,12 +555,13 @@ class Bdos:
                 and same_name(o.name, s.name)]
 
     def put_fcb(self, addr, s, b, mem):
-        """Write the FCB as CP/M would: the entry's name, EX, S1, S2 (the module), RC, the map, CR."""
+        """Write the FCB as CP/M would: the entry's name, EX, S2 (the module), RC, the map, CR; S1 as OODOS's
+        BDOS keeps it, $80 once this open's update is stamped (S1_STAMPED), else 0."""
         dv = self.drives[s.drive]
         b = bytearray(b)
         b[1:12] = s.name
         b[12] = s.ext & 0x1F
-        b[13] = s.s1
+        b[13] = 0x80 if s.stamped else 0
         # S2: the module, and as OODOS's BDOS keeps them there, $80 not written and $40 no entry yet;
         # so a program's own FCB of the same name and place isn't taken for the open one
         b[14] = s.ext >> 5 | (0 if s.modified else 0x80) | (0x40 if s.entry is None else 0)
@@ -579,12 +587,14 @@ class Bdos:
             return False
         e = dv.entry(i)
         s.map, s.s1 = dv.blocks(e), e[13]
+        s.name = bytes((c & 0x7F) | (e[1 + k] & 0x80 if k in (0, 1, 2, 3, 8, 9, 10) else c & 0x80)
+                       for k, c in enumerate(s.name))   # f1'-f4', t1'-t3' the entry's
         lo = ext & 0x1F
         s.rc = 128 if lo < (e[12] & 0x1F) else e[15] if lo == (e[12] & 0x1F) else 0
         return True
 
     def writeback(self, s):
-        """Close's work: merge the FCB's map, EX and RC into its entry, stamp the update.
+        """Close's work: merge the FCB's map, EX and RC into its entry (no stamp: the first write's).
         @return the entry, or None if it's gone."""
         dv = self.drives[s.drive]
         if not s.modified:
@@ -610,7 +620,6 @@ class Bdos:
         s.map = merged
         s.entry = i
         s.modified = False
-        self.stamp_slot(dv, i)
         self.kill(lambda o: o in self.sharers(s))       # their copies of the entry are old now
         return i
 
@@ -990,6 +999,17 @@ class Bdos:
         dv.write_rec(blk, off % dv.fmt.rpb, data)
         s.rc = max(s.rc, c + 1)
         s.modified = True
+        i = self.find_ext(dv, s.user, s.name, s.ext)    # the extent's entry: a write has one
+        if i is None:
+            raise RuntimeError("a write's extent has no entry")
+        e = bytearray(dv.entry(i))
+        if e[11] & 0x80:                                 # written: not archived (2.3.4)
+            e[11] &= 0x7F
+            dv.set_entry(i, bytes(e))
+        s.name = s.name[:10] + bytes([s.name[10] & 0x7F])
+        if not s.stamped:                                # the first write since the open (21, 34)
+            s.stamped = True
+            self.stamp_slot(dv, i)
         return 0
 
     def _f21(self, a, x, mem):
@@ -1050,6 +1070,7 @@ class Bdos:
             self.put_xfcb(dv, self.user, name, pw[8] & XFCB_MODES, pw[:8], x)
         self.kill(lambda o: o.drive == d and o.user == self.user and same_name(o.name, name))
         s.cr = b[32]
+        s.stamped = b[12] == 0                           # extent 0's update is make's
         self.fcbs[addr] = s
         self.put_fcb(addr, s, b, mem)
         return 0, 0
@@ -1311,6 +1332,7 @@ class Bdos:
                 e = dv.put_blocks(e, bl)
                 e[12] = (e[12] & 0xE0) | ext & 0x1F
                 e[15] = c + 1
+                e[11] &= 0x7F                            # changed: not archived (ours, as a write)
                 dv.set_entry(i, bytes(e))
             elif first > ext:
                 dv.alv.difference_update(b for b in dv.blocks(e) if b)

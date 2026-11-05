@@ -18,6 +18,12 @@
 ;   DELX aa xx / XKEPT aa xx  f5': Delete of XFCBs only, which A1 hasn't
 ;   BITS hh hh            B1 given f1' and t3': its entry's bytes 1 and 11
 ;   OPENBITS hh hh        and the FCB's after Open
+;   AROPEN hh             AR.TXT archived (t3' by 30), the clock set to
+;                         2027-01-01 00:00 (104): the FCB's byte 11
+;                         after Open; AREAD aa xx a read, ARREAD hh the
+;                         entry's byte 11 after it (kept)
+;   ARWRITE aa xx ARBITS hh hh  a write: the entry's byte 11 and the FCB's
+;                         (t3' cleared, the Guide 2.3.4); AR.TXT deleted
 ;   REN aa xx             B1 to C1; SEARCHB1 aa xx: FF; SEARCHC1 aa xx
 ;   RENBITS hh hh         C1's bytes 1 and 11: B1's attributes kept
 ;   RENEX / RENWILD / MAKEEX / MAKEWILD / OPENWILD aa xx   FF 08, 09
@@ -35,11 +41,15 @@
 ;   FREE98 xxxxxx xxxxxx  free with 40 records written, not closed; and
 ;                         after function 98
 ;   TRUNC aa xx SIZE xxxxxx R99 aa R100 aa TRUNCFREE Y|N
+;   TRBIT hh              TR.DAT archived before: its entry's byte 11 after
+;                         the truncate (t3' cleared, ours)
 ;   TRUNCBIG / TRUNCWILD aa xx   past the end: FF 00; '?': FF 09
 ;   ROMAKE aa xx          M: read-only by 28: FF 02
 ;   ROVEC aa xx / ROWRITE aa xx  A/X the vector; a write: FF 02
 ;   ROVEC2 aa xx          after 37 resets M:
 ;   LOGIN aa xx DRIVE aa xx ALLOC aa xx VERSION aa xx LOCK aa xx UNLOCK aa xx
+;   ACCESS aa xx FREEDRV aa xx   MP/M's 38 and 39: 00, as CP/M 3 answers
+;   TESTW aa xx           MP/M's 41: FF 00, as CP/M 3 answers
 ;   DPB <17 bytes>        from function 31's address
 ;   SIZEGONE aa xx / SNEXTEND aa xx / FREEBAD aa xx / SELBAD aa xx
 ;   RESET aa xx / RDRIVE aa xx / RLOGIN aa xx / RROVEC aa xx  after 13
@@ -243,6 +253,43 @@ start:  lda     #$FF                    ; errors come back
         lda     fcb+11
         jsr     HEX2
         jsr     CRLF
+
+        ; the archive attribute: a write clears it in its extent's entry
+        ; and the FCB (the Guide, 2.3.4); a read doesn't
+        NAME    fcb, "AR      TXT"
+        CALLF   F_MAKE, fcb
+        stz     RN
+        stz     RN+1
+        jsr     FILL
+        CALLF   F_WRITE, fcb
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "AR      TXT"
+        lda     fcb+11
+        ora     #$80                    ; t3'
+        sta     fcb+11
+        CALLF   F_ATTRIB, fcb
+        CALLF   T_SET, later            ; so the first write's update stamp is new
+        NAME    fcb, "AR      TXT"
+        CALLF   F_OPEN, fcb
+        SAY     "AROPEN "
+        lda     fcb+11
+        jsr     HEX2
+        jsr     CRLF
+        TRY     "AREAD ", F_READ, fcb
+        SAY     "ARREAD "
+        jsr     arbit
+        jsr     CRLF
+        stz     fcb+32
+        TRY     "ARWRITE ", F_WRITE, fcb
+        SAY     "ARBITS "
+        jsr     arbit
+        jsr     SPACE
+        lda     fcb+11
+        jsr     HEX2
+        jsr     CRLF
+        CALLF   F_CLOSE, fcb
+        NAME    fcb, "AR      TXT"
+        CALLF   F_DELETE, fcb
 
         ; the last record's byte count, set by 30 with f6', given by Open
         ; with CR $FF (the Guide, function 15)
@@ -471,9 +518,18 @@ dirfull:
         jsr     writen
         CALLF   F_CLOSE, fcb
         NAME    fcb, "TR      DAT"
+        lda     fcb+11
+        ora     #$80                    ; t3'
+        sta     fcb+11
+        CALLF   F_ATTRIB, fcb
+        NAME    fcb, "TR      DAT"
         lda     #99
         sta     fcb+33
         TRY     "TRUNC ", F_TRUNCATE, fcb
+        SAY     "TRBIT "
+        NAME    sfcb, "TR      DAT"
+        jsr     bit11
+        jsr     CRLF
         NAME    fcb, "TR      DAT"
         CALLF   F_SIZE, fcb
         SAY     "SIZE "
@@ -546,6 +602,9 @@ dirfull:
         TRY     "VERSION ", S_BDOSVER, 0
         TRY     "LOCK ", F_LOCK, fcb
         TRY     "UNLOCK ", F_UNLOCK, fcb
+        TRY     "ACCESS ", DRV_ACCESS, 0 ; MP/M's access drive and free drive
+        TRY     "FREEDRV ", DRV_FREEDRV, 0
+        TRY     "TESTW ", 41, fcb       ; MP/M's test and write (oodos.inc names none)
         CALLF   DRV_DPB, 0
         sta     PTR
         stx     PTR+1
@@ -690,6 +749,14 @@ entryat:
         sta     PTR+1
         rts
 
+; AR.TXT's entry's byte 11 (t3' in bit 7), by 17; bit11: sfcb's.
+arbit:  NAME    sfcb, "AR      TXT"
+bit11:  CALLF   F_SFIRST, sfcb
+        jsr     entryat
+        ldy     #11
+        lda     (PTR),y
+        jmp     HEX2
+
 ; " NAME" of the entry a search's code A names, its trailing spaces dropped.
 showname:
         jsr     entryat
@@ -745,6 +812,10 @@ showfree:
 
         .include "print.inc"
         .include "fs.inc"
+
+        .rodata
+later:  .word   17898                   ; 2027-01-01 00:00, days from 1 January 1978 (day 1)
+        .byte   $00, $00
 
         .bss
 fcb:    .res    36

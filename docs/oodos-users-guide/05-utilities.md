@@ -719,8 +719,10 @@ PIP dest-filespec{[Gn]}=device{[options]}
 In square brackets after a source (the destination takes `[Gn]` alone); letters together or with blanks between, a
 number straight after its letter:
 
-- **A** only files whose archive bit is clear; each is marked backed up (the bit set) after. Only for a copy to a
-  drive: a file-to-file copy of a file with the bit set says `FILE NOT FOUND`.
+- **A** only files whose archive bit is clear, files changed since they were last backed up; each is marked backed
+  up (the bit set) after. A large file has its bit in each part (each directory entry), and a write clears only the
+  part's it wrote, so any part clear is enough. Only for a copy to a drive: a file-to-file copy of a file with the
+  bit set says `FILE NOT FOUND`.
 - **C** asks `COPY NAME.TYP (Y/N)?` before each file copied to a drive, and leaves out the `COPYING -` list.
 - **Dn** cuts each line after column n.
 - **E** shows what is written on the console as it goes.
@@ -788,7 +790,8 @@ OODOS 0.2
 
 - The banner is OODOS's.
 - A file copied alone keeps its source's RO, SYS and F1-F4, as in CP/M 3, but its archive bit is clear, so it is
-  backed up again; a joined file takes no attributes.
+  backed up again; a joined file takes no attributes. With `[A]` the attributes are those of the first part of the
+  file that isn't archived, which are the whole file's unless something set its parts' differently.
 - H's error asks for no correction: the copy stops.
 - `D0` and `T0` are refused, and so is an empty S or Q text.
 - More than 16 sources are `INVALID FORMAT`.

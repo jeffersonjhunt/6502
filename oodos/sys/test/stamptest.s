@@ -3,12 +3,16 @@
 ; while it waits and reads the SFCBs itself. "aa xx" is A and X.
 ;
 ;   MAKE aa xx            D:STAMP.DAT: its creation and update stamps. MADE?
-;   WRITE aa / CLOSE aa xx  a record, then the close: its update. CLOSED?
+;   WRITE aa / CLOSE aa xx  a record, then the close: no stamp, make's update
+;                         stands (the Guide, 21). CLOSED?
 ;   EMPTY aa xx           D:EMPTY.DAT made and closed unwritten: make's stamps
 ;   MODE? waits (the test may change the label's mode), then
 ;   RESET aa xx           37 of D:, so the label is read again
 ;   OPEN aa xx            STAMP.DAT: an access stamp if the mode asks.
 ;                         OPENED? waits
+;   REWRITE aa            record 0 again: the first write since the open
+;                         stamps the update. WROTE? waits
+;   AGAIN aa / CLOSE2 aa xx  record 1, then the close: no stamp. REWRITTEN?
 ;   OPEN1 aa xx           STAMP.DAT at extent 1: no access stamp
 ;   OPENRO aa xx          and at 0 with D: read-only (28): none. UNSTAMPED?
 ;   STAMPTEST DONE
@@ -60,6 +64,22 @@ start:  CALLF   F_DMAOFF, BUF
         NAME    fcb, "STAMP   DAT"
         TRY     "OPEN ", F_OPEN, fcb
         KEYWAIT "OPENED?"
+        stz     RN
+        stz     RN+1
+        jsr     FILL
+        SAY     "REWRITE "
+        CALLF   F_WRITE, fcb
+        jsr     HEX2
+        jsr     CRLF
+        KEYWAIT "WROTE?"
+        inc     RN
+        jsr     FILL
+        SAY     "AGAIN "
+        CALLF   F_WRITE, fcb
+        jsr     HEX2
+        jsr     CRLF
+        TRY     "CLOSE2 ", F_CLOSE, fcb
+        KEYWAIT "REWRITTEN?"
         NAME    fcb, "STAMP   DAT"
         lda     #1
         sta     fcb+12
