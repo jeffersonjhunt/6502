@@ -2457,6 +2457,30 @@ SUBMIT file is console input for the CCP).
   PROFILE` before the first command is read (the Guide's 1.6.2; decided 2026-11-04). The demo card gets none, so it
   boots as now.
 
+**Decided (5c, 2026-11-04, the owner, after 5c's plan check against the manuals and 5a and 5b as built):**
+
+1. **SUBMIT's own RSX,** `rsx/subrsx.s`, not GET's; GET's file reading (the record buffer, an LF after CR dropped, the
+   ^Z) moves into an include both use, not copied.
+2. **The prompt** is a function 10 call with `$19` bit 7 set and bit 6 clear, and gets the next command line; a
+   built-in's question (bit 6 set: USER's, ERA's) and a program's input take `<` lines.
+3. **The temporary files** are `SUBnn.$$$`, the first free from 00, in user 0 on the temporary drive (the SCB's `$50`;
+   ours). Stale `SUB??.$$$` there are deleted by SUBMIT.COM only when no SUBMIT RSX is active (asked by 60).
+4. **A ^C's end:** at the CCP's next prompt read each SUBMIT RSX reads the return code (108); `$FFFE` ends it, its
+   file deleted, its remove flag set, and the prompt reads the keyboard.
+5. **`^`** before a letter or `@ [ \ ] ^ _` is that control character (`^^` stays `^`); before anything else the two
+   characters are kept. An expanded line over 128 characters is `Error on line nnnnn: Line too long`, and nothing
+   runs (ours).
+6. **Command lines** are shown after the prompt as if typed; `<` lines are shown as typed too.
+7. **`WARNING: Program input ignored`** once for each run of `<` lines skipped, just before the next command line is
+   shown.
+8. **The search order** is bits 0–1 of the SCB's `$18` (0 COM, 1 COM then SUB, 2 SUB then COM, 3 SUB; ours); SETDEF
+   and SHOW show `Search Order - ...`.
+9. **`PROFILE.SUB`** at the first prompt, from the default drive, user 0: shown as `SUBMIT PROFILE` as if typed, then
+   run; without SUBMIT.COM, `SUBMIT?` and on. A reset is a cold boot, so it runs then too.
+10. **With SETDEF's DISPLAY,** both lines: the `.SUB` file's and SUBMIT.COM's own.
+11. **Status and single characters** while `<` lines serve a program, as GET's.
+12. **The `.SUB` file's lines** as GET reads its file.
+
 **Stages (decided 2026-11-04: three branches, each merged on its own)**
 
 | Stage | Branch | What | Size (estimates) |
