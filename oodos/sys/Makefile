@@ -23,7 +23,7 @@ PROGRAMS = hello args biostest stubtest fartest timetest irqtest vt52test linete
 RSXS     = trsxa trsxb trsxc trsxd trsxe
 OVLS     = ovl ovlzp
 QS       = q01 q02 q03 q04 q05 q06 q07 q08 q09 q10 q11 q12 q13 q14 q15
-GENCOMS  = rqa rqab rqc rqd rqbe rqn rqs rq15
+GENCOMS  = rqa rqab rqc rqd rqbe rqn rqs rq15 iota iotab iots iotn iotx
 IMAGES   = trsxa.bf trsxb.be trsxb.bf ovl.6000 ovl.7100
 GENCOM   = $(PYTHON) ../tools/gencom.py
 AFLAGS   = -g -I . -I ../include -I ../../backplane/bios
@@ -97,6 +97,19 @@ $(BUILD)/rqs.com: $(BUILD)/rsxq.com ../tools/gencom.py
 	$(GENCOM) $(BUILD)/rsxq.com --scb 34,02 --scb 06,5A -o $@
 $(BUILD)/rq15.com: $(BUILD)/rsxq.com $(QS:%=$(BUILD)/%.rsx) ../tools/gencom.py
 	$(GENCOM) $(BUILD)/rsxq.com $(QS:%=$(BUILD)/%.rsx) -o $@
+
+# GENCOM.COM's expected files (test_oodos_utils_rsx): IOTEST with A; A then B; SCB
+# entries; TRSXA alone ([NULL]); IOTEST stripped again (what GENCOM name gives).
+$(BUILD)/iota.com: $(BUILD)/iotest.com $(BUILD)/trsxa.rsx ../tools/gencom.py
+	$(GENCOM) $(BUILD)/iotest.com $(BUILD)/trsxa.rsx -o $@
+$(BUILD)/iotab.com: $(BUILD)/iota.com $(BUILD)/trsxb.rsx ../tools/gencom.py
+	$(GENCOM) $(BUILD)/iota.com $(BUILD)/trsxb.rsx -o $@
+$(BUILD)/iots.com: $(BUILD)/iotest.com ../tools/gencom.py
+	$(GENCOM) $(BUILD)/iotest.com --scb 34,02 --scb 06,5A -o $@
+$(BUILD)/iotn.com: $(BUILD)/trsxa.rsx ../tools/gencom.py
+	$(GENCOM) --null $(BUILD)/trsxa.rsx -o $@
+$(BUILD)/iotx.com: $(BUILD)/iota.com ../tools/gencom.py
+	$(GENCOM) --strip $(BUILD)/iota.com -o $@
 
 # mkprl.py's loads: NAME.PAGE.img, an RSX at that page and $F0, an overlay at that address.
 $(BUILD)/%.bf.img: $(BUILD)/%.rsx ../tools/mkprl.py

@@ -370,7 +370,25 @@ finish: lda     bidx
         beq     @erased
         lda     user
         jsr     RX_SAVE
-        ldx     #11                     ; the rename's FCB: NAME.$$$, then NAME.TYP at +16
+        lda     #<buf                   ; NAME.$$$ still there? (a close of a file
+        ldx     #>buf                   ; written nothing to may not look)
+        ldy     #F_DMAOFF
+        jsr     RX_BDOS
+        ldx     #11
+@s:     lda     fcb,x
+        sta     dfcb,x
+        dex
+        bpl     @s
+        stz     dfcb + 12
+        lda     #<dfcb
+        ldx     #>dfcb
+        ldy     #F_SFIRST
+        jsr     RX_BDOS
+        cmp     #$FF
+        bne     @there
+        jsr     RX_RESTORE
+        bra     @erased
+@there: ldx     #11                     ; the rename's FCB: NAME.$$$, then NAME.TYP at +16
 @n:     lda     fcb,x
         sta     rfcb,x
         lda     final,x

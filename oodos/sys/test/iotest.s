@@ -5,6 +5,7 @@
 ;   C       a byte by 1: "Cxx"
 ;   R, W    6 with $FF, $FD: "Rxx", "Wxx"
 ;   S, T    11, 6 with $FE: "Sxx", "Txx"
+;   Q, U    11, 6 with $FE, twice with no call between: "Qxxyy", "Uxxyy"
 ;   Mh      the console mode's high byte (bits 8 and 9) made h (a digit), by 109
 ;   2c      c by 2; 6c by 6; 5c by 5 (LST:)
 ;   9       "nine" by 9; B "block" by 111; X "list" by 112
@@ -38,6 +39,10 @@ next:   jsr     nextc
         jeq     stat
         cmp     #'T'
         jeq     rawfe
+        cmp     #'Q'
+        jeq     stat2
+        cmp     #'U'
+        jeq     rawfe2
         cmp     #'M'
         jeq     cmode
         cmp     #'2'
@@ -113,6 +118,30 @@ said:   jsr     PUTC
         jsr     HEX2
         jmp     blank
 
+stat2:  ldy     #C_STAT
+        jsr     BDOS
+        sta     two
+        ldy     #C_STAT
+        jsr     BDOS
+        pha
+        lda     #'Q'
+        bra     said2
+rawfe2: lda     #$FE
+        ldy     #C_RAWIO
+        jsr     BDOS
+        sta     two
+        lda     #$FE
+        ldy     #C_RAWIO
+        jsr     BDOS
+        pha
+        lda     #'U'
+said2:  jsr     PUTC
+        lda     two
+        jsr     HEX2
+        pla
+        jsr     HEX2
+        jmp     blank
+
 cmode:  jsr     nextc
         sec
         sbc     #'0'
@@ -183,4 +212,5 @@ lcb:    .word   slist, 4
 
         .bss
 at:     .res    1
+two:    .res    1
 buf:    .res    24
