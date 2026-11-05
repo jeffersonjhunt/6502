@@ -19,8 +19,11 @@ const check = (name, ok, detail = "") => {
 const show = (s) => JSON.stringify(s.slice(-200));
 const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, "0");
 
-if (process.argv.length !== 3) {
-  console.error("usage: node boot.mjs <oo1.mjs>");
+// argv[2] is the module; after that only `--bench [cycles]` is allowed.
+const rest = process.argv.slice(3);
+const bench = rest[0] === "--bench";
+if (rest.length > (bench ? 2 : 0) || (bench && rest.length === 1)) {
+  console.error("usage: node boot.mjs <oo1.mjs> [--bench [cycles]]");
   process.exit(2);
 }
 const { default: createOO1 } = await import(pathToFileURL(process.argv[2]).href);
@@ -164,6 +167,42 @@ const secs = (performance.now() - t0) / 1000;
 const mhz = ran / secs / 1e6;
 console.log(`speed: ${mhz.toFixed(1)} MHz emulated; real time at 7.16 MHz takes ${(100 * secs).toFixed(0)}% of a core`);
 check("speed: at least real time", mhz > 7.16, `${mhz.toFixed(2)} MHz`);
+
+// --bench [cycles]: run the machine long enough to steady the clock and
+// report a performance baseline (docs/WASM_OPTIMIZATION_PLAN.md, Phase 0).
+// `cycles` is the budget per trial, in bus cycles; the default 100 M is
+// ~14 s of machine time at 7.16 MHz. This `m` is still at the Woz prompt and
+// flat out; the USB demo below keeps going on it.
+if (bench) {
+  const cyclesArg = rest[1];
+  const cycles = Number.isFinite(Number(cyclesArg)) && Number(cyclesArg) > 0 ? Number(cyclesArg) : 100e6;
+  const trials = 3;
+  m.setClock(0); // flat out: the host's speed, not a paced one
+  let best = 0;
+  for (let t = 0; t < trials; ++t) {
+    const start = m.cycles();
+    const t0 = performance.now();
+    let ran = 0;
+    for (;;) {
+      const why = m.run(50000); // slices, as the browser's driver does
+      ran += m.lastCycles();
+      if (why !== 0 || !ran || m.cycles() - start >= cycles) break;
+    }
+    const secs = (performance.now() - t0) / 1000;
+    const mhz = ran / secs / 1e6;
+    const pct = 100 * secs / (ran / 7.15909e6); // % of one core at the 7.16 MHz real-time
+    if (mhz > best) best = mhz;
+    console.log(`bench: trial ${t + 1}: ${ran} cycles in ${secs.toFixed(2)} s -> ${mhz.toFixed(1)} MHz emulated (${pct.toFixed(0)}% of one core)`);
+  }
+  console.log(`bench: best of ${trials} trials: ${best.toFixed(1)} MHz emulated; one core takes ${((cycles / (best * 1e6)) / (cycles / 7.15909e6)).toFixed(0)}% of a core`);
+  if (typeof m.profile === "function") {
+    const p = m.profile(); // {route, find, device, catchUp, wait, total}
+    const pc = (n) => p.total ? `${(100 * n / p.total).toFixed(1)}%` : "0%";
+    console.log(`profile: ${p.total} bus cycles: route ${pc(p.route)} | find ${pc(p.find)} | device ${pc(p.device)} | catchUp(timed) ${pc(p.catchUp)} | wait ${pc(p.wait)}`);
+  } else {
+    console.log("profile: not built with EMU_PROFILE");
+  }
+}
 
 // The USB keyboard: HID usages in, the monitor answers on the serial line.
 check("usb: the backplane has its card", m.hasUsb());

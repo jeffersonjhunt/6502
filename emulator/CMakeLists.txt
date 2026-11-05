@@ -21,6 +21,7 @@ endif()
 
 option(EMU_SANITIZE "Build with ASan/UBSan" OFF)
 option(EMU_TRACE "Compile in per-instruction and per-access tracing (EMU_LOGV)" OFF)
+option(EMU_PROFILE "Account bus cycles by stage for a performance baseline (bus_profile.h)" OFF)
 option(EMU_BUILD_TESTS "Build the host tests" ON)
 
 if(EMU_SANITIZE AND NOT MSVC)
@@ -34,6 +35,9 @@ function(emu_house_flags target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror)
     if(EMU_TRACE)
         target_compile_definitions(${target} PRIVATE EMU_TRACE)
+    endif()
+    if(EMU_PROFILE)
+        target_compile_definitions(${target} PRIVATE EMU_PROFILE)
     endif()
 endfunction()
 

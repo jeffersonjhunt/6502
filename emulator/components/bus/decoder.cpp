@@ -27,8 +27,26 @@ namespace ooe::emu
     } // namespace
 
     NorthBridge Decoder::default_bridge_{};
+    BusProfile *g_bus_profile = nullptr;
 
-    Decoder::Decoder(NorthBridge *bridge) : bridge_(bridge ? bridge : &default_bridge_) {}
+    Decoder::Decoder(NorthBridge *bridge) : bridge_(bridge ? bridge : &default_bridge_)
+    {
+        // The sink: the machine points it at this Decoder's counters (so a
+        // power cycle's new machine keeps the same total); null when nobody watches.
+        g_bus_profile = &profile_;
+    }
+
+    void Decoder::account(uint64_t cycles)
+    {
+        const uint64_t t = p_route_ + p_find_ + p_device_ + p_catch_ + p_wait_ + cycles;
+        profile_.route = p_route_;
+        profile_.find = p_find_;
+        profile_.device = p_device_;
+        profile_.catch_up = p_catch_;
+        profile_.wait = p_wait_;
+        profile_.total = t;
+        g_bus_profile = &profile_;
+    }
 
     void Decoder::set_bridge(NorthBridge *bridge) { bridge_ = bridge ? bridge : &default_bridge_; }
 
@@ -187,13 +205,19 @@ namespace ooe::emu
 
     const Mapping *Decoder::find(uint32_t where) const
     {
+        const Mapping *found = nullptr;
         for (auto it = mappings_.rbegin(); it != mappings_.rend(); ++it)
         {
             if (where >= it->first && where <= it->last)
-                return &*it;
+            {
+                found = &*it;
+                break;
+            }
         }
-        return nullptr;
+        ++p_find_;
+        return found;
     }
+
 
     uint32_t Decoder::physical(uint16_t addr, bool vector_pull) const
     {
@@ -216,8 +240,10 @@ namespace ooe::emu
         Slot &s = slots_[slot_of_[static_cast<size_t>(&m - mappings_.data())]];
         if (s.timed && s.synced + 1 < now_)
         {
+            const uint64_t before = s.synced;
             s.device->tick(now_ - 1 - s.synced);
             s.synced = now_ - 1;
+            p_catch_ += s.synced - before; // the timed cycles this tick covered
         }
     }
 
@@ -226,6 +252,7 @@ namespace ooe::emu
         granting_ = 0;
         const unsigned stolen = master_ ? master_->take_bus(*this) : 0; // RDY: the master goes first
         last_granted_ = granting_;
+        ++p_route_;
         r = route(addr, vector_pull_, write);
         const Mapping *m = find(r.where);
         unsigned waits = 0;
@@ -235,6 +262,10 @@ namespace ooe::emu
         last_wait_ = stolen + waits;
         last_stolen_ = stolen;
         last_ = Access{lines(r.where), m ? m->module : NO_MODULE};
+        ++p_device_;
+        p_wait_ += waits;
+        if (p_route_ + p_find_ + p_device_ + p_catch_ + p_wait_ >= 64'000)
+            account(p_route_ + p_find_ + p_device_ + p_catch_ + p_wait_);
         return m;
     }
 

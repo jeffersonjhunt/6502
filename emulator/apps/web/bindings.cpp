@@ -177,6 +177,12 @@ namespace
         unsigned frame, frame_en, raster; ///< $DE03 FRAME, $DE04 FRAMEEN, the raster line
     };
 
+    /// The bus profile, by stage (bus_profile.h); doubles, so a big total is exact.
+    struct Profile
+    {
+        double route{0}, find{0}, device{0}, catch_up{0}, wait{0}, total{0};
+    };
+
     /// `Machine` in JavaScript (ooe::emu::Machine is the description).
     class WebMachine
     {
@@ -560,6 +566,17 @@ namespace
             return val(emscripten::typed_memory_view(packed_.size(), packed_.data()));
         }
 
+        /// The bus cycles this machine's accesses have spent, by stage
+        /// (bus_profile.h): route, find, device, catchUp (timed devices),
+        /// wait (held bus cycles), total. A performance baseline, Phase 0
+        /// of docs/WASM_OPTIMIZATION_PLAN.md; not a bus cycle itself.
+        Profile profile()
+        {
+            const BusProfile &p = session_->profile();
+            return Profile{static_cast<double>(p.route), static_cast<double>(p.find), static_cast<double>(p.device),
+                           static_cast<double>(p.catch_up), static_cast<double>(p.wait), static_cast<double>(p.total)};
+        }
+
     private:
         std::unique_ptr<Session> session_;
         std::string error_;
@@ -585,6 +602,13 @@ EMSCRIPTEN_BINDINGS(oo1)
         .field("y", &Regs::y)
         .field("s", &Regs::s)
         .field("p", &Regs::p);
+    value_object<Profile>("Profile")
+        .field("route", &Profile::route)
+        .field("find", &Profile::find)
+        .field("device", &Profile::device)
+        .field("catchUp", &Profile::catch_up)
+        .field("wait", &Profile::wait)
+        .field("total", &Profile::total);
     value_object<SidInfo>("SidInfo")
         .field("has", &SidInfo::has)
         .field("name", &SidInfo::name)
@@ -693,5 +717,9 @@ EMSCRIPTEN_BINDINGS(oo1)
         .function("usbMouseButtons", &WebMachine::usb_mouse_buttons)
         .function("usbMouseWheel", &WebMachine::usb_mouse_wheel)
         .function("setTrace", &WebMachine::set_trace)
-        .function("trace", &WebMachine::trace);
+        .function("trace", &WebMachine::trace)
+#ifdef EMU_PROFILE
+        .function("profile", &WebMachine::profile)
+#endif
+;
 }

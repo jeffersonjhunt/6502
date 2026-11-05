@@ -198,6 +198,9 @@ namespace ooe::emu
         uint32_t physical(uint16_t addr) const { return machine_->bus().physical(addr); }
         /// "C800", "$C800" or a label (a label wins over hex; `$` forces hex).
         bool resolve(const std::string &text, uint16_t &addr) const;
+        /// The bus cycles this machine's accesses have spent, by stage
+        /// (bus_profile.h): a performance baseline, not a bus cycle.
+        const BusProfile &profile() const { return machine_->bus().profile(); }
         const Symbols &symbols() const { return symbols_; }
         const std::string &machine_name() const { return config_.machine; }
 

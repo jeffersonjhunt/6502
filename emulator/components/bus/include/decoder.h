@@ -75,6 +75,7 @@
 
 #include "bus.h"
 #include "bus_cycle.h"
+#include "bus_profile.h"
 #include "device.h"
 
 namespace ooe::emu
@@ -245,6 +246,10 @@ namespace ooe::emu
         /// flash; in the I/O hole, the CPU address itself.
         uint32_t physical(uint16_t addr, bool vector_pull = false) const;
 
+        /// This Decoder's own profile: the cycles its accesses have spent,
+        /// by stage (docs/WASM_OPTIMIZATION_PLAN.md). Reads a stable total,
+        /// not the running counters.
+        const BusProfile &profile() const { return profile_; }
         /// The mapping a CPU address decodes to, or nullptr.
         const Mapping *decode(uint16_t addr, bool vector_pull = false) const;
         /// Module ID a CPU address selects (for the console and bus traces).
@@ -272,6 +277,9 @@ namespace ooe::emu
         };
 
         void reset_cards();
+        /// Write this Decoder's running stage counters into profile_ (the
+        /// stable total the world reads), keeping the sink pointed at it.
+        void account(uint64_t total);
         const Mapping *find(uint32_t where) const;
         /// The offset a bus address is at in mapping `m`'s device, mirrored into its size().
         uint32_t device_offset(const Mapping &m, uint32_t where) const;
@@ -303,5 +311,12 @@ namespace ooe::emu
         std::vector<size_t> timed_;       ///< slots of timed devices
         std::vector<Device *> irq_wired_; ///< distinct devices with an IRQ wire
         uint64_t now_{0};
+
+        // Performance profiling (bus_profile.h): the cycles this Decoder's
+        // accesses have spent, by stage. profile_ is the stable total the
+        // world reads; the rest are its running counters. Mutable: find() and
+        // peek() are const and still account.
+        mutable BusProfile profile_{};
+        mutable uint64_t p_route_{0}, p_find_{0}, p_device_{0}, p_catch_{0}, p_wait_{0};
     };
 } // namespace ooe::emu
