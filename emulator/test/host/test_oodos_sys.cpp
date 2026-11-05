@@ -1169,6 +1169,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"ZEROFILL", "00 Y"},          // a block taken again is zeroed
         {"FREE98", "000340 000370"},   // 3 blocks held by a file not closed, freed by 98
         {"TRUNC", "00 00"},
+        {"TRBIT", "54"},               // archived, then truncated: t3' cleared (ours: the file changed)
         {"SIZE", "000064"},
         {"R99", "00Y R100 01"},
         {"TRUNCFREE", "Y"},            // 12 of its 19 blocks freed

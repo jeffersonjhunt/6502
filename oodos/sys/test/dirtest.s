@@ -40,6 +40,8 @@
 ;   FREE98 xxxxxx xxxxxx  free with 40 records written, not closed; and
 ;                         after function 98
 ;   TRUNC aa xx SIZE xxxxxx R99 aa R100 aa TRUNCFREE Y|N
+;   TRBIT hh              TR.DAT archived before: its entry's byte 11 after
+;                         the truncate (t3' cleared, ours)
 ;   TRUNCBIG / TRUNCWILD aa xx   past the end: FF 00; '?': FF 09
 ;   ROMAKE aa xx          M: read-only by 28: FF 02
 ;   ROVEC aa xx / ROWRITE aa xx  A/X the vector; a write: FF 02
@@ -513,9 +515,18 @@ dirfull:
         jsr     writen
         CALLF   F_CLOSE, fcb
         NAME    fcb, "TR      DAT"
+        lda     fcb+11
+        ora     #$80                    ; t3'
+        sta     fcb+11
+        CALLF   F_ATTRIB, fcb
+        NAME    fcb, "TR      DAT"
         lda     #99
         sta     fcb+33
         TRY     "TRUNC ", F_TRUNCATE, fcb
+        SAY     "TRBIT "
+        NAME    sfcb, "TR      DAT"
+        jsr     bit11
+        jsr     CRLF
         NAME    fcb, "TR      DAT"
         CALLF   F_SIZE, fcb
         SAY     "SIZE "
@@ -734,9 +745,9 @@ entryat:
         sta     PTR+1
         rts
 
-; AR.TXT's entry's byte 11 (t3' in bit 7), by 17.
+; AR.TXT's entry's byte 11 (t3' in bit 7), by 17; bit11: sfcb's.
 arbit:  NAME    sfcb, "AR      TXT"
-        CALLF   F_SFIRST, sfcb
+bit11:  CALLF   F_SFIRST, sfcb
         jsr     entryat
         ldy     #11
         lda     (PTR),y
