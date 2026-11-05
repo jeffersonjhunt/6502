@@ -74,7 +74,8 @@ it:
 
 - **Letters are capitals:** the command line is taken in capitals, so `readme.txt` is `README.TXT`.
 - **Not in a name:** blanks, tabs, control characters, and `; = < > . : , | [ ]`, which separate names and options
-  on a command line. Nor characters past `$7E`.
+  on a command line. Nor characters past `$7E`. Letters and digits are safest: `*` and `?` are wildcards, `!`
+  separates commands, and some commands give other marks a meaning of their own.
 - **A password** is up to 8 characters (below).
 
 ## Wildcards

@@ -59,8 +59,8 @@ For a drive:
 
 And with neither:
 
-- **DEFAULT=pw:** the default password, tried for any file that is given none. Nothing is written to a disk; it
-  lasts until it is changed or OODOS starts again.
+- **DEFAULT=pw:** the default password, tried for any file that is given no password or a wrong one. Nothing is
+  written to a disk; it lasts until it is changed or OODOS starts again.
 
 Everything is checked before anything changes. A drive's options are done in the order DEFAULT, RW, the label's
 options in the order given, then RO; a file's attributes before its password and mode.
@@ -128,12 +128,9 @@ OODOS 0.2
 
 - The lines SET writes for each change are OODOS's own, and the password is never shown.
 - A file given a password and no mode is protected for READ only if it had no mode before.
-- A label made by SET without NAME is called `LABEL`.
-- The label's password is asked for only when the label has one.
 - An unknown option is `Invalid option`.
 - SET refuses a file's password or mode while the drive's protection is off, rather than setting one that would
   not be enforced.
-- `DEFAULT=` is SET's own way to function 106's default password; it writes nothing.
 
 #### Examples
 
@@ -260,8 +257,6 @@ OODOS 0.2
   DRIVE's numbers with commas in 7.
 - USERS counts system files too.
 - A label with no type is shown as its name alone, without a dot.
-- DRIVE's sectors a track are 128-byte records, as the drive's parameter block counts them, not the card's
-  sectors.
 
 #### Examples
 
@@ -350,7 +345,7 @@ OODOS 0.2
 
 #### CP/M 3
 
-- The drive must be given.
+- A missing or bad drive is `Invalid drive.`
 - Giving the room back also turns the label's stamps off, so the label never asks for stamps the drive can't
   keep.
 - Clearing the stamps keeps the password modes stored beside them.
@@ -437,9 +432,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-- The year is 2000 to 2099: OODOS's clock starts at 2000.
-- `CONTINUOUS` may be shortened to any start of it, and the key that ends it is taken.
-- Setting the clock keeps the seconds typed; the key starts the clock on them.
+- The two-digit year is 2000 to 2099, where CP/M 3 counts it from 1900: OODOS's clock starts at 2000.
+- `CONTINUOUS` may be shortened to any start of it, not only to `C`, and the key that ends it is taken.
 - `No clock` is OODOS's.
 
 #### Examples
@@ -702,7 +696,7 @@ PIP dest-filespec{[Gn]}=device{[options]}
 - **A file as the destination:** the sources are joined in order. A drive as the only source takes the
   destination's name (`X.TXT=B:`).
 - **A file's password** goes after a `;`. Given on a source, it opens the file; given on the destination, the copy
-  gets it in READ mode.
+  gets it in READ mode. A copy to a drive alone gets the source's password and mode, when the source's was given.
 - **The devices:** `CON:` (the console), `AUX:` (the serial line), `LST:` (the printer), `PRN:` (the printer, with
   tabs every eighth column, line numbers and a new page every 60 lines), and two sources: `NUL:` (64 zero bytes)
   and `EOF:` (one ^Z). `DEVICE` says where `CON:`, `AUX:` and `LST:` go.
@@ -724,7 +718,7 @@ number straight after its letter:
 - **L** and **U** make letters lower or upper case.
 - **N** numbers each line (`     1: `); **N2** with zeros and a tab (`000001`).
 - **O** an object file: no ^Z ends it.
-- **Pn** a form feed at the start and every n lines (P alone: 60).
+- **Pn** a form feed at the start and every n lines (P alone, P0 or P1: 60).
 - **Qs^Z** stops after the text s; **Ss^Z** starts at the text s (both are kept).
 - **R** copies SYS files too.
 - **Tn** expands tabs to every nth column.
@@ -774,7 +768,10 @@ OODOS 0.2
 #### CP/M 3
 
 - The banner is OODOS's.
+- A file copied alone keeps its source's RO, SYS and F1-F4, as in CP/M 3, but its archive bit is clear, so it is
+  backed up again; a joined file takes no attributes.
 - H's error asks for no correction: the copy stops.
+- `D0` and `T0` are refused.
 - A wildcard destination other than `*.*` is refused, and so is a wildcard source joined to a file.
 - The text after S and Q is in capitals when typed on the `A>` line, as every command line is. At PIP's `*` it
   stays as typed.

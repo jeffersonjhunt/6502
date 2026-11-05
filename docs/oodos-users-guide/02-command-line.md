@@ -48,7 +48,9 @@ The cursor can go anywhere in the line, and what is typed goes in at the cursor.
 | Return, ^J | the line ended |
 | ^C | in an empty line: the warm boot (below); else a character, shown `^C` |
 
-Each line ended with Return becomes the previous line, for ^W. Any other control character goes into the line as
+Each line ended with Return becomes the previous line, for ^W. These are the banked CP/M 3's keys, with two
+differences: ^R and ^U leave no mark on the row they leave, and ^C is the warm boot only in an empty line, not in
+one the cursor has merely been moved to the start of. Any other control character goes into the line as
 it is and is shown as `^` and its letter: a tab is shown `^I`.
 
 The line is shown on rows as wide as the console (80 columns), never writing the last column. A line longer than a
@@ -82,9 +84,9 @@ before it.
 The keyword runs to the first blank or tab. The CCP takes it as one of these, in order:
 
 1. **A built-in command,** by its name alone, with no drive and no type: `DIR`, `DIRSYS` (`DIRS`), `ERASE` (`ERA`),
-   `RENAME` (`REN`), `TYPE` (`TYP`), `USER` (`USE`), `GO`, and ours, `CLEAR`, `CLS`, `WOZMON`, `APPLE2`. The CCP
-   runs them itself ([chapter 4](04-built-in-commands.md)), from any drive and user. DIR, DIRSYS, ERASE, RENAME and
-   TYPE hand the forms they can't do to their utility, `DIR.COM` and the rest.
+   `RENAME` (`REN`), `TYPE` (`TYP`), `USER` (`USE`), as in CP/M 3, and ours, `GO`, `CLEAR`, `CLS`, `WOZMON`,
+   `APPLE2`. The CCP runs them itself ([chapter 4](04-built-in-commands.md)), from any drive and user. DIR, DIRSYS,
+   ERASE, RENAME and TYPE hand the forms they can't do to their utility, `DIR.COM` and the rest.
 2. **A drive change:** `B:`, or a user number and a drive, `5B:` ([chapter 3](03-drives-and-files.md#drives)).
    Nothing may follow it.
 3. **A program:** `{d:}NAME{.COM}{;password}`, the file `NAME.COM`. A password is needed only for a protected

@@ -1,7 +1,7 @@
 # 4 Built-in commands
 
-The commands the CCP runs itself: DIR, DIRSYS, ERASE, RENAME, TYPE, USER and GO, and our CLEAR, CLS, WOZMON and
-APPLE2. A built-in and the utility of the same name share one entry here, with the forms the utility adds.
+The commands the CCP runs itself: CP/M 3's DIR, DIRSYS, ERASE, RENAME, TYPE and USER, and our GO, CLEAR, CLS,
+WOZMON and APPLE2. A built-in and the utility of the same name share one entry here, with the forms the utility adds.
 
 The design record, for the reasons: [hw/oodos.md, "The CCP, phase 4"](../../hw/oodos.md#the-ccp-phase-4).
 
@@ -59,7 +59,8 @@ DIR.COM's. With an option list the listing is FULL unless SIZE or DATE is given.
 - **DRIVE=d**, **DRIVE=(d,d,...)**, **DRIVE=ALL** (or **DISK=**) the drives to list; ALL is every drive in use
   since the last reset, A: to P:. `*` is the current drive.
 - **EXCLUDE** the files that match none of the names given.
-- **FF** a form feed to the printer first, with the printer echo on (^P), and at every `LENGTH=` lines.
+- **FF** a form feed to the printer first, with the printer echo on (^P), and at every `LENGTH=` lines. Without
+  `LENGTH=`, FF also turns the screen's paging off.
 - **FULL** the full listing (below).
 - **LENGTH=n** the column heading again every n lines, 5 to 65535.
 - **MESSAGE** each drive and user searched named, with `No File` when nothing is found there.
@@ -136,7 +137,8 @@ OODOS 0.2
 - The built-in lists in the directory's order; DIR.COM sorts, unless NOSORT, its short form too.
 - The names a line are the console width / 15: five at 80 columns.
 - DATE's layout is ours: the name and the two stamps.
-- DRIVE=ALL is the drives in use since the last reset.
+- DRIVE=ALL is every drive logged in since the last reset, as CP/M 3's option table says; its guide's example
+  speaks of the search chain instead, which OODOS doesn't follow.
 - `Illegal Format Value.` for FULL with SIZE, or DATE with either.
 - A drive and DIR (`A:DIR`) runs DIR.COM; `DIR.COM required` names the file.
 
@@ -206,7 +208,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-DIRSYS's forms with options, and with several names, are DIR.COM's with SYS added; DIR.COM's options apply.
+CP/M 3's DIRSYS takes a drive or one name only. The forms with options or several names are ours: DIR.COM with
+SYS added, so DIR.COM's options apply.
 
 ## ERASE
 
@@ -425,7 +428,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-Anything but a number from 0 to 15 is the command and `?`. A user can also be given with a drive change, `5B:`.
+Anything but a number from 0 to 15 is the command and `?`. A user given with a drive change, `5B:`, is as in
+CP/M 3.
 
 ## GO
 

@@ -98,8 +98,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers: the key comes back in A with X 0. A ^C that doesn't follow a ^S is returned as a
-key, and doesn't end the program (ours: hw/oodos.md, "The BDOS, phase 3", 3b2).
+The same, but for the registers: the key comes back in A with X 0. As in CP/M 3, a ^C is an ordinary key here
+unless it follows a ^S.
 
 <a id="bdos-2"></a>
 ### 2 C_WRITE: write a character to the console
@@ -982,7 +982,9 @@ OODOS 0.2
 #### CP/M 3
 
 The same, but for the registers and the DMA segment. With a multi-sector count, the whole buffer is checked before
-the first record moves, and a call whose buffer isn't all memory reads nothing (ours).
+the first record moves, and a call whose buffer isn't all memory reads nothing (ours). OODOS never returns CP/M 3's
+code 9 (an FCB a failed close made invalid) or 10 (the disk changed since the open): a swapped card image is
+handled when the units are read again ([function 13](#bdos-13)).
 
 <a id="bdos-21"></a>
 ### 21 F_WRITE: write the next record
@@ -1035,9 +1037,16 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers and the DMA segment, and three choices of ours: a new block is the lowest free
-one, not the nearest to the file's last; it is zeroed, where CP/M 3 leaves its other records undefined; and a
-multi-sector buffer is checked whole before the first record.
+The same, but for the registers and the DMA segment, and choices of ours:
+
+- a new block is the lowest free one, and is zeroed, where CP/M 3 leaves the records of it not yet written as they
+  happen to be;
+- a multi-sector buffer is checked whole before the first record;
+- the update is stamped when the extent is closed ([function 16](#bdos-16)), where CP/M 3 stamps it at the first
+  write, so a file written and never closed has no new update stamp;
+- a write leaves the archive attribute (t3') as it is, where CP/M 3's BDOS clears it
+  ([chapter 3](03-file-system.md#file-attributes));
+- codes 9 and 10 aren't returned, as for [function 20](#bdos-20).
 
 <a id="bdos-22"></a>
 ### 22 F_MAKE: make a file
@@ -1084,8 +1093,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers. Ours where CP/M 3 is silent: the password mode is byte 8's bits 7–5, and a make
-with f6' that can't have both entries makes neither.
+The same, but for the registers. Ours where CP/M 3 is silent: only bits 7–5 of the mode byte (the DMA buffer's
+byte 8, where CP/M 3 has it too) count, and a make with f6' that can't have both entries makes neither.
 
 <a id="bdos-23"></a>
 ### 23 F_RENAME: rename a file
@@ -1529,7 +1538,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers and the DMA segment, and the whole buffer checked first, as 20.
+The same, but for the registers and the DMA segment, and the whole buffer checked first, as 20. Code 10 isn't
+returned, as for [function 20](#bdos-20).
 
 <a id="bdos-34"></a>
 ### 34 F_WRITERAND: write a random record
@@ -1575,8 +1585,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers and the DMA segment; a new block is zeroed and the lowest free one, as
-[function 21](#bdos-21)'s.
+The same, but for the registers and the DMA segment; a new block is zeroed and the lowest free one, the update
+is stamped at the close, t3' isn't cleared, and code 10 isn't returned, all as for [function 21](#bdos-21).
 
 <a id="bdos-35"></a>
 ### 35 F_SIZE: a file's size
@@ -2848,7 +2858,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, with the FCB at A/X. The delete mode is bit 5 of byte 12, as the XFCB holds it.
+The same, with the FCB at A/X. CP/M 3's description of this function puts the delete mode at bit 4, and its
+function 103's at bit 5; OODOS uses bit 5 for both, as the XFCB holds it.
 
 <a id="bdos-103"></a>
 ### 103 F_WRITEXFCB: set a file's password and mode

@@ -66,8 +66,9 @@ f1' is bit 7 of byte 1, t1' bit 7 of byte 9. The rest of each byte is the charac
 | t3' | the directory | archive: set once the file has been backed up |
 
 Function 30 sets f1'–f4' and t1'–t3' on every extent of a file, from the FCB, and clears f5'–f8' there; Open copies
-the directory's attributes into the FCB. Make (22) clears them all, on the disk and in the FCB. OODOS's BDOS leaves
-t3' alone when a file is written: SET and PIP's A option set it.
+the directory's attributes into the FCB. Make (22) clears them all, on the disk and in the FCB. SET and PIP's A option
+set t3'. Unlike CP/M 3, whose BDOS clears t3' on an entry a file is written through, OODOS's leaves it as it is, so
+a file changed after a backup still has it set.
 
 With f6', function 30 also puts the FCB's CR into the entry's byte count (S1), the bytes used in the file's last
 record; Open with CR `$FF` gives it back in CR.

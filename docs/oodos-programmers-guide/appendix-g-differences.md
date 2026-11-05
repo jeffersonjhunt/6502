@@ -61,8 +61,9 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
 
 ## Functions OODOS hasn't
 
-38, 39 and 41 (MP/M's, nor in CP/M 3), and every number no Digital Research system gives a meaning. Each returns
-A = X = `$FF`. 59 and 60 do too, until phase 5.
+38, 39 and 41, MP/M's drive access and test-and-write, and every number no Digital Research system gives a meaning.
+Each returns A = X = `$FF`. CP/M 3 answers 38 and 39 with success (A = 0) and 41 with `$FF`, so a program that
+calls 38 or 39 and checks A sees a failure on OODOS. 59 and 60 return `$FF` too, until phase 5.
 
 ## Each function
 
@@ -77,8 +78,8 @@ Beyond the registers, which change for every function as above:
 | 11 | `C_STAT` | in ^C-only mode other keys are dropped and the ^C kept for the next input |
 | 13 | `DRV_ALLRESET` | the DMA address goes back to `$0280`; the card's units are read again first, so a swapped image loses its unwritten buffers |
 | 19 | `F_DELETE` | a password is checked after every other reason to refuse |
-| 20, 33 | `F_READ`, `F_READRAND` | the DMA segment; a multi-sector buffer is checked whole first, and a call whose buffer isn't all memory moves nothing |
-| 21, 34 | `F_WRITE`, `F_WRITERAND` | the DMA segment; a new block is the lowest free one, and zeroed |
+| 20, 33 | `F_READ`, `F_READRAND` | the DMA segment; a multi-sector buffer is checked whole first, and a call whose buffer isn't all memory moves nothing; codes 9 (20) and 10 are never returned |
+| 21, 34 | `F_WRITE`, `F_WRITERAND` | the DMA segment; a new block is the lowest free one, and zeroed; the update is stamped at the close, not the first write; t3' isn't cleared; codes 9 (21) and 10 are never returned |
 | 22 | `F_MAKE` | the password mode is byte 8's bits 7-5; a make that can't have both its entries makes neither |
 | 23 | `F_RENAME` | File Exists is checked before the old name is looked for |
 | 27 | `DRV_ALLOCVEC` | returns `$FFFF`: the vectors are in the system's memory. Function 46 gives the free space |
