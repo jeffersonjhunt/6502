@@ -2420,11 +2420,11 @@ and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
   loader checks offsets 6 and 9 are `JMP`s and the non-banked flag, and the rest is the build's.
 - **Measured** (`test_oodos_rsx`): `JSR $0203` to the BDOS's first instruction is 130 cycles with no RSX (126
   before the door's `CPY`), 165 through one pass-through RSX, 240 through three.
-- **Tests:** `test_oodos_rsx`, 18 cases (the plan's list above), with five test RSXs
+- **Tests:** `test_oodos_rsx`, 21 cases (the plan's list above, and the review's fixes), with five test RSXs
   (`oodos/sys/test/trsx.inc`), RSXQ (a program that does what its tail says) built plain and with RSXs by
   gencom.py, OVLT (59 by a program) and two overlays. `check_tools.py` gains rsx.cfg's links, the prefix's
-  refusals and gencom.py's table, replace, strip, `[NULL]`, SCB entries and limits (PASS 117). Each check was seen
-  to fail on a fault put in on purpose: 28 in the system (each failing the case it should), 8 in the tools; two
+  refusals and gencom.py's table, replace, strip, `[NULL]`, SCB entries and limits (PASS 119). Each check was seen
+  to fail on a fault put in on purpose: 33 in the system (each failing the case it should), 10 in the tools; two
   that passed at first (the RSX-only exception at a ^C's warm boot, the table's non-banked flag alone) got cases
   of their own. One check changed: an RSX without its prefix, which mkprl.py made before, is now refused.
 
