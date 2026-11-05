@@ -2338,7 +2338,7 @@ built, and these are the details):
   tested while GET waits with its file open and while PUT's file is being written.
 - **`Insufficient Memory`** in the CCP: 59's X = 0 and GO's image too big (test_oodos_sys's two GO cases and
   test_oodos_rsx's four changed with decision 3).
-- **Tests:** `test_oodos_utils_rsx`, 14 cases on IOTEST (`oodos/sys/test/iotest.s`): GET's forms and options, its
+- **Tests:** `test_oodos_utils_rsx`, 17 cases on IOTEST (`oodos/sys/test/iotest.s`): GET's forms and options, its
   file to a ^Z, the four status modes, SYSTEM and GET CONSOLE, a GET in a GET file, its refusals and no idle RSX
   left; PUT's built-in and program output, NO ECHO's `PUT>`, FILTER, the printer, SYSTEM across programs, both
   questions, a file erased, its refusals; the program's state across both RSXs' file calls; GENCOM.COM's every

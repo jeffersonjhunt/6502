@@ -983,7 +983,8 @@ PUT PRINTER {OUTPUT TO} PRINTER
 - With a PUT of the same kind already writing to a file: `Do you want another file? (Y/N)`. Y: both files get the
   output; N: the first file is closed, and the new one takes over.
 - A second PUT command isn't "the next command" for a PUT given just before it: that one waits for the command
-  after, so neither file gets the second PUT's own words.
+  after, so neither file gets the second PUT's own words. This holds for either kind: a PRINTER PUT given just
+  before a CONSOLE PUT command waits past it too.
 - GET's echo of what it reads (with ECHO) goes into the file of a PUT given before the GET, not of one given after
   it.
 - The words are typed in full.

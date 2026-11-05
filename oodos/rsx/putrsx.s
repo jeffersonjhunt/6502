@@ -7,10 +7,11 @@
 ; drive byte and 11); the user, then the flags (bit 0 ECHO, bit 1 FILTER, bit
 ; 2 SYSTEM, bit 3 beside another PUT of its kind: every call passed on after
 ; it is written); the kind (0 console: 2, 6's output, 9, 111; 1 printer: 5,
-; 112). Armed, it waits for the next command (the first start, $19 bit 6 set,
-; whose count isn't PUT.COM's) and serves it to its end (bit 6 clear); with
-; SYSTEM it serves at once, until RXF_PUTSTOP of its kind. RXF_PUTASK: A = 0
-; if it is a PUT of the kind given, still sending output to a file.
+; 112). Armed, it waits for the next command (the first start, $19 bit 6
+; set; a PUT command re-arms it, RXF_PUTCMD) and serves it to its end (bit 6
+; clear); with SYSTEM it serves at once, until RXF_PUTSTOP of its kind.
+; RXF_PUTASK: A = 0 if it is a PUT of the kind given, still sending output
+; to a file.
 ; RXF_PUTCMD (PUT.COM, first): a PUT command isn't the next command for a PUT
 ; armed before it: one made active by its start is armed again, what it took
 ; (the CCP's owed LF) dropped, and waits for the command after; every RSX sees
