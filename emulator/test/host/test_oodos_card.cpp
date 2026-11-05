@@ -977,12 +977,12 @@ TEST(pip_on_a_copies_joins_and_changes_files_and_the_card_is_saved_for_interop_s
 
 TEST(gencom_and_put_on_a_and_the_card_is_saved_for_interop_sh)
 {
-    // Phase 5b, from the card's A:, on A: itself: PIP copies HELLO.COM to H2.COM, GENCOM gives H2.COM two SCB
+    // Phase 5b, from the card's A:, on A: itself: PIP copies HELLO.COM (SYS: [R]) to H2.COM, GENCOM gives H2.COM two SCB
     // entries, PUT sends TYPE README.TXT's output to PUTOUT.TXT; checked here and, with OODOS_RSX_OUT, by
     // interop.sh --rsx with cpmtools (H2.COM against gencom.py's, PUTOUT.TXT's text, no NAME.$$$ left).
     Rig r;
     REQUIRE(mount_a(r));
-    const std::string said = ccp_on_the_oo1(r, {"pip h2.com=hello.com", "gencom h2 [scb=(34,02),(06,5a)]",
+    const std::string said = ccp_on_the_oo1(r, {"pip h2.com=hello.com[r]", "gencom h2 [scb=(34,02),(06,5a)]",
                                                 "put console output to file putout.txt", "type readme.txt",
                                                 "hello"});
     bool clean = true;
@@ -1018,8 +1018,8 @@ TEST(gencom_and_put_on_a_and_the_card_is_saved_for_interop_sh)
     const size_t t = (h2[14] | h2[15] << 8) * size_t{128};   // the attached table: two SCB entries
     CHECK(h2[12] == 2 && h2.size() == t + 128 && h2[t] == 0x34 && h2[t + 1] == 0x02 && h2[t + 2] == 2 &&
           h2[t + 16] == 0x06 && h2[t + 17] == 0x5A && h2[t + 18] == 2);
-    for (const char *t : {"PUTOUT  $$$", "H2      $$$"})
-        CHECK(entries_of(dir, 0, t).empty());
+    for (const char *tmp : {"PUTOUT  $$$", "H2      $$$"})
+        CHECK(entries_of(dir, 0, tmp).empty());
 }
 
 TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_interop_sh)
