@@ -2,83 +2,83 @@
  {
   "number": 0,
   "name": "P_TERMCPM",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-0",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 1,
   "name": "C_READ",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-1",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 2,
   "name": "C_WRITE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-2",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 3,
   "name": "A_READ",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-3",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 4,
   "name": "A_WRITE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-4",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 5,
   "name": "L_WRITE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-5",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 6,
   "name": "C_RAWIO",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-6",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 7,
   "name": "A_STATIN",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-7",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 8,
   "name": "A_STATOUT",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-8",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 9,
@@ -92,416 +92,416 @@
  {
   "number": 10,
   "name": "C_READSTR",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-10",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 11,
   "name": "C_STAT",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-11",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 12,
   "name": "S_BDOSVER",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-12",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 13,
   "name": "DRV_ALLRESET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-13",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 14,
   "name": "DRV_SET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-14",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 15,
   "name": "F_OPEN",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-15",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 16,
   "name": "F_CLOSE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-16",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 17,
   "name": "F_SFIRST",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-17",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 18,
   "name": "F_SNEXT",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-18",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 19,
   "name": "F_DELETE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-19",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 20,
   "name": "F_READ",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-20",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 21,
   "name": "F_WRITE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-21",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 22,
   "name": "F_MAKE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-22",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 23,
   "name": "F_RENAME",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-23",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 24,
   "name": "DRV_LOGINVEC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-24",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 25,
   "name": "DRV_GET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-25",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 26,
   "name": "F_DMAOFF",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-26",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 27,
   "name": "DRV_ALLOCVEC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-27",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 28,
   "name": "DRV_SETRO",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-28",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 29,
   "name": "DRV_ROVEC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-29",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 30,
   "name": "F_ATTRIB",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-30",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 31,
   "name": "DRV_DPB",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-31",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 32,
   "name": "F_USERNUM",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-32",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 33,
   "name": "F_READRAND",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-33",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 34,
   "name": "F_WRITERAND",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-34",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 35,
   "name": "F_SIZE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-35",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 36,
   "name": "F_RANDREC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-36",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 37,
   "name": "DRV_RESET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-37",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 40,
   "name": "F_WRITEZF",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-40",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 42,
   "name": "F_LOCK",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-42",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 43,
   "name": "F_UNLOCK",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-43",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 44,
   "name": "F_MULTISEC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-44",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 45,
   "name": "F_ERRMODE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-45",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 46,
   "name": "DRV_SPACE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-46",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 47,
   "name": "P_CHAIN",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-47",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 48,
   "name": "DRV_FLUSH",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-48",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 49,
   "name": "S_SCB",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-49",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 50,
   "name": "S_BIOS",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-50",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 51,
   "name": "F_DMASEG",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-51",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 52,
   "name": "F_DMAGET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-52",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 53,
   "name": "MC_MAX",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-53",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 54,
   "name": "MC_ABSMAX",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-54",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 55,
   "name": "MC_ALLOC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-55",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 56,
   "name": "MC_ABSALLOC",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-56",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 57,
   "name": "MC_FREE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-57",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 58,
   "name": "MC_ALLFREE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-58",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 59,
@@ -524,181 +524,181 @@
  {
   "number": 72,
   "name": "O_VERSION",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-72",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 73,
   "name": "O_PHYSADDR",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-73",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 74,
   "name": "O_MOUNT",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-74",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 75,
   "name": "O_ROM",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-75",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 98,
   "name": "DRV_FREE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-98",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 99,
   "name": "F_TRUNCATE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-99",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 100,
   "name": "DRV_SETLABEL",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-100",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 101,
   "name": "DRV_GETLABEL",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-101",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 102,
   "name": "F_TIMEDATE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-102",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 103,
   "name": "F_WRITEXFCB",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-103",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 104,
   "name": "T_SET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-104",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 105,
   "name": "T_GET",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-105",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 106,
   "name": "F_PASSWD",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-106",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 107,
   "name": "S_SERIAL",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-107",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 108,
   "name": "P_CODE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-108",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 109,
   "name": "C_MODE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-109",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 110,
   "name": "C_DELIMIT",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-110",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 111,
   "name": "C_WRITEBLK",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-111",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 112,
   "name": "L_WRITEBLK",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-112",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 152,
   "name": "F_PARSE",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-152",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  }
 ]
