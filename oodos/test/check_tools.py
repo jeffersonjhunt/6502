@@ -503,7 +503,9 @@ def gencom_checks(hello, rsx, tmp):
     ok(hs["rsxcount"] == 2 and scb[ts:ts + 3] == bytes([0x34, 0x03, 2]) and scb[ts + 16:ts + 19] == bytes([0x06, 0x5A, 2]),
        "gencom --scb: SCB entries (flags RT_SCB, the offset and value), one offset given again replaced")
     dup = gencom.gencom(com, [("ONE.RSX", rsx), ("ONE.RSX", rsx2)])
-    ok(mkprl.header(dup)["rsxcount"] == 1, "gencom: an RSX named twice taken once")
+    hd = mkprl.header(dup)
+    rd = dup[hd["rsxrec"] * 128] | dup[hd["rsxrec"] * 128 + 1] << 8
+    ok(hd["rsxcount"] == 1 and dup[rd * 128:rd * 128 + len(rsx)] == rsx, "gencom: an RSX named twice taken once, the first")
     many = [("R%02d.RSX" % i, rsx) for i in range(15)]
     ok(mkprl.header(gencom.gencom(com, many))["rsxcount"] == 15, "gencom: 15 entries")
     refused(lambda: gencom.gencom(com, many, [(0x10, 1)]), "gencom: a 16th entry", "room for 15")
