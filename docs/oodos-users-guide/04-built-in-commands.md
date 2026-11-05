@@ -462,7 +462,8 @@ What the program writes.
 #### Errors
 
 - `NO PROGRAM`: no OODOS program header at `$0280`.
-- `BAD PROGRAM HEADER`: a header OODOS can't run (a `.PRL`, the wrong address, too big).
+- `BAD PROGRAM HEADER`: a header OODOS can't run (a `.PRL`, the wrong address).
+- `Insufficient Memory`: the image and its BSS don't fit below the TPA's top.
 
 #### Since
 

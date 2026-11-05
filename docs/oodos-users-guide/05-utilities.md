@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-SUBMIT, GET and PUT come with the RSXs in phase 5. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT comes with phase 5c. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -809,14 +809,212 @@ GAME.BAS
 A>
 ```
 
+## GENCOM
+
+<a id="util-gencom"></a>
+### GENCOM: attach RSXs to a program
+
+GENCOM puts resident system extensions (`.RSX` files) into a program's `.COM` file, so that loading the program
+loads them too; takes them out again; adds SCB settings the program is to start with; and makes a `.COM` that holds
+only RSXs. What an RSX is, and the file's layout: the Programmer's Guide,
+[chapter 6](../oodos-programmers-guide/06-program-formats.md#rsxs).
+
+#### Forms
+
+```
+GENCOM name rsx {rsx...} {[LOADER | SCB=(offset,value){,(offset,value)...}]}
+GENCOM name [LOADER | SCB=(offset,value){,(offset,value)...}]
+GENCOM rsx {rsx...} [NULL {SCB=(offset,value)...}]
+GENCOM name
+```
+
+- **name** is the program, `NAME.COM` when no type is given; each **rsx** is an RSX file, `NAME.RSX` when no type
+  is given. A drive may go before any of them; no wildcards.
+- **Attaching:** the RSXs go into the program in the order given. On a program GENCOM has made before, an RSX of a
+  name already in it is replaced, and a new one is added after the others.
+- **name alone** takes out everything GENCOM put in: the program is as it was.
+- **NULL** makes a `.COM` with no program, only the RSXs, named after the first one (`GENCOM SAVE [NULL]` makes
+  `SAVE.COM` from `SAVE.RSX`). Run, it loads them and goes back to the prompt; they stay for the next program.
+- GENCOM writes the new file as `NAME.$$$`, then deletes the old `NAME.COM` and gives the new one its name.
+
+#### Options
+
+- **SCB=(offset,value)** sets that byte of the SCB as the program starts, both numbers in hex, the offset
+  `00`-`63`. More than one: `SCB=(34,02),(06,5A)` or `SCB=(34,02),SCB=(06,5A)`. An offset given again replaces
+  the earlier value.
+- **NULL** an RSX-only `.COM`, as above.
+- **LOADER** is taken and does nothing (OODOS's loader is always there); `GENCOM name [LOADER]` leaves the file as
+  it was.
+
+A program holds at most 15 RSXs and SCB settings together.
+
+#### Output
+
+Nothing, unless an RSX is replaced or named twice:
+
+```
+A>GENCOM MYPROG MYRSX
+Duplicate RSX in header. Replacing old by new
+```
+
+#### Errors
+
+- `First submitted file must be a COM file`: the first file isn't a `.COM` (without NULL).
+- `COM file found and NULL option`: with NULL, the first file is typed `.COM`.
+- `Duplicate input RSX`: the same RSX named twice; it is taken once.
+- `Invalid RSX type`: an RSX given another type, or a file that isn't an RSX.
+- `Invalid wild card in the FCB name or type field`: a wildcard.
+- `Total file size exceeds 64K`: the new file would be bigger.
+- `No more space in the header for RSXs or SCB initialization.`: more than 15.
+- `Unrecognized option`, `No modifier for this option` (`NULL=` or `LOADER=`), `Missing left parenthesis.`,
+  `Missing right Parenthesis`, `Missing SCB value.`, `Invalid SCB offset` (over `63`).
+- `Read only`: the program's file is read-only. `Cannot delete file`: its old file couldn't be deleted.
+- `NAME.TYP No File`: a file that isn't there. Other errors (a password, a full disk) are the BDOS's.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same forms and messages. Ours: the table of RSXs follows the program's last record, not a header page before
+it, and holds the SCB settings as entries of their own; SCB offsets stop at `63`, where OODOS's SCB ends; LOADER
+does nothing; `No File` for a missing file.
+
 ## SUBMIT
 
-Written with OODOS phase 5.
+Written with OODOS phase 5c.
 
 ## GET
 
-Written with OODOS phase 5.
+<a id="util-get"></a>
+### GET: take console input from a file
+
+GET makes the next command, or with SYSTEM everything from now, read its console input from a text file instead of
+the keyboard.
+
+#### Forms
+
+```
+GET {CONSOLE INPUT FROM} FILE filespec {[ECHO | NO ECHO | SYSTEM]}
+GET {CONSOLE INPUT FROM} CONSOLE
+```
+
+- **FILE filespec:** the next command typed (a program, or a built-in that asks for something) reads from the
+  file: each line as a line typed, each character as a key. When the file runs out, it reads the keyboard again;
+  when the command ends first, the rest of the file is left.
+- **CONSOLE** takes input from the keyboard again at once, ending the newest GET. In a file read with SYSTEM, a
+  `GET CONSOLE` line ends that file.
+- A GET in a file GET is reading (with SYSTEM) reads its own file first, then the first goes on.
+- The words are typed in full. The file is read to its end, or a ^Z; an LF after a CR is dropped.
+
+#### Options
+
+- **ECHO** (the default) shows what is read as if it were typed.
+- **NO ECHO** doesn't; what the program writes, and the prompts, are shown as always.
+- **SYSTEM** reads the CCP's command lines from the file too, from now, and every program's input, until the file
+  ends or a `GET CONSOLE` line in it. SYSTEM and ECHO or NO ECHO don't go together.
+
+A program that asks whether a key is waiting gets an answer set by its console mode (the Programmer's Guide,
+[function 109](../oodos-programmers-guide/07-function-reference.md#bdos-109)): by default "no", unless it asks twice
+in a row, so a program waiting for a key gets one and a program looking for ^C now and then isn't stopped.
+
+#### Output
+
+```
+A>GET FILE ANSWERS.TXT
+Getting console input from file: ANSWERS.TXT
+```
+
+#### Errors
+
+- `Invalid command.`: words that make no form, or no file.
+- `Invalid delimiter.`: a second option list, or one not closed.
+- `Invalid option.`, `Invalid option modifier.` (a value, two options that don't go together).
+- `End of line expected`: more after the command.
+- `Auxiliary device redirection not implemented`: AUXILIARY.
+- `Invalid file specification.`: a wildcard, or a name OODOS refuses. `No File`: the file isn't there.
+- `Insufficient Memory`: no room for GET's RSX (the CCP says it before GET runs).
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same. Ours: the words in full only; `No File` for a missing file.
 
 ## PUT
 
-Written with OODOS phase 5.
+<a id="util-put"></a>
+### PUT: send console or printer output to a file
+
+PUT makes the next command, or with SYSTEM everything from now, write its console output, or its printer output,
+to a text file as well as, or instead of, the device.
+
+#### Forms
+
+```
+PUT CONSOLE {OUTPUT TO} FILE filespec {[options]}
+PUT PRINTER {OUTPUT TO} FILE filespec {[options]}
+PUT CONSOLE {OUTPUT TO} CONSOLE
+PUT PRINTER {OUTPUT TO} PRINTER
+```
+
+- **FILE filespec:** the next command typed, a built-in such as DIR too, writes to the file; it is closed when the
+  command ends. The file starts with the line feed the prompt owes after the command line.
+- **... TO CONSOLE**, **... TO PRINTER** end the PUT of that kind and close its file.
+- A file of the name there already: `File already exists Delete it? (Y/N)`. N ends PUT; with Y the old file is
+  replaced once the new one is complete. A read-only one is refused.
+- With a PUT of the same kind already writing to a file: `Do you want another file? (Y/N)`. Y: both files get the
+  output; N: the first file is closed, and the new one takes over.
+- The words are typed in full.
+
+#### Options
+
+Any of these together, separated by commas or blanks:
+
+- **ECHO** the output also goes to the device: the default for the console.
+- **NO ECHO** to the file only: the default for the printer. A program that asks for input then shows `PUT>`
+  first. ^S, ^Q and ^C aren't looked at while it writes.
+- **FILTER** writes control characters other than CR and LF as `^` and a letter (ESC as `^[`, a tab as `^I`).
+- **NO FILTER** (the default) writes them as they are; a tab stays a tab.
+- **SYSTEM** everything from now, the CCP's prompts and messages too, until `PUT ... TO CONSOLE` (or `PRINTER`).
+
+What OODOS itself writes isn't caught: the echo of a typed line, its error messages, and ^P's copy to the printer.
+
+#### Output
+
+```
+A>PUT CONSOLE OUTPUT TO FILE DIR.PRN
+Putting console output to file: DIR.PRN
+```
+
+#### Errors
+
+As GET's, and:
+
+- `Read only.`: the file there already is read-only.
+- `PUT ERROR: FILE ERASED.`: the file was deleted while PUT wrote it, so it couldn't be closed.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same. Ours: the words in full only; `Do you want another file?` is asked when a PUT of the kind already
+writes to a file; an old file is replaced only when the new one is complete; the file keeps the prompt's line feed.
+

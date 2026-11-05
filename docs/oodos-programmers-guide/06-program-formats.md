@@ -34,7 +34,8 @@ header before it writes anything to the TPA:
 - bytes 0-3 must be the magic number, or the CCP says `NO PROGRAM`; an empty file, or one whose image is empty
   with nothing attached, says the same;
 - the flags must be 0 and the link page `$03`, and `$0300` + the size + BSS must end at or below the TPA's top +
-  1: the lowest RSX's first byte, or `$BFFD`, the BDOS's entry, with none; otherwise `BAD PROGRAM HEADER`.
+  1: the lowest RSX's first byte, or `$BFFD`, the BDOS's entry, with none; otherwise `BAD PROGRAM HEADER`, or for
+  no room (too big, or the RSXs' table full) `Insufficient Memory` (ours).
 
 Any RSXs attached to it are loaded first ([RSXs](#rsxs)), so the program must fit below them. Then the loader reads
 exactly the image's size: the rest of the first record after the header, whole records straight to their place,
@@ -150,7 +151,8 @@ own offset 9 with them as they came, and makes its own BDOS calls by `JSR` to of
 which would reach it again. An RSX that opens a file of its own must put back what its caller had: the DMA address
 and segment, the user, the error mode, the multi-sector count.
 
-**Attaching.** [`oodos/tools/gencom.py`](../../oodos/tools/gencom.py), and GENCOM with phase 5b, add RSXs to a
+**Attaching.** GENCOM ([the User's Guide](../oodos-users-guide/05-utilities.md#util-gencom)), and
+[`oodos/tools/gencom.py`](../../oodos/tools/gencom.py) for the build, which writes the same bytes, add RSXs to a
 `.COM`: after the image's last record comes a table of 16-byte entries, then each RSX file whole, on its records;
 header bytes 12 and 14 give the count and the table's record. An entry:
 
@@ -185,11 +187,16 @@ after the program it served.
 
 **Calling one.** [Function 60](07-function-reference.md#bdos-60) passes a parameter block down the chain: a function
 byte, a count of words, the words. An RSX takes the blocks whose function byte is its own. 0-127 are programs'
-RSXs', 128-255 OODOS's.
+RSXs', 128-255 OODOS's: GET's RSX takes `$80` (GET.COM's file) and `$81` (GET CONSOLE), PUT's `$90` (PUT.COM's
+file), `$91` (PUT ... TO CONSOLE or PRINTER) and `$92` (is a PUT of the kind writing to a file?);
+[`oodos.inc`](../../oodos/include/oodos.inc) names them `RXF_*`.
 
 **What the CCP is doing.** The SCB's `$19` (ours, [appendix C](appendix-c-scb.md)): bit 7 set while the CCP runs,
-clear while a program does; bits 0-6 count the commands the CCP starts. An RSX that redirects the console reads it
-by function 49.
+clear while a program does; bit 6 set while a command runs, from its start to its end (a built-in's too), clear at
+the prompt; bits 0-5 count the commands the CCP starts. The CCP writes it by function 49 through `$0203`, so an
+RSX that redirects the console sees each change on its way down the chain and knows where the next command starts
+and ends, as GET's and PUT's do. [`oodos/include/rsx.inc`](../../oodos/include/rsx.inc) has what OODOS's RSXs share:
+their own BDOS calls in the caller's state put back, and reading the CCP's writes to `$19`.
 
 ## Chaining
 
