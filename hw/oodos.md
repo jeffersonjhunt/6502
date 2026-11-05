@@ -2389,7 +2389,8 @@ and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
   Common memory 1,186 of 2,048 (59's door, `LDOOR`, 22 bytes: `STUB` starts with `CPY #59`, so `$BFFD` still
   jumps to `STUB`). The BDOS 11,637 (function 0's 5). No zero page anywhere: the loader's pointers are in its own
   instructions.
-- **59's X codes** are 0 an address or no room, 1 a header, 2 zero page, and **3 not a program** (no magic number,
+- **59's X codes** are 0 an address or no room, 1 a header, 2 zero page, 4 RSXs attached to a program's file
+  (below), and **3 not a program** (no magic number,
   an empty file, or a size of 0 with nothing attached; mine: the CCP needs it to say `NO PROGRAM`). Called by the
   CCP (the SCB's `$19` bit 7, kept in block 62 as `CCPST`) the loader takes a `.COM` only, so `NAME.COM` holding a
   `.PRL` is `BAD PROGRAM HEADER` as before. Bit 7 of the flags (breaks the 65C816 rules) is refused, as the CCP
@@ -2426,6 +2427,29 @@ and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
   to fail on a fault put in on purpose: 28 in the system (each failing the case it should), 8 in the tools; two
   that passed at first (the RSX-only exception at a ^C's warm boot, the table's non-banked flag alone) got cases
   of their own. One check changed: an RSX without its prefix, which mkprl.py made before, is now refused.
+
+**After the review of 5a (2026-11-04, the owner's triage):**
+
+- **59's door clears the decimal flag** before the loader (the stub did, but only for the BDOS). A caller's D was in
+  fact harmless, since the loader's first BDOS call clears it, but nothing should rest on that.
+- **A program's 59 removes its own one-program RSX,** as the Guide has it, kept: an RSX meant to outlive its
+  program's overlay loads starts with its remove flag 0 and sets it when done, as CP/M 3's do (bdos-59 says so).
+- **`KEEP` marks the RSXs it keeps** (`TKEEP`, `KEEPNEW`): the RSX-only `.COM`'s, so the next program's 59 and
+  the warm boots before it remove the other flagged RSXs as usual; the warm boot after that program clears the
+  marks (`UNKEEP`) and removes them.
+- **Only the CCP's loads attach RSXs:** a program's 59 of a file with RSXs attached is refused, A = `$FE`,
+  **X = 4** (ours), before anything is loaded.
+- **mkprl.py `--load`** checks an RSX's offsets 6 and 9 and refuses a non-banked one, as the 6502 loader does.
+- **The warm boot drops an RSX a program wrote over** (offset 6 or 9 not a `JMP`: `CHECKRSX`, before `LINK`), so it
+  can't hang the warm boot's function 0.
+- **Measured, a load** (the CCP's search's Open to `$0300`, `test_oodos_rsx`): RSXQ, 544 bytes, 78,266 cycles; with
+  one 130-byte RSX attached 138,688, with two 215,481; SYSTEST, 3,971 bytes, 343,142 (10,723 a record). 4b2's
+  CCP, reading the image sequentially, took 60,635 for RSXQ and 311,608 for SYSTEST: 59's state kept and put
+  back costs about 17,000 cycles a load, the random reads about 10% on a larger file. 48 ms for SYSTEST at
+  7.16 MHz: not slow, so the reads stay random.
+- **Where it lives now:** block 62's code window 8,762 of 12,288 (7,477 of code, 1,285 of BSS); common memory
+  1,187 of 2,048.
+- **The version stays 0.2** through 5a (the owner: one bump, after 5c, the books' "Since" lines with it).
 
 **Decided (2026-11-04, the owner, on this plan):** the loader in block 62 with the CCP, 59 through common memory;
 every end of a program reaching the RSXs as function 0; three branches, 5a–5c; SUBMIT's lines in temporary files,

@@ -358,6 +358,33 @@ TEST(an_rsx_only_com_keeps_its_rsxs_for_the_next_program_then_they_go)
     CHECK_EQ(nrsx(r), 0u);
 }
 
+TEST(an_rsx_only_coms_rsxs_are_kept_but_a_programs_59_removes_the_other_flagged_ones)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    r.put_m({on_m("RQAB    COM", "rqab.com"), on_m("RQN     COM", "rqn.com"), on_m("RSXQ    COM", "rsxq.com")});
+    r.cmd("m:rqab");                                // A $BF, B $BE: they stay
+    r.cmd("m:rqn");                                 // C $BD, its flag $FF: kept for the next program
+    std::string o = r.cmd("m:rsxq -B 0 #");
+    has(o, "-B=0000 L=00 CA# ");                    // B out at 59, C kept
+    CHECK_EQ(nrsx(r), 1u);                          // and C gone after that program
+    o = r.cmd("m:rsxq #");
+    has(o, "\r\nA# ");
+}
+
+TEST(an_rsx_a_program_wrote_over_is_dropped_at_the_warm_boot)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    r.put_m({on_m("RQAB    COM", "rqab.com"), on_m("RSXQ    COM", "rsxq.com")});
+    r.cmd("m:rqab");
+    std::string o = r.cmd("m:rsxq X");              // B's offset 6 made 0: the warm boot doesn't jump there
+    CHECK_EQ(nrsx(r), 1u);
+    CHECK_EQ(res(r, "TBASE"), 0xBF);
+    o = r.cmd("m:rsxq # T");
+    has(o, "A# T=BF06 ");
+}
+
 TEST(function_59_removes_flagged_rsxs_and_with_0_does_only_that)
 {
     Ccp r;
@@ -439,8 +466,16 @@ TEST(the_scb_19_says_the_ccp_runs_and_counts_its_commands)
     r.run(ms(800));
     has(r.out, "S19=" + hex((v + 4) & 0x7F, 2));     // each of a ! line's
     CHECK(r.phys(SCB_PHYS + 0x19) & 0x80);
-    // The program's own bytes, $06-$09, are left alone
-    CHECK_EQ(r.phys(SCB_PHYS + 0x06), 0);
+    // The program's own bytes, $06-$09, are left alone through programs, built-ins and a ! line
+    for (unsigned i = 0; i < 4; ++i)
+        r.scb(0x06 + i, static_cast<uint8_t>(0x11 * (i + 1)));
+    o = r.cmd("m:rsxq S06 S07 S08 S09");
+    has(o, "S06=11 S07=22 S08=33 S09=44 ");
+    r.cmd("dir m:");
+    r.to("m:rsxq!m:rsxq", "A>m:rsxq\r\n");
+    r.run(ms(800));
+    for (unsigned i = 0; i < 4; ++i)
+        CHECK_EQ(r.phys(SCB_PHYS + 0x06 + i), 0x11 * (i + 1));
 }
 
 // ---- the header ------------------------------------------------------------------------------
@@ -496,6 +531,27 @@ TEST(function_59_loads_an_overlay_relocated_and_puts_the_callers_state_back)
             differ += r.phys(at + i) != want[i];
         CHECK_EQ(differ, 0u);
     }
+    // With the decimal flag set by the caller: the loader entered with it clear (the door's CLD), the same bytes
+    {
+        const uint16_t loader = sym("LOADER");
+        int d_at_entry = -1;
+        r.watch = [&](uint16_t pc) {
+            if (pc == loader) // the last: OVLT's 59, after the CCP's own load of OVLT
+                d_at_entry = (r.cpu->regs().p & Cpu6502::FLAG_D) ? 1 : 0;
+        };
+        const std::string o = r.cmd("m:ovlt m:ovl.prl 6000D");
+        r.watch = nullptr;
+        CHECK_EQ(d_at_entry, 0);
+        has(o, "L=0000 D=9000 G=0123 E=FE M=03 R=006000");
+        const std::vector<uint8_t> want = built("ovl.6000.img");
+        unsigned differ = 0;
+        for (unsigned i = 0; i < want.size(); ++i)
+            differ += r.phys(0x6000 + i) != want[i];
+        CHECK_EQ(differ, 0u);
+    }
+    // A .COM with RSXs attached: the CCP's loads only, so refused, nothing loaded
+    has(r.cmd("m:ovlt m:rqa.com 0300"), "L=FE04");
+    CHECK_EQ(nrsx(r), 0u);
     // The refusals: A and X, and the state kept all the same
     const std::pair<std::string, std::string> refusals[] = {
         {"m:ovl.prl 6010", "L=FE00"},  // not a page
@@ -532,6 +588,38 @@ TEST(function_60_with_no_rsx_to_take_it_returns_ff_and_47_loads_rsxs)
 }
 
 // ---- cost ------------------------------------------------------------------------------------
+
+TEST(loading_a_gencomd_program_against_a_plain_one)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    r.put_m({on_m("RSXQ    COM", "rsxq.com"), on_m("RQA     COM", "rqa.com"), on_m("RQAB    COM", "rqab.com"),
+             on_m("SYSTEST COM", "systest.com"), on_m("RSXQ2   COM", "rsxq.com")});
+    const uint16_t found = sym("FOUNDIT");
+    auto load = [&](const std::string &line) {
+        uint64_t t0 = 0, t = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == found)
+                t0 = r.cpu->cycles();
+            else if (t0 && !t && pc == 0x0300)
+                t = r.cpu->cycles() - t0;
+        };
+        r.cmd(line);
+        r.watch = nullptr;
+        CHECK(t != 0);
+        return t;
+    };
+    load("m:rsxq2");                                // M: logged in, its directory hashed
+    const uint64_t plain = load("m:rsxq"), one = load("m:rqa"), two = load("m:rqab");
+    const uint64_t big = load("m:systest");
+    const std::vector<uint8_t> q = built("rsxq.com"), s = built("systest.com");
+    std::printf("  the CCP's load, its search's Open to $0300: RSXQ (%zu bytes) %llu cycles; with one RSX %llu;"
+                " with two %llu; SYSTEST (%zu bytes) %llu, %llu a record\n",
+                q.size(), static_cast<unsigned long long>(plain), static_cast<unsigned long long>(one),
+                static_cast<unsigned long long>(two), s.size(), static_cast<unsigned long long>(big),
+                static_cast<unsigned long long>(big / ((s.size() + 127) / 128)));
+    CHECK(plain < one && one < two);
+}
 
 TEST(a_bdos_call_through_rsxs_costs_their_filters)
 {

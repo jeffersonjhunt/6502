@@ -8,7 +8,12 @@
 ;   LOADER   59: A/X an opened FCB, the load address in its R0-R1; A/X = 0
 ;            only takes out the RSXs whose remove flag is set
 ;   LINK     $0203, $0204 and each RSX's offsets 9 and 12 from the table
-;   REMOVE   the RSXs whose remove flag is $FF out of the table, then LINK
+;   REMOVE   the RSXs whose remove flag is $FF out of the table (but those
+;            KEEPNEW marked), and any CHECKRSX would drop; then LINK
+;   CHECKRSX the RSXs whose offsets 6 and 9 aren't JMPs out (a program
+;            wrote over them), then LINK
+;   KEEPNEW  the last load's RSXs marked kept (an RSX-only .COM's, for the
+;            next program); UNKEEP none kept
 ;   TOPADDR  the TPA's top + 1: the lowest RSX's first byte, or $BFFD
 ;   APPLYSCB the SCB entries the last load found (GENCOM's [SCB=])
 ;   CCPSET   CCPST to the SCB's $19
@@ -22,16 +27,18 @@
 ; segment, error mode and multi-sector count are put back, and R0-R2 hold
 ; the load address again.
 ;
-; Called by the CCP (CCPST bit 7), 59 loads only a .COM (flags 0), and the
-; SCB entries wait for APPLYSCB as the program starts; called by a program,
-; it loads a .COM at $0300 or a .PRL overlay at a page from $0300, applies
-; the SCB entries itself, and takes the flagged RSXs out first (but while
-; KEEP: an RSX-only .COM's RSXs stay for the next program).
+; Called by the CCP (CCPST bit 7), 59 loads only a .COM (flags 0), with its
+; attached RSXs, and the SCB entries wait for APPLYSCB as the program
+; starts; called by a program, it loads a .COM at $0300 or a .PRL overlay at
+; a page from $0300, refuses a file with RSXs attached (X = 4: only the
+; CCP's loads attach them), applies the SCB entries itself, and takes the
+; flagged RSXs out first (but those KEEPNEW kept: an RSX-only .COM's RSXs
+; stay for the next program).
 
 .setcpu "65C02"
 .include "sys.inc"
 .include "oodos.inc"
-.export LOADER, LINK, REMOVE, TOPADDR, APPLYSCB, CCPSET
+.export LOADER, LINK, REMOVE, CHECKRSX, KEEPNEW, UNKEEP, TOPADDR, APPLYSCB, CCPSET
 .export NRSX, KEEP, WBF, CCPST, LHDR, TBASE, TZP, TZN
 
 FCB_R0          = 33                   ; the FCB's random record, R0-R2
@@ -43,6 +50,8 @@ SCB_CCPST       = $19                  ; the SCB's byte for redirecting RSXs (ou
 TBASE:          .res    RSX_MAX        ; each RSX's first page, 0 the highest (oldest)
 TZP:            .res    RSX_MAX        ; its zero page slice, from $F0
 TZN:            .res    RSX_MAX
+TKEEP:          .res    RSX_MAX        ; 1: kept from an RSX-only .COM for the next program
+RMODE:          .res    1              ; REMOVE's: 0 only the overwritten, else the flagged too
 LBUF:           .res    RECORD         ; the loader's record
 LHDR:           .res    OH_LEN         ; the file's header, for the CCP too
 RHDR:           .res    OH_LEN         ; an RSX's
@@ -76,7 +85,7 @@ TMP:            .res    2
 
 ; In the file, so 0 from the cold boot.
 NRSX:           .byte   0              ; RSXs in the table
-KEEP:           .byte   0              ; 1 an RSX-only .COM loaded, 2 its program running
+KEEP:           .byte   0              ; 1 an RSX-only .COM's RSXs kept (TKEEP), 2 their program running
 WBF:            .byte   0              ; 1 while the warm boot's function 0 goes down the chain
 CCPST:          .byte   0              ; bit 7 the CCP runs, bits 0-6 its command count
 SCBPB:          .byte   0, 0, 0, 0     ; 49's block
@@ -115,8 +124,6 @@ LOADER:         STA     LFCB
                 STZ     SCBN
                 BIT     CCPST          ; a program's 59: the flagged RSXs out first
                 BMI     @kept          ; (the Guide's 4.4.1), but an RSX-only .COM's
-                LDA     KEEP
-                BNE     @kept
                 JSR     REMOVE
                 LDA     NRSX
                 STA     LN0
@@ -151,7 +158,12 @@ LOADER:         STA     LFCB
                 JMP     FAILX
 @rsxs:          LDA     LHDR + OH_RSXCOUNT
                 BEQ     @image
-                STZ     LEI
+                BIT     CCPST          ; attached RSXs: the CCP's loads only
+                BMI     @ccps
+                LDA     #$FE
+                LDX     #4
+                JMP     FAILX
+@ccps:          STZ     LEI
 @entry:         JSR     ENTRY          ; each entry of the attached RSX table
                 BCC     @next
                 JMP     FAILX
@@ -524,6 +536,7 @@ LOADRSX:        LDA     NRSX
                 STA     TZP,X
                 LDA     RZN
                 STA     TZN,X
+                STZ     TKEEP,X
                 INC     NRSX
                 CLC
                 RTS
@@ -925,31 +938,69 @@ LINK:           LDA     #<BDOS_ENTRY
                 STA     BP_TOP + 1
                 RTS
 
-; Every RSX whose remove flag is $FF out of the table, the rest kept in
-; order; then LINK.
-REMOVE:         LDX     #0
+; Out of the table, the rest kept in order, then LINK: every RSX whose offset
+; 6 or 9 isn't a JMP (a program wrote over it: so the warm boot can't jump
+; into it, ours); and for REMOVE, every RSX whose remove flag is $FF but
+; those KEEPNEW kept.
+CHECKRSX:       STZ     RMODE
+                BRA     DROP
+REMOVE:         LDA     #1
+                STA     RMODE
+DROP:           LDX     #0
                 LDY     #0             ; (Y: where the next kept one goes)
 @each:          CPX     NRSX
                 BEQ     @done
                 PHY
                 LDA     TBASE,X
                 JSR     SETPG
+                LDY     #RSX_START
+                JSR     PEEKY
+                CMP     #$4C
+                BNE     @bad
+                LDY     #RSX_NEXT
+                JSR     PEEKY
+                CMP     #$4C
+                BNE     @bad
+                LDA     RMODE
+                BEQ     @keep
+                LDA     TKEEP,X
+                BNE     @keep
                 LDY     #RSX_REMOVE
                 JSR     PEEKY
-                PLY
                 CMP     #$FF
-                BEQ     @drop
+                BNE     @keep
+@bad:           PLY
+                BRA     @drop
+@keep:          PLY
                 LDA     TBASE,X
                 STA     TBASE,Y
                 LDA     TZP,X
                 STA     TZP,Y
                 LDA     TZN,X
                 STA     TZN,Y
+                LDA     TKEEP,X
+                STA     TKEEP,Y
                 INY
 @drop:          INX
                 BRA     @each
 @done:          STY     NRSX
                 JMP     LINK
+
+; The last load's RSXs (LN0 on) kept for the next program; UNKEEP: none.
+KEEPNEW:        LDX     LN0
+@each:          CPX     NRSX
+                BEQ     @done
+                LDA     #1
+                STA     TKEEP,X
+                INX
+                BRA     @each
+@done:          RTS
+UNKEEP:         LDX     #RSX_MAX - 1
+@each:          STZ     TKEEP,X
+                DEX
+                BPL     @each
+                STZ     KEEP
+                RTS
 
 ; ---------------------------------------------------------------------------
 ; The SCB.

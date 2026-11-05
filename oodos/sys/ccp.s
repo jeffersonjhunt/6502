@@ -7,8 +7,13 @@
 ; its stack, the BDOS through $0203; no zero page. The warm boot (common.s's
 ; WARM) comes here with a fresh stack.
 ;
-; At each warm boot: the base page's JMPs and $BFFD's; the multi-sector
-; count 1 (44); then, in error mode $FE (a failure said and gone past), the
+; At each warm boot: the base page's JMPs and $BFFD's; the RSXs a program
+; wrote over dropped and the chain written again from the loader's table
+; (loader.s: CHECKRSX, LINK); function 0 sent down the chain once, if the
+; BDOS's function 0 didn't come this way (WBF); the RSXs whose remove flag is
+; set taken out (REMOVE), but an RSX-only .COM's, kept for the next program
+; (KEEP, KEEPNEW, UNKEEP); the SCB's $19 bit 7 set (CCPST: the CCP runs; its
+; count steps as each command starts); the multi-sector count 1 (44); then, in error mode $FE (a failure said and gone past), the
 ; card's units read again (function 50's SELDSK of A:, a first select, so a
 ; swapped image's buffers are dropped, not written), 48 and 98; or, for a
 ; ^C at the prompt (ATPROMPT), 13 instead (the Programmer's Guide, 1.6.2).
@@ -35,14 +40,18 @@
 ;   d:, nd:         the CCP's drive (and user)
 ;   {d:}NAME{.COM}{;pw}
 ;                   NAME.COM: from d:, or each drive of the SCB's search
-;                   chain, by Open (the current user, then user 0's SYS file)
+;                   chain, by Open (the current user, then user 0's SYS file),
+;                   then loaded by function 59 (loader.s) at $0300, its
+;                   attached RSXs first; an RSX-only .COM (size 0) loads its
+;                   RSXs and runs nothing
 ;
 ; A program's tail goes to $0280 (its length, the characters, a 0), the two
 ; default FCBs from it by 152, the passwords' places at $0251-$0256, the
-; drive it came from at $0250. Before it runs its header is checked as the
-; loader checks it (hw/oodos.md, "The program header"); it starts at $0300
-; with the DMA address $0280, the default error mode, a fresh stack with
-; the warm boot's address on it, and the return code 0 unless chained to.
+; drive it came from at $0250. The loader checks its header (hw/oodos.md,
+; "The program header"; GO's, CHECKHDR, against the lowest RSX); it starts at
+; $0300 with the DMA address $0280, the default error mode, the SCB's $19
+; bit 7 clear, its SCB entries set (APPLYSCB), a fresh stack with the warm
+; boot's address on it, and the return code 0 unless chained to.
 ;
 ; The built-ins set the return code: 0 done, $FF00 an error said, $FFFE
 ; stopped by ^C; so do the CCP's own refusals ($FF00). Their file calls run
@@ -52,7 +61,7 @@
 .include "sys.inc"
 .include "oodos.inc"
 .import WARM, STUB
-.import LINK, REMOVE, TOPADDR, APPLYSCB, CCPSET, NRSX, KEEP, WBF, CCPST, LHDR
+.import LINK, REMOVE, CHECKRSX, KEEPNEW, UNKEEP, TOPADDR, APPLYSCB, CCPSET, NRSX, KEEP, WBF, CCPST, LHDR
 .export CCP, RUNHDR
 
 .define CMD_DATA "RES"
@@ -127,7 +136,8 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BPL     @jmps
                 LDX     #$FF
                 TXS
-                JSR     LINK           ; $0203 and the RSXs' links from the loader's table
+                JSR     CHECKRSX       ; $0203 and the RSXs' links from the loader's table,
+                                       ; less any a program wrote over
                 LDA     NRSX           ; every end of a program reaches the RSXs as
                 BEQ     @ended         ; function 0, once (ours): the BDOS's comes back
                 LDA     WBF            ; here, with WBF set
@@ -137,11 +147,11 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 JSR     BDOS
 @ended:         STZ     WBF
                 LDA     KEEP           ; the flagged RSXs out (the Guide's 1.6.4), but
-                CMP     #1             ; not after an RSX-only .COM: they stay for the
-                BEQ     @kept          ; next program
-                STZ     KEEP
-                JSR     REMOVE
-@kept:          LDA     CCPST          ; the CCP runs (the SCB's $19 bit 7, ours)
+                CMP     #2             ; an RSX-only .COM's, kept for the next program,
+                BNE     @kept          ; go only after it
+                JSR     UNKEEP
+@kept:          JSR     REMOVE
+                LDA     CCPST          ; the CCP runs (the SCB's $19 bit 7, ours)
                 ORA     #$80
                 STA     CCPST
                 JSR     CCPSET
@@ -1597,8 +1607,9 @@ LOADCOM:        STZ     COMFCB + FCB_R0 ; R0-R2: $0300
                 ORA     LHDR + OH_SIZE + 1
                 BEQ     @rsxs
                 JMP     RUNTAIL
-@rsxs:          LDA     #1             ; RSXs only: kept past the next warm boot
+@rsxs:          LDA     #1             ; RSXs only: kept for the next program
                 STA     KEEP
+                JSR     KEEPNEW
                 JSR     APPLYSCB
                 JMP     BIOK
 

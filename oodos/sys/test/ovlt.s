@@ -7,7 +7,8 @@
 ;   L=aaxx D=dddd G=ssss E=ee M=mm R=rrrrrr
 ;
 ; 59's A and X; then, read back after it, the DMA address and segment (52),
-; the error mode and multi-sector count (49), and the FCB's R0-R2.
+; the error mode and multi-sector count (49), and the FCB's R0-R2. A D after
+; the address (aaaaD) makes the call with the decimal flag set.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -16,7 +17,11 @@
         .include "printzp.inc"
 
         .code
-start:  ldx     #0                      ; the address: four hex digits at $026D,
+start:  lda     BP_FCB2 + 5             ; a D after the address: decimal
+        cmp     #'D'
+        bne     @nod
+        sta     dflag
+@nod:   ldx     #0                      ; the address: four hex digits at $026D,
         jsr     hex2                    ; read before the open writes over them
         sta     addr + 1
         ldx     #2
@@ -51,10 +56,14 @@ start:  ldx     #0                      ; the address: four hex digits at $026D,
         lda     #3
         ldy     #F_MULTISEC
         jsr     BDOS
-        lda     #<BP_FCB
+        lda     dflag
+        beq     @bin
+        sed
+@bin:   lda     #<BP_FCB
         ldx     #>BP_FCB
         ldy     #P_LOAD
         jsr     BDOS
+        cld
         sta     ra
         stx     rx
         lda     #<dget
@@ -156,3 +165,6 @@ rm:     .res    1
 hb:     .res    1
 dget:   .res    4
 addr:   .res    2
+
+        .data
+dflag:  .byte   0

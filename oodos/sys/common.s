@@ -121,7 +121,8 @@ W2BACK:         STA     JTA            ; the caller's W2 back
 ; Function 59's door (hw/oodos.md, "The RSXs, phase 5"): the loader, in
 ; block 62's code window, in the caller's context, W3 on block 62 for it and
 ; the caller's block back after. Its BDOS calls come back in at STUB.
-LDOOR:          LDY     NB_WIN3
+LDOOR:          CLD                    ; the loader's arithmetic is binary
+                LDY     NB_WIN3
                 PHY
                 LDY     #RES_BLOCK
                 STY     NB_WIN3        ; block 62's copy of this, from the next instruction

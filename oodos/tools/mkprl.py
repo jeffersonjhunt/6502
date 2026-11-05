@@ -188,6 +188,12 @@ def load(data, page=None, zp=None, top=TOP, name="the file", kind="program", mem
                                                  "an RSX" if kind == "rsx" else "a " + kind))
     if kind == "rsx" and not reloc:
         raise Refused("%s: an RSX must be a .PRL" % name)
+    if kind == "rsx":  # as OODOS's loader: offsets 6 and 9 JMPs, and not a non-banked RSX
+        im = data[HEADER:HEADER + size]
+        if size < RSX_PREFIX_LEN or im[RSX_START] != 0x4C or im[RSX_NEXT] != 0x4C:
+            raise Refused("%s: offsets 6 and 9 aren't JMPs: no RSX prefix, which the loader refuses" % name)
+        if im[RSX_NONBANK] == 0xFF:
+            raise Refused("%s: a non-banked RSX, which OODOS's loader passes over" % name)
     if page is None:
         page = h["page"]
     if zp is None:

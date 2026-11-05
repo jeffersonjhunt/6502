@@ -9,6 +9,8 @@
 ;   0       59 with A/X = 0: "L=aa"
 ;   Sxx     "Sxx=vv": SCB byte xx (hex) by 49
 ;   W       $0203 made JMP $BFFD, past the RSXs (the TPA rule broken)
+;   X       the lowest RSX's offset 6 made 0 (the TPA rule broken), then the
+;           end by JMP $0200 with no BDOS call
 ;   J       the end by JMP $0200
 ;   Z       the end by function 0
 ;   Q       the end by an error: 14 of drive Q in the default error mode
@@ -48,6 +50,8 @@ next:   ldx     at
         jeq     scb
         cmp     #'W'
         jeq     bypass
+        cmp     #'X'
+        jeq     wreck
         cmp     #'J'
         jeq     jend
         cmp     #'Z'
@@ -137,6 +141,14 @@ bypass: lda     #<BDOS_TOP
         lda     #>BDOS_TOP
         sta     BP_TOP + 1
         jmp     next
+
+wreck:  lda     BP_TOP                  ; $0204: the lowest RSX's offset 6
+        sta     PTR
+        lda     BP_TOP + 1
+        sta     PTR + 1
+        lda     #0
+        sta     (PTR)
+        jmp     WBOOT
 
 jend:   jmp     WBOOT
 

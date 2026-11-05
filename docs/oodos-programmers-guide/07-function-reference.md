@@ -2527,7 +2527,8 @@ CP/M 3 has no memory functions; this is CP/M-86's 58.
 - A = `$FE`, refused before anything past the image changes, X why: 0 the address (not a page start for a `.PRL`,
   below `$0300`, a `.COM` anywhere but `$0300`) or no room below the lowest RSX (or `$BFFD`); 1 the header (flags
   other than a `.COM`'s or a `.PRL`'s, an RSX file, a `.COM` not linked at `$0300`); 2 a `.PRL` with zero page of
-  its own; 3 not a program (no magic number, an empty file, an image of size 0 with nothing attached).
+  its own; 3 not a program (no magic number, an empty file, an image of size 0 with nothing attached); 4 RSXs
+  attached: only the CCP's loads attach them, so a program's 59 of such a file is refused.
 - A = 1: the file ends inside its image or its bitmaps.
 - A = `$FF`, X the physical error, from reading the file.
 
@@ -2536,9 +2537,10 @@ Errors are returned in every error mode: the loader reads with errors returned, 
 #### Side effects
 
 - The image, at the address, and a `.PRL`'s bytes its bitmaps mark moved to it; BSS above it isn't cleared.
-- Taken out first: the RSXs whose remove flag is `$FF` (but those an RSX-only `.COM` left for this program).
-- RSXs attached to the file are loaded and linked below the lowest ([chapter 6](06-program-formats.md#rsxs)), and
-  its SCB entries set before 59 returns. A refused load takes out the RSXs it had linked.
+- Taken out first: the RSXs whose remove flag is `$FF` (but those an RSX-only `.COM` left for this program), the
+  program's own attached RSXs among them, as in CP/M 3. An RSX meant to outlive its program's overlay loads starts
+  with its remove flag 0 and sets it to `$FF` when it is done, as CP/M 3's RSXs do.
+- A file's SCB entries are set before 59 returns.
 - The DMA address and segment, the error mode and the multi-sector count are as they were before the call.
 
 #### Cycles
@@ -2558,7 +2560,8 @@ OODOS 0.2
 CP/M 3 answers 59 from its LOADER RSX, there only while a program with an RSX header runs; OODOS's loader is always
 there, so any program may call it, and the CCP loads programs through it. A `.COM` loads only at `$0300` (ours:
 CP/M 3 loads an absolute file anywhere from `0100H`). A `.PRL` needs room only for its image and BSS (CP/M 3 wants
-room for the whole file). X's reasons with A = `$FE`, and A/X = 0's removal alone, are ours.
+room for the whole file). X's reasons with A = `$FE`, A/X = 0's removal alone, and refusing a file with RSXs
+attached (CP/M 3's LOADER loads them for a program too), are ours.
 
 <a id="bdos-60"></a>
 ### 60 P_RSX: call an RSX

@@ -245,9 +245,17 @@ def loader_checks(hello, tmp):
        "hello.prl flagged as breaking the 65C816 rules (bit 7) still loads")
     # RSXs: a slice of $F0-$FF.
     refused(lambda: mkprl.load(prl, 0x40, kind="rsx"), "hello.prl loaded as an RSX", "not an RSX")
-    rsx = patched(prl, flags=mkprl.F_RELOC | mkprl.F_RSX)
+    jmps = bytearray(prl)  # (opcodes, not relocated: offsets 6 and 9 made JMPs, as the loader wants)
+    jmps[16 + 6] = jmps[16 + 9] = 0x4C
+    jmps = bytes(jmps)
+    rsx = patched(jmps, flags=mkprl.F_RELOC | mkprl.F_RSX)
+    refused(lambda: mkprl.load(patched(prl, flags=mkprl.F_RELOC | mkprl.F_RSX), 0xA0, 0xFD, kind="rsx"),
+            "an RSX whose offsets 6 and 9 aren't JMPs", "aren't JMPs")
+    nb = bytearray(rsx)
+    nb[16 + 15] = 0xFF
+    refused(lambda: mkprl.load(bytes(nb), 0xA0, 0xFD, kind="rsx"), "a non-banked RSX", "passes over")
     refused(lambda: mkprl.load(rsx, 0x40), "an RSX loaded as a program", "an RSX, loaded as a program")
-    want = bytearray(mkprl.load(prl, 0xA0, 0))
+    want = bytearray(mkprl.load(jmps, 0xA0, 0))
     for i in zp_marked(prl):
         want[i] = (want[i] + 0xFD) & 0xFF
     ok(mkprl.load(rsx, 0xA0, 0xFD, kind="rsx") == want, "an RSX's 3 bytes of zero page at $FD, the last free")

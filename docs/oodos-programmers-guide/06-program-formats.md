@@ -88,7 +88,7 @@ random record, R0-R1: a `.PRL` at any page from `$0300`, relocated there, or a `
 CP/M 3 loads an absolute file anywhere; on OODOS a file that loads elsewhere is a `.PRL`). It doesn't run what it
 loads: the program jumps or calls into it. An overlay has no zero page of its own (its header's zero page size must
 be 0): it uses its caller's, by importing the caller's zero page symbols when it is linked. Any program may call
-59; the loader is always there.
+59; the loader is always there. A file with RSXs attached is refused: only the CCP's loads attach them.
 
 ## Rules for programs: the 65C816
 
@@ -173,9 +173,11 @@ name already loaded is loaded again, below. `$0203` jumps to the lowest RSX's of
 at each warm boot writes `$0203` and every link again from it.
 
 **Removal.** At each warm boot the RSXs whose remove flag is `$FF` are taken out, and a program's
-[function 59](07-function-reference.md#bdos-59) does the same first (with A/X = 0, only that). Memory comes back
-from the bottom: a removed RSX above one that stays keeps its pages until that one goes too. A cold boot starts
-with none.
+[function 59](07-function-reference.md#bdos-59) does the same first (with A/X = 0, only that), its own attached
+RSXs among them: an RSX that must outlive its program's overlay loads starts with its remove flag 0 and sets it
+when it is done. Memory comes back from the bottom: a removed RSX above one that stays keeps its pages until that
+one goes too. An RSX whose offset 6 or 9 is no longer a `JMP` (a program wrote over it) is dropped at the warm
+boot, so it can't be jumped into. A cold boot starts with none.
 
 **The end of a program.** However a program ends, by `JMP WBOOT`, an RTS, function 0, a ^C, an error, or function
 47, the RSXs see function 0 once, through the chain, before the CCP's warm boot work (ours). So an RSX can tidy up
