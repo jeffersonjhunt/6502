@@ -22,6 +22,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 CHECK = os.path.join(HERE, "check_docs.py")
 PG7 = "docs/oodos-programmers-guide/07-function-reference.md"
 TR12 = "docs/oo1-technical-reference/12-front-panel.md"
+TR10 = "docs/oo1-technical-reference/10-storage.md"
 INC = "oodos/include/oodos.inc"
 BP = "backplane/bios/backplane.inc"
 UNWRITTEN = "docs/tools/unwritten.txt"
@@ -180,6 +181,14 @@ def drop_line(root, rel, pattern):
         f.writelines(kept)
 
 
+def with_disk2_id(root):
+    """The same for $C67F, module C, whose name MODULES gives as the Disk II card."""
+    append(root, TR10, CONSOLE_ID.replace("c77f", "c67f").replace("C77F", "C67F").replace("CONSOLE_ID", "DISK2_ID")
+           .replace("E, the console card", "C, the Disk II card").replace("$E1", "$C1"))
+    drop_line(root, UNWRITTEN, r"^reg-c67f\b")
+    run(root, "--write-index")
+
+
 def with_console_id(root):
     """A register entry written, taken off the list, the index regenerated: a passing tree."""
     append(root, TR12, CONSOLE_ID)
@@ -205,8 +214,8 @@ CASES = [
     ("an entry for a function oodos.inc hasn't",
      lambda r: drop_line(r, INC, r"^C_WRITESTR\s*="), "function 9 isn't in oodos.inc"),
     ("an I/O equate in backplane.inc with no entry",
-     lambda r: edit(r, BP, "NB_ID           = NB + $7F", "NB_ID           = NB + $7F\nNB_NEW          = NB + $0A"),
-     "no entry reg-c68a (NB_NEW)"),
+     lambda r: edit(r, BP, "NB_ID           = NB + $7F", "NB_ID           = NB + $7F\nNB_NEW          = NB + $20"),
+     "no entry reg-c6a0 (NB_NEW)"),
     ("a register entry written and taken off the list", with_console_id, None),
     ("a register entry at an address no equate has",
      lambda r: (with_console_id(r), edit(r, TR12, "reg-c77f", "reg-c77e"), edit(r, TR12, "$C77F CONSOLE_ID", "$C77E CONSOLE_ID")),
@@ -223,6 +232,10 @@ CASES = [
     ("a register entry with the wrong module name",
      lambda r: (with_console_id(r), edit(r, TR12, "E, the console card", "E, the north bridge")),
      "module E is the console card"),
+    ("a Disk II register entry", with_disk2_id, None),
+    ("a Disk II register entry with the wrong module name",
+     lambda r: (with_disk2_id(r), edit(r, TR10, "C, the Disk II card", "C, the video card")),
+     "module C is the Disk II card"),
     ("a written entry still on the unwritten list",
      lambda r: append(r, UNWRITTEN, "bdos-9\n"), "bdos-9 is written now: take it off the list"),
     ("an unwritten name that names nothing",

@@ -12,6 +12,22 @@ reg-c300  # ACIA, ACIA_DATA
 reg-c301  # ACIA_STATUS
 reg-c302  # ACIA_CMD
 reg-c303  # ACIA_CTRL
+reg-c340  # VIA, VIA_ORB
+reg-c341  # VIA_ORA
+reg-c342  # VIA_DDRB
+reg-c343  # VIA_DDRA
+reg-c344  # VIA_T1CL
+reg-c345  # VIA_T1CH
+reg-c346  # VIA_T1LL
+reg-c347  # VIA_T1LH
+reg-c348  # VIA_T2CL
+reg-c349  # VIA_T2CH
+reg-c34a  # VIA_SR
+reg-c34b  # VIA_ACR
+reg-c34c  # VIA_PCR
+reg-c34d  # VIA_IFR
+reg-c34e  # VIA_IER
+reg-c34f  # VIA_ORA_NH
 reg-c380  # SD, SD_CTRL
 reg-c381  # SD_STATUS
 reg-c382  # SD_ERROR
@@ -20,12 +36,25 @@ reg-c384  # SD_UNIT
 reg-c386  # SD_LBA
 reg-c38a  # SD_COUNT
 reg-c38c  # SD_DATA
+reg-c38d  # SD_BUFPTR
 reg-c390  # SD_IEN
+reg-c391  # SD_ISR
 reg-c3ff  # SD_ID
 reg-c400  # DMA, DMA0_ADDR
 reg-c404  # DMA0_COUNT
 reg-c406  # DMA0_MODE
 reg-c407  # DMA0_CTRL
+reg-c408  # DMA0_DEST
+reg-c410  # DMA1_ADDR
+reg-c414  # DMA1_COUNT
+reg-c416  # DMA1_MODE
+reg-c417  # DMA1_CTRL
+reg-c418  # DMA1_DEST
+reg-c420  # DMA2_ADDR
+reg-c424  # DMA2_COUNT
+reg-c426  # DMA2_MODE
+reg-c427  # DMA2_CTRL
+reg-c428  # DMA2_DEST
 reg-c430  # DMA3_ADDR
 reg-c434  # DMA3_COUNT
 reg-c436  # DMA3_MODE
@@ -40,6 +69,8 @@ reg-c481  # VIDEO_BORDER
 reg-c482  # VIDEO_PALBASE
 reg-c483  # VIDEO_SPRBASE
 reg-c484  # VIDEO_IEN
+reg-c485  # VIDEO_ISR
+reg-c486  # VIDEO_LINE
 reg-c488  # VIDEO_STATUS
 reg-c489  # VIDEO_SPLASH
 reg-c490  # VIDEO_L0, VIDEO_L0_CONFIG
@@ -49,17 +80,47 @@ reg-c493  # VIDEO_L0_HSCROLL
 reg-c495  # VIDEO_L0_VSCROLL
 reg-c497  # VIDEO_L0_PALOFS
 reg-c4a0  # VIDEO_L1, VIDEO_L1_CONFIG
+reg-c4a1  # VIDEO_L1_MAP
+reg-c4a2  # VIDEO_L1_TILE
+reg-c4a3  # VIDEO_L1_HSCROLL
+reg-c4a5  # VIDEO_L1_VSCROLL
+reg-c4a7  # VIDEO_L1_PALOFS
 reg-c4ff  # VIDEO_ID
-reg-c500  # SOUND
+reg-c500  # SOUND, SOUND_SIDA
+reg-c520  # SOUND_SIDB
 reg-c540  # SOUND_CTRL
+reg-c541  # SOUND_STATUS
 reg-c542  # SOUND_IEN
 reg-c543  # SOUND_RAMADDR
 reg-c545  # SOUND_RAMDATA
+reg-c546  # SOUND_MBOUT
+reg-c547  # SOUND_MBIN
 reg-c57f  # SOUND_ID
 reg-c580  # USB, USB_KEY
 reg-c581  # USB_KEYCLR
+reg-c582  # USB_MODS
+reg-c583  # USB_EVCOUNT
+reg-c584  # USB_EVENT
+reg-c585  # USB_LEDS
+reg-c586  # USB_REPEAT
 reg-c587  # USB_KBCFG
+reg-c590  # USB_MCTRL
+reg-c591  # USB_MBTN
+reg-c592  # USB_MX
+reg-c594  # USB_MY
+reg-c596  # USB_MWHEEL
+reg-c597  # USB_MAXX
+reg-c599  # USB_MAXY
+reg-c5a0  # USB_GAME
+reg-c5a1  # USB_PTRIG
+reg-c5a2  # USB_PADDLE0
+reg-c5a3  # USB_PADDLE1
+reg-c5a4  # USB_PADDLE2
+reg-c5a5  # USB_PADDLE3
+reg-c5a6  # USB_SPKR
 reg-c5b0  # USB_IEN
+reg-c5b1  # USB_ISR
+reg-c5b2  # USB_DEVICES
 reg-c5ff  # USB_ID
 reg-c600  # DISK2
 reg-c67f  # DISK2_ID
@@ -73,6 +134,10 @@ reg-c686  # NB_STATUS
 reg-c687  # NB_RTCCTL
 reg-c688  # NB_IRQL
 reg-c689  # NB_IRQH
+reg-c68a  # NB_WAIT0
+reg-c68b  # NB_WAIT1
+reg-c68c  # NB_WAIT2
+reg-c68d  # NB_WAIT3
 reg-c690  # NB_SEC
 reg-c691  # NB_MIN
 reg-c692  # NB_HOUR
@@ -83,7 +148,20 @@ reg-c696  # NB_YEAR
 reg-c697  # NB_RTCREG
 reg-c698  # NB_RTCDATA
 reg-c6ff  # NB_ID
+reg-c700  # CONSOLE, CONSOLE_SWR
+reg-c703  # CONSOLE_PANEL
+reg-c704  # CONSOLE_KEYS
+reg-c705  # CONSOLE_DISPLAY
+reg-c706  # CONSOLE_CTRL
+reg-c708  # CONSOLE_BPADDR
+reg-c70b  # CONSOLE_BPCTRL
+reg-c70c  # CONSOLE_STATUS
+reg-c710  # CONSOLE_LADDR
+reg-c713  # CONSOLE_LDATA
+reg-c714  # CONSOLE_LSTAT
+reg-c715  # CONSOLE_PADDR
 reg-c718  # CONSOLE_IEN
+reg-c719  # CONSOLE_ISR
 reg-c77f  # CONSOLE_ID
 
 # Commands with the RSXs (phase 5)

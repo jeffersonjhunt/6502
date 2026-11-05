@@ -50,7 +50,7 @@ HW_STATUS = ("built", "emulated", "proposed")  # the machine's registers and sec
 # (PIP, phase 4b2's, is oodos/utils/pip.s now.)
 PLANNED: tuple = ()
 MODULES = {0x6: "serial", 0x7: "storage", 0x8: "DMA", 0x9: "video", 0xA: "sound", 0xB: "USB",
-           0xD: "north bridge", 0xE: "console"}
+           0xC: "Disk II", 0xD: "north bridge", 0xE: "console"}
 
 ANCHOR_LINE = re.compile(r'^<a id="([^"]+)"></a>\s*$')
 ANCHOR_ANY = re.compile(r'<a\s+(?:id|name)="([^"]+)"')
