@@ -2503,6 +2503,21 @@ decisions above are what was built, and these are the details):
   fill more than a page); `test_oodos_utils_sys`'s SETDEF (`$18`'s other bits poked as `$04`; SUB orders taken).
 - **The rig's `calls()`** returns too when the BDOS is already in the function asked for (`FUNC`, with the system's
   windows in): a program waiting at the keyboard makes no new entry.
+- **After the 5c review** (the owner's triage, 2026-11-05):
+  - fixed: a `.SUB` run by name with `;PW` passes the password to SUBMIT (`RUNSUB` adds it to the tail; `SUBPRE`
+    25 bytes); the warning comes before the prompt (the RSX watches 49's writes to `$19` and skips a command's
+    leftover `<` lines at its end, bit 6 clear, but not after a ^C, which the prompt ends); SUBMIT.COM's reopen
+    checked (`Disk Read Error`, the temporary file deleted, no RSX left); a function 10 buffer of size 0 taken as 1
+    by the RSX, as our 10 does (`bdossys.s`, `F_LINE`), now tested with IOTEST's `Z`; `$93` in the Programmer's
+    Guide.
+  - accepted: a `<` line longer than the program's buffer is cut to fit and the rest dropped, as function 10 does
+    with a typed line (the User's Guide says so).
+  - accepted: every cold boot logs A: in (64 directory reads, oodos-8m) before the first prompt, for the
+    PROFILE.SUB look; CP/M 3's CCP looks for PROFILE.SUB at its first prompt the same way.
+  - accepted: the look depends on the SCB as a cold boot leaves it. `cold.s` clears `$0000-$0CFF` (the SCB at
+    `$0200` among it) and then sets `SCBINIT`'s bytes: the search chain `SCB_DRVCHAIN` (`$4C-$4F`) is `$4C` 0, the
+    default drive, and `$4D` `$FF`, so SUBMIT PROFILE finds PROFILE.SUB on the drive the CCP looked on; the user
+    (`$44`) is 0, the user looked in.
 - **`test_oodos_card`** makes A:PROFILE.SUB with PIP from CON: and boots again (saved for `interop.sh --submit`:
   PROFILE.SUB's text, no `SUBnn.$$$` left), and on a fresh card with SUBMIT.COM erased sees `SUBMIT?`.
 

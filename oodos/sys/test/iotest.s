@@ -2,6 +2,7 @@
 ; RSXs, phase 5", 5b). It does what its tail says, a character at a time:
 ;
 ;   L       a line by 10 (a buffer of 20): "L[...]"
+;   Z       a line by 10, the buffer's size 0 (taken as 1): "Z[...]"
 ;   C       a byte by 1: "Cxx"
 ;   R, W    6 with $FF, $FD: "Rxx", "Wxx"
 ;   S, T    11, 6 with $FE: "Sxx", "Txx"
@@ -73,15 +74,23 @@ next:   jsr     nextc
         jeq     outnl
         cmp     #'V'
         jeq     state
+        cmp     #'Z'
+        jeq     rline0
         jmp     next
 
+rline0: lda     #0
+        sta     buf
+        lda     #'Z'
+        bra     rlinez
 rline:  lda     #20
         sta     buf
+        lda     #'L'
+rlinez: sta     which
         lda     #<buf
         ldx     #>buf
         ldy     #C_READSTR
         jsr     BDOS
-        lda     #'L'
+        lda     which
         jsr     PUTC
         lda     #'['
         jsr     PUTC
@@ -336,6 +345,7 @@ lcb:    .word   slist, 4
 
         .bss
 at:     .res    1
+which:  .res    1                       ; L or Z
 two:    .res    1
 su:     .res    1
 se:     .res    1

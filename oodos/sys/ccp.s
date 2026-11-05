@@ -108,7 +108,7 @@ SFCB:           .res    36             ; the built-ins'
 LASTREC:        .res    RECORD         ; a record; the built-ins' DMA buffer
 CEND:           .res    2              ; CHECKHDR's end of the image and BSS
 ORDIX:          .res    1              ; the search order's place in ORDERS
-SUBPRE:         .res    16             ; a .SUB's command: " d:NAME.SUB"
+SUBPRE:         .res    25             ; a .SUB's command: " d:NAME.SUB;PASSWORD"
 COUNT:          .res    1              ; a count, for a moment (DIRSYS's tail, the parse)
 CHAINF:         .res    1              ; 47's request, as the SCB had it
 CHAINED:        .res    1              ; 1: the command is 47's
@@ -1543,7 +1543,7 @@ PROGRAM:        SEC
                 BPL     @pw
                 JMP     LOADPROG       ; back only if not found
 
-; A .SUB file found (COMFCB, on LOADDRV): the command SUBMIT d:NAME.SUB and the
+; A .SUB file found (COMFCB, on LOADDRV): the command SUBMIT d:NAME.SUB{;PW} and the
 ; tail, SUBMIT.COM found by the search chain as any program; not found:
 ; SUBMIT? (5c). A tail that doesn't fit: Command tail too long.
 RUNSUB:         LDX     #0             ; the new tail's start: " d:NAME.SUB" in SUBPRE
@@ -1575,7 +1575,22 @@ RUNSUB:         LDX     #0             ; the new tail's start: " d:NAME.SUB" in 
                 INY
                 CPY     #4
                 BNE     @typ
-                STX     SAVEB          ; its length
+                LDY     #0             ; ;PW, the password typed (WFCB's, in PWBUF)
+                LDA     PWBUF
+                CMP     #' ' + 1
+                BCC     @pwend
+                LDA     #';'
+                STA     SUBPRE,X
+                INX
+@pwc:           LDA     PWBUF,Y
+                CMP     #' ' + 1
+                BCC     @pwend
+                STA     SUBPRE,X
+                INX
+                INY
+                CPY     #8
+                BNE     @pwc
+@pwend:         STX     SAVEB          ; its length
                 CLC
                 LDA     TAILLEN
                 ADC     SAVEB

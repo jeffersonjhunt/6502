@@ -188,7 +188,9 @@ after the program it served.
 **Calling one.** [Function 60](07-function-reference.md#bdos-60) passes a parameter block down the chain: a function
 byte, a count of words, the words. An RSX takes the blocks whose function byte is its own. 0-127 are programs'
 RSXs', 128-255 OODOS's: GET's RSX takes `$80` (GET.COM's file) and `$81` (GET CONSOLE), PUT's `$90` (PUT.COM's
-file), `$91` (PUT ... TO CONSOLE or PRINTER) and `$92` (is a PUT of the kind writing to a file?), SUBMIT's `$A0`
+file), `$91` (PUT ... TO CONSOLE or PRINTER), `$92` (is a PUT of the kind writing to a file?) and `$93` (PUT.COM is
+running: a PUT waiting for the next command waits for the one after, so a PUT command isn't the command it puts),
+SUBMIT's `$A0`
 (SUBMIT.COM's file) and `$A1` (is a SUBMIT running? 0 when one is);
 [`oodos.inc`](../../oodos/include/oodos.inc) names them `RXF_*`.
 

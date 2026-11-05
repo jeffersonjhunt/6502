@@ -8,10 +8,13 @@
 ;
 ; Given its file it serves at once (rxfile.inc reads it):
 ;
+;   a command's end (49's write to $19 with bit 6 clear, before the prompt)
+;               the < lines left skipped, and WARNING: Program input ignored
+;               said once, so it comes before the prompt (not after a ^C)
 ;   the prompt  (10 with $19 bit 7 set, bit 6 clear) the next command line,
-;               shown and ended by CR as typed; < lines before it skipped, then
-;               WARNING: Program input ignored, once; a ^C's end ($FFFE, 108)
-;               or the file's end: its file deleted, done, the keyboard
+;               shown and ended by CR as typed (< lines still there skipped as
+;               above); a ^C's end ($FFFE, 108) or the file's end: its file
+;               deleted, done, the keyboard
 ;   a program's input (or a built-in's question: bit 6 set) a < line: 10 the
 ;               rest of it (A/X 0: the DMA buffer's characters first, as GET),
 ;               1 and 6's $FF and $FD a byte at a time, then CR (< alone: a
@@ -48,6 +51,8 @@ entry:  sta     sa
         lda     mode
         cmp     #M_ACTIVE
         bne     pass
+        cpy     #S_SCB
+        jeq     scb
         cpy     #C_STAT
         jeq     status
         cpy     #C_RAWIO
@@ -103,6 +108,50 @@ zero:   lda     #0
         tax
         rts
 
+; 49: the CCP's writes to $19. A command's end (bit 6 clear): the < lines it
+; left skipped and the warning said now, before the prompt; after a ^C
+; ($FFFE) nothing, the prompt ends it.
+scb:    lda     sa
+        ldx     sx
+        jsr     RX_SETP
+        jsr     RX_PB49
+        bcc     @pass
+        and     #RX_CMD
+        bne     @pass
+        lda     #$FF
+        tax
+        ldy     #P_CODE
+        jsr     RX_BDOS
+        cmp     #$FE
+        bne     :+
+        cpx     #$FF
+        beq     @pass
+:       jsr     skipin
+@pass:  jmp     pass
+
+; The < lines next skipped (a line 1 began among them), the warning said if
+; there were any; carry set at the file's end.
+skipin: stz     skipped
+@peek:  jsr     peekline
+        bcs     @end
+        lda     lbuf
+        cmp     #'<'
+        clc                             ; a command: not the end
+        bne     @end
+        stz     have                    ; program input left over: skipped
+        stz     inlt
+        lda     #1
+        sta     skipped
+        bra     @peek
+@end:   php
+        lda     skipped
+        beq     :+
+        lda     #<swarn
+        ldx     #>swarn
+        jsr     say
+:       plp
+        rts
+
 ; 10: the prompt's command line, or a < line for a program or a question.
 line:   ldx     #SCB_CCPST
         jsr     RX_SCBGET
@@ -119,24 +168,10 @@ line:   ldx     #SCB_CCPST
         bne     @next
         jsr     endsub
         jmp     pass
-@next:  stz     skipped
-@peek:  jsr     peekline
+@next:  jsr     skipin                  ; (left by none at a command's end: none)
         bcc     :+
         jsr     endsub                  ; the file's end: the keyboard
         jmp     pass
-:       lda     lbuf
-        cmp     #'<'
-        bne     @cmd
-        stz     have                    ; program input left over: skipped
-        stz     inlt
-        lda     #1
-        sta     skipped
-        bra     @peek
-@cmd:   lda     skipped
-        beq     :+
-        lda     #<swarn
-        ldx     #>swarn
-        jsr     say
 :       stz     lfrom
         jmp     give
 
@@ -420,7 +455,7 @@ say:    sta     @l + 1
         .include "rxfile.inc"
 
         .rodata
-swarn:  .byte   "WARNING: Program input ignored", CR, LF, 0
+swarn:  .byte   CR, LF, "WARNING: Program input ignored", 0 ; the prompt's CR LF after
 
         .segment "RSXHDR"
 PREFIX  = * - RSX_PREFIX_LEN

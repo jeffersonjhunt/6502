@@ -491,8 +491,16 @@ give:   jsr     user0
         ldx     #>tfcb
         ldy     #F_OPEN
         jsr     BDOS
+        pha
         jsr     userback
-        lda     #<pbfile
+        pla
+        cmp     #$FF
+        bne     :+
+        jsr     deltemp                 ; gone, or unreadable: no RSX given it
+        lda     #<sread
+        ldx     #>sread
+        jmp     fail
+:       lda     #<pbfile
         ldx     #>pbfile
         ldy     #P_RSX
         jsr     BDOS
@@ -573,6 +581,7 @@ sascii: .byte   "Invalid ASCII character$"
 slong:  .byte   "Line too long$"
 sdirfull: .byte "Directory full$"
 swrite: .byte   "Disk Write Error$"
+sread:  .byte   "Disk Read Error$"
 smem:   .byte   "Insufficient Memory$"
 
         .data

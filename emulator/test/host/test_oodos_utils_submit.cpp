@@ -115,8 +115,8 @@ TEST(submit_gives_less_than_lines_to_the_program_and_warns_of_those_left)
     std::string o = r.run("submit m:in", "\r\nZ");
     has(o, "ONE\rL[ONE] \rL[] ");               // shown as typed; < alone a CR
     o = r.run("submit m:left", "\r\nZ");
-    has(o, "A\rL[A] ");
-    has(o, "WARNING: Program input ignored\r\n"); // once for B and C
+    has(o, "A\rL[A] \r\nWARNING: Program input ignored\r\nA>iotest 2Z\r\nZ"); // once for B and C, before
+                                                                           // the prompt, the command after it
     CHECK_EQ(o.find("WARNING"), o.rfind("WARNING"));
     hasnt(o, "L[B]");
     // A program that wants more than the < lines: the keyboard, the next command waiting
@@ -218,6 +218,66 @@ TEST(the_ccp_says_submit_when_there_is_no_submit_com)
     REQUIRE(r.ok);
     r.chain({13});                                  // M: alone: the card's A: has SUBMIT.COM
     has(r.cmd("m:foo.sub"), "SUBMIT?\r\nA>");
+}
+
+TEST(a_sub_run_by_name_takes_its_password)
+{
+    Sx r({sub("PROT    SUB", "iotest 2P\r\n")});
+    REQUIRE(r.ok);
+    r.xfcb_m(0, "PROT    SUB", 0x80, "SESAME  "); // read protected
+    std::string o = r.run("m:prot.sub;sesame", "A>iotest 2P\r\nP");
+    hasnt(o, "Password Error");
+    CHECK_EQ(r.m_entry(0, "SUB00   $$$"), -1);
+    same(r.cmd("m:prot.sub"), "m:prot.sub\r\nPassword Error\r\nA>"); // without it: SUBMIT can't read it
+}
+
+TEST(a_less_than_line_to_a_buffer_of_size_0_gives_one_character_as_typed_input_does)
+{
+    Sx r({sub("ZERO    SUB", "iotest Z\r\n<AB\r\niotest 2Q\r\n")});
+    REQUIRE(r.ok);
+    // Typed: the BDOS's 10 takes a size of 0 as 1
+    size_t from = r.out.size();
+    r.type("iotest Z\r");
+    CHECK(r.calls(r.C_READSTR_FN, ms(6000)));
+    CHECK(r.calls(r.C_READSTR_FN, ms(6000)));
+    r.type("AB\r");
+    CHECK(r.until("] ", ms(6000), from));
+    const std::string typed = r.out.substr(from);
+    has(typed, "Z[A] ");                            // one character taken, B refused
+    CHECK(r.calls(r.C_READSTR_FN, ms(6000)));
+    // From a < line: the same, the rest of the line dropped
+    const std::string o = r.run("submit m:zero", "\r\nQ");
+    has(o, "Z[A] ");
+    hasnt(o, "Z[AB]");
+    hasnt(o, "WARNING");
+}
+
+TEST(submit_says_so_and_attaches_nothing_when_its_temporary_file_wont_open_again)
+{
+    // A fault put in as SUBMIT.COM comes to open its temporary file again (give): the name in its FCB
+    // changed, so the open finds nothing, as for a file gone. (Erasing M:'s directory entry doesn't
+    // do it: the BDOS's directory buffer still has it.)
+    Sx r({sub("FOO     SUB", "iotest 2A\r\n")});
+    REQUIRE(r.ok);
+    const auto lbl = labels(UTILS + "/submit.lbl");
+    REQUIRE(lbl.count("give") && lbl.count("tfcb"));
+    const uint16_t give = lbl.at("give"), tfcb = lbl.at("tfcb");
+    bool faulted = false;
+    r.watch = [&](uint16_t pc) {
+        if (!faulted && pc == give)
+        {
+            r.machine->bus().write(static_cast<uint16_t>(tfcb + 1), 'X');
+            faulted = true;
+        }
+    };
+    const std::string o = r.cmd("submit m:foo");
+    r.watch = nullptr;
+    CHECK(faulted);
+    same(o, "submit m:foo\r\nDisk Read Error\r\nA>");
+    CHECK(r.calls(r.C_READSTR_FN, ms(3000)));      // the keyboard: nothing from the file
+    CHECK_EQ(nrsx(r), 0u);
+    same(r.cmd("iotest 2K"), "iotest 2K\r\nK\r\nA>");
+    CHECK_EQ(nrsx(r), 0u);
 }
 
 int main()

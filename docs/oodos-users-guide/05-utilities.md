@@ -905,8 +905,9 @@ SUBMIT filespec {argument ...}
 filespec {argument ...}
 ```
 
-- **filespec** is the file, `NAME.SUB` when no type is given, on its drive or along the search chain. Typing its
-  name as a command (`NAME.SUB`, or `NAME` with SETDEF's `ORDER` taking SUB) runs SUBMIT with it.
+- **filespec** is the file, `NAME.SUB` when no type is given, on its drive or along the search chain, and its
+  password after a `;` if it has one. Typing its name as a command (`NAME.SUB`, or `NAME` with SETDEF's `ORDER`
+  taking SUB, with `;password` if it needs one) runs SUBMIT with it.
 - **SUBMIT alone** asks `Enter File to Submit: ` for the rest of the line.
 - **The arguments** are words separated by blanks: the first is `$1`, the ninth `$9`; one not given is nothing,
   and ones past what the file uses are ignored. `$0` is the file's name as typed. `$$` is a `$`.
@@ -914,8 +915,9 @@ filespec {argument ...}
   `^` is kept as it is.
 - **A line starting with `<`** is input for the program the line before runs (or for a built-in's question, such
   as USER's), as if typed: its line reads, then its keys, a key at a time with a CR at the end; `<` alone is a CR.
+  A line longer than the program's line buffer is cut to fit, as a typed line is, and the rest dropped.
   When the program asks for more than the `<` lines give, it reads the keyboard. `<` lines left over when it ends
-  are skipped, and `WARNING: Program input ignored` said once.
+  are skipped, and `WARNING: Program input ignored` said once, before the next prompt.
 - **Each command** is shown after the prompt as if typed; lines starting with `;` are comments and `:` runs a
   command only after a success, as at the prompt.
 - **A SUBMIT in a SUBMIT file** runs its own file first, then the first goes on. So does a GET in one.
@@ -945,7 +947,8 @@ A: SAM      TXT
 - `No 'SUB' file found`: the file isn't on its drive or the search chain.
 - `Error on line n:` and one of: `Parameter Error.` (a `$` before anything but a digit or `$`), `Invalid ASCII
   character` (a byte `FF`), `Line too long` (over 128 characters with the arguments in: ours). Nothing runs.
-- `Directory full`: no temporary file could be made. `Disk Write Error`: it couldn't be written.
+- `Directory full`: no temporary file could be made. `Disk Write Error`: it couldn't be written. `Disk Read
+  Error`: it couldn't be opened again to run (gone, or unreadable); nothing runs.
 - `Insufficient Memory`: no room for SUBMIT's RSX (too many SUBMITs within SUBMITs: the CCP says it).
 
 #### Since
