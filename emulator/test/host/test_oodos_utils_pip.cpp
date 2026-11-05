@@ -245,15 +245,20 @@ TEST(pip_asks_with_c_and_copies_only_unarchived_files_with_a)
 TEST(pip_with_a_copies_a_file_any_of_whose_entries_isnt_archived)
 {
     // The BDOS clears t3' only in the entry of the extent a write wrote (the Guide, 2.3.4: a file
-    // is archived if all its entries are), so [A] looks at every entry. KEPT.DAT and CHG.DAT have
-    // two entries each (256 records, then extent 2's), both archived but CHG.DAT's second, as a
-    // write to its record 256 leaves it; NEW.TXT one, not archived.
+    // is archived if all its entries are), so [A] looks at every entry, and names a file once.
+    // CHG.DAT and BOTH.DAT have two entries each (256 records, then extent 2's): CHG.DAT's first
+    // archived, its second not, as a write to its record 256 leaves it; neither of BOTH.DAT's.
+    // KEPT.DAT is archived, NEW.TXT not. Copied to B:, as M: hasn't room for the copies too.
     CcpRig r;
     REQUIRE(r.ok);
     std::vector<uint8_t> big(256 * RECORD + 5);
     for (size_t i = 0; i < big.size(); ++i)
         big[i] = static_cast<uint8_t>(i * 13 + i / RECORD);
-    auto two_entries = [&](const std::string &name83, bool second_archived) {
+    auto archived = [&](unsigned e, bool on) {
+        if (on)
+            r.poke(MDISK + e * 32 + 11, static_cast<uint8_t>(r.phys(MDISK + e * 32 + 11) | 0x80));
+    };
+    auto two_entries = [&](const std::string &name83, bool first_archived, bool second_archived) {
         r.put_m({{0, name83, std::vector<uint8_t>(big.begin(), big.begin() + 256 * RECORD)}});
         const unsigned first = r.entry;
         const unsigned at = r.free_entry();
@@ -266,24 +271,27 @@ TEST(pip_with_a_copies_a_file_any_of_whose_entries_isnt_archived)
         for (uint32_t i = 0; i < M_BLS; ++i)
             r.poke(MDISK + r.block * M_BLS + i, i < 5 ? big[256 * RECORD + i] : uint8_t{0x1A});
         ++r.block;
-        r.poke(MDISK + first * 32 + 11, static_cast<uint8_t>(r.phys(MDISK + first * 32 + 11) | 0x80));
-        if (second_archived)
-            e[11] = static_cast<uint8_t>(e[11] | 0x80);
         r.poke(MDISK + at * 32, e);
+        archived(first, first_archived);
+        archived(at, second_archived);
         return std::pair<unsigned, unsigned>{first, at};
     };
-    two_entries("KEPT    DAT", true);
-    const auto chg = two_entries("CHG     DAT", false);
+    r.put_m({{0, "KEPT    DAT", bytes("KEPT\r\n")}});
+    archived(r.entry, true);
+    const auto chg = two_entries("CHG     DAT", true, false), both = two_entries("BOTH    DAT", false, false);
     r.put_m({{0, "NEW     TXT", bytes("NEW\r\n")}});
     r.put_util("pip");
-    same(pip(r, "m:[g7]=m:*.*[a]"), "COPYING -\r\nCHG.DAT\r\nNEW.TXT"); // CHG.DAT once, by its second entry
-    std::vector<uint8_t> want(big.begin(), big.begin() + 256 * RECORD + 5);
+    same(pip(r, "b:=m:*.*[a]"), "COPYING -\r\nCHG.DAT\r\nBOTH.DAT\r\nNEW.TXT"); // each once
+    for (const auto &[a, b] : {chg, both}) // archived after: both entries (30)
+    {
+        CHECK_EQ(r.phys(MDISK + a * 32 + 11) & 0x80, 0x80);
+        CHECK_EQ(r.phys(MDISK + b * 32 + 11) & 0x80, 0x80);
+    }
+    same(pip(r, "b:=m:*.*[a]"), "FILE NOT FOUND - ????????.???");
+    same(pip(r, "m:chk.dat=b:chg.dat"), ""); // B:'s copy, back on M: (KEPT.DAT's room): all 257 records
+    std::vector<uint8_t> want(big.begin(), big.end());
     want.resize(257 * RECORD, 0x1A);
-    CHECK(m_data(r, 7, "CHG     DAT") == want);
-    CHECK(r.m_entry(7, "KEPT    DAT") < 0);
-    CHECK_EQ(r.phys(MDISK + chg.first * 32 + 11) & 0x80, 0x80); // archived again: both entries (30)
-    CHECK_EQ(r.phys(MDISK + chg.second * 32 + 11) & 0x80, 0x80);
-    same(pip(r, "m:[g8]=m:*.*[a]"), "FILE NOT FOUND - ????????.???");
+    CHECK(m_data(r, 0, "CHK     DAT") == want);
 }
 
 TEST(pip_takes_a_sources_password_and_gives_a_destination_one)
