@@ -6,7 +6,7 @@
 #
 #   docker run --rm -v "$(hostpath oodos):/o:ro" -v "$(hostpath DIR):/c:ro" \
 #       debian:bookworm@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61 \
-#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils | --pip | --rsx]
+#       sh /o/test/interop.sh /c/CARD [--written | --ccp | --utils | --pip | --rsx | --submit]
 #
 # CARD is a raw card image or a sparse one (oo1-sparse, as
 # emulator/test/host/sd/oodos.sparse, the card make_card.sh made). With
@@ -38,6 +38,9 @@
 # HELLO.COM given two SCB entries by GENCOM, against tools/gencom.py's of
 # HELLO.COM with the same; 0:PUTOUT.TXT, PUT's file of TYPE README.TXT, its
 # text (the prompt's LF, then README.TXT's lines) to its ^Z; no NAME.$$$ left.
+# With --submit it is the card test_oodos_card saved after phase 5c's
+# PROFILE.SUB ran at boot (OODOS_SUBMIT_OUT): 0:PROFILE.SUB, made by PIP from
+# the console, its line TYPE README.TXT; no SUBnn.$$$ left behind.
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
@@ -163,6 +166,13 @@ elif [ "$written" = --rsx ]; then
   ok "PUT's PUTOUT.TXT, out by cpmcp: an LF, then README.TXT's text, to its ^Z"
   if echo "$listing" | grep -E '^\S+ +\$\$\$ ' >/dev/null; then fail "cpmls -F lists a NAME.\$\$\$"; fi
   ok "cpmls -F: no NAME.\$\$\$ left"
+elif [ "$written" = --submit ]; then
+  cpmcp -f oodos-8m "$img" 0:PROFILE.SUB "$work/profile" || fail "cpmcp 0:PROFILE.SUB"
+  python3 -I -c 'import sys; t = open(sys.argv[1], "rb").read().split(b"\x1a")[0]; sys.exit(0 if t.strip().upper() == b"TYPE README.TXT" else 1)' \
+    "$work/profile" || fail "PROFILE.SUB is not TYPE README.TXT"
+  ok "PROFILE.SUB, out by cpmcp: TYPE README.TXT"
+  if echo "$listing" | grep -E '^SUB[0-9][0-9] +\$\$\$ ' >/dev/null; then fail "cpmls -F lists a SUBnn.\$\$\$"; fi
+  ok "cpmls -F: no SUBnn.\$\$\$ left"
 elif [ "$written" != --ccp ] && [ "$written" != --utils ]; then
   for f in 'README TXT' 'PATTERN BIN' 'USER3 TXT' 'SMALL BIN'; do
     stamped $f '10/26/26 12:00' '10/26/26 12:00'
@@ -283,7 +293,7 @@ xfcb  0 TESTSYS SYS 20" ] || fail "the XFCBs are not PATTERN.DAT's (Write) and T
     cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:} as make_card.sh made it"
   done
   ok "README.TXT, PATTERN.DAT, USER3.TXT and SMALL.BIN, out by cpmcp, are what make_card.sh made"
-elif [ "$written" = --pip ] || [ "$written" = --rsx ]; then
+elif [ "$written" = --pip ] || [ "$written" = --rsx ] || [ "$written" = --submit ]; then
   : # checked above
 elif [ -n "$written" ]; then
   fail "$written: not an option"

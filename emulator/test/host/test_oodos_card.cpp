@@ -22,8 +22,8 @@
  * write_on_the_oo1() is the seam. The CCP's ERA and REN (phase 4a) and the
  * utilities on A: (phase 4b1: ERASE, RENAME, SET, INITDIR) change A: through
  * the CCP the same way, the cards saved by OODOS_CCP_OUT, OODOS_UTILS_OUT,
- * OODOS_PIP_OUT and OODOS_RSX_OUT for interop.sh --ccp, --utils, --pip and --rsx
- * (phase 5b: GENCOM and PUT).
+ * OODOS_PIP_OUT, OODOS_RSX_OUT and OODOS_SUBMIT_OUT for interop.sh --ccp, --utils,
+ * --pip, --rsx (phase 5b: GENCOM and PUT) and --submit (5c: PROFILE.SUB at boot).
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
  * make_card.sh and interop.sh have it.
@@ -635,7 +635,7 @@ namespace
     /// BIOS boots the card after the splash, OOLDR, OODOS), each of `lines` typed and run to the next prompt or question (Y/N),
     /// which the next line answers; then the card back into `r`.
     /// @return what the CCP said
-    std::string ccp_on_the_oo1(Rig &r, const std::vector<std::string> &lines)
+    std::string ccp_on_the_oo1(Rig &r, const std::vector<std::string> &lines, bool from_boot = false)
     {
         constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
         std::string error, out;
@@ -677,7 +677,7 @@ namespace
             out += s->take_output();
         }
         r.media = card;
-        return out.substr(said);
+        return from_boot ? out : out.substr(said);
     }
 
     std::string env(const char *name)
@@ -1020,6 +1020,44 @@ TEST(gencom_and_put_on_a_and_the_card_is_saved_for_interop_sh)
           h2[t + 16] == 0x06 && h2[t + 17] == 0x5A && h2[t + 18] == 2);
     for (const char *tmp : {"PUTOUT  $$$", "H2      $$$"})
         CHECK(entries_of(dir, 0, tmp).empty());
+}
+
+TEST(profile_sub_runs_at_the_first_prompt_and_the_card_is_saved_for_interop_sh)
+{
+    // Phase 5c: PIP makes A:PROFILE.SUB from the console; the card booted again runs it at the first prompt
+    // (SUBMIT PROFILE, shown as typed), its temporary file gone after; saved with OODOS_SUBMIT_OUT for
+    // interop.sh --submit. Then SUBMIT.COM erased: the next boot says SUBMIT? and goes on.
+    Rig r;
+    REQUIRE(mount_a(r));
+    std::string said = ccp_on_the_oo1(r, {"pip profile.sub=con:\rtype readme.txt\r\x1a"});
+    CHECK(said.find("ERROR") == std::string::npos && said.find("INVALID") == std::string::npos);
+    said = ccp_on_the_oo1(r, {"dir"}, true);
+    const size_t first = said.find("\nA>");
+    CHECK(first != std::string::npos && said.compare(first + 3, 14, "SUBMIT PROFILE") == 0);
+    CHECK(said.find("A>type readme.txt\r\nTHIS IS AN OODOS DRIVE") != std::string::npos);
+    if (said.find("A>type readme.txt") == std::string::npos)
+        std::printf("  said '%s'\n", said.c_str());
+    const std::string out = env("OODOS_SUBMIT_OUT");
+    if (!out.empty())
+    {
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(r.media->bytes().data()),
+                static_cast<std::streamsize>(r.media->bytes().size()));
+        CHECK(f.good());
+        std::printf("  the card saved to %s\n", out.c_str());
+    }
+    {
+        Rig again(r.media->bytes());
+        REQUIRE(mount_a(again));
+        Drive a{again, 1, Dpb::from_diskdefs("oodos-8m")};
+        const std::vector<uint8_t> dir = a.directory();
+        CHECK(!entries_of(dir, 0, "PROFILE SUB").empty());
+        for (const char *t : {"SUB00   $$$", "SUB01   $$$"})
+            CHECK(entries_of(dir, 0, t).empty());
+    }
+    ccp_on_the_oo1(r, {"era submit.com"});
+    said = ccp_on_the_oo1(r, {"dir"}, true);
+    CHECK(said.find("A>SUBMIT PROFILE\r\nSUBMIT?\r\nA>") != std::string::npos);
 }
 
 TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_interop_sh)
