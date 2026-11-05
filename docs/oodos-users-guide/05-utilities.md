@@ -206,7 +206,8 @@ WORK.DAT      on       on      on      10/30/26 12:00  10/30/26 12:05
 The third column's heading is `Access` instead of `Create` when the label asks for access stamps. A stamp that
 was never made is blank.
 
-USERS, each count right-aligned in 4 under its user number:
+USERS, each count right-aligned in 4 under its user number (here M: holds six files; an empty M: has 191 free
+entries, as in the example below):
 
 ```
 Active User :  0
@@ -215,7 +216,7 @@ M: # of files:   3   2   1
 M: Number of free directory entries: 185
 ```
 
-DIR:
+DIR (the same six files on M:):
 
 ```
 M: Number of free directory entries: 185

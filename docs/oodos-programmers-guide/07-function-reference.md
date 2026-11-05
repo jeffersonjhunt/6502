@@ -772,8 +772,8 @@ The same, but for the registers: the FCB's address goes in A and X, where CP/M 3
 
 - An extent that hasn't been written since it was opened or last closed needs nothing in the directory: the
   drive's changed buffers are written back, any failure there is ignored, and the result is 0.
-- For a written extent, as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 2
-  Read Only, the drive is read-only (or its unit was found so as the buffers were written); 1 Disk I/O, a sector
+- For a written extent, as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)):
+  2 Read Only, the drive is read-only (or its unit was found so as the buffers were written); 1 Disk I/O, a sector
   of one of the file's blocks couldn't be written. Both are found before the directory is touched.
 - A = `$FF`: the directory is full and the extent has no entry, or the FCB and the entry name two different
   blocks for one place (two FCBs writing one file). The FCB and the entry stay as they were.
@@ -961,8 +961,8 @@ The same, but for the registers. Password Error is checked last, after every oth
 #### Errors
 
 As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
-when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it; 4
-Invalid Drive. In return mode, the FCB is written back as the records read before the error left it.
+when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it;
+4 Invalid Drive. In return mode, the FCB is written back as the records read before the error left it.
 
 The DMA buffer is checked first, all of it for a multi-sector count: past `$FFFF`, in the I/O hole, on flash or in
 a read-only window, or with a DMA segment memory OODOS keeps for itself, is A = X = `$FF`.
@@ -1123,8 +1123,8 @@ byte 8, where CP/M 3 has it too) count, and a make with f6' that can't have both
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid
-Drive; 9 ? in Filename; 2 Read Only; 8 File Exists, the new name is the current user's already; then, once
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order:
+4 Invalid Drive; 9 ? in Filename; 2 Read Only; 8 File Exists, the new name is the current user's already; then, once
 the old name is found, 3 File R/O (t1') and 7 Password Error. 1 Disk I/O. An FCB in the I/O hole returns A = X =
 `$FF`.
 
@@ -2755,8 +2755,8 @@ the last, in a block it has. R2 over 3 is `$FF` before the directory is read.
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid
-Drive; 9 ? in Filename; 2 Read Only; 3 File R/O, an extent has t1'; then `$FF` for a record the file hasn't;
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order:
+4 Invalid Drive; 9 ? in Filename; 2 Read Only; 3 File R/O, an extent has t1'; then `$FF` for a record the file hasn't;
 then 7 Password Error. 1 Disk I/O. An FCB in the I/O hole returns A = X = `$FF`.
 
 #### Side effects
@@ -2899,8 +2899,8 @@ The same. An OODOS drive's label is usually `$31`: creation and update stamps, n
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive; 1 Disk I/O; 9 ?
-in Filename.
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive; 1 Disk I/O;
+9 ? in Filename.
 
 #### Side effects
 
@@ -2947,10 +2947,10 @@ function 103's at bit 5; OODOS uses bit 5 for both, as the XFCB holds it.
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid Drive (1
-Disk I/O, logging it in), 9 ? in Filename, 2 Read Only, then the `$FF`s for passwords off and no file, then 7 Password
-Error: the file is protected (its mode has a bit of 7–5) and neither the DMA buffer's bytes 0–7 nor the default password
-(106) is its password. Then the `$FF` for no room.
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid Drive
+(1 Disk I/O, logging it in), 9 ? in Filename, 2 Read Only, then the `$FF`s for passwords off and no file, then
+7 Password Error: the file is protected (its mode has a bit of 7–5) and neither the DMA buffer's bytes 0–7 nor the
+default password (106) is its password. Then the `$FF` for no room.
 
 #### Side effects
 
