@@ -34,11 +34,16 @@ COMS = $(PROGRAMS:%=$(BUILD)/%.com)
 PRLS = $(PROGRAMS:%=$(BUILD)/%.prl)
 UTILS = $(patsubst utils/%.s,%,$(wildcard utils/*.s))
 UTIL_COMS = $(UTILS:%=$(BUILD)/%.com)
-UTIL_INCS = include/oodos.inc include/system.inc include/cmd.inc include/util.inc
+UTIL_INCS = include/oodos.inc include/system.inc include/cmd.inc include/util.inc include/redir.inc
+# OODOS's RSXs (phase 5b): rsx/NAME.s, built as NAME.rsx (cfg/rsx.cfg, three links
+# and mkprl.py, as a .PRL). A utility in ATTACHED gets its RSX, NAMErsx.rsx,
+# attached by tools/gencom.py: GET.COM and PUT.COM.
+RSXS = $(patsubst rsx/%.s,%,$(wildcard rsx/*.s))
+ATTACHED = get put
 
 all: $(COMS) $(PRLS) $(UTIL_COMS)
 
-utils: $(UTIL_COMS) | $(BUILD)
+utils: $(UTIL_COMS) $(RSXS:%=$(BUILD)/%.rsx) | $(BUILD)
 
 $(BUILD):
 	mkdir -p $@
@@ -48,6 +53,22 @@ $(BUILD)/%.o: $(SRC)/%.s $(wildcard include/*.inc) | $(BUILD)
 
 $(UTILS:%=$(BUILD)/%.o): $(BUILD)/%.o: utils/%.s $(UTIL_INCS) | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
+
+$(RSXS:%=$(BUILD)/%.o): $(BUILD)/%.o: rsx/%.s include/oodos.inc include/rsx.inc | $(BUILD)
+	ca65 $(AFLAGS) $< -o $@
+
+$(BUILD)/%.rsx: $(BUILD)/%.o cfg/rsx.cfg tools/rules.py tools/mkprl.py
+	$(call LD65,-C cfg/rsx.cfg $< -o $(BUILD)/$*.ra -m $(BUILD)/$*.ra.map -Ln $(BUILD)/$*.ra.lbl,$@)
+	$(call LD65,-C cfg/rsx.cfg -D __OODOS_PAGE__=4 -D __OODOS_ZP__=2 $< -o $(BUILD)/$*.rb,$@)
+	$(call LD65,-C cfg/rsx.cfg -D __OODOS_PAGE__=5 -D __OODOS_ZP__=5 $< -o $(BUILD)/$*.rc,$@)
+	$(PYTHON) tools/rules.py $(BUILD)/$*.ra --map $(BUILD)/$*.ra.map
+	$(PYTHON) tools/mkprl.py $(BUILD)/$*.ra $(BUILD)/$*.rb $(BUILD)/$*.rc --map $(BUILD)/$*.ra.map -o $@
+
+# A utility with its RSX attached: linked, through the rules gate, then gencom.py.
+$(ATTACHED:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/%rsx.rsx cfg/com.cfg tools/rules.py tools/gencom.py
+	$(call LD65,-C cfg/com.cfg $< -o $(BUILD)/$*.plain -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $(BUILD)/$*.plain --map $(BUILD)/$*.map
+	$(PYTHON) tools/gencom.py $(BUILD)/$*.plain $(BUILD)/$*rsx.rsx -o $@
 
 $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(call LD65,-C cfg/com.cfg $< -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
