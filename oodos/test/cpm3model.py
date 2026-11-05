@@ -555,12 +555,13 @@ class Bdos:
                 and same_name(o.name, s.name)]
 
     def put_fcb(self, addr, s, b, mem):
-        """Write the FCB as CP/M would: the entry's name, EX, S1, S2 (the module), RC, the map, CR."""
+        """Write the FCB as CP/M would: the entry's name, EX, S2 (the module), RC, the map, CR; S1 as OODOS's
+        BDOS keeps it, $80 once this open's update is stamped (S1_STAMPED), else 0."""
         dv = self.drives[s.drive]
         b = bytearray(b)
         b[1:12] = s.name
         b[12] = s.ext & 0x1F
-        b[13] = s.s1
+        b[13] = 0x80 if s.stamped else 0
         # S2: the module, and as OODOS's BDOS keeps them there, $80 not written and $40 no entry yet;
         # so a program's own FCB of the same name and place isn't taken for the open one
         b[14] = s.ext >> 5 | (0 if s.modified else 0x80) | (0x40 if s.entry is None else 0)

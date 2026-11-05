@@ -163,6 +163,7 @@ def make_write_close():
     eq(t.new("A.TXT"), (0, 0), "make A.TXT (the first free entry, 1): directory code 0, as the Guide has it (2.3)")
     eq(t.e(1), h("00" + name("A.TXT") + "00 00 00 00" + "00" * 16), "entry 1: user 0, A.TXT, EX 0, RC 0, no blocks")
     eq(t.slot(1), T0 + T0 + h("0000"), "its SFCB slot (entry 3, slot 1): created and updated now, mode 0")
+    eq(t.m.read(FCB, 14)[13], 0x80, "make of extent 0: S1_STAMPED set in the FCB's S1, as the BDOS keeps it")
     eq(t.e(3)[1:11] + t.e(3)[21:], h("e5") * 21, "the label's and entry 2's slots untouched")
     t.b.now = T1
     eq(t.write(1)[0], (0, 0), "write a record")
@@ -175,8 +176,10 @@ def make_write_close():
     t.fcb("A.TXT")
     t.f(15)
     eq(t.slot(1), T0 + T0 + h("0000"), "open: no update stamp")
+    eq(t.m.read(FCB, 14)[13], 0, "open: the FCB's S1 0 (S1_STAMPED clear)")
     eq(t.write(1)[0], (0, 0), "the first write since the open")
     eq(t.slot(1), T0 + T1 + h("0000"), "stamped the update at the write, before any close")
+    eq(t.m.read(FCB, 14)[13], 0x80, "and S1_STAMPED set in the FCB's S1")
     t.b.now = T2
     t.rand(0)
     eq(t.f(34), (0, 0), "a random write of the same open")
