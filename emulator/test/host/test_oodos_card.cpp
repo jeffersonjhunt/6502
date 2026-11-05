@@ -1026,7 +1026,7 @@ TEST(profile_sub_runs_at_the_first_prompt_and_the_card_is_saved_for_interop_sh)
 {
     // Phase 5c: PIP makes A:PROFILE.SUB from the console; the card booted again runs it at the first prompt
     // (SUBMIT PROFILE, shown as typed), its temporary file gone after; saved with OODOS_SUBMIT_OUT for
-    // interop.sh --submit. Then SUBMIT.COM erased: the next boot says SUBMIT? and goes on.
+    // interop.sh --submit. Without SUBMIT.COM, the boot says SUBMIT? and goes on.
     Rig r;
     REQUIRE(mount_a(r));
     std::string said = ccp_on_the_oo1(r, {"pip profile.sub=con:\rtype readme.txt\r\x1a"});
@@ -1055,9 +1055,15 @@ TEST(profile_sub_runs_at_the_first_prompt_and_the_card_is_saved_for_interop_sh)
         for (const char *t : {"SUB00   $$$", "SUB01   $$$"})
             CHECK(entries_of(dir, 0, t).empty());
     }
-    ccp_on_the_oo1(r, {"era submit.com"});
-    said = ccp_on_the_oo1(r, {"dir"}, true);
+    // On a fresh card: SUBMIT.COM erased first (no PROFILE.SUB yet, so nothing runs at that boot), then
+    // the profile made; its boot says SUBMIT? and goes on.
+    Rig bare;
+    REQUIRE(mount_a(bare));
+    ccp_on_the_oo1(bare, {"era submit.com", "pip profile.sub=con:\rtype readme.txt\r\x1a"});
+    said = ccp_on_the_oo1(bare, {"dir"}, true);
     CHECK(said.find("A>SUBMIT PROFILE\r\nSUBMIT?\r\nA>") != std::string::npos);
+    if (said.find("A>SUBMIT PROFILE\r\nSUBMIT?\r\nA>") == std::string::npos)
+        std::printf("  said '%s'\n", said.c_str());
 }
 
 TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_interop_sh)
