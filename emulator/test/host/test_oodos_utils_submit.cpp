@@ -109,7 +109,8 @@ TEST(submit_gives_less_than_lines_to_the_program_and_warns_of_those_left)
           sub("LEFT    SUB", "iotest L\r\n<A\r\n<B\r\n<C\r\niotest 2Z\r\n"),
           sub("MORE    SUB", "iotest L L\r\n<A\r\niotest 2Z\r\n"),
           sub("CHARS   SUB", "iotest C C C Q\r\n<ab\r\n<x\r\niotest 2Y\r\n"),
-          sub("ASK     SUB", "user\r\n<5\r\niotest 2W\r\n")});
+          sub("ASK     SUB", "user\r\n<5\r\niotest 2W\r\n"),
+          sub("DMA     SUB", "iotest D\r\n<CD\r\niotest 2V\r\n")});
     REQUIRE(r.ok);
     std::string o = r.run("submit m:in", "\r\nZ");
     has(o, "ONE\rL[ONE] \rL[] ");               // shown as typed; < alone a CR
@@ -119,9 +120,10 @@ TEST(submit_gives_less_than_lines_to_the_program_and_warns_of_those_left)
     CHECK_EQ(o.find("WARNING"), o.rfind("WARNING"));
     hasnt(o, "L[B]");
     // A program that wants more than the < lines: the keyboard, the next command waiting
+    const size_t at = r.out.size();
     r.type("submit m:more\r");
-    CHECK(r.until("L[A] ", ms(15000), r.out.size() - 15));
-    CHECK(r.calls(r.C_READSTR_FN, ms(3000)));
+    CHECK(r.until("L[A] ", ms(15000), at));
+    CHECK(r.calls(r.C_READSTR_FN, ms(3000)));      // IOTEST's second L, at the keyboard
     const size_t from = r.out.size();
     r.type("KB\r");
     CHECK(r.until("\r\nZ", ms(6000), from));
@@ -130,6 +132,9 @@ TEST(submit_gives_less_than_lines_to_the_program_and_warns_of_those_left)
     // 1 a byte at a time, then CR; status as GET's (conditional: true straight after another)
     o = r.run("submit m:chars", "\r\nY");
     has(o, "aC61 bC62 \rC0D Q0001 ");
+    // 10 with A/X 0: the DMA buffer's characters first, as GET (and the BDOS's 10)
+    o = r.run("submit m:dma", "\r\nV");
+    has(o, "D[ABCD] ");
     // A built-in's question takes a < line
     o = r.run("submit m:ask", "\r\nW");
     has(o, "Enter User #: 5\r");
@@ -211,6 +216,7 @@ TEST(the_ccp_says_submit_when_there_is_no_submit_com)
 {
     Sx r({sub("FOO     SUB", "iotest 2Q\r\n")}, false);
     REQUIRE(r.ok);
+    r.chain({13});                                  // M: alone: the card's A: has SUBMIT.COM
     has(r.cmd("m:foo.sub"), "SUBMIT?\r\nA>");
 }
 

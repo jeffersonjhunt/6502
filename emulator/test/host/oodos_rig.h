@@ -810,8 +810,9 @@ namespace oodos_rig
     #endif
 
             static constexpr unsigned C_READSTR_FN = 10; ///< function 10, read a line (oodos.inc's C_READSTR)
-            /// Run until the BDOS is entered for function `fn` (a program, or the CCP, waiting in it), so a
-            /// test types its answer when it is asked for, not after a fixed time. @return whether it was
+            /// Run until the BDOS is entered for function `fn`, or is in it (a program, or the CCP, waiting
+            /// in it), so a test types its answer when it is asked for, not after a fixed time. @return
+            /// whether it was
             bool calls(unsigned fn, uint64_t budget = ms(3000))
             {
                 bool hit = false;
@@ -823,11 +824,15 @@ namespace oodos_rig
                     if (pc == bdosent && nb(1) == 60 && cpu->regs().y == fn) // (W1 on the BDOS, block 60)
                         hit = true;
                 };
+                // Or in it already (a wait at the keyboard makes no new entry): the system's windows in,
+                // the BDOS's FUNC that function.
+                const uint16_t func = sym("FUNC");
+                auto inside = [&] { return nb(1) == 60 && phys(SYS_BLOCK_PHYS + func) == fn; };
                 const uint64_t end = cpu->cycles() + budget;
-                while (!hit && cpu->cycles() < end)
+                while (!hit && !inside() && cpu->cycles() < end)
                     run(1000);
                 watch = before;
-                return hit;
+                return hit || inside();
             }
             /// After a ^C at the prompt (a warm boot): wait for the next prompt.
             bool reprompt(const std::string &prompt = "A>", uint64_t budget = ms(3000))

@@ -583,7 +583,9 @@ TEST(clear_and_cls_clear_the_screen_and_cls_then_lists_as_dir)
     CHECK_EQ(r.row(1), std::string("A>"));
     CHECK(blank_from(2));
     same(r.cmd("clear whatever"), "clear whatever\r\n" + cleared + "\r\nA>"); // the tail ignored
-    // CLS: DIR's listing on the cleared screen, the built-in's or DIR.COM's (the card's, on A:).
+    // CLS: DIR's listing on the cleared screen, the built-in's or DIR.COM's (the card's, on A:). Page mode
+    // off: A:'s SYS files fill more than a page since SUBMIT.COM joined them (5c).
+    r.scb(0x2C, 0xFF);
     for (const std::string tail : {"", " *.com", " [sys]", " *.com [size]"})
     {
         const std::string dir = r.cmd("dir" + tail), head = "dir" + tail + "\r\n";
