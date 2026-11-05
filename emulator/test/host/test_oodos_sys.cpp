@@ -670,9 +670,9 @@ TEST(the_ccp_refuses_what_it_cant_run)
     c = com, c[5] = 0x04;                                    // not linked at $0300
     refused(c, "BAD PROGRAM HEADER");
     c = com, c[6] = 0, c[7] = 0, c[8] = 0xFE, c[9] = 0xBC;  // image and BSS to $BFFE: a byte too many
-    refused(c, "BAD PROGRAM HEADER");
+    refused(c, "Insufficient Memory");                       // (5b: no room is said so, ours)
     c = com, c[6] = 0xFF, c[7] = 0xFF, c[8] = 0x02, c[9] = 0;  // past 64 KB
-    refused(c, "BAD PROGRAM HEADER");
+    refused(c, "Insufficient Memory");
     // To $BFFD exactly fits: HELLO with BSS to there runs, as the real one does.
     c = com, c[8] = static_cast<uint8_t>(0xBFFD - 0x0300 - (com[6] | com[7] << 8)),
     c[9] = static_cast<uint8_t>((0xBFFD - 0x0300 - (com[6] | com[7] << 8)) >> 8);

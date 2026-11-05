@@ -151,8 +151,9 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BNE     @kept          ; go only after it
                 JSR     UNKEEP
 @kept:          JSR     REMOVE
-                LDA     CCPST          ; the CCP runs (the SCB's $19 bit 7, ours)
-                ORA     #$80
+                LDA     CCPST          ; the CCP runs, no command does (the SCB's $19
+                ORA     #$80           ; bits 7 and 6, ours)
+                AND     #$BF
                 STA     CCPST
                 JSR     CCPSET
                 LDA     #1             ; a multi-sector count of 1, for its loads and
@@ -360,9 +361,10 @@ RUNCMD:         LDX     #$FF
                 LDA     CMD,X
                 BEQ     DONE
 KEYWORD:        STX     KWS            ; to a blank, a tab or the end
-                LDA     CCPST          ; a command starts: the count on (ours)
+                LDA     CCPST          ; a command starts: the count on, bit 6 set (ours)
                 INC     A
-                ORA     #$80
+                AND     #CCP_COUNT
+                ORA     #$80 | CCP_CMD
                 STA     CCPST
                 JSR     CCPSET
                 LDX     KWS
@@ -424,7 +426,13 @@ SKIPCMD:        LDA     CMD,X
 ; CR LF and the prompt: the CCP's user if not 0, its drive, '>'. An LF owed
 ; is the CR LF's (so a command that wrote nothing has its prompt on the next
 ; line, as the Guide shows them).
-SAYPROMPT:      JSR     CRLF
+SAYPROMPT:      BIT     CCPST          ; a command ended: bit 6 clear before the prompt
+                BVC     @shown         ; (the SCB's $19, ours)
+                LDA     CCPST
+                AND     #$FF ^ CCP_CMD
+                STA     CCPST
+                JSR     CCPSET
+@shown:         JSR     CRLF
                 LDA     CCPUSR
                 BEQ     @drive
                 LDX     #0
@@ -1596,9 +1604,14 @@ LOADCOM:        STZ     COMFCB + FCB_R0 ; R0-R2: $0300
                 CMP     #$FE
                 BNE     RDERR
                 CPX     #3
-                BNE     @bad
+                BNE     @room
                 LDA     #<NOPROG
                 LDX     #>NOPROG
+                JMP     FAILSAY
+@room:          CPX     #0             ; no room (the table, the TPA): ours
+                BNE     @bad
+                LDA     #<NOMEM
+                LDX     #>NOMEM
                 JMP     FAILSAY
 @bad:           LDA     #<BADPROG
                 LDX     #>BADPROG
@@ -1644,16 +1657,19 @@ CHECKHDR:       LDX     #3
                 STA     CEND
                 LDA     BP_DMA + OH_SIZE + 1
                 ADC     BP_DMA + OH_BSS + 1
-                BCS     @bad
+                BCS     @room
                 ADC     #>BP_TPA
-                BCS     @bad
+                BCS     @room
                 STA     CEND + 1
                 JSR     TOPADDR        ; the lowest RSX's first byte, or $BFFD
                 CMP     CEND
                 TXA
                 SBC     CEND + 1
-                BCC     @bad
+                BCC     @room
                 RTS
+@room:          LDA     #<NOMEM        ; too big: as the loader's no room (ours)
+                LDX     #>NOMEM
+                JMP     FAILSAY
 @none:          LDA     #<NOPROG
                 LDX     #>NOPROG
                 JMP     FAILSAY        ; DONE's fresh stack drops CHECKHDR's return
@@ -1763,6 +1779,7 @@ CLEARS:         .byte   27, 'E', '$'   ; ESC E: the screen's clear
 NOIIE:          .byte   "No IIe ROM in the cartridge (the emulator: Settings, ROMs)$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
+NOMEM:          .byte   "Insufficient Memory$"
 READERR:        .byte   "READ ERROR$"
 PWERR:          .byte   "Password Error$"
 TOOLONG:        .byte   "Command tail too long$"

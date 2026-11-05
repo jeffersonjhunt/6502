@@ -809,6 +809,33 @@ namespace oodos_rig
             }
     #endif
 
+            static constexpr unsigned C_READSTR_FN = 10; ///< function 10, read a line (oodos.inc's C_READSTR)
+            /// Run until the BDOS is entered for function `fn` (a program, or the CCP, waiting in it), so a
+            /// test types its answer when it is asked for, not after a fixed time. @return whether it was
+            bool calls(unsigned fn, uint64_t budget = ms(3000))
+            {
+                bool hit = false;
+                const uint16_t bdosent = sym("BDOSENT");
+                auto before = watch;
+                watch = [&](uint16_t pc) {
+                    if (before)
+                        before(pc);
+                    if (pc == bdosent && nb(1) == 60 && cpu->regs().y == fn) // (W1 on the BDOS, block 60)
+                        hit = true;
+                };
+                const uint64_t end = cpu->cycles() + budget;
+                while (!hit && cpu->cycles() < end)
+                    run(1000);
+                watch = before;
+                return hit;
+            }
+            /// After a ^C at the prompt (a warm boot): wait for the next prompt.
+            bool reprompt(const std::string &prompt = "A>", uint64_t budget = ms(3000))
+            {
+                const size_t from = out.size();
+                return until(prompt, budget, from);
+            }
+
             /// Type `line` and wait for a CR LF and `prompt` after its echo. @return all from the echo on
             std::string cmd(const std::string &line, const std::string &prompt = "A>")
             {
@@ -827,6 +854,44 @@ namespace oodos_rig
                 return out.substr(from);
             }
         };
+
+        /// M:'s file (user, 8 + 3): its bytes, from its entries in extent order (EXM 1: an entry's
+        /// records (EX & 1) * 128 + RC), its blocks' pointers 8-bit. Empty if there is none.
+        inline std::vector<uint8_t> m_data(CcpRig &r, unsigned user, const std::string &name83)
+        {
+            std::vector<std::pair<unsigned, unsigned>> es; // extent, entry
+            for (unsigned i = 0; i < 256; ++i)
+            {
+                const uint32_t a = MDISK + i * 32;
+                bool match = r.phys(a) == user;
+                for (unsigned c = 0; c < 11 && match; ++c)
+                    match = (r.phys(a + 1 + c) & 0x7F) == static_cast<uint8_t>(name83[c]);
+                if (match)
+                    es.push_back({r.phys(a + 12) + 32u * r.phys(a + 14), i});
+            }
+            std::sort(es.begin(), es.end());
+            std::vector<uint8_t> data;
+            for (const auto &[ext, i] : es)
+            {
+                const uint32_t a = MDISK + i * 32;
+                const unsigned records = (ext & 1u) * 128 + r.phys(a + 15), per = M_BLS / unsigned{RECORD};
+                for (unsigned k = 0; k * per < records; ++k)
+                {
+                    const unsigned block = r.phys(a + 16 + k);
+                    const unsigned n = std::min(per, records - k * per);
+                    for (uint32_t b = 0; b < n * unsigned{RECORD}; ++b)
+                        data.push_back(r.phys(MDISK + block * M_BLS + b));
+                }
+            }
+            return data;
+        }
+
+        /// The bytes as a string, to the first ^Z (a text file's end).
+        inline std::string text(const std::vector<uint8_t> &d)
+        {
+            std::string s(d.begin(), d.end());
+            return s.substr(0, s.find('\x1A'));
+        }
 
         /// `got` is `want`, both shown if not.
         inline void same(const std::string &got, const std::string &want)

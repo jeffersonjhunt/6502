@@ -10,7 +10,7 @@ programs is the [Programmer's Guide](../oodos-programmers-guide/README.md). How 
 3. [Drives and file names](03-drives-and-files.md): drives, users, names, wildcards, attributes, passwords
 4. [Built-in commands](04-built-in-commands.md): DIR, DIRSYS, ERASE, RENAME, TYPE, USER, GO, CLEAR, CLS, WOZMON,
    APPLE2
-5. [Utilities](05-utilities.md): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF; PIP (4b2); SUBMIT, GET, PUT (phase 5)
+5. [Utilities](05-utilities.md): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF; PIP (4b2); GENCOM, GET, PUT (5b); SUBMIT (5c)
 6. [Errors](06-errors.md)
 
 **Written so far:** the skeleton (G0), and G1: every chapter, for OODOS phases 0-4. SUBMIT, GET and PUT come

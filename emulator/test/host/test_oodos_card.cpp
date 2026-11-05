@@ -21,8 +21,9 @@
  * the file instead, wrong on purpose, to see this test and interop.sh fail.
  * write_on_the_oo1() is the seam. The CCP's ERA and REN (phase 4a) and the
  * utilities on A: (phase 4b1: ERASE, RENAME, SET, INITDIR) change A: through
- * the CCP the same way, the cards saved by OODOS_CCP_OUT, OODOS_UTILS_OUT and
- * OODOS_PIP_OUT for interop.sh --ccp, --utils and --pip.
+ * the CCP the same way, the cards saved by OODOS_CCP_OUT, OODOS_UTILS_OUT,
+ * OODOS_PIP_OUT and OODOS_RSX_OUT for interop.sh --ccp, --utils, --pip and --rsx
+ * (phase 5b: GENCOM and PUT).
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
  * make_card.sh and interop.sh have it.
@@ -972,6 +973,53 @@ TEST(pip_on_a_copies_joins_and_changes_files_and_the_card_is_saved_for_interop_s
     for (const char *t : {"COPY    $$$", "JOINED  $$$", "LOWER   $$$"})
         CHECK(entries_of(dir, 0, t).empty());
     CHECK(entries_of(dir, 5, "PATTERN $$$").empty());
+}
+
+TEST(gencom_and_put_on_a_and_the_card_is_saved_for_interop_sh)
+{
+    // Phase 5b, from the card's A:, on A: itself: PIP copies HELLO.COM (SYS: [R]) to H2.COM, GENCOM gives H2.COM two SCB
+    // entries, PUT sends TYPE README.TXT's output to PUTOUT.TXT; checked here and, with OODOS_RSX_OUT, by
+    // interop.sh --rsx with cpmtools (H2.COM against gencom.py's, PUTOUT.TXT's text, no NAME.$$$ left).
+    Rig r;
+    REQUIRE(mount_a(r));
+    const std::string said = ccp_on_the_oo1(r, {"pip h2.com=hello.com[r]", "gencom h2 [scb=(34,02),(06,5a)]",
+                                                "put console output to file putout.txt", "type readme.txt",
+                                                "hello"});
+    bool clean = true;
+    for (const char *w : {"Invalid", "INVALID", "No File", "ERROR", "Error", "Read only", "Insufficient", "?\r\n"})
+        if (said.find(w) != std::string::npos)
+        {
+            std::printf("  said '%s': '%s'\n", w, said.c_str());
+            clean = false;
+        }
+    CHECK(clean);
+    CHECK(said.find("Putting console output to file: PUTOUT.TXT") != std::string::npos);
+    const std::string out = env("OODOS_RSX_OUT");
+    if (!out.empty())
+    {
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(r.media->bytes().data()),
+                static_cast<std::streamsize>(r.media->bytes().size()));
+        CHECK(f.good());
+        std::printf("  the card saved to %s\n", out.c_str());
+    }
+    Rig again(r.media->bytes());
+    REQUIRE(mount_a(again));
+    Drive a{again, 1, Dpb::from_diskdefs("oodos-8m")};
+    const std::vector<uint8_t> dir = a.directory();
+    allocation(a, dir);
+    const std::string l1 = "THIS IS AN OODOS DRIVE, MADE ON LINUX BY CPMTOOLS.",
+                      l2 = "OODOS READS IT AS DRIVE A:, SD UNIT 1, /OODOS/A.IMG ON THE CARD.";
+    const std::vector<uint8_t> put = records_of(a, dir, entries_of(dir, 0, "PUTOUT  TXT"));
+    const std::string want = "\n" + l1 + "\r\n" + l2 + "\r\n";
+    CHECK(put.size() >= want.size() && std::string(put.begin(), put.begin() + static_cast<long>(want.size())) == want);
+    const std::vector<uint8_t> h2 = records_of(a, dir, entries_of(dir, 0, "H2      COM"));
+    REQUIRE(h2.size() >= 16);
+    const size_t t = static_cast<size_t>(h2[14] | h2[15] << 8) * 128; // the attached table: two SCB entries
+    CHECK(h2[12] == 2 && h2.size() == t + 128 && h2[t] == 0x34 && h2[t + 1] == 0x02 && h2[t + 2] == 2 &&
+          h2[t + 16] == 0x06 && h2[t + 17] == 0x5A && h2[t + 18] == 2);
+    for (const char *tmp : {"PUTOUT  $$$", "H2      $$$"})
+        CHECK(entries_of(dir, 0, tmp).empty());
 }
 
 TEST(the_utilities_erase_rename_set_and_initdir_on_a_and_the_card_is_saved_for_interop_sh)

@@ -60,7 +60,8 @@ is the image after them. One module of a program writes them with `OODOS_HEADER`
 | 14 | 2 | `OH_RSXREC` | the record of the attached RSX table, 0 for none |
 
 **The CCP loads a `.COM`** only if the magic number is there (else `NO PROGRAM`), no flag is set, the link page is
-`$03`, and the image and its BSS end by the TPA's top, `$BFFC` or below the lowest RSX (else `BAD PROGRAM HEADER`).
+`$03` (else `BAD PROGRAM HEADER`), and the image and its BSS end by the TPA's top, `$BFFC` or below the lowest RSX
+(else `Insufficient Memory`).
 It loads it by function 59, its attached RSXs first, then exactly the image's size to `$0300`: nothing past the image
 changes, and the BSS isn't cleared. A `.PRL` loads only as an overlay, by 59, and an RSX only attached
 ([chapter 6](06-program-formats.md)).

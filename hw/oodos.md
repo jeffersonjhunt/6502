@@ -2264,6 +2264,89 @@ is always named:
 - **Not caught (ours, as an RSX above the BDOS can't see them):** what the BDOS writes itself: function 10's echo,
   its error messages (`OODOS Error On ...`) and ^P's printer echo.
 
+**Decided (5b, 2026-11-04, the owner, after 5b's plan check against the manuals and 5a as built):**
+
+1. **PUT asks `Do you want another file? (Y/N)`** when a PUT of the same kind (console, or printer) already sends
+   output to a file: Y keeps the old file and adds the new (both get the output), N closes the old and the new
+   replaces it (ours: the Guide gives the question, not the moment).
+2. **A command runs: bit 6 of the SCB's `$19`** (ours), set at the count's step, cleared when the command ends,
+   before the next prompt (a program's end clears it at the warm boot). GET's and PUT's RSXs act on the CCP's 49
+   writes to `$19` as they pass down the chain: the next command is the one whose start they see after their own,
+   and it ends when bit 6 clears. PUT's file keeps the CCP's owed CR LF at its start (ours, said in util-put).
+3. **`Insufficient Memory`** (ours) is what the CCP says whenever the loader refuses a program for lack of room
+   (59's X = 0: the table full, or the TPA), for any program, in place of `BAD PROGRAM HEADER`.
+4. **The command words in full,** as the Guide writes them (`CONSOLE`, `PRINTER`, `INPUT`, `OUTPUT`, `FROM`, `TO`,
+   `FILE`; ours: the Guide doesn't say whether shorter forms are taken); options by any unambiguous prefix, as 4b's
+   utilities; `AUXILIARY` only to say `Auxiliary device redirection not implemented`. `Invalid command`: words that
+   make no form; `Invalid delimiter`: a misplaced `[`, `]` or `,`; `Invalid option`: an unknown option; `Invalid
+   option modifier`: an option of the wrong kind (FILTER to GET, ECHO with SYSTEM); `End of line expected`: text after
+   a whole command.
+5. **GET's file as input:** functions 10 and 1 take its bytes, an LF after a CR dropped, to a ^Z or its end; with
+   ECHO, 10's line is shown and ended with CR as typed, 1 echoes as 1 does; 6's input is raw, never echoed; under
+   `[SYSTEM]` a `GET CONSOLE` line ends the file.
+6. **PUT's `[FILTER]`** keeps CR and LF; a tab and every other control character become `^` and a letter.
+7. **PUT's file gets what the program sent:** a tab as a tab, 9's string to its delimiter (the BDOS's own tab
+   expansion comes after the RSX). Under `[NO ECHO]` the BDOS never sees the output, so ^S, ^Q and ^C aren't looked
+   at while it writes (said in util-put).
+8. **GENCOM's SCB entries** as `[SCB=(o,v),(o,v)]` or `[SCB=(o,v),SCB=(o,v)]`, the numbers in hex; `GENCOM name
+   [LOADER]` alone leaves the file as it was, and is accepted.
+
+Also (5b's plan check, accepted): GET's and PUT's RSXs have the remove flag `$FF` in their files, so they go after
+GET.COM's or PUT.COM's own run unless the program's 60 call that sets the redirection up clears it to 0 (the RSX
+sets it again when done); so a GET with a syntax error leaves no idle RSX, and `GET CONSOLE` is the newest RSX
+passing its 60 call on to the active one. OODOS's RSX function bytes are from 128-255, listed in `rsx.inc` and
+bdos-60. PUT's file is `NAME.$$$` from a one-record buffer in the RSX, renamed at the close. `interop.sh --rsx`:
+cpmtools reads GENCOM's `.COM` back (equal to gencom.py's) and PUT's file, sees no `$$$` left, and `fsck.cpm`
+passes.
+
+**Proposed (5b, as built, 2026-11-04)** ([`oodos/rsx/`](../oodos/rsx/), `oodos/utils/get.s`, `put.s`, `gencom.s`,
+[`oodos/include/rsx.inc`](../oodos/include/rsx.inc), `redir.inc`; the plan and the decisions above are what was
+built, and these are the details):
+
+- **The RSXs:** `rsx/getrsx.s` (1,131 bytes of image: five pages below the lowest RSX while it serves) and
+  `rsx/putrsx.s` (1,360: six), each its file's 128-byte record buffer and FCB in its image (an RSX's BSS isn't
+  cleared, so its variables are in its file). The Makefile builds `rsx/*.s` as `.RSX`s and attaches `getrsx` to
+  GET.COM and `putrsx` to PUT.COM by gencom.py (`ATTACHED`); `make utils` builds the RSXs too, and make_card.sh
+  copies `rsx/`. GET.COM is 6,272 bytes, PUT.COM 6,912, GENCOM.COM 6,855 (each with `cmd.inc` and `util.inc`).
+- **`rsx.inc`:** `RX_SAVE` and `RX_RESTORE` keep the caller's DMA address and segment, user, error mode and
+  multi-sector count across an RSX's own file call, which is made by its offset 9; `RX_PB49` reads a 49 call's
+  block for a write to `$19`. The function bytes (`RXF_*`) and `$19`'s bits are in `oodos.inc`.
+- **The CCP's `$19` writes go through `$0203`** (`CCPSET`; 5a's went to `$BFFD`, past the chain, so no RSX saw
+  them): found when GET first ran. The count is bits 0–5 now, beside bit 6.
+- **PUT's file at a command's end:** with `[SYSTEM]` it is closed (16) at each, so the warm boot's 98 doesn't free
+  the blocks it has written, and goes on being written after; at the end of what it serves, its last record
+  `^Z`-padded, closed, NAME.$$$ looked for (a close of a file nothing was written to may not look, so its absence is
+  seen here: `PUT ERROR: FILE ERASED.`), NAME.TYP deleted and NAME.$$$ renamed.
+- **Under `[NO ECHO]`,** `PUT>` is shown when a call for input (1, 10, 6's `$FF` and `$FD`) follows output (mine:
+  once per run of input calls, not before each character).
+- **Both files get the output** (another file, Y): the newer PUT passes every call on after writing it; the older
+  one's options then decide the console echo (mine).
+- **GENCOM.COM** reads the old file, the RSX files and writes NAME.$$$ a record at a time by 33 and 21, so the
+  64 KB file needs no memory but its 16 specifications, 15 entries and a table of two records; it copies the old
+  file's records as they are (the image's last record's padding too), so `test_oodos_utils_rsx` compares it with
+  gencom.py's on files padded as gencom.py pads. With NULL the first file is an RSX (`NAME.RSX` with no type),
+  and only a first file typed `.COM` is `COM file found and NULL option`. A file not found is `NAME.TYP No File`
+  (ours).
+- **After 5b's review (2026-11-04, the owner's triage):** a PUT armed for the next command doesn't take a PUT
+  command as that command: PUT.COM's first call, 60 `RXF_PUTCMD` (`$93`), arms again one its start made active,
+  what it took (the owed LF) dropped. GET's echo goes down the chain by its offset 9, so a PUT older than the GET
+  (given before it) writes it to its file and a newer one doesn't (said in util-get and util-put). GET's 10 with
+  A/X = 0 keeps the DMA buffer's characters as typed first, as the BDOS's 10. FILTER writes DEL as `^?`. GENCOM
+  deletes the old `.COM` in error mode `$FF`, so `Cannot delete file` is its only message, and checks an attached
+  RSX's header (`Invalid RSX type`) before trusting its length. Tests wait for what a program asks for (the rig's
+  `calls`: the BDOS entered for a function) or prints, not a fixed time; the ^C at the prompt's drive reset is
+  tested while GET waits with its file open and while PUT's file is being written.
+- **`Insufficient Memory`** in the CCP: 59's X = 0 and GO's image too big (test_oodos_sys's two GO cases and
+  test_oodos_rsx's four changed with decision 3).
+- **Tests:** `test_oodos_utils_rsx`, 17 cases on IOTEST (`oodos/sys/test/iotest.s`): GET's forms and options, its
+  file to a ^Z, the four status modes, SYSTEM and GET CONSOLE, a GET in a GET file, its refusals and no idle RSX
+  left; PUT's built-in and program output, NO ECHO's `PUT>`, FILTER, the printer, SYSTEM across programs, both
+  questions, a file erased, its refusals; the program's state across both RSXs' file calls; GENCOM.COM's every
+  form against gencom.py's bytes (`iota`, `iotab`, `iots`, `iotn`, `iotx`, made by the sys Makefile) and every
+  message. `test_oodos_rsx` checks `$19`'s bit 6 through a program and DIR. `test_oodos_card` runs PIP, GENCOM, PUT
+  and TYPE on the card's A: and saves it (`OODOS_RSX_OUT`) for `interop.sh --rsx`: H2.COM equal to gencom.py's,
+  PUTOUT.TXT's text, no NAME.$$$ (PASS 7). PIP's M: reader moved to `oodos_rig.h`.
+
 **SUBMIT** (5c): a file of commands. SUBMIT.COM, with the input RSX attached (the same one as GET's, ours: a
 SUBMIT file is console input for the CCP).
 

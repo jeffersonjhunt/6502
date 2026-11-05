@@ -16,7 +16,8 @@ place of the command's output, on a line of its own, and the prompt follows.
 | `Password Error` | The program's file is protected, and its password wasn't given or didn't match. | Type it after the name: `NAME;PASSWORD`. |
 | `READ ERROR` | The program's file couldn't be read: a disk error, a file shorter than its header says, or a drive typed (or the current one) that isn't there. | Check the drive; copy the program again. |
 | `NO PROGRAM` | The file isn't an OODOS program: it doesn't start with an OODOS program header. A CP/M program for another processor is one. | |
-| `BAD PROGRAM HEADER` | An OODOS program the CCP won't run: a `.PRL` or an RSX renamed `.COM`, flags it doesn't know, or one too big for the memory programs have. | |
+| `BAD PROGRAM HEADER` | An OODOS program the CCP won't run: a `.PRL` or an RSX renamed `.COM`, flags it doesn't know, or RSXs attached that it can't load. | |
+| `Insufficient Memory` | The program, with any RSXs attached to it, doesn't fit in the memory programs have, or 15 RSXs are loaded already. (Ours: CP/M 3 says this for other utilities.) | Run it without the RSXs loaded before it, or after a reset. |
 | `No File` | A built-in found no file to match: DIR, DIRSYS, ERASE, RENAME's old name, TYPE. | Check the name, the drive and the user number. |
 | `SYSTEM FILE(S) EXIST` | Not an error: after DIR's list, files of the other kind matched too ([DIRSYS](04-built-in-commands.md#util-dirsys) lists them). DIRSYS says `NON-SYSTEM FILE(S) EXIST`. | |
 | `No IIe ROM in the cartridge (the emulator: Settings, ROMs)` | APPLE2 found no Apple IIe ROM in the cartridge. OODOS goes on. | In the emulator, choose a IIe ROM in Settings, ROMs. |
