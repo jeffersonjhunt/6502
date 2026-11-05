@@ -60,7 +60,7 @@ Where the 6502 or the OO-1 needs it, OODOS does its own thing, and this guide sa
 | Address | What |
 |---|---|
 | `$0000-$00EF` | the program's zero page |
-| `$00F0-$00FF` | the RSXs' zero page (phase 5) |
+| `$00F0-$00FF` | the RSXs' zero page, a slice each ([chapter 6](06-program-formats.md#rsxs)) |
 | `$0100-$01FF` | the program's stack |
 | `$0200-$02FF` | the base page ([chapter 2](02-system-interface.md#the-base-page)) |
 | `$0300-$BFFC` | the TPA: the program, its data, and its BSS, 47 KB |

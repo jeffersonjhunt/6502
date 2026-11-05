@@ -16,7 +16,6 @@ words, with what the 6502 and the OO-1 change. The machine underneath, without O
 5. [Memory and banking](05-memory-and-banking.md): blocks, allocation, functions 72-74 and FARCALL, the DMA
    segment
 6. [Program formats](06-program-formats.md): `.COM`, `.PRL`, overlays, the 65C816 rules; RSXs and chaining
-   (phase 5)
 7. [Function reference](07-function-reference.md): one entry per function
 8. [Game services (OOLIB)](08-game-services.md): written in G3
 
@@ -31,4 +30,4 @@ Appendices:
 - G. [How OODOS differs from CP/M 3](appendix-g-differences.md)
 
 **Written so far:** the skeleton (G0), and G1: chapters 1-7 and the appendices, for what OODOS phases 0-4 have
-built. Functions 59 and 60, and RSXs, come with phase 5; chapter 8 with OOLIB (G3).
+built, and phase 5a's loader: functions 59 and 60, RSXs. Chapter 8 comes with OOLIB (G3).

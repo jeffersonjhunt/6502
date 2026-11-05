@@ -11,8 +11,8 @@ How to call a function, and how registers and numbers are written here, is in
 `JSR BDOS` with the function in Y, a byte in A, a word in A (low) and X (high); the result comes back in A, or A and X.
 Y is not kept; the flags come back as they were before the call, with the decimal flag clear.
 
-Functions 59 (P_LOAD) and 60 (P_RSX) are written with OODOS phase 5, the RSX loader
-([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)), which will also add to function 47's entry what RSXs change.
+RSXs ([chapter 6](06-program-formats.md#rsxs)) see every call before the BDOS does, and may answer some
+themselves; each entry here is what the BDOS does when the call reaches it.
 
 <a id="bdos-0"></a>
 ### 0 P_TERMCPM: end the program
@@ -36,6 +36,9 @@ The warm boot, as `JMP WBOOT` (`$0200`) and a program's last RTS give it:
 - The BIOS's banks go back to 0 and a pending XMOVE is dropped; the DMA segment (function 51) is none again and
   every block the program allocated (53-56) is freed.
 - The program's windows come back (blocks 0-2, and 62 in W3), with a fresh stack.
+- The CCP writes `$0203` and the RSXs' links again from the loader's table, and the RSXs see function 0, once:
+  this call, on its way here, or one the warm boot sends for any other end. Then it takes out the RSXs whose remove
+  flag is `$FF` ([chapter 6](06-program-formats.md#rsxs)).
 - The CCP writes back every changed buffer (as function 48) and frees the blocks of files written but not closed
   (as function 98): what a program wrote to a file it didn't close is lost.
 - The CCP sets the multi-sector count to 1, the console mode to 0 and the delimiter to `$`, and makes its own drive
@@ -57,7 +60,7 @@ OODOS 0.2
 #### CP/M 3
 
 The same. Freeing the program's memory blocks and its DMA segment at the warm boot is ours, as the memory
-functions are CP/M-86's.
+functions are CP/M-86's; so is the RSXs seeing function 0 for an end by `JMP WBOOT`, an RTS, an error or a ^C.
 
 <a id="bdos-1"></a>
 ### 1 C_READ: read a key from the console
@@ -1996,6 +1999,8 @@ None from the call. The command's own errors are the CCP's, as if it had been ty
   left of a line of several commands, and may hold `!` itself.
 - The return code ([function 108](#bdos-108)) is kept for the program the command runs, which doesn't start with
   0. So a program can pass it a word.
+- The RSXs see the program's end as function 0, once, as for any end ([function 0](#bdos-0)); the chained
+  command's program brings its own attached RSXs when it loads.
 
 #### Cycles
 
@@ -2015,7 +2020,7 @@ The same, but for the registers: the flag goes in A, where CP/M 3 takes it in E,
 OODOS's default buffer. Ours, where CP/M 3 is silent: the command is shown after the prompt; it replaces the rest
 of a line; and more than 126 characters are cut off. With A = `$FF` the program's drive and user become the
 CCP's own, so the prompt keeps them after the chained command ends, where CP/M 3 sets them up only for the program
-chained to. RSXs (phase 5) may add to what a chain does.
+chained to.
 
 <a id="bdos-48"></a>
 ### 48 DRV_FLUSH: write the buffers back
@@ -2500,6 +2505,98 @@ OODOS 0.2
 #### CP/M 3
 
 CP/M 3 has no memory functions; this is CP/M-86's 58.
+
+<a id="bdos-59"></a>
+### 59 P_LOAD: load an overlay
+
+#### Entry
+
+- Y = 59 (`P_LOAD`).
+- A/X = an FCB the program has opened (function 15), its random record R0-R1 the address to load at, low byte
+  first. A `.PRL` loads at any page start from `$0300`, relocated there; a `.COM` only at `$0300`.
+- A/X = 0: nothing is loaded; only the RSXs whose remove flag is `$FF` are taken out.
+
+#### Exit
+
+- A = 0, X = 0: loaded. Nothing runs: the program calls or jumps into what it loaded.
+- R0-R2 hold the load address again (R2 0).
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+- A = `$FE`, refused before anything past the image changes, X why: 0 the address (not a page start for a `.PRL`,
+  below `$0300`, a `.COM` anywhere but `$0300`) or no room below the lowest RSX (or `$BFFD`); 1 the header (flags
+  other than a `.COM`'s or a `.PRL`'s, an RSX file, a `.COM` not linked at `$0300`); 2 a `.PRL` with zero page of
+  its own; 3 not a program (no magic number, an empty file, an image of size 0 with nothing attached).
+- A = 1: the file ends inside its image or its bitmaps.
+- A = `$FF`, X the physical error, from reading the file.
+
+Errors are returned in every error mode: the loader reads with errors returned, and says nothing.
+
+#### Side effects
+
+- The image, at the address, and a `.PRL`'s bytes its bitmaps mark moved to it; BSS above it isn't cleared.
+- Taken out first: the RSXs whose remove flag is `$FF` (but those an RSX-only `.COM` left for this program).
+- RSXs attached to the file are loaded and linked below the lowest ([chapter 6](06-program-formats.md#rsxs)), and
+  its SCB entries set before 59 returns. A refused load takes out the RSXs it had linked.
+- The DMA address and segment, the error mode and the multi-sector count are as they were before the call.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+CP/M 3 answers 59 from its LOADER RSX, there only while a program with an RSX header runs; OODOS's loader is always
+there, so any program may call it, and the CCP loads programs through it. A `.COM` loads only at `$0300` (ours:
+CP/M 3 loads an absolute file anywhere from `0100H`). A `.PRL` needs room only for its image and BSS (CP/M 3 wants
+room for the whole file). X's reasons with A = `$FE`, and A/X = 0's removal alone, are ours.
+
+<a id="bdos-60"></a>
+### 60 P_RSX: call an RSX
+
+#### Entry
+
+- Y = 60 (`P_RSX`).
+- A/X = an RSX parameter block: a function byte, a count of words, then the words.
+
+#### Exit
+
+- An RSX that takes the block's function byte answers it, as it documents.
+- None does: A = `$FF`, X = `$FF`.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None but A = X = `$FF` when no RSX takes it.
+
+#### Side effects
+
+None from the BDOS.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OODOS's own RSXs use 128-255.
 
 <a id="bdos-72"></a>
 ### 72 O_VERSION: OODOS's version and FARCALL
