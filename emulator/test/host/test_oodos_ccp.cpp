@@ -620,7 +620,7 @@ TEST(a_program_is_found_on_its_drive_in_the_user_then_user_0s_sys_files)
     CHECK_EQ(field(o, "DU"), std::string("0C 06")); // it runs in user 6
     same(r.cmd("0a:"), "0a:\r\r\nA>");
     // Types: .SUB is phase 5's (ours); any other refused
-    same(r.cmd("m:args.sub"), "m:args.sub\r\nARGS.SUB: no SUBMIT yet\r\nA>");
+    same(r.cmd("m:args.sub"), "m:args.sub\r\nM:ARGS.SUB?\r\nA>"); // 5c: a .SUB runs SUBMIT; there is none
     same(r.cmd("m:args.prl"), "m:args.prl\r\nM:ARGS.PRL?\r\nA>");
     same(r.cmd("m:arg?"), "m:arg?\r\nM:ARG??\r\nA>");
     same(r.cmd("m:a*"), "m:a*\r\nM:A*?\r\nA>");

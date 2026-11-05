@@ -2474,7 +2474,8 @@ SUBMIT file is console input for the CCP).
 7. **`WARNING: Program input ignored`** once for each run of `<` lines skipped, just before the next command line is
    shown.
 8. **The search order** is bits 0–1 of the SCB's `$18` (0 COM, 1 COM then SUB, 2 SUB then COM, 3 SUB; ours); SETDEF
-   and SHOW show `Search Order - ...`.
+   shows `Search Order - ...` (corrected 2026-11-05 by the owner: SETDEF only; SHOW has no such display, in OODOS or
+   CP/M 3).
 9. **`PROFILE.SUB`** at the first prompt, from the default drive, user 0: shown as `SUBMIT PROFILE` as if typed, then
    run; without SUBMIT.COM, `SUBMIT?` and on. A reset is a cold boot, so it runs then too.
 10. **With SETDEF's DISPLAY,** both lines: the `.SUB` file's and SUBMIT.COM's own.

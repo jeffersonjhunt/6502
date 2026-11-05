@@ -750,8 +750,8 @@ TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
     Booted r;
     REQUIRE(r.ok);
     // In the program's memory, where bank 1 would have put them: sentinels.
-    r.poke(0x1000, std::vector<uint8_t>(SECTOR, 0xA5));
-    r.poke(0x1800, std::vector<uint8_t>(16, 0xA5));
+    r.poke(0x3000, std::vector<uint8_t>(SECTOR, 0xA5)); // (5c: past the allocation vectors, $1000-$2FFF,
+    r.poke(0x3800, std::vector<uint8_t>(16, 0xA5));     // which A:'s login at the first prompt fills)
     CHECK(r.go("banktest.com", " SET").find("\r\nA>") != std::string::npos);
     const std::string o = r.go("banktest.com", " USE");
     CHECK_EQ(field(o, "READ"), std::string("00"));
@@ -759,13 +759,13 @@ TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
     bool sector = true, moved = true, untouched = true;
     for (uint32_t i = 0; i < SECTOR; ++i)
     {
-        sector = sector && r.phys(SYS_BLOCK_PHYS + 0x1000 + i) == a0[i];
-        untouched = untouched && r.phys(0x1000 + i) == 0xA5;
+        sector = sector && r.phys(SYS_BLOCK_PHYS + 0x3000 + i) == a0[i];
+        untouched = untouched && r.phys(0x3000 + i) == 0xA5;
     }
     for (uint32_t i = 0; i < 16; ++i)
     {
-        moved = moved && r.phys(SYS_BLOCK_PHYS + 0x1800 + i) == r.phys(60 * BLOCK + i);
-        untouched = untouched && r.phys(0x1800 + i) == 0xA5;
+        moved = moved && r.phys(SYS_BLOCK_PHYS + 0x3800 + i) == r.phys(60 * BLOCK + i);
+        untouched = untouched && r.phys(0x3800 + i) == 0xA5;
     }
     CHECK(sector);    // READ into bank 0: SETBNK's 1 didn't outlive its program
     CHECK(moved);     // MOVE in bank 0: nor SELMEM's 1, nor the XMOVE left pending
@@ -836,12 +836,17 @@ TEST(the_bios_waits_for_the_card_bounded_and_checks_the_dma_moved_it_all)
 {
     Booted r;
     REQUIRE(r.ok);
+    // A ^C at the prompt first (13): A:, logged in at the first prompt to look for PROFILE.SUB (5c),
+    // logged out, so its allocation vector, $1000 in the system block, is the READs' again.
+    const size_t c = r.out.size();
+    r.type("\x03");
+    REQUIRE(r.until("A>", ms(3000), c));
     const std::vector<uint8_t> a0 = r.read_unit(1, 0);
     auto read_ok = [&] {
         bool same = true;
         for (uint32_t i = 0; i < SECTOR; ++i)
-            same = same && r.phys(SYS_BLOCK_PHYS + 0x1000 + i) == a0[i];
-        r.poke(SYS_BLOCK_PHYS + 0x1000, std::vector<uint8_t>(SECTOR, 0));
+            same = same && r.phys(SYS_BLOCK_PHYS + 0x3000 + i) == a0[i]; // BANKTEST's READ (5c: $3000)
+        r.poke(SYS_BLOCK_PHYS + 0x3000, std::vector<uint8_t>(SECTOR, 0));
         return same;
     };
     uint64_t waited = 0;
@@ -877,9 +882,13 @@ TEST(the_ccps_load_gives_up_on_a_card_that_stays_busy)
 {
     // The CCP opens HELLO.COM through the BDOS, which logs A: in first: the card busy as it
     // starts reading the directory, so the BIOS's READ gives up, the BDOS returns Disk I/O (the
-    // CCP's error mode returns errors), and the CCP says READ ERROR.
+    // CCP's error mode returns errors), and the CCP says READ ERROR. A ^C at the prompt first (13):
+    // A:, logged in at the first prompt to look for PROFILE.SUB (5c), logged out, so HELLO logs it in.
     Booted r;
     REQUIRE(r.ok);
+    const size_t c = r.out.size();
+    r.type("\x03");
+    REQUIRE(r.until("A>", ms(3000), c));
     bool stuck = false;
     uint64_t t0 = 0;
     r.watch = [&](uint16_t pc) {
@@ -1227,7 +1236,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"ROWRITE", "FF 02"},
         {"ROVEC2", "00 00"},           // 37 made it writable
         {"MAKEAGAIN", "00 00"},        // made again: 0, the Guide's code for a make
-        {"LOGIN", "00 10"},            // M: only
+        {"LOGIN", "01 10"},            // M:, and A: (5c: its PROFILE.SUB looked for at the first prompt)
         {"DRIVE", "0C 00"},
         {"ALLOC", "FF FF"},
         {"VERSION", "31 00"},
@@ -1965,6 +1974,11 @@ TEST(a_login_reads_the_directory_once_and_the_warm_boot_writes_back)
 {
     Booted r;
     REQUIRE(r.ok);
+    // A ^C at the prompt first (13): A:, logged in at the first prompt to look for PROFILE.SUB (5c),
+    // logged out, so LOGINTEST's first select of A: is a login again.
+    const size_t c = r.out.size();
+    r.type("\x03");
+    REQUIRE(r.until("A>", ms(3000), c));
     const auto lt = labels(SYS + "/logintest.lbl");
     int window = -1;
     unsigned reads[4] = {};
