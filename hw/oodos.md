@@ -2530,6 +2530,10 @@ decisions above are what was built, and these are the details):
     cleanup deletes the real `SUB00.$$$`, which the test checks.
   - accepted: a disk error at the reopen, in the default error mode, ends SUBMIT.COM with the BDOS's message
     before its own check, and leaves the temporary file behind (the next SUBMIT deletes it as stale).
+  - accepted (third review): a `.SUB` that runs another can say the warning twice at one prompt, once from
+    each SUBMIT's RSX (both see the way to the prompt, each skips its own `<` lines). Tested since: a built-in
+    first on a `!` line and in its middle (`SAYPROMPT` from `NEXTCMD` clears bit 6, the next program gets its
+    `<` line).
   - accepted: the warning's CR LF before it can make a blank line after a program whose output ended with
     one (cosmetic). The Programmer's Guide says bits 6 and 7 of `$19` are the CCP's.
 - **`test_oodos_card`** makes A:PROFILE.SUB with PIP from CON: and boots again (saved for `interop.sh --submit`:

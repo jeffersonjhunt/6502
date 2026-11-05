@@ -305,6 +305,38 @@ TEST(a_less_than_line_goes_to_the_second_program_of_a_bang_line)
     hasnt(o, "L[X]");
 }
 
+TEST(a_built_in_in_a_bang_line_leaves_bit_6_clear_and_the_next_program_gets_its_less_than_line)
+{
+    // In the middle: USER's end goes by NEXTCMD and SAYPROMPT, which clears bit 6 (set to clear: not the
+    // way to the prompt, so nothing skipped); the next command starts from it clear
+    Sx r({sub("MID     SUB", "iotest 2A ! user 0 ! iotest L\r\n<ONE\r\niotest 2Z\r\n"),
+          sub("FIRST   SUB", "user 5 ! iotest L\r\n<TWO\r\niotest 2Z\r\n")});
+    REQUIRE(r.ok);
+    const uint16_t user = sym("B_USER"), keyword = sym("KEYWORD");
+    bool after_user = false;
+    int bit6 = -1;                                  // $19's bit 6 as the command after USER starts
+    r.watch = [&](uint16_t pc) {
+        if (pc == user)
+            after_user = true;
+        else if (after_user && pc == keyword)
+        {
+            bit6 = r.phys(SCB_PHYS + 0x19) & 0x40;
+            after_user = false;
+        }
+    };
+    std::string o = r.run("submit m:mid", "\r\nZ");
+    CHECK_EQ(bit6, 0);
+    has(o, "ONE\rL[ONE] ");
+    hasnt(o, "WARNING");
+    // First on the line: the same, the program after it gets its < line (USER 5: IOTEST is SYS, found)
+    bit6 = -1;
+    o = r.run("submit m:first", "\r\nZ");
+    r.watch = nullptr;
+    CHECK_EQ(bit6, 0);
+    has(o, "TWO\rL[TWO] ");
+    hasnt(o, "WARNING");
+}
+
 int main()
 {
     return run_all();
