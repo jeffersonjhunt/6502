@@ -2724,6 +2724,291 @@ a GET file stacking, as in CP/M 3.
 **First, in the emulator:** the Disk II card in native mode, which it doesn't do yet (its backlog). The driver is
 tested against it with our own disk images.
 
+### The plan, phase 6 ###
+
+**Proposed (phase 6, 2026-11-05).** Nothing of it is built, and nothing is to be built until the owner has
+settled the questions at the end, the first above all. Each stage reads its part of the Guides again at its
+start, as 4a–5c did, and says here what changed.
+
+**What there is now (main, 7b691fc)**
+
+- **The emulator's card** (`emulator/components/devices/disk2_card.h`, `.cpp`) is the Disk II in Apple II mode:
+  slot 6's sixteen switches through AppleIo, the boot ROM at `$C600`, two drives with heads stepped by the
+  phases, a motor that runs on for 1 s once switched off, WOZ, `.dsk`/`.do` and `.po` images (written out as DOS
+  3.3 formats a disk; `DiskImage::to_sectors()` reads them back). In native mode it answers only its ID, `$C1` at
+  `$C67F`; every other byte of its block reads `$FF`, and a write does nothing.
+- **The sequencer is the owner's PROM.** The card runs the 341-0028's table at each step (two a CPU cycle, Apple
+  II mode's clock); with no PROM loaded every step is command 0, clear, and nothing reads. test_disk2 checks the
+  wiring with tables of its own made from rules (load, shift, count), none of them a sequencer that reads a disk;
+  test_iie boots disks on the owner's PROM from `fixtures/apple2e`, and skips without it.
+- **The BIOS** (`oodos/sys/bios.s`, block 61, 3,445 of 16,384 bytes) has A–G as SD units of 16,384 or 65,536
+  sectors and M:; a unit of any other size isn't a drive. Cold boot lists the Disk II among the cards (`cold.s`'s
+  `CARDTAB`, by its ID) and does nothing else with it.
+- **The BDOS assumes 512-byte sectors, 16 a track:** `OFFS` is OFF × 16 (`bdosdisk.s`'s login), and DISKOP gives
+  the BIOS the sector / 16 and the sector & 15. Every drive has CKS `$8000`: no directory checksums, so no media
+  change is ever seen. Eight drive slots (A–G, M:): the hash 8 KB a slot in blocks 24–27, the allocation vectors
+  1 KB a slot in the system block from `$1000`. Blocks 29 and 30 are spare.
+- **`DRIVES.TXT`** already takes any path, `/DISKS/CPM.DSK` among them; OOLDR mounts it and SELDSK then has no
+  drive for it.
+- **cpmtools's `apple-do`** (cpmtools 2.23): 256-byte sectors, 35 tracks of 16, 1 KB blocks, 64 directory entries,
+  3 boot tracks, CP/M 2.2, and a skew table for the `.dsk` file's DOS order: CP/M's sector *n* of a track is the
+  image's sector `0 6 12 3 9 15 14 5 11 2 8 7 13 4 10 1`[*n*].
+
+**The drives (ours)**
+
+- **What the BDOS sees:** an `apple-do` drive has 512-byte sectors, as every OODOS drive, eight a track; the BIOS
+  makes each of them from two of the disk's 256-byte sectors, CP/M's sectors 2*h* and 2*h* + 1 of the track, each
+  through the skew table. Its DPB: SPT 32, BSH 3, BLM 7, EXM 0, DSM 127, DRM 63, AL0 `$C0`, AL1 0, OFF 3, PSH 2,
+  PHM 3; CKS `$8000` on an SD unit, 16 on O: and P: (below).
+- **The BDOS learns other tracks** (6b): OFFS is OFF × (SPT / 4), and DISKOP's split is by the drive's sectors a
+  track (8 or 16, a shift kept in the drive's CD from its login). Every other part of the BDOS already works in
+  the drive's flat sector numbers. About 40–80 bytes; the 1 KB block (BSH 3) is new to it and gets its own cases.
+- **SD units** (6b): a unit of 280 sectors (143,360 bytes, a `.dsk` or `.do`) is an `apple-do` drive on its letter,
+  B–G, as `DRIVES.TXT` or 74 mounts it. The file is taken to be in DOS order whatever its name (`.po`: a question
+  below). A: stays an OODOS format: OOLDR refuses an `apple-do` A: and says so.
+- **O: and P:** (6c) are drives 1 and 2 of the Disk II card, when cold boot found its ID; with no card, SELDSK has
+  no drive for them (`Invalid Drive`). They get drive slots 8 and 9 in the BDOS: their hashes (256 bytes each) and
+  their allocation vectors (32 bytes each), placed at 6c's start where the system block and block 29 have room.
+- **A track buffer** (6b; a question below): READ of an `apple-do` drive brings in the whole Apple track, 4 KB,
+  and later READs on that track come from it. From an SD unit that is 8 SD sectors in a row; from the Disk II one
+  revolution and a little, every sector decoded as it passes, where sector by sector costs a revolution or more
+  each (the skew puts a 512-byte sector's two halves anywhere on the track). WRITE writes through: the buffer
+  and the disk at once, the SD sector or the Disk II sector it changed, so nothing is held back and FLUSH has
+  nothing to do. Three buffers, O:, P: and one shared by the SD units, 12 KB in block 29, reached by DMA copies
+  as M: is.
+- **Media change** (6c, O: and P:): a floppy can be changed under the system, and the Disk II has no signal that
+  says so. CP/M 3's answer is the directory checksums (the Guide's 2.3.11): CKS 16, a byte for each 128-byte
+  record of the directory, made at login and compared at each directory read; a difference is a changed disk. The
+  drive is then logged in again, and a function on an FCB opened before the change returns error 10, Media Change,
+  as the Guide's file functions list it. The System Guide, with the BIOS's own media flag, isn't among the
+  references, so the BIOS's side is ours: none, the checksums alone. New to the BDOS: about 150–250 bytes.
+
+**The emulator's card in native mode (6a)**
+
+- **The switches:** `$C600–$C60F` are slot 6's `$C0E0–$C0EF`, the same sixteen in the same order, a read of an even
+  one the data register and of an odd one `$FF`, a write putting its byte on the card's bus, as design.md says.
+  `$C610–$C67E` still read `$FF`, `$C67F` the ID. A peek changes nothing. /RESET clears the latch in either mode.
+- **The clock:** the sequencer runs from OSC ÷ 7 in both modes, so in native mode, OSC ÷ 2 a CPU cycle, it is 2
+  steps every 7 cycles (3.5 a step), the remainder carried, and a disk byte 224 cycles. Apple II mode stays 2 a
+  cycle. The ratio follows the bridge's mode (`clock_hz()`), and the card catches up to the cycle the mode changes
+  at the old ratio. The motor's run-on is counted in steps (1 s), not cycles, so it is a second in both modes.
+- **Unchanged:** the PROM, the drive, the images and Apple II mode; test_iie must pass as it does.
+- **The WebUI** needs nothing for the drive itself (its disk bar inserts disks in either mode); its native-mode
+  text is checked at 6a's start, and changed if it says only Apple things.
+
+**The driver (6c)** (`oodos/sys/disk2.s`, block 61, and `oodos/sys/disk2.inc`)
+
+- **The switches by name** in `disk2.inc`, as offsets from `DISK2` (`D2_PH0OFF` = 0 … `D2_Q7ON` = `$0F`), not as
+  addresses in `backplane.inc` (a question below says why).
+- **Only plain absolute loads and stores** touch the card: an indexed access can make an extra read of the
+  address before, and a read-modify-write two accesses, and either changes a switch.
+- **Reading:** the motor on and the drive selected; an address field found (`D5 AA 96`, then the volume, track,
+  sector and their checksum in 4-and-4, then `DE AA`); its data field (`D5 AA AD`, 342 disk bytes and a checksum
+  byte of 6-and-2, `DE AA`) decoded as it comes into the track buffer, the next sector after it, until all 16 are
+  in. At 7.16 MHz a byte waits about 224 cycles in the data register, so the loop has room to decode on the fly.
+  A bad checksum or a missing field is tried again for a few revolutions; then once more after a recalibration;
+  then READ returns 1. With no disk, or no card answering, that is a second or two, not a hang.
+- **Writing a sector:** its address field found, then, with interrupts off (`PHP`/`SEI`, `PLP` after) and the DMA
+  controller's master enable cleared (put back after), Q7 on, the sync bytes, the data field's prologue, the 342
+  bytes and the checksum, the epilogue, each loaded exactly 224 cycles after the one before (a sync byte's ten
+  bits 280), Q7 off. The loop and its tables are page-aligned and asserted at build time not to cross a page, so
+  no branch or index costs a cycle it isn't counted for. Write-protect is sensed first (Q6 on, Q7 off, bit 7 of the
+  data register): WRITE returns 2 and the disk isn't touched. No read-after-write check (DOS 3.3 makes none).
+- **Stepping:** the phases in turn, a half track at a time, the one before turned off, with the motor on (the drive
+  powers its stepper only then, and the emulator moves the head only then); a fixed time a half track and a
+  settling time after the last, from the drive's data at 6c's start. The emulator moves the head at once, so only
+  the real drive (the Floppy Emu) tests those times. Recalibration steps out 40 tracks, onto the stop, at the first
+  access after cold boot and after a failed READ; after that the driver keeps each drive's half track, and checks
+  it against each address field's track.
+- **Sector order:** CP/M's sector to the image's (the skew), then the image's DOS order to the physical sector on
+  the track, by DOS 3.3's interleave, the same table the emulator writes `.dsk` files out with. So a `.dsk` made
+  by cpmtools, inserted in the drive, reads as the same files as on an SD unit.
+- **The motor** (a question below): switched off at the end of every READ and WRITE; the card keeps it turning a
+  second more, so the next access within that second finds the disk at speed, and the motor stops a second after
+  the last. Whether it is still turning is seen from the data register changing. From stopped, a read just starts
+  (the address fields aren't found until the disk is at speed); a write waits a spin-up time first.
+- **Interrupts and DMA during a read:** interrupts are off for a whole sector or track operation too, the flag put
+  back after; DMA isn't used by OODOS while the BIOS runs, so a read leaves the controller as it is. Break (NMI)
+  can't be held off: a write it lands in leaves that sector bad.
+- **Room:** the driver about 2–2.5 KB and the `apple-do` layer 0.8–1.2 KB in block 61 (12.9 KB free); its scratch
+  in the BIOS's own zero page, at most 4 bytes more of the system's (232 of 240 used at phase 5's plan;
+  counted again at 6c's start).
+
+**The DOS 3.3 exchange utility (6d)**
+
+- **`DOS33.COM`** (the name a question below; `oodos/utils/dos33.s`), a utility as 4b's:
+  - `DOS33 d:`: the disk's catalog as DOS 3.3's CATALOG shows it (the lock, the type, the sectors, the name) and the
+    free sectors from the VTOC.
+  - `DOS33 GET d:NAME [e:]FILE.TYP [T|B|R]`: a file from the Apple disk. T a text file: the high bit cleared, CR to
+    CR LF, to the first 0, then ^Z; B binary: the four-byte address and length dropped (the address shown); R raw,
+    every sector of the file as stored. The default by its type: T for T, B for B, R for the others (A, I, S, R).
+  - `DOS33 PUT [e:]FILE.TYP d:NAME [T|B[=addr]]`: a file to the Apple disk, the other way: T sets the high bit, CR
+    LF to CR, ending at ^Z; B with a load address (`$2000` unless given). A name already there, or a locked one,
+    is refused.
+  - `DOS33 ERA d:NAME`: delete, so a file can be replaced. A locked file is refused.
+  - A DOS 3.3 name has up to 30 characters and may hold spaces: in quotes then. `d:` is O:, P:, or any SD drive
+    whose unit is a 140 KB image; anything else, or a disk with no VTOC DOS 3.3 would take, is refused with a
+    message.
+- **Function 76, an Apple disk's sector** (ours, from OODOS's reserved range; a question below): A/X a block with
+  the drive, the track, the DOS 3.3 sector number, read or write, and the address of 256 bytes in the program's
+  memory. Before its first sector on a drive the BDOS writes back and drops that drive's buffers and logs it out,
+  as 37, so the drive's next CP/M use logs it in again. Returns 0, 1 an error, 2 write-protected, `$FF` not an
+  Apple drive. On an SD unit the sector is at (track × 16 + sector) × 256 in the file, on the Disk II at its
+  physical place by the interleave.
+- **`oodos/tools/dos33.py`** (ours, written from the format: the VTOC on track 17 sector 0, its bitmap, the catalog
+  chain, the track/sector lists): makes DOS 3.3 images for the tests (tracks 0–2 marked used and left empty, so
+  there is no DOS code on them and the image isn't bootable), lists them, takes files out, and checks one
+  (every sector used by exactly one file or the catalog, or free in the bitmap). It is the tests' oracle.
+- **The other oracle is DOS 3.3 itself** (a question below): the emulator's IIe boots the owner's DOS 3.3 disk from
+  the fixtures in drive 1, with our image in drive 2, and `CATALOG,D2`, `VERIFY` and `BLOAD` read what DOS33 wrote,
+  and `BSAVE` writes what DOS33 then reads back. Tests work on copies in memory and print only what they computed.
+- **ProDOS** is not in phase 6 (not decided); the utility is laid out so a ProDOS reader could join it.
+
+**Stages (proposed: four branches, each merged on its own)**
+
+| Stage | Branch | What | Size (estimates) |
+|---|---|---|---|
+| **6a** | `feat/disk2-native` | the emulator's card in native mode: the switches at `$C600–$C60F`, the 2-in-7 clock, the run-on in steps, the mode change; EMULATOR_PLAN.md's backlog item and design.md's "doesn't do this yet" | `disk2_card` +60–100 lines; tests +300–400 |
+| **6b** | `feat/oodos-apple-sd` | the BDOS's sectors a track and OFF; the BIOS's `apple-do` layer (DPB, skew, track buffer, SD backend); 280-sector units as drives; OOLDR's refusal of an `apple-do` A:; the test card gets `/DISKS/CPM.DSK` | BDOS +40–80 bytes; BIOS +0.8–1.2 KB |
+| **6c** | `feat/oodos-disk2` | the Disk II driver; O: and P:, their slots; the directory checksums and error 10; the motor | BIOS +2–2.5 KB; BDOS +150–250 bytes |
+| **6d** | `feat/oodos-dos33` | function 76; DOS33.COM; dos33.py; the card gets DOS33.COM and `/DISKS/DOS33.DSK` | DOS33.COM 4–6 KB; BDOS +100–150 bytes |
+
+6b needs nothing of 6a and can go first or beside it; 6c needs both; 6d needs 6b (its SD half) and 6c (its O:
+half). The version stays 0.3 through 6a–6c and becomes 0.4 after 6d, as 0.3 came after 5c (a question below).
+
+**Testing** (as phases 3–5: directed tests line for line on `oodos_rig.h`'s `CcpRig`, cpmtools for what lands on
+an `apple-do` disk, dos33.py and DOS 3.3 for what lands on a DOS 3.3 disk, and each check seen to fail on a fault
+put in on purpose, with `OODOS_SYS_DIR`). Every image is ours: `apple-do` ones made with cpmtools in a throwaway
+container (`oodos/sys/test/make_appledisk.sh`, as `make_mdisk.sh`, committed as `.sparse` beside the card's), DOS
+3.3 ones by dos33.py. The suites that need the owner's PROM or DOS 3.3 disk load them from the fixtures at run
+time and skip without them (exit 77), as test_iie does; `tools/check.sh` already refuses to run without the
+fixtures, so the quick tier runs them.
+
+- **6a, `test_disk2`** (no fixtures, its own rule tables): each of the sixteen switches in native mode, the odd
+  reads, the rest of the block `$FF`, a peek changing nothing; a counting table steps 2,000 times in 7,000 native
+  cycles and 14,000 in 7,000 Apple ones; the run-on still turning 0.99 s of native cycles after the motor is
+  switched off and stopped at 1.01 s; a mode change mid-run, the disk's place continuous across it; /RESET
+  in native mode. **Must fail:** the card left at Apple II mode's two steps a cycle in native mode (the counting
+  case), and the run-on counted in cycles (a seventh of a second in native mode), each with the fault put in.
+  **`test_disk2_native`** (a new suite, the owner's PROM): the test drives the switches itself at chosen cycles
+  on a `.dsk` written out by `from_sectors`: the 16 address fields of a track in order and each data field equal
+  to the image's sector (a 6-and-2 decoder of the test's own); a sector written at 224 cycles a byte, which
+  `to_sectors()` reads back. **Must fail:** the same write at 223 and at 225 cycles a byte doesn't read back: the
+  timing design.md promises is what the test holds. Time: under 1 s and 2–4 s.
+- **6b, `test_oodos_apple`** (a new suite; a card with `/DISKS/CPM.DSK` from cpmtools on C:): SELDSK's DPB for a
+  280-sector unit, read back by 31 and compared with the values worked out from the diskdef; DIR and TYPE of
+  cpmtools's files, every byte; PIP from M: to C: and back, and between C: and A:; ERA and REN; the disk filled
+  (127 blocks: Disk Full) and the directory filled (64 entries: Directory Full); 1 KB blocks' allocation;
+  the boot tracks unchanged after all of it; a sector's write leaving the other half of its SD sector as it was;
+  `RO` in `DRIVES.TXT` (Read Only); 74 mounting a `.dsk` while running and the drive logged in again; an `apple-do`
+  A: refused by OOLDR with its message; a unit of 281 sectors not a drive. The existing suites pass unchanged
+  (`oodos-8m`, `oodos-32m`, M:). **Must fail:** OFF taken as 16 sectors a track (the BDOS today: cpmtools's
+  files read as garbage), and no skew (the same): each with the fault put in. cpmtools: `test_oodos_card`
+  writes a file on C: and saves the card; `interop.sh --apple` (Docker, the full tier) has `cpmls`, `cpmcp` and
+  `fsck.cpm -f apple-do` read it. Time: 25–40 s.
+- **6c, `test_oodos_disk2`** (a new suite, the owner's PROM; split in two if it passes 60 s): the same cpmtools
+  image in the emulated drive as O:, then DIR, TYPE and PIP each way; the image after, by `to_sectors()`,
+  compared with the same PIPs done on an SD unit: the two must be the same bytes; P: and copies between O: and
+  P:; no card (`Invalid Drive`), no disk (`Disk I/O` within 3 s of emulated time), write-protected (Read Only, the
+  disk unchanged); a data field's checksum spoiled in the track's bits (retried, then `Disk I/O`) and a sector's
+  address field spoiled (the others still read); the head moved by the test to a wrong track (recalibrated and
+  read); every track 0–34 reached, by the card's status; the motor stopping a second after the last access and the
+  next access within the second not waiting; the disk changed between two DIRs (the second shows the new disk) and
+  under an open file (error 10, and the new disk not written). **Must fail, each with its fault put in:** the
+  write loop a cycle long (a `NOP`: the sector doesn't read back; the test also times every load of the data bus,
+  224 and 280, from the bus); the `SEI` taken out with the VIA's timer interrupt set to land mid-write (the
+  sector bad, as OOLIB's tick will make it); the checksums off (the changed disk's directory overwritten, the
+  real failure they exist for). Measured: a 32 KB file from O: and to it, and a whole disk read, in emulated
+  seconds. cpmtools: `interop.sh --apple` reads the O: image saved by the test too. Time: 40–70 s.
+- **6d, `test_oodos_dos33`** (a new suite; dos33.py's images on an SD unit and in the drive): DOS33's every form
+  and message, line for line; GET in T, B and R and PUT in T and B, the bytes compared with dos33.py's; a name with
+  spaces; a locked file; ERA; a full disk, a full catalog (past its first sector); not an Apple drive (A:); a CP/M
+  disk (`apple-do`) refused as not DOS 3.3; dos33.py's check on every image after; function 76's refusals, its
+  write-protected answer, and a CP/M drive's buffers dropped by it (a directory read after 76 writes comes from the
+  disk). **Must fail:** a VTOC bitmap not updated (dos33.py's check catches it; so does DOS 3.3's `VERIFY` of the
+  next file saved) and text's high bit left clear (DOS 3.3's `READ` of it). `check_tools.py`: dos33.py's images,
+  listing, extraction and its check refusing a spoiled bitmap and a looped track/sector list. **With DOS 3.3**
+  (the owner's disk; in test_iie's rig): `CATALOG,D2` shows DOS33's files with their types and sectors, `VERIFY`
+  passes for each, `BLOAD` puts a B file's bytes at its address; `BSAVE` of bytes the test put in memory, then
+  DOS33 GET has the same bytes. Time: 30–50 s.
+
+The quick tier's wall time grows less than the sum (ctest runs the suites side by side): about 20–40 s, if no new
+suite runs past the longest now (test_oodos_utils_dir, 57 s). Tests are about as much again as the code in lines:
+2,000–2,500 lines of C++ over the four stages, `make_appledisk.sh`, dos33.py and its checks, and two or three test
+programs in `oodos/sys/test`.
+
+**The books.** Each stage writes its entries on its branch: 6b the User's Guide's drives (`.dsk` units in
+`DRIVES.TXT` and MOUNT) and the Programmer's Guide's note on `apple-do` DPBs; 6c O: and P: and a changed floppy in
+the User's Guide, error 10 in the Programmer's Guide's file functions; 6d `util-dos33` in the User's Guide and
+`bdos-76` in the Programmer's Guide (written on the branch, so `unwritten.txt` isn't touched). The Technical
+Reference's native Disk II pages, the BIOS's `apple-do` layer and the driver come after both G2 and phase 6 have
+merged, with the switches' equates (below).
+
+**Risks**
+
+- **The write loop's timing** is all or nothing: one stray cycle and every sector written is bad. The bus-timed
+  test and the build's page assertions hold it; the real card is the last check.
+- **The real drive's times** (a half track's step, the settling, the spin-up) can't be tested in the emulator,
+  which moves the head at once and spins up at once. They are proposed from the drive's data and checked on the
+  Floppy Emu (which steps as quickly as it is told) and, if one is fitted, a real Disk II drive.
+- **The card catching up across a mode change** at the wrong ratio would move the disk on by the wrong amount; 6a
+  tests it.
+- **Media change** rests on the checksums. A changed disk whose directory is the same (two copies of one disk) is
+  taken for the same disk, as in CP/M 3; its files are the same too, until one is written.
+- **Copyright:** the tests need the owner's PROM and DOS 3.3 disk, and must never put a byte of either in the repo,
+  in a log or on the site. A test prints only what it computed.
+
+**Questions for the owner** (each with a recommendation)
+
+1. **The sequencer (blocking 6a's PROM suite and all of 6c).** Reading or writing a disk in native mode, in the
+   emulator, needs the 341-0028's contents: the card runs the PROM's table, and with none loaded nothing reads.
+   test_disk2's own tables check the wiring but none reads a disk. Three ways:
+   (a) the tests load the owner's PROM from `fixtures/apple2e` at run time and skip without it, as test_iie does;
+   nothing of it is in the repo; the WebUI's drive works with a cartridge that has the sequencer, as Apple II mode
+   does now;
+   (b) a sequencer table of our own design, made by the tests from rules as test_disk2's are, that reads and writes
+   a disk; it would do what Apple's table does, so it may count as reproducing it;
+   (c) a byte-level model of the card when no PROM is loaded, written from what the card does rather than its
+   table, as some emulators have; it couldn't hold the 224-cycle timing to the bit.
+   **Recommended: (a) only.** It needs nothing new, puts nothing of Apple's in the repo, and tests against the
+   real table. Not (b) or (c) unless you say so.
+2. **The motor's second.** The decision says the motor goes off a second after the last access, timed by the RTC's
+   tick. The card itself does that: switched off, it runs on for a second (the emulator models it, as the Disk II
+   card has it). The tick would need the interrupt handler OODOS doesn't have yet (OOLIB's dispatcher). **Recommended:**
+   switch the motor off after every READ and WRITE and let the card's run-on time the second; no interrupt, no
+   RTC. A longer run-on can come with OOLIB's tick if it is wanted.
+3. **The switches' equates.** `docs/tools/check_docs.py` fails any I/O equate in `backplane.inc` that has no
+   Technical Reference entry, and phase 6 doesn't touch the Technical Reference or `registers.json`.
+   **Recommended:** the driver names the switches as offsets from `DISK2` in its own `oodos/sys/disk2.inc`
+   (`D2_PH0OFF`–`D2_PH3ON` = `$00`–`$07`, `D2_MOTOROFF`/`ON` `$08`/`$09`, `D2_DRIVE1`/`2` `$0A`/`$0B`,
+   `D2_Q6OFF`/`ON` `$0C`/`$0D`, `D2_Q7OFF`/`ON` `$0E`/`$0F`), so `backplane.inc` is unchanged in phase 6 and
+   G2 and phase 6 merge in either order; the sixteen equates (`DISK2_PH0OFF` = `DISK2 + $00` … `DISK2_Q7ON` =
+   `DISK2 + $0F`) go into `backplane.inc` with their Technical Reference entries after both have merged, and the
+   driver moves to them then.
+4. **Raw sectors for DOS33: function 76** (OODOS's own range, 76–97 reserved), with the BDOS dropping the drive's
+   buffers and logging it out; or BIOS function 30 through 50 (CP/M 3's slot for the implementor), where the
+   utility must reset the drive itself first. **Recommended: 76**: the BDOS owns the buffers, so it is the one to
+   drop them.
+5. **The utility's name and forms.** **Recommended: `DOS33.COM`**, with DIR as the bare form, GET, PUT and ERA, as
+   above. Not the SoftCard's name; ours is not its program.
+6. **A track buffer.** **Recommended: yes**, 4 KB each for O:, P: and the SD units, in block 29, write-through.
+   Without it a 512-byte read from the drive costs a revolution or more (about 2.5 KB/s); with it a track
+   reads in about a revolution (about 18 KB/s). Holding writes back until FLUSH would be faster still, but loses
+   them if the disk is changed first; not in phase 6.
+7. **Directory checksums on O: and P:** (CKS 16, logging in again on a change, error 10 for an FCB opened before
+   it). **Recommended: yes, in 6c.** Without them a changed floppy gets the old disk's allocation and directory
+   written over it. SD units keep CKS `$8000`: MOUNT already says when a unit changes.
+8. **`.po` images and `apple-po`.** **Recommended: not in phase 6.** A 140 KB unit is DOS order whatever its name;
+   `apple-po` (ProDOS order, its own skew in cpmtools) can follow, told apart by the name in the units table.
+9. **ProDOS disks in the exchange utility.** Not decided, and not proposed for phase 6. **Recommended:** decide
+   after 6d, with what 6d shows of the utility's size; DOS33's layout leaves room for it.
+10. **DOS 3.3 as the oracle.** The 6d interop cases boot the owner's DOS 3.3 disk from `fixtures/disks` in the
+    emulated IIe, as test_iie does now, on copies in memory. **Recommended: yes**; dos33.py alone would check
+    our reading of the format against our own reading of it.
+11. **Text conversion.** **Recommended:** as above: T files' high bit and CR, A, I and S files raw by default,
+    B files without their header. Applesoft and Integer BASIC listings (detokenising) are not in phase 6.
+12. **The version.** **Recommended:** 0.3 through 6a–6c, 0.4 after 6d, one bump as for phase 5.
+
 
 ## GW-BASIC ##
 
@@ -3420,6 +3705,7 @@ entries and indexes in docs/ are.
    2026-10-30). Proposed in three stages, 5a–5c: [The RSXs, phase 5](#the-rsxs-phase-5).
 6. **Apple disks:** native Disk II in the emulator, the driver, `apple-do` drives; then the DOS 3.3
    exchange utility.
+   Proposed in four stages, 6a–6d: [The plan, phase 6](#the-plan-phase-6).
    *Proposed (2026-10-30), not yet numbered:* the game and device services ([oolib.md](oolib.md)) as a phase
    before GW-BASIC, whose SCREEN, PLAY, STICK and ON TIMER are written on them: the interrupt dispatcher and the
    VIA's system tick first. Its open questions are the owner's to settle first.
