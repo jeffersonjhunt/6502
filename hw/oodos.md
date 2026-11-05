@@ -2299,6 +2299,45 @@ bdos-60. PUT's file is `NAME.$$$` from a one-record buffer in the RSX, renamed a
 cpmtools reads GENCOM's `.COM` back (equal to gencom.py's) and PUT's file, sees no `$$$` left, and `fsck.cpm`
 passes.
 
+**Proposed (5b, as built, 2026-11-04)** ([`oodos/rsx/`](../oodos/rsx/), `oodos/utils/get.s`, `put.s`, `gencom.s`,
+[`oodos/include/rsx.inc`](../oodos/include/rsx.inc), `redir.inc`; the plan and the decisions above are what was
+built, and these are the details):
+
+- **The RSXs:** `rsx/getrsx.s` (1,131 bytes of image: five pages below the lowest RSX while it serves) and
+  `rsx/putrsx.s` (1,360: six), each its file's 128-byte record buffer and FCB in its image (an RSX's BSS isn't
+  cleared, so its variables are in its file). The Makefile builds `rsx/*.s` as `.RSX`s and attaches `getrsx` to
+  GET.COM and `putrsx` to PUT.COM by gencom.py (`ATTACHED`); `make utils` builds the RSXs too, and make_card.sh
+  copies `rsx/`. GET.COM is 6,272 bytes, PUT.COM 6,912, GENCOM.COM 6,855 (each with `cmd.inc` and `util.inc`).
+- **`rsx.inc`:** `RX_SAVE` and `RX_RESTORE` keep the caller's DMA address and segment, user, error mode and
+  multi-sector count across an RSX's own file call, which is made by its offset 9; `RX_PB49` reads a 49 call's
+  block for a write to `$19`. The function bytes (`RXF_*`) and `$19`'s bits are in `oodos.inc`.
+- **The CCP's `$19` writes go through `$0203`** (`CCPSET`; 5a's went to `$BFFD`, past the chain, so no RSX saw
+  them): found when GET first ran. The count is bits 0–5 now, beside bit 6.
+- **PUT's file at a command's end:** with `[SYSTEM]` it is closed (16) at each, so the warm boot's 98 doesn't free
+  the blocks it has written, and goes on being written after; at the end of what it serves, its last record
+  `^Z`-padded, closed, NAME.$$$ looked for (a close of a file nothing was written to may not look, so its absence is
+  seen here: `PUT ERROR: FILE ERASED.`), NAME.TYP deleted and NAME.$$$ renamed.
+- **Under `[NO ECHO]`,** `PUT>` is shown when a call for input (1, 10, 6's `$FF` and `$FD`) follows output (mine:
+  once per run of input calls, not before each character).
+- **Both files get the output** (another file, Y): the newer PUT passes every call on after writing it; the older
+  one's options then decide the console echo (mine).
+- **GENCOM.COM** reads the old file, the RSX files and writes NAME.$$$ a record at a time by 33 and 21, so the
+  64 KB file needs no memory but its 16 specifications, 15 entries and a table of two records; it copies the old
+  file's records as they are (the image's last record's padding too), so `test_oodos_utils_rsx` compares it with
+  gencom.py's on files padded as gencom.py pads. With NULL the first file is an RSX (`NAME.RSX` with no type),
+  and only a first file typed `.COM` is `COM file found and NULL option`. A file not found is `NAME.TYP No File`
+  (ours).
+- **`Insufficient Memory`** in the CCP: 59's X = 0 and GO's image too big (test_oodos_sys's two GO cases and
+  test_oodos_rsx's four changed with decision 3).
+- **Tests:** `test_oodos_utils_rsx`, 14 cases on IOTEST (`oodos/sys/test/iotest.s`): GET's forms and options, its
+  file to a ^Z, the four status modes, SYSTEM and GET CONSOLE, a GET in a GET file, its refusals and no idle RSX
+  left; PUT's built-in and program output, NO ECHO's `PUT>`, FILTER, the printer, SYSTEM across programs, both
+  questions, a file erased, its refusals; the program's state across both RSXs' file calls; GENCOM.COM's every
+  form against gencom.py's bytes (`iota`, `iotab`, `iots`, `iotn`, `iotx`, made by the sys Makefile) and every
+  message. `test_oodos_rsx` checks `$19`'s bit 6 through a program and DIR. `test_oodos_card` runs PIP, GENCOM, PUT
+  and TYPE on the card's A: and saves it (`OODOS_RSX_OUT`) for `interop.sh --rsx`: H2.COM equal to gencom.py's,
+  PUTOUT.TXT's text, no NAME.$$$ (PASS 7). PIP's M: reader moved to `oodos_rig.h`.
+
 **SUBMIT** (5c): a file of commands. SUBMIT.COM, with the input RSX attached (the same one as GET's, ours: a
 SUBMIT file is console input for the CCP).
 

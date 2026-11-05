@@ -14,6 +14,7 @@
 #include "oodos_rig.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,8 @@ using namespace oodos_rig::ccp;
 namespace
 {
     constexpr uint32_t BLOCK62 = 62u * 0x4000u;
+    /// oodos/utils's build: the build tree's, or OODOS_UTILS_DIR's (a fault put in on purpose).
+    const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
 
     std::vector<uint8_t> built(const std::string &dir, const std::string &name)
     {
@@ -62,9 +65,9 @@ namespace
             io.resize((io.size() + 127) / 128 * 128, 0);
             files.push_back({0, "IOTEST  COM", io});
             put_m(files);
-            put_util("get");
-            put_util("put");
-            put_util("gencom");
+            put_util("get", UTILS);
+            put_util("put", UTILS);
+            put_util("gencom", UTILS);
             chain({13, 0});
         }
     };
@@ -184,6 +187,7 @@ TEST(get_refuses_what_isnt_a_form_and_leaves_no_rsx)
         {"get file m:in.txt [echo][system]", "Invalid delimiter."},
         {"get file m:in.txt [echo", "Invalid delimiter."},
         {"get file m:in.txt junk", "End of line expected"},
+        {"get file m:in.txt [echo] junk", "End of line expected"},
         {"get console junk", "Invalid command."},
         {"get file m:*.txt", "Invalid file specification."},
         {"get file m:none.txt", "No File"},
@@ -245,6 +249,7 @@ TEST(put_printer_output_to_a_file_and_system_until_put_back)
     CHECK_EQ(text(m_data(r, 0, "LST     TXT")), std::string("Alist"));
     // SYSTEM: every command's, closed at each end so the warm boot keeps its blocks, until put back
     r.cmd("put console file m:sys.txt [system]");
+    r.cmd("iotest " + std::string(100, '9'));        // 400 bytes: records written before warm boots
     r.cmd("iotest 2x");
     r.cmd("dir m:in.txt");
     r.cmd("iotest 2y");
@@ -253,6 +258,10 @@ TEST(put_printer_output_to_a_file_and_system_until_put_back)
     r.cmd("dir m:in.txt");
     CHECK_EQ(nrsx(r), 0u);
     const std::string s = text(m_data(r, 0, "SYS     TXT"));
+    std::string nines;
+    for (int i = 0; i < 100; ++i)
+        nines += "nine";
+    has(s, nines);
     has(s, "X");
     has(s, "M: IN       TXT");
     has(s, "Y");
@@ -261,6 +270,15 @@ TEST(put_printer_output_to_a_file_and_system_until_put_back)
     r.cmd("iotest 5p");
     r.cmd("put printer output to printer");
     CHECK_EQ(text(m_data(r, 0, "L2      TXT")), std::string("P"));
+    // NO ECHO the printer's default, ECHO on asking: LST: put on the serial line (the SCB's $2A: TTY) to see it
+    r.scb(0x2A, 0);
+    r.scb(0x2B, 0x40);
+    r.cmd("put printer file m:l3.txt");
+    hasnt(r.cmd("iotest 5Q"), "\r\nQ");
+    r.cmd("put printer file m:l4.txt [echo]");
+    has(r.cmd("iotest 5R"), "\r\nR");
+    CHECK_EQ(text(m_data(r, 0, "L3      TXT")), std::string("Q"));
+    CHECK_EQ(text(m_data(r, 0, "L4      TXT")), std::string("R"));
 }
 
 TEST(put_asks_about_a_file_there_already_and_about_another_file)
@@ -333,6 +351,7 @@ TEST(put_refuses_what_isnt_a_form)
         {"put console file m:x.txt [bogus]", "Invalid option."},
         {"put console file m:x.txt [echo] [system]", "Invalid delimiter."},
         {"put console file m:x.txt more", "End of line expected"},
+        {"put console file m:x.txt [echo] more", "End of line expected"},
         {"put console file m:x?.txt", "Invalid file specification."},
     };
     for (const auto &[line, want] : cases)

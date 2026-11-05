@@ -186,12 +186,8 @@ scb:    lda     mode
         lda     mode
         cmp     #M_ARMED
         bne     @end
-        txa                             ; armed: the next command's start
-        and     #RX_CMD
-        beq     @pass
-        txa
-        and     #RX_COUNT
-        cmp     mycount
+        txa                             ; armed: the next command's start (its own
+        and     #RX_CMD                 ; command's bit 6 clears at the warm boot first)
         beq     @pass
         lda     #M_ACTIVE
         sta     mode
@@ -262,10 +258,6 @@ rsx:    lda     sa
         bpl     @nm
         stz     bidx
         stz     lastout
-        ldx     #SCB_CCPST
-        jsr     RX_SCBGET
-        and     #RX_COUNT
-        sta     mycount
         ldx     #M_ARMED
         lda     flags
         and     #F_SYS
@@ -438,7 +430,6 @@ mode:   .byte   M_IDLE
 flags:  .byte   0
 kind:   .byte   0
 user:   .byte   0
-mycount: .byte  0
 lastout: .byte  0
 bidx:   .byte   0
 ch:     .byte   0
