@@ -52,6 +52,7 @@
 .include "sys.inc"
 .include "oodos.inc"
 .import WARM, STUB
+.import LINK, REMOVE, TOPADDR, APPLYSCB, CCPSET, NRSX, KEEP, WBF, CCPST, LHDR
 .export CCP, RUNHDR
 
 .define CMD_DATA "RES"
@@ -63,6 +64,7 @@ TAIL_MAX        = 126                  ; what $0280 holds with its length and a 
 CHAIN_MAX       = 126                  ; 47's command, at most
 KW_MAX          = 23                   ; d:NAME.TYP;PASSWORD
 RECORD          = 128
+FCB_R0          = 33                   ; the FCB's random record, R0-R2
 TAB             = $09
 LF              = $0A
 CR              = $0D
@@ -95,9 +97,8 @@ OPAT:           .res    1              ;   the specification's start
 COMFCB:         .res    36             ; the program's FCB
 SFCB:           .res    36             ; the built-ins'
 LASTREC:        .res    RECORD         ; a record; the built-ins' DMA buffer
-LEFT:           .res    2              ; the image's bytes still to load
-DEST:           .res    2              ; where the next record goes
-COUNT:          .res    1              ; COPYREC's bytes
+CEND:           .res    2              ; CHECKHDR's end of the image and BSS
+COUNT:          .res    1              ; a count, for a moment (DIRSYS's tail, the parse)
 CHAINF:         .res    1              ; 47's request, as the SCB had it
 CHAINED:        .res    1              ; 1: the command is 47's
 CHAINB:         .res    4              ; the drives to look on
@@ -126,6 +127,24 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BPL     @jmps
                 LDX     #$FF
                 TXS
+                JSR     LINK           ; $0203 and the RSXs' links from the loader's table
+                LDA     NRSX           ; every end of a program reaches the RSXs as
+                BEQ     @ended         ; function 0, once (ours): the BDOS's comes back
+                LDA     WBF            ; here, with WBF set
+                BNE     @ended
+                INC     WBF
+                LDY     #P_TERMCPM
+                JSR     BDOS
+@ended:         STZ     WBF
+                LDA     KEEP           ; the flagged RSXs out (the Guide's 1.6.4), but
+                CMP     #1             ; not after an RSX-only .COM: they stay for the
+                BEQ     @kept          ; next program
+                STZ     KEEP
+                JSR     REMOVE
+@kept:          LDA     CCPST          ; the CCP runs (the SCB's $19 bit 7, ours)
+                ORA     #$80
+                STA     CCPST
+                JSR     CCPSET
                 LDA     #1             ; a multi-sector count of 1, for its loads and
                 LDY     #F_MULTISEC    ; each program (the Guide, 44)
                 JSR     BDOS
@@ -331,6 +350,12 @@ RUNCMD:         LDX     #$FF
                 LDA     CMD,X
                 BEQ     DONE
 KEYWORD:        STX     KWS            ; to a blank, a tab or the end
+                LDA     CCPST          ; a command starts: the count on (ours)
+                INC     A
+                ORA     #$80
+                STA     CCPST
+                JSR     CCPSET
+                LDX     KWS
 @kw:            LDA     CMD,X
                 BEQ     @end
                 CMP     #' '
@@ -1543,125 +1568,43 @@ FOUNDIT:        PLA                    ; LOADPROG's return dropped: it runs or f
                 JSR     STRING
 @shown:         JSR     CRLF
                 ; falls through
-; The open file: record 0 to LASTREC, its header (the first 16 bytes) to
-; $0280 and checked before anything else is written; then exactly the
-; image's size, which follows the header, to $0300, so nothing past the
-; image changes. An error, or the file ending inside the image: READ ERROR.
-LOADCOM:        LDA     #<LASTREC      ; record 0: the header, then the image's start
-                LDX     #>LASTREC
-                JSR     NEXTREC
-                BCC     @header
-                CMP     #1             ; an empty file: no program
-                BNE     @rderr
-                STZ     BP_DMA
-                JSR     CHECKHDR       ; says so, and doesn't come back
-@header:        LDX     #OH_LEN - 1    ; the header to $0280, where RUNHDR reads it
-@hdr:           LDA     LASTREC,X
-                STA     BP_DMA,X
-                DEX
-                BPL     @hdr
-                JSR     CHECKHDR       ; back only if it may run
-                LDA     BP_DMA + OH_SIZE
-                STA     LEFT
-                LDA     BP_DMA + OH_SIZE + 1
-                STA     LEFT + 1
-                STZ     DEST
+; The open file loaded by 59, as a program loads an overlay, at $0300; its
+; RSXs, if any, below the lowest. Refused: NO PROGRAM (no magic number, or
+; nothing in it), BAD PROGRAM HEADER (its flags, its page, too big); a read
+; error, or the file ending inside its image: READ ERROR. An RSX-only .COM
+; (size 0, RSXs attached) is done: its RSXs stay for the next program.
+LOADCOM:        STZ     COMFCB + FCB_R0 ; R0-R2: $0300
                 LDA     #>BP_TPA
-                STA     DEST + 1
-                LDA     LEFT           ; an empty image: nothing to load
-                ORA     LEFT + 1
+                STA     COMFCB + FCB_R0 + 1
+                STZ     COMFCB + FCB_R0 + 2
+                LDA     #<COMFCB
+                LDX     #>COMFCB
+                LDY     #P_LOAD
+                JSR     BDOS
+                CMP     #0
                 BEQ     @loaded
-                LDA     #OH_LEN        ; the image starts after the header, in record 0
-                JSR     COPYREC
-@whole:         LDA     LEFT + 1       ; a whole record left: straight to DEST
-                BNE     @straight
-                LDA     LEFT
-                BEQ     @loaded
-                BPL     @part
-@straight:      LDA     DEST
-                LDX     DEST + 1
-                JSR     NEXTREC
-                BCS     @rderr         ; the file ends inside the image
-                CLC
-                LDA     DEST
-                ADC     #RECORD
-                STA     DEST
-                BCC     @less
-                INC     DEST + 1
-@less:          SEC
-                LDA     LEFT
-                SBC     #RECORD
-                STA     LEFT
-                BCS     @whole
-                DEC     LEFT + 1
-                BRA     @whole
-@part:          LDA     #<LASTREC      ; a last part record, through LASTREC
-                LDX     #>LASTREC
-                JSR     NEXTREC
-                BCS     @rderr
-                LDA     #0
-                JSR     COPYREC
-@loaded:        JMP     RUNTAIL
-@rderr:         ; falls through
+                CMP     #$FE
+                BNE     RDERR
+                CPX     #3
+                BNE     @bad
+                LDA     #<NOPROG
+                LDX     #>NOPROG
+                JMP     FAILSAY
+@bad:           LDA     #<BADPROG
+                LDX     #>BADPROG
+                JMP     FAILSAY
+@loaded:        LDA     LHDR + OH_SIZE
+                ORA     LHDR + OH_SIZE + 1
+                BEQ     @rsxs
+                JMP     RUNTAIL
+@rsxs:          LDA     #1             ; RSXs only: kept past the next warm boot
+                STA     KEEP
+                JSR     APPLYSCB
+                JMP     BIOK
 
 RDERR:          LDA     #<READERR
                 LDX     #>READERR
                 JMP     FAILSAY
-
-; The file's next record to A/X; carry set if none (A = 1, the end) or an
-; error (A = $FF).
-NEXTREC:        LDY     #F_DMAOFF
-                JSR     BDOS
-                LDA     #<COMFCB
-                LDX     #>COMFCB
-                LDY     #F_READ
-                JSR     BDOS
-                CMP     #1
-                RTS
-
-; LASTREC from offset A to its end, or LEFT bytes if fewer (LEFT isn't 0), to
-; DEST; both move on.
-COPYREC:        CLC                    ; the LDA's operand: LASTREC + A
-                ADC     #<LASTREC
-                STA     @from + 1
-                LDA     #>LASTREC
-                ADC     #0
-                STA     @from + 2
-                LDA     DEST           ; the STA's: DEST
-                STA     @to + 1
-                LDA     DEST + 1
-                STA     @to + 2
-                SEC                    ; Y: the bytes, 128 - offset at most
-                LDA     #RECORD
-                SBC     @from + 1
-                CLC
-                ADC     #<LASTREC
-                LDX     LEFT + 1
-                BNE     @n
-                CMP     LEFT
-                BCC     @n
-                LDA     LEFT
-@n:             STA     COUNT
-                LDY     #0
-@byte:
-@from:          LDA     $FFFF,Y
-@to:            STA     $FFFF,Y
-                INY
-                CPY     COUNT
-                BNE     @byte
-                CLC                    ; DEST += COUNT, LEFT -= COUNT
-                LDA     DEST
-                ADC     COUNT
-                STA     DEST
-                BCC     @less
-                INC     DEST + 1
-@less:          SEC
-                LDA     LEFT
-                SBC     COUNT
-                STA     LEFT
-                BCS     @done
-                DEC     LEFT + 1
-@done:          RTS
 
 ; GO: the program whose header is at $0280 and image at $0300: the loader's
 ; checks, the tail and FCBs, a fresh stack, $0300.
@@ -1684,24 +1627,21 @@ CHECKHDR:       LDX     #3
                 LDA     BP_DMA + OH_PAGE
                 CMP     #>BP_TPA
                 BNE     @bad
-                CLC                    ; $0300 + size + BSS <= $BFFD
+                CLC                    ; $0300 + size + BSS <= the TPA's top + 1
                 LDA     BP_DMA + OH_SIZE
                 ADC     BP_DMA + OH_BSS
-                TAY
+                STA     CEND
                 LDA     BP_DMA + OH_SIZE + 1
                 ADC     BP_DMA + OH_BSS + 1
                 BCS     @bad
-                TAX
-                TYA
-                CLC
-                ADC     #<BP_TPA
-                TAY
-                TXA
                 ADC     #>BP_TPA
                 BCS     @bad
-                CPY     #<(BDOS_ENTRY + 1)
-                SBC     #>(BDOS_ENTRY + 1) ; carry set: the end is past $BFFD
-                BCS     @bad
+                STA     CEND + 1
+                JSR     TOPADDR        ; the lowest RSX's first byte, or $BFFD
+                CMP     CEND
+                TXA
+                SBC     CEND + 1
+                BCC     @bad
                 RTS
 @none:          LDA     #<NOPROG
                 LDX     #>NOPROG
@@ -1727,7 +1667,16 @@ RUNTAIL:        JSR     CM_FLUSH       ; a program starts on a line of its own
                 LDA     CHAINED        ; the return code 0, unless chained to
                 BNE     @code
                 JSR     CODEOK
-@code:          LDX     #$FF
+@code:          LDA     KEEP           ; an RSX-only .COM's RSXs: this is their program
+                CMP     #1
+                BNE     @prog
+                INC     KEEP
+@prog:          LDA     CCPST          ; a program runs (the SCB's $19 bit 7 clear)
+                AND     #$7F
+                STA     CCPST
+                JSR     CCPSET
+                JSR     APPLYSCB       ; GENCOM's SCB entries, last
+                LDX     #$FF
                 TXS
                 LDA     #>(BP_WBOOT - 1) ; its RTS: the warm boot
                 PHA

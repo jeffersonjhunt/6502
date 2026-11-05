@@ -10,7 +10,8 @@
 ;           puts W2 on the BIOS for the call and back as it was, so the BDOS
 ;           may keep a hash or buffer block in W2 (hw/oodos.md, "The BDOS,
 ;           phase 3"); CALLW2 says which, for bank 0's $8000-$BFFF
-;   STUB    the BDOS's entry ($BFFD jumps here, $0203 jumps there)
+;   STUB    the BDOS's entry ($BFFD jumps here, $0203 jumps there); 59 goes
+;           to the loader instead, by LDOOR
 ;   WARM    the warm boot: the program's windows, a fresh stack, the CCP
 ;   FARCALL a call into another block through W3 (from oodos/spike/gwbasic/farcall.s)
 ;   IRQ, NMI and the vectors
@@ -23,7 +24,7 @@
 
 .setcpu "65C02"
 .include "sys.inc"
-.import COLD, CCP, BDOSENT
+.import COLD, CCP, BDOSENT, LOADER
 .import CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .import SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
@@ -117,6 +118,19 @@ W2BACK:         STA     JTA            ; the caller's W2 back
                 LDA     JTA
                 RTS
 
+; Function 59's door (hw/oodos.md, "The RSXs, phase 5"): the loader, in
+; block 62's code window, in the caller's context, W3 on block 62 for it and
+; the caller's block back after. Its BDOS calls come back in at STUB.
+LDOOR:          LDY     NB_WIN3
+                PHY
+                LDY     #RES_BLOCK
+                STY     NB_WIN3        ; block 62's copy of this, from the next instruction
+                JSR     LOADER
+                PLY
+                STY     NB_WIN3
+                CLD
+                RTS
+
 ; The BDOS's entry: the program's JSR $0203 lands here through $BFFD, the
 ; function in Y, the parameter in A and X. The program's P, A, X and Y go on
 ; its own stack, and WIN0 into A and its S into X before W0 changes; then its
@@ -124,7 +138,9 @@ W2BACK:         STA     JTA            ; the caller's W2 back
 ; its stack through W1, W0-W3 become 31, 60, 61 and 62 and S a fresh $FF. The
 ; BDOS returns A and X; the program gets them back with its windows, S and P,
 ; D clear, Y not kept.
-STUB:           PHP
+STUB:           CPY     #59            ; P_LOAD: the loader, not the BDOS
+                BEQ     LDOOR
+                PHP
                 SEI
                 PHA
                 PHX

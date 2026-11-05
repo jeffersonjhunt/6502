@@ -51,6 +51,48 @@ RSX_NAME        = 16                   ; 8 bytes, space padded
 RSX_LOADER      = 24                   ; the loader's flag
 RSX_PREFIX_LEN  = 27                   ; 2 bytes reserved before here
 
+; RSX_PREFIX name, entry, remove{, nonbank}: the prefix, in the RSXHDR
+; segment that cfg/rsx.cfg puts first in the image. name is up to 8
+; characters (space padded); entry the RSX's code, where every BDOS call
+; arrives; remove the remove flag as the file has it: $FF for an RSX that
+; serves one program (the warm boot after it removes it), 0 for one that
+; stays until it sets $FF itself; nonbank $FF for an RSX that loads only in
+; a non-banked system (OODOS is banked: it is passed over), 0 if omitted.
+; The loader writes the serial number, offset 9's operand, offset 12 and
+; the loader flag. The RSX passes on what it doesn't take, and makes its own
+; BDOS calls, by JMP or JSR to its offset 9 (RSX_NEXT), never $0203.
+.macro RSX_PREFIX name, entry, remove, nonbank
+        .assert .strlen(name) >= 1 && .strlen(name) <= 8, error, "an RSX's name is 1-8 characters"
+        .pushseg
+        .segment "RSXHDR"
+        .byte   0, 0, 0, 0, 0, 0        ; the serial number (the loader's)
+        jmp     entry                   ; RSX_START
+        .byte   $4C, 0, 0               ; RSX_NEXT: JMP to the next (the loader's)
+        .word   0                       ; RSX_PREV (the loader's)
+        .byte   remove                  ; RSX_REMOVE
+.ifblank nonbank
+        .byte   0                       ; RSX_NONBANK
+.else
+        .byte   nonbank
+.endif
+        .byte   name                    ; RSX_NAME
+        .res    8 - .strlen(name), ' '
+        .byte   0                       ; RSX_LOADER (the loader's: 0)
+        .byte   0, 0                    ; reserved
+        .popseg
+.endmacro
+
+; The attached RSX table (GENCOM, hw/oodos.md "The program header"): 16-byte
+; entries from the header's OH_RSXREC record, OH_RSXCOUNT of them.
+RT_REC          = 0                    ; the record the RSX's file starts at (2 bytes)
+RT_FLAGS        = 2
+RT_NONBANK      = $01                  ;   load only in a non-banked system: passed over
+RT_SCB          = $02                  ;   not an RSX: an SCB byte to set (ours)
+RT_NAME         = 3                    ; 8 bytes, space padded
+RT_LEN          = 16
+RT_SCBOFF       = 0                    ; an SCB entry's offset and value, in place of RT_REC
+RT_SCBVAL       = 1
+
 ; The base page: CP/M's page 0 at $0200.
 BP_WBOOT        = $0200                ; JMP warm boot
 BP_BDOS         = $0203                ; JMP to the BDOS or the top RSX
