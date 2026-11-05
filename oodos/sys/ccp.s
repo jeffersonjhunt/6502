@@ -231,7 +231,13 @@ PROMPT:         LDX     #$FF
                 BEQ     @line          ; on the default drive (5c)
                 STZ     COLDF
                 JSR     PROFILE
-@line:
+@line:          BIT     CCPST          ; the way to the prompt (5c): a built-in's end,
+                BVC     @again         ; bit 6 cleared, then $19 written again with it
+                LDA     CCPST          ; clear, as no command's end writes it: SUBMIT's
+                AND     #$FF ^ CCP_CMD ; RSX skips the < lines left here, before the
+                STA     CCPST          ; prompt, and not between a ! line's commands
+                JSR     CCPSET         ; (a program's end clears bit 6 too, for GET and
+@again:         JSR     CCPSET         ; PUT, which close their files there)
                 JSR     SAYPROMPT
                 LDA     #LINE_MAX
                 STA     LINE

@@ -8,9 +8,11 @@
 ;
 ; Given its file it serves at once (rxfile.inc reads it):
 ;
-;   a command's end (49's write to $19 with bit 6 clear, before the prompt)
-;               the < lines left skipped, and WARNING: Program input ignored
-;               said once, so it comes before the prompt (not after a ^C)
+;   the way to the prompt (49's write to $19 with bit 6 clear while it is
+;               clear: the CCP's PROMPT, not a command's end, which may have
+;               more of a ! line after it) the < lines left skipped, and
+;               WARNING: Program input ignored said once, before the prompt
+;               (not after a ^C)
 ;   the prompt  (10 with $19 bit 7 set, bit 6 clear) the next command line,
 ;               shown and ended by CR as typed (< lines still there skipped as
 ;               above); a ^C's end ($FFFE, 108) or the file's end: its file
@@ -108,7 +110,8 @@ zero:   lda     #0
         tax
         rts
 
-; 49: the CCP's writes to $19. A command's end (bit 6 clear): the < lines it
+; 49: the CCP's writes to $19. Bit 6 clear written while it is clear: the
+; CCP's way to the prompt (a command's end clears it from set). The < lines
 ; left skipped and the warning said now, before the prompt; after a ^C
 ; ($FFFE) nothing, the prompt ends it.
 scb:    lda     sa
@@ -116,6 +119,10 @@ scb:    lda     sa
         jsr     RX_SETP
         jsr     RX_PB49
         bcc     @pass
+        and     #RX_CMD
+        bne     @pass
+        ldx     #SCB_CCPST              ; and clear now (the write isn't made yet)
+        jsr     RX_SCBGET
         and     #RX_CMD
         bne     @pass
         lda     #$FF
@@ -168,7 +175,11 @@ line:   ldx     #SCB_CCPST
         bne     @next
         jsr     endsub
         jmp     pass
-@next:  jsr     skipin                  ; (left by none at a command's end: none)
+@next:  jsr     skipin                  ; unreachable in effect: the way to the
+                                        ; prompt (scb) skipped them before it, and
+                                        ; after a ^C the prompt ends the SUBMIT
+                                        ; above; kept so a line is never given
+                                        ; from a < line
         bcc     :+
         jsr     endsub                  ; the file's end: the keyboard
         jmp     pass

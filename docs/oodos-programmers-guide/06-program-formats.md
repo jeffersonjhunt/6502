@@ -198,7 +198,9 @@ SUBMIT's `$A0`
 clear while a program does; bit 6 set while a command runs, from its start to its end (a built-in's too), clear at
 the prompt; bits 0-5 count the commands the CCP starts. The CCP writes it by function 49 through `$0203`, so an
 RSX that redirects the console sees each change on its way down the chain and knows where the next command starts
-and ends, as GET's and PUT's do. [`oodos/include/rsx.inc`](../../oodos/include/rsx.inc) has what OODOS's RSXs share:
+and ends, as GET's and PUT's do; on the way to the prompt the CCP writes it once more with bit 6 still clear, which
+is where SUBMIT's RSX skips the `<` lines a command line left. Bits 6 and 7 are the CCP's: a program that writes
+them confuses SUBMIT's (and GET's and PUT's) idea of where its input goes. [`oodos/include/rsx.inc`](../../oodos/include/rsx.inc) has what OODOS's RSXs share:
 their own BDOS calls in the caller's state put back, and reading the CCP's writes to `$19`.
 
 ## Chaining

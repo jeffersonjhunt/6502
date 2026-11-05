@@ -222,11 +222,17 @@ TEST(the_ccp_says_submit_when_there_is_no_submit_com)
 
 TEST(a_sub_run_by_name_takes_its_password)
 {
-    Sx r({sub("PROT    SUB", "iotest 2P\r\n")});
+    Sx r({sub("PROT    SUB", "iotest 2P\r\nx $0\r\n")});
     REQUIRE(r.ok);
     r.xfcb_m(0, "PROT    SUB", 0x80, "SESAME  "); // read protected
-    std::string o = r.run("m:prot.sub;sesame", "A>iotest 2P\r\nP");
+    std::string o = r.run("m:prot.sub;sesame", "X?");
+    has(o, "A>iotest 2P\r\nP");
     hasnt(o, "Password Error");
+    has(o, "A>x M:PROT.SUB\r\nX?");                 // $0 without its password
+    hasnt(o, "SESAME");
+    o = r.run("submit m:prot;sesame", "X?");          // typed: the same
+    has(o, "A>x M:PROT\r\nX?");
+    hasnt(o, "SESAME");
     CHECK_EQ(r.m_entry(0, "SUB00   $$$"), -1);
     same(r.cmd("m:prot.sub"), "m:prot.sub\r\nPassword Error\r\nA>"); // without it: SUBMIT can't read it
 }
@@ -254,19 +260,21 @@ TEST(a_less_than_line_to_a_buffer_of_size_0_gives_one_character_as_typed_input_d
 
 TEST(submit_says_so_and_attaches_nothing_when_its_temporary_file_wont_open_again)
 {
-    // A fault put in as SUBMIT.COM comes to open its temporary file again (give): the name in its FCB
-    // changed, so the open finds nothing, as for a file gone. (Erasing M:'s directory entry doesn't
-    // do it: the BDOS's directory buffer still has it.)
+    // A fault put in as SUBMIT.COM opens its temporary file again (reopen, after the FCB is cleared):
+    // its extent byte made 5, so the open finds no such extent, as for a file gone, while the name is
+    // kept for the cleanup to delete the real file. (Erasing M:'s directory entry doesn't do it: the
+    // BDOS's directory buffer still has it.)
     Sx r({sub("FOO     SUB", "iotest 2A\r\n")});
     REQUIRE(r.ok);
     const auto lbl = labels(UTILS + "/submit.lbl");
-    REQUIRE(lbl.count("give") && lbl.count("tfcb"));
-    const uint16_t give = lbl.at("give"), tfcb = lbl.at("tfcb");
+    REQUIRE(lbl.count("reopen") && lbl.count("tfcb"));
+    const uint16_t reopen = lbl.at("reopen"), tfcb = lbl.at("tfcb");
     bool faulted = false;
     r.watch = [&](uint16_t pc) {
-        if (!faulted && pc == give)
+        if (!faulted && pc == reopen)
         {
-            r.machine->bus().write(static_cast<uint16_t>(tfcb + 1), 'X');
+            CHECK(r.m_entry(0, "SUB00   $$$") >= 0);  // made, written and closed
+            r.machine->bus().write(static_cast<uint16_t>(tfcb + 12), 5);
             faulted = true;
         }
     };
@@ -274,10 +282,27 @@ TEST(submit_says_so_and_attaches_nothing_when_its_temporary_file_wont_open_again
     r.watch = nullptr;
     CHECK(faulted);
     same(o, "submit m:foo\r\nDisk Read Error\r\nA>");
+    CHECK_EQ(r.m_entry(0, "SUB00   $$$"), -1);      // the real temporary file deleted
     CHECK(r.calls(r.C_READSTR_FN, ms(3000)));      // the keyboard: nothing from the file
     CHECK_EQ(nrsx(r), 0u);
     same(r.cmd("iotest 2K"), "iotest 2K\r\nK\r\nA>");
     CHECK_EQ(nrsx(r), 0u);
+}
+
+TEST(a_less_than_line_goes_to_the_second_program_of_a_bang_line)
+{
+    Sx r({sub("BANG    SUB", "iotest 2A ! iotest L\r\n<ONE\r\niotest 2Z\r\n"),
+          sub("LEFT2   SUB", "iotest 2A ! iotest 2B\r\n<X\r\niotest 2Z\r\n")});
+    REQUIRE(r.ok);
+    // The first program's end isn't the prompt: the < line is the second's
+    std::string o = r.run("submit m:bang", "\r\nZ");
+    has(o, "ONE\rL[ONE] ");
+    hasnt(o, "WARNING");
+    // Left unread by the line's last program: skipped, the warning once, before the prompt
+    o = r.run("submit m:left2", "\r\nZ");
+    has(o, "B\r\nWARNING: Program input ignored\r\nA>iotest 2Z\r\nZ");
+    CHECK_EQ(o.find("WARNING"), o.rfind("WARNING"));
+    hasnt(o, "L[X]");
 }
 
 int main()

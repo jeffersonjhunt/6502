@@ -98,8 +98,16 @@ spec:   lda     #<sfcb
         bpl     @t
 :       lda     UT_SPAT                 ; $0: the specification as typed
         sta     astart
+        ldx     UT_SPAT                 ; to its end or a ';': no password in it
+@semi:  cpx     UT_SEND
+        bcs     @len
+        lda     UT_TAIL,x
+        cmp     #';'
+        beq     @len
+        inx
+        bra     @semi
+@len:   txa
         sec
-        lda     UT_SEND
         sbc     UT_SPAT
         sta     alen
         clc
@@ -489,7 +497,7 @@ give:   jsr     user0
         jsr     clrtf
         lda     #<tfcb
         ldx     #>tfcb
-        ldy     #F_OPEN
+reopen: ldy     #F_OPEN                 ; (a label for test_oodos_utils_submit's fault)
         jsr     BDOS
         pha
         jsr     userback

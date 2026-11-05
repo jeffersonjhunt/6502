@@ -2518,6 +2518,20 @@ decisions above are what was built, and these are the details):
     `$0200` among it) and then sets `SCBINIT`'s bytes: the search chain `SCB_DRVCHAIN` (`$4C-$4F`) is `$4C` 0, the
     default drive, and `$4D` `$FF`, so SUBMIT PROFILE finds PROFILE.SUB on the drive the CCP looked on; the user
     (`$44`) is 0, the user looked in.
+- **After the second review** (the owner's triage, 2026-11-05):
+  - fixed: a `!` line's first program ended no longer skips the `<` lines meant for the second. Not by leaving
+    bit 6 set at a program's end, as first asked: GET's and PUT's RSXs take that write as their command's end,
+    and PUT closes its file there so the warm boot's 98 doesn't free its blocks. Instead the CCP's `PROMPT`
+    writes `$19` once more with bit 6 clear (after clearing it, for a built-in), and SUBMIT's RSX skips only
+    on a write of bit 6 clear while it is already clear, which only the way to the prompt makes. The prompt's
+    own skip (`line`) is unreachable in effect now, kept so no command is given from a `<` line.
+  - fixed: `$0` is the file's specification without its `;password`, typed or run by name.
+  - fixed: the reopen test makes its fault in the FCB's extent byte, after SUBMIT.COM clears it, so the
+    cleanup deletes the real `SUB00.$$$`, which the test checks.
+  - accepted: a disk error at the reopen, in the default error mode, ends SUBMIT.COM with the BDOS's message
+    before its own check, and leaves the temporary file behind (the next SUBMIT deletes it as stale).
+  - accepted: the warning's CR LF before it can make a blank line after a program whose output ended with
+    one (cosmetic). The Programmer's Guide says bits 6 and 7 of `$19` are the CCP's.
 - **`test_oodos_card`** makes A:PROFILE.SUB with PIP from CON: and boots again (saved for `interop.sh --submit`:
   PROFILE.SUB's text, no `SUBnn.$$$` left), and on a fresh card with SUBMIT.COM erased sees `SUBMIT?`.
 
