@@ -176,6 +176,22 @@ TEST(one_rsx_loads_at_the_top_of_the_tpa_and_0203_goes_to_it)
     has(o, "M: RSXQ     COM");
 }
 
+TEST(the_loader_writes_its_flag_0_and_leaves_the_remove_flag_as_the_file_has_it)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> f = built("rqa.com");
+    const unsigned table = (f[14] | f[15] << 8) * 128u;
+    const unsigned rsx = (f[table] | f[table + 1] << 8) * 128u + 16; // A's image in the file
+    f[rsx + 24] = 0xFF;                                              // a loader flag of $FF
+    f[rsx + 14] = 0xFF;                                              // and a remove flag of $FF
+    r.put_m({{0, "RQAF    COM", f}});
+    has(r.cmd("m:rqaf # T"), "A# T=BF06 ");
+    CHECK_EQ(r.phys(0xBF00 + 24), 0);
+    CHECK_EQ(r.phys(0xBF00 + 14), 0xFF);
+    CHECK_EQ(nrsx(r), 0u);                                           // so it went after its program
+}
+
 TEST(two_rsxs_chain_the_newest_first_and_the_same_one_again_stacks)
 {
     Ccp r;
