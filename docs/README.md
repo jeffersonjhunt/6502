@@ -129,7 +129,7 @@ make -C docs index      # regenerate index/*.json
 - every I/O register equate in `backplane/bios/backplane.inc` (an address in `$C000-$C7FF`) has an entry, and
   every register entry's address and equates are backplane.inc's, and its Module the right module's ID and name;
 - every utility (`oodos/utils/NAME.s`), every built-in command (`BINAMES` in `oodos/sys/ccp.s`, by its long
-  name) and every command planned with no source yet (`PLANNED` in check_docs.py: PIP, SUBMIT, GET, PUT) has an
+  name) and every command planned with no source yet (`PLANNED` in check_docs.py: none left after phase 5c) has an
   entry, and every command's entry is one of them;
 - a line among oodos.inc's functions or in `BINAMES` that the check can't read fails it, so nothing is passed
   over;
@@ -150,8 +150,7 @@ listings, entries or Technical Reference sections: a check that examined nothing
 entry fails the check unless it's listed there; a listed one that has been written, or that names nothing in the
 sources, fails it too; for a command, the sources are the utilities, the built-ins and `PLANNED`. So the list can
 only shrink: G1 wrote every function and command phases 0-4 built, function 47 among them; G2 empties the
-registers; phase 5a took off functions 59 and 60. SUBMIT, GET and PUT come off with phases 5b-5c, when their entries
-are written with them. An equate, function, utility or
+registers; phase 5a took off functions 59 and 60, and 5b and 5c GENCOM, GET, PUT and SUBMIT. An equate, function, utility or
 built-in added to the sources fails the check until it gets an entry or a line on the list, which is the point: the
 books can't fall behind the code without someone saying so. `make coverage` lists both sides.
 

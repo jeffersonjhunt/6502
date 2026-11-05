@@ -51,7 +51,8 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
 - **The 65C816 rules,** checked by the build ([chapter 6](06-program-formats.md#rules-for-programs-the-65c816)).
 - **The CCP runs `.COM`s only,** and a typed `NAME.PRL` is refused (CP/M 3's CCP loads it as a `.COM`). The CCP is
   resident, not a transient, so there is no LOADER RSX: OODOS's loader is always there, and the CCP loads programs by
-  function 59 ([chapter 6](06-program-formats.md#rsxs)). SUBMIT and `.SUB` files come with phase 5c.
+  function 59 ([chapter 6](06-program-formats.md#rsxs)). A `.SUB` runs through SUBMIT, as in CP/M 3, and
+  `PROFILE.SUB` at the first prompt; SUBMIT's temporary files are `SUBnn.$$$` in user 0 (ours).
 - **RSXs** are `.RSX` files in OODOS's `.PRL` layout with CP/M 3's 27-byte prefix. The loader keeps a table of up to
   15, and writes `$0203` and their links again from it at every warm boot. Every end of a program reaches them as
   function 0, once: a `JMP WBOOT`, an RTS or an error's end too. The SCB's `$19` says whether the CCP or a program

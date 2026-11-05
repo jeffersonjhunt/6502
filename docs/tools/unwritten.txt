@@ -3,7 +3,7 @@
 # check_docs.py lets an entry the sources call for be missing only if it is here, and fails
 # on a name here that is written now (take it off) or that names nothing in the sources. G1
 # wrote the functions and the commands of phases 0-4, 47 among them; phase 5a wrote 59 and 60, and
-# what is left of the commands is phase 5b's and 5c's, and comes off with them. G2 empties the registers. The util- names are checked against
+# 5b and 5c wrote GENCOM, GET, PUT and SUBMIT, so no command is left. G2 empties the registers. The util- names are checked against
 # oodos/utils/*.s, the CCP's built-ins (BINAMES in oodos/sys/ccp.s, by the long name) and
 # check_docs.py's PLANNED, the commands with no source yet (hw/oodos.md, "Phases").
 
@@ -87,4 +87,3 @@ reg-c718  # CONSOLE_IEN
 reg-c77f  # CONSOLE_ID
 
 # Commands with the RSXs (phase 5)
-util-submit

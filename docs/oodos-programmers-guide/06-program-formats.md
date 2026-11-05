@@ -188,7 +188,8 @@ after the program it served.
 **Calling one.** [Function 60](07-function-reference.md#bdos-60) passes a parameter block down the chain: a function
 byte, a count of words, the words. An RSX takes the blocks whose function byte is its own. 0-127 are programs'
 RSXs', 128-255 OODOS's: GET's RSX takes `$80` (GET.COM's file) and `$81` (GET CONSOLE), PUT's `$90` (PUT.COM's
-file), `$91` (PUT ... TO CONSOLE or PRINTER) and `$92` (is a PUT of the kind writing to a file?);
+file), `$91` (PUT ... TO CONSOLE or PRINTER) and `$92` (is a PUT of the kind writing to a file?), SUBMIT's `$A0`
+(SUBMIT.COM's file) and `$A1` (is a SUBMIT running? 0 when one is);
 [`oodos.inc`](../../oodos/include/oodos.inc) names them `RXF_*`.
 
 **What the CCP is doing.** The SCB's `$19` (ours, [appendix C](appendix-c-scb.md)): bit 7 set while the CCP runs,

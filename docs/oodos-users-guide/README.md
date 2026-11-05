@@ -13,5 +13,5 @@ programs is the [Programmer's Guide](../oodos-programmers-guide/README.md). How 
 5. [Utilities](05-utilities.md): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF; PIP (4b2); GENCOM, GET, PUT (5b); SUBMIT (5c)
 6. [Errors](06-errors.md)
 
-**Written so far:** the skeleton (G0), and G1: every chapter, for OODOS phases 0-4. SUBMIT, GET and PUT come
-with phase 5.
+**Written so far:** the skeleton (G0), and G1: every chapter, for OODOS phases 0-4; GENCOM, GET and PUT (5b) and
+SUBMIT (5c).

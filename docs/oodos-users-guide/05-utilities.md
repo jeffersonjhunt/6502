@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT comes with phase 5c. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c). DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -614,10 +614,11 @@ SETDEF [options]
 
 #### Options
 
-- **TEMPORARY=d:** the drive for temporary files (`*` the current drive). Kept, and shown, but nothing in OODOS 0.2
-  uses it yet.
-- **ORDER=(COM)**, or `ORDER=COM`: the order of the file types looked for. Until SUBMIT (OODOS phase 5) the CCP runs
-  `.COM` files only, so COM is the only one taken.
+- **TEMPORARY=d:** the drive for temporary files (`*` the current drive): SUBMIT writes its expanded file there.
+- **ORDER=(typ{,typ})**, or `ORDER=typ`: the file types the CCP looks for when a command has none, in order, COM
+  and SUB: `(COM)`, the default, `(COM,SUB)`, `(SUB,COM)` or `(SUB)`. The first type is looked for on every drive of
+  the search chain before the second. With `(SUB)` alone no `.COM` is run without its type typed:
+  `SETDEF.COM [ORDER=(COM)]` puts it back.
 - **DISPLAY** and **NODISPLAY** (or **NO DISPLAY**): whether the CCP shows the drive and name of each program it
   runs, before it runs it (`M:ARGS     COM`, with ` (User 0)` when it was found in user 0 from another user).
 - **PAGE** and **NOPAGE** (or **NO PAGE**): whether DIR, TYPE and the utilities stop at each page.
@@ -639,7 +640,7 @@ Console Page Mode    - On
 Program Name Display - Off
 ```
 
-`Default` is the current drive (`*`).
+`Default` is the current drive (`*`). The search order reads `COM`, `COM, SUB`, `SUB, COM` or `SUB`.
 
 #### Errors
 
@@ -650,8 +651,8 @@ Program Name Display - Off
 - `Invalid delimiter.`: drives not separated by commas, or anything after the option list.
 - `Invalid option.`: an option SETDEF doesn't know, an ambiguous prefix, TEMPORARY or ORDER without a value, a
   value where none is taken, or a `[` not closed.
-- `Invalid type for ORDER option.`: a type other than COM, an empty ORDER, or a list with no `)`.
-- `ORDER=(SUB): no SUBMIT yet`: SUB in ORDER.
+- `Invalid type for ORDER option.`: a type other than COM and SUB, a type twice, more than two, an empty ORDER, or
+  a list with no `)`.
 
 After any, nothing is changed.
 
@@ -665,8 +666,6 @@ OODOS 0.2
 
 #### CP/M 3
 
-- SUB can't be in the search order until SUBMIT comes, with the RSXs in phase 5
-  ([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)).
 - SETDEF always shows the settings after a change, and all of them.
 - The options go in one list.
 
@@ -892,7 +891,76 @@ does nothing; `No File` for a missing file.
 
 ## SUBMIT
 
-Written with OODOS phase 5c.
+<a id="util-submit"></a>
+### SUBMIT: run a file of commands
+
+SUBMIT runs the commands in a `.SUB` file one after another, as if typed, with the words given after the file's name
+put in for `$1`, `$2` and so on. Lines that start with `<` are typed into the program the line before runs.
+
+#### Forms
+
+```
+SUBMIT
+SUBMIT filespec {argument ...}
+filespec {argument ...}
+```
+
+- **filespec** is the file, `NAME.SUB` when no type is given, on its drive or along the search chain. Typing its
+  name as a command (`NAME.SUB`, or `NAME` with SETDEF's `ORDER` taking SUB) runs SUBMIT with it.
+- **SUBMIT alone** asks `Enter File to Submit: ` for the rest of the line.
+- **The arguments** are words separated by blanks: the first is `$1`, the ninth `$9`; one not given is nothing,
+  and ones past what the file uses are ignored. `$0` is the file's name as typed. `$$` is a `$`.
+- **`^` and a letter** (or `@ [ \ ] _`) is that control character (`^C` is ^C); `^^` is a `^`. Before anything else
+  `^` is kept as it is.
+- **A line starting with `<`** is input for the program the line before runs (or for a built-in's question, such
+  as USER's), as if typed: its line reads, then its keys, a key at a time with a CR at the end; `<` alone is a CR.
+  When the program asks for more than the `<` lines give, it reads the keyboard. `<` lines left over when it ends
+  are skipped, and `WARNING: Program input ignored` said once.
+- **Each command** is shown after the prompt as if typed; lines starting with `;` are comments and `:` runs a
+  command only after a success, as at the prompt.
+- **A SUBMIT in a SUBMIT file** runs its own file first, then the first goes on. So does a GET in one.
+- **^C** to a program ends it and every SUBMIT running, and the prompt reads the keyboard.
+- A line ends at CR LF, a CR or an LF; the file at a ^Z or its end. SUBMIT writes the file with its arguments put
+  in to `SUBnn.$$$` in user 0 on the temporary drive (SETDEF's TEMPORARY), and deletes it at the end; one left by a
+  reset is deleted by the next SUBMIT.
+
+#### Options
+
+None.
+
+#### Output
+
+What the commands show, each after a prompt:
+
+```
+A>SUBMIT START SAM
+A>ERA SAM.BAK
+No File
+A>DIR SAM
+A: SAM      TXT
+```
+
+#### Errors
+
+- `No 'SUB' file found`: the file isn't on its drive or the search chain.
+- `Error on line n:` and one of: `Parameter Error.` (a `$` before anything but a digit or `$`), `Invalid ASCII
+  character` (a byte `FF`), `Line too long` (over 128 characters with the arguments in: ours). Nothing runs.
+- `Directory full`: no temporary file could be made. `Disk Write Error`: it couldn't be written.
+- `Insufficient Memory`: no room for SUBMIT's RSX (too many SUBMITs within SUBMITs: the CCP says it).
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same, and `$0` the file's name (ours: the Guide allows `$0` and says no more). Ours: the temporary files'
+names, `SUBnn.$$$` in user 0; `Line too long`; `^` before anything but a letter and `@ [ \ ] ^ _` kept; a ^C ending
+every level; the warning said once for each run of skipped `<` lines.
 
 ## GET
 

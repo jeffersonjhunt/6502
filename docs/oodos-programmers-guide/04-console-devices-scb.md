@@ -162,7 +162,7 @@ the error mode 45, and so on. Every byte may be set; setting one the BDOS uses f
 responsibility.
 
 Two fields are ours, in bytes CP/M 3 reserves: `$17`, function 47's request to the CCP, and `$18`, whose bit 7
-is SETDEF's display mode. The current drive and user at `$3E` and `$44` are the BDOS's; the CCP keeps its own and
+is SETDEF's display mode and bits 0-1 its search order (0 COM, 1 COM then SUB, 2 SUB then COM, 3 SUB). The current drive and user at `$3E` and `$44` are the BDOS's; the CCP keeps its own and
 makes them current again at each warm boot, so a program's change of drive or user lasts until it ends (unless
 it chains with function 47's `$FF`).
 
