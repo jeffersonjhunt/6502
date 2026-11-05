@@ -2264,6 +2264,41 @@ is always named:
 - **Not caught (ours, as an RSX above the BDOS can't see them):** what the BDOS writes itself: function 10's echo,
   its error messages (`OODOS Error On ...`) and ^P's printer echo.
 
+**Decided (5b, 2026-11-04, the owner, after 5b's plan check against the manuals and 5a as built):**
+
+1. **PUT asks `Do you want another file? (Y/N)`** when a PUT of the same kind (console, or printer) already sends
+   output to a file: Y keeps the old file and adds the new (both get the output), N closes the old and the new
+   replaces it (ours: the Guide gives the question, not the moment).
+2. **A command runs: bit 6 of the SCB's `$19`** (ours), set at the count's step, cleared when the command ends,
+   before the next prompt (a program's end clears it at the warm boot). GET's and PUT's RSXs act on the CCP's 49
+   writes to `$19` as they pass down the chain: the next command is the one whose start they see after their own,
+   and it ends when bit 6 clears. PUT's file keeps the CCP's owed CR LF at its start (ours, said in util-put).
+3. **`Insufficient Memory`** (ours) is what the CCP says whenever the loader refuses a program for lack of room
+   (59's X = 0: the table full, or the TPA), for any program, in place of `BAD PROGRAM HEADER`.
+4. **The command words in full,** as the Guide writes them (`CONSOLE`, `PRINTER`, `INPUT`, `OUTPUT`, `FROM`, `TO`,
+   `FILE`; ours: the Guide doesn't say whether shorter forms are taken); options by any unambiguous prefix, as 4b's
+   utilities; `AUXILIARY` only to say `Auxiliary device redirection not implemented`. `Invalid command`: words that
+   make no form; `Invalid delimiter`: a misplaced `[`, `]` or `,`; `Invalid option`: an unknown option; `Invalid
+   option modifier`: an option of the wrong kind (FILTER to GET, ECHO with SYSTEM); `End of line expected`: text after
+   a whole command.
+5. **GET's file as input:** functions 10 and 1 take its bytes, an LF after a CR dropped, to a ^Z or its end; with
+   ECHO, 10's line is shown and ended with CR as typed, 1 echoes as 1 does; 6's input is raw, never echoed; under
+   `[SYSTEM]` a `GET CONSOLE` line ends the file.
+6. **PUT's `[FILTER]`** keeps CR and LF; a tab and every other control character become `^` and a letter.
+7. **PUT's file gets what the program sent:** a tab as a tab, 9's string to its delimiter (the BDOS's own tab
+   expansion comes after the RSX). Under `[NO ECHO]` the BDOS never sees the output, so ^S, ^Q and ^C aren't looked
+   at while it writes (said in util-put).
+8. **GENCOM's SCB entries** as `[SCB=(o,v),(o,v)]` or `[SCB=(o,v),SCB=(o,v)]`, the numbers in hex; `GENCOM name
+   [LOADER]` alone leaves the file as it was, and is accepted.
+
+Also (5b's plan check, accepted): GET's and PUT's RSXs have the remove flag `$FF` in their files, so they go after
+GET.COM's or PUT.COM's own run unless the program's 60 call that sets the redirection up clears it to 0 (the RSX
+sets it again when done); so a GET with a syntax error leaves no idle RSX, and `GET CONSOLE` is the newest RSX
+passing its 60 call on to the active one. OODOS's RSX function bytes are from 128-255, listed in `rsx.inc` and
+bdos-60. PUT's file is `NAME.$$$` from a one-record buffer in the RSX, renamed at the close. `interop.sh --rsx`:
+cpmtools reads GENCOM's `.COM` back (equal to gencom.py's) and PUT's file, sees no `$$$` left, and `fsck.cpm`
+passes.
+
 **SUBMIT** (5c): a file of commands. SUBMIT.COM, with the input RSX attached (the same one as GET's, ours: a
 SUBMIT file is console input for the CCP).
 
