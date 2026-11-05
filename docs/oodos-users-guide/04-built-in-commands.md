@@ -196,7 +196,7 @@ NON-SYSTEM FILE(S) EXIST
 ```
 
 Handed to DIR.COM, DIR.COM's listing of the SYS files: the form its options ask for (`DIRSYS M: [SIZE]` is SIZE's),
-or its short form for several names and no options.
+or FULL, DIR.COM's default with an option list, for several names and no options.
 
 #### Errors
 
