@@ -1,7 +1,8 @@
 # Appendix D: Function summary
 
-Every function on one page: number, name, what it does, entry and exit registers. Generated from chapter 7's entries
-in G1, with [docs/index/functions.json](../index/functions.json).
+Every function on one page: number, name, what it does, entry and exit registers. Written by hand from chapter 7's
+entries; [docs/index/functions.json](../index/functions.json) is the generated list. Nothing checks this table
+against the entries, so where the two differ, the entry is right.
 
 Every call is `JSR BDOS` (`$0203`) with the function in Y ([chapter 2](02-system-interface.md#calling-the-bdos)).
 A/X is a word, A low and X high. "A = 0" means X is 0 too, for a byte result; a code that isn't 0 or `$FF` is in
@@ -49,8 +50,8 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [36](07-function-reference.md#bdos-36) | `F_RANDREC` | set the random record from the file's place | A/X = the FCB | A/X = 0, R0-R2 set |
 | [37](07-function-reference.md#bdos-37) | `DRV_RESET` | reset drives | A/X = the vector | A/X = 0, or an error |
 | [40](07-function-reference.md#bdos-40) | `F_WRITEZF` | write a random record, zero-filled | A/X = the FCB | as 34 |
-| [42](07-function-reference.md#bdos-42) | `F_LOCK` | lock records | A/X = the FCB | A/X = 0 |
-| [43](07-function-reference.md#bdos-43) | `F_UNLOCK` | unlock records | A/X = the FCB | A/X = 0 |
+| [42](07-function-reference.md#bdos-42) | `F_LOCK` | lock records | — (A and X aren't read) | A/X = 0 |
+| [43](07-function-reference.md#bdos-43) | `F_UNLOCK` | unlock records | — (A and X aren't read) | A/X = 0 |
 | [44](07-function-reference.md#bdos-44) | `F_MULTISEC` | set the multi-sector count | A = 1-128 | A = 0, `$FF` |
 | [45](07-function-reference.md#bdos-45) | `F_ERRMODE` | set the error mode | A = the mode | A/X = 0 |
 | [46](07-function-reference.md#bdos-46) | `DRV_SPACE` | a drive's free space | A = the drive | A/X = 0, 3 bytes at the DMA address |

@@ -124,7 +124,8 @@ read from the DMA buffer are always CPU addresses.
 A segment may reach any RAM but OODOS's own: banks 0–5, 8–B and E. Banks 6–7, C–D (M:) and F, and anything past
 `$FFFFF`, are refused, and so is a record that would run past a DMA address of `$FFFF`. A refused record is A = X =
 `$FF` with nothing done, checked before the first record of a multi-sector call. A record through a segment costs
-about 250–300 cycles more than one to a CPU address.
+238 cycles more than one to a CPU address: a buffered record on M: by function 33, 8,176 cycles against 7,938, as
+`test_oodos_sys` measures.
 
 ## Physical addresses
 
@@ -140,5 +141,8 @@ What has no physical address is refused, A = X = `$FF`: the I/O hole, `$C000–$
 function that takes an address treats the I/O hole the same way: a function stops at a program address there and
 returns A = X = `$FF`.
 
-The BDOS reaches a program's memory by these physical addresses, through the windows the BDOS entry saved, and moves
-the bytes with the DMA controller (the BIOS's MOVE and XMOVE). It never switches a window under the program.
+The BDOS reaches a program's memory two ways, both through the windows the BDOS entry saved. Records, FCBs and
+other blocks move by their physical addresses with the DMA controller (the BIOS's MOVE and XMOVE). Strings and
+parameter blocks read or written a byte at a time (function 9's string, 10's line, the blocks of 49, 50, 72,
+104, 105 and 152, the MCBs, among others) are reached by mapping the program's block into the BDOS's own W2 for each byte. Neither changes the
+program's windows.

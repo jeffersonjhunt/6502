@@ -24,7 +24,7 @@ A function number OODOS doesn't have returns A = X = `$FF`: 38, 39, 41, 59–71,
 |---|---|---|
 | 1 | `Disk I/O` | a sector that couldn't be read or written; the close of a file whose data couldn't be written |
 | 2 | `Read Only` | a change to a read-only drive: made so by function 28, on a read-only unit, or on a unit that refused a write |
-| 3 | `File R/O` | a write to, or a delete or rename of, a read-only file (t1'); a write to a file opened from user 0, or opened without a write-protected file's password |
+| 3 | `File R/O` | a write to, or a delete or rename of, a read-only file (t1'); a write to a file opened from user 0, or opened without a write-protected file's password; a truncate (99) of a read-only file |
 | 4 | `Invalid Drive` | a drive OODOS doesn't have, or one with no image mounted |
 | 7 | `Password Error` | a protected file or label, when neither the password given nor the default one is its password |
 | 8 | `File Exists` | a make, or a rename's new name, that the user has already |
@@ -82,8 +82,8 @@ says. The last column is the physical errors the function can raise.
 | 75 `O_ROM` | doesn't return; `$FFFF` no Apple II ROM, or A not 0 or 1 | — |
 | 99 `F_TRUNCATE` | 0; `$FF` not found, or not a record the file has | 1, 2, 3, 4, 7, 9 |
 | 100 `DRV_SETLABEL` | 0; `$FF` stamps asked for without SFCBs, or no free entry | 1, 2, 4, 7 |
-| 101 `DRV_GETLABEL` | the label's byte 12, 0 none | 4 |
-| 102 `F_TIMEDATE` | 0; `$FF` not found | 1, 4 |
+| 101 `DRV_GETLABEL` | the label's byte 12, 0 none | 1, 4 |
+| 102 `F_TIMEDATE` | 0; `$FF` not found | 1, 4, 9 |
 | 103 `F_WRITEXFCB` | 0; `$FF` no label or passwords off, not found, or no free entry | 1, 2, 4, 7, 9 |
 | 105 `T_GET` | the seconds; `$FFFF` the clock past 2155 | — |
 | 152 `F_PARSE` | 0 the end; the address of what follows; `$FFFF` not a file name | — |

@@ -22,7 +22,7 @@ as "ours".
 - **No 8080 or Z80 programs,** now or later. An OODOS program is a 6502 program written to the same interface.
 - **The call** is `JSR $0203`, CP/M's `CALL 5`: the function in Y (CP/M's C), a byte in A (E), a word in A low and
   X high (DE). A byte result comes back in A with X 0 (CP/M's A and L); a word in A/X (HL); a physical error's code
-  in X (H). Y and the flags aren't kept; the decimal flag is clear on return
+  in X (H). Y isn't kept; the flags come back as they were before the call, the decimal flag clear
   ([chapter 2](02-system-interface.md#calling-the-bdos)).
 - **Memory that isn't the program's,** an FCB or a buffer in the I/O hole or on flash, returns A = X = `$FF`
   whatever the error mode, and does nothing ([appendix A](appendix-a-errors.md)).
@@ -72,7 +72,6 @@ Beyond the registers, which change for every function as above:
 | No. | Name | How it differs |
 |---|---|---|
 | 0 | `P_TERMCPM` | the warm boot also frees the program's memory blocks and its DMA segment |
-| 1 | `C_READ` | a ^C that doesn't follow a ^S is a key, and doesn't end the program |
 | 6 | `C_RAWIO` | `$FF`, `$FD` and `$FE` see a key the BDOS kept back, so none is lost |
 | 10 | `C_READSTR` | how a long line lays out over the screen's rows, and no mark for ^U and ^R; 255 characters at most |
 | 11 | `C_STAT` | in ^C-only mode other keys are dropped and the ^C kept for the next input |
@@ -89,13 +88,13 @@ Beyond the registers, which change for every function as above:
 | 40 | `F_WRITEZF` | the same as 34, since every new block is zeroed |
 | 45 | `F_ERRMODE` | the message names OODOS, and always gives the function and the file |
 | 48 | `DRV_FLUSH` | a buffer that can't be written is kept for a later try; a swapped image's are dropped |
-| 49 | `S_SCB` | a get returns the word; the operations CP/M 3 reserves are gets; a set of the DMA address, the drive or the user works as its own function does |
+| 49 | `S_SCB` | a get returns the word; the operations CP/M 3 reserves are gets; a set takes effect at once, but the drive isn't checked or logged in as 14 would, and the user is kept to 0-15 |
 | 50 | `S_BIOS` | the parameter block is OODOS's (A, X, Y and two words); BOOT is refused |
 | 52 | `F_DMAGET` | writes the DMA address and segment to 4 bytes, where CP/M-86 returns them in registers |
 | 57 | `MC_FREE` | a length past an allocation's end frees only to its end |
 | 98 | `DRV_FREE` | drops the failed buffers of the blocks it frees |
 | 99 | `F_TRUNCATE` | stamps the update |
-| 100 | `DRV_SETLABEL` | bit 0 of the mode byte gives a new password; stamps asked for without SFCBs return `$FF` |
+| 100 | `DRV_SETLABEL` | the label's stored mode has bit 0 set, saying a label is there; it is stamped whatever its mode; stamps asked for without SFCBs return `$FF` |
 | 103 | `F_WRITEXFCB` | a new XFCB without a password given has none |
 | 104, 105 | `T_SET`, `T_GET` | the clock holds 2000-2155; 105 returns `$FF` past it |
 | 107 | `S_SERIAL` | the same number in every copy |

@@ -9,7 +9,7 @@ function number with its anchor once its entry is written.
 How to call a function, and how registers and numbers are written here, is in
 [chapter 2](02-system-interface.md#calling-the-bdos) and [docs/README.md](../README.md#conventions). In short:
 `JSR BDOS` with the function in Y, a byte in A, a word in A (low) and X (high); the result comes back in A, or A
-and X. Y and the flags are not kept, and the decimal flag is clear on return.
+and X. Y is not kept; the flags come back as they were before the call, with the decimal flag clear.
 
 Functions 59 (P_LOAD) and 60 (P_RSX) are written with OODOS phase 5, the RSX loader
 ([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)), which will also add to function 47's entry what RSXs change.
@@ -69,6 +69,7 @@ functions are CP/M-86's.
 #### Exit
 
 - A = the key; X = 0. The call waits for one.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -112,6 +113,7 @@ unless it follows a ^S.
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -124,9 +126,10 @@ As for each character of [function 9](#bdos-9):
 - A tab (`$09`) moves to the next column that is a multiple of 8, unless bit 2 of the console mode asks for raw
   output.
 - While printer echo is on (^P), the character goes to LST: as well, unless the output is raw.
-- First the BDOS looks at the keyboard, unless bit 1 of the console mode is set: ^S stops the output until ^Q, a
-  ^Q or ^P alone is dropped, and any other key is kept, one, for the next console input.
-- The SCB's console column counts every character: BS takes it back one, CR to 0.
+- First the BDOS looks at the keyboard, unless bit 1 of the console mode is set or a key is kept already: ^S stops
+  the output until ^Q, a ^Q or ^P alone is dropped, and any other key is kept, one, for the next console input.
+- The SCB's console column counts each character from `$20` up (DEL and `$80`-`$FF` too): CR sets it to 0, BS takes
+  it back one, and the other control characters (LF, BEL, ESC, ...) leave it.
 
 #### Cycles
 
@@ -157,6 +160,7 @@ The same, but for the registers: the character goes in A, where CP/M 3 takes it 
 #### Exit
 
 - A = the character; X = 0. The call waits for one.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -197,6 +201,7 @@ The same, but for the registers: the character comes back in A with X 0.
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -236,6 +241,7 @@ The same, but for the registers: the character goes in A, where CP/M 3 takes it 
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -276,6 +282,7 @@ The same, but for the registers: the character goes in A, where CP/M 3 takes it 
 - `$FF`: A = the key, or 0 if none waits. `$FD`: A = the key. X = 0.
 - `$FE`: A = `$FF` if a key waits, 0 if not; X = 0.
 - A character written: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -315,6 +322,7 @@ The same, but for the registers. That `$FF`, `$FD` and `$FE` see a key the BDOS 
 #### Exit
 
 - A = `$FF` if a device of the SCB's AUX: input vector has a character, 0 if not; X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -351,6 +359,7 @@ The same, but for the registers.
 
 - A = `$FF` if every device of the SCB's AUX: output vector is ready, 0 if not; X = 0. Each of OODOS's devices
   says it is always ready (TTY waits out each character as it sends it), so A is `$FF` today.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -382,7 +391,7 @@ The same, but for the registers.
 #### Entry
 
 - Y = 9 (`C_WRITESTR`).
-- A = the string's address, low byte; X = its high byte. The address is the program's own, anywhere in
+- A/X = the string's address. The address is the program's own, anywhere in
   `$0000`–`$BFFF`.
 - The string ends at the output delimiter, `$` (`$24`) unless function 110 has changed it. The delimiter is not
   printed.
@@ -390,7 +399,7 @@ The same, but for the registers.
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -403,7 +412,8 @@ Each character goes to the console as function 2 sends it:
 - A tab (`$09`) moves to the next column that is a multiple of 8, unless bit 2 of the console mode (function 109)
   asks for raw output.
 - While printer echo is on (^P), each character goes to LST: as well, unless the output is raw.
-- Before each character the BDOS looks at the keyboard, unless bit 1 of the console mode turns that off. A ^Q
+- Before each character the BDOS looks at the keyboard, unless bit 1 of the console mode turns that off or a key
+  is kept already (then a ^S isn't seen until a read takes it). A ^Q
   or ^P on its own is dropped; any other key but ^S is kept, one, for the next console input. ^S stops the
   output: then ^Q goes on, ^P turns printer echo over and stays stopped, ^C ends the program by the warm boot
   (unless bit 3 of the console mode), and any other key rings the bell.
@@ -476,6 +486,7 @@ Written by function 9
 - A = 0, X = 0.
 - Byte 1 of the buffer = the line's length; the characters follow from byte 2. The CR or LF that ended the line
   isn't stored, and the bytes past the line are left as they were.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -488,7 +499,7 @@ An address in the I/O hole (`$C000`-`$C7FF`): the call stops there, A = X = `$FF
   shown as `^` and its letter. A key past the buffer's size is dropped, with a bell.
 - A ^C while the line is empty ends the program by the warm boot, with the return code `$FFFE`, unless bit 3 of
   the console mode is set. In a line that isn't empty it is a character, shown `^C`.
-- The line is shown on rows of the console's width (the SCB's `$1A`, 80 columns by default), never in the last
+- The line is shown on rows of the console's width (the SCB's `$1A` holds the width less one: 79, for 80 columns), never in the last
   column. A row starts where the cursor was; typing at the end of a full row starts a new one; a move or a
   deletion before the row's start types the line again on a new row.
 - The line ended becomes the previous line, for ^W. Only the CR that ends it is echoed, not an LF.
@@ -524,6 +535,7 @@ print no mark. A line holds at most 255 characters.
 #### Exit
 
 - A = 1 if a key waits, 0 if not; X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -565,6 +577,7 @@ next input (ours: so the next ^C can be seen).
 #### Exit
 
 - A = `$31`, X = 0: the version of CP/M 3 whose functions OODOS keeps.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -600,7 +613,7 @@ The same value. OODOS's own version, and the BIOS's, are [function 72's](#bdos-7
 #### Exit
 
 - A = 0, X = 0; or an error (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -650,7 +663,7 @@ buffers rather than taking them (ours).
 #### Exit
 
 - A = 0, X = 0; or an error (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -697,7 +710,7 @@ The same, but for the register: the drive goes in A, where CP/M 3 takes it in E.
 #### Exit
 
 - A = 0, X = 0: the file is open. A = `$FF`, X = 0: there is no such file.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 The FCB gets the extent's block pointers and RC (128 if the file goes past this extent, 0 if it doesn't reach it),
 and the attributes f1'–f4' and t1'–t3' from the directory. f7' and f8' are the BDOS's: f8' is set when the file
@@ -756,7 +769,7 @@ The same, but for the registers: the FCB's address goes in A and X, where CP/M 3
 #### Exit
 
 - A = 0, X = 0: done. A = `$FF`, X = 0: the extent couldn't be put in the directory (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -810,7 +823,7 @@ The same, but for the registers.
 - A = 0–3, X = 0: found. The directory record (128 bytes, four entries) that holds it is at the DMA address, and
   A is the entry's place in it: the entry starts at the DMA address + 32 × A.
 - A = `$FF`, X = 0: no match.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -853,7 +866,7 @@ The same, but for the registers and the DMA segment, which CP/M 3 doesn't have.
 
 - A = 0–3, X = 0: the next match, its record at the DMA address, as 17 returns it.
 - A = `$FF`, X = 0: no more, or no search to go on with.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -896,7 +909,7 @@ The same, but for the DMA segment, which CP/M 3 doesn't have.
 #### Exit
 
 - A = 0, X = 0: deleted. A = `$FF`, X = 0: nothing matched.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -946,7 +959,7 @@ The same, but for the registers. Password Error is checked last, after every oth
 - A = 1: the end of the file, or a record never written. X = the records read before it, with a multi-sector
   count (below); 0 with a count of 1.
 - A = X = `$FF`: the DMA buffer isn't the program's memory (below). Nothing is read.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1002,7 +1015,7 @@ handled when the units are read again ([function 13](#bdos-13)).
 - A = 1: no directory space for the next extent. A = 2: the disk is full, or the file would pass 32 MB. X = the
   records written before it, with a multi-sector count; 0 with a count of 1.
 - A = X = `$FF`: the DMA buffer isn't the program's memory. Nothing is written.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1064,7 +1077,7 @@ The same, but for the registers and the DMA segment, and choices of ours:
 - A = 0, X = 0: made, and open. A = `$FF`, X = 0: the directory is full.
 - The FCB's attributes are all clear, its block pointers 0, RC 0, and it is marked not written. CR is left as it
   was: set it to 0 before writing.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1109,7 +1122,7 @@ byte 8, where CP/M 3 has it too) count, and a make with f6' that can't have both
 #### Exit
 
 - A = 0, X = 0: renamed. A = `$FF`, X = 0: no file of the old name.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1149,7 +1162,7 @@ given).
 #### Exit
 
 - A/X = a bit for each drive logged in: bit 0 of A is A:, bit 7 of A H:, bit 0 of X I:, bit 4 of X M:.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1185,7 +1198,7 @@ The same, but for the registers: the vector comes back in A and X, where CP/M 3 
 #### Exit
 
 - A = the current drive, 0 for A: to 15 for P:; X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1223,7 +1236,7 @@ None.
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1260,7 +1273,7 @@ The same, but for the registers. The default is `$0280`, OODOS's buffer in the b
 #### Exit
 
 - A = `$FF`, X = `$FF`.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1297,7 +1310,7 @@ address. [Function 46](#bdos-46) gives a drive's free space.
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1306,7 +1319,7 @@ None.
 #### Side effects
 
 The current drive is read-only until [function 13](#bdos-13) or [37](#bdos-37) resets it: a write, make, delete or
-other change to it is then Read Only (2). A rescan that finds its image swapped makes it read-write again.
+other change to it is then 2 Read Only. A rescan that finds its image swapped makes it read-write again.
 
 #### Cycles
 
@@ -1334,7 +1347,7 @@ None.
 #### Exit
 
 - A/X = a bit for each read-only drive, laid out as [function 24](#bdos-24)'s.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1378,7 +1391,7 @@ The same, but for the registers: A and X, where CP/M 3 returns HL.
 #### Exit
 
 - A = 0, X = 0: done. A = `$FF`, X = 0: no such file.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1417,7 +1430,7 @@ The same, but for the registers.
 #### Exit
 
 - A/X = the address of the current drive's DPB, in common memory (`$F800`–`$FFFF`), which every program can read.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 The DPB is 17 bytes, CP/M 3's layout: SPT (a word, 64), BSH, BLM, EXM, DSM (a word), DRM (a word), AL0, AL1, CKS
 (a word, `$8000`: fixed media), OFF (a word, 0), PSH (2) and PHM (3): 512-byte sectors.
@@ -1464,7 +1477,7 @@ it and doesn't change it.
 #### Exit
 
 - Getting: A = the user number, X = 0. Setting: A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1506,7 +1519,7 @@ The same, but for the register: A, where CP/M 3 takes E.
   the record's extent was never written. A = 6: R2 is over 3, past 32 MB. X = the records read before it, with a
   multi-sector count; 0 with a count of 1.
 - A = X = `$FF`: the DMA buffer isn't the program's memory.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 R0–R2 isn't moved on. The FCB is left at the record's extent with CR the record's place there, so a
 [function 20](#bdos-20) next reads the same record again, and 21 writes it.
@@ -1556,7 +1569,7 @@ returned, as for [function 20](#bdos-20).
 - A = 2: the disk is full. A = 3: the extent the FCB is at can't be closed. A = 5: no directory space for the
   record's extent. A = 6: past 32 MB. X = the records written before it, with a multi-sector count.
 - A = X = `$FF`: the DMA buffer isn't the program's memory.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 R0–R2 and the FCB are left as [function 33](#bdos-33) leaves them.
 
@@ -1567,8 +1580,9 @@ as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.
 
 #### Side effects
 
-- The record's extent is made if the file hasn't one. Records skipped over aren't written, and read back as
-  zeros, since every new block is zeroed.
+- The record's extent is made if the file hasn't one. Records skipped over aren't written. Read back, one in a
+  block a write took, below the extent's RC, is zeros, since every new block is zeroed; one in a block no write
+  took, or past RC, returns 1; one in an extent with no entry, 4 ([chapter 3](03-file-system.md#random-records)).
 - Multi-sector and the DMA segment as [function 33](#bdos-33).
 
 #### Cycles
@@ -1601,7 +1615,7 @@ is stamped at the close, t3' isn't cleared, and code 10 isn't returned, all as f
 
 - A = 0, X = 0: R0–R2 = the file's size in records: the number of the record after its last.
 - A = `$FF`, X = 0: no such file in the current user. R0–R2 = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 The size is the end of the furthest extent, so a file written at random with gaps counts them.
 
@@ -1642,7 +1656,7 @@ The same, but for the registers. R0–R2 is 0 for a file that isn't there (ours,
 #### Exit
 
 - A = 0, X = 0. R0–R2 = the number of the record the FCB is at: its extent (EX and S2) × 128 + CR.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1679,7 +1693,7 @@ None.
 #### Exit
 
 - A = 0, X = 0; or an error (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1755,7 +1769,7 @@ CP/M 3 zeroes a new block only for 40. OODOS zeroes every block a write takes, s
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1791,7 +1805,7 @@ None: it succeeds and does nothing, as CP/M 3's does.
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1829,7 +1843,7 @@ None: it succeeds and does nothing, as CP/M 3's does.
 
 - A = 0, X = 0: the count is set.
 - A = `$FF`, X = 0: the count was 0 or over 128, and the old one is kept.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1853,9 +1867,7 @@ once:
 
 #### Cycles
 
-Not measured. `test_oodos_sys` measures the records it sets (`the_multi_sector_count_reads_and_writes_n_records_a_call`):
-on M:, 128 records read by one call of 20 took 553,186 cycles, 4,321 a record, against 4,723 for one buffered record
-a call ([hw/oodos.md, 3b1](../../hw/oodos.md#the-bdos-phase-3)).
+Not measured. What a count saves a record is in [function 20](#bdos-20)'s Cycles.
 
 #### Since
 
@@ -1881,6 +1893,7 @@ The same, but X comes back 0 with A.
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -1926,7 +1939,7 @@ OODOS, and is always the long form, with the function and the file.
 #### Exit
 
 - A = 0, X = 0. The drive's free records, 128 bytes each, are the 3 bytes at the DMA address, low first.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2016,7 +2029,7 @@ of a line; and more than 126 characters are cut off. RSXs (phase 5) may add to w
 #### Exit
 
 - A = 0, X = 0; or an error (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2064,6 +2077,7 @@ and a swapped image's are dropped, not written to it (ours).
 
 - A get: A = the byte at the offset, X = the byte after it (0 at `$63`).
 - A set: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2096,9 +2110,9 @@ OODOS 0.2
 #### CP/M 3
 
 CP/M 3's parameter block and offsets, but for the registers: a get returns the word in A and X, where CP/M 3 gives
-the byte in A and L and the next in H. Ours: the operations CP/M 3 reserves are a get, a word set at `$63` sets one
-byte, and a set of the DMA address, the drive or the user works as the function that owns it does, the user kept
-to 0-15. The SCB is in the system's memory, not the program's: a program reaches it only through this function.
+the byte in A and L and the next in H. Ours: the operations CP/M 3 reserves are a get, and a word set at `$63` sets one
+byte. A set of the DMA address, the drive or the user takes effect at once, as the SCB is the BDOS's only copy, but
+the drive isn't checked or logged in as function 14 would, and the user is kept to 0-15. The SCB is in the system's memory, not the program's: a program reaches it only through this function.
 
 <a id="bdos-50"></a>
 ### 50 S_BIOS: call the BIOS
@@ -2117,9 +2131,10 @@ to 0-15. The SCB is in the system's memory, not the program's: a program reaches
 #### Exit
 
 - A and X as the BIOS function left them. The words it changed (MOVE's) aren't copied back to the block.
-- The flags are the program's own, as for every call: MOVE's and TIME's carry don't reach the program. A MOVE that
+- MOVE's and TIME's carry don't reach the program: as after every call, the flags are the program's own. A MOVE that
   returns `$FFFF` was refused, or ended at `$FFFF`; the program tells which by whether its destination plus the
   count is `$FFFF`.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2157,13 +2172,13 @@ registers. BOOT is refused. The program gets its own flags back.
 #### Entry
 
 - Y = 51 (`F_DMASEG`).
-- A = the segment's low byte; X = its high byte. The segment is a paragraph, a 16-byte step of the 1 MB.
+- A/X = the segment. The segment is a paragraph, a 16-byte step of the 1 MB.
   `$FFFF` is none.
 
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2186,8 +2201,7 @@ the DMA address to `$0280` and keeps the segment.
 
 #### Cycles
 
-Not measured. `test_oodos_sys` measures what a segment adds to a record: a buffered record on M: by function 33,
-7,938 cycles to the CPU's DMA address and 8,176 through a segment.
+Not measured. What a segment adds to a record is in [function 33](#bdos-33)'s Cycles: 238 cycles.
 
 #### Since
 
@@ -2208,13 +2222,13 @@ memory; OODOS's refuses its own blocks.
 #### Entry
 
 - Y = 52 (`F_DMAGET`).
-- A = the address of 4 bytes for the answer, low byte; X = its high byte.
+- A/X = the address of 4 bytes for the answer.
 
 #### Exit
 
 - The 4 bytes: +0–1 the DMA address (function 26's), +2–3 the segment (function 51's; `$FFFF` none).
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2247,7 +2261,7 @@ program names (ours).
 #### Entry
 
 - Y = 53 (`MC_MAX`).
-- A = the MCB's address, low byte; X = its high byte. The MCB is 5 bytes ([chapter 5](05-memory-and-banking.md#allocating-memory)):
+- A/X = the MCB's address. The MCB is 5 bytes ([chapter 5](05-memory-and-banking.md#allocating-memory)):
   +0–1 M_BASE, +2–3 M_LENGTH, the most wanted, in paragraphs; +4 M_EXT.
 
 #### Exit
@@ -2255,7 +2269,7 @@ program names (ours).
 - The MCB: M_BASE the run's first paragraph, M_LENGTH its length in paragraphs (a multiple of 1,024), M_EXT 1 if a
   free block is left outside it, else 0.
 - A = 0, X = 0: the run is allocated.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2290,7 +2304,7 @@ banks 1–5, not by the paragraph.
 #### Entry
 
 - Y = 54 (`MC_ABSMAX`).
-- A = the MCB's address, low byte; X = its high byte: +0–1 M_BASE, a block's first paragraph in banks 1–5 (`$1000`,
+- A/X = the MCB's address: +0–1 M_BASE, a block's first paragraph in banks 1–5 (`$1000`,
   `$1400`, ... `$5C00`); +2–3 M_LENGTH, the most wanted; +4 M_EXT.
 
 #### Exit
@@ -2298,7 +2312,7 @@ banks 1–5, not by the paragraph.
 - The MCB: M_BASE as given, M_LENGTH the run's length in paragraphs, M_EXT 1 if a free block is left outside it,
   else 0.
 - A = 0, X = 0: the run is allocated.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2332,14 +2346,14 @@ CP/M 3 has no memory functions; this is CP/M-86's 54, in 16 KB blocks.
 #### Entry
 
 - Y = 55 (`MC_ALLOC`).
-- A = the MCB's address, low byte; X = its high byte: +2–3 M_LENGTH, the paragraphs wanted.
+- A/X = the MCB's address: +2–3 M_LENGTH, the paragraphs wanted.
 
 #### Exit
 
 - The MCB: M_BASE the first paragraph of the lowest free run long enough, M_LENGTH the length rounded up to whole
   blocks (a multiple of 1,024). M_EXT is as it was.
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2372,14 +2386,14 @@ CP/M 3 has no memory functions; this is CP/M-86's 55, in 16 KB blocks.
 #### Entry
 
 - Y = 56 (`MC_ABSALLOC`).
-- A = the MCB's address, low byte; X = its high byte: +0–1 M_BASE, a block's first paragraph in banks 1–5; +2–3
+- A/X = the MCB's address: +0–1 M_BASE, a block's first paragraph in banks 1–5; +2–3
   M_LENGTH, the paragraphs wanted.
 
 #### Exit
 
 - The MCB: M_LENGTH rounded up to whole blocks. M_BASE and M_EXT are as they were.
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2413,7 +2427,7 @@ CP/M 3 has no memory functions; this is CP/M-86's 56, in 16 KB blocks.
 #### Entry
 
 - Y = 57 (`MC_FREE`).
-- A = the MCB's address, low byte; X = its high byte:
+- A/X = the MCB's address:
   - M_EXT (+4) = `$FF`: everything is freed, as function 58.
   - Otherwise M_BASE (+0–1) is an allocation's first paragraph, and the whole allocation is freed, whatever
     M_LENGTH says.
@@ -2423,7 +2437,7 @@ CP/M 3 has no memory functions; this is CP/M-86's 56, in 16 KB blocks.
 #### Exit
 
 - A = 0, X = 0. The MCB is not written.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2462,7 +2476,7 @@ an allocation's end frees only to it, and a shorter one frees nothing.
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2510,6 +2524,7 @@ CP/M 3 has no memory functions; this is CP/M-86's 58.
   | +8-9 | FARCALL's address in common memory |
 
 - A/X = FARCALL's address.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2533,7 +2548,7 @@ OODOS 0.2
 
 #### CP/M 3
 
-None: function 72 is OODOS's own (hw/oodos.md, ["OODOS's own"](../../hw/oodos.md#oodoss-own)). FARCALL is in
+OODOS's own: CP/M 3 has no function 72 (hw/oodos.md, ["OODOS's own"](../../hw/oodos.md#oodoss-own)). FARCALL is in
 [chapter 5](05-memory-and-banking.md#far-calls-farcall-and-the-far-call-table).
 
 <a id="bdos-73"></a>
@@ -2542,14 +2557,14 @@ None: function 72 is OODOS's own (hw/oodos.md, ["OODOS's own"](../../hw/oodos.md
 #### Entry
 
 - Y = 73 (`O_PHYSADDR`).
-- A = the address of 4 bytes, low byte; X = its high byte. +0–1 hold a CPU address, the program's.
+- A/X = the address of 4 bytes. +0–1 hold a CPU address, the program's.
 
 #### Exit
 
 - The 4 bytes: +0 the offset (0–15), +1 0, +2–3 the paragraph. The physical address is the paragraph × 16 + the
   offset.
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2586,7 +2601,7 @@ OODOS's own: CP/M 3 has no function 73.
 #### Entry
 
 - Y = 74 (`O_MOUNT`).
-- A = the address of a block, low byte; X = its high byte:
+- A/X = the address of a block:
   - +0 the drive, numbered as function 14's: 1–6 are B:–G:.
   - +1 the flags: bit 0 set mounts the image read-only.
   - +2 the image's path on the card, ended by a 0 byte, as `DRIVES.TXT` writes it: from the root, so it starts
@@ -2597,7 +2612,7 @@ OODOS's own: CP/M 3 has no function 73.
 
 - A = 0, X = 0: done. Unmounting a drive with nothing mounted is done too.
 - A = `$FF` and X the reason (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2651,6 +2666,7 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 
 - A = 0, and A = 1 with a IIe ROM in the cartridge: it doesn't return.
 - A = 1 with no IIe ROM in the cartridge (`$FBB3` isn't `$06`), or any other A: A = X = `$FF`, and OODOS goes on.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2676,7 +2692,7 @@ OODOS 0.2
 
 #### CP/M 3
 
-None: function 75 is OODOS's own. A program can't leave by itself, as W3 is OODOS's and a program may only call
+OODOS's own: CP/M 3 has no function 75. A program can't leave by itself, as W3 is OODOS's and a program may only call
 the BDOS. The CCP's WOZMON and APPLE2 use it.
 
 <a id="bdos-98"></a>
@@ -2689,7 +2705,7 @@ the BDOS. The CCP's WOZMON and APPLE2 use it.
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -2734,7 +2750,7 @@ The same. Dropping the failed buffers of the blocks it frees is ours.
 #### Exit
 
 - A = 0, X = 0: done. A = `$FF`, X = 0: no such file, or R0–R2 isn't a record the file has (below).
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 R0–R2 must be before the file's end and where it has data: in an extent the file has, below RC if that extent is
 the last, in a block it has. R2 over 3 is `$FF` before the directory is read.
@@ -2775,7 +2791,7 @@ The same, but for the registers. Stamping the update, and the order of the error
 #### Entry
 
 - Y = 100 (`DRV_SETLABEL`).
-- A = an FCB's address, low byte; X = its high byte:
+- A/X = an FCB's address:
   - byte 0 the drive (0 the current one, 1–16 A:–P:);
   - bytes 1–11 the label's name and type, taken as they are;
   - byte 12 the label's mode: bit 7 passwords on, bit 6 access stamps, bit 5 update stamps, bit 4 creation stamps;
@@ -2788,15 +2804,15 @@ The same, but for the registers. Stamping the update, and the order of the error
 - A = 0, X = 0: the label is made or changed.
 - A = `$FF`, X = 0: stamps asked for (bits 6–4) on a directory without SFCBs, or no free entry for a new label.
   Nothing is done.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
-In this order, as the error mode says ([chapter 2](02-system-interface.md#error-modes)):
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order:
 
-- Invalid Drive (4): the drive isn't there.
-- Read Only (2): the drive is read-only.
-- Password Error (7): the label has a password, and the DMA buffer's bytes 0–7 and the default password (106) both
+- 4 Invalid Drive: the drive isn't there; 1 Disk I/O, logging it in.
+- 2 Read Only: the drive is read-only.
+- 7 Password Error: the label has a password, and the DMA buffer's bytes 0–7 and the default password (106) both
   differ from it. Bit 7 doesn't matter here: a label's own password is always checked.
 
 #### Side effects
@@ -2837,11 +2853,11 @@ stamped whatever the mode, and the `$FF` for stamps on a directory without SFCBs
 
 - A = the label's mode byte (byte 12) as the disk has it, 0 without a label: bit 7 passwords on, 6 access stamps,
   5 update stamps, 4 creation stamps, 0 a label there. X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
-- Invalid Drive (4): the drive is over 15 or isn't there, as the error mode says.
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive, the drive is over 15 or isn't there; 1 Disk I/O, logging it in.
 
 #### Side effects
 
@@ -2870,7 +2886,7 @@ The same. An OODOS drive's label is usually `$31`: creation and update stamps, n
 #### Entry
 
 - Y = 102 (`F_TIMEDATE`).
-- A = an FCB's address, low byte; X = its high byte: the drive and the file's name, no `?`.
+- A/X = an FCB's address: the drive and the file's name, no `?`.
 
 #### Exit
 
@@ -2879,11 +2895,11 @@ The same. An OODOS drive's label is usually `$31`: creation and update stamps, n
   file's extent-zero entry, zeros without one.
 - A = 0, X = 0: the file is there.
 - A = `$FF`, X = 0: no such file in the current user. The FCB is as it was.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
-As the error mode says: Invalid Drive (4); ? in Filename (9).
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive; 1 Disk I/O; 9 ? in Filename.
 
 #### Side effects
 
@@ -2916,7 +2932,7 @@ function 103's at bit 5; OODOS uses bit 5 for both, as the XFCB holds it.
 #### Entry
 
 - Y = 103 (`F_WRITEXFCB`).
-- A = an FCB's address, low byte; X = its high byte: the drive and the file's name, no `?`; byte 12 the mode: bit 7
+- A/X = an FCB's address: the drive and the file's name, no `?`; byte 12 the mode: bit 7
   a password to read, bit 6 to write, bit 5 to delete; bit 0 set to give a new password.
 - The DMA buffer (function 26's address): bytes 0–7 the file's present password, if it is protected; bytes 8–15 the
   new password, if byte 12's bit 0 is set.
@@ -2926,12 +2942,12 @@ function 103's at bit 5; OODOS uses bit 5 for both, as the XFCB holds it.
 - A = 0, X = 0: the XFCB is made or changed.
 - A = `$FF`, X = 0: the drive has no label with passwords on, there is no such file in the current user, or there is
   no free entry for a new XFCB. Nothing is done.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
-In this order, as the error mode says: Invalid Drive (4), ? in Filename (9), Read Only (2), then the `$FF`s for
-passwords off and no file, then Password Error (7): the file is protected (its mode has a bit of 7–5) and neither the
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid Drive (1 Disk I/O, logging it in), 9 ? in Filename, 2 Read Only,
+then the `$FF`s for passwords off and no file, then 7 Password Error: the file is protected (its mode has a bit of 7–5) and neither the
 DMA buffer's bytes 0–7 nor the default password (106) is its password. Then the `$FF` for no room.
 
 #### Side effects
@@ -2972,6 +2988,7 @@ of the errors.
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3013,6 +3030,7 @@ The same DAT, but for the registers: its address goes in A and X, where CP/M 3 t
 
 - The DAT: the day (1 January 1978 is day 1), the hour and the minute, BCD.
 - A = the seconds, BCD; X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3046,12 +3064,12 @@ come back in A with X 0. The `$FF` for a clock past 2155 is ours.
 #### Entry
 
 - Y = 106 (`F_PASSWD`).
-- A = the address of 8 bytes, the password, low byte; X = its high byte.
+- A/X = the address of 8 bytes, the password.
 
 #### Exit
 
 - A = 0, X = 0.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3091,6 +3109,7 @@ The same, with the address in A/X.
 
 - The 6 bytes: `$4F $4F $44 $00 $00 $01`, "OOD" (the program header's magic) and serial 1.
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3128,6 +3147,7 @@ The same, but for the registers. The number is the same in every copy of OODOS (
 
 - A get: A/X = the code.
 - A set: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3136,7 +3156,7 @@ None.
 #### Side effects
 
 - The code is the SCB's word at `$10`. The CCP sets it to 0 as it starts a program that wasn't chained to
-  (function 47), and the warm boot keeps it for the next program.
+  (function 47); the warm boot keeps it for the next command, where a `:` conditional reads it.
 - The BDOS sets `$FFFD` when it ends a program for an error (the default error mode), and `$FFFE` when it ends one
   for a ^C.
 - The CCP's conditional commands (a command that starts with `:`) read it: `$FF00`-`$FFFF` is a failure, anything
@@ -3170,6 +3190,7 @@ The same, but for the registers: the code goes in and comes back in A and X, whe
 
 - A get: A/X = the mode.
 - A set: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3217,6 +3238,7 @@ The same bits, but for the registers: the mode goes in and comes back in A and X
 
 - A get: A = the delimiter, X = 0.
 - A set: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3255,6 +3277,7 @@ The same, but for the registers: the delimiter goes in A, where CP/M 3 takes it 
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3293,6 +3316,7 @@ The same, but for the registers: the CCB's address goes in A and X, where CP/M 3
 #### Exit
 
 - A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
@@ -3335,7 +3359,7 @@ The same, but for the registers: the CCB's address goes in A and X, where CP/M 3
   next name from there.
 - A/X = the address of the first blank after the name, when what follows the blanks isn't a delimiter.
 - A/X = `$FFFF`: the string isn't a file name (Errors). The FCB is as it was.
-- Y and the flags are not kept; the decimal flag is clear.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 On success the FCB's bytes 0–23 are written:
 

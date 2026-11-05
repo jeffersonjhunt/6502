@@ -41,8 +41,8 @@ that fails, says `READ ERROR`. Each of the three ends the command with the retur
 
 **What a program starts with.** At `$0300`:
 
-- A, X and Y are 0. S is `$FF`, and the stack holds the warm boot's address, so an RTS from the program's first
-  level ends it as `JMP WBOOT` does.
+- A, X and Y are 0, the decimal flag clear and interrupts off. S is `$FD`: the stack holds the warm boot's address less one, so an RTS from the program's
+  first level ends it as `JMP WBOOT` does.
 - The base page is filled in ([chapter 2](02-system-interface.md#the-base-page)): the command tail at `$0280`, the
   two FCBs at `$025C` and `$026C`, the drive the program came from at `$0250`, the tail's passwords at
   `$0251-$0256`.

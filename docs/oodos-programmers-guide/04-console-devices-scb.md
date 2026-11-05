@@ -21,9 +21,11 @@ it through the BDOS's console functions:
 | [111](07-function-reference.md#bdos-111) | write a block of characters |
 
 Between them the BDOS handles a few keys for the program ([appendix E](appendix-e-control-characters.md)): ^S stops
-the output until ^Q, ^P turns printer echo on and off, and ^C ends the program at a line's start or while the
-output is stopped. Before each character 2, 9 and 111 write, the BDOS looks at the keyboard; a key that isn't one of
-these is kept, one, for the next read. The warm boot doesn't drop it, so a key typed during a program's output
+the output until ^Q, ^P turns printer echo on and off while the output is stopped or in a line function 10 reads
+(anywhere else it is dropped), and ^C ends the program at a line's start or while the output is stopped. Before
+each character 2, 9 and 111 write, the BDOS looks at the keyboard, unless a key is kept already; a key that isn't
+one of these is kept, one, for the next read. While one is kept the BDOS doesn't look again, so a ^S typed after it
+isn't seen until a read takes the kept key. The warm boot doesn't drop it, so a key typed during a program's output
 reaches the next program or the prompt, typed ahead.
 
 **The console mode** (function [109](07-function-reference.md#bdos-109), the SCB's word at `$33`) changes that. Its
@@ -45,8 +47,9 @@ at each warm boot, so a program starts with all of the handling and needn't put 
 Function 6 is the way past all of it: `$FF`, `$FE` and `$FD` read with no handling (taking a kept key first), and a
 character written by 6 goes out as it is, its column not counted.
 
-**The column.** The SCB keeps the console's column (`$1B`): every character 1, 2, 9, 10 and 111 send counts, BS
-takes it back one and CR sets it to 0. A tab goes to the next column that is a multiple of 8. Function 10 lays its
+**The column.** The SCB keeps the console's column (`$1B`): each character from `$20` up (DEL and `$80`-`$FF`
+too) that 1, 2, 9, 10 and 111 send counts one, BS takes it back one, CR sets it to 0, and the other control
+characters leave it. A tab goes to the next column that is a multiple of 8. Function 10 lays its
 line out by it and by the width (`$1A`, the width less one: 79 for 80 columns).
 
 ## The output delimiter

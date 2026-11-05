@@ -8,7 +8,7 @@ The design record, for the reasons: [hw/oodos.md, "Disk format"](../../hw/oodos.
 
 ## Drives
 
-OODOS has up to nine drives, named by a letter. A program names one as functions 14 and 101 do, 0 for A: to 15 for
+OODOS has up to eight drives, named by a letter. A program names one as functions 14 and 101 do, 0 for A: to 15 for
 P:, or in an FCB's byte 0, 0 for the current drive and 1 for A: to 16 for P:.
 
 | Drive | What |
@@ -171,9 +171,16 @@ records, 32 MB.
 - **99** cuts a file after the record R0–R2 names.
 
 A random read or write sets the FCB's extent and CR to its record, so a sequential call after it goes on from there.
-A random read of a record never written returns 1 (in an extent that has data) or 4 (in an extent never written);
-past 32 MB, 6. A random write can make extents out of order, and leaves a hole where nothing was written: reading there returns 1
-or 4, as above.
+A random write can make extents out of order, and leaves holes where nothing was written. Reading a record there
+gives one of three answers:
+
+- **zeros, and 0,** for a record below the extent's RC in a block a write took: every block a write takes is
+  zeroed first;
+- **1,** for a record in a block no write took, or at or past the extent's RC;
+- **4,** for a record in an extent with no directory entry.
+
+Past 32 MB, 6. A sequential read (function 20) stops with 1 at the first record in a block no write took, even
+when the file has data after it.
 
 ## Multi-sector I/O
 

@@ -16,7 +16,8 @@ A program calls the BDOS with `JSR BDOS`, the base page's `$0203`
   (CP/M's DE).
 - **The result** comes back in A, a byte (CP/M's A or L) with X 0, or in A and X, a word (CP/M's HL). An error a
   function returns is A = `$FF`, with the code in X where the error mode says so ([below](#error-modes)).
-- **Y and the flags are not kept.** The decimal flag is clear on return.
+- **Y is not kept.** The flags come back as they were before the call, with the decimal flag clear: they don't
+  reflect the result, so test A (`CMP #$FF`) rather than branch on the flags after `JSR BDOS`.
 
 ```
         lda     #<msg                   ; a word: low in A,
@@ -142,7 +143,7 @@ Each function says what it returns ([chapter 7](07-function-reference.md)). Thre
 - **A result:** a byte in A (X 0), or a word in A and X.
 - **A return code** that the program is expected to look at: 0 for done, `$FF` for not found or no room, or a
   number a function gives a meaning (a directory code 0-3 from the searches, 17 and 18; 1 for the end of a file
-  from 20; 1-6 from the random reads and writes). These come back in every error mode.
+  from 20; 1 for no directory space and 2 for a full disk from 21; 1-6 from the random reads and writes). These come back in every error mode.
 - **A physical error:** something the program may not be ready for, said or returned as the error mode decides
   ([below](#error-modes)). Returned, it is A = `$FF` and X = the code:
 

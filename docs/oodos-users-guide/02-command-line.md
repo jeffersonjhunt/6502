@@ -129,7 +129,8 @@ Besides the line's editing keys, these work while a command writes:
 - **^S** stops the output; **^Q** starts it again.
 - **^C**, while the output is stopped by ^S, ends the program and goes back to the prompt. DIR, TYPE and the
   utilities that write a lot stop at ^C whenever it is typed, and at a page's stop.
-- **^P** turns the printer echo on or off: while it is on, what goes to the console goes to the printer (`LST:`) as
+- **^P** turns the printer echo on or off, at the prompt or while the output is stopped by ^S (anywhere else it
+  is dropped): while it is on, what goes to the console goes to the printer (`LST:`) as
   well. The OO-1 has no printer yet, so `LST:` takes what it is sent and drops it.
 - **^C at the prompt,** with the line empty, resets the drives: each is read again the next time it is used, as
   after changing the card's images. It is also how a read-only drive becomes read-write again.

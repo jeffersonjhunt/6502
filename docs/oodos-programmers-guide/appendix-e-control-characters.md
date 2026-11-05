@@ -50,14 +50,14 @@ may be anywhere in the line, and a key typed goes in at the cursor.
 
 ## ^S, ^Q and ^P
 
-Before each character functions 2, 9 and 111 write, the BDOS looks at the keyboard, and functions 1 and 11 handle
-the keys they read the same way:
+Before each character functions 2, 9 and 111 write, the BDOS looks at the keyboard, unless a key is kept already
+(then it doesn't look until a read takes that key), and functions 1 and 11 handle the keys they read the same way:
 
 | Key | Code | What |
 |---|---|---|
 | ^S | `$13` | stops the output, until ^Q |
 | ^Q | `$11` | goes on after a ^S; on its own, dropped |
-| ^P | `$10` | printer echo on (with a bell) or off; on its own, dropped |
+| ^P | `$10` | dropped; printer echo on (with a bell) or off only after a ^S (below) or in function 10's line |
 
 While the output is stopped, ^Q goes on, ^C ends the program, ^P turns printer echo over and stays stopped, and any
 other key rings the bell and is dropped. **Printer echo** sends what functions 1, 2, 9, 10 and 111 put on the
