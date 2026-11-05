@@ -2482,6 +2482,30 @@ SUBMIT file is console input for the CCP).
 11. **Status and single characters** while `<` lines serve a program, as GET's.
 12. **The `.SUB` file's lines** as GET reads its file.
 
+**Proposed (5c, as built, 2026-11-05)** ([`oodos/rsx/subrsx.s`](../oodos/rsx/subrsx.s), `oodos/utils/submit.s`,
+[`oodos/include/rxfile.inc`](../oodos/include/rxfile.inc), `oodos/sys/ccp.s`, `oodos/utils/setdef.s`; the
+decisions above are what was built, and these are the details):
+
+- **SUBMIT's RSX** is its own, `rsx/subrsx.s` (1,523 bytes of image: six pages below the lowest RSX while it
+  serves), with GET's reading of a file moved to `rxfile.inc`, which both include (GET's RSX the same size as
+  before). It holds a line of 130 (SUBMIT.COM's 128 and a `<`). SUBMIT.COM is 7,168 bytes with it attached; the
+  Makefile has its own rule for it, as `ATTACHED`'s pattern names `getrsx` and `putrsx` only.
+- **The CCP** grew 366 bytes (`$CB6F-$DEDC`, of the window to `$F7FF`): the search order's table (`ORDERS`, two
+  types for each of `$18`'s four values), a `.SUB` found or typed turned into `SUBMIT d:NAME.SUB` and its tail
+  (`RUNSUB`), and the PROFILE.SUB look at the first prompt (`COLDF`, set in the file, cleared once looked).
+  OODOS.SYS is 25,344 bytes (main's 25,088). SETDEF.COM is 4,732 (4,631).
+- **Decision 8 corrected** (the owner, 2026-11-05): SETDEF shows the search order; SHOW doesn't (nor does CP/M 3's).
+- **The PROFILE.SUB look logs A: in at the first prompt,** so existing tests that counted logins or used the system
+  block where A:'s allocation vector now is changed (the owner's answer (a)): `test_oodos_sys`'s DIRTEST LOGIN
+  (`01 10`), BANKTEST's buffers (`$3000` and `$3800`, past the allocation vectors) and its two cases, and three
+  cases that need A: logged out first (the busy card's two, the login count's), which begin with a ^C at the prompt.
+  Others for the plan: `test_oodos_ccp`'s `.SUB` (`M:ARGS.SUB?`) and its CLS (page mode off: A:'s SYS files now
+  fill more than a page); `test_oodos_utils_sys`'s SETDEF (`$18`'s other bits poked as `$04`; SUB orders taken).
+- **The rig's `calls()`** returns too when the BDOS is already in the function asked for (`FUNC`, with the system's
+  windows in): a program waiting at the keyboard makes no new entry.
+- **`test_oodos_card`** makes A:PROFILE.SUB with PIP from CON: and boots again (saved for `interop.sh --submit`:
+  PROFILE.SUB's text, no `SUBnn.$$$` left), and on a fresh card with SUBMIT.COM erased sees `SUBMIT?`.
+
 **Stages (decided 2026-11-04: three branches, each merged on its own)**
 
 | Stage | Branch | What | Size (estimates) |
