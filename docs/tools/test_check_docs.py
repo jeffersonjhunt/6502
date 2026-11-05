@@ -147,6 +147,18 @@ def edit(root, rel, old, new, count=1):
         f.write(text.replace(old, new, count))
 
 
+def edit_re(root, rel, pattern, new):
+    """The first match of `pattern` in `rel` replaced by `new` (re.sub's), so a case needn't name text, such as
+    a version, that the books change."""
+    path = os.path.join(root, rel)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    if not re.search(pattern, text):
+        raise AssertionError(f"the case's own pattern isn't in {rel}: {pattern!r}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(re.sub(pattern, new, text, count=1))
+
+
 def append(root, rel, text):
     with open(os.path.join(root, rel), "a", encoding="utf-8") as f:
         f.write(text)
@@ -236,8 +248,8 @@ CASES = [
     ("an entry missing a template heading",
      lambda r: edit(r, PG7, "#### Cycles\n\nNot measured.", "Not measured."), "no '#### Cycles'"),
     ("an entry's headings out of order",
-     lambda r: edit(r, PG7, "#### Since\n\nOODOS 0.2\n\n#### Status\n\n**built**",
-                    "#### Status\n\n**built**\n\n#### Since\n\nOODOS 0.2"),
+     lambda r: edit_re(r, PG7, r"#### Since\n\n(OODOS \d+\.\d+)\n\n#### Status\n\n\*\*built\*\*",
+                       r"#### Status\n\n**built**\n\n#### Since\n\n\1"),
      "no '#### Since' where the function template has it"),
     ("an entry with a heading the template hasn't",
      lambda r: edit(r, PG7, "#### CP/M 3\n", "#### Notes\n\nSome.\n\n#### CP/M 3\n"), "no '#### CP/M 3'"),
@@ -308,7 +320,7 @@ CASES = [
                 for f in os.listdir(os.path.join(r, "docs/oo1-technical-reference")) if f != "README.md"],
      "examined no Technical Reference sections"),
     ("an index edited by hand",
-     lambda r: edit(r, "docs/index/functions.json", '"since": "OODOS 0.2"', '"since": "OODOS 0.1"'),
+     lambda r: edit_re(r, "docs/index/functions.json", r'"since": "OODOS \d+\.\d+"', '"since": "OODOS 9.9"'),
      "docs/index/functions.json: isn't what the entries generate"),
     ("an index naming an anchor that isn't there",
      lambda r: edit(r, "docs/index/functions.json", '"anchor": "bdos-9"', '"anchor": "bdos-999"'),

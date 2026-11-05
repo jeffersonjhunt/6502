@@ -467,7 +467,7 @@ What the program writes.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 

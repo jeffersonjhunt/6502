@@ -38,14 +38,15 @@ missing) and goes back to the monitor.
 OODOS then says who it is and what it found, in four lines, on the screen and the serial line alike:
 
 ```
-OODOS 0.2  2026-11-03 12:00:00
+OODOS 0.3  2026-11-05 12:00:00
 BIOS 0.10   47K TPA
 A: 8M   B: 8M   M: 128K
 Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
 ```
 
 - **The first line:** OODOS's version, and the date and time from the clock.
-- **The second:** the ROM BIOS's version (`?` if the ROM doesn't say), and the memory a program gets, the TPA.
+- **The second:** the ROM BIOS's version (`?` if the ROM doesn't say), and the memory a program gets, the TPA. The
+  ROM's, not OODOS's own BIOS in OODOS.SYS, whose version function 72 gives (0.2).
 - **The third:** each drive and its size.
 - **The fourth:** the cards that answered, in that order, or `none`.
 

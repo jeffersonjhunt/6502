@@ -6,7 +6,7 @@
 ;               option), each source a file, a drive or a device with an
 ;               option list; the forms and the options as hw/oodos.md has
 ;               them
-;   none        "OODOS PIP 0.2", then '*' and a command a line, until an
+;   none        "OODOS PIP 0.3" (system.inc's version), then '*' and a command a line, until an
 ;               empty one; the line in capitals but for S's and Q's strings
 ;
 ; A command is split at '=' and ',' (not inside an option list) into its
@@ -22,6 +22,7 @@
 
         .setcpu "65C02"
         .include "oodos.inc"
+        .include "system.inc"                   ; SYS_MAJOR, SYS_MINOR: the banner
 
         .define CMD_DATA "RODATA"
         .define CMD_BSS "BSS"
@@ -2333,7 +2334,7 @@ verify: lda     crc
         .include "util.inc"
 
         .rodata
-sbanner: .byte  "OODOS PIP 0.2$"
+sbanner: .byte  "OODOS PIP ", '0' + SYS_MAJOR, '.', '0' + SYS_MINOR, "$" ; system.inc's version
 sstar:  .byte   "*$"
 scopying: .byte "COPYING -$"
 scopy:  .byte   "COPY $"

@@ -24,6 +24,7 @@ last) are written 0 and looked at by neither, so a later minor version may use t
 """
 
 import argparse
+import os
 import re
 import sys
 
@@ -37,7 +38,26 @@ BLOCK = 16 * 1024
 ALLOWED = ((31 * BLOCK, 32 * BLOCK), (60 * BLOCK, 63 * BLOCK))  # block 31; blocks 60-62
 RES_BLOCK = 62
 ENTRY_LOW, ENTRY_HIGH = 0xC800, 0xFFFF  # block 62 in W3, past the I/O hole
-VERSION = (0, 2)  # system.inc's SYS_MAJOR, SYS_MINOR
+SYSTEM_INC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "include", "system.inc")
+
+
+def system_version(path=SYSTEM_INC):
+    """SYS_MAJOR and SYS_MINOR from system.inc, the version's one source; SystemExit if they aren't there."""
+    try:
+        with open(path, encoding="ascii") as f:
+            text = f.read()
+    except OSError as e:
+        raise SystemExit("mksys.py: can't read %s: %s" % (path, e))
+    found = []
+    for name in ("SYS_MAJOR", "SYS_MINOR"):
+        m = re.search(r"^%s\s*=\s*(\d+)\b" % name, text, re.M)
+        if not m:
+            raise SystemExit("mksys.py: no %s in %s" % (name, path))
+        found.append(int(m.group(1)))
+    return tuple(found)
+
+
+VERSION = system_version()  # system.inc's SYS_MAJOR, SYS_MINOR
 
 
 class Refused(Exception):
