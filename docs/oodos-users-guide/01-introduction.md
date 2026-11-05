@@ -45,7 +45,8 @@ Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
 ```
 
 - **The first line:** OODOS's version, and the date and time from the clock.
-- **The second:** the ROM BIOS's version (`?` if the ROM doesn't say), and the memory a program gets, the TPA.
+- **The second:** the ROM BIOS's version (`?` if the ROM doesn't say), and the memory a program gets, the TPA. The
+  ROM's, not OODOS's own BIOS in OODOS.SYS, whose version function 72 gives (0.2).
 - **The third:** each drive and its size.
 - **The fourth:** the cards that answered, in that order, or `none`.
 

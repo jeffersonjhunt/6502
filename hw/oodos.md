@@ -2688,8 +2688,11 @@ and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
   7.16 MHz: not slow, so the reads stay random.
 - **Where it lives now:** block 62's code window 8,762 of 12,288 (7,477 of code, 1,285 of BSS); common memory
   1,187 of 2,048.
-- **The version stayed 0.2** through 5a-5c (the owner: one bump, after 5c). 0.3 (2026-11-05) is phase 5's end: OODOS.SYS, OOLDR and
-  function 72 say 0.3, and the books' Since lines say OODOS 0.3 for what phase 5 and item 10 added or changed.
+- **The version stayed 0.2** through 5a-5c (the owner: one bump, after 5c). 0.3 (2026-11-05) is phase 5's end:
+  OODOS.SYS, OOLDR, PIP's banner and function 72 say 0.3, all from system.inc's SYS_MAJOR and SYS_MINOR (mksys.py
+  reads them there), and the books' Since lines say OODOS 0.3 for the functions, built-ins and utilities phase 5
+  and item 10 added or changed (a Since line is the version that first had the entry as it is now: 10 and 49
+  stay 0.2, as the change was in the RSXs and the SCB's bytes).
 
 **Decided (2026-11-04, the owner, on this plan):** the loader in block 62 with the CCP, 59 through common memory;
 every end of a program reaching the RSXs as function 0; three branches, 5a–5c; SUBMIT's lines in temporary files,

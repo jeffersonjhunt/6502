@@ -95,7 +95,7 @@
   "documented": true,
   "anchor": "bdos-10",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.2",
   "status": "built"
  },
  {
@@ -437,7 +437,7 @@
   "documented": true,
   "anchor": "bdos-49",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.2",
   "status": "built"
  },
  {

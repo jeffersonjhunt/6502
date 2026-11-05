@@ -47,7 +47,7 @@ $(BUILD):
 $(BUILD)/%.o: %.s $(INCS) | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
 
-$(BUILD)/OODOS.SYS: $(SYSOBJS:%=$(BUILD)/%.o) sys.cfg mksys.py
+$(BUILD)/OODOS.SYS: $(SYSOBJS:%=$(BUILD)/%.o) sys.cfg mksys.py ../include/system.inc
 	$(call LD65,-C sys.cfg $(SYSOBJS:%=$(BUILD)/%.o) -o $(BUILD)/oodos -m $(BUILD)/oodos.map -Ln $(BUILD)/oodos.lbl,$@)
 	$(PYTHON) mksys.py -o $@ --entry COLD --labels $(BUILD)/oodos.lbl $(PARTS)
 

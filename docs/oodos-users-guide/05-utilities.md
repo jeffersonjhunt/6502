@@ -711,7 +711,7 @@ PIP dest-filespec{[Gn]}=device{[options]}
 - **The devices:** `CON:` (the console), `AUX:` (the serial line), `LST:` (the printer), `PRN:` (the printer, with
   tabs every eighth column, line numbers and a new page every 60 lines), and two sources: `NUL:` (64 zero bytes)
   and `EOF:` (one ^Z). `DEVICE` says where `CON:`, `AUX:` and `LST:` go.
-- **PIP alone** prints `OODOS PIP 0.2` and asks with `*` for one command a line; an empty line ends it.
+- **PIP alone** prints `OODOS PIP 0.3` and asks with `*` for one command a line; an empty line ends it.
 
 #### Options
 
@@ -802,7 +802,7 @@ OODOS 0.3
 
 ```
 A>PIP
-OODOS PIP 0.2
+OODOS PIP 0.3
 *B:=A:*.BAS
 COPYING -
 GAME.BAS
