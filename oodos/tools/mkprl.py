@@ -134,10 +134,10 @@ def make(a, b, c, code, name_a="a", name_b="b", name_c="c"):
         if not ha[f] == hb[f] == hc[f]:
             raise Refused("the headers' %s differ: %d in %s, %d in %s, %d in %s"
                           % (f, ha[f], name_a, hb[f], name_b, hc[f], name_c))
-    if ha["flags"] & F_RSX:
-        rsx_prefix(a[HEADER:HEADER + ha["size"]], ha["page"] << 8, name_a)
     if ha["flags"] & F_RSX and ha["zpsize"] > RSX_ZP_MAX:
         raise Refused("%s: an RSX with %d bytes of zero page: an RSX has at most 16, in $F0-$FF" % (name_a, ha["zpsize"]))
+    if ha["flags"] & F_RSX:
+        rsx_prefix(a[HEADER:HEADER + ha["size"]], ha["page"] << 8, name_a)
     if ha["zpsize"] > ZP_RSX:
         raise Refused("%s: %d bytes of zero page: a program has at most $F0, $00-$EF" % (name_a, ha["zpsize"]))
     zp = ((hb["zpbase"] - ha["zpbase"]) & 0xFF, (hc["zpbase"] - ha["zpbase"]) & 0xFF)
@@ -188,8 +188,6 @@ def load(data, page=None, zp=None, top=TOP, name="the file", kind="program", mem
                                                  "an RSX" if kind == "rsx" else "a " + kind))
     if kind == "rsx" and not reloc:
         raise Refused("%s: an RSX must be a .PRL" % name)
-    if kind == "rsx":
-        rsx_prefix(data[HEADER:HEADER + size], h["page"] << 8, name)
     if page is None:
         page = h["page"]
     if zp is None:
