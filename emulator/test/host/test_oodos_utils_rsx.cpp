@@ -295,6 +295,18 @@ TEST(put_asks_about_a_file_there_already_and_about_another_file)
     has(text(m_data(r, 0, "D       TXT")), "W");
 }
 
+TEST(the_rsxs_own_file_calls_leave_the_programs_state_as_it_was)
+{
+    Rx r({{0, "IN      TXT", bytes("A LINE\r\n")}});
+    REQUIRE(r.ok);
+    r.cmd("put console file m:out.txt [system]");          // PUT writes a record and GET reads one,
+    r.cmd("get file m:in.txt [no echo]");                  // inside the program's calls
+    r.cmd("iotest V");
+    r.cmd("put console output to console");
+    const std::string s = text(m_data(r, 0, "OUT     TXT"));
+    has(s, std::string(130, '.') + "V9000 0123 05 FE 03 ");
+}
+
 TEST(put_says_when_its_file_was_erased_under_it)
 {
     Rx r;
