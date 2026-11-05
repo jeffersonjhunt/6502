@@ -347,7 +347,7 @@
   "documented": true,
   "anchor": "bdos-38",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)",
+  "since": "OODOS 0.2",
   "status": "built"
  },
  {
@@ -356,7 +356,7 @@
   "documented": true,
   "anchor": "bdos-39",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)",
+  "since": "OODOS 0.2",
   "status": "built"
  },
  {

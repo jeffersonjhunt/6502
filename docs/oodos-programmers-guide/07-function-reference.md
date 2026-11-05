@@ -1774,7 +1774,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)
+OODOS 0.2
 
 #### Status
 
@@ -1783,7 +1783,7 @@ OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)
 #### CP/M 3
 
 The same: an MP/M function CP/M 3 doesn't support, answered with success. A program written for MP/M may call it
-before using a drive; on OODOS, as on CP/M 3, it does nothing.
+before using a drive; on OODOS, as on CP/M 3, it does nothing. (Until 2026-11-04 OODOS answered it with A = X = `$FF`.)
 
 <a id="bdos-39"></a>
 ### 39 DRV_FREEDRV: release drives
@@ -1811,7 +1811,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)
+OODOS 0.2
 
 #### Status
 
@@ -1820,7 +1820,7 @@ OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)
 #### CP/M 3
 
 The same: an MP/M function CP/M 3 doesn't support, answered with success. A program written for MP/M may call it
-when it is done with a drive; on OODOS, as on CP/M 3, it does nothing.
+when it is done with a drive; on OODOS, as on CP/M 3, it does nothing. (Until 2026-11-04 OODOS answered it with A = X = `$FF`.)
 
 <a id="bdos-40"></a>
 ### 40 F_WRITEZF: write a random record, zero-filled
