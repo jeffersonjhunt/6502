@@ -2381,6 +2381,52 @@ and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
   all; measured in 5a.
 - **The books in parallel:** phase 5's entries wait for G1's merge, or the two branches conflict in docs/.
 
+**Proposed (5a, as built, 2026-11-04)** ([`oodos/sys/loader.s`](../oodos/sys/loader.s), `ccp.s`, `common.s`;
+[`oodos/tools/gencom.py`](../oodos/tools/gencom.py); the plan above is what was built, and these are the details):
+
+- **Where it lives:** the loader is 1,968 bytes of block 62's code window and 285 of its BSS (the table, a record,
+  the headers, the caller's state); with cold boot and the CCP, 7,388 bytes and 1,269 of BSS, 8,657 of 12,288.
+  Common memory 1,186 of 2,048 (59's door, `LDOOR`, 22 bytes: `STUB` starts with `CPY #59`, so `$BFFD` still
+  jumps to `STUB`). The BDOS 11,637 (function 0's 5). No zero page anywhere: the loader's pointers are in its own
+  instructions.
+- **59's X codes** are 0 an address or no room, 1 a header, 2 zero page, and **3 not a program** (no magic number,
+  an empty file, or a size of 0 with nothing attached; mine: the CCP needs it to say `NO PROGRAM`). Called by the
+  CCP (the SCB's `$19` bit 7, kept in block 62 as `CCPST`) the loader takes a `.COM` only, so `NAME.COM` holding a
+  `.PRL` is `BAD PROGRAM HEADER` as before. Bit 7 of the flags (breaks the 65C816 rules) is refused, as the CCP
+  refused it.
+- **Records are read by 33,** one at a time, R0–R2 set for each, so the image, the bitmaps, the table and each RSX
+  are read where they are, with no sequential position to keep (mine). The DMA goes to the record's place in the
+  TPA for whole records, else to the loader's buffer in block 62 (a CPU address in W3, which the stub saves).
+- **The order:** the header checked; the attached table read entry by entry (SCB entries kept, non-banked ones
+  passed over, RSXs loaded and relocated, their serial number by 107 and loader flag 0); `LINK`; then the program's
+  fit against the lowest RSX, its image, and a `.PRL`'s relocation. An RSX whose prefix alone says non-banked is
+  found so only after its image is read below the lowest RSX; that memory is free TPA, so nothing is lost but the
+  read (mine).
+- **The chain:** `LINK` writes `$0203`'s `JMP`, `$0204`, and each RSX's offsets 9–13 from the table at every
+  warm boot and after every load or removal. An RSX's name in the table is its file's (gencom.py's, as GENCOM's
+  replace by name); the loader keeps no names.
+- **Function 0:** the CCP's warm boot sends it down the chain once when there are RSXs; the BDOS's function 0
+  sets `WBF` before its warm boot, so a program's own function 0, which the RSXs saw on its way, isn't sent
+  again (mine): every end is seen exactly once. Then the removal, then the CCP's usual warm boot work.
+- **`KEEP`:** 1 once an RSX-only `.COM` is loaded (no warm boot follows it: the CCP goes on to its prompt), 2
+  once the next program starts; the warm boot removes nothing while it is 1, and a program's 59 nothing while it
+  isn't 0. So the RSXs stay through built-ins and a ^C at the prompt, serve the next program, and go after it.
+- **The SCB's `$19`** is `CCPST`: bit 7 set at each warm boot, cleared as a program starts; bits 0–6 stepped as
+  each command starts (a keyword reached: not an empty line, a comment or a skipped `:` command).
+- **SCB entries** from a CCP load are set by `APPLYSCB` as the program starts, after the CCP's own settings; an
+  RSX-only `.COM`'s at once; a program's 59's before 59 returns.
+- **mkprl.py** checks the prefix when it makes an RSX (`make`), not when it loads one (`--load`): the 6502
+  loader checks offsets 6 and 9 are `JMP`s and the non-banked flag, and the rest is the build's.
+- **Measured** (`test_oodos_rsx`): `JSR $0203` to the BDOS's first instruction is 130 cycles with no RSX (126
+  before the door's `CPY`), 165 through one pass-through RSX, 240 through three.
+- **Tests:** `test_oodos_rsx`, 18 cases (the plan's list above), with five test RSXs
+  (`oodos/sys/test/trsx.inc`), RSXQ (a program that does what its tail says) built plain and with RSXs by
+  gencom.py, OVLT (59 by a program) and two overlays. `check_tools.py` gains rsx.cfg's links, the prefix's
+  refusals and gencom.py's table, replace, strip, `[NULL]`, SCB entries and limits (PASS 117). Each check was seen
+  to fail on a fault put in on purpose: 28 in the system (each failing the case it should), 8 in the tools; two
+  that passed at first (the RSX-only exception at a ^C's warm boot, the table's non-banked flag alone) got cases
+  of their own. One check changed: an RSX without its prefix, which mkprl.py made before, is now refused.
+
 **Decided (2026-11-04, the owner, on this plan):** the loader in block 62 with the CCP, 59 through common memory;
 every end of a program reaching the RSXs as function 0; three branches, 5a–5c; SUBMIT's lines in temporary files,
 nesting stacked (ours, as marked above); a ^C ending a program ending the SUBMIT; `PROFILE.SUB` from the default
