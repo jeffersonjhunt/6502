@@ -234,8 +234,8 @@ All of these do what CP/M 3's do, with the registers above.
 | 152 | parse filename |
 
 Not in CP/M 3: 38, 39 and 41 (MP/M's drive access, free drive and test-and-write). 38 and 39 return 0, as CP/M 3
-answers them (2026-11-04: they returned `$FF` before); 41 returns A = X = `$FF`, as a function OODOS hasn't (CP/M
-3's A = `$FF` has H 0).
+answers them (2026-11-04: they returned `$FF` before; oodos.inc's `DRV_ACCESS`, `DRV_FREEDRV`); 41 returns A =
+`$FF` with X 0, as CP/M 3 answers it (2026-11-04: A = X = `$FF` before, as a function OODOS hasn't).
 
 **Where the 6502 changes things:**
 
@@ -1171,7 +1171,14 @@ tests.
   makes no stamp, so its first write does. The FCB's S1, which the Guide reserves for the system, holds it: bit 7
   (`S1_STAMPED`) set once the stamp is made; Open clears S1, Make of extent 0 sets it. A close keeps it (ours: the
   FCB stays open after a close, so writing it again without an Open isn't a new open). Truncate stamps the update
-  as before. The time is TIME's at the write.
+  as before. The time is TIME's at the write. An FCB a program puts together itself from a directory entry,
+  without Open, has whatever S1 it was given (an entry's byte count of 128, `$80`, reads as stamped): the books
+  say to open or make a file before writing it (2026-11-04, from the review). The model writes S1 as the BDOS does.
+- **A write can fail on its directory write** (2026-11-04, from the review, accepted): clearing an entry's t3' or
+  the stamp's SFCB is a directory write, at the write, after the record is in its buffer, so 21, 34 and 40 can now
+  say Disk I/O (or Read Only, for a unit found read-only) that before only a later close could; in return mode the
+  FCB's CR hasn't moved on. The cost, a directory sector written at a file's first write after each open and at
+  the first write of each archived extent, is accepted too.
 - **The model** (`cpm3model.py`) does both; its cases in `test_model.py` were the close's moment and are the first
   write's now, with the archive's added (two extents, a read, writes to each, a truncate). The random comparison
   covers both (30 sets t3' in about a third of its calls, and the clock moves between operations).
@@ -1180,7 +1187,9 @@ tests.
   write and the close don't), WRITEOO1 (the clock set later before its second write and close: `test_oodos_card`
   and `interop.sh --written` find the first write's time) and PIP's `[A]` of a file whose second entry isn't
   archived. FSTEST's check that a close's entry follows its data ends at `CLOSEX`'s return: the stamp's SFCB and a
-  cleared t3' come after it in the same call and point at nothing new.
+  cleared t3' come after it in the same call and point at nothing new, which DIRTEST's run checks: every byte of
+  M:'s directory that `WROTE` changes is an entry's t3' cleared or an SFCB slot's update stamp (DIRTEST sets the
+  clock to 2027 before AR.TXT's write, so its stamp changes bytes).
 - **Measured again** (2026-11-04, `test_oodos_sys`, BDOSENT to its return, as 3a and 3b1 measured them: FSTEST's
   first run on `oodos-8m`, the least of each kind; the multi-sector test on M:). 3b1's figures (above) predate 3c's
   dispatch and the phases since; on main before item 10 (08efa8a), then with it: Open 6,759, 6,694; a sequential
@@ -1885,8 +1894,9 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   character written. Joined by records, a text source's last record is cut at its first ^Z (`[O]`: not).
 - **Options** (letters, packed or with blanks between, a number straight after its letter; S and Q a string to
   a ^Z): **A** only files whose archive bit is clear (in any of their entries, from 2026-11-04: the BDOS clears it
-  in the entry of the extent written, so every entry is read, a file named once), the bit set on each source after
-  its copy; **C** `COPY
+  in the entry of the extent written, so every entry is read, a file named once, by its first entry without t3',
+  whose attributes a single copy takes: extent 0's too, as 30 sets every extent), the bit set on each source
+  after its copy; **C** `COPY
   NAME.TYP (Y/N)?` before each file copied to a drive (ours: the Guide gives no words, and joins none); **Dn** a line cut after column n; **E** what is
   written echoed to the console; **F** form feeds dropped; **Gn** the source's user (the destination's, after
   it), 0-15, else `INVALID USER NUMBER`; **H** each line an Intel hex record checked (`:`, hex digits, the length,
@@ -1913,7 +1923,7 @@ in user 0 on the card); the owner chose to implement every option, H and I among
 **Proposed (4b2, as built, 2026-11-04)** ([`oodos/utils/pip.s`](../oodos/utils/pip.s); the plan above is what was
 built, and these are the details):
 
-- **No BDOS or BIOS change.** PIP.COM is 8,661 bytes. It keeps its pointers in zero page (four bytes), unlike
+- **No BDOS or BIOS change.** PIP.COM is 8,661 bytes. It keeps its pointers in zero page (four bytes; six from 2026-11-04, `seen`'s own), unlike
   `cmd.inc` and `util.inc`, which write theirs into their own code.
 - **One pipeline.** The command is split at `=` and `,` outside option lists (an S or Q string may hold either),
   each entry's options a byte a letter, its password kept apart from its FCB (an open overwrites FCB bytes 16-31).

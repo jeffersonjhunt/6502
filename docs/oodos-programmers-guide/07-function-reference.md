@@ -1028,6 +1028,11 @@ As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.
 user 0, or is write-protected and was opened without its password. Then 1 Disk I/O. The DMA buffer is
 checked after those, as [function 20](#bdos-20) checks it (a read-only window may be written from).
 
+A write writes the directory itself when it clears an entry's t3' or makes the update stamp (below), and that
+write can fail (1 Disk I/O, or 2 Read Only for a unit found read-only) after the record is already in a buffer. In
+return mode the call then says the error with CR not moved on: write the record again, or close the file, as for
+any physical error.
+
 #### Side effects
 
 - A record in a block the file doesn't have yet takes the lowest free block, which is zeroed: a record of it never
@@ -1040,7 +1045,10 @@ checked after those, as [function 20](#bdos-20) checks it (a read-only window ma
   FCB ([chapter 3](03-file-system.md#file-attributes)). The other extents' entries keep theirs.
 - **The update stamp:** the first write since the file was opened stamps the update in the file's extent-zero SFCB
   slot, if the label asks for update stamps, at once; the writes after it don't, nor does the close. After a make of
-  extent 0, which stamped it, no write of that FCB does.
+  extent 0, which stamped it, no write of that FCB does. The FCB's S1 (byte 13) remembers it: bit 7 set once the
+  stamp is made; Open clears it and Make of extent 0 sets it. An FCB put together by hand from a directory entry,
+  not opened, carries whatever byte 13 it was given (an entry's byte count of 128 reads as stamped): open a file
+  with [function 15](#bdos-15) or make it with [function 22](#bdos-22) before writing it.
 
 #### Cycles
 
@@ -1587,8 +1595,9 @@ R0–R2 and the FCB are left as [function 33](#bdos-33) leaves them.
 
 #### Errors
 
-As [function 21](#bdos-21): 4 Invalid Drive, 2 Read Only, 3 File R/O before anything is written, then 1 Disk I/O;
-as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)).
+As [function 21](#bdos-21): 4 Invalid Drive, 2 Read Only, 3 File R/O before anything is written, then 1 Disk I/O,
+also from the directory write a write may make (t3', the update stamp); as the error mode says
+([function 45](#bdos-45), [appendix A](appendix-a-errors.md)).
 
 #### Side effects
 
@@ -1738,6 +1747,80 @@ OODOS 0.2
 
 The same, but for the registers: the vector goes in A and X, where CP/M 3 takes DE. The units are read again
 first, as for 13 (ours).
+
+<a id="bdos-38"></a>
+### 38 DRV_ACCESS: claim drives
+
+#### Entry
+
+- Y = 38 (`DRV_ACCESS`). Anything in A and X is ignored.
+
+#### Exit
+
+- A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None.
+
+#### Side effects
+
+None: one program runs at a time, so there is no drive to claim.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same: an MP/M function CP/M 3 doesn't support, answered with success. A program written for MP/M may call it
+before using a drive; on OODOS, as on CP/M 3, it does nothing.
+
+<a id="bdos-39"></a>
+### 39 DRV_FREEDRV: release drives
+
+#### Entry
+
+- Y = 39 (`DRV_FREEDRV`). Anything in A and X is ignored.
+
+#### Exit
+
+- A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None.
+
+#### Side effects
+
+None: one program runs at a time, so there is no drive to release.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2 (before 2026-11-04 it returned A = X = `$FF`)
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same: an MP/M function CP/M 3 doesn't support, answered with success. A program written for MP/M may call it
+when it is done with a drive; on OODOS, as on CP/M 3, it does nothing.
 
 <a id="bdos-40"></a>
 ### 40 F_WRITEZF: write a random record, zero-filled

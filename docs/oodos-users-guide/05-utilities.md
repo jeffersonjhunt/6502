@@ -790,7 +790,8 @@ OODOS 0.2
 
 - The banner is OODOS's.
 - A file copied alone keeps its source's RO, SYS and F1-F4, as in CP/M 3, but its archive bit is clear, so it is
-  backed up again; a joined file takes no attributes.
+  backed up again; a joined file takes no attributes. With `[A]` the attributes are those of the first part of the
+  file that isn't archived, which are the whole file's unless something set its parts' differently.
 - H's error asks for no correction: the copy stops.
 - `D0` and `T0` are refused, and so is an empty S or Q text.
 - More than 16 sources are `INVALID FORMAT`.

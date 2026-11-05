@@ -68,9 +68,10 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
 
 ## Functions OODOS hasn't
 
-41, MP/M's test-and-write, and every number no Digital Research system gives a meaning. Each returns A = X = `$FF`
-(CP/M 3 answers 41 with A = `$FF` and H 0). 38 and 39, MP/M's drive access and free drive, return A = X = 0, the
-success CP/M 3 answers them with.
+41, MP/M's test-and-write, returns A = `$FF` with X 0, as CP/M 3 answers it. Every number no Digital Research system
+gives a meaning returns A = X = `$FF`. 38 and 39, MP/M's drive access and free drive
+([DRV_ACCESS](07-function-reference.md#bdos-38), [DRV_FREEDRV](07-function-reference.md#bdos-39)), return A = X = 0,
+the success CP/M 3 answers them with.
 
 ## Each function
 

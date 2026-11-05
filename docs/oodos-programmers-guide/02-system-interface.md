@@ -122,7 +122,7 @@ CP/M 3's layout.
 | 1-8 | f1-f8 | the name, capitals, blank-padded; bit 7 of each is an attribute |
 | 9-11 | t1-t3 | the type, the same way; bit 7 of t1 is read-only, of t2 SYS, of t3 archive |
 | 12 | EX | the extent number |
-| 13 | S1 | the last record's byte count, kept in the directory |
+| 13 | S1 | in an entry, the last record's byte count; in an open FCB, the BDOS's: bit 7 set once this open's update is stamped ([function 21](07-function-reference.md#bdos-21)) |
 | 14 | S2 | the BDOS's: the extent number's high bits, and its own state |
 | 15 | RC | the records in this extent |
 | 16-31 | D0-D15 | the extent's blocks, the BDOS's; a rename's new name; a label's and an XFCB's password |

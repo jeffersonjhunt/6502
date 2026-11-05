@@ -49,6 +49,8 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [35](07-function-reference.md#bdos-35) | `F_SIZE` | a file's size | A/X = the FCB | A = 0, R0-R2 the size |
 | [36](07-function-reference.md#bdos-36) | `F_RANDREC` | set the random record from the file's place | A/X = the FCB | A/X = 0, R0-R2 set |
 | [37](07-function-reference.md#bdos-37) | `DRV_RESET` | reset drives | A/X = the vector | A/X = 0, or an error |
+| [38](07-function-reference.md#bdos-38) | `DRV_ACCESS` | claim drives (MP/M's) | - | A/X = 0 |
+| [39](07-function-reference.md#bdos-39) | `DRV_FREEDRV` | release drives (MP/M's) | - | A/X = 0 |
 | [40](07-function-reference.md#bdos-40) | `F_WRITEZF` | write a random record, zero-filled | A/X = the FCB | as 34 |
 | [42](07-function-reference.md#bdos-42) | `F_LOCK` | lock records | — (A and X aren't read) | A/X = 0 |
 | [43](07-function-reference.md#bdos-43) | `F_UNLOCK` | unlock records | — (A and X aren't read) | A/X = 0 |
@@ -90,6 +92,5 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [112](07-function-reference.md#bdos-112) | `L_WRITEBLK` | write a block of characters to LST: | A/X = the CCB | A/X = 0 |
 | [152](07-function-reference.md#bdos-152) | `F_PARSE` | parse a file name into an FCB | A/X = the parse block | A/X = what follows, 0, or `$FFFF` |
 
-A function number OODOS doesn't have returns A = X = `$FF`: 41, 61-71, 76-97, 113-151 and 153 on
-([appendix A](appendix-a-errors.md)). 38 and 39, MP/M's drive access and free drive, return A = X = 0, as CP/M 3
-answers them.
+A function number OODOS doesn't have returns A = X = `$FF`: 61-71, 76-97, 113-151 and 153 on
+([appendix A](appendix-a-errors.md)). 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 answers it.
