@@ -190,6 +190,48 @@ the gain is bounded by what -O3 already inlines). The cleaner structural
 attack is **2.6** (the run loop's per-instruction polling) plus making the
 chain inline-able, which avoids duplicating bridge logic.
 
+### Where the run loop's wall-time goes (measured, 2.6)
+
+A throwaway `steady_clock` sampler around each per-instruction stage of
+`Session::run` (session.cpp:420), BIOS boot, 13.9 M instructions / 40 M
+cycles, host Release -O3:
+
+| run-loop stage | % of wall-clock | note |
+|---|---|---|
+| `step` (the instruction + its whole bus chain) | ~35% | the actual work |
+| `irq()`/`sync()` | ~25% | `sync()` ticks timed devices + the `irq_wired_` loop (8 virtual `irq()` calls) |
+| `take_*` (start before; reset×2, nmi×2 after) | ~14.5% | latched edge flags, false ~always; `bus().take_reset()` is a virtual forward |
+| `may_run(pc)` | ~7.5% | must run before every instruction (fetch breakpoints) |
+| `service` | ~7.3% | already batched every 64 cycles |
+| **the per-instruction polling** | **~54%** | bigger than the `step()` itself |
+
+Findings (throwaway sampler reverted; tree clean at the 3.8 commit, gate
+green):
+
+- **Ticking only the timed∩IRQ-wired devices in `irq()` (not all timed) saved
+  0.0%** (15.1 → 14.9 MHz). In the backplane, 5 of 6 timed devices are
+  IRQ-wired, so the set is almost unchanged. The cost of `irq()` is **not**
+  the number of `tick()`s — it is the *fixed* per-instruction overhead: the
+  8 virtual `irq()` calls in the `irq_wired_` loop, the 5 `tick()` calls, and
+  the `s.synced < now_` checks, **paid every instruction even though the IRQ
+  line almost never changes**.
+- So the safe 2.6 is to **stop polling the IRQ line (and the latched `take_*`
+  edges) every instruction** — only when they *could* have changed. Both
+  carry a cycle-accuracy tradeoff:
+  - **IRQ**: level-sensitive, sampled at instruction boundaries on the board.
+    Skipping a poll means an assert/deassert pair inside the gap is missed →
+    the IRQ is taken late. Correct only if the "could have changed" predicate
+    is exact (a device's IRQ can only change on its tick or a bus access).
+  - **`take_*`**: latched edges. `reset_wanted_` can be raised by a *CPU
+    write* to the MODE register mid-`step()`, so a host-side "dirty" flag is
+    not enough; batching across N instructions takes a START/NMI/reset N
+    instructions late (a sub-cycle timing difference the pure-CPU Harte/
+    Dormann suites won't catch, but the card tests might).
+
+Both are real, measurable, and ~54% of wall-time — but each must be designed
+so the "could have changed" predicate is exact, and gated on the *card* tests
+(test_bios/test_backplane), not just Harte/Dormann.
+
 ## Baseline
 
 _Captured in Phase 0. Every later phase diffs against this._
