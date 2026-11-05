@@ -2876,6 +2876,19 @@ start, as 4a–5c did, and says here what changed.
 6b needs nothing of 6a and can go first or beside it; 6c needs both; 6d needs 6b (its SD half) and 6c (its O:
 half). The version stays 0.3 through 6a–6c and becomes 0.4 after 6d, as 0.3 came after 5c (a question below).
 
+**Done means,** for every stage: its tests below pass, each must-fail case seen to fail with its fault put in;
+`tools/check.sh quick` passes with the fixtures present; its as-built section is written here (what changed from
+this plan, and what was measured); its book entries are written; and the owner has merged it. And for each:
+
+- **6a:** native software can drive every switch of the card, and a sector written at 224 cycles a byte reads
+  back in the emulator; Apple II mode is as it was (test_iie).
+- **6b:** a cpmtools `apple-do` image named in `DRIVES.TXT` is a drive whose files OODOS reads and writes, and
+  cpmtools reads what OODOS wrote (`interop.sh --apple`, which the owner runs with the full tier).
+- **6c:** the same image in the emulated drive is O: (or P:), with the same results byte for byte as on an SD
+  unit; a changed floppy is seen; the drive's times are written down for the Floppy Emu's check at bring-up.
+- **6d:** DOS33 lists, takes and puts files on a DOS 3.3 disk, in the drive and as an SD image, and DOS 3.3 in
+  the emulated IIe reads what it wrote, and the other way.
+
 **Testing** (as phases 3–5: directed tests line for line on `oodos_rig.h`'s `CcpRig`, cpmtools for what lands on
 an `apple-do` disk, dos33.py and DOS 3.3 for what lands on a DOS 3.3 disk, and each check seen to fail on a fault
 put in on purpose, with `OODOS_SYS_DIR`). Every image is ours: `apple-do` ones made with cpmtools in a throwaway
