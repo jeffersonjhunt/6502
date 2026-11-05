@@ -761,7 +761,7 @@ against, compared with what the BDOS does on the emulator.
   79,766, and 165,186 for the cheapest that writes buffers back first (one moving to the next extent, which writes
   the drive's data back before the entry; before that order a write found changed buffers to take, 93,201). The
   stub adds 216. Most of a buffered read is three DMA copies through MOVE: the FCB in and out, and the record.
-- OODOS.SYS is still 0.2: the version's minor isn't changed here (the coordinator's to decide).
+- OODOS.SYS stayed 0.2 here (the version's minor wasn't changed in phase 3); 0.3 (2026-11-05) is phase 5's end.
 
 **Decided (2026-10-28): 3b is two parts, each reviewed and merged on its own:** **3b1 the file extras** (44, labels,
 102, 103, 106, XFCBs and passwords) and **3b2 the system extras** (the SCB, the full console set, 47, 107, 108,
@@ -1147,7 +1147,7 @@ tests.
   of 4 or 8 (24–31, 48–55, 60–63), so no span of at most three blocks has an allowed first and last block around
   a refused one, and the first-and-last check refused the same spans. Common memory in an allocated block is
   deferred (phase 7, [Open Questions](#open-questions)).
-- OODOS.SYS is still 0.2.
+- OODOS.SYS stayed 0.2 here; 0.3 (2026-11-05) is phase 5's end.
 
 ### The archive bit and the update stamp (item 10) ###
 
@@ -2688,7 +2688,8 @@ and `PROFILE.SUB` in its command line chapter, and SETDEF's `ORDER`.
   7.16 MHz: not slow, so the reads stay random.
 - **Where it lives now:** block 62's code window 8,762 of 12,288 (7,477 of code, 1,285 of BSS); common memory
   1,187 of 2,048.
-- **The version stays 0.2** through 5a (the owner: one bump, after 5c, the books' "Since" lines with it).
+- **The version stayed 0.2** through 5a-5c (the owner: one bump, after 5c). 0.3 (2026-11-05) is phase 5's end: OODOS.SYS, OOLDR and
+  function 72 say 0.3, and the books' Since lines say OODOS 0.3 for what phase 5 and item 10 added or changed.
 
 **Decided (2026-11-04, the owner, on this plan):** the loader in block 62 with the CCP, 59 through common memory;
 every end of a program reaching the RSXs as function 0; three branches, 5a–5c; SUBMIT's lines in temporary files,

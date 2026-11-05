@@ -84,8 +84,8 @@ SS_LENGTH       = 3                    ;   bytes, at most 16 KB
 SS_RECORD       = 5                    ;   the record of the file it starts at
 SS_LEN          = 8
 SYS_MAX_SEGMENTS = 8
-SYS_MAJOR       = 0                    ; phase 2's
-SYS_MINOR       = 2
+SYS_MAJOR       = 0                    ; 0.3: phase 5's end (mksys.py's VERSION too)
+SYS_MINOR       = 3
 
 ; The CP/M file reader's errors (sys/cpmread.s), in A with carry set
 CRE_EOF         = 0                    ; CR_READ: past the file's last record

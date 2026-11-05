@@ -37,7 +37,7 @@ BLOCK = 16 * 1024
 ALLOWED = ((31 * BLOCK, 32 * BLOCK), (60 * BLOCK, 63 * BLOCK))  # block 31; blocks 60-62
 RES_BLOCK = 62
 ENTRY_LOW, ENTRY_HIGH = 0xC800, 0xFFFF  # block 62 in W3, past the I/O hole
-VERSION = (0, 2)  # system.inc's SYS_MAJOR, SYS_MINOR
+VERSION = (0, 3)  # system.inc's SYS_MAJOR, SYS_MINOR
 
 
 class Refused(Exception):

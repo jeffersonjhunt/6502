@@ -51,7 +51,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -513,7 +513,7 @@ An address in the I/O hole (`$C000`-`$C7FF`): the call stops there, A = X = `$FF
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -747,7 +747,7 @@ An FCB in the I/O hole (`$C000`–`$C7FF`) returns A = X = `$FF`, with nothing d
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -798,7 +798,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1061,7 +1061,7 @@ stub adds 220.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1118,7 +1118,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1615,7 +1615,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1774,7 +1774,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1811,7 +1811,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1847,7 +1847,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -2105,7 +2105,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -2202,7 +2202,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -2646,7 +2646,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -2688,7 +2688,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -2971,7 +2971,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 

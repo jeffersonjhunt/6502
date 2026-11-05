@@ -658,7 +658,7 @@ After any, nothing is changed.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -779,7 +779,7 @@ A copy that fails leaves nothing behind: PIP writes to `NAME.$$$` and renames it
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -877,7 +877,7 @@ Duplicate RSX in header. Replacing old by new
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -953,7 +953,7 @@ A: SAM      TXT
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1022,7 +1022,7 @@ Getting console input from file: ANSWERS.TXT
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
@@ -1093,7 +1093,7 @@ As GET's, and:
 
 #### Since
 
-OODOS 0.2
+OODOS 0.3
 
 #### Status
 
