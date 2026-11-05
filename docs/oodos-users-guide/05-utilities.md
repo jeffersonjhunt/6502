@@ -868,7 +868,9 @@ Duplicate RSX in header. Replacing old by new
 - `No more space in the header for RSXs or SCB initialization.`: more than 15.
 - `Unrecognized option`, `No modifier for this option` (`NULL=` or `LOADER=`), `Missing left parenthesis.`,
   `Missing right Parenthesis`, `Missing SCB value.`, `Invalid SCB offset` (over `63`).
-- `Read only`: the program's file is read-only. `Cannot delete file`: its old file couldn't be deleted.
+- `Read only`: the program's file is read-only. `Cannot delete file`: its old file couldn't be deleted (a
+  password, say); the new one is not kept.
+- `Invalid RSX type` too for an RSX in the old file whose header isn't an RSX's.
 - `NAME.TYP No File`: a file that isn't there. Other errors (a password, a full disk) are the BDOS's.
 
 #### Since
@@ -910,6 +912,10 @@ GET {CONSOLE INPUT FROM} CONSOLE
 - **CONSOLE** takes input from the keyboard again at once, ending the newest GET. In a file read with SYSTEM, a
   `GET CONSOLE` line ends that file.
 - A GET in a file GET is reading (with SYSTEM) reads its own file first, then the first goes on.
+- What GET shows of what it reads (ECHO) goes on to the console as if typed: a PUT given before the GET writes it
+  to its file too, one given after it doesn't (it sees only what the program itself writes).
+- A program that reads a line with its buffer at the DMA address (function 10 with A/X = 0) keeps the characters
+  already there as typed first, as with the keyboard.
 - The words are typed in full. The file is read to its end, or a ^Z; an LF after a CR is dropped.
 
 #### Options
@@ -976,6 +982,10 @@ PUT PRINTER {OUTPUT TO} PRINTER
   replaced once the new one is complete. A read-only one is refused.
 - With a PUT of the same kind already writing to a file: `Do you want another file? (Y/N)`. Y: both files get the
   output; N: the first file is closed, and the new one takes over.
+- A second PUT command isn't "the next command" for a PUT given just before it: that one waits for the command
+  after, so neither file gets the second PUT's own words.
+- GET's echo of what it reads (with ECHO) goes into the file of a PUT given before the GET, not of one given after
+  it.
 - The words are typed in full.
 
 #### Options
@@ -985,7 +995,8 @@ Any of these together, separated by commas or blanks:
 - **ECHO** the output also goes to the device: the default for the console.
 - **NO ECHO** to the file only: the default for the printer. A program that asks for input then shows `PUT>`
   first. ^S, ^Q and ^C aren't looked at while it writes.
-- **FILTER** writes control characters other than CR and LF as `^` and a letter (ESC as `^[`, a tab as `^I`).
+- **FILTER** writes control characters other than CR and LF as `^` and a letter (ESC as `^[`, a tab as `^I`), and
+  DEL as `^?`.
 - **NO FILTER** (the default) writes them as they are; a tab stays a tab.
 - **SYSTEM** everything from now, the CCP's prompts and messages too, until `PUT ... TO CONSOLE` (or `PRINTER`).
 

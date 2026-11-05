@@ -678,10 +678,22 @@ oldent: lda     oi
         sta     tent + E_REC
         lda     oent + RT_REC + 1
         sta     tent + E_REC + 1
-        lda     oent + RT_REC           ; its header: its length
+        lda     oent + RT_REC           ; its header, an RSX's, then its length
         ldx     oent + RT_REC + 1
         jsr     rdsrc
-        jsr     rsxlen
+        ldx     #3
+:       lda     rbuf,x
+        cmp     MAGIC,x
+        bne     @bad
+        dex
+        bpl     :-
+        lda     rbuf + OH_FLAGS
+        cmp     #OF_RELOC | OF_RSX
+        beq     :+
+@bad:   lda     #<sbadrsx
+        ldx     #>sbadrsx
+        jmp     fail
+:       jsr     rsxlen
         lda     rlen
         sta     tent + E_LEN
         lda     rlen + 1
@@ -1107,10 +1119,20 @@ replace:
         sta     rfcb + 16,x
         dex
         bpl     :-
+        lda     #$FF                    ; errors returned for the delete: one message, ours
+        ldy     #F_ERRMODE
+        jsr     BDOS
         lda     #<dfcb
         ldx     #>dfcb
         ldy     #F_DELETE
         jsr     BDOS
+        pha
+        phx
+        lda     #$FE
+        ldy     #F_ERRMODE
+        jsr     BDOS
+        plx
+        pla
         cmp     #$FF
         bne     @ren
         cpx     #0

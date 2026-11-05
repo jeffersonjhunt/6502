@@ -2327,6 +2327,15 @@ built, and these are the details):
   gencom.py's on files padded as gencom.py pads. With NULL the first file is an RSX (`NAME.RSX` with no type),
   and only a first file typed `.COM` is `COM file found and NULL option`. A file not found is `NAME.TYP No File`
   (ours).
+- **After 5b's review (2026-11-04, the owner's triage):** a PUT armed for the next command doesn't take a PUT
+  command as that command: PUT.COM's first call, 60 `RXF_PUTCMD` (`$93`), arms again one its start made active,
+  what it took (the owed LF) dropped. GET's echo goes down the chain by its offset 9, so a PUT older than the GET
+  (given before it) writes it to its file and a newer one doesn't (said in util-get and util-put). GET's 10 with
+  A/X = 0 keeps the DMA buffer's characters as typed first, as the BDOS's 10. FILTER writes DEL as `^?`. GENCOM
+  deletes the old `.COM` in error mode `$FF`, so `Cannot delete file` is its only message, and checks an attached
+  RSX's header (`Invalid RSX type`) before trusting its length. Tests wait for what a program asks for (the rig's
+  `calls`: the BDOS entered for a function) or prints, not a fixed time; the ^C at the prompt's drive reset is
+  tested while GET waits with its file open and while PUT's file is being written.
 - **`Insufficient Memory`** in the CCP: 59's X = 0 and GO's image too big (test_oodos_sys's two GO cases and
   test_oodos_rsx's four changed with decision 3).
 - **Tests:** `test_oodos_utils_rsx`, 14 cases on IOTEST (`oodos/sys/test/iotest.s`): GET's forms and options, its

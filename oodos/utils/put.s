@@ -30,7 +30,11 @@ CMD_BREAK = UT_BREAK
         OODOS_HEADER
 
         .code
-start:  jsr     UT_INIT
+start:  lda     #<pbcmd                 ; first: a PUT armed for this command waits for the
+        ldx     #>pbcmd                 ; next (before anything is written)
+        ldy     #P_RSX
+        jsr     BDOS
+        jsr     UT_INIT
         stz     seen
         stz     flags
         jsr     RD_WORD
@@ -280,6 +284,7 @@ sputc:  .byte   "Putting console output to file: $"
 sputp:  .byte   "Putting printer output to file: $"
 
         .data
+pbcmd:  .byte   RXF_PUTCMD, 0
 pbask:  .byte   RXF_PUTASK, 1, 0, 0
 pbstop: .byte   RXF_PUTSTOP, 1, 0, 0
 pbfile: .byte   RXF_PUTFILE, 4

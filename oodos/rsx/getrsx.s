@@ -213,13 +213,17 @@ char:   jsr     serving
 @pass:  jmp     pass
 
 ; 10: a line from the file into the caller's buffer (A/X, or the DMA
-; address if 0): its size, the count, the characters.
+; address if 0): its size, the count, the characters. With 0, the characters
+; already in the buffer, to a 0 (or its size), are taken as typed first, and a
+; CR among them ends the line there, as the BDOS's 10 does.
 line:   jsr     serving
         bcs     :+
         jmp     pass
-:       lda     sa
+:       stz     initial
+        lda     sa
         ora     sx
         bne     @addr
+        inc     initial
         ldx     #$3C                    ; the DMA address
         jsr     RX_SCBGET
         sta     sa
@@ -239,6 +243,21 @@ line:   jsr     serving
         lda     #1
 :       sta     lmax
         stz     lcount
+        lda     initial
+        beq     @next
+@pre:   ldx     lcount                  ; the buffer's own characters first
+        cpx     lmax
+        bcs     @next
+        txa
+        clc
+        adc     #2
+        tay
+        jsr     RX_PEEK
+        beq     @next
+        cmp     #CR
+        beq     @done
+        inc     lcount
+        bra     @pre
 @next:  jsr     nextch
         bcs     @eof
         cmp     #CR
@@ -383,6 +402,7 @@ bidx:   .byte   128
 ch:     .byte   0
 lmax:   .byte   0
 lcount: .byte   0
+initial: .byte  0
 sa:     .byte   0
 sx:     .byte   0
 sy:     .byte   0

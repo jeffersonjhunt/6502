@@ -349,7 +349,7 @@ TEST(an_rsx_only_com_keeps_its_rsxs_for_the_next_program_then_they_go)
     o = r.cmd("dir m:rqn.com");                     // a built-in between doesn't end it
     CHECK_EQ(nrsx(r), 1u);
     r.type("\x03");                                 // nor a warm boot (a ^C at the prompt)
-    r.run(ms(300));
+    CHECK(r.reprompt());
     CHECK_EQ(nrsx(r), 1u);
     o = r.cmd("m:rsxq # T");
     has(o, "C# T=BF06 ");                           // its remove flag $FF, still there
@@ -418,7 +418,7 @@ TEST(every_end_of_a_program_reaches_the_rsxs_as_function_0_once)
     }
     // ^C in function 10
     r.type("m:rsxq K\r");
-    r.run(ms(300));
+    CHECK(r.calls(r.C_READSTR_FN));                      // RSXQ waits for its line
     const size_t from = r.out.size();
     r.type("\x03");
     CHECK(r.until("A>", ms(3000), from));
@@ -431,7 +431,7 @@ TEST(every_end_of_a_program_reaches_the_rsxs_as_function_0_once)
     n = m;
     // A ^C at the prompt is a warm boot too
     r.type("\x03");
-    r.run(ms(300));
+    CHECK(r.reprompt());
     m = fn0(r.cmd("m:rsxq ?A"), 'A');
     CHECK_EQ(m, n + 2);
 }
@@ -463,7 +463,7 @@ TEST(the_scb_19_says_the_ccp_runs_and_counts_its_commands)
     o = r.cmd("m:rsxq S19");
     has(o, "S19=" + hex(0x40 | ((v + 2) & 0x3F), 2));
     o = r.to("m:rsxq S19!m:rsxq S19", "A>m:rsxq S19\r\n");
-    r.run(ms(800));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.rfind("A>m:rsxq S19\r\n") + 15));
     has(r.out, "S19=" + hex(0x40 | ((v + 4) & 0x3F), 2)); // each of a ! line's
     CHECK_EQ(r.phys(SCB_PHYS + 0x19) & 0xC0, 0x80);
     // A built-in runs with bit 6 set and the CCP's bit 7: DIR's output is a command's (5b's PUT); at the next
@@ -489,7 +489,7 @@ TEST(the_scb_19_says_the_ccp_runs_and_counts_its_commands)
     has(o, "S06=11 S07=22 S08=33 S09=44 ");
     r.cmd("dir m:");
     r.to("m:rsxq!m:rsxq", "A>m:rsxq\r\n");
-    r.run(ms(800));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.rfind("A>m:rsxq\r\n") + 10));
     for (unsigned i = 0; i < 4; ++i)
         CHECK_EQ(r.phys(SCB_PHYS + 0x06 + i), 0x11 * (i + 1));
 }

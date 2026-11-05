@@ -11,6 +11,10 @@
 ; whose count isn't PUT.COM's) and serves it to its end (bit 6 clear); with
 ; SYSTEM it serves at once, until RXF_PUTSTOP of its kind. RXF_PUTASK: A = 0
 ; if it is a PUT of the kind given, still sending output to a file.
+; RXF_PUTCMD (PUT.COM, first): a PUT command isn't the next command for a PUT
+; armed before it: one made active by its start is armed again, what it took
+; (the CCP's owed LF) dropped, and waits for the command after; every RSX sees
+; the call (decided 2026-11-04, 5b's review).
 ;
 ; What it serves goes to the file as the program sent it (a tab as a tab, 9's
 ; string to the SCB's delimiter); with FILTER, a control character but CR and
@@ -213,11 +217,21 @@ rsx:    lda     sa
         beq     @file
         cmp     #RXF_PUTSTOP
         beq     @stop
+        cmp     #RXF_PUTCMD
+        beq     @cmd
         cmp     #RXF_PUTASK
         bne     @pass
         jsr     mykind                  ; a PUT of the kind, sending to a file?
         bcc     @pass
         jmp     zero
+@cmd:   lda     mode                    ; active for PUT.COM's own command: armed again
+        cmp     #M_ACTIVE
+        bne     @pass
+        lda     #M_ARMED
+        sta     mode
+        stz     bidx
+        stz     lastout
+        bra     @pass
 @stop:  jsr     mykind
         bcc     @pass
         jsr     finish
@@ -302,7 +316,13 @@ putc:   sta     ch
         and     #F_FILTER
         beq     @raw
         lda     ch
-        cmp     #$20
+        cmp     #$7F                    ; DEL as ^?
+        bne     :+
+        lda     #'^'
+        jsr     putb
+        lda     #'?'
+        jmp     putb
+:       cmp     #$20
         bcs     @raw
         cmp     #CR
         beq     @raw

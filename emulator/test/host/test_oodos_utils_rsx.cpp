@@ -87,10 +87,10 @@ TEST(get_gives_the_next_programs_input_from_a_file_then_the_keyboard)
     // The file done: the keyboard again, and the RSX gone at the next warm boot
     const size_t from = r.out.size();
     r.type("iotest L\r");
-    r.run(ms(500));
+    CHECK(r.calls(r.C_READSTR_FN));                      // IOTEST waits for its line
     r.type("KEY\r");
     CHECK(r.until("L[KEY] ", ms(3000), from));
-    r.run(ms(300));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("L[KEY] ", from)));
     CHECK_EQ(nrsx(r), 0u);
     // The long form, NO ECHO; a program that ends first: the keyboard for the next
     o = r.cmd("get console input from file m:in.txt [no echo]");
@@ -100,10 +100,10 @@ TEST(get_gives_the_next_programs_input_from_a_file_then_the_keyboard)
     hasnt(o, "ONE\r");
     const size_t f2 = r.out.size();
     r.type("iotest L\r");
-    r.run(ms(500));
+    CHECK(r.calls(r.C_READSTR_FN));
     r.type("K2\r");
     CHECK(r.until("L[K2] ", ms(3000), f2));
-    r.run(ms(300));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("L[K2] ", f2)));
     CHECK_EQ(nrsx(r), 0u);
 }
 
@@ -135,7 +135,7 @@ TEST(get_answers_status_by_the_console_modes_bits_8_and_9)
     r.cmd("get file m:in.txt");
     const size_t from = r.out.size();                        // both: no redirection
     r.type("iotest M3 L\r");
-    r.run(ms(500));
+    CHECK(r.calls(r.C_READSTR_FN));
     r.type("KB\r");
     CHECK(r.until("L[KB] ", ms(3000), from));
 }
@@ -150,14 +150,14 @@ TEST(get_system_takes_the_ccps_lines_until_its_end_or_a_get_console_line)
     size_t from = r.out.size();
     r.type("get file m:s1.txt [system]\r");
     CHECK(r.until("A>get console\r", ms(6000), from));
-    r.run(ms(1500));
+    CHECK(r.until("\r\nA>", ms(6000), r.out.find("A>get console\r", from) + 14)); // its end: the prompt
     has(r.out.substr(from), "A>iotest 2X\r\nX");
     hasnt(r.out.substr(from), "iotest 2Y");          // GET CONSOLE: the keyboard again
     has(r.cmd("iotest 2K"), "K");
     from = r.out.size();
     r.type("get file m:s2.txt [system]\r");
     CHECK(r.until("A>iotest 2Z\r\nZ", ms(6000), from));
-    r.run(ms(800));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("A>iotest 2Z\r\nZ", from) + 14));
     has(r.cmd("iotest 2J"), "J");                    // the file's end: the keyboard
     // A GET in a GET file stacks: the newer file first, then the rest of the older
     from = r.out.size();
@@ -165,7 +165,7 @@ TEST(get_system_takes_the_ccps_lines_until_its_end_or_a_get_console_line)
     CHECK(r.until("A>iotest 2P\r\nP", ms(9000), from));
     const std::string s = r.out.substr(from);
     CHECK(s.find("Q") != std::string::npos && s.find("Q") < s.find("A>iotest 2P"));
-    r.run(ms(800));
+    CHECK(r.until("\r\nA>", ms(3000), r.out.find("A>iotest 2P\r\nP", from) + 14));
     has(r.cmd("iotest 2W"), "W");
 }
 
@@ -201,6 +201,19 @@ TEST(get_refuses_what_isnt_a_form_and_leaves_no_rsx)
     has(r.cmd("get console"), "get console\r\n\r\nA>"); // nothing to end: nothing said
 }
 
+TEST(get_keeps_function_10s_characters_already_in_the_buffer_and_reads_past_a_drive_reset)
+{
+    Rx r({{0, "IN      TXT", bytes("CD\r\nEF\r\n")}});
+    REQUIRE(r.ok);
+    r.cmd("get file m:in.txt [no echo]");
+    has(r.cmd("iotest D"), "D[ABCD] ");             // A/X 0: the DMA buffer's "AB" first, as the BDOS's 10
+    // A ^C at the prompt (13: the drives reset) while GET waits with its file open: it reads on after
+    r.cmd("get file m:in.txt [no echo]");
+    r.type("\x03");
+    CHECK(r.reprompt());
+    has(r.cmd("iotest L L"), "L[CD] L[EF] ");
+}
+
 // ---- PUT -------------------------------------------------------------------------------------
 
 TEST(put_sends_the_next_commands_output_to_a_file_a_built_ins_too)
@@ -222,8 +235,8 @@ TEST(put_sends_the_next_commands_output_to_a_file_a_built_ins_too)
     CHECK_EQ(text(m_data(r, 0, "P       TXT")), std::string("\nAnineblockZ\x1B\t\x01"));
     // FILTER: control characters as ^ and a letter, CR and LF kept
     r.cmd("put console file m:f.txt [filter, no echo]");
-    r.cmd("iotest E N 2q");
-    CHECK_EQ(text(m_data(r, 0, "F       TXT")), std::string("\n^[^I^A\r\nQ"));
+    r.cmd("iotest E Y N 2q");                       // DEL as ^?
+    CHECK_EQ(text(m_data(r, 0, "F       TXT")), std::string("\n^[^I^A^?\r\nQ"));
 }
 
 TEST(put_no_echo_shows_its_prompt_when_a_program_asks_for_input)
@@ -328,6 +341,46 @@ TEST(the_rsxs_own_file_calls_leave_the_programs_state_as_it_was)
     r.cmd("put console output to console");
     const std::string s = text(m_data(r, 0, "OUT     TXT"));
     has(s, std::string(130, '.') + "V9000 0123 05 FE 03 ");
+}
+
+TEST(put_writes_on_past_a_drive_reset)
+{
+    Rx r;
+    REQUIRE(r.ok);
+    r.cmd("put console file m:out.txt [system]");
+    r.cmd("iotest " + std::string(60, '9'));          // 240 bytes: records written and closed
+    r.type("\x03");                                 // a ^C at the prompt: 13
+    CHECK(r.reprompt());
+    r.cmd("iotest 2Z");
+    r.cmd("put console output to console");
+    std::string nines;
+    for (int i = 0; i < 60; ++i)
+        nines += "nine";
+    const std::string s = text(m_data(r, 0, "OUT     TXT"));
+    has(s, nines);
+    has(s, "Z");
+}
+
+TEST(a_put_armed_for_the_next_command_waits_past_a_put_command)
+{
+    Rx r;
+    REQUIRE(r.ok);
+    // Y: both get the next command's output; A none of the second PUT's
+    r.cmd("put console file m:a.txt");
+    std::string o = r.to("put console file m:b.txt", "(Y/N)");
+    has(o, "Do you want another file? (Y/N)");
+    r.cmd("y");
+    r.cmd("iotest 2Z");
+    CHECK_EQ(text(m_data(r, 0, "A       TXT")), std::string("\nZ"));
+    CHECK_EQ(text(m_data(r, 0, "B       TXT")), std::string("\nZ"));
+    // N: the first closed, nothing in it; the second's file gets the output
+    r.cmd("put console file m:c.txt");
+    r.to("put console file m:d.txt", "(Y/N)");
+    r.cmd("n");
+    r.cmd("iotest 2W");
+    CHECK(r.m_entry(0, "C       TXT") >= 0);
+    CHECK_EQ(text(m_data(r, 0, "C       TXT")), std::string());
+    CHECK_EQ(text(m_data(r, 0, "D       TXT")), std::string("\nW"));
 }
 
 TEST(put_says_when_its_file_was_erased_under_it)
@@ -470,6 +523,27 @@ TEST(gencom_says_what_is_wrong)
         has(r.cmd(line), want + "\r\nA>");
         CHECK_EQ(r.m_entry(0, "IOTEST  $$$"), -1);
         is_built(r, "IOTEST  COM", "iotest.com");
+    }
+    // An old .COM GENCOM can't delete (a delete password): one message, GENCOM's
+    {
+        Gx p;
+        REQUIRE(p.ok);
+        p.xfcb_m(0, "IOTEST  COM", 0x20, "SECRET  ");
+        const std::string said = p.cmd("gencom m:iotest m:trsxa");
+        has(said, "\r\nCannot delete file\r\nA>");
+        hasnt(said, "Error");
+        CHECK_EQ(p.m_entry(0, "IOTEST  $$$"), -1);
+        is_built(p, "IOTEST  COM", "iotest.com");
+    }
+    // An attached RSX whose header isn't an RSX's: refused, not trusted
+    {
+        std::vector<uint8_t> bad = built(SYS, "iota.com");
+        const unsigned t = (bad[14] | bad[15] << 8) * 128u, rsx = (bad[t] | bad[t + 1] << 8) * 128u;
+        bad[rsx] = 0;                                // its magic number broken
+        Gx q({{0, "BAD     COM", bad}});
+        REQUIRE(q.ok);
+        has(q.cmd("gencom m:bad m:trsxb"), "Invalid RSX type\r\nA>");
+        CHECK_EQ(q.m_entry(0, "BAD     $$$"), -1);
     }
     std::string o = r.cmd("gencom m:iotest m:trsxa m:trsxa");  // named twice: taken once
     has(o, "Duplicate input RSX");

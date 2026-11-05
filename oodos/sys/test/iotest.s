@@ -9,7 +9,9 @@
 ;   Mh      the console mode's high byte (bits 8 and 9) made h (a digit), by 109
 ;   2c      c by 2; 6c by 6; 5c by 5 (LST:)
 ;   9       "nine" by 9; B "block" by 111; X "list" by 112
-;   E       ESC, a tab and ^A by 2
+;   E       ESC, a tab and ^A by 2; Y DEL by 2
+;   D       a line by 10 with A/X 0: the DMA address (a buffer of 20) holding
+;           "AB" and a 0 first: "D[...]"
 ;   N       CR LF by 2
 ;   V       the DMA address $9000 and segment $0123, user 5, error mode $FE and
 ;           multi-sector count 3 set; a line read by 10 (not shown) and 130
@@ -63,6 +65,10 @@ next:   jsr     nextc
         jeq     outx
         cmp     #'E'
         jeq     outesc
+        cmp     #'Y'
+        jeq     outdel
+        cmp     #'D'
+        jeq     dline
         cmp     #'N'
         jeq     outnl
         cmp     #'V'
@@ -189,6 +195,45 @@ outesc: lda     #$1B
         lda     #$01
         jsr     PUTC
         jmp     next
+outdel: lda     #$7F
+        jsr     PUTC
+        jmp     next
+dline:  lda     #20                     ; "AB", then a 0, in the DMA buffer
+        sta     buf
+        stz     buf + 1
+        lda     #'A'
+        sta     buf + 2
+        lda     #'B'
+        sta     buf + 3
+        stz     buf + 4
+        lda     #<buf
+        ldx     #>buf
+        ldy     #F_DMAOFF
+        jsr     BDOS
+        lda     #0
+        tax
+        ldy     #C_READSTR
+        jsr     BDOS
+        lda     #<BP_DMA
+        ldx     #>BP_DMA
+        ldy     #F_DMAOFF
+        jsr     BDOS
+        lda     #'D'
+        jsr     PUTC
+        lda     #'['
+        jsr     PUTC
+        ldx     #0
+@c:     cpx     buf + 1
+        beq     @e
+        lda     buf + 2,x
+        phx
+        jsr     PUTC
+        plx
+        inx
+        bra     @c
+@e:     lda     #']'
+        jsr     PUTC
+        jmp     blank
 outnl:  jsr     CRLF
         jmp     next
 
