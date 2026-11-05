@@ -2486,14 +2486,14 @@ SUBMIT file is console input for the CCP).
 [`oodos/include/rxfile.inc`](../oodos/include/rxfile.inc), `oodos/sys/ccp.s`, `oodos/utils/setdef.s`; the
 decisions above are what was built, and these are the details):
 
-- **SUBMIT's RSX** is its own, `rsx/subrsx.s` (1,523 bytes of image: six pages below the lowest RSX while it
-  serves), with GET's reading of a file moved to `rxfile.inc`, which both include (GET's RSX the same size as
+- **SUBMIT's RSX** is its own, `rsx/subrsx.s` (1,579 bytes of image after the review's fixes: seven pages below the lowest RSX
+  while it serves), with GET's reading of a file moved to `rxfile.inc`, which both include (GET's RSX the same size as
   before). It holds a line of 130 (SUBMIT.COM's 128 and a `<`). SUBMIT.COM is 7,168 bytes with it attached; the
   Makefile has its own rule for it, as `ATTACHED`'s pattern names `getrsx` and `putrsx` only.
-- **The CCP** grew 366 bytes (`$CB6F-$DEDC`, of the window to `$F7FF`): the search order's table (`ORDERS`, two
+- **The CCP** grew 397 bytes (`$CB6F-$DEFB`, of the window to `$F7FF`): the search order's table (`ORDERS`, two
   types for each of `$18`'s four values), a `.SUB` found or typed turned into `SUBMIT d:NAME.SUB` and its tail
   (`RUNSUB`), and the PROFILE.SUB look at the first prompt (`COLDF`, set in the file, cleared once looked).
-  OODOS.SYS is 25,344 bytes (main's 25,088). SETDEF.COM is 4,732 (4,631).
+  OODOS.SYS is 25,472 bytes (main's 25,088). SETDEF.COM is 4,732 (4,631).
 - **Decision 8 corrected** (the owner, 2026-11-05): SETDEF shows the search order; SHOW doesn't (nor does CP/M 3's).
 - **The PROFILE.SUB look logs A: in at the first prompt,** so existing tests that counted logins or used the system
   block where A:'s allocation vector now is changed (the owner's answer (a)): `test_oodos_sys`'s DIRTEST LOGIN
