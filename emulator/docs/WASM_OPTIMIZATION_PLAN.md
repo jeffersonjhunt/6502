@@ -78,9 +78,13 @@ a stage breakdown; `web_boot` still green; the baseline committed below.
    route and device by construction*, i.e. the cost of one more function in
    the per-access chain. The per-instruction cost is better attacked where
    it actually is: the run loop (Phase 2.6).
-2. **Default-bridge RAM fast path.** When the bridge is the no-window
-   default, skip the virtual `route()` call and index the RAM vector
-   directly (decoder.cpp:229/251).
+2. **RAM fast path** (decoder.cpp `access`/`read`/`write`). See the
+   "Where the wall-time actually goes" note: ~36% of wall-time is
+   `route`+`find`+`device` on the four RAM blocks (91% of accesses), but a
+   safe version must duplicate the backplane bridge's live window routing in
+   the Decoder — real cycle-accuracy risk. The "skip `catch_up` for RAM"
+   variant was built and measured: **0.0% gain** (the `catch_up` cost is the
+   timed devices' `tick()`, not the RAM no-op). Defer unless 2.6 falls short.
 3. **Gate the always-on observer.** Short-circuit `CycleTee::on_cycle`
    (bus_cycle.h:54) when no observer is attached, so the per-cycle virtual
    call and observer-vector loop disappear in normal (non-trace) runs.
@@ -148,6 +152,43 @@ four RAM blocks)** and **2.6 (gating the run loop's per-instruction
 `irq()`/`sync()`/`may_run()`/`take_reset()`/`take_nmi()` polling)**, with
 **3.8 (one embind `step_frame`)** as the JS-side cut that needs no C++
 cycle reasoning.
+
+### Where the wall-time actually goes (measured, host Release -O3)
+
+The count profile (route=find=device=15.3% each) is equal *by construction*
+and says nothing about wall-time. A throwaway `steady_clock` sampler per
+stage, running the BIOS boot (40 M cycles, host Release, no ASan), measured:
+
+| stage | % of wall-clock | what it is |
+|---|---|---|
+| `device` | 14.3% | the access into the card (RAM vector index; the timed cards' read/write) |
+| `find` | 11.5% | the mapping reverse-scan |
+| `route` | 10.5% | the bridge's `route()` (window/VEC/Apple math) — a virtual call through `NorthBridge*` |
+| `catch_up` | 10.3% | **the timed devices' `tick()`** (video drawing the splash, the RTC, sound) — real work, 8.6% of accesses |
+| `other` | 10.7% | `take_bus`/DMA/`granting` bookkeeping in `access()` |
+| **the bus access chain** | **~57%** | the rest (~43%) is `execute()`'s opcodes |
+
+Access mix: **91.4% untimed** (RAM + ROM), 8.6% timed. Two findings:
+
+1. **Every function in the chain is a real, non-inlined call at -O3**
+   (confirmed by `nm`): `Cpu6502` → `Bus::read` (virtual) → `Decoder::read`
+   → `Decoder::access` → `NorthBridge::route` (virtual) → `Decoder::find`
+   → `Decoder::catch_up` → `Device::read` (virtual). ~6 calls per bus access,
+   3 of them virtual. That is why the chain is 57% of wall-time.
+2. **Skipping `catch_up()` for the 91% untimed mappings saved 0.0%** (10.3%
+   before, 10.3% after, total 7.3 → 7.2 MHz). The `catch_up` cost is the
+   timed devices' `tick()` (real work), not the no-op call on RAM. So a
+   "skip catch_up for RAM" fast path is **not a win** (reverted).
+
+This reframes 1.2: the "fold `route`+`find`+`device` for the four RAM blocks"
+target is ~36% of wall-time, but doing it safely means **duplicating the
+backplane bridge's live window routing** (the `win_`/`vec_` registers, the
+I/O hole, Apple II mode's map, the RO bits) in the Decoder, invalidated on
+every window write — a real cycle-accuracy risk for a ~36% *ceiling* (the
+measured gain is lower, since `route`/`find` are partly the call overhead and
+the gain is bounded by what -O3 already inlines). The cleaner structural
+attack is **2.6** (the run loop's per-instruction polling) plus making the
+chain inline-able, which avoids duplicating bridge logic.
 
 ## Baseline
 
