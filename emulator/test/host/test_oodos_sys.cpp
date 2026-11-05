@@ -1170,6 +1170,8 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"VERSION", "31 00"},
         {"LOCK", "00 00"},
         {"UNLOCK", "00 00"},
+        {"ACCESS", "00 00"},           // MP/M's 38 and 39: success, as CP/M 3 answers them
+        {"FREEDRV", "00 00"},
         {"SIZEGONE", "FF 00"},
         {"SNEXTEND", "FF 00"},
         {"FREEBAD", "FF 04"},          // Invalid Drive: F: isn't mounted

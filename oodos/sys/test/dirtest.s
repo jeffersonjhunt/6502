@@ -40,6 +40,7 @@
 ;   ROVEC aa xx / ROWRITE aa xx  A/X the vector; a write: FF 02
 ;   ROVEC2 aa xx          after 37 resets M:
 ;   LOGIN aa xx DRIVE aa xx ALLOC aa xx VERSION aa xx LOCK aa xx UNLOCK aa xx
+;   ACCESS aa xx FREEDRV aa xx   MP/M's 38 and 39: 00, as CP/M 3 answers
 ;   DPB <17 bytes>        from function 31's address
 ;   SIZEGONE aa xx / SNEXTEND aa xx / FREEBAD aa xx / SELBAD aa xx
 ;   RESET aa xx / RDRIVE aa xx / RLOGIN aa xx / RROVEC aa xx  after 13
@@ -546,6 +547,8 @@ dirfull:
         TRY     "VERSION ", S_BDOSVER, 0
         TRY     "LOCK ", F_LOCK, fcb
         TRY     "UNLOCK ", F_UNLOCK, fcb
+        TRY     "ACCESS ", 38, 0        ; MP/M's access drive and free drive
+        TRY     "FREEDRV ", 39, 0       ; (oodos.inc names neither)
         CALLF   DRV_DPB, 0
         sta     PTR
         stx     PTR+1

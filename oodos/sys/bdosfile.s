@@ -69,7 +69,8 @@
 ;   37 DRV_RESET     as 13, for the drives in A/X's bits: written back,
 ;                    dropped, logged out and read-write
 ;   40 F_WRITEZF     as 34: every block a write takes is zeroed anyway
-;   42, 43           A = 0: there is nothing to lock
+;   38, 39, 42, 43   A = 0: there is nothing to lock (MP/M's drive access
+;                    and free, and record locks, answered as CP/M 3 does)
 ;   45 F_ERRMODE     the error mode = A
 ;   46 DRV_SPACE     drive A's free records, 3 bytes to the DMA address
 ;   48 DRV_FLUSH     a swapped unit's drive's buffers dropped (CHANGED), then
@@ -221,7 +222,7 @@ F_DRESET:       JSR     RESCAN         ; a swapped unit's drive: its buffers dro
                 STZ     SSON
                 JMP     RDONE
 
-F_LOCK:         JMP     RET0
+F_LOCK:         JMP     RET0           ; 38, 39, 42, 43
 
 F_ERRMODE:      STA     SCB_ERRMODE
                 JMP     RET0

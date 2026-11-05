@@ -35,7 +35,7 @@
 ;                   clock past 2155 (BIOS TIME's carry): A = X = $FF, the DAT
 ;                   left as it was
 ;
-; and bdosfile.s's 13-37, 40, 42, 43, 45, 46, 48, 98 and 99, and
+; and bdosfile.s's 13-40, 42, 43, 45, 46, 48, 98 and 99, and
 ; bdossys.s's console (1-11), 47, 49, 107-112 and 152, and bdosxtra.s's 44,
 ; 100-103 and 106, and bdosmem.s's 51-58, 73 and 74 (phase 3c). Any other
 ; returns A = X = $FF.
@@ -194,7 +194,7 @@ FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
                 .byte   30, 32, 34, 36, 38, 40, 42, 44, 46, 48 ; 20-29
-                .byte   50, 52, 54, 56, 58, 60, 62, 64, $FF, $FF ; 30-39
+                .byte   50, 52, 54, 56, 58, 60, 62, 64, 68, 68 ; 30-39: 38, 39 as 42
                 .byte   66, $FF, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
                 .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
