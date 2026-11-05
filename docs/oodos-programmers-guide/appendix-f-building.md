@@ -3,8 +3,9 @@
 How to build a program: oodos.inc, the link configs, the rules gate, and running it in the emulator. The tested
 starting point is [docs/examples](../examples/).
 
-OODOS programs are written in ca65, cc65's assembler, and linked with ld65. Nothing more is needed but python3, for
-the rules gate and mkprl.py. The design record: [oodos/README.md, "Building a program"](../../oodos/README.md#building-a-program).
+OODOS programs are written in ca65, cc65's assembler, and linked with ld65. Nothing more is needed but python3, for the
+rules gate and mkprl.py. The design record:
+[oodos/README.md, "Building a program"](../../oodos/README.md#building-a-program).
 
 ## A program
 

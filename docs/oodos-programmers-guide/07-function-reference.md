@@ -8,8 +8,8 @@ function number with its anchor once its entry is written.
 
 How to call a function, and how registers and numbers are written here, is in
 [chapter 2](02-system-interface.md#calling-the-bdos) and [docs/README.md](../README.md#conventions). In short:
-`JSR BDOS` with the function in Y, a byte in A, a word in A (low) and X (high); the result comes back in A, or A
-and X. Y is not kept; the flags come back as they were before the call, with the decimal flag clear.
+`JSR BDOS` with the function in Y, a byte in A, a word in A (low) and X (high); the result comes back in A, or A and X.
+Y is not kept; the flags come back as they were before the call, with the decimal flag clear.
 
 Functions 59 (P_LOAD) and 60 (P_RSX) are written with OODOS phase 5, the RSX loader
 ([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)), which will also add to function 47's entry what RSXs change.
@@ -391,8 +391,7 @@ The same, but for the registers.
 #### Entry
 
 - Y = 9 (`C_WRITESTR`).
-- A/X = the string's address. The address is the program's own, anywhere in
-  `$0000`–`$BFFF`.
+- A/X = the string's address. The address is the program's own, anywhere in `$0000`–`$BFFF`.
 - The string ends at the output delimiter, `$` (`$24`) unless function 110 has changed it. The delimiter is not
   printed.
 
@@ -412,11 +411,10 @@ Each character goes to the console as function 2 sends it:
 - A tab (`$09`) moves to the next column that is a multiple of 8, unless bit 2 of the console mode (function 109)
   asks for raw output.
 - While printer echo is on (^P), each character goes to LST: as well, unless the output is raw.
-- Before each character the BDOS looks at the keyboard, unless bit 1 of the console mode turns that off or a key
-  is kept already (then a ^S isn't seen until a read takes it). A ^Q
-  or ^P on its own is dropped; any other key but ^S is kept, one, for the next console input. ^S stops the
-  output: then ^Q goes on, ^P turns printer echo over and stays stopped, ^C ends the program by the warm boot
-  (unless bit 3 of the console mode), and any other key rings the bell.
+- Before each character the BDOS looks at the keyboard, unless bit 1 of the console mode turns that off or a key is kept
+  already (then a ^S isn't seen until a read takes it). A ^Q or ^P on its own is dropped; any other key but ^S is kept,
+  one, for the next console input. ^S stops the output: then ^Q goes on, ^P turns printer echo over and stays stopped,
+  ^C ends the program by the warm boot (unless bit 3 of the console mode), and any other key rings the bell.
 - The SCB's console column follows what was printed.
 
 The CCP sets the delimiter back to `$` and the console mode to 0 at each warm boot, so a program starts with both.
@@ -462,8 +460,7 @@ start:  lda     #<msg                   ; the string's address: low in A,
 msg:    .byte   "Written by function 9", 13, 10, '$'
 ```
 
-At the prompt, with WRITESTR.COM on M:, it prints
-([`writestr.out`](../examples/writestr.out)):
+At the prompt, with WRITESTR.COM on M:, it prints ([`writestr.out`](../examples/writestr.out)):
 
 <!-- listing: ../examples/writestr.out -->
 ```
@@ -499,8 +496,8 @@ An address in the I/O hole (`$C000`-`$C7FF`): the call stops there, A = X = `$FF
   shown as `^` and its letter. A key past the buffer's size is dropped, with a bell.
 - A ^C while the line is empty ends the program by the warm boot, with the return code `$FFFE`, unless bit 3 of
   the console mode is set. In a line that isn't empty it is a character, shown `^C`.
-- The line is shown on rows of the console's width (the SCB's `$1A` holds the width less one: 79, for 80 columns), never in the last
-  column. A row starts where the cursor was; typing at the end of a full row starts a new one; a move or a
+- The line is shown on rows of the console's width (the SCB's `$1A` holds the width less one: 79, for 80 columns), never
+  in the last column. A row starts where the cursor was; typing at the end of a full row starts a new one; a move or a
   deletion before the row's start types the line again on a new row.
 - The line ended becomes the previous line, for ^W. Only the CR that ends it is echoed, not an LF.
 - What is echoed goes to LST: too while printer echo is on; ^P in the line turns printer echo on or off.
@@ -979,10 +976,10 @@ a read-only window, or with a DMA segment memory OODOS keeps for itself, is A = 
 
 #### Cycles
 
-Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 4,679 cycles for a record in
-a sector already in a buffer, 12,763 when the sector must be read
-([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3), phase 3b1; phase 3c's dispatch adds 2 to every call). With a
-count of 128 on M:, 553,186 cycles, 4,321 a record. The BDOS stub adds 216.
+Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 4,679 cycles for a record in a
+sector already in a buffer, 12,763 when the sector must be read ([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3),
+phase 3b1; phase 3c's dispatch adds 2 to every call). With a count of 128 on M:, 553,186 cycles, 4,321 a record. The
+BDOS stub adds 216.
 
 #### Since
 
@@ -1904,9 +1901,8 @@ None.
 
 - The mode is the SCB's byte at `$4B`. It decides what a physical error (Disk I/O, Read Only, File R/O, Invalid
   Drive, Password Error, File Exists, ? in Filename) does in every later call:
-  - **Default:** the BDOS prints the message, as
-    [chapter 2](02-system-interface.md#error-modes) shows, and ends the program by the warm boot with the return
-    code `$FFFD`.
+  - **Default:** the BDOS prints the message, as [chapter 2](02-system-interface.md#error-modes) shows, and ends the
+    program by the warm boot with the return code `$FFFD`.
   - **`$FE`:** it prints the message, then returns A = `$FF` and X = the error's code.
   - **`$FF`:** it returns A = `$FF` and X = the code, and prints nothing.
 - In either return mode, a multi-sector call keeps the records it did in the FCB before it returns.
@@ -2112,10 +2108,11 @@ OODOS 0.2
 
 #### CP/M 3
 
-CP/M 3's parameter block and offsets, but for the registers: a get returns the word in A and X, where CP/M 3 gives
-the byte in A and L and the next in H. Ours: the operations CP/M 3 reserves are a get, and a word set at `$63` sets one
-byte. A set of the DMA address, the drive or the user takes effect at once, as the SCB is the BDOS's only copy, but
-the drive isn't checked or logged in as function 14 would, and the user is kept to 0-15. The SCB is in the system's memory, not the program's: a program reaches it only through this function.
+CP/M 3's parameter block and offsets, but for the registers: a get returns the word in A and X, where CP/M 3 gives the
+byte in A and L and the next in H. Ours: the operations CP/M 3 reserves are a get, and a word set at `$63` sets one
+byte. A set of the DMA address, the drive or the user takes effect at once, as the SCB is the BDOS's only copy, but the
+drive isn't checked or logged in as function 14 would, and the user is kept to 0-15. The SCB is in the system's memory,
+not the program's: a program reaches it only through this function.
 
 <a id="bdos-50"></a>
 ### 50 S_BIOS: call the BIOS
@@ -2174,8 +2171,7 @@ registers. BOOT is refused. The program gets its own flags back.
 #### Entry
 
 - Y = 51 (`F_DMASEG`).
-- A/X = the segment. The segment is a paragraph, a 16-byte step of the 1 MB.
-  `$FFFF` is none.
+- A/X = the segment. The segment is a paragraph, a 16-byte step of the 1 MB. `$FFFF` is none.
 
 #### Exit
 
@@ -2823,7 +2819,8 @@ As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.
   byte 12's bits 7–4 with bit 0 set (ours: bit 0 says a label is there).
 - Without bit 0, an old label keeps its password; a new one has none.
 - The label's update stamp is set, and its creation stamp when it is made, whatever the mode asks (ours).
-- The drive's stamps and password checks follow the new mode from this call on ([chapter 3](03-file-system.md#directory-labels)).
+- The drive's stamps and password checks follow the new mode from this call on
+  ([chapter 3](03-file-system.md#directory-labels)).
 - A free entry used moves the drive's high-water mark, so later searches look that far.
 
 #### Cycles
@@ -2859,7 +2856,8 @@ stamped whatever the mode, and the `$FF` for stamps on a directory without SFCBs
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive, the drive is over 15 or isn't there; 1 Disk I/O, logging it in.
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive, the drive is over
+15 or isn't there; 1 Disk I/O, logging it in.
 
 #### Side effects
 
@@ -2901,7 +2899,8 @@ The same. An OODOS drive's label is usually `$31`: creation and update stamps, n
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive; 1 Disk I/O; 9 ? in Filename.
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 4 Invalid Drive; 1 Disk I/O; 9 ?
+in Filename.
 
 #### Side effects
 
@@ -2948,9 +2947,10 @@ function 103's at bit 5; OODOS uses bit 5 for both, as the XFCB holds it.
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid Drive (1 Disk I/O, logging it in), 9 ? in Filename, 2 Read Only,
-then the `$FF`s for passwords off and no file, then 7 Password Error: the file is protected (its mode has a bit of 7–5) and neither the
-DMA buffer's bytes 0–7 nor the default password (106) is its password. Then the `$FF` for no room.
+As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), in this order: 4 Invalid Drive (1
+Disk I/O, logging it in), 9 ? in Filename, 2 Read Only, then the `$FF`s for passwords off and no file, then 7 Password
+Error: the file is protected (its mode has a bit of 7–5) and neither the DMA buffer's bytes 0–7 nor the default password
+(106) is its password. Then the `$FF` for no room.
 
 #### Side effects
 

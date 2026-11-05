@@ -41,13 +41,11 @@ For a file:
 - **F1=ON** to **F4=ON** (or `=OFF`): the four attributes left to programs. F5 to F8 are cleared.
 - **PASSWORD=pw:** a new password, 1 to 8 characters. `PASSWORD=` with nothing after it doesn't remove a file's:
   it is `Assign a Password to this file.` (`PROTECT=NONE` removes it).
-- **PROTECT=READ**, **WRITE**, **DELETE** or **NONE:** what the password guards, on a drive whose label has
-  protection on. READ: the file can't be opened without it; WRITE: it opens, but read-only; DELETE: it opens as
-  usual. Whatever the mode, deleting it, renaming it or changing its attributes needs the password. NONE: nothing,
-  and the password is
-  deleted unless `PASSWORD=` gives a new one in the same list. A file given a password with no mode gets READ if it
-  has never had a password, and keeps its mode
-  otherwise (a file set to NONE stays NONE).
+- **PROTECT=READ**, **WRITE**, **DELETE** or **NONE:** what the password guards, on a drive whose label has protection
+  on. READ: the file can't be opened without it; WRITE: it opens, but read-only; DELETE: it opens as usual. Whatever the
+  mode, deleting it, renaming it or changing its attributes needs the password. NONE: nothing, and the password is
+  deleted unless `PASSWORD=` gives a new one in the same list. A file given a password with no mode gets READ if it has
+  never had a password, and keeps its mode otherwise (a file set to NONE stays NONE).
 
 For a drive:
 
@@ -94,9 +92,9 @@ M: Access = OFF
 M: Update = ON
 ```
 
-A file can get two lines: one for its attributes and one for its protection. The attributes are named in the order
-DIR, SYS, RW, RO, Archive, F1 to F4, whatever order they were typed in. The
-`Protection =` line says `Read`, `Write`, `Delete` or `None`; the password itself is never shown.
+A file can get two lines: one for its attributes and one for its protection. The attributes are named in the order DIR,
+SYS, RW, RO, Archive, F1 to F4, whatever order they were typed in. The `Protection =` line says `Read`, `Write`,
+`Delete` or `None`; the password itself is never shown.
 
 #### Errors
 
@@ -392,11 +390,10 @@ DATE SET
 - **DATE** shows the date and time once.
 - **DATE C** (`CONTINUOUS`, or any start of it: `C`, `CONT`) shows them again on the same line every second,
   until a key is pressed. The key is taken, not passed on to the next command.
-- **DATE MM/DD/YY HH:MM:SS** sets the clock. Each number has one or two digits (`2/9/28 8:05:00`), with no blank
-  inside the date or the time and one or more blanks or tabs between them, and the year is two digits, 20YY. DATE
-  checks it all (a month of 1 to 12, a day that is in
-  the month, 29 February only in a leap year, hours 0 to 23, minutes and seconds 0 to 59), then asks for a key,
-  so the clock can be set on the second:
+- **DATE MM/DD/YY HH:MM:SS** sets the clock. Each number has one or two digits (`2/9/28 8:05:00`), with no blank inside
+  the date or the time and one or more blanks or tabs between them, and the year is two digits, 20YY. DATE checks it all
+  (a month of 1 to 12, a day that is in the month, 29 February only in a leap year, hours 0 to 23, minutes and seconds 0
+  to 59), then asks for a key, so the clock can be set on the second:
 
   ```
   Press any key to set time
@@ -619,8 +616,7 @@ SETDEF [options]
 - **TEMPORARY=d:** the drive for temporary files (`*` the current drive). Kept, and shown, but nothing in OODOS 0.2
   uses it yet.
 - **ORDER=(COM)**, or `ORDER=COM`: the order of the file types looked for. Until SUBMIT (OODOS phase 5) the CCP runs
-  `.COM` files
-  only, so COM is the only one taken.
+  `.COM` files only, so COM is the only one taken.
 - **DISPLAY** and **NODISPLAY** (or **NO DISPLAY**): whether the CCP shows the drive and name of each program it
   runs, before it runs it (`M:ARGS     COM`, with ` (User 0)` when it was found in user 0 from another user).
 - **PAGE** and **NOPAGE** (or **NO PAGE**): whether DIR, TYPE and the utilities stop at each page.

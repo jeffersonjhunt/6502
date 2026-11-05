@@ -19,9 +19,9 @@ CP/M machines, as the CPU is different; it checks each program's header first an
 OODOS's drives are image files on the SD card, and a RAM disk. Linux's cpmtools read and write the same images
 (`cpmls`, `cpmcp`), so files go between OODOS and a PC on the card.
 
-This guide is for whoever types at the prompt: the command line, drives and file names, the commands the system
-runs itself ([chapter 4](04-built-in-commands.md)), the utilities on the card ([chapter 5](05-utilities.md)), and
-what the messages mean ([chapter 6](06-errors.md)). Writing programs is the
+This guide is for whoever types at the prompt: the command line, drives and file names, the commands the system runs
+itself ([chapter 4](04-built-in-commands.md)), the utilities on the card ([chapter 5](05-utilities.md)), and what the
+messages mean ([chapter 6](06-errors.md)). Writing programs is the
 [Programmer's Guide](../oodos-programmers-guide/README.md).
 
 ## Starting OODOS

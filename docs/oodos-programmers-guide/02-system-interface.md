@@ -8,8 +8,8 @@ header"](../../hw/oodos.md#the-program-header).
 
 ## Calling the BDOS
 
-A program calls the BDOS with `JSR BDOS`, the base page's `$0203`
-([`oodos.inc`](../../oodos/include/oodos.inc) names it `BDOS`):
+A program calls the BDOS with `JSR BDOS`, the base page's `$0203` ([`oodos.inc`](../../oodos/include/oodos.inc) names it
+`BDOS`):
 
 - **Y** holds the function's number. Use oodos.inc's names: `LDY #C_WRITESTR`, not `LDY #9`.
 - **A** holds a byte parameter (CP/M's E). A word parameter, often an address, goes in **A (low) and X (high)**
@@ -26,12 +26,12 @@ A program calls the BDOS with `JSR BDOS`, the base page's `$0203`
         jsr     BDOS
 ```
 
-`$0203` jumps to `$BFFD`, the last three bytes of the TPA, which jump to the BDOS's stub in common memory (from
-phase 5, `$0203` may jump to an RSX instead: [hw/oodos.md, "RSXs and
-programs"](../../hw/oodos.md#rsxs-and-programs)). The stub keeps the program's stack pointer, flags and windows,
-switches to the system's windows and stack, calls the BDOS and puts everything back. The program's zero page,
-`$00`-`$EF`, is never touched: the BDOS works on a zero page and a stack of its own. Interrupts are off while the
-BDOS runs. The stub costs 216 cycles a call, 126 in and 90 out (`test_oodos_sys`).
+`$0203` jumps to `$BFFD`, the last three bytes of the TPA, which jump to the BDOS's stub in common memory (from phase 5,
+`$0203` may jump to an RSX instead: [hw/oodos.md, "RSXs and programs"](../../hw/oodos.md#rsxs-and-programs)). The stub
+keeps the program's stack pointer, flags and windows, switches to the system's windows and stack, calls the BDOS and
+puts everything back. The program's zero page, `$00`-`$EF`, is never touched: the BDOS works on a zero page and a stack
+of its own. Interrupts are off while the BDOS runs. The stub costs 216 cycles a call, 126 in and 90 out
+(`test_oodos_sys`).
 
 **Addresses** a program passes (an FCB, a string, a buffer, a parameter block) are its own CPU addresses, in
 `$0000`-`$BFFF`; the BDOS reaches them through the windows the stub saved. An address in the I/O hole,
@@ -141,9 +141,10 @@ typed name.
 Each function says what it returns ([chapter 7](07-function-reference.md)). Three kinds come back:
 
 - **A result:** a byte in A (X 0), or a word in A and X.
-- **A return code** that the program is expected to look at: 0 for done, `$FF` for not found or no room, or a
-  number a function gives a meaning (a directory code 0-3 from the searches, 17 and 18; 1 for the end of a file
-  from 20; 1 for no directory space and 2 for a full disk from 21; 1-6 from the random reads and writes). These come back in every error mode.
+- **A return code** that the program is expected to look at: 0 for done, `$FF` for not found or no room, or a number a
+  function gives a meaning (a directory code 0-3 from the searches, 17 and 18; 1 for the end of a file from 20; 1 for no
+  directory space and 2 for a full disk from 21; 1-6 from the random reads and writes). These come back in every error
+  mode.
 - **A physical error:** something the program may not be ready for, said or returned as the error mode decides
   ([below](#error-modes)). Returned, it is A = `$FF` and X = the code:
 

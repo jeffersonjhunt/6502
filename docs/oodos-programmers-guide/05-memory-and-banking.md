@@ -97,10 +97,9 @@ block is kept on the 6502's stack, so code in one block may far call another. Th
 its `RTS`.
 
 The block must have common memory in its top 2 KB, `$F800–$FFFF`, since FARCALL itself, the BDOS's entry and the
-interrupt entry are there whatever W3 holds. OODOS doesn't put it there yet: 53–56 allocate a block and copy
-nothing into it, so for now a program copies common memory into a block it far calls itself. Which block is marked
-for code, and who copies common memory, is left to phase 7
-([hw/oodos.md, "Open Questions"](../../hw/oodos.md#open-questions)).
+interrupt entry are there whatever W3 holds. OODOS doesn't put it there yet: 53–56 allocate a block and copy nothing
+into it, so for now a program copies common memory into a block it far calls itself. Which block is marked for code, and
+who copies common memory, is left to phase 7 ([hw/oodos.md, "Open Questions"](../../hw/oodos.md#open-questions)).
 
 FARCALL is the far call table's one entry so far. FARPEEK, FARPOKE and FARMOVE, for bytes at physical addresses, are
 proposed ([hw/oodos.md, "Far calls"](../../hw/oodos.md#far-calls)), not built: a program reaches physical memory by
@@ -141,8 +140,8 @@ What has no physical address is refused, A = X = `$FF`: the I/O hole, `$C000–$
 function that takes an address treats the I/O hole the same way: a function stops at a program address there and
 returns A = X = `$FF`.
 
-The BDOS reaches a program's memory two ways, both through the windows the BDOS entry saved. Records, FCBs and
-other blocks move by their physical addresses with the DMA controller (the BIOS's MOVE and XMOVE). Strings and
-parameter blocks read or written a byte at a time (function 9's string, 10's line, the blocks of 49, 50, 72,
-104, 105 and 152, the MCBs, among others) are reached by mapping the program's block into the BDOS's own W2 for each byte. Neither changes the
+The BDOS reaches a program's memory two ways, both through the windows the BDOS entry saved. Records, FCBs and other
+blocks move by their physical addresses with the DMA controller (the BIOS's MOVE and XMOVE). Strings and parameter
+blocks read or written a byte at a time (function 9's string, 10's line, the blocks of 49, 50, 72, 104, 105 and 152, the
+MCBs, among others) are reached by mapping the program's block into the BDOS's own W2 for each byte. Neither changes the
 program's windows.

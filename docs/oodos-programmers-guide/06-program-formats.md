@@ -27,8 +27,8 @@ program says `OODOS_HEADER` once, in one module, and never fills in the header b
 | 14 | 2 | the record of the attached RSX table: 0 |
 
 **Loading.** The CCP finds `NAME.COM` (the User's Guide,
-[chapter 2](../oodos-users-guide/02-command-line.md#where-programs-are-found)), reads its first record and checks
-the header before it writes anything to the TPA:
+[chapter 2](../oodos-users-guide/02-command-line.md#where-programs-are-found)), reads its first record and checks the
+header before it writes anything to the TPA:
 
 - bytes 0-3 must be the magic number, or the CCP says `NO PROGRAM`; an empty file says the same;
 - the flags must be 0 and the link page `$03`, and `$0300` + the size + BSS must end at or below `$BFFD`, the
@@ -41,8 +41,8 @@ that fails, says `READ ERROR`. Each of the three ends the command with the retur
 
 **What a program starts with.** At `$0300`:
 
-- A, X and Y are 0, the decimal flag clear and interrupts off. S is `$FD`: the stack holds the warm boot's address less one, so an RTS from the program's
-  first level ends it as `JMP WBOOT` does.
+- A, X and Y are 0, the decimal flag clear and interrupts off. S is `$FD`: the stack holds the warm boot's address less
+  one, so an RTS from the program's first level ends it as `JMP WBOOT` does.
 - The base page is filled in ([chapter 2](02-system-interface.md#the-base-page)): the command tail at `$0280`, the
   two FCBs at `$025C` and `$026C`, the drive the program came from at `$0250`, the tail's passwords at
   `$0251-$0256`.
@@ -68,9 +68,8 @@ page P with its zero page at Z adds P minus the link page to each byte the first
 base to each byte the second marks. The file byte by byte is [appendix B](appendix-b-prl-format.md).
 
 Nothing in OODOS 0.2 loads a `.PRL` yet: function 59 and the RSX loader come with phase 5
-([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)). The build makes them now
-([appendix F](appendix-f-building.md)), and [`oodos/tools/mkprl.py`](../../oodos/tools/mkprl.py) `--load` loads
-one as the loader will, for testing.
+([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)). The build makes them now ([appendix F](appendix-f-building.md)),
+and [`oodos/tools/mkprl.py`](../../oodos/tools/mkprl.py) `--load` loads one as the loader will, for testing.
 
 A `.PRL` is made from three links of the same objects with [`cfg/prl.cfg`](../../oodos/cfg/prl.cfg): at page 3 with
 the zero page at `$00`, page 4 with it at `$02`, and page 5 with it at `$05`. mkprl.py compares them. Every byte

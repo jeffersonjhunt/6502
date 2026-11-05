@@ -70,9 +70,9 @@ Where the 6502 or the OO-1 needs it, OODOS does its own thing, and this guide sa
 | `$F800-$FFFF` | common memory: the BDOS's entry, the BIOS's jump table, FARCALL, the interrupt entry |
 
 The BDOS and the BIOS run on their own zero page and stack, in other blocks, so a call never touches the program's
-`$00-$EF`, and takes six bytes of its stack: the return address and four the entry saves the registers in. FCB and DMA addresses are the program's own CPU addresses
-anywhere in `$0000-$BFFF`; the BDOS finds them in physical memory itself. The 1 MB beyond these 64 KB is reached
-through the memory functions ([chapter 5](05-memory-and-banking.md)).
+`$00-$EF`, and takes six bytes of its stack: the return address and four the entry saves the registers in. FCB and DMA
+addresses are the program's own CPU addresses anywhere in `$0000-$BFFF`; the BDOS finds them in physical memory itself.
+The 1 MB beyond these 64 KB is reached through the memory functions ([chapter 5](05-memory-and-banking.md)).
 
 ## How to read this guide
 

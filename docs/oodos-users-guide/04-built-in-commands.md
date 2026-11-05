@@ -117,13 +117,12 @@ Groups (a drive and a user) are a blank line apart. Under paging the column head
 #### Errors
 
 - `No File`: nothing matched.
-- **DIR.COM's:** `Illegal Option or Modifier.` (an option it doesn't know, a prefix that could be two, a bad
-  value, a value for an option that takes none); `Options not grouped together.` (a second option list);
-  `Illegal command tail.` (a name that isn't one, a `,` with nothing after it, a `[` not closed, more than 64
-  names); `Illegal Format Value.` (FULL and SIZE, or DATE with either);
-  `Illegal Global/Local Drive Spec Mixing.` (a drive in a name and DRIVE= both); `Not Enough Memory for Sort.` (a
-  drive with more files than fit, about 1,190; nothing listed for it); `Date and Time Stamping Inactive` (DATE on a
-  drive without date stamps).
+- **DIR.COM's:** `Illegal Option or Modifier.` (an option it doesn't know, a prefix that could be two, a bad value, a
+  value for an option that takes none); `Options not grouped together.` (a second option list); `Illegal command tail.`
+  (a name that isn't one, a `,` with nothing after it, a `[` not closed, more than 64 names); `Illegal Format Value.`
+  (FULL and SIZE, or DATE with either); `Illegal Global/Local Drive Spec Mixing.` (a drive in a name and DRIVE= both);
+  `Not Enough Memory for Sort.` (a drive with more files than fit, about 1,190; nothing listed for it);
+  `Date and Time Stamping Inactive` (DATE on a drive without date stamps).
 - `DIR.COM required`: a form for DIR.COM, and DIR.COM not found.
 - A drive that isn't there: the BDOS's `Invalid Drive`; DIR.COM goes on with the next drive.
 

@@ -88,5 +88,5 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [112](07-function-reference.md#bdos-112) | `L_WRITEBLK` | write a block of characters to LST: | A/X = the CCB | A/X = 0 |
 | [152](07-function-reference.md#bdos-152) | `F_PARSE` | parse a file name into an FCB | A/X = the parse block | A/X = what follows, 0, or `$FFFF` |
 
-Functions 59 (`P_LOAD`) and 60 (`P_RSX`) come with phase 5, the RSX loader. A function
-number OODOS doesn't have returns A = X = `$FF`: 38, 39 and 41, 59-71, 76-97, 113-151 and 153 on ([appendix A](appendix-a-errors.md)).
+Functions 59 (`P_LOAD`) and 60 (`P_RSX`) come with phase 5, the RSX loader. A function number OODOS doesn't have returns
+A = X = `$FF`: 38, 39 and 41, 59-71, 76-97, 113-151 and 153 on ([appendix A](appendix-a-errors.md)).
