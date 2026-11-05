@@ -99,7 +99,7 @@ Beyond the registers, which change for every function as above:
 | 50 | `S_BIOS` | the parameter block is OODOS's (A, X, Y and two words); BOOT is refused |
 | 52 | `F_DMAGET` | writes the DMA address and segment to 4 bytes, where CP/M-86 returns them in registers |
 | 57 | `MC_FREE` | a length past an allocation's end frees only to its end |
-| 59 | `P_LOAD` | any program may call it; a `.COM` loads only at `$0300`; X says why a load is refused; A/X = 0 only removes |
+| 59 | `P_LOAD` | any program may call it; a `.COM` loads only at `$0300`; a file with RSXs attached is refused (only the CCP attaches them); X says why a load is refused; A/X = 0 only removes |
 | 98 | `DRV_FREE` | drops the failed buffers of the blocks it frees |
 | 99 | `F_TRUNCATE` | stamps the update |
 | 100 | `DRV_SETLABEL` | the label's stored mode has bit 0 set, saying a label is there; it is stamped whatever its mode; stamps asked for without SFCBs return `$FF` |
