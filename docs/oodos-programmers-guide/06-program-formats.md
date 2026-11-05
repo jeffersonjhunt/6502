@@ -116,4 +116,7 @@ Written with OODOS phase 5, the RSX loader.
 
 ## Chaining
 
-Written with OODOS phase 5. Function 47 is built, and G1 describes it in [chapter 7](07-function-reference.md).
+A program can end by naming the command to run next: [function 47](07-function-reference.md#bdos-47) puts it at
+`$0280`, ended by a 0, and the CCP runs it after the warm boot, as if typed, with the program's drive and user if
+asked. The return code ([function 108](07-function-reference.md#bdos-108)) is kept for the program the command
+runs, so the first can pass the second a word. What RSXs add to chaining is written with phase 5, the RSX loader.

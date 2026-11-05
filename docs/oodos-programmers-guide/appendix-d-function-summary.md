@@ -54,6 +54,7 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [44](07-function-reference.md#bdos-44) | `F_MULTISEC` | set the multi-sector count | A = 1-128 | A = 0, `$FF` |
 | [45](07-function-reference.md#bdos-45) | `F_ERRMODE` | set the error mode | A = the mode | A/X = 0 |
 | [46](07-function-reference.md#bdos-46) | `DRV_SPACE` | a drive's free space | A = the drive | A/X = 0, 3 bytes at the DMA address |
+| [47](07-function-reference.md#bdos-47) | `P_CHAIN` | end the program and run a command | A = `$FF` keep its drive and user; the command at `$0280` | doesn't return |
 | [48](07-function-reference.md#bdos-48) | `DRV_FLUSH` | write the buffers back | A = `$FF` drop them too | A/X = 0, or an error |
 | [49](07-function-reference.md#bdos-49) | `S_SCB` | get or set a field of the SCB | A/X = the parameter block | A/X = the word got |
 | [50](07-function-reference.md#bdos-50) | `S_BIOS` | call the BIOS | A/X = the parameter block | A/X = the BIOS's |
@@ -86,6 +87,5 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [112](07-function-reference.md#bdos-112) | `L_WRITEBLK` | write a block of characters to LST: | A/X = the CCB | A/X = 0 |
 | [152](07-function-reference.md#bdos-152) | `F_PARSE` | parse a file name into an FCB | A/X = the parse block | A/X = what follows, 0, or `$FFFF` |
 
-Function 47 (`P_CHAIN`) is built, and written with 59 (`P_LOAD`) and 60 (`P_RSX`) in phase 5, the RSX loader. A
-function number OODOS doesn't have returns A = X = `$FF`: 38, 39 and 41 (MP/M's), 59-71, 76-97, 113-151 and 153
-on ([appendix A](appendix-a-errors.md)).
+Functions 59 (`P_LOAD`) and 60 (`P_RSX`) come with phase 5, the RSX loader. A function
+number OODOS doesn't have returns A = X = `$FF`: 38, 39 and 41, 59-71, 76-97, 113-151 and 153 on ([appendix A](appendix-a-errors.md)).

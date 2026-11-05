@@ -2,13 +2,12 @@
 #
 # check_docs.py lets an entry the sources call for be missing only if it is here, and fails
 # on a name here that is written now (take it off) or that names nothing in the sources. G1
-# wrote the functions and the commands of phases 0-4; what is left of them is phase 5's, and
-# comes off with it. G2 empties the registers. The util- names are checked against
+# wrote the functions and the commands of phases 0-4, 47 among them; what is left of them is
+# phase 5's, and comes off with it. G2 empties the registers. The util- names are checked against
 # oodos/utils/*.s, the CCP's built-ins (BINAMES in oodos/sys/ccp.s, by the long name) and
 # check_docs.py's PLANNED, the commands with no source yet (hw/oodos.md, "Phases").
 
 # BDOS functions (oodos/include/oodos.inc) with the RSXs (phase 5)
-bdos-47  # P_CHAIN
 bdos-59  # P_LOAD
 bdos-60  # P_RSX
 

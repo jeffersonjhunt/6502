@@ -398,11 +398,11 @@
  {
   "number": 47,
   "name": "P_CHAIN",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "since": null,
-  "status": null
+  "documented": true,
+  "anchor": "bdos-47",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.2",
+  "status": "built"
  },
  {
   "number": 48,

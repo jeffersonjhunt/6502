@@ -88,4 +88,4 @@ says. The last column is the physical errors the function can raise.
 | 105 `T_GET` | the seconds; `$FFFF` the clock past 2155 | — |
 | 152 `F_PARSE` | 0 the end; the address of what follows; `$FFFF` not a file name | — |
 
-Function 47 doesn't return: it ends the program by the warm boot. Its entry comes with phase 5's chaining.
+Function 47 doesn't return: it ends the program by the warm boot, and the CCP says what is wrong with its command.

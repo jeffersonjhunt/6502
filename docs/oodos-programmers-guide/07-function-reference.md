@@ -11,8 +11,8 @@ How to call a function, and how registers and numbers are written here, is in
 `JSR BDOS` with the function in Y, a byte in A, a word in A (low) and X (high); the result comes back in A, or A
 and X. Y and the flags are not kept, and the decimal flag is clear on return.
 
-Functions 47 (P_CHAIN), 59 (P_LOAD) and 60 (P_RSX) are written with OODOS phase 5, the RSX loader
-([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)).
+Functions 59 (P_LOAD) and 60 (P_RSX) are written with OODOS phase 5, the RSX loader
+([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)), which will also add to function 47's entry what RSXs change.
 
 <a id="bdos-0"></a>
 ### 0 P_TERMCPM: end the program
@@ -1955,6 +1955,55 @@ OODOS 0.2
 #### CP/M 3
 
 The same, but for the register: the drive goes in A, where CP/M 3 takes E.
+
+<a id="bdos-47"></a>
+### 47 P_CHAIN: end the program and run a command
+
+#### Entry
+
+- Y = 47 (`P_CHAIN`).
+- A = `$FF`: the CCP takes the program's current drive and user as its own. Any other value: the CCP's drive and
+  user stay as they were.
+- The command at `$0280`, the base page's buffer, ended by a 0 byte: what would be typed at the prompt. The DMA
+  address doesn't matter; the CCP reads `$0280`. At most 126 characters are taken; the rest are cut off.
+
+#### Exit
+
+It doesn't return: the program ends by the warm boot, and the CCP runs the command.
+
+#### Errors
+
+None from the call. The command's own errors are the CCP's, as if it had been typed
+([the User's Guide, chapter 6](../oodos-users-guide/06-errors.md)).
+
+#### Side effects
+
+- The SCB's `$17` gets the request: bit 7 a command waits, bit 6 with the program's drive and user. The CCP reads
+  it and clears it at the warm boot.
+- The warm boot does all it does after any program: the program's memory is freed, and so on
+  ([function 0](#bdos-0)).
+- The CCP shows its prompt and the command, as if typed, then runs it. The command takes the place of whatever was
+  left of a line of several commands, and may hold `!` itself.
+- The return code ([function 108](#bdos-108)) is kept for the program the command runs, which doesn't start with
+  0. So a program can pass it a word.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.2
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+The same, but for the registers: the flag goes in A, where CP/M 3 takes it in E, and the command is at `$0280`,
+OODOS's default buffer. Ours, where CP/M 3 is silent: the command is shown after the prompt; it replaces the rest
+of a line; and more than 126 characters are cut off. RSXs (phase 5) may add to what a chain does.
 
 <a id="bdos-48"></a>
 ### 48 DRV_FLUSH: write the buffers back
