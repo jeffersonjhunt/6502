@@ -331,62 +331,13 @@ serving:
 @no:    clc
         rts
 
-; The file's next input byte, A (and ch): an LF after CR dropped; carry set
-; at its end.
-nextch: jsr     getc
-        bcs     @end
-        cmp     #LF
-        bne     @take
-        ldx     prevcr
-        stz     prevcr
-        bne     nextch
-@take:  stz     prevcr
-        cmp     #CR
-        bne     @ret
-        ldx     #1
-        stx     prevcr
-@ret:   sta     ch
-        clc
-@end:   rts
-
-; The file's next byte: carry set at ^Z or the end of its last record.
-getc:   lda     eof
-        bne     @end
-        lda     bidx
-        bpl     @have
-        lda     user                    ; a record, in the caller's state put back after
-        jsr     RX_SAVE
-        lda     #<buf
-        ldx     #>buf
-        ldy     #F_DMAOFF
-        jsr     RX_BDOS
-        lda     #<fcb
-        ldx     #>fcb
-        ldy     #F_READ
-        jsr     RX_BDOS
-        pha
-        jsr     RX_RESTORE
-        pla
-        bne     @last
-        stz     bidx
-@have:  ldx     bidx
-        lda     buf,x
-        cmp     #CTLZ
-        beq     @last
-        inc     bidx
-        clc
-        rts
-@last:  lda     #1
-        sta     eof
-@end:   sec
-        rts
-
 ; Done: every call passed on, and the next warm boot takes it out.
 done:   lda     #M_DONE
         sta     mode
         jmp     RX_REMOVE
 
         .include "rsx.inc"
+        .include "rxfile.inc"
 
         .segment "RSXHDR"
 PREFIX  = * - RSX_PREFIX_LEN
@@ -394,17 +345,10 @@ PREFIX  = * - RSX_PREFIX_LEN
         .data                           ; in the file: 0 as loaded (BSS isn't cleared)
 mode:   .byte   M_IDLE
 flags:  .byte   0
-user:   .byte   0
 lastst: .byte   0
-eof:    .byte   0
-prevcr: .byte   0
-bidx:   .byte   128
-ch:     .byte   0
 lmax:   .byte   0
 lcount: .byte   0
 initial: .byte  0
 sa:     .byte   0
 sx:     .byte   0
 sy:     .byte   0
-fcb:    .res    36
-buf:    .res    128

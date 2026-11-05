@@ -40,6 +40,7 @@ UTIL_INCS = include/oodos.inc include/system.inc include/cmd.inc include/util.in
 # attached by tools/gencom.py: GET.COM and PUT.COM.
 RSXS = $(patsubst rsx/%.s,%,$(wildcard rsx/*.s))
 ATTACHED = get put
+# SUBMIT.COM's RSX is subrsx.rsx (an RSX's name is at most 8 characters).
 
 all: $(COMS) $(PRLS) $(UTIL_COMS)
 
@@ -54,7 +55,7 @@ $(BUILD)/%.o: $(SRC)/%.s $(wildcard include/*.inc) | $(BUILD)
 $(UTILS:%=$(BUILD)/%.o): $(BUILD)/%.o: utils/%.s $(UTIL_INCS) | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
 
-$(RSXS:%=$(BUILD)/%.o): $(BUILD)/%.o: rsx/%.s include/oodos.inc include/rsx.inc | $(BUILD)
+$(RSXS:%=$(BUILD)/%.o): $(BUILD)/%.o: rsx/%.s include/oodos.inc include/rsx.inc include/rxfile.inc | $(BUILD)
 	ca65 $(AFLAGS) $< -o $@
 
 $(BUILD)/%.rsx: $(BUILD)/%.o cfg/rsx.cfg tools/rules.py tools/mkprl.py
@@ -69,6 +70,11 @@ $(ATTACHED:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/%rsx.rsx cfg
 	$(call LD65,-C cfg/com.cfg $< -o $(BUILD)/$*.plain -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $(BUILD)/$*.plain --map $(BUILD)/$*.map
 	$(PYTHON) tools/gencom.py $(BUILD)/$*.plain $(BUILD)/$*rsx.rsx -o $@
+
+$(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rules.py tools/gencom.py
+	$(call LD65,-C cfg/com.cfg $< -o $(BUILD)/submit.plain -m $(BUILD)/submit.map -Ln $(BUILD)/submit.lbl,$@)
+	$(PYTHON) tools/rules.py $(BUILD)/submit.plain --map $(BUILD)/submit.map
+	$(PYTHON) tools/gencom.py $(BUILD)/submit.plain $(BUILD)/subrsx.rsx -o $@
 
 $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(call LD65,-C cfg/com.cfg $< -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)

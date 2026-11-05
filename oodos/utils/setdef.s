@@ -8,10 +8,10 @@
 ;
 ; The options together in one list, any unambiguous prefix. The chain is
 ; the SCB's $4C-$4F (0 the default drive, *; 1-16 A-P; $FF the end), up to
-; four drives; TEMPORARY $50 (0 the default, *); DISPLAY $18's bit 7, its
-; other bits kept; PAGE $2C (0 on, $FF off). ORDER=(COM) is taken: the CCP
-; runs .COMs only until SUBMIT (phase 5), so a SUB is "ORDER=(SUB): no
-; SUBMIT yet". Then, and alone, it shows them all.
+; four drives; TEMPORARY $50 (0 the default, *: SUBMIT's temporary files go
+; there); DISPLAY $18's bit 7, its other bits kept; ORDER $18's bits 0-1 (ours,
+; 5c: 0 COM, 1 COM then SUB, 2 SUB then COM, 3 SUB), (COM), (SUB), (COM,SUB) or
+; (SUB,COM); PAGE $2C (0 on, $FF off). Then, and alone, it shows them all.
 ;
 ; Errors: "Drive defined twice in search Path", "More than four drives
 ; specified.", "Invalid drive.", "Invalid option.", "Invalid type for ORDER
@@ -46,6 +46,7 @@ start:  jsr     UT_INIT
         stz     ndrv
         stz     settemp
         stz     setdisp
+        stz     setord
         stz     setpage
         jsr     UT_SKIP
         jeq     apply
@@ -142,18 +143,40 @@ opts:   jsr     UT_OAT
         lda     #1
         sta     settemp
         jmp     @opt
-@order: stz     sub
-        stz     nitem
-@item:  jsr     UT_VITEM                ; ORDER=(COM{,SUB}) or ORDER=COM
+@order: stz     nitem
+        stz     types
+        stz     types + 1
+@item:  jsr     UT_VITEM                ; ORDER=(typ{,typ}), typ COM or SUB
         bcc     @typ
         cmp     #0
         jne     badtyp                  ; a list not closed, an item too long
         lda     nitem
         jeq     badtyp
-        lda     sub
-        jne     nosub
+        lda     types                   ; the two the same: refused
+        cmp     types + 1
+        jeq     badtyp
+        ldx     #0                      ; (1,0) COM, (1,2) COM SUB, (2,1) SUB COM, (2,0) SUB
+        lda     types
+        cmp     #2
+        bne     :+
+        ldx     #2
+:       lda     types + 1
+        beq     :+
+        cpx     #0
+        bne     @val
+        ldx     #1
+        bra     @val
+:       cpx     #2
+        bne     @val
+        ldx     #3
+@val:   stx     order
+        lda     #1
+        sta     setord
         jmp     @opt
-@typ:   inc     nitem
+@typ:   ldy     nitem
+        cpy     #2
+        jcs     badtyp                  ; at most two
+        inc     nitem
         ldx     #0
         lda     UT_WLEN
         cmp     #3
@@ -164,6 +187,7 @@ opts:   jsr     UT_OAT
         inx
         cpx     #3
         bne     @com
+        lda     #1
         bra     @inext
 @sub:   ldx     #0
 @s:     lda     UT_WORD,x
@@ -172,8 +196,9 @@ opts:   jsr     UT_OAT
         inx
         cpx     #3
         bne     @s
-        inc     sub
-@inext: jmp     @item                   ; (a word value is one item)
+        lda     #2
+@inext: sta     types,y
+        jmp     @item                   ; (a word value is one item)
 
 twice:  lda     #<stwice
         ldx     #>stwice
@@ -189,9 +214,6 @@ badopt: lda     #<sbadopt
         bra     error
 badtyp: lda     #<sbadtyp
         ldx     #>sbadtyp
-        bra     error
-nosub:  lda     #<snosub
-        ldx     #>snosub
         bra     error
 baddel: lda     #<sbaddel
         ldx     #>sbaddel
@@ -226,7 +248,16 @@ apply:  ldx     ndrv                    ; the chain, $FF after its last
         lda     #SCB_TEMP
         ldx     temp
         jsr     UT_SCBSET
-@disp:  lda     setdisp
+@disp:  lda     setord                  ; the order: $18's bits 0-1, the rest kept
+        beq     @dmode
+        lda     #SCB_DISP
+        jsr     UT_SCBGET
+        and     #$FC
+        ora     order
+        tax
+        lda     #SCB_DISP
+        jsr     UT_SCBSET
+@dmode: lda     setdisp
         beq     @page
         lda     #SCB_DISP               ; bit 7, the rest kept
         jsr     UT_SCBGET
@@ -281,6 +312,17 @@ show:   lda     #<spath
         jsr     CM_EOL
         lda     #<sorder
         ldx     #>sorder
+        jsr     CM_PUTS
+        lda     #SCB_DISP
+        jsr     UT_SCBGET
+        and     #3
+        asl     a
+        tax
+        lda     sordv,x
+        pha
+        lda     sordv + 1,x
+        tax
+        pla
         jsr     UT_SAY
         lda     #<stemp
         ldx     #>stemp
@@ -337,12 +379,16 @@ sfour:  .byte   "More than four drives specified.$"
 sbaddrv: .byte  "Invalid drive.$"
 sbadopt: .byte  "Invalid option.$"
 sbadtyp: .byte  "Invalid type for ORDER option.$"
-snosub: .byte   "ORDER=(SUB): no SUBMIT yet$"
 sbaddel: .byte  "Invalid delimiter.$"
 spath:  .byte   "Drive Search Path:$"
 sords:  .byte   "1st$", "2nd$", "3rd$", "4th$"
 sdrvdash: .byte " Drive            - $"
-sorder: .byte   "Search Order         - COM$"
+sorder: .byte   "Search Order         - $"
+sordv:  .word   sord0, sord1, sord2, sord3
+sord0:  .byte   "COM$"
+sord1:  .byte   "COM, SUB$"
+sord2:  .byte   "SUB, COM$"
+sord3:  .byte   "SUB$"
 stemp:  .byte   "Temporary Drive      - $"
 spmode: .byte   "Console Page Mode    - $"
 sdmode: .byte   "Program Name Display - $"
@@ -357,6 +403,8 @@ temp:   .res    1
 settemp: .res   1
 setdisp: .res   1
 setpage: .res   1
-sub:    .res    1
+types:  .res    2
+order:  .res    1
+setord: .res    1
 nitem:  .res    1
 t:      .res    1

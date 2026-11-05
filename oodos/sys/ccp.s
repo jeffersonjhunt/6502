@@ -107,6 +107,8 @@ COMFCB:         .res    36             ; the program's FCB
 SFCB:           .res    36             ; the built-ins'
 LASTREC:        .res    RECORD         ; a record; the built-ins' DMA buffer
 CEND:           .res    2              ; CHECKHDR's end of the image and BSS
+ORDIX:          .res    1              ; the search order's place in ORDERS
+SUBPRE:         .res    16             ; a .SUB's command: " d:NAME.SUB"
 COUNT:          .res    1              ; a count, for a moment (DIRSYS's tail, the parse)
 CHAINF:         .res    1              ; 47's request, as the SCB had it
 CHAINED:        .res    1              ; 1: the command is 47's
@@ -214,7 +216,9 @@ CCP:            LDX     #2             ; the base page's JMPs, and $BFFD's
                 BNE     @rest
                 STZ     PENDING
 @rest:          LDA     CHAINF
-                BMI     CHAIN
+                BPL     :+
+                JMP     CHAIN
+:
                 LDA     PENDING
                 BEQ     PROMPT
                 JMP     NEXTCMD
@@ -223,6 +227,11 @@ PROMPT:         LDX     #$FF
                 TXS
                 STZ     CHAINED
                 STZ     PENDING
+                LDA     COLDF          ; the first prompt after a cold boot: PROFILE.SUB
+                BEQ     @line          ; on the default drive (5c)
+                STZ     COLDF
+                JSR     PROFILE
+@line:
                 JSR     SAYPROMPT
                 LDA     #LINE_MAX
                 STA     LINE
@@ -235,6 +244,49 @@ PROMPT:         LDX     #$FF
                 STZ     ATPROMPT
                 LDA     #1             ; function 10 echoed only the CR: an LF owed,
                 STA     CM_LFDUE       ; written before any output (cmd.inc)
+                STZ     LPOS
+                JMP     RUNCMD
+
+; PROFILE.SUB on the CCP's drive (user 0, cold boot's)? Then SUBMIT PROFILE, shown
+; after the prompt as if typed, and run; back if it isn't there.
+PROFILE:        LDX     #35
+@z:             STZ     SFCB,X
+                DEX
+                BPL     @z
+                LDA     CCPDRV
+                INC     A
+                STA     SFCB
+                LDX     #10
+@n:             LDA     PROFN,X
+                STA     SFCB + 1,X
+                DEX
+                BPL     @n
+                JSR     DMALAST
+                LDA     #<SFCB
+                LDX     #>SFCB
+                LDY     #F_SFIRST
+                JSR     BDOS
+                CMP     #$FF
+                BNE     @run
+                RTS
+@run:           PLA                    ; PROFILE's return dropped
+                PLA
+                LDX     #0
+@c:             LDA     PROFCMD,X
+                BEQ     @end
+                STA     LINE + 2,X
+                INX
+                BRA     @c
+@end:           STX     LINE + 1
+                JSR     SAYPROMPT
+                LDX     #0
+@show:          CPX     LINE + 1
+                BEQ     @shown
+                LDA     LINE + 2,X
+                JSR     PUTC
+                INX
+                BRA     @show
+@shown:         JSR     SHOWN
                 STZ     LPOS
                 JMP     RUNCMD
 
@@ -1430,36 +1482,55 @@ PROGRAM:        SEC
                 BEQ     @noname
                 DEX
                 BNE     @wild
-                LDA     WFCB + 9       ; the type: none or COM
+                LDA     WFCB + 9       ; the type: none (the search order's), COM or SUB
                 CMP     #' '
                 BNE     @typed
+                LDA     #<DISPPB       ; the order: the SCB's $18 bits 0-1 (ours, 5c)
+                LDX     #>DISPPB
+                LDY     #S_SCB
+                JSR     BDOS
+                AND     #3
+                ASL     A
+                STA     ORDIX          ; ORDERS + 2 x the order: the first type, the second
+                JSR     @settype       ; the first type, on every drive of the chain
+                JSR     @load
+                INC     ORDIX          ; then the second, if there is one
+                LDX     ORDIX
+                LDA     ORDERS,X
+                BEQ     @noname
+                JSR     @settype
+                JSR     @load
+@noname:        JMP     NONAME
+@settype:       LDX     ORDIX          ; WFCB's type: ORDERS[ORDIX] (1 COM, 2 SUB)
+                LDA     ORDERS,X
                 LDX     #2
-@com:           LDA     COMTYPE,X
+                CMP     #2
+                BEQ     @tsub
+@tcom:          LDA     COMTYPE,X
                 STA     WFCB + 9,X
                 DEX
-                BPL     @com
-                BRA     @load
-@noname:        JMP     NONAME
+                BPL     @tcom
+                RTS
+@tsub:          LDA     SUBTYPE,X
+                STA     WFCB + 9,X
+                DEX
+                BPL     @tsub
+                RTS
 @typed:         LDX     #2
 @iscom:         LDA     WFCB + 9,X
                 CMP     COMTYPE,X
                 BNE     @notcom
                 DEX
                 BPL     @iscom
-                BRA     @load
+                BRA     @load1
 @notcom:        LDX     #2
 @issub:         LDA     WFCB + 9,X
                 CMP     SUBTYPE,X
                 BNE     @noname
                 DEX
                 BPL     @issub
-                JSR     CM_FLUSH
-                LDA     #<(WFCB + 1)   ; "NAME.SUB: no SUBMIT yet" (phase 5)
-                LDX     #>(WFCB + 1)
-                JSR     CM_FNAME
-                LDA     #<NOSUBMIT
-                LDX     #>NOSUBMIT
-                JMP     FAILSAY
+@load1:         JSR     @load
+                JMP     NONAME
 @load:          LDX     #11
 @fcb:           LDA     WFCB,X
                 STA     COMFCB,X
@@ -1470,8 +1541,88 @@ PROGRAM:        SEC
                 STA     PWBUF,X
                 DEX
                 BPL     @pw
+                JMP     LOADPROG       ; back only if not found
+
+; A .SUB file found (COMFCB, on LOADDRV): the command SUBMIT d:NAME.SUB and the
+; tail, SUBMIT.COM found by the search chain as any program; not found:
+; SUBMIT? (5c). A tail that doesn't fit: Command tail too long.
+RUNSUB:         LDX     #0             ; the new tail's start: " d:NAME.SUB" in SUBPRE
+                LDA     #' '
+                STA     SUBPRE,X
+                INX
+                LDA     LOADDRV
+                CLC
+                ADC     #'A' - 1
+                STA     SUBPRE,X
+                INX
+                LDA     #':'
+                STA     SUBPRE,X
+                INX
+                LDY     #1
+@name:          LDA     COMFCB,Y
+                AND     #$7F
+                CMP     #' '
+                BEQ     @named
+                STA     SUBPRE,X
+                INX
+                INY
+                CPY     #9
+                BNE     @name
+@named:         LDY     #0
+@typ:           LDA     DOTSUB,Y
+                STA     SUBPRE,X
+                INX
+                INY
+                CPY     #4
+                BNE     @typ
+                STX     SAVEB          ; its length
+                CLC
+                LDA     TAILLEN
+                ADC     SAVEB
+                CMP     #TAIL_MAX + 1
+                BCC     @fits
+                LDA     #<TOOLONG
+                LDX     #>TOOLONG
+                JMP     FAILSAY
+@fits:          LDY     TAILLEN        ; the old tail moved up, from its end
+                STA     TAILLEN
+                TAX
+@move:          CPY     #0
+                BEQ     @put
+                DEY
+                DEX
+                LDA     TAILBUF,Y
+                STA     TAILBUF,X
+                BRA     @move
+@put:           LDX     SAVEB
+@pre:           DEX
+                BMI     @prog
+                LDA     SUBPRE,X
+                STA     TAILBUF,X
+                BRA     @pre
+@prog:          LDX     #11            ; SUBMIT.COM, by the search chain
+@sname:         LDA     SUBMITN,X
+                STA     COMFCB,X
+                DEX
+                BPL     @sname
+                LDX     #7
+                LDA     #' '
+@spw:           STA     PWBUF,X
+                DEX
+                BPL     @spw
                 JSR     LOADPROG       ; back only if not found
-                ; falls through
+                JSR     CM_FLUSH
+                LDX     #0
+@q:             LDA     SUBMITN + 1,X
+                CMP     #' '
+                BEQ     @qm
+                JSR     PUTC
+                INX
+                BRA     @q
+@qm:            LDA     #'?'
+                JSR     PUTC
+                JMP     BIFAIL
+
 ; NAME?: the keyword, in capitals, and a question mark.
 NONAME:         LDX     KWS
 @char:          CPX     KWE
@@ -1567,7 +1718,7 @@ FOUNDIT:        PLA                    ; LOADPROG's return dropped: it runs or f
                 LDY     #S_SCB
                 JSR     BDOS
                 AND     #DISPLAY_FLAG
-                BEQ     LOADCOM
+                BEQ     FOUNDSUB
                 LDA     LOADDRV
                 CLC
                 ADC     #'A' - 1
@@ -1585,7 +1736,14 @@ FOUNDIT:        PLA                    ; LOADPROG's return dropped: it runs or f
                 LDX     #>USER0
                 JSR     STRING
 @shown:         JSR     CRLF
-                ; falls through
+FOUNDSUB:       LDX     #2             ; a .SUB found: SUBMIT runs it (the Guide's 1.6.2)
+@sub:           LDA     COMFCB + 9,X
+                AND     #$7F
+                CMP     SUBTYPE,X
+                BNE     LOADCOM
+                DEX
+                BPL     @sub
+                JMP     RUNSUB
 ; The open file loaded by 59, as a program loads an overlay, at $0300; its
 ; RSXs, if any, below the lowest. Refused: NO PROGRAM (no magic number, or
 ; nothing in it), BAD PROGRAM HEADER (its flags, its page, too big); a read
@@ -1783,7 +1941,12 @@ NOMEM:          .byte   "Insufficient Memory$"
 READERR:        .byte   "READ ERROR$"
 PWERR:          .byte   "Password Error$"
 TOOLONG:        .byte   "Command tail too long$"
-NOSUBMIT:       .byte   ": no SUBMIT yet$"
+SUBMITN:        .byte   0, "SUBMIT  COM"   ; (with a drive byte: COMFCB's 0-11)
+DOTSUB:         .byte   ".SUB"
+PROFN:          .byte   "PROFILE SUB"
+PROFCMD:        .byte   "SUBMIT PROFILE", 0
+ORDERS:         .byte   1, 0, 1, 2, 2, 1, 2, 0 ; the search order: types to try (1 COM, 2 SUB)
+COLDF:          .byte   1              ; in the file: 1 at the cold boot, 0 after the first prompt
 REQUIRED:       .byte   " required$"
 CM_NOFILE:      .byte   "No File$"
 SYSEXIST:       .byte   "SYSTEM FILE(S) EXIST$"

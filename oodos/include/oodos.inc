@@ -102,6 +102,8 @@ RXF_PUTFILE     = $90                  ; PUT.COM: an output file (PUT's RSX)
 RXF_PUTSTOP     = $91                  ; PUT ... TO CONSOLE/PRINTER: the active PUT of the kind ends
 RXF_PUTASK      = $92                  ; is a PUT of the kind sending output to a file?
 RXF_PUTCMD      = $93                  ; PUT.COM runs: a PUT armed for the next command waits for the one after
+RXF_SUBFILE     = $A0                  ; SUBMIT.COM: its temporary file (SUBMIT's RSX)
+RXF_SUBASK      = $A1                  ; does a SUBMIT RSX serve a file?
 
 SCB_CCPST       = $19                  ; the CCP's state: bit 7 it runs, bit 6 a command does,
 RX_CCP          = $80                  ;   bits 0-5 the commands' count (hw/oodos.md, 5a, 5b)
