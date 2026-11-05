@@ -19,9 +19,11 @@ A>TYPE README.TXT
   its tail in capitals.
 - **Blanks before the keyword** don't matter, and blanks and tabs at the end of the line are dropped.
 - **An empty line,** or one of blanks, gives the prompt again.
-- **A tail** may be up to 126 characters. A longer one runs nothing and says `Command tail too long`.
+- **A tail** may be up to 125 characters after the blank that ends the keyword. A longer one runs nothing and says
+  `Command tail too long`.
 
-A command that writes nothing has the next prompt on the next line:
+A built-in or a drive change that writes nothing has the next prompt on the next line (a program that writes
+nothing leaves a blank line before it):
 
 ```
 A>B:
@@ -135,7 +137,8 @@ Besides the line's editing keys, these work while a command writes:
 - **^C at the prompt,** with the line empty, resets the drives: each is read again the next time it is used, as
   after changing the card's images. It is also how a read-only drive becomes read-write again.
 
-**Paging.** DIR, TYPE and the utilities that write a lot stop when the screen is full (24 lines), with
-`Press a key for more`; any key goes on, ^C stops. SETDEF's `[NO PAGE]` turns this off.
+**Paging.** DIR, TYPE and the utilities that write a lot stop every 24 lines, the page length (`DEVICE
+CONSOLE [LINES=n]` sets it), with `Press a key for more` on the 24th; any key goes on, ^C stops. SETDEF's `[NO PAGE]`
+turns this off.
 
 Any other key typed while a command writes is kept, one, for the next thing that reads the keyboard.

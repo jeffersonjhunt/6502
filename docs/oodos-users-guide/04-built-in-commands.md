@@ -5,10 +5,10 @@ WOZMON and APPLE2. A built-in and the utility of the same name share one entry h
 
 The design record, for the reasons: [hw/oodos.md, "The CCP, phase 4"](../../hw/oodos.md#the-ccp-phase-4).
 
-**Built-ins and their utilities.** A built-in runs from any drive and user, as it is part of the CCP. DIR, DIRSYS,
-ERASE, RENAME and TYPE do their short forms themselves and hand the rest (an option list, a wildcard where the
-built-in takes none, several names, no name) to the utility of the same name on the card: `DIR.COM`, `ERASE.COM`,
-`RENAME.COM`, `TYPE.COM`. The utility is found as any program is
+**Built-ins and their utilities.** A built-in runs from any drive and user, as it is part of the CCP. DIR, ERASE,
+RENAME and TYPE do their short forms themselves and hand the rest (an option list, a wildcard where the built-in
+takes none, several names, no name) to the utility of the same name on the card: `DIR.COM`, `ERASE.COM`,
+`RENAME.COM`, `TYPE.COM`. DIRSYS hands its rest to `DIR.COM`, with SYS added. The utility is found as any program is
 ([chapter 2](02-command-line.md#where-programs-are-found)); if it isn't, the built-in says `DIR.COM required` (or
 `ERASE.COM`, `RENAME.COM`, `TYPE.COM`). A built-in's name with a drive, `A:DIR`, runs the utility itself.
 
@@ -23,8 +23,9 @@ built-in takes none, several names, no name) to the utility of the same name on 
 - A command that failed fails a `:` command after it ([chapter 2](02-command-line.md#several-commands-on-a-line)).
 
 **The utilities' options** go in square brackets, anywhere in the tail, separated by commas or blanks: `[FULL]`,
-`[USER=ALL]`, `[DRIVE=(A,B)]`. An option may be shortened to any start of its name that is no other's: `[F]` is
-`[FULL]`. `NO` and a blank before a name are one word: `[NO PAGE]` is `[NOPAGE]`. One option list a command.
+`[USER=ALL]`, `[DRIVE=(A,B)]`. An option may be shortened to any start of its name that is no other's: `[FU]` is
+`[FULL]`, and `[F]`, which could be FF or FULL, is refused. `NO` and a blank before a name are one word: `[NO PAGE]`
+is `[NOPAGE]`. One option list a command.
 
 ## DIR
 
@@ -86,7 +87,7 @@ alone if no file was listed.
 **FULL**, for each drive and user with files, a heading, the files, then the totals:
 
 ```
-Directory For Drive A:  User  0
+Directory For Drive B:  User  0
 
     Name     Bytes   Recs   Attributes   Prot      Update          Create
 ------------ ------ ------ ------------ ------ --------------  --------------
@@ -94,7 +95,7 @@ Directory For Drive A:  User  0
 README   TXT     4k      1 Dir RW       None   10/26/26 12:00  10/26/26 12:00
 
 Total Bytes     =      4k  Total Records =       1  Files Found =    1
-Total 1k Blocks =      1   Used/Max Dir Entries For Drive A:   12/ 768
+Total 1k Blocks =      1   Used/Max Dir Entries For Drive B:    2/ 768
 ```
 
 - **Bytes** the space the file takes, in KB; **Recs** its 128-byte records.
@@ -106,7 +107,8 @@ Total 1k Blocks =      1   Used/Max Dir Entries For Drive A:   12/ 768
 - **Total 1k Blocks** the 1 KB blocks the records need; **Used/Max** the directory entries in use, of those for
   files.
 
-**SIZE:** each line starts with the drive, then `NAME     TYP` and the size in KB, ` : ` between, then the totals.
+**SIZE:** each line starts with the drive, then `NAME     TYP` and the size in KB, ` : ` between, as many to a
+line as the console width over 21 (three at 80 columns), then the totals.
 
 **DATE:** the name, and the update and the other stamp, under FULL's headings for them, then the totals.
 
@@ -116,8 +118,9 @@ Groups (a drive and a user) are a blank line apart. Under paging the column head
 
 - `No File`: nothing matched.
 - **DIR.COM's:** `Illegal Option or Modifier.` (an option it doesn't know, a prefix that could be two, a bad
-  value); `Options not grouped together.` (a second option list); `Illegal command tail.` (a name that isn't one, a
-  `,` with nothing after it, a `[` not closed); `Illegal Format Value.` (FULL and SIZE, or DATE with either);
+  value, a value for an option that takes none); `Options not grouped together.` (a second option list);
+  `Illegal command tail.` (a name that isn't one, a `,` with nothing after it, a `[` not closed, more than 64
+  names); `Illegal Format Value.` (FULL and SIZE, or DATE with either);
   `Illegal Global/Local Drive Spec Mixing.` (a drive in a name and DRIVE= both); `Not Enough Memory for Sort.` (a
   drive with more files than fit, about 1,190; nothing listed for it); `Date and Time Stamping Inactive` (DATE on a
   drive without date stamps).
@@ -145,17 +148,17 @@ OODOS 0.2
 #### Examples
 
 ```
-A>DIR *.TXT
-A: README   TXT : NOTES    TXT
-A>DIR B:
+A>DIR B:*.TXT
+B: README   TXT : NOTES    TXT
+A>DIR B:*.BAS
 No File
-A>DIR [SIZE]
-Directory For Drive A:  User  0
+A>DIR B: [SIZE]
+Directory For Drive B:  User  0
 
-A: README   TXT    4k : NOTES    TXT    4k
+B: NOTES    TXT    4k : README   TXT    4k
 
 Total Bytes     =      8k  Total Records =       2  Files Found =    2
-Total 1k Blocks =      2   Used/Max Dir Entries For Drive A:   12/ 768
+Total 1k Blocks =      2   Used/Max Dir Entries For Drive B:    3/ 768
 ```
 
 ## DIRSYS
@@ -192,11 +195,13 @@ M: SYSF     COM
 NON-SYSTEM FILE(S) EXIST
 ```
 
-Handed to DIR.COM, DIR's listing with SYS: with an option list, or with several names, FULL.
+Handed to DIR.COM, DIR.COM's listing of the SYS files: the form its options ask for (`DIRSYS M: [SIZE]` is SIZE's),
+or its short form for several names and no options.
 
 #### Errors
 
-As DIR's: `No File`, and DIR.COM's when it is handed the command.
+As DIR's: `No File`, and DIR.COM's when it is handed the command. `Command tail too long`: adding `SYS,` or
+` [SYS]` would make the tail longer than 126 characters.
 
 #### Since
 
@@ -252,7 +257,7 @@ Y (or y) erases them; anything else erases nothing. With CONFIRM, a question a f
 - A read-only file, a read-only drive, a wrong password: the BDOS's (`File R/O`, `Read Only`, `Password Error`).
 - **ERASE.COM's:** `Drive Read Only` (the drive is read-only: nothing more erased); `Missing delimiter or
   Unrecognized Option` (an option but CONFIRM, a second option list, a second name); `Invalid file specification.`
-  (a name that isn't one); `Not Enough Memory` (a wildcard matching more names than fit).
+  (a name that isn't one); `Not Enough Memory` (with CONFIRM, a wildcard matching more names than fit).
 - `ERASE.COM required`: CONFIRM, or no name, and ERASE.COM not found.
 
 #### Since
@@ -301,8 +306,8 @@ A>REN NOTES.TXT=DRAFT.TXT
 Not renamed: NOTES.TXT file already exists, delete (Y/N)?
 ```
 
-Y deletes the old `NOTES.TXT` and renames; anything else renames nothing. RENAME.COM, for a wildcard, shows each
-file renamed on a line, `NOTES.BAK=NOTES.TXT`.
+Y deletes the old `NOTES.TXT` and renames; anything else renames nothing. RENAME.COM, for a wildcard or with no
+tail, shows each file renamed on a line, `NOTES.BAK=NOTES.TXT`.
 
 #### Errors
 
@@ -416,7 +421,8 @@ Enter User #: 5
 
 #### Errors
 
-- Anything but a number from 0 to 15: the command and `?`, as `USER 16?`.
+- Anything but a number from 0 to 15: the command and `?`, as `USER 16?`. A wrong answer, or none, to
+  `Enter User #: ` is `USER?` alone.
 
 #### Since
 

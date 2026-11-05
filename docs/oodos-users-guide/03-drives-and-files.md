@@ -89,7 +89,8 @@ Where a command takes several files, two characters in a name stand for others:
 `A*.T?T` is every name starting `A` with a type of `T`, any one character, `T`. A name with no type matches only
 files with no type: `DIR NOTES` doesn't show `NOTES.TXT`; `DIR NOTES.*` does.
 
-DIR, ERASE, TYPE.COM, RENAME.COM, SET and PIP take wildcards. ERASE asks before it erases more than one file.
+DIR, ERASE, TYPE.COM, RENAME.COM, SET and PIP take wildcards. ERASE asks before it erases with a wildcard, even if
+one file matches.
 
 ## Attributes
 
@@ -99,8 +100,9 @@ Each file has attributes, kept with it in the directory:
   DIR is the other kind, a file DIR shows.
 - **RO or RW:** a read-only file can be read, but not written, erased or renamed: those are
   `OODOS Error On A: File R/O`.
-- **Archive:** marks a file as backed up. PIP's `[A]` copies only files without it, and sets it on each after the
-  copy; a copy PIP makes has it clear.
+- **Archive:** marks a file as backed up. PIP's `[A]`, copying to a drive, copies only files without it, and sets it on
+  each after the copy; a copy PIP makes has it clear. OODOS doesn't clear it when a file changes, as CP/M 3 does:
+  `SET [ARCHIVE=OFF]` does.
 - **F1 to F4:** for the user's own use; OODOS doesn't look at them.
 
 [SET](05-utilities.md#set) sets them (`SET README.TXT [RO]`), and DIR.COM's `[FULL]` shows them.

@@ -39,11 +39,15 @@ For a file:
 - **ARCHIVE=ON** or **ARCHIVE=OFF:** the archive attribute, which marks a file as backed up since it last
   changed (PIP's A option copies the files without it, and sets it).
 - **F1=ON** to **F4=ON** (or `=OFF`): the four attributes left to programs. F5 to F8 are cleared.
-- **PASSWORD=pw:** a new password, 1 to 8 characters. `PASSWORD=` with nothing after it removes it.
+- **PASSWORD=pw:** a new password, 1 to 8 characters. `PASSWORD=` with nothing after it doesn't remove a file's:
+  it is `Assign a Password to this file.` (`PROTECT=NONE` removes it).
 - **PROTECT=READ**, **WRITE**, **DELETE** or **NONE:** what the password guards, on a drive whose label has
   protection on. READ: the file can't be opened without it; WRITE: it opens, but read-only; DELETE: it opens as
-  usual. Whatever the mode, deleting or renaming it needs the password. NONE: nothing, and the password is
-  deleted unless `PASSWORD=` gives a new one in the same list. A file given a password with no mode gets READ if it had none before, and keeps its mode if it had one.
+  usual. Whatever the mode, deleting it, renaming it or changing its attributes needs the password. NONE: nothing,
+  and the password is
+  deleted unless `PASSWORD=` gives a new one in the same list. A file given a password with no mode gets READ if it
+  has never had a password, and keeps its mode
+  otherwise (a file set to NONE stays NONE).
 
 For a drive:
 
@@ -90,7 +94,8 @@ M: Access = OFF
 M: Update = ON
 ```
 
-The attributes are named in the order DIR, SYS, RW, RO, Archive, F1 to F4, whatever order they were typed in. The
+A file can get two lines: one for its attributes and one for its protection. The attributes are named in the order
+DIR, SYS, RW, RO, Archive, F1 to F4, whatever order they were typed in. The
 `Protection =` line says `Read`, `Write`, `Delete` or `None`; the password itself is never shown.
 
 #### Errors
@@ -104,12 +109,13 @@ The attributes are named in the order DIR, SYS, RW, RO, Archive, F1 to F4, whate
 - `Option requires a file reference.`: a file option given without a file.
 - `Cannot label a drive with a file referenced`: NAME given with a file.
 - `File not found.`: nothing matches the specification.
-- `Assign a Password to this file.`: a protection mode for a file that has no password and is given none.
+- `Assign a Password to this file.`: a protection mode for a file that has no password and is given none, or
+  `PASSWORD=` with nothing after it, for a file.
 - `Password protection is off: SET [PROTECT=ON]`: a file's password or mode set on a drive whose label doesn't
   enforce passwords (or that has no label). Nothing is changed: turn protection on first.
 - `Wrong Password`: the label's password, asked for, didn't match.
-- `Directory needs to be reformatted for date/time stamps.`: CREATE, ACCESS or UPDATE on a drive without room for
-  stamps. Run INITDIR on it first.
+- `Directory needs to be reformatted for date/time stamps.`: CREATE, ACCESS or UPDATE turned on, on a drive without
+  room for stamps. Run INITDIR on it first.
 - `Drive Read Only`: a label option on a drive that is read-only, without RW in the same list.
 - `Not Enough Memory`: too many files match a wildcard.
 - `Directory full`: no free entry for a new label or for a file's password.
@@ -127,7 +133,7 @@ OODOS 0.2
 #### CP/M 3
 
 - The lines SET writes for each change are OODOS's own, and the password is never shown.
-- A file given a password and no mode is protected for READ only if it had no mode before.
+- A file given a password and no mode is protected for READ only if it has never had a password.
 - An unknown option is `Invalid option`.
 - SET refuses a file's password or mode while the drive's protection is off, rather than setting one that would
   not be enforced.
@@ -232,8 +238,8 @@ DRIVE, each number right-aligned in 7 with commas (here M:, the memory drive):
 ```
 
 The record capacity and kilobytes are the drive's data area; the checked entries are 0 for a drive that can't be
-changed under OODOS (all of OODOS's are so far); sectors a track count 128-byte records, the physical record is the
-card's 512-byte sector.
+changed under OODOS (all of OODOS's are so far); sectors a track count 128-byte records, and the physical record is
+the drive's sector, 512 bytes on every OODOS drive, M: too.
 
 #### Errors
 
@@ -276,7 +282,7 @@ M: Number of free directory entries: 182
 A drive keeps date and time stamps only if its directory has room for them: every fourth entry set aside to hold
 the stamps of the three before it. INITDIR sets that room aside, or, on a drive that has it, gives it back or
 clears the stamps in it. Which stamps are kept is then the label's, set by [SET](#util-set) (`[CREATE=ON]`,
-`[UPDATE=ON]`).
+`[ACCESS=ON]`, `[UPDATE=ON]`).
 
 #### Forms
 
@@ -306,7 +312,7 @@ None. INITDIR asks what to do:
   Do you wish to recover date/time directory space (Y/N)? 
   ```
 
-  `Y` frees the entries again and turns the label's stamps off. `N` asks a second question:
+  `Y` frees the entries again and turns the label's stamps off. Any other answer asks a second question:
 
   ```
   Do you want the existing date/time stamps cleared (Y/N)? 
@@ -323,7 +329,8 @@ The questions above, and nothing when the work is done.
 #### Errors
 
 - `Invalid drive.`: no drive, a drive past P, or anything more on the line (a name, a second drive, an option).
-- `Drive Read Only`: the drive is read-only (`SET d: [RW]` first).
+- `Drive Read Only`: the drive is read-only. `SET d: [RW]` first, if it was made so by SET; a drive marked RO in
+  `DRIVES.TXT`, or on a write-protected unit, stays read-only.
 - `Not enough room in directory.`: more than three quarters of the directory is in use, so the entries in the
   places to set aside have nowhere to go. Nothing is changed: erase some files first.
 - `Not Enough Memory`: too many entries to move for INITDIR to hold. Nothing is changed.
@@ -384,8 +391,9 @@ DATE SET
 - **DATE** shows the date and time once.
 - **DATE C** (`CONTINUOUS`, or any start of it: `C`, `CONT`) shows them again on the same line every second,
   until a key is pressed. The key is taken, not passed on to the next command.
-- **DATE MM/DD/YY HH:MM:SS** sets the clock. Each number has one or two digits (`2/9/28 8:05:00`), blanks may go
-  between the parts, and the year is two digits, 20YY. DATE checks it all (a month of 1 to 12, a day that is in
+- **DATE MM/DD/YY HH:MM:SS** sets the clock. Each number has one or two digits (`2/9/28 8:05:00`), with no blank
+  inside the date or the time and one or more blanks or tabs between them, and the year is two digits, 20YY. DATE
+  checks it all (a month of 1 to 12, a day that is in
   the month, 29 February only in a leap year, hours 0 to 23, minutes and seconds 0 to 59), then asks for a key,
   so the clock can be set on the second:
 
@@ -507,6 +515,8 @@ For a physical device, in brackets after its name:
 - **NOXON:** no flow control. Taken: so it is.
 - **A baud rate** (`[9600]`): no OODOS device can have its rate set: refused.
 
+An option may be shortened to any start that isn't ambiguous, and `NO XON` is `NOXON`.
+
 For CONSOLE: **PAGE**, **COLUMNS=n**, **LINES=n**, above.
 
 #### Output
@@ -540,8 +550,8 @@ Console page set to 24 lines
 
 - `Bad Logical Device Assignment`: a name before `=` that isn't a logical device (a physical one among them), or
   `=` with nothing before it.
-- `Invalid Physical device.`: a name that isn't a device, a device that can't do what the assignment needs, or
-  NULL with other devices.
+- `Invalid Physical device.`: a name that isn't a device, a device that can't do what the assignment needs, NULL
+  with other devices, or `=` with nothing after it.
 - `Invalid delimiter.`: devices not separated by commas, or a device without `=`.
 - `Invalid option.`: an option DEVICE doesn't know, an option list on a logical device but the console, or a `[`
   not closed.
@@ -599,14 +609,16 @@ SETDEF d:{,d:{,d:{,d:}}} {[options]}
 SETDEF [options]
 ```
 
-- **The drives,** up to four, separated by commas, are the search path, in order; `*` is the current drive,
-  whichever it is at the time. When OODOS starts the path is the current drive alone.
+- **The drives,** up to four, separated by commas, are the search chain, in order; `*` is the current drive,
+  whichever it is at the time. When OODOS starts the chain is the current drive alone.
 - The options go together in one list, in brackets, each name shortened to any start that isn't ambiguous.
 
 #### Options
 
-- **TEMPORARY=d:** the drive for temporary files (`*` the current drive).
-- **ORDER=(COM)**: the order of the file types looked for. Until SUBMIT (OODOS phase 5) the CCP runs `.COM` files
+- **TEMPORARY=d:** the drive for temporary files (`*` the current drive). Kept, and shown, but nothing in OODOS 0.2
+  uses it yet.
+- **ORDER=(COM)**, or `ORDER=COM`: the order of the file types looked for. Until SUBMIT (OODOS phase 5) the CCP runs
+  `.COM` files
   only, so COM is the only one taken.
 - **DISPLAY** and **NODISPLAY** (or **NO DISPLAY**): whether the CCP shows the drive and name of each program it
   runs, before it runs it (`M:ARGS     COM`, with ` (User 0)` when it was found in user 0 from another user).
@@ -615,6 +627,8 @@ SETDEF [options]
 An option given twice: the last wins.
 
 #### Output
+
+After `SETDEF *,M:`:
 
 ```
 Drive Search Path:
@@ -638,7 +652,7 @@ Program Name Display - Off
 - `Invalid delimiter.`: drives not separated by commas, or anything after the option list.
 - `Invalid option.`: an option SETDEF doesn't know, an ambiguous prefix, TEMPORARY or ORDER without a value, a
   value where none is taken, or a `[` not closed.
-- `Invalid type for ORDER option.`: a type other than COM, or an empty ORDER.
+- `Invalid type for ORDER option.`: a type other than COM, an empty ORDER, or a list with no `)`.
 - `ORDER=(SUB): no SUBMIT yet`: SUB in ORDER.
 
 After any, nothing is changed.
@@ -707,8 +721,9 @@ PIP dest-filespec{[Gn]}=device{[options]}
 In square brackets after a source (the destination takes `[Gn]` alone); letters together or with blanks between, a
 number straight after its letter:
 
-- **A** only files not backed up since they last changed (archive bit clear); each is marked backed up after.
-- **C** asks `COPY NAME.TYP (Y/N)?` before each file copied to a drive.
+- **A** only files whose archive bit is clear; each is marked backed up (the bit set) after. Only for a copy to a
+  drive: a file-to-file copy of a file with the bit set says `FILE NOT FOUND`.
+- **C** asks `COPY NAME.TYP (Y/N)?` before each file copied to a drive, and leaves out the `COPYING -` list.
 - **Dn** cuts each line after column n.
 - **E** shows what is written on the console as it goes.
 - **F** drops form feeds.
@@ -743,10 +758,16 @@ TWO.TXT
 
 - `INVALID FORMAT`: a form PIP doesn't take, a wildcard where one name is needed, or a copy onto itself.
 - `INVALID SEPARATOR`: something after a name that isn't `,`, `=` or an option list.
-- `BAD PARAMETER`: an option PIP doesn't know, or one without its number or ^Z; any destination option but G.
+- `BAD PARAMETER`: an option PIP doesn't know, or one without its number or ^Z; a number over 255; N other than 1
+  or 2; an empty S or Q text; a `[` with no `]`; any destination option but G.
 - `INVALID USER NUMBER`: G over 15.
-- `INVALID DESTINATION`, `INVALID SOURCE`: a device on the wrong side, or a name with `:` that isn't a device.
-- `FILE NOT FOUND - NAME.TYP`; `R/O DISK`; `CAN'T DELETE TEMP FILE` (a read-only `NAME.$$$` in the way).
+- `INVALID DESTINATION`, `INVALID SOURCE`: a device on the wrong side, a name with `:` that isn't a device, or a
+  name that isn't a file name (too long, a character a name can't have).
+- `FILE NOT FOUND - NAME.TYP`: no such file; for a wildcard that matched nothing, the name with its `?`s
+  (`FILE NOT FOUND - ????????.TXT`).
+- `R/O DISK`: the destination drive is read-only.
+- `CAN'T DELETE TEMP FILE`: a read-only `NAME.$$$` in the way.
+- `Not Enough Memory`: the names a wildcard or a drive matches don't fit in memory.
 - `DESTINATION IS R/O, DELETE (Y/N)?`: N is `**NOT DELETED**`.
 - `DISK WRITE ERROR - NAME.TYP`: the disk, or its directory, is full. `VERIFY ERROR - NAME.TYP`: V found a difference.
 - `START NOT FOUND`, `QUIT NOT FOUND`: S's or Q's text wasn't in the source.
@@ -771,7 +792,8 @@ OODOS 0.2
 - A file copied alone keeps its source's RO, SYS and F1-F4, as in CP/M 3, but its archive bit is clear, so it is
   backed up again; a joined file takes no attributes.
 - H's error asks for no correction: the copy stops.
-- `D0` and `T0` are refused.
+- `D0` and `T0` are refused, and so is an empty S or Q text.
+- More than 16 sources are `INVALID FORMAT`.
 - A wildcard destination other than `*.*` is refused, and so is a wildcard source joined to a file.
 - The text after S and Q is in capitals when typed on the `A>` line, as every command line is. At PIP's `*` it
   stays as typed.
@@ -784,8 +806,7 @@ OODOS PIP 0.2
 *B:=A:*.BAS
 COPYING -
 GAME.BAS
-*LETTER.TXT=CON:
-Dear friend,^Z
+*LETTER.TXT=B:
 *
 A>
 ```
