@@ -40,6 +40,7 @@
  */
 
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -74,8 +75,11 @@ namespace ooe::emu
         void update_screen();
 
         /// Print `prompt` and read one line in the original (cooked) mode.
-        /// @return false at end of input or when a signal interrupts the read
-        bool read_line(const char *prompt, std::string &line);
+        /// `stop` is the flag a quit signal's handler sets: it is checked with
+        /// signals blocked and the wait unblocks them, so a signal that lands
+        /// between the prompt and the wait still ends it.
+        /// @return false at end of input or once `stop` is set
+        bool read_line(const char *prompt, std::string &line, const volatile std::sig_atomic_t &stop);
         /// Print debugger output.
         void write(const std::string &text);
 
@@ -86,9 +90,11 @@ namespace ooe::emu
 
     private:
         void draw_lcd();
-        /// Read what stdin has into input_; with `wait`, block for it.
-        /// @return false at end of input, or when a signal interrupts the wait
-        bool fill(bool wait);
+        /// Read what stdin has into input_; with `stop`, block for it.
+        /// @return false at end of input, or once `*stop` is set
+        bool fill(const volatile std::sig_atomic_t *stop);
+        /// Block until stdin is readable or `stop` is set (then false).
+        static bool wait_input(const volatile std::sig_atomic_t &stop);
 
         Console &console_;
         struct termios saved_{};

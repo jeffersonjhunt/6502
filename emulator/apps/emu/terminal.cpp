@@ -119,16 +119,49 @@ namespace ooe::emu
             EMU_LOGE(TAG, "tcsetattr() failed restoring the terminal");
     }
 
-    bool Terminal::fill(bool wait)
+    bool Terminal::wait_input(const volatile std::sig_atomic_t &stop)
     {
-        // Running, only read what is there. At the prompt a plain blocking
-        // read(): a stop and continue restart it (SA_RESTART), where poll()
-        // would fail with EINTR; Ctrl-C (no SA_RESTART) still ends it.
+        // The flag is checked with every signal blocked, and ppoll() unblocks
+        // them only while it waits, in one step: a Ctrl-C that lands after
+        // the prompt is printed but before the wait either is seen here or
+        // ends the wait. A plain check-then-read() would miss it and block
+        // until the next key. A stop and continue (Ctrl-Z) ends the wait
+        // too; with no quit it waits again.
+        sigset_t all;
+        sigset_t old;
+        sigfillset(&all);
+        sigprocmask(SIG_BLOCK, &all, &old);
+        struct pollfd in = {STDIN_FILENO, POLLIN, 0};
+        bool ready = false;
+        while (!stop)
+        {
+            if (ppoll(&in, 1, nullptr, &old) >= 0)
+            {
+                ready = true;
+                break;
+            }
+            if (errno != EINTR)
+            {
+                EMU_LOGE(TAG, "waiting for stdin failed: errno %d", errno);
+                ready = true; // let read() find the error
+                break;
+            }
+        }
+        sigprocmask(SIG_SETMASK, &old, nullptr);
+        return ready;
+    }
+
+    bool Terminal::fill(const volatile std::sig_atomic_t *stop)
+    {
+        // Running (no `stop`), only read what is there. At the prompt, wait
+        // for input or a quit (wait_input), then read.
         struct pollfd in = {STDIN_FILENO, POLLIN, 0};
         while (!eof_)
         {
-            if (!wait && poll(&in, 1, 0) <= 0)
+            if (!stop && poll(&in, 1, 0) <= 0)
                 return true; // nothing yet
+            if (stop && !wait_input(*stop))
+                return false;
             char buf[256];
             const ssize_t n = read(STDIN_FILENO, buf, sizeof buf);
             if (n > 0)
@@ -139,13 +172,14 @@ namespace ooe::emu
             if (n == 0)
                 eof_ = true;
             else if (errno == EINTR)
-                return !wait; // running, the loop sees the quit flag
+            {
+                if (!stop)
+                    return true; // running, the loop sees the quit flag
+            }
             else if (errno == EAGAIN) // stdin came to us non-blocking
             {
-                if (!wait)
+                if (!stop)
                     return true;
-                if (poll(&in, 1, -1) < 0)
-                    return false;
             }
             else
             {
@@ -165,7 +199,7 @@ namespace ooe::emu
         uint8_t last = 0;
         bool debug = false;
         if (input_.empty() && keys_.size() < MAX_BACKLOG)
-            fill(false);
+            fill(nullptr);
         // Keys go straight to keys_, so input_ only ever holds what follows
         // a Ctrl-]: a breakpoint's prompt never reads the machine's keys.
         size_t used = 0;
@@ -236,7 +270,7 @@ namespace ooe::emu
         lcd_drawn_ = std::chrono::steady_clock::now();
     }
 
-    bool Terminal::read_line(const char *prompt, std::string &line)
+    bool Terminal::read_line(const char *prompt, std::string &line, const volatile std::sig_atomic_t &stop)
     {
         if (restore_)
         {
@@ -248,7 +282,7 @@ namespace ooe::emu
         line.clear();
         size_t end = input_.find('\n');
         bool ok = true;
-        while (end == std::string::npos && (ok = fill(true))) // a long line arrives in pieces
+        while (end == std::string::npos && (ok = fill(&stop))) // a long line arrives in pieces
             end = input_.find('\n');
         if (end != std::string::npos || (eof_ && !input_.empty())) // the last line may have no newline
         {

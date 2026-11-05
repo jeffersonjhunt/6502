@@ -48,7 +48,7 @@ namespace ooe::emu
             if (debugger_.halted())
             {
                 std::string line;
-                if (!terminal_.read_line("debug> ", line))
+                if (!terminal_.read_line("debug> ", line, signals.quit))
                     break; // end of input, or a signal: either way, done
                 signals.interrupt = 0;
                 signals.in_command = 1;
