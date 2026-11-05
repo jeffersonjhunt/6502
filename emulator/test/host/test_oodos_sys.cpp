@@ -1116,9 +1116,56 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
 {
     Booted r;
     REQUIRE(r.ok);
+    // What a write's own directory writes (WROTE's, from its entry to its return) change in M:'s
+    // directory: an entry's t3' cleared, and an SFCB's update stamps, nothing else (the entry it
+    // writes for t3' points at no data that isn't on the disk yet).
+    constexpr uint32_t DIRBYTES = 4 * 2048; // M:'s directory: 4 blocks of 2 KB, from MDISK
+    const uint16_t wrote = sym("WROTE");
+    uint16_t wrote_ret = 0;
+    bool writing = false;
+    std::vector<uint8_t> before(DIRBYTES);
+    unsigned t3s = 0, stamps = 0, other = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == wrote)
+        {
+            writing = true;
+            const uint8_t sp = r.cpu->regs().s;
+            auto pulled = [&](unsigned k) { return r.machine->bus().peek(static_cast<uint16_t>(0x0100 | ((sp + k) & 0xFF))); };
+            wrote_ret = static_cast<uint16_t>((pulled(1) | pulled(2) << 8) + 1);
+            for (uint32_t i = 0; i < DIRBYTES; ++i)
+                before[i] = r.phys(MDISK + i);
+        }
+        else if (writing && pc == wrote_ret)
+        {
+            writing = false;
+            for (uint32_t i = 0; i < DIRBYTES; ++i)
+            {
+                const uint8_t now = r.phys(MDISK + i);
+                if (now == before[i])
+                    continue;
+                const uint32_t e = i & ~31u, k = i & 31u;
+                if (before[e] == 0x21 && k >= 1 && k <= 30 && (k - 1) % 10 >= 4 && (k - 1) % 10 <= 7)
+                    ++stamps; // an SFCB slot's update stamp
+                else if (before[e] < 0x20 && k == 11 && before[i] == (now | 0x80) && (now & 0x80) == 0)
+                    ++t3s;    // a file entry's t3' cleared
+                else
+                {
+                    ++other;
+                    std::printf("  WROTE changed directory byte %u (entry %u, byte %u): %02X to %02X\n",
+                                static_cast<unsigned>(i), static_cast<unsigned>(e / 32), static_cast<unsigned>(k),
+                                before[i], now);
+                }
+            }
+        }
+    };
     const size_t from = start(r, "dirtest.com");
     CHECK(r.until("DIRTEST DONE", ms(60000), from));
     CHECK(r.until("\r\nA>", ms(3000), from));
+    r.watch = nullptr;
+    std::printf("  M: WROTE's directory writes: %u t3' cleared, %u stamp bytes, %u other bytes\n", t3s, stamps, other);
+    CHECK(t3s > 0);    // AR.TXT's
+    CHECK(stamps > 0); // first writes after an open
+    CHECK_EQ(other, 0u);
     const std::string o = r.out.substr(from);
     const std::pair<const char *, const char *> want[] = {
         {"SEARCH", "A1 A2"},           // A?.TXT, in the directory's order

@@ -18,7 +18,8 @@
 ;   DELX aa xx / XKEPT aa xx  f5': Delete of XFCBs only, which A1 hasn't
 ;   BITS hh hh            B1 given f1' and t3': its entry's bytes 1 and 11
 ;   OPENBITS hh hh        and the FCB's after Open
-;   AROPEN hh             AR.TXT archived (t3' by 30): the FCB's byte 11
+;   AROPEN hh             AR.TXT archived (t3' by 30), the clock set to
+;                         2027-01-01 00:00 (104): the FCB's byte 11
 ;                         after Open; AREAD aa xx a read, ARREAD hh the
 ;                         entry's byte 11 after it (kept)
 ;   ARWRITE aa xx ARBITS hh hh  a write: the entry's byte 11 and the FCB's
@@ -267,6 +268,7 @@ start:  lda     #$FF                    ; errors come back
         ora     #$80                    ; t3'
         sta     fcb+11
         CALLF   F_ATTRIB, fcb
+        CALLF   T_SET, later            ; so the first write's update stamp is new
         NAME    fcb, "AR      TXT"
         CALLF   F_OPEN, fcb
         SAY     "AROPEN "
@@ -810,6 +812,10 @@ showfree:
 
         .include "print.inc"
         .include "fs.inc"
+
+        .rodata
+later:  .word   17898                   ; 2027-01-01 00:00, days from 1 January 1978 (day 1)
+        .byte   $00, $00
 
         .bss
 fcb:    .res    36
