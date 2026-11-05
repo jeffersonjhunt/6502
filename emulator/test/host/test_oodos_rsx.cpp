@@ -469,11 +469,11 @@ TEST(the_scb_19_says_the_ccp_runs_and_counts_its_commands)
     // A built-in runs with bit 6 set and the CCP's bit 7: DIR's output is a command's (5b's PUT); at the next
     // prompt both are as before
     bool seen = false;
-    const uint16_t sayprompt = sym("SAYPROMPT"), dir = sym("B_DIR");
+    const uint16_t prompt = sym("PROMPT"), dir = sym("B_DIR"); // (5c: PROMPT clears it, not SAYPROMPT)
     r.watch = [&](uint16_t pc) {
         if (pc == dir)
             seen = true;
-        if (seen && pc == sayprompt)
+        if (seen && pc == prompt)
         {
             CHECK_EQ(r.phys(SCB_PHYS + 0x19) & 0xC0, 0xC0); // still the command's, before the prompt clears it
             seen = false;

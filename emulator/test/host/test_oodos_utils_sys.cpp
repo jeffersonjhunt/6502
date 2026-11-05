@@ -837,14 +837,14 @@ TEST(device_console_shows_and_sets_the_width_and_page)
 namespace
 {
     std::vector<std::string> setdef_lines(const std::vector<std::string> &chain, const std::string &temp = "Default",
-                                          bool page = true, bool display = false)
+                                          bool page = true, bool display = false, const std::string &order = "COM")
     {
         static const char *const ORD[] = {"1st", "2nd", "3rd", "4th"};
         std::vector<std::string> ls = {"Drive Search Path:"};
         for (size_t i = 0; i < chain.size(); ++i)
             ls.push_back(std::string(ORD[i]) + " Drive            - " + chain[i]);
         ls.push_back("");
-        ls.push_back("Search Order         - COM");
+        ls.push_back("Search Order         - " + order);
         ls.push_back("Temporary Drive      - " + temp);
         ls.push_back(std::string("Console Page Mode    - ") + (page ? "On" : "Off"));
         ls.push_back(std::string("Program Name Display - ") + (display ? "On" : "Off"));
@@ -931,12 +931,12 @@ TEST(setdef_sets_the_temporary_drive_the_order_display_and_page_modes)
     same(run(r, "setdef [order=com]"), lines(setdef_lines({"M:", "Default"})));
     CHECK(succeeded(r));
     // DISPLAY: $18's bit 7, the rest kept; the CCP says where a program came from
-    r.scb(0x18, 0x05);
+    r.scb(0x18, 0x04);                                // (5c: bits 0-1 are the search order now)
     same(run(r, "setdef [display]"), lines(setdef_lines({"M:", "Default"}, "Default", true, true)));
-    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x85u);
+    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x84u);
     CHECK(r.cmd("args").find("args\r\nM:ARGS     COM\r\nARGS M0  \r\n") != std::string::npos);
     same(run(r, "setdef [no display]"), "M:SETDEF   COM\r\n" + lines(setdef_lines({"M:", "Default"}))); // still on as it ran
-    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x05u);
+    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x04u);
     CHECK(r.cmd("args").find("args\r\nARGS M0  \r\n") != std::string::npos);
     // PAGE: $2C 0 on, $FF off; the CCP's DIR pages by it
     r.scb(0x1C, 4); // a page of 4: 3 lines, then the stop
@@ -972,7 +972,7 @@ TEST(setdef_sets_the_temporary_drive_the_order_display_and_page_modes)
     same(run(r, "setdef m:,* [temporary=m:, order=(com), display, no page]"),
          lines(setdef_lines({"M:", "Default"}, "M:", false, true)));
     CHECK(chain_of(r) == std::vector<unsigned>({13, 0, 0xFF, 0xFF}));
-    CHECK(r.scbv(0x50) == 13 && r.scbv(0x18) == 0x85 && r.scbv(0x2C) == 0xFF);
+    CHECK(r.scbv(0x50) == 13 && r.scbv(0x18) == 0x84 && r.scbv(0x2C) == 0xFF);
     CHECK(succeeded(r));
 }
 
@@ -980,9 +980,20 @@ TEST(setdef_says_each_error_and_sets_nothing)
 {
     SysRig r({"setdef"});
     REQUIRE(r.ok);
-    same(run(r, "setdef [order=(sub,com)]"), "ORDER=(SUB): no SUBMIT yet");
+    // 5c: SUB is taken (SUBMIT): the order in $18's bits 0-1, its other bits kept
+    r.scb(0x18, 0x04);
+    same(run(r, "setdef [order=(sub,com)]"), lines(setdef_lines({"M:", "Default"}, "Default", true, false, "SUB, COM")));
+    CHECK(succeeded(r));
+    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x06u);
+    same(run(r, "setdef [order=(com,sub)]"), lines(setdef_lines({"M:", "Default"}, "Default", true, false, "COM, SUB")));
+    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x05u);
+    same(run(r, "setdef [order=sub]"), lines(setdef_lines({"M:", "Default"}, "Default", true, false, "SUB")));
+    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x07u);
+    same(run(r, "setdef [order=com]"), "SETDEF?");      // SUB alone: SETDEF.COM isn't looked for
+    same(run(r, "setdef.com [order=com]"), lines(setdef_lines({"M:", "Default"})));
+    CHECK_EQ(unsigned{r.scbv(0x18)}, 0x04u);
+    same(run(r, "setdef [order=(sub,sub)]"), "Invalid type for ORDER option.");
     CHECK(!succeeded(r));
-    same(run(r, "setdef [order=sub]"), "ORDER=(SUB): no SUBMIT yet");
     same(run(r, "setdef [order=(exe)]"), "Invalid type for ORDER option.");
     same(run(r, "setdef [order=(com,co)]"), "Invalid type for ORDER option.");
     same(run(r, "setdef [order=()]"), "Invalid type for ORDER option.");

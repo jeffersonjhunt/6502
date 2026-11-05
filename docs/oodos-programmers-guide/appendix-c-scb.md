@@ -13,7 +13,7 @@ the value OODOS starts with; the bytes not listed are reserved, 0.
 | `$06` | 4 | the user flags: the program's, not looked at by OODOS | 0 |
 | `$10` | 2 | the program return code, function 108's | 0 |
 | `$17` | 1 | ours: function 47's request to the CCP. Bit 7 a command waits at `$0280`; bit 6 with the program's drive and user | 0 |
-| `$18` | 1 | ours: bit 7 SETDEF's display mode, the CCP says where a program came from before it runs | 0 |
+| `$18` | 1 | ours: bit 7 SETDEF's display mode, the CCP says where a program came from before it runs; bits 0-1 the search order for a command without a type: 0 `.COM`, 1 `.COM` then `.SUB`, 2 `.SUB` then `.COM`, 3 `.SUB` | 0 |
 | `$19` | 1 | ours, for RSXs that redirect the console: bit 7 set while the CCP runs, clear while a program does; bit 6 set while a command runs (a built-in's too), clear at the prompt; bits 0-5 a count the CCP steps as each command starts. The CCP sets it by 49 through `$0203`, so RSXs see it change | 0, then bit 7 |
 | `$1A` | 1 | the console's width less one | 79 |
 | `$1B` | 1 | the console's column | 0 |

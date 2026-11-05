@@ -97,9 +97,16 @@ The keyword runs to the first blank or tab. The CCP takes it as one of these, in
 A built-in's name with a drive runs the program of that name: `A:DIR` runs `DIR.COM` from A:, so a program with a
 built-in's name, such as the `CLS.COM` many CP/M disks have, can still be run.
 
-The CCP runs `.COM` files only. `NAME.SUB` says `NAME.SUB: no SUBMIT yet`: SUBMIT comes with OODOS phase 5
-([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)). Any other type, `.PRL` among them, and a keyword with `?` or
-`*` or that isn't a file name, is the keyword and `?`: `HELLO.PRL?`.
+The CCP runs `.COM` files, and `.SUB` files through SUBMIT: `NAME.SUB` typed, or found by the search order, runs
+as `SUBMIT d:NAME.SUB` and the rest of the line ([SUBMIT](05-utilities.md#util-submit)), SUBMIT.COM found as any
+program is; without it the CCP says `SUBMIT?`. Without a type the CCP looks for `.COM` alone, unless SETDEF's
+`ORDER` says `.SUB` too, or first ([SETDEF](05-utilities.md#util-setdef)): the first type on every drive of the
+search chain before the second. Any other type, `.PRL` among them, and a keyword with `?` or `*` or that isn't a
+file name, is the keyword and `?`: `HELLO.PRL?`.
+
+**PROFILE.SUB.** At the first prompt after OODOS starts (a reset is a start too), the CCP looks on the current
+drive, in user 0, for `PROFILE.SUB`. When it is there, the CCP shows `SUBMIT PROFILE` after the prompt, as if
+typed, and runs it: a file of the commands to run each time, such as `DATE SET`.
 
 ## Where programs are found
 

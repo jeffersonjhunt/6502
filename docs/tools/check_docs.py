@@ -48,7 +48,7 @@ SW_STATUS = ("built", "proposed")              # OODOS's functions and utilities
 HW_STATUS = ("built", "emulated", "proposed")  # the machine's registers and sections
 # Commands with no source yet, from the plan (hw/oodos.md, "Phases"): SUBMIT, GET and PUT, phase 5's, as RSXs.
 # (PIP, phase 4b2's, is oodos/utils/pip.s now.)
-PLANNED = ("submit",)
+PLANNED: tuple = ()
 MODULES = {0x6: "serial", 0x7: "storage", 0x8: "DMA", 0x9: "video", 0xA: "sound", 0xB: "USB",
            0xD: "north bridge", 0xE: "console"}
 

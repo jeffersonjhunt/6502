@@ -5,9 +5,11 @@
 ;   SET    SETBNK 1, SELMEM 1 and an XMOVE from bank 1 to bank 1 left
 ;          pending, then the warm boot
 ;   USE    with the banks as they are: a MOVE of 16 bytes from $4000 to
-;          $1800, then a READ of A:'s first sector to $1000, both in bank 0
-;          (the system's: the BDOS's first bytes, $F0000, to $7D800, and the
-;          sector to $7D000) unless something was left; prints
+;          $3800, then a READ of A:'s first sector to $3000, both in bank 0
+;          (the system's: the BDOS's first bytes, $F0000, to $7F800, and the
+;          sector to $7F000: past the drives' allocation vectors, $1000-$2FFF,
+;          which A:'s login at the first prompt fills, 5c) unless something
+;          was left; prints
 ;            READ rr
 ;   BOOT   function 50 of BOOT, which is refused; prints
 ;            BOOT hhhh
@@ -45,9 +47,9 @@ use:    lda     #<$4000
         sta     pb+4
         lda     #>$4000
         sta     pb+5
-        lda     #<$1800
+        lda     #<$3800
         sta     pb+6
-        lda     #>$1800
+        lda     #>$3800
         sta     pb+7
         lda     #BIOS::MOVE
         ldx     #16
@@ -66,8 +68,8 @@ use:    lda     #<$4000
         ldy     #0
         jsr     bios
         lda     #BIOS::SETDMA
-        ldx     #<$1000
-        ldy     #>$1000
+        ldx     #<$3000
+        ldy     #>$3000
         jsr     bios
         lda     #BIOS::READ
         jsr     bios

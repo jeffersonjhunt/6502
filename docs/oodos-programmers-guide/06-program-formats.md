@@ -188,14 +188,19 @@ after the program it served.
 **Calling one.** [Function 60](07-function-reference.md#bdos-60) passes a parameter block down the chain: a function
 byte, a count of words, the words. An RSX takes the blocks whose function byte is its own. 0-127 are programs'
 RSXs', 128-255 OODOS's: GET's RSX takes `$80` (GET.COM's file) and `$81` (GET CONSOLE), PUT's `$90` (PUT.COM's
-file), `$91` (PUT ... TO CONSOLE or PRINTER) and `$92` (is a PUT of the kind writing to a file?);
+file), `$91` (PUT ... TO CONSOLE or PRINTER), `$92` (is a PUT of the kind writing to a file?) and `$93` (PUT.COM is
+running: a PUT waiting for the next command waits for the one after, so a PUT command isn't the command it puts),
+SUBMIT's `$A0`
+(SUBMIT.COM's file) and `$A1` (is a SUBMIT running? 0 when one is);
 [`oodos.inc`](../../oodos/include/oodos.inc) names them `RXF_*`.
 
 **What the CCP is doing.** The SCB's `$19` (ours, [appendix C](appendix-c-scb.md)): bit 7 set while the CCP runs,
 clear while a program does; bit 6 set while a command runs, from its start to its end (a built-in's too), clear at
 the prompt; bits 0-5 count the commands the CCP starts. The CCP writes it by function 49 through `$0203`, so an
 RSX that redirects the console sees each change on its way down the chain and knows where the next command starts
-and ends, as GET's and PUT's do. [`oodos/include/rsx.inc`](../../oodos/include/rsx.inc) has what OODOS's RSXs share:
+and ends, as GET's and PUT's do; on the way to the prompt the CCP writes it once more with bit 6 still clear, which
+is where SUBMIT's RSX skips the `<` lines a command line left. Bits 6 and 7 are the CCP's: a program that writes
+them confuses SUBMIT's (and GET's and PUT's) idea of where its input goes. [`oodos/include/rsx.inc`](../../oodos/include/rsx.inc) has what OODOS's RSXs share:
 their own BDOS calls in the caller's state put back, and reading the CCP's writes to `$19`.
 
 ## Chaining

@@ -2457,6 +2457,88 @@ SUBMIT file is console input for the CCP).
   PROFILE` before the first command is read (the Guide's 1.6.2; decided 2026-11-04). The demo card gets none, so it
   boots as now.
 
+**Decided (5c, 2026-11-04, the owner, after 5c's plan check against the manuals and 5a and 5b as built):**
+
+1. **SUBMIT's own RSX,** `rsx/subrsx.s`, not GET's; GET's file reading (the record buffer, an LF after CR dropped, the
+   ^Z) moves into an include both use, not copied.
+2. **The prompt** is a function 10 call with `$19` bit 7 set and bit 6 clear, and gets the next command line; a
+   built-in's question (bit 6 set: USER's, ERA's) and a program's input take `<` lines.
+3. **The temporary files** are `SUBnn.$$$`, the first free from 00, in user 0 on the temporary drive (the SCB's `$50`;
+   ours). Stale `SUB??.$$$` there are deleted by SUBMIT.COM only when no SUBMIT RSX is active (asked by 60).
+4. **A ^C's end:** at the CCP's next prompt read each SUBMIT RSX reads the return code (108); `$FFFE` ends it, its
+   file deleted, its remove flag set, and the prompt reads the keyboard.
+5. **`^`** before a letter or `@ [ \ ] ^ _` is that control character (`^^` stays `^`); before anything else the two
+   characters are kept. An expanded line over 128 characters is `Error on line nnnnn: Line too long`, and nothing
+   runs (ours).
+6. **Command lines** are shown after the prompt as if typed; `<` lines are shown as typed too.
+7. **`WARNING: Program input ignored`** once for each run of `<` lines skipped, just before the next command line is
+   shown.
+8. **The search order** is bits 0–1 of the SCB's `$18` (0 COM, 1 COM then SUB, 2 SUB then COM, 3 SUB; ours); SETDEF
+   shows `Search Order - ...` (corrected 2026-11-05 by the owner: SETDEF only; SHOW has no such display, in OODOS or
+   CP/M 3).
+9. **`PROFILE.SUB`** at the first prompt, from the default drive, user 0: shown as `SUBMIT PROFILE` as if typed, then
+   run; without SUBMIT.COM, `SUBMIT?` and on. A reset is a cold boot, so it runs then too.
+10. **With SETDEF's DISPLAY,** both lines: the `.SUB` file's and SUBMIT.COM's own.
+11. **Status and single characters** while `<` lines serve a program, as GET's.
+12. **The `.SUB` file's lines** as GET reads its file.
+
+**Proposed (5c, as built, 2026-11-05)** ([`oodos/rsx/subrsx.s`](../oodos/rsx/subrsx.s), `oodos/utils/submit.s`,
+[`oodos/include/rxfile.inc`](../oodos/include/rxfile.inc), `oodos/sys/ccp.s`, `oodos/utils/setdef.s`; the
+decisions above are what was built, and these are the details):
+
+- **SUBMIT's RSX** is its own, `rsx/subrsx.s` (1,588 bytes of image after the reviews' fixes: seven pages below the lowest RSX
+  while it serves), with GET's reading of a file moved to `rxfile.inc`, which both include (GET's RSX the same size as
+  before). It holds a line of 130 (SUBMIT.COM's 128 and a `<`). SUBMIT.COM is 7,296 bytes with it attached; the
+  Makefile has its own rule for it, as `ATTACHED`'s pattern names `getrsx` and `putrsx` only.
+- **The CCP** grew 416 bytes (`$CB6F-$DF0E`, of the window to `$F7FF`): the search order's table (`ORDERS`, two
+  types for each of `$18`'s four values), a `.SUB` found or typed turned into `SUBMIT d:NAME.SUB` and its tail
+  (`RUNSUB`), and the PROFILE.SUB look at the first prompt (`COLDF`, set in the file, cleared once looked).
+  OODOS.SYS is 25,472 bytes (main's 25,088). SETDEF.COM is 4,732 (4,631).
+- **Decision 8 corrected** (the owner, 2026-11-05): SETDEF shows the search order; SHOW doesn't (nor does CP/M 3's).
+- **The PROFILE.SUB look logs A: in at the first prompt,** so existing tests that counted logins or used the system
+  block where A:'s allocation vector now is changed (the owner's answer (a)): `test_oodos_sys`'s DIRTEST LOGIN
+  (`01 10`), BANKTEST's buffers (`$3000` and `$3800`, past the allocation vectors) and its two cases, and three
+  cases that need A: logged out first (the busy card's two, the login count's), which begin with a ^C at the prompt.
+  Others for the plan: `test_oodos_ccp`'s `.SUB` (`M:ARGS.SUB?`) and its CLS (page mode off: A:'s SYS files now
+  fill more than a page); `test_oodos_utils_sys`'s SETDEF (`$18`'s other bits poked as `$04`; SUB orders taken).
+- **The rig's `calls()`** returns too when the BDOS is already in the function asked for (`FUNC`, with the system's
+  windows in): a program waiting at the keyboard makes no new entry.
+- **After the 5c review** (the owner's triage, 2026-11-05):
+  - fixed: a `.SUB` run by name with `;PW` passes the password to SUBMIT (`RUNSUB` adds it to the tail; `SUBPRE`
+    25 bytes); the warning comes before the prompt (the RSX watches 49's writes to `$19` and skips a command's
+    leftover `<` lines at its end, bit 6 clear, but not after a ^C, which the prompt ends); SUBMIT.COM's reopen
+    checked (`Disk Read Error`, the temporary file deleted, no RSX left); a function 10 buffer of size 0 taken as 1
+    by the RSX, as our 10 does (`bdossys.s`, `F_LINE`), now tested with IOTEST's `Z`; `$93` in the Programmer's
+    Guide.
+  - accepted: a `<` line longer than the program's buffer is cut to fit and the rest dropped, as function 10 does
+    with a typed line (the User's Guide says so).
+  - accepted: every cold boot logs A: in (64 directory reads, oodos-8m) before the first prompt, for the
+    PROFILE.SUB look; CP/M 3's CCP looks for PROFILE.SUB at its first prompt the same way.
+  - accepted: the look depends on the SCB as a cold boot leaves it. `cold.s` clears `$0000-$0CFF` (the SCB at
+    `$0200` among it) and then sets `SCBINIT`'s bytes: the search chain `SCB_DRVCHAIN` (`$4C-$4F`) is `$4C` 0, the
+    default drive, and `$4D` `$FF`, so SUBMIT PROFILE finds PROFILE.SUB on the drive the CCP looked on; the user
+    (`$44`) is 0, the user looked in.
+- **After the second review** (the owner's triage, 2026-11-05):
+  - fixed: a `!` line's first program ended no longer skips the `<` lines meant for the second. Not by leaving
+    bit 6 set at a program's end, as first asked: GET's and PUT's RSXs take that write as their command's end,
+    and PUT closes its file there so the warm boot's 98 doesn't free its blocks. Instead the CCP's `PROMPT`
+    writes `$19` once more with bit 6 clear (after clearing it, for a built-in), and SUBMIT's RSX skips only
+    on a write of bit 6 clear while it is already clear, which only the way to the prompt makes. The prompt's
+    own skip (`line`) is unreachable in effect now, kept so no command is given from a `<` line.
+  - fixed: `$0` is the file's specification without its `;password`, typed or run by name.
+  - fixed: the reopen test makes its fault in the FCB's extent byte, after SUBMIT.COM clears it, so the
+    cleanup deletes the real `SUB00.$$$`, which the test checks.
+  - accepted: a disk error at the reopen, in the default error mode, ends SUBMIT.COM with the BDOS's message
+    before its own check, and leaves the temporary file behind (the next SUBMIT deletes it as stale).
+  - accepted (third review): a `.SUB` that runs another can say the warning twice at one prompt, once from
+    each SUBMIT's RSX (both see the way to the prompt, each skips its own `<` lines). Tested since: a built-in
+    first on a `!` line and in its middle (`SAYPROMPT` from `NEXTCMD` clears bit 6, the next program gets its
+    `<` line).
+  - accepted: the warning's CR LF before it can make a blank line after a program whose output ended with
+    one (cosmetic). The Programmer's Guide says bits 6 and 7 of `$19` are the CCP's.
+- **`test_oodos_card`** makes A:PROFILE.SUB with PIP from CON: and boots again (saved for `interop.sh --submit`:
+  PROFILE.SUB's text, no `SUBnn.$$$` left), and on a fresh card with SUBMIT.COM erased sees `SUBMIT?`.
+
 **Stages (decided 2026-11-04: three branches, each merged on its own)**
 
 | Stage | Branch | What | Size (estimates) |

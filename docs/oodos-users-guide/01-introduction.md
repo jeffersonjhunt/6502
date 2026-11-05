@@ -9,7 +9,7 @@ The design record, for the reasons: [hw/oodos.md, "Goals"](../../hw/oodos.md#goa
 OODOS is the OO-1's disk operating system. It is CP/M 3 (CP/M Plus) written again for the OO-1's 6502 and its
 backplane: the same command line, the same file names and drives, the same disk format, and CP/M 3's built-in
 commands and its utilities for files and drives, so a CP/M 3 user is at home. Its programming tools (ED, the
-assemblers and the debugger, among others) aren't part of it, and SUBMIT, GET and PUT come with a later phase. It
+assemblers and the debugger, among others) aren't part of it. It
 is a new program, written from what CP/M 3 does; no Digital Research code is in it.
 
 OODOS runs programs written for it: 6502 programs in `.COM` files. It can't run the 8080 and Z80 programs of other
