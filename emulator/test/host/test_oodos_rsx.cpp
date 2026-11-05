@@ -279,9 +279,19 @@ TEST(non_banked_rsxs_are_passed_over_by_the_tables_flag_and_by_the_prefixs)
     const unsigned table = (prefix_only[14] | prefix_only[15] << 8) * 128u;
     CHECK_EQ(prefix_only[table + 16 + 2], 0x01);     // D's entry: RT_NONBANK, from its prefix
     prefix_only[table + 16 + 2] = 0;                 // left to the prefix's flag alone
-    r.put_m({on_m("RQD     COM", "rqd.com"), {0, "RQDP    COM", prefix_only}, on_m("RSXQ    COM", "rsxq.com")});
+    std::vector<uint8_t> table_only = built("rqd.com");
+    const unsigned d_rsx = (table_only[table + 16] | table_only[table + 17] << 8) * 128u + 16;
+    CHECK_EQ(table_only[d_rsx + 15], 0xFF);
+    table_only[d_rsx + 15] = 0;                      // left to the table's flag alone
+    r.put_m({on_m("RQD     COM", "rqd.com"), {0, "RQDP    COM", prefix_only}, {0, "RQDT    COM", table_only},
+             on_m("RSXQ    COM", "rsxq.com")});
     std::string o = r.cmd("m:rqd # T");
     has(o, "A# T=BF06 ");
+    CHECK_EQ(nrsx(r), 1u);
+    o = r.cmd("m:rqdt # T");
+    has(o, "AA# T=BE06 ");
+    CHECK_EQ(nrsx(r), 2u);
+    r.cmd("m:rsxq -A");                             // the second A out again
     CHECK_EQ(nrsx(r), 1u);
     o = r.cmd("m:rqdp # T");
     has(o, "AA# T=BE06 ");
@@ -337,6 +347,9 @@ TEST(an_rsx_only_com_keeps_its_rsxs_for_the_next_program_then_they_go)
     same(o, "m:rqn\r\r\nA>");                       // nothing run: the prompt again
     CHECK_EQ(nrsx(r), 1u);
     o = r.cmd("dir m:rqn.com");                     // a built-in between doesn't end it
+    CHECK_EQ(nrsx(r), 1u);
+    r.type("\x03");                                 // nor a warm boot (a ^C at the prompt)
+    r.run(ms(300));
     CHECK_EQ(nrsx(r), 1u);
     o = r.cmd("m:rsxq # T");
     has(o, "C# T=BF06 ");                           // its remove flag $FF, still there
