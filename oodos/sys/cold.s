@@ -10,7 +10,7 @@
 
 .setcpu "65C02"
 .include "sys.inc"
-.import WARM, BINIT, MFORMAT, DAYS2DATE
+.import WARM, BINIT, MFORMAT, DAYS2DATE, UNKEEP
 .importzp TYEAR, TMONTH, TDATE
 .export COLD
 
@@ -101,7 +101,8 @@ COLD:           SEI
                 JSR     HEX2
 @end:           JSR     NEWLINE
                 JSR     STATUS
-                JMP     WARM
+                JSR     UNKEEP         ; the loader's table: no RSX kept (its marks
+                JMP     WARM           ; are BSS, which nothing has cleared)
 
 NEWLINE:        LDA     #$0D
                 JSR     PUT
