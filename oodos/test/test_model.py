@@ -22,6 +22,7 @@ import modelscript as S        # noqa: E402
 passed = failed = 0
 T0 = M.stamp(2026, 10, 27, 12, 0)
 T1 = M.stamp(2026, 10, 28, 9, 30)
+T2 = M.stamp(2026, 11, 4, 18, 5)
 FCB = 0x1000
 FCB2 = 0x1100
 
@@ -168,8 +169,47 @@ def make_write_close():
     eq(t.e(1)[15], 0, "the entry's RC is still 0: the directory changes at close")
     eq(t.f(16), (0, 0), "close: directory code 0")
     eq(t.e(1), h("00" + name("A.TXT") + "00 00 00 01 04" + "00" * 15), "entry 1: RC 1, block 4 (the first after the directory's 0-3)")
-    eq(t.slot(1), T0 + T1 + h("0000"), "close stamped the update, kept the creation")
+    eq(t.slot(1), T0 + T0 + h("0000"), "make stamped the update, so the write after it doesn't, nor the close")
     eq(t.f(16), (0, 0), "a second close, nothing written since: 0, and nothing stamped")
+    # The update at the first write after an open (the Guide, 21 and 34), once
+    t.fcb("A.TXT")
+    t.f(15)
+    eq(t.slot(1), T0 + T0 + h("0000"), "open: no update stamp")
+    eq(t.write(1)[0], (0, 0), "the first write since the open")
+    eq(t.slot(1), T0 + T1 + h("0000"), "stamped the update at the write, before any close")
+    t.b.now = T2
+    t.rand(0)
+    eq(t.f(34), (0, 0), "a random write of the same open")
+    eq(t.f(16), (0, 0), "close")
+    eq(t.slot(1), T0 + T1 + h("0000"), "neither the later write nor the close stamped it again")
+
+    # The archive attribute (t3'): a write clears it in the entry of the extent it writes (2.3.4)
+    t = Rig()
+    t.new("C.DAT", 257)
+    t.f(16)
+    eq([t.e(i)[11] for i in (1, 2)], [0x54, 0x54], "C.DAT: 257 records, entries 1 and 2, not archived")
+    t.fcb("C.DAT", raw=bytes(M.fcb_name("C.DAT")[:10]) + bytes([0xD4]))
+    eq(t.f(30), (0, 0), "30: t3' set on every extent")
+    eq([t.e(i)[11] for i in (1, 2)], [0xD4, 0xD4], "both entries archived")
+    t.fcb("C.DAT")
+    t.f(15)
+    eq(t.m.read(FCB, 12)[11], 0xD4, "open: the FCB has t3' from extent 0's entry")
+    t.rand(0)
+    eq(t.f(33), (0, 0), "a read")
+    eq(t.e(1)[11], 0xD4, "leaves it")
+    t.rand(256)
+    eq(t.f(34), (0, 0), "a random write to record 256 (extent 2, entry 2)")
+    eq([t.e(i)[11] for i in (1, 2)], [0xD4, 0x54], "entry 2's t3' cleared at the write; entry 1's kept")
+    eq(t.m.read(FCB, 12)[11], 0x54, "and the FCB's, which took entry 2's")
+    t.rand(0)
+    eq(t.f(34), (0, 0), "a write to record 0, back in entry 1")
+    eq([t.e(i)[11] for i in (1, 2)], [0x54, 0x54], "entry 1's cleared too, before any close")
+    t.f(16)
+    t.fcb("C.DAT", raw=bytes(M.fcb_name("C.DAT")[:10]) + bytes([0xD4]), r=100)
+    eq(t.f(30), (0, 0), "archived again")
+    t.fcb("C.DAT", r=100)
+    eq(t.f(99), (0, 0), "truncate to record 100")
+    eq(t.e(1)[11], 0x54, "clears it in the entry that ends at R (ours: truncate changes the file)")
 
     t = Rig()
     t.new("B.DAT", 129)
@@ -473,7 +513,12 @@ def stamps_and_modes():
     for mode, want, what in ((0x31, T0 + T1, "0x31: creation and update"), (0x11, T0 + bytes(4), "0x11: creation only"),
                              (0x21, bytes(4) + T1, "0x21: update only"), (0x01, None, "0x01: none, the slot cleared")):
         t = Rig(mode=mode)
-        t.new("A.TXT", 1, when=T1)
+        t.new("A.TXT")
+        t.f(16)
+        t.b.now = T1
+        t.fcb("A.TXT")
+        t.f(15)
+        t.write(1)
         t.f(16)
         got = t.slot(1)
         eq(got[:8] if want else got, want or bytes(10), "label mode %s" % what)

@@ -57,9 +57,10 @@
 ; creation (or access), update, the password mode and a reserved byte.
 ; CP/M 3 keeps a file's stamps in its extent-zero entry's slot only: a made
 ; entry's slot is cleared, and Make of extent 0 stamps the creation (or
-; access) and the update as the label's mode says (INITSTAMP); CLOSEX and
-; truncate stamp the update in the extent-zero entry's slot whichever extent
-; they changed (STAMPU), and Open of extent 0 the access if the mode asks.
+; access) and the update as the label's mode says (INITSTAMP); an open
+; FCB's first write (bdosfile.s's WROTE, unless make stamped it) and truncate
+; stamp the update in the extent-zero entry's slot whichever extent they
+; changed (STAMPU), and Open of extent 0 the access if the mode asks.
 ; Later extents' slots stay 0. The time is BIOS TIME's in the SCB. A
 ; directory without SFCBs gets none. A made entry's slot is cleared even
 ; when the label asks for no stamps (3b1: 102 reads it).

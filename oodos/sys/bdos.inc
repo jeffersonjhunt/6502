@@ -15,7 +15,7 @@ FCB_T1          = 9                    ; t1': read-only
 FCB_T2          = 10                   ; t2': SYS
 FCB_T3          = 11                   ; t3': archive
 FCB_EX          = 12
-FCB_S1          = 13                   ; the directory's last record byte count
+FCB_S1          = 13                   ; an entry's: the last record's byte count; F's: S1_STAMPED
 FCB_S2          = 14                   ; bit 7 set: not written since opened or closed
 FCB_RC          = 15
 FCB_D           = 16                   ; the block pointers: 16 bytes, or 8 words
@@ -26,6 +26,7 @@ FCB_SEQ         = 33                   ; bytes read and written back: sequential
 FCB_RAND        = 36                   ; and random
 S2_CLEAN        = $80
 S2_NOENT        = $40                  ; a read found no entry for the extent: a write makes it
+S1_STAMPED      = $80                  ; an open FCB's update stamp made: by Make of extent 0, or a write
 
 ENTRY_LEN       = 32
 DIR_FREE        = $E5

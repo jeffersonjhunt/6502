@@ -928,14 +928,24 @@ void fstest(Rig &r, char drive, unsigned free_records_per_block, bool big = fals
     uint64_t t0 = 0;
     // An entry written (DIRPUT) while a close or an extent change (CLOSEX) runs, and any changed
     // buffer of the drive's still not written back: the entry would be on the disk before the
-    // data it points at.
+    // data it points at. CLOSEX's run ends at its return address: what the call writes after
+    // it (a new extent's entry, a first write's update stamp or cleared t3') points at no data
+    // CLOSEX's entry doesn't.
     const uint16_t closex = sym("CLOSEX"), dirput = sym("DIRPUT"), bcb_drv = sym("BCB_DRV"),
                    bcb_dirty = sym("BCB_DIRTY"), cdrv = sym("CDRV");
     bool closing = false;
+    uint16_t closed = 0; // CLOSEX's return: the byte after its caller's JSR
     unsigned entries = 0, early = 0;
     r.watch = [&](uint16_t pc) {
         if (pc == closex)
+        {
             closing = true;
+            const uint8_t s = r.cpu->regs().s;
+            auto pulled = [&](unsigned k) { return r.machine->bus().peek(static_cast<uint16_t>(0x0100 | ((s + k) & 0xFF))); };
+            closed = static_cast<uint16_t>((pulled(1) | pulled(2) << 8) + 1);
+        }
+        else if (pc == closed && closing)
+            closing = false;
         else if (pc == dirput && closing)
         {
             ++entries;
@@ -1129,6 +1139,11 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"XKEPT", "01 00"},
         {"BITS", "C2 D4"},             // f1' and t3' on the disk
         {"OPENBITS", "C2 D4"},         // and in the FCB after Open
+        {"AROPEN", "D4"},              // AR.TXT archived: t3' in the FCB from the entry
+        {"AREAD", "00 00"},
+        {"ARREAD", "D4"},              // a read leaves it
+        {"ARWRITE", "00 00"},
+        {"ARBITS", "54 54"},           // a write clears it, in the entry and the FCB (the Guide, 2.3.4)
         {"REN", "00 00"},
         {"SEARCHB1", "FF 00"},
         {"SEARCHC1", "00 00"},
@@ -1840,8 +1855,8 @@ void stamptest(Booted &r, char drive)
                 std::printf("  %s SFCB byte %u: %02X, want %02X\n", name.c_str(), k, got[k], want[k]);
     };
     const std::vector<uint8_t> none = {0, 0, 0, 0};
-    const auto t1 = dat(2026, 11, 3, 9, 15), t2 = dat(2026, 11, 4, 18, 30), t3 = dat(2026, 12, 31, 23, 59),
-               t4 = dat(2027, 1, 1, 0, 1);
+    const auto t1 = dat(2026, 11, 3, 9, 15), t3 = dat(2026, 12, 31, 23, 59), t4 = dat(2027, 1, 1, 0, 1),
+               t5 = dat(2027, 1, 9, 7, 45);
     r.set_time(2026, 11, 3, 9, 15, 0);
     const size_t from = start(r, "stamptest.com", std::string(" ") + drive);
     REQUIRE(r.until("MADE?", ms(5000), from));
@@ -1849,7 +1864,7 @@ void stamptest(Booted &r, char drive)
     r.set_time(2026, 11, 4, 18, 30, 0);
     r.type(" ");
     REQUIRE(r.until("CLOSED?", ms(5000), from));
-    check("STAMP   DAT", t1, t2); // written and closed: the update
+    check("STAMP   DAT", t1, t1); // written and closed: make stamped the update, so neither does (the Guide, 21)
     r.set_time(2026, 12, 31, 23, 59, 0);
     r.type(" ");
     REQUIRE(r.until("MODE?", ms(5000), from));
@@ -1859,15 +1874,26 @@ void stamptest(Booted &r, char drive)
     r.set_time(2027, 1, 1, 0, 1, 0);
     r.type(" ");
     REQUIRE(r.until("OPENED?", ms(5000), from));
-    check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // an access stamp only if the label asks
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t1); // an access stamp only if the label asks
+    r.set_time(2027, 1, 9, 7, 45, 0);
+    r.type(" ");
+    REQUIRE(r.until("WROTE?", ms(5000), from));
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t5); // the first write since the open: the update, at once
+    r.set_time(2027, 1, 20, 16, 10, 0);
+    r.type(" ");
+    REQUIRE(r.until("REWRITTEN?", ms(5000), from));
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t5); // a later write and the close: no stamp
     r.set_time(2027, 2, 2, 12, 0, 0);
     r.type(" ");
     REQUIRE(r.until("UNSTAMPED?", ms(5000), from));
-    check("STAMP   DAT", drive == 'M' ? t4 : t1, t2); // opened at extent 1, then on a read-only drive: none
+    check("STAMP   DAT", drive == 'M' ? t4 : t1, t5); // opened at extent 1, then on a read-only drive: none
     r.type(" ");
     CHECK(r.until("STAMPTEST DONE", ms(5000), from));
     const std::string o = r.out.substr(from);
     CHECK_EQ(field(o, "WRITE"), std::string("00"));
+    CHECK_EQ(field(o, "REWRITE"), std::string("00"));
+    CHECK_EQ(field(o, "AGAIN"), std::string("00"));
+    CHECK_EQ(field(o, "CLOSE2").substr(2), std::string(" 00"));
     CHECK_EQ(field(o, "RESET"), std::string("00 00"));
     CHECK_EQ(field(o, "OPEN").substr(2), std::string(" 00"));
     CHECK_EQ(field(o, "OPEN1").substr(2), std::string(" 00"));   // found: extent 0's entry holds extent 1

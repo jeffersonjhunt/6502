@@ -18,9 +18,9 @@
 ;                    Password Error in read mode, f7' set (read-only) in
 ;                    write mode. A = 0, $FF none
 ;   16 F_CLOSE       the drive's changed buffers written back, then a written
-;                    extent put in the directory (its blocks and RC merged),
-;                    stamped. A = 0, $FF. A buffer that won't write fails
-;                    only the close of a file with a block there (Disk I/O)
+;                    extent put in the directory (its blocks and RC merged).
+;                    A = 0, $FF. A buffer that won't write fails only the
+;                    close of a file with a block there (Disk I/O)
 ;   17 F_SFIRST      the first entry the FCB matches ('?' any byte; '?' in
 ;                    EX any extent, else S2 taken as 0; '?' as the drive
 ;                    every entry, labels, SFCBs, XFCBs and free ones): its
@@ -38,7 +38,10 @@
 ;                    and 40 do the multi-sector count's records (44): MULTI
 ;   21 F_WRITE       the DMA address's record to CR, CR + 1, a block taken
 ;                    if it needs one; the next extent opened, or made, after
-;                    128. A = 0, 1 no directory space, 2 the disk full
+;                    128. A = 0, 1 no directory space, 2 the disk full. A
+;                    write (21, 34, 40) clears the archive attribute (t3')
+;                    of its extent's entry; the first since the open stamps
+;                    the update, unless a make of extent 0 has (WROTE)
 ;   22 F_MAKE        a new entry for the FCB's extent EX (its S2 taken as 0;
 ;                    no '?'; not if the file is there, any extent: File
 ;                    Exists), every attribute clear in it and in the FCB;
@@ -82,12 +85,16 @@
 ;   99 F_TRUNCATE    the file (no '?') ends with record R0-R2, which must be
 ;                    in it where it has data (an extent its entry has, below
 ;                    RC there, in a block): later extents deleted, blocks
-;                    past it freed, the update stamped. A = 0, $FF
+;                    past it freed, the archive attribute (t3') cleared in
+;                    the entry that ends at R, the update stamped. A = 0,
+;                    $FF
 ;
 ; The FCB is read into F (33 bytes, 36 for 33-36, 40 and 99) and written
 ; back as the function changed it. An extent's state is the FCB's, as CP/M's:
 ; EX and S2 the extent, its block pointers and RC (as Open sets it), S2's
-; bit 7 set while it hasn't been written. A write needs the drive writable
+; bit 7 set while it hasn't been written; S1's bit 7 (S1_STAMPED) once this
+; open's update is stamped (CP/M 3 reserves S1 for the system). A write needs
+; the drive writable
 ; (Read Only) and the file too (File R/O: t1', or opened from user 0, or
 ; f7'). Password Error is checked after every other error (hw/oodos.md).
 
@@ -343,6 +350,7 @@ F_OPEN:         LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     NOWILD
                 STZ     FC + FCB_S2     ; the program gives bytes 0-12: module 0
+                STZ     FC + FCB_S1     ; the update not stamped: the first write's
                 LDA     FC + FCB_F8     ; f8' and f7' are the BDOS's to set
                 AND     #$7F
                 STA     FC + FCB_F8
@@ -477,7 +485,13 @@ F_MAKE:         LDA     #FCB_SEQ
                 BPL     @empty
                 JSR     MKXFCB         ; the DMA buffer's password and mode
 @empty:         JSR     FEMPTY
-                JSR     FCBOUT
+                STZ     FC + FCB_S1     ; extent 0's update is make's (the Guide,
+                LDA     FC + FCB_EX     ; 21 and 34: a write stamps it only if
+                AND     #$1F            ; make or a write hasn't), a later
+                BNE     @out            ; extent's the first write's
+                LDA     #S1_STAMPED
+                STA     FC + FCB_S1
+@out:           JSR     FCBOUT
                 JMP     RET0
 
 F_CLOSE:        LDA     #FCB_SEQ
@@ -538,8 +552,8 @@ FMARKED:        LDX     #NBCB - 1
 ; written back first (the file's data on the disk before the entry that
 ; points at it); its entry found (made if it isn't there), the block
 ; pointers merged (one where the other has 0), EX and RC the later, its
-; blocks permanent, the update stamped (in the file's extent-zero entry,
-; STAMPU). Carry set, F and the entry as they were, if it can't be: two
+; blocks permanent. No stamp: the update is the first write's (WROTE), as
+; CP/M 3 makes it. Carry set, F and the entry as they were, if it can't be: two
 ; different blocks in one place (every pointer is checked before any is
 ; merged), or no entry to be had.
 CLOSEX:         LDA     FC + FCB_S2
@@ -656,9 +670,6 @@ CLOSEX:         LDA     FC + FCB_S2
                 STA     (DPTR),Y
 @put:           JSR     DIRPUT
                 JSR     MARKE
-                JSR     EXTUSER
-                CLC
-                JSR     STAMPU
                 LDA     FC + FCB_S2
                 ORA     #S2_CLEAN
                 STA     FC + FCB_S2
@@ -1080,8 +1091,40 @@ WRITEREC:       JSR     FPIDX
 @written:       LDA     FC + FCB_S2
                 AND     #$7F
                 STA     FC + FCB_S2
+                JSR     WROTE
                 CLC
                 RTS
+
+; F's extent written (the Guide, 2.3.4 and functions 21, 34): the archive
+; attribute (t3') cleared in its entry, if F has it (Open and each extent's
+; OPENEXT copy it from the entry, so F's says what the entry has); and the
+; update stamped, in the file's extent-zero entry (STAMPU), if this open's
+; isn't yet (S1_STAMPED: by make of extent 0, or an earlier write).
+WROTE:          BIT     FC + FCB_T3
+                BPL     @stamp
+                LDA     FC + FCB_T3
+                AND     #$7F
+                STA     FC + FCB_T3
+                JSR     EXTUSER
+                LDX     #0
+                JSR     SETPAT
+                STZ     DIDX
+                STZ     DIDX + 1
+                JSR     FIND
+                BCS     @stamp         ; none: a write has its entry
+                LDY     #FCB_T3
+                LDA     (DPTR),Y
+                AND     #$7F
+                STA     (DPTR),Y
+                JSR     DIRPUT
+@stamp:         BIT     FC + FCB_S1
+                BMI     @done
+                LDA     #S1_STAMPED
+                STA     FC + FCB_S1
+                JSR     EXTUSER
+                SEC
+                JMP     STAMPU
+@done:          RTS
 
 ; Block BLK's sectors, each a new buffer of zeros, changed.
 ZEROBLK:        LDA     BLM            ; (BLM + 1) / 4 sectors
@@ -1925,7 +1968,11 @@ TCUT:           LDY     #FCB_EX
                 INY
                 STA     (DPTR),Y
                 BRA     @clear
-@put:           JSR     DIRPUT
+@put:           LDY     #FCB_T3        ; changed: not archived (ours, as a write)
+                LDA     (DPTR),Y
+                AND     #$7F
+                STA     (DPTR),Y
+                JSR     DIRPUT
                 PLA
                 STA     MK
 @free:          INC     MK
