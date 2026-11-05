@@ -241,16 +241,21 @@ TEST(put_no_echo_shows_its_prompt_when_a_program_asks_for_input)
 
 TEST(put_printer_output_to_a_file_and_system_until_put_back)
 {
-    Rx r({{0, "IN      TXT", bytes("x\r\n")}});
+    std::string big;
+    while (big.size() < 6000)
+        big += "BIG FILE LINE\r\n";
+    Rx r({{0, "IN      TXT", bytes("x\r\n")}, {0, "BIG     TXT", bytes(big)}});
     REQUIRE(r.ok);
+    r.put_util("pip", UTILS);
     std::string o = r.cmd("put printer output to file m:lst.txt");
     has(o, "Putting printer output to file: LST.TXT");
     r.cmd("iotest 5a X 2c");
     CHECK_EQ(text(m_data(r, 0, "LST     TXT")), std::string("Alist"));
     // SYSTEM: every command's, closed at each end so the warm boot keeps its blocks, until put back
     r.cmd("put console file m:sys.txt [system]");
-    r.cmd("iotest " + std::string(100, '9'));        // 400 bytes: records written before warm boots
-    r.cmd("iotest 2x");
+    r.cmd("iotest " + std::string(100, '9'));        // 400 bytes: records written before warm boots,
+    r.cmd("pip m:copy.txt=m:big.txt");              // then blocks taken by another file: the PUT file's
+    r.cmd("iotest 2x");                             // kept (closed at each command's end, not freed by 98)
     r.cmd("dir m:in.txt");
     r.cmd("iotest 2y");
     CHECK_EQ(nrsx(r), 1u);
