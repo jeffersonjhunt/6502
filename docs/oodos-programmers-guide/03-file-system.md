@@ -179,6 +179,9 @@ gives one of three answers:
 - **1,** for a record in a block no write took, or at or past the extent's RC;
 - **4,** for a record in an extent with no directory entry.
 
+Any of them can instead be **3** when the read must move to another extent and the one the FCB is at can't be
+closed first.
+
 Past 32 MB, 6. A sequential read (function 20) stops with 1 at the first record in a block no write took, even
 when the file has data after it.
 

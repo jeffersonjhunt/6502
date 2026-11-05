@@ -92,7 +92,7 @@ Directory For Drive B:  User  0
     Name     Bytes   Recs   Attributes   Prot      Update          Create
 ------------ ------ ------ ------------ ------ --------------  --------------
 
-README   TXT     4k      1 Dir RW       None   10/26/26 12:00  10/26/26 12:00
+README   TXT     4k      1 Dir RW       None   10/30/26 12:00  10/30/26 12:00
 
 Total Bytes     =      4k  Total Records =       1  Files Found =    1
 Total 1k Blocks =      1   Used/Max Dir Entries For Drive B:    2/ 768

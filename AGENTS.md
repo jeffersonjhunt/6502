@@ -22,8 +22,8 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
 ## The rules that matter most
 
 - **Call the BDOS as [`oodos.inc`](oodos/include/oodos.inc) says:** `JSR BDOS` (`$0203`), the function in Y, a byte
-  in A, a word in A (low) and X (high); the result in A, or A and X. Y and the flags aren't kept. Use oodos.inc's
-  names (`C_WRITESTR`), not bare numbers.
+  in A, a word in A (low) and X (high); the result in A, or A and X. Y isn't kept; the flags come back as they were
+  before the call, with D clear, so test A, not the flags. Use oodos.inc's names (`C_WRITESTR`), not bare numbers.
 - **A program is a `.COM` (or `.PRL`) file on the card, not ROM.** It starts with `OODOS_HEADER`, runs at `$0300`,
   and ends with `JMP WBOOT`. Its zero page is `$00-$EF`; `$F0-$FF` is the RSXs'.
 - **Don't take over what OODOS owns:** interrupts and the vectors, the DMA channels, the north bridge's windows,

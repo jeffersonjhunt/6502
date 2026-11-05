@@ -1582,7 +1582,8 @@ as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.
 
 - The record's extent is made if the file hasn't one. Records skipped over aren't written. Read back, one in a
   block a write took, below the extent's RC, is zeros, since every new block is zeroed; one in a block no write
-  took, or past RC, returns 1; one in an extent with no entry, 4 ([chapter 3](03-file-system.md#random-records)).
+  took, or past RC, returns 1; one in an extent with no entry, 4; and 3 if the extent the FCB is at can't be closed
+  to move there ([chapter 3](03-file-system.md#random-records)).
 - Multi-sector and the DMA segment as [function 33](#bdos-33).
 
 #### Cycles
@@ -2016,7 +2017,9 @@ OODOS 0.2
 
 The same, but for the registers: the flag goes in A, where CP/M 3 takes it in E, and the command is at `$0280`,
 OODOS's default buffer. Ours, where CP/M 3 is silent: the command is shown after the prompt; it replaces the rest
-of a line; and more than 126 characters are cut off. RSXs (phase 5) may add to what a chain does.
+of a line; and more than 126 characters are cut off. With A = `$FF` the program's drive and user become the
+CCP's own, so the prompt keeps them after the chained command ends, where CP/M 3 sets them up only for the program
+chained to. RSXs (phase 5) may add to what a chain does.
 
 <a id="bdos-48"></a>
 ### 48 DRV_FLUSH: write the buffers back
@@ -2131,9 +2134,8 @@ the drive isn't checked or logged in as function 14 would, and the user is kept 
 #### Exit
 
 - A and X as the BIOS function left them. The words it changed (MOVE's) aren't copied back to the block.
-- MOVE's and TIME's carry don't reach the program: as after every call, the flags are the program's own. A MOVE that
-  returns `$FFFF` was refused, or ended at `$FFFF`; the program tells which by whether its destination plus the
-  count is `$FFFF`.
+- MOVE's and TIME's carry don't reach the program. A MOVE that returns `$FFFF` was refused, or ended at `$FFFF`;
+  the program tells which by whether its destination plus the count is `$FFFF`.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors

@@ -190,8 +190,8 @@ without a drive shows every drive in use (logged in) since the last reset, A to 
 SPACE, the number right-aligned in 9 with commas:
 
 ```
-A: RW, Space:     7,804K
-M: RO, Space:        96K
+A: RW, Space:     7,952K
+M: RW, Space:       120K
 ```
 
 LABEL:
@@ -214,13 +214,13 @@ USERS, each count right-aligned in 4 under its user number:
 Active User :  0
 Active Files:    0   3  12
 M: # of files:   3   2   1
-M: Number of free directory entries: 182
+M: Number of free directory entries: 185
 ```
 
 DIR:
 
 ```
-M: Number of free directory entries: 182
+M: Number of free directory entries: 185
 ```
 
 DRIVE, each number right-aligned in 7 with commas (here M:, the memory drive):
@@ -268,10 +268,11 @@ OODOS 0.2
 
 ```
 A>SHOW
-A: RW, Space:     7,804K
-M: RW, Space:        96K
+A: RW, Space:     7,952K
+A>SHOW M:
+M: RW, Space:       120K
 A>SHOW M:[DIR]
-M: Number of free directory entries: 182
+M: Number of free directory entries: 191
 ```
 
 ## INITDIR
