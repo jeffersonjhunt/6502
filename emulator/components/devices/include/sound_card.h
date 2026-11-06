@@ -148,11 +148,15 @@
  * queue, and each SID sample made takes one frame from it, adds it scaled by
  * MIX_DIGITAL and clips the sum; with the queue empty (the bus stopped) the
  * SIDs' sample is made exactly as before. Each run of the bus starts its
- * queue lined up with the SIDs' samples made up to that moment. The same
- * backlog rules: of more than two seconds of bus frames in one tick only the
- * last second is resampled, and the queue holds two and a quarter seconds at
- * most; when the SIDs skip a backlog, the queue keeps its last second. EQ,
- * the vis tap and volume (step 5) go in bus_frame(), at unity for now.
+ * queue lined up with the SIDs' samples made up to that moment, behind a lead
+ * of silence ((audio rate / stream rate, rounded up) + 1 frames), so the
+ * bursts a bus frame's outputs come in never leave it dry while the bus
+ * runs. The same backlog rules: of more than two seconds of bus frames in one
+ * tick only the last second is resampled (the samples for the rest an offset
+ * to pass first); at a second and a half queued the SIDs are caught up, which
+ * takes it; when the SIDs skip a backlog, the queue's frames for the samples
+ * skipped go with them. EQ, the vis tap and volume (step 5) go in
+ * bus_frame(), at unity for now.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
@@ -441,7 +445,7 @@ namespace ooe::emu
         void bus_frame(int16_t l, int16_t r);
         /// The mix takes the bus from now: the SIDs' samples made up to now, so the bus's next lines up with theirs.
         void mix_anchor();
-        /// Whether the bus feeds the mix (an audio rate, the stream playing or dry, and not in a bulk skip).
+        /// An audio rate is set, so the bus's frames (while the stream plays or runs dry) are resampled into the mix.
         bool mixing() const { return audio_rate_ != 0; }
         /// DOCDATA: wave RAM or a register at the DOC's address, which moves on with DOCCTL bit 5.
         uint8_t doc_data_read();
@@ -522,6 +526,7 @@ namespace ooe::emu
         uint64_t mix_acc_{0};              ///< the next output's place past mix_prev_, in 1/audio-rate frames
         bool bus_on_{false};               ///< the mix has its anchor for this run of the bus
         uint64_t mix_skip_{0};             ///< bus frames of a bulk catch-up that make nothing
+        mutable uint64_t mix_offset_{0};   ///< SID samples to make before the queue's front is theirs
         uint64_t mix_frames_{0};
         uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
         uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch

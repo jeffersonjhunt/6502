@@ -267,19 +267,25 @@ Status: **emulated**
 The registers are in: each holds what is written and reads it back, with the reset values below, and /RESET and
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
-sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix, below). There is no MP3 yet, the EQ and volumes change nothing, the vis page is silence, and the
-ES5503 holds its registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's
-later steps.
+sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix,
+below). There is no MP3 yet, the EQ and volumes change nothing, the vis page is silence, and the ES5503 holds its
+registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's later steps.
 
 **The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
 emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
 `MIX_DIGITAL`: the real card's analog stage will set the true balance), added to the SIDs' samples and clipped to
 -1..1. Buffering, paused, ended or idle, the stream adds nothing, and the SIDs' samples are exactly what they were
 without it. When it starts, or starts again after a pause, the stream lines up with the SIDs' samples at that
-moment, so it lands on time however long since the sound was last collected. The interpolation puts the stream
-up to two of its frames late, and at most sinc²(f / rate) quieter at frequency f: 0.7% at 1 kHz from 22,050 Hz, none
-when the rates are equal. With nobody collecting, as with the SIDs, at most two seconds and a quarter of the
-stream waits, and of a longer gap only the last second is made. At audio rate 0 nothing is made.
+moment, so it lands on time however long since the sound was last collected, and starts a fixed lead of silence
+ahead: (audio rate / stream rate, rounded up) + 1 samples, 2 for equal rates and 7 for 8 kHz into 48 kHz. A
+stream frame's samples come in a burst, while each SID sample takes one; with the lead, the stream never runs
+short while it plays, however the sound is collected, so no sample goes without the stream and none takes a later
+part of it. With the interpolation's own frame, the stream is a few samples late in all, the same all the way
+through: 3 for equal rates, 62.5 µs at 48 kHz, and 13 for 8 kHz into 48 kHz. Interpolating makes it at most sinc²(f /
+rate) quieter at frequency f: 0.7% at 1 kHz from 22,050 Hz, none when the rates are equal. With nobody collecting,
+once a second and a half of the stream waits, the SIDs are brought up to date, which takes it, as a SID access
+would. Of a gap over two seconds only the last second is made, and the stream's samples for the part skipped go
+with it, so a stream over before the gap doesn't play after it. At audio rate 0 nothing is made.
 
 **The stream's timing,** where the design leaves it open:
 

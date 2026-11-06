@@ -22,7 +22,9 @@
 #include <cstdint>
 #include <climits>
 #include <cstdio>
+#include <cstring>
 #include <algorithm>
+#include <chrono>
 #include <functional>
 #include <vector>
 
@@ -256,31 +258,39 @@ namespace
 TEST(the_stream_is_on_time_in_the_mix_after_a_start_and_a_pause)
 {
     // Nobody collects for 50 ms, so the SIDs' samples for it aren't made yet when the stream starts; the stream
-    // must still land 50 ms in, not at the first sample waiting. A DC level makes its start plain to see.
+    // must still land 50 ms in, not at the first sample waiting. A DC level makes its start plain to see. With
+    // the rates equal, each bus frame makes one output, on it: after the SIDs' samples made by the start come the
+    // lead (two silent frames, rate / stream + 1), then the interpolation's first output (the silence before
+    // the stream), then the stream.
     const uint32_t rate = 48'000;
+    const size_t lead = 2;
     SoundCard c;
     c.set_audio_rate(rate);
     run(c, SECOND / 20);
     start(c, SoundCard::PCMFMT_16BIT, 48'000);
     for (unsigned i = 0; i < 4'800; ++i)
         put16(c, 16'384); // 0.5: 0.25 in the mix; 100 ms of it
+    const size_t made = c.audio_frames(); // the SIDs' samples up to the start (nothing taken yet)
     run(c, SECOND / 20);
     c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
     run(c, SECOND / 20);    // 50 ms paused
+    const size_t made_again = c.audio_frames();
     c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
     run(c, SECOND / 20);
     const std::vector<float> out = take_all(c);
     const size_t on = first_over(out, 0.1);
-    std::printf("  the stream starts at sample %zu (2,400 is 50 ms)\n", on);
-    CHECK(on >= 2'400 && on <= 2'403); // a frame after the start, and the interpolation's one-frame ramp
+    std::printf("  the stream starts at sample %zu (2,400 is 50 ms; the SIDs had made %zu)\n", on, made);
+    CHECK(made >= 2'399 && made <= 2'400);
+    CHECK_EQ(on, made + lead + 1);
     // Paused at 100 ms: silence from about 4,800 to 7,200, then the stream again.
     bool quiet = true;
     for (size_t i = 4'805; i < 7'195; ++i)
         quiet = quiet && std::fabs(out[2 * i]) < 0.01;
     CHECK(quiet);
     const size_t again = first_over(out, 0.1, 4'805);
-    std::printf("  and again at %zu after the pause (7,200 is 150 ms)\n", again);
-    CHECK(again >= 7'200 && again <= 7'203);
+    std::printf("  and again at %zu after the pause (7,200 is 150 ms; the SIDs had made %zu)\n", again, made_again);
+    CHECK(made_again >= 7'199 && made_again <= 7'200);
+    CHECK_EQ(again, made_again + lead + 1);
 }
 
 TEST(with_the_bus_stopped_the_sids_samples_are_as_without_it)
@@ -385,11 +395,20 @@ TEST(nobody_collecting_keeps_the_mix_bounded_and_a_huge_tick_is_bulk)
     CHECK(most <= rate * 9 / 4);              // two seconds and a quarter
     CHECK(c.audio_frames() <= rate / 2);      // the SIDs' half second, which brings the bus's down too
     CHECK(c.mix_backlog() <= 2);
-    c.tick(SECOND * 3'600);                    // an hour in one tick: the last second made, at most
-    CHECK(c.mix_backlog() <= rate);
-    std::vector<float> out = take_all(c);
-    CHECK(out.size() <= 2 * rate / 2);
-    CHECK(c.mix_backlog() <= 2);
+    for (const uint64_t hours : {uint64_t{1}, uint64_t{24}}) // in one tick: the last second made, at most
+    {
+        // In bulk: a frame at a time, 24 hours of them took 5.6 s; in bulk it is microseconds. Two seconds is
+        // room for a slow host or a sanitizer build, and far under the frame-at-a-time cost there.
+        const auto t0 = std::chrono::steady_clock::now();
+        c.tick(SECOND * 3'600 * hours);
+        const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        std::printf("  %llu h in one tick: %.6f s\n", static_cast<unsigned long long>(hours), secs);
+        CHECK(secs < 2.0);
+        CHECK(c.mix_backlog() <= rate + 3);
+        std::vector<float> out = take_all(c);
+        CHECK(out.size() <= 2 * rate / 2);
+        CHECK(c.mix_backlog() <= 4);
+    }
 }
 
 TEST(nothing_is_mixed_at_audio_rate_0)
@@ -402,6 +421,189 @@ TEST(nothing_is_mixed_at_audio_rate_0)
     CHECK_EQ(c.mix_frames(), 0u);
     CHECK_EQ(c.mix_backlog(), 0u);
     CHECK_EQ(c.audio_frames(), 0u);
+}
+
+namespace
+{
+    // The golden program: SID A and B voices from the host, the filter, a 6510 program that sweeps a voice, a
+    // gap with nobody collecting, at 44.1 and 48 kHz. FNV-1a over the bits of every float take_audio() gives.
+    uint64_t golden_hash()
+    {
+        using ooe::emu::SoundCard;
+        uint64_t h = 1469598103934665603ull;
+        const auto eat = [&](const float *p, size_t n) {
+            for (size_t i = 0; i < n; ++i)
+            {
+                uint32_t b;
+                std::memcpy(&b, &p[i], 4);
+                for (int k = 0; k < 4; ++k)
+                {
+                    h ^= (b >> (8 * k)) & 0xFF;
+                    h *= 1099511628211ull;
+                }
+            }
+        };
+        for (const uint32_t rate : {44'100u, 48'000u})
+        {
+            SoundCard c;
+            c.set_audio_rate(rate);
+            c.write(0x00, 0x25); c.write(0x01, 0x11); c.write(0x05, 0x09); c.write(0x06, 0xF0);
+            c.write(0x18, 0x1F); c.write(0x17, 0x01); c.write(0x15, 0x05); c.write(0x16, 0x40); c.write(0x04, 0x41);
+            c.write(0x20 + 0x18, 0x0F); c.write(0x20 + 0x01, 0x30); c.write(0x20 + 0x04, 0x21); c.write(0x20 + 0x06, 0xF0);
+            // On the 6510: INC $D401 (SID A voice 1's frequency high) in a loop, slowly: LDX #0; DEX; BNE; INC; JMP.
+            const uint8_t prog[] = {0xA2, 0x00, 0xCA, 0xD0, 0xFD, 0xEE, 0x01, 0xD4, 0x4C, 0x00, 0x10};
+            for (size_t i = 0; i < sizeof prog; ++i)
+                c.ram()[0x1000 + i] = prog[i];
+            c.ram()[0xFFFC] = 0x00;
+            c.ram()[0xFFFD] = 0x10;
+            float buf[2 * 4096];
+            for (int k = 0; k < 400; ++k)
+            {
+                if (k == 100)
+                    c.write(SoundCard::CTRL, SoundCard::CTRL_RUN | SoundCard::CTRL_RESET); // the 6510 takes over
+                uint64_t n = SoundCard::NATIVE_HZ / 100;
+                if (k == 250)
+                    n += 3ull * SoundCard::NATIVE_HZ; // 3 s nobody collects
+                for (; n >= 7; n -= 7)
+                    c.tick(7);
+                c.tick(n);
+                eat(buf, 2 * c.take_audio(buf, 4096));
+            }
+        }
+        return h;
+    }
+} // namespace
+
+TEST(with_pcm_idle_the_sids_samples_are_main_s_bit_for_bit)
+{
+    // The hash of the same program built against main before the mix (bbe5f98), by a scratch program linking
+    // main's own libraries. A change to the SIDs' samples with the stream idle changes it.
+    const uint64_t h = golden_hash();
+    std::printf("  %016llx\n", static_cast<unsigned long long>(h));
+    CHECK(h == 0xf8b6874cebedd157ull);
+}
+
+TEST(collected_at_any_moments_the_mix_has_no_gap_and_no_shift)
+{
+    // The same stream twice: collected every millisecond, and at random moments from 100 to 30,000 cycles
+    // apart. Bit for bit the same samples, with the stream unbroken from its start: the queue never runs dry
+    // while the bus runs, so no sample goes without its frame and none takes a later one.
+    for (const auto &[rate, stream] : {std::pair<uint32_t, uint16_t>{48'000, 8'000}, {48'000, 22'050},
+                                       {44'100, 48'000}, {48'000, 44'100}})
+    {
+        std::vector<float> got[2];
+        for (unsigned way = 0; way < 2; ++way)
+        {
+            SoundCard c;
+            c.set_audio_rate(rate);
+            start(c, SoundCard::PCMFMT_16BIT, stream);
+            uint32_t seed = 7;
+            uint64_t t = 0;
+            std::vector<float> buf(2 * 48'000);
+            while (t < 3 * SECOND)
+            {
+                while (c.fifo_bytes() + 2 <= 16'384)
+                    put16(c, 16'384);
+                seed = seed * 1'103'515'245u + 12'345u;
+                const uint64_t n = way ? 100 + (seed >> 8) % 29'901 : SECOND / 1'000;
+                run(c, n);
+                t += n;
+                const size_t k = c.take_audio(buf.data(), 48'000);
+                got[way].insert(got[way].end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(2 * k));
+            }
+        }
+        const size_t n = std::min(got[0].size(), got[1].size());
+        const size_t on = first_over(got[1], 0.2);
+        size_t low = 0;
+        for (size_t i = on; 2 * i < n; ++i)
+            low += got[1][2 * i] < 0.2f;
+        std::printf("  %u from %u: the stream from sample %zu, %zu samples low after it, %s\n", rate, stream, on, low,
+                    std::equal(got[0].begin(), got[0].begin() + static_cast<std::ptrdiff_t>(n), got[1].begin())
+                        ? "the same both ways"
+                        : "different");
+        CHECK_EQ(low, 0u);
+        CHECK(std::equal(got[0].begin(), got[0].begin() + static_cast<std::ptrdiff_t>(n), got[1].begin()));
+    }
+}
+
+TEST(a_stream_over_before_a_gap_is_gone_after_it_not_late)
+{
+    // Ended, or paused, with its frames still queued for samples not made; then 3 s with nobody collecting. The
+    // SIDs skip all but the last second of it, and the stream's frames go with the samples they were meant for.
+    for (const bool pause : {false, true})
+    {
+        SoundCard c;
+        c.set_audio_rate(48'000);
+        start(c, 0, 48'000);
+        for (unsigned i = 0; i < 43'200; ++i)
+            c.write(SoundCard::PCMDATA, 0xC0); // 8-bit, +0.5: 0.25 in the mix
+        if (!pause)
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+        run(c, SECOND * 95 / 100);
+        if (pause)
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+        CHECK(c.mix_backlog() > 40'000); // most of it waiting
+        run(c, 3 * SECOND);
+        const std::vector<float> out = take_all(c);
+        size_t loud = 0;
+        for (size_t i = 0; i < out.size(); i += 2)
+            loud += out[i] > 0.1f;
+        std::printf("  %s: %zu of %zu samples carry the stream\n", pause ? "paused" : "ended", loud, out.size() / 2);
+        CHECK_EQ(loud, 0u);
+    }
+}
+
+TEST(the_sum_past_full_scale_is_clipped)
+{
+    // Three resonant pulse voices on SID A, filtered, and a full-scale square stream: the sum passes 1, and comes
+    // out clipped to -1..1. Without the stream the voices stay under 1, so the clip is the sum's doing.
+    for (const Sid::Model model : {Sid::Model::Mos6581, Sid::Model::Mos8580})
+        for (const bool pcm : {false, true})
+        {
+            SoundCard c;
+            c.set_model(model);
+            c.set_audio_rate(48'000);
+            for (unsigned v = 0; v < 3; ++v)
+            {
+                const unsigned b = SoundCard::SID_A + 7 * v;
+                c.write(b + 0, 0x00);
+                c.write(b + 1, static_cast<uint8_t>(0x08 + v));
+                c.write(b + 3, 0x08);
+                c.write(b + 6, 0xF0);
+                c.write(b + 4, 0x41);
+            }
+            c.write(SoundCard::SID_A + 0x15, 0x00);
+            c.write(SoundCard::SID_A + 0x16, 0x10);
+            c.write(SoundCard::SID_A + 0x17, 0xF7); // resonance 15, all three filtered
+            c.write(SoundCard::SID_A + 0x18, 0x1F); // low-pass, volume 15
+            if (pcm)
+            {
+                start(c, SoundCard::PCMFMT_16BIT, 48'000);
+                for (unsigned i = 0; i < 20'000; ++i)
+                    put16(c, (i / 40) % 2 ? int16_t{32'767} : int16_t{-32'768});
+            }
+            double peak = 0;
+            size_t at_clip = 0, past = 0;
+            std::vector<float> buf(2 * 4'096);
+            for (unsigned ms = 0; ms < 400; ++ms)
+            {
+                run(c, SECOND / 1'000);
+                const size_t n = c.take_audio(buf.data(), 4'096);
+                for (size_t i = 0; i < 2 * n; ++i)
+                {
+                    peak = std::fmax(peak, std::fabs(buf[i]));
+                    at_clip += std::fabs(buf[i]) == 1.0f;
+                    past += std::fabs(buf[i]) > 1.0f;
+                }
+            }
+            std::printf("  %s, %s: peak %.3f, %zu samples at the clip\n", model == Sid::Model::Mos6581 ? "6581" : "8580",
+                        pcm ? "with the stream" : "the voices alone", peak, at_clip);
+            CHECK_EQ(past, 0u);
+            if (pcm)
+                CHECK(at_clip > 100);
+            else
+                CHECK(peak < 0.95);
+        }
 }
 
 int main()
