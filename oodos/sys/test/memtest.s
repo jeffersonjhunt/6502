@@ -120,8 +120,9 @@
 ;       first sector read by 76 (LR), README made QEADME, written (LW);
 ;       17 of QEADME.TXT (LQ 0n 00: found, the drive's buffers were dropped)
 ;   I   C:'s VTOC read by 76 (IR); SWAP? (the test mounts another image on
-;       unit 3 behind OODOS's back); written back (IW FF 00: not an Apple
-;       disk now, or its units read again)
+;       unit 3 behind OODOS's back); with I S, B: and A: selected (14), with
+;       I R, 37 of B:, either of which reads the units again; written back
+;       (IW FF 00: its mount count moved since the program's first 76 on C:)
 ;   J   O:'s VTOC read by 76 (JR); WP? (the test write-protects the disk);
 ;       written (JW 02 00: write-protected)
 ;   Q   O:'s track 3 sector 0 (the directory's first) read through the BIOS
@@ -1239,7 +1240,23 @@ lfound: SECT    "LW ", DRV_C, 3, 0, 1
 ; I: C:'s unit swapped behind OODOS's back between 76's read and write.
 casei:  SECT    "IR ", DRV_C, 17, 0, 0
         KEYWAIT "SWAP?"
-        SECT    "IW ", DRV_C, 17, 0, 1
+        lda     BP_DMA+4                ; I S: B: then A: selected first; I R: 37 on B:
+        cmp     #'S'                    ; (each reads the units again: 6d's third review)
+        bne     :+
+        lda     #1
+        ldy     #DRV_SET
+        jsr     BDOS
+        lda     #0
+        ldy     #DRV_SET
+        jsr     BDOS
+:       lda     BP_DMA+4
+        cmp     #'R'
+        bne     :+
+        lda     #2
+        ldx     #0
+        ldy     #DRV_RESET
+        jsr     BDOS
+:       SECT    "IW ", DRV_C, 17, 0, 1
         jmp     done
 ; J: O:'s disk write-protected (the test does it at its WP?): 76's answer.
 casej:  SECT    "JR ", DRV_O, 17, 0, 0

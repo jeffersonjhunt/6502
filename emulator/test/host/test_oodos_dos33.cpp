@@ -563,17 +563,22 @@ TEST(function_76_rechecks_the_unit_before_a_write)
     // MEMTEST's I: 76 reads C:'s VTOC; the card's unit 3 is then mounted with CPM.DSK behind OODOS's
     // back (as the WebUI's hot insert could); 76's write is refused, $FF, and CPM.DSK is unchanged (the
     // review's R2F4: it wrote 256 bytes into the CP/M image).
-    Dd r;
-    REQUIRE(r.ok);
-    std::vector<uint8_t> cpm;
-    const std::string o = run_memtest(r, " I", "SWAP?", [&] {
-        REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
-        cpm = r.unit_image();
-    });
-    std::printf("  %s\n", vis(o).c_str());
-    has(o, "IR 00 00");
-    has(o, "IW FF 00");
-    CHECK(r.unit_image() == cpm);
+    // And with the units read again between, by selecting B: and A: (I S) or by 37 on B: (I R): the
+    // mount count, which nothing clears, still says so (the review's R3F2: the change bit was used up).
+    for (const char *tail : {" I", " I S", " I R"})
+    {
+        Dd r;
+        REQUIRE(r.ok);
+        std::vector<uint8_t> cpm;
+        const std::string o = run_memtest(r, tail, "SWAP?", [&] {
+            REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
+            cpm = r.unit_image();
+        });
+        std::printf("  %s\n", vis(o).c_str());
+        has(o, "IR 00 00");
+        has(o, "IW FF 00");
+        CHECK(r.unit_image() == cpm);
+    }
 }
 
 TEST(function_76_drops_a_cp_m_drive_s_buffers)
@@ -866,7 +871,7 @@ TEST(a_cp_m_disk_changed_under_get_is_said_so)
         std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
         return;
     }
-    Dd r;
+    Dd r({{0, "MINE    BIN", gen(300, 9)}});
     REQUIRE(r.ok);
     REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
     const std::vector<uint8_t> cpm = r.unit_image();
@@ -874,6 +879,14 @@ TEST(a_cp_m_disk_changed_under_get_is_said_so)
     const std::vector<uint8_t> blank = r.unit_image();
     REQUIRE(r.mount(UNIT, "/DISKS/DOS33.DSK") == 0);
     r.put_disk(image({{"BIG", 'R', gen(8192, 3)}}));
+    r.put_util("pip", UTILS);                   // the new disk with BIG.$$$ of its own (R3F4: it was
+    r.insert(0, blank);                         // deleted, as the old disk's)
+    has(r.c("pip o:big.tmp=m:mine.bin"), "A>"); // (PIP to a .$$$ name writes its own .$$$ first)
+    has(r.c("ren o:big.$$$=o:big.tmp"), "A>");
+    r.run(ms(1500));
+    const std::vector<uint8_t> second = r.drive_image(0);
+    has(r.c("dir o:"), "BIG      $$$");
+    r.run(ms(1500));                            // O:'s motor stopped: the next select reads its disk
     r.insert(0, cpm);
     const uint32_t h = SYS_BLOCK_PHYS + sym("STAMPH");
     auto bcd = [](unsigned v) { return (v >> 4) * 10 + (v & 15); };
@@ -893,7 +906,7 @@ TEST(a_cp_m_disk_changed_under_get_is_said_so)
             wrote = true;
         else if (wrote)
         {
-            r.insert(0, blank);
+            r.insert(0, second);
             swapped = true;
         }
     }
@@ -907,7 +920,216 @@ TEST(a_cp_m_disk_changed_under_get_is_said_so)
     std::printf("  %s\n", vis(o).c_str());
     has(o, "The CP/M disk was changed.");
     r.run(ms(1500));
-    CHECK(r.drive_image(0) == blank);
+    CHECK(r.drive_image(0) == second);
+    has(r.c("dir o:"), "BIG      $$$");
+}
+
+namespace
+{
+    double secs(Dd &r, uint64_t from) { return static_cast<double>(r.cpu->cycles() - from) / 7.16e6; }
+    /// A chain of `n` lists over tracks 1-16 and 18-34 in order, each +5 right, no pairs but the last
+    /// list's first (1/0); `loop`: the last list points back at the first.
+    std::vector<uint8_t> chain_image(unsigned n, bool loop = false)
+    {
+        std::vector<uint8_t> img = image({{"SP", 'R', {1, 2, 3}}});
+        std::vector<std::pair<unsigned, unsigned>> ts;
+        for (unsigned t = 1; t < 35; ++t)
+            if (t != 17)
+                for (unsigned s = 0; s < 16; ++s)
+                    ts.push_back({t, s});
+        const size_t e = at(17, 15) + 0x0B;
+        img[e] = 1;
+        img[e + 1] = 0;
+        for (unsigned k = 0; k < n; ++k)
+        {
+            const size_t l = at(ts[k].first, ts[k].second);
+            std::fill(img.begin() + static_cast<long>(l), img.begin() + static_cast<long>(l + 256), 0);
+            if (k + 1 < n)
+            {
+                img[l + 1] = static_cast<uint8_t>(ts[k + 1].first);
+                img[l + 2] = static_cast<uint8_t>(ts[k + 1].second);
+            }
+            else if (loop)
+            {
+                img[l + 1] = 1;
+                img[l + 2] = 0;
+            }
+            img[l + 5] = static_cast<uint8_t>((k * 122) & 0xFF);
+            img[l + 6] = static_cast<uint8_t>((k * 122) >> 8);
+        }
+        const size_t last = at(ts[n - 1].first, ts[n - 1].second);
+        img[last + 0x0C] = 1;
+        img[last + 0x0D] = 0;
+        return img;
+    }
+} // namespace
+
+TEST(a_swap_at_the_prompt_then_put)
+{
+    // Another 140 KB DOS disk mounted on unit 3 at A> (the card's own mount, as the WebUI's slot does):
+    // DOS33's first 76 call reads the units again and keeps the new mount count, so the PUT goes on
+    // (the review's R3F1: the change bit refused it once).
+    Dd r({{0, "NOTE    TXT", text("X\n")}});
+    REQUIRE(r.ok);
+    r.put_disk(image(sample()));
+    has(r.c("dos33 c:"), "README");
+    REQUIRE(r.mount(UNIT, "/DISKS/BLANK.DSK") == 0);
+    r.put_disk(image({{"OTHER", 'T', text("OTHER DISK\n")}}));
+    quiet(r.c("dos33 put m:note.txt c:NOTE"));
+    has(ls(r.unit_image()), " T 002 NOTE");
+}
+
+TEST(put_of_32_kb_takes_about_a_second)
+{
+    // Each write reads the units again (an IDENTIFY), but the track buffer is kept when nothing changed
+    // (the review's R3F7: 1.62 s; 1.15 s before the recheck).
+    Dd r({{0, "BIG     BIN", records(gen(32768, 7))}});
+    REQUIRE(r.ok);
+    r.put_disk(image({}));
+    const uint64_t t0 = r.cpu->cycles();
+    quiet(r.c("dos33 put m:big.bin c:BIG B"));
+    const double t = secs(r, t0);
+    std::printf("  PUT of 32 KB: %.2f s\n", t);
+    CHECK(t < 1.5);
+}
+
+TEST(a_long_chain_of_empty_lists)
+{
+    // 528 lists, every +5 right, one data pair in the last (the review's R3F3): T ends at the first hole
+    // at once; B, its first sector never written, has no address or length, so nothing; ERA frees it.
+    // The same chain looped back: Bad file. An R GET of it is stopped by a ^C, its $$$ file deleted.
+    for (bool loop : {false, true})
+    {
+        Dd r;
+        REQUIRE(r.ok);
+        const std::vector<uint8_t> img = chain_image(528, loop);
+        r.put_disk(img);
+        std::string o;
+        uint64_t t0 = r.cpu->cycles();
+        CHECK(returns(r, "dos33 get c:SP m:sp.txt T", ms(20000), o));
+        std::printf("  528 lists (loop %d), GET T: %.2f s\n", loop, secs(r, t0));
+        CHECK(secs(r, t0) < 3.0);
+        if (loop)
+        {
+            has(o, "Bad file");
+            continue;
+        }
+        quiet(o);
+        CHECK(m_data(r, 0, "SP      TXT").empty());
+        CHECK(returns(r, "dos33 get c:SP m:sp.bin B", ms(20000), o));
+        quiet(o);
+        CHECK(m_data(r, 0, "SP      BIN").size() <= 128u);
+        const size_t from = r.out.size();
+        r.type("dos33 get c:SP m:sp.r R\r");
+        r.run(ms(1500));
+        r.type("\x03");
+        CHECK(r.until("\r\nA>", ms(20000), from + 10));
+        CHECK(m_data(r, 0, "SP      $$$").empty());
+        CHECK(m_data(r, 0, "SP      R  ").empty());
+        t0 = r.cpu->cycles();
+        CHECK(returns(r, "dos33 era c:SP", ms(20000), o));
+        quiet(o);
+        std::printf("  ERA: %.2f s\n", secs(r, t0));
+    }
+}
+
+TEST(a_b_file_s_length_ends_its_zeros)
+{
+    // 527 lists, the first pair of the first a sector holding a B header of 300 bytes, one more data pair
+    // in the last list: GET B writes the sector's 252, then 48 of the owed zeros, and stops at its
+    // length, not after some 64,000 owed sectors (the review's R3F3).
+    Dd r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> img = chain_image(527);
+    const size_t e = at(17, 15) + 0x0B;
+    img[at(img[e], img[e + 1]) + 0x0C] = 34;
+    img[at(img[e], img[e + 1]) + 0x0D] = 15;
+    std::vector<uint8_t> head = {0x00, 0x20, 300 & 0xFF, 300 >> 8};
+    for (unsigned i = 0; i < 252; ++i)
+        head.push_back(static_cast<uint8_t>(i));
+    std::copy(head.begin(), head.end(), img.begin() + static_cast<long>(at(34, 15)));
+    r.put_disk(img);
+    std::string o;
+    const uint64_t t0 = r.cpu->cycles();
+    CHECK(returns(r, "dos33 get c:SP m:sp.bin B", ms(30000), o));
+    std::printf("  GET B of 527 lists: %.2f s\n", secs(r, t0));
+    CHECK(secs(r, t0) < 3.0);
+    has(o, "Address $2000, 300 bytes");
+    std::vector<uint8_t> want(head.begin() + 4, head.end());
+    want.resize(300, 0);
+    CHECK(m_data(r, 0, "SP      BIN") == records(want));
+}
+
+TEST(b_and_r_fill_holes_only_inside_the_file)
+{
+    // A B file of 600 bytes (3 sectors) whose middle sector was never written: GET B has 252 bytes, 256
+    // zeros, 92 bytes, and stops at its length; R has the three sectors, the middle zeros.
+    Dd r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> b = gen(600, 8);
+    std::vector<uint8_t> img = image({{"HOLE", 'B', b, 0x1000}});
+    const auto [t, s] = first_list(img);
+    const unsigned mt = img[at(t, s) + 0x0E], ms_ = img[at(t, s) + 0x0F];
+    img[at(t, s) + 0x0E] = 0;
+    img[at(t, s) + 0x0F] = 0;
+    std::fill(img.begin() + static_cast<long>(at(mt, ms_)), img.begin() + static_cast<long>(at(mt, ms_) + 256), 0xEE);
+    r.put_disk(img);
+    has(r.c("dos33 get c:HOLE m:hole.bin"), "Address $1000, 600 bytes");
+    std::vector<uint8_t> want(b.begin(), b.begin() + 252);
+    want.resize(252 + 256, 0);
+    want.insert(want.end(), b.begin() + 508, b.end());
+    CHECK(m_data(r, 0, "HOLE    BIN") == records(want));
+    quiet(r.c("dos33 get c:HOLE m:hole.r R"));
+    const std::vector<uint8_t> raw = m_data(r, 0, "HOLE    R  ");
+    CHECK(raw.size() == 768u);
+    CHECK(std::all_of(raw.begin() + 256, raw.begin() + 512, [](uint8_t v) { return v == 0; }));
+}
+
+TEST(another_user_s_get_and_a_read_only_unit)
+{
+    // From user 5, with user 0's README.TXT [SYS RO] and OTHER.$$$ [SYS]: the probes see only user 5's
+    // files, so both GETs work and user 0's are kept (the review's R3F5). D:, a unit mounted read-only
+    // and not logged in: refused before anything is read (R3F6).
+    const std::vector<uint8_t> old = text("USER 0 SYSTEM FILE\n");
+    MFile f{0, "README  TXT", old};
+    f.sys = true;
+    f.ro = true;
+    MFile d{0, "OTHER   $$$", old};
+    d.sys = true;
+    Dd r({f, d});
+    REQUIRE(r.ok);
+    r.put_disk(image(sample()));
+    has(r.to("user 5", "5A>"), "5A>");
+    std::string o = r.to("m:dos33 get c:README m:readme.txt", "\r\n5A>", ms(60000));
+    quiet(o);
+    CHECK(m_data(r, 5, "README  TXT").size() == 128u);
+    CHECK(m_data(r, 0, "README  TXT") == old);
+    o = r.to("m:dos33 get c:README m:other.txt", "\r\n5A>", ms(60000));
+    quiet(o);
+    CHECK(m_data(r, 5, "OTHER   TXT").size() == 128u);
+    CHECK(m_data(r, 0, "OTHER   $$$") == old);
+    has(r.to("user 0", "A>"), "A>");
+    REQUIRE(r.mount(4, "/DISKS/CPM.DSK", true) == 0);
+    o = r.c("dos33 get c:README d:r.txt");
+    has(o, "CP/M drive read-only.");
+    hasnt(o, "GET stopped");
+}
+
+TEST(a_password_write_protected_target)
+{
+    // A CP/M file protected for writing by a password (SET [PROTECT=WRITE]): GET opens it without the
+    // password, so f7' is set, and it is refused before anything is read (the review's R3F6).
+    const std::vector<uint8_t> old = text("PROTECTED\n");
+    Dd r({{0, "NOTE    TXT", old}});
+    REQUIRE(r.ok);
+    r.put_util("set", UTILS);
+    r.put_disk(image(sample()));
+    std::printf("  %s\n", vis(r.c("set m: [protect=on]")).c_str());
+    std::printf("  %s\n", vis(r.c("set m:note.txt [password=secret, protect=write]")).c_str());
+    const std::string o = r.c("dos33 get c:README m:note.txt");
+    has(o, "CP/M file write-protected (its password).");
+    CHECK(m_data(r, 0, "NOTE    TXT") == old);
+    CHECK(m_data(r, 0, "NOTE    $$$").empty());
 }
 
 int main() { return run_all(); }
