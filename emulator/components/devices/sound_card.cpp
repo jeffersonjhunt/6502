@@ -33,6 +33,14 @@ namespace ooe::emu
     {
         pcmctl_ = codec_ = pcmfmt_ = 0;
         rate_ = 0;
+        fifo_head_ = fifo_count_ = 0;
+        state_ = STATE_IDLE;
+        started_ = false;
+        play_rate_ = 0;
+        play_fmt_ = 0;
+        pcm_phase_ = 0;
+        underruns_ = 0;
+        tap_.clear();
         free_hi_ = static_cast<uint8_t>(free_units() >> 8);
         pos_ = pos_latch_ = 0;
         vol_ = {0xFF, 0xFF};
@@ -73,6 +81,8 @@ namespace ooe::emu
 
     void SoundCard::tick(uint64_t cycles)
     {
+        if (state_ == STATE_PLAYING || state_ == STATE_UNDERRUN)
+            pcm_advance(cycles); // the stream keeps the card's time, whether or not sound is made
         // SID clocks = host cycles x SID Hz / host Hz, the remainder carried.
         phase_ += cycles * sid_hz();
         const uint64_t due = phase_ / host_hz_;
@@ -105,6 +115,121 @@ namespace ooe::emu
                 owed_ = 0;
             }
         }
+    }
+
+    // --- the PCM stream ----------------------------------------------------------
+
+    void SoundCard::pcm_write(uint8_t data)
+    {
+        if (fifo_count_ == FIFO_BYTES)
+            return; // full: dropped
+        (*fifo_)[(fifo_head_ + fifo_count_) % FIFO_BYTES] = data;
+        ++fifo_count_;
+        pcm_update();
+    }
+
+    void SoundCard::pcm_control(uint8_t data)
+    {
+        const uint8_t was = pcmctl_;
+        if (data & PCMCTL_FLUSH)
+            fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
+        pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
+        if ((pcmctl_ & PCMCTL_RUN) && !(was & PCMCTL_RUN))
+        {
+            started_ = false;
+            pcm_phase_ = 0;
+            if (rate_ < RATE_MIN || rate_ > RATE_MAX || codec_ != 0) // MP3 comes in step 4
+                state_ = STATE_BAD_FORMAT;
+            else
+            {
+                play_rate_ = rate_;
+                play_fmt_ = pcmfmt_;
+                state_ = STATE_BUFFERING;
+            }
+        }
+        else if (!(pcmctl_ & PCMCTL_RUN))
+            state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
+        pcm_update();
+    }
+
+    void SoundCard::pcm_update()
+    {
+        if (!(pcmctl_ & PCMCTL_RUN) || state_ == STATE_BAD_FORMAT || state_ == STATE_ENDED)
+            return;
+        if (pcmctl_ & PCMCTL_PAUSE)
+        {
+            state_ = STATE_PAUSED;
+            return;
+        }
+        if (state_ == STATE_PAUSED)
+            state_ = started_ ? STATE_PLAYING : STATE_BUFFERING;
+        if (state_ == STATE_BUFFERING && (fifo_count_ >= START_BYTES || (pcmctl_ & PCMCTL_EOF)))
+        {
+            state_ = STATE_PLAYING;
+            started_ = true;
+            pcm_phase_ = 0; // the first frame a whole frame from now
+        }
+        if (state_ == STATE_UNDERRUN && fifo_count_ >= frame_bytes())
+            state_ = STATE_PLAYING; // data again: on at once, from the next frame
+        // Running dry is found when a frame falls due (pcm_advance), not here: a FIFO emptied and refilled
+        // between two frames hasn't underrun.
+    }
+
+    void SoundCard::pcm_advance(uint64_t cycles)
+    {
+        pcm_phase_ += cycles * play_rate_;
+        uint64_t due = pcm_phase_ / host_hz_;
+        pcm_phase_ %= host_hz_;
+        while (due)
+        {
+            const size_t ready = fifo_count_ / frame_bytes();
+            if (ready)
+            {
+                const size_t n = static_cast<size_t>(std::min<uint64_t>(due, ready));
+                state_ = STATE_PLAYING;
+                pcm_play(n);
+                due -= n;
+                continue;
+            }
+            if (pcmctl_ & PCMCTL_EOF)
+            {
+                state_ = STATE_ENDED; // a partial frame left is never played
+                return;
+            }
+            if (state_ != STATE_UNDERRUN)
+            {
+                state_ = STATE_UNDERRUN;
+                ++underruns_;
+            }
+            if (tap_on_)
+                tap_.insert(tap_.end(), 2 * due, int16_t{0}); // silence until data comes
+            return;
+        }
+    }
+
+    void SoundCard::pcm_play(size_t n)
+    {
+        const size_t fb = frame_bytes();
+        if (tap_on_)
+        {
+            const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
+            const auto sample = [&](size_t i) -> int16_t {
+                if (play_fmt_ & PCMFMT_16BIT) // signed, low byte first
+                    return static_cast<int16_t>(static_cast<uint16_t>(at(i) | at(i + 1) << 8));
+                return static_cast<int16_t>((at(i) - 128) * 256); // unsigned
+            };
+            const size_t step = play_fmt_ & PCMFMT_16BIT ? 2 : 1;
+            for (size_t f = 0; f < n; ++f)
+            {
+                const size_t b = f * fb;
+                const int16_t l = sample(b);
+                tap_.push_back(l);
+                tap_.push_back(play_fmt_ & PCMFMT_STEREO ? sample(b + step) : l); // mono on both sides
+            }
+        }
+        fifo_head_ = (fifo_head_ + n * fb) % FIFO_BYTES;
+        fifo_count_ -= n * fb;
+        pos_ += static_cast<uint32_t>(n);
     }
 
     uint64_t SoundCard::now() const
@@ -301,18 +426,18 @@ namespace ooe::emu
             return pcmctl_;
         case CODEC:
             return codec_;
-        case RATE:
-            return static_cast<uint8_t>(rate_);
+        case RATE: // while it runs, the rate playing
+            return static_cast<uint8_t>(state_ != STATE_IDLE && state_ != STATE_BAD_FORMAT ? play_rate_ : rate_);
         case RATE + 1:
-            return static_cast<uint8_t>(rate_ >> 8);
+            return static_cast<uint8_t>((state_ != STATE_IDLE && state_ != STATE_BAD_FORMAT ? play_rate_ : rate_) >> 8);
         case PCMFMT:
-            return pcmfmt_;
+            return state_ != STATE_IDLE && state_ != STATE_BAD_FORMAT ? play_fmt_ : pcmfmt_;
         case FREE: // the debugger's look: no latch
             return static_cast<uint8_t>(free_units());
         case FREE + 1:
             return free_hi_;
         case STATE:
-            return STATE_IDLE;
+            return state_;
         case POS:
             return static_cast<uint8_t>(pos_);
         case POS + 1:
@@ -395,8 +520,7 @@ namespace ooe::emu
             to_card_full_ = true;
             break;
         case PCMCTL:
-            // FLUSH (bit 2) is a strobe: it empties the FIFO, which holds nothing yet. Bit 7 is reserved.
-            pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
+            pcm_control(data); // FLUSH (bit 2) is a strobe; bit 7 is reserved
             break;
         case CODEC:
             if (!(pcmctl_ & PCMCTL_RUN))
@@ -412,7 +536,8 @@ namespace ooe::emu
             pcmfmt_ = static_cast<uint8_t>(data & (PCMFMT_STEREO | PCMFMT_16BIT));
             break;
         case PCMDATA:
-            break; // no FIFO yet
+            pcm_write(data);
+            break;
         case POS:
             pos_ = pos_latch_ = 0;
             break;
@@ -475,7 +600,8 @@ namespace ooe::emu
         {
         case DRQ_RAMDATA: ram_[ram_addr_++] = data; break;
         case DRQ_DOCDATA: doc_data_write(data); break;
-        default: break; // PCMDATA: no FIFO yet
+        case DRQ_PCMDATA: pcm_write(data); break;
+        default: break; // 3: no source
         }
     }
 

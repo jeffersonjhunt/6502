@@ -15,14 +15,15 @@
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
  * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h). So far (that spec's step 1) its registers hold what is
- * written and read it back, with their reset values; nothing plays yet:
+ * ES5503 (es5503.h). So far (that spec's steps 1 and 2) its registers hold
+ * what is written and read it back, with their reset values, and the raw PCM
+ * stream runs; no mixing, MP3, EQ, vis page or ES5503 sound yet:
  *
  *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
  *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
  *   $4D-$4E FREE: the FIFO's room in 256-byte units (512, empty); reading
- *           $4D latches $4E   $4F PCMDATA: write only, dropped for now
- *   $50 STATE: 0, idle   $51-$54 POS: reading $51 latches $52-$54, a write
+ *           $4D latches $4E   $4F PCMDATA: into the 128 KB FIFO; dropped full
+ *   $50 STATE (below)   $51-$54 POS: reading $51 latches $52-$54, a write
  *           to $51 zeroes it   $55-$56 KBPS: 0   $57/$58 VOLL/VOLR
  *   $59 EQIDX: 0 the preamp, 1-10 the bands, bit 7 the enable instead; an
  *           EQVAL access moves bits 0-6 on   $5A EQVAL: a gain, -24 to 24
@@ -33,7 +34,20 @@
  *           (DOCCTL bit 6) or the DOC's register at DOCADDR, which moves on
  *           with bit 5, wrapping at 128 KB   $60-$61 DOCADDR   $62 DOCBANK
  *           (bit 0: address bit 16)   $63 DRQSEL: 0 RAMDATA, 1 PCMDATA
- *           (dropped; reads $FF), 2 DOCDATA, 3 none (no DRQ)
+ *           (DRQ while the FIFO has room; a fly-by read $FF), 2 DOCDATA,
+ *           3 none (no DRQ)
+ *
+ * The stream. RUN takes RATE and PCMFMT (a RATE outside 8,000-48,000, or a
+ * CODEC other than raw PCM for now, is STATE $80) and buffers: playing starts
+ * at 4 KB in the FIFO, or at EOF. Each frame then falls due on the host's
+ * clock (tick()'s cycles at set_cpu_hz()), whether sound is made or not, and
+ * takes 1, 2 or 4 bytes, whole frames only, so one split across writes
+ * waits for its last byte. A frame due with none in the FIFO is underrun
+ * (silence, counted once by underruns()) without EOF, and the end with it;
+ * a byte arriving plays from the next frame. PAUSE holds the place, FLUSH
+ * empties the FIFO, clearing RUN keeps it. POS counts the frames played.
+ * The test tap (set_tap()) records the bus before any resampling, signed
+ * 16-bit left then right, 8-bit made (b - 128) x 256, mono on both sides.
  *
  * The host's side: the SIDs' registers, the card's 64 KB through RAMADDR
  * and RAMDATA, and the mailbox. The card's side: its own 6510, an NMOS
@@ -136,6 +150,8 @@
 #include <array>
 #include <cstdint>
 #include <deque>
+#include <memory>
+#include <vector>
 
 #include "bus.h"
 #include "cpu6502.h"
@@ -198,7 +214,18 @@ namespace ooe::emu
         static constexpr uint8_t PCMFMT_STEREO = 0x01, PCMFMT_16BIT = 0x02;
         /// CODECS: raw PCM (bit 0), MP3 (bit 1), an ES5503 (bit 7).
         static constexpr uint8_t CODECS_PRESENT = 0x83;
-        static constexpr uint8_t STATE_IDLE = 0;
+        enum PcmState : uint8_t
+        {
+            STATE_IDLE = 0,
+            STATE_BUFFERING = 1,
+            STATE_PLAYING = 2,
+            STATE_PAUSED = 3,
+            STATE_UNDERRUN = 4,
+            STATE_ENDED = 5,
+            STATE_BAD_FORMAT = 0x80, ///< RATE (or, for now, CODEC) not one that plays, at RUN
+        };
+        static constexpr uint32_t RATE_MIN = 8'000, RATE_MAX = 48'000;
+        static constexpr size_t START_BYTES = 4096; ///< buffering ends at this much in the FIFO, or at EOF
         static constexpr unsigned EQ_BANDS = 10; ///< EQIDX 1-10; 0 is the preamp
         static constexpr uint8_t EQIDX_ENABLE = 0x80;
         static constexpr int EQ_LIMIT = 24; ///< EQVAL's half-dB, either way
@@ -232,7 +259,11 @@ namespace ooe::emu
         void set_revision(unsigned rev);
         unsigned revision() const { return rev_; }
         /// The host CPU's clock, which tick()'s cycles run at (0: 7.16 MHz).
-        void set_cpu_hz(uint32_t hz) { host_hz_ = hz ? hz : NATIVE_HZ; }
+        void set_cpu_hz(uint32_t hz)
+        {
+            host_hz_ = hz ? hz : NATIVE_HZ;
+            pcm_phase_ = 0; // a new clock: the remainder was in the old one's cycles
+        }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
         void reset();
         void bus_reset() override { reset(); }
@@ -262,7 +293,10 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         bool irq() const override { return (ien_ & IEN_MAILBOX) && to_host_full_; }
-        bool drq() const override { return drqsel_ <= DRQ_DOCDATA; }
+        bool drq() const override
+        {
+            return drqsel_ == DRQ_PCMDATA ? fifo_count_ < FIFO_BYTES : drqsel_ <= DRQ_DOCDATA;
+        }
         uint8_t dack_read(bool tc) override;
         void dack_write(uint8_t data, bool tc) override;
         bool timed() const override { return true; }
@@ -294,6 +328,24 @@ namespace ooe::emu
         uint64_t sid_clocks() const { return now(); }
         std::array<uint8_t, RAM_BYTES> &ram() { return ram_; }
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
+        // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
+        /// Record the bus's frames from now on (true), or stop and drop them (false).
+        void set_tap(bool on)
+        {
+            tap_on_ = on;
+            tap_.clear();
+        }
+        /// The frames recorded since the last call, left then right, signed 16-bit; emptied.
+        std::vector<int16_t> take_tap()
+        {
+            std::vector<int16_t> out;
+            out.swap(tap_);
+            return out;
+        }
+        /// Times the stream ran dry with no EOF, since /RESET.
+        unsigned underruns() const { return underruns_; }
+        /// Bytes waiting in the FIFO, a partial frame's among them.
+        size_t fifo_bytes() const { return fifo_count_; }
         /// The card's ES5503, its registers and wave RAM.
         Es5503 &doc() { return doc_; }
         const Es5503 &doc() const { return doc_; }
@@ -344,7 +396,22 @@ namespace ooe::emu
 
         uint8_t ram_byte() { return ram_[ram_addr_++]; }
         /// The FIFO's room, in 256-byte units.
-        uint16_t free_units() const { return static_cast<uint16_t>(FIFO_BYTES / 256); }
+        uint16_t free_units() const { return static_cast<uint16_t>((FIFO_BYTES - fifo_count_) / 256); }
+        /// The playing format's frame: 1, 2 or 4 bytes.
+        size_t frame_bytes() const
+        {
+            return size_t{play_fmt_ & PCMFMT_STEREO ? 2u : 1u} * (play_fmt_ & PCMFMT_16BIT ? 2u : 1u);
+        }
+        /// A byte into the FIFO (dropped if it's full), then the state as that leaves it.
+        void pcm_write(uint8_t data);
+        /// PCMCTL written: FLUSH, RUN's edges, PAUSE and EOF.
+        void pcm_control(uint8_t data);
+        /// The state as the FIFO and PCMCTL now leave it, between frames.
+        void pcm_update();
+        /// `cycles` host cycles of playback: the frames due, from the FIFO or, run dry, silence.
+        void pcm_advance(uint64_t cycles);
+        /// `n` frames out of the FIFO, onto the bus.
+        void pcm_play(size_t n);
         /// DOCDATA: wave RAM or a register at the DOC's address, which moves on with DOCCTL bit 5.
         uint8_t doc_data_read();
         void doc_data_write(uint8_t data);
@@ -406,6 +473,17 @@ namespace ooe::emu
         unsigned rev_{2};
         uint8_t pcmctl_{0}, codec_{0}, pcmfmt_{0};
         uint16_t rate_{0};
+        // The stream: the FIFO a ring, on the heap; RATE and PCMFMT as RUN took them.
+        std::unique_ptr<std::array<uint8_t, FIFO_BYTES>> fifo_ = std::make_unique<std::array<uint8_t, FIFO_BYTES>>();
+        size_t fifo_head_{0}, fifo_count_{0};
+        uint8_t state_{STATE_IDLE};
+        bool started_{false};             ///< buffering is over: PAUSE goes back to playing
+        uint32_t play_rate_{0};
+        uint8_t play_fmt_{0};
+        uint64_t pcm_phase_{0};           ///< host cycles x rate owed, below one frame
+        unsigned underruns_{0};
+        bool tap_on_{false};
+        std::vector<int16_t> tap_;
         uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
         uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch
         std::array<uint8_t, 2> vol_{};     ///< VOLL, VOLR
