@@ -145,14 +145,16 @@
  * is the replacement chips' jumper (set_model()), not a register.
  *
  * MP3 (CODEC 1): the FIFO decoded by minimp3 (third_party/minimp3, CC0),
- * layer III, a frame at a time as its first sample falls due, only with
- * all of it and the next header there (or EOF), so a stream fed as it plays
- * decodes as the whole file would. The rate and channels follow each frame.
- * Free format, layers I and II and frames that decode to nothing are junk;
- * junk is skipped with resync, and 64 KB of it is STATE $81. ID3v2 tags are
- * skipped by their size, not junk. A frame with nothing frame-like after it,
- * to EOF or for 32 KB, plays by its own length, what follows ignored. A
- * fruitless search waits for new bytes; a frame's work is bounded.
+ * layer III, a frame at a time as its first sample falls due. In step, a
+ * frame is decoded with all of it and the next header there; out of step,
+ * a frame is taken by minimp3's own sync rule (ten in step after it, or the
+ * data's end), the card waiting until that decides, so a stream fed as it
+ * plays decodes as the whole data would. The rate and channels follow each
+ * frame. Free format, layers I and II and frames that decode to nothing are
+ * junk; 64 KB of it is STATE $81. ID3v2 tags are skipped by their size
+ * wherever met (8 MB of them, $81). A frame with nothing frame-like and no
+ * tag after it, to EOF or for 32 KB, plays by its own length. A fruitless
+ * search waits for bytes to come or go, or for EOF.
  *
  * The mix (revision 2). While the PCM stream plays or runs dry, its bus
  * frames are resampled to the audio rate by linear interpolation into a
@@ -388,6 +390,9 @@ namespace ooe::emu
         uint64_t mix_frames() const { return mix_frames_; }
         /// Of them, those not yet added to a SID sample.
         size_t mix_backlog() const { return pcm_mix_.size() / 2; }
+        /// SID samples made while the bus ran with nothing queued for them (a gap in the stream): 0 if the lead
+        /// held. Since /RESET or set_audio_rate().
+        uint64_t mix_dry() const { return mix_dry_; }
         /// Times the stream ran dry with no EOF, since /RESET.
         unsigned underruns() const { return underruns_; }
         /// Bytes waiting in the FIFO, a partial frame's among them.
@@ -571,6 +576,7 @@ namespace ooe::emu
         uint64_t mix_skip_{0};             ///< bus frames of a bulk catch-up that make nothing
         mutable uint64_t mix_offset_{0};   ///< SID samples to make before the queue's front is theirs
         uint64_t mix_frames_{0};
+        mutable uint64_t mix_dry_{0};
         uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
         uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch
         std::array<uint8_t, 2> vol_{};     ///< VOLL, VOLR

@@ -26,9 +26,13 @@ map=${HOSTPATH:-hostpath}
 mkdir -p "$out"
 docker run --rm -i -v "$($map "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
-apt-get -qq install -y lame=3.100-6 python3=3.11.2-1+b1 >/dev/null
+# Every package that does the work pinned: LAME's front end and library, Python and its standard library, and
+# libc (the synthesis's libm), each at the version these files were made with.
+apt-get -qq install -y lame=3.100-6 libmp3lame0=3.100-6 python3=3.11.2-1+b1 python3-minimal=3.11.2-1+b1 \
+    python3.11=3.11.2-6+deb12u9 python3.11-minimal=3.11.2-6+deb12u9 libpython3.11-minimal=3.11.2-6+deb12u9 \
+    libpython3.11-stdlib=3.11.2-6+deb12u9 libc6=2.36-9+deb12u14 >/dev/null
 echo "debian $(cat /etc/debian_version); the packages:"
-dpkg-query -W -f '  ${Package} ${Version}\n' lame python3
+dpkg-query -W -f '  ${Package} ${Version}\n' lame libmp3lame0 python3 python3.11 libpython3.11-stdlib libc6
 cd /tmp
 cat > signal.py <<'PY'
 import math, random, struct, sys, wave
@@ -56,17 +60,19 @@ enc() { # name rate channels lame-options...
     name=$1 rate=$2 ch=$3
     shift 3
     python3 signal.py "$rate" "$ch" in.wav
-    lame --quiet --noreplaygain "$@" in.wav "/out/$name"
+    lame --quiet --noreplaygain "$@" in.wav "made/$name"
 }
+mkdir made
 enc cbr320_stereo_48k.mp3 48000 2 -b 320 --cbr -m s
 enc cbr128_joint_44k.mp3 44100 2 -b 128 --cbr -m j
 enc cbr32_mono_22k.mp3 22050 1 -b 32 --cbr -m m
 enc cbr8_mono_8k.mp3 8000 1 -b 8 --cbr -m m
 enc vbr0_stereo_44k.mp3 44100 2 -V 0 -m j
 enc vbr9_mono_22k.mp3 22050 1 -V 9 -m m
-cd /out
+cd made
 ls -l *.mp3
-# The files these versions made when the script was written: a rerun must make the same bytes.
+# The files these versions made when the script was written: a rerun must make the same bytes. Checked here,
+# before anything is written into the tree: a mismatch leaves the committed files as they were.
 sha256sum -c <<'SUMS'
 70ccbc742c0f64b65e4b40ee037d29e9a38110f9337c3b41aef5f0760b262e78  cbr128_joint_44k.mp3
 86399e821f6e4bc7d1d5c7c113cd309c0961a045f91b61d3d284c5cf4b92ab5b  cbr320_stereo_48k.mp3
@@ -75,4 +81,5 @@ sha256sum -c <<'SUMS'
 1da9e1aa63bae092b156878ea3c16d1f8fabf366b69c65ba95ebd73829f1e731  vbr0_stereo_44k.mp3
 628fdfe90542132116328ec876677ddf32eaaacc6b42696812f93ef09228732c  vbr9_mono_22k.mp3
 SUMS
+cp *.mp3 /out/
 INNER

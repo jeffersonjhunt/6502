@@ -22,6 +22,8 @@
 #include <functional>
 #include <initializer_list>
 #include <cstdio>
+#include <cstdlib>
+#include <random>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -182,11 +184,14 @@ TEST(fed_in_pieces_while_it_plays_it_decodes_the_same)
             const std::vector<uint8_t> bytes = file(name);
             const Decoded want = reference(bytes);
             SoundCard c;
-            const std::vector<int16_t> got = play_fed(c, bytes, piece); // faster than it plays: never dry
+            // Faster than it plays: never dry once it has started. It may wait once at the start: the first
+            // frame is taken only when minimp3's sync check on it has decided (ten frames in step), which can
+            // be more than the 4 KB playing starts at.
+            const std::vector<int16_t> got = play_fed(c, bytes, piece);
             std::printf("  %s in %zu-byte pieces: %s, %u underruns\n", name, piece,
                         got == want.frames ? "the same" : "different", c.underruns());
             CHECK(got == want.frames);
-            CHECK_EQ(c.underruns(), 0u);
+            CHECK(c.underruns() <= 1);
             CHECK_EQ(pos(c), want.frames.size() / 2);
             CHECK_EQ(state(c), SoundCard::STATE_ENDED);
         }
@@ -755,36 +760,40 @@ TEST(pos_and_state_through_changes_are_the_same_at_audio_rates_0_and_48000)
 
 TEST(at_a_rate_change_the_mix_lines_up_afresh_with_the_new_rates_lead)
 {
-    // 48 kHz (a lead of 2 samples into a 48 kHz mix) and then 8 kHz (a frame's 6 samples come in a burst: a lead
-    // of 7 is wanted). Collected at random moments, as an audio callback is: the mix starts afresh at the change,
-    // with the new rate's lead, so its queue never runs dry after a take, at either rate.
-    const std::vector<uint8_t> bytes = concat({"cbr320_stereo_48k.mp3", "cbr8_mono_8k.mp3"});
-    SoundCard c;
-    c.set_audio_rate(48'000);
-    start_mp3(c);
-    for (const uint8_t b : bytes)
-        c.write(SoundCard::PCMDATA, b);
-    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
-    std::vector<float> buf(2 * 48'000);
-    uint32_t seed = 9;
-    size_t least[2] = {SIZE_MAX, SIZE_MAX};
-    for (uint64_t t = 0; t < 2 * SECOND && state(c) != SoundCard::STATE_ENDED;)
-    {
-        seed = seed * 1'103'515'245u + 12'345u;
-        const uint64_t n = 100 + (seed >> 8) % 29'901;
-        run(c, n);
-        t += n;
-        c.take_audio(buf.data(), 48'000);
-        if (state(c) == SoundCard::STATE_PLAYING)
+    // 8 kHz then 48 kHz, and 48 kHz then 8 kHz, mixed at 48 kHz and collected at random moments, as an audio
+    // callback is. The mix starts afresh at each change with the new rate's lead, so no SID sample is made while
+    // the stream plays with nothing queued for it (mix_dry()), in either direction.
+    for (const auto &order : {std::vector<const char *>{"cbr8_mono_8k.mp3", "cbr320_stereo_48k.mp3"},
+                              std::vector<const char *>{"cbr320_stereo_48k.mp3", "cbr8_mono_8k.mp3"}})
+        for (uint32_t seed : {9u, 10u, 11u})
         {
-            const unsigned lo = c.peek(SoundCard::RATE), hi = c.peek(SoundCard::RATE + 1);
-            size_t &l = least[(lo | hi << 8) == 8'000];
-            l = std::min(l, c.mix_backlog());
+            std::vector<uint8_t> bytes;
+            for (const char *n : order)
+            {
+                const std::vector<uint8_t> f = file(n);
+                bytes.insert(bytes.end(), f.begin(), f.end());
+            }
+            SoundCard c;
+            c.set_audio_rate(48'000);
+            start_mp3(c);
+            for (const uint8_t b : bytes)
+                c.write(SoundCard::PCMDATA, b);
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+            std::vector<float> buf(2 * 48'000);
+            size_t made = 0;
+            for (uint64_t t = 0; t < 2 * SECOND && state(c) != SoundCard::STATE_ENDED;)
+            {
+                seed = seed * 1'103'515'245u + 12'345u;
+                const uint64_t n = 100 + (seed >> 8) % 29'901;
+                c.tick(n); // one tick, as a run loop that falls behind gives
+                t += n;
+                made += c.take_audio(buf.data(), 48'000);
+            }
+            std::printf("  %s then %s, seed %u: %llu of %zu samples dry\n", order[0], order[1], seed,
+                        static_cast<unsigned long long>(c.mix_dry()), made);
+            CHECK_EQ(c.mix_dry(), 0u);
+            CHECK_EQ(state(c), SoundCard::STATE_ENDED);
         }
-    }
-    std::printf("  the queue after each take: at least %zu at 48 kHz, %zu at 8 kHz\n", least[0], least[1]);
-    CHECK(least[0] >= 1 && least[0] != SIZE_MAX);
-    CHECK(least[1] >= 1 && least[1] != SIZE_MAX);
 }
 
 TEST(a_stream_round_the_fifo_many_times_decodes_the_same)
@@ -866,6 +875,389 @@ TEST(bad_frames_decode_the_same_whatever_the_stack_held)
     }
     std::printf("  %u of 60 broken streams decode differently with the stack dirtied two ways\n", differ);
     CHECK_EQ(differ, 0u);
+}
+
+namespace
+{
+    /// Where each frame minimp3 decodes in `mp3` starts.
+    std::vector<size_t> frame_starts(const std::vector<uint8_t> &mp3)
+    {
+        std::vector<size_t> out;
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        size_t pos = 0;
+        while (pos < mp3.size())
+        {
+            mp3dec_frame_info_t info{};
+            mp3dec_decode_frame(dec.get(), mp3.data() + pos, static_cast<int>(mp3.size() - pos), nullptr, &info);
+            if (!info.frame_bytes)
+                break;
+            if (info.hz)
+                out.push_back(pos + static_cast<size_t>(info.frame_offset));
+            pos += static_cast<size_t>(info.frame_bytes);
+        }
+        return out;
+    }
+
+    /// Plays to the end written as room allows, EOF either with the last byte (`late` false) or a second after.
+    std::vector<int16_t> play_eof(const std::vector<uint8_t> &bytes, bool late, uint8_t &end)
+    {
+        SoundCard c;
+        c.set_tap(true, false); // what played only
+        start_mp3(c);
+        size_t at = 0;
+        for (unsigned ms = 0; ms < 20'000; ++ms)
+        {
+            while (at < bytes.size() && c.fifo_bytes() < SoundCard::FIFO_BYTES)
+                c.write(SoundCard::PCMDATA, bytes[at++]);
+            if (at == bytes.size() && (!late || ms % 1'000 == 999))
+                c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+            run(c, SECOND / 1'000);
+            if (state(c) == SoundCard::STATE_ENDED || state(c) == SoundCard::STATE_NO_SYNC)
+                break;
+        }
+        end = state(c);
+        return c.take_tap();
+    }
+} // namespace
+
+TEST(damaged_frames_mid_stream_play_as_minimp3_with_eof_at_once_or_late)
+{
+    // Our cbr128 four times over, frames 40 on damaged (big_values past 288: the side info refused, the decoder
+    // reset): minimp3 on the whole stream, frames after them and all, whether EOF comes with the last byte or later.
+    const std::vector<uint8_t> one = file("cbr128_joint_44k.mp3");
+    std::vector<uint8_t> four;
+    for (int i = 0; i < 4; ++i)
+        four.insert(four.end(), one.begin(), one.end());
+    const std::vector<size_t> heads = frame_starts(four);
+    for (const size_t damaged : {size_t{4}, size_t{12}, size_t{20}})
+    {
+        std::vector<uint8_t> s = four;
+        for (size_t k = 40; k < 40 + damaged; ++k)
+        {
+            const size_t side = heads[k] + 4 + ((s[heads[k] + 1] & 1) ? 0 : 2); // past the CRC, if there is one
+            s[side + 4] = 0xFF;
+            s[side + 5] |= 0x80;
+        }
+        const Decoded want = reference(s);
+        uint8_t ea = 0, eb = 0;
+        const std::vector<int16_t> a = play_eof(s, false, ea), b = play_eof(s, true, eb);
+        std::printf("  %zu damaged: minimp3 %zu samples a side; EOF at once %zu, late %zu\n", damaged,
+                    want.frames.size() / 2, a.size() / 2, b.size() / 2);
+        CHECK(a == want.frames);
+        CHECK(b == want.frames);
+        CHECK_EQ(ea, SoundCard::STATE_ENDED);
+        CHECK_EQ(eb, SoundCard::STATE_ENDED);
+    }
+}
+
+TEST(files_back_to_back_with_tags_between_play_whole)
+{
+    // File A, its ID3v1 record ("TAG" and 125 bytes), file B's 80 KB ID3v2 tag of binary cover art (FF FB 90 00 and
+    // other frame-like bytes in it), then file B. A's last frame plays by its own length; the record is junk; the
+    // tag is skipped by its size, whatever is in it; B plays from its first frame. Written at once, and fed in
+    // 40-byte pieces.
+    const std::vector<uint8_t> a = file("cbr128_joint_44k.mp3"), b = file("vbr0_stereo_44k.mp3");
+    std::vector<uint8_t> bytes = a;
+    bytes.insert(bytes.end(), {'T', 'A', 'G'});
+    for (unsigned k = 0; k < 125; ++k)
+        bytes.push_back(static_cast<uint8_t>(k < 60 ? 'a' + k % 26 : 0));
+    const size_t size = 80'000;
+    bytes.insert(bytes.end(), {'I', 'D', '3', 3, 0, 0, static_cast<uint8_t>(size >> 21 & 127),
+                               static_cast<uint8_t>(size >> 14 & 127), static_cast<uint8_t>(size >> 7 & 127),
+                               static_cast<uint8_t>(size & 127)});
+    uint32_t r = 77;
+    for (size_t k = 0; k < size; ++k)
+    {
+        r = r * 1'103'515'245u + 12'345u;
+        bytes.push_back(k % 997 == 0 ? 0xFF : k % 997 == 1 ? 0xFB : k % 997 == 2 ? 0x90 : static_cast<uint8_t>(r >> 16));
+    }
+    bytes.insert(bytes.end(), b.begin(), b.end());
+    std::vector<int16_t> want = reference(a).frames;
+    const std::vector<int16_t> wb = reference(b).frames;
+    want.insert(want.end(), wb.begin(), wb.end());
+    SoundCard c, d;
+    const std::vector<int16_t> once = play_all(c, bytes);
+    d.set_tap(true, false); // fed slower than it plays, dry now and then: what played only
+    start_mp3(d);
+    size_t at = 0;
+    for (unsigned ms = 0; ms < 20'000 && state(d) != SoundCard::STATE_ENDED; ++ms)
+    {
+        for (size_t k = 0; k < 40 && at < bytes.size(); ++k)
+            d.write(SoundCard::PCMDATA, bytes[at++]);
+        if (at == bytes.size())
+            d.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+        run(d, SECOND / 1'000);
+    }
+    const std::vector<int16_t> fed = d.take_tap();
+    std::printf("  A then B, %zu samples a side wanted: at once %zu, fed %zu\n", want.size() / 2, once.size() / 2,
+                fed.size() / 2);
+    CHECK(once == want);
+    CHECK(fed == want);
+    CHECK_EQ(state(d), SoundCard::STATE_ENDED);
+}
+
+TEST(a_frame_whole_again_after_others_decode_doesnt_wait_for_a_write)
+{
+    // VBR. The card waits at some FIFO count for the last byte of a large frame k; the program then writes exactly
+    // the bytes of frames k to k+j-1 still missing, which decode, and the count comes back to what it was, now
+    // with a smaller frame k+j whole and its next header in. It must play without another write: bytes taken out
+    // of the FIFO are news to the wait too. Two writes against the same bytes in one, no EOF either way.
+    unsigned cases = 0, stalled = 0;
+    for (const char *name : {"vbr0_stereo_44k.mp3", "vbr9_mono_22k.mp3"})
+    {
+        const std::vector<uint8_t> f = file(name);
+        const std::vector<size_t> heads = frame_starts(f);
+        for (size_t k = 10; k + 6 < heads.size() && heads[k] <= 40'000; ++k)
+        {
+            if (heads[k] < 4'096 + 2'000)
+                continue;
+            for (size_t j = 1; j <= 3; ++j)
+            {
+                const size_t fbk = heads[k + 1] - heads[k], fbn = heads[k + j + 1] - heads[k + j];
+                if (fbn + 4 >= fbk)
+                    continue;
+                const size_t x = heads[k] + fbk - 1, y = heads[k + j] - heads[k];
+                ++cases;
+                const auto play = [&](std::initializer_list<std::pair<size_t, size_t>> writes) {
+                    SoundCard c;
+                    c.set_tap(true, false);
+                    start_mp3(c);
+                    for (const auto &[from, to] : writes)
+                    {
+                        for (size_t i = from; i < to; ++i)
+                            c.write(SoundCard::PCMDATA, f[i]);
+                        for (uint64_t t = 0; t < 2 * SECOND; t += 997)
+                            c.tick(997);
+                    }
+                    return c.take_tap().size() / 2;
+                };
+                stalled += play({{0, x}, {x, x + y}}) != play({{0, x + y}, {0, 0}});
+            }
+        }
+    }
+    std::printf("  %u cases, %u stalled\n", cases, stalled);
+    CHECK(cases >= 4);
+    CHECK_EQ(stalled, 0u);
+}
+
+TEST(at_eof_a_frame_near_a_windows_end_still_plays)
+{
+    // A false header, then text, sized so the file's first frame starts just before the decoder's first 32 KB
+    // window ends (its next header past it). At EOF the search mustn't drop the whole window: the frame and the
+    // whole file play, with EOF at once or late, as minimp3 on the whole.
+    const std::vector<uint8_t> f = file("cbr128_joint_44k.mp3");
+    const std::vector<size_t> heads = frame_starts(f);
+    const size_t fb = heads[1] - heads[0];
+    for (const size_t back : {fb + 3, fb + 4, fb + 40})
+    {
+        std::vector<uint8_t> s = {0xFF, 0xFB, 0x90, 0x00};
+        while (s.size() < 32'768 - back - heads[0])
+            s.push_back(static_cast<uint8_t>('a' + s.size() % 26));
+        s.insert(s.end(), f.begin(), f.end());
+        const Decoded want = reference(s);
+        uint8_t ea = 0, eb = 0;
+        const std::vector<int16_t> a = play_eof(s, false, ea), b = play_eof(s, true, eb);
+        std::printf("  the frame %zu bytes before the window's end: minimp3 %zu, EOF at once %zu, late %zu\n", back,
+                    want.frames.size() / 2, a.size() / 2, b.size() / 2);
+        CHECK(a == want.frames);
+        CHECK(b == want.frames);
+    }
+}
+
+TEST(a_tag_header_must_be_a_real_one_and_tags_alone_end_in_81)
+{
+    // "ID3" with version 5, or undefined flags, or a footer flag on 2.3, isn't a tag: its bytes are junk, and the
+    // file after it still plays. And tags adding up to 8 MB with no frame are $81.
+    const std::vector<uint8_t> mp3 = file("cbr32_mono_22k.mp3");
+    const Decoded want = reference(mp3);
+    for (const auto &bad : {std::vector<uint8_t>{'I', 'D', '3', 5, 0, 0, 0, 0, 0x10, 0},
+                            std::vector<uint8_t>{'I', 'D', '3', 3, 0, 0x01, 0, 0, 0x10, 0},
+                            std::vector<uint8_t>{'I', 'D', '3', 3, 0, 0x10, 0, 0, 0x10, 0}})
+    {
+        std::vector<uint8_t> s = bad;
+        s.insert(s.end(), mp3.begin(), mp3.end()); // a "tag" declaring 2 KB: if taken, it would swallow frames
+        SoundCard c;
+        CHECK(play_all(c, s) == want.frames);
+    }
+    SoundCard c;
+    start_mp3(c);
+    size_t written = 0;
+    const size_t body = 64'000;
+    for (unsigned k = 0; k < 140 && state(c) != SoundCard::STATE_NO_SYNC; ++k) // 140 tags of 64 KB: past 8 MB
+    {
+        const uint8_t h[10] = {'I', 'D', '3', 4, 0, 0, static_cast<uint8_t>(body >> 21 & 127),
+                               static_cast<uint8_t>(body >> 14 & 127), static_cast<uint8_t>(body >> 7 & 127),
+                               static_cast<uint8_t>(body & 127)};
+        for (const uint8_t b : h)
+            c.write(SoundCard::PCMDATA, b);
+        for (size_t i = 0; i < body; ++i)
+            c.write(SoundCard::PCMDATA, static_cast<uint8_t>('a' + i % 26));
+        written += 10 + body;
+        run(c, SECOND / 50);
+    }
+    std::printf("  tags alone: STATE $%02X after %zu KB\n", state(c), written / 1'024);
+    CHECK_EQ(state(c), SoundCard::STATE_NO_SYNC);
+    CHECK(written >= (8u << 20));
+}
+
+TEST(a_short_run_of_frames_between_junk_is_judged_as_minimp3_judges_it)
+{
+    // Text, a run of frames cut from cbr320 (from 3 to 12 of them), text, then the whole of cbr128. minimp3 on the
+    // whole takes a sync only after ten frames in step (or the data's end): a shorter run between junk isn't one.
+    // Fed in pieces the card mustn't take it either, from the one match a short look gives: it waits until the
+    // run decides. At once, fed in 300- and 40-byte pieces, EOF early or late: all as minimp3 on the whole.
+    const std::vector<uint8_t> hi = file("cbr320_stereo_48k.mp3"), lo = file("cbr128_joint_44k.mp3");
+    const std::vector<size_t> heads = frame_starts(hi);
+    const std::vector<uint8_t> text = [] {
+        std::vector<uint8_t> t;
+        for (unsigned k = 0; k < 700; ++k)
+            t.push_back(static_cast<uint8_t>('a' + k % 26));
+        return t;
+    }();
+    unsigned bad = 0;
+    for (const size_t run_of : {size_t{3}, size_t{9}, size_t{10}, size_t{12}})
+    {
+        std::vector<uint8_t> s = text;
+        s.insert(s.end(), hi.begin() + static_cast<std::ptrdiff_t>(heads[2]),
+                 hi.begin() + static_cast<std::ptrdiff_t>(heads[2 + run_of]));
+        s.insert(s.end(), text.begin(), text.end());
+        s.insert(s.end(), lo.begin(), lo.end());
+        const Decoded want = reference(s);
+        uint8_t ea = 0, eb = 0;
+        const std::vector<int16_t> once = play_eof(s, false, ea), late = play_eof(s, true, eb);
+        std::vector<std::vector<int16_t>> fed;
+        for (const size_t piece : {size_t{300}, size_t{40}})
+        {
+            SoundCard c;
+            c.set_tap(true, false);
+            start_mp3(c);
+            size_t at = 0;
+            for (unsigned ms = 0; ms < 20'000 && state(c) != SoundCard::STATE_ENDED; ++ms)
+            {
+                for (size_t k = 0; k < piece && at < s.size(); ++k)
+                    c.write(SoundCard::PCMDATA, s[at++]);
+                if (at == s.size())
+                    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+                run(c, SECOND / 1'000);
+            }
+            fed.push_back(c.take_tap());
+        }
+        const bool ok = once == want.frames && late == want.frames && fed[0] == want.frames && fed[1] == want.frames;
+        std::printf("  a run of %zu frames: minimp3 %zu samples a side; at once %zu, late %zu, fed %zu and %zu\n",
+                    run_of, want.frames.size() / 2, once.size() / 2, late.size() / 2, fed[0].size() / 2,
+                    fed[1].size() / 2);
+        bad += !ok;
+    }
+    CHECK_EQ(bad, 0u);
+}
+
+TEST(fed_at_once_and_late_eof_agree_on_cut_and_spliced_streams)
+{
+    // A fixed slice of the review's differential fuzzer: our files whole and cut, tags of our own (binary, some
+    // with footers), text junk, $1A padding, ID3v1 and APE trailers, joined at random. Played written at once with
+    // EOF, at once with EOF late, and fed in random pieces with random ticks and pauses: the same samples played,
+    // and the same end. Whole files alone, end to end, are also minimp3 on the whole. (With junk or a cut after
+    // the last frame they aren't, by design: the card plays that frame by its own length, which minimp3 drops.)
+    const char *names[] = {"cbr320_stereo_48k.mp3", "cbr128_joint_44k.mp3", "cbr32_mono_22k.mp3",
+                           "cbr8_mono_8k.mp3",      "vbr0_stereo_44k.mp3",  "vbr9_mono_22k.mp3"};
+    std::vector<std::vector<uint8_t>> files;
+    for (const char *n : names)
+        files.push_back(file(n));
+    unsigned bad = 0, badref = 0;
+    const unsigned iterations = std::getenv("MP3_FUZZ") ? static_cast<unsigned>(std::atoi(std::getenv("MP3_FUZZ"))) : 40;
+    for (unsigned it = 0; it < iterations; ++it)
+    {
+        std::mt19937 rng(7'919u + it);
+        const auto R = [&](unsigned n) { return static_cast<unsigned>(rng() % n); };
+        std::vector<uint8_t> s;
+        bool clean = true;
+        for (unsigned p = 0, parts = 1 + R(4); p < parts; ++p)
+        {
+            if (R(3) == 0)
+            {
+                const unsigned size = R(4) == 0 ? 70'000 + R(100'000) : R(3'000);
+                const bool footer = R(4) == 0;
+                s.insert(s.end(), {'I', 'D', '3', 4, 0, static_cast<uint8_t>(footer ? 0x10 : 0),
+                                   static_cast<uint8_t>(size >> 21 & 127), static_cast<uint8_t>(size >> 14 & 127),
+                                   static_cast<uint8_t>(size >> 7 & 127), static_cast<uint8_t>(size & 127)});
+                for (unsigned k = 0; k < size; ++k)
+                    s.push_back(R(6) == 0 ? 0xFF : R(6) == 0 ? static_cast<uint8_t>(0xE0 | R(32)) : static_cast<uint8_t>(R(256)));
+                if (footer)
+                    s.insert(s.end(), {'3', 'D', 'I', 4, 0, 0x10, static_cast<uint8_t>(size >> 21 & 127),
+                                       static_cast<uint8_t>(size >> 14 & 127), static_cast<uint8_t>(size >> 7 & 127),
+                                       static_cast<uint8_t>(size & 127)});
+                clean = false;
+            }
+            const std::vector<uint8_t> &f = files[R(6)];
+            if (R(3) == 0)
+            {
+                const size_t a = R(static_cast<unsigned>(f.size()) / 2), b = a + R(static_cast<unsigned>(f.size() - a));
+                s.insert(s.end(), f.begin() + static_cast<std::ptrdiff_t>(a), f.begin() + static_cast<std::ptrdiff_t>(b));
+                clean = false;
+            }
+            else
+                s.insert(s.end(), f.begin(), f.end());
+            if (R(5) == 0)
+            {
+                for (unsigned k = 0, n = R(2'000); k < n; ++k)
+                    s.push_back(static_cast<uint8_t>('a' + R(26)));
+                clean = false;
+            }
+        }
+        const unsigned trail = R(4);
+        if (trail == 1)
+            s.insert(s.end(), 1 + R(127), uint8_t{0x1A});
+        else if (trail == 2)
+        {
+            s.insert(s.end(), {'T', 'A', 'G'});
+            for (unsigned k = 0; k < 125; ++k)
+                s.push_back(static_cast<uint8_t>(k < 60 ? 'a' + R(26) : 0));
+        }
+        else if (trail == 3)
+        {
+            const char ape[] = "APETAGEX";
+            s.insert(s.end(), ape, ape + 8);
+            for (unsigned k = 0, n = 24 + R(400); k < n; ++k)
+                s.push_back(static_cast<uint8_t>(R(4) ? 'a' + R(26) : R(256)));
+        }
+        clean = clean && !trail;
+        uint8_t ea = 0, eb = 0;
+        const std::vector<int16_t> a = play_eof(s, false, ea), b = play_eof(s, true, eb);
+        // Fed: random pieces, random ticks, pauses now and then; EOF with the last byte.
+        SoundCard c;
+        c.set_tap(true, false);
+        start_mp3(c);
+        size_t at = 0;
+        bool paused = false;
+        for (unsigned step = 0; step < 400'000; ++step)
+        {
+            const unsigned piece = R(10) == 0 ? R(9'000) : R(300);
+            for (unsigned k = 0; k < piece && at < s.size() && c.fifo_bytes() < SoundCard::FIFO_BYTES; ++k)
+                c.write(SoundCard::PCMDATA, s[at++]);
+            if (R(50) == 0)
+                paused = !paused;
+            if (at == s.size())
+                paused = false;
+            c.write(SoundCard::PCMCTL, static_cast<uint8_t>(SoundCard::PCMCTL_RUN |
+                                                             (at == s.size() ? SoundCard::PCMCTL_EOF : 0) |
+                                                             (paused ? SoundCard::PCMCTL_PAUSE : 0)));
+            c.tick(R(20) == 0 ? R(static_cast<unsigned>(SECOND / 5)) : 1 + R(3'000));
+            if (state(c) == SoundCard::STATE_ENDED || state(c) == SoundCard::STATE_NO_SYNC)
+                break;
+        }
+        const std::vector<int16_t> f = c.take_tap();
+        const bool same = a == b && a == f && ea == eb && ea == state(c);
+        bad += !same;
+        if (clean)
+            badref += a != reference(s).frames;
+        if (!same)
+            std::printf("  iteration %u: at once %zu (%02X), late %zu (%02X), fed %zu (%02X)\n", it, a.size() / 2, ea,
+                        b.size() / 2, eb, f.size() / 2, state(c));
+    }
+    std::printf("  %u streams: %u disagree, %u clean ones not minimp3's\n", iterations, bad, badref);
+    CHECK_EQ(bad, 0u);
+    CHECK_EQ(badref, 0u);
 }
 
 int main()
