@@ -912,7 +912,7 @@ TEST(setdef_shows_and_sets_the_drive_search_chain)
     same(run(r, "setdef a: m:"), "Invalid delimiter.");
     same(run(r, "setdef a: [foo]"), "Invalid option.");
     CHECK(!succeeded(r));
-    CHECK(chain_of(r) == std::vector<unsigned>({16, 13, 0xFF, 0xFF}));
+    CHECK(chain_of(r) == std::vector<unsigned>({14, 13, 0xFF, 0xFF})); // N:, M: (setdef n:,m:)
 }
 
 TEST(setdef_sets_the_temporary_drive_the_order_display_and_page_modes)

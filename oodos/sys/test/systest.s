@@ -632,7 +632,7 @@ casek:  CALLF   P_CODE, $4321
 
 casee:  stz     TDRV
         NAME    FCB, "X          "      ; the default error mode
-        lda     #16
+        lda     #14                     ; N:, no drive (P: is the Disk II's, 6c)
         sta     FCB
         CALLF   F_OPEN, FCB
         SAY     "NOT ENDED"

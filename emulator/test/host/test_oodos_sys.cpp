@@ -2933,7 +2933,7 @@ TEST(function_108_s_return_code_is_kept_for_the_next_program)
     CHECK_EQ(at_start, 0x4321);                  // a chained program gets it as it was
     CHECK(r.until("\r\nA>", ms(3000), r.out.find("Hello from OODOS", from)));
     from = start(r, "systest.com", " E");        // the default error mode: ended, $FFFD
-    CHECK(r.until("OODOS Error On P: Invalid Drive\r\nBDOS Function = 15 File = X       .   \r\n", ms(3000), from));
+    CHECK(r.until("OODOS Error On N: Invalid Drive\r\nBDOS Function = 15 File = X       .   \r\n", ms(3000), from));
     CHECK(r.until("\r\nA>", ms(3000), from));
     CHECK(r.out.find("NOT ENDED", from) == std::string::npos);
     CHECK_EQ(code(), 0xFFFD);
