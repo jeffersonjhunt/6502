@@ -207,6 +207,7 @@ TEST(a_140_kb_unit_is_an_apple_do_drive_with_cpmtools_dpb)
     const std::string s = r.cmd("show c:[drive]");
     has(s, "128: Kilobyte Drive Capacity");
     has(s, "64: 32 Byte Directory Entries");
+    has(s, "32: Sectors / Track");
     std::printf("%s\n", vis(s).c_str());
 }
 
@@ -321,8 +322,9 @@ TEST(read_only_unit_rescan_and_a_unit_that_is_no_drive)
     const Disk before = r.disk();
     has(r.to("pip c:=m:x.bin", "A>"), "Read Only");
     CHECK(r.disk().img == before.img);
-    // Another image mounted as the unit, then ^C: the drive logged in again, nothing of the old
-    // one's kept (its directory's track was in the track buffer).
+    // Another image mounted as the unit by the card's MOUNT, behind OODOS's back (74's own case is
+    // below), then ^C: the drive logged in again, nothing of the old one's kept (its directory's track
+    // was in the track buffer).
     Ar s("/DISKS/CPM.DSK");
     REQUIRE(s.ok);
     has(s.cmd("dir c:"), "README");
@@ -355,6 +357,111 @@ TEST(initdir_on_an_apple_disk_its_eight_sectors_a_track)
     CHECK(d.file(0, "S       BIN") == records(gen(2000, 6), 0x1A));
     std::string dir = r.cmd("dir c:");
     has(dir, "S        BIN");
+}
+
+TEST(function_74_mounts_an_apple_disk_and_another_on_the_same_unit)
+{
+    // 74 (MEMTEST's case A) while OODOS runs: CPM.DSK as C:, read; then BLANK.DSK on the same unit,
+    // and C: logged in again with nothing of CPM.DSK's served (74's MOUNT goes through the BIOS's
+    // SDMNT, which empties the track buffer); a 281-sector image refused, $12, and unmounted.
+    Ar r("/DISKS/BLANK.DSK");
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(UNIT, "/OODOS/B.IMG") == 0); // C: starts as an 8 MB drive
+    has(r.go("memtest.com", " A /DISKS/CPM.DSK"), "NAP 00 00");
+    has(r.cmd("dir c:"), "C: README   TXT : PATTERN  BIN");
+    has(r.cmd("type c:readme.txt"), "THIS IS AN APPLE CP/M DISK");
+    has(r.go("memtest.com", " A /DISKS/BLANK.DSK"), "NAP 00 00");
+    has(r.cmd("dir c:"), "No File");
+    has(r.go("memtest.com", " A /DISKS/ODD.DSK"), "NAP FF 12");
+    CHECK(!r.sd().unit(UNIT).mounted);
+    has(r.go("memtest.com", " A /DISKS/CPM.DSK"), "NAP 00 00");
+    has(r.cmd("dir c:"), "C: README   TXT : PATTERN  BIN");
+}
+
+TEST(two_apple_disks_at_once_each_its_own_track)
+{
+    // CPM.DSK as C: and BLANK.DSK as D: (unit 4): the one track buffer holds one drive's track at a
+    // time, so copying C: to D: and back makes it change drives at every sector.
+    Ar r;
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(UNIT + 1, "/DISKS/BLANK.DSK") == 0);
+    auto image = [&](unsigned unit) {
+        Disk d;
+        for (uint32_t s = 0; s < IMAGE / SECTOR; ++s)
+        {
+            const std::vector<uint8_t> b = r.read_unit(unit, s);
+            d.img.insert(d.img.end(), b.begin(), b.end());
+        }
+        return d;
+    };
+    const Disk c0 = image(UNIT), d0 = image(UNIT + 1);
+    r.cmd("pip d:=c:pattern.bin");
+    r.cmd("pip c:p2.bin=d:pattern.bin");
+    r.cmd("pip m:=d:pattern.bin");
+    r.cmd("pip m:p2.bin=c:p2.bin");
+    CHECK(same_bytes(m_data(r, 0, "PATTERN BIN"), records(gen(20000, 5)), "D:PATTERN.BIN"));
+    CHECK(same_bytes(m_data(r, 0, "P2      BIN"), records(gen(20000, 5)), "C:P2.BIN"));
+    const Disk c1 = image(UNIT), d1 = image(UNIT + 1);
+    CHECK(c1.file(0, "PATTERN BIN") == records(gen(20000, 5)));
+    CHECK(c1.file(0, "P2      BIN") == records(gen(20000, 5)));
+    CHECK(d1.file(0, "PATTERN BIN") == records(gen(20000, 5)));
+    // On each, only the directory's sectors and its new file's changed.
+    auto strays = [&](const Disk &before, const Disk &after, const char *name) {
+        std::set<size_t> allowed = dir_sectors();
+        for (size_t s : after.sectors_of(0, name))
+            allowed.insert(s);
+        unsigned stray = 0;
+        for (size_t s = 0; s < IMAGE / SEC; ++s)
+            if (!std::equal(before.img.begin() + s * SEC, before.img.begin() + (s + 1) * SEC, after.img.begin() + s * SEC) &&
+                !allowed.count(s))
+                ++stray;
+        return stray;
+    };
+    CHECK_EQ(strays(c0, c1, "P2      BIN"), 0u);
+    CHECK_EQ(strays(d0, d1, "PATTERN BIN"), 0u);
+}
+
+/// A card whose writes fail while `fail` is set (test_oodos_sys's FaultyMedia).
+struct FaultyMedia : MemoryMedia
+{
+    using MemoryMedia::MemoryMedia;
+    bool fail{false};
+    bool write(uint64_t lba, const uint8_t *in) override { return !fail && MemoryMedia::write(lba, in); }
+};
+
+TEST(a_failed_write_leaves_nothing_in_the_track_buffer_the_card_hasnt)
+{
+    // A program reading and writing C:'s sectors through the BIOS by 50, as INITDIR does (MEMTEST's case
+    // Y): track 3 sector 0 read, then written while the card's writes fail, then read again in the same
+    // program once they work, so no warm boot rescans the units between. The BDOS's own paths can't show
+    // this: each that drops a failed buffer also reads the units again, which empties the track buffer.
+    // What the second read gives must be the card's bytes, not the failed write's.
+    Ar r("/DISKS/CPM.DSK");
+    REQUIRE(r.ok);
+    auto fm = std::make_shared<FaultyMedia>(r.media->bytes(), "card");
+    r.media = fm;
+    r.sd().insert(fm, false);
+    r.run(ms(SdCard::INIT_MS + 10));
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
+    REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
+    has(r.cmd("dir c:"), "README");
+    const Disk before = r.disk();
+    const size_t from = start(r, "memtest.com", " Y");
+    REQUIRE(r.until("FAULT?", ms(20000), from));
+    fm->fail = true;
+    r.type(" ");
+    REQUIRE(r.until("FIXED?", ms(20000), from));
+    fm->fail = false;
+    r.type(" ");
+    REQUIRE(r.until("MEMTEST DONE", ms(20000), from));
+    const std::string o = r.out.substr(from);
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "YR1 00 00");
+    has(o, "YW 01 00");
+    has(o, "YR2 00 00");
+    has(o, "YSAME Y");
+    CHECK(r.disk().img == before.img); // nothing written
 }
 
 int main() { return run_all(); }

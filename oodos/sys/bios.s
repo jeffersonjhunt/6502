@@ -69,7 +69,8 @@
 ; Drives: A-G are SD units 1-7 as IDENTIFY's units table has them (16,384
 ; sectors oodos-8m, 65,536 oodos-32m, 280 apple-do; anything else isn't a
 ; drive; a first select reads it again, and DRVCHG says which units
-; changed), M: the RAM disk in banks C-D. LBA = track x 16 + sector. A
+; changed), M: the RAM disk in banks C-D. On OODOS's own formats (8 MB, 32
+; MB, M:) LBA = track x 16 + sector; an apple-do drive's are below. A
 ; sector moves by DMA: channel 0 between the card and the buffer, channel 3
 ; for M: and copies. A buffer that crosses a window goes through SECBUF.
 ;
@@ -80,8 +81,8 @@
 ; file is in DOS order, 16 of 256 bytes a track, two to an SD sector). A
 ; READ brings the whole track, 8 SD sectors, into the track buffer (block
 ; 29) if it hasn't it already, and copies the two halves out; a WRITE
-; copies them in and writes the one or two SD sectors they changed, so the
-; card always has what the buffer has. Any failure empties the buffer, and
+; copies them in and writes the two SD sectors they changed (the skew never
+; puts both halves in one), so the card always has what the buffer has. Any failure empties the buffer, and
 ; so do a rescan of the units and MOUNT or UNMOUNT.
 ;
 ; Character devices (DEVTBL): 0 CRT, the video card's 80x30 text and the USB

@@ -695,8 +695,9 @@ namespace
 
 TEST(the_oo1_writes_on_an_apple_disk_and_the_card_is_saved_for_interop_sh)
 {
-    // Phase 6b: /DISKS/CPM.DSK (cpmtools's apple-do) mounted as unit 3, C:, at the prompt, as MOUNT
-    // would; PIP copies A:'s README.TXT to C:A.TXT and PATTERN.BIN (36,864 bytes: three entries of
+    // Phase 6b: /DISKS/CPM.DSK (cpmtools's apple-do) mounted as unit 3 at the prompt by the card's own
+    // MOUNT command, through its registers behind OODOS's back (no function 74), and C: logged in at its
+    // first select; PIP copies A:'s README.TXT to C:A.TXT and PATTERN.BIN (36,864 bytes: three entries of
     // 16 KB there) to C: in user 4. Saved with OODOS_APPLE_OUT for interop.sh --apple, where
     // cpmtools reads them back and checks the disk.
     Rig r;

@@ -589,7 +589,8 @@ against, compared with what the BDOS does on the emulator.
   free there). Its variables and the drives' allocation vectors (CP/M 3's two bits a block: 1 KB at most for an
   `oodos-32m` drive) are in the system block. The hash tables (4 bytes a directory entry: 4 KB an `oodos-8m`
   drive, 8 KB an `oodos-32m`, 1 KB M:) are in blocks 24–27, and the directory and data buffers (BCBs, 512 bytes
-  each) in block 28: banks 6–7, as [Banking](#banking) planned. Blocks 29–30 are spare.
+  each) in block 28: banks 6–7, as [Banking](#banking) planned. Block 30 is spare; block 29's first 4 KB is the
+  BIOS's `apple-do` track buffer (6b), the rest spare.
 - **Reaching them:** the BDOS maps a hash or buffer block into W2 while it works on it. Each entry of the BIOS's
   jump table puts W2 back on the BIOS (block 61) for the call and returns it as it was, so the BDOS needn't care
   which block W2 holds when it calls the BIOS.
@@ -1786,7 +1787,8 @@ the choices it left open marked ours):
   as the BDOS takes it. On a drive without SFCBs every label option writes the label without its stamp bits (6–4),
   as 100 refuses them there: a label made elsewhere is repaired, not `Directory full`.
 - **INITDIR** (14, 17, 18, 26, 29, 37, 50: SELDSK, SETTRK, SETSEC, SETDMA, SETBNK 1, READ, WRITE; 108). It assumes
-  512-byte sectors, 16 a track, as OODOS's drives have. **Ours:** the tail is `d:` alone, else `Invalid drive.`;
+  512-byte sectors, 16 a track, as OODOS's own drives have; an `apple-do` drive (6b) has 8 a track, but its
+  directory's 4 sectors are all in its first track, so the arithmetic holds there too. **Ours:** the tail is `d:` alone, else `Invalid drive.`;
   29 before 37; room and memory checked before the question; room is the entries in use at most three quarters of
   the directory, an SFCB (`$21`) already in its place not moved; moved entries go to the lowest free entries, in
   their order; a slot's mode is that of the first XFCB of its file in directory order, `AND $E0`; clearing the
@@ -3025,7 +3027,7 @@ merged, with the switches' equates (below).
     B files without their header. Applesoft and Integer BASIC listings (detokenising) are not in phase 6.
 12. **The version.** **Recommended:** 0.3 through 6a–6c, 0.4 after 6d, one bump as for phase 5.
 
-**Proposed (6b, as built, 2026-11-06)** (`oodos/sys/bios.s`, `bdosdisk.s`, `cpmread.s`, `oodos/ldr/ooldr.s`,
+**Proposed (6b, as built, 2026-11-05)** (`oodos/sys/bios.s`, `bdosdisk.s`, `cpmread.s`, `oodos/ldr/ooldr.s`,
 `oodos/tools/make_card.sh`; the plan above is what was built, and these are the details):
 
 - **The BIOS:** UNITS takes a unit of 280 sectors as `apple-do` (`DRVAPL`, the DPH's DPB `DPBAPL`); READ and WRITE of
@@ -3040,6 +3042,8 @@ merged, with the switches' equates (below).
   3 for SPT 32); OFFS is OFF shifted by it, and DISKOP gives the BIOS the buffer's sector shifted by its drive's
   TSH as the track and the bits below as the sector. CD had no room (16 bytes, all used), so TSH is beside DTAB.
   +29 bytes in block 60.
+- **Function 74** takes a 280-sector image too (`bdosmem.s`, after MOUNT: 16,384, 65,536 or 280 sectors, else
+  `$12` and the unit unmounted again); B–G only, as before. Found in 6b's review: as first built it refused one.
 - **INITDIR is unchanged** but for its comment: it works by tracks of 16, and an `apple-do` directory is 4 sectors,
   all in its first track, so OFF + SECT / 16 and SECT mod 16 are right there. (Made general first, then taken
   back: no test could tell the two apart.)
@@ -3055,20 +3059,35 @@ merged, with the switches' equates (below).
 - **Found:** cpmtools keeps a CP/M 2.2 file's byte count, so `cpmcp` gives back its own files to the byte, while
   OODOS reads them, as CP/M does, as whole records, the last padded with the zeros cpmtools wrote. A full
   directory is PIP's `DISK WRITE ERROR - NAME`, as a full disk is.
-- **Tests:** `test_oodos_apple`, 6 cases, about 5 s: the DPB byte for byte and C:'s DPH pointing at it, and SHOW's
-  sums (128 KB, 64 entries, 32 sectors a track); cpmtools's files read by TYPE and PIP, every byte, and the same by
+- **Tests:** `test_oodos_apple`, 9 cases, about 7 s: the DPB byte for byte and C:'s DPH pointing at it, and SHOW's
+  sums (128 KB, 64 entries, 32 records a track: its `Sectors / Track` line); cpmtools's files read by TYPE and PIP, every byte, and the same by
   the test's own reading of the image (the skew, 1 KB blocks, 8-bit pointers); PIP of a file of one entry and one of
   two onto C:, read back by the oracle and, after a ^C reset, by OODOS; every 256-byte sector that changed is the
   directory's or the new files' (96 here, none else), the boot tracks unchanged; ERA and REN; a full disk and a
   directory filled to 64; RO; another image mounted under the unit and ^C (the old directory not seen again);
-  281 sectors Invalid Drive; INITDIR on an `apple-do` drive (SFCBs in every fourth entry, the file still there).
+  281 sectors Invalid Drive; INITDIR on an `apple-do` drive (SFCBs in every fourth entry, the file still there);
+  function 74 (MEMTEST's case A) mounting CPM.DSK over an 8 MB C:, then BLANK.DSK on the same unit (C: logged in
+  again, `No File`), ODD.DSK refused (`$12`, the unit unmounted), CPM.DSK again; two `apple-do` drives at once,
+  CPM.DSK as C: and BLANK.DSK as D:, a file copied C: to D: and back and read through M:, and on each image only
+  the directory's and the new file's sectors changed; a write that fails (the card's writes failing, MEMTEST's
+  case Y through the BIOS by 50, as INITDIR works) and the same sector read again in the same program, giving the
+  card's bytes. The BDOS's own paths can't show the last: each that drops a failed buffer reads the units again,
+  which empties the track buffer anyway.
+- **The plan's tests done otherwise:** SELDSK's DPB read back by 31 became the DPB read from common memory by its
+  label (`DPBAPL`) and C:'s DPH checked to point at it; PIP between C: and A: became C: and M: (and A: to C: in
+  test_oodos_card); "1 KB blocks' allocation" is the oracle's reading of every file's 1 KB blocks, and the full
+  disk; the other half of an SD sector is the stray-sector check (any 256-byte sector changed outside the
+  directory and the new files fails it); a unit of 281 sectors is checked by the BIOS (Invalid Drive) and by
+  OOLDR, the full directory's message is PIP's `DISK WRITE ERROR`, not `Directory Full`.
   test_oodos_boot: CPM.DSK as C: read-only boots, ODD.DSK on G: and both on A: refused, each by its message.
   test_oodos_card: PIP onto CPM.DSK as C: from the booted card, saved by `OODOS_APPLE_OUT`; `interop.sh --apple`
   (`tools/check.sh full`) has cpmtools's own `fsck.cpm -f apple-do` pass it and `cpmcp` give back OODOS's two
   files and make_card.sh's three; run by hand once, `PASS 3`.
-- **Must fail, each seen to fail with its fault put in** (`OODOS_SYS_DIR`): OFF as tracks of 16 (all 6 cases,
-  17 assertions); no skew (4 cases); DISKOP's track and sector by 16 whatever the drive (all 6, 24); the track
-  buffer not emptied at a rescan (the remount case).
+- **Must fail, each seen to fail with its fault put in** (`OODOS_SYS_DIR`): OFF as tracks of 16 (all 6 cases
+  then, 17 assertions); no skew (4 cases); DISKOP's track and sector by 16 whatever the drive (all 6, 24); the track
+  buffer not emptied at a rescan (the remount case). After the review: 74's size check as it was (the 74 case, 7
+  assertions); TRKLOAD's tag not comparing the drive (`LDA TBTAG / BEQ @read`: the two-drive case, 4); the buffer
+  kept after a failed write (`@failed: NOP`: the failed-write case, `YSAME N`).
 - **Measured:** PIP of PATTERN.BIN, 20,096 bytes, from C: to M:, 12.4 million cycles, 1.73 s. `tools/check.sh
   quick` 193 s, all passed (test_oodos_apple 8.6 s in the parallel run; test_oodos_card about 3 s more, for its
   new case); the native step's wall time didn't grow.
