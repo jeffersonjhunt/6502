@@ -15,6 +15,10 @@ fail three ways:
   or on flash; a read into a read-only window; or, with a DMA segment, memory OODOS keeps for itself. The function
   stops and returns A = X = `$FF`, whatever the error mode, and says nothing.
 
+**10, Media Change,** is a result code: on O: or P:, the disk was changed under an FCB opened before, or under a
+call about to write the directory, and nothing was read or written
+([removable drives](03-file-system.md#removable-drives-o-and-p)).
+
 A function number OODOS doesn't have returns A = X = `$FF`: 61–71, 76–97, 113–151, and 153 on. So does 60 when no
 RSX takes it. 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 answers it.
 
@@ -60,17 +64,17 @@ says. The last column is the physical errors the function can raise.
 | 13 `DRV_ALLRESET`, 37 `DRV_RESET` | 0 | 1, 2: the first failure, after the reset |
 | 14 `DRV_SET` | 0 | 1, 4 |
 | 15 `F_OPEN` | 0 opened; `$FF` not found | 1, 4, 7, 9 |
-| 16 `F_CLOSE` | 0; `$FF` no entry to be had, or two blocks for one place | 1, 2, 4 |
+| 16 `F_CLOSE` | 0; `$FF` no entry to be had, or two blocks for one place; 10 the disk changed (O:, P:) | 1, 2, 4 |
 | 17 `F_SFIRST`, 18 `F_SNEXT` | 0–3 the entry's place in the record; `$FF` no more | 1, 4 |
 | 19 `F_DELETE` | 0; `$FF` not found | 1, 2, 3, 4, 7 |
-| 20 `F_READ` | 0; 1 the end of the file. X = the records done, multi-sector | 1, 2, 4 |
-| 21 `F_WRITE` | 0; 1 no directory space; 2 the disk full. X = the records done | 1, 2, 3, 4 |
+| 20 `F_READ` | 0; 1 the end of the file; 10 the disk changed (O:, P:). X = the records done, multi-sector | 1, 2, 4 |
+| 21 `F_WRITE` | 0; 1 no directory space; 2 the disk full; 10 the disk changed (O:, P:). X = the records done | 1, 2, 3, 4 |
 | 22 `F_MAKE` | 0; `$FF` the directory full | 1, 2, 4, 8, 9 |
 | 23 `F_RENAME` | 0; `$FF` not found | 1, 2, 3, 4, 7, 8, 9 |
 | 30 `F_ATTRIB` | 0; `$FF` not found | 1, 2, 4, 7, 9 |
 | 31 `DRV_DPB` | the DPB's address | 1, 4 |
-| 33 `F_READRAND` | 0; 1 never written; 3 the extent can't be closed; 4 an extent never written; 6 past 32 MB. X = the records done | 1, 2, 4 |
-| 34 `F_WRITERAND`, 40 `F_WRITEZF` | 0; 2 the disk full; 3 the extent can't be closed; 5 no directory space; 6 past 32 MB. X = the records done | 1, 2, 3, 4 |
+| 33 `F_READRAND` | 0; 1 never written; 3 the extent can't be closed; 4 an extent never written; 6 past 32 MB; 10 the disk changed (O:, P:). X = the records done | 1, 2, 4 |
+| 34 `F_WRITERAND`, 40 `F_WRITEZF` | 0; 2 the disk full; 3 the extent can't be closed; 5 no directory space; 6 past 32 MB; 10 the disk changed (O:, P:). X = the records done | 1, 2, 3, 4 |
 | 35 `F_SIZE` | 0; `$FF` not found | 1, 4, 9 |
 | 44 `F_MULTISEC` | 0; `$FF` a count that isn't 1–128 | — |
 | 46 `DRV_SPACE` | 0, the free records at the DMA address | 1, 4 |

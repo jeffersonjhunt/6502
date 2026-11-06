@@ -19,6 +19,13 @@ no disk the card can read, using the drive gives `OODOS Error On O: Disk I/O` af
 the website says the same unless you have given it the Disk II's sequencer PROM, with your IIe ROMs (Settings,
 ROMs): without it the card reads nothing.
 
+**Changing a floppy.** Wait for the drive to stop (a second after the last access), then change the disk: the next
+command that uses the drive sees the new disk, reading its directory again. A file a program had open on the old
+disk is refused from then on (the program gets Media Change, and should open it again), and data it hadn't
+written yet is dropped rather than written onto the new disk. Don't change a disk while a program is using it: a
+disk changed within a second of the drive's last access, in the middle of a copy between O: and P:, can take a few
+of the copy's sectors before the change is seen.
+
 **`DRIVES.TXT`** has a line for each drive the card holds: the letter and colon, blanks, the image's path on the
 card, and `RO` after it for a drive that can be read but not written. A line starting `#` is a comment:
 

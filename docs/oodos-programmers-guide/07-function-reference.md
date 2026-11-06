@@ -669,7 +669,8 @@ buffers rather than taking them (ours).
 #### Errors
 
 4 Invalid Drive: A is 16 or more, or the drive isn't one OODOS has. Today that is A:–G: (the SD units, each only
-while an image is mounted on it) and M: (the RAM disk). 1 Disk I/O if the directory can't be read. Each as the
+while an image is mounted on it), M: (the RAM disk), and O: and P: (the Disk II's drives) on a machine with the
+card. 1 Disk I/O if the directory can't be read. Each as the
 error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)).
 
 #### Side effects
@@ -769,7 +770,9 @@ The same, but for the registers: the FCB's address goes in A and X, where CP/M 3
 
 #### Exit
 
-- A = 0, X = 0: done. A = `$FF`, X = 0: the extent couldn't be put in the directory (below).
+- A = 0, X = 0: done. A = `$FF`, X = 0: the extent couldn't be put in the directory (below). A = 10, X = 0: on
+  O: or P:, the disk was changed since the open; nothing written
+  ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -965,7 +968,8 @@ The same, but for the registers. Password Error is checked last, after every oth
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
+A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing read. Else, as the
+error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
 when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it;
 4 Invalid Drive. In return mode, the FCB is written back as the records read before the error left it. A written
 extent the read can't close as it moves on (the FCB and the entry name two blocks for one place) is A = 1, the FCB
@@ -1000,8 +1004,10 @@ OODOS 0.2
 
 The same, but for the registers and the DMA segment. With a multi-sector count, the whole buffer is checked before
 the first record moves, and a call whose buffer isn't all memory reads nothing (ours). OODOS never returns CP/M 3's
-code 9 (an FCB a failed close made invalid) or 10 (the disk changed since the open): a swapped card image is
-handled when the units are read again ([function 13](#bdos-13)).
+code 9 (an FCB a failed close made invalid). It returns 10 (the disk changed since the open) on O: and P:
+only, nothing read ([removable drives](03-file-system.md#removable-drives-o-and-p)); a swapped card image is
+handled when the units are read again ([function 13](#bdos-13)). The count of the drive's changes 10 is judged
+by is kept in the FCB's S1, bits 0-6 (ours).
 
 <a id="bdos-21"></a>
 ### 21 F_WRITE: write the next record
@@ -1023,7 +1029,8 @@ handled when the units are read again ([function 13](#bdos-13)).
 
 #### Errors
 
-As the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), before anything is written:
+A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing written. Else, as the
+error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), before anything is written:
 4 Invalid Drive; 2 Read Only, the drive is read-only; 3 File R/O, the file is read-only (t1'), was opened from
 user 0, or is write-protected and was opened without its password. Then 1 Disk I/O. The DMA buffer is
 checked after those, as [function 20](#bdos-20) checks it (a read-only window may be written from).
@@ -1075,7 +1082,7 @@ The same, but for the registers and the DMA segment, and choices of ours:
   happen to be;
 - a multi-sector buffer is checked whole before the first record;
 - a written extent it can't close as it moves on is A = 1, as no directory space (CP/M 3 lists no 3 for 21);
-- codes 9 and 10 aren't returned, as for [function 20](#bdos-20).
+- code 9 isn't returned, and 10 only on O: and P:, nothing written, as for [function 20](#bdos-20).
 
 The update stamp and the archive attribute are CP/M 3's: the first write's, and cleared by a write.
 
@@ -1452,14 +1459,16 @@ The same, but for the registers.
 - A/X = the address of the current drive's DPB, in common memory (`$F800`–`$FFFF`), which every program can read.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
-The DPB is 17 bytes, CP/M 3's layout: SPT (a word, 64), BSH, BLM, EXM, DSM (a word), DRM (a word), AL0, AL1, CKS
-(a word, `$8000`: fixed media), OFF (a word, 0), PSH (2) and PHM (3): 512-byte sectors.
+The DPB is 17 bytes, CP/M 3's layout: SPT (a word: 64, or 32 on an Apple disk), BSH, BLM, EXM, DSM (a word), DRM
+(a word), AL0, AL1, CKS (a word: `$8000`, fixed media; 16 on O: and P:, a checksum for each directory record),
+OFF (a word: 0, or 3 boot tracks on an Apple disk), PSH (2) and PHM (3): 512-byte sectors.
 
 | Drive | BSH | Block | DSM | DRM | Size |
 |---|---|---|---|---|---|
 | `oodos-8m` | 5 | 4 KB | 2,047 | 1,023 | 8 MB |
 | `oodos-32m` | 6 | 8 KB | 4,095 | 2,047 | 32 MB |
 | M: | 4 | 2 KB | 63 | 255 | 128 KB |
+| `apple-do` (B:–G:, O:, P:) | 3 | 1 KB | 127 | 63 | 128 KB |
 
 #### Errors
 
@@ -1571,8 +1580,8 @@ OODOS 0.2
 
 #### CP/M 3
 
-The same, but for the registers and the DMA segment, and the whole buffer checked first, as 20. Code 10 isn't
-returned, as for [function 20](#bdos-20).
+The same, but for the registers and the DMA segment, and the whole buffer checked first, as 20. Code 10 is
+returned on O: and P: only, as for [function 20](#bdos-20).
 
 <a id="bdos-34"></a>
 ### 34 F_WRITERAND: write a random record
@@ -1624,7 +1633,7 @@ OODOS 0.3
 #### CP/M 3
 
 The same, but for the registers and the DMA segment; a new block is zeroed and the lowest free one, and code 10
-isn't returned, all as for [function 21](#bdos-21). Its update stamp and archive attribute are CP/M 3's, as 21's.
+is returned on O: and P: only, all as for [function 21](#bdos-21). Its update stamp and archive attribute are CP/M 3's, as 21's.
 
 <a id="bdos-35"></a>
 ### 35 F_SIZE: a file's size
@@ -1728,7 +1737,9 @@ failure raised as the error mode says (1 Disk I/O, 2 Read Only).
 
 - The units are read again first, as 13 does.
 - Each drive named has its changed buffers written back, its buffers dropped, and is logged out and made
-  read-write. Other drives, the current drive and the DMA address are as they were.
+  read-write. Other drives, the current drive and the DMA address are as they were. On O: and P: the disk is
+  checked before anything is written back, and a changed disk gets none of it
+  ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - A search that [function 18](#bdos-18) would go on with is ended.
 
 #### Cycles
@@ -1855,7 +1866,8 @@ OODOS 0.3
 
 #### CP/M 3
 
-CP/M 3 zeroes a new block only for 40. OODOS zeroes every block a write takes, so 40 is 34.
+CP/M 3 zeroes a new block only for 40. OODOS zeroes every block a write takes, so 40 is 34, Media Change (10) on
+O: and P: included.
 
 <a id="bdos-42"></a>
 ### 42 F_LOCK: lock records

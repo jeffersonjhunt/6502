@@ -356,8 +356,12 @@ TEST(a_half_missing_is_read_again_and_a_run_of_d5s_ends)
     Dr d;
     REQUIRE(d.ok);
     DiskTrack &t = d.card().disk(0)->track_for_writing(12);
-    for (uint32_t n = 0; n < t.bit_count; ++n)
-        t.set_bit(n, (0xD5 >> (7 - n % 8)) & 1);
+    // ten sync bytes (eight 1s, two 0s) to put a reader in step, then D5 after D5 round the track
+    uint32_t n = 0;
+    for (; n < 100; ++n)
+        t.set_bit(n, n % 10 < 8);
+    for (; n < t.bit_count; ++n)
+        t.set_bit(n, (0xD5 >> (7 - (n - 100) % 8)) & 1);
     const uint64_t t0 = d.cpu->cycles();
     has(d.to("dir o:", "\r\nA>", ms(20000)), "Disk I/O");
     const double secs = double(d.cpu->cycles() - t0) / HZ;

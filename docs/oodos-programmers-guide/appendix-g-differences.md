@@ -59,6 +59,19 @@ is for RSXs ([chapter 1](01-introduction.md#the-memory-a-program-sees)).
   runs.
 - **The attached RSX table** follows the `.COM`'s image, not a header page before it, and may hold SCB entries.
 
+## Removable drives
+
+O: and P: are CP/M 3's removable drives (CKS 16), with these choices of OODOS's own
+([chapter 3](03-file-system.md#removable-drives-o-and-p)):
+
+- **Media Change (10)** is judged by a count of each drive's changes the BDOS keeps in an open FCB's S1, bits
+  0-6 (bit 7 is the update stamp's). CP/M 3 doesn't say where it keeps its own.
+- **When the disk is checked:** at a select when the drive's own last access was a second or more ago, and before
+  the first directory write of each call; a disk changed within the second, while a copy runs, can take a few data
+  sectors before the change is seen.
+- **Write-backs** check the disk first, so changed data meant for one disk is dropped, never written to another.
+- **A track that partly reads** still gives its good sectors; only a read of a sector that wasn't read is Disk I/O.
+
 ## Functions OODOS adds
 
 - **51-58, CP/M-86's memory functions:** the DMA segment, so a record reaches any physical memory, and blocks of
@@ -87,8 +100,8 @@ Beyond the registers, which change for every function as above:
 | 13 | `DRV_ALLRESET` | the DMA address goes back to `$0280`; the card's units are read again first, so a swapped image loses its unwritten buffers |
 | 16 | `F_CLOSE` | f5' is ignored: every close leaves the FCB open |
 | 19 | `F_DELETE` | a password is checked after every other reason to refuse |
-| 20, 33 | `F_READ`, `F_READRAND` | the DMA segment; a multi-sector buffer is checked whole first, and a call whose buffer isn't all memory moves nothing; 20 says 1 where an extent can't be closed as it moves on; codes 9 and 10 are never returned |
-| 21, 34 | `F_WRITE`, `F_WRITERAND` | the DMA segment; a new block is the lowest free one, and zeroed; 21 says 1 where an extent can't be closed as it moves on; codes 9 and 10 are never returned |
+| 20, 33 | `F_READ`, `F_READRAND` | the DMA segment; a multi-sector buffer is checked whole first, and a call whose buffer isn't all memory moves nothing; 20 says 1 where an extent can't be closed as it moves on; code 9 is never returned, and 10 only on O: and P: |
+| 21, 34 | `F_WRITE`, `F_WRITERAND` | the DMA segment; a new block is the lowest free one, and zeroed; 21 says 1 where an extent can't be closed as it moves on; code 9 is never returned, and 10 only on O: and P: |
 | 22 | `F_MAKE` | the password mode is byte 8's bits 7-5; a make that can't have both its entries makes neither |
 | 23 | `F_RENAME` | File Exists is checked before the old name is looked for |
 | 27 | `DRV_ALLOCVEC` | returns `$FFFF`: the vectors are in the system's memory. Function 46 gives the free space |

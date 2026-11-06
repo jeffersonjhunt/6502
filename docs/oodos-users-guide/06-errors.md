@@ -45,8 +45,8 @@ errors, says the message and goes on (with the next file, if there is one).
 
 | Error | What causes it | What to do |
 |---|---|---|
-| `Disk I/O` | The card couldn't read or write a sector: the card was taken out, or failed. A changed sector that couldn't be written is kept, and written when it can be. | Put the card back. A ^C at the empty prompt resets the drives and reads the card again, but drops what couldn't be written. |
-| `Read Only` | A write to a drive that is read-only: set so by [SET](05-utilities.md#util-set) `[RO]`, or a card unit that is write-protected. | `SET d: [RW]`, or a ^C at the empty prompt, which makes every drive read-write again (a write-protected unit stays read-only). |
+| `Disk I/O` | The card couldn't read or write a sector: the card was taken out, or failed. A changed sector that couldn't be written is kept, and written when it can be. On O: or P:: no disk in the drive, one in another format, a damaged sector, or (on the website) no Disk II sequencer PROM given. | Put the card back. A ^C at the empty prompt resets the drives and reads the card again, but drops what couldn't be written. On O: or P:, put a disk in, an Apple CP/M one. |
+| `Read Only` | A write to a drive that is read-only: set so by [SET](05-utilities.md#util-set) `[RO]`, or a card unit that is write-protected; on O: or P:, a write-protected floppy (its notch covered). | `SET d: [RW]`, or a ^C at the empty prompt, which makes every drive read-write again (a write-protected unit, or floppy, stays read-only). |
 | `File R/O` | A write, a delete or a rename of a read-only file. | `SET name [RW]`. |
 | `Invalid Drive` | A drive that isn't there: one OODOS has no unit for (`H:`), or a card unit that couldn't be read. | Use a drive the boot's status lines list ([chapter 1](01-introduction.md#starting-oodos)). |
 | `Password Error` | A protected file opened, deleted or renamed without its password, or with the wrong one. | Give the password after the name: `TYPE LETTER.TXT;SECRET`. |

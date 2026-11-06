@@ -8,7 +8,7 @@ The design record, for the reasons: [hw/oodos.md, "Disk format"](../../hw/oodos.
 
 ## Drives
 
-OODOS has up to eight drives, named by a letter. A program names one as functions 14 and 101 do, 0 for A: to 15 for
+OODOS has up to ten drives, named by a letter. A program names one as functions 14 and 101 do, 0 for A: to 15 for
 P:, or in an FCB's byte 0, 0 for the current drive and 1 for A: to 16 for P:.
 
 | Drive | What |
@@ -22,7 +22,8 @@ An SD drive is 8 MB (`oodos-8m`: 4 KB blocks, 1,024 directory entries) or 32 MB 
 entries); M: has 2 KB blocks and 256 entries. These have 512-byte sectors, 16 a track, and no boot tracks. B:–G: may
 also be a 140 KB Apple CP/M disk image (cpmtools's `apple-do`, the SoftCard's format): 1 KB blocks, 128 of them, 64
 entries, 3 boot tracks, and 8 sectors of 512 bytes a track (SPT 32, OFF 3; the BIOS makes each of two of the disk's
-256-byte sectors). The format is CP/M 3's, byte for byte, so cpmtools reads and writes the images on a PC
+256-byte sectors). O: and P: have the same format on 5.25" floppies, with CKS 16 (below). The format is CP/M 3's,
+byte for byte, so cpmtools reads and writes the images on a PC
 ([hw/oodos.md, "Disk format"](../../hw/oodos.md#disk-format)). A drive's DPB is CP/M 3's, and function 31 returns
 the address of a copy in common memory.
 
@@ -37,6 +38,30 @@ and unmounts B:–G: while OODOS runs; A: can't be changed.
 
 Data is written back from OODOS's 32 sector buffers when a buffer is wanted for another sector, by a close, by
 function 48, by a reset and at each warm boot. Directory changes are written at once.
+
+### Removable drives: O: and P:
+
+A floppy can be taken out of O: or P: and another put in, and nothing tells the card. So these two drives have CKS
+16 in their DPB, as CP/M 3 has a removable drive: at login the BDOS keeps a checksum of each of the directory's 16
+records, and keeps it up to date as it writes the directory itself.
+
+- **When the disk is checked.** A function that selects O: or P: when that drive's own last access was a second or
+  more ago (its motor has stopped, so its disk may have been changed: the card's one motor goes to the drive last
+  selected, so the other has always stopped) has the BDOS read the directory again from the disk and compare it.
+  Within the second it is taken as the same disk, and the first directory write of each call compares it anyway.
+- **Another disk.** The drive's buffers are dropped, not written (they belong to the old disk), and it is logged
+  in again, so the function works on the new disk. A call that was about to write the directory returns A = 10
+  and writes nothing.
+- **Error 10, Media Change.** An FCB opened or made before the change returns A = 10 from a read, a write or a
+  close (16, 20, 21, 33, 34, 40), whatever the error mode, and nothing is read or written. Open the file again on
+  the new disk. An FCB a program built from a directory entry and never opened can get 10 on O: or P: too: open
+  a file before reading or writing it.
+- **Changed data** for O: and P: waits in the buffers until a close, function 48, a reset (13, 37), 75, the warm
+  boot, or a buffer wanted for another sector. Each of these checks the disk first, as a select does, and drops the
+  data if the disk was changed: data meant for one disk never lands on another.
+- **What isn't seen.** A disk swapped within a second of its drive's last access, while a copy between O: and P:
+  runs, can take a few of the copy's data sectors before the next directory write sees the change. Don't change a
+  disk while a program is using it.
 
 ## User numbers
 
