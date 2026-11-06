@@ -3561,6 +3561,19 @@ merged, with the switches' equates (below).
 - **Sizes:** the BDOS 13,130 bytes; the BIOS 9,027 in block 61 (BINIT's loop took it past a page); DOS33.COM
   7,604 bytes.
 
+**Error 10 in the CCP and PIP (todo item 17, 2026-11-06):** the CCP's ERASE and RENAME and PIP's make, close
+and rename took only `$FF` for a failure, so a 10 (O:'s or P:'s floppy changed within the second, found at the
+first directory write) passed as success: ERASE and RENAME said nothing and did nothing. Each now takes 0 for
+success, `$FF` as before, and 10 as `Media Change` (the CCP; TYPE's read too, which failed silently) or `MEDIA
+CHANGE - NAME` (PIP: its make, close, rename, the old file's delete, the attributes, the password's 103, a write,
+and a source's open and read). PIP leaves its `$$$` file alone then: it is the old floppy's. Tested by
+`test_oodos_err10`: ERASE, RENAME and a PIP copy with O:'s disk changed within the second, TYPE's after a page;
+each fails against main's CCP and PIP. PIP's make check alone can't fail on its own: a make that returned 10 is
+followed by a write that does too. Left as they are (each can't give 10, or already fails with a message): the
+CCP's loader open (10 only with access stamps; its read then fails, `READ ERROR`), TYPE's open (the same, its
+read then says it), the searches (17, 18: no 10), PIP's V read-back (a 10 there is `VERIFY ERROR`), PIP's
+cleanup close and delete of its `$$$` file (results not used by design).
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).

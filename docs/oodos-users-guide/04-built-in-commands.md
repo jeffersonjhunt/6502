@@ -253,6 +253,8 @@ Y (or y) erases them; anything else erases nothing. With CONFIRM, a question a f
 #### Errors
 
 - `No File`: nothing matched.
+- `Media Change`: on O: or P:, the floppy was changed within a second of the drive's last use; nothing
+  erased.
 - A read-only file, a read-only drive, a wrong password: the BDOS's (`File R/O`, `Read Only`, `Password Error`).
 - **ERASE.COM's:** `Drive Read Only` (the drive is read-only: nothing more erased); `Missing delimiter or
   Unrecognized Option` (an option but CONFIRM, a second option list, a second name); `Invalid file specification.`
@@ -261,7 +263,7 @@ Y (or y) erases them; anything else erases nothing. With CONFIRM, a question a f
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -311,6 +313,8 @@ tail, shows each file renamed on a line, `NOTES.BAK=NOTES.TXT`.
 #### Errors
 
 - `No File`: no file of the old name.
+- `Media Change`: on O: or P:, the floppy was changed within a second of the drive's last use; nothing
+  renamed.
 - The new and the old name the same file: the command and `?` (RENAME.COM: `Incorrect file specification.`).
 - A read-only file or drive, a wrong password: the BDOS's.
 - **RENAME.COM's:** `Incorrect file specification.` (not the form `new=old`, a name that isn't one, two drives, an
@@ -321,7 +325,7 @@ tail, shows each file renamed on a line, `NOTES.BAK=NOTES.TXT`.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -372,6 +376,8 @@ A file that isn't text shows what it shows: a `.COM` file shows `OOD`, and stops
 #### Errors
 
 - `No File`: no such file.
+- `Media Change`: on O: or P:, the floppy was changed while TYPE waited at a page's end; the rest isn't
+  shown.
 - A wrong password, a drive that isn't there: the BDOS's.
 - **TYPE.COM's:** `Try 'PAGE' or 'NO PAGE'` (any other option, a second list); `Invalid drive.` (a letter past P
   before a `:`); `Invalid file specification.` (a name that isn't one, a second name); `Not Enough Memory`.
@@ -379,7 +385,7 @@ A file that isn't text shows what it shows: a `.COM` file shows `OOD`, and stops
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
