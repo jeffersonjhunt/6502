@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c). DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -711,7 +711,7 @@ PIP dest-filespec{[Gn]}=device{[options]}
 - **The devices:** `CON:` (the console), `AUX:` (the serial line), `LST:` (the printer), `PRN:` (the printer, with
   tabs every eighth column, line numbers and a new page every 60 lines), and two sources: `NUL:` (64 zero bytes)
   and `EOF:` (one ^Z). `DEVICE` says where `CON:`, `AUX:` and `LST:` go.
-- **PIP alone** prints `OODOS PIP 0.3` and asks with `*` for one command a line; an empty line ends it.
+- **PIP alone** prints `OODOS PIP 0.4` and asks with `*` for one command a line; an empty line ends it.
 
 #### Options
 
@@ -802,7 +802,7 @@ OODOS 0.3
 
 ```
 A>PIP
-OODOS PIP 0.3
+OODOS PIP 0.4
 *B:=A:*.BAS
 COPYING -
 GAME.BAS
@@ -1104,3 +1104,76 @@ OODOS 0.3
 The same. Ours: the words in full only; `Do you want another file?` is asked when a PUT of the kind already
 writes to a file; an old file is replaced only when the new one is complete; the file keeps the prompt's line feed.
 
+
+## DOS33
+
+<a id="util-dos33"></a>
+### DOS33: files to and from a DOS 3.3 disk
+
+DOS33 reads and writes an Apple II DOS 3.3 disk: a floppy in O: or P:, or a 140 KB `.dsk` image on the card as an SD
+drive (in `DRIVES.TXT`, or mounted with MOUNT). It lists the disk, takes a file off it, puts one on it, and deletes one.
+It works on the disk's own sectors, so the drive needn't be (and isn't) a CP/M drive while it does; the next CP/M
+command on it reads the disk again.
+
+#### Forms
+
+```
+DOS33 d:
+DOS33 GET d:NAME {e:}FILE.TYP {T | B | R}
+DOS33 PUT {e:}FILE.TYP d:NAME {T | B{=addr}}
+DOS33 ERA d:NAME
+```
+
+- **`DOS33 d:`** lists the disk's catalog: for each file a `*` if it's locked, its type letter (T text, I and A BASIC
+  programs, B binary, S, R), the sectors it takes (three digits), and its name; then the free sectors.
+- **GET** takes the file NAME off the disk into the CP/M file (replaced if it's there). T: bit 7 of each character
+  cleared, each CR written as CR LF, to the first 0, and ^Z after. B: the bytes DOS keeps first (the load address and
+  the length) dropped, the length's bytes written; the address is shown. R: every sector of the file as it is on the
+  disk. Without a letter, T for a T file, B for a B file, R for any other.
+- **PUT** puts the CP/M file on the disk as NAME. T: bit 7 set, LF dropped, to the first ^Z, a 0 after. B: the load
+  address (`$2000` unless `B=addr` gives it, in hex) and the length (the file's records × 128, so at most 511 of
+  them) first. Without a letter, T for a `.TXT` file, B for any other. A name that's on the disk already is refused:
+  ERA it first.
+- **ERA** deletes NAME, its sectors free again. A locked file is refused.
+- A name has 1 to 30 characters; one with blanks is typed in quotes: `DOS33 GET O:"MY FILE" M:MY.TXT`.
+
+#### Options
+
+None in brackets: the conversion is the letter after the names (T, B or R), as above.
+
+#### Output
+
+```
+A>DOS33 O:
+O: DOS 3.3 disk, volume 254
+ T 002 README
+ B 005 GAME
+489 sectors free
+A>DOS33 GET O:GAME M:GAME.BIN
+Address $6000, 1000 bytes
+```
+
+#### Errors
+
+- `Use: DOS33 d: | GET ... | PUT ... | ERA d:NAME`: a form DOS33 doesn't have.
+- `Not an Apple disk drive.`: d: isn't O:, P: or a 140 KB SD drive. `Not a DOS 3.3 disk.`: its catalog's sector isn't
+  one DOS 3.3 would take (a CP/M disk, a blank one).
+- `File not found.`, `File exists.`, `File locked.`, `Bad name.`: the Apple disk's file, or its name.
+- `Disk full.`, `Catalog full.` (105 files): PUT puts nothing on the disk then.
+- `File too big for B.`: a B file of more than 511 records.
+- `Disk error.`: a sector couldn't be read or written. `Disk write-protected.`: the floppy's notch is covered.
+- `No File`, `CP/M disk full.`, `CP/M directory full.`: the CP/M file.
+
+Each sets the return code to `$FF00`. A disk DOS33 has written passes DOS 3.3's own `VERIFY` and loads with `BLOAD`.
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.

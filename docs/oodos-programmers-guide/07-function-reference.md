@@ -2928,6 +2928,59 @@ OODOS 0.2
 OODOS's own: CP/M 3 has no function 75. A program can't leave by itself, as W3 is OODOS's and a program may only call
 the BDOS. The CCP's WOZMON and APPLE2 use it.
 
+<a id="bdos-76"></a>
+### 76 O_SECTOR: a DOS 3.3 sector of an Apple disk
+
+#### Entry
+
+- Y = 76 (`O_SECTOR`).
+- A/X = the address of a 6-byte block in the program's memory: the drive (0 A: to 15 P:), the track (0–34), the
+  sector in DOS 3.3's numbering (0–15), 0 to read or 1 to write, and the address of the sector's 256 bytes (a
+  word) in the program's memory, the CPU's address: the DMA segment isn't used.
+
+#### Exit
+
+- A = 0, X = 0: done; a read's 256 bytes are at the address.
+- A = 1, X = 0: the sector couldn't be read or written (no disk, a bad sector, the card's error), or the track,
+  sector or operation is past what there is.
+- A = 2, X = 0: a write to a write-protected disk (the floppy's notch, or a unit `RO` in `DRIVES.TXT`). Nothing is
+  written.
+- A = `$FF`, X = 0: the drive isn't an Apple disk. O: and P: are, when the machine has the Disk II card; an SD
+  drive is when its unit is a 140 KB image.
+- A = X = `$FF`: the block, or the 256 bytes, are in memory that isn't the program's (the I/O hole, flash).
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+None raised, whatever the error mode: each is a result in A.
+
+#### Side effects
+
+- If the drive is logged in, its changed buffers are written back, then all its buffers are dropped and it is
+  logged out, as [function 37](#bdos-37) does: its next CP/M use reads the disk again, so what 76 wrote is what
+  CP/M sees. If a buffer can't be written, A = 1 and nothing more is done.
+- An SD drive's units are read again first (as at a reset), so a unit mounted since is seen as it is now.
+- The sector is the disk's own: on an SD unit at (track × 16 + sector) × 256 in its image file, on a floppy at its
+  physical place by DOS 3.3's interleave. CP/M's skew isn't used, and nothing of DOS 3.3's file system is read or
+  kept: that is the program's. DOS33 ([the User's Guide](../oodos-users-guide/05-utilities.md#util-dos33)) is one.
+
+#### Cycles
+
+Not measured.
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 76 (OODOS's range, 72 on). CP/M 3 would leave this to the BIOS's own
+functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to drop them.
+
 <a id="bdos-98"></a>
 ### 98 DRV_FREE: free blocks not closed
 

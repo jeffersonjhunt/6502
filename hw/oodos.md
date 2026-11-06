@@ -290,7 +290,8 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
 | 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
-| 76–97 | reserved for OODOS |
+| 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
+| 77–97 | reserved for OODOS |
 
 ### Far calls ###
 
@@ -3387,6 +3388,55 @@ merged, with the switches' equates (below).
   drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
   G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.
 
+
+**Proposed (6d, as built, 2026-11-06)** (`oodos/sys/bdosmem.s`, `bios.s`, `oodos/utils/dos33.s`,
+`oodos/tools/dos33.py`, `make_card.sh`; the plan above is what was built, and these are the details):
+
+- **The commits,** on `feat/oodos-dos33`: function 76 (BDOS and BIOS); DOS33.COM and dos33.py with the card's part
+  in `make_card.sh`; `test_oodos_dos33` and MEMTEST's 76 cases; `test_oodos_dos33_iie`; `check_tools.py`'s dos33.py
+  checks; the books (`bdos-76`, `util-dos33`, the appendices) and this record; the version 0.4 with every place it is
+  checked; the cards rebuilt.
+- **Function 76** (`F_SECT`, bdosmem.s): the 6-byte block read by PGET; an SD drive's units read again first
+  (`RESCAN`), since a unit mounted by the card's own MOUNT isn't in DRVAPL until they are (the first version
+  answered "not an Apple disk" for C: until a CP/M select had read them); O: and P: by SELDSK (no Disk II, no DPH).
+  A logged-in drive is flushed (a buffer that won't write: A = 1, nothing dropped), then dropped and logged out by
+  `DROPD`, which 74 now shares. The BIOS is called through its jump table as for any sector, with `RAWF` set:
+  `APPLE1` then moves one 256-byte half (`NHALF` 1), the file's own sector (no skew), sectors 0-15, through the
+  same track buffers, write-through as before; a CP/M drive's `DISKIO` refuses it (`$FF`). The 256 bytes go between
+  SECBUF and the program by one MOVE (`R256`); memory MOVE refuses ends the function as PIN and POUT do.
+- **DOS33.COM** (ours): the forms as planned. Decided here: GET replaces the CP/M file; PUT's default is T for a
+  `.TXT` file and B for any other; a B file's length is the CP/M file's records × 128, at most 511 records (DOS's
+  length is a word); an R GET writes a file's never-written sectors as zeros when data follows them (dos33.py's
+  `raw` the same). Allocation as DOS 3.3 goes: from track 18 out to 34, then 16 down to 0, each track from sector
+  15 down, so DOS's own next SAVE finds the sectors it expects free. A PUT reads the VTOC, finds a free entry,
+  writes the data and the lists, then the entry and the VTOC last: a Disk full in the middle leaves the disk as it
+  was (sectors written are free in the bitmap). Its messages are ours. The catalog's chain is read at most 255
+  sectors, so a looped one can't hang it.
+- **dos33.py** (ours, from the format's layout): `new`, `ls`, `put`, `get`, `era`, `lock`, `check` (every sector one
+  owner's, or free in the bitmap; the chains without a loop; each file's sector count). Its images have tracks 0-2
+  marked used and zeros. `/DISKS/DOS33.DSK` on the card is its image with a README of our words; the suite checks
+  tracks 0-2 are zeros (no DOS image, no Apple bytes).
+- **Tests:** `test_oodos_dos33` (13 cases, about 8 s; dos33.py run by the suite through Python): the card's image, the
+  catalog line for line against dos33.py's `ls`, GET in T, B, R and the default, PUT in T and B (a name with blanks),
+  ERA and a locked file, files of two and three track/sector lists, every message, a CP/M disk refused, a full disk (nothing changed) and the catalog past its
+  first sector and full (105), O: in the drive, and 76 through MEMTEST's S (its refusals, a read, a write), L (a
+  logged-in CP/M drive's buffers dropped: the next 17 finds a name 76 wrote) and J (2 on a write-protected
+  floppy); dos33.py's check after each. `test_oodos_dos33_iie` (4 s): DOS33 PUTs a T and a B file; the IIe boots
+  the owner's DOS 3.3 disk from the fixtures with the image in drive 2: `CATALOG,D2` lists both with DOS33's sector
+  counts, `VERIFY` passes, `BLOAD` puts the bytes at $4000, a program READs the text's lines; `BSAVE` writes 256
+  bytes, after which `BLOAD` of DOS33's file still gives its bytes and dos33.py checks DOS's disk clean; DOS33 GET
+  takes DOS's file back byte for byte. `check_tools.py`: dos33.py's images, listing, extraction, its 64 KB B limit,
+  and its check finding a spoiled bitmap and a looped list.
+- **Must fail, each seen with its fault put in:** the VTOC bitmap not updated (`test_oodos_dos33`: dos33.py's check,
+  "used by NOTE and NOTE", in 3 cases; with DOS 3.3: DOS's BSAVE took DOS33's sectors, so `BLOAD` gave other bytes,
+  and READ failed); text's bit 7 left clear (`test_oodos_dos33`'s PUT case; with DOS 3.3: READ didn't get the lines).
+- **Sizes against the plan:** the BDOS +266 bytes (block 60 12,768 → 13,034; the plan said 100-150: the parameter
+  checks, the rescan, the flush and drop, and the BIOS calls); the BIOS +41 bytes, inside its page alignment;
+  DOS33.COM 6,407 bytes (the plan 4-6 KB): its own code about 2.3 KB, `cmd.inc` and `util.inc` about 4 KB as in
+  every utility (TYPE.COM is 4,147).
+- **Not tested:** the real Disk II (the emulator's drive only); DOS 3.3 on a floppy DOS33 wrote in O: and then
+  moved to the IIe (the IIe case uses the SD image's sectors, the same bytes); ProDOS (not in phase 6); a file of
+  more than one track/sector list read by DOS 3.3 itself (DOS33 and dos33.py agree on them).
 
 ## GW-BASIC ##
 

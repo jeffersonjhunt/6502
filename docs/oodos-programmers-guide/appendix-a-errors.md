@@ -22,7 +22,7 @@ that otherwise says a failure as `$FF` (15 with access stamps, 19, 22, 23, 30, 9
 `$FF` takes it for success, so test for 0. With 10 from a read or a write (20, 21, 33, 34, 40), X
 isn't the records done, multi-sector or not: the program opens the file again and works out where it was.
 
-A function number OODOS doesn't have returns A = X = `$FF`: 61–71, 76–97, 113–151, and 153 on. So does 60 when no
+A function number OODOS doesn't have returns A = X = `$FF`: 61–71, 77–97, 113–151, and 153 on. So does 60 when no
 RSX takes it. 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 answers it.
 
 ## Physical errors
@@ -98,6 +98,7 @@ says. The last column is the physical errors the function can raise.
 | 53–57 `MC_MAX`–`MC_FREE` | 0; `$FF` with X 0: no memory, or a base or length refused | — |
 | 74 `O_MOUNT` | 0; `$FF` with X: 1 the card or a write-back failed, 4 not B:–G:, `$10` the path refused, `$11` not found, `$12` the image's size, `$13` another drive's file. Whatever the error mode | — |
 | 75 `O_ROM` | doesn't return; `$FFFF` no Apple II ROM, or A not 0 or 1 | — |
+| 76 `O_SECTOR` | 0; 1 the sector's error, or past the disk; 2 write-protected; `$FF` not an Apple disk. Whatever the error mode | — |
 | 99 `F_TRUNCATE` | 0; `$FF` not found, or not a record the file has; 10 the disk changed (O:, P:) | 1, 2, 3, 4, 7, 9 |
 | 100 `DRV_SETLABEL` | 0; `$FF` stamps asked for without SFCBs, or no free entry; 10 the disk changed (O:, P:) | 1, 2, 4, 7 |
 | 101 `DRV_GETLABEL` | the label's byte 12, 0 none | 1, 4 |

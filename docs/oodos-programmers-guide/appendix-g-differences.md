@@ -77,8 +77,9 @@ O: and P: are CP/M 3's removable drives (CKS 16), with these choices of OODOS's 
 - **51-58, CP/M-86's memory functions:** the DMA segment, so a record reaches any physical memory, and blocks of
   the 1 MB allocated and freed in an MCB. Memory is handed out in 16 KB blocks of banks 1-5, not by the
   paragraph; the warm boot frees what a program allocated ([chapter 5](05-memory-and-banking.md)).
-- **72-75, OODOS's own:** the versions and FARCALL's address (72), a CPU address's physical one (73), mounting an
-  SD image as a drive (74), leaving OODOS for the ROM's monitor or Apple II mode (75).
+- **72-76, OODOS's own:** the versions and FARCALL's address (72), a CPU address's physical one (73), mounting an
+  SD image as a drive (74), leaving OODOS for the ROM's monitor or Apple II mode (75), an Apple disk's DOS 3.3
+  sector (76).
 
 ## Functions OODOS hasn't
 
