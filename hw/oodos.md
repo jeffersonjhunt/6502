@@ -3093,6 +3093,52 @@ merged, with the switches' equates (below).
   new case); the native step's wall time didn't grow. After the review: 185 s, all passed; test_oodos_apple, 9
   cases, 9.6 s in the parallel run.
 
+**Proposed (6a, as built, 2026-11-06)** (`emulator/components/devices/disk2_card.h`, `.cpp`, `apple_io`,
+`backplane_bridge.cpp`, `machine.cpp`; the plan above is what was built, and these are the details):
+
+- **The switches:** the card's own block (its `Device` read, write and peek) has slot 6's sixteen at `$00–$0F`, an
+  even one's read the data register and an odd one's `$FF`, a write's byte on the card's bus; `$10–$7E` read
+  `$FF`, `$7F` the ID. A peek changes nothing. The boot ROM isn't in the block.
+- **The clock:** `Disk2Card::set_clock(Clock::Apple | Clock::Native)` catches up at the clock the card had, then
+  counts by the new one: Apple II mode two steps a cycle, as before; native mode two every seven, the remainder
+  (0–6) carried. A card alone (test_disk2's rig) starts with Apple II mode's, so its earlier cases are as they
+  were. On the backplane the bridge sets it through AppleIo's `clock_changed`: at the machine's build, at every
+  hard reset (native again, after the card's own reset has caught up) and when MODE's Apple II bit is written.
+  `Status::steps` is the sequencer's clock, steps since the card was made, the disk turning or not.
+- **The run-on** is `RUN_ON_STEPS`, 2 × `MOTOR_DELAY` steps: Apple II mode's second as it was (the emulator's two
+  steps a cycle, which leaves out the long cycle), 0.998 s of native cycles. It now counts from the cycle before
+  the switch's access (the card's catch-up to it), one cycle earlier than before; test_disk2's case of it holds.
+- **The WebUI ships no PROM:** without a sequencer every step is command 0, clear, so in native mode, as in
+  Apple II mode, the switches work (the motor, the phases, the head) and the data register reads 0: no byte is
+  ever read, and nothing fails or waits. Nothing in native mode uses the drive until 6c; the disk bar is as it
+  was.
+- **Found, for 6c's write loop:** the table loads the byte to write in one state of its eight-step loop, so Q6
+  must stay on (load) for a whole loop, 8 steps, 28 native cycles, before Q6 off (shift): the Apple's STA then
+  ORA cover it in their 4 cycles at two steps a cycle, but 4 native cycles are about one step and the load is
+  missed, nothing written. **Changed from the plan:** a byte loaded a cycle late (225) still reads back: the
+  table waits for its next loop, and now and then a byte has a ninth bit, a 0, which a reader passes over as it
+  does in a sync byte; only early (223) loses bits. So 225 is a case that reads back, not a must-fail one, and a
+  load held 4 cycles is the must-fail case in its place. (How late a loop may run before the gaps reach the
+  amplifier's noise, past three 0 bits, is 6c's to measure.)
+- **No equates:** 6a has no 6502 code but the tests' few hand-assembled bytes, so `oodos/sys/disk2.inc` waits
+  for 6c. `backplane.inc`'s comment that the switches are still to come in the emulator is G2's to change.
+- **Tests:** test_disk2, 16 cases (3 new, under 1 s): the sixteen switches, odd and even reads, the block's other
+  bytes and a peek; 7,000 native cycles 2,000 steps, Apple II mode's 14,000, the remainder carried, a clock change
+  no one looked at across, a byte (64 steps) 224 native cycles of the disk; the run-on still turning at 0.99 s of
+  native cycles and stopped at 1.01 s; /RESET in native mode. test_disk2_native (new, 5 cases, about 1 s): the
+  W65C02S on backplane.machine, at power-on native, its LDA and STA reaching every switch and the ID, 7,000 cycles
+  of its code 2,000 steps, MODE's bit giving the card Apple II mode's clock and a hard reset native mode's; and,
+  with the owner's sequencer PROM loaded from the fixtures at run time (each case says SKIP without it; nothing
+  of it in the repo or printed), the test polling the register every 7 cycles: track 0, every sector once with
+  its address field (volume 254, track, sector) and data by a 6-and-2 decoder of its own, then the head stepped
+  by the phases to track 1 and the same; a sector written at 224 cycles a byte (sync 280) that `to_sectors()`
+  and the sequencer both read back, only it changed; 223, and a 4-cycle load, not; 225, read back. test_iie and
+  the rest of Apple II mode unchanged.
+- **Must fail, each seen to fail with its fault put in the card:** Apple II mode's ratio in native mode
+  (test_disk2's steps and run-on cases, test_disk2_native's machine case and both write cases that read back);
+  the run-on counted in cycles (`MOTOR_DELAY` native cycles, a seventh of a second: the run-on case); no
+  catch-up at the old clock before a change (the steps case).
+
 
 ## GW-BASIC ##
 
