@@ -29,6 +29,11 @@ IIe's memory first. There are two ways to it:
   itself and writes its changed buffers back. Then, with interrupts off, it puts windows 0–2 on RAM blocks 0–2 and
   W3 and VEC on the BIOS's RAM copy, and jumps to `$C806`.
 
+In the WebUI, Settings' IIe ROM row has **Start Apple IIe**, which does what someone at the machine would: START,
+the hard reset, back to the BIOS whatever was running, then `C806R` typed at the monitor. Adding or ejecting any of
+Apple II mode's ROM parts in Settings plugs in a new cartridge, which power-cycles the machine; in Apple II mode the
+WebUI asks first, since the IIe's program would be lost.
+
 ### What the BIOS's entry does
 
 Status: **emulated**
@@ -84,8 +89,8 @@ Then, in order:
 
 The loop waits for the pulse. In the emulator the pulse comes as soon as the `STA` ends, so the loop never runs.
 
-The rest of memory is left as it was: banks 6–D and F, bank E below `$EBFFF`, and banks 4 and 5 outside
-`$D000–$DFFF`.
+The rest of memory is left as it was: banks 6–D and F, but for the character ROM at `$BE000–$BE7FF`; bank E below
+`$EBFFF`, the zero byte and the ROM image above it; and banks 4 and 5 outside `$D000–$DFFF`.
 
 ### The /RESET pulse
 
@@ -103,7 +108,8 @@ isn't a hard reset: APPLE survives it. What it resets:
   /RESET state, their interrupt enables off. The 6551 keeps its CMD, so it can still interrupt
   ([chapter 4](04-interrupts.md#in-apple-ii-mode)). The USB card's KBCFG is cleared, so Pause/Break does nothing in
   the mode ([chapter 4](04-interrupts.md#pausebreak)).
-- **The Disk II card:** its latch, through the IIe's switches ([chapter 10](10-storage.md#the-sequencer-and-the-drives)).
+- **The Disk II card:** its latch, through the IIe's switches
+  ([chapter 10](10-storage.md#the-sequencer-and-the-drives)).
 - **The CPU:** it takes its reset vector through the IIe's map. The language card reads ROM after /RESET, so the
   vector is the ROM image's, at `$EFFFC`.
 
@@ -322,7 +328,8 @@ says ([`hw/design.md:227`](../../hw/design.md#apple-ii-mode)).
 Status: **emulated**
 
 The video card draws the IIe's display from banks 0 and 1, which it reads directly, as the switches say
-([chapter 6](06-video.md#apple-ii-mode)). Each Apple dot is 2×2 pixels, and the 560×384 picture sits in the middle
+([chapter 6](06-video.md#apple-ii-mode)). Each of the Apple's lines is drawn twice: a dot of a 280-dot mode is 2×2
+pixels, and one of the 80-column or double modes, 560 dots across, is 1×2. The 560×384 picture sits in the middle
 of the 640×480 screen, on black. The card's own layers and registers aren't used.
 
 | Access | Switch | On |
@@ -413,8 +420,10 @@ mode, from the flash ([chapter 3](03-boot.md#reset-and-the-flash)). Nothing in t
 - An NMI or an IRQ takes its vector through the IIe's map, from the ROM image or the language card, not the BIOS.
 
 In the emulator the hard reset is the console card's START, on the WebUI's front panel, or the terminal app
-debugger's `reset`; a power cycle is the WebUI's power switched off and on. The WebUI delivers Ctrl-Delete. The terminal app has no USB keyboard, so it has no Ctrl-Reset, and
-nothing types to the Apple there.
+debugger's `reset`; a power cycle is the WebUI's power switched off and on. The WebUI delivers Ctrl-Delete, and in
+Apple II mode its status strip has the IIe's two resets as buttons: **Reset**, Ctrl-Delete, and **Reboot**,
+Ctrl-Open Apple-Delete, typed on the USB keyboard as the keys would be. The terminal app has no USB keyboard, so it
+has no Ctrl-Reset, and nothing types to the Apple there.
 
 ## What isn't there
 

@@ -31,9 +31,10 @@ After G3, an OODOS phase isn't done until its chapters, entries and indexes are.
 
 **Settled in G2:** every register the emulator decodes has an equate in
 [`backplane.inc`](../backplane/bios/backplane.inc), so its entry has the one source of truth the check reads: the
-VIA at `$C340`, the second SID, the video card's ISR, LINE and layer 1, the USB card's mouse and game port and the
-console card's registers among them. A register that is designed but not emulated gets no equate until the emulator
-has it; its chapter describes it in a proposed section.
+VIA at `$C340`, the video card's ISR, LINE and layer 1, the USB card's mouse and game port and the console card's
+registers among them. A SID is the exception: each chip has one equate, at its block's base (`SOUND_SIDA` `$C500`,
+`SOUND_SIDB` `$C520`), and one entry for its 29 registers, which are a table in that entry. A register that is
+designed but not emulated gets no equate until the emulator has it; its chapter describes it in a proposed section.
 
 ## Status tags
 

@@ -130,7 +130,10 @@ same core in the page, compiled to WebAssembly: a `Session`
 - **Play .sid** plays a C64 tune on the sound card, through the card's host registers
   ([chapter 7](07-sound.md#playing-a-sid-file)). The SIDs and the USB card's speaker play through the browser.
 - **Settings** also takes a BIOS of one's own, which becomes the flash and restarts the page on it; the owner's IIe
-  ROM and the Disk II's PROMs; and disks for the two drives.
+  ROM and the Disk II's PROMs, each added or ejected on its own, which power-cycles the machine; and disks for the
+  two drives. The IIe ROM's row has **Start Apple IIe**: START, then `C806R` typed at the monitor. In Apple II mode
+  the status strip has the IIe's **Reset** (Ctrl-Delete) and **Reboot** (Ctrl-Open Apple-Delete)
+  ([chapter 13](13-apple-ii-mode.md#entering-apple-ii-mode)).
 - **The debugger** shows the CPU's registers, a bus trace and the breakpoints. A breakpoint is the console card's
   comparator, written as the ESP32 would write it.
 
@@ -297,7 +300,6 @@ emulator; each link goes to the note.
   - ISR is set only when IEN was set at the key press ([`$C719`](12-front-panel.md#reg-c719)).
   - The ESP32's SPI header isn't there; the WebUI reads the registers as that path would
     ([What the emulator leaves out](12-front-panel.md#what-the-emulator-leaves-out)).
-  - The latched cycle opens again only on CONT, a step, START or /RESET: a bug ([below](#known-bugs)).
 - **Apple II mode** ([chapter 13](13-apple-ii-mode.md))
   - The clock is an even 1,020,484 Hz, the IIe's average, with no long cycle every 65th
     ([The long cycle](13-apple-ii-mode.md#the-long-cycle), [Clocks](01-overview.md#clocks)). The Disk II's
