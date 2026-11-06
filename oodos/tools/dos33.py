@@ -252,6 +252,8 @@ def text(data):
 
 
 def binary(data, address):
+    if len(data) > 0xFFFF:
+        raise Bad("a B file of 65,535 bytes at most")
     return bytes([address & 0xFF, address >> 8, len(data) & 0xFF, len(data) >> 8]) + bytes(data)
 
 
