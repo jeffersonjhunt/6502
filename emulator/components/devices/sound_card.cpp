@@ -38,10 +38,6 @@ namespace ooe::emu
         size_t tagged{0};   ///< tags' bytes since the last frame that made samples
         size_t tag_left{0}; ///< of an ID3v2 tag being skipped
         bool fresh{false};  ///< junk passed over since the last frame: the next is found by a search, afresh
-        /// The FIFO's count, and EOF, when a search last found nothing it could use: until either changes,
-        /// another search would find the same nothing.
-        size_t idle_count{SIZE_MAX};
-        bool idle_eof{false};
         /// How far past the frame at the FIFO's front a look for anything frame-like has gone, finding none.
         size_t looked{0};
 
@@ -51,7 +47,6 @@ namespace ooe::emu
             samples = at = 0;
             junk = tagged = tag_left = 0;
             fresh = false;
-            idle_count = SIZE_MAX;
             looked = 0;
         }
     };
@@ -112,13 +107,6 @@ namespace ooe::emu
         if (m.at < m.samples)
             return true;
         const bool eof = pcmctl_ & PCMCTL_EOF;
-        if (m.idle_count == fifo_count_ && m.idle_eof == eof)
-            return false; // nothing new since a search found nothing
-        const auto idle = [&] {
-            m.idle_count = fifo_count_;
-            m.idle_eof = eof;
-            return false;
-        };
         const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
         const auto head = [&](size_t i, uint8_t *g, size_t n) {
             for (size_t k = 0; k < n; ++k)
@@ -129,7 +117,6 @@ namespace ooe::emu
         const auto drop = [&](size_t n, bool junk, bool lost = true) {
             fifo_drop(n);
             m.looked = 0;
-            m.idle_count = SIZE_MAX; // bytes gone: what's left is worth a look
             if (junk)
                 m.junk += n;
             if (junk && lost)
@@ -167,11 +154,11 @@ namespace ooe::emu
                 drop(d, false);
                 m.tag_left -= d;
                 if (m.tag_left)
-                    return idle();
+                    return false;
                 continue;
             }
             if (have == 0)
-                return idle();
+                return false;
             if (const size_t t = tag_at(0, have))
             {
                 m.tag_left = t;
@@ -181,7 +168,7 @@ namespace ooe::emu
                 continue;
             }
             if (have < 10 && !eof && at(0) == 'I')
-                return idle(); // a tag's header, perhaps, still coming in
+                return false; // a tag's header, perhaps, still coming in
             uint8_t h[4] = {};
             head(0, h, std::min<size_t>(4, have));
             const size_t fb = frame_at(0, have);
@@ -194,7 +181,7 @@ namespace ooe::emu
                 if (have < fb)
                 {
                     if (!eof)
-                        return idle(); // the frame's end still to come
+                        return false; // the frame's end still to come
                     drop(have, true);  // at EOF it can't be finished: junk
                     if (no_sync())
                         return false;
@@ -234,7 +221,7 @@ namespace ooe::emu
                     {
                         m.looked = i - fb;
                         if (!eof && have < fb + Mp3::WINDOW)
-                            return idle();
+                            return false;
                         n = fb;
                         search = false;
                     }
@@ -264,7 +251,7 @@ namespace ooe::emu
                 if (!frame_at(0, have))
                 {
                     if (!eof)
-                        return idle(); // the start of a header or tag: its rest to come
+                        return false; // the start of a header or tag: its rest to come
                     drop(have, true);
                     if (no_sync())
                         return false;
@@ -279,7 +266,7 @@ namespace ooe::emu
                 if (fb > have)
                 {
                     if (!eof)
-                        return idle();
+                        return false;
                     decided = true;
                 }
                 else if (fb == have && eof)
@@ -287,18 +274,19 @@ namespace ooe::emu
                 while (!decided)
                 {
                     if (i + 10 > have && !eof && i < have && at(i) == 'I')
-                        return idle(); // a tag's header, perhaps, ending the run: wait for its rest
+                        return false; // a tag's header, perhaps, ending the run: wait for its rest
                     if (tag_at(i, have))
                     {
-                        // A tag ends the run as the data's end would: a short clip before a tag plays.
+                        // A tag ends the run as the data's end would: a short clip before a tag plays, a single
+                        // frame before one too.
                         decided = true;
-                        take = matched > 0 || i == fb;
+                        take = true;
                         break;
                     }
                     if (i + 4 > have)
                     {
                         if (!eof)
-                            return idle();
+                            return false;
                         decided = true;
                         take = matched > 0;
                         break;
@@ -636,33 +624,13 @@ namespace ooe::emu
         // tick overflows them.
         if (mp3() && !play_rate_)
         {
-            // MP3's first frame gives the rate; until one decodes, the stream is dry, or at EOF over.
-            if (mp3_next())
-            {
-                if (mp3_->hz > RATE_MAX)
-                {
-                    state_ = STATE_BAD_FORMAT;
-                    return;
-                }
-                play_rate_ = mp3_->hz;
-                pcm_phase_ = 0;
-            }
-            else
-            {
-                if (state_ == STATE_NO_SYNC)
-                    return;
-                if (pcmctl_ & PCMCTL_EOF)
-                {
-                    state_ = STATE_ENDED;
-                    fifo_count_ = 0;
-                }
-                else if (state_ != STATE_UNDERRUN)
-                {
-                    state_ = STATE_UNDERRUN;
-                    ++underruns_;
-                }
-                return;
-            }
+            // Unreachable: an MP3 leaves buffering only with its first frame decoded and its rate set (pcm_step),
+            // and whatever clears the rate puts it back to buffering. Kept as a backstop: back to buffering, which
+            // finds the first frame as at the start, no underrun counted.
+            assert(!"an MP3 playing without its first frame");
+            state_ = STATE_BUFFERING;
+            bus_on_ = false;
+            return;
         }
         pcm_phase_ += cycles % host_hz_ * play_rate_;
         uint64_t due = cycles / host_hz_ * play_rate_ + pcm_phase_ / host_hz_;

@@ -305,8 +305,9 @@ with minimp3 (CC0, vendored in `emulator/third_party/minimp3`). RATE's range isn
 channels come with each frame, and the stream follows them, at 8,000 to 48,000 Hz. Output is 16-bit, a mono
 frame on both sides.
 
-- **As output needs it.** A frame is decoded when its first sample falls due. Its bytes count against the FIFO
-  (and FREE) until the decoder takes them; buffering and the 4 KB start are as for raw PCM.
+- **As output needs it.** From the second frame on, a frame is decoded when its first sample falls due; the first
+  decodes when buffering ends (see The start). A frame's bytes count against the FIFO (and FREE) until the
+  decoder takes them.
 - **Whole frames, and minimp3's own sync.** In step with the stream, a frame is decoded once all of it, and the
   next frame's header, are in the FIFO. Out of step (at the start, or after junk), a frame is taken by minimp3's
   own rule: ten frames in step after it, or the data's end after at least one; until the run decides, the card
@@ -316,9 +317,10 @@ frame on both sides.
   (below), a last frame with something after it (below), and a lone last frame with junk before it, which the card
   plays and minimp3 drops.
 - **The start.** An MP3 buffers on past 4 KB, if it must, until its first frame has decoded: its run of ten has
-  decided, and it gives the rate. That is buffering, not an underrun. A program that feeds in real time hears its
-  first sound once that run is in: about 135 ms at 320 kbps fed at 1.02 times the stream's rate. It's the cost of
-  deciding the sync as minimp3 does. Without EOF, a stream of fewer than eleven frames (or the first ten after
+  decided, and it gives the rate. That is buffering, not an underrun. A program that feeds in real time starts
+  later than the 4 KB start by the time that run takes to come in: fed at 1.02 times the stream's rate, about
+  135 ms at 320 kbps (235 ms from RUN), 5 ms at 128 kbps, and 97 ms for VBR -V0. It's the cost of deciding the sync
+  as minimp3 does. Without EOF, a stream of fewer than eleven frames (or the first ten after
   junk) plays only once more frames come or EOF is written: set EOF after a short clip.
 - **Layer III, sized.** Only frames whose length their header gives are taken. Free format (bitrate index 0,
   its length nowhere in its header) is refused, and so are layer I and II frames (MP1, MP2): their bytes are
@@ -337,8 +339,8 @@ frame on both sides.
   EOF and with less than 32 KB after it, it waits for more, so when EOF is written doesn't change what plays.
   Where another stream's header follows (a change of rate or channels), the decoder finds its place again there,
   as minimp3 does.
-- **Waiting costs nothing.** A search that finds nothing isn't made again until bytes come or are taken, or EOF
-  is written.
+- **Waiting costs little.** A search that finds nothing costs a few header checks at most: the look past a frame
+  resumes where it stopped, junk is dropped as it's found, and a run is at most ten headers.
 - **FLUSH** empties the decoder too, so a seek starts it afresh.
 - **KBPS** reads the frame playing's bitrate (never 0 while an MP3 plays: free format is refused).
 
