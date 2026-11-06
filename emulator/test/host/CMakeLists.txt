@@ -108,6 +108,7 @@ target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMA
 emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)
+emu_add_test(test_disk2_native) # native mode (phase 6a); its disk cases need the owner's sequencer PROM, and say SKIP without it
 emu_add_test(test_session)
 emu_add_test(test_sd)
 emu_add_test(test_sd_fat)
@@ -184,6 +185,9 @@ target_compile_definitions(test_bios PRIVATE
         EMU_BIOS_DIR_SPLASH="${PROJECT_SOURCE_DIR}/../backplane/bios/splash"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_session PRIVATE
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
+target_compile_definitions(test_disk2_native PRIVATE
         EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
         EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 target_compile_definitions(test_sd_fat PRIVATE EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd")
@@ -280,6 +284,7 @@ add_custom_command(
 add_custom_target(oodos_sys ALL DEPENDS "${OODOS_SYS_DIR}/OODOS.SYS")
 add_custom_target(oodos_utils ALL DEPENDS "${OODOS_UTILS_DIR}/utils.stamp")
 add_custom_target(oodos_ldr ALL DEPENDS "${OODOS_LDR_DIR}/BOOT.BIN" "${OODOS_PRL_DIR}/hello.prl")
+add_dependencies(test_disk2_native backplane_bios)
 add_dependencies(test_oodos_sys oodos_sys backplane_bios)
 add_dependencies(test_oodos_ccp oodos_sys backplane_bios)
 add_dependencies(test_oodos_rsx oodos_sys backplane_bios)

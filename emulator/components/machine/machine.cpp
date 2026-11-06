@@ -435,7 +435,10 @@ namespace ooe::emu
         if (m->disk2_card_)
         {
             if (auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_))
+            {
                 bp->apple_io().attach(m->disk2_card_); // slot 6
+                bp->apple_io().clock_changed(bp->apple()); // the CPU's clock, which counts its steps
+            }
             if (!m->disk2_card_->load_roms(options.disk2_boot, options.disk2_sequencer, error))
                 return nullptr;
         }

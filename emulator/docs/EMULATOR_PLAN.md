@@ -843,9 +843,10 @@ Decided to come later, not forgotten:
   ProDOS block driver that would show it in Apple II mode (hw/design.md), interrupts in the BIOS
   (it polls), a card kept in the browser between visits, and real timing from an RP2350 once one
   is built. The figures (100 us to a first sector, 25 us a sector after) are estimates.
-- **The Disk II in native mode** (2026-10-25). hw/design.md now puts the card's sixteen switches at
-  `$C600–$C60F` in native mode, so native software can use the drive (its timing: 224 CPU cycles a disk
-  byte). The emulator still answers only the ID byte there; then a native read/write driver to test it.
+- ~~**The Disk II in native mode**~~ (2026-10-25; done 2026-11-06, OODOS phase 6a: the switches at
+  `$C600–$C60F`, the sequencer at two steps every seven native cycles, the run-on a second in either mode,
+  the bridge's MODE and resets setting the card's clock; `test_disk2`, `test_disk2_native`). The native
+  driver is OODOS's phase 6c.
 - **More Disk II image formats** (2026-10-24). The Disk II starts with `.woz` (WOZ 1 and 2: the
   track's bits, for copy-protected originals), `.dsk`/`.do` and `.po` (140 KB sector images, DOS
   or ProDOS order, told apart by their contents). Later:

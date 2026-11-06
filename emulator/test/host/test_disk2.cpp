@@ -105,14 +105,108 @@ namespace
     unsigned phase(unsigned p, bool on) { return 2 * p + (on ? 1 : 0); }
 } // namespace
 
-TEST(native_mode_sees_only_the_id_byte)
+TEST(native_mode_has_the_sixteen_switches_and_the_id_byte)
 {
-    Disk2Card c;
-    CHECK_EQ(c.peek(0x7F), 0xC1);
-    CHECK_EQ(c.read(0x7F), 0xC1);
-    CHECK_EQ(c.peek(0x00), 0xFF);
-    CHECK_EQ(c.peek(0x10), 0xFF);
-    CHECK_EQ(c.slot_rom(0x00), 0xFF); // no boot ROM: slot 6 is empty
+    // Phase 6a: $C600-$C60F are slot 6's $C0E0-$C0EF, through the card's own block (Device), the rest $FF,
+    // $C67F the ID; a peek changes nothing; no boot ROM there.
+    Rig r(sequencer("test_disk2_nld.rom", [](In) { return Out{0, LD}; }));
+    r.card.set_clock(Disk2Card::Clock::Native);
+    CHECK_EQ(r.card.peek(0x7F), 0xC1);
+    CHECK_EQ(r.card.read(0x7F), 0xC1);
+    for (uint32_t o = 0x10; o < 0x7F; ++o)
+        CHECK_EQ(r.card.peek(o), 0xFF);
+    CHECK_EQ(r.card.slot_rom(0x00), 0xFF);
+    auto put = [&](unsigned n, uint8_t v = 0) { r.bus.idle(); r.card.write(n, v); };
+    auto get = [&](unsigned n) { r.bus.idle(); return r.card.read(n); };
+    for (unsigned p = 0; p < 4; ++p)
+    {
+        put(phase(p, true));
+        CHECK_EQ(r.card.status().phases, 1u << p);
+        put(phase(p, false));
+        CHECK_EQ(r.card.status().phases, 0u);
+    }
+    put(MOTOR_ON);
+    CHECK(r.card.status().motor);
+    put(DRIVE2);
+    CHECK_EQ(r.card.status().drive, 1);
+    put(DRIVE1);
+    CHECK_EQ(r.card.status().drive, 0);
+    put(Q6H);
+    CHECK(r.card.status().q6);
+    put(Q7H);
+    CHECK(r.card.status().q7);
+    put(Q7L);
+    CHECK(!r.card.status().q7);
+    put(Q6L);
+    CHECK(!r.card.status().q6);
+    // a peek of a switch changes nothing; an odd address reads $FF, an even one the register
+    CHECK_EQ(r.card.peek(Q6L), r.card.status().data);
+    CHECK_EQ(r.card.peek(Q6H), 0xFF);
+    CHECK(!r.card.status().q6);
+    CHECK_EQ(r.card.peek(Q7H), 0xFF);
+    put(Q6L, 0x5A);                      // the byte on the bus, which the table loads every step
+    r.cycles(8);
+    CHECK_EQ(get(Q6L), 0x5A);
+    CHECK_EQ(get(MOTOR_OFF), 0x5A);       // even: the register, as every even switch reads
+    CHECK(!r.card.status().motor);
+    CHECK(r.card.status().spinning);
+    std::remove("test_disk2_nld.rom");
+}
+
+TEST(native_mode_counts_two_steps_every_seven_cycles)
+{
+    // OSC / 7 against OSC / 2: 7,000 native cycles are 2,000 steps; 7,000 of Apple II mode's, 14,000.
+    // A change of clock catches up at the old one first, so the steps run on without a jump.
+    Rig r;
+    r.card.set_clock(Disk2Card::Clock::Native);
+    uint64_t s0 = r.card.status().steps;
+    r.cycles(7000);
+    CHECK_EQ(r.card.status().steps - s0, uint64_t{2000});
+    r.cycles(3);                          // 6/7 of a step: carried, not lost
+    r.cycles(4);
+    CHECK_EQ(r.card.status().steps - s0, uint64_t{2002});
+    r.card.set_clock(Disk2Card::Clock::Apple);
+    s0 = r.card.status().steps;
+    r.cycles(7000);
+    CHECK_EQ(r.card.status().steps - s0, uint64_t{14000});
+    // across a change no one looked at in between
+    s0 = r.card.status().steps;
+    r.card.set_clock(Disk2Card::Clock::Native);
+    r.cycles(700);
+    r.card.set_clock(Disk2Card::Clock::Apple);
+    r.cycles(100);
+    CHECK_EQ(r.card.status().steps - s0, uint64_t{200 + 200});
+    // and the disk under the head moves by the steps: a byte (64 steps) is 224 native cycles
+    Rig c(sequencer("test_disk2_ncount.rom", [](In in) { return Out{0, in.q6 ? CLR : in.pulse ? SL1 : NOP}; }));
+    c.card.set_clock(Disk2Card::Clock::Native);
+    c.write(MOTOR_ON, 0);
+    c.card.insert(0, disk_of("1"));
+    c.write(Q6H, 0);
+    c.write(Q6L, 0);
+    c.cycles(224 - 2);
+    CHECK_EQ(c.read(Q6L), 0xFF);          // eight cells' pulses, eight 1s
+    std::remove("test_disk2_ncount.rom");
+}
+
+TEST(the_run_on_is_a_second_in_native_mode_too)
+{
+    Rig r;
+    r.card.set_clock(Disk2Card::Clock::Native);
+    r.write(MOTOR_ON, 0);
+    r.write(MOTOR_OFF, 0);
+    constexpr uint64_t NATIVE_HZ = 7'159'090;
+    r.cycles(NATIVE_HZ * 99 / 100);
+    CHECK(r.card.status().spinning);      // 0.99 s: still turning
+    r.cycles(NATIVE_HZ * 2 / 100);
+    CHECK(!r.card.status().spinning);     // 1.01 s: stopped
+    // /RESET in native mode: the latch cleared, the motor running on
+    r.write(MOTOR_ON, 0);
+    r.write(Q6H, 0);
+    r.write(DRIVE2, 0);
+    r.card.reset();
+    const Disk2Card::Status s = r.card.status();
+    CHECK(!s.motor && !s.q6 && !s.q7 && s.drive == 0 && s.phases == 0 && s.spinning);
+    CHECK(r.card.clock() == Disk2Card::Clock::Native);
 }
 
 TEST(the_proms_are_256_bytes_and_the_boot_rom_is_slot_6s)

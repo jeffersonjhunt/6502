@@ -879,8 +879,11 @@ drive" below.)*
       card is still the native machine's own storage (about 7 MB/s against the floppy's 30 KB/s), and mounts
       the same images as files.
     - It remains the exception to the rule that I/O supports DMA.
-    - The emulator doesn't do this yet: in native mode it still answers only the ID byte
-      ([EMULATOR_PLAN.md](../emulator/docs/EMULATOR_PLAN.md#backlog)).
+    - The emulator does it (2026-11-06, OODOS phase 6a, [oodos.md](oodos.md#the-plan-phase-6)): the
+      switches in native mode, the sequencer two steps every seven CPU cycles. Found there: a write loads
+      its byte with Q6 on for a whole loop of the sequencer's eight steps (28 cycles) before Q6 off, as the
+      Apple's STA then ORA do in their 4 cycles; one step's worth misses the load. A byte a cycle late (225)
+      still reads back, a ninth 0 bit now and then; a cycle early (223) loses bits.
 
 **Decided (2026-10-24), as the emulator models it** (`emulator/components/devices/disk2_card.h`):
 
