@@ -116,15 +116,14 @@ DSLOT:          CMP     #SD_DRIVES
                 RTS
 
 ; Drive A the one the function works on, logged in if it isn't, and a
-; removable one's disk checked (MEDIACHK). The other removable drive's
-; changed buffers are written back first (OTHERS). Not a drive: Invalid
-; Drive.
+; removable one's disk checked (MEDIACHK). Not a drive: Invalid Drive.
+; O:'s and P:'s changed buffers stay until a close, 48, 13, 37, 75, the warm
+; boot or an eviction writes them back, each through WBACK's guard.
 SELECT:         STA     CDRV
                 STA     EDRV
                 JSR     DSLOT
                 BCS     @bad
                 STA     CSLOT
-                JSR     OTHERS
                 JSR     CHANGED        ; a rescan since (a program's SELDSK)
                 LDA     CDRV
                 JSR     DRVBIT
@@ -526,52 +525,7 @@ GONE:           LDA     VDRV
                 INC     A
                 AND     #$7F
                 STA     DGEN,X
-                LDA     VDRV           ; no changed buffers left of it
-                SEC
-                SBC     #DRV_O - 1
-                EOR     #$FF
-                AND     RDIRTY
-                STA     RDIRTY
                 RTS
-
-; The other removable drive's changed buffers written back before a call
-; works on another drive (6c's review: a write-back waits no longer than
-; that, and each is checked first, WBACK's guard). CSLOT is the new one's.
-OTHERS:         LDA     RDIRTY
-                BEQ     @done
-                LDX     #0             ; O:, then P:
-@drive:         TXA
-                CLC
-                ADC     #RSLOT
-                CMP     CSLOT
-                BEQ     @next          ; the drive selected: its own select checks it
-                LDA     BITS2,X
-                AND     RDIRTY
-                BEQ     @next
-                LDA     BITS2,X
-                EOR     #$FF
-                AND     RDIRTY
-                STA     RDIRTY
-                PHX
-                TXA
-                CLC
-                ADC     #DRV_O + 1
-                JSR     WBRET
-                PLX
-@next:          INX
-                CPX     #2
-                BNE     @drive
-@done:          RTS
-BITS2:          .byte   1, 2
-
-; A removable drive's buffer X marked changed: RDIRTY says so. Keeps X.
-MARKR:          LDA     BCB_DRV,X
-                CMP     #DRV_O + 1
-                BCC     @done
-                SBC     #DRV_O         ; O: 1, P: 2 (the carry set)
-                ORA     RDIRTY
-                STA     RDIRTY
-@done:          RTS
 
 ; VDRV's directory as the disk has it now, read past every buffer (the
 ; BIOS's directory-track buffer forgotten, each sector into SECBUF), against
