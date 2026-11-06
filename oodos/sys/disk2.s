@@ -86,6 +86,7 @@
 .importzp TMP, SPTR
 .export D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2CODE62, D2FS, D2GOTF
 .export D2WRIT, D2DMAS                 ; common.s's NMI: a write cut short
+.export D2BLK                          ; the BIOS's: the buffer's block, for W1
 
 STEP_MS         = 3
 SETTLE_MS       = 15
@@ -99,7 +100,8 @@ TRIES           = 3
 D2DRV:          .res    1              ; the drive, 0 or 1
 D2HT:           .res    2              ; each drive's half track, $FF: not known (recalibrate)
 D2TGT:          .res    1              ; the track wanted
-D2BUFH:         .res    1              ; the track buffer's page in W1's view ($50, $60)
+D2BUFH:         .res    1              ; the track buffer's page in W1's view ($40-$7F)
+D2BLK:          .res    1              ; and its block (29 or 30)
 D2GOT:          .res    2              ; physical sectors read, bit n
 D2GOTF:         .res    2              ; and as the file's sectors: D2TRACK's answer
 D2TRY:          .res    1
@@ -398,13 +400,12 @@ DELAYMS:        TAY
                 BNE     @ms
                 RTS
 
-; W1 on block 29 (the track buffers), the caller's kept; and back.
+; W1 on D2BLK (the track buffer's block, 29 or 30), the caller's kept; and back.
 MAPW1:          LDA     NB_WIN1
                 STA     D2W1
-                LDA     #(TRKBUF_PHYS >> 14)
+                LDA     D2BLK
                 STA     NB_WIN1
                 RTS
-.assert (TRKBUF_PHYS >> 14) = 29, error, "the track buffers are block 29's"
 UNMAPW1:        LDA     D2W1
                 STA     NB_WIN1
                 RTS

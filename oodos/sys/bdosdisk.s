@@ -69,7 +69,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import DRVRO, DRVCHG, MEDIA, FORGET
+.import DRVRO, DRVCHG, MEDIA, FORGET, FORGETD, VOUCH
 
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
@@ -116,12 +116,15 @@ DSLOT:          CMP     #SD_DRIVES
                 RTS
 
 ; Drive A the one the function works on, logged in if it isn't, and a
-; removable one's disk checked (MEDIACHK). Not a drive: Invalid Drive.
+; removable one's disk checked (MEDIACHK). The other removable drive's
+; changed buffers are written back first (OTHERS). Not a drive: Invalid
+; Drive.
 SELECT:         STA     CDRV
                 STA     EDRV
                 JSR     DSLOT
                 BCS     @bad
                 STA     CSLOT
+                JSR     OTHERS
                 JSR     CHANGED        ; a rescan since (a program's SELDSK)
                 LDA     CDRV
                 JSR     DRVBIT
@@ -131,16 +134,9 @@ SELECT:         STA     CDRV
                 LDA     CSLOT
                 CMP     #RSLOT
                 BCC     @fixed
-                LDA     #1
-                STA     RSEL
                 JMP     MEDIACHK
 @fixed:         RTS
-@login:         LDA     CSLOT
-                CMP     #RSLOT
-                BCC     @first
-                LDA     #1
-                STA     RSEL
-@first:         JMP     LOGIN
+@login:         JMP     LOGIN
 @bad:           LDA     #ER_SELECT
                 JMP     DERR
 
@@ -444,41 +440,76 @@ LOGIN:          JSR     PLACES
                 DEX
                 DEY
                 BPL     @csv
-                LDA     CDRV           ; read from the disk just now
+                LDA     CDRV           ; read from the disk just now: checked in this call
                 INC     A
                 STA     DVERD
+                STA     VOUCH
+                SEC
+                SBC     #DRV_O
+                ORA     CHKD
+                STA     CHKD
 @done:          RTS
 
 ; A removable drive's disk (O:, P:), logged in and its CD loaded: if the
-; BIOS says it may have been changed (it had stopped turning: MEDIA), its
-; directory is read again past every buffer and its checksums compared
-; (VERIFYD). The same: on, its buffers kept. Not: another disk (GONE), and
-; it is logged in again, as the Guide's 2.3.11 has CP/M 3 do. A disk still
-; turning is checked so before the call's first directory write (DIRPUT).
-MEDIACHK:       LDA     #BIOS_BLOCK
+; BIOS says it may have been changed (it had stopped turning, or the card
+; had the other drive: MEDIA), its directory is read again from the disk
+; (the BIOS's directory-track buffer forgotten) and its checksums compared
+; (VERIFYD). The same: on, its buffers kept, and the BIOS told it may keep
+; its data-track buffer (VOUCH). Not: another disk (GONE), logged in again,
+; as the Guide's 2.3.11 has CP/M 3 do. A disk still turning is checked so
+; before the call's first directory write (DIRPUT).
+MEDIACHK:       LDA     CDRV
+                STA     VDRV
+                LDA     CSLOT
+                STA     VSLOT
+                JSR     DISKCHK
+                BCS     @changed
+                RTS
+@changed:       JMP     LOGIN
+
+; VDRV's disk (slot VSLOT, logged in), as MEDIACHK has it: carry clear the
+; same disk (CHKD's bit set, VOUCH it), set another (GONE done: the caller
+; logs it in again, or drops what it was writing).
+DISKCHK:        LDA     #BIOS_BLOCK
                 STA     NB_WIN2
-                LDX     CDRV
+                LDX     VDRV
                 JSR     MEDIA
                 STZ     BIOSDRV        ; the BIOS's drive may be another now
                 LDA     #BCB_BLOCK
                 STA     NB_WIN2
-                BCC     @done          ; turning: the same disk, as far as can be seen
+                BCC     @same          ; turning: the same disk, as far as can be seen
                 JSR     VERIFYD
-                BCS     @changed
-                LDA     CDRV
+                BCS     @other
+                LDA     VDRV
                 INC     A
                 STA     DVERD
-@done:          RTS
-@changed:       JSR     GONE
-                JMP     LOGIN
+@same:          LDA     VDRV           ; checked in this call
+                SEC
+                SBC     #DRV_O - 1
+                ORA     CHKD
+                STA     CHKD
+                LDA     VDRV
+                INC     A
+                STA     VOUCH
+                CLC
+                RTS
+@other:         LDA     #BIOS_BLOCK    ; nothing of the old disk's kept by the BIOS either
+                STA     NB_WIN2
+                LDX     VDRV
+                JSR     FORGET
+                LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                JSR     GONE
+                SEC
+                RTS
 
-; The drive's disk changed: its buffers dropped, not written (the old
-; disk's data isn't the new one's), the drive logged out, its changes
-; counted (DGEN: an FCB opened before is Media Change, 10).
-GONE:           LDA     CDRV
+; VDRV's disk changed: its buffers dropped, not written (the old disk's
+; data isn't the new one's), the drive logged out, its changes counted
+; (DGEN: an FCB opened before is Media Change, 10).
+GONE:           LDA     VDRV
                 INC     A
                 JSR     PURGED
-                LDA     CDRV
+                LDA     VDRV
                 JSR     DRVBIT
                 EOR     #$FF
                 PHA
@@ -487,7 +518,7 @@ GONE:           LDA     CDRV
                 PLA
                 AND     ROVEC,X
                 STA     ROVEC,X
-                LDA     CSLOT
+                LDA     VSLOT
                 SEC
                 SBC     #RSLOT
                 TAX
@@ -495,19 +526,71 @@ GONE:           LDA     CDRV
                 INC     A
                 AND     #$7F
                 STA     DGEN,X
+                LDA     VDRV           ; no changed buffers left of it
+                SEC
+                SBC     #DRV_O - 1
+                EOR     #$FF
+                AND     RDIRTY
+                STA     RDIRTY
                 RTS
 
-; The drive's directory as the disk has it now, read past every buffer (the
-; BIOS's track buffer emptied, each sector into SECBUF), against CSV:
-; carry clear the same, set not. A sector that can't be read is Disk I/O.
-; Keeps T0-T5, DIDX, DPTR and DBCB.
+; The other removable drive's changed buffers written back before a call
+; works on another drive (6c's review: a write-back waits no longer than
+; that, and each is checked first, WBACK's guard). CSLOT is the new one's.
+OTHERS:         LDA     RDIRTY
+                BEQ     @done
+                LDX     #0             ; O:, then P:
+@drive:         TXA
+                CLC
+                ADC     #RSLOT
+                CMP     CSLOT
+                BEQ     @next          ; the drive selected: its own select checks it
+                LDA     BITS2,X
+                AND     RDIRTY
+                BEQ     @next
+                LDA     BITS2,X
+                EOR     #$FF
+                AND     RDIRTY
+                STA     RDIRTY
+                PHX
+                TXA
+                CLC
+                ADC     #DRV_O + 1
+                JSR     WBRET
+                PLX
+@next:          INX
+                CPX     #2
+                BNE     @drive
+@done:          RTS
+BITS2:          .byte   1, 2
+
+; A removable drive's buffer X marked changed: RDIRTY says so. Keeps X.
+MARKR:          LDA     BCB_DRV,X
+                CMP     #DRV_O + 1
+                BCC     @done
+                SBC     #DRV_O         ; O: 1, P: 2 (the carry set)
+                ORA     RDIRTY
+                STA     RDIRTY
+@done:          RTS
+
+; VDRV's directory as the disk has it now, read past every buffer (the
+; BIOS's directory-track buffer forgotten, each sector into SECBUF), against
+; CSV: carry clear the same, set not. A sector that can't be read is Disk
+; I/O. DRM and OFFS from its slot's DTAB entry (VSLOT), so it serves for a
+; drive not the current one. Keeps T0-T5, DIDX, DPTR and DBCB.
 VERIFYD:        LDA     #BIOS_BLOCK
                 STA     NB_WIN2
-                LDX     CDRV
-                JSR     FORGET
+                LDX     VDRV
+                JSR     FORGETD
                 LDA     #BCB_BLOCK
                 STA     NB_WIN2
-                LDA     DRM            ; its sectors: (DRM + 1) / 16
+                LDA     VSLOT          ; Y: its DTAB entry
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                TAY
+                LDA     DTAB + (DRM - CD),Y ; its sectors: (DRM + 1) / 16
                 CLC
                 ADC     #1
                 LSR     A
@@ -516,17 +599,23 @@ VERIFYD:        LDA     #BIOS_BLOCK
                 LSR     A
                 STA     VDN
                 STZ     VDK
-@sector:        LDA     VDK            ; OFFS + VDK: its track and sector
+@sector:        LDA     VSLOT
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                TAY
+                LDA     VDK            ; OFFS + VDK: its track and sector
                 CLC
-                ADC     OFFS
+                ADC     DTAB + (OFFS - CD),Y
                 STA     VDLBA
-                LDA     OFFS + 1
+                LDA     DTAB + (OFFS - CD) + 1,Y
                 ADC     #0
                 STA     VDLBA + 1
-                LDA     CDRV
+                LDA     VDRV
                 LDX     #1             ; selected before
                 JSR     B_SELDSK
-                LDX     CSLOT
+                LDX     VSLOT
                 LDY     TSH,X
                 LDA     VDLBA
                 AND     TMASK,Y
@@ -558,7 +647,7 @@ VERIFYD:        LDA     #BIOS_BLOCK
                 ASL     A
                 ASL     A
                 STA     VDLBA
-                LDA     CSLOT
+                LDA     VSLOT
                 SEC
                 SBC     #RSLOT
                 ASL     A
@@ -595,7 +684,7 @@ VERIFYD:        LDA     #BIOS_BLOCK
                 STA     NB_WIN2
                 SEC
                 RTS
-@io:            LDA     CDRV
+@io:            LDA     VDRV
                 STA     EDRV
                 LDA     #ER_IO
                 JMP     DERR
@@ -817,7 +906,25 @@ ZEROB:          LDA     #0
 ; with WBM: bit 7 drop it on Disk I/O too (DIRPUT, RFLUSH), bit 6 no error
 ; raised: carry set, A its code, EDRV the drive (RFLUSH).
 WBACKX:         STZ     WBM
-WBACK:          LDA     #1
+WBACK:          LDA     BCB_DRV,X      ; O:'s or P:'s, its disk not checked in this call:
+                CMP     #DRV_O + 1     ; checked first (6c's review; a warm boot's 48, a
+                BCC     @write         ; full set of buffers' eviction, another drive's select)
+                SBC     #DRV_O         ; its CHKD bit (the carry set)
+                AND     CHKD
+                BNE     @write
+                LDA     BCB_DRV,X
+                DEC     A
+                STA     VDRV
+                CLC
+                ADC     #<(RSLOT - DRV_O)
+                STA     VSLOT
+                PHX
+                JSR     DISKCHK
+                PLX
+                BCC     @write
+                CLC                    ; another disk: the buffer dropped (GONE), nothing written
+                RTS
+@write:         LDA     #1
                 JSR     DISKOP
                 BEQ     @done
                 PHA
@@ -1118,9 +1225,19 @@ DIRPUT:         LDA     CSLOT          ; O:, P:: the disk checked past the buffe
                 CMP     DVERD
                 BEQ     @put
                 STA     DVERD
+                LDA     CDRV
+                STA     VDRV
+                LDA     CSLOT
+                STA     VSLOT
                 JSR     VERIFYD
                 BCC     @put
-                JSR     GONE           ; another disk: nothing of this call's written on it
+                LDA     #BIOS_BLOCK    ; another disk: nothing of this call's written on it
+                STA     NB_WIN2
+                LDX     VDRV
+                JSR     FORGET
+                LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                JSR     GONE
                 LDA     #RC_MEDIA
                 JMP     RETA
 @put:           LDX     DBCB

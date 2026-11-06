@@ -1091,6 +1091,7 @@ WRITEREC:       JSR     FPIDX
                 LDX     LASTB
                 LDA     #1
                 STA     BCB_DIRTY,X
+                JSR     MARKR
                 LDX     FC + FCB_CR
                 INX
                 CPX     FC + FCB_RC
@@ -1151,6 +1152,7 @@ ZEROBLK:        LDA     BLM            ; (BLM + 1) / 4 sectors
                 JSR     GETBUF
                 LDA     #1
                 STA     BCB_DIRTY,X
+                JSR     MARKR
                 INC     LBA
                 BNE     @next
                 INC     LBA + 1

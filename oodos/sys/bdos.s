@@ -61,6 +61,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import WARM, FARCALL, NMI, ROMAPPLE, WBF
+.import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
 .export BDOSENT
 
 ASCII_CR        = $0D
@@ -140,7 +141,10 @@ CSV:            .res    (NSLOT - RSLOT) * 16 ; O:'s and P:'s directory checksums
 DGEN:           .res    NSLOT - RSLOT  ; O:'s and P:'s changes seen, mod 128: an open FCB's S1 has its drive's
 SUMS:           .res    16             ; DSUM's
 DVERD:          .res    1              ; O: or P: + 1 whose directory was read past the buffers in this call
-RSEL:           .res    1              ; 1: O: or P: selected in this call, so its changed buffers go at its end
+CHKD:           .res    1              ; bit 0 O:, bit 1 P:: its disk checked in this call (a select's, a write-back's)
+RDIRTY:         .res    1              ; bit 0 O:, bit 1 P:: it may have changed buffers
+VDRV:           .res    1              ; VERIFYD's and GONE's drive, and its slot
+VSLOT:          .res    1
 VDK:            .res    1              ; VERIFYD's sector, and its count
 VDN:            .res    1
 VDLBA:          .res    2
@@ -164,6 +168,8 @@ BDOSENT:        STA     PA
                 STZ     FCBN
                 STZ     MON
                 STZ     DVERD
+                STZ     CHKD
+                STZ     VOUCH
                 LDA     SCB_DISK
                 STA     EDRV
                 CPY     #NFUNC
@@ -172,9 +178,7 @@ BDOSENT:        STA     PA
                 CPX     #$FF
                 BEQ     NOFUNC
                 LDA     PA
-                JSR     CALLFN
-                JMP     ENDFN
-CALLFN:         JMP     (FJUMPS,X)
+                JMP     (FJUMPS,X)
 NOFUNC:
 RETFF:          LDA     #$FF
                 TAX
@@ -352,24 +356,6 @@ RETAX:          STA     T0
                 TXS
                 LDA     T0
                 LDX     T1
-                ; fall through
-
-; Every function's end (6c's review): O:'s and P:'s changed buffers written
-; back if either was selected in the call, so none outlives the call whose
-; select checked its disk (MEDIACHK): a lazy write-back later could land
-; on a disk changed since. A failure keeps the buffer, marked, for 48 or a
-; close to say. A and X kept.
-ENDFN:          PHA
-                LDA     RSEL
-                BEQ     @out
-                STZ     RSEL
-                PHX
-                LDA     #DRV_O + 1
-                JSR     WBRET
-                LDA     #DRV_P + 1
-                JSR     WBRET
-                PLX
-@out:           PLA
                 RTS
 
 ; The program's memory refused (the I/O hole, flash): A = X = $FF.

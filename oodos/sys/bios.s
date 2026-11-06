@@ -86,11 +86,14 @@
 ; so do a rescan of the units and MOUNT or UNMOUNT.
 ;
 ; O: and P: (6c) are the Disk II's drives 1 and 2 (disk2.s), when cold boot
-; found the card: apple-do too, the same layer, each with a track buffer of
-; its own in block 29 ($1000 and $2000 on), read a whole track at a time
-; from the disk and written through a sector at a time. A disk that had
-; stopped turning when an access starts may have been changed: its buffer
-; is emptied, and MEDIA tells the BDOS so for its directory checksums.
+; found the card: apple-do too, the same layer, each with two track buffers
+; of its own, one for the directory's track (3) and one for any other (block
+; 29 $1000 and $2000, block 30 $0000 and $1000), read a whole track at a
+; time and written through a sector at a time. A disk that had stopped
+; turning (or the card had the other drive) when an access starts may have
+; been changed: its buffers are emptied, unless the BDOS checked the disk in
+; this call (VOUCH); MEDIA, FORGET and FORGETD are the BDOS's, for its
+; directory checksums.
 ;
 ; Character devices (DEVTBL): 0 CRT, the video card's 80x30 text and the USB
 ; keyboard (crt.s); 1 TTY, the serial card (the 6551 for now); 2 LPT, which
@@ -106,9 +109,9 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
 .exportzp TMP, SPTR                    ; disk2.s's too
-.import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF
+.import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 .export TESC                           ; and TTYOUT's escape state
@@ -121,6 +124,7 @@ SD_UNMOUNT      = $A1
 DOP_UNMOUNT     = 2                    ; SDIO's DOP: 0 READ, 1 WRITE, 2 UNMOUNT, 3 MOUNT
 DOP_MOUNT       = 3                    ;   (bit 0 the DMA's direction)
 SD_WRITE_PROTECTED = 5                 ; ERROR
+NTB             = 5                    ; track buffers: an SD unit's; O:'s and P:'s, data and directory
 
 .zeropage
 CURDRV:         .res    1
@@ -158,9 +162,10 @@ SIDE_D          = 4
 DRVRO:          .res    SD_DRIVES      ; bit 1: the unit is read-only
 DRVCHG:         .res    1              ; bit n: unit n + 1 changed at a rescan (the BDOS clears it)
 DRVAPL:         .res    SD_DRIVES      ; bit 7: the unit is an apple-do drive
-TBTAG:          .res    6              ; each track buffer's drive + 1 (0: empty) and track: SD, O:, P:
-BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s
-TBMASK:         .res    6              ; each buffer's file sectors that are good (an SD unit's: all)
+TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty) and track
+BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
+TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
+VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
 RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
@@ -1015,8 +1020,19 @@ APPLEIO:        STZ     BUFIX          ; an SD unit's: straight to the layer
                 TAX
                 JSR     D2START        ; motor on; carry set: it wasn't turning
                 BCC     @turning
-                JSR     TBEMPTY        ; it may be another disk now
-@turning:       JSR     APPLE1
+                LDX     CURDRV         ; checked by the BDOS in this call: kept
+                INX
+                CPX     VOUCH
+                BEQ     @turning
+                JSR     TBEMPTY2       ; it may be another disk now
+@turning:       LDA     TRACK          ; the directory's track: its own buffer
+                CMP     #DIR_TRACK
+                BNE     @data
+                LDA     BUFIX
+                CLC
+                ADC     #2
+                STA     BUFIX
+@data:          JSR     APPLE1
                 PHA
                 JSR     D2STOP         ; off: the card keeps it turning a second
                 PLA
@@ -1031,6 +1047,15 @@ TBEMPTY:        PHA
                 STZ     TBTAG,X
                 PLA
                 RTS
+; Both of O:'s or P:'s (BUFIX 1 or 2). Keeps A.
+TBEMPTY2:       PHA
+                LDA     BUFIX
+                ASL     A
+                TAX
+                STZ     TBTAG,X
+                STZ     TBTAG + 4,X
+                PLA
+                RTS
 
 ; MEDIA, for the BDOS (bdosdisk.s, its directory checksums; called with W2
 ; on this block, as SDMNT): X = O: or P:. Carry set if its disk isn't
@@ -1041,17 +1066,20 @@ MEDIA:          TXA
                 STA     BUFIX
                 DEC     A
                 TAX
-                JSR     D2MEDIA
-                BCC     @same
-                JSR     TBEMPTY
-                SEC
-@same:          RTS
+                JMP     D2MEDIA        ; the buffers kept: the BDOS checks, then forgets
 
 ; FORGET, for the BDOS (as MEDIA): X = O: or P:, its track buffer emptied,
 ; so the next READ is from the disk (its directory checked past the buffer).
 FORGET:         TXA
                 SEC
                 SBC     #DRV_O - 1
+                STA     BUFIX
+                JMP     TBEMPTY2
+; FORGETD: only its directory track's buffer, so a check of the directory
+; reads the disk and the data track's buffer stays.
+FORGETD:        TXA
+                SEC
+                SBC     #DRV_O - 3     ; O: 3, P: 4
                 STA     BUFIX
                 JMP     TBEMPTY
 
@@ -1106,7 +1134,7 @@ APPLE1:         LDA     SECTOR + 1
                 STZ     SIDES + 1,X
                 JSR     BUFPAGE        ; the buffer's page + AK
                 STA     SIDES + 2,X
-                LDA     #^TRKBUF_PHYS
+                LDA     #^TRKBUF_PHYS  ; (the directory tracks' too)
                 STA     SIDES + 3,X
                 TXA                    ; and the SETDMA buffer the other side,
                 EOR     #SIDE_S ^ SIDE_D
@@ -1188,25 +1216,27 @@ MASKBIT:        LDA     BUFIX
 @bit:           RTS
 
 ; A = the track buffer's physical page (bits 8-15) for BUFIX's buffer, + AK.
-BUFPAGE:        LDA     BUFIX
-                ASL     A
-                ASL     A
-                ASL     A
-                ASL     A
-                ORA     #>TRKBUF_PHYS
+BUFPAGE:        LDX     BUFIX
+                LDA     TBPAGE,X
                 CLC
                 ADC     AK
                 RTS
-; Y = the Disk II's buffer's page in W1's view (block 29 at $4000): $50, $60.
-D2PAGE:         LDA     BUFIX
-                ASL     A
-                ASL     A
-                ASL     A
-                ASL     A
+; Y = the Disk II's buffer's page in W1's view ($4000 on), D2BLK its block.
+D2PAGE:         LDX     BUFIX
+                LDA     TBPAGE,X
+                AND     #$3F
                 ORA     #$40
                 TAY
+                LDA     TBBLK,X
+                STA     D2BLK
                 RTS
-.assert <(TRKBUF_PHYS >> 8) = $40, error, "the SD unit's buffer is block 29's first 4 KB"
+; The buffers: an SD unit's, O:'s, P:'s, O:'s directory track's, P:'s.
+TBPAGE:         .byte   >TRKBUF_PHYS, >(TRKBUF_PHYS + $1000), >(TRKBUF_PHYS + $2000)
+                .byte   >DIRBUF_PHYS, >(DIRBUF_PHYS + $1000)
+TBBLK:          .byte   TRKBUF_PHYS >> 14, TRKBUF_PHYS >> 14, TRKBUF_PHYS >> 14
+                .byte   DIRBUF_PHYS >> 14, DIRBUF_PHYS >> 14
+.assert * - TBBLK = NTB, error, "a block for each track buffer"
+.assert ^TRKBUF_PHYS = ^DIRBUF_PHYS, error, "the track buffers' A16-A19 one value (BUFBANK)"
 
 ; AK = A = the file's sector of the track for CP/M's sector 2 x SECTOR +
 ; AHALF, by the skew.
