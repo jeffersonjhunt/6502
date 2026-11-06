@@ -3125,7 +3125,7 @@ merged, with the switches' equates (below).
 - **Tests:** test_disk2, 16 cases (3 new, under 1 s): the sixteen switches, odd and even reads, the block's other
   bytes and a peek; 7,000 native cycles 2,000 steps, Apple II mode's 14,000, the remainder carried, a clock change
   no one looked at across, a byte (64 steps) 224 native cycles of the disk; the run-on still turning at 0.99 s of
-  native cycles and stopped at 1.01 s; /RESET in native mode. test_disk2_native (new, 5 cases, about 1 s): the
+  native cycles and stopped at 1.01 s; /RESET in native mode. test_disk2_native (new, 5 cases, 0.1 s): the
   W65C02S on backplane.machine, at power-on native, its LDA and STA reaching every switch and the ID, 7,000 cycles
   of its code 2,000 steps, MODE's bit giving the card Apple II mode's clock and a hard reset native mode's; and,
   with the owner's sequencer PROM loaded from the fixtures at run time (each case says SKIP without it; nothing
@@ -3138,6 +3138,8 @@ merged, with the switches' equates (below).
   (test_disk2's steps and run-on cases, test_disk2_native's machine case and both write cases that read back);
   the run-on counted in cycles (`MOTOR_DELAY` native cycles, a seventh of a second: the run-on case); no
   catch-up at the old clock before a change (the steps case).
+- **Measured:** `tools/check.sh quick` 206 s, all passed; test_disk2 0.06 s, test_disk2_native 0.10 s, test_iie
+  7.5 s (as before).
 
 
 ## GW-BASIC ##
