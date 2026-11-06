@@ -284,7 +284,7 @@ TEST(a_rate_out_of_range_is_error_80_at_run)
           {48'000, 0, SoundCard::STATE_BUFFERING},
           {48'001, 0, SoundCard::STATE_BAD_FORMAT},
           {0, 0, SoundCard::STATE_BAD_FORMAT},
-          {44'100, 1, SoundCard::STATE_BAD_FORMAT}}) // MP3: not yet (step 4)
+          {44'100, 2, SoundCard::STATE_BAD_FORMAT}}) // CODEC 2: reserved for MOD
     {
         SoundCard c;
         c.write(SoundCard::CODEC, codec);

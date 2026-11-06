@@ -15,9 +15,10 @@
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
  * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h). So far (that spec's steps 1 and 2) its registers hold
- * what is written and read it back, with their reset values, and the raw PCM
- * stream runs; no mixing, MP3, EQ, vis page or ES5503 sound yet:
+ * ES5503 (es5503.h). So far (that spec's steps 1 to 4) its registers hold
+ * what is written and read it back, with their reset values, and the PCM
+ * stream runs, raw or MP3, mixed with the SIDs; no EQ, vis page or ES5503
+ * sound yet:
  *
  *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
  *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
@@ -38,7 +39,7 @@
  *           3 none (no DRQ)
  *
  * The stream. RUN takes RATE and PCMFMT (a RATE outside 8,000-48,000, or a
- * CODEC other than raw PCM for now, is STATE $80) and buffers: playing starts
+ * CODEC of 2 or more, is STATE $80) and buffers: playing starts
  * at 4 KB in the FIFO, or at EOF. Each frame then falls due on the host's
  * clock (tick()'s cycles at set_cpu_hz()), whether sound is made or not, and
  * takes 1, 2 or 4 bytes, whole frames only, so one split across writes
@@ -142,6 +143,13 @@
  * samples would be dropped, is clocked in bulk. Off (rate 0, the default)
  * the chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
  * is the replacement chips' jumper (set_model()), not a register.
+ *
+ * MP3 (CODEC 1): the FIFO decoded by minimp3 (third_party/minimp3, CC0),
+ * layer III, a frame at a time as its first sample falls due, only with
+ * all of it and the next header there (or EOF), so a stream fed as it plays
+ * decodes as the whole file would. The rate and channels follow each frame;
+ * junk and tags are skipped with resync; 64 KB with no frame is STATE $81;
+ * at EOF the last frame plays by its own length, what follows ignored.
  *
  * The mix (revision 2). While the PCM stream plays or runs dry, its bus
  * frames are resampled to the audio rate by linear interpolation into a
@@ -359,9 +367,11 @@ namespace ooe::emu
         // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
         /// Record the bus's frames from now on (true), or stop and drop them (false). For tests only: it keeps
         /// every frame until take_tap(), uncapped, so nothing else turns it on (it starts off, and /RESET leaves it).
-        void set_tap(bool on)
+        /// With `silence` false, the frames of silence while the stream is dry aren't recorded: only what played.
+        void set_tap(bool on, bool silence = true)
         {
             tap_on_ = on;
+            tap_silence_ = silence;
             tap_.clear();
         }
         /// The frames recorded since the last call, left then right, signed 16-bit; emptied.
@@ -547,6 +557,7 @@ namespace ooe::emu
         uint64_t pcm_phase_{0};           ///< host cycles x rate owed, below one frame
         unsigned underruns_{0};
         bool tap_on_{false};
+        bool tap_silence_{true};
         std::vector<int16_t> tap_;
         // The mix: the bus resampled to the audio rate by linear interpolation, waiting for the SIDs' samples it is
         // added to (render() takes one frame a sample). Mutable: render() is the SIDs' catch-up, const.

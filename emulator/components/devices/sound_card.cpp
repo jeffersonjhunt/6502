@@ -91,10 +91,32 @@ namespace ooe::emu
                 // too (or the stream ends with it). Give it just that, as a decoder with the whole file would see.
                 if (const size_t fb = mp3_frame_bytes(head))
                 {
+                    bool next = false; // the stream's next header follows this frame
                     if (n >= fb + 4)
+                    {
+                        const uint8_t h2[4] = {at(fb), at(fb + 1), at(fb + 2), at(fb + 3)};
+                        next = mp3_frame_bytes(h2) && mp3_same(head, h2);
+                    }
+                    // At EOF, the stream's last frame: none follows it in the FIFO. It plays by its own length,
+                    // whatever comes after it ignored (CP/M's $1As, or anything else).
+                    const auto last = [&] {
+                        for (size_t i = fb; i + 4 <= fifo_count_ && i < fb + Mp3::WINDOW; ++i)
+                        {
+                            const uint8_t h2[4] = {at(i), at(i + 1), at(i + 2), at(i + 3)};
+                            if (mp3_frame_bytes(h2) && mp3_same(head, h2))
+                                return false;
+                        }
+                        return true;
+                    };
+                    if (n >= fb + 4 && next)
                         n = fb + 4;
-                    else if (!eof)
-                        return false; // the frame's end still to come
+                    else if (eof && n >= fb && last())
+                        n = fb;
+                    else if (n < fb + 4 && !eof)
+                        return false; // the frame's end, or the header after it, still to come
+                    // Otherwise something else follows the frame: the whole window, to search as minimp3 would
+                    // with all of the data before it.
+
                 }
             }
             for (size_t i = 0; i < n; ++i)
@@ -508,6 +530,8 @@ namespace ooe::emu
 
     void SoundCard::pcm_silence(uint64_t n)
     {
+        const bool tap = tap_on_;
+        tap_on_ = tap && tap_silence_; // a tap of what played only: none of the silence
         if (!tap_on_)
         {
             // A bulk catch-up's frames make nothing, all at once; at most a second's are made one by one.
@@ -517,6 +541,7 @@ namespace ooe::emu
         }
         for (uint64_t f = 0; f < n; ++f)
             bus_frame(0, 0);
+        tap_on_ = tap;
     }
 
     void SoundCard::pcm_play(size_t n)

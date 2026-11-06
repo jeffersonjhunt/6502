@@ -191,7 +191,7 @@ The design has these, and the emulator doesn't:
 - **Turbo,** the CPU at ÷1 ([chapter 11](11-north-bridge-and-rtc.md#turbo)).
 - **The sound card's bus timing:** BUSY, and RDY on a SID access ([chapter 7](07-sound.md#bus-timing)).
 - **The sound card's revision 2 sound:** its registers, the raw PCM stream and its mix with the SIDs are in, but
-  there is no MP3, EQ, volume, vis page or ES5503 sound yet ([chapter 7](07-sound.md#in-the-emulator-so-far)).
+  there is no EQ, volume, vis page or ES5503 sound yet ([chapter 7](07-sound.md#in-the-emulator-so-far)).
 - **The USB card's other layouts, a gamepad on the paddles, device events, the FIFO on DMA and a real 558**
   ([chapter 8](08-usb.md#proposed)).
 - **The console card's bus-cycle step, its breakpoint on the cycle, EXAM and DEP on the bus, AMODE, the design's

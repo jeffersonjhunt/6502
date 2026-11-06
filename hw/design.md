@@ -912,7 +912,7 @@ samples, 0 past 97). Where the spec is silent:
   is found when a frame falls due with none in the FIFO, so a FIFO emptied and refilled between two frames hasn't
   underrun; data again plays from the next frame due, with no new buffering. One counted underrun is one time dry.
 - RUN takes RATE and PCMFMT; while it runs they read back what it took. PCMFMT's two bits are all valid, so `$80`
-  is a RATE outside 8,000–48,000, and for now any CODEC but raw PCM (MP3 is step 4).
+  is a RATE outside 8,000–48,000, or a CODEC of 2 or more (MOD is reserved).
 - Releasing PAUSE goes back to the state it paused (buffering, playing or underrun); an underrun paused is the
   same dry spell, not counted again. Ended stays ended until RUN is cleared.
 - With EOF, a partial frame left over is dropped when the stream ends, never played, so the next stream starts on
@@ -930,6 +930,13 @@ samples, 0 past 97). Where the spec is silent:
   over two seconds only the last second is made, and the stream's samples for the part skipped go with it. With
   nobody collecting, the SIDs are brought up to date once a second and a half of the stream waits. A pause released
   before its lead has played out loses up to a lead of the stream (250 µs at most) to the new run's lead: accepted.
+- MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored), layer III only, as each frame falls due.
+  A frame is decoded only with all of it and the next header in the FIFO, so a stream fed while it plays decodes
+  as the whole file would; otherwise it waits, dry. Junk and tags are skipped with resync; 64 KB looked through
+  with no frame is `$81`. At EOF the last frame plays by its own header's length, whatever follows ignored (CP/M's
+  `$1A` padding or anything else; `$1A`s aren't stripped, as a frame can end in them). RATE reads 0 until the
+  first frame decodes. The rate and channels follow each frame (a change re-anchors the mix); above 48 kHz is
+  `$80`, which no MPEG-1, -2 or -2.5 frame can be. FLUSH empties the decoder too.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.
