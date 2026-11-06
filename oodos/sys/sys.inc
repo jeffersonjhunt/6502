@@ -18,6 +18,7 @@
 ;   $0B00-$0CFF  function 10's line and the previous line (bdossys.s)
 ;   $1000-$2FFF  the drives' allocation vectors (ALV), 1 KB a drive's slot
 ;                (bdosdisk.s), made at each login
+;   $3000-$37FF  and O:'s and P:'s (slots 8 and 9, 6c)
 ;
 ; Cold boot clears $0000-$0CFF.
 
@@ -112,6 +113,8 @@ VEC_LPT         = $20
 
 ; Drives
 DRV_M           = 12                   ; M:, the RAM disk
+DRV_O           = 14                   ; O: and P:, the Disk II's drives 1 and 2 (6c)
+DRV_P           = 15
 SD_DRIVES       = 7                    ; A-G, units 1-7
 SD_SECTORS_8M   = 16384
 SD_SECTORS_32M  = 65536
@@ -123,7 +126,9 @@ APPLE_TRACKS    = 35
 ; The BDOS's memory in banks 6-7 (hw/oodos.md, "The BDOS, phase 3")
 HASH_BLOCK      = 24                   ; 24-27: the directory hash, 8 KB a drive's slot
 BCB_BLOCK       = 28                   ; 32 sector buffers of 512 bytes
-TRKBUF_PHYS     = 29 * $4000           ; block 29: the BIOS's apple-do track buffer, 4 KB
+TRKBUF_PHYS     = 29 * $4000           ; block 29: the BIOS's apple-do track buffers, 4 KB each: an SD unit's, O:'s, P:'s
+RHASH_BLOCK     = 29                   ; and from $3000 O:'s and P:'s directory hashes, 256 bytes each (6c)
+RHASH_BASE      = $3000
 ALV_BASE        = $1000                ; the allocation vectors, in the system block
 AMAP_LEN        = 20                   ; the memory functions' blocks: banks 1-5 (bdosmem.s)
 

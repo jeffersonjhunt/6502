@@ -85,6 +85,12 @@
 ;       writes fail); written with $A5s (YW 01 00); FIXED? (they work
 ;       again); read again (YR2 00 00): YSAME Y, the card's bytes, not the
 ;       ones the failed write left in the BIOS's track buffer
+;   O   O: (test_oodos_disk2): README.TXT opened (OOP 0n 00) and read (ORD
+;       00 00); SWAP? (the test changes the disk); read again (ORD2 0A 00:
+;       Media Change) and closed (OCL 0A 00); opened again (OOP2 FF 00: not
+;       on the new disk)
+;   T   O:'s tracks 0-34, sector 0 of each, by 50: TERR nn, the reads that
+;       failed
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -96,6 +102,7 @@
 
 DRV_M   = 12
 DRV_C   = 2                             ; C:, unit 3
+DRV_O   = 14                            ; O:, the Disk II's drive 1
 ROMBIT  = $80                           ; a window on flash (backplane.inc's NB_ROM)
 WIN2    = $8000
 
@@ -206,6 +213,12 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'Y'
         bne     :+
         jmp     casey
+:       cmp     #'O'
+        bne     :+
+        jmp     caseo
+:       cmp     #'T'
+        bne     :+
+        jmp     caset
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -801,7 +814,11 @@ casen:  MOUNT   "NA ", 0, "/OODOS/B.IMG"
 ; mblk: the drive Y, the path at A/X (to its NUL) from +2.
 ; Y: through the BIOS (50), C:'s track 3 sector 0 read, then written with
 ; $A5s while the card's writes fail, then read again once they work.
-casey:  jsr     yplace
+casey:  lda     #DRV_C
+        sta     ydrv
+        lda     #3
+        sta     ytrk
+        jsr     yplace
         lda     #BIOS::READ
         jsr     ybios
         sta     yra
@@ -850,14 +867,14 @@ ydiff:  SAY     "YSAME N"
 yend:   jsr     CRLF
         jmp     done
 
-; SELDSK C: (selected before), SETTRK 3, SETSEC 0, SETDMA ybuf, SETBNK 1.
-yplace: lda     #DRV_C
+; SELDSK ydrv (selected before), SETTRK ytrk, SETSEC 0, SETDMA ybuf, SETBNK 1.
+yplace: lda     ydrv
         sta     bpb+1
         lda     #1
         sta     bpb+2
         lda     #BIOS::SELDSK
         jsr     ybios
-        lda     #3
+        lda     ytrk
         sta     bpb+1
         stz     bpb+2
         lda     #BIOS::SETTRK
@@ -882,6 +899,39 @@ ybios:  sta     bpb
 ; A as "aa", CR LF.
 yres:   ldx     #0
         jmp     RES
+
+; O: a file of O: open while the test changes the disk (6c).
+caseo:  lda     #DRV_O
+        sta     TDRV
+        NAME    fcb, "README  TXT"
+        TRY     "OOP ", F_OPEN, fcb
+        TRY     "ORD ", F_READ, fcb
+        KEYWAIT "SWAP?"
+        TRY     "ORD2 ", F_READ, fcb
+        TRY     "OCL ", F_CLOSE, fcb
+        NAME    fcb, "README  TXT"
+        TRY     "OOP2 ", F_OPEN, fcb
+        lda     #$FF
+        sta     TDRV
+        jmp     done
+
+; T: O:'s tracks 0-34, sector 0 of each, read through the BIOS by 50.
+caset:  lda     #DRV_O
+        sta     ydrv
+        stz     ytrk
+        stz     yerr
+:       jsr     yplace
+        lda     #BIOS::READ
+        jsr     ybios
+        cmp     #0
+        beq     :+
+        inc     yerr
+:       inc     ytrk
+        lda     ytrk
+        cmp     #35
+        bne     :--
+        BYTES   "TERR ", yerr, 1
+        jmp     done
 
 ; A: 74 of C: with the tail's path, from its fourth byte to its end.
 casea:  lda     #DRV_C
@@ -1086,3 +1136,6 @@ mblk:   .res    2 + 512
 ybuf:   .res    512
 ysave:  .res    512
 yra:    .res    1
+ydrv:   .res    1
+ytrk:   .res    1
+yerr:   .res    1

@@ -69,7 +69,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import DRVRO, DRVCHG
+.import DRVRO, DRVCHG, MEDIA
 
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
@@ -103,15 +103,20 @@ PBX:            .res    1              ; PURGEM's buffer
 DSLOT:          CMP     #SD_DRIVES
                 BCC     @done
                 CMP     #DRV_M
-                BNE     @none
-                LDA     #NSLOT - 1
+                BEQ     @m
+                CMP     #DRV_O
+                BCC     @none          ; H:-L:, N:
+                SBC     #DRV_O - RSLOT ; O: 8, P: 9 (the carry set)
+                CLC
+                RTS
+@m:             LDA     #RSLOT - 1
                 CLC
 @done:          RTS
 @none:          SEC
                 RTS
 
-; Drive A the one the function works on, logged in if it isn't. Not a
-; drive: Invalid Drive.
+; Drive A the one the function works on, logged in if it isn't, and a
+; removable one's disk checked (MEDIACHK). Not a drive: Invalid Drive.
 SELECT:         STA     CDRV
                 STA     EDRV
                 JSR     DSLOT
@@ -121,8 +126,14 @@ SELECT:         STA     CDRV
                 LDA     CDRV
                 JSR     DRVBIT
                 AND     LOGVEC,X
-                BNE     LOADCD
-                JMP     LOGIN
+                BEQ     @login
+                JSR     LOADCD
+                LDA     CSLOT
+                CMP     #RSLOT
+                BCC     @fixed
+                JMP     MEDIACHK
+@fixed:         RTS
+@login:         JMP     LOGIN
 @bad:           LDA     #ER_SELECT
                 JMP     DERR
 
@@ -199,6 +210,8 @@ LOADCD:         LDA     CSLOT
                 CPY     #CD_LEN
                 BNE     @copy
 PLACES:         LDA     CSLOT          ; HBLK 24 + slot / 2, HBASE $80 or $A0
+                CMP     #RSLOT
+                BCS     @removable
                 LSR     A
                 TAX
                 LDA     #$80
@@ -209,6 +222,15 @@ PLACES:         LDA     CSLOT          ; HBLK 24 + slot / 2, HBASE $80 or $A0
                 CLC
                 ADC     #HASH_BLOCK
                 STA     HBLK
+                BRA     @alv
+@removable:     SEC                    ; O:, P:: 64 entries, 256 bytes, block 29's $3000 and $3100
+                SBC     #RSLOT
+                CLC
+                ADC     #>(RHASH_BASE + $8000)
+                STA     HBASE
+                LDA     #RHASH_BLOCK
+                STA     HBLK
+@alv:
                 LDA     CSLOT          ; ALVP: ALV_BASE + slot x $400
                 ASL     A
                 ASL     A
@@ -403,7 +425,154 @@ LOGIN:          JSR     PLACES
                 JSR     DRVBIT
                 ORA     ROVEC,X
                 STA     ROVEC,X
-@save:          JMP     SAVECD
+@save:          JSR     SAVECD
+                LDA     CSLOT          ; a removable drive: its directory's checksums
+                CMP     #RSLOT
+                BCC     @done
+                JSR     DSUM
+                JSR     CSVAT
+                LDY     #15
+@csv:           LDA     SUMS,Y
+                STA     CSV,X
+                DEX
+                DEY
+                BPL     @csv
+@done:          RTS
+
+; A removable drive's disk (O:, P:), logged in and its CD loaded: if the
+; BIOS says it may have been changed (it had stopped turning: MEDIA), its
+; directory is read again from the disk and its checksums compared. The
+; same: on, its buffers kept. Not: another disk. Its buffers dropped, not
+; written (the old disk's data isn't the new one's), its changes counted
+; (DGEN: an FCB opened before is Media Change, 10), and it is logged in
+; again, as the Guide's 2.3.11 has CP/M 3 do.
+MEDIACHK:       LDA     #BIOS_BLOCK
+                STA     NB_WIN2
+                LDX     CDRV
+                JSR     MEDIA
+                STZ     BIOSDRV        ; the BIOS's drive may be another now
+                LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                BCC     @done          ; turning: the same disk
+                JSR     DIRDROP
+                JSR     DSUM
+                JSR     CSVAT
+                LDY     #15
+@cmp:           LDA     SUMS,Y
+                CMP     CSV,X
+                BNE     @changed
+                DEX
+                DEY
+                BPL     @cmp
+@done:          RTS
+@changed:       LDA     CDRV
+                INC     A
+                JSR     PURGED
+                LDA     CDRV
+                JSR     DRVBIT
+                EOR     #$FF
+                PHA
+                AND     LOGVEC,X
+                STA     LOGVEC,X
+                PLA
+                AND     ROVEC,X
+                STA     ROVEC,X
+                LDA     CSLOT
+                SEC
+                SBC     #RSLOT
+                TAX
+                LDA     DGEN,X
+                INC     A
+                AND     #$7F
+                STA     DGEN,X
+                JMP     LOGIN
+
+; X = the last of the slot's 16 checksums in CSV.
+CSVAT:          LDA     CSLOT
+                SEC
+                SBC     #RSLOT
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     #15
+                TAX
+                RTS
+
+; The drive's buffers of directory sectors dropped: they are never left
+; changed (a directory write goes at once), and are read again from the disk.
+DIRDROP:        LDA     DRM            ; its sectors: (DRM + 1) / 16
+                CLC
+                ADC     #1
+                STA     T0
+                LDA     DRM + 1
+                ADC     #0
+                LDX     #4
+@sh:            LSR     A
+                ROR     T0
+                DEX
+                BNE     @sh
+                CLC                    ; T0/T1: OFFS + them, the end
+                LDA     T0
+                ADC     OFFS
+                STA     T0
+                LDA     OFFS + 1
+                ADC     #0
+                STA     T1
+                LDA     CDRV
+                INC     A
+                STA     T2
+                LDX     #NBCB - 1
+@buf:           LDA     BCB_DRV,X
+                CMP     T2
+                BNE     @next
+                LDA     BCB_HI,X       ; OFFS <= its sector < the end
+                CMP     OFFS + 1
+                BCC     @next
+                BNE     @hi
+                LDA     BCB_LO,X
+                CMP     OFFS
+                BCC     @next
+@hi:            LDA     BCB_HI,X
+                CMP     T1
+                BCC     @drop
+                BNE     @next
+                LDA     BCB_LO,X
+                CMP     T0
+                BCS     @next
+@drop:          STZ     BCB_DRV,X
+@next:          DEX
+                BPL     @buf
+                RTS
+
+; SUMS = each directory record's checksum (16 records: 64 entries of 32),
+; each byte added in after the sum turned left a bit. Reads by DIRENT.
+DSUM:           LDX     #15
+@zero:          STZ     SUMS,X
+                DEX
+                BPL     @zero
+                STZ     DIDX
+                STZ     DIDX + 1
+@entry:         JSR     DIRENT
+                LDA     DIDX           ; its record: DIDX / 4
+                LSR     A
+                LSR     A
+                TAX
+                LDY     #0
+@byte:          LDA     SUMS,X
+                ASL     A
+                ADC     #0
+                CLC
+                ADC     (DPTR),Y
+                STA     SUMS,X
+                INY
+                CPY     #32
+                BNE     @byte
+                INC     DIDX
+                LDA     DIDX
+                CMP     #64
+                BNE     @entry
+                RTS
 
 ; ---------------------------------------------------------------------------
 ; Buffers

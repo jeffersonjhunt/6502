@@ -136,6 +136,9 @@ SSIDX:          .res    2              ; the entry 18 goes on from
 SSON:           .res    1              ; 1 while there is one to go on with
 DTAB:           .res    NSLOT * CD_LEN ; each drive's CD, from its login
 TSH:            .res    NSLOT          ; each slot's sectors a track as a shift: 4 for 16, 3 for 8
+CSV:            .res    (NSLOT - RSLOT) * 16 ; O:'s and P:'s directory checksums, a record each (CKS 16)
+DGEN:           .res    NSLOT - RSLOT  ; O:'s and P:'s changes seen, mod 128: an open FCB's S1 has its drive's
+SUMS:           .res    16             ; DSUM's
 LOGVEC:         .res    2              ; the logged-in drives, bit n drive n
 ROVEC:          .res    2              ; the read-only drives
 FCBP:           .res    2              ; the program's FCB
