@@ -161,7 +161,8 @@ Each failure is said, then the monitor: `NO SD CARD`, `NO CARD IN THE SLOT`, `NO
 slot, or no `/BOOT.BIN`, it says nothing more and enters the monitor. With one, it prints
 `BOOTING THE SD CARD: A KEY FOR THE MONITOR` and waits for the splash to end. With no video card it waits about 2 s
 instead. A key pressed meanwhile is taken, and the monitor comes up instead. Otherwise it boots, as `C80CR` does.
-A `/BOOT.BIN` that can't be booted is said, as above, then the monitor.
+A `/BOOT.BIN` that can't be booted is said, as above, then the monitor. So is any other card error: a card with no
+FAT volume prints `SD ERROR 09`, since only error 8, not found, is passed over in silence.
 
 `C809R` lists the card's root directory, as a check: the card's name and size in sectors, then each entry's name
 with `/` for a directory or its size in hex.

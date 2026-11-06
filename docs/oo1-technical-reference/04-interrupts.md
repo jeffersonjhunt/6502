@@ -33,8 +33,11 @@ enters the monitor as Break does. A real IRQ returns at once, because the BIOS e
 starts with the CPU's I flag set. Break turns off the interrupt enables of the SD, video, sound, USB and console
 cards and the clock's TIE, and the monitor sets the 6551 up with its interrupts off. **The VIA's IER is left as it
 was**: Break doesn't touch it. A VIA interrupt a program left enabled survives Break, and since the handler only
-returns, the next program that clears I is interrupted again and again and never gets on. A program run from the
-monitor that clears I turns the VIA's interrupts off first (write `$7F` to VIA_IER), or brings its own handler.
+returns, the next program that clears I is interrupted again and again and never gets on. **Nor is the console
+card's ISR cleared**, and that card's interrupt follows its ISR whatever IEN says: a panel key that set ISR while a
+program had IEN on keeps /IRQ low after Break. A program run from the monitor that clears I first turns the VIA's
+interrupts off (write `$7F` to VIA_IER) and clears the console's ISR (write `$01` to CONSOLE_ISR), or brings its
+own handler ([chapter 12](12-front-panel.md)).
 
 <!-- listing: ../../backplane/bios/bios.s:149-158 -->
 ```
@@ -122,7 +125,8 @@ windows' layout, and resets to the same value as W3, so a reset reads its vector
 Status: **emulated**
 
 Pause/Break on the USB keyboard pulls /NMI when the USB card's KBCFG has bit 7 (`USB_NMI_PAUSE`) set. The BIOS sets
-it at boot, if a USB card answers, so Break always reaches the monitor. Break enters it with:
+it at boot, if a USB card answers, so in native mode Break reaches the monitor. In Apple II mode it doesn't: the
+/RESET pulse that enters the mode clears KBCFG, so Pause/Break pulls nothing there. Break enters the monitor with:
 
 - a fresh stack, and windows 0–2 on RAM blocks 0–2;
 - every DMA channel aborted, with its terminal count and mode cleared;
@@ -132,8 +136,8 @@ it at boot, if a USB card answers, so Break always reaches the monitor. Break en
 - the text screen set up again, found from the cards' ID bytes;
 - the 6551 set up afresh by the monitor, with its interrupts off.
 
-It leaves W3, VEC, DMA CONTROL, memory, the VIA (its IER too: [above](#irq-and-nmi)), and the rest of each card's
-state as they were. Break works while W3 and VEC
+It leaves W3, VEC, DMA CONTROL, memory, the VIA (its IER too), the console card's ISR ([above](#irq-and-nmi)), and
+the rest of each card's state as they were. Break works while W3 and VEC
 are the BIOS's; a program that moves VEC takes the NMI itself. The design record has the list and its reasons
 ([hw/design.md, "Boot"](../../hw/design.md#boot)).
 

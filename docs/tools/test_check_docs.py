@@ -29,36 +29,6 @@ UNWRITTEN = "docs/tools/unwritten.txt"
 UTILS = "oodos/utils"
 CCP = "oodos/sys/ccp.s"
 
-# A register entry as the template has it, for $C77F.
-CONSOLE_ID = """
-<a id="reg-c77f"></a>
-### $C77F CONSOLE_ID: the card's ID
-
-#### Equates
-
-`CONSOLE_ID`
-
-#### Module
-
-E, the console card
-
-#### Access
-
-R
-
-#### Bits
-
-All: the card's type and revision, `$E1`.
-
-#### Reset
-
-`$E1`
-
-#### Status
-
-**emulated**
-"""
-
 # A utility entry as the template has it, for a command that isn't one.
 FROB = """
 <a id="util-frob"></a>
@@ -199,19 +169,18 @@ def drop_listings(root):
                         fh.write(cut)
 
 
-def with_disk2_id(root):
-    """The same for $C67F, module C, whose name MODULES gives as the Disk II card."""
-    append(root, TR10, CONSOLE_ID.replace("c77f", "c67f").replace("C77F", "C67F").replace("CONSOLE_ID", "DISK2_ID")
-           .replace("E, the console card", "C, the Disk II card").replace("$E1", "$C1"))
-    drop_line(root, UNWRITTEN, r"^reg-c67f\b")
-    run(root, "--write-index")
-
-
-def with_console_id(root):
-    """A register entry written, taken off the list, the index regenerated: a passing tree."""
-    append(root, TR12, CONSOLE_ID)
-    drop_line(root, UNWRITTEN, r"^reg-c77f\b")
-    run(root, "--write-index")
+def edit_entry(root, rel, anchor, old, new):
+    """edit(), but only within the entry whose anchor is `anchor`, up to the next entry's."""
+    path = os.path.join(root, rel)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    start = text.index(f'<a id="{anchor}"></a>')
+    end = text.find('<a id="', start + 1)
+    end = len(text) if end < 0 else end
+    if old not in text[start:end]:
+        raise AssertionError(f"the case's own text isn't in {rel}'s {anchor}: {old!r}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text[:start] + text[start:end].replace(old, new, 1) + text[end:])
 
 
 # (name, what breaks the copy, a message the check must give; None: the check must pass)
@@ -234,25 +203,26 @@ CASES = [
     ("an I/O equate in backplane.inc with no entry",
      lambda r: edit(r, BP, "NB_ID           = NB + $7F", "NB_ID           = NB + $7F\nNB_NEW          = NB + $20"),
      "no entry reg-c6a0 (NB_NEW)"),
-    ("a register entry written and taken off the list", with_console_id, None),
+    ("a written register put back on unwritten.txt",
+     lambda r: append(r, UNWRITTEN, "reg-c77f\n"), "reg-c77f is written now: take it off the list"),
     ("a register entry at an address no equate has",
-     lambda r: (with_console_id(r), edit(r, TR12, "reg-c77f", "reg-c77e"), edit(r, TR12, "$C77F CONSOLE_ID", "$C77E CONSOLE_ID")),
+     lambda r: (edit(r, TR12, '<a id="reg-c77f">', '<a id="reg-c77e">'),
+                edit(r, TR12, "### $C77F CONSOLE_ID", "### $C77E CONSOLE_ID")),
      "no equate in backplane.inc is $C77E"),
     ("a register entry naming an equate of another address",
-     lambda r: (with_console_id(r), edit(r, TR12, "`CONSOLE_ID`", "`CONSOLE_ID`, `CONSOLE_IEN`")),
+     lambda r: edit_entry(r, TR12, "reg-c77f", "`CONSOLE_ID`", "`CONSOLE_ID`, `CONSOLE_IEN`"),
      "CONSOLE_IEN is $C718 in backplane.inc, not $C77F"),
     ("a register entry leaving out an equate of its address",
-     lambda r: (with_console_id(r), edit(r, BP, "CONSOLE_ID      = $C77F", "CONSOLE_ID      = $C77F\nCONSOLE_TWO     = $C77F")),
+     lambda r: edit(r, BP, "CONSOLE_ID      = $C77F", "CONSOLE_ID      = $C77F\nCONSOLE_TWO     = $C77F"),
      "CONSOLE_TWO is $C77F too, and its Equates don't name it"),
     ("a register entry with the wrong module",
-     lambda r: (with_console_id(r), edit(r, TR12, "E, the console card", "D, the north bridge")),
+     lambda r: edit_entry(r, TR12, "reg-c77f", "E, the console card", "D, the north bridge"),
      "$C77F is module E's"),
     ("a register entry with the wrong module name",
-     lambda r: (with_console_id(r), edit(r, TR12, "E, the console card", "E, the north bridge")),
+     lambda r: edit_entry(r, TR12, "reg-c77f", "E, the console card", "E, the north bridge"),
      "module E is the console card"),
-    ("a Disk II register entry", with_disk2_id, None),
     ("a Disk II register entry with the wrong module name",
-     lambda r: (with_disk2_id(r), edit(r, TR10, "C, the Disk II card", "C, the video card")),
+     lambda r: edit_entry(r, TR10, "reg-c67f", "C, the Disk II card", "C, the video card"),
      "module C is the Disk II card"),
     ("a written entry still on the unwritten list",
      lambda r: append(r, UNWRITTEN, "bdos-9\n"), "bdos-9 is written now: take it off the list"),
