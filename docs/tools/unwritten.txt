@@ -40,30 +40,6 @@ reg-c38d  # SD_BUFPTR
 reg-c390  # SD_IEN
 reg-c391  # SD_ISR
 reg-c3ff  # SD_ID
-reg-c400  # DMA, DMA0_ADDR
-reg-c404  # DMA0_COUNT
-reg-c406  # DMA0_MODE
-reg-c407  # DMA0_CTRL
-reg-c408  # DMA0_DEST
-reg-c410  # DMA1_ADDR
-reg-c414  # DMA1_COUNT
-reg-c416  # DMA1_MODE
-reg-c417  # DMA1_CTRL
-reg-c418  # DMA1_DEST
-reg-c420  # DMA2_ADDR
-reg-c424  # DMA2_COUNT
-reg-c426  # DMA2_MODE
-reg-c427  # DMA2_CTRL
-reg-c428  # DMA2_DEST
-reg-c430  # DMA3_ADDR
-reg-c434  # DMA3_COUNT
-reg-c436  # DMA3_MODE
-reg-c437  # DMA3_CTRL
-reg-c438  # DMA3_DEST
-reg-c440  # DMA_STATUS
-reg-c441  # DMA_CONTROL
-reg-c442  # DMA_ABORT
-reg-c47f  # DMA_ID
 reg-c480  # VIDEO, VIDEO_CTRL
 reg-c481  # VIDEO_BORDER
 reg-c482  # VIDEO_PALBASE
@@ -124,30 +100,6 @@ reg-c5b2  # USB_DEVICES
 reg-c5ff  # USB_ID
 reg-c600  # DISK2
 reg-c67f  # DISK2_ID
-reg-c680  # NB, NB_WIN0
-reg-c681  # NB_WIN1
-reg-c682  # NB_WIN2
-reg-c683  # NB_WIN3
-reg-c684  # NB_VEC
-reg-c685  # NB_MODE
-reg-c686  # NB_STATUS
-reg-c687  # NB_RTCCTL
-reg-c688  # NB_IRQL
-reg-c689  # NB_IRQH
-reg-c68a  # NB_WAIT0
-reg-c68b  # NB_WAIT1
-reg-c68c  # NB_WAIT2
-reg-c68d  # NB_WAIT3
-reg-c690  # NB_SEC
-reg-c691  # NB_MIN
-reg-c692  # NB_HOUR
-reg-c693  # NB_DAY
-reg-c694  # NB_DATE
-reg-c695  # NB_MONTH
-reg-c696  # NB_YEAR
-reg-c697  # NB_RTCREG
-reg-c698  # NB_RTCDATA
-reg-c6ff  # NB_ID
 reg-c700  # CONSOLE, CONSOLE_SWR
 reg-c703  # CONSOLE_PANEL
 reg-c704  # CONSOLE_KEYS

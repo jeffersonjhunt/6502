@@ -318,226 +318,226 @@
   "equate": "DMA",
   "address": "$C400",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c400",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_ADDR",
   "address": "$C400",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c400",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_COUNT",
   "address": "$C404",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c404",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_MODE",
   "address": "$C406",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c406",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_CTRL",
   "address": "$C407",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c407",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_DEST",
   "address": "$C408",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c408",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA1_ADDR",
   "address": "$C410",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c410",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA1_COUNT",
   "address": "$C414",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c414",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA1_MODE",
   "address": "$C416",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c416",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA1_CTRL",
   "address": "$C417",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c417",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA1_DEST",
   "address": "$C418",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c418",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA2_ADDR",
   "address": "$C420",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c420",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA2_COUNT",
   "address": "$C424",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c424",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA2_MODE",
   "address": "$C426",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c426",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA2_CTRL",
   "address": "$C427",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c427",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA2_DEST",
   "address": "$C428",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c428",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_ADDR",
   "address": "$C430",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c430",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_COUNT",
   "address": "$C434",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c434",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_MODE",
   "address": "$C436",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c436",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_CTRL",
   "address": "$C437",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c437",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_DEST",
   "address": "$C438",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c438",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_STATUS",
   "address": "$C440",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c440",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_CONTROL",
   "address": "$C441",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c441",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_ABORT",
   "address": "$C442",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c442",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_ID",
   "address": "$C47F",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c47f",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO",
@@ -1128,226 +1128,226 @@
   "equate": "NB",
   "address": "$C680",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c680",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN0",
   "address": "$C680",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c680",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN1",
   "address": "$C681",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c681",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN2",
   "address": "$C682",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c682",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN3",
   "address": "$C683",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c683",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_VEC",
   "address": "$C684",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c684",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_MODE",
   "address": "$C685",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c685",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_STATUS",
   "address": "$C686",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c686",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_RTCCTL",
   "address": "$C687",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c687",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_IRQL",
   "address": "$C688",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c688",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_IRQH",
   "address": "$C689",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c689",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WAIT0",
   "address": "$C68A",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c68a",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WAIT1",
   "address": "$C68B",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c68b",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WAIT2",
   "address": "$C68C",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c68c",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WAIT3",
   "address": "$C68D",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c68d",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_SEC",
   "address": "$C690",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c690",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_MIN",
   "address": "$C691",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c691",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_HOUR",
   "address": "$C692",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c692",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_DAY",
   "address": "$C693",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c693",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_DATE",
   "address": "$C694",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c694",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_MONTH",
   "address": "$C695",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c695",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_YEAR",
   "address": "$C696",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c696",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_RTCREG",
   "address": "$C697",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c697",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_RTCDATA",
   "address": "$C698",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c698",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_ID",
   "address": "$C6FF",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6ff",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "CONSOLE",
