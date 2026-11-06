@@ -2969,9 +2969,12 @@ None raised, whatever the error mode: each is a result in A.
   CP/M sees. If a buffer can't be written, A = 1 and nothing more is done.
 - Unlike 37, 76 leaves a read-only drive read-only, logged out or not: the bit outlives the logout until 13 or 37
   clears it, as [function 28](#bdos-28) says.
-- The units are read again first (as at a reset) for every write, and for a read on an SD drive whose unit isn't
-  yet known as a 140 KB image, so a unit mounted since is seen. A write to a unit that changed since the units
-  were last read (swapped behind OODOS's back while the program ran) is refused, A = `$FF`.
+- On an SD drive, the units are read again first (as at a reset) at the program's first 76 call on it, for every
+  write, and for a read when the drive isn't yet known as a 140 KB image. The BIOS counts each unit's mount
+  changes, however they're seen (a select, 13, 37, 74, 76), and nothing clears the count: 76 keeps it at the
+  program's first call on the drive (the warm boot starts that again), and refuses a write, A = `$FF`, when it has
+  moved since, so a unit swapped on the card while the program runs takes none of its writes. A read after such
+  a swap reads the new image, unchecked. O: and P: aren't read again: a changed floppy is the program's to see.
 - The sector is the disk's own: on an SD unit at (track × 16 + sector) × 256 in its image file, on a floppy at its
   physical place by DOS 3.3's interleave. CP/M's skew isn't used, and nothing of DOS 3.3's file system is read or
   kept: that is the program's. DOS33 ([the User's Guide](../oodos-users-guide/05-utilities.md#util-dos33)) is one.

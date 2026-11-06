@@ -3509,6 +3509,42 @@ merged, with the switches' equates (below).
   the same.
 - **Sizes:** the BDOS 13,117 bytes in block 60 (+349 on main); DOS33.COM 7,443 bytes.
 
+**After 6d's third review (2026-11-06, the owner's decisions, all 9):**
+
+- **R3F1, R3F2, R3F7, the mount count:** the BIOS counts each SD unit's mount changes (`MNTGEN`), in UNITS
+  whenever a unit's entry changed, however the units were read (a select, 13, 37, 74, 76), and nothing clears
+  it; UNITS empties the SD track buffer only then. 76 reads the units at a program's first call on a drive
+  (`RSEEN`, cleared by the warm boot) and keeps the count (`RGEN`); a write is refused, `$FF`, if the count has
+  moved since. So a swap at A> before the program is taken as the disk (round 2's change bit refused the first
+  PUT), and a swap in the program is refused even when another call read the units in between (the change bit
+  was used up by it). DOS33 then says `The Apple disk was changed.` A read after a swap mid-program reads the new
+  image unchecked (the books say so).
+- **Not as asked, one conflict:** the owner asked to drop the read of the units before each write and to have
+  R2F4's probe refused. Only that read can see a swap with no other call between (the card has no signal for a
+  remounted unit). Kept, so the probe is refused: PUT of 32 KB 1.40 s (1.62 s with the track buffer emptied at
+  each read, 1.15 s with no read at all, when that probe's write would go in). The owner's call.
+- **R3F3, GET's sparse walk:** T ends at the first sector never written; B fills one with zeros only inside its
+  length, and a B file whose first sector was never written gives nothing (`bleft` starts 0); R writes zeros
+  only up to the last sector written; the zeros owed stop at once when `done` is set; GET polls ^C at each list
+  and each owed sector (CM_PAGE, CM_BRK) and `dbreak` deletes its `$$$` file. A chain of 528 lists with one
+  data pair: GET T 1.0 s, a B file whose length ends inside the owed zeros 2.1 s.
+- **R3F4:** a 10 clears `gtemp` first: the `$$$` file is the old disk's, and nothing on the new disk is touched
+  (it deleted the new disk's own `NAME.$$$`). The User's Guide says the old disk keeps it.
+- **R3F5, R3F6:** cpmok opens the target first (which logs its drive in, so a unit mounted read-only is
+  read-only for the vector check after), takes a file with f8' (user 0's, from another user) as not there,
+  and refuses one with f7' (write-protected by a password); the `NAME.$$$` probe skips f8' too.
+- **R3F8:** the duplicated `CP/M directory full.`, the dead `setmsg`, the drive-bit loop (DRVBIT) and RESCAN's
+  copied start gone; the mount count added more than they saved. **R3F9:** the books as above.
+- **Tests:** `test_oodos_dos33` 25 → 32: a swap at A> then PUT; MEMTEST's I with no call, with B: and A:
+  selected, and with 37 on B: between (all `$FF`, nothing changed); PUT's time; the 528-list chain (T, B, a ^C in
+  R, ERA, the loop); a B length inside the owed zeros; B and R holes; the new floppy's own `BIG.$$$` kept after a
+  change; user 5 with user 0's SYS files; a unit mounted read-only; a password write-protected target.
+- **Must fail, each seen with its fault put in:** the count not compared (the MEMTEST I cases); T not ending at a
+  hole (the 528-list case); the owed zeros not stopping at `done` (the B-length case: 30 s); 10 still deleting
+  the `$$$` (the change case); f8' ignored (the user-5 case).
+- **Sizes:** the BDOS 13,130 bytes (+362 on main); DOS33.COM 7,570 bytes: CODE $19CE with `cmd.inc` and
+  `util.inc` (about 4 KB of it, as in every utility), RODATA $3B4. The plan's 4-6 KB didn't count the includes.
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).
