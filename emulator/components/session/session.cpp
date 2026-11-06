@@ -389,6 +389,8 @@ namespace ooe::emu
             sd->set_cpu_hz(hz);
         if (BackplaneBridge *b = machine_->backplane_bridge())
             b->set_cpu_hz(cpu_hz_); // it knows Apple II mode's clock itself
+        if (Disk2Card *d = machine_->disk2_card())
+            d->set_cpu_hz(cpu_hz_); // native mode's steps; Apple II mode's it knows itself
     }
 
     void Session::set_rtc_time(const Ds3231::Time &t, unsigned ms)

@@ -11,8 +11,10 @@
  *
  * hw/design.md ("Storage") is the spec. In Apple II mode it is a Disk II:
  * AppleIo (apple_io.h) hands it slot 6, the switches at $C0E0-$C0EF and its
- * boot ROM at $C600. In native mode it answers only its ID byte, at
- * $C67F; the rest of its block reads $FF.
+ * boot ROM at $C600. In native mode (phase 6a, hw/oodos.md "The plan,
+ * phase 6") its block at $C600 has the same sixteen switches at
+ * $C600-$C60F, in the same order, and its ID byte at $C67F; the rest of the
+ * block reads $FF, and the boot ROM isn't seen.
  *
  *   $C0E0-$C0E7  stepper phases 0-3, off then on    $C0E8/9  motor off/on
  *   $C0EA/B      drive 1/2                          $C0EC/D  Q6 off/on
@@ -26,7 +28,8 @@
  * does: the 256-byte boot ROM (341-0027, 16-sector) and the sequencer
  * (341-0028). Without a boot ROM slot 6 is empty, so the IIe boots to
  * BASIC; without a sequencer nothing reads. The sequencer is the real
- * state machine, run at 2 MHz (two steps a CPU cycle), so software timed
+ * state machine, run at 2 MHz (two steps a CPU cycle in Apple II mode, two
+ * every seven in native mode: the clock below), so software timed
  * to the cycle meets the disk as on a real Disk II. Its PROM is read as
  * the chip is wired: address A7, A6, A0, A5 the state (fed back from data
  * bits D7-D4), A4 the read pulse (low while there is one), A3 Q7, A2 Q6,
@@ -48,6 +51,21 @@
  * catches up whenever it is touched or looked at, so a spinning disk costs
  * nothing between accesses. A long gap in read mode skips to the end,
  * since nothing read in it was taken.
+ *
+ * The clock (set_clock()): the sequencer runs from OSC / 7 in both modes,
+ * whatever the CPU's speed. Apple II mode's CPU runs at OSC / 14, two steps
+ * a cycle (as above); native mode's at OSC / 2, so two steps every seven
+ * cycles, 3.5 a step, and a disk byte (64 steps) is 224 cycles. When the
+ * emulator runs native mode's CPU at another speed (set_cpu_hz(), as the
+ * WebUI's settings do), a cycle is that much longer and the steps are
+ * cycles x (OSC / 7) / that speed, so the disk turns at its own speed in
+ * real time; at 7.16 MHz that is exactly two in seven. The remainder is
+ * carried. A card on its own (a test's) has Apple II mode's clock until
+ * told; the backplane's bridge tells it at power-on, at each reset and when
+ * MODE changes, and the card catches up to that moment at the clock it had
+ * first. The motor's run-on is counted in steps, RUN_ON_STEPS, 1 s of Apple
+ * II mode's cycles at two a cycle: the same second in Apple II mode as
+ * before, 0.998 s (the long cycle's absence) in native mode at any speed.
  */
 
 #include <array>
@@ -70,6 +88,20 @@ namespace ooe::emu
         static constexpr uint8_t FLOATING = 0xFF;
         static constexpr unsigned DRIVES = 2;
         static constexpr uint64_t MOTOR_DELAY = 1'020'484; ///< cycles the motor runs on: 1 s at the Apple's clock
+        static constexpr uint64_t RUN_ON_STEPS = 2 * MOTOR_DELAY; ///< the same, in steps: either mode's second
+
+        /// The CPU clock the card's steps are counted against (hw/design.md, "CPU and clocks").
+        enum class Clock : uint8_t
+        {
+            Apple,  ///< OSC / 14: two steps a cycle
+            Native, ///< OSC / 2: two steps every seven cycles
+        };
+        /// Catch up to now at the clock it had, then count by `c`.
+        void set_clock(Clock c);
+        Clock clock() const { return clock_; }
+        /// The speed the emulator runs native mode's CPU at, in Hz (0: 7.16 MHz, OSC / 2): native mode's steps
+        /// are counted against it, so the disk keeps its own time. Apple II mode's are two a cycle, whatever it is.
+        void set_cpu_hz(uint32_t hz);
 
         /// The bus whose cycle count is the card's clock. Not owned.
         void attach(const Decoder *decoder) { decoder_ = decoder; }
@@ -83,7 +115,8 @@ namespace ooe::emu
         const std::shared_ptr<DiskImage> &disk(unsigned drive) const { return drives_[drive % DRIVES].disk; }
 
         // Apple II mode, through AppleIo: slot 6
-        /// $C0E0 + n. `effects` false: a peek, which changes nothing.
+        /// Switch n (0-15): $C0E0 + n in Apple II mode, $C600 + n in native mode (read() and write()
+        /// below). `effects` false: a peek, which changes nothing.
         uint8_t slot_io(unsigned n, bool write, uint8_t data, bool effects);
         /// $C600 + offset.
         uint8_t slot_rom(uint8_t offset) const { return has_boot_ ? boot_[offset] : FLOATING; }
@@ -99,15 +132,28 @@ namespace ooe::emu
             uint8_t data{0};
             uint8_t phases{0};
             std::array<uint8_t, DRIVES> quarter_track{};
+            uint64_t steps{0}; ///< the sequencer's clock: steps since the card was made, the disk turning or not
         };
         /// As of now (catches up first).
         Status status();
 
-        // Device: native mode's block at $C600
+        // Device: native mode's block at $C600: the switches at $00-$0F, the ID at $7F
         size_t size() const override { return 0x80; }
-        uint8_t read(uint32_t offset) override { return peek(offset); }
-        uint8_t peek(uint32_t offset) const override { return offset == 0x7F ? ID : FLOATING; }
-        void write(uint32_t, uint8_t) override {}
+        uint8_t read(uint32_t offset) override
+        {
+            return offset < 0x10 ? slot_io(offset, false, 0, true) : peek(offset);
+        }
+        uint8_t peek(uint32_t offset) const override
+        {
+            if (offset < 0x10)
+                return offset & 1 ? FLOATING : data_;
+            return offset == 0x7F ? ID : FLOATING;
+        }
+        void write(uint32_t offset, uint8_t data) override
+        {
+            if (offset < 0x10)
+                slot_io(offset, true, data, true);
+        }
 
     private:
         struct Drive
@@ -134,7 +180,11 @@ namespace ooe::emu
         unsigned drive_{0};
         uint8_t phases_{0};
         bool motor_{false}, spinning_{false};
-        uint64_t stops_at_{0}; ///< cycle the motor stops, once switched off
+        uint64_t steps_{0};    ///< the sequencer's steps so far (Status::steps)
+        uint64_t stops_at_{0}; ///< the step the motor stops at, once switched off
+        Clock clock_{Clock::Apple};
+        uint64_t rest_{0};       ///< native mode: cycles x (OSC / 7) not yet a whole step (below 7 x cpu_hz_)
+        uint32_t cpu_hz_{7'159'090}; ///< native mode's CPU clock
         bool q6_{false}, q7_{false};
         uint8_t data_{0}, bus_{0}, state_{0};
         unsigned cell_{0};     ///< 125 ns units into the bit cell

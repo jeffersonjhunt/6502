@@ -879,14 +879,19 @@ drive" below.)*
       card is still the native machine's own storage (about 7 MB/s against the floppy's 30 KB/s), and mounts
       the same images as files.
     - It remains the exception to the rule that I/O supports DMA.
-    - The emulator doesn't do this yet: in native mode it still answers only the ID byte
-      ([EMULATOR_PLAN.md](../emulator/docs/EMULATOR_PLAN.md#backlog)).
+    - The emulator does it (2026-11-05, OODOS phase 6a, [oodos.md](oodos.md#the-plan-phase-6)): the
+      switches in native mode, the sequencer two steps every seven CPU cycles. Found there: a write loads
+      its byte with Q6 on for a whole loop of the sequencer's eight steps (28 cycles) before Q6 off, as the
+      Apple's STA then ORA do in their 4 cycles; one step's worth misses the load. A byte a cycle late (225)
+      still reads back, a ninth 0 bit now and then; a cycle early (223) loses bits.
 
 **Decided (2026-10-24), as the emulator models it** (`emulator/components/devices/disk2_card.h`):
 
 - **ID byte** `$C1` at `$C67F` (type C, revision 1).
-- **The sequencer** steps at 2 MHz, two steps a CPU cycle (the Apple's long cycle every 65th is left out, 0.2%,
-  well inside a drive's speed tolerance). The PROM is read as the 341-0028 is wired, found by running the owner's
+- **The sequencer** steps at 2 MHz: in Apple II mode two steps a CPU cycle (the Apple's long cycle every 65th is
+  left out, 0.2%, well inside a drive's speed tolerance); in native mode (phase 6a) two every seven cycles at
+  7.16 MHz, and cycles × (OSC / 7) / the CPU's speed when the emulator runs native mode slower, so the disk keeps
+  its own time. The PROM is read as the 341-0028 is wired, found by running the owner's
   dump against a known bit stream: address A7, A6, A0, A5 the state, fed back from data D7–D4; A4 the read pulse,
   low while there is one; A3 Q7, A2 Q6, A1 the data register's bit 7. D3–D0 are the command: 0–7 clear, 8 and C
   nothing, 9 shift in a 0, D shift in a 1, A and E shift right bringing in write protect, B and F load the data bus.

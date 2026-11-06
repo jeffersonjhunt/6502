@@ -239,7 +239,7 @@ export function devicesView(port: MachinePort) {
     h("p", { class: "hint" }, "The north bridge's MODE and the IIe's soft switches ($C000-$C07F), which keep their state in native mode too."),
     h("h4", {}, "Disk II ", diskStatus),
     diskRows,
-    h("p", { class: "hint" }, "Module C; slot 6 in Apple II mode, its switches at $C0E0-$C0EF and its boot ROM at $C600."),
+    h("p", { class: "hint" }, "Module C; slot 6 in Apple II mode, its switches at $C0E0-$C0EF and its boot ROM at $C600; in native mode the same switches at $C600-$C60F."),
     h("h4", {}, "Sound card ", soundStatus),
     soundRows,
     h("p", { class: "hint" }, "Module A at $C500: two SIDs, and 64 KB for the card's own 6510."),
