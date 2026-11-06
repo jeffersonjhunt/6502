@@ -938,16 +938,21 @@ the 4 KB start at 320 kbps (235 ms from RUN), 5 ms at 128 kbps and 97 ms for VBR
   II), rounded to the nearest sample and clipped at the end. A band at 0 dB is bypassed as one at or above 0.45 of
   the rate is, and so is the preamp at 0, so on and flat is bit for bit as off. The filters start from silence at
   RUN and FLUSH, and when a band starts running; a gain or the enable written, or an MP3's rate changing, gives new
-  coefficients from the next frame, the state kept. A filter state below 10^-9 of a sample's step is let go to 0,
-  so a dry spell after a stream ends in exact silence. The coefficients' sines, cosines and powers of ten are by
+  coefficients from the next frame, the state kept. A band's state, both halves below 10^-9 of a sample's step
+  together, is let go to 0 as one, so a dry spell after a stream ends in exact silence (every band, at every gain
+  and rate, within a second) and takes the bulk path; zeroing a half alone could leave a band ringing at that level
+  for good. The coefficients' sines, cosines and powers of ten are by
   series in the card's own code (sound_dsp.cpp), not libm, so every target makes the same bits.
 - The vis page (step 5): "the left and right mix" is read as their mono mix, (L + R) / 2, the same that indexes
   34–97 hold. The spectrum's 32 bytes are bins 1 to 32 of the 64-point FFT (DC left out, Nyquist in), with a
-  periodic Hann window, scaled so a full-scale sine on a bin reads 0 dBFS (|X| over 16). The scale is
+  periodic Hann window, scaled so a full-scale sine on a bin reads 0 dBFS (|X| over 16; the Nyquist bin, real,
+  over 32, so a full-scale cosine there reads 0 dBFS). The scale is
   round((dB + 60) × 255 / 60), clamped to 0–255, for the spectrum and for the VU, whose dB is the side's peak
   sample against full scale. Indexes 34–97 are each frame's high byte, offset to unsigned. Every frame of the bus
-  feeds the tap, those the mix doesn't need too (no audio rate, a bulk catch-up's, a dry spell's silence), so the
-  page doesn't depend on the audio rate or the ticks.
+  feeds the tap, those the mix doesn't need too (no audio rate, a bulk catch-up's, a dry spell's silence); while
+  RUN is set and the stream doesn't play (paused, buffering, ended, an error), the tap has silence at the stream's
+  rate on its own frame times, from the frame that found the stop, the EQ's state kept. So the page goes quiet
+  as the sound does, and doesn't depend on the audio rate or the ticks. Clearing RUN clears the page to silence.
 - Volume (step 5): VOLL and VOLR scale the bus after the vis tap: 255 exact, otherwise x × vol / 255 rounded half
   away from zero. SID A takes VOLL and SID B VOLR, a CTRL BOTH write to A reaching B by VOLR; the 6510's reads, the
   host's and the emulator's `sid()` give `$D418` as written.

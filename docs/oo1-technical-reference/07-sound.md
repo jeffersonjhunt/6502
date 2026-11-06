@@ -1213,11 +1213,11 @@ The page of silence: `$00` for 0–33, `$80` for 34–97.
 
 #### Notes
 
-The page is the stream after the EQ and before the volumes, as it was when VISIDX was last written 0. It holds what played since the stream's last 64 frames came through, whatever they were (a dry spell's silence included), and it is the same whatever the emulator's audio rate.
+The page is the stream after the EQ and before the volumes, as it was when VISIDX was last written 0: the last 64 frames' times, at the stream's rate. While the stream doesn't play (paused, buffering, ended, or an error) those times are silence, as a dry spell's are, so the page goes quiet as the sound does. Clearing RUN makes the page silence at once, the one already taken too. It is the same whatever the emulator's audio rate and however its time is ticked.
 
 | Index | Contents |
 | --- | --- |
-| 0–31 | The spectrum: byte *k* is bin *k* + 1 of a 64-point FFT of the last 64 frames' mono mix ((L + R) / 2) with a Hann window, so it is centred at (*k* + 1) × rate / 64: at 48 kHz, 750 Hz to 24 kHz. A full-scale sine on a bin reads 0 dBFS |
+| 0–31 | The spectrum: byte *k* is bin *k* + 1 of a 64-point FFT of the last 64 frames' mono mix ((L + R) / 2) with a Hann window, so it is centred at (*k* + 1) × rate / 64: at 48 kHz, 750 Hz to 24 kHz. A full-scale sine on a bin reads 0 dBFS. Byte 31 is the Nyquist bin, which has no phase: a full-scale cosine there reads 0 dBFS and a sine 0, and byte 30 takes as much from it |
 | 32–33 | The VU: the left and right peaks since the snapshot before |
 | 34–97 | The last 64 frames' mono mix, oldest first, the high byte unsigned: `$80` is zero |
 

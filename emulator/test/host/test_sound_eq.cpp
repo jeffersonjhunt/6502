@@ -16,6 +16,7 @@
 
 #include "harness.h"
 
+#include "minimp3.h"
 #include "sound_card.h"
 #include "sound_dsp.h"
 
@@ -24,6 +25,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <set>
+#include <string>
 #include <vector>
 
 using namespace ooe::test;
@@ -167,6 +173,22 @@ namespace
 
     uint8_t level_db(double db) { return static_cast<uint8_t>(std::clamp(std::floor((db + 60) * 255 / 60 + 0.5), 0.0, 255.0)); }
 
+    std::vector<uint8_t> mp3_file(const std::string &name)
+    {
+        std::ifstream in(std::string(EMU_MP3_DIR) + "/" + name, std::ios::binary);
+        return std::vector<uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+
+    /// `ticks` of `chunk` host cycles, or (chunk 0) one tick of them all.
+    void ticks(SoundCard &c, uint64_t cycles, uint64_t chunk)
+    {
+        if (!chunk)
+            return c.tick(cycles);
+        for (; cycles >= chunk; cycles -= chunk)
+            c.tick(chunk);
+        c.tick(cycles);
+    }
+
     uint64_t fnv(uint64_t h, uint8_t b) { return (h ^ b) * 0x100000001B3ull; }
 } // namespace
 
@@ -292,6 +314,229 @@ TEST(a_gain_written_while_it_plays_takes_effect_from_the_next_frame)
     const std::vector<int16_t> b2 = both(in);
     want.assign(b2.begin() + static_cast<std::ptrdiff_t>(out.size() - 2'000), b2.begin() + static_cast<std::ptrdiff_t>(out.size()));
     CHECK(tail == want); // disabled: the stream bit for bit from there
+}
+
+TEST(every_band_rings_down_to_exact_silence_within_a_second)
+{
+    // A burst of noise through each band alone, at a small and the biggest gain either way, at four rates, then
+    // silence: within a second of frames the filter's state is exactly 0, so a dry spell takes the bulk path.
+    unsigned stuck = 0, runs = 0;
+    for (const uint32_t rate : {8'000u, 22'050u, 44'100u, 48'000u})
+        for (unsigned b = 0; b < BusEq::BANDS; ++b)
+            for (const int8_t g : {int8_t{1}, int8_t{-1}, int8_t{24}, int8_t{-24}})
+            {
+                if (!BusEq::band_runs(b, rate))
+                    continue;
+                BusEq eq;
+                eq.set(band(b, g), true, rate);
+                const std::vector<int16_t> burst = noise(2'000, b * 7 + static_cast<uint32_t>(g + 30));
+                for (size_t f = 0; f < burst.size(); f += 2)
+                {
+                    int16_t l = burst[f], r = burst[f + 1];
+                    eq.run(l, r);
+                }
+                CHECK(eq.ringing());
+                for (uint32_t f = 0; f < rate && eq.ringing(); ++f)
+                {
+                    int16_t l = 0, r = 0;
+                    eq.run(l, r);
+                }
+                ++runs;
+                if (eq.ringing())
+                {
+                    ++stuck;
+                    std::printf("  still ringing: %u Hz at %+.1f dB, %u Hz\n", BusEq::CENTRE_HZ[b], g / 2.0, rate);
+                }
+            }
+    std::printf("  %u of %u still ringing after a second\n", stuck, runs);
+    CHECK_EQ(stuck, 0u);
+}
+
+TEST(the_vis_page_goes_quiet_after_a_pause_the_end_or_run_cleared)
+{
+    // A 1 kHz tone at 48 kHz, paused 33 cycles past a frame: the page 2,470 cycles in has 25 frames of silence
+    // after the tone (on the stream's own frame times, the first 67 cycles in), and 0.1 s in is silence. Released,
+    // 50 ms on: the tone. Then RUN cleared: silence at once, before any tick, the page already taken too. RUN again
+    // with EOF: what's left plays, and 0.1 s after the end the page is silence. The same at audio rates 0 and 48 kHz,
+    // ticked in 7-cycle steps, by milliseconds, or one tick to each event.
+    constexpr uint32_t RATE = 48'000;
+    const std::vector<int16_t> in = sine(RATE / 2, 1'000, 0.5, RATE);
+    std::vector<uint8_t> first;
+    bool same = true;
+    for (const uint32_t audio : {0u, 48'000u})
+        for (const uint64_t chunk : {uint64_t{7}, uint64_t{HZ / 1'000}, uint64_t{0}})
+        {
+            SoundCard c;
+            c.set_cpu_hz(HZ);
+            c.set_audio_rate(audio);
+            start(c, MONO16, RATE);
+            put(c, in);
+            std::vector<uint8_t> pages;
+            const auto snap = [&] {
+                const std::vector<uint8_t> p = page(c);
+                pages.insert(pages.end(), p.begin(), p.end());
+                float buf[2 * 4'096];
+                while (c.take_audio(buf, 4'096))
+                {
+                }
+            };
+            ticks(c, HZ * 3 / 10 + 33, chunk);
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+            ticks(c, 2'470, chunk);
+            snap(); // 0
+            ticks(c, HZ / 10, chunk);
+            snap(); // 1
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
+            ticks(c, HZ / 20, chunk);
+            snap(); // 2
+            c.write(SoundCard::PCMCTL, 0);
+            c.write(SoundCard::VISIDX, 40); // not 0: no new snapshot, the one before read
+            CHECK_EQ(c.read(SoundCard::VISDATA), 0x80);
+            snap(); // 3
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+            ticks(c, HZ * 3 / 10, chunk);
+            CHECK_EQ(c.peek(SoundCard::STATE), SoundCard::STATE_ENDED);
+            snap(); // 4
+            if (first.empty())
+                first = pages;
+            std::printf("  audio %5u Hz, %s: %s\n", audio,
+                        chunk == 7 ? "7-cycle ticks" : chunk ? "1 ms ticks" : "one tick to each event",
+                        pages == first ? "the same pages" : "different");
+            same = same && pages == first;
+        }
+    CHECK(same);
+    const auto silent = [&](size_t n) {
+        const auto *p = &first[n * SoundCard::VIS_BYTES];
+        return std::all_of(p, p + 32, [](uint8_t b) { return b == 0; }) &&
+               std::all_of(p + 34, p + 98, [](uint8_t b) { return b == 0x80; });
+    };
+    // 2,470 cycles into the pause: 25 frames of silence at the end of the samples, the tone before them.
+    const uint8_t *p0 = &first[34];
+    const size_t quiet = static_cast<size_t>(std::count(p0 + 39, p0 + 64, 0x80));
+    const bool tone = p0[38] != 0x80 && std::count(p0, p0 + 39, 0x80) < 30;
+    std::printf("  paused 2,470 cycles: last 25 samples %zu silent, the tone before %s; 0.1 s: %s; playing: %s; "
+                "RUN cleared: %s; ended: %s\n",
+                quiet, tone ? "there" : "gone", silent(1) ? "silent" : "not", silent(2) ? "silent" : "not",
+                silent(3) ? "silent" : "not", silent(4) ? "silent" : "not");
+    CHECK_EQ(quiet, size_t{25});
+    CHECK(tone);
+    CHECK(silent(1));
+    CHECK(!silent(2));
+    CHECK(silent(3));
+    CHECK(silent(4));
+    CHECK(first[3 * SoundCard::VIS_BYTES + 32] == 0); // RUN cleared: the VU too
+}
+
+TEST(a_new_rate_gives_the_eq_new_coefficients)
+{
+    // The 3 kHz band +12 dB, a 48 kHz stream played to its end; then on the same card, the EQ untouched, a
+    // 22,050 Hz stream: its 3 kHz sine comes out +12 dB, the cookbook's curve at the new rate.
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    eq(c, band(5, 24), true);
+    play(c, noise(4'000, 21), STEREO16, 48'000);
+    c.write(SoundCard::PCMCTL, 0);
+    const std::vector<int16_t> in = sine(22'050, 3'000, 0.2, 22'050);
+    const std::vector<int16_t> out = play(c, in, MONO16, 22'050);
+    const double db = 20 * std::log10(rms(out, 0, 11'025) / rms(both(in), 0, 11'025));
+    std::printf("  3 kHz at 22,050 Hz after 48 kHz: %+.2f dB (the curve %+.2f)\n", db,
+                peaking_db(3'000, 12, 3'000, 22'050));
+    CHECK(std::fabs(db - peaking_db(3'000, 12, 3'000, 22'050)) < 0.1);
+}
+
+TEST(a_new_run_or_a_seek_starts_the_eq_from_silence)
+{
+    // The 60 Hz band +12 dB (a long ring) and a stream of noise. Played on a fresh card; then on one that has just
+    // played it to its end (the filters left ringing) with RUN cleared and set again; and on one that seeks back
+    // (FLUSH with RUN) half way through: the second time, the tap the same as the fresh card's, bit for bit.
+    const std::vector<int16_t> in = noise(6'000, 31);
+    SoundCard fresh;
+    fresh.set_cpu_hz(HZ);
+    eq(fresh, band(0, 24), true);
+    const std::vector<int16_t> want = play(fresh, in, STEREO16, 48'000);
+
+    SoundCard again;
+    again.set_cpu_hz(HZ);
+    eq(again, band(0, 24), true);
+    play(again, in, STEREO16, 48'000);
+    again.write(SoundCard::PCMCTL, 0);
+    const bool rerun = play(again, in, STEREO16, 48'000) == want;
+
+    SoundCard seek;
+    seek.set_cpu_hz(HZ);
+    eq(seek, band(0, 24), true);
+    seek.set_tap(true);
+    start(seek, STEREO16, 48'000);
+    put(seek, in);
+    ticks(seek, HZ / 16, 7); // 3,000 frames in
+    seek.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH);
+    seek.take_tap();
+    put(seek, in);
+    seek.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+    ticks(seek, HZ / 4, 7);
+    const bool sought = seek.take_tap() == want;
+    std::printf("  RUN again: %s; a seek: %s\n", rerun ? "the same" : "different", sought ? "the same" : "different");
+    CHECK(rerun);
+    CHECK(sought);
+}
+
+TEST(an_mp3_through_the_eq_is_buseq_on_minimp3s_frames)
+{
+    // A 48 kHz MP3 then a 44.1 kHz one, back to back, the EQ on: the tap is BusEq run directly over minimp3's
+    // frames, with the coefficients for each frame's rate as it changes, bit for bit.
+    std::vector<uint8_t> bytes = mp3_file("cbr320_stereo_48k.mp3");
+    const std::vector<uint8_t> b2 = mp3_file("cbr128_joint_44k.mp3");
+    bytes.insert(bytes.end(), b2.begin(), b2.end());
+    std::array<int8_t, 11> gains{};
+    for (size_t i = 0; i < gains.size(); ++i)
+        gains[i] = static_cast<int8_t>(i % 2 ? 20 : -14);
+    std::vector<int16_t> want;
+    {
+        BusEq ref;
+        int rate = 0;
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+        std::set<int> rates;
+        for (size_t at = 0; at < bytes.size();)
+        {
+            mp3dec_frame_info_t info{};
+            const int n = mp3dec_decode_frame(dec.get(), bytes.data() + at, static_cast<int>(bytes.size() - at),
+                                              pcm.data(), &info);
+            if (!info.frame_bytes)
+                break;
+            at += static_cast<size_t>(info.frame_bytes);
+            if (!info.hz || !n)
+                continue;
+            if (info.hz != rate)
+                ref.set(gains, true, static_cast<uint32_t>(rate = info.hz));
+            rates.insert(info.hz);
+            for (int i = 0; i < n; ++i)
+            {
+                int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+                int16_t r = info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l;
+                ref.run(l, r);
+                want.insert(want.end(), {l, r});
+            }
+        }
+        CHECK_EQ(rates.size(), size_t{2});
+    }
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    eq(c, gains, true);
+    c.set_tap(true);
+    c.write(SoundCard::CODEC, 1);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
+    for (const uint8_t b : bytes)
+        c.write(SoundCard::PCMDATA, b);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+    for (unsigned ms = 0; ms < 3'000 && c.peek(SoundCard::STATE) != SoundCard::STATE_ENDED; ++ms)
+        ticks(c, HZ / 1'000, 7);
+    const std::vector<int16_t> got = c.take_tap();
+    std::printf("  48 kHz then 44.1 kHz: %zu frames, the card %s\n", want.size() / 2,
+                got == want ? "the same" : "different");
+    CHECK(!want.empty());
+    CHECK(got == want);
 }
 
 TEST(a_band_at_or_above_045_of_the_bus_rate_is_bypassed)
