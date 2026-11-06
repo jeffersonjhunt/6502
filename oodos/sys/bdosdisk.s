@@ -507,7 +507,7 @@ DISKVER:        JSR     VERIFYD
                 STA     VOUCH
                 BRA     CHKDSET
 @not:           CMP     #2
-                BEQ     @io
+                BEQ     @unread
                 LDA     #BIOS_BLOCK    ; nothing of the old disk's kept by the BIOS either
                 STA     NB_WIN2
                 LDX     VDRV
@@ -516,7 +516,15 @@ DISKVER:        JSR     VERIFYD
                 STA     NB_WIN2
                 JSR     GONE
                 LDA     #1
-@io:            SEC
+                SEC
+                RTS
+@unread:        LDA     VDRV           ; not tried again in this call (6c's third review:
+                SEC                    ; each waiting buffer's try took 1.8 s)
+                SBC     #DRV_O - 1
+                ORA     UNRD
+                STA     UNRD
+                LDA     #2
+                SEC
                 RTS
 
 ; VDRV's disk changed: its buffers dropped, not written (the old disk's
@@ -789,8 +797,11 @@ GETBUF:         STA     GBNEW
                 STA     WBM
                 JSR     WBACK
                 BCC     @take
+                CMP     #1             ; Disk I/O: kept, marked; another victim. Else (Read
+                BNE     @error         ; Only: dropped) said now, as WBACKX says it
                 JSR     VICTIM
                 BRA     @victim
+@error:         JMP     DERR           ; EDRV the victim's drive
 @raise:         JSR     WBACKX
 @take:          LDA     GDRV
                 STA     BCB_DRV,X
@@ -898,6 +909,10 @@ WBACK:          LDA     BCB_DRV,X      ; O:'s or P:'s, its disk not checked in t
                 BCC     @write         ; a flush's and its directory not read in this call: read
                 CMP     DVERD          ; and compared first (6c's reviews)
                 BEQ     @write
+                SEC
+                SBC     #DRV_O         ; its bit in CHKD and UNRD
+                AND     UNRD
+                BNE     @unread        ; its directory couldn't be read in this call
                 LDA     #$20
                 BIT     WBM
                 BNE     @check
@@ -920,7 +935,21 @@ WBACK:          LDA     BCB_DRV,X      ; O:'s or P:'s, its disk not checked in t
                 BEQ     @unread        ; no disk: as a write that failed, by WBM
                 CLC                    ; another disk: the buffer dropped (GONE), nothing written
                 RTS
-@unread:        LDA     #1
+@unread:        PHX                    ; no disk: every changed buffer of the drive's marked,
+                LDA     BCB_DRV,X      ; so an eviction in a later call passes them over and
+                LDX     #NBCB - 1      ; doesn't wait for the disk again for each
+@mark:          CMP     BCB_DRV,X
+                BNE     @next
+                LDY     BCB_DIRTY,X
+                BEQ     @next
+                PHA
+                LDA     #2
+                STA     BCB_DIRTY,X
+                PLA
+@next:          DEX
+                BPL     @mark
+                PLX
+                LDA     #1
                 BRA     @failed
 @write:         LDA     #1
                 JSR     DISKOP

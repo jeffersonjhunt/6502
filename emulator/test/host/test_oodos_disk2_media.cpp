@@ -10,6 +10,8 @@
  * review's: the guard's drop not losing another drive's data (R2F1), a disk taken out (R2F2), a clock that
  * doesn't tick or goes back (R2F3), a close within the second (R2F4), 10 from 19 and 22 (R2F5), and a
  * read through the BIOS after the call that checked the disk (R2F6), through cases U, R, E, X and Q.
+ * The third's: a missing disk waited for once, not for each waiting buffer (R3F1, case F), a clock that
+ * stalls (R3F2), and a write-protected disk found by an eviction (R3F5).
  */
 
 #include "harness.h"
@@ -374,6 +376,130 @@ TEST(a_bios_read_after_the_checking_call_sees_the_new_disk)
     std::printf("  %s\n", vis(o).c_str());
     has(o, "QRD 00");
     has(o, "QB E5");
+}
+
+namespace
+{
+    double secs(Dr &r, uint64_t from) { return double(r.cpu->cycles() - from) / 7159090.0; }
+    /// MEMTEST's F (or G), `then` at its SWAP?: the seconds from SWAP? to MEMTEST DONE (the 160 records to O:),
+    /// and from there to A> (the warm boot's 48 and 98).
+    std::pair<double, double> case_f(Dr &r, const std::function<void()> &then, std::string &o, char c = 'F')
+    {
+        const size_t from = start(r, "memtest.com", std::string(" ") + c);
+        if (!r.until("SWAP?", ms(60000), from))
+            return {-1, -1};
+        r.wait(ms(1500));
+        then();
+        const uint64_t t0 = r.cpu->cycles();
+        r.type(" ");
+        r.until("MEMTEST DONE", ms(600000), from);
+        const double writes = secs(r, t0);
+        const uint64_t t1 = r.cpu->cycles();
+        r.until("\r\nA>", ms(600000), from);
+        o = r.out.substr(from);
+        return {writes, secs(r, t1)};
+    }
+}
+
+TEST(a_missing_disk_is_waited_for_once_not_for_each_buffer)
+{
+    // R3F1: 64 records (16 buffers) wait for P:, P:'s disk is taken out, then 160 records go to O:. The
+    // first eviction of P:'s finds no disk (a read that times out, about 1.8 s) and marks all 16, so the
+    // later ones pass them over: the writes take at most a few seconds more than with P: there, and so
+    // does the warm boot's 48 (one try a call), where each buffer once cost its own timeout.
+    std::string base, out;
+    std::pair<double, double> with, without;
+    {
+        Dr r;
+        REQUIRE(r.ok);
+        with = case_f(r, [] {}, base);
+    }
+    {
+        Dr r;
+        REQUIRE(r.ok);
+        without = case_f(r, [&] { r.card().insert(1, nullptr); }, out);
+    }
+    std::printf("  P: there: writes %.1f s, end %.1f s; P: out: writes %.1f s, end %.1f s\n  %s\n", with.first,
+                with.second, without.first, without.second, vis(out).c_str());
+    has(base, "OFAIL 00");
+    has(out, "OFAIL 00");
+    CHECK(with.first > 0 && without.first > 0);
+    CHECK(without.first < with.first + 3.0);
+    CHECK(without.second < with.second + 3.0);
+}
+
+TEST(a_clock_that_stalls_after_a_tick_isnt_trusted)
+{
+    // R3F2, round 2's reproduction: the clock put forward (a tick), then held at one second. P:'s motor
+    // has stopped though its last access is this second, so the clock has stalled: the change is seen.
+    Dr r;
+    REQUIRE(r.ok);
+    r.set_time(2026, 11, 5, 12, 0, 0);
+    has(r.c("dir p:"), "No File");
+    r.wait(ms(1500));
+    CHECK(!r.card().status().spinning);
+    r.insert(1, r.cpm);
+    r.set_time(2026, 11, 5, 12, 0, 0);
+    has(r.c("dir p:"), "README");
+}
+
+TEST(a_missing_disk_s_buffers_among_others_are_waited_for_once)
+{
+    // R3F1, MEMTEST's G: P:'s 16 waiting buffers alternate in age with O:'s, so later writes to O: in
+    // later calls would each want one of P:'s. The first finds no disk and marks them all, and none is
+    // tried again: no slower than F's 160 records to O: with P: there.
+    std::string base, out;
+    std::pair<double, double> with, without;
+    {
+        Dr r;
+        REQUIRE(r.ok);
+        with = case_f(r, [] {}, base);
+    }
+    {
+        Dr r;
+        REQUIRE(r.ok);
+        without = case_f(r, [&] { r.card().insert(1, nullptr); }, out, 'G');
+    }
+    std::printf("  P: there: writes %.1f s, end %.1f s; P: out: writes %.1f s, end %.1f s\n  %s\n", with.first,
+                with.second, without.first, without.second, vis(out).c_str());
+    has(base, "OFAIL 00");
+    has(out, "OFAIL 00");
+    CHECK(with.first > 0 && without.first > 0);
+    CHECK(without.first < with.first + 3.0);
+    CHECK(without.second < with.second + 3.0);
+}
+
+TEST(a_clock_held_at_the_last_access_isnt_trusted_within_a_program)
+{
+    // R3F2 inside a program: MEMTEST's O holds README.TXT open on O:; the motor stops, the disk is changed and
+    // the clock put back to O:'s last access. O:'s motor has stopped within its stamp's second: the clock
+    // has stalled, so the select reads the directory, sees the change, and the read is 10.
+    Dr r;
+    REQUIRE(r.ok);
+    r.wait(ms(1200));
+    const std::string o = memcase(r, 'O', "SWAP?", [&] {
+        r.wait(ms(1500));
+        r.insert(0, r.blank);
+        at_stamp(r, 0);
+    });
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "ORD2 0A 00");
+}
+
+TEST(a_write_protected_disk_found_by_an_eviction_is_said)
+{
+    // R3F5: P:'s record waiting (MEMTEST's E), P:'s disk then write-protected. Each O: write whose buffer
+    // evicts one of P:'s (two: the record's, and the block's other sector, zeroed when the write took it)
+    // gets Read Only (P:'s), as a failed write-back's error is said, not dropped in silence.
+    Dr r;
+    REQUIRE(r.ok);
+    const std::string o = memcase(r, 'E', "SWAP?", [&] {
+        r.wait(ms(1500));
+        r.card().disk(1)->set_write_protected(true);
+    });
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "OFAIL 02");
+    has(o, "PCL FF 02");
 }
 
 int main()

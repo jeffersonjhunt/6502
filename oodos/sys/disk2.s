@@ -87,6 +87,7 @@
 .export D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2CODE62, D2FS, D2GOTF
 .export D2WRIT, D2DMAS                 ; common.s's NMI: a write cut short
 .export D2BLK                          ; the BIOS's: the buffer's block, for W1
+.export D2LAST, SPIN                   ; the BIOS's MEDIA: a stalled clock
 
 STEP_MS         = 3
 SETTLE_MS       = 15

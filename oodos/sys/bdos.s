@@ -142,6 +142,7 @@ DGEN:           .res    NSLOT - RSLOT  ; O:'s and P:'s changes seen, mod 128: an
 SUMS:           .res    16             ; DSUM's
 DVERD:          .res    1              ; O: or P: + 1 whose directory was read past the buffers in this call
 CHKD:           .res    1              ; bit 0 O:, bit 1 P:: its disk checked in this call (a select's, a write-back's)
+UNRD:           .res    1              ; the same bits: its directory couldn't be read in this call (no disk)
 VDRV:           .res    1              ; VERIFYD's and GONE's drive, and its slot
 VSLOT:          .res    1
 VDK:            .res    1              ; VERIFYD's sector, and its count
@@ -168,6 +169,7 @@ BDOSENT:        STA     PA
                 STZ     MON
                 STZ     DVERD
                 STZ     CHKD
+                STZ     UNRD
                 STZ     VOUCH
                 LDA     SCB_DISK
                 STA     EDRV

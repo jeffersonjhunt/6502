@@ -111,7 +111,7 @@
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
 .export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
 .exportzp TMP, SPTR                    ; disk2.s's too
-.import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK
+.import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 .export TESC                           ; and TTYOUT's escape state
@@ -169,8 +169,8 @@ VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checke
 D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
 STAMPT:         .res    5              ; the RTC's now, as D2STAMP keeps it
 STAMPH:         .res    5              ; the latest now NOW has read
-TICKED:         .res    1
-STAMPX:         .res    1              ; RECENT's and STAMP's drive              ; not 0: the RTC seen to go forward since the cold boot or its last step back
+TICKED:         .res    1              ; not 0: the RTC seen to go forward since the cold boot, a step back or a stall
+STAMPX:         .res    1              ; RECENT's and STAMP's drive
 RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
@@ -1083,8 +1083,21 @@ MEDIA:          TXA
                 TAX
                 JSR     RECENT         ; its own last access within the second (the
                 BCC     @same          ; run-on): taken as the same disk, the card not asked
-                JMP     D2MEDIA        ; else the card, the buffers kept: the BDOS checks, then forgets
-@same:          RTS
+@card:          JMP     D2MEDIA        ; else the card, the buffers kept: the BDOS checks, then forgets
+@same:          PHX                    ; unless the clock has stalled (6c's third review): the
+                LDX     D2LAST         ; card's drive has stopped, so its access was a second or
+                CPX     #2             ; more ago, yet its stamp is this second
+                BCS     @trust
+                JSR     SAMEST
+                BCS     @trust
+                JSR     SPIN
+                BCC     @trust
+                JSR     UNTICK         ; stalled: nothing trusted until it goes forward again
+                PLX
+                BRA     @card
+@trust:         PLX
+                CLC
+                RTS
 
 ; The run-on, timed by the drive's own last access (6c's review, the owner's
 ; rule): carry clear if drive X's (0 O:, 1 P:) last access was in the RTC's
@@ -1092,8 +1105,11 @@ MEDIA:          TXA
 ; is taken as older, so the rule only errs toward checking). Keeps X.
 RECENT:         JSR     NOW
                 LDA     TICKED
-                BEQ     @old
-                JSR     STAMPAT
+                BNE     SAMEST
+                SEC
+                RTS
+; Carry clear if drive X's last access is STAMPT's second. Keeps X.
+SAMEST:         JSR     STAMPAT
                 LDA     #4
 @cmp:           PHA
                 LDA     STAMPT,X
@@ -1109,7 +1125,7 @@ RECENT:         JSR     NOW
                 RTS
 @no:            PLA
                 LDX     STAMPX
-@old:           SEC
+                SEC
                 RTS
 ; Drive X's last access now. Keeps X.
 STAMP:          JSR     NOW
@@ -1158,11 +1174,7 @@ NOW:            LDA     NB_SEC
                 BPL     @cmp
                 BRA     @keep          ; the same second
 @differ:        BCS     @later
-                STZ     TICKED         ; stepped back
-                LDX     #15
-@forget:        STZ     D2STAMP,X
-                DEX
-                BPL     @forget
+                JSR     UNTICK         ; stepped back
                 BRA     @high
 @later:         LDA     #1
                 STA     TICKED
@@ -1172,6 +1184,15 @@ NOW:            LDA     NB_SEC
                 DEX
                 BPL     @copy
 @keep:          PLX
+                RTS
+; The clock not trusted (stepped back or stalled): TICKED clear, and every
+; drive's last access forgotten, so none matches by chance when the clock
+; comes round to it again.
+UNTICK:         STZ     TICKED
+                LDX     #15
+@forget:        STZ     D2STAMP,X
+                DEX
+                BPL     @forget
                 RTS
 
 ; FORGET, for the BDOS (as MEDIA): X = O: or P:, its track buffer emptied,

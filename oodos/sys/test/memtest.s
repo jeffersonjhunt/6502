@@ -104,10 +104,14 @@
 ;       made and a record written to each (MK, WR, CMK, CWR); SWAP? (the
 ;       test changes O:'s disk or takes it out); the end's warm boot
 ;   R   U, then 13 (RST 00 00) before the end
+;   F   E with 64 records written to P: (16 buffers waiting)
+;   G   F, BIG.DAT made first (OMK) and a record written to it after each
+;       of P:'s, so P:'s waiting buffers and O:'s alternate in age
 ;   Q   O:'s track 3 sector 0 (the directory's first) read through the BIOS
 ;       by 50, no BDOS select before (QRD 00), its first byte (QB nn: 00
 ;       README.TXT's user, E5 a blank disk's)
-;   E   P:: PEND.DAT made, a record written (PMK, PWR); SWAP? (the test
+;   E   P:: PEND.DAT made, a record written (PMK; PWR 00, the writes'
+;       results ORed); SWAP? (the test
 ;       changes P:'s disk or takes it out); O:: BIG.DAT made, 160 records
 ;       written (OFAIL nn: the writes that failed; each wants a buffer, and
 ;       P:'s waiting one is a victim), closed (OCL); PEND.DAT closed (PCL)
@@ -268,6 +272,12 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'Q'
         bne     :+
         jmp     caseq
+:       cmp     #'F'
+        bne     :+
+        jmp     casef
+:       cmp     #'G'
+        bne     :+
+        jmp     caseg
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -1030,8 +1040,21 @@ caseq:  lda     #DRV_O
         BYTES   "QB ", ybuf, 1
         jmp     done
 
-; E: P:'s record waiting, then O:'s writes evicting it.
-casee:  lda     #DRV_P
+; E, F: P:'s records waiting (1, 64), then O:'s writes evicting them.
+casee:  lda     #1
+        bra     :+
+casef:  lda     #64
+:       stz     ymix
+        bra     eprec
+caseg:  lda     #DRV_O                  ; G: O:'s file made first, a record
+        sta     TDRV                    ; to it after each of P:'s
+        NAME    fcb, "BIG     DAT"
+        TRY     "OMK ", F_MAKE, fcb
+        lda     #1
+        sta     ymix
+        lda     #64
+eprec:  sta     yra                     ; P:'s records
+        lda     #DRV_P
         sta     TDRV
         NAME    fcbc, "PEND    DAT"
         TRY     "PMK ", F_MAKE, fcbc
@@ -1041,13 +1064,26 @@ casee:  lda     #DRV_P
         inx
         cpx     #128
         bne     :-
-        TRY     "PWR ", F_WRITE, fcbc
+        stz     yerr
+:       CALLF   F_WRITE, fcbc
+        ora     yerr
+        sta     yerr
+        lda     ymix
+        beq     :+
+        CALLF   F_WRITE, fcb
+        ora     yerr
+        sta     yerr
+:       dec     yra
+        bne     :--
+        BYTES   "PWR ", yerr, 1
         KEYWAIT "SWAP?"
+        lda     ymix
+        bne     :+
         lda     #DRV_O
         sta     TDRV
         NAME    fcb, "BIG     DAT"
         TRY     "OMK ", F_MAKE, fcb
-        stz     ytrk                    ; the records
+:       stz     ytrk                    ; the records
         stz     yerr                    ; the writes that failed
 :       CALLF   F_WRITE, fcb
         cmp     #0
@@ -1305,3 +1341,4 @@ yra:    .res    1
 ydrv:   .res    1
 ytrk:   .res    1
 yerr:   .res    1
+ymix:   .res    1
