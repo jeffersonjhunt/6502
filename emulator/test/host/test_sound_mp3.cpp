@@ -372,9 +372,11 @@ TEST(rate_format_and_bitrate_read_back_the_streams)
         c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
         run(c, SECOND / 20);
         CHECK_EQ(state(c), SoundCard::STATE_PLAYING);
-        CHECK_EQ(static_cast<unsigned>(c.read(SoundCard::RATE) | c.read(SoundCard::RATE + 1) << 8), hz);
+        const unsigned rlo = c.read(SoundCard::RATE), rhi = c.read(SoundCard::RATE + 1);
+        CHECK_EQ(rlo | rhi << 8, hz);
         CHECK_EQ(c.read(SoundCard::PCMFMT), fmt);
-        CHECK_EQ(static_cast<unsigned>(c.read(SoundCard::KBPS) | c.read(SoundCard::KBPS + 1) << 8), kbps);
+        const unsigned klo = c.read(SoundCard::KBPS), khi = c.read(SoundCard::KBPS + 1);
+        CHECK_EQ(klo | khi << 8, kbps);
         // And it plays at that rate: 50 ms is that many frames, give or take the first frame's wait.
         const uint32_t played = pos(c);
         CHECK(played + 2 >= hz / 20 && played <= hz / 20);
@@ -391,7 +393,8 @@ TEST(rate_format_and_bitrate_read_back_the_streams)
     for (unsigned ms = 0; ms < 500; ++ms)
     {
         run(v, SECOND / 1'000);
-        const unsigned k = v.read(SoundCard::KBPS) | v.read(SoundCard::KBPS + 1) << 8;
+        const unsigned lo = v.read(SoundCard::KBPS), hi = v.read(SoundCard::KBPS + 1);
+        const unsigned k = lo | hi << 8;
         if (!first)
             first = k;
         seen_two = seen_two || (k && k != first);
