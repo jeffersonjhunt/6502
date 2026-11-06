@@ -45,7 +45,7 @@ test("the page starts the machine off: the dark screen says to turn the key, and
 
 test("boots the BIOS to the Woz Monitor on the CRT", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
-  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.10\n\\$/);
+  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.11\n\\$/);
   await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 

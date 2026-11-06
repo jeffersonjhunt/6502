@@ -102,7 +102,7 @@ test("keyswitch: LOCK ignores the panel, OFF powers down, RUN is a cold start", 
   expect(await lamp(page, "A19")).toBe(0);
   await key.click(); // RUN
   await expect(page.getByTestId("status")).toContainText("RUNNING");
-  await expect(page.getByTestId("crt-text")).toHaveText(/^\s*BACKPLANE BIOS 0\.10\n\\$/); // a fresh screen
+  await expect(page.getByTestId("crt-text")).toHaveText(/^\s*BACKPLANE BIOS 0\.11\n\\$/); // a fresh screen
   await expect(page.getByTestId("tb-halt")).toBeEnabled();
 });
 
