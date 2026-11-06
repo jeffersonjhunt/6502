@@ -39,9 +39,14 @@ RSX takes it. 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 a
 
 Any function that wants a sector buffer, including one that only reads (14, 15, 17, 18, 20, 33, 35, 46, 101, 102),
 can get Read Only (2) for O: or P: when the buffer it takes held that drive's waiting data and the drive's disk
-turns out to be write-protected; the SCB's error drive names O: or P:, not the function's drive. The function's
-work is done first and the error said at its end; all of that drive's waiting data is dropped with it, so it
-comes once for the disk. (A missing disk says nothing there: its data is kept and marked.)
+turns out to be write-protected; the SCB's error drive names O: or P:, not the function's drive. The function's work is done first and the error said at its end; all of that drive's waiting data is dropped
+with it, so it comes once for the disk. This is when the buffer held the *other* floppy drive's data: when it
+held the function's own drive's, the Read Only is said at once, part-way, as any write-back's failure on the
+drive is. If the function fails itself as well, its own error is the one returned, with its own drive in the
+SCB's error drive; in display and default mode the held Read Only is said first, then the function's own, and
+the default mode's end of the program comes after both. A write (21, 34, 40) that gets the held Read Only has
+its record written and CR moved on: don't write the record again. (A missing disk says nothing there: its data
+is kept and marked.)
 
 ## Error modes
 

@@ -27,7 +27,9 @@ disk changed within a second of the drive's last access, in the middle of a copy
 of the copy's sectors before the change is seen. A disk taken out while a program's data for it waits to be written gives `Disk I/O`
 when that data's turn comes (at the program's end at the latest), and the data isn't written unless the disk is
 back by then; the other drives' is, as usual. A disk whose directory is exactly the old one's (a copy of it, its files changed in place) isn't
-seen as another disk: change a disk only when the drive has stopped and no program has a file open on it.
+seen as another disk: change a disk only when the drive has stopped and no program has a file open on it. Data
+waiting for a floppy that turns out to be write-protected is dropped, all of it, with `Read Only` on O: or P:
+(perhaps while the program is using another drive); taking the tab off afterwards doesn't bring it back.
 
 **`DRIVES.TXT`** has a line for each drive the card holds: the letter and colon, blanks, the image's path on the
 card, and `RO` after it for a drive that can be read but not written. A line starting `#` is a comment:

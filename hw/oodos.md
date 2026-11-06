@@ -3365,8 +3365,24 @@ merged, with the switches' equates (below).
   QB E5), and 64 records waiting on a write-protected P: (MEMTEST's F: OFAIL 01, BIG.DAT whole). The R3F5 case
   now expects one failure (OFAIL 01), as R4F4 decided.
 - **Must fail, each seen with its fault put in:** APPLEIO's RECENT without the stall check (the stalled BIOS
-  read); the drop-all gone (the 64-record case); the eviction's Read Only raised at once, not held (the
+  read); RECENT asked after the motor-on, as before (the stalled BIOS read: QB 00; the emulated drive turns at
+  full speed the moment its motor is on, as a real one's read pulses start at once, so SPIN sees it turning and
+  the stall goes unseen: the order is load-bearing); the drop-all gone (the 64-record case); the eviction's Read Only raised at once, not held (the
   64-record case: the failing write's record lost). Round 3's code fails all three cases.
+
+**After 6c's fifth review (2026-11-06, the owner's decisions):**
+
+- **R5F1:** an eviction's write-back left EDRV at the victim's drive, so a later error in the call named P:, and
+  the held Read Only replaced the call's own error (a make of an existing file on O: returned `FF 02`, File
+  Exists lost). GETBUF now puts the call's EDRV back (`GEDRV`, `VEDRV`). When a held Read Only meets the call's
+  own error, DERR returns the call's own, with its drive; in display and default mode it says the held one first,
+  so the default mode's end never leaves P:'s loss unsaid.
+- **R5F2, R5F3, R5F5 (books):** a write that gets the held Read Only has its record written and CR moved on (21,
+  34, 40, appendix A); the held case is the other floppy's buffer only (the call's own drive's is said at once),
+  and the order when the call fails too; the stall wording names the card's drive; the User's Guide says a
+  write-protected floppy's waiting data is dropped, and the tab off doesn't bring it back.
+- **Tests:** `test_oodos_disk2_media` 23 → 24: the review's heldx as MEMTEST's H, in the three error modes.
+- **Must fail:** no EDRV put back (ERRDRV 0F); the held Read Only not said first (FF 02); round 4's code.
 - **The books** (approved): the Programmer's Guide's chapter 3 (ten drives, removable drives), 14's and 37's
   drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
   G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.

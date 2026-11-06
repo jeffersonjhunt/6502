@@ -50,7 +50,8 @@ records, and keeps it up to date as it writes the directory itself.
   selected, so the other has always stopped) has the BDOS read the directory again from the disk and compare it.
   Within the second it is taken as the same disk, and the first directory write of each call compares it anyway.
   Until the system has seen the clock tick (since the cold boot, since it was set back, or since it was seen to
-  stop: the drive's motor stopped while its last access was still this second), no access is recent: every
+  stop: the drive the card last selected has its motor stopped while that drive's last access is still this
+  second), no access is recent: every
   select with the motor stopped reads the directory.
 - **Another disk.** The drive's buffers are dropped, not written (they belong to the old disk), and it is logged
   in again, so the function works on the new disk. A call that was about to write the directory returns A = 10
@@ -72,8 +73,10 @@ records, and keeps it up to date as it writes the directory itself.
   drives' buffers, 13 and 37 drop it); a buffer wanted for another sector says nothing and passes it over. The
   missing disk is waited for once a call, and its other waiting buffers are marked with the first. If the disk is
   back before the data's turn, the data is written. A write-protected disk found by a buffer wanted for another
-  sector drops all the drive's waiting data at once, and the call that wanted the buffer finishes its work and then
-  says Read Only for that drive, once; this can be a call that only reads, on another drive (appendix A).
+  sector drops all the drive's waiting data at once. When the buffer held the other floppy drive's data, the call
+  that wanted it finishes its work and then says Read Only for that drive, once, and this can be a call that only
+  reads, on another drive; when it held the call's own drive's, the Read Only is said at once. A call that also
+  fails itself returns its own error ([appendix A](appendix-a-errors.md#physical-errors) says the order).
 - **What isn't seen.** A disk swapped within a second of its drive's last access, while a copy between O: and P:
   runs, can take a few of the copy's data sectors before the next directory write sees the change. A disk whose
   directory is byte for byte the old one's (a copy of it whose files were rewritten in place, say) is taken as the

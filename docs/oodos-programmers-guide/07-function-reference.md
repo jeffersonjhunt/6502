@@ -1051,6 +1051,11 @@ write can fail (1 Disk I/O, or 2 Read Only for a unit found read-only) after the
 return mode the call then says the error with CR not moved on: write the record again, or close the file, as for
 any physical error.
 
+One Read Only is different: when the SCB's error drive (`$51`, [function 49](#bdos-49)) is O: or P: and not the
+FCB's drive, the write took a buffer that held that other floppy's waiting data, and its disk is write-protected.
+That error is said after the write is done: the record is written and CR has moved on, so don't write it again
+([appendix A](appendix-a-errors.md#physical-errors)). 34 and 40 are the same.
+
 #### Side effects
 
 - A record in a block the file doesn't have yet takes the lowest free block, which is zeroed: a record of it never
