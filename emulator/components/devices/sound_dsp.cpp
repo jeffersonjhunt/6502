@@ -151,14 +151,14 @@ namespace ooe::emu
             for (unsigned ch = 0; ch < 2; ++ch)
             {
                 // Transposed direct form II. A state far below a sample's step is let go to 0, so silence after a
-                // stream ends in exact silence, and no denormal slows the sums.
+                // stream ends in exact silence, and no denormal slows the sums: both halves at once, as one step
+                // (zeroing either alone feeds the other a jump, and the filter can ring on at that level for good).
                 auto &s = q.s[ch];
                 const double y = q.b0 * x[ch] + s[0];
                 s[0] = q.b1 * x[ch] - q.a1 * y + s[1];
                 s[1] = q.b2 * x[ch] - q.a2 * y;
-                for (double &v : s)
-                    if (std::fabs(v) < 1e-9)
-                        v = 0;
+                if (std::fabs(s[0]) < 1e-9 && std::fabs(s[1]) < 1e-9)
+                    s = {0, 0};
                 x[ch] = y;
             }
         }
@@ -206,7 +206,8 @@ namespace ooe::emu
                 re += x[n] * t.cos[a];
                 im -= x[n] * t.sin[a];
             }
-            const double scale = static_cast<double>(N) / 4.0;
+            // The Nyquist bin is real, the window's whole sum: a full-scale cosine there gives N / 2.
+            const double scale = static_cast<double>(N) / (k == N / 2 ? 2.0 : 4.0);
             page[k - 1] = dsp::level((re * re + im * im) / (scale * scale));
         }
         for (size_t ch = 0; ch < 2; ++ch)

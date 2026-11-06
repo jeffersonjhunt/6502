@@ -36,12 +36,12 @@ namespace
     constexpr double PI = 3.14159265358979323846;
 
     /// `n` frames of a sine at `hz`, `amp` of full scale, at `rate`: the same bits on every target.
-    std::vector<int16_t> sine(size_t n, double hz, double amp, uint32_t rate)
+    std::vector<int16_t> sine(size_t n, double hz, double amp, uint32_t rate, double phase = 0)
     {
         std::vector<int16_t> out(n);
         for (size_t i = 0; i < n; ++i)
             out[i] = static_cast<int16_t>(
-                std::floor(amp * 32'767.0 * dsp::sin(2 * PI * hz * static_cast<double>(i) / rate) + 0.5));
+                std::floor(amp * 32'767.0 * dsp::sin(2 * PI * hz * static_cast<double>(i) / rate + phase) + 0.5));
         return out;
     }
 
@@ -91,9 +91,27 @@ namespace
         return gains;
     }
 
-    /// `samples` (mono, or stereo with `fmt`) played whole at `rate`, as the tap has them: stereo frames.
+    /// A snapshot (VISIDX written 0), then the page read through VISDATA, and the 0s past it.
+    std::vector<uint8_t> page(SoundCard &c, size_t n = SoundCard::VIS_BYTES)
+    {
+        c.write(SoundCard::VISIDX, 0);
+        std::vector<uint8_t> p(n);
+        for (uint8_t &b : p)
+            b = c.read(SoundCard::VISDATA);
+        return p;
+    }
+
+    uint32_t pos(SoundCard &c)
+    {
+        const uint32_t lo = c.read(SoundCard::POS); // latches the rest
+        const uint32_t b1 = c.read(SoundCard::POS + 1), b2 = c.read(SoundCard::POS + 2), b3 = c.read(SoundCard::POS + 3);
+        return lo | b1 << 8 | b2 << 16 | b3 << 24;
+    }
+
+    /// `samples` (mono, or stereo with `fmt`) played whole at `rate`, as the tap has them: stereo frames. With
+    /// `last`, the vis page (100 bytes) as the last frame has played, before the stream ends.
     std::vector<int16_t> play(SoundCard &c, const std::vector<int16_t> &samples, uint8_t fmt, uint32_t rate,
-                              uint64_t chunk = 7)
+                              uint64_t chunk = 7, std::vector<uint8_t> *last = nullptr)
     {
         c.set_tap(true);
         start(c, fmt, rate);
@@ -102,7 +120,11 @@ namespace
         const size_t frames = fmt & SoundCard::PCMFMT_STEREO ? samples.size() / 2 : samples.size();
         uint64_t cycles = (uint64_t{frames} + 2) * HZ / rate + HZ / 100; // in 64 bits: size_t is 32 in WebAssembly
         for (; cycles >= chunk; cycles -= chunk)
+        {
             c.tick(chunk);
+            if (last && last->empty() && pos(c) >= frames)
+                *last = page(c, 100);
+        }
         c.tick(cycles);
         CHECK_EQ(c.peek(SoundCard::STATE), SoundCard::STATE_ENDED);
         return c.take_tap();
@@ -125,16 +147,6 @@ namespace
         for (size_t f = from; 2 * f + side < frames.size(); ++f, ++n)
             sum += static_cast<double>(frames[2 * f + side]) * frames[2 * f + side];
         return n ? std::sqrt(sum / static_cast<double>(n)) : 0;
-    }
-
-    /// A snapshot (VISIDX written 0), then the page read through VISDATA, and the 0s past it.
-    std::vector<uint8_t> page(SoundCard &c, size_t n = SoundCard::VIS_BYTES)
-    {
-        c.write(SoundCard::VISIDX, 0);
-        std::vector<uint8_t> p(n);
-        for (uint8_t &b : p)
-            b = c.read(SoundCard::VISDATA);
-        return p;
     }
 
     /// The cookbook's peaking filter at `f0`, `db` and Q 1.41, its gain in dB at `f` and `rate`: worked here with
@@ -324,24 +336,28 @@ TEST(a_sine_lands_in_its_spectrum_band)
 {
     // A sine on bin k of the 64-point FFT (k x rate / 64), half of full scale (-6 dB): band k - 1 is the page's
     // highest, at -6 dBFS (within a step); the bins two or more away below -60 dBFS (the window's leakage). The
-    // VU near -6 dBFS; the samples the tap's last 64, mono, high bytes.
+    // VU near -6 dBFS; the samples the tap's last 64, mono, high bytes. The page as the last frame plays. Bin 32
+    // (Nyquist, band 31) is real: a cosine there.
     for (const uint32_t rate : {48'000u, 22'050u, 8'000u})
-        for (const unsigned k : {1u, 4u, 9u, 16u, 31u})
+        for (const unsigned k : {1u, 4u, 9u, 16u, 31u, 32u})
         {
             SoundCard c;
             c.set_cpu_hz(HZ);
-            const std::vector<int16_t> in = sine(4'000, static_cast<double>(k) * rate / 64, 0.5, rate);
-            const std::vector<int16_t> tap = play(c, in, MONO16, rate);
-            const std::vector<uint8_t> p = page(c, 100);
+            const std::vector<int16_t> in =
+                sine(4'000, static_cast<double>(k) * rate / 64, 0.5, rate, k == 32 ? PI / 2 : 0);
+            std::vector<uint8_t> p;
+            const std::vector<int16_t> tap = play(c, in, MONO16, rate, 7, &p);
+            CHECK_EQ(p.size(), size_t{100});
+            p.resize(100);
             const auto top = std::max_element(p.begin(), p.begin() + 32);
             bool quiet = true;
             for (size_t i = 0; i < 32; ++i)
                 if ((i + 2 < k - 1 || i > k + 1) && p[i] != 0)
                     quiet = false;
-            std::printf("  %5u Hz at %u Hz: band %td at %u (want %u at %u), far bands %s, VU %u %u\n",
-                        static_cast<unsigned>(k * rate / 64), rate, top - p.begin(), *top, k - 1, level_db(-6.0206),
+            std::printf("  %5u Hz at %u Hz: band %u at %u, highest %u (want %u), far bands %s, VU %u %u\n",
+                        static_cast<unsigned>(k * rate / 64), rate, k - 1, p[k - 1], *top, level_db(-6.0206),
                         quiet ? "silent" : "not silent", p[32], p[33]);
-            CHECK_EQ(static_cast<size_t>(top - p.begin()), static_cast<size_t>(k - 1));
+            CHECK_EQ(p[k - 1], *top); // the highest (at Nyquist, band 30 as high: the window's leakage from both sides)
             CHECK(std::abs(static_cast<int>(*top) - level_db(-6.0206)) <= 1);
             CHECK(quiet);
             CHECK(std::abs(static_cast<int>(p[32]) - level_db(-6.0206)) <= 3);
@@ -353,9 +369,12 @@ TEST(a_sine_lands_in_its_spectrum_band)
                 CHECK_EQ(p[34 + i], static_cast<uint8_t>((mono + 32'768) >> 8));
             }
             CHECK(p[98] == 0 && p[99] == 0); // past the page
-            // Since that snapshot nothing has played: the VU starts again at silence.
+            // Since that snapshot nothing has played: the VU starts again at silence; and the stream has ended, so
+            // the page is silence.
             const std::vector<uint8_t> again = page(c);
             CHECK(again[32] == 0 && again[33] == 0);
+            CHECK(std::all_of(again.begin(), again.begin() + 34, [](uint8_t b) { return b == 0; }));
+            CHECK(std::all_of(again.begin() + 34, again.end(), [](uint8_t b) { return b == 0x80; }));
         }
 }
 
@@ -377,8 +396,10 @@ TEST(the_vis_page_follows_the_eq_and_not_the_volume)
             c.write(SoundCard::VOLL, 0);
             c.write(SoundCard::VOLR, 0);
         }
-        play(c, in, MONO16, RATE);
-        pages.push_back(page(c));
+        std::vector<uint8_t> p;
+        play(c, in, MONO16, RATE, 7, &p);
+        p.resize(SoundCard::VIS_BYTES);
+        pages.push_back(p);
     }
     std::printf("  band 15: flat %u, the 12 kHz band cut 12 dB %u, volume 0 %u\n", pages[0][15], pages[1][15],
                 pages[2][15]);
@@ -518,8 +539,8 @@ TEST(the_sids_sound_follows_the_volume)
 
 TEST(the_eq_and_the_vis_page_are_the_same_whatever_the_audio_rate_or_ticks)
 {
-    // The EQ on, every band and the preamp, an 8 kHz stereo stream of noise and a sine for 6 s, the tap off: the
-    // vis page at 1 s, 2.5 s and 5.5 s, with the audio rate 0, 48 kHz and 44.1 kHz, ticked in 7-cycle steps, by
+    // The EQ on, every band and the preamp, an 8 kHz stereo stream of noise and a sine for 4 s (as much as the FIFO
+    // holds), the tap off: the vis page at 1 s, 2.5 s and 5.5 s (after the end: silence), with the audio rate 0, 48 kHz and 44.1 kHz, ticked in 7-cycle steps, by
     // milliseconds, and in one tick each (over two seconds: the mix's bulk catch-up). Then the golden hash of the
     // tap and the pages: this build's and WebAssembly's alike.
     constexpr uint32_t RATE = 8'000;
@@ -527,8 +548,8 @@ TEST(the_eq_and_the_vis_page_are_the_same_whatever_the_audio_rate_or_ticks)
     for (size_t i = 0; i < gains.size(); ++i)
         gains[i] = static_cast<int8_t>(i % 3 == 0 ? 18 : i % 3 == 1 ? -24 : 7);
     gains[0] = -6;
-    std::vector<int16_t> in = noise(6 * RATE, 3);
-    const std::vector<int16_t> tone = sine(6 * RATE, 1'000, 0.4, RATE);
+    std::vector<int16_t> in = noise(4 * RATE, 3);
+    const std::vector<int16_t> tone = sine(4 * RATE, 1'000, 0.4, RATE);
     for (size_t f = 0; f < tone.size(); ++f)
         in[2 * f] = static_cast<int16_t>(in[2 * f] / 4 + tone[f]);
     const uint64_t marks[] = {HZ, HZ * 5 / 2, HZ * 11 / 2};
@@ -570,6 +591,9 @@ TEST(the_eq_and_the_vis_page_are_the_same_whatever_the_audio_rate_or_ticks)
         }
     CHECK(same);
     CHECK(std::any_of(first.begin(), first.begin() + 32, [](uint8_t b) { return b > 100; })); // not silence
+    CHECK(std::all_of(first.begin() + 2 * 98, first.begin() + 2 * 98 + 32, [](uint8_t b) { return b == 0; }));
+    CHECK(std::all_of(first.begin() + 2 * 98 + 34, first.end(), [](uint8_t b) { return b == 0x80; }));
+    CHECK(first[2 * 98 + 32] > 100); // the VU: the peak since the snapshot before, while it still played
 
     // The golden hash: the tap (EQ on, VOLL 200) and the three pages.
     SoundCard c;
@@ -586,7 +610,7 @@ TEST(the_eq_and_the_vis_page_are_the_same_whatever_the_audio_rate_or_ticks)
     for (const uint8_t b : first)
         h = fnv(h, b);
     std::printf("  golden: %016llx\n", static_cast<unsigned long long>(h));
-    CHECK_EQ(h, 0x97F4B3461FC9677Aull);
+    CHECK_EQ(h, 0x0BE0AFA2FD43DEFCull);
 }
 
 TEST(the_eq_rings_down_into_an_underrun_the_same_whatever_the_ticks)

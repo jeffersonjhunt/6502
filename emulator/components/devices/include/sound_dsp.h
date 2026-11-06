@@ -23,7 +23,7 @@
  * and each side's peak since the last snapshot, after the EQ. snapshot() makes
  * the page: 0-31 the spectrum, bins 1 to 32 of a 64-point FFT of those frames
  * with a periodic Hann window, scaled so a full-scale sine on a bin reads
- * 0 dBFS; 32-33 the peaks; both 0 to 255 for -60 to 0 dBFS, rounded; 34-97
+ * 0 dBFS (bin 32, Nyquist, real: a full-scale cosine there); 32-33 the peaks; both 0 to 255 for -60 to 0 dBFS, rounded; 34-97
  * the frames' high bytes, unsigned (oldest first, $80 zero).
  *
  * Every number is made the same on every target: only +, -, x, / and sqrt,

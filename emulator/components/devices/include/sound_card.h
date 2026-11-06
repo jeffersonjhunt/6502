@@ -507,6 +507,8 @@ namespace ooe::emu
         void bus_dsp(int16_t &l, int16_t &r);
         /// `n` frames of silence through bus_dsp, none to the tap or the mix.
         void bus_dsp_silence(uint64_t n);
+        /// `cycles` with the bus stopped and RUN set: silence to the vis tap at the stream's rate.
+        void vis_quiet(uint64_t cycles);
         /// VOLL or VOLR on each SID's volume: its $D418 as written, the low nibble scaled.
         void sid_volume();
         uint8_t sid_mode_vol(unsigned chip) const
@@ -613,6 +615,7 @@ namespace ooe::emu
         bool eq_dirty_{true};  ///< the gains or enable changed: the coefficients anew
         uint32_t eq_rate_{0};  ///< the bus rate the coefficients are for
         BusVis vis_bus_;
+        uint64_t vis_phase_{0}; ///< host cycles x rate owed to the vis tap's silence while the bus is stopped
         /// Each SID's registers as written ($00-$18; the read-only four 0): its $D418 the chip has scaled by VOLL or VOLR.
         std::array<std::array<uint8_t, SID_REGS>, 2> written_{};
         uint8_t visidx_{0};

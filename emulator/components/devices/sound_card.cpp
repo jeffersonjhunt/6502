@@ -433,6 +433,7 @@ namespace ooe::emu
         eq_.clear();
         eq_dirty_ = true;
         vis_bus_.clear();
+        vis_phase_ = 0;
         visidx_ = 0;
         vis_snapshot();
         sid_volume(); // back to unity
@@ -464,9 +465,15 @@ namespace ooe::emu
     void SoundCard::tick(uint64_t cycles)
     {
         if (state_ == STATE_PLAYING || state_ == STATE_UNDERRUN)
+        {
             pcm_advance(cycles); // the stream keeps the card's time, whether or not sound is made
+            vis_phase_ = pcm_phase_; // if it stops, the vis tap's silence goes on from the same place
+        }
         else
+        {
             bus_on_ = false; // time passes with the bus stopped: its next run anchors afresh
+            vis_quiet(cycles);
+        }
         // SID clocks = host cycles x SID Hz / host Hz, the remainder carried. In whole seconds of the host's
         // clock and the rest, so a single tick of years doesn't overflow (cycles x SID Hz would past 29 days).
         phase_ += cycles % host_hz_ * sid_hz();
@@ -560,7 +567,11 @@ namespace ooe::emu
             }
         }
         else if (!(pcmctl_ & PCMCTL_RUN))
+        {
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
+            vis_bus_.clear();    // and the vis page silence
+            vis_snapshot();
+        }
         pcm_update(); // last: a RUN, a seek or a pause leaves the state stopped first, so this re-anchors the mix
     }
 
@@ -694,6 +705,8 @@ namespace ooe::emu
             pcm_silence(due); // until data comes
             break;
         }
+        if (state_ != STATE_PLAYING && state_ != STATE_UNDERRUN)
+            vis_bus_.silence(due); // stopped within the tick: the vis tap has its frames from the one that found it
         if (bulk)
             bus_on_ = false; // after a bulk catch-up the lineup is rounded: the next frame anchors afresh
         mix_skip_ = 0;
@@ -738,6 +751,19 @@ namespace ooe::emu
         };
         l = scale(l, vol_[0]);
         r = scale(r, vol_[1]);
+    }
+
+    void SoundCard::vis_quiet(uint64_t cycles)
+    {
+        // Running, but the bus stopped (paused, buffering, ended, an error): the vis tap has silence at the stream's
+        // rate, counted on the card's clock as the frames are, so the page goes quiet as the sound has, whatever
+        // the ticks. Nothing past the vis tap: the EQ keeps its state for the stream's return.
+        if (!(pcmctl_ & PCMCTL_RUN) || !play_rate_)
+            return;
+        vis_phase_ += cycles % host_hz_ * play_rate_;
+        const uint64_t n = cycles / host_hz_ * play_rate_ + vis_phase_ / host_hz_;
+        vis_phase_ %= host_hz_;
+        vis_bus_.silence(n);
     }
 
     void SoundCard::bus_dsp_silence(uint64_t n)
