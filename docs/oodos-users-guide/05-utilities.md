@@ -770,7 +770,8 @@ TWO.TXT
 - `DESTINATION IS R/O, DELETE (Y/N)?`: N is `**NOT DELETED**`.
 - `DISK WRITE ERROR - NAME.TYP`: the disk, or its directory, is full. `VERIFY ERROR - NAME.TYP`: V found a difference.
 - `MEDIA CHANGE - NAME.TYP`: the floppy in O: or P: was changed during the copy, the destination's or (with a
-  source's name) the source's. Nothing more is written; the new floppy isn't touched.
+  source's name) the source's. Nothing more is written, and nothing on the new floppy is touched; the
+  destination's `NAME.$$$` is left on the changed floppy, or deleted when the destination's floppy didn't change.
 - `START NOT FOUND`, `QUIT NOT FOUND`: S's or Q's text wasn't in the source.
 - `INVALID DIGIT`, `CHECKSUM ERROR`, `RECORD TOO LONG`, `UNEXPECTED END OF HEX FILE`, each with the file's name: H.
 - `USER ABORTED`: ^C during a copy.
