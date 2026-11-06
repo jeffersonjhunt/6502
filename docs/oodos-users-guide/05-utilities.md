@@ -779,7 +779,7 @@ A copy that fails leaves nothing behind: PIP writes to `NAME.$$$` and renames it
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -1125,17 +1125,25 @@ DOS33 ERA d:NAME
 ```
 
 - **`DOS33 d:`** lists the disk's catalog: for each file a `*` if it's locked, its type letter (T text, I and A BASIC
-  programs, B binary, S, R), the sectors it takes (three digits), and its name; then the free sectors.
-- **GET** takes the file NAME off the disk into the CP/M file (replaced if it's there). T: bit 7 of each character
-  cleared, each CR written as CR LF, to the first 0, and ^Z after. B: the bytes DOS keeps first (the load address and
-  the length) dropped, the length's bytes written; the address is shown. R: every sector of the file as it is on the
-  disk. Without a letter, T for a T file, B for a B file, R for any other.
-- **PUT** puts the CP/M file on the disk as NAME. T: bit 7 set, LF dropped, to the first ^Z, a 0 after. B: the load
-  address (`$2000` unless `B=addr` gives it, in hex) and the length (the file's records × 128, so at most 511 of
-  them) first. Without a letter, T for a `.TXT` file, B for any other. A name that's on the disk already is refused:
-  ERA it first.
+  programs, B binary, S, R; `?` for a type byte DOS 3.3 doesn't make), the sectors it takes (three digits), and its
+  name, a control character in it shown as `^G` and the like; then the free sectors.
+- **GET** takes the file NAME off the disk into the CP/M file. T: the text to its first 0 byte as stored, bit 7 of
+  each character cleared, each CR written as CR LF, and ^Z after. A random-access text file keeps a 0 after each
+  record, so T stops at the first: take one with R. B: the bytes DOS keeps first (the load address and the length)
+  dropped, the length's bytes written; the address is shown. R: every sector of the file as it is on the disk. Without
+  a letter, T for a T file, B for a B file, R for any other. GET writes a `.$$$` file first and gives it the name only
+  when it is whole, so a CP/M file already there is replaced only then; a GET that fails leaves it as it was.
+- **PUT** puts the CP/M file on the disk as NAME. T: bit 7 set, CR LF made a CR and a lone LF a CR too, NUL bytes
+  dropped, to the first ^Z, a 0 after. B: the load address (`$2000` unless `B=addr` gives it, in hex) and the length
+  (the file's records × 128, so at most 511 of them) first. Without a letter, T for a `.TXT` file, B for any other. A
+  name that's on the disk already is refused: ERA it first.
 - **ERA** deletes NAME, its sectors free again. A locked file is refused.
-- A name has 1 to 30 characters; one with blanks is typed in quotes: `DOS33 GET O:"MY FILE" M:MY.TXT`.
+- A name has 1 to 30 characters; one with blanks is typed in quotes: `DOS33 GET O:"MY FILE" M:MY.TXT`. The command
+  line comes in capitals, quotes and all, so a file whose name has small letters or control characters, as DOS 3.3
+  allows, can be listed but not reached by GET or ERA.
+- The CP/M file mustn't be on the Apple disk's own drive: GET and PUT refuse it.
+- Before GET or ERA does anything, the file's track/sector lists are read through: at most five, each sector on the
+  disk and not on the catalog's track. A file that isn't so is refused, nothing written.
 
 #### Options
 
@@ -1156,13 +1164,18 @@ Address $6000, 1000 bytes
 #### Errors
 
 - `Use: DOS33 d: | GET ... | PUT ... | ERA d:NAME`: a form DOS33 doesn't have.
-- `Not an Apple disk drive.`: d: isn't O:, P: or a 140 KB SD drive. `Not a DOS 3.3 disk.`: its catalog's sector isn't
-  one DOS 3.3 would take (a CP/M disk, a blank one).
+- `Not an Apple disk drive.`: d: isn't O:, P: or a 140 KB SD drive. `Not a DOS 3.3 disk.`: its VTOC (track 17,
+  sector 0) isn't one DOS 3.3 would take (a CP/M disk, a blank one).
 - `File not found.`, `File exists.`, `File locked.`, `Bad name.`: the Apple disk's file, or its name.
-- `Disk full.`, `Catalog full.` (105 files): PUT puts nothing on the disk then.
+- `Bad file: its sector lists aren't a DOS 3.3 file's.` (a list chained in a loop, a sector past the disk);
+  `Bad catalog: its chain loops.`: a damaged disk.
+- `Disk full.`, `Catalog full.` (105 files): the catalog and the VTOC are as they were, so the file isn't there and
+  the sectors PUT had written to are still free.
 - `File too big for B.`: a B file of more than 511 records.
-- `Disk error.`: a sector couldn't be read or written. `Disk write-protected.`: the floppy's notch is covered.
-- `No File`, `CP/M disk full.`, `CP/M directory full.`: the CP/M file.
+- `Disk error.`: a sector couldn't be read or written. `Disk write-protected.`: the floppy's notch is covered, or the
+  drive is set read-only (SET `[RO]`).
+- `The CP/M file can't be on the Apple disk.`: e: is d:.
+- `No File`, `CP/M disk full.`, `CP/M directory full.`, `CP/M read error.`: the CP/M file.
 
 Each sets the return code to `$FF00`. A disk DOS33 has written passes DOS 3.3's own `VERIFY` and loads with `BLOAD`.
 

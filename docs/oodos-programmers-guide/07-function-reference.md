@@ -688,7 +688,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -752,7 +752,7 @@ An FCB in the I/O hole (`$C000`–`$C7FF`) returns A = X = `$FF`, with nothing d
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -805,7 +805,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -946,7 +946,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1004,7 +1004,7 @@ The BDOS stub adds 220.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1084,7 +1084,7 @@ stub adds 220.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -1144,7 +1144,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -1190,7 +1190,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1462,7 +1462,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1509,7 +1509,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1597,7 +1597,7 @@ measured by `test_oodos_sys` ([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3),
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1649,7 +1649,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -1773,7 +1773,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -1883,7 +1883,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -2773,7 +2773,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -2876,7 +2876,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -2943,8 +2943,8 @@ the BDOS. The CCP's WOZMON and APPLE2 use it.
 - A = 0, X = 0: done; a read's 256 bytes are at the address.
 - A = 1, X = 0: the sector couldn't be read or written (no disk, a bad sector, the card's error), or the track,
   sector or operation is past what there is.
-- A = 2, X = 0: a write to a write-protected disk (the floppy's notch, or a unit `RO` in `DRIVES.TXT`). Nothing is
-  written.
+- A = 2, X = 0: a write to a write-protected disk (the floppy's notch, or a unit `RO` in `DRIVES.TXT`), or to a
+  drive set read-only ([function 28](#bdos-28), SET `[RO]`). Nothing is written; the drive stays read-only.
 - A = `$FF`, X = 0: the drive isn't an Apple disk. O: and P: are, when the machine has the Disk II card; an SD
   drive is when its unit is a 140 KB image.
 - A = X = `$FF`: the block, or the 256 bytes, are in memory that isn't the program's (the I/O hole, flash).
@@ -2957,9 +2957,10 @@ None raised, whatever the error mode: each is a result in A.
 #### Side effects
 
 - If the drive is logged in, its changed buffers are written back, then all its buffers are dropped and it is
-  logged out, as [function 37](#bdos-37) does: its next CP/M use reads the disk again, so what 76 wrote is what
+  logged out, as [function 37](#bdos-37) does but keeping a read-only drive read-only: its next CP/M use reads the disk again, so what 76 wrote is what
   CP/M sees. If a buffer can't be written, A = 1 and nothing more is done.
-- An SD drive's units are read again first (as at a reset), so a unit mounted since is seen as it is now.
+- An SD drive whose unit isn't yet known as a 140 KB image has the units read again first (as at a reset), so a
+  unit mounted since is seen.
 - The sector is the disk's own: on an SD unit at (track × 16 + sector) × 256 in its image file, on a floppy at its
   physical place by DOS 3.3's interleave. CP/M's skew isn't used, and nothing of DOS 3.3's file system is read or
   kept: that is the program's. DOS33 ([the User's Guide](../oodos-users-guide/05-utilities.md#util-dos33)) is one.
@@ -3064,7 +3065,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -3123,7 +3124,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -3262,7 +3263,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 

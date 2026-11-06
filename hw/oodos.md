@@ -3438,6 +3438,46 @@ merged, with the switches' equates (below).
   moved to the IIe (the IIe case uses the SD image's sectors, the same bytes); ProDOS (not in phase 6); a file of
   more than one track/sector list read by DOS 3.3 itself (DOS33 and dos33.py agree on them).
 
+**After 6d's first review (2026-11-06, the owner's decisions, all 15 as recommended):**
+
+- **F1-F3, a bad file:** GET and ERA read the file's lists through first (`chkfile`): at most five (a disk's 560
+  sectors), each list and each data sector on tracks 1-34 but 17, sectors 0-15, a pair of track 0 none. Anything
+  else is `Bad file`, before a sector is written or freed: a looped list hung GET and ERA, and a pair on track 63
+  made ERA set bits past the bitmap (the VTOC then said 17 sectors a track).
+- **F4:** GET writes `NAME.$$$`, closes it, then deletes the old file and renames it; any failure (`failsay`)
+  closes and deletes the `$$$` file and leaves the old one. **F5:** GET and PUT refuse a CP/M file on the Apple
+  drive itself (`samedrv`).
+- **F6:** PUT writes the VTOC before the catalog entry: a failure between leaks sectors instead of leaving a file
+  on free ones. **F7:** 76 refuses a write to a read-only drive (28, SET `[RO]`) with 2, and keeps the drive
+  read-only when it logs it out (`RRO`).
+- **F10:** GET's T ends at a stored 0, tested before bit 7 is cleared; PUT's T makes a lone LF a CR as CR LF, and
+  drops NULs (dos33.py's `text` the same). **F11:** the catalog shows a control character as `^G` and DEL as `?`;
+  the CCP's capitals keep a name with small letters out of GET's and ERA's reach (said in the User's Guide).
+- **F12, the Since lines:** every entry 6a-6d changed says OODOS 0.4 (the functions 14, 15, 16, 19-23, 30, 31,
+  33, 34, 37, 40, 72, 74, 99, 100, 103, PIP, and the new 76 and DOS33), as the rule is: the version that first had
+  the entry as it is now. `functions.json` regenerated.
+- **F13:** the warm boot clears `RAWF`. **F14:** 76 reads the SD units again only when the drive isn't known as an
+  Apple disk yet (it did at every call, an IDENTIFY a sector); O: and P: are selected once (no DPH: not an Apple
+  disk); one helper sets BW1 and BW2 either way. The BIOS calls stay beside DISKOP's (its buffer is a BCB, 76's
+  SECBUF). The BDOS is 13,077 bytes in block 60 (+309 on main: F7's read-only bit took what F14 saved).
+- **F15:** the books' words for `Not a DOS 3.3 disk` (the VTOC) and a full disk (the sectors written stay free);
+  PUT keeps VTOC +$30/$31 (the last track allocated, the direction) as DOS does; a catalog chained to itself is
+  `Bad catalog` (and the 255-sector bound says so too); a CP/M read error is `CP/M read error.`, not the end;
+  the type letter is the code's, `?` for others, as dos33.py's.
+- **F9, the oracles:** dos33.py's check holds each list's +5 (the file's sector it starts at: 122 × k). With DOS
+  3.3: a B file of 32,000 bytes (two lists) BLOADs whole; ten entries, the last in the catalog's second sector;
+  a file DOS33 ERAs is gone from CATALOG, and DOS's BSAVE takes its entry; VERIFY of all nine after DOS's BSAVE and
+  WRITE; DOS LOCKs a file and DOS33 sees `*` and refuses ERA; DOS WRITEs a text file and DOS33 GETs it as T.
+- **Tests:** `test_oodos_dos33` 13 → 21 cases, its two O: cases skipping without the PROM, the rest running on the
+  SD card alone (F8): looped lists, pairs past the disk and on track 17, a failed GET keeping the old file (a bad
+  pair, and the CP/M disk filling part-way), the Apple drive as the CP/M side, a read-only drive, the text rules,
+  the catalog's control characters, types, VTOC +$30/$31 and a looped catalog. `check_tools.py` 138.
+- **Must fail, each seen with its fault put in:** no list bound (the looped-list case); no pair check (the
+  pair-past-the-disk case); the old file deleted before the GET (the CP/M-disk-full case); no same-drive check;
+  T ending after bit 7 is cleared, and a lone LF dropped (the text case); 76 ignoring a read-only drive (the
+  read-only case). (Each utility fault's run also failed the read-only case, for want of SET.COM in its build.)
+- **DOS33.COM** is 6,903 bytes now (the checks, the `$$$` file, the messages).
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).
