@@ -100,7 +100,7 @@ namespace
         put(c, samples);
         c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
         const size_t frames = fmt & SoundCard::PCMFMT_STEREO ? samples.size() / 2 : samples.size();
-        uint64_t cycles = (frames + 2) * HZ / rate + HZ / 100;
+        uint64_t cycles = (uint64_t{frames} + 2) * HZ / rate + HZ / 100; // in 64 bits: size_t is 32 in WebAssembly
         for (; cycles >= chunk; cycles -= chunk)
             c.tick(chunk);
         c.tick(cycles);
