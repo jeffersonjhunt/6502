@@ -897,11 +897,12 @@ knows only revision 1 takes the card by the ID's high nibble.
   DRQSEL 0 and DOCCTL 0; the ES5503's oscillators halted, no interrupt pending and `$E1` 0; wave RAM keeps its
   contents. CTRL RESET leaves all of it alone.
 
-**Settled in the emulator so far (2026-11-05, proposed for the card):** steps 1 and 2 of the spec, the registers
-and the raw PCM stream. Each register reads back what's written, as above. The stream runs as the spec's
-behaviour says, on the host's clock and whatever the audio rate, but nothing reaches the speakers yet (mixing is
-step 3), and the vis page is silence (`$00` for the spectrum and VU, `$80` for the samples, 0 past 97). Where
-the spec is silent:
+**Settled in the emulator so far (2026-11-05, proposed for the card):** steps 1 to 3 of the spec, the registers,
+the raw PCM stream and the mix. Each register reads back what's written, as above. The stream runs as the spec's
+behaviour says, on the host's clock and whatever the audio rate, and is mixed with the SIDs: resampled by linear
+interpolation, scaled by `MIX_DIGITAL` (0.5) and clipped. EQ, volume and the vis page are still to come (step
+5), so the stream goes in at unity and the vis page is silence (`$00` for the spectrum and VU, `$80` for the
+samples, 0 past 97). Where the spec is silent:
 
 - /RESET also puts CODEC, RATE, PCMFMT, EQIDX, VISIDX, DOCADDR and DOCBANK back at 0, as it does RAMADDR.
 - EQIDX keeps what's written; past 10 (bit 7 clear), EQVAL reads 0 and takes no write. It moves on in bits 0–6,
@@ -918,6 +919,11 @@ the spec is silent:
   a frame and FREE reads 512 again.
 - FLUSH with RUN set is a seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
 - A new host clock (`set_cpu_hz()`) rescales the part of a frame owed, so a clock change loses no frames.
+- The mix: the stream counts as playing while it plays or runs dry (silence); buffering, paused, ended or idle it
+  adds nothing, and the SIDs' samples are bit for bit what they are without revision 2. Each time it starts, or
+  starts again after a pause, it lines up with the SIDs' samples made up to that moment. Interpolating puts it up to
+  two of its own frames late. The backlog rules are the SIDs': of a gap over two seconds only the last second is made,
+  and at most two and a quarter seconds of it wait for the SIDs' samples.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.

@@ -41,6 +41,10 @@ namespace ooe::emu
         pcm_phase_ = 0;
         underruns_ = 0;
         tap_.clear();
+        pcm_mix_.clear();
+        bus_on_ = false;
+        mix_skip_ = 0;
+        mix_frames_ = 0;
         free_hi_ = static_cast<uint8_t>(free_units() >> 8);
         pos_ = pos_latch_ = 0;
         vol_ = {0xFF, 0xFF};
@@ -83,6 +87,8 @@ namespace ooe::emu
     {
         if (state_ == STATE_PLAYING || state_ == STATE_UNDERRUN)
             pcm_advance(cycles); // the stream keeps the card's time, whether or not sound is made
+        else
+            bus_on_ = false; // time passes with the bus stopped: its next run anchors afresh
         // SID clocks = host cycles x SID Hz / host Hz, the remainder carried.
         phase_ += cycles * sid_hz();
         const uint64_t due = phase_ / host_hz_;
@@ -192,6 +198,16 @@ namespace ooe::emu
         pcm_phase_ += cycles * play_rate_;
         uint64_t due = pcm_phase_ / host_hz_;
         pcm_phase_ %= host_hz_;
+        if (mixing() && !bus_on_)
+            mix_anchor();
+        if (mixing() && due > 2ull * play_rate_)
+        {
+            // As the SIDs' backlog: of more than two seconds, only the last second is made into the mix.
+            mix_skip_ = due - play_rate_;
+            pcm_mix_.clear();
+            mix_prev_[0] = mix_prev_[1] = 0;
+            mix_acc_ = 0;
+        }
         while (due)
         {
             const size_t ready = fifo_count_ / frame_bytes();
@@ -207,23 +223,77 @@ namespace ooe::emu
             {
                 state_ = STATE_ENDED;
                 fifo_count_ -= fifo_count_ % frame_bytes(); // a partial frame left is dropped, never played
-                return;
+                bus_on_ = false;
+                break;
             }
             if (state_ != STATE_UNDERRUN)
             {
                 state_ = STATE_UNDERRUN;
                 ++underruns_;
             }
-            if (tap_on_) // a test's only: off, nothing is kept
-                tap_.insert(tap_.end(), static_cast<size_t>(2 * due), int16_t{0}); // silence until data comes
+            pcm_silence(due); // until data comes
+            break;
+        }
+        mix_skip_ = 0;
+        // Nobody taking the SIDs' samples: the bus's wait no longer than theirs could (two seconds and a bit).
+        const size_t most = 2 * (static_cast<size_t>(audio_rate_) * 9 / 4);
+        if (pcm_mix_.size() > most)
+            pcm_mix_.erase(pcm_mix_.begin(), pcm_mix_.begin() + static_cast<std::ptrdiff_t>(pcm_mix_.size() - most));
+    }
+
+    void SoundCard::mix_anchor()
+    {
+        catch_up(); // the SIDs' samples up to now
+        pcm_mix_.clear();
+        mix_prev_[0] = mix_prev_[1] = 0;
+        mix_acc_ = 0;
+        bus_on_ = true;
+    }
+
+    void SoundCard::bus_frame(int16_t l, int16_t r)
+    {
+        if (tap_on_) // a test's only: off, nothing is kept
+        {
+            tap_.push_back(l);
+            tap_.push_back(r);
+        }
+        if (!mixing())
+            return;
+        if (mix_skip_)
+        {
+            --mix_skip_;
             return;
         }
+        // Step 5's EQ, vis tap and volume go here, at unity for now.
+        const float in[2] = {static_cast<float>(l) / 32768.0f, static_cast<float>(r) / 32768.0f};
+        while (mix_acc_ < audio_rate_)
+        {
+            const float t = static_cast<float>(static_cast<double>(mix_acc_) / audio_rate_);
+            for (unsigned ch = 0; ch < 2; ++ch)
+                pcm_mix_.push_back(mix_prev_[ch] + (in[ch] - mix_prev_[ch]) * t);
+            ++mix_frames_;
+            mix_acc_ += play_rate_;
+        }
+        mix_acc_ -= audio_rate_;
+        mix_prev_[0] = in[0];
+        mix_prev_[1] = in[1];
+    }
+
+    void SoundCard::pcm_silence(uint64_t n)
+    {
+        if (!tap_on_ && (!mixing() || mix_skip_ >= n))
+        {
+            mix_skip_ -= mixing() ? n : 0; // nothing to make: in bulk
+            return;
+        }
+        for (uint64_t f = 0; f < n; ++f)
+            bus_frame(0, 0);
     }
 
     void SoundCard::pcm_play(size_t n)
     {
         const size_t fb = frame_bytes();
-        if (tap_on_)
+        if (tap_on_ || (mixing() && mix_skip_ < n))
         {
             const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
             const auto sample = [&](size_t i) -> int16_t {
@@ -236,10 +306,11 @@ namespace ooe::emu
             {
                 const size_t b = f * fb;
                 const int16_t l = sample(b);
-                tap_.push_back(l);
-                tap_.push_back(play_fmt_ & PCMFMT_STEREO ? sample(b + step) : l); // mono on both sides
+                bus_frame(l, play_fmt_ & PCMFMT_STEREO ? sample(b + step) : l); // mono on both sides
             }
         }
+        else if (mixing())
+            mix_skip_ -= n; // a bulk catch-up's: nothing to make
         fifo_head_ = (fifo_head_ + n * fb) % FIFO_BYTES;
         fifo_count_ -= n * fb;
         pos_ += static_cast<uint32_t>(n);
@@ -277,6 +348,9 @@ namespace ooe::emu
         sample_clocks_ = sample_length_ = sample_phase_ = 0;
         hp_in_ = hp_out_ = {};
         hp_pole_ = rate ? std::exp(-2.0f * 3.14159265f * 16.0f / static_cast<float>(rate)) : 0.0f;
+        pcm_mix_.clear(); // and the bus anchors afresh at its next frame
+        bus_on_ = false;
+        mix_frames_ = 0;
     }
 
     void SoundCard::set_model(Sid::Model m)
@@ -305,6 +379,9 @@ namespace ooe::emu
             sum_l_ = sum_r_ = 0;
             sample_clocks_ = sample_length_ = 0;
             clocks -= skip;
+            const size_t keep = 2 * static_cast<size_t>(audio_rate_); // the bus's last second, for the samples made
+            if (pcm_mix_.size() > keep)
+                pcm_mix_.erase(pcm_mix_.begin(), pcm_mix_.begin() + static_cast<std::ptrdiff_t>(pcm_mix_.size() - keep));
         }
         while (clocks)
         {
@@ -326,13 +403,20 @@ namespace ooe::emu
                 continue;
             const float in[2] = {static_cast<float>(sum_l_ / static_cast<double>(sample_clocks_)),
                                  static_cast<float>(sum_r_ / static_cast<double>(sample_clocks_))};
+            // The digital bus's frame for this sample, if it is playing; with none, the SIDs' alone, as before.
+            const bool bus = pcm_mix_.size() >= 2;
             for (unsigned ch = 0; ch < 2; ++ch)
             {
                 // the output capacitor: a one-pole high-pass, y = x - x' + p y'
                 hp_out_[ch] = in[ch] - hp_in_[ch] + hp_pole_ * hp_out_[ch];
                 hp_in_[ch] = in[ch];
-                audio_.push_back(std::fmax(-1.0f, std::fmin(1.0f, hp_out_[ch] / 8.0f))); // headroom: of 192 tunes, one clips, 12 samples
+                float v = hp_out_[ch] / 8.0f; // headroom: of 192 tunes, one clips, 12 samples
+                if (bus)
+                    v += MIX_DIGITAL * pcm_mix_[ch];
+                audio_.push_back(std::fmax(-1.0f, std::fmin(1.0f, v)));
             }
+            if (bus)
+                pcm_mix_.erase(pcm_mix_.begin(), pcm_mix_.begin() + 2);
             sum_l_ = sum_r_ = 0;
             sample_clocks_ = sample_length_ = 0;
         }

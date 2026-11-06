@@ -267,10 +267,19 @@ Status: **emulated**
 The registers are in: each holds what is written and reads it back, with the reset values below, and /RESET and
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
-sound, so a program sees the same STATE and POS at any audio rate. But nothing reaches the speakers yet: the
-stream isn't mixed with the SIDs. There is no MP3, the EQ and volumes change nothing, the vis page is silence, and
-the ES5503 holds its registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the
-spec's later steps.
+sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix, below). There is no MP3 yet, the EQ and volumes change nothing, the vis page is silence, and the
+ES5503 holds its registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's
+later steps.
+
+**The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
+emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
+`MIX_DIGITAL`: the real card's analog stage will set the true balance), added to the SIDs' samples and clipped to
+-1..1. Buffering, paused, ended or idle, the stream adds nothing, and the SIDs' samples are exactly what they were
+without it. When it starts, or starts again after a pause, the stream lines up with the SIDs' samples at that
+moment, so it lands on time however long since the sound was last collected. The interpolation puts the stream
+up to two of its frames late, and at most sinc²(f / rate) quieter at frequency f: 0.7% at 1 kHz from 22,050 Hz, none
+when the rates are equal. With nobody collecting, as with the SIDs, at most two seconds and a quarter of the
+stream waits, and of a longer gap only the last second is made. At audio rate 0 nothing is made.
 
 **The stream's timing,** where the design leaves it open:
 
@@ -977,7 +986,7 @@ All: 0 silent to 255 unity.
 
 #### Notes
 
-In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far the volumes change nothing: the stream isn't mixed yet, and the SIDs aren't scaled.
+In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far the volumes change nothing: the stream is mixed at unity, and the SIDs aren't scaled.
 
 <a id="reg-c558"></a>
 ### $C558 SOUND_VOLR: the right master volume

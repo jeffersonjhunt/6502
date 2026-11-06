@@ -423,8 +423,8 @@ namespace
 
 TEST(pos_state_and_free_are_the_same_at_audio_rates_0_and_48000_and_however_ticked)
 {
-    // The audio-rate half guards step 3's mixing: until the stream is mixed, nothing of it reads the audio rate,
-    // so that half can't fail yet. The tick sizes can.
+    // The audio-rate half guards the mix (step 3): the stream's state and time must not depend on whether, or at
+    // what rate, it is being mixed into sound. The tick sizes guard the catch-up.
     const std::vector<uint32_t> base = scripted(0, 7, SoundCard::NATIVE_HZ);
     CHECK(scripted(48'000, 7, SoundCard::NATIVE_HZ) == base);
     CHECK(scripted(0, 1, SoundCard::NATIVE_HZ) == base);
