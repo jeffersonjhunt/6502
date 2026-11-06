@@ -144,7 +144,7 @@ VIDEO_SPLASH_ON = $01                  ; SPLASH: play it (clears itself at the e
 ;   $30-$7B    the video demo (demo.s)
 ;   $E0-$E7    the screen (video.s). ECHO ($C80F) uses them: a program that
 ;              prints leaves them alone
-;   $F0-$F5    the SD card (sd.s)
+;   $F0-$F6    the SD card (sd.s)
 ;   $0100      the stack; Break and BRK start it afresh
 ;   $0200-$027F the monitor's input line
 ;   $0400-$05FF the SD card's sector buffer; the demo's sprite table

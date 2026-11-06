@@ -111,7 +111,11 @@ def targets(root, path):
     with open(path, encoding="utf-8") as f:
         text = f.read()
     out = set()
-    for t in re.findall(r"\]\(([^)\s#]+)(?:#[^)]*)?\)", text):
+    found = re.findall(r"\]\(([^)\s#]+)(?:#[^)]*)?\)", text)
+    # A listing's file too, if it is there: docs/README.md shows the marker itself, in a code block.
+    found += [t for t in re.findall(r"^<!--\s*listing:\s*(\S+?)(?::\d+-\d+)?\s*-->\s*$", text, re.M)
+              if os.path.isfile(os.path.join(os.path.dirname(path), t))]
+    for t in found:
         if not re.match(r"^[a-z][a-z0-9+.-]*:", t):
             p = os.path.relpath(os.path.normpath(os.path.join(os.path.dirname(path), t)), root)
             if not p.startswith(".."):
@@ -179,6 +183,20 @@ def drop_line(root, rel, pattern):
         raise AssertionError(f"no line {pattern!r} in {rel}")
     with open(path, "w", encoding="utf-8") as f:
         f.writelines(kept)
+
+
+def drop_listings(root):
+    """Every listing marker in the books gone, wherever the books have them."""
+    for dirpath, _, files in os.walk(os.path.join(root, "docs")):
+        for f in files:
+            if f.endswith(".md"):
+                path = os.path.join(dirpath, f)
+                with open(path, encoding="utf-8") as fh:
+                    text = fh.read()
+                cut = re.sub(r"^<!--\s*listing:[^\n]*-->\n", "", text, flags=re.M)
+                if cut != text:
+                    with open(path, "w", encoding="utf-8") as fh:
+                        fh.write(cut)
 
 
 def with_disk2_id(root):
@@ -301,11 +319,7 @@ CASES = [
     ("a listing marker that isn't one",
      lambda r: edit(r, PG7, "<!-- listing: ../examples/writestr.out -->", "<!-- listing ../examples/writestr.out -->"),
      "a listing marker that isn't"),
-    ("no listings",
-     lambda r: (edit(r, PG7, "<!-- listing: ../examples/writestr.s -->\n", ""),
-                edit(r, PG7, "<!-- listing: ../examples/writestr.out -->\n", ""),
-                edit(r, "docs/oodos-programmers-guide/appendix-f-building.md", "<!-- listing: ../examples/writestr.s -->\n", "")),
-     "examined no listings"),
+    ("no listings", drop_listings, "examined no listings"),
     ("an example's code with no listing marker",
      lambda r: edit(r, PG7, "At the prompt, with WRITESTR.COM", "```\n        lda     #0\n```\n\nAt the prompt, with WRITESTR.COM"),
      "a code block under #### Example with no listing marker"),

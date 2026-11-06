@@ -665,8 +665,12 @@ class Check:
                 self.fail(f"docs/index/{fname}", "isn't what the entries generate: make -C docs index")
             for rec in json.loads(self.read(path)):
                 a = rec.get("anchor")
-                if a and (not rec.get("file") or a not in self.anchors(os.path.join(self.docs, rec["file"]),
-                                                                       report=False)):
+                if not a:
+                    continue
+                where = os.path.join(self.docs, rec["file"]) if rec.get("file") else None
+                if not where or not os.path.isfile(where):
+                    self.fail(f"docs/index/{fname}", f"anchor {a}'s file {rec.get('file')} isn't there")
+                elif a not in self.anchors(where, report=False):
                     self.fail(f"docs/index/{fname}", f"anchor {a} isn't in {rec.get('file')}")
 
     def report(self):
