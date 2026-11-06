@@ -15,9 +15,10 @@
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
  * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h). So far (that spec's steps 1 and 2) its registers hold
- * what is written and read it back, with their reset values, and the raw PCM
- * stream runs; no mixing, MP3, EQ, vis page or ES5503 sound yet:
+ * ES5503 (es5503.h). So far (that spec's steps 1 to 4) its registers hold
+ * what is written and read it back, with their reset values, and the PCM
+ * stream runs, raw or MP3, mixed with the SIDs; no EQ, vis page or ES5503
+ * sound yet:
  *
  *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
  *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
@@ -38,7 +39,7 @@
  *           3 none (no DRQ)
  *
  * The stream. RUN takes RATE and PCMFMT (a RATE outside 8,000-48,000, or a
- * CODEC other than raw PCM for now, is STATE $80) and buffers: playing starts
+ * CODEC of 2 or more, is STATE $80) and buffers: playing starts
  * at 4 KB in the FIFO, or at EOF. Each frame then falls due on the host's
  * clock (tick()'s cycles at set_cpu_hz()), whether sound is made or not, and
  * takes 1, 2 or 4 bytes, whole frames only, so one split across writes
@@ -143,6 +144,19 @@
  * the chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
  * is the replacement chips' jumper (set_model()), not a register.
  *
+ * MP3 (CODEC 1): the FIFO decoded by minimp3 (third_party/minimp3, CC0),
+ * layer III, a frame at a time as its first sample falls due. In step, a
+ * frame is decoded with all of it and the next header there; out of step,
+ * a frame is taken by minimp3's own sync rule (ten in step after it, or the
+ * data's end, or a tag), the card waiting until that decides, so a stream
+ * fed as it plays decodes as the whole data would; until its first frame
+ * decodes, an MP3 is buffering. The rate and channels follow each
+ * frame. Free format, layers I and II and frames that decode to nothing are
+ * junk; 64 KB of it is STATE $81. ID3v2 tags are skipped by their size
+ * wherever met (8 MB of them, $81). A frame with nothing frame-like and no
+ * tag after it, to EOF or for 32 KB, plays by its own length. A fruitless
+ * search waits for bytes to come or go, or for EOF.
+ *
  * The mix (revision 2). While the PCM stream plays or runs dry, its bus
  * frames are resampled to the audio rate by linear interpolation into a
  * queue, and each SID sample made takes one frame from it, adds it scaled by
@@ -243,7 +257,8 @@ namespace ooe::emu
             STATE_PAUSED = 3,
             STATE_UNDERRUN = 4,
             STATE_ENDED = 5,
-            STATE_BAD_FORMAT = 0x80, ///< RATE (or, for now, CODEC) not one that plays, at RUN
+            STATE_BAD_FORMAT = 0x80, ///< at RUN, a RATE or CODEC that doesn't play; an MP3 frame above 48 kHz
+            STATE_NO_SYNC = 0x81,    ///< MP3: 64 KB of data with no frame found in it
         };
         static constexpr uint32_t RATE_MIN = 8'000, RATE_MAX = 48'000;
         static constexpr size_t START_BYTES = 4096; ///< buffering ends at this much in the FIFO, or at EOF
@@ -273,7 +288,8 @@ namespace ooe::emu
         static constexpr uint32_t FRAME_PAL = 19'656, FRAME_NTSC = 17'095, LINES_PAL = 312, LINES_NTSC = 263;
         static constexpr uint8_t CRA_START = 0x01, CRA_ONE_SHOT = 0x08, CRA_LOAD = 0x10;
 
-        SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
+        SoundCard();
+        ~SoundCard() override;
         SoundCard(const SoundCard &) = delete;
         SoundCard &operator=(const SoundCard &) = delete;
         /// The card's revision, for tests of software that must take the card at any (ID's low nibble):
@@ -357,9 +373,11 @@ namespace ooe::emu
         // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
         /// Record the bus's frames from now on (true), or stop and drop them (false). For tests only: it keeps
         /// every frame until take_tap(), uncapped, so nothing else turns it on (it starts off, and /RESET leaves it).
-        void set_tap(bool on)
+        /// With `silence` false, the frames of silence while the stream is dry aren't recorded: only what played.
+        void set_tap(bool on, bool silence = true)
         {
             tap_on_ = on;
+            tap_silence_ = silence;
             tap_.clear();
         }
         /// The frames recorded since the last call, left then right, signed 16-bit; emptied.
@@ -373,6 +391,9 @@ namespace ooe::emu
         uint64_t mix_frames() const { return mix_frames_; }
         /// Of them, those not yet added to a SID sample.
         size_t mix_backlog() const { return pcm_mix_.size() / 2; }
+        /// SID samples made while the bus ran with nothing queued for them (a gap in the stream): 0 if the lead
+        /// held. Since /RESET or set_audio_rate().
+        uint64_t mix_dry() const { return mix_dry_; }
         /// Times the stream ran dry with no EOF, since /RESET.
         unsigned underruns() const { return underruns_; }
         /// Bytes waiting in the FIFO, a partial frame's among them.
@@ -432,6 +453,21 @@ namespace ooe::emu
         size_t frame_bytes() const
         {
             return size_t{play_fmt_ & PCMFMT_STEREO ? 2u : 1u} * (play_fmt_ & PCMFMT_16BIT ? 2u : 1u);
+        }
+        /// CODEC 1: the decoder's state and the frame it last made (sound_card.cpp; minimp3 underneath).
+        struct Mp3;
+        bool mp3() const { return play_codec_ == 1; }
+        /// The next MP3 frame's samples ready (decoding from the FIFO as it must), or false: none can be yet.
+        bool mp3_next();
+        /// Stereo frames ready from the last MP3 frame decoded.
+        size_t mp3_ready() const;
+        /// A new MP3 frame's rate: the bus follows it.
+        void mp3_rate(uint32_t hz);
+        /// `n` bytes off the FIFO's front.
+        void fifo_drop(size_t n)
+        {
+            fifo_head_ = (fifo_head_ + n) % FIFO_BYTES;
+            fifo_count_ -= n;
         }
         /// A byte into the FIFO (dropped if it's full), then the state as that leaves it.
         void pcm_write(uint8_t data);
@@ -525,9 +561,12 @@ namespace ooe::emu
         uint8_t resume_{STATE_BUFFERING}; ///< the state PAUSE's release goes back to
         uint32_t play_rate_{0};
         uint8_t play_fmt_{0};
+        uint8_t play_codec_{0};            ///< CODEC as RUN took it
+        std::unique_ptr<Mp3> mp3_;
         uint64_t pcm_phase_{0};           ///< host cycles x rate owed, below one frame
         unsigned underruns_{0};
         bool tap_on_{false};
+        bool tap_silence_{true};
         std::vector<int16_t> tap_;
         // The mix: the bus resampled to the audio rate by linear interpolation, waiting for the SIDs' samples it is
         // added to (render() takes one frame a sample). Mutable: render() is the SIDs' catch-up, const.
@@ -538,6 +577,7 @@ namespace ooe::emu
         uint64_t mix_skip_{0};             ///< bus frames of a bulk catch-up that make nothing
         mutable uint64_t mix_offset_{0};   ///< SID samples to make before the queue's front is theirs
         uint64_t mix_frames_{0};
+        mutable uint64_t mix_dry_{0};
         uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
         uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch
         std::array<uint8_t, 2> vol_{};     ///< VOLL, VOLR

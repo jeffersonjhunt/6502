@@ -6,3 +6,15 @@ emu_house_flags(emu_devices)
 # clang within expressions, and WebAssembly and -O0 never do (test_sound_mix's golden hash is one value). That
 # holds given the same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree today; another may not.
 set_source_files_properties(sid.cpp sound_card.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+
+# minimp3 (third_party/minimp3, CC0), the sound card's MP3 codec: built as it comes, with the house flags but
+# not -Wconversion, whose int-to-byte narrowings in its own code are its authors' to answer for. Clang's
+# -Wshorten-64-to-32 is on for it explicitly (WebAssembly's build): it has none of those.
+add_library(emu_minimp3 STATIC minimp3.cpp)
+target_include_directories(emu_minimp3 PUBLIC ${PROJECT_SOURCE_DIR}/third_party/minimp3)
+target_compile_options(emu_minimp3 PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Werror -ffp-contract=off
+        -ftrivial-auto-var-init=zero) # its scratch on the stack read past the data in bad frames: zero, not stale
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(emu_minimp3 PRIVATE -Wshorten-64-to-32)
+endif()
+target_link_libraries(emu_devices PRIVATE emu_minimp3)

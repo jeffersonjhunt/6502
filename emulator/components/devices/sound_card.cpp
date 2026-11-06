@@ -6,13 +6,389 @@
 
 #include "sound_card.h"
 
+#include "minimp3.h"
+
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 namespace ooe::emu
 {
+    // --- MP3 (CODEC 1) ----------------------------------------------------------------
+
+    struct SoundCard::Mp3
+    {
+        /// What a search for a frame is given: ten frames of the largest kind, as minimp3 checks a sync by.
+        static constexpr size_t WINDOW = 32'768;
+        static constexpr size_t NO_SYNC = 65'536;
+        /// minimp3 takes a sync once this many frames follow in step (or the data runs out after one).
+        static constexpr unsigned MATCHES = 10;
+        /// An ID3v2 tag declaring more than this isn't taken for one: its bytes are junk. And tags adding up to
+        /// this with no frame between are $81.
+        static constexpr size_t TAG_MAX = 8u << 20;
+
+        mp3dec_t dec{};
+        std::vector<uint8_t> window = std::vector<uint8_t>(WINDOW);
+        std::array<int16_t, MINIMP3_MAX_SAMPLES_PER_FRAME> pcm{};
+        size_t samples{0}, at{0}; ///< the frame's samples per channel, and the next one taken
+        unsigned channels{1};
+        uint32_t hz{0};
+        unsigned kbps{0};
+        size_t junk{0};     ///< bytes since the last frame that made samples, tags left out
+        size_t tagged{0};   ///< tags' bytes since the last frame that made samples
+        size_t tag_left{0}; ///< of an ID3v2 tag being skipped
+        bool fresh{false};  ///< junk passed over since the last frame: the next is found by a search, afresh
+        /// How far past the frame at the FIFO's front a look for anything frame-like has gone, finding none.
+        size_t looked{0};
+
+        void restart()
+        {
+            mp3dec_init(&dec);
+            samples = at = 0;
+            junk = tagged = tag_left = 0;
+            fresh = false;
+            looked = 0;
+        }
+    };
+
+    namespace
+    {
+        /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one: another layer,
+        /// free format (refused: its length isn't in its header), or a bad bitrate or rate.
+        size_t mp3_frame_bytes(const uint8_t *h)
+        {
+            if (h[0] != 0xFF || (h[1] & 0xE0) != 0xE0 || (h[1] & 0x06) != 0x02)
+                return 0;
+            const unsigned version = (h[1] >> 3) & 3, rate = (h[2] >> 2) & 3, index = h[2] >> 4; // 3 MPEG-1, 2 -2, 0 -2.5
+            if (version == 1 || rate == 3 || index == 0 || index == 15)
+                return 0;
+            static const uint16_t kbps[2][15] = {
+                {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},       // MPEG-2 and 2.5
+                {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}}; // MPEG-1
+            static const uint32_t hz[3] = {44'100, 48'000, 32'000};
+            const bool one = version == 3;
+            const uint32_t sample_hz = hz[rate] >> (one ? 0 : version == 2 ? 1 : 2);
+            const uint32_t samples = one ? 1'152 : 576;
+            return samples * kbps[one][index] * 125 / sample_hz + ((h[2] >> 1) & 1);
+        }
+
+        /// The same stream as `prev`: version, layer and rate, as the decoder's own check has it.
+        bool mp3_same(const uint8_t *prev, const uint8_t *h)
+        {
+            return prev[0] == 0xFF && h[0] == 0xFF && ((prev[1] ^ h[1]) & 0xFE) == 0 && ((prev[2] ^ h[2]) & 0x0C) == 0;
+        }
+
+        /// An ID3v2 tag's whole length (header, body, footer) from its 10-byte header, or 0 if `h` isn't one.
+        size_t id3_bytes(const uint8_t *h)
+        {
+            // Versions 2.2 to 2.4, a revision, and only the flags each version defines (the footer 2.4's alone).
+            static const uint8_t flags[5] = {0, 0, 0xC0, 0xE0, 0xF0};
+            if (h[0] != 'I' || h[1] != 'D' || h[2] != '3' || h[3] < 2 || h[3] > 4 || h[4] == 0xFF ||
+                (h[5] & ~flags[h[3]]))
+                return 0;
+            size_t size = 0;
+            for (unsigned i = 6; i < 10; ++i)
+            {
+                if (h[i] & 0x80)
+                    return 0; // not syncsafe: not a tag
+                size = size << 7 | h[i];
+            }
+            return 10 + size + (h[5] & 0x10 ? 10 : 0);
+        }
+    } // namespace
+
+    SoundCard::SoundCard() : mp3_(std::make_unique<Mp3>()), cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
+
+    SoundCard::~SoundCard() = default;
+
+    bool SoundCard::mp3_next()
+    {
+        Mp3 &m = *mp3_;
+        if (m.at < m.samples)
+            return true;
+        const bool eof = pcmctl_ & PCMCTL_EOF;
+        const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
+        const auto head = [&](size_t i, uint8_t *g, size_t n) {
+            for (size_t k = 0; k < n; ++k)
+                g[k] = at(i + k);
+        };
+        // `junk`: counted toward $81; `lost`: the stream's thread lost there, so the next frame is searched for
+        // afresh, as minimp3 does after bytes that aren't frames (a frame that made nothing is junk, not lost).
+        const auto drop = [&](size_t n, bool junk, bool lost = true) {
+            fifo_drop(n);
+            m.looked = 0;
+            if (junk)
+                m.junk += n;
+            if (junk && lost)
+                m.fresh = true;
+        };
+        const auto no_sync = [&] {
+            if (m.junk < Mp3::NO_SYNC && m.tagged < Mp3::TAG_MAX)
+                return false;
+            state_ = STATE_NO_SYNC;
+            bus_on_ = false;
+            return true;
+        };
+        /// A valid ID3v2 header at `i` (10 bytes there): its whole length; 0 if none.
+        const auto tag_at = [&](size_t i, size_t have) -> size_t {
+            if (i + 10 > have || at(i) != 'I')
+                return 0;
+            uint8_t g[10];
+            head(i, g, 10);
+            const size_t t = id3_bytes(g);
+            return t <= Mp3::TAG_MAX ? t : 0;
+        };
+        const auto frame_at = [&](size_t i, size_t have) -> size_t {
+            if (i + 4 > have || at(i) != 0xFF)
+                return 0;
+            uint8_t g[4];
+            head(i, g, 4);
+            return mp3_frame_bytes(g);
+        };
+        for (;;)
+        {
+            const size_t have = fifo_count_;
+            if (m.tag_left) // an ID3v2 tag, skipped by its own size, not junk
+            {
+                const size_t d = std::min(m.tag_left, have);
+                drop(d, false);
+                m.tag_left -= d;
+                if (m.tag_left)
+                    return false;
+                continue;
+            }
+            if (have == 0)
+                return false;
+            if (const size_t t = tag_at(0, have))
+            {
+                m.tag_left = t;
+                m.tagged += t;
+                if (no_sync())
+                    return false;
+                continue;
+            }
+            if (have < 10 && !eof && at(0) == 'I')
+                return false; // a tag's header, perhaps, still coming in
+            uint8_t h[4] = {};
+            head(0, h, std::min<size_t>(4, have));
+            const size_t fb = frame_at(0, have);
+            size_t n = 0;          // the bytes the decoder is given, if it is called
+            bool search = true;    // out of step: the frame at the front must win minimp3's sync first
+            if (fb && !m.fresh && mp3_same(m.dec.header, h))
+            {
+                // In step with the stream. If the next header follows, the decoder takes this frame as it is,
+                // given just that, as a decoder with the whole file would see it.
+                if (have < fb)
+                {
+                    if (!eof)
+                        return false; // the frame's end still to come
+                    drop(have, true);  // at EOF it can't be finished: junk
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                uint8_t next[4] = {};
+                if (have >= fb + 4)
+                    head(fb, next, 4);
+                if (have >= fb + 4 && mp3_frame_bytes(next) && mp3_same(h, next))
+                {
+                    n = fb + 4;
+                    search = false;
+                }
+                else
+                {
+                    // Something else follows. A tag (before anything frame-like): this frame by its own length,
+                    // then the tag skipped. Anything frame-like (another stream's header, at a change of rate):
+                    // the search minimp3 makes there, which drops this frame. Neither, to EOF or for a whole
+                    // window: this frame by its own length, what follows ignored (CP/M's $1A padding, say).
+                    // Neither yet, without EOF: wait for more, so EOF's timing doesn't matter.
+                    const size_t end = std::min(have, fb + Mp3::WINDOW);
+                    size_t i = fb + m.looked;
+                    bool like = false, tag = false;
+                    for (; i < end && !like && !tag; ++i)
+                    {
+                        if (i + 10 > have && !eof && have < fb + Mp3::WINDOW)
+                            break; // a tag's header could start here, its rest still to come
+                        tag = tag_at(i, have) != 0;
+                        like = !tag && frame_at(i, have) != 0;
+                    }
+                    if (tag)
+                    {
+                        n = fb;
+                        search = false;
+                    }
+                    else if (!like)
+                    {
+                        m.looked = i - fb;
+                        if (!eof && have < fb + Mp3::WINDOW)
+                            return false;
+                        n = fb;
+                        search = false;
+                    }
+                }
+            }
+            if (search)
+            {
+                // Out of step: pass over everything to the next layer III header we can size, or a tag, as junk.
+                // Other layers' frames and free format's are junk too.
+                size_t p = 0;
+                for (; p < have; ++p)
+                {
+                    if (frame_at(p, have) || tag_at(p, have))
+                        break;
+                    if (!eof && (p + 10 > have) && at(p) == 'I')
+                        break; // a tag's header, perhaps: wait for its rest
+                    if (!eof && p + 4 > have && at(p) == 0xFF)
+                        break; // a frame's header, perhaps
+                }
+                if (p)
+                {
+                    drop(p, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (!frame_at(0, have))
+                {
+                    if (!eof)
+                        return false; // the start of a header or tag: its rest to come
+                    drop(have, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                // minimp3's own sync rule, on the FIFO: the frame, then a run of frames in step with it, MATCHES
+                // of them, or one at least when the data runs out (EOF); a header out of step in the run, or
+                // none at the end of the data, and it isn't one. Until the run decides, wait for more.
+                size_t i = fb;
+                unsigned matched = 0;
+                bool decided = false, take = false;
+                if (fb > have)
+                {
+                    if (!eof)
+                        return false;
+                    decided = true;
+                }
+                else if (fb == have && eof)
+                    decided = take = true; // the whole of what's left is one frame
+                while (!decided)
+                {
+                    if (i + 10 > have && !eof && i < have && at(i) == 'I')
+                        return false; // a tag's header, perhaps, ending the run: wait for its rest
+                    if (tag_at(i, have))
+                    {
+                        // A tag ends the run as the data's end would: a short clip before a tag plays, a single
+                        // frame before one too.
+                        decided = true;
+                        take = true;
+                        break;
+                    }
+                    if (i + 4 > have)
+                    {
+                        if (!eof)
+                            return false;
+                        decided = true;
+                        take = matched > 0;
+                        break;
+                    }
+                    uint8_t g[4];
+                    head(i, g, 4);
+                    const size_t gb = mp3_frame_bytes(g);
+                    if (!gb || !mp3_same(h, g))
+                    {
+                        decided = true;
+                        break;
+                    }
+                    if (++matched == Mp3::MATCHES)
+                    {
+                        decided = take = true;
+                        i += 4;
+                        break;
+                    }
+                    i += gb;
+                }
+                if (!take)
+                {
+                    drop(1, true); // not where minimp3 syncs: on from the next byte
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                n = std::min({have, i, Mp3::WINDOW}); // what its sync check reads
+                mp3dec_init(&m.dec); // and from a fresh start, as minimp3 after junk
+            }
+            for (size_t k = 0; k < n; ++k)
+                m.window[k] = at(k);
+            mp3dec_frame_info_t info{};
+            const int got = mp3dec_decode_frame(&m.dec, m.window.data(), static_cast<int>(n), m.pcm.data(), &info);
+            if (info.hz) // a frame
+            {
+                const size_t frame = static_cast<size_t>(info.frame_bytes - info.frame_offset);
+                if (info.frame_offset)
+                {
+                    // Unreachable while the card's sync replica matches minimp3: every window starts at a frame
+                    // minimp3 takes at offset 0. Kept as a backstop (a minimp3 update, say): a byte, junk, and on.
+                    assert(!"minimp3 found its frame past the window's start");
+                    drop(1, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (info.layer != 3 || info.bitrate_kbps == 0)
+                {
+                    drop(frame, true); // another layer's, or free format's: junk
+                    mp3dec_init(&m.dec);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (got <= 0)
+                {
+                    drop(frame, true, false); // a frame that made nothing counts as junk: a stream of them is $81
+                    m.fresh = false;          // but the decoder is in the stream's thread now
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                drop(frame, false);
+                m.junk = m.tagged = 0;
+                m.fresh = false;
+                m.samples = static_cast<size_t>(got);
+                m.at = 0;
+                m.channels = static_cast<unsigned>(info.channels);
+                m.kbps = static_cast<unsigned>(info.bitrate_kbps);
+                m.hz = static_cast<uint32_t>(info.hz);
+                play_fmt_ = static_cast<uint8_t>(PCMFMT_16BIT | (m.channels == 2 ? PCMFMT_STEREO : 0));
+                return true;
+            }
+            // No frame, though one was expected. Unreachable while the card's sync replica matches minimp3 (the
+            // window starts at a frame it takes). Kept as a backstop, so a minimp3 that judges otherwise can't
+            // stall the stream: a byte, junk, and on.
+            assert(!"minimp3 found no frame where the card's replica found one");
+            drop(1, true);
+            if (no_sync())
+                return false;
+        }
+    }
+
+    size_t SoundCard::mp3_ready() const { return mp3_->samples - mp3_->at; }
+
+    void SoundCard::mp3_rate(uint32_t hz)
+    {
+        if (hz == play_rate_)
+            return;
+        if (play_rate_)
+            pcm_phase_ = pcm_phase_ * hz / play_rate_; // the part of a frame owed, at the new rate
+        play_rate_ = hz;
+        bus_on_ = false; // the mix's lead and resampling for the new rate
+    }
+
     void SoundCard::reset()
     {
+        mp3_->restart();
+        mp3_->hz = 0;
+        mp3_->kbps = 0;
+        play_codec_ = 0;
         catch_up();
         chips_[0].reset();
         chips_[1].reset();
@@ -46,6 +422,7 @@ namespace ooe::emu
         mix_skip_ = 0;
         mix_offset_ = 0;
         mix_frames_ = 0;
+        mix_dry_ = 0;
         free_hi_ = static_cast<uint8_t>(free_units() >> 8);
         pos_ = pos_latch_ = 0;
         vol_ = {0xFF, 0xFF};
@@ -140,11 +517,18 @@ namespace ooe::emu
     {
         const uint8_t was = pcmctl_;
         if (data & PCMCTL_FLUSH)
-            fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
-        pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
-        if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT)
         {
-            // A seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
+            fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
+            mp3_->restart();              // and the decoder
+        }
+        pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
+        if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT &&
+            state_ != STATE_NO_SYNC)
+        {
+            // A seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it. An MP3's
+            // first frame after it is found as at the start, its rate with it.
+            if (mp3())
+                play_rate_ = 0;
             if (state_ == STATE_PAUSED)
                 resume_ = STATE_BUFFERING;
             else
@@ -154,7 +538,17 @@ namespace ooe::emu
         {
             resume_ = STATE_BUFFERING;
             pcm_phase_ = 0;
-            if (rate_ < RATE_MIN || rate_ > RATE_MAX || codec_ != 0) // MP3 comes in step 4
+            play_codec_ = codec_;
+            mp3_->restart();
+            mp3_->hz = 0;
+            mp3_->kbps = 0;
+            if (codec_ == 1) // MP3: the rate and the format come with each frame
+            {
+                play_rate_ = 0;
+                play_fmt_ = PCMFMT_16BIT;
+                state_ = STATE_BUFFERING;
+            }
+            else if (codec_ != 0 || rate_ < RATE_MIN || rate_ > RATE_MAX)
                 state_ = STATE_BAD_FORMAT;
             else
             {
@@ -178,7 +572,7 @@ namespace ooe::emu
 
     void SoundCard::pcm_step()
     {
-        if (!(pcmctl_ & PCMCTL_RUN) || state_ == STATE_BAD_FORMAT || state_ == STATE_ENDED)
+        if (!(pcmctl_ & PCMCTL_RUN) || state_ == STATE_BAD_FORMAT || state_ == STATE_NO_SYNC || state_ == STATE_ENDED)
             return;
         if (pcmctl_ & PCMCTL_PAUSE)
         {
@@ -191,11 +585,33 @@ namespace ooe::emu
             state_ = resume_; // an underrun paused is the same dry spell, not a new one
         if (state_ == STATE_BUFFERING && (fifo_count_ >= START_BYTES || (pcmctl_ & PCMCTL_EOF)))
         {
+            if (mp3() && !play_rate_)
+            {
+                // MP3 buffers on until its first frame has decoded (its sync run decided): it gives the rate, and
+                // nothing has played yet, so the wait is buffering, not an underrun. At EOF with none, the end.
+                if (!mp3_next())
+                {
+                    if (state_ == STATE_NO_SYNC)
+                        return;
+                    if (pcmctl_ & PCMCTL_EOF)
+                    {
+                        state_ = STATE_ENDED;
+                        fifo_count_ = 0;
+                    }
+                    return;
+                }
+                if (mp3_->hz > RATE_MAX)
+                {
+                    state_ = STATE_BAD_FORMAT;
+                    return;
+                }
+                play_rate_ = mp3_->hz;
+            }
             state_ = STATE_PLAYING;
             pcm_phase_ = 0; // the first frame a whole frame from now
         }
-        if (state_ == STATE_UNDERRUN && fifo_count_ >= frame_bytes())
-            state_ = STATE_PLAYING; // data again: on at once, from the next frame
+        if (state_ == STATE_UNDERRUN && !mp3() && fifo_count_ >= frame_bytes())
+            state_ = STATE_PLAYING; // data again: on at once, from the next frame (MP3's when a frame decodes)
         // Running dry is found when a frame falls due (pcm_advance), not here: a FIFO emptied and refilled
         // between two frames hasn't underrun.
     }
@@ -206,6 +622,16 @@ namespace ooe::emu
         // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off,
         // touches no sample. The frames due are counted in whole seconds of the host's clock and the rest, so no
         // tick overflows them.
+        if (mp3() && !play_rate_)
+        {
+            // Unreachable: an MP3 leaves buffering only with its first frame decoded and its rate set (pcm_step),
+            // and whatever clears the rate puts it back to buffering. Kept as a backstop: back to buffering, which
+            // finds the first frame as at the start, no underrun counted.
+            assert(!"an MP3 playing without its first frame");
+            state_ = STATE_BUFFERING;
+            bus_on_ = false;
+            return;
+        }
         pcm_phase_ += cycles % host_hz_ * play_rate_;
         uint64_t due = cycles / host_hz_ * play_rate_ + pcm_phase_ / host_hz_;
         pcm_phase_ %= host_hz_;
@@ -226,7 +652,22 @@ namespace ooe::emu
         }
         while (due)
         {
-            const size_t ready = fifo_count_ / frame_bytes();
+            size_t ready = 0;
+            if (!mp3())
+                ready = fifo_count_ / frame_bytes();
+            else if (mp3_next())
+            {
+                if (mp3_->hz > RATE_MAX)
+                {
+                    state_ = STATE_BAD_FORMAT; // MPEG-1 and -2 stop at 48 kHz: not one to expect
+                    bus_on_ = false;
+                    break;
+                }
+                mp3_rate(mp3_->hz); // the rest of this tick's frames at the old rate: the next tick's at the new
+                ready = mp3_ready();
+            }
+            else if (state_ == STATE_NO_SYNC)
+                break;
             if (ready)
             {
                 const size_t n = static_cast<size_t>(std::min<uint64_t>(due, ready));
@@ -238,7 +679,8 @@ namespace ooe::emu
             if (pcmctl_ & PCMCTL_EOF)
             {
                 state_ = STATE_ENDED;
-                fifo_count_ -= fifo_count_ % frame_bytes(); // a partial frame left is dropped, never played
+                // A partial frame left is dropped, never played; of an MP3, whatever couldn't be decoded.
+                fifo_count_ = mp3() ? 0 : fifo_count_ - fifo_count_ % frame_bytes();
                 bus_on_ = false;
                 break;
             }
@@ -306,6 +748,8 @@ namespace ooe::emu
 
     void SoundCard::pcm_silence(uint64_t n)
     {
+        const bool tap = tap_on_;
+        tap_on_ = tap && tap_silence_; // a tap of what played only: none of the silence
         if (!tap_on_)
         {
             // A bulk catch-up's frames make nothing, all at once; at most a second's are made one by one.
@@ -315,10 +759,31 @@ namespace ooe::emu
         }
         for (uint64_t f = 0; f < n; ++f)
             bus_frame(0, 0);
+        tap_on_ = tap;
     }
 
     void SoundCard::pcm_play(size_t n)
     {
+        if (mp3())
+        {
+            // The decoded frame's samples, mono on both sides; a bulk catch-up's make nothing.
+            Mp3 &m = *mp3_;
+            size_t quiet = 0;
+            if (!tap_on_)
+            {
+                quiet = mixing() ? static_cast<size_t>(std::min<uint64_t>(n, mix_skip_)) : n;
+                mix_skip_ -= mixing() ? quiet : 0;
+            }
+            for (size_t f = 0; f < n; ++f, ++m.at)
+            {
+                if (f < quiet)
+                    continue;
+                const int16_t *s = &m.pcm[m.at * m.channels];
+                bus_frame(s[0], m.channels == 2 ? s[1] : s[0]);
+            }
+            pos_ += static_cast<uint32_t>(n);
+            return;
+        }
         const size_t fb = frame_bytes();
         size_t quiet = 0; // frames that make nothing, taken in bulk: none to mix, or a bulk catch-up's
         if (!tap_on_)
@@ -385,6 +850,7 @@ namespace ooe::emu
         hp_pole_ = rate ? std::exp(-2.0f * 3.14159265f * 16.0f / static_cast<float>(rate)) : 0.0f;
         pcm_mix_.clear(); // and the bus anchors afresh at its next frame
         mix_offset_ = 0;
+        mix_dry_ = 0;
         bus_on_ = false;
         mix_frames_ = 0;
     }
@@ -449,6 +915,8 @@ namespace ooe::emu
             const bool bus = !mix_offset_ && pcm_mix_.size() >= 2;
             if (mix_offset_)
                 --mix_offset_;
+            else if (!bus && bus_on_)
+                ++mix_dry_; // the bus running with nothing queued: the lead didn't hold
             for (unsigned ch = 0; ch < 2; ++ch)
             {
                 // the output capacitor: a one-pole high-pass, y = x - x' + p y'
@@ -588,8 +1056,8 @@ namespace ooe::emu
         case POS + 3:
             return static_cast<uint8_t>(pos_latch_ >> 8 * (o - POS));
         case KBPS:
-        case KBPS + 1:
-            return 0;
+        case KBPS + 1: // the MP3 frame playing's
+            return static_cast<uint8_t>((mp3() && state_ != STATE_IDLE ? mp3_->kbps : 0) >> 8 * (o - KBPS));
         case VOLL:
         case VOLR:
             return vol_[o - VOLL];

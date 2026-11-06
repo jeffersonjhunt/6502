@@ -268,7 +268,7 @@ The registers are in: each holds what is written and reads it back, with the res
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
 sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix,
-below). There is no MP3 yet, the EQ and volumes change nothing, the vis page is silence, and the ES5503 holds its
+below), and plays MP3 too (below). The EQ and volumes change nothing yet, the vis page is silence, and the ES5503 holds its
 registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's later steps.
 
 **The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
@@ -295,6 +295,54 @@ none when the rates are equal. With nobody collecting, once a second and a half 
 are brought up to date, which takes it, as a SID access would. Of a gap over two seconds only the last second
 is made, and the stream's samples for the part skipped go with it, so a stream over before the gap doesn't play
 after it. At audio rate 0 nothing is made.
+
+### The MP3 codec
+
+Status: **emulated**
+
+With CODEC 1 at RUN, the FIFO holds an MP3 stream, layer III of MPEG-1, -2 or -2.5, and the emulator decodes it
+with minimp3 (CC0, vendored in `emulator/third_party/minimp3`). RATE's range isn't checked: the rate and the
+channels come with each frame, and the stream follows them, at 8,000 to 48,000 Hz. Output is 16-bit, a mono
+frame on both sides.
+
+- **As output needs it.** From the second frame on, a frame is decoded when its first sample falls due; the first
+  decodes when buffering ends (see The start). A frame's bytes count against the FIFO (and FREE) until the
+  decoder takes them.
+- **Whole frames, and minimp3's own sync.** In step with the stream, a frame is decoded once all of it, and the
+  next frame's header, are in the FIFO. Out of step (at the start, or after junk), a frame is taken by minimp3's
+  own rule: ten frames in step after it, or the data's end after at least one; until the run decides, the card
+  waits, dry. An ID3v2 tag ends a run as the data's end does, so a short clip before a tag plays. So a stream fed
+  while it plays, in any pieces, with EOF written early or late, plays exactly what the same bytes written at once
+  play, and that is minimp3's decoding of the whole data, but for three cases where the card does better: tags
+  (below), a last frame with something after it (below), and a lone last frame with junk before it, which the card
+  plays and minimp3 drops.
+- **The start.** An MP3 buffers on past 4 KB, if it must, until its first frame has decoded: its run of ten has
+  decided, and it gives the rate. That is buffering, not an underrun. A program that feeds in real time starts
+  later than the 4 KB start by the time that run takes to come in: fed at 1.02 times the stream's rate, about
+  135 ms at 320 kbps (235 ms from RUN), 5 ms at 128 kbps, and 97 ms for VBR -V0. It's the cost of deciding the sync
+  as minimp3 does. Without EOF, a stream of fewer than eleven frames (or the first ten after
+  junk) plays only once more frames come or EOF is written: set EOF after a short clip.
+- **Layer III, sized.** Only frames whose length their header gives are taken. Free format (bitrate index 0,
+  its length nowhere in its header) is refused, and so are layer I and II frames (MP1, MP2): their bytes are
+  junk, and a stream of them ends in `$81`. So does a stream of layer III frames that decode to nothing.
+- **Junk.** Other bytes are skipped, and the decoder finds its place again at the next frame, as minimp3 does.
+  64 KB looked through since the last frame that made samples is `$81`.
+- **ID3v2 tags** are skipped by the size their header declares (its footer too, if flagged), wherever they are
+  met: before the first frame, straight after a frame, or after junk, whatever their body holds (cover art's
+  frame-like bytes included). They don't count toward the 64 KB, so a tag with cover art is no error; but 8 MB
+  of tags with no frame between is `$81`. A frame just before a tag plays by its own length, and the decoder
+  stays in step across the tag. A header must be a real one: version 2.2 to 2.4, only the flags its version
+  defines, a size under 8 MB in syncsafe bytes; anything else is junk.
+- **The end.** A frame with nothing frame-like and no tag after it, to EOF or for 32 KB, plays by the length its
+  own header gives, whatever follows ignored: CP/M's `$1A` padding to the end of a 128-byte record, an ID3v1 or
+  APE trailer, or anything else. (Trailing `$1A`s aren't stripped: a frame's own data can end in them.) Without
+  EOF and with less than 32 KB after it, it waits for more, so when EOF is written doesn't change what plays.
+  Where another stream's header follows (a change of rate or channels), the decoder finds its place again there,
+  as minimp3 does.
+- **Waiting costs little.** A search that finds nothing costs a few header checks at most: the look past a frame
+  resumes where it stopped, junk is dropped as it's found, and a run is at most ten headers.
+- **FLUSH** empties the decoder too, so a seek starts it afresh.
+- **KBPS** reads the frame playing's bitrate (never 0 while an MP3 plays: free format is refused).
 
 **The stream's timing,** where the design leaves it open:
 
@@ -737,7 +785,9 @@ All: 0 raw PCM, 1 MP3, 2 reserved for MOD. The byte is kept as written.
 
 #### Notes
 
-[CODECS](#reg-c55d) says which codecs the card has.
+[CODECS](#reg-c55d) says which codecs the card has. RUN takes CODEC; a CODEC of 2 or more is `$80` in STATE
+then. MP3 is decoded by [minimp3](https://github.com/lieff/minimp3) in the emulator ([the MP3
+codec](#the-mp3-codec), above).
 
 <a id="reg-c54a"></a>
 ### $C54A SOUND_RATE: raw PCM's rate
@@ -756,7 +806,8 @@ R/W, 2 bytes, low byte first.
 
 #### Bits
 
-All: the rate in Hz, 8,000 to 48,000. In the design it reads back the rate playing, an MP3's included.
+All: the rate in Hz, 8,000 to 48,000. While the stream runs it reads back the rate playing: an MP3's, from its
+frames (0 until the first decodes).
 
 #### Reset
 
@@ -803,7 +854,8 @@ R/W. Bits 7–2 read 0.
 
 #### Notes
 
-RUN takes PCMFMT, and while it runs PCMFMT reads back the format it took, whatever is written after. In the design it reads back an MP3's format too.
+RUN takes PCMFMT, and while it runs PCMFMT reads back the format it took, whatever is written after. An MP3
+reads 16-bit, and stereo as its frame is (PCMFMT as written doesn't matter to it).
 
 <a id="reg-c54d"></a>
 ### $C54D SOUND_FREE: the FIFO's room
@@ -908,7 +960,9 @@ All:
 
 #### Notes
 
-So far `$80` also stands for any CODEC but raw PCM, until MP3 is in (step 4 of the spec); `$81` and `$82` don't occur yet. An error lasts until RUN is cleared.
+`$80` also stands for a CODEC of 2 or more, and for an MP3 frame above 48 kHz, which MPEG-1, -2 and -2.5 can't
+give. `$81` counts the bytes looked through since the last frame found. `$82` doesn't occur yet. An error lasts
+until RUN is cleared.
 
 <a id="reg-c551"></a>
 ### $C551 SOUND_POS: the frames played
@@ -970,7 +1024,7 @@ All: the MP3 frame's bitrate in kbit/s; 0 for raw PCM.
 
 #### Notes
 
-MP3 isn't in yet, so KBPS reads 0.
+The frame playing's, so a VBR stream's changes as it plays.
 
 <a id="reg-c557"></a>
 ### $C557 SOUND_VOLL: the left master volume

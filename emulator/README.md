@@ -218,6 +218,9 @@ are WDC's NOPs.
 Derived from [gianlucag/mos6502](https://github.com/gianlucag/mos6502)
 (MIT, `licenses/mos6502_LICENSE`).
 
+The sound card's MP3 codec is [lieff/minimp3](https://github.com/lieff/minimp3), vendored unchanged in
+`third_party/minimp3` (CC0, `licenses/minimp3_LICENSE`).
+
 ## Links
 
 http://en.wikipedia.org/wiki/MOS_Technology_6502

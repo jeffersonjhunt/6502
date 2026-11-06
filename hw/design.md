@@ -902,7 +902,12 @@ the raw PCM stream and the mix. Each register reads back what's written, as abov
 behaviour says, on the host's clock and whatever the audio rate, and is mixed with the SIDs: resampled by linear
 interpolation, scaled by `MIX_DIGITAL` (0.5) and clipped. EQ, volume and the vis page are still to come (step
 5), so the stream goes in at unity and the vis page is silence (`$00` for the spectrum and VU, `$80` for the
-samples, 0 past 97). Where the spec is silent:
+samples, 0 past 97). The spec's start, at 4 KB or EOF, reads for MP3 (step 4) as 4 KB, or EOF, and a decoded
+first frame: an MP3 stays buffering past 4 KB until its first frame decodes (its sync run of ten has decided),
+which also gives the rate. Nothing has played, so it's no underrun, and only an empty FIFO without EOF is one, as
+the spec says; a stream under DMA has none. For raw PCM 4 KB always holds a whole frame, so the two readings
+agree there. A real-time feeder pays for it: fed at 1.02 times the stream's rate, playing starts about 135 ms after
+the 4 KB start at 320 kbps (235 ms from RUN), 5 ms at 128 kbps and 97 ms for VBR -V0. Where the spec is silent:
 
 - /RESET also puts CODEC, RATE, PCMFMT, EQIDX, VISIDX, DOCADDR and DOCBANK back at 0, as it does RAMADDR.
 - EQIDX keeps what's written; past 10 (bit 7 clear), EQVAL reads 0 and takes no write. It moves on in bits 0–6,
@@ -912,7 +917,7 @@ samples, 0 past 97). Where the spec is silent:
   is found when a frame falls due with none in the FIFO, so a FIFO emptied and refilled between two frames hasn't
   underrun; data again plays from the next frame due, with no new buffering. One counted underrun is one time dry.
 - RUN takes RATE and PCMFMT; while it runs they read back what it took. PCMFMT's two bits are all valid, so `$80`
-  is a RATE outside 8,000–48,000, and for now any CODEC but raw PCM (MP3 is step 4).
+  is a RATE outside 8,000–48,000, or a CODEC of 2 or more (MOD is reserved).
 - Releasing PAUSE goes back to the state it paused (buffering, playing or underrun); an underrun paused is the
   same dry spell, not counted again. Ended stays ended until RUN is cleared.
 - With EOF, a partial frame left over is dropped when the stream ends, never played, so the next stream starts on
@@ -930,6 +935,27 @@ samples, 0 past 97). Where the spec is silent:
   over two seconds only the last second is made, and the stream's samples for the part skipped go with it. With
   nobody collecting, the SIDs are brought up to date once a second and a half of the stream waits. A pause released
   before its lead has played out loses up to a lead of the stream (250 µs at most) to the new run's lead: accepted.
+- MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored): from the second frame on as each falls
+  due, the first when buffering ends (above). In step, a
+  frame is decoded only with all of it and the next header in the FIFO; out of step, a frame is taken by
+  minimp3's own sync rule (ten frames in step after it, or the data's end after one), and the card waits until
+  that decides (an ID3v2 tag ends a run as the data's end does). So a stream fed while it plays, in any pieces and
+  with EOF written whenever, plays what the same bytes at once do, and that is minimp3 on the whole data, but for
+  three cases where the card does better: tags, a last frame with something after it (both below), and a lone
+  last frame after junk, which the card plays and minimp3 drops. Without EOF fewer than eleven frames don't play,
+  so a program sets EOF after a short clip. Only
+  layer III frames whose length their header gives are taken: free format, layer I and II frames, and frames
+  that decode to nothing are junk; 64 KB of junk since the last frame that made samples is `$81`. ID3v2 tags
+  (versions 2.2 to 2.4, flags checked, up to 8 MB declared, footer included) are skipped by their size wherever
+  met, not counted as junk (8 MB of tags with no frame is `$81`); the decoder stays in step across one. A frame
+  with nothing frame-like and no tag after it, to EOF or for 32 KB, plays by its own header's length, whatever
+  follows ignored (CP/M's `$1A` padding, an ID3v1 or APE trailer, anything; `$1A`s aren't stripped, as a frame
+  can end in them); without EOF and less than 32 KB after it, it waits. RATE reads 0 until the first frame
+  decodes. The rate and channels follow each frame (a change re-anchors the mix); above 48 kHz is `$80`, which no
+  MPEG-1, -2 or -2.5 frame can be. FLUSH empties the decoder too. A search that finds nothing costs a few header
+  checks at most: the look past a frame resumes where it stopped, junk is dropped as it's found, and a run is at
+  most ten headers. minimp3 is built with its stack scratch zeroed
+  (`-ftrivial-auto-var-init=zero`), so a bad frame decodes the same whatever the stack held.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.
