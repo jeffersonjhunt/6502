@@ -279,6 +279,29 @@ TEST(a_fetch_breakpoint_halts_before_the_instruction)
     CHECK_EQ(p.pc(), CODE + 3);
 }
 
+TEST(a_breakpoint_after_the_halt_switch_lets_go_latches_its_own_cycle)
+{
+    // The WebUI's Run: the HALT switch to ENABLE, then CONT (nothing, the CPU is running already). The
+    // switch's stop is over, so the next breakpoint's cycle is the one the latch holds (item 14).
+    Panel p;
+    REQUIRE(p.ok());
+    p.boot(LOOP);
+    CHECK_EQ(p.run(8), 8u);                           // round the loop twice: at CODE
+    p.card->set_halt_switch(true);
+    CHECK_EQ(p.run(8), 0u);
+    CHECK_EQ(p.reg20(ConsoleCard::LADDR), CODE_PHYS + 5); // the JMP's last byte: the switch's stop cycle
+    p.card->set_halt_switch(false);
+    p.card->press(ConsoleCard::CONT);
+    p.set20(ConsoleCard::BPADDR, CODE_PHYS + 2);      // the third INX
+    p.set(ConsoleCard::BPCTRL, ConsoleCard::BP_ENABLE | ConsoleCard::BP_FETCH);
+    CHECK_EQ(p.run(20), 2u);
+    CHECK_EQ(p.pc(), CODE + 2);
+    CHECK_EQ(p.reg(ConsoleCard::STATUS) & ConsoleCard::HIT, ConsoleCard::HIT);
+    CHECK_EQ(p.reg20(ConsoleCard::LADDR), CODE_PHYS + 2);
+    CHECK_EQ(p.reg(ConsoleCard::LDATA), 0xE8);
+    CHECK_EQ(p.reg(ConsoleCard::LSTAT), ConsoleCard::L_SYNC | ConsoleCard::L_RWB);
+}
+
 TEST(read_and_write_breakpoints_latch_their_cycle)
 {
     Panel p;
