@@ -310,13 +310,24 @@ frame on both sides.
 - **Whole frames.** A frame is decoded once all of it, and the next frame's header, are in the FIFO, so a
   stream fed while it plays decodes exactly as the whole file would. A frame whose end hasn't come is waited for:
   the stream runs dry meanwhile.
-- **Junk and tags.** Bytes that aren't a frame, an ID3 tag before the first or between two, are skipped, and the
-  decoder finds its place again at the next frame, as minimp3 does. 64 KB looked through with no frame found is
-  `$81`.
-- **The end.** At EOF the last frame plays by the length its own header gives, whatever follows it ignored:
-  CP/M's `$1A` padding to the end of a 128-byte record, or anything else. (Trailing `$1A`s aren't stripped: a
-  frame's own data can end in them.)
+- **Layer III, sized.** Only frames whose length their header gives are taken. Free format (bitrate index 0,
+  its length nowhere in its header) is refused, and so are layer I and II frames (MP1, MP2): their bytes are
+  junk, and a stream of them ends in `$81`. So does a stream of layer III frames that decode to nothing.
+- **Junk.** Other bytes are skipped, and the decoder finds its place again at the next frame, as minimp3 does.
+  64 KB looked through since the last frame that made samples is `$81`.
+- **ID3v2 tags,** before the first frame or between two, are skipped by the size their header declares (its
+  footer too, if flagged), and don't count toward the 64 KB, so a tag with cover art is no error. A frame just
+  before a tag plays by its own length, and the decoder stays in step across the tag. A header declaring more
+  than 8 MB isn't taken for a tag: its bytes are junk.
+- **The end.** A frame with nothing frame-like after it, to EOF or for 32 KB, plays by the length its own header
+  gives, whatever follows ignored: CP/M's `$1A` padding to the end of a 128-byte record, or anything else.
+  (Trailing `$1A`s aren't stripped: a frame's own data can end in them.) Without EOF and with less than 32 KB
+  after it, it waits for more, so the result doesn't depend on when EOF is written. Where another stream's
+  header follows (a change of rate or channels), the decoder finds its place again there, as minimp3 does.
+- **The work is bounded.** A stream that finds nothing waits until more bytes come or EOF is written, rather
+  than search the same bytes again, and one frame's decoding looks through at most 256 KB, whatever the input.
 - **FLUSH** empties the decoder too, so a seek starts it afresh.
+- **KBPS** reads the frame playing's bitrate (never 0 while an MP3 plays: free format is refused).
 
 **The stream's timing,** where the design leaves it open:
 

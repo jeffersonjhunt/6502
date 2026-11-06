@@ -930,13 +930,20 @@ samples, 0 past 97). Where the spec is silent:
   over two seconds only the last second is made, and the stream's samples for the part skipped go with it. With
   nobody collecting, the SIDs are brought up to date once a second and a half of the stream waits. A pause released
   before its lead has played out loses up to a lead of the stream (250 µs at most) to the new run's lead: accepted.
-- MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored), layer III only, as each frame falls due.
-  A frame is decoded only with all of it and the next header in the FIFO, so a stream fed while it plays decodes
-  as the whole file would; otherwise it waits, dry. Junk and tags are skipped with resync; 64 KB looked through
-  with no frame is `$81`. At EOF the last frame plays by its own header's length, whatever follows ignored (CP/M's
-  `$1A` padding or anything else; `$1A`s aren't stripped, as a frame can end in them). RATE reads 0 until the
-  first frame decodes. The rate and channels follow each frame (a change re-anchors the mix); above 48 kHz is
-  `$80`, which no MPEG-1, -2 or -2.5 frame can be. FLUSH empties the decoder too.
+- MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored), as each frame falls due. A frame is
+  decoded only with all of it and the next header in the FIFO, so a stream fed while it plays decodes as the
+  whole file would; otherwise it waits, dry. Only layer III frames whose length their header gives are taken:
+  free format, layer I and II frames, and layer III frames that decode to nothing are junk. Junk is skipped with
+  resync; 64 KB of it since the last frame that made samples is `$81`. ID3v2 tags (up to 8 MB declared, footer
+  included) are skipped by their size and don't count toward it; the decoder stays in step across one. A frame
+  with nothing frame-like after it, to EOF or for 32 KB, plays by its own header's length, whatever follows
+  ignored (CP/M's `$1A` padding or anything else; `$1A`s aren't stripped, as a frame can end in them); without
+  EOF and less than 32 KB after it, it waits, so when EOF is written doesn't change the result. RATE reads 0
+  until the first frame decodes. The rate and channels follow each frame (a change re-anchors the mix); above 48
+  kHz is `$80`, which no MPEG-1, -2 or -2.5 frame can be. FLUSH empties the decoder too. A search that finds
+  nothing isn't repeated until bytes come or EOF is written, and a frame's decoding looks through 256 KB at most.
+  minimp3 is built with its stack scratch zeroed (`-ftrivial-auto-var-init=zero`), so a bad frame decodes the
+  same whatever the stack held.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.

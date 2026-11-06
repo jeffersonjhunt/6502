@@ -20,8 +20,13 @@ namespace ooe::emu
         /// What a search for a frame is given: ten frames of the largest kind, as minimp3 checks a sync by.
         static constexpr size_t WINDOW = 32'768;
         /// Kept back when a search finds nothing, without EOF: a frame could start in it, its end still to come.
-        static constexpr size_t KEEP = 2'304 + 4;
+        static constexpr size_t KEEP = 1'441 + 4;
         static constexpr size_t NO_SYNC = 65'536;
+        /// Of one call: bytes copied for the decoder or passed over, and decoder calls. Past either it goes on at
+        /// the next frame due (or tick), so no input, however hostile, costs a tick more than this.
+        static constexpr size_t WORK = 262'144, CALLS = 16;
+        /// An ID3v2 tag declaring more than this isn't taken for one: its bytes are junk.
+        static constexpr size_t TAG_MAX = 8u << 20;
 
         mp3dec_t dec{};
         std::vector<uint8_t> window = std::vector<uint8_t>(WINDOW);
@@ -30,19 +35,29 @@ namespace ooe::emu
         unsigned channels{1};
         uint32_t hz{0};
         unsigned kbps{0};
-        size_t junk{0}; ///< bytes since the last frame found
+        size_t junk{0};     ///< bytes since the last frame that made samples, tags left out
+        size_t tag_left{0}; ///< of an ID3v2 tag being skipped
+        /// The FIFO's count, and EOF, when a search last found nothing it could use: until either changes,
+        /// another search would find the same nothing.
+        size_t idle_count{SIZE_MAX};
+        bool idle_eof{false};
+        /// How far past the frame at the FIFO's front a look for anything frame-like has gone, finding none.
+        size_t looked{0};
 
         void restart()
         {
             mp3dec_init(&dec);
             samples = at = 0;
-            junk = 0;
+            junk = tag_left = 0;
+            idle_count = SIZE_MAX;
+            looked = 0;
         }
     };
 
     namespace
     {
-        /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one we can size (free format).
+        /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one: another layer,
+        /// free format (refused: its length isn't in its header), or a bad bitrate or rate.
         size_t mp3_frame_bytes(const uint8_t *h)
         {
             if (h[0] != 0xFF || (h[1] & 0xE0) != 0xE0 || (h[1] & 0x06) != 0x02)
@@ -65,6 +80,21 @@ namespace ooe::emu
         {
             return prev[0] == 0xFF && h[0] == 0xFF && ((prev[1] ^ h[1]) & 0xFE) == 0 && ((prev[2] ^ h[2]) & 0x0C) == 0;
         }
+
+        /// An ID3v2 tag's whole length (header, body, footer) from its 10-byte header, or 0 if `h` isn't one.
+        size_t id3_bytes(const uint8_t *h)
+        {
+            if (h[0] != 'I' || h[1] != 'D' || h[2] != '3' || h[3] == 0xFF || h[4] == 0xFF)
+                return 0;
+            size_t size = 0;
+            for (unsigned i = 6; i < 10; ++i)
+            {
+                if (h[i] & 0x80)
+                    return 0; // not syncsafe: not a tag
+                size = size << 7 | h[i];
+            }
+            return 10 + size + (h[5] & 0x10 ? 10 : 0);
+        }
     } // namespace
 
     SoundCard::SoundCard() : mp3_(std::make_unique<Mp3>()), cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
@@ -74,61 +104,178 @@ namespace ooe::emu
     bool SoundCard::mp3_next()
     {
         Mp3 &m = *mp3_;
+        if (m.at < m.samples)
+            return true;
         const bool eof = pcmctl_ & PCMCTL_EOF;
+        if (m.idle_count == fifo_count_ && m.idle_eof == eof)
+            return false; // nothing new since a search found nothing
+        const auto idle = [&] {
+            m.idle_count = fifo_count_;
+            m.idle_eof = eof;
+            return false;
+        };
+        const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
+        const auto drop = [&](size_t n, bool junk) {
+            fifo_drop(n);
+            m.looked = 0;
+            if (junk)
+                m.junk += n;
+        };
+        const auto no_sync = [&] {
+            if (m.junk < Mp3::NO_SYNC)
+                return false;
+            state_ = STATE_NO_SYNC;
+            bus_on_ = false;
+            return true;
+        };
+        size_t work = 0, calls = 0;
         for (;;)
         {
-            if (m.at < m.samples)
-                return true;
-            size_t n = std::min(fifo_count_, Mp3::WINDOW);
-            if (n == 0 || (n < 4 && !eof))
-                return false;
-            const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
-            const uint8_t head[4] = {at(0), n > 1 ? at(1) : uint8_t{0}, n > 2 ? at(2) : uint8_t{0},
-                                     n > 3 ? at(3) : uint8_t{0}};
-            if (n >= 4 && mp3_same(m.dec.header, head))
+            if (work >= Mp3::WORK || calls >= Mp3::CALLS)
+                return false; // the rest at the next frame due
+            const size_t have = fifo_count_;
+            if (m.tag_left) // an ID3v2 tag, skipped by its own size, not junk
             {
-                // In step with the stream: the decoder takes this frame as it is, if the next header is in sight
-                // too (or the stream ends with it). Give it just that, as a decoder with the whole file would see.
-                if (const size_t fb = mp3_frame_bytes(head))
+                const size_t d = std::min(m.tag_left, have);
+                drop(d, false);
+                m.tag_left -= d;
+                work += d;
+                if (m.tag_left)
+                    return idle();
+                continue;
+            }
+            if (have == 0)
+                return idle();
+            uint8_t h[10] = {};
+            for (size_t i = 0; i < 10 && i < have; ++i)
+                h[i] = at(i);
+            // A tag at the front: before the first frame, or where one frame's bytes end and the next's begin.
+            if (have >= 10)
+            {
+                if (const size_t tag = id3_bytes(h); tag && tag <= Mp3::TAG_MAX)
                 {
-                    bool next = false; // the stream's next header follows this frame
-                    if (n >= fb + 4)
-                    {
-                        const uint8_t h2[4] = {at(fb), at(fb + 1), at(fb + 2), at(fb + 3)};
-                        next = mp3_frame_bytes(h2) && mp3_same(head, h2);
-                    }
-                    // At EOF, the stream's last frame: none follows it in the FIFO. It plays by its own length,
-                    // whatever comes after it ignored (CP/M's $1As, or anything else).
-                    const auto last = [&] {
-                        for (size_t i = fb; i + 4 <= fifo_count_ && i < fb + Mp3::WINDOW; ++i)
-                        {
-                            const uint8_t h2[4] = {at(i), at(i + 1), at(i + 2), at(i + 3)};
-                            if (mp3_frame_bytes(h2) && mp3_same(head, h2))
-                                return false;
-                        }
-                        return true;
-                    };
-                    if (n >= fb + 4 && next)
-                        n = fb + 4;
-                    else if (eof && n >= fb && last())
-                        n = fb;
-                    else if (n < fb + 4 && !eof)
-                        return false; // the frame's end, or the header after it, still to come
-                    // Otherwise something else follows the frame: the whole window, to search as minimp3 would
-                    // with all of the data before it.
-
+                    m.tag_left = tag;
+                    continue;
                 }
+            }
+            else if (!eof && h[0] == 'I' && (have < 2 || h[1] == 'D') && (have < 3 || h[2] == '3'))
+                return idle(); // a tag's start, perhaps: its header still to come
+            size_t n = std::min(have, Mp3::WINDOW);
+            const size_t fb = have >= 4 ? mp3_frame_bytes(h) : 0;
+            if (fb && mp3_same(m.dec.header, h))
+            {
+                // In step with the stream. The decoder takes this frame as it is if the next header is in sight;
+                // give it just that, as a decoder with the whole file would see it.
+                if (have < fb + 4 && !eof && have < fb + Mp3::WINDOW)
+                {
+                    if (have < fb)
+                        return idle(); // the frame's end still to come
+                }
+                uint8_t next[4] = {};
+                for (size_t i = 0; i < 4 && fb + i < have; ++i)
+                    next[i] = at(fb + i);
+                if (have >= fb + 4 && mp3_frame_bytes(next) && mp3_same(h, next))
+                    n = fb + 4;
+                else if (have >= fb + 3 && next[0] == 'I' && next[1] == 'D' && next[2] == '3')
+                    n = fb; // a tag follows it: this frame by its own length, then the tag skipped
+                else if (have >= fb)
+                {
+                    // Anything frame-like after it (another stream's header, at a change of rate)? Then a search,
+                    // as minimp3 does with the whole file. Nothing, to the end of the data (EOF) or for a whole
+                    // window: this frame by its own length, what follows ignored (CP/M's $1A padding, say).
+                    // Without EOF and with less than a window after it, wait: more may come.
+                    const size_t end = std::min(have, fb + Mp3::WINDOW);
+                    bool like = false;
+                    for (size_t i = std::max(fb, fb + m.looked); i + 4 <= end && !like; ++i)
+                    {
+                        const uint8_t g[4] = {at(i), at(i + 1), at(i + 2), at(i + 3)};
+                        like = mp3_frame_bytes(g) != 0;
+                    }
+                    work += end - std::min(end, fb + m.looked);
+                    if (!like)
+                    {
+                        m.looked = end >= fb + 3 ? end - fb - 3 : 0; // where to look on from (a header may straddle)
+                        if (!eof && have < fb + Mp3::WINDOW)
+                            return idle();
+                        n = fb;
+                    }
+                }
+                else // at EOF, the frame can't be finished: junk
+                {
+                    drop(have, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+            }
+            else
+            {
+                // Out of step: pass over everything up to the next layer III header we can size, as junk. Other
+                // layers' frames and free format's are junk too.
+                size_t p = 0;
+                const size_t look = std::min(have, Mp3::WORK - work);
+                while (p + 4 <= look)
+                {
+                    const uint8_t g[4] = {at(p), at(p + 1), at(p + 2), at(p + 3)};
+                    if (mp3_frame_bytes(g) || (g[0] == 'I' && g[1] == 'D' && g[2] == '3'))
+                        break;
+                    ++p;
+                }
+                if (p + 4 > look)
+                    p = have < 4 ? 0 : look - 3; // none whole in sight: keep the last 3 bytes, a header's start
+                if (p == 0 && have < 4)
+                {
+                    if (!eof)
+                        return idle();
+                    p = have;
+                }
+                if (p)
+                {
+                    drop(p, true);
+                    work += p;
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                if (h[0] == 'I') // a tag that wasn't one (too big, or its size not syncsafe): junk, a byte of it
+                {
+                    drop(1, true);
+                    ++work;
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                // A header at the front: its frame, and the next header, must be in before the search.
+                if (have < fb + 4 && !eof)
+                    return idle();
             }
             for (size_t i = 0; i < n; ++i)
                 m.window[i] = at(i);
+            work += n;
+            ++calls;
             mp3dec_frame_info_t info{};
             const int got = mp3dec_decode_frame(&m.dec, m.window.data(), static_cast<int>(n), m.pcm.data(), &info);
             if (info.hz) // a frame
             {
-                fifo_drop(static_cast<size_t>(info.frame_bytes)); // its bytes, and any junk before it
-                m.junk = 0;
+                const size_t frame = static_cast<size_t>(info.frame_bytes - info.frame_offset);
+                drop(static_cast<size_t>(info.frame_offset), true);
+                if (info.layer != 3 || info.bitrate_kbps == 0)
+                {
+                    drop(frame, true); // another layer's, or free format's: junk
+                    mp3dec_init(&m.dec);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
                 if (got <= 0)
-                    continue; // a frame that made nothing (its bit reservoir not yet there): on to the next
+                {
+                    drop(frame, true); // a frame that made nothing counts as junk: a stream of them is $81
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
+                drop(frame, false);
+                m.junk = 0;
                 m.samples = static_cast<size_t>(got);
                 m.at = 0;
                 m.channels = static_cast<unsigned>(info.channels);
@@ -145,17 +292,12 @@ namespace ooe::emu
             if (skip == 0)
             {
                 if (!eof)
-                    return false;
+                    return idle();
                 skip = n;
             }
-            fifo_drop(skip);
-            m.junk += skip;
-            if (m.junk >= Mp3::NO_SYNC)
-            {
-                state_ = STATE_NO_SYNC;
-                bus_on_ = false;
+            drop(skip, true);
+            if (no_sync())
                 return false;
-            }
         }
     }
 

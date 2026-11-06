@@ -1,7 +1,8 @@
 #!/bin/sh
 # Makes the MP3 test files (emulator/test/host/mp3/, test_sound_mp3.cpp reads them): our own synthetic signal,
 # made here by Python, encoded by LAME. No third-party audio. Needs Docker; everything runs in a throwaway
-# debian:bookworm, pinned by digest, so the same script makes the same files; it prints the versions it used.
+# debian:bookworm, pinned by digest, with LAME and Python pinned by version, so the same script makes the same
+# files; it checks them against the sha256s recorded below and fails if they differ.
 #
 #   emulator/tools/make_mp3_fixtures.sh
 #
@@ -25,7 +26,7 @@ map=${HOSTPATH:-hostpath}
 mkdir -p "$out"
 docker run --rm -i -v "$($map "$out"):/out" "$image" sh -eu <<'INNER'
 apt-get -qq update >/dev/null
-apt-get -qq install -y lame python3 >/dev/null
+apt-get -qq install -y lame=3.100-6 python3=3.11.2-1+b1 >/dev/null
 echo "debian $(cat /etc/debian_version); the packages:"
 dpkg-query -W -f '  ${Package} ${Version}\n' lame python3
 cd /tmp
@@ -65,5 +66,13 @@ enc vbr0_stereo_44k.mp3 44100 2 -V 0 -m j
 enc vbr9_mono_22k.mp3 22050 1 -V 9 -m m
 cd /out
 ls -l *.mp3
-sha256sum *.mp3
+# The files these versions made when the script was written: a rerun must make the same bytes.
+sha256sum -c <<'SUMS'
+70ccbc742c0f64b65e4b40ee037d29e9a38110f9337c3b41aef5f0760b262e78  cbr128_joint_44k.mp3
+86399e821f6e4bc7d1d5c7c113cd309c0961a045f91b61d3d284c5cf4b92ab5b  cbr320_stereo_48k.mp3
+9ef7eb6494f0a2754bfd3894f6483d19148dd4b91596de05d2196845267b5e72  cbr32_mono_22k.mp3
+6dee47a4fa6b92bb927e78c1c4c010dcaa22edcd835e9bbd46ec583ae6aca80e  cbr8_mono_8k.mp3
+1da9e1aa63bae092b156878ea3c16d1f8fabf366b69c65ba95ebd73829f1e731  vbr0_stereo_44k.mp3
+628fdfe90542132116328ec876677ddf32eaaacc6b42696812f93ef09228732c  vbr9_mono_22k.mp3
+SUMS
 INNER

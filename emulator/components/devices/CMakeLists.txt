@@ -12,7 +12,8 @@ set_source_files_properties(sid.cpp sound_card.cpp PROPERTIES COMPILE_OPTIONS "-
 # -Wshorten-64-to-32 is on for it explicitly (WebAssembly's build): it has none of those.
 add_library(emu_minimp3 STATIC minimp3.cpp)
 target_include_directories(emu_minimp3 PUBLIC ${PROJECT_SOURCE_DIR}/third_party/minimp3)
-target_compile_options(emu_minimp3 PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Werror -ffp-contract=off)
+target_compile_options(emu_minimp3 PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Werror -ffp-contract=off
+        -ftrivial-auto-var-init=zero) # its scratch on the stack read past the data in bad frames: zero, not stale
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(emu_minimp3 PRIVATE -Wshorten-64-to-32)
 endif()

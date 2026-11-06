@@ -147,9 +147,12 @@
  * MP3 (CODEC 1): the FIFO decoded by minimp3 (third_party/minimp3, CC0),
  * layer III, a frame at a time as its first sample falls due, only with
  * all of it and the next header there (or EOF), so a stream fed as it plays
- * decodes as the whole file would. The rate and channels follow each frame;
- * junk and tags are skipped with resync; 64 KB with no frame is STATE $81;
- * at EOF the last frame plays by its own length, what follows ignored.
+ * decodes as the whole file would. The rate and channels follow each frame.
+ * Free format, layers I and II and frames that decode to nothing are junk;
+ * junk is skipped with resync, and 64 KB of it is STATE $81. ID3v2 tags are
+ * skipped by their size, not junk. A frame with nothing frame-like after it,
+ * to EOF or for 32 KB, plays by its own length, what follows ignored. A
+ * fruitless search waits for new bytes; a frame's work is bounded.
  *
  * The mix (revision 2). While the PCM stream plays or runs dry, its bus
  * frames are resampled to the audio rate by linear interpolation into a
