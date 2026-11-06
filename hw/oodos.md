@@ -2836,7 +2836,10 @@ a sequencer table of our own; 2–12 as their recommendations. 6b first (it need
   (the address fields aren't found until the disk is at speed); a write waits a spin-up time first.
 - **Interrupts and DMA during a read:** interrupts are off for a whole sector or track operation too, the flag put
   back after; DMA isn't used by OODOS while the BIOS runs, so a read leaves the controller as it is. Break (NMI)
-  can't be held off: a write it lands in leaves that sector bad.
+  can't be held off: a write it lands in loses that sector, and the NMI handler turns the card's write mode and
+  motor off and the DMA master back on before the monitor (6c's review), so the rest of the track is kept. A
+  halt by the console's RDY in the middle of a write keeps the card writing (the CPU stops, the card doesn't):
+  that sector and whatever the head passes over while halted are lost.
 - **Room:** the driver about 2–2.5 KB and the `apple-do` layer 0.8–1.2 KB in block 61 (12.9 KB free); its scratch
   in the BIOS's own zero page, at most 4 bytes more of the system's (232 of 240 used at phase 5's plan;
   counted again at 6c's start).
@@ -3225,8 +3228,58 @@ merged, with the switches' equates (below).
 - **Measured:** 20 KB from O: to M: 3.5 s; 5 KB from M: to O: 2.8 s, about 40 ms a sector waiting for its
   address field (the skew puts a 512-byte sector's halves three physical sectors apart). `tools/check.sh quick`
   198 s, all passed; test_oodos_disk2 28.7 s and test_oodos_disk2_noprom 0.6 s in the parallel run, so no split.
-- **The books:** the drive tables of both Guides name O: and P: (approved for 6c); the rest of 6c's entries
-  wait for the owner (the report lists them).
+- **The books:** the drive tables of both Guides name O: and P:, and after the review the approved entries
+  (below).
+
+**After 6c's review (2026-11-05, the owner's decisions; main merged in first, G2 and sound step 1):**
+
+- **F1, the checksums kept by the BDOS's own writes:** DIRPUT sums the record it wrote into CSV (`CSVPUT`), as
+  CP/M 3 keeps its checksums, so a make, a close or an erase is never taken for another disk.
+- **F2, the card's one motor:** the driver keeps the drive the card last selected (`D2LAST`); the other has
+  stopped, whatever the data register does.
+- **The owner's rule for the run-on:** a drive whose own last access was in the RTC's same second (its second,
+  minute, hour and date; a second's edge counts as older, so it errs toward checking) is taken as unchanged, with
+  no directory re-read at a select (`RECENT`, the BIOS's `D2STAMP`); one idle a second or more is checked. The RTC,
+  not the card or a cycle count: the bridge has it in registers, and the BIOS needs no counter of its own. **The
+  trade-off, recorded in the User's Guide:** a disk swapped within a second of its drive's last access, in the
+  middle of an O:-P: copy, can take a few data sectors before the next directory write sees the change.
+- **F3, write-backs (the owner chose the lazy way, with close):** O:'s and P:'s changed buffers wait for a close,
+  48, 13, 37, 75, the warm boot or an eviction. Every write-back not preceded by its own drive's check in the
+  same call is checked first (WBACK's guard, `DISKCHK`: MEDIA, then the directory read past the buffers): a
+  changed disk drops the data, never receives it. A write-back at every call's end, then at another drive's
+  select, were tried first and dropped: PIP writes a record a call and alternates drives, so each wrote every
+  sector four times (M:→O: 5 KB 9.3 s).
+- **F4:** ADDR reads the epilogue's AA before a write starts, so the write begins past it.
+- **F5:** the NMI handler turns the Disk II's write mode and motor off and puts the DMA master back (`D2WRIT`,
+  `D2DMAS`) before the monitor.
+- **F6:** the first directory write of each call reads the directory past every buffer (`VERIFYD`, the BIOS's
+  directory-track buffer forgotten) and compares it; another disk ends the call with 10, nothing written.
+- **F7:** a READ whose sector wasn't read has the track read again once, and the miss isn't kept.
+- **F8:** every byte ADDR and RDATA read is counted, a run of D5s too.
+- **F11, F12:** the comments (RBYTE's poll 11 cycles, 256 of them about 2,800; disk2.inc allows an absolute,X in
+  the card's page); D2WSEC's interrupts off from the search on, the flag back on every way out.
+- **Each drive's directory track has a buffer of its own** (block 30, $0000 and $1000), so a check of the
+  directory doesn't evict the data track; the BIOS keeps a drive's buffers the BDOS checked in the call (`VOUCH`).
+  Block 29 still has the SD unit's and O:'s and P:'s data buffers and the hashes; block 30, spare before, has these.
+- **Tests:** `test_oodos_disk2` (12 cases) gains every address field's DE AA after PIPs, a Break mid-write (15 of
+  the track's 16 sectors kept, Q7 and the motor off, DMA as it was), a sector read again once the disk reads, and
+  a track of D5s (Disk I/O in 1.6 s); `test_oodos_disk2_media` (new, 5 cases; the rig shared in `disk2_rig.h`):
+  the BDOS's own directory writes not a change (MEMTEST's K, the review's nochange.com: MK, WR, WR2, CL all 00,
+  DGEN as it was), a changed P: seen however recently O: ran (the review's case), a change under a pending write
+  (MEMTEST's V, dirty.com: the new disk unchanged after the warm boot), a closed file on the image with no warm
+  boot since (MEMTEST's C), and a swap within the second seen at the first directory write (nothing written).
+- **Must fail, each seen with its fault put in:** CSVPUT off (2 media cases and 3 others); the other drive's
+  register trusted (the P: case); WBACK's guard off (the pending-write case); no write-back at close (the close
+  case); the AA not read (the epilogue case); the NMI leaving the card (the Break case); no check before the first
+  directory write (the within-the-second case); a missing sector kept (the re-read case); the D5s uncounted (the
+  D5 case, which hangs to its 20 s: its track had first to be put in step with sync bytes, or a reader took the
+  D5s as ABs and the fault's path was never run).
+- **Room:** block 60 12,535 of 16,384 bytes, block 61 8,771; blocks 29 and 30 as above.
+- **Measured** (emulated): M:→O: 5 KB 3.8 s, O:→M: 20 KB 3.0 s, O:→P: 20 KB 22.0 s (94.6 s before the owner's
+  rule, 158 s with a write-back at every call's end).
+- **The books** (approved): the Programmer's Guide's chapter 3 (ten drives, removable drives), 14's and 37's
+  drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
+  G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.
 
 
 ## GW-BASIC ##
