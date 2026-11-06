@@ -601,6 +601,11 @@ FAILSAY:        JSR     STRING
 NOFILE:         LDA     #<CM_NOFILE
                 LDX     #>CM_NOFILE
                 BRA     FAILSAY
+; Error 10 (O:'s or P:'s disk changed under the command), which the BDOS
+; returns without a message.
+MEDIA:          LDA     #<MEDIACHG
+                LDX     #>MEDIACHG
+                BRA     FAILSAY
 
 ; The command, from its keyword, in capitals, and '?'.
 BADCMD:         LDX     KWS
@@ -948,9 +953,12 @@ B_ERA:          JSR     BIENTER
                 LDX     #>SFCB
                 LDY     #F_DELETE
                 JSR     BDOS
+                CMP     #0             ; 0 deleted; 10 O:'s or P:'s disk changed, nothing
+                BEQ     @done          ; deleted (the BDOS doesn't say it)
                 CMP     #$FF
-                BNE     @done
-                CPX     #0
+                BEQ     :+
+                JMP     MEDIA
+:               CPX     #0
                 BNE     @said
                 JMP     NOFILE
 @said:          JMP     BIFAIL
@@ -1035,8 +1043,11 @@ B_REN:          JSR     BIENTER
                 LDX     #>SFCB
                 LDY     #F_DELETE
                 JSR     BDOS
+                CMP     #0
+                BEQ     @rename
                 CMP     #$FF
                 BEQ     @said
+                JMP     MEDIA          ; 10: the disk changed, nothing done
 @rename:        LDY     #24            ; SFCB: old, then new at 16
                 LDA     LOADDRV
                 JSR     SETSFCB
@@ -1052,9 +1063,12 @@ B_REN:          JSR     BIENTER
                 LDX     #>SFCB
                 LDY     #F_RENAME
                 JSR     BDOS
+                CMP     #0
+                BEQ     @done
                 CMP     #$FF
-                BNE     @done
-                CPX     #0
+                BEQ     :+
+                JMP     MEDIA          ; 10: the disk changed, nothing renamed
+:               CPX     #0
                 BNE     @said
                 JMP     NOFILE
 @done:          JMP     BIOK
@@ -1100,7 +1114,10 @@ B_TYPE:         JSR     BIENTER
                 BEQ     @read
                 CMP     #1             ; the end
                 BEQ     @done
-                BRA     @said
+                CMP     #10            ; the disk changed: said, as the BDOS doesn't, on a
+                BNE     @said          ; line of its own
+                JSR     CM_CRLF
+                JMP     MEDIA
 @read:          LDX     #0
 @char:          LDA     LASTREC,X
                 CMP     #CTLZ
@@ -1970,6 +1987,7 @@ ORDERS:         .byte   1, 0, 1, 2, 2, 1, 2, 0 ; the search order: types to try 
 COLDF:          .byte   1              ; in the file: 1 at the cold boot, 0 after the first prompt
 REQUIRED:       .byte   " required$"
 CM_NOFILE:      .byte   "No File$"
+MEDIACHG:       .byte   "Media Change$"
 SYSEXIST:       .byte   "SYSTEM FILE(S) EXIST$"
 NONSYSEXIST:    .byte   "NON-SYSTEM FILE(S) EXIST$"
 ERAQ:           .byte   "ERASE $"

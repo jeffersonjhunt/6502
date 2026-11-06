@@ -226,6 +226,29 @@ said:   jsr     UT_SAID
         jsr     droptmp
         jmp     cmdend
 
+; O:'s or P:'s disk changed under the command (error 10, which the BDOS
+; doesn't say): MEDIA CHANGE and the name, the destination's (chg) or the
+; source's (chgsrc). NAME.$$$ is the old disk's: it isn't deleted from the
+; new one (tmpopen cleared first).
+chg:    stz     tmpopen
+        lda     #<(e_fcb + 1)
+        sta     ptr
+        lda     #>(e_fcb + 1)
+        sta     ptr + 1
+        lda     #<smedia
+        ldx     #>smedia
+        jmp     failnm
+; passwd's 103, a 10 from it as chg.
+xfcb:   ldy     #F_WRITEXFCB
+        jsr     BDOS
+        cmp     #10
+        beq     chg
+        rts
+chgsrc: stz     tmpopen
+        lda     #<smedia
+        ldx     #>smedia
+        jmp     failsrc
+
 ; The temporary file, if one is open, deleted (its user's).
 droptmp:
         lda     tmpopen
@@ -1148,9 +1171,12 @@ archive:
         ldx     #>wfcb
         ldy     #F_ATTRIB
         jsr     BDOS
-        cmp     #$FF
-        bne     :+
-        jmp     said
+        cmp     #0
+        beq     :+
+        cmp     #10
+        bne     @asaid
+        jmp     chg
+@asaid: jmp     said
 :       rts
 
 ; Entry X's password (as 152 left it, kept in e_pw) to the DMA buffer, as
@@ -1412,7 +1438,10 @@ opensrc:
         ldx     ptr + 1
         ldy     #F_OPEN
         jsr     BDOS
-        cmp     #$FF
+        cmp     #10                     ; O:'s or P:'s disk changed (access stamps)
+        bne     :+
+        jmp     chgsrc
+:       cmp     #$FF
         bne     @ok
         cpx     #0
         bne     :+
@@ -1464,7 +1493,10 @@ readnext:
         beq     @ok
         cmp     #1
         beq     @end
-        jmp     said
+        cmp     #10                     ; the source's disk changed: the BDOS says nothing
+        bne     :+
+        jmp     chgsrc
+:       jmp     said
 @end:   lda     #1
         sta     ieof
 @ok:    rts
@@ -1919,7 +1951,10 @@ wrec:   stz     opos
         jsr     BDOS
         cmp     #0
         beq     :+
-        lda     #<(e_fcb + 1)
+        cmp     #10
+        bne     @full
+        jmp     chg
+@full:  lda     #<(e_fcb + 1)
         sta     ptr
         lda     #>(e_fcb + 1)
         sta     ptr + 1
@@ -2007,6 +2042,9 @@ maketmp:
         ldx     #>tfcb
         ldy     #F_DELETE
         jsr     BDOS
+        cmp     #10
+        bne     @none
+        jmp     chg
 @none:  ldy     #12
         lda     #0
 :       sta     tfcb,y
@@ -2017,7 +2055,12 @@ maketmp:
         ldx     #>tfcb
         ldy     #F_MAKE
         jsr     BDOS
-        cmp     #$FF
+        cmp     #0
+        beq     @made
+        cmp     #10                     ; (any but 0 and $FF: 22 has only 10)
+        bne     :+
+        jmp     chg
+:       cmp     #$FF
         bne     @made
         cpx     #0                      ; X 0: no directory space, the BDOS silent
         beq     :+
@@ -2050,9 +2093,12 @@ finish: lda     duser
         ldx     #>tfcb
         ldy     #F_CLOSE
         jsr     BDOS
-        cmp     #$FF
-        bne     :+
-        jmp     said
+        cmp     #0
+        beq     :+
+        cmp     #10
+        bne     @csaid
+        jmp     chg
+@csaid: jmp     said
 :       lda     wantv                   ; V on any source
         beq     @old
         jsr     verify
@@ -2098,9 +2144,12 @@ finish: lda     duser
         ldx     #>wfcb
         ldy     #F_ATTRIB
         jsr     BDOS
-        cmp     #$FF
-        bne     @delete
-        jmp     said
+        cmp     #0
+        beq     @delete
+        cmp     #10
+        bne     @rsaid
+        jmp     chg
+@rsaid: jmp     said
 @delete:
         ldx     #0
         jsr     srcpw
@@ -2108,9 +2157,12 @@ finish: lda     duser
         ldx     #>wfcb
         ldy     #F_DELETE
         jsr     BDOS
-        cmp     #$FF
-        bne     @rename
-        jmp     said
+        cmp     #0
+        beq     @rename
+        cmp     #10
+        bne     @dsaid
+        jmp     chg
+@dsaid: jmp     said
 @rename:
         ldx     #10                     ; tfcb: NAME.$$$, the new name at 16
 :       lda     e_fcb + 1,x
@@ -2125,9 +2177,12 @@ finish: lda     duser
         ldy     #F_RENAME
         jsr     BDOS
         stz     tmpopen
-        cmp     #$FF
-        bne     :+
-        jmp     said
+        cmp     #0
+        beq     :+
+        cmp     #10
+        bne     @nsaid
+        jmp     chg
+@nsaid: jmp     said
 :       jsr     attrs
         jmp     passwd
 
@@ -2200,9 +2255,12 @@ attrs:  lda     single
         ldx     #>wfcb
         ldy     #F_ATTRIB
         jsr     BDOS
-        cmp     #$FF
-        bne     @none
-        jmp     said
+        cmp     #0
+        beq     @none
+        cmp     #10
+        bne     @nsaid
+        jmp     chg
+@nsaid: jmp     said
 @none:  rts
 
 ; A destination password: given, in READ mode; a drive's copy, the source's
@@ -2272,8 +2330,7 @@ passwd: lda     e_pw
         jsr     tmpdma
         lda     #<wfcb
         ldx     #>wfcb
-        ldy     #F_WRITEXFCB
-        jsr     BDOS
+        jmp     xfcb                    ; (103 there, out of the branches' reach)
 @none:  rts
 
 ; V: NAME.$$$ read back, its CRC against the one taken as it was written.
@@ -2351,6 +2408,7 @@ stemp:  .byte   "CAN'T DELETE TEMP FILE$"
 sdestro: .byte  "DESTINATION IS R/O, DELETE (Y/N)?$"
 snotdel: .byte  "**NOT DELETED**$"
 swrite: .byte   "DISK WRITE ERROR - $"
+smedia: .byte   "MEDIA CHANGE - $"
 sverify: .byte  "VERIFY ERROR - $"
 sabort: .byte   "USER ABORTED$"
 sstart: .byte   "START NOT FOUND$"
