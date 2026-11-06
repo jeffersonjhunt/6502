@@ -3090,7 +3090,8 @@ merged, with the switches' equates (below).
   kept after a failed write (`@failed: NOP`: the failed-write case, `YSAME N`).
 - **Measured:** PIP of PATTERN.BIN, 20,096 bytes, from C: to M:, 12.4 million cycles, 1.73 s. `tools/check.sh
   quick` 193 s, all passed (test_oodos_apple 8.6 s in the parallel run; test_oodos_card about 3 s more, for its
-  new case); the native step's wall time didn't grow.
+  new case); the native step's wall time didn't grow. After the review: 185 s, all passed; test_oodos_apple, 9
+  cases, 9.6 s in the parallel run.
 
 
 ## GW-BASIC ##
