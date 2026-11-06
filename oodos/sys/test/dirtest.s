@@ -624,7 +624,7 @@ dirfull:
         jsr     BDOS
         jsr     RES
         SAY     "SELBAD "
-        lda     #15
+        lda     #13                     ; N:, no drive (P: is the Disk II's, 6c)
         ldy     #DRV_SET
         jsr     BDOS
         jsr     RES

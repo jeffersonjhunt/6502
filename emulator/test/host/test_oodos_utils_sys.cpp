@@ -897,7 +897,7 @@ TEST(setdef_shows_and_sets_the_drive_search_chain)
     same(run(r, "setdef a:, b: ,m:,*"), lines(setdef_lines({"A:", "B:", "M:", "Default"})));
     CHECK(chain_of(r) == std::vector<unsigned>({1, 2, 13, 0}));
     CHECK_EQ(field(r.cmd("args"), "ARGS"), std::string("M0  "));
-    same(run(r, "setdef p:,m:"), lines(setdef_lines({"P:", "M:"}))); // P: isn't a drive: passed over
+    same(run(r, "setdef n:,m:"), lines(setdef_lines({"N:", "M:"}))); // N: isn't a drive: passed over (P: is since 6c)
     CHECK_EQ(field(r.cmd("args"), "ARGS"), std::string("M0  "));
     // Errors: nothing set
     same(run(r, "setdef a:,b:,c:,d:,e:"), "More than four drives specified.");

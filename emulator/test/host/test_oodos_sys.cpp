@@ -100,7 +100,7 @@ std::string bios_version()
 /// The boot status's three lines (cold.s's STATUS) for backplane.machine with A: and B: of 8 MB.
 std::string boot_status()
 {
-    return "BIOS " + bios_version() + "   47K TPA\r\nA: 8M   B: 8M   M: 128K\r\n"
+    return "BIOS " + bios_version() + "   47K TPA\r\nA: 8M   B: 8M   M: 128K   O: 128K   P: 128K\r\n"
            "Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel\r\n";
 }
 
@@ -125,7 +125,7 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     // The banner on the screen too, and the status under it.
     CHECK_EQ(r.row(1), std::string("OODOS 0.3  2026-10-27 12:00:00"));
     CHECK_EQ(r.row(2), "BIOS " + bios_version() + "   47K TPA");
-    CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K"));
+    CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K   O: 128K   P: 128K")); // O: and P:, the Disk II's, disk in or not (6c)
     CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel"));
     CHECK_EQ(r.row(6), std::string("A>"));
 }
@@ -155,7 +155,7 @@ TEST(the_boot_status_says_what_it_finds_and_what_it_doesnt)
         if (q.phys(a) == 'B')
             q.poke(a, uint8_t{'b'}); // every B changed, so no greeting is found
     REQUIRE(q.boot());
-    CHECK(q.out.find("\r\nBIOS ?   47K TPA\r\nA: 8M   M: 128K\r\n") != std::string::npos);
+    CHECK(q.out.find("\r\nBIOS ?   47K TPA\r\nA: 8M   M: 128K   O: 128K   P: 128K\r\n") != std::string::npos);
 }
 
 TEST(m_is_formatted_as_mkfs_cpm_t_with_mode_0x31)
@@ -1248,7 +1248,7 @@ TEST(dirtest_searches_users_attributes_names_and_full_drives_on_m)
         {"SIZEGONE", "FF 00"},
         {"SNEXTEND", "FF 00"},
         {"FREEBAD", "FF 04"},          // Invalid Drive: F: isn't mounted
-        {"SELBAD", "FF 04"},           // P:
+        {"SELBAD", "FF 04"},           // N: (P: is the Disk II's since 6c)
         {"FLUSH", "00 00"},
         {"PURGE", "00 00"},
         {"RESET", "00 00"},
@@ -1316,7 +1316,7 @@ TEST(errors_return_say_or_end_the_program_as_the_error_mode_says)
         Booted r;
         REQUIRE(r.ok);
         const std::string o = errtest(r, 'P');
-        CHECK(o.find("\r\nOODOS Error On P: Invalid Drive\r\nBDOS Function = 14\r\n") != std::string::npos);
+        CHECK(o.find("\r\nOODOS Error On N: Invalid Drive\r\nBDOS Function = 14\r\n") != std::string::npos);
     }
     {
         Booted r;
@@ -2462,7 +2462,7 @@ TEST(function_49_gets_and_sets_the_scb_at_cp_m_3s_offsets)
         {"FLAGS", "80"},       {"COMBASE", "00 F8"}, {"PAST", "00 00"},     {"PASTFF", "00 00"},
         {"SETPAST", "00 00"},  {"LAST", "00 00"},    {"LASTGET", "34 00"},  {"LAST62", "00 34"},
         {"RESOP", "00 00"},    {"USERF0", "00 00"},  {"USERF", "EF BE"},    {"ERR", "FF 04"},
-        {"ERRDRV", "0F"},      {"EMODE", "FE"},      {"DMA26", "34 12"},    {"DMA49", "N"},
+        {"ERRDRV", "0D"},      {"EMODE", "FE"},      {"DMA26", "34 12"},    {"DMA49", "N"},
         {"DISK", "0C 00"},     {"USER", "07 00"},     {"USER49", "05"},    {"CMODE", "00 03"},    {"D49", "AB"},
         {"AUX0", "1A 00"},     {"AUXL", "1A 00"},    {"DATE", "Y"},         {"LISTF", "00"},
         {"VERSION", "31 00"}};

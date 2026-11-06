@@ -166,10 +166,10 @@ cases:  stz     TDRV
         SHOWW   "USERF ", $06           ; EF BE
         SCBSETB $4B, $FF                ; the error mode by 49: errors return
         NAME    FCB, "X          "
-        lda     #16                     ; P:
+        lda     #14                     ; N:, no drive (P: is the Disk II's, 6c)
         sta     FCB
         TRY     "ERR ", F_OPEN, FCB     ; FF 04
-        SHOWB   "ERRDRV ", $51          ; 0F
+        SHOWB   "ERRDRV ", $51          ; 0D
         CALLF   F_ERRMODE, $FE
         SHOWB   "EMODE ", $4B           ; FE
         CALLF   F_ERRMODE, $FF

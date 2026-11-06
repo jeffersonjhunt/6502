@@ -10,7 +10,8 @@
 ;   M   on M:: EXISTS aa xx (FF 08), WILD aa xx (FF 09); mode $FE: the
 ;       message (File Exists), BACK aa xx; then a write to a read-only file
 ;       in the default mode: File R/O, the end
-;   P   function 14 of P: in the default mode: Invalid Drive, the end
+;   P   function 14 of N: in the default mode: Invalid Drive, the end (N:,
+;       no drive: P: is the Disk II's since 6c)
 ;   I   A: logged in, then EJECT? waits while the test takes the card out:
 ;       IO aa xx (FF 01, Disk I/O, opening README.TXT); then the default
 ;   W   B: writable at its login, a record written to B:WP.TXT, then
@@ -98,7 +99,7 @@ casem:  lda     #12                     ; M:
 
 casep:  lda     #0
         jsr     mode
-        lda     #15
+        lda     #13
         ldy     #DRV_SET
         jsr     BDOS
         jmp     notreached
