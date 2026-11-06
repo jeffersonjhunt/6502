@@ -392,7 +392,7 @@ namespace ooe::emu
         catch_up();
         chips_[0].reset();
         chips_[1].reset();
-        mode_vol_ = {0, 0};
+        written_ = {};
         sids_at_ = clock_;
         ctrl_ = ien_ = 0;
         ram_addr_ = 0;
@@ -1274,11 +1274,10 @@ namespace ooe::emu
     {
         catch_up(); // the write lands on its clock
         const auto to = [&](unsigned n) {
+            if (reg < POTX)
+                written_[n][reg] = data; // as written, for reads and sid()
             if (reg == SID_MODE_VOL)
-            {
-                mode_vol_[n] = data; // as written, for reads; the chip has the volume scaled (VOLL A, VOLR B)
-                chips_[n].write(reg, sid_mode_vol(n));
-            }
+                chips_[n].write(reg, sid_mode_vol(n)); // the chip has the volume scaled (VOLL A, VOLR B)
             else
                 chips_[n].write(reg, data);
         };
@@ -1300,7 +1299,7 @@ namespace ooe::emu
     uint8_t SoundCard::sid_read(unsigned chip, unsigned reg) const
     {
         if (reg == SID_MODE_VOL)
-            return mode_vol_[chip & 1]; // as written, not as VOLL or VOLR scaled it
+            return written_[chip & 1][SID_MODE_VOL]; // as written, not as VOLL or VOLR scaled it
         catch_up();
         return chips_[chip & 1].read(reg);
     }

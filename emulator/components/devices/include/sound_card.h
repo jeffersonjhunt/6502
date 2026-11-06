@@ -371,13 +371,8 @@ namespace ooe::emu
         uint8_t sid_read(unsigned chip, unsigned reg) const;
 
         uint8_t ctrl() const { return ctrl_; }
-        /// SID `chip`'s registers as written ($D418 too, before VOLL or VOLR scales its volume).
-        std::array<uint8_t, SID_REGS> sid(unsigned chip) const
-        {
-            std::array<uint8_t, SID_REGS> r = chips_[chip & 1].regs();
-            r[SID_MODE_VOL] = mode_vol_[chip & 1];
-            return r;
-        }
+        /// SID `chip`'s registers as written ($D418 too, before VOLL or VOLR scales its volume): kept up to date.
+        const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return written_[chip & 1]; }
         /// SID `n` as of now: its voices' oscillators and envelopes.
         const Sid &chip(unsigned n) const
         {
@@ -516,8 +511,8 @@ namespace ooe::emu
         void sid_volume();
         uint8_t sid_mode_vol(unsigned chip) const
         {
-            const unsigned v = vol_[chip & 1];
-            return static_cast<uint8_t>((mode_vol_[chip & 1] & 0xF0) | ((mode_vol_[chip & 1] & 0x0F) * v + 127) / 255);
+            const unsigned v = vol_[chip & 1], mv = written_[chip & 1][SID_MODE_VOL];
+            return static_cast<uint8_t>((mv & 0xF0) | ((mv & 0x0F) * v + 127) / 255);
         }
         /// The mix takes the bus from now: the SIDs' samples made up to now, so the bus's next lines up with theirs.
         void mix_anchor();
@@ -618,7 +613,8 @@ namespace ooe::emu
         bool eq_dirty_{true};  ///< the gains or enable changed: the coefficients anew
         uint32_t eq_rate_{0};  ///< the bus rate the coefficients are for
         BusVis vis_bus_;
-        std::array<uint8_t, 2> mode_vol_{}; ///< each SID's $D418 as written; the chip has it scaled by VOLL or VOLR
+        /// Each SID's registers as written ($00-$18; the read-only four 0): its $D418 the chip has scaled by VOLL or VOLR.
+        std::array<std::array<uint8_t, SID_REGS>, 2> written_{};
         uint8_t visidx_{0};
         std::array<uint8_t, VIS_BYTES> vis_{};
         uint8_t docctl_{0};
