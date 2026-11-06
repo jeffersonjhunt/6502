@@ -6,14 +6,18 @@ import { expect, type Page } from "@playwright/test";
 
 /**
  * Turn the key to RUN, once the core is open (the strip says POWER OFF): the page starts the machine off, and a
- * cold start is the visitor's turn of the key.
+ * cold start is the visitor's turn of the key. Then the splash on the screen, unless `splash: false` (a BIOS
+ * that shows none).
  */
-export async function powerOn(page: Page): Promise<void> {
+export async function powerOn(page: Page, { splash = true }: { splash?: boolean } = {}): Promise<void> {
   const key = page.getByTestId("keyswitch");
   await expect(page.getByTestId("status")).toHaveText("POWER OFF", { timeout: 15_000 });
   await expect(key).toHaveAttribute("data-pos", "off");
   await key.click();
   await expect(key).toHaveAttribute("data-pos", "run");
+  // The splash on the screen: the machine's switch to Display at power-on is behind us, so a screen picked next
+  // (onTerminal) holds. Picked before the splash's first frame, the splash would take it back (ui/screen.ts).
+  if (splash) await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga", { timeout: 15_000 });
 }
 
 /** Show the debugger (it starts closed on a first visit). */

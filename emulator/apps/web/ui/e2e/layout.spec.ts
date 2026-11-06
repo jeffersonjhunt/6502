@@ -190,7 +190,7 @@ test("a BIOS that runs nothing useful: Settings still takes you back to the page
   await booted(page);
   await openSettings(page);
   await page.getByTestId("bios-file").setInputFiles({ name: "blank.rom", mimeType: "application/octet-stream", buffer: Buffer.alloc(4096, 0xff) });
-  await powerOn(page); // the page started again, the machine off
+  await powerOn(page, { splash: false }); // the page started again, the machine off; a blank BIOS shows no splash
   await expect(page.getByTestId("status")).toContainText(/RUNNING|HALTED|STOPPED/, { timeout: 15_000 }); // on it
   await page.waitForTimeout(500);
   await expect(page.getByTestId("crt-text")).not.toContainText("BACKPLANE BIOS");
