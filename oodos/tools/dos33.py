@@ -240,13 +240,20 @@ def erase(d, name):
 
 
 def text(data):
-    """CP/M text as DOS keeps it: bit 7 set, CR LF to CR, to the first ^Z, a 0 after."""
-    out = bytearray()
+    """CP/M text as DOS keeps it: bit 7 set, CR LF to CR and a lone LF to CR too, NULs dropped, to the
+    first ^Z, a 0 after."""
+    out, cr = bytearray(), False
     for b in data:
         if b == 0x1A:
             break
-        if b == 0x0A:
+        if b == 0:
             continue
+        if b == 0x0A:
+            if cr:
+                cr = False
+                continue
+            b = 0x0D
+        cr = b == 0x0D
         out.append(b | 0x80)
     return bytes(out) + b"\0"
 
@@ -277,6 +284,11 @@ def check(d):
             use(p, "the catalog")
         for f in list(d.files()):
             lists, data = d.lists(f)
+            for k, p in enumerate(lists):
+                l = d.sector(*p)
+                if l[5] | l[6] << 8 != k * PAIRS:
+                    problems.append("%s: list %d starts at sector %d, not %d"
+                                    % (f["name"], k + 1, l[5] | l[6] << 8, k * PAIRS))
             for p in lists:
                 use(p, f["name"])
             for p in data:

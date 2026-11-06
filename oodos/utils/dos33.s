@@ -48,6 +48,7 @@ src:    .res    2
 
         .code
 start:  jsr     UT_INIT
+        stz     gtemp
         jsr     UT_SKIP
         bne     :+
         jmp     usage
@@ -138,6 +139,7 @@ get:    jsr     drive
         jsr     mode
         cmp     #'='
         beq     usage1
+        jsr     samedrv
         jsr     rdvtoc
         jsr     find
         bcc     :+
@@ -164,24 +166,36 @@ get:    jsr     drive
         beq     :+
         jmp     usage
 :       stx     gmode
-        ldy     #0                      ; the first track/sector list
-        lda     (ptr),y
-        sta     lt
-        iny
-        lda     (ptr),y
-        sta     ls
-        lda     #<fcb                   ; the CP/M file made anew
-        ldx     #>fcb
+        jsr     chkfile                 ; its lists and pairs, before anything is written
+        ldx     #35                     ; a $$$ file of its name, made anew: the old one
+:       lda     fcb,x                   ; is replaced only when this one is whole
+        sta     tfcb,x
+        dex
+        bpl     :-
+        ldx     #2
+        lda     #'$'
+:       sta     tfcb + 9,x
+        dex
+        bpl     :-
+        stz     tfcb + 12
+        stz     tfcb + 32
+        lda     #<tfcb
+        ldx     #>tfcb
         ldy     #F_DELETE
         jsr     BDOS
-        lda     #<fcb
-        ldx     #>fcb
+        lda     #<tfcb
+        ldx     #>tfcb
         ldy     #F_MAKE
         jsr     BDOS
         cmp     #$FF
         bne     :+
         jmp     cpmfail
-:       lda     #<rec
+:       inc     gtemp
+        lda     flt
+        sta     lt
+        lda     fls
+        sta     ls
+        lda     #<rec
         ldx     #>rec
         ldy     #F_DMAOFF
         jsr     BDOS
@@ -199,8 +213,7 @@ get:    jsr     drive
 @pair:  lda     pi
         asl     a
         tax
-        lda     lbuf + $0C,x
-        ora     lbuf + $0D,x
+        lda     lbuf + $0C,x            ; track 0: a sector never written
         bne     @data
         inc     zpend                   ; a sector never written: zeros, if more follow
         bne     @npair
@@ -253,10 +266,27 @@ get:    jsr     drive
         inx
         bpl     :-
         jsr     wrec
-@close: lda     #<fcb
-        ldx     #>fcb
+@close: lda     #<tfcb
+        ldx     #>tfcb
         ldy     #F_CLOSE
         jsr     BDOS
+        cmp     #$FF
+        bne     :+
+        jmp     cpmfail
+:       lda     #<fcb                   ; whole: the old file deleted, this one renamed
+        ldx     #>fcb
+        ldy     #F_DELETE
+        jsr     BDOS
+        ldx     #11                     ; tfcb + 16: the new name
+:       lda     fcb,x
+        sta     tfcb + 16,x
+        dex
+        bpl     :-
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_RENAME
+        jsr     BDOS
+        stz     gtemp
         cmp     #$FF
         bne     :+
         jmp     cpmfail
@@ -317,11 +347,12 @@ gsector:
 gbyte:  ldy     gmode
         cpy     #'T'
         bne     @bin
-        and     #$7F
+        cmp     #0
         bne     :+
-        inc     done                    ; text ends at its first 0
+        inc     done                    ; text ends at its first 0 (as stored: $80 isn't one)
         rts
-:       cmp     #CR
+:       and     #$7F
+        cmp     #CR
         bne     putrec
         jsr     putrec
         lda     #LF
@@ -344,8 +375,8 @@ putrec: ldx     ri
         inx
         stx     ri
         bpl     recok
-wrec:   lda     #<fcb
-        ldx     #>fcb
+wrec:   lda     #<tfcb
+        ldx     #>tfcb
         ldy     #F_WRITE
         jsr     BDOS
         cmp     #0
@@ -362,6 +393,7 @@ put:    jsr     cpmspec
         bcc     :+
         jmp     usage
 :       jsr     name
+        jsr     samedrv
         lda     #<$2000
         sta     baddr
         lda     #>$2000
@@ -425,6 +457,7 @@ put:    jsr     cpmspec
         ldy     #F_DMAOFF
         jsr     BDOS
         stz     di
+        stz     lastcr
         stz     ndata
         stz     ndata + 1
         stz     nlist
@@ -465,16 +498,33 @@ put:    jsr     cpmspec
         ldy     #F_READ
         jsr     BDOS
         cmp     #0
-        bne     @eof
-        ldx     #0
+        beq     :+
+        cmp     #1                      ; the end; any other a read that failed
+        beq     @eof
+        lda     #<scpmrd
+        ldx     #>scpmrd
+        jmp     failsay
+:       ldx     #0
 @byte:  lda     rec,x
         ldy     gmode
         cpy     #'T'
         bne     @put
         cmp     #CTLZ
         beq     @eof
-        cmp     #LF
+        cmp     #0                      ; NULs dropped
         beq     @next
+        cmp     #LF                     ; CR LF a CR; a lone LF a CR too
+        bne     @char
+        ldy     lastcr
+        stz     lastcr
+        cpy     #0
+        bne     @next
+        lda     #CR
+@char:  ldy     #0
+        cmp     #CR
+        bne     :+
+        iny
+:       sty     lastcr
         ora     #$80
 @put:   phx
         jsr     pbyte
@@ -502,7 +552,8 @@ put:    jsr     cpmspec
         lda     #<lbuf
         ldx     #>lbuf
         jsr     wrsec
-        lda     ct                      ; the entry
+        jsr     wrvtoc                  ; the sectors taken first: a failure after leaks
+        lda     ct                      ; them, never leaves a file on free ones
         sta     strk
         lda     cs
         sta     ssec
@@ -543,7 +594,6 @@ put:    jsr     cpmspec
         lda     #<cbuf
         ldx     #>cbuf
         jsr     wrsec
-        jsr     wrvtoc
         jmp     UT_EXIT
 
 ; A, a byte of the Apple file, into dbuf; a full sector written.
@@ -652,6 +702,14 @@ alloc:  lda     #18
 @got:   eor     #$FF
         and     vtoc,x
         sta     vtoc,x
+        lda     strk                    ; the last track allocated and the way, as DOS keeps them
+        sta     vtoc + $30
+        lda     #1
+        ldx     strk
+        cpx     #VTRK
+        bcs     :+
+        lda     #$FF
+:       sta     vtoc + $31
         rts
 
 ; X the VTOC's bitmap byte for strk/ssec, A the sector's bit in it.
@@ -694,7 +752,8 @@ era:    jsr     drive
         lda     #<slocked
         ldx     #>slocked
         jmp     failsay
-:       ldy     #0                      ; the entry deleted: its track kept at +$20
+:       jsr     chkfile                 ; its lists and pairs, before anything is freed
+        ldy     #0                      ; the entry deleted: its track kept at +$20
         lda     (ptr),y
         sta     lt
         ldy     #$20
@@ -721,12 +780,11 @@ era:    jsr     drive
         ldx     #>lbuf
         jsr     rdsec_tl
         ldx     #0
-@pair:  lda     lbuf + $0C,x
-        sta     strk
-        lda     lbuf + $0D,x
+@pair:  lda     lbuf + $0D,x
         sta     ssec
-        ora     strk
-        beq     :+
+        lda     lbuf + $0C,x
+        sta     strk
+        beq     :+                      ; track 0: none
         phx
         jsr     sfree
         plx
@@ -748,6 +806,80 @@ era:    jsr     drive
         jsr     wrsec
         jsr     wrvtoc
         jmp     UT_EXIT
+
+; The file at ptr checked before anything is written: at most 5 lists (a
+; whole disk's 560 sectors), each list and each data sector on tracks 1-34
+; but 17, sectors 0-15 (a pair of track 0 is none). Else Bad file, the end.
+; flt/fls its first list.
+chkfile:
+        ldy     #0
+        lda     (ptr),y
+        sta     flt
+        sta     lt
+        iny
+        lda     (ptr),y
+        sta     fls
+        sta     ls
+        stz     nchk
+@list:  lda     lt
+        beq     @ok
+        inc     nchk
+        lda     nchk
+        cmp     #6
+        bcs     @bad
+        ldy     ls
+        lda     lt
+        jsr     okts
+        bcs     @bad
+        lda     #<lbuf
+        ldx     #>lbuf
+        jsr     rdsec_tl
+        ldx     #0
+@pair:  lda     lbuf + $0C,x
+        beq     @next
+        ldy     lbuf + $0D,x
+        jsr     okts
+        bcs     @bad
+@next:  inx
+        inx
+        cpx     #NPAIR * 2
+        bne     @pair
+        lda     lbuf + 1
+        sta     lt
+        lda     lbuf + 2
+        sta     ls
+        bra     @list
+@ok:    rts
+@bad:   lda     #<sbadf
+        ldx     #>sbadf
+        jmp     failsay
+; Carry clear if track A, sector Y can hold a file's sector (1-34 but 17, 0-15).
+okts:   cmp     #35
+        bcs     @no
+        cmp     #VTRK
+        beq     @no
+        cmp     #0
+        beq     @no
+        cpy     #16
+        bcs     @no
+        clc
+        rts
+@no:    sec
+        rts
+
+; The CP/M file's drive (fcb's, or the current one) mustn't be the Apple disk.
+samedrv:
+        lda     fcb
+        beq     :+
+        dec     a
+        bra     :++
+:       lda     UT_DRV0
+:       cmp     adrv
+        bne     :+
+        lda     #<ssame
+        ldx     #>ssame
+        jmp     failsay
+:       rts
 
 ; strk/ssec marked free in the VTOC.
 sfree:  jsr     bitat
@@ -838,9 +970,17 @@ catnext:
         sta     nct
         lda     cbuf + 2
         sta     ncs
-        inc     ncat
+        lda     nct                     ; chained to itself, or 255 sectors read: a loop
+        cmp     ct
         bne     :+
-        stz     nct                     ; 255 sectors read: a loop, ended
+        lda     ncs
+        cmp     cs
+        beq     @loop
+:       inc     ncat
+        bne     :+
+@loop:  lda     #<sbadc
+        ldx     #>sbadc
+        jmp     failsay
 :       stz     ci
 @have:
 entptr: lda     ci                      ; ptr = cbuf + $0B + ci x 35
@@ -908,24 +1048,33 @@ putname:
         bne     :-
 :       sty     src
         ldy     #3
-:       lda     (ptr),y
+@char:  lda     (ptr),y
         and     #$7F
+        cmp     #' '                    ; a control character shown as ^X
+        bcs     @plain
+        pha
+        lda     #'^'
         jsr     CM_PUTC
+        pla
+        ora     #$40
+@plain: cmp     #$7F
+        bne     :+
+        lda     #'?'                    ; DEL too
+:       jsr     CM_PUTC
         cpy     src
         beq     :+
         iny
-        bra     :-
+        bra     @char
 :       rts
 
-; A, a type byte: its letter.
+; A, a type byte: its letter; '?' for one of more than one bit (dos33.py's).
 typech: and     #$7F
-        ldx     #0
-:       lsr     a
-        bcs     :+
-        inx
-        cpx     #7
-        bne     :-
-        lda     #'T'                    ; 0: text
+        ldx     #7
+:       cmp     tcode,x
+        beq     :+
+        dex
+        bpl     :-
+        lda     #'?'
         rts
 :       lda     tletter,x
         rts
@@ -1257,7 +1406,18 @@ cpmfail:
 failsay:
         jsr     UT_SAY
         jsr     UT_FAIL
-        jmp     UT_EXIT
+        lda     gtemp                   ; GET's $$$ file, not whole: deleted, the old one kept
+        beq     :+
+        stz     gtemp
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_CLOSE
+        jsr     BDOS
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_DELETE
+        jsr     BDOS
+:       jmp     UT_EXIT
 ; The message at A/X, a line owed, the end.
 sayend: jsr     UT_SAY
         jmp     UT_EXIT
@@ -1269,7 +1429,8 @@ sayend: jsr     UT_SAY
 kget:   .byte   "GET"
 kput:   .byte   "PUT"
 kera:   .byte   "ERA"
-tletter: .byte  "IABSRAB"               ; type bits 0-6
+tcode:  .byte   $00, $01, $02, $04, $08, $10, $20, $40
+tletter: .byte  "TIABSRAB"              ; each code's letter
 svol:   .byte   " DOS 3.3 disk, volume $"
 sfreeq: .byte   " sectors free$"
 saddr:  .byte   "Address $"
@@ -1290,6 +1451,10 @@ sbig:   .byte   "File too big for B.$"
 scpmno: .byte   "No File$"
 scpmfull: .byte "CP/M disk full.$"
 scpmerr: .byte  "CP/M directory full.$"
+scpmrd: .byte   "CP/M read error.$"
+sbadf:  .byte   "Bad file: its sector lists aren't a DOS 3.3 file's.$"
+sbadc:  .byte   "Bad catalog: its chain loops.$"
+ssame:  .byte   "The CP/M file can't be on the Apple disk.$"
 
         .bss
 adrv:   .res    1                       ; the Apple disk's drive, 0-15
@@ -1320,6 +1485,10 @@ baddr:  .res    2                       ; B's address and length
 blen:   .res    2
 bleft:  .res    2
 fcb:    .res    36
+tfcb:   .res    36                      ; GET's $$$ file
+gtemp:  .res    1                       ; 1 while it exists
+nchk:   .res    1                       ; chkfile's lists
+lastcr: .res    1                       ; PUT's text: the last byte a CR
 rec:    .res    128
 vtoc:   .res    256
 cbuf:   .res    256

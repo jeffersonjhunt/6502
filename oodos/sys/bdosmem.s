@@ -75,6 +75,7 @@ MP:             .res    2              ; 74: the path's next byte, in SECBUF
 
 .segment "SYSBSS"
 RBLK:           .res    6              ; 76's block: the drive, track, sector, op, address
+RRO:            .res    1              ; 76: the drive's read-only bit
 DMASEG:         .res    2              ; 51's, $FFFF none
 AMAP:           .res    AMAP_LEN
 MBLK:           .res    5              ; the program's MCB or block, as read
@@ -684,13 +685,16 @@ F_SECT:         LDX     #0
                 INX
                 CPX     #6
                 BNE     @get
-                LDA     RBLK           ; an Apple disk?
+                LDA     RBLK           ; an Apple disk? O:, P: (the Disk II's DPH, at @bios)
                 CMP     #DRV_O
                 BCS     @disk2
                 CMP     #SD_DRIVES
                 BCS     @not
-                JSR     RESCAN         ; an SD drive: the units as they are now (one
-                LDX     RBLK           ; mounted since, a drive of it changed: dropped)
+                TAX                    ; an SD drive whose unit is 140 KB: the units read
+                LDA     DRVAPL,X       ; again only when it isn't known as one (mounted since)
+                BMI     @apple
+                JSR     RESCAN
+                LDX     RBLK
                 LDA     DRVAPL,X
                 BMI     @apple
 @not:           LDA     #$FF
@@ -699,12 +703,6 @@ F_SECT:         LDX     #0
                 JMP     RETA
 @disk2:         CMP     #DRV_P + 1
                 BCS     @not
-                LDX     #1             ; O:, P:: the Disk II there?
-                JSR     B_SELDSK
-                STZ     BIOSDRV
-                STX     T0
-                ORA     T0
-                BEQ     @not
 @apple:         LDA     RBLK + 1       ; past the disk: an error
                 CMP     #35
                 BCS     @error
@@ -714,7 +712,16 @@ F_SECT:         LDX     #0
                 LDA     RBLK + 3
                 CMP     #2
                 BCS     @error
-                LDA     RBLK           ; logged in: written back, dropped, logged out
+                LDA     RBLK           ; read-only (28, SET [RO]): a write refused, and the
+                JSR     DRVBIT         ; drive left read-only
+                AND     ROVEC,X
+                STA     RRO
+                BEQ     @rw
+                LDA     RBLK + 3
+                BEQ     @rw
+                LDA     #2
+                JMP     RETA
+@rw:            LDA     RBLK           ; logged in: written back, dropped, logged out
                 JSR     DRVBIT
                 AND     LOGVEC,X
                 BEQ     @out
@@ -724,17 +731,29 @@ F_SECT:         LDX     #0
                 BCS     @error         ; data that won't go: not dropped
                 LDA     RBLK
                 JSR     DROPD
+                LDA     RRO
+                BEQ     @out
+                LDA     RBLK
+                JSR     DRVBIT
+                ORA     ROVEC,X
+                STA     ROVEC,X
 @out:           LDA     RBLK + 3       ; a write: the program's 256 bytes into SECBUF first
                 BEQ     @bios
-                JSR     RPROG1
-                JSR     RSEC2
+                CLC
+                JSR     RBW
                 LDA     #BANK_PROG
                 LDX     #BANK_SYS
                 JSR     R256
 @bios:          LDA     RBLK
                 LDX     #1
                 JSR     B_SELDSK
-                LDA     RBLK + 1
+                STX     T0
+                ORA     T0
+                BNE     @dph
+                STZ     BIOSDRV        ; no DPH: O: or P: with no Disk II
+                LDA     #$FF
+                JMP     RETA
+@dph:           LDA     RBLK + 1
                 LDX     #0
                 JSR     B_SETTRK
                 LDA     RBLK + 2
@@ -758,29 +777,28 @@ F_SECT:         LDX     #0
                 BNE     @result
                 LDX     RBLK + 3       ; a read: SECBUF to the program
                 BNE     @result
-                LDA     #<SECBUF
-                STA     BW1
-                LDA     #>SECBUF
-                STA     BW1 + 1
-                LDA     RBLK + 4
-                STA     BW2
-                LDA     RBLK + 5
-                STA     BW2 + 1
+                SEC
+                JSR     RBW
                 LDA     #BANK_SYS
                 LDX     #BANK_PROG
                 JSR     R256
                 LDA     #0
 @result:        JMP     RETA
 
-; BW1 the program's address, BW2 SECBUF.
-RPROG1:         LDA     RBLK + 4
-                STA     BW1
+; BW1 the program's address and BW2 SECBUF (carry clear), or the other way.
+RBW:            LDX     #BW1
+                LDY     #BW2
+                BCC     @set
+                LDX     #BW2
+                LDY     #BW1
+@set:           LDA     RBLK + 4
+                STA     0,X
                 LDA     RBLK + 5
-                STA     BW1 + 1
-RSEC2:          LDA     #<SECBUF
-                STA     BW2
+                STA     1,X
+                LDA     #<SECBUF
+                STA     0,Y
                 LDA     #>SECBUF
-                STA     BW2 + 1
+                STA     1,Y
                 RTS
 ; 256 bytes from bank A's BW1 to bank X's BW2; memory MOVE refuses ends the
 ; function (A = X = $FF), as PIN and POUT.

@@ -32,6 +32,7 @@
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
 .importzp DMABANK, CURBANK, XPEND, CESC
 .import TESC
+.import RAWF                           ; bios.s's, function 76's
 .import DMASEG, AMAP
 .export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI, ROMAPPLE
 
@@ -225,6 +226,7 @@ WARM:           SEI
                 STZ     DMABANK        ; BANK_SYS: .assert below
                 STZ     CURBANK
                 STZ     XPEND
+                STZ     RAWF           ; function 76's, never left set (6d's review)
                 STZ     CESC           ; the screen's and the serial line's escape
                 STZ     TESC           ; sequences: one a program left unended ends here
                 LDA     #$FF           ; no DMA segment (51), and every block freed (58):
