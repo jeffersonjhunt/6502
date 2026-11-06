@@ -858,190 +858,190 @@
   "equate": "SOUND_PCMCTL",
   "address": "$C548",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c548",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_CODEC",
   "address": "$C549",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c549",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_RATE",
   "address": "$C54A",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c54a",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_PCMFMT",
   "address": "$C54C",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c54c",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_FREE",
   "address": "$C54D",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c54d",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_PCMDATA",
   "address": "$C54F",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c54f",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_STATE",
   "address": "$C550",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c550",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_POS",
   "address": "$C551",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c551",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_KBPS",
   "address": "$C555",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c555",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_VOLL",
   "address": "$C557",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c557",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_VOLR",
   "address": "$C558",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c558",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_EQIDX",
   "address": "$C559",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c559",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_EQVAL",
   "address": "$C55A",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c55a",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_VISIDX",
   "address": "$C55B",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c55b",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_VISDATA",
   "address": "$C55C",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c55c",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_CODECS",
   "address": "$C55D",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c55d",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_DOCCTL",
   "address": "$C55E",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c55e",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_DOCDATA",
   "address": "$C55F",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c55f",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_DOCADDR",
   "address": "$C560",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c560",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_DOCBANK",
   "address": "$C562",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c562",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_DRQSEL",
   "address": "$C563",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c563",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_ID",

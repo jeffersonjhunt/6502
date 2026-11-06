@@ -107,7 +107,8 @@ ISR's bit 0 is set, on IRQH bit 6 ([chapter 4](04-interrupts.md#finding-the-sour
 ISR's bit 0 clears it.
 
 Clearing IEN stops new keys from setting ISR, but doesn't clear one already pending: the card keeps pulling /IRQ
-until ISR is cleared. The BIOS's Break writes `$00` to IEN, and leaves ISR as it was.
+until ISR is cleared. The BIOS's Break writes `$00` to IEN and, since BIOS 0.11, `$01` to ISR, so a key already
+pending doesn't hold /IRQ low into the monitor. BIOS 0.10 left ISR as it was.
 
 ### Reset
 
@@ -118,7 +119,7 @@ is let go. BPADDR, BPCTRL, STATUS's HIT, PADDR, DISPLAY and the latched cycle ar
 START catches an address in the boot, and START with the HALT switch at HALT stops at the reset vector's first
 instruction, to step from there. LOCK ignores START.
 
-The BIOS leaves the card as reset leaves it, and Break turns IEN off.
+The BIOS leaves the card as reset leaves it, and Break turns IEN off and clears ISR.
 
 In Apple II mode the card's registers are out of reach, with the rest of the I/O hole
 ([chapter 2](02-memory-and-banking.md#the-io-hole)), but the panel still works: halting, stepping, EXAM, DEP, the

@@ -31,13 +31,12 @@ edge.
 **The BIOS's handlers.** The ROM's vectors point NMI at Break and IRQ at a handler that tells BRK from an IRQ. BRK
 enters the monitor as Break does. A real IRQ returns at once, because the BIOS enables no interrupts. The BIOS
 starts with the CPU's I flag set. Break turns off the interrupt enables of the SD, video, sound, USB and console
-cards and the clock's TIE, and the monitor sets the 6551 up with its interrupts off. **The VIA's IER is left as it
-was**: Break doesn't touch it. A VIA interrupt a program left enabled survives Break, and since the handler only
-returns, the next program that clears I is interrupted again and again and never gets on. **Nor is the console
-card's ISR cleared**, and that card's interrupt follows its ISR whatever IEN says: a panel key that set ISR while a
-program had IEN on keeps /IRQ low after Break. A program run from the monitor that clears I first turns the VIA's
-interrupts off (write `$7F` to VIA_IER) and clears the console's ISR (write `$01` to CONSOLE_ISR), or brings its
-own handler ([chapter 12](12-front-panel.md)).
+cards and the clock's TIE, and the monitor sets the 6551 up with its interrupts off. Since BIOS 0.11 Break also
+writes `$7F` to VIA_IER, turning every VIA interrupt off, and `$01` to CONSOLE_ISR: the console card's interrupt
+follows its ISR whatever IEN says, so a panel key that set ISR while a program had IEN on would otherwise keep
+/IRQ low. So a program run from the monitor may clear I, as long as it leaves nothing on that the handler can't
+answer. Under BIOS 0.10 Break left both, and a program that clears I wrote them first
+([chapter 12](12-front-panel.md)).
 
 <!-- listing: ../../backplane/bios/bios.s:149-158 -->
 ```
@@ -133,11 +132,13 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
 - an SD command abandoned, the units staying mounted;
 - the boot splash stopped, the sound card's 6510 stopped and its SIDs silenced;
 - the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK and TIE;
+- the VIA's interrupts off (`$7F` to VIA_IER), and a panel key's pending interrupt cleared (`$01` to
+  CONSOLE_ISR), since BIOS 0.11;
 - the text screen set up again, found from the cards' ID bytes;
 - the 6551 set up afresh by the monitor, with its interrupts off.
 
-It leaves W3, VEC, DMA CONTROL, memory, the VIA (its IER too), the console card's ISR ([above](#irq-and-nmi)), and
-the rest of each card's state as they were. Break works while W3 and VEC are the BIOS's; a program that moves VEC
+It leaves W3, VEC, DMA CONTROL, memory, the rest of the VIA (its timers run on, and IFR keeps its flags), and the
+rest of each card's state as they were ([above](#irq-and-nmi)). Break works while W3 and VEC are the BIOS's; a program that moves VEC
 takes the NMI itself. The design record has the list and its reasons
 ([hw/design.md, "Boot"](../../hw/design.md#boot)).
 

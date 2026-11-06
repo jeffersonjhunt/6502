@@ -1137,7 +1137,7 @@ an Apple program does can leave by accident.
 | 65C02 | the W65C02S. Its extra opcodes (BBR, BBS, RMB, SMB, WAI, STP) do nothing on the IIe's 65C02 and aren't used by Apple software |
 | 128 KB with auxiliary memory, language card, and all soft switches | north bridge |
 | Keyboard (`$C000`, `$C010`), Open- and Closed-Apple keys (`$C061/$C062`) | USB card, from the USB keyboard |
-| Speaker (`$C030`) | USB card (proposed), or the sound card |
+| Speaker (`$C030`) | USB card (emulated), or the sound card |
 | Game port: paddles and buttons (`$C064–$C070`) | USB card's game port. Paddle timing depends on the 1 MHz clock |
 | Video: all IIe modes, `$C019` vertical blank | video card, by snooping |
 | Disk (slot 6) | Disk II clone with a Floppy Emu |
