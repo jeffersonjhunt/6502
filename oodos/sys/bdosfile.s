@@ -356,7 +356,7 @@ F_OPEN:         LDA     #FCB_SEQ
                 JSR     FCBSEL
                 JSR     NOWILD
                 STZ     FC + FCB_S2     ; the program gives bytes 0-12: module 0
-                STZ     FC + FCB_S1     ; the update not stamped: the first write's
+                JSR     GENSET          ; the update not stamped: the first write's
                 LDA     FC + FCB_F8     ; f8' and f7' are the BDOS's to set
                 AND     #$7F
                 STA     FC + FCB_F8
@@ -491,17 +491,19 @@ F_MAKE:         LDA     #FCB_SEQ
                 BPL     @empty
                 JSR     MKXFCB         ; the DMA buffer's password and mode
 @empty:         JSR     FEMPTY
-                STZ     FC + FCB_S1     ; extent 0's update is make's (the Guide,
+                JSR     GENSET          ; extent 0's update is make's (the Guide,
                 LDA     FC + FCB_EX     ; 21 and 34: a write stamps it only if
                 AND     #$1F            ; make or a write hasn't), a later
                 BNE     @out            ; extent's the first write's
-                LDA     #S1_STAMPED
+                LDA     FC + FCB_S1
+                ORA     #S1_STAMPED
                 STA     FC + FCB_S1
 @out:           JSR     FCBOUT
                 JMP     RET0
 
 F_CLOSE:        LDA     #FCB_SEQ
                 JSR     FCBSEL
+                JSR     GENCHK
                 LDA     FC + FCB_S2
                 BMI     @clean
                 JSR     CLOSEX         ; the drive's buffers written back first
@@ -511,6 +513,7 @@ F_CLOSE:        LDA     #FCB_SEQ
 @clean:         LDA     CDRV           ; nothing to put in the directory, so a
                 INC     A              ; buffer that won't write is no failure
                 JSR     FLUSHD         ; of this close's
+                JSR     GENCHK         ; the disk found changed as they were: 10
                 JMP     RET0
 @failed:        LDA     #$FF
                 JMP     RETA
@@ -570,8 +573,9 @@ CLOSEX:         LDA     FC + FCB_S2
                 LDA     CDRV           ; the drive's buffers written back, then
                 INC     A              ; before the directory is touched: a
                 JSR     FLUSHD         ; unit found read-only Read Only, a
-                JSR     RODRV          ; sector of F's blocks not written
-                JSR     FMARKED        ; Disk I/O
+                JSR     GENCHK         ; sector of F's blocks not written
+                JSR     RODRV          ; Disk I/O; O:'s or P:'s disk found
+                JSR     FMARKED        ; changed (FLUSHD reads it first) 10
                 BCC     @flushed
                 LDA     CDRV
                 STA     EDRV
@@ -1125,7 +1129,8 @@ WROTE:          BIT     FC + FCB_T3
                 JSR     DIRPUT
 @stamp:         BIT     FC + FCB_S1
                 BMI     @done
-                LDA     #S1_STAMPED
+                LDA     FC + FCB_S1
+                ORA     #S1_STAMPED
                 STA     FC + FCB_S1
                 JSR     EXTUSER
                 SEC
@@ -1301,6 +1306,7 @@ RSTART:         LDA     #$80
 
 F_SREAD:        LDA     #FCB_SEQ
                 JSR     FCBSEL
+                JSR     GENCHK
                 STZ     MRAND
                 LDA     #<SREAD1
                 LDX     #>SREAD1
@@ -1331,6 +1337,7 @@ SREAD1:         LDA     FC + FCB_CR
 
 F_SWRITE:       LDA     #FCB_SEQ
                 JSR     FCBSEL
+                JSR     GENCHK
                 JSR     WCHECK
                 STZ     MRAND
                 LDA     #<SWRITE1
@@ -1396,6 +1403,7 @@ SAMEEXT:        BIT     FC + FCB_S2
 
 F_RREAD:        LDA     #FCB_RAND
                 JSR     FCBSEL
+                JSR     GENCHK
                 JSR     RSTART
                 LDA     #<RREAD1
                 LDX     #>RREAD1
@@ -1429,6 +1437,7 @@ RREAD1:         JSR     RANDPOS
 F_RWRITEZ:
 F_RWRITE:       LDA     #FCB_RAND
                 JSR     FCBSEL
+                JSR     GENCHK
                 JSR     WCHECK
                 JSR     RSTART
                 LDA     #<RWRITE1
@@ -2002,3 +2011,35 @@ TCUT:           LDY     #FCB_EX
                 BRA     @free
 @done:          RTS
 
+
+; ---------------------------------------------------------------------------
+; Media change (6c): an FCB opened or made on a removable drive (O:, P:)
+; carries in S1's bits 0-6 the count of the drive's changes seen then
+; (DGEN, bdosdisk.s's MEDIACHK); bit 7 stays S1_STAMPED. Another count now
+; is the Guide's error 10, returned in A: the disk under it was changed.
+
+; F's S1: the drive's count, or 0 on a drive that isn't removable.
+GENSET:         LDA     CSLOT
+                SEC
+                SBC     #RSLOT
+                BCC     @fixed
+                TAX
+                LDA     DGEN,X
+                STA     FC + FCB_S1
+                RTS
+@fixed:         STZ     FC + FCB_S1
+                RTS
+
+; F opened on this disk: on; if not, the function ends here: A = 10.
+GENCHK:         LDA     CSLOT
+                SEC
+                SBC     #RSLOT
+                BCC     @same
+                TAX
+                LDA     FC + FCB_S1
+                AND     #$7F
+                CMP     DGEN,X
+                BEQ     @same
+                LDA     #RC_MEDIA
+                JMP     RETA
+@same:          RTS

@@ -8,20 +8,22 @@ The design record, for the reasons: [hw/oodos.md, "Disk format"](../../hw/oodos.
 
 ## Drives
 
-OODOS has up to eight drives, named by a letter. A program names one as functions 14 and 101 do, 0 for A: to 15 for
+OODOS has up to ten drives, named by a letter. A program names one as functions 14 and 101 do, 0 for A: to 15 for
 P:, or in an FCB's byte 0, 0 for the current drive and 1 for A: to 16 for P:.
 
 | Drive | What |
 |---|---|
 | A:–G: | the SD card's units 1–7: image files on the card's FAT file system, as `/OODOS/DRIVES.TXT` names them. A: is the system drive |
 | M: | the RAM disk, 128 KB in banks C–D, made empty at each cold boot |
-| H:–L:, N:–P: | not drives: Invalid Drive (4) |
+| O:, P: | the Disk II card's drives 1 and 2: 5.25" Apple disks in the SoftCard's CP/M format (`apple-do`), on a machine with the card |
+| H:–L:, N: | not drives: Invalid Drive (4) |
 
 An SD drive is 8 MB (`oodos-8m`: 4 KB blocks, 1,024 directory entries) or 32 MB (`oodos-32m`: 8 KB blocks, 2,048
 entries); M: has 2 KB blocks and 256 entries. These have 512-byte sectors, 16 a track, and no boot tracks. B:–G: may
 also be a 140 KB Apple CP/M disk image (cpmtools's `apple-do`, the SoftCard's format): 1 KB blocks, 128 of them, 64
 entries, 3 boot tracks, and 8 sectors of 512 bytes a track (SPT 32, OFF 3; the BIOS makes each of two of the disk's
-256-byte sectors). The format is CP/M 3's, byte for byte, so cpmtools reads and writes the images on a PC
+256-byte sectors). O: and P: have the same format on 5.25" floppies, with CKS 16 (below). The format is CP/M 3's,
+byte for byte, so cpmtools reads and writes the images on a PC
 ([hw/oodos.md, "Disk format"](../../hw/oodos.md#disk-format)). A drive's DPB is CP/M 3's, and function 31 returns
 the address of a copy in common memory.
 
@@ -36,6 +38,50 @@ and unmounts B:–G: while OODOS runs; A: can't be changed.
 
 Data is written back from OODOS's 32 sector buffers when a buffer is wanted for another sector, by a close, by
 function 48, by a reset and at each warm boot. Directory changes are written at once.
+
+### Removable drives: O: and P:
+
+A floppy can be taken out of O: or P: and another put in, and nothing tells the card. So these two drives have CKS
+16 in their DPB, as CP/M 3 has a removable drive: at login the BDOS keeps a checksum of each of the directory's 16
+records, and keeps it up to date as it writes the directory itself.
+
+- **When the disk is checked.** A function that selects O: or P: when that drive's own last access was a second or
+  more ago (its motor has stopped, so its disk may have been changed: the card's one motor goes to the drive last
+  selected, so the other has always stopped) has the BDOS read the directory again from the disk and compare it.
+  Within the second it is taken as the same disk, and the first directory write of each call compares it anyway.
+  Until the system has seen the clock tick (since the cold boot, since it was set back, or since it was seen to
+  stop: the drive the card last selected has its motor stopped while that drive's last access is still this
+  second), no access is recent: every
+  select with the motor stopped reads the directory.
+- **Another disk.** The drive's buffers are dropped, not written (they belong to the old disk), and it is logged
+  in again, so the function works on the new disk. A call that was about to write the directory returns A = 10
+  and writes nothing: 15 (when the label asks for access stamps), 16, 19, 21, 22, 23, 30, 34, 40, 99, 100 and
+  103, whatever the error mode. Those that otherwise say a failure as `$FF` (15, 19, 22, 23, 30, 99, 100, 103)
+  leave a program that tests only for `$FF` taking 10 for success: test for 0. After a 10 from a read or a write,
+  X isn't the records done: open the file again and work out where it was.
+- **Error 10, Media Change.** An FCB opened or made before the change returns A = 10 from a read, a write or a
+  close (16, 20, 21, 33, 34, 40), whatever the error mode, and nothing is read or written. Open the file again on
+  the new disk. An FCB a program built from a directory entry and never opened can get 10 on O: or P: too: open
+  a file before reading or writing it.
+- **Changed data** for O: and P: waits in the buffers until a close, function 48, a reset (13, 37), 75, the warm
+  boot, or a buffer wanted for another sector. A close, 48, 13, 37, 75 and the warm boot read the directory from
+  the disk and compare it before writing any of it, however recent the last access; a buffer wanted for another
+  sector has its disk's directory read and compared first too, unless the call has already checked that drive
+  (its select, or an earlier write-back). Data found to be for another disk is dropped: it never lands on the new one.
+  With no disk in the drive the directory can't be read, and the data is kept as a write that failed is: a close,
+  48, 13, 37 or the warm boot says Disk I/O, as the error mode says (48 and the warm boot carry on with the other
+  drives' buffers, 13 and 37 drop it); a buffer wanted for another sector says nothing and passes it over. The
+  missing disk is waited for once a call, and its other waiting buffers are marked with the first. If the disk is
+  back before the data's turn, the data is written. A write-protected disk found by a buffer wanted for another
+  sector drops all the drive's waiting data at once. When the buffer held the other floppy drive's data, the call
+  that wanted it finishes its work and then says Read Only for that drive, once, and this can be a call that only
+  reads, on another drive; when it held the call's own drive's, the Read Only is said at once. A call that also
+  fails itself returns its own error ([appendix A](appendix-a-errors.md#physical-errors) says the order).
+- **What isn't seen.** A disk swapped within a second of its drive's last access, while a copy between O: and P:
+  runs, can take a few of the copy's data sectors before the next directory write sees the change. A disk whose
+  directory is byte for byte the old one's (a copy of it whose files were rewritten in place, say) is taken as the
+  same disk, as CP/M 3's checksums take it: what the buffers hold of the old disk is read, and data waiting for
+  the old disk is written onto it. Don't change a disk while a program is using it.
 
 ## User numbers
 

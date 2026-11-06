@@ -2836,7 +2836,10 @@ a sequencer table of our own; 2–12 as their recommendations. 6b first (it need
   (the address fields aren't found until the disk is at speed); a write waits a spin-up time first.
 - **Interrupts and DMA during a read:** interrupts are off for a whole sector or track operation too, the flag put
   back after; DMA isn't used by OODOS while the BIOS runs, so a read leaves the controller as it is. Break (NMI)
-  can't be held off: a write it lands in leaves that sector bad.
+  can't be held off: a write it lands in loses that sector, and the NMI handler turns the card's write mode and
+  motor off and the DMA master back on before the monitor (6c's review), so the rest of the track is kept. A
+  halt by the console's RDY in the middle of a write keeps the card writing (the CPU stops, the card doesn't):
+  that sector and whatever the head passes over while halted are lost.
 - **Room:** the driver about 2–2.5 KB and the `apple-do` layer 0.8–1.2 KB in block 61 (12.9 KB free); its scratch
   in the BIOS's own zero page, at most 4 bytes more of the system's (232 of 240 used at phase 5's plan;
   counted again at 6c's start).
@@ -2996,7 +2999,11 @@ merged, with the switches' equates (below).
    tick. The card itself does that: switched off, it runs on for a second (the emulator models it, as the Disk II
    card has it). The tick would need the interrupt handler OODOS doesn't have yet (OOLIB's dispatcher). **Recommended:**
    switch the motor off after every READ and WRITE and let the card's run-on time the second; no interrupt, no
-   RTC. A longer run-on can come with OOLIB's tick if it is wanted.
+   RTC. A longer run-on can come with OOLIB's tick if it is wanted. *(6c's fourth review: the stall check in
+   `RECENT` relies on the run-on outlasting the second from the access's stamp, which is taken before the I/O.
+   The emulator's run-on is 0.998 s after the motor-off, plus the I/O; a real card's 556 tolerance is to be
+   measured. A run-on a little short gives a false stall in the last ms of a second, which costs one directory
+   read.)*
 3. **The switches' equates.** `docs/tools/check_docs.py` fails any I/O equate in `backplane.inc` that has no
    Technical Reference entry, and phase 6 doesn't touch the Technical Reference or `registers.json`.
    **Recommended:** the driver names the switches as offsets from `DISK2` in its own `oodos/sys/disk2.inc`
@@ -3154,6 +3161,231 @@ merged, with the switches' equates (below).
 - **Measured:** `tools/check.sh quick` 206 s, all passed; test_disk2 0.06 s, test_disk2_native 0.10 s, test_iie
   7.5 s (as before). After the review: 191 s, all passed; test_disk2 0.12 s, test_disk2_native 0.02 s,
   test_disk2_prom 0.13 s, test_iie 8.2 s.
+
+**Proposed (6c, as built, 2026-11-05)** ([`oodos/sys/disk2.s`](../oodos/sys/disk2.s), `disk2.inc`, `bios.s`,
+`bdosdisk.s`, `bdosfile.s`; the plan above is what was built, and these are the details):
+
+- **The driver** (`disk2.s`, block 61; the switches by name in `disk2.inc`, offsets from `DISK2`, so
+  `backplane.inc` is unchanged): D2START selects the drive, sees whether its disk turns, and switches the motor
+  on; D2TRACK seeks (recalibrating first if the head isn't known: 80 half tracks out) and reads a whole track
+  into a 4 KB buffer of block 29, mapped into W1 while it works, each data field's 342 values decoded as they
+  come and put together after; D2WSEC writes one sector; D2STOP switches the motor off at the end of every READ
+  and WRITE, and the card keeps it turning a second (question 2). The file's sector f is physical sector
+  `FILE2PHYS[f]`, DOS 3.3's interleave, the one the emulator writes a `.dsk` out with.
+- **Bounded, every wait** (6a's review): a disk byte 256 polls (about 1,800 cycles, eight bytes' time), an
+  address field 13,000 bytes (two turns), a track three tries. A card with no sequencer PROM (the website's)
+  answers its ID and works its switches but never sets bit 7, so a read is Disk I/O after about 0.4 s, not a
+  hang (`test_oodos_disk2_noprom`).
+- **A track that partly reads** keeps what it read: the BIOS has each buffer's good sectors (`TBMASK`), and a
+  READ of a 512-byte sector whose halves weren't both read is Disk I/O, while the rest of the track serves.
+  (The plan had one bad field fail the whole track's reads.)
+- **The write loop** (`WLOOP`, one page, `align = $100` on the BIOS's segment): Q6 already on from the
+  write-protect sense, the first sync byte loaded by the write to Q7 on, four more 280 cycles apart, then
+  `NIBBUF`'s 349 bytes (`D5 AA AD`, the field, `DE AA EB`) 224 apart; each load held 28 cycles (a whole loop of
+  the sequencer's eight steps, as 6a found) before Q6 off; every delay counted to the cycle by a macro (`DLY`).
+  Interrupts off (`PHP`/`SEI`, `PLP`) and the DMA controller's master enable off around it. The bytes are made
+  first, from the buffer (`PRENIB`).
+- **The BIOS** (`bios.s`): O: and P: (drives 14 and 15) are the card's drives 1 and 2 when cold boot finds its
+  ID, apple-do with CKS 16 (`DPBD2`). The apple-do layer is 6b's, a track buffer for each of O: and P: in block
+  29 ($1000 and $2000 on); a disk that had stopped turning when an access starts has its buffer emptied, and
+  MEDIA (called by the BDOS, as SDMNT is) says so.
+- **The BDOS:** O: and P: are slots 8 and 9: their hashes in block 29 ($3000 and $3100), their allocation
+  vectors in the system block at $3000 and $3400 (BANKTEST's scratch there is unused by any drive in its test).
+  At login a removable drive's 16 directory records are checksummed (`CSV`, `DSUM`); at every later select,
+  if MEDIA says the disk had stopped, its directory sectors are dropped from the buffers (a directory write
+  goes at once, so they are never left changed), read again from the disk and checksummed: the same, on; not,
+  another disk (`MEDIACHK`): its buffers dropped unwritten, its changes counted (`DGEN`), logged in again.
+- **Error 10, Media Change:** an FCB opened or made on O: or P: carries its drive's count in S1's bits 0–6
+  (S2 has no bit to spare: bits 6 and 7 are the BDOS's; S1's bit 7 stays `S1_STAMPED`); close (16), the
+  sequential reads and writes (20, 21) and the random ones (33, 34, 40) of an FCB whose count isn't the drive's
+  return A = 10, as the Guide's file functions have it, and touch nothing.
+- **Decided (2026-11-05, the owner):** O: and P: are listed at cold boot whenever the card is there, a disk in
+  or not (`O: 128K   P: 128K`, the size the format's). With no disk in, or on the website with no sequencer
+  PROM, they answer Disk I/O, as an empty drive does on real hardware. So the tests that had P: as "not a
+  drive" now use N: (DIRTEST's SELBAD, SYSTEST's ERR and case E, ERRTEST's case P, SETDEF's chain), approved
+  one by one; a sweep of every test and test program found no other.
+- **Not changed:** INITDIR (6b's comment holds); `backplane.inc`. The 65C816 rules tool reads the BIOS as a
+  program, which it isn't (main's own gives 46 complaints, tables read as code and calls into common memory;
+  this one 68 the same way): the driver has no RMB, SMB, BBR or BBS and no absolute operand in zero page, and
+  reaches the phases by an absolute,X load inside the card's page, which the W65C02S makes once.
+- **Room:** block 61 8,515 of 16,384 bytes (the driver 4,278 of it, 2,486 of that its buffers and tables);
+  block 60 12,138 (+362).
+- **Tests:** `test_oodos_disk2` (9 cases, about 27 s; exits 77 without the owner's sequencer PROM): cpmtools's
+  files read from O:; the same PIPs, ERA and REN on O: and on C: (the same image as an SD unit) leave the two
+  images the same, 0 of 560 sectors different, and read back after a ^C; O: to P: and back; no disk (Disk I/O
+  in 2 s) and a write-protected one (Read Only, the disk unchanged); the disk changed after the motor stopped
+  (seen: `No File`), and not changed (kept); a file open across the change (MEMTEST's case O: its read and
+  close 10, a new open not found, nothing of the old disk written on the new); the head where the driver
+  doesn't think it is (recalibrated); a data field spoiled (the track's other sectors read, that one Disk I/O);
+  tracks 0–34 through the BIOS (MEMTEST's case T, the head at 136); the motor (turning after an access, stopped
+  a second after, a second access within it served from the buffer, after it read again); every load of the
+  data bus from the bus, 280 then 224, the DMA master off at each and back after; an interrupt asked for mid-
+  write with the I flag cleared at the driver's entry. `test_oodos_disk2_noprom` (2 cases, no fixtures): no PROM
+  (Disk I/O, 0.4 s, OODOS goes on) and no card (Invalid Drive).
+- **The interrupt case, strengthened:** a taken interrupt only makes one load late by its handler's time, and
+  the disk reads a late byte back (6a: a 0 bit or two more), so the readback alone passed with the SEI taken
+  out. The case also times every load of every field (5 at 280, 349 at 224), which the fault fails (26 late).
+- **Must fail, each seen with its fault put in** (`OODOS_SYS_DIR`): the write loop a cycle long (the timed
+  loads: 255 late; the readback passes, as 6a found); the SEI taken out (the interrupt case's loads); the
+  checksums off (the changed floppy seen as the old one; the motor case's read after a stop); Q6 held 6 cycles
+  (four cases: nothing written).
+- **Measured:** 20 KB from O: to M: 3.5 s; 5 KB from M: to O: 2.8 s, about 40 ms a sector waiting for its
+  address field (the skew puts a 512-byte sector's halves three physical sectors apart). `tools/check.sh quick`
+  198 s, all passed; test_oodos_disk2 28.7 s and test_oodos_disk2_noprom 0.6 s in the parallel run, so no split.
+- **The books:** the drive tables of both Guides name O: and P:, and after the review the approved entries
+  (below).
+
+**After 6c's review (2026-11-05, the owner's decisions; main merged in first, G2 and sound step 1):**
+
+- **F1, the checksums kept by the BDOS's own writes:** DIRPUT sums the record it wrote into CSV (`CSVPUT`), as
+  CP/M 3 keeps its checksums, so a make, a close or an erase is never taken for another disk.
+- **F2, the card's one motor:** the driver keeps the drive the card last selected (`D2LAST`); the other has
+  stopped, whatever the data register does.
+- **The owner's rule for the run-on:** a drive whose own last access was in the RTC's same second (its second,
+  minute, hour and date; a second's edge counts as older, so it errs toward checking) is taken as unchanged, with
+  no directory re-read at a select (`RECENT`, the BIOS's `D2STAMP`); one idle a second or more is checked. The RTC,
+  not the card or a cycle count: the bridge has it in registers, and the BIOS needs no counter of its own. **The
+  trade-off, recorded in the User's Guide:** a disk swapped within a second of its drive's last access, in the
+  middle of an O:-P: copy, can take a few data sectors before the next directory write sees the change.
+- **F3, write-backs (the owner chose the lazy way, with close):** O:'s and P:'s changed buffers wait for a close,
+  48, 13, 37, 75, the warm boot or an eviction. Every write-back not preceded by its own drive's check in the
+  same call is checked first (WBACK's guard, `DISKCHK`: MEDIA, then the directory read past the buffers): a
+  changed disk drops the data, never receives it. A write-back at every call's end, then at another drive's
+  select, were tried first and dropped: PIP writes a record a call and alternates drives, so each wrote every
+  sector four times (M:→O: 5 KB 9.3 s).
+- **F4:** ADDR reads the epilogue's AA before a write starts, so the write begins past it.
+- **F5:** the NMI handler turns the Disk II's write mode and motor off and puts the DMA master back (`D2WRIT`,
+  `D2DMAS`) before the monitor.
+- **F6:** the first directory write of each call reads the directory past every buffer (`VERIFYD`, the BIOS's
+  directory-track buffer forgotten) and compares it; another disk ends the call with 10, nothing written.
+- **F7:** a READ whose sector wasn't read has the track read again once, and the miss isn't kept.
+- **F8:** every byte ADDR and RDATA read is counted, a run of D5s too.
+- **F11, F12:** the comments (RBYTE's poll 11 cycles, 256 of them about 2,800; disk2.inc allows an absolute,X in
+  the card's page); D2WSEC's interrupts off from the search on, the flag back on every way out.
+- **Each drive's directory track has a buffer of its own** (block 30, $0000 and $1000), so a check of the
+  directory doesn't evict the data track; the BIOS keeps a drive's buffers the BDOS checked in the call (`VOUCH`).
+  Block 29 still has the SD unit's and O:'s and P:'s data buffers and the hashes; block 30, spare before, has these.
+- **Tests:** `test_oodos_disk2` (12 cases) gains every address field's DE AA after PIPs, a Break mid-write (15 of
+  the track's 16 sectors kept, Q7 and the motor off, DMA as it was), a sector read again once the disk reads, and
+  a track of D5s (Disk I/O in 1.6 s); `test_oodos_disk2_media` (new, 5 cases; the rig shared in `disk2_rig.h`):
+  the BDOS's own directory writes not a change (MEMTEST's K, the review's nochange.com: MK, WR, WR2, CL all 00,
+  DGEN as it was), a changed P: seen however recently O: ran (the review's case), a change under a pending write
+  (MEMTEST's V, dirty.com: the new disk unchanged after the warm boot), a closed file on the image with no warm
+  boot since (MEMTEST's C), and a swap within the second seen at the first directory write (nothing written).
+- **Must fail, each seen with its fault put in:** CSVPUT off (2 media cases and 3 others); the other drive's
+  register trusted (the P: case); WBACK's guard off (the pending-write case); no write-back at close (the close
+  case); the AA not read (the epilogue case); the NMI leaving the card (the Break case); no check before the first
+  directory write (the within-the-second case); a missing sector kept (the re-read case); the D5s uncounted (the
+  D5 case, which hangs to its 20 s: its track had first to be put in step with sync bytes, or a reader took the
+  D5s as ABs and the fault's path was never run).
+- **Room:** block 60 12,535 of 16,384 bytes, block 61 8,771; blocks 29 and 30 as above.
+- **Measured** (emulated): M:→O: 5 KB 3.8 s, O:→M: 20 KB 3.0 s, O:→P: 20 KB 22.0 s (94.6 s before the owner's
+  rule, 158 s with a write-back at every call's end).
+
+**After 6c's second review (2026-11-06, fixed as the review recommended):**
+
+- **R2F1:** PURGED has its own drive (`PDRV`). It shared FDRV with FLUSHD, so a guard that found another disk in
+  O: inside the warm boot's 48 (FDRV 0, every drive) left FLUSHD writing back O:'s buffers only: C:'s record was
+  skipped, and dropped by the 13 after.
+- **R2F2:** the guard's check (`DISKVER`, VERIFYD's caller) gives its result as a code, not an error: 1 another
+  disk (GONE done), 2 not read. For a write-back, not read is a write that failed, as WBM says: kept and marked,
+  or dropped (13, 37), or raised. A select's or a directory write's still says Disk I/O (`VDIO`). And an eviction
+  whose victim is another removable drive's buffer that won't write marks it and takes another, so P:'s missing
+  disk doesn't fail O:'s writes.
+- **R2F3:** `RECENT` trusts a drive only once the RTC has been seen to go forward (`TICKED`; `NOW` keeps the
+  latest time read, `STAMPH`): after the cold boot, and after the clock goes back, when every drive's last access
+  is forgotten too, so it can't match by chance when the clock comes round to it again. The month is compared as
+  well (`D2STAMP` 8 bytes a drive, 5 used). A clock that never ticks has every select with the motor stopped read
+  the directory.
+- **R2F4:** a close, 48, 13, 37, 75 and the warm boot (WFLUSH, WBM bit 5) read the drive's directory past the
+  buffers before writing any of its data, unless this call already has (`DVERD`), however recent the last access;
+  an eviction reads it too unless the call has already checked that drive (`CHKD`, or `DVERD`): it never takes
+  the motor or the clock's word, as a select does, but a copy's evictions come in calls whose select has checked
+  the drive, so they don't read the directory again for every buffer the copy fills. A close whose
+  flush found another disk returns 10 (GENCHK after FLUSHD; the first directory write's check would say 10 anyway,
+  but FIND and MAKEENT no longer run on the old disk's state).
+- **R2F5:** the Programmer's Guide gives 10 for 19, 22, 23, 30, 99, 100 and 103 too, with the warning that a test
+  for `$FF` takes it for success.
+- **R2F6, tests:** `test_oodos_disk2_media` 5 → 16 cases, through MEMTEST's new cases U (O:'s and C:'s records
+  waiting), R (U, then 13), E (P:'s record waiting, then 160 records to O:), X (19 and 22 after a change within the
+  second) and Q (O:'s directory through the BIOS by 50).
+- **Must fail, each seen with its fault put in the fixed code:** PURGED on FDRV (the two swap cases); a missing
+  disk raised (the disk-out and eviction cases); every eviction raised (the eviction case); no TICKED (the frozen
+  clock and set-back cases); no forgetting at a step back (the set-back case); no month (the month case); a flush
+  not reading first (the close-within-the-second case); VOUCH not cleared at a call's start (the BIOS read case).
+  The GENCHK after a close's flush has none: the directory write's own check returns 10 without it.
+
+**After 6c's third review (2026-11-06, the owner's decisions):**
+
+- **R3F1:** a drive whose directory couldn't be read (no disk) is tried once a call (`UNRD`, the BDOS's, beside
+  `CHKD`, cleared at each call's start), and the failure marks every changed buffer of the drive, so evictions in
+  later calls pass them over. Each try had taken about 1.8 s (emulated), once for each waiting buffer: with 16 of
+  P:'s waiting and its disk out, 160 records to O: then took 38.4 s and the warm boot 29.7 s more. Now 10.6 s and
+  1.9 s (13.8 s and 0.0 s with P: there); 13.2 s when P:'s buffers alternate in age with O:'s (26.2 s without the
+  marking).
+- **R3F2:** a clock that ticked once and then stalled stayed trusted. `MEDIA` now looks at the card's drive
+  (`D2LAST`) when RECENT trusts: if its motor has stopped (so its access was more than a second ago) while its
+  stamp is still this second, the clock has stalled, and nothing is trusted until it goes forward again
+  (`UNTICK`, which forgets every drive's last access, as a step back does). The card's own run-on timer is the
+  second clock; no cycle counting.
+- **R3F3, not changed:** a disk whose directory is byte for byte the old one's is taken as the same disk (CP/M
+  3's checksums have the same limit): the BDOS's and the BIOS's buffers of the old disk are read, and its waiting
+  data written onto the new one. It needs two disks with identical directories and different data. Recorded in
+  the books.
+- **R3F5:** an eviction whose victim, another removable drive's buffer, fails with Read Only (a write-protected
+  disk) says it, on the call that wanted the buffer, as WBACKX would; only Disk I/O (kept, marked) goes on to
+  another victim.
+- **R3F4, R3F6, R3F8 (books):** 15 with access stamps returns 10 too; an eviction's check is said as it is; X
+  isn't the records done after a 10 (the program opens the file again). R3F7: TICKED's comment on its line.
+- **Tests:** `test_oodos_disk2_media` 16 → 21 cases, MEMTEST's new F (64 records waiting on P:) and G (the same,
+  alternating with O:'s): the two timing cases (each held to 3 s over the no-disk-waiting time), round 2's
+  stalled-clock reproduction, a stalled clock inside a program (MEMTEST's O: the read is 10), and a
+  write-protected disk found by an eviction (OFAIL 02: the record's buffer and its block's other, zeroed sector).
+- **Must fail, each seen with its fault put in:** no `UNRD` (both timing cases: the warm boot 29.7 s); no
+  marking (the alternating case, 26.2 s); MEDIA's stall check gone (both stalled-clock cases); the eviction's
+  Read Only ignored (the write-protect case).
+
+**After 6c's fourth review (2026-11-06, the owner's decisions):**
+
+- **R4F1:** the stall check is in `RECENT` itself, so the BIOS's own use of it (APPLEIO, a read by 50 with no
+  BDOS select) gets it too; APPLEIO asks RECENT before turning the motor on (`ARECENT`), while the card's drive is
+  as it was. MEDIA's copy is gone.
+- **R4F2, accepted, not fixed:** with a stalled clock, a change on one drive goes unseen while the other drive's
+  motor turns: the check can only see a stall through the card's drive, and an O:-P:-O: within one real second
+  looks the same. It would need a second time source; a DS3231 on Vcc doesn't stall.
+- **R4F4:** a Read Only found by a write-back (`WBACK`'s, any drive) drops every changed buffer of the drive at
+  once (it is read-only now: none can be written), so a write-protected P: is said once, not once a buffer. An
+  eviction's Read Only for another drive is held (`PERR`, `PEDRV`) and said at the call's end (`RETAX`), the
+  function's work done, so a close, a delete or a rename of another drive is never stopped part-way by it.
+- **R4F3, R4F5, R4F6 (books and comments):** appendix A and 20's entry say a read can get Read Only for O: or P:
+  this way; the Programmer's Guide says the clock is distrusted after a stall, and that an eviction finding no
+  disk says nothing; the User's Guide says waiting data is written if the disk is back in time; RECENT's comment
+  and question 2 give the run-on's margin.
+- **Tests:** `test_oodos_disk2_media` 21 → 23 cases: the review's BIOS read with a stalled clock (MEMTEST's Q:
+  QB E5), and 64 records waiting on a write-protected P: (MEMTEST's F: OFAIL 01, BIG.DAT whole). The R3F5 case
+  now expects one failure (OFAIL 01), as R4F4 decided.
+- **Must fail, each seen with its fault put in:** APPLEIO's RECENT without the stall check (the stalled BIOS
+  read); RECENT asked after the motor-on, as before (the stalled BIOS read: QB 00; the emulated drive turns at
+  full speed the moment its motor is on, as a real one's read pulses start at once, so SPIN sees it turning and
+  the stall goes unseen: the order is load-bearing); the drop-all gone (the 64-record case); the eviction's Read Only raised at once, not held (the
+  64-record case: the failing write's record lost). Round 3's code fails all three cases.
+
+**After 6c's fifth review (2026-11-06, the owner's decisions):**
+
+- **R5F1:** an eviction's write-back left EDRV at the victim's drive, so a later error in the call named P:, and
+  the held Read Only replaced the call's own error (a make of an existing file on O: returned `FF 02`, File
+  Exists lost). GETBUF now puts the call's EDRV back (`GEDRV`, `VEDRV`). When a held Read Only meets the call's
+  own error, DERR returns the call's own, with its drive; in display and default mode it says the held one first,
+  so the default mode's end never leaves P:'s loss unsaid.
+- **R5F2, R5F3, R5F5 (books):** a write that gets the held Read Only has its record written and CR moved on (21,
+  34, 40, appendix A); the held case is the other floppy's buffer only (the call's own drive's is said at once),
+  and the order when the call fails too; the stall wording names the card's drive; the User's Guide says a
+  write-protected floppy's waiting data is dropped, and the tab off doesn't bring it back.
+- **Tests:** `test_oodos_disk2_media` 23 → 24: the review's heldx as MEMTEST's H, in the three error modes.
+- **Must fail:** no EDRV put back (ERRDRV 0F); the held Read Only not said first (FF 02); round 4's code.
+- **The books** (approved): the Programmer's Guide's chapter 3 (ten drives, removable drives), 14's and 37's
+  drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
+  G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.
 
 
 ## GW-BASIC ##

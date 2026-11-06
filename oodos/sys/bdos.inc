@@ -48,9 +48,11 @@ ER_SELECT       = 4                    ; Invalid Drive
 ER_PASSWORD     = 7                    ; Password Error
 ER_EXISTS       = 8                    ; File Exists
 ER_WILD         = 9                    ; ? in Filename
+RC_MEDIA        = 10                   ; returned, not an error's message: the disk was changed under an open FCB
 
 NBCB            = 32                   ; buffers in BCB_BLOCK
-NSLOT           = 8                    ; drives' slots: A-G, then M:
+NSLOT           = 10                   ; drives' slots: A-G, then M:, O: and P: (6c)
+RSLOT           = 8                    ; the first removable one's: O:
 CD_LEN          = 16
 
 ; FIND's modes (SMODE)
@@ -67,7 +69,8 @@ SM_ANYEX        = $08                  ; any extent
 .globalzp RECP, GBNEW, LASTB, BIOSDRV, AGE, SMODE, FCBN, EXMASK, PEX3, MASK3, PHASH
 .globalzp SZ, RR, RDMA, MON
 ; The system block
-.global FC, SPAT, SSAVE, SSMODE, SSDRV, SSIDX, SSON, DTAB, LOGVEC, ROVEC, FCBP, TSH
+.global FC, SPAT, SSAVE, SSMODE, SSDRV, SSIDX, SSON, DTAB, LOGVEC, ROVEC, FCBP, TSH, CSV, DGEN, SUMS
+.global DVERD, CHKD, UNRD, PERR, PEDRV, VDRV, VSLOT, VDK, VDN, VDLBA
 .global BCB_DRV, BCB_LO, BCB_HI, BCB_DIRTY, BCB_AGEL, BCB_AGEH
 
 ; bdos.s
@@ -77,7 +80,7 @@ SM_ANYEX        = $08                  ; any extent
 .global B_TIME, B_SETBNK, B_XMOVE
 .global PGET, PPUT, B_CONST, B_CONIN, B_CONOUT, B_LIST, B_AUXOUT, B_AUXIN, B_AUXIST, B_AUXOST
 ; bdosdisk.s
-.global SELECT, DSLOT, LOADCD, SAVECD, GETBUF, FLUSHD, PURGED, DIRENT, DIRPUT
+.global SELECT, DSLOT, LOADCD, SAVECD, GETBUF, FLUSHD, WBRET, PURGED, DIRENT, DIRPUT
 .global HASHPUT, NHASH, SETPAT, PATDERIV, FIND, FINDNXT, FINDFREE, MAKEENT
 .global ALVBIT, ALVSET, ALVCLR, ALVFREE, MARKE, FREEE, EPTR, STAMP, STAMPU, WBACKX
 .global DIRREC, RESCAN, CHANGED, RFLUSH, RDONE, PURGEM, BCBBLK

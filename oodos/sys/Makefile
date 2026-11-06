@@ -14,7 +14,7 @@
 
 BUILD    ?= build
 PYTHON   = python3 -I
-SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios crt cold ccp loader
+SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios disk2 crt cold ccp loader
 PROGRAMS = hello args biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest memtest \
            fstest dirtest errtest stamptest logintest ruletest xtratest systest writeoo1 cmdtest uttest \
            rsxq ovlt iotest
@@ -36,7 +36,7 @@ PARTS = 0xF0000:$(BUILD)/oodos.bdos 0xF4000:$(BUILD)/oodos.bios \
 LD65 = @echo ld65 $(1); ld65 $(1) 2>$(2).ld; s=$$?; w=$$(cat $(2).ld); rm -f $(2).ld; \
 	[ -z "$$w" ] || echo "$$w" >&2; [ $$s = 0 ] && [ -z "$$w" ]
 
-INCS = sys.inc bdos.inc ../include/cmd.inc ../include/oodos.inc ../include/system.inc ../../backplane/bios/backplane.inc
+INCS = sys.inc bdos.inc disk2.inc ../include/cmd.inc ../include/oodos.inc ../include/system.inc ../../backplane/bios/backplane.inc
 
 all: $(BUILD)/OODOS.SYS $(PROGRAMS:%=$(BUILD)/%.com) $(RSXS:%=$(BUILD)/%.rsx) $(OVLS:%=$(BUILD)/%.prl) \
      $(GENCOMS:%=$(BUILD)/%.com) $(IMAGES:%=$(BUILD)/%.img)

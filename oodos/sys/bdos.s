@@ -61,6 +61,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import WARM, FARCALL, NMI, ROMAPPLE, WBF
+.import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
 .export BDOSENT
 
 ASCII_CR        = $0D
@@ -136,6 +137,19 @@ SSIDX:          .res    2              ; the entry 18 goes on from
 SSON:           .res    1              ; 1 while there is one to go on with
 DTAB:           .res    NSLOT * CD_LEN ; each drive's CD, from its login
 TSH:            .res    NSLOT          ; each slot's sectors a track as a shift: 4 for 16, 3 for 8
+CSV:            .res    (NSLOT - RSLOT) * 16 ; O:'s and P:'s directory checksums, a record each (CKS 16)
+DGEN:           .res    NSLOT - RSLOT  ; O:'s and P:'s changes seen, mod 128: an open FCB's S1 has its drive's
+SUMS:           .res    16             ; DSUM's
+DVERD:          .res    1              ; O: or P: + 1 whose directory was read past the buffers in this call
+CHKD:           .res    1              ; bit 0 O:, bit 1 P:: its disk checked in this call (a select's, a write-back's)
+PERR:           .res    1              ; an error held for the call's end (an eviction's Read Only), 0 none
+PEDRV:          .res    1              ; its drive
+UNRD:           .res    1              ; the same bits: its directory couldn't be read in this call (no disk)
+VDRV:           .res    1              ; VERIFYD's and GONE's drive, and its slot
+VSLOT:          .res    1
+VDK:            .res    1              ; VERIFYD's sector, and its count
+VDN:            .res    1
+VDLBA:          .res    2
 LOGVEC:         .res    2              ; the logged-in drives, bit n drive n
 ROVEC:          .res    2              ; the read-only drives
 FCBP:           .res    2              ; the program's FCB
@@ -155,6 +169,11 @@ BDOSENT:        STA     PA
                 STY     FUNC
                 STZ     FCBN
                 STZ     MON
+                STZ     DVERD
+                STZ     CHKD
+                STZ     UNRD
+                STZ     PERR
+                STZ     VOUCH
                 LDA     SCB_DISK
                 STA     EDRV
                 CPY     #NFUNC
@@ -335,7 +354,14 @@ F_TGET:         LDA     #0
 ; (RET0).
 RET0:           LDA     #0
 RETA:           LDX     #0
-RETAX:          STA     T0
+RETAX:          LDY     PERR           ; an error held for the end: said now, the function's
+                BEQ     @none          ; work done
+                STZ     PERR
+                LDA     PEDRV
+                STA     EDRV
+                TYA
+                JMP     DERR
+@none:          STA     T0
                 STX     T1
                 LDX     #$FD
                 TXS
@@ -350,7 +376,25 @@ ABORT:          LDA     #$FF
 
 ; An error, CP/M 3's code in A, on drive EDRV: as the error mode says.
 DERR:           STA     ECODE
+                LDY     PERR           ; an error held for the call's end (an eviction's
+                BEQ     @own           ; Read Only on another drive) and the call's own: the
+                STZ     PERR           ; call's is the one returned, with its drive; the held
+                LDA     SCB_ERRMODE    ; one is said first (6c's fifth review), so the default
+                CMP     #$FF           ; mode's end never leaves it unsaid
+                BEQ     @own
+                LDA     ECODE
+                PHA
                 LDA     EDRV
+                PHA
+                STY     ECODE
+                LDA     PEDRV
+                STA     EDRV
+                JSR     ESAY
+                PLA
+                STA     EDRV
+                PLA
+                STA     ECODE
+@own:           LDA     EDRV
                 STA     SCB_ERRDRV
                 LDA     SCB_ERRMODE
                 CMP     #$FF

@@ -24,7 +24,9 @@
 
 .setcpu "65C02"
 .include "sys.inc"
+.include "disk2.inc"
 .import COLD, CCP, BDOSENT, LOADER
+.import D2WRIT, D2DMAS                 ; disk2.s's, for NMI
 .import CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .import SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .import DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
@@ -346,10 +348,21 @@ IRQ:            PHA
 ; (the monitor starts afresh, so the program's zero page and stack don't
 ; matter), TRAMP is written there anew, and TRAMP switches W3 and VEC and
 ; jumps through block 63's NMI vector to BREAK, which puts W0-W2 back on
-; blocks 0-2.
+; blocks 0-2. The Disk II first (6c's review): its write mode off and its
+; motor (both harmless when it isn't writing), and the DMA controller's
+; master enable put back if the driver had it off for a write; the sector
+; being written is lost, the rest of its track kept.
 NMI:            SEI
+                LDA     DISK2 + D2_Q7OFF
+                LDA     DISK2 + D2_MOTOROFF
                 LDA     #SYS_BLOCK
                 STA     NB_WIN0
+                LDA     D2WRIT
+                BEQ     @copy0
+                STZ     D2WRIT
+                LDA     D2DMAS
+                STA     DMA_CONTROL
+@copy0:
                 LDX     #TRAMPEND - TRAMPSRC - 1
 @copy:          LDA     TRAMPSRC,X
                 STA     TRAMP,X

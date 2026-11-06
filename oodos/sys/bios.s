@@ -85,6 +85,16 @@
 ; puts both halves in one), so the card always has what the buffer has. Any failure empties the buffer, and
 ; so do a rescan of the units and MOUNT or UNMOUNT.
 ;
+; O: and P: (6c) are the Disk II's drives 1 and 2 (disk2.s), when cold boot
+; found the card: apple-do too, the same layer, each with two track buffers
+; of its own, one for the directory's track (3) and one for any other (block
+; 29 $1000 and $2000, block 30 $0000 and $1000), read a whole track at a
+; time and written through a sector at a time. A disk that had stopped
+; turning (or the card had the other drive) when an access starts may have
+; been changed: its buffers are emptied, unless the BDOS checked the disk in
+; this call (VOUCH); MEDIA, FORGET and FORGETD are the BDOS's, for its
+; directory checksums.
+;
 ; Character devices (DEVTBL): 0 CRT, the video card's 80x30 text and the USB
 ; keyboard (crt.s); 1 TTY, the serial card (the 6551 for now); 2 LPT, which
 ; takes and drops. CONIN, CONOUT and the rest go to the devices their SCB
@@ -99,7 +109,9 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
+.exportzp TMP, SPTR                    ; disk2.s's too
+.import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
 .exportzp DMABANK, CURBANK, XPEND      ; WARM resets them
 .export TESC                           ; and TTYOUT's escape state
@@ -112,6 +124,7 @@ SD_UNMOUNT      = $A1
 DOP_UNMOUNT     = 2                    ; SDIO's DOP: 0 READ, 1 WRITE, 2 UNMOUNT, 3 MOUNT
 DOP_MOUNT       = 3                    ;   (bit 0 the DMA's direction)
 SD_WRITE_PROTECTED = 5                 ; ERROR
+NTB             = 5                    ; track buffers: an SD unit's; O:'s and P:'s, data and directory
 
 .zeropage
 CURDRV:         .res    1
@@ -149,7 +162,17 @@ SIDE_D          = 4
 DRVRO:          .res    SD_DRIVES      ; bit 1: the unit is read-only
 DRVCHG:         .res    1              ; bit n: unit n + 1 changed at a rescan (the BDOS clears it)
 DRVAPL:         .res    SD_DRIVES      ; bit 7: the unit is an apple-do drive
-TBTAG:          .res    2              ; the track buffer's drive + 1 (0: empty), and its track
+TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty) and track
+BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
+TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
+VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
+D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
+STAMPT:         .res    5              ; the RTC's now, as D2STAMP keeps it
+STAMPH:         .res    5              ; the latest now NOW has read
+TICKED:         .res    1              ; not 0: the RTC seen to go forward since the cold boot, a step back or a stall
+STAMPX:         .res    1              ; RECENT's and STAMP's drive
+ARECENT:        .res    1              ; APPLEIO's: bit 7 RECENT's carry
+RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
 UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
@@ -669,12 +692,14 @@ READ:           STZ     DOP
 WRITE:          LDA     #1
                 STA     DOP
 DISKIO:         LDA     CURDRV
+                CMP     #DRV_O         ; O: and P:: the Disk II's, apple-do
+                BCS     @apple
                 CMP     #SD_DRIVES
                 BCS     @own
                 TAX
                 LDA     DRVAPL,X
                 BPL     @own
-                JMP     APPLEIO
+@apple:         JMP     APPLEIO
 @own:           LDA     SECTOR + 1     ; LBA = track x 16 + sector, sector 0-15
                 BNE     @error
                 LDA     SECTOR
@@ -991,7 +1016,207 @@ SDDATA:         LDA     #7
 
 ; READ or WRITE (DOP) of CURDRV's TRACK (0-34) and SECTOR (0-7). A = 0, 1
 ; an error, 2 read-only (the units table's flag, or the card's); Z by A.
-APPLEIO:        LDA     SECTOR + 1
+APPLEIO:        STZ     BUFIX          ; an SD unit's: straight to the layer
+                LDA     CURDRV
+                CMP     #DRV_O
+                BCS     @disk2
+                JMP     APPLE1
+@disk2:         SBC     #DRV_O - 1     ; O: 1, P: 2 (the carry set)
+                STA     BUFIX
+                DEC     A
+                TAX
+                JSR     RECENT         ; its own last access within the second, asked
+                ROR     ARECENT        ; before the motor's on (the stall check looks at
+                LDA     BUFIX          ; the card's drive as it was): bit 7 not recent
+                DEC     A
+                TAX
+                JSR     D2START        ; motor on; carry set: it wasn't turning
+                BCC     @turning
+                LDX     CURDRV         ; checked by the BDOS in this call: kept
+                INX
+                CPX     VOUCH
+                BEQ     @turning
+                BIT     ARECENT        ; or recent
+                BPL     @turning
+                JSR     TBEMPTY2       ; it may be another disk now
+@turning:       LDA     BUFIX          ; this access's time, the drive's own
+                DEC     A
+                TAX
+                JSR     STAMP
+                LDA     TRACK          ; the directory's track: its own buffer
+                CMP     #DIR_TRACK
+                BNE     @data
+                LDA     BUFIX
+                CLC
+                ADC     #2
+                STA     BUFIX
+@data:          JSR     APPLE1
+                PHA
+                JSR     D2STOP         ; off: the card keeps it turning a second
+                PLA
+                CMP     #0
+                RTS
+
+; This drive's track buffer emptied (BUFIX's). Keeps A.
+TBEMPTY:        PHA
+                LDA     BUFIX
+                ASL     A
+                TAX
+                STZ     TBTAG,X
+                PLA
+                RTS
+; Both of O:'s or P:'s (BUFIX 1 or 2). Keeps A.
+TBEMPTY2:       PHA
+                LDA     BUFIX
+                ASL     A
+                TAX
+                STZ     TBTAG,X
+                STZ     TBTAG + 4,X
+                PLA
+                RTS
+
+; MEDIA, for the BDOS (bdosdisk.s, its directory checksums; called with W2
+; on this block, as SDMNT): X = O: or P:. Carry set if its disk isn't
+; turning, so may have been changed: its track buffer is emptied.
+MEDIA:          TXA
+                SEC
+                SBC     #DRV_O - 1
+                STA     BUFIX
+                DEC     A
+                TAX
+                JSR     RECENT         ; its own last access within the second (the
+                BCC     @same          ; run-on): taken as the same disk, the card not asked
+                JMP     D2MEDIA        ; else the card, the buffers kept: the BDOS checks, then forgets
+@same:          RTS
+
+; The run-on, timed by the drive's own last access (6c's review, the owner's
+; rule): carry clear if drive X's (0 O:, 1 P:) last access was in the RTC's
+; same second as now (under a second ago; one just across a second's edge
+; is taken as older, so the rule only errs toward checking). Keeps X.
+RECENT:         JSR     NOW
+                LDA     TICKED
+                BEQ     @old
+                JSR     SAMEST
+                BCS     @old
+                PHX                    ; unless the clock has stalled (6c's third and fourth
+                LDX     D2LAST         ; reviews): the card's drive has stopped, its run-on over,
+                CPX     #2             ; yet its stamp is this second. The run-on must outlast
+                BCS     @trust         ; the second from the stamp, which is taken before the
+                JSR     SAMEST         ; I/O: the emulator's is 0.998 s after the motor-off,
+                BCS     @trust         ; the I/O's time on top; a run-on a little short (a
+                JSR     SPIN           ; real card's 556) can give a false stall in the
+                BCC     @trust         ; last ms of a second, which costs a directory read
+                JSR     UNTICK         ; stalled: nothing trusted until it goes forward again
+                PLX
+@old:           SEC
+                RTS
+@trust:         PLX
+                CLC
+                RTS
+; Carry clear if drive X's last access is STAMPT's second. Keeps X.
+SAMEST:         JSR     STAMPAT
+                LDA     #4
+@cmp:           PHA
+                LDA     STAMPT,X
+                CMP     D2STAMP,Y
+                BNE     @no
+                INX
+                INY
+                PLA
+                DEC     A
+                BPL     @cmp
+                LDX     STAMPX
+                CLC
+                RTS
+@no:            PLA
+                LDX     STAMPX
+                SEC
+                RTS
+; Drive X's last access now. Keeps X.
+STAMP:          JSR     NOW
+                JSR     STAMPAT
+                LDA     #4
+@copy:          PHA
+                LDA     STAMPT,X
+                STA     D2STAMP,Y
+                INX
+                INY
+                PLA
+                DEC     A
+                BPL     @copy
+                LDX     STAMPX
+                RTS
+; Y = drive X's D2STAMP offset (8 each), X = 0, the drive in STAMPX.
+STAMPAT:        STX     STAMPX
+                TXA
+                ASL     A
+                ASL     A
+                ASL     A
+                TAY
+                LDX     #0
+                RTS
+; STAMPT = the RTC's second, minute, hour, date and month (reading the
+; second latches the rest). Against the latest read (STAMPH): later, the
+; clock ticks (TICKED); earlier, it was stepped back: nothing's trusted
+; until it ticks again, and no drive's last access can match by chance
+; when the clock reaches it again. Keeps X.
+NOW:            LDA     NB_SEC
+                STA     STAMPT
+                LDA     NB_MIN
+                STA     STAMPT + 1
+                LDA     NB_HOUR
+                STA     STAMPT + 2
+                LDA     NB_DATE
+                STA     STAMPT + 3
+                LDA     NB_MONTH
+                STA     STAMPT + 4
+                PHX
+                LDX     #4             ; the month first
+@cmp:           LDA     STAMPT,X
+                CMP     STAMPH,X
+                BNE     @differ
+                DEX
+                BPL     @cmp
+                BRA     @keep          ; the same second
+@differ:        BCS     @later
+                JSR     UNTICK         ; stepped back
+                BRA     @high
+@later:         LDA     #1
+                STA     TICKED
+@high:          LDX     #4
+@copy:          LDA     STAMPT,X
+                STA     STAMPH,X
+                DEX
+                BPL     @copy
+@keep:          PLX
+                RTS
+; The clock not trusted (stepped back or stalled): TICKED clear, and every
+; drive's last access forgotten, so none matches by chance when the clock
+; comes round to it again.
+UNTICK:         STZ     TICKED
+                LDX     #15
+@forget:        STZ     D2STAMP,X
+                DEX
+                BPL     @forget
+                RTS
+
+; FORGET, for the BDOS (as MEDIA): X = O: or P:, its track buffer emptied,
+; so the next READ is from the disk (its directory checked past the buffer).
+FORGET:         TXA
+                SEC
+                SBC     #DRV_O - 1
+                STA     BUFIX
+                JMP     TBEMPTY2
+; FORGETD: only its directory track's buffer, so a check of the directory
+; reads the disk and the data track's buffer stays.
+FORGETD:        TXA
+                SEC
+                SBC     #DRV_O - 3     ; O: 3, P: 4
+                STA     BUFIX
+                JMP     TBEMPTY
+
+; The layer itself: READ or WRITE of CURDRV's sector, BUFIX its buffer.
+APPLE1:         LDA     SECTOR + 1
                 ORA     TRACK + 1
                 BNE     @bad
                 LDA     SECTOR
@@ -1003,6 +1228,8 @@ APPLEIO:        LDA     SECTOR + 1
                 LDA     DOP
                 BEQ     @load
                 LDX     CURDRV
+                CPX     #SD_DRIVES     ; O: and P:: the disk's own write-protect
+                BCS     @load
                 LDA     DRVRO,X
                 AND     #2
                 BEQ     @load
@@ -1010,9 +1237,25 @@ APPLEIO:        LDA     SECTOR + 1
                 RTS
 @bad:           LDA     #1             ; no such sector
                 RTS
-@load:          JSR     TRKLOAD
-                BNE     @done          ; SDIO's error
+@load:          LDA     #2             ; a READ's halves missing: the track read again once
+                STA     RETRY
+@again:         JSR     TRKLOAD
+                BEQ     @loaded
+                RTS                    ; SDIO's error, or the disk's
+@loaded:        LDA     DOP            ; a READ: both halves good in the buffer?
+                BNE     @ok
                 STZ     AHALF
+                JSR     HALFOK
+                BCS     @missing
+                INC     AHALF
+                JSR     HALFOK
+                BCC     @ok
+@missing:       JSR     TBEMPTY        ; not kept as missing: read again, or the next READ's
+                DEC     RETRY
+                BNE     @again
+                LDA     #1
+                RTS
+@ok:            STZ     AHALF
 @half:          JSR     AKSET          ; AK: this half's sector in the file's track
                 LDX     #SIDE_S        ; the track buffer's side: the source of a READ
                 LDA     DOP
@@ -1021,11 +1264,9 @@ APPLEIO:        LDA     SECTOR + 1
 @tb:            LDA     #PHYS
                 STA     SIDES,X
                 STZ     SIDES + 1,X
-                LDA     AK
-                CLC
-                ADC     #>TRKBUF_PHYS
+                JSR     BUFPAGE        ; the buffer's page + AK
                 STA     SIDES + 2,X
-                LDA     #^TRKBUF_PHYS
+                LDA     #^TRKBUF_PHYS  ; (the directory tracks' too)
                 STA     SIDES + 3,X
                 TXA                    ; and the SETDMA buffer the other side,
                 EOR     #SIDE_S ^ SIDE_D
@@ -1048,10 +1289,23 @@ APPLEIO:        LDA     SECTOR + 1
                 BEQ     @done          ; A = 0
                 STZ     AHALF          ; a WRITE: the SD sector of each half out
 @out:           JSR     AKSET
+                LDX     BUFIX
+                BNE     @disk2
                 LSR     A              ; the SD sector in the track
                 JSR     TRKSEC
                 JSR     SDIO
                 BNE     @failed
+                BRA     @wrote
+@disk2:         STA     D2FS           ; the Disk II's sector of the track
+                JSR     D2PAGE
+                LDA     TRACK
+                JSR     D2WSEC
+                BNE     @failed
+                LDX     AK             ; that sector good in the buffer now
+                JSR     MASKBIT
+                ORA     TBMASK,Y
+                STA     TBMASK,Y
+@wrote:
                 INC     AHALF
                 LDA     AHALF
                 CMP     #2
@@ -1059,9 +1313,62 @@ APPLEIO:        LDA     SECTOR + 1
                 LDA     #0
 @done:          RTS
 @fail:          LDA     #1
-@failed:        STZ     TBTAG          ; the buffer may not be the card's now
+@failed:        JSR     TBEMPTY        ; the buffer may not be the card's now
                 CMP     #0
                 RTS
+
+; Carry clear if this half's sector (AKSET) is good in BUFIX's buffer.
+HALFOK:         JSR     AKSET
+                TAX
+                JSR     MASKBIT
+                AND     TBMASK,Y
+                CLC
+                BNE     @good
+                SEC
+@good:          RTS
+; X = a file sector (0-15): A its bit in TBMASK's byte Y (BUFIX's).
+MASKBIT:        LDA     BUFIX
+                ASL     A
+                STA     TMP
+                TXA
+                LSR     A
+                LSR     A
+                LSR     A
+                CLC
+                ADC     TMP
+                TAY
+                TXA
+                AND     #7
+                TAX
+                LDA     #1
+@shift:         DEX
+                BMI     @bit
+                ASL     A
+                BRA     @shift
+@bit:           RTS
+
+; A = the track buffer's physical page (bits 8-15) for BUFIX's buffer, + AK.
+BUFPAGE:        LDY     BUFIX          ; (X kept: the caller's copy side)
+                LDA     TBPAGE,Y
+                CLC
+                ADC     AK
+                RTS
+; Y = the Disk II's buffer's page in W1's view ($4000 on), D2BLK its block.
+D2PAGE:         LDX     BUFIX
+                LDA     TBPAGE,X
+                AND     #$3F
+                ORA     #$40
+                TAY
+                LDA     TBBLK,X
+                STA     D2BLK
+                RTS
+; The buffers: an SD unit's, O:'s, P:'s, O:'s directory track's, P:'s.
+TBPAGE:         .byte   >TRKBUF_PHYS, >(TRKBUF_PHYS + $1000), >(TRKBUF_PHYS + $2000)
+                .byte   >DIRBUF_PHYS, >(DIRBUF_PHYS + $1000)
+TBBLK:          .byte   TRKBUF_PHYS >> 14, TRKBUF_PHYS >> 14, TRKBUF_PHYS >> 14
+                .byte   DIRBUF_PHYS >> 14, DIRBUF_PHYS >> 14
+.assert * - TBBLK = NTB, error, "a block for each track buffer"
+.assert ^TRKBUF_PHYS = ^DIRBUF_PHYS, error, "the track buffers' A16-A19 one value (BUFBANK)"
 
 ; AK = A = the file's sector of the track for CP/M's sector 2 x SECTOR +
 ; AHALF, by the skew.
@@ -1079,17 +1386,36 @@ SKEW:           .byte   0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1
 ; The track buffer holding CURDRV's TRACK: read from the card, 8 SD sectors,
 ; unless it holds it already. A = 0, or SDIO's error (the buffer then
 ; empty); Z by A.
-TRKLOAD:        LDX     CURDRV
+TRKLOAD:        LDA     BUFIX
+                ASL     A
+                TAY                    ; Y: the buffer's tag
+                LDX     CURDRV
                 INX
-                CPX     TBTAG
+                TXA
+                CMP     TBTAG,Y
                 BNE     @read
                 LDA     TRACK
-                CMP     TBTAG + 1
+                CMP     TBTAG + 1,Y
                 BNE     @read
                 LDA     #0
                 RTS
-@read:          STZ     TBTAG
-                LDA     DOP
+@read:          LDA     #0
+                STA     TBTAG,Y
+                LDA     BUFIX
+                BEQ     @sd
+                JSR     D2PAGE         ; O: or P:: the whole track off the disk
+                LDA     TRACK
+                JSR     D2TRACK
+                BNE     @done
+                LDA     BUFIX
+                ASL     A
+                TAY
+                LDA     D2GOTF         ; its good sectors
+                STA     TBMASK,Y
+                LDA     D2GOTF + 1
+                STA     TBMASK + 1,Y
+                BRA     @tag
+@sd:            LDA     DOP
                 PHA
                 STZ     DOP
                 STZ     AK
@@ -1101,15 +1427,20 @@ TRKLOAD:        LDX     CURDRV
                 LDA     AK
                 CMP     #SPT_APPLE
                 BNE     @sector
-                LDX     CURDRV
-                INX
-                STX     TBTAG
-                LDA     TRACK
-                STA     TBTAG + 1
                 PLA
                 STA     DOP
+                LDY     #0
+                LDA     #$FF           ; an SD unit's: all good
+                STA     TBMASK
+                STA     TBMASK + 1
+@tag:           LDX     CURDRV
+                INX
+                TXA
+                STA     TBTAG,Y
+                LDA     TRACK
+                STA     TBTAG + 1,Y
                 LDA     #0
-                RTS
+@done:          RTS
 @fail:          TAX
                 PLA
                 STA     DOP
@@ -1708,7 +2039,25 @@ BINIT:          STZ     CURBANK
                 STA     DRVTAB + 2 * DRV_M
                 LDA     #>DPHM
                 STA     DRVTAB + 2 * DRV_M + 1
-                RTS
+                LDA     DISK2_ID       ; the Disk II: O: and P:
+                CMP     #DISK2_ID_V1
+                BNE     @done
+                JSR     D2INIT
+                LDX     #15            ; no access yet; RECENT trusts nothing until the
+@stamp:         STZ     D2STAMP,X      ; RTC is seen to tick (6c's second review: a
+                DEX                    ; clock that's stopped or no RTC at all)
+                BPL     @stamp
+                JSR     NOW
+                STZ     TICKED
+                LDA     #<DPHO
+                STA     DRVTAB + 2 * DRV_O
+                LDA     #>DPHO
+                STA     DRVTAB + 2 * DRV_O + 1
+                LDA     #<DPHP
+                STA     DRVTAB + 2 * DRV_P
+                LDA     #>DPHP
+                STA     DRVTAB + 2 * DRV_P + 1
+@done:          RTS
 
 ; M:'s directory, as `mkfs.cpm -f oodos-ram -t` makes it with the label's
 ; mode then set to 0x31 (hw/oodos.md, "Disk format"): 256 entries in 16
@@ -1775,7 +2124,7 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
 ; DPBs are in common memory, so function 31 can give a program one.
 
 ; What the BDOS and the BIOS assume of a DPB, checked as it's assembled.
-.macro DPB spt, bsh, exm, dsm, drm, al0, al1, off
+.macro DPB spt, bsh, exm, dsm, drm, al0, al1, off, cks
 .assert spt = 64 || spt = 32, error, "SPT: 16 or 8 sectors of 512 bytes a track (the BDOS's TSH)"
 .assert bsh >= 3 && bsh <= 7, error, "BSH 3-7: a block of 2 sectors at least (RECSEC), of an extent at most (FPIDX)"
 .assert dsm < 4096, error, "DSM: 4,096 blocks at most, a 512-byte allocation vector"
@@ -1787,7 +2136,7 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
                 .byte   bsh, (1 << bsh) - 1, exm
                 .word   dsm, drm
                 .byte   al0, al1
-                .word   $8000          ; CKS
+                .word   cks            ; CKS: $8000 a drive never changed under the system
                 .word   off            ; OFF: the boot tracks
                 .byte   2, 3           ; PSH, PHM
 .endmacro
@@ -1795,14 +2144,17 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
 .pushseg
 .segment "COMMON"
 ; oodos-8m: 4 KB blocks, 2,048 of them, 1,024 entries in 8 blocks
-DPB8M:          DPB     64, 5, 1, 2047, 1023, $FF, $00, 0
+DPB8M:          DPB     64, 5, 1, 2047, 1023, $FF, $00, 0, $8000
 ; oodos-32m: 8 KB blocks, 4,096 of them, 2,048 entries in 8 blocks
-DPB32M:         DPB     64, 6, 3, 4095, 2047, $FF, $00, 0
+DPB32M:         DPB     64, 6, 3, 4095, 2047, $FF, $00, 0, $8000
 ; oodos-ram: 2 KB blocks, 64 of them (so EXM counts 1 KB), 256 entries in 4
-DPBM:           DPB     64, 4, 1, 63, 255, $F0, $00, 0
+DPBM:           DPB     64, 4, 1, 63, 255, $F0, $00, 0, $8000
 ; apple-do: 8 sectors a track (16 of 256 bytes), 1 KB blocks, 128 of them
 ; past the 3 boot tracks, 64 entries in 2 blocks
-DPBAPL:         DPB     32, 3, 0, 127, 63, $C0, $00, 3
+DPBAPL:         DPB     32, 3, 0, 127, 63, $C0, $00, 3, $8000
+; O: and P:, the Disk II's: apple-do, and a floppy can be changed: CKS 16, a
+; checksum for each of the directory's 16 records (bdosdisk.s)
+DPBD2:          DPB     32, 3, 0, 127, 63, $C0, $00, 3, 16
 .assert DPB32M - DPB8M = DPB_LEN, error, "a DPB is 17 bytes"
 .popseg
 
@@ -1822,6 +2174,8 @@ DPHS:
                 DPH     0              ; the DPB from the units table
 .endrepeat
 DPHM:           DPH     DPBM
+DPHO:           DPH     DPBD2
+DPHP:           DPH     DPBD2
 .assert DPHM - DPHS = SD_DRIVES * DPH_LEN, error, "a DPH is 25 bytes"
 
 DPHADDR:
