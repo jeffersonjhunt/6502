@@ -3,10 +3,11 @@
  * @brief DOS 3.3 itself as DOS33.COM's other oracle (phase 6d, hw/oodos.md, question 10).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * OODOS's DOS33 PUTs a text file and a binary one on a dos33.py image; the emulated IIe then boots the
- * owner's DOS 3.3 disk from fixtures/disks in drive 1, with that image in drive 2: CATALOG,D2 lists them,
- * VERIFY reads them, BLOAD puts the binary's bytes at its address, a program READs the text, and BSAVE
- * writes a file that DOS33 GET then takes back, byte for byte. Everything is on copies in memory; only
+ * OODOS's DOS33 PUTs a text file, a binary one, one of two track/sector lists, six more (the catalog's
+ * second sector), and one it then ERAs, on a dos33.py image; the emulated IIe then boots the owner's DOS
+ * 3.3 disk from fixtures/disks in drive 1, with that image in drive 2: CATALOG,D2 lists them, VERIFY
+ * reads them, BLOAD puts the binaries' bytes at their addresses, a program READs the text; DOS WRITEs a
+ * text file, LOCKs one and BSAVEs one; then DOS33 sees the lock, GETs DOS's files back byte for byte. Everything is on copies in memory; only
  * what the test computed is printed. Without the owner's IIe ROMs, PROMs or DOS disk it skips (77).
  */
 
@@ -258,16 +259,24 @@ namespace
 
 TEST(dos_3_3_reads_what_dos33_wrote_and_dos33_reads_what_dos_wrote)
 {
-    // OODOS: an empty dos33.py image on C:, DOS33 PUTs NOTE (T, three lines) and CODE (B=4000, 700 bytes).
-    const std::vector<uint8_t> note = text("LINE ONE\nLINE TWO\nTHE END\n"), code = gen(700, 11);
+    // OODOS: an empty dos33.py image on C:, DOS33 PUTs NOTE (T, three lines), CODE (B=4000, 700 bytes),
+    // BIG (B=0800, 32,000 bytes: 126 sectors, 2 lists, the second starting at 122), F0-F5, and GONE,
+    // which it then ERAs: 10 entries, so the catalog's second sector holds the last.
+    const std::vector<uint8_t> note = text("LINE ONE\nLINE TWO\nTHE END\n"), code = gen(700, 11),
+                               big = gen(32000, 12);
     std::vector<uint8_t> img;
     {
-        Dd r({{0, "NOTE    TXT", note}, {0, "CODE    BIN", code}});
+        Dd r({{0, "NOTE    TXT", note}, {0, "CODE    BIN", code}, {0, "BIG     BIN", big}, {0, "SMALL   BIN", gen(100, 3)}});
         REQUIRE(r.ok);
         REQUIRE(py("new '" + work() + "/e.dsk'") == 0);
         r.put_disk(read_bytes(work() + "/e.dsk"));
         has(r.c("dos33 put m:note.txt c:NOTE"), "A>");
         has(r.c("dos33 put m:code.bin c:CODE B=4000"), "A>");
+        has(r.c("dos33 put m:big.bin c:BIG B=0800"), "A>");
+        has(r.c("dos33 put m:small.bin c:GONE"), "A>");
+        for (int i = 0; i < 6; ++i)
+            has(r.c("dos33 put m:small.bin c:F" + std::to_string(i)), "A>");
+        has(r.c("dos33 era c:GONE"), "A>");
         img = r.unit_image();
         REQUIRE(img.size() == IMAGE);
     }
@@ -282,12 +291,20 @@ TEST(dos_3_3_reads_what_dos33_wrote_and_dos33_reads_what_dos_wrote)
                 cat.find(" B 005 CODE") != std::string::npos);
     CHECK(cat.find(" T 002 NOTE") != std::string::npos);
     CHECK(cat.find(" B 005 CODE") != std::string::npos);
-    e.type("HOME\r");
-    e.dos("VERIFY NOTE,D2");
-    e.dos("VERIFY CODE,D2");
-    const std::string ver = e.screen();
-    CHECK(ver.find("ERROR") == std::string::npos);
-    CHECK(ver.find("NOT FOUND") == std::string::npos);
+    CHECK(cat.find(" B 128 BIG") != std::string::npos);
+    CHECK(cat.find(" B 002 F5") != std::string::npos);   // the catalog's second sector
+    CHECK(cat.find("GONE") == std::string::npos);
+    const std::vector<std::string> names = {"NOTE", "CODE", "BIG", "F0", "F1", "F2", "F3", "F4", "F5"};
+    auto verify = [&](const char *when) {
+        e.type("HOME\r");
+        for (const std::string &n : names)
+            e.dos("VERIFY " + n + ",D2");
+        const std::string ver = e.screen();
+        const bool clean = ver.find("ERROR") == std::string::npos && ver.find("NOT FOUND") == std::string::npos;
+        std::printf("  VERIFY of the nine %s: %s\n", when, clean ? "no error" : "an error");
+        CHECK(clean);
+    };
+    verify("DOS33 put");
     e.dos("BLOAD CODE,D2");
     std::vector<uint8_t> loaded;
     for (uint32_t a = 0; a < 768; ++a)
@@ -317,12 +334,30 @@ TEST(dos_3_3_reads_what_dos33_wrote_and_dos33_reads_what_dos_wrote)
     e.type("FOR I=0 TO 255:POKE 24576+I,I:NEXT\r");
     e.run(120 * FRAME);                        // the loop's run, before the next line is typed
     e.dos("BSAVE OOB,A24576,L256,D2");
+    e.dos("LOCK F0,D2");
+    e.type("HOME\r");
+    e.type("NEW\r");
+    e.type("10 D$=CHR$(4)\r");
+    e.type("20 PRINT D$;\"OPEN T2,D2\"\r");
+    e.type("30 PRINT D$;\"WRITE T2\"\r");
+    e.type("40 PRINT \"HELLO FROM DOS\"\r");
+    e.type("50 PRINT \"SECOND LINE\"\r");
+    e.type("60 PRINT D$;\"CLOSE\"\r");
+    e.type("HOME\r");
+    e.dos("RUN");
+    verify("DOS's BSAVE and WRITE");
     e.dos("BLOAD CODE,A20480,D2");             // at $5000 this time
     loaded.clear();
     for (uint32_t a = 0; a < 768; ++a)
         loaded.push_back(e.s->peek_physical(0x5000 + a));
     std::printf("  BLOAD CODE after BSAVE: %s\n", loaded == want ? "the bytes DOS33 put" : "other bytes");
     CHECK(loaded == want);
+    e.dos("BLOAD BIG,D2");                     // at $0800 (over BASIC's program, so last): its 32,000
+    std::vector<uint8_t> bl;                   // bytes, through both lists
+    for (uint32_t a = 0; a < 32000; ++a)
+        bl.push_back(e.s->peek_physical(0x0800 + a));
+    std::printf("  BLOAD BIG: %s\n", bl == big ? "the bytes DOS33 put" : "other bytes");
+    CHECK(bl == big);
     const std::vector<uint8_t> after = e.d2();
     REQUIRE(after.size() == IMAGE);
     const std::string ck = check(after);
@@ -345,6 +380,14 @@ TEST(dos_3_3_reads_what_dos33_wrote_and_dos33_reads_what_dos_wrote)
     for (unsigned i = 0; i < 256; ++i)
         bytes[i] = static_cast<uint8_t>(i);
     CHECK(m_data(r, 0, "OOB     BIN") == bytes);
+    // DOS's text file as T, and its lock as DOS33 sees it.
+    has(r.c("dos33 get c:T2 m:t2.txt"), "A>");
+    const std::vector<uint8_t> t2 = m_data(r, 0, "T2      TXT");
+    const bool same = t2 == text("HELLO FROM DOS\nSECOND LINE\n");
+    std::printf("  DOS's WRITE back by GET T: %s\n", same ? "its two lines" : "other bytes");
+    CHECK(same);
+    has(r.c("dos33 c:"), "*B 002 F0");
+    has(r.c("dos33 era c:F0"), "File locked.");
 }
 
 int main()

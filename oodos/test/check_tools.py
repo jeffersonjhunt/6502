@@ -569,6 +569,17 @@ def dos33_checks():
     p = dos33.check(looped)
     ok(any("loop" in x for x in p), "a track/sector list that loops: found: %s" % p[:1])
     ok(not dos33.Disk(bytes(dos33.SIZE)).valid(), "zeros: no VTOC DOS 3.3 would take")
+    ok(dos33.text(b"A\nB\x00C\r\n\x1a") == bytes(b | 0x80 for b in b"A\rBC\r") + b"\0",
+       "text: a lone LF a CR, NULs dropped")
+    d = dos33.new()
+    dos33.add(d, "TWO", "R", bytes(130 * 256))
+    second = d.lists(d.find("TWO"))[0][1]
+    l = d.sector(*second)
+    ok(l[5] | l[6] << 8 == 122 and dos33.check(d) == [], "the second list starts at the file's sector 122")
+    l[5] = 0
+    d.put_sector(*second, l)
+    p = dos33.check(d)
+    ok(any("starts at sector" in x for x in p), "a list's offset wrong: found: %s" % p[:1])
 
 
 def main():

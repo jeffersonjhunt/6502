@@ -6,8 +6,10 @@
  * DOS 3.3 images made by oodos/tools/dos33.py (ours), on an SD unit (C:, the card's /DISKS/DOS33.DSK
  * mounted as unit 3 and its sectors replaced) and in the Disk II's drive 1 (O:). DOS33's every form and
  * message, its files compared byte for byte with dos33.py's, and dos33.py's check of every image after.
- * Function 76 through MEMTEST's S, L and J. The owner's sequencer PROM from the fixtures, for O: (77
- * without it); nothing of it is printed.
+ * Function 76 through MEMTEST's S, L and J. The two cases on O: need the owner's sequencer PROM from
+ * the fixtures and skip without it (nothing of it is printed); the rest run on the SD card alone. The
+ * review's (6d, round 1): bad lists and pairs, a failed GET keeping the old file, the Apple drive as the
+ * CP/M side, a read-only drive, the text rules, the catalog's names and its loop.
  */
 
 #include "harness.h"
@@ -187,7 +189,7 @@ namespace
     /// The rig: DOS33.COM (and PIP) on M:, M: searched first; the card's DOS33.DSK as unit 3 (C:).
     struct Dd : CcpRig
     {
-        explicit Dd(std::vector<MFile> files = {}) : CcpRig({}, {}, P6)
+        explicit Dd(std::vector<MFile> files = {}) : CcpRig({}, {}, have_prom() ? P6 : std::string())
         {
             if (!ok)
                 return;
@@ -507,6 +509,11 @@ TEST(a_full_disk_and_a_full_catalog)
 
 TEST(o_in_the_drive_as_on_an_sd_unit)
 {
+    if (!have_prom())
+    {
+        std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
+        return;
+    }
     // The same image in the Disk II's drive 1: the catalog, a GET and a PUT, and the disk read back off
     // the drive checks clean, the PUT's file the same sectors as on C:.
     const std::vector<uint8_t> b = gen(1500, 4);
@@ -569,6 +576,11 @@ TEST(function_76_drops_a_cp_m_drive_s_buffers)
 
 TEST(function_76_on_a_write_protected_disk)
 {
+    if (!have_prom())
+    {
+        std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
+        return;
+    }
     Dd r;
     REQUIRE(r.ok);
     const std::vector<uint8_t> img = image({});
@@ -580,12 +592,187 @@ TEST(function_76_on_a_write_protected_disk)
     CHECK(r.drive_image(0) == img);
 }
 
-int main()
+namespace
 {
-    if (!have_prom())
+    size_t at(unsigned t, unsigned s) { return (t * 16 + s) * 256; }
+    /// The first catalog entry's first track/sector list.
+    std::pair<unsigned, unsigned> first_list(const std::vector<uint8_t> &d)
     {
-        std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
-        return 77;
+        const size_t e = at(17, 15) + 0x0B;
+        return {d[e], d[e + 1]};
     }
-    return run_all();
+    /// `line` typed; whether the prompt came back within `budget`, its output in `o`.
+    bool returns(Dd &r, const std::string &line, uint64_t budget, std::string &o)
+    {
+        const size_t from = r.out.size();
+        r.type(line + "\r");
+        const bool b = r.until("\r\nA>", budget, from + line.size());
+        o = r.out.substr(from);
+        return b;
+    }
+} // namespace
+
+TEST(a_looped_track_sector_list_is_a_bad_file)
+{
+    // A list chained to itself, its pairs none (zeros) or its data: GET and ERA stop at once with Bad file,
+    // nothing written on either side (the review's F1, F2: GET spun for ever, or filled the CP/M disk).
+    for (bool data : {false, true})
+    {
+        Dd r;
+        REQUIRE(r.ok);
+        std::vector<uint8_t> img = image({{"LOOP", 'R', gen(300, 1)}});
+        const auto [t, s] = first_list(img);
+        img[at(t, s) + 1] = static_cast<uint8_t>(t);
+        img[at(t, s) + 2] = static_cast<uint8_t>(s);
+        if (!data)
+            std::fill(img.begin() + static_cast<long>(at(t, s) + 0x0C), img.begin() + static_cast<long>(at(t, s) + 256), 0);
+        r.put_disk(img);
+        std::string o;
+        CHECK(returns(r, "dos33 get c:LOOP m:loop.r", ms(20000), o));
+        has(o, "Bad file");
+        CHECK(m_data(r, 0, "LOOP    R  ").empty());
+        CHECK(m_data(r, 0, "LOOP    $$$").empty());
+        CHECK(returns(r, "dos33 era c:LOOP", ms(20000), o));
+        has(o, "Bad file");
+        CHECK(r.unit_image() == img);
+    }
 }
+
+TEST(a_pair_past_the_disk_is_a_bad_file)
+{
+    // A file whose second pair is track 63 (or 17, the catalog's): ERA refuses before it frees anything
+    // (the review's F3: it set bits past the bitmap, and the VTOC said 17 sectors a track), GET too.
+    for (unsigned track : {63u, 17u})
+    {
+        Dd r;
+        REQUIRE(r.ok);
+        std::vector<uint8_t> img = image({{"BAD", 'R', gen(600, 1)}, {"OTHER", 'R', gen(300, 2)}});
+        const auto [t, s] = first_list(img);
+        img[at(t, s) + 0x0E] = static_cast<uint8_t>(track);
+        img[at(t, s) + 0x0F] = 0;
+        r.put_disk(img);
+        std::string o;
+        returns(r, "dos33 era c:BAD", ms(20000), o);
+        has(o, "Bad file");
+        returns(r, "dos33 get c:BAD m:bad.r", ms(20000), o);
+        has(o, "Bad file");
+        CHECK(r.unit_image() == img);
+        has(r.c("dos33 c:"), " R 003 OTHER");
+    }
+}
+
+TEST(a_failed_get_keeps_the_old_cp_m_file)
+{
+    // GET writes a $$$ file and renames it only when it is whole: a GET that fails part-way (a bad data
+    // pair) leaves M:README.TXT as it was and no $$$ file (the review's F4: it was left 0 bytes).
+    const std::vector<uint8_t> orig = text("THE ORIGINAL, KEEP ME\n");
+    Dd r({{0, "README  TXT", orig}});
+    REQUIRE(r.ok);
+    std::vector<uint8_t> img = image({{"BAD", 'T', text("LINE ONE\n")}, {"GOOD", 'T', text("NEW TEXT\n")}});
+    const auto [t, s] = first_list(img);
+    img[at(t, s) + 0x0C] = 40;
+    r.put_disk(img);
+    has(r.c("dos33 get c:BAD m:readme.txt"), "Bad file");
+    CHECK(m_data(r, 0, "README  TXT") == orig);
+    CHECK(m_data(r, 0, "README  $$$").empty());
+    quiet(r.c("dos33 get c:GOOD m:readme.txt"));
+    CHECK(m_data(r, 0, "README  TXT") == text("NEW TEXT\n"));
+    CHECK(m_data(r, 0, "README  $$$").empty());
+}
+
+TEST(a_get_that_fills_the_cp_m_disk_keeps_the_old_file)
+{
+    // The failure part-way: M: has 22 KB free and the Apple file is 40 KB, so CP/M's disk fills during
+    // the GET, after its $$$ file was made: CP/M disk full, M:README.TXT as it was, the $$$ file gone.
+    const std::vector<uint8_t> orig = text("THE ORIGINAL, KEEP ME\n");
+    Dd r({{0, "README  TXT", orig}, {0, "FILL1   BIN", gen(32768, 1)}, {0, "FILL2   BIN", gen(32768, 2)},
+          {0, "FILL3   BIN", gen(32768, 3)}});
+    REQUIRE(r.ok);
+    r.put_disk(image({{"BIG", 'R', gen(40960, 4)}}));
+    has(r.c("dos33 get c:BIG m:readme.txt"), "CP/M disk full.");
+    CHECK(m_data(r, 0, "README  TXT") == orig);
+    CHECK(m_data(r, 0, "README  $$$").empty());
+}
+
+TEST(the_cp_m_file_can_t_be_on_the_apple_disk)
+{
+    // GET and PUT with the CP/M side on the Apple drive itself are refused (the review's F5: CP/M logged
+    // the DOS disk in and wrote into a DOS file), named or the current drive.
+    Dd r({{0, "NOTE    TXT", text("X\n")}});
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> img = image(sample());
+    r.put_disk(img);
+    has(r.c("dos33 get c:README c:readme.txt"), "The CP/M file can't be on the Apple disk.");
+    has(r.c("dos33 put c:note.txt c:NOTE"), "The CP/M file can't be on the Apple disk.");
+    CHECK(r.unit_image() == img);
+}
+
+TEST(a_drive_set_read_only_refuses_a_write_and_stays_so)
+{
+    // 76 honours a read-only drive (SET [RO], 28): a PUT refused as write-protected, the drive still
+    // read-only after, so a second PUT is refused too, and the disk unchanged (the review's F7).
+    Dd r({{0, "NOTE    TXT", text("X\n")}});
+    REQUIRE(r.ok);
+    r.put_util("set", UTILS);
+    const std::vector<uint8_t> img = image({});
+    r.put_disk(img);
+    has(r.c("set c: [ro]"), "Read Only");
+    has(r.c("dos33 c:"), "496 sectors free");
+    has(r.c("dos33 put m:note.txt c:NOTE"), "Disk write-protected.");
+    has(r.c("dos33 put m:note.txt c:NOTE"), "Disk write-protected.");
+    CHECK(r.unit_image() == img);
+}
+
+TEST(text_s_zero_lone_lf_and_nul)
+{
+    // GET's T ends at a stored 0, not at a $80 (the review's F10); PUT makes a lone LF a CR, as CR LF,
+    // and drops NULs: A LF B LF is stored C1 8D C2 8D 00; A NUL B CR LF back by GET as A B CR LF.
+    Dd r({{0, "UNIX    TXT", records({'A', '\n', 'B', '\n'}, 0x1A)},
+          {0, "NUL     TXT", records({'A', 0, 'B', '\r', '\n'}, 0x1A)}});
+    REQUIRE(r.ok);
+    std::vector<AFile> files = {{"EIGHTY", 'R', {0xC1, 0x80, 0xC2, 0x8D, 0x00}}};
+    std::vector<uint8_t> img = image(files);
+    r.put_disk(img);
+    quiet(r.c("dos33 put m:unix.txt c:UNIX"));
+    quiet(r.c("dos33 put m:nul.txt c:NUL"));
+    quiet(r.c("dos33 get c:NUL m:nul2.txt"));
+    quiet(r.c("dos33 get c:EIGHTY m:eighty.txt T"));
+    const std::vector<uint8_t> d = r.unit_image();
+    std::vector<uint8_t> u = stored(d, "UNIX");
+    u.resize(5);
+    CHECK(u == (std::vector<uint8_t>{0xC1, 0x8D, 0xC2, 0x8D, 0x00}));
+    CHECK(m_data(r, 0, "NUL2    TXT") == records({'A', 'B', '\r', '\n'}, 0x1A));
+    CHECK(m_data(r, 0, "EIGHTY  TXT") == records({'A', 0, 'B', '\r', '\n'}, 0x1A));
+    checked(d);
+}
+
+TEST(the_catalog_s_names_types_and_a_loop)
+{
+    // A name with a control character is shown as ^G, a type of two bits as '?', and DOS33's PUT keeps
+    // the VTOC's last track and direction as DOS does; a catalog chained to itself is a Bad catalog.
+    Dd r({{0, "NOTE    TXT", text("X\n")}});
+    REQUIRE(r.ok);
+    std::vector<uint8_t> img = image({{"BELL", 'R', gen(10, 1)}, {"ODD", 'R', gen(10, 2)}});
+    img[at(17, 15) + 0x0B + 3 + 1] = 0x87;              // BELL's E: ^G
+    img[at(17, 15) + 0x0B + 35 + 2] = 0x03;             // ODD's type: two bits
+    r.put_disk(img);
+    const std::string o = r.c("dos33 c:");
+    has(o, " R 002 B^GLL");
+    has(o, " ? 002 ODD");
+    quiet(r.c("dos33 put m:note.txt c:NOTE"));
+    const std::vector<uint8_t> d = r.unit_image();
+    CHECK(d[at(17, 0) + 0x30] == 18);
+    CHECK(d[at(17, 0) + 0x31] == 1);
+
+    Dd q;
+    REQUIRE(q.ok);
+    std::vector<uint8_t> loop = image({{"A", 'T', text("X\n")}});
+    loop[at(17, 15) + 1] = 17;
+    loop[at(17, 15) + 2] = 15;
+    q.put_disk(loop);
+    std::string l;
+    CHECK(returns(q, "dos33 c:", ms(20000), l));
+    has(l, "Bad catalog");
+}
+
+int main() { return run_all(); }
