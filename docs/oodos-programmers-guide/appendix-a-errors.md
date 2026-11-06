@@ -17,7 +17,9 @@ fail three ways:
 
 **10, Media Change,** is a result code: on O: or P:, the disk was changed under an FCB opened before, or under a
 call about to write the directory, and nothing was read or written
-([removable drives](03-file-system.md#removable-drives-o-and-p)).
+([removable drives](03-file-system.md#removable-drives-o-and-p)). It comes whatever the error mode. A function
+that otherwise says a failure as `$FF` (19, 22, 23, 30, 99, 100, 103) gives 10 too: a program that tests only for
+`$FF` takes it for success, so test for 0.
 
 A function number OODOS doesn't have returns A = X = `$FF`: 61–71, 76–97, 113–151, and 153 on. So does 60 when no
 RSX takes it. 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 answers it.
@@ -66,12 +68,12 @@ says. The last column is the physical errors the function can raise.
 | 15 `F_OPEN` | 0 opened; `$FF` not found | 1, 4, 7, 9 |
 | 16 `F_CLOSE` | 0; `$FF` no entry to be had, or two blocks for one place; 10 the disk changed (O:, P:) | 1, 2, 4 |
 | 17 `F_SFIRST`, 18 `F_SNEXT` | 0–3 the entry's place in the record; `$FF` no more | 1, 4 |
-| 19 `F_DELETE` | 0; `$FF` not found | 1, 2, 3, 4, 7 |
+| 19 `F_DELETE` | 0; `$FF` not found; 10 the disk changed (O:, P:) | 1, 2, 3, 4, 7 |
 | 20 `F_READ` | 0; 1 the end of the file; 10 the disk changed (O:, P:). X = the records done, multi-sector | 1, 2, 4 |
 | 21 `F_WRITE` | 0; 1 no directory space; 2 the disk full; 10 the disk changed (O:, P:). X = the records done | 1, 2, 3, 4 |
-| 22 `F_MAKE` | 0; `$FF` the directory full | 1, 2, 4, 8, 9 |
-| 23 `F_RENAME` | 0; `$FF` not found | 1, 2, 3, 4, 7, 8, 9 |
-| 30 `F_ATTRIB` | 0; `$FF` not found | 1, 2, 4, 7, 9 |
+| 22 `F_MAKE` | 0; `$FF` the directory full; 10 the disk changed (O:, P:) | 1, 2, 4, 8, 9 |
+| 23 `F_RENAME` | 0; `$FF` not found; 10 the disk changed (O:, P:) | 1, 2, 3, 4, 7, 8, 9 |
+| 30 `F_ATTRIB` | 0; `$FF` not found; 10 the disk changed (O:, P:) | 1, 2, 4, 7, 9 |
 | 31 `DRV_DPB` | the DPB's address | 1, 4 |
 | 33 `F_READRAND` | 0; 1 never written; 3 the extent can't be closed; 4 an extent never written; 6 past 32 MB; 10 the disk changed (O:, P:). X = the records done | 1, 2, 4 |
 | 34 `F_WRITERAND`, 40 `F_WRITEZF` | 0; 2 the disk full; 3 the extent can't be closed; 5 no directory space; 6 past 32 MB; 10 the disk changed (O:, P:). X = the records done | 1, 2, 3, 4 |
@@ -84,11 +86,11 @@ says. The last column is the physical errors the function can raise.
 | 53–57 `MC_MAX`–`MC_FREE` | 0; `$FF` with X 0: no memory, or a base or length refused | — |
 | 74 `O_MOUNT` | 0; `$FF` with X: 1 the card or a write-back failed, 4 not B:–G:, `$10` the path refused, `$11` not found, `$12` the image's size, `$13` another drive's file. Whatever the error mode | — |
 | 75 `O_ROM` | doesn't return; `$FFFF` no Apple II ROM, or A not 0 or 1 | — |
-| 99 `F_TRUNCATE` | 0; `$FF` not found, or not a record the file has | 1, 2, 3, 4, 7, 9 |
-| 100 `DRV_SETLABEL` | 0; `$FF` stamps asked for without SFCBs, or no free entry | 1, 2, 4, 7 |
+| 99 `F_TRUNCATE` | 0; `$FF` not found, or not a record the file has; 10 the disk changed (O:, P:) | 1, 2, 3, 4, 7, 9 |
+| 100 `DRV_SETLABEL` | 0; `$FF` stamps asked for without SFCBs, or no free entry; 10 the disk changed (O:, P:) | 1, 2, 4, 7 |
 | 101 `DRV_GETLABEL` | the label's byte 12, 0 none | 1, 4 |
 | 102 `F_TIMEDATE` | 0; `$FF` not found | 1, 4, 9 |
-| 103 `F_WRITEXFCB` | 0; `$FF` no label or passwords off, not found, or no free entry | 1, 2, 4, 7, 9 |
+| 103 `F_WRITEXFCB` | 0; `$FF` no label or passwords off, not found, or no free entry; 10 the disk changed (O:, P:) | 1, 2, 4, 7, 9 |
 | 105 `T_GET` | the seconds; `$FFFF` the clock past 2155 | — |
 | 152 `F_PARSE` | 0 the end; the address of what follows; `$FFFF` not a file name | — |
 

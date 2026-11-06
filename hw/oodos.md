@@ -3277,6 +3277,37 @@ merged, with the switches' equates (below).
 - **Room:** block 60 12,535 of 16,384 bytes, block 61 8,771; blocks 29 and 30 as above.
 - **Measured** (emulated): M:→O: 5 KB 3.8 s, O:→M: 20 KB 3.0 s, O:→P: 20 KB 22.0 s (94.6 s before the owner's
   rule, 158 s with a write-back at every call's end).
+
+**After 6c's second review (2026-11-06, fixed as the review recommended):**
+
+- **R2F1:** PURGED has its own drive (`PDRV`). It shared FDRV with FLUSHD, so a guard that found another disk in
+  O: inside the warm boot's 48 (FDRV 0, every drive) left FLUSHD writing back O:'s buffers only: C:'s record was
+  skipped, and dropped by the 13 after.
+- **R2F2:** the guard's check (`DISKVER`, VERIFYD's caller) gives its result as a code, not an error: 1 another
+  disk (GONE done), 2 not read. For a write-back, not read is a write that failed, as WBM says: kept and marked,
+  or dropped (13, 37), or raised. A select's or a directory write's still says Disk I/O (`VDIO`). And an eviction
+  whose victim is another removable drive's buffer that won't write marks it and takes another, so P:'s missing
+  disk doesn't fail O:'s writes.
+- **R2F3:** `RECENT` trusts a drive only once the RTC has been seen to go forward (`TICKED`; `NOW` keeps the
+  latest time read, `STAMPH`): after the cold boot, and after the clock goes back, when every drive's last access
+  is forgotten too, so it can't match by chance when the clock comes round to it again. The month is compared as
+  well (`D2STAMP` 8 bytes a drive, 5 used). A clock that never ticks has every select with the motor stopped read
+  the directory.
+- **R2F4:** a close, 48, 13, 37, 75 and the warm boot (WFLUSH, WBM bit 5) read the drive's directory past the
+  buffers before writing any of its data, unless this call already has (`DVERD`), however recent the last access;
+  an eviction is still checked as a select is (`CHKD`): checking those too would read the directory again for every buffer a copy fills. A close whose
+  flush found another disk returns 10 (GENCHK after FLUSHD; the first directory write's check would say 10 anyway,
+  but FIND and MAKEENT no longer run on the old disk's state).
+- **R2F5:** the Programmer's Guide gives 10 for 19, 22, 23, 30, 99, 100 and 103 too, with the warning that a test
+  for `$FF` takes it for success.
+- **R2F6, tests:** `test_oodos_disk2_media` 5 → 16 cases, through MEMTEST's new cases U (O:'s and C:'s records
+  waiting), R (U, then 13), E (P:'s record waiting, then 160 records to O:), X (19 and 22 after a change within the
+  second) and Q (O:'s directory through the BIOS by 50).
+- **Must fail, each seen with its fault put in the fixed code:** PURGED on FDRV (the two swap cases); a missing
+  disk raised (the disk-out and eviction cases); every eviction raised (the eviction case); no TICKED (the frozen
+  clock and set-back cases); no forgetting at a step back (the set-back case); no month (the month case); a flush
+  not reading first (the close-within-the-second case); VOUCH not cleared at a call's start (the BIOS read case).
+  The GENCHK after a close's flush has none: the directory write's own check returns 10 without it.
 - **The books** (approved): the Programmer's Guide's chapter 3 (ten drives, removable drives), 14's and 37's
   drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
   G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.

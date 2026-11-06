@@ -914,6 +914,9 @@ The same, but for the DMA segment, which CP/M 3 doesn't have.
 #### Exit
 
 - A = 0, X = 0: deleted. A = `$FF`, X = 0: nothing matched.
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -1102,6 +1105,9 @@ The update stamp and the archive attribute are CP/M 3's: the first write's, and 
 - A = 0, X = 0: made, and open. A = `$FF`, X = 0: the directory is full.
 - The FCB's attributes are all clear, its block pointers 0, RC 0, and it is marked not written. CR is left as it
   was: set it to 0 before writing.
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -1149,6 +1155,9 @@ byte 8, where CP/M 3 has it too) count, and a make with f6' that can't have both
 #### Exit
 
 - A = 0, X = 0: renamed. A = `$FF`, X = 0: no file of the old name.
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -1418,6 +1427,9 @@ The same, but for the registers: A and X, where CP/M 3 returns HL.
 #### Exit
 
 - A = 0, X = 0: done. A = `$FF`, X = 0: no such file.
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -2958,6 +2970,9 @@ The same. Dropping the failed buffers of the blocks it frees is ours.
 #### Exit
 
 - A = 0, X = 0: done. A = `$FF`, X = 0: no such file, or R0–R2 isn't a record the file has (below).
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 R0–R2 must be before the file's end and where it has data: in an extent the file has, below RC if that extent is
@@ -3012,6 +3027,9 @@ The same, but for the registers. Stamping the update, clearing t3', and the orde
 - A = 0, X = 0: the label is made or changed.
 - A = `$FF`, X = 0: stamps asked for (bits 6–4) on a directory without SFCBs, or no free entry for a new label.
   Nothing is done.
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -3153,6 +3171,9 @@ function 103's at bit 5; OODOS uses bit 5 for both, as the XFCB holds it.
 - A = 0, X = 0: the XFCB is made or changed.
 - A = `$FF`, X = 0: the drive has no label with passwords on, there is no such file in the current user, or there is
   no free entry for a new XFCB. Nothing is done.
+- A = 10, X = 0: on O: or P:, another disk was found in the drive as the directory was to be written; nothing is
+  done, whatever the error mode ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that
+  tests only for `$FF` takes this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors

@@ -49,16 +49,23 @@ records, and keeps it up to date as it writes the directory itself.
   more ago (its motor has stopped, so its disk may have been changed: the card's one motor goes to the drive last
   selected, so the other has always stopped) has the BDOS read the directory again from the disk and compare it.
   Within the second it is taken as the same disk, and the first directory write of each call compares it anyway.
+  Until the system has seen the clock tick (since the cold boot, or since it was set back), no access is recent:
+  every select with the motor stopped reads the directory.
 - **Another disk.** The drive's buffers are dropped, not written (they belong to the old disk), and it is logged
   in again, so the function works on the new disk. A call that was about to write the directory returns A = 10
-  and writes nothing.
+  and writes nothing: 16, 19, 21, 22, 23, 30, 34, 40, 99, 100 and 103, whatever the error mode. Those that
+  otherwise say a failure as `$FF` (19, 22, 23, 30, 99, 100, 103) leave a program that tests only for `$FF`
+  taking 10 for success: test for 0.
 - **Error 10, Media Change.** An FCB opened or made before the change returns A = 10 from a read, a write or a
   close (16, 20, 21, 33, 34, 40), whatever the error mode, and nothing is read or written. Open the file again on
   the new disk. An FCB a program built from a directory entry and never opened can get 10 on O: or P: too: open
   a file before reading or writing it.
 - **Changed data** for O: and P: waits in the buffers until a close, function 48, a reset (13, 37), 75, the warm
-  boot, or a buffer wanted for another sector. Each of these checks the disk first, as a select does, and drops the
-  data if the disk was changed: data meant for one disk never lands on another.
+  boot, or a buffer wanted for another sector. A close, 48, 13, 37, 75 and the warm boot read the directory from
+  the disk and compare it before writing any of it, however recent the last access; a buffer wanted for another
+  sector is checked as a select does. Data found to be for another disk is dropped: it never lands on the new one.
+  With no disk in the drive the directory can't be read, and the data is kept as a write that failed is (Disk I/O,
+  as the error mode says; 48 and the warm boot carry on with the other drives' buffers, 13 and 37 drop it).
 - **What isn't seen.** A disk swapped within a second of its drive's last access, while a copy between O: and P:
   runs, can take a few of the copy's data sectors before the next directory write sees the change. Don't change a
   disk while a program is using it.
