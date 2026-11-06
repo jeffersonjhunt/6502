@@ -47,6 +47,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import SDMNT, UNITSAV
+.import RAWF, DRVAPL                   ; bios.s's: function 76
 
 FIRST_BLOCK     = 4                    ; bank 1's first, AMAP's 0
 MAP_FIRST       = $81
@@ -73,6 +74,7 @@ SGB:            .res    1
 MP:             .res    2              ; 74: the path's next byte, in SECBUF
 
 .segment "SYSBSS"
+RBLK:           .res    6              ; 76's block: the drive, track, sector, op, address
 DMASEG:         .res    2              ; 51's, $FFFF none
 AMAP:           .res    AMAP_LEN
 MBLK:           .res    5              ; the program's MCB or block, as read
@@ -601,21 +603,7 @@ F_MOUNT:        JSR     PGET           ; the drive: B:-G:
                 LDX     #ER_CARD
                 BRA     MERROR
 @flushed:       LDA     MDRV           ; dropped, the drive logged out, read-write
-                INC     A
-                JSR     PURGED
-                LDA     MDRV
-                JSR     DRVBIT
-                EOR     #$FF
-                PHA
-                AND     LOGVEC,X
-                STA     LOGVEC,X
-                PLA
-                AND     ROVEC,X
-                STA     ROVEC,X
-                LDA     SSDRV          ; and a search on it ended
-                CMP     MDRV
-                BNE     @card
-                STZ     SSON
+                JSR     DROPD
 @card:          LDA     SECBUF + 2
                 BEQ     @unmount
                 LDA     #DOP_MOUNT
@@ -679,6 +667,150 @@ F_MOUNT:        JSR     PGET           ; the drive: B:-G:
                 JSR     RESCAN
                 PLX
                 JMP     MERROR
+
+; ---------------------------------------------------------------------------
+; 76: a DOS 3.3 sector of an Apple disk (6d, ours). A/X a block: the drive
+; (0 A: - 15 P:), the track (0-34), DOS 3.3's sector (0-15), 0 read or 1
+; write, the address of 256 bytes in the program's memory. A = 0 done, 1 an
+; error (the disk's, or a track or sector past the disk), 2 write-protected,
+; $FF (X 0) not an Apple disk: O: or P: with the Disk II, or an SD drive
+; whose unit is 140 KB. The drive's buffers are written back and dropped
+; and it is logged out first, as 37 does, if it was logged in: its next
+; CP/M use reads the disk again.
+
+F_SECT:         LDX     #0
+@get:           JSR     PGET
+                STA     RBLK,X
+                INX
+                CPX     #6
+                BNE     @get
+                LDA     RBLK           ; an Apple disk?
+                CMP     #DRV_O
+                BCS     @disk2
+                CMP     #SD_DRIVES
+                BCS     @not
+                JSR     RESCAN         ; an SD drive: the units as they are now (one
+                LDX     RBLK           ; mounted since, a drive of it changed: dropped)
+                LDA     DRVAPL,X
+                BMI     @apple
+@not:           LDA     #$FF
+                JMP     RETA
+@error:         LDA     #1
+                JMP     RETA
+@disk2:         CMP     #DRV_P + 1
+                BCS     @not
+                LDX     #1             ; O:, P:: the Disk II there?
+                JSR     B_SELDSK
+                STZ     BIOSDRV
+                STX     T0
+                ORA     T0
+                BEQ     @not
+@apple:         LDA     RBLK + 1       ; past the disk: an error
+                CMP     #35
+                BCS     @error
+                LDA     RBLK + 2
+                CMP     #16
+                BCS     @error
+                LDA     RBLK + 3
+                CMP     #2
+                BCS     @error
+                LDA     RBLK           ; logged in: written back, dropped, logged out
+                JSR     DRVBIT
+                AND     LOGVEC,X
+                BEQ     @out
+                LDA     RBLK
+                INC     A
+                JSR     FLUSHD
+                BCS     @error         ; data that won't go: not dropped
+                LDA     RBLK
+                JSR     DROPD
+@out:           LDA     RBLK + 3       ; a write: the program's 256 bytes into SECBUF first
+                BEQ     @bios
+                JSR     RPROG1
+                JSR     RSEC2
+                LDA     #BANK_PROG
+                LDX     #BANK_SYS
+                JSR     R256
+@bios:          LDA     RBLK
+                LDX     #1
+                JSR     B_SELDSK
+                LDA     RBLK + 1
+                LDX     #0
+                JSR     B_SETTRK
+                LDA     RBLK + 2
+                LDX     #0
+                JSR     B_SETSEC
+                LDA     #BANK_SYS
+                JSR     B_SETBNK
+                LDA     #<SECBUF
+                LDX     #>SECBUF
+                JSR     B_SETDMA
+                INC     RAWF
+                LDA     RBLK + 3
+                BNE     @write
+                JSR     B_READ
+                BRA     @done
+@write:         LDA     #0
+                JSR     B_WRITE
+@done:          STZ     RAWF
+                STZ     BIOSDRV
+                CMP     #0
+                BNE     @result
+                LDX     RBLK + 3       ; a read: SECBUF to the program
+                BNE     @result
+                LDA     #<SECBUF
+                STA     BW1
+                LDA     #>SECBUF
+                STA     BW1 + 1
+                LDA     RBLK + 4
+                STA     BW2
+                LDA     RBLK + 5
+                STA     BW2 + 1
+                LDA     #BANK_SYS
+                LDX     #BANK_PROG
+                JSR     R256
+                LDA     #0
+@result:        JMP     RETA
+
+; BW1 the program's address, BW2 SECBUF.
+RPROG1:         LDA     RBLK + 4
+                STA     BW1
+                LDA     RBLK + 5
+                STA     BW1 + 1
+RSEC2:          LDA     #<SECBUF
+                STA     BW2
+                LDA     #>SECBUF
+                STA     BW2 + 1
+                RTS
+; 256 bytes from bank A's BW1 to bank X's BW2; memory MOVE refuses ends the
+; function (A = X = $FF), as PIN and POUT.
+R256:           JSR     B_XMOVE
+                LDA     #0
+                LDX     #1
+                JSR     B_MOVE
+                BCC     @done
+                JMP     ABORT
+@done:          RTS
+
+; Drive A's buffers dropped, not written; the drive logged out, read-write,
+; and a search on it ended (74, 76).
+DROPD:          STA     T0
+                INC     A
+                JSR     PURGED
+                LDA     T0
+                JSR     DRVBIT
+                EOR     #$FF
+                PHA
+                AND     LOGVEC,X
+                STA     LOGVEC,X
+                PLA
+                AND     ROVEC,X
+                STA     ROVEC,X
+                LDA     SSDRV
+                CMP     T0
+                BNE     @done
+                STZ     SSON
+@done:          RTS
 
 ; The card's UNMOUNT of MDRV's unit; A as CARD's.
 UNMOUNT:        LDA     #DOP_UNMOUNT

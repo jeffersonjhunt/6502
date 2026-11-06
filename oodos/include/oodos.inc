@@ -203,5 +203,6 @@ O_VERSION       = 72                   ; OODOS's own
 O_PHYSADDR      = 73
 O_MOUNT         = 74
 O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its monitor, 1 Apple II mode
+O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
 
 .endif

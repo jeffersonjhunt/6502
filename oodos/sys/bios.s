@@ -110,6 +110,7 @@
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
 .export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
+.export RAWF, DRVAPL                   ; the BDOS's function 76 (6d)
 .exportzp TMP, SPTR                    ; disk2.s's too
 .import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
@@ -166,6 +167,7 @@ TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty
 BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
 TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
 VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
+RAWF:           .res    1              ; not 0: function 76's READ or WRITE, a DOS 3.3 sector (6d)
 D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
 STAMPT:         .res    5              ; the RTC's now, as D2STAMP keeps it
 STAMPH:         .res    5              ; the latest now NOW has read
@@ -174,6 +176,7 @@ STAMPX:         .res    1              ; RECENT's and STAMP's drive
 ARECENT:        .res    1              ; APPLEIO's: bit 7 RECENT's carry
 RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
+NHALF:          .res    1              ; its halves: 2, or 1 for function 76
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
 UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
 TESC:           .res    1              ; TTYOUT: 0, 1 after ESC, 2 after ESC Y, 3 after its row
@@ -700,7 +703,11 @@ DISKIO:         LDA     CURDRV
                 LDA     DRVAPL,X
                 BPL     @own
 @apple:         JMP     APPLEIO
-@own:           LDA     SECTOR + 1     ; LBA = track x 16 + sector, sector 0-15
+@own:           LDA     RAWF           ; function 76 on a drive that isn't an Apple disk
+                BEQ     @cpm
+                LDA     #$FF
+                RTS
+@cpm:           LDA     SECTOR + 1     ; LBA = track x 16 + sector, sector 0-15
                 BNE     @error
                 LDA     SECTOR
                 CMP     #SPT_PHYS
@@ -1216,12 +1223,22 @@ FORGETD:        TXA
                 JMP     TBEMPTY
 
 ; The layer itself: READ or WRITE of CURDRV's sector, BUFIX its buffer.
-APPLE1:         LDA     SECTOR + 1
+APPLE1:         LDA     #2             ; CP/M's 512-byte sector: two halves; function 76's
+                LDY     RAWF           ; DOS 3.3 sector (0-15): one, the file's sector itself
+                BEQ     @halves
+                LDA     #1
+@halves:        STA     NHALF
+                LDA     SECTOR + 1
                 ORA     TRACK + 1
                 BNE     @bad
                 LDA     SECTOR
                 CMP     #SPT_APPLE
+                BCC     @sector
+                LDY     RAWF
+                BEQ     @bad
+                CMP     #16
                 BCS     @bad
+@sector:
                 LDA     TRACK
                 CMP     #APPLE_TRACKS
                 BCS     @bad
@@ -1245,11 +1262,13 @@ APPLE1:         LDA     SECTOR + 1
 @loaded:        LDA     DOP            ; a READ: both halves good in the buffer?
                 BNE     @ok
                 STZ     AHALF
-                JSR     HALFOK
+@check:         JSR     HALFOK
                 BCS     @missing
                 INC     AHALF
-                JSR     HALFOK
-                BCC     @ok
+                LDA     AHALF
+                CMP     NHALF
+                BNE     @check
+                BRA     @ok
 @missing:       JSR     TBEMPTY        ; not kept as missing: read again, or the next READ's
                 DEC     RETRY
                 BNE     @again
@@ -1283,7 +1302,7 @@ APPLE1:         LDA     SECTOR + 1
                 BCS     @fail          ; the I/O hole, flash, read-only
                 INC     AHALF
                 LDA     AHALF
-                CMP     #2
+                CMP     NHALF
                 BNE     @half
                 LDA     DOP
                 BEQ     @done          ; A = 0
@@ -1308,7 +1327,7 @@ APPLE1:         LDA     SECTOR + 1
 @wrote:
                 INC     AHALF
                 LDA     AHALF
-                CMP     #2
+                CMP     NHALF
                 BNE     @out
                 LDA     #0
 @done:          RTS
@@ -1373,11 +1392,13 @@ TBBLK:          .byte   TRKBUF_PHYS >> 14, TRKBUF_PHYS >> 14, TRKBUF_PHYS >> 14
 ; AK = A = the file's sector of the track for CP/M's sector 2 x SECTOR +
 ; AHALF, by the skew.
 AKSET:          LDA     SECTOR
+                LDX     RAWF           ; function 76's: the file's sector, no skew
+                BNE     @raw
                 ASL     A
                 ORA     AHALF
                 TAX
                 LDA     SKEW,X
-                STA     AK
+@raw:           STA     AK
                 RTS
 
 ; cpmtools's apple-do skew: CP/M's sector n of a track is the .dsk's SKEW[n].
