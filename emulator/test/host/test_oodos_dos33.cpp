@@ -558,6 +558,24 @@ TEST(function_76_s_answers)
     CHECK(r.unit_image()[(17 * 16) * 256 + 6] == 0x01);
 }
 
+TEST(function_76_rechecks_the_unit_before_a_write)
+{
+    // MEMTEST's I: 76 reads C:'s VTOC; the card's unit 3 is then mounted with CPM.DSK behind OODOS's
+    // back (as the WebUI's hot insert could); 76's write is refused, $FF, and CPM.DSK is unchanged (the
+    // review's R2F4: it wrote 256 bytes into the CP/M image).
+    Dd r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> cpm;
+    const std::string o = run_memtest(r, " I", "SWAP?", [&] {
+        REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
+        cpm = r.unit_image();
+    });
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "IR 00 00");
+    has(o, "IW FF 00");
+    CHECK(r.unit_image() == cpm);
+}
+
 TEST(function_76_drops_a_cp_m_drive_s_buffers)
 {
     // MEMTEST's L on C: (CPM.DSK): the drive logged in, its directory sector changed by 76; the next 17
@@ -773,6 +791,123 @@ TEST(the_catalog_s_names_types_and_a_loop)
     std::string l;
     CHECK(returns(q, "dos33 c:", ms(20000), l));
     has(l, "Bad catalog");
+}
+
+TEST(a_sparse_file_s_empty_lists_pass)
+{
+    // A file as DOS 3.3 writes a random-access one far out: six lists, the five between empty, each
+    // starting where the file says (+5: 0, 122, ... 610). GET and ERA take it (the review's R2F1: a
+    // bound of five lists refused it); dos33.py checks the disk after.
+    Dd r;
+    REQUIRE(r.ok);
+    std::vector<uint8_t> img = image({{"SP", 'R', {'H' | 0x80, 'I' | 0x80, 0x8D, 0}}});
+    const auto [t0, s0] = first_list(img);
+    std::pair<unsigned, unsigned> prev = {t0, s0};
+    for (unsigned k = 1; k <= 5; ++k) // lists on track 30, sectors 0-4; the last one's pair: 30/5
+    {
+        const size_t p = at(prev.first, prev.second);
+        img[p + 1] = 30;
+        img[p + 2] = static_cast<uint8_t>(k - 1);
+        const size_t l = at(30, k - 1);
+        std::fill(img.begin() + static_cast<long>(l), img.begin() + static_cast<long>(l + 256), 0);
+        img[l + 5] = static_cast<uint8_t>(k * 122 & 0xFF);
+        img[l + 6] = static_cast<uint8_t>(k * 122 >> 8);
+        prev = {30, k - 1};
+    }
+    img[at(30, 4) + 0x0C] = 30;
+    img[at(30, 4) + 0x0D] = 5;
+    img[at(17, 0) + 0x38 + 30 * 4 + 1] &= static_cast<uint8_t>(~0x3F); // 30/0-5 used
+    img[at(17, 15) + 0x0B + 0x21] = 8;                                 // 2 data, 6 lists
+    REQUIRE(check(img) == "ok\n");
+    r.put_disk(img);
+    has(r.c("dos33 c:"), " R 008 SP");
+    quiet(r.c("dos33 get c:SP m:sp.txt T"));
+    CHECK(m_data(r, 0, "SP      TXT") == records({'H', 'I', '\r', '\n'}, 0x1A));
+    quiet(r.c("dos33 era c:SP"));
+    const std::vector<uint8_t> d = r.unit_image();
+    has(ls(d), "496 sectors free");
+    checked(d);
+}
+
+TEST(get_refuses_what_the_cp_m_side_can_t_take)
+{
+    // Before reading anything (the review's R2F2, R2F3): a .$$$ target; a read-only CP/M file; a NAME.$$$
+    // already there (not deleted); a read-only CP/M drive. Each with its own message, nothing changed.
+    const std::vector<uint8_t> old = text("OLD\n"), mine = text("MINE\n");
+    MFile ro{0, "LOCKED  TXT", old};
+    ro.ro = true;
+    Dd r({{0, "X       $$$", old}, ro, {0, "NOTE    TXT", old}, {0, "NOTE    $$$", mine}});
+    REQUIRE(r.ok);
+    r.put_util("set", UTILS);
+    r.put_disk(image(sample()));
+    has(r.c("dos33 get c:README m:x.$$$"), "GET won't write a .$$$ file.");
+    CHECK(m_data(r, 0, "X       $$$") == old);
+    has(r.c("dos33 get c:README m:locked.txt"), "CP/M file read-only.");
+    CHECK(m_data(r, 0, "LOCKED  TXT") == old);
+    CHECK(m_data(r, 0, "LOCKED  $$$").empty());
+    has(r.c("dos33 get c:README m:note.txt"), "Its .$$$ file is there already: ERA it first.");
+    CHECK(m_data(r, 0, "NOTE    $$$") == mine);
+    CHECK(m_data(r, 0, "NOTE    TXT") == old);
+    has(r.c("set m: [ro]"), "Read Only");
+    has(r.c("dos33 get c:README m:new.txt"), "CP/M drive read-only.");
+    CHECK(m_data(r, 0, "NEW     TXT").empty());
+}
+
+TEST(a_cp_m_disk_changed_under_get_is_said_so)
+{
+    // The CP/M side on O:, the Apple file on C:, the clock held at one second (so each select of O:
+    // takes its disk as the same: O:'s motor turns, its last access this second). O:'s disk is changed
+    // just after the $$$ file's entry is written (the card's first write ends); the records go to the
+    // buffers, and the close's write-back reads the directory, finds another disk and returns 10.
+    // DOS33 says the disk was changed (its make, close and rename took only $FF for a failure), and the
+    // new disk is unchanged.
+    if (!have_prom())
+    {
+        std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
+        return;
+    }
+    Dd r;
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
+    const std::vector<uint8_t> cpm = r.unit_image();
+    REQUIRE(r.mount(UNIT, "/DISKS/BLANK.DSK") == 0);
+    const std::vector<uint8_t> blank = r.unit_image();
+    REQUIRE(r.mount(UNIT, "/DISKS/DOS33.DSK") == 0);
+    r.put_disk(image({{"BIG", 'R', gen(8192, 3)}}));
+    r.insert(0, cpm);
+    const uint32_t h = SYS_BLOCK_PHYS + sym("STAMPH");
+    auto bcd = [](unsigned v) { return (v >> 4) * 10 + (v & 15); };
+    auto hold = [&] {
+        r.set_time(2026, bcd(r.phys(h + 4) & 0x1F), bcd(r.phys(h + 3)), bcd(r.phys(h + 2) & 0x3F),
+                   bcd(r.phys(h + 1)), bcd(r.phys(h)));
+    };
+    const size_t from = r.out.size();
+    r.type("dos33 get c:BIG o:big.bin\r");
+    bool wrote = false, swapped = false;
+    for (int i = 0; i < 20000 && !swapped; ++i)
+    {
+        hold();
+        r.run(ms(1));
+        const bool q7 = r.card().status().q7;
+        if (q7)
+            wrote = true;
+        else if (wrote)
+        {
+            r.insert(0, blank);
+            swapped = true;
+        }
+    }
+    CHECK(swapped);
+    for (int i = 0; i < 6000 && r.out.find("\r\nA>", from + 10) == std::string::npos; ++i)
+    {
+        hold();
+        r.run(ms(10));
+    }
+    const std::string o = r.out.substr(from);
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "The CP/M disk was changed.");
+    r.run(ms(1500));
+    CHECK(r.drive_image(0) == blank);
 }
 
 int main() { return run_all(); }

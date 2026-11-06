@@ -390,6 +390,70 @@ TEST(dos_3_3_reads_what_dos33_wrote_and_dos33_reads_what_dos_wrote)
     has(r.c("dos33 era c:F0"), "File locked.");
 }
 
+TEST(a_random_access_file_dos_wrote_far_out)
+{
+    // DOS 3.3 OPENs RND with records of 250 and WRITEs record 700 (byte 175,000: the file's sector 683,
+    // in its sixth list, the five before it empty), and RNDB with records of 100, record 100. DOS33 takes
+    // RNDB's sectors (R: zeros, then NEAR at byte 10,000) and ERAs both (the review's R2F1: Bad file,
+    // for want of more than five lists); then DOS itself saves and verifies a file on that disk.
+    REQUIRE(py("new '" + work() + "/r.dsk'") == 0);
+    std::vector<uint8_t> img;
+    {
+        IIe e(read_bytes(work() + "/r.dsk"));
+        REQUIRE(e.ok());
+        e.type("NEW\r");
+        e.type("10 D$=CHR$(4)\r");
+        e.type("20 PRINT D$;\"OPEN RND,L250,D2\"\r");
+        e.type("30 PRINT D$;\"WRITE RND,R700\"\r");
+        e.type("40 PRINT \"FAR\"\r");
+        e.type("50 PRINT D$;\"CLOSE\"\r");
+        e.type("60 PRINT D$;\"OPEN RNDB,L100,D2\"\r");
+        e.type("70 PRINT D$;\"WRITE RNDB,R100\"\r");
+        e.type("80 PRINT \"NEAR\"\r");
+        e.type("90 PRINT D$;\"CLOSE\"\r");
+        e.type("HOME\r");
+        e.dos("RUN");
+        e.run(600 * FRAME);
+        img = e.d2();
+        REQUIRE(img.size() == IMAGE);
+    }
+    CHECK(check(img) == "ok\n");
+    Dd r;
+    REQUIRE(r.ok);
+    r.put_disk(img);
+    const std::string cat = r.c("dos33 c:");
+    has(cat, " T 007 RND");
+    has(cat, " T 002 RNDB");
+    has(r.c("dos33 get c:RNDB m:rndb.r R"), "A>");
+    const std::vector<uint8_t> got = m_data(r, 0, "RNDB    R  ");
+    const std::vector<uint8_t> near = {'N' | 0x80, 'E' | 0x80, 'A' | 0x80, 'R' | 0x80, 0x8D};
+    const bool ok = got.size() == 40u * 256 && std::equal(near.begin(), near.end(), got.begin() + 10000);
+    std::printf("  GET RNDB R: %zu bytes, NEAR at 10,000: %d\n", got.size(), ok);
+    CHECK(ok);
+    const std::string era = r.c("dos33 era c:RND");
+    const std::string erb = r.c("dos33 era c:RNDB");
+    CHECK(era.find("Bad") == std::string::npos && erb.find("Bad") == std::string::npos);
+    const std::vector<uint8_t> after = r.unit_image();
+    const std::string ck = check(after);
+    std::printf("  dos33.py check after DOS33's ERAs: %s", ck.c_str());
+    CHECK(ck == "ok\n");
+    has(r.c("dos33 c:"), "496 sectors free");
+
+    IIe e(after);
+    REQUIRE(e.ok());
+    e.dos("CATALOG,D2");
+    CHECK(!e.screen_has("RND"));
+    e.type("HOME\r");
+    e.type("FOR I=0 TO 255:POKE 24576+I,I:NEXT\r");
+    e.run(120 * FRAME);
+    e.dos("BSAVE OOB,A24576,L256,D2");
+    e.dos("VERIFY OOB,D2");
+    const bool clean = !e.screen_has("ERROR") && !e.screen_has("NOT FOUND");
+    std::printf("  DOS's BSAVE and VERIFY after DOS33's ERAs: %s\n", clean ? "no error" : "an error");
+    CHECK(clean);
+    CHECK(check(e.d2()) == "ok\n");
+}
+
 int main()
 {
     for (const std::string &f : {IIE, CHARS, P5, P6, DOS_DSK})
