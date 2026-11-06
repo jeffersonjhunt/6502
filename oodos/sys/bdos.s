@@ -142,6 +142,8 @@ DGEN:           .res    NSLOT - RSLOT  ; O:'s and P:'s changes seen, mod 128: an
 SUMS:           .res    16             ; DSUM's
 DVERD:          .res    1              ; O: or P: + 1 whose directory was read past the buffers in this call
 CHKD:           .res    1              ; bit 0 O:, bit 1 P:: its disk checked in this call (a select's, a write-back's)
+PERR:           .res    1              ; an error held for the call's end (an eviction's Read Only), 0 none
+PEDRV:          .res    1              ; its drive
 UNRD:           .res    1              ; the same bits: its directory couldn't be read in this call (no disk)
 VDRV:           .res    1              ; VERIFYD's and GONE's drive, and its slot
 VSLOT:          .res    1
@@ -170,6 +172,7 @@ BDOSENT:        STA     PA
                 STZ     DVERD
                 STZ     CHKD
                 STZ     UNRD
+                STZ     PERR
                 STZ     VOUCH
                 LDA     SCB_DISK
                 STA     EDRV
@@ -351,7 +354,14 @@ F_TGET:         LDA     #0
 ; (RET0).
 RET0:           LDA     #0
 RETA:           LDX     #0
-RETAX:          STA     T0
+RETAX:          LDY     PERR           ; an error held for the end: said now, the function's
+                BEQ     @none          ; work done
+                STZ     PERR
+                LDA     PEDRV
+                STA     EDRV
+                TYA
+                JMP     DERR
+@none:          STA     T0
                 STX     T1
                 LDX     #$FD
                 TXS

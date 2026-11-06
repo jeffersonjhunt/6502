@@ -70,7 +70,7 @@ SM_ANYEX        = $08                  ; any extent
 .globalzp SZ, RR, RDMA, MON
 ; The system block
 .global FC, SPAT, SSAVE, SSMODE, SSDRV, SSIDX, SSON, DTAB, LOGVEC, ROVEC, FCBP, TSH, CSV, DGEN, SUMS
-.global DVERD, CHKD, UNRD, VDRV, VSLOT, VDK, VDN, VDLBA
+.global DVERD, CHKD, UNRD, PERR, PEDRV, VDRV, VSLOT, VDK, VDN, VDLBA
 .global BCB_DRV, BCB_LO, BCB_HI, BCB_DIRTY, BCB_AGEL, BCB_AGEH
 
 ; bdos.s

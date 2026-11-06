@@ -11,7 +11,8 @@
  * doesn't tick or goes back (R2F3), a close within the second (R2F4), 10 from 19 and 22 (R2F5), and a
  * read through the BIOS after the call that checked the disk (R2F6), through cases U, R, E, X and Q.
  * The third's: a missing disk waited for once, not for each waiting buffer (R3F1, case F), a clock that
- * stalls (R3F2), and a write-protected disk found by an eviction (R3F5).
+ * stalls (R3F2), and a write-protected disk found by an eviction (R3F5). The fourth's: a BIOS read with a
+ * stalled clock (R4F1), and a write-protected disk's waiting buffers all dropped at once (R4F4).
  */
 
 #include "harness.h"
@@ -488,9 +489,10 @@ TEST(a_clock_held_at_the_last_access_isnt_trusted_within_a_program)
 
 TEST(a_write_protected_disk_found_by_an_eviction_is_said)
 {
-    // R3F5: P:'s record waiting (MEMTEST's E), P:'s disk then write-protected. Each O: write whose buffer
-    // evicts one of P:'s (two: the record's, and the block's other sector, zeroed when the write took it)
-    // gets Read Only (P:'s), as a failed write-back's error is said, not dropped in silence.
+    // R3F5: P:'s record waiting (MEMTEST's E), P:'s disk then write-protected. The O: write whose buffer
+    // evicts one of P:'s gets Read Only (P:'s), said at the end of the call, not dropped in silence; P:'s
+    // other waiting buffer (the block's other sector, zeroed when the write took it) goes with it (R4F4),
+    // so it's said once.
     Dr r;
     REQUIRE(r.ok);
     const std::string o = memcase(r, 'E', "SWAP?", [&] {
@@ -498,8 +500,71 @@ TEST(a_write_protected_disk_found_by_an_eviction_is_said)
         r.card().disk(1)->set_write_protected(true);
     });
     std::printf("  %s\n", vis(o).c_str());
-    has(o, "OFAIL 02");
+    has(o, "OFAIL 01");
     has(o, "PCL FF 02");
+}
+
+namespace
+{
+    /// The RTC held at the last second NOW read (STAMPH): a stalled clock, never a step back.
+    void hold(Dr &r)
+    {
+        const uint32_t a = SYS_BLOCK_PHYS + sym("STAMPH");
+        r.set_time(2026, bcd(r.phys(a + 4) & 0x1F), bcd(r.phys(a + 3)), bcd(r.phys(a + 2) & 0x3F),
+                   bcd(r.phys(a + 1)), bcd(r.phys(a)));
+    }
+    /// Run in slices of 100 ms with the clock held, until `text` after `from` or `slices` run out.
+    bool held_until(Dr &r, const std::string &text, size_t from, unsigned slices)
+    {
+        for (unsigned i = 0; i < slices; ++i)
+        {
+            hold(r);
+            if (r.out.find(text, from) != std::string::npos)
+                return true;
+            r.run(ms(100));
+        }
+        return r.out.find(text, from) != std::string::npos;
+    }
+}
+
+TEST(a_bios_read_with_a_stalled_clock_sees_the_new_disk)
+{
+    // R4F1, the review's: the clock ticks, then dir o:; the clock is held at that second while O:'s motor
+    // stops, its disk is changed to the blank, and MEMTEST's Q reads O:'s first directory sector through
+    // the BIOS. The BIOS's own RECENT sees the stall (the card's drive stopped within its stamp's second),
+    // so its buffers aren't kept: the new disk's E5, not the old one's README entry.
+    Dr r;
+    REQUIRE(r.ok);
+    r.set_time(2026, 11, 5, 12, 0, 0);
+    r.wait(ms(1300));
+    has(r.c("dir o:"), "README");
+    held_until(r, "never", r.out.size(), 15);
+    CHECK(!r.card().status().spinning);
+    r.insert(0, r.blank);
+    hold(r);
+    const size_t from = start(r, "memtest.com", " Q");
+    held_until(r, "\r\nA>", from, 600);
+    const std::string o = r.out.substr(from);
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "QRD 00");
+    has(o, "QB E5");
+}
+
+TEST(a_write_protected_disk_s_16_buffers_fail_one_call)
+{
+    // R4F4: 64 records (16 buffers) wait for P:, whose disk is then write-protected (MEMTEST's F). The
+    // first eviction finds Read Only: P:'s waiting buffers all go, and the one O: write that found it gets
+    // the error, said at its end, its record written. The other 159 writes are untouched.
+    Dr r;
+    REQUIRE(r.ok);
+    const std::string o = memcase(r, 'F', "SWAP?", [&] {
+        r.wait(ms(1500));
+        r.card().disk(1)->set_write_protected(true);
+    });
+    std::printf("  %s\n", vis(o).c_str());
+    has(o, "OFAIL 01");
+    has(o, "OCL 00 00");
+    CHECK(o_file(r, "BIG     DAT").size() == 160u * 128u);
 }
 
 int main()

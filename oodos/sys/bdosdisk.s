@@ -798,10 +798,15 @@ GETBUF:         STA     GBNEW
                 JSR     WBACK
                 BCC     @take
                 CMP     #1             ; Disk I/O: kept, marked; another victim. Else (Read
-                BNE     @error         ; Only: dropped) said now, as WBACKX says it
+                BNE     @later         ; Only: the drive's all dropped) said at the call's end
                 JSR     VICTIM
                 BRA     @victim
-@error:         JMP     DERR           ; EDRV the victim's drive
+@later:         LDY     PERR           ; (6c's fourth review: not part-way through a close, a
+                BNE     @take          ; delete or a rename of another drive), the first kept
+                STA     PERR
+                LDA     EDRV
+                STA     PEDRV
+                BRA     @take
 @raise:         JSR     WBACKX
 @take:          LDA     GDRV
                 STA     BCB_DRV,X
@@ -972,6 +977,18 @@ WBACK:          LDA     BCB_DRV,X      ; O:'s or P:'s, its disk not checked in t
                 JSR     DRVBIT
                 ORA     ROVEC,X
                 STA     ROVEC,X
+                PLX
+                PHX                    ; read-only now: none of the drive's changed buffers
+                LDA     BCB_DRV,X      ; can be written, so all go at once, and the error
+                LDX     #NBCB - 1      ; is said once (6c's fourth review)
+@rodrop:        CMP     BCB_DRV,X
+                BNE     @ronext
+                LDY     BCB_DIRTY,X
+                BEQ     @ronext
+                STZ     BCB_DRV,X
+                STZ     BCB_DIRTY,X
+@ronext:        DEX
+                BPL     @rodrop
                 PLX
                 LDA     #ER_RODISK
                 BRA     @dropit

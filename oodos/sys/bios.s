@@ -171,6 +171,7 @@ STAMPT:         .res    5              ; the RTC's now, as D2STAMP keeps it
 STAMPH:         .res    5              ; the latest now NOW has read
 TICKED:         .res    1              ; not 0: the RTC seen to go forward since the cold boot, a step back or a stall
 STAMPX:         .res    1              ; RECENT's and STAMP's drive
+ARECENT:        .res    1              ; APPLEIO's: bit 7 RECENT's carry
 RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
@@ -1024,17 +1025,19 @@ APPLEIO:        STZ     BUFIX          ; an SD unit's: straight to the layer
                 STA     BUFIX
                 DEC     A
                 TAX
+                JSR     RECENT         ; its own last access within the second, asked
+                ROR     ARECENT        ; before the motor's on (the stall check looks at
+                LDA     BUFIX          ; the card's drive as it was): bit 7 not recent
+                DEC     A
+                TAX
                 JSR     D2START        ; motor on; carry set: it wasn't turning
                 BCC     @turning
                 LDX     CURDRV         ; checked by the BDOS in this call: kept
                 INX
                 CPX     VOUCH
                 BEQ     @turning
-                LDA     BUFIX          ; or its own last access within the second
-                DEC     A
-                TAX
-                JSR     RECENT
-                BCC     @turning
+                BIT     ARECENT        ; or recent
+                BPL     @turning
                 JSR     TBEMPTY2       ; it may be another disk now
 @turning:       LDA     BUFIX          ; this access's time, the drive's own
                 DEC     A
@@ -1083,21 +1086,8 @@ MEDIA:          TXA
                 TAX
                 JSR     RECENT         ; its own last access within the second (the
                 BCC     @same          ; run-on): taken as the same disk, the card not asked
-@card:          JMP     D2MEDIA        ; else the card, the buffers kept: the BDOS checks, then forgets
-@same:          PHX                    ; unless the clock has stalled (6c's third review): the
-                LDX     D2LAST         ; card's drive has stopped, so its access was a second or
-                CPX     #2             ; more ago, yet its stamp is this second
-                BCS     @trust
-                JSR     SAMEST
-                BCS     @trust
-                JSR     SPIN
-                BCC     @trust
-                JSR     UNTICK         ; stalled: nothing trusted until it goes forward again
-                PLX
-                BRA     @card
-@trust:         PLX
-                CLC
-                RTS
+                JMP     D2MEDIA        ; else the card, the buffers kept: the BDOS checks, then forgets
+@same:          RTS
 
 ; The run-on, timed by the drive's own last access (6c's review, the owner's
 ; rule): carry clear if drive X's (0 O:, 1 P:) last access was in the RTC's
@@ -1105,8 +1095,23 @@ MEDIA:          TXA
 ; is taken as older, so the rule only errs toward checking). Keeps X.
 RECENT:         JSR     NOW
                 LDA     TICKED
-                BNE     SAMEST
-                SEC
+                BEQ     @old
+                JSR     SAMEST
+                BCS     @old
+                PHX                    ; unless the clock has stalled (6c's third and fourth
+                LDX     D2LAST         ; reviews): the card's drive has stopped, its run-on over,
+                CPX     #2             ; yet its stamp is this second. The run-on must outlast
+                BCS     @trust         ; the second from the stamp, which is taken before the
+                JSR     SAMEST         ; I/O: the emulator's is 0.998 s after the motor-off,
+                BCS     @trust         ; the I/O's time on top; a run-on a little short (a
+                JSR     SPIN           ; real card's 556) can give a false stall in the
+                BCC     @trust         ; last ms of a second, which costs a directory read
+                JSR     UNTICK         ; stalled: nothing trusted until it goes forward again
+                PLX
+@old:           SEC
+                RTS
+@trust:         PLX
+                CLC
                 RTS
 ; Carry clear if drive X's last access is STAMPT's second. Keeps X.
 SAMEST:         JSR     STAMPAT
