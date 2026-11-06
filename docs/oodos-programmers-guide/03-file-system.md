@@ -15,7 +15,8 @@ P:, or in an FCB's byte 0, 0 for the current drive and 1 for A: to 16 for P:.
 |---|---|
 | A:–G: | the SD card's units 1–7: image files on the card's FAT file system, as `/OODOS/DRIVES.TXT` names them. A: is the system drive |
 | M: | the RAM disk, 128 KB in banks C–D, made empty at each cold boot |
-| H:–L:, N:–P: | not drives: Invalid Drive (4) |
+| O:, P: | the Disk II card's drives 1 and 2: 5.25" Apple disks in the SoftCard's CP/M format (`apple-do`), on a machine with the card |
+| H:–L:, N: | not drives: Invalid Drive (4) |
 
 An SD drive is 8 MB (`oodos-8m`: 4 KB blocks, 1,024 directory entries) or 32 MB (`oodos-32m`: 8 KB blocks, 2,048
 entries); M: has 2 KB blocks and 256 entries. These have 512-byte sectors, 16 a track, and no boot tracks. B:–G: may

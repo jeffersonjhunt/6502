@@ -12,8 +12,12 @@ A drive is a letter and a colon, `A:` to `P:`. OODOS has these:
 |---|---|
 | A:–G: | image files on the SD card, as `/OODOS/DRIVES.TXT` names them. A: is the system drive, which OODOS starts from |
 | M: | the RAM disk, 128 KB, made empty at each start: what is on it is lost at power-off |
+| O:, P: | the Apple II drives 1 and 2, through the Disk II card: 5.25" floppies in the SoftCard's Apple CP/M format, 128 KB each |
 
-The Apple II drives, O: and P:, come with a later phase ([hw/oodos.md, "Phases"](../../hw/oodos.md#phases)).
+O: and P: are there whenever the machine has the Disk II card, a disk in the drive or not. With no disk in, or with
+no disk the card can read, using the drive gives `OODOS Error On O: Disk I/O` after a second or two. The emulator on
+the website says the same unless you have given it the Disk II's sequencer PROM, with your IIe ROMs (Settings,
+ROMs): without it the card reads nothing.
 
 **`DRIVES.TXT`** has a line for each drive the card holds: the letter and colon, blanks, the image's path on the
 card, and `RO` after it for a drive that can be read but not written. A line starting `#` is a comment:
