@@ -78,6 +78,8 @@ namespace ooe::emu
         void attach(Decoder *decoder) { decoder_ = decoder; }
         void attach(UsbCard *usb) { usb_ = usb; }
         void attach(Disk2Card *disk) { disk_ = disk; }
+        /// The bridge's mode set the CPU's clock: the Disk II counts its steps by it (`apple`: OSC / 14).
+        void clock_changed(bool apple);
         /// /RESET: the switches, and the cards in the slots.
         void reset();
         const AppleSwitches &switches() const { return s_; }

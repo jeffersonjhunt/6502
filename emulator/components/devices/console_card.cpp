@@ -40,6 +40,7 @@ namespace ooe::emu
             latch(last_);
             return false;
         }
+        frozen_ = false; // running: that stop is over, however it ended, and the next one latches
         if (!skip && (bpctrl_ & (BP_ENABLE | BP_FETCH | BP_NMI)) == (BP_ENABLE | BP_FETCH) && decoder_ &&
             decoder_->physical(pc) == bpaddr_)
         {

@@ -57,6 +57,7 @@ namespace ooe::emu
         reset_seen_ = true;
         rtc_reset();
         retime();
+        apple_io_.clock_changed(false); // native mode again (the card caught up at the old clock in its reset)
     }
 
     void BackplaneBridge::rtc_reset()
@@ -209,6 +210,7 @@ namespace ooe::emu
             }
             mode_ = static_cast<uint8_t>((data & (MODE_APPLE | MODE_TURBO)) | (mode_ & MODE_APPLE)); // APPLE only sets
             retime();
+            apple_io_.clock_changed(apple()); // the Disk II caught up at the old clock, then counting by the new
             break;
         case RTCCTL:
             if (data & RTC_TICK)

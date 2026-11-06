@@ -21,7 +21,9 @@ namespace ooe::emu
 {
     namespace
     {
-        constexpr unsigned STEPS_PER_CYCLE = 2; ///< the sequencer's 2 MHz against the CPU's 1 MHz
+        constexpr unsigned STEPS_PER_CYCLE = 2; ///< the sequencer's 2 MHz against Apple II mode's 1 MHz CPU
+        constexpr uint64_t OSC = 14'318'180;    ///< the backplane's master clock; the sequencer's is OSC / 7
+        constexpr uint32_t NATIVE_HZ = 7'159'090; ///< OSC / 2: 2 steps every 7 cycles
         constexpr unsigned STEP = 4;            ///< 125 ns units (WOZ bit timing's) a step takes
         constexpr uint64_t SKIP_AFTER = 4096;   ///< steps: a longer gap in read mode skips ahead
         constexpr uint64_t SETTLE = 64;         ///< steps run at the end of a skip
@@ -78,15 +80,40 @@ namespace ooe::emu
     {
         if (cycle <= synced_)
             return;
-        if (spinning_ && !motor_ && cycle >= stops_at_)
+        uint64_t steps = (cycle - synced_) * STEPS_PER_CYCLE;
+        if (clock_ == Clock::Native)
         {
-            if (stops_at_ > synced_)
-                run((stops_at_ - synced_) * STEPS_PER_CYCLE);
+            // cycles x (OSC / 7) / cpu_hz_: in units of 1 / (7 x cpu_hz_) steps, carried
+            const uint64_t per = 7 * uint64_t{cpu_hz_};
+            const uint64_t units = (cycle - synced_) * OSC + rest_;
+            steps = units / per;
+            rest_ = units % per;
+        }
+        if (spinning_ && !motor_ && steps_ + steps >= stops_at_)
+        {
+            if (stops_at_ > steps_)
+                run(stops_at_ - steps_);
             spinning_ = false; // run on, and stopped
         }
         else if (spinning_)
-            run((cycle - synced_) * STEPS_PER_CYCLE);
+            run(steps);
+        steps_ += steps;
         synced_ = cycle;
+    }
+
+    void Disk2Card::set_cpu_hz(uint32_t hz)
+    {
+        catch_up(now()); // the cycles so far at the old speed
+        rest_ = 0;
+        cpu_hz_ = hz ? hz : NATIVE_HZ;
+    }
+
+    void Disk2Card::set_clock(Clock c)
+    {
+        catch_up(now());
+        if (c != clock_)
+            rest_ = 0;
+        clock_ = c;
     }
 
     void Disk2Card::run(uint64_t steps)
@@ -232,7 +259,7 @@ namespace ooe::emu
             else if (motor_)
             {
                 motor_ = false;
-                stops_at_ = cycle + MOTOR_DELAY;
+                stops_at_ = steps_ + RUN_ON_STEPS;
             }
             break;
         case 5:
@@ -258,7 +285,7 @@ namespace ooe::emu
         if (motor_)
         {
             motor_ = false;
-            stops_at_ = now() + MOTOR_DELAY;
+            stops_at_ = steps_ + RUN_ON_STEPS;
         }
     }
 
@@ -275,6 +302,7 @@ namespace ooe::emu
         s.phases = phases_;
         for (unsigned i = 0; i < DRIVES; ++i)
             s.quarter_track[i] = static_cast<uint8_t>(drives_[i].quarter);
+        s.steps = steps_;
         return s;
     }
 } // namespace ooe::emu

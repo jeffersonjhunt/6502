@@ -19,6 +19,12 @@ namespace ooe::emu
             disk_->reset();
     }
 
+    void AppleIo::clock_changed(bool apple)
+    {
+        if (disk_)
+            disk_->set_clock(apple ? Disk2Card::Clock::Apple : Disk2Card::Clock::Native);
+    }
+
     bool AppleIo::vbl() const
     {
         const uint64_t now = decoder_ ? decoder_->now() : 0;
