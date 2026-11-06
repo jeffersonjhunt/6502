@@ -49,7 +49,8 @@ tag, the change is marked.
    (the 6551 and the VIA share it), IRQL 7 SD, IRQH 0 DMA, 1 video, 2 sound, 3 USB, 5 RTC, 6 console. VEC, and
    Pause/Break and the console's breakpoint as NMI. Emulated. The serial card's INTSTAT is proposed.
 5. **DMA.** The four channels, their priority, the modes, memory to memory, a card's DRQ (0 SD, 2 sound RAM),
-   BURST, ABORT, and how the BIOS uses channels 0 and 3. Emulated. The TC backplane line is proposed. Entries:
+   BURST, ABORT, and how the BIOS uses channels 0 and 3. Emulated, TC included: the card sees terminal count with
+   its last byte. Entries:
    `$C400-$C442`, `$C47F` (13 now, 24 with option A).
 6. **Video.** The text, tile, bitmap 256, bitmap 512 and mono layers, CONFIG's bits, sprites (64 entries of
    8 bytes at SPRBASE), the palette (256 × 12 bits at PALBASE), video memory in banks 8-B, latching at vertical
@@ -81,7 +82,9 @@ tag, the change is marked.
 14. **Emulator notes.** The machine files (`backplane`, `apple1`, `apple1-65c02`, `eater`, `eater-lcd8`), the
     terminal app (its `--clock` is 1 MHz unless set) and the WebUI, running a ROM or a program, and **what
     differs**, from the inventory:
-    - Apple II mode doesn't gate the native cards' IRQs or hold DMA idle (design.md:1046, 1095);
+    - the 6551 stand-in isn't reset by /RESET, so the pulse that enters Apple II mode keeps its CMD: with its
+      receive interrupt on, it can pull /IRQ in the mode (design.md:1095). Every other native card, and the DMA
+      controller, is reset by that pulse, so they are quiet in the mode as the design wants (round 1's review);
     - `$C060` reads 0, where the design says `$FF`;
     - MODE reads back (the design has it write-only), and WAIT applies at ÷2;
     - Apple II mode's clock is an even 1.0205 MHz, with no long cycle;
@@ -163,9 +166,11 @@ three rounds, plus round 0.
    One entry for a two-byte register (LINE, MX, BPADDR), but separate entries for the VIA's timer bytes, whose
    high byte starts the timer? *Recommended: yes to both, reviewed in round 0.*
 3. **Design and code disagree** (the list under chapter 14): the book describes the code and notes the
-   difference. Should any of these be fixed in the emulator instead, before G2 documents them? Apple II mode's IRQ
-   gating and DMA idle, and `$C060`, look like bugs rather than choices. *Recommended: document them as they are
-   now, and put them on the emulator's backlog. G2 doesn't change the emulator.*
+   difference. Should any of these be fixed in the emulator instead, before G2 documents them? The 6551's interrupt
+   in Apple II mode and `$C060` look like bugs rather than choices. (Apple II mode's IRQ gating and DMA idle were on
+   this list; round 1's review found the /RESET pulse that enters the mode resets the DMA controller and every
+   card but the 6551.) *Recommended: document them as they are now, and put them on the emulator's backlog. G2
+   doesn't change the emulator.*
 4. **hw/design.md's out-of-date tags** ("Proposed" on the layers and the splash, design.md:499 and 639; "starting
    with the text layer", design.md:1451; channel 2 "USB" against the sound card's DRQ, design.md:477). Fix them in
    G2's last commit, tags and those lines only? *Recommended: yes.*

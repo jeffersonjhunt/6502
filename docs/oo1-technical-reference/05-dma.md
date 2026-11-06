@@ -20,7 +20,9 @@ at `$C400 + n × $10`. STATUS, CONTROL and ABORT at `$C440` are shared, and the 
   for the first one that has work. Taking it costs one cycle: RDY holds the CPU, on a write cycle too, and BE floats
   it off the bus. The controller then moves bytes and hands the bus back.
 - **How long it keeps the bus.** CONTROL's BURST sets that: 2^BURST bytes, after which the CPU gets one cycle back,
-  or no limit at 7. It resets to `$70`: no limit, with DMA off until software sets the master enable (bit 0).
+  or no limit at 7. It resets to `$70`: no limit, with DMA off until software sets the master enable (bit 0). The
+  BIOS writes `DMA_ON` (`$71`: on, no limit) when it sets up the text screen at boot, before the SD boot's read and
+  before Apple II mode's fills, and leaves it there, so under the monitor CONTROL reads `$71`.
 - **Terminal count.** When a channel's count runs out, its STATUS bit is set and its REQ clears. ENABLE clears too,
   unless the mode's AUTO reloads the address, count and destination and keeps the channel armed. With the mode's
   IRQ bit set, the controller interrupts on IRQH bit 0 until the STATUS bit is cleared.
@@ -32,9 +34,10 @@ at `$C400 + n × $10`. STATUS, CONTROL and ABORT at `$C440` are shared, and the 
 
 Status: **emulated**
 
-hw/design.md holds the controller idle in Apple II mode, since stolen cycles would break code that counts them. The
-emulator doesn't: a channel left armed still runs. The BIOS's `$C806` aborts every channel before it enters the
-mode, and the IIe's software can't reach the controller's registers, so nothing starts one afterwards.
+The controller is idle in Apple II mode, as hw/design.md wants, since stolen cycles would break code that counts
+them. Entering the mode pulses /RESET, which resets the controller: every channel is cleared, and CONTROL goes back
+to `$70`, with the master enable off. The IIe's software can't reach the controller's registers, so nothing starts
+it again. Ctrl-Reset in the mode pulses /RESET too, with the same effect.
 
 ## Memory to memory
 
@@ -53,7 +56,8 @@ then the write, so 64 KB takes about 18 ms at 7.16 MHz.
   left armed. To keep a channel from running, abort it.
 
 The BIOS's copies, the text screen's scroll among them, are done this way on channel 3 (`video.s`). The routine
-turns the master enable on, starts the channel, and waits for ENABLE to clear, then puts CONTROL back. A copy still
+turns the master enable on, starts the channel, and waits for ENABLE to clear, then puts CONTROL back as it found
+it, which under the monitor is `$71`. A copy still
 running after 65,536 polls, about 0.1 s, is aborted: no controller there, or a busier channel starving it.
 
 <!-- listing: ../../backplane/bios/video.s:280-307 -->
@@ -775,7 +779,9 @@ R/W.
 
 #### Notes
 
-`DMA_ON` (`$71`) and `DMA_MASTER` (`$01`) are in backplane.inc. BURST limits demand and block transfers and
+`DMA_ON` (`$71`) and `DMA_MASTER` (`$01`) are in backplane.inc. The BIOS writes `DMA_ON` in VINIT at boot
+(`video.s`), before the SD boot's read (`sd.s`) and before Apple II mode's fills (`apple.s`), and leaves it there,
+so under the monitor CONTROL reads `$71`. BURST limits demand and block transfers and
 memory-to-memory copies; a single transfer gives a cycle back after every byte whatever it says.
 
 <a id="reg-c442"></a>

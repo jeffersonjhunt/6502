@@ -30,8 +30,11 @@ edge.
 
 **The BIOS's handlers.** The ROM's vectors point NMI at Break and IRQ at a handler that tells BRK from an IRQ. BRK
 enters the monitor as Break does. A real IRQ returns at once, because the BIOS enables no interrupts. The BIOS
-starts with the CPU's I flag set, and Break turns every card's interrupt enable off, so a program run from the
-monitor can clear I safely.
+starts with the CPU's I flag set. Break turns off the interrupt enables of the SD, video, sound, USB and console
+cards and the clock's TIE, and the monitor sets the 6551 up with its interrupts off. **The VIA's IER is left as it
+was**: Break doesn't touch it. A VIA interrupt a program left enabled survives Break, and since the handler only
+returns, the next program that clears I is interrupted again and again and never gets on. A program run from the
+monitor that clears I turns the VIA's interrupts off first (write `$7F` to VIA_IER), or brings its own handler.
 
 <!-- listing: ../../backplane/bios/bios.s:149-158 -->
 ```
@@ -90,9 +93,12 @@ still the 6551's mirror, so a handler tells the VIA by its IFR.
 Status: **emulated**
 
 Apple software polls its own cards and never uses /IACK. The north bridge's registers are hidden, so IRQL and IRQH
-can't be read. hw/design.md has the native cards keep quiet while AMODE is high. **The emulator doesn't gate
-them**: a native card whose interrupt was left enabled still pulls /IRQ. Enter the mode with every card's interrupt
-enable off. The monitor's are off already: the BIOS enables none, and Break turns them off.
+can't be read. hw/design.md has the native cards keep quiet while AMODE is high. The emulator gets there by the
+/RESET pulse that enters the mode: it resets every card, which turns off the interrupt enables of the SD, video,
+sound, USB and console cards and the VIA's IER. The bridge clears TIE, and the DMA controller's reset clears every
+channel's mode and terminal count. **The 6551 stand-in is the exception**: a /RESET doesn't reset it, so its CMD is
+kept, and with its receive interrupt on, a byte arriving pulls /IRQ in Apple II mode. Enter the mode with the 6551's
+receive interrupt off (CMD bit 1 set). The monitor's is: it writes `$0B` to ACIA_CMD.
 
 ## VEC and the vectors
 
@@ -123,9 +129,11 @@ it at boot, if a USB card answers, so Break always reaches the monitor. Break en
 - an SD command abandoned, the units staying mounted;
 - the boot splash stopped, the sound card's 6510 stopped and its SIDs silenced;
 - the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK and TIE;
-- the text screen set up again, found from the cards' ID bytes.
+- the text screen set up again, found from the cards' ID bytes;
+- the 6551 set up afresh by the monitor, with its interrupts off.
 
-It leaves W3, VEC, DMA CONTROL, memory, and the rest of each card's state as they were. Break works while W3 and VEC
+It leaves W3, VEC, DMA CONTROL, memory, the VIA (its IER too: [above](#irq-and-nmi)), and the rest of each card's
+state as they were. Break works while W3 and VEC
 are the BIOS's; a program that moves VEC takes the NMI itself. The design record has the list and its reasons
 ([hw/design.md, "Boot"](../../hw/design.md#boot)).
 

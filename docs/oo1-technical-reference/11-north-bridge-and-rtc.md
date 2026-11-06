@@ -123,15 +123,19 @@ before reading RTCDATA. There is no auto-increment.
   to the bridge.
 - **Alarms** can't use the chip's interrupt pin, because that pin is the square wave's. The bridge reads the status
   register each second, and ALARM in RTCCTL shows its A1F or A2F. Software clears the flag through RTCDATA, and
-  ALARM follows at once.
+  ALARM follows when that write ends, as BUSY clears.
 
 ### The emulated chip
 
 Status: **emulated**
 
-The emulator counts the DS3231's time in emulated cycles, from the host's local time at power-on:
+The emulator counts the DS3231's time in emulated cycles. The chip takes the host's local time once, when the
+emulator starts, and keeps it from then on:
 
-- The battery never runs flat, and the oscillator-stopped flag starts clear.
+- The chip is on its battery through a power cycle: the WebUI's session keeps the same chip when the machine is
+  switched off and on, and its time runs on. The battery never runs flat.
+- The oscillator-stopped flag starts clear. With the control register's EOSC set, a power-off stops the oscillator
+  and sets the flag, so LOST is on at the next power-on, as on the real chip.
 - The leap-year rule is the chip's, every fourth year, so 2100 has a 29 February.
 - The temperature is always 25.00 °C. The aging register is kept but changes nothing.
 - The chip starts in 24-hour form.
@@ -237,8 +241,9 @@ As [WIN0](#reg-c680): bit 7 ROM, bit 6 RO, bits 5–0 the block, for CPU `$8000�
 
 #### Notes
 
-The BIOS borrows W2 to copy itself into RAM block 63 at boot, and to reach video memory (block 32 on) while it sets
-up the text screen. It puts W2 back on block 2 each time.
+The BIOS borrows W2 to copy itself into RAM block 63 at boot, then sets it to block 2. VINIT, setting up the text
+screen, borrows W1 for the font (ROM A block 30) and W2 for video memory (RAM block 32). VPUTC borrows W2 for each
+character that ECHO puts on the screen. Both put back whatever the windows held before.
 
 <a id="reg-c683"></a>
 ### $C683 NB_WIN3: window 3, CPU $C000-$FFFF
