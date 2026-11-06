@@ -37,7 +37,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
+#include <memory>
 
 namespace ooe::emu
 {
@@ -77,8 +77,8 @@ namespace ooe::emu
         /// The oscillators $E1 enables, 1 to 32.
         unsigned enabled() const { return enabled_; }
         /// The wave RAM, RAM_BYTES of it.
-        std::vector<uint8_t> &ram() { return ram_; }
-        const std::vector<uint8_t> &ram() const { return ram_; }
+        std::array<uint8_t, RAM_BYTES> &ram() { return *ram_; }
+        const std::array<uint8_t, RAM_BYTES> &ram() const { return *ram_; }
 
     private:
         struct Oscillator
@@ -95,6 +95,7 @@ namespace ooe::emu
         std::array<Oscillator, OSCILLATORS> osc_{};
         unsigned enabled_{1};
         uint8_t last_irq_{0xFF}; ///< what $E0 reads with nothing pending
-        std::vector<uint8_t> ram_ = std::vector<uint8_t>(RAM_BYTES); ///< on the heap: 128 KB
+        /// On the heap, 128 KB: a fixed size, which the card's 17-bit address can't pass.
+        std::unique_ptr<std::array<uint8_t, RAM_BYTES>> ram_ = std::make_unique<std::array<uint8_t, RAM_BYTES>>();
     };
 } // namespace ooe::emu

@@ -809,6 +809,9 @@ TEST(rate_format_and_volumes_read_back)
 
 TEST(pos_reads_through_its_latch_and_a_write_to_51_zeroes_it)
 {
+    // Step 1 can't tell a latch from a live read: POS is always 0 and FREE always 512. Step 2 (hw/sound-rev2.md)
+    // must test both latches with data flowing: $52-$54 keep the value latched until $51 is read again, and
+    // $4E keeps the one latched by the last $4D read, while POS and FREE move on.
     SoundCard c;
     for (unsigned o = SoundCard::POS; o < SoundCard::POS + 4; ++o)
         c.write(o, 0x5A); // $52-$54 ignore writes; $51 zeroes
@@ -976,6 +979,35 @@ TEST(drqsel_routes_the_cards_drq_and_its_fly_by_bytes)
     c.write(SoundCard::DRQSEL, 3);                // no source: no DRQ
     CHECK(!c.drq());
     CHECK_EQ(c.dack_read(false), 0xFF);
+}
+
+TEST(revision_1_is_the_card_before_rev2_and_keeps_through_reset)
+{
+    // For tests of software that must take the card at any revision (test_bios, test_oodos_sys).
+    SoundCard c;
+    c.write(SoundCard::DRQSEL, SoundCard::DRQ_DOCDATA);
+    c.write(SoundCard::VOLL, 0x10);
+    c.set_revision(1);
+    CHECK_EQ(c.read(SoundCard::ID_REG), 0xA1);
+    CHECK_EQ(c.revision(), 1u);
+    bool none = true;
+    for (unsigned o = SoundCard::PCMCTL; o < SoundCard::ID_REG; ++o)
+    {
+        c.write(o, 0x01);
+        none = none && c.read(o) == 0xFF && c.peek(o) == 0xFF;
+    }
+    CHECK(none);                                  // $48-$7E as before: nothing there
+    c.write(SoundCard::RAMADDR, 0x00);
+    c.write(SoundCard::RAMADDR + 1, 0x30);
+    c.dack_write(0x42, false);                    // DRQSEL back at RAMDATA, and stays there
+    CHECK_EQ(c.ram()[0x3000], 0x42);
+    CHECK(c.drq());
+    c.reset();
+    CHECK_EQ(c.peek(SoundCard::ID_REG), 0xA1);    // a jumper, not a register
+    c.set_revision(2);
+    CHECK_EQ(c.peek(SoundCard::ID_REG), 0xA2);
+    CHECK_EQ(c.peek(SoundCard::VOLL), 0xFF);      // revision 2's registers from reset
+    CHECK_EQ(c.peek(SoundCard::CODECS), 0x83);
 }
 
 TEST(rev2_reset_is_reset_and_ctrl_reset_leaves_it_alone)

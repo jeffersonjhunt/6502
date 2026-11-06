@@ -162,8 +162,9 @@ IRQ:            PHA
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on), a front-panel key already pending, and the VIA's. What
 ; it doesn't know (a program's own state) is left alone; the serial card the
-; monitor's entry (WOZMON) programs afresh, which also undoes VIA_IER's write
-; on a machine without the VIA, where the 6551's mirror takes it.
+; monitor's entry (WOZMON) programs afresh. The serial card always has the VIA
+; at $C340; only an emulator machine without its via6522 line has the stand-in
+; 6551's mirror there, which takes VIA_IER's write until WOZMON undoes it.
 QUIET:
                 LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
                 STA     NB_RTCCTL

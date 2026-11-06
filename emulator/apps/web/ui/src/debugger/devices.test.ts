@@ -204,7 +204,7 @@ describe("Devices tab", () => {
   });
 
   test("the sound card at any revision; another card's ID isn't it", async () => {
-    for (const [id, found] of [[0xa2, true], [0xaf, true], [0xb1, false], [0xff, false]] as const) {
+    for (const [id, found] of [[0xa1, true], [0xa2, true], [0xaf, true], [0xb1, false], [0xff, false]] as const) {
       const port = new FakePort();
       port.memory.set(SOUND + 0x7f, id);
       const v = devicesView(port);

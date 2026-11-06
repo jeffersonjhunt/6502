@@ -149,7 +149,7 @@ namespace ooe::emu
     {
     public:
         static constexpr uint8_t MODULE = 0xA;
-        static constexpr uint8_t ID = MODULE << 4 | 2; ///< +$7F: type (module ID) and revision (2: hw/sound-rev2.md)
+        static constexpr uint8_t ID = MODULE << 4 | 2; ///< +$7F: type (module ID) and revision (2: hw/sound-rev2.md), unless set_revision(1)
         static constexpr unsigned SID_REGS = 29;       ///< $00-$1C
         static constexpr size_t RAM_BYTES = 0x10000;
 
@@ -226,6 +226,11 @@ namespace ooe::emu
         SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
         SoundCard(const SoundCard &) = delete;
         SoundCard &operator=(const SoundCard &) = delete;
+        /// The card's revision, for tests of software that must take the card at any (ID's low nibble):
+        /// 2, the default, or 1, the card before hw/sound-rev2.md, whose $48-$63 read $FF and ignore writes
+        /// (so DRQ and fly-by stay RAMDATA's). Not a register: kept through resets, as set_model() is.
+        void set_revision(unsigned rev);
+        unsigned revision() const { return rev_; }
         /// The host CPU's clock, which tick()'s cycles run at (0: 7.16 MHz).
         void set_cpu_hz(uint32_t hz) { host_hz_ = hz ? hz : NATIVE_HZ; }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
@@ -355,6 +360,8 @@ namespace ooe::emu
         void vis_snapshot();
         /// Revision 2's registers to their /RESET values.
         void reset_rev2();
+        /// $48-$63 on a revision 1 card: nothing there.
+        bool hidden(unsigned o) const { return rev_ < 2 && o >= PCMCTL && o <= DRQSEL; }
         bool io_in() const;
         uint8_t card_read(uint16_t addr);
         uint8_t card_peek(uint16_t addr) const;
@@ -396,6 +403,7 @@ namespace ooe::emu
         unsigned cpu_resets_{0};
 
         // Revision 2 (hw/sound-rev2.md)
+        unsigned rev_{2};
         uint8_t pcmctl_{0}, codec_{0}, pcmfmt_{0};
         uint16_t rate_{0};
         uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it

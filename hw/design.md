@@ -906,6 +906,9 @@ the spec is silent:
 - EQIDX keeps what's written; past 10 (bit 7 clear), EQVAL reads 0 and takes no write. It moves on in bits 0–6,
   so bit 7 stays.
 - DRQSEL keeps bits 0–1; 3 is no source: no DRQ, a fly-by read `$FF` and a write dropped.
+- POS and FREE latch as the table says, but nothing moves them yet (POS stays 0, FREE 512), so a latch can't be
+  told from a live read: step 2's tests must show that `$52–$54` keep what the last `$51` read latched, and `$4E`
+  what the last `$4D` read latched, while POS and FREE move on.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.

@@ -451,56 +451,69 @@ namespace
 
 TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sids)
 {
-    Board b;
-    REQUIRE(b.ok());
-    b.reset();
-    const VideoCard *card = b.machine->video_card();
-    SoundCard *sound = b.machine->sound_card();
-    REQUIRE(card != nullptr);
-    REQUIRE(sound != nullptr);
-    // The card's 6510 starts on the vertical blank the splash starts on: tune frame n, picture frame n.
-    bool started_together = false;
-    for (unsigned i = 0; i < 2'000 && card->splash_frame() < 0; ++i)
-        b.run(1'000);
-    started_together = card->splash_frame() == 0 && (sound->ctrl() & SoundCard::CTRL_RUN);
-    CHECK(started_together);
-    CHECK_EQ(sound->ctrl() & SoundCard::CTRL_NTSC, SoundCard::CTRL_NTSC);
-    // The tune, from splash/bootsnd.bin in the top block, at $1000; the reset vector at its boot entry.
-    const std::string tune = read_file(EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
-    REQUIRE(!tune.empty());
-    size_t differ = 0;
-    for (size_t i = 0; i < tune.size(); ++i)
-        differ += sound->ram()[0x1000 + i] != static_cast<uint8_t>(tune[i]);
-    CHECK_EQ(differ, size_t{0});
-    CHECK_EQ(sound->ram()[0xFFFC] | sound->ram()[0xFFFD] << 8, 0x1006);
-    CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
-    b.run(FRAME * 60);
-    CHECK(card->splash_frame() > 60);
-    CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
-    CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
-    b.run(SPLASH_TIME);
-    CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
-    CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
-    CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
-    CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.11"));
+    for (const unsigned rev : {2u, 1u}) // the sound card at either revision: the BIOS takes it by its type
+    {
+        std::printf("  sound card revision %u\n", rev);
+        Board b;
+        REQUIRE(b.ok());
+        const VideoCard *card = b.machine->video_card();
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(card != nullptr);
+        REQUIRE(sound != nullptr);
+        sound->set_revision(rev);
+        REQUIRE(sound->peek(SoundCard::ID_REG) == (0xA0 | rev));
+        b.reset();
+        // The card's 6510 starts on the vertical blank the splash starts on: tune frame n, picture frame n.
+        bool started_together = false;
+        for (unsigned i = 0; i < 2'000 && card->splash_frame() < 0; ++i)
+            b.run(1'000);
+        started_together = card->splash_frame() == 0 && (sound->ctrl() & SoundCard::CTRL_RUN);
+        CHECK(started_together);
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_NTSC, SoundCard::CTRL_NTSC);
+        // The tune, from splash/bootsnd.bin in the top block, at $1000; the reset vector at its boot entry.
+        const std::string tune = read_file(EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
+        REQUIRE(!tune.empty());
+        size_t differ = 0;
+        for (size_t i = 0; i < tune.size(); ++i)
+            differ += sound->ram()[0x1000 + i] != static_cast<uint8_t>(tune[i]);
+        CHECK_EQ(differ, size_t{0});
+        CHECK_EQ(sound->ram()[0xFFFC] | sound->ram()[0xFFFD] << 8, 0x1006);
+        CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
+        b.run(FRAME * 60);
+        CHECK(card->splash_frame() > 60);
+        CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
+        CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
+        b.run(SPLASH_TIME);
+        CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
+        CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
+        CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.11"));
+    }
 }
 
 TEST(break_during_the_boot_splash_stops_it_and_its_sound)
 {
-    Board b;
-    REQUIRE(b.ok());
-    b.reset();
-    b.run(BOOT);
-    const VideoCard *card = b.machine->video_card();
-    SoundCard *sound = b.machine->sound_card();
-    REQUIRE(card != nullptr);
-    REQUIRE(sound != nullptr);
-    CHECK(card->splash_frame() >= 0);
-    b.cpu->nmi();
-    b.run(FRAME * 2);
-    CHECK_EQ(card->splash_frame(), -1);
-    CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
+    for (const unsigned rev : {2u, 1u}) // QUIET takes the sound card at either revision
+    {
+        std::printf("  sound card revision %u\n", rev);
+        Board b;
+        REQUIRE(b.ok());
+        const VideoCard *card = b.machine->video_card();
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(card != nullptr);
+        REQUIRE(sound != nullptr);
+        sound->set_revision(rev);
+        b.reset();
+        b.run(BOOT);
+        CHECK(card->splash_frame() >= 0);
+        CHECK(sound->ctrl() & SoundCard::CTRL_RUN); // the splash took the card
+        b.cpu->nmi();
+        b.run(FRAME * 2);
+        CHECK_EQ(card->splash_frame(), -1);
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
+        CHECK_EQ(sound->sid(0)[0x18], 0); // and QUIET silenced the SIDs
+    }
 }
 
 TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)

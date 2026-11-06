@@ -47,6 +47,12 @@ namespace ooe::emu
         doc_.reset(); // its wave RAM stays, as the card's own does
     }
 
+    void SoundCard::set_revision(unsigned rev)
+    {
+        rev_ = rev == 1 ? 1 : 2;
+        reset_rev2();
+    }
+
     void SoundCard::vis_snapshot()
     {
         // 0-31 the spectrum and 32-33 the VU at -60 dBFS or below; 34-97 the samples at zero.
@@ -208,6 +214,8 @@ namespace ooe::emu
 
     uint8_t SoundCard::read(uint32_t offset)
     {
+        if (hidden(offset & 0x7F))
+            return 0xFF;
         switch (offset & 0x7F)
         {
         case RAMDATA:
@@ -270,6 +278,8 @@ namespace ooe::emu
             return sid_read(0, o - SID_A);
         if (o >= SID_B && o < SID_B + SID_REGS)
             return sid_read(1, o - SID_B);
+        if (hidden(o))
+            return 0xFF;
         switch (o)
         {
         case CTRL:
@@ -338,7 +348,7 @@ namespace ooe::emu
         case DRQSEL:
             return drqsel_;
         case ID_REG:
-            return ID;
+            return static_cast<uint8_t>(MODULE << 4 | rev_);
         default:
             return 0xFF;
         }
@@ -353,6 +363,8 @@ namespace ooe::emu
                 sid_write(o >= SID_B ? 1 : 0, o & 0x1F, data);
             return;
         }
+        if (hidden(o))
+            return;
         switch (o)
         {
         case CTRL:

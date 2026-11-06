@@ -130,6 +130,20 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     CHECK_EQ(r.row(6), std::string("A>"));
 }
 
+TEST(the_boot_status_counts_the_sound_card_at_revision_1_too)
+{
+    // CARDTAB takes the sound card by its type, the ID's high nibble: $A1 as well as $A2.
+    Rig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.machine->sound_card() != nullptr);
+    r.machine->sound_card()->set_revision(1);
+    REQUIRE(r.machine->bus().peek(0xC57F) == 0xA1);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/A.IMG", true) == 0);
+    REQUIRE(r.boot());
+    CHECK(r.out.find("\r\nCards: video, sound, SD, Disk II, USB keyboard, DMA, panel\r\n") != std::string::npos);
+}
+
 TEST(the_boot_status_says_what_it_finds_and_what_it_doesnt)
 {
     // Fewer cards: the SD card and the DMA controller OODOS boots by, and the serial card. Its drives as
