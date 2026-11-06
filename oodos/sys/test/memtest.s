@@ -107,6 +107,11 @@
 ;   F   E with 64 records written to P: (16 buffers waiting)
 ;   G   F, BIG.DAT made first (OMK) and a record written to it after each
 ;       of P:'s, so P:'s waiting buffers and O:'s alternate in age
+;   H   (H R, H D, H X: the error mode return, display, default) P:: PEND.DAT
+;       made, a record written; WP? (the test write-protects P:'s disk); 55
+;       reads of M:'s BIG.BIN; 22 of O:'s README.TXT, which exists: HMK, the
+;       call's own error (File Exists, O:) after P:'s held Read Only; then
+;       the SCB's error drive (ERRDRV nn)
 ;   Q   O:'s track 3 sector 0 (the directory's first) read through the BIOS
 ;       by 50, no BDOS select before (QRD 00), its first byte (QB nn: 00
 ;       README.TXT's user, E5 a blank disk's)
@@ -278,6 +283,9 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'G'
         bne     :+
         jmp     caseg
+:       cmp     #'H'
+        bne     :+
+        jmp     caseh
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -1099,6 +1107,50 @@ eprec:  sta     yra                     ; P:'s records
         lda     #$FF
         sta     TDRV
         jmp     done
+
+; H: a held Read Only (P:'s) and the call's own error (File Exists, O:'s).
+caseh:  lda     BP_DMA+4                ; the error mode: R return, D display, else the default
+        ldx     #$FF
+        cmp     #'R'
+        beq     :+
+        ldx     #$FE
+        cmp     #'D'
+        beq     :+
+        ldx     #0
+:       txa
+        ldy     #F_ERRMODE
+        jsr     BDOS
+        lda     #DRV_P
+        sta     TDRV
+        NAME    fcbc, "PEND    DAT"
+        TRY     "PMK ", F_MAKE, fcbc
+        TRY     "PWR ", F_WRITE, fcbc
+        KEYWAIT "WP?"
+        lda     #DRV_M
+        sta     TDRV
+        NAME    sfcb, "BIG     BIN"
+        TRY     "MOP ", F_OPEN, sfcb
+        lda     #55                     ; reads enough that O:'s login evicts P:'s buffer
+        sta     yra
+:       CALLF   F_READ, sfcb
+        dec     yra
+        bne     :-
+        lda     #DRV_O
+        sta     TDRV
+        NAME    fcb, "README  TXT"
+        TRY     "HMK ", F_MAKE, fcb     ; it exists: File Exists, O:'s
+        lda     #$FF
+        sta     TDRV
+        SAY     "ERRDRV "
+        CALLF   S_SCB, hpb
+        jsr     HEX2
+        jsr     CRLF
+        jmp     done
+
+        .pushseg
+        .rodata
+hpb:    .byte   $51, 0                  ; 49: the SCB's error drive
+        .popseg
 
 ; X: O:'s directory written by 19 and 22 after a change within the second.
 casex:  lda     #DRV_O

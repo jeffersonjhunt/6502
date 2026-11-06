@@ -376,7 +376,25 @@ ABORT:          LDA     #$FF
 
 ; An error, CP/M 3's code in A, on drive EDRV: as the error mode says.
 DERR:           STA     ECODE
+                LDY     PERR           ; an error held for the call's end (an eviction's
+                BEQ     @own           ; Read Only on another drive) and the call's own: the
+                STZ     PERR           ; call's is the one returned, with its drive; the held
+                LDA     SCB_ERRMODE    ; one is said first (6c's fifth review), so the default
+                CMP     #$FF           ; mode's end never leaves it unsaid
+                BEQ     @own
+                LDA     ECODE
+                PHA
                 LDA     EDRV
+                PHA
+                STY     ECODE
+                LDA     PEDRV
+                STA     EDRV
+                JSR     ESAY
+                PLA
+                STA     EDRV
+                PLA
+                STA     ECODE
+@own:           LDA     EDRV
                 STA     SCB_ERRDRV
                 LDA     SCB_ERRMODE
                 CMP     #$FF

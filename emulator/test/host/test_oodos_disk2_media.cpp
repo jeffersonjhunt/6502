@@ -12,7 +12,8 @@
  * read through the BIOS after the call that checked the disk (R2F6), through cases U, R, E, X and Q.
  * The third's: a missing disk waited for once, not for each waiting buffer (R3F1, case F), a clock that
  * stalls (R3F2), and a write-protected disk found by an eviction (R3F5). The fourth's: a BIOS read with a
- * stalled clock (R4F1), and a write-protected disk's waiting buffers all dropped at once (R4F4).
+ * stalled clock (R4F1), and a write-protected disk's waiting buffers all dropped at once (R4F4). The
+ * fifth's: a held Read Only meeting the call's own error, in each error mode (R5F1, case H).
  */
 
 #include "harness.h"
@@ -565,6 +566,47 @@ TEST(a_write_protected_disk_s_16_buffers_fail_one_call)
     has(o, "OFAIL 01");
     has(o, "OCL 00 00");
     CHECK(o_file(r, "BIG     DAT").size() == 160u * 128u);
+}
+
+namespace
+{
+    /// MEMTEST's H in error mode `mode` (R, D, X), P:'s disk write-protected at its WP?: its output.
+    std::string case_h(char mode)
+    {
+        Dr r(true, true, {{0, "BIG     BIN", gen(32768, 9)}});
+        if (!r.ok)
+            return "NO RIG";
+        const size_t from = start(r, "memtest.com", std::string(" H ") + mode);
+        if (!r.until("WP?", ms(60000), from))
+            return r.out.substr(from);
+        r.wait(ms(1500));
+        r.card().disk(1)->set_write_protected(true);
+        r.type(" ");
+        r.until("\r\nA>", ms(600000), from + 10);
+        return r.out.substr(from);
+    }
+}
+
+TEST(a_held_read_only_and_the_call_s_own_error)
+{
+    // R5F1, the review's heldx: P:'s record waiting, its disk write-protected; reads of M: fill the
+    // buffers, then 22 of O:'s README.TXT, which exists. The make's login of O: evicts P:'s buffer (Read
+    // Only held for the end), and the make fails itself: File Exists, on O:. The call's own error is the
+    // one returned, with its own drive; in display and default mode P:'s Read Only is said first, and
+    // the default mode's end comes only after both.
+    const std::string ret = case_h('R'), say = case_h('D'), dflt = case_h('X');
+    std::printf("  R: %s\n  D: %s\n  X: %s\n", vis(ret).c_str(), vis(say).c_str(), vis(dflt).c_str());
+    has(ret, "HMK FF 08");
+    has(ret, "ERRDRV 0E");
+    hasnt(ret, "Error On");
+    has(say, "FF 08\r\nERRDRV 0E");   // HMK's result, after the two messages
+    for (const std::string *o : {&say, &dflt})
+    {
+        const size_t p = o->find("Error On P: Read Only"), e = o->find("Error On O: File Exists");
+        CHECK(p != std::string::npos && e != std::string::npos && p < e);
+    }
+    hasnt(dflt, "FF 08");                // the program ended at the error
+    hasnt(dflt, "MEMTEST DONE");
 }
 
 int main()

@@ -74,6 +74,8 @@
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
 FDRV:           .res    1              ; FLUSHD's
+GEDRV:          .res    1              ; GETBUF's: the call's EDRV over an eviction's write-back
+VEDRV:          .res    1              ; and the victim's
 PDRV:           .res    1              ; PURGED's
 DBCB:           .res    1              ; DIRENT's buffer
 DOPW:           .res    1              ; DISKOP: 0 read, 1 write
@@ -795,8 +797,14 @@ GETBUF:         STA     GBNEW
                 BEQ     @raise
                 LDA     #$40
                 STA     WBM
+                LDA     EDRV           ; the call's, put back after (WBACK's failure names
+                STA     GEDRV          ; the victim's drive; 6c's fifth review)
                 JSR     WBACK
                 BCC     @take
+                LDY     EDRV
+                STY     VEDRV
+                LDY     GEDRV
+                STY     EDRV
                 CMP     #1             ; Disk I/O: kept, marked; another victim. Else (Read
                 BNE     @later         ; Only: the drive's all dropped) said at the call's end
                 JSR     VICTIM
@@ -804,7 +812,7 @@ GETBUF:         STA     GBNEW
 @later:         LDY     PERR           ; (6c's fourth review: not part-way through a close, a
                 BNE     @take          ; delete or a rename of another drive), the first kept
                 STA     PERR
-                LDA     EDRV
+                LDA     VEDRV
                 STA     PEDRV
                 BRA     @take
 @raise:         JSR     WBACKX
