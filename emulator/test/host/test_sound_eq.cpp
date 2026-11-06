@@ -239,6 +239,49 @@ TEST(each_band_at_its_centre_gains_within_1_db)
     }
 }
 
+TEST(a_gain_written_while_it_plays_takes_effect_from_the_next_frame)
+{
+    // A 1 kHz sine with the EQ on and flat, the 1 kHz band raised 12 dB halfway: the first half the stream, the
+    // second (once the filter has settled) 12 dB up. Then the EQ disabled the same way: the stream again, exactly.
+    constexpr uint32_t RATE = 48'000;
+    const std::vector<int16_t> in = sine(RATE, 1'000, 0.2, RATE);
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    c.set_tap(true);
+    eq(c, {}, true);
+    start(c, MONO16, RATE);
+    put(c, in);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+    const auto run_for = [&](uint64_t cycles) {
+        for (; cycles >= 7; cycles -= 7)
+            c.tick(7);
+        c.tick(cycles);
+    };
+    run_for(HZ / 3);
+    c.write(SoundCard::EQIDX, 5); // the 1 kHz band
+    c.write(SoundCard::EQVAL, 24);
+    run_for(HZ / 3);
+    c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+    c.write(SoundCard::EQVAL, 0);
+    run_for(HZ / 2);
+    const std::vector<int16_t> out = c.take_tap();
+    const size_t third = RATE / 3;
+    std::vector<int16_t> parts[3];
+    for (size_t k = 0; k < 3; ++k)
+        parts[k].assign(out.begin() + static_cast<std::ptrdiff_t>(2 * (k * third + 2'000)),
+                        out.begin() + static_cast<std::ptrdiff_t>(2 * ((k + 1) * third - 100)));
+    const double ref = rms(both(in), 0, 0);
+    const double db[3] = {20 * std::log10(rms(parts[0], 0, 0) / ref), 20 * std::log10(rms(parts[1], 0, 0) / ref),
+                          20 * std::log10(rms(parts[2], 0, 0) / ref)};
+    std::printf("  flat %+.2f dB, raised %+.2f dB, disabled %+.2f dB\n", db[0], db[1], db[2]);
+    CHECK(std::fabs(db[0]) < 0.05);
+    CHECK(std::fabs(db[1] - 12) < 0.2);
+    std::vector<int16_t> tail(out.end() - 2'000, out.end()), want;
+    const std::vector<int16_t> b2 = both(in);
+    want.assign(b2.begin() + static_cast<std::ptrdiff_t>(out.size() - 2'000), b2.begin() + static_cast<std::ptrdiff_t>(out.size()));
+    CHECK(tail == want); // disabled: the stream bit for bit from there
+}
+
 TEST(a_band_at_or_above_045_of_the_bus_rate_is_bypassed)
 {
     // Each band at +12 dB alone, at rates either side of where it reaches 0.45 of the rate: at or above, the

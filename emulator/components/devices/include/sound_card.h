@@ -15,10 +15,10 @@
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
  * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h). So far (that spec's steps 1 to 4) its registers hold
+ * ES5503 (es5503.h). So far (that spec's steps 1 to 5) its registers hold
  * what is written and read it back, with their reset values, and the PCM
- * stream runs, raw or MP3, mixed with the SIDs; no EQ, vis page or ES5503
- * sound yet:
+ * stream runs, raw or MP3, through the EQ, the vis tap and volume, mixed
+ * with the SIDs; no ES5503 sound yet:
  *
  *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
  *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
@@ -29,7 +29,7 @@
  *   $59 EQIDX: 0 the preamp, 1-10 the bands, bit 7 the enable instead; an
  *           EQVAL access moves bits 0-6 on   $5A EQVAL: a gain, -24 to 24
  *           (clamped), or the enable's bit 0; an index past 10 reads 0
- *   $5B VISIDX: writing 0 takes a snapshot (silence, for now)   $5C VISDATA:
+ *   $5B VISIDX: writing 0 takes a snapshot (sound_dsp.h)   $5C VISDATA:
  *           the vis page's byte at VISIDX, which moves on; past 97, 0
  *   $5D CODECS: $83   $5E DOCCTL (bits 0, 2, 5, 6)   $5F DOCDATA: wave RAM
  *           (DOCCTL bit 6) or the DOC's register at DOCADDR, which moves on
@@ -155,7 +155,7 @@
  * junk; 64 KB of it is STATE $81. ID3v2 tags are skipped by their size
  * wherever met (8 MB of them, $81). A frame with nothing frame-like and no
  * tag after it, to EOF or for 32 KB, plays by its own length. A fruitless
- * search waits for bytes to come or go, or for EOF.
+ * search costs a few header checks at most.
  *
  * The mix (revision 2). While the PCM stream plays or runs dry, its bus
  * frames are resampled to the audio rate by linear interpolation into a
@@ -170,11 +170,21 @@
  * bus frames in one tick only the last second is resampled (the samples for
  * the rest an offset to pass first); at a second and a half queued the SIDs
  * are caught up, which takes it; when the SIDs skip a backlog, the queue's
- * frames for the samples skipped go with them. EQ, the vis tap and volume
- * (step 5) go in bus_frame(), at unity for now. sid.cpp and this file build
+ * frames for the samples skipped go with them. sid.cpp and this file build
  * with -ffp-contract=off, so every target makes the same samples, given the
  * same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree
  * today.
+ *
+ * The bus (revision 2, step 5). Each frame goes through the EQ (sound_dsp.h),
+ * then the vis tap, then VOLL and VOLR (255 unity, else x vol / 255, rounded
+ * half away from zero), then the test tap and the mix. Every frame does,
+ * those the mix has no use for (no audio rate, a bulk catch-up's) too, so the
+ * EQ's state and the vis page are the same whatever the audio rate and the
+ * ticks. The EQ's filters start from silence at RUN and at FLUSH; a gain or
+ * enable written, or an MP3's rate changing, gives it new coefficients from
+ * the next frame. VOLL and VOLR scale SID A's and SID B's $D418 too: the chip
+ * has round(nibble x vol / 255) in the low nibble, the card's registers (and
+ * sid()) what was written; a volume written reaches the chips at once.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the

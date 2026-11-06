@@ -897,12 +897,11 @@ knows only revision 1 takes the card by the ID's high nibble.
   DRQSEL 0 and DOCCTL 0; the ES5503's oscillators halted, no interrupt pending and `$E1` 0; wave RAM keeps its
   contents. CTRL RESET leaves all of it alone.
 
-**Settled in the emulator so far (2026-11-05, proposed for the card):** steps 1 to 3 of the spec, the registers,
-the raw PCM stream and the mix. Each register reads back what's written, as above. The stream runs as the spec's
-behaviour says, on the host's clock and whatever the audio rate, and is mixed with the SIDs: resampled by linear
-interpolation, scaled by `MIX_DIGITAL` (0.5) and clipped. EQ, volume and the vis page are still to come (step
-5), so the stream goes in at unity and the vis page is silence (`$00` for the spectrum and VU, `$80` for the
-samples, 0 past 97). The spec's start, at 4 KB or EOF, reads for MP3 (step 4) as 4 KB, or EOF, and a decoded
+**Settled in the emulator so far (2026-11-06, proposed for the card):** steps 1 to 5 of the spec, the registers,
+the raw PCM stream, the mix, MP3, and the EQ, vis page and volume. Each register reads back what's written, as
+above. The stream runs as the spec's behaviour says, on the host's clock and whatever the audio rate, through the
+EQ, the vis tap and VOLL/VOLR, and is mixed with the SIDs: resampled by linear interpolation, scaled by
+`MIX_DIGITAL` (0.5) and clipped. The spec's start, at 4 KB or EOF, reads for MP3 (step 4) as 4 KB, or EOF, and a decoded
 first frame: an MP3 stays buffering past 4 KB until its first frame decodes (its sync run of ten has decided),
 which also gives the rate. Nothing has played, so it's no underrun, and only an empty FIFO without EOF is one, as
 the spec says; a stream under DMA has none. For raw PCM 4 KB always holds a whole frame, so the two readings
@@ -935,6 +934,23 @@ the 4 KB start at 320 kbps (235 ms from RUN), 5 ms at 128 kbps and 97 ms for VBR
   over two seconds only the last second is made, and the stream's samples for the part skipped go with it. With
   nobody collecting, the SIDs are brought up to date once a second and a half of the stream waits. A pause released
   before its lead has played out loses up to a lead of the stream (250 µs at most) to the new run's lead: accepted.
+- The EQ (step 5): the preamp, then the ten peaking biquads, each side its own, in doubles (transposed direct form
+  II), rounded to the nearest sample and clipped at the end. A band at 0 dB is bypassed as one at or above 0.45 of
+  the rate is, and so is the preamp at 0, so on and flat is bit for bit as off. The filters start from silence at
+  RUN and FLUSH, and when a band starts running; a gain or the enable written, or an MP3's rate changing, gives new
+  coefficients from the next frame, the state kept. A filter state below 10^-9 of a sample's step is let go to 0,
+  so a dry spell after a stream ends in exact silence. The coefficients' sines, cosines and powers of ten are by
+  series in the card's own code (sound_dsp.cpp), not libm, so every target makes the same bits.
+- The vis page (step 5): "the left and right mix" is read as their mono mix, (L + R) / 2, the same that indexes
+  34–97 hold. The spectrum's 32 bytes are bins 1 to 32 of the 64-point FFT (DC left out, Nyquist in), with a
+  periodic Hann window, scaled so a full-scale sine on a bin reads 0 dBFS (|X| over 16). The scale is
+  round((dB + 60) × 255 / 60), clamped to 0–255, for the spectrum and for the VU, whose dB is the side's peak
+  sample against full scale. Indexes 34–97 are each frame's high byte, offset to unsigned. Every frame of the bus
+  feeds the tap, those the mix doesn't need too (no audio rate, a bulk catch-up's, a dry spell's silence), so the
+  page doesn't depend on the audio rate or the ticks.
+- Volume (step 5): VOLL and VOLR scale the bus after the vis tap: 255 exact, otherwise x × vol / 255 rounded half
+  away from zero. SID A takes VOLL and SID B VOLR, a CTRL BOTH write to A reaching B by VOLR; the 6510's reads, the
+  host's and the emulator's `sid()` give `$D418` as written.
 - MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored): from the second frame on as each falls
   due, the first when buffering ends (above). In step, a
   frame is decoded only with all of it and the next header in the FIFO; out of step, a frame is taken by
