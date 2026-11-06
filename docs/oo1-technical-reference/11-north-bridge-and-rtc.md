@@ -148,7 +148,7 @@ emulator starts, and keeps it from then on:
 Status: **emulated**
 
 <a id="reg-c680"></a>
-### $C680 NB_WIN0: window 0, CPU $0000-$3FFF
+### $C680 NB_WIN0: window 0, CPU $0000–$3FFF
 
 #### Equates
 
@@ -186,7 +186,7 @@ The CPU's A0–A13 pass through, so CPU `$0000–$3FFF` is physical `BLOCK × $4
 [chapter 2](02-memory-and-banking.md#the-four-windows).
 
 <a id="reg-c681"></a>
-### $C681 NB_WIN1: window 1, CPU $4000-$7FFF
+### $C681 NB_WIN1: window 1, CPU $4000–$7FFF
 
 #### Equates
 
@@ -213,7 +213,7 @@ As [WIN0](#reg-c680): bit 7 ROM, bit 6 RO, bits 5–0 the block, for CPU `$4000�
 **emulated**
 
 <a id="reg-c682"></a>
-### $C682 NB_WIN2: window 2, CPU $8000-$BFFF
+### $C682 NB_WIN2: window 2, CPU $8000–$BFFF
 
 #### Equates
 
@@ -246,7 +246,7 @@ screen, borrows W1 for the font (ROM A block 30) and W2 for video memory (RAM bl
 character that ECHO puts on the screen. Both put back whatever the windows held before.
 
 <a id="reg-c683"></a>
-### $C683 NB_WIN3: window 3, CPU $C000-$FFFF
+### $C683 NB_WIN3: window 3, CPU $C000–$FFFF
 
 #### Equates
 
@@ -428,7 +428,7 @@ backplane.inc has the bits: `NB_RTC_TICK`, `NB_RTC_TIE`, `NB_RTC_ALARM`, `NB_RTC
 alarm or not; an alarm shows only as ALARM. The BIOS's Break writes `$80`, which clears TICK and turns TIE off.
 
 <a id="reg-c688"></a>
-### $C688 NB_IRQL: the interrupt poll, IDs 0-7
+### $C688 NB_IRQL: the interrupt poll, IDs 0–7
 
 #### Equates
 
@@ -446,7 +446,7 @@ R. Reading brings every card up to date first, so the poll is as of this cycle.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7 | ID 7 | 0: the storage card (the SD card) is interrupting |
+| 7 | ID 7 | 0: the mass storage card (the SD card) is interrupting |
 | 6 | ID 6 | 0: the serial card, the 6551 or the VIA, is interrupting |
 | 5–0 | IDs 5–0 | RAM and ROM: never interrupt, read 1 |
 
@@ -464,7 +464,7 @@ R. Reading brings every card up to date first, so the poll is as of this cycle.
 [chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh).
 
 <a id="reg-c689"></a>
-### $C689 NB_IRQH: the interrupt poll, IDs 8-F
+### $C689 NB_IRQH: the interrupt poll, IDs 8–F
 
 #### Equates
 
@@ -500,7 +500,7 @@ R, as [IRQL](#reg-c688).
 **emulated**
 
 <a id="reg-c68a"></a>
-### $C68A NB_WAIT0: wait states, IDs 0-3
+### $C68A NB_WAIT0: wait states, IDs 0–3
 
 #### Equates
 
@@ -540,7 +540,7 @@ hole as well as to memory. hw/design.md keeps them for a turbo mode and has them
 them whatever the clock. Neither the BIOS nor OODOS sets them.
 
 <a id="reg-c68b"></a>
-### $C68B NB_WAIT1: wait states, IDs 4-7
+### $C68B NB_WAIT1: wait states, IDs 4–7
 
 #### Equates
 
@@ -567,7 +567,7 @@ Bits 1–0 ID 4 (ROM A), 3–2 ID 5 (ROM B), 5–4 ID 6 (serial), 7–6 ID 7 (st
 **emulated**
 
 <a id="reg-c68c"></a>
-### $C68C NB_WAIT2: wait states, IDs 8-B
+### $C68C NB_WAIT2: wait states, IDs 8–B
 
 #### Equates
 
@@ -594,7 +594,7 @@ Bits 1–0 ID 8 (DMA), 3–2 ID 9 (video), 5–4 ID A (sound), 7–6 ID B (USB).
 **emulated**
 
 <a id="reg-c68d"></a>
-### $C68D NB_WAIT3: wait states, IDs C-F
+### $C68D NB_WAIT3: wait states, IDs C–F
 
 #### Equates
 

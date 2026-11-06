@@ -137,8 +137,8 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
 - the 6551 set up afresh by the monitor, with its interrupts off.
 
 It leaves W3, VEC, DMA CONTROL, memory, the VIA (its IER too), the console card's ISR ([above](#irq-and-nmi)), and
-the rest of each card's state as they were. Break works while W3 and VEC
-are the BIOS's; a program that moves VEC takes the NMI itself. The design record has the list and its reasons
+the rest of each card's state as they were. Break works while W3 and VEC are the BIOS's; a program that moves VEC
+takes the NMI itself. The design record has the list and its reasons
 ([hw/design.md, "Boot"](../../hw/design.md#boot)).
 
 The console card's breakpoint can pull /NMI as well, and Break handles it the same way.

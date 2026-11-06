@@ -22,15 +22,18 @@ The books are written in phases of their own (decided 2026-10-31):
 - **G0:** this skeleton: every chapter's scope and sections, the templates, the indexes, the checks, the examples
   suite, and one entry written in full ([function 9](oodos-programmers-guide/07-function-reference.md#bdos-9)).
 - **G1:** the Programmer's Guide for what OODOS phases 0-4 have built, and the User's Guide.
-- **G2:** the Technical Reference, for what the emulator implements.
+- **G2:** the Technical Reference, for what the emulator implements: every chapter, and an entry for each of the
+  155 registers backplane.inc names.
 - **G3:** with the OOLIB phase, which settles [hw/oolib.md](../hw/oolib.md)'s open questions first: the
   Programmer's Guide's chapter 8.
 
 After G3, an OODOS phase isn't done until its chapters, entries and indexes are.
 
-**Open for G2:** where a register with no equate in backplane.inc gets its source of truth: the VIA at `$C340`,
-the SID's registers, most of the video card's. The check refuses a register entry without an equate today, so
-these can't be entries until that is settled.
+**Settled in G2:** every register the emulator decodes has an equate in
+[`backplane.inc`](../backplane/bios/backplane.inc), so its entry has the one source of truth the check reads: the
+VIA at `$C340`, the second SID, the video card's ISR, LINE and layer 1, the USB card's mouse and game port and the
+console card's registers among them. A register that is designed but not emulated gets no equate until the emulator
+has it; its chapter describes it in a proposed section.
 
 ## Status tags
 
@@ -149,8 +152,8 @@ listings, entries or Technical Reference sections: a check that examined nothing
 **What isn't written yet** is listed in [tools/unwritten.txt](tools/unwritten.txt), one anchor a line. A missing
 entry fails the check unless it's listed there; a listed one that has been written, or that names nothing in the
 sources, fails it too; for a command, the sources are the utilities, the built-ins and `PLANNED`. So the list can
-only shrink: G1 wrote every function and command phases 0-4 built, function 47 among them; G2 empties the
-registers; phase 5a took off functions 59 and 60, and 5b and 5c GENCOM, GET, PUT and SUBMIT. An equate, function, utility or
+only shrink: G1 wrote every function and command phases 0-4 built, function 47 among them; G2 wrote every
+register; phase 5a took off functions 59 and 60, and 5b and 5c GENCOM, GET, PUT and SUBMIT. An equate, function, utility or
 built-in added to the sources fails the check until it gets an entry or a line on the list, which is the point: the
 books can't fall behind the code without someone saying so. `make coverage` lists both sides.
 

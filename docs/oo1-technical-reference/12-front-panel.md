@@ -87,12 +87,9 @@ comparator checks the A0–A19 of every bus cycle, the DMA controller's included
 - **With NMI** (bit 4), nothing halts. Each match sets STATUS's HIT, latches its cycle, and pulls /NMI after the
   instruction. A fetch match lets the instruction run first.
 
-In the emulator, the latch takes only the first stop after a CONT that lets the CPU go, a step, START or /RESET. A
-halt that ends another way leaves the latch shut. Turning the HALT switch off lets a switch halt go without CONT, and
-the CPU runs on, but the latch stays shut. The WebUI's Run does just that: it turns HALT off, then presses CONT,
-which does nothing once the CPU runs. The next breakpoint that halts sets HIT, but LADDR, LDATA, LSTAT and the lamps
-keep the old stop cycle. Pressing CONT while halted opens the latch again. This is an emulator bug, to be fixed; the
-card latches every stop.
+The latch takes every stop. However a halt ends (CONT, a step, the HALT switch turned off as the WebUI's Run does,
+CTRL's HALT cleared), the CPU running again lets the next stop latch. While the CPU runs, LADDR, LDATA and LSTAT keep
+the last stop's cycle until the next one.
 
 HIT stays set until a 1 is written to it. Under the BIOS, the NMI is Break: it enters the monitor
 ([chapter 4](04-interrupts.md#pausebreak)), which leaves BPADDR and BPCTRL alone, so the breakpoint stays armed. Turn
@@ -465,8 +462,8 @@ Kept through /RESET. `$00 $00 $00` at power-on.
 #### Notes
 
 The latch takes a cycle when the CPU halts (the breakpoint's cycle, or the last cycle before the stop) and holds it
-until the CPU runs again. In the emulator it opens again only on CONT, a step, START or /RESET, so after a switch
-halt let go by the HALT switch alone it keeps the old cycle ([the breakpoint](#the-breakpoint)).
+until the next stop: the CPU running again, however the halt ended, lets the next stop latch
+([the breakpoint](#the-breakpoint)).
 A breakpoint with NMI latches each matching cycle, for a debugger on the machine to read.
 
 <a id="reg-c713"></a>

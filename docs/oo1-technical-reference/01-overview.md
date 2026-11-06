@@ -89,7 +89,7 @@ and the north bridge picks the divider:
 | ÷14, with every 65th cycle ÷16 | 1.0205 MHz on average | Apple II mode: 65 cycles a scan line, as the Apple has |
 
 The other cards keep their own clocks: the video card's 25.175 MHz pixel clock, the sound card's SID clock (NTSC or
-PAL, as its CTRL says), and the RP2350s on the storage and USB cards. None of them needs to be in step with the CPU.
+PAL, as its CTRL says), and the RP2350s on the storage, USB and sound cards. None of them needs to be in step with the CPU.
 
 **In the emulator** the CPU runs at the clock the app sets, and the cards are told that clock, so their timing stays
 right: a second of the clock, a frame of video, a sector's time.

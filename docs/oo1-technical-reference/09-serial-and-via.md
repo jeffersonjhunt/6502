@@ -218,7 +218,8 @@ Status: **emulated**
 line, no flags and no enables. The timers' counters and latches, and SR, keep their values, and the counters run on.
 Neither timer sets its flag again until a program loads it, except timer 1 in free-running mode: a program that
 writes `$40` to ACR and loads nothing gets timer 1's flag at the counter's next roll-over, and then every latch + 2
-cycles. The reset button, START, Ctrl-Reset and entering Apple II mode all pulse /RESET. At power-on the counters and latches are `$FFFF` and SR is `$00`.
+cycles. The reset button, START, Ctrl-Reset and entering Apple II mode all pulse /RESET. At power-on the counters
+and latches are `$FFFF` and SR is `$00`.
 
 Since the BIOS never writes the VIA, that is how it is under the monitor after a reset, and Break changes nothing.
 

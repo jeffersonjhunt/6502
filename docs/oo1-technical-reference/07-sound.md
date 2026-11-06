@@ -218,7 +218,7 @@ stays silent or stops. hw/design.md has the details and their reasons ("`.sid` p
 Status: **emulated**
 
 The card is idle in Apple II mode, and its block is hidden. Entering the mode pulses /RESET, which stops the 6510,
-clears the SIDs and turns IEN off ([chapter 13](13-apple-ii-mode.md#entering-apple-ii-mode)). Apple software never
+clears the SIDs and turns IEN off ([chapter 13](13-apple-ii-mode.md#the-reset-pulse)). Apple software never
 addresses the card.
 
 ### Bus timing
