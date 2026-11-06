@@ -513,6 +513,7 @@ F_CLOSE:        LDA     #FCB_SEQ
 @clean:         LDA     CDRV           ; nothing to put in the directory, so a
                 INC     A              ; buffer that won't write is no failure
                 JSR     FLUSHD         ; of this close's
+                JSR     GENCHK         ; the disk found changed as they were: 10
                 JMP     RET0
 @failed:        LDA     #$FF
                 JMP     RETA
@@ -572,8 +573,9 @@ CLOSEX:         LDA     FC + FCB_S2
                 LDA     CDRV           ; the drive's buffers written back, then
                 INC     A              ; before the directory is touched: a
                 JSR     FLUSHD         ; unit found read-only Read Only, a
-                JSR     RODRV          ; sector of F's blocks not written
-                JSR     FMARKED        ; Disk I/O
+                JSR     GENCHK         ; sector of F's blocks not written
+                JSR     RODRV          ; Disk I/O; O:'s or P:'s disk found
+                JSR     FMARKED        ; changed (FLUSHD reads it first) 10
                 BCC     @flushed
                 LDA     CDRV
                 STA     EDRV

@@ -73,7 +73,8 @@
 
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
-FDRV:           .res    1              ; FLUSHD's and PURGED's
+FDRV:           .res    1              ; FLUSHD's
+PDRV:           .res    1              ; PURGED's
 DBCB:           .res    1              ; DIRENT's buffer
 DOPW:           .res    1              ; DISKOP: 0 read, 1 write
 DOPX:           .res    1              ; its buffer
@@ -91,7 +92,7 @@ SDID:           .res    2              ; the entry SFCBAT came from
 UDID:           .res    2              ; the entry STAMPU came from
 LOGL:           .res    1              ; LOGIN: a label seen
 CHG:            .res    1              ; CHANGED's drives to go
-WBM:            .res    1              ; WBACK's mode: bit 7 drop, bit 6 return
+WBM:            .res    1              ; WBACK's mode: bit 7 drop, bit 6 return, bit 5 a flush's (O:/P: read first)
 RERR:           .res    1              ; RFLUSH's first error, 0 none
 REDRV:          .res    1              ; and its drive
 PBX:            .res    1              ; PURGEM's buffer
@@ -462,13 +463,19 @@ MEDIACHK:       LDA     CDRV
                 LDA     CSLOT
                 STA     VSLOT
                 JSR     DISKCHK
-                BCS     @changed
+                BCS     @not
                 RTS
-@changed:       JMP     LOGIN
+@not:           CMP     #2
+                BEQ     VDIO
+                JMP     LOGIN
+; VDRV's directory couldn't be read: Disk I/O.
+VDIO:           LDA     VDRV
+                STA     EDRV
+                LDA     #ER_IO
+                JMP     DERR
 
-; VDRV's disk (slot VSLOT, logged in), as MEDIACHK has it: carry clear the
-; same disk (CHKD's bit set, VOUCH it), set another (GONE done: the caller
-; logs it in again, or drops what it was writing).
+; VDRV's disk (slot VSLOT, logged in): carry clear the same disk (VOUCH
+; it, CHKD's bit set); else carry set and A as DISKVER's (1 another, GONE done; 2 not read).
 DISKCHK:        LDA     #BIOS_BLOCK
                 STA     NB_WIN2
                 LDX     VDRV
@@ -476,30 +483,40 @@ DISKCHK:        LDA     #BIOS_BLOCK
                 STZ     BIOSDRV        ; the BIOS's drive may be another now
                 LDA     #BCB_BLOCK
                 STA     NB_WIN2
-                BCC     @same          ; turning: the same disk, as far as can be seen
-                JSR     VERIFYD
-                BCS     @other
-                LDA     VDRV
+                BCS     DISKVER        ; stopped: read the directory past the buffers
+                LDA     VDRV           ; turning: the same disk, as far as can be seen
                 INC     A
-                STA     DVERD
-@same:          LDA     VDRV           ; checked in this call
+                STA     VOUCH
+CHKDSET:        LDA     VDRV           ; checked in this call
                 SEC
                 SBC     #DRV_O - 1
                 ORA     CHKD
                 STA     CHKD
-                LDA     VDRV
-                INC     A
-                STA     VOUCH
                 CLC
                 RTS
-@other:         LDA     #BIOS_BLOCK    ; nothing of the old disk's kept by the BIOS either
+
+; VDRV's directory read past every buffer and compared (VERIFYD): carry
+; clear the same (DVERD and VOUCH say so); else carry set and A = 1 another
+; disk (GONE done, the BIOS's buffers forgotten), A = 2 not read (no disk:
+; nothing dropped, the caller says Disk I/O as it says a write's).
+DISKVER:        JSR     VERIFYD
+                BCS     @not
+                LDA     VDRV
+                INC     A
+                STA     DVERD
+                STA     VOUCH
+                BRA     CHKDSET
+@not:           CMP     #2
+                BEQ     @io
+                LDA     #BIOS_BLOCK    ; nothing of the old disk's kept by the BIOS either
                 STA     NB_WIN2
                 LDX     VDRV
                 JSR     FORGET
                 LDA     #BCB_BLOCK
                 STA     NB_WIN2
                 JSR     GONE
-                SEC
+                LDA     #1
+@io:            SEC
                 RTS
 
 ; VDRV's disk changed: its buffers dropped, not written (the old disk's
@@ -530,7 +547,8 @@ GONE:           LDA     VDRV
 ; VDRV's directory as the disk has it now, read past every buffer (the
 ; BIOS's directory-track buffer forgotten, each sector into SECBUF), against
 ; CSV: carry clear the same, set not. A sector that can't be read is Disk
-; I/O. DRM and OFFS from its slot's DTAB entry (VSLOT), so it serves for a
+; I/O, carry set and A = 2 (the callers say it as their error); another
+; disk, carry set and A = 1. DRM and OFFS from its slot's DTAB entry (VSLOT), so it serves for a
 ; drive not the current one. Keeps T0-T5, DIDX, DPTR and DBCB.
 VERIFYD:        LDA     #BIOS_BLOCK
                 STA     NB_WIN2
@@ -636,12 +654,14 @@ VERIFYD:        LDA     #BIOS_BLOCK
                 RTS
 @other:         LDA     #BCB_BLOCK
                 STA     NB_WIN2
+                LDA     #1
                 SEC
                 RTS
-@io:            LDA     VDRV
-                STA     EDRV
-                LDA     #ER_IO
-                JMP     DERR
+@io:            LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                LDA     #2
+                SEC
+                RTS
 
 ; A = the checksum of the record of 128 bytes at NP: each byte added in
 ; after the sum turned left a bit, as DSUM sums.
@@ -756,9 +776,22 @@ GETBUF:         STA     GBNEW
                 DEX
                 BPL     @scan
                 JSR     VICTIM
-                LDA     BCB_DIRTY,X
+@victim:        LDA     BCB_DIRTY,X
                 BEQ     @take
-                JSR     WBACKX
+                CMP     #2             ; marked: every buffer is (VICTIM's last resort)
+                BEQ     @raise
+                LDA     BCB_DRV,X      ; O:'s or P:'s, not this call's drive: a write that
+                CMP     #DRV_O + 1     ; fails (no disk) marks it and another is taken, so
+                BCC     @raise         ; one drive's floppy doesn't fail another's writes
+                CMP     GDRV
+                BEQ     @raise
+                LDA     #$40
+                STA     WBM
+                JSR     WBACK
+                BCC     @take
+                JSR     VICTIM
+                BRA     @victim
+@raise:         JSR     WBACKX
 @take:          LDA     GDRV
                 STA     BCB_DRV,X
                 LDA     LBA
@@ -860,28 +893,39 @@ ZEROB:          LDA     #0
 ; with WBM: bit 7 drop it on Disk I/O too (DIRPUT, RFLUSH), bit 6 no error
 ; raised: carry set, A its code, EDRV the drive (RFLUSH).
 WBACKX:         STZ     WBM
-WBACK:          LDA     BCB_DRV,X      ; O:'s or P:'s, its disk not checked in this call:
-                CMP     #DRV_O + 1     ; checked first (6c's review; a warm boot's 48, a
-                BCC     @write         ; full set of buffers' eviction, another drive's select)
-                SBC     #DRV_O         ; its CHKD bit (the carry set)
+WBACK:          LDA     BCB_DRV,X      ; O:'s or P:'s, its disk not checked in this call (a
+                CMP     #DRV_O + 1     ; warm boot's 48, an eviction, another drive's select), or
+                BCC     @write         ; a flush's and its directory not read in this call: read
+                CMP     DVERD          ; and compared first (6c's reviews)
+                BEQ     @write
+                LDA     #$20
+                BIT     WBM
+                BNE     @check
+                LDA     BCB_DRV,X
+                SEC
+                SBC     #DRV_O         ; its CHKD bit
                 AND     CHKD
                 BNE     @write
-                LDA     BCB_DRV,X
+@check:         LDA     BCB_DRV,X
                 DEC     A
                 STA     VDRV
                 CLC
                 ADC     #<(RSLOT - DRV_O)
                 STA     VSLOT
                 PHX
-                JSR     DISKCHK
+                JSR     DISKVER
                 PLX
                 BCC     @write
+                CMP     #2
+                BEQ     @unread        ; no disk: as a write that failed, by WBM
                 CLC                    ; another disk: the buffer dropped (GONE), nothing written
                 RTS
+@unread:        LDA     #1
+                BRA     @failed
 @write:         LDA     #1
                 JSR     DISKOP
                 BEQ     @done
-                PHA
+@failed:        PHA
                 LDA     BCB_DRV,X
                 DEC     A
                 STA     EDRV
@@ -995,19 +1039,16 @@ DISKOP:         STA     DOPW
 ; unit's dropped, as WBACK has it), and the first failure's code is in RERR
 ; and its drive in REDRV (0 none); carry set if there was one. No error is
 ; raised: 48 says it after (RDONE), CLOSEX decides what fails its close.
-; A - 1's changed buffers written back, a failure kept (marked) and said in
-; carry, not as an error: ENDFN's, at a call's end (bdos.s).
-WBRET:          STZ     RERR
-                LDX     #$40
-                JMP     WFLUSH
-
+; An O: or P: buffer's disk is read and compared first however recently it
+; was seen (WBM bit 5), so a close, 48 or 13 just after a swap writes
+; nothing on the new disk (6c's second review).
 FLUSHD:         STZ     RERR
-                LDX     #$40
+                LDX     #$60
                 BRA     WFLUSH
 
 ; The same for 13 and 37, which log the drive out: one that can't be written
 ; is dropped, and RERR (the caller's 0 before) keeps the first failure.
-RFLUSH:         LDX     #$C0
+RFLUSH:         LDX     #$E0
 WFLUSH:         STX     WBM
                 STA     FDRV
                 LDX     #NBCB - 1
@@ -1116,9 +1157,9 @@ RDONE:          LDA     RERR
                 JMP     DERR
 
 ; Every buffer of drive A - 1 (0: of every drive) emptied, not written.
-PURGED:         STA     FDRV
-                LDX     #NBCB - 1
-@buffer:        LDA     FDRV
+PURGED:         STA     PDRV           ; its own (6c's second review: a guard's GONE inside
+                LDX     #NBCB - 1      ; FLUSHD's loop mustn't change FLUSHD's drive)
+@buffer:        LDA     PDRV
                 BEQ     @drop
                 CMP     BCB_DRV,X
                 BNE     @next
@@ -1183,16 +1224,12 @@ DIRPUT:         LDA     CSLOT          ; O:, P:: the disk checked past the buffe
                 STA     VDRV
                 LDA     CSLOT
                 STA     VSLOT
-                JSR     VERIFYD
+                JSR     DISKVER
                 BCC     @put
-                LDA     #BIOS_BLOCK    ; another disk: nothing of this call's written on it
-                STA     NB_WIN2
-                LDX     VDRV
-                JSR     FORGET
-                LDA     #BCB_BLOCK
-                STA     NB_WIN2
-                JSR     GONE
-                LDA     #RC_MEDIA
+                CMP     #2
+                BNE     @other
+                JMP     VDIO
+@other:         LDA     #RC_MEDIA      ; another disk: nothing of this call's written on it
                 JMP     RETA
 @put:           LDX     DBCB
                 LDA     #1

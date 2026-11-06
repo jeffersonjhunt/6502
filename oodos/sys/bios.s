@@ -166,8 +166,11 @@ TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty
 BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
 TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
 VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
-D2STAMP:        .res    8              ; O:'s and P:'s last access: the RTC's second, minute, hour, date
-STAMPT:         .res    4              ; the RTC's now, as D2STAMP keeps it
+D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
+STAMPT:         .res    5              ; the RTC's now, as D2STAMP keeps it
+STAMPH:         .res    5              ; the latest now NOW has read
+TICKED:         .res    1
+STAMPX:         .res    1              ; RECENT's and STAMP's drive              ; not 0: the RTC seen to go forward since the cold boot or its last step back
 RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
@@ -1088,43 +1091,54 @@ MEDIA:          TXA
 ; same second as now (under a second ago; one just across a second's edge
 ; is taken as older, so the rule only errs toward checking). Keeps X.
 RECENT:         JSR     NOW
-                TXA
-                ASL     A
-                ASL     A
-                TAY
-                LDA     STAMPT
+                LDA     TICKED
+                BEQ     @old
+                JSR     STAMPAT
+                LDA     #4
+@cmp:           PHA
+                LDA     STAMPT,X
                 CMP     D2STAMP,Y
-                BNE     @old
-                LDA     STAMPT + 1
-                CMP     D2STAMP + 1,Y
-                BNE     @old
-                LDA     STAMPT + 2
-                CMP     D2STAMP + 2,Y
-                BNE     @old
-                LDA     STAMPT + 3
-                CMP     D2STAMP + 3,Y
-                BNE     @old
+                BNE     @no
+                INX
+                INY
+                PLA
+                DEC     A
+                BPL     @cmp
+                LDX     STAMPX
                 CLC
                 RTS
+@no:            PLA
+                LDX     STAMPX
 @old:           SEC
                 RTS
 ; Drive X's last access now. Keeps X.
 STAMP:          JSR     NOW
+                JSR     STAMPAT
+                LDA     #4
+@copy:          PHA
+                LDA     STAMPT,X
+                STA     D2STAMP,Y
+                INX
+                INY
+                PLA
+                DEC     A
+                BPL     @copy
+                LDX     STAMPX
+                RTS
+; Y = drive X's D2STAMP offset (8 each), X = 0, the drive in STAMPX.
+STAMPAT:        STX     STAMPX
                 TXA
                 ASL     A
                 ASL     A
+                ASL     A
                 TAY
-                LDA     STAMPT
-                STA     D2STAMP,Y
-                LDA     STAMPT + 1
-                STA     D2STAMP + 1,Y
-                LDA     STAMPT + 2
-                STA     D2STAMP + 2,Y
-                LDA     STAMPT + 3
-                STA     D2STAMP + 3,Y
+                LDX     #0
                 RTS
-; STAMPT = the RTC's second, minute, hour and date (reading the second
-; latches the rest). Keeps X.
+; STAMPT = the RTC's second, minute, hour, date and month (reading the
+; second latches the rest). Against the latest read (STAMPH): later, the
+; clock ticks (TICKED); earlier, it was stepped back: nothing's trusted
+; until it ticks again, and no drive's last access can match by chance
+; when the clock reaches it again. Keeps X.
 NOW:            LDA     NB_SEC
                 STA     STAMPT
                 LDA     NB_MIN
@@ -1133,6 +1147,31 @@ NOW:            LDA     NB_SEC
                 STA     STAMPT + 2
                 LDA     NB_DATE
                 STA     STAMPT + 3
+                LDA     NB_MONTH
+                STA     STAMPT + 4
+                PHX
+                LDX     #4             ; the month first
+@cmp:           LDA     STAMPT,X
+                CMP     STAMPH,X
+                BNE     @differ
+                DEX
+                BPL     @cmp
+                BRA     @keep          ; the same second
+@differ:        BCS     @later
+                STZ     TICKED         ; stepped back
+                LDX     #15
+@forget:        STZ     D2STAMP,X
+                DEX
+                BPL     @forget
+                BRA     @high
+@later:         LDA     #1
+                STA     TICKED
+@high:          LDX     #4
+@copy:          LDA     STAMPT,X
+                STA     STAMPH,X
+                DEX
+                BPL     @copy
+@keep:          PLX
                 RTS
 
 ; FORGET, for the BDOS (as MEDIA): X = O: or P:, its track buffer emptied,
@@ -1978,6 +2017,12 @@ BINIT:          STZ     CURBANK
                 CMP     #DISK2_ID_V1
                 BNE     @done
                 JSR     D2INIT
+                LDX     #15            ; no access yet; RECENT trusts nothing until the
+@stamp:         STZ     D2STAMP,X      ; RTC is seen to tick (6c's second review: a
+                DEX                    ; clock that's stopped or no RTC at all)
+                BPL     @stamp
+                JSR     NOW
+                STZ     TICKED
                 LDA     #<DPHO
                 STA     DRVTAB + 2 * DRV_O
                 LDA     #>DPHO

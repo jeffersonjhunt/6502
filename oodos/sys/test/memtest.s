@@ -100,6 +100,21 @@
 ;   C   O:, closed then held (the close's write-back): NEW.DAT made, a
 ;       record written, closed (CC 00 00); LOOK? (the test reads the image
 ;       with no warm boot since)
+;   U   O: and C: (6c's second review): NEW.DAT on O: and CDATA.DAT on C:
+;       made and a record written to each (MK, WR, CMK, CWR); SWAP? (the
+;       test changes O:'s disk or takes it out); the end's warm boot
+;   R   U, then 13 (RST 00 00) before the end
+;   Q   O:'s track 3 sector 0 (the directory's first) read through the BIOS
+;       by 50, no BDOS select before (QRD 00), its first byte (QB nn: 00
+;       README.TXT's user, E5 a blank disk's)
+;   E   P:: PEND.DAT made, a record written (PMK, PWR); SWAP? (the test
+;       changes P:'s disk or takes it out); O:: BIG.DAT made, 160 records
+;       written (OFAIL nn: the writes that failed; each wants a buffer, and
+;       P:'s waiting one is a victim), closed (OCL); PEND.DAT closed (PCL)
+;   X   O:: README.TXT opened (XOP); SWAP? (the test changes the disk within
+;       the second); 19 of it (XDEL 0A 00: nothing deleted), then opened on
+;       the new disk (XOP2); SWAP2? (changed again); 22 of NEW.DAT (XMK 0A
+;       00: nothing made)
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -112,6 +127,7 @@
 DRV_M   = 12
 DRV_C   = 2                             ; C:, unit 3
 DRV_O   = 14                            ; O:, the Disk II's drive 1
+DRV_P   = 15                            ; P:, its drive 2
 ROMBIT  = $80                           ; a window on flash (backplane.inc's NB_ROM)
 WIN2    = $8000
 
@@ -237,6 +253,21 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'C'
         bne     :+
         jmp     casec
+:       cmp     #'U'
+        bne     :+
+        jmp     caseu
+:       cmp     #'R'
+        bne     :+
+        jmp     caser
+:       cmp     #'X'
+        bne     :+
+        jmp     casex
+:       cmp     #'E'
+        bne     :+
+        jmp     casee
+:       cmp     #'Q'
+        bne     :+
+        jmp     caseq
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -961,6 +992,94 @@ casec:  jsr     newdat
         KEYWAIT "LOOK?"
         jmp     done
 
+; U, R: O:'s record and then C:'s waiting together (6c's second review).
+twodat: jsr     newdat
+        lda     #DRV_C
+        sta     TDRV
+        NAME    fcbc, "CDATA   DAT"
+        TRY     "CMK ", F_MAKE, fcbc
+        ldx     #0
+        lda     #$C3
+:       sta     BUF,x
+        inx
+        cpx     #128
+        bne     :-
+        TRY     "CWR ", F_WRITE, fcbc
+        lda     #$FF
+        sta     TDRV
+        KEYWAIT "SWAP?"
+        rts
+caseu:  jsr     twodat
+        jmp     done
+caser:  jsr     twodat
+        TRY     "RST ", DRV_ALLRESET, 0
+        jmp     done
+
+; Q: O:'s first directory sector through the BIOS by 50.
+caseq:  lda     #DRV_O
+        sta     ydrv
+        lda     #3
+        sta     ytrk
+        jsr     yplace
+        lda     #BIOS::READ
+        jsr     ybios
+        pha
+        SAY     "QRD "
+        pla
+        jsr     yres
+        BYTES   "QB ", ybuf, 1
+        jmp     done
+
+; E: P:'s record waiting, then O:'s writes evicting it.
+casee:  lda     #DRV_P
+        sta     TDRV
+        NAME    fcbc, "PEND    DAT"
+        TRY     "PMK ", F_MAKE, fcbc
+        ldx     #0
+        lda     #$5A
+:       sta     BUF,x
+        inx
+        cpx     #128
+        bne     :-
+        TRY     "PWR ", F_WRITE, fcbc
+        KEYWAIT "SWAP?"
+        lda     #DRV_O
+        sta     TDRV
+        NAME    fcb, "BIG     DAT"
+        TRY     "OMK ", F_MAKE, fcb
+        stz     ytrk                    ; the records
+        stz     yerr                    ; the writes that failed
+:       CALLF   F_WRITE, fcb
+        cmp     #0
+        beq     :+
+        inc     yerr
+:       inc     ytrk
+        lda     ytrk
+        cmp     #160
+        bne     :--
+        BYTES   "OFAIL ", yerr, 1
+        TRY     "OCL ", F_CLOSE, fcb
+        TRY     "PCL ", F_CLOSE, fcbc
+        lda     #$FF
+        sta     TDRV
+        jmp     done
+
+; X: O:'s directory written by 19 and 22 after a change within the second.
+casex:  lda     #DRV_O
+        sta     TDRV
+        NAME    fcb, "README  TXT"
+        TRY     "XOP ", F_OPEN, fcb
+        KEYWAIT "SWAP?"
+        NAME    fcb, "README  TXT"
+        TRY     "XDEL ", F_DELETE, fcb
+        TRY     "XOP2 ", F_OPEN, fcb
+        KEYWAIT "SWAP2?"
+        NAME    fcb, "NEW     DAT"
+        TRY     "XMK ", F_MAKE, fcb
+        lda     #$FF
+        sta     TDRV
+        jmp     done
+
 ; T: O:'s tracks 0-34, sector 0 of each, read through the BIOS by 50.
 caset:  lda     #DRV_O
         sta     ydrv
@@ -1174,6 +1293,7 @@ fillw:  sta     HEXC
 
         .bss
 fcb:    .res    36
+fcbc:   .res    36
 sfcb:   .res    36
 get:    .res    4
 mcb:    .res    5
