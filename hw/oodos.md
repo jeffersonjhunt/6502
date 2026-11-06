@@ -3478,6 +3478,37 @@ merged, with the switches' equates (below).
   read-only case). (Each utility fault's run also failed the read-only case, for want of SET.COM in its build.)
 - **DOS33.COM** is 6,903 bytes now (the checks, the `$$$` file, the messages).
 
+**After 6d's second review (2026-11-06, the owner's decisions, all 6 as recommended):**
+
+- **R2F1:** round 1's bound of five lists refused the sparse files DOS 3.3 itself writes (`OPEN RND,L250`,
+  `WRITE RND,R700`: six lists, five of them empty). `chkfile` now holds each list to its +5 (the k-th starts at
+  the file's sector 122 × k, 16 bits): a loop comes back to a list with the wrong one, so it is still found,
+  and past 16 bits is refused. The pair checks stay. dos33.py takes lists by the same rule.
+- **R2F2, R2F3:** before reading anything GET refuses a `.$$$` target, a read-only CP/M drive (29), a read-only
+  target file, and a `NAME.$$$` already there (the user's, not deleted). Its CP/M calls go through `cpmres`:
+  0 on; 10 `The CP/M disk was changed.`; an error the BDOS said `GET stopped.`; `$FF` the call's own message
+  (directory full, not closed, not renamed); a write's 1 and 2. Make, close and rename took only `$FF` for a
+  failure, so a 10 passed as success (the same in the CCP's ERASE and RENAME and in PIP is todo item 17).
+  A rename that fails leaves the new data as `NAME.$$$` and says so.
+- **R2F4:** 76 reads the units again before every write, and a write to a unit that changed since they were
+  last read is refused, `$FF` (the BIOS keeps a 140 KB unit's DRVAPL across a swap to another 140 KB image, so
+  the change bit, DRVCHG, is the test, taken before CHANGED clears it). Reads keep F14's cache.
+- **R2F5, R2F6 (books):** 0, 13, 48 and 75 say OODOS 0.4 and the check-first write-back on O: and P:, as 37
+  does; 72's table says (0, 4); 48's Read Only drops all the drive's changed buffers; 76's bullets rewrapped, and
+  the read-only bit outliving the logout. **The rule for the Since lines:** a change in behaviour that many
+  functions share through one routine bumps the entries whose text describes it (the write-backs: 0, 13, 37,
+  48, 75); the functions that only pass through it (17, 18, 46 and the like, which can now meet a held Read
+  Only or accept O: and P:) keep their line, and the books say it once, in appendix A and chapter 3.
+- **Tests:** `test_oodos_dos33` 21 → 25: a sparse file of six lists (GET, ERA, dos33.py's check), GET's four
+  refusals, 76's write after a remount behind OODOS's back ($FF, MEMTEST's I), and a disk change on O: under
+  GET with the clock held, so the close is the call that returns 10. `test_oodos_dos33_iie` 1 → 2: DOS 3.3
+  writes the sparse file far out; DOS33 GETs its sectors and ERAs it; DOS then BSAVEs and VERIFYs on that disk.
+- **Must fail, each seen with its fault put in:** five lists again (the sparse cases, in both suites); each of
+  GET's four refusals left out (its case); 76's write without the change test (the remount case); make, close
+  and rename taking only `$FF` (the disk-change case: `not renamed` instead of `changed`), and the close alone
+  the same.
+- **Sizes:** the BDOS 13,117 bytes in block 60 (+349 on main); DOS33.COM 7,443 bytes.
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).

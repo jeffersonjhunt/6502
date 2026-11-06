@@ -1132,7 +1132,9 @@ DOS33 ERA d:NAME
   record, so T stops at the first: take one with R. B: the bytes DOS keeps first (the load address and the length)
   dropped, the length's bytes written; the address is shown. R: every sector of the file as it is on the disk. Without
   a letter, T for a T file, B for a B file, R for any other. GET writes a `.$$$` file first and gives it the name only
-  when it is whole, so a CP/M file already there is replaced only then; a GET that fails leaves it as it was.
+  when it is whole, so a CP/M file already there is replaced only then; a GET that fails leaves it as it was, and
+  no `.$$$` file. Before it reads anything, GET refuses a target of type `$$$`, a read-only file or drive, and a
+  `NAME.$$$` already there (yours: it isn't deleted).
 - **PUT** puts the CP/M file on the disk as NAME. T: bit 7 set, CR LF made a CR and a lone LF a CR too, NUL bytes
   dropped, to the first ^Z, a 0 after. B: the load address (`$2000` unless `B=addr` gives it, in hex) and the length
   (the file's records × 128, so at most 511 of them) first. Without a letter, T for a `.TXT` file, B for any other. A
@@ -1142,8 +1144,10 @@ DOS33 ERA d:NAME
   line comes in capitals, quotes and all, so a file whose name has small letters or control characters, as DOS 3.3
   allows, can be listed but not reached by GET or ERA.
 - The CP/M file mustn't be on the Apple disk's own drive: GET and PUT refuse it.
-- Before GET or ERA does anything, the file's track/sector lists are read through: at most five, each sector on the
-  disk and not on the catalog's track. A file that isn't so is refused, nothing written.
+- Before GET or ERA does anything, the file's track/sector lists are read through: each must start where the file
+  says (the k-th at its sector 122 × k, so a list chained in a loop is found, while a random-access file's empty
+  lists pass), and each sector must be on the disk and not on the catalog's track. A file that isn't so is refused,
+  nothing written.
 
 #### Options
 
@@ -1175,7 +1179,12 @@ Address $6000, 1000 bytes
 - `Disk error.`: a sector couldn't be read or written. `Disk write-protected.`: the floppy's notch is covered, or the
   drive is set read-only (SET `[RO]`).
 - `The CP/M file can't be on the Apple disk.`: e: is d:.
-- `No File`, `CP/M disk full.`, `CP/M directory full.`, `CP/M read error.`: the CP/M file.
+- `GET won't write a .$$$ file.`, `CP/M file read-only.`, `CP/M drive read-only.`, `Its .$$$ file is there
+  already: ERA it first.`: GET's refusals before it starts.
+- `No File`, `CP/M disk full.`, `CP/M directory full.`, `CP/M read error.`, `CP/M file not closed.`, `CP/M error.`:
+  the CP/M file. `The CP/M disk was changed.`: O: or P:'s floppy was changed while GET wrote to it (Media Change).
+  `GET stopped.`: after an error OODOS has said (`Read Only`, `File R/O`, ...). `CP/M file not renamed: the data is
+  in its .$$$ file.`: the last step failed, so the new data is kept under that name.
 
 Each sets the return code to `$FF00`. A disk DOS33 has written passes DOS 3.3's own `VERIFY` and loads with `BLOAD`.
 

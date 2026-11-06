@@ -40,7 +40,9 @@ The warm boot, as `JMP WBOOT` (`$0200`) and a program's last RTS give it:
   this call, on its way here, or one the warm boot sends for any other end. Then it takes out the RSXs whose remove
   flag is `$FF` ([chapter 6](06-program-formats.md#rsxs)).
 - The CCP writes back every changed buffer (as function 48) and frees the blocks of files written but not closed
-  (as function 98): what a program wrote to a file it didn't close is lost.
+  (as function 98): what a program wrote to a file it didn't close is lost. On O: and P:
+  the disk is checked first, and a changed disk gets none of it
+  ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - The CCP sets the multi-sector count to 1, the console mode to 0 and the delimiter to `$`, and makes its own drive
   and user current again. The return code (function 108) stays as the program left it.
 - A command left by function 47 runs next.
@@ -51,7 +53,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -627,7 +629,8 @@ modes.
 
 - The BIOS reads the card's units again first. A drive whose image was swapped since its login has its buffers
   dropped unwritten, so nothing meant for the old image is written to the new one.
-- Every changed buffer is written back, then every buffer dropped.
+- Every changed buffer is written back, then every buffer dropped. On O: and P: the disk is checked before anything is
+  written back, and a changed disk gets none of it ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - Every drive is logged out and made read-write, including those made read-only by [function 28](#bdos-28).
 - A: becomes the current drive (the SCB's `$3E`). The user number stays.
 - The DMA address is set to `$0280` (the SCB's `$3C`). The DMA segment ([function 51](#bdos-51)) is kept.
@@ -641,7 +644,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -2172,14 +2175,17 @@ chained to.
 #### Errors
 
 Every changed buffer is tried, past a failure. Then the first failure is raised, as the error mode says
-([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O, or 2 Read Only for a unit found
-read-only (that buffer is dropped, and the drive made read-only).
+([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O, or 2 Read Only for a unit (or a
+floppy) found read-only: the drive is made read-only and all its changed buffers are dropped, as none can be
+written.
 
 #### Side effects
 
 - A drive whose unit has changed since its login has its buffers dropped unwritten first.
 - Every changed buffer is written back. One that fails is kept, marked, and tried again by the next 48 or close;
-  [function 13](#bdos-13) or 37 drops it. With A = `$FF` all are dropped all the same.
+  [function 13](#bdos-13) or 37 drops it. With A = `$FF` all are dropped all the same. On O: and P: the disk
+  is checked before anything is written back, and a changed disk gets none of it
+  ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 
 The CCP calls 48, then [98](#bdos-98), at every warm boot, and says a failure there as the BDOS says its errors.
 
@@ -2189,7 +2195,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -2750,7 +2756,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
 
   | Offset | What |
   |---|---|
-  | +0, +1 | OODOS's version: major, minor (0, 3) |
+  | +0, +1 | OODOS's version: major, minor (0, 4) |
   | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.11`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
@@ -2908,7 +2914,9 @@ As in Exit.
 #### Side effects
 
 - For A = 0 or 1, the changed buffers are written back first, as function 48 does, even when there is no IIe ROM
-  to go to. A file left open isn't closed: a program closes its files first.
+  to go to. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  before anything is written back, and a changed disk gets none of it
+  ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - OODOS doesn't come back: the ROM's monitor, or a reset, is what follows.
 
 #### Cycles
@@ -2917,7 +2925,7 @@ Not measured.
 
 #### Since
 
-OODOS 0.2
+OODOS 0.4
 
 #### Status
 
@@ -2957,10 +2965,13 @@ None raised, whatever the error mode: each is a result in A.
 #### Side effects
 
 - If the drive is logged in, its changed buffers are written back, then all its buffers are dropped and it is
-  logged out, as [function 37](#bdos-37) does but keeping a read-only drive read-only: its next CP/M use reads the disk again, so what 76 wrote is what
+  logged out, as [function 37](#bdos-37) does: its next CP/M use reads the disk again, so what 76 wrote is what
   CP/M sees. If a buffer can't be written, A = 1 and nothing more is done.
-- An SD drive whose unit isn't yet known as a 140 KB image has the units read again first (as at a reset), so a
-  unit mounted since is seen.
+- Unlike 37, 76 leaves a read-only drive read-only, logged out or not: the bit outlives the logout until 13 or 37
+  clears it, as [function 28](#bdos-28) says.
+- The units are read again first (as at a reset) for every write, and for a read on an SD drive whose unit isn't
+  yet known as a 140 KB image, so a unit mounted since is seen. A write to a unit that changed since the units
+  were last read (swapped behind OODOS's back while the program ran) is refused, A = `$FF`.
 - The sector is the disk's own: on an SD unit at (track × 16 + sector) × 256 in its image file, on a floppy at its
   physical place by DOS 3.3's interleave. CP/M's skew isn't used, and nothing of DOS 3.3's file system is read or
   kept: that is the program's. DOS33 ([the User's Guide](../oodos-users-guide/05-utilities.md#util-dos33)) is one.

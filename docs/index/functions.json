@@ -5,7 +5,7 @@
   "documented": true,
   "anchor": "bdos-0",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -122,7 +122,7 @@
   "documented": true,
   "anchor": "bdos-13",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -428,7 +428,7 @@
   "documented": true,
   "anchor": "bdos-48",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -572,7 +572,7 @@
   "documented": true,
   "anchor": "bdos-75",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
