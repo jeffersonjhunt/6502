@@ -277,11 +277,15 @@ spec's later steps.
 - Playing starts at 4 KB in the FIFO, or as soon as EOF is set. The first frame is due a whole frame's time
   later, at RATE on the host's clock, and every frame after it at the same pace.
 - A frame takes 1, 2 or 4 bytes from the FIFO, and only whole frames are taken. A frame split across two writes
-  waits for its last byte; with EOF set, a partial frame left at the end is never played.
+  waits for its last byte. With EOF set, a partial frame left at the end is dropped when the stream ends, never
+  played, so the FIFO is empty again and the next stream starts on a frame.
 - The FIFO runs dry when a frame falls due and none is there. Without EOF that is underrun: silence, until a whole
   frame arrives, which plays at the next frame due with no new buffering. With EOF it is ended. A FIFO emptied and
   filled again before the next frame is due hasn't underrun.
-- PAUSE while buffering goes back to buffering when cleared; ended lasts until RUN is cleared.
+- Releasing PAUSE goes back to the state it paused: buffering, playing or underrun. An underrun paused is the
+  same dry spell, not counted again. Ended lasts until RUN is cleared.
+- FLUSH with RUN set is a seek: the FIFO empties and the stream buffers again, to 4 KB or to EOF, with no underrun
+  counted; POS runs on from where it was. Paused, the seek takes effect when PAUSE is released.
 
 ## Registers
 
@@ -678,7 +682,7 @@ R/W. FLUSH is a strobe: writing it 1 empties the FIFO and the decoder, and it re
 
 #### Notes
 
-`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set, the next frame due finds it dry. Clearing RUN keeps the FIFO.
+`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set it is a seek, and the stream buffers again. Clearing RUN keeps the FIFO.
 
 <a id="reg-c549"></a>
 ### $C549 SOUND_CODEC: the stream's codec
@@ -775,7 +779,7 @@ R/W. Bits 7–2 read 0.
 
 #### Notes
 
-In the design it reads back the format playing, an MP3's included.
+RUN takes PCMFMT, and while it runs PCMFMT reads back the format it took, whatever is written after. In the design it reads back an MP3's format too.
 
 <a id="reg-c54d"></a>
 ### $C54D SOUND_FREE: the FIFO's room

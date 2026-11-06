@@ -44,8 +44,10 @@
  * takes 1, 2 or 4 bytes, whole frames only, so one split across writes
  * waits for its last byte. A frame due with none in the FIFO is underrun
  * (silence, counted once by underruns()) without EOF, and the end with it;
- * a byte arriving plays from the next frame. PAUSE holds the place, FLUSH
- * empties the FIFO, clearing RUN keeps it. POS counts the frames played.
+ * a byte arriving plays from the next frame; at the end a partial frame is
+ * dropped. PAUSE holds the place (its release goes back to the state it
+ * paused), FLUSH empties the FIFO (with RUN set, a seek: buffering again),
+ * clearing RUN keeps it. POS counts the frames played.
  * The test tap (set_tap()) records the bus before any resampling, signed
  * 16-bit left then right, 8-bit made (b - 128) x 256, mono on both sides.
  *
@@ -261,8 +263,11 @@ namespace ooe::emu
         /// The host CPU's clock, which tick()'s cycles run at (0: 7.16 MHz).
         void set_cpu_hz(uint32_t hz)
         {
-            host_hz_ = hz ? hz : NATIVE_HZ;
-            pcm_phase_ = 0; // a new clock: the remainder was in the old one's cycles
+            const uint32_t to = hz ? hz : NATIVE_HZ;
+            // The stream has been ticked at the old clock; the part of a frame owed carries over, rescaled
+            // (below host Hz, so the product fits).
+            pcm_phase_ = pcm_phase_ * to / host_hz_;
+            host_hz_ = to;
         }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
         void reset();
@@ -478,7 +483,7 @@ namespace ooe::emu
         std::unique_ptr<std::array<uint8_t, FIFO_BYTES>> fifo_ = std::make_unique<std::array<uint8_t, FIFO_BYTES>>();
         size_t fifo_head_{0}, fifo_count_{0};
         uint8_t state_{STATE_IDLE};
-        bool started_{false};             ///< buffering is over: PAUSE goes back to playing
+        uint8_t resume_{STATE_BUFFERING}; ///< the state PAUSE's release goes back to
         uint32_t play_rate_{0};
         uint8_t play_fmt_{0};
         uint64_t pcm_phase_{0};           ///< host cycles x rate owed, below one frame

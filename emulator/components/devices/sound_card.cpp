@@ -35,7 +35,7 @@ namespace ooe::emu
         rate_ = 0;
         fifo_head_ = fifo_count_ = 0;
         state_ = STATE_IDLE;
-        started_ = false;
+        resume_ = STATE_BUFFERING;
         play_rate_ = 0;
         play_fmt_ = 0;
         pcm_phase_ = 0;
@@ -134,9 +134,17 @@ namespace ooe::emu
         if (data & PCMCTL_FLUSH)
             fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
         pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
+        if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT)
+        {
+            // A seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
+            if (state_ == STATE_PAUSED)
+                resume_ = STATE_BUFFERING;
+            else
+                state_ = STATE_BUFFERING;
+        }
         if ((pcmctl_ & PCMCTL_RUN) && !(was & PCMCTL_RUN))
         {
-            started_ = false;
+            resume_ = STATE_BUFFERING;
             pcm_phase_ = 0;
             if (rate_ < RATE_MIN || rate_ > RATE_MAX || codec_ != 0) // MP3 comes in step 4
                 state_ = STATE_BAD_FORMAT;
@@ -158,15 +166,16 @@ namespace ooe::emu
             return;
         if (pcmctl_ & PCMCTL_PAUSE)
         {
+            if (state_ != STATE_PAUSED)
+                resume_ = state_; // buffering, playing or underrun: where PAUSE's release goes back to
             state_ = STATE_PAUSED;
             return;
         }
         if (state_ == STATE_PAUSED)
-            state_ = started_ ? STATE_PLAYING : STATE_BUFFERING;
+            state_ = resume_; // an underrun paused is the same dry spell, not a new one
         if (state_ == STATE_BUFFERING && (fifo_count_ >= START_BYTES || (pcmctl_ & PCMCTL_EOF)))
         {
             state_ = STATE_PLAYING;
-            started_ = true;
             pcm_phase_ = 0; // the first frame a whole frame from now
         }
         if (state_ == STATE_UNDERRUN && fifo_count_ >= frame_bytes())
@@ -196,7 +205,8 @@ namespace ooe::emu
             }
             if (pcmctl_ & PCMCTL_EOF)
             {
-                state_ = STATE_ENDED; // a partial frame left is never played
+                state_ = STATE_ENDED;
+                fifo_count_ -= fifo_count_ % frame_bytes(); // a partial frame left is dropped, never played
                 return;
             }
             if (state_ != STATE_UNDERRUN)

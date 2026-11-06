@@ -912,8 +912,12 @@ the spec is silent:
   underrun; data again plays from the next frame due, with no new buffering. One counted underrun is one time dry.
 - RUN takes RATE and PCMFMT; while it runs they read back what it took. PCMFMT's two bits are all valid, so `$80`
   is a RATE outside 8,000–48,000, and for now any CODEC but raw PCM (MP3 is step 4).
-- PAUSE while buffering goes back to buffering; ended stays ended until RUN is cleared; with EOF, a partial frame
-  left over is never played.
+- Releasing PAUSE goes back to the state it paused (buffering, playing or underrun); an underrun paused is the
+  same dry spell, not counted again. Ended stays ended until RUN is cleared.
+- With EOF, a partial frame left over is dropped when the stream ends, never played, so the next stream starts on
+  a frame and FREE reads 512 again.
+- FLUSH with RUN set is a seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
+- A new host clock (`set_cpu_hz()`) rescales the part of a frame owed, so a clock change loses no frames.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.

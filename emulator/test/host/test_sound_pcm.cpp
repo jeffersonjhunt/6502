@@ -180,7 +180,8 @@ TEST(eof_starts_a_short_stream_and_ends_it)
     CHECK_EQ(state(c), SoundCard::STATE_ENDED);
     c.write(SoundCard::PCMCTL, 0);
     CHECK_EQ(state(c), SoundCard::STATE_IDLE);
-    CHECK_EQ(c.fifo_bytes(), 3u);                   // clearing RUN keeps the FIFO
+    CHECK_EQ(c.fifo_bytes(), 0u);                   // the partial frame dropped at the end
+    CHECK_EQ(free_units(c), 512u);
 }
 
 TEST(underrun_is_silence_until_data_comes_and_counts_once)
@@ -258,13 +259,14 @@ TEST(pause_holds_the_place_and_flush_empties_the_fifo)
     host(c, 50 * FRAME);
     CHECK_EQ(pos(c), 150u);
     CHECK(c.take_tap() == expected(std::vector<uint8_t>(bytes.begin(), bytes.begin() + 2 * 150), STEREO8));
-    // FLUSH, RUN kept: the FIFO and the decoder empty, so the next frame due finds nothing.
+    // FLUSH, RUN kept: the FIFO and the decoder empty; a seek: buffering again.
     c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH);
     CHECK_EQ(c.read(SoundCard::PCMCTL), SoundCard::PCMCTL_RUN);
     CHECK_EQ(c.fifo_bytes(), 0u);
     CHECK_EQ(free_units(c), 512u);
     host(c, FRAME);
-    CHECK_EQ(state(c), SoundCard::STATE_UNDERRUN);
+    CHECK_EQ(state(c), SoundCard::STATE_BUFFERING);
+    CHECK_EQ(c.underruns(), 0u);
     // Paused while buffering goes back to buffering.
     c.write(SoundCard::PCMCTL, 0);
     start(c, STEREO8);
@@ -421,6 +423,8 @@ namespace
 
 TEST(pos_state_and_free_are_the_same_at_audio_rates_0_and_48000_and_however_ticked)
 {
+    // The audio-rate half guards step 3's mixing: until the stream is mixed, nothing of it reads the audio rate,
+    // so that half can't fail yet. The tick sizes can.
     const std::vector<uint32_t> base = scripted(0, 7, SoundCard::NATIVE_HZ);
     CHECK(scripted(48'000, 7, SoundCard::NATIVE_HZ) == base);
     CHECK(scripted(0, 1, SoundCard::NATIVE_HZ) == base);
@@ -563,6 +567,114 @@ TEST(an_hour_in_one_tick_is_caught_up_in_bulk)
     put(c, stream(4, 7));                              // and it plays on
     c.tick(uint64_t{SoundCard::NATIVE_HZ} * 3'600 * 24);
     CHECK_EQ(pos(c), 25'001u);
+}
+
+TEST(pause_in_an_underrun_is_the_same_dry_spell)
+{
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    start(c, MONO8);
+    put(c, stream(4'096, 12));
+    host(c, 4'097 * FRAME);
+    CHECK_EQ(state(c), SoundCard::STATE_UNDERRUN);
+    CHECK_EQ(c.underruns(), 1u);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+    CHECK_EQ(state(c), SoundCard::STATE_PAUSED);
+    host(c, 10 * FRAME);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN); // released, still dry
+    CHECK_EQ(state(c), SoundCard::STATE_UNDERRUN);
+    host(c, 10 * FRAME);
+    CHECK_EQ(c.underruns(), 1u);                       // not a second count
+    put(c, stream(1, 13));
+    CHECK_EQ(state(c), SoundCard::STATE_PLAYING);
+    host(c, FRAME);
+    CHECK_EQ(pos(c), 4'097u);
+    // Paused while playing goes back to playing.
+    put(c, stream(10, 14));
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
+    CHECK_EQ(state(c), SoundCard::STATE_PLAYING);
+}
+
+TEST(a_stream_after_one_of_odd_length_plays_aligned)
+{
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    c.set_tap(true);
+    start(c, STEREO16);
+    put(c, stream(41 * 4 + 3, 15)); // 41 frames and 3 bytes over
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+    host(c, 50 * FRAME);
+    CHECK_EQ(state(c), SoundCard::STATE_ENDED);
+    CHECK_EQ(free_units(c), 512u);
+    c.write(SoundCard::PCMCTL, 0);
+    c.take_tap();
+    const std::vector<uint8_t> next = stream(30 * 4, 16);
+    start(c, STEREO16);
+    put(c, next);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+    host(c, 40 * FRAME);
+    CHECK_EQ(state(c), SoundCard::STATE_ENDED);
+    CHECK(c.take_tap() == expected(next, STEREO16)); // frame for frame, not 3 bytes out
+}
+
+TEST(flush_while_running_is_a_seek_that_buffers_again)
+{
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    c.set_tap(true);
+    start(c, MONO8);
+    put(c, stream(5'000, 17));
+    host(c, 100 * FRAME);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH);
+    CHECK_EQ(state(c), SoundCard::STATE_BUFFERING);
+    host(c, 50 * FRAME);
+    CHECK_EQ(state(c), SoundCard::STATE_BUFFERING); // no underrun for the seek
+    CHECK_EQ(c.underruns(), 0u);
+    CHECK_EQ(pos(c), 100u);
+    c.take_tap();
+    const std::vector<uint8_t> after = stream(4'096, 18);
+    put(c, after, 0, 4'095);
+    CHECK_EQ(state(c), SoundCard::STATE_BUFFERING);
+    put(c, after, 4'095);                           // to 4 KB again
+    CHECK_EQ(state(c), SoundCard::STATE_PLAYING);
+    host(c, 4'096 * FRAME);
+    CHECK(c.take_tap() == expected(after, MONO8));
+    // A seek while paused buffers again on release.
+    put(c, stream(100, 19));
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE | SoundCard::PCMCTL_FLUSH);
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
+    CHECK_EQ(state(c), SoundCard::STATE_BUFFERING);
+    // And from the end: EOF set, FLUSH with nothing after it plays at once and ends.
+    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF | SoundCard::PCMCTL_FLUSH);
+    CHECK_EQ(state(c), SoundCard::STATE_PLAYING);
+    host(c, FRAME);
+    CHECK_EQ(state(c), SoundCard::STATE_ENDED);
+    CHECK_EQ(c.underruns(), 0u);
+}
+
+TEST(a_clock_change_mid_stream_loses_no_frames)
+{
+    // 2,000 changes between two clocks, each after an odd number of cycles: the part of a frame owed at each
+    // change carries over, so the frames played are the exact sum, less at most one for the rescales' rounding.
+    SoundCard c;
+    c.set_cpu_hz(HZ);
+    start(c, MONO8);
+    put(c, stream(SoundCard::FIFO_BYTES, 20));
+    long double exact = 0;
+    for (unsigned i = 0; i < 2'000; ++i)
+    {
+        const uint32_t hz = i % 2 ? SoundCard::NATIVE_HZ : HZ;
+        c.set_cpu_hz(hz);
+        const uint64_t cycles = 1'237 + 17 * (i % 5);
+        host(c, cycles);
+        exact += static_cast<long double>(cycles) * RATE / hz;
+    }
+    const uint32_t played = pos(c);
+    std::printf("  %u frames played, %.3Lf exact\n", played, exact);
+    CHECK(played <= static_cast<uint32_t>(exact));
+    CHECK(played + 1 >= static_cast<uint32_t>(exact));
 }
 
 int main()
