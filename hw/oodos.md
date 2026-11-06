@@ -3545,6 +3545,22 @@ merged, with the switches' equates (below).
 - **Sizes:** the BDOS 13,130 bytes (+362 on main); DOS33.COM 7,570 bytes: CODE $19CE with `cmd.inc` and
   `util.inc` (about 4 KB of it, as in every utility), RODATA $3B4. The plan's 4-6 KB didn't count the includes.
 
+**After 6d's fourth review (2026-11-06, the owner's decisions; merged after it):**
+
+- **The read of the units before each 76 write stays** (PUT of 32 KB 1.40 s; R2F4's probe refused).
+- **R4F1:** gbyte set `done` with INC, so GET's owed zeros, which call it once a byte, wrapped it to 0 after 256
+  when a B length ended exactly on a sector's end (L 252 or 508: 137 s); it is set to 1 now, so the zeros stop
+  at the length at once (2.1 s for the 526-list case).
+- **R4F2:** a B file whose stored length runs past its last sector written gets zeros to the length, so the CP/M
+  file is what the address line says ("1000 bytes": 1,000, in 8 records).
+- **R4F3:** cpmres's `CP/M error.` is said (it fell into `dbreak`). **R4F4:** BINIT empties every track buffer at
+  the cold boot.
+- **Tests:** `test_oodos_dos33` 32 → 34: L 252 and 508 on a sector's end with a time bound, and a B length past
+  its last sector. **Must fail:** INC again (both lengths, 30 s, the bound); no zeros past the last sector (the
+  1,000-byte case).
+- **Sizes:** the BDOS 13,130 bytes; the BIOS 9,027 in block 61 (BINIT's loop took it past a page); DOS33.COM
+  7,604 bytes.
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).

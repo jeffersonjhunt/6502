@@ -2052,7 +2052,11 @@ BIN2BCD:        LDY     #0             ; A (0-99): tens in Y
 ; Cold boot's part (block 62's COLD calls these)
 
 ; The devices, the drives, the banks.
-BINIT:          STZ     CURBANK
+BINIT:          LDX     #2 * NTB - 1   ; every track buffer empty (6d's fourth review: a warm
+@tb:            STZ     TBTAG,X        ; start could leave a tag from before)
+                DEX
+                BPL     @tb
+                STZ     CURBANK
                 STZ     DMABANK
                 STZ     XPEND
                 LDA     SD_ID          ; the card's interrupts off: polled

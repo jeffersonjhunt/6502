@@ -1060,6 +1060,63 @@ TEST(a_b_file_s_length_ends_its_zeros)
     CHECK(m_data(r, 0, "SP      BIN") == records(want));
 }
 
+TEST(a_b_length_on_a_sector_boundary)
+{
+    // L = 252 (the first sector's end) and L = 508 (the second's): the length ends where a sector does,
+    // then sectors never written, then one far out (526 lists). GET B stops at the length at once (the
+    // review's R4F1: done, counted up, wrapped to 0 after 256 bytes owed, and the walk went on: 137 s).
+    for (unsigned len : {252u, 508u})
+    {
+        Dd r;
+        REQUIRE(r.ok);
+        std::vector<uint8_t> img = chain_image(526);
+        const size_t e = at(17, 15) + 0x0B;
+        const size_t l0 = at(img[e], img[e + 1]);
+        img[l0 + 0x0C] = 34;
+        img[l0 + 0x0D] = 15;
+        if (len > 252)
+        {
+            img[l0 + 0x0E] = 34;
+            img[l0 + 0x0F] = 14;
+        }
+        std::vector<uint8_t> want;
+        for (unsigned i = 0; i < len; ++i)
+            want.push_back(static_cast<uint8_t>(i * 7));
+        std::vector<uint8_t> first = {0x00, 0x10, static_cast<uint8_t>(len & 0xFF), static_cast<uint8_t>(len >> 8)};
+        first.insert(first.end(), want.begin(), want.begin() + 252);
+        std::copy(first.begin(), first.end(), img.begin() + static_cast<long>(at(34, 15)));
+        if (len > 252)
+            std::copy(want.begin() + 252, want.end(), img.begin() + static_cast<long>(at(34, 14)));
+        r.put_disk(img);
+        std::string o;
+        const uint64_t t0 = r.cpu->cycles();
+        CHECK(returns(r, "dos33 get c:SP m:sp.bin B", ms(30000), o));
+        std::printf("  GET B, length %u: %.2f s\n", len, secs(r, t0));
+        CHECK(secs(r, t0) < 3.0);
+        has(o, "Address $1000, " + std::to_string(len) + " bytes");
+        CHECK(m_data(r, 0, "SP      BIN") == records(want));
+    }
+}
+
+TEST(a_b_length_past_its_last_sector)
+{
+    // A B file stored as 1,000 bytes long but with only its first sector written: GET B writes the
+    // sector's 252 bytes and zeros to 1,000, as its address line says (the review's R4F2).
+    Dd r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> b = gen(252, 4);
+    std::vector<uint8_t> img = image({{"SHORT", 'B', b, 0x1000}});
+    const auto [t, s] = first_list(img);
+    const size_t d = at(img[at(t, s) + 0x0C], img[at(t, s) + 0x0D]);
+    img[d + 2] = 1000 & 0xFF;
+    img[d + 3] = 1000 >> 8;
+    r.put_disk(img);
+    has(r.c("dos33 get c:SHORT m:short.bin"), "Address $1000, 1000 bytes");
+    std::vector<uint8_t> want = b;
+    want.resize(1000, 0);
+    CHECK(m_data(r, 0, "SHORT   BIN") == records(want));
+}
+
 TEST(b_and_r_fill_holes_only_inside_the_file)
 {
     // A B file of 600 bytes (3 sectors) whose middle sector was never written: GET B has 252 bytes, 256

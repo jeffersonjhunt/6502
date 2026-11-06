@@ -257,7 +257,18 @@ get:    jsr     drive
         lda     lbuf + 2
         sta     ls
         jmp     @list
-@end:   lda     #0                      ; the last record: ^Z after text, 0 after the rest
+@end:   lda     gmode                   ; B: zeros to its stored length, past its last sector
+        cmp     #'B'                    ; written (as the address line says)
+        bne     @pad
+        lda     first
+        beq     @pad
+@bz:    lda     bleft
+        ora     bleft + 1
+        beq     @pad
+        lda     #0
+        jsr     gbyte
+        bra     @bz
+@pad:   lda     #0                      ; the last record: ^Z after text, 0 after the rest
         ldx     gmode
         cpx     #'T'
         bne     :+
@@ -358,7 +369,8 @@ gbyte:  ldy     gmode
         bne     @bin
         cmp     #0
         bne     :+
-        inc     done                    ; text ends at its first 0 (as stored: $80 isn't one)
+        lda     #1                      ; text ends at its first 0 (as stored: $80 isn't one)
+        sta     done
         rts
 :       and     #$7F
         cmp     #CR
@@ -372,7 +384,8 @@ gbyte:  ldy     gmode
         bne     :+
         ldy     bleft + 1
         bne     :+
-        inc     done
+        lda     #1                      ; (1, not INC: called again past the end, it mustn't
+        sta     done                    ; wrap to 0 after 256)
         rts
 :       ldy     bleft
         bne     :+
@@ -1559,6 +1572,7 @@ cpmres: cmp     #0
         jmp     failz
 :       lda     #<scpmgen
         ldx     #>scpmgen
+        jmp     failsay
 ; ^C (CM_BRK, GET's): its $$$ file deleted, then as UT_BREAK.
 dbreak: jsr     dtemp
         jmp     UT_BREAK
