@@ -23,7 +23,8 @@
  * utilities on A: (phase 4b1: ERASE, RENAME, SET, INITDIR) change A: through
  * the CCP the same way, the cards saved by OODOS_CCP_OUT, OODOS_UTILS_OUT,
  * OODOS_PIP_OUT, OODOS_RSX_OUT and OODOS_SUBMIT_OUT for interop.sh --ccp, --utils,
- * --pip, --rsx (phase 5b: GENCOM and PUT) and --submit (5c: PROFILE.SUB at boot).
+ * --pip, --rsx (phase 5b: GENCOM and PUT) and --submit (5c: PROFILE.SUB at boot);
+ * OODOS_APPLE_OUT, PIP's copies onto the card's /DISKS/CPM.DSK as C:, for --apple (6b).
  *
  * A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, as
  * make_card.sh and interop.sh have it.
@@ -38,6 +39,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -635,7 +637,9 @@ namespace
     /// BIOS boots the card after the splash, OOLDR, OODOS), each of `lines` typed and run to the next prompt or question (Y/N),
     /// which the next line answers; then the card back into `r`.
     /// @return what the CCP said
-    std::string ccp_on_the_oo1(Rig &r, const std::vector<std::string> &lines, bool from_boot = false)
+    /// `ready`, if given, is called at the first prompt, before the lines (to mount a unit, say).
+    std::string ccp_on_the_oo1(Rig &r, const std::vector<std::string> &lines, bool from_boot = false,
+                               const std::function<void(Session &)> &ready = {})
     {
         constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
         std::string error, out;
@@ -661,6 +665,8 @@ namespace
         CHECK(up);
         if (!up)
             return {};
+        if (ready)
+            ready(*s);
         const size_t said = out.size();
         for (const std::string &line : lines)
         {
@@ -686,6 +692,49 @@ namespace
         return v ? v : "";
     }
 } // namespace
+
+TEST(the_oo1_writes_on_an_apple_disk_and_the_card_is_saved_for_interop_sh)
+{
+    // Phase 6b: /DISKS/CPM.DSK (cpmtools's apple-do) mounted as unit 3 at the prompt by the card's own
+    // MOUNT command, through its registers behind OODOS's back (no function 74), and C: logged in at its
+    // first select; PIP copies A:'s README.TXT to C:A.TXT and PATTERN.BIN (36,864 bytes: three entries of
+    // 16 KB there) to C: in user 4. Saved with OODOS_APPLE_OUT for interop.sh --apple, where
+    // cpmtools reads them back and checks the disk.
+    Rig r;
+    auto mount_c = [](Session &s) {
+        SdCard &sd = *s.sd();
+        const std::string path = "/DISKS/CPM.DSK";
+        sd.write(SdCard::UNIT, 0);
+        sd.write(SdCard::CMD, SdCard::MOUNT);
+        std::vector<uint8_t> p = {3, 0};
+        p.insert(p.end(), path.begin(), path.end());
+        for (size_t i = 0; i < SECTOR; ++i)
+            sd.write(SdCard::DATA, i < p.size() ? p[i] : 0);
+        s.run(20'000);
+    };
+    const std::string said = ccp_on_the_oo1(r, {"pip c:a.txt=readme.txt", "pip c:[g4]=pattern.bin", "dir c:[user=4]"}, false,
+                                            mount_c);
+    bool clean = true;
+    for (const char *w : {"INVALID", "BAD", "NOT FOUND", "ERROR", "Error", "R/O", "?\r\n"})
+        if (said.find(w) != std::string::npos)
+        {
+            std::printf("  said '%s': '%s'\n", w, said.c_str());
+            clean = false;
+        }
+    CHECK(clean);
+    CHECK(said.find("PATTERN  BIN    36k    288") != std::string::npos);
+    if (said.find("PATTERN  BIN    36k    288") == std::string::npos)
+        std::printf("  said: %s\n", said.c_str());
+    const std::string out = env("OODOS_APPLE_OUT");
+    if (!out.empty())
+    {
+        std::ofstream f(out, std::ios::binary);
+        f.write(reinterpret_cast<const char *>(r.media->bytes().data()),
+                static_cast<std::streamsize>(r.media->bytes().size()));
+        CHECK(f.good());
+        std::printf("  the card saved to %s\n", out.c_str());
+    }
+}
 
 TEST(the_dpb_is_oodos_8m_as_check_diskdefs_works_it_out)
 {

@@ -67,7 +67,7 @@ SM_ANYEX        = $08                  ; any extent
 .globalzp RECP, GBNEW, LASTB, BIOSDRV, AGE, SMODE, FCBN, EXMASK, PEX3, MASK3, PHASH
 .globalzp SZ, RR, RDMA, MON
 ; The system block
-.global FC, SPAT, SSAVE, SSMODE, SSDRV, SSIDX, SSON, DTAB, LOGVEC, ROVEC, FCBP
+.global FC, SPAT, SSAVE, SSMODE, SSDRV, SSIDX, SSON, DTAB, LOGVEC, ROVEC, FCBP, TSH
 .global BCB_DRV, BCB_LO, BCB_HI, BCB_DIRTY, BCB_AGEL, BCB_AGEH
 
 ; bdos.s

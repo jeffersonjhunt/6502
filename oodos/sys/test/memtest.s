@@ -78,6 +78,13 @@
 ;       00) NWBCHK Y (the record as written); RSCN? (the test takes the
 ;       card out at 74's rescan); NRS (B.IMG on C:: FF 01, the rescan
 ;       failed); RMEND? (the card back)
+;   A   74 of C: with the tail's path (A /DISKS/CPM.DSK): NAP aa xx (phase
+;       6b's apple-do units, test_oodos_apple)
+;   Y   C: (test_oodos_apple's apple-do drive) through the BIOS by 50: its
+;       track 3 sector 0 read (YR1 00 00); FAULT? (the test has the card's
+;       writes fail); written with $A5s (YW 01 00); FIXED? (they work
+;       again); read again (YR2 00 00): YSAME Y, the card's bytes, not the
+;       ones the failed write left in the BIOS's track buffer
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -193,6 +200,12 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'B'
         bne     :+
         jmp     caseb
+:       cmp     #'A'
+        bne     :+
+        jmp     casea
+:       cmp     #'Y'
+        bne     :+
+        jmp     casey
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -786,6 +799,108 @@ casen:  MOUNT   "NA ", 0, "/OODOS/B.IMG"
         jmp     done
 
 ; mblk: the drive Y, the path at A/X (to its NUL) from +2.
+; Y: through the BIOS (50), C:'s track 3 sector 0 read, then written with
+; $A5s while the card's writes fail, then read again once they work.
+casey:  jsr     yplace
+        lda     #BIOS::READ
+        jsr     ybios
+        sta     yra
+        SAY     "YR1 "
+        lda     yra
+        jsr     yres
+        ldx     #0                      ; kept, and the buffer all $A5
+:       lda     ybuf,x
+        sta     ysave,x
+        lda     ybuf+256,x
+        sta     ysave+256,x
+        lda     #$A5
+        sta     ybuf,x
+        sta     ybuf+256,x
+        inx
+        bne     :-
+        KEYWAIT "FAULT?"
+        jsr     yplace
+        stz     bpb+1                   ; WRITE: a normal write
+        lda     #BIOS::WRITE
+        jsr     ybios
+        sta     yra
+        SAY     "YW "
+        lda     yra
+        jsr     yres
+        KEYWAIT "FIXED?"
+        jsr     yplace
+        lda     #BIOS::READ
+        jsr     ybios
+        sta     yra
+        SAY     "YR2 "
+        lda     yra
+        jsr     yres
+        ldx     #0
+:       lda     ybuf,x
+        cmp     ysave,x
+        bne     ydiff
+        lda     ybuf+256,x
+        cmp     ysave+256,x
+        bne     ydiff
+        inx
+        bne     :-
+        SAY     "YSAME Y"
+        bra     yend
+ydiff:  SAY     "YSAME N"
+yend:   jsr     CRLF
+        jmp     done
+
+; SELDSK C: (selected before), SETTRK 3, SETSEC 0, SETDMA ybuf, SETBNK 1.
+yplace: lda     #DRV_C
+        sta     bpb+1
+        lda     #1
+        sta     bpb+2
+        lda     #BIOS::SELDSK
+        jsr     ybios
+        lda     #3
+        sta     bpb+1
+        stz     bpb+2
+        lda     #BIOS::SETTRK
+        jsr     ybios
+        stz     bpb+1
+        lda     #BIOS::SETSEC
+        jsr     ybios
+        lda     #<ybuf
+        sta     bpb+1
+        lda     #>ybuf
+        sta     bpb+2
+        lda     #BIOS::SETDMA
+        jsr     ybios
+        lda     #1
+        sta     bpb+1
+        lda     #BIOS::SETBNK
+        ; fall through
+; Function 50's BIOS function A, bpb+1 and +2 as they are.
+ybios:  sta     bpb
+        CALLF   S_BIOS, bpb
+        rts
+; A as "aa", CR LF.
+yres:   ldx     #0
+        jmp     RES
+
+; A: 74 of C: with the tail's path, from its fourth byte to its end.
+casea:  lda     #DRV_C
+        sta     mblk
+        stz     mblk+1
+        ldx     #0
+        ldy     #4
+:       cpy     BP_DMA
+        beq     :+
+        bcs     :++
+:       lda     BP_DMA,y
+        sta     mblk+2,x
+        inx
+        iny
+        bra     :--
+:       stz     mblk+2,x
+        TRY     "NAP ", O_MOUNT, mblk
+        jmp     done
+
 mtpath: sty     mblk
         sta     PTR
         stx     PTR+1
@@ -968,3 +1083,6 @@ get:    .res    4
 mcb:    .res    5
 bpb:    .res    8
 mblk:   .res    2 + 512
+ybuf:   .res    512
+ysave:  .res    512
+yra:    .res    1

@@ -121,7 +121,7 @@ e2e() { # $1: the page's URL, or empty for the local build; $2: the skips by des
     fi
     return $rc
 }
-# interop: cpmtools, in a pinned Debian, reads the committed card and the three cards test_oodos_card writes as
+# interop: cpmtools, in a pinned Debian, reads the committed card and the cards test_oodos_card writes as
 # OODOS does. oodos/ and the cards go into the container through tar on stdin, not a bind mount: a mount
 # resolves on the Docker daemon's host, which may not have this path (a build in a container).
 interop() {
@@ -129,9 +129,9 @@ interop() {
     stage=$logs/interop
     rm -rf "$stage" && mkdir -p "$stage/c" || return 1
     OODOS_CARD_OUT=$stage/c/written.img OODOS_CCP_OUT=$stage/c/ccp.img OODOS_UTILS_OUT=$stage/c/utils.img \
-        "$emu/build/$1/test/host/test_oodos_card" || return 1
+        OODOS_APPLE_OUT=$stage/c/apple.img "$emu/build/$1/test/host/test_oodos_card" || return 1
     cp "$emu/test/host/sd/oodos.sparse" "$stage/c/" || return 1
-    for card in "oodos.sparse" "written.img --written" "ccp.img --ccp" "utils.img --utils"; do
+    for card in "oodos.sparse" "written.img --written" "ccp.img --ccp" "utils.img --utils" "apple.img --apple"; do
         set -- $card
         tar -c --exclude=build -C "$repo" oodos -C "$stage" c |
             docker run --rm -i "$image" sh -c \

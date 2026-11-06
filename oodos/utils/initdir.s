@@ -11,7 +11,9 @@
 ; drive reset (37) before, so the BDOS's buffers are written back, and
 ; after, so it reads the new directory at its next login. OODOS's DPBs have
 ; 512-byte sectors, 16 a track (SPT 64, PSH 2: bios.s's DPB macro checks),
-; so a sector holds 16 entries, four SFCBs' groups.
+; so a sector holds 16 entries, four SFCBs' groups. An apple-do drive's
+; (phase 6b) have 8 a track (SPT 32), but its directory is 4 sectors, all
+; in its first track, so OFF + SECT / 16 and SECT mod 16 are right there too.
 ;
 ; Making SFCBs: the entries in an SFCB's place (3, 7, 11, ...) are moved to
 ; the free entries first, lowest first, in a pass of their own, so a

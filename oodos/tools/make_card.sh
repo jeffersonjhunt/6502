@@ -37,6 +37,15 @@
 #                      each file's entries are from the card, so a utility
 #                      more changes no test
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty
+#   /DISKS/CPM.DSK     apple-do, cpmtools's own diskdef (the SoftCard's
+#                      format, 140 KB, phase 6b), its 3 boot tracks
+#                      12,288 bytes of seed 9 (mkfs.cpm -b), and:
+#     0:README.TXT     text, as A:'s, its words its own
+#     0:PATTERN.BIN    20,000 bytes, seed 5: two directory entries (16 KB
+#                      each, EXM 0)
+#     2:SMALL.BIN      300 bytes, seed 7
+#   /DISKS/BLANK.DSK   apple-do, empty, its boot tracks zeros
+#   /DISKS/ODD.DSK     281 sectors of zeros: a unit that is no drive
 #
 # The demo card (demo.sparse), the one the WebUI puts in its slot at each
 # visit (its build makes public/core/demo-card.img.gz of it): the same
@@ -174,6 +183,28 @@ truncate -s 8M B.IMG
 printf '\061' | dd of=B.IMG bs=1 seek=12 conv=notrunc status=none
 fsck.cpm -f oodos-8m -n B.IMG
 
+# The apple-do disks, in a directory of their own: cpmtools reads ./diskdefs
+# when there is one and its own (which has apple-do) only when there isn't.
+# mkfs.cpm writes the boot tracks and the directory; the file is then made
+# its 140 KB.
+mkdir apple
+python3 gen.py apple/BOOT.BIN 12288 9
+python3 text.py apple/README.TXT 'THIS IS AN APPLE CP/M DISK, MADE ON LINUX BY CPMTOOLS.' \
+    'OODOS READS IT AS AN SD DRIVE, /DISKS/CPM.DSK ON THE CARD.'
+python3 gen.py apple/PATTERN.BIN 20000 5
+python3 gen.py apple/SMALL.BIN 300 7
+(cd apple
+ at mkfs.cpm -f apple-do -b BOOT.BIN CPM.DSK
+ truncate -s 143360 CPM.DSK
+ at cpmcp -f apple-do CPM.DSK README.TXT PATTERN.BIN 0:
+ at cpmcp -f apple-do CPM.DSK SMALL.BIN 2:
+ fsck.cpm -f apple-do -n CPM.DSK
+ cpmls -f apple-do CPM.DSK
+ at mkfs.cpm -f apple-do BLANK.DSK
+ truncate -s 143360 BLANK.DSK
+ fsck.cpm -f apple-do -n BLANK.DSK)
+python3 -c "open('apple/ODD.DSK', 'wb').truncate(281 * 512)"
+
 # The card: the partition made alone, then put at 2048.
 python3 -c "open('part.img', 'wb').truncate((32 * 2048 - 2048) * 512)"
 at mkfs.fat -F 16 -s 4 -i 0001DD05 -n OODOS part.img >/dev/null
@@ -183,6 +214,8 @@ at mcopy -i part.img BOOT.BIN ::/BOOT.BIN
 at mcopy -i part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
 at mcopy -i part.img A.IMG ::/OODOS/A.IMG
 at mcopy -i part.img B.IMG ::/OODOS/B.IMG
+at mmd -i part.img ::/DISKS
+at mcopy -i part.img apple/CPM.DSK apple/BLANK.DSK apple/ODD.DSK ::/DISKS/
 mdir -i part.img -/ ::/
 python3 -c "open('card.img', 'wb').truncate(32 * 2048 * 512)"
 printf 'label: dos\nlabel-id: 0x0001dd05\nstart=2048, type=06\n' | sfdisk -q card.img

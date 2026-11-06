@@ -95,7 +95,7 @@ DRM:            .res    2
 HWM:            .res    2              ;   entries past the last file, XFCB or label
 MODE:           .res    1              ;   the label's mode byte, 0 without one
 BIG:            .res    1              ;   bit 7: 16-bit block pointers (DSM > 255)
-OFFS:           .res    2              ;   the directory's first sector (OFF x 16)
+OFFS:           .res    2              ;   the directory's first sector (OFF x the sectors a track)
 DPBP:           .res    2              ;   the DPB, in common memory
 EXMASK:         .res    1              ;   ~EXM & $1F: an extent's group
                 .res    CD_LEN - (* - CD)
@@ -135,6 +135,7 @@ SSDRV:          .res    1
 SSIDX:          .res    2              ; the entry 18 goes on from
 SSON:           .res    1              ; 1 while there is one to go on with
 DTAB:           .res    NSLOT * CD_LEN ; each drive's CD, from its login
+TSH:            .res    NSLOT          ; each slot's sectors a track as a shift: 4 for 16, 3 for 8
 LOGVEC:         .res    2              ; the logged-in drives, bit n drive n
 ROVEC:          .res    2              ; the read-only drives
 FCBP:           .res    2              ; the program's FCB

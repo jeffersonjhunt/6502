@@ -17,7 +17,9 @@
 ; entry has 8 block pointers of 2 bytes, and 8 directory blocks.
 ;
 ;   CR_INIT  A = the unit. Its size from IDENTIFY's units table picks the
-;            DPB: CR_KIND is 0 for oodos-8m, 1 for oodos-32m.
+;            DPB: CR_KIND is 0 for oodos-8m, 1 for oodos-32m. A unit of
+;            280 sectors is an apple-do drive (phase 6b), which OODOS
+;            takes on B-G but this reader doesn't read: CRE_APPLE.
 ;   CR_FIND  A/X = the name: 11 bytes, 8 + 3, upper case, space padded.
 ;            Finds the file in user 0 and keeps its entries in extent order;
 ;            CR_RECORDS is then its length in 128-byte records, and the
@@ -115,7 +117,19 @@ CR_INIT:        STA     unit
                 LDA     sbuf + UNITS + 4,X
                 AND     #UNIT_MOUNTED
                 BEQ     @unit
-                LDA     sbuf + UNITS,X  ; 16,384 is $00004000, 65,536 $00010000
+                LDA     sbuf + UNITS + 2,X  ; 280 is $00000118
+                ORA     sbuf + UNITS + 3,X
+                BNE     @own
+                LDA     sbuf + UNITS,X
+                CMP     #$18
+                BNE     @own
+                LDA     sbuf + UNITS + 1,X
+                CMP     #$01
+                BNE     @own
+                LDA     #CRE_APPLE
+                SEC
+                RTS
+@own:           LDA     sbuf + UNITS,X  ; 16,384 is $00004000, 65,536 $00010000
                 ORA     sbuf + UNITS + 3,X
                 BNE     @size
                 LDY     #0

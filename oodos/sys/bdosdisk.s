@@ -11,7 +11,9 @@
 ; from common memory, then the whole directory read once to make the
 ; allocation vector and the hash, and the label's mode byte kept for the
 ; stamps. A read-only unit (the units table's flag) makes the drive
-; read-only. Every OODOS format has 512-byte sectors, 16 a track.
+; read-only. Every drive has 512-byte sectors: 16 a track on OODOS's own
+; formats, 8 on apple-do (phase 6b); TSH keeps each slot's as a shift, from
+; its DPB's SPT at login, for OFFS and DISKOP's track and sector.
 ;
 ; Buffers. 32 sectors of 512 bytes in block 28 (BCB_BLOCK), mapped into W2
 ; while the BDOS uses one: each buffer's drive, sector, changed flag and
@@ -270,13 +272,24 @@ LOGIN:          JSR     PLACES
                 INY
                 LDA     (DPBP),Y
                 STA     T3
-                LDY     #13            ; OFF: tracks of 16 sectors
+                LDA     (DPBP)         ; SPT, records: the sectors a track (SPT / 4) as a shift
+                LSR     A
+                LSR     A
+                LDX     #0
+@spt:           LSR     A
+                BCS     @tsh
+                INX
+                BRA     @spt
+@tsh:           TXA
+                LDX     CSLOT
+                STA     TSH,X
+                TAX
+                LDY     #13            ; OFF: tracks of that many sectors
                 LDA     (DPBP),Y
                 STA     OFFS
                 INY
                 LDA     (DPBP),Y
                 STA     OFFS + 1
-                LDX     #4
 @off:           ASL     OFFS
                 ROL     OFFS + 1
                 DEX
@@ -583,30 +596,28 @@ DISKOP:         STA     DOPW
                 LDX     DOPX
                 LDA     #1
                 RTS
-@selected:      LDX     DOPX
-                LDA     BCB_HI,X       ; the track: the sector / 16
-                LSR     A
-                LSR     A
-                LSR     A
-                LSR     A
+@selected:      LDX     DOPX           ; the drive's sectors a track, its slot's TSH
+                LDA     BCB_DRV,X
+                DEC     A
+                JSR     DSLOT
+                TAY
+                LDA     TSH,Y
+                TAY
+                LDA     BCB_LO,X       ; the sector: the low TSH bits
+                AND     TMASK,Y
                 PHA
-                LDA     BCB_HI,X
-                ASL     A
-                ASL     A
-                ASL     A
-                ASL     A
+                LDA     BCB_HI,X       ; the track: the rest
+                STA     VD + 1
+                LDA     BCB_LO,X
                 STA     VD
-                LDA     BCB_LO,X
-                LSR     A
-                LSR     A
-                LSR     A
-                LSR     A
-                ORA     VD
-                PLX
+@track:         LSR     VD + 1
+                ROR     VD
+                DEY
+                BNE     @track
+                LDA     VD
+                LDX     VD + 1
                 JSR     B_SETTRK
-                LDX     DOPX
-                LDA     BCB_LO,X
-                AND     #SPT_PHYS - 1
+                PLA
                 LDX     #0
                 JSR     B_SETSEC
                 LDA     #BANK_SYS
@@ -714,6 +725,8 @@ PERMB:          LDA     BCB_DRV,X
                 RTS
 @no:            CLC
                 RTS
+
+TMASK:          .byte   0, 1, 3, 7, 15  ; a sector in its track, by TSH
 
 ; T2/T3 = buffer X's block on drive CD, (its sector - OFFS) / 2^(BSH - 2),
 ; carry clear; carry set if the sector is before the data area. X kept.

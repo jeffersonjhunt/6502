@@ -2818,7 +2818,7 @@ OODOS's own: CP/M 3 has no function 73.
 - 4: not a drive 74 changes: A: (the system drive), M:, or H: on.
 - `$10`: the path is refused.
 - `$11`: no such file (or it is a directory).
-- `$12`: the image isn't 8 MB or 32 MB (16,384 or 65,536 sectors).
+- `$12`: the image isn't 8 MB, 32 MB or a 140 KB Apple CP/M disk (16,384, 65,536 or 280 sectors).
 - `$13`: another drive has a file of that name mounted (the card's name for it, as `DRIVES.TXT`'s rule has it).
 
 A = X = `$FF`: the block is in the I/O hole.

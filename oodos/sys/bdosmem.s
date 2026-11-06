@@ -30,7 +30,8 @@
 ;                   read-only) and the path (+2, to its NUL, as DRIVES.TXT
 ;                   has it; empty: unmount). A = 0, or A = $FF and X: 1 the
 ;                   card or a write-back failed, 4 not B:-G:, $10 the path,
-;                   $11 not found, $12 the image's size, $13 another drive's
+;                   $11 not found, $12 the image's size (16,384, 65,536 or
+;                   280 sectors: apple-do, phase 6b), $13 another drive's
 ;                   file
 ;
 ; Memory is handed out in 16 KB blocks, 1,024 paragraphs, from banks 1-5
@@ -646,7 +647,16 @@ F_MOUNT:        JSR     PGET           ; the drive: B:-G:
                 ASL     A
                 TAY                    ; its entry
                 LDX     #ER_SIZE
-                LDA     UNITSAV,Y      ; 16,384 sectors: $00004000
+                LDA     UNITSAV + 2,Y  ; 280 sectors, $00000118: apple-do (phase 6b)
+                ORA     UNITSAV + 3,Y
+                BNE     @own
+                LDA     UNITSAV,Y
+                CMP     #<SD_SECTORS_APPLE
+                BNE     @own
+                LDA     UNITSAV + 1,Y
+                CMP     #>SD_SECTORS_APPLE
+                BEQ     @sized
+@own:           LDA     UNITSAV,Y      ; 16,384 sectors: $00004000
                 ORA     UNITSAV + 3,Y
                 BNE     @wrong
                 LDA     UNITSAV + 1,Y

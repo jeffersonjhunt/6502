@@ -873,10 +873,34 @@ TEST(drives_it_cannot_mount)
     refused(with_drives("B: /OODOS/B.IMG\n"), "DRIVES.TXT NAMES NO A:");
     refused(with_drives(""), "DRIVES.TXT NAMES NO A:");
     refused(with_drives("A: /OODOS/A.IMG\n\nB: /OODOS/NONE.IMG\n"), "DRIVES.TXT LINE 3: /OODOS/NONE.IMG IS NOT ON THE CARD");
-    refused(with_drives("A: /OODOS/A.IMG\nB: /BOOT.BIN\n"), "DRIVES.TXT LINE 2: /BOOT.BIN IS NOT 8 MB OR 32 MB");
+    refused(with_drives("A: /OODOS/A.IMG\nB: /BOOT.BIN\n"), "DRIVES.TXT LINE 2: /BOOT.BIN IS NOT 8 MB, 32 MB OR 140 KB");
     refused(with_drives("# A: is DRIVES.TXT\nA: /OODOS/DRIVES.TXT\n"), "DRIVES.TXT LINE 2: /OODOS/DRIVES.TXT IS NOT 8 MB OR 32 MB");
     Parts p = parts();
     refused(make_card({{"/BOOT.BIN", p.boot}, {"/OODOS/A.IMG", p.a}}), "NO /OODOS/DRIVES.TXT ON THE CARD");
+}
+
+TEST(an_apple_disk_is_a_drive_on_b_to_g_but_never_a)
+{
+    // Phase 6b: a 140 KB .dsk (280 sectors) is an apple-do drive; one sector more is no drive;
+    // and A: is the system's, which the loader's CP/M reader reads, so never an Apple disk.
+    const Bytes sys = Drive::of(parts().a).file(SYS_NAME);
+    Parts p = parts();
+    std::vector<File> files = p.files();
+    files.push_back({"/OODOS/CPM.DSK", Bytes(280 * SECTOR, 0xE5)});
+    files.push_back({"/OODOS/ODD.DSK", Bytes(281 * SECTOR, 0xE5)});
+    auto with = [&](const std::string &drives) {
+        std::vector<File> f = files;
+        f[1].bytes = text(drives);
+        return make_card(f);
+    };
+    Boot b = boot(with("A: /OODOS/A.IMG\nC: /OODOS/CPM.DSK RO\n"));
+    came_up(b, sys);
+    const SdCard::Unit &c = b.s->sd()->unit(3);
+    CHECK(c.mounted && c.read_only && c.name == "CPM.DSK");
+    CHECK_EQ(c.sectors, uint64_t{280});
+    refused(with("A: /OODOS/A.IMG\nG: /OODOS/ODD.DSK\n"), "DRIVES.TXT LINE 2: /OODOS/ODD.DSK IS NOT 8 MB, 32 MB OR 140 KB");
+    refused(with("A: /OODOS/CPM.DSK\n"), "DRIVES.TXT LINE 1: /OODOS/CPM.DSK IS AN APPLE DISK, NOT FOR A:");
+    refused(with("A: /OODOS/ODD.DSK\n"), "DRIVES.TXT LINE 1: /OODOS/ODD.DSK IS NOT 8 MB OR 32 MB");
 }
 
 TEST(units_no_line_names_are_unmounted)
@@ -888,7 +912,7 @@ TEST(units_no_line_names_are_unmounted)
     auto media = std::make_shared<MemoryMedia>(p.card(), "card");
     Boot b = boot(media);
     REQUIRE(b.s != nullptr);
-    CHECK(b.out.find("\rDRIVES.TXT LINE 2: /BOOT.BIN IS NOT 8 MB OR 32 MB\r\\") != std::string::npos);
+    CHECK(b.out.find("\rDRIVES.TXT LINE 2: /BOOT.BIN IS NOT 8 MB, 32 MB OR 140 KB\r\\") != std::string::npos);
     CHECK(b.s->sd()->unit(3).mounted);
     std::string error;
     auto v = FatVolume::open(*media, error);
