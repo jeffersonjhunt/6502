@@ -28,7 +28,8 @@ SPLASH:
                 CMP     #VIDEO_ID_V1
                 BNE     @done          ; no video card: no splash, and no sound for it
                 LDA     SOUND_ID
-                CMP     #SOUND_ID_V1
+                AND     #$F0           ; the sound card at any revision: each runs the 6510 the same
+                CMP     #SOUND_TYPE
                 BNE     @video
 
 ; The tune into the card, stopped: CTRL RUN 0 also gives the host the SIDs.
@@ -69,7 +70,8 @@ SPLASH:
 @video:         LDA     #VIDEO_SPLASH_ON
                 STA     VIDEO_SPLASH   ; latched: it starts at the next vertical blank
                 LDA     SOUND_ID
-                CMP     #SOUND_ID_V1
+                AND     #$F0
+                CMP     #SOUND_TYPE
                 BNE     @done
 @out:           BIT     VIDEO_STATUS   ; a vertical blank under way: wait it out
                 BMI     @out

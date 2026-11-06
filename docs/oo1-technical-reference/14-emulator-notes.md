@@ -190,6 +190,8 @@ The design has these, and the emulator doesn't:
 - **The bus spy** ([chapter 3](03-boot.md#the-bus-spy)). `bootsel` and `--load` stand in for it.
 - **Turbo,** the CPU at ÷1 ([chapter 11](11-north-bridge-and-rtc.md#turbo)).
 - **The sound card's bus timing:** BUSY, and RDY on a SID access ([chapter 7](07-sound.md#bus-timing)).
+- **The sound card's revision 2 sound:** its registers are in, but no PCM stream, MP3, EQ, vis page or ES5503
+  plays through them yet ([chapter 7](07-sound.md#in-the-emulator-so-far)).
 - **The USB card's other layouts, a gamepad on the paddles, device events, the FIFO on DMA and a real 558**
   ([chapter 8](08-usb.md#proposed)).
 - **The console card's bus-cycle step, its breakpoint on the cycle, EXAM and DEP on the bus, AMODE, the design's
@@ -225,7 +227,8 @@ emulator; each link goes to the note.
   - Pause/Break comes only from the WebUI. The terminal app has no USB keyboard, so there Break comes only from the
     console card ([Pause/Break](04-interrupts.md#pausebreak)).
 - **DMA** ([chapter 5](05-dma.md))
-  - Channel 0's DRQ is the SD card's, and channel 2's the sound card's RAMDATA, always. Nothing drives channels 1
+  - Channel 0's DRQ is the SD card's, and channel 2's the sound card's, always (RAMDATA's, unless its DRQSEL
+    picks another: [`$C563`](07-sound.md#reg-c563)). Nothing drives channels 1
     and 3, which the design gives to the serial card and to blits, and channel 2 isn't shared with the USB card
     ([Transfers for a card](05-dma.md#transfers-for-a-card), [`$C410`](05-dma.md#reg-c410)).
 - **Video** ([chapter 6](06-video.md))
@@ -333,12 +336,12 @@ None that the chapters know of. Where the emulator does less than the design, it
 
 Status: **emulated**
 
-Not bugs, but what BIOS 0.10 does, which a program run from the monitor has to know:
+Not bugs, but what BIOS 0.11 does, which a program run from the monitor has to know:
 
-- **Break leaves the VIA's IER, and the console card's ISR.** A VIA interrupt a program left on, or a panel key that
-  set ISR while IEN was on, keeps /IRQ low after Break, and the BIOS's IRQ handler only returns. A program that
-  clears I writes `$7F` to VIA_IER and `$01` to CONSOLE_ISR first, or brings its own handler
-  ([IRQ and NMI](04-interrupts.md#irq-and-nmi), [Pause/Break](04-interrupts.md#pausebreak)).
+- **Break turns off what the BIOS's IRQ handler can't answer:** the cards' IENs, the clock's TIE, the VIA's IER
+  (`$7F`) and the console card's ISR (`$01`), the last two since BIOS 0.11
+  ([IRQ and NMI](04-interrupts.md#irq-and-nmi), [Pause/Break](04-interrupts.md#pausebreak)). Under BIOS 0.10 a VIA
+  interrupt or a pending panel key kept /IRQ low after Break, so a program written for it clears both itself.
 - **Nothing in the BIOS clears the video card's ISR,** so after a reset it soon reads `$03`, and after Break LINE
   and the collision bits are as a program left them ([Interrupts](06-video.md#interrupts)).
 - **The SD card's ERR is set under the monitor** after a power-on with a card that has no `/BOOT.BIN`, from the

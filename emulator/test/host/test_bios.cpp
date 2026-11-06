@@ -21,7 +21,8 @@
  * BIOS keeps them, C800R from the flash again (or the RAM image after a
  * /BOOTSEL boot), the cursor kept on the screen whatever its zero page says,
  * and scrolling whole under a DMA burst limit. Break also stops the DMA (a
- * scroll mid-copy too), quiets the cards' interrupts and finds the screen
+ * scroll mid-copy too), quiets the cards' interrupts (the VIA's, and a front-panel key
+ * already pending, too) and finds the screen
  * from the ID bytes; the BIOS's copies leave CONTROL as they found it, give
  * up with no controller, and run with the master enable off (the demo's
  * too); C806R stops a program's DMA before its fills. And the boot splash
@@ -38,6 +39,7 @@
 
 #include "backplane_bridge.h"
 #include "console.h"
+#include "console_card.h"
 #include "machine.h"
 #include "sound_card.h"
 #include "video_card.h"
@@ -220,7 +222,7 @@ namespace
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.10\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.11\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -350,7 +352,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.10"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.11"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -410,7 +412,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.10"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.11"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -449,56 +451,69 @@ namespace
 
 TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sids)
 {
-    Board b;
-    REQUIRE(b.ok());
-    b.reset();
-    const VideoCard *card = b.machine->video_card();
-    SoundCard *sound = b.machine->sound_card();
-    REQUIRE(card != nullptr);
-    REQUIRE(sound != nullptr);
-    // The card's 6510 starts on the vertical blank the splash starts on: tune frame n, picture frame n.
-    bool started_together = false;
-    for (unsigned i = 0; i < 2'000 && card->splash_frame() < 0; ++i)
-        b.run(1'000);
-    started_together = card->splash_frame() == 0 && (sound->ctrl() & SoundCard::CTRL_RUN);
-    CHECK(started_together);
-    CHECK_EQ(sound->ctrl() & SoundCard::CTRL_NTSC, SoundCard::CTRL_NTSC);
-    // The tune, from splash/bootsnd.bin in the top block, at $1000; the reset vector at its boot entry.
-    const std::string tune = read_file(EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
-    REQUIRE(!tune.empty());
-    size_t differ = 0;
-    for (size_t i = 0; i < tune.size(); ++i)
-        differ += sound->ram()[0x1000 + i] != static_cast<uint8_t>(tune[i]);
-    CHECK_EQ(differ, size_t{0});
-    CHECK_EQ(sound->ram()[0xFFFC] | sound->ram()[0xFFFD] << 8, 0x1006);
-    CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
-    b.run(FRAME * 60);
-    CHECK(card->splash_frame() > 60);
-    CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
-    CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
-    b.run(SPLASH_TIME);
-    CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
-    CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
-    CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
-    CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.10"));
+    for (const unsigned rev : {2u, 1u}) // the sound card at either revision: the BIOS takes it by its type
+    {
+        std::printf("  sound card revision %u\n", rev);
+        Board b;
+        REQUIRE(b.ok());
+        const VideoCard *card = b.machine->video_card();
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(card != nullptr);
+        REQUIRE(sound != nullptr);
+        sound->set_revision(rev);
+        REQUIRE(sound->peek(SoundCard::ID_REG) == (0xA0 | rev));
+        b.reset();
+        // The card's 6510 starts on the vertical blank the splash starts on: tune frame n, picture frame n.
+        bool started_together = false;
+        for (unsigned i = 0; i < 2'000 && card->splash_frame() < 0; ++i)
+            b.run(1'000);
+        started_together = card->splash_frame() == 0 && (sound->ctrl() & SoundCard::CTRL_RUN);
+        CHECK(started_together);
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_NTSC, SoundCard::CTRL_NTSC);
+        // The tune, from splash/bootsnd.bin in the top block, at $1000; the reset vector at its boot entry.
+        const std::string tune = read_file(EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
+        REQUIRE(!tune.empty());
+        size_t differ = 0;
+        for (size_t i = 0; i < tune.size(); ++i)
+            differ += sound->ram()[0x1000 + i] != static_cast<uint8_t>(tune[i]);
+        CHECK_EQ(differ, size_t{0});
+        CHECK_EQ(sound->ram()[0xFFFC] | sound->ram()[0xFFFD] << 8, 0x1006);
+        CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
+        b.run(FRAME * 60);
+        CHECK(card->splash_frame() > 60);
+        CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
+        CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
+        b.run(SPLASH_TIME);
+        CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
+        CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
+        CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.11"));
+    }
 }
 
 TEST(break_during_the_boot_splash_stops_it_and_its_sound)
 {
-    Board b;
-    REQUIRE(b.ok());
-    b.reset();
-    b.run(BOOT);
-    const VideoCard *card = b.machine->video_card();
-    SoundCard *sound = b.machine->sound_card();
-    REQUIRE(card != nullptr);
-    REQUIRE(sound != nullptr);
-    CHECK(card->splash_frame() >= 0);
-    b.cpu->nmi();
-    b.run(FRAME * 2);
-    CHECK_EQ(card->splash_frame(), -1);
-    CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
+    for (const unsigned rev : {2u, 1u}) // QUIET takes the sound card at either revision
+    {
+        std::printf("  sound card revision %u\n", rev);
+        Board b;
+        REQUIRE(b.ok());
+        const VideoCard *card = b.machine->video_card();
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(card != nullptr);
+        REQUIRE(sound != nullptr);
+        sound->set_revision(rev);
+        b.reset();
+        b.run(BOOT);
+        CHECK(card->splash_frame() >= 0);
+        CHECK(sound->ctrl() & SoundCard::CTRL_RUN); // the splash took the card
+        b.cpu->nmi();
+        b.run(FRAME * 2);
+        CHECK_EQ(card->splash_frame(), -1);
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
+        CHECK_EQ(sound->sid(0)[0x18], 0); // and QUIET silenced the SIDs
+    }
 }
 
 TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)
@@ -1016,6 +1031,66 @@ TEST(break_stops_the_dma_and_quiets_what_would_interrupt)
     b.run(BOOT, "300: 58 A9 5A 20 " + hex(echo) + " " + hex(echo >> 8) + " 78 4C " + hex(wozmon) + " " +
                     hex(wozmon >> 8) + "\r");
     CHECK(has(b.run(BOOT, "300R\r"), "0300: 58Z"));
+}
+
+namespace
+{
+    /// CLI; LDA #'Z'; JSR ECHO; SEI; JMP WOZMON at $0300, run with R: it prints, rather than living in IRQ
+    /// and RTI, only if nothing is left interrupting.
+    bool cli_runs(Board &b)
+    {
+        const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
+        const unsigned echo = label(lbl, "ECHO"), wozmon = label(lbl, "WOZMON");
+        if (echo < 0xC800 || wozmon < 0xC800)
+            return false;
+        b.run(BOOT, "300: 58 A9 5A 20 " + hex(echo) + " " + hex(echo >> 8) + " 78 4C " + hex(wozmon) + " " +
+                        hex(wozmon >> 8) + "\r");
+        return has(b.run(BOOT, "300R\r"), "0300: 58Z");
+    }
+} // namespace
+
+TEST(break_turns_the_vias_interrupts_off)
+{
+    // A program's VIA timer left running and enabled: Break must leave it unable to interrupt (todo item 13).
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    const std::string keys = "C34B: 40\r"     // ACR: timer 1 free-running
+                             "C34E: C0\r"     // IER: set timer 1's
+                             "C344: 00 10\r"; // T1 $1000: writing the high byte starts it
+    b.run(keys.size() * 25'000 + BOOT / 2, keys);
+    REQUIRE(bus.irq());
+    REQUIRE(bus.peek(0xC34E) == 0xC0);
+    b.cpu->nmi();
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK(!bus.irq());
+    CHECK_EQ(bus.peek(0xC34E), 0x80); // IER: none enabled (bit 7 reads 1)
+    CHECK(bus.peek(0xC34D) & 0x40);   // the timer runs on: its flag is set, but can't interrupt
+    CHECK(cli_runs(b));
+}
+
+TEST(break_clears_a_front_panel_key_already_pending)
+{
+    // The console card pulls /IRQ while ISR is set, whatever IEN says: Break clears it (todo item 13).
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    ConsoleCard *panel = b.machine->console_card();
+    REQUIRE(panel != nullptr);
+    b.run(BOOT, "C718: 01\r");          // IEN: a key interrupts
+    panel->press(ConsoleCard::LOAD_ADRS);
+    REQUIRE(bus.irq());
+    REQUIRE(bus.peek(0xC719) == 1);
+    b.cpu->nmi();
+    CHECK(has(b.run(BOOT), "\\"));
+    CHECK(!bus.irq());
+    CHECK_EQ(bus.peek(0xC719), 0);
+    CHECK_EQ(bus.peek(0xC718), 0);
+    CHECK(cli_runs(b));
 }
 
 TEST(break_turns_the_clocks_tick_off_and_the_time_runs_on)

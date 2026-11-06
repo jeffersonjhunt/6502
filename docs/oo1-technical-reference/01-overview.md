@@ -65,7 +65,7 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 | 7 | mass storage | `$C380` | `$71` | yes ([chapter 10](10-storage.md)) |
 | 8 | DMA controller | `$C400` | `$81` | yes ([chapter 5](05-dma.md)) |
 | 9 | video | `$C480` | `$91` | yes ([chapter 6](06-video.md)) |
-| A | sound | `$C500` | `$A1` | yes ([chapter 7](07-sound.md)) |
+| A | sound | `$C500` | `$A2` (`$A1` before revision 2: take either by the high nibble) | yes ([chapter 7](07-sound.md)) |
 | B | USB | `$C580` | `$B1` | yes ([chapter 8](08-usb.md)) |
 | C | Disk II | `$C600` | `$C1` | yes ([chapter 10](10-storage.md#the-disk-ii)) |
 | D | the north bridge, on the CPU card | `$C680` | `$D1` | yes ([chapter 11](11-north-bridge-and-rtc.md)) |

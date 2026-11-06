@@ -14,6 +14,27 @@
  *   $00-$1C SID A   $20-$3C SID B   $40 CTRL   $41 STATUS   $42 IEN
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
+ * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
+ * ES5503 (es5503.h). So far (that spec's step 1) its registers hold what is
+ * written and read it back, with their reset values; nothing plays yet:
+ *
+ *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
+ *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
+ *   $4D-$4E FREE: the FIFO's room in 256-byte units (512, empty); reading
+ *           $4D latches $4E   $4F PCMDATA: write only, dropped for now
+ *   $50 STATE: 0, idle   $51-$54 POS: reading $51 latches $52-$54, a write
+ *           to $51 zeroes it   $55-$56 KBPS: 0   $57/$58 VOLL/VOLR
+ *   $59 EQIDX: 0 the preamp, 1-10 the bands, bit 7 the enable instead; an
+ *           EQVAL access moves bits 0-6 on   $5A EQVAL: a gain, -24 to 24
+ *           (clamped), or the enable's bit 0; an index past 10 reads 0
+ *   $5B VISIDX: writing 0 takes a snapshot (silence, for now)   $5C VISDATA:
+ *           the vis page's byte at VISIDX, which moves on; past 97, 0
+ *   $5D CODECS: $83   $5E DOCCTL (bits 0, 2, 5, 6)   $5F DOCDATA: wave RAM
+ *           (DOCCTL bit 6) or the DOC's register at DOCADDR, which moves on
+ *           with bit 5, wrapping at 128 KB   $60-$61 DOCADDR   $62 DOCBANK
+ *           (bit 0: address bit 16)   $63 DRQSEL: 0 RAMDATA, 1 PCMDATA
+ *           (dropped; reads $FF), 2 DOCDATA, 3 none (no DRQ)
+ *
  * The host's side: the SIDs' registers, the card's 64 KB through RAMADDR
  * and RAMDATA, and the mailbox. The card's side: its own 6510, an NMOS
  * 6502 with the undocumented opcodes (cpu6502.h), which runs while CTRL
@@ -119,6 +140,7 @@
 #include "bus.h"
 #include "cpu6502.h"
 #include "device.h"
+#include "es5503.h"
 #include "sid.h"
 
 namespace ooe::emu
@@ -127,7 +149,7 @@ namespace ooe::emu
     {
     public:
         static constexpr uint8_t MODULE = 0xA;
-        static constexpr uint8_t ID = MODULE << 4 | 1; ///< +$7F: type (module ID) and revision
+        static constexpr uint8_t ID = MODULE << 4 | 2; ///< +$7F: type (module ID) and revision (2: hw/sound-rev2.md), unless set_revision(1)
         static constexpr unsigned SID_REGS = 29;       ///< $00-$1C
         static constexpr size_t RAM_BYTES = 0x10000;
 
@@ -142,6 +164,27 @@ namespace ooe::emu
             RAMDATA = 0x45,
             MBOUT = 0x46,
             MBIN = 0x47,
+            PCMCTL = 0x48,
+            CODEC = 0x49,
+            RATE = 0x4A, ///< low byte; $4B high
+            PCMFMT = 0x4C,
+            FREE = 0x4D, ///< low byte, latching; $4E high
+            PCMDATA = 0x4F,
+            STATE = 0x50,
+            POS = 0x51, ///< low byte, latching; $52-$54 the rest
+            KBPS = 0x55, ///< low byte; $56 high
+            VOLL = 0x57,
+            VOLR = 0x58,
+            EQIDX = 0x59,
+            EQVAL = 0x5A,
+            VISIDX = 0x5B,
+            VISDATA = 0x5C,
+            CODECS = 0x5D,
+            DOCCTL = 0x5E,
+            DOCDATA = 0x5F,
+            DOCADDR = 0x60, ///< low byte (the register number); $61 high
+            DOCBANK = 0x62,
+            DRQSEL = 0x63,
             ID_REG = 0x7F,
         };
         /// The SID's read-only registers.
@@ -151,6 +194,24 @@ namespace ooe::emu
         static constexpr uint8_t STATUS_BUSY = 0x01, STATUS_TO_CARD = 0x02, STATUS_TO_HOST = 0x04,
                                  STATUS_IRQ = 0x80;
         static constexpr uint8_t IEN_MAILBOX = 0x04;
+        static constexpr uint8_t PCMCTL_RUN = 0x01, PCMCTL_PAUSE = 0x02, PCMCTL_FLUSH = 0x04, PCMCTL_EOF = 0x08;
+        static constexpr uint8_t PCMFMT_STEREO = 0x01, PCMFMT_16BIT = 0x02;
+        /// CODECS: raw PCM (bit 0), MP3 (bit 1), an ES5503 (bit 7).
+        static constexpr uint8_t CODECS_PRESENT = 0x83;
+        static constexpr uint8_t STATE_IDLE = 0;
+        static constexpr unsigned EQ_BANDS = 10; ///< EQIDX 1-10; 0 is the preamp
+        static constexpr uint8_t EQIDX_ENABLE = 0x80;
+        static constexpr int EQ_LIMIT = 24; ///< EQVAL's half-dB, either way
+        static constexpr unsigned VIS_BYTES = 98;
+        static constexpr uint8_t DOCCTL_RUN = 0x01, DOCCTL_IRQ_CARD = 0x04, DOCCTL_AUTOINC = 0x20,
+                                 DOCCTL_RAM = 0x40;
+        enum DrqSource : uint8_t
+        {
+            DRQ_RAMDATA = 0,
+            DRQ_PCMDATA = 1,
+            DRQ_DOCDATA = 2,
+        };
+        static constexpr size_t FIFO_BYTES = 0x20000; ///< 128 KB
         /// $DE01, the card's view of the mailbox.
         static constexpr uint8_t CARD_FROM_HOST = 0x01, CARD_UNTAKEN = 0x02;
         static constexpr uint32_t PAL_HZ = 985'248, NTSC_HZ = 1'022'727, NATIVE_HZ = 7'159'090;
@@ -165,6 +226,11 @@ namespace ooe::emu
         SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
         SoundCard(const SoundCard &) = delete;
         SoundCard &operator=(const SoundCard &) = delete;
+        /// The card's revision, for tests of software that must take the card at any (ID's low nibble):
+        /// 2, the default, or 1, the card before hw/sound-rev2.md, whose $48-$63 read $FF and ignore writes
+        /// (so DRQ and fly-by stay RAMDATA's). Not a register: kept through resets, as set_model() is.
+        void set_revision(unsigned rev);
+        unsigned revision() const { return rev_; }
         /// The host CPU's clock, which tick()'s cycles run at (0: 7.16 MHz).
         void set_cpu_hz(uint32_t hz) { host_hz_ = hz ? hz : NATIVE_HZ; }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
@@ -196,7 +262,7 @@ namespace ooe::emu
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         bool irq() const override { return (ien_ & IEN_MAILBOX) && to_host_full_; }
-        bool drq() const override { return true; }
+        bool drq() const override { return drqsel_ <= DRQ_DOCDATA; }
         uint8_t dack_read(bool tc) override;
         void dack_write(uint8_t data, bool tc) override;
         bool timed() const override { return true; }
@@ -228,6 +294,11 @@ namespace ooe::emu
         uint64_t sid_clocks() const { return now(); }
         std::array<uint8_t, RAM_BYTES> &ram() { return ram_; }
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
+        /// The card's ES5503, its registers and wave RAM.
+        Es5503 &doc() { return doc_; }
+        const Es5503 &doc() const { return doc_; }
+        /// The DOC's address, 17 bits: DOCBANK bit 0, then DOCADDR.
+        uint32_t doc_address() const { return doc_addr_; }
         /// Times CTRL RESET was written.
         unsigned cpu_resets() const { return cpu_resets_; }
         /// The card's 6510, for the debugger.
@@ -272,6 +343,25 @@ namespace ooe::emu
         };
 
         uint8_t ram_byte() { return ram_[ram_addr_++]; }
+        /// The FIFO's room, in 256-byte units.
+        uint16_t free_units() const { return static_cast<uint16_t>(FIFO_BYTES / 256); }
+        /// DOCDATA: wave RAM or a register at the DOC's address, which moves on with DOCCTL bit 5.
+        uint8_t doc_data_read();
+        void doc_data_write(uint8_t data);
+        void doc_step()
+        {
+            if (docctl_ & DOCCTL_AUTOINC)
+                doc_addr_ = (doc_addr_ + 1) & (Es5503::RAM_BYTES - 1);
+        }
+        /// EQVAL at EQIDX, then EQIDX moves on (bits 0-6; bit 7 stays).
+        uint8_t eq_value() const;
+        void eq_step() { eqidx_ = static_cast<uint8_t>((eqidx_ & EQIDX_ENABLE) | ((eqidx_ + 1) & 0x7F)); }
+        /// A new vis page: silence, until the PCM path is built.
+        void vis_snapshot();
+        /// Revision 2's registers to their /RESET values.
+        void reset_rev2();
+        /// $48-$63 on a revision 1 card: nothing there.
+        bool hidden(unsigned o) const { return rev_ < 2 && o >= PCMCTL && o <= DRQSEL; }
         bool io_in() const;
         uint8_t card_read(uint16_t addr);
         uint8_t card_peek(uint16_t addr) const;
@@ -311,6 +401,23 @@ namespace ooe::emu
         uint8_t to_card_{0}, to_host_{0};
         bool to_card_full_{false}, to_host_full_{false};
         unsigned cpu_resets_{0};
+
+        // Revision 2 (hw/sound-rev2.md)
+        unsigned rev_{2};
+        uint8_t pcmctl_{0}, codec_{0}, pcmfmt_{0};
+        uint16_t rate_{0};
+        uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
+        uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch
+        std::array<uint8_t, 2> vol_{};     ///< VOLL, VOLR
+        uint8_t eqidx_{0};
+        std::array<int8_t, EQ_BANDS + 1> eq_gain_{}; ///< the preamp, then the bands
+        bool eq_on_{false};
+        uint8_t visidx_{0};
+        std::array<uint8_t, VIS_BYTES> vis_{};
+        uint8_t docctl_{0};
+        uint32_t doc_addr_{0};
+        uint8_t drqsel_{DRQ_RAMDATA};
+        Es5503 doc_;
 
         CardBus bus_{*this};
         Cpu6502 cpu_;

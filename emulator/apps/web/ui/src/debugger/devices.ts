@@ -31,7 +31,7 @@ const VIDEO_ID = 0x91;
 export const USB = 0xc580;
 const USB_ID = 0xb1;
 export const SOUND = 0xc500;
-const SOUND_ID = 0xa1;
+const SOUND_TYPE = 0xa0; // the ID's high nibble: the sound card at any revision (2 adds hw/sound-rev2.md's)
 export const SD = 0xc380;
 const SD_ID = 0x71;
 const MODS = ["L-Ctrl", "L-Shift", "L-Alt", "L-GUI", "R-Ctrl", "R-Shift", "R-Alt", "R-GUI"];
@@ -318,7 +318,7 @@ export function devicesView(port: MachinePort) {
 
   const refreshSound = async () => {
     const r = await port.readMemory(SOUND, 0x80, "io");
-    if (r[0x7f] !== SOUND_ID) {
+    if ((r[0x7f] & 0xf0) !== SOUND_TYPE) {
       soundStatus.textContent = "none";
       soundRows.replaceChildren(h("dd", {}, "No sound card on this machine."));
       return;

@@ -57,7 +57,7 @@
 # The WebUI drives them from gamepads or its keys; the terminal app's
 # debugger has `joy`.
 #
-#   emulator --machine machines/backplane.machine --rom bios.rom
+#   emulator --machine machines/backplane.machine bios.rom
 
 cpu          w65c02s
 northbridge  backplane

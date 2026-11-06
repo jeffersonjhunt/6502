@@ -107,7 +107,7 @@ address of its own. On the last byte the card also sees terminal count.
 |---|---|---|
 | 0 | the SD card, while its CTRL has DMA set and STATUS's DATA is set | mass storage |
 | 1 | none | serial and parallel |
-| 2 | the sound card's RAMDATA, always | USB, or the sound card's RAM |
+| 2 | the sound card, always: RAMDATA, or what its DRQSEL picks ([`$C563`](07-sound.md#reg-c563)) | USB, or the sound card's RAM |
 | 3 | none | memory to memory and blits |
 
 MODE's DIR says which way: `%00` card to memory, `%01` memory to card. XFER says how:
@@ -462,7 +462,8 @@ As [DMA0_ADDR](#reg-c400), for channel 2.
 #### Notes
 
 The sound card's RAMDATA drives DRQ2, and holds it all the time: a transfer on channel 2 loads or reads the card's
-own 64 KB from RAMADDR on ([chapter 7](07-sound.md)).
+own 64 KB from RAMADDR on ([chapter 7](07-sound.md)). Revision 2's DRQSEL can give DRQ2 to PCMDATA or DOCDATA
+instead ([`$C563`](07-sound.md#reg-c563)).
 
 <a id="reg-c424"></a>
 ### $C424 DMA2_COUNT: channel 2's count
@@ -735,7 +736,8 @@ R. Writing 1s clears those terminal-count bits.
 
 #### Reset
 
-`$00`, but for a DRQ a card holds: the sound card holds DRQ2 all the time, so with a sound card it reads `$40`.
+`$00`, but for a DRQ a card holds: the sound card holds DRQ2 all the time (with DRQSEL at its reset value), so with
+a sound card it reads `$40`.
 
 #### Status
 

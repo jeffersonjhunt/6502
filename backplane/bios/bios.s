@@ -160,8 +160,11 @@ IRQ:            PHA
 ; Stop what would go on behind the monitor: every DMA channel, the SD card's
 ; command, the boot splash, the sound card's 6510 and SIDs; and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
-; (its time runs on). What it doesn't know (a program's own state) is left
-; alone; the serial card the monitor's entry (WOZMON) programs afresh.
+; (its time runs on), a front-panel key already pending, and the VIA's. What
+; it doesn't know (a program's own state) is left alone; the serial card the
+; monitor's entry (WOZMON) programs afresh. The serial card always has the VIA
+; at $C340; only an emulator machine without its via6522 line has the stand-in
+; 6551's mirror there, which takes VIA_IER's write until WOZMON undoes it.
 QUIET:
                 LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
                 STA     NB_RTCCTL
@@ -195,7 +198,8 @@ QUIET:
                 STZ     VIDEO_IEN
                 STZ     VIDEO_SPLASH   ; the boot splash, if it's still on
 @sound:         LDA     SOUND_ID
-                CMP     #SOUND_ID_V1
+                AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
+                CMP     #SOUND_TYPE
                 BNE     @panel
                 LDA     SOUND_CTRL
                 AND     #<~SOUND_RUN   ; the 6510 stopped, so the SIDs take writes
@@ -207,11 +211,15 @@ QUIET:
                 BPL     @sid
 @panel:         LDA     CONSOLE_ID
                 CMP     #CONSOLE_ID_V1
-                BNE     @done
+                BNE     @via
                 STZ     CONSOLE_IEN
-@done:          RTS
+                LDA     #1             ; a key already pending pulls /IRQ whatever IEN says
+                STA     CONSOLE_ISR
+@via:           LDA     #$7F           ; the VIA's interrupts off, all seven (a program's timer)
+                STA     VIA_IER
+                RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.10", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.11", $0D, 0
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI

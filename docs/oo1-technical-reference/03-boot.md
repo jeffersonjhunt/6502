@@ -11,7 +11,7 @@ Status: **emulated**
 
 At reset the north bridge maps W3 and VEC to the top block of the flash, ROM A block 31, read-only (`$DF`). W0–W2
 map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts the BIOS at `$C800`. The block's first
-2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. The BIOS, version 0.10:
+2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. The BIOS, version 0.11:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -22,7 +22,7 @@ map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts t
    their own while the boot goes on.
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer.
-7. Prints `BACKPLANE BIOS 0.10` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.11` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
@@ -157,7 +157,7 @@ Status: **emulated**
 Each failure is said, then the monitor: `NO SD CARD`, `NO CARD IN THE SLOT`, `NO DMA`, `NOT ON THE CARD: /BOOT.BIN`,
 `BOOT.BIN IS EMPTY`, `BOOT.BIN IS OVER 44 KB`, or `SD ERROR` and the card's error code in hex.
 
-**At power-on** (BIOS 0.10), after the greeting, the BIOS looks for `/BOOT.BIN` itself. With no card, an empty
+**At power-on** (since BIOS 0.10), after the greeting, the BIOS looks for `/BOOT.BIN` itself. With no card, an empty
 slot, or no `/BOOT.BIN`, it says nothing more and enters the monitor. With one, it prints
 `BOOTING THE SD CARD: A KEY FOR THE MONITOR` and waits for the splash to end. With no video card it waits about 2 s
 instead. A key pressed meanwhile is taken, and the monitor comes up instead. Otherwise it boots, as `C80CR` does.

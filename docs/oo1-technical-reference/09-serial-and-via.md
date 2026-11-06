@@ -206,9 +206,10 @@ clears a flag by the access that clears it, or by writing a 1 to its IFR bit.
 IER is written with bit 7 saying what to do: 1 sets the IER bits that are 1 in the byte, 0 clears them. `$7F` turns
 every VIA interrupt off; `$C0` turns on timer 1's.
 
-**The BIOS doesn't touch the VIA,** and Break leaves it, its IER too. A VIA interrupt a program left on survives
-Break, and interrupts the next program that clears I ([chapter 4](04-interrupts.md#irq-and-nmi)). Turn the VIA's
-interrupts off (`$7F` to VIA_IER) before leaving.
+**The BIOS touches only IER.** Since BIOS 0.11 Break writes `$7F` to VIA_IER, so an interrupt a program left on
+can't follow it into the monitor or the next program ([chapter 4](04-interrupts.md#irq-and-nmi)). The rest it
+leaves: the timers run on and IFR keeps its flags. Under BIOS 0.10 Break left IER too, so a program still turns the
+VIA's interrupts off before it leaves, for a machine with the older BIOS.
 
 ### Reset
 
@@ -221,7 +222,8 @@ writes `$40` to ACR and loads nothing gets timer 1's flag at the counter's next 
 cycles. The reset button, START, Ctrl-Reset and entering Apple II mode all pulse /RESET. At power-on the counters
 and latches are `$FFFF` and SR is `$00`.
 
-Since the BIOS never writes the VIA, that is how it is under the monitor after a reset, and Break changes nothing.
+The BIOS writes the VIA only at Break, so that is how it is under the monitor after a reset; Break then turns IER
+off and changes nothing else.
 
 In Apple II mode the VIA is out of reach, with the rest of the I/O hole
 ([chapter 2](02-memory-and-banking.md#the-io-hole)). Entering the mode cleared its IER, so it can't interrupt there.
@@ -923,8 +925,8 @@ Reads `$80`: every interrupt off.
 
 #### Notes
 
-The BIOS's Break leaves IER as it was ([chapter 4](04-interrupts.md#irq-and-nmi)): write `$7F` here before a program
-leaves. Under OODOS, IER is OODOS's.
+The BIOS's Break writes `$7F` here, since BIOS 0.11 ([chapter 4](04-interrupts.md#irq-and-nmi)); a program still
+writes `$7F` before it leaves, for an older BIOS. Under OODOS, IER is OODOS's.
 
 <a id="reg-c34f"></a>
 ### $C34F VIA_ORA_NH: port A, without handshake

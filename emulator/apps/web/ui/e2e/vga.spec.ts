@@ -6,7 +6,7 @@ import { onTerminal, openDebugger, pastSplash, phosphor, powerOn } from "./ui";
 async function booted(page: Page) {
   await page.goto("./?sd=empty");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.11", { timeout: 15_000 });
 }
 
 /** A VGA pixel (x, y in 640x480) off the canvas, which holds k x k canvas pixels for each. */
@@ -61,7 +61,7 @@ test("typing shows on VGA too, and a reload opens on VGA again", async ({ page }
   await expect.poll(() => litInRow(page, 5)).toBeGreaterThan(40); // the answer
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.10", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.11", { timeout: 15_000 });
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // opens on VGA again...
   await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();

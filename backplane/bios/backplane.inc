@@ -241,6 +241,38 @@ SOUND_RAMDATA   = SOUND + $45          ;   which moves the address on
 SOUND_IEN       = SOUND + $42
 SOUND_ID        = SOUND + $7F
 SOUND_ID_V1     = $A1
+SOUND_ID_V2     = $A2                  ; revision 2: a PCM stream and an ES5503 (hw/sound-rev2.md, proposed)
+SOUND_TYPE      = $A0                  ; ID's high nibble, the module: the card at any revision
+; Revision 2's registers.
+SOUND_PCMCTL    = SOUND + $48          ; RUN, PAUSE, FLUSH (a strobe), EOF
+SOUND_CODEC     = SOUND + $49          ; 0 raw PCM, 1 MP3
+SOUND_RATE      = SOUND + $4A          ; 2 bytes: raw PCM's rate in Hz; reads the stream's
+SOUND_PCMFMT    = SOUND + $4C          ; bit 0 stereo, bit 1 16-bit
+SOUND_FREE      = SOUND + $4D          ; 2 bytes: the FIFO's room, 256-byte units; reading the low latches
+SOUND_PCMDATA   = SOUND + $4F          ; the stream
+SOUND_STATE     = SOUND + $50          ; idle, buffering, playing, paused, underrun, ended; $80 up errors
+SOUND_POS       = SOUND + $51          ; 4 bytes: frames played; reading the low latches, writing it zeroes
+SOUND_KBPS      = SOUND + $55          ; 2 bytes: the MP3's bitrate
+SOUND_VOLL      = SOUND + $57          ; the master volumes, 255 unity
+SOUND_VOLR      = SOUND + $58
+SOUND_EQIDX     = SOUND + $59          ; 0 the preamp, 1-10 the bands; bit 7 the enable
+SOUND_EQVAL     = SOUND + $5A          ; the gain at EQIDX in half-dB, +-24; EQIDX moves on
+SOUND_VISIDX    = SOUND + $5B          ; the vis page's index; writing 0 takes a snapshot
+SOUND_VISDATA   = SOUND + $5C          ; the byte there, and the index moves on
+SOUND_CODECS    = SOUND + $5D          ; the codecs there are: $83
+SOUND_DOCCTL    = SOUND + $5E          ; the ES5503's port: RUN, its IRQ, auto-increment, RAM
+SOUND_DOCDATA   = SOUND + $5F          ; the register or wave RAM byte at DOCADDR
+SOUND_DOCADDR   = SOUND + $60          ; 2 bytes: the register (low), or wave RAM's address
+SOUND_DOCBANK   = SOUND + $62          ; bit 0: wave RAM's address bit 16
+SOUND_DRQSEL    = SOUND + $63          ; the DRQ's source: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA
+SOUND_PCM_RUN   = $01                  ; PCMCTL
+SOUND_PCM_PAUSE = $02
+SOUND_PCM_FLUSH = $04
+SOUND_PCM_EOF   = $08
+SOUND_DOC_RUN   = $01                  ; DOCCTL
+SOUND_DOC_IRQ_CARD = $04               ; DOCCTL: its interrupt to the 6510, not the host
+SOUND_DOC_AUTOINC = $20
+SOUND_DOC_RAM   = $40                  ; DOCCTL: DOCDATA reaches wave RAM, not the registers
 
 ; Disk II controller (module C), slot 6 in Apple II mode. In native mode only its ID answers in its block
 ; (hw/design.md, "Disk II controller clone"); the switches there are still to come in the emulator.

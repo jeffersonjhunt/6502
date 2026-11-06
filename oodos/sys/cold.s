@@ -111,7 +111,7 @@ NEWLINE:        LDA     #$0D
 
 ; The boot status (2026-11-03, the owner's), three lines under the banner:
 ;
-;   BIOS 0.10   47K TPA                  the ROM BIOS's version, the TPA
+;   BIOS 0.11   47K TPA                  the ROM BIOS's version, the TPA
 ;   A: 8M   B: 8M   M: 128K              each drive and its size
 ;   Cards: video, sound, SD, USB keyboard, DMA, panel
 ;
@@ -270,7 +270,9 @@ DRIVES:         JSR     JT(BIOS::DRVTBL)
                 JMP     @drive
 @done:          RTS
 
-; The cards whose ID registers read their IDs, in CARDTAB's order.
+; The cards whose ID registers read their IDs, in CARDTAB's order: the bits
+; of the ID its mask keeps, so the sound card counts at any revision (its
+; type, the high nibble) and the rest at exactly theirs.
 CARDS:          LDA     #<SCARDS
                 LDX     #>SCARDS
                 JSR     PUTS
@@ -281,6 +283,7 @@ CARDS:          LDA     #<SCARDS
                 LDA     CARDTAB + 1,X
                 STA     SP0 + 1
                 LDA     (SP0)
+                AND     CARDTAB + 3,X  ; what of it says which card
                 CMP     CARDTAB + 2,X
                 BNE     @next
                 STX     CIDX
@@ -291,9 +294,9 @@ CARDS:          LDA     #<SCARDS
                 JSR     PUTS
 @name:          INC     FIRST
                 LDX     CIDX
-                LDA     CARDTAB + 3,X  ; its name
+                LDA     CARDTAB + 4,X  ; its name
                 STA     SP2
-                LDA     CARDTAB + 4,X
+                LDA     CARDTAB + 5,X
                 STA     SP2 + 1
                 JSR     PUTSP
                 LDX     CIDX
@@ -310,19 +313,19 @@ CARDS:          LDA     #<SCARDS
                 JSR     PUTS
 @done:          RTS
 
-.macro CARD id, v1, name
+.macro CARD id, want, mask, name
                 .word   id
-                .byte   v1
+                .byte   want, mask     ; ID AND mask = want
                 .word   name
 .endmacro
-CARD_LEN        = 5
-CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V1, CVIDEO
-                CARD    SOUND_ID, SOUND_ID_V1, CSOUND
-                CARD    SD_ID, SD_ID_V1, CSD
-                CARD    DISK2_ID, DISK2_ID_V1, CDISK2
-                CARD    USB_ID, USB_ID_V1, CUSB
-                CARD    DMA_ID, DMA_ID_V1, CDMA
-                CARD    CONSOLE_ID, CONSOLE_ID_V1, CPANEL
+CARD_LEN        = 6
+CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V1, $FF, CVIDEO
+                CARD    SOUND_ID, SOUND_TYPE, $F0, CSOUND
+                CARD    SD_ID, SD_ID_V1, $FF, CSD
+                CARD    DISK2_ID, DISK2_ID_V1, $FF, CDISK2
+                CARD    USB_ID, USB_ID_V1, $FF, CUSB
+                CARD    DMA_ID, DMA_ID_V1, $FF, CDMA
+                CARD    CONSOLE_ID, CONSOLE_ID_V1, $FF, CPANEL
 CARDTAB_LEN     = * - CARDTAB
 
 ; The 0-ended string at A/X; PUTSP, at SP2.
