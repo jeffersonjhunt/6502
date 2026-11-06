@@ -77,7 +77,8 @@ Functions from 72 are OODOS's own, a range no Digital Research system uses
   line of `DRIVES.TXT` does at boot.
 
 75 (O_ROM), leaving OODOS for the ROM's monitor or Apple II mode, is OODOS's too; the CCP's WOZMON and APPLE2 use it.
-76–97 are kept for OODOS.
+So is [76 (O_SECTOR)](07-function-reference.md#bdos-76), an Apple disk's DOS 3.3 sector, which DOS33 uses. 77–97
+are kept for OODOS.
 
 ## Far calls: FARCALL and the far call table
 

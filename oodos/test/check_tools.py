@@ -1,4 +1,5 @@
-"""Checks OODOS's build tools (README.md): the header, mkprl.py's .PRL and loader, and the rules gate.
+"""Checks OODOS's build tools (README.md): the header, mkprl.py's .PRL and loader, the rules gate, and
+dos33.py (phase 6d): its images, listing, extraction and check.
 
     make check                       # from oodos/, after make
     python3 -I test/check_tools.py [BUILD]
@@ -33,6 +34,9 @@ spec = importlib.util.spec_from_file_location("gencom", os.path.join(ROOT, "tool
 gencom = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gencom)
 gencom.mkprl, gencom.Refused = mkprl, mkprl.Refused  # one Refused for both
+spec = importlib.util.spec_from_file_location("dos33", os.path.join(ROOT, "tools", "dos33.py"))
+dos33 = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dos33)
 
 passed = failed = 0
 SENTINEL = 0xA5
@@ -522,6 +526,62 @@ def gencom_checks(hello, rsx, tmp):
     refused(lambda: gencom.gencom(com, [("H.RSX", com)]), "gencom: a .COM as an RSX", "not an RSX")
 
 
+def dos33_checks():
+    """dos33.py: a new image (the VTOC, the catalog's chain, tracks 0-2 used and empty), files added and
+    read back, ERA, and its check: clean images pass, a spoiled bitmap and a looped list are found."""
+    d = dos33.new()
+    ok(d.valid() and d.free_count() == 496, "a new image: a VTOC DOS 3.3 takes, 496 sectors free")
+    ok(len(list(d.catalog_sectors())) == 15, "its catalog: 15 sectors on track 17")
+    ok(not any(d.d[:3 * 16 * 256]), "tracks 0-2 empty: no DOS on them")
+    ok(dos33.check(d) == [], "its check: clean")
+    text = dos33.text(b"ONE\r\nTWO\r\n\x1a\x1a")
+    ok(text == bytes(b | 0x80 for b in b"ONE\rTWO\r") + b"\0", "text: bit 7 set, LF dropped, to ^Z, a 0 after")
+    dos33.add(d, "NOTE", "T", text)
+    data = bytes(range(256)) * 300  # 300 sectors: three track/sector lists
+    dos33.add(d, "BIG FILE", "R", data)
+    names = [(f["name"], f["type"], f["sectors"]) for f in d.files()]
+    ok(names == [("NOTE", "T", 2), ("BIG FILE", "R", 300 + 3)], "two files listed: %s" % names)
+    ok(d.raw(d.find("BIG FILE")) == data, "BIG FILE read back, its three lists chained")
+    ok(dos33.binary(b"AB", 0x6000) == bytes([0, 0x60, 2, 0]) + b"AB", "B: the address and length first")
+    try:
+        dos33.binary(bytes(0x10000), 0)
+        ok(False, "a B file of 64 KB: not refused")
+    except dos33.Bad as e:
+        ok("at most" in str(e), "a B file of 64 KB: refused: %s" % e)
+    ok(dos33.check(d) == [], "the check after two files: clean")
+    try:
+        dos33.add(d, "NOTE", "T", text)
+        ok(False, "a second NOTE: not refused")
+    except dos33.Bad as e:
+        ok("there already" in str(e), "a second NOTE: refused: %s" % e)
+    dos33.erase(d, "BIG FILE")
+    ok(d.find("BIG FILE") is None and d.free_count() == 496 - 2, "ERA: gone, its sectors free")
+    ok(dos33.check(d) == [], "the check after ERA: clean")
+    spoiled = dos33.Disk(bytes(d.d))
+    t, s = spoiled.find("NOTE")["ts"]
+    spoiled.set_free(t, s, True)
+    p = dos33.check(spoiled)
+    ok(any("free in the bitmap" in x for x in p), "a used sector marked free: found: %s" % p[:1])
+    looped = dos33.Disk(bytes(d.d))
+    l = looped.sector(t, s)
+    l[1], l[2] = t, s  # the list's next is itself
+    looped.put_sector(t, s, l)
+    p = dos33.check(looped)
+    ok(any("loop" in x for x in p), "a track/sector list that loops: found: %s" % p[:1])
+    ok(not dos33.Disk(bytes(dos33.SIZE)).valid(), "zeros: no VTOC DOS 3.3 would take")
+    ok(dos33.text(b"A\nB\x00C\r\n\x1a") == bytes(b | 0x80 for b in b"A\rBC\r") + b"\0",
+       "text: a lone LF a CR, NULs dropped")
+    d = dos33.new()
+    dos33.add(d, "TWO", "R", bytes(130 * 256))
+    second = d.lists(d.find("TWO"))[0][1]
+    l = d.sector(*second)
+    ok(l[5] | l[6] << 8 == 122 and dos33.check(d) == [], "the second list starts at the file's sector 122")
+    l[5] = 0
+    d.put_sector(*second, l)
+    p = dos33.check(d)
+    ok(any("starts at sector" in x for x in p), "a list's offset wrong: found: %s" % p[:1])
+
+
 def main():
     built = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
     with tempfile.TemporaryDirectory() as tmp:
@@ -549,6 +609,8 @@ def main():
         rules_checks(hello, tmp)
         print("Running hello")
         run_checks(hello, tmp)
+    print("dos33.py")
+    dos33_checks()
     print("FAIL %d (PASS %d)" % (failed, passed) if failed else "PASS %d" % passed)
     return 1 if failed else 0
 

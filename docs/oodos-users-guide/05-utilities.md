@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c). DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -711,7 +711,7 @@ PIP dest-filespec{[Gn]}=device{[options]}
 - **The devices:** `CON:` (the console), `AUX:` (the serial line), `LST:` (the printer), `PRN:` (the printer, with
   tabs every eighth column, line numbers and a new page every 60 lines), and two sources: `NUL:` (64 zero bytes)
   and `EOF:` (one ^Z). `DEVICE` says where `CON:`, `AUX:` and `LST:` go.
-- **PIP alone** prints `OODOS PIP 0.3` and asks with `*` for one command a line; an empty line ends it.
+- **PIP alone** prints `OODOS PIP 0.4` and asks with `*` for one command a line; an empty line ends it.
 
 #### Options
 
@@ -779,7 +779,7 @@ A copy that fails leaves nothing behind: PIP writes to `NAME.$$$` and renames it
 
 #### Since
 
-OODOS 0.3
+OODOS 0.4
 
 #### Status
 
@@ -802,7 +802,7 @@ OODOS 0.3
 
 ```
 A>PIP
-OODOS PIP 0.3
+OODOS PIP 0.4
 *B:=A:*.BAS
 COPYING -
 GAME.BAS
@@ -1104,3 +1104,109 @@ OODOS 0.3
 The same. Ours: the words in full only; `Do you want another file?` is asked when a PUT of the kind already
 writes to a file; an old file is replaced only when the new one is complete; the file keeps the prompt's line feed.
 
+
+## DOS33
+
+<a id="util-dos33"></a>
+### DOS33: files to and from a DOS 3.3 disk
+
+DOS33 reads and writes an Apple II DOS 3.3 disk: a floppy in O: or P:, or a 140 KB `.dsk` image on the card as an SD
+drive (in `DRIVES.TXT`, or mounted with MOUNT). It lists the disk, takes a file off it, puts one on it, and deletes one.
+It works on the disk's own sectors, so the drive needn't be (and isn't) a CP/M drive while it does; the next CP/M
+command on it reads the disk again.
+
+#### Forms
+
+```
+DOS33 d:
+DOS33 GET d:NAME {e:}FILE.TYP {T | B | R}
+DOS33 PUT {e:}FILE.TYP d:NAME {T | B{=addr}}
+DOS33 ERA d:NAME
+```
+
+- **`DOS33 d:`** lists the disk's catalog: for each file a `*` if it's locked, its type letter (T text, I and A BASIC
+  programs, B binary, S, R; `?` for a type byte DOS 3.3 doesn't make), the sectors it takes (three digits), and its
+  name, a control character in it shown as `^G` and the like; then the free sectors.
+- **GET** takes the file NAME off the disk into the CP/M file. T: the text to its first 0 byte as stored, or its
+  first sector never written, bit 7 of each character cleared, each CR written as CR LF, and ^Z after. A
+  random-access text file keeps a 0 after each record, and has sectors never written between, so T stops at the
+  first: take one with R. B: the bytes DOS keeps first (the load address and the length) dropped, the length's
+  bytes written (a sector never written inside the length as zeros); the address is shown; a B file whose first
+  sector was never written has neither, so nothing is written. R: every sector of the file as it is on the disk, a
+  sector never written as zeros, to the last one written. Without a letter, T for a T file, B for a B file, R for
+  any other. ^C stops GET.
+- GET writes a `.$$$` file first and gives it the name only when it is whole, so a CP/M file already there is
+  replaced only then; a GET that fails, or is stopped by ^C, leaves it as it was, and no `.$$$` file, but for
+  three cases: a failed rename (the message says the data is there), Break or a reset in the middle (the `.$$$`
+  file is left, and the next GET refuses it until you ERA it), and a changed floppy (the `.$$$` file is on the
+  old disk; nothing on the new one is touched). Before it reads anything, GET refuses a target of type `$$$`, a
+  read-only drive (a unit mounted `RO` too), a read-only file, one protected for writing by a password, and a
+  `NAME.$$$` already there (yours: it isn't deleted). Only your user number's files count: a user-0 system file
+  seen from another user isn't the target.
+- **PUT** puts the CP/M file on the disk as NAME. T: bit 7 set, CR LF made a CR and a lone LF a CR too, NUL bytes
+  dropped, to the first ^Z, a 0 after. B: the load address (`$2000` unless `B=addr` gives it, in hex) and the length
+  (the file's records × 128, so at most 511 of them) first. Without a letter, T for a `.TXT` file, B for any other. A
+  name that's on the disk already is refused: ERA it first.
+- **ERA** deletes NAME, its sectors free again. A locked file is refused.
+- A name has 1 to 30 characters; one with blanks is typed in quotes: `DOS33 GET O:"MY FILE" M:MY.TXT`. The command
+  line comes in capitals, quotes and all, so a file whose name has small letters or control characters, as DOS 3.3
+  allows, can be listed but not reached by GET or ERA.
+- The CP/M file mustn't be on the Apple disk's own drive: GET and PUT refuse it.
+- Before GET or ERA does anything, the file's track/sector lists are read through: each must start where the file
+  says (the k-th at its sector 122 × k, so a list chained in a loop is found, while a random-access file's empty
+  lists pass), and each sector must be on the disk and not on the catalog's track. A file that isn't so is refused,
+  nothing written.
+
+#### Options
+
+None in brackets: the conversion is the letter after the names (T, B or R), as above.
+
+#### Output
+
+```
+A>DOS33 O:
+O: DOS 3.3 disk, volume 254
+ T 002 README
+ B 005 GAME
+489 sectors free
+A>DOS33 GET O:GAME M:GAME.BIN
+Address $6000, 1000 bytes
+```
+
+#### Errors
+
+- `Use: DOS33 d: | GET ... | PUT ... | ERA d:NAME`: a form DOS33 doesn't have.
+- `Not an Apple disk drive.`: d: isn't O:, P: or a 140 KB SD drive (or its unit is no longer mounted). `Not a DOS
+  3.3 disk.`: its VTOC (track 17, sector 0) isn't one DOS 3.3 would take (a CP/M disk, a blank one). `The Apple
+  disk was changed.`: a PUT or ERA's write found the SD drive's unit mounted again since DOS33 started (another
+  image swapped in on the card): nothing more is written. A GET reads on from whatever is mounted then.
+- `File not found.`, `File exists.`, `File locked.`, `Bad name.`: the Apple disk's file, or its name.
+- `Bad file: its sector lists aren't a DOS 3.3 file's.` (a list chained in a loop, a sector past the disk);
+  `Bad catalog: its chain loops.`: a damaged disk.
+- `Disk full.`, `Catalog full.` (105 files): the catalog and the VTOC are as they were, so the file isn't there and
+  the sectors PUT had written to are still free.
+- `File too big for B.`: a B file of more than 511 records.
+- `Disk error.`: a sector couldn't be read or written. `Disk write-protected.`: the floppy's notch is covered, or the
+  drive is set read-only (SET `[RO]`).
+- `The CP/M file can't be on the Apple disk.`: e: is d:.
+- `GET won't write a .$$$ file.`, `CP/M file read-only.`, `CP/M file write-protected (its password).`, `CP/M drive
+  read-only.`, `Its .$$$ file is there already: ERA it first.`: GET's refusals before it starts.
+- `No File`, `CP/M disk full.`, `CP/M directory full.`, `CP/M read error.`, `CP/M file not closed.`, `CP/M error.`:
+  the CP/M file. `The CP/M disk was changed.`: O: or P:'s floppy was changed while GET wrote to it (Media
+  Change); its `.$$$` file is left on the old floppy.
+  `GET stopped.`: after an error OODOS has said (`Read Only`, `File R/O`, ...). `CP/M file not renamed: the data is
+  in its .$$$ file.`: the last step failed, so the new data is kept under that name.
+
+Each sets the return code to `$FF00`. A disk DOS33 has written passes DOS 3.3's own `VERIFY` and loads with `BLOAD`.
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.

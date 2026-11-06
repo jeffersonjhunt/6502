@@ -46,6 +46,9 @@
 #     2:SMALL.BIN      300 bytes, seed 7
 #   /DISKS/BLANK.DSK   apple-do, empty, its boot tracks zeros
 #   /DISKS/ODD.DSK     281 sectors of zeros: a unit that is no drive
+#   /DISKS/DOS33.DSK   a DOS 3.3 disk made by oodos/tools/dos33.py (ours: no
+#                      DOS on it, tracks 0-2 zeros, so it doesn't boot),
+#                      volume 254, and README, a T file, its words its own
 #
 # The demo card (demo.sparse), the one the WebUI puts in its slot at each
 # visit (its build makes public/core/demo-card.img.gz of it): the same
@@ -204,6 +207,12 @@ python3 gen.py apple/SMALL.BIN 300 7
  truncate -s 143360 BLANK.DSK
  fsck.cpm -f apple-do -n BLANK.DSK)
 python3 -c "open('apple/ODD.DSK', 'wb').truncate(281 * 512)"
+python3 text.py apple/DOS33.TXT 'THIS IS A DOS 3.3 DISK, MADE BY OODOS/TOOLS/DOS33.PY.' \
+    'DOS33.COM LISTS IT, TAKES FILES FROM IT AND PUTS THEM ON IT.'
+python3 -I src/oodos/tools/dos33.py new apple/DOS33.DSK
+python3 -I src/oodos/tools/dos33.py put apple/DOS33.DSK README T apple/DOS33.TXT
+python3 -I src/oodos/tools/dos33.py check apple/DOS33.DSK
+python3 -I src/oodos/tools/dos33.py ls apple/DOS33.DSK
 
 # The card: the partition made alone, then put at 2048.
 python3 -c "open('part.img', 'wb').truncate((32 * 2048 - 2048) * 512)"
@@ -215,7 +224,7 @@ at mcopy -i part.img /o/card/DRIVES.TXT ::/OODOS/DRIVES.TXT
 at mcopy -i part.img A.IMG ::/OODOS/A.IMG
 at mcopy -i part.img B.IMG ::/OODOS/B.IMG
 at mmd -i part.img ::/DISKS
-at mcopy -i part.img apple/CPM.DSK apple/BLANK.DSK apple/ODD.DSK ::/DISKS/
+at mcopy -i part.img apple/CPM.DSK apple/BLANK.DSK apple/ODD.DSK apple/DOS33.DSK ::/DISKS/
 mdir -i part.img -/ ::/
 python3 -c "open('card.img', 'wb').truncate(32 * 2048 * 512)"
 printf 'label: dos\nlabel-id: 0x0001dd05\nstart=2048, type=06\n' | sfdisk -q card.img

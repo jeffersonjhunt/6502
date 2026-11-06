@@ -210,6 +210,7 @@ FJUMPS:
                 .word   F_DMASEG, F_DMAGET, F_MCMAX, F_MCABSMAX ; 128: 3c's
                 .word   F_MCALLOC, F_MCABSALL, F_MCFREE, F_MCALLFREE
                 .word   F_PHYS, F_MOUNT, F_ROM, F_TESTW ; 150: 41
+                .word   F_SECT ; 152: 76 (6d)
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
@@ -218,7 +219,7 @@ FIDX:
                 .byte   66, 150, 68, 68, 116, 70, 72, 98, 74, 100 ; 40-49
                 .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
-                .byte   $FF, $FF, 78, 144, 146, 148, $FF, $FF, $FF, $FF ; 70-79
+                .byte   $FF, $FF, 78, 144, 146, 148, 152, $FF, $FF, $FF ; 70-79
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105

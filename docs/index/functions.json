@@ -5,7 +5,7 @@
   "documented": true,
   "anchor": "bdos-0",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -122,7 +122,7 @@
   "documented": true,
   "anchor": "bdos-13",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -131,7 +131,7 @@
   "documented": true,
   "anchor": "bdos-14",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -140,7 +140,7 @@
   "documented": true,
   "anchor": "bdos-15",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -149,7 +149,7 @@
   "documented": true,
   "anchor": "bdos-16",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -176,7 +176,7 @@
   "documented": true,
   "anchor": "bdos-19",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -185,7 +185,7 @@
   "documented": true,
   "anchor": "bdos-20",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -194,7 +194,7 @@
   "documented": true,
   "anchor": "bdos-21",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -203,7 +203,7 @@
   "documented": true,
   "anchor": "bdos-22",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -212,7 +212,7 @@
   "documented": true,
   "anchor": "bdos-23",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -275,7 +275,7 @@
   "documented": true,
   "anchor": "bdos-30",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -284,7 +284,7 @@
   "documented": true,
   "anchor": "bdos-31",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -302,7 +302,7 @@
   "documented": true,
   "anchor": "bdos-33",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -311,7 +311,7 @@
   "documented": true,
   "anchor": "bdos-34",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -338,7 +338,7 @@
   "documented": true,
   "anchor": "bdos-37",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -365,7 +365,7 @@
   "documented": true,
   "anchor": "bdos-40",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -428,7 +428,7 @@
   "documented": true,
   "anchor": "bdos-48",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -545,7 +545,7 @@
   "documented": true,
   "anchor": "bdos-72",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -563,7 +563,7 @@
   "documented": true,
   "anchor": "bdos-74",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -572,7 +572,16 @@
   "documented": true,
   "anchor": "bdos-75",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
+  "status": "built"
+ },
+ {
+  "number": 76,
+  "name": "O_SECTOR",
+  "documented": true,
+  "anchor": "bdos-76",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -590,7 +599,7 @@
   "documented": true,
   "anchor": "bdos-99",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.3",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -599,7 +608,7 @@
   "documented": true,
   "anchor": "bdos-100",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {
@@ -626,7 +635,7 @@
   "documented": true,
   "anchor": "bdos-103",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.2",
+  "since": "OODOS 0.4",
   "status": "built"
  },
  {

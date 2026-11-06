@@ -290,7 +290,8 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
 | 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
-| 76–97 | reserved for OODOS |
+| 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
+| 77–97 | reserved for OODOS |
 
 ### Far calls ###
 
@@ -3387,6 +3388,178 @@ merged, with the switches' equates (below).
   drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
   G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.
 
+
+**Proposed (6d, as built, 2026-11-06)** (`oodos/sys/bdosmem.s`, `bios.s`, `oodos/utils/dos33.s`,
+`oodos/tools/dos33.py`, `make_card.sh`; the plan above is what was built, and these are the details):
+
+- **The commits,** on `feat/oodos-dos33`: function 76 (BDOS and BIOS); DOS33.COM and dos33.py with the card's part
+  in `make_card.sh`; `test_oodos_dos33` and MEMTEST's 76 cases; `test_oodos_dos33_iie`; `check_tools.py`'s dos33.py
+  checks; the books (`bdos-76`, `util-dos33`, the appendices) and this record; the version 0.4 with every place it is
+  checked; the cards rebuilt.
+- **Function 76** (`F_SECT`, bdosmem.s): the 6-byte block read by PGET; an SD drive's units read again first
+  (`RESCAN`), since a unit mounted by the card's own MOUNT isn't in DRVAPL until they are (the first version
+  answered "not an Apple disk" for C: until a CP/M select had read them); O: and P: by SELDSK (no Disk II, no DPH).
+  A logged-in drive is flushed (a buffer that won't write: A = 1, nothing dropped), then dropped and logged out by
+  `DROPD`, which 74 now shares. The BIOS is called through its jump table as for any sector, with `RAWF` set:
+  `APPLE1` then moves one 256-byte half (`NHALF` 1), the file's own sector (no skew), sectors 0-15, through the
+  same track buffers, write-through as before; a CP/M drive's `DISKIO` refuses it (`$FF`). The 256 bytes go between
+  SECBUF and the program by one MOVE (`R256`); memory MOVE refuses ends the function as PIN and POUT do.
+- **DOS33.COM** (ours): the forms as planned. Decided here: GET replaces the CP/M file; PUT's default is T for a
+  `.TXT` file and B for any other; a B file's length is the CP/M file's records × 128, at most 511 records (DOS's
+  length is a word); an R GET writes a file's never-written sectors as zeros when data follows them (dos33.py's
+  `raw` the same). Allocation as DOS 3.3 goes: from track 18 out to 34, then 16 down to 0, each track from sector
+  15 down, so DOS's own next SAVE finds the sectors it expects free. A PUT reads the VTOC, finds a free entry,
+  writes the data and the lists, then the entry and the VTOC last: a Disk full in the middle leaves the disk as it
+  was (sectors written are free in the bitmap). Its messages are ours. The catalog's chain is read at most 255
+  sectors, so a looped one can't hang it.
+- **dos33.py** (ours, from the format's layout): `new`, `ls`, `put`, `get`, `era`, `lock`, `check` (every sector one
+  owner's, or free in the bitmap; the chains without a loop; each file's sector count). Its images have tracks 0-2
+  marked used and zeros. `/DISKS/DOS33.DSK` on the card is its image with a README of our words; the suite checks
+  tracks 0-2 are zeros (no DOS image, no Apple bytes).
+- **Tests:** `test_oodos_dos33` (13 cases, about 8 s; dos33.py run by the suite through Python): the card's image, the
+  catalog line for line against dos33.py's `ls`, GET in T, B, R and the default, PUT in T and B (a name with blanks),
+  ERA and a locked file, files of two and three track/sector lists, every message, a CP/M disk refused, a full disk (nothing changed) and the catalog past its
+  first sector and full (105), O: in the drive, and 76 through MEMTEST's S (its refusals, a read, a write), L (a
+  logged-in CP/M drive's buffers dropped: the next 17 finds a name 76 wrote) and J (2 on a write-protected
+  floppy); dos33.py's check after each. `test_oodos_dos33_iie` (4 s): DOS33 PUTs a T and a B file; the IIe boots
+  the owner's DOS 3.3 disk from the fixtures with the image in drive 2: `CATALOG,D2` lists both with DOS33's sector
+  counts, `VERIFY` passes, `BLOAD` puts the bytes at $4000, a program READs the text's lines; `BSAVE` writes 256
+  bytes, after which `BLOAD` of DOS33's file still gives its bytes and dos33.py checks DOS's disk clean; DOS33 GET
+  takes DOS's file back byte for byte. `check_tools.py`: dos33.py's images, listing, extraction, its 64 KB B limit,
+  and its check finding a spoiled bitmap and a looped list.
+- **Must fail, each seen with its fault put in:** the VTOC bitmap not updated (`test_oodos_dos33`: dos33.py's check,
+  "used by NOTE and NOTE", in 3 cases; with DOS 3.3: DOS's BSAVE took DOS33's sectors, so `BLOAD` gave other bytes,
+  and READ failed); text's bit 7 left clear (`test_oodos_dos33`'s PUT case; with DOS 3.3: READ didn't get the lines).
+- **Sizes against the plan:** the BDOS +266 bytes (block 60 12,768 → 13,034; the plan said 100-150: the parameter
+  checks, the rescan, the flush and drop, and the BIOS calls); the BIOS +41 bytes, inside its page alignment;
+  DOS33.COM 6,407 bytes (the plan 4-6 KB): its own code about 2.3 KB, `cmd.inc` and `util.inc` about 4 KB as in
+  every utility (TYPE.COM is 4,147).
+- **Not tested:** the real Disk II (the emulator's drive only); DOS 3.3 on a floppy DOS33 wrote in O: and then
+  moved to the IIe (the IIe case uses the SD image's sectors, the same bytes); ProDOS (not in phase 6); a file of
+  more than one track/sector list read by DOS 3.3 itself (DOS33 and dos33.py agree on them).
+
+**After 6d's first review (2026-11-06, the owner's decisions, all 15 as recommended):**
+
+- **F1-F3, a bad file:** GET and ERA read the file's lists through first (`chkfile`): at most five (a disk's 560
+  sectors), each list and each data sector on tracks 1-34 but 17, sectors 0-15, a pair of track 0 none. Anything
+  else is `Bad file`, before a sector is written or freed: a looped list hung GET and ERA, and a pair on track 63
+  made ERA set bits past the bitmap (the VTOC then said 17 sectors a track).
+- **F4:** GET writes `NAME.$$$`, closes it, then deletes the old file and renames it; any failure (`failsay`)
+  closes and deletes the `$$$` file and leaves the old one. **F5:** GET and PUT refuse a CP/M file on the Apple
+  drive itself (`samedrv`).
+- **F6:** PUT writes the VTOC before the catalog entry: a failure between leaks sectors instead of leaving a file
+  on free ones. **F7:** 76 refuses a write to a read-only drive (28, SET `[RO]`) with 2, and keeps the drive
+  read-only when it logs it out (`RRO`).
+- **F10:** GET's T ends at a stored 0, tested before bit 7 is cleared; PUT's T makes a lone LF a CR as CR LF, and
+  drops NULs (dos33.py's `text` the same). **F11:** the catalog shows a control character as `^G` and DEL as `?`;
+  the CCP's capitals keep a name with small letters out of GET's and ERA's reach (said in the User's Guide).
+- **F12, the Since lines:** every entry 6a-6d changed says OODOS 0.4 (the functions 14, 15, 16, 19-23, 30, 31,
+  33, 34, 37, 40, 72, 74, 99, 100, 103, PIP, and the new 76 and DOS33), as the rule is: the version that first had
+  the entry as it is now. `functions.json` regenerated.
+- **F13:** the warm boot clears `RAWF`. **F14:** 76 reads the SD units again only when the drive isn't known as an
+  Apple disk yet (it did at every call, an IDENTIFY a sector); O: and P: are selected once (no DPH: not an Apple
+  disk); one helper sets BW1 and BW2 either way. The BIOS calls stay beside DISKOP's (its buffer is a BCB, 76's
+  SECBUF). The BDOS is 13,077 bytes in block 60 (+309 on main: F7's read-only bit took what F14 saved).
+- **F15:** the books' words for `Not a DOS 3.3 disk` (the VTOC) and a full disk (the sectors written stay free);
+  PUT keeps VTOC +$30/$31 (the last track allocated, the direction) as DOS does; a catalog chained to itself is
+  `Bad catalog` (and the 255-sector bound says so too); a CP/M read error is `CP/M read error.`, not the end;
+  the type letter is the code's, `?` for others, as dos33.py's.
+- **F9, the oracles:** dos33.py's check holds each list's +5 (the file's sector it starts at: 122 × k). With DOS
+  3.3: a B file of 32,000 bytes (two lists) BLOADs whole; ten entries, the last in the catalog's second sector;
+  a file DOS33 ERAs is gone from CATALOG, and DOS's BSAVE takes its entry; VERIFY of all nine after DOS's BSAVE and
+  WRITE; DOS LOCKs a file and DOS33 sees `*` and refuses ERA; DOS WRITEs a text file and DOS33 GETs it as T.
+- **Tests:** `test_oodos_dos33` 13 → 21 cases, its two O: cases skipping without the PROM, the rest running on the
+  SD card alone (F8): looped lists, pairs past the disk and on track 17, a failed GET keeping the old file (a bad
+  pair, and the CP/M disk filling part-way), the Apple drive as the CP/M side, a read-only drive, the text rules,
+  the catalog's control characters, types, VTOC +$30/$31 and a looped catalog. `check_tools.py` 138.
+- **Must fail, each seen with its fault put in:** no list bound (the looped-list case); no pair check (the
+  pair-past-the-disk case); the old file deleted before the GET (the CP/M-disk-full case); no same-drive check;
+  T ending after bit 7 is cleared, and a lone LF dropped (the text case); 76 ignoring a read-only drive (the
+  read-only case). (Each utility fault's run also failed the read-only case, for want of SET.COM in its build.)
+- **DOS33.COM** is 6,903 bytes now (the checks, the `$$$` file, the messages).
+
+**After 6d's second review (2026-11-06, the owner's decisions, all 6 as recommended):**
+
+- **R2F1:** round 1's bound of five lists refused the sparse files DOS 3.3 itself writes (`OPEN RND,L250`,
+  `WRITE RND,R700`: six lists, five of them empty). `chkfile` now holds each list to its +5 (the k-th starts at
+  the file's sector 122 × k, 16 bits): a loop comes back to a list with the wrong one, so it is still found,
+  and past 16 bits is refused. The pair checks stay. dos33.py takes lists by the same rule.
+- **R2F2, R2F3:** before reading anything GET refuses a `.$$$` target, a read-only CP/M drive (29), a read-only
+  target file, and a `NAME.$$$` already there (the user's, not deleted). Its CP/M calls go through `cpmres`:
+  0 on; 10 `The CP/M disk was changed.`; an error the BDOS said `GET stopped.`; `$FF` the call's own message
+  (directory full, not closed, not renamed); a write's 1 and 2. Make, close and rename took only `$FF` for a
+  failure, so a 10 passed as success (the same in the CCP's ERASE and RENAME and in PIP is todo item 17).
+  A rename that fails leaves the new data as `NAME.$$$` and says so.
+- **R2F4:** 76 reads the units again before every write, and a write to a unit that changed since they were
+  last read is refused, `$FF` (the BIOS keeps a 140 KB unit's DRVAPL across a swap to another 140 KB image, so
+  the change bit, DRVCHG, is the test, taken before CHANGED clears it). Reads keep F14's cache.
+- **R2F5, R2F6 (books):** 0, 13, 48 and 75 say OODOS 0.4 and the check-first write-back on O: and P:, as 37
+  does; 72's table says (0, 4); 48's Read Only drops all the drive's changed buffers; 76's bullets rewrapped, and
+  the read-only bit outliving the logout. **The rule for the Since lines:** a change in behaviour that many
+  functions share through one routine bumps the entries whose text describes it (the write-backs: 0, 13, 37,
+  48, 75); the functions that only pass through it (17, 18, 46 and the like, which can now meet a held Read
+  Only or accept O: and P:) keep their line, and the books say it once, in appendix A and chapter 3.
+- **Tests:** `test_oodos_dos33` 21 → 25: a sparse file of six lists (GET, ERA, dos33.py's check), GET's four
+  refusals, 76's write after a remount behind OODOS's back ($FF, MEMTEST's I), and a disk change on O: under
+  GET with the clock held, so the close is the call that returns 10. `test_oodos_dos33_iie` 1 → 2: DOS 3.3
+  writes the sparse file far out; DOS33 GETs its sectors and ERAs it; DOS then BSAVEs and VERIFYs on that disk.
+- **Must fail, each seen with its fault put in:** five lists again (the sparse cases, in both suites); each of
+  GET's four refusals left out (its case); 76's write without the change test (the remount case); make, close
+  and rename taking only `$FF` (the disk-change case: `not renamed` instead of `changed`), and the close alone
+  the same.
+- **Sizes:** the BDOS 13,117 bytes in block 60 (+349 on main); DOS33.COM 7,443 bytes.
+
+**After 6d's third review (2026-11-06, the owner's decisions, all 9):**
+
+- **R3F1, R3F2, R3F7, the mount count:** the BIOS counts each SD unit's mount changes (`MNTGEN`), in UNITS
+  whenever a unit's entry changed, however the units were read (a select, 13, 37, 74, 76), and nothing clears
+  it; UNITS empties the SD track buffer only then. 76 reads the units at a program's first call on a drive
+  (`RSEEN`, cleared by the warm boot) and keeps the count (`RGEN`); a write is refused, `$FF`, if the count has
+  moved since. So a swap at A> before the program is taken as the disk (round 2's change bit refused the first
+  PUT), and a swap in the program is refused even when another call read the units in between (the change bit
+  was used up by it). DOS33 then says `The Apple disk was changed.` A read after a swap mid-program reads the new
+  image unchecked (the books say so).
+- **Not as asked, one conflict:** the owner asked to drop the read of the units before each write and to have
+  R2F4's probe refused. Only that read can see a swap with no other call between (the card has no signal for a
+  remounted unit). Kept, so the probe is refused: PUT of 32 KB 1.40 s (1.62 s with the track buffer emptied at
+  each read, 1.15 s with no read at all, when that probe's write would go in). The owner's call.
+- **R3F3, GET's sparse walk:** T ends at the first sector never written; B fills one with zeros only inside its
+  length, and a B file whose first sector was never written gives nothing (`bleft` starts 0); R writes zeros
+  only up to the last sector written; the zeros owed stop at once when `done` is set; GET polls ^C at each list
+  and each owed sector (CM_PAGE, CM_BRK) and `dbreak` deletes its `$$$` file. A chain of 528 lists with one
+  data pair: GET T 1.0 s, a B file whose length ends inside the owed zeros 2.1 s.
+- **R3F4:** a 10 clears `gtemp` first: the `$$$` file is the old disk's, and nothing on the new disk is touched
+  (it deleted the new disk's own `NAME.$$$`). The User's Guide says the old disk keeps it.
+- **R3F5, R3F6:** cpmok opens the target first (which logs its drive in, so a unit mounted read-only is
+  read-only for the vector check after), takes a file with f8' (user 0's, from another user) as not there,
+  and refuses one with f7' (write-protected by a password); the `NAME.$$$` probe skips f8' too.
+- **R3F8:** the duplicated `CP/M directory full.`, the dead `setmsg`, the drive-bit loop (DRVBIT) and RESCAN's
+  copied start gone; the mount count added more than they saved. **R3F9:** the books as above.
+- **Tests:** `test_oodos_dos33` 25 → 32: a swap at A> then PUT; MEMTEST's I with no call, with B: and A:
+  selected, and with 37 on B: between (all `$FF`, nothing changed); PUT's time; the 528-list chain (T, B, a ^C in
+  R, ERA, the loop); a B length inside the owed zeros; B and R holes; the new floppy's own `BIG.$$$` kept after a
+  change; user 5 with user 0's SYS files; a unit mounted read-only; a password write-protected target.
+- **Must fail, each seen with its fault put in:** the count not compared (the MEMTEST I cases); T not ending at a
+  hole (the 528-list case); the owed zeros not stopping at `done` (the B-length case: 30 s); 10 still deleting
+  the `$$$` (the change case); f8' ignored (the user-5 case).
+- **Sizes:** the BDOS 13,130 bytes (+362 on main); DOS33.COM 7,570 bytes: CODE $19CE with `cmd.inc` and
+  `util.inc` (about 4 KB of it, as in every utility), RODATA $3B4. The plan's 4-6 KB didn't count the includes.
+
+**After 6d's fourth review (2026-11-06, the owner's decisions; merged after it):**
+
+- **The read of the units before each 76 write stays** (PUT of 32 KB 1.40 s; R2F4's probe refused).
+- **R4F1:** gbyte set `done` with INC, so GET's owed zeros, which call it once a byte, wrapped it to 0 after 256
+  when a B length ended exactly on a sector's end (L 252 or 508: 137 s); it is set to 1 now, so the zeros stop
+  at the length at once (2.1 s for the 526-list case).
+- **R4F2:** a B file whose stored length runs past its last sector written gets zeros to the length, so the CP/M
+  file is what the address line says ("1000 bytes": 1,000, in 8 records).
+- **R4F3:** cpmres's `CP/M error.` is said (it fell into `dbreak`). **R4F4:** BINIT empties every track buffer at
+  the cold boot.
+- **Tests:** `test_oodos_dos33` 32 → 34: L 252 and 508 on a sector's end with a time bound, and a B length past
+  its last sector. **Must fail:** INC again (both lengths, 30 s, the bound); no zeros past the last sector (the
+  1,000-byte case).
+- **Sizes:** the BDOS 13,130 bytes; the BIOS 9,027 in block 61 (BINIT's loop took it past a page); DOS33.COM
+  7,604 bytes.
 
 ## GW-BASIC ##
 

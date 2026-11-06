@@ -162,7 +162,7 @@ TEST(power_on_boots_the_card_after_the_splash_to_the_prompt)
     REQUIRE(m.until("\nA>", 0, 1200));
     const size_t greeted = m.out.find("BACKPLANE BIOS 0.11\r");
     const size_t booting = m.out.find("\rBOOTING THE SD CARD: A KEY FOR THE MONITOR\r");
-    const size_t ooldr = m.out.find("\rOOLDR 0.3\r");
+    const size_t ooldr = m.out.find("\rOOLDR 0.4\r");
     CHECK(greeted != std::string::npos);
     CHECK(booting != std::string::npos && booting > greeted);
     CHECK(ooldr != std::string::npos && ooldr > booting);
@@ -199,7 +199,7 @@ TEST(c80cr_boots_oodos_from_the_card_to_the_prompt)
 {
     Oo1 m = booted();
     REQUIRE(m.s != nullptr);
-    CHECK(m.out.find("\rOOLDR 0.3\r") != std::string::npos);
+    CHECK(m.out.find("\rOOLDR 0.4\r") != std::string::npos);
     CHECK(m.out.find("OODOS") != std::string::npos);
     CHECK(m.out.find("\nA>") != std::string::npos);
     CHECK(!m.s->stopped());

@@ -507,7 +507,7 @@ namespace
         if (!b.s->stopped())
             std::printf("  it didn't stop: %s\n", b.out.c_str());
         REQUIRE(b.s->stopped());
-        CHECK(b.out.find("\rOOLDR 0.3\r") != std::string::npos);
+        CHECK(b.out.find("\rOOLDR 0.4\r") != std::string::npos);
         const std::vector<Segment> segs = segments_of(sys);
         CHECK_EQ(segs.size(), size_t{6});
         // One runs from block 60 into 61, so OOLDR's W2 must be the next block.

@@ -75,6 +75,7 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [73](07-function-reference.md#bdos-73) | `O_PHYSADDR` | a CPU address's physical address | A/X = 4 bytes | A = 0, `$FF` |
 | [74](07-function-reference.md#bdos-74) | `O_MOUNT` | mount or unmount an SD drive | A/X = the drive, flags, path | A = 0, `$FF` |
 | [75](07-function-reference.md#bdos-75) | `O_ROM` | leave OODOS for the ROM | A = 0 the monitor, 1 Apple II mode | doesn't return, or `$FF` |
+| [76](07-function-reference.md#bdos-76) | `O_SECTOR` | an Apple disk's DOS 3.3 sector | A/X = the block | A = 0, 1, 2, `$FF` |
 | [98](07-function-reference.md#bdos-98) | `DRV_FREE` | free blocks not closed | — | A/X = 0 |
 | [99](07-function-reference.md#bdos-99) | `F_TRUNCATE` | truncate a file | A/X = the FCB | A = 0, `$FF` |
 | [100](07-function-reference.md#bdos-100) | `DRV_SETLABEL` | make or change a directory label | A/X = the FCB | A = 0, `$FF` |
@@ -92,5 +93,5 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [112](07-function-reference.md#bdos-112) | `L_WRITEBLK` | write a block of characters to LST: | A/X = the CCB | A/X = 0 |
 | [152](07-function-reference.md#bdos-152) | `F_PARSE` | parse a file name into an FCB | A/X = the parse block | A/X = what follows, 0, or `$FFFF` |
 
-A function number OODOS doesn't have returns A = X = `$FF`: 61-71, 76-97, 113-151 and 153 on
+A function number OODOS doesn't have returns A = X = `$FF`: 61-71, 77-97, 113-151 and 153 on
 ([appendix A](appendix-a-errors.md)). 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 answers it.
