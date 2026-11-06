@@ -10,10 +10,17 @@
 ; file's sector f (the .dsk's DOS order) is the disk's physical sector
 ; FILE2PHYS[f], DOS 3.3's interleave.
 ;
-; Every wait is bounded (6a's review): a byte waited for 256 polls, about
-; 1,800 cycles, eight bytes' time; an address field for two turns' bytes; a
-; track for three tries. A card with no sequencer PROM (the WebUI's) never
-; sets bit 7, so a read ends at once with an error, not a hang.
+; Every wait is bounded (6a's review): a byte waited for 256 polls of 11
+; cycles, about 2,800 cycles, a dozen bytes' time; an address field for two
+; turns' bytes, every byte read counted, D5s too; a data field's prologue
+; within 32 bytes; a track for three tries. A card with no sequencer PROM
+; (the WebUI's) never sets bit 7, so a read is an error in about 0.4 s,
+; not a hang.
+;
+; The card has one motor line, to the drive selected (6c's review): the
+; other drive's disk has stopped, whatever the data register does, so
+; D2START and D2MEDIA say a drive not the last selected (D2LAST) wasn't
+; turning.
 ;
 ; Writing: the byte to write is loaded (Q6 on) and held a whole loop of
 ; the sequencer's eight steps, 28 cycles, before Q6 off shifts it out (6a);
@@ -78,6 +85,7 @@
 .endmacro
 .importzp TMP, SPTR
 .export D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2CODE62, D2FS, D2GOTF
+.export D2WRIT, D2DMAS                 ; common.s's NMI: a write cut short
 
 STEP_MS         = 3
 SETTLE_MS       = 15
@@ -103,6 +111,9 @@ D2W1:           .res    1              ; W1 as the caller had it
 D2FS:           .res    1              ; D2WSEC's file sector
 D2FIRST:        .res    1              ; SPIN's first sample
 D2HTT:          .res    1              ; STEPTO's target half track
+D2LAST:         .res    1              ; the drive the card last selected, $FF none: the other's motor is off
+D2WRIT:         .res    1              ; 1 while WLOOP writes (NMI's: Q7 off, DMA back)
+D2DMAS:         .res    1              ; DMA_CONTROL as it was, for WLOOP's end, or NMI's
 
 .segment "BIOS"
 
@@ -113,6 +124,7 @@ D2HTT:          .res    1              ; STEPTO's target half track
 D2INIT:         LDA     #$FF
                 STA     D2HT
                 STA     D2HT + 1
+                STA     D2LAST
                 LDX     #0
 @ff:            STA     DEC62,X
                 INX
@@ -127,9 +139,7 @@ D2INIT:         LDA     #$FF
 
 ; Drive X (0 or 1) selected and its motor on, read mode. Carry set if its
 ; disk wasn't turning: it may have been changed.
-D2START:        STX     D2DRV
-                JSR     SELECT
-                JSR     SPIN
+D2START:        JSR     D2MEDIA
                 LDA     DISK2 + D2_MOTORON
                 RTS
 
@@ -141,8 +151,21 @@ D2STOP:         LDA     DISK2 + D2_MOTOROFF
 ; Drive X selected (its motor as it was): carry set if its disk isn't
 ; turning, so may have been changed since it last turned.
 D2MEDIA:        STX     D2DRV
+                CPX     D2LAST
+                PHP                    ; Z: the card had this drive
+                STX     D2LAST
                 JSR     SELECT
-                JMP     SPIN
+                JSR     SPIN
+                BCS     @stopped
+                PLP
+                BNE     @other         ; the other's disk turned: this one's had stopped
+                CLC
+                RTS
+@stopped:       PLP
+                SEC
+                RTS
+@other:         SEC
+                RTS
 
 ; Track A of drive D2DRV (D2START first) into the buffer at page Y in W1's
 ; view (W1 put on block 29 here), the file's 16 sectors in order. A = 0 and
@@ -205,7 +228,9 @@ D2TRACK:        STA     D2TGT
 
 ; File sector D2FS of track A of drive D2DRV written from the buffer at
 ; page Y (W1's view). A = 0, 1 an error, 2 write-protected.
-D2WSEC:         STA     D2TGT
+D2WSEC:         PHP                    ; interrupts off from the search to the end (the
+                SEI                    ; caller's flag back on every way out)
+                STA     D2TGT
                 STY     D2BUFH
                 JSR     SEEK
                 JSR     MAPW1
@@ -229,19 +254,21 @@ D2WSEC:         STA     D2TGT
                 DLY     30
                 LDA     DISK2 + D2_Q7OFF
                 BMI     @protected
-                PHP
-                SEI
                 LDA     DMA_CONTROL
-                PHA
+                STA     D2DMAS
                 AND     #<~DMA_MASTER
                 STA     DMA_CONTROL
+                LDA     #1
+                STA     D2WRIT
                 JSR     WLOOP
-                PLA
+                STZ     D2WRIT
+                LDA     D2DMAS
                 STA     DMA_CONTROL
                 PLP
                 LDA     #0
                 RTS
 @protected:     LDA     DISK2 + D2_Q6OFF
+                PLP
                 LDA     #2
                 RTS
 @wrong:         LDX     D2DRV
@@ -254,6 +281,7 @@ D2WSEC:         STA     D2TGT
                 LDX     D2DRV
                 LDA     #$FF
                 STA     D2HT,X
+                PLP
                 LDA     #1
                 RTS
 
@@ -410,23 +438,18 @@ RBYTE:          LDX     #0
 @got:           CLC
                 RTS
 
-; An address field, within D2CNT bytes: D2TRK and D2SEC, carry clear;
-; carry set if none (or no bytes).
-ADDR:           LDA     D2CNT
-                BNE     @dec
-                LDA     D2CNT + 1
-                BEQ     @none
-                DEC     D2CNT + 1
-@dec:           DEC     D2CNT
-                JSR     RBYTE
+; An address field, within D2CNT bytes (every byte read counts, D5s too): D2TRK
+; and D2SEC, carry clear, its epilogue's DE AA read, so a write after starts
+; past them; carry set if none (or no bytes).
+ADDR:           JSR     NBYTE
                 BCS     @none
 @d5:            CMP     #$D5
                 BNE     ADDR
-                JSR     RBYTE
+                JSR     NBYTE
                 BCS     @none
                 CMP     #$AA
                 BNE     @d5
-                JSR     RBYTE
+                JSR     NBYTE
                 BCS     @none
                 CMP     #$96
                 BNE     @d5
@@ -451,9 +474,24 @@ ADDR:           LDA     D2CNT
                 BCS     @none
                 CMP     #$DE
                 BNE     ADDR
+                JSR     RBYTE
+                BCS     @none
+                CMP     #$AA
+                BNE     ADDR
                 CLC
                 RTS
 @none:          SEC
+                RTS
+
+; RBYTE, D2CNT counted down first: carry set when it is spent.
+NBYTE:          LDA     D2CNT
+                BNE     @dec
+                LDA     D2CNT + 1
+                BEQ     @spent
+                DEC     D2CNT + 1
+@dec:           DEC     D2CNT
+                JMP     RBYTE
+@spent:         SEC
                 RTS
 
 ; A byte in 4-and-4: two disk bytes, ((a << 1) | 1) & b.
@@ -471,27 +509,25 @@ R44:            JSR     RBYTE
 ; The data field after an address field: its 86 low values to TMP's 86
 ; bytes, its 256 high ones to the buffer's sector at SPTR (both before
 ; COMBINE), the checksum good. Carry set if not.
-RDATA:          LDY     #32            ; D5 AA AD within 32 bytes
-@find:          PHY
-                JSR     RBYTE
-                PLY
+RDATA:          LDY     #32            ; D5 AA AD within 32 bytes, each counted
+@find:          JSR     RBYTE
                 BCS     @bad
-@d5:            CMP     #$D5
-                BNE     @not
-                PHY
+@d5:            DEY
+                BEQ     @bad
+                CMP     #$D5
+                BNE     @find
                 JSR     RBYTE
-                PLY
                 BCS     @bad
+                DEY
+                BEQ     @bad
                 CMP     #$AA
                 BNE     @d5
-                PHY
                 JSR     RBYTE
-                PLY
                 BCS     @bad
                 CMP     #$AD
                 BEQ     @field
-@not:           DEY
-                BNE     @find
+                DEY
+                BNE     @d5
 @bad:           SEC
                 RTS
 @field:         STZ     D2X

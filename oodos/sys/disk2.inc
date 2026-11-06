@@ -6,8 +6,10 @@
 ;
 ; A read of an even one gives the data register, of an odd one $FF; any
 ; access works the switch, a write puts its byte on the card's bus. Only
-; plain absolute loads and stores may touch them: an indexed access can
-; read the address before it, and a read-modify-write touches it twice.
+; plain absolute loads and stores may touch them, or an absolute,X load
+; that stays inside the card's page (the W65C02S makes it once, no read
+; before it): an indexed access across a page reads another address
+; first, and a read-modify-write touches it twice.
 
 D2_PH0OFF       = $00                  ; stepper phase 0 off, then on; 1-3 the same
 D2_PH0ON        = $01

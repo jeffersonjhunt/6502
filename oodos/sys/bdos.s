@@ -139,6 +139,11 @@ TSH:            .res    NSLOT          ; each slot's sectors a track as a shift:
 CSV:            .res    (NSLOT - RSLOT) * 16 ; O:'s and P:'s directory checksums, a record each (CKS 16)
 DGEN:           .res    NSLOT - RSLOT  ; O:'s and P:'s changes seen, mod 128: an open FCB's S1 has its drive's
 SUMS:           .res    16             ; DSUM's
+DVERD:          .res    1              ; O: or P: + 1 whose directory was read past the buffers in this call
+RSEL:           .res    1              ; 1: O: or P: selected in this call, so its changed buffers go at its end
+VDK:            .res    1              ; VERIFYD's sector, and its count
+VDN:            .res    1
+VDLBA:          .res    2
 LOGVEC:         .res    2              ; the logged-in drives, bit n drive n
 ROVEC:          .res    2              ; the read-only drives
 FCBP:           .res    2              ; the program's FCB
@@ -158,6 +163,7 @@ BDOSENT:        STA     PA
                 STY     FUNC
                 STZ     FCBN
                 STZ     MON
+                STZ     DVERD
                 LDA     SCB_DISK
                 STA     EDRV
                 CPY     #NFUNC
@@ -166,7 +172,9 @@ BDOSENT:        STA     PA
                 CPX     #$FF
                 BEQ     NOFUNC
                 LDA     PA
-                JMP     (FJUMPS,X)
+                JSR     CALLFN
+                JMP     ENDFN
+CALLFN:         JMP     (FJUMPS,X)
 NOFUNC:
 RETFF:          LDA     #$FF
                 TAX
@@ -344,6 +352,24 @@ RETAX:          STA     T0
                 TXS
                 LDA     T0
                 LDX     T1
+                ; fall through
+
+; Every function's end (6c's review): O:'s and P:'s changed buffers written
+; back if either was selected in the call, so none outlives the call whose
+; select checked its disk (MEDIACHK): a lazy write-back later could land
+; on a disk changed since. A failure keeps the buffer, marked, for 48 or a
+; close to say. A and X kept.
+ENDFN:          PHA
+                LDA     RSEL
+                BEQ     @out
+                STZ     RSEL
+                PHX
+                LDA     #DRV_O + 1
+                JSR     WBRET
+                LDA     #DRV_P + 1
+                JSR     WBRET
+                PLX
+@out:           PLA
                 RTS
 
 ; The program's memory refused (the I/O hole, flash): A = X = $FF.

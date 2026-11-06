@@ -106,7 +106,7 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET
 .exportzp TMP, SPTR                    ; disk2.s's too
 .import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
@@ -161,6 +161,7 @@ DRVAPL:         .res    SD_DRIVES      ; bit 7: the unit is an apple-do drive
 TBTAG:          .res    6              ; each track buffer's drive + 1 (0: empty) and track: SD, O:, P:
 BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s
 TBMASK:         .res    6              ; each buffer's file sectors that are good (an SD unit's: all)
+RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
 UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
@@ -1046,6 +1047,14 @@ MEDIA:          TXA
                 SEC
 @same:          RTS
 
+; FORGET, for the BDOS (as MEDIA): X = O: or P:, its track buffer emptied,
+; so the next READ is from the disk (its directory checked past the buffer).
+FORGET:         TXA
+                SEC
+                SBC     #DRV_O - 1
+                STA     BUFIX
+                JMP     TBEMPTY
+
 ; The layer itself: READ or WRITE of CURDRV's sector, BUFIX its buffer.
 APPLE1:         LDA     SECTOR + 1
                 ORA     TRACK + 1
@@ -1068,17 +1077,24 @@ APPLE1:         LDA     SECTOR + 1
                 RTS
 @bad:           LDA     #1             ; no such sector
                 RTS
-@load:          JSR     TRKLOAD
+@load:          LDA     #2             ; a READ's halves missing: the track read again once
+                STA     RETRY
+@again:         JSR     TRKLOAD
                 BEQ     @loaded
                 RTS                    ; SDIO's error, or the disk's
 @loaded:        LDA     DOP            ; a READ: both halves good in the buffer?
                 BNE     @ok
                 STZ     AHALF
                 JSR     HALFOK
-                BCS     @bad
+                BCS     @missing
                 INC     AHALF
                 JSR     HALFOK
-                BCS     @bad
+                BCC     @ok
+@missing:       JSR     TBEMPTY        ; not kept as missing: read again, or the next READ's
+                DEC     RETRY
+                BNE     @again
+                LDA     #1
+                RTS
 @ok:            STZ     AHALF
 @half:          JSR     AKSET          ; AK: this half's sector in the file's track
                 LDX     #SIDE_S        ; the track buffer's side: the source of a READ

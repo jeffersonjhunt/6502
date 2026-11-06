@@ -69,7 +69,7 @@
 
 .setcpu "65C02"
 .include "bdos.inc"
-.import DRVRO, DRVCHG, MEDIA
+.import DRVRO, DRVCHG, MEDIA, FORGET
 
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
@@ -131,9 +131,16 @@ SELECT:         STA     CDRV
                 LDA     CSLOT
                 CMP     #RSLOT
                 BCC     @fixed
+                LDA     #1
+                STA     RSEL
                 JMP     MEDIACHK
 @fixed:         RTS
-@login:         JMP     LOGIN
+@login:         LDA     CSLOT
+                CMP     #RSLOT
+                BCC     @first
+                LDA     #1
+                STA     RSEL
+@first:         JMP     LOGIN
 @bad:           LDA     #ER_SELECT
                 JMP     DERR
 
@@ -437,15 +444,17 @@ LOGIN:          JSR     PLACES
                 DEX
                 DEY
                 BPL     @csv
+                LDA     CDRV           ; read from the disk just now
+                INC     A
+                STA     DVERD
 @done:          RTS
 
 ; A removable drive's disk (O:, P:), logged in and its CD loaded: if the
 ; BIOS says it may have been changed (it had stopped turning: MEDIA), its
-; directory is read again from the disk and its checksums compared. The
-; same: on, its buffers kept. Not: another disk. Its buffers dropped, not
-; written (the old disk's data isn't the new one's), its changes counted
-; (DGEN: an FCB opened before is Media Change, 10), and it is logged in
-; again, as the Guide's 2.3.11 has CP/M 3 do.
+; directory is read again past every buffer and its checksums compared
+; (VERIFYD). The same: on, its buffers kept. Not: another disk (GONE), and
+; it is logged in again, as the Guide's 2.3.11 has CP/M 3 do. A disk still
+; turning is checked so before the call's first directory write (DIRPUT).
 MEDIACHK:       LDA     #BIOS_BLOCK
                 STA     NB_WIN2
                 LDX     CDRV
@@ -453,19 +462,20 @@ MEDIACHK:       LDA     #BIOS_BLOCK
                 STZ     BIOSDRV        ; the BIOS's drive may be another now
                 LDA     #BCB_BLOCK
                 STA     NB_WIN2
-                BCC     @done          ; turning: the same disk
-                JSR     DIRDROP
-                JSR     DSUM
-                JSR     CSVAT
-                LDY     #15
-@cmp:           LDA     SUMS,Y
-                CMP     CSV,X
-                BNE     @changed
-                DEX
-                DEY
-                BPL     @cmp
+                BCC     @done          ; turning: the same disk, as far as can be seen
+                JSR     VERIFYD
+                BCS     @changed
+                LDA     CDRV
+                INC     A
+                STA     DVERD
 @done:          RTS
-@changed:       LDA     CDRV
+@changed:       JSR     GONE
+                JMP     LOGIN
+
+; The drive's disk changed: its buffers dropped, not written (the old
+; disk's data isn't the new one's), the drive logged out, its changes
+; counted (DGEN: an FCB opened before is Media Change, 10).
+GONE:           LDA     CDRV
                 INC     A
                 JSR     PURGED
                 LDA     CDRV
@@ -485,7 +495,163 @@ MEDIACHK:       LDA     #BIOS_BLOCK
                 INC     A
                 AND     #$7F
                 STA     DGEN,X
-                JMP     LOGIN
+                RTS
+
+; The drive's directory as the disk has it now, read past every buffer (the
+; BIOS's track buffer emptied, each sector into SECBUF), against CSV:
+; carry clear the same, set not. A sector that can't be read is Disk I/O.
+; Keeps T0-T5, DIDX, DPTR and DBCB.
+VERIFYD:        LDA     #BIOS_BLOCK
+                STA     NB_WIN2
+                LDX     CDRV
+                JSR     FORGET
+                LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                LDA     DRM            ; its sectors: (DRM + 1) / 16
+                CLC
+                ADC     #1
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                STA     VDN
+                STZ     VDK
+@sector:        LDA     VDK            ; OFFS + VDK: its track and sector
+                CLC
+                ADC     OFFS
+                STA     VDLBA
+                LDA     OFFS + 1
+                ADC     #0
+                STA     VDLBA + 1
+                LDA     CDRV
+                LDX     #1             ; selected before
+                JSR     B_SELDSK
+                LDX     CSLOT
+                LDY     TSH,X
+                LDA     VDLBA
+                AND     TMASK,Y
+                PHA
+@shift:         LSR     VDLBA + 1
+                ROR     VDLBA
+                DEY
+                BNE     @shift
+                LDA     VDLBA
+                LDX     VDLBA + 1
+                JSR     B_SETTRK
+                PLA
+                LDX     #0
+                JSR     B_SETSEC
+                LDA     #BANK_SYS
+                JSR     B_SETBNK
+                LDA     #<SECBUF
+                LDX     #>SECBUF
+                JSR     B_SETDMA
+                JSR     B_READ
+                STZ     BIOSDRV
+                CMP     #0
+                BNE     @io
+                LDA     #<SECBUF       ; its 4 records
+                STA     NP
+                LDA     #>SECBUF
+                STA     NP + 1
+                LDA     VDK            ; X: their first checksum in CSV
+                ASL     A
+                ASL     A
+                STA     VDLBA
+                LDA     CSLOT
+                SEC
+                SBC     #RSLOT
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     VDLBA
+                TAX
+                LDY     #4
+@record:        PHY
+                JSR     SUMNP
+                PLY
+                CMP     CSV,X
+                BNE     @other
+                INX
+                CLC
+                LDA     NP
+                ADC     #128
+                STA     NP
+                BCC     @nc
+                INC     NP + 1
+@nc:            DEY
+                BNE     @record
+                INC     VDK
+                LDA     VDK
+                CMP     VDN
+                BEQ     @all
+                JMP     @sector
+@all:           LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                CLC
+                RTS
+@other:         LDA     #BCB_BLOCK
+                STA     NB_WIN2
+                SEC
+                RTS
+@io:            LDA     CDRV
+                STA     EDRV
+                LDA     #ER_IO
+                JMP     DERR
+
+; A = the checksum of the record of 128 bytes at NP: each byte added in
+; after the sum turned left a bit, as DSUM sums.
+SUMNP:          LDA     #0
+                LDY     #0
+@byte:          ASL     A
+                ADC     #0
+                CLC
+                ADC     (NP),Y
+                INY
+                CPY     #128
+                BNE     @byte
+                RTS
+
+; After DIRPUT's write on O: or P:: the record it changed summed again into
+; CSV, as CP/M 3 keeps its checksums, so a later check finds the disk as
+; the BDOS left it.
+CSVPUT:         LDA     CSLOT
+                CMP     #RSLOT
+                BCC     @done
+                LDA     DIDX           ; the record's first byte: DPTR - (DIDX & 3) x 32
+                AND     #3
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                STA     NP
+                SEC
+                LDA     DPTR
+                SBC     NP
+                STA     NP
+                LDA     DPTR + 1
+                SBC     #0
+                STA     NP + 1
+                JSR     SUMNP
+                PHA
+                LDA     DIDX           ; X: CSV's byte, the slot's + DIDX / 4
+                LSR     A
+                LSR     A
+                STA     VDLBA
+                LDA     CSLOT
+                SEC
+                SBC     #RSLOT
+                ASL     A
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     VDLBA
+                TAX
+                PLA
+                STA     CSV,X
+@done:          RTS
 
 ; X = the last of the slot's 16 checksums in CSV.
 CSVAT:          LDA     CSLOT
@@ -497,52 +663,6 @@ CSVAT:          LDA     CSLOT
                 ASL     A
                 ORA     #15
                 TAX
-                RTS
-
-; The drive's buffers of directory sectors dropped: they are never left
-; changed (a directory write goes at once), and are read again from the disk.
-DIRDROP:        LDA     DRM            ; its sectors: (DRM + 1) / 16
-                CLC
-                ADC     #1
-                STA     T0
-                LDA     DRM + 1
-                ADC     #0
-                LDX     #4
-@sh:            LSR     A
-                ROR     T0
-                DEX
-                BNE     @sh
-                CLC                    ; T0/T1: OFFS + them, the end
-                LDA     T0
-                ADC     OFFS
-                STA     T0
-                LDA     OFFS + 1
-                ADC     #0
-                STA     T1
-                LDA     CDRV
-                INC     A
-                STA     T2
-                LDX     #NBCB - 1
-@buf:           LDA     BCB_DRV,X
-                CMP     T2
-                BNE     @next
-                LDA     BCB_HI,X       ; OFFS <= its sector < the end
-                CMP     OFFS + 1
-                BCC     @next
-                BNE     @hi
-                LDA     BCB_LO,X
-                CMP     OFFS
-                BCC     @next
-@hi:            LDA     BCB_HI,X
-                CMP     T1
-                BCC     @drop
-                BNE     @next
-                LDA     BCB_LO,X
-                CMP     T0
-                BCS     @next
-@drop:          STZ     BCB_DRV,X
-@next:          DEX
-                BPL     @buf
                 RTS
 
 ; SUMS = each directory record's checksum (16 records: 64 entries of 32),
@@ -814,6 +934,12 @@ DISKOP:         STA     DOPW
 ; unit's dropped, as WBACK has it), and the first failure's code is in RERR
 ; and its drive in REDRV (0 none); carry set if there was one. No error is
 ; raised: 48 says it after (RDONE), CLOSEX decides what fails its close.
+; A - 1's changed buffers written back, a failure kept (marked) and said in
+; carry, not as an error: ENDFN's, at a call's end (bdos.s).
+WBRET:          STZ     RERR
+                LDX     #$40
+                JMP     WFLUSH
+
 FLUSHD:         STZ     RERR
                 LDX     #$40
                 BRA     WFLUSH
@@ -984,12 +1110,26 @@ DIRENT:         LDA     DIDX + 1       ; the sector: OFFS + DIDX / 16
 
 ; The entry at DPTR changed: its sector written now, its hash entry made
 ; again. W2 on the buffers after.
-DIRPUT:         LDX     DBCB
+DIRPUT:         LDA     CSLOT          ; O:, P:: the disk checked past the buffers first,
+                CMP     #RSLOT         ; once a call, a disk changed while it turned seen
+                BCC     @put
+                LDA     CDRV
+                INC     A
+                CMP     DVERD
+                BEQ     @put
+                STA     DVERD
+                JSR     VERIFYD
+                BCC     @put
+                JSR     GONE           ; another disk: nothing of this call's written on it
+                LDA     #RC_MEDIA
+                JMP     RETA
+@put:           LDX     DBCB
                 LDA     #1
                 STA     BCB_DIRTY,X
                 LDA     #$80           ; a failure drops it: memory as the disk is
                 STA     WBM
                 JSR     WBACK
+                JSR     CSVPUT
 HASHPUT:        JSR     HASHE
                 JSR     HPSET
                 LDA     HBLK
