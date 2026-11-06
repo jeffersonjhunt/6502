@@ -141,17 +141,27 @@ class Disk:
 
     # files
     def lists(self, f):
-        """The file's track/sector lists, and its data sectors in order (None for one never written)."""
+        """The file's track/sector lists, and its data sectors in order (None for one never written).
+        As DOS33 takes them: the k-th list says it starts at the file's sector 122 x k (+5, so a loop is
+        found and a sparse file's empty lists pass), each list and data sector off tracks 0 and 17, on
+        the disk; a pair of track 0 is none."""
         lists, data, (t, s), seen = [], [], f["ts"], set()
         while t:
             if (t, s) in seen:
                 raise Bad("%s: its track/sector lists loop at %d/%d" % (f["name"], t, s))
+            if t == 17 or not (t < TRACKS and s < SECTORS):
+                raise Bad("%s: a list at %d/%d" % (f["name"], t, s))
             seen.add((t, s))
-            lists.append((t, s))
             l = self.sector(t, s)
+            k = len(lists)
+            if l[5] | l[6] << 8 != k * PAIRS:
+                raise Bad("%s: list %d starts at sector %d, not %d" % (f["name"], k + 1, l[5] | l[6] << 8, k * PAIRS))
+            lists.append((t, s))
             for p in range(PAIRS):
                 pt, ps = l[0x0C + p * 2], l[0x0D + p * 2]
-                data.append((pt, ps) if (pt or ps) else None)
+                if pt and (pt == 17 or pt >= TRACKS or ps >= SECTORS):
+                    raise Bad("%s: a sector at %d/%d" % (f["name"], pt, ps))
+                data.append((pt, ps) if pt else None)
             t, s = l[1], l[2]
         while data and data[-1] is None:
             data.pop()
@@ -284,11 +294,6 @@ def check(d):
             use(p, "the catalog")
         for f in list(d.files()):
             lists, data = d.lists(f)
-            for k, p in enumerate(lists):
-                l = d.sector(*p)
-                if l[5] | l[6] << 8 != k * PAIRS:
-                    problems.append("%s: list %d starts at sector %d, not %d"
-                                    % (f["name"], k + 1, l[5] | l[6] << 8, k * PAIRS))
             for p in lists:
                 use(p, f["name"])
             for p in data:

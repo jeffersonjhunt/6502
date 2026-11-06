@@ -47,7 +47,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import SDMNT, UNITSAV
-.import RAWF, DRVAPL                   ; bios.s's: function 76
+.import RAWF, DRVAPL, DRVCHG           ; bios.s's: function 76
 
 FIRST_BLOCK     = 4                    ; bank 1's first, AMAP's 0
 MAP_FIRST       = $81
@@ -691,10 +691,28 @@ F_SECT:         LDX     #0
                 CMP     #SD_DRIVES
                 BCS     @not
                 TAX                    ; an SD drive whose unit is 140 KB: the units read
-                LDA     DRVAPL,X       ; again only when it isn't known as one (mounted since)
+                LDA     RBLK + 3       ; again for every write, and for a read when it isn't
+                BNE     @scan          ; known as one (mounted since)
+                LDA     DRVAPL,X
                 BMI     @apple
-                JSR     RESCAN
+@scan:          LDA     #0             ; RESCAN's, its unit's change seen first: a write to
+                TAX                    ; a unit swapped behind OODOS's back since the last
+                JSR     B_SELDSK       ; read of the units is refused, not an Apple disk
+                STZ     BIOSDRV        ; (6d's second review: it took a DOS sector)
                 LDX     RBLK
+                LDA     #1
+:               DEX
+                BMI     :+
+                ASL     A
+                BRA     :-
+:               AND     DRVCHG
+                STA     RRO            ; (RRO for the moment: the change)
+                JSR     CHANGED
+                LDA     RBLK + 3
+                BEQ     :+
+                LDA     RRO
+                BNE     @not
+:               LDX     RBLK
                 LDA     DRVAPL,X
                 BMI     @apple
 @not:           LDA     #$FF

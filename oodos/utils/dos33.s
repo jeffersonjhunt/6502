@@ -166,31 +166,18 @@ get:    jsr     drive
         beq     :+
         jmp     usage
 :       stx     gmode
+        jsr     cpmok                   ; the CP/M side can take it, before anything is read
         jsr     chkfile                 ; its lists and pairs, before anything is written
-        ldx     #35                     ; a $$$ file of its name, made anew: the old one
-:       lda     fcb,x                   ; is replaced only when this one is whole
-        sta     tfcb,x
-        dex
-        bpl     :-
-        ldx     #2
-        lda     #'$'
-:       sta     tfcb + 9,x
-        dex
-        bpl     :-
-        stz     tfcb + 12
-        stz     tfcb + 32
-        lda     #<tfcb
-        ldx     #>tfcb
-        ldy     #F_DELETE
-        jsr     BDOS
+        jsr     mktemp                  ; a $$$ file of its name: the old one is replaced
+        lda     #<zdirful               ; only when this one is whole
+        ldx     #>zdirful
+        jsr     setmsg
         lda     #<tfcb
         ldx     #>tfcb
         ldy     #F_MAKE
         jsr     BDOS
-        cmp     #$FF
-        bne     :+
-        jmp     cpmfail
-:       inc     gtemp
+        jsr     cpmres
+        inc     gtemp
         lda     flt
         sta     lt
         lda     fls
@@ -266,31 +253,38 @@ get:    jsr     drive
         inx
         bpl     :-
         jsr     wrec
-@close: lda     #<tfcb
+@close: lda     #<znoclose
+        ldx     #>znoclose
+        jsr     setmsg
+        lda     #<tfcb
         ldx     #>tfcb
         ldy     #F_CLOSE
         jsr     BDOS
-        cmp     #$FF
-        bne     :+
-        jmp     cpmfail
-:       lda     #<fcb                   ; whole: the old file deleted, this one renamed
-        ldx     #>fcb
+        jsr     cpmres
+        lda     #<fcb                   ; whole: the old file deleted (none there: $FF, X 0),
+        ldx     #>fcb                   ; this one renamed
         ldy     #F_DELETE
         jsr     BDOS
-        ldx     #11                     ; tfcb + 16: the new name
+        cmp     #$FF
+        bne     :+
+        cpx     #0
+        beq     :++
+:       jsr     cpmres
+:       ldx     #11                     ; tfcb + 16: the new name
 :       lda     fcb,x
         sta     tfcb + 16,x
         dex
         bpl     :-
+        lda     #<znoren
+        ldx     #>znoren
+        jsr     setmsg
         lda     #<tfcb
         ldx     #>tfcb
         ldy     #F_RENAME
         jsr     BDOS
-        stz     gtemp
-        cmp     #$FF
-        bne     :+
-        jmp     cpmfail
-:       lda     gmode
+        stz     gtemp                   ; not renamed: the new data stays, as NAME.$$$
+        jsr     cpmres
+        lda     gmode
         cmp     #'B'
         bne     @quiet
         lda     #<saddr                 ; B: where DOS would load it
@@ -379,10 +373,8 @@ wrec:   lda     #<tfcb
         ldx     #>tfcb
         ldy     #F_WRITE
         jsr     BDOS
-        cmp     #0
-        beq     :+
-        jmp     cpmfull
-:       stz     ri
+        jsr     cpmres
+        stz     ri
 recok:  rts
 
 ; ---------------------------------------------------------------------------
@@ -807,10 +799,11 @@ era:    jsr     drive
         jsr     wrvtoc
         jmp     UT_EXIT
 
-; The file at ptr checked before anything is written: at most 5 lists (a
-; whole disk's 560 sectors), each list and each data sector on tracks 1-34
-; but 17, sectors 0-15 (a pair of track 0 is none). Else Bad file, the end.
-; flt/fls its first list.
+; The file at ptr checked before anything is written: its k-th list says
+; it starts at the file's sector 122 x k (+5, 16 bits; so a loop, which
+; comes back to an earlier list, is found, and a sparse file's empty lists
+; pass); each list and each data sector on tracks 1-34 but 17, sectors 0-15
+; (a pair of track 0 is none). Else Bad file, the end. flt/fls its first.
 chkfile:
         ldy     #0
         lda     (ptr),y
@@ -820,13 +813,10 @@ chkfile:
         lda     (ptr),y
         sta     fls
         sta     ls
-        stz     nchk
+        stz     koff                    ; the k-th list starts at the file's sector 122 x k
+        stz     koff + 1
 @list:  lda     lt
         beq     @ok
-        inc     nchk
-        lda     nchk
-        cmp     #6
-        bcs     @bad
         ldy     ls
         lda     lt
         jsr     okts
@@ -834,7 +824,20 @@ chkfile:
         lda     #<lbuf
         ldx     #>lbuf
         jsr     rdsec_tl
-        ldx     #0
+        lda     lbuf + 5                ; its +5: where it starts in the file. Every loop comes
+        cmp     koff                    ; back to a list with the wrong one
+        bne     @bad
+        lda     lbuf + 6
+        cmp     koff + 1
+        bne     @bad
+        lda     koff
+        clc
+        adc     #NPAIR
+        sta     koff
+        bcc     :+
+        inc     koff + 1
+        beq     @bad                    ; past 16 bits: more lists than a file can have
+:       ldx     #0
 @pair:  lda     lbuf + $0C,x
         beq     @next
         ldy     lbuf + $0D,x
@@ -867,14 +870,115 @@ okts:   cmp     #35
 @no:    sec
         rts
 
-; The CP/M file's drive (fcb's, or the current one) mustn't be the Apple disk.
-samedrv:
-        lda     fcb
+; tfcb = fcb as NAME.$$$, its extent, CR and the rest 0.
+mktemp: ldx     #11
+:       lda     fcb,x
+        sta     tfcb,x
+        dex
+        bpl     :-
+        ldx     #12
+        lda     #0
+:       sta     tfcb,x
+        inx
+        cpx     #36
+        bne     :-
+        ldx     #2
+        lda     #'$'
+:       sta     tfcb + 9,x
+        dex
+        bpl     :-
+        rts
+
+; GET's CP/M side, before anything is read: not a .$$$ name, the drive not
+; read-only (29), the file not read-only, and no NAME.$$$ there (a user's
+; own isn't deleted). Each refused with its message.
+cpmok:  ldx     #2
+:       lda     fcb + 9,x
+        and     #$7F
+        cmp     #'$'
+        bne     @drv
+        dex
+        bpl     :-
+        lda     #<zdollar
+        ldx     #>zdollar
+        jmp     failz
+@drv:   jsr     cpmdrv                  ; the drive's bit in the read-only vector (29)
+        and     #7
+        tax
+        lda     #1
+:       dex
+        bmi     :+
+        asl     a
+        bra     :-
+:       sta     src
+        jsr     cpmdrv
+        and     #8
+        sta     src + 1                 ; not 0: the vector's high byte
+        ldy     #DRV_ROVEC
+        jsr     BDOS
+        ldy     src + 1
+        beq     :+
+        txa
+:       and     src
+        beq     @file
+        lda     #<srodrv
+        ldx     #>srodrv
+        jmp     failsay
+@file:  lda     #<zdirful               ; the file there, read-only? (tfcb with fcb's name)
+        ldx     #>zdirful
+        jsr     setmsg
+        jsr     mktemp
+        ldx     #2
+:       lda     fcb + 9,x
+        sta     tfcb + 9,x
+        dex
+        bpl     :-
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_OPEN
+        jsr     BDOS
+        cmp     #$FF
+        bne     :+
+        cpx     #0
+        beq     @dollar                 ; not there
+:       jsr     cpmres                  ; refused by the BDOS (a password: said), or 10
+        lda     tfcb + 9
+        bpl     @dollar
+        lda     #<srofile
+        ldx     #>srofile
+        jmp     failsay
+@dollar:
+        jsr     mktemp                  ; NAME.$$$ there already?
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_OPEN
+        jsr     BDOS
+        cmp     #$FF
+        beq     :+
+        lda     #<zdolex
+        ldx     #>zdolex
+        jmp     failz
+:       rts
+
+; cmsg = A/X: the message cpmres says for $FF.
+setmsg: sta     cmsg
+        stx     cmsg + 1
+        rts
+
+; X = the CP/M file's drive, 0-15 (fcb's, or the current one); A too.
+cpmdrv: lda     fcb
         beq     :+
         dec     a
-        bra     :++
+        tax
+        rts
 :       lda     UT_DRV0
-:       cmp     adrv
+        tax
+        rts
+
+; The CP/M file's drive (fcb's, or the current one) mustn't be the Apple disk.
+samedrv:
+        jsr     cpmdrv
+        cmp     adrv
         bne     :+
         lda     #<ssame
         ldx     #>ssame
@@ -1395,16 +1499,57 @@ cpmnone:
         lda     #<scpmno
         ldx     #>scpmno
         bra     failsay
-cpmfull:
+; A CP/M call's result in A (X): 0 back; else the end with its cause: 10
+; the CP/M disk changed; X not 0, an error the BDOS said (mode $FE): GET
+; stopped; $FF the message at cmsg (0-ended); 1 and 2 a write's directory
+; and disk full.
+cpmres: cmp     #0
+        bne     :+
+        rts
+:       cmp     #10
+        bne     :+
+        lda     #<schg
+        ldx     #>schg
+        bra     failsay
+:       cpx     #0
+        beq     :+
+        lda     #<sstop
+        ldx     #>sstop
+        bra     failsay
+:       cmp     #$FF
+        bne     :+
+        lda     cmsg
+        ldx     cmsg + 1
+        jmp     failz
+:       cmp     #2
+        bne     :+
         lda     #<scpmfull
         ldx     #>scpmfull
         bra     failsay
-cpmfail:
+:       cmp     #1
+        bne     :+
         lda     #<scpmerr
         ldx     #>scpmerr
+        bra     failsay
+:       lda     #<scpmgen
+        ldx     #>scpmgen
+; The 0-ended message at A/X (one may hold a '$'), then as failsay.
+failz:  sta     src
+        stx     src + 1
+        ldy     #0
+:       lda     (src),y
+        beq     :+
+        phy
+        jsr     CM_PUTC
+        ply
+        iny
+        bne     :-
+:       jsr     CM_EOL
+        bra     failend
 ; The message at A/X, the return code $FF00, the end.
 failsay:
         jsr     UT_SAY
+failend:
         jsr     UT_FAIL
         lda     gtemp                   ; GET's $$$ file, not whole: deleted, the old one kept
         beq     :+
@@ -1451,10 +1596,20 @@ sbig:   .byte   "File too big for B.$"
 scpmno: .byte   "No File$"
 scpmfull: .byte "CP/M disk full.$"
 scpmerr: .byte  "CP/M directory full.$"
+scpmgen: .byte  "CP/M error.$"
+zdirful: .byte  "CP/M directory full.", 0
+znoclose: .byte "CP/M file not closed.", 0
+znoren: .byte   "CP/M file not renamed: the data is in its .$$$ file.", 0
+zdollar: .byte  "GET won't write a .$$$ file.", 0
+zdolex: .byte   "Its .$$$ file is there already: ERA it first.", 0
 scpmrd: .byte   "CP/M read error.$"
 sbadf:  .byte   "Bad file: its sector lists aren't a DOS 3.3 file's.$"
 sbadc:  .byte   "Bad catalog: its chain loops.$"
 ssame:  .byte   "The CP/M file can't be on the Apple disk.$"
+schg:   .byte   "The CP/M disk was changed.$"
+sstop:  .byte   "GET stopped.$"
+srodrv: .byte   "CP/M drive read-only.$"
+srofile: .byte  "CP/M file read-only.$"
 
         .bss
 adrv:   .res    1                       ; the Apple disk's drive, 0-15
@@ -1487,7 +1642,8 @@ bleft:  .res    2
 fcb:    .res    36
 tfcb:   .res    36                      ; GET's $$$ file
 gtemp:  .res    1                       ; 1 while it exists
-nchk:   .res    1                       ; chkfile's lists
+koff:   .res    2                       ; chkfile's: the next list's +5
+cmsg:   .res    2                       ; cpmres's message for $FF
 lastcr: .res    1                       ; PUT's text: the last byte a CR
 rec:    .res    128
 vtoc:   .res    256
