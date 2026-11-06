@@ -10,7 +10,8 @@
 ;      by its line number;
 ;   2. unmounts units 2-7 that no line names, mounts each line's image as
 ;      its unit, read-only for RO, and refuses one that isn't 16,384 or
-;      65,536 sectors (oodos-8m, oodos-32m), by the line's number, and two
+;      65,536 sectors (oodos-8m, oodos-32m), or 280 (apple-do, a 140 KB
+;      .dsk, phase 6b) on B-G but never A:, by the line's number, and two
 ;      drives the units table names the same file (an 8.3 alias, say);
 ;   3. finds OODOS.SYS in A:'s user 0 with the CP/M reader (../sys/cpmread.s),
 ;      checks its header (system.inc) and puts each segment at its physical
@@ -308,6 +309,10 @@ UNITS2:         JSR     IDLE
                 INC
                 JSR     CR_INIT
                 BCC     @nextd
+                CMP     #CRE_APPLE     ; apple-do: B-G only
+                BNE     @cr
+                LDX     seg
+                BNE     @nextd
 @cr:            JMP     CRFAIL         ; drive seg's: the size, say
 @sd:            JMP     SDFAIL
 @nextd:         INC     seg
@@ -1378,6 +1383,8 @@ CRFAIL:         CMP     #CRE_SD
                 BEQ     @unit
                 CMP     #CRE_SIZE
                 BEQ     @size
+                CMP     #CRE_APPLE
+                BEQ     @apple
                 LDA     #<MDAMAGED
                 LDX     #>MDAMAGED
                 BRA     FAIL
@@ -1387,7 +1394,15 @@ CRFAIL:         CMP     #CRE_SD
 @unit:          LDA     #<MUNMOUNTED   ; mounted, then gone from the units table
                 LDX     #>MUNMOUNTED
                 BRA     @drive
-@size:          LDA     #<MSIZE
+@apple:         LDA     #<MAPPLE       ; only A: gets here with it
+                LDX     #>MAPPLE
+                BRA     @drive
+@size:          LDA     seg
+                BEQ     @a
+                LDA     #<MSIZEB
+                LDX     #>MSIZEB
+                BRA     @drive
+@a:             LDA     #<MSIZE
                 LDX     #>MSIZE
 @drive:         PHA                    ; DRIVES.TXT LINE n: PATH and why
                 PHX
@@ -1552,6 +1567,8 @@ MSAME2:         .byte   ": ALREADY", $0D, 0
 MNOA:           .byte   $0D, "DRIVES.TXT NAMES NO A:", $0D, 0
 MNOTFOUND:      .byte   " IS NOT ON THE CARD", $0D, 0
 MSIZE:          .byte   " IS NOT 8 MB OR 32 MB", $0D, 0
+MSIZEB:         .byte   " IS NOT 8 MB, 32 MB OR 140 KB", $0D, 0
+MAPPLE:         .byte   " IS AN APPLE DISK, NOT FOR A:", $0D, 0
 MUNMOUNTED:     .byte   " IS NOT MOUNTED", $0D, 0
 MNAME:          .byte   "AN EMPTY, . OR .. NAME IN THE PATH", $0D, 0
 MTOOBIG:        .byte   $0D, "DRIVES.TXT IS TOO BIG", $0D, 0

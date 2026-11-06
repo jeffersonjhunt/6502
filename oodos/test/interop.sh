@@ -41,6 +41,12 @@
 # With --submit it is the card test_oodos_card saved after phase 5c's
 # PROFILE.SUB ran at boot (OODOS_SUBMIT_OUT): 0:PROFILE.SUB, made by PIP from
 # the console, its line TYPE README.TXT; no SUBnn.$$$ left behind.
+# With --apple it is the card test_oodos_card saved after phase 6b's PIP onto
+# /DISKS/CPM.DSK as C: (OODOS_APPLE_OUT): the image taken off the card, and,
+# with cpmtools's own apple-do diskdef (the Debian package's fsck.cpm: an
+# apple-do disk has no stamps for the patch to read), fsck.cpm, then 0:A.TXT
+# a copy of A:'s README.TXT and 4:PATTERN.BIN of A:'s PATTERN.BIN (three
+# entries there), and make_card.sh's own files on it as it made them.
 # cpmtools reads ./diskdefs, so it runs in /o. Exits
 # non-zero on the first failure; "PASS n" at the end counts the checks.
 #
@@ -112,6 +118,32 @@ python3 "$work/text.py" "$work/LOWER.TXT" 'this is an oodos drive, made on linux
     'oodos reads it as drive a:, sd unit 1, /oodos/a.img on the card.'
 
 offset=$(python3 "$work/card.py" "$card" "$work/card.img") || fail "$card: not a card image"
+
+if [ "$written" = --apple ]; then
+  mkdir "$work/apple"
+  dsk="$work/apple/CPM.DSK"
+  mcopy -n -i "$work/card.img@@$offset" ::/DISKS/CPM.DSK "$dsk" || fail "no /DISKS/CPM.DSK on the card"
+  [ "$(stat -c %s "$dsk")" = 143360 ] || fail "CPM.DSK is not 140 KB"
+  ok "CPM.DSK off the card's FAT, 143,360 bytes"
+  cd "$work/apple" # no ./diskdefs here: cpmtools's own, which has apple-do
+  out=$(/usr/bin/fsck.cpm -f apple-do -n CPM.DSK 2>&1) || { echo "$out"; fail "fsck.cpm -f apple-do exits non-zero"; }
+  echo "$out" | sed 's/^/     /'
+  if echo "$out" | grep -E '^(Error|Warning)' >/dev/null; then fail "fsck.cpm -f apple-do reports errors"; fi
+  ok "fsck.cpm -f apple-do is clean"
+  cpmls -f apple-do CPM.DSK | sed 's/^/     /'
+  python3 "$work/gen.py" "$work/P5.BIN" 20000 5 # cpmcp gives back cpmtools's own files to the byte
+  python3 "$work/gen.py" "$work/S7.BIN" 300 7
+  python3 "$work/text.py" "$work/AREAD.TXT" 'THIS IS AN APPLE CP/M DISK, MADE ON LINUX BY CPMTOOLS.' \
+      'OODOS READS IT AS AN SD DRIVE, /DISKS/CPM.DSK ON THE CARD.'
+  for f in 0:A.TXT:README.TXT 4:PATTERN.BIN:PATTERN.BIN 0:README.TXT:AREAD.TXT 0:PATTERN.BIN:P5.BIN 2:SMALL.BIN:S7.BIN; do
+    name=${f%:*}
+    cpmcp -f apple-do CPM.DSK "$name" "$work/out" || fail "cpmcp $name"
+    cmp -s "$work/${f##*:}" "$work/out" || fail "$name is not ${f##*:}"
+  done
+  ok "out by cpmcp: OODOS's A.TXT and 4:PATTERN.BIN, and make_card.sh's README.TXT, PATTERN.BIN and 2:SMALL.BIN"
+  echo "PASS $passed"
+  exit 0
+fi
 img="$work/A.IMG"
 mcopy -n -i "$work/card.img@@$offset" ::/OODOS/A.IMG "$img" || fail "no /OODOS/A.IMG on the card"
 [ "$(stat -c %s "$img")" = 8388608 ] || fail "A.IMG is not 8 MB"

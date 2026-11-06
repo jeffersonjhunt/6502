@@ -67,11 +67,22 @@
 ; and MOVE moves nothing, checked before a byte moves.
 ;
 ; Drives: A-G are SD units 1-7 as IDENTIFY's units table has them (16,384
-; sectors oodos-8m, 65,536 oodos-32m; anything else isn't a drive; a first
-; select reads it again, and DRVCHG says which units changed), M: the
-; RAM disk in banks C-D. LBA = track x 16 + sector. A sector moves by DMA:
-; channel 0 between the card and the buffer, channel 3 for M: and copies.
-; A buffer that crosses a window goes through SECBUF.
+; sectors oodos-8m, 65,536 oodos-32m, 280 apple-do; anything else isn't a
+; drive; a first select reads it again, and DRVCHG says which units
+; changed), M: the RAM disk in banks C-D. LBA = track x 16 + sector. A
+; sector moves by DMA: channel 0 between the card and the buffer, channel 3
+; for M: and copies. A buffer that crosses a window goes through SECBUF.
+;
+; An apple-do drive (hw/oodos.md, "The plan, phase 6": a 140 KB .dsk, the
+; SoftCard's CP/M format as cpmtools has it) has 512-byte sectors too, 8 a
+; track, 35 tracks: sector h of track t is CP/M's 256-byte sectors 2h and
+; 2h + 1 of the track, each the file's sector SKEW[n] of the track (the
+; file is in DOS order, 16 of 256 bytes a track, two to an SD sector). A
+; READ brings the whole track, 8 SD sectors, into the track buffer (block
+; 29) if it hasn't it already, and copies the two halves out; a WRITE
+; copies them in and writes the one or two SD sectors they changed, so the
+; card always has what the buffer has. Any failure empties the buffer, and
+; so do a rescan of the units and MOUNT or UNMOUNT.
 ;
 ; Character devices (DEVTBL): 0 CRT, the video card's 80x30 text and the USB
 ; keyboard (crt.s); 1 TTY, the serial card (the 6551 for now); 2 LPT, which
@@ -136,6 +147,10 @@ SIDE_D          = 4
 .segment "SYSBSS"
 DRVRO:          .res    SD_DRIVES      ; bit 1: the unit is read-only
 DRVCHG:         .res    1              ; bit n: unit n + 1 changed at a rescan (the BDOS clears it)
+DRVAPL:         .res    SD_DRIVES      ; bit 7: the unit is an apple-do drive
+TBTAG:          .res    2              ; the track buffer's drive + 1 (0: empty), and its track
+AHALF:          .res    1              ; APPLEIO's half, 0 or 1
+AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
 UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
 TESC:           .res    1              ; TTYOUT: 0, 1 after ESC, 2 after ESC Y, 3 after its row
 TROW:           .res    1              ; ESC Y's row, from 0
@@ -527,7 +542,8 @@ UNITS:          JSR     CARDOK
 @stuck:         JSR     SDRESET        ; abandoned, as SDIO does, so the next one can go
 @none:          SEC                    ; failed: the drives as they were
                 RTS
-@read:          LDY     #0
+@read:          STZ     TBTAG          ; the track buffer: whatever is mounted now
+                LDY     #0
 @lo:            LDA     SD_DATA
                 STA     SECBUF,Y
                 INY
@@ -565,11 +581,27 @@ UNITS:          JSR     CARDOK
                 BPL     @clear
                 LDX     #0             ; X the drive, Y its entry
                 LDY     #0
-@unit:          LDA     UNITTAB + 4,Y
+@unit:          STZ     DRVAPL,X
+                LDA     UNITTAB + 4,Y
                 STA     DRVRO,X
                 LSR     A              ; bit 0: mounted
                 BCC     @next
-                LDA     UNITTAB,Y      ; 16,384: $00004000
+                LDA     UNITTAB + 2,Y  ; 280: $00000118, apple-do
+                ORA     UNITTAB + 3,Y
+                BNE     @own
+                LDA     UNITTAB,Y
+                CMP     #<SD_SECTORS_APPLE
+                BNE     @own
+                LDA     UNITTAB + 1,Y
+                CMP     #>SD_SECTORS_APPLE
+                BNE     @own
+                LDA     #$80
+                STA     DRVAPL,X
+                LDA     #<DPBAPL
+                STA     TMP
+                LDA     #>DPBAPL
+                BRA     @set
+@own:           LDA     UNITTAB,Y      ; 16,384: $00004000
                 ORA     UNITTAB + 3,Y
                 BNE     @next
                 LDA     UNITTAB + 1,Y
@@ -613,7 +645,8 @@ UNITS:          JSR     CARDOK
                 TAY
                 INX
                 CPX     #SD_DRIVES
-                BNE     @unit
+                BEQ     @done
+                JMP     @unit
 @done:          CLC
                 RTS
 
@@ -634,7 +667,14 @@ READ:           STZ     DOP
                 BRA     DISKIO
 WRITE:          LDA     #1
                 STA     DOP
-DISKIO:         LDA     SECTOR + 1     ; LBA = track x 16 + sector, sector 0-15
+DISKIO:         LDA     CURDRV
+                CMP     #SD_DRIVES
+                BCS     @own
+                TAX
+                LDA     DRVAPL,X
+                BPL     @own
+                JMP     APPLEIO
+@own:           LDA     SECTOR + 1     ; LBA = track x 16 + sector, sector 0-15
                 BNE     @error
                 LDA     SECTOR
                 CMP     #SPT_PHYS
@@ -895,6 +935,7 @@ SDCMDS:         .byte   SD_READ, SD_WRITE, SD_UNMOUNT, SD_MOUNT ; by DOP
 ; but for no card or a timeout). The BIOS's drive (CURDRV) is then X's.
 SDMNT:          STA     DOP
                 STX     CURDRV
+                STZ     TBTAG          ; what the units hold changes
                 JSR     SECPH
                 JMP     SDIO
 
@@ -943,6 +984,164 @@ SDDATA:         LDA     #7
                 RTS
 @ready:         CLC
                 RTS
+
+; ---------------------------------------------------------------------------
+; apple-do drives (the header's "An apple-do drive")
+
+; READ or WRITE (DOP) of CURDRV's TRACK (0-34) and SECTOR (0-7). A = 0, 1
+; an error, 2 read-only (the units table's flag, or the card's); Z by A.
+APPLEIO:        LDA     SECTOR + 1
+                ORA     TRACK + 1
+                BNE     @bad
+                LDA     SECTOR
+                CMP     #SPT_APPLE
+                BCS     @bad
+                LDA     TRACK
+                CMP     #APPLE_TRACKS
+                BCS     @bad
+                LDA     DOP
+                BEQ     @load
+                LDX     CURDRV
+                LDA     DRVRO,X
+                AND     #2
+                BEQ     @load
+                LDA     #2             ; read-only, as CP/M 3's write-protect
+                RTS
+@bad:           LDA     #1             ; no such sector
+                RTS
+@load:          JSR     TRKLOAD
+                BNE     @done          ; SDIO's error
+                STZ     AHALF
+@half:          JSR     AKSET          ; AK: this half's sector in the file's track
+                LDX     #SIDE_S        ; the track buffer's side: the source of a READ
+                LDA     DOP
+                BEQ     @tb
+                LDX     #SIDE_D        ; the destination of a WRITE
+@tb:            LDA     #PHYS
+                STA     SIDES,X
+                STZ     SIDES + 1,X
+                LDA     AK
+                CLC
+                ADC     #>TRKBUF_PHYS
+                STA     SIDES + 2,X
+                LDA     #^TRKBUF_PHYS
+                STA     SIDES + 3,X
+                TXA                    ; and the SETDMA buffer the other side,
+                EOR     #SIDE_S ^ SIDE_D
+                TAX
+                JSR     DMAS
+                LDA     AHALF          ; this half 256 bytes on
+                CLC
+                ADC     SIDES + 2,X
+                STA     SIDES + 2,X
+                STZ     CNT
+                LDA     #1
+                STA     CNT + 1
+                JSR     COPY
+                BCS     @fail          ; the I/O hole, flash, read-only
+                INC     AHALF
+                LDA     AHALF
+                CMP     #2
+                BNE     @half
+                LDA     DOP
+                BEQ     @done          ; A = 0
+                STZ     AHALF          ; a WRITE: the SD sector of each half out
+@out:           JSR     AKSET
+                LSR     A              ; the SD sector in the track
+                JSR     TRKSEC
+                JSR     SDIO
+                BNE     @failed
+                INC     AHALF
+                LDA     AHALF
+                CMP     #2
+                BNE     @out
+                LDA     #0
+@done:          RTS
+@fail:          LDA     #1
+@failed:        STZ     TBTAG          ; the buffer may not be the card's now
+                CMP     #0
+                RTS
+
+; AK = A = the file's sector of the track for CP/M's sector 2 x SECTOR +
+; AHALF, by the skew.
+AKSET:          LDA     SECTOR
+                ASL     A
+                ORA     AHALF
+                TAX
+                LDA     SKEW,X
+                STA     AK
+                RTS
+
+; cpmtools's apple-do skew: CP/M's sector n of a track is the .dsk's SKEW[n].
+SKEW:           .byte   0, 6, 12, 3, 9, 15, 14, 5, 11, 2, 8, 7, 13, 4, 10, 1
+
+; The track buffer holding CURDRV's TRACK: read from the card, 8 SD sectors,
+; unless it holds it already. A = 0, or SDIO's error (the buffer then
+; empty); Z by A.
+TRKLOAD:        LDX     CURDRV
+                INX
+                CPX     TBTAG
+                BNE     @read
+                LDA     TRACK
+                CMP     TBTAG + 1
+                BNE     @read
+                LDA     #0
+                RTS
+@read:          STZ     TBTAG
+                LDA     DOP
+                PHA
+                STZ     DOP
+                STZ     AK
+@sector:        LDA     AK
+                JSR     TRKSEC
+                JSR     SDIO
+                BNE     @fail
+                INC     AK
+                LDA     AK
+                CMP     #SPT_APPLE
+                BNE     @sector
+                LDX     CURDRV
+                INX
+                STX     TBTAG
+                LDA     TRACK
+                STA     TBTAG + 1
+                PLA
+                STA     DOP
+                LDA     #0
+                RTS
+@fail:          TAX
+                PLA
+                STA     DOP
+                TXA
+                RTS
+
+; SD sector A (0-7) of TRACK: LBA = TRACK x 8 + A, and SRCP its place in
+; the track buffer, A x 512 on.
+TRKSEC:         PHA
+                STZ     LBA + 1
+                STZ     LBA + 2
+                LDA     TRACK
+                ASL     A
+                ROL     LBA + 1
+                ASL     A
+                ROL     LBA + 1
+                ASL     A
+                ROL     LBA + 1
+                STA     LBA
+                PLA
+                PHA
+                ORA     LBA
+                STA     LBA
+                STZ     SRCP
+                PLA
+                ASL     A
+                CLC
+                ADC     #>TRKBUF_PHYS
+                STA     SRCP + 1
+                LDA     #^TRKBUF_PHYS
+                STA     SRCP + 2
+                RTS
+.assert <TRKBUF_PHYS = 0, error, "the track buffer starts a page"
 
 ; ---------------------------------------------------------------------------
 ; Copies
@@ -1575,8 +1774,8 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
 ; DPBs are in common memory, so function 31 can give a program one.
 
 ; What the BDOS and the BIOS assume of a DPB, checked as it's assembled.
-.macro DPB spt, bsh, exm, dsm, drm, al0, al1
-.assert spt = 64, error, "SPT: 16 sectors of 512 bytes a track, as LBA = track x 16 + sector"
+.macro DPB spt, bsh, exm, dsm, drm, al0, al1, off
+.assert spt = 64 || spt = 32, error, "SPT: 16 or 8 sectors of 512 bytes a track (the BDOS's TSH)"
 .assert bsh >= 3 && bsh <= 7, error, "BSH 3-7: a block of 2 sectors at least (RECSEC), of an extent at most (FPIDX)"
 .assert dsm < 4096, error, "DSM: 4,096 blocks at most, a 512-byte allocation vector"
 .assert drm < 2048, error, "DRM: 2,048 entries at most, the hash's 8 KB a drive"
@@ -1588,18 +1787,21 @@ MLABEL:         .byte   $20, "UNLABELED  ", $31  ; a label; creation and update 
                 .word   dsm, drm
                 .byte   al0, al1
                 .word   $8000          ; CKS
-                .word   0              ; OFF: no boot tracks
+                .word   off            ; OFF: the boot tracks
                 .byte   2, 3           ; PSH, PHM
 .endmacro
 
 .pushseg
 .segment "COMMON"
 ; oodos-8m: 4 KB blocks, 2,048 of them, 1,024 entries in 8 blocks
-DPB8M:          DPB     64, 5, 1, 2047, 1023, $FF, $00
+DPB8M:          DPB     64, 5, 1, 2047, 1023, $FF, $00, 0
 ; oodos-32m: 8 KB blocks, 4,096 of them, 2,048 entries in 8 blocks
-DPB32M:         DPB     64, 6, 3, 4095, 2047, $FF, $00
+DPB32M:         DPB     64, 6, 3, 4095, 2047, $FF, $00, 0
 ; oodos-ram: 2 KB blocks, 64 of them (so EXM counts 1 KB), 256 entries in 4
-DPBM:           DPB     64, 4, 1, 63, 255, $F0, $00
+DPBM:           DPB     64, 4, 1, 63, 255, $F0, $00, 0
+; apple-do: 8 sectors a track (16 of 256 bytes), 1 KB blocks, 128 of them
+; past the 3 boot tracks, 64 entries in 2 blocks
+DPBAPL:         DPB     32, 3, 0, 127, 63, $C0, $00, 3
 .assert DPB32M - DPB8M = DPB_LEN, error, "a DPB is 17 bytes"
 .popseg
 

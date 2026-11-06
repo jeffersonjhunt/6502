@@ -18,8 +18,10 @@ P:, or in an FCB's byte 0, 0 for the current drive and 1 for A: to 16 for P:.
 | H:–L:, N:–P: | not drives: Invalid Drive (4) |
 
 An SD drive is 8 MB (`oodos-8m`: 4 KB blocks, 1,024 directory entries) or 32 MB (`oodos-32m`: 8 KB blocks, 2,048
-entries); M: has 2 KB blocks and 256 entries. Every drive has 512-byte sectors, 16 a track, and no boot tracks. The
-format is CP/M 3's, byte for byte, so cpmtools reads and writes the images on a PC
+entries); M: has 2 KB blocks and 256 entries. These have 512-byte sectors, 16 a track, and no boot tracks. B:–G: may
+also be a 140 KB Apple CP/M disk image (cpmtools's `apple-do`, the SoftCard's format): 1 KB blocks, 128 of them, 64
+entries, 3 boot tracks, and 8 sectors of 512 bytes a track (SPT 32, OFF 3; the BIOS makes each of two of the disk's
+256-byte sectors). The format is CP/M 3's, byte for byte, so cpmtools reads and writes the images on a PC
 ([hw/oodos.md, "Disk format"](../../hw/oodos.md#disk-format)). A drive's DPB is CP/M 3's, and function 31 returns
 the address of a copy in common memory.
 

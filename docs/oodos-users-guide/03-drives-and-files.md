@@ -29,6 +29,13 @@ A drive not named isn't there. An image is 8 MB or 32 MB (the `oodos-8m` and `oo
 [`oodos/diskdefs`](../../oodos/diskdefs)), and is made on a PC by cpmtools's `mkfs.cpm`
 ([oodos/README.md](../../oodos/README.md)).
 
+**An Apple CP/M disk** can be a drive too, B: to G: but never A:: a 140 KB `.dsk` image of a 5.25" disk in the
+SoftCard's CP/M format, which cpmtools calls `apple-do` (`mkfs.cpm -f apple-do`, `cpmcp -f apple-do` on a PC). It
+holds 128 KB in 1 KB blocks, 64 directory entries, and no date stamps until INITDIR gives it some (which takes a
+quarter of its entries). Name it in `DRIVES.TXT` as any image; `C: /DISKS/CPM.DSK  RO` above is one. An image of
+any other size is refused at start: `DRIVES.TXT LINE 3: /DISKS/X.DSK IS NOT 8 MB, 32 MB OR 140 KB`, and an Apple
+disk on A: `... IS AN APPLE DISK, NOT FOR A:`.
+
 **The current drive** is the prompt's. A command or file name without a drive uses it. To change it, type the drive
 alone:
 

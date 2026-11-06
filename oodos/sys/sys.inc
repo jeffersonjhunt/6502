@@ -115,11 +115,15 @@ DRV_M           = 12                   ; M:, the RAM disk
 SD_DRIVES       = 7                    ; A-G, units 1-7
 SD_SECTORS_8M   = 16384
 SD_SECTORS_32M  = 65536
-SPT_PHYS        = 16                   ; 512-byte sectors a track, every format
+SD_SECTORS_APPLE = 280                 ; a 140 KB .dsk: apple-do (cpmtools's, the SoftCard's)
+SPT_PHYS        = 16                   ; 512-byte sectors a track, OODOS's own formats
+SPT_APPLE       = 8                    ; apple-do's: 16 of 256 bytes, two to a sector
+APPLE_TRACKS    = 35
 
 ; The BDOS's memory in banks 6-7 (hw/oodos.md, "The BDOS, phase 3")
 HASH_BLOCK      = 24                   ; 24-27: the directory hash, 8 KB a drive's slot
 BCB_BLOCK       = 28                   ; 32 sector buffers of 512 bytes
+TRKBUF_PHYS     = 29 * $4000           ; block 29: the BIOS's apple-do track buffer, 4 KB
 ALV_BASE        = $1000                ; the allocation vectors, in the system block
 AMAP_LEN        = 20                   ; the memory functions' blocks: banks 1-5 (bdosmem.s)
 
