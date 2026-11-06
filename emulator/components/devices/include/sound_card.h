@@ -150,16 +150,17 @@
  * SIDs' sample is made exactly as before. Each run of the bus (a start, a
  * pause's release, a seek, a new RUN, within one write too, and a bulk
  * catch-up) starts its queue lined up with the SIDs' samples made up to that
- * moment, behind a lead
- * of silence ((audio rate / stream rate, rounded up) + 1 frames), so the
- * bursts a bus frame's outputs come in never leave it dry while the bus
- * runs. The same backlog rules: of more than two seconds of bus frames in one
- * tick only the last second is resampled (the samples for the rest an offset
- * to pass first); at a second and a half queued the SIDs are caught up, which
- * takes it; when the SIDs skip a backlog, the queue's frames for the samples
- * skipped go with them. EQ, the vis tap and volume (step 5) go in
- * bus_frame(), at unity for now. sid.cpp and this file build with
- * -ffp-contract=off, so every target makes the same samples.
+ * moment, behind a lead of silence ((audio rate / stream rate, rounded up) +
+ * 1 frames), so the bursts a bus frame's outputs come in never leave it dry
+ * while the bus runs. The same backlog rules: of more than two seconds of
+ * bus frames in one tick only the last second is resampled (the samples for
+ * the rest an offset to pass first); at a second and a half queued the SIDs
+ * are caught up, which takes it; when the SIDs skip a backlog, the queue's
+ * frames for the samples skipped go with them. EQ, the vis tap and volume
+ * (step 5) go in bus_frame(), at unity for now. sid.cpp and this file build
+ * with -ffp-contract=off, so every target makes the same samples, given the
+ * same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree
+ * today.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
@@ -438,6 +439,9 @@ namespace ooe::emu
         void pcm_control(uint8_t data);
         /// The state as the FIFO and PCMCTL now leave it, between frames; a start or stop unanchors the mix.
         void pcm_update();
+        /// pcm_update()'s state flow. The mix is re-anchored in one place, pcm_update(), around this: any start
+        /// (from buffering, paused, or a RUN or seek that stopped the stream first, even within one write) or
+        /// stop; and by pcm_advance() after a bulk catch-up, and tick() when time passes with the bus stopped.
         void pcm_step();
         /// The bus runs (frames fall due) in these states.
         static bool bus_runs(uint8_t state) { return state == STATE_PLAYING || state == STATE_UNDERRUN; }

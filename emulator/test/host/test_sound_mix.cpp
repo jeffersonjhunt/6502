@@ -478,11 +478,12 @@ namespace
 TEST(with_pcm_idle_the_sids_samples_are_main_s_bit_for_bit)
 {
     // The hash of the same program built from main before the mix (bbe5f98), by a scratch program on main's own
-    // sources. sid.cpp and sound_card.cpp are built with -ffp-contract=off (components/devices/CMakeLists.txt),
-    // so no target fuses multiply-adds and every build makes the same floats: main's gave this with g++ -O0, with
-    // -O2 -ffp-contract=off, under ASan/UBSan, and in WebAssembly. To make it again from another main, build
-    // this function the same way against main's sources and print it. A change to the SIDs' samples with the
-    // stream idle changes it.
+    // sources. sid.cpp and sound_card.cpp are built with -ffp-contract=off (components/devices/CMakeLists.txt), so
+    // no target fuses multiply-adds and every build makes the same floats, given the same libm (glibc's and
+    // Emscripten's std::pow, std::sin and std::exp agree; another libm could give another hash): main's gave this
+    // with g++ -O0, with -O2 -ffp-contract=off, under ASan/UBSan, and in WebAssembly. To make it again from another
+    // main, build this function the same way against main's sources and print it. A change to the SIDs' samples with
+    // the stream idle changes it.
     const uint64_t h = golden_hash();
     std::printf("  %016llx\n", static_cast<unsigned long long>(h));
     CHECK(h == 0x1ca5a6a30d34be5full);

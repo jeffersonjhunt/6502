@@ -138,7 +138,7 @@ namespace ooe::emu
 
     void SoundCard::pcm_control(uint8_t data)
     {
-        const uint8_t was = pcmctl_, before = state_;
+        const uint8_t was = pcmctl_;
         if (data & PCMCTL_FLUSH)
             fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
         pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
@@ -165,12 +165,7 @@ namespace ooe::emu
         }
         else if (!(pcmctl_ & PCMCTL_RUN))
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
-        pcm_update();
-        // A new run of the bus (RUN, a seek, a pause and its release): the mix anchors afresh at its next frame,
-        // with the lead for this rate, even if the stream is playing again within this one write.
-        if ((data & PCMCTL_FLUSH) || ((pcmctl_ & PCMCTL_RUN) && !(was & PCMCTL_RUN)) || !bus_runs(before) ||
-            !bus_runs(state_))
-            bus_on_ = false;
+        pcm_update(); // last: a RUN, a seek or a pause leaves the state stopped first, so this re-anchors the mix
     }
 
     void SoundCard::pcm_update()
@@ -209,8 +204,8 @@ namespace ooe::emu
     {
         // In bulk, however long the tick (a backgrounded tab's): the frames due are taken from the FIFO in one
         // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off,
-        // touches no sample. The frames due are counted in whole seconds of the host's clock and the rest, so no tick
-        // overflows them.
+        // touches no sample. The frames due are counted in whole seconds of the host's clock and the rest, so no
+        // tick overflows them.
         pcm_phase_ += cycles % host_hz_ * play_rate_;
         uint64_t due = cycles / host_hz_ * play_rate_ + pcm_phase_ / host_hz_;
         pcm_phase_ %= host_hz_;
