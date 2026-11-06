@@ -3155,6 +3155,79 @@ merged, with the switches' equates (below).
   7.5 s (as before). After the review: 191 s, all passed; test_disk2 0.12 s, test_disk2_native 0.02 s,
   test_disk2_prom 0.13 s, test_iie 8.2 s.
 
+**Proposed (6c, as built, 2026-11-05)** ([`oodos/sys/disk2.s`](../oodos/sys/disk2.s), `disk2.inc`, `bios.s`,
+`bdosdisk.s`, `bdosfile.s`; the plan above is what was built, and these are the details):
+
+- **The driver** (`disk2.s`, block 61; the switches by name in `disk2.inc`, offsets from `DISK2`, so
+  `backplane.inc` is unchanged): D2START selects the drive, sees whether its disk turns, and switches the motor
+  on; D2TRACK seeks (recalibrating first if the head isn't known: 80 half tracks out) and reads a whole track
+  into a 4 KB buffer of block 29, mapped into W1 while it works, each data field's 342 values decoded as they
+  come and put together after; D2WSEC writes one sector; D2STOP switches the motor off at the end of every READ
+  and WRITE, and the card keeps it turning a second (question 2). The file's sector f is physical sector
+  `FILE2PHYS[f]`, DOS 3.3's interleave, the one the emulator writes a `.dsk` out with.
+- **Bounded, every wait** (6a's review): a disk byte 256 polls (about 1,800 cycles, eight bytes' time), an
+  address field 13,000 bytes (two turns), a track three tries. A card with no sequencer PROM (the website's)
+  answers its ID and works its switches but never sets bit 7, so a read is Disk I/O after about 0.4 s, not a
+  hang (`test_oodos_disk2_noprom`).
+- **A track that partly reads** keeps what it read: the BIOS has each buffer's good sectors (`TBMASK`), and a
+  READ of a 512-byte sector whose halves weren't both read is Disk I/O, while the rest of the track serves.
+  (The plan had one bad field fail the whole track's reads.)
+- **The write loop** (`WLOOP`, one page, `align = $100` on the BIOS's segment): Q6 already on from the
+  write-protect sense, the first sync byte loaded by the write to Q7 on, four more 280 cycles apart, then
+  `NIBBUF`'s 349 bytes (`D5 AA AD`, the field, `DE AA EB`) 224 apart; each load held 28 cycles (a whole loop of
+  the sequencer's eight steps, as 6a found) before Q6 off; every delay counted to the cycle by a macro (`DLY`).
+  Interrupts off (`PHP`/`SEI`, `PLP`) and the DMA controller's master enable off around it. The bytes are made
+  first, from the buffer (`PRENIB`).
+- **The BIOS** (`bios.s`): O: and P: (drives 14 and 15) are the card's drives 1 and 2 when cold boot finds its
+  ID, apple-do with CKS 16 (`DPBD2`). The apple-do layer is 6b's, a track buffer for each of O: and P: in block
+  29 ($1000 and $2000 on); a disk that had stopped turning when an access starts has its buffer emptied, and
+  MEDIA (called by the BDOS, as SDMNT is) says so.
+- **The BDOS:** O: and P: are slots 8 and 9: their hashes in block 29 ($3000 and $3100), their allocation
+  vectors in the system block at $3000 and $3400 (BANKTEST's scratch there is unused by any drive in its test).
+  At login a removable drive's 16 directory records are checksummed (`CSV`, `DSUM`); at every later select,
+  if MEDIA says the disk had stopped, its directory sectors are dropped from the buffers (a directory write
+  goes at once, so they are never left changed), read again from the disk and checksummed: the same, on; not,
+  another disk (`MEDIACHK`): its buffers dropped unwritten, its changes counted (`DGEN`), logged in again.
+- **Error 10, Media Change:** an FCB opened or made on O: or P: carries its drive's count in S1's bits 0–6
+  (S2 has no bit to spare: bits 6 and 7 are the BDOS's; S1's bit 7 stays `S1_STAMPED`); close (16), the
+  sequential reads and writes (20, 21) and the random ones (33, 34, 40) of an FCB whose count isn't the drive's
+  return A = 10, as the Guide's file functions have it, and touch nothing.
+- **Decided (2026-11-05, the owner):** O: and P: are listed at cold boot whenever the card is there, a disk in
+  or not (`O: 128K   P: 128K`, the size the format's). With no disk in, or on the website with no sequencer
+  PROM, they answer Disk I/O, as an empty drive does on real hardware. So the tests that had P: as "not a
+  drive" now use N: (DIRTEST's SELBAD, SYSTEST's ERR and case E, ERRTEST's case P, SETDEF's chain), approved
+  one by one; a sweep of every test and test program found no other.
+- **Not changed:** INITDIR (6b's comment holds); `backplane.inc`. The 65C816 rules tool reads the BIOS as a
+  program, which it isn't (main's own gives 46 complaints, tables read as code and calls into common memory;
+  this one 68 the same way): the driver has no RMB, SMB, BBR or BBS and no absolute operand in zero page, and
+  reaches the phases by an absolute,X load inside the card's page, which the W65C02S makes once.
+- **Room:** block 61 8,515 of 16,384 bytes (the driver 4,278 of it, 2,486 of that its buffers and tables);
+  block 60 12,138 (+362).
+- **Tests:** `test_oodos_disk2` (9 cases, about 27 s; exits 77 without the owner's sequencer PROM): cpmtools's
+  files read from O:; the same PIPs, ERA and REN on O: and on C: (the same image as an SD unit) leave the two
+  images the same, 0 of 560 sectors different, and read back after a ^C; O: to P: and back; no disk (Disk I/O
+  in 2 s) and a write-protected one (Read Only, the disk unchanged); the disk changed after the motor stopped
+  (seen: `No File`), and not changed (kept); a file open across the change (MEMTEST's case O: its read and
+  close 10, a new open not found, nothing of the old disk written on the new); the head where the driver
+  doesn't think it is (recalibrated); a data field spoiled (the track's other sectors read, that one Disk I/O);
+  tracks 0–34 through the BIOS (MEMTEST's case T, the head at 136); the motor (turning after an access, stopped
+  a second after, a second access within it served from the buffer, after it read again); every load of the
+  data bus from the bus, 280 then 224, the DMA master off at each and back after; an interrupt asked for mid-
+  write with the I flag cleared at the driver's entry. `test_oodos_disk2_noprom` (2 cases, no fixtures): no PROM
+  (Disk I/O, 0.4 s, OODOS goes on) and no card (Invalid Drive).
+- **The interrupt case, strengthened:** a taken interrupt only makes one load late by its handler's time, and
+  the disk reads a late byte back (6a: a 0 bit or two more), so the readback alone passed with the SEI taken
+  out. The case also times every load of every field (5 at 280, 349 at 224), which the fault fails (26 late).
+- **Must fail, each seen with its fault put in** (`OODOS_SYS_DIR`): the write loop a cycle long (the timed
+  loads: 255 late; the readback passes, as 6a found); the SEI taken out (the interrupt case's loads); the
+  checksums off (the changed floppy seen as the old one; the motor case's read after a stop); Q6 held 6 cycles
+  (four cases: nothing written).
+- **Measured:** 20 KB from O: to M: 3.5 s; 5 KB from M: to O: 2.8 s, about 40 ms a sector waiting for its
+  address field (the skew puts a 512-byte sector's halves three physical sectors apart). `tools/check.sh quick`
+  198 s, all passed; test_oodos_disk2 28.7 s and test_oodos_disk2_noprom 0.6 s in the parallel run, so no split.
+- **The books:** the drive tables of both Guides name O: and P: (approved for 6c); the rest of 6c's entries
+  wait for the owner (the report lists them).
+
 
 ## GW-BASIC ##
 
