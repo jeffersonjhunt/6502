@@ -265,9 +265,27 @@ CODECS: on revision 1, `$48–$63` read `$FF` and ignore writes.
 Status: **emulated**
 
 The registers are in: each holds what is written and reads it back, with the reset values below, and /RESET and
-CTRL RESET treat them as the design says. Nothing plays yet: STATE stays 0, FREE reads the whole FIFO, PCMDATA's
-bytes are dropped, the vis page is silence, and the ES5503 holds its registers and wave RAM but makes no sound and
-raises no interrupt. DRQSEL already routes the DRQ and the fly-by bytes. The rest comes in the spec's later steps.
+CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
+DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
+sound, so a program sees the same STATE and POS at any audio rate. But nothing reaches the speakers yet: the
+stream isn't mixed with the SIDs. There is no MP3, the EQ and volumes change nothing, the vis page is silence, and
+the ES5503 holds its registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the
+spec's later steps.
+
+**The stream's timing,** where the design leaves it open:
+
+- Playing starts at 4 KB in the FIFO, or as soon as EOF is set. The first frame is due a whole frame's time
+  later, at RATE on the host's clock, and every frame after it at the same pace.
+- A frame takes 1, 2 or 4 bytes from the FIFO, and only whole frames are taken. A frame split across two writes
+  waits for its last byte. With EOF set, a partial frame left at the end is dropped when the stream ends, never
+  played, so the FIFO is empty again and the next stream starts on a frame.
+- The FIFO runs dry when a frame falls due and none is there. Without EOF that is underrun: silence, until a whole
+  frame arrives, which plays at the next frame due with no new buffering. With EOF it is ended. A FIFO emptied and
+  filled again before the next frame is due hasn't underrun.
+- Releasing PAUSE goes back to the state it paused: buffering, playing or underrun. An underrun paused is the
+  same dry spell, not counted again. Ended lasts until RUN is cleared.
+- FLUSH with RUN set is a seek: the FIFO empties and the stream buffers again, to 4 KB or to EOF, with no underrun
+  counted; POS runs on from where it was. Paused, the seek takes effect when PAUSE is released.
 
 ## Registers
 
@@ -664,7 +682,7 @@ R/W. FLUSH is a strobe: writing it 1 empties the FIFO and the decoder, and it re
 
 #### Notes
 
-`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. In the design RUN starts buffering, and playing begins at 4 KB in the FIFO or at EOF. So far nothing plays ([above](#in-the-emulator-so-far)): the bits are kept, and FLUSH has nothing to empty.
+`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set it is a seek, and the stream buffers again. Clearing RUN keeps the FIFO.
 
 <a id="reg-c549"></a>
 ### $C549 SOUND_CODEC: the stream's codec
@@ -726,7 +744,7 @@ All: the rate in Hz, 8,000 to 48,000. In the design it reads back the rate playi
 
 #### Notes
 
-A RATE outside the range when RUN is set is error `$80` in STATE. So far nothing plays ([above](#in-the-emulator-so-far)): RATE reads back what was written.
+A RATE outside the range when RUN is set is error `$80` in STATE. RUN takes RATE, and while it runs RATE reads back the rate it took, whatever is written after.
 
 <a id="reg-c54c"></a>
 ### $C54C SOUND_PCMFMT: raw PCM's format
@@ -761,7 +779,7 @@ R/W. Bits 7–2 read 0.
 
 #### Notes
 
-In the design it reads back the format playing, an MP3's included.
+RUN takes PCMFMT, and while it runs PCMFMT reads back the format it took, whatever is written after. In the design it reads back an MP3's format too.
 
 <a id="reg-c54d"></a>
 ### $C54D SOUND_FREE: the FIFO's room
@@ -792,7 +810,7 @@ All: the FIFO's free space in 256-byte units, rounded down. 512 (`$0200`) is all
 
 #### Notes
 
-So far nothing plays ([above](#in-the-emulator-so-far)), so FREE always reads 512. Read the low byte first.
+Read the low byte first: until the next `$C54D` read, `$C54E` keeps the high byte of that moment while the card plays on. Bytes count against the FIFO until a frame takes them, a partial frame's too.
 
 <a id="reg-c54f"></a>
 ### $C54F SOUND_PCMDATA: the stream
@@ -823,7 +841,7 @@ Nothing: the FIFO is empty.
 
 #### Notes
 
-With DRQSEL 1 the card's DRQ serves PCMDATA, holding DRQ only while the FIFO has room, so demand-mode DMA stops by itself. So far nothing plays ([above](#in-the-emulator-so-far)): every byte is dropped, and with DRQSEL 1 the card holds DRQ all the time.
+With DRQSEL 1 the card's DRQ serves PCMDATA, holding DRQ only while the FIFO has room, so demand-mode DMA stops by itself when the FIFO is full and goes on as the card plays. A stream longer than the FIFO can so be fed by one channel, loaded again at each terminal count.
 
 <a id="reg-c550"></a>
 ### $C550 SOUND_STATE: the stream's state
@@ -866,7 +884,7 @@ All:
 
 #### Notes
 
-So far nothing plays ([above](#in-the-emulator-so-far)): STATE always reads `$00`.
+So far `$80` also stands for any CODEC but raw PCM, until MP3 is in (step 4 of the spec); `$81` and `$82` don't occur yet. An error lasts until RUN is cleared.
 
 <a id="reg-c551"></a>
 ### $C551 SOUND_POS: the frames played
@@ -897,7 +915,7 @@ All: the frames played since POS was last zeroed, 32 bits.
 
 #### Notes
 
-Read the low byte first. So far nothing plays ([above](#in-the-emulator-so-far)): POS stays 0.
+Read the low byte first: until the next `$C551` read, `$C552–$C554` keep that moment's bytes while POS counts on. Silence while underrun isn't counted, nor time paused.
 
 <a id="reg-c555"></a>
 ### $C555 SOUND_KBPS: the MP3's bitrate
@@ -928,7 +946,7 @@ All: the MP3 frame's bitrate in kbit/s; 0 for raw PCM.
 
 #### Notes
 
-So far nothing plays ([above](#in-the-emulator-so-far)): KBPS reads 0.
+MP3 isn't in yet, so KBPS reads 0.
 
 <a id="reg-c557"></a>
 ### $C557 SOUND_VOLL: the left master volume
@@ -959,7 +977,7 @@ All: 0 silent to 255 unity.
 
 #### Notes
 
-In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far nothing plays ([above](#in-the-emulator-so-far)), and the SIDs aren't scaled yet.
+In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far the volumes change nothing: the stream isn't mixed yet, and the SIDs aren't scaled.
 
 <a id="reg-c558"></a>
 ### $C558 SOUND_VOLR: the right master volume
@@ -1055,7 +1073,7 @@ All: with EQIDX's bit 7 clear, the gain in signed half-dB, -24 to 24 (-12 to +12
 
 #### Notes
 
-With the EQ off the path is bit for bit as it came in. So far nothing plays ([above](#in-the-emulator-so-far)): the gains and the enable are kept, and change no sound.
+With the EQ off the path is bit for bit as it came in. So far the gains and the enable are kept, and change no sound.
 
 <a id="reg-c55b"></a>
 ### $C55B SOUND_VISIDX: the vis page's index
@@ -1117,7 +1135,7 @@ The page of silence: `$00` for 0–33, `$80` for 34–97.
 
 #### Notes
 
-So far nothing plays ([above](#in-the-emulator-so-far)), so every snapshot is that silence.
+So far every snapshot is that silence: the vis page comes in step 5.
 
 <a id="reg-c55d"></a>
 ### $C55D SOUND_CODECS: the codecs the card has

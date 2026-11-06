@@ -897,18 +897,27 @@ knows only revision 1 takes the card by the ID's high nibble.
   DRQSEL 0 and DOCCTL 0; the ES5503's oscillators halted, no interrupt pending and `$E1` 0; wave RAM keeps its
   contents. CTRL RESET leaves all of it alone.
 
-**Settled in the emulator so far (2026-11-05, proposed for the card):** step 1 of the spec, the registers. Each
-reads back what's written, as above, and nothing plays yet: STATE reads 0, FREE the whole FIFO, PCMDATA's bytes
-are dropped, and the vis page is silence (`$00` for the spectrum and VU, `$80` for the samples, 0 past 97). Where
+**Settled in the emulator so far (2026-11-05, proposed for the card):** steps 1 and 2 of the spec, the registers
+and the raw PCM stream. Each register reads back what's written, as above. The stream runs as the spec's
+behaviour says, on the host's clock and whatever the audio rate, but nothing reaches the speakers yet (mixing is
+step 3), and the vis page is silence (`$00` for the spectrum and VU, `$80` for the samples, 0 past 97). Where
 the spec is silent:
 
 - /RESET also puts CODEC, RATE, PCMFMT, EQIDX, VISIDX, DOCADDR and DOCBANK back at 0, as it does RAMADDR.
 - EQIDX keeps what's written; past 10 (bit 7 clear), EQVAL reads 0 and takes no write. It moves on in bits 0–6,
   so bit 7 stays.
 - DRQSEL keeps bits 0–1; 3 is no source: no DRQ, a fly-by read `$FF` and a write dropped.
-- POS and FREE latch as the table says, but nothing moves them yet (POS stays 0, FREE 512), so a latch can't be
-  told from a live read: step 2's tests must show that `$52–$54` keep what the last `$51` read latched, and `$4E`
-  what the last `$4D` read latched, while POS and FREE move on.
+- A frame is due every host-clock period of the rate, the first a whole period after playing starts. Running dry
+  is found when a frame falls due with none in the FIFO, so a FIFO emptied and refilled between two frames hasn't
+  underrun; data again plays from the next frame due, with no new buffering. One counted underrun is one time dry.
+- RUN takes RATE and PCMFMT; while it runs they read back what it took. PCMFMT's two bits are all valid, so `$80`
+  is a RATE outside 8,000–48,000, and for now any CODEC but raw PCM (MP3 is step 4).
+- Releasing PAUSE goes back to the state it paused (buffering, playing or underrun); an underrun paused is the
+  same dry spell, not counted again. Ended stays ended until RUN is cleared.
+- With EOF, a partial frame left over is dropped when the stream ends, never played, so the next stream starts on
+  a frame and FREE reads 512 again.
+- FLUSH with RUN set is a seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
+- A new host clock (`set_cpu_hz()`) rescales the part of a frame owed, so a clock change loses no frames.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.

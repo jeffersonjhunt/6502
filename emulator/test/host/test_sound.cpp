@@ -801,9 +801,9 @@ TEST(rate_format_and_volumes_read_back)
     CHECK_EQ(c.read(SoundCard::STATE), 0);
     CHECK_EQ(c.read(SoundCard::KBPS), 0);
     CHECK_EQ(c.read(SoundCard::CODECS), 0x83);
-    c.write(SoundCard::PCMDATA, 0x55);  // no FIFO yet: dropped, and FREE still the whole of it
-    CHECK_EQ(c.read(SoundCard::FREE), 0x00);
-    CHECK_EQ(c.read(SoundCard::FREE + 1), 0x02);
+    c.write(SoundCard::PCMDATA, 0x55);  // into the FIFO: 511 units of room left
+    CHECK_EQ(c.read(SoundCard::FREE), 0xFF);
+    CHECK_EQ(c.read(SoundCard::FREE + 1), 0x01);
     CHECK_EQ(c.read(SoundCard::PCMDATA), 0xFF);
 }
 
@@ -970,10 +970,11 @@ TEST(drqsel_routes_the_cards_drq_and_its_fly_by_bytes)
     CHECK_EQ(c.dack_read(false), 0x21);
     CHECK_EQ(c.read(SoundCard::RAMADDR + 1), 0x20); // RAMADDR left alone
     CHECK_EQ(c.read(SoundCard::RAMADDR), 0x01);
-    c.write(SoundCard::DRQSEL, SoundCard::DRQ_PCMDATA); // the FIFO always has room, for now
+    c.write(SoundCard::DRQSEL, SoundCard::DRQ_PCMDATA); // the FIFO has room
     CHECK(c.drq());
     CHECK_EQ(c.dack_read(false), 0xFF);
-    c.dack_write(0x77, false);                    // dropped: no FIFO yet
+    c.dack_write(0x77, false);                    // into the FIFO
+    CHECK_EQ(c.fifo_bytes(), 1u);
     CHECK_EQ(c.doc_address(), 0x10001u);
     CHECK_EQ(c.read(SoundCard::RAMADDR), 0x01);
     c.write(SoundCard::DRQSEL, 3);                // no source: no DRQ
