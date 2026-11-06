@@ -94,16 +94,19 @@ The mouse has a relative mode and an absolute mode, picked by MCTRL's bit 0 ([`$
 
 - **Relative** (MCTRL 0): MX and MY are the movement since the last latch, signed 16-bit, held at
   −32,768–32,767.
-- **Absolute** (MCTRL 1): MX and MY are the pointer's position, from 0 to MAXX and MAXY. A new limit holds the
-  pointer inside it at once, when its high byte is written, so write the low byte first. The limits reset to 639
-  and 479, the screen's size, so an OS pointer goes straight into a sprite.
+- **Absolute** (MCTRL 1): MX and MY are the pointer's position, from 0 to MAXX and MAXY. The limits clamp the
+  position; they don't scale it. A new limit holds the pointer inside it at once, when its high byte is written,
+  so write the low byte first. The limits reset to 639 and 479, the screen's size, so an OS pointer goes straight
+  into a sprite.
 - **Latching.** Reading MX's low byte, `$C592`, latches MX, MY and MWHEEL together, and starts the sums for the
   next latch at 0. Then read the rest in any order.
-- **The wheel** (MWHEEL) is the steps since the last latch, signed 8-bit, held at −128–127.
+- **The wheel** (MWHEEL) is the steps since the last latch, signed 8-bit, held at −128–127. In the emulator a
+  step scrolling down is +1, and one scrolling up −1.
 - **The buttons** (MBTN) are live, not latched: bit 0 left, bit 1 right, bit 2 middle, bits 3–4 buttons 4 and 5.
 
-In the emulator the WebUI gives the card the pointer's place over the screen, as 0–639 and 0–479; relative mode
-gets the differences.
+In the emulator the WebUI gives the card the pointer's place over the screen, as 0–639 and 0–479, and the card
+clamps it to MAXX and MAXY. With smaller limits, everything past them reads as the limit. Relative mode gets the
+differences of the clamped place, so its sums stop when the pointer reaches 0 or MAXX and MAXY.
 
 ## The game port
 
@@ -503,8 +506,8 @@ B, the USB card
 
 #### Access
 
-R, 2 bytes, low byte first. Reading `$C592` latches MX, MY and MWHEEL, and in relative mode starts the next sums
-at 0. Reading `$C593` gives the latch's high byte. Writes are ignored.
+R, 2 bytes, low byte first. Reading `$C592` latches MX, MY and MWHEEL, and starts the next sums at 0, in either
+mode. Reading `$C593` gives the latch's high byte. Writes are ignored.
 
 #### Bits
 

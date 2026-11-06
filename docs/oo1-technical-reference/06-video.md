@@ -108,14 +108,14 @@ Both bitmaps sit at x 64–575, centred, with BORDER either side.
 
 Status: **emulated**
 
-Each layer has HSCROLL and VSCROLL, 10 bits each, in the layer's own pixels: a tile layer and a 40-column text
-layer scroll across in steps of two screen pixels, bitmap 256 in steps of two both ways. A scroll moves the picture
-left or up, and it wraps within the layer: within the map for tiles (256 to 1,024 pixels each way), within the
-screen for text, mono and bitmap 512, and within 256×240 for bitmap 256. A text layer has no cells past its 80×30
-or 40×30, so scrolling one rotates the screen.
+Each layer has HSCROLL and VSCROLL, 10 bits each, in the layer's own pixels: a tile layer and bitmap 256 scroll in
+steps of two screen pixels both ways, a 40-column text layer in steps of two across and one down. A scroll moves the
+picture left or up, and it wraps within the layer: within the map for tiles (256 to 1,024 pixels each way), within
+640×480 for 80-column text and mono, 320×480 for 40-column text, 512×480 for bitmap 512, and 256×240 for bitmap 256.
+A text layer has no cells past its 80×30 or 40×30, so scrolling one rotates the screen.
 
-The scroll registers, and every base register, take effect at the start of vertical blank
-([below](#when-changes-show)).
+The scroll registers, and every base register, take effect at the start of vertical blank, line 480: to show on the
+next frame they must be written before it ([below](#when-changes-show)).
 
 ### Apple II mode
 
@@ -166,8 +166,9 @@ entries of 8 bytes, 512 bytes, at SPRBASE ([`$C483`](#reg-c483)), in VERA's layo
   No sprites are drawn, and so none collide, while the display is off or the splash covers the screen.
 
 A program keeps its table in ordinary RAM and copies it into video memory in the vertical blank, by DMA, as the
-demo does: its 96 bytes take about 27 µs, at two cycles a byte ([chapter 5](05-dma.md#memory-to-memory)). Since
-SPRBASE is latched at vertical blank, two tables and a SPRBASE write to flip between them also work.
+demo does: its 96 bytes take about 27 µs, at two cycles a byte ([chapter 5](05-dma.md#memory-to-memory)). Two
+tables and a SPRBASE write to flip between them also work, but SPRBASE is latched at line 480: written before it, the
+flip shows on the next frame; written in the vertical blank, a frame later.
 
 hw/design.md, "Video" ([`hw/design.md:527`](../../hw/design.md#video)), puts a copy of the whole 512-byte table at
 about 72 µs. The DMA controller takes two cycles a byte for a memory-to-memory copy
@@ -259,10 +260,11 @@ Status: **emulated**
   as they are at that moment. A change to memory, the palette, CTRL, BORDER, CONFIG or PALOFS shows from the next
   line drawn.
 - **At the start of vertical blank**, line 480, the card latches PALBASE, SPRBASE and each layer's MAPBASE,
-  TILEBASE, HSCROLL and VSCROLL. Written at any other time, they read back at once but take effect there, so one
-  write flips between two buffers without tearing.
-- **In vertical blank**, lines 480–524, nothing is drawn, and STATUS bit 7 is set. That is the time to change what
-  the next frame shows. The demo waits for its start so:
+  TILEBASE, HSCROLL and VSCROLL. Written at any other time, they read back at once but take effect at the next line
+  480, so one write flips between two buffers without tearing. To show on the next frame, they must be written
+  before line 480; written in vertical blank, they show a frame later.
+- **In vertical blank**, lines 480–524, nothing is drawn, and STATUS bit 7 is set. Memory, the palette's contents,
+  CTRL, BORDER, CONFIG and PALOFS written then show on the next frame. The demo waits for its start so:
 
 <!-- listing: ../../backplane/bios/demo.s:339-345 -->
 ```
@@ -274,6 +276,9 @@ WAITVB:
                 BPL     @in
                 RTS
 ```
+
+After WAITVB the demo copies its sprite table in and writes layer 0's HSCROLL (`backplane/bios/demo.s:160–165`).
+The sprites show on the next frame, but the scroll, latched already, shows a frame later, so it runs a frame behind.
 
 ### The BIOS's text screen
 
@@ -360,11 +365,13 @@ back to ISR as 1s, which clears them; until it does, /IRQ stays low
 ([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)).
 
 - The line interrupt compares LINE with the beam's line, 0–524, so a LINE of 525 or more never matches. It comes at
-  the line's first pixel, about 180 CPU cycles before the line is drawn: a handler that changes a register that
-  quickly changes that line.
+  the line's first pixel, about 180 CPU cycles before the line is drawn: a handler that quick changes that line.
+  Mid-frame it can change only what isn't latched, CTRL, BORDER, CONFIG and PALOFS, or the palette in memory; a
+  latched register waits for line 480.
 - With the display off, or the splash on the screen, the vertical blank and line interrupts still come.
-- The BIOS enables none of them. VSCREEN and QUIET write 0 to IEN, but nothing clears ISR, and LINE is 0, so under
-  the monitor ISR soon reads `$03`.
+- The BIOS enables none of them. VSCREEN and QUIET write 0 to IEN, but nothing in the BIOS clears ISR. After a
+  reset LINE is 0, so ISR soon reads `$03`. After Break, LINE and any collision bits are as the program left them:
+  QUIET writes only IEN and SPLASH, VSCREEN writes neither LINE nor ISR, and COLL clears only on /RESET.
 - In Apple II mode the registers can't be reached, and the /RESET that entered the mode cleared IEN, so the card
   never interrupts there.
 
@@ -465,7 +472,7 @@ latched. The BIOS writes `$00` at boot and on Break.
 
 #### Access
 
-R/W. A read gives what was written last, which takes effect at the next vertical blank.
+R/W. A read gives what was written last, which takes effect at the next line 480.
 
 #### Bits
 
@@ -481,9 +488,9 @@ All: the palette's unit, at physical `$80000` + PALBASE × 1,024. It is 512 byte
 
 #### Notes
 
-Latched at the start of vertical blank ([above](#when-changes-show)). The palette's contents are read for each line,
-so they need no PALBASE write to show ([The palette](#the-palette)). The BIOS writes `$00` at boot and on Break; the
-demo uses unit 13.
+Latched at line 480, so a write in vertical blank shows a frame later ([above](#when-changes-show)). The palette's
+contents are read for each line, so they need no PALBASE write to show ([The palette](#the-palette)). The BIOS writes
+`$00` at boot and on Break; the demo uses unit 13.
 
 <a id="reg-c483"></a>
 ### $C483 VIDEO_SPRBASE: where the sprite table is
@@ -498,7 +505,7 @@ demo uses unit 13.
 
 #### Access
 
-R/W. A read gives what was written last, which takes effect at the next vertical blank.
+R/W. A read gives what was written last, which takes effect at the next line 480.
 
 #### Bits
 
@@ -515,7 +522,8 @@ All: the sprite table's unit, at physical `$80000` + SPRBASE × 1,024. It is 64 
 
 #### Notes
 
-Latched at the start of vertical blank. The BIOS writes `$00` at boot and on Break; the demo uses unit 36.
+Latched at line 480, so a write in vertical blank shows a frame later. The BIOS writes `$00` at boot and on Break;
+the demo uses unit 36.
 
 <a id="reg-c484"></a>
 ### $C484 VIDEO_IEN: the interrupt enables
@@ -589,8 +597,9 @@ R; write 1s to clear. A bit written 1 is cleared; a bit written 0 is left as it 
 
 #### Notes
 
-A bit is set by its event whether IEN enables it or not. The BIOS never clears ISR, and with LINE at 0, bits 0 and
-1 are set again every frame: under the monitor ISR reads `$03`.
+A bit is set by its event whether IEN enables it or not. The BIOS never clears ISR. After a reset LINE is 0, so bits
+0 and 1 are set again every frame and ISR soon reads `$03`. After Break, LINE and bit 2 are as the program left them
+([Interrupts](#interrupts)).
 
 <a id="reg-c486"></a>
 ### $C486 VIDEO_LINE: the line to interrupt at, or the beam's line
@@ -754,7 +763,7 @@ types.
 
 #### Access
 
-R/W. A read gives what was written last, which takes effect at the next vertical blank.
+R/W. A read gives what was written last, which takes effect at the next line 480.
 
 #### Bits
 
@@ -771,8 +780,8 @@ image of a bitmap or mono layer.
 
 #### Notes
 
-Latched at the start of vertical blank, so one write flips between two pages. The BIOS writes 8 (`$82000`) at boot
-and on Break.
+Latched at line 480, so one write flips between two pages; a write in vertical blank shows a frame later. The BIOS
+writes 8 (`$82000`) at boot and on Break.
 
 <a id="reg-c492"></a>
 ### $C492 VIDEO_L0_TILE: layer 0's tiles or font
@@ -787,7 +796,7 @@ and on Break.
 
 #### Access
 
-R/W. A read gives what was written last, which takes effect at the next vertical blank.
+R/W. A read gives what was written last, which takes effect at the next line 480.
 
 #### Bits
 
@@ -804,7 +813,8 @@ and mono layers don't use it.
 
 #### Notes
 
-Latched at the start of vertical blank. The BIOS writes 1 (`$80400`, its font) at boot and on Break.
+Latched at line 480, so a write in vertical blank shows a frame later. The BIOS writes 1 (`$80400`, its font) at
+boot and on Break.
 
 <a id="reg-c493"></a>
 ### $C493 VIDEO_L0_HSCROLL: layer 0's scroll across
@@ -819,7 +829,7 @@ Latched at the start of vertical blank. The BIOS writes 1 (`$80400`, its font) a
 
 #### Access
 
-R/W, 2 bytes, low byte first. A read gives what was written last, which takes effect at the next vertical blank.
+R/W, 2 bytes, low byte first. A read gives what was written last, which takes effect at the next line 480.
 
 #### Bits
 
@@ -837,8 +847,9 @@ read 0.
 #### Notes
 
 The layer moves left by HSCROLL pixels and wraps within its width: the map's for tiles, 640 or 320 for text, 640 for
-mono, 512 or 256 for the bitmaps ([Scrolling](#scrolling)). Latched at the start of vertical blank, so both bytes,
-written between two vertical blanks, take effect together. The BIOS writes 0 at boot and on Break.
+mono, 512 or 256 for the bitmaps ([Scrolling](#scrolling)). Latched at line 480, so both bytes, written
+between two line 480s, take effect together; written in vertical blank, they show a frame later, as the demo's do
+([When changes show](#when-changes-show)). The BIOS writes 0 at boot and on Break.
 
 <a id="reg-c495"></a>
 ### $C495 VIDEO_L0_VSCROLL: layer 0's scroll down
@@ -853,7 +864,7 @@ written between two vertical blanks, take effect together. The BIOS writes 0 at 
 
 #### Access
 
-R/W, 2 bytes, low byte first. A read gives what was written last, which takes effect at the next vertical blank.
+R/W, 2 bytes, low byte first. A read gives what was written last, which takes effect at the next line 480.
 
 #### Bits
 
@@ -871,7 +882,8 @@ read 0.
 #### Notes
 
 The layer moves up by VSCROLL lines and wraps within its height: the map's for tiles, 480 for text, mono and bitmap
-512, 240 for bitmap 256. Latched at the start of vertical blank. The BIOS writes 0 at boot and on Break.
+512, 240 for bitmap 256. Latched at line 480, so a write in vertical blank shows a frame later. The BIOS writes 0
+at boot and on Break.
 
 <a id="reg-c497"></a>
 ### $C497 VIDEO_L0_PALOFS: layer 0's palette slice

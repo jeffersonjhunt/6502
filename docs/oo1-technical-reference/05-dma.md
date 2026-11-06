@@ -105,7 +105,7 @@ address of its own. On the last byte the card also sees terminal count.
 
 | Channel | DRQ in the emulator | In the design |
 |---|---|---|
-| 0 | the SD card, while its CTRL has DMA set and DATA has a byte | mass storage |
+| 0 | the SD card, while its CTRL has DMA set and STATUS's DATA is set | mass storage |
 | 1 | none | serial and parallel |
 | 2 | the sound card's RAMDATA, always | USB, or the sound card's RAM |
 | 3 | none | memory to memory and blits |

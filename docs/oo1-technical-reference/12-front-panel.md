@@ -65,8 +65,9 @@ Status: **emulated**
 - **LOAD ADRS** copies the switch register into PADDR, the panel's address. It works halted or not.
 - **EXAM**, while halted, shows the byte at PADDR on the lamps.
 - **DEP**, while halted, writes the switch register's low 8 bits to PADDR, and shows them.
-- **Pressed again,** EXAM or DEP first moves PADDR on by one, so repeated presses step through memory. A different
-  key, or a write to PADDR, starts again without moving on.
+- **Pressed again,** EXAM or DEP first moves PADDR on by one, so repeated presses step through memory. LOAD ADRS,
+  the other of EXAM and DEP, or a write to PADDR starts again without moving on. CONT doesn't, so EXAM, CONT, EXAM
+  moves on by one.
 
 PADDR is a physical address in RAM, so EXAM and DEP don't depend on the windows. They reach RAM only: not the flash,
 and not the cards' registers. In the emulator they take no bus cycle, since time stands still while halted; on the
@@ -85,6 +86,13 @@ comparator checks the A0–A19 of every bus cycle, the DMA controller's included
   exact cycle in LADDR, LDATA and LSTAT, but the CPU stops after the instruction that made it.
 - **With NMI** (bit 4), nothing halts. Each match sets STATUS's HIT, latches its cycle, and pulls /NMI after the
   instruction. A fetch match lets the instruction run first.
+
+In the emulator, the latch takes only the first stop after a CONT that lets the CPU go, a step, START or /RESET. A
+halt that ends another way leaves the latch shut. Turning the HALT switch off lets a switch halt go without CONT, and
+the CPU runs on, but the latch stays shut. The WebUI's Run does just that: it turns HALT off, then presses CONT,
+which does nothing once the CPU runs. The next breakpoint that halts sets HIT, but LADDR, LDATA, LSTAT and the lamps
+keep the old stop cycle. Pressing CONT while halted opens the latch again. This is an emulator bug, to be fixed; the
+card latches every stop.
 
 HIT stays set until a 1 is written to it. Under the BIOS, the NMI is Break: it enters the monitor
 ([chapter 4](04-interrupts.md#pausebreak)), which leaves BPADDR and BPCTRL alone, so the breakpoint stays armed. Turn
@@ -135,9 +143,9 @@ hw/design.md has these, and the emulator doesn't yet:
 - **ISR** in the design is the key's pending bit, with IEN choosing whether it interrupts, as the USB card's ISR is
   set whatever its IEN says. The emulator sets it only when IEN was already set.
 - **The ESP32's SPI header.** The ESP32 plugs into a small header on the card that gives it the same registers. It
-  can halt, step and read the latched cycle even with the bus hung, and mirror the panel over Wi-Fi. The WebUI uses
-  the emulator's form of that path: its reads don't clear KEYS, and its writes to KEYS press keys whatever LOCK
-  says.
+  can halt, step and read the latched cycle even with the bus hung, and mirror the panel over Wi-Fi. The WebUI reads
+  the registers as that path would, without side effects, so its reads don't clear KEYS. It never writes KEYS: its
+  keys are the panel's own, so LOCK stops them. It writes only BPCTRL, BPADDR and STATUS, for its breakpoints.
 
 ## Registers
 
@@ -457,7 +465,9 @@ Kept through /RESET. `$00 $00 $00` at power-on.
 #### Notes
 
 The latch takes a cycle when the CPU halts (the breakpoint's cycle, or the last cycle before the stop) and holds it
-until the CPU runs again. A breakpoint with NMI latches each matching cycle, for a debugger on the machine to read.
+until the CPU runs again. In the emulator it opens again only on CONT, a step, START or /RESET, so after a switch
+halt let go by the HALT switch alone it keeps the old cycle ([the breakpoint](#the-breakpoint)).
+A breakpoint with NMI latches each matching cycle, for a debugger on the machine to read.
 
 <a id="reg-c713"></a>
 ### $C713 CONSOLE_LDATA: the latched cycle's data

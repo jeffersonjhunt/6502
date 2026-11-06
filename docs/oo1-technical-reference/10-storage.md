@@ -62,7 +62,8 @@ Status: **emulated**
   units stay mounted here too. Only a power cycle starts the RP2350 afresh, with no units mounted and the card
   starting up again.
 - **CTRL's RESET** abandons the command and starts the card up again, with READY clear for the 50 ms. It leaves the
-  registers alone, ERR and ERROR included, and the units stay mounted.
+  registers alone, ERR and ERROR included, and the units stay mounted. The abandoned command doesn't set ISR's
+  bit 0.
 - **Taking the card out** fails a command in progress with error 1 and unmounts every unit. Putting a card in
   unmounts every unit too, and the new card starts up.
 
@@ -74,10 +75,11 @@ machine back.
 
 Status: **emulated**
 
-ISR ([`$C391`](#reg-c391)) has two bits. Bit 0 is set when a command ends, with or without an error. Bit 1 is set
-when a card goes in or comes out (not for a card already in the slot at power-up). They are set whether IEN
-enables them or not. While a bit is set in both ISR and IEN, the card pulls /IRQ, and bit 7 of IRQL reads 0
-([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)). Writing 1s to ISR clears those bits.
+ISR ([`$C391`](#reg-c391)) has two bits. Bit 0 is set when a command ends, with or without an error, but not when
+/RESET or CTRL's RESET abandons it. Bit 1 is set when a card goes in or comes out (not for a card already in the
+slot at power-up). They are set whether IEN enables them or not. While a bit is set in both ISR and IEN, the card
+pulls /IRQ, and bit 7 of IRQL reads 0 ([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)). Writing 1s
+to ISR clears those bits.
 
 The BIOS doesn't use the card's interrupts: it polls STATUS. Its IRQ handler only returns, so a program that turns
 IEN on under the monitor needs a handler of its own.
@@ -96,11 +98,12 @@ Under the monitor the card is left this way:
 - **After an SD boot**, CTRL and UNIT are 0, COUNT is 0, LBA is the number of sectors read, and unit 1 is still
   `/BOOT.BIN`. The loaded program finds the card that way.
 - **After `C809R`**, CTRL and UNIT are as they were, and COUNT is 0, the listing's sectors all taken.
-- **ISR's bit 0** is set after any of these, since every command ends by setting it. The BIOS never clears it. IEN
+- **ISR's bit 0** is set after any of these, since every command that ends sets it. The BIOS never clears it. IEN
   is 0, so it interrupts nothing.
-- **Break and BRK** turn IEN off. If the card is BUSY, they write CTRL's RESET, which abandons the command (the card
-  then starts up again, 50 ms); otherwise they write CTRL as 0, turning DRQ0 off. Either way CTRL reads 0. ERROR,
-  ISR, UNIT, LBA, COUNT and the units are left as they were ([chapter 4](04-interrupts.md#pausebreak)).
+- **Break and BRK** turn IEN off. If the card is BUSY, they write CTRL's RESET, which abandons the command without
+  setting ISR's bit 0 (the card then starts up again, 50 ms); otherwise they write CTRL as 0, turning DRQ0 off.
+  Either way CTRL reads 0. ERROR, ISR, UNIT, LBA, COUNT and the units are left as they were
+  ([chapter 4](04-interrupts.md#pausebreak)).
 
 OODOS's BIOS keeps the same habits: it polls, sets CTRL's DMA bit only around a transfer, puts UNIT back to 0, and
 uses CTRL's RESET on a command that hasn't ended in about a second ([hw/oodos.md, "BIOS"](../../hw/oodos.md#bios)).
@@ -111,8 +114,9 @@ Status: **emulated**
 
 Write UNIT, LBA and COUNT as the command needs them, then the command's number to CMD ([`$C383`](#reg-c383)).
 STATUS's BUSY is set from then until the command ends, when ISR's bit 0 is set. A command that fails sets ERR and
-ERROR and ends at once. A command written while BUSY is ignored: wait for BUSY to clear first, or abandon the
-command in progress with CTRL's RESET. A new command clears ERR and ERROR.
+ERROR and ends at once. A command written while BUSY is dropped, with no error and no ISR bit: wait for BUSY to
+clear first, or abandon the command in progress with CTRL's RESET, which sets no ISR bit either. A new command
+clears ERR and ERROR.
 
 | CMD | Name | What it does | Through DATA |
 |---|---|---|---|
@@ -165,11 +169,11 @@ IDENTIFY sends one sector out through DATA. Everything not listed is 0.
 | Offset | What it holds |
 |---|---|
 | `$000–$003` | the card's size in sectors, low byte first |
-| `$004` | its type: 0 none, 1 SDSC (up to 2 GB), 2 SDHC (up to 32 GB), 3 SDXC |
-| `$005` | flags: bit 0 the card is write-protected, bit 1 it holds a FAT volume |
+| `$004` | its type: 1 SDSC (up to 2 GB), 2 SDHC (up to 32 GB), 3 SDXC. There is no 0: without a card, IDENTIFY fails with error 1 |
+| `$005` | flags: bit 0 the card is write-protected (STATUS's WP), bit 1 it holds a FAT volume |
 | `$006–$007` | the firmware's version, major then minor: 0.2 in the emulator |
 | `$010–$02F` | the card's name, ASCII, NUL padded. In the emulator, the image file's name |
-| `$040–$11F` | units 1–7, 32 bytes each: the size in sectors (4 bytes), flags (bit 0 mounted, bit 1 read-only), and from +8 the file's name (24 bytes, NUL padded) |
+| `$040–$11F` | units 1–7, 32 bytes each: the size in sectors (4 bytes), flags (bit 0 mounted, bit 1 read-only, from MOUNT's flag or the file's attribute), and from +8 the file's name (24 bytes, NUL padded) |
 
 Unit n's entry is at `$040 + (n − 1) × 32`. The BIOS takes `/BOOT.BIN`'s size from `$040`; OODOS's BIOS reads the
 whole table to learn its drives.
@@ -251,8 +255,9 @@ and LIST, so a change made through unit 0 is seen at the next one.
 
   The unit is in the sector, not in UNIT. Mounting a unit that is mounted replaces it. The unit's size is the
   file's, rounded up to whole sectors: a last part-sector reads on into its cluster's slack, so a program shorter
-  than a sector still loads. The unit is read-only if the flag, the file's read-only attribute or the card's switch
-  says so.
+  than a sector still loads. The unit is read-only if the flag or the file's read-only attribute says so, and
+  that is what IDENTIFY's bit 1 shows. The card's switch is STATUS's WP, checked when a WRITE starts: a WRITE fails
+  with error 5 under any of the three.
 - **UNMOUNT** detaches UNIT. Unit 0 can't be unmounted.
 - **MOUNT and LIST set COUNT to 1** for their sector, whatever was written there, and it counts down to 0 as the
   sector passes. LBA doesn't move.
@@ -272,7 +277,7 @@ the entries out through DATA, with COUNT set to the sectors they fill. Each sect
 | Offset | What it holds |
 |---|---|
 | +0 | the size in bytes, 4 bytes, low first |
-| +4 | the FAT attributes: bit 0 read-only, bit 4 a directory |
+| +4 | the FAT attribute byte, whole: bit 0 read-only, bit 4 a directory. Other bits may be set, so test the bits, not the byte |
 | +8 | the long name (or the 8.3 one), 56 bytes, NUL padded; a longer name is cut |
 
 An entry of zeros follows the last, so a directory whose entries fill their sectors exactly gets one more sector.
@@ -293,9 +298,10 @@ STATUS's DATA is: DRQ0 follows DATA. The transfer is fly-by, a byte a cycle.
 3. Write CMD, and wait for BUSY to clear. Check ERR.
 4. Write CTRL as 0, so DRQ0 stays off.
 
-DRQ0 drops while the card fetches the next sector, so demand mode pauses and starts again by itself. After the
-first sector the card stays ahead of the channel, so with CONTROL's BURST at no limit the CPU is held for almost the
-whole transfer. A lower BURST gives it a cycle back every 2^BURST bytes.
+For a READ, DRQ0 is low until the first sector is ready, 100 µs after CMD, and demand mode waits for it. After that
+the card keeps a sector ahead in its second buffer, so DRQ0 stays high and demand mode runs on. A WRITE has both
+buffers free at once, and the card programs a sector faster than the channel fills one. So with CONTROL's BURST at
+no limit the CPU is held for almost the whole transfer. A lower BURST gives it a cycle back every 2^BURST bytes.
 
 The card takes no notice of terminal count: the command ends when its last sector has passed through DATA. So the
 two counts must agree:
@@ -407,8 +413,9 @@ Status: **emulated**
   ones, as on a real drive over blank disk. Writing, a change of the sequencer's top state bit within a cell writes
   a 1. (hw/design.md gives every cell 4 µs; the emulator also follows a WOZ disk's own timing, 3.5 µs for some,
   with cells a step apart in turn.)
-- **The head** moves a quarter track at a time towards the stepper magnets that are on, when a phase changes and
-  only while the motor turns. There are 160 quarter tracks.
+- **The head** goes, on each phase change and only while the motor turns, to where the stepper magnets that are on
+  pull it: onto a single magnet up to a half track away, or halfway between two adjacent ones, a quarter track from
+  each. There are 160 quarter tracks.
 - **The motor** runs on for 1 s (1,020,484 cycles) after it is switched off. The two drives share it; the one not
   selected doesn't turn.
 - **Write protection** is the disk's. An empty drive reads as write-protected, and nothing is written to a
@@ -837,7 +844,7 @@ R; write 1s to clear those bits. Writing 0s changes nothing.
 |---|---|---|
 | 7–2 | | 0 |
 | 1 | CARD | 1: a card went in or came out |
-| 0 | DONE | 1: a command ended, with or without an error |
+| 0 | DONE | 1: a command ended, with or without an error. A command abandoned by /RESET or CTRL's RESET doesn't set it |
 
 #### Reset
 
@@ -850,7 +857,8 @@ R; write 1s to clear those bits. Writing 0s changes nothing.
 #### Notes
 
 Both bits are set whether IEN has them on or not. The BIOS doesn't clear them, so after any SD command DONE reads 1
-under the monitor. Clear ISR before turning IEN on.
+under the monitor. An abandoned command sets no DONE, so a program that abandons one with CTRL's RESET mustn't
+wait for it. Clear ISR before turning IEN on.
 
 <a id="reg-c3ff"></a>
 ### $C3FF SD_ID: the card's ID

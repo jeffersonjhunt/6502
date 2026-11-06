@@ -183,6 +183,18 @@ def edit_entry(root, rel, anchor, old, new):
         f.write(text[:start] + text[start:end].replace(old, new, 1) + text[end:])
 
 
+def drop_entry(root, rel, anchor):
+    """An entry taken out of its chapter: from its anchor to the next anchor, or the end."""
+    path = os.path.join(root, rel)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    start = text.index(f'<a id="{anchor}"></a>')
+    end = text.find('<a id="', start + 1)
+    end = len(text) if end < 0 else end
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text[:start] + text[end:])
+
+
 # (name, what breaks the copy, a message the check must give; None: the check must pass)
 CASES = [
     ("the tree as it is", lambda r: None, None),
@@ -203,6 +215,8 @@ CASES = [
     ("an I/O equate in backplane.inc with no entry",
      lambda r: edit(r, BP, "NB_ID           = NB + $7F", "NB_ID           = NB + $7F\nNB_NEW          = NB + $20"),
      "no entry reg-c6a0 (NB_NEW)"),
+    ("a register with no entry, on the unwritten list",
+     lambda r: (drop_entry(r, TR12, "reg-c77f"), append(r, UNWRITTEN, "reg-c77f\n"), run(r, "--write-index")), None),
     ("a written register put back on unwritten.txt",
      lambda r: append(r, UNWRITTEN, "reg-c77f\n"), "reg-c77f is written now: take it off the list"),
     ("a register entry at an address no equate has",
@@ -319,6 +333,9 @@ CASES = [
     ("an index edited by hand",
      lambda r: edit_re(r, "docs/index/functions.json", r'"since": "OODOS \d+\.\d+"', '"since": "OODOS 9.9"'),
      "docs/index/functions.json: isn't what the entries generate"),
+    ("a register index edited by hand",
+     lambda r: edit(r, "docs/index/registers.json", '"status": "emulated"', '"status": "proposed"'),
+     "docs/index/registers.json: isn't what the entries generate"),
     ("an index naming an anchor that isn't there",
      lambda r: edit(r, "docs/index/functions.json", '"anchor": "bdos-9"', '"anchor": "bdos-999"'),
      "anchor bdos-999 isn't in oodos-programmers-guide/07-function-reference.md"),

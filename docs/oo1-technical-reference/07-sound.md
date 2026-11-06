@@ -22,7 +22,8 @@ SID A is the left channel and SID B the right.
 - **The clock.** CTRL's bit 0 picks the SID clock: 985,248 Hz (PAL) or 1,022,727 Hz (NTSC). The chips run from it
   whether or not the 6510 runs, so an envelope goes on moving with the card stopped.
 - **The model.** The chips can be 6581s or 8580s. That is a jumper on the replacement chips, not a register. The
-  registers are the same on both; the sound differs.
+  registers are the same on both; the sound differs. The emulator starts with 6581s. Play .sid sets the model the
+  tune asks for ([below](#playing-a-sid-file)), and the chips keep it through resets.
 
 ### A voice
 
@@ -122,14 +123,18 @@ The map follows the C64's, so a C64 player runs as it is.
 | `$DE03` | FRAME: bit 0 is set at each frame's start, and writing 1 clears it; bit 7 reads 1 while it interrupts |
 | `$DE04` | FRAMEEN: bit 0 lets FRAME interrupt; bit 1 shows the raster line at `$D011`/`$D012` |
 
-The rest of `$D000–$DFFF` reads `$FF` and ignores writes while I/O is in: the rest of the VIC-II, colour RAM,
-CIA 2, and the rest of `$DE00–$DFFF`. There are no ROMs.
+The `$D000–$DFFF` rows apply only while `$0001` has I/O in. With it out, the 6510 sees RAM there. The rest of
+`$D000–$DFFF` reads `$FF` and ignores writes while I/O is in: the rest of the VIC-II, colour RAM, CIA 2, and the
+rest of `$DE00–$DFFF`. There are no ROMs.
 
 - **The timer** counts down once a SID clock while the CIA's control has bit 0 set. It runs out after its latch
   plus 1 clocks, reloads from the latch, sets bit 0 of the interrupt control register, and pulls the 6510's /IRQ
   while that register's mask has bit 0. Control's bit 3 makes it stop after one run, and bit 4 loads the latch at
   once. Writing the latch's high byte while the timer is stopped loads it too. Reading the interrupt control
   register clears it.
+- **The interrupt control register's mask** is set and cleared by bit 7 of a write: with bit 7 set, the write's
+  1s set mask bits; with it clear, they clear them. So `$81` to `$DC0D` enables timer A's interrupt and `$01`
+  disables it. A read gives the flags, with bit 7 set while the timer interrupts.
 - **The frame** is a C64's: 19,656 SID clocks with PAL (312 lines of 63) or 17,095 with NTSC (263 of 65), counted
   from the 6510's reset while RUN is set. It is for the emulator's player stub ([below](#playing-a-sid-file)).
   FRAME and FRAMEEN sit at addresses a C64 leaves free, so a tune can't turn them on by accident.
@@ -202,10 +207,10 @@ would. No program runs on the OO-1 for it: the emulator writes the registers its
    BOTH for a tune with one SID.
 
 The stub stands in for what the C64's KERNAL leaves for a tune. It banks `$01` for the routine, starts the CIA's
-timer, and calls init with the song number in A. Then it calls play from the timer, or once a frame from FRAME for
-a tune timed to the vertical blank. After each play it writes the call's number to the mailbox, so the host can
-count frames. A tune that needs the VIC-II's raster interrupt, CIA 2, the ROMs or a third SID runs but stays silent
-or stops. hw/design.md has the details and their reasons ("`.sid` playback", under
+timer, and calls init with the song number less one in A. Then it calls play from the timer, or once a frame from
+FRAME for a tune timed to the vertical blank. After each play it writes the call's number to the mailbox, so the
+host can count frames. A tune that needs the VIC-II's raster interrupt, CIA 2, the ROMs or a third SID runs but
+stays silent or stops. hw/design.md has the details and their reasons ("`.sid` playback", under
 ["Sound"](../../hw/design.md#sound)).
 
 ### In Apple II mode

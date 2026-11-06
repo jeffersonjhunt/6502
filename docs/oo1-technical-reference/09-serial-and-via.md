@@ -15,8 +15,8 @@ parallel port. They are COM1, COM2 and LPT, as on a PC. A 1.8432 MHz crystal giv
 115,200 baud and 12 is 9,600. A CPLD turns the 65C02's bus into the chip's /IOR and /IOW, and adds the card's own
 registers ([hw/design.md, "Input and Ports"](../../hw/design.md#input-and-ports)).
 
-None of it is emulated. Today `$C300–$C37F` is the 6551 stand-in ([below](#the-stand-in-6551)) and the VIA, and
-none of the addresses in this section answer as described here.
+None of it is emulated. Today `$C300–$C37F` is the 6551 stand-in ([below](#the-stand-in-6551)) and the VIA. The
+VIA's `$C340–$C34F` answer as the table says, and none of the other addresses in this section do.
 
 The design's block:
 
@@ -160,7 +160,8 @@ cycles, so at the emulator's slower clocks a count takes longer in time and the 
 - **One-shot** (ACR bit 6 clear) sets the flag once. The counter rolls over to `$FFFF` and counts on, and sets the
   flag again only after the next write to T1C-H.
 - **Free-running** (ACR bit 6 set) reloads the counter from the latch at each time-out and sets the flag each time:
-  a period of N + 2 cycles. A new latch takes effect at the next reload. A 1 kHz tick is a latch of 7,157, 7,159
+  a period of N + 2 cycles. It needs no write to T1C-H to start: setting the bit is enough, and the flag comes at
+  the counter's next roll-over. A new latch takes effect at the next reload. A 1 kHz tick is a latch of 7,157, 7,159
   cycles.
 - **PB7** (ACR bit 7): port B's bit 7 reads timer 1's output instead of ORB, whatever DDRB says. In one-shot mode it
   is low from the write to T1C-H until the time-out; in free-running mode it changes at each time-out, a square wave.
@@ -214,9 +215,10 @@ interrupts off (`$7F` to VIA_IER) before leaving.
 Status: **emulated**
 
 /RESET clears ORA, ORB, both DDRs, ACR, PCR, IFR and IER: every line an input, timer 1 one-shot with PB7 a port
-line, no flags and no enables. The timers' counters and latches, and SR, keep their values, and the counters run on,
-but neither timer sets its flag again until a program loads it. The reset button, START, Ctrl-Reset and entering
-Apple II mode all pulse /RESET. At power-on the counters and latches are `$FFFF` and SR is `$00`.
+line, no flags and no enables. The timers' counters and latches, and SR, keep their values, and the counters run on.
+Neither timer sets its flag again until a program loads it, except timer 1 in free-running mode: a program that
+writes `$40` to ACR and loads nothing gets timer 1's flag at the counter's next roll-over, and then every latch + 2
+cycles. The reset button, START, Ctrl-Reset and entering Apple II mode all pulse /RESET. At power-on the counters and latches are `$FFFF` and SR is `$00`.
 
 Since the BIOS never writes the VIA, that is how it is under the monitor after a reset, and Break changes nothing.
 
@@ -346,7 +348,7 @@ R/W.
 |---|---|---|
 | 7–5 | PARITY | parity, on the chip. Stored, not modelled |
 | 4 | ECHO | echo mode, on the chip. Stored, not modelled |
-| 3–2 | TX | the transmitter: `%00` off, so bytes written to DATA are dropped; any other value on. On the chip it also sets RTS, and `%01` asks for a transmit interrupt, which the W65C51N doesn't give |
+| 3–2 | TX | the transmitter: `%00` off, so bytes written to DATA are dropped; any other value on. On the chip it also sets RTS, `%01` asks for a transmit interrupt, which the W65C51N doesn't give, and `%11` sends a break; the emulator sends the byte |
 | 1 | IRQOFF | 1: the receive interrupt is off. 0: a received byte sets STATUS's IRQ |
 | 0 | DTR | 1: the receiver and transmitter work. 0: nothing is sent or received |
 

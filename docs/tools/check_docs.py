@@ -613,8 +613,9 @@ class Check:
             if not name.endswith(".md") or name == "README.md":
                 continue
             path = os.path.join(book, name)
-            lines = self.read(path).splitlines()
-            code = {n: c for n, _, c in self.lines_outside_code("\n".join(lines))}
+            text = self.read(path)
+            lines = text.splitlines()
+            code = {n: c for n, _, c in self.lines_outside_code(text)}  # the same lines, a trailing blank one too
             for i, line in enumerate(lines):
                 h = HEADING.match(line)
                 if code[i + 1] or not h or len(h.group(1)) not in (2, 3):
