@@ -13,6 +13,7 @@
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "disk2_rig.h"
 
 #include "bus_cycle.h"
 #include "disk2_card.h"
@@ -30,95 +31,7 @@ using namespace ooe::emu;
 using namespace oodos_rig;
 using namespace oodos_rig::ccp;
 
-namespace
-{
-    const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
-    const std::string P6 = EMU_FIXTURE_DIR "/apple2e/disk2-16-p6-sequencer-341-0028-a.bin";
-    constexpr unsigned UNIT = 3;
-    constexpr size_t IMAGE = DiskImage::SECTOR_IMAGE;
-    constexpr uint16_t DISK2 = 0xC600;
-
-    std::vector<uint8_t> gen(size_t n, unsigned seed)
-    {
-        std::vector<uint8_t> b(n);
-        for (size_t i = 0; i < n; ++i)
-            b[i] = static_cast<uint8_t>(((i >> 7) * 31 + i * 7 + seed) & 0xFF);
-        return b;
-    }
-    std::vector<uint8_t> records(std::vector<uint8_t> d, uint8_t pad = 0)
-    {
-        d.resize((d.size() + RECORD - 1) / RECORD * RECORD, pad);
-        return d;
-    }
-    void has(const std::string &got, const std::string &want)
-    {
-        const bool ok = got.find(want) != std::string::npos;
-        CHECK(ok);
-        if (!ok)
-            std::printf("  want '%s' in '%s'\n", vis(want).c_str(), vis(got).c_str());
-    }
-    [[maybe_unused]] void hasnt(const std::string &got, const std::string &want)
-    {
-        const bool ok = got.find(want) == std::string::npos;
-        CHECK(ok);
-        if (!ok)
-            std::printf("  don't want '%s' in '%s'\n", vis(want).c_str(), vis(got).c_str());
-    }
-
-    /// The rig: PIP on M:, the search chain M: first; the card's apple-do images read off it (by mounting
-    /// them as unit 3 in turn), CPM.DSK left mounted there as C:, and `o` and `p` in drives 1 and 2.
-    struct Dr : CcpRig
-    {
-        std::vector<uint8_t> cpm, blank; ///< the card's images, 140 KB each
-        explicit Dr(bool with_cpm = true, bool with_blank = true, std::vector<MFile> files = {})
-            : CcpRig({}, {}, P6)
-        {
-            if (!ok)
-                return;
-            put_m(files);
-            put_util("pip", UTILS);
-            chain({13, 0});
-            ok = mount(UNIT, "/DISKS/BLANK.DSK") == 0;
-            blank = unit_image();
-            ok = ok && mount(UNIT, "/DISKS/CPM.DSK") == 0;
-            cpm = unit_image();
-            if (with_cpm)
-                insert(0, cpm);
-            if (with_blank)
-                insert(1, blank);
-        }
-        std::vector<uint8_t> unit_image()
-        {
-            std::vector<uint8_t> d;
-            for (uint32_t s = 0; s < IMAGE / SECTOR; ++s)
-            {
-                const std::vector<uint8_t> b = read_unit(UNIT, s);
-                d.insert(d.end(), b.begin(), b.end());
-            }
-            return d;
-        }
-        Disk2Card &card() { return *machine->disk2_card(); }
-        std::shared_ptr<DiskImage> insert(unsigned drive, const std::vector<uint8_t> &image)
-        {
-            auto d = std::shared_ptr<DiskImage>(DiskImage::from_sectors(image, DiskImage::Format::Dos));
-            card().insert(drive, d);
-            return d;
-        }
-        /// The disk in `drive` as 140 KB of the file's sectors, or empty if it doesn't read as one.
-        std::vector<uint8_t> drive_image(unsigned drive)
-        {
-            std::vector<uint8_t> img;
-            std::string error;
-            if (!card().disk(drive) || !card().disk(drive)->to_sectors(DiskImage::Format::Dos, img, error))
-                return {};
-            return img;
-        }
-        /// A command line to its prompt, a minute of machine time at most (the drive is slow).
-        std::string c(const std::string &line) { return to(line, "\r\nA>", ms(60000)); }
-        /// Run on (the motor's second, say).
-        void wait(uint64_t cycles) { run(cycles); }
-    };
-} // namespace
+using namespace disk2_rig;
 
 TEST(o_reads_cpmtools_files_as_c_does)
 {
@@ -177,63 +90,6 @@ TEST(o_to_p_and_back)
     has(r.c("dir p:"), "P: PATTERN  BIN");
 }
 
-namespace
-{
-    /// The bit after each disk byte of a track, as a reader takes them (bits in until bit 7 is set).
-    std::vector<std::pair<uint8_t, uint32_t>> track_bytes(const DiskTrack &t)
-    {
-        std::vector<std::pair<uint8_t, uint32_t>> out;
-        uint8_t reg = 0;
-        for (uint32_t n = 0; n < t.bit_count; ++n)
-        {
-            reg = static_cast<uint8_t>(reg << 1 | t.bit(n));
-            if (reg & 0x80)
-            {
-                out.push_back({reg, n});
-                reg = 0;
-            }
-        }
-        return out;
-    }
-    uint8_t four4(uint8_t a, uint8_t b) { return static_cast<uint8_t>(((a << 1) | 1) & b); }
-    /// Physical sector p's data field on track t spoiled: a bit of a byte in its middle cleared.
-    bool spoil_data(DiskImage &d, unsigned t, unsigned p)
-    {
-        DiskTrack &tr = d.track_for_writing(4 * t);
-        const auto b = track_bytes(tr);
-        for (size_t i = 0; i + 20 < b.size(); ++i)
-            if (b[i].first == 0xD5 && b[i + 1].first == 0xAA && b[i + 2].first == 0x96 &&
-                four4(b[i + 7].first, b[i + 8].first) == p)
-                for (size_t j = i + 13; j + 200 < b.size(); ++j)
-                    if (b[j].first == 0xD5 && b[j + 1].first == 0xAA && b[j + 2].first == 0xAD)
-                    {
-                        const uint32_t bit = b[j + 150].second - 1; // a 1 bit: bit 7 of the byte is the last's... any bit set
-                        for (uint32_t k = bit; k > b[j + 149].second; --k)
-                            if (tr.bit(k))
-                            {
-                                tr.set_bit(k, false);
-                                return true;
-                            }
-                        return false;
-                    }
-        return false;
-    }
-    /// The bus cycles of each load of the data bus while writing (a write to Q6 on or Q7 on).
-    struct Loads : CycleObserver
-    {
-        std::vector<uint64_t> at;
-        std::vector<bool> dma_off;
-        Decoder *bus = nullptr;
-        void on_cycle(const BusCycle &c) override
-        {
-            if (c.write && (c.addr == DISK2 + 0x0D || c.addr == DISK2 + 0x0F))
-            {
-                at.push_back(c.cycle);
-                dma_off.push_back(bus && !(bus->peek(0xC441) & 1));
-            }
-        }
-    };
-} // namespace
 
 TEST(no_disk_and_a_write_protected_one)
 {
@@ -420,6 +276,93 @@ TEST(an_interrupt_mid_write_waits_for_the_write)
     const bool same = o.size() == IMAGE && c == o;
     std::printf("  %u interrupts asked for mid-write; O: %s C:\n", asked, same ? "is" : "is not");
     CHECK(same);
+}
+
+TEST(every_address_field_keeps_its_epilogue_after_writes)
+{
+    // 6c's review, F4: a write starts after the address field's DE AA, so the AA isn't written over. After
+    // PIPs onto O:, every address field on every track still reads D5 AA 96 ... DE AA (DiskImage's
+    // to_sectors() doesn't look; DOS 3.3 does).
+    Dr r(true, true, {{0, "X       BIN", gen(5120, 11)}, {0, "Y       BIN", gen(19200, 13)}});
+    REQUIRE(r.ok);
+    r.c("pip o:=m:x.bin");
+    r.c("pip o:=m:y.bin");
+    unsigned bad = 0, fields = 0;
+    for (unsigned t = 0; t < 35; ++t)
+    {
+        const TrackRead tr = read_track(*r.card().disk(0), t);
+        bad += tr.bad_epilogues;
+        fields += static_cast<unsigned>(tr.good.size());
+    }
+    std::printf("  %u sectors read whole, %u address fields without DE AA\n", fields, bad);
+    CHECK_EQ(bad, 0u);
+    CHECK(fields >= 560);
+}
+
+TEST(a_break_mid_write_loses_only_that_sector)
+{
+    // 6c's review, F5: an NMI (Break) in the middle of the write loop goes to the monitor, but turns the
+    // card's write mode off first (and its motor, and the DMA controller's master back on): the sector
+    // being written is lost, the track's other 15 kept.
+    Dr r(true, true, {{0, "X       BIN", gen(1024, 11)}});
+    REQUIRE(r.ok);
+    has(r.c("dir o:"), "README");
+    const TrackRead before = read_track(*r.card().disk(0), 3);
+    const uint8_t dma = r.machine->bus().peek(0xC441);
+    const uint16_t a_loop = sym("WLA");
+    unsigned loops = 0;
+    bool hit = false;
+    r.watch = [&](uint16_t pc) {
+        if (!hit && pc == a_loop && r.nb(2) == 61 && ++loops == 100)
+        {
+            r.cpu->nmi();
+            hit = true;
+        }
+    };
+    r.type("pip o:=m:x.bin\r");
+    for (int i = 0; i < 400 && !hit; ++i)
+        r.run(ms(50));
+    r.run(ms(200));
+    r.watch = nullptr;
+    REQUIRE(hit);
+    const Disk2Card::Status st = r.card().status();
+    CHECK(!st.q7 && !st.motor);
+    CHECK_EQ(r.machine->bus().peek(0xC441), dma);
+    r.run(ms(1500)); // the run-on over
+    unsigned kept = 0;
+    for (unsigned t = 0; t < 35; ++t)
+        if (t == 3)
+            kept = static_cast<unsigned>(read_track(*r.card().disk(0), t).good.size());
+    std::printf("  track 3: %zu sectors before, %u after the Break\n", before.good.size(), kept);
+    CHECK(kept >= 15);
+}
+
+TEST(a_half_missing_is_read_again_and_a_run_of_d5s_ends)
+{
+    // F7: a sector that didn't read is not kept as missing while the motor runs on: once the disk reads
+    // again, so does the sector. F8: a track of nothing but D5 bytes is Disk I/O in its bounded time,
+    // every byte counted.
+    Dr r;
+    REQUIRE(r.ok);
+    has(r.c("dir o:"), "README");
+    DiskTrack &t3 = r.card().disk(0)->track_for_writing(12);
+    const DiskTrack keep = t3;
+    REQUIRE(spoil_data(*r.card().disk(0), 3, 13));
+    r.wait(ms(1200)); // its buffer forgotten: the track read again with the bad sector
+    has(r.c("pip m:=o:pattern.bin"), "Disk I/O");
+    r.card().disk(0)->track_for_writing(12) = keep; // good again
+    r.c("pip m:=o:pattern.bin");                     // at once, within the second
+    CHECK(m_data(r, 0, "PATTERN BIN") == records(gen(20000, 5)));
+    Dr d;
+    REQUIRE(d.ok);
+    DiskTrack &t = d.card().disk(0)->track_for_writing(12);
+    for (uint32_t n = 0; n < t.bit_count; ++n)
+        t.set_bit(n, (0xD5 >> (7 - n % 8)) & 1);
+    const uint64_t t0 = d.cpu->cycles();
+    has(d.to("dir o:", "\r\nA>", ms(20000)), "Disk I/O");
+    const double secs = double(d.cpu->cycles() - t0) / HZ;
+    std::printf("  a track of D5s: Disk I/O after %.1f s\n", secs);
+    CHECK(secs < 10.0);
 }
 
 int main()

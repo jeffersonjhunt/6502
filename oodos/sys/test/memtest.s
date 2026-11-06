@@ -91,6 +91,15 @@
 ;       on the new disk)
 ;   T   O:'s tracks 0-34, sector 0 of each, by 50: TERR nn, the reads that
 ;       failed
+;   K   O:, the disk kept (6c's review, F1): NEW.DAT made (MK) and a record
+;       written (WR); PAUSE? (the test lets the motor stop); another record
+;       (WR2) and the close (CL): all 00 00, the disk taken as the same
+;   V   O:, a change under a write not yet on the disk (F3): NEW.DAT made
+;       and a record written; SWAP? (the test changes the disk); then the
+;       end, whose warm boot's write-back must not land on the new disk
+;   C   O:, closed then held (the close's write-back): NEW.DAT made, a
+;       record written, closed (CC 00 00); LOOK? (the test reads the image
+;       with no warm boot since)
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -219,6 +228,15 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'T'
         bne     :+
         jmp     caset
+:       cmp     #'K'
+        bne     :+
+        jmp     casek
+:       cmp     #'V'
+        bne     :+
+        jmp     casev
+:       cmp     #'C'
+        bne     :+
+        jmp     casec
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -913,6 +931,34 @@ caseo:  lda     #DRV_O
         TRY     "OOP2 ", F_OPEN, fcb
         lda     #$FF
         sta     TDRV
+        jmp     done
+
+; K, V, C: NEW.DAT on O:, made and a record of $5As written (6c's review).
+newdat: lda     #DRV_O
+        sta     TDRV
+        NAME    fcb, "NEW     DAT"
+        TRY     "MK ", F_MAKE, fcb
+        ldx     #0
+        lda     #$5A
+:       sta     BUF,x
+        inx
+        cpx     #128
+        bne     :-
+        TRY     "WR ", F_WRITE, fcb
+        lda     #$FF
+        sta     TDRV
+        rts
+casek:  jsr     newdat
+        KEYWAIT "PAUSE?"
+        TRY     "WR2 ", F_WRITE, fcb
+        TRY     "CL ", F_CLOSE, fcb
+        jmp     done
+casev:  jsr     newdat
+        KEYWAIT "SWAP?"
+        jmp     done
+casec:  jsr     newdat
+        TRY     "CC ", F_CLOSE, fcb
+        KEYWAIT "LOOK?"
         jmp     done
 
 ; T: O:'s tracks 0-34, sector 0 of each, read through the BIOS by 50.
