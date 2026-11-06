@@ -476,11 +476,14 @@ namespace
 
 TEST(with_pcm_idle_the_sids_samples_are_main_s_bit_for_bit)
 {
-    // The hash of the same program built against main before the mix (bbe5f98), by a scratch program linking
-    // main's own libraries. A change to the SIDs' samples with the stream idle changes it.
+    // The hash of the same program built from main before the mix (bbe5f98), by a scratch program on main's own
+    // sources. It comes out one of two ways, both main's: where the compiler fuses multiply-adds into one
+    // rounding (g++ -O2 on aarch64, the fast preset), and where it doesn't (-O0, the sanitizer build, and
+    // WebAssembly, em++ -O3 run by node). The SID code's floats round differently between the two, the same on
+    // main and here. A change to the SIDs' samples with the stream idle gives neither.
     const uint64_t h = golden_hash();
     std::printf("  %016llx\n", static_cast<unsigned long long>(h));
-    CHECK(h == 0xf8b6874cebedd157ull);
+    CHECK(h == 0xf8b6874cebedd157ull || h == 0x1ca5a6a30d34be5full);
 }
 
 TEST(collected_at_any_moments_the_mix_has_no_gap_and_no_shift)
