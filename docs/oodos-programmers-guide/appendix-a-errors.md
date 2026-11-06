@@ -37,6 +37,12 @@ RSX takes it. 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 a
 | 8 | `File Exists` | a make, or a rename's new name, that the user has already |
 | 9 | `? in Filename` | a `?` where one name is needed |
 
+Any function that wants a sector buffer, including one that only reads (14, 15, 17, 18, 20, 33, 35, 46, 101, 102),
+can get Read Only (2) for O: or P: when the buffer it takes held that drive's waiting data and the drive's disk
+turns out to be write-protected; the SCB's error drive names O: or P:, not the function's drive. The function's
+work is done first and the error said at its end; all of that drive's waiting data is dropped with it, so it
+comes once for the disk. (A missing disk says nothing there: its data is kept and marked.)
+
 ## Error modes
 
 [Function 45](07-function-reference.md#bdos-45) sets the error mode, the SCB's byte `$4B`:

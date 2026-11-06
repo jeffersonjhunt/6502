@@ -49,8 +49,9 @@ records, and keeps it up to date as it writes the directory itself.
   more ago (its motor has stopped, so its disk may have been changed: the card's one motor goes to the drive last
   selected, so the other has always stopped) has the BDOS read the directory again from the disk and compare it.
   Within the second it is taken as the same disk, and the first directory write of each call compares it anyway.
-  Until the system has seen the clock tick (since the cold boot, or since it was set back), no access is recent:
-  every select with the motor stopped reads the directory.
+  Until the system has seen the clock tick (since the cold boot, since it was set back, or since it was seen to
+  stop: the drive's motor stopped while its last access was still this second), no access is recent: every
+  select with the motor stopped reads the directory.
 - **Another disk.** The drive's buffers are dropped, not written (they belong to the old disk), and it is logged
   in again, so the function works on the new disk. A call that was about to write the directory returns A = 10
   and writes nothing: 15 (when the label asks for access stamps), 16, 19, 21, 22, 23, 30, 34, 40, 99, 100 and
@@ -66,11 +67,13 @@ records, and keeps it up to date as it writes the directory itself.
   the disk and compare it before writing any of it, however recent the last access; a buffer wanted for another
   sector has its disk's directory read and compared first too, unless the call has already checked that drive
   (its select, or an earlier write-back). Data found to be for another disk is dropped: it never lands on the new one.
-  With no disk in the drive the directory can't be read, and the data is kept as a write that failed is (Disk I/O,
-  as the error mode says; 48 and the warm boot carry on with the other drives' buffers, 13 and 37 drop it). The
-  missing disk is waited for once a call, and its other waiting buffers are marked with the first, so a buffer
-  wanted for another sector passes them over; a write-protected disk found this way is Read Only, said to the
-  call that wanted the buffer.
+  With no disk in the drive the directory can't be read, and the data is kept as a write that failed is: a close,
+  48, 13, 37 or the warm boot says Disk I/O, as the error mode says (48 and the warm boot carry on with the other
+  drives' buffers, 13 and 37 drop it); a buffer wanted for another sector says nothing and passes it over. The
+  missing disk is waited for once a call, and its other waiting buffers are marked with the first. If the disk is
+  back before the data's turn, the data is written. A write-protected disk found by a buffer wanted for another
+  sector drops all the drive's waiting data at once, and the call that wanted the buffer finishes its work and then
+  says Read Only for that drive, once; this can be a call that only reads, on another drive (appendix A).
 - **What isn't seen.** A disk swapped within a second of its drive's last access, while a copy between O: and P:
   runs, can take a few of the copy's data sectors before the next directory write sees the change. A disk whose
   directory is byte for byte the old one's (a copy of it whose files were rewritten in place, say) is taken as the

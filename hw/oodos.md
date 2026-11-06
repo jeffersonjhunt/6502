@@ -2999,7 +2999,11 @@ merged, with the switches' equates (below).
    tick. The card itself does that: switched off, it runs on for a second (the emulator models it, as the Disk II
    card has it). The tick would need the interrupt handler OODOS doesn't have yet (OOLIB's dispatcher). **Recommended:**
    switch the motor off after every READ and WRITE and let the card's run-on time the second; no interrupt, no
-   RTC. A longer run-on can come with OOLIB's tick if it is wanted.
+   RTC. A longer run-on can come with OOLIB's tick if it is wanted. *(6c's fourth review: the stall check in
+   `RECENT` relies on the run-on outlasting the second from the access's stamp, which is taken before the I/O.
+   The emulator's run-on is 0.998 s after the motor-off, plus the I/O; a real card's 556 tolerance is to be
+   measured. A run-on a little short gives a false stall in the last ms of a second, which costs one directory
+   read.)*
 3. **The switches' equates.** `docs/tools/check_docs.py` fails any I/O equate in `backplane.inc` that has no
    Technical Reference entry, and phase 6 doesn't touch the Technical Reference or `registers.json`.
    **Recommended:** the driver names the switches as offsets from `DISK2` in its own `oodos/sys/disk2.inc`
@@ -3340,6 +3344,29 @@ merged, with the switches' equates (below).
 - **Must fail, each seen with its fault put in:** no `UNRD` (both timing cases: the warm boot 29.7 s); no
   marking (the alternating case, 26.2 s); MEDIA's stall check gone (both stalled-clock cases); the eviction's
   Read Only ignored (the write-protect case).
+
+**After 6c's fourth review (2026-11-06, the owner's decisions):**
+
+- **R4F1:** the stall check is in `RECENT` itself, so the BIOS's own use of it (APPLEIO, a read by 50 with no
+  BDOS select) gets it too; APPLEIO asks RECENT before turning the motor on (`ARECENT`), while the card's drive is
+  as it was. MEDIA's copy is gone.
+- **R4F2, accepted, not fixed:** with a stalled clock, a change on one drive goes unseen while the other drive's
+  motor turns: the check can only see a stall through the card's drive, and an O:-P:-O: within one real second
+  looks the same. It would need a second time source; a DS3231 on Vcc doesn't stall.
+- **R4F4:** a Read Only found by a write-back (`WBACK`'s, any drive) drops every changed buffer of the drive at
+  once (it is read-only now: none can be written), so a write-protected P: is said once, not once a buffer. An
+  eviction's Read Only for another drive is held (`PERR`, `PEDRV`) and said at the call's end (`RETAX`), the
+  function's work done, so a close, a delete or a rename of another drive is never stopped part-way by it.
+- **R4F3, R4F5, R4F6 (books and comments):** appendix A and 20's entry say a read can get Read Only for O: or P:
+  this way; the Programmer's Guide says the clock is distrusted after a stall, and that an eviction finding no
+  disk says nothing; the User's Guide says waiting data is written if the disk is back in time; RECENT's comment
+  and question 2 give the run-on's margin.
+- **Tests:** `test_oodos_disk2_media` 21 → 23 cases: the review's BIOS read with a stalled clock (MEMTEST's Q:
+  QB E5), and 64 records waiting on a write-protected P: (MEMTEST's F: OFAIL 01, BIG.DAT whole). The R3F5 case
+  now expects one failure (OFAIL 01), as R4F4 decided.
+- **Must fail, each seen with its fault put in:** APPLEIO's RECENT without the stall check (the stalled BIOS
+  read); the drop-all gone (the 64-record case); the eviction's Read Only raised at once, not held (the
+  64-record case: the failing write's record lost). Round 3's code fails all three cases.
 - **The books** (approved): the Programmer's Guide's chapter 3 (ten drives, removable drives), 14's and 37's
   drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
   G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.

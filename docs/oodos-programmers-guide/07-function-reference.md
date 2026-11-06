@@ -978,7 +978,9 @@ The same, but for the registers. Password Error is checked last, after every oth
 A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing read
 (with a multi-sector count, no more after the change). X isn't the records done then: open the file again. Else,
 as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
-when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it;
+when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it, or
+for O: or P: when a buffer the read takes held that drive's data and its disk is write-protected (said after the
+read, once: [appendix A](appendix-a-errors.md#physical-errors));
 4 Invalid Drive. In return mode, the FCB is written back as the records read before the error left it. A written
 extent the read can't close as it moves on (the FCB and the entry name two blocks for one place) is A = 1, the FCB
 left at its extent: [function 33](#bdos-33) says 3.
