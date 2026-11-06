@@ -933,8 +933,13 @@ samples, 0 past 97). Where the spec is silent:
 - MP3 (step 4): CODEC 1 decodes the FIFO with minimp3 (CC0, vendored), as each frame falls due. In step, a
   frame is decoded only with all of it and the next header in the FIFO; out of step, a frame is taken by
   minimp3's own sync rule (ten frames in step after it, or the data's end after one), and the card waits until
-  that decides. So a stream fed while it plays, in any pieces and with EOF written whenever, plays what the same
-  bytes at once do, and that is minimp3 on the whole data, tags and a padded last frame aside (both below). Only
+  that decides (an ID3v2 tag ends a run as the data's end does). So a stream fed while it plays, in any pieces and
+  with EOF written whenever, plays what the same bytes at once do, and that is minimp3 on the whole data, but for
+  three cases where the card does better: tags, a last frame with something after it (both below), and a lone
+  last frame after junk, which the card plays and minimp3 drops. An MP3 buffers on past 4 KB until its first frame
+  has decoded (not an underrun): a real-time feeder's first sound comes once that frame's run of ten is in (about
+  135 ms at 320 kbps fed at 1.02x), the cost of matching minimp3; without EOF fewer than eleven frames don't play,
+  so a program sets EOF after a short clip. Only
   layer III frames whose length their header gives are taken: free format, layer I and II frames, and frames
   that decode to nothing are junk; 64 KB of junk since the last frame that made samples is `$81`. ID3v2 tags
   (versions 2.2 to 2.4, flags checked, up to 8 MB declared, footer included) are skipped by their size wherever

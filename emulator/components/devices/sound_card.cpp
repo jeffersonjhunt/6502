@@ -9,6 +9,7 @@
 #include "minimp3.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 
 namespace ooe::emu
@@ -19,8 +20,6 @@ namespace ooe::emu
     {
         /// What a search for a frame is given: ten frames of the largest kind, as minimp3 checks a sync by.
         static constexpr size_t WINDOW = 32'768;
-        /// Kept back when a search finds nothing, without EOF: a frame could start in it, its end still to come.
-        static constexpr size_t KEEP = 1'441 + 4;
         static constexpr size_t NO_SYNC = 65'536;
         /// minimp3 takes a sync once this many frames follow in step (or the data runs out after one).
         static constexpr unsigned MATCHES = 10;
@@ -287,6 +286,15 @@ namespace ooe::emu
                     decided = take = true; // the whole of what's left is one frame
                 while (!decided)
                 {
+                    if (i + 10 > have && !eof && i < have && at(i) == 'I')
+                        return idle(); // a tag's header, perhaps, ending the run: wait for its rest
+                    if (tag_at(i, have))
+                    {
+                        // A tag ends the run as the data's end would: a short clip before a tag plays.
+                        decided = true;
+                        take = matched > 0 || i == fb;
+                        break;
+                    }
                     if (i + 4 > have)
                     {
                         if (!eof)
@@ -329,7 +337,15 @@ namespace ooe::emu
             {
                 const size_t frame = static_cast<size_t>(info.frame_bytes - info.frame_offset);
                 if (info.frame_offset)
-                    drop(static_cast<size_t>(info.frame_offset), true);
+                {
+                    // Unreachable while the card's sync replica matches minimp3: every window starts at a frame
+                    // minimp3 takes at offset 0. Kept as a backstop (a minimp3 update, say): a byte, junk, and on.
+                    assert(!"minimp3 found its frame past the window's start");
+                    drop(1, true);
+                    if (no_sync())
+                        return false;
+                    continue;
+                }
                 if (info.layer != 3 || info.bitrate_kbps == 0)
                 {
                     drop(frame, true); // another layer's, or free format's: junk
@@ -357,14 +373,11 @@ namespace ooe::emu
                 play_fmt_ = static_cast<uint8_t>(PCMFMT_16BIT | (m.channels == 2 ? PCMFMT_STEREO : 0));
                 return true;
             }
-            // No frame, though one was expected: the junk before one that may be there (all of it if none).
-            // Keep a tail a frame could start in, unless the window reaches the data's end at EOF.
-            size_t skip = static_cast<size_t>(info.frame_bytes);
-            if (skip >= n && !(eof && n == have))
-                skip = n > Mp3::KEEP ? n - Mp3::KEEP : 0;
-            if (skip == 0)
-                skip = 1; // never stand still
-            drop(skip, true);
+            // No frame, though one was expected. Unreachable while the card's sync replica matches minimp3 (the
+            // window starts at a frame it takes). Kept as a backstop, so a minimp3 that judges otherwise can't
+            // stall the stream: a byte, junk, and on.
+            assert(!"minimp3 found no frame where the card's replica found one");
+            drop(1, true);
             if (no_sync())
                 return false;
         }
@@ -524,7 +537,10 @@ namespace ooe::emu
         if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT &&
             state_ != STATE_NO_SYNC)
         {
-            // A seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
+            // A seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it. An MP3's
+            // first frame after it is found as at the start, its rate with it.
+            if (mp3())
+                play_rate_ = 0;
             if (state_ == STATE_PAUSED)
                 resume_ = STATE_BUFFERING;
             else
@@ -581,6 +597,28 @@ namespace ooe::emu
             state_ = resume_; // an underrun paused is the same dry spell, not a new one
         if (state_ == STATE_BUFFERING && (fifo_count_ >= START_BYTES || (pcmctl_ & PCMCTL_EOF)))
         {
+            if (mp3() && !play_rate_)
+            {
+                // MP3 buffers on until its first frame has decoded (its sync run decided): it gives the rate, and
+                // nothing has played yet, so the wait is buffering, not an underrun. At EOF with none, the end.
+                if (!mp3_next())
+                {
+                    if (state_ == STATE_NO_SYNC)
+                        return;
+                    if (pcmctl_ & PCMCTL_EOF)
+                    {
+                        state_ = STATE_ENDED;
+                        fifo_count_ = 0;
+                    }
+                    return;
+                }
+                if (mp3_->hz > RATE_MAX)
+                {
+                    state_ = STATE_BAD_FORMAT;
+                    return;
+                }
+                play_rate_ = mp3_->hz;
+            }
             state_ = STATE_PLAYING;
             pcm_phase_ = 0; // the first frame a whole frame from now
         }

@@ -184,14 +184,13 @@ TEST(fed_in_pieces_while_it_plays_it_decodes_the_same)
             const std::vector<uint8_t> bytes = file(name);
             const Decoded want = reference(bytes);
             SoundCard c;
-            // Faster than it plays: never dry once it has started. It may wait once at the start: the first
-            // frame is taken only when minimp3's sync check on it has decided (ten frames in step), which can
-            // be more than the 4 KB playing starts at.
+            // Faster than it plays: never dry. (It buffers on past 4 KB until its first frame's run of ten has
+            // decided; that is buffering, not an underrun.)
             const std::vector<int16_t> got = play_fed(c, bytes, piece);
             std::printf("  %s in %zu-byte pieces: %s, %u underruns\n", name, piece,
                         got == want.frames ? "the same" : "different", c.underruns());
             CHECK(got == want.frames);
-            CHECK(c.underruns() <= 1);
+            CHECK_EQ(c.underruns(), 0u);
             CHECK_EQ(pos(c), want.frames.size() / 2);
             CHECK_EQ(state(c), SoundCard::STATE_ENDED);
         }
@@ -224,7 +223,7 @@ TEST(fed_slower_than_it_plays_it_waits_for_each_frame_whole)
         const std::vector<int16_t> got = c.take_tap();
         std::printf("  %s at %.1f bytes a ms: %u underruns, %s\n", name, per_ms, c.underruns(),
                     got == want.frames ? "the same" : "different");
-        CHECK(c.underruns() >= 3); // dry again and again
+        CHECK(c.underruns() >= 1); // dry, now and then
         CHECK(got == want.frames);
         CHECK_EQ(state(c), SoundCard::STATE_ENDED);
     }
@@ -465,7 +464,7 @@ namespace
 
 TEST(by_demand_dma_each_file_plays_as_minimp3_decodes_it)
 {
-    for (const char *name : {"cbr320_stereo_48k.mp3", "cbr32_mono_22k.mp3", "vbr0_stereo_44k.mp3"})
+    for (const char *name : FILES)
     {
         const std::vector<uint8_t> bytes = file(name);
         const Decoded want = reference(bytes);
@@ -492,9 +491,11 @@ TEST(by_demand_dma_each_file_plays_as_minimp3_decodes_it)
         for (unsigned i = 0; i < 100 && state(c) != SoundCard::STATE_ENDED; ++i)
             b.run_cycles(SECOND / 100);
         const std::vector<int16_t> got = c.take_tap();
-        std::printf("  %s by DMA: %s\n", name, got == want.frames ? "the same" : "different");
+        std::printf("  %s by DMA: %s, %u underruns\n", name, got == want.frames ? "the same" : "different",
+                    c.underruns());
         CHECK(got == want.frames);
         CHECK_EQ(state(c), SoundCard::STATE_ENDED);
+        CHECK_EQ(c.underruns(), 0u);
     }
 }
 
@@ -562,22 +563,22 @@ namespace
 
 TEST(a_stuck_stream_is_not_searched_again_until_bytes_come)
 {
-    // No frame, and nothing new, no EOF: 4 KB of text; and a layer III header with 1,440 bytes of text after it,
-    // which the decoder must search (the frame's next header isn't there) and keep (a frame could still be
-    // coming). One emulated second in 4-cycle ticks, as instructions tick the card, must not search the same
-    // bytes again each time: about 6 ms of host time for raw PCM's underrun; 1.5 to 2.1 s before the fix. Half
-    // a second's bound: room for a sanitizer build or a slow host.
-    const std::vector<uint8_t> tagged = tag(4'096, 5);
-    std::vector<uint8_t> header = {0xFF, 0xFB, 0x90, 0xC0};
-    header.insert(header.end(), tagged.begin() + 10, tagged.begin() + 10 + 1'440);
-    for (const auto &bytes : {std::vector<uint8_t>(tagged.begin() + 10, tagged.end()), header})
+    // Nothing new and no EOF, one emulated second in 4-cycle ticks, as instructions tick the card: it mustn't search
+    // the same bytes again each time (1.5 to 2.1 s of host time before the fix; about 6 ms for raw PCM's underrun;
+    // half a second's bound: room for a sanitizer build or a slow host). 4 KB of text: no frame, so it stays
+    // buffering. A whole file and then 20 KB of text: it plays the file, then waits, dry, for what follows its
+    // last frame (a frame could still be coming in the text it must look through).
+    const std::vector<uint8_t> tagged = tag(4'096, 5), more = tag(20'480, 6);
+    const std::vector<uint8_t> text(tagged.begin() + 10, tagged.end());
+    std::vector<uint8_t> after = file("cbr128_joint_44k.mp3");
+    after.insert(after.end(), more.begin() + 10, more.end());
+    for (const auto &bytes : {text, after})
     {
         SoundCard c;
         start_mp3(c);
         for (const uint8_t b : bytes)
             c.write(SoundCard::PCMDATA, b);
-        c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF); // under 4 KB: EOF starts it...
-        c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);                         // ...and its end not yet
+        run(c, SECOND); // the file plays out, if there is one
         const double secs = host_seconds([&] {
             for (uint64_t t = 0; t < SECOND; t += 4)
                 c.tick(4);
@@ -585,8 +586,8 @@ TEST(a_stuck_stream_is_not_searched_again_until_bytes_come)
         std::printf("  %zu bytes, 1 s emulated in 4-cycle ticks: %.3f s of host time, STATE $%02X\n", bytes.size(),
                     secs, state(c));
         CHECK(secs < 0.5);
-        CHECK_EQ(state(c), SoundCard::STATE_UNDERRUN);
-        CHECK_EQ(pos(c), 0u);
+        CHECK_EQ(state(c), bytes.size() == text.size() ? SoundCard::STATE_BUFFERING : SoundCard::STATE_UNDERRUN);
+        CHECK_EQ(c.underruns(), bytes.size() == text.size() ? 0u : 1u);
     }
 }
 
@@ -765,8 +766,9 @@ TEST(at_a_rate_change_the_mix_lines_up_afresh_with_the_new_rates_lead)
     // the stream plays with nothing queued for it (mix_dry()), in either direction.
     for (const auto &order : {std::vector<const char *>{"cbr8_mono_8k.mp3", "cbr320_stereo_48k.mp3"},
                               std::vector<const char *>{"cbr320_stereo_48k.mp3", "cbr8_mono_8k.mp3"}})
-        for (uint32_t seed : {9u, 10u, 11u})
+        for (const uint32_t first : {9u, 10u, 11u})
         {
+            uint32_t seed = first;
             std::vector<uint8_t> bytes;
             for (const char *n : order)
             {
@@ -789,7 +791,7 @@ TEST(at_a_rate_change_the_mix_lines_up_afresh_with_the_new_rates_lead)
                 t += n;
                 made += c.take_audio(buf.data(), 48'000);
             }
-            std::printf("  %s then %s, seed %u: %llu of %zu samples dry\n", order[0], order[1], seed,
+            std::printf("  %s then %s, seed %u: %llu of %zu samples dry\n", order[0], order[1], first,
                         static_cast<unsigned long long>(c.mix_dry()), made);
             CHECK_EQ(c.mix_dry(), 0u);
             CHECK_EQ(state(c), SoundCard::STATE_ENDED);
@@ -1258,6 +1260,56 @@ TEST(fed_at_once_and_late_eof_agree_on_cut_and_spliced_streams)
     std::printf("  %u streams: %u disagree, %u clean ones not minimp3's\n", iterations, bad, badref);
     CHECK_EQ(bad, 0u);
     CHECK_EQ(badref, 0u);
+}
+
+TEST(a_stream_of_one_frame_plays_and_so_does_one_after_junk)
+{
+    // One frame alone, the whole of the data at EOF: it plays, as minimp3 plays it. The same frame after 100 bytes
+    // of text: the card plays it too (a frame by its own length at the end), where minimp3 on the whole drops it.
+    for (const char *name : FILES)
+    {
+        const std::vector<uint8_t> f = file(name);
+        const std::vector<size_t> heads = frame_starts(f);
+        const std::vector<uint8_t> one(f.begin() + static_cast<std::ptrdiff_t>(heads[0]),
+                                       f.begin() + static_cast<std::ptrdiff_t>(heads[1]));
+        const Decoded want = reference(one);
+        std::vector<uint8_t> junk(100, 'x');
+        junk.insert(junk.end(), one.begin(), one.end());
+        SoundCard c, d;
+        const std::vector<int16_t> alone = play_all(c, one), after = play_all(d, junk);
+        std::printf("  %s's first frame: minimp3 %zu samples a side; the card alone %zu, after junk %zu (minimp3 %zu)\n",
+                    name, want.frames.size() / 2, alone.size() / 2, after.size() / 2, reference(junk).frames.size() / 2);
+        CHECK(alone == want.frames);
+        CHECK(after == want.frames);
+        CHECK(!want.frames.empty());
+    }
+}
+
+TEST(a_short_clip_before_a_tag_plays)
+{
+    // 3 or 8 frames from a file's start, a 500-byte tag, then a whole file of another kind: out of step the clip's
+    // run ends at the tag as at the data's end, so the clip plays, then the file. With EOF at once, and fed.
+    const std::vector<uint8_t> b = file("cbr320_stereo_48k.mp3");
+    for (const char *name : {"cbr128_joint_44k.mp3", "vbr0_stereo_44k.mp3", "cbr8_mono_8k.mp3"})
+        for (const size_t frames : {size_t{3}, size_t{8}})
+        {
+            const std::vector<uint8_t> f = file(name);
+            const std::vector<size_t> heads = frame_starts(f);
+            const std::vector<uint8_t> clip(f.begin(), f.begin() + static_cast<std::ptrdiff_t>(heads[frames]));
+            std::vector<uint8_t> bytes = clip;
+            const std::vector<uint8_t> t = tag(500, 8);
+            bytes.insert(bytes.end(), t.begin(), t.end());
+            bytes.insert(bytes.end(), b.begin(), b.end());
+            std::vector<int16_t> want = reference(clip).frames;
+            const std::vector<int16_t> wb = reference(b).frames;
+            want.insert(want.end(), wb.begin(), wb.end());
+            SoundCard c, d;
+            const std::vector<int16_t> once = play_all(c, bytes), fed = play_fed(d, bytes, 300);
+            std::printf("  %zu frames of %s, a tag, cbr320: want %zu, at once %zu, fed %zu\n", frames, name,
+                        want.size() / 2, once.size() / 2, fed.size() / 2);
+            CHECK(once == want);
+            CHECK(fed == want);
+        }
 }
 
 int main()

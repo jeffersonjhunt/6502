@@ -310,10 +310,16 @@ frame on both sides.
 - **Whole frames, and minimp3's own sync.** In step with the stream, a frame is decoded once all of it, and the
   next frame's header, are in the FIFO. Out of step (at the start, or after junk), a frame is taken by minimp3's
   own rule: ten frames in step after it, or the data's end after at least one; until the run decides, the card
-  waits, dry. So a stream fed while it plays, in any pieces, with EOF written early or late, plays exactly what
-  the same bytes written at once play, and that is minimp3's decoding of the whole data, but for the two cases
-  below where the card does better: tags, and a last frame with something after it. (The first frame can wait
-  past the 4 KB playing starts at, for its run to decide: one dry spell at the start.)
+  waits, dry. An ID3v2 tag ends a run as the data's end does, so a short clip before a tag plays. So a stream fed
+  while it plays, in any pieces, with EOF written early or late, plays exactly what the same bytes written at once
+  play, and that is minimp3's decoding of the whole data, but for three cases where the card does better: tags
+  (below), a last frame with something after it (below), and a lone last frame with junk before it, which the card
+  plays and minimp3 drops.
+- **The start.** An MP3 buffers on past 4 KB, if it must, until its first frame has decoded: its run of ten has
+  decided, and it gives the rate. That is buffering, not an underrun. A program that feeds in real time hears its
+  first sound once that run is in: about 135 ms at 320 kbps fed at 1.02 times the stream's rate. It's the cost of
+  deciding the sync as minimp3 does. Without EOF, a stream of fewer than eleven frames (or the first ten after
+  junk) plays only once more frames come or EOF is written: set EOF after a short clip.
 - **Layer III, sized.** Only frames whose length their header gives are taken. Free format (bitrate index 0,
   its length nowhere in its header) is refused, and so are layer I and II frames (MP1, MP2): their bytes are
   junk, and a stream of them ends in `$81`. So does a stream of layer III frames that decode to nothing.

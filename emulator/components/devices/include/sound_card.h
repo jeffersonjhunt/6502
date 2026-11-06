@@ -148,8 +148,9 @@
  * layer III, a frame at a time as its first sample falls due. In step, a
  * frame is decoded with all of it and the next header there; out of step,
  * a frame is taken by minimp3's own sync rule (ten in step after it, or the
- * data's end), the card waiting until that decides, so a stream fed as it
- * plays decodes as the whole data would. The rate and channels follow each
+ * data's end, or a tag), the card waiting until that decides, so a stream
+ * fed as it plays decodes as the whole data would; until its first frame
+ * decodes, an MP3 is buffering. The rate and channels follow each
  * frame. Free format, layers I and II and frames that decode to nothing are
  * junk; 64 KB of it is STATE $81. ID3v2 tags are skipped by their size
  * wherever met (8 MB of them, $81). A frame with nothing frame-like and no
