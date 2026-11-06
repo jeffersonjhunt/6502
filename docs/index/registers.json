@@ -3,765 +3,1683 @@
   "equate": "ACIA",
   "address": "$C300",
   "module": "6",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c300",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
  },
  {
   "equate": "ACIA_DATA",
   "address": "$C300",
   "module": "6",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c300",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
  },
  {
   "equate": "ACIA_STATUS",
   "address": "$C301",
   "module": "6",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c301",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
  },
  {
   "equate": "ACIA_CMD",
   "address": "$C302",
   "module": "6",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c302",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
  },
  {
   "equate": "ACIA_CTRL",
   "address": "$C303",
   "module": "6",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c303",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA",
+  "address": "$C340",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c340",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_ORB",
+  "address": "$C340",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c340",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_ORA",
+  "address": "$C341",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c341",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_DDRB",
+  "address": "$C342",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c342",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_DDRA",
+  "address": "$C343",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c343",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_T1CL",
+  "address": "$C344",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c344",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_T1CH",
+  "address": "$C345",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c345",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_T1LL",
+  "address": "$C346",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c346",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_T1LH",
+  "address": "$C347",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c347",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_T2CL",
+  "address": "$C348",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c348",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_T2CH",
+  "address": "$C349",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c349",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_SR",
+  "address": "$C34A",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c34a",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_ACR",
+  "address": "$C34B",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c34b",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_PCR",
+  "address": "$C34C",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c34c",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_IFR",
+  "address": "$C34D",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c34d",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_IER",
+  "address": "$C34E",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c34e",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIA_ORA_NH",
+  "address": "$C34F",
+  "module": "6",
+  "documented": true,
+  "anchor": "reg-c34f",
+  "file": "oo1-technical-reference/09-serial-and-via.md",
+  "status": "emulated"
  },
  {
   "equate": "SD",
   "address": "$C380",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c380",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_CTRL",
   "address": "$C380",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c380",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_STATUS",
   "address": "$C381",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c381",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_ERROR",
   "address": "$C382",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c382",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_CMD",
   "address": "$C383",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c383",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_UNIT",
   "address": "$C384",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c384",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_LBA",
   "address": "$C386",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c386",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_COUNT",
   "address": "$C38A",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c38a",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_DATA",
   "address": "$C38C",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c38c",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SD_BUFPTR",
+  "address": "$C38D",
+  "module": "7",
+  "documented": true,
+  "anchor": "reg-c38d",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_IEN",
   "address": "$C390",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c390",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SD_ISR",
+  "address": "$C391",
+  "module": "7",
+  "documented": true,
+  "anchor": "reg-c391",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "SD_ID",
   "address": "$C3FF",
   "module": "7",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c3ff",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA",
   "address": "$C400",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c400",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_ADDR",
   "address": "$C400",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c400",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_COUNT",
   "address": "$C404",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c404",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_MODE",
   "address": "$C406",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c406",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA0_CTRL",
   "address": "$C407",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c407",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA0_DEST",
+  "address": "$C408",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c408",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA1_ADDR",
+  "address": "$C410",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c410",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA1_COUNT",
+  "address": "$C414",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c414",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA1_MODE",
+  "address": "$C416",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c416",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA1_CTRL",
+  "address": "$C417",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c417",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA1_DEST",
+  "address": "$C418",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c418",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA2_ADDR",
+  "address": "$C420",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c420",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA2_COUNT",
+  "address": "$C424",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c424",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA2_MODE",
+  "address": "$C426",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c426",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA2_CTRL",
+  "address": "$C427",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c427",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DMA2_DEST",
+  "address": "$C428",
+  "module": "8",
+  "documented": true,
+  "anchor": "reg-c428",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_ADDR",
   "address": "$C430",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c430",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_COUNT",
   "address": "$C434",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c434",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_MODE",
   "address": "$C436",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c436",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_CTRL",
   "address": "$C437",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c437",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA3_DEST",
   "address": "$C438",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c438",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_STATUS",
   "address": "$C440",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c440",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_CONTROL",
   "address": "$C441",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c441",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_ABORT",
   "address": "$C442",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c442",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "DMA_ID",
   "address": "$C47F",
   "module": "8",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c47f",
+  "file": "oo1-technical-reference/05-dma.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO",
   "address": "$C480",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c480",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_CTRL",
   "address": "$C480",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c480",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_BORDER",
   "address": "$C481",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c481",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_PALBASE",
   "address": "$C482",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c482",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_SPRBASE",
   "address": "$C483",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c483",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_IEN",
   "address": "$C484",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c484",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_ISR",
+  "address": "$C485",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c485",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_LINE",
+  "address": "$C486",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c486",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_STATUS",
   "address": "$C488",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c488",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_SPLASH",
   "address": "$C489",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c489",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0",
   "address": "$C490",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c490",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0_CONFIG",
   "address": "$C490",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c490",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0_MAP",
   "address": "$C491",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c491",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0_TILE",
   "address": "$C492",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c492",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0_HSCROLL",
   "address": "$C493",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c493",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0_VSCROLL",
   "address": "$C495",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c495",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L0_PALOFS",
   "address": "$C497",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c497",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L1",
   "address": "$C4A0",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c4a0",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_L1_CONFIG",
   "address": "$C4A0",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c4a0",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_MAP",
+  "address": "$C4A1",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a1",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_TILE",
+  "address": "$C4A2",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a2",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_HSCROLL",
+  "address": "$C4A3",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a3",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_VSCROLL",
+  "address": "$C4A5",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a5",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_PALOFS",
+  "address": "$C4A7",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a7",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "VIDEO_ID",
   "address": "$C4FF",
   "module": "9",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c4ff",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND",
   "address": "$C500",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c500",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_SIDA",
+  "address": "$C500",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c500",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_SIDB",
+  "address": "$C520",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c520",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_CTRL",
   "address": "$C540",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c540",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_STATUS",
+  "address": "$C541",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c541",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_IEN",
   "address": "$C542",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c542",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_RAMADDR",
   "address": "$C543",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c543",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_RAMDATA",
   "address": "$C545",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c545",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_MBOUT",
+  "address": "$C546",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c546",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_MBIN",
+  "address": "$C547",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c547",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_PCMCTL",
+  "address": "$C548",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c548",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_CODEC",
+  "address": "$C549",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c549",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_RATE",
+  "address": "$C54A",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c54a",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_PCMFMT",
+  "address": "$C54C",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c54c",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_FREE",
+  "address": "$C54D",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c54d",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_PCMDATA",
+  "address": "$C54F",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c54f",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_STATE",
+  "address": "$C550",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c550",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_POS",
+  "address": "$C551",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c551",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_KBPS",
+  "address": "$C555",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c555",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_VOLL",
+  "address": "$C557",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c557",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_VOLR",
+  "address": "$C558",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c558",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_EQIDX",
+  "address": "$C559",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c559",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_EQVAL",
+  "address": "$C55A",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c55a",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_VISIDX",
+  "address": "$C55B",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c55b",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_VISDATA",
+  "address": "$C55C",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c55c",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_CODECS",
+  "address": "$C55D",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c55d",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_DOCCTL",
+  "address": "$C55E",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c55e",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_DOCDATA",
+  "address": "$C55F",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c55f",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_DOCADDR",
+  "address": "$C560",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c560",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_DOCBANK",
+  "address": "$C562",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c562",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "SOUND_DRQSEL",
+  "address": "$C563",
+  "module": "A",
+  "documented": true,
+  "anchor": "reg-c563",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "SOUND_ID",
   "address": "$C57F",
   "module": "A",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c57f",
+  "file": "oo1-technical-reference/07-sound.md",
+  "status": "emulated"
  },
  {
   "equate": "USB",
   "address": "$C580",
   "module": "B",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c580",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
  },
  {
   "equate": "USB_KEY",
   "address": "$C580",
   "module": "B",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c580",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
  },
  {
   "equate": "USB_KEYCLR",
   "address": "$C581",
   "module": "B",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c581",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MODS",
+  "address": "$C582",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c582",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_EVCOUNT",
+  "address": "$C583",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c583",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_EVENT",
+  "address": "$C584",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c584",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_LEDS",
+  "address": "$C585",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c585",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_REPEAT",
+  "address": "$C586",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c586",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
  },
  {
   "equate": "USB_KBCFG",
   "address": "$C587",
   "module": "B",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c587",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MCTRL",
+  "address": "$C590",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c590",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MBTN",
+  "address": "$C591",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c591",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MX",
+  "address": "$C592",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c592",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MY",
+  "address": "$C594",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c594",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MWHEEL",
+  "address": "$C596",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c596",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MAXX",
+  "address": "$C597",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c597",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_MAXY",
+  "address": "$C599",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c599",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_GAME",
+  "address": "$C5A0",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a0",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_PTRIG",
+  "address": "$C5A1",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a1",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_PADDLE0",
+  "address": "$C5A2",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a2",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_PADDLE1",
+  "address": "$C5A3",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a3",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_PADDLE2",
+  "address": "$C5A4",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a4",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_PADDLE3",
+  "address": "$C5A5",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a5",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_SPKR",
+  "address": "$C5A6",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5a6",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
  },
  {
   "equate": "USB_IEN",
   "address": "$C5B0",
   "module": "B",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c5b0",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_ISR",
+  "address": "$C5B1",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5b1",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "USB_DEVICES",
+  "address": "$C5B2",
+  "module": "B",
+  "documented": true,
+  "anchor": "reg-c5b2",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
  },
  {
   "equate": "USB_ID",
   "address": "$C5FF",
   "module": "B",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c5ff",
+  "file": "oo1-technical-reference/08-usb.md",
+  "status": "emulated"
  },
  {
   "equate": "DISK2",
   "address": "$C600",
   "module": "C",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c600",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "DISK2_ID",
   "address": "$C67F",
   "module": "C",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c67f",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
  },
  {
   "equate": "NB",
   "address": "$C680",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c680",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN0",
   "address": "$C680",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c680",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN1",
   "address": "$C681",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c681",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN2",
   "address": "$C682",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c682",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_WIN3",
   "address": "$C683",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c683",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_VEC",
   "address": "$C684",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c684",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_MODE",
   "address": "$C685",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c685",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_STATUS",
   "address": "$C686",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c686",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_RTCCTL",
   "address": "$C687",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c687",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_IRQL",
   "address": "$C688",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c688",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_IRQH",
   "address": "$C689",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c689",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "NB_WAIT0",
+  "address": "$C68A",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c68a",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "NB_WAIT1",
+  "address": "$C68B",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c68b",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "NB_WAIT2",
+  "address": "$C68C",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c68c",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "NB_WAIT3",
+  "address": "$C68D",
+  "module": "D",
+  "documented": true,
+  "anchor": "reg-c68d",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_SEC",
   "address": "$C690",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c690",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_MIN",
   "address": "$C691",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c691",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_HOUR",
   "address": "$C692",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c692",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_DAY",
   "address": "$C693",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c693",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_DATE",
   "address": "$C694",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c694",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_MONTH",
   "address": "$C695",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c695",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_YEAR",
   "address": "$C696",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c696",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_RTCREG",
   "address": "$C697",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c697",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_RTCDATA",
   "address": "$C698",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c698",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
  },
  {
   "equate": "NB_ID",
   "address": "$C6FF",
   "module": "D",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c6ff",
+  "file": "oo1-technical-reference/11-north-bridge-and-rtc.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE",
+  "address": "$C700",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c700",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_SWR",
+  "address": "$C700",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c700",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_PANEL",
+  "address": "$C703",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c703",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_KEYS",
+  "address": "$C704",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c704",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_DISPLAY",
+  "address": "$C705",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c705",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_CTRL",
+  "address": "$C706",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c706",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_BPADDR",
+  "address": "$C708",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c708",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_BPCTRL",
+  "address": "$C70B",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c70b",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_STATUS",
+  "address": "$C70C",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c70c",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_LADDR",
+  "address": "$C710",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c710",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_LDATA",
+  "address": "$C713",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c713",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_LSTAT",
+  "address": "$C714",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c714",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_PADDR",
+  "address": "$C715",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c715",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
  },
  {
   "equate": "CONSOLE_IEN",
   "address": "$C718",
   "module": "E",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c718",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "CONSOLE_ISR",
+  "address": "$C719",
+  "module": "E",
+  "documented": true,
+  "anchor": "reg-c719",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
  },
  {
   "equate": "CONSOLE_ID",
   "address": "$C77F",
   "module": "E",
-  "documented": false,
-  "anchor": null,
-  "file": null,
-  "status": null
+  "documented": true,
+  "anchor": "reg-c77f",
+  "file": "oo1-technical-reference/12-front-panel.md",
+  "status": "emulated"
  }
 ]

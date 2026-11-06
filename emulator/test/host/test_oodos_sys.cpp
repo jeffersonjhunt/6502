@@ -86,7 +86,7 @@ TEST(oodos_sys_is_built_to_its_format)
                 s.segments[1].second.size(), s.segments[2].second.size(), s.segments[3].second.size());
 }
 
-/// The ROM BIOS's version, as its greeting in bios.rom has it ("0.10"): what the boot status shows.
+/// The ROM BIOS's version, as its greeting in bios.rom has it ("0.11"): what the boot status shows.
 std::string bios_version()
 {
     const std::string rom = read_text(EMU_BIOS_ROM), key = "BACKPLANE BIOS ";
@@ -128,6 +128,20 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K   O: 128K   P: 128K")); // O: and P:, the Disk II's, disk in or not (6c)
     CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel"));
     CHECK_EQ(r.row(6), std::string("A>"));
+}
+
+TEST(the_boot_status_counts_the_sound_card_at_revision_1_too)
+{
+    // CARDTAB takes the sound card by its type, the ID's high nibble: $A1 as well as $A2.
+    Rig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.machine->sound_card() != nullptr);
+    r.machine->sound_card()->set_revision(1);
+    REQUIRE(r.machine->bus().peek(0xC57F) == 0xA1);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/A.IMG", true) == 0);
+    REQUIRE(r.boot());
+    CHECK(r.out.find("\r\nCards: video, sound, SD, Disk II, USB keyboard, DMA, panel\r\n") != std::string::npos);
 }
 
 TEST(the_boot_status_says_what_it_finds_and_what_it_doesnt)
