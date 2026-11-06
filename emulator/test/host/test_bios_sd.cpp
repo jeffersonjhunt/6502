@@ -69,7 +69,7 @@ namespace
             return nullptr;
         }
         std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.10\r\\\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.11\r\\\r"))
             return nullptr;
         if (!image.empty() && !s->insert_sd(sd_image(image), image, error))
         {
@@ -89,7 +89,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.10\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.11\r"))
             return nullptr;
         return s;
     }
@@ -153,7 +153,7 @@ TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
     auto s = powered_on_with("fat16.sparse", out);
     REQUIRE(s != nullptr);
     REQUIRE(run_until(*s, out, "\\\r"));
-    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.10\r\\\r")); // no error, no wait
+    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.11\r\\\r")); // no error, no wait
     s->send("C809R\r");                                // and C809R still says what it finds
     REQUIRE(run_until(*s, out, "\\\r"));
 }

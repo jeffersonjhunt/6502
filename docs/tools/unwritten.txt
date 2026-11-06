@@ -12,6 +12,22 @@ reg-c300  # ACIA, ACIA_DATA
 reg-c301  # ACIA_STATUS
 reg-c302  # ACIA_CMD
 reg-c303  # ACIA_CTRL
+reg-c340  # VIA, VIA_ORB
+reg-c341  # VIA_ORA
+reg-c342  # VIA_DDRB
+reg-c343  # VIA_DDRA
+reg-c344  # VIA_T1CL
+reg-c345  # VIA_T1CH
+reg-c346  # VIA_T1LL
+reg-c347  # VIA_T1LH
+reg-c348  # VIA_T2CL
+reg-c349  # VIA_T2CH
+reg-c34a  # VIA_SR
+reg-c34b  # VIA_ACR
+reg-c34c  # VIA_PCR
+reg-c34d  # VIA_IFR
+reg-c34e  # VIA_IER
+reg-c34f  # VIA_ORA_NH
 reg-c380  # SD, SD_CTRL
 reg-c381  # SD_STATUS
 reg-c382  # SD_ERROR
@@ -84,6 +100,30 @@ reg-c697  # NB_RTCREG
 reg-c698  # NB_RTCDATA
 reg-c6ff  # NB_ID
 reg-c718  # CONSOLE_IEN
+reg-c719  # CONSOLE_ISR
 reg-c77f  # CONSOLE_ID
+
+# Sound card revision 2's registers (hw/sound-rev2.md): written in its step 8, after G2
+reg-c548  # SOUND_PCMCTL
+reg-c549  # SOUND_CODEC
+reg-c54a  # SOUND_RATE
+reg-c54c  # SOUND_PCMFMT
+reg-c54d  # SOUND_FREE
+reg-c54f  # SOUND_PCMDATA
+reg-c550  # SOUND_STATE
+reg-c551  # SOUND_POS
+reg-c555  # SOUND_KBPS
+reg-c557  # SOUND_VOLL
+reg-c558  # SOUND_VOLR
+reg-c559  # SOUND_EQIDX
+reg-c55a  # SOUND_EQVAL
+reg-c55b  # SOUND_VISIDX
+reg-c55c  # SOUND_VISDATA
+reg-c55d  # SOUND_CODECS
+reg-c55e  # SOUND_DOCCTL
+reg-c55f  # SOUND_DOCDATA
+reg-c560  # SOUND_DOCADDR
+reg-c562  # SOUND_DOCBANK
+reg-c563  # SOUND_DRQSEL
 
 # Commands with the RSXs (phase 5)

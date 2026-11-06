@@ -353,7 +353,10 @@ window registers.
    7.16 MHz); a key pressed meanwhile is taken, and the machine goes to the monitor instead. With no SD card, an
    empty slot, or no `/BOOT.BIN`, it says nothing more and enters the monitor, as before; a `/BOOT.BIN` that can't
    be booted (empty, too big, no DMA controller, an SD error) is said, as `$C80C` says it, then the monitor. A card
-   that doesn't start up is given up on at a key. An OODOS card so boots OODOS at power-on. The BIOS's memory-to-memory
+   that doesn't start up is given up on at a key. An OODOS card so boots OODOS at power-on. *(BIOS 0.11,
+   2026-11-05.)* Break also turns the VIA's interrupts off (`$7F` to its IER) and clears the Console card's ISR,
+   since a front-panel key already pending holds /IRQ low whatever IEN says; and the BIOS takes the sound card at
+   any revision (the ID's high nibble, `$A`), for [revision 2](#sound-card-revision-2). The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
    program has set. The master enable is the whole controller's, so any channel a program has left armed runs during
@@ -734,6 +737,10 @@ does.
 - Playing C64 `.sid` files is a goal for later.
 - **A co-processor on the card:** an RP2350 running a cycle-exact 6510, with its own 64 KB, so tunes play
   independently of the main CPU.
+- **Revision 2 (decided 2026-11-05):** an I2S DAC for a PCM stream, and an emulated ES5503 (the Apple IIgs's DOC),
+  both on the RP2350's second core ([below](#sound-card-revision-2); the spec is
+  [sound-rev2.md](sound-rev2.md)).
+- **The ES5503's channels fold to stereo by their low bit (decided 2026-11-05):** even channels left, odd right.
 
 **Why a co-processor.** A `.sid` file is 6502 code (the tune's own player), not data, so playing it independently
 needs a CPU on the card. Running tunes on the main CPU instead would hit several walls:
@@ -790,7 +797,7 @@ it commands.
 | `$45` | RAMDATA | read/write | the card's RAM. Asserts DRQ while ready, so DMA loads a whole tune in about 10 ms |
 | `$46` | MBOUT | write | a byte to the card ("play song 3", a sound effect, a music cue) |
 | `$47` | MBIN | read | a byte from the card ("tune finished", a sync point); reading empties it |
-| `$7F` | ID | read | card type and revision |
+| `$7F` | ID | read | card type and revision: `$A1`; `$A2` for [revision 2](#sound-card-revision-2) |
 
 **Details settled in the emulator (2026-10-25, proposed for the card):**
 
@@ -818,7 +825,7 @@ it commands.
 3. It sets the clock from the file's PAL or NTSC flag and sets RUN.
 4. The main CPU is free; the mailbox tells it when to change song or stop.
 
-Break, BRK and the demo's end stop the card (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
+Break, BRK and the demo's end stop the card at any revision (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
 tune; the WebUI's tune bar then says the machine stopped it.
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
@@ -847,6 +854,61 @@ tune; the WebUI's tune bar then says the machine stopped it.
 - **A mono tune** plays on both SIDs (CTRL BOTH); a second SID at `$D420` or `$D500` sets CTRL bit 3
   to match; a third SID, or a second elsewhere, is beyond the card, and its writes land on SID A's
   mirror.
+
+
+### Sound card revision 2 ###
+
+**Decided (2026-11-05):** the DAC and the ES5503, above. **Proposed (2026-11-05):** everything below, the
+registers from [sound-rev2.md](sound-rev2.md), which has the behaviour in full and the order it's built in. The
+ID becomes `$A2`, so software can tell the revisions apart; what revision 1 has is unchanged, and software that
+knows only revision 1 takes the card by the ID's high nibble.
+
+**Registers** (offsets from `$C500`; the rest of `$64–$7E` reads `$FF`):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$48` | PCMCTL | read/write | bit 0 RUN, bit 1 PAUSE, bit 2 FLUSH (a strobe: it empties the FIFO and reads 0), bit 3 EOF. Bit 7 is reserved |
+| `$49` | CODEC | read/write | 0 raw PCM, 1 MP3, 2 reserved for MOD; ignored while RUN is set |
+| `$4A–$4B` | RATE | read/write | raw PCM's rate in Hz, 8,000 to 48,000; reads back the rate playing |
+| `$4C` | PCMFMT | read/write | bit 0 stereo, bit 1 16-bit |
+| `$4D–$4E` | FREE | read | the 128 KB FIFO's room in 256-byte units; reading `$4D` latches both |
+| `$4F` | PCMDATA | write | the stream; a byte with the FIFO full is dropped |
+| `$50` | STATE | read | 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5 ended; `$80` bad RATE or PCMFMT, `$81` no MP3 sync, `$82` PCM and the ES5503 both asked to run |
+| `$51–$54` | POS | read/write | frames played; reading `$51` latches all four, a write to `$51` zeroes it |
+| `$55–$56` | KBPS | read | the MP3's bitrate |
+| `$57`, `$58` | VOLL, VOLR | read/write | master volume, 255 unity; it scales the SIDs' volume too |
+| `$59` | EQIDX | read/write | 0 the preamp, 1–10 the bands; bit 7 the enable instead. EQVAL moves it on |
+| `$5A` | EQVAL | read/write | the gain at EQIDX in signed half-dB, clamped to ±24; the enable's bit 0 |
+| `$5B` | VISIDX | read/write | the index into the 98-byte vis page; writing 0 takes a snapshot |
+| `$5C` | VISDATA | read | the page's byte at VISIDX, which moves on |
+| `$5D` | CODECS | read | bit *n*: codec *n*; bit 7: an ES5503. `$83` |
+| `$5E` | DOCCTL | read/write | the ES5503's port: bit 0 RUN, bit 2 its interrupt to the card's 6510, not the host; bit 5 auto-increment; bit 6 DOCDATA reaches wave RAM, not the registers |
+| `$5F` | DOCDATA | read/write | the register or wave RAM byte at DOCADDR |
+| `$60–$61` | DOCADDR | read/write | the low byte is the register; both, the RAM address |
+| `$62` | DOCBANK | read/write | bit 0: the RAM address's bit 16; auto-increment carries into it, and wraps at 128 KB |
+| `$63` | DRQSEL | read/write | the card's DRQ and fly-by register: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA |
+
+- **No dummy read.** The IIgs's Sound GLU needs a read before each DOC read, because the DOC is slow; here a
+  DOCDATA read returns its value at once, so code ported from the IIgs drops that read.
+- **The ES5503** has 32 oscillators and 128 KB of wave RAM of its own (the IIgs has 64 KB; the chip's bank bit
+  allows 128), clocked at 7,159,090 Hz as in the IIgs. Its registers are the real chip's; only the port is ours.
+  Wave RAM and its registers are reachable whether RUN is set or not.
+- **/RESET** clears PCMCTL, empties the FIFO, zeroes POS, puts the volumes at 255, the EQ off with its gains 0,
+  DRQSEL 0 and DOCCTL 0; the ES5503's oscillators halted, no interrupt pending and `$E1` 0; wave RAM keeps its
+  contents. CTRL RESET leaves all of it alone.
+
+**Settled in the emulator so far (2026-11-05, proposed for the card):** step 1 of the spec, the registers. Each
+reads back what's written, as above, and nothing plays yet: STATE reads 0, FREE the whole FIFO, PCMDATA's bytes
+are dropped, and the vis page is silence (`$00` for the spectrum and VU, `$80` for the samples, 0 past 97). Where
+the spec is silent:
+
+- /RESET also puts CODEC, RATE, PCMFMT, EQIDX, VISIDX, DOCADDR and DOCBANK back at 0, as it does RAMADDR.
+- EQIDX keeps what's written; past 10 (bit 7 clear), EQVAL reads 0 and takes no write. It moves on in bits 0–6,
+  so bit 7 stays.
+- DRQSEL keeps bits 0–1; 3 is no source: no DRQ, a fly-by read `$FF` and a write dropped.
+- The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
+  registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
+  The data registers read `$80` after /RESET.
 
 
 ## Storage ##

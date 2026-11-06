@@ -203,6 +203,16 @@ describe("Devices tab", () => {
     expect(v.element.textContent).toContain("No sound card on this machine.");
   });
 
+  test("the sound card at any revision; another card's ID isn't it", async () => {
+    for (const [id, found] of [[0xa2, true], [0xaf, true], [0xb1, false], [0xff, false]] as const) {
+      const port = new FakePort();
+      port.memory.set(SOUND + 0x7f, id);
+      const v = devicesView(port);
+      await v.refresh();
+      expect(v.element.textContent?.includes("No sound card on this machine."), `ID $${id.toString(16)}`).toBe(!found);
+    }
+  });
+
   test("the SD card's registers and card in words", async () => {
     expect(sdStatusText(0x00)).toBe("no card");
     expect(sdStatusText(0x20)).toBe("starting up");

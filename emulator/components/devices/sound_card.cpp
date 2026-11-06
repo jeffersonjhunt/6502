@@ -26,6 +26,32 @@ namespace ooe::emu
         phase_ = 0;
         owed_ = 0;
         tune_clocks();
+        reset_rev2();
+    }
+
+    void SoundCard::reset_rev2()
+    {
+        pcmctl_ = codec_ = pcmfmt_ = 0;
+        rate_ = 0;
+        free_hi_ = static_cast<uint8_t>(free_units() >> 8);
+        pos_ = pos_latch_ = 0;
+        vol_ = {0xFF, 0xFF};
+        eqidx_ = 0;
+        eq_gain_.fill(0);
+        eq_on_ = false;
+        visidx_ = 0;
+        vis_snapshot();
+        docctl_ = 0;
+        doc_addr_ = 0;
+        drqsel_ = DRQ_RAMDATA;
+        doc_.reset(); // its wave RAM stays, as the card's own does
+    }
+
+    void SoundCard::vis_snapshot()
+    {
+        // 0-31 the spectrum and 32-33 the VU at -60 dBFS or below; 34-97 the samples at zero.
+        std::fill(vis_.begin(), vis_.begin() + 34, uint8_t{0});
+        std::fill(vis_.begin() + 34, vis_.end(), uint8_t{0x80});
     }
 
     void SoundCard::reset_cpu()
@@ -189,9 +215,52 @@ namespace ooe::emu
         case MBIN:
             to_host_full_ = false;
             return to_host_;
+        case FREE:
+            free_hi_ = static_cast<uint8_t>(free_units() >> 8);
+            return static_cast<uint8_t>(free_units());
+        case POS:
+            pos_latch_ = pos_;
+            return static_cast<uint8_t>(pos_);
+        case EQVAL:
+        {
+            const uint8_t v = eq_value();
+            eq_step();
+            return v;
+        }
+        case VISDATA:
+        {
+            const uint8_t v = peek(VISDATA);
+            ++visidx_;
+            return v;
+        }
+        case DOCDATA:
+            return doc_data_read();
         default:
             return peek(offset);
         }
+    }
+
+    uint8_t SoundCard::eq_value() const
+    {
+        if (eqidx_ & EQIDX_ENABLE)
+            return eq_on_ ? 1 : 0;
+        return eqidx_ <= EQ_BANDS ? static_cast<uint8_t>(eq_gain_[eqidx_]) : 0;
+    }
+
+    uint8_t SoundCard::doc_data_read()
+    {
+        const uint8_t v = docctl_ & DOCCTL_RAM ? doc_.ram()[doc_addr_] : doc_.read(static_cast<uint8_t>(doc_addr_));
+        doc_step();
+        return v;
+    }
+
+    void SoundCard::doc_data_write(uint8_t data)
+    {
+        if (docctl_ & DOCCTL_RAM)
+            doc_.ram()[doc_addr_] = data;
+        else
+            doc_.write(static_cast<uint8_t>(doc_addr_), data);
+        doc_step();
     }
 
     uint8_t SoundCard::peek(uint32_t offset) const
@@ -218,6 +287,56 @@ namespace ooe::emu
             return ram_[ram_addr_];
         case MBIN:
             return to_host_;
+        case PCMCTL:
+            return pcmctl_;
+        case CODEC:
+            return codec_;
+        case RATE:
+            return static_cast<uint8_t>(rate_);
+        case RATE + 1:
+            return static_cast<uint8_t>(rate_ >> 8);
+        case PCMFMT:
+            return pcmfmt_;
+        case FREE: // the debugger's look: no latch
+            return static_cast<uint8_t>(free_units());
+        case FREE + 1:
+            return free_hi_;
+        case STATE:
+            return STATE_IDLE;
+        case POS:
+            return static_cast<uint8_t>(pos_);
+        case POS + 1:
+        case POS + 2:
+        case POS + 3:
+            return static_cast<uint8_t>(pos_latch_ >> 8 * (o - POS));
+        case KBPS:
+        case KBPS + 1:
+            return 0;
+        case VOLL:
+        case VOLR:
+            return vol_[o - VOLL];
+        case EQIDX:
+            return eqidx_;
+        case EQVAL:
+            return eq_value();
+        case VISIDX:
+            return visidx_;
+        case VISDATA:
+            return visidx_ < VIS_BYTES ? vis_[visidx_] : 0;
+        case CODECS:
+            return CODECS_PRESENT;
+        case DOCCTL:
+            return docctl_;
+        case DOCDATA:
+            return docctl_ & DOCCTL_RAM ? doc_.ram()[doc_addr_] : doc_.peek(static_cast<uint8_t>(doc_addr_));
+        case DOCADDR:
+            return static_cast<uint8_t>(doc_addr_);
+        case DOCADDR + 1:
+            return static_cast<uint8_t>(doc_addr_ >> 8);
+        case DOCBANK:
+            return static_cast<uint8_t>(doc_addr_ >> 16);
+        case DRQSEL:
+            return drqsel_;
         case ID_REG:
             return ID;
         default:
@@ -263,14 +382,90 @@ namespace ooe::emu
             to_card_ = data;
             to_card_full_ = true;
             break;
+        case PCMCTL:
+            // FLUSH (bit 2) is a strobe: it empties the FIFO, which holds nothing yet. Bit 7 is reserved.
+            pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
+            break;
+        case CODEC:
+            if (!(pcmctl_ & PCMCTL_RUN))
+                codec_ = data;
+            break;
+        case RATE:
+            rate_ = static_cast<uint16_t>((rate_ & 0xFF00) | data);
+            break;
+        case RATE + 1:
+            rate_ = static_cast<uint16_t>((rate_ & 0x00FF) | data << 8);
+            break;
+        case PCMFMT:
+            pcmfmt_ = static_cast<uint8_t>(data & (PCMFMT_STEREO | PCMFMT_16BIT));
+            break;
+        case PCMDATA:
+            break; // no FIFO yet
+        case POS:
+            pos_ = pos_latch_ = 0;
+            break;
+        case VOLL:
+        case VOLR:
+            vol_[o - VOLL] = data;
+            break;
+        case EQIDX:
+            eqidx_ = data;
+            break;
+        case EQVAL:
+            if (eqidx_ & EQIDX_ENABLE)
+                eq_on_ = data & 1;
+            else if (eqidx_ <= EQ_BANDS)
+                eq_gain_[eqidx_] = static_cast<int8_t>(
+                    std::clamp(static_cast<int>(static_cast<int8_t>(data)), -EQ_LIMIT, EQ_LIMIT));
+            eq_step();
+            break;
+        case VISIDX:
+            visidx_ = data;
+            if (data == 0)
+                vis_snapshot();
+            break;
+        case DOCCTL:
+            docctl_ = static_cast<uint8_t>(data & (DOCCTL_RUN | DOCCTL_IRQ_CARD | DOCCTL_AUTOINC | DOCCTL_RAM));
+            break;
+        case DOCDATA:
+            doc_data_write(data);
+            break;
+        case DOCADDR:
+            doc_addr_ = (doc_addr_ & 0x1FF00) | data;
+            break;
+        case DOCADDR + 1:
+            doc_addr_ = (doc_addr_ & 0x100FF) | static_cast<uint32_t>(data) << 8;
+            break;
+        case DOCBANK:
+            doc_addr_ = (doc_addr_ & 0x0FFFF) | static_cast<uint32_t>(data & 1) << 16;
+            break;
+        case DRQSEL:
+            drqsel_ = static_cast<uint8_t>(data & 3);
+            break;
         default:
             break;
         }
     }
 
-    uint8_t SoundCard::dack_read(bool) { return ram_byte(); }
+    uint8_t SoundCard::dack_read(bool)
+    {
+        switch (drqsel_)
+        {
+        case DRQ_RAMDATA: return ram_byte();
+        case DRQ_DOCDATA: return doc_data_read();
+        default: return 0xFF; // PCMDATA is write only; 3 is no source
+        }
+    }
 
-    void SoundCard::dack_write(uint8_t data, bool) { ram_[ram_addr_++] = data; }
+    void SoundCard::dack_write(uint8_t data, bool)
+    {
+        switch (drqsel_)
+        {
+        case DRQ_RAMDATA: ram_[ram_addr_++] = data; break;
+        case DRQ_DOCDATA: doc_data_write(data); break;
+        default: break; // PCMDATA: no FIFO yet
+        }
+    }
 
     int SoundCard::card_receive()
     {

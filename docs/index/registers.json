@@ -45,6 +45,159 @@
   "status": null
  },
  {
+  "equate": "VIA",
+  "address": "$C340",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_ORB",
+  "address": "$C340",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_ORA",
+  "address": "$C341",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_DDRB",
+  "address": "$C342",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_DDRA",
+  "address": "$C343",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_T1CL",
+  "address": "$C344",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_T1CH",
+  "address": "$C345",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_T1LL",
+  "address": "$C346",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_T1LH",
+  "address": "$C347",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_T2CL",
+  "address": "$C348",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_T2CH",
+  "address": "$C349",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_SR",
+  "address": "$C34A",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_ACR",
+  "address": "$C34B",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_PCR",
+  "address": "$C34C",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_IFR",
+  "address": "$C34D",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_IER",
+  "address": "$C34E",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "VIA_ORA_NH",
+  "address": "$C34F",
+  "module": "6",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
   "equate": "SD",
   "address": "$C380",
   "module": "7",
@@ -477,6 +630,195 @@
   "status": null
  },
  {
+  "equate": "SOUND_PCMCTL",
+  "address": "$C548",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_CODEC",
+  "address": "$C549",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_RATE",
+  "address": "$C54A",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_PCMFMT",
+  "address": "$C54C",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_FREE",
+  "address": "$C54D",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_PCMDATA",
+  "address": "$C54F",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_STATE",
+  "address": "$C550",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_POS",
+  "address": "$C551",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_KBPS",
+  "address": "$C555",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_VOLL",
+  "address": "$C557",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_VOLR",
+  "address": "$C558",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_EQIDX",
+  "address": "$C559",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_EQVAL",
+  "address": "$C55A",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_VISIDX",
+  "address": "$C55B",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_VISDATA",
+  "address": "$C55C",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_CODECS",
+  "address": "$C55D",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_DOCCTL",
+  "address": "$C55E",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_DOCDATA",
+  "address": "$C55F",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_DOCADDR",
+  "address": "$C560",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_DOCBANK",
+  "address": "$C562",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "SOUND_DRQSEL",
+  "address": "$C563",
+  "module": "A",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
   "equate": "SOUND_ID",
   "address": "$C57F",
   "module": "A",
@@ -749,6 +1091,15 @@
  {
   "equate": "CONSOLE_IEN",
   "address": "$C718",
+  "module": "E",
+  "documented": false,
+  "anchor": null,
+  "file": null,
+  "status": null
+ },
+ {
+  "equate": "CONSOLE_ISR",
+  "address": "$C719",
   "module": "E",
   "documented": false,
   "anchor": null,

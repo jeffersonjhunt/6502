@@ -86,7 +86,7 @@ TEST(oodos_sys_is_built_to_its_format)
                 s.segments[1].second.size(), s.segments[2].second.size(), s.segments[3].second.size());
 }
 
-/// The ROM BIOS's version, as its greeting in bios.rom has it ("0.10"): what the boot status shows.
+/// The ROM BIOS's version, as its greeting in bios.rom has it ("0.11"): what the boot status shows.
 std::string bios_version()
 {
     const std::string rom = read_text(EMU_BIOS_ROM), key = "BACKPLANE BIOS ";

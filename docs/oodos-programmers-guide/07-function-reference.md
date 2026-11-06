@@ -2714,7 +2714,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 3) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.10`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.11`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
