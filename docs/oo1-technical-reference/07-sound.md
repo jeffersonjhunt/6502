@@ -267,10 +267,34 @@ Status: **emulated**
 The registers are in: each holds what is written and reads it back, with the reset values below, and /RESET and
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
-sound, so a program sees the same STATE and POS at any audio rate. But nothing reaches the speakers yet: the
-stream isn't mixed with the SIDs. There is no MP3, the EQ and volumes change nothing, the vis page is silence, and
-the ES5503 holds its registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the
-spec's later steps.
+sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix,
+below). There is no MP3 yet, the EQ and volumes change nothing, the vis page is silence, and the ES5503 holds its
+registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's later steps.
+
+**The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
+emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
+`MIX_DIGITAL`: the real card's analog stage will set the true balance), added to the SIDs' samples and clipped to
+-1..1. Buffering, paused, ended or idle, the stream adds nothing, and the SIDs' samples are exactly what they were
+without it.
+
+Each run of the stream lines up with the SIDs' samples made at its start, so it lands on time however long
+since the sound was last collected. A run starts when the stream starts playing, after a pause, at a FLUSH seek
+or a new RUN (even when it is playing again within the same write), and after a tick of over two seconds, and
+each starts behind a lead of silence: (audio rate / stream rate, rounded up) + 1 samples. A stream frame's
+samples come in a burst while each SID sample takes one; with the lead, within a run the stream never runs
+short, however the sound is collected, so no sample goes without the stream and none takes a later part of it.
+Each new run costs one lead of silence at its start.
+
+The stream's delay is constant within a run. A frame's level comes out about the lead after the frame falls due: 2
+samples for equal rates, 7 for 8 kHz into 48 kHz, 13 for 8 kHz into 96 kHz. Counted from the start, the SIDs'
+samples made at RUN to the first full-level sample, which takes in the first frame's own period, it is 3
+samples for equal rates (62.5 µs at 48 kHz) and 13 for 8 kHz into 48 kHz.
+
+Interpolating makes the stream at most sinc²(f / rate) quieter at frequency f: 0.7% at 1 kHz from 22,050 Hz,
+none when the rates are equal. With nobody collecting, once a second and a half of the stream waits, the SIDs
+are brought up to date, which takes it, as a SID access would. Of a gap over two seconds only the last second
+is made, and the stream's samples for the part skipped go with it, so a stream over before the gap doesn't play
+after it. At audio rate 0 nothing is made.
 
 **The stream's timing,** where the design leaves it open:
 
@@ -977,7 +1001,7 @@ All: 0 silent to 255 unity.
 
 #### Notes
 
-In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far the volumes change nothing: the stream isn't mixed yet, and the SIDs aren't scaled.
+In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far the volumes change nothing: the stream is mixed at unity, and the SIDs aren't scaled.
 
 <a id="reg-c558"></a>
 ### $C558 SOUND_VOLR: the right master volume

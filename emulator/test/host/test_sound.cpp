@@ -1041,6 +1041,24 @@ TEST(rev2_reset_is_reset_and_ctrl_reset_leaves_it_alone)
     CHECK(halted);
 }
 
+TEST(a_single_tick_of_a_year_keeps_the_sid_clock_exact)
+{
+    // cycles x SID Hz passed 64 bits for a tick of about 29 days at 7.16 MHz. Counted in whole seconds and the
+    // rest, a year comes to exactly a year of SID clocks, at both clocks, with the remainder carried.
+    for (const bool ntsc : {false, true})
+    {
+        SoundCard c;
+        if (ntsc)
+            c.write(SoundCard::CTRL, SoundCard::CTRL_NTSC);
+        const uint64_t year = 365ull * 86'400;
+        c.tick(uint64_t{SoundCard::NATIVE_HZ} * year);
+        CHECK_EQ(c.sid_clocks(), uint64_t{ntsc ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ} * year);
+        c.tick(SoundCard::NATIVE_HZ / 2 + 1); // and half a second more, in two ticks, the same as one
+        c.tick(SoundCard::NATIVE_HZ / 2 - 1);
+        CHECK_EQ(c.sid_clocks(), uint64_t{ntsc ? SoundCard::NTSC_HZ : SoundCard::PAL_HZ} * (year + 1));
+    }
+}
+
 int main()
 {
     return run_all();

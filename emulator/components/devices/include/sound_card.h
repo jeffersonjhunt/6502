@@ -143,6 +143,25 @@
  * the chips are clocked in bulk and nothing is made. The model, 6581 or 8580,
  * is the replacement chips' jumper (set_model()), not a register.
  *
+ * The mix (revision 2). While the PCM stream plays or runs dry, its bus
+ * frames are resampled to the audio rate by linear interpolation into a
+ * queue, and each SID sample made takes one frame from it, adds it scaled by
+ * MIX_DIGITAL and clips the sum; with the queue empty (the bus stopped) the
+ * SIDs' sample is made exactly as before. Each run of the bus (a start, a
+ * pause's release, a seek, a new RUN, within one write too, and a bulk
+ * catch-up) starts its queue lined up with the SIDs' samples made up to that
+ * moment, behind a lead of silence ((audio rate / stream rate, rounded up) +
+ * 1 frames), so the bursts a bus frame's outputs come in never leave it dry
+ * while the bus runs. The same backlog rules: of more than two seconds of
+ * bus frames in one tick only the last second is resampled (the samples for
+ * the rest an offset to pass first); at a second and a half queued the SIDs
+ * are caught up, which takes it; when the SIDs skip a backlog, the queue's
+ * frames for the samples skipped go with them. EQ, the vis tap and volume
+ * (step 5) go in bus_frame(), at unity for now. sid.cpp and this file build
+ * with -ffp-contract=off, so every target makes the same samples, given the
+ * same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree
+ * today.
+ *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
  * 6510's port, and empties the mailbox; the card's RAM keeps its contents. In Apple II mode the card sits idle:
@@ -244,6 +263,8 @@ namespace ooe::emu
         /// $DE01, the card's view of the mailbox.
         static constexpr uint8_t CARD_FROM_HOST = 0x01, CARD_UNTAKEN = 0x02;
         static constexpr uint32_t PAL_HZ = 985'248, NTSC_HZ = 1'022'727, NATIVE_HZ = 7'159'090;
+        /// The digital bus's share of the mix, against the SIDs' output: the real card's analog stage will set it.
+        static constexpr float MIX_DIGITAL = 0.5f;
         /// CIA 1's registers the card imitates (offsets from $DC00).
         static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
         /// The frame interrupt's registers ($DE03 FRAME, $DE04 FRAMEEN) and the frame in SID clocks and lines.
@@ -348,6 +369,10 @@ namespace ooe::emu
             out.swap(tap_);
             return out;
         }
+        /// Frames the bus has put into the mix, resampled to the audio rate, since /RESET or set_audio_rate().
+        uint64_t mix_frames() const { return mix_frames_; }
+        /// Of them, those not yet added to a SID sample.
+        size_t mix_backlog() const { return pcm_mix_.size() / 2; }
         /// Times the stream ran dry with no EOF, since /RESET.
         unsigned underruns() const { return underruns_; }
         /// Bytes waiting in the FIFO, a partial frame's among them.
@@ -412,12 +437,26 @@ namespace ooe::emu
         void pcm_write(uint8_t data);
         /// PCMCTL written: FLUSH, RUN's edges, PAUSE and EOF.
         void pcm_control(uint8_t data);
-        /// The state as the FIFO and PCMCTL now leave it, between frames.
+        /// The state as the FIFO and PCMCTL now leave it, between frames; a start or stop unanchors the mix.
         void pcm_update();
+        /// pcm_update()'s state flow. The mix is re-anchored in one place, pcm_update(), around this: any start
+        /// (from buffering, paused, or a RUN or seek that stopped the stream first, even within one write) or
+        /// stop; and by pcm_advance() after a bulk catch-up, and tick() when time passes with the bus stopped.
+        void pcm_step();
+        /// The bus runs (frames fall due) in these states.
+        static bool bus_runs(uint8_t state) { return state == STATE_PLAYING || state == STATE_UNDERRUN; }
         /// `cycles` host cycles of playback: the frames due, from the FIFO or, run dry, silence.
         void pcm_advance(uint64_t cycles);
         /// `n` frames out of the FIFO, onto the bus.
         void pcm_play(size_t n);
+        /// `n` frames of silence onto the bus (the stream dry).
+        void pcm_silence(uint64_t n);
+        /// One frame of the bus: to the tap, and (after EQ and volume, still to come) resampled into the mix.
+        void bus_frame(int16_t l, int16_t r);
+        /// The mix takes the bus from now: the SIDs' samples made up to now, so the bus's next lines up with theirs.
+        void mix_anchor();
+        /// An audio rate is set, so the bus's frames (while the stream plays or runs dry) are resampled into the mix.
+        bool mixing() const { return audio_rate_ != 0; }
         /// DOCDATA: wave RAM or a register at the DOC's address, which moves on with DOCCTL bit 5.
         uint8_t doc_data_read();
         void doc_data_write(uint8_t data);
@@ -490,6 +529,15 @@ namespace ooe::emu
         unsigned underruns_{0};
         bool tap_on_{false};
         std::vector<int16_t> tap_;
+        // The mix: the bus resampled to the audio rate by linear interpolation, waiting for the SIDs' samples it is
+        // added to (render() takes one frame a sample). Mutable: render() is the SIDs' catch-up, const.
+        mutable std::deque<float> pcm_mix_;
+        float mix_prev_[2]{0, 0};          ///< the bus frame before the next
+        uint64_t mix_acc_{0};              ///< the next output's place past mix_prev_, in 1/audio-rate frames
+        bool bus_on_{false};               ///< the mix has its anchor for this run of the bus
+        uint64_t mix_skip_{0};             ///< bus frames of a bulk catch-up that make nothing
+        mutable uint64_t mix_offset_{0};   ///< SID samples to make before the queue's front is theirs
+        uint64_t mix_frames_{0};
         uint8_t free_hi_{0};               ///< FREE's high byte, as the last $4D read latched it
         uint32_t pos_{0}, pos_latch_{0};   ///< frames played; $52-$54 read the latch
         std::array<uint8_t, 2> vol_{};     ///< VOLL, VOLR
