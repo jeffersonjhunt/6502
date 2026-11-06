@@ -177,50 +177,236 @@ TEST(o_to_p_and_back)
     has(r.c("dir p:"), "P: PATTERN  BIN");
 }
 
-TEST(zz_debug)
+namespace
 {
-    if (!std::getenv("D2DBG"))
-        return;
+    /// The bit after each disk byte of a track, as a reader takes them (bits in until bit 7 is set).
+    std::vector<std::pair<uint8_t, uint32_t>> track_bytes(const DiskTrack &t)
+    {
+        std::vector<std::pair<uint8_t, uint32_t>> out;
+        uint8_t reg = 0;
+        for (uint32_t n = 0; n < t.bit_count; ++n)
+        {
+            reg = static_cast<uint8_t>(reg << 1 | t.bit(n));
+            if (reg & 0x80)
+            {
+                out.push_back({reg, n});
+                reg = 0;
+            }
+        }
+        return out;
+    }
+    uint8_t four4(uint8_t a, uint8_t b) { return static_cast<uint8_t>(((a << 1) | 1) & b); }
+    /// Physical sector p's data field on track t spoiled: a bit of a byte in its middle cleared.
+    bool spoil_data(DiskImage &d, unsigned t, unsigned p)
+    {
+        DiskTrack &tr = d.track_for_writing(4 * t);
+        const auto b = track_bytes(tr);
+        for (size_t i = 0; i + 20 < b.size(); ++i)
+            if (b[i].first == 0xD5 && b[i + 1].first == 0xAA && b[i + 2].first == 0x96 &&
+                four4(b[i + 7].first, b[i + 8].first) == p)
+                for (size_t j = i + 13; j + 200 < b.size(); ++j)
+                    if (b[j].first == 0xD5 && b[j + 1].first == 0xAA && b[j + 2].first == 0xAD)
+                    {
+                        const uint32_t bit = b[j + 150].second - 1; // a 1 bit: bit 7 of the byte is the last's... any bit set
+                        for (uint32_t k = bit; k > b[j + 149].second; --k)
+                            if (tr.bit(k))
+                            {
+                                tr.set_bit(k, false);
+                                return true;
+                            }
+                        return false;
+                    }
+        return false;
+    }
+    /// The bus cycles of each load of the data bus while writing (a write to Q6 on or Q7 on).
+    struct Loads : CycleObserver
+    {
+        std::vector<uint64_t> at;
+        std::vector<bool> dma_off;
+        Decoder *bus = nullptr;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (c.write && (c.addr == DISK2 + 0x0D || c.addr == DISK2 + 0x0F))
+            {
+                at.push_back(c.cycle);
+                dma_off.push_back(bus && !(bus->peek(0xC441) & 1));
+            }
+        }
+    };
+} // namespace
+
+TEST(no_disk_and_a_write_protected_one)
+{
+    // No disk in O:: Disk I/O, soon (the reads time out; nothing waits for ever).
+    Dr r(false, true);
+    REQUIRE(r.ok);
+    const uint64_t t0 = r.cpu->cycles();
+    has(r.c("dir o:"), "OODOS Error On O: Disk I/O");
+    const double s = double(r.cpu->cycles() - t0) / HZ;
+    std::printf("  no disk: Disk I/O after %.2f s\n", s);
+    CHECK(s < 3.0);
+    // Write-protected: Read Only, the disk unchanged.
+    Dr w(true, true, {{0, "X       BIN", gen(1024, 11)}});
+    REQUIRE(w.ok);
+    w.card().disk(0)->set_write_protected(true);
+    has(w.c("dir o:"), "README");
+    has(w.c("pip o:=m:x.bin"), "Read Only");
+    CHECK(w.drive_image(0) == w.cpm);
+}
+
+TEST(a_changed_floppy_is_seen_and_an_unchanged_one_kept)
+{
+    Dr r;
+    REQUIRE(r.ok);
+    has(r.c("dir o:"), "README");
+    r.wait(ms(1200));                    // the motor stopped: the disk may have been changed
+    CHECK(!r.card().status().spinning);
+    has(r.c("dir o:"), "README");        // it wasn't: the directory checked, the same
+    r.wait(ms(1200));
+    r.insert(0, r.blank);                // now it is
+    const std::string o = r.c("dir o:");
+    has(o, "No File");
+    hasnt(o, "README");
+    // a file open across the change: Media Change, 10, at its next read and its close (MEMTEST's case O)
+    Dr f;
+    REQUIRE(f.ok);
+    const size_t from = start(f, "memtest.com", " O");
+    REQUIRE(f.until("SWAP?", ms(20000), from));
+    f.wait(ms(1200));
+    f.insert(0, f.blank);
+    f.type(" ");
+    REQUIRE(f.until("MEMTEST DONE", ms(20000), from));
+    const std::string m = f.out.substr(from);
+    std::printf("  %s\n", vis(m).c_str());
+    has(m, "ORD 00 00");
+    has(m, "ORD2 0A 00");
+    has(m, "OCL 0A 00");
+    has(m, "OOP2 FF");
+    CHECK(f.drive_image(0) == f.blank); // and nothing of the old disk's written on the new one
+}
+
+TEST(the_head_lost_is_found_and_a_bad_sector_is_only_its_own)
+{
+    // The head where the driver doesn't think it is: the address fields say another track, so it
+    // recalibrates and reads.
+    Dr r;
+    REQUIRE(r.ok);
+    has(r.c("dir o:"), "README");
+    r.wait(ms(1200));
+    r.poke(SYS_BLOCK_PHYS + sym("D2HT"), 20); // track 10, it thinks
+    has(r.c("type o:readme.txt"), "THIS IS AN APPLE CP/M DISK");
+    // A data field spoiled on track 3 (CP/M's sector 15 there, the file's 1, physical 13): the rest of the
+    // track reads, the directory with it; a read of that sector is Disk I/O.
+    Dr b;
+    REQUIRE(b.ok);
+    REQUIRE(spoil_data(*b.card().disk(0), 3, 13));
+    has(b.c("dir o:"), "README");
+    const std::string t = b.c("pip m:=o:pattern.bin");
+    std::printf("  %s\n", vis(t).c_str());
+    has(t, "Disk I/O");
+}
+
+TEST(every_track_and_the_motor)
+{
+    // Tracks 0-34 through the BIOS (MEMTEST's case T): all read, the head on track 34.
+    Dr r;
+    REQUIRE(r.ok);
+    const size_t from = start(r, "memtest.com", " T");
+    REQUIRE(r.until("MEMTEST DONE", ms(60000), from));
+    has(r.out.substr(from), "TERR 00");
+    CHECK_EQ(r.card().status().quarter_track[0], 136);
+    // The motor: on for each access, turning a second after it, then stopped. An access within the
+    // second finds its track in the buffer; after it, the track is read again (it may be another disk).
+    Dr m;
+    REQUIRE(m.ok);
+    unsigned tracks = 0;
+    const uint16_t a_track = sym("D2TRACK");
+    m.watch = [&](uint16_t pc) {
+        if (pc == a_track && m.nb(2) == 61)
+            ++tracks;
+    };
+    has(m.c("type o:readme.txt"), "THIS IS");
+    CHECK(m.card().status().spinning && !m.card().status().motor);
+    tracks = 0;
+    m.wait(ms(300));
+    has(m.c("type o:readme.txt"), "THIS IS");
+    CHECK_EQ(tracks, 0u);
+    m.wait(ms(1200));
+    CHECK(!m.card().status().spinning);
+    has(m.c("type o:readme.txt"), "THIS IS");
+    CHECK(tracks >= 1u);
+    m.watch = nullptr;
+}
+
+TEST(the_write_loop_loads_every_224_cycles_with_dma_off)
+{
+    // Every load of the data bus while a sector is written, from the bus: the first five 280 cycles apart
+    // (sync bytes), the rest 224; the DMA controller's master enable off at each, and back after.
+    Dr r(true, true, {{0, "X       BIN", gen(1024, 11)}});
+    REQUIRE(r.ok);
+    has(r.c("dir o:"), "README");
+    Loads loads;
+    loads.bus = &r.machine->bus();
+    const uint8_t before = r.machine->bus().peek(0xC441);
+    r.cpu->set_observer(&loads);
+    r.c("pip o:=m:x.bin");
+    r.cpu->set_observer(nullptr);
+    CHECK_EQ(r.machine->bus().peek(0xC441), before);
+    REQUIRE(loads.at.size() >= 354);
+    // the first sector's field: 5 syncs and 349 bytes
+    unsigned wrong = 0;
+    for (size_t i = 1; i < 354; ++i)
+    {
+        const uint64_t d = loads.at[i] - loads.at[i - 1], want = i <= 5 ? 280 : 224;
+        if (d != want)
+        {
+            if (wrong < 5)
+                std::printf("  load %zu: %llu cycles after the last, not %llu\n", i, static_cast<unsigned long long>(d),
+                            static_cast<unsigned long long>(want));
+            ++wrong;
+        }
+    }
+    unsigned dma_on = 0;
+    for (bool off : loads.dma_off)
+        dma_on += !off;
+    std::printf("  %zu loads; %u at the wrong time in the first field; DMA on at %u\n", loads.at.size(), wrong, dma_on);
+    CHECK_EQ(wrong, 0u);
+    CHECK_EQ(dma_on, 0u);
+}
+
+TEST(an_interrupt_mid_write_waits_for_the_write)
+{
+    // As if interrupts were on in the BIOS (OOLIB's tick, later): the I flag cleared at D2WSEC's entry,
+    // and an interrupt asked for in the middle of the write loop. The driver's SEI holds it off, so the
+    // sector is written right: O: and C: the same after the same PIP.
     Dr r(true, true, {{0, "X       BIN", gen(5120, 11)}});
     REQUIRE(r.ok);
-    unsigned addr = 0, track = 0, rbyte_fail = 0;
-    const uint16_t a_addr = sym("ADDR"), a_track = sym("D2TRACK"), a_rdata = sym("RDATA"), a_seek = sym("SEEK");
-    unsigned rdata = 0, seeks = 0;
+    r.c("pip c:=m:x.bin");
+    const uint16_t a_w = sym("D2WSEC"), a_loop = sym("WLA");
+    unsigned loops = 0, asked = 0;
     r.watch = [&](uint16_t pc) {
-        if (r.nb(2) != 61) return;
-        if (pc == a_addr) ++addr;
-        if (pc == a_track) ++track;
-        if (pc == a_rdata) ++rdata;
-        if (pc == a_seek) ++seeks;
+        if (r.nb(2) != 61)
+            return;
+        if (pc == a_w)
+        {
+            Registers g = r.cpu->regs();
+            g.p = static_cast<uint8_t>(g.p & ~Cpu6502::FLAG_I);
+            r.cpu->set_regs(g);
+            loops = 0;
+        }
+        if (pc == a_loop && ++loops == 100)
+        {
+            r.cpu->irq();
+            ++asked;
+        }
     };
-    std::string o = r.cmd("dir o:");
-    if (std::getenv("D2W"))
-    {
-        unsigned wsec = 0, d2start = 0, d2track = 0, reads = 0;
-        const uint16_t a_w = sym("D2WSEC"), a_s = sym("D2START"), a_r = sym("READ");
-        r.watch = [&](uint16_t pc) {
-            if (r.nb(2) != 61) return;
-            if (pc == a_addr) ++addr;
-            if (pc == a_w) ++wsec;
-            if (pc == a_s) ++d2start;
-            if (pc == a_track) ++d2track;
-            if (pc == a_r) ++reads;
-        };
-        addr = 0;
-        const uint64_t t0 = r.cpu->cycles();
-        r.to("pip o:=m:x.bin", "\r\nA>", ms(60000));
-        std::printf("  pip o:=m:x.bin (5 KB): %.2f s, D2WSEC %u, D2START %u, D2TRACK %u, ADDR loops %u, READs %u\n",
-                    double(r.cpu->cycles() - t0) / HZ, wsec, d2start, d2track, addr, reads);
-    }
+    r.c("pip o:=m:x.bin");
     r.watch = nullptr;
-    auto sysb = [&](const char *n, unsigned k = 0) { return r.phys(SYS_BLOCK_PHYS + sym(n) + k); };
-    std::printf("  %s\n  ADDR %u D2TRACK %u RDATA %u SEEK %u\n", vis(o).c_str(), addr, track, rdata, seeks);
-    std::printf("  D2HT %02X %02X D2TRK %02X D2SEC %02X D2GOT %02X %02X D2TGT %02X D2CNT %02X%02X\n", sysb("D2HT"), sysb("D2HT", 1), sysb("D2TRK"),
-                sysb("D2SEC"), sysb("D2GOT"), sysb("D2GOT", 1), sysb("D2TGT"), sysb("D2CNT", 1), sysb("D2CNT"));
-    const Disk2Card::Status st = r.card().status();
-    std::printf("  card: motor %d spinning %d drive %u q6 %d q7 %d quarter %u phases %X data %02X\n", st.motor, st.spinning, st.drive, st.q6, st.q7,
-                st.quarter_track[0], st.phases, st.data);
-    (void)rbyte_fail;
+    CHECK(asked > 0);
+    const std::vector<uint8_t> c = r.unit_image(), o = r.drive_image(0);
+    const bool same = o.size() == IMAGE && c == o;
+    std::printf("  %u interrupts asked for mid-write; O: %s C:\n", asked, same ? "is" : "is not");
+    CHECK(same);
 }
 
 int main()
