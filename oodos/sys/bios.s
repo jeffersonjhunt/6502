@@ -166,6 +166,8 @@ TBTAG:          .res    2 * NTB        ; each track buffer's drive + 1 (0: empty
 BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s, 2 P:'s, 3 and 4 their directory tracks'
 TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
 VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
+D2STAMP:        .res    8              ; O:'s and P:'s last access: the RTC's second, minute, hour, date
+STAMPT:         .res    4              ; the RTC's now, as D2STAMP keeps it
 RETRY:          .res    1              ; APPLE1's: a partly read track's second try
 AHALF:          .res    1              ; APPLEIO's half, 0 or 1
 AK:             .res    1              ; its file's sector in the track; TRKLOAD's SD sector
@@ -1013,8 +1015,9 @@ SDDATA:         LDA     #7
 APPLEIO:        STZ     BUFIX          ; an SD unit's: straight to the layer
                 LDA     CURDRV
                 CMP     #DRV_O
-                BCC     APPLE1
-                SBC     #DRV_O - 1     ; O: 1, P: 2 (the carry set)
+                BCS     @disk2
+                JMP     APPLE1
+@disk2:         SBC     #DRV_O - 1     ; O: 1, P: 2 (the carry set)
                 STA     BUFIX
                 DEC     A
                 TAX
@@ -1024,8 +1027,17 @@ APPLEIO:        STZ     BUFIX          ; an SD unit's: straight to the layer
                 INX
                 CPX     VOUCH
                 BEQ     @turning
+                LDA     BUFIX          ; or its own last access within the second
+                DEC     A
+                TAX
+                JSR     RECENT
+                BCC     @turning
                 JSR     TBEMPTY2       ; it may be another disk now
-@turning:       LDA     TRACK          ; the directory's track: its own buffer
+@turning:       LDA     BUFIX          ; this access's time, the drive's own
+                DEC     A
+                TAX
+                JSR     STAMP
+                LDA     TRACK          ; the directory's track: its own buffer
                 CMP     #DIR_TRACK
                 BNE     @data
                 LDA     BUFIX
@@ -1066,7 +1078,62 @@ MEDIA:          TXA
                 STA     BUFIX
                 DEC     A
                 TAX
-                JMP     D2MEDIA        ; the buffers kept: the BDOS checks, then forgets
+                JSR     RECENT         ; its own last access within the second (the
+                BCC     @same          ; run-on): taken as the same disk, the card not asked
+                JMP     D2MEDIA        ; else the card, the buffers kept: the BDOS checks, then forgets
+@same:          RTS
+
+; The run-on, timed by the drive's own last access (6c's review, the owner's
+; rule): carry clear if drive X's (0 O:, 1 P:) last access was in the RTC's
+; same second as now (under a second ago; one just across a second's edge
+; is taken as older, so the rule only errs toward checking). Keeps X.
+RECENT:         JSR     NOW
+                TXA
+                ASL     A
+                ASL     A
+                TAY
+                LDA     STAMPT
+                CMP     D2STAMP,Y
+                BNE     @old
+                LDA     STAMPT + 1
+                CMP     D2STAMP + 1,Y
+                BNE     @old
+                LDA     STAMPT + 2
+                CMP     D2STAMP + 2,Y
+                BNE     @old
+                LDA     STAMPT + 3
+                CMP     D2STAMP + 3,Y
+                BNE     @old
+                CLC
+                RTS
+@old:           SEC
+                RTS
+; Drive X's last access now. Keeps X.
+STAMP:          JSR     NOW
+                TXA
+                ASL     A
+                ASL     A
+                TAY
+                LDA     STAMPT
+                STA     D2STAMP,Y
+                LDA     STAMPT + 1
+                STA     D2STAMP + 1,Y
+                LDA     STAMPT + 2
+                STA     D2STAMP + 2,Y
+                LDA     STAMPT + 3
+                STA     D2STAMP + 3,Y
+                RTS
+; STAMPT = the RTC's second, minute, hour and date (reading the second
+; latches the rest). Keeps X.
+NOW:            LDA     NB_SEC
+                STA     STAMPT
+                LDA     NB_MIN
+                STA     STAMPT + 1
+                LDA     NB_HOUR
+                STA     STAMPT + 2
+                LDA     NB_DATE
+                STA     STAMPT + 3
+                RTS
 
 ; FORGET, for the BDOS (as MEDIA): X = O: or P:, its track buffer emptied,
 ; so the next READ is from the disk (its directory checked past the buffer).
