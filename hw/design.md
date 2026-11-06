@@ -920,13 +920,15 @@ samples, 0 past 97). Where the spec is silent:
 - FLUSH with RUN set is a seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
 - A new host clock (`set_cpu_hz()`) rescales the part of a frame owed, so a clock change loses no frames.
 - The mix: the stream counts as playing while it plays or runs dry (silence); buffering, paused, ended or idle it
-  adds nothing, and the SIDs' samples are bit for bit what they are without revision 2. Each time it starts, or
-  starts again after a pause, it lines up with the SIDs' samples made up to that moment, a fixed lead of silence
-  ahead: (audio rate / stream rate, rounded up) + 1 samples, so the bursts a stream frame's samples come in never
-  leave a SID sample without its part of the stream. With the interpolation's frame, a small constant latency: 3
-  samples for equal rates. The backlog rules are the SIDs': of a gap over two seconds only the last second is made,
-  and the stream's samples for the part skipped go with it. With nobody collecting, the SIDs are brought up to date
-  once a second and a half of the stream waits.
+  adds nothing, and the SIDs' samples are bit for bit what they are without revision 2. Each run of the stream
+  lines up with the SIDs' samples made at its start, a lead of silence ahead: (audio rate / stream rate, rounded
+  up) + 1 samples, so within a run the bursts a stream frame's samples come in never leave a SID sample without
+  its part of the stream. A run starts when the stream starts playing, after a pause, at a FLUSH seek or a new
+  RUN (within one write too), and after a tick of over two seconds; each costs one lead of silence. Within a run
+  the delay is constant: a frame's level comes out about the lead after it falls due (2 samples for equal rates, 7 for
+  8 kHz into 48 kHz); from the start, counting the first frame's period, 3 and 13. The backlog rules are the
+  SIDs': of a gap over two seconds only the last second is made, and the stream's samples for the part skipped go
+  with it. With nobody collecting, the SIDs are brought up to date once a second and a half of the stream waits.
 - The ES5503's registers read back as MAME's model keeps them: the table register's bit 7 reads 0, the data
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.

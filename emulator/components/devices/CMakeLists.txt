@@ -2,3 +2,6 @@ add_library(emu_devices STATIC acia6551.cpp apple_io.cpp backplane_bridge.cpp co
 target_include_directories(emu_devices PUBLIC include)
 target_link_libraries(emu_devices PUBLIC emu_bus emu_cpu6502 PRIVATE emu_log)
 emu_house_flags(emu_devices)
+# The sound's floats the same on every target: no fused multiply-adds, which g++ makes on aarch64 at -O2 and
+# clang within expressions, and WebAssembly and -O0 never do (test_sound_mix's golden hash is one value).
+set_source_files_properties(sid.cpp sound_card.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")

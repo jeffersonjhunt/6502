@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <chrono>
 #include <functional>
+#include <tuple>
 #include <vector>
 
 using namespace ooe::test;
@@ -477,13 +478,14 @@ namespace
 TEST(with_pcm_idle_the_sids_samples_are_main_s_bit_for_bit)
 {
     // The hash of the same program built from main before the mix (bbe5f98), by a scratch program on main's own
-    // sources. It comes out one of two ways, both main's: where the compiler fuses multiply-adds into one
-    // rounding (g++ -O2 on aarch64, the fast preset), and where it doesn't (-O0, the sanitizer build, and
-    // WebAssembly, em++ -O3 run by node). The SID code's floats round differently between the two, the same on
-    // main and here. A change to the SIDs' samples with the stream idle gives neither.
+    // sources. sid.cpp and sound_card.cpp are built with -ffp-contract=off (components/devices/CMakeLists.txt),
+    // so no target fuses multiply-adds and every build makes the same floats: main's gave this with g++ -O0, with
+    // -O2 -ffp-contract=off, under ASan/UBSan, and in WebAssembly. To make it again from another main, build
+    // this function the same way against main's sources and print it. A change to the SIDs' samples with the
+    // stream idle changes it.
     const uint64_t h = golden_hash();
     std::printf("  %016llx\n", static_cast<unsigned long long>(h));
-    CHECK(h == 0xf8b6874cebedd157ull || h == 0x1ca5a6a30d34be5full);
+    CHECK(h == 0x1ca5a6a30d34be5full);
 }
 
 TEST(collected_at_any_moments_the_mix_has_no_gap_and_no_shift)
@@ -607,6 +609,155 @@ TEST(the_sum_past_full_scale_is_clipped)
             else
                 CHECK(peak < 0.95);
         }
+}
+
+namespace
+{
+    /// A card whose every register write is followed by a tick of 4 cycles, as a 6502 program's are.
+    struct CpuFed : SoundCard
+    {
+        void write(uint32_t offset, uint8_t data) override
+        {
+            SoundCard::write(offset, data);
+            SoundCard::tick(4);
+        }
+    };
+
+    /// The lead a run of the bus starts with, and a stream frame's burst of outputs, for these rates.
+    size_t lead(uint32_t rate, uint32_t stream) { return (rate + stream - 1) / stream + 1; }
+    size_t burst(uint32_t rate, uint32_t stream) { return (rate + stream - 1) / stream; }
+
+    /// Of `out`'s left side from `from`, the samples under `level` that aren't in an anchor's window: from a
+    /// sample in `anchors` for the lead and the interpolation's first burst.
+    size_t low_outside(const std::vector<float> &out, size_t from, double level, const std::vector<size_t> &anchors,
+                       size_t window)
+    {
+        size_t low = 0;
+        for (size_t i = from; 2 * i < out.size(); ++i)
+        {
+            if (out[2 * i] >= level)
+                continue;
+            bool near = false;
+            for (const size_t a : anchors)
+                near = near || (i >= a && i < a + window);
+            low += near ? 0 : 1;
+        }
+        return low;
+    }
+} // namespace
+
+TEST(gaps_over_two_seconds_with_the_stream_playing_leave_it_lined_up)
+{
+    // A DC stream plays through ticks of just over two seconds, each a bulk catch-up: after every one the mix
+    // anchors afresh, so the rounding doesn't add up. Then two seconds collected at random moments: no sample
+    // without the stream, and the queue no longer than a fresh anchor's.
+    for (const auto &[rate, stream, gaps] :
+         {std::tuple<uint32_t, uint16_t, unsigned>{96'000, 8'001, 40}, {48'000, 8'001, 20}, {44'100, 32'000, 20},
+          {48'000, 48'000, 30}})
+    {
+        SoundCard c;
+        c.set_audio_rate(rate);
+        start(c, SoundCard::PCMFMT_16BIT, stream);
+        std::vector<float> buf(2 * 200'000);
+        for (unsigned g = 0; g < gaps; ++g)
+        {
+            while (c.fifo_bytes() + 2 <= SoundCard::FIFO_BYTES)
+                put16(c, 16'384);
+            c.tick(SECOND * 2'001 / 1'000);
+            c.take_audio(buf.data(), 200'000);
+        }
+        while (c.fifo_bytes() < 16'384)
+            put16(c, 16'384);
+        run(c, 7'000); // settle: the anchor after the last gap
+        c.take_audio(buf.data(), 200'000);
+        uint32_t seed = 5;
+        size_t low = 0, total = 0, most = 0;
+        for (uint64_t t = 0; t < 2 * SECOND;)
+        {
+            while (c.fifo_bytes() + 2 <= 16'384)
+                put16(c, 16'384);
+            seed = seed * 1'103'515'245u + 12'345u;
+            const uint64_t n = 100 + (seed >> 8) % 29'901;
+            run(c, n);
+            t += n;
+            const size_t m = c.take_audio(buf.data(), 200'000);
+            most = std::max(most, c.mix_backlog()); // with the SIDs up to now: the lead and a burst, no more
+            for (size_t i = 0; i < m; ++i)
+                low += buf[2 * i] < 0.2f;
+            total += m;
+        }
+        std::printf("  %u from %u after %u gaps of 2.001 s: %zu of %zu samples without the stream, %zu waiting at "
+                    "most\n",
+                    rate, stream, gaps, low, total, most);
+        CHECK_EQ(low, 0u);
+        CHECK(most <= lead(rate, stream) + burst(rate, stream) + 2);
+    }
+}
+
+TEST(seeks_and_restarts_within_one_write_anchor_afresh)
+{
+    // Writes as a 6502 program makes them, four cycles apart. A FLUSH seek with EOF set, refilled at once, goes
+    // from buffering to playing within that one write; RUN off and on with a new RATE, with no tick between
+    // (host code), the same. Each must start a new run of the bus: a DC stream is then unbroken but for each
+    // anchor's own lead and first burst, and nothing goes short later.
+    for (const auto &[rate, first, second] : {std::tuple<uint32_t, uint16_t, uint16_t>{48'000, 8'000, 22'050},
+                                              {96'000, 8'000, 48'000}, {48'000, 48'000, 11'025}})
+    {
+        for (const bool restart : {false, true})
+        {
+            CpuFed c;
+            c.set_audio_rate(rate);
+            uint16_t now_rate = first;
+            c.write(SoundCard::RATE, static_cast<uint8_t>(now_rate));
+            c.write(SoundCard::RATE + 1, static_cast<uint8_t>(now_rate >> 8));
+            c.write(SoundCard::PCMFMT, SoundCard::PCMFMT_16BIT);
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF);
+            std::vector<float> out, buf(2 * 200'000);
+            std::vector<size_t> anchors{0};
+            size_t window = lead(rate, now_rate) + burst(rate, now_rate) + 1;
+            uint32_t seed = 3;
+            unsigned events = 0;
+            for (uint64_t t = 0; t < 3 * SECOND;)
+            {
+                if (events < 20 && t > SECOND / 4 + events * (SECOND / 8))
+                {
+                    const size_t at = out.size() / 2 + c.audio_frames(); // the SIDs' samples up to now
+                    if (restart)
+                    {
+                        // RUN off, a new RATE, RUN on: from the host, no tick between.
+                        now_rate = now_rate == first ? second : first;
+                        c.SoundCard::write(SoundCard::PCMCTL, 0);
+                        c.SoundCard::write(SoundCard::RATE, static_cast<uint8_t>(now_rate));
+                        c.SoundCard::write(SoundCard::RATE + 1, static_cast<uint8_t>(now_rate >> 8));
+                        c.SoundCard::write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF |
+                                                                  SoundCard::PCMCTL_FLUSH);
+                    }
+                    else
+                        c.write(SoundCard::PCMCTL,
+                                SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_EOF | SoundCard::PCMCTL_FLUSH);
+                    for (unsigned i = 0; i < 16; ++i)
+                        put16(c, 16'384);
+                    anchors.push_back(at);
+                    window = std::max(window, lead(rate, now_rate) + burst(rate, now_rate) + 1);
+                    ++events;
+                }
+                while (c.fifo_bytes() < 8'192)
+                    put16(c, 16'384);
+                seed = seed * 1'103'515'245u + 12'345u;
+                const uint64_t n = 100 + (seed >> 8) % 29'901;
+                run(c, n);
+                t += n;
+                const size_t m = c.take_audio(buf.data(), 200'000);
+                out.insert(out.end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(2 * m));
+            }
+            const size_t from = first_over(out, 0.2);
+            const size_t low = low_outside(out, from, 0.2, anchors, window);
+            std::printf("  %u from %u/%u, %s: %u events, %zu samples short outside the anchors' leads\n", rate, first,
+                        second, restart ? "RUN off and on, a new RATE" : "EOF seeks refilled at once", events, low);
+            CHECK_EQ(events, 20u);
+            CHECK_EQ(low, 0u);
+        }
+    }
 }
 
 int main()

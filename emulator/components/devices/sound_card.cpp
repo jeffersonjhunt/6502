@@ -90,9 +90,10 @@ namespace ooe::emu
             pcm_advance(cycles); // the stream keeps the card's time, whether or not sound is made
         else
             bus_on_ = false; // time passes with the bus stopped: its next run anchors afresh
-        // SID clocks = host cycles x SID Hz / host Hz, the remainder carried.
-        phase_ += cycles * sid_hz();
-        const uint64_t due = phase_ / host_hz_;
+        // SID clocks = host cycles x SID Hz / host Hz, the remainder carried. In whole seconds of the host's
+        // clock and the rest, so a single tick of years doesn't overflow (cycles x SID Hz would past 29 days).
+        phase_ += cycles % host_hz_ * sid_hz();
+        const uint64_t due = cycles / host_hz_ * sid_hz() + phase_ / host_hz_;
         phase_ %= host_hz_;
         if (!(ctrl_ & CTRL_RUN))
         {
@@ -137,7 +138,7 @@ namespace ooe::emu
 
     void SoundCard::pcm_control(uint8_t data)
     {
-        const uint8_t was = pcmctl_;
+        const uint8_t was = pcmctl_, before = state_;
         if (data & PCMCTL_FLUSH)
             fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
         pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
@@ -165,9 +166,22 @@ namespace ooe::emu
         else if (!(pcmctl_ & PCMCTL_RUN))
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
         pcm_update();
+        // A new run of the bus (RUN, a seek, a pause and its release): the mix anchors afresh at its next frame,
+        // with the lead for this rate, even if the stream is playing again within this one write.
+        if ((data & PCMCTL_FLUSH) || ((pcmctl_ & PCMCTL_RUN) && !(was & PCMCTL_RUN)) || !bus_runs(before) ||
+            !bus_runs(state_))
+            bus_on_ = false;
     }
 
     void SoundCard::pcm_update()
+    {
+        const uint8_t before = state_;
+        pcm_step();
+        if (!bus_runs(before) || !bus_runs(state_))
+            bus_on_ = false; // started (from buffering or paused) or stopped: anchor afresh
+    }
+
+    void SoundCard::pcm_step()
     {
         if (!(pcmctl_ & PCMCTL_RUN) || state_ == STATE_BAD_FORMAT || state_ == STATE_ENDED)
             return;
@@ -195,13 +209,15 @@ namespace ooe::emu
     {
         // In bulk, however long the tick (a backgrounded tab's): the frames due are taken from the FIFO in one
         // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off,
-        // touches no sample. cycles x rate stays in 64 bits for a single tick of over a year at 7.16 MHz and 48 kHz.
-        pcm_phase_ += cycles * play_rate_;
-        uint64_t due = pcm_phase_ / host_hz_;
+        // touches no sample. The frames due are counted in whole seconds of the host's clock and the rest, so no tick
+        // overflows them.
+        pcm_phase_ += cycles % host_hz_ * play_rate_;
+        uint64_t due = cycles / host_hz_ * play_rate_ + pcm_phase_ / host_hz_;
         pcm_phase_ %= host_hz_;
         if (mixing() && !bus_on_)
             mix_anchor();
-        if (mixing() && due > 2ull * play_rate_)
+        const bool bulk = mixing() && due > 2ull * play_rate_;
+        if (bulk)
         {
             // As the SIDs' backlog: of more than two seconds, only the last second is made into the mix. The
             // SIDs up to now first, so the queue lines up with their next sample; then the frames skipped, and
@@ -239,6 +255,8 @@ namespace ooe::emu
             pcm_silence(due); // until data comes
             break;
         }
+        if (bulk)
+            bus_on_ = false; // after a bulk catch-up the lineup is rounded: the next frame anchors afresh
         mix_skip_ = 0;
         // Nobody taking the SIDs' samples: past a second and a half of the bus waiting, the SIDs are brought up
         // to now, which takes it (as a SID access would), so the queue stays lined up with their samples. Under

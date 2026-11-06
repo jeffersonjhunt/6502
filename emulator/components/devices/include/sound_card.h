@@ -147,8 +147,10 @@
  * frames are resampled to the audio rate by linear interpolation into a
  * queue, and each SID sample made takes one frame from it, adds it scaled by
  * MIX_DIGITAL and clips the sum; with the queue empty (the bus stopped) the
- * SIDs' sample is made exactly as before. Each run of the bus starts its
- * queue lined up with the SIDs' samples made up to that moment, behind a lead
+ * SIDs' sample is made exactly as before. Each run of the bus (a start, a
+ * pause's release, a seek, a new RUN, within one write too, and a bulk
+ * catch-up) starts its queue lined up with the SIDs' samples made up to that
+ * moment, behind a lead
  * of silence ((audio rate / stream rate, rounded up) + 1 frames), so the
  * bursts a bus frame's outputs come in never leave it dry while the bus
  * runs. The same backlog rules: of more than two seconds of bus frames in one
@@ -156,7 +158,8 @@
  * to pass first); at a second and a half queued the SIDs are caught up, which
  * takes it; when the SIDs skip a backlog, the queue's frames for the samples
  * skipped go with them. EQ, the vis tap and volume (step 5) go in
- * bus_frame(), at unity for now.
+ * bus_frame(), at unity for now. sid.cpp and this file build with
+ * -ffp-contract=off, so every target makes the same samples.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
@@ -433,8 +436,11 @@ namespace ooe::emu
         void pcm_write(uint8_t data);
         /// PCMCTL written: FLUSH, RUN's edges, PAUSE and EOF.
         void pcm_control(uint8_t data);
-        /// The state as the FIFO and PCMCTL now leave it, between frames.
+        /// The state as the FIFO and PCMCTL now leave it, between frames; a start or stop unanchors the mix.
         void pcm_update();
+        void pcm_step();
+        /// The bus runs (frames fall due) in these states.
+        static bool bus_runs(uint8_t state) { return state == STATE_PLAYING || state == STATE_UNDERRUN; }
         /// `cycles` host cycles of playback: the frames due, from the FIFO or, run dry, silence.
         void pcm_advance(uint64_t cycles);
         /// `n` frames out of the FIFO, onto the bus.

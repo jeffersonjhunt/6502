@@ -275,17 +275,26 @@ registers and wave RAM but makes no sound and raises no interrupt. The rest come
 emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
 `MIX_DIGITAL`: the real card's analog stage will set the true balance), added to the SIDs' samples and clipped to
 -1..1. Buffering, paused, ended or idle, the stream adds nothing, and the SIDs' samples are exactly what they were
-without it. When it starts, or starts again after a pause, the stream lines up with the SIDs' samples at that
-moment, so it lands on time however long since the sound was last collected, and starts a fixed lead of silence
-ahead: (audio rate / stream rate, rounded up) + 1 samples, 2 for equal rates and 7 for 8 kHz into 48 kHz. A
-stream frame's samples come in a burst, while each SID sample takes one; with the lead, the stream never runs
-short while it plays, however the sound is collected, so no sample goes without the stream and none takes a later
-part of it. With the interpolation's own frame, the stream is a few samples late in all, the same all the way
-through: 3 for equal rates, 62.5 µs at 48 kHz, and 13 for 8 kHz into 48 kHz. Interpolating makes it at most sinc²(f /
-rate) quieter at frequency f: 0.7% at 1 kHz from 22,050 Hz, none when the rates are equal. With nobody collecting,
-once a second and a half of the stream waits, the SIDs are brought up to date, which takes it, as a SID access
-would. Of a gap over two seconds only the last second is made, and the stream's samples for the part skipped go
-with it, so a stream over before the gap doesn't play after it. At audio rate 0 nothing is made.
+without it.
+
+Each run of the stream lines up with the SIDs' samples made at its start, so it lands on time however long
+since the sound was last collected. A run starts when the stream starts playing, after a pause, at a FLUSH seek
+or a new RUN (even when it is playing again within the same write), and after a tick of over two seconds, and
+each starts behind a lead of silence: (audio rate / stream rate, rounded up) + 1 samples. A stream frame's
+samples come in a burst while each SID sample takes one; with the lead, within a run the stream never runs
+short, however the sound is collected, so no sample goes without the stream and none takes a later part of it.
+Each new run costs one lead of silence at its start.
+
+The stream's delay is constant within a run. A frame's level comes out about the lead after the frame falls due: 2
+samples for equal rates, 7 for 8 kHz into 48 kHz, 13 for 8 kHz into 96 kHz. Counted from the start, the SIDs'
+samples made at RUN to the first full-level sample, which takes in the first frame's own period, it is 3
+samples for equal rates (62.5 µs at 48 kHz) and 13 for 8 kHz into 48 kHz.
+
+Interpolating makes the stream at most sinc²(f / rate) quieter at frequency f: 0.7% at 1 kHz from 22,050 Hz,
+none when the rates are equal. With nobody collecting, once a second and a half of the stream waits, the SIDs
+are brought up to date, which takes it, as a SID access would. Of a gap over two seconds only the last second
+is made, and the stream's samples for the part skipped go with it, so a stream over before the gap doesn't play
+after it. At audio rate 0 nothing is made.
 
 **The stream's timing,** where the design leaves it open:
 
