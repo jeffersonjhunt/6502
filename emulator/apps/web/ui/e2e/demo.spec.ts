@@ -22,6 +22,7 @@ async function powerCycle(page: Page) {
   await expect(page.getByTestId("status")).toHaveText("POWER OFF");
   await key.click();
   await expect(key).toHaveAttribute("data-pos", "run");
+  await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga", { timeout: 15_000 }); // as powerOn: the splash first
 }
 
 test("the demo card is in at every visit, and power-on boots OODOS from it to A>", { tag: "@smoke" }, async ({ page }) => {
