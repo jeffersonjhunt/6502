@@ -6,13 +6,155 @@
 
 #include "sound_card.h"
 
+#include "minimp3.h"
+
 #include <algorithm>
 #include <cmath>
 
 namespace ooe::emu
 {
+    // --- MP3 (CODEC 1) ----------------------------------------------------------------
+
+    struct SoundCard::Mp3
+    {
+        /// What a search for a frame is given: ten frames of the largest kind, as minimp3 checks a sync by.
+        static constexpr size_t WINDOW = 32'768;
+        /// Kept back when a search finds nothing, without EOF: a frame could start in it, its end still to come.
+        static constexpr size_t KEEP = 2'304 + 4;
+        static constexpr size_t NO_SYNC = 65'536;
+
+        mp3dec_t dec{};
+        std::vector<uint8_t> window = std::vector<uint8_t>(WINDOW);
+        std::array<int16_t, MINIMP3_MAX_SAMPLES_PER_FRAME> pcm{};
+        size_t samples{0}, at{0}; ///< the frame's samples per channel, and the next one taken
+        unsigned channels{1};
+        uint32_t hz{0};
+        unsigned kbps{0};
+        size_t junk{0}; ///< bytes since the last frame found
+
+        void restart()
+        {
+            mp3dec_init(&dec);
+            samples = at = 0;
+            junk = 0;
+        }
+    };
+
+    namespace
+    {
+        /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one we can size (free format).
+        size_t mp3_frame_bytes(const uint8_t *h)
+        {
+            if (h[0] != 0xFF || (h[1] & 0xE0) != 0xE0 || (h[1] & 0x06) != 0x02)
+                return 0;
+            const unsigned version = (h[1] >> 3) & 3, rate = (h[2] >> 2) & 3, index = h[2] >> 4; // 3 MPEG-1, 2 -2, 0 -2.5
+            if (version == 1 || rate == 3 || index == 0 || index == 15)
+                return 0;
+            static const uint16_t kbps[2][15] = {
+                {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},       // MPEG-2 and 2.5
+                {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}}; // MPEG-1
+            static const uint32_t hz[3] = {44'100, 48'000, 32'000};
+            const bool one = version == 3;
+            const uint32_t sample_hz = hz[rate] >> (one ? 0 : version == 2 ? 1 : 2);
+            const uint32_t samples = one ? 1'152 : 576;
+            return samples * kbps[one][index] * 125 / sample_hz + ((h[2] >> 1) & 1);
+        }
+
+        /// The same stream as `prev`: version, layer and rate, as the decoder's own check has it.
+        bool mp3_same(const uint8_t *prev, const uint8_t *h)
+        {
+            return prev[0] == 0xFF && h[0] == 0xFF && ((prev[1] ^ h[1]) & 0xFE) == 0 && ((prev[2] ^ h[2]) & 0x0C) == 0;
+        }
+    } // namespace
+
+    SoundCard::SoundCard() : mp3_(std::make_unique<Mp3>()), cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
+
+    SoundCard::~SoundCard() = default;
+
+    bool SoundCard::mp3_next()
+    {
+        Mp3 &m = *mp3_;
+        const bool eof = pcmctl_ & PCMCTL_EOF;
+        for (;;)
+        {
+            if (m.at < m.samples)
+                return true;
+            size_t n = std::min(fifo_count_, Mp3::WINDOW);
+            if (n == 0 || (n < 4 && !eof))
+                return false;
+            const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
+            const uint8_t head[4] = {at(0), n > 1 ? at(1) : uint8_t{0}, n > 2 ? at(2) : uint8_t{0},
+                                     n > 3 ? at(3) : uint8_t{0}};
+            if (n >= 4 && mp3_same(m.dec.header, head))
+            {
+                // In step with the stream: the decoder takes this frame as it is, if the next header is in sight
+                // too (or the stream ends with it). Give it just that, as a decoder with the whole file would see.
+                if (const size_t fb = mp3_frame_bytes(head))
+                {
+                    if (n >= fb + 4)
+                        n = fb + 4;
+                    else if (!eof)
+                        return false; // the frame's end still to come
+                }
+            }
+            for (size_t i = 0; i < n; ++i)
+                m.window[i] = at(i);
+            mp3dec_frame_info_t info{};
+            const int got = mp3dec_decode_frame(&m.dec, m.window.data(), static_cast<int>(n), m.pcm.data(), &info);
+            if (info.hz) // a frame
+            {
+                fifo_drop(static_cast<size_t>(info.frame_bytes)); // its bytes, and any junk before it
+                m.junk = 0;
+                if (got <= 0)
+                    continue; // a frame that made nothing (its bit reservoir not yet there): on to the next
+                m.samples = static_cast<size_t>(got);
+                m.at = 0;
+                m.channels = static_cast<unsigned>(info.channels);
+                m.kbps = static_cast<unsigned>(info.bitrate_kbps);
+                m.hz = static_cast<uint32_t>(info.hz);
+                play_fmt_ = static_cast<uint8_t>(PCMFMT_16BIT | (m.channels == 2 ? PCMFMT_STEREO : 0));
+                return true;
+            }
+            // No frame: the junk before one that may be there (all of it if none). Without EOF, keep a tail a
+            // frame could start in, for its end to come; at EOF, a frame that can't be finished is junk too.
+            size_t skip = static_cast<size_t>(info.frame_bytes);
+            if (skip >= n && !eof)
+                skip = n > Mp3::KEEP ? n - Mp3::KEEP : 0;
+            if (skip == 0)
+            {
+                if (!eof)
+                    return false;
+                skip = n;
+            }
+            fifo_drop(skip);
+            m.junk += skip;
+            if (m.junk >= Mp3::NO_SYNC)
+            {
+                state_ = STATE_NO_SYNC;
+                bus_on_ = false;
+                return false;
+            }
+        }
+    }
+
+    size_t SoundCard::mp3_ready() const { return mp3_->samples - mp3_->at; }
+
+    void SoundCard::mp3_rate(uint32_t hz)
+    {
+        if (hz == play_rate_)
+            return;
+        if (play_rate_)
+            pcm_phase_ = pcm_phase_ * hz / play_rate_; // the part of a frame owed, at the new rate
+        play_rate_ = hz;
+        bus_on_ = false; // the mix's lead and resampling for the new rate
+    }
+
     void SoundCard::reset()
     {
+        mp3_->restart();
+        mp3_->hz = 0;
+        mp3_->kbps = 0;
+        play_codec_ = 0;
         catch_up();
         chips_[0].reset();
         chips_[1].reset();
@@ -140,9 +282,13 @@ namespace ooe::emu
     {
         const uint8_t was = pcmctl_;
         if (data & PCMCTL_FLUSH)
+        {
             fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
+            mp3_->restart();              // and the decoder
+        }
         pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
-        if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT)
+        if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT &&
+            state_ != STATE_NO_SYNC)
         {
             // A seek: the stream buffers again, to 4 KB or EOF, and no underrun is counted for it.
             if (state_ == STATE_PAUSED)
@@ -154,7 +300,17 @@ namespace ooe::emu
         {
             resume_ = STATE_BUFFERING;
             pcm_phase_ = 0;
-            if (rate_ < RATE_MIN || rate_ > RATE_MAX || codec_ != 0) // MP3 comes in step 4
+            play_codec_ = codec_;
+            mp3_->restart();
+            mp3_->hz = 0;
+            mp3_->kbps = 0;
+            if (codec_ == 1) // MP3: the rate and the format come with each frame
+            {
+                play_rate_ = 0;
+                play_fmt_ = PCMFMT_16BIT;
+                state_ = STATE_BUFFERING;
+            }
+            else if (codec_ != 0 || rate_ < RATE_MIN || rate_ > RATE_MAX)
                 state_ = STATE_BAD_FORMAT;
             else
             {
@@ -178,7 +334,7 @@ namespace ooe::emu
 
     void SoundCard::pcm_step()
     {
-        if (!(pcmctl_ & PCMCTL_RUN) || state_ == STATE_BAD_FORMAT || state_ == STATE_ENDED)
+        if (!(pcmctl_ & PCMCTL_RUN) || state_ == STATE_BAD_FORMAT || state_ == STATE_NO_SYNC || state_ == STATE_ENDED)
             return;
         if (pcmctl_ & PCMCTL_PAUSE)
         {
@@ -194,8 +350,8 @@ namespace ooe::emu
             state_ = STATE_PLAYING;
             pcm_phase_ = 0; // the first frame a whole frame from now
         }
-        if (state_ == STATE_UNDERRUN && fifo_count_ >= frame_bytes())
-            state_ = STATE_PLAYING; // data again: on at once, from the next frame
+        if (state_ == STATE_UNDERRUN && !mp3() && fifo_count_ >= frame_bytes())
+            state_ = STATE_PLAYING; // data again: on at once, from the next frame (MP3's when a frame decodes)
         // Running dry is found when a frame falls due (pcm_advance), not here: a FIFO emptied and refilled
         // between two frames hasn't underrun.
     }
@@ -206,6 +362,36 @@ namespace ooe::emu
         // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off,
         // touches no sample. The frames due are counted in whole seconds of the host's clock and the rest, so no
         // tick overflows them.
+        if (mp3() && !play_rate_)
+        {
+            // MP3's first frame gives the rate; until one decodes, the stream is dry, or at EOF over.
+            if (mp3_next())
+            {
+                if (mp3_->hz > RATE_MAX)
+                {
+                    state_ = STATE_BAD_FORMAT;
+                    return;
+                }
+                play_rate_ = mp3_->hz;
+                pcm_phase_ = 0;
+            }
+            else
+            {
+                if (state_ == STATE_NO_SYNC)
+                    return;
+                if (pcmctl_ & PCMCTL_EOF)
+                {
+                    state_ = STATE_ENDED;
+                    fifo_count_ = 0;
+                }
+                else if (state_ != STATE_UNDERRUN)
+                {
+                    state_ = STATE_UNDERRUN;
+                    ++underruns_;
+                }
+                return;
+            }
+        }
         pcm_phase_ += cycles % host_hz_ * play_rate_;
         uint64_t due = cycles / host_hz_ * play_rate_ + pcm_phase_ / host_hz_;
         pcm_phase_ %= host_hz_;
@@ -226,7 +412,22 @@ namespace ooe::emu
         }
         while (due)
         {
-            const size_t ready = fifo_count_ / frame_bytes();
+            size_t ready = 0;
+            if (!mp3())
+                ready = fifo_count_ / frame_bytes();
+            else if (mp3_next())
+            {
+                if (mp3_->hz > RATE_MAX)
+                {
+                    state_ = STATE_BAD_FORMAT; // MPEG-1 and -2 stop at 48 kHz: not one to expect
+                    bus_on_ = false;
+                    break;
+                }
+                mp3_rate(mp3_->hz); // the rest of this tick's frames at the old rate: the next tick's at the new
+                ready = mp3_ready();
+            }
+            else if (state_ == STATE_NO_SYNC)
+                break;
             if (ready)
             {
                 const size_t n = static_cast<size_t>(std::min<uint64_t>(due, ready));
@@ -238,7 +439,8 @@ namespace ooe::emu
             if (pcmctl_ & PCMCTL_EOF)
             {
                 state_ = STATE_ENDED;
-                fifo_count_ -= fifo_count_ % frame_bytes(); // a partial frame left is dropped, never played
+                // A partial frame left is dropped, never played; of an MP3, whatever couldn't be decoded.
+                fifo_count_ = mp3() ? 0 : fifo_count_ - fifo_count_ % frame_bytes();
                 bus_on_ = false;
                 break;
             }
@@ -319,6 +521,26 @@ namespace ooe::emu
 
     void SoundCard::pcm_play(size_t n)
     {
+        if (mp3())
+        {
+            // The decoded frame's samples, mono on both sides; a bulk catch-up's make nothing.
+            Mp3 &m = *mp3_;
+            size_t quiet = 0;
+            if (!tap_on_)
+            {
+                quiet = mixing() ? static_cast<size_t>(std::min<uint64_t>(n, mix_skip_)) : n;
+                mix_skip_ -= mixing() ? quiet : 0;
+            }
+            for (size_t f = 0; f < n; ++f, ++m.at)
+            {
+                if (f < quiet)
+                    continue;
+                const int16_t *s = &m.pcm[m.at * m.channels];
+                bus_frame(s[0], m.channels == 2 ? s[1] : s[0]);
+            }
+            pos_ += static_cast<uint32_t>(n);
+            return;
+        }
         const size_t fb = frame_bytes();
         size_t quiet = 0; // frames that make nothing, taken in bulk: none to mix, or a bulk catch-up's
         if (!tap_on_)
@@ -588,8 +810,8 @@ namespace ooe::emu
         case POS + 3:
             return static_cast<uint8_t>(pos_latch_ >> 8 * (o - POS));
         case KBPS:
-        case KBPS + 1:
-            return 0;
+        case KBPS + 1: // the MP3 frame playing's
+            return static_cast<uint8_t>((mp3() && state_ != STATE_IDLE ? mp3_->kbps : 0) >> 8 * (o - KBPS));
         case VOLL:
         case VOLR:
             return vol_[o - VOLL];

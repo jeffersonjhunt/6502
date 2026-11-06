@@ -243,7 +243,8 @@ namespace ooe::emu
             STATE_PAUSED = 3,
             STATE_UNDERRUN = 4,
             STATE_ENDED = 5,
-            STATE_BAD_FORMAT = 0x80, ///< RATE (or, for now, CODEC) not one that plays, at RUN
+            STATE_BAD_FORMAT = 0x80, ///< at RUN, a RATE or CODEC that doesn't play; an MP3 frame above 48 kHz
+            STATE_NO_SYNC = 0x81,    ///< MP3: 64 KB of data with no frame found in it
         };
         static constexpr uint32_t RATE_MIN = 8'000, RATE_MAX = 48'000;
         static constexpr size_t START_BYTES = 4096; ///< buffering ends at this much in the FIFO, or at EOF
@@ -273,7 +274,8 @@ namespace ooe::emu
         static constexpr uint32_t FRAME_PAL = 19'656, FRAME_NTSC = 17'095, LINES_PAL = 312, LINES_NTSC = 263;
         static constexpr uint8_t CRA_START = 0x01, CRA_ONE_SHOT = 0x08, CRA_LOAD = 0x10;
 
-        SoundCard() : cpu_(bus_, Cpu6502::Model::Nmos6502) { reset(); }
+        SoundCard();
+        ~SoundCard() override;
         SoundCard(const SoundCard &) = delete;
         SoundCard &operator=(const SoundCard &) = delete;
         /// The card's revision, for tests of software that must take the card at any (ID's low nibble):
@@ -433,6 +435,21 @@ namespace ooe::emu
         {
             return size_t{play_fmt_ & PCMFMT_STEREO ? 2u : 1u} * (play_fmt_ & PCMFMT_16BIT ? 2u : 1u);
         }
+        /// CODEC 1: the decoder's state and the frame it last made (sound_card.cpp; minimp3 underneath).
+        struct Mp3;
+        bool mp3() const { return play_codec_ == 1; }
+        /// The next MP3 frame's samples ready (decoding from the FIFO as it must), or false: none can be yet.
+        bool mp3_next();
+        /// Stereo frames ready from the last MP3 frame decoded.
+        size_t mp3_ready() const;
+        /// A new MP3 frame's rate: the bus follows it.
+        void mp3_rate(uint32_t hz);
+        /// `n` bytes off the FIFO's front.
+        void fifo_drop(size_t n)
+        {
+            fifo_head_ = (fifo_head_ + n) % FIFO_BYTES;
+            fifo_count_ -= n;
+        }
         /// A byte into the FIFO (dropped if it's full), then the state as that leaves it.
         void pcm_write(uint8_t data);
         /// PCMCTL written: FLUSH, RUN's edges, PAUSE and EOF.
@@ -525,6 +542,8 @@ namespace ooe::emu
         uint8_t resume_{STATE_BUFFERING}; ///< the state PAUSE's release goes back to
         uint32_t play_rate_{0};
         uint8_t play_fmt_{0};
+        uint8_t play_codec_{0};            ///< CODEC as RUN took it
+        std::unique_ptr<Mp3> mp3_;
         uint64_t pcm_phase_{0};           ///< host cycles x rate owed, below one frame
         unsigned underruns_{0};
         bool tap_on_{false};
