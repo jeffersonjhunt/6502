@@ -389,6 +389,34 @@ TEST(put_t_and_b_as_dos33_py_reads_them)
     CHECK(m_data(r, 0, "BACK    BIN") == records(b, 0x1A));
 }
 
+TEST(files_of_more_than_one_track_sector_list)
+{
+    // A B file of 32,000 bytes (250 records: 126 sectors of data, 2 lists) PUT and GET back; an R file of
+    // 300 sectors (3 lists) dos33.py made, GET as R; dos33.py reads the first and checks the disk.
+    const std::vector<uint8_t> b = gen(32000, 6);
+    Dd r({{0, "BIG     BIN", b}});
+    REQUIRE(r.ok);
+    std::vector<uint8_t> three;
+    for (unsigned i = 0; i < 300 * 256; ++i)
+        three.push_back(static_cast<uint8_t>(i * 13 + i / 256));
+    r.put_disk(image({{"THREE", 'R', three}}));
+    quiet(r.c("dos33 put m:big.bin c:BIG B=0800"));
+    quiet(r.c("dos33 get c:BIG m:back.bin"));
+    CHECK(m_data(r, 0, "BACK    BIN") == records(b, 0x1A));
+    r.c("era m:back.bin");                // room on M: for 75 KB
+    quiet(r.c("dos33 get c:THREE m:three.r"));
+    CHECK(m_data(r, 0, "THREE   R  ") == three);
+    const std::vector<uint8_t> d = r.unit_image();
+    has(ls(d), " B 128 BIG");
+    has(ls(d), " R 303 THREE");
+    std::vector<uint8_t> bw = {0x00, 0x08, 0x00, 0x7D}; // $0800, 250 x 128 = 32,000
+    const std::vector<uint8_t> bb = records(b, 0x1A);
+    bw.insert(bw.end(), bb.begin(), bb.end());
+    bw.resize(126 * 256, 0);
+    CHECK(stored(d, "BIG") == bw);
+    checked(d);
+}
+
 TEST(era_frees_the_file_s_sectors)
 {
     Dd r;
