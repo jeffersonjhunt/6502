@@ -377,8 +377,10 @@ TEST(the_write_loop_loads_every_224_cycles_with_dma_off)
 TEST(an_interrupt_mid_write_waits_for_the_write)
 {
     // As if interrupts were on in the BIOS (OOLIB's tick, later): the I flag cleared at D2WSEC's entry,
-    // and an interrupt asked for in the middle of the write loop. The driver's SEI holds it off, so the
-    // sector is written right: O: and C: the same after the same PIP.
+    // and an interrupt asked for in the middle of the write loop. The driver's SEI holds it off: every
+    // load still 224 cycles after the last (an interrupt taken would put one late by its handler's time,
+    // which the disk may even pass over, a 0 bit or two more; the loads say it plainly), and the sector
+    // written right: O: and C: the same after the same PIP.
     Dr r(true, true, {{0, "X       BIN", gen(5120, 11)}});
     REQUIRE(r.ok);
     r.c("pip c:=m:x.bin");
@@ -400,9 +402,20 @@ TEST(an_interrupt_mid_write_waits_for_the_write)
             ++asked;
         }
     };
+    Loads loads;
+    r.cpu->set_observer(&loads);
     r.c("pip o:=m:x.bin");
+    r.cpu->set_observer(nullptr);
     r.watch = nullptr;
     CHECK(asked > 0);
+    // each field: 5 syncs 280 apart then 349 bytes 224 apart; between fields, anything
+    unsigned late = 0;
+    for (size_t f = 0; f + 354 <= loads.at.size(); f += 354)
+        for (size_t i = f + 1; i < f + 354; ++i)
+            late += loads.at[i] - loads.at[i - 1] != (i - f <= 5 ? 280u : 224u);
+    std::printf("  %zu loads in %zu fields, %u not on time\n", loads.at.size(), loads.at.size() / 354, late);
+    CHECK_EQ(loads.at.size() % 354, size_t{0});
+    CHECK_EQ(late, 0u);
     const std::vector<uint8_t> c = r.unit_image(), o = r.drive_image(0);
     const bool same = o.size() == IMAGE && c == o;
     std::printf("  %u interrupts asked for mid-write; O: %s C:\n", asked, same ? "is" : "is not");
