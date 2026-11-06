@@ -3152,7 +3152,8 @@ merged, with the switches' equates (below).
   steps always two in seven: the speeds case, 6 assertions); the remainder dropped, `rest_ = 0` (the steps
   case, and two of test_disk2_prom's write cases).
 - **Measured:** `tools/check.sh quick` 206 s, all passed; test_disk2 0.06 s, test_disk2_native 0.10 s, test_iie
-  7.5 s (as before).
+  7.5 s (as before). After the review: 191 s, all passed; test_disk2 0.12 s, test_disk2_native 0.02 s,
+  test_disk2_prom 0.13 s, test_iie 8.2 s.
 
 
 ## GW-BASIC ##
