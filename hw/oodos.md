@@ -2726,9 +2726,12 @@ tested against it with our own disk images.
 
 ### The plan, phase 6 ###
 
-**Proposed (phase 6, 2026-11-05).** Nothing of it is built, and nothing is to be built until the owner has
-settled the questions at the end, the first above all. Each stage reads its part of the Guides again at its
-start, as 4a–5c did, and says here what changed.
+**Proposed (phase 6, 2026-11-05).** Each stage reads its part of the Guides again at its start, as 4a–5c did,
+and says here what changed.
+
+**Decided (2026-11-05, the owner):** the plan as written, and the questions at its end as recommended: question 1
+by (a), the owner's sequencer PROM loaded from the fixtures at run time and the tests skipping without it, and never
+a sequencer table of our own; 2–12 as their recommendations. 6b first (it needs nothing of 6a).
 
 **What there is now (main, 7b691fc)**
 
@@ -3021,6 +3024,54 @@ merged, with the switches' equates (below).
 11. **Text conversion.** **Recommended:** as above: T files' high bit and CR, A, I and S files raw by default,
     B files without their header. Applesoft and Integer BASIC listings (detokenising) are not in phase 6.
 12. **The version.** **Recommended:** 0.3 through 6a–6c, 0.4 after 6d, one bump as for phase 5.
+
+**Proposed (6b, as built, 2026-11-06)** (`oodos/sys/bios.s`, `bdosdisk.s`, `cpmread.s`, `oodos/ldr/ooldr.s`,
+`oodos/tools/make_card.sh`; the plan above is what was built, and these are the details):
+
+- **The BIOS:** UNITS takes a unit of 280 sectors as `apple-do` (`DRVAPL`, the DPH's DPB `DPBAPL`); READ and WRITE of
+  such a drive go to `APPLEIO`. The track buffer is block 29's first 4 KB, one for every SD unit, tagged with its
+  drive and track (`TBTAG`); 6c's O: and P: buffers go after it. A READ copies its two 256-byte halves out by DMA
+  (COPY, so a buffer that crosses a window works as for any drive); a WRITE copies them in, then writes the SD
+  sector of each half (the skew never puts both halves of a 512-byte sector in one SD sector, so that is always
+  two). Any failure, a refused address included, empties the buffer, so it never holds what the card doesn't; so do
+  every rescan of the units (each first select, each warm boot's) and MOUNT and UNMOUNT (`SDMNT`). A WRITE to a
+  unit marked read-only is 2, as on the other drives. +353 bytes in block 61 (3,798 of 16,384).
+- **The BDOS:** `TSH`, a byte a slot, is the sectors a track as a shift, from the DPB's SPT at login (4 for SPT 64,
+  3 for SPT 32); OFFS is OFF shifted by it, and DISKOP gives the BIOS the buffer's sector shifted by its drive's
+  TSH as the track and the bits below as the sector. CD had no room (16 bytes, all used), so TSH is beside DTAB.
+  +29 bytes in block 60.
+- **INITDIR is unchanged** but for its comment: it works by tracks of 16, and an `apple-do` directory is 4 sectors,
+  all in its first track, so OFF + SECT / 16 and SECT mod 16 are right there. (Made general first, then taken
+  back: no test could tell the two apart.)
+- **OOLDR and the CP/M reader:** CR_INIT says `CRE_APPLE` (8) for 280 sectors. OOLDR takes that on B–G and
+  refuses it on A: (`DRIVES.TXT LINE n: PATH IS AN APPLE DISK, NOT FOR A:`). **Changed from before:** another size
+  on B–G is now `... IS NOT 8 MB, 32 MB OR 140 KB` (A: keeps `... IS NOT 8 MB OR 32 MB`), so test_oodos_boot's two
+  cases of it changed their text.
+- **The test card** (`make_card.sh`): `/DISKS/CPM.DSK`, made by cpmtools's `mkfs.cpm -f apple-do -b` (its boot
+  tracks 12,288 bytes of a pattern, so a stray write there shows) and `cpmcp` (0:README.TXT, 0:PATTERN.BIN of
+  20,000 bytes in two entries, 2:SMALL.BIN); `/DISKS/BLANK.DSK`, empty; `/DISKS/ODD.DSK`, 281 sectors. cpmtools
+  runs them in a directory with no `./diskdefs`, so it takes its own `apple-do`; `oodos/diskdefs` is unchanged.
+  The test card's `DRIVES.TXT` is unchanged (A: and B:); the tests mount unit 3 themselves.
+- **Found:** cpmtools keeps a CP/M 2.2 file's byte count, so `cpmcp` gives back its own files to the byte, while
+  OODOS reads them, as CP/M does, as whole records, the last padded with the zeros cpmtools wrote. A full
+  directory is PIP's `DISK WRITE ERROR - NAME`, as a full disk is.
+- **Tests:** `test_oodos_apple`, 6 cases, about 5 s: the DPB byte for byte and C:'s DPH pointing at it, and SHOW's
+  sums (128 KB, 64 entries, 32 sectors a track); cpmtools's files read by TYPE and PIP, every byte, and the same by
+  the test's own reading of the image (the skew, 1 KB blocks, 8-bit pointers); PIP of a file of one entry and one of
+  two onto C:, read back by the oracle and, after a ^C reset, by OODOS; every 256-byte sector that changed is the
+  directory's or the new files' (96 here, none else), the boot tracks unchanged; ERA and REN; a full disk and a
+  directory filled to 64; RO; another image mounted under the unit and ^C (the old directory not seen again);
+  281 sectors Invalid Drive; INITDIR on an `apple-do` drive (SFCBs in every fourth entry, the file still there).
+  test_oodos_boot: CPM.DSK as C: read-only boots, ODD.DSK on G: and both on A: refused, each by its message.
+  test_oodos_card: PIP onto CPM.DSK as C: from the booted card, saved by `OODOS_APPLE_OUT`; `interop.sh --apple`
+  (`tools/check.sh full`) has cpmtools's own `fsck.cpm -f apple-do` pass it and `cpmcp` give back OODOS's two
+  files and make_card.sh's three; run by hand once, `PASS 3`.
+- **Must fail, each seen to fail with its fault put in** (`OODOS_SYS_DIR`): OFF as tracks of 16 (all 6 cases,
+  17 assertions); no skew (4 cases); DISKOP's track and sector by 16 whatever the drive (all 6, 24); the track
+  buffer not emptied at a rescan (the remount case).
+- **Measured:** PIP of PATTERN.BIN, 20,096 bytes, from C: to M:, 12.4 million cycles, 1.73 s. `tools/check.sh
+  quick` 193 s, all passed (test_oodos_apple 8.6 s in the parallel run; test_oodos_card about 3 s more, for its
+  new case); the native step's wall time didn't grow.
 
 
 ## GW-BASIC ##
