@@ -1216,8 +1216,8 @@ MASKBIT:        LDA     BUFIX
 @bit:           RTS
 
 ; A = the track buffer's physical page (bits 8-15) for BUFIX's buffer, + AK.
-BUFPAGE:        LDX     BUFIX
-                LDA     TBPAGE,X
+BUFPAGE:        LDY     BUFIX          ; (X kept: the caller's copy side)
+                LDA     TBPAGE,Y
                 CLC
                 ADC     AK
                 RTS
