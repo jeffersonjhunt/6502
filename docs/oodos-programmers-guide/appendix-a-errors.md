@@ -18,8 +18,9 @@ fail three ways:
 **10, Media Change,** is a result code: on O: or P:, the disk was changed under an FCB opened before, or under a
 call about to write the directory, and nothing was read or written
 ([removable drives](03-file-system.md#removable-drives-o-and-p)). It comes whatever the error mode. A function
-that otherwise says a failure as `$FF` (19, 22, 23, 30, 99, 100, 103) gives 10 too: a program that tests only for
-`$FF` takes it for success, so test for 0.
+that otherwise says a failure as `$FF` (15 with access stamps, 19, 22, 23, 30, 99, 100, 103) gives 10 too: a program that tests only for
+`$FF` takes it for success, so test for 0. With 10 from a read or a write (20, 21, 33, 34, 40), X
+isn't the records done, multi-sector or not: the program opens the file again and works out where it was.
 
 A function number OODOS doesn't have returns A = X = `$FF`: 61–71, 76–97, 113–151, and 153 on. So does 60 when no
 RSX takes it. 41, MP/M's test and write, returns A = `$FF` with X 0, as CP/M 3 answers it.
@@ -65,7 +66,7 @@ says. The last column is the physical errors the function can raise.
 |---|---|---|
 | 13 `DRV_ALLRESET`, 37 `DRV_RESET` | 0 | 1, 2: the first failure, after the reset |
 | 14 `DRV_SET` | 0 | 1, 4 |
-| 15 `F_OPEN` | 0 opened; `$FF` not found | 1, 4, 7, 9 |
+| 15 `F_OPEN` | 0 opened; `$FF` not found; 10 the disk changed (O:, P:), with access stamps | 1, 4, 7, 9 |
 | 16 `F_CLOSE` | 0; `$FF` no entry to be had, or two blocks for one place; 10 the disk changed (O:, P:) | 1, 2, 4 |
 | 17 `F_SFIRST`, 18 `F_SNEXT` | 0–3 the entry's place in the record; `$FF` no more | 1, 4 |
 | 19 `F_DELETE` | 0; `$FF` not found; 10 the disk changed (O:, P:) | 1, 2, 3, 4, 7 |

@@ -712,6 +712,10 @@ The same, but for the register: the drive goes in A, where CP/M 3 takes it in E.
 #### Exit
 
 - A = 0, X = 0: the file is open. A = `$FF`, X = 0: there is no such file.
+- A = 10, X = 0: on O: or P:, with access stamps (below), another disk was found in the drive as the stamp was
+  to be written; the FCB isn't opened, whatever the error mode
+  ([removable drives](03-file-system.md#removable-drives-o-and-p)). A program that tests only for `$FF` takes
+  this for success: test for 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 The FCB gets the extent's block pointers and RC (128 if the file goes past this extent, 0 if it doesn't reach it),
@@ -971,8 +975,9 @@ The same, but for the registers. Password Error is checked last, after every oth
 
 #### Errors
 
-A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing read. Else, as the
-error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
+A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing read
+(with a multi-sector count, no more after the change). X isn't the records done then: open the file again. Else,
+as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)): 1 Disk I/O; 2 Read Only,
 when the read moves on from an extent that was written, on a drive that is read-only, and so can't close it;
 4 Invalid Drive. In return mode, the FCB is written back as the records read before the error left it. A written
 extent the read can't close as it moves on (the FCB and the entry name two blocks for one place) is A = 1, the FCB
@@ -1032,8 +1037,9 @@ by is kept in the FCB's S1, bits 0-6 (ours).
 
 #### Errors
 
-A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing written. Else, as the
-error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), before anything is written:
+A = 10, whatever the error mode: on O: or P:, the disk was changed since the open; nothing written
+(with a multi-sector count, no more after the change). X isn't the records done then: open the file again. Else,
+as the error mode says ([function 45](#bdos-45), [appendix A](appendix-a-errors.md)), before anything is written:
 4 Invalid Drive; 2 Read Only, the drive is read-only; 3 File R/O, the file is read-only (t1'), was opened from
 user 0, or is write-protected and was opened without its password. Then 1 Disk I/O. The DMA buffer is
 checked after those, as [function 20](#bdos-20) checks it (a read-only window may be written from).

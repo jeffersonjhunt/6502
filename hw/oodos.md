@@ -3295,7 +3295,9 @@ merged, with the switches' equates (below).
   the directory.
 - **R2F4:** a close, 48, 13, 37, 75 and the warm boot (WFLUSH, WBM bit 5) read the drive's directory past the
   buffers before writing any of its data, unless this call already has (`DVERD`), however recent the last access;
-  an eviction is still checked as a select is (`CHKD`): checking those too would read the directory again for every buffer a copy fills. A close whose
+  an eviction reads it too unless the call has already checked that drive (`CHKD`, or `DVERD`): it never takes
+  the motor or the clock's word, as a select does, but a copy's evictions come in calls whose select has checked
+  the drive, so they don't read the directory again for every buffer the copy fills. A close whose
   flush found another disk returns 10 (GENCHK after FLUSHD; the first directory write's check would say 10 anyway,
   but FIND and MAKEENT no longer run on the old disk's state).
 - **R2F5:** the Programmer's Guide gives 10 for 19, 22, 23, 30, 99, 100 and 103 too, with the warning that a test
@@ -3308,6 +3310,36 @@ merged, with the switches' equates (below).
   clock and set-back cases); no forgetting at a step back (the set-back case); no month (the month case); a flush
   not reading first (the close-within-the-second case); VOUCH not cleared at a call's start (the BIOS read case).
   The GENCHK after a close's flush has none: the directory write's own check returns 10 without it.
+
+**After 6c's third review (2026-11-06, the owner's decisions):**
+
+- **R3F1:** a drive whose directory couldn't be read (no disk) is tried once a call (`UNRD`, the BDOS's, beside
+  `CHKD`, cleared at each call's start), and the failure marks every changed buffer of the drive, so evictions in
+  later calls pass them over. Each try had taken about 1.8 s (emulated), once for each waiting buffer: with 16 of
+  P:'s waiting and its disk out, 160 records to O: then took 38.4 s and the warm boot 29.7 s more. Now 10.6 s and
+  1.9 s (13.8 s and 0.0 s with P: there); 13.2 s when P:'s buffers alternate in age with O:'s (26.2 s without the
+  marking).
+- **R3F2:** a clock that ticked once and then stalled stayed trusted. `MEDIA` now looks at the card's drive
+  (`D2LAST`) when RECENT trusts: if its motor has stopped (so its access was more than a second ago) while its
+  stamp is still this second, the clock has stalled, and nothing is trusted until it goes forward again
+  (`UNTICK`, which forgets every drive's last access, as a step back does). The card's own run-on timer is the
+  second clock; no cycle counting.
+- **R3F3, not changed:** a disk whose directory is byte for byte the old one's is taken as the same disk (CP/M
+  3's checksums have the same limit): the BDOS's and the BIOS's buffers of the old disk are read, and its waiting
+  data written onto the new one. It needs two disks with identical directories and different data. Recorded in
+  the books.
+- **R3F5:** an eviction whose victim, another removable drive's buffer, fails with Read Only (a write-protected
+  disk) says it, on the call that wanted the buffer, as WBACKX would; only Disk I/O (kept, marked) goes on to
+  another victim.
+- **R3F4, R3F6, R3F8 (books):** 15 with access stamps returns 10 too; an eviction's check is said as it is; X
+  isn't the records done after a 10 (the program opens the file again). R3F7: TICKED's comment on its line.
+- **Tests:** `test_oodos_disk2_media` 16 → 21 cases, MEMTEST's new F (64 records waiting on P:) and G (the same,
+  alternating with O:'s): the two timing cases (each held to 3 s over the no-disk-waiting time), round 2's
+  stalled-clock reproduction, a stalled clock inside a program (MEMTEST's O: the read is 10), and a
+  write-protected disk found by an eviction (OFAIL 02: the record's buffer and its block's other, zeroed sector).
+- **Must fail, each seen with its fault put in:** no `UNRD` (both timing cases: the warm boot 29.7 s); no
+  marking (the alternating case, 26.2 s); MEDIA's stall check gone (both stalled-clock cases); the eviction's
+  Read Only ignored (the write-protect case).
 - **The books** (approved): the Programmer's Guide's chapter 3 (ten drives, removable drives), 14's and 37's
   drives, 16's, 20's, 21's, 33's, 34's and 40's Media Change, 31's DPB, chapter 2's S1, appendix A's 10, appendix
   G's choices; the User's Guide's changing a floppy and O:'s and P:'s Disk I/O and Read Only.
