@@ -110,7 +110,7 @@
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
 .export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
-.export RAWF, DRVAPL                   ; the BDOS's function 76 (6d)
+.export RAWF, DRVAPL, MNTGEN           ; the BDOS's function 76 (6d)
 .exportzp TMP, SPTR                    ; disk2.s's too
 .import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
 .exportzp TYEAR, TMONTH, TDATE, SRCP, DSTP, DCOUNT
@@ -168,6 +168,7 @@ BUFIX:          .res    1              ; CURDRV's buffer: 0 an SD unit's, 1 O:'s
 TBMASK:         .res    2 * NTB        ; each buffer's file sectors that are good (an SD unit's: all)
 VOUCH:          .res    1              ; O: or P: + 1 whose disk the BDOS checked in this call: its buffers stay
 RAWF:           .res    1              ; not 0: function 76's READ or WRITE, a DOS 3.3 sector (6d)
+MNTGEN:         .res    SD_DRIVES      ; each unit's mount changes, counted (UNITS), never cleared
 D2STAMP:        .res    16             ; O:'s and P:'s last access (8 each): the RTC's second, minute, hour, date, month
 STAMPT:         .res    5              ; the RTC's now, as D2STAMP keeps it
 STAMPH:         .res    5              ; the latest now NOW has read
@@ -569,8 +570,7 @@ UNITS:          JSR     CARDOK
 @stuck:         JSR     SDRESET        ; abandoned, as SDIO does, so the next one can go
 @none:          SEC                    ; failed: the drives as they were
                 RTS
-@read:          STZ     TBTAG          ; the track buffer: whatever is mounted now
-                LDY     #0
+@read:          LDY     #0
 @lo:            LDA     SD_DATA
                 STA     SECBUF,Y
                 INY
@@ -599,6 +599,16 @@ UNITS:          JSR     CARDOK
                 LDA     SPTR
                 ORA     DRVCHG
                 STA     DRVCHG
+                TYA                    ; its mount count, which nothing clears (76's test), and
+                LSR     A              ; the track buffer emptied: only when a unit changed
+                LSR     A              ; (6d's third review: every rescan emptied it)
+                LSR     A
+                LSR     A
+                LSR     A
+                TAX
+                DEX
+                INC     MNTGEN,X
+                STZ     TBTAG
 @kept:          ASL     SPTR
                 CPY     #SD_DRIVES * 32
                 BNE     @entry

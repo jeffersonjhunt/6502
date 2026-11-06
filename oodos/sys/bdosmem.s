@@ -47,7 +47,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import SDMNT, UNITSAV
-.import RAWF, DRVAPL, DRVCHG           ; bios.s's: function 76
+.import RAWF, DRVAPL, MNTGEN           ; bios.s's: function 76
 
 FIRST_BLOCK     = 4                    ; bank 1's first, AMAP's 0
 MAP_FIRST       = $81
@@ -76,6 +76,8 @@ MP:             .res    2              ; 74: the path's next byte, in SECBUF
 .segment "SYSBSS"
 RBLK:           .res    6              ; 76's block: the drive, track, sector, op, address
 RRO:            .res    1              ; 76: the drive's read-only bit
+RGEN:           .res    SD_DRIVES      ; 76: each SD drive's mount count at the program's first call
+RSEEN:          .res    1              ; and the drives it has: the warm boot clears it
 DMASEG:         .res    2              ; 51's, $FFFF none
 AMAP:           .res    AMAP_LEN
 MBLK:           .res    5              ; the program's MCB or block, as read
@@ -690,30 +692,31 @@ F_SECT:         LDX     #0
                 BCS     @disk2
                 CMP     #SD_DRIVES
                 BCS     @not
-                TAX                    ; an SD drive whose unit is 140 KB: the units read
-                LDA     RBLK + 3       ; again for every write, and for a read when it isn't
-                BNE     @scan          ; known as one (mounted since)
+                JSR     DRVBIT         ; an SD drive whose unit is 140 KB. The program's first
+                STA     RRO            ; 76 call on it, and every write, read the units again;
+                AND     RSEEN          ; the first keeps the unit's mount count (MNTGEN, the
+                BEQ     @scan          ; BIOS's: nothing clears it), and a write is refused if
+                LDA     RBLK + 3       ; it has moved since, however the change was seen (6d's
+                BNE     @scan          ; third review). A read of a drive known as one: as it is
+                LDX     RBLK
                 LDA     DRVAPL,X
                 BMI     @apple
-@scan:          LDA     #0             ; RESCAN's, its unit's change seen first: a write to
-                TAX                    ; a unit swapped behind OODOS's back since the last
-                JSR     B_SELDSK       ; read of the units is refused, not an Apple disk
-                STZ     BIOSDRV        ; (6d's second review: it took a DOS sector)
+@scan:          JSR     RESCAN
                 LDX     RBLK
-                LDA     #1
-:               DEX
-                BMI     :+
-                ASL     A
-                BRA     :-
-:               AND     DRVCHG
-                STA     RRO            ; (RRO for the moment: the change)
-                JSR     CHANGED
-                LDA     RBLK + 3
-                BEQ     :+
+                LDA     RRO            ; (RRO for the moment: the drive's bit)
+                AND     RSEEN
+                BNE     @seen
                 LDA     RRO
+                TSB     RSEEN
+                LDA     MNTGEN,X
+                STA     RGEN,X
+                BRA     @known
+@seen:          LDA     RBLK + 3
+                BEQ     @known
+                LDA     MNTGEN,X
+                CMP     RGEN,X
                 BNE     @not
-:               LDX     RBLK
-                LDA     DRVAPL,X
+@known:         LDA     DRVAPL,X
                 BMI     @apple
 @not:           LDA     #$FF
                 JMP     RETA

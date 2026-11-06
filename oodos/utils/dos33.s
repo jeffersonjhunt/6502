@@ -29,7 +29,7 @@
 
         .define CMD_DATA "RODATA"
         .define CMD_BSS "BSS"
-CMD_BREAK = UT_BREAK
+CMD_BREAK = dbreak
 
 CR      = $0D
 LF      = $0A
@@ -191,8 +191,13 @@ get:    jsr     drive
         stz     zpend + 1
         stz     first
         stz     done
+        stz     bleft
+        stz     bleft + 1
+        jsr     CM_PAGE                 ; so CM_BRK takes a ^C: dbreak deletes the $$$ file
 @list:  lda     lt                      ; each list in turn
-        beq     @end
+        bne     :+
+        jmp     @end
+:       jsr     CM_BRK
         lda     #<lbuf
         ldx     #>lbuf
         jsr     rdsec_tl
@@ -202,7 +207,14 @@ get:    jsr     drive
         tax
         lda     lbuf + $0C,x            ; track 0: a sector never written
         bne     @data
-        inc     zpend                   ; a sector never written: zeros, if more follow
+        lda     gmode                   ; T: the text's end; B: before its first sector,
+        cmp     #'T'                    ; no address or length, so nothing; else zeros, if
+        beq     @end                    ; more follow (B's only to its length)
+        cmp     #'B'
+        bne     :+
+        lda     first
+        beq     @end
+:       inc     zpend
         bne     @npair
         inc     zpend + 1
         bra     @npair
@@ -213,7 +225,10 @@ get:    jsr     drive
         lda     #<dbuf
         ldx     #>dbuf
         jsr     rdsec
-@zeros: lda     zpend                   ; the zeros owed first
+@zeros: lda     done                    ; the zeros owed first, a sector at a time
+        bne     @end
+        jsr     CM_BRK
+        lda     zpend
         ora     zpend + 1
         beq     @this
         ldx     #0
@@ -241,7 +256,7 @@ get:    jsr     drive
         sta     lt
         lda     lbuf + 2
         sta     ls
-        bra     @list
+        jmp     @list
 @end:   lda     #0                      ; the last record: ^Z after text, 0 after the rest
         ldx     gmode
         cpx     #'T'
@@ -902,7 +917,34 @@ cpmok:  ldx     #2
         lda     #<zdollar
         ldx     #>zdollar
         jmp     failz
-@drv:   jsr     cpmdrv                  ; the drive's bit in the read-only vector (29)
+@drv:   jsr     mktemp                  ; the file there? (tfcb with fcb's name; the open
+        ldx     #2                      ; logs the drive in, so a unit mounted read-only is
+:       lda     fcb + 9,x               ; read-only by the check after)
+        sta     tfcb + 9,x
+        dex
+        bpl     :-
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_OPEN
+        jsr     BDOS
+        cmp     #$FF
+        bne     :+
+        cpx     #0
+        beq     @rovec                  ; not there
+:       jsr     cpmres                  ; refused by the BDOS (said), or 10
+        lda     tfcb + 8                ; f8': user 0's SYS file, from another user: not
+        bmi     @rovec                  ; this user's, so not there
+        lda     tfcb + 9                ; t1': read-only
+        bpl     :+
+        lda     #<srofile
+        ldx     #>srofile
+        jmp     failsay
+:       lda     tfcb + 7                ; f7': write-protected, its password not given
+        bpl     @rovec
+        lda     #<sprot
+        ldx     #>sprot
+        jmp     failsay
+@rovec: jsr     cpmdrv                  ; the drive read-only? (29, its bit)
         and     #7
         tax
         lda     #1
@@ -920,32 +962,9 @@ cpmok:  ldx     #2
         beq     :+
         txa
 :       and     src
-        beq     @file
+        beq     @dollar
         lda     #<srodrv
         ldx     #>srodrv
-        jmp     failsay
-@file:  lda     #<zdirful               ; the file there, read-only? (tfcb with fcb's name)
-        ldx     #>zdirful
-        jsr     setmsg
-        jsr     mktemp
-        ldx     #2
-:       lda     fcb + 9,x
-        sta     tfcb + 9,x
-        dex
-        bpl     :-
-        lda     #<tfcb
-        ldx     #>tfcb
-        ldy     #F_OPEN
-        jsr     BDOS
-        cmp     #$FF
-        bne     :+
-        cpx     #0
-        beq     @dollar                 ; not there
-:       jsr     cpmres                  ; refused by the BDOS (a password: said), or 10
-        lda     tfcb + 9
-        bpl     @dollar
-        lda     #<srofile
-        ldx     #>srofile
         jmp     failsay
 @dollar:
         jsr     mktemp                  ; NAME.$$$ there already?
@@ -955,6 +974,8 @@ cpmok:  ldx     #2
         jsr     BDOS
         cmp     #$FF
         beq     :+
+        lda     tfcb + 8                ; user 0's, from another user: not this user's
+        bmi     :+
         lda     #<zdolex
         ldx     #>zdolex
         jmp     failz
@@ -1304,9 +1325,13 @@ sect:   sty     sblk + 3
         jmp     failsay
 :       cmp     #$FF
         bne     :+
-        lda     #<snotap
+        lda     #<snotap                ; a write refused after its reads: the unit swapped
         ldx     #>snotap
-        jmp     failsay
+        ldy     sblk + 3
+        beq     @say
+        lda     #<sachg
+        ldx     #>sachg
+@say:   jmp     failsay
 :       lda     #<serr
         ldx     #>serr
         jmp     failsay
@@ -1506,8 +1531,9 @@ cpmnone:
 cpmres: cmp     #0
         bne     :+
         rts
-:       cmp     #10
-        bne     :+
+:       cmp     #10                     ; the disk changed: the $$$ file is the old disk's,
+        bne     :+                      ; and nothing on the new one is touched
+        stz     gtemp
         lda     #<schg
         ldx     #>schg
         bra     failsay
@@ -1528,11 +1554,15 @@ cpmres: cmp     #0
         bra     failsay
 :       cmp     #1
         bne     :+
-        lda     #<scpmerr
-        ldx     #>scpmerr
-        bra     failsay
+        lda     #<zdirful
+        ldx     #>zdirful
+        jmp     failz
 :       lda     #<scpmgen
         ldx     #>scpmgen
+; ^C (CM_BRK, GET's): its $$$ file deleted, then as UT_BREAK.
+dbreak: jsr     dtemp
+        jmp     UT_BREAK
+
 ; The 0-ended message at A/X (one may hold a '$'), then as failsay.
 failz:  sta     src
         stx     src + 1
@@ -1551,7 +1581,10 @@ failsay:
         jsr     UT_SAY
 failend:
         jsr     UT_FAIL
-        lda     gtemp                   ; GET's $$$ file, not whole: deleted, the old one kept
+        jsr     dtemp
+        jmp     UT_EXIT
+; GET's $$$ file, not whole: deleted, the old one kept.
+dtemp:  lda     gtemp
         beq     :+
         stz     gtemp
         lda     #<tfcb
@@ -1562,7 +1595,7 @@ failend:
         ldx     #>tfcb
         ldy     #F_DELETE
         jsr     BDOS
-:       jmp     UT_EXIT
+:       rts
 ; The message at A/X, a line owed, the end.
 sayend: jsr     UT_SAY
         jmp     UT_EXIT
@@ -1595,7 +1628,6 @@ sname:  .byte   "Bad name.$"
 sbig:   .byte   "File too big for B.$"
 scpmno: .byte   "No File$"
 scpmfull: .byte "CP/M disk full.$"
-scpmerr: .byte  "CP/M directory full.$"
 scpmgen: .byte  "CP/M error.$"
 zdirful: .byte  "CP/M directory full.", 0
 znoclose: .byte "CP/M file not closed.", 0
@@ -1610,6 +1642,8 @@ schg:   .byte   "The CP/M disk was changed.$"
 sstop:  .byte   "GET stopped.$"
 srodrv: .byte   "CP/M drive read-only.$"
 srofile: .byte  "CP/M file read-only.$"
+sprot:  .byte   "CP/M file write-protected (its password).$"
+sachg:  .byte   "The Apple disk was changed.$"
 
         .bss
 adrv:   .res    1                       ; the Apple disk's drive, 0-15
