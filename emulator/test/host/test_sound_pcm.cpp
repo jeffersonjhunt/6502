@@ -99,14 +99,15 @@ namespace
     uint32_t pos(SoundCard &c)
     {
         const uint32_t lo = c.read(SoundCard::POS); // latches the rest
-        return lo | c.read(SoundCard::POS + 1) << 8 | c.read(SoundCard::POS + 2) << 16 |
-               static_cast<uint32_t>(c.read(SoundCard::POS + 3)) << 24;
+        const uint32_t b1 = c.read(SoundCard::POS + 1), b2 = c.read(SoundCard::POS + 2), b3 = c.read(SoundCard::POS + 3);
+        return lo | b1 << 8 | b2 << 16 | b3 << 24;
     }
 
     unsigned free_units(SoundCard &c)
     {
         const unsigned lo = c.read(SoundCard::FREE); // first: it latches the high byte
-        return lo | c.read(SoundCard::FREE + 1) << 8;
+        const unsigned hi = c.read(SoundCard::FREE + 1);
+        return lo | hi << 8;
     }
 
     uint8_t state(const SoundCard &c) { return c.peek(SoundCard::STATE); }
@@ -544,6 +545,24 @@ TEST(demand_dma_longer_than_the_fifo_stops_itself_and_goes_on_as_the_card_plays)
     CHECK_EQ(c.underruns(), 0u);
     CHECK_EQ(pos(c), 49'152u);
     CHECK(c.take_tap() == expected(bytes, STEREO16));
+}
+
+TEST(an_hour_in_one_tick_is_caught_up_in_bulk)
+{
+    // A backgrounded tab hands the card a huge tick: the stream catches up at once, the frames it had played and
+    // the rest dry, with nothing kept (the tap is off).
+    SoundCard c;
+    c.set_cpu_hz(SoundCard::NATIVE_HZ);
+    start(c, STEREO16);
+    put(c, stream(100'000, 6));
+    c.tick(uint64_t{SoundCard::NATIVE_HZ} * 3'600);
+    CHECK_EQ(pos(c), 25'000u);
+    CHECK_EQ(state(c), SoundCard::STATE_UNDERRUN);
+    CHECK_EQ(c.underruns(), 1u);
+    CHECK(c.take_tap().empty());
+    put(c, stream(4, 7));                              // and it plays on
+    c.tick(uint64_t{SoundCard::NATIVE_HZ} * 3'600 * 24);
+    CHECK_EQ(pos(c), 25'001u);
 }
 
 int main()

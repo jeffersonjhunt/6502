@@ -177,6 +177,9 @@ namespace ooe::emu
 
     void SoundCard::pcm_advance(uint64_t cycles)
     {
+        // In bulk, however long the tick (a backgrounded tab's): the frames due are taken from the FIFO in one
+        // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off,
+        // touches no sample. cycles x rate stays in 64 bits for a single tick of over a year at 7.16 MHz and 48 kHz.
         pcm_phase_ += cycles * play_rate_;
         uint64_t due = pcm_phase_ / host_hz_;
         pcm_phase_ %= host_hz_;
@@ -201,8 +204,8 @@ namespace ooe::emu
                 state_ = STATE_UNDERRUN;
                 ++underruns_;
             }
-            if (tap_on_)
-                tap_.insert(tap_.end(), 2 * due, int16_t{0}); // silence until data comes
+            if (tap_on_) // a test's only: off, nothing is kept
+                tap_.insert(tap_.end(), static_cast<size_t>(2 * due), int16_t{0}); // silence until data comes
             return;
         }
     }

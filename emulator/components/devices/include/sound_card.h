@@ -329,7 +329,8 @@ namespace ooe::emu
         std::array<uint8_t, RAM_BYTES> &ram() { return ram_; }
         const std::array<uint8_t, RAM_BYTES> &ram() const { return ram_; }
         // Tests: the PCM stream as the card's digital bus carries it, before any resampling.
-        /// Record the bus's frames from now on (true), or stop and drop them (false).
+        /// Record the bus's frames from now on (true), or stop and drop them (false). For tests only: it keeps
+        /// every frame until take_tap(), uncapped, so nothing else turns it on (it starts off, and /RESET leaves it).
         void set_tap(bool on)
         {
             tap_on_ = on;
