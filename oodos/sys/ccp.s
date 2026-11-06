@@ -1727,7 +1727,10 @@ LOADPROG:       LDA     COMFCB
                 LDX     #>COMFCB
                 LDY     #F_OPEN
                 JSR     BDOS
-                CMP     #$FF
+                CMP     #10            ; access stamps on O: or P:, its floppy changed
+                BNE     :+
+                JMP     MEDIA
+:               CMP     #$FF
                 BNE     FOUNDIT
                 CPX     #0             ; not there: the next
                 BEQ     @try

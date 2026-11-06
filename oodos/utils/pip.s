@@ -244,8 +244,17 @@ xfcb:   ldy     #F_WRITEXFCB
         cmp     #10
         beq     chg
         rts
-chgsrc: stz     tmpopen
-        lda     #<smedia
+chgsrc: ldx     cur                     ; the source's floppy changed: NAME.$$$ is deleted as
+        jsr     fcbptr                  ; for any failure, unless it is on that same drive
+        lda     (ptr)                   ; (then it's the old floppy's: left alone)
+        jsr     realdrv
+        sta     sdrv
+        lda     tfcb
+        jsr     realdrv
+        cmp     sdrv
+        bne     :+
+        stz     tmpopen
+:       lda     #<smedia
         ldx     #>smedia
         jmp     failsrc
 
@@ -261,6 +270,8 @@ droptmp:
         ldx     #>tfcb
         ldy     #F_CLOSE
         jsr     BDOS
+        cmp     #10                     ; its floppy changed: the name is the old one's, and
+        beq     @none                   ; a delete would find the new floppy's
         lda     #<tfcb
         ldx     #>tfcb
         ldy     #F_DELETE
@@ -2495,6 +2506,7 @@ listing: .res   1                       ; 1: COPYING - and the names
 curname: .res   2                       ; a wildcard copy's directory bytes (0 high: none)
 single: .res    1                       ; 1: one file copied alone
 ddrive: .res    1                       ; 1: the destination was a drive alone
+sdrv:   .res    1                       ; chgsrc's: the source's drive
 skipok: .res    1                       ; 1: a source that won't open is skipped
 filesp: .res    1                       ; the stack before a drive copy's file
 cur:    .res    1                       ; the source being copied
