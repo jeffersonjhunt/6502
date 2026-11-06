@@ -50,7 +50,7 @@ HW_STATUS = ("built", "emulated", "proposed")  # the machine's registers and sec
 # (PIP, phase 4b2's, is oodos/utils/pip.s now.)
 PLANNED: tuple = ()
 MODULES = {0x6: "serial", 0x7: "storage", 0x8: "DMA", 0x9: "video", 0xA: "sound", 0xB: "USB",
-           0xD: "north bridge", 0xE: "console"}
+           0xC: "Disk II", 0xD: "north bridge", 0xE: "console"}
 
 ANCHOR_LINE = re.compile(r'^<a id="([^"]+)"></a>\s*$')
 ANCHOR_ANY = re.compile(r'<a\s+(?:id|name)="([^"]+)"')
@@ -613,8 +613,9 @@ class Check:
             if not name.endswith(".md") or name == "README.md":
                 continue
             path = os.path.join(book, name)
-            lines = self.read(path).splitlines()
-            code = {n: c for n, _, c in self.lines_outside_code("\n".join(lines))}
+            text = self.read(path)
+            lines = text.splitlines()
+            code = {n: c for n, _, c in self.lines_outside_code(text)}  # the same lines, a trailing blank one too
             for i, line in enumerate(lines):
                 h = HEADING.match(line)
                 if code[i + 1] or not h or len(h.group(1)) not in (2, 3):
@@ -665,8 +666,12 @@ class Check:
                 self.fail(f"docs/index/{fname}", "isn't what the entries generate: make -C docs index")
             for rec in json.loads(self.read(path)):
                 a = rec.get("anchor")
-                if a and (not rec.get("file") or a not in self.anchors(os.path.join(self.docs, rec["file"]),
-                                                                       report=False)):
+                if not a:
+                    continue
+                where = os.path.join(self.docs, rec["file"]) if rec.get("file") else None
+                if not where or not os.path.isfile(where):
+                    self.fail(f"docs/index/{fname}", f"anchor {a}'s file {rec.get('file')} isn't there")
+                elif a not in self.anchors(where, report=False):
                     self.fail(f"docs/index/{fname}", f"anchor {a} isn't in {rec.get('file')}")
 
     def report(self):
