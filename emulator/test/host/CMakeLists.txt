@@ -108,7 +108,8 @@ target_compile_definitions(test_sid_corpus PRIVATE EMU_SID_KNOWN_FAILURES="${CMA
 emu_add_test(test_apple)
 emu_add_test(test_disk_image)
 emu_add_test(test_disk2)
-emu_add_test(test_disk2_native) # native mode (phase 6a); its disk cases need the owner's sequencer PROM, and say SKIP without it
+emu_add_test(test_disk2_native) # native mode (phase 6a): 6502 code on the backplane, no fixtures
+emu_add_test(test_disk2_prom) # native mode's disks on the owner's sequencer PROM (fixtures/apple2e): exits 77 without it
 emu_add_test(test_session)
 emu_add_test(test_sd)
 emu_add_test(test_sd_fat)

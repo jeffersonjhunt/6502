@@ -843,7 +843,7 @@ Decided to come later, not forgotten:
   ProDOS block driver that would show it in Apple II mode (hw/design.md), interrupts in the BIOS
   (it polls), a card kept in the browser between visits, and real timing from an RP2350 once one
   is built. The figures (100 us to a first sector, 25 us a sector after) are estimates.
-- ~~**The Disk II in native mode**~~ (2026-10-25; done 2026-11-06, OODOS phase 6a: the switches at
+- ~~**The Disk II in native mode**~~ (2026-10-25; done 2026-11-05, OODOS phase 6a: the switches at
   `$C600–$C60F`, the sequencer at two steps every seven native cycles, the run-on a second in either mode,
   the bridge's MODE and resets setting the card's clock; `test_disk2`, `test_disk2_native`). The native
   driver is OODOS's phase 6c.

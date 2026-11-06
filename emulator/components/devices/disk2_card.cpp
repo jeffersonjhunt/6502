@@ -22,7 +22,8 @@ namespace ooe::emu
     namespace
     {
         constexpr unsigned STEPS_PER_CYCLE = 2; ///< the sequencer's 2 MHz against Apple II mode's 1 MHz CPU
-        constexpr unsigned NATIVE_DIVISOR = 7;  ///< native mode: 2 steps every 7 cycles (OSC / 7 against OSC / 2)
+        constexpr uint64_t OSC = 14'318'180;    ///< the backplane's master clock; the sequencer's is OSC / 7
+        constexpr uint32_t NATIVE_HZ = 7'159'090; ///< OSC / 2: 2 steps every 7 cycles
         constexpr unsigned STEP = 4;            ///< 125 ns units (WOZ bit timing's) a step takes
         constexpr uint64_t SKIP_AFTER = 4096;   ///< steps: a longer gap in read mode skips ahead
         constexpr uint64_t SETTLE = 64;         ///< steps run at the end of a skip
@@ -82,9 +83,11 @@ namespace ooe::emu
         uint64_t steps = (cycle - synced_) * STEPS_PER_CYCLE;
         if (clock_ == Clock::Native)
         {
-            steps += rest_;
-            rest_ = static_cast<unsigned>(steps % NATIVE_DIVISOR);
-            steps /= NATIVE_DIVISOR;
+            // cycles x (OSC / 7) / cpu_hz_: in units of 1 / (7 x cpu_hz_) steps, carried
+            const uint64_t per = 7 * uint64_t{cpu_hz_};
+            const uint64_t units = (cycle - synced_) * OSC + rest_;
+            steps = units / per;
+            rest_ = units % per;
         }
         if (spinning_ && !motor_ && steps_ + steps >= stops_at_)
         {
@@ -96,6 +99,13 @@ namespace ooe::emu
             run(steps);
         steps_ += steps;
         synced_ = cycle;
+    }
+
+    void Disk2Card::set_cpu_hz(uint32_t hz)
+    {
+        catch_up(now()); // the cycles so far at the old speed
+        rest_ = 0;
+        cpu_hz_ = hz ? hz : NATIVE_HZ;
     }
 
     void Disk2Card::set_clock(Clock c)
