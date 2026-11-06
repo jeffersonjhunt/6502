@@ -235,7 +235,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -302,6 +302,11 @@ foreach(name ${OODOS_UTILS_SUITES})
             EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 endforeach()
 add_dependencies(test_oodos_boot oodos_sys oodos_ldr oodos_utils backplane_bios)
+# test_oodos_dos33 (6d): dos33.py makes, lists and checks its DOS 3.3 images, in a scratch dir of its own.
+target_compile_definitions(test_oodos_dos33 PRIVATE
+        EMU_OODOS_SRC="${OODOS_SRC}"
+        EMU_PYTHON="${Python3_EXECUTABLE}"
+        EMU_DOS33_WORK="${CMAKE_CURRENT_BINARY_DIR}/dos33_work")
 target_compile_definitions(test_oodos_sys PRIVATE
         EMU_OODOS_SYS_DIR="${OODOS_SYS_DIR}"
         EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"

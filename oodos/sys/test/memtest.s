@@ -112,6 +112,15 @@
 ;       reads of M:'s BIG.BIN; 22 of O:'s README.TXT, which exists: HMK, the
 ;       call's own error (File Exists, O:) after P:'s held Read Only; then
 ;       the SCB's error drive (ERRDRV nn)
+;   S   76 (6d): refused, A FF, for M: (SM), A: (SA) and past P: (SQ); 1
+;       for C:'s track 35 (ST), sector 16 (SS), op 2 (SO); the VTOC of C:'s
+;       DOS 3.3 disk read (SR 00 00, SV 7A: its pairs a list), its volume
+;       changed and written (SW), read again (SR2, SV2 the new one)
+;   L   C:'s CP/M disk logged in (LF, 17 of README.TXT), its directory's
+;       first sector read by 76 (LR), README made QEADME, written (LW);
+;       17 of QEADME.TXT (LQ 0n 00: found, the drive's buffers were dropped)
+;   J   O:'s VTOC read by 76 (JR); WP? (the test write-protects the disk);
+;       written (JW 02 00: write-protected)
 ;   Q   O:'s track 3 sector 0 (the directory's first) read through the BIOS
 ;       by 50, no BDOS select before (QRD 00), its first byte (QB nn: 00
 ;       README.TXT's user, E5 a blank disk's)
@@ -286,6 +295,15 @@ start:  CALLF   F_DMAOFF, BUF
 :       cmp     #'H'
         bne     :+
         jmp     caseh
+:       cmp     #'S'
+        bne     :+
+        jmp     cases
+:       cmp     #'L'
+        bne     :+
+        jmp     casel
+:       cmp     #'J'
+        bne     :+
+        jmp     casej
 :       SAY     "NO CASE"
         jmp     CRLF
 
@@ -1152,6 +1170,72 @@ caseh:  lda     BP_DMA+4                ; the error mode: R return, D display, e
 hpb:    .byte   $51, 0                  ; 49: the SCB's error drive
         .popseg
 
+; S, L, J: function 76 (6d).
+.macro SECT key, d, t, s, op
+        lda     #d
+        sta     sblk
+        lda     #t
+        sta     sblk + 1
+        lda     #s
+        sta     sblk + 2
+        lda     #op
+        sta     sblk + 3
+        lda     #<ybuf
+        sta     sblk + 4
+        lda     #>ybuf
+        sta     sblk + 5
+        TRY     key, O_SECTOR, sblk
+.endmacro
+cases:  SECT    "SM ", DRV_M, 17, 0, 0          ; M:: not an Apple disk
+        SECT    "SA ", 0, 17, 0, 0              ; A: neither
+        SECT    "SQ ", 16, 17, 0, 0             ; past P:
+        SECT    "ST ", DRV_C, 35, 0, 0          ; past the disk
+        SECT    "SS ", DRV_C, 17, 16, 0
+        SECT    "SO ", DRV_C, 17, 0, 2          ; neither read nor write
+        SECT    "SR ", DRV_C, 17, 0, 0          ; the VTOC: read
+        BYTES   "SV ", ybuf + $27, 1            ; its pairs a list: 7A
+        lda     ybuf + 6                        ; the volume, changed and written
+        eor     #$FF
+        sta     ybuf + 6
+        SECT    "SW ", DRV_C, 17, 0, 1
+        SECT    "SR2 ", DRV_C, 17, 0, 0
+        BYTES   "SV2 ", ybuf + 6, 1
+        jmp     done
+; L: a CP/M disk on C: logged in (17 of README.TXT), its directory's first
+; sector changed by 76 (README to QEADME), then 17 of QEADME.TXT: found
+; only if 76 dropped the drive's buffers, so the BDOS read the disk again.
+casel:  lda     #DRV_C
+        sta     TDRV
+        NAME    fcb, "README  TXT"
+        TRY     "LF ", F_SFIRST, fcb
+        SECT    "LR ", DRV_C, 3, 0, 0
+        ldx     #0
+lscan:  lda     ybuf + 1,x                      ; README's entry: 'R' to 'Q'
+        cmp     #'R'
+        bne     lnext
+        lda     ybuf + 2,x
+        cmp     #'E'
+        bne     lnext
+        lda     #'Q'
+        sta     ybuf + 1,x
+        bra     lfound
+lnext:  txa
+        clc
+        adc     #32
+        tax
+        bne     lscan
+lfound: SECT    "LW ", DRV_C, 3, 0, 1
+        NAME    fcb, "QEADME  TXT"
+        TRY     "LQ ", F_SFIRST, fcb
+        lda     #$FF
+        sta     TDRV
+        jmp     done
+; J: O:'s disk write-protected (the test does it at its WP?): 76's answer.
+casej:  SECT    "JR ", DRV_O, 17, 0, 0
+        KEYWAIT "WP?"
+        SECT    "JW ", DRV_O, 17, 0, 1
+        jmp     done
+
 ; X: O:'s directory written by 19 and 22 after a change within the second.
 casex:  lda     #DRV_O
         sta     TDRV
@@ -1394,3 +1478,4 @@ ydrv:   .res    1
 ytrk:   .res    1
 yerr:   .res    1
 ymix:   .res    1
+sblk:   .res    6                       ; 76's block
