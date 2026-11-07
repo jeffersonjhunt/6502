@@ -218,6 +218,8 @@ TEST(a_loop_never_takes_the_accumulator_below_zero)
         for (unsigned k = 0; k < 256; ++k)
         {
             d.step();
+            if (mode == Es5503::MODE_ONE_SHOT && k == 40)
+                CHECK_EQ(d.accumulator(0), 0u); // the $00 at 40: a loop from 41 x $200 would go below 0
             if (d.irq())
             {
                 ++irqs;
@@ -227,6 +229,23 @@ TEST(a_loop_never_takes_the_accumulator_below_zero)
         std::printf("  %s: %u interrupts in a pass of 256 steps\n", mode == Es5503::MODE_FREE ? "free run" : "one-shot",
                     irqs);
         CHECK_EQ(irqs, mode == Es5503::MODE_FREE ? 1u : 6u);
+        CHECK(!halted(d, 0));
+    }
+    // Where the loop doesn't go below 0 it is the loop as ever, $00 or not: a $00 at index 255, read by the 256th
+    // step (its accumulator then 256 x $200), starts the oscillator again at $20000 - (255 << 9) = $200.
+    for (const unsigned mode : {unsigned{Es5503::MODE_FREE}, unsigned{Es5503::MODE_ONE_SHOT}})
+    {
+        Es5503 d;
+        enable(d, 2);
+        ramp(d, 0, 256);
+        d.ram()[255] = 0;
+        osc(d, 0, 0x200, 100, 0, table(0, 0), control(mode, 0, true));
+        osc(d, 1, 0x200, 100, 0, table(0, 0), control(Es5503::MODE_SWAP, 0, false, true));
+        for (unsigned k = 0; k < 256; ++k)
+            d.step();
+        std::printf("  %s, a $00 at 255: accumulator $%X after it\n", mode == Es5503::MODE_FREE ? "free run" : "one-shot",
+                    d.accumulator(0));
+        CHECK_EQ(d.accumulator(0), 0x200u);
         CHECK(!halted(d, 0));
     }
 }

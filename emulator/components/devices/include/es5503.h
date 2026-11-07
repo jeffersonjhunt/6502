@@ -47,10 +47,12 @@
  * bits and a carry: a frequency that carries it past the top leaves an index
  * past the table, which the next step judges the end (as MAME's sum does);
  * that takes the carry off again, or halts. A loop never takes the
- * accumulator below 0: where MAME's would wrap (an even one's second loop at
- * one end, its partner swapping, or a loop after a $00 part way), it goes
- * to 0, one end a pass. A halt with IE set makes the
- * oscillator pending and raises irq(); a $E0 read drops it, and raises it
+ * accumulator below 0: only where the size taken off is more than the
+ * accumulator holds (MAME's would wrap: an even one's second loop at one end,
+ * its partner swapping, or its loop at a $00 before the table's last byte) it
+ * goes to 0, one end a pass; otherwise a loop is as ever, after a $00 too. A
+ * halt with IE set makes the oscillator pending and raises irq(); a $E0 read
+ * drops it, and raises it
  * again while an enabled oscillator is still pending. Halting one-shot or swap
  * from a control write does what the end of the table would (an interrupt
  * only if both the old and the new value have IE); clearing the halt bit
