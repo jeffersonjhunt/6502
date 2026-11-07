@@ -46,11 +46,15 @@
  * of the one above it if that one runs (31 has none). The accumulator is 24
  * bits and a carry: a frequency that carries it past the top leaves an index
  * past the table, which the next step judges the end (as MAME's sum does);
- * that takes the carry off again, or halts. A halt with IE set makes the
+ * that takes the carry off again, or halts. A loop never takes the
+ * accumulator below 0: where MAME's would wrap (an even one's second loop at
+ * one end, its partner swapping, or a loop after a $00 part way), it goes
+ * to 0, one end a pass. A halt with IE set makes the
  * oscillator pending and raises irq(); a $E0 read drops it, and raises it
  * again while an enabled oscillator is still pending. Halting one-shot or swap
  * from a control write does what the end of the table would (an interrupt
- * only if the new value has IE); clearing the halt bit starts it from 0.
+ * only if both the old and the new value have IE); clearing the halt bit
+ * starts it from 0.
  * out() is each of the 16 channels' sum, stereo() the even channels' and the
  * odd's: integers, the card scales them (step 7). Unlike MAME, the highest
  * enabled oscillator is mixed once, not three times.

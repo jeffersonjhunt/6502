@@ -90,8 +90,9 @@ namespace ooe::emu
                 const unsigned n = reg & 0x1Fu;
                 if ((o.control & CONTROL_HALT) && !(data & CONTROL_HALT))
                     o.acc = 0; // started: from the top
-                // Halted from here in one-shot or swap (the new value's mode bit 1): as the end of the table would,
-                // by the mode it had, an interrupt only if the new value asks for one.
+                // Halted from here with the new value's control bit 1 (the mode's low bit: one-shot or swap): as the
+                // end of the table would, by the mode it had, an interrupt only if both the old and the new value have
+                // IE.
                 if (!(o.control & CONTROL_HALT) && (data & CONTROL_HALT) && (data & 0x02))
                     halt(n, false, o.acc, data);
                 o.control = data;
@@ -110,7 +111,11 @@ namespace ooe::emu
         Oscillator &o = osc_[n];
         Oscillator &partner = osc_[n ^ 1u];
         unsigned m = mode(o);
-        const uint32_t back = (uint32_t{1} << (8 + size(o))) - 1; // the table's size less one, in index steps
+        const uint32_t back = ((uint32_t{1} << (8 + size(o))) - 1) << shift(o); // the table's size less one
+        // Taken off for a loop, but never below 0: twice at one end (free run, its partner swapping) or after a $00
+        // part way, MAME's sum wraps round 2^32 and ends the table every step; the chip's 24 bits can't. From 0,
+        // it plays the table through again, one end a pass.
+        const auto loop = [back](uint32_t &a) { a = a >= back ? a - back : 0; };
         if (m == MODE_SYNC_AM)
         {
             // An even one restarts the odd one below it, if that runs (oscillator 0 has none); both loop.
@@ -121,7 +126,7 @@ namespace ooe::emu
         if (m != MODE_FREE || zero)
             o.control |= CONTROL_HALT;
         else
-            acc -= back << shift(o); // free run loops, its phase kept
+            loop(acc); // free run loops, its phase kept
         if (m == MODE_SWAP)
         {
             partner.control &= static_cast<uint8_t>(~CONTROL_HALT); // the partner from the top
@@ -130,12 +135,12 @@ namespace ooe::emu
         else if (mode(partner) == MODE_SWAP && !(n & 1))
         {
             o.control &= static_cast<uint8_t>(~CONTROL_HALT); // an even one, its partner swapping: again
-            acc -= back << shift(o);
+            loop(acc);
         }
         if (!(o.control & CONTROL_IE))
             return;
         if (!zero && !(ctrl & CONTROL_IE))
-            return; // a halt written: an interrupt only if the new value asks for one
+            return; // a halt written: an interrupt only if both the old and the new value have IE
         o.pending = true;
         irq_ = true;
     }
@@ -169,7 +174,7 @@ namespace ooe::emu
                 if (index >= (uint32_t{1} << (8 + sz)) - 1)
                     halt(n, false, acc, o.control);
             }
-            o.acc = acc; // below 2^24 + 2^16: an index past the table is always its end, and taken off
+            o.acc = acc; // with a carry, an index past the table: the next step's end, which takes it off
         }
     }
 

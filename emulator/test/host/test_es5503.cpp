@@ -199,6 +199,38 @@ TEST(a_carry_past_the_top_still_ends_the_table)
     }
 }
 
+TEST(a_loop_never_takes_the_accumulator_below_zero)
+{
+    // Oscillator 0 with IE, its partner 1 in swap mode and halted, so 0 starts again at each end. Free run: at its
+    // table's end it loops twice (its own and the restart), which would take the accumulator below 0; it goes to
+    // 0, one end a pass: one interrupt in a pass of 256 steps. One-shot with a $00 at index 40: halted there, it
+    // starts again from 0, not from below it: an interrupt every 41 steps, 6 in the pass.
+    for (const unsigned mode : {unsigned{Es5503::MODE_FREE}, unsigned{Es5503::MODE_ONE_SHOT}})
+    {
+        Es5503 d;
+        enable(d, 2);
+        ramp(d, 0, 256);
+        if (mode == Es5503::MODE_ONE_SHOT)
+            d.ram()[40] = 0;
+        osc(d, 0, 0x200, 100, 0, table(0, 0), control(mode, 0, true)); // index k at step k
+        osc(d, 1, 0x200, 100, 0, table(0, 0), control(Es5503::MODE_SWAP, 0, false, true));
+        unsigned irqs = 0;
+        for (unsigned k = 0; k < 256; ++k)
+        {
+            d.step();
+            if (d.irq())
+            {
+                ++irqs;
+                d.read(R::INTERRUPT);
+            }
+        }
+        std::printf("  %s: %u interrupts in a pass of 256 steps\n", mode == Es5503::MODE_FREE ? "free run" : "one-shot",
+                    irqs);
+        CHECK_EQ(irqs, mode == Es5503::MODE_FREE ? 1u : 6u);
+        CHECK(!halted(d, 0));
+    }
+}
+
 TEST(swap_hands_over_to_its_partner_from_zero)
 {
     // Oscillator 2 in swap mode reaches its table's end: it halts and 3 starts from 0, in the same sample (3 steps
@@ -260,26 +292,33 @@ TEST(sync_restarts_the_odd_one_below)
 {
     // Oscillator 1 free run, slow; 2 in sync mode, faster: each time 2's table ends, 1 starts again from 0 (1 steps
     // first in the sample, so its accumulator reads 0 after it). 2 loops. Oscillator 0 in sync mode, with nothing
-    // below, just loops.
+    // below, just loops: 31, all 32 enabled and running slowly, is never restarted by it.
     Es5503 d;
-    enable(d, 3);
+    enable(d, 32);
+    osc(d, 31, 0x10, 50, 0, table(0, 0), control(Es5503::MODE_FREE));
     ramp(d, 0, 256);
     osc(d, 0, 0x2000, 50, 0, table(0, 0), control(Es5503::MODE_SYNC_AM));
     osc(d, 1, 0x100, 50, 0, table(0, 0), control(Es5503::MODE_FREE));
     osc(d, 2, 0x900, 50, 0, table(0, 0), control(Es5503::MODE_SYNC_AM));
-    unsigned restarts = 0, ends = 0;
+    unsigned restarts = 0, ends = 0, ends0 = 0;
+    bool steady31 = true;
     for (unsigned k = 0; k < 2'000; ++k)
     {
-        const uint32_t acc2 = d.accumulator(2);
+        const uint32_t acc2 = d.accumulator(2), acc0 = d.accumulator(0);
         d.step();
+        ends0 += d.accumulator(0) < acc0;
+        steady31 = steady31 && d.accumulator(31) == (k + 1) * 0x10u; // 255 << 9 is 8,160 steps away
         if (d.accumulator(2) < acc2) // 2's table ended this step
         {
             ++ends;
             restarts += d.accumulator(1) == 0;
         }
     }
-    std::printf("  2's table ended %u times; 1 restarted %u of them; 0 and 2 %s\n", ends, restarts,
-                !halted(d, 0) && !halted(d, 2) ? "running" : "halted");
+    std::printf("  2's table ended %u times; 1 restarted %u of them; 0 and 2 %s; 0 ended %u times, 31 %s\n", ends,
+                restarts, !halted(d, 0) && !halted(d, 2) ? "running" : "halted", ends0,
+                steady31 ? "never restarted" : "RESTARTED");
+    CHECK(ends0 > 10);
+    CHECK(steady31);
     CHECK(ends > 10);
     CHECK_EQ(restarts, ends);
     CHECK(!halted(d, 0));
@@ -304,6 +343,7 @@ TEST(am_takes_the_odd_ones_byte_as_the_volume_above)
     osc(d, 3, 0x200, 77, 0, table(0, 0), control(Es5503::MODE_SYNC_AM, 0));
     osc(d, 4, 0x200, 0, 1, table(0, 0), control(Es5503::MODE_FREE, 2));
     osc(d, 31, 0x200, 99, 0, table(0, 0), control(Es5503::MODE_SYNC_AM, 1));
+    osc(d, 0, 0x100, 42, 0, table(0, 0), control(Es5503::MODE_FREE, 5)); // running: 31's AM must not reach it
     bool right = true;
     for (unsigned k = 0; k < 200; ++k)
     {
@@ -313,8 +353,10 @@ TEST(am_takes_the_odd_ones_byte_as_the_volume_above)
         right = right && d.out()[0] == 0 && d.out()[1] == 0 && d.out()[2] == (int32_t{b4} - 128) * b3 &&
                 d.peek(static_cast<uint8_t>(R::VOLUME + 4)) == b3;
     }
-    std::printf("  4's level 200 steps by 3's bytes: %s\n", right ? "right" : "WRONG");
+    std::printf("  4's level 200 steps by 3's bytes: %s; 0's volume %u\n", right ? "right" : "WRONG",
+                d.peek(R::VOLUME));
     CHECK(right);
+    CHECK_EQ(d.peek(R::VOLUME), 42);
 }
 
 TEST(a_zero_byte_halts_in_every_mode)
@@ -428,8 +470,8 @@ TEST(e0_takes_the_lowest_pending_first_and_the_line_follows)
 
 TEST(halts_written_from_the_cpu)
 {
-    // One-shot or swap halted by a control write does what the table's end would, with an interrupt only if the
-    // new value has IE; free run halted so does nothing more; clearing the halt bit starts from 0.
+    // One-shot or swap halted by a control write does what the table's end would, with an interrupt only if both
+    // the old and the new value have IE; free run halted so does nothing more; clearing the halt bit starts from 0.
     struct Case
     {
         unsigned mode;
@@ -539,7 +581,7 @@ TEST(a_busy_run_to_a_golden_hash)
         }
     }
     std::printf("  golden: %016llx\n", static_cast<unsigned long long>(h));
-    CHECK_EQ(h, 0x077F56A083CB2B02ull);
+    CHECK_EQ(h, 0x94B024837C13A6FDull);
 }
 
 int main()

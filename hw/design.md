@@ -990,8 +990,8 @@ no knowledge of the card), reimplemented from the spec with MAME's ES5503 (mamed
 is copied, so no MAME licence is needed.
 
 - **The bank is a latch of its own.** The table register's bit 6 keeps the bank; a pointer write leaves it, and
-  `$C0` reads back as written. MAME packs the pointer and the bank into one value, so its pointer write clears the
-  bank; that comes of its packing, and we don't copy it.
+  `$C0` reads back as written, bit 7 aside. MAME packs the pointer and the bank into one value, so its pointer
+  write clears the bank; that comes of its packing, and we don't copy it.
 - **One sample at a time.** Each output sample (8 × (enabled + 2) of the chip's 7,159,090 Hz), every enabled
   oscillator not halted steps once, in number order. MAME renders each oscillator over a whole buffer before the
   next, so its AM volume and sync restart take effect once a buffer; that is its buffering, not copied.
@@ -1007,8 +1007,12 @@ is copied, so no MAME licence is needed.
   free run loops, its phase kept; one-shot halts; swap halts and starts its partner (number XOR 1) from 0; an even
   oscillator whose partner swaps, itself not swapping, starts again; sync/AM loops. A halt with IE makes the
   oscillator pending. Halting one-shot or swap from a control write does the same by the mode it had, with an
-  interrupt only if the new value has IE; halting free run so does nothing more; clearing the halt bit starts the
-  oscillator from 0.
+  interrupt only if both the old and the new value have IE; halting free run so does nothing more; clearing the
+  halt bit starts the oscillator from 0. One exception (owner, 2026-11-06): a loop never takes the accumulator
+  below 0. Where MAME's subtraction would go below 0 (an even oscillator in free run whose partner swaps loops
+  twice at one end; one-shot or free run with a swapping partner starts again from wherever a `$00` halted it),
+  its 32-bit sum wraps round and the oscillator ends its table every step after; the real chip's 24-bit
+  accumulator can't wrap like that. Here it goes to 0 instead and plays the table through, one end a pass.
 - **The interrupt line is MAME's:** up when an oscillator becomes pending; a `$E0` read drops it and raises it
   again at once while an enabled oscillator is still pending.
 - **No triple mix and no swap click.** MAME mixes the highest enabled oscillator three times (a quirk of the
