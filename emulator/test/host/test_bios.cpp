@@ -29,8 +29,10 @@
  * (splash.s): the card's logo and the sound card's tune start on one vertical
  * blank, the boot carries on behind them, and after 5 s the screen and the
  * SIDs are back; Break and the demo stop it early. On a revision 2 sound
- * card Break and the demo's end stop a PCM stream and the ES5503 too, and
- * the audio goes silent; on revision 1 Break writes nothing at $48-$63.
+ * card Break and the demo's end stop a PCM stream (its FIFO emptied, paused
+ * or not) and the ES5503 (DOCCTL's other bits kept, an interrupt left pending
+ * on the 6510's route) too, a $82 clears, and the audio goes silent; on
+ * revision 1 Break writes nothing at $48-$63.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -533,9 +535,13 @@ namespace
 
     const char *name(Noise n) { return n == Noise::pcm ? "the PCM stream" : "the ES5503"; }
 
+    /// DOCCTL's bits besides RUN, which QUIET keeps.
+    constexpr uint8_t DOC_KEPT = SoundCard::DOCCTL_IRQ_CARD | SoundCard::DOCCTL_AUTOINC | SoundCard::DOCCTL_RAM;
+
     /// Start `n` on the card from the host's side, loud: 8-bit mono PCM at 8 kHz, 64 KB of a full-scale square (8
-    /// seconds), or the ES5503's oscillator 0 looping a full-scale square in wave RAM. The audio at 48 kHz and the
-    /// test tap on, both emptied.
+    /// seconds), or the ES5503's oscillator 0 looping a full-scale square in wave RAM, with IE (each loop makes it
+    /// pending) and DOCCTL's other bits set: the interrupt routed to the 6510, AUTOINC and RAM. The audio at 48 kHz
+    /// and the test tap on, both emptied.
     void start_noise(SoundCard &sound, Noise n)
     {
         sound.set_audio_rate(48'000);
@@ -566,8 +572,8 @@ namespace
             reg(Es5503::VOLUME, 0xFF);
             reg(Es5503::POINTER, 0);
             reg(Es5503::TABLE, 0); // 256 bytes at 0
-            reg(Es5503::CONTROL, Es5503::MODE_FREE << 1); // running, looping, channel 0
-            sound.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+            reg(Es5503::CONTROL, Es5503::MODE_FREE << 1 | Es5503::CONTROL_IE); // running, looping, channel 0
+            sound.write(SoundCard::DOCCTL, DOC_KEPT | SoundCard::DOCCTL_RUN);
         }
         sound.set_tap(true);
     }
@@ -592,11 +598,21 @@ namespace
         return sound.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN;
     }
 
-    /// After a QUIET: `n` stopped, nothing more on the card's bus (the test tap), and the audio silent from a
-    /// frame on (the last of what was made before it, and the SIDs' DC filter settling, given that frame).
+    /// After a QUIET: `n` stopped, the FIFO emptied (FLUSH), DOCCTL's RUN alone cleared, nothing more on the card's
+    /// bus (the test tap), and the audio silent from a frame on (the last of what was made before it, and the SIDs'
+    /// DC filter settling, given that frame). The ES5503's interrupt, pending on the 6510's route, stays pending
+    /// there and pulls nothing while RUN is clear.
     void check_silent(Board &b, SoundCard &sound, Noise n)
     {
         CHECK(!runs(sound, n));
+        CHECK_EQ(sound.fifo_bytes(), size_t{0});
+        CHECK_EQ(sound.peek(SoundCard::PCMCTL), 0);
+        if (n == Noise::doc)
+        {
+            CHECK_EQ(sound.peek(SoundCard::DOCCTL), DOC_KEPT);
+            CHECK(sound.doc().irq());
+            CHECK(!b.machine->bus().irq());
+        }
         b.run(FRAME);
         sound.take_tap();
         loudest(sound);
@@ -665,6 +681,34 @@ TEST(the_demos_end_stops_the_pcm_stream_and_the_es5503)
     }
 }
 
+TEST(break_stops_a_paused_stream_and_clears_a_refused_run)
+{
+    // A stream paused stops and empties as a playing one does; a RUN refused ($82 in STATE) reads 0 after Break.
+    for (const bool paused : {true, false})
+    {
+        std::printf("  %s\n", paused ? "a stream paused" : "PCMCTL RUN refused while the ES5503 plays");
+        Board b;
+        REQUIRE(b.ok());
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(sound != nullptr);
+        b.reset();
+        b.run(BOOT);
+        b.run(SPLASH_TIME);
+        start_noise(*sound, paused ? Noise::pcm : Noise::doc);
+        b.run(5 * FRAME);
+        if (paused)
+            sound->write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+        else
+            sound->write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
+        b.run(FRAME);
+        CHECK_EQ(sound->peek(SoundCard::STATE), paused ? SoundCard::STATE_PAUSED : SoundCard::STATE_BOTH);
+        b.cpu->nmi();
+        b.run(FRAME);
+        CHECK_EQ(sound->peek(SoundCard::STATE), SoundCard::STATE_IDLE);
+        check_silent(b, *sound, paused ? Noise::pcm : Noise::doc);
+    }
+}
+
 namespace
 {
     /// Every host write to the sound card's revision 2 registers ($C548-$C563), and to its SIDs ($C500-$C53C).
@@ -686,7 +730,8 @@ namespace
 TEST(break_leaves_a_revision_1_cards_other_offsets_alone)
 {
     // Revision 1 ($A1) has nothing at $48-$63: QUIET takes its CTRL, IEN and SIDs as before, and writes there
-    // nothing. Revision 2 for comparison: the same Break writes PCMCTL and DOCCTL, once each.
+    // nothing. Revision 2 for comparison: the same Break writes PCMCTL and DOCCTL, once each. (The emulator models
+    // revisions 1 and 2 only: set_revision() takes no 3.)
     for (const unsigned rev : {1u, 2u})
     {
         std::printf("  sound card revision %u\n", rev);

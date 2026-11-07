@@ -356,10 +356,7 @@ window registers.
    that doesn't start up is given up on at a key. An OODOS card so boots OODOS at power-on. *(BIOS 0.11,
    2026-11-05.)* Break also turns the VIA's interrupts off (`$7F` to its IER) and clears the Console card's ISR,
    since a front-panel key already pending holds /IRQ low whatever IEN says; and the BIOS takes the sound card at
-   any revision (the ID's high nibble, `$A`), for [revision 2](#sound-card-revision-2). *(BIOS 0.12, 2026-11-07.)*
-   On a sound card of revision 2 or later (ID `$A2` and up), Break also writes 0 to PCMCTL and DOCCTL, so the PCM
-   stream and the ES5503 stop with the SIDs ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at
-   `$48–$63`. The BIOS's memory-to-memory
+   any revision (the ID's high nibble, `$A`), for [revision 2](#sound-card-revision-2). The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
    program has set. The master enable is the whole controller's, so any channel a program has left armed runs during
@@ -370,6 +367,10 @@ window registers.
    second `$D000` bank (banks 4–5). The
    zero page the BIOS and the monitor keep is listed in `backplane/bios/backplane.inc`: ECHO (`$C80F`) uses
    `$E0–$E7`.
+
+   *(BIOS 0.12, 2026-11-07.)* On a sound card of revision 2 or later (ID `$A2` and up), Break also stops the PCM
+   stream, emptying its FIFO, and freezes the ES5503, so nothing on the card plays on behind the monitor
+   ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at `$48–$63`.
 
 **From the ESP32 (override)**
 
@@ -865,7 +866,10 @@ ES5503 (BIOS 0.12, [below](#the-bios-step-8)).
 **Decided (2026-11-05):** the DAC and the ES5503, above. **Proposed (2026-11-05):** everything below, the
 registers from [sound-rev2.md](sound-rev2.md), which has the behaviour in full and the order it's built in. The
 ID becomes `$A2`, so software can tell the revisions apart; what revision 1 has is unchanged, and software that
-knows only revision 1 takes the card by the ID's high nibble.
+knows only revision 1 takes the card by the ID's high nibble. **Later revisions (decided by the owner,
+2026-11-07):** `$A3` and up keep what `$48–$63` mean. They may add registers, never move or redefine these, so
+software that tests for `$A2` or more (the BIOS's QUIET does) works on them; a card that broke that would take a
+new type nibble.
 
 **Registers** (offsets from `$C500`; the rest of `$64–$7E` reads `$FF`):
 
@@ -1072,19 +1076,21 @@ Decided by the owner, 2026-11-06:
 #### The BIOS (step 8) ####
 
 QUIET (Break, BRK and the demo's end) takes the card by the ID's high nibble, as before, and clears CTRL RUN, IEN
-and the SIDs at any revision. When the ID is `$A2` or more it then writes 0 to PCMCTL and to DOCCTL *(BIOS 0.12,
-2026-11-07)*, so nothing on the card plays on behind the monitor; on revision 1 (`$A1`) it writes nothing at
-`$48–$63`. What the two writes do:
+and the SIDs at any revision. When the ID is `$A2` or more it then writes `$04` (FLUSH alone) to PCMCTL and clears
+RUN in DOCCTL by reading it and writing it back *(BIOS 0.12, 2026-11-07)*, so nothing on the card plays on behind
+the monitor; on revision 1 (`$A1`) it writes nothing at `$48–$63`. What the two writes do:
 
-- **PCMCTL 0** clears RUN, PAUSE and EOF: STATE goes to 0 (idle), a `$82` is cleared, and with PCM on the bus the
-  vis tap's frames are dropped. The FIFO keeps what's in it (no FLUSH), as clearing RUN always does, so a program
-  that starts a new stream after Break writes FLUSH first. CODEC, RATE, PCMFMT and POS are left.
-- **DOCCTL 0** clears RUN, which freezes the chip where it is and stops its bus (decision 4 above), closes the
-  6510's `$DF00` window, and clears bits 2, 5 and 6 too: the interrupt routed to the host, no auto-increment, and
-  DOCDATA on the registers. The oscillators' registers and wave RAM are kept, and with IEN already 0 an interrupt
-  pending in the chip pulls nothing.
-- The volumes, the EQ, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already aborted
-  every DMA channel, so DRQSEL's DRQ moves nothing.
+- **PCMCTL `$04`** clears RUN, PAUSE and EOF and empties the FIFO and the decoder: STATE goes to 0 (idle), a `$82`
+  is cleared, FREE reads the whole FIFO, and with PCM on the bus the vis tap's frames are dropped and the EQ's
+  filters start from silence. A program starts its next stream clean. CODEC, RATE, PCMFMT and POS are left.
+- **DOCCTL, RUN cleared,** freezes the chip where it is and stops its bus (decision 4 above) and closes the 6510's
+  `$DF00` window. Bits 2, 5 and 6 (the interrupt's route, auto-increment, DOCDATA on wave RAM) are kept, and so are
+  the oscillators' registers and wave RAM.
+- **An ES5503 interrupt pending at Break stays pending, on its route.** With bit 2 it is the 6510's, which the chip
+  pulls only while RUN is set, so it is silent; without, the host's, which IEN (cleared by QUIET) holds off. A
+  program reads `$E0` to acknowledge it before it sets IEN bit 3 again.
+- The volumes, the EQ's gains, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already
+  aborted every DMA channel, so DRQSEL's DRQ moves nothing.
 
 The audio is then silent: no bus frames, and the SIDs at volume 0.
 

@@ -342,9 +342,9 @@ Not bugs, but what BIOS 0.12 does, which a program run from the monitor has to k
   (`$7F`) and the console card's ISR (`$01`), the last two since BIOS 0.11
   ([IRQ and NMI](04-interrupts.md#irq-and-nmi), [Pause/Break](04-interrupts.md#pausebreak)). Under BIOS 0.10 a VIA
   interrupt or a pending panel key kept /IRQ low after Break, so a program written for it clears both itself.
-- **Break stops a revision 2 sound card's PCM stream and ES5503** (PCMCTL and DOCCTL `$00`), since BIOS 0.12, and
-  leaves the rest: the FIFO keeps what was in it, so a program starting a stream after Break writes FLUSH first,
-  and the ES5503's registers and wave RAM, the volumes and the EQ stay as they were
+- **Break stops a revision 2 sound card's PCM stream and ES5503,** since BIOS 0.12: it writes PCMCTL `$04` (FLUSH
+  alone, so the FIFO is emptied) and clears DOCCTL's RUN, keeping its other bits. The ES5503's registers and wave
+  RAM, the volumes and the EQ stay as they were, and an ES5503 interrupt pending at Break stays pending on its route
   ([Silencing them](07-sound.md#silencing-them)). BIOS 0.11 left both playing behind the monitor.
 - **Nothing in the BIOS clears the video card's ISR,** so after a reset it soon reads `$03`, and after Break LINE
   and the collision bits are as a program left them ([Interrupts](06-video.md#interrupts)).

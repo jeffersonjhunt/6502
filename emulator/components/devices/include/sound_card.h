@@ -206,9 +206,10 @@
  * and stops its bus; RUN again plays on from there.
  *
  * Break (the BIOS's QUIET, BIOS 0.12) takes the card at any revision: CTRL
- * RUN and IEN off, every SID register 0; and from $A2 on, PCMCTL and DOCCTL
- * 0 too, so the stream stops (its FIFO kept) and the ES5503 freezes. On
- * revision 1 it writes nothing at $48-$63.
+ * RUN and IEN off, every SID register 0; and from $A2 on, PCMCTL FLUSH
+ * alone (the stream stopped, its FIFO emptied) and DOCCTL's RUN cleared,
+ * its other bits kept (the ES5503 frozen). On revision 1 it writes nothing
+ * at $48-$63.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the

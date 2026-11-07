@@ -213,8 +213,11 @@ QUIET:
                 LDA     SOUND_ID
                 CMP     #SOUND_ID_V2   ; revision 2 and on: the PCM stream and the ES5503 too
                 BCC     @panel
-                STZ     SOUND_PCMCTL   ; RUN (and PAUSE, EOF) off: the stream idle, its FIFO kept
-                STZ     SOUND_DOCCTL   ; RUN off: the ES5503 frozen where it was, wave RAM kept
+                LDA     #SOUND_PCM_FLUSH
+                STA     SOUND_PCMCTL   ; RUN, PAUSE, EOF off and the FIFO emptied: the stream idle
+                LDA     SOUND_DOCCTL
+                AND     #<~SOUND_DOC_RUN ; the ES5503 frozen where it was; its route, AUTOINC, RAM kept
+                STA     SOUND_DOCCTL
 @panel:         LDA     CONSOLE_ID
                 CMP     #CONSOLE_ID_V1
                 BNE     @via
