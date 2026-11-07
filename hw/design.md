@@ -1026,6 +1026,34 @@ is copied, so no MAME licence is needed.
   register and leaves the oscillators running; the spec's wins.) A table register never written is size 0, 256
   bytes, whose end the oscillator finds (MAME's table length is 0 until written).
 
+**The ES5503 on the card (step 7).** The port (DOCCTL, DOCDATA, DOCADDR, DOCBANK) reaches the registers and wave
+RAM whatever RUN is, auto-increment carrying into the bank and wrapping at 128 KB, and DMA reaches them through
+DRQSEL 2. A DOCDATA read returns its value at once: there is no dummy read, and code ported from the IIgs drops
+it. While DOCCTL RUN is set and I/O is banked in, the card's 6510 sees the registers at `$DF00–$DFFF` (`$DFE0`
+acknowledging as DOCDATA's `$E0` does); with RUN clear the page reads `$FF` and takes no write, as before. The
+chip's interrupt goes to the host through IEN bit 3 (STATUS bit 7, IRQH bit 2), or with DOCCTL bit 2 to the 6510's
+/IRQ instead. /RESET clears DOCCTL and resets the chip as step 6 says; CTRL RESET leaves it.
+
+- **Its clock is the card's.** The chip plays inside the SIDs' catch-up, over the same SID clocks, so the 6510's
+  accesses to `$DF00`, its interrupt, the host's DOCDATA and the bus all see it as of the same moment, whatever
+  the host's speed, the ticks or the audio rate. Its steps (every 8 × (enabled + 2) of 7,159,090 Hz) and the
+  bus's 48 kHz frames fall on their exact times, counted in integers (a step at a frame's very end is that
+  frame's).
+
+Decided by the owner, 2026-11-06:
+
+1. **A refused RUN isn't stored.** PCMCTL's RUN written while the ES5503 runs, or DOCCTL's while PCM runs, isn't
+   kept: the register reads it 0, and the source already running plays on.
+2. **`$82`** shows in STATE from a refused write until PCMCTL or DOCCTL is next written; that write clears it, and
+   sets it again only if it is refused too.
+3. **The bus frames are integers:** each the average of the steps it spans (or the last frame held when it spans
+   none), round(sum × 32,768 / (steps × 261,120)) of the chip's stereo sums of (byte − 128) × volume, clipped to
+   16 bits: the spec's ((byte − 128) / 128) × (volume / 255) × 1/8 per voice, exactly.
+4. **Clearing DOCCTL RUN freezes the chip** (no steps) and stops its bus; the vis tap's frames are dropped as when
+   PCM's RUN is cleared (the next snapshot silence, its VU the peaks since the last). RUN again plays the
+   oscillators on from where they were, the EQ from silence and the mix anchored afresh.
+5. **The bus is 48 kHz while the ES5503 runs:** the EQ's coefficients and the mix's resampling are for 48 kHz.
+
 
 ## Storage ##
 

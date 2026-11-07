@@ -148,6 +148,24 @@ TEST(the_port_reaches_registers_and_wave_ram_whatever_run_says)
         CHECK_EQ(c.read(SoundCard::DOCDATA), 0x11);
         CHECK_EQ(c.read(SoundCard::DOCCTL), static_cast<uint8_t>((run ? 1 : 0) | SoundCard::DOCCTL_RAM));
     }
+    // A DOCDATA read is of the chip as it is now: oscillator 0 walking a ramp, its data register read straight
+    // after time passes, with nothing else touching the card, is what the chip holds then.
+    SoundCard c;
+    std::vector<uint8_t> ramp(256);
+    for (size_t i = 0; i < 256; ++i)
+        ramp[i] = static_cast<uint8_t>(1 + i * 254 / 255);
+    wave(c, 0, ramp);
+    osc(c, 0, 0x100, 10, 0, 0, control(Es5503::MODE_FREE));
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+    c.write(SoundCard::DOCADDR, R::DATA);
+    bool now = true;
+    for (int k = 0; k < 20; ++k)
+    {
+        ticks(c, 3'331);
+        const uint8_t got = c.read(SoundCard::DOCDATA);
+        now = now && got == c.doc().peek(R::DATA) && got != 0x80;
+    }
+    CHECK(now);
 }
 
 TEST(auto_increment_carries_into_the_bank_and_wraps_at_128_kb)
@@ -483,7 +501,8 @@ TEST(each_frame_averages_its_steps_or_holds_the_last)
         }
         c.set_tap(true);
         c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
-        ticks(c, SECOND / 10);
+        // With 1 enabled, 2.5 s: a step falls exactly on a frame's end every 715,909 steps (2.4 s), once here.
+        ticks(c, enabled == 1 ? SECOND * 5 / 2 : SECOND / 10, SECOND / 1'000);
         const std::vector<int16_t> tap = c.take_tap();
         // The reference: times in units of 1 / (7,159,090 x 48,000) s.
         const uint64_t step = uint64_t{8} * (enabled + 2) * 48'000, frame = Es5503::CLOCK_HZ;
@@ -508,9 +527,12 @@ TEST(each_frame_averages_its_steps_or_holds_the_last)
             want.insert(want.end(), {last[0], last[1]});
             sum[0] = sum[1] = steps = 0;
         }
-        std::printf("  %u enabled: %zu frames, %s\n", enabled, tap.size() / 2, tap == want ? "as the reference" : "DIFFERENT");
+        const bool clipped = std::any_of(tap.begin(), tap.end(), [](int16_t v) { return v == 32'767 || v == -32'768; });
+        std::printf("  %u enabled: %zu frames, %s%s\n", enabled, tap.size() / 2,
+                    tap == want ? "as the reference" : "DIFFERENT", clipped ? ", some clipped" : "");
         CHECK(tap.size() / 2 >= 4'790);
         CHECK(tap == want);
+        CHECK_EQ(clipped, enabled == 32);
     }
 }
 
@@ -554,12 +576,69 @@ TEST(the_bus_runs_at_48_khz_through_the_eq_vis_and_volume)
     CHECK_EQ(c.doc().accumulator(0), acc);
     CHECK(c.take_tap().empty());
     c.write(SoundCard::VISIDX, 0);
-    c.write(SoundCard::VISIDX, 34);
-    CHECK_EQ(c.read(SoundCard::VISDATA), 0x80);
+    bool quiet = true;
+    for (unsigned i = 0; i < SoundCard::VIS_BYTES; ++i)
+    {
+        const uint8_t b = c.read(SoundCard::VISDATA);
+        quiet = quiet && (i == 32 || i == 33 || b == (i < 32 ? 0 : 0x80)); // the VU keeps its peaks
+    }
+    CHECK(quiet);
     c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
     ticks(c, SECOND / 100);
     CHECK(c.doc().accumulator(0) != acc); // on from where it was
     CHECK(!c.take_tap().empty());
+}
+
+TEST(a_new_run_starts_the_eq_from_silence)
+{
+    // A constant level (every byte $C0, so the oscillator's phase doesn't matter) through the 60 Hz band at
+    // +12 dB, which rings for a long time. Stopped after 0.1 s and started again, the chip's frames come through
+    // the EQ exactly as they do on a fresh card's start: its filters from silence, not from where they were.
+    const auto setup = [](SoundCard &c) {
+        c.set_tap(true);
+        wave(c, 0, std::vector<uint8_t>(256, 0xC0));
+        osc(c, 0, 0x200, 200, 0, 0, control(Es5503::MODE_FREE));
+        c.write(SoundCard::EQIDX, 1);
+        c.write(SoundCard::EQVAL, 24);
+        c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+        c.write(SoundCard::EQVAL, 1);
+        c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+    };
+    SoundCard fresh, again;
+    setup(fresh);
+    ticks(fresh, SECOND / 20);
+    const std::vector<int16_t> want = fresh.take_tap();
+    setup(again);
+    ticks(again, SECOND / 10);
+    again.write(SoundCard::DOCCTL, 0);
+    ticks(again, SECOND / 100);
+    again.take_tap();
+    again.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+    ticks(again, SECOND / 20);
+    const std::vector<int16_t> got = again.take_tap();
+    std::printf("  after a stop and a new RUN: %zu frames, %s a fresh start's\n", got.size() / 2,
+                got == want ? "the same as" : "NOT");
+    CHECK(!want.empty());
+    CHECK(got == want);
+}
+
+TEST(a_long_tick_puts_only_its_last_second_into_the_mix)
+{
+    // Three seconds in one tick, audio at 48 kHz, nobody collecting: every frame goes through the EQ and the vis
+    // tap, but only the last second's are resampled into the mix (as PCM's bulk catch-up), not all three.
+    SoundCard c;
+    c.set_audio_rate(48'000);
+    wave(c, 0, square(256));
+    osc(c, 0, 0x200, 200, 0, 0, control(Es5503::MODE_FREE));
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+    c.tick(3 * SECOND);
+    float buf[2 * 4'096];
+    while (c.take_audio(buf, 4'096))
+    {
+    }
+    std::printf("  3 s in one tick: %llu frames into the mix\n", static_cast<unsigned long long>(c.mix_frames()));
+    CHECK(c.mix_frames() <= 48'100);
+    CHECK(c.mix_frames() >= 47'900);
 }
 
 TEST(the_bus_is_the_same_whatever_the_audio_rate_or_ticks_to_a_golden_hash)
