@@ -465,7 +465,9 @@ TEST(after_a_seek_the_vis_page_goes_quiet_and_writes_with_run_clear_keep_it)
             for (const uint8_t b : mp3)
                 c.write(SoundCard::PCMDATA, b);
         }
-        constexpr uint64_t T = HZ / 5, D = 1'111;
+        // T leaves part of a frame owed at the seek (13 x 44,100 / HZ, an eighth), and D ends just short of a frame
+        // boundary without it: the count is 10 only if the part owed is carried.
+        constexpr uint64_t T = HZ / 5 + 13, D = 1'088;
         ticks(c, T, 7);
         const std::vector<uint8_t> before = page(c);
         c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH);
@@ -533,6 +535,52 @@ TEST(after_a_seek_the_vis_page_goes_quiet_and_writes_with_run_clear_keep_it)
     CHECK_EQ(next[32], paused[32]);
     CHECK_EQ(next[33], paused[33]);
     CHECK(next[32] > 200);
+
+    // /RESET: the page of silence, the VU 0 too (the peaks gone with the frames), read with no new snapshot.
+    {
+        SoundCard c;
+        c.set_cpu_hz(HZ);
+        start(c, MONO16, RATE);
+        put(c, tone);
+        ticks(c, HZ / 5, 7);
+        c.reset();
+        c.write(SoundCard::VISIDX, 1); // not 0: the page /RESET made
+        std::vector<uint8_t> p(SoundCard::VIS_BYTES);
+        for (size_t i = 1; i < p.size(); ++i)
+            p[i] = c.read(SoundCard::VISDATA);
+        std::printf("  after /RESET: %s, VU %u %u\n", silent(p) ? "silent" : "not silent", p[32], p[33]);
+        CHECK(silent(p));
+        CHECK(p[32] == 0 && p[33] == 0);
+    }
+}
+
+TEST(a_new_host_clock_rescales_the_vis_taps_silence_owed)
+{
+    // A tone at 48 kHz on a 4.8 MHz host clock, ticked 0.1 s and 99 cycles (99/100 of a frame owed), then paused
+    // and the clock made a tenth (480 kHz), in either order: one cycle more is 1/10 of a frame, so one frame of
+    // silence falls due, not ten.
+    constexpr uint32_t RATE = 48'000;
+    const std::vector<int16_t> tone = sine(RATE / 2, 997, 0.5, RATE);
+    for (const bool clock_first : {false, true})
+    {
+        SoundCard c;
+        c.set_cpu_hz(HZ);
+        start(c, MONO16, RATE);
+        put(c, tone);
+        ticks(c, HZ / 10 + 99, 7);
+        if (clock_first)
+            c.set_cpu_hz(HZ / 10);
+        c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+        if (!clock_first)
+            c.set_cpu_hz(HZ / 10);
+        c.tick(1);
+        const std::vector<uint8_t> p = page(c);
+        size_t quiet = 0;
+        while (quiet < 64 && p[97 - quiet] == 0x80)
+            ++quiet;
+        std::printf("  %s: %zu frame(s) of silence\n", clock_first ? "clock, then pause" : "pause, then clock", quiet);
+        CHECK_EQ(quiet, size_t{1});
+    }
 }
 
 TEST(a_new_rate_gives_the_eq_new_coefficients)

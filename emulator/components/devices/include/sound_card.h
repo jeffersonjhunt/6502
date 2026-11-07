@@ -320,8 +320,9 @@ namespace ooe::emu
         {
             const uint32_t to = hz ? hz : NATIVE_HZ;
             // The stream has been ticked at the old clock; the part of a frame owed carries over, rescaled
-            // (below host Hz, so the product fits).
+            // (below host Hz, so the product fits), and so does the vis tap's while the bus is stopped.
             pcm_phase_ = pcm_phase_ * to / host_hz_;
+            vis_phase_ = vis_phase_ * to / host_hz_;
             host_hz_ = to;
         }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
