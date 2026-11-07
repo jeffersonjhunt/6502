@@ -951,8 +951,10 @@ the 4 KB start at 320 kbps (235 ms from RUN), 5 ms at 128 kbps and 97 ms for VBR
   sample against full scale. Indexes 34–97 are each frame's high byte, offset to unsigned. Every frame of the bus
   feeds the tap, those the mix doesn't need too (no audio rate, a bulk catch-up's, a dry spell's silence); while
   RUN is set and the stream doesn't play (paused, buffering, ended, an error), the tap has silence at the stream's
-  rate on its own frame times, from the frame that found the stop, the EQ's state kept. So the page goes quiet
-  as the sound does, and doesn't depend on the audio rate or the ticks. Clearing RUN clears the page to silence.
+  rate on its own frame times, from the frame that found the stop, the EQ's state kept (an MP3 sought has no rate
+  until its next first frame: the bus's last one). So the page goes quiet as the sound does, and doesn't depend
+  on the audio rate or the ticks. Clearing RUN empties the tap's frames and peaks, so the next snapshot is
+  silence; the page itself changes only when VISIDX is written 0, as the spec says.
 - Volume (step 5): VOLL and VOLR scale the bus after the vis tap: 255 exact, otherwise x × vol / 255 rounded half
   away from zero. SID A takes VOLL and SID B VOLR, a CTRL BOTH write to A reaching B by VOLR; the 6510's reads, the
   host's and the emulator's `sid()` give `$D418` as written.

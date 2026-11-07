@@ -432,6 +432,7 @@ namespace ooe::emu
         eq_on_ = false;
         eq_.clear();
         eq_dirty_ = true;
+        eq_rate_ = 0;
         vis_bus_.clear();
         vis_phase_ = 0;
         visidx_ = 0;
@@ -569,8 +570,7 @@ namespace ooe::emu
         else if (!(pcmctl_ & PCMCTL_RUN))
         {
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
-            vis_bus_.clear();    // and the vis page silence
-            vis_snapshot();
+            vis_bus_.clear();    // the vis tap's frames and peaks: the next snapshot silence, the page taken kept
         }
         pcm_update(); // last: a RUN, a seek or a pause leaves the state stopped first, so this re-anchors the mix
     }
@@ -633,8 +633,8 @@ namespace ooe::emu
     {
         // In bulk, however long the tick (a backgrounded tab's): the frames due are taken from the FIFO in one
         // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off, makes
-        // no sample of the mix (each frame still goes through the EQ and the vis tap). The frames due are counted in whole seconds of the host's clock and the rest, so no
-        // tick overflows them.
+        // no sample of the mix (each frame still goes through the EQ and the vis tap). The frames due are counted
+        // in whole seconds of the host's clock and the rest, so no tick overflows them.
         if (mp3() && !play_rate_)
         {
             // Unreachable: an MP3 leaves buffering only with its first frame decoded and its rate set (pcm_step),
@@ -757,11 +757,13 @@ namespace ooe::emu
     {
         // Running, but the bus stopped (paused, buffering, ended, an error): the vis tap has silence at the stream's
         // rate, counted on the card's clock as the frames are, so the page goes quiet as the sound has, whatever
-        // the ticks. Nothing past the vis tap: the EQ keeps its state for the stream's return.
-        if (!(pcmctl_ & PCMCTL_RUN) || !play_rate_)
+        // the ticks. Nothing past the vis tap: the EQ keeps its state for the stream's return. An MP3 sought has no
+        // rate until its next first frame: the bus's last one, then (none if nothing has played: the tap is quiet).
+        const uint32_t rate = play_rate_ ? play_rate_ : eq_rate_;
+        if (!(pcmctl_ & PCMCTL_RUN) || !rate)
             return;
-        vis_phase_ += cycles % host_hz_ * play_rate_;
-        const uint64_t n = cycles / host_hz_ * play_rate_ + vis_phase_ / host_hz_;
+        vis_phase_ += cycles % host_hz_ * rate;
+        const uint64_t n = cycles / host_hz_ * rate + vis_phase_ / host_hz_;
         vis_phase_ %= host_hz_;
         vis_bus_.silence(n);
     }

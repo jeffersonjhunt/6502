@@ -180,7 +180,12 @@
  * half away from zero), then the test tap and the mix. Every frame does,
  * those the mix has no use for (no audio rate, a bulk catch-up's) too, so the
  * EQ's state and the vis page are the same whatever the audio rate and the
- * ticks. The EQ's filters start from silence at RUN and at FLUSH; a gain or
+ * ticks. While RUN is set and the stream doesn't play (paused, buffering,
+ * ended, an error), the vis tap has silence at the stream's rate (an MP3
+ * sought, the bus's last), on the stream's frame times from the one that
+ * found the stop; the EQ keeps its state. Clearing RUN empties the vis tap's
+ * frames and peaks, so the next snapshot is silence; the page already taken
+ * stays until VISIDX is written 0. The EQ's filters start from silence at RUN and at FLUSH; a gain or
  * enable written, or an MP3's rate changing, gives it new coefficients from
  * the next frame. VOLL and VOLR scale SID A's and SID B's $D418 too: the chip
  * has round(nibble x vol / 255) in the low nibble, the card's registers (and
@@ -616,7 +621,8 @@ namespace ooe::emu
         uint32_t eq_rate_{0};  ///< the bus rate the coefficients are for
         BusVis vis_bus_;
         uint64_t vis_phase_{0}; ///< host cycles x rate owed to the vis tap's silence while the bus is stopped
-        /// Each SID's registers as written ($00-$18; the read-only four 0): its $D418 the chip has scaled by VOLL or VOLR.
+        /// Each SID's registers as written ($00-$18; the read-only four 0): the chip has its $D418 scaled by VOLL
+        /// or VOLR.
         std::array<std::array<uint8_t, SID_REGS>, 2> written_{};
         uint8_t visidx_{0};
         std::array<uint8_t, VIS_BYTES> vis_{};

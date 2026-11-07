@@ -1213,7 +1213,7 @@ The page of silence: `$00` for 0–33, `$80` for 34–97.
 
 #### Notes
 
-The page is the stream after the EQ and before the volumes, as it was when VISIDX was last written 0: the last 64 frames' times, at the stream's rate. While the stream doesn't play (paused, buffering, ended, or an error) those times are silence, as a dry spell's are, so the page goes quiet as the sound does. Clearing RUN makes the page silence at once, the one already taken too. It is the same whatever the emulator's audio rate and however its time is ticked.
+The page is the stream after the EQ and before the volumes, as it was when VISIDX was last written 0: the last 64 frames' times, at the stream's rate. While the stream doesn't play (paused, buffering, ended, or an error) those times are silence, as a dry spell's are, so the page goes quiet as the sound does; after a seek in an MP3, before its next frame gives the rate, they go at the rate it last played at. Clearing RUN drops the frames and peaks the page is made from, so the next snapshot is silence; the page already taken stays as it is until VISIDX is written 0, whatever else is written to PCMCTL. It is the same whatever the emulator's audio rate and however its time is ticked.
 
 | Index | Contents |
 | --- | --- |
