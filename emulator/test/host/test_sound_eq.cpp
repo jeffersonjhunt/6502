@@ -30,6 +30,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace ooe::test;
@@ -693,6 +694,41 @@ TEST(an_mp3_through_the_eq_is_buseq_on_minimp3s_frames)
                 got == want ? "the same" : "different");
     CHECK(!want.empty());
     CHECK(got == want);
+}
+
+TEST(a_new_host_clock_rescales_the_sids_clock_owed)
+{
+    // The SIDs' clock runs on the host's, the part of a SID clock owed carried from tick to tick. Ticked 73,077
+    // cycles at 7.16 MHz, then the clock made 1 MHz, then one cycle: the part owed comes over rescaled, so one
+    // cycle more pays out a SID clock or two, not the eight the old clock's remainder would make. And the other
+    // way, 1 MHz then 7.16 MHz, ticked to almost a whole SID clock owed (10,236 cycles: 0.9985 of one), so one
+    // cycle more pays it, where the old clock's remainder would pay none. Each against the sum worked here: the
+    // remainder x new / old, then one cycle.
+    SoundCard probe;
+    const uint64_t at0 = probe.sid_clocks();
+    probe.tick(SoundCard::NATIVE_HZ);
+    const uint64_t sid = probe.sid_clocks() - at0; // SID clocks a second
+    for (const auto &[from, to, cycles] :
+         {std::tuple<uint32_t, uint32_t, uint64_t>{SoundCard::NATIVE_HZ, 1'000'000, 73'077},
+          std::tuple<uint32_t, uint32_t, uint64_t>{1'000'000, SoundCard::NATIVE_HZ, 10'236}})
+    {
+        SoundCard c;
+        c.set_cpu_hz(from);
+        const uint64_t start = c.sid_clocks();
+        c.tick(cycles);
+        const uint64_t before = c.sid_clocks();
+        c.set_cpu_hz(to);
+        c.tick(1);
+        const uint64_t step = c.sid_clocks() - before;
+        const uint64_t owed = cycles * sid % from * to / from; // the remainder, at the new clock
+        const uint64_t want = (owed + sid) / to;
+        std::printf("  %u Hz to %u Hz after %llu cycles (%llu SID clocks): one cycle more, %llu SID clocks "
+                    "(want %llu)\n",
+                    from, to, static_cast<unsigned long long>(cycles), static_cast<unsigned long long>(before - start),
+                    static_cast<unsigned long long>(step), static_cast<unsigned long long>(want));
+        CHECK_EQ(before - start, cycles * sid / from);
+        CHECK_EQ(step, want);
+    }
 }
 
 TEST(a_band_at_or_above_045_of_the_bus_rate_is_bypassed)

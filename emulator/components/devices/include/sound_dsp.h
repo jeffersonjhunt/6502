@@ -27,8 +27,9 @@
  * peaks; both 0 to 255 for -60 to 0 dBFS, rounded; 34-97 the frames' high
  * bytes, unsigned (oldest first, $80 zero).
  *
- * Every number is made the same on every target: only +, -, x, / and sqrt,
- * which IEEE 754 rounds exactly, built without fused multiply-adds; the
+ * Every number is made the same on every target: only +, -, x and /, which
+ * IEEE 754 rounds exactly, and floor, fabs and ldexp, which are exact, built
+ * without fused multiply-adds; the
  * coefficients' sines, cosines and powers of ten by series here, not libm.
  */
 

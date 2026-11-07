@@ -323,6 +323,7 @@ namespace ooe::emu
             // (below host Hz, so the product fits), and so does the vis tap's while the bus is stopped.
             pcm_phase_ = pcm_phase_ * to / host_hz_;
             vis_phase_ = vis_phase_ * to / host_hz_;
+            phase_ = phase_ * to / host_hz_; // the SIDs' clock too: the part of a SID clock owed
             host_hz_ = to;
         }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
