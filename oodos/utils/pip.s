@@ -228,8 +228,11 @@ said:   jsr     UT_SAID
 
 ; O:'s or P:'s disk changed under the command (error 10, which the BDOS
 ; doesn't say): MEDIA CHANGE and the name, the destination's (chg) or the
-; source's (chgsrc). NAME.$$$ is the old disk's: it isn't deleted from the
-; new one (tmpopen cleared first).
+; source's (chgsrc). chg: NAME.$$$ is on the changed floppy, so it isn't
+; deleted (tmpopen cleared first: a delete would find the new floppy's).
+; chgsrc: the same when the source is on the destination's drive; on
+; another drive the destination didn't change, and NAME.$$$ is deleted as
+; for any failure.
 chg:    stz     tmpopen
         lda     #<(e_fcb + 1)
         sta     ptr
