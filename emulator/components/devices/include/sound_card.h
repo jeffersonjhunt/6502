@@ -426,9 +426,17 @@ namespace ooe::emu
         unsigned underruns() const { return underruns_; }
         /// Bytes waiting in the FIFO, a partial frame's among them.
         size_t fifo_bytes() const { return fifo_count_; }
-        /// The card's ES5503, its registers and wave RAM.
-        Es5503 &doc() { return doc_; }
-        const Es5503 &doc() const { return doc_; }
+        /// The card's ES5503, its registers and wave RAM, played up to now.
+        Es5503 &doc()
+        {
+            catch_up();
+            return doc_;
+        }
+        const Es5503 &doc() const
+        {
+            catch_up();
+            return doc_;
+        }
         /// The DOC's address, 17 bits: DOCBANK bit 0, then DOCADDR.
         uint32_t doc_address() const { return doc_addr_; }
         /// Times CTRL RESET was written.

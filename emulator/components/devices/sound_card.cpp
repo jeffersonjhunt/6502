@@ -1551,7 +1551,7 @@ namespace ooe::emu
             const int b = card_receive();
             return b < 0 ? to_card_ : static_cast<uint8_t>(b); // empty: the last byte, again
         }
-        if (io_in() && addr >= 0xDF00 && (docctl_ & DOCCTL_RUN))
+        if (io_in() && addr >= 0xDF00 && addr <= 0xDFFF && (docctl_ & DOCCTL_RUN))
         {
             catch_up();
             return doc_.read(static_cast<uint8_t>(addr)); // $DFE0 acknowledges, as DOCDATA's $E0 does
