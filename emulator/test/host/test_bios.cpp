@@ -490,6 +490,9 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK(card->splash_frame() > 60);
         CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
         CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
+        if (rev == 1)
+            continue; // revision 1 took the card and plays the tune; how the splash ends doesn't depend on the
+                      // revision, so it is watched once, on revision 2 (5 s of machine time, ~45 s under ASan)
         b.run(SPLASH_TIME);
         CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
         CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
