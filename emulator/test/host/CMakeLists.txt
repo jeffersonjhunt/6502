@@ -98,7 +98,7 @@ target_compile_definitions(test_rtc PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DI
 emu_add_test(test_joyports)
 target_compile_definitions(test_joyports PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 emu_add_test(test_bios)
-set_tests_properties(test_bios PROPERTIES TIMEOUT 300) # about 140 s of BIOS runs under ASan
+set_tests_properties(test_bios PROPERTIES TIMEOUT 600) # about 290 s alone under ASan (2026-11-07), more 4 at once
 emu_add_test(test_dma)
 emu_add_test(test_console_card)
 emu_add_test(test_video)

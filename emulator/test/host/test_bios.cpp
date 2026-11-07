@@ -490,6 +490,9 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK(card->splash_frame() > 60);
         CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
         CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
+        if (rev == 1)
+            continue; // revision 1 took the card and plays the tune; how the splash ends doesn't depend on the
+                      // revision, so it is watched once, on revision 2 (5 s of machine time, ~45 s under ASan)
         b.run(SPLASH_TIME);
         CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
         CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
@@ -537,6 +540,19 @@ namespace
 
     /// DOCCTL's bits besides RUN, which QUIET keeps.
     constexpr uint8_t DOC_KEPT = SoundCard::DOCCTL_IRQ_CARD | SoundCard::DOCCTL_AUTOINC | SoundCard::DOCCTL_RAM;
+
+    /// Boot, then end the splash and its tune with a first Break rather than waiting out its 5 s (under ASan about
+    /// 50 s of host time a boot): QUIET takes the splash off and stops the card's 6510, so the SIDs are the host's
+    /// and the monitor is at its prompt. The Break a case tests comes after, so it is QUIET's second run.
+    bool boot_past_splash(Board &b)
+    {
+        b.reset();
+        b.run(BOOT);
+        b.cpu->nmi();
+        const bool prompt = has(b.run(BOOT), "\\");
+        return prompt && b.machine->video_card()->splash_frame() == -1 &&
+               !(b.machine->sound_card()->ctrl() & SoundCard::CTRL_RUN);
+    }
 
     /// Start `n` on the card from the host's side, loud: 8-bit mono PCM at 8 kHz, 64 KB of a full-scale square (8
     /// seconds), or the ES5503's oscillator 0 looping a full-scale square in wave RAM, with IE (each loop makes it
@@ -641,9 +657,7 @@ TEST(break_stops_the_pcm_stream_and_the_es5503_on_revision_2)
         SoundCard *sound = b.machine->sound_card();
         REQUIRE(sound != nullptr);
         REQUIRE(sound->peek(SoundCard::ID_REG) == SoundCard::ID);
-        b.reset();
-        b.run(BOOT);
-        b.run(SPLASH_TIME); // the splash and its tune over: the SIDs the host's
+        REQUIRE(boot_past_splash(b)); // the splash and its tune over: the SIDs the host's
         start_noise(*sound, n);
         b.run(10 * FRAME);
         const float before = loudest(*sound);
@@ -668,9 +682,7 @@ TEST(the_demos_end_stops_the_pcm_stream_and_the_es5503)
         REQUIRE(b.ok());
         SoundCard *sound = b.machine->sound_card();
         REQUIRE(sound != nullptr);
-        b.reset();
-        b.run(BOOT);
-        b.run(SPLASH_TIME);
+        REQUIRE(boot_past_splash(b));
         b.run(20 * FRAME, "C803R\r");
         REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
         start_noise(*sound, n);
@@ -692,9 +704,7 @@ TEST(break_stops_a_paused_stream_and_clears_a_refused_run)
         REQUIRE(b.ok());
         SoundCard *sound = b.machine->sound_card();
         REQUIRE(sound != nullptr);
-        b.reset();
-        b.run(BOOT);
-        b.run(SPLASH_TIME);
+        REQUIRE(boot_past_splash(b));
         start_noise(*sound, paused ? Noise::pcm : Noise::doc);
         b.run(5 * FRAME);
         if (paused)
@@ -742,9 +752,7 @@ TEST(break_leaves_a_revision_1_cards_other_offsets_alone)
         REQUIRE(sound != nullptr);
         sound->set_revision(rev);
         REQUIRE(sound->peek(SoundCard::ID_REG) == (0xA0 | rev));
-        b.reset();
-        b.run(BOOT);
-        b.run(SPLASH_TIME);
+        REQUIRE(boot_past_splash(b));
         SoundWrites seen;
         b.cpu->set_observer(&seen);
         b.cpu->nmi();
