@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { onTerminal, openSettings, pastSplash, phosphor, powerOn } from "./ui";
 
-const GREETING = "BACKPLANE BIOS 0.11";
+const GREETING = "BACKPLANE BIOS 0.12";
 
 async function booted(page: Page) {
   await page.goto("./?sd=empty");
@@ -45,7 +45,7 @@ test("the page starts the machine off: the dark screen says to turn the key, and
 
 test("boots the BIOS to the Woz Monitor on the CRT", { tag: "@smoke" }, async ({ page }) => {
   await booted(page);
-  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.11\n\\$/);
+  await expect(page.getByTestId("crt-text")).toHaveText(/BACKPLANE BIOS 0\.12\n\\$/);
   await page.screenshot({ path: `test-results/boot-${test.info().project.name}.png` });
 });
 

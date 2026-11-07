@@ -15,10 +15,12 @@
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
  * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h). So far (that spec's steps 1 to 5) its registers hold
- * what is written and read it back, with their reset values, and the PCM
- * stream runs, raw or MP3, through the EQ, the vis tap and volume, mixed
- * with the SIDs; no ES5503 sound yet:
+ * ES5503 (es5503.h), all that spec's steps built: its registers hold what
+ * is written and read it back, with their reset values; the PCM stream
+ * runs, raw or MP3, and the ES5503 plays (one or the other: STATE $82),
+ * each through the EQ, the vis tap and volume, mixed with the SIDs.
+ * set_revision(1) makes the card revision 1 ($A1), $48-$63 reading $FF
+ * and ignoring writes:
  *
  *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
  *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
@@ -191,6 +193,23 @@
  * the next frame. VOLL and VOLR scale SID A's and SID B's $D418 too: the chip
  * has round(nibble x vol / 255) in the low nibble, the card's registers (and
  * sid()) what was written; a volume written reaches the chips at once.
+ *
+ * The ES5503 (step 7). The port (DOCCTL, DOCDATA, DOCADDR, DOCBANK)
+ * reaches its registers and wave RAM whatever RUN is, and DMA reaches them
+ * through DRQSEL 2. DOCCTL RUN plays it on the card's own clock (inside the
+ * SIDs' catch-up), its steps and the bus's 48 kHz frames on their exact
+ * times, each frame the average of the steps it spans at (byte - 128) / 128
+ * x volume / 255 x 1/8, in integers, then the EQ, the vis tap, volume and the
+ * mix as PCM's frames; while RUN is set the 6510 sees the registers at
+ * $DF00-$DFFF. Its interrupt goes to the host (IEN bit 3) or, with DOCCTL
+ * bit 2 and only while RUN is set, the 6510. Clearing RUN freezes the chip
+ * and stops its bus; RUN again plays on from there.
+ *
+ * Break (the BIOS's QUIET, BIOS 0.12) takes the card at any revision: CTRL
+ * RUN and IEN off, every SID register 0; and from $A2 on, PCMCTL FLUSH
+ * alone (the stream stopped, its FIFO emptied) and DOCCTL's RUN cleared,
+ * its other bits kept (the ES5503 frozen). On revision 1 it writes nothing
+ * at $48-$63.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the

@@ -368,6 +368,10 @@ window registers.
    zero page the BIOS and the monitor keep is listed in `backplane/bios/backplane.inc`: ECHO (`$C80F`) uses
    `$E0–$E7`.
 
+   *(BIOS 0.12, 2026-11-07.)* On a sound card of revision 2 or later (ID `$A2` and up), Break also stops the PCM
+   stream, emptying its FIFO, and freezes the ES5503, so nothing on the card plays on behind the monitor
+   ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at `$48–$63`.
+
 **From the ESP32 (override)**
 
 1. The bus spy holds /RESET low; a held W65C02S stays off the bus.
@@ -826,7 +830,8 @@ it commands.
 4. The main CPU is free; the mailbox tells it when to change song or stop.
 
 Break, BRK and the demo's end stop the card at any revision (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
-tune; the WebUI's tune bar then says the machine stopped it.
+tune; the WebUI's tune bar then says the machine stopped it. On revision 2 QUIET also stops the PCM stream and the
+ES5503 (BIOS 0.12, [below](#the-bios-step-8)).
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 
@@ -861,7 +866,10 @@ tune; the WebUI's tune bar then says the machine stopped it.
 **Decided (2026-11-05):** the DAC and the ES5503, above. **Proposed (2026-11-05):** everything below, the
 registers from [sound-rev2.md](sound-rev2.md), which has the behaviour in full and the order it's built in. The
 ID becomes `$A2`, so software can tell the revisions apart; what revision 1 has is unchanged, and software that
-knows only revision 1 takes the card by the ID's high nibble.
+knows only revision 1 takes the card by the ID's high nibble. **Later revisions (decided by the owner,
+2026-11-07):** `$A3` and up keep what `$48–$63` mean. They may add registers, never move or redefine these, so
+software that tests for `$A2` or more (the BIOS's QUIET does) works on them; a card that broke that would take a
+new type nibble.
 
 **Registers** (offsets from `$C500`; the rest of `$64–$7E` reads `$FF`):
 
@@ -1064,6 +1072,28 @@ Decided by the owner, 2026-11-06:
    PCM's RUN is cleared (the next snapshot silence, its VU the peaks since the last). RUN again plays the
    oscillators on from where they were, the EQ from silence and the mix anchored afresh.
 5. **The bus is 48 kHz while the ES5503 runs:** the EQ's coefficients and the mix's resampling are for 48 kHz.
+
+#### The BIOS (step 8) ####
+
+QUIET (Break, BRK and the demo's end) takes the card by the ID's high nibble, as before, and clears CTRL RUN, IEN
+and the SIDs at any revision. When the ID is `$A2` or more it then writes `$04` (FLUSH alone) to PCMCTL and clears
+RUN in DOCCTL by reading it and writing it back *(BIOS 0.12, 2026-11-07)*, so nothing on the card plays on behind
+the monitor; on revision 1 (`$A1`) it writes nothing at `$48–$63`. What the two writes do:
+
+- **PCMCTL `$04`** clears RUN, PAUSE and EOF and empties the FIFO and the decoder: STATE goes to 0 (idle), a `$82`
+  is cleared, FREE reads the whole FIFO, and with PCM on the bus the vis tap's frames are dropped and the EQ's
+  filters start from silence. A program starts its next stream clean. CODEC, RATE, PCMFMT and POS are left.
+- **DOCCTL, RUN cleared,** freezes the chip where it is and stops its bus (decision 4 above) and closes the 6510's
+  `$DF00` window. Bits 2, 5 and 6 (the interrupt's route, auto-increment, DOCDATA on wave RAM) are kept, and so are
+  the oscillators' registers and wave RAM.
+- **An ES5503 interrupt pending at Break stays pending, on its route.** With bit 2 it is the 6510's, which the chip
+  pulls only while RUN is set, so it is silent; without, the host's, which IEN (cleared by QUIET) holds off. A
+  program acknowledges it before it sets IEN bit 3 again: with DOCCTL bit 6 clear (QUIET keeps it, and with it
+  set DOCDATA reads wave RAM) and DOCADDR `$E0`, it reads DOCDATA.
+- The volumes, the EQ's gains, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already
+  aborted every DMA channel, so DRQSEL's DRQ moves nothing.
+
+The audio is then silent: no bus frames, and the SIDs at volume 0.
 
 
 ## Storage ##
