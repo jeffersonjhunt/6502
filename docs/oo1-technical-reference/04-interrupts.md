@@ -130,7 +130,8 @@ it at boot, if a USB card answers, so in native mode Break reaches the monitor. 
 - a fresh stack, and windows 0–2 on RAM blocks 0–2;
 - every DMA channel aborted, with its terminal count and mode cleared;
 - an SD command abandoned, the units staying mounted;
-- the boot splash stopped, the sound card's 6510 stopped and its SIDs silenced;
+- the boot splash stopped, the sound card's 6510 stopped and its SIDs silenced, and on revision 2 its PCM stream
+  and ES5503 stopped too (PCMCTL and DOCCTL `$00`), since BIOS 0.12 ([chapter 7](07-sound.md#silencing-them));
 - the interrupt enables of the SD, video, sound, USB and console cards off, and the clock's TICK and TIE;
 - the VIA's interrupts off (`$7F` to VIA_IER), and a panel key's pending interrupt cleared (`$01` to
   CONSOLE_ISR), since BIOS 0.11;

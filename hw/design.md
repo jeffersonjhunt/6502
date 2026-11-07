@@ -356,7 +356,10 @@ window registers.
    that doesn't start up is given up on at a key. An OODOS card so boots OODOS at power-on. *(BIOS 0.11,
    2026-11-05.)* Break also turns the VIA's interrupts off (`$7F` to its IER) and clears the Console card's ISR,
    since a front-panel key already pending holds /IRQ low whatever IEN says; and the BIOS takes the sound card at
-   any revision (the ID's high nibble, `$A`), for [revision 2](#sound-card-revision-2). The BIOS's memory-to-memory
+   any revision (the ID's high nibble, `$A`), for [revision 2](#sound-card-revision-2). *(BIOS 0.12, 2026-11-07.)*
+   On a sound card of revision 2 or later (ID `$A2` and up), Break also writes 0 to PCMCTL and DOCCTL, so the PCM
+   stream and the ES5503 stop with the SIDs ([The BIOS](#the-bios-step-8)); on revision 1 it writes nothing at
+   `$48–$63`. The BIOS's memory-to-memory
    copies are block transfers on channel 3: it stops the channel before programming it, turns the master enable
    on for the copy and puts CONTROL back after, and waits for ENABLE to clear, so they're whole whatever BURST a
    program has set. The master enable is the whole controller's, so any channel a program has left armed runs during
@@ -826,7 +829,8 @@ it commands.
 4. The main CPU is free; the mailbox tells it when to change song or stop.
 
 Break, BRK and the demo's end stop the card at any revision (the BIOS's QUIET clears RUN and silences the SIDs), and with it any
-tune; the WebUI's tune bar then says the machine stopped it.
+tune; the WebUI's tune bar then says the machine stopped it. On revision 2 QUIET also stops the PCM stream and the
+ES5503 (BIOS 0.12, [below](#the-bios-step-8)).
 
 **Details settled in the emulator (2026-10-25, proposed for the host's player):** `sid_file.h`.
 
@@ -1064,6 +1068,25 @@ Decided by the owner, 2026-11-06:
    PCM's RUN is cleared (the next snapshot silence, its VU the peaks since the last). RUN again plays the
    oscillators on from where they were, the EQ from silence and the mix anchored afresh.
 5. **The bus is 48 kHz while the ES5503 runs:** the EQ's coefficients and the mix's resampling are for 48 kHz.
+
+#### The BIOS (step 8) ####
+
+QUIET (Break, BRK and the demo's end) takes the card by the ID's high nibble, as before, and clears CTRL RUN, IEN
+and the SIDs at any revision. When the ID is `$A2` or more it then writes 0 to PCMCTL and to DOCCTL *(BIOS 0.12,
+2026-11-07)*, so nothing on the card plays on behind the monitor; on revision 1 (`$A1`) it writes nothing at
+`$48–$63`. What the two writes do:
+
+- **PCMCTL 0** clears RUN, PAUSE and EOF: STATE goes to 0 (idle), a `$82` is cleared, and with PCM on the bus the
+  vis tap's frames are dropped. The FIFO keeps what's in it (no FLUSH), as clearing RUN always does, so a program
+  that starts a new stream after Break writes FLUSH first. CODEC, RATE, PCMFMT and POS are left.
+- **DOCCTL 0** clears RUN, which freezes the chip where it is and stops its bus (decision 4 above), closes the
+  6510's `$DF00` window, and clears bits 2, 5 and 6 too: the interrupt routed to the host, no auto-increment, and
+  DOCDATA on the registers. The oscillators' registers and wave RAM are kept, and with IEN already 0 an interrupt
+  pending in the chip pulls nothing.
+- The volumes, the EQ, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already aborted
+  every DMA channel, so DRQSEL's DRQ moves nothing.
+
+The audio is then silent: no bus frames, and the SIDs at volume 0.
 
 
 ## Storage ##
