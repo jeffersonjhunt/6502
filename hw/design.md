@@ -984,6 +984,44 @@ the 4 KB start at 320 kbps (235 ms from RUN), 5 ms at 128 kbps and 97 ms for VBR
   registers, `$E0` and `$E2` take no writes, `$E3–$FF` read 0, and `$E0` with nothing pending reads `$FF` at reset.
   The data registers read `$80` after /RESET.
 
+**The ES5503's oscillators (step 6, decided by the owner 2026-11-06).** The chip alone (`es5503.{h,cpp}`, with
+no knowledge of the card), reimplemented from the spec with MAME's ES5503 (mamedev/mame
+`e1c41b59c0027df7290229f6008393e5ab72013c`, `src/devices/sound/es5503.cpp`) read for its edge cases; no MAME code
+is copied, so no MAME licence is needed.
+
+- **The bank is a latch of its own.** The table register's bit 6 keeps the bank; a pointer write leaves it, and
+  `$C0` reads back as written. MAME packs the pointer and the bank into one value, so its pointer write clears the
+  bank; that comes of its packing, and we don't copy it.
+- **One sample at a time.** Each output sample (8 × (enabled + 2) of the chip's 7,159,090 Hz), every enabled
+  oscillator not halted steps once, in number order. MAME renders each oscillator over a whole buffer before the
+  next, so its AM volume and sync restart take effect once a buffer; that is its buffering, not copied.
+- **The accumulator** is 24 bits. Each step the index (accumulator >> (9 + resolution − size), the size masked)
+  picks the byte, then the frequency is added; an index at the table's last byte or past is its end, and a loop
+  takes (size − 1) << shift off. A sum that carries past 2^24 is kept with its carry until the next step's end
+  check takes it, as MAME's sum does: so at resolution 7 a fast frequency that steps over the table's top still
+  ends it, where a bare 24-bit wrap would loop a one-shot for ever.
+- **Sync and AM pairs:** an even oscillator in sync/AM restarts the odd one below it (if that runs); an odd one
+  plays nothing and its byte becomes the volume of the one above it (if that runs), which its volume register
+  then reads. Oscillator 0 has nothing below and 31 nothing above: both do nothing there.
+- **The halt rules are MAME's `halt_osc`, reimplemented:** a `$00` byte halts in every mode and plays nothing;
+  free run loops, its phase kept; one-shot halts; swap halts and starts its partner (number XOR 1) from 0; an even
+  oscillator whose partner swaps, itself not swapping, starts again; sync/AM loops. A halt with IE makes the
+  oscillator pending. Halting one-shot or swap from a control write does the same by the mode it had, with an
+  interrupt only if the new value has IE; halting free run so does nothing more; clearing the halt bit starts the
+  oscillator from 0.
+- **The interrupt line is MAME's:** up when an oscillator becomes pending; a `$E0` read drops it and raises it
+  again at once while an enabled oscillator is still pending.
+- **No triple mix and no swap click.** MAME mixes the highest enabled oscillator three times (a quirk of the
+  real chip, it says); the spec leaves it out, and so do we. MAME doesn't model the swap's one-sample centre
+  value either, and we don't.
+- **Integer output.** The chip gives each of the 16 channels' sum of (byte − 128) × volume, and a stereo fold
+  (even channels left, odd right). The float scale (÷ 128 ÷ 255 ÷ 8) and the resampling to the bus are the
+  card's (step 7), so the core has no floating point, and its golden hash is of integers.
+- **/RESET** sets every halt bit, clears pending interrupts and drops the line, sets `$E1` to 0 and the
+  accumulators to 0, and keeps the other registers and the wave RAM, as the spec says. (MAME's reset zeroes every
+  register and leaves the oscillators running; the spec's wins.) A table register never written is size 0, 256
+  bytes, whose end the oscillator finds (MAME's table length is 0 until written).
+
 
 ## Storage ##
 
