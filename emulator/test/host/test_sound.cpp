@@ -186,13 +186,17 @@ TEST(a_byte_for_the_host_interrupts_when_ien_says_so)
     c.card_send(1);
     CHECK(!c.irq());
     c.write(SoundCard::IEN, 0xFF);
-    CHECK_EQ(c.read(SoundCard::IEN), SoundCard::IEN_MAILBOX);
+    CHECK_EQ(c.read(SoundCard::IEN), SoundCard::IEN_MAILBOX | SoundCard::IEN_DOC); // revision 2: the ES5503's bit too
     CHECK(c.irq());
     CHECK_EQ(c.read(SoundCard::STATUS), SoundCard::STATUS_TO_HOST | SoundCard::STATUS_IRQ);
     c.read(SoundCard::MBIN);
     CHECK(!c.irq());
     c.write(SoundCard::MBOUT, 9); // the host's own byte never interrupts the host
     CHECK(!c.irq());
+    SoundCard r1; // revision 1: bit 2 alone
+    r1.set_revision(1);
+    r1.write(SoundCard::IEN, 0xFF);
+    CHECK_EQ(r1.read(SoundCard::IEN), SoundCard::IEN_MAILBOX);
 }
 
 TEST(reset_stops_and_silences_and_keeps_the_ram)

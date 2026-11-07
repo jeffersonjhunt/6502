@@ -263,6 +263,7 @@ namespace ooe::emu
         static constexpr uint8_t STATUS_BUSY = 0x01, STATUS_TO_CARD = 0x02, STATUS_TO_HOST = 0x04,
                                  STATUS_IRQ = 0x80;
         static constexpr uint8_t IEN_MAILBOX = 0x04;
+        static constexpr uint8_t IEN_DOC = 0x08; ///< revision 2: the ES5503's interrupt, when DOCCTL routes it here
         static constexpr uint8_t PCMCTL_RUN = 0x01, PCMCTL_PAUSE = 0x02, PCMCTL_FLUSH = 0x04, PCMCTL_EOF = 0x08;
         static constexpr uint8_t PCMFMT_STEREO = 0x01, PCMFMT_16BIT = 0x02;
         /// CODECS: raw PCM (bit 0), MP3 (bit 1), an ES5503 (bit 7).
@@ -277,6 +278,7 @@ namespace ooe::emu
             STATE_ENDED = 5,
             STATE_BAD_FORMAT = 0x80, ///< at RUN, a RATE or CODEC that doesn't play; an MP3 frame above 48 kHz
             STATE_NO_SYNC = 0x81,    ///< MP3: 64 KB of data with no frame found in it
+            STATE_BOTH = 0x82,       ///< PCM and the ES5503 both asked to run: the second refused
         };
         static constexpr uint32_t RATE_MIN = 8'000, RATE_MAX = 48'000;
         static constexpr size_t START_BYTES = 4096; ///< buffering ends at this much in the FIFO, or at EOF
@@ -298,6 +300,8 @@ namespace ooe::emu
         static constexpr uint32_t PAL_HZ = 985'248, NTSC_HZ = 1'022'727, NATIVE_HZ = 7'159'090;
         /// The digital bus's share of the mix, against the SIDs' output: the real card's analog stage will set it.
         static constexpr float MIX_DIGITAL = 0.5f;
+        /// The bus's rate while the ES5503 plays.
+        static constexpr uint32_t DOC_BUS_HZ = 48'000;
         /// CIA 1's registers the card imitates (offsets from $DC00).
         static constexpr uint8_t CIA_TA_LO = 0x04, CIA_TA_HI = 0x05, CIA_ICR = 0x0D, CIA_CRA = 0x0E;
         /// The frame interrupt's registers ($DE03 FRAME, $DE04 FRAMEEN) and the frame in SID clocks and lines.
@@ -354,7 +358,9 @@ namespace ooe::emu
         uint8_t read(uint32_t offset) override;
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
-        bool irq() const override { return (ien_ & IEN_MAILBOX) && to_host_full_; }
+        /// IRQH bit 2: a byte waiting in MBIN with IEN bit 2, or (revision 2) the ES5503's interrupt with IEN
+        /// bit 3, DOCCTL bit 2 clear.
+        bool irq() const override;
         bool drq() const override
         {
             return drqsel_ == DRQ_PCMDATA ? fifo_count_ < FIFO_BYTES : drqsel_ <= DRQ_DOCDATA;
@@ -404,6 +410,7 @@ namespace ooe::emu
         /// The frames recorded since the last call, left then right, signed 16-bit; emptied.
         std::vector<int16_t> take_tap()
         {
+            catch_up(); // the ES5503's frames to now
             std::vector<int16_t> out;
             out.swap(tap_);
             return out;
@@ -412,16 +419,24 @@ namespace ooe::emu
         uint64_t mix_frames() const { return mix_frames_; }
         /// Of them, those not yet added to a SID sample.
         size_t mix_backlog() const { return pcm_mix_.size() / 2; }
-        /// SID samples made while the bus ran with nothing queued for them (a gap in the stream): 0 if the lead
+        /// SID samples made while the bus (PCM's or the ES5503's) ran with nothing queued for them: 0 if the lead
         /// held. Since /RESET or set_audio_rate().
         uint64_t mix_dry() const { return mix_dry_; }
         /// Times the stream ran dry with no EOF, since /RESET.
         unsigned underruns() const { return underruns_; }
         /// Bytes waiting in the FIFO, a partial frame's among them.
         size_t fifo_bytes() const { return fifo_count_; }
-        /// The card's ES5503, its registers and wave RAM.
-        Es5503 &doc() { return doc_; }
-        const Es5503 &doc() const { return doc_; }
+        /// The card's ES5503, its registers and wave RAM, played up to now.
+        Es5503 &doc()
+        {
+            catch_up();
+            return doc_;
+        }
+        const Es5503 &doc() const
+        {
+            catch_up();
+            return doc_;
+        }
         /// The DOC's address, 17 bits: DOCBANK bit 0, then DOCADDR.
         uint32_t doc_address() const { return doc_addr_; }
         /// Times CTRL RESET was written.
@@ -557,6 +572,15 @@ namespace ooe::emu
         void cia_write(unsigned reg, uint8_t data);
         bool cia_irq() const { return cia_flags_ & cia_mask_ & 0x01; }
         bool vic_irq() const { return vic_flags_ & vic_mask_ & 0x01; }
+        /// The ES5503's interrupt as the card's 6510 sees it (DOCCTL bit 2), the chip brought up to now.
+        bool doc_irq_card() const;
+        /// The ES5503 played over `clocks` SID clocks, its steps and the bus's 48 kHz frames on their exact
+        /// times; called from catch_up(), so it keeps step with the SIDs.
+        void doc_run(uint64_t clocks);
+        /// The bus frame for the ES5503's steps since the last: their average, or the last frame held.
+        void doc_frame();
+        /// DOCCTL's RUN set (refused while PCM runs) or cleared.
+        void doc_control(uint8_t data);
         /// The frame's clock: a frame each FRAME_PAL or FRAME_NTSC SID clocks.
         void vic_tick(unsigned cycles);
         void reset_cpu();
@@ -635,6 +659,16 @@ namespace ooe::emu
         uint32_t doc_addr_{0};
         uint8_t drqsel_{DRQ_RAMDATA};
         Es5503 doc_;
+        // The ES5503 on the card (step 7). Its time is the SIDs' (catch_up() runs both to the same clock), in
+        // units of a SID clock / (7,159,090 x 48,000): a chip clock is SID Hz x 48,000 of them, a bus frame
+        // SID Hz x 7,159,090.
+        uint64_t doc_step_left_{0};    ///< to its next step
+        uint64_t doc_frame_left_{0};   ///< to the end of the bus frame
+        std::array<int64_t, 2> doc_sum_{}; ///< the steps' stereo sums this frame
+        uint32_t doc_steps_{0};
+        std::array<int16_t, 2> doc_last_{}; ///< the last frame, held when one spans no step
+        bool doc_mix_on_{false};       ///< the mix has its anchor for this run of the ES5503
+        bool both_{false};             ///< a RUN refused (PCM and the ES5503): STATE reads $82 until the next write
 
         CardBus bus_{*this};
         Cpu6502 cpu_;

@@ -1,7 +1,7 @@
 # 7 Sound
 
 The sound card (module A, `$C500`): two SIDs and a 6510 of its own. Revision 2 adds a PCM stream and an ES5503
-([below](#revision-2)); so far the emulator has its registers, and plays nothing through them.
+([below](#revision-2)); the emulator plays both, as far as the spec's steps so far go.
 
 The design record, for the reasons: [hw/design.md, "Sound"](../../hw/design.md#sound).
 
@@ -268,9 +268,11 @@ The registers are in: each holds what is written and reads it back, with the res
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
 sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix,
-below), and plays MP3 too (below), through the EQ, the vis page and the volumes (below). The ES5503's
-oscillators run in the emulator's chip on its own (the spec's step 6), but the card doesn't play them yet and
-raises no interrupt for them: that is step 7. The rest comes in the spec's later steps.
+below), and plays MP3 too (below), through the EQ, the vis page and the volumes (below). The ES5503 plays
+while DOCCTL's RUN is set (the spec's steps 6 and 7): the card's 6510 reaches its registers at `$DF00–$DFFF`,
+its interrupt goes to the host or the 6510, and its sound goes onto the bus at 48 kHz, through the same EQ, vis
+page and volumes, and into the mix. PCM and the ES5503 exclude each other (STATE `$82`). The rest comes in the
+spec's step 8.
 
 **The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
 emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
@@ -537,7 +539,7 @@ R. Writes are ignored.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7 | IRQ | 1: the card is interrupting: IEN's bit 2, and a byte in MBIN |
+| 7 | IRQ | 1: the card is interrupting: IEN's bit 2 and a byte in MBIN, or (revision 2) IEN's bit 3 and the ES5503's interrupt, routed to the host |
 | 6–3 | | 0 |
 | 2 | | 1: a byte from the card waits in MBIN |
 | 1 | | 1: the byte written to MBOUT hasn't been taken by the card yet |
@@ -568,13 +570,14 @@ A, the sound card
 
 #### Access
 
-R/W. Only bit 2 is kept.
+R/W. Bit 2 is kept, and on revision 2 bit 3 too.
 
 #### Bits
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7–3 | | 0 |
+| 7–4 | | 0 |
+| 3 | | 1 (revision 2): the ES5503's interrupt, when DOCCTL's bit 2 is clear, interrupts on IRQH bit 2 |
 | 2 | | 1: a byte waiting in MBIN interrupts, on IRQH bit 2 |
 | 1–0 | | 0 |
 
@@ -588,7 +591,8 @@ R/W. Only bit 2 is kept.
 
 #### Notes
 
-The interrupt lasts until MBIN is read. See [IRQH](11-north-bridge-and-rtc.md#reg-c689) and
+The mailbox's interrupt lasts until MBIN is read; the ES5503's until its `$E0` is read (through DOCDATA, or by
+the 6510 at `$DFE0`) and no other oscillator is pending. See [IRQH](11-north-bridge-and-rtc.md#reg-c689) and
 [chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh).
 
 <a id="reg-c543"></a>
@@ -962,8 +966,10 @@ All:
 #### Notes
 
 `$80` also stands for a CODEC of 2 or more, and for an MP3 frame above 48 kHz, which MPEG-1, -2 and -2.5 can't
-give. `$81` counts the bytes looked through since the last frame found. `$82` doesn't occur yet. An error lasts
-until RUN is cleared.
+give. `$81` counts the bytes looked through since the last frame found. An error lasts until RUN is cleared.
+`$82` is different: PCMCTL's RUN written while the ES5503 runs, or DOCCTL's while PCM runs, is refused (the RUN
+bit isn't kept, so the register reads it 0) and STATE reads `$82` until PCMCTL or DOCCTL is next written. That
+write clears it, and sets it again only if it is refused too. The source already running plays on underneath.
 
 <a id="reg-c551"></a>
 ### $C551 SOUND_POS: the frames played
@@ -1295,7 +1301,7 @@ R/W. Bits 7, 4, 3 and 1 read 0.
 
 #### Notes
 
-`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not. So far RUN is kept and does nothing: no sound, no window at `$DF00`, no interrupt.
+`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route, and only while RUN is set: paused, the chip keeps the interrupt pending, and pulls /IRQ again when RUN is set.
 
 <a id="reg-c55f"></a>
 ### $C55F SOUND_DOCDATA: the ES5503's register or wave RAM
