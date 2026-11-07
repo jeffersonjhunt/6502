@@ -431,7 +431,7 @@ TEST(the_vis_page_goes_quiet_after_a_pause_the_end_or_run_cleared)
     CHECK(!silent(2));
     CHECK(silent(3));
     CHECK(silent(4));
-    CHECK(first[3 * SoundCard::VIS_BYTES + 32] == 0); // RUN cleared: the VU too
+    CHECK(first[3 * SoundCard::VIS_BYTES + 32] == 0); // RUN cleared straight after a snapshot: no peak since
 }
 
 TEST(after_a_seek_the_vis_page_goes_quiet_and_writes_with_run_clear_keep_it)
@@ -458,14 +458,31 @@ TEST(after_a_seek_the_vis_page_goes_quiet_and_writes_with_run_clear_keep_it)
         }
         else
         {
+            c.write(SoundCard::RATE, static_cast<uint8_t>(8'000)); // not the MP3's rate: none of its business
+            c.write(SoundCard::RATE + 1, static_cast<uint8_t>(8'000 >> 8));
             c.write(SoundCard::CODEC, 1);
             c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
             for (const uint8_t b : mp3)
                 c.write(SoundCard::PCMDATA, b);
         }
-        ticks(c, HZ / 5, 7);
+        constexpr uint64_t T = HZ / 5, D = 1'111;
+        ticks(c, T, 7);
         const std::vector<uint8_t> before = page(c);
         c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH);
+        if (kind == 1)
+        {
+            // D cycles after the seek, the frames of silence at the MP3's 44.1 kHz on its own frame times (playing
+            // from cycle 0, so T cycles in it owes T x 44,100 mod HZ of a frame): as many $80s end the samples.
+            ticks(c, D, 7);
+            const std::vector<uint8_t> soon = page(c);
+            const uint64_t want = (T * 44'100 % HZ + D * 44'100) / HZ;
+            size_t quiet = 0;
+            while (quiet < 64 && soon[97 - quiet] == 0x80)
+                ++quiet;
+            std::printf("  MP3, %llu cycles after the seek: %zu frames of silence (want %llu at 44.1 kHz)\n",
+                        static_cast<unsigned long long>(D), quiet, static_cast<unsigned long long>(want));
+            CHECK_EQ(quiet, static_cast<size_t>(want));
+        }
         if (kind == 2)
             for (size_t i = 0; i < 65'600; ++i)
                 c.write(SoundCard::PCMDATA, static_cast<uint8_t>('a' + i % 26));
@@ -479,27 +496,43 @@ TEST(after_a_seek_the_vis_page_goes_quiet_and_writes_with_run_clear_keep_it)
         CHECK_EQ(st, kind == 2 ? SoundCard::STATE_NO_SYNC : SoundCard::STATE_BUFFERING);
         CHECK(silent(after));
     }
-    // RUN clear: writes keep the page taken; the next snapshot is silence.
-    SoundCard c;
-    c.set_cpu_hz(HZ);
-    start(c, MONO16, RATE);
-    put(c, tone);
-    ticks(c, HZ / 5, 7);
-    const std::vector<uint8_t> taken = page(c);
-    for (const uint8_t ctl : {uint8_t{0}, SoundCard::PCMCTL_FLUSH, SoundCard::PCMCTL_EOF})
-        c.write(SoundCard::PCMCTL, ctl);
-    c.write(SoundCard::VISIDX, 1); // not 0: the page as it is
-    std::vector<uint8_t> kept(SoundCard::VIS_BYTES);
-    kept[0] = taken[0];
-    for (size_t i = 1; i < kept.size(); ++i)
-        kept[i] = c.read(SoundCard::VISDATA);
-    const std::vector<uint8_t> next = page(c);
-    std::printf("  RUN clear, then FLUSH and EOF: the page taken %s; the next snapshot %s\n",
-                kept == taken ? "as it was" : "changed", silent(next) && next[32] == 0 ? "silence" : "not silence");
+    // RUN clear: writes keep the page taken; the next snapshot's spectrum and samples are silence, and its VU what
+    // played since the page taken (50 ms more of the tone), as after a pause for the same tail.
+    std::vector<uint8_t> taken, next, paused;
+    for (const bool pause : {false, true})
+    {
+        SoundCard c;
+        c.set_cpu_hz(HZ);
+        start(c, MONO16, RATE);
+        put(c, tone);
+        ticks(c, HZ / 5, 7);
+        const std::vector<uint8_t> t = page(c);
+        ticks(c, HZ / 20, 7);
+        if (pause)
+        {
+            c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE);
+            paused = page(c);
+            continue;
+        }
+        taken = t;
+        for (const uint8_t ctl : {uint8_t{0}, SoundCard::PCMCTL_FLUSH, SoundCard::PCMCTL_EOF})
+            c.write(SoundCard::PCMCTL, ctl);
+        c.write(SoundCard::VISIDX, 1); // not 0: the page as it is
+        std::vector<uint8_t> kept(SoundCard::VIS_BYTES);
+        kept[0] = taken[0];
+        for (size_t i = 1; i < kept.size(); ++i)
+            kept[i] = c.read(SoundCard::VISDATA);
+        CHECK(kept == taken);
+        std::printf("  RUN clear, then FLUSH and EOF: the page taken %s\n", kept == taken ? "as it was" : "changed");
+        next = page(c);
+    }
+    std::printf("  the next snapshot: %s, VU %u %u; after a pause for the same tail, VU %u %u\n",
+                silent(next) ? "silent" : "not silent", next[32], next[33], paused[32], paused[33]);
     CHECK(!silent(taken));
-    CHECK(kept == taken);
     CHECK(silent(next));
-    CHECK(next[32] == 0 && next[33] == 0);
+    CHECK_EQ(next[32], paused[32]);
+    CHECK_EQ(next[33], paused[33]);
+    CHECK(next[32] > 200);
 }
 
 TEST(a_new_rate_gives_the_eq_new_coefficients)

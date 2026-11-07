@@ -220,8 +220,13 @@ namespace ooe::emu
 
     void BusVis::clear()
     {
+        clear_frames();
+        peak_ = {0, 0};
+    }
+
+    void BusVis::clear_frames()
+    {
         ring_.fill(0);
         at_ = 0;
-        peak_ = {0, 0};
     }
 } // namespace ooe::emu

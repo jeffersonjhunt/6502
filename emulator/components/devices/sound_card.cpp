@@ -570,7 +570,8 @@ namespace ooe::emu
         else if (!(pcmctl_ & PCMCTL_RUN))
         {
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
-            vis_bus_.clear();    // the vis tap's frames and peaks: the next snapshot silence, the page taken kept
+            vis_bus_.clear_frames(); // the vis tap's frames: the next snapshot's silence, its VU what played since the
+                                     // last; the page taken kept
         }
         pcm_update(); // last: a RUN, a seek or a pause leaves the state stopped first, so this re-anchors the mix
     }

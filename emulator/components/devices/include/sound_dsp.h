@@ -88,6 +88,8 @@ namespace ooe::emu
         void snapshot(std::array<uint8_t, PAGE> &page);
         /// Nothing fed: the page all silence.
         void clear();
+        /// The frames silence, the peaks kept (RUN cleared: the next page's VU still has what played).
+        void clear_frames();
 
     private:
         std::array<int16_t, N> ring_{}; ///< the mono mix, a ring
