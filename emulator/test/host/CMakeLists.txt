@@ -37,7 +37,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_dma test_console_card test_video test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_dma test_console_card test_video test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -112,6 +112,7 @@ target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
 emu_add_test(test_sound_eq) # the EQ on an MP3 against minimp3's frames too
 target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
 target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
+emu_add_test(test_es5503) # the DOC alone (hw/sound-rev2.md step 6)
 emu_add_test(test_sid)
 emu_add_test(test_sid_audio)
 emu_add_test(test_sid_file)

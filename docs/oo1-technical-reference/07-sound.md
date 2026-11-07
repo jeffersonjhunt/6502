@@ -268,8 +268,9 @@ The registers are in: each holds what is written and reads it back, with the res
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
 sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix,
-below), and plays MP3 too (below), through the EQ, the vis page and the volumes (below). The ES5503 holds its
-registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's later steps.
+below), and plays MP3 too (below), through the EQ, the vis page and the volumes (below). The ES5503's
+oscillators run in the emulator's chip on its own (the spec's step 6), but the card doesn't play them yet and
+raises no interrupt for them: that is step 7. The rest comes in the spec's later steps.
 
 **The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
 emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
