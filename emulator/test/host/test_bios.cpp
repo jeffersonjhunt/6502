@@ -600,8 +600,9 @@ namespace
 
     /// After a QUIET: `n` stopped, the FIFO emptied (FLUSH), DOCCTL's RUN alone cleared, nothing more on the card's
     /// bus (the test tap), and the audio silent from a frame on (the last of what was made before it, and the SIDs'
-    /// DC filter settling, given that frame). The ES5503's interrupt, pending on the 6510's route, stays pending
-    /// there and pulls nothing while RUN is clear.
+    /// DC filter settling, given that frame). The ES5503's interrupt, pending on the 6510's route, stays pending,
+    /// and the host's /IRQ stays high (IEN is 0). The 6510's own /IRQ isn't checked here (the 6510 is stopped):
+    /// test_sound_doc's the_6510_isnt_held_by_a_paused_chips_interrupt tests that route.
     void check_silent(Board &b, SoundCard &sound, Noise n)
     {
         CHECK(!runs(sound, n));

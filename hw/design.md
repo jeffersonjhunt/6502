@@ -1088,7 +1088,8 @@ the monitor; on revision 1 (`$A1`) it writes nothing at `$48–$63`. What the tw
   the oscillators' registers and wave RAM.
 - **An ES5503 interrupt pending at Break stays pending, on its route.** With bit 2 it is the 6510's, which the chip
   pulls only while RUN is set, so it is silent; without, the host's, which IEN (cleared by QUIET) holds off. A
-  program reads `$E0` to acknowledge it before it sets IEN bit 3 again.
+  program acknowledges it before it sets IEN bit 3 again: with DOCCTL bit 6 clear (QUIET keeps it, and with it
+  set DOCDATA reads wave RAM) and DOCADDR `$E0`, it reads DOCDATA.
 - The volumes, the EQ's gains, the vis page, DOCADDR, DOCBANK and DRQSEL are left as they were; QUIET has already
   aborted every DMA channel, so DRQSEL's DRQ moves nothing.
 
