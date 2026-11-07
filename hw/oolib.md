@@ -199,7 +199,12 @@ The card's 6510 can be used three ways; the services cover all three, one at a t
 
 ### Files and assets ###
 
-- **Load a file to physical memory** (tiles, pictures, a tune) by 3c's DMA segment: mostly built already.
+- **Load a file to physical memory** (tiles, pictures, a tune) by 3c's DMA segment: mostly built already, but only
+  a record (128 bytes) a call: a program sets the segment (51) and loops read-sequential (20).
+- **Load to memory by DMA** (proposed, the owner's 2026-11-07): one BDOS call that loads a file, or a part of one,
+  into any physical memory, video included, by DMA, rather than a record at a time through the CPU. Video memory
+  is one destination among others: tiles, pictures, sound samples, overlays, data in the upper banks. It refuses
+  OODOS's own memory, as 51's segment does. Open question 13.
 - **Asset formats:** a small header for tiles, sprites, palettes, maps and tunes, so tools on Linux can make them
   (a converter from PNG, say). Open question 8.
 
@@ -287,3 +292,6 @@ end:    RTS: the warm boot stops the music, the hooks, timer 2 and DMA, frees th
 12. **The controller model.** How many controllers the event area has; how the hardware is numbered by default (the
     two digital sticks as 1 and 2, the Apple joystick as 3?); whether a game or the user (a setting kept on the card)
     picks which is which; and the Apple joystick's thresholds for directions.
+13. **Load to memory by DMA.** A BDOS function in OODOS's own range (as 50–59) or an OOLIB service (question 2);
+    a whole file or an offset and a length; the storage channel (0) straight to the destination, or a buffer and
+    channel 3 (question 6); and, for video memory, whether it waits for the vertical blank.
