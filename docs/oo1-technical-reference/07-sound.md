@@ -268,7 +268,7 @@ The registers are in: each holds what is written and reads it back, with the res
 CTRL RESET treat them as the design says. The raw PCM stream runs: the FIFO, PCMDATA by the CPU or by demand-mode
 DMA through DRQSEL 1, STATE's flow, POS and FREE. It keeps the host's clock, whether or not the emulator is making
 sound, so a program sees the same STATE and POS at any audio rate. The stream is mixed with the SIDs (the mix,
-below), and plays MP3 too (below). The EQ and volumes change nothing yet, the vis page is silence, and the ES5503 holds its
+below), and plays MP3 too (below), through the EQ, the vis page and the volumes (below). The ES5503 holds its
 registers and wave RAM but makes no sound and raises no interrupt. The rest comes in the spec's later steps.
 
 **The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
@@ -1055,7 +1055,7 @@ All: 0 silent to 255 unity.
 
 #### Notes
 
-In the design VOLL and VOLR scale the PCM path and also the SIDs: a write to a SID's `$18` reaches the chip with its volume nibble scaled, while reading it gives what was written. So far the volumes change nothing: the stream is mixed at unity, and the SIDs aren't scaled.
+VOLL scales the stream's left side after the EQ and the vis page: 255 is unity, and below it each sample is multiplied by VOLL / 255, rounded to the nearest (half away from zero), so 0 is silence. It scales SID A too: a write to SID A's `$18` reaches the chip with its volume nibble replaced by round(nibble × VOLL / 255), while reading it gives what was written. A write to VOLL reaches the chip at once. At 255 nothing changes.
 
 <a id="reg-c558"></a>
 ### $C558 SOUND_VOLR: the right master volume
@@ -1086,7 +1086,7 @@ All: 0 silent to 255 unity.
 
 #### Notes
 
-As [VOLL](#reg-c557), for the right side.
+As [VOLL](#reg-c557), for the right side and SID B.
 
 <a id="reg-c559"></a>
 ### $C559 SOUND_EQIDX: the EQ's index
@@ -1151,7 +1151,7 @@ All: with EQIDX's bit 7 clear, the gain in signed half-dB, -24 to 24 (-12 to +12
 
 #### Notes
 
-With the EQ off the path is bit for bit as it came in. So far the gains and the enable are kept, and change no sound.
+With the EQ off the path is bit for bit as it came in, and so it is on with every gain 0. On, the preamp scales both sides by its gain, then each band is a peaking filter at its centre (the cookbook's, Q 1.41), on each side. A band at or above 0.45 of the stream's rate is bypassed: at 8 kHz, the bands from 6 kHz up. A gain or the enable written takes effect from the next frame; the filters start from silence at RUN and at FLUSH. The result is rounded to the nearest sample and clipped at full scale, so a big boost can clip: lower the preamp for it. The EQ is the same on every host, bit for bit.
 
 <a id="reg-c55b"></a>
 ### $C55B SOUND_VISIDX: the vis page's index
@@ -1213,7 +1213,15 @@ The page of silence: `$00` for 0–33, `$80` for 34–97.
 
 #### Notes
 
-So far every snapshot is that silence: the vis page comes in step 5.
+The page is the stream after the EQ and before the volumes, as it was when VISIDX was last written 0: the last 64 frames' times, at the stream's rate. While the stream doesn't play (paused, buffering, ended, or an error) those times are silence, as a dry spell's are, so the page goes quiet as the sound does; after a seek in an MP3, before its next frame gives the rate, they go at the rate it last played at. Clearing RUN drops the frames the page is made from, so the next snapshot's spectrum and samples are silence; its VU still has the peaks since the snapshot before, as after a pause or the end. The page already taken stays as it is until VISIDX is written 0, whatever else is written to PCMCTL. It is the same whatever the emulator's audio rate and however its time is ticked.
+
+| Index | Contents |
+| --- | --- |
+| 0–31 | The spectrum: byte *k* is bin *k* + 1 of a 64-point FFT of the last 64 frames' mono mix ((L + R) / 2) with a Hann window, so it is centred at (*k* + 1) × rate / 64: at 48 kHz, 750 Hz to 24 kHz. A full-scale sine on a bin reads 0 dBFS. Byte 31 is the Nyquist bin, which has no phase: a full-scale cosine there reads 0 dBFS and a sine 0, and byte 30 takes as much from it |
+| 32–33 | The VU: the left and right peaks since the snapshot before |
+| 34–97 | The last 64 frames' mono mix, oldest first, the high byte unsigned: `$80` is zero |
+
+The spectrum and the VU read 0 to 255 for -60 to 0 dBFS, 4.25 to a dB, rounded; -60 dB and below is 0. A half-scale sine reads 229.
 
 <a id="reg-c55d"></a>
 ### $C55D SOUND_CODECS: the codecs the card has

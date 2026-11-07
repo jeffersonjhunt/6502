@@ -15,10 +15,10 @@
  *   $43-$44 RAMADDR   $45 RAMDATA   $46 MBOUT   $47 MBIN   $7F ID
  *
  * Revision 2 ($A2; hw/sound-rev2.md, proposed) adds a PCM stream and an
- * ES5503 (es5503.h). So far (that spec's steps 1 to 4) its registers hold
+ * ES5503 (es5503.h). So far (that spec's steps 1 to 5) its registers hold
  * what is written and read it back, with their reset values, and the PCM
- * stream runs, raw or MP3, mixed with the SIDs; no EQ, vis page or ES5503
- * sound yet:
+ * stream runs, raw or MP3, through the EQ, the vis tap and volume, mixed
+ * with the SIDs; no ES5503 sound yet:
  *
  *   $48 PCMCTL: bits 0 RUN, 1 PAUSE, 3 EOF kept; bit 2 FLUSH a strobe (reads 0)
  *   $49 CODEC (writes ignored while RUN)   $4A-$4B RATE   $4C PCMFMT (bits 0-1)
@@ -29,7 +29,7 @@
  *   $59 EQIDX: 0 the preamp, 1-10 the bands, bit 7 the enable instead; an
  *           EQVAL access moves bits 0-6 on   $5A EQVAL: a gain, -24 to 24
  *           (clamped), or the enable's bit 0; an index past 10 reads 0
- *   $5B VISIDX: writing 0 takes a snapshot (silence, for now)   $5C VISDATA:
+ *   $5B VISIDX: writing 0 takes a snapshot (sound_dsp.h)   $5C VISDATA:
  *           the vis page's byte at VISIDX, which moves on; past 97, 0
  *   $5D CODECS: $83   $5E DOCCTL (bits 0, 2, 5, 6)   $5F DOCDATA: wave RAM
  *           (DOCCTL bit 6) or the DOC's register at DOCADDR, which moves on
@@ -155,7 +155,7 @@
  * junk; 64 KB of it is STATE $81. ID3v2 tags are skipped by their size
  * wherever met (8 MB of them, $81). A frame with nothing frame-like and no
  * tag after it, to EOF or for 32 KB, plays by its own length. A fruitless
- * search waits for bytes to come or go, or for EOF.
+ * search costs a few header checks at most.
  *
  * The mix (revision 2). While the PCM stream plays or runs dry, its bus
  * frames are resampled to the audio rate by linear interpolation into a
@@ -170,11 +170,27 @@
  * bus frames in one tick only the last second is resampled (the samples for
  * the rest an offset to pass first); at a second and a half queued the SIDs
  * are caught up, which takes it; when the SIDs skip a backlog, the queue's
- * frames for the samples skipped go with them. EQ, the vis tap and volume
- * (step 5) go in bus_frame(), at unity for now. sid.cpp and this file build
+ * frames for the samples skipped go with them. sid.cpp and this file build
  * with -ffp-contract=off, so every target makes the same samples, given the
  * same libm (std::pow, std::sin, std::exp): glibc and Emscripten's agree
  * today.
+ *
+ * The bus (revision 2, step 5). Each frame goes through the EQ (sound_dsp.h),
+ * then the vis tap, then VOLL and VOLR (255 unity, else x vol / 255, rounded
+ * half away from zero), then the test tap and the mix. Every frame does,
+ * those the mix has no use for (no audio rate, a bulk catch-up's) too, so the
+ * EQ's state and the vis page are the same whatever the audio rate and the
+ * ticks. While RUN is set and the stream doesn't play (paused, buffering,
+ * ended, an error), the vis tap has silence at the stream's rate (an MP3
+ * sought, the bus's last), on the stream's frame times from the one that
+ * found the stop; the EQ keeps its state. Clearing RUN empties the vis tap's
+ * frames, so the next snapshot's spectrum and samples are silence (its VU,
+ * as after a pause, the peaks since the last); the page already taken stays
+ * until VISIDX is written 0. The EQ's filters start from silence at RUN and at FLUSH; a gain or
+ * enable written, or an MP3's rate changing, gives it new coefficients from
+ * the next frame. VOLL and VOLR scale SID A's and SID B's $D418 too: the chip
+ * has round(nibble x vol / 255) in the low nibble, the card's registers (and
+ * sid()) what was written; a volume written reaches the chips at once.
  *
  * /RESET (reset()) stops the card's 6510 and silences the SIDs (their
  * registers cleared, as the SID's /RES pin does), resets the CIA and the
@@ -193,6 +209,7 @@
 #include "device.h"
 #include "es5503.h"
 #include "sid.h"
+#include "sound_dsp.h"
 
 namespace ooe::emu
 {
@@ -240,6 +257,7 @@ namespace ooe::emu
         };
         /// The SID's read-only registers.
         static constexpr uint8_t POTX = 0x19, POTY = 0x1A, OSC3 = 0x1B, ENV3 = 0x1C;
+        static constexpr uint8_t SID_MODE_VOL = 0x18; ///< filter mode and volume: VOLL / VOLR scale its low nibble
         static constexpr uint8_t CTRL_NTSC = 0x01, CTRL_RUN = 0x02, CTRL_RESET = 0x04, CTRL_SID_B_D500 = 0x08,
                                  CTRL_BOTH = 0x10;
         static constexpr uint8_t STATUS_BUSY = 0x01, STATUS_TO_CARD = 0x02, STATUS_TO_HOST = 0x04,
@@ -302,8 +320,10 @@ namespace ooe::emu
         {
             const uint32_t to = hz ? hz : NATIVE_HZ;
             // The stream has been ticked at the old clock; the part of a frame owed carries over, rescaled
-            // (below host Hz, so the product fits).
+            // (below host Hz, so the product fits), and so does the vis tap's while the bus is stopped.
             pcm_phase_ = pcm_phase_ * to / host_hz_;
+            vis_phase_ = vis_phase_ * to / host_hz_;
+            phase_ = phase_ * to / host_hz_; // the SIDs' clock too: the part of a SID clock owed
             host_hz_ = to;
         }
         /// /RESET: the 6510 stopped, the SIDs silent, the mailbox empty. RAM stays.
@@ -359,7 +379,8 @@ namespace ooe::emu
         uint8_t sid_read(unsigned chip, unsigned reg) const;
 
         uint8_t ctrl() const { return ctrl_; }
-        const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return chips_[chip & 1].regs(); }
+        /// SID `chip`'s registers as written ($D418 too, before VOLL or VOLR scales its volume): kept up to date.
+        const std::array<uint8_t, SID_REGS> &sid(unsigned chip) const { return written_[chip & 1]; }
         /// SID `n` as of now: its voices' oscillators and envelopes.
         const Sid &chip(unsigned n) const
         {
@@ -487,8 +508,22 @@ namespace ooe::emu
         void pcm_play(size_t n);
         /// `n` frames of silence onto the bus (the stream dry).
         void pcm_silence(uint64_t n);
-        /// One frame of the bus: to the tap, and (after EQ and volume, still to come) resampled into the mix.
+        /// One frame of the bus: the EQ, the vis tap and volume (bus_dsp), then to the tap and resampled into the mix.
         void bus_frame(int16_t l, int16_t r);
+        /// The EQ, the vis tap and volume, in place: every frame of the bus, the mix's or not, so the vis page and
+        /// the EQ's state are the same whatever the audio rate or the ticks.
+        void bus_dsp(int16_t &l, int16_t &r);
+        /// `n` frames of silence through bus_dsp, none to the tap or the mix.
+        void bus_dsp_silence(uint64_t n);
+        /// `cycles` with the bus stopped and RUN set: silence to the vis tap at the stream's rate.
+        void vis_quiet(uint64_t cycles);
+        /// VOLL or VOLR on each SID's volume: its $D418 as written, the low nibble scaled.
+        void sid_volume();
+        uint8_t sid_mode_vol(unsigned chip) const
+        {
+            const unsigned v = vol_[chip & 1], mv = written_[chip & 1][SID_MODE_VOL];
+            return static_cast<uint8_t>((mv & 0xF0) | ((mv & 0x0F) * v + 127) / 255);
+        }
         /// The mix takes the bus from now: the SIDs' samples made up to now, so the bus's next lines up with theirs.
         void mix_anchor();
         /// An audio rate is set, so the bus's frames (while the stream plays or runs dry) are resampled into the mix.
@@ -504,7 +539,7 @@ namespace ooe::emu
         /// EQVAL at EQIDX, then EQIDX moves on (bits 0-6; bit 7 stays).
         uint8_t eq_value() const;
         void eq_step() { eqidx_ = static_cast<uint8_t>((eqidx_ & EQIDX_ENABLE) | ((eqidx_ + 1) & 0x7F)); }
-        /// A new vis page: silence, until the PCM path is built.
+        /// A new vis page, from the bus as the vis tap has had it.
         void vis_snapshot();
         /// Revision 2's registers to their /RESET values.
         void reset_rev2();
@@ -584,6 +619,16 @@ namespace ooe::emu
         uint8_t eqidx_{0};
         std::array<int8_t, EQ_BANDS + 1> eq_gain_{}; ///< the preamp, then the bands
         bool eq_on_{false};
+        BusEq eq_;
+        bool eq_dirty_{true};  ///< the gains or enable changed: the coefficients anew
+        /// The bus's last rate: the one the EQ's coefficients are for, kept on every frame, the EQ on or off; and
+        /// the rate of vis_quiet()'s silence when the stream has none (an MP3 sought, until its next first frame).
+        uint32_t eq_rate_{0};
+        BusVis vis_bus_;
+        uint64_t vis_phase_{0}; ///< host cycles x rate owed to the vis tap's silence while the bus is stopped
+        /// Each SID's registers as written ($00-$18; the read-only four 0): the chip has its $D418 scaled by VOLL
+        /// or VOLR.
+        std::array<std::array<uint8_t, SID_REGS>, 2> written_{};
         uint8_t visidx_{0};
         std::array<uint8_t, VIS_BYTES> vis_{};
         uint8_t docctl_{0};

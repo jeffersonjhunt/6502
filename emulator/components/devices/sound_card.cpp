@@ -392,6 +392,7 @@ namespace ooe::emu
         catch_up();
         chips_[0].reset();
         chips_[1].reset();
+        written_ = {};
         sids_at_ = clock_;
         ctrl_ = ien_ = 0;
         ram_addr_ = 0;
@@ -429,8 +430,14 @@ namespace ooe::emu
         eqidx_ = 0;
         eq_gain_.fill(0);
         eq_on_ = false;
+        eq_.clear();
+        eq_dirty_ = true;
+        eq_rate_ = 0;
+        vis_bus_.clear();
+        vis_phase_ = 0;
         visidx_ = 0;
         vis_snapshot();
+        sid_volume(); // back to unity
         docctl_ = 0;
         doc_addr_ = 0;
         drqsel_ = DRQ_RAMDATA;
@@ -443,12 +450,7 @@ namespace ooe::emu
         reset_rev2();
     }
 
-    void SoundCard::vis_snapshot()
-    {
-        // 0-31 the spectrum and 32-33 the VU at -60 dBFS or below; 34-97 the samples at zero.
-        std::fill(vis_.begin(), vis_.begin() + 34, uint8_t{0});
-        std::fill(vis_.begin() + 34, vis_.end(), uint8_t{0x80});
-    }
+    void SoundCard::vis_snapshot() { vis_bus_.snapshot(vis_); }
 
     void SoundCard::reset_cpu()
     {
@@ -464,9 +466,15 @@ namespace ooe::emu
     void SoundCard::tick(uint64_t cycles)
     {
         if (state_ == STATE_PLAYING || state_ == STATE_UNDERRUN)
+        {
             pcm_advance(cycles); // the stream keeps the card's time, whether or not sound is made
+            vis_phase_ = pcm_phase_; // if it stops, the vis tap's silence goes on from the same place
+        }
         else
+        {
             bus_on_ = false; // time passes with the bus stopped: its next run anchors afresh
+            vis_quiet(cycles);
+        }
         // SID clocks = host cycles x SID Hz / host Hz, the remainder carried. In whole seconds of the host's
         // clock and the rest, so a single tick of years doesn't overflow (cycles x SID Hz would past 29 days).
         phase_ += cycles % host_hz_ * sid_hz();
@@ -520,6 +528,7 @@ namespace ooe::emu
         {
             fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
             mp3_->restart();              // and the decoder
+            eq_.clear();                  // and the EQ's filters
         }
         pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
         if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT &&
@@ -538,6 +547,7 @@ namespace ooe::emu
         {
             resume_ = STATE_BUFFERING;
             pcm_phase_ = 0;
+            eq_.clear(); // a new stream: the EQ's filters from silence
             play_codec_ = codec_;
             mp3_->restart();
             mp3_->hz = 0;
@@ -558,7 +568,11 @@ namespace ooe::emu
             }
         }
         else if (!(pcmctl_ & PCMCTL_RUN))
+        {
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
+            vis_bus_.clear_frames(); // the vis tap's frames: the next snapshot's silence, its VU what played since the
+                                     // last; the page taken kept
+        }
         pcm_update(); // last: a RUN, a seek or a pause leaves the state stopped first, so this re-anchors the mix
     }
 
@@ -619,9 +633,9 @@ namespace ooe::emu
     void SoundCard::pcm_advance(uint64_t cycles)
     {
         // In bulk, however long the tick (a backgrounded tab's): the frames due are taken from the FIFO in one
-        // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off,
-        // touches no sample. The frames due are counted in whole seconds of the host's clock and the rest, so no
-        // tick overflows them.
+        // step and the rest is dry or the end, so the loop goes round at most twice and, with the tap off, makes
+        // no sample of the mix (each frame still goes through the EQ and the vis tap). The frames due are counted
+        // in whole seconds of the host's clock and the rest, so no tick overflows them.
         if (mp3() && !play_rate_)
         {
             // Unreachable: an MP3 leaves buffering only with its first frame decoded and its rate set (pcm_step),
@@ -692,6 +706,8 @@ namespace ooe::emu
             pcm_silence(due); // until data comes
             break;
         }
+        if (state_ != STATE_PLAYING && state_ != STATE_UNDERRUN)
+            vis_bus_.silence(due); // stopped within the tick: the vis tap has its frames from the one that found it
         if (bulk)
             bus_on_ = false; // after a bulk catch-up the lineup is rounded: the next frame anchors afresh
         mix_skip_ = 0;
@@ -717,8 +733,56 @@ namespace ooe::emu
         pcm_mix_.insert(pcm_mix_.end(), 2 * lead, 0.0f);
     }
 
+    void SoundCard::bus_dsp(int16_t &l, int16_t &r)
+    {
+        if (eq_dirty_ || eq_rate_ != play_rate_) // an MP3's rate can change with any frame
+        {
+            eq_.set(eq_gain_, eq_on_, play_rate_);
+            eq_rate_ = play_rate_;
+            eq_dirty_ = false;
+        }
+        eq_.run(l, r);
+        vis_bus_.feed(l, r);
+        // Volume: 255 is unity; otherwise x vol / 255, rounded half away from zero.
+        const auto scale = [](int16_t x, uint8_t v) {
+            if (v == 0xFF)
+                return x;
+            const int q = x * v;
+            return static_cast<int16_t>(q >= 0 ? (q + 127) / 255 : -((-q + 127) / 255));
+        };
+        l = scale(l, vol_[0]);
+        r = scale(r, vol_[1]);
+    }
+
+    void SoundCard::vis_quiet(uint64_t cycles)
+    {
+        // Running, but the bus stopped (paused, buffering, ended, an error): the vis tap has silence at the stream's
+        // rate, counted on the card's clock as the frames are, so the page goes quiet as the sound has, whatever
+        // the ticks. Nothing past the vis tap: the EQ keeps its state for the stream's return. An MP3 sought has no
+        // rate until its next first frame: the bus's last one, then (none if nothing has played: the tap is quiet).
+        const uint32_t rate = play_rate_ ? play_rate_ : eq_rate_;
+        if (!(pcmctl_ & PCMCTL_RUN) || !rate)
+            return;
+        vis_phase_ += cycles % host_hz_ * rate;
+        const uint64_t n = cycles / host_hz_ * rate + vis_phase_ / host_hz_;
+        vis_phase_ %= host_hz_;
+        vis_bus_.silence(n);
+    }
+
+    void SoundCard::bus_dsp_silence(uint64_t n)
+    {
+        // Silence in is silence out once the EQ has rung down: from there the vis tap has it in bulk.
+        for (; n && (eq_dirty_ || eq_rate_ != play_rate_ || eq_.ringing()); --n)
+        {
+            int16_t l = 0, r = 0;
+            bus_dsp(l, r);
+        }
+        vis_bus_.silence(n);
+    }
+
     void SoundCard::bus_frame(int16_t l, int16_t r)
     {
+        bus_dsp(l, r);
         if (tap_on_) // a test's only: off, nothing is kept
         {
             tap_.push_back(l);
@@ -731,7 +795,6 @@ namespace ooe::emu
             --mix_skip_;
             return;
         }
-        // Step 5's EQ, vis tap and volume go here, at unity for now.
         const float in[2] = {static_cast<float>(l) / 32768.0f, static_cast<float>(r) / 32768.0f};
         while (mix_acc_ < audio_rate_)
         {
@@ -755,6 +818,7 @@ namespace ooe::emu
             // A bulk catch-up's frames make nothing, all at once; at most a second's are made one by one.
             const uint64_t quiet = mixing() ? std::min(n, mix_skip_) : n;
             mix_skip_ -= mixing() ? quiet : 0;
+            bus_dsp_silence(quiet); // the vis tap and the EQ have them all the same
             n -= quiet;
         }
         for (uint64_t f = 0; f < n; ++f)
@@ -776,10 +840,12 @@ namespace ooe::emu
             }
             for (size_t f = 0; f < n; ++f, ++m.at)
             {
-                if (f < quiet)
-                    continue;
                 const int16_t *s = &m.pcm[m.at * m.channels];
-                bus_frame(s[0], m.channels == 2 ? s[1] : s[0]);
+                int16_t l = s[0], r = m.channels == 2 ? s[1] : s[0];
+                if (f < quiet)
+                    bus_dsp(l, r); // none to the mix, but the vis tap and the EQ have it
+                else
+                    bus_frame(l, r);
             }
             pos_ += static_cast<uint32_t>(n);
             return;
@@ -790,26 +856,22 @@ namespace ooe::emu
         {
             quiet = mixing() ? static_cast<size_t>(std::min<uint64_t>(n, mix_skip_)) : n;
             mix_skip_ -= mixing() ? quiet : 0;
-            fifo_head_ = (fifo_head_ + quiet * fb) % FIFO_BYTES;
-            fifo_count_ -= quiet * fb;
-            pos_ += static_cast<uint32_t>(quiet);
-            n -= quiet;
         }
-        if (n)
+        const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
+        const auto sample = [&](size_t i) -> int16_t {
+            if (play_fmt_ & PCMFMT_16BIT) // signed, low byte first
+                return static_cast<int16_t>(static_cast<uint16_t>(at(i) | at(i + 1) << 8));
+            return static_cast<int16_t>((at(i) - 128) * 256); // unsigned
+        };
+        const size_t step = play_fmt_ & PCMFMT_16BIT ? 2 : 1;
+        for (size_t f = 0; f < n; ++f)
         {
-            const auto at = [&](size_t i) { return (*fifo_)[(fifo_head_ + i) % FIFO_BYTES]; };
-            const auto sample = [&](size_t i) -> int16_t {
-                if (play_fmt_ & PCMFMT_16BIT) // signed, low byte first
-                    return static_cast<int16_t>(static_cast<uint16_t>(at(i) | at(i + 1) << 8));
-                return static_cast<int16_t>((at(i) - 128) * 256); // unsigned
-            };
-            const size_t step = play_fmt_ & PCMFMT_16BIT ? 2 : 1;
-            for (size_t f = 0; f < n; ++f)
-            {
-                const size_t b = f * fb;
-                const int16_t l = sample(b);
-                bus_frame(l, play_fmt_ & PCMFMT_STEREO ? sample(b + step) : l); // mono on both sides
-            }
+            const size_t b = f * fb;
+            int16_t l = sample(b), r = play_fmt_ & PCMFMT_STEREO ? sample(b + step) : l; // mono on both sides
+            if (f < quiet)
+                bus_dsp(l, r); // none to the mix, but the vis tap and the EQ have it
+            else
+                bus_frame(l, r);
         }
         fifo_head_ = (fifo_head_ + n * fb) % FIFO_BYTES;
         fifo_count_ -= n * fb;
@@ -1155,6 +1217,7 @@ namespace ooe::emu
         case VOLL:
         case VOLR:
             vol_[o - VOLL] = data;
+            sid_volume(); // on the SIDs at once
             break;
         case EQIDX:
             eqidx_ = data;
@@ -1165,6 +1228,7 @@ namespace ooe::emu
             else if (eqidx_ <= EQ_BANDS)
                 eq_gain_[eqidx_] = static_cast<int8_t>(
                     std::clamp(static_cast<int>(static_cast<int8_t>(data)), -EQ_LIMIT, EQ_LIMIT));
+            eq_dirty_ = true; // from the next frame
             eq_step();
             break;
         case VISIDX:
@@ -1238,13 +1302,33 @@ namespace ooe::emu
     void SoundCard::sid_write(unsigned chip, unsigned reg, uint8_t data)
     {
         catch_up(); // the write lands on its clock
-        chips_[chip & 1].write(reg, data);
+        const auto to = [&](unsigned n) {
+            if (reg < POTX)
+                written_[n][reg] = data; // as written, for reads and sid()
+            if (reg == SID_MODE_VOL)
+                chips_[n].write(reg, sid_mode_vol(n)); // the chip has the volume scaled (VOLL A, VOLR B)
+            else
+                chips_[n].write(reg, data);
+        };
+        to(chip & 1);
         if ((chip & 1) == 0 && (ctrl_ & CTRL_BOTH))
-            chips_[1].write(reg, data);
+            to(1);
+    }
+
+    void SoundCard::sid_volume()
+    {
+        for (unsigned n = 0; n < 2; ++n)
+            if (chips_[n].read(SID_MODE_VOL) != sid_mode_vol(n))
+            {
+                catch_up(); // the change lands on its clock
+                chips_[n].write(SID_MODE_VOL, sid_mode_vol(n));
+            }
     }
 
     uint8_t SoundCard::sid_read(unsigned chip, unsigned reg) const
     {
+        if (reg == SID_MODE_VOL)
+            return written_[chip & 1][SID_MODE_VOL]; // as written, not as VOLL or VOLR scaled it
         catch_up();
         return chips_[chip & 1].read(reg);
     }
