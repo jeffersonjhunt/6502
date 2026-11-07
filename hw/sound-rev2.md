@@ -156,12 +156,21 @@ Build in this order, one branch per step, with the full suite and the ASan/UBSan
 
 ### Acceptance
 
-- [ ] Every existing test passes, with only ID-byte expectations changed
-- [ ] `test_sid_corpus` output is identical to before this work
-- [ ] Native and WASM builds both build and pass, with minimp3 included
-- [ ] A real 44.1 kHz stereo stream runs through emulated DMA from an OODOS program with zero underruns
-- [ ] Results do not depend on the host's speed or audio rate
-- [ ] ASan and UBSan are clean
+Checked on 2026-11-07, on main at caeef32:
+
+- [x] Every existing test passes, with only ID-byte expectations changed. The other changes are the IEN
+  expectation (step 7, approved), the two splash cases made into loops over revisions 1 and 2 with the same
+  checks, and the splash case no longer waiting out the splash on revision 1 (approved, to keep `test_bios`
+  under its sanitizer time limit).
+- [x] `test_sid_corpus` output is identical to before this work: the whole collection, 61,201 tunes, against
+  c3100b0.
+- [x] Native and WASM builds both build and pass, with minimp3 included
+- [ ] A real 44.1 kHz stereo stream runs through emulated DMA from an OODOS program with zero underruns.
+  Open until OOLIB ([oolib.md](oolib.md)): programs leave the DMA channels and the sound card to OODOS, so
+  the stream is to be proven through OOLIB's sound service, not a test-only program.
+- [x] Results do not depend on the host's speed or audio rate: PCM, MP3, the EQ and vis page, the ES5503 and
+  the mix each have a test that their output is the same at any audio rate and however the emulator is ticked.
+- [x] ASan and UBSan are clean: every native test under the `dev` preset.
 
 ### Decisions
 
