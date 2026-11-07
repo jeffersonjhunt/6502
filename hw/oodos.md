@@ -3561,6 +3561,26 @@ merged, with the switches' equates (below).
 - **Sizes:** the BDOS 13,130 bytes; the BIOS 9,027 in block 61 (BINIT's loop took it past a page); DOS33.COM
   7,604 bytes.
 
+**Error 10 in the CCP and PIP (todo item 17, 2026-11-06):** the CCP's ERASE and RENAME and PIP's make, close
+and rename took only `$FF` for a failure, so a 10 (O:'s or P:'s floppy changed within the second, found at the
+first directory write) passed as success: ERASE and RENAME said nothing and did nothing. Each now takes 0 for
+success, `$FF` as before, and 10 as `Media Change` (the CCP: ERASE, RENAME, TYPE's read, which failed silently,
+and the loader's open of a program, which with access stamps is a directory write and gave `NO PROGRAM`) or
+`MEDIA CHANGE - NAME` (PIP: its make, close, rename, the old file's delete, the attributes, the password's 103, a
+write, and a source's open and read). PIP's `NAME.$$$` is the changed floppy's when the 10 is the destination's,
+or the source's on the same drive: then it is left alone (a delete would find the new floppy's); a source's 10
+on another drive leaves the destination as it was, so the `$$$` file is deleted there as for any failure. PIP's
+cleanup skips its delete when its close is 10, for the same reason.
+
+Tested by `test_oodos_err10` (8 cases): ERASE, RENAME, a PIP copy and a program's open with access stamps with
+O:'s floppy changed within the second; TYPE's after a page; an O:→P: copy whose source changes (P:'s `BIG.$$$`
+deleted); PIP's S (the make's 10 is the only one before any write: without its check, `START NOT FOUND`); PIP's
+cleanup after a CON: wait (the new floppy's own `X.$$$` kept). Each fails against main's CCP and PIP, or with
+its own fix taken out. Left as they are (no 10, or a message already): TYPE's open (with access stamps its read
+then says it), the searches (17, 18: no 10), PIP's V read-back (a 10 there is `VERIFY ERROR`).
+
+The CCP (block 62's RES) is 8,039 bytes, 55 more than main's 7,984.
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).
