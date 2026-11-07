@@ -463,7 +463,10 @@ namespace ooe::emu
 
     bool SoundCard::doc_irq_card() const
     {
-        if (!(docctl_ & DOCCTL_IRQ_CARD))
+        // Only while RUN is set: with RUN clear the 6510 can't reach $DFE0 to take it, so it would hold /IRQ for
+        // good. It stays pending in the chip and pulls /IRQ again when RUN is set. (The host's route isn't gated:
+        // the host can always take it through DOCDATA.)
+        if (!(docctl_ & DOCCTL_IRQ_CARD) || !(docctl_ & DOCCTL_RUN))
             return false;
         catch_up();
         return doc_.irq();
@@ -672,7 +675,8 @@ namespace ooe::emu
         {
             fifo_head_ = fifo_count_ = 0; // the FIFO, and a partial frame with it
             mp3_->restart();              // and the decoder
-            eq_.clear();                  // and the EQ's filters
+            if (!(docctl_ & DOCCTL_RUN))
+                eq_.clear(); // and the EQ's filters, if the bus is PCM's (not while the ES5503 plays on it)
         }
         pcmctl_ = static_cast<uint8_t>(data & (PCMCTL_RUN | PCMCTL_PAUSE | PCMCTL_EOF));
         if ((data & PCMCTL_FLUSH) && (pcmctl_ & was & PCMCTL_RUN) && state_ != STATE_BAD_FORMAT &&
@@ -714,8 +718,10 @@ namespace ooe::emu
         else if (!(pcmctl_ & PCMCTL_RUN))
         {
             state_ = STATE_IDLE; // the FIFO kept, unless FLUSH was written too
-            vis_bus_.clear_frames(); // the vis tap's frames: the next snapshot's silence, its VU what played since the
-                                     // last; the page taken kept
+            // The vis tap's frames: the next snapshot's silence, its VU what played since the last; the page taken
+            // kept. Not while the ES5503 has the bus: PCM isn't on it, and the frames are the chip's.
+            if (!(docctl_ & DOCCTL_RUN))
+                vis_bus_.clear_frames();
         }
         pcm_update(); // last: a RUN, a seek or a pause leaves the state stopped first, so this re-anchors the mix
     }
@@ -1315,6 +1321,10 @@ namespace ooe::emu
         }
         if (hidden(o))
             return;
+        // While the ES5503 plays, its frames up to this write are made first, under the volumes, the EQ and the
+        // rest as they were: a write changes what follows it only, however late the card was last caught up.
+        if (docctl_ & DOCCTL_RUN)
+            catch_up();
         switch (o)
         {
         case CTRL:

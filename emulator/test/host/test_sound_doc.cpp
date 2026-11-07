@@ -641,6 +641,135 @@ TEST(a_long_tick_puts_only_its_last_second_into_the_mix)
     CHECK(c.mix_frames() >= 47'900);
 }
 
+TEST(writes_part_way_change_only_what_follows_them)
+{
+    // The chip playing with the EQ on and the 6510 not running, so nothing catches the card up between writes
+    // unless something asks: VOLL, an EQ gain, VOLR and the EQ's enable written part way, between ticks. Each
+    // applies from its own moment, not to frames made late: the tap and the vis page the same whether the chip
+    // was caught up before each write (by reading it) or not, at audio rates 0, 48 and 44.1 kHz, ticked in
+    // 7-cycle steps, by milliseconds or in one tick to each write.
+    std::vector<uint8_t> first;
+    bool same = true;
+    for (const bool eager : {true, false})
+        for (const uint32_t audio : {0u, 48'000u, 44'100u})
+            for (const uint64_t chunk : {uint64_t{7}, SECOND / 1'000, uint64_t{0}})
+            {
+            SoundCard c;
+            c.set_audio_rate(audio);
+            c.set_tap(true);
+            wave(c, 0, square(256));
+            osc(c, 0, 0x300, 220, 0, 0, control(Es5503::MODE_FREE, 0));
+            osc(c, 1, 0x1C0, 180, 0, 0, control(Es5503::MODE_FREE, 1));
+            reg(c, R::ENABLE, 2);
+            c.write(SoundCard::EQIDX, 3);
+            c.write(SoundCard::EQVAL, 12);
+            c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+            c.write(SoundCard::EQVAL, 1);
+            c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+            std::vector<uint8_t> out;
+            const auto mark = [&](uint64_t cycles) {
+                ticks(c, cycles, chunk);
+                if (eager)
+                    (void)c.doc(); // the chip played up to now, before the write
+            };
+            mark(SECOND / 10 + 1'234);
+            c.write(SoundCard::VOLL, 64);
+            mark(SECOND / 10 + 77);
+            c.write(SoundCard::EQIDX, 9);
+            c.write(SoundCard::EQVAL, static_cast<uint8_t>(-20));
+            mark(SECOND / 10 + 5);
+            c.write(SoundCard::VOLR, 9);
+            c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+            c.write(SoundCard::EQVAL, 0);
+            mark(SECOND / 10);
+            c.write(SoundCard::VISIDX, 0);
+            for (unsigned i = 0; i < SoundCard::VIS_BYTES; ++i)
+                out.push_back(c.read(SoundCard::VISDATA));
+            for (const int16_t s : c.take_tap())
+                out.insert(out.end(), {static_cast<uint8_t>(s), static_cast<uint8_t>(static_cast<uint16_t>(s) >> 8)});
+            if (first.empty())
+                first = out;
+            std::printf("  %s, audio %5u Hz, %s: %s\n", eager ? "caught up" : "lazy", audio,
+                        chunk == 7 ? "7-cycle ticks" : chunk ? "1 ms ticks" : "one tick to each write",
+                        out == first ? "the same" : "DIFFERENT");
+            same = same && out == first;
+        }
+    CHECK(same);
+}
+
+TEST(pcmctl_writes_leave_the_chips_bus_alone)
+{
+    // The chip playing with the EQ on: a refused PCMCTL RUN, a PCMCTL 0 and a FLUSH part way change nothing on
+    // its bus (the EQ's filters and the vis tap are the chip's while it plays): the tap and the vis pages the
+    // same as without them.
+    std::vector<uint8_t> outs[2];
+    for (const bool writes : {false, true})
+    {
+        SoundCard c;
+        c.set_tap(true);
+        wave(c, 0, square(256));
+        osc(c, 0, 0x300, 220, 0, 0, control(Es5503::MODE_FREE, 0));
+        c.write(SoundCard::EQIDX, 1);
+        c.write(SoundCard::EQVAL, 24);
+        c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+        c.write(SoundCard::EQVAL, 1);
+        c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+        std::vector<uint8_t> &out = outs[writes];
+        for (const uint8_t ctl : {SoundCard::PCMCTL_RUN, uint8_t{0}, SoundCard::PCMCTL_FLUSH})
+        {
+            ticks(c, SECOND / 20);
+            if (writes)
+                c.write(SoundCard::PCMCTL, ctl);
+            c.write(SoundCard::VISIDX, 0);
+            for (unsigned i = 0; i < SoundCard::VIS_BYTES; ++i)
+                out.push_back(c.read(SoundCard::VISDATA));
+        }
+        ticks(c, SECOND / 20);
+        for (const int16_t s : c.take_tap())
+            out.insert(out.end(), {static_cast<uint8_t>(s), static_cast<uint8_t>(static_cast<uint16_t>(s) >> 8)});
+    }
+    std::printf("  with a refused RUN, PCMCTL 0 and a FLUSH: %s\n", outs[0] == outs[1] ? "the same" : "DIFFERENT");
+    CHECK(outs[0] == outs[1]);
+}
+
+TEST(the_6510_isnt_held_by_a_paused_chips_interrupt)
+{
+    // DOCCTL bit 2, oscillator 0 one-shot with IE: it ends and is pending. The host clears DOCCTL RUN (a pause)
+    // before the 6510 has CLI'd: with RUN clear the chip doesn't pull the 6510's /IRQ (it couldn't read $DFE0 to
+    // take it), so the 6510's main loop runs. RUN set again: the interrupt comes, is taken, and the loop goes on.
+    SoundCard c;
+    const std::initializer_list<uint8_t> main = {0x78,             // SEI
+                                                 0xA5, 0x10,       // LDA $10
+                                                 0xF0, 0xFC,       // BEQ back: wait for the host
+                                                 0x58,             // CLI
+                                                 0xE6, 0x11,       // INC $11
+                                                 0x4C, 0x06, 0x10}; // JMP $1006
+    uint16_t a = 0x1100;
+    for (const unsigned b : {0xE6u, 0x12u, 0xADu, 0xE0u, 0xDFu, 0x40u}) // INC $12; LDA $DFE0; RTI
+        c.ram()[a++] = static_cast<uint8_t>(b);
+    c.ram()[0xFFFE] = 0x00;
+    c.ram()[0xFFFF] = 0x11;
+    wave(c, 0, std::vector<uint8_t>(256, 0x90));
+    osc(c, 0, 0x2000, 100, 0, 0, control(Es5503::MODE_ONE_SHOT, 0, true));
+    start6510(c, 0x1000, main);
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN | SoundCard::DOCCTL_IRQ_CARD);
+    ticks(c, SECOND / 100);
+    CHECK(c.doc().irq()); // pending in the chip
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_IRQ_CARD); // paused
+    c.ram()[0x10] = 1;
+    ticks(c, SECOND / 100);
+    const unsigned paused = c.ram()[0x11], taken = c.ram()[0x12];
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN | SoundCard::DOCCTL_IRQ_CARD);
+    ticks(c, SECOND / 100);
+    std::printf("  paused: the main loop %u times, the handler %u; RUN again: the handler %u, the loop on to %u\n",
+                paused, taken, c.ram()[0x12], c.ram()[0x11]);
+    CHECK(paused > 10);
+    CHECK_EQ(taken, 0u);
+    CHECK(c.doc().irq() == false);
+    CHECK_EQ(c.ram()[0x12], 1);
+    CHECK(c.ram()[0x11] != paused);
+}
+
 TEST(the_bus_is_the_same_whatever_the_audio_rate_or_ticks_to_a_golden_hash)
 {
     // Eight oscillators in every mode and both channels, the EQ on, VOLL 200, the 6510 not running: the tap and

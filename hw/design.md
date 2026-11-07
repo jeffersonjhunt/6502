@@ -1038,7 +1038,16 @@ chip's interrupt goes to the host through IEN bit 3 (STATUS bit 7, IRQH bit 2), 
   accesses to `$DF00`, its interrupt, the host's DOCDATA and the bus all see it as of the same moment, whatever
   the host's speed, the ticks or the audio rate. Its steps (every 8 × (enabled + 2) of 7,159,090 Hz) and the
   bus's 48 kHz frames fall on their exact times, counted in integers (a step at a frame's very end is that
-  frame's).
+  frame's). While it plays, every host write to the card's registers first brings it up to that moment, so a
+  write to VOLL, VOLR, the EQ or anything else changes only the frames after it, however late the card was last
+  caught up.
+- **PCM's register leaves the chip's bus alone.** While the ES5503 has the bus, a PCMCTL write (a refused RUN, a
+  0, a FLUSH) doesn't clear the vis tap's frames or the EQ's filters: those are the chip's then. With PCM on the
+  bus they behave as before.
+- **The 6510's /IRQ only while RUN is set** (owner, 2026-11-06). With DOCCTL bit 2 and RUN clear the 6510 can't
+  reach `$DFE0` to take an interrupt, so the chip doesn't pull its /IRQ then; the interrupt stays pending in the
+  chip and pulls /IRQ again when RUN is set. The host's route (IEN bit 3) isn't gated by RUN: the host can always
+  take the interrupt through DOCDATA, whose registers are reachable whatever RUN is.
 
 Decided by the owner, 2026-11-06:
 

@@ -1301,7 +1301,7 @@ R/W. Bits 7, 4, 3 and 1 read 0.
 
 #### Notes
 
-`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route.
+`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route, and only while RUN is set: paused, the chip keeps the interrupt pending, and pulls /IRQ again when RUN is set.
 
 <a id="reg-c55f"></a>
 ### $C55F SOUND_DOCDATA: the ES5503's register or wave RAM
