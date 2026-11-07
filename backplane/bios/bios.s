@@ -158,7 +158,8 @@ IRQ:            PHA
                 RTI
 
 ; Stop what would go on behind the monitor: every DMA channel, the SD card's
-; command, the boot splash, the sound card's 6510 and SIDs; and turn off the interrupts that
+; command, the boot splash, the sound card's 6510 and SIDs (and from revision
+; 2, its PCM stream and ES5503); and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on), a front-panel key already pending, and the VIA's. What
 ; it doesn't know (a program's own state) is left alone; the serial card the
@@ -209,6 +210,11 @@ QUIET:
 @sid:           STZ     SOUND,X        ; every SID register: gates and volume off
                 DEX
                 BPL     @sid
+                LDA     SOUND_ID
+                CMP     #SOUND_ID_V2   ; revision 2 and on: the PCM stream and the ES5503 too
+                BCC     @panel
+                STZ     SOUND_PCMCTL   ; RUN (and PAUSE, EOF) off: the stream idle, its FIFO kept
+                STZ     SOUND_DOCCTL   ; RUN off: the ES5503 frozen where it was, wave RAM kept
 @panel:         LDA     CONSOLE_ID
                 CMP     #CONSOLE_ID_V1
                 BNE     @via
@@ -219,7 +225,7 @@ QUIET:
                 STA     VIA_IER
                 RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.11", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.12", $0D, 0
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI

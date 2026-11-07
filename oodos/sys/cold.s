@@ -111,7 +111,7 @@ NEWLINE:        LDA     #$0D
 
 ; The boot status (2026-11-03, the owner's), three lines under the banner:
 ;
-;   BIOS 0.11   47K TPA                  the ROM BIOS's version, the TPA
+;   BIOS 0.12   47K TPA                  the ROM BIOS's version, the TPA
 ;   A: 8M   B: 8M   M: 128K              each drive and its size
 ;   Cards: video, sound, SD, USB keyboard, DMA, panel
 ;

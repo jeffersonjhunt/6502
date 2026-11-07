@@ -63,7 +63,7 @@ Status: **emulated**
 To take the SIDs, stop the 6510 (clear RUN), then write the registers. Writing every register 0 turns off each
 voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:200-211 -->
+<!-- listing: ../../backplane/bios/bios.s:201-217 -->
 ```
 @sound:         LDA     SOUND_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
@@ -77,12 +77,19 @@ voice's GATE and sets the volume to 0. The BIOS's QUIET does that on Break, BRK 
 @sid:           STZ     SOUND,X        ; every SID register: gates and volume off
                 DEX
                 BPL     @sid
+                LDA     SOUND_ID
+                CMP     #SOUND_ID_V2   ; revision 2 and on: the PCM stream and the ES5503 too
+                BCC     @panel
+                STZ     SOUND_PCMCTL   ; RUN (and PAUSE, EOF) off: the stream idle, its FIFO kept
+                STZ     SOUND_DOCCTL   ; RUN off: the ES5503 frozen where it was, wave RAM kept
 ```
 
 `SOUND_SIDS` is `$3D`, so the loop covers `$C500–$C53C`: SID A, the gap between and SID B. The gap's writes are
 ignored. QUIET keeps the rest of CTRL, NTSC among it, and leaves the card's RAM, RAMADDR and the mailbox alone.
-It takes the card at any revision, by the ID's high nibble, as `splash.s` does, and leaves revision 2's registers
-alone.
+It takes the card at any revision, by the ID's high nibble, as `splash.s` does. Since BIOS 0.12, when the ID is
+`$A2` or more it also writes 0 to [PCMCTL](#reg-c548) and [DOCCTL](#reg-c55e), so the PCM stream and the ES5503
+stop too and nothing on the card plays on behind the monitor. Revision 1 has nothing at `$48–$63`, and QUIET writes
+nothing there. BIOS 0.11 left revision 2's registers alone.
 
 ## The card's 6510
 
@@ -271,8 +278,8 @@ sound, so a program sees the same STATE and POS at any audio rate. The stream is
 below), and plays MP3 too (below), through the EQ, the vis page and the volumes (below). The ES5503 plays
 while DOCCTL's RUN is set (the spec's steps 6 and 7): the card's 6510 reaches its registers at `$DF00–$DFFF`,
 its interrupt goes to the host or the 6510, and its sound goes onto the bus at 48 kHz, through the same EQ, vis
-page and volumes, and into the mix. PCM and the ES5503 exclude each other (STATE `$82`). The rest comes in the
-spec's step 8.
+page and volumes, and into the mix. PCM and the ES5503 exclude each other (STATE `$82`). The BIOS's QUIET stops
+both on Break, BRK and the demo's end, since BIOS 0.12 ([Silencing them](#silencing-them)).
 
 **The mix.** While the stream plays or runs dry, its frames, at the stream's rate, are resampled to the
 emulator's audio rate by linear interpolation, scaled by 0.5 against the SIDs' output (the emulator's
@@ -759,7 +766,7 @@ R/W. FLUSH is a strobe: writing it 1 empties the FIFO and the decoder, and it re
 
 #### Notes
 
-`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set it is a seek, and the stream buffers again. Clearing RUN keeps the FIFO.
+`SOUND_PCM_RUN` (`$01`), `SOUND_PCM_PAUSE` (`$02`), `SOUND_PCM_FLUSH` (`$04`) and `SOUND_PCM_EOF` (`$08`) are the bits. RUN takes RATE and PCMFMT and starts buffering; playing begins at 4 KB in the FIFO or at EOF ([the stream's timing](#in-the-emulator-so-far)). FLUSH empties the FIFO whether RUN is set or not; with RUN set it is a seek, and the stream buffers again. Clearing RUN keeps the FIFO. The BIOS's QUIET writes `$00` here on revision 2 (Break, BRK and the demo's end, since BIOS 0.12), so a stream stops and STATE reads 0; the FIFO keeps what was left in it, so a program that starts a new stream after Break writes FLUSH first.
 
 <a id="reg-c549"></a>
 ### $C549 SOUND_CODEC: the stream's codec
@@ -1301,7 +1308,7 @@ R/W. Bits 7, 4, 3 and 1 read 0.
 
 #### Notes
 
-`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route, and only while RUN is set: paused, the chip keeps the interrupt pending, and pulls /IRQ again when RUN is set.
+`SOUND_DOC_RUN` (`$01`), `SOUND_DOC_IRQ_CARD` (`$04`), `SOUND_DOC_AUTOINC` (`$20`) and `SOUND_DOC_RAM` (`$40`) are the bits. Wave RAM and the registers are reachable whether RUN is set or not, and a DOCDATA read returns its value at once: no dummy read as on the IIgs. RUN plays the chip: its oscillators step on its own 7,159,090 Hz clock, the card's 6510 sees its registers at `$DF00–$DFFF` (with I/O banked in; `$FF` with RUN clear, as before), and its sound goes onto the bus at 48 kHz. Clearing RUN freezes the chip where it is; setting it again plays on from there. RUN is refused while PCM runs (see [STATE](#reg-c550)). Bit 2 sends its interrupt to the 6510's /IRQ instead of the host's IEN bit 3 route, and only while RUN is set: paused, the chip keeps the interrupt pending, and pulls /IRQ again when RUN is set. The BIOS's QUIET writes `$00` here on revision 2 (Break, BRK and the demo's end, since BIOS 0.12): the chip freezes with its registers and wave RAM kept, and the other bits clear with RUN.
 
 <a id="reg-c55f"></a>
 ### $C55F SOUND_DOCDATA: the ES5503's register or wave RAM

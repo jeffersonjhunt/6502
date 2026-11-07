@@ -28,7 +28,9 @@
  * too); C806R stops a program's DMA before its fills. And the boot splash
  * (splash.s): the card's logo and the sound card's tune start on one vertical
  * blank, the boot carries on behind them, and after 5 s the screen and the
- * SIDs are back; Break and the demo stop it early.
+ * SIDs are back; Break and the demo stop it early. On a revision 2 sound
+ * card Break and the demo's end stop a PCM stream and the ES5503 too, and
+ * the audio goes silent; on revision 1 Break writes nothing at $48-$63.
  *
  * The ROM is assembled by this build with ca65/ld65, as backplane/bios's
  * Makefile does; without cc65 the suite skips.
@@ -41,10 +43,13 @@
 #include "console.h"
 #include "console_card.h"
 #include "machine.h"
+#include "bus_cycle.h"
+#include "es5503.h"
 #include "sound_card.h"
 #include "video_card.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -222,7 +227,7 @@ namespace
 
     constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.11\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.12\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -352,7 +357,7 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
     CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.11"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.12"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -412,7 +417,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.11"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.12"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -488,7 +493,7 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
         CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
         CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.11"));
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.12"));
     }
 }
 
@@ -513,6 +518,196 @@ TEST(break_during_the_boot_splash_stops_it_and_its_sound)
         CHECK_EQ(card->splash_frame(), -1);
         CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
         CHECK_EQ(sound->sid(0)[0x18], 0); // and QUIET silenced the SIDs
+    }
+}
+
+namespace
+{
+    /// What revision 2's QUIET has to stop: the PCM stream or the ES5503 (one at a time: each refuses RUN while the
+    /// other runs).
+    enum class Noise
+    {
+        pcm,
+        doc,
+    };
+
+    const char *name(Noise n) { return n == Noise::pcm ? "the PCM stream" : "the ES5503"; }
+
+    /// Start `n` on the card from the host's side, loud: 8-bit mono PCM at 8 kHz, 64 KB of a full-scale square (8
+    /// seconds), or the ES5503's oscillator 0 looping a full-scale square in wave RAM. The audio at 48 kHz and the
+    /// test tap on, both emptied.
+    void start_noise(SoundCard &sound, Noise n)
+    {
+        sound.set_audio_rate(48'000);
+        if (n == Noise::pcm)
+        {
+            sound.write(SoundCard::RATE, static_cast<uint8_t>(8'000));
+            sound.write(SoundCard::RATE + 1, static_cast<uint8_t>(8'000 >> 8));
+            sound.write(SoundCard::PCMFMT, 0);
+            for (unsigned i = 0; i < 0x10000; ++i)
+                sound.write(SoundCard::PCMDATA, i & 8 ? 0xFF : 0x00);
+            sound.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
+        }
+        else
+        {
+            sound.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RAM | SoundCard::DOCCTL_AUTOINC);
+            sound.write(SoundCard::DOCADDR, 0);
+            sound.write(SoundCard::DOCADDR + 1, 0);
+            sound.write(SoundCard::DOCBANK, 0);
+            for (unsigned i = 0; i < 256; ++i)
+                sound.write(SoundCard::DOCDATA, i < 128 ? 0xFF : 0x01);
+            sound.write(SoundCard::DOCCTL, 0); // the registers, one at a time
+            const auto reg = [&](uint8_t r, uint8_t v) {
+                sound.write(SoundCard::DOCADDR, r);
+                sound.write(SoundCard::DOCDATA, v);
+            };
+            reg(Es5503::FREQ_LO, 0x00);
+            reg(Es5503::FREQ_HI, 0x02);
+            reg(Es5503::VOLUME, 0xFF);
+            reg(Es5503::POINTER, 0);
+            reg(Es5503::TABLE, 0); // 256 bytes at 0
+            reg(Es5503::CONTROL, Es5503::MODE_FREE << 1); // running, looping, channel 0
+            sound.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+        }
+        sound.set_tap(true);
+    }
+
+    /// The loudest sample the card has made since the last call, left or right.
+    float loudest(SoundCard &sound)
+    {
+        std::vector<float> buf(2 * 4'096);
+        float peak = 0;
+        for (size_t got; (got = sound.take_audio(buf.data(), 4'096)) != 0;)
+            for (size_t i = 0; i < 2 * got; ++i)
+                peak = std::max(peak, std::fabs(buf[i]));
+        return peak;
+    }
+
+    /// Whether `n` runs: its RUN bit, and (PCM) the stream's STATE or (the ES5503) its oscillator 0 moving.
+    bool runs(SoundCard &sound, Noise n)
+    {
+        if (n == Noise::pcm)
+            return (sound.peek(SoundCard::PCMCTL) & SoundCard::PCMCTL_RUN) ||
+                   sound.peek(SoundCard::STATE) != SoundCard::STATE_IDLE;
+        return sound.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN;
+    }
+
+    /// After a QUIET: `n` stopped, nothing more on the card's bus (the test tap), and the audio silent from a
+    /// frame on (the last of what was made before it, and the SIDs' DC filter settling, given that frame).
+    void check_silent(Board &b, SoundCard &sound, Noise n)
+    {
+        CHECK(!runs(sound, n));
+        b.run(FRAME);
+        sound.take_tap();
+        loudest(sound);
+        const uint32_t acc = sound.doc().accumulator(0);
+        b.run(10 * FRAME);
+        const std::vector<int16_t> tap = sound.take_tap();
+        const float peak = loudest(sound);
+        std::printf("    after: %zu bus frames, the loudest sample %.6f\n", tap.size() / 2, static_cast<double>(peak));
+        CHECK(tap.empty());
+        CHECK(peak < 1e-3f);
+        CHECK_EQ(sound.doc().accumulator(0), acc); // the chip frozen where it stopped
+        CHECK_EQ(sound.peek(SoundCard::IEN), 0);
+    }
+} // namespace
+
+TEST(break_stops_the_pcm_stream_and_the_es5503_on_revision_2)
+{
+    // QUIET on a revision 2 card ($A2) also clears PCMCTL RUN and DOCCTL RUN: Break silences everything, a stream
+    // or the ES5503 a program left playing as well as the SIDs.
+    for (const Noise n : {Noise::pcm, Noise::doc})
+    {
+        std::printf("  %s\n", name(n));
+        Board b;
+        REQUIRE(b.ok());
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(sound != nullptr);
+        REQUIRE(sound->peek(SoundCard::ID_REG) == SoundCard::ID);
+        b.reset();
+        b.run(BOOT);
+        b.run(SPLASH_TIME); // the splash and its tune over: the SIDs the host's
+        start_noise(*sound, n);
+        b.run(10 * FRAME);
+        const float before = loudest(*sound);
+        std::printf("    before: the loudest sample %.6f\n", static_cast<double>(before));
+        CHECK(runs(*sound, n));
+        CHECK(n != Noise::pcm || sound->peek(SoundCard::STATE) == SoundCard::STATE_PLAYING);
+        CHECK(before > 0.03f); // loud: the check below can tell
+        b.cpu->nmi();
+        b.run(FRAME);
+        check_silent(b, *sound, n);
+        CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // and the monitor works
+    }
+}
+
+TEST(the_demos_end_stops_the_pcm_stream_and_the_es5503)
+{
+    // The demo ends through BREAK, so through QUIET too.
+    for (const Noise n : {Noise::pcm, Noise::doc})
+    {
+        std::printf("  %s\n", name(n));
+        Board b;
+        REQUIRE(b.ok());
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(sound != nullptr);
+        b.reset();
+        b.run(BOOT);
+        b.run(SPLASH_TIME);
+        b.run(20 * FRAME, "C803R\r");
+        REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+        start_noise(*sound, n);
+        b.run(5 * FRAME);
+        CHECK(runs(*sound, n));
+        CHECK(loudest(*sound) > 0.03f);
+        CHECK(has(b.run(10 * FRAME, "X"), "\\")); // the monitor's prompt again
+        check_silent(b, *sound, n);
+    }
+}
+
+namespace
+{
+    /// Every host write to the sound card's revision 2 registers ($C548-$C563), and to its SIDs ($C500-$C53C).
+    struct SoundWrites : CycleObserver
+    {
+        unsigned rev2 = 0, sids = 0;
+        void on_cycle(const BusCycle &c) override
+        {
+            if (!c.write || c.dma)
+                return;
+            if (c.addr >= 0xC500 + SoundCard::PCMCTL && c.addr <= 0xC500 + SoundCard::DRQSEL)
+                ++rev2;
+            else if (c.addr >= 0xC500 && c.addr < 0xC500 + 0x3D)
+                ++sids;
+        }
+    };
+} // namespace
+
+TEST(break_leaves_a_revision_1_cards_other_offsets_alone)
+{
+    // Revision 1 ($A1) has nothing at $48-$63: QUIET takes its CTRL, IEN and SIDs as before, and writes there
+    // nothing. Revision 2 for comparison: the same Break writes PCMCTL and DOCCTL, once each.
+    for (const unsigned rev : {1u, 2u})
+    {
+        std::printf("  sound card revision %u\n", rev);
+        Board b;
+        REQUIRE(b.ok());
+        SoundCard *sound = b.machine->sound_card();
+        REQUIRE(sound != nullptr);
+        sound->set_revision(rev);
+        REQUIRE(sound->peek(SoundCard::ID_REG) == (0xA0 | rev));
+        b.reset();
+        b.run(BOOT);
+        b.run(SPLASH_TIME);
+        SoundWrites seen;
+        b.cpu->set_observer(&seen);
+        b.cpu->nmi();
+        b.run(FRAME);
+        b.cpu->set_observer(nullptr);
+        std::printf("    Break wrote the SIDs %u times, $C548-$C563 %u times\n", seen.sids, seen.rev2);
+        CHECK_EQ(seen.sids, 0x3Du);              // QUIET ran, and took the card
+        CHECK_EQ(seen.rev2, rev == 1 ? 0u : 2u);
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
     }
 }
 
