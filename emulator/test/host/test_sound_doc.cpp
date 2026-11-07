@@ -742,10 +742,12 @@ TEST(the_6510_isnt_held_by_a_paused_chips_interrupt)
                                                  0xA5, 0x10,       // LDA $10
                                                  0xF0, 0xFC,       // BEQ back: wait for the host
                                                  0x58,             // CLI
-                                                 0xE6, 0x11,       // INC $11
+                                                 0xE6, 0x11,       // INC $11   a 16-bit count in $11-$12
+                                                 0xD0, 0x02,       // BNE +2
+                                                 0xE6, 0x12,       // INC $12
                                                  0x4C, 0x06, 0x10}; // JMP $1006
     uint16_t a = 0x1100;
-    for (const unsigned b : {0xE6u, 0x12u, 0xADu, 0xE0u, 0xDFu, 0x40u}) // INC $12; LDA $DFE0; RTI
+    for (const unsigned b : {0xE6u, 0x13u, 0xADu, 0xE0u, 0xDFu, 0x40u}) // INC $13; LDA $DFE0; RTI
         c.ram()[a++] = static_cast<uint8_t>(b);
     c.ram()[0xFFFE] = 0x00;
     c.ram()[0xFFFF] = 0x11;
@@ -758,16 +760,74 @@ TEST(the_6510_isnt_held_by_a_paused_chips_interrupt)
     c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_IRQ_CARD); // paused
     c.ram()[0x10] = 1;
     ticks(c, SECOND / 100);
-    const unsigned paused = c.ram()[0x11], taken = c.ram()[0x12];
+    const auto loops = [&] { return c.ram()[0x11] | static_cast<unsigned>(c.ram()[0x12]) << 8; };
+    const unsigned paused = loops(), taken = c.ram()[0x13];
     c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN | SoundCard::DOCCTL_IRQ_CARD);
     ticks(c, SECOND / 100);
+    // 0.01 s of a 985,248 Hz 6510: about 9,850 cycles, 11 a loop (13 when $11 wraps).
     std::printf("  paused: the main loop %u times, the handler %u; RUN again: the handler %u, the loop on to %u\n",
-                paused, taken, c.ram()[0x12], c.ram()[0x11]);
-    CHECK(paused > 10);
+                paused, taken, c.ram()[0x13], loops());
+    CHECK(paused > 800 && paused < 1'000);
     CHECK_EQ(taken, 0u);
     CHECK(c.doc().irq() == false);
-    CHECK_EQ(c.ram()[0x12], 1);
-    CHECK(c.ram()[0x11] != paused);
+    CHECK_EQ(c.ram()[0x13], 1);
+    CHECK(loops() > paused + 700);
+}
+
+TEST(set_revision_while_the_chip_plays_plays_it_up_to_then)
+{
+    // The chip playing, audio at 48 kHz, ticked with nothing catching the card up; then set_revision() (the
+    // registers to /RESET's values): it returns, the chip's sound up to then is made (in the audio waiting to be
+    // taken), and DOCCTL reads 0.
+    SoundCard c;
+    c.set_audio_rate(48'000);
+    wave(c, 0, square(256));
+    osc(c, 0, 0x200, 200, 0, 0, control(Es5503::MODE_FREE));
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+    ticks(c, SECOND / 10);
+    c.set_revision(2);
+    float buf[2 * 8'192];
+    size_t samples = 0;
+    float peak = 0;
+    for (size_t n; (n = c.take_audio(buf, 8'192)) != 0; samples += n)
+        for (size_t i = 0; i < 2 * n; ++i)
+            peak = std::max(peak, std::fabs(buf[i]));
+    std::printf("  set_revision(2) after 0.1 s: %zu samples, peak %.3f; DOCCTL $%02X\n", samples,
+                static_cast<double>(peak), c.read(SoundCard::DOCCTL));
+    CHECK(samples >= 4'790);
+    CHECK(peak > 0.03f); // the square at volume 200, x 0.5 into the mix: 0.049
+    CHECK_EQ(c.read(SoundCard::DOCCTL), 0);
+}
+
+TEST(a_new_crystal_keeps_the_chips_frames_on_time)
+{
+    // The chip playing on PAL's crystal, then CTRL switched to NTSC's mid-frame: the chip's time is the SIDs'
+    // clocks, so its next step and frame end are rescaled to the new crystal's. Ticked a cycle at a time, the frames
+    // made always number floor(t x 48,000), t the time since RUN: PAL clocks / 985,248 + NTSC's / 1,022,727.
+    SoundCard c;
+    c.set_tap(true);
+    wave(c, 0, square(256));
+    osc(c, 0, 0x200, 200, 0, 0, control(Es5503::MODE_FREE));
+    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+    const uint64_t s0 = c.sid_clocks();
+    ticks(c, SECOND / 1'000 + 99);
+    c.write(SoundCard::CTRL, SoundCard::CTRL_NTSC);
+    const uint64_t s1 = c.sid_clocks();
+    size_t made = c.take_tap().size() / 2;
+    bool on_time = true;
+    unsigned checked = 0;
+    for (uint64_t k = 0; k < SECOND / 100; ++k)
+    {
+        c.tick(1);
+        made += c.take_tap().size() / 2;
+        const uint64_t c1 = s1 - s0, c2 = c.sid_clocks() - s1;
+        const uint64_t want = (c1 * SoundCard::NTSC_HZ + c2 * SoundCard::PAL_HZ) * 48'000 /
+                              (uint64_t{SoundCard::PAL_HZ} * SoundCard::NTSC_HZ);
+        on_time = on_time && made == want;
+        ++checked;
+    }
+    std::printf("  %u instants after PAL to NTSC: frames %s\n", checked, on_time ? "on time" : "OFF");
+    CHECK(on_time);
 }
 
 TEST(the_bus_is_the_same_whatever_the_audio_rate_or_ticks_to_a_golden_hash)
@@ -821,6 +881,7 @@ TEST(the_bus_is_the_same_whatever_the_audio_rate_or_ticks_to_a_golden_hash)
                 {
                 }
             }
+            CHECK_EQ(c.mix_dry(), 0u); // the lead held: no SID sample without its bus frame
             if (first.empty())
             {
                 first = out;

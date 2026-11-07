@@ -408,6 +408,9 @@ namespace ooe::emu
 
     void SoundCard::reset_rev2()
     {
+        // The ES5503 stopped first: nothing below (the vis snapshot's catch-up) may play it with the bus's rate
+        // gone. The callers have caught it up to now already.
+        docctl_ = 0;
         pcmctl_ = codec_ = pcmfmt_ = 0;
         rate_ = 0;
         fifo_head_ = fifo_count_ = 0;
@@ -589,6 +592,7 @@ namespace ooe::emu
 
     void SoundCard::set_revision(unsigned rev)
     {
+        catch_up(); // what played up to now, under the old registers (as reset() does)
         rev_ = rev == 1 ? 1 : 2;
         reset_rev2();
     }
@@ -1132,8 +1136,8 @@ namespace ooe::emu
             const bool bus = !mix_offset_ && pcm_mix_.size() >= 2;
             if (mix_offset_)
                 --mix_offset_;
-            else if (!bus && bus_on_)
-                ++mix_dry_; // the bus running with nothing queued: the lead didn't hold
+            else if (!bus && (bus_on_ || doc_mix_on_))
+                ++mix_dry_; // the bus (PCM's or the ES5503's) running with nothing queued: the lead didn't hold
             for (unsigned ch = 0; ch < 2; ++ch)
             {
                 // the output capacitor: a one-pole high-pass, y = x - x' + p y'
@@ -1332,6 +1336,12 @@ namespace ooe::emu
             {
                 catch_up(); // up to now on the old crystal
                 phase_ = 0; // a new crystal: the remainder was in the old one's clocks
+                // The ES5503's next step and frame end, counted in the old crystal's units: rescaled by new / old
+                // SID Hz, so they fall at the same moments (x new / old exactly, without overflow).
+                const uint64_t from = sid_hz(), to = data & CTRL_NTSC ? NTSC_HZ : PAL_HZ;
+                const auto rescale = [&](uint64_t &v) { v = v / from * to + v % from * to / from; };
+                rescale(doc_step_left_);
+                rescale(doc_frame_left_);
             }
             ctrl_ = static_cast<uint8_t>(data & ~CTRL_RESET); // RESET is a strobe
             tune_clocks();

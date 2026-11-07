@@ -1040,7 +1040,9 @@ chip's interrupt goes to the host through IEN bit 3 (STATUS bit 7, IRQH bit 2), 
   bus's 48 kHz frames fall on their exact times, counted in integers (a step at a frame's very end is that
   frame's). While it plays, every host write to the card's registers first brings it up to that moment, so a
   write to VOLL, VOLR, the EQ or anything else changes only the frames after it, however late the card was last
-  caught up.
+  caught up (and so does a change of revision). A switch of the SIDs' crystal (CTRL NTSC) rescales the chip's
+  next step and frame end to the new clock, so they stay on time. `mix_dry()` counts SID samples left without a
+  bus frame for the chip's bus too (none so far: its frames are made before the SIDs' samples that take them).
 - **PCM's register leaves the chip's bus alone.** While the ES5503 has the bus, a PCMCTL write (a refused RUN, a
   0, a FLUSH) doesn't clear the vis tap's frames or the EQ's filters: those are the chip's then. With PCM on the
   bus they behave as before.

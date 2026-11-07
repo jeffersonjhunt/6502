@@ -419,7 +419,7 @@ namespace ooe::emu
         uint64_t mix_frames() const { return mix_frames_; }
         /// Of them, those not yet added to a SID sample.
         size_t mix_backlog() const { return pcm_mix_.size() / 2; }
-        /// SID samples made while the bus ran with nothing queued for them (a gap in the stream): 0 if the lead
+        /// SID samples made while the bus (PCM's or the ES5503's) ran with nothing queued for them: 0 if the lead
         /// held. Since /RESET or set_audio_rate().
         uint64_t mix_dry() const { return mix_dry_; }
         /// Times the stream ran dry with no EOF, since /RESET.
