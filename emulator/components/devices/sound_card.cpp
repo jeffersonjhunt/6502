@@ -442,6 +442,146 @@ namespace ooe::emu
         doc_addr_ = 0;
         drqsel_ = DRQ_RAMDATA;
         doc_.reset(); // its wave RAM stays, as the card's own does
+        doc_sum_ = {0, 0};
+        doc_steps_ = 0;
+        doc_last_ = {0, 0};
+        doc_mix_on_ = false;
+        both_ = false;
+    }
+
+    // --- the ES5503 on the card (step 7) ------------------------------------------
+
+    bool SoundCard::irq() const
+    {
+        if ((ien_ & IEN_MAILBOX) && to_host_full_)
+            return true;
+        if (!(ien_ & IEN_DOC) || (docctl_ & DOCCTL_IRQ_CARD))
+            return false;
+        catch_up(); // the chip up to now: an interrupt it has raised since
+        return doc_.irq();
+    }
+
+    bool SoundCard::doc_irq_card() const
+    {
+        if (!(docctl_ & DOCCTL_IRQ_CARD))
+            return false;
+        catch_up();
+        return doc_.irq();
+    }
+
+    void SoundCard::doc_control(uint8_t data)
+    {
+        catch_up(); // the chip played up to this write, as it was
+        data = static_cast<uint8_t>(data & (DOCCTL_RUN | DOCCTL_IRQ_CARD | DOCCTL_AUTOINC | DOCCTL_RAM));
+        // RUN set while PCM runs is refused: STATE reads $82 until PCMCTL or DOCCTL is next written.
+        both_ = (data & DOCCTL_RUN) && !(docctl_ & DOCCTL_RUN) && (pcmctl_ & PCMCTL_RUN);
+        if (both_)
+            data = static_cast<uint8_t>(data & ~DOCCTL_RUN);
+        const bool start = (data & DOCCTL_RUN) && !(docctl_ & DOCCTL_RUN);
+        const bool stop = !(data & DOCCTL_RUN) && (docctl_ & DOCCTL_RUN);
+        docctl_ = data;
+        if (start)
+        {
+            // From now: a step a chip sample from now, a bus frame of 48 kHz from now; the bus at 48 kHz, its EQ
+            // from silence, the mix anchored at the first frame.
+            const uint64_t sid = sid_hz();
+            doc_step_left_ = uint64_t{doc_.clocks_per_sample()} * sid * DOC_BUS_HZ;
+            doc_frame_left_ = sid * Es5503::CLOCK_HZ;
+            doc_sum_ = {0, 0};
+            doc_steps_ = 0;
+            doc_last_ = {0, 0};
+            play_rate_ = DOC_BUS_HZ;
+            eq_.clear();
+            doc_mix_on_ = false;
+        }
+        if (stop)
+        {
+            vis_bus_.clear_frames(); // as clearing PCM's RUN: the next snapshot silence, its VU the peaks
+            doc_mix_on_ = false;
+        }
+    }
+
+    void SoundCard::doc_run(uint64_t clocks)
+    {
+        const uint64_t sid = sid_hz();
+        constexpr uint64_t PER_CLOCK = uint64_t{Es5503::CLOCK_HZ} * DOC_BUS_HZ; // units a SID clock
+        // A long span (nobody collecting): as PCM's bulk catch-up, every frame through the EQ and the vis tap, only
+        // the last second's into the mix, the rest an offset of SID samples to pass first.
+        if (mixing() && clocks > 2 * sid)
+        {
+            mix_skip_ = clocks * DOC_BUS_HZ / sid - DOC_BUS_HZ;
+            mix_offset_ += pcm_mix_.size() / 2 + mix_skip_ * audio_rate_ / DOC_BUS_HZ;
+            pcm_mix_.clear();
+            mix_prev_[0] = mix_prev_[1] = 0;
+            mix_acc_ = 0;
+            doc_mix_on_ = true;
+        }
+        while (clocks)
+        {
+            const uint64_t c = std::min<uint64_t>(clocks, 1'000'000); // a million SID clocks: 3.4e17 units
+            clocks -= c;
+            uint64_t d = c * PER_CLOCK;
+            for (;;)
+            {
+                if (doc_step_left_ <= doc_frame_left_ && doc_step_left_ <= d)
+                {
+                    // A step (one at a frame's very end counts in that frame).
+                    d -= doc_step_left_;
+                    doc_frame_left_ -= doc_step_left_;
+                    doc_.step();
+                    const std::array<int32_t, 2> s = doc_.stereo();
+                    doc_sum_[0] += s[0];
+                    doc_sum_[1] += s[1];
+                    ++doc_steps_;
+                    doc_step_left_ = uint64_t{doc_.clocks_per_sample()} * sid * DOC_BUS_HZ;
+                }
+                else if (doc_frame_left_ <= d)
+                {
+                    d -= doc_frame_left_;
+                    doc_step_left_ -= doc_frame_left_;
+                    doc_frame_left_ = sid * Es5503::CLOCK_HZ;
+                    doc_frame();
+                }
+                else
+                {
+                    doc_step_left_ -= d;
+                    doc_frame_left_ -= d;
+                    break;
+                }
+            }
+        }
+        mix_skip_ = 0;
+    }
+
+    void SoundCard::doc_frame()
+    {
+        if (doc_steps_)
+        {
+            // Each voice is (byte - 128) / 128 x volume / 255 x 1/8 of full scale; the chip's sums are of
+            // (byte - 128) x volume. Their average over the frame's steps, at the bus's 16 bits: sum x 32,768 /
+            // (steps x 128 x 255 x 8), rounded half away from zero (exact, in integers), clipped.
+            const int64_t den = int64_t{doc_steps_} * (128 * 255 * 8);
+            for (unsigned ch = 0; ch < 2; ++ch)
+            {
+                const int64_t num = doc_sum_[ch] * 32'768;
+                const int64_t q = num >= 0 ? (num + den / 2) / den : -((-num + den / 2) / den);
+                doc_last_[ch] = static_cast<int16_t>(std::clamp<int64_t>(q, -32'768, 32'767));
+            }
+        }
+        doc_sum_ = {0, 0};
+        doc_steps_ = 0;
+        if (mixing() && !doc_mix_on_)
+        {
+            // The mix's anchor, as mix_anchor() makes it, without a catch-up: the SIDs are where this span began.
+            pcm_mix_.clear();
+            mix_offset_ = 0;
+            mix_prev_[0] = mix_prev_[1] = 0;
+            mix_acc_ = 0;
+            const size_t lead = (audio_rate_ + DOC_BUS_HZ - 1) / DOC_BUS_HZ + 1;
+            pcm_mix_.insert(pcm_mix_.end(), 2 * lead, 0.0f);
+            doc_mix_on_ = true;
+        }
+        bus_frame(doc_last_[0], doc_last_[1]);
     }
 
     void SoundCard::set_revision(unsigned rev)
@@ -450,7 +590,11 @@ namespace ooe::emu
         reset_rev2();
     }
 
-    void SoundCard::vis_snapshot() { vis_bus_.snapshot(vis_); }
+    void SoundCard::vis_snapshot()
+    {
+        catch_up(); // the ES5503's frames to now
+        vis_bus_.snapshot(vis_);
+    }
 
     void SoundCard::reset_cpu()
     {
@@ -491,7 +635,7 @@ namespace ooe::emu
             step_start_ = cpu_.cycles();
             in_step_ = true;
             cia_tick(cpu_.step());
-            if (cia_irq() || vic_irq())
+            if (cia_irq() || vic_irq() || doc_irq_card())
             {
                 const uint64_t entry = cpu_.cycles();
                 cpu_.irq(); // ignored while I is set; level-sensitive, so it comes back
@@ -889,6 +1033,10 @@ namespace ooe::emu
         const uint64_t t = now();
         if (t <= sids_at_)
             return;
+        // The ES5503 first, over the same clocks, so its bus frames are queued before the SIDs' samples that take
+        // them. catch_up() is const as the SIDs' catch-up; the card itself never is.
+        if (docctl_ & DOCCTL_RUN)
+            const_cast<SoundCard *>(this)->doc_run(t - sids_at_);
         if (audio_rate_)
             render(t - sids_at_);
         else
@@ -914,6 +1062,7 @@ namespace ooe::emu
         mix_offset_ = 0;
         mix_dry_ = 0;
         bus_on_ = false;
+        doc_mix_on_ = false;
         mix_frames_ = 0;
     }
 
@@ -1055,6 +1204,7 @@ namespace ooe::emu
 
     uint8_t SoundCard::doc_data_read()
     {
+        catch_up(); // the chip as it is now
         const uint8_t v = docctl_ & DOCCTL_RAM ? doc_.ram()[doc_addr_] : doc_.read(static_cast<uint8_t>(doc_addr_));
         doc_step();
         return v;
@@ -1062,6 +1212,7 @@ namespace ooe::emu
 
     void SoundCard::doc_data_write(uint8_t data)
     {
+        catch_up(); // the chip played up to now, then written
         if (docctl_ & DOCCTL_RAM)
             doc_.ram()[doc_addr_] = data;
         else
@@ -1110,7 +1261,7 @@ namespace ooe::emu
         case FREE + 1:
             return free_hi_;
         case STATE:
-            return state_;
+            return both_ ? uint8_t{STATE_BOTH} : state_;
         case POS:
             return static_cast<uint8_t>(pos_);
         case POS + 1:
@@ -1136,6 +1287,7 @@ namespace ooe::emu
         case DOCCTL:
             return docctl_;
         case DOCDATA:
+            catch_up();
             return docctl_ & DOCCTL_RAM ? doc_.ram()[doc_addr_] : doc_.peek(static_cast<uint8_t>(doc_addr_));
         case DOCADDR:
             return static_cast<uint8_t>(doc_addr_);
@@ -1177,7 +1329,7 @@ namespace ooe::emu
                 reset_cpu();
             break;
         case IEN:
-            ien_ = static_cast<uint8_t>(data & IEN_MAILBOX);
+            ien_ = static_cast<uint8_t>(data & (rev_ >= 2 ? IEN_MAILBOX | IEN_DOC : IEN_MAILBOX));
             break;
         case RAMADDR:
             ram_addr_ = static_cast<uint16_t>((ram_addr_ & 0xFF00) | data);
@@ -1193,7 +1345,9 @@ namespace ooe::emu
             to_card_full_ = true;
             break;
         case PCMCTL:
-            pcm_control(data); // FLUSH (bit 2) is a strobe; bit 7 is reserved
+            // RUN set while the ES5503 runs is refused: STATE reads $82 until PCMCTL or DOCCTL is next written.
+            both_ = (data & PCMCTL_RUN) && !(pcmctl_ & PCMCTL_RUN) && (docctl_ & DOCCTL_RUN);
+            pcm_control(both_ ? static_cast<uint8_t>(data & ~PCMCTL_RUN) : data); // FLUSH (bit 2) is a strobe
             break;
         case CODEC:
             if (!(pcmctl_ & PCMCTL_RUN))
@@ -1237,7 +1391,7 @@ namespace ooe::emu
                 vis_snapshot();
             break;
         case DOCCTL:
-            docctl_ = static_cast<uint8_t>(data & (DOCCTL_RUN | DOCCTL_IRQ_CARD | DOCCTL_AUTOINC | DOCCTL_RAM));
+            doc_control(data);
             break;
         case DOCDATA:
             doc_data_write(data);
@@ -1380,6 +1534,11 @@ namespace ooe::emu
             return to_card_;
         if (addr == 0xDE01)
             return card_status();
+        if (addr >= 0xDF00 && (docctl_ & DOCCTL_RUN)) // the ES5503's registers, while it runs
+        {
+            catch_up();
+            return doc_.peek(static_cast<uint8_t>(addr));
+        }
         return 0xFF;
     }
 
@@ -1391,6 +1550,11 @@ namespace ooe::emu
         {
             const int b = card_receive();
             return b < 0 ? to_card_ : static_cast<uint8_t>(b); // empty: the last byte, again
+        }
+        if (io_in() && addr >= 0xDF00 && (docctl_ & DOCCTL_RUN))
+        {
+            catch_up();
+            return doc_.read(static_cast<uint8_t>(addr)); // $DFE0 acknowledges, as DOCDATA's $E0 does
         }
         return card_peek(addr);
     }
@@ -1418,6 +1582,11 @@ namespace ooe::emu
             card_send(data);
         else if (addr == 0xDE02)
             ctrl_ = static_cast<uint8_t>(ctrl_ & ~CTRL_RUN); // STOP: the 6510 stops itself
+        else if (addr >= 0xDF00 && (docctl_ & DOCCTL_RUN))
+        {
+            catch_up();
+            doc_.write(static_cast<uint8_t>(addr), data);
+        }
     }
 
     // --- CIA 1, as far as tunes need it -------------------------------------------
