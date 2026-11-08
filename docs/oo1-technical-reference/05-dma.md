@@ -120,7 +120,9 @@ A reserved XFER or DIR (`%11`) never runs. A block channel with no card behind i
 card to memory writes `$FF`, the floating bus. STATUS's bits 4–7 show each channel's DRQ as it is now.
 
 OODOS's BIOS reads the SD card on channel 0 and copies M:, the RAM disk, on channel 3
-([hw/oodos.md, "BIOS"](../../hw/oodos.md#bios)).
+([hw/oodos.md, "BIOS"](../../hw/oodos.md#bios)). Its copies on channel 3 go 2 KB at a time, 4,096 cycles each with
+the CPU held: the VIA's timer 1 interrupts each 7,159 cycles for OODOS's millisecond counter, and has one flag, so a
+copy held across two of its periods would lose a tick. Between the blocks the CPU takes the interrupt.
 
 ## Registers
 

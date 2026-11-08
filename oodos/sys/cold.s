@@ -5,12 +5,13 @@
 ; It takes the system block (31) as W0 and its stack, clears the system's
 ; zero page and data, sets the SCB, starts the BIOS (the devices, the drives
 ; from the card's units table), reads the clock into the SCB, makes M:,
-; says who it is with the time and what it found (STATUS), and goes to the
-; CCP by the warm boot.
+; says who it is with the time and what it found (STATUS), starts the clocks
+; (irq.s: timer 1's tick, the vertical blank), and goes to the CCP by the
+; warm boot, which turns interrupts on.
 
 .setcpu "65C02"
 .include "sys.inc"
-.import WARM, BINIT, MFORMAT, DAYS2DATE, UNKEEP
+.import WARM, BINIT, MFORMAT, DAYS2DATE, UNKEEP, CLKINIT
 .importzp TYEAR, TMONTH, TDATE
 .export COLD
 
@@ -102,7 +103,8 @@ COLD:           SEI
 @end:           JSR     NEWLINE
                 JSR     STATUS
                 JSR     UNKEEP         ; the loader's table: no RSX kept (its marks
-                JMP     WARM           ; are BSS, which nothing has cleared)
+                JSR     CLKINIT        ; are BSS, which nothing has cleared)
+                JMP     WARM
 
 NEWLINE:        LDA     #$0D
                 JSR     PUT

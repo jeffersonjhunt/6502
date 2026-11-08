@@ -121,6 +121,40 @@ BP_TPA          = $0300                ; where a .COM's image runs
 WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
+; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
+; A = OOLIB's interface version (1 from L1), X = a bit for each service area.
+; An OODOS without them answers 80 with A = X = $FF.
+OA_FRAME        = $01                  ;   80, frame and timing
+OA_INPUT        = $02                  ;   81, input (not yet)
+OA_SOUND        = $04                  ;   82, sound (not yet)
+OA_DMA          = $08                  ;   83, DMA and loading (not yet)
+OA_VIDEO        = $10                  ;   84, video memory (not yet)
+
+; Function 80's operations. X = 0: A is the operation, with no block. Else
+; A/X is a block, its +0 the operation and its parameters after.
+FT_INFO         = 0                    ; A = OOLIB's version, X = OA_*; a block gets +1 those, +3 FC_*, +4 layout
+FT_COUNT        = 1                    ; A/X = the ms counter's low word; a block gets +1-4 ms, +5-8 frames
+FT_OPEN         = 2                    ; block: +1-2 the event area, +3 its size (EV_LEN at least)
+FT_CLOSE        = 3                    ; the event area closed
+FT_WAIT         = 4                    ; the next frame; a block's +1 a count of frames; A/X = frames
+FT_DELAY        = 5                    ; block: +1-2 a count of milliseconds
+FT_FRAMEHOOK    = 6                    ; block: +1-2 the frame hook, 0 none; no block: none
+FT_TICKHOOK     = 7                    ; block: +1-2 the tick hook, 0 none, +3-4 every n ms; no block: none
+FT_COSTS        = 8                    ; block: +1-2, +3-4 each hook's most cycles, +5-6 frame hooks missed
+FT_OPS          = 9
+FC_FRAME        = $01                  ; FT_INFO's A, EV_CLOCKS: the frame counter runs (a video card)
+FC_MS           = $02                  ;   the millisecond counter runs (the serial card's VIA)
+
+; The event area (FT_OPEN): the program's memory, which OODOS's interrupt
+; handlers write. Layout 1 (L1); a later layout only adds after EV_LEN.
+EV_LAYOUT       = 0                    ; the layout OODOS writes: 1
+EV_CLOCKS       = 1                    ; FC_* as at the open
+EV_SIZE         = 2                    ; the size it was opened with
+EV_MS           = 4                    ; the millisecond counter, 4 bytes, low first
+EV_FRAMES       = 8                    ; the frame counter, 4 bytes
+EV_LEN          = 16                   ; layout 1's size: +3 and +12-15 reserved, 0
+EV_LAYOUT1      = 1
+
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
 P_TERMCPM       = 0
@@ -204,5 +238,6 @@ O_PHYSADDR      = 73
 O_MOUNT         = 74
 O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its monitor, 1 Apple II mode
 O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
+O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
 
 .endif

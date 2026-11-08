@@ -14,13 +14,19 @@
 ;           to the loader instead, by LDOOR
 ;   WARM    the warm boot: the program's windows, a fresh stack, the CCP
 ;   FARCALL a call into another block through W3 (from oodos/spike/gwbasic/farcall.s)
-;   IRQ, NMI and the vectors
+;   NMI and the vectors; IRQ, the interrupt dispatcher, is irq.s's (L1)
 ;
 ; Common memory keeps no state and is never written, so a program may have
 ; it in W3 read-only, or in flash: the stub keeps what it must on the
 ; program's own stack (three bytes under its P on the way in, A and X on the
 ; way out), with interrupts off. FARCALL's operand is its own, in the
 ; caller's block, for the length of one call.
+;
+; Interrupts (hw/oolib.md, question 14): the BDOS runs with them on, and
+; programs and the CCP do. They are off only while the stub moves the
+; windows and S, in and out (the dispatcher takes W0 to say whose stack
+; it is on: the system block's only once S is the system's), in the warm
+; boot, and in the Disk II driver's fields (disk2.s).
 
 .setcpu "65C02"
 .include "sys.inc"
@@ -35,7 +41,11 @@
 .import RAWF                           ; bios.s's, function 76's
 .import RSEEN                          ; bdosmem.s's, function 76's
 .import DMASEG, AMAP
-.export STUB, STUBRET, WARM, FARCALL, FCRET, IRQ, NMI, ROMAPPLE
+.import IRQ, DEAFEN, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
+.ifdef OOLIB_DEBUG
+.import FHMAX, THMAX
+.endif
+.export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE
 
 .segment "JUMPS"
 JUMPS:          JMP     COLD           ; BOOT
@@ -181,10 +191,12 @@ STUB:           CPY     #59            ; P_LOAD: the loader, not the BDOS
                 LDX     #$FF
                 TXS
                 CLD
+                CLI                    ; the BDOS runs with interrupts on (question 14)
                 LDA     ST_A
                 LDX     ST_X
                 JSR     BDOSENT
-STUBRET:        STA     ST_A           ; the results go on the program's stack,
+STUBRET:        SEI                    ; off again till the program's P is back
+                STA     ST_A           ; the results go on the program's stack,
                 STX     ST_X           ; under its P
                 LDA     ST_W0
                 STA     NB_WIN1        ; its stack page at $4100, the BDOS done with W1
@@ -214,9 +226,11 @@ STUBRET:        STA     ST_A           ; the results go on the program's stack,
 
 ; The warm boot: from $0200, function 0 and the BIOS's WBOOT, in any window
 ; state. The BIOS's banks back to 0 and no XMOVE pending, the BDOS's DMA
-; segment none and its memory blocks free (phase 3c), so nothing a program
-; set reaches the next; then the program's windows (blocks 0-2, 62),
-; VEC on 62, a fresh stack, D clear and interrupts off, and the CCP.
+; segment none and its memory blocks free (phase 3c), the hooks and the
+; event area gone and every interrupt but OODOS's own off (L1), so nothing a
+; program set reaches the next; then the program's windows (blocks 0-2, 62),
+; VEC on 62, a fresh stack, D clear, and the CCP, with interrupts on (timer
+; 1 and vertical blank ran on throughout: the clocks lose nothing).
 WARM:           SEI
                 CLD
                 LDA     #RES_BLOCK
@@ -238,6 +252,19 @@ WARM:           SEI
 @free:          STZ     AMAP,X
                 DEX
                 BPL     @free
+                STZ     FHON           ; no hook called from here on, no event area written
+                STZ     THON
+                STZ     EVON
+                STZ     FHBUSY         ; a frame hook left by a warm boot inside it
+                STZ     FHSKIP
+                STZ     FHSKIP + 1
+.ifdef OOLIB_DEBUG
+                STZ     FHMAX
+                STZ     FHMAX + 1
+                STZ     THMAX
+                STZ     THMAX + 1
+.endif
+                JSR     DEAFEN         ; what the program turned on, off
                 STZ     NB_WIN0
                 LDA     #1
                 STA     NB_WIN1
@@ -245,6 +272,7 @@ WARM:           SEI
                 STA     NB_WIN2
                 LDX     #$FF
                 TXS
+                CLI
                 JMP     CCP
 
 .assert BANK_SYS = 0, error, "WARM's STZs set bank 0"
@@ -334,18 +362,6 @@ FCRET:          PHP                    ; the target's return: the old block back
                 PLP
                 RTS
 
-; IRQ and BRK. BRK is the monitor, as BIOS 0.9's; any other IRQ returns at
-; once (phase 2 enables none: the console is polled).
-IRQ:            PHA
-                PHX
-                TSX
-                LDA     $0103,X        ; the P the interrupt pushed
-                AND     #$10           ; B: a BRK
-                BNE     NMI
-                PLX
-                PLA
-                RTI
-
 ; Break (NMI) and BRK: into the ROM's monitor, as BIOS 0.9's Break does it,
 ; with W3 and VEC back on block 63 (read-only), where the ROM's copy is. This
 ; code is in W3, so it can't switch W3 and go on: W0 goes to the system block
@@ -383,7 +399,10 @@ TRAMPEND:
 ; (APPLE: it checks the IIe ROM again, copies it to bank E, clears banks 0-3
 ; and switches the machine over; it never comes back), with interrupts off
 ; and windows 0-2 on RAM blocks 0-2, as the monitor's C806R runs it.
+; (NMI needs no CLKOFF: the ROM's BREAK turns the VIA's and the video card's
+; interrupts off itself, QUIET.)
 ROMAPPLE:       SEI
+                JSR     CLKOFF         ; OODOS's interrupts off: Apple II mode has none of its own
                 STZ     NB_WIN0
                 LDA     #1
                 STA     NB_WIN1

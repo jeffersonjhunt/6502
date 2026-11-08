@@ -182,6 +182,8 @@ AK:             .res    1              ; its file's sector in the track; TRKLOAD
 UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY gave it
 TESC:           .res    1              ; TTYOUT: 0, 1 after ESC, 2 after ESC Y, 3 after its row
 TROW:           .res    1              ; ESC Y's row, from 0
+DLEFT:          .res    2              ; DMAGO's bytes still to copy, less 1
+DSAVE:          .res    4              ; and SRCP's and DSTP's +1-2 as it was given them
 
 .segment "BIOS"
 
@@ -1722,11 +1724,39 @@ PHYSOF:         LDA     SIDES + 1,X
 
 SYSWIN:         .byte   SYS_BLOCK, BDOS_BLOCK, BIOS_BLOCK, RES_BLOCK
 
-; DCOUNT bytes (0: 65,536) from SRCP to DSTP, physical, by DMA channel 3, a
-; block transfer, waited for, as the ROM's DMA3RUN: programmed stopped, the
-; master enable on for it and CONTROL put back after; given up after about
-; 0.1 s. Uses A, X, Y.
-DMAGO:          LDA     #DMA_CH3
+; DCOUNT bytes (0: 65,536) from SRCP to DSTP, physical, by DMA channel 3, in
+; block transfers of DMA_CHUNK bytes at most, each waited for, as the ROM's
+; DMA3RUN: programmed stopped, the master enable on for them and CONTROL put
+; back after; each given up after about 0.1 s. The CPU waits through a block
+; transfer, 2 cycles a byte, and can take no interrupt in it: one longer than
+; a tick (7,159 cycles) could cover two of timer 1's expiries, and the VIA
+; has one flag, so a tick would be lost (the console's scroll is 4,640
+; bytes). Between blocks a pending interrupt is taken, if the caller has
+; them on. A copy up over itself (crt.s's erase, a byte at a time) comes out
+; as one transfer's would: each block starts where the last ended. DCOUNT,
+; SRCP and DSTP are kept, as they were before the blocks: the addresses are
+; stepped for each block and put back after (DSAVE). Uses A, X, Y.
+DMA_CHUNK       = 2048
+.assert DMA_CHUNK * 2 + 400 < TICK_CYCLES, error, "a DMAGO block and its setting up within a tick"
+DMAGO:          LDX     #1             ; the addresses' high two bytes kept: a block
+@save:          LDA     SRCP + 1,X     ; steps only them
+                STA     DSAVE,X
+                LDA     DSTP + 1,X
+                STA     DSAVE + 2,X
+                DEX
+                BPL     @save
+                SEC
+                LDA     DCOUNT
+                SBC     #1
+                STA     DLEFT
+                LDA     DCOUNT + 1
+                SBC     #0
+                STA     DLEFT + 1      ; $FFFF: 65,536
+                LDA     DMA_CONTROL
+                PHA
+                ORA     #DMA_MASTER
+                STA     DMA_CONTROL
+@block:         LDA     #DMA_CH3
                 STA     DMA_ABORT
                 LDX     #2
 @regs:          LDA     SRCP,X
@@ -1735,16 +1765,54 @@ DMAGO:          LDA     #DMA_CH3
                 STA     DMA3_DEST,X
                 DEX
                 BPL     @regs
-                LDA     DCOUNT
-                STA     DMA3_COUNT
-                LDA     DCOUNT + 1
+                LDA     DLEFT + 1
+                CMP     #>DMA_CHUNK
+                BCC     @last          ; DMA_CHUNK bytes or fewer left
+                STZ     DMA3_COUNT
+                LDA     #>DMA_CHUNK
                 STA     DMA3_COUNT + 1
-                LDA     #DMA_M2M
-                STA     DMA3_MODE
-                LDA     DMA_CONTROL
-                PHA
-                ORA     #DMA_MASTER
+                JSR     DMA3W
+                SEC
+                LDA     DLEFT + 1
+                SBC     #>DMA_CHUNK
+                STA     DLEFT + 1
+                CLC
+                LDA     SRCP + 1
+                ADC     #>DMA_CHUNK
+                STA     SRCP + 1
+                BCC     @src
+                INC     SRCP + 2
+@src:           CLC
+                LDA     DSTP + 1
+                ADC     #>DMA_CHUNK
+                STA     DSTP + 1
+                BCC     @block
+                INC     DSTP + 2
+                BRA     @block
+@last:          CLC
+                LDA     DLEFT
+                ADC     #1
+                STA     DMA3_COUNT
+                LDA     DLEFT + 1
+                ADC     #0
+                STA     DMA3_COUNT + 1
+                JSR     DMA3W
+                LDX     #1
+@back:          LDA     DSAVE,X
+                STA     SRCP + 1,X
+                LDA     DSAVE + 2,X
+                STA     DSTP + 1,X
+                DEX
+                BPL     @back
+                PLA
                 STA     DMA_CONTROL
+                RTS
+.assert <DMA_CHUNK = 0, error, "DMAGO steps the addresses' middle bytes alone"
+
+; Channel 3 started as programmed, memory to memory, and waited for: given
+; up (stopped) after 65,536 polls.
+DMA3W:          LDA     #DMA_M2M
+                STA     DMA3_MODE
                 LDA     #DMA_GO
                 STA     DMA3_CTRL
                 LDX     #0
@@ -1758,9 +1826,7 @@ DMAGO:          LDA     #DMA_CH3
                 BNE     @wait
                 LDA     #DMA_CH3
                 STA     DMA_ABORT
-@done:          PLA
-                STA     DMA_CONTROL
-                RTS
+@done:          RTS
 
 ; ---------------------------------------------------------------------------
 ; TIME: the north bridge's clock (hw/design.md, "Real-time clock") and the

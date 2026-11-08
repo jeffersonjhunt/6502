@@ -585,6 +585,15 @@
   "status": "built"
  },
  {
+  "number": 80,
+  "name": "O_FRAME",
+  "documented": true,
+  "anchor": "bdos-80",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.4",
+  "status": "built"
+ },
+ {
   "number": 98,
   "name": "DRV_FREE",
   "documented": true,

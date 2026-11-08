@@ -4,6 +4,7 @@
 #   make            # build/OODOS.SYS, and build/NAME.com for each of PROGRAMS
 #   make sizes      # each segment and how full its block is
 #   make check      # mksys.py's tests (test/check_mksys.py)
+#   make DEBUG=1 BUILD=dir  # a build whose dispatcher counts the hooks' cycles (irq.s): its own BUILD
 #
 # The system is one ld65 link (sys.cfg) whose parts are files of their own,
 # one a block: mksys.py makes OODOS.SYS of them, each at its physical
@@ -14,10 +15,10 @@
 
 BUILD    ?= build
 PYTHON   = python3 -I
-SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios disk2 crt cold ccp loader
+SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios disk2 crt cold ccp loader irq
 PROGRAMS = hello args biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest memtest \
            fstest dirtest errtest stamptest logintest ruletest xtratest systest writeoo1 cmdtest uttest \
-           rsxq ovlt iotest
+           rsxq ovlt iotest l1test
 # Phase 5's (test_oodos_rsx): test RSXs, overlays, RSXQ with RSXs attached by
 # gencom.py, and mkprl.py's loads of them where the loader will put them.
 RSXS     = trsxa trsxb trsxc trsxd trsxe
@@ -26,8 +27,8 @@ QS       = q01 q02 q03 q04 q05 q06 q07 q08 q09 q10 q11 q12 q13 q14 q15
 GENCOMS  = rqa rqab rqc rqd rqbe rqn rqs rq15 iota iotab iots iotn iotx
 IMAGES   = trsxa.bf trsxb.be trsxb.bf ovl.6000 ovl.7100
 GENCOM   = $(PYTHON) ../tools/gencom.py
-AFLAGS   = -g -I . -I ../include -I ../../backplane/bios
-PFLAGS   = -g -I test -I ../include
+AFLAGS   = -g -I . -I ../include -I ../../backplane/bios $(if $(DEBUG),-D OOLIB_DEBUG)
+PFLAGS   = -g -I test -I ../include -I ../../backplane/bios
 
 # Where each part goes: block 60, 61, then block 62 from $C800 and $F800.
 PARTS = 0xF0000:$(BUILD)/oodos.bdos 0xF4000:$(BUILD)/oodos.bios \

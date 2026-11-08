@@ -196,8 +196,9 @@ RTS. That's a handful of cycles at 7 MHz.
 
 **The program's memory from the BDOS.** FCB and DMA addresses are the program's CPU addresses. The BDOS turns
 them into physical ones through the saved window registers and moves data with the DMA controller's memory to
-memory copy (CP/M 3's `MOVE` and `XMOVE`), which runs as a block (BIOS 0.9). Sectors come from the SD card by DMA
-straight into a buffer's physical address and are never mapped into the CPU's view.
+memory copy (CP/M 3's `MOVE` and `XMOVE`), which runs as a block (BIOS 0.9), 2 KB at most each (OOLIB L1: the
+CPU waits through one, and a longer one could hold off two ticks, [hw/oolib.md](oolib.md#the-plan)). Sectors come
+from the SD card by DMA straight into a buffer's physical address and are never mapped into the CPU's view.
 
 **Allocating blocks.** CP/M 3 has no memory manager, so OODOS adds CP/M-86's (functions 51–58, under
 [BDOS](#bdos)), handing out 16 KB blocks. Calling code in a block goes through common memory, not the BDOS (see

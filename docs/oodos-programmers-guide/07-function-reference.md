@@ -3001,6 +3001,92 @@ OODOS 0.4
 OODOS's own: CP/M 3 has no function 76 (OODOS's range, 72 on). CP/M 3 would leave this to the BIOS's own
 functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to drop them.
 
+<a id="bdos-80"></a>
+### 80 O_FRAME: frame and timing
+
+#### Entry
+
+- Y = 80 (`O_FRAME`).
+- X = 0: A is the operation, and it takes no parameters.
+- X not 0: A/X is the address of a parameter block in the program's memory. Its +0 is the operation, and the
+  operation's parameters follow it. The operations are oodos.inc's `FT_` names:
+
+  | A or +0 | Name | The block, after +0 | What it does |
+  |---|---|---|---|
+  | 0 | `FT_INFO` | 4 bytes to fill (optional) | says which services OODOS has |
+  | 1 | `FT_COUNT` | 8 bytes to fill (optional) | reads the millisecond and frame counters |
+  | 2 | `FT_OPEN` | +1–2 the event area's address, +3 its size | opens the event area |
+  | 3 | `FT_CLOSE` | none | closes it |
+  | 4 | `FT_WAIT` | +1 a count of frames (optional) | waits for the next frame, or for that many |
+  | 5 | `FT_DELAY` | +1–2 a count of milliseconds | waits that long |
+  | 6 | `FT_FRAMEHOOK` | +1–2 the hook's address, 0 none | sets the frame hook, or takes it off |
+  | 7 | `FT_TICKHOOK` | +1–2 the hook's address, 0 none; +3–4 every n ms | sets the tick hook, or takes it off |
+  | 8 | `FT_COSTS` | 6 bytes to fill | the hooks' costs, as a debug build counts them |
+
+#### Exit
+
+- `FT_INFO`: A = OOLIB's interface version (1), X = a bit for each service area OODOS has (`OA_FRAME`, `$01`:
+  this function). With a block: +1 and +2 the same, +3 the clocks that run (`FC_FRAME` `$01` the frame counter, a
+  video card; `FC_MS` `$02` the millisecond counter, the serial card's VIA), +4 the event area's layout (1).
+- `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
+  frame counter, each low byte first, read at one moment.
+- `FT_OPEN`, `FT_CLOSE`, `FT_DELAY`, `FT_FRAMEHOOK`, `FT_TICKHOOK`: A = 0, X = 0.
+- `FT_WAIT`: returns at the frame wanted. A/X = the frame counter's low word.
+- `FT_COSTS`: +1–2 the most cycles a frame hook took, +3–4 a tick hook, +5–6 the frames whose hook wasn't called
+  because the last was still running, each since the warm boot. A = 1 if this OODOS counts the cycles (a debug
+  build, on a machine with the VIA, whose timer 1 it counts by), 0 if not, and then +1–4 are 0. X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+A = X = `$FF`, and nothing done, for an operation past 8, one that needs a block given none, a block or a field in
+memory that isn't the program's (the I/O hole, flash), and:
+
+- `FT_OPEN`: a size under 16 (`EV_LEN`); an area that crosses a 16 KB window, is in W3 (`$C000` up), or is in a
+  block that isn't the program's RAM in banks 0–5 (flash, a read-only window, OODOS's own memory, M:, video memory).
+- `FT_WAIT` with no video card, `FT_DELAY` with no VIA: their clock doesn't run.
+- `FT_DELAY` when the millisecond counter stands still for 4 frames: timer 1 has stopped (a program changed it,
+  against [chapter 8's rules](08-game-services.md#hooks)), so the wait would never end. It returns early, A = X =
+  `$FF`. The frame counter is the witness, so without a running frame counter (no video card, or its vertical
+  blank turned off) it waits on.
+- `FT_FRAMEHOOK`, `FT_TICKHOOK`: an address in the I/O hole or common memory (`$C000–$C7FF`, `$F800` up), or a
+  call made with W0 on the system's block; a tick hook every 0 ms. The old hook is off either way.
+
+An OODOS before L1 answers 80 as a function it doesn't have: A = X = `$FF`. So `FT_INFO`'s A of `$FF` means no
+OOLIB services at all.
+
+#### Side effects
+
+- `FT_OPEN` writes the whole area first: +0 the layout (1), +1 the clocks (`FC_*`), +2 the size, +4–7 and +8–11
+  the counters, and 0 everywhere else. From then on OODOS's interrupt handlers write the counters there, at each
+  tick and each frame, through the block the area's window had at the call: a later change of the program's
+  windows doesn't move it. An area already open is closed first. [Chapter 8](08-game-services.md#the-event-area)
+  has the layout.
+- A hook is called with the windows the program had at the `FT_FRAMEHOOK` or `FT_TICKHOOK` call. The rules it
+  must keep are [chapter 8's](08-game-services.md#hooks).
+- `FT_WAIT` and `FT_DELAY` wait in the BDOS with interrupts on, so the hooks run meanwhile.
+- The warm boot takes every hook off, closes the event area, and sets timer 1 up again as the cold boot did
+  (free-running, its latch, its interrupt enable) should a program have changed it. The counters run on, but a
+  program that changed timer 1's latch may cost the millisecond counter 1 ms: writing the latch back clears timer
+  1's flag, and with it a tick already due.
+
+#### Cycles
+
+Not measured. What the clocks cost every program, the call or not, is [chapter 8's](08-game-services.md#the-clocks).
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 80 (OODOS's range, 72 on). It is the first of OOLIB's service areas, one
+function each from 80 ([hw/oolib.md](../../hw/oolib.md#the-plan)).
+
 <a id="bdos-98"></a>
 ### 98 DRV_FREE: free blocks not closed
 

@@ -197,8 +197,27 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
     const uint16_t back = static_cast<uint16_t>(hello.at("start") + 9); // after its JSR BDOS
     uint64_t t0 = 0, t1 = 0, t2 = 0, t3 = 0;
     bool started = false;
+    // Cycles outside interrupt handling (OOLIB L1, decided by the owner 2026-11-07): OODOS's 1 kHz tick
+    // may come due while the stub has interrupts off and be taken at its CLI, inside a measured span;
+    // the interrupt's time, from its entry (its 7 cycles before the dispatcher's first) to the
+    // instruction it returns to, isn't the stub's cost.
+    uint64_t irq_total = 0, irq_from = 0;
+    uint16_t irq_back = 0;
+    const uint16_t irq = sym("IRQ");
+    auto outside = [&](uint16_t pc) {
+        if (irq_from && pc == irq_back)
+            irq_total += r.cpu->cycles() - irq_from, irq_from = 0;
+        else if (!irq_from && pc == irq)
+        {
+            const uint16_t sp = static_cast<uint16_t>(0x0100 + r.cpu->regs().s);
+            irq_back = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(sp + 2)) |
+                                             r.machine->bus().peek(static_cast<uint16_t>(sp + 3)) << 8);
+            irq_from = r.cpu->cycles() - 7; // from the interrupt's entry, whose 7 cycles are counted by now
+        }
+        return r.cpu->cycles() - irq_total;
+    };
     r.watch = [&](uint16_t pc) {
-        const uint64_t now = r.cpu->cycles();
+        const uint64_t now = outside(pc);
         if (pc == 0x0300)
             started = true;
         else if (started && !t0 && pc == 0x0203)
@@ -211,7 +230,8 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
             t3 = now;
     };
     // The jump table's W2 handling (common.s's BIOSW): cycles from the entry to the BIOS's
-    // CONOUT, and from CONOUT's return to the caller, less the entry's JMP before.
+    // CONOUT, and from CONOUT's return to the caller, less the entry's JMP before. Outside interrupt
+    // handling, as above (the stub's watch, called first, keeps the count).
     uint64_t j0 = 0, j1 = 0, j2 = 0, j3 = 0;
     const uint16_t entry = static_cast<uint16_t>(0xF800 + 3 * 4), after = static_cast<uint16_t>(sym("W_CONOUT") + 18);
     auto stub = r.watch;
@@ -220,13 +240,13 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
         if (j3)
             return;
         if (!j0 && pc == entry)
-            j0 = r.cpu->cycles();
+            j0 = (r.cpu->cycles() - irq_total);
         else if (j0 && !j1 && pc == sym("CONOUT"))
-            j1 = r.cpu->cycles();
+            j1 = (r.cpu->cycles() - irq_total);
         else if (j1 && !j2 && pc == after)
-            j2 = r.cpu->cycles();
+            j2 = (r.cpu->cycles() - irq_total);
         else if (j2 && pc < 0xF800)
-            j3 = r.cpu->cycles();
+            j3 = (r.cpu->cycles() - irq_total);
     };
     const std::string o = r.go("hello.com", " world");
     REQUIRE(j3 != 0);
