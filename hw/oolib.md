@@ -199,7 +199,8 @@ Revision 2 adds three more, each a claim of its own (question 6):
   read its state, position, free space and bitrate. The program reads the file; OODOS sends each buffer to PCMDATA by
   DMA channel 2 (DRQSEL 1), so the program never drives the channel itself. The card plays on its own clock, so
   a slow frame costs nothing while the FIFO has data: 0.74 s of 44.1 kHz 16-bit stereo, 8 s of 128 kbps MP3.
-- **EQ, volume and the vis page:** register work with nothing to share, so OOLIB (linked), not OODOS calls.
+- **EQ and the vis page:** register work with nothing to share, so OOLIB (linked), not OODOS calls. **Volume**
+  became function 82's (2026-11-08, step L4b in [the plan](#the-plan)), so the warm boot can put it back.
 - **The ES5503:** load wave RAM by DMA (DRQSEL 2), set oscillators, and take its interrupts through the
   dispatcher. It and a PCM stream exclude each other (the card's STATE `$82`); the SIDs run alongside either.
 
@@ -986,8 +987,46 @@ sizes`, the maps, normal and `DEBUG=1`).
    magic `'OGX'` kept so OO-Amp's reader needs a version check only: format 2 has no room for a layer's CONFIG
    bits or a part longer than 64 KB (its length is 2 bytes; a bitmap 512 is 120 KB), and fixed units clash when two files load together.
 
+**Added (2026-11-08, the owner), from OO-Amp's proposal** (`OOLIB-SOUND-PROPOSAL.md` in OO-Amp's repo, written at
+its M4). L3 gives a program the card's parts one at a time; a player also wants the same few verbs whatever is
+sounding: pause and resume, volume and balance, where it is, whether it still plays, how loud it is now. OO-Amp
+had to leave pause and volume out for SIDs and work out the rest itself. Two steps after L4 (each its own branch),
+and more in L5:
+
+- **L4a: open's byte count.** With CR `$FF`, function 15 copies S1 from the extent it opened
+  (`bdosfile.s`, open), but the Programmer's Guide says it gives the byte count of the file's last record. cpmtools
+  keeps the count in the last extent's entry only, so a file of more than one directory entry (over 32 KB on M:)
+  reads as whole records; PLAYSID pads two of the corpus's tunes over their last bytes. The fix is the code's, not
+  the book's: with CR `$FF`, open also finds the file's last extent and takes its S1. A test opens a file of three
+  extents with a short last record, and PLAYSID loads such a tune to its exact length. OO-Amp's own lookup of the
+  last extent can then go.
+- **L4b: hold, go and volume, in function 82.**
+  - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
+    them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.
+    The 6510's state and the tune's RAM are untouched, so it carries on where it stopped. [SC_6510]
+  - `SN_VOLUME`: VOLL and VOLR, which scale the SIDs and the DAC alike, so one call covers every source. It needs no
+    claim. This amends [Sound](#sound): volume becomes OODOS's, because the warm boot must put it back to 255
+    (unity), as it puts back the rest of the card; the EQ and the vis page stay linked.
+  - The warm boot sets VOLL and VOLR to 255, after a hold as after anything else.
+  - `SN_DOCHOLD`/`SN_DOCGO` (the ES5503's RUN) wait for MOD playback, which asks for them.
+
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
-  real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests.
+  real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in
+  OOLIB (linked), from OO-Amp's proposal:
+  - **A playback layer** over function 82, the source a number (`PB_SID`, `PB_STREAM`, `PB_DOC`): `PB_PAUSE` and
+    `PB_RESUME` (hold and go, the stream's pause and resume, or the ES5503's); `PB_VOLUME`, a level 0–255 and a
+    balance (0 left, 128 the centre, 255 right) turned into VOLL and VOLR by one fixed pan law; `PB_STATUS`, a
+    block: the state (stopped, starting, playing, paused, stalled, ended), the milliseconds played with paused time
+    left out, and a stream's underruns. A SID counts as stalled after 2 s with no mailbox byte, or 10 s before the
+    first, as OO-Amp has it, since a tune's init can take seconds. `PB_LEVELS`, a block of a few bands and a VU
+    pair in one format for every source: a stream's from the vis page (its 32 bands averaged down), a SID's
+    estimated from its registers (each voice's gate, envelope and pitch give a level in the band of its pitch). The
+    SID's are an estimate for a meter, and the books say so.
+  - **SID reads:** `SID_VOICES` (both SIDs' voices and filters, from the last values the card holds),
+    `SID_NOTE` (a frequency and the clock to a note, C-0 to B-7), `SID_ENV` (a per-frame envelope estimate kept
+    per voice). OO-Amp's `oa_hal.s`/`oa_voices.s` do these now; they move here once reviewed.
+  - **EQ and the vis page** (`EQ_SET`, the preamp and ten bands, `EQ_ON`), which L3 planned as linked register
+    work and didn't build.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 
