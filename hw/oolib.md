@@ -396,7 +396,7 @@ its question.
 
 - **L2: input.** The event queue, the keys-held map, controllers (question 12), the mouse, and the console's keys
   during a game (question 4).
-**L2's plan (decided 2026-11-07, the owner; to be built).** The plan as below, and its five questions as
+**L2's plan (decided 2026-11-07, the owner; built, below).** The plan as below, and its five questions as
 recommended: 8-byte events with a 32-bit millisecond stamp; the mouse's movement not queued; the handlers in block
 62 behind a W3 switch; the sticks sampled every tick; OO-Amp's own reads of the USB FIFO documented as not sharing
 it with a layout-2 area (L5 moves OO-Amp onto function 81). It rests on questions 4, 6 and 12 as decided, and on
@@ -451,6 +451,70 @@ L1 as built.
   the tick's cost with no layout-2 area, which must be L1's; ^C reaching the queue with function 109's mode set;
   the warm boot (WBOOT, ^C, Break) leaving USB_IEN off and the mouse, the LEDs and the repeat as cold boot set
   them. Each suite's fast time stated, the sanitizer tier's TIMEOUT checked.
+
+**L2, as built (2026-11-08)** (`oodos/sys/input.s`, new: the handlers in block 62 and function 81; `irq.s`'s
+dispatcher, tick, `FT_OPEN` and `FT_INFO`; `common.s`'s warm boot; `oodos/include/oodos.inc`'s `O_INPUT`, `IN_*`,
+`EV_*`, `EQ_*`, `EK_*`, `EC_*`, `CB_*`, `CH_*`, `ED_*`; bit names in `backplane.inc`, the ROM byte-identical).
+OODOS stays 0.4; OOLIB's interface version is 2, `FT_INFO`'s areas `$03`, its +4 layout 2. Where the plan left
+something open it was decided as below, each with its reason; the first two are for the owner to confirm.
+
+- **A 256-byte area is size 0.** `FT_OPEN`'s size is a byte, so the plan's 256-byte area can't be given as 256: 0,
+  which L1 refused, now means 256 (and `EV_SIZE` reads 0). No other size changes meaning.
+- **The ring keeps a slot empty,** so head = tail is empty with no count that both sides write: a 256-byte area has
+  16 slots and holds 15 events waiting, not 16. An event that would fill the last slot is lost whole, and counted.
+- **The layout by the size:** 144 bytes (`EV_LEN2`: the fixed part to +127 and two slots) or more is layout 2,
+  its slots (size − 128) / 8; less is layout 1, exactly as L1 made it (no USB interrupt, nothing past +16).
+- **Common memory:** 50 bytes, **213 left (12 in the debug build)**. In it: `CALL62` (L1's `DEAF62` made general:
+  W3 on block 62, `R62`'s routine X, W3 back), the dispatcher's other-cards path calling `IRQOTH` there instead of
+  `DEAFEN`, and the tick's layout-2 checks inline: the two ports against `STKA` and `STKB`, the frame counter
+  against `PADFRM`, the ms counter against `PADDUE`, and `L2TICK` through `CALL62` only when one differs. The
+  plan's PTRIG "at each vertical blank" is at the frame's first tick instead (up to 1 ms later): in the video
+  handler it would have cost 13 bytes the debug build hasn't got. The paddles are read 4 ms after it (`PAD_MS`;
+  255 counts are 2.8 ms). Block 62 has 1,362 bytes of `input.s`, 1,274 left; function 81 is 294 bytes of the
+  BDOS's block, 2,079 left.
+- **Costs** (`test_oodos_input`, the dispatcher from the interrupt's first cycle to its RTI's last): a tick with no
+  area **145 cycles, L1's to the cycle** (159 at MS's carry, as L1's), every program's; a layout-1 area's 184, 4
+  fewer than L1's 188 (W1 kept in X, not on the stack); a layout-2 area's 232 (1.2% of the CPU more than none),
+  and per frame one tick of 360 (PTRIG) and one of 658 (the paddles read, controller 3 written). The USB card's
+  interrupt for a key is 651 cycles; a burst is taken 16 events an interrupt at most (`UBATCH`, about 2,000
+  cycles, under a tick): KEY's flag is cleared only when the FIFO is seen empty, and looked at again after, so
+  while events wait /IRQ stays low and the next interrupt takes the rest, the tick due first.
+- **The event's fields:** a key's and a button's value 1 pressed, 0 let go; a controller's its new bits; the
+  wheel's the steps that interrupt latched (signed), its code 0; a device's the new DEVICES, code 0. The modifiers
+  are kept from the events themselves (`$E0–$E7`), from USB_MODS at the open, so each event carries them as they
+  were with it, a modifier's own included. Keys held at the open aren't in the map until let go and pressed again.
+- **The mouse in relative mode:** X and Y are the movement summed since the open or `IN_MOUSE`, 16 bits going
+  round, which OODOS never clears (a program clearing them would race the interrupt); the wheel is summed and
+  the program's to clear, as planned. MX's low byte is read once an interrupt: a second read latches again and
+  loses the wheel's steps and relative mode's sums.
+- **The controllers:** below 64 is up or left, 192 or more down or right (question 12's thresholds); a DE-9 has
+  one fire button (bit 4), the game port three (bits 4–6); controller 4 (`CH_GAMEPAD`) reads 0, X and Y 128.
+  Each piece of hardware keeps its own state; the map (`CMAP`) is only which controller shows it, so `IN_SWAP`
+  rewrites both controllers at once. The warm boot puts the map back to 1–4.
+- **Function 81:** `IN_INFO` (A the devices, X the layout), `IN_FLUSH` (the tail to the head, and the lost count
+  0), `IN_MAP`, `IN_SWAP`, `IN_MOUSE`, `IN_LEDS`, `IN_REPEAT`, `IN_NEXT` (A the kind, 0 none; refused with no
+  layout-2 area). **Repeat off isn't there:** the card has no off, its slowest is `$3F` (1 s, then two a second);
+  raw events never repeat, so a game reading the queue has nothing to turn off. `IN_MOUSE`, `IN_LEDS` and
+  `IN_REPEAT` are refused with no USB card.
+- **The warm boot** (`WBQUIET`, block 62, where `WARM` called `DEAFEN`): DEAFEN (USB_IEN off), then the USB card's
+  MCTRL relative, MAXX and MAXY 639 and 479, LEDS 0, REPEAT `$10` and KBCFG `$80` (Pause on /NMI, should a
+  program have changed it: not in the plan, but Break must keep working), and the controller map. The cold boot's
+  first warm boot sets the same, so they are what cold boot set. `CLKOFF` (Apple II mode) turns USB_IEN off too.
+  `FT_OPEN` turns it off before any new area, `FT_CLOSE` with the area.
+- **The VIA's port B:** OODOS reads IORB at every tick with a layout-2 area open, which clears CB1's and CB2's
+  flags: documented (Technical Reference, chapter 9), as OODOS owns IFR anyway. Port A is read by its
+  no-handshake register. **Without the VIA** there is no tick: no sticks, and the paddles aren't read either
+  (their PTRIG rides the tick); the USB card's events go on.
+- **OO-Amp's own FIFO reads** (question 5): documented, chapter 8 and the Technical Reference's chapter 8.
+- **Tests** (emulator, fast preset): `test_oodos_input` (12 cases, 2.0 s: a 256-byte area from typed keys, each
+  event's fields and times, `IN_NEXT`, a press and release 3 ms apart, the modifiers, `IN_FLUSH`; a 4-slot queue
+  full, 7 lost and 3 kept whole; a burst of 40 changes, more than a batch, all taken, none left in the FIFO and no
+  tick lost; the mouse relative, absolute with limits and back, the wheel, a button; both DE-9 ports, a press of
+  1.2 ms seen; the paddles at 63/64 and 191/192 and the game port's buttons; `IN_SWAP` and the warm boot's map; a
+  16-byte area left as L1 left it, no USB interrupt; the tick's cost, 145 with no area; ^C typed reaching the
+  queue with console mode `$000A`, the program going on; the warm boot by `JMP WBOOT`, ^C and Break putting the
+  input back; `IN_INFO`, `FT_INFO` and the refusals). Test program `oodos/sys/test/l2test.s`.
+  `test_oodos_clock`'s `FT_INFO` expectations follow the version: `02 03`, `02030302`.
 
 - **L3: sound.** Claiming and releasing the card; `.sid` tunes; the stream service; the ES5503's claim and wave
   RAM loads; the speaker's beep; and the warm boot stopping all of it, as BIOS QUIET does. **Sound rev 2's last
