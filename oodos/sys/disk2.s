@@ -28,6 +28,18 @@
 ; cycle with the loop in one page; interrupts and the DMA controller's
 ; master enable off while it writes.
 ;
+; Interrupts (hw/oolib.md, question 14, L1): the BIOS runs with them on, but
+; a field can't wait for a handler, so the driver turns them off from an
+; address field's first byte (its D5) to the end of the data field read or
+; written after it (D2MASK), and back on, if its caller had them on, when it
+; looks for another (D2UNM): about 12 ms a sector, less than a frame. The
+; millisecond counter misses those ticks, so D2UNM adds the time to it:
+; RBYTE counts the disk bytes read meanwhile, 224 cycles each (a sync
+; byte's 280 counted as one: a few hundred cycles short a field), and a
+; write adds its loop's. Timer 1's flag, set meanwhile, is cleared, its
+; tick being in that count. A vertical blank that comes then is taken when
+; they are back on, so the frame counter loses none.
+;
 ; The motor: switched on for each READ or WRITE and off at its end; the
 ; card keeps it turning a second more (hw/oodos.md's question 2). Whether
 ; the disk is still turning is seen from the data register changing; one
@@ -88,6 +100,7 @@
 .export D2WRIT, D2DMAS                 ; common.s's NMI: a write cut short
 .export D2BLK                          ; the BIOS's: the buffer's block, for W1
 .export D2LAST, SPIN                   ; the BIOS's MEDIA: a stalled clock
+.import CLOCKS, MS, MSACC, EVDIRTY     ; irq.s's: the catch-up
 
 STEP_MS         = 3
 SETTLE_MS       = 15
@@ -95,6 +108,7 @@ RECAL_STEPS     = 80                   ; half tracks: past track 34 to 0, onto t
 NIB_LEN         = 3 + 343 + 3          ; D5 AA AD, the field, DE AA EB
 NIB_B           = NIB_LEN - 256        ; its bytes in NIBBUF's second page
 BUDGET          = 13000                ; disk bytes: two turns and more
+D2_WBYTES       = (5 * 280 + NIB_LEN * 224 + 190) / 224 ; WLOOP's time, in disk bytes
 TRIES           = 3
 
 .segment "SYSBSS"
@@ -117,6 +131,10 @@ D2HTT:          .res    1              ; STEPTO's target half track
 D2LAST:         .res    1              ; the drive the card last selected, $FF none: the other's motor is off
 D2WRIT:         .res    1              ; 1 while WLOOP writes (NMI's: Q7 off, DMA back)
 D2DMAS:         .res    1              ; DMA_CONTROL as it was, for WLOOP's end, or NMI's
+D2CP:           .res    1              ; the caller's P: whether D2UNM turns interrupts back on
+D2MSK:          .res    1              ; 1 while the driver has them off for a field
+D2BYC:          .res    2              ; disk bytes read since (RBYTE's count)
+D2CU:           .res    3              ; CATCHUP's sum
 
 .segment "BIOS"
 
@@ -177,6 +195,10 @@ D2MEDIA:        STX     D2DRV
 ; answering, the head nowhere it should be).
 D2TRACK:        STA     D2TGT
                 STY     D2BUFH
+                PHP
+                PLA
+                STA     D2CP
+                LDA     D2TGT
                 JSR     SEEK
                 STZ     D2GOT
                 STZ     D2GOT + 1
@@ -208,11 +230,13 @@ D2TRACK:        STA     D2TGT
                 AND     D2GOT + 1
                 CMP     #$FF
                 BNE     @field
-@got:           JSR     COMBINE
+@got:           JSR     D2UNM          ; the last field's time
+                JSR     COMBINE
                 JSR     UNMAPW1
                 LDA     #0
                 RTS
-@wrong:         LDX     D2DRV          ; the head not where it was thought
+@wrong:         JSR     D2UNM
+                LDX     D2DRV          ; the head not where it was thought
                 LDA     #$FF
                 STA     D2HT,X
                 LDA     D2TGT
@@ -231,10 +255,12 @@ D2TRACK:        STA     D2TGT
 
 ; File sector D2FS of track A of drive D2DRV written from the buffer at
 ; page Y (W1's view). A = 0, 1 an error, 2 write-protected.
-D2WSEC:         PHP                    ; interrupts off from the search to the end (the
-                SEI                    ; caller's flag back on every way out)
-                STA     D2TGT
+D2WSEC:         STA     D2TGT          ; interrupts off from the field's D5 to the end of
+                PHP                    ; the write (ADDR's D2MASK), the caller's flag back
+                PLA                    ; on every way out (D2UNM)
+                STA     D2CP
                 STY     D2BUFH
+                LDA     D2TGT
                 JSR     SEEK
                 JSR     MAPW1
                 LDA     D2FS
@@ -267,14 +293,22 @@ D2WSEC:         PHP                    ; interrupts off from the search to the e
                 STZ     D2WRIT
                 LDA     D2DMAS
                 STA     DMA_CONTROL
-                PLP
+                CLC                    ; the write's time, for the catch-up
+                LDA     D2BYC
+                ADC     #<D2_WBYTES
+                STA     D2BYC
+                LDA     D2BYC + 1
+                ADC     #>D2_WBYTES
+                STA     D2BYC + 1
+                JSR     D2UNM
                 LDA     #0
                 RTS
 @protected:     LDA     DISK2 + D2_Q6OFF
-                PLP
+                JSR     D2UNM
                 LDA     #2
                 RTS
-@wrong:         LDX     D2DRV
+@wrong:         JSR     D2UNM
+                LDX     D2DRV
                 LDA     #$FF
                 STA     D2HT,X
                 LDA     D2TGT
@@ -284,7 +318,6 @@ D2WSEC:         PHP                    ; interrupts off from the search to the e
                 LDX     D2DRV
                 LDA     #$FF
                 STA     D2HT,X
-                PLP
                 LDA     #1
                 RTS
 
@@ -437,24 +470,30 @@ RBYTE:          LDX     #0
                 BNE     @set
                 SEC
                 RTS
-@got:           CLC
+@got:           INC     D2BYC          ; a byte's time, for D2UNM
+                BNE     @c
+                INC     D2BYC + 1
+@c:             CLC
                 RTS
 
 ; An address field, within D2CNT bytes (every byte read counts, D5s too): D2TRK
 ; and D2SEC, carry clear, its epilogue's DE AA read, so a write after starts
-; past them; carry set if none (or no bytes).
-ADDR:           JSR     NBYTE
+; past them, interrupts off (D2MASK) till the caller's D2UNM or ADDR again;
+; carry set if none (or no bytes), interrupts as the caller had them.
+ADDR:           JSR     D2UNM          ; on while it looks
+@look:          JSR     NBYTE
                 BCS     @none
-@d5:            CMP     #$D5
-                BNE     ADDR
+                CMP     #$D5
+                BNE     @look
+@d5:            JSR     D2MASK         ; off from a prologue's first byte
                 JSR     NBYTE
                 BCS     @none
                 CMP     #$AA
-                BNE     @d5
+                BNE     @again
                 JSR     NBYTE
                 BCS     @none
                 CMP     #$96
-                BNE     @d5
+                BNE     @again
                 JSR     R44            ; the volume
                 BCS     @none
                 STA     D2X
@@ -482,7 +521,104 @@ ADDR:           JSR     NBYTE
                 BNE     ADDR
                 CLC
                 RTS
-@none:          SEC
+@again:         CMP     #$D5           ; not the field: another prologue, or looking again
+                BEQ     @d5
+                BRA     ADDR
+@none:          JSR     D2UNM
+                SEC
+                RTS
+
+; Interrupts off for a field, if they aren't already: the byte count from
+; the D5 read.
+D2MASK:         LDA     D2MSK
+                BNE     @on
+                SEI
+                INC     D2MSK
+                LDA     #1
+                STA     D2BYC
+                STZ     D2BYC + 1
+@on:            RTS
+
+; Interrupts back on after a field, if the caller had them on, and the
+; millisecond counter caught up with the time they were off. Keeps nothing
+; but D2BUFH's and the drive's state.
+D2UNM:          LDA     D2MSK
+                BEQ     @off
+                STZ     D2MSK
+                JSR     CATCHUP
+                LDA     D2CP
+                AND     #$04           ; I: the caller's
+                BNE     @off
+                CLI
+@off:           RTS
+
+; D2BYC disk bytes' time, 224 cycles each, into the millisecond counter, a
+; tick for each TICK_CYCLES, MSACC keeping what is short of one; timer 1's
+; flag cleared (its tick is in this), the event area's copy all written at
+; the next tick. With interrupts off. No VIA, no counter: nothing.
+CATCHUP:        LDA     CLOCKS
+                AND     #CLK_MS
+                BNE     @on
+                RTS
+@on:            LDA     D2BYC          ; D2CU = D2BYC x 32
+                STA     D2CU
+                LDA     D2BYC + 1
+                STA     D2CU + 1
+                STZ     D2CU + 2
+                LDX     #5
+@x32:           ASL     D2CU
+                ROL     D2CU + 1
+                ROL     D2CU + 2
+                DEX
+                BNE     @x32
+                SEC                    ; D2BYC x 256 - that: x 224
+                LDA     #0
+                SBC     D2CU
+                STA     D2CU
+                LDA     D2BYC
+                SBC     D2CU + 1
+                STA     D2CU + 1
+                LDA     D2BYC + 1
+                SBC     D2CU + 2
+                STA     D2CU + 2
+                CLC                    ; and what was short of a tick before
+                LDA     D2CU
+                ADC     MSACC
+                STA     D2CU
+                LDA     D2CU + 1
+                ADC     MSACC + 1
+                STA     D2CU + 1
+                BCC     @tick
+                INC     D2CU + 2
+@tick:          SEC                    ; a tick for each TICK_CYCLES
+                LDA     D2CU
+                SBC     #<TICK_CYCLES
+                TAX
+                LDA     D2CU + 1
+                SBC     #>TICK_CYCLES
+                TAY
+                LDA     D2CU + 2
+                SBC     #0
+                BCC     @rest
+                STA     D2CU + 2
+                STY     D2CU + 1
+                STX     D2CU
+                INC     MS
+                BNE     @tick
+                INC     MS + 1
+                BNE     @tick
+                INC     MS + 2
+                BNE     @tick
+                INC     MS + 3
+                BRA     @tick
+@rest:          LDA     D2CU
+                STA     MSACC
+                LDA     D2CU + 1
+                STA     MSACC + 1
+                LDA     #VIA_IRQ_T1
+                STA     VIA_IFR
+                LDA     #1
+                STA     EVDIRTY
                 RTS
 
 ; RBYTE, D2CNT counted down first: carry set when it is spent.

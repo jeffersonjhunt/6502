@@ -140,6 +140,14 @@ OODOS_MINOR     = SYS_MINOR
 BIOS_MAJOR      = 0
 BIOS_MINOR      = 2
 
+; The clocks (irq.s; hw/oolib.md, "The plan", L1)
+TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,090 Hz: timer 1's period
+TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
+CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
+CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
+OOLIB_IFACE     = 1                    ; OOLIB's interface version, function 72's +10
+OOLIB_AREAS     = $01                  ; the service areas there are, 72's +11: frame and timing (80)
+
 ; BIOS banks (SETBNK, SELMEM, XMOVE)
 BANK_SYS        = 0                    ; the system's windows: 31, 60, 61, 62
 BANK_PROG       = 1                    ; the program's, as the stub saved them

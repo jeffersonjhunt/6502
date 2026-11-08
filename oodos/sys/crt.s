@@ -29,6 +29,7 @@
 .import DMAGO
 .importzp SRCP, DSTP, DCOUNT
 .export CRTINIT, CRTOUT
+.import CLOCKS                         ; irq.s's
 .exportzp CESC                         ; WARM resets it
 
 COLS            = 80
@@ -328,7 +329,9 @@ CRTINIT:        STZ     CVOK
                 STA     PAL,X
                 DEX
                 BPL     @pal
-                STZ     VIDEO_IEN      ; the card: layer 0, text, unscrolled
+                LDA     CLOCKS         ; the card: its interrupts but the frame counter's
+                AND     #CLK_FRAME     ; (irq.s: none before cold boot starts it) off,
+                STA     VIDEO_IEN      ; layer 0, text, unscrolled
                 STZ     VIDEO_PALBASE
                 STZ     VIDEO_SPRBASE
                 STZ     VIDEO_BORDER

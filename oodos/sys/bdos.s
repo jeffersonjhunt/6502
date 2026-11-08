@@ -18,10 +18,12 @@
 ;                   and wipe M:, and any function past XMOVE return A = X = $FF.
 ;                   The program gets its own flags back: MOVE's carry stays
 ;                   here, so a MOVE ending at $FFFF looks like a refusal
-;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
+;   72  O_VERSION   a 12-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
 ;                   programs in KB (words: the total, fixed, not what is
-;                   free), and FARCALL's address; A/X = FARCALL
+;                   free), FARCALL's address, OOLIB's interface version and
+;                   a bit for each service area there is (L1: 1, and
+;                   frame and timing); A/X = FARCALL
 ;   75  O_ROM       leave OODOS for the ROM BIOS, not to come back: A = 0 the
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
 ;                   Apple II mode (the ROM's C806), if the cartridge holds a
@@ -37,8 +39,8 @@
 ;
 ; and bdosfile.s's 13-43, 45, 46, 48, 98 and 99, and
 ; bdossys.s's console (1-11), 47, 49, 107-112 and 152, and bdosxtra.s's 44,
-; 100-103 and 106, and bdosmem.s's 51-58, 73 and 74 (phase 3c). Any other
-; returns A = X = $FF.
+; 100-103 and 106, and bdosmem.s's 51-58, 73 and 74 (phase 3c), and irq.s's
+; 80 (frame and timing, OOLIB's L1). Any other returns A = X = $FF.
 ;
 ; Errors (hw/oodos.md, "The BDOS, phase 3"): DERR with CP/M 3's code. In
 ; the default error mode it says "OODOS Error On A: Disk I/O" (or Read
@@ -61,6 +63,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import WARM, FARCALL, NMI, ROMAPPLE, WBF
+.import F_FRAME                        ; irq.s's
 .import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
 .export BDOSENT
 
@@ -211,6 +214,7 @@ FJUMPS:
                 .word   F_MCALLOC, F_MCABSALL, F_MCFREE, F_MCALLFREE
                 .word   F_PHYS, F_MOUNT, F_ROM, F_TESTW ; 150: 41
                 .word   F_SECT ; 152: 76 (6d)
+                .word   F_FRAME ; 154: 80 (L1)
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
@@ -220,7 +224,7 @@ FIDX:
                 .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
                 .byte   $FF, $FF, 78, 144, 146, 148, 152, $FF, $FF, $FF ; 70-79
-                .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89
+                .byte   154, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89: 80 (L1)
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105
                 .byte   126, 102, 104, 106, 108, 110, 112 ; 106-112
@@ -320,6 +324,7 @@ F_OODOS:        LDX     #0
 VERSIONS:       .byte   OODOS_MAJOR, OODOS_MINOR, BIOS_MAJOR, BIOS_MINOR
                 .word   MEM_FITTED, MEM_PROGRAMS
                 .word   FARCALL
+                .byte   OOLIB_IFACE, OOLIB_AREAS
 VERSIONS_LEN    = * - VERSIONS
 
 F_TSET:         LDX     #0
