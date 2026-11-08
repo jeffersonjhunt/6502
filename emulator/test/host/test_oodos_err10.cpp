@@ -142,7 +142,7 @@ TEST(pip_s_cleanup_spares_the_new_floppy)
     REQUIRE(r.ok);
     r.insert(0, r.blank);
     r.wait(ms(1500));
-    has(r.c("pip o:x.tmp=m:y.bin"), "A>");          // (PIP to a .$$$ name writes its own .$$$ first)
+    has(r.c("pip o:x.tmp=m:y.bin"), "A>");          // (made as X.TMP, then renamed: from before PIP could copy to a .$$$ name)
     has(r.c("ren o:x.$$$=o:x.tmp"), "A>");
     r.wait(ms(1500));
     const std::vector<uint8_t> other = r.drive_image(0);
