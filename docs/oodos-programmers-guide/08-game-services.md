@@ -1,9 +1,11 @@
 # 8 Game services (OOLIB)
 
 The services a game or GW-BASIC calls for the screen, sound, timing and input: OOLIB. They come in steps, L1 to
-L6. This chapter has what is built: **L1, the clocks**: a millisecond counter, a frame counter, a block of the
+L6. This chapter has what is built. **L1, the clocks**: a millisecond counter, a frame counter, a block of the
 program's memory OODOS keeps them in, waiting for a frame, and routines of the program's that OODOS calls at each
-frame or every few milliseconds. All of it is [function 80](07-function-reference.md#bdos-80).
+frame or every few milliseconds; that is [function 80](07-function-reference.md#bdos-80). **L2, input**: the
+keyboard's every press and release in a queue, the keys held, four game controllers, the paddles and the mouse,
+kept in that same block; and [function 81](07-function-reference.md#bdos-81) for the rest.
 
 The design record, for the reasons: [hw/oolib.md](../../hw/oolib.md#goals), and its plan, step by step:
 [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan).
@@ -19,9 +21,9 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version, 1 since L1; each step that adds to the services raises it. X has a bit for each
-service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame and timing) now, and later
-`OA_INPUT` (81), `OA_SOUND` (82), `OA_DMA` (83) and `OA_VIDEO` (84). An OODOS without the services answers 80 as a
+A is OOLIB's interface version: 1 from L1, 2 from L2; each step that adds to the services raises it. X has a bit
+for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame and timing) and
+`OA_INPUT` (`$02`, 81, input) now, and later `OA_SOUND` (82), `OA_DMA` (83) and `OA_VIDEO` (84). An OODOS without the services answers 80 as a
 function it doesn't have, A = X = `$FF`, so a version of `$FF` means none. A program that needs what isn't there
 says so and ends, rather than calling it. [Function 72](07-function-reference.md#bdos-72) says OODOS's own version,
 as before.
@@ -61,7 +63,8 @@ read, so the counter keeps time through it to about half a percent. A sector tak
 is missed.
 
 **What the clocks cost.** Each tick is an interrupt: 145 cycles with no event area and no hooks, 2% of the CPU, in
-every program. An open event area adds 43 cycles a tick, and each hook its own time.
+every program. An open event area of layout 1 adds 39 cycles a tick, one of layout 2 (input) 87, and each hook its
+own time ([the input's cost](#what-input-costs)).
 
 `FT_COUNT` reads both counters at one moment: A/X has the millisecond counter's low word, and a block gets all 8
 bytes. To wait, there are two calls, both with interrupts on, so the hooks keep running:
@@ -102,15 +105,15 @@ area:   .res    EV_LEN
 | +8–11 | `EV_FRAMES` | the frame counter |
 | +12–15 | | reserved, 0 |
 
-- **The area must** be at least 16 bytes (`EV_LEN`), in one of W0–W2's 16 KB windows without crossing into the
-  next, and in the program's own RAM: its blocks 0–2, or a block it allocated in banks 1–5 and mapped. OODOS writes
+- **The area must** be at least 16 bytes (`EV_LEN`; up to 256, given as 0), in one of W0–W2's 16 KB windows
+  without crossing into the next, and in the program's own RAM: its blocks 0–2, or a block it allocated in banks 1–5 and mapped. OODOS writes
   it through the block that window had at the call, so a program that maps another block there later doesn't move
   the area.
 - **At the open** OODOS writes all of it: the layout, the clocks, the size, the counters, and 0 everywhere else, up
   to the size given. An area already open is closed first.
-- **Layouts grow at the end.** L2 adds the input's (the event queue, the keys held, the controllers) after +16. A
-  program that gives 16 bytes gets layout 1's; one that gives more gets what its OODOS fills and zeros past that. The
-  layout byte says which it got.
+- **Layouts grow at the end.** L2's layout 2 adds the input's (the event queue, the keys held, the controllers)
+  after +16, for an area of 144 bytes (`EV_LEN2`) or more ([below](#input)). A program that gives less gets layout
+  1's, and zeros past it. The layout byte says which it got.
 - **Reading a counter whole.** A tick can come between two loads, so a 4-byte value read a byte at a time may be
   torn. Read the low byte alone when that is enough, or read the value twice and take it when the two agree, or use
   `FT_COUNT`.
@@ -152,10 +155,155 @@ flags, and puts back the windows and the stack it found.
   latches (`T1LL`, `T1LH`) are safe to read. OOLIB's routines that only touch registers may be called once there
   are some (L4).
 
+## Input
+
+An event area of 144 bytes or more (`EV_LEN2`) is **layout 2**: the clocks as layout 1 has them, then the input.
+While it is open OODOS takes the USB card's interrupt, samples the joysticks at every tick and reads the paddles
+every frame, and keeps all of it in the area:
+
+```
+open:   .byte   FT_OPEN
+        .word   area
+        .byte   0               ; 256 bytes: the queue has 16 slots
+        ...
+area:   .res    256
+```
+
+| Offset | Name | What |
+|---|---|---|
+| +0–15 | | layout 1's: +0 is 2 |
+| +16 | `EV_QHEAD` | the queue's head: the slot OODOS writes next (OODOS's) |
+| +17 | `EV_QTAIL` | the queue's tail: the slot the program reads next (the program's) |
+| +18 | `EV_QSLOTS` | the queue's slots: (size − 128) / 8 |
+| +19 | | reserved, 0 |
+| +20–21 | `EV_QLOST` | events lost to a full queue (the program may clear it) |
+| +22–23 | | reserved, 0 |
+| +24 | `EV_MODS` | the modifiers held: L-Ctrl, L-Shift, L-Alt, L-GUI in bits 0–3, then the right ones |
+| +25 | `EV_DEVICES` | what is plugged in: `ED_KEYBOARD` `$01`, `ED_MOUSE` `$02`, `ED_GAMEPAD` `$04` |
+| +26–31 | | reserved, 0 |
+| +32–33 | `EV_MX` | the mouse's X |
+| +34–35 | `EV_MY` | the mouse's Y |
+| +36 | `EV_MBUTTONS` | its buttons, bits 0–4 |
+| +37 | `EV_MWHEEL` | its wheel's steps, signed, summed until the program clears it |
+| +38–39 | | reserved, 0 |
+| +40–55 | `EV_CTL` | four controllers, 4 bytes each, controller 1 first |
+| +56–59 | `EV_PADDLES` | the game port's four paddles, 0–255 |
+| +60–63 | | reserved, 0 |
+| +64–95 | `EV_KEYS` | the keys held, a bit for each HID usage |
+| +96–127 | | reserved for sound (L3), 0 |
+| +128 | `EV_QUEUE` | the queue: 8 bytes a slot, as many as the size leaves |
+
+### The queue
+
+Every key pressed and every key let go, a mouse button, a turn of the wheel, a controller's change and a device
+plugged in or out is an **event**, 8 bytes, in a ring of slots from +128:
+
+| Offset | Name | What |
+|---|---|---|
+| +0 | `EQ_KIND` | `EK_KEY` 1, `EK_BUTTON` 2 (the mouse's), `EK_WHEEL` 3, `EK_CTL` 4 (a controller), `EK_DEVICE` 5 |
+| +1 | `EQ_CODE` | the key's HID usage; the button, 0–4; the controller, 1–4; else 0 |
+| +2 | `EQ_VALUE` | 1 pressed, 0 let go; a controller's new bits; the wheel's steps, signed; the devices now |
+| +3 | `EQ_MODS` | the modifiers held then (a modifier's own event has itself in) |
+| +4–7 | `EQ_MS` | the millisecond counter then |
+
+OODOS writes an event in the slot at the head and then moves the head on; the program reads the slot at the tail
+and moves the tail on. When they are equal the queue is empty. One slot always stays empty, so a 256-byte area's
+16 slots hold 15 events; an event that would fill the last is lost, whole, and `EV_QLOST` counts it. A program
+reads its events with loads:
+
+```
+next:   ldx     area + EV_QTAIL
+        cpx     area + EV_QHEAD
+        beq     none            ; nothing waits
+        txa
+        asl     a
+        asl     a
+        asl     a
+        tay                     ; the slot's offset from EV_QUEUE
+        lda     area + EV_QUEUE + EQ_KIND,y
+        ...                     ; and its code, value, modifiers, time
+        inx                     ; then the tail on, round at EV_QSLOTS
+        cpx     area + EV_QSLOTS
+        bcc     @t
+        ldx     #0
+@t:     stx     area + EV_QTAIL
+```
+
+Or it calls function 81's `IN_NEXT`, which copies the next event to a block and moves the tail itself. `IN_FLUSH`
+empties the queue.
+
+### The keyboard
+
+The **keys held** are a bit each, by HID usage: usage *u* is bit *u* AND 7 of byte +64 + *u* / 8, so "is Space
+held?" (usage `$2C`) is `LDA area + EV_KEYS + 5`, `AND #$10`. The modifiers are there too, as usages `$E0–$E7`,
+and in +24 as a byte. A key held when the area was opened shows up only when it is let go.
+
+Raw events never repeat. The console's **key repeat** (the card's REPEAT: [the Technical Reference](../oo1-technical-reference/08-usb.md#reg-c586))
+is for the cooked keys, and function 81's `IN_REPEAT` sets it; the card has no "off", but a game that reads the
+queue has no repeats to turn off. `IN_LEDS` sets the keyboard's three lights.
+
+**The console's keys go on as before.** Functions 1, 6, 10 and the rest still read the card's cooked keys, so a
+program that reads both sees each key twice, once cooked and once in the queue, and uses one or the other. Every
+key reaches the queue, ^C, ^S and ^P too; whether they also act on the console is function 109's console mode
+([question 4](../../hw/oolib.md#open-questions)). A game that doesn't want ^C to end it, or ^S to stop it, sets
+bits 3 and 1 (`$000A`) first, and puts the mode back before it ends. Break (Pause) stops any program whatever
+the mode.
+
+### The controllers
+
+Four **controllers**, 4 bytes each from +40, so a game asks for controller 1 and works with whatever is plugged in:
+
+| Offset | Name | What |
+|---|---|---|
+| +0 | `EC_BITS` | `CB_UP` `$01`, `CB_DOWN` `$02`, `CB_LEFT` `$04`, `CB_RIGHT` `$08`; the fire buttons from `CB_FIRE` `$10` up |
+| +1 | `EC_X` | 0–255: 0 left, 255 right (a digital stick: 0, 128 or 255) |
+| +2 | `EC_Y` | 0–255: 0 up, 255 down |
+| +3 | `EC_HW` | the hardware it is: `CH_STICK1` 1, `CH_STICK2` 2, `CH_GAMEPORT` 3, `CH_GAMEPAD` 4 |
+
+- **Controllers 1 and 2** are the DE-9 joysticks on the serial card's VIA, ports A and B
+  ([the Technical Reference](../oo1-technical-reference/09-serial-and-via.md#the-joysticks)), with one fire
+  button. OODOS samples them at every tick, so a press shorter than a frame is seen, and a change is an event.
+- **Controller 3** is the USB card's game port: its X and Y are paddles 0 and 1, its directions where they are past
+  64 and 192 (below 64 left or up, 192 or more right or down: `GP_LOW`, `GP_HIGH`), its three buttons fire bits
+  4–6. The paddles are read every frame: OODOS starts them at the frame's first tick and reads them 4 ms later.
+  The four paddles themselves are at +56 for a game that wants paddles, not a joystick. A button change is an
+  event at once (the card's interrupt); a change of direction an event at the frame it is read.
+- **Controller 4** is kept for a USB gamepad: nothing yet, its bits 0, X and Y 128.
+- **Swapping:** function 81's `IN_SWAP` swaps two controllers' hardware (a two-player game that wants the game
+  port as player 1), and `IN_MAP` says which is which. The warm boot puts them back, 1 to 4 in order.
+
+A game may still read a digital stick itself, `LDA $C341` and `AND #$1F`, as the hardware allows.
+
+### The mouse
+
+Its position is in the area, always current: in **relative mode**, the cold boot's, X and Y are the movement
+summed since the area opened (16 bits, going round), so a game takes the difference from the last it read; in
+**absolute mode** they are the card's position, within limits a program sets. Function 81's `IN_MOUSE` sets the
+mode and the limits, and starts X and Y afresh. A move is not an event (a queue of moves would fill); a button
+pressed or let go is, one event a button, and so is each turn of the wheel, whose steps are summed in +37 too.
+
+### What input costs
+
+With a layout-2 area open each tick costs 232 cycles, against 145 with no area: 87 more, about 1.2% of the CPU.
+Twice a frame a tick costs more, when it starts the paddles (360) and when it reads them (658), and a stick's
+change is a little more again. The USB card's interrupt for a key is about 650 cycles. Without a layout-2 area
+OODOS samples nothing: a program that doesn't open one pays only L1's 145 a tick.
+
+**Reading a value whole.** As with the counters, an interrupt can come between two loads: read a 2-byte X twice,
+or take only the low byte. A wheel cleared by the program with `STZ` can lose a step that came between its load
+and the store.
+
+**Sharing the FIFO.** While a layout-2 area is open the USB card's event FIFO is OODOS's: a program that reads it
+itself (OO-Amp does, for now) gets what OODOS hasn't taken, and OODOS what it hasn't. Use one or the other. OODOS
+also reads the VIA's port B at every tick, which clears its CB1 and CB2 flags.
+
 ## When the program ends
 
-The warm boot takes back what L1 gave: both hooks off, the event area closed, and every interrupt enable the
-program turned on off again (OODOS keeps only its own: timer 1 and the vertical blank). Timer 1 is set up again
+The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, and every interrupt enable the
+program turned on off again (OODOS keeps only its own: timer 1 and the vertical blank). For the input it turns the
+USB card's interrupt off, puts the mouse back in relative mode with the limits a reset gives (639, 479), the LEDs
+off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 1 to 4 in order: what the cold
+boot sets. Timer 1 is set up again
 as the cold boot left it, should the program have changed it. That is so whether the program ends by `JMP WBOOT`,
 by ^C, or by an error. The counters run on (a program that changed timer 1's latch may cost the millisecond
 counter 1 ms: putting the latch back clears timer 1's flag, and a tick due then with it). Break goes to the
@@ -163,6 +311,6 @@ monitor with the machine's interrupts off, as it always has; booting OODOS again
 
 ## Still to come
 
-L2 input (the event queue, the keys held, controllers, the mouse), L3 sound, L4 the graphics library and the
-asset loader, L6 the music driver: [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
+L3 sound, L4 the graphics library, the pointer sprite and the asset loader, L6 the music driver; USB gamepads as
+controller 4: [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
 built, a program has none for it: see [AGENTS.md](../../AGENTS.md) for what not to take over in the meantime.
