@@ -51,6 +51,8 @@ ACIA_STATUS     = ACIA + 1
 ACIA_CMD        = ACIA + 2
 ACIA_CTRL       = ACIA + 3
 ACIA_CMD_RXOFF  = $02                  ; CMD: the receiver's interrupt off
+ACIA_CMD_TXMASK = $0C                  ; CMD bits 3-2: the transmitter's control
+ACIA_CMD_TXOFF  = $08                  ; CMD bits 3-2 %10: its interrupt off, RTS low
 
 ; The serial card's W65C22S VIA, over the 6551's mirror: the joysticks on
 ; port A (1) and port B (2), bits 0-4, 0 = pressed. OODOS owns ACR, IER and

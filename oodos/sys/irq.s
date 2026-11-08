@@ -160,8 +160,10 @@ DISPATCH:       LDA     NB_WIN0
                 AND     #NB_IRQ_VIA
                 BNE     @novia
                 BIT     VIAL
-                BPL     @deaf          ; no VIA: the 6551 (DEAFEN), its registers under $C34x
-                JSR     VIASRV
+                BMI     @isvia
+                JSR     DEAF62         ; no VIA: the 6551 (DEAFEN), its registers under $C34x;
+                BRA     @novia         ; then the video card's, as with a VIA
+@isvia:         JSR     VIASRV
 @novia:         LDA     NB_IRQH
                 AND     #NB_IRQ_VIDEO
                 BNE     @novideo
@@ -401,9 +403,11 @@ EVALL:          LDA     NB_WIN1
 ; check and the read of T1CL has its flag cleared by that read unseen: the
 ; count, just reloaded, is then within a few cycles of the top, so a count
 ; read within T1LATE cycles of it with no flag seen is counted too (TICK
-; reads T1CL some 40 cycles after its expiry, and a hook's call is later
-; still, so no tick is counted twice). No VIA: 0, the 6551's registers
-; left alone.
+; reads T1CL about 87 cycles after its expiry at the soonest: the
+; interrupt's 7, IRQ's 19 and the dispatcher's 57 to TICK, and its LDA's 4;
+; a hook's call is later still, so no tick is counted twice). No VIA: 0,
+; the 6551's registers left alone, and FT_COSTS says it counted nothing
+; (A = 0), as a build without OOLIB_DEBUG does.
 T1LATE          = 24
 .assert <TICK_LATCH >= T1LATE, error, "T1NOW's top: the latch's low byte less T1LATE"
 T1NOW:          BIT     VIAL
@@ -512,7 +516,8 @@ DMAIRQ:         .res    1              ; DEAFEN's: the channels whose interrupt 
 ; there cleared: a program's (the warm boot), or one no handler answers
 ; (the dispatcher, through W3). OODOS's own, timer 1 and vertical blank, stay
 ; on, and timer 1 is set up again as CLKINIT has it (free-running, its
-; latch, its enable), in case a program changed it; MS runs on. A DMA
+; latch, its enable), in case a program changed it; MS runs on, though a
+; program that changed the latch may cost it a tick (below). A DMA
 ; channel's terminal count is cleared only if its interrupt was on: the
 ; others' are their drivers' (SDIO reads channel 0's), and an interrupt
 ; can come while one waits.
@@ -542,10 +547,11 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 LDA     DMAIRQ         ; none to come, and none left to interrupt
                 STA     DMA_STATUS
 .assert DMA_MODE_IRQ = $80, error, "DEAFEN's mask: the interrupt bit is MODE's bit 7"
-@acia:          LDA     ACIA_STATUS    ; the stand-in 6551's, should a program have turned it on:
-                LDA     ACIA_CMD       ; its flag cleared and its receiver's interrupt off
-                ORA     #ACIA_CMD_RXOFF
+@acia:          LDA     ACIA_CMD       ; the stand-in 6551's, should a program have turned them
+                AND     #<~ACIA_CMD_TXMASK ; on: its receiver's interrupt off, and its
+                ORA     #ACIA_CMD_RXOFF | ACIA_CMD_TXOFF ; transmitter's (RTS low), the rest kept;
                 STA     ACIA_CMD
+                LDA     ACIA_STATUS    ; then its flag cleared, with nothing to set it again
                 LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @video         ; no VIA: $C34E would be the 6551's command
@@ -558,7 +564,8 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 STA     VIA_IER
                 LDA     VIA_T1LL       ; the latch read (safe: no flag cleared) and
                 CMP     #<TICK_LATCH   ; written only if a program changed it, since
-                BNE     @latch         ; writing its high byte clears timer 1's flag
+                BNE     @latch         ; writing its high byte clears timer 1's flag: a
+                                       ; tick already due then is lost, MS a ms behind
                 LDA     VIA_T1LH
                 CMP     #>TICK_LATCH
                 BEQ     @video
@@ -960,7 +967,10 @@ FT_COSTSX:      LDX     PX
                 CPX     #6
                 BNE     @put
 .ifdef OOLIB_DEBUG
+                LDA     VIAL           ; counted by timer 1: none without the VIA
+                BEQ     @a
                 LDA     #1
+@a:
 .else
                 LDA     #0
 .endif
