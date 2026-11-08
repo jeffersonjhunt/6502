@@ -18,7 +18,7 @@ PYTHON   = python3 -I
 SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios disk2 crt cold ccp loader irq input sound
 PROGRAMS = hello args biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest memtest \
            fstest dirtest errtest stamptest logintest ruletest xtratest systest writeoo1 cmdtest uttest \
-           rsxq ovlt iotest l1test l2test
+           rsxq ovlt iotest l1test l2test l3test l3strm
 # Phase 5's (test_oodos_rsx): test RSXs, overlays, RSXQ with RSXs attached by
 # gencom.py, and mkprl.py's loads of them where the loader will put them.
 RSXS     = trsxa trsxb trsxc trsxd trsxe
