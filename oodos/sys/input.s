@@ -54,7 +54,8 @@
 .ifdef OOLIB_DEBUG
 .import HKON, HOOKCOST, FHMAX, THMAX  ; irq.s's (a debug build)
 .endif
-.export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT
+.import CALL61, SIEN, C2ON          ; irq.s's, sound.s's
+.export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT, QEV, EVK, EVC, EVV
 
 .segment "SYSBSS"
 QSLOTS:         .res    1              ; the queue's slots (FT_OPEN's; 0 in layout 1)
@@ -105,6 +106,8 @@ WBQUIET:
                 STZ     THMAX
                 STZ     THMAX + 1
 .endif
+                LDX     #R61_QUIET     ; the sound card quiet, channel 2 stopped, the claims
+                JSR     CALL61         ; released (sound.s's SNDQUIET), before DEAFEN
                 JSR     DEAFEN
                 LDA     UCARD
                 BEQ     CMAPDEF
@@ -131,7 +134,10 @@ CMAPDEF:        LDX     #3             ; controller n is hardware n
                 RTS
 
 ; A card's interrupt that isn't the VIA's or the video card's (irq.s's
-; dispatcher): the USB card's, with a layout-2 area open, answered; then
+; dispatcher): the USB card's, with a layout-2 area open, answered; L3's
+; (channel 2's terminal count, the sound card's mailbox and ES5503) while it
+; has any on, through CALL61 (sound.s's SNDIRQ, which says which it
+; answered); then
 ; any other card still interrupting, which OODOS didn't turn on, DEAFENed,
 ; and the USB card's events on again if the area wants them. After USBSRV
 ; the USB card pulling again is a new event's, which the next interrupt
@@ -145,7 +151,13 @@ IRQOTH:         STZ     IRQY
                 JSR     USBSRV
                 LDA     #NB_IRQ_USB
                 STA     IRQY
-@rest:          LDA     NB_IRQL
+@rest:          LDA     SIEN           ; L3's: the stream's channel 2, the card's interrupts
+                ORA     C2ON
+                BEQ     @other
+                LDX     #R61_IRQ
+                JSR     CALL61
+                TSB     IRQY           ; what it answered isn't a stray
+@other:         LDA     NB_IRQL
                 ORA     #NB_IRQ_VIA
                 INC     A
                 BNE     @deaf
