@@ -631,7 +631,7 @@ TEST(a_stray_during_a_wave_load_leaves_the_es5503_s_interrupt_off)
     CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
     CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
     CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC);
-    const uint16_t from = sym("DMALOAD"), to = sym("SN_STARTX"), deafen = sym("DEAFEN");
+    const uint16_t from = sym("DMALOAD"), to = sym("BEEPQ"), deafen = sym("DEAFEN");
     unsigned in = 0, on = 0, deaf = 0;
     bool stray = false;
     r.watch = [&](uint16_t pc) {

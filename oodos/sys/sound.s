@@ -6,10 +6,13 @@
 ;
 ; Where the code lives (the owner's decision, 2026-11-08, from L3's sizing):
 ;
-;   block 60 (BDOS)   function 82, and what it does in the BDOS's time: the
-;                     parameter checks, the loads (synchronous, a piece at
-;                     a time), the beep
-;   block 61 (BIOS)   the handlers, reached from the dispatcher through a
+;   block 60 (BDOS)   function 82: the parameters read and checked, the
+;                     loads and the beep started in the BDOS's time
+;   block 61 (BIOS)   what reads no parameters (L4's question 4, moved out
+;                     of block 60 for function 83's room): the loads' engine
+;                     (DMALOAD, synchronous, a piece at a time; RAMEND),
+;                     the beep's division and its loop (BEEPQ, BEEPGO); and
+;                     the handlers, reached from the dispatcher through a
 ;                     W2 borrow (CALL61: W2 on block 61, the routine, W2
 ;                     back as it was), as CALL62 borrows W3: channel 2's
 ;                     terminal count (the next piece, the next buffer), the
@@ -552,6 +555,191 @@ SOBS:           LDA     SOUND_STATE
 @seen:          STA     SPREV
                 RTS
 
+; Carry set if the card's address T2/T3 (and T4's bit 0, wave RAM's A16) +
+; LDLEN runs past A x $10000: the RAM's end (64 KB the card's, 128 KB wave
+; RAM), where the address would wrap.
+RAMEND:         STA     SST + 3
+                CLC
+                LDA     T2
+                ADC     LDLEN
+                STA     SST
+                LDA     T3
+                ADC     LDLEN + 1
+                STA     SST + 1
+                LDA     T4
+                AND     #1
+                ADC     LDLEN + 2
+                CMP     SST + 3
+                BCC     @ok
+                BNE     @no
+                LDA     SST
+                ORA     SST + 1
+                BNE     @no
+@ok:            CLC
+                RTS
+@no:            SEC
+                RTS
+
+; Channel 2 from SG, LDLEN bytes, to the card (DRQSEL set by the caller:
+; RAMDATA or DOCDATA, which hold DRQ always), a piece at a time, each
+; waited for; interrupts on between. Carry set if a piece never ended (no
+; DMA controller, or one that doesn't run): the channel aborted.
+DMALOAD:        LDA     SDMA
+                BEQ     @fail
+                LDA     #DMA_MASTER
+                TSB     DMA_CONTROL
+@piece:         LDA     #<CHUNK        ; T0/T1 this piece
+                STA     T0
+                LDA     #>CHUNK
+                STA     T1
+                LDA     LDLEN + 2
+                BNE     @set
+                LDA     LDLEN + 1
+                CMP     #>CHUNK
+                BCS     @set
+                LDA     LDLEN
+                STA     T0
+                LDA     LDLEN + 1
+                STA     T1
+@set:           STZ     DMA2_CTRL
+                LDA     SG
+                STA     DMA2_ADDR
+                LDA     SG + 1
+                STA     DMA2_ADDR + 1
+                LDA     SG + 2
+                STA     DMA2_ADDR + 2
+                LDA     T0
+                STA     DMA2_COUNT
+                LDA     T1
+                STA     DMA2_COUNT + 1
+                LDA     #DMA_DEMAND_OUT ; no interrupt: waited for here
+                STA     DMA2_MODE
+                LDA     #DMA_ENABLE
+                STA     DMA2_CTRL      ; it runs at once, the CPU held
+                LDX     #0
+                LDY     #0
+@wait:          LDA     DMA2_CTRL
+                LSR     A
+                BCC     @done
+                DEX
+                BNE     @wait
+                DEY
+                BNE     @wait
+                LDA     #DMA_CH2
+                STA     DMA_ABORT
+@fail:          SEC
+                RTS
+@done:          LDA     #DMA_CH2
+                STA     DMA_STATUS     ; its count cleared
+                CLC
+                LDA     SG
+                ADC     T0
+                STA     SG
+                LDA     SG + 1
+                ADC     T1
+                STA     SG + 1
+                BCC     @left
+                INC     SG + 2
+@left:          SEC
+                LDA     LDLEN
+                SBC     T0
+                STA     LDLEN
+                LDA     LDLEN + 1
+                SBC     T1
+                STA     LDLEN + 1
+                BCS     @more
+                DEC     LDLEN + 2
+@more:          LDA     LDLEN
+                ORA     LDLEN + 1
+                ORA     LDLEN + 2
+                BEQ     @end
+                JMP     @piece
+@end:           CLC
+                RTS
+.assert <CHUNK = 0, error, "DMALOAD compares the length's high byte with CHUNK's"
+
+; T4/T5 = BEEP_DIV / T0/T1, less the loop's own BEEP_LOOP (1 at least): a
+; 24-by-16 division by shifts.
+BEEPQ:          LDA     #<BEEP_DIV     ; SG/SG+1/SG+2 the dividend, becoming the quotient
+                STA     SG
+                LDA     #>BEEP_DIV
+                STA     SG + 1
+                LDA     #^BEEP_DIV
+                STA     SG + 2
+                STZ     T4             ; T4/T5 the remainder
+                STZ     T5
+                LDX     #24
+@bit:           ASL     SG
+                ROL     SG + 1
+                ROL     SG + 2
+                ROL     T4
+                ROL     T5
+                LDA     T4
+                SEC
+                SBC     T0
+                TAY
+                LDA     T5
+                SBC     T1
+                BCC     @next
+                STA     T5
+                STY     T4
+                INC     SG
+@next:          DEX
+                BNE     @bit
+                SEC                    ; the quotient fits 16 bits: 20 Hz is 35,795
+                LDA     SG
+                SBC     #BEEP_LOOP
+                STA     T4
+                LDA     SG + 1
+                SBC     #0
+                STA     T5
+                BCC     @one
+                ORA     T4
+                BNE     @done
+@one:           LDA     #1
+                STA     T4
+                STZ     T5
+@done:          RTS
+
+; The beep's body (SN_BEEP, block 60's, which reads and checks the block):
+; T0/T1 the pitch, T2/T3 the length in ms; the speaker toggled each half
+; period until the millisecond counter has moved the length on. Here, not
+; in block 60, as it reads no parameters (L4's question 4). Aligned, as
+; BEEPD is, so the loop's branches never cross a page.
+                .align  64
+BEEPGO:         JSR     BEEPQ          ; T4/T5 the half period, in the delay loop's 5 cycles
+                PHP
+                SEI
+                LDA     MS             ; SG/SG + 1 the start
+                STA     SG
+                LDA     MS + 1
+                STA     SG + 1
+                PLP
+BEEPHALF:       LDA     USB_SPKR       ; (any access toggles it)
+                LDX     T4             ; the delay: X, then 256 a pass, Y passes
+                LDY     T5
+                INY
+                CPX     #0
+                BNE     @d
+                DEY
+@d:             JSR     BEEPD
+                PHP                    ; MS - start, against the length: MS read whole
+                SEI
+                SEC
+                LDA     MS
+                SBC     SG
+                TAX
+                LDA     MS + 1
+                SBC     SG + 1
+                PLP
+                CMP     T3
+                BCC     BEEPHALF
+                BNE     @end
+                CPX     T2
+                BCC     BEEPHALF
+@end:           RTS
+.assert >BEEPHALF = >*, error, "the beep loop's branches stay in its page (a crossing changes the pitch)"
+
 ; ---------------------------------------------------------------------------
 ; Function 82, sound: block 60.
 
@@ -727,109 +915,6 @@ SRC:            PHP
                 JMP     SEGOK          ; carry set: refused
 @no:            SEC
                 RTS
-
-; Carry set if the card's address T2/T3 (and T4's bit 0, wave RAM's A16) +
-; LDLEN runs past A x $10000: the RAM's end (64 KB the card's, 128 KB wave
-; RAM), where the address would wrap.
-RAMEND:         STA     SST + 3
-                CLC
-                LDA     T2
-                ADC     LDLEN
-                STA     SST
-                LDA     T3
-                ADC     LDLEN + 1
-                STA     SST + 1
-                LDA     T4
-                AND     #1
-                ADC     LDLEN + 2
-                CMP     SST + 3
-                BCC     @ok
-                BNE     @no
-                LDA     SST
-                ORA     SST + 1
-                BNE     @no
-@ok:            CLC
-                RTS
-@no:            SEC
-                RTS
-
-; Channel 2 from SG, LDLEN bytes, to the card (DRQSEL set by the caller:
-; RAMDATA or DOCDATA, which hold DRQ always), a piece at a time, each
-; waited for; interrupts on between. Carry set if a piece never ended (no
-; DMA controller, or one that doesn't run): the channel aborted.
-DMALOAD:        LDA     SDMA
-                BEQ     @fail
-                LDA     #DMA_MASTER
-                TSB     DMA_CONTROL
-@piece:         LDA     #<CHUNK        ; T0/T1 this piece
-                STA     T0
-                LDA     #>CHUNK
-                STA     T1
-                LDA     LDLEN + 2
-                BNE     @set
-                LDA     LDLEN + 1
-                CMP     #>CHUNK
-                BCS     @set
-                LDA     LDLEN
-                STA     T0
-                LDA     LDLEN + 1
-                STA     T1
-@set:           STZ     DMA2_CTRL
-                LDA     SG
-                STA     DMA2_ADDR
-                LDA     SG + 1
-                STA     DMA2_ADDR + 1
-                LDA     SG + 2
-                STA     DMA2_ADDR + 2
-                LDA     T0
-                STA     DMA2_COUNT
-                LDA     T1
-                STA     DMA2_COUNT + 1
-                LDA     #DMA_DEMAND_OUT ; no interrupt: waited for here
-                STA     DMA2_MODE
-                LDA     #DMA_ENABLE
-                STA     DMA2_CTRL      ; it runs at once, the CPU held
-                LDX     #0
-                LDY     #0
-@wait:          LDA     DMA2_CTRL
-                LSR     A
-                BCC     @done
-                DEX
-                BNE     @wait
-                DEY
-                BNE     @wait
-                LDA     #DMA_CH2
-                STA     DMA_ABORT
-@fail:          SEC
-                RTS
-@done:          LDA     #DMA_CH2
-                STA     DMA_STATUS     ; its count cleared
-                CLC
-                LDA     SG
-                ADC     T0
-                STA     SG
-                LDA     SG + 1
-                ADC     T1
-                STA     SG + 1
-                BCC     @left
-                INC     SG + 2
-@left:          SEC
-                LDA     LDLEN
-                SBC     T0
-                STA     LDLEN
-                LDA     LDLEN + 1
-                SBC     T1
-                STA     LDLEN + 1
-                BCS     @more
-                DEC     LDLEN + 2
-@more:          LDA     LDLEN
-                ORA     LDLEN + 1
-                ORA     LDLEN + 2
-                BEQ     @end
-                JMP     @piece
-@end:           CLC
-                RTS
-.assert <CHUNK = 0, error, "DMALOAD compares the length's high byte with CHUNK's"
 
 ; +1-2 the entry, +3 CTRL's other bits: the 6510 stopped, its reset vector
 ; the entry, then reset and run.
@@ -1158,78 +1243,7 @@ SN_BEEPX:       BLOCK
                 LDA     T0
                 CMP     #20
                 BCC     @no
-@ok:            JSR     BEEPQ          ; T4/T5 the half period, in the delay loop's 5 cycles
-                PHP
-                SEI
-                LDA     MS             ; SG/SG + 1 the start
-                STA     SG
-                LDA     MS + 1
-                STA     SG + 1
-                PLP
-@half:          LDA     USB_SPKR       ; (any access toggles it)
-                LDX     T4             ; the delay: X, then 256 a pass, Y passes
-                LDY     T5
-                INY
-                CPX     #0
-                BNE     @d
-                DEY
-@d:             JSR     BEEPD          ; (block 61's, W2 on it)
-                PHP                    ; MS - start, against the length: MS read whole
-                SEI
-                SEC
-                LDA     MS
-                SBC     SG
-                TAX
-                LDA     MS + 1
-                SBC     SG + 1
-                PLP
-                CMP     T3
-                BCC     @half
-                BNE     @done
-                CPX     T2
-                BCC     @half
+@ok:            JSR     BEEPGO         ; (block 61's, W2 on it)
 @done:          JMP     SN00
 @no:            JMP     RETFF
 
-; T4/T5 = BEEP_DIV / T0/T1, less the loop's own BEEP_LOOP (1 at least): a
-; 24-by-16 division by shifts.
-BEEPQ:          LDA     #<BEEP_DIV     ; SG/SG+1/SG+2 the dividend, becoming the quotient
-                STA     SG
-                LDA     #>BEEP_DIV
-                STA     SG + 1
-                LDA     #^BEEP_DIV
-                STA     SG + 2
-                STZ     T4             ; T4/T5 the remainder
-                STZ     T5
-                LDX     #24
-@bit:           ASL     SG
-                ROL     SG + 1
-                ROL     SG + 2
-                ROL     T4
-                ROL     T5
-                LDA     T4
-                SEC
-                SBC     T0
-                TAY
-                LDA     T5
-                SBC     T1
-                BCC     @next
-                STA     T5
-                STY     T4
-                INC     SG
-@next:          DEX
-                BNE     @bit
-                SEC                    ; the quotient fits 16 bits: 20 Hz is 35,795
-                LDA     SG
-                SBC     #BEEP_LOOP
-                STA     T4
-                LDA     SG + 1
-                SBC     #0
-                STA     T5
-                BCC     @one
-                ORA     T4
-                BNE     @done
-@one:           LDA     #1
-                STA     T4
-                STZ     T5
-@done:          RTS
