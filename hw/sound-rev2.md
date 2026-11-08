@@ -165,9 +165,15 @@ Checked on 2026-11-07, on main at caeef32:
 - [x] `test_sid_corpus` output is identical to before this work: the whole collection, 61,201 tunes, against
   c3100b0.
 - [x] Native and WASM builds both build and pass, with minimp3 included
-- [ ] A real 44.1 kHz stereo stream runs through emulated DMA from an OODOS program with zero underruns.
-  Open until OOLIB ([oolib.md](oolib.md)): programs leave the DMA channels and the sound card to OODOS, so
-  the stream is to be proven through OOLIB's sound service, not a test-only program.
+- [x] A real 44.1 kHz stereo stream runs through emulated DMA from an OODOS program with zero underruns.
+  Proven through OOLIB's sound service, L3's function 82 ([oolib.md](oolib.md), "L3, as built"; checked on
+  2026-11-08 on feat/oolib-l3): `test_oodos_sound`'s acceptance case streams 229,376 bytes (1.3 s) of 44.1 kHz
+  16-bit stereo raw PCM from a file on B:, an SD drive, through function 82's two buffers of 12 KB, refilled by
+  ordinary BDOS reads (function 20, 96 records a call) as OODOS frees them: 19 buffers, 56 pieces of 4 KB by
+  DMA channel 2, the card's underrun count 0 and OODOS's 0, and the 229,376 bytes at the card's tap the file's,
+  byte for byte, in 1.66 s of machine time. A second case does the same for the repo's own
+  `cbr320_stereo_48k.mp3` (25,920 bytes): 31,104 frames at the tap, minimp3's own decoding of the file, frame
+  for frame, underruns 0.
 - [x] Results do not depend on the host's speed or audio rate: PCM, MP3, the EQ and vis page, the ES5503 and
   the mix each have a test that their output is the same at any audio rate and however the emulator is ticked.
 - [x] ASan and UBSan are clean: every native test under the `dev` preset.

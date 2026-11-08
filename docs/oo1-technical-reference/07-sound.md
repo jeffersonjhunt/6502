@@ -373,6 +373,34 @@ frame on both sides.
 - FLUSH with RUN set is a seek: the FIFO empties and the stream buffers again, to 4 KB or to EOF, with no underrun
   counted; POS runs on from where it was. Paused, the seek takes effect when PAUSE is released.
 
+## Under OODOS
+
+Status: **built**
+
+Since OOLIB's L3 ([hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan)) OODOS's function 82 hands the card's parts
+out, one program at a time: the 6510 and the SIDs, the stream, the ES5503
+([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#sound)). A program writes a part's
+registers itself once it holds it; what OODOS keeps is DMA channel 2, the card's DRQSEL and IEN, and the warm boot.
+
+- **Loads.** The card's RAM (DRQSEL 0) and the ES5503's wave RAM (DRQSEL 2) are loaded by channel 2, memory to the
+  card in demand mode, 4,096 bytes a piece: RAMDATA and DOCDATA hold DRQ always, so each piece holds the CPU 4,096
+  cycles, under a tick of the millisecond counter, and the tick is taken between pieces. For a wave load OODOS sets
+  DOCCTL's RAM and AUTOINC (RUN and the route kept), DOCADDR and DOCBANK, holds IEN bit 3 off, and puts DOCCTL and
+  IEN back after; DRQSEL goes back to 0.
+- **The stream.** DRQSEL 1, and channel 2 in demand mode with MODE's IRQ set, from two buffers of the program's, 4 KB
+  a piece: at each terminal count OODOS's handler starts the next piece, or the next buffer, and marks a buffer
+  sent. With the FIFO full the card drops DRQ and the piece waits; with room it runs at a byte a cycle, the CPU held
+  4,096 cycles at most. While a stream buffer is going to the card the channel is the stream's, and a load is
+  refused, busy.
+- **IEN:** bit 2 while the 6510 is claimed and the program has an event area of layout 2 open (each byte from MBIN
+  becomes an event in its queue); bit 3 while an ES5503 hook is set. The handler for bit 3 reads the ES5503's `$E0`
+  with DOCCTL on the registers and DOCADDR at `$E0`, and puts both back as it found them before it calls the hook.
+  OODOS's turning off of strays leaves these bits, and channel 2 while a stream buffer moves on it, alone.
+- **The warm boot** does to the card what QUIET does (CTRL's RUN off, the SIDs' registers 0, on revision 2 PCMCTL
+  FLUSH alone and DOCCTL's RUN off), and aborts channel 2 with its MODE 0 and its terminal count cleared, puts
+  DRQSEL to 0 and IEN to 0: at every program's end, whether a program claimed the card or not. So a program that
+  used the card behind OODOS's back leaves nothing playing either.
+
 ## Registers
 
 Status: **emulated**
@@ -594,7 +622,8 @@ R/W. Bit 2 is kept, and on revision 2 bit 3 too.
 
 #### Reset
 
-`$00`. The BIOS never sets it, and QUIET writes `$00`.
+`$00`. The BIOS never sets it, and QUIET writes `$00`. Under OODOS ([above](#under-oodos)) bits 2 and 3 are OODOS's,
+set while a program has claimed what they serve, and the warm boot writes `$00`.
 
 #### Status
 

@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -1212,6 +1212,70 @@ Address $6000, 1000 bytes
   in its .$$$ file.`: the last step failed, so the new data is kept under that name.
 
 Each sets the return code to `$FF00`. A disk DOS33 has written passes DOS 3.3's own `VERIFY` and loads with `BLOAD`.
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.
+
+## PLAYSID
+
+<a id="util-playsid"></a>
+### PLAYSID: play a C64 .sid tune
+
+PLAYSID plays a `.sid` file, a Commodore 64 tune with its own player code, on the sound card's 6510 and its two
+SIDs, until you press a key. The card does all the work, so the tune keeps time on its own clock. PLAYSID is built
+on OOLIB's linked library ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#sid-tunes)),
+which plays the tune as the emulator's own Play .sid does.
+
+#### Forms
+
+```
+PLAYSID filespec {song}
+```
+
+- **filespec** is the tune's file; `.SID` if you leave the type out. It is read whole into memory, so it must fit
+  in the TPA, about 40 KB.
+- **song** is the song to play, from 1 to the tune's count, in decimal. Without it, the tune's own start song.
+
+#### Options
+
+None.
+
+#### Output
+
+```
+A>PLAYSID TUNE 2
+Playing song 2 of 3: Test Tune, Nobody
+Press a key to stop.
+```
+
+The name and the author are the tune's own, from its header. Any key stops it: the 6510 stops, the SIDs go quiet,
+and PLAYSID ends. Ending any other way (^C, Break) stops the tune too: the warm boot quiets the card.
+
+#### Errors
+
+- `PLAYSID filespec {song}`: no file named. `Invalid file specification.`: a name OODOS can't take, or a song that
+  isn't a number from 1 to 255. `No File`: no such file.
+- `Too big.`: the file doesn't fit in memory.
+- `Song n of m?`: a song past the tune's count.
+- `Not a .sid file.`, `Unknown .sid version.`, `Bad data offset.`, `No code in the file.`, `The code runs past the
+  6510's 64 KB.`, `Bad song count.`: the file isn't a .sid file PLAYSID can read.
+- `An RSID tune: PLAYSID plays PSID only.`: an RSID tune expects a whole C64 (its video chip, its second CIA, its
+  ROMs), which the card hasn't got.
+- `A Compute! MUS file needs a player of its own.`, `The tune covers the 6510's vectors.`, `No free page for the
+  player's stub.`: a tune the card's player can't take.
+- `The sound card is in use, or not there.`: another program or an RSX has the 6510, or there is no sound card.
+  `The sound card's RAM wasn't loaded.`: a load into it was refused.
+
+Each sets the return code to `$FF00`.
 
 #### Since
 

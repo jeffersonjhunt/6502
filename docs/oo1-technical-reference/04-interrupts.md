@@ -153,6 +153,11 @@ W3 holds.
   ([chapter 8](08-usb.md#under-oodos)). Its handler, and the joysticks' and paddles' sampling at the tick, are in
   block 62, behind a switch of W3 and back; only the switch and the tick's checks are in common memory. An
   interrupt from the card with no such area open is turned off as any other's.
+- **The sound card and DMA channel 2** (IRQH bits 2 and 0), since OOLIB's L3: the card's IEN bits 2 (the
+  mailbox) and 3 (the ES5503) while a program holds what they serve, and channel 2's terminal count while a stream
+  buffer is going to the card ([chapter 7](07-sound.md#under-oodos)). Their handler is in block 61, the BIOS's,
+  reached through a borrow of W2 and put back byte for byte, from the same path as the USB card's; W1 is kept for
+  the event area. OODOS's turning off of strays leaves those bits and channel 2 alone while they are its own.
 - **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 234
   (the sticks compared), and twice a frame more (the paddles started, then read: 366 and 673). The USB card's
   interrupt for a key is about 650.
