@@ -236,7 +236,8 @@ said:   jsr     UT_SAID
 ; A file operation on wfcb or tfcb that failed (A not 0, X with it): 10 a
 ; changed floppy (chg); an error the BDOS said (X not 0) said. A $FF with
 ; X 0 the BDOS doesn't say (no such file, no room in the directory): PIP's
-; message Y (M_WRITE and on) and wfcb's name, so a failure is never silent.
+; message Y (M_WRITE and on) and wfcb's name (M_RENAME: tfcb's, where the
+; finished copy is), so a failure is never silent.
 opfail: cmp     #10
         bne     :+
         jmp     chg
@@ -244,9 +245,13 @@ opfail: cmp     #10
         beq     :+
         jmp     said
 :       lda     #<(wfcb + 1)
-        sta     ptr
-        lda     #>(wfcb + 1)
-        sta     ptr + 1
+        ldx     #>(wfcb + 1)
+        cpy     #M_RENAME               ; a failed rename: the copy is kept under
+        bne     :+                      ; tfcb's name (NAME.$$$ or a fallback), so that one
+        lda     #<(tfcb + 1)
+        ldx     #>(tfcb + 1)
+:       sta     ptr
+        stx     ptr + 1
         lda     omsglo,y
         ldx     omsghi,y
         jmp     failnm

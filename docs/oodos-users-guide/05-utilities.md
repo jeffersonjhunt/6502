@@ -772,7 +772,7 @@ TWO.TXT
 - `DISK WRITE ERROR - NAME.TYP`: the disk, or its directory, is full. `VERIFY ERROR - NAME.TYP`: V found a difference.
 - `CAN'T DELETE - NAME.TYP`, `CAN'T RENAME TEMP FILE - NAME.TYP`, `CAN'T SET ATTRIBUTES - NAME.TYP`: a step at the
   end of a copy failed without OODOS saying why: the old destination wasn't deleted, the finished copy couldn't be
-  given its name (it is left under its temporary name), or its attributes weren't set.
+  given its name (it is left under its temporary name, the one the message gives), or its attributes weren't set.
 - `MEDIA CHANGE - NAME.TYP`: the floppy in O: or P: was changed during the copy, the destination's or (with a
   source's name) the source's. Nothing more is written, and nothing on the new floppy is touched; the
   destination's `NAME.$$$` is left on the changed floppy, or deleted when the destination's floppy didn't change.
@@ -782,8 +782,10 @@ TWO.TXT
 - A wrong password, and other disk errors, as OODOS reports them. Copying to a drive, PIP skips a file it can't
   open and goes on with the next.
 
-A copy that fails leaves nothing behind: PIP writes to `NAME.$$$` and renames it only when it is complete. A
-`NAME.$$$` already there is taken for one an earlier copy left, and deleted first. When `NAME.$$$` is the
+A copy that fails leaves nothing behind: PIP writes to `NAME.$$$` and renames it only when it is complete. The one
+exception is a failed rename at the very end: the finished copy is kept under its temporary name, and the message
+names that file.
+A `NAME.$$$` already there is taken for one an earlier copy left, and deleted first. When `NAME.$$$` is the
 destination itself (`PIP B:X.$$$=A:X.TXT`) or one of the sources on the destination's drive and user
 (`PIP X.TXT=X.$$$`), PIP writes to `NAME.$$0` instead, or the next of `NAME.$$1` to `NAME.$$9` and `NAME.$$A` to
 `NAME.$$Z` that isn't there; a file already under one of those names is left alone.

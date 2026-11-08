@@ -1891,7 +1891,7 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   `[W]` deletes it without asking), and the temporary file renamed. A failed write (a full disk) is `DISK WRITE
   ERROR - NAME.TYP` and the temporary file deleted; a read-only drive `R/O DISK` before anything is written. A
   close, delete, rename or attribute call that fails with A = $FF and X = 0 (the BDOS silent in mode $FE) is PIP's
-  own message with the name (`DISK WRITE ERROR`, `CAN'T DELETE`, `CAN'T RENAME TEMP FILE`, `CAN'T SET ATTRIBUTES`;
+  own message with the name (`DISK WRITE ERROR`, `CAN'T DELETE`, `CAN'T RENAME TEMP FILE` with the temporary file's name, where the copy is kept, `CAN'T SET ATTRIBUTES`;
   V's open `VERIFY ERROR`), never nothing (ours, item 18).
 - **Attributes:** a file copied alone takes its source's RO, SYS and F1-F4 (and its archive bit clear, so it is
   backed up again: ours); a joined one none (ours). **Passwords:** a source's after `;` is given to the BDOS to
