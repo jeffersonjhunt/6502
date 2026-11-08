@@ -250,9 +250,19 @@ F_VERSION:      LDA     #$31
 ; 48 does (a swapped unit's dropped; a failure is not a reason to stay: the
 ; program asked to leave).
 ; The cartridge is looked at through W2, put back on the BIOS after.
+; Apple II mode needs the DMA controller too (the ROM's APPLE checks it and
+; goes to its monitor without one): looked at first, before anything is
+; written back (without DMA SDIO can't move a sector), and A = $FF, X = $FE
+; without it, so a program can tell it from no IIe ROM's X = $FF.
 F_ROM:          CMP     #2
                 BCS     @no
-                PHA
+                TAX
+                BEQ     @leave         ; the monitor: no card needed
+                LDA     DMA_ID
+                CMP     #DMA_ID_V1
+                BNE     @nodma
+                TXA
+@leave:         PHA
                 JSR     CHANGED        ; as 48: a swapped unit's drive dropped, not written
                 LDA     #0             ; every drive's
                 JSR     FLUSHD
@@ -268,6 +278,9 @@ F_ROM:          CMP     #2
                 BNE     @no            ; no IIe ROM: say so to the program, and go on
                 JMP     ROMAPPLE
 @no:            JMP     RETFF
+@nodma:         LDA     #$FF
+                LDX     #$FE
+                RTS
 
 F_DRIVE:        LDA     SCB_DISK
                 LDX     #0
