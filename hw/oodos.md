@@ -289,7 +289,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks) and the DMA controller is there (`DMA_ID` = `$81`, as the ROM checks too: 2026-11-07), else A = X = `$FF` for no IIe ROM, A = `$FF` and X = `$FE` for no DMA controller (looked at first, before anything is written back), and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
 | 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
 | 77–97 | reserved for OODOS |
 
@@ -1981,6 +1981,16 @@ owner asked for them in the CCP, with CLEAR and CLS, so leaving OODOS works on a
 (112 bytes in the CCP, APPLE2's message 59 of them). A program of the same name on a card runs only with a drive
 before it (`A:WOZMON`), as for any built-in. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes (its
 ID byte and a loop at reset), not Apple's.
+
+*As built (2026-11-07, todo 15, from the G2 review):* the ROM's APPLE needs the DMA controller as well as a IIe ROM, and
+without one it said so itself and went to its monitor, OODOS left behind. Function 75 now reads `DMA_ID` first for
+A = 1, as apple.s does, and returns A = `$FF`, X = `$FE` without it; it does so before the buffers are written back,
+since without DMA SDIO can't move a sector and each write would only wait out its time limit. A stays `$FF`, so a
+test of A still sees the failure, and X tells it from no IIe ROM (`$FF`). APPLE2 says "Apple II mode needs the DMA
+controller" for X = `$FE` (50 bytes more in the CCP, 39 of them the message; 16 in the BDOS). Those two are all
+apple.s checks before it starts; the character ROM, without one in the cartridge, it makes from the VGA font. The
+tests boot a machine without its `dma` line (OODOS gets to A>, a little slower: its card reads time out) and run
+APPLE2, and a program by GO, there.
 
 ### Clearing the screen: CLEAR and CLS ###
 
