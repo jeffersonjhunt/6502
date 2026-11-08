@@ -21,6 +21,7 @@ place of the command's output, on a line of its own, and the prompt follows.
 | `No File` | A built-in found no file to match: DIR, DIRSYS, ERASE, RENAME's old name, TYPE. | Check the name, the drive and the user number. |
 | `Media Change` | ERASE, RENAME or TYPE on O: or P: found another floppy in the drive: changed within a second of the drive's last use, or while TYPE waited at a page's end. Nothing was deleted or renamed. A program's name typed with access stamps on its drive too: it isn't run. | Wait for the drive to stop before changing a floppy; type the command again for the new disk. |
 | `SYSTEM FILE(S) EXIST` | Not an error: after DIR's list, files of the other kind matched too ([DIRSYS](04-built-in-commands.md#util-dirsys) lists them). DIRSYS says `NON-SYSTEM FILE(S) EXIST`. | |
+| `Apple II mode needs the DMA controller` | APPLE2 found no DMA controller, which Apple II mode needs. OODOS goes on. | Fit the DMA controller (module 8). |
 | `No IIe ROM in the cartridge (the emulator: Settings, ROMs)` | APPLE2 found no Apple IIe ROM in the cartridge. OODOS goes on. | In the emulator, choose a IIe ROM in Settings, ROMs. |
 | `Press a key for more` | Not an error: the screen is full. Any key goes on; ^C stops the command. [SETDEF](05-utilities.md#util-setdef)'s `[NO PAGE]` turns the stops off. | |
 

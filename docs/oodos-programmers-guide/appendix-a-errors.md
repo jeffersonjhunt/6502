@@ -97,7 +97,7 @@ says. The last column is the physical errors the function can raise.
 | 50 `S_BIOS` | the BIOS's A and X; `$FFFF` for BOOT or a function past XMOVE | — |
 | 53–57 `MC_MAX`–`MC_FREE` | 0; `$FF` with X 0: no memory, or a base or length refused | — |
 | 74 `O_MOUNT` | 0; `$FF` with X: 1 the card or a write-back failed, 4 not B:–G:, `$10` the path refused, `$11` not found, `$12` the image's size, `$13` another drive's file. Whatever the error mode | — |
-| 75 `O_ROM` | doesn't return; `$FFFF` no Apple II ROM, or A not 0 or 1 | — |
+| 75 `O_ROM` | doesn't return; `$FF` with X: `$FF` no Apple II ROM, or A not 0 or 1; `$FE` no DMA controller, for Apple II mode | — |
 | 76 `O_SECTOR` | 0; 1 the sector's error, or past the disk; 2 write-protected; `$FF` not an Apple disk. Whatever the error mode | — |
 | 99 `F_TRUNCATE` | 0; `$FF` not found, or not a record the file has; 10 the disk changed (O:, P:) | 1, 2, 3, 4, 7, 9 |
 | 100 `DRV_SETLABEL` | 0; `$FF` stamps asked for without SFCBs, or no free entry; 10 the disk changed (O:, P:) | 1, 2, 4, 7 |

@@ -605,8 +605,8 @@ Ours: CP/M 3 has no such command. A program of the name runs only with a drive b
 <a id="util-apple2"></a>
 ### APPLE2: restart in Apple II mode
 
-APPLE2 restarts the machine in Apple II mode, as a IIe starts at power-on, if the cartridge holds a IIe ROM. It
-doesn't come back; only a reset ends Apple II mode. Changed data is written to the card first, but a file a program
+APPLE2 restarts the machine in Apple II mode, as a IIe starts at power-on, if the cartridge holds a IIe ROM and
+the DMA controller is fitted. It doesn't come back; only a reset ends Apple II mode. Changed data is written to the card first, but a file a program
 left open isn't closed.
 
 #### Forms
@@ -625,6 +625,8 @@ The Apple IIe's start.
 
 #### Errors
 
+- `Apple II mode needs the DMA controller`: the machine has no DMA controller, which Apple II mode needs. Nothing
+  is written to the card, and OODOS goes on.
 - `No IIe ROM in the cartridge (the emulator: Settings, ROMs)`: OODOS goes on.
 
 #### Since
