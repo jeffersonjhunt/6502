@@ -57,6 +57,7 @@
 .import EVON, EVBLK, MS, CLOCKS, UCARD, HK, DHON, CALLHOOK, HOOKADDR, SETHOOK ; irq.s's
 .import QEV, EVK, EVC, EVV             ; input.s's
 .export F_SOUND, R61, SIENSET, SCLAIM, SIEN, C2ON
+.import VBWORK, VBQUIET                ; video.s's
 
 CHUNK           = 4096                 ; channel 2's piece: 4,096 cycles at most with the CPU held
 SC_ALL          = SC_6510 | SC_STREAM | SC_DOC
@@ -98,7 +99,9 @@ LDLEN:          .res    3              ; DMALOAD's bytes left (17 bits)
 ; irq.s's CALL61 (W2 on this block): routine X (sys.inc's R61_*).
 R61:            JMP     (R61TAB,X)
 R61TAB:         .word   SNDIRQ, SFIELDS, SNDQUIET, SNDINIT
+                .word   VBWORK, VBQUIET ; video.s's (L4)
 .assert R61_IRQ = 0 && R61_FRAME = 2 && R61_QUIET = 4 && R61_INIT = 6, error, "R61TAB is in sys.inc's R61_* order"
+.assert R61_VB = 8 && R61_WARM = 10, error, "R61TAB's video entries are sys.inc's R61_VB, R61_WARM"
 
 BUFBIT:         .byte   $01, $02
 
@@ -801,7 +804,8 @@ SN_INFOX:       LDX     PX
 
 ; +1 the parts: refused if one isn't on this machine, or is held. The
 ; 6510's mailbox emptied first (a byte left from before isn't the program's);
-; the stream's state afresh.
+; the stream's state afresh, and with a layout-2 area the area's sound part
+; written at once (L4's review of L3: not left for the next frame).
 SN_CLAIMX:      BLOCK
                 JSR     PGET
                 AND     #SC_ALL
@@ -829,6 +833,7 @@ SN_CLAIMX:      BLOCK
                 LDA     SOUND_MBIN     ; emptied
 @set:           LDA     T0
                 TSB     SCLAIM
+                JSR     SFIELDS        ; the area's sound part at once, as the stream's start makes it (L4)
                 PLP
                 JSR     SIENSET
                 JMP     SN00

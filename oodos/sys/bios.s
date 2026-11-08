@@ -109,7 +109,7 @@
 .export CONST, CONIN, CONOUT, LIST, AUXOUT, AUXIN, HOME, SELDSK, SETTRK, SETSEC
 .export SETDMA, READ, WRITE, LISTST, SECTRN, CONOST, AUXIST, AUXOST, DEVTBL, DEVINI
 .export DRVTBL, MULTIO, FLUSH, MOVE, TIME, SELMEM, SETBNK, XMOVE
-.export BINIT, MFORMAT, DAYS2DATE, DMAGO, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
+.export BINIT, MFORMAT, DAYS2DATE, DMAGO, RDRUN, DRVRO, DRVCHG, SDMNT, UNITSAV, MEDIA, FORGET, FORGETD, VOUCH
 .export RAWF, DRVAPL, MNTGEN           ; the BDOS's function 76 (6d)
 .exportzp TMP, SPTR                    ; disk2.s's too
 .import D2INIT, D2START, D2STOP, D2TRACK, D2WSEC, D2MEDIA, D2FS, D2GOTF, D2BLK, D2LAST, SPIN
@@ -184,6 +184,7 @@ TESC:           .res    1              ; TTYOUT: 0, 1 after ESC, 2 after ESC Y, 
 TROW:           .res    1              ; ESC Y's row, from 0
 DLEFT:          .res    2              ; DMAGO's bytes still to copy, less 1
 DSAVE:          .res    4              ; and SRCP's and DSTP's +1-2 as it was given them
+SDN:            .res    1              ; SDIO's sectors: 1, or RDRUN's count (L4)
 
 .segment "BIOS"
 
@@ -891,7 +892,9 @@ CROSSES:        LDA     DMAADR + 1
 ; then the card is reset, its units staying mounted. A command that ends
 ; without its 512 bytes all moved (channel 0 short of its terminal count) is
 ; an error too.
-SDIO:           JSR     CARDOK
+SDIO:           LDA     #1             ; one sector
+SDION:          STA     SDN            ; A sectors (1-8: function 83's RDRUN)
+                JSR     CARDOK
                 BCC     @card
                 LDA     #1
                 RTS
@@ -909,7 +912,8 @@ SDIO:           JSR     CARDOK
                 DEX
                 BPL     @addr
                 STZ     DMA0_COUNT
-                LDA     #>512
+                LDA     SDN            ; 512 bytes a sector
+                ASL     A
                 STA     DMA0_COUNT + 1
                 LDA     DOP
                 AND     #1             ; DOP's bit 0: the direction
@@ -932,7 +936,7 @@ SDIO:           JSR     CARDOK
                 DEX
                 BPL     @lba
                 STZ     SD_LBA + 3
-                LDA     #1
+                LDA     SDN
                 STA     SD_COUNT
                 STZ     SD_COUNT + 1
                 LDA     #SD_CTRL_DMA
@@ -972,6 +976,41 @@ SDEND:          LDA     DMA_STATUS     ; channel 0's terminal count, in bit 0
                 RTS
 
 SDCMDS:         .byte   SD_READ, SD_WRITE, SD_UNMOUNT, SD_MOUNT ; by DOP
+
+; Function 83's DM_LOAD (bdosfile.s's LOADGO): A sectors, 1-8, of the
+; selected drive (CURDRV: an SD unit of OODOS's own formats, or M:) from
+; its sector BW1 (16 bits) straight to physical memory at SRCP. An SD unit
+; by one READ of A sectors on channel 0 (at most 4 KB, the CPU held a
+; cycle a byte: under a tick); M: by DMAGO from banks C-D. A = 0, or 1 an
+; error, as SDIO.
+RDRUN:          LDX     BW1
+                STX     LBA
+                LDX     BW1 + 1
+                STX     LBA + 1
+                STZ     LBA + 2
+                STZ     DOP
+                LDX     CURDRV
+                CPX     #DRV_M
+                BEQ     @m
+                JMP     SDION
+@m:             STA     DCOUNT + 1     ; A x 512 bytes
+                ASL     DCOUNT + 1
+                STZ     DCOUNT
+                LDX     #2
+@dst:           LDA     SRCP,X
+                STA     DSTP,X
+                DEX
+                BPL     @dst
+                STZ     SRCP           ; $C0000 + the sector x 512
+                LDA     LBA
+                ASL     A
+                STA     SRCP + 1
+                LDA     #^MDISK_BASE
+                ADC     LBA + 1        ; (its carry: M:'s sectors are 0-255)
+                STA     SRCP + 2
+                JSR     DMAGO
+                LDA     #0
+                RTS
 
 ; The card's MOUNT of SECBUF's sector (A = DOP_MOUNT), or UNMOUNT of unit X
 ; + 1 (A = DOP_UNMOUNT), for the BDOS's function 74, which calls it

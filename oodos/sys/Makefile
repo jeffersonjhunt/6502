@@ -15,7 +15,7 @@
 
 BUILD    ?= build
 PYTHON   = python3 -I
-SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios disk2 crt cold ccp loader irq input sound
+SYSOBJS  = common bdos bdosfile bdosdisk bdosxtra bdossys bdosmem bios disk2 crt cold ccp loader irq input sound video
 PROGRAMS = hello args biostest stubtest fartest timetest irqtest vt52test linetest wptest banktest holetest memtest \
            fstest dirtest errtest stamptest logintest ruletest xtratest systest writeoo1 cmdtest uttest \
            rsxq ovlt iotest l1test l2test l3test l3strm

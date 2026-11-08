@@ -122,12 +122,12 @@ WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
 ; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
-; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3), X = a bit for each
+; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3, 4 from L4), X = a bit for each
 ; service area. An OODOS without them answers 80 with A = X = $FF.
 OA_FRAME        = $01                  ;   80, frame and timing
 OA_INPUT        = $02                  ;   81, input (L2)
 OA_SOUND        = $04                  ;   82, sound (L3)
-OA_DMA          = $08                  ;   83, DMA and loading (not yet)
+OA_DMA          = $08                  ;   83, DMA and loading (L4)
 OA_VIDEO        = $10                  ;   84, video memory (not yet)
 
 ; Function 80's operations. X = 0: A is the operation, with no block. Else
@@ -153,7 +153,9 @@ EV_CLOCKS       = 1                    ; FC_* as at the open
 EV_SIZE         = 2                    ; the size it was opened with (0: 256)
 EV_MS           = 4                    ; the millisecond counter, 4 bytes, low first
 EV_FRAMES       = 8                    ; the frame counter, 4 bytes
-EV_LEN          = 16                   ; layout 1's size: +3 and +12-15 reserved, 0
+EV_VBGO         = 12                   ; the vertical-blank copies' go bits (L4): bit n starts slot n
+                                       ;   (set it with TSB; OODOS clears it when the copy is done)
+EV_LEN          = 16                   ; layout 1's size: +3 and +13-15 reserved, 0
 EV_LAYOUT1      = 1
 ; Layout 2 (L2): input. Reserved bytes are 0.
 EV_QHEAD        = 16                   ; the queue: the next slot OODOS writes (OODOS's)
@@ -262,6 +264,34 @@ SC_6510         = $01                  ; the parts: the 6510 and the SIDs,
 SC_STREAM       = $02                  ;   the PCM stream (revision 2),
 SC_DOC          = $04                  ;   the ES5503 (revision 2)
 
+; Function 83's operations (L4, DMA and loading), as 80's: X = 0, A is the
+; operation; else A/X is a block, its +0 the operation. Addresses are
+; physical, 3 bytes (function 73 makes one of a CPU address). A destination
+; must be memory a DMA segment may reach (51) and not the console's video
+; memory, units 0-12 ($80000-$833FF). A = X = $FF for one that isn't, a
+; block needed and not given, or a refusal: nothing done.
+DM_INFO         = 0                    ; A = the first video unit a program may use (13), X = the slots (4);
+                                       ;   a block +1, +2 those, +3 the slots' budget in 256-byte pages (4),
+                                       ;   +4 the pointer's sprite ($FF off), +5-12 the W1 map: bit n & 7
+                                       ;   of byte n / 8 set for each block n that OOLIB may put in W1 now
+DM_LOAD         = 1                    ; block: +1-2 an open FCB, +3-5 its first record, +6-7 a count of
+                                       ;   records (1-512), +8-10 the destination: A = 0; 1 the file ended
+                                       ;   or a block was never written; else 33's error. +6-7 rewritten
+                                       ;   with the records loaded
+DM_COPY         = 2                    ; block: +1-3 the source, +4-6 the destination, +7-8 the length
+                                       ;   (0: 65,536), by DMA, in the BDOS's time
+DM_FILL         = 3                    ; block: +1 the byte, +2-4 the destination, +5-6 the length (0: 65,536)
+DM_VBSET        = 4                    ; block: +1 a slot (0-3), +2-4 the source, +5-7 the destination, +8-9
+                                       ;   the length (1-1,024, the four 1,024 at most; 0 frees it): copied at
+                                       ;   the vertical blank after the program sets the slot's EV_VBGO bit
+DM_POINTER      = 5                    ; block: +1 a sprite (0-63; $FF off), +2 and +3 the hotspot: its X and
+                                       ;   Y set from the mouse's at each vertical blank (a layout-2 area)
+DM_CONSOLE      = 6                    ; the console's screen shown again, as the warm boot shows it
+DM_OPS          = 7
+DM_UNIT0        = 13                   ; DM_INFO's A: units 0-12 are the console's (OODOS's)
+DM_SLOTS        = 4                    ; DM_INFO's X
+DM_BUDGET       = 1024                 ; the slots' bytes, all four
+
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
 P_TERMCPM       = 0
@@ -348,5 +378,6 @@ O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
 O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
 O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
 O_SOUND         = 82                   ; sound (OOLIB's third: hw/oolib.md, L3)
+O_DMA           = 83                   ; DMA and loading (OOLIB's fourth: hw/oolib.md, L4)
 
 .endif

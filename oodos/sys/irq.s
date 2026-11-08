@@ -58,6 +58,7 @@
 .import RETFF, PGET, PPUT
 .import R62, QSLOTS, L2OPEN, CMAPDEF ; input.s's
 .import R61, SIENSET, SIEN, C2ON, SCLAIM ; sound.s's
+.import VBON                           ; video.s's
 .export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, CALL61, CALLHOOK, HOOKADDR, SETHOOK
 .export HK, DHON
 .export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
@@ -369,7 +370,8 @@ HKBACK:         LDA     #SYS_BLOCK
                 STA     NB_WIN1
                 RTS
 
-; Video: a vertical blank counted, the event area written, the frame hook
+; Video: a vertical blank counted, the event area written (and, while
+; VBON, the vertical-blank copies and the pointer: L4), the frame hook
 ; called; the line and collision interrupts (OODOS enables neither) off.
 VIDSRV:         LDA     VIDEO_ISR
                 AND     VIDEO_IEN
@@ -395,7 +397,11 @@ VIDSRV:         LDA     VIDEO_ISR
 @ev:            LDA     EVON
                 BEQ     @hook
                 JSR     EVALL
-                BIT     EVON           ; a layout-2 area and the stream claimed: the sound part
+                LDA     VBON           ; the vertical-blank copies and the pointer (video.s's
+                BEQ     @snd           ; VBWORK, block 61), first: they have the blank's time
+                LDX     #R61_VB
+                JSR     CALL61
+@snd:           BIT     EVON           ; a layout-2 area and the stream claimed: the sound part
                 BPL     @hook          ; (sound.s's SFIELDS, block 61)
                 LDA     SCLAIM
                 AND     #SC_STREAM
@@ -747,7 +753,7 @@ FT_INFOX:       LDX     PX
 @ret:           LDA     #OOLIB_IFACE
                 LDX     #OOLIB_AREAS
                 RTS
-.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND, error, "L3 has frame and timing, input, and sound"
+.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND | OA_DMA, error, "L4 has frame and timing, input, sound, and DMA"
 .assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; MS and FRAMES at one moment, into SNAP.
