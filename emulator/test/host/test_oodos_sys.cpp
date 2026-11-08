@@ -199,7 +199,8 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
     bool started = false;
     // Cycles outside interrupt handling (OOLIB L1, decided by the owner 2026-11-07): OODOS's 1 kHz tick
     // may come due while the stub has interrupts off and be taken at its CLI, inside a measured span;
-    // the dispatcher's time, from its entry to the instruction it returns to, isn't the stub's cost.
+    // the interrupt's time, from its entry (its 7 cycles before the dispatcher's first) to the
+    // instruction it returns to, isn't the stub's cost.
     uint64_t irq_total = 0, irq_from = 0;
     uint16_t irq_back = 0;
     const uint16_t irq = sym("IRQ");
@@ -211,7 +212,7 @@ TEST(go_runs_hello_and_the_warm_boot_comes_back_to_the_prompt)
             const uint16_t sp = static_cast<uint16_t>(0x0100 + r.cpu->regs().s);
             irq_back = static_cast<uint16_t>(r.machine->bus().peek(static_cast<uint16_t>(sp + 2)) |
                                              r.machine->bus().peek(static_cast<uint16_t>(sp + 3)) << 8);
-            irq_from = r.cpu->cycles();
+            irq_from = r.cpu->cycles() - 7; // from the interrupt's entry, whose 7 cycles are counted by now
         }
         return r.cpu->cycles() - irq_total;
     };
