@@ -169,7 +169,10 @@ TEST(wait_for_frames_and_delay_by_milliseconds)
     const long frames = static_cast<long>(le32(w1, 4) - le32(w0, 4)), msd = static_cast<long>(le32(w1, 0) - le32(w0, 0));
     std::printf("  FT_WAIT of 30 frames: %ld frames, %ld ms\n", frames, msd);
     CHECK(frames >= 30 && frames <= 31);
-    CHECK(msd >= 480 && msd <= 520);
+    // W0 and W1 are read about 18 ms of printing apart (W0's dump and WAIT's line at 19,200 baud), and the wait
+    // ends at a vertical blank, so it may end a frame later than the frames alone say: the ms bound follows the
+    // frames counted. At least 29 whole frames, 484 ms, whatever the phase: 480 holds.
+    CHECK(msd >= 480 && msd <= static_cast<long>(static_cast<double>(frames) * 16.68 + 25));
     CHECK(field(w, "WAIT").size() == 5);
     const std::string d = r.go("l1test.com", " D");
     const long d0 = static_cast<long>(hx(field(d, "D0").substr(3, 2) + field(d, "D0").substr(0, 2)));
