@@ -29,7 +29,8 @@ namespace
     constexpr double TICK = 7159.0;                          ///< cycles a millisecond: timer 1's period
     constexpr double FRAME = 7159090.0 * 800 * 525 / 25175000; ///< cycles a frame: 640x480 at 59.94 Hz
     constexpr uint32_t HOOKS = 5 * BLOCK;                    ///< L1TEST's hook records, block 5
-    constexpr uint16_t VIA_IER = 0xC34E, VIDEO_IEN = 0xC484;
+    constexpr uint16_t VIA_IER = 0xC34E, VIDEO_IEN = 0xC484, VIA_T1LL = 0xC346, VIA_T1LH = 0xC347, VIA_ACR = 0xC34B;
+    constexpr unsigned TICK_LATCH = 7157; ///< sys.inc's: timer 1's latch, free-running
     constexpr unsigned EV_LAYOUT = 0, EV_CLOCKS = 1, EV_SIZE = 2, EV_MS = 4, EV_FRAMES = 8; ///< oodos.inc's
 
     uint32_t word32(Rig &r, uint32_t a)
@@ -234,7 +235,9 @@ static void hooks_gone(CcpRig &r)
 TEST(hooks_run_with_their_windows_while_the_bdos_waits)
 {
     // The program in FT_DELAY: each hook interrupts the BDOS, whose stack and the program's (the same
-    // page index in two blocks) the hook's stack goes under.
+    // page index in two blocks) the hook's stack goes under. The program has 100 bytes on its stack at
+    // the call, so its S is lower than the BDOS's (fresh at each call): a hook (16 bytes of its own)
+    // stacking under the BDOS's S rather than the program's would overwrite them (BAD).
     CcpRig r;
     REQUIRE(r.ok);
     Span s(r);
@@ -345,6 +348,92 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 C0")); // vertical blank and timer 1 alone
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
     s.check("through it", 2, 1);
+}
+
+TEST(a_scrolling_screen_loses_no_tick)
+{
+    // Each line at the bottom scrolls the screen, a DMA copy of 4,640 bytes during which the CPU waits
+    // (9,280 cycles, more than a tick): in one block it could cover two of timer 1's expiries and lose a
+    // tick, about one scroll in three. DMAGO copies 2 KB a block, the tick taken between.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.cmd("dir m:");
+    Span s(r);
+    const std::string o = r.go("l1test.com", " S");
+    size_t lines = 0;
+    for (size_t at = o.find("SCROLL\r\n"); at != std::string::npos; at = o.find("SCROLL\r\n", at + 1))
+        ++lines;
+    CHECK_EQ(lines, size_t{120});
+    CHECK_EQ(r.row(29), std::string("A>")); // the screen scrolled: the prompt on its last row, the warm boot's blank line
+    CHECK_EQ(r.row(28), std::string(""));
+    CHECK_EQ(r.row(27), std::string("SCROLL"));
+    s.check("120 lines scrolled", 1, 1);
+}
+
+TEST(a_stopped_timer_ends_a_delay_and_the_warm_boot_starts_it_again)
+{
+    // A program stops timer 1 (against the rules): its enable off, one-shot, another latch. FT_DELAY
+    // gives up (A = X = $FF) when the ms counter has stood still for 4 frames, rather than waiting for
+    // ever; the warm boot puts timer 1 back as cold boot had it, and the counter goes on from where it was.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::string o = r.go("l1test.com", " T");
+    CHECK_EQ(field(o, "DELAY"), std::string("FF FF"));
+    const std::vector<uint8_t> t0 = hexbytes(field(o, "T0")), t1 = hexbytes(field(o, "T1"));
+    REQUIRE(t0.size() == 8 && t1.size() == 8);
+    const long frames = static_cast<long>(le32(t1, 4) - le32(t0, 4)), msd = static_cast<long>(le32(t1, 0) - le32(t0, 0));
+    std::printf("  FT_DELAY with timer 1 stopped: %ld frames, %ld ms counted\n", frames, msd);
+    CHECK(frames >= 4 && frames <= 8); // its 4 frames, and T0's printing
+    CHECK(msd <= 20);                  // T0's line, at 19,200 baud, before the timer stopped
+    CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x40);
+    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
+    CHECK_EQ(r.machine->bus().peek(VIA_T1LL) | r.machine->bus().peek(VIA_T1LH) << 8, static_cast<int>(TICK_LATCH));
+    const uint32_t before = ms_count(r);
+    r.run(ms(50)); // timer 1 reloads from the latch at its next expiry (up to 9 ms, from $FFFF)
+    Span s(r);
+    r.run(ms(1000));
+    s.check("after the warm boot", 1, 1);
+    CHECK(ms_count(r) >= le32(t1, 0) && ms_count(r) - before >= 1000); // from where it was: not cleared
+    const std::string d = r.go("l1test.com", " D");
+    CHECK_EQ(field(d, "DELAY"), std::string("00 00")); // and a delay waits again
+}
+
+/// backplane.machine without the VIA (and the joysticks on it): the 6551 answers all of $C300-$C37F.
+static std::string no_via_machine()
+{
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+    for (const char *line : {"\nvia6522 ", "\njoyports "})
+    {
+        const size_t at = text.find(line);
+        if (at == std::string::npos)
+            return {};
+        text.erase(at + 1, text.find('\n', at + 1) - at);
+    }
+    return text;
+}
+
+TEST(without_the_via_the_6551_s_interrupt_is_turned_off_and_its_key_kept)
+{
+    // No VIA: no millisecond clock, and ID 6's interrupt is the 6551's, its registers mirrored where the
+    // VIA's would be. A program turns its receive interrupt on (against the rules) and reads a key: the
+    // dispatcher mustn't take the VIA's paths (they would write the 6551's command and status at $C34E
+    // and $C34D, and read its data at $C344 as timer 1's), but turn the interrupt off and leave the key.
+    const std::string text = no_via_machine();
+    REQUIRE(!text.empty());
+    CcpRig r({}, text);
+    REQUIRE(r.ok);
+    REQUIRE(r.phys(SYS_BLOCK_PHYS + sym("CLOCKS")) == 0x01); // the frame clock alone
+    const size_t from = start(r, "l1test.com", " R");
+    CHECK(r.calls(1)); // function 1, C_READ
+    r.type("Q");
+    CHECK(r.until("\r\nA>", ms(2000), from));
+    const std::string o = r.out.substr(from);
+    CHECK_EQ(field(o, "KEY"), std::string("51 00"));
+    CHECK(!field(o, "CMD").empty() && (hx(field(o, "CMD").substr(0, 2)) & 0x02) != 0); // off again
+    CHECK_EQ(ms_count(r), 0u);
+    const std::string d = r.cmd("dir m:"); // the serial line still both ways: echoed, answered, prompted
+    CHECK(d.find("dir m:\r\n") == 0);
+    CHECK(d.size() > 12 && d.substr(d.size() - 4) == "\r\nA>");
 }
 
 int main() { return run_all(); }
