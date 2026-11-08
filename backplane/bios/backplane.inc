@@ -28,6 +28,8 @@ NB_RTCREG       = NB + $17             ; a DS3231 register number: writing it re
 NB_RTCDATA      = NB + $18             ; ...into here; writing here writes it. Wait for BUSY clear
 NB_ID           = NB + $7F
 
+NB_IRQ_VIA      = $40                  ; IRQL bit 6, ID 6: the serial card (its VIA, or the stand-in 6551); 0 = interrupting
+NB_IRQ_VIDEO    = $02                  ; IRQH bit 1, ID 9: the video card
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
 CART_BLOCK      = 32                   ; flash block: the cartridge's first 16 KB, a IIe ROM as at $C000-$FFFF
@@ -70,6 +72,11 @@ VIA_IFR         = VIA + $0D            ; interrupt flags
 VIA_IER         = VIA + $0E            ; interrupt enables
 VIA_ORA_NH      = VIA + $0F            ; port A with no handshake
 
+VIA_ACR_T1FREE  = $40                  ; ACR: timer 1 free-running, interrupting each period, PB7 not its
+VIA_IRQ_T1      = $40                  ; IFR, IER: timer 1
+VIA_IRQ_OTHERS  = $3F                  ; IFR, IER: timer 2, CB1, CB2, the shift register, CA1, CA2
+VIA_IER_SET     = $80                  ; IER: write 1 to turn on the bits that are 1 (0: turn them off)
+
 ; DMA controller (module 8): channel 3 does the BIOS's memory-to-memory copies.
 DMA             = $C400
 DMA3_ADDR       = DMA + $30            ; source, 20 bits
@@ -99,6 +106,7 @@ DMA_MASTER      = $01                  ; CONTROL: master enable
 DMA_ID_V1       = $81
 DMA_CH3         = $08                  ; ABORT, STATUS: channel 3
 DMA_ALL         = $0F                  ; ABORT, STATUS: every channel
+DMA_MODE_IRQ    = $80                  ; MODE: interrupt at terminal count
 
 ; Video card (module 9): VGA 640x480 from banks 8-B.
 VIDEO           = $C480
@@ -134,6 +142,10 @@ VIDEO_TILE      = $02                  ; CONFIG: tiles, 8x8 at 4 bits...
 VIDEO_MAP_W64   = $20                  ; ...from a map 64 wide (32 high)
 VIDEO_ALL       = $0F                  ; CTRL: display, both layers, sprites
 VIDEO_ID_V1     = $91
+VIDEO_IRQ_VBLANK = $01                 ; IEN, ISR: vertical blank
+VIDEO_IRQ_LINE  = $02                  ; IEN, ISR: the scan line LINE
+VIDEO_IRQ_COLLIDE = $04                ; IEN, ISR: sprite collision
+VIDEO_IRQ_ALL   = $07
 VIDEO_SPLASH_ON = $01                  ; SPLASH: play it (clears itself at the end)
 
 ; Zero page and low RAM, and who has them:
