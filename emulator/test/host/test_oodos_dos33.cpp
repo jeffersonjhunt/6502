@@ -732,18 +732,30 @@ TEST(the_cp_m_file_can_t_be_on_the_apple_disk)
 
 TEST(a_drive_set_read_only_refuses_a_write_and_stays_so)
 {
-    // 76 honours a read-only drive (SET [RO], 28): a PUT refused as write-protected, the drive still
-    // read-only after, so a second PUT is refused too, and the disk unchanged (the review's F7).
+    // Changed for todo item 16 (the owner's choice, 2026-11-07): a DOS 3.3 disk is no longer a CP/M
+    // drive, so SET [RO] (28), which logs the drive in, says Invalid Drive and makes nothing read-only;
+    // DOS33's PUT then goes in. A DOS 3.3 disk is write-protected by mounting its unit read-only: a PUT
+    // refused as write-protected, a second refused too, and the disk unchanged. (Was the review's F7:
+    // SET [RO] then two refused PUTs; 76's read-only check is still there, for a logged-in drive.)
     Dd r({{0, "NOTE    TXT", text("X\n")}});
     REQUIRE(r.ok);
     r.put_util("set", UTILS);
     const std::vector<uint8_t> img = image({});
     r.put_disk(img);
-    has(r.c("set c: [ro]"), "Read Only");
+    has(r.c("set c: [ro]"), "Invalid Drive");
     has(r.c("dos33 c:"), "496 sectors free");
-    has(r.c("dos33 put m:note.txt c:NOTE"), "Disk write-protected.");
-    has(r.c("dos33 put m:note.txt c:NOTE"), "Disk write-protected.");
-    CHECK(r.unit_image() == img);
+    quiet(r.c("dos33 put m:note.txt c:NOTE"));
+    has(ls(r.unit_image()), " T 002 NOTE");
+    checked(r.unit_image());
+
+    Dd w({{0, "NOTE    TXT", text("X\n")}});
+    REQUIRE(w.ok);
+    const std::vector<uint8_t> card = w.unit_image();
+    REQUIRE(w.mount(UNIT, "/DISKS/DOS33.DSK", true) == 0);
+    has(w.c("dos33 c:"), " T 002 README");
+    has(w.c("dos33 put m:note.txt c:NOTE"), "Disk write-protected.");
+    has(w.c("dos33 put m:note.txt c:NOTE"), "Disk write-protected.");
+    CHECK(w.unit_image() == card);
 }
 
 TEST(text_s_zero_lone_lf_and_nul)
@@ -1190,3 +1202,100 @@ TEST(a_password_write_protected_target)
 }
 
 int main() { return run_all(); }
+
+// Todo item 16: a DOS 3.3 disk on an Apple drive isn't a CP/M drive. LOGIN finds an entry CP/M never
+// writes in what would be its directory, then a VTOC on track 17, and refuses the drive: Invalid Drive,
+// at once, and nothing of the disk's track 3 printed (main printed 64 entries of NULs, 996 bytes).
+
+namespace
+{
+    /// The refusal: Invalid Drive on `drive`, no NUL or other control byte but CR and LF.
+    void refused(const std::string &o, const std::string &drive)
+    {
+        has(o, "OODOS Error On " + drive + ": Invalid Drive");
+        size_t ctl = 0;
+        for (const unsigned char ch : o)
+            ctl += ch < 0x20 && ch != 0x0D && ch != 0x0A;
+        CHECK(ctl == 0u);
+        if (ctl)
+            std::printf("  %zu control bytes in '%s'\n", ctl, vis(o).c_str());
+    }
+}
+
+TEST(a_dos_3_3_disk_is_not_a_cp_m_drive)
+{
+    // The card's DOS33.DSK, then dos33.py's sample, on C:: DIR, DIR [FULL], C: and TYPE each refused
+    // in well under a second, the image unchanged; DOS33 then lists it and GETs from it as before.
+    Dd r;
+    REQUIRE(r.ok);
+    r.put_util("dir", UTILS);
+    const std::vector<uint8_t> card = r.unit_image();
+    for (const char *cmd : {"dir c:", "dir c: [full]", "c:", "type c:readme.txt", "dir c:"})
+    {
+        const uint64_t t0 = r.cpu->cycles();
+        const std::string o = r.c(cmd);
+        const double t = secs(r, t0);
+        std::printf("  %s: %.2f s\n", cmd, t);
+        refused(o, "C");
+        CHECK(t < 0.5);
+    }
+    CHECK(r.unit_image() == card);
+    has(r.c("dos33 c:"), " T 002 README");
+
+    const std::vector<uint8_t> img = image(sample());
+    r.put_disk(img);
+    r.c("\x03");
+    refused(r.c("dir c:"), "C");
+    has(r.c("dos33 c:"), " B 005 MY PROGRAM");
+    has(r.c("dos33 get c:\"MY PROGRAM\" m:prog.bin"), "Address $6000, 1000 bytes");
+    CHECK(m_data(r, 0, "PROG    BIN") == records(gen(1000, 3)));
+    quiet(r.c("dos33 get c:README m:readme.txt"));
+    CHECK(m_data(r, 0, "README  TXT") == README_T);
+    refused(r.c("dir c:"), "C");
+    CHECK(r.unit_image() == img);
+}
+
+TEST(a_softcard_cp_m_disk_still_lists)
+{
+    // CPM.DSK (cpmtools's apple-do, the card's) on the same unit: its files, as before the test.
+    Dd r;
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(UNIT, "/DISKS/CPM.DSK") == 0);
+    const std::string o = r.c("dir c:");
+    has(o, "README   TXT");
+    has(o, "PATTERN  BIN");
+    hasnt(o, "Invalid Drive");
+    has(r.c("type c:readme.txt"), "\r\n");
+    hasnt(r.c("type c:readme.txt"), "Invalid Drive");
+    has(r.c("dos33 c:"), "Not a DOS 3.3 disk.");
+}
+
+TEST(o_with_a_dos_3_3_floppy_is_refused)
+{
+    if (!have_prom())
+    {
+        std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
+        return;
+    }
+    // The sample in drive 1: DIR O: and TYPE refused (the first with the motor's spin-up), DOS33 lists
+    // and GETs it after, and the floppy unchanged.
+    Dd r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> img = image(sample());
+    r.insert(0, img);
+    for (const char *cmd : {"dir o:", "type o:readme.txt", "dir o:"})
+    {
+        const uint64_t t0 = r.cpu->cycles();
+        const std::string o = r.c(cmd);
+        const double t = secs(r, t0);
+        std::printf("  %s: %.2f s\n", cmd, t);
+        refused(o, "O");
+        CHECK(t < 1.5);
+    }
+    has(r.c("dos33 o:"), "*B 002 KEEP");
+    quiet(r.c("dos33 get o:README m:readme.txt"));
+    CHECK(m_data(r, 0, "README  TXT") == README_T);
+    refused(r.c("dir o:"), "O");
+    r.run(ms(1500));
+    CHECK(r.drive_image(0) == img);
+}
