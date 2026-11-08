@@ -149,7 +149,13 @@ W3 holds.
 - **Masked:** only while the BDOS's entry moves the windows and S (in and out), during the warm boot, and while the
   Disk II driver reads or writes a sector's fields, whose bits the CPU times itself. The driver adds that time to
   the millisecond counter afterwards.
-- **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU.
+- **The USB card** (IRQH bit 3), since OOLIB's L2: only while a program has an event area of layout 2 open
+  ([chapter 8](08-usb.md#under-oodos)). Its handler, and the joysticks' and paddles' sampling at the tick, are in
+  block 62, behind a switch of W3 and back; only the switch and the tick's checks are in common memory. An
+  interrupt from the card with no such area open is turned off as any other's.
+- **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 234
+  (the sticks compared), and twice a frame more (the paddles started, then read: 366 and 673). The USB card's
+  interrupt for a key is about 650.
 - **DMA:** the CPU is held through a memory-to-memory copy, and timer 1 has one flag, so OODOS's copies on channel 3
   go 2 KB at a time (4,096 cycles, under a tick): the tick due is taken between them.
 - **Leaving:** function 75's Apple II mode turns OODOS's two interrupts off first; Break and function 75's monitor

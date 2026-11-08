@@ -11,12 +11,16 @@
 ; into free stack there. It reads IRQL and IRQH and answers each card:
 ;
 ;   the VIA (ID 6)     timer 1, free-running at 1 kHz: the millisecond
-;                      counter, the event area's copy, the tick hook
+;                      counter, the event area's copy, the tick hook; with
+;                      a layout-2 area open, the sticks and the paddles
+;                      (input.s's L2TICK, when something changed or is due)
 ;   video (ID 9)       vertical blank: the frame counter, the event area,
 ;                      the frame hook
-;   anything else      a card interrupting that OODOS didn't turn on (a
-;                      program broke the rules): DEAFEN turns every such
-;                      enable off, so it can't hold /IRQ low for ever
+;   anything else      the USB card's events with a layout-2 area open
+;                      (input.s's IRQOTH); else a card interrupting that
+;                      OODOS didn't turn on (a program broke the rules):
+;                      DEAFEN turns every such enable off, so it can't hold
+;                      /IRQ low for ever
 ;
 ; It touches no BDOS state, only its own (here) and the windows, which it
 ; puts back as they were. The event area is the program's memory: W1 is put
@@ -52,8 +56,11 @@
 .import NMI
 .importzp PA, PX, PP, T0, T1, T2, T3, T4, T5 ; the BDOS's (bdos.inc), for 80
 .import RETFF, PGET, PPUT
+.import R62, QSLOTS, L2OPEN, CMAPDEF ; input.s's
 .export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME
 .export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
+.export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
+.exportzp EVP, VIAL
 .ifdef OOLIB_DEBUG
 .export FHMAX, THMAX
 .endif
@@ -90,7 +97,12 @@ FHSKIP:         .res    2              ; vertical blanks it was still running at
 THPER:          .res    2              ; the tick hook every n ms
 THCNT:          .res    2              ; ms to its next call
 HK:             .res    2 * HK_LEN     ; the hooks: the frame hook's at HF, the tick hook's at HT
-SNAP:           .res    8              ; MS and FRAMES at one moment, for function 80
+SNAP:           .res    8              ; MS and FRAMES at one moment, for function 80; 81's event
+STKA:           .res    1              ; the sticks as last sampled (ports A and B, bits 0-4), the
+STKB:           .res    1              ;   tick's to compare (a layout-2 area open)
+PADFRM:         .res    1              ; the frame counter's low byte at the paddles' last PTRIG
+PADDUE:         .res    1              ; MS's low byte when they are to be read
+UCARD:          .res    1              ; 1: a USB card (cold boot looked)
 
 PROG_LIMIT      = 24                   ; blocks below: banks 0-5, the event area's
 .ifdef OOLIB_DEBUG
@@ -176,13 +188,14 @@ DISPATCH:       LDA     NB_WIN0
                 ORA     #NB_IRQ_VIDEO
                 INC     A
                 BEQ     @out
-@deaf:          JSR     DEAF62
+@deaf:          LDX     #R62_OTHER     ; the USB card's events (a layout-2 area), or DEAFEN
+                JSR     CALL62
 @out:           PLY
                 PLA
                 STA     NB_WIN0        ; the interrupted stack page, under the same S
                 PLX
                 PLA
-                RTI
+IRQEND:         RTI                    ; (test_oodos_input times the dispatcher to here)
 
 ; The VIA (cold boot found one: VIAL): timer 1 the tick; any other flag
 ; enabled (OODOS enables none) turned off. Nothing at all (the stand-in
@@ -202,19 +215,29 @@ VIASRV:         LDA     VIA_IFR
                 RTS
 @none:          ; fall through
 
-; DEAFEN, in block 62's code window, whatever W3 has.
-DEAF62:         LDA     NB_WIN3
+; DEAFEN, in block 62's code window, whatever W3 has; CALL62, input.s's
+; R62 routine X there.
+DEAF62:         LDX     #R62_DEAF
+CALL62:         LDA     NB_WIN3
                 PHA
                 LDA     #RES_BLOCK
                 STA     NB_WIN3
-                JSR     DEAFEN
+                JSR     R62
                 PLA
                 STA     NB_WIN3
                 RTS
 
 ; A millisecond: timer 1's flag cleared, the counter on, the event area's
-; copy (its low byte, or all of it after a carry or a catch-up), the tick
-; hook if it is due.
+; copy (its low byte, or all of it after a carry or a catch-up), the sticks
+; and the paddles with a layout-2 area open, the tick hook if it is due.
+; With no area open the path is L1's, cycle for cycle (test_oodos_input's
+; tick cost); a layout-1 area's is 4 cycles shorter (W1 kept in X, not on
+; the stack). Layout 2 compares the sticks with STKA and STKB and the frame
+; and ms counters with PADFRM and PADDUE inline, and goes to block 62
+; (L2TICK) only when one differs: a stick moved, a frame began (PTRIG), or
+; the paddles are due. With no frames (no video card) PADDUE is passed
+; every 128 ms with no PTRIG sent: L2TICK is entered then, a harmless
+; no-op (PADARM clear), and puts it 128 ms on again.
 TICK:           LDA     VIA_T1CL       ; the flag cleared
                 INC     MS
                 BNE     @ev
@@ -229,17 +252,15 @@ TICK:           LDA     VIA_T1CL       ; the flag cleared
                 BEQ     @hook
                 LDA     EVDIRTY
                 BNE     @all
-                LDA     NB_WIN1
-                PHA
+                LDX     NB_WIN1
                 LDA     EVBLK
                 STA     NB_WIN1
                 LDY     #EV_MS
                 LDA     MS
                 STA     (EVP),Y
-                PLA
-                STA     NB_WIN1
-                BRA     @hook
-@all:           JSR     EVALL
+                STX     NB_WIN1
+@l2:            BIT     EVON
+                BMI     @in
 @hook:          LDA     THON
                 BEQ     @done
                 LDA     THCNT
@@ -250,6 +271,27 @@ TICK:           LDA     VIA_T1CL       ; the flag cleared
                 ORA     THCNT + 1
                 BEQ     THOOK
 @done:          RTS
+@all:           JSR     EVALL
+                BRA     @l2
+@in:            LDA     VIA_ORA_NH     ; a layout-2 area: anything to do?
+                EOR     STKA
+                AND     #$1F
+                BNE     @go
+                LDA     VIA_ORB        ; (reading port B clears CB1's and CB2's flags)
+                EOR     STKB
+                AND     #$1F
+                BNE     @go
+                LDA     FRAMES
+                EOR     PADFRM
+                BNE     @go
+                LDA     MS             ; MS - PADDUE >= 0: due (L2TICK checks a PTRIG went)
+                SEC
+                SBC     PADDUE
+                BMI     @hook
+@go:            LDX     #R62_TICK
+                JSR     CALL62
+                BRA     @hook
+.assert EVON_L2 = $80, error, "TICK tests layout 2 by EVON's bit 7"
 
 ; The tick hook, due again in THPER ms; called with interrupts off.
 THOOK:          LDA     THPER
@@ -581,8 +623,10 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 STA     VIDEO_ISR
 @done:          RTS
 
-; OODOS's own interrupts off, for leaving it (Apple II mode, function 75).
-CLKOFF:         LDA     CLOCKS
+; OODOS's own interrupts off, for leaving it (Apple II mode, function 75):
+; the clocks', and the USB card's (a layout-2 area's).
+CLKOFF:         STZ     USB_IEN
+                LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @video
                 LDA     #<~VIA_IER_SET
@@ -595,6 +639,12 @@ CLKOFF:         LDA     CLOCKS
 
 CLKINIT:        STZ     CLOCKS
                 STZ     VIAL
+                STZ     UCARD
+                LDA     USB_ID
+                CMP     #USB_ID_V1
+                BNE     @via
+                INC     UCARD
+@via:           JSR     CMAPDEF        ; the controllers as question 12 has them (the warm boot's too)
                 LDA     VIA_IER
                 BPL     @video
                 LDA     #<~VIA_IER_SET
@@ -643,7 +693,7 @@ FTJUMPS:        .word   FT_INFOX, FT_COUNTX, FT_OPENX, FT_CLOSEX, FT_WAITX, FT_D
 
 ; OOLIB's interface version in A and the service areas in X; a block gets
 ; them at +1 and +2, then the clocks that run (+3) and the event area's
-; layout (+4).
+; layout, the highest this OODOS writes (+4).
 FT_INFOX:       LDX     PX
                 BEQ     @ret
                 LDA     #OOLIB_IFACE
@@ -652,12 +702,12 @@ FT_INFOX:       LDX     PX
                 JSR     PPUT
                 LDA     CLOCKS
                 JSR     PPUT
-                LDA     #EV_LAYOUT1
+                LDA     #EV_LAYOUT2
                 JSR     PPUT
 @ret:           LDA     #OOLIB_IFACE
                 LDX     #OOLIB_AREAS
                 RTS
-.assert OOLIB_AREAS = OA_FRAME, error, "L1 has frame and timing alone"
+.assert OOLIB_AREAS = OA_FRAME | OA_INPUT, error, "L2 has frame and timing, and input"
 .assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; MS and FRAMES at one moment, into SNAP.
@@ -684,10 +734,12 @@ FT_COUNTX:      JSR     SNAPIT
                 LDX     SNAP + 1
                 RTS
 
-; The event area: +1-2 its address, +3 its size. In one window, W0-W2, on a
-; block of banks 0-5 (the program's and the memory functions'; not flash,
-; read-only, the system's, M: or video memory); EV_LEN bytes
-; at least. Filled from scratch (layout 1, the counters, the rest 0), then
+; The event area: +1-2 its address, +3 its size (0: 256). In one window,
+; W0-W2, on a block of banks 0-5 (the program's and the memory functions';
+; not flash, read-only, the system's, M: or video memory); EV_LEN bytes at
+; least: layout 1; EV_LEN2 or more: layout 2 (L2's input), its queue's
+; slots as many as fit. Filled from scratch (the layout, the counters, the
+; queue's slots, the rest 0), layout 2's input then put in by L2OPEN, then
 ; the handlers write it.
 FT_OPENX:       LDX     PX
                 BNE     @block
@@ -698,26 +750,31 @@ FT_OPENX:       LDX     PX
                 STA     T1
                 JSR     PGET
                 STA     T2
+                CMP     #0
+                BEQ     @big
                 CMP     #EV_LEN
                 BCC     @no0
-                CLC                    ; T3/T4 its last byte
+@big:           CLC                    ; T3/T4 its last byte
                 LDA     T0
                 ADC     T2
                 STA     T3
                 LDA     T1
                 ADC     #0
                 STA     T4
-                LDA     T3
+                LDA     T2
+                BNE     @last
+                INC     T4             ; 256 bytes
+@last:          LDA     T3
                 BNE     @dec
                 DEC     T4
 @dec:           DEC     T3
                 LDA     T1             ; the same window, and not W3
                 EOR     T4
                 AND     #$C0
-                BNE     @no
+                BNE     @no0
                 LDA     T1
                 CMP     #$C0
-                BCS     @no
+                BCS     @no0
                 ROL     A
                 ROL     A
                 ROL     A
@@ -725,9 +782,28 @@ FT_OPENX:       LDX     PX
                 TAX
                 LDA     ST_WIN,X
                 CMP     #PROG_LIMIT    ; banks 0-5, RAM: not the system's, M:, video memory or flash
-                BCS     @no
-                STZ     EVON           ; any area before closed
+                BCS     @no0
+                PHP                    ; any area before closed, its input first,
+                SEI                    ; with no interrupt between the two
+                STZ     USB_IEN
+                STZ     EVON
+                PLP
                 STA     EVBLK
+                STZ     QSLOTS         ; the layout in T5, the queue's slots (layout 2)
+                LDA     #EV_LAYOUT1
+                LDX     T2
+                BEQ     @two
+                CPX     #EV_LEN2
+                BCC     @one
+@two:           TXA                    ; (256 - 128 is 128, as 0 - 128 is)
+                SEC
+                SBC     #EV_QUEUE
+                LSR     A
+                LSR     A
+                LSR     A
+                STA     QSLOTS
+                LDA     #EV_LAYOUT2
+@one:           STA     T5
                 LDA     T0
                 STA     EVP
                 LDA     T1
@@ -742,8 +818,11 @@ FT_OPENX:       LDX     PX
                 LDY     #0
 @fill:          LDA     #0
                 CPY     #EV_LAYOUT
+                BNE     @slots
+                LDA     T5
+@slots:         CPY     #EV_QSLOTS
                 BNE     @1
-                LDA     #EV_LAYOUT1
+                LDA     QSLOTS         ; 0 in layout 1
 @1:             CPY     #EV_CLOCKS
                 BNE     @2
                 LDA     CLOCKS
@@ -761,13 +840,23 @@ FT_OPENX:       LDX     PX
                 BNE     @fill
                 LDA     #1
                 STA     EVDIRTY        ; the next tick writes it all, ticks meanwhile too
+                LDX     T5
+                CPX     #EV_LAYOUT2
+                BEQ     @l2
                 STA     EVON
-                LDA     #0
+                BRA     @ok
+@l2:            JSR     L2OPEN         ; layout 2's input, and EVON (input.s)
+@ok:            LDA     #0
                 TAX
                 RTS
 @no:            JMP     RETFF
+.assert EV_QUEUE = $80 && EV_LEN2 > EV_QUEUE, error, "FT_OPEN's slots: (size - 128) / 8"
 
-FT_CLOSEX:      STZ     EVON
+FT_CLOSEX:      PHP                    ; a layout-2 area's input off, then the area,
+                SEI                    ; with no interrupt between the two
+                STZ     USB_IEN
+                STZ     EVON
+                PLP
                 LDA     #0
                 TAX
                 RTS

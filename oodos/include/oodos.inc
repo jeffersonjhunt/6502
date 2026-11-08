@@ -122,10 +122,10 @@ WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
 ; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
-; A = OOLIB's interface version (1 from L1), X = a bit for each service area.
-; An OODOS without them answers 80 with A = X = $FF.
+; A = OOLIB's interface version (1 from L1, 2 from L2), X = a bit for each
+; service area. An OODOS without them answers 80 with A = X = $FF.
 OA_FRAME        = $01                  ;   80, frame and timing
-OA_INPUT        = $02                  ;   81, input (not yet)
+OA_INPUT        = $02                  ;   81, input (L2)
 OA_SOUND        = $04                  ;   82, sound (not yet)
 OA_DMA          = $08                  ;   83, DMA and loading (not yet)
 OA_VIDEO        = $10                  ;   84, video memory (not yet)
@@ -134,7 +134,7 @@ OA_VIDEO        = $10                  ;   84, video memory (not yet)
 ; A/X is a block, its +0 the operation and its parameters after.
 FT_INFO         = 0                    ; A = OOLIB's version, X = OA_*; a block gets +1 those, +3 FC_*, +4 layout
 FT_COUNT        = 1                    ; A/X = the ms counter's low word; a block gets +1-4 ms, +5-8 frames
-FT_OPEN         = 2                    ; block: +1-2 the event area, +3 its size (EV_LEN at least)
+FT_OPEN         = 2                    ; block: +1-2 the event area, +3 its size (EV_LEN at least; 0 is 256)
 FT_CLOSE        = 3                    ; the event area closed
 FT_WAIT         = 4                    ; the next frame; a block's +1 a count of frames; A/X = frames
 FT_DELAY        = 5                    ; block: +1-2 a count of milliseconds
@@ -146,14 +146,78 @@ FC_FRAME        = $01                  ; FT_INFO's A, EV_CLOCKS: the frame count
 FC_MS           = $02                  ;   the millisecond counter runs (the serial card's VIA)
 
 ; The event area (FT_OPEN): the program's memory, which OODOS's interrupt
-; handlers write. Layout 1 (L1); a later layout only adds after EV_LEN.
-EV_LAYOUT       = 0                    ; the layout OODOS writes: 1
+; handlers write. Layout 1 (L1); a later layout only adds after EV_LEN. An
+; area of EV_LEN2 bytes or more is layout 2 (L2, input), less layout 1.
+EV_LAYOUT       = 0                    ; the layout OODOS writes: 1 or 2
 EV_CLOCKS       = 1                    ; FC_* as at the open
-EV_SIZE         = 2                    ; the size it was opened with
+EV_SIZE         = 2                    ; the size it was opened with (0: 256)
 EV_MS           = 4                    ; the millisecond counter, 4 bytes, low first
 EV_FRAMES       = 8                    ; the frame counter, 4 bytes
 EV_LEN          = 16                   ; layout 1's size: +3 and +12-15 reserved, 0
 EV_LAYOUT1      = 1
+; Layout 2 (L2): input. Reserved bytes are 0.
+EV_QHEAD        = 16                   ; the queue: the next slot OODOS writes (OODOS's)
+EV_QTAIL        = 17                   ;   the next slot the program reads (the program's)
+EV_QSLOTS       = 18                   ;   its slots, 8 bytes each from EV_QUEUE; one stays empty
+EV_QLOST        = 20                   ;   events lost to a full queue, 2 bytes (the program may clear it)
+EV_MODS         = 24                   ; the modifiers held, MODS's bits (L-Ctrl, L-Shift, L-Alt, L-GUI, then right)
+EV_DEVICES      = 25                   ; what is plugged in: ED_* (the USB card's DEVICES)
+EV_MX           = 32                   ; the mouse: X, 2 bytes (relative mode: movement summed, wrapping)
+EV_MY           = 34                   ;   Y, 2 bytes
+EV_MBUTTONS     = 36                   ;   its buttons, bits 0-4
+EV_MWHEEL       = 37                   ;   the wheel's steps, signed, summed until the program clears it
+EV_CTL          = 40                   ; four controllers, EC_LEN bytes each: controller 1 first
+EV_PADDLES      = 56                   ; the game port's four paddles, 0-255
+EV_KEYS         = 64                   ; the keys held: 32 bytes, bit (usage AND 7) of byte usage / 8
+EV_SOUND        = 96                   ; 32 bytes reserved for L3's sound
+EV_QUEUE        = 128                  ; the queue's slots
+EV_LEN2         = EV_QUEUE + 16        ; layout 2's least size: two slots (EQ_LEN each), one event waiting
+EV_LAYOUT2      = 2
+EC_BITS         = 0                    ; a controller: CB_* now
+EC_X            = 1                    ;   X and Y, 0-255 (a digital stick: 0, 128 or 255)
+EC_Y            = 2
+EC_HW           = 3                    ;   which hardware it is: CH_*
+EC_LEN          = 4
+CB_UP           = $01                  ; a controller's bits: the directions,
+CB_DOWN         = $02
+CB_LEFT         = $04
+CB_RIGHT        = $08
+CB_FIRE         = $10                  ;   fire buttons from bit 4 (the game port's three: bits 4-6)
+CH_STICK1       = 1                    ; the hardware: the DE-9 on the VIA's port A,
+CH_STICK2       = 2                    ;   the DE-9 on port B,
+CH_GAMEPORT     = 3                    ;   the USB card's game port (paddles 0 and 1 as X and Y),
+CH_GAMEPAD      = 4                    ;   a USB gamepad (reserved: nothing plugged in reads 0, X and Y 128)
+GP_LOW          = 64                   ; the game port's directions: a paddle below 64 is up or left,
+GP_HIGH         = 192                  ;   192 or more down or right
+ED_KEYBOARD     = $01                  ; EV_DEVICES
+ED_MOUSE        = $02
+ED_GAMEPAD      = $04
+; An event in the queue: EQ_LEN bytes.
+EQ_KIND         = 0                    ; EK_*
+EQ_CODE         = 1                    ; the key's HID usage, the button (0-4), the controller (1-4); else 0
+EQ_VALUE        = 2                    ; 1 pressed, 0 released; a controller's new CB_* bits; the wheel's
+                                       ; steps (signed); the devices now (ED_*)
+EQ_MODS         = 3                    ; the modifiers held then
+EQ_MS           = 4                    ; the millisecond counter then, 4 bytes
+EQ_LEN          = 8
+EK_KEY          = 1                    ; a key pressed or released
+EK_BUTTON       = 2                    ; a mouse button
+EK_WHEEL        = 3                    ; the mouse's wheel
+EK_CTL          = 4                    ; a controller's bits changed
+EK_DEVICE       = 5                    ; a device plugged in or out
+
+; Function 81's operations (L2, input), as 80's: X = 0, A is the operation;
+; else A/X is a block, its +0 the operation. A = X = $FF for one that isn't,
+; a block needed and not given, or what it can't do (no USB card).
+IN_INFO         = 0                    ; A = ED_* plugged in, X = the layout L2 writes (2); a block +1, +2 those
+IN_FLUSH        = 1                    ; the queue emptied (its tail put at the head), its lost count 0
+IN_MAP          = 2                    ; block: +1-4 get the hardware (CH_*) of controllers 1-4
+IN_SWAP         = 3                    ; block: +1, +2 two controllers (1-4) whose hardware is swapped
+IN_MOUSE        = 4                    ; block: +1 the mode (0 relative, 1 absolute), +2-3 X's limit, +4-5 Y's
+IN_LEDS         = 5                    ; block: +1 the keyboard's LEDs (bit 0 Num, 1 Caps, 2 Scroll Lock)
+IN_REPEAT       = 6                    ; block: +1 the console's key repeat: bits 0-3 rate, 4-5 delay (REPEAT)
+IN_NEXT         = 7                    ; block: +1-8 get the next event, taken; A = its kind, 0 if none waits
+IN_OPS          = 8
 
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
@@ -239,5 +303,6 @@ O_MOUNT         = 74
 O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its monitor, 1 Apple II mode
 O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
 O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
+O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
 
 .endif

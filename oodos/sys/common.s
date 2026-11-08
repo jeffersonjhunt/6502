@@ -41,7 +41,8 @@
 .import RAWF                           ; bios.s's, function 76's
 .import RSEEN                          ; bdosmem.s's, function 76's
 .import DMASEG, AMAP
-.import IRQ, DEAFEN, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
+.import IRQ, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
+.import WBQUIET                         ; input.s's
 .ifdef OOLIB_DEBUG
 .import FHMAX, THMAX
 .endif
@@ -227,8 +228,9 @@ STUBRET:        SEI                    ; off again till the program's P is back
 ; The warm boot: from $0200, function 0 and the BIOS's WBOOT, in any window
 ; state. The BIOS's banks back to 0 and no XMOVE pending, the BDOS's DMA
 ; segment none and its memory blocks free (phase 3c), the hooks and the
-; event area gone and every interrupt but OODOS's own off (L1), so nothing a
-; program set reaches the next; then the program's windows (blocks 0-2, 62),
+; event area gone and every interrupt but OODOS's own off (L1), the USB
+; card's mouse, LEDs, repeat and the controller map as cold boot set them
+; (L2), so nothing a program set reaches the next; then the program's windows (blocks 0-2, 62),
 ; VEC on 62, a fresh stack, D clear, and the CCP, with interrupts on (timer
 ; 1 and vertical blank ran on throughout: the clocks lose nothing).
 WARM:           SEI
@@ -264,7 +266,8 @@ WARM:           SEI
                 STZ     THMAX
                 STZ     THMAX + 1
 .endif
-                JSR     DEAFEN         ; what the program turned on, off
+                JSR     WBQUIET        ; what the program turned on, off (DEAFEN), and the USB
+                                       ; card's mouse, LEDs and repeat as cold boot had them
                 STZ     NB_WIN0
                 LDA     #1
                 STA     NB_WIN1

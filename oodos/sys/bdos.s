@@ -62,6 +62,7 @@
 .include "bdos.inc"
 .import WARM, FARCALL, NMI, ROMAPPLE, WBF
 .import F_FRAME                        ; irq.s's
+.import F_INPUT                        ; input.s's
 .import VOUCH                          ; bios.s's: O: or P: + 1 checked in this call
 .export BDOSENT
 
@@ -212,7 +213,7 @@ FJUMPS:
                 .word   F_MCALLOC, F_MCABSALL, F_MCFREE, F_MCALLFREE
                 .word   F_PHYS, F_MOUNT, F_ROM, F_TESTW ; 150: 41
                 .word   F_SECT ; 152: 76 (6d)
-                .word   F_FRAME ; 154: 80 (L1)
+                .word   F_FRAME, F_INPUT ; 154: 80 (L1), 81 (L2)
 FIDX:
                 .byte   0, 2, 4, 88, 90, 92, 6, 94, 96, 8 ; 0-9
                 .byte   10, 12, 14, 16, 18, 20, 22, 24, 26, 28 ; 10-19
@@ -222,7 +223,7 @@ FIDX:
                 .byte   76, 128, 130, 132, 134, 136, 138, 140, 142, $FF ; 50-59
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 60-69
                 .byte   $FF, $FF, 78, 144, 146, 148, 152, $FF, $FF, $FF ; 70-79
-                .byte   154, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89: 80 (L1)
+                .byte   154, 156, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF ; 80-89: 80 (L1), 81 (L2)
                 .byte   $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, 80, 82 ; 90-99
                 .byte   118, 120, 122, 124, 84, 86 ; 100-105
                 .byte   126, 102, 104, 106, 108, 110, 112 ; 106-112

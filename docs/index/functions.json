@@ -594,6 +594,15 @@
   "status": "built"
  },
  {
+  "number": 81,
+  "name": "O_INPUT",
+  "documented": true,
+  "anchor": "bdos-81",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.4",
+  "status": "built"
+ },
+ {
   "number": 98,
   "name": "DRV_FREE",
   "documented": true,

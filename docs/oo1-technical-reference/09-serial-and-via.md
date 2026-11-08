@@ -126,7 +126,9 @@ The registers are in WDC's order: the ports and their directions at `$0–$3`, t
 **Under OODOS,** the VIA's ACR, IER and IFR are OODOS's ([AGENTS.md](../../AGENTS.md)). Since OOLIB's L1 timer 1 is
 OODOS's tick: free-running at 1 kHz (ACR `$40`, a latch of 7,157), its interrupt on, from the cold boot
 ([chapter 4](04-interrupts.md#under-oodos)). Timer 2, the ports and the shift register are to be the program's,
-through OODOS: [hw/oolib.md, "The VIA is shared"](../../hw/oolib.md#the-via-is-shared).
+through OODOS: [hw/oolib.md, "The VIA is shared"](../../hw/oolib.md#the-via-is-shared). Since L2, while a program
+has an event area of layout 2 open, OODOS reads the joysticks at every tick: port A by its no-handshake register
+(`$C34F`), port B by IORB, which clears CB1's and CB2's flags as any read of it does.
 
 ### The joysticks
 

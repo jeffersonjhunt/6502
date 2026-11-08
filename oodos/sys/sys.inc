@@ -145,8 +145,15 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 1                    ; OOLIB's interface version: function 80's FT_INFO
-OOLIB_AREAS     = $01                  ; the service areas there are (FT_INFO's): frame and timing (80)
+OOLIB_IFACE     = 2                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2)
+OOLIB_AREAS     = $03                  ; the service areas there are (FT_INFO's): frame and timing (80),
+                                       ; input (81)
+EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)
+PAD_MS          = 4                    ; the paddles read this many ms after PTRIG (255 counts: 2.8 ms)
+UBATCH          = 16                   ; the USB FIFO's events taken an interrupt at most (input.s)
+R62_DEAF        = 0                    ; irq.s's CALL62: input.s's R62TAB, DEAFEN
+R62_OTHER       = 2                    ;   IRQOTH: a card's interrupt not the VIA's or the video card's
+R62_TICK        = 4                    ;   L2TICK: the sticks and the paddles
 
 ; BIOS banks (SETBNK, SELMEM, XMOVE)
 BANK_SYS        = 0                    ; the system's windows: 31, 60, 61, 62

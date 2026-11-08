@@ -134,6 +134,29 @@ Apple II mode uses the card for the IIe's keyboard, game port and speaker: the n
 addresses for them to the card, and the native block is hidden. Open Apple and Closed Apple are the left and right
 GUI or Alt keys, on buttons 0 and 1. [Chapter 13](13-apple-ii-mode.md) has the addresses.
 
+### Under OODOS
+
+Status: **built**
+
+OODOS's console reads KEY. Since OOLIB's L2 ([hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan)) OODOS also
+takes the rest of the card for a program that opens an event area of layout 2
+([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#input)), and only while it is open:
+
+- **IEN** all four (`$0F`), and the card's interrupt on IRQH bit 3 is OODOS's dispatcher's. Its handler clears
+  ISR's MOUSE, GAME and DEVICE bits before it reads what they flag, and KEY's only when it finds the FIFO empty
+  (and then looks again), taking 16 events an interrupt at most: while events wait, the bit, and /IRQ, stay set
+  for the next. The open empties the FIFO first.
+- **The mouse:** MX's low byte read once each interrupt (a second read would latch again, losing the wheel's
+  steps); MCTRL, MAXX and MAXY are function 81's.
+- **The game port:** PTRIG at the first tick of each frame, the paddles read at the first tick 4 ms or more
+  later (255 counts are 2.8 ms). It needs the video card's frames and the VIA's ticks: without either, the
+  paddles are read once, at the open, and not again.
+- **LEDS and REPEAT** are function 81's.
+
+The warm boot puts IEN to `$00`, MCTRL to relative, MAXX and MAXY to 639 and 479, LEDS to `$00`, REPEAT to `$10`
+and KBCFG to `$80`, as the cold boot sets them. A program that reads the FIFO itself while an area of layout 2 is
+open shares it with OODOS, each getting what the other hasn't taken.
+
 ### Proposed
 
 Status: **proposed**
@@ -879,7 +902,8 @@ R/W. Bits 4–7 aren't kept.
 
 #### Reset
 
-`$00`, at any reset. The BIOS never sets it; QUIET and OODOS's BIOS write `$00`.
+`$00`, at any reset. The BIOS never sets it; QUIET and OODOS's BIOS write `$00`. OODOS writes `$0F` while an event
+area of layout 2 is open, and `$00` when it closes and at the warm boot ([Under OODOS](#under-oodos)).
 
 #### Status
 

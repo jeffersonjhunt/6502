@@ -3,8 +3,8 @@
 ; tail's first letter (the second for H), a line a result. "aa xx" is A and
 ; X as the BDOS returned them.
 ;
-;   I   INFO aa xx (80's FT_INFO, no block: OOLIB 01, areas 01); INFOB and its
-;       block's 4 bytes (01 01, the clocks 03, layout 01); VER and 12 bytes of
+;   I   INFO aa xx (80's FT_INFO, no block: OOLIB 02, areas 03); INFOB and its
+;       block's 4 bytes (02 03, the clocks 03, layout 02); VER and 12 bytes of
 ;       a buffer of $EE that 72 fills (its 10, then EE EE)
 ;   A   the event area's refusals, each R? aa: R1 15 bytes, R2 across $4000,
 ;       R3 in the I/O hole, R4 in W3, R5 no block, R6 W1 on the system block;

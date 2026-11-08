@@ -3025,9 +3025,10 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (1), X = a bit for each service area OODOS has (`OA_FRAME`, `$01`:
-  this function). With a block: +1 and +2 the same, +3 the clocks that run (`FC_FRAME` `$01` the frame counter, a
-  video card; `FC_MS` `$02` the millisecond counter, the serial card's VIA), +4 the event area's layout (1).
+- `FT_INFO`: A = OOLIB's interface version (2: 1 was L1's), X = a bit for each service area OODOS has (`OA_FRAME`,
+  `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81)). With a block: +1 and +2 the same, +3 the
+  clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
+  serial card's VIA), +4 the highest event area layout it writes (2).
 - `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
   frame counter, each low byte first, read at one moment.
 - `FT_OPEN`, `FT_CLOSE`, `FT_DELAY`, `FT_FRAMEHOOK`, `FT_TICKHOOK`: A = 0, X = 0.
@@ -3042,7 +3043,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 A = X = `$FF`, and nothing done, for an operation past 8, one that needs a block given none, a block or a field in
 memory that isn't the program's (the I/O hole, flash), and:
 
-- `FT_OPEN`: a size under 16 (`EV_LEN`); an area that crosses a 16 KB window, is in W3 (`$C000` up), or is in a
+- `FT_OPEN`: a size under 16 (`EV_LEN`; 0 is 256); an area that crosses a 16 KB window, is in W3 (`$C000` up), or is in a
   block that isn't the program's RAM in banks 0–5 (flash, a read-only window, OODOS's own memory, M:, video memory).
 - `FT_WAIT` with no video card, `FT_DELAY` with no VIA: their clock doesn't run.
 - `FT_DELAY` when the millisecond counter stands still for 4 frames: timer 1 has stopped (a program changed it,
@@ -3057,11 +3058,15 @@ OOLIB services at all.
 
 #### Side effects
 
-- `FT_OPEN` writes the whole area first: +0 the layout (1), +1 the clocks (`FC_*`), +2 the size, +4–7 and +8–11
+- `FT_OPEN` writes the whole area first: +0 the layout, +1 the clocks (`FC_*`), +2 the size, +4–7 and +8–11
   the counters, and 0 everywhere else. From then on OODOS's interrupt handlers write the counters there, at each
   tick and each frame, through the block the area's window had at the call: a later change of the program's
-  windows doesn't move it. An area already open is closed first. [Chapter 8](08-game-services.md#the-event-area)
-  has the layout.
+  windows doesn't move it. An area already open is closed first, its input with it. [Chapter
+  8](08-game-services.md#the-event-area) has the layout.
+- An area of 144 bytes (`EV_LEN2`) or more, 0 for 256, is **layout 2**: +18 its queue's slots, and the input as it is
+  now (the modifiers, the devices, the mouse, the controllers and the paddles; no keys held, the queue empty).
+  The USB card's event FIFO is emptied, its interrupt turned on, and from then on the input is kept there
+  ([chapter 8](08-game-services.md#input)). Less is layout 1, and the USB card's interrupt stays off.
 - A hook is called with the windows the program had at the `FT_FRAMEHOOK` or `FT_TICKHOOK` call. The rules it
   must keep are [chapter 8's](08-game-services.md#hooks).
 - `FT_WAIT` and `FT_DELAY` wait in the BDOS with interrupts on, so the hooks run meanwhile.
@@ -3086,6 +3091,81 @@ OODOS 0.4
 
 OODOS's own: CP/M 3 has no function 80 (OODOS's range, 72 on). It is the first of OOLIB's service areas, one
 function each from 80 ([hw/oolib.md](../../hw/oolib.md#the-plan)).
+
+<a id="bdos-81"></a>
+### 81 O_INPUT: input
+
+#### Entry
+
+- Y = 81 (`O_INPUT`).
+- X = 0: A is the operation, and it takes no parameters.
+- X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation and the
+  operation's parameters after it, as [function 80's](#bdos-80). The operations are oodos.inc's `IN_` names:
+
+  | A or +0 | Name | The block, after +0 | What it does |
+  |---|---|---|---|
+  | 0 | `IN_INFO` | 2 bytes to fill (optional) | says what is plugged in |
+  | 1 | `IN_FLUSH` | none | empties the event queue |
+  | 2 | `IN_MAP` | 4 bytes to fill | says which hardware each controller is |
+  | 3 | `IN_SWAP` | +1 and +2 two controllers, 1–4 | swaps their hardware |
+  | 4 | `IN_MOUSE` | +1 the mode (0 relative, 1 absolute), +2–3 X's limit, +4–5 Y's | sets the mouse's mode |
+  | 5 | `IN_LEDS` | +1 bit 0 Num Lock, bit 1 Caps Lock, bit 2 Scroll Lock | sets the keyboard's lights |
+  | 6 | `IN_REPEAT` | +1 the repeat: bits 0–3 the rate, 4–5 the delay | sets the console's key repeat |
+  | 7 | `IN_NEXT` | 8 bytes to fill | takes the next event from the queue |
+
+#### Exit
+
+- `IN_INFO`: A = what is plugged in (the USB card's DEVICES: `ED_KEYBOARD` `$01`, `ED_MOUSE` `$02`, `ED_GAMEPAD`
+  `$04`; 0 with no USB card), X = the event area layout L2 writes (2). With a block: +1 and +2 the same.
+- `IN_MAP`: +1–4 controllers 1–4's hardware: `CH_STICK1` 1 (the VIA's port A), `CH_STICK2` 2 (port B),
+  `CH_GAMEPORT` 3 (the USB card's game port), `CH_GAMEPAD` 4 (a USB gamepad: not yet). A = 0, X = 0.
+- `IN_NEXT`: +1–8 the event ([chapter 8](08-game-services.md#the-queue)), taken: A = its kind (`EK_*`, 1–5), X = 0.
+  A = 0, X = 0 if none waits, and the block untouched.
+- The rest: A = 0, X = 0.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+A = X = `$FF`, and nothing done, for an operation past 7, one that needs a block given none, a block in memory that
+isn't the program's (the I/O hole, flash), and:
+
+- `IN_SWAP`: a controller that isn't 1–4.
+- `IN_MOUSE`: a mode past 1. `IN_MOUSE`, `IN_LEDS`, `IN_REPEAT`: no USB card.
+- `IN_NEXT`: no event area of layout 2 open.
+
+`IN_FLUSH` with no layout-2 area open does nothing, A = 0. An OODOS before L2 answers 81 as a function it doesn't
+have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says whether there is input (`OA_INPUT`).
+
+#### Side effects
+
+- `IN_FLUSH` puts the area's tail at its head and its lost count to 0.
+- `IN_SWAP` writes the two controllers in the area again at once; the next events from each hardware carry its new
+  controller's number.
+- `IN_MOUSE` writes the card's MCTRL and its limits, and starts the area's X and Y afresh: absolute mode's position
+  (within the new limits), or relative mode's 0.
+- `IN_NEXT` moves the area's tail on.
+- `IN_LEDS` and `IN_REPEAT` write the card's LEDS and REPEAT. Raw events never repeat; the repeat is the cooked
+  keys', the console's. The card has no repeat off: its slowest is `$3F`, 1 s and then two a second.
+- The warm boot puts it all back as the cold boot set it: the controllers 1 to 4 in order, the mouse relative with
+  limits 639 and 479, the LEDs off, the repeat `$10`; it turns the USB card's interrupt off and closes the area.
+
+#### Cycles
+
+Not measured. What input costs while an area of layout 2 is open, the call or not, is
+[chapter 8's](08-game-services.md#what-input-costs).
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's second service area
+([hw/oolib.md](../../hw/oolib.md#the-plan)).
 
 <a id="bdos-98"></a>
 ### 98 DRV_FREE: free blocks not closed
