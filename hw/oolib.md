@@ -478,8 +478,9 @@ something open it was decided as below, each with its reason; the first two are 
   area **145 cycles, L1's to the cycle** (159 at MS's carry, as L1's), every program's; a layout-1 area's 184, 4
   fewer than L1's 188 (W1 kept in X, not on the stack); a layout-2 area's 234 (1.2% of the CPU more than none),
   and per frame one tick of 366 (PTRIG) and one of 673 (the paddles read, controller 3 written). The USB card's
-  interrupt for a key is 651 cycles; a burst is taken 16 events an interrupt at most (`UBATCH`, about 2,000
-  cycles, under a tick): KEY's flag is cleared only when the FIFO is seen empty, and looked at again after, so
+  interrupt for a key is 651 cycles; a burst is taken 16 events an interrupt at most (`UBATCH`: a pass of 16
+  measures 3,000–3,400 cycles, about 5,000 when a tick shares it, under a tick's 7,159; the test holds every pass
+  under 7,159): KEY's flag is cleared only when the FIFO is seen empty, and looked at again after, so
   while events wait /IRQ stays low and the next interrupt takes the rest, the tick due first.
 - **The event's fields:** a key's and a button's value 1 pressed, 0 let go; a controller's its new bits; the
   wheel's the steps that interrupt latched (signed), its code 0; a device's the new DEVICES, code 0. The modifiers
@@ -510,7 +511,9 @@ something open it was decided as below, each with its reason; the first two are 
 - **Function 81's results are read before the mask is given back** (review, 2026-11-08): QTAKE's result was in
   `UTMP`, which the handlers use as scratch, and was read after the PLP, so an interrupt there could lose an event
   or make an old `SNAP` one. `AREAOUT` now loads it into Y while masked. Only $E0–$E7 are modifiers; $E8–$FF are
-  keys. `FT_OPEN` and `FT_CLOSE` turn USB_IEN off before EVON. `UBATCH` is at most 127 (its count runs on `BMI`).
+  keys. `FT_OPEN` and `FT_CLOSE` turn USB_IEN off before EVON. `UBATCH` is at most 128 (its count runs down to `BMI`); `PAD_MS` 1–127 (the due test is signed).
+  `FT_OPEN` and `FT_CLOSE` clear USB_IEN and EVON masked, as a pair (second review). Without frames the paddles are
+  read once, at the open.
 - **OO-Amp's own FIFO reads** (question 5): documented, chapter 8 and the Technical Reference's chapter 8.
 - **Tests** (emulator, fast preset): `test_oodos_input` (15 cases, 2.6 s: a 256-byte area from typed keys, each
   event's fields and times, `IN_NEXT`, a press and release 3 ms apart, the modifiers, `IN_FLUSH`; a 4-slot queue

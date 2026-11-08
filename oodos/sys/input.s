@@ -22,9 +22,12 @@
 ;                   game port's buttons; a device plugged in or out
 ;   the sticks      sampled at each tick (irq.s compares the ports inline,
 ;                   L2TICK when one moved): a controller event for a change
-;   the paddles     PTRIG at the first tick of each frame, read PAD_MS ticks
-;                   later (L2TICK): the paddle bytes, and controller 3's X,
-;                   Y and directions (GP_LOW, GP_HIGH)
+;   the paddles     read at the open; then PTRIG at the first tick of each
+;                   frame, and read at the first tick PAD_MS ms or more
+;                   after it, once for each PTRIG (PADARM) (L2TICK): the
+;                   paddle bytes, and controller 3's X, Y and directions
+;                   (GP_LOW, GP_HIGH). It needs the video card's frames (and
+;                   the VIA's ticks): without them, the open's read alone
 ;
 ; The queue is a ring of EV_QSLOTS slots of EQ_LEN bytes from EV_QUEUE:
 ; OODOS writes the slot at the head and then moves the head (QHEAD is its
@@ -173,8 +176,9 @@ USBSRV:         LDA     NB_WIN1
                 STA     NB_WIN1
                 RTS
 
-; The event FIFO's events, UBATCH at most (about 2,000 cycles, under a
-; tick, so no tick is lost behind them). Its flag is cleared only when the
+; The event FIFO's events, UBATCH at most (a pass of 16 measures 3,000 to
+; 3,400 cycles, about 5,000 when a tick shares it: under a tick's 7,159, so
+; no tick comes behind another and is lost). Its flag is cleared only when the
 ; FIFO is seen empty, and the FIFO looked at again after: so while events
 ; wait the flag stays set, and /IRQ with it, and the next interrupt takes
 ; the rest (a tick due meanwhile first, in the same pass).
@@ -196,7 +200,7 @@ UKEYS:          LDA     #UBATCH
                 JSR     KEYEV
                 BRA     @look
 @done:          RTS
-.assert UBATCH >= 1 && UBATCH <= 127, error, "UKEYS counts its batch down to BMI"
+.assert UBATCH >= 1 && UBATCH <= 128, error, "UKEYS counts its batch down to BMI: 128 ($80) at most"
 
 ; A key event: EVC the usage, A its flags. The keys-held map, and the
 ; modifiers if it is one ($E0-$E7 only), kept first, so the event carries the
@@ -394,6 +398,7 @@ L2TICK:         LDA     NB_WIN1
                 ADC     #PAD_MS
                 STA     PADDUE
                 BRA     @out
+.assert PAD_MS >= 1 && PAD_MS < 128, error, "the paddles' due test is MS - PADDUE >= 0, signed"
 @due:           LDA     MS             ; due once MS has reached PADDUE, by any step (the Disk
                 SEC                    ; II's catch-up moves it on more than one at a tick)
                 SBC     PADDUE

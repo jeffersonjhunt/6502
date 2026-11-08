@@ -396,6 +396,11 @@ TEST(a_full_fifo_is_taken_a_batch_at_a_time_and_loses_no_tick)
     for (const auto &[c, k] : passes.usb)
         n += k;
     CHECK(n >= 4);
+    // Each pass is masked from end to end, so a tick that expires as one starts is answered at its end (or
+    // in it): if a pass took a whole tick period, the next expiry would come with the first still flagged,
+    // and one would be lost. So every pass, a tick's work in it included, is under 7,159 cycles.
+    for (const auto &[c, k] : passes.usb)
+        CHECK(c < 7159);
     CHECK_EQ(io(r, USB + 3), 0); // EVCOUNT: the FIFO empty
     CHECK_EQ(waiting(r).size(), size_t{15});
     CHECK_EQ(area16(r, EV_QLOST), 49u);

@@ -235,7 +235,9 @@ CALL62:         LDA     NB_WIN3
 ; the stack). Layout 2 compares the sticks with STKA and STKB and the frame
 ; and ms counters with PADFRM and PADDUE inline, and goes to block 62
 ; (L2TICK) only when one differs: a stick moved, a frame began (PTRIG), or
-; the paddles are due.
+; the paddles are due. With no frames (no video card) PADDUE is passed
+; every 128 ms with no PTRIG sent: L2TICK is entered then, a harmless
+; no-op (PADARM clear), and puts it 128 ms on again.
 TICK:           LDA     VIA_T1CL       ; the flag cleared
                 INC     MS
                 BNE     @ev
@@ -781,8 +783,11 @@ FT_OPENX:       LDX     PX
                 LDA     ST_WIN,X
                 CMP     #PROG_LIMIT    ; banks 0-5, RAM: not the system's, M:, video memory or flash
                 BCS     @no0
-                STZ     USB_IEN        ; any area before closed, its input first
+                PHP                    ; any area before closed, its input first,
+                SEI                    ; with no interrupt between the two
+                STZ     USB_IEN
                 STZ     EVON
+                PLP
                 STA     EVBLK
                 STZ     QSLOTS         ; the layout in T5, the queue's slots (layout 2)
                 LDA     #EV_LAYOUT1
@@ -847,8 +852,11 @@ FT_OPENX:       LDX     PX
 @no:            JMP     RETFF
 .assert EV_QUEUE = $80 && EV_LEN2 > EV_QUEUE, error, "FT_OPEN's slots: (size - 128) / 8"
 
-FT_CLOSEX:      STZ     USB_IEN        ; a layout-2 area's input off, then the area
+FT_CLOSEX:      PHP                    ; a layout-2 area's input off, then the area,
+                SEI                    ; with no interrupt between the two
+                STZ     USB_IEN
                 STZ     EVON
+                PLP
                 LDA     #0
                 TAX
                 RTS
