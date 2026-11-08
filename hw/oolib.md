@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30). Nothing here is decided yet.** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -275,6 +275,8 @@ end:    RTS: the warm boot stops the music, the hooks, timer 2 and DMA, frees th
 ## The plan ##
 
 **Proposed (2026-11-07), for the owner.** Nothing here is built until the owner has settled the questions below.
+
+**Decided (2026-11-07, the owner):** the plan as written, and every question (1–15) as recommended. L1 first.
 Each step reads its part of the books again at its start and says here what changed, as phase 6's steps did.
 
 **What there is now (main, 9887b59)**
@@ -324,7 +326,7 @@ question 15.
 
 ## Open Questions ##
 
-**Recommended** answers are the plan's (2026-11-07); none is decided until the owner says so.
+**Recommended** answers are the plan's (2026-11-07). **Decided (2026-11-07, the owner): all fifteen as recommended.**
 
 1. **Portability.** Do these services keep CP/M's rule that a program asks what exists (versioned services, a
    program that checks), or may OO-1 programs simply assume the hardware?
