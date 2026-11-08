@@ -59,6 +59,7 @@ start:  jsr     UT_INIT
         dex
         bpl     @typ
 @song:  stz     song                    ; the song, if one follows
+        stz     song + 1
         jsr     UT_SKIP
         beq     @open
         lda     #<UT_TAIL
@@ -66,10 +67,9 @@ start:  jsr     UT_INIT
         ldy     UT_IDX
         jsr     UT_DECIN
         bcs     @inv
-        cpx     #0
-        bne     @inv
         sta     song
-        cmp     #0
+        stx     song + 1
+        ora     song + 1
         beq     @inv
 @open:  lda     #$FF                    ; CR $FF: open gives the last record's byte count
         sta     fcb + 32
@@ -167,6 +167,7 @@ start:  jsr     UT_INIT
         jsr     SID_PARSE
         bcs     err
         lda     song
+        ldx     song + 1
         jsr     SID_PLAN
         bcs     err
         jsr     SID_PLAY
@@ -175,7 +176,8 @@ start:  jsr     UT_INIT
         ldx     #>splay
         jsr     CM_PUTS
         lda     SID_SONG
-        jsr     dec8
+        ldx     SID_SONG + 1
+        jsr     dec16
         lda     #<sof
         ldx     #>sof
         jsr     CM_PUTS
@@ -223,7 +225,8 @@ err:    cmp     #SE_SONG
         ldx     #>ssong
         jsr     CM_PUTS
         lda     song
-        jsr     dec8
+        ldx     song + 1
+        jsr     dec16
         lda     #<sof
         ldx     #>sof
         jsr     CM_PUTS
@@ -241,8 +244,7 @@ failsay:
         jsr     UT_FAIL
         jmp     UT_EXIT
 
-; A in decimal; A/X in decimal.
-dec8:   ldx     #0
+; A/X in decimal.
 dec16:  sta     UT_N
         stx     UT_N + 1
         stz     UT_N + 2
@@ -311,7 +313,7 @@ e13:    .byte   "The sound card's RAM wasn't loaded.$"
 
         .bss
 fcb:    .res    36
-song:   .res    1
+song:   .res    2
 bcount: .res    1
 buf:    .res    2
 tlen:   .res    1

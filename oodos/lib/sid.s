@@ -32,7 +32,7 @@ SID_PLAYA:      .res    2              ; play's address: 0, the tune installs it
 SID_SONGS:      .res    2
 SID_START:      .res    2              ; 1-based
 SID_FLAGS:      .res    2
-SID_SONG:       .res    1              ; SID_PLAN's song, 1-based
+SID_SONG:       .res    2              ; SID_PLAN's song, 1-based (1-256)
 SID_STUB:       .res    2              ; where the stub goes
 SID_STUBLEN:    .res    1
 SID_CTRL:       .res    1              ; CTRL's bits for SN_START: NTSC, SID B at $D500, BOTH
@@ -359,15 +359,19 @@ bank:   cmp     #$A0
         rts
 
 SID_PLAN:
-        cmp     #0
+        sta     SID_SONG
+        stx     SID_SONG + 1
+        ora     SID_SONG + 1
         bne     @song
-        lda     SID_START
-@song:  sta     SID_SONG
-        ldx     SID_SONGS + 1           ; 256 songs: any byte is one
-        bne     @have
-        cmp     SID_SONGS
-        beq     @have
-        bcc     @have
+        lda     SID_START               ; 0: the file's start song
+        sta     SID_SONG
+        lda     SID_START + 1
+        sta     SID_SONG + 1
+@song:  lda     SID_SONGS               ; songs >= song
+        cmp     SID_SONG
+        lda     SID_SONGS + 1
+        sbc     SID_SONG + 1
+        bcs     @have
         lda     #SE_SONG
         sec
         rts
@@ -385,7 +389,7 @@ SID_PLAN:
         lda     #SE_VECTORS
         sec
         rts
-@plan:  ldx     SID_SONG
+@plan:  ldx     SID_SONG                ; the song less 1: 256's is 255
         dex
         stx     song0
         jsr     ciatimed                ; carry set: a CIA song
@@ -531,6 +535,9 @@ SID_PLAN:
 ; Carry set if the song (SID_SONG) is called from CIA 1's timer: the
 ; speed's bit song - 1 (bit 31 for songs past 32).
 ciatimed:
+        lda     #31                     ; 256: bit 31
+        ldx     SID_SONG + 1
+        bne     @bit
         lda     SID_SONG
         dec     a
         cmp     #31

@@ -14,10 +14,11 @@
 ;   SID_PARSE   A/X the file's bytes, SID_LEN its length (set it first):
 ;               carry clear and the SID_* fields below; carry set and A an
 ;               error (SE_*)
-;   SID_PLAN    A the song, 1-based (0: the file's start song): the stub
-;               built for it, on a page the tune leaves free; carry set and
-;               A an error. SID_SONG the song, SID_STUB the stub's page's
-;               address, SID_CTRL CTRL's bits for SN_START
+;   SID_PLAN    A/X the song, 1-based, up to 256 (0: the file's start
+;               song): the stub built for it, on a page the tune leaves free;
+;               carry set and A an error. SID_SONG the song (a word),
+;               SID_STUB the stub's page's address, SID_CTRL CTRL's bits for
+;               SN_START
 ;   SID_PLAY    the 6510 claimed (function 82), stopped, loaded and
 ;               started: carry set and A an error (SE_CLAIM: the card held,
 ;               or none; SE_LOAD: a load refused)
