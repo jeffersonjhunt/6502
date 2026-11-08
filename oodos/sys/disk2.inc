@@ -1,7 +1,8 @@
-; The Disk II card's switches in native mode, as offsets from DISK2: the
-; driver writes DISK2 + D2_x. The addresses are backplane.inc's (DISK2_x,
-; the Technical Reference's entries, chapter 10); these are taken from
-; them, so the values are said once.
+; The Disk II card's switches in native mode, as offsets from DISK2. The
+; addresses are backplane.inc's (DISK2_x, the Technical Reference's
+; entries, chapter 10), which the driver writes by name; these offsets are
+; taken from them, so the values are said once, for common.s's NMI, which
+; still writes DISK2 + D2_x.
 ;
 ; A read of an even one gives the data register, of an odd one $FF; any
 ; access works the switch, a write puts its byte on the card's bus. Only
