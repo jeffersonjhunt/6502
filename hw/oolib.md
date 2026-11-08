@@ -5,7 +5,8 @@ graphics, sound, timing and input hardware, so that every game and GW-BASIC use 
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
 are settled in the books' phase G3 ([docs/README.md](../docs/README.md#phases)), which writes the Programmer's
-Guide's chapter 8 on what is decided.
+Guide's chapter 8 on what is decided. **A plan for building it is proposed (2026-11-07)** under
+[The plan](#the-plan), with a recommendation on each question.
 
 
 ## Goals ##
@@ -30,7 +31,7 @@ Guide's chapter 8 on what is decided.
 | Area | Hardware ([design.md](design.md)) | Notes for the services |
 |---|---|---|
 | Video | VGA card `$C480`, ID 9: two layers (text, tile, bitmap 256, bitmap 512, mono) and 64 sprites; palette of 256 12-bit colours; data in banks 8–B, snooped | Base and scroll registers latch at vertical blank. Interrupts: vertical blank, a chosen scan line, sprite collision |
-| Sound | Two SIDs `$C500`, ID A, and a 6510 on the card with its own 64 KB, a one-byte mailbox each way | SID writes are ignored while the 6510 runs. `.sid` tunes play on the 6510 with no main-CPU time |
+| Sound | Two SIDs `$C500`, ID A, and a 6510 on the card with its own 64 KB, a one-byte mailbox each way. Revision 2 (ID `$A2`, BIOS 0.12): a stereo DAC fed by a 128 KB FIFO (raw PCM at 8–48 kHz, or MP3 the card decodes), a ten-band EQ, volume and a vis page; an ES5503 with 128 KB of wave RAM; DRQSEL picks what the card's DMA request feeds | SID writes are ignored while the 6510 runs. `.sid` tunes play on the 6510 with no main-CPU time; a stream plays from the FIFO with none either, as long as it's kept fed |
 | Speaker | USB card `$C5A6` (SPKR) | One bit, toggled per access |
 | Keyboard | USB card `$C580`, ID B: cooked KEY (ASCII, repeat) and a raw event FIFO (HID usage + press/release) | OODOS's console reads only KEY today |
 | Mouse | USB card `$C590`–`$C59A`: buttons, relative or absolute X/Y, wheel | Absolute mode suits a pointer sprite |
@@ -38,7 +39,7 @@ Guide's chapter 8 on what is decided.
 | Joysticks | Two digital DE-9 ports (Atari/Commodore pinout) on the serial card's W65C22S, `$C341` and `$C340` bits 0–4, 0 = pressed (proposed 2026-10-30) | One load reads a stick; no interrupt needed |
 | Timing | Vertical blank (60 Hz), the scan-line interrupt, the DS3231's 1 Hz TICK (ID D), and the W65C22S's two timers at 7.16 MHz (proposed 2026-10-30) | Timer 1 is OODOS's system tick; timer 2 is the program's |
 | DMA | Controller `$C400`, ID 8: four channels (0 storage, 1 serial, 2 USB / sound RAM, 3 general: copies and blits); memory to memory at 2 cycles a byte | OODOS's BIOS uses channels 0 and 3 today |
-| Interrupts | IRQL/IRQH at `$C688`: one bit per module ID | OODOS enables none yet (phase 2: the console is polled) |
+| Interrupts | IRQL/IRQH at `$C688`: one bit per module ID | OODOS enables none yet: its IRQ entry returns at once, and every BDOS call runs with interrupts masked (question 14) |
 
 
 ## Proposed: three layers ##
@@ -183,6 +184,16 @@ The card's 6510 can be used three ways; the services cover all three, one at a t
   a call stops the driver and hands the SIDs over.
 - **The speaker:** a beep (pitch and length), timed by OODOS.
 
+Revision 2 adds three more, each a claim of its own (question 6):
+
+- **A stream:** start a raw PCM or MP3 stream (rate, format, codec), feed it, pause, seek (FLUSH), end it (EOF), and
+  read its state, position, free space and bitrate. The program reads the file; OODOS sends each buffer to PCMDATA by
+  DMA channel 2 (DRQSEL 1), so the program never drives the channel itself. The card plays on its own clock, so
+  a slow frame costs nothing while the FIFO has data: 0.74 s of 44.1 kHz 16-bit stereo, 8 s of 128 kbps MP3.
+- **EQ, volume and the vis page:** register work with nothing to share, so OOLIB (linked), not OODOS calls.
+- **The ES5503:** load wave RAM by DMA (DRQSEL 2), set oscillators, and take its interrupts through the
+  dispatcher. It and a PCM stream exclude each other (the card's STATE `$82`); the SIDs run alongside either.
+
 ### The user port ###
 
 - The VIA's ten spare lines and four handshake lines are raw I/O for hobby hardware (an LCD, sensors, a second
@@ -261,37 +272,138 @@ end:    RTS: the warm boot stops the music, the hooks, timer 2 and DMA, frees th
   5. a demo game of ours, which tests it all together and goes on the website's card (phase 8).
 
 
+## The plan ##
+
+**Proposed (2026-11-07), for the owner.** Nothing here is built until the owner has settled the questions below.
+Each step reads its part of the books again at its start and says here what changed, as phase 6's steps did.
+
+**What there is now (main, 9887b59)**
+
+- **OODOS takes no interrupts.** Common memory's IRQ entry (`oodos/sys/common.s`) sends a BRK to the monitor and
+  returns from anything else at once. The BDOS stub sets the interrupt mask on entry and never clears it, so a
+  call runs masked from start to finish, and the Disk II driver masks them on purpose while it reads and writes
+  (`disk2.s`). Nothing enables a card's interrupt.
+- **The emulator already has what OOLIB needs:** the VIA's two timers and its flags (`via6522.cpp`); the video
+  card's vertical-blank, scan-line and collision interrupts; IRQL/IRQH; the USB card's raw event FIFO, mouse and
+  game port; the DMA controller's four channels; and sound card revision 2.
+- **Function numbers:** OODOS's own are 50–59 and 72–76; 60 is CP/M 3's RSX call; 61–71 and 77–97 are free.
+  Function 72 (O_VERSION) already reports OODOS's version.
+- **The first client is already being written:** OO-Amp, the owner's music player (a separate repo). Its
+  `oa_hal.s` does by hand, with the owner's approval, what OOLIB will do: it remaps W1, polls vertical blank, reads
+  the USB event FIFO directly, uses DMA channel 2 for the stream, and saves and restores the video registers. Its
+  calls are named after this document's services, so OOLIB can replace the file.
+
+**The steps.** Each is a branch, reviewed and merged on its own. Its tests run on the emulator through
+`oodos_rig.h`, and in the quick tier.
+
+- **L1: the dispatcher and the clocks.** The IRQ entry reads IRQL/IRQH and runs each card's handler. VIA timer 1
+  runs at 1 kHz and keeps the millisecond counter; vertical blank keeps the frame counter. The event area can be
+  opened and closed. Wait for frame, and the frame and tick hooks with question 3's rules. The BDOS runs with
+  interrupts enabled (question 14). The warm boot takes everything back: hooks, interrupts, the event area. Tests:
+  the counters against emulated time (they must not depend on host speed), a hook's budget, a disk read that
+  loses no ticks, and a ^C or Break mid-hook.
+- **L2: input.** The event queue, the keys-held map, controllers (question 12), the mouse, and the console's keys
+  during a game (question 4).
+- **L3: sound.** Claiming and releasing the card; `.sid` playback moved into OODOS; the stream service; the
+  ES5503's claim and wave RAM loads; the speaker's beep; and the warm boot stopping all of it, as BIOS QUIET does.
+  **Sound rev 2's last acceptance item lands here:** a test program streams 44.1 kHz 16-bit stereo from a file on
+  M: through the stream service, with real reads, for some seconds of emulated time, and the card counts no
+  underrun.
+- **L4: graphics, the linked library** (`oodos/lib/`, with cc65 headers): modes, the palette, tiles and maps,
+  sprites (the shadow table goes to the card by DMA at vertical blank, through L1's dispatcher), bitmaps, double
+  buffering, and handing out video memory. With it come the asset format and tools (question 8), and load to memory
+  by DMA (question 13), which is the asset loader.
+- **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
+  real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests.
+- **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
+  then needs it.
+
+**The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
+as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**
+question 15.
+
 ## Open Questions ##
+
+**Recommended** answers are the plan's (2026-11-07); none is decided until the owner says so.
 
 1. **Portability.** Do these services keep CP/M's rule that a program asks what exists (versioned services, a
    program that checks), or may OO-1 programs simply assume the hardware?
+   **Recommended:** ask once. Function 72 also returns OOLIB's interface version and a bit per service area, and
+   OOLIB's start-up checks them and says what's missing instead of crashing. The hardware itself (the cards,
+   revision 2) is a program's own check, through the cards' IDs, as the BIOS does.
 2. **Calls into OODOS.** New function numbers one per service (75 on, as 72–74), or one function with a service
    number and a parameter block (as 50 does for the BIOS)?
+   **Recommended:** one function per area, at 80 on (80 frame and timing, 81 input, 82 sound, 83 DMA and
+   loading, 84 video memory). Each takes an operation in A, and a parameter block at a word for more. That keeps
+   FIDX small, leaves room in each area, and none of them is called in a hot loop: the event area is.
 3. **The hooks' rules** (frame, tick, scan line, timer 2). Which of the program's windows are mapped while one
    runs, how long each may take (a budget in cycles: the tick hook's must be far smaller than the frame hook's),
    whether it may call OOLIB, whether it gets a zero-page slice of its own, and the VIA rule (never ACR, IER or
    IFR).
+   **Recommended:** a hook runs with the windows the program had when it set the hook (OODOS saves and puts
+   back the interrupted ones), on the system's stack, with A, X and Y saved. The program's zero page is its own
+   to share with its hooks. Budgets: 8,000 cycles for the frame hook (about 7% of a frame), 300 for the tick
+   hook. They aren't enforced, but a debug build counts and reports them. OOLIB's register-only routines may be
+   called; no BDOS call and no DMA; never ACR, IER or IFR.
 4. **Keys during a game.** May a game turn off the console's handling of ^C, ^S and ^P (CP/M 3's console mode,
    function 109, already has bits for this), and should the event queue then get those keys instead?
+   **Recommended:** yes, through function 109, as OO-Amp does now. While the event area is open every key goes
+   to the queue, ^C included, and Break still stops any program.
 5. **The music format.** Our own tune format for the driver (notes, instruments, effects), or an existing tracker
    format (as long as it's free to use)? A converter from MIDI or from a tracker on Linux?
+   **Recommended:** none before L6. Music in L1–L5 is `.sid` tunes on the 6510 and streams through the DAC.
+   L6's driver takes note-level commands (note, length, voice, envelope); GW-BASIC's PLAY strings are parsed
+   by BASIC itself. Trackers come later through the card's codec 2 (MOD), already reserved.
 6. **What a program may own outright.** DMA channel 1 or 3 for a streaming effect, timer 2, the user port, the
    SIDs directly: which may a program claim for itself (and the warm boot take back), and which only through
    OODOS's calls or queue?
+   **Recommended:** a program may claim timer 2, the user port, the SIDs (the 6510 stopped) and the ES5503
+   outright, and the warm boot takes them back. DMA channels 0 and 1 stay OODOS's. Channel 2 is used only
+   through the stream and wave-RAM services, so OODOS starts and stops it. Channel 3 is shared through
+   OODOS's copy queue.
 7. **A hardware timer.** *Answered (proposed 2026-10-30): a W65C22S on the serial card*
    ([design.md](design.md#the-via-and-the-joystick-ports)): timer 1 is OODOS's system tick, timer 2 and the ports are
    the program's, and programs may hook the tick (with question 3's rules). The rate is question 11.
 8. **Asset formats and tools.** Which formats, and which Linux tools (a PNG to tiles converter, a palette tool, a
    map editor's export) come with OOLIB?
+   **Recommended:** one small header (a magic, a type, a version, the sizes) for tiles, maps, palettes and
+   sprites, starting from OO-Amp's `.GFX` file and its `mkgfx.py` once they're reviewed. A Python PNG-to-asset
+   converter goes in `oodos/tools/`.
 9. **Where OOLIB's code lives.** Linked into each program (as proposed), or also kept in an allocated block and
    reached by FARCALL for programs short of TPA space (GW-BASIC is)?
+   **Recommended:** linked, in L4. A FARCALL copy waits for GW-BASIC, with its own measurements.
 10. **The console during a game.** May a game use the text layer for its own status line while the console's
     output goes elsewhere, or does any console output put the console's text screen back?
+    **Recommended:** a program that takes the screen keeps it. Console output goes on into the console's own
+    text memory, unseen, and to the serial line, and the warm boot shows it again. A game may make its other
+    layer text for a status line.
 11. **The tick rate.** Fixed at 1 kHz (about 1.4% of the CPU before any hook), or settable by a program within
     limits (say 100 Hz to 4 kHz), which every other user of the millisecond counter then has to allow for?
+    **Recommended:** fixed at 1 kHz, so a millisecond is always a tick. A program wanting finer timing uses
+    timer 2.
 12. **The controller model.** How many controllers the event area has; how the hardware is numbered by default (the
     two digital sticks as 1 and 2, the Apple joystick as 3?); whether a game or the user (a setting kept on the card)
     picks which is which; and the Apple joystick's thresholds for directions.
+    **Recommended:** four controllers: 1 and 2 the DE-9 sticks, 3 the game port's joystick, 4 kept for a USB
+    gamepad. A call lets a game swap them; a user setting on the card can come later. The Apple stick's
+    thresholds are 64 and 192.
 13. **Load to memory by DMA.** A BDOS function in OODOS's own range (as 50–59) or an OOLIB service (question 2);
     a whole file or an offset and a length; the storage channel (0) straight to the destination, or a buffer and
     channel 3 (question 6); and, for video memory, whether it waits for the vertical blank.
+    **Recommended:** a function of OODOS's (83), since it is file I/O. It takes an open FCB, a first record, a
+    count of records and a 20-bit destination, and it refuses OODOS's own memory, as 51 does. Whole 512-byte
+    sectors on an SD unit go by channel 0 straight to the destination; the ends, and O: and P: (the CPU reads the
+    Disk II), go through a buffer and channel 3. It doesn't wait for vertical blank: a program that cares loads
+    into the hidden buffer and flips.
+14. **Interrupts during a BDOS call.** *New (2026-11-07).* Today a call runs masked from start to finish, so a
+    1 kHz tick loses every tick of a call longer than a millisecond, which is any disk read, and the frame
+    counter loses frames. **Recommended:** the BDOS runs with interrupts enabled. The dispatcher lives in common
+    memory and maps what it needs itself, whatever the call had mapped, and touches no BDOS state. The few
+    critical sections mask briefly (the stub's window switch, the allocation vector). The Disk II driver must
+    still mask while it reads or writes a sector (the CPU times the bits), and no clock on the machine counts
+    frames or milliseconds while interrupts are masked: the video card has no frame count register, and the
+    VIA's timer 1 flags only once however many periods pass. Its loops are cycle-counted, though, so the
+    driver knows each sector's cost: it adds that to the millisecond counter as it unmasks, and a vertical
+    blank missed in that time is lost (the frame counter counts frames seen). That happens only on O: and P:.
+15. **The version.** *New (2026-11-07).* **Recommended:** OODOS 0.5 when L1–L4 are merged, one bump as for
+    phases 5 and 6, and OOLIB's interface version 1 from L1, raised by each step that adds to it.
