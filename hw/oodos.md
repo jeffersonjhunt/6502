@@ -3031,7 +3031,8 @@ merged, with the switches' equates (below).
    driver moves to them then. *(Done 2026-11-07, `docs/techref-disk2`: the sixteen are in `backplane.inc` with
    their entries in the Technical Reference's chapter 10, and `disk2.inc`'s offsets are now taken from them,
    `D2_x = DISK2_x - DISK2`, so the values are said once and `disk2.s` is unchanged; OODOS.SYS and the ROM are
-   byte for byte as before.)*
+   byte for byte as before. On 2026-11-08 `disk2.s` and `common.s`'s NMI moved onto the `DISK2_x` names and the
+   `D2_x` offsets were dropped; `disk2.inc` keeps only the rule for touching the switches.)*
 4. **Raw sectors for DOS33: function 76** (OODOS's own range, 76–97 reserved), with the BDOS dropping the drive's
    buffers and logging it out; or BIOS function 30 through 50 (CP/M 3's slot for the implementor), where the
    utility must reset the drive itself first. **Recommended: 76**: the BDOS owns the buffers, so it is the one to
