@@ -289,7 +289,7 @@ From 72, a range no Digital Research system uses (CP/Net has 64–71).
 | 72 | OODOS's version, the BIOS's version, the memory fitted and the total for programs (not what is free), and the address of the far call table |
 | 73 | translate a CPU address in the program's map to a physical address (the paragraph and the offset), for programs that program the DMA controller themselves |
 | 74 | mount an SD image as a drive, or unmount one: a drive and a path, as MOUNT does |
-| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks), else A = X = `$FF` and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
+| 75 | leave OODOS for the ROM BIOS, not to come back: A = 0 its Woz Monitor (as Break goes there); A = 1 Apple II mode (the ROM's `$C806`), if the cartridge holds a IIe ROM (`$FBB3` = `$06`, as the ROM checks) and the DMA controller is there (`DMA_ID` = `$81`, as the ROM checks too: 2026-11-07), else A = X = `$FF` for no IIe ROM, A = `$FF` and X = `$FE` for no DMA controller (looked at first, before anything is written back), and OODOS goes on. Either way the changed buffers are written back first (as 48), but a file left open isn't closed: a program closes its files first. Any other A is A = X = `$FF`, nothing written back (ours). A program can't do it itself: W3 is OODOS's, and the rules let it call only the BDOS. The CCP's WOZMON and APPLE2 use it (built-ins since 2026-11-03; `.COM`s from 2026-11-02) |
 | 76 | an Apple disk's DOS 3.3 sector, read or written: the drive, track, sector, op and a 256-byte buffer; the drive's buffers written back and dropped and it logged out first, as 37 (6d) |
 | 77–97 | reserved for OODOS |
 
@@ -1884,10 +1884,15 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   device as a destination of NUL: or EOF:, or LST: or PRN: as a source: `INVALID DESTINATION`/`INVALID SOURCE`. On
   OODOS CON: is CRT and TTY, AUX: TTY, LST: LPT (DEVICE moves them; LPT takes and drops, no parallel port yet).
 - **How a file is written:** to `NAME.$$$` on the destination's drive and user (one there deleted first; a
-  read-only one: `CAN'T DELETE TEMP FILE`, the end), then, closed: the destination deleted if there (read-only:
+  read-only one: `CAN'T DELETE TEMP FILE`, the end; ours, OODOS todo item 18: when `NAME.$$$` is the destination or
+  a source of that drive and user, the first of `NAME.$$0`-`$$9`, `$$A`-`$$Z` that is neither and isn't there, one
+  there left alone; none, `NO TEMP FILE NAME - NAME.TYP`), then, closed: the destination deleted if there (read-only:
   `DESTINATION IS R/O, DELETE (Y/N)?`, Y deletes it, N is `**NOT DELETED**` and the temporary file's deletion;
   `[W]` deletes it without asking), and the temporary file renamed. A failed write (a full disk) is `DISK WRITE
-  ERROR - NAME.TYP` and the temporary file deleted; a read-only drive `R/O DISK` before anything is written.
+  ERROR - NAME.TYP` and the temporary file deleted; a read-only drive `R/O DISK` before anything is written. A
+  close, delete, rename or attribute call that fails with A = $FF and X = 0 (the BDOS silent in mode $FE) is PIP's
+  own message with the name (`DISK WRITE ERROR`, `CAN'T DELETE`, `CAN'T RENAME TEMP FILE` with the temporary file's name, where the copy is kept, `CAN'T SET ATTRIBUTES`;
+  V's open `VERIFY ERROR`), never nothing (ours, item 18).
 - **Attributes:** a file copied alone takes its source's RO, SYS and F1-F4 (and its archive bit clear, so it is
   backed up again: ours); a joined one none (ours). **Passwords:** a source's after `;` is given to the BDOS to
   open it; a destination with one gets it in READ mode (the XFCB, 103); `d:` alone gives the copy its source's
@@ -1981,6 +1986,16 @@ owner asked for them in the CCP, with CLEAR and CLS, so leaving OODOS works on a
 (112 bytes in the CCP, APPLE2's message 59 of them). A program of the same name on a card runs only with a drive
 before it (`A:WOZMON`), as for any built-in. Tested by `test_oodos_utils_rom`, with a stand-in IIe ROM the test makes (its
 ID byte and a loop at reset), not Apple's.
+
+*As built (2026-11-07, todo 15, from the G2 review):* the ROM's APPLE needs the DMA controller as well as a IIe ROM, and
+without one it said so itself and went to its monitor, OODOS left behind. Function 75 now reads `DMA_ID` first for
+A = 1, as apple.s does, and returns A = `$FF`, X = `$FE` without it; it does so before the buffers are written back,
+since without DMA SDIO can't move a sector and each write would only wait out its time limit. A stays `$FF`, so a
+test of A still sees the failure, and X tells it from no IIe ROM (`$FF`). APPLE2 says "Apple II mode needs the DMA
+controller" for X = `$FE` (50 bytes more in the CCP, 39 of them the message; 16 in the BDOS). Those two are all
+apple.s checks before it starts; the character ROM, without one in the cartridge, it makes from the VGA font. The
+tests boot a machine without its `dma` line (OODOS gets to A>, a little slower: its card reads time out) and run
+APPLE2, and a program by GO, there.
 
 ### Clearing the screen: CLEAR and CLS ###
 
@@ -3580,6 +3595,35 @@ its own fix taken out. Left as they are (no 10, or a message already): TYPE's op
 then says it), the searches (17, 18: no 10), PIP's V read-back (a 10 there is `VERIFY ERROR`).
 
 The CCP (block 62's RES) is 8,039 bytes, 55 more than main's 7,984.
+
+**A DOS 3.3 disk isn't a CP/M drive (todo item 16, 2026-11-07, as built):** found by 6d's first review: `DIR C:`
+on an `apple-do` unit holding a DOS 3.3 disk read its track 3 as a CP/M directory. On a dos33.py image (track 3
+zeros) that is 64 entries of user 0 named with NULs, 996 bytes of them; O: with such a floppy the same. The review's
+"over 30 s" didn't reproduce: 0.79 s of machine time on C:, 1.0-1.3 s on O: (0.19 s wall in the fast build); the
+likeliest reading is a test's wait that ran out for a text that never came. **The owner's choice: refuse, with
+error 4, `Invalid Drive`** (CP/M 3's answer for a disk a drive can't take; no new code).
+
+- **LOGIN** (`bdosdisk.s`, the only system file changed) notes in its directory scan any entry CP/M never writes
+  (`ODDENT`): a file's (user 0-15) whose name starts with a control character, or a first byte not 0-31, `$20`,
+  `$21` or `$E5`. Only then, and only on an Apple drive (O:, P:, or an SD unit DRVAPL marks), `DOS33TST` reads
+  track 17 sector 0 as function 76 does (RAWF, into SECBUF) and tests it as DOS33.COM's `rdvtoc` does (122 pairs,
+  35 tracks, 16 sectors, 256 bytes, the catalog on the disk). Both: the drive's buffers dropped, not logged in,
+  `ER_SELECT`. A sector that won't read: a CP/M drive, as before.
+- **Why it can't take a CP/M disk:** CP/M's directory, new or used, never holds such an entry, so a sound CP/M
+  disk never gets the second read (no seek to track 17 on O:/P:), and a VTOC in a CP/M file, or one left behind
+  when a CP/M directory was made over a DOS disk, doesn't count. Only a damaged CP/M directory with a VTOC on
+  track 17 could be refused.
+- **Function 76 and DOS33** don't log the drive in, so they work on it as before. **SET d: [RO]** (28) can't make
+  such a drive read-only any more: it logs it in, so it is `Invalid Drive`. A DOS 3.3 disk is kept from writes by
+  its unit mounted read-only, or the floppy's notch. The owner approved changing 6d's F7 case to that.
+- **Time:** the refusal 0.11 s on C: (DIR), 0.93 s for O:'s first (the motor's spin-up), 0.10 s after.
+- **Tests** (`test_oodos_dos33`, 34 → 37 cases, about 3 s more): DIR, DIR [FULL], `C:` and TYPE refused on the card's
+  DOS33.DSK and on a sample, each under 0.5 s and with no control byte but CR LF, the image unchanged, DOS33 then
+  listing and getting from it; CPM.DSK still listing (and still `Not a DOS 3.3 disk.` to DOS33); O: with a DOS 3.3
+  floppy (skipped without the PROM). F7's case changed as above: SET [RO] says `Invalid Drive` and a PUT goes in;
+  then DOS33.DSK mounted read-only refuses two PUTs, the disk unchanged. **Must fail:** the three run against
+  main's OODOS.SYS (`OODOS_SYS_DIR`): 27 assertions in those three cases; CPM.DSK's passes on both.
+- **Sizes:** the BDOS 13,302 bytes in block 60 (+172); one byte of SYSBSS (`LOGX`).
 
 ## GW-BASIC ##
 

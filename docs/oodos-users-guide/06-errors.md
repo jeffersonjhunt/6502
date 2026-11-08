@@ -21,6 +21,7 @@ place of the command's output, on a line of its own, and the prompt follows.
 | `No File` | A built-in found no file to match: DIR, DIRSYS, ERASE, RENAME's old name, TYPE. | Check the name, the drive and the user number. |
 | `Media Change` | ERASE, RENAME or TYPE on O: or P: found another floppy in the drive: changed within a second of the drive's last use, or while TYPE waited at a page's end. Nothing was deleted or renamed. A program's name typed with access stamps on its drive too: it isn't run. | Wait for the drive to stop before changing a floppy; type the command again for the new disk. |
 | `SYSTEM FILE(S) EXIST` | Not an error: after DIR's list, files of the other kind matched too ([DIRSYS](04-built-in-commands.md#util-dirsys) lists them). DIRSYS says `NON-SYSTEM FILE(S) EXIST`. | |
+| `Apple II mode needs the DMA controller` | APPLE2 found no DMA controller, which Apple II mode needs. OODOS goes on. | Fit the DMA controller (module 8). |
 | `No IIe ROM in the cartridge (the emulator: Settings, ROMs)` | APPLE2 found no Apple IIe ROM in the cartridge. OODOS goes on. | In the emulator, choose a IIe ROM in Settings, ROMs. |
 | `Press a key for more` | Not an error: the screen is full. Any key goes on; ^C stops the command. [SETDEF](05-utilities.md#util-setdef)'s `[NO PAGE]` turns the stops off. | |
 
@@ -49,7 +50,7 @@ errors, says the message and goes on (with the next file, if there is one).
 | `Disk I/O` | The card couldn't read or write a sector: the card was taken out, or failed. A changed sector that couldn't be written is kept, and written when it can be. On O: or P:: no disk in the drive, one in another format, a damaged sector, or (on the website) no Disk II sequencer PROM given. | Put the card back. A ^C at the empty prompt resets the drives and reads the card again, but drops what couldn't be written. On O: or P:, put a disk in, an Apple CP/M one. |
 | `Read Only` | A write to a drive that is read-only: set so by [SET](05-utilities.md#util-set) `[RO]`, or a card unit that is write-protected; on O: or P:, a write-protected floppy (its notch covered). | `SET d: [RW]`, or a ^C at the empty prompt, which makes every drive read-write again (a write-protected unit, or floppy, stays read-only). |
 | `File R/O` | A write, a delete or a rename of a read-only file. | `SET name [RW]`. |
-| `Invalid Drive` | A drive that isn't there: one OODOS has no unit for (`H:`), or a card unit that couldn't be read. | Use a drive the boot's status lines list ([chapter 1](01-introduction.md#starting-oodos)). |
+| `Invalid Drive` | A drive that isn't there: one OODOS has no unit for (`H:`), or a card unit that couldn't be read. Also an Apple drive (an SD unit of 140 KB, O: or P:) holding a DOS 3.3 disk, which isn't a CP/M disk ([chapter 3](03-drives-and-files.md)). | Use a drive the boot's status lines list ([chapter 1](01-introduction.md#starting-oodos)). For a DOS 3.3 disk, use [DOS33](05-utilities.md#util-dos33). |
 | `Password Error` | A protected file opened, deleted or renamed without its password, or with the wrong one. | Give the password after the name: `TYPE LETTER.TXT;SECRET`. |
 | `File Exists` | A file made, or a file renamed, to a name another file has already. | Erase or rename the other first. |
 | `? in Filename` | A wildcard where one exact name is needed, as for a file made or renamed. | |

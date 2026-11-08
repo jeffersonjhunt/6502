@@ -2903,8 +2903,12 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 
 #### Exit
 
-- A = 0, and A = 1 with a IIe ROM in the cartridge: it doesn't return.
+- A = 0, and A = 1 with a IIe ROM in the cartridge and the DMA controller fitted: it doesn't return.
+- A = 1 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$81`): A = `$FF`, X = `$FE`,
+  and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it without one.
 - A = 1 with no IIe ROM in the cartridge (`$FBB3` isn't `$06`), or any other A: A = X = `$FF`, and OODOS goes on.
+- Every return is a failure, A = `$FF`; X tells the two cases of A = 1 apart. The DMA controller is looked at
+  first.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -2914,7 +2918,8 @@ As in Exit.
 #### Side effects
 
 - For A = 0 or 1, the changed buffers are written back first, as function 48 does, even when there is no IIe ROM
-  to go to. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  to go to. Without the DMA controller nothing is written back: OODOS looks for it before anything else, and
+  OODOS's own card transfers need it too. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
   before anything is written back, and a changed disk gets none of it
   ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - OODOS doesn't come back: the ROM's monitor, or a reset, is what follows.
