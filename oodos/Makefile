@@ -17,7 +17,7 @@
 # utils/NAME.s there is, .COMs only, through the same gate; each includes
 # include/cmd.inc and include/util.inc, and some include/system.inc (the
 # BIOS entries, for function 50): each is rebuilt when any of them changes.
-# A new one needs no change here.
+# A new one needs no change here, unless it uses OOLIB (below: OOLIB_USERS).
 
 SRC      ?= examples
 BUILD    ?= build
@@ -75,6 +75,26 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 	$(call LD65,-C cfg/com.cfg $< -o $(BUILD)/submit.plain -m $(BUILD)/submit.map -Ln $(BUILD)/submit.lbl,$@)
 	$(PYTHON) tools/rules.py $(BUILD)/submit.plain --map $(BUILD)/submit.map
 	$(PYTHON) tools/gencom.py $(BUILD)/submit.plain $(BUILD)/subrsx.rsx -o $@
+
+# OOLIB, the linked library (lib/*.s, include/oolib.inc; hw/oolib.md, question 9): each lib/NAME.s
+# assembled once into build/oolib.lib, which ld65 takes only the modules of that a program uses. A
+# utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's).
+LIBS = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
+OOLIB_USERS = playsid
+
+$(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s include/oodos.inc include/oolib.inc | $(BUILD)
+	ca65 $(AFLAGS) $< -o $@
+
+$(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o)
+	rm -f $@
+	ar65 a $@ $^
+
+$(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
+
+$(OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py
+	$(call LD65,-C cfg/com.cfg $< $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	mv $@.tmp $@
 
 $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(call LD65,-C cfg/com.cfg $< -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)

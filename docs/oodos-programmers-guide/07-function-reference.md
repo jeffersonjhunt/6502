@@ -3025,8 +3025,9 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (2: 1 was L1's), X = a bit for each service area OODOS has (`OA_FRAME`,
-  `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81)). With a block: +1 and +2 the same, +3 the
+- `FT_INFO`: A = OOLIB's interface version (3: 1 was L1's, 2 L2's), X = a bit for each service area OODOS has
+  (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
+  82](#bdos-82)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
   serial card's VIA), +4 the highest event area layout it writes (2).
 - `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
@@ -3119,7 +3120,7 @@ function each from 80 ([hw/oolib.md](../../hw/oolib.md#the-plan)).
   `$04`; 0 with no USB card), X = the event area layout L2 writes (2). With a block: +1 and +2 the same.
 - `IN_MAP`: +1–4 controllers 1–4's hardware: `CH_STICK1` 1 (the VIA's port A), `CH_STICK2` 2 (port B),
   `CH_GAMEPORT` 3 (the USB card's game port), `CH_GAMEPAD` 4 (a USB gamepad: not yet). A = 0, X = 0.
-- `IN_NEXT`: +1–8 the event ([chapter 8](08-game-services.md#the-queue)), taken: A = its kind (`EK_*`, 1–5), X = 0.
+- `IN_NEXT`: +1–8 the event ([chapter 8](08-game-services.md#the-queue)), taken: A = its kind (`EK_*`, 1–6), X = 0.
   A = 0, X = 0 if none waits, and the block untouched.
 - The rest: A = 0, X = 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
@@ -3165,6 +3166,119 @@ OODOS 0.4
 #### CP/M 3
 
 OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's second service area
+([hw/oolib.md](../../hw/oolib.md#the-plan)).
+
+<a id="bdos-82"></a>
+### 82 O_SOUND: sound
+
+#### Entry
+
+- Y = 82 (`O_SOUND`).
+- X = 0: A is the operation, and it takes no parameters.
+- X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation and the
+  operation's parameters after it, as [function 80's](#bdos-80). The operations are oodos.inc's `SN_` names; the
+  part in the last column must be the program's, claimed by `SN_CLAIM`:
+
+  | A or +0 | Name | The block, after +0 | What it does | Part |
+  |---|---|---|---|---|
+  | 0 | `SN_INFO` | 3 bytes to fill (optional) | says the card's revision, codecs, and the parts free | |
+  | 1 | `SN_CLAIM` | +1 the parts: `SC_6510` `$01`, `SC_STREAM` `$02`, `SC_DOC` `$04` | claims them, all or none | |
+  | 2 | `SN_RELEASE` | +1 the parts | stops each that is held and gives it back | |
+  | 3 | `SN_LOAD` | +1–3 a physical address, +4–5 the card's RAM address, +6–7 the length (0: 65,536) | loads the card's RAM by DMA | 6510 |
+  | 4 | `SN_START` | +1–2 the entry, +3 CTRL's bits 0 (NTSC), 3 (SID B at `$D500`), 4 (BOTH) | starts the 6510 there | 6510 |
+  | 5 | `SN_STOP` | none | stops the 6510, silences the SIDs | 6510 |
+  | 6 | `SN_SEND` | +1 a byte | puts it in the 6510's mailbox | 6510 |
+  | 7 | `SN_STREAM` | +1 the codec (0 raw PCM, 1 MP3), +2–3 the rate (Hz), +4 the format (bit 0 stereo, bit 1 16-bit) | starts a stream afresh | stream |
+  | 8 | `SN_BUFFER` | +1–3 a physical address, +4–5 the length (0: 65,536) | gives the stream a buffer | stream |
+  | 9 | `SN_PAUSE` | none | holds the stream | stream |
+  | 10 | `SN_RESUME` | none | lets it go on | stream |
+  | 11 | `SN_SEEK` | none | empties the FIFO, drops both buffers | stream |
+  | 12 | `SN_END` | none | no more data: what is in plays out | stream |
+  | 13 | `SN_STATUS` | 12 bytes to fill (optional) | says the stream's state | stream |
+  | 14 | `SN_WAVE` | +1–3 a physical address, +4–6 the wave RAM address (17 bits: +6's bit 0 is A16), +7–8 the length (0: 65,536) | loads the ES5503's wave RAM by DMA | ES5503 |
+  | 15 | `SN_DOCHOOK` | +1–2 the hook, 0 none; +3 a byte of its zero page (`$00–$EF`); no block: none | sets the ES5503 hook | ES5503 |
+  | 16 | `SN_BEEP` | +1–2 the pitch, 20–20,000 Hz; +3–4 the length, ms | sounds the USB card's speaker | |
+
+#### Exit
+
+- `SN_INFO`: A = the card's revision (0 with no sound card), X = its CODECS (`$83` on revision 2: raw PCM, MP3, the
+  ES5503; 0 on revision 1). With a block: +1 and +2 the same, +3 the parts no one has claimed that the machine has.
+- `SN_BUFFER`: A = the buffer that took it, 0 or 1, X = 0.
+- `SN_STATUS`: A = the stream's state (the card's STATE: 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5
+  ended, `$80` up an error), X = the buffers free (bit 0 buffer 0, bit 1 buffer 1). With a block, of one moment: +1
+  and +2 the same, +3–4 the FIFO's room in 256-byte units, +5–8 the frames played, +9–10 an MP3's kbit/s, +11–12 the
+  underruns seen since `SN_STREAM`.
+- The rest: A = 0, X = 0. `SN_LOAD`, `SN_WAVE` and `SN_BEEP` return when they are done.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+A = X = `$FF`, and nothing done, for an operation past 16, one that needs a block given none, a block in memory that
+isn't the program's (the I/O hole, flash), an operation whose part isn't claimed, and:
+
+- `SN_CLAIM`: no parts asked for, a part the machine hasn't (the stream needs revision 2 and the DMA controller, the
+  ES5503 revision 2 and CODECS bit 7), or a part held already: none is claimed then.
+- `SN_LOAD`, `SN_WAVE`, `SN_BUFFER`: memory a DMA segment may not reach ([function 51](#bdos-51)): OODOS's own
+  blocks, or past `$FFFFF`. `SN_LOAD`, `SN_WAVE`: the card's address and the length running past the end of its
+  RAM (`$FFFF` the card's, `$1FFFF` wave RAM: nothing wraps), or a piece of the transfer that never ended (no DMA
+  controller).
+- `SN_DOCHOOK`: an address in the I/O hole or common memory, the program's W0 the system's, or a zero page byte past
+  `$EF`. `SN_WAVE`: a wave RAM address's +6 past 1 (17 bits: `$20000` up isn't there). A refused `SN_DOCHOOK` leaves no hook set (the old one is taken off first), as `FT_FRAMEHOOK` and
+  `FT_TICKHOOK` do.
+- `SN_BEEP`: a pitch outside 20–20,000, no USB card, or no VIA (no millisecond counter).
+
+A = `$FE` (`SN_BUSY`), X = `$FF`, and nothing done, when what it needs is busy: `SN_LOAD` and `SN_WAVE` while a
+stream buffer is still going to the card (DMA channel 2), `SN_BUFFER` while the buffer whose turn it is is still in
+use, and `SN_SEND` while the 6510 hasn't taken the byte sent before (STATUS bit 1). Try again later. An OODOS before
+L3 answers 82 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says whether there is
+sound (`OA_SOUND`).
+
+#### Side effects
+
+- `SN_CLAIM` of the 6510 empties the mailbox from the card. The one to the card it can't: only a /RESET empties it,
+  so a byte the last program left there, not taken, survives the warm boot and the claim; a new 6510 driver reads
+  `$DE00` once as it starts, to drop it. Then with a layout-2 event area open, a byte the 6510 sends
+  reaches the queue as an `EK_SOUND` event, its value the byte ([chapter 8](08-game-services.md#the-6510)). Of the
+  stream: channel 2 stopped and both buffers free.
+- `SN_LOAD` and `SN_WAVE` move channel 2 4 KB a piece, each waited for, interrupts on between; the card holds the
+  CPU 4,096 cycles a piece. `SN_LOAD` sets RAMADDR, past the last byte after; `SN_WAVE` sets DOCCTL's RAM and AUTOINC
+  for it and puts DOCCTL back as it was after, leaving DOCADDR and DOCBANK past the last byte; it holds the ES5503's
+  interrupt off meanwhile (IEN bit 3), and the hook waits for the load's end. Both leave DRQSEL 0.
+- `SN_START` writes the card's `$FFFC–$FFFD` and CTRL (RUN and RESET with the bits given).
+- `SN_STREAM` writes PCMCTL (FLUSH, then RUN), CODEC, RATE, PCMFMT, POS (0) and DRQSEL (1), and the DMA controller's
+  master enable on. `SN_BUFFER` takes the buffers in turn, 0, 1, 0, 1, from `SN_STREAM` or `SN_SEEK`; the first goes
+  to the card at once, by channel 2 (demand mode, its terminal count's interrupt on), the next when it has all gone.
+  `SN_SEEK` writes FLUSH with RUN and PAUSE as they were, and EOF off. `SN_PAUSE`, `SN_RESUME` and `SN_END` set and
+  clear PCMCTL's PAUSE and EOF.
+- With the stream claimed and a layout-2 area open, OODOS writes the area's +96–107 once a frame and at each
+  buffer's end ([chapter 8](08-game-services.md#the-stream)).
+- `SN_DOCHOOK` sets the card's IEN bit 3 while a hook is set, and holds it off while it changes the hook, so an
+  interrupt meanwhile waits in the chip for the new one. With the ES5503's interrupt routed to the card's 6510
+  (DOCCTL's IRQ_CARD), OODOS never reads `$E0` and the hook isn't called: the interrupt is the 6510's. The hook is called as the tick hook is, interrupts off
+  ([chapter 8](08-game-services.md#the-es5503)), the interrupt register first written to its zero page byte, the
+  port on the registers (DOCCTL's RAM and AUTOINC off, DOCADDR `$E0`); DOCCTL, DOCADDR and DOCBANK as the
+  interrupt found them are put back after the hook returns.
+- `SN_RELEASE` and the warm boot stop what they give back: the 6510 (CTRL's RUN off, every SID register 0), the
+  stream (channel 2 aborted, PCMCTL FLUSH, DRQSEL 0), the ES5503 (DOCCTL's RUN off, the hook off). The warm boot does
+  all of it whatever was claimed, and turns the card's IEN off.
+
+#### Cycles
+
+`SN_BEEP` takes its length (test_oodos_sound: 1,000 Hz for 100 ms toggles the speaker 193 times, the call 106 ms
+with its line printed). What sound costs between calls is [chapter 8's](08-game-services.md#what-sound-costs). The
+rest: not measured.
+
+#### Since
+
+OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's third service area
 ([hw/oolib.md](../../hw/oolib.md#the-plan)).
 
 <a id="bdos-98"></a>

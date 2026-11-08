@@ -5,7 +5,10 @@ L6. This chapter has what is built. **L1, the clocks**: a millisecond counter, a
 program's memory OODOS keeps them in, waiting for a frame, and routines of the program's that OODOS calls at each
 frame or every few milliseconds; that is [function 80](07-function-reference.md#bdos-80). **L2, input**: the
 keyboard's every press and release in a queue, the keys held, four game controllers, the paddles and the mouse,
-kept in that same block; and [function 81](07-function-reference.md#bdos-81) for the rest.
+kept in that same block; and [function 81](07-function-reference.md#bdos-81) for the rest. **L3, sound**: the sound
+card's 6510, its stream and its ES5503, each claimed by one program at a time; the card's RAM and wave RAM loaded by
+DMA; a stream fed from two buffers of the program's while it plays; and a C64 `.sid` tune played by OOLIB's linked
+library, which PLAYSID uses; that is [function 82](07-function-reference.md#bdos-82).
 
 The design record, for the reasons: [hw/oolib.md](../../hw/oolib.md#goals), and its plan, step by step:
 [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan).
@@ -21,9 +24,9 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2; each step that adds to the services raises it. X has a bit
-for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame and timing) and
-`OA_INPUT` (`$02`, 81, input) now, and later `OA_SOUND` (82), `OA_DMA` (83) and `OA_VIDEO` (84). An OODOS without the services answers 80 as a
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3; each step that adds to the services raises it. X
+has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame and timing),
+`OA_INPUT` (`$02`, 81, input) and `OA_SOUND` (`$04`, 82, sound) now, and later `OA_DMA` (83) and `OA_VIDEO` (84). An OODOS without the services answers 80 as a
 function it doesn't have, A = X = `$FF`, so a version of `$FF` means none. A program that needs what isn't there
 says so and ends, rather than calling it. [Function 72](07-function-reference.md#bdos-72) says OODOS's own version,
 as before.
@@ -190,7 +193,7 @@ area:   .res    256
 | +56–59 | `EV_PADDLES` | the game port's four paddles, 0–255 |
 | +60–63 | | reserved, 0 |
 | +64–95 | `EV_KEYS` | the keys held, a bit for each HID usage |
-| +96–127 | | reserved for sound (L3), 0 |
+| +96–127 | `EV_SOUND` | the stream's part ([below](#sound)), 0 unless the stream is claimed |
 | +128 | `EV_QUEUE` | the queue: 8 bytes a slot, as many as the size leaves |
 
 ### The queue
@@ -200,9 +203,9 @@ plugged in or out is an **event**, 8 bytes, in a ring of slots from +128:
 
 | Offset | Name | What |
 |---|---|---|
-| +0 | `EQ_KIND` | `EK_KEY` 1, `EK_BUTTON` 2 (the mouse's), `EK_WHEEL` 3, `EK_CTL` 4 (a controller), `EK_DEVICE` 5 |
+| +0 | `EQ_KIND` | `EK_KEY` 1, `EK_BUTTON` 2 (the mouse's), `EK_WHEEL` 3, `EK_CTL` 4 (a controller), `EK_DEVICE` 5, `EK_SOUND` 6 (a byte from the sound card's 6510: [Sound](#sound)) |
 | +1 | `EQ_CODE` | the key's HID usage; the button, 0–4; the controller, 1–4; else 0 |
-| +2 | `EQ_VALUE` | 1 pressed, 0 let go; a controller's new bits; the wheel's steps, signed; the devices now |
+| +2 | `EQ_VALUE` | 1 pressed, 0 let go; a controller's new bits; the wheel's steps, signed; the devices now; the 6510's byte |
 | +3 | `EQ_MODS` | the modifiers held then (a modifier's own event has itself in) |
 | +4–7 | `EQ_MS` | the millisecond counter then |
 
@@ -300,13 +303,131 @@ and the store.
 itself (OO-Amp does, for now) gets what OODOS hasn't taken, and OODOS what it hasn't. Use one or the other. OODOS
 also reads the VIA's port B at every tick, which clears its CB1 and CB2 flags.
 
+## Sound
+
+The sound card ([the Technical Reference, chapter 7](../oo1-technical-reference/07-sound.md)) has three parts a
+program takes, one program at a time: **the 6510 and the SIDs** (`SC_6510`), **the stream** (`SC_STREAM`: the PCM or
+MP3 FIFO, revision 2) and **the ES5503** (`SC_DOC`, revision 2). Function 82's `SN_CLAIM` takes the ones in its
+block's +1, all of them or none: a part held already, by this program or an RSX, is refused, and so is one the
+card hasn't. `SN_RELEASE` gives parts back, each stopped. `SN_INFO` says the card's revision and codecs, and with a
+block which parts are free. A claimed part is the program's to drive itself, its registers written as the Technical
+Reference has them ([question 6](../../hw/oolib.md#open-questions)): the SIDs while the 6510 is stopped, the
+ES5503's oscillators, the EQ, the volumes and the vis page. **DMA channel 2 is OODOS's**: a program reaches it only
+through function 82's loads and its stream.
+
+```
+        lda     #<claim
+        ldx     #>claim
+        ldy     #O_SOUND
+        jsr     BDOS            ; A = 0: the stream is ours
+        ...
+claim:  .byte   SN_CLAIM, SC_STREAM
+```
+
+### The 6510
+
+`SN_LOAD` copies a run of physical memory into the card's RAM by channel 2 (+1–3 the address, +4–5 the card's
+address, +6–7 the length, 0 for 64 KB). The source is checked as [function 51's](07-function-reference.md#bdos-51)
+DMA segment is: none of OODOS's own memory. A program's own memory below `$C000` is its blocks 0–2, so its CPU
+address is the physical one there. `SN_START` writes the 6510's reset vector and resets it running (+3: CTRL's NTSC,
+SID B at `$D500`, BOTH); `SN_STOP` stops it and silences the SIDs; `SN_SEND` puts a byte in its mailbox, refused with `SN_BUSY` while the
+6510 hasn't taken the last one (a second would replace it). The mailbox to the card is emptied only by a /RESET, so
+a byte a program left there, not taken, is still there for the next: a new 6510 driver reads `$DE00` once when it
+starts. A byte the
+6510 sends back reaches the event queue as an `EK_SOUND` event, its value the byte, while a layout-2 area is open
+(without one, the program reads the card's MBIN itself), so a program's own driver on the card reports without
+being polled.
+
+### The stream
+
+`SN_STREAM` starts a stream: +1 the codec (0 raw PCM, 1 MP3), +2–3 the rate and +4 the format (raw PCM's: bit 0
+stereo, bit 1 16-bit). Then the program gives OODOS its data a buffer at a time: `SN_BUFFER`, +1–3 a physical
+address and +4–5 a length (0 for 64 KB). OODOS keeps two: the first given goes to the card at once, by channel 2,
+and when it has all gone the other follows, from the interrupt, with no gap. They are taken **in turn**, 0, 1, 0,
+1 (A says which), and `SN_BUFFER` is refused with A = `SN_BUSY` (`$FE`) while the next one is still in use; so a
+program alternating two buffers of its own always has its first in 0 and its second in 1. As each is sent, its bit
+in the area's `EV_SBUFS` goes to 1: the program refills it then, with ordinary BDOS reads, and gives it again. The
+card plays on its own clock meanwhile, from its 128 KB FIFO: 0.74 s of 44.1 kHz 16-bit stereo, 8 s of 128 kbit/s
+MP3.
+
+```
+loop:   lda     #1              ; buffer k's bit: 1, then 2, in turn
+        and     area + EV_SBUFS
+        beq     loop            ; still going to the card
+        ...                     ; read the file into buffer k, then SN_BUFFER it
+```
+
+`SN_PAUSE` and `SN_RESUME` hold it and let it go; `SN_SEEK` empties the FIFO and drops both buffers, for data from
+a new place (the next buffer is 0 again); `SN_END` says no more is coming, so what is in plays out and the state goes
+to ended. `SN_STATUS` reads the rest at one moment. While the stream is claimed and a layout-2 area is open, OODOS
+writes its state into the area once a frame and at each buffer's end:
+
+| Offset | Name | What |
+|---|---|---|
+| +96 | `EV_SSTATE` | the stream's state: 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5 ended; `$80` up an error (the card's STATE) |
+| +97 | `EV_SBUFS` | the buffers free: bit 0 buffer 0, bit 1 buffer 1 |
+| +98–99 | `EV_SFREE` | the FIFO's room, in 256-byte units (512 empty) |
+| +100–103 | `EV_SPOS` | the frames played (the card's POS) |
+| +104–105 | `EV_SKBPS` | an MP3's bitrate, kbit/s |
+| +106–107 | `EV_SUNDER` | the underruns seen since the stream started |
+| +108–127 | | reserved, 0 |
+
+**Keeping it fed.** Nothing in this needs the program's time while both buffers and the FIFO have data: a slow
+frame costs nothing. An underrun is the FIFO running dry before `SN_END`, and OODOS counts each it sees (at a frame,
+a buffer's end, or `SN_STATUS`). A buffer goes to the card in pieces of 4 KB: with room in the FIFO the card takes
+a byte a cycle and the CPU waits, 4,096 cycles a piece at most, under a tick, so no tick is lost.
+
+### The ES5503
+
+`SN_WAVE` loads its wave RAM as `SN_LOAD` loads the card's (+4–6 the wave RAM's 17-bit address). Neither wraps: a
+load that would run past the end of its RAM (64 KB the card's, 128 KB wave RAM) is refused. `SN_DOCHOOK` sets
+a routine of the program's that OODOS calls at the chip's interrupt (an oscillator done), +1–2 its address and +3 a
+byte of the program's zero page: OODOS reads the chip's interrupt register (`$E0`, which takes the interrupt) and
+writes it there before the call, so the hook finds the oscillator in bits 1–5. It keeps the rules of the hooks
+([above](#hooks)), with interrupts off as the tick hook's: no `CLI`, and a small budget, a few hundred cycles. The
+hook finds the port on the chip's registers (DOCCTL's RAM and AUTOINC off, DOCADDR `$E0`), and may write them: to
+reprogram the oscillator, say. OODOS saved DOCCTL, DOCADDR and DOCBANK before it read `$E0`, and puts them back
+after the hook returns, so a register or wave RAM access the interrupt came in the middle of goes on as it was,
+whatever the hook wrote. So a DOCCTL write made in the hook is undone when it returns: a hook that wants the chip
+stopped halts its oscillators (each one's control register, `$A0` + its number, bit 0) instead. With the chip's
+interrupt routed to the card's 6510 (DOCCTL's IRQ_CARD), the interrupt is the 6510's, and OODOS leaves it alone. A
+wave load and the hook never meet: OODOS holds the chip's interrupt off while `SN_WAVE`
+runs. If `SN_DOCHOOK` is refused, no hook is set, as with the frame and tick hooks.
+
+### The beep
+
+`SN_BEEP` sounds the USB card's speaker: +1–2 a pitch in Hz (20–20,000), +3–4 a length in milliseconds. It returns
+when it is done. The tone is timed in cycles with interrupts left on, so the ticks lower it about 2%; the length is
+timed by the millisecond counter.
+
+### .sid tunes
+
+A C64 `.sid` file is a tune's own 6502 code. Playing one is file work with nothing to share, so it is in **OOLIB's
+linked library** ([question 9](../../hw/oolib.md#open-questions)), not in OODOS: `oodos/lib/sid.s`, linked from
+`build/oolib.lib` (`include/oolib.inc` has its calls). `SID_PARSE` reads the header, `SID_PLAN` finds a page the tune
+leaves free and builds a small player there that stands in for what a C64 leaves a tune, as the emulator's own player
+does, and `SID_PLAY` claims the 6510, loads the tune, the player and the vectors by `SN_LOAD`, and starts it.
+`SID_STOP` stops it. PSID files only: an RSID expects a whole C64. The chips' model (a 6581 or an 8580) isn't
+chosen: it is a jumper on the card, not a register, so a tune written for the other plays on the chips fitted. PLAYSID ([the User's
+Guide](../oodos-users-guide/05-utilities.md#util-playsid)) is a program on it.
+
+### What sound costs
+
+Nothing a tick: the tick with no area is 145 cycles and with a layout-2 area 234, as before. Each terminal count of
+a piece is an interrupt of about 530 to 700 cycles, about 850 at a buffer's end (the area written); with room in the
+FIFO the next piece's 4,096 cycles of DMA come inside it. 44.1 kHz 16-bit stereo is 43 pieces a second, under 0.5%
+of the CPU. A frame with the stream claimed and a layout-2 area open costs about 300 cycles more (688 against 389),
+for the area's sound part.
+
 ## When the program ends
 
 The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, and every interrupt enable the
 program turned on off again (OODOS keeps only its own: timer 1 and the vertical blank). For the input it turns the
 USB card's interrupt off, puts the mouse back in relative mode with the limits a reset gives (639, 479), the LEDs
 off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 1 to 4 in order: what the cold
-boot sets. Timer 1 is set up again
+boot sets. For L3's sound it does what the BIOS's Break does to the card, whether a program claimed it or not: the
+6510 stopped, the SIDs silenced, the stream flushed and stopped, the ES5503 stopped; and channel 2 aborted, the card's
+DRQSEL back to 0 and its interrupts off, the ES5503 hook off, and every part released. Timer 1 is set up again
 as the cold boot left it, should the program have changed it. That is so whether the program ends by `JMP WBOOT`,
 by ^C, or by an error. The counters run on (a program that changed timer 1's latch may cost the millisecond
 counter 1 ms: putting the latch back clears timer 1's flag, and a tick due then with it). Break goes to the
@@ -314,6 +435,6 @@ monitor with the machine's interrupts off, as it always has; booting OODOS again
 
 ## Still to come
 
-L3 sound, L4 the graphics library, the pointer sprite and the asset loader, L6 the music driver; USB gamepads as
-controller 4: [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
+L4 the graphics library, the pointer sprite and the asset loader, L6 the music driver (and with it GW-BASIC's
+SOUND, PLAY and BEEP); RSID tunes and MOD; USB gamepads as controller 4: [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
 built, a program has none for it: see [AGENTS.md](../../AGENTS.md) for what not to take over in the meantime.

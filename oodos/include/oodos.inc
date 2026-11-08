@@ -122,11 +122,11 @@ WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
 ; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
-; A = OOLIB's interface version (1 from L1, 2 from L2), X = a bit for each
+; A = OOLIB's interface version (1 from L1, 2 from L2, 3 from L3), X = a bit for each
 ; service area. An OODOS without them answers 80 with A = X = $FF.
 OA_FRAME        = $01                  ;   80, frame and timing
 OA_INPUT        = $02                  ;   81, input (L2)
-OA_SOUND        = $04                  ;   82, sound (not yet)
+OA_SOUND        = $04                  ;   82, sound (L3)
 OA_DMA          = $08                  ;   83, DMA and loading (not yet)
 OA_VIDEO        = $10                  ;   84, video memory (not yet)
 
@@ -169,7 +169,13 @@ EV_MWHEEL       = 37                   ;   the wheel's steps, signed, summed unt
 EV_CTL          = 40                   ; four controllers, EC_LEN bytes each: controller 1 first
 EV_PADDLES      = 56                   ; the game port's four paddles, 0-255
 EV_KEYS         = 64                   ; the keys held: 32 bytes, bit (usage AND 7) of byte usage / 8
-EV_SOUND        = 96                   ; 32 bytes reserved for L3's sound
+EV_SOUND        = 96                   ; the sound part (L3), 32 bytes: written while the stream is claimed
+EV_SSTATE       = 96                   ;   the stream's state (SOUND_STATE's: 0 idle ... 5 ended, $80 up errors)
+EV_SBUFS        = 97                   ;   the two buffers: bit 0 buffer 0 free, bit 1 buffer 1 (function 82)
+EV_SFREE        = 98                   ;   the FIFO's room, 256-byte units, 2 bytes
+EV_SPOS         = 100                  ;   the frames played, 4 bytes (SOUND_POS)
+EV_SKBPS        = 104                  ;   an MP3's bitrate, kbit/s, 2 bytes
+EV_SUNDER       = 106                  ;   underruns seen, 2 bytes (from the stream's start); +108-127 reserved, 0
 EV_QUEUE        = 128                  ; the queue's slots
 EV_LEN2         = EV_QUEUE + 16        ; layout 2's least size: two slots (EQ_LEN each), one event waiting
 EV_LAYOUT2      = 2
@@ -205,6 +211,7 @@ EK_BUTTON       = 2                    ; a mouse button
 EK_WHEEL        = 3                    ; the mouse's wheel
 EK_CTL          = 4                    ; a controller's bits changed
 EK_DEVICE       = 5                    ; a device plugged in or out
+EK_SOUND        = 6                    ; a byte from the card's 6510 (the mailbox, L3): code 0, value the byte
 
 ; Function 81's operations (L2, input), as 80's: X = 0, A is the operation;
 ; else A/X is a block, its +0 the operation. A = X = $FF for one that isn't,
@@ -218,6 +225,42 @@ IN_LEDS         = 5                    ; block: +1 the keyboard's LEDs (bit 0 Nu
 IN_REPEAT       = 6                    ; block: +1 the console's key repeat: bits 0-3 rate, 4-5 delay (REPEAT)
 IN_NEXT         = 7                    ; block: +1-8 get the next event, taken; A = its kind, 0 if none waits
 IN_OPS          = 8
+
+; Function 82's operations (L3, sound), as 80's: X = 0, A is the operation;
+; else A/X is a block, its +0 the operation. A = X = $FF for one that isn't,
+; a block needed and not given, a part not claimed, or what it can't do;
+; A = $FE, X = $FF (SN_BUSY) when DMA channel 2 is busy with the stream: try
+; again later. [part] is the claim (SC_*) an operation needs.
+SN_INFO         = 0                    ; A = the card's revision (0 none), X = its CODECS (0 on revision 1);
+                                       ;   a block +1, +2 those, +3 the parts (SC_*) no one has claimed
+SN_CLAIM        = 1                    ; block: +1 the parts (SC_*), all of them or none
+SN_RELEASE      = 2                    ; block: +1 the parts, each stopped and given back
+SN_LOAD         = 3                    ; block: +1-3 a physical address, +4-5 the card's RAM address, +6-7 the
+                                       ;   length (0: 65,536): the card's RAM loaded by DMA [SC_6510]
+SN_START        = 4                    ; block: +1-2 the 6510's entry, +3 CTRL's other bits (NTSC, $08, BOTH):
+                                       ;   the vector written, the 6510 reset and run [SC_6510]
+SN_STOP         = 5                    ; the 6510 stopped, the SIDs silenced [SC_6510]
+SN_SEND         = 6                    ; block: +1 a byte to the 6510's mailbox [SC_6510]
+SN_STREAM       = 7                    ; block: +1 the codec, +2-3 the rate, +4 the format: a stream started
+                                       ;   afresh, both buffers free [SC_STREAM]
+SN_BUFFER       = 8                    ; block: +1-3 a physical address, +4-5 its length (0: 65,536): A = the
+                                       ;   buffer it took (0 or 1), sent to the card by DMA [SC_STREAM]
+SN_PAUSE        = 9                    ; [SC_STREAM]
+SN_RESUME       = 10                   ; [SC_STREAM]
+SN_SEEK         = 11                   ; the FIFO emptied (FLUSH) and both buffers dropped, free [SC_STREAM]
+SN_END          = 12                   ; no more data (EOF): what is in plays out [SC_STREAM]
+SN_STATUS       = 13                   ; A = the state, X = the buffers free (EV_SBUFS); a block +1 those,
+                                       ;   +3-4 the FIFO's room, +5-8 frames, +9-10 kbit/s, +11-12 underruns
+SN_WAVE         = 14                   ; block: +1-3 a physical address, +4-6 the wave RAM address (17 bits),
+                                       ;   +7-8 the length (0: 65,536): wave RAM loaded by DMA [SC_DOC]
+SN_DOCHOOK      = 15                   ; block: +1-2 the ES5503 hook, 0 none; +3 a zero-page byte ($00-$EF)
+                                       ;   that gets its interrupt register ($E0) at each call; no block: none [SC_DOC]
+SN_BEEP         = 16                   ; block: +1-2 the pitch in Hz (20-20,000), +3-4 the length in ms
+SN_OPS          = 17
+SN_BUSY         = $FE                  ; A when channel 2 is busy (X $FF)
+SC_6510         = $01                  ; the parts: the 6510 and the SIDs,
+SC_STREAM       = $02                  ;   the PCM stream (revision 2),
+SC_DOC          = $04                  ;   the ES5503 (revision 2)
 
 ; BDOS functions, in Y. CP/M 3's, then CP/M-86's memory functions, then
 ; OODOS's own from 72.
@@ -304,5 +347,6 @@ O_ROM           = 75                   ; leave OODOS for the ROM: A = 0 its moni
 O_SECTOR        = 76                   ; an Apple disk's DOS 3.3 sector (6d)
 O_FRAME         = 80                   ; frame and timing (OOLIB's first area: hw/oolib.md, L1)
 O_INPUT         = 81                   ; input (OOLIB's second: hw/oolib.md, L2)
+O_SOUND         = 82                   ; sound (OOLIB's third: hw/oolib.md, L3)
 
 .endif

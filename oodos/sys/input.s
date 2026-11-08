@@ -51,7 +51,11 @@
 .importzp EVP                          ; irq.s's
 .import RETFF, PGET, PPUT
 .import DEAFEN, EVON, EVBLK, MS, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
-.export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT
+.ifdef OOLIB_DEBUG
+.import HKON, HOOKCOST, FHMAX, THMAX  ; irq.s's (a debug build)
+.endif
+.import CALL61, SIEN, C2ON          ; irq.s's, sound.s's
+.export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT, QEV, EVK, EVC, EVV
 
 .segment "SYSBSS"
 QSLOTS:         .res    1              ; the queue's slots (FT_OPEN's; 0 in layout 1)
@@ -81,6 +85,10 @@ IRQY:           .res    1              ; IRQOTH's: IRQH's bits that aren't stray
 ; irq.s's CALL62: routine X (sys.inc's R62_*).
 R62:            JMP     (R62TAB,X)
 R62TAB:         .word   DEAFEN, IRQOTH, L2TICK
+.ifdef OOLIB_DEBUG
+                .word   HKON, HOOKCOST ; irq.s's hook counters (a debug build)
+.assert R62_HKON = 6 && R62_HKCOST = 8, error, "R62TAB's debug entries are sys.inc's R62_HKON, R62_HKCOST"
+.endif
 .assert R62_DEAF = 0 && R62_OTHER = 2 && R62_TICK = 4, error, "R62TAB is in sys.inc's R62_* order"
 
 BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
@@ -88,9 +96,19 @@ BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
 ; The warm boot's (common.s's WARM): every interrupt enable a program set
 ; off (DEAFEN: the USB card's too), then the USB card's mouse (relative, the
 ; limits at /RESET's), its LEDs (off), its repeat (/RESET's), Pause on /NMI,
-; and the controllers as question 12 numbers them. Cold boot's warm boot
+; and the controllers as question 12 numbers them. A debug build's hook
+; costs (FT_COSTS) start again from 0 here. Cold boot's warm boot
 ; sets them first, so these are what cold boot set.
-WBQUIET:        JSR     DEAFEN
+WBQUIET:
+.ifdef OOLIB_DEBUG
+                STZ     FHMAX          ; the hooks' most cycles counted afresh (a debug build)
+                STZ     FHMAX + 1
+                STZ     THMAX
+                STZ     THMAX + 1
+.endif
+                LDX     #R61_QUIET     ; the sound card quiet, channel 2 stopped, the claims
+                JSR     CALL61         ; released (sound.s's SNDQUIET), before DEAFEN
+                JSR     DEAFEN
                 LDA     UCARD
                 BEQ     CMAPDEF
                 STZ     USB_MCTRL
@@ -116,7 +134,10 @@ CMAPDEF:        LDX     #3             ; controller n is hardware n
                 RTS
 
 ; A card's interrupt that isn't the VIA's or the video card's (irq.s's
-; dispatcher): the USB card's, with a layout-2 area open, answered; then
+; dispatcher): the USB card's, with a layout-2 area open, answered; L3's
+; (channel 2's terminal count, the sound card's mailbox and ES5503) while it
+; has any on, through CALL61 (sound.s's SNDIRQ, which says which it
+; answered); then
 ; any other card still interrupting, which OODOS didn't turn on, DEAFENed,
 ; and the USB card's events on again if the area wants them. After USBSRV
 ; the USB card pulling again is a new event's, which the next interrupt
@@ -130,7 +151,13 @@ IRQOTH:         STZ     IRQY
                 JSR     USBSRV
                 LDA     #NB_IRQ_USB
                 STA     IRQY
-@rest:          LDA     NB_IRQL
+@rest:          LDA     SIEN           ; L3's: the stream's channel 2, the card's interrupts
+                ORA     C2ON
+                BEQ     @other
+                LDX     #R61_IRQ
+                JSR     CALL61
+                TSB     IRQY           ; what it answered isn't a stray
+@other:         LDA     NB_IRQL
                 ORA     #NB_IRQ_VIA
                 INC     A
                 BNE     @deaf

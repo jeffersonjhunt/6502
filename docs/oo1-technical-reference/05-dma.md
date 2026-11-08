@@ -124,6 +124,12 @@ OODOS's BIOS reads the SD card on channel 0 and copies M:, the RAM disk, on chan
 the CPU held: the VIA's timer 1 interrupts each 7,159 cycles for OODOS's millisecond counter, and has one flag, so a
 copy held across two of its periods would lose a tick. Between the blocks the CPU takes the interrupt.
 
+Since OOLIB's L3, channel 2 is OODOS's too: its function 82 loads the sound card's RAM and the ES5503's wave RAM on it,
+and feeds the card's PCM stream from two buffers of a program's, always 4 KB a piece (4,096 cycles at most with the
+CPU held, for the same reason), the stream's with MODE's IRQ set so that the next piece starts at each terminal count
+([chapter 7](07-sound.md#under-oodos)). OODOS sets the master enable for it and leaves it on. The warm boot aborts the
+channel.
+
 ## Registers
 
 Status: **emulated**

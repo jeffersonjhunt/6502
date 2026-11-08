@@ -43,9 +43,6 @@
 .import DMASEG, AMAP
 .import IRQ, CLKOFF, EVON, FHON, THON, FHBUSY, FHSKIP ; irq.s's
 .import WBQUIET                         ; input.s's
-.ifdef OOLIB_DEBUG
-.import FHMAX, THMAX
-.endif
 .export STUB, STUBRET, WARM, FARCALL, FCRET, NMI, ROMAPPLE
 
 .segment "JUMPS"
@@ -260,12 +257,6 @@ WARM:           SEI
                 STZ     FHBUSY         ; a frame hook left by a warm boot inside it
                 STZ     FHSKIP
                 STZ     FHSKIP + 1
-.ifdef OOLIB_DEBUG
-                STZ     FHMAX
-                STZ     FHMAX + 1
-                STZ     THMAX
-                STZ     THMAX + 1
-.endif
                 JSR     WBQUIET        ; what the program turned on, off (DEAFEN), and the USB
                                        ; card's mouse, LEDs and repeat as cold boot had them
                 STZ     NB_WIN0

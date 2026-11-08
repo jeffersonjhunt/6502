@@ -31,6 +31,8 @@ NB_ID           = NB + $7F
 NB_IRQ_VIA      = $40                  ; IRQL bit 6, ID 6: the serial card (its VIA, or the stand-in 6551); 0 = interrupting
 NB_IRQ_VIDEO    = $02                  ; IRQH bit 1, ID 9: the video card
 NB_IRQ_USB      = $08                  ; IRQH bit 3, ID B: the USB card
+NB_IRQ_DMA      = $01                  ; IRQH bit 0, ID 8: the DMA controller's terminal counts
+NB_IRQ_SOUND    = $04                  ; IRQH bit 2, ID A: the sound card (the mailbox, the ES5503)
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
 CART_BLOCK      = 32                   ; flash block: the cartridge's first 16 KB, a IIe ROM as at $C000-$FFFF
@@ -108,6 +110,7 @@ DMA_GO          = $03                  ; CTRL: ENABLE + REQ
 DMA_ON          = $71                  ; CONTROL: master enable, no burst limit
 DMA_MASTER      = $01                  ; CONTROL: master enable
 DMA_ID_V1       = $81
+DMA_CH2         = $04                  ; ABORT, STATUS: channel 2, the sound card's
 DMA_CH3         = $08                  ; ABORT, STATUS: channel 3
 DMA_ALL         = $0F                  ; ABORT, STATUS: every channel
 DMA_MODE_IRQ    = $80                  ; MODE: interrupt at terminal count
@@ -248,6 +251,7 @@ DMA0_MODE       = DMA + $06
 DMA0_CTRL       = DMA + $07
 DMA0_DEST       = DMA + $08            ; memory to memory: the destination, 20 bits
 DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory
+DMA_DEMAND_OUT  = $05                  ; MODE: demand mode, memory to card
 DMA_ENABLE      = $01                  ; CTRL
 
 ; Sound card (module A): two SIDs and a 6510 of its own.
@@ -299,6 +303,17 @@ SOUND_DOC_RUN   = $01                  ; DOCCTL
 SOUND_DOC_IRQ_CARD = $04               ; DOCCTL: its interrupt to the 6510, not the host
 SOUND_DOC_AUTOINC = $20
 SOUND_DOC_RAM   = $40                  ; DOCCTL: DOCDATA reaches wave RAM, not the registers
+SOUND_IEN_MBOX  = $04                  ; IEN: a byte waiting in MBIN interrupts
+SOUND_IEN_DOC   = $08                  ; IEN (revision 2): the ES5503's interrupt, routed to the host
+SOUND_ST_IRQ    = $80                  ; STATUS: the card is interrupting
+SOUND_ST_MBIN   = $04                  ; STATUS: a byte from the card waits in MBIN
+SOUND_ST_MBOUT  = $02                  ; STATUS: the byte written to MBOUT isn't taken yet
+SOUND_DRQ_RAM   = 0                    ; DRQSEL: RAMDATA, PCMDATA, DOCDATA
+SOUND_DRQ_PCM   = 1
+SOUND_DRQ_DOC   = 2
+SOUND_CODEC_DOC = $80                  ; CODECS: an ES5503
+SOUND_STATE_UNDERRUN = $04             ; STATE: the FIFO ran dry before EOF
+SOUND_RAM_VECTOR = $FFFC               ; the card's 6510's reset vector, in its RAM
 
 ; Disk II controller (module C), slot 6 in Apple II mode. In native mode its block has slot 6's sixteen
 ; switches, in the same order, and its ID (hw/design.md, "Disk II controller clone"). Any access works a

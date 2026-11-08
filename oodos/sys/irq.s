@@ -57,12 +57,14 @@
 .importzp PA, PX, PP, T0, T1, T2, T3, T4, T5 ; the BDOS's (bdos.inc), for 80
 .import RETFF, PGET, PPUT
 .import R62, QSLOTS, L2OPEN, CMAPDEF ; input.s's
-.export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME
+.import R61, SIENSET, SIEN, C2ON, SCLAIM ; sound.s's
+.export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME, CALL61, CALLHOOK, HOOKADDR, SETHOOK
+.export HK, DHON
 .export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
 .export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .exportzp EVP, VIAL
 .ifdef OOLIB_DEBUG
-.export FHMAX, THMAX
+.export FHMAX, THMAX, HKON, HOOKCOST
 .endif
 
 .zeropage
@@ -71,17 +73,7 @@ VIAL:           .res    1              ; IRQL for the VIA alone, <~NB_IRQ_VIA, i
                                        ; one; else 0, which no IRQL is (modules 0-5 never
                                        ; interrupt): ID 6 is the 6551's then, not the VIA's
 
-; A hook's record in HK
-HK_ON           = 0                    ; 1: set
-HK_ADDR         = 1                    ; its address less 1, for RTS
-HK_WIN          = 3                    ; its windows, W0-W3
-HK_S            = 7                    ; the dispatcher's S while it runs
-HK_C0           = 8                    ; debug: timer 1's count at its call,
-HK_M0           = 10                   ;   and MS's low byte
-HK_MAX          = 11                   ;   the most cycles it took, since the warm boot
-HK_LEN          = 16
-HF              = 0                    ; the frame hook's
-HT              = HK_LEN               ; the tick hook's
+; A hook's record in HK: sys.inc's HK_*, HF, HT, HD
 
 .segment "SYSBSS"
 CLOCKS:         .res    1              ; CLK_FRAME, CLK_MS: the clocks cold boot started
@@ -96,7 +88,8 @@ FHBUSY:         .res    1              ; 1 while the frame hook runs
 FHSKIP:         .res    2              ; vertical blanks it was still running at
 THPER:          .res    2              ; the tick hook every n ms
 THCNT:          .res    2              ; ms to its next call
-HK:             .res    2 * HK_LEN     ; the hooks: the frame hook's at HF, the tick hook's at HT
+HK:             .res    3 * HK_LEN     ; the hooks: the frame hook's at HF, the tick hook's at HT,
+                                       ;   the ES5503's at HD
 SNAP:           .res    8              ; MS and FRAMES at one moment, for function 80; 81's event
 STKA:           .res    1              ; the sticks as last sampled (ports A and B, bits 0-4), the
 STKB:           .res    1              ;   tick's to compare (a layout-2 area open)
@@ -111,6 +104,7 @@ DBGR:           .res    1
 .endif
 
 FHON            = HK + HF + HK_ON
+DHON            = HK + HD + HK_ON
 THON            = HK + HT + HK_ON
 .ifdef OOLIB_DEBUG
 FHMAX           = HK + HF + HK_MAX
@@ -328,12 +322,8 @@ CALLHOOK:       LDA     NB_WIN1
                 LDA     HK + HK_WIN + 3,Y
                 STA     NB_WIN3        ; its common memory the same: this goes on
 .ifdef OOLIB_DEBUG
-                JSR     T1NOW
-                STA     HK + HK_C0,Y
-                TXA
-                STA     HK + HK_C0 + 1,Y
-                LDA     MS
-                STA     HK + HK_M0,Y
+                LDX     #R62_HKON      ; its start counted (HKON, block 62's): Y kept
+                JSR     CALL62
 .endif
                 CPY     #HT            ; carry set: the tick hook's (kept to the BCS)
                 LDA     HK + HK_ADDR + 1,Y
@@ -368,7 +358,8 @@ HKBACK:         LDA     #SYS_BLOCK
                 LDX     HK + HK_S,Y
                 TXS
 .ifdef OOLIB_DEBUG
-                JSR     HOOKCOST
+                LDX     #R62_HKCOST    ; its cycles counted (HOOKCOST, block 62's): Y kept
+                JSR     CALL62
 .endif
                 PLA
                 STA     NB_WIN3
@@ -404,6 +395,13 @@ VIDSRV:         LDA     VIDEO_ISR
 @ev:            LDA     EVON
                 BEQ     @hook
                 JSR     EVALL
+                BIT     EVON           ; a layout-2 area and the stream claimed: the sound part
+                BPL     @hook          ; (sound.s's SFIELDS, block 61)
+                LDA     SCLAIM
+                AND     #SC_STREAM
+                BEQ     @hook
+                LDX     #R61_FRAME
+                JSR     CALL61
 @hook:          LDA     FHON
                 BEQ     @done
                 LDA     FHBUSY
@@ -438,7 +436,39 @@ EVALL:          LDA     NB_WIN1
                 RTS
 .assert FRAMES = MS + 4 && EV_FRAMES = EV_MS + 4, error, "EVALL copies MS and FRAMES as one"
 
+; CALL61, sound.s's R61 routine X in block 61 (the BIOS), W2 borrowed for it
+; and put back byte for byte, as CALL62 borrows W3, the routine's A
+; returned (X not kept) (L3's handlers: W1 is
+; the event area's, never code). Here, after the tick's path, so the tick's
+; branches stay where they were (test_oodos_input times the tick).
+CALL61:         LDA     NB_WIN2
+                PHA
+                LDA     #BIOS_BLOCK
+                STA     NB_WIN2
+                JSR     R61
+                TAX                    ; the routine's A kept (SNDIRQ's answer): X is free
+                PLA
+                STA     NB_WIN2
+                TXA
+                RTS
+
+
 .ifdef OOLIB_DEBUG
+; The debug build's counters, in block 62's code window (RES), reached by
+; CALL62 (L3's step (b): out of common memory, which L3 needs). Each keeps
+; Y. Going through CALL62 adds about 35 cycles to each hook's measured
+; cost (the switch back after HKON, and to HOOKCOST before its count).
+.segment "RES"
+
+; Hook Y's call: timer 1's count and MS's low byte, for HOOKCOST.
+HKON:           JSR     T1NOW
+                STA     HK + HK_C0,Y
+                TXA
+                STA     HK + HK_C0 + 1,Y
+                LDA     MS
+                STA     HK + HK_M0,Y
+                RTS
+
 ; Timer 1's count now in A (low) and X (high); a tick that came due
 ; meanwhile counted first, since reading the count clears its flag (its
 ; hook, if due, waits for the next). One that comes due between the IFR's
@@ -567,7 +597,8 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 STA     NB_RTCCTL
                 STZ     SD_IEN
                 STZ     USB_IEN
-                STZ     SOUND_IEN
+                LDA     SIEN           ; the sound card's: L3's own kept (sound.s)
+                STA     SOUND_IEN
                 STZ     CONSOLE_IEN
                 LDA     #1             ; a front-panel key pending pulls /IRQ whatever IEN says
                 STA     CONSOLE_ISR
@@ -576,12 +607,18 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 BNE     @acia
                 STZ     DMAIRQ
                 LDX     #$30           ; channel 3 to 0
-@dma:           LDA     DMA0_MODE,X
+@dma:           CPX     #$20           ; channel 2 while a stream buffer moves on it is L3's:
+                BNE     @mode          ; its interrupt and its count left as they are
+                LDA     C2ON
+                BEQ     @mode
+                ASL     DMAIRQ
+                BRA     @next
+@mode:          LDA     DMA0_MODE,X
                 ASL     A              ; its interrupt bit (7) to carry,
                 ROL     DMAIRQ         ; and on into the mask: channel 3's ends in bit 3
                 LSR     A              ; the mode with its interrupt off
                 STA     DMA0_MODE,X
-                TXA
+@next:          TXA
                 SEC
                 SBC     #$10
                 TAX
@@ -626,6 +663,7 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 ; OODOS's own interrupts off, for leaving it (Apple II mode, function 75):
 ; the clocks', and the USB card's (a layout-2 area's).
 CLKOFF:         STZ     USB_IEN
+                STZ     SOUND_IEN      ; and the sound card's (L3's)
                 LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @video
@@ -645,6 +683,8 @@ CLKINIT:        STZ     CLOCKS
                 BNE     @via
                 INC     UCARD
 @via:           JSR     CMAPDEF        ; the controllers as question 12 has them (the warm boot's too)
+                LDX     #R61_INIT      ; the sound card and the DMA controller (sound.s)
+                JSR     CALL61
                 LDA     VIA_IER
                 BPL     @video
                 LDA     #<~VIA_IER_SET
@@ -707,7 +747,7 @@ FT_INFOX:       LDX     PX
 @ret:           LDA     #OOLIB_IFACE
                 LDX     #OOLIB_AREAS
                 RTS
-.assert OOLIB_AREAS = OA_FRAME | OA_INPUT, error, "L2 has frame and timing, and input"
+.assert OOLIB_AREAS = OA_FRAME | OA_INPUT | OA_SOUND, error, "L3 has frame and timing, input, and sound"
 .assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; MS and FRAMES at one moment, into SNAP.
@@ -787,6 +827,9 @@ FT_OPENX:       LDX     PX
                 SEI                    ; with no interrupt between the two
                 STZ     USB_IEN
                 STZ     EVON
+                PHA
+                JSR     SIENSET        ; the mailbox's interrupt off with it (sound.s)
+                PLA
                 PLP
                 STA     EVBLK
                 STZ     QSLOTS         ; the layout in T5, the queue's slots (layout 2)
@@ -846,7 +889,8 @@ FT_OPENX:       LDX     PX
                 STA     EVON
                 BRA     @ok
 @l2:            JSR     L2OPEN         ; layout 2's input, and EVON (input.s)
-@ok:            LDA     #0
+@ok:            JSR     SIENSET        ; the mailbox's interrupt, if the 6510 is claimed
+                LDA     #0
                 TAX
                 RTS
 @no:            JMP     RETFF
@@ -856,6 +900,7 @@ FT_CLOSEX:      PHP                    ; a layout-2 area's input off, then the a
                 SEI                    ; with no interrupt between the two
                 STZ     USB_IEN
                 STZ     EVON
+                JSR     SIENSET        ; and the mailbox's (sound.s)
                 PLP
                 LDA     #0
                 TAX

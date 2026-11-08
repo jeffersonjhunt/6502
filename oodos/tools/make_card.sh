@@ -76,7 +76,7 @@ out="$root/emulator/test/host/sd"
 # What the container copies in (below), and so what's on the cards: a commit
 # elsewhere in oodos/ (its tests, its README) leaves the stamp as it was.
 src="oodos/Makefile oodos/include oodos/sys oodos/ldr oodos/examples oodos/cfg oodos/tools
-     oodos/utils oodos/rsx oodos/card oodos/diskdefs backplane/bios/backplane.inc"
+     oodos/utils oodos/rsx oodos/lib oodos/card oodos/diskdefs backplane/bios/backplane.inc"
 # shellcheck disable=SC2086 # src is a list of paths
 stamp=$(cd "$root" && TZ=UTC git -c safe.directory='*' log -1 --format=%cd \
     --date=format-local:'%Y-%m-%d %H:%M:%S' -- $src)
@@ -138,7 +138,7 @@ PY
 # utilities, from their sources, in a copy laid out as the repo is (/o and /b
 # are read-only).
 mkdir -p src/oodos src/backplane/bios
-cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx src/oodos/
+cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx /o/lib src/oodos/
 cp /b/backplane.inc src/backplane/bios/
 rm -rf src/oodos/ldr/build src/oodos/sys/build src/oodos/build
 make -s -C src/oodos/ldr

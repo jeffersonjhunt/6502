@@ -105,8 +105,8 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CcpRig r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " I");
-    CHECK_EQ(field(o, "INFO"), std::string("02 03"));        // interface 2 (L2), frame and timing, input
-    CHECK_EQ(field(o, "INFOB"), std::string("02030302"));    // and both clocks, layouts to 2
+    CHECK_EQ(field(o, "INFO"), std::string("03 07"));        // interface 3 (L3), frame and timing, input, sound
+    CHECK_EQ(field(o, "INFOB"), std::string("03070302"));    // and both clocks, layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});
     CHECK_EQ(v.substr(0, 4), std::string("0004"));            // OODOS 0.4 (question 15)
@@ -347,7 +347,7 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     REQUIRE(r.ok);
     Span s(r);
     const std::string o = r.go("l1test.com", " E");
-    CHECK_EQ(field(o, "ALIVE"), std::string("02 03")); // FT_INFO answers: OOLIB 2, frame and timing and input
+    CHECK_EQ(field(o, "ALIVE"), std::string("03 07")); // FT_INFO answers: OOLIB 3, frame and timing, input and sound
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 C0")); // vertical blank and timer 1 alone
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
     s.check("through it", 2, 1);

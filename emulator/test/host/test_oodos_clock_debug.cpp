@@ -36,7 +36,10 @@ TEST(a_debug_build_counts_the_hooks_cycles)
     // dispatcher's own besides the hook's, and for the frame hook the ticks taken under it (each tick
     // and its 300-cycle hook, one or two a frame hook).
     CHECK(frame >= 8000 && frame <= 10500); // 8,000 cycles of its own
-    CHECK(tick >= 380 && tick <= 460);      // 282 of its own
+    // 282 of its own. The cost counters sit behind CALL62 (in block 62, out of common memory, L3's
+    // step (b)): the switch there and back adds about 58 cycles to each count (431 measured before, 489
+    // after).
+    CHECK(tick >= 380 && tick <= 520);
     const double want = static_cast<double>(r.cpu->cycles() - c0) / 7159.0;
     const double got = static_cast<double>((m1 - m0) & 0xFFFF);
     std::printf("  %.0f ms counted, %.1f in the cycles\n", got, want);

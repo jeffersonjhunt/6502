@@ -529,7 +529,7 @@ something open it was decided as below, each with its reason; the first two are 
 - **L3: sound.** Claiming and releasing the card; `.sid` tunes; the stream service; the ES5503's claim and wave
   RAM loads; the speaker's beep; and the warm boot stopping all of it, as BIOS QUIET does. **Sound rev 2's last
   acceptance item lands here.**
-**L3's plan (decided 2026-11-07, the owner; not yet built).** The plan as below, and its five questions as
+**L3's plan (decided 2026-11-07, the owner; built, below).** The plan as below, and its five questions as
 recommended: L2's layout amended (+96 to +127 for sound, the queue from +128); `.sid` in OOLIB with PLAYSID.COM; a
 busy channel 2 refuses a load with "busy"; the beep blocking and cycle-counted with interrupts on; the 6510's
 mailbox bytes into the event queue. It rests on questions 5, 6 and 9 as decided, on L1, and on L2 (the event
@@ -585,6 +585,133 @@ queue, block 62 as the handlers' home).
   PSID files the tests build themselves, as `test_sid_file.cpp` does, never the owner's collection; the beep's
   length; a layout-1 or layout-2 program unaffected. Each suite's fast time stated, and the sanitizer TIMEOUT
   checked (the acceptance case plays the fewest seconds that prove the chaining).
+
+**L3, as built (2026-11-08)** (`oodos/sys/sound.s`, new: function 82 in block 60, the handlers in block 61;
+`irq.s`'s `CALL61`, the frame's call, DEAFEN, cold boot's; `input.s`'s IRQOTH branch and WBQUIET's call;
+`oodos/include/oodos.inc`'s `O_SOUND`, `SN_*`, `SC_*`, `EV_S*`, `EK_SOUND`; `oodos/lib/sid.s` and
+`oodos/include/oolib.inc`, new: the linked library; `oodos/utils/playsid.s`, new; bit names in `backplane.inc`, the
+ROM byte-identical). OODOS stays 0.4; OOLIB's interface version is 3, `FT_INFO`'s areas `$07`. The owner's memory
+decision of 2026-11-08 (from L3's sizing study) is followed: (a) the handlers in block 61, (b) first, (d1) kept for
+L4. Where the plan left something open it was decided as below, each with its reason.
+
+- **(b), the debug build's counters out of common memory** (the first commit): T1NOW, ADDTK, HOOKCOST and
+  CALLHOOK's start-of-hook part (now HKON) moved to block 62 behind `CALL62` (`R62_HKON`, `R62_HKCOST`), WARM's
+  STZs of FHMAX and THMAX into WBQUIET. The normal OODOS.SYS is byte-identical (cmp); the debug build's common memory
+  went from 11 bytes free to 202. The crossing adds 58 cycles to each measured hook (the tick hook 431 on main, 489
+  after; the frame hook 9,936 to 10,147), not the 35 the sizing guessed, which broke `test_oodos_clock_debug`'s
+  tick bound (380-460); an inline W3 switch in place of `CALL62` was measured too, 469, still over. The owner
+  widened the bound to 380-520 (fix 1, 2026-11-08); the frame bound is as it was.
+- **Where it lives** (decision (a)): block 61 has the handlers, reached from the dispatcher by `CALL61` (common
+  memory: W2 saved, block 61 mapped, the routine, W2 put back byte for byte, as `CALL62` does W3; W1 is never code,
+  being the event area's): channel 2's terminal count (the next piece, the next buffer), the mailbox into the queue,
+  the ES5503's acknowledge and hook, the area's sound part, and the warm and cold boots' parts. Function 82 is in
+  block 60, the BDOS's, since PGET and PPUT remap W2; it calls block 61's helpers directly (W2 is block 61 there
+  between PGETs). Block 62 has only IRQOTH's branch (`SIEN` or `C2ON`: `CALL61` to `SNDIRQ`, which returns the IRQH
+  bits it answered, so they aren't strays), WBQUIET's and cold boot's calls, DEAFEN's care below and CLKOFF's IEN.
+  `CALL61` sits after the tick's path in common memory: placed before it, it moved `TICK` so a branch crossed a page,
+  and the tick cost 146.
+- **DEAFEN and L3** (the sizing's first design point): DEAFEN writes the card's IEN as `SIEN`, L3's own, rather than
+  0, and skips channel 2 while a stream buffer moves on it (`C2ON`), its MODE and its terminal count left alone, so
+  a stray elsewhere can't stop the stream or lose the count that starts its next piece. The plan's "re-enable them
+  as L2 does USB" would have left a gap: a piece that finished at once could have its count cleared by DEAFEN before
+  the re-enable.
+- **Pieces of 4 KB** (not in the plan): with room in the FIFO the card holds DRQ and channel 2 holds the CPU a cycle
+  a byte; a whole 64 KB buffer would hold it 9 ms, over a tick (the VIA has one flag: ticks lost). So a buffer goes
+  to the card 4,096 bytes a piece, each terminal count starting the next, as DMAGO's copies are 4,096 cycles. The
+  loads (`SN_LOAD`, `SN_WAVE`) go the same way, synchronously in the BDOS, each piece waited for with interrupts on
+  between: a 64 KB load keeps the millisecond counter to the cycle count (17 counted, 17.7 in the cycles).
+- **The buffers are taken in turn** (0, 1, 0, 1 from `SN_STREAM` or `SN_SEEK`), not the first free: with room in the
+  FIFO a buffer is sent whole before the program gives the next, and "first free" then gave it the same slot again,
+  so a program alternating two buffers of its own couldn't tell which was free. `SN_BUFFER` is refused `SN_BUSY` while
+  the buffer whose turn it is is still in use.
+- **"Busy"** (the plan's question 3) is A = `$FE` (`SN_BUSY`), X = `$FF`, to tell it from A = X = `$FF`, refused.
+- **The event area's sound part** (decided: +96 to +127): +96 the state, +97 the buffers free (bit a buffer), +98-99
+  the FIFO's room, +100-103 the frames, +104-105 the kbit/s, +106-107 the underruns, +108-127 reserved. Written only
+  while the stream is claimed and a layout-2 area is open, once a frame and at each buffer's end (not at each piece:
+  a buffer's free bit changes only then), so a layout-2 program that claims nothing sees the zeros L2 left. The card
+  counts no underruns a program can read: OODOS counts STATE going to 4 when it sees it (a frame, a buffer's end,
+  `SN_STATUS`), so a dry spell shorter than a frame between two looks isn't counted.
+- **The mailbox** (decided: into the queue): IEN bit 2 only while the 6510 is claimed and a layout-2 area is open, set
+  and cleared with the claim and with `FT_OPEN` and `FT_CLOSE` (masked with EVON's change), so a program without an
+  area polls MBIN as before and loses nothing to OODOS. `SN_CLAIM` of the 6510 empties MBIN first. An event is
+  `EK_SOUND` (6), code 0, the value the byte.
+- **The ES5503's hook** (the sizing's second design point, DOCADDR): the handler saves DOCCTL, DOCADDR (both bytes)
+  and DOCBANK, reads `$E0` with the registers selected, calls the hook with the port so, and puts all three back after
+  the hook returns (review F2); during `SN_WAVE` the ES5503's bit is out of `SIEN` itself, so the handler never runs
+  under the transfer, a stray's DEAFEN included (F3). Whether the chip is pending is told by `$E0`'s bit 7, not by
+  STATUS's IRQ, which a mailbox byte sets too (F4). The hook runs masked, as the tick hook does, in the tick hook's record (masked
+  hooks never nest: HT's record set aside, the ES5503 hook's copied in, `CALLHOOK` for HT, HT's put back whole), so
+  common memory gained nothing for it. Its A can't carry the interrupt register (the hook's W0 is mapped before its
+  registers are free), so `SN_DOCHOOK`'s +3 names a byte of its zero page that OODOS writes first. Not in the plan.
+- **The beep:** the pitch in Hz, 20-20,000, the length in ms by the millisecond counter (refused without the VIA, or
+  without the USB card); the delay loop in block 61, aligned so its branches never cross a page (a crossing cost a
+  fifth of the pitch). 1,000 Hz for 100 ms toggles the speaker 193 times, the ticks lowering it about 2%.
+- **The warm boot** (`SNDQUIET`, before DEAFEN): QUIET's work for the card, channel 2 aborted, MODE 0 and its count
+  cleared, DRQSEL 0, IEN 0, the hook off, every claim released: at every warm boot, whether anything was claimed or
+  not, so a program that used the card behind OODOS's back (OO-Amp's `oa_hal.s`, until L5) leaves nothing playing.
+  Break goes through the ROM's QUIET, which aborts every channel; booting again starts afresh.
+- **`.sid` in OOLIB** (decided): `lib/sid.s`, assembled into `build/oolib.lib` (`oodos/Makefile`'s `OOLIB_USERS`
+  link with it, through the rules gate), ported from `sid_file.cpp`'s rules (the meaning: no code copied): the
+  header's checks, the free page chosen in the same order and by the same clashes, the stub the same bytes, the
+  KERNAL's three exits and the vectors, CTRL's NTSC, `$D500` and BOTH; then claimed, stopped, loaded by `SN_LOAD`,
+  started by `SN_START`. The chips' model (6581 or 8580) is a jumper on the card, not a register, so the library
+  can't set it, as the plan's "as the emulator's player" can't. PSID only. PLAYSID reads the file whole into the TPA
+  (the last record's byte count, which open gives for CR `$FF`, taken off), plays until a key, and stops.
+- **Memory** (bytes free after L3 and its review, normal build, then debug): common memory 176 (166), down 36
+  (`CALL61` and the frame's call); the system block's SYSBSS 132 (129); block 60 569 (553): function 82 is about
+  1,500 bytes, so the BDOS block is now the tight one (the owner, 2026-11-08: its room waits for L4, when the loads
+  and the beep could move to block 61); block 61 6,204; block 62's code window 1,188 (985); zero page 2. PLAYSID is
+  7,281 bytes, the library about 2,650 of them (and 359 of BSS).
+- **Costs** (`test_oodos_sound`, from the interrupt's first cycle to its RTI's last): a tick with no area **145, L1's
+  to the cycle**, a layout-1 area's 184, a layout-2 area's 234, with or without the stream: L3 adds nothing a tick.
+  A terminal count's handler is about 530-700 cycles (688 the most common), about 860 at a buffer's end (the area
+  written; `CALL61` keeping A, review F1, added 4 to each), the next
+  piece's 4,096 cycles of DMA inside it when the FIFO has room: 43 pieces a second at 44.1 kHz 16-bit stereo, under
+  0.5% of the CPU. A frame with the stream claimed and a layout-2 area open is 688 cycles against 389 without: the
+  sound part about 300 (692 since F1's 4). The USB card's key interrupt is 662 cycles, 11 more than L2's (IRQOTH's check). The mailbox
+  and ES5503 interrupts weren't timed.
+- **Tests** (emulator, fast preset): `test_oodos_sound` (15 cases since the review, 2.8 s: the claims and refusals; `SN_SEND` busy; loads to the RAMs' ends; 64 KB of card RAM
+  by DMA byte for byte with no tick lost; the 6510 started, its mailbox both ways into the queue, stopped; busy while
+  a buffer moves; six buffers of 10,000 bytes chained across terminal counts, the tap what was sent; pause, resume,
+  seek, an underrun counted once, the end; 6,000 bytes of wave RAM across its first 64 KB and the ES5503 hook with
+  DOCCTL and DOCADDR put back; the beep; the warm boot by `JMP WBOOT`, ^C and Break; a layout-1 or layout-2 program
+  that claims nothing unchanged; and the acceptance: 1.3 s of 44.1 kHz 16-bit stereo raw PCM from B:, 0 underruns,
+  the tap the file's bytes; the repo's `cbr320_stereo_48k.mp3` from B:, the tap minimp3's decoding of it, 0
+  underruns); `test_oodos_playsid` (6 cases since the review, 2.2 s, song 256 of 256 among them: tunes the test builds, never the owner's, each played by
+  PLAYSID and its card RAM and CTRL checked against `plan_sid` for the same bytes: a frame song, a CIA-timed NTSC one
+  on the header's free page, version 1 with its load address in its data and no play, a tune over `$0314` with SID
+  B at `$D500`, one over `$F000-$FFEF`; and the refusals). Test programs `oodos/sys/test/l3test.s` and `l3strm.s`.
+  The clock and input suites' `FT_INFO` expectations follow the version: `03 07`, `03070302`.
+
+- **The review** (2026-11-08; the owner: fix F1-F6 and F8-F10, note F7):
+  - F1: `CALL61` returned the saved W2 in A, not `SNDIRQ`'s answer, so IRQOTH's strays were judged by it: in the BDOS
+    (W2 `$3D`) a real stray on IRQH bits 0 and 2-5 was hidden and the dispatcher took it again and again (USB_IEN
+    left on with no area, while a stream moved, held a function 10 call); in a program a terminal count still
+    pulling (the next piece run at once) was taken for a stray, DEAFEN running for each. `CALL61` keeps A now (TAX,
+    TXA: X is free in each caller). Must-fail tests, both failing before: `a_stray_in_a_bdos_call_is_turned_off_
+    while_a_stream_moves` (USB_IEN stayed `$0F`) and `chained_terminal_counts_in_a_program_are_not_strays` (DEAFEN
+    ran 12 times for 13 pieces after a FIFO flush under the program; 0 now).
+  - F2: the hook ran after DOCCTL and DOCADDR were put back, and DOCBANK wasn't kept, so its writes went into what it
+    interrupted (the must-fail `a_hook_s_register_write_leaves_the_interrupted_docdata_run_whole`: the hook's `$77`
+    landed in wave RAM at `$40`; now the run is whole and register `$40` is `$77`).
+  - F3: the wave load held bit 3 off at the card only, and a stray's DEAFEN wrote `SIEN` back mid-load (the test,
+    failing with the fix taken out: bit 3 on in 635 of the load's 836 steps; 0 now). F4: above.
+  - F5: the beep reads MS whole, masked (`BEEP_LOOP` 12: 194 toggles for 1,000 Hz, 100 ms). F6: `SN_SEND` is busy
+    while STATUS says the 6510 hasn't taken the last byte. F8: a load past the end of the card's RAM or wave RAM is
+    refused, not wrapped. F9: song 256 of 256 plays, its start song too, and prints as 256 (`SID_PLAN` takes A/X).
+    F10: a refused `SN_DOCHOOK` leaves no hook, documented. F7, noted in the Technical Reference: the handler's
+    DOCCTL write clears a waiting STATE `$82`.
+  - The second review (2026-11-08; the owner: all seven as recommended): with the ES5503's interrupt routed to the
+    6510 (DOCCTL's IRQ_CARD) `SNDIRQ` no longer reads `$E0`, which on a mailbox byte's interrupt took the 6510's
+    oscillator and called the hook (the test, failing before: the chip's interrupt gone, the hook called once);
+    MBOUT can't be emptied from the host (only /RESET does), so a byte left there is documented for a new 6510
+    driver to drop; `SN_WAVE` refuses a +6 past 1 (`$20000` up aliased into the RAM); `SN_DOCHOOK` takes the ES5503's
+    bit out of `SIEN` and IEN, masked, with the old hook, and `SIENSET` puts it back with the new, so an interrupt
+    in between waits in the chip rather than being taken with no hook (the other choice, masking across PGET and
+    SETHOOK, would have held interrupts off longer); song 256's test CIA-timed (speed's bit 31); the hook's DOCCTL
+    write undone at its return, and `SN_BUSY`'s cases, documented.
+  - The owner's answers to L3's questions: block 60's room waits for L4; the ES5503 hook as built (masked, the tick
+    hook's record, the register in a zero-page byte the program names); the SID model a jumper, documented.
 
 - **L4: graphics, the linked library** (`oodos/lib/`, with cc65 headers): modes, the palette, tiles and maps,
   sprites (the shadow table goes to the card by DMA at vertical blank, through L1's dispatcher), bitmaps, double

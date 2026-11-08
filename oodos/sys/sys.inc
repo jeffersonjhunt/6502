@@ -145,15 +145,36 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 2                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2)
-OOLIB_AREAS     = $03                  ; the service areas there are (FT_INFO's): frame and timing (80),
-                                       ; input (81)
+OOLIB_IFACE     = 3                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3)
+OOLIB_AREAS     = $07                  ; the service areas there are (FT_INFO's): frame and timing (80),
+                                       ; input (81), sound (82)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)
 PAD_MS          = 4                    ; the paddles read this many ms after PTRIG (255 counts: 2.8 ms)
 UBATCH          = 16                   ; the USB FIFO's events taken an interrupt at most (input.s)
 R62_DEAF        = 0                    ; irq.s's CALL62: input.s's R62TAB, DEAFEN
 R62_OTHER       = 2                    ;   IRQOTH: a card's interrupt not the VIA's or the video card's
 R62_TICK        = 4                    ;   L2TICK: the sticks and the paddles
+;   (the debug build's, below)
+R61_IRQ         = 0                    ; irq.s's CALL61: sound.s's R61TAB, SNDIRQ (block 61)
+R61_FRAME       = 2                    ;   SFIELDS: the event area's sound part
+R61_QUIET       = 4                    ;   SNDQUIET: the warm boot's
+R61_INIT        = 6                    ;   SNDINIT: cold boot's
+R62_HKON        = 6                    ;   a debug build's HKON and HOOKCOST: a hook's cycles
+R62_HKCOST      = 8                    ;   counted (irq.s)
+
+; A hook's record in irq.s's HK (L1; the ES5503's, L3)
+HK_ON           = 0                    ; 1: set
+HK_ADDR         = 1                    ; its address less 1, for RTS
+HK_WIN          = 3                    ; its windows, W0-W3
+HK_S            = 7                    ; the dispatcher's S while it runs
+HK_C0           = 8                    ; debug: timer 1's count at its call,
+HK_M0           = 10                   ;   and MS's low byte
+HK_MAX          = 11                   ;   the most cycles it took, since the warm boot
+HK_ZP           = 13                   ; the ES5503 hook's: the byte of its zero page that gets $E0's value
+HK_LEN          = 16
+HF              = 0                    ; the frame hook's
+HT              = HK_LEN               ; the tick hook's
+HD              = 2 * HK_LEN           ; the ES5503 hook's (sound.s): called masked, in HT's place
 
 ; BIOS banks (SETBNK, SELMEM, XMOVE)
 BANK_SYS        = 0                    ; the system's windows: 31, 60, 61, 62
