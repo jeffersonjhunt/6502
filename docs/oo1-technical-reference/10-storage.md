@@ -597,11 +597,14 @@ for Apple CP/M disks. The drives it gives programs, O: and P:, are in the Progra
   afresh, and a file open on the old one gets error 10, Media Change. A drive accessed within the same second of
   the clock is taken as unchanged. The rules are the Programmer's Guide's
   ([Removable drives](../oodos-programmers-guide/03-file-system.md#removable-drives-o-and-p)).
-- **Interrupts and DMA during a sector.** OODOS calls the driver with interrupts off: the BDOS's entry masks them
-  for the whole call, and a sector write masks them itself as well, for the whole write, its seek and the search for
-  its address field included, and puts the caller's flag back after. The write also turns the DMA controller's
-  master enable off ([`$C441`](05-dma.md#reg-c441)) and puts it back after; a read leaves DMA alone, since OODOS
-  runs no transfer while the driver does. Break (NMI) can't be masked: the NMI handler turns the card's write mode
+- **Interrupts and DMA during a sector.** The BDOS runs with interrupts on, so the driver masks them only a field
+  at a time: from an address field's first byte (its `D5`) to the end of the data field read or written after it,
+  about 12 ms a sector, less than a frame. It turns them back on, if its caller had them on, before it looks for
+  the next field; the seek and the search run with them on. The millisecond counter misses the ticks of a masked
+  field, so the driver adds that time back from the disk bytes it read (224 cycles each); a vertical blank that
+  comes meanwhile is taken afterwards, so the frame counter loses none. A write also turns the DMA controller's
+  master enable off ([`$C441`](05-dma.md#reg-c441)) while it writes and puts it back after; a read leaves DMA
+  alone, since OODOS runs no transfer while the driver does. Break (NMI) can't be masked: the NMI handler turns the card's write mode
   and motor off and the master enable back on before the monitor, so a write it cuts short loses that sector and
   the rest of the track is kept.
 
