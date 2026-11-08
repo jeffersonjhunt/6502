@@ -277,9 +277,9 @@ emulator; each link goes to the note.
   - The Disk II's bit cell follows a WOZ image's own timing, where the design gives every cell 4 µs, and the north
     bridge resets the card with the IIe's switches, not through the card's own reset
     ([The sequencer and the drives](10-storage.md#the-sequencer-and-the-drives)).
-  - The Disk II's head moves the moment a phase changes, and its motor is at speed the moment it is switched on;
-    a real drive needs its step, settling and spin-up times, which OODOS's driver waits only for the steps and
-    the settling ([Timing in native mode](10-storage.md#timing-in-native-mode)).
+  - The Disk II's head moves the moment a phase changes, and its motor is at speed the moment it is switched on.
+    A real drive needs time to step, to settle and to spin up
+    ([Timing in native mode](10-storage.md#timing-in-native-mode)).
   - The Disk II's motor runs on for 0.998 s in native mode, where hw/design.md says a second: the run-on is
     counted in the sequencer's steps, Apple II mode's second without its long cycle
     ([Timing in native mode](10-storage.md#timing-in-native-mode)).

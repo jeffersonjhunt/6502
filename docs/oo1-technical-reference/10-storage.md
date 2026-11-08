@@ -589,7 +589,8 @@ for Apple CP/M disks. The drives it gives programs, O: and P:, are in the Progra
 - **Every wait is bounded:** a disk byte 256 polls, an address field 13,000 disk bytes (two turns and more), a track
   three tries. A disk that doesn't turn, or a card with no sequencer PROM, ends in Disk I/O, not a hang.
 - **The motor** is switched on for each read or write and off at its end; the card's run-on keeps the disk turning
-  for the next access within the second.
+  for the next access within the second. There is no spin-up wait: a read just starts, and a write starts once its
+  sector's address field has been read.
 - **A changed floppy.** Whether a disk is turning is seen from the data register changing over about 2,000 cycles.
   A disk that had stopped, or the other drive's (the card has one motor line), may have been changed: the BIOS
   empties its buffers, and the BDOS reads the directory again and compares its checksums. Another disk is logged in
