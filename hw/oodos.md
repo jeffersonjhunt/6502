@@ -3028,7 +3028,10 @@ merged, with the switches' equates (below).
    `D2_Q6OFF`/`ON` `$0C`/`$0D`, `D2_Q7OFF`/`ON` `$0E`/`$0F`), so `backplane.inc` is unchanged in phase 6 and
    G2 and phase 6 merge in either order; the sixteen equates (`DISK2_PH0OFF` = `DISK2 + $00` … `DISK2_Q7ON` =
    `DISK2 + $0F`) go into `backplane.inc` with their Technical Reference entries after both have merged, and the
-   driver moves to them then.
+   driver moves to them then. *(Done 2026-11-07, `docs/techref-disk2`: the sixteen are in `backplane.inc` with
+   their entries in the Technical Reference's chapter 10, and `disk2.inc`'s offsets are now taken from them,
+   `D2_x = DISK2_x - DISK2`, so the values are said once and `disk2.s` is unchanged; OODOS.SYS and the ROM are
+   byte for byte as before.)*
 4. **Raw sectors for DOS33: function 76** (OODOS's own range, 76–97 reserved), with the BDOS dropping the drive's
    buffers and logging it out; or BIOS function 30 through 50 (CP/M 3's slot for the implementor), where the
    utility must reset the drive itself first. **Recommended: 76**: the BDOS owns the buffers, so it is the one to

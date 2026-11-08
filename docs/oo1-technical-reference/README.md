@@ -22,13 +22,13 @@ difference; [chapter 14](14-emulator-notes.md#what-differs) has them all in one 
 | 7 [Sound](07-sound.md) | two SIDs and a 6510, `$C500`: the mailbox, the card's RAM, `.sid` tunes | the card's bus timing |
 | 8 [USB](08-usb.md) | the keyboard, mouse, game port and speaker, `$C580` | other layouts, a gamepad, device events, the event FIFO on DMA, a real 558 |
 | 9 [Serial and the VIA](09-serial-and-via.md) | the 6551 stand-in at `$C300`, the VIA at `$C340` and the joysticks | COM1, COM2 and LPT; the user port |
-| 10 [Storage](10-storage.md) | the SD card, `$C380`: commands, FAT mounts, DMA; the Disk II | the Disk II's native mode |
+| 10 [Storage](10-storage.md) | the SD card, `$C380`: commands, FAT mounts, DMA; the Disk II in both modes, and how OODOS drives it | |
 | 11 [The north bridge and the clock](11-north-bridge-and-rtc.md) | the windows, VEC, MODE, STATUS, the wait states, the interrupt poll, the DS3231, `$C680` | turbo |
 | 12 [The front panel](12-front-panel.md) | the console card, `$C700`: switches, keys, lights, the breakpoint | the design's bus-cycle step, breakpoint cycle, EXAM and DEP on the bus, AMODE handling and ISR; the BE lamp; the ESP32's SPI header |
 | 13 [Apple II mode](13-apple-ii-mode.md) | entering it, the IIe's memory map and switches, the display, the clock, the Disk II, Ctrl-Reset, what isn't there | the long cycle |
 | 14 [Emulator notes](14-emulator-notes.md) | the machines and the apps, what the emulator models, every difference from the design, running a program | what isn't there, gathered from the chapters |
 
-Everything else is **emulated**: each chapter's sections and all 155 register entries, one for every I/O address
+Everything else is **emulated**: each chapter's sections and all 191 register entries, one for every I/O address
 an equate in [`backplane/bios/backplane.inc`](../../backplane/bios/backplane.inc) names
 ([docs/templates/register.md](../templates/register.md); [docs/index/registers.json](../index/registers.json)
-lists them). Written in G2.
+lists them). Written in G2; the Disk II's native switches after OODOS's phase 6.
