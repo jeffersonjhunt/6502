@@ -51,6 +51,9 @@
 .importzp EVP                          ; irq.s's
 .import RETFF, PGET, PPUT
 .import DEAFEN, EVON, EVBLK, MS, FRAMES, CLOCKS, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
+.ifdef OOLIB_DEBUG
+.import HKON, HOOKCOST, FHMAX, THMAX  ; irq.s's (a debug build)
+.endif
 .export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT
 
 .segment "SYSBSS"
@@ -81,6 +84,10 @@ IRQY:           .res    1              ; IRQOTH's: IRQH's bits that aren't stray
 ; irq.s's CALL62: routine X (sys.inc's R62_*).
 R62:            JMP     (R62TAB,X)
 R62TAB:         .word   DEAFEN, IRQOTH, L2TICK
+.ifdef OOLIB_DEBUG
+                .word   HKON, HOOKCOST ; irq.s's hook counters (a debug build)
+.assert R62_HKON = 6 && R62_HKCOST = 8, error, "R62TAB's debug entries are sys.inc's R62_HKON, R62_HKCOST"
+.endif
 .assert R62_DEAF = 0 && R62_OTHER = 2 && R62_TICK = 4, error, "R62TAB is in sys.inc's R62_* order"
 
 BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
@@ -88,9 +95,17 @@ BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
 ; The warm boot's (common.s's WARM): every interrupt enable a program set
 ; off (DEAFEN: the USB card's too), then the USB card's mouse (relative, the
 ; limits at /RESET's), its LEDs (off), its repeat (/RESET's), Pause on /NMI,
-; and the controllers as question 12 numbers them. Cold boot's warm boot
+; and the controllers as question 12 numbers them. A debug build's hook
+; costs (FT_COSTS) start again from 0 here. Cold boot's warm boot
 ; sets them first, so these are what cold boot set.
-WBQUIET:        JSR     DEAFEN
+WBQUIET:
+.ifdef OOLIB_DEBUG
+                STZ     FHMAX          ; the hooks' most cycles counted afresh (a debug build)
+                STZ     FHMAX + 1
+                STZ     THMAX
+                STZ     THMAX + 1
+.endif
+                JSR     DEAFEN
                 LDA     UCARD
                 BEQ     CMAPDEF
                 STZ     USB_MCTRL

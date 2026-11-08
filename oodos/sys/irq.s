@@ -62,7 +62,7 @@
 .export FRAMES, EVBLK, SNAP, STKA, STKB, PADFRM, PADDUE, UCARD
 .exportzp EVP, VIAL
 .ifdef OOLIB_DEBUG
-.export FHMAX, THMAX
+.export FHMAX, THMAX, HKON, HOOKCOST
 .endif
 
 .zeropage
@@ -328,12 +328,8 @@ CALLHOOK:       LDA     NB_WIN1
                 LDA     HK + HK_WIN + 3,Y
                 STA     NB_WIN3        ; its common memory the same: this goes on
 .ifdef OOLIB_DEBUG
-                JSR     T1NOW
-                STA     HK + HK_C0,Y
-                TXA
-                STA     HK + HK_C0 + 1,Y
-                LDA     MS
-                STA     HK + HK_M0,Y
+                LDX     #R62_HKON      ; its start counted (HKON, block 62's): Y kept
+                JSR     CALL62
 .endif
                 CPY     #HT            ; carry set: the tick hook's (kept to the BCS)
                 LDA     HK + HK_ADDR + 1,Y
@@ -368,7 +364,8 @@ HKBACK:         LDA     #SYS_BLOCK
                 LDX     HK + HK_S,Y
                 TXS
 .ifdef OOLIB_DEBUG
-                JSR     HOOKCOST
+                LDX     #R62_HKCOST    ; its cycles counted (HOOKCOST, block 62's): Y kept
+                JSR     CALL62
 .endif
                 PLA
                 STA     NB_WIN3
@@ -438,7 +435,23 @@ EVALL:          LDA     NB_WIN1
                 RTS
 .assert FRAMES = MS + 4 && EV_FRAMES = EV_MS + 4, error, "EVALL copies MS and FRAMES as one"
 
+
 .ifdef OOLIB_DEBUG
+; The debug build's counters, in block 62's code window (RES), reached by
+; CALL62 (L3's step (b): out of common memory, which L3 needs). Each keeps
+; Y. Going through CALL62 adds about 35 cycles to each hook's measured
+; cost (the switch back after HKON, and to HOOKCOST before its count).
+.segment "RES"
+
+; Hook Y's call: timer 1's count and MS's low byte, for HOOKCOST.
+HKON:           JSR     T1NOW
+                STA     HK + HK_C0,Y
+                TXA
+                STA     HK + HK_C0 + 1,Y
+                LDA     MS
+                STA     HK + HK_M0,Y
+                RTS
+
 ; Timer 1's count now in A (low) and X (high); a tick that came due
 ; meanwhile counted first, since reading the count clears its flag (its
 ; hook, if due, waits for the next). One that comes due between the IFR's

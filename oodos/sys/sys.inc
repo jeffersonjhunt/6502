@@ -154,6 +154,8 @@ UBATCH          = 16                   ; the USB FIFO's events taken an interrup
 R62_DEAF        = 0                    ; irq.s's CALL62: input.s's R62TAB, DEAFEN
 R62_OTHER       = 2                    ;   IRQOTH: a card's interrupt not the VIA's or the video card's
 R62_TICK        = 4                    ;   L2TICK: the sticks and the paddles
+R62_HKON        = 6                    ;   a debug build's HKON and HOOKCOST: a hook's cycles
+R62_HKCOST      = 8                    ;   counted (irq.s)
 
 ; BIOS banks (SETBNK, SELMEM, XMOVE)
 BANK_SYS        = 0                    ; the system's windows: 31, 60, 61, 62
