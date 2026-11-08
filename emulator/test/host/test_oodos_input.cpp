@@ -254,6 +254,96 @@ TEST(a_layout_2_area_takes_typed_keys_into_its_queue)
     wboot(r);
 }
 
+TEST(only_e0_to_e7_are_modifiers)
+{
+    // A usage past the modifiers ($E8-$FF) is a key like any other: queued, held, and not in MODS.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    r.machine->usb_card()->key(0xE8, true);
+    r.run(ms(20));
+    CHECK(held(r, 0xE8));
+    CHECK_EQ(area(r, EV_MODS), 0);
+    r.machine->usb_card()->key(0xE8, false);
+    r.run(ms(20));
+    tap(r, 0xE7); // right GUI, the last modifier: bit 7 while held
+    const std::vector<Event> ev = waiting(r);
+    show(ev);
+    REQUIRE(ev.size() == 4);
+    CHECK(ev[0].code == 0xE8 && ev[0].value == 1 && ev[0].mods == 0);
+    CHECK(ev[1].code == 0xE8 && ev[1].value == 0 && ev[1].mods == 0);
+    CHECK(ev[2].code == 0xE7 && ev[2].mods == 0x80);
+    CHECK(ev[3].code == 0xE7 && ev[3].mods == 0);
+    wboot(r);
+}
+
+/// L2TEST's IN_NEXT with an interrupt made pending at AREAOUT's PLP, where QTAKE gives the mask back.
+static std::string next_raced(CcpRig &r, int dx)
+{
+    const uint16_t from = sym("AREAOUT");
+    bool fired = false;
+    r.watch = [&](uint16_t pc) {
+        if (!fired && pc >= from && pc < from + 12 && r.machine->bus().peek(pc) == 0x28) // PLP
+        {
+            r.machine->usb_card()->mouse_move(dx, 0); // its handler writes UTMP
+            fired = true;
+        }
+    };
+    const std::string n = command(r, 'N', "NEXT");
+    r.watch = nullptr;
+    CHECK(fired);
+    return n;
+}
+
+TEST(an_interrupt_as_in_next_unmasks_changes_nothing_it_returns)
+{
+    // QTAKE's result is read before its PLP: an interrupt taken just after it (the mouse's, whose
+    // handler shares QTAKE's scratch byte) neither makes an empty queue's "none" an event nor a
+    // waiting event "none".
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(next_raced(r, 5), std::string("00 00 EEEEEEEEEEEEEEEE")); // empty: none
+    tap(r, A_KEY);
+    CHECK_EQ(next_raced(r, 256).substr(0, 14), std::string("01 00 01040100")); // X's low byte 0: UTMP 0
+    CHECK_EQ(area(r, EV_QTAIL), 1);
+    wboot(r);
+}
+
+TEST(the_paddles_are_read_in_a_frame_whose_ms_counter_jumps_past_their_time)
+{
+    // The ms counter can move on more than one at a tick (the Disk II's catch-up): a read due at an
+    // exact count would be missed for the frame. Made here by moving MS on 10 just after a PTRIG.
+    CcpRig r;
+    REQUIRE(r.ok);
+    UsbCard &usb = *r.machine->usb_card();
+    usb.set_paddle(0, 100);
+    open(r, "2");
+    r.run(ms(40));
+    const uint32_t padfrm = SYS_BLOCK_PHYS + sym("PADFRM"), msp = SYS_BLOCK_PHYS + sym("MS"),
+                   frames = SYS_BLOCK_PHYS + sym("FRAMES");
+    bool done = false;
+    for (int tries = 0; tries < 20 && !done; ++tries)
+    {
+        const uint8_t f0 = r.phys(frames);
+        for (int i = 0; i < 1000 && r.phys(frames) == f0; ++i)
+            r.run(100); // a frame begins
+        for (int i = 0; i < 100 && r.phys(padfrm) != r.phys(frames); ++i)
+            r.run(100); // and its first tick sends PTRIG
+        if (r.phys(padfrm) != r.phys(frames) || r.phys(msp) >= 240)
+            continue; // (no carry to make)
+        usb.set_paddle(0, static_cast<uint8_t>(110 + tries));
+        r.poke(msp, static_cast<uint8_t>(r.phys(msp) + 10));
+        const uint8_t f = r.phys(frames);
+        for (int i = 0; i < 1000 && r.phys(frames) == f; ++i)
+            r.run(100);
+        CHECK_EQ(area(r, EV_PADDLES), 110 + tries); // read in that frame, not the next
+        done = true;
+    }
+    CHECK(done);
+    wboot(r);
+}
+
 TEST(a_full_queue_counts_what_it_loses_and_keeps_what_it_has_whole)
 {
     // 4 slots: 3 events wait at most. Five keys tapped (10 events) with the program reading none.
@@ -283,25 +373,32 @@ TEST(a_full_queue_counts_what_it_loses_and_keeps_what_it_has_whole)
     wboot(r);
 }
 
-TEST(a_burst_fuller_than_a_batch_is_all_taken_and_loses_no_tick)
+TEST(a_full_fifo_is_taken_a_batch_at_a_time_and_loses_no_tick)
 {
-    // 40 key changes in the card's FIFO at once (more than the 16 an interrupt takes): the interrupt
-    // takes 16 and leaves the card's flag set, so the next takes the rest, the tick between. Each is
-    // queued or counted lost (15 wait in a 256-byte area), none left in the FIFO.
+    // The card's FIFO full at once, 64 events (32 keys pressed and let go): an interrupt takes 16 and
+    // leaves the card's flag set, so the next takes the next 16, a tick due between them first. Taken
+    // all at once (about 10,000 cycles masked) one tick in two would come behind another and be lost.
+    // Each event is queued or counted lost (15 wait in a 256-byte area), none left in the FIFO.
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
     const uint64_t c0 = r.cpu->cycles();
     const uint32_t m0 = ms_count(r);
-    for (unsigned i = 0; i < 20; ++i)
-    {
-        r.machine->usb_card()->key(static_cast<uint8_t>(A_KEY + i), true);
-        r.machine->usb_card()->key(static_cast<uint8_t>(A_KEY + i), false);
-    }
-    r.run(ms(20));
+    const Costs passes = time_interrupts(r, ms(20), [&] {
+        for (unsigned i = 0; i < 32; ++i)
+        {
+            r.machine->usb_card()->key(static_cast<uint8_t>(A_KEY + i), true);
+            r.machine->usb_card()->key(static_cast<uint8_t>(A_KEY + i), false);
+        }
+    });
+    Costs::print("the USB card's passes", passes.usb);
+    unsigned n = 0;
+    for (const auto &[c, k] : passes.usb)
+        n += k;
+    CHECK(n >= 4);
     CHECK_EQ(io(r, USB + 3), 0); // EVCOUNT: the FIFO empty
     CHECK_EQ(waiting(r).size(), size_t{15});
-    CHECK_EQ(area16(r, EV_QLOST), 25u);
+    CHECK_EQ(area16(r, EV_QLOST), 49u);
     const std::vector<Event> ev = waiting(r);
     for (unsigned i = 0; i < ev.size(); ++i)
         CHECK(ev[i].code == A_KEY + i / 2 && ev[i].value == (i % 2 ? 0u : 1u));

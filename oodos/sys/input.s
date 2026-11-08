@@ -69,6 +69,7 @@ UCNT:           .res    1              ; UKEYS's batch
 UTMP:           .res    1
 UHW:            .res    1              ; CTLPUT's hardware
 UCHG:           .res    1              ; UMOUSE's buttons changed
+PADARM:         .res    1              ; 1: PTRIG sent, the paddles not yet read
 ISRN:           .res    1              ; USBSRV's flags
 IRQY:           .res    1              ; IRQOTH's: IRQH's bits that aren't strays
 
@@ -195,9 +196,10 @@ UKEYS:          LDA     #UBATCH
                 JSR     KEYEV
                 BRA     @look
 @done:          RTS
+.assert UBATCH >= 1 && UBATCH <= 127, error, "UKEYS counts its batch down to BMI"
 
 ; A key event: EVC the usage, A its flags. The keys-held map, and the
-; modifiers if it is one ($E0-$E7), kept first, so the event carries the
+; modifiers if it is one ($E0-$E7 only), kept first, so the event carries the
 ; modifiers with it.
 KEYEV:          ASL     A              ; USB_RELEASE to carry
                 LDA     #0
@@ -224,6 +226,8 @@ KEYEV:          ASL     A              ; USB_RELEASE to carry
                 LDA     EVC
                 CMP     #$E0
                 BCC     @queue
+                CMP     #$E8           ; $E8-$FF: keys, not modifiers
+                BCS     @queue
                 AND     #7
                 TAX
                 LDA     BITS,X
@@ -357,8 +361,9 @@ MPOS:           LDA     USB_MX
 
 ; A tick's (irq.s's TICK, through CALL62) with a layout-2 area open and a
 ; stick moved, a frame begun, or the paddles due: each stick that moved, a
-; controller event; at a frame's first tick, PTRIG; PAD_MS ticks after it,
-; the paddles read.
+; controller event; at a frame's first tick, PTRIG; PAD_MS ms after it (or
+; at the first tick past, should MS have jumped), the paddles read. Without
+; the video card's frames there is no PTRIG, so no read.
 L2TICK:         LDA     NB_WIN1
                 PHA
                 LDA     EVBLK
@@ -377,21 +382,28 @@ L2TICK:         LDA     NB_WIN1
                 STA     STKB
                 LDX     #CH_STICK2 - 1
                 JSR     STICK
-@frame:         LDA     FRAMES
+@frame:         LDA     FRAMES         ; (moves only with a video card: CLK_FRAME)
                 CMP     PADFRM
                 BEQ     @due
                 STA     PADFRM
                 STA     USB_PTRIG      ; (no USB card: nothing there to write)
+                LDA     #1
+                STA     PADARM
                 LDA     MS
                 CLC
                 ADC     #PAD_MS
                 STA     PADDUE
                 BRA     @out
-@due:           LDA     MS
-                CMP     PADDUE
-                BNE     @out
-                EOR     #$80           ; not due again until the next frame's PTRIG
+@due:           LDA     MS             ; due once MS has reached PADDUE, by any step (the Disk
+                SEC                    ; II's catch-up moves it on more than one at a tick)
+                SBC     PADDUE
+                BMI     @out
+                LDA     MS             ; not due again for 128 ms (a new PTRIG comes first)
+                EOR     #$80
                 STA     PADDUE
+                LDA     PADARM         ; read only what a PTRIG started: none without frames
+                BEQ     @out
+                STZ     PADARM
                 JSR     PADS
 @out:           PLA
                 STA     NB_WIN1
@@ -657,12 +669,20 @@ L2OPEN:         PHP
                 JSR     PADREAD
                 STA     HWB + CH_GAMEPORT - 1
                 STA     USB_PTRIG
-@counts:        LDA     FRAMES         ; the paddles next read PAD_MS from now
-                STA     PADFRM
+@counts:        LDA     FRAMES         ; the paddles next read PAD_MS from now, if a PTRIG
+                STA     PADFRM         ; went (a USB card and the video card's frames)
                 LDA     MS
                 CLC
                 ADC     #PAD_MS
                 STA     PADDUE
+                STZ     PADARM
+                LDA     UCARD
+                BEQ     @ctls
+                LDA     CLOCKS
+                AND     #CLK_FRAME
+                BEQ     @ctls
+                INC     PADARM
+@ctls:
                 LDX     #3             ; the four controllers
 @ctl:           JSR     CTLPUT
                 DEX
@@ -770,11 +790,14 @@ QTAKE:          BIT     EVON
                 LDA     SNAP + EQ_KIND
                 STA     UTMP
                 ; fall through
-; W1 and the interrupt mask put back; A = UTMP.
-AREAOUT:        PLA
+; W1 and the interrupt mask put back; A = UTMP, Z by it. UTMP is the
+; handlers' scratch too, so it is read while the mask is still set: an
+; interrupt just after the PLP can't change what is returned.
+AREAOUT:        LDY     UTMP
+                PLA
                 STA     NB_WIN1
                 PLP
-                LDA     UTMP
+                TYA
                 RTS
 
 ; ---------------------------------------------------------------------------

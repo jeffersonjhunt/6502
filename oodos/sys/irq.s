@@ -282,9 +282,10 @@ TICK:           LDA     VIA_T1CL       ; the flag cleared
                 LDA     FRAMES
                 EOR     PADFRM
                 BNE     @go
-                LDA     MS
-                EOR     PADDUE
-                BNE     @hook
+                LDA     MS             ; MS - PADDUE >= 0: due (L2TICK checks a PTRIG went)
+                SEC
+                SBC     PADDUE
+                BMI     @hook
 @go:            LDX     #R62_TICK
                 JSR     CALL62
                 BRA     @hook
@@ -780,8 +781,8 @@ FT_OPENX:       LDX     PX
                 LDA     ST_WIN,X
                 CMP     #PROG_LIMIT    ; banks 0-5, RAM: not the system's, M:, video memory or flash
                 BCS     @no0
-                STZ     EVON           ; any area before closed,
-                STZ     USB_IEN        ; its input too
+                STZ     USB_IEN        ; any area before closed, its input first
+                STZ     EVON
                 STA     EVBLK
                 STZ     QSLOTS         ; the layout in T5, the queue's slots (layout 2)
                 LDA     #EV_LAYOUT1
@@ -846,8 +847,8 @@ FT_OPENX:       LDX     PX
 @no:            JMP     RETFF
 .assert EV_QUEUE = $80 && EV_LEN2 > EV_QUEUE, error, "FT_OPEN's slots: (size - 128) / 8"
 
-FT_CLOSEX:      STZ     EVON
-                STZ     USB_IEN        ; a layout-2 area's input off
+FT_CLOSEX:      STZ     USB_IEN        ; a layout-2 area's input off, then the area
+                STZ     EVON
                 LDA     #0
                 TAX
                 RTS
