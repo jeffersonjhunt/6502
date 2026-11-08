@@ -70,6 +70,7 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .import DRVRO, DRVCHG, MEDIA, FORGET, FORGETD, VOUCH
+.import RAWF, DRVAPL                   ; bios.s's: LOGIN's DOS 3.3 test (todo item 16)
 
 .zeropage
 GDRV:           .res    1              ; GETBUF's drive + 1
@@ -99,6 +100,9 @@ RERR:           .res    1              ; RFLUSH's first error, 0 none
 REDRV:          .res    1              ; and its drive
 PBX:            .res    1              ; PURGEM's buffer
 .exportzp DBCB, AP, AMASK, MK, RERR
+
+.segment "SYSBSS"
+LOGX:           .res    1              ; LOGIN: an entry CP/M doesn't write seen (ODDENT)
 
 .segment "BDOS"
 
@@ -263,6 +267,9 @@ SAVECD:         LDA     CSLOT
 
 ; The first select since a reset: the DPB, then the directory read for the
 ; allocation vector, the hash, the high-water mark and the label's mode.
+; An Apple drive whose directory has an entry CP/M doesn't write and whose
+; track 17 sector 0 is a DOS 3.3 VTOC isn't logged in: Invalid Drive
+; (DOS33TST; todo item 16).
 LOGIN:          JSR     PLACES
                 LDA     CDRV
                 INC     A
@@ -329,6 +336,7 @@ LOGIN:          JSR     PLACES
                 STZ     HWM
                 STZ     HWM + 1
                 STZ     LOGL
+                STZ     LOGX
                 LDA     EXM
                 EOR     #$1F
                 AND     #$1F
@@ -363,6 +371,7 @@ LOGIN:          JSR     PLACES
                 JSR     HPSET
 @entry:         JSR     DIRENT
                 JSR     HASHE
+                JSR     ODDENT
                 LDA     H0
                 CMP     #16
                 BCS     @other
@@ -415,7 +424,16 @@ LOGIN:          JSR     PLACES
                 BNE     @entry
                 INC     DIDX + 1
                 BRA     @entry
-@logged:        LDA     CDRV
+@logged:        LDA     LOGX           ; a foreign entry: a DOS 3.3 disk?
+                BEQ     @cpm
+                JSR     DOS33TST
+                BCC     @cpm
+                LDA     CDRV           ; not logged in, nothing of it kept
+                INC     A
+                JSR     PURGED
+                LDA     #ER_SELECT
+                JMP     DERR
+@cpm:           LDA     CDRV
                 JSR     DRVBIT
                 ORA     LOGVEC,X
                 STA     LOGVEC,X
@@ -451,6 +469,87 @@ LOGIN:          JSR     PLACES
                 ORA     CHKD
                 STA     CHKD
 @done:          RTS
+
+; LOGX set if the entry at DPTR (W2 on the buffers, H0 its first byte) is
+; one CP/M never writes: a file's (user 0-15) whose name starts with a
+; control character, or a first byte not a user, an XFCB's (16-31), the
+; label's, an SFCB's or $E5. A DOS 3.3 disk's track 3 is zeros (unused) or
+; a file's data; CP/M's own directory, used or freshly made, has none.
+ODDENT:         LDA     H0
+                CMP     #16
+                BCS     @other
+                LDY     #1
+                LDA     (DPTR),Y
+                AND     #$7F
+                CMP     #$20
+                BCS     @done
+@odd:           LDA     #1
+                STA     LOGX
+@done:          RTS
+@other:         CMP     #DIR_SFCB + 1
+                BCC     @done
+                CMP     #$E5
+                BNE     @odd
+                RTS
+
+; CDRV, being logged in, an Apple drive (O:, P:, or an SD unit of 140 KB)
+; whose track 17 sector 0 is a VTOC as DOS 3.3 makes it (DOS33.COM's test:
+; 122 pairs a list, 35 tracks of 16 sectors of 256 bytes, the catalog's
+; track and sector on the disk): carry set. Read as function 76 reads, the
+; file's own sector into SECBUF. Not an Apple drive, or the sector not
+; read: carry clear, the drive as CP/M's.
+DOS33TST:       LDA     CSLOT
+                CMP     #RSLOT
+                BCS     @apple         ; O:, P:
+                CMP     #SD_DRIVES
+                BCS     @no            ; M:
+                TAX
+                LDA     DRVAPL,X
+                BPL     @no
+@apple:         LDA     CDRV
+                LDX     #1             ; selected before
+                JSR     B_SELDSK
+                LDA     #17
+                LDX     #0
+                JSR     B_SETTRK
+                LDA     #0
+                TAX
+                JSR     B_SETSEC
+                LDA     #BANK_SYS
+                JSR     B_SETBNK
+                LDA     #<SECBUF
+                LDX     #>SECBUF
+                JSR     B_SETDMA
+                INC     RAWF
+                JSR     B_READ
+                STZ     RAWF
+                STZ     BIOSDRV        ; DISKOP selects again
+                CMP     #0
+                BNE     @no
+                LDA     SECBUF + $27
+                CMP     #122
+                BNE     @no
+                LDA     SECBUF + $34
+                CMP     #35
+                BNE     @no
+                LDA     SECBUF + $35
+                CMP     #16
+                BNE     @no
+                LDA     SECBUF + $36
+                BNE     @no
+                LDA     SECBUF + $37
+                CMP     #1
+                BNE     @no
+                LDA     SECBUF + 1
+                CMP     #35
+                BCS     @no
+                LDA     SECBUF + 2
+                CMP     #16
+                BCS     @no
+                SEC                    ; a DOS 3.3 disk
+                RTS
+@no:            CLC
+                RTS
 
 ; A removable drive's disk (O:, P:), logged in and its CD loaded: if the
 ; BIOS says it may have been changed (it had stopped turning, or the card
