@@ -30,6 +30,7 @@ NB_ID           = NB + $7F
 
 NB_IRQ_VIA      = $40                  ; IRQL bit 6, ID 6: the serial card (its VIA, or the stand-in 6551); 0 = interrupting
 NB_IRQ_VIDEO    = $02                  ; IRQH bit 1, ID 9: the video card
+NB_IRQ_USB      = $08                  ; IRQH bit 3, ID B: the USB card
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
 CART_BLOCK      = 32                   ; flash block: the cartridge's first 16 KB, a IIe ROM as at $C000-$FFFF
@@ -195,6 +196,16 @@ USB_DEVICES     = USB + $32            ; what is plugged in
 USB_ID          = USB + $7F
 
 USB_NMI_PAUSE   = $80                  ; KBCFG: Pause/Break pulls /NMI
+USB_RELEASE     = $80                  ; EVENT's flags: a release
+USB_MOUSE_ABS   = $01                  ; MCTRL: absolute mode
+USB_REPEAT_DEF  = $10                  ; REPEAT at /RESET: 500 ms, then 30 a second
+USB_MAX_DEF_X   = 639                  ; MAXX and MAXY at /RESET
+USB_MAX_DEF_Y   = 479
+USB_IRQ_KEY     = $01                  ; IEN, ISR: a key event (or a repeat)
+USB_IRQ_MOUSE   = $02                  ;   the mouse changed
+USB_IRQ_GAME    = $04                  ;   a game port button changed
+USB_IRQ_DEVICE  = $08                  ;   a device plugged in or out
+USB_IRQ_ALL     = $0F
 USB_ID_V1       = $B1
 
 NB_MODE_APPLE   = $01                  ; MODE: enter Apple II mode (only a hard reset leaves)
