@@ -1884,10 +1884,15 @@ in user 0 on the card); the owner chose to implement every option, H and I among
   device as a destination of NUL: or EOF:, or LST: or PRN: as a source: `INVALID DESTINATION`/`INVALID SOURCE`. On
   OODOS CON: is CRT and TTY, AUX: TTY, LST: LPT (DEVICE moves them; LPT takes and drops, no parallel port yet).
 - **How a file is written:** to `NAME.$$$` on the destination's drive and user (one there deleted first; a
-  read-only one: `CAN'T DELETE TEMP FILE`, the end), then, closed: the destination deleted if there (read-only:
+  read-only one: `CAN'T DELETE TEMP FILE`, the end; ours, OODOS todo item 18: when `NAME.$$$` is the destination or
+  a source of that drive and user, the first of `NAME.$$0`-`$$9`, `$$A`-`$$Z` that is neither and isn't there, one
+  there left alone; none, `NO TEMP FILE NAME - NAME.TYP`), then, closed: the destination deleted if there (read-only:
   `DESTINATION IS R/O, DELETE (Y/N)?`, Y deletes it, N is `**NOT DELETED**` and the temporary file's deletion;
   `[W]` deletes it without asking), and the temporary file renamed. A failed write (a full disk) is `DISK WRITE
-  ERROR - NAME.TYP` and the temporary file deleted; a read-only drive `R/O DISK` before anything is written.
+  ERROR - NAME.TYP` and the temporary file deleted; a read-only drive `R/O DISK` before anything is written. A
+  close, delete, rename or attribute call that fails with A = $FF and X = 0 (the BDOS silent in mode $FE) is PIP's
+  own message with the name (`DISK WRITE ERROR`, `CAN'T DELETE`, `CAN'T RENAME TEMP FILE`, `CAN'T SET ATTRIBUTES`;
+  V's open `VERIFY ERROR`), never nothing (ours, item 18).
 - **Attributes:** a file copied alone takes its source's RO, SYS and F1-F4 (and its archive bit clear, so it is
   backed up again: ours); a joined one none (ours). **Passwords:** a source's after `;` is given to the BDOS to
   open it; a destination with one gets it in READ mode (the XFCB, 103); `d:` alone gives the copy its source's
