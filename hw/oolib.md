@@ -635,9 +635,11 @@ L4. Where the plan left something open it was decided as below, each with its re
   and cleared with the claim and with `FT_OPEN` and `FT_CLOSE` (masked with EVON's change), so a program without an
   area polls MBIN as before and loses nothing to OODOS. `SN_CLAIM` of the 6510 empties MBIN first. An event is
   `EK_SOUND` (6), code 0, the value the byte.
-- **The ES5503's hook** (the sizing's second design point, DOCADDR): the handler saves DOCCTL and DOCADDR, reads `$E0`
-  with the registers selected, and puts both back; during `SN_WAVE` the card's IEN bit 3 is held off, so the handler
-  never runs under the transfer. The hook runs masked, as the tick hook does, in the tick hook's record (masked
+- **The ES5503's hook** (the sizing's second design point, DOCADDR): the handler saves DOCCTL, DOCADDR (both bytes)
+  and DOCBANK, reads `$E0` with the registers selected, calls the hook with the port so, and puts all three back after
+  the hook returns (review F2); during `SN_WAVE` the ES5503's bit is out of `SIEN` itself, so the handler never runs
+  under the transfer, a stray's DEAFEN included (F3). Whether the chip is pending is told by `$E0`'s bit 7, not by
+  STATUS's IRQ, which a mailbox byte sets too (F4). The hook runs masked, as the tick hook does, in the tick hook's record (masked
   hooks never nest: HT's record set aside, the ES5503 hook's copied in, `CALLHOOK` for HT, HT's put back whole), so
   common memory gained nothing for it. Its A can't carry the interrupt register (the hook's W0 is mapped before its
   registers are free), so `SN_DOCHOOK`'s +3 names a byte of its zero page that OODOS writes first. Not in the plan.
@@ -655,29 +657,52 @@ L4. Where the plan left something open it was decided as below, each with its re
   started by `SN_START`. The chips' model (6581 or 8580) is a jumper on the card, not a register, so the library
   can't set it, as the plan's "as the emulator's player" can't. PSID only. PLAYSID reads the file whole into the TPA
   (the last record's byte count, which open gives for CR `$FF`, taken off), plays until a key, and stops.
-- **Memory** (bytes free after L3, normal build, then debug): common memory 178 (168), down 34 (`CALL61` and the
-  frame's call); the system block's SYSBSS 133 (130); block 60 663 (647): function 82 is 1,408 bytes, so the BDOS
-  block is now the tight one (the loads and the beep could move to block 61 if L4 needs the room); block 61 6,236;
-  block 62's code window 1,188 (985); zero page 2. PLAYSID is 7,249 bytes, the library 2,618 of them (and 358 of BSS).
+- **Memory** (bytes free after L3 and its review, normal build, then debug): common memory 176 (166), down 36
+  (`CALL61` and the frame's call); the system block's SYSBSS 132 (129); block 60 589 (573): function 82 is about
+  1,480 bytes, so the BDOS block is now the tight one (the owner, 2026-11-08: its room waits for L4, when the loads
+  and the beep could move to block 61); block 61 6,204; block 62's code window 1,188 (985); zero page 2. PLAYSID is
+  7,281 bytes, the library about 2,650 of them (and 359 of BSS).
 - **Costs** (`test_oodos_sound`, from the interrupt's first cycle to its RTI's last): a tick with no area **145, L1's
   to the cycle**, a layout-1 area's 184, a layout-2 area's 234, with or without the stream: L3 adds nothing a tick.
-  A terminal count's handler is about 530-700 cycles, about 850 at a buffer's end (the area written), the next
+  A terminal count's handler is about 530-700 cycles (688 the most common), about 860 at a buffer's end (the area
+  written; `CALL61` keeping A, review F1, added 4 to each), the next
   piece's 4,096 cycles of DMA inside it when the FIFO has room: 43 pieces a second at 44.1 kHz 16-bit stereo, under
   0.5% of the CPU. A frame with the stream claimed and a layout-2 area open is 688 cycles against 389 without: the
-  sound part about 300. The USB card's key interrupt is 662 cycles, 11 more than L2's (IRQOTH's check). The mailbox
+  sound part about 300 (692 since F1's 4). The USB card's key interrupt is 662 cycles, 11 more than L2's (IRQOTH's check). The mailbox
   and ES5503 interrupts weren't timed.
-- **Tests** (emulator, fast preset): `test_oodos_sound` (11 cases, 2.2 s: the claims and refusals; 64 KB of card RAM
+- **Tests** (emulator, fast preset): `test_oodos_sound` (15 cases since the review, 2.8 s: the claims and refusals; `SN_SEND` busy; loads to the RAMs' ends; 64 KB of card RAM
   by DMA byte for byte with no tick lost; the 6510 started, its mailbox both ways into the queue, stopped; busy while
   a buffer moves; six buffers of 10,000 bytes chained across terminal counts, the tap what was sent; pause, resume,
   seek, an underrun counted once, the end; 6,000 bytes of wave RAM across its first 64 KB and the ES5503 hook with
   DOCCTL and DOCADDR put back; the beep; the warm boot by `JMP WBOOT`, ^C and Break; a layout-1 or layout-2 program
   that claims nothing unchanged; and the acceptance: 1.3 s of 44.1 kHz 16-bit stereo raw PCM from B:, 0 underruns,
   the tap the file's bytes; the repo's `cbr320_stereo_48k.mp3` from B:, the tap minimp3's decoding of it, 0
-  underruns); `test_oodos_playsid` (5 cases, 1.7 s: tunes the test builds, never the owner's, each played by
+  underruns); `test_oodos_playsid` (6 cases since the review, 2.2 s, song 256 of 256 among them: tunes the test builds, never the owner's, each played by
   PLAYSID and its card RAM and CTRL checked against `plan_sid` for the same bytes: a frame song, a CIA-timed NTSC one
   on the header's free page, version 1 with its load address in its data and no play, a tune over `$0314` with SID
   B at `$D500`, one over `$F000-$FFEF`; and the refusals). Test programs `oodos/sys/test/l3test.s` and `l3strm.s`.
   The clock and input suites' `FT_INFO` expectations follow the version: `03 07`, `03070302`.
+
+- **The review** (2026-11-08; the owner: fix F1-F6 and F8-F10, note F7):
+  - F1: `CALL61` returned the saved W2 in A, not `SNDIRQ`'s answer, so IRQOTH's strays were judged by it: in the BDOS
+    (W2 `$3D`) a real stray on IRQH bits 0 and 2-5 was hidden and the dispatcher took it again and again (USB_IEN
+    left on with no area, while a stream moved, held a function 10 call); in a program a terminal count still
+    pulling (the next piece run at once) was taken for a stray, DEAFEN running for each. `CALL61` keeps A now (TAX,
+    TXA: X is free in each caller). Must-fail tests, both failing before: `a_stray_in_a_bdos_call_is_turned_off_
+    while_a_stream_moves` (USB_IEN stayed `$0F`) and `chained_terminal_counts_in_a_program_are_not_strays` (DEAFEN
+    ran 12 times for 13 pieces after a FIFO flush under the program; 0 now).
+  - F2: the hook ran after DOCCTL and DOCADDR were put back, and DOCBANK wasn't kept, so its writes went into what it
+    interrupted (the must-fail `a_hook_s_register_write_leaves_the_interrupted_docdata_run_whole`: the hook's `$77`
+    landed in wave RAM at `$40`; now the run is whole and register `$40` is `$77`).
+  - F3: the wave load held bit 3 off at the card only, and a stray's DEAFEN wrote `SIEN` back mid-load (the test,
+    failing with the fix taken out: bit 3 on in 635 of the load's 836 steps; 0 now). F4: above.
+  - F5: the beep reads MS whole, masked (`BEEP_LOOP` 12: 194 toggles for 1,000 Hz, 100 ms). F6: `SN_SEND` is busy
+    while STATUS says the 6510 hasn't taken the last byte. F8: a load past the end of the card's RAM or wave RAM is
+    refused, not wrapped. F9: song 256 of 256 plays, its start song too, and prints as 256 (`SID_PLAN` takes A/X).
+    F10: a refused `SN_DOCHOOK` leaves no hook, documented. F7, noted in the Technical Reference: the handler's
+    DOCCTL write clears a waiting STATE `$82`.
+  - The owner's answers to L3's questions: block 60's room waits for L4; the ES5503 hook as built (masked, the tick
+    hook's record, the register in a zero-page byte the program names); the SID model a jumper, documented.
 
 - **L4: graphics, the linked library** (`oodos/lib/`, with cc65 headers): modes, the palette, tiles and maps,
   sprites (the shadow table goes to the card by DMA at vertical blank, through L1's dispatcher), bitmaps, double

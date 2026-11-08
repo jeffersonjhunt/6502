@@ -330,7 +330,8 @@ claim:  .byte   SN_CLAIM, SC_STREAM
 address, +6–7 the length, 0 for 64 KB). The source is checked as [function 51's](07-function-reference.md#bdos-51)
 DMA segment is: none of OODOS's own memory. A program's own memory below `$C000` is its blocks 0–2, so its CPU
 address is the physical one there. `SN_START` writes the 6510's reset vector and resets it running (+3: CTRL's NTSC,
-SID B at `$D500`, BOTH); `SN_STOP` stops it and silences the SIDs; `SN_SEND` puts a byte in its mailbox. A byte the
+SID B at `$D500`, BOTH); `SN_STOP` stops it and silences the SIDs; `SN_SEND` puts a byte in its mailbox, refused with `SN_BUSY` while the
+6510 hasn't taken the last one (a second would replace it). A byte the
 6510 sends back reaches the event queue as an `EK_SOUND` event, its value the byte, while a layout-2 area is open
 (without one, the program reads the card's MBIN itself), so a program's own driver on the card reports without
 being polled.
@@ -376,14 +377,17 @@ a byte a cycle and the CPU waits, 4,096 cycles a piece at most, under a tick, so
 
 ### The ES5503
 
-`SN_WAVE` loads its wave RAM as `SN_LOAD` loads the card's (+4–6 the wave RAM's 17-bit address). `SN_DOCHOOK` sets
+`SN_WAVE` loads its wave RAM as `SN_LOAD` loads the card's (+4–6 the wave RAM's 17-bit address). Neither wraps: a
+load that would run past the end of its RAM (64 KB the card's, 128 KB wave RAM) is refused. `SN_DOCHOOK` sets
 a routine of the program's that OODOS calls at the chip's interrupt (an oscillator done), +1–2 its address and +3 a
 byte of the program's zero page: OODOS reads the chip's interrupt register (`$E0`, which takes the interrupt) and
 writes it there before the call, so the hook finds the oscillator in bits 1–5. It keeps the rules of the hooks
-([above](#hooks)), with interrupts off as the tick hook's: no `CLI`, and a small budget, a few hundred cycles. OODOS
-puts DOCCTL and DOCADDR back as it found them, so a register or wave RAM access the interrupt came in the middle of
-goes on as it was. A wave load and the hook never meet: the chip's interrupt is held off at the card while
-`SN_WAVE` runs.
+([above](#hooks)), with interrupts off as the tick hook's: no `CLI`, and a small budget, a few hundred cycles. The
+hook finds the port on the chip's registers (DOCCTL's RAM and AUTOINC off, DOCADDR `$E0`), and may write them: to
+reprogram the oscillator, say. OODOS saved DOCCTL, DOCADDR and DOCBANK before it read `$E0`, and puts them back
+after the hook returns, so a register or wave RAM access the interrupt came in the middle of goes on as it was,
+whatever the hook wrote. A wave load and the hook never meet: OODOS holds the chip's interrupt off while `SN_WAVE`
+runs. If `SN_DOCHOOK` is refused, no hook is set, as with the frame and tick hooks.
 
 ### The beep
 
@@ -398,7 +402,8 @@ linked library** ([question 9](../../hw/oolib.md#open-questions)), not in OODOS:
 `build/oolib.lib` (`include/oolib.inc` has its calls). `SID_PARSE` reads the header, `SID_PLAN` finds a page the tune
 leaves free and builds a small player there that stands in for what a C64 leaves a tune, as the emulator's own player
 does, and `SID_PLAY` claims the 6510, loads the tune, the player and the vectors by `SN_LOAD`, and starts it.
-`SID_STOP` stops it. PSID files only: an RSID expects a whole C64. PLAYSID ([the User's
+`SID_STOP` stops it. PSID files only: an RSID expects a whole C64. The chips' model (a 6581 or an 8580) isn't
+chosen: it is a jumper on the card, not a register, so a tune written for the other plays on the chips fitted. PLAYSID ([the User's
 Guide](../oodos-users-guide/05-utilities.md#util-playsid)) is a program on it.
 
 ### What sound costs

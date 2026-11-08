@@ -385,16 +385,21 @@ registers itself once it holds it; what OODOS keeps is DMA channel 2, the card's
 - **Loads.** The card's RAM (DRQSEL 0) and the ES5503's wave RAM (DRQSEL 2) are loaded by channel 2, memory to the
   card in demand mode, 4,096 bytes a piece: RAMDATA and DOCDATA hold DRQ always, so each piece holds the CPU 4,096
   cycles, under a tick of the millisecond counter, and the tick is taken between pieces. For a wave load OODOS sets
-  DOCCTL's RAM and AUTOINC (RUN and the route kept), DOCADDR and DOCBANK, holds IEN bit 3 off, and puts DOCCTL and
-  IEN back after; DRQSEL goes back to 0.
+  DOCCTL's RAM and AUTOINC (RUN and the route kept), DOCADDR and DOCBANK, holds IEN bit 3 off (in OODOS's own copy
+  of IEN too, so turning a stray off doesn't turn it back on), and puts DOCCTL and IEN back after; DRQSEL goes back
+  to 0. A load that would run past the RAM's end is refused rather than wrapped.
 - **The stream.** DRQSEL 1, and channel 2 in demand mode with MODE's IRQ set, from two buffers of the program's, 4 KB
   a piece: at each terminal count OODOS's handler starts the next piece, or the next buffer, and marks a buffer
   sent. With the FIFO full the card drops DRQ and the piece waits; with room it runs at a byte a cycle, the CPU held
   4,096 cycles at most. While a stream buffer is going to the card the channel is the stream's, and a load is
   refused, busy.
 - **IEN:** bit 2 while the 6510 is claimed and the program has an event area of layout 2 open (each byte from MBIN
-  becomes an event in its queue); bit 3 while an ES5503 hook is set. The handler for bit 3 reads the ES5503's `$E0`
-  with DOCCTL on the registers and DOCADDR at `$E0`, and puts both back as it found them before it calls the hook.
+  becomes an event in its queue); bit 3 while an ES5503 hook is set. The handler for bit 3 saves DOCCTL, DOCADDR and
+  DOCBANK, reads the ES5503's `$E0` with DOCCTL on the registers and DOCADDR at `$E0` (bit 7 set: nothing pending,
+  so not the chip's), calls the hook with the port so, and puts all three back as it found them after the hook
+  returns. Writing DOCCTL back clears a STATE of `$82` (PCM and the ES5503 both asked to run) that was waiting: a
+  program that wants to see a refused RUN reads STATE straight after its own DOCCTL or PCMCTL write.
+  `SN_SEND` writes MBOUT only while STATUS bit 1 is clear, so OODOS never replaces a byte the 6510 hasn't taken.
   OODOS's turning off of strays leaves these bits, and channel 2 while a stream buffer moves on it, alone.
 - **The warm boot** does to the card what QUIET does (CTRL's RUN off, the SIDs' registers 0, on revision 2 PCMCTL
   FLUSH alone and DOCCTL's RUN off), and aborts channel 2 with its MODE 0 and its terminal count cleared, puts

@@ -1243,7 +1243,8 @@ PLAYSID filespec {song}
 
 - **filespec** is the tune's file; `.SID` if you leave the type out. It is read whole into memory, so it must fit
   in the TPA, about 40 KB.
-- **song** is the song to play, from 1 to the tune's count, in decimal. Without it, the tune's own start song.
+- **song** is the song to play, from 1 to the tune's count (256 at most), in decimal. Without it, the tune's own
+  start song.
 
 #### Options
 
@@ -1257,13 +1258,14 @@ Playing song 2 of 3: Test Tune, Nobody
 Press a key to stop.
 ```
 
-The name and the author are the tune's own, from its header. Any key stops it: the 6510 stops, the SIDs go quiet,
+The name and the author are the tune's own, from its header. The SIDs are the card's own model (a jumper on the card,
+not a register), whatever the tune asks for. Any key stops it: the 6510 stops, the SIDs go quiet,
 and PLAYSID ends. Ending any other way (^C, Break) stops the tune too: the warm boot quiets the card.
 
 #### Errors
 
 - `PLAYSID filespec {song}`: no file named. `Invalid file specification.`: a name OODOS can't take, or a song that
-  isn't a number from 1 to 255. `No File`: no such file.
+  isn't a number from 1 to 65,535. `No File`: no such file.
 - `Too big.`: the file doesn't fit in memory.
 - `Song n of m?`: a song past the tune's count.
 - `Not a .sid file.`, `Unknown .sid version.`, `Bad data offset.`, `No code in the file.`, `The code runs past the
