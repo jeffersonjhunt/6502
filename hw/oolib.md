@@ -464,18 +464,20 @@ something open it was decided as below, each with its reason; the first two are 
   16 slots and holds 15 events waiting, not 16. An event that would fill the last slot is lost whole, and counted.
 - **The layout by the size:** 144 bytes (`EV_LEN2`: the fixed part to +127 and two slots) or more is layout 2,
   its slots (size − 128) / 8; less is layout 1, exactly as L1 made it (no USB interrupt, nothing past +16).
-- **Common memory:** 50 bytes, **213 left (12 in the debug build)**. In it: `CALL62` (L1's `DEAF62` made general:
+- **Common memory:** 51 bytes, **212 left (11 in the debug build)**. In it: `CALL62` (L1's `DEAF62` made general:
   W3 on block 62, `R62`'s routine X, W3 back), the dispatcher's other-cards path calling `IRQOTH` there instead of
   `DEAFEN`, and the tick's layout-2 checks inline: the two ports against `STKA` and `STKB`, the frame counter
-  against `PADFRM`, the ms counter against `PADDUE`, and `L2TICK` through `CALL62` only when one differs. The
+  against `PADFRM`, the ms counter past `PADDUE` (MS − PADDUE ≥ 0, signed: so an MS that jumps on, the Disk
+  II's catch-up, still reads the paddles that frame), and `L2TICK` through `CALL62` only when one differs. The
   plan's PTRIG "at each vertical blank" is at the frame's first tick instead (up to 1 ms later): in the video
   handler it would have cost 13 bytes the debug build hasn't got. The paddles are read 4 ms after it (`PAD_MS`;
-  255 counts are 2.8 ms). Block 62 has 1,362 bytes of `input.s`, 1,274 left; function 81 is 294 bytes of the
-  BDOS's block, 2,079 left.
+  255 counts are 2.8 ms), once for each PTRIG (`PADARM`): **they need the video card's frames**, and without them
+  nothing is triggered or read. Block 62 has 1,402 bytes of `input.s`, 1,234 left; function 81 is 294 bytes of
+  the BDOS's block, 2,077 left.
 - **Costs** (`test_oodos_input`, the dispatcher from the interrupt's first cycle to its RTI's last): a tick with no
   area **145 cycles, L1's to the cycle** (159 at MS's carry, as L1's), every program's; a layout-1 area's 184, 4
-  fewer than L1's 188 (W1 kept in X, not on the stack); a layout-2 area's 232 (1.2% of the CPU more than none),
-  and per frame one tick of 360 (PTRIG) and one of 658 (the paddles read, controller 3 written). The USB card's
+  fewer than L1's 188 (W1 kept in X, not on the stack); a layout-2 area's 234 (1.2% of the CPU more than none),
+  and per frame one tick of 366 (PTRIG) and one of 673 (the paddles read, controller 3 written). The USB card's
   interrupt for a key is 651 cycles; a burst is taken 16 events an interrupt at most (`UBATCH`, about 2,000
   cycles, under a tick): KEY's flag is cleared only when the FIFO is seen empty, and looked at again after, so
   while events wait /IRQ stays low and the next interrupt takes the rest, the tick due first.
@@ -505,11 +507,16 @@ something open it was decided as below, each with its reason; the first two are 
   flags: documented (Technical Reference, chapter 9), as OODOS owns IFR anyway. Port A is read by its
   no-handshake register. **Without the VIA** there is no tick: no sticks, and the paddles aren't read either
   (their PTRIG rides the tick); the USB card's events go on.
+- **Function 81's results are read before the mask is given back** (review, 2026-11-08): QTAKE's result was in
+  `UTMP`, which the handlers use as scratch, and was read after the PLP, so an interrupt there could lose an event
+  or make an old `SNAP` one. `AREAOUT` now loads it into Y while masked. Only $E0–$E7 are modifiers; $E8–$FF are
+  keys. `FT_OPEN` and `FT_CLOSE` turn USB_IEN off before EVON. `UBATCH` is at most 127 (its count runs on `BMI`).
 - **OO-Amp's own FIFO reads** (question 5): documented, chapter 8 and the Technical Reference's chapter 8.
-- **Tests** (emulator, fast preset): `test_oodos_input` (12 cases, 2.0 s: a 256-byte area from typed keys, each
+- **Tests** (emulator, fast preset): `test_oodos_input` (15 cases, 2.6 s: a 256-byte area from typed keys, each
   event's fields and times, `IN_NEXT`, a press and release 3 ms apart, the modifiers, `IN_FLUSH`; a 4-slot queue
-  full, 7 lost and 3 kept whole; a burst of 40 changes, more than a batch, all taken, none left in the FIFO and no
-  tick lost; the mouse relative, absolute with limits and back, the wheel, a button; both DE-9 ports, a press of
+  full, 7 lost and 3 kept whole; the FIFO full (64 events) taken in 4 passes, none left and no tick lost (with no batch, one pass
+  of 13,125 cycles, and a tick lost); $E8 a key, not a modifier; an interrupt at `AREAOUT`'s PLP changing neither
+  an empty queue's "none" nor a waiting event; the paddles read in a frame whose MS jumped past their time; the mouse relative, absolute with limits and back, the wheel, a button; both DE-9 ports, a press of
   1.2 ms seen; the paddles at 63/64 and 191/192 and the game port's buttons; `IN_SWAP` and the warm boot's map; a
   16-byte area left as L1 left it, no USB interrupt; the tick's cost, 145 with no area; ^C typed reaching the
   queue with console mode `$000A`, the program going on; the warm boot by `JMP WBOOT`, ^C and Break putting the

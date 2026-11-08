@@ -148,7 +148,9 @@ takes the rest of the card for a program that opens an event area of layout 2
   for the next. The open empties the FIFO first.
 - **The mouse:** MX's low byte read once each interrupt (a second read would latch again, losing the wheel's
   steps); MCTRL, MAXX and MAXY are function 81's.
-- **The game port:** PTRIG at the first tick of each frame, the paddles read 4 ms later (255 counts are 2.8 ms).
+- **The game port:** PTRIG at the first tick of each frame, the paddles read at the first tick 4 ms or more
+  later (255 counts are 2.8 ms). It needs the video card's frames and the VIA's ticks: without either, no PTRIG
+  and no read.
 - **LEDS and REPEAT** are function 81's.
 
 The warm boot puts IEN to `$00`, MCTRL to relative, MAXX and MAXY to 639 and 479, LEDS to `$00`, REPEAT to `$10`

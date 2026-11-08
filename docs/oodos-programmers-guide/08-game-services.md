@@ -63,7 +63,7 @@ read, so the counter keeps time through it to about half a percent. A sector tak
 is missed.
 
 **What the clocks cost.** Each tick is an interrupt: 145 cycles with no event area and no hooks, 2% of the CPU, in
-every program. An open event area of layout 1 adds 39 cycles a tick, one of layout 2 (input) 87, and each hook its
+every program. An open event area of layout 1 adds 39 cycles a tick, one of layout 2 (input) 89, and each hook its
 own time ([the input's cost](#what-input-costs)).
 
 `FT_COUNT` reads both counters at one moment: A/X has the millisecond counter's low word, and a block gets all 8
@@ -236,7 +236,8 @@ empties the queue.
 
 The **keys held** are a bit each, by HID usage: usage *u* is bit *u* AND 7 of byte +64 + *u* / 8, so "is Space
 held?" (usage `$2C`) is `LDA area + EV_KEYS + 5`, `AND #$10`. The modifiers are there too, as usages `$E0–$E7`,
-and in +24 as a byte. A key held when the area was opened shows up only when it is let go.
+and in +24 as a byte. A key held when the area was opened isn't in the map until it is let go and pressed again; its release is still
+queued.
 
 Raw events never repeat. The console's **key repeat** (the card's REPEAT: [the Technical Reference](../oo1-technical-reference/08-usb.md#reg-c586))
 is for the cooked keys, and function 81's `IN_REPEAT` sets it; the card has no "off", but a game that reads the
@@ -266,6 +267,8 @@ Four **controllers**, 4 bytes each from +40, so a game asks for controller 1 and
 - **Controller 3** is the USB card's game port: its X and Y are paddles 0 and 1, its directions where they are past
   64 and 192 (below 64 left or up, 192 or more right or down: `GP_LOW`, `GP_HIGH`), its three buttons fire bits
   4–6. The paddles are read every frame: OODOS starts them at the frame's first tick and reads them 4 ms later.
+  So they need the video card's frames (and the VIA's ticks): without them the paddles and controller 3's
+  directions stay as the open found them, though its buttons still change.
   The four paddles themselves are at +56 for a game that wants paddles, not a joystick. A button change is an
   event at once (the card's interrupt); a change of direction an event at the frame it is read.
 - **Controller 4** is kept for a USB gamepad: nothing yet, its bits 0, X and Y 128.
@@ -284,8 +287,8 @@ pressed or let go is, one event a button, and so is each turn of the wheel, whos
 
 ### What input costs
 
-With a layout-2 area open each tick costs 232 cycles, against 145 with no area: 87 more, about 1.2% of the CPU.
-Twice a frame a tick costs more, when it starts the paddles (360) and when it reads them (658), and a stick's
+With a layout-2 area open each tick costs 234 cycles, against 145 with no area: 89 more, about 1.2% of the CPU.
+Twice a frame a tick costs more, when it starts the paddles (366) and when it reads them (673), and a stick's
 change is a little more again. The USB card's interrupt for a key is about 650 cycles. Without a layout-2 area
 OODOS samples nothing: a program that doesn't open one pays only L1's 145 a tick.
 
