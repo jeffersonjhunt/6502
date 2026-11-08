@@ -247,7 +247,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -297,6 +297,24 @@ add_custom_command(
         DEPENDS ${oodos_deps} ${oodos_utils_deps}
         VERBATIM)
 add_custom_target(oodos_sys ALL DEPENDS "${OODOS_SYS_DIR}/OODOS.SYS")
+# OOLIB L1's debug build (`make DEBUG=1`: the hooks' cycles counted), with the test programs, for
+# test_oodos_clock_debug.
+set(OODOS_SYS_DEBUG_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys_debug")
+add_custom_command(
+        OUTPUT "${OODOS_SYS_DEBUG_DIR}/OODOS.SYS" "${OODOS_SYS_DEBUG_DIR}/oodos.lbl"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SYS_SRC}" DEBUG=1 "BUILD=${OODOS_SYS_DEBUG_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        DEPENDS ${oodos_deps}
+        VERBATIM)
+add_custom_target(oodos_sys_debug ALL DEPENDS "${OODOS_SYS_DEBUG_DIR}/OODOS.SYS")
+emu_add_test(test_oodos_clock_debug)
+set_tests_properties(test_oodos_clock_debug PROPERTIES TIMEOUT 600) # one boot and a few seconds of machine time, under ASan
+add_dependencies(test_oodos_clock_debug oodos_sys_debug backplane_bios)
+target_compile_definitions(test_oodos_clock_debug PRIVATE
+        EMU_OODOS_SYS_DIR="${OODOS_SYS_DEBUG_DIR}"
+        EMU_SD_DIR="${CMAKE_CURRENT_LIST_DIR}/sd"
+        EMU_OODOS_DISKDEFS="${PROJECT_SOURCE_DIR}/../oodos/diskdefs"
+        EMU_BIOS_ROM="${BIOS_DIR}/bios.rom"
+        EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 add_custom_target(oodos_utils ALL DEPENDS "${OODOS_UTILS_DIR}/utils.stamp")
 add_custom_target(oodos_ldr ALL DEPENDS "${OODOS_LDR_DIR}/BOOT.BIN" "${OODOS_PRL_DIR}/hello.prl")
 add_dependencies(test_disk2_native backplane_bios)
