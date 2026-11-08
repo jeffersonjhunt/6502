@@ -37,7 +37,9 @@
 ; slots, from the mouse's position as the layout-2 area has it (input.s's
 ; MXS, MYS) less the hotspot, modulo 1,024. Four bytes by channel 1 from a
 ; staging copy here (PSTAGE), so the interrupt needs no zero page of its
-; own; the program draws the image and sets the entry's other bytes.
+; own; the program draws the image and sets the entry's other bytes. Not
+; while SPRBASE points into the console's units 0-12 (the warm boot leaves
+; it 0): the table there would be the console's palette.
 
 .setcpu "65C02"
 .include "sys.inc"
@@ -544,6 +546,9 @@ VBWORK:         LDA     NB_WIN1
                 BEQ     @done
                 BIT     EVON
                 BPL     @done          ; MXS and MYS only with a layout-2 area
+                LDA     VIDEO_SPRBASE
+                CMP     #DM_UNIT0
+                BCC     @done          ; a sprite table in the console's units: not written there
                 SEC                    ; X and Y less the hotspot, modulo 1,024
                 LDA     MXS
                 SBC     PHOTX

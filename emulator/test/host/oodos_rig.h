@@ -864,6 +864,74 @@ namespace oodos_rig
             }
         };
 
+        // ---- a file on B:, written behind OODOS's back before B: is logged in ----------------------------
+
+        inline constexpr unsigned B_UNIT = 2, B_BLS = 4096, B_ENTRIES = 1024, B_DIRBLOCKS = 8; ///< oodos-8m
+
+        /// A unit's sectors written through the card's registers, as read_unit() reads them.
+        inline void unit_write(Rig &r, unsigned unit, uint32_t lba, const std::vector<uint8_t> &data)
+        {
+            const unsigned count = static_cast<unsigned>((data.size() + SECTOR - 1) / SECTOR);
+            r.sd().write(SdCard::UNIT, static_cast<uint8_t>(unit));
+            for (unsigned i = 0; i < 4; ++i)
+                r.sd().write(static_cast<uint8_t>(SdCard::LBA + i), static_cast<uint8_t>(lba >> (8 * i)));
+            r.sd().write(SdCard::COUNT, static_cast<uint8_t>(count));
+            r.sd().write(SdCard::COUNT + 1, static_cast<uint8_t>(count >> 8));
+            r.sd().write(SdCard::CMD, SdCard::WRITE);
+            for (unsigned s = 0; s < count; ++s)
+            {
+                for (int i = 0; i < 1000 && !(r.sd().read(SdCard::STATUS) & SdCard::DATA_READY); ++i)
+                    r.run(200);
+                for (size_t i = 0; i < SECTOR; ++i)
+                {
+                    const size_t at = s * SECTOR + i;
+                    r.sd().write(SdCard::DATA, at < data.size() ? data[at] : 0x1A);
+                }
+            }
+            for (int i = 0; i < 1000 && (r.sd().read(SdCard::STATUS) & SdCard::BUSY); ++i)
+                r.run(200);
+            CHECK_EQ(r.sd().read(SdCard::STATUS) & SdCard::ERR, 0);
+            r.sd().write(SdCard::UNIT, 0);
+        }
+        /// `data` as B:'s user-0 file `name83` (8 + 3), on an empty B: (its label alone): blocks from the
+        /// first after the directory, entries of 8 blocks (EXM 1) in the free slots that aren't the date
+        /// stamps' (every fourth). The last record ^Z-padded.
+        inline void put_b(CcpRig &r, const std::string &name83, const std::vector<uint8_t> &data)
+        {
+            std::vector<uint8_t> dir;
+            for (uint32_t s = 0; s < B_ENTRIES * 32 / SECTOR; ++s)
+            {
+                const std::vector<uint8_t> sec = r.read_unit(B_UNIT, s);
+                dir.insert(dir.end(), sec.begin(), sec.end());
+            }
+            const unsigned records = static_cast<unsigned>((data.size() + RECORD - 1) / RECORD);
+            const unsigned blocks = static_cast<unsigned>((records * RECORD + B_BLS - 1) / B_BLS);
+            unsigned e = 0, block = B_DIRBLOCKS;
+            for (unsigned first = 0; first < blocks; first += 8)
+            {
+                while (dir[e * 32] != 0xE5 || e % 4 == 3)
+                    ++e;
+                REQUIRE(e < B_ENTRIES);
+                uint8_t *d = &dir[e * 32];
+                std::fill(d, d + 32, 0);
+                for (unsigned i = 0; i < 11; ++i)
+                    d[1 + i] = static_cast<uint8_t>(name83[i]);
+                const unsigned here = static_cast<unsigned>(std::min<size_t>(records - first * (B_BLS / RECORD), 8 * (B_BLS / RECORD))); // records
+                const unsigned ext = first / 4 + (here - 1) / 128; // the logical extent of its last record
+                d[12] = static_cast<uint8_t>(ext & 0x1F);
+                d[14] = static_cast<uint8_t>(ext >> 5);
+                d[15] = static_cast<uint8_t>(here - (here - 1) / 128 * 128);
+                for (unsigned k = 0; k < 8 && first + k < blocks; ++k)
+                {
+                    d[16 + 2 * k] = static_cast<uint8_t>(block + first + k);
+                    d[17 + 2 * k] = static_cast<uint8_t>((block + first + k) >> 8);
+                }
+                ++e;
+            }
+            unit_write(r, B_UNIT, 0, dir);
+            unit_write(r, B_UNIT, block * (B_BLS / SECTOR), data);
+        }
+
         /// M:'s file (user, 8 + 3): its bytes, from its entries in extent order (EXM 1: an entry's
         /// records (EX & 1) * 128 + RC), its blocks' pointers 8-bit. Empty if there is none.
         inline std::vector<uint8_t> m_data(CcpRig &r, unsigned user, const std::string &name83)
