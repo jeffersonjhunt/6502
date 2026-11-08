@@ -376,8 +376,8 @@ FCRET:          PHP                    ; the target's return: the old block back
 ; master enable put back if the driver had it off for a write; the sector
 ; being written is lost, the rest of its track kept.
 NMI:            SEI
-                LDA     DISK2 + D2_Q7OFF
-                LDA     DISK2 + D2_MOTOROFF
+                LDA     DISK2_Q7OFF
+                LDA     DISK2_MOTOROFF
                 LDA     #SYS_BLOCK
                 STA     NB_WIN0
                 LDA     D2WRIT
