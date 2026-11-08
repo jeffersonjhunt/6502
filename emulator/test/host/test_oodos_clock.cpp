@@ -398,6 +398,24 @@ TEST(a_stopped_timer_ends_a_delay_and_the_warm_boot_starts_it_again)
     CHECK_EQ(field(d, "DELAY"), std::string("00 00")); // and a delay waits again
 }
 
+TEST(a_changed_acr_is_put_back_by_the_warm_boot_losing_no_tick)
+{
+    // A program changes ACR (timer 1 free-running still, now on PB7 too) and writes timer 1's enable
+    // again, the latch left alone: the warm boot puts ACR back, and with the latch as it was writes no
+    // T1LH (which would clear a tick due then), so the counter keeps time across it to the tick.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.run(ms(100));
+    Span s(r);
+    const std::string o = r.go("l1test.com", " U");
+    CHECK(o.find("\r\nA>") != std::string::npos);
+    CHECK_EQ(r.machine->bus().peek(VIA_ACR), 0x40);
+    CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
+    CHECK_EQ(r.machine->bus().peek(VIA_T1LL) | r.machine->bus().peek(VIA_T1LH) << 8, static_cast<int>(TICK_LATCH));
+    r.run(ms(500));
+    s.check("across the warm boot", 1, 1);
+}
+
 /// backplane.machine without the VIA (and the joysticks on it): the 6551 answers all of $C300-$C37F.
 static std::string no_via_machine()
 {

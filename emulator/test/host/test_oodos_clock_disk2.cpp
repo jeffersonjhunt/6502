@@ -74,7 +74,7 @@ TEST(a_disk_ii_write_keeps_up_under_a_full_budget_frame_hook)
     // as it goes by while the driver searches for it, and a turn is about 12 frames, so it may cover it
     // again a turn later; D2WSEC tries for about 6 turns. L1TEST K: 16 writes of 1 KB to O: with the
     // hook set, each after the drive has stopped (1.1 s) and 1 ms later than the last, so the hook
-    // meets the track at 16 phases of a frame.
+    // meets the track at 16 phases of a frame. The last pass's file is read back and compared.
     Dr r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " K", ms(120000));
@@ -84,7 +84,7 @@ TEST(a_disk_ii_write_keeps_up_under_a_full_budget_frame_hook)
         std::printf("  %s\n", o.substr(at + 1, o.find('\r', at) - at - 1).c_str());
     CHECK_EQ(passes, 16u);
     CHECK_EQ(field(o, "KERR"), std::string("00 00")); // every delete, make, write and close as it should be
-    has(r.c("dir o:k.bin"), "K        BIN");
+    CHECK_EQ(field(o, "KREAD"), std::string("00 00")); // the last pass's 8 records read back as written
 }
 
 int main()

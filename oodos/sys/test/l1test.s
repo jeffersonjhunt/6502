@@ -48,7 +48,12 @@
 ;       1,100 + 1 ms a pass (the drive stops, and the frame hook's phase
 ;       against the disk moves), O:K.BIN deleted, made, KRECS records
 ;       written, closed; K pp and each step's A (delete, make, the writes'
-;       ORed, close); KERR and the steps that failed
+;       ORed, close); KERR and the steps that failed (the first delete must
+;       find no file, $FF, each later one the last pass's, 0-3); then the
+;       last pass's file read back: KREAD, the open's A and the records that
+;       didn't read or weren't as written
+;   U   ACR changed (timer 1 free-running still, and on PB7) and timer 1's
+;       enable written again, the latch left alone; the warm boot at once
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -116,6 +121,9 @@ start:  lda     BP_DMA + 1              ; the tail's first letter, after its spa
 :       cmp     #'K'
         bne     :+
         jmp     case_k
+:       cmp     #'U'
+        bne     :+
+        jmp     case_u
 :       jmp     WBOOT
 
 ; ---- small helpers ---------------------------------------------------------
@@ -596,10 +604,15 @@ case_k: lda     #$FF                    ; errors come back, not said
         lda     kres,x
         jsr     HEX2
         ldx     kx
-        lda     kres,x                  ; delete: $FF (not there) is all right
+        lda     kres,x
         cpx     #0
+        bne     @nodel
+        ldy     spin + 1                ; delete: the first finds none, the
+        bne     @dir                    ; others the last pass's file
+        cmp     #$FF
         beq     @ok
-        cpx     #3                      ; make, close: 0-3
+        bra     @err
+@nodel: cpx     #3                      ; make, close: 0-3
         beq     @dir
         cpx     #1
         beq     @dir
@@ -622,6 +635,42 @@ case_k: lda     #$FF                    ; errors come back, not said
 :       lda     bad
         ldx     #0
         SAY     "KERR"
+        stz     bad                     ; the last pass's file read back
+        jsr     kfcb
+        lda     #<kfcbb
+        ldx     #>kfcbb
+        ldy     #F_OPEN
+        jsr     BDOS
+        sta     kres
+        lda     #KRECS
+        sta     spin
+@back:  lda     #<kfcbb
+        ldx     #>kfcbb
+        ldy     #F_READ
+        jsr     BDOS
+        cmp     #0
+        bne     @bad
+        ldx     #127
+@cmp:   txa
+        eor     spin
+        eor     #KPASSES - 1
+        cmp     kbuf,x
+        bne     @bad
+        dex
+        bpl     @cmp
+        bra     @next
+@bad:   inc     bad
+@next:  dec     spin
+        bne     @back
+        lda     kres
+        ldx     bad
+        SAY     "KREAD"
+        jmp     WBOOT
+
+case_u: lda     #VIA_ACR_T1FREE | $80   ; PB7 timer 1's too: against the rules, harmless
+        sta     VIA_ACR
+        lda     #VIA_IER_SET | VIA_IRQ_T1
+        sta     VIA_IER
         jmp     WBOOT
 
 ; kfcbb: O:K.BIN, the rest 0.
