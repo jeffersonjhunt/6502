@@ -397,8 +397,15 @@ EVALL:          LDA     NB_WIN1
 .ifdef OOLIB_DEBUG
 ; Timer 1's count now in A (low) and X (high); a tick that came due
 ; meanwhile counted first, since reading the count clears its flag (its
-; hook, if due, waits for the next). No VIA: 0, the 6551's registers left
-; alone.
+; hook, if due, waits for the next). One that comes due between the IFR's
+; check and the read of T1CL has its flag cleared by that read unseen: the
+; count, just reloaded, is then within a few cycles of the top, so a count
+; read within T1LATE cycles of it with no flag seen is counted too (TICK
+; reads T1CL some 40 cycles after its expiry, and a hook's call is later
+; still, so no tick is counted twice). No VIA: 0, the 6551's registers
+; left alone.
+T1LATE          = 24
+.assert <TICK_LATCH >= T1LATE, error, "T1NOW's top: the latch's low byte less T1LATE"
 T1NOW:          BIT     VIAL
                 BMI     @via
                 LDA     #0
@@ -406,8 +413,26 @@ T1NOW:          BIT     VIAL
                 RTS
 @via:           LDA     VIA_IFR
                 AND     #VIA_IRQ_T1
-                BEQ     @read
-                INC     MS
+                BEQ     @late
+                JSR     @tick
+@read:          LDX     VIA_T1CH       ; the high byte the same either side of the low
+                LDA     VIA_T1CL
+                CPX     VIA_T1CH
+                BNE     @read
+                RTS
+@late:          LDX     VIA_T1CH       ; no flag seen: read it the same way, and then
+                LDA     VIA_T1CL
+                CPX     VIA_T1CH
+                BNE     @late
+                CPX     #>TICK_LATCH   ; just reloaded? Then its expiry came meanwhile
+                BNE     @done
+                CMP     #<TICK_LATCH - T1LATE
+                BCC     @done
+                PHA
+                JSR     @tick
+                PLA
+@done:          RTS
+@tick:          INC     MS
                 BNE     @d
                 INC     MS + 1
                 BNE     @d
@@ -416,10 +441,6 @@ T1NOW:          BIT     VIAL
                 INC     MS + 3
 @d:             LDA     #1
                 STA     EVDIRTY
-@read:          LDX     VIA_T1CH       ; the high byte the same either side of the low
-                LDA     VIA_T1CL
-                CPX     VIA_T1CH
-                BNE     @read
                 RTS
 
 ; A/X (high in A) + Y ticks of TICK_CYCLES: exact in 16 bits while Y is 8 or

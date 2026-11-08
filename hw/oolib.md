@@ -372,7 +372,7 @@ its question.
 - **Costs:** a tick, with no event area and no hook, is 145 cycles through the dispatcher (the IRQ's 7 included;
   144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds
   43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 527 bytes: **268 bytes
-  are left** ($FEED to the vectors), **96 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
+  are left** ($FEED to the vectors), **67 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
   are already in block 62).
 - **Tests** (emulator, fast preset): `test_oodos_clock` (13 cases, 6 s: the counters against the cycles at the
   prompt and through commands, 80's info and 72's 10 bytes, the event area's refusals and writes, wait and delay,
