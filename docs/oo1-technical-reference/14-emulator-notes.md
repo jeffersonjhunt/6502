@@ -155,7 +155,7 @@ Status: **emulated**
   out the bytes it moves, as for a wait state ([chapter 5](05-dma.md#the-controller)).
 - **The cards are told the CPU's clock,** so their time stays right at any speed: the video card's frame, the USB
   card's key repeat and paddle timers, the sound card's SID clock, the SD card's start-up and sector times, the
-  DS3231's second ([chapter 1](01-overview.md#clocks)).
+  Disk II's sequencer, the DS3231's second ([chapter 1](01-overview.md#clocks)).
 - **Flat out** (`--clock 0`, or Max), the cards keep 7.16 MHz time: a video frame is still about 119,400 cycles, so
   in real time the frames come faster than 60 a second.
 - **What counts cycles keeps counting cycles.** The VIA's timers and the BIOS's wait after each character are in
@@ -198,8 +198,6 @@ The design has these, and the emulator doesn't:
   ISR, its BE lamp and the ESP32's SPI header** ([chapter 12](12-front-panel.md#what-the-emulator-leaves-out)).
 - **Apple II mode's long cycle,** every 65th cycle stretched
   ([chapter 13](13-apple-ii-mode.md#the-long-cycle)).
-- **The Disk II's native mode,** its switches at `$C600–$C60F`, which OODOS's phase 6 adds
-  ([chapter 10](10-storage.md#native-modes-switches)).
 
 The emulator's own backlog, beside the design, has `.nib`, `.d13` and `.2mg` disk images
 ([chapter 10](10-storage.md#disk-images)).
@@ -279,9 +277,16 @@ emulator; each link goes to the note.
   - The Disk II's bit cell follows a WOZ image's own timing, where the design gives every cell 4 µs, and the north
     bridge resets the card with the IIe's switches, not through the card's own reset
     ([The sequencer and the drives](10-storage.md#the-sequencer-and-the-drives)).
-  - In native mode the Disk II card answers only its ID byte, `$C67F`. The switches the design puts at
-    `$C600–$C60F` are proposed in this book; OODOS's phase 6 adds them to the emulator, and their pages follow
-    once both are merged ([Native mode's switches](10-storage.md#native-modes-switches)).
+  - The Disk II's head moves the moment a phase changes, and its motor is at speed the moment it is switched on.
+    A real drive needs time to step, to settle and to spin up
+    ([Timing in native mode](10-storage.md#timing-in-native-mode)).
+  - The Disk II's motor runs on for 0.998 s in native mode, where hw/design.md says a second: the run-on is
+    counted in the sequencer's steps, Apple II mode's second without its long cycle
+    ([Timing in native mode](10-storage.md#timing-in-native-mode)).
+  - When the emulator runs native mode's CPU slower than 7.16 MHz (the WebUI's speed settings), the Disk II's
+    sequencer keeps its own speed, so a disk byte is fewer than 224 of those cycles and a write loop counted for
+    7.16 MHz is out of step; reading, which is polled, still works
+    ([Timing in native mode](10-storage.md#timing-in-native-mode)).
 - **The north bridge and the clock** ([chapter 11](11-north-bridge-and-rtc.md))
   - MODE reads back, where the design has it write-only ([`$C685`](11-north-bridge-and-rtc.md#reg-c685)).
   - The wait states apply at ÷2, to every module, the DMA controller's accesses too; the design keeps them for a

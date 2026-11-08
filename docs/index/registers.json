@@ -1305,6 +1305,150 @@
   "status": "emulated"
  },
  {
+  "equate": "DISK2_PH0OFF",
+  "address": "$C600",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c600",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH0ON",
+  "address": "$C601",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c601",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH1OFF",
+  "address": "$C602",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c602",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH1ON",
+  "address": "$C603",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c603",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH2OFF",
+  "address": "$C604",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c604",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH2ON",
+  "address": "$C605",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c605",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH3OFF",
+  "address": "$C606",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c606",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_PH3ON",
+  "address": "$C607",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c607",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_MOTOROFF",
+  "address": "$C608",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c608",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_MOTORON",
+  "address": "$C609",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c609",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_DRIVE1",
+  "address": "$C60A",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c60a",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_DRIVE2",
+  "address": "$C60B",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c60b",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_Q6OFF",
+  "address": "$C60C",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c60c",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_Q6ON",
+  "address": "$C60D",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c60d",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_Q7OFF",
+  "address": "$C60E",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c60e",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "DISK2_Q7ON",
+  "address": "$C60F",
+  "module": "C",
+  "documented": true,
+  "anchor": "reg-c60f",
+  "file": "oo1-technical-reference/10-storage.md",
+  "status": "emulated"
+ },
+ {
   "equate": "DISK2_ID",
   "address": "$C67F",
   "module": "C",

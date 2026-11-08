@@ -402,6 +402,9 @@ its PROM as the chip is wired, two steps a CPU cycle, and two drives take `.woz`
 [the disk images](10-storage.md#disk-images). In the terminal app, `--disk2-rom BOOT,SEQUENCER` fits the PROMs and
 `--disk` puts an image in drive 1; the WebUI takes the PROMs in its Settings.
 
+The card is native mode's as well, with the same sixteen switches at `$C600–$C60F` and no boot ROM
+([In native mode](10-storage.md#in-native-mode)). The disks stay in their drives across the change of mode.
+
 ## Ctrl-Reset and the hard reset
 
 Status: **emulated**

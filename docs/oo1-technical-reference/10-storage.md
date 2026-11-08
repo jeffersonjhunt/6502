@@ -364,8 +364,9 @@ Status: **emulated**
 
 The Disk II card is module C. In Apple II mode it is the IIe's disk controller in slot 6, as Apple's card was: the
 owner's two Apple PROMs, the boot ROM and the sequencer, in its sockets, and an Apple drive or a Floppy Emu on its
-20-pin connector. In native mode the emulated card answers only its ID byte. The design gives it its switches in
-native mode too, which is [proposed](#native-modes-switches).
+20-pin connector. In native mode the same sixteen switches are in the card's own block, at `$C600–$C60F`
+([below](#in-native-mode)), and OODOS drives a floppy through them as its drives O: and P:
+([How OODOS drives it](#how-oodos-drives-it)).
 
 The emulated card is the real one's logic, not a model of what disk software expects. The sequencer's PROM runs as
 the chip is wired, so software timed to the cycle meets the disk as it would on a real Disk II.
@@ -446,30 +447,165 @@ in their drives through a power cycle. `.nib`, `.d13` and `.2mg` are in the emul
 
 Status: **emulated**
 
-In native mode the card's block is `$C600–$C67F`. Only the ID at `$C67F` ([`DISK2_ID`](#reg-c67f)) answers: it
-reads `$C1`. The rest of the block reads `$FF` and ignores writes, and the boot ROM isn't visible. OODOS finds the
-card by its ID at cold boot, and lists it among the cards it found.
+In native mode the card's block is `$C600–$C67F`, module C's place in the I/O hole:
+
+| Offset | Address | What it is |
+|---|---|---|
+| `$00–$0F` | [`$C600–$C60F`](#native-modes-switches) | the sixteen switches, slot 6's, in the same order |
+| `$10–$7E` | `$C610–$C67E` | read `$FF`; writes are ignored |
+| `$7F` | [`$C67F`](#reg-c67f) | the ID, `$C1` |
+
+Neither PROM is visible in native mode. The boot ROM is only slot 6's page in Apple II mode, and the sequencer's
+PROM is never on the bus in either mode: the card reads it for itself at each step. Native software sees the
+sequencer only through what it does to the data register.
+
+OODOS finds the card by its ID at cold boot and lists its drives, O: and P:, among the drives it found
+([below](#how-oodos-drives-it)).
 
 ### Native mode's switches
 
-Status: **proposed**
+Status: **emulated**
 
-The design puts the card's sixteen switches in its native block as well: `$C600–$C60F` work as `$C0E0–$C0EF` do in
-Apple II mode, in the same order, with the ID still at `$C67F` and the rest reading `$FF`. Native software could
-then read and write the Apple disk in the drive without moving its image to the SD card: a copier between the two,
-or a native utility for DOS 3.3 and ProDOS disks.
+The switches are the ones Apple II mode has at `$C0E0–$C0EF` ([above](#in-apple-ii-mode-slot-6)), at the bottom of
+the card's own block:
 
-- **Reading** is the same polling loop at any CPU speed. The sequencer runs from the backplane's oscillator, not
-  the CPU's clock, and assembles each disk byte itself, holding it in the data register for about 32 µs.
-- **Writing and stepping** are timed by the CPU. The Apple's own code counts its cycles, so it can't run natively,
-  but a native driver can. At 7.16 MHz a sequencer step is exactly 3.5 CPU cycles, so a disk byte, 64 steps, is
-  exactly 224 cycles, and a native write loop holds the disk's timing with no drift. While it writes, the driver
-  keeps interrupts and DMA off and touches no card with wait states.
-- **No DMA.** The Disk II is the one card that doesn't support it.
+| Address | Equate | Switch |
+|---|---|---|
+| [`$C600`](#reg-c600), [`$C601`](#reg-c601) | `DISK2_PH0OFF`, `DISK2_PH0ON` | phase 0 off, on |
+| [`$C602`](#reg-c602), [`$C603`](#reg-c603) | `DISK2_PH1OFF`, `DISK2_PH1ON` | phase 1 off, on |
+| [`$C604`](#reg-c604), [`$C605`](#reg-c605) | `DISK2_PH2OFF`, `DISK2_PH2ON` | phase 2 off, on |
+| [`$C606`](#reg-c606), [`$C607`](#reg-c607) | `DISK2_PH3OFF`, `DISK2_PH3ON` | phase 3 off, on |
+| [`$C608`](#reg-c608), [`$C609`](#reg-c609) | `DISK2_MOTOROFF`, `DISK2_MOTORON` | the motor off, on |
+| [`$C60A`](#reg-c60a), [`$C60B`](#reg-c60b) | `DISK2_DRIVE1`, `DISK2_DRIVE2` | drive 1, drive 2 |
+| [`$C60C`](#reg-c60c), [`$C60D`](#reg-c60d) | `DISK2_Q6OFF`, `DISK2_Q6ON` | Q6 off, on |
+| [`$C60E`](#reg-c60e), [`$C60F`](#reg-c60f) | `DISK2_Q7OFF`, `DISK2_Q7ON` | Q7 off, on |
 
-backplane.inc has no equates for these switches, and the emulator doesn't decode them yet. An OODOS phase now under
-way adds native mode, and its register pages follow here later. The design record has the reasons
-([hw/design.md, "Storage"](../../hw/design.md#storage)).
+- **Any access works a switch,** a read or a write. A read of an even address returns the data register; a read
+  of an odd one returns `$FF`. A write also puts its byte on the card's data bus, where the sequencer loads it in
+  write mode.
+- **Q7 and Q6 choose what the sequencer does:**
+
+  | Q7 | Q6 | The sequencer |
+  |---|---|---|
+  | off | off | reads the disk: a whole byte lands in the data register with bit 7 set |
+  | off | on | senses the write protection: bit 7 of the data register is 1 if the disk is protected |
+  | on | on | loads the byte on its bus into the data register, to write |
+  | on | off | shifts the data register out to the head, a bit a cell |
+
+- **One access, one instruction.** Use plain absolute loads and stores, or an absolute,X load whose address stays
+  in the card's page, which the W65C02S makes once. An indexed access that crosses a page reads another address
+  first, and a read-modify-write instruction touches its address twice; either can work a switch it didn't mean
+  to.
+- **/RESET** (a hard reset) clears the latch as in Apple II mode: the phases, Q6 and Q7 off, drive 1 selected, the
+  motor switched off and running on ([above](#the-sequencer-and-the-drives)). The emulator's debugger and the
+  WebUI's memory view read the block without working the switches.
+
+### Timing in native mode
+
+Status: **emulated**
+
+The sequencer's clock is the backplane's oscillator divided by 7, 2.045 MHz, in either mode and whatever the CPU's
+speed. Native mode's CPU runs at the oscillator divided by 2, 7.16 MHz, so a sequencer step is exactly 3.5 CPU
+cycles:
+
+| | Steps | CPU cycles at 7.16 MHz |
+|---|---|---|
+| a step | 1 | 3.5 |
+| a bit cell | 8 | 28 |
+| a disk byte, 8 bits | 64 | **224** |
+| a sync byte, 10 bits | 80 | 280 |
+
+The count comes out whole every two steps, so a loop counted in cycles stays in step with the disk with no drift.
+The emulator run at a slower clock keeps the sequencer at its own speed, so there a disk byte is fewer cycles
+([chapter 14](14-emulator-notes.md#what-differs)).
+
+- **Reading is polled,** and works at any CPU speed. The sequencer puts each byte together itself; software reads
+  an even switch (`DISK2_Q6OFF` is the one OODOS uses) until bit 7 is set, then takes the byte. To take each byte
+  once, wait for bit 7 to go clear between them, as OODOS's driver does. Bound every wait: with no disk turning,
+  or no sequencer PROM, bit 7 may never come.
+- **Sensing the write protection:** Q6 on with Q7 off, a whole loop of the sequencer's eight steps (OODOS waits 30
+  cycles), then read an even switch: bit 7 is 1 for a protected disk. An empty drive reads as protected.
+- **Writing is timed by the CPU.** With Q6 on, a write to `DISK2_Q7ON` starts write mode and puts its byte on the
+  bus. For each byte after it, write the byte to `DISK2_Q6ON` (load) and hold Q6 on for at least a whole loop of
+  eight steps, 28 cycles, before a read of `DISK2_Q6OFF` (shift); the load is missed, and nothing written, if Q6 is
+  on for less. Each load comes 224 cycles after the last, or 280 after a sync byte. A load a cycle late still reads
+  back: now and then the byte gains a ninth bit, a 0, which a reader passes over as it does in sync bytes. A load
+  a cycle early loses bits. A read of `DISK2_Q7OFF` ends write mode.
+- **Nothing may stretch a write loop:** no interrupt, no DMA transfer (a channel holds the CPU off the bus) and no
+  access to a card or to memory with wait states (WAIT0–WAIT3, `$C68A–$C68D`, are 0 from reset, and OODOS leaves
+  them so; [chapter 11](11-north-bridge-and-rtc.md#reg-c68a)).
+- **Stepping is timed by the CPU** too. A phase switched on pulls the head toward its magnet, a half track at most;
+  two phases on next to each other hold it between them, a quarter track. The head moves only while the motor
+  turns. A driver steps a half track at a time: the next phase on, a step's time, the last one off, and lets the
+  head settle after the last step. The emulator moves the head at once, so it needs no step or settling time; a
+  real drive does.
+- **The motor** of the selected drive starts at `DISK2_MOTORON` and, from `DISK2_MOTOROFF`, runs on for 2,040,968
+  of the sequencer's steps: 0.998 s in native mode at any CPU speed, a second in Apple II mode. The card has one
+  motor line, to the selected drive: the other drive's disk doesn't turn.
+- **No DMA,** and no interrupt. The Disk II is the one card that can't be a DMA channel's partner
+  ([chapter 5](05-dma.md#transfers-for-a-card)), and its IRQH bit, 4, always reads 1
+  ([chapter 4](04-interrupts.md#finding-the-source-irql-and-irqh)). A driver polls.
+
+The design record has the reasons ([hw/design.md, "Storage"](../../hw/design.md#storage)).
+
+### Without the sequencer PROM
+
+Status: **emulated**
+
+The sequencer's PROM is Apple's and comes from the owner, as the IIe's ROM does; the emulator ships none, and the
+website has none unless it is given one (Settings, ROMs). Without it the switches still work: the motor turns, the
+phases move the head, Q6 and Q7 change. But every step of the sequencer clears the data register, so an even switch
+reads `$00`, bit 7 is never set and nothing is read from a disk. A native driver's waits must end on their own.
+OODOS's do: on such a card O: and P: are there, and using one gives Disk I/O after a fraction of a second, as an
+empty drive does ([the User's Guide, "Drives"](../oodos-users-guide/03-drives-and-files.md#drives)).
+
+### How OODOS drives it
+
+Status: **emulated**
+
+OODOS's driver is [`oodos/sys/disk2.s`](../../oodos/sys/disk2.s), in the BIOS's block (61), under the BIOS's layer
+for Apple CP/M disks. The drives it gives programs, O: and P:, are in the Programmer's Guide
+([Removable drives](../oodos-programmers-guide/03-file-system.md#removable-drives-o-and-p)) and the User's Guide
+([Drives](../oodos-users-guide/03-drives-and-files.md#drives)); this is how it uses the card.
+
+- **The format** is the 16-sector format DOS 3.3 writes, which the emulator also writes a `.dsk` out as: each
+  sector an address field (`D5 AA 96`, the volume, track and sector and their checksum, each in two disk bytes,
+  `DE AA`) and a data field (`D5 AA AD`, 342 six-bit values in the 6-and-2 code and a checksum, `DE AA`; the driver
+  writes `DE AA EB`). The volume number isn't checked. The image's sector f of a track is physical sector
+  `FILE2PHYS[f]` (`$0 $D $B $9 $7 $5 $3 $1 $E $C $A $8 $6 $4 $2 $F`); above it the BIOS puts CP/M's 256-byte
+  sector n of a track at the image's sector `SKEW[n]` (`0 6 12 3 9 15 14 5 11 2 8 7 13 4 10 1`), cpmtools's
+  `apple-do` layout, the SoftCard's.
+- **A whole track at a time.** A read seeks and reads the whole track into a 4 KB track buffer, decoding each data
+  field as it passes and checking its checksum. Each drive has two buffers, one for the directory's track (3) and
+  one for the rest, in blocks 29 and 30, mapped into window 1 while the driver works. A field that stays bad for
+  three tries leaves its sector out and the rest of the track is kept; a read of that sector has the track read
+  again once, then is Disk I/O.
+- **One sector at a time, written through.** A write finds the sector's address field, then writes its data field
+  from the buffer; the buffer and the disk always agree.
+- **Write protection** is sensed before each sector is written; a protected disk is Read Only.
+- **Seeking:** the head's place is remembered for each drive; when it isn't known (at cold boot, after a field
+  names the wrong track, or after a track fails) the driver steps 80 half tracks outward onto the stop first. For
+  the real drive it waits 3 ms a half track and 15 ms to settle (proposed: the emulator's head moves at once).
+- **Every wait is bounded:** a disk byte 256 polls, an address field 13,000 disk bytes (two turns and more), a track
+  three tries. A disk that doesn't turn, or a card with no sequencer PROM, ends in Disk I/O, not a hang.
+- **The motor** is switched on for each read or write and off at its end; the card's run-on keeps the disk turning
+  for the next access within the second. There is no spin-up wait: a read just starts, and a write starts once its
+  sector's address field has been read.
+- **A changed floppy.** Whether a disk is turning is seen from the data register changing over about 2,000 cycles.
+  A disk that had stopped, or the other drive's (the card has one motor line), may have been changed: the BIOS
+  empties its buffers, and the BDOS reads the directory again and compares its checksums. Another disk is logged in
+  afresh, and a file open on the old one gets error 10, Media Change. A drive accessed within the same second of
+  the clock is taken as unchanged. The rules are the Programmer's Guide's
+  ([Removable drives](../oodos-programmers-guide/03-file-system.md#removable-drives-o-and-p)).
+- **Interrupts and DMA during a sector.** OODOS calls the driver with interrupts off: the BDOS's entry masks them
+  for the whole call, and a sector write masks them itself as well, for the whole write, its seek and the search for
+  its address field included, and puts the caller's flag back after. The write also turns the DMA controller's
+  master enable off ([`$C441`](05-dma.md#reg-c441)) and puts it back after; a read leaves DMA alone, since OODOS
+  runs no transfer while the driver does. Break (NMI) can't be masked: the NMI handler turns the card's write mode
+  and motor off and the master enable back on before the monitor, so a write it cuts short loses that sector and
+  the rest of the track is kept.
+
+The design record is [hw/oodos.md, "The plan, phase 6"](../../hw/oodos.md#the-plan-phase-6).
 
 ## Registers
 
@@ -896,11 +1032,11 @@ The BIOS checks for `$71` (`SD_ID_V1`) before it touches the card. With the slot
 is the mass storage card's, and STATUS's PRESENT says whether an SD card is in it.
 
 <a id="reg-c600"></a>
-### $C600 DISK2: the Disk II card's block
+### $C600 DISK2_PH0OFF: stepper phase 0 off
 
 #### Equates
 
-`DISK2`
+`DISK2`, `DISK2_PH0OFF`
 
 #### Module
 
@@ -908,17 +1044,17 @@ C, the Disk II card
 
 #### Access
 
-In native mode, R: every address of `$C600–$C67E` reads `$FF`, and writes are ignored. In Apple II mode,
-`$C600–$C6FF` is slot 6's boot ROM, read-only.
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
 
 #### Bits
 
-All: `$FF` in native mode. In Apple II mode, with INTCXROM off, the byte of the boot ROM in the card's socket; with
-INTCXROM on, the IIe's internal ROM.
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
 
 #### Reset
 
-`$FF` in native mode, which no reset changes.
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET turns every phase off.
 
 #### Status
 
@@ -926,9 +1062,524 @@ INTCXROM on, the IIe's internal ROM.
 
 #### Notes
 
-The base of the card's block: the equate names the block, not a register. The proposed native switches would be at
-`$C600–$C60F` ([above](#native-modes-switches)). The card's switches in Apple II mode are at `$C0E0–$C0EF`
-([above](#in-apple-ii-mode-slot-6)).
+`DISK2` names the card's block, `$C600–$C67F`; `DISK2_PH0OFF` is its first switch. OODOS's driver reaches the phases
+as `DISK2_PH0OFF` + 2 × n by an absolute,X load inside the page. In Apple II mode `$C600` is a byte of slot 6's boot
+ROM, and this switch is `$C0E0`.
+
+<a id="reg-c601"></a>
+### $C601 DISK2_PH0ON: stepper phase 0 on
+
+#### Equates
+
+`DISK2_PH0ON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+With the motor turning, the head moves toward phase 0's magnet: onto it from up to a half track away, or halfway to
+it with a neighbouring phase on as well ([above](#timing-in-native-mode)). In Apple II mode `$C601` is a byte of
+slot 6's boot ROM, and this switch is `$C0E1`.
+
+<a id="reg-c602"></a>
+### $C602 DISK2_PH1OFF: stepper phase 1 off
+
+#### Equates
+
+`DISK2_PH1OFF`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Stepping off phase 1, OODOS turns the next phase on first and this one off a step's time later; at the end of a seek
+the last phase goes off once the head has settled. In Apple II mode `$C602` is a byte of slot 6's boot ROM, and this
+switch is `$C0E2`.
+
+<a id="reg-c603"></a>
+### $C603 DISK2_PH1ON: stepper phase 1 on
+
+#### Equates
+
+`DISK2_PH1ON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+With the motor turning, the head moves toward phase 1's magnet: onto it from up to a half track away, or halfway to
+it with a neighbouring phase on as well ([above](#timing-in-native-mode)). In Apple II mode `$C603` is a byte of
+slot 6's boot ROM, and this switch is `$C0E3`.
+
+<a id="reg-c604"></a>
+### $C604 DISK2_PH2OFF: stepper phase 2 off
+
+#### Equates
+
+`DISK2_PH2OFF`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Stepping off phase 2, OODOS turns the next phase on first and this one off a step's time later; at the end of a seek
+the last phase goes off once the head has settled. In Apple II mode `$C604` is a byte of slot 6's boot ROM, and this
+switch is `$C0E4`.
+
+<a id="reg-c605"></a>
+### $C605 DISK2_PH2ON: stepper phase 2 on
+
+#### Equates
+
+`DISK2_PH2ON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+With the motor turning, the head moves toward phase 2's magnet: onto it from up to a half track away, or halfway to
+it with a neighbouring phase on as well ([above](#timing-in-native-mode)). In Apple II mode `$C605` is a byte of
+slot 6's boot ROM, and this switch is `$C0E5`.
+
+<a id="reg-c606"></a>
+### $C606 DISK2_PH3OFF: stepper phase 3 off
+
+#### Equates
+
+`DISK2_PH3OFF`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Stepping off phase 3, OODOS turns the next phase on first and this one off a step's time later; at the end of a seek
+the last phase goes off once the head has settled. In Apple II mode `$C606` is a byte of slot 6's boot ROM, and this
+switch is `$C0E6`.
+
+<a id="reg-c607"></a>
+### $C607 DISK2_PH3ON: stepper phase 3 on
+
+#### Equates
+
+`DISK2_PH3ON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET turns the phase off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+With the motor turning, the head moves toward phase 3's magnet: onto it from up to a half track away, or halfway to
+it with a neighbouring phase on as well ([above](#timing-in-native-mode)). In Apple II mode `$C607` is a byte of
+slot 6's boot ROM, and this switch is `$C0E7`.
+
+<a id="reg-c608"></a>
+### $C608 DISK2_MOTOROFF: the motor off
+
+#### Equates
+
+`DISK2_MOTOROFF`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET switches the motor off,
+and it runs on.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+The disk keeps turning for 2,040,968 of the sequencer's steps, 0.998 s in native mode, then stops. OODOS switches
+the motor off at the end of every read and write and lets the run-on keep the disk at speed for the next access. In
+Apple II mode `$C608` is a byte of slot 6's boot ROM, and this switch is `$C0E8`.
+
+<a id="reg-c609"></a>
+### $C609 DISK2_MOTORON: the motor on
+
+#### Equates
+
+`DISK2_MOTORON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET switches the motor off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+The selected drive's motor: the card has one motor line, and the drive not selected doesn't turn. The emulated disk
+is at speed at once. In Apple II mode `$C609` is a byte of slot 6's boot ROM, and this switch is `$C0E9`.
+
+<a id="reg-c60a"></a>
+### $C60A DISK2_DRIVE1: select drive 1
+
+#### Equates
+
+`DISK2_DRIVE1`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET selects drive 1.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+OODOS's O:. Selecting the other drive moves the motor line to it. In Apple II mode `$C60A` is a byte of slot 6's
+boot ROM, and this switch is `$C0EA`.
+
+<a id="reg-c60b"></a>
+### $C60B DISK2_DRIVE2: select drive 2
+
+#### Equates
+
+`DISK2_DRIVE2`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET selects drive 1.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+OODOS's P:. In Apple II mode `$C60B` is a byte of slot 6's boot ROM, and this switch is `$C0EB`.
+
+<a id="reg-c60c"></a>
+### $C60C DISK2_Q6OFF: Q6 off: read, or shift
+
+#### Equates
+
+`DISK2_Q6OFF`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET turns Q6 off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+The read port: with Q7 off, the sequencer reads the disk and a read here gives each byte, bit 7 set once it is
+whole; with Q7 on, it shifts the loaded byte out to the head. OODOS polls here for every disk byte, and reads here
+28 cycles after each load to start the shift ([above](#timing-in-native-mode)). In Apple II mode `$C60C` is a byte
+of slot 6's boot ROM, and this switch is `$C0EC`.
+
+<a id="reg-c60d"></a>
+### $C60D DISK2_Q6ON: Q6 on: sense write protection, or load
+
+#### Equates
+
+`DISK2_Q6ON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET turns Q6 off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+With Q7 off, the sequencer brings the write protection into the data register's bit 7 (1: protected; an empty drive
+reads protected). With Q7 on, it loads the byte on its bus: a store here is how a write loop gives it each byte. In
+Apple II mode `$C60D` is a byte of slot 6's boot ROM, and this switch is `$C0ED`.
+
+<a id="reg-c60e"></a>
+### $C60E DISK2_Q7OFF: Q7 off: read mode
+
+#### Equates
+
+`DISK2_Q7OFF`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns the data register.
+
+#### Bits
+
+All: the data register, as the sequencer has it at this cycle ([above](#native-modes-switches)); `$00` on a card
+with no sequencer PROM.
+
+#### Reset
+
+The data register isn't cleared: `$00` at power-on, then as the sequencer leaves it. /RESET turns Q7 off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Ends write mode. OODOS reads here for the write-protect sense's result, a loop of the sequencer after Q6 on, and at
+the end of every write. Its NMI handler reads here too, so a Break never leaves the card writing. In Apple II mode
+`$C60E` is a byte of slot 6's boot ROM, and this switch is `$C0EE`.
+
+<a id="reg-c60f"></a>
+### $C60F DISK2_Q7ON: Q7 on: write mode
+
+#### Equates
+
+`DISK2_Q7ON`
+
+#### Module
+
+C, the Disk II card
+
+#### Access
+
+R/W, in native mode. Any access, a read or a write, works the switch; a write also puts its byte on the card's data
+bus. A read returns `$FF`.
+
+#### Bits
+
+All: `$FF`.
+
+#### Reset
+
+`$FF`. /RESET turns Q7 off.
+
+#### Status
+
+**emulated**
+
+#### Notes
+
+Write mode: the head writes from the next cell on, and a write-protected disk is left as it is. With Q6 already on,
+a store here starts write mode and loads its byte, the first of the field's sync bytes in OODOS's loop. In Apple II
+mode `$C60F` is a byte of slot 6's boot ROM, and this switch is `$C0EF`.
 
 <a id="reg-c67f"></a>
 ### $C67F DISK2_ID: the Disk II card's ID
