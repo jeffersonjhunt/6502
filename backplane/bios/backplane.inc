@@ -274,9 +274,26 @@ SOUND_DOC_IRQ_CARD = $04               ; DOCCTL: its interrupt to the 6510, not 
 SOUND_DOC_AUTOINC = $20
 SOUND_DOC_RAM   = $40                  ; DOCCTL: DOCDATA reaches wave RAM, not the registers
 
-; Disk II controller (module C), slot 6 in Apple II mode. In native mode only its ID answers in its block
-; (hw/design.md, "Disk II controller clone"); the switches there are still to come in the emulator.
+; Disk II controller (module C), slot 6 in Apple II mode. In native mode its block has slot 6's sixteen
+; switches, in the same order, and its ID (hw/design.md, "Disk II controller clone"). Any access works a
+; switch; a read of an even one gives the data register, of an odd one $FF.
 DISK2           = $C600
+DISK2_PH0OFF    = DISK2 + $00          ; stepper phase 0 off, then on; phases 1-3 the same
+DISK2_PH0ON     = DISK2 + $01
+DISK2_PH1OFF    = DISK2 + $02
+DISK2_PH1ON     = DISK2 + $03
+DISK2_PH2OFF    = DISK2 + $04
+DISK2_PH2ON     = DISK2 + $05
+DISK2_PH3OFF    = DISK2 + $06
+DISK2_PH3ON     = DISK2 + $07
+DISK2_MOTOROFF  = DISK2 + $08          ; off: the card keeps it turning a second more
+DISK2_MOTORON   = DISK2 + $09
+DISK2_DRIVE1    = DISK2 + $0A
+DISK2_DRIVE2    = DISK2 + $0B
+DISK2_Q6OFF     = DISK2 + $0C
+DISK2_Q6ON      = DISK2 + $0D
+DISK2_Q7OFF     = DISK2 + $0E          ; read mode
+DISK2_Q7ON      = DISK2 + $0F          ; write mode
 DISK2_ID        = DISK2 + $7F
 DISK2_ID_V1     = $C1
 
