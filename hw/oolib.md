@@ -396,11 +396,122 @@ its question.
 
 - **L2: input.** The event queue, the keys-held map, controllers (question 12), the mouse, and the console's keys
   during a game (question 4).
-- **L3: sound.** Claiming and releasing the card; `.sid` playback moved into OODOS; the stream service; the
-  ES5503's claim and wave RAM loads; the speaker's beep; and the warm boot stopping all of it, as BIOS QUIET does.
-  **Sound rev 2's last acceptance item lands here:** a test program streams 44.1 kHz 16-bit stereo from a file on
-  M: through the stream service, with real reads, for some seconds of emulated time, and the card counts no
-  underrun.
+**L2's plan (decided 2026-11-07, the owner; to be built).** The plan as below, and its five questions as
+recommended: 8-byte events with a 32-bit millisecond stamp; the mouse's movement not queued; the handlers in block
+62 behind a W3 switch; the sticks sampled every tick; OO-Amp's own reads of the USB FIFO documented as not sharing
+it with a layout-2 area (L5 moves OO-Amp onto function 81). It rests on questions 4, 6 and 12 as decided, and on
+L1 as built.
+
+- **What there is.** The USB card (`$C580`): the cooked KEY, the console's, which L2 leaves alone, and a raw event
+  FIFO of 128 bytes, 64 events of two bytes (the HID usage, then flags, bit 7 a release; the modifiers come as keys
+  `$E0–$E7`; a full FIFO drops an event whole). The mouse (`$C590–$C59A`): buttons, relative or absolute X and Y
+  with limits, the wheel; reading MX's low byte latches all three. The game port (`$C5A0–$C5A5`): three buttons,
+  four paddles of 0–255 after PTRIG. USB_IEN and USB_ISR: KEY, MOUSE, GAME, DEVICE, on IRQH bit 3; USB_DEVICES says
+  what is plugged in. The joysticks are on the VIA: port A stick 1, port B stick 2, bits 0–4, 0 pressed, with no
+  interrupt. L1 left the tick at 145 cycles and 263 bytes of common memory free (62 in the debug build).
+- **Where the code lives.** Only a few bytes join the dispatcher in common memory (a USB branch and a call from
+  the tick); the handlers go in block 62's code window, reached by switching W3 as L1 does for DEAFEN and CLKOFF:
+  about 20 cycles more an input interrupt, and no common memory spent on the bulk.
+- **How input is taken.** USB events by the card's interrupt (IEN KEY, MOUSE, GAME, DEVICE), on only while an
+  event area of layout 2 is open: the handler drains the FIFO, keeps the keys-held map and queues each event. The
+  DE-9 sticks sampled at each tick (two loads, an event only when a bit changes), so a press shorter than a frame
+  isn't missed; nothing is sampled while no layout-2 area is open, so the tick costs every other program what it
+  did. The paddles: PTRIG at each vertical blank, read at a tick a few milliseconds later, and the controllers' X
+  and Y and the paddle bytes updated then (60 Hz, the paddles' natural rate). The mouse: its position and buttons
+  into the area at its interrupt, button and wheel changes queued, movement not (the position in the area is
+  always current; a queue of moves would fill it).
+- **The event area, layout 2.** Layout 1's 16 bytes unchanged; a program opens a larger area to get L2's part.
+  +16 the queue's control, 8 bytes: the head (OODOS's), the tail (the program's), the number of slots, 1 reserved,
+  the events lost to a full queue (2 bytes), 2 reserved. +24 the modifiers held (USB_MODS), the devices plugged in
+  (USB_DEVICES), 6 reserved. +32 the mouse, 8 bytes: X and Y (2 bytes each), the buttons, the wheel's count (signed,
+  kept until the program clears it), 2 reserved. +40 four controllers of 4 bytes: the directions (bits 0–3 up,
+  down, left, right) and fire buttons (bits 4–7), X and Y (0–255; a digital stick gives 0, 128 or 255), and which
+  hardware it is. +56 the four paddles, then 4 reserved. +64 the keys held, 32 bytes, a bit a HID usage. +96 32
+  bytes reserved for L3's sound (L3's question 1). +128 the queue, 8 bytes an event, as many as the size leaves (a
+  256-byte area holds 16). **An event:** its kind (key, mouse button, wheel, controller, device), the code (the
+  HID usage, the button, the controller's number), the value (pressed or released, the new bits, the wheel's
+  step), the modifiers then, and the millisecond counter's low 32 bits. Eight bytes keep the indexing a shift.
+- **Function 81, input,** by L1's convention (X = 0: the operation in A; else A/X a block): info (what is plugged
+  in, the layout L2 writes), flush the queue, the controller map (read it, swap two), the mouse's mode and limits,
+  the keyboard's LEDs, its repeat (or repeat off), and the next event, for a program that would rather call than
+  read the ring.
+- **The console's keys.** The cooked KEY path is untouched, so CP/M programs see no change. With a layout-2 area
+  open every raw key reaches the queue; whether ^C, ^S and ^P also act on the console is function 109's business
+  (question 4). A program that reads both gets each key twice (cooked and raw) and uses one or the other.
+- **The warm boot** turns USB_IEN off, empties the queue, and puts the mouse's mode and limits, the LEDs and the
+  repeat back as OODOS set them at cold boot; closing the area (L1's) stops the sampling.
+- **Not in L2:** the pointer sprite (L4, with the sprites); USB gamepads (controller 4 reads as nothing plugged
+  in); the USB FIFO by DMA (the CPU drains 64 events in well under a frame); keyboard layouts other than US (the
+  card's cooked KEY is the card's business).
+- **The version:** OOLIB's interface version 2 (function 80's info); OODOS stays 0.4 (question 15).
+- **Tests:** a layout-2 area filled from typed keys (the rig's keyboard); a press and release inside one frame;
+  the queue full (the events lost counted, none torn); keys held; the modifiers; the mouse in relative and
+  absolute mode; the wheel; the DE-9 sticks (a change inside a tick's gap; both ports); the paddles and the game
+  port's buttons; the controller swap; a layout-1 program unchanged (a 16-byte area, no USB interrupt enabled);
+  the tick's cost with no layout-2 area, which must be L1's; ^C reaching the queue with function 109's mode set;
+  the warm boot (WBOOT, ^C, Break) leaving USB_IEN off and the mouse, the LEDs and the repeat as cold boot set
+  them. Each suite's fast time stated, the sanitizer tier's TIMEOUT checked.
+
+- **L3: sound.** Claiming and releasing the card; `.sid` tunes; the stream service; the ES5503's claim and wave
+  RAM loads; the speaker's beep; and the warm boot stopping all of it, as BIOS QUIET does. **Sound rev 2's last
+  acceptance item lands here.**
+**L3's plan (decided 2026-11-07, the owner; not yet built).** The plan as below, and its five questions as
+recommended: L2's layout amended (+96 to +127 for sound, the queue from +128); `.sid` in OOLIB with PLAYSID.COM; a
+busy channel 2 refuses a load with "busy"; the beep blocking and cycle-counted with interrupts on; the 6510's
+mailbox bytes into the event queue. It rests on questions 5, 6 and 9 as decided, on L1, and on L2 (the event
+queue, block 62 as the handlers' home).
+
+- **What there is.** The sound card (`$C500`, revision 2, ID `$A2`): two SIDs and a 6510 with its own 64 KB,
+  loaded through RAMADDR and RAMDATA; a one-byte mailbox each way; the stream (PCMCTL, CODEC, RATE, PCMFMT, FREE,
+  PCMDATA, STATE, POS, KBPS), the EQ, the volume and the vis page, and the ES5503 (DOCCTL, DOCDATA, 128 KB of wave
+  RAM). DRQSEL picks what the card's DMA request feeds: 0 RAMDATA, 1 PCMDATA, 2 DOCDATA; with 1 the request is
+  held only while the FIFO has room, so a demand-mode transfer longer than the FIFO stops by itself and goes on as
+  the card plays. Its interrupts (SOUND_IEN): a mailbox byte waiting and (revision 2) the ES5503's, on IRQH bit 2;
+  none for the FIFO running low. DMA channel 2 is the card's; a channel with MODE's IRQ set interrupts at terminal
+  count (IRQH bit 0), and AUTO reloads it. The BIOS's splash loads its tune through RAMDATA by the CPU; QUIET (on
+  Break) stops the 6510, silences the SIDs, flushes the stream and stops the ES5503. `.sid` today is the
+  emulator's (`sid_file.cpp`: the PSID and RSID headers, a free page for a stub, CIA 1's timer or the card's
+  frame interrupt); nothing of it is 6502 code. Common memory is short (L1), so L3's handlers go in block 62
+  behind a W3 switch, as L2's.
+- **Function 82, sound,** by L1's convention. **Info:** the card's revision, its codecs, whether the ES5503 is
+  there. **Claim and release,** a part at a time: the 6510 and the SIDs, the stream, the ES5503 (question 6); a
+  part another program or an RSX holds is refused, and the warm boot releases what the program held. **Load the
+  card's RAM** from physical memory (an address and a length, checked as function 51's segment is) by channel 2
+  with DRQSEL 0; **start the 6510** at an address; **stop** it; **send a mailbox byte.** **The stream:** start
+  (the codec, the rate, the format), give a buffer (a physical address and a length), pause, resume, seek (FLUSH),
+  end (EOF), status. OODOS keeps a queue of two buffers: it starts the first by channel 2 (demand mode, DRQSEL 1,
+  MODE's IRQ set) and, at its terminal count, starts the next from the interrupt and marks the first free; the
+  program refills a free buffer when it likes, by ordinary BDOS reads, and the card plays on meanwhile. **Load the
+  ES5503's wave RAM** by channel 2 with DRQSEL 2, and an **ES5503 hook,** a routine of the program's called at the
+  chip's interrupt (an oscillator done), by the frame hook's rules. **Beep:** a pitch and a length, on the USB
+  card's speaker, blocking and cycle-counted with interrupts left on (the tick adds a little jitter; nothing is
+  lost). Channel 2 has one user at a time: a RAM or wave-RAM load while a stream's buffer is moving is refused,
+  "busy".
+- **The event area's sound part** (+96 to +127, read with a load): the stream's state, FIFO free, its position in
+  frames, its bitrate, the two buffers' free flags, and the underruns counted. Mailbox bytes from the 6510 go into
+  L2's queue as a sound event, so a program's own 6510 driver reports back without polling.
+- **`.sid` in OOLIB, not OODOS.** Parsing the header, choosing the stub's page and building the stub is file work
+  with nothing shared, so it goes in the linked library (question 9), ported from `sid_file.cpp`'s rules, calling
+  function 82 to claim the 6510 and the SIDs, load the RAM and start. **PLAYSID.COM** plays a `.sid` from `A>` on
+  it, and its test exercises the library. PSID only, as the emulator's player; RSID stays in the backlog.
+- **EQ, volume and the vis page:** OOLIB routines (register work). The vis page is read with the stream claimed.
+- **The warm boot** does what QUIET does for revision 2 (the 6510 stopped, the SIDs silenced, FLUSH, the ES5503's
+  RUN cleared), aborts channel 2, puts DRQSEL back to 0 and SOUND_IEN to 0, and releases the claims.
+- **The acceptance test** (sound rev 2's last item): a test program streams 44.1 kHz 16-bit stereo raw PCM from a
+  file on an SD drive through function 82, refilling its two buffers with ordinary BDOS reads, for several
+  seconds of emulated time; the card's underrun count stays 0 and the bytes at the card's tap match the file's. A
+  second case does the same for an MP3 (the repo's own MP3 fixtures, `test/host/mp3`).
+- **The version:** interface version 3 from L3; OODOS stays 0.4 (question 15).
+- **Not in L3:** the music driver for SOUND, PLAY and BEEP (L6), RSID, MOD (codec 2), a `.sid` and a stream
+  together (the card allows it; not tested here).
+- **Tests:** the claims (refused while held, released by WBOOT, ^C and Break); a card-RAM load by DMA checked
+  byte for byte; the 6510 started and stopped; mailbox bytes both ways, the 6510's arriving in the queue; the
+  stream started, two buffers chained across terminal counts with no gap, paused, sought, ended, its states and
+  the area's fields; the 44.1 kHz and MP3 acceptance cases; wave RAM loaded and the ES5503 hook called; PLAYSID on
+  PSID files the tests build themselves, as `test_sid_file.cpp` does, never the owner's collection; the beep's
+  length; a layout-1 or layout-2 program unaffected. Each suite's fast time stated, and the sanitizer TIMEOUT
+  checked (the acceptance case plays the fewest seconds that prove the chaining).
+
 - **L4: graphics, the linked library** (`oodos/lib/`, with cc65 headers): modes, the palette, tiles and maps,
   sprites (the shadow table goes to the card by DMA at vertical blank, through L1's dispatcher), bitmaps, double
   buffering, and handing out video memory. With it come the asset format and tools (question 8), and load to memory
