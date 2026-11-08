@@ -161,12 +161,12 @@ D2INIT:         LDA     #$FF
 ; Drive X (0 or 1) selected and its motor on, read mode. Carry set if its
 ; disk wasn't turning: it may have been changed.
 D2START:        JSR     D2MEDIA
-                LDA     DISK2 + D2_MOTORON
+                LDA     DISK2_MOTORON
                 RTS
 
-D2STOP:         LDA     DISK2 + D2_MOTOROFF
-                LDA     DISK2 + D2_Q7OFF
-                LDA     DISK2 + D2_Q6OFF
+D2STOP:         LDA     DISK2_MOTOROFF
+                LDA     DISK2_Q7OFF
+                LDA     DISK2_Q6OFF
                 RTS
 
 ; Drive X selected (its motor as it was): carry set if its disk isn't
@@ -279,9 +279,9 @@ D2WSEC:         STA     D2TGT          ; interrupts off from the field's D5 to t
                 LDA     FILE2PHYS,X
                 CMP     D2SEC
                 BNE     @field
-                LDA     DISK2 + D2_Q6ON ; sense write-protect: bit 7
+                LDA     DISK2_Q6ON ; sense write-protect: bit 7
                 DLY     30
-                LDA     DISK2 + D2_Q7OFF
+                LDA     DISK2_Q7OFF
                 BMI     @protected
                 LDA     DMA_CONTROL
                 STA     D2DMAS
@@ -303,7 +303,7 @@ D2WSEC:         STA     D2TGT          ; interrupts off from the field's D5 to t
                 JSR     D2UNM
                 LDA     #0
                 RTS
-@protected:     LDA     DISK2 + D2_Q6OFF
+@protected:     LDA     DISK2_Q6OFF
                 JSR     D2UNM
                 LDA     #2
                 RTS
@@ -325,21 +325,21 @@ D2WSEC:         STA     D2TGT          ; interrupts off from the field's D5 to t
 ; The drive and the head
 
 ; D2DRV selected, read mode.
-SELECT:         LDA     DISK2 + D2_Q7OFF
-                LDA     DISK2 + D2_Q6OFF
+SELECT:         LDA     DISK2_Q7OFF
+                LDA     DISK2_Q6OFF
                 LDA     D2DRV
                 BNE     @two
-                LDA     DISK2 + D2_DRIVE1
+                LDA     DISK2_DRIVE1
                 RTS
-@two:           LDA     DISK2 + D2_DRIVE2
+@two:           LDA     DISK2_DRIVE2
                 RTS
 
 ; Carry clear if the data register changes over about 2,000 cycles (a
 ; byte's time and more): the disk turns.
-SPIN:           LDA     DISK2 + D2_Q6OFF
+SPIN:           LDA     DISK2_Q6OFF
                 STA     D2FIRST
                 LDY     #80
-@sample:        LDA     DISK2 + D2_Q6OFF
+@sample:        LDA     DISK2_Q6OFF
                 CMP     D2FIRST
                 BNE     @turning
                 LDX     #3
@@ -405,12 +405,12 @@ STEPTO:         LDX     D2DRV
 PHASEON:        AND     #3
                 ASL     A
                 TAX
-                LDA     DISK2 + D2_PH0ON,X
+                LDA     DISK2_PH0ON,X
                 RTS
 PHASEOFF:       AND     #3
                 ASL     A
                 TAX
-                LDA     DISK2 + D2_PH0OFF,X
+                LDA     DISK2_PH0OFF,X
                 RTS
 
 ; About A milliseconds (7,159 cycles each, near enough). Uses X and Y.
@@ -457,14 +457,14 @@ BUDGETSET:      LDA     #<BUDGET
 ; no disk, no sequencer, the motor stopped). Waits for the last byte to go
 ; (bit 7 clear), then for the next (bit 7 set): each wait 256 polls.
 RBYTE:          LDX     #0
-@clear:         LDA     DISK2 + D2_Q6OFF
+@clear:         LDA     DISK2_Q6OFF
                 BPL     @next
                 DEX
                 BNE     @clear
                 SEC
                 RTS
 @next:          LDX     #0
-@set:           LDA     DISK2 + D2_Q6OFF
+@set:           LDA     DISK2_Q6OFF
                 BMI     @got
                 DEX
                 BNE     @set
@@ -916,39 +916,39 @@ PRENIB:         LDY     #0             ; VBUF's 86 low values
 ; LDA's read its last, and the loop and its branches in one page.
 .align 256
 WLOOP:          LDA     #$FF
-                STA     DISK2 + D2_Q7ON
+                STA     DISK2_Q7ON
                 DLY     24
-                LDA     DISK2 + D2_Q6OFF
+                LDA     DISK2_Q6OFF
 .repeat 4
                 DLY     246
                 LDA     #$FF
-                STA     DISK2 + D2_Q6ON
+                STA     DISK2_Q6ON
                 DLY     24
-                LDA     DISK2 + D2_Q6OFF
+                LDA     DISK2_Q6OFF
 .endrepeat
                 DLY     242
                 LDY     #0
 WLA:            LDA     NIBBUF,Y
-                STA     DISK2 + D2_Q6ON
+                STA     DISK2_Q6ON
                 DLY     24
-                LDA     DISK2 + D2_Q6OFF
+                LDA     DISK2_Q6OFF
                 INY
                 BEQ     WLWRAP
                 DLY     181
                 JMP     WLA
 WLWRAP:         DLY     183
 WLB:            LDA     NIBBUF + 256,Y
-                STA     DISK2 + D2_Q6ON
+                STA     DISK2_Q6ON
                 DLY     24
-                LDA     DISK2 + D2_Q6OFF
+                LDA     DISK2_Q6OFF
                 INY
                 CPY     #NIB_B
                 BEQ     WLEND
                 DLY     179
                 JMP     WLB
 WLEND:          DLY     185
-                LDA     DISK2 + D2_Q7OFF
-                LDA     DISK2 + D2_Q6OFF
+                LDA     DISK2_Q7OFF
+                LDA     DISK2_Q6OFF
                 RTS
 WLOOP_END:
 .assert >WLOOP = >(WLOOP_END - 1), lderror, "the write loop crosses a page"
