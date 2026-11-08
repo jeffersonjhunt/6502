@@ -18,12 +18,10 @@
 ;                   and wipe M:, and any function past XMOVE return A = X = $FF.
 ;                   The program gets its own flags back: MOVE's carry stays
 ;                   here, so a MOVE ending at $FFFF looks like a refusal
-;   72  O_VERSION   a 12-byte block at A/X gets OODOS's version (major,
+;   72  O_VERSION   a 10-byte block at A/X gets OODOS's version (major,
 ;                   minor), the BIOS's, the memory fitted and the memory for
 ;                   programs in KB (words: the total, fixed, not what is
-;                   free), FARCALL's address, OOLIB's interface version and
-;                   a bit for each service area there is (L1: 1, and
-;                   frame and timing); A/X = FARCALL
+;                   free), and FARCALL's address; A/X = FARCALL
 ;   75  O_ROM       leave OODOS for the ROM BIOS, not to come back: A = 0 the
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
 ;                   Apple II mode (the ROM's C806), if the cartridge holds a
@@ -337,7 +335,6 @@ F_OODOS:        LDX     #0
 VERSIONS:       .byte   OODOS_MAJOR, OODOS_MINOR, BIOS_MAJOR, BIOS_MINOR
                 .word   MEM_FITTED, MEM_PROGRAMS
                 .word   FARCALL
-                .byte   OOLIB_IFACE, OOLIB_AREAS
 VERSIONS_LEN    = * - VERSIONS
 
 F_TSET:         LDX     #0

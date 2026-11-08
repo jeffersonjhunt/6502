@@ -567,10 +567,24 @@ FTJUMPS:        .word   FT_INFOX, FT_COUNTX, FT_OPENX, FT_CLOSEX, FT_WAITX, FT_D
                 .word   FT_FHOOKX, FT_THOOKX, FT_COSTSX
 .assert (* - FTJUMPS) / 2 = FT_OPS, error, "FTJUMPS has an entry for each of oodos.inc's FT_*"
 
-FT_INFOX:       LDA     CLOCKS
-                LDX     #EV_LAYOUT1
+; OOLIB's interface version in A and the service areas in X; a block gets
+; them at +1 and +2, then the clocks that run (+3) and the event area's
+; layout (+4).
+FT_INFOX:       LDX     PX
+                BEQ     @ret
+                LDA     #OOLIB_IFACE
+                JSR     PPUT
+                LDA     #OOLIB_AREAS
+                JSR     PPUT
+                LDA     CLOCKS
+                JSR     PPUT
+                LDA     #EV_LAYOUT1
+                JSR     PPUT
+@ret:           LDA     #OOLIB_IFACE
+                LDX     #OOLIB_AREAS
                 RTS
-.assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's A"
+.assert OOLIB_AREAS = OA_FRAME, error, "L1 has frame and timing alone"
+.assert CLK_FRAME = FC_FRAME && CLK_MS = FC_MS, error, "CLOCKS is FT_INFO's +3, EV_CLOCKS"
 
 ; MS and FRAMES at one moment, into SNAP.
 SNAPIT:         PHP

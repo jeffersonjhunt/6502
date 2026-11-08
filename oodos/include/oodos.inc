@@ -121,10 +121,9 @@ BP_TPA          = $0300                ; where a .COM's image runs
 WBOOT           = BP_WBOOT
 BDOS            = BP_BDOS
 
-; Function 72's block: +0-9 as since 0.4, then OOLIB's (hw/oolib.md, question 1).
-OV_OOLIB        = 10                   ; OOLIB's interface version: 1 from L1
-OV_AREAS        = 11                   ; a bit for each service area OODOS has
-OV_LEN          = 12
+; What OODOS's services are (hw/oolib.md, question 1): function 80's FT_INFO,
+; A = OOLIB's interface version (1 from L1), X = a bit for each service area.
+; An OODOS without them answers 80 with A = X = $FF.
 OA_FRAME        = $01                  ;   80, frame and timing
 OA_INPUT        = $02                  ;   81, input (not yet)
 OA_SOUND        = $04                  ;   82, sound (not yet)
@@ -133,7 +132,7 @@ OA_VIDEO        = $10                  ;   84, video memory (not yet)
 
 ; Function 80's operations. X = 0: A is the operation, with no block. Else
 ; A/X is a block, its +0 the operation and its parameters after.
-FT_INFO         = 0                    ; A = the clocks that run (FC_*), X = the event area's layout
+FT_INFO         = 0                    ; A = OOLIB's version, X = OA_*; a block gets +1 those, +3 FC_*, +4 layout
 FT_COUNT        = 1                    ; A/X = the ms counter's low word; a block gets +1-4 ms, +5-8 frames
 FT_OPEN         = 2                    ; block: +1-2 the event area, +3 its size (EV_LEN at least)
 FT_CLOSE        = 3                    ; the event area closed
