@@ -53,7 +53,7 @@ IRQ:            PHA
 ```
 
 A program that enables an interrupt brings its own handler, through VEC ([below](#vec-and-the-vectors)). Under
-OODOS, the interrupts and the vectors are OODOS's ([AGENTS.md](../../AGENTS.md)).
+OODOS, the interrupts and the vectors are OODOS's ([below](#under-oodos), [AGENTS.md](../../AGENTS.md)).
 
 ## Finding the source: IRQL and IRQH
 
@@ -118,6 +118,37 @@ windows' layout, and resets to the same value as W3, so a reset reads its vector
   the windows map.
 - In Apple II mode VEC isn't used: the IIe's map has its own rules for `$D000–$FFFF`
   ([chapter 13](13-apple-ii-mode.md)).
+
+## Under OODOS
+
+Status: **built**
+
+Since OOLIB's L1 ([hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan)) OODOS owns /IRQ, and runs with the CPU's
+I flag clear: programs, the CCP, and the BDOS during its calls. VEC is on block 62 while OODOS runs, and its IRQ
+vector points into common memory (`$F800–$FFFF`, the same in every block W3 maps), so the handler is there whatever
+W3 holds.
+
+- **The dispatcher** (`oodos/sys/irq.s`) tells BRK from an IRQ as the BIOS does (BRK still enters the monitor),
+  saves A, X, Y and W0, puts W0 on OODOS's system block (31) without moving S, and reads IRQL and IRQH once each.
+  It touches nothing of the BDOS's, and puts back every window it changes.
+- **What OODOS turns on:** timer 1 of the serial card's VIA, free-running at 1 kHz (ACR `$40`, a latch of 7,157:
+  a period of 7,159 cycles), for its millisecond counter; and the video card's vertical blank (VIDEO_IEN bit 0),
+  for its frame counter. Their handlers clear the flag by reading VIA_T1CL and by writing 1 to VIDEO_ISR's bit 0.
+  Cold boot finds the VIA by its IER, which reads bit 7 set (on a machine without one, `$C34E` is the 6551
+  stand-in's command register, `$0B`), and the video card by its ID.
+- **What it doesn't answer** it turns off, so it can't hold /IRQ low: a VIA flag other than timer 1's (its IER
+  bit off, its IFR flag cleared), the video card's line and collision interrupts, and any other card's
+  interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 and terminal count, the
+  clock's TIE. The warm boot does the same at each program's end, keeping only OODOS's two.
+- **Masked:** only while the BDOS's entry moves the windows and S (in and out), during the warm boot, and while the
+  Disk II driver reads or writes a sector's fields, whose bits the CPU times itself. The driver adds that time to
+  the millisecond counter afterwards.
+- **What it costs:** a tick is 144 cycles through the dispatcher, 2% of the CPU.
+- **Leaving:** function 75's Apple II mode turns OODOS's two interrupts off first; Break and function 75's monitor
+  go through the BIOS's Break ([below](#pausebreak)), which turns off the VIA's and the video card's.
+
+The Programmer's Guide has what programs get from it: the counters, the event area and the hooks
+([chapter 8](../oodos-programmers-guide/08-game-services.md)).
 
 ## Pause/Break
 

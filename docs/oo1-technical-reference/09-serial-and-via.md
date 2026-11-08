@@ -123,9 +123,10 @@ which it shares with the 6551 ([chapter 4](04-interrupts.md#finding-the-source-i
 The registers are in WDC's order: the ports and their directions at `$0–$3`, timer 1 at `$4–$7`, timer 2 at
 `$8–$9`, then SR, ACR, PCR, IFR and IER, and port A again at `$F` ([Registers](#registers)).
 
-**Under OODOS,** the VIA's ACR, IER and IFR are OODOS's ([AGENTS.md](../../AGENTS.md)). OODOS 0.3 doesn't use the
-VIA yet. The plan, with timer 1 as OODOS's tick and timer 2, the ports and the shift register the program's, is in
-[hw/oolib.md, "The VIA is shared"](../../hw/oolib.md#the-via-is-shared).
+**Under OODOS,** the VIA's ACR, IER and IFR are OODOS's ([AGENTS.md](../../AGENTS.md)). Since OOLIB's L1 timer 1 is
+OODOS's tick: free-running at 1 kHz (ACR `$40`, a latch of 7,157), its interrupt on, from the cold boot
+([chapter 4](04-interrupts.md#under-oodos)). Timer 2, the ports and the shift register are to be the program's,
+through OODOS: [hw/oolib.md, "The VIA is shared"](../../hw/oolib.md#the-via-is-shared).
 
 ### The joysticks
 
