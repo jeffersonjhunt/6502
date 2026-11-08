@@ -70,7 +70,8 @@ bytes. To wait, there are two calls, both with interrupts on, so the hooks keep 
   frame counter's low word then. A game that draws in a loop calls it once a round, so it draws once a frame.
 - **`FT_DELAY`** returns after the count of milliseconds in its block's +1–2, up to 65,535. If the millisecond
   counter stands still for 4 frames meanwhile, timer 1 has been stopped, against the rules below, and it gives up
-  then with A = X = `$FF` rather than wait for ever.
+  then with A = X = `$FF` rather than wait for ever. Without a running frame counter (no video card, or its
+  vertical blank turned off) it can't tell, and waits on.
 
 ## The event area
 
@@ -156,8 +157,9 @@ flags, and puts back the windows and the stack it found.
 The warm boot takes back what L1 gave: both hooks off, the event area closed, and every interrupt enable the
 program turned on off again (OODOS keeps only its own: timer 1 and the vertical blank). Timer 1 is set up again
 as the cold boot left it, should the program have changed it. That is so whether the program ends by `JMP WBOOT`,
-by ^C, or by an error. The counters run on. Break goes to the monitor with the machine's interrupts off, as it
-always has; booting OODOS again starts the clocks afresh.
+by ^C, or by an error. The counters run on (a program that changed timer 1's latch may cost the millisecond
+counter 1 ms: putting the latch back clears timer 1's flag, and a tick due then with it). Break goes to the
+monitor with the machine's interrupts off, as it always has; booting OODOS again starts the clocks afresh.
 
 ## Still to come
 

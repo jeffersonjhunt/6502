@@ -320,7 +320,8 @@ its question.
   (review, 2026-11-08) ID 6 is the 6551's, whose registers are mirrored at `$C340–$C34F`: the dispatcher takes
   neither VIA path (the fast path compares IRQL with `VIAL`, a zero-page byte cold boot sets to `<~NB_IRQ_VIA` only
   if it found the VIA, else 0, which no IRQL is), so it never writes the 6551's command and status as IER and IFR
-  nor reads its data as T1CL; DEAFEN turns its receive interrupt off.
+  nor reads its data as T1CL; DEAFEN turns its receive and transmit interrupts off, and the dispatcher goes on to
+  the video card in the same pass (second review), so a 6551 left interrupting can't starve the frame counter.
 - **DMA copies** (review, 2026-11-08, the owner chose 2 KB): the CPU is held through a memory-to-memory copy, 2
   cycles a byte, and the VIA has one flag, so a copy longer than a tick (3,580 bytes) could cover two of timer 1's
   expiries and lose one: the console's scroll is 4,640 bytes, and lost a tick about one scroll in three. The BIOS's
@@ -362,31 +363,36 @@ its question.
 - **The warm boot:** both hooks off, the event area closed, every interrupt enable but timer 1's and the vertical
   blank's off (DEAFEN), the CCP entered with interrupts on; the counters run on. DEAFEN also (review, 2026-11-08)
   sets timer 1 up again as cold boot did, should a program have changed it: ACR `$40`, its enable, and its latch,
-  written only if it reads otherwise (writing T1LH clears the flag); MS isn't touched. It clears a DMA channel's
+  written only if it reads otherwise (writing T1LH clears the flag, so a program that changed the latch may cost
+  MS a tick: documented, the owner's decision); MS isn't otherwise touched. It clears a DMA channel's
   terminal count only if the channel's interrupt was on (a mask built as it turns MODE's bit 7 off), so channel 0's,
   which SDIO reads at its end, isn't lost when an interrupt comes in the middle; and it sets the 6551's receive
-  interrupt off (ACIA_CMD bit 1, read-modify-write). `FT_DELAY` gives up, A = X = `$FF`, if the ms counter stands
-  still for 4 frames (timer 1 stopped by a program), rather than wait for ever. Function 75's Apple II mode turns
-  OODOS's two off first; Break and 75's monitor go through the ROM's QUIET, which turns off the VIA's and the video
-  card's. Cold boot starts the clocks afresh.
+  and transmit interrupts off (ACIA_CMD bit 1 set and bits 3-2 `%10`, read-modify-write, before its STATUS is
+  read). `FT_DELAY` gives up, A = X = `$FF`, if the ms counter stands still for 4 frames (timer 1 stopped by a
+  program), rather than wait for ever; without a running frame counter it waits on. DMAGO keeps SRCP and DSTP
+  (it puts them back after the blocks). A debug build without the VIA counts no hook (`FT_COSTS` A = 0).
+  Function 75's Apple II mode turns OODOS's two off first; Break and 75's monitor go through the ROM's QUIET,
+  which turns off the VIA's and the video card's. Cold boot starts the clocks afresh.
 - **Costs:** a tick, with no event area and no hook, is 145 cycles through the dispatcher (the IRQ's 7 included;
   144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds
-  43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 527 bytes: **268 bytes
-  are left** ($FEED to the vectors), **67 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
+  43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 532 bytes: **263 bytes
+  are left** ($FEF2 to the vectors), **62 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
   are already in block 62).
-- **Tests** (emulator, fast preset): `test_oodos_clock` (13 cases, 6 s: the counters against the cycles at the
+- **Tests** (emulator, fast preset): `test_oodos_clock` (14 cases, 6 s: the counters against the cycles at the
   prompt and through commands, 80's info and 72's 10 bytes, the event area's refusals and writes, wait and delay,
   the hooks with their windows in the BDOS and in the program, each pushing 16 bytes, and in the BDOS under 100
   sentinel bytes on the program's stack (they fail with the `CPX ST_S` branch taken out), the warm boot by `JMP
   WBOOT`, ^C and Break, full-budget hooks losing nothing, a 36 KB PIP from A: losing no tick, an interrupt OODOS
   doesn't answer turned off, 120 lines scrolled losing no tick (40 lost with the copy in one block), a stopped
-  timer 1 ending `FT_DELAY` and set going again by the warm boot, and a machine without the VIA: the 6551's
+  timer 1 ending `FT_DELAY` and set going again by the warm boot, ACR changed and put back by the warm boot with
+  no tick lost (the latch left alone), and a machine without the VIA: the 6551's
   receive interrupt turned off and its key kept); `test_oodos_clock_disk2` (3 cases, 18 s, fixtures: a Disk II
   read and write caught up to 1.5%, and 16 writes of 1 KB to O: under a full-budget frame hook, each at another
-  phase of the frame against the disk, all written); `test_oodos_clock_debug` (1 case, 0.6 s: the debug build's
-  costs). Test program `oodos/sys/test/l1test.s`. `test_oodos_sys`'s stub and jump-table cycle checks leave out
-  time spent in interrupt handling, from the interrupt's entry, 7 cycles before the dispatcher's first (the owner's
-  decision): a tick held off by the stub's masked switch is taken at its `CLI`, inside the measured span.
+  phase of the frame against the disk, every step's result checked and the last file read back as written);
+  `test_oodos_clock_debug` (1 case, 0.6 s: the debug build's costs). Test program `oodos/sys/test/l1test.s`.
+  `test_oodos_sys`'s stub and jump-table cycle checks leave out time spent in interrupt handling, from the
+  interrupt's entry, 7 cycles before the dispatcher's first (the owner's decision): a tick held off by the stub's
+  masked switch is taken at its `CLI`, inside the measured span.
 
 - **L2: input.** The event queue, the keys-held map, controllers (question 12), the mouse, and the console's keys
   during a game (question 4).

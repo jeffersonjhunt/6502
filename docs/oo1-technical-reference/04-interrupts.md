@@ -136,13 +136,16 @@ W3 holds.
   for its frame counter. Their handlers clear the flag by reading VIA_T1CL and by writing 1 to VIDEO_ISR's bit 0.
   Cold boot finds the VIA by its IER, which reads bit 7 set (on a machine without one, `$C34E` is the 6551
   stand-in's command register, `$0B`), and the video card by its ID. Without the VIA, ID 6's interrupt is the
-  6551's, and the dispatcher leaves `$C340–$C34F` alone: they are the 6551's registers again.
+  6551's, and the dispatcher leaves `$C340–$C34F` alone: they are the 6551's registers again. It quiets the
+  6551 and still serves the video card in the same pass.
 - **What it doesn't answer** it turns off, so it can't hold /IRQ low: a VIA flag other than timer 1's (its IER
   bit off, its IFR flag cleared), the video card's line and collision interrupts, and any other card's
   interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 and the terminal count of
-  each channel that had it on (another's is its driver's to read), the 6551's receive interrupt (ACIA_CMD bit 1
-  set), the clock's TIE. The warm boot does the same at each program's end, keeping only OODOS's two, and sets
-  timer 1 up again (ACR, its latch if it changed, its enable), in case a program changed it.
+  each channel that had it on (another's is its driver's to read), the 6551's receive and transmit interrupts
+  (ACIA_CMD bit 1 set, bits 3-2 `%10`, the rest kept; then its STATUS read), the clock's TIE. The warm boot does
+  the same at each program's end, keeping only OODOS's two, and sets timer 1 up again (ACR, its latch if it
+  changed, its enable), in case a program changed it; putting the latch back clears timer 1's flag, so it can cost
+  the counter a tick.
 - **Masked:** only while the BDOS's entry moves the windows and S (in and out), during the warm boot, and while the
   Disk II driver reads or writes a sector's fields, whose bits the CPU times itself. The driver adds that time to
   the millisecond counter afterwards.

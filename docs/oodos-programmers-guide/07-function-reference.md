@@ -3034,7 +3034,7 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 - `FT_WAIT`: returns at the frame wanted. A/X = the frame counter's low word.
 - `FT_COSTS`: +1–2 the most cycles a frame hook took, +3–4 a tick hook, +5–6 the frames whose hook wasn't called
   because the last was still running, each since the warm boot. A = 1 if this OODOS counts the cycles (a debug
-  build), 0 if not, and then +1–4 are 0. X = 0.
+  build, on a machine with the VIA, whose timer 1 it counts by), 0 if not, and then +1–4 are 0. X = 0.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -3047,7 +3047,8 @@ memory that isn't the program's (the I/O hole, flash), and:
 - `FT_WAIT` with no video card, `FT_DELAY` with no VIA: their clock doesn't run.
 - `FT_DELAY` when the millisecond counter stands still for 4 frames: timer 1 has stopped (a program changed it,
   against [chapter 8's rules](08-game-services.md#hooks)), so the wait would never end. It returns early, A = X =
-  `$FF`. The frame counter is the witness, so without a video card it waits on.
+  `$FF`. The frame counter is the witness, so without a running frame counter (no video card, or its vertical
+  blank turned off) it waits on.
 - `FT_FRAMEHOOK`, `FT_TICKHOOK`: an address in the I/O hole or common memory (`$C000–$C7FF`, `$F800` up), or a
   call made with W0 on the system's block; a tick hook every 0 ms. The old hook is off either way.
 
@@ -3065,7 +3066,9 @@ OOLIB services at all.
   must keep are [chapter 8's](08-game-services.md#hooks).
 - `FT_WAIT` and `FT_DELAY` wait in the BDOS with interrupts on, so the hooks run meanwhile.
 - The warm boot takes every hook off, closes the event area, and sets timer 1 up again as the cold boot did
-  (free-running, its latch, its interrupt enable) should a program have changed it. The counters run on.
+  (free-running, its latch, its interrupt enable) should a program have changed it. The counters run on, but a
+  program that changed timer 1's latch may cost the millisecond counter 1 ms: writing the latch back clears timer
+  1's flag, and with it a tick already due.
 
 #### Cycles
 
