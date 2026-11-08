@@ -3223,18 +3223,21 @@ isn't the program's (the I/O hole, flash), an operation whose part isn't claimed
   RAM (`$FFFF` the card's, `$1FFFF` wave RAM: nothing wraps), or a piece of the transfer that never ended (no DMA
   controller).
 - `SN_DOCHOOK`: an address in the I/O hole or common memory, the program's W0 the system's, or a zero page byte past
-  `$EF`. A refused `SN_DOCHOOK` leaves no hook set (the old one is taken off first), as `FT_FRAMEHOOK` and
+  `$EF`. `SN_WAVE`: a wave RAM address's +6 past 1 (17 bits: `$20000` up isn't there). A refused `SN_DOCHOOK` leaves no hook set (the old one is taken off first), as `FT_FRAMEHOOK` and
   `FT_TICKHOOK` do.
 - `SN_BEEP`: a pitch outside 20–20,000, no USB card, or no VIA (no millisecond counter).
 
-A = `$FE` (`SN_BUSY`), X = `$FF`, and nothing done, when what it needs is busy: DMA channel 2 with the stream, `SN_LOAD` and
-`SN_WAVE` while a stream buffer is still going to the card, `SN_BUFFER` while the buffer whose turn it is is still in
-use, and `SN_SEND` while the 6510 hasn't taken the byte sent before (STATUS bit 1). Try again later. An OODOS before L3 answers 82 as a function it doesn't have, A = X = `$FF`: [function
-80's](#bdos-80) `FT_INFO` says whether there is sound (`OA_SOUND`).
+A = `$FE` (`SN_BUSY`), X = `$FF`, and nothing done, when what it needs is busy: `SN_LOAD` and `SN_WAVE` while a
+stream buffer is still going to the card (DMA channel 2), `SN_BUFFER` while the buffer whose turn it is is still in
+use, and `SN_SEND` while the 6510 hasn't taken the byte sent before (STATUS bit 1). Try again later. An OODOS before
+L3 answers 82 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says whether there is
+sound (`OA_SOUND`).
 
 #### Side effects
 
-- `SN_CLAIM` of the 6510 empties the mailbox from the card; with a layout-2 event area open, a byte the 6510 sends
+- `SN_CLAIM` of the 6510 empties the mailbox from the card. The one to the card it can't: only a /RESET empties it,
+  so a byte the last program left there, not taken, survives the warm boot and the claim; a new 6510 driver reads
+  `$DE00` once as it starts, to drop it. Then with a layout-2 event area open, a byte the 6510 sends
   reaches the queue as an `EK_SOUND` event, its value the byte ([chapter 8](08-game-services.md#the-6510)). Of the
   stream: channel 2 stopped and both buffers free.
 - `SN_LOAD` and `SN_WAVE` move channel 2 4 KB a piece, each waited for, interrupts on between; the card holds the
@@ -3249,7 +3252,9 @@ use, and `SN_SEND` while the 6510 hasn't taken the byte sent before (STATUS bit 
   clear PCMCTL's PAUSE and EOF.
 - With the stream claimed and a layout-2 area open, OODOS writes the area's +96–107 once a frame and at each
   buffer's end ([chapter 8](08-game-services.md#the-stream)).
-- `SN_DOCHOOK` sets the card's IEN bit 3 while a hook is set. The hook is called as the tick hook is, interrupts off
+- `SN_DOCHOOK` sets the card's IEN bit 3 while a hook is set, and holds it off while it changes the hook, so an
+  interrupt meanwhile waits in the chip for the new one. With the ES5503's interrupt routed to the card's 6510
+  (DOCCTL's IRQ_CARD), OODOS never reads `$E0` and the hook isn't called: the interrupt is the 6510's. The hook is called as the tick hook is, interrupts off
   ([chapter 8](08-game-services.md#the-es5503)), the interrupt register first written to its zero page byte, the
   port on the registers (DOCCTL's RAM and AUTOINC off, DOCADDR `$E0`); DOCCTL, DOCADDR and DOCBANK as the
   interrupt found them are put back after the hook returns.

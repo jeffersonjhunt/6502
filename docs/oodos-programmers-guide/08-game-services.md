@@ -331,7 +331,9 @@ address, +6–7 the length, 0 for 64 KB). The source is checked as [function 51'
 DMA segment is: none of OODOS's own memory. A program's own memory below `$C000` is its blocks 0–2, so its CPU
 address is the physical one there. `SN_START` writes the 6510's reset vector and resets it running (+3: CTRL's NTSC,
 SID B at `$D500`, BOTH); `SN_STOP` stops it and silences the SIDs; `SN_SEND` puts a byte in its mailbox, refused with `SN_BUSY` while the
-6510 hasn't taken the last one (a second would replace it). A byte the
+6510 hasn't taken the last one (a second would replace it). The mailbox to the card is emptied only by a /RESET, so
+a byte a program left there, not taken, is still there for the next: a new 6510 driver reads `$DE00` once when it
+starts. A byte the
 6510 sends back reaches the event queue as an `EK_SOUND` event, its value the byte, while a layout-2 area is open
 (without one, the program reads the card's MBIN itself), so a program's own driver on the card reports without
 being polled.
@@ -386,7 +388,10 @@ writes it there before the call, so the hook finds the oscillator in bits 1–5.
 hook finds the port on the chip's registers (DOCCTL's RAM and AUTOINC off, DOCADDR `$E0`), and may write them: to
 reprogram the oscillator, say. OODOS saved DOCCTL, DOCADDR and DOCBANK before it read `$E0`, and puts them back
 after the hook returns, so a register or wave RAM access the interrupt came in the middle of goes on as it was,
-whatever the hook wrote. A wave load and the hook never meet: OODOS holds the chip's interrupt off while `SN_WAVE`
+whatever the hook wrote. So a DOCCTL write made in the hook is undone when it returns: a hook that wants the chip
+stopped halts its oscillators (each one's control register, `$A0` + its number, bit 0) instead. With the chip's
+interrupt routed to the card's 6510 (DOCCTL's IRQ_CARD), the interrupt is the 6510's, and OODOS leaves it alone. A
+wave load and the hook never meet: OODOS holds the chip's interrupt off while `SN_WAVE`
 runs. If `SN_DOCHOOK` is refused, no hook is set, as with the frame and tick hooks.
 
 ### The beep

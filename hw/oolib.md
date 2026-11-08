@@ -658,8 +658,8 @@ L4. Where the plan left something open it was decided as below, each with its re
   can't set it, as the plan's "as the emulator's player" can't. PSID only. PLAYSID reads the file whole into the TPA
   (the last record's byte count, which open gives for CR `$FF`, taken off), plays until a key, and stops.
 - **Memory** (bytes free after L3 and its review, normal build, then debug): common memory 176 (166), down 36
-  (`CALL61` and the frame's call); the system block's SYSBSS 132 (129); block 60 589 (573): function 82 is about
-  1,480 bytes, so the BDOS block is now the tight one (the owner, 2026-11-08: its room waits for L4, when the loads
+  (`CALL61` and the frame's call); the system block's SYSBSS 132 (129); block 60 569 (553): function 82 is about
+  1,500 bytes, so the BDOS block is now the tight one (the owner, 2026-11-08: its room waits for L4, when the loads
   and the beep could move to block 61); block 61 6,204; block 62's code window 1,188 (985); zero page 2. PLAYSID is
   7,281 bytes, the library about 2,650 of them (and 359 of BSS).
 - **Costs** (`test_oodos_sound`, from the interrupt's first cycle to its RTI's last): a tick with no area **145, L1's
@@ -701,6 +701,15 @@ L4. Where the plan left something open it was decided as below, each with its re
     refused, not wrapped. F9: song 256 of 256 plays, its start song too, and prints as 256 (`SID_PLAN` takes A/X).
     F10: a refused `SN_DOCHOOK` leaves no hook, documented. F7, noted in the Technical Reference: the handler's
     DOCCTL write clears a waiting STATE `$82`.
+  - The second review (2026-11-08; the owner: all seven as recommended): with the ES5503's interrupt routed to the
+    6510 (DOCCTL's IRQ_CARD) `SNDIRQ` no longer reads `$E0`, which on a mailbox byte's interrupt took the 6510's
+    oscillator and called the hook (the test, failing before: the chip's interrupt gone, the hook called once);
+    MBOUT can't be emptied from the host (only /RESET does), so a byte left there is documented for a new 6510
+    driver to drop; `SN_WAVE` refuses a +6 past 1 (`$20000` up aliased into the RAM); `SN_DOCHOOK` takes the ES5503's
+    bit out of `SIEN` and IEN, masked, with the old hook, and `SIENSET` puts it back with the new, so an interrupt
+    in between waits in the chip rather than being taken with no hook (the other choice, masking across PGET and
+    SETHOOK, would have held interrupts off longer); song 256's test CIA-timed (speed's bit 31); the hook's DOCCTL
+    write undone at its return, and `SN_BUSY`'s cases, documented.
   - The owner's answers to L3's questions: block 60's room waits for L4; the ES5503 hook as built (masked, the tick
     hook's record, the register in a zero-page byte the program names); the SID model a jumper, documented.
 
