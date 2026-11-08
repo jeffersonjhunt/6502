@@ -29,11 +29,14 @@
 ; program had at its BDOS call (the stub's ST_S) when the BDOS was
 ; interrupted, whichever is lower, so neither the program's stack nor the
 ; BDOS's (the same page index, the other block) is written over. The tick
-; hook runs with interrupts off. The frame hook runs with them on, so a
+; hook runs with interrupts off, and mustn't CLI (the next tick would call
+; it again, on top of itself). The frame hook runs with them on, so a
 ; tick isn't lost while it runs (its budget, 8,000 cycles, is more than a
 ; tick); a vertical blank while it still runs is counted, but the hook
 ; isn't called again for it (FHSKIP counts those). Neither may call the
-; BDOS, use DMA, far call, or write the VIA's ACR, IER or IFR. Budgets:
+; BDOS, use DMA, far call, write the VIA's ACR, IER or IFR, or touch timer
+; 1 but to read T1CH or its latch (reading T1CL clears the tick's flag).
+; A hook stacks on page 1 of the W0 it was set with. Budgets:
 ; 8,000 cycles a frame hook, 300 a tick hook; not enforced. A debug build
 ; (OOLIB_DEBUG, `make DEBUG=1`) measures each hook by timer 1 and keeps the
 ; most each took, for FT_COSTS.
@@ -47,7 +50,7 @@
 .include "sys.inc"
 .include "oodos.inc"
 .import NMI
-.importzp PA, PX, PP, T0, T1, T2, T3, T4 ; the BDOS's (bdos.inc), for 80
+.importzp PA, PX, PP, T0, T1, T2, T3, T4, T5 ; the BDOS's (bdos.inc), for 80
 .import RETFF, PGET, PPUT
 .export IRQ, DEAFEN, CLKOFF, CLKINIT, F_FRAME
 .export CLOCKS, MS, MSACC, EVDIRTY, EVON, FHON, THON, FHBUSY, FHSKIP
@@ -57,6 +60,9 @@
 
 .zeropage
 EVP:            .res    2              ; the event area, in W1's view ($4000-$7FFF)
+VIAL:           .res    1              ; IRQL for the VIA alone, <~NB_IRQ_VIA, if cold boot found
+                                       ; one; else 0, which no IRQL is (modules 0-5 never
+                                       ; interrupt): ID 6 is the 6551's then, not the VIA's
 
 ; A hook's record in HK
 HK_ON           = 0                    ; 1: set
@@ -124,8 +130,8 @@ DISPATCH:       LDA     NB_WIN0
                 STA     IW0
                 PHY
                 LDA     NB_IRQL
-                CMP     #<~NB_IRQ_VIA
-                BNE     @more          ; not the VIA alone
+                CMP     VIAL
+                BNE     @more          ; not the VIA alone, or no VIA
                 LDA     NB_IRQH
                 INC     A
                 BNE     @more
@@ -153,6 +159,8 @@ DISPATCH:       LDA     NB_WIN0
 @some:          LDA     NB_IRQL
                 AND     #NB_IRQ_VIA
                 BNE     @novia
+                BIT     VIAL
+                BPL     @deaf          ; no VIA: the 6551 (DEAFEN), its registers under $C34x
                 JSR     VIASRV
 @novia:         LDA     NB_IRQH
                 AND     #NB_IRQ_VIDEO
@@ -174,9 +182,9 @@ DISPATCH:       LDA     NB_WIN0
                 PLA
                 RTI
 
-; The VIA: timer 1 the tick; any other flag enabled (OODOS enables none)
-; turned off. Nothing at all (the stand-in 6551, a program's, on the same
-; ID): DEAFEN.
+; The VIA (cold boot found one: VIAL): timer 1 the tick; any other flag
+; enabled (OODOS enables none) turned off. Nothing at all (the stand-in
+; 6551, a program's, on the same ID): DEAFEN.
 VIASRV:         LDA     VIA_IFR
                 AND     VIA_IER
                 AND     #<~VIA_IER_SET
@@ -389,8 +397,14 @@ EVALL:          LDA     NB_WIN1
 .ifdef OOLIB_DEBUG
 ; Timer 1's count now in A (low) and X (high); a tick that came due
 ; meanwhile counted first, since reading the count clears its flag (its
-; hook, if due, waits for the next).
-T1NOW:          LDA     VIA_IFR
+; hook, if due, waits for the next). No VIA: 0, the 6551's registers left
+; alone.
+T1NOW:          BIT     VIAL
+                BMI     @via
+                LDA     #0
+                TAX
+                RTS
+@via:           LDA     VIA_IFR
                 AND     #VIA_IRQ_T1
                 BEQ     @read
                 INC     MS
@@ -468,11 +482,19 @@ HOOKCOST:       CLD
 ; IER reads bit 7 set (the stand-in 6551's mirror at $C34E, on a machine
 ; without one, is its command register, $0B); a video card by its ID.
 
+.segment "RESBSS"
+DMAIRQ:         .res    1              ; DEAFEN's: the channels whose interrupt was on
+
 .segment "RES"
 
 ; Every interrupt enable that isn't OODOS's own off, and what is pending
 ; there cleared: a program's (the warm boot), or one no handler answers
-; (the dispatcher, through W3). OODOS's own, timer 1 and vertical blank, stay on.
+; (the dispatcher, through W3). OODOS's own, timer 1 and vertical blank, stay
+; on, and timer 1 is set up again as CLKINIT has it (free-running, its
+; latch, its enable), in case a program changed it; MS runs on. A DMA
+; channel's terminal count is cleared only if its interrupt was on: the
+; others' are their drivers' (SDIO reads channel 0's), and an interrupt
+; can come while one waits.
 DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0 sends nothing)
                 STA     NB_RTCCTL
                 STZ     SD_IEN
@@ -484,24 +506,45 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BNE     @acia
-                LDA     #DMA_ALL       ; no terminal count left to interrupt, nor one to come
-                STA     DMA_STATUS
-                LDX     #$30
+                STZ     DMAIRQ
+                LDX     #$30           ; channel 3 to 0
 @dma:           LDA     DMA0_MODE,X
-                AND     #<~DMA_MODE_IRQ
+                ASL     A              ; its interrupt bit (7) to carry,
+                ROL     DMAIRQ         ; and on into the mask: channel 3's ends in bit 3
+                LSR     A              ; the mode with its interrupt off
                 STA     DMA0_MODE,X
                 TXA
                 SEC
                 SBC     #$10
                 TAX
                 BCS     @dma
-@acia:          LDA     ACIA_STATUS    ; the stand-in 6551's, should a program have turned it on
+                LDA     DMAIRQ         ; none to come, and none left to interrupt
+                STA     DMA_STATUS
+.assert DMA_MODE_IRQ = $80, error, "DEAFEN's mask: the interrupt bit is MODE's bit 7"
+@acia:          LDA     ACIA_STATUS    ; the stand-in 6551's, should a program have turned it on:
+                LDA     ACIA_CMD       ; its flag cleared and its receiver's interrupt off
+                ORA     #ACIA_CMD_RXOFF
+                STA     ACIA_CMD
                 LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @video         ; no VIA: $C34E would be the 6551's command
                 LDA     #VIA_IRQ_OTHERS
                 STA     VIA_IER        ; all but timer 1 off
                 STA     VIA_IFR
+                LDA     #VIA_ACR_T1FREE
+                STA     VIA_ACR        ; timer 1 as CLKINIT left it
+                LDA     #VIA_IER_SET | VIA_IRQ_T1
+                STA     VIA_IER
+                LDA     VIA_T1LL       ; the latch read (safe: no flag cleared) and
+                CMP     #<TICK_LATCH   ; written only if a program changed it, since
+                BNE     @latch         ; writing its high byte clears timer 1's flag
+                LDA     VIA_T1LH
+                CMP     #>TICK_LATCH
+                BEQ     @video
+@latch:         LDA     #<TICK_LATCH
+                STA     VIA_T1LL
+                LDA     #>TICK_LATCH
+                STA     VIA_T1LH       ; the counter takes it at its next expiry
 @video:         LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @done
@@ -523,6 +566,7 @@ CLKOFF:         LDA     CLOCKS
 @done:          RTS
 
 CLKINIT:        STZ     CLOCKS
+                STZ     VIAL
                 LDA     VIA_IER
                 BPL     @video
                 LDA     #<~VIA_IER_SET
@@ -538,6 +582,8 @@ CLKINIT:        STZ     CLOCKS
                 STA     VIA_IER
                 LDA     #CLK_MS
                 TSB     CLOCKS
+                LDA     #<~NB_IRQ_VIA
+                STA     VIAL           ; the dispatcher's fast path, and VIASRV, from here
 @video:         LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V1
                 BNE     @done
@@ -725,7 +771,11 @@ FT_WAITX:       LDA     CLOCKS
                 RTS
 @no:            JMP     RETFF
 
-; +1-2 milliseconds from now. No VIA: A = X = $FF at once.
+; +1-2 milliseconds from now. No VIA: A = X = $FF at once. A = X = $FF too
+; if the millisecond counter stands still for STALL frames: timer 1 stopped
+; (a program changed it against the rules), so the wait would never end.
+; The frame counter is the witness: with no video card nothing gives up.
+STALL           = 4
 FT_DELAYX:      LDA     CLOCKS
                 AND     #CLK_MS
                 BEQ     @no
@@ -740,7 +790,19 @@ FT_DELAYX:      LDA     CLOCKS
                 STA     T2
                 LDA     SNAP + 1
                 STA     T3
+@moved:         LDA     SNAP           ; T4 MS's low byte when it last moved,
+                STA     T4             ; T5 the frame counter's then
+                LDA     SNAP + 4
+                STA     T5
 @wait:          JSR     SNAPIT
+                LDA     SNAP
+                CMP     T4
+                BNE     @moved
+                LDA     SNAP + 4
+                SEC
+                SBC     T5
+                CMP     #STALL
+                BCS     @no            ; stood still: given up
                 SEC                    ; now - start, against the count
                 LDA     SNAP
                 SBC     T2
