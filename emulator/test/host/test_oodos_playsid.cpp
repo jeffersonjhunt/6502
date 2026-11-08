@@ -205,8 +205,9 @@ TEST(a_tune_over_0314_and_the_top_pages_and_a_second_sid_at_d500)
 
 TEST(song_256_of_256)
 {
-    Header h; // the most songs a header may have; 256 its start song too
+    Header h; // the most songs a header may have; 256 its start song too, and CIA-timed (speed's bit 31)
     h.songs = 256, h.start = 256;
+    h.speed = 0x80000000;
     plays(sid_bytes(h, code(0x1000)), "", 0, 256);
     plays(sid_bytes(h, code(0x1000)), " 256", 256, 256);
     CHECK(refuses(sid_bytes(h, code(0x1000)), " 257").find("Song 257 of 256?") != std::string::npos);

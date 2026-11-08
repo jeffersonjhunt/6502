@@ -279,6 +279,9 @@ SNDIRQ:         STZ     SANS
 @doc:           LDA     SIEN           ; the ES5503's, told by its own $E0 (STATUS's IRQ
                 AND     #SOUND_IEN_DOC ; covers a mailbox byte too)
                 BEQ     @done
+                LDA     SOUND_DOCCTL   ; routed to the card's 6510: its to take, so $E0 isn't
+                AND     #SOUND_DOC_IRQ_CARD ; read here (the read would take it)
+                BNE     @done
                 JSR     DOCIRQ
                 BCS     @done          ; none pending
                 LDA     #NB_IRQ_SOUND
@@ -1056,6 +1059,9 @@ SN_WAVEX:       BLOCK
                 NEED    SC_DOC
                 JSR     SRCLEN3        ; SG, T2/T3 the address, T4 its bank, LDLEN
                 BCS     @no
+                LDA     T4             ; 17 bits: +6 is 0 or 1 (2 up would alias into 0-1)
+                CMP     #2
+                BCS     @no
                 LDA     #2             ; to wave RAM's end ($20000) at most
                 JSR     RAMEND
                 BCS     @no
@@ -1100,7 +1106,14 @@ SN_WAVEX:       BLOCK
 ; HOOKADDR's checks, irq.s's SETHOOK, and the ES5503's interrupt on at the
 ; card while it is set.
 SN_DOCHOOKX:    NEED    SC_DOC
-                STZ     DHON
+                PHP                    ; the old hook off, and the ES5503's bit out of SIEN and
+                SEI                    ; IEN with it, so an interrupt meanwhile waits in the chip
+                STZ     DHON           ; for the new hook (SIENSET below), not taken and lost
+                LDA     SIEN
+                AND     #<~SOUND_IEN_DOC
+                STA     SIEN
+                STA     SOUND_IEN
+                PLP
                 JSR     HOOKADDR
                 BCS     @no
                 BEQ     @set           ; none

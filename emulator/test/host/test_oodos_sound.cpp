@@ -573,6 +573,7 @@ TEST(wave_ram_is_loaded_by_dma_and_the_es5503_hook_is_called)
     // Wave RAM's end: to $1FFFF and no further.
     CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0xF0, 0xFF, 0x01, 0x10, 0x00}), std::string("00 00"));
     CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0xF0, 0xFF, 0x01, 0x11, 0x00}), std::string("FF FF"));
+    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0x00, 0x00, 0x02, 0x10, 0x00}), std::string("FF FF")); // $20000: none
     CHECK(std::equal(w.begin(), w.begin() + 16, card(r).doc().ram().begin() + 0x1FFF0));
     // The hook: IEN bit 3 on. Oscillator 0 halted from a control write in one-shot with IE: its interrupt.
     CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
@@ -592,6 +593,31 @@ TEST(wave_ram_is_loaded_by_dma_and_the_es5503_hook_is_called)
     // The hook off: IEN bit 3 off.
     CHECK_EQ(f82op(r, 15), std::string("00 00"));
     CHECK_EQ(reg(r, SoundCard::IEN), 0);
+}
+
+TEST(the_6510_s_es5503_interrupt_is_left_to_it_when_a_mailbox_byte_comes)
+{
+    // The hook set, but the ES5503's interrupt routed to the card's 6510 (DOCCTL's IRQ_CARD): an oscillator
+    // pending there is the 6510's to take. A mailbox byte's interrupt mustn't read $E0 and take it instead.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510 | SC_DOC}), std::string("00 00"));
+    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_MAILBOX | SoundCard::IEN_DOC);
+    card(r).write(SoundCard::DOCCTL, SoundCard::DOCCTL_IRQ_CARD); // RUN clear: the 6510 isn't interrupted yet
+    card(r).doc().write(0xA0, 0x0A);
+    card(r).doc().write(0xA0, 0x0B); // oscillator 0 pending, on the 6510's route
+    CHECK(card(r).doc().irq());
+    r.poke(0x3000, std::vector<uint8_t>{0xA9, 0x42, 0x8D, 0x00, 0xDE, 0x4C, 0x05, 0x10}); // say $42, spin
+    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, 8, 0}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    r.run(ms(5));
+    const std::vector<std::pair<unsigned, unsigned>> ev = waiting(r);
+    REQUIRE(ev.size() == 1);
+    CHECK_EQ(ev[0].second, 0x42u); // the mailbox's interrupt came, and was answered
+    CHECK(card(r).doc().irq());   // the oscillator still pending, for the 6510
+    CHECK_EQ(r.phys(DCNT), 0);
 }
 
 TEST(a_stray_during_a_wave_load_leaves_the_es5503_s_interrupt_off)
