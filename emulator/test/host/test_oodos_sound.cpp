@@ -380,6 +380,15 @@ TEST(info_and_the_claims)
     CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
     CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x00, 0x07, 0, 0, 16, 0}), std::string("FF FF"));
     CHECK_EQ(f82(r, {SN_LOAD, 0xF0, 0xFF, 0x05, 0, 0, 32, 0}), std::string("FF FF")); // runs into bank 6
+    // A byte the 6510 (stopped) hasn't taken: a second is refused, busy, rather than replace it.
+    CHECK_EQ(f82(r, {SN_SEND, 0x11}), std::string("00 00"));
+    CHECK(reg(r, SoundCard::STATUS) & SoundCard::STATUS_TO_CARD);
+    CHECK_EQ(f82(r, {SN_SEND, 0x22}), std::string("FE FF"));
+    // The card's RAM's end: to $FFFF and no further (the address would wrap to 0).
+    r.poke(0x3000, noise(32, 7));
+    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0xF0, 0xFF, 0x10, 0}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0xF0, 0xFF, 0x11, 0}), std::string("FF FF"));
+    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x01, 0x00, 0, 0}), std::string("FF FF")); // 64 KB from 1
 }
 
 TEST(the_card_s_ram_is_loaded_by_dma_and_its_6510_talks_through_the_mailbox)
@@ -561,6 +570,10 @@ TEST(wave_ram_is_loaded_by_dma_and_the_es5503_hook_is_called)
     CHECK_EQ(reg(r, SoundCard::DOCCTL), SoundCard::DOCCTL_AUTOINC);
     CHECK_EQ(reg(r, SoundCard::DRQSEL), 0);
     CHECK_EQ(reg(r, SoundCard::IEN), 0);
+    // Wave RAM's end: to $1FFFF and no further.
+    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0xF0, 0xFF, 0x01, 0x10, 0x00}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0xF0, 0xFF, 0x01, 0x11, 0x00}), std::string("FF FF"));
+    CHECK(std::equal(w.begin(), w.begin() + 16, card(r).doc().ram().begin() + 0x1FFF0));
     // The hook: IEN bit 3 on. Oscillator 0 halted from a control write in one-shot with IE: its interrupt.
     CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
     CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC);
@@ -579,6 +592,47 @@ TEST(wave_ram_is_loaded_by_dma_and_the_es5503_hook_is_called)
     // The hook off: IEN bit 3 off.
     CHECK_EQ(f82op(r, 15), std::string("00 00"));
     CHECK_EQ(reg(r, SoundCard::IEN), 0);
+}
+
+TEST(a_stray_during_a_wave_load_leaves_the_es5503_s_interrupt_off)
+{
+    // The hook set (IEN bit 3), then a wave load of 64 KB (16 pieces) with a stray coming in its middle (the
+    // USB card's interrupt, no layout-2 area): DEAFEN turns the stray off and writes the card's IEN back as
+    // OODOS has it, which must not have bit 3 while the load runs.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
+    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC);
+    const uint16_t from = sym("DMALOAD"), to = sym("SN_STARTX"), deafen = sym("DEAFEN");
+    unsigned in = 0, on = 0, deaf = 0;
+    bool stray = false;
+    r.watch = [&](uint16_t pc) {
+        if (r.nb(1) != 60)
+            return;
+        if (pc == deafen && r.nb(3) == 62)
+            ++deaf;
+        if (pc >= from && pc < to)
+        {
+            ++in;
+            if (!stray && in > 200)
+            {
+                r.machine->bus().write(0xC5B0, 0x0F); // USB_IEN, against the rules
+                r.machine->usb_card()->key(0x04, true);
+                stray = true;
+            }
+            if (reg(r, SoundCard::IEN) & SoundCard::IEN_DOC)
+                ++on;
+        }
+    };
+    CHECK_EQ(f82(r, {SN_WAVE, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0}), std::string("00 00"));
+    r.watch = nullptr;
+    r.machine->usb_card()->key(0x04, false);
+    std::printf("  %u steps in the load, the stray's DEAFEN %u, IEN bit 3 on in %u\n", in, deaf, on);
+    CHECK(stray && deaf >= 1);
+    CHECK_EQ(on, 0u);
+    CHECK_EQ(reg(r, SoundCard::IEN), SoundCard::IEN_DOC); // the hook's, back after the load
 }
 
 TEST(the_beep_lasts_its_length_at_its_pitch)
@@ -657,6 +711,107 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     CHECK_EQ(area(r, EV_LAYOUT), 1);
     for (unsigned i = 16; i < 128; ++i)
         CHECK_EQ(area(r, i), 0);
+}
+
+namespace
+{
+    /// A stream moving with no event area: 48 kHz 16-bit stereo, two 64 KB buffers into the FIFO and a
+    /// third given, waiting for its room (its pieces chained by terminal counts as the card plays).
+    void stream_waiting(CcpRig &r)
+    {
+        open(r, "X");
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+        CHECK_EQ(f82(r, stream_block(0, 48000, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
+        r.poke(0x10000, noise(0x10000, 5));
+        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
+        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("01 00"));
+        CHECK_EQ(f82(r, buffer_block(0x10000, 0)), std::string("00 00"));
+        CHECK_EQ(sys(r, "C2ON"), 1);
+    }
+} // namespace
+
+TEST(chained_terminal_counts_in_a_program_are_not_strays)
+{
+    // The handler says which interrupts it answered. A terminal count still pulling when it returns (the
+    // next piece run at once: the FIFO emptied under the program, so each piece goes whole) must be left to
+    // the next interrupt, not taken for a stray: if what it answered were lost, DEAFEN would run for each.
+    CcpRig r;
+    REQUIRE(r.ok);
+    stream_waiting(r);
+    r.run(ms(30));
+    card(r).write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_FLUSH); // the program spins in L3TEST
+    const uint16_t deafen = sym("DEAFEN"), cnext = sym("CNEXT");
+    unsigned deaf = 0, chained = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == deafen && r.nb(3) == 62)
+            ++deaf;
+        if (pc == cnext && r.nb(2) == 61)
+            ++chained;
+    };
+    r.run(ms(200));
+    r.watch = nullptr;
+    std::printf("  200 ms: %u pieces chained, DEAFEN run %u times\n", chained, deaf);
+    CHECK(chained >= 5);
+    CHECK_EQ(deaf, 0u);
+}
+
+TEST(a_stray_in_a_bdos_call_is_turned_off_while_a_stream_moves)
+{
+    // The USB card's interrupt left on with no layout-2 area, while a stream moves and the program waits in
+    // function 10: the stray must be turned off (DEAFEN), not taken as answered, and the call go on.
+    CcpRig r;
+    REQUIRE(r.ok);
+    stream_waiting(r);
+    const size_t from = r.out.size();
+    r.poke(MBOX, 'D');
+    CHECK(r.calls(CcpRig::C_READSTR_FN));
+    r.machine->bus().write(0xC5B0, 0x0F); // USB_IEN: all four, against the rules
+    r.machine->usb_card()->key(0x04, true);
+    r.run(ms(20));
+    CHECK_EQ(r.machine->bus().peek(0xC5B0), 0);
+    r.machine->usb_card()->key(0x04, false);
+    r.type("x\r");
+    CHECK(r.until("LINEOK", ms(2000), from));
+}
+
+TEST(a_hook_s_register_write_leaves_the_interrupted_docdata_run_whole)
+{
+    // L3TEST writes 0-255 to wave RAM through DOCDATA; at its 128th byte an oscillator's interrupt comes, and
+    // the hook writes the chip's register $40. The run's bytes must land in order, and the hook's in $40.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_DOC}), std::string("00 00"));
+    CHECK_EQ(command(r, 'H', "HOOK"), std::string("00 00"));
+    card(r).write(SoundCard::DOCCTL, 0);
+    card(r).doc().write(0xA0, 0x0A); // oscillator 0 running, one-shot, IE
+    for (unsigned i = 0; i < 256; ++i)
+        card(r).doc().ram()[i] = 0xEE;
+    const uint16_t run = labels(SYS + "/l3test.lbl").at("DOCRUN");
+    bool fired = false;
+    r.watch = [&](uint16_t pc) {
+        if (!fired && pc == run && r.cpu->regs().x == 128)
+        {
+            card(r).doc().write(0xA0, 0x0B); // halted: its interrupt, now
+            fired = true;
+        }
+    };
+    CHECK_EQ(command(r, 'R', "RUN"), std::string("00 00"));
+    r.watch = nullptr;
+    CHECK(fired);
+    CHECK_EQ(r.phys(DCNT), 1);
+    bool whole = true;
+    for (unsigned i = 0; i < 256; ++i)
+        whole = whole && card(r).doc().ram()[i] == i;
+    CHECK(whole);
+    if (!whole)
+        for (unsigned i = 0; i < 256; ++i)
+            if (card(r).doc().ram()[i] != i)
+            {
+                std::printf("  wave RAM $%02X: $%02X\n", i, card(r).doc().ram()[i]);
+                break;
+            }
+    CHECK_EQ(card(r).doc().read(0x40), 0x77);
 }
 
 TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)

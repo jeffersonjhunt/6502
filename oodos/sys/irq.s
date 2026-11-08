@@ -437,7 +437,8 @@ EVALL:          LDA     NB_WIN1
 .assert FRAMES = MS + 4 && EV_FRAMES = EV_MS + 4, error, "EVALL copies MS and FRAMES as one"
 
 ; CALL61, sound.s's R61 routine X in block 61 (the BIOS), W2 borrowed for it
-; and put back byte for byte, as CALL62 borrows W3 (L3's handlers: W1 is
+; and put back byte for byte, as CALL62 borrows W3, the routine's A
+; returned (X not kept) (L3's handlers: W1 is
 ; the event area's, never code). Here, after the tick's path, so the tick's
 ; branches stay where they were (test_oodos_input times the tick).
 CALL61:         LDA     NB_WIN2
@@ -445,8 +446,10 @@ CALL61:         LDA     NB_WIN2
                 LDA     #BIOS_BLOCK
                 STA     NB_WIN2
                 JSR     R61
+                TAX                    ; the routine's A kept (SNDIRQ's answer): X is free
                 PLA
                 STA     NB_WIN2
+                TXA
                 RTS
 
 

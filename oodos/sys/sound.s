@@ -58,7 +58,7 @@
 CHUNK           = 4096                 ; channel 2's piece: 4,096 cycles at most with the CPU held
 SC_ALL          = SC_6510 | SC_STREAM | SC_DOC
 BEEP_DIV        = 715909               ; 7,159,090 / 2 / 5: a half period in the delay loop's 5 cycles
-BEEP_LOOP       = 10                   ; the beep loop's own cycles, in 5s, besides the delay (about 50)
+BEEP_LOOP       = 12                   ; the beep loop's own cycles, in 5s, besides the delay (about 60)
 .assert SC_6510 = 1 && SC_STREAM = 2 && SC_DOC = 4, error, "PQUIET and SN_INFO take the parts as bits 0-2"
 
 .segment "SYSBSS"
@@ -82,6 +82,7 @@ SANS:           .res    1              ; SNDIRQ's: the IRQH bits it answered
 STMP:           .res    1
 SDCTL:          .res    1              ; DOCIRQ's: DOCCTL and DOCADDR as it found them
 SDAL:           .res    2
+SDBANK:         .res    1
 SST:            .res    12             ; SN_STATUS's: its block's +1-12, at one moment
 HTSAVE:         .res    HK_LEN         ; DOCIRQ's: the tick hook's record, set aside
 LDLEN:          .res    3              ; DMALOAD's bytes left (17 bits)
@@ -259,7 +260,7 @@ SNDIRQ:         STZ     SANS
                 CMP     BBUSY
                 BEQ     @moved         ; a buffer's end: the area's sound part afresh
                 JSR     SFIELDS
-@moved:                LDA     #NB_IRQ_DMA
+@moved:         LDA     #NB_IRQ_DMA
                 TSB     SANS
 @card:          LDA     SIEN
                 BEQ     @done
@@ -275,17 +276,15 @@ SNDIRQ:         STZ     SANS
                 JSR     MBOXIN
                 LDA     #NB_IRQ_SOUND
                 TSB     SANS
-@doc:           LDA     SIEN
-                AND     #SOUND_IEN_DOC
+@doc:           LDA     SIEN           ; the ES5503's, told by its own $E0 (STATUS's IRQ
+                AND     #SOUND_IEN_DOC ; covers a mailbox byte too)
                 BEQ     @done
-                LDA     SOUND_STATUS   ; still interrupting: the ES5503 (MBIN is read)
-                BPL     @done
                 JSR     DOCIRQ
+                BCS     @done          ; none pending
                 LDA     #NB_IRQ_SOUND
                 TSB     SANS
 @done:          LDA     SANS
                 RTS
-.assert SOUND_ST_IRQ = $80, error, "SNDIRQ tests STATUS's IRQ by BPL"
 
 ; A byte from the 6510: MBIN read (the interrupt with it), and with a
 ; layout-2 area open queued as EK_SOUND, code 0. QEV is block 62's: W3 is
@@ -306,12 +305,16 @@ MBOXIN:         LDA     SOUND_MBIN
                 STA     NB_WIN1
 @done:          RTS
 
-; The ES5503's interrupt: its register $E0 read (which takes it), with
-; DOCCTL and DOCADDR put back as the program had them, so a program's
-; register or wave RAM access interrupted goes on as it was; then its hook,
-; that register first written to the hook's zero page byte (HK_ZP, through
-; W1 on the hook's W0). Never during a wave load: SN_WAVE holds IEN bit 3
-; off, so DOCADDR isn't moved under the transfer.
+; The ES5503's interrupt: its register $E0 read with the registers
+; selected (DOCCTL's RAM and AUTOINC off, DOCADDR $E0), which takes the
+; lowest oscillator pending: carry set, and nothing else done, if none was
+; (bit 7 set). Then its hook, the register first written to the hook's zero
+; page byte (HK_ZP, through W1 on the hook's W0); the hook finds the port
+; as that read left it. DOCCTL, DOCADDR (both bytes) and DOCBANK are saved
+; before the read and put back after the hook, so a register or wave RAM
+; access the interrupt came in the middle of goes on as it was, whatever
+; the hook wrote. Never during a wave load: SN_WAVE takes IEN bit 3 out of
+; SIEN for it, so DOCADDR isn't moved under the transfer.
 ;
 ; The hook is called masked, as the tick hook is, and in the tick hook's
 ; record: masked hooks never nest, so HT's record is set aside, the ES5503
@@ -324,21 +327,18 @@ DOCIRQ:         LDA     SOUND_DOCCTL
                 STA     SDAL
                 LDA     SOUND_DOCADDR + 1
                 STA     SDAL + 1
+                LDA     SOUND_DOCBANK
+                STA     SDBANK
                 LDA     SDCTL
                 AND     #<~(SOUND_DOC_RAM | SOUND_DOC_AUTOINC)
-                STA     SOUND_DOCCTL   ; the registers, DOCADDR still
+                STA     SOUND_DOCCTL   ; the registers, one at a time
                 LDA     #$E0
                 STA     SOUND_DOCADDR
                 LDA     SOUND_DOCDATA  ; the interrupt register: which oscillator, taken
                 STA     STMP
-                LDA     SDAL
-                STA     SOUND_DOCADDR
-                LDA     SDAL + 1
-                STA     SOUND_DOCADDR + 1
-                LDA     SDCTL
-                STA     SOUND_DOCCTL
+                BMI     @none          ; bit 7: none was pending
                 LDA     DHON
-                BEQ     @done
+                BEQ     @back
                 LDA     NB_WIN1
                 PHA
                 LDA     HK + HD + HK_WIN ; its W0: its zero page at $4000 in W1
@@ -358,11 +358,27 @@ DOCIRQ:         LDA     SOUND_DOCCTL
                 LDY     #HT
                 JSR     CALLHOOK
                 LDX     #HK_LEN - 1
-@back:          LDA     HTSAVE,X
+@ht:            LDA     HTSAVE,X
                 STA     HK + HT,X
                 DEX
-                BPL     @back
-@done:          RTS
+                BPL     @ht
+@back:          JSR     DOCBACK
+                CLC
+                RTS
+@none:          JSR     DOCBACK
+                SEC
+                RTS
+
+; The port as DOCIRQ found it: DOCADDR, DOCBANK, then DOCCTL.
+DOCBACK:        LDA     SDAL
+                STA     SOUND_DOCADDR
+                LDA     SDAL + 1
+                STA     SOUND_DOCADDR + 1
+                LDA     SDBANK
+                STA     SOUND_DOCBANK
+                LDA     SDCTL
+                STA     SOUND_DOCCTL
+                RTS
 
 ; The beep's delay: X 5-cycle steps, then Y - 1 passes of 256. Aligned, so
 ; neither branch crosses a page (a crossing costs a cycle a step, a fifth of
@@ -647,6 +663,9 @@ SN_LOADX:       BLOCK
                 NEED    SC_6510
                 JSR     SRCLEN         ; SG the source, T2/T3 the card's address, LDLEN the length
                 BCS     SNFF2
+                LDA     #1             ; to the card's RAM's end ($10000) at most
+                JSR     RAMEND
+                BCS     SNFF2
                 LDA     C2ON
                 BEQ     @go
                 JMP     SNBUSY
@@ -703,6 +722,31 @@ SRC:            PHP
                 TAY
                 PLA
                 JMP     SEGOK          ; carry set: refused
+@no:            SEC
+                RTS
+
+; Carry set if the card's address T2/T3 (and T4's bit 0, wave RAM's A16) +
+; LDLEN runs past A x $10000: the RAM's end (64 KB the card's, 128 KB wave
+; RAM), where the address would wrap.
+RAMEND:         STA     SST + 3
+                CLC
+                LDA     T2
+                ADC     LDLEN
+                STA     SST
+                LDA     T3
+                ADC     LDLEN + 1
+                STA     SST + 1
+                LDA     T4
+                AND     #1
+                ADC     LDLEN + 2
+                CMP     SST + 3
+                BCC     @ok
+                BNE     @no
+                LDA     SST
+                ORA     SST + 1
+                BNE     @no
+@ok:            CLC
+                RTS
 @no:            SEC
                 RTS
 
@@ -815,11 +859,16 @@ SN_STOPX:       NEED    SC_6510
                 JSR     SIDSTOP
                 JMP     SN00
 
-; +1 the byte, to MBOUT.
+; +1 the byte, to MBOUT; SN_BUSY while the 6510 hasn't taken the last.
 SN_SENDX:       BLOCK
                 NEED    SC_6510
                 JSR     PGET
-                STA     SOUND_MBOUT
+                TAX
+                LDA     SOUND_STATUS   ; the last byte not taken yet: busy (a second would replace it)
+                AND     #SOUND_ST_MBOUT
+                BEQ     @send
+                JMP     SNBUSY
+@send:          STX     SOUND_MBOUT
                 JMP     SN00
 
 ; +1 the codec, +2-3 the rate, +4 the format: channel 2 stopped, both
@@ -1007,14 +1056,18 @@ SN_WAVEX:       BLOCK
                 NEED    SC_DOC
                 JSR     SRCLEN3        ; SG, T2/T3 the address, T4 its bank, LDLEN
                 BCS     @no
+                LDA     #2             ; to wave RAM's end ($20000) at most
+                JSR     RAMEND
+                BCS     @no
                 LDA     C2ON
                 BEQ     @go
                 JMP     SNBUSY
 @go:            PHP
                 SEI
-                LDA     SIEN
-                AND     #<~SOUND_IEN_DOC
-                STA     SOUND_IEN      ; the handler never moves DOCADDR under the load
+                LDA     SIEN           ; the ES5503's interrupt out of SIEN for the load, so a
+                AND     #<~SOUND_IEN_DOC ; stray's DEAFEN, which writes SIEN back, can't turn it on:
+                STA     SIEN           ; its handler never moves DOCADDR under the transfer
+                STA     SOUND_IEN
                 LDA     SOUND_DOCCTL
                 STA     T5
                 AND     #SOUND_DOC_RUN | SOUND_DOC_IRQ_CARD
@@ -1036,8 +1089,7 @@ SN_WAVEX:       BLOCK
                 LDA     T5
                 STA     SOUND_DOCCTL
                 STZ     SOUND_DRQSEL
-                LDA     SIEN
-                STA     SOUND_IEN
+                JSR     SIENSET        ; SIEN and IEN as the hook wants them again
                 PLP
                 BCS     @no
                 JMP     SN00
@@ -1109,12 +1161,15 @@ SN_BEEPX:       BLOCK
                 BNE     @d
                 DEY
 @d:             JSR     BEEPD          ; (block 61's, W2 on it)
-                SEC                    ; MS - start, against the length
+                PHP                    ; MS - start, against the length: MS read whole
+                SEI
+                SEC
                 LDA     MS
                 SBC     SG
                 TAX
                 LDA     MS + 1
                 SBC     SG + 1
+                PLP
                 CMP     T3
                 BCC     @half
                 BNE     @done

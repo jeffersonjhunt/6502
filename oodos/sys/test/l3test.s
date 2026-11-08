@@ -17,11 +17,17 @@
 ;   S   ST aa xx and the status block's 12 bytes (SN_STATUS)
 ;   I   INFO aa xx and the info block's 3 bytes (SN_INFO)
 ;   H   HOOK aa xx: SN_DOCHOOK with DOCHOOK, its zero page byte HZP
+;   R   RUN aa xx: 256 bytes, 0-255, written to wave RAM from $00000 through
+;       DOCDATA (DOCCTL's RAM and AUTOINC), a byte at a time, slowly: an
+;       ES5503 interrupt the test raises midway (at DOCRUN with X = 128)
+;       must leave the run's bytes where they belong
 ;   W   the warm boot (JMP WBOOT)
 ;   D   spins on in a ^C-able function 10 (^C there ends it)
 ;
 ; DOCHOOK counts its calls at DCNT ($2180) and keeps the interrupt
-; register OODOS gave it (HZP) at DLAST ($2181), and its S at DS ($2182).
+; register OODOS gave it (HZP) at DLAST ($2181), and its S at DS ($2182);
+; then writes the chip's register $40 (oscillator 0's volume) $77, as a
+; hook reprogramming an oscillator would.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -30,6 +36,10 @@
         .include "printzp.inc"
 
 AREA    = $2000
+DOCCTL  = $C55E                         ; the sound card's ES5503 port (backplane.inc's SOUND_DOC*)
+DOCDATA = $C55F
+DOCADDR = $C560
+DOCBANK = $C562
 MBOX    = $2100
 KBLK    = $2110
 DCNT    = $2180
@@ -188,6 +198,24 @@ c_hook: lda     #<hblk
 c_wboot:
         jmp     WBOOT
 
+c_run:  lda     #$60                    ; RAM, AUTOINC
+        sta     DOCCTL
+        stz     DOCADDR
+        stz     DOCADDR + 1
+        stz     DOCBANK
+        ldx     #0
+DOCRUN: txa
+        sta     DOCDATA
+        ldy     #40                     ; a run spread out, an interrupt may come in it
+@d:     dey
+        bne     @d
+        inx
+        bne     DOCRUN
+        lda     #0
+        ldx     #0
+        SAY     "RUN"
+        rts
+
 c_line: lda     #<lbuf
         ldx     #>lbuf
         ldy     #C_READSTR
@@ -203,6 +231,10 @@ DOCHOOK:
         sta     DLAST
         tsx
         stx     DS
+        lda     #$40                    ; oscillator 0's volume
+        sta     DOCADDR
+        lda     #$77
+        sta     DOCDATA
         rts
 
         .rodata
@@ -211,6 +243,7 @@ cmds:   CMD     'K', c_k
         CMD     'S', c_st
         CMD     'I', c_info
         CMD     'H', c_hook
+        CMD     'R', c_run
         CMD     'W', c_wboot
         CMD     'D', c_line
 CMDS_LEN = * - cmds
