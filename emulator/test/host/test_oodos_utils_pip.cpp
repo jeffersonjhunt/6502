@@ -16,12 +16,15 @@
  *     (Y, N, [W]); SYS files only with [R]; attributes carried; [V]; [A]
  *     and the archive bit, in every entry of a file; [C]'s question;
  *     passwords both sides;
+ *   - a destination or a source of type $$$ (OODOS todo item 18): the copy
+ *     under its name, NAME.$$$ being its own, on M:, B: and O:;
  *   - the '*' mode: the banner, a command a line, the empty line;
  *   - its errors; the return codes, by a conditional command after each.
  */
 
 #include "harness.h"
 #include "oodos_rig.h"
+#include "disk2_rig.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -501,6 +504,82 @@ TEST(pip_says_a_full_directory_as_a_write_error)
         }
     same(pip(r, "m:x.txt=m:one.txt"), "DISK WRITE ERROR - X.TXT");
     failed(r);
+}
+
+// OODOS todo item 18: PIP's temporary file is NAME.$$$, so a destination of type $$$ was its own temporary
+// file (deleted as the old file, the rename then finding nothing: a blank line and no file), and a source
+// NAME.$$$ on the destination's drive and user was deleted as a leftover temporary file before it was read.
+// The temporary file is another name then (NAME.$$0 on), and one of those already there is left alone.
+TEST(pip_copies_to_and_from_a_file_of_type_dollars)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "OLD     $$$", bytes("OLD\r\n")},
+             {0, "SRC     $$$", bytes("SOURCE\r\n")},
+             {0, "KEEP    $$0", bytes("SOMEONE'S\r\n")},
+             {0, "ROD     $$$", bytes("READ ONLY\r\n"), false, true}});
+    files(r);
+    // A new X.$$$: there afterwards, its contents, no temporary file left
+    same(pip(r, "m:x.$$$=m:one.txt"), "");
+    ok(r);
+    same(text(m_data(r, 0, "X       $$$")), "ONE\r\n");
+    CHECK(r.m_entry(0, "X       $$0") < 0);
+    // One there already: replaced
+    same(pip(r, "m:old.$$$=m:two.txt"), "");
+    ok(r);
+    same(text(m_data(r, 0, "OLD     $$$")), "TWO\r\n");
+    CHECK(r.m_entry(0, "OLD     $$0") < 0);
+    // A read-only one: the question, as for any read-only destination (not CAN'T DELETE TEMP FILE)
+    std::string o = r.to("m:pip m:rod.$$$=m:one.txt", "DELETE (Y/N)?");
+    same(wrote(o + r.cmd("y"), "m:pip m:rod.$$$=m:one.txt"), "DESTINATION IS R/O, DELETE (Y/N)?y\r");
+    ok(r);
+    same(text(m_data(r, 0, "ROD     $$$")), "ONE\r\n");
+    // NAME.$$0 there already is someone's: kept, the next name taken
+    same(pip(r, "m:keep.$$$=m:one.txt"), "");
+    same(text(m_data(r, 0, "KEEP    $$$")), "ONE\r\n");
+    same(text(m_data(r, 0, "KEEP    $$0")), "SOMEONE'S\r\n");
+    CHECK(r.m_entry(0, "KEEP    $$1") < 0);
+    // A source NAME.$$$ on the destination's drive and user: read, not deleted first
+    same(pip(r, "m:src.txt=m:src.$$$"), "");
+    ok(r);
+    same(text(m_data(r, 0, "SRC     TXT")), "SOURCE\r\n");
+    same(text(m_data(r, 0, "SRC     $$$")), "SOURCE\r\n");
+    same(pip(r, "m:src.dat=m:one.txt,m:src.$$$"), ""); // joined, the $$$ one second
+    same(text(m_data(r, 0, "SRC     DAT")), "ONE\r\nSOURCE\r\n");
+    // To a drive: the copy NAME.$$$ too
+    same(pip(r, "m:[g2]=m:src.$$$"), "");
+    ok(r);
+    same(text(m_data(r, 2, "SRC     $$$")), "SOURCE\r\n");
+    CHECK(r.m_entry(2, "SRC     $$0") < 0);
+    same(pip(r, "m:[g3]=m:*.$$$"), "COPYING -\r\nROD.$$$\r\nSRC.$$$\r\nKEEP.$$$\r\nX.$$$\r\nOLD.$$$"); // the directory's order
+    same(text(m_data(r, 3, "OLD     $$$")), "TWO\r\n");
+    same(text(m_data(r, 3, "X       $$$")), "ONE\r\n");
+    // An SD card's drive, B:: there, and the same back
+    same(pip(r, "b:x.$$$=m:three.txt"), "");
+    ok(r);
+    CpmDisk b{r, 2};
+    const std::vector<uint8_t> d = b.directory();
+    CHECK(!b.entries_of(d, 0, "X       $$$").empty());
+    CHECK(b.entries_of(d, 0, "X       $$0").empty());
+    same(pip(r, "m:back.txt=b:x.$$$"), "");
+    CHECK(m_data(r, 0, "BACK    TXT") == m_data(r, 0, "THREE   TXT"));
+}
+
+TEST(pip_copies_to_a_file_of_type_dollars_on_a_floppy)
+{
+    if (!disk2_rig::have_prom())
+    {
+        std::printf("  SKIP: no Disk II sequencer PROM among the fixtures\n");
+        return;
+    }
+    disk2_rig::Dr r(true, true, {{0, "Y       BIN", disk2_rig::gen(1000, 5)}});
+    REQUIRE(r.ok);
+    disk2_rig::has(r.c("pip o:x.$$$=m:y.bin"), "A>");
+    const std::string o = r.c("dir o:x.*");
+    disk2_rig::has(o, "X        $$$");
+    disk2_rig::hasnt(o, "$$0");
+    disk2_rig::has(r.c("pip m:z.bin=o:x.$$$"), "A>");
+    CHECK(m_data(r, 0, "Z       BIN") == disk2_rig::records(disk2_rig::gen(1000, 5), 0x1A));
 }
 
 int main() { return run_all(); }
