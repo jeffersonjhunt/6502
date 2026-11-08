@@ -34,11 +34,11 @@ Guide's chapter 8 on what is decided. **A plan for building it is proposed (2026
 | Sound | Two SIDs `$C500`, ID A, and a 6510 on the card with its own 64 KB, a one-byte mailbox each way. Revision 2 (ID `$A2`, BIOS 0.12): a stereo DAC fed by a 128 KB FIFO (raw PCM at 8–48 kHz, or MP3 the card decodes), a ten-band EQ, volume and a vis page; an ES5503 with 128 KB of wave RAM; DRQSEL picks what the card's DMA request feeds | SID writes are ignored while the 6510 runs. `.sid` tunes play on the 6510 with no main-CPU time; a stream plays from the FIFO with none either, as long as it's kept fed |
 | Speaker | USB card `$C5A6` (SPKR) | One bit, toggled per access |
 | Keyboard | USB card `$C580`, ID B: cooked KEY (ASCII, repeat) and a raw event FIFO (HID usage + press/release) | OODOS's console reads only KEY today |
-| Mouse | USB card `$C590`–`$C59A`: buttons, relative or absolute X/Y, wheel | Absolute mode suits a pointer sprite |
+| Mouse | USB card `$C590`–`$C59A`: buttons, relative or absolute X/Y, wheel | Absolute mode suits a pointer sprite, within the sprites' 320×240 space: limits 319 and 239, not the 639 and 479 of /RESET (corrected, L4's plan) |
 | Game port | USB card `$C5A0`–`$C5A5`: four paddles 0–255, three buttons | Apple-style joystick |
 | Joysticks | Two digital DE-9 ports (Atari/Commodore pinout) on the serial card's W65C22S, `$C341` and `$C340` bits 0–4, 0 = pressed (proposed 2026-10-30) | One load reads a stick; no interrupt needed |
 | Timing | Vertical blank (60 Hz), the scan-line interrupt, the DS3231's 1 Hz TICK (ID D), and the W65C22S's two timers at 7.16 MHz (proposed 2026-10-30) | Timer 1 is OODOS's system tick; timer 2 is the program's |
-| DMA | Controller `$C400`, ID 8: four channels (0 storage, 1 serial, 2 USB / sound RAM, 3 general: copies and blits); memory to memory at 2 cycles a byte | OODOS's BIOS uses channels 0 and 3 today |
+| DMA | Controller `$C400`, ID 8: four channels (design.md's: 0 storage, 1 serial, 2 USB / sound RAM, 3 general: copies and blits); memory to memory at 2 cycles a byte | Under OODOS (corrected, L4's plan): 0 the SD card (the BIOS's SDIO and function 83's loads), 1 the vertical-blank copies (L4; no serial card's DMA is modelled), 2 the sound card's (L3), 3 the BIOS's DMAGO (MOVE, the console, function 83's copies) |
 | Interrupts | IRQL/IRQH at `$C688`: one bit per module ID | Since L1 OODOS's dispatcher answers them, and the BDOS runs with interrupts on (question 14; [L1, as built](#the-plan)) |
 
 
@@ -62,7 +62,9 @@ segment writes records to physical memory. The program then reads the frame coun
 queue with ordinary loads: no call at all.
 
 **3. OOLIB: a library linked into the program.** Graphics is register and memory work with nothing to share, so it
-is a ca65 library in this repo (`oodos/lib/`, with cc65 C headers), linked into each `.COM` that wants it. Each
+is a ca65 library in this repo (`oodos/lib/`; no cc65 C headers until there is a C target, L4's question 5), linked
+into each `.COM` that wants it. Its memory work reaches video memory through W1, which OOLIB maps itself under the
+W1 contract (L4's question 1; corrected: a program's CPU sees banks 8–B only through a window). Each
 program carries the parts it uses; every program uses the same interface. It calls layer 1 for the few things that
 need the system (the sprite table at vertical blank, a DMA channel).
 
@@ -88,7 +90,9 @@ Function numbers, register conventions and error codes are left for the design s
   long it may take, no BDOS calls, none of the program's zero page unless it says so, and never a write to the
   VIA's ACR, IER or IFR (see [The VIA is shared](#the-via-is-shared)).
 - **A scan-line hook:** the same at a chosen line, for split screens (a status bar over a scrolling map).
-- **Sprite collision:** the collision groups at the last vertical blank, in the event area, and optionally a hook.
+- **Sprite collision:** the collision groups at the last vertical blank, and optionally a hook. *Corrected (L4's
+  plan): the card keeps them itself, in STATUS bits 3–0 and ISR bit 2, so the library reads them there; no OODOS
+  code, no copy in the event area, and no collision hook in L4.*
 
 ### Timing ###
 
@@ -146,7 +150,9 @@ interrupt without knowing it. So:
 - **The paddles themselves** (0–255 each, all four) stay in the event area for games that want paddles, not a
   joystick. GW-BASIC's STICK and STRIG read controllers.
 - **The mouse:** position (absolute mode with limits) and buttons in the event area; an optional pointer sprite
-  OODOS moves at each vertical blank.
+  OODOS moves at each vertical blank. *Corrected (L4's plan): sprites live in the tiles' 320×240 space, so a pointer
+  needs absolute mode with limits 319 and 239 (`IN_MOUSE`); the screen's 639 and 479 would run it off the right and
+  the bottom.*
 - **The console keeps working.** Function 6 and the console functions still get characters from KEY, as CP/M
   programs expect; the event queue is extra, not a replacement. Whether a game can turn the console's keys off (so
   ^C, ^S and ^P don't act while it plays) is open question 4.
@@ -160,13 +166,16 @@ interrupt without knowing it. So:
 - **Tiles and maps:** load tile images, put and get map entries, scroll each layer (the card latches at vertical
   blank, so no tearing).
 - **Sprites:** a shadow table of 64 entries in the program's memory; set position, image, flips, depth, palette and
-  collision group; OODOS copies the table to the card by a 512-byte DMA at vertical blank (about 72 µs), as
-  design.md proposes.
+  collision group; OODOS copies the table to the card by a 512-byte DMA at vertical blank (about 143 µs: memory to
+  memory is 2 cycles a byte, 1,024 cycles; corrected from 72 µs, L4's plan), as design.md proposes.
 - **Bitmaps:** plot, line, rectangle, fill, circle, a flood fill (PAINT), text in a font on a bitmap; copies and
   fills by DMA channel 3.
 - **Double buffering:** draw into one buffer, flip the base register (latched at vertical blank).
 - **Video memory:** banks 8–B are shared by the console (its text screen and font) and the program. OOLIB hands
-  out pieces of them; the warm boot puts the console's back.
+  out pieces of them; the warm boot puts the console's back. *Corrected (L4's plan): the console's units 0–12
+  (`$80000–$833FF`) are OODOS's, never a program's to write (function 83 refuses them, block 32 isn't in the W1 map),
+  so the warm boot only sets the card's registers again; the program has units 13–255, which the library hands out.
+  The CPU reaches them through W1 (the W1 contract), not by itself.*
 
 ### Sound ###
 
@@ -205,13 +214,18 @@ Revision 2 adds three more, each a claim of its own (question 6):
 
 - **Channels have owners.** OODOS keeps channel 0 (storage). Channel 3 (copies and blits) is shared: OOLIB and the
   BIOS both use it, so a call takes it and gives it back, or OODOS queues copies for it. Channel 2 loads the sound
-  card's RAM. Which channels a program may own outright is part of open question 6.
+  card's RAM. Which channels a program may own outright is part of open question 6. *Corrected (L4's plan): all
+  four are OODOS's. 0 the SD card; 1 the vertical-blank copies (nothing else uses it: the serial card's DMA isn't
+  built); 2 the sound card's, through function 82; 3 the BIOS's DMAGO, through which function 83's copies and
+  fills run synchronously in the BDOS, 2 KB a block: there is no queue, and a program never drives a channel.*
 - **Copy and fill** between any physical addresses, checked as 3c's segment is (none of OODOS's own memory).
 
 ### Files and assets ###
 
 - **Load a file to physical memory** (tiles, pictures, a tune) by 3c's DMA segment: mostly built already, but only
-  a record (128 bytes) a call: a program sets the segment (51) and loops read-sequential (20).
+  a record (128 bytes) a call: a program sets the segment (51) and loops read-sequential (20). *Corrected (L4's
+  plan): up to 128 records a call with function 44's count, but each still through a BDOS buffer and MOVE, about
+  0.45 s for 64 KB.*
 - **Load to memory by DMA** (proposed, the owner's 2026-11-07): one BDOS call that loads a file, or a part of one,
   into any physical memory, video included, by DMA, rather than a record at a time through the CPU. Video memory
   is one destination among others: tiles, pictures, sound samples, overlays, data in the upper banks. It refuses
@@ -262,7 +276,9 @@ end:    RTS: the warm boot stops the music, the hooks, timer 2 and DMA, frees th
   list.
 - **The warm boot** stops everything a program started (hooks, the music driver and any tune, DMA channels it
   took, timer 2, its VIA interrupts and the user port's claim, the pointer sprite), empties the event queue, closes the event area, and puts the video card back to the
-  console's text screen and font.
+  console's text screen and font. *Corrected (L4's plan): the card's registers as cold boot's CRTINIT sets them;
+  the font, the palette and the text are never a program's to change (units 0–12), so they are as it found them,
+  and the warm boot copies nothing.*
 - **Apple II mode** is untouched: these are native-mode services.
 - **Phasing (proposed):** a new OODOS phase before GW-BASIC (between 6 and 7, or before 6), in steps:
   1. the interrupt dispatcher, the system tick (VIA timer 1), the frame and millisecond counters and the event area;
@@ -713,10 +729,263 @@ L4. Where the plan left something open it was decided as below, each with its re
   - The owner's answers to L3's questions: block 60's room waits for L4; the ES5503 hook as built (masked, the tick
     hook's record, the register in a zero-page byte the program names); the SID model a jumper, documented.
 
-- **L4: graphics, the linked library** (`oodos/lib/`, with cc65 headers): modes, the palette, tiles and maps,
-  sprites (the shadow table goes to the card by DMA at vertical blank, through L1's dispatcher), bitmaps, double
-  buffering, and handing out video memory. With it come the asset format and tools (question 8), and load to memory
-  by DMA (question 13), which is the asset loader.
+- **L4: graphics, the linked library** (`oodos/lib/`): modes, the palette, tiles and maps, sprites (the shadow
+  table goes to the card by DMA at vertical blank, through L1's dispatcher), bitmaps, double buffering, and handing
+  out video memory. With it come the asset format and tools (question 8), and load to memory by DMA (question 13),
+  which is the asset loader.
+**L4's plan (decided 2026-11-08, the owner; built, below).** The plan as below, and its six questions: 1 against the
+recommendation, the owner's (OOLIB writes `NB_WIN1` itself under the W1 contract; no `DM_MAP`, and function 83 has
+seven operations), 2-6 as recommended (the console's units 0-12 OODOS's; vertical-blank copies on channel 1, four
+slots of 1 KB in all, started by `EV_VBGO`; L3's load engine and the beep's body moved to block 61 first, (d1) kept
+in reserve; no cc65 C headers; asset format 3). Graphics, assets, and load to memory by DMA: function 83 in
+OODOS for what needs a DMA channel, the vertical blank or physical memory, and the linked library for the drawing.
+It rests on questions 8, 9, 13 and 15 as decided, on L1 (the dispatcher, the event area, the hooks, `CALL61`), L2
+(the mouse) and L3 (block 61 as the handlers' home, 4 KB pieces). Measured on main 0497570 (`make -C oodos/sys
+sizes`, the maps, normal and `DEBUG=1`).
+
+- **What there is.**
+  - **The video card** (`$C480`, ID `$91`; Technical Reference chapter 6; `video_card.h`, `video_card.cpp`): 640×480
+    at 60 Hz, two layers each of text 80×30 or 40×30, tiles (320×240, 8×8 or 16×16, 4 or 8 bits, maps 32 or 64 a
+    side), bitmap 256 (256×240, 8 bits, 60 KB), bitmap 512 (512×480, 4 bits, 120 KB) or mono (640×480, 37.5 KB);
+    64 hardware sprites of 8 bytes (512-byte table at SPRBASE, VERA's layout), 8 to 64 pixels a side, 32 a line,
+    four collision groups (STATUS bits 3–0, ISR bit 2); a palette of 256 12-bit entries in video memory, read
+    afresh for every line (`video_card.cpp:323`); PALBASE, SPRBASE, MAPBASE, TILEBASE and the scrolls latched at
+    line 480; interrupts at vertical blank, a chosen line and a collision. Vertical blank is lines 480–524, 1.43 ms,
+    about 10,240 cycles. **No hardware blitter, no frame counter, no line-buffer DMA:** the card draws from memory
+    and is told where things are. Video memory is banks 8–B, physical `$80000–$BFFFF`, RAM blocks 32–47
+    (`video_card.h:131`), in 1 KB units for the base registers; the card snoops writes, so the CPU and the DMA
+    controller see ordinary RAM.
+  - **The console's part of it** (`crt.s`'s CRTINIT, cold boot only): the palette at unit 0, the font at units
+    1–4 (copied from flash block 30), the text screen at units 8–12 (4,800 bytes). **The warm boot doesn't put the
+    card back today:** only cold boot and Break (the ROM's VSCREEN) set its registers, so a program that changes the
+    screen leaves it changed. The dispatcher's VIDSRV (`irq.s:374`, common memory) answers vertical blank alone and
+    turns off any other enabled source; it never clears ISR bit 2 unless it was enabled.
+  - **DMA** (Technical Reference chapter 5; `dma_controller.cpp:109–110`): memory to memory 2 cycles a byte on any
+    channel, a fill by HOLD; card transfers fly-by, a cycle a byte. Channel 0 the SD card (`bios.s`'s SDIO, one
+    sector a command, demand mode); channel 2 the sound card's (L3); channel 3 the BIOS's DMAGO, 2 KB blocks with a
+    pending interrupt taken between them (L1's review); **channel 1 is used by nothing** (design.md's DMASEL1 gives
+    it to the serial card's UARTs, none modelled; question 6 keeps it OODOS's).
+  - **How a file reaches memory today:** function 51's segment and 33 or 20, up to 128 records a call with
+    function 44's count. Each SD sector is read into a BDOS buffer by channel 0, then each record copied out by
+    channel 3 (MOVE): no CPU copy, but about 4,300–4,600 cycles of BDOS work a record and 12,649 for one whose
+    sector it reads (hw/oodos.md, 3b1 and 3b2's measurements on `oodos-8m`): about 0.45 s for 64 KB. OO-Amp loads
+    OOAMP.GFX that way, a record a call (`OOAMP.s`'s gfx_load: 51 and 33 into bank 9 by the units its header names);
+    PLAYSID reads a whole file into the TPA. The card can do better: one READ of many sectors runs on at a byte a
+    cycle after its first sector's 715 cycles (Technical Reference chapter 10, "Timing"). The BDOS's buffers are
+    written back late (BCB_DIRTY), so a read around them must write back first. The segment's check (`bdosmem.s`'s
+    SEGOK and BLKOK) allows banks 0–5, 8–B and E: block 32, the console's, included.
+  - **A program can't map memory.** The windows are OODOS's (AGENTS.md; Programmer's Guide chapter 5). W2 can't be
+    lent anyway: `$0203` jumps to `$BFFD` in block 2 (`com.cfg`), so a program with another block in W2 can't call
+    the BDOS. W3's code window needs common memory in the block's top 2 KB (FARCALL), which a video block hasn't.
+    W1 can be: the stub reads WIN1 itself at a call and puts that value back (`common.s:166`, `ST_W1`), the
+    dispatcher borrows it for the event area and puts back what it found (EVALL), a hook gets the windows it was set
+    with, and the warm boot puts block 1 back. A single `STA NB_WIN1` can't be split by an interrupt. OO-Amp's
+    `oa_hal.s` maps W1 itself, with the owner's leave, and works for these reasons.
+  - **Memory** (bytes free, normal build, then debug): common memory 176 (166); block 60 569 (553); block 61 6,204;
+    block 62's code window 1,188 (985); SYSBSS 132 (129); zero page 2. Function 82 is 1,488 bytes of block 60, of
+    which the loads' engine (DMALOAD, RAMEND: 207), BEEPQ (75) and the beep's loop (about 90) read no parameters
+    and could run in block 61.
+
+- **Function 83, DMA and loading** (`O_DMA`, `DM_*`), by L1's convention (X = 0: the operation in A; else A/X a
+  block, +0 the operation). Addresses are physical, 3 bytes (function 73 turns a CPU address into one). A
+  destination is checked as 51's segment is (SEGOK) and must not touch the console's units 0–12 (`$80000–$833FF`);
+  a refusal is A = X = `$FF`, nothing done.
+  - `DM_INFO` (0): A = the first video unit a program may use (13), X = the vertical-blank slots (4); a block gets
+    +1 those, +2 the slots' budget in 256-byte pages, +3 the pointer's sprite (`$FF` off), and +4–11 **the W1 map**:
+    a bit for each of the 64 blocks, set for those W1 may hold now (block 1, the blocks the program has allocated,
+    video 33–47). The library reads it at its start and again after it allocates or frees a block.
+  - `DM_LOAD` (1): +1–2 an open FCB, +3–5 the first record, +6–7 a count of records (1–512: 64 KB a call), +8–10
+    the destination. Whole 512-byte sectors on an SD drive of OODOS's formats go by channel 0 straight to the
+    destination, at most 8 sectors (4 KB) a READ, so the CPU is held 4,096 cycles at most and interrupts are taken
+    between them (L3's piece). On `oodos-8m` a CP/M block is 4 KB, 8 sectors, so it is one READ; on `oodos-32m` (8
+    KB) two. A partial sector at either end goes through the BDOS's buffer and MOVE, as 33 does, with the segment
+    set for it and put back. M: copies from banks C–D by DMAGO. apple-do drives (O:, P:, and apple-do images on
+    the card: their 256-byte sectors are skewed in a track buffer) go through the buffer whole. The drive's dirty
+    buffers are written back first, so a load sees every write. A = 0; 1 the file ended or a block was never
+    written (+6–7 rewritten as the records loaded); a physical error as 33 gives it. The FCB is left as a random
+    read of the last record loaded leaves it. No vertical-blank wait (question 13): a program loads into a hidden
+    buffer and flips. Estimated 64 KB from `oodos-8m` in about 15 ms against about 0.45 s; the test measures it.
+  - `DM_COPY` (2): +1–3 source, +4–6 destination, +7–8 length (0: 65,536), channel 3 by DMAGO. A copy to a lower
+    address is exact over itself; to a higher one it runs forward, as DMAGO's do. `DM_FILL` (3): +1 the byte, +2–4
+    destination, +5–6 length, DMAGO with HOLD from a byte in the system block. The source may be anything SEGOK
+    allows, the console's font included (the library copies it for text on bitmaps).
+  - `DM_VBSET` (4): +1 a slot 0–3, +2–4 source, +5–7 destination, +8–9 length (1–1,024; all four 1,024 at most;
+    0 frees the slot). **Copied at the vertical blank** by channel 1, from the frame handler, each slot whose bit
+    the program has set in the event area's +12 (`EV_VBGO`, with `TSB`, which an interrupt can't split), its bit
+    cleared when done. Refused with no video card or no DMA controller. Nothing goes with no event area open (any
+    layout: +12 is in layout 1's 16 bytes). The library binds slot 0 to its sprite shadow table (512 bytes) and slot
+    1 to its palette shadow, so sprite moves and fades show whole on the next frame, at no cost to the program but
+    a `TSB`.
+  - `DM_POINTER` (5): +1 a sprite 0–63 (`$FF` off), +2 and +3 the hotspot. At each vertical blank, after the slots,
+    that sprite's X and Y (bytes 2–5) in the table at SPRBASE are written from L2's mouse position (MXS, MYS) less
+    the hotspot, modulo 1,024: the pointer L2 deferred. The program draws the image, sets the sprite's other bytes,
+    and puts the mouse in absolute mode within the sprite space (`IN_MOUSE`, 319 and 239). Refused without a
+    layout-2 area (MXS and MYS are kept only then).
+  - `DM_CONSOLE` (6): the console's screen back now, as the warm boot puts it (question 10: console output goes on
+    into the text screen unseen, and this shows it, for GW-BASIC's `SCREEN 0`).
+  - **No map operation (decided, question 1):** OOLIB writes W1 itself, under the W1 contract below.
+  - **Function 84 isn't needed:** nothing in video memory is shared between owners. The running program has units
+    13–255 whole, as it has its TPA, and the library hands them out inside it. `OA_VIDEO` stays unassigned.
+- **The W1 contract** (decided 2026-11-08, the owner: OOLIB is OODOS's extension, there so programs don't go around
+  the rules, and may do what the rules keep from programs where OODOS states it as part of the interface). From
+  interface version 4: OOLIB may write `NB_WIN1` directly, with any block `DM_INFO`'s W1 map allows, and OODOS
+  keeps that value across a BDOS call, an interrupt and a hook (each puts back what it found), and puts block 1 back
+  at the warm boot. OOLIB checks `FT_INFO`'s version at its start and refuses to map below 4; a later change to the
+  contract comes with a new version. Only W1: W2 and W3 stay OODOS's (the `$BFFD` jump, FARCALL's common memory).
+  While another block is in W1 the program's own `$4000–$7FFF` is out of its reach, and of the BDOS's: its code,
+  its event area, the FCBs and parameter blocks it passes, and what it draws from stay in `$0300–$3FFF` or
+  `$8000–$BFFC`. A hook that draws maps W1 itself. A switch costs 4 cycles, against about 450 for a BDOS call. A
+  program not using OOLIB keeps the old rule: the windows are OODOS's. AGENTS.md and the Programmer's Guide's
+  chapter 5 say so.
+- **The registers a program may write** (chapter 8, Technical Reference chapter 6): every video register but IEN
+  (the dispatcher's) and SPLASH; ISR's bit 2 only (writing `$04` clears the collision flag; OODOS never enables
+  it). Collisions are read from STATUS and ISR by the library: no OODOS code.
+- **The frame handler** (VIDSRV, common memory): after EVALL, `LDA VBON / BEQ / LDX #R61_VB / JSR CALL61`, about 9
+  bytes, so a frame with no area is L3's to the cycle and one with an area but no slot or pointer 6 cycles more.
+  VBWORK (block 61): the go byte read through W1 as EVALL reads, each slot's copy on channel 1 in one block (1 KB
+  at most: 2,048 cycles with the CPU held, under a tick), the bits cleared, then the pointer's 4 bytes from a
+  staging copy in SYSBSS. It runs before the sound part and the frame hook. The interrupt normally comes within
+  a few hundred cycles of line 480; a 4 KB DMA piece or a USB batch under way can hold it off 4,000–5,000, and
+  1 KB of copies still ends inside the blank's 10,240 (the test measures both cases). Channel 1 has no other user,
+  so a BDOS DMAGO or LOAD between its blocks is never disturbed (question 3).
+- **The linked library** (`oodos/lib/`, `build/oolib.lib`, `include/oolib.inc`, as `sid.s`; each module taken only
+  if used; the 65C816 rules gate as PLAYSID's):
+  - `gxmode.s`: a layer's type and options (CONFIG), its map and tiles (units), on and off, the border, the console
+    back (`DM_CONSOLE`).
+  - `gxmem.s`: video memory in 1 KB units, 13–255, a 243-bit map in the program's BSS: allocate n units aligned to
+    n (a bitmap 512 is 120 units; two of them fill 16–255), free, and map a unit's block into W1 (`STA NB_WIN1`
+    under the W1 contract, checked against `DM_INFO`'s map, the block cached so a draw maps only when it moves on),
+    and put block 1 back. Units 13–15 are DMA-only (block 32 isn't in the map).
+  - `gxpal.s`: set entries, load 256, fade over n frames, through a 512-byte shadow on slot 1.
+  - `gxspr.s`: the 64-entry shadow table on slot 0: set position, image, size, depth, flips, palette, collision
+    groups; show (`TSB`); the collisions seen.
+  - `gxtile.s`: put and get map entries, fill a map, scroll a layer.
+  - `gxbmp.s`: plot and point at 8, 4 and 1 bits a pixel; line; rectangle; filled rectangle (full-width rows by
+    `DM_FILL`: bitmap 256 and 512 rows are 256 bytes, so a full-width band is one run; partial rows by the CPU);
+    circle; flood fill (spans, for PAINT); a copy of a rectangle; double buffering (MAPBASE, then `FT_WAIT`).
+  - `gxtext.s`: an 8×16 font (the console's, copied from units 1–4 by `DM_COPY`, or the program's) drawn on a
+    bitmap, a transparent or opaque background.
+  - `gxasset.s`: an asset file opened and its parts loaded by `DM_LOAD` to the units its header names, or to units
+    it allocates; the units returned for the program to point the card at.
+  - Estimated 3–4 KB for all of it, a program taking what it calls.
+- **The asset format** (question 8; question 6 below): OO-Amp's OOAMP.GFX format 2 (`'OGX'`, the format, the parts,
+  8 bytes a part: type, unit, first record, records, length) grown to format 3: record 0 a 16-byte header and up
+  to 7 parts of 16 bytes (type, the layer CONFIG bits it was made for, unit or `$FF` for any, first record,
+  records, length to 17 bits); types map, tiles, palette, sprite images, sprite table, bitmap, font, raw. Each part
+  starts on a 1 KB boundary of the file and fills whole units, so its middle goes by channel 0 and its last record
+  stays in its own units. **`oodos/tools/mkasset.py`** (Python, no packages: PNG read with zlib, 8-bit indexed,
+  RGB and RGBA, quantised to 12 bits): PNG to bitmap, tiles and map, sprite images, palette; and a check of its own
+  files. **VIEW.COM**, a utility (User's Guide chapter 5): shows an asset file until a key, as PLAYSID plays a
+  tune, and is the library's test program.
+- **The warm boot** (`WBQUIET`'s `CALL61` to a new R61 routine, block 61, about 60 bytes): the slots freed, the
+  pointer off, `VBON` 0; the console's registers as CRTINIT sets them (CRTINIT's register part made a routine both
+  call), ISR's line and collision bits cleared, the cursor as it was. W1 is already put on block 1. The console's
+  units were never writable by function 83 or in the W1 map, so its font, palette and text are as the program found
+  them. By `JMP WBOOT`, ^C, an error, or Break (the ROM's VSCREEN, as before). Cold boot: `VBON` 0 and the slots
+  cleared (SYSBSS).
+- **The event area:** no layout 3. +12 becomes `EV_VBGO` in every layout (L1's reserved, written 0 at the open);
+  +13–15 stay reserved. Interface version 4 says it's there.
+- **Where it lives** (estimates against the measured room):
+
+  | Where | Free now | L4 | After |
+  |---|---|---|---|
+  | common memory | 176 (166) | about 9 (VIDSRV's call) | about 167 (157) |
+  | block 60 | 569 | first moved out: L3's DMALOAD, RAMEND, BEEPQ and the beep's loop, about +370; then 83's entry, its block read (PREAD's), the table's entry, LOAD's BDOS side (positioning by the extents, the ends through the record body, the write-back) and the console-units check: about 350–450 | about 500–600 |
+  | block 61 | 6,204 | L3's moved code 370; 83's operations 400; SDIO with a count and a destination, M:'s path 80; VBWORK 180; boots 70 | about 5,100 |
+  | block 62 | 1,188 (985) | WBQUIET's and cold boot's calls, about 10 | about 1,178 |
+  | SYSBSS | 132 (129) | slots 32, pointer and staging 8, flags 2, LOAD's state about 16 | about 74 |
+  | zero page | 2 | none (the BDOS's T0–T5 and SG) | 2 |
+
+  (d1), the BIOSW wrappers out of common memory, isn't needed and stays in reserve. Moving L3's code first (its
+  own commit, OODOS.SYS otherwise byte-identical in behaviour, `test_oodos_sound` unchanged) is question 4.
+- **The version:** OOLIB's interface version 4 (`OOLIB_IFACE`), `FT_INFO`'s areas `$0F` (`OA_DMA`); the clock, input,
+  sound and playsid suites' expectations follow (`04 0F`, `040F0302`).
+- **OODOS 0.5** (question 15), after L4's review, as 0.4 was done after 6d's (7971f7f): `system.inc`'s `SYS_MINOR`
+  5, the version's one source, and every place that checks it: the cold boot's banner, OOLDR's and PIP's
+  (`test_oodos_sys`, `test_oodos_e2e`, `test_oodos_boot`, `test_oodos_utils_pip`), function 72's answer
+  (`test_oodos_clock`'s `0005`), and the User's Guide's samples. Then the cards rebuilt (`make_card.sh`), and
+  hw/oodos.md and hw/oolib.md's status lines. The site gets 0.5 by its own deploy branch, after the merge.
+- **The books:** chapter 8's Graphics section (modes, video memory, the window, the vertical-blank slots, the
+  pointer, the library, assets) and Still to come; function 83's entry and docs/index/functions.json; chapter 5
+  (the W1 contract, the console's units refused to 51's reads too if question 2 says so); AGENTS.md's windows rule; appendix D; the Technical
+  Reference's chapters 5 (channel 1 OODOS's), 6 (under OODOS: what a program may write, the console's units) and 4
+  (the frame handler's copies); the User's Guide's VIEW; `make -C docs check`.
+
+- **Tests** (emulator, fast preset; each suite's fast time stated, the sanitizer tier's TIMEOUT checked):
+  - `test_oodos_video` (about 3 s; `oodos/sys/test/l4test.s`): `DM_INFO` and `FT_INFO` 4 and `$0F`; `DM_INFO`'s W1 map
+    (block 1, video 33–47, an allocated block set; 32, 0, 2, 3, 24–31, 48–63 and an unallocated block clear, and the
+    map following an allocation and a free); the W1 contract: a video block and an allocated one written to WIN1,
+    CPU writes landing at the physical address, the value kept across a BDOS call (function 9 from W0), a tick,
+    a frame and a USB interrupt, and a hook set before keeping its own windows; a function 33 into `$4000–$7FFF`
+    landing in the mapped block; the warm boot putting block 1 back; the library refusing to map on an interface
+    below 4 and a block not in the map; `DM_COPY` and `DM_FILL` (60 KB,
+    byte for byte, across blocks, down over itself) with no tick lost (MS against the cycles, as L1's scroll test),
+    and their refusals (units 0–12, OODOS's blocks, past `$FFFFF`); `DM_VBSET`: a slot's bytes changing only while
+    the beam is in lines 480–524 (the must-fail: a copy made in the BDOS's time, before the blank, fails it), the
+    go bit cleared, four slots, the budget refused at 1,025, nothing with no area; the frame's cost with a
+    512-byte slot, and the latest a slot ends with a 4 KB `DM_LOAD` piece and a 16-event USB batch under way;
+    `DM_POINTER` following the rig's mouse in absolute mode, less the hotspot, off with `$FF`, refused without a
+    layout-2 area; the warm boot by `JMP WBOOT`, ^C and Break: the console's registers, units 0–12 byte for byte
+    as before the program, slots and pointer off; the tick with no area 145, the frame with no area L3's; a layout
+    1, 2 and a streaming program unchanged.
+  - `test_oodos_load` (about 3 s; files put on B: behind OODOS's back, `test_oodos_sound`'s `put_b` moved into
+    `oodos_rig.h`): 64 KB into blocks 33–36 byte for byte, its cycles against 51 and 33 with a count of 128 (both
+    stated); an unaligned first record and an odd count (both ends through the buffer); the file ending early (A =
+    1, +6–7 the count); an unwritten block; a count of 0 and of 513, an FCB not open, a destination in units 0–12
+    or OODOS's memory, all refused with nothing written; records written and not yet closed, then loaded (the
+    must-fail: without the write-back the load reads the card's old sectors); M:; an apple-do image on the card
+    (the buffer path); no tick lost; a 44.1 kHz stream playing through a 64 KB load with no underrun. O: and P:
+    share the apple-do path; a case on the Disk II itself would need the owner's sequencer PROM, so none is added.
+  - `test_oodos_gfx` (about 3 s; VIEW and a test program on the library): each layer type set and the card's
+    `frame()` compared with what the test draws from the same bytes; plot, line, rectangles, circle and flood fill
+    at 8, 4 and 1 bits checked against a reference the test computes; map entries, scrolling, the sprite shadow
+    shown on the next frame, a palette fade over n frames, text on a bitmap; double buffering with no torn frame;
+    VIEW on assets `mkasset.py` makes from PNGs the build writes (never the owner's); VIEW's refusals.
+  - `mkasset.py`'s own check, run by `make check` as `test/check_mksys.py` is: PNGs it writes itself, round trips,
+    the header's limits.
+
+- **Not in L4:** the scan-line hook and a collision hook (two layers give a status bar without a split: a later step if a game needs one; the dispatcher reaches the video card only after the VIA's check, which leaves little of the
+  180 cycles a line allows); software sprites (64 hardware ones); a vertical-blank wait for `DM_LOAD` (question 13); FARCALL's
+  copy of OOLIB for programs short of TPA (question 9: with GW-BASIC); a cc65 C target (question 5); the demo game;
+  OO-Amp on OOLIB (L5); function 84.
+
+**L4's questions (decided 2026-11-08, the owner: 1 as below, 2-6 as recommended)**
+
+1. **How a program's CPU reaches video memory.** *Decided (2026-11-08, the owner): OOLIB writes W1 itself, under
+   the W1 contract (above), and there is no `DM_MAP`.* OOLIB is OODOS's extension, there so that programs don't go
+   around the rules; where it does what a program may not, OODOS states it as part of the interface, checked by
+   version. The stub, the dispatcher, the hooks and the warm boot already keep or restore W1, so the contract
+   documents what holds; a switch is 4 cycles instead of a 450-cycle call, which matters to a draw crossing
+   blocks; `DM_INFO`'s W1 map replaces the check `DM_MAP` would have made. Only W1 (W2: the `$BFFD` jump; W3:
+   FARCALL's common memory). The cost is unchanged: while another block is in W1, the program keeps its code, its
+   event area, what it passes the BDOS and what it draws from out of `$4000–$7FFF` (a program of 15 KB or less, or
+   one laid out for it: a `gfx.cfg` later, if one is wanted).
+2. **The console's video memory, units 0–12.** *Decided: as recommended.* (a) OODOS's: refused as a destination by function 83 and by 51's
+   reads, and block 32 not in the W1 map, so the warm boot only sets registers; (b) the program's, the warm boot copying
+   the font and palette again and clearing the screen (about 11 ms each warm boot, the console's text lost);
+   (c) as now, a program's own care. **Recommended:** (a). Question 10 has console output go on into the text
+   screen unseen and show again at the warm boot, which (b) can't keep; (a) costs a program 13 KB of 256 and about
+   25 bytes of block 60. With it, function 84 isn't needed: the program has 13–255 whole.
+3. **Copies at vertical blank.** *Decided: as recommended.* (a) OODOS's, on channel 1, four slots of 1 KB in all, started by bits the program
+   sets in the area's +12, no layout 3; (b) the same on channel 3, its registers saved and put back around the
+   interrupt's copy; (c) none in OODOS: the library flips between two sprite tables by SPRBASE. **Recommended:**
+   (a). Channel 1 has no user, so the interrupt never meets DMAGO half-programmed (its registers are written over
+   several instructions with interrupts on); the pointer sprite (L2's deferral) needs OODOS at the blank, which (c)
+   can't give; +12 is free in every layout. 1 KB (a sprite table and a full palette) still ends inside the blank
+   with the interrupt held off by a 4 KB piece; 2 KB might not. If the serial card's DMA is built later, OODOS
+   owns both and moves its copies.
+4. **Block 60's room.** *Decided: as recommended.* Function 83's BDOS side is about 350–450 bytes against 569 free. **Recommended:** move L3's
+   load engine and the beep's body (about 370 bytes, none of which reads parameters) to block 61 first, as L3's
+   step (b) went first, and keep (d1) in reserve: common memory needs only about 9 bytes.
+5. **cc65 C headers.** *Decided: as recommended.* The plan's L4 line names them, but there is no C target for OODOS (a crt0 with
+   `OODOS_HEADER`, a linker config, the runtime's zero page inside `$00–$EF`, the 65C816 rules over cc65's
+   library). **Recommended:** a step of its own after L4, with a C test program, rather than headers nothing can
+   use yet; L4's interface is ca65's, as L3's is.
+6. **The asset format.** *Decided: as recommended.* OO-Amp's format 2 as it is, or format 3 (16-byte parts, a part's unit chosen at load when
+   the file says `$FF`, each part on 1 KB of the file), with `mkasset.py` and VIEW.COM. **Recommended:** format 3,
+   magic `'OGX'` kept so OO-Amp's reader needs a version check only: format 2 has no room for a layer's CONFIG
+   bits or a part longer than 64 KB (its length is 2 bytes; a bitmap 512 is 120 KB), and fixed units clash when two files load together.
+
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
@@ -803,7 +1072,9 @@ question 15.
     **Recommended:** a function of OODOS's (83), since it is file I/O. It takes an open FCB, a first record, a
     count of records and a 20-bit destination, and it refuses OODOS's own memory, as 51 does. Whole 512-byte
     sectors on an SD unit go by channel 0 straight to the destination; the ends, and O: and P: (the CPU reads the
-    Disk II), go through a buffer and channel 3. It doesn't wait for vertical blank: a program that cares loads
+    Disk II), go through a buffer and channel 3. *Corrected (L4's plan): only on OODOS's own formats, at most 8
+    sectors (4 KB) a READ so the CPU is held under a tick; an apple-do image on the card goes through the buffer
+    too (its 256-byte sectors are skewed in the track buffer), and M: by DMAGO from banks C–D.* It doesn't wait for vertical blank: a program that cares loads
     into the hidden buffer and flips.
 14. **Interrupts during a BDOS call.** *New (2026-11-07).* Today a call runs masked from start to finish, so a
     1 kHz tick loses every tick of a call longer than a millisecond, which is any disk read, and the frame
