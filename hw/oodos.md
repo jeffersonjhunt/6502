@@ -3586,6 +3586,35 @@ then says it), the searches (17, 18: no 10), PIP's V read-back (a 10 there is `V
 
 The CCP (block 62's RES) is 8,039 bytes, 55 more than main's 7,984.
 
+**A DOS 3.3 disk isn't a CP/M drive (todo item 16, 2026-11-07, as built):** found by 6d's first review: `DIR C:`
+on an `apple-do` unit holding a DOS 3.3 disk read its track 3 as a CP/M directory. On a dos33.py image (track 3
+zeros) that is 64 entries of user 0 named with NULs, 996 bytes of them; O: with such a floppy the same. The review's
+"over 30 s" didn't reproduce: 0.79 s of machine time on C:, 1.0-1.3 s on O: (0.19 s wall in the fast build); the
+likeliest reading is a test's wait that ran out for a text that never came. **The owner's choice: refuse, with
+error 4, `Invalid Drive`** (CP/M 3's answer for a disk a drive can't take; no new code).
+
+- **LOGIN** (`bdosdisk.s`, the only system file changed) notes in its directory scan any entry CP/M never writes
+  (`ODDENT`): a file's (user 0-15) whose name starts with a control character, or a first byte not 0-31, `$20`,
+  `$21` or `$E5`. Only then, and only on an Apple drive (O:, P:, or an SD unit DRVAPL marks), `DOS33TST` reads
+  track 17 sector 0 as function 76 does (RAWF, into SECBUF) and tests it as DOS33.COM's `rdvtoc` does (122 pairs,
+  35 tracks, 16 sectors, 256 bytes, the catalog on the disk). Both: the drive's buffers dropped, not logged in,
+  `ER_SELECT`. A sector that won't read: a CP/M drive, as before.
+- **Why it can't take a CP/M disk:** CP/M's directory, new or used, never holds such an entry, so a sound CP/M
+  disk never gets the second read (no seek to track 17 on O:/P:), and a VTOC in a CP/M file, or one left behind
+  when a CP/M directory was made over a DOS disk, doesn't count. Only a damaged CP/M directory with a VTOC on
+  track 17 could be refused.
+- **Function 76 and DOS33** don't log the drive in, so they work on it as before. **SET d: [RO]** (28) can't make
+  such a drive read-only any more: it logs it in, so it is `Invalid Drive`. A DOS 3.3 disk is kept from writes by
+  its unit mounted read-only, or the floppy's notch. The owner approved changing 6d's F7 case to that.
+- **Time:** the refusal 0.11 s on C: (DIR), 0.93 s for O:'s first (the motor's spin-up), 0.10 s after.
+- **Tests** (`test_oodos_dos33`, 34 → 37 cases, about 3 s more): DIR, DIR [FULL], `C:` and TYPE refused on the card's
+  DOS33.DSK and on a sample, each under 0.5 s and with no control byte but CR LF, the image unchanged, DOS33 then
+  listing and getting from it; CPM.DSK still listing (and still `Not a DOS 3.3 disk.` to DOS33); O: with a DOS 3.3
+  floppy (skipped without the PROM). F7's case changed as above: SET [RO] says `Invalid Drive` and a PUT goes in;
+  then DOS33.DSK mounted read-only refuses two PUTs, the disk unchanged. **Must fail:** the three run against
+  main's OODOS.SYS (`OODOS_SYS_DIR`): 27 assertions in those three cases; CPM.DSK's passes on both.
+- **Sizes:** the BDOS 13,302 bytes in block 60 (+172); one byte of SYSBSS (`LOGX`).
+
 ## GW-BASIC ##
 
 **Decided: GW-BASIC, from [microsoft/GW-BASIC](https://github.com/microsoft/GW-BASIC)** (MIT).
