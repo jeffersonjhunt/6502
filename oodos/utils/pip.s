@@ -35,6 +35,13 @@ FFEED   = $0C
 TAB     = $09
 
 MAXE    = 17                            ; the destination and 16 sources
+NTMP    = 37                            ; tmpch's names for the temporary file
+
+M_WRITE = 0                             ; opfail's messages
+M_ATTR  = 1
+M_DELETE = 2
+M_RENAME = 3
+M_VERIFY = 4
 NOPT    = 26                            ; a byte a letter, A to Z
 
 K_FILE  = 0                             ; an entry's kind
@@ -225,6 +232,29 @@ failnm: pha
 said:   jsr     UT_SAID
         jsr     droptmp
         jmp     cmdend
+
+; A file operation on wfcb or tfcb that failed (A not 0, X with it): 10 a
+; changed floppy (chg); an error the BDOS said (X not 0) said. A $FF with
+; X 0 the BDOS doesn't say (no such file, no room in the directory): PIP's
+; message Y (M_WRITE and on) and wfcb's name (M_RENAME: tfcb's, where the
+; finished copy is), so a failure is never silent.
+opfail: cmp     #10
+        bne     :+
+        jmp     chg
+:       cpx     #0
+        beq     :+
+        jmp     said
+:       lda     #<(wfcb + 1)
+        ldx     #>(wfcb + 1)
+        cpy     #M_RENAME               ; a failed rename: the copy is kept under
+        bne     :+                      ; tfcb's name (NAME.$$$ or a fallback), so that one
+        lda     #<(tfcb + 1)
+        ldx     #>(tfcb + 1)
+:       sta     ptr
+        stx     ptr + 1
+        lda     omsglo,y
+        ldx     omsghi,y
+        jmp     failnm
 
 ; O:'s or P:'s disk changed under the command (error 10, which the BDOS
 ; doesn't say): MEDIA CHANGE and the name, the destination's (chg) or the
@@ -1187,10 +1217,8 @@ archive:
         jsr     BDOS
         cmp     #0
         beq     :+
-        cmp     #10
-        bne     @asaid
-        jmp     chg
-@asaid: jmp     said
+        ldy     #M_ATTR
+        jmp     opfail
 :       rts
 
 ; Entry X's password (as 152 left it, kept in e_pw) to the DMA buffer, as
@@ -2009,6 +2037,10 @@ crcrec: sta     @src + 1
 
 ; NAME.$$$ made on the destination's drive and user: one there deleted
 ; first (read-only: CAN'T DELETE TEMP FILE); a read-only drive R/O DISK.
+; NAME.$$$ the destination itself (its type $$$) or a source on that drive
+; and user (Y.BIN=Y.$$$): NAME.$$0 to NAME.$$9, NAME.$$A to NAME.$$Z
+; instead, the first that is neither and isn't there (one there is
+; someone's: left alone); none: NO TEMP FILE NAME (ours).
 maketmp:
         lda     e_fcb
         jsr     realdrv
@@ -2033,7 +2065,12 @@ maketmp:
         lda     #'$'
         sta     tfcb + 9
         sta     tfcb + 10
+        stz     tmpalt
+@cand:  ldx     tmpalt
+        lda     tmpch,x
         sta     tfcb + 11
+        jsr     clash
+        bcs     @next
         jsr     tmpdma
         lda     #<tfcb                  ; one there already: read-only?
         ldx     #>tfcb
@@ -2041,6 +2078,8 @@ maketmp:
         jsr     BDOS
         cmp     #$FF
         beq     @none
+        ldx     tmpalt                  ; not NAME.$$$: someone's file
+        bne     @next
         asl     a
         asl     a
         asl     a
@@ -2049,16 +2088,32 @@ maketmp:
         tax
         lda     UT_REC + 9,x
         bpl     @del
-        lda     #<stemp
+@ro:    lda     #<stemp
         ldx     #>stemp
         jmp     fail
+@next:  inc     tmpalt
+        lda     tmpalt
+        cmp     #NTMP
+        bne     @cand
+        lda     #<(e_fcb + 1)
+        sta     ptr
+        lda     #>(e_fcb + 1)
+        sta     ptr + 1
+        lda     #<snotmp
+        ldx     #>snotmp
+        jmp     failnm
 @del:   lda     #<tfcb
         ldx     #>tfcb
         ldy     #F_DELETE
         jsr     BDOS
+        cmp     #0
+        beq     @none
         cmp     #10
-        bne     @none
+        bne     :+
         jmp     chg
+:       cpx     #0                      ; the BDOS said why; none matched: gone
+        beq     @none
+        jmp     said
 @none:  ldy     #12
         lda     #0
 :       sta     tfcb,y
@@ -2090,6 +2145,38 @@ maketmp:
         sta     tmpopen
         rts
 
+; Carry set if tfcb's name is a file entry's (the destination's or a
+; source's) on its drive (0 the current) and user.
+clash:  ldx     #0
+@e:     lda     e_kind,x
+        cmp     #K_FILE
+        bne     @n
+        lda     e_user,x
+        cmp     duser
+        bne     @n
+        jsr     fcbptr
+        lda     (ptr)
+        jsr     realdrv
+        sta     t0
+        lda     tfcb
+        jsr     realdrv
+        cmp     t0
+        bne     @n
+        ldy     #11
+@c:     lda     (ptr),y
+        and     #$7F
+        cmp     tfcb,y
+        bne     @n
+        dey
+        bne     @c
+        sec
+        rts
+@n:     inx
+        cpx     nent
+        bne     @e
+        clc
+        rts
+
 ; The DMA address UT_REC (searches; the password, none, for the temporary
 ; file).
 tmpdma: lda     #<UT_REC
@@ -2102,21 +2189,7 @@ tmpdma: lda     #<UT_REC
 ; attributes, the password.
 finish: lda     duser
         jsr     setuser
-        jsr     tmpdma
-        lda     #<tfcb
-        ldx     #>tfcb
-        ldy     #F_CLOSE
-        jsr     BDOS
-        cmp     #0
-        beq     :+
-        cmp     #10
-        bne     @csaid
-        jmp     chg
-@csaid: jmp     said
-:       lda     wantv                   ; V on any source
-        beq     @old
-        jsr     verify
-@old:   ldy     #0                      ; wfcb: the destination's name
+        ldy     #0                      ; wfcb: the destination's name (opfail's too)
 :       lda     e_fcb,y
         sta     wfcb,y
         iny
@@ -2128,6 +2201,18 @@ finish: lda     duser
         cpy     #36
         bne     :-
         jsr     tmpdma
+        lda     #<tfcb
+        ldx     #>tfcb
+        ldy     #F_CLOSE
+        jsr     BDOS
+        cmp     #0
+        beq     :+
+        ldy     #M_WRITE
+        jmp     opfail
+:       lda     wantv                   ; V on any source
+        beq     @old
+        jsr     verify
+@old:   jsr     tmpdma
         lda     #<wfcb
         ldx     #>wfcb
         ldy     #F_SFIRST
@@ -2160,10 +2245,8 @@ finish: lda     duser
         jsr     BDOS
         cmp     #0
         beq     @delete
-        cmp     #10
-        bne     @rsaid
-        jmp     chg
-@rsaid: jmp     said
+        ldy     #M_ATTR
+        jmp     opfail
 @delete:
         ldx     #0
         jsr     srcpw
@@ -2173,10 +2256,8 @@ finish: lda     duser
         jsr     BDOS
         cmp     #0
         beq     @rename
-        cmp     #10
-        bne     @dsaid
-        jmp     chg
-@dsaid: jmp     said
+        ldy     #M_DELETE
+        jmp     opfail
 @rename:
         ldx     #10                     ; tfcb: NAME.$$$, the new name at 16
 :       lda     e_fcb + 1,x
@@ -2190,13 +2271,11 @@ finish: lda     duser
         ldx     #>tfcb
         ldy     #F_RENAME
         jsr     BDOS
-        stz     tmpopen
+        stz     tmpopen                 ; (a failed rename: the copy kept as it is)
         cmp     #0
         beq     :+
-        cmp     #10
-        bne     @nsaid
-        jmp     chg
-@nsaid: jmp     said
+        ldy     #M_RENAME
+        jmp     opfail
 :       jsr     attrs
         jmp     passwd
 
@@ -2271,10 +2350,8 @@ attrs:  lda     single
         jsr     BDOS
         cmp     #0
         beq     @none
-        cmp     #10
-        bne     @nsaid
-        jmp     chg
-@nsaid: jmp     said
+        ldy     #M_ATTR
+        jmp     opfail
 @none:  rts
 
 ; A destination password: given, in READ mode; a drive's copy, the source's
@@ -2367,7 +2444,8 @@ verify: lda     crc
         jsr     BDOS
         cmp     #$FF
         bne     @read
-        jmp     said
+        ldy     #M_VERIFY
+        jmp     opfail
 @read:  lda     #<ibuf
         ldx     #>ibuf
         ldy     #F_DMAOFF
@@ -2432,6 +2510,15 @@ shexsum: .byte  "CHECKSUM ERROR - $"
 shexlong: .byte "RECORD TOO LONG - $"
 shexend: .byte  "UNEXPECTED END OF HEX FILE - $"
 smem:   .byte   "Not Enough Memory$"
+sattr:  .byte   "CAN'T SET ATTRIBUTES - $"
+sdel:   .byte   "CAN'T DELETE - $"
+sren:   .byte   "CAN'T RENAME TEMP FILE - $"
+snotmp: .byte   "NO TEMP FILE NAME - $"
+; opfail's messages, by M_WRITE and on.
+omsglo: .byte   <swrite, <sattr, <sdel, <sren, <sverify
+omsghi: .byte   >swrite, >sattr, >sdel, >sren, >sverify
+; The temporary file's last character: NAME.$$$, then (maketmp) the others.
+tmpch:  .byte   "$0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 devnames: .byte "CONAUXLSTPRNNULEOF"     ; D_CON to D_EOF, in order
 ; Each letter: 0 not an option, 1 a flag, 2 a number, 3 a string.
 kinds:  .byte   1, 0, 1, 2, 1, 1, 2, 1, 1, 0, 1, 1, 0  ; A-M
@@ -2543,5 +2630,6 @@ wantv:  .res    1
 pwmode: .res    1
 newpw:  .res    8
 tmpopen: .res   1
+tmpalt: .res    1                       ; maketmp: tmpch's index
 fname:  .res    1                       ; 1: failname after the message
 failname: .res  11
