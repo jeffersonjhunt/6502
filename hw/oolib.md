@@ -39,7 +39,7 @@ Guide's chapter 8 on what is decided. **A plan for building it is proposed (2026
 | Joysticks | Two digital DE-9 ports (Atari/Commodore pinout) on the serial card's W65C22S, `$C341` and `$C340` bits 0–4, 0 = pressed (proposed 2026-10-30) | One load reads a stick; no interrupt needed |
 | Timing | Vertical blank (60 Hz), the scan-line interrupt, the DS3231's 1 Hz TICK (ID D), and the W65C22S's two timers at 7.16 MHz (proposed 2026-10-30) | Timer 1 is OODOS's system tick; timer 2 is the program's |
 | DMA | Controller `$C400`, ID 8: four channels (0 storage, 1 serial, 2 USB / sound RAM, 3 general: copies and blits); memory to memory at 2 cycles a byte | OODOS's BIOS uses channels 0 and 3 today |
-| Interrupts | IRQL/IRQH at `$C688`: one bit per module ID | OODOS enables none yet: its IRQ entry returns at once, and every BDOS call runs with interrupts masked (question 14) |
+| Interrupts | IRQL/IRQH at `$C688`: one bit per module ID | Since L1 OODOS's dispatcher answers them, and the BDOS runs with interrupts on (question 14; [L1, as built](#the-plan)) |
 
 
 ## Proposed: three layers ##
@@ -304,6 +304,69 @@ Each step reads its part of the books again at its start and says here what chan
   interrupts enabled (question 14). The warm boot takes everything back: hooks, interrupts, the event area. Tests:
   the counters against emulated time (they must not depend on host speed), a hook's budget, a disk read that
   loses no ticks, and a ^C or Break mid-hook.
+**Proposed (L1, as built, 2026-11-07)** (`oodos/sys/irq.s`, new; `common.s`, `disk2.s`, `bdos.s`, `cold.s`,
+`crt.s`; `oodos/include/oodos.inc`'s `O_FRAME`, `FT_*`, `FC_*`, `EV_*`, `OA_*`; bit names in `backplane.inc`, the
+ROM byte-identical). The differences from the questions below were the owner's decision (2026-11-07), each noted at
+its question.
+
+- **The dispatcher,** in common memory (IRQ's RTI at IRQ + 12 still the way out when no card interrupts): BRK to
+  the monitor as before; A, X, Y and W0 saved; W0 on the system block (31) with S left as it was. The BDOS runs
+  on the system stack, so when it is interrupted the dispatcher stacks under it; when anything else is, the system
+  stack is empty (the stub starts it afresh each call), so the same S is free there. It reads IRQL and IRQH once
+  each: the VIA (ID 6) alone is the fast path, then video (ID 9); anything else, and a VIA flag other than timer
+  1's, is turned off (DEAFEN, in block 62's code window, W3 switched for it): a source OODOS didn't turn on can't
+  hold /IRQ low. The serial card's INTSTAT isn't modelled, so the VIA is told by its IFR; cold boot finds the VIA by
+  IER bit 7 (the 6551 stand-in's mirror there reads its command, `$0B`) and the video card by its ID.
+- **The clocks:** timer 1 free-running (ACR `$40`, latch 7,157: 7,159 cycles, 1 kHz) into a 32-bit millisecond
+  counter; the vertical blank into a 32-bit frame counter (`MS`, `FRAMES` in the system block).
+- **Critical sections** (question 14): masked only while the stub moves the windows and S, in (`CLI` just before
+  the BDOS) and out (`SEI` at `STUBRET`), in the warm boot, and in the Disk II driver's fields. The dispatcher
+  touches no BDOS state, and puts back every window it changes; nothing else needed masking (the allocation
+  vector is the BDOS's alone). The warm boot enters the CCP with interrupts on, so programs start with them on.
+- **The Disk II** (decided by the owner): the code never masked reads (the stub masked everything), only writes,
+  from the search to the end. Now both mask each field, from its D5 to the end of the data field read or
+  written after it, about 12 ms (shorter than a frame: no vertical blank is lost), and unmask while searching.
+  The driver counts the disk bytes read meanwhile (RBYTE), 224 cycles each, plus the write loop's 356, adds that
+  time to the millisecond counter as it unmasks (MSACC keeps the fraction of a tick), and clears timer 1's flag,
+  whose tick is in the count. A PIP to or from O: keeps time to 0.5% (sync bytes' 280 cycles counted as 224); the
+  PIP of 20,000 bytes from O: takes 3.09 s against 3.00 s before.
+- **The event area,** layout 1, 16 bytes (`EV_LEN`) at least: +0 the layout (1), +1 the clocks (`FC_FRAME`
+  `$01`, `FC_MS` `$02`), +2 its size, +4–7 the ms counter, +8–11 the frame counter, +3 and +12–15 0. In one window
+  W0–W2, on a block of banks 0–5; written through that block (W1 put on it for each write), the whole of it at
+  the open (0 past layout 1), then each tick the ms counter's low byte (all eight bytes after a carry or a
+  catch-up) and each frame all eight. L2's input goes after +16; a program says how big its area is.
+- **Function 80** (decided by the owner: question 2's "operation in A and a block for more" doesn't fit A/X): X =
+  0, A is the operation, no parameters; else A/X is a block whose +0 is the operation, as 50's. `FT_INFO` (0),
+  `FT_COUNT`, `FT_OPEN`, `FT_CLOSE`, `FT_WAIT` (by `WAI`), `FT_DELAY`, `FT_FRAMEHOOK`, `FT_TICKHOOK`, `FT_COSTS`.
+- **Question 1 is answered through 80, not 72** (the owner's decision): 72 stays 10 bytes, as on main; `FT_INFO`
+  returns OOLIB's interface version (1) in A and the service-area bits in X (`OA_FRAME` `$01`; 81–84 `$02`–`$10`
+  later), and an OODOS without 80 answers A = X = `$FF`.
+- **The hooks** (decided by the owner, question 3): each called with the windows (W0–W3) the program had when it
+  set it, A, X, Y and the flags saved. Its stack is page 1 of its own W0, the program's: question 3's "the system's
+  stack" can't be had with the program's windows and zero page, since the stack page is in W0 with the zero page.
+  The dispatcher puts S under both the program's stack and, when the BDOS was interrupted, the S the program had
+  at its call (the stub's `ST_S`), whichever is lower, so neither is written over. The frame hook runs with
+  interrupts on (its 8,000-cycle budget is more than a tick: masked, about one frame in six would lose a tick),
+  with a guard: a vertical blank while it runs is counted, the hook not called again (`FHSKIP`). The tick hook
+  runs masked. A debug build (`make DEBUG=1`) times each by timer 1, from the call to the return (so about 130
+  cycles of the dispatcher's besides the hook's, and for the frame hook the ticks under it), for `FT_COSTS`.
+- **The warm boot:** both hooks off, the event area closed, every interrupt enable but timer 1's and the vertical
+  blank's off (DEAFEN), the CCP entered with interrupts on; the counters run on. Function 75's Apple II mode turns
+  OODOS's two off first; Break and 75's monitor go through the ROM's QUIET, which turns off the VIA's and the video
+  card's. Cold boot starts the clocks afresh.
+- **Costs:** a tick, with no event area and no hook, is 144 cycles through the dispatcher (the IRQ's 7 included):
+  2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds 43 a tick. The stub costs 2 cycles
+  more each way (`CLI`, `SEI`). Common memory grows by 523 bytes: **272 bytes are left** ($FEE9 to the vectors),
+  **108 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF are already in block 62).
+- **Tests** (emulator, fast preset): `test_oodos_clock` (10 cases, 5 s: the counters against the cycles at the
+  prompt and through commands, 80's info and 72's 10 bytes, the event area's refusals and writes, wait and delay,
+  the hooks with their windows in the BDOS and in the program, the warm boot by `JMP WBOOT`, ^C and Break,
+  full-budget hooks losing nothing, a 36 KB PIP from A: losing no tick, an interrupt OODOS doesn't answer turned
+  off); `test_oodos_clock_disk2` (2 cases, 2.5 s, fixtures: a Disk II read and write caught up to 1.5%);
+  `test_oodos_clock_debug` (1 case, 0.6 s: the debug build's costs). Test program `oodos/sys/test/l1test.s`.
+  `test_oodos_sys`'s stub and jump-table cycle checks leave out time spent in interrupt handling (the owner's
+  decision): a tick held off by the stub's masked switch is taken at its `CLI`, inside the measured span.
+
 - **L2: input.** The event queue, the keys-held map, controllers (question 12), the mouse, and the console's keys
   during a game (question 4).
 - **L3: sound.** Claiming and releasing the card; `.sid` playback moved into OODOS; the stream service; the
@@ -333,11 +396,14 @@ question 15.
    **Recommended:** ask once. Function 72 also returns OOLIB's interface version and a bit per service area, and
    OOLIB's start-up checks them and says what's missing instead of crashing. The hardware itself (the cards,
    revision 2) is a program's own check, through the cards' IDs, as the BIOS does.
+   *As built (L1, the owner's decision 2026-11-07): through function 80's `FT_INFO`, not 72, which stays 10 bytes.*
 2. **Calls into OODOS.** New function numbers one per service (75 on, as 72–74), or one function with a service
    number and a parameter block (as 50 does for the BIOS)?
    **Recommended:** one function per area, at 80 on (80 frame and timing, 81 input, 82 sound, 83 DMA and
    loading, 84 video memory). Each takes an operation in A, and a parameter block at a word for more. That keeps
    FIDX small, leaves room in each area, and none of them is called in a hot loop: the event area is.
+   *As built (L1, the owner's decision): A/X can't carry both, so X = 0 means A is the operation with no block,
+   else A/X is a block with the operation at +0.*
 3. **The hooks' rules** (frame, tick, scan line, timer 2). Which of the program's windows are mapped while one
    runs, how long each may take (a budget in cycles: the tick hook's must be far smaller than the frame hook's),
    whether it may call OOLIB, whether it gets a zero-page slice of its own, and the VIA rule (never ACR, IER or
@@ -347,6 +413,9 @@ question 15.
    to share with its hooks. Budgets: 8,000 cycles for the frame hook (about 7% of a frame), 300 for the tick
    hook. They aren't enforced, but a debug build counts and reports them. OOLIB's register-only routines may be
    called; no BDOS call and no DMA; never ACR, IER or IFR.
+   *As built (L1, the owner's decision): the hook's stack is page 1 of its own W0 (the stack page is in W0 with the
+   zero page), under the program's and the BDOS's; the frame hook runs with interrupts on and a re-entry guard, the
+   tick hook masked; no far call either.*
 4. **Keys during a game.** May a game turn off the console's handling of ^C, ^S and ^P (CP/M 3's console mode,
    function 109, already has bits for this), and should the event queue then get those keys instead?
    **Recommended:** yes, through function 109, as OO-Amp does now. While the event area is open every key goes
@@ -407,5 +476,7 @@ question 15.
     VIA's timer 1 flags only once however many periods pass. Its loops are cycle-counted, though, so the
     driver knows each sector's cost: it adds that to the millisecond counter as it unmasks, and a vertical
     blank missed in that time is lost (the frame counter counts frames seen). That happens only on O: and P:.
+    *As built (L1, the owner's decision): masked a field at a time, from its D5, both reads (which the code never
+    masked) and writes; the cost counted in disk bytes read. A field is shorter than a frame, so none is lost.*
 15. **The version.** *New (2026-11-07).* **Recommended:** OODOS 0.5 when L1–L4 are merged, one bump as for
     phases 5 and 6, and OOLIB's interface version 1 from L1, raised by each step that adds to it.
