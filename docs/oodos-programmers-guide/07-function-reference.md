@@ -3045,6 +3045,9 @@ memory that isn't the program's (the I/O hole, flash), and:
 - `FT_OPEN`: a size under 16 (`EV_LEN`); an area that crosses a 16 KB window, is in W3 (`$C000` up), or is in a
   block that isn't the program's RAM in banks 0–5 (flash, a read-only window, OODOS's own memory, M:, video memory).
 - `FT_WAIT` with no video card, `FT_DELAY` with no VIA: their clock doesn't run.
+- `FT_DELAY` when the millisecond counter stands still for 4 frames: timer 1 has stopped (a program changed it,
+  against [chapter 8's rules](08-game-services.md#hooks)), so the wait would never end. It returns early, A = X =
+  `$FF`. The frame counter is the witness, so without a video card it waits on.
 - `FT_FRAMEHOOK`, `FT_TICKHOOK`: an address in the I/O hole or common memory (`$C000–$C7FF`, `$F800` up), or a
   call made with W0 on the system's block; a tick hook every 0 ms. The old hook is off either way.
 
@@ -3061,7 +3064,8 @@ OOLIB services at all.
 - A hook is called with the windows the program had at the `FT_FRAMEHOOK` or `FT_TICKHOOK` call. The rules it
   must keep are [chapter 8's](08-game-services.md#hooks).
 - `FT_WAIT` and `FT_DELAY` wait in the BDOS with interrupts on, so the hooks run meanwhile.
-- The warm boot takes every hook off and closes the event area. The counters run on.
+- The warm boot takes every hook off, closes the event area, and sets timer 1 up again as the cold boot did
+  (free-running, its latch, its interrupt enable) should a program have changed it. The counters run on.
 
 #### Cycles
 

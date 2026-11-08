@@ -27,8 +27,9 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
 - **A program is a `.COM` (or `.PRL`) file on the card, not ROM.** It starts with `OODOS_HEADER`, runs at `$0300`,
   and ends with `JMP WBOOT`. Its zero page is `$00-$EF`; `$F0-$FF` is the RSXs'.
 - **Don't take over what OODOS owns:** interrupts and the vectors, the DMA channels, the north bridge's windows,
-  the sound card's 6510, and the VIA's ACR, IER and IFR. Once OOLIB exists ([hw/oolib.md](hw/oolib.md), phase G3),
-  go through it for the screen, sound, timing and input; until then, ask before a program touches that hardware.
+  the sound card's 6510, the VIA's ACR, IER and IFR, and its timer 1 (don't write it, nor read `T1CL`, which clears
+  the tick's flag). Once OOLIB exists ([hw/oolib.md](hw/oolib.md), phase G3), go through it for the screen, sound,
+  timing and input; until then, ask before a program touches that hardware.
 - **Keep to the 65C816 rules:** the build checks them (`oodos/tools/rules.py`) and fails a program that breaks them
   ([hw/oodos.md](hw/oodos.md#rules-for-programs-the-65c816)).
 - **No Digital Research text or code,** in programs, tests or books. Write from the meaning, in our own words.

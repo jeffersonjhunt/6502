@@ -135,15 +135,20 @@ W3 holds.
   a period of 7,159 cycles), for its millisecond counter; and the video card's vertical blank (VIDEO_IEN bit 0),
   for its frame counter. Their handlers clear the flag by reading VIA_T1CL and by writing 1 to VIDEO_ISR's bit 0.
   Cold boot finds the VIA by its IER, which reads bit 7 set (on a machine without one, `$C34E` is the 6551
-  stand-in's command register, `$0B`), and the video card by its ID.
+  stand-in's command register, `$0B`), and the video card by its ID. Without the VIA, ID 6's interrupt is the
+  6551's, and the dispatcher leaves `$C340–$C34F` alone: they are the 6551's registers again.
 - **What it doesn't answer** it turns off, so it can't hold /IRQ low: a VIA flag other than timer 1's (its IER
   bit off, its IFR flag cleared), the video card's line and collision interrupts, and any other card's
-  interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 and terminal count, the
-  clock's TIE. The warm boot does the same at each program's end, keeping only OODOS's two.
+  interrupt: the SD, sound, USB and console cards' IEN, every DMA channel's MODE bit 7 and the terminal count of
+  each channel that had it on (another's is its driver's to read), the 6551's receive interrupt (ACIA_CMD bit 1
+  set), the clock's TIE. The warm boot does the same at each program's end, keeping only OODOS's two, and sets
+  timer 1 up again (ACR, its latch if it changed, its enable), in case a program changed it.
 - **Masked:** only while the BDOS's entry moves the windows and S (in and out), during the warm boot, and while the
   Disk II driver reads or writes a sector's fields, whose bits the CPU times itself. The driver adds that time to
   the millisecond counter afterwards.
-- **What it costs:** a tick is 144 cycles through the dispatcher, 2% of the CPU.
+- **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU.
+- **DMA:** the CPU is held through a memory-to-memory copy, and timer 1 has one flag, so OODOS's copies on channel 3
+  go 2 KB at a time (4,096 cycles, under a tick): the tick due is taken between them.
 - **Leaving:** function 75's Apple II mode turns OODOS's two interrupts off first; Break and function 75's monitor
   go through the BIOS's Break ([below](#pausebreak)), which turns off the VIA's and the video card's.
 

@@ -316,7 +316,16 @@ its question.
   each: the VIA (ID 6) alone is the fast path, then video (ID 9); anything else, and a VIA flag other than timer
   1's, is turned off (DEAFEN, in block 62's code window, W3 switched for it): a source OODOS didn't turn on can't
   hold /IRQ low. The serial card's INTSTAT isn't modelled, so the VIA is told by its IFR; cold boot finds the VIA by
-  IER bit 7 (the 6551 stand-in's mirror there reads its command, `$0B`) and the video card by its ID.
+  IER bit 7 (the 6551 stand-in's mirror there reads its command, `$0B`) and the video card by its ID. Without a VIA
+  (review, 2026-11-08) ID 6 is the 6551's, whose registers are mirrored at `$C340–$C34F`: the dispatcher takes
+  neither VIA path (the fast path compares IRQL with `VIAL`, a zero-page byte cold boot sets to `<~NB_IRQ_VIA` only
+  if it found the VIA, else 0, which no IRQL is), so it never writes the 6551's command and status as IER and IFR
+  nor reads its data as T1CL; DEAFEN turns its receive interrupt off.
+- **DMA copies** (review, 2026-11-08, the owner chose 2 KB): the CPU is held through a memory-to-memory copy, 2
+  cycles a byte, and the VIA has one flag, so a copy longer than a tick (3,580 bytes) could cover two of timer 1's
+  expiries and lose one: the console's scroll is 4,640 bytes, and lost a tick about one scroll in three. The BIOS's
+  DMAGO, which every channel-3 copy goes through (MOVE's, the scroll, the erase), copies 2,048 bytes a block at
+  most, and a pending interrupt is taken between blocks.
 - **The clocks:** timer 1 free-running (ACR `$40`, latch 7,157: 7,159 cycles, 1 kHz) into a 32-bit millisecond
   counter; the vertical blank into a 32-bit frame counter (`MS`, `FRAMES` in the system block).
 - **Critical sections** (question 14): masked only while the stub moves the windows and S, in (`CLI` just before
@@ -351,20 +360,32 @@ its question.
   runs masked. A debug build (`make DEBUG=1`) times each by timer 1, from the call to the return (so about 130
   cycles of the dispatcher's besides the hook's, and for the frame hook the ticks under it), for `FT_COSTS`.
 - **The warm boot:** both hooks off, the event area closed, every interrupt enable but timer 1's and the vertical
-  blank's off (DEAFEN), the CCP entered with interrupts on; the counters run on. Function 75's Apple II mode turns
+  blank's off (DEAFEN), the CCP entered with interrupts on; the counters run on. DEAFEN also (review, 2026-11-08)
+  sets timer 1 up again as cold boot did, should a program have changed it: ACR `$40`, its enable, and its latch,
+  written only if it reads otherwise (writing T1LH clears the flag); MS isn't touched. It clears a DMA channel's
+  terminal count only if the channel's interrupt was on (a mask built as it turns MODE's bit 7 off), so channel 0's,
+  which SDIO reads at its end, isn't lost when an interrupt comes in the middle; and it sets the 6551's receive
+  interrupt off (ACIA_CMD bit 1, read-modify-write). `FT_DELAY` gives up, A = X = `$FF`, if the ms counter stands
+  still for 4 frames (timer 1 stopped by a program), rather than wait for ever. Function 75's Apple II mode turns
   OODOS's two off first; Break and 75's monitor go through the ROM's QUIET, which turns off the VIA's and the video
   card's. Cold boot starts the clocks afresh.
-- **Costs:** a tick, with no event area and no hook, is 144 cycles through the dispatcher (the IRQ's 7 included):
-  2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds 43 a tick. The stub costs 2 cycles
-  more each way (`CLI`, `SEI`). Common memory grows by 523 bytes: **272 bytes are left** ($FEE9 to the vectors),
-  **108 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF are already in block 62).
-- **Tests** (emulator, fast preset): `test_oodos_clock` (10 cases, 5 s: the counters against the cycles at the
+- **Costs:** a tick, with no event area and no hook, is 145 cycles through the dispatcher (the IRQ's 7 included;
+  144 before the review's `CMP VIAL`): 2.0% of the CPU, against the plan's 1.4% estimate. An open event area adds
+  43 a tick. The stub costs 2 cycles more each way (`CLI`, `SEI`). Common memory grows by 527 bytes: **268 bytes
+  are left** ($FEED to the vectors), **96 in the debug build**, a constraint for L2's handlers (DEAFEN and CLKOFF
+  are already in block 62).
+- **Tests** (emulator, fast preset): `test_oodos_clock` (13 cases, 6 s: the counters against the cycles at the
   prompt and through commands, 80's info and 72's 10 bytes, the event area's refusals and writes, wait and delay,
-  the hooks with their windows in the BDOS and in the program, the warm boot by `JMP WBOOT`, ^C and Break,
-  full-budget hooks losing nothing, a 36 KB PIP from A: losing no tick, an interrupt OODOS doesn't answer turned
-  off); `test_oodos_clock_disk2` (2 cases, 2.5 s, fixtures: a Disk II read and write caught up to 1.5%);
-  `test_oodos_clock_debug` (1 case, 0.6 s: the debug build's costs). Test program `oodos/sys/test/l1test.s`.
-  `test_oodos_sys`'s stub and jump-table cycle checks leave out time spent in interrupt handling (the owner's
+  the hooks with their windows in the BDOS and in the program, each pushing 16 bytes, and in the BDOS under 100
+  sentinel bytes on the program's stack (they fail with the `CPX ST_S` branch taken out), the warm boot by `JMP
+  WBOOT`, ^C and Break, full-budget hooks losing nothing, a 36 KB PIP from A: losing no tick, an interrupt OODOS
+  doesn't answer turned off, 120 lines scrolled losing no tick (40 lost with the copy in one block), a stopped
+  timer 1 ending `FT_DELAY` and set going again by the warm boot, and a machine without the VIA: the 6551's
+  receive interrupt turned off and its key kept); `test_oodos_clock_disk2` (3 cases, 18 s, fixtures: a Disk II
+  read and write caught up to 1.5%, and 16 writes of 1 KB to O: under a full-budget frame hook, each at another
+  phase of the frame against the disk, all written); `test_oodos_clock_debug` (1 case, 0.6 s: the debug build's
+  costs). Test program `oodos/sys/test/l1test.s`. `test_oodos_sys`'s stub and jump-table cycle checks leave out
+  time spent in interrupt handling, from the interrupt's entry, 7 cycles before the dispatcher's first (the owner's
   decision): a tick held off by the stub's masked switch is taken at its `CLI`, inside the measured span.
 
 - **L2: input.** The event queue, the keys-held map, controllers (question 12), the mouse, and the console's keys
