@@ -183,6 +183,7 @@ UNITSAV:        .res    SD_DRIVES * 32 ; the units table as the last IDENTIFY ga
 TESC:           .res    1              ; TTYOUT: 0, 1 after ESC, 2 after ESC Y, 3 after its row
 TROW:           .res    1              ; ESC Y's row, from 0
 DLEFT:          .res    2              ; DMAGO's bytes still to copy, less 1
+DSAVE:          .res    4              ; and SRCP's and DSTP's +1-2 as it was given them
 
 .segment "BIOS"
 
@@ -1732,11 +1733,19 @@ SYSWIN:         .byte   SYS_BLOCK, BDOS_BLOCK, BIOS_BLOCK, RES_BLOCK
 ; has one flag, so a tick would be lost (the console's scroll is 4,640
 ; bytes). Between blocks a pending interrupt is taken, if the caller has
 ; them on. A copy up over itself (crt.s's erase, a byte at a time) comes out
-; as one transfer's would: each block starts where the last ended. DCOUNT is
-; kept; SRCP and DSTP end past the copy. Uses A, X, Y.
+; as one transfer's would: each block starts where the last ended. DCOUNT,
+; SRCP and DSTP are kept, as they were before the blocks: the addresses are
+; stepped for each block and put back after (DSAVE). Uses A, X, Y.
 DMA_CHUNK       = 2048
 .assert DMA_CHUNK * 2 + 400 < TICK_CYCLES, error, "a DMAGO block and its setting up within a tick"
-DMAGO:          SEC
+DMAGO:          LDX     #1             ; the addresses' high two bytes kept: a block
+@save:          LDA     SRCP + 1,X     ; steps only them
+                STA     DSAVE,X
+                LDA     DSTP + 1,X
+                STA     DSAVE + 2,X
+                DEX
+                BPL     @save
+                SEC
                 LDA     DCOUNT
                 SBC     #1
                 STA     DLEFT
@@ -1788,6 +1797,13 @@ DMAGO:          SEC
                 ADC     #0
                 STA     DMA3_COUNT + 1
                 JSR     DMA3W
+                LDX     #1
+@back:          LDA     DSAVE,X
+                STA     SRCP + 1,X
+                LDA     DSAVE + 2,X
+                STA     DSTP + 1,X
+                DEX
+                BPL     @back
                 PLA
                 STA     DMA_CONTROL
                 RTS
