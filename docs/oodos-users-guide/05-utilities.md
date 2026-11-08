@@ -1126,7 +1126,8 @@ writes to a file; an old file is replaced only when the new one is complete; the
 DOS33 reads and writes an Apple II DOS 3.3 disk: a floppy in O: or P:, or a 140 KB `.dsk` image on the card as an SD
 drive (in `DRIVES.TXT`, or mounted with MOUNT). It lists the disk, takes a file off it, puts one on it, and deletes one.
 It works on the disk's own sectors, so the drive needn't be (and isn't) a CP/M drive while it does; the next CP/M
-command on it reads the disk again.
+command on it reads the disk again, and on a DOS 3.3 disk says `Invalid Drive`: such a disk is never a CP/M drive
+([chapter 3](03-drives-and-files.md)).
 
 #### Forms
 

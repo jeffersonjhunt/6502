@@ -52,6 +52,15 @@ quarter of its entries). Name it in `DRIVES.TXT` as any image; `C: /DISKS/CPM.DS
 any other size is refused at start: `DRIVES.TXT LINE 3: /DISKS/X.DSK IS NOT 8 MB, 32 MB OR 140 KB`, and an Apple
 disk on A: `... IS AN APPLE DISK, NOT FOR A:`.
 
+**A DOS 3.3 disk isn't a drive.** An Apple disk made by DOS 3.3, as an image on B: to G: or a floppy in O: or P:, has
+no CP/M directory, so OODOS doesn't use it as one: DIR, TYPE, PIP, SET, or typing its drive, say
+`OODOS Error On C: Invalid Drive` at once. OODOS knows such a disk by two things together: what would be the CP/M
+directory holds an entry CP/M never makes (on a DOS 3.3 disk that part is usually zeros), and track 17 holds DOS
+3.3's table of contents. A CP/M disk never has the first, so it is never taken for DOS 3.3. Use
+[DOS33](05-utilities.md#util-dos33) for a DOS 3.3 disk's files. To keep it from being written, mount its image
+read-only (`RO` in `DRIVES.TXT`, or MOUNT's), or cover the floppy's notch; `SET d: [RO]` can't, since the drive isn't
+a CP/M drive.
+
 **The current drive** is the prompt's. A command or file name without a drive uses it. To change it, type the drive
 alone:
 
