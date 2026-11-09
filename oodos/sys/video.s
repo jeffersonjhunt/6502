@@ -24,7 +24,9 @@
 ; The vertical-blank copies (question 3): four slots, each a source, a
 ; destination and a length, 1,024 bytes in all (2,048 cycles with the CPU
 ; held, inside the blank's 10,240 even when the interrupt is held off by a
-; 4 KB DMA piece). A slot is copied at the first vertical blank after the
+; 4 KB DMA piece: test_oodos_video's latest end, all four slots with the
+; pointer and a stream, is line 508 of 480-524). A slot is 1,024 bytes at
+; most alone and the four's sum too, checked so that no sum wraps. A slot is copied at the first vertical blank after the
 ; program sets its bit in the event area's EV_VBGO (with TSB, which an
 ; interrupt can't split), and the bit cleared then, so a program sets a bit
 ; once a frame at most and sees it clear when the copy is on the card.

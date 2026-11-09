@@ -170,6 +170,33 @@ def main():
     bad[m.HEADER + 2] = 12                 # unit 12: the console's
     raises(lambda: m.parse(bytes(bad)), "unit 12")
     raises(lambda: m.read_png(b"not a png"), "not a PNG")
+    # Malformed PNGs (review F7), each built here from a good one: refused as AssetError, never a traceback.
+    import zlib as z
+
+    def chunk(kind, body, crc=None):
+        c = z.crc32(kind + body) & 0xFFFFFFFF if crc is None else crc
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", c)
+
+    def png(ihdr, idat, plte=None, extra=b""):
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + (chunk(b"PLTE", plte) if plte else b"") + extra +
+                chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+
+    hdr8x8 = struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0)
+    raises(lambda: m.read_png(png(hdr8x8, z.compress(bytes(4 * 25)))), "an IDAT short of the height")
+    idx = struct.pack(">IIBBBBB", 2, 1, 8, 3, 0, 0, 0)
+    raises(lambda: m.read_png(png(idx, z.compress(b"\x00\x00\x05"), plte=bytes(6))), "an index past PLTE")
+    raises(lambda: m.read_png(png(hdr8x8[:10], z.compress(bytes(8 * 25)))), "an IHDR of 10 bytes")
+    good8 = png(hdr8x8, z.compress(bytes(8 * 25)))
+    check(m.read_png(good8)[:2] == (8, 8), "the good 8 x 8 reads")
+    bad = bytearray(good8)
+    bad[8 + 8 + 13] ^= 1                   # IHDR's CRC
+    raises(lambda: m.read_png(bytes(bad)), "a wrong CRC")
+    raises(lambda: m.read_png(good8[:len(good8) - 20]), "a chunk cut short")
+    bomb = png(struct.pack(">IIBBBBB", 2048, 2048, 8, 6, 0, 0, 0), z.compress(bytes(1 << 20)))
+    raises(lambda: m.read_png(bomb), "image data short of 2048 x 2048 (no decompression past it)")
+    raises(lambda: m.read_png(png(struct.pack(">IIBBBBB", 4096, 4096, 8, 6, 0, 0, 0), b"")), "4096 x 4096")
+    rc = m.main(["check", os.devnull])
+    check(rc == 1, "check of an empty file: exit 1")
     check(m.parse(good)[0][2] == 0xFF and m.part_bytes(good, m.parse(good)[0]) == b"abc", "a raw part")
 
     print("mkasset: %d failure(s)" % failures)

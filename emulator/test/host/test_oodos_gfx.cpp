@@ -586,4 +586,135 @@ TEST(a_fade_text_and_double_buffering)
     CHECK_EQ(vreg(r, 0x11), b2);
 }
 
+TEST(empty_and_out_of_bitmap_copies_and_fills_do_nothing_or_are_refused)
+{
+    // Review F2: a width or a row count of 0 is nothing, never function 83's 0 (65,536); a copy whose rectangle
+    // leaves the bitmap is refused (a copy isn't clipped as a draw is). A sentinel unit after each is untouched.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned bmp = hexa(gx(r, 'A', 60)), sentinel = hexa(gx(r, 'A', 64));
+    CHECK_EQ(sentinel, bmp + 64); // (aligned to 8: the next free run)
+    const std::vector<uint8_t> marks = std::vector<uint8_t>(65536, 0x5A);
+    r.poke(VRAM + sentinel * 1024u, marks);
+    gx(r, 'B', 0, static_cast<uint8_t>(bmp));
+    xy(r, 0, 0, 0, 10); // 0 wide
+    word(r, "GX_DX", 0);
+    word(r, "GX_DY", 100);
+    CHECK_EQ(gx(r, 'y').substr(6), std::string("00"));
+    xy(r, 0, 0, 10, 0); // 0 high
+    CHECK_EQ(gx(r, 'y').substr(6), std::string("00"));
+    xy(r, 200, 0, 100, 10); // past the row's end
+    const std::string past = gx(r, 'y');
+    CHECK_EQ(past.substr(0, 2) + past.substr(5), std::string("08 01")); // GE_BOUNDS
+    xy(r, 0, 230, 10, 20); // past the last row
+    CHECK_EQ(gx(r, 'y').substr(6), std::string("01"));
+    xy(r, 0, 0, 10, 10); // to past the last row
+    word(r, "GX_DY", 235);
+    CHECK_EQ(gx(r, 'y').substr(6), std::string("01"));
+    gx(r, 'B', 1, static_cast<uint8_t>(bmp)); // 4 bits: width 0 is even, and still nothing
+    xy(r, 0, 0, 0, 10);
+    word(r, "GX_DY", 100);
+    CHECK_EQ(gx(r, 'y').substr(6), std::string("00"));
+    CHECK(mem(r, VRAM + sentinel * 1024u, 65536) == marks);
+    // A map filled with 0 rows: nothing.
+    const unsigned map = hexa(gx(r, 'A', 4));
+    const unsigned after = map + 4;
+    r.poke(VRAM + after * 1024u, std::vector<uint8_t>(4096, 0xA5));
+    gx(r, 'M', static_cast<uint8_t>(map), 32);
+    word(r, "GX_V", 0x1234);
+    gx(r, 'W', 0, 0);
+    CHECK(mem(r, VRAM + after * 1024u, 4096) == std::vector<uint8_t>(4096, 0xA5));
+    CHECK(mem(r, VRAM + map * 1024u, 64) == std::vector<uint8_t>(64, 0)); // the map itself untouched
+}
+
+TEST(no_event_area_refuses_the_shows_and_leaves_zero_page_alone)
+{
+    // Review F6: with GX_INIT(0) the TSB had no area to hit but the program's zero page byte $0C.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'i').substr(6), std::string("00"));
+    CHECK_EQ(gx(r, 'K').substr(6), std::string("00")); // the palette's slot set: that much needs no area
+    const uint8_t z = r.phys(0x000C);
+    std::string a = gx(r, 'H');
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("07 01")); // GE_AREA
+    gx(r, 'Z');
+    a = gx(r, 'z');
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("07 01"));
+    word(r, "GX_V", 0x3A00);
+    a = gx(r, 'D', 4);
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("07 01"));
+    CHECK_EQ(r.phys(0x000C), z);
+}
+
+namespace
+{
+    /// A one-part asset file of our own making: its header's part as given, the data after it.
+    std::vector<uint8_t> asset1(uint8_t type, uint8_t unit, unsigned record, unsigned records, uint32_t bytes,
+                                const std::vector<std::vector<uint8_t>> &more = {})
+    {
+        std::vector<uint8_t> f(1024, 0);
+        f[0] = 'O', f[1] = 'G', f[2] = 'X', f[3] = 3, f[4] = static_cast<uint8_t>(1 + more.size());
+        auto part = [&](unsigned i, const std::vector<uint8_t> &p) { std::copy(p.begin(), p.end(), f.begin() + 16 + 16 * i); };
+        part(0, {type, 0, unit, 0, static_cast<uint8_t>(record), static_cast<uint8_t>(record >> 8), static_cast<uint8_t>(records),
+                 static_cast<uint8_t>(records >> 8), static_cast<uint8_t>(bytes), static_cast<uint8_t>(bytes >> 8),
+                 static_cast<uint8_t>(bytes >> 16), 0, 0, 0, 0, 0});
+        for (size_t i = 0; i < more.size(); ++i)
+            part(static_cast<unsigned>(i + 1), more[i]);
+        f.resize(1024 + 9 * 1024, 0x77); // data: 9 KB of $77
+        return f;
+    }
+    std::string asset(CcpRig &r, const std::string &name83)
+    {
+        std::vector<uint8_t> fcb(36, 0);
+        fcb[0] = 13; // M:
+        for (unsigned i = 0; i < 11; ++i)
+            fcb[1 + i] = static_cast<uint8_t>(name83[i]);
+        r.poke(0x3A80, fcb);
+        return gx(r, '@', 0x80, 0x3A);
+    }
+} // namespace
+
+TEST(an_asset_s_header_is_checked_and_what_it_took_is_freed)
+{
+    // Review F5: the file is untrusted. Bytes 1,024 in 64 records (8 KB), a bad type, a record off 1 KB, a named
+    // unit already taken, the console's unit: each refused, a sentinel after the units untouched; a second part
+    // refused frees the first's units.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "LONG    OGX", asset1(8, 0xFF, 8, 64, 1024)},
+             {0, "TYPE    OGX", asset1(9, 0xFF, 8, 8, 1024)},
+             {0, "ODD     OGX", asset1(8, 0xFF, 9, 8, 1024)},
+             {0, "TAKEN   OGX", asset1(8, 40, 8, 8, 1024)},
+             {0, "CONSOLE OGX", asset1(8, 12, 8, 8, 1024)},
+             {0, "SECOND  OGX", asset1(8, 0xFF, 8, 8, 1024, {{9, 0, 0xFF, 0, 16, 0, 8, 0, 0, 4, 0, 0, 0, 0, 0, 0}})},
+             {0, "GOOD    OGX", asset1(8, 0xFF, 8, 8, 1024)}});
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned taken = hexa(gx(r, 'A', 8)); // 16-23
+    CHECK_EQ(taken, 16u);
+    const unsigned held = hexa(gx(r, 'A', 1)); // 13: the first one-unit run
+    CHECK_EQ(held, 13u);
+    r.poke(VRAM + 14 * 1024u, std::vector<uint8_t>(2048, 0x5A)); // units 14 and 15
+    for (const char *name : {"LONG    OGX", "TYPE    OGX", "ODD     OGX", "SECOND  OGX"})
+    {
+        const std::string a = asset(r, name);
+        std::printf("  %s: %s\n", name, a.c_str());
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("06 01")); // GE_FORMAT
+    }
+    std::string a = asset(r, "CONSOLE OGX");
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("03 01")); // GE_MEMORY
+    // TAKEN names unit 40, free: taken; again, refused.
+    CHECK_EQ(asset(r, "TAKEN   OGX").substr(6), std::string("00"));
+    a = asset(r, "TAKEN   OGX");
+    CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("03 01"));
+    CHECK_EQ(gx(r, 'A', 1).substr(0, 2), std::string("0E")); // 14: nothing the refused files took kept
+    CHECK(mem(r, VRAM + 15 * 1024u, 1024) == std::vector<uint8_t>(1024, 0x5A));
+    // A good one loads its 1,024 bytes into unit 15, and no further.
+    CHECK_EQ(asset(r, "GOOD    OGX").substr(6), std::string("00"));
+    CHECK(mem(r, VRAM + 15 * 1024u, 1024) == std::vector<uint8_t>(1024, 0x77));
+}
+
 int main() { return run_all(); }

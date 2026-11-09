@@ -27,7 +27,7 @@ UNIT_FIRST      = 13                   ; DM_INFO's: units 0-12 are the console's
 
 ; gxmem.s's, which every module takes
 .globalzp GXP, GXQ, GXT
-.global GXDMA, GXB, GXPHYS, GXCPU, GXTSB, GX_AREA, GX_OK
+.global GXDMA, GXB, GXPHYS, GXCPU, GXTSB, GXGO, GXTAKE, GX_AREA, GX_OK
 GX_EV_VBGO      = 12                   ; oodos.inc's EV_VBGO
 
 .endif

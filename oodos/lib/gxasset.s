@@ -8,6 +8,7 @@
 ; part's unit's address / 64 (a unit is 16 images' worth).
 
         .setcpu "65C02"
+        .macpack longbranch
         .include "oodos.inc"
         .include "oolib.inc"
         .include "gx.inc"
@@ -29,7 +30,7 @@ GX_ASSET:
         ldy     #F_OPEN
         jsr     BDOS
         cmp     #4
-        bcs     @file                   ; $FF: no such file
+        jcs     @file                   ; $FF: no such file
         lda     #<GX_HDR                ; record 0 to GX_HDR
         ldx     #>GX_HDR
         ldy     #F_DMAOFF
@@ -76,15 +77,26 @@ GX_ASSET:
         lda     #$FF
         sta     imgu
         sta     tabu
+        ldx     #AP_MAX - 1             ; no part's units taken yet
+@none:  stz     pcount,x
+        dex
+        bpl     @none
         stz     part
 @part:  jsr     PARTP                   ; GXP: the part's 16 bytes
         jsr     LOADP
-        bcs     @err
+        bcs     @undo
         inc     part
         lda     part
         cmp     GX_HDR + AH_PARTS
         bne     @part
-        jmp     SPRFIX
+        jsr     SPRFIX
+        bcs     @undo
+        rts
+@undo:  pha                             ; a part refused: every unit the file took freed
+        jsr     FREEALL
+        pla
+        sec
+        rts
 @file:  lda     #GE_FILE
         sec
         rts
@@ -107,13 +119,93 @@ PARTP:  lda     part
         sta     GXP + 1
         rts
 
-; The part at GXP loaded: its unit allocated if it says $FF (its bytes'
-; units, rounded up), then DM_LOAD of its records there.
-LOADP:  ldy     #AP_UNIT
+; The units every part took (pcount), freed.
+FREEALL:
+        stz     part
+@p:     ldx     part
+        lda     pcount,x
+        beq     @n
+        tax
+        phx
+        jsr     PARTP
+        ldy     #AP_UNIT
         lda     (GXP),y
-        cmp     #$FF
-        bne     @unit
-        ldy     #AP_BYTES + 1           ; units = (bytes + 1,023) / 1,024
+        plx
+        jsr     GX_FREE
+@n:     inc     part
+        lda     part
+        cmp     #AP_MAX
+        bne     @p
+        rts
+
+; The part at GXP checked against what the library needs (review F5: the
+; file is untrusted, whatever mkasset.py's check said): a type of 1-8,
+; its first record a multiple of 8 and not 0, 1 to 131,072 bytes, its
+; records the bytes' (rounded up); then its units, its bytes' rounded up
+; to 1 KB: allocated if it says $FF, else taken where it says (13-255, the
+; run inside 256, none of it taken already); then DM_LOAD of its records
+; there. Carry set and A the error.
+LOADP:  ldy     #AP_TYPE
+        lda     (GXP),y
+        beq     @bad
+        cmp     #AT_RAW + 1
+        bcs     @bad
+        ldy     #AP_RECORD              ; on 1 KB of the file, past record 0's KB
+        lda     (GXP),y
+        tax
+        and     #7
+        bne     @bad
+        iny
+        txa
+        ora     (GXP),y
+        beq     @bad
+        ldy     #AP_BYTES + 2           ; 1 to $20000 bytes
+        lda     (GXP),y
+        cmp     #3
+        bcs     @bad
+        cmp     #2
+        bne     @nz
+        dey
+        lda     (GXP),y
+        dey
+        ora     (GXP),y
+        bne     @bad
+        bra     @recs
+@nz:    ldy     #AP_BYTES
+        lda     (GXP),y
+        iny
+        ora     (GXP),y
+        iny
+        ora     (GXP),y
+        beq     @bad
+@recs:  ldy     #AP_BYTES               ; records = (bytes + 127) / 128
+        clc
+        lda     (GXP),y
+        adc     #127
+        sta     GXT
+        iny
+        lda     (GXP),y
+        adc     #0
+        sta     GXT + 1
+        iny
+        lda     (GXP),y
+        adc     #0
+        sta     GXQ                     ; >> 7: the low byte (b1 << 1 | b0 >> 7), the high (b2 << 1 | b1 >> 7)
+        asl     GXT
+        rol     GXT + 1
+        rol     GXQ
+        ldy     #AP_RECORDS
+        lda     (GXP),y
+        cmp     GXT + 1
+        bne     @bad
+        iny
+        lda     (GXP),y
+        cmp     GXQ
+        beq     @good
+@bad:   lda     #GE_FORMAT
+        sec
+        rts
+@good:  ldy     #AP_BYTES + 1           ; units = (bytes + 1,023) / 1,024
         lda     (GXP),y
         sta     GXT
         iny
@@ -132,14 +224,24 @@ LOADP:  ldy     #AP_UNIT
         ldx     GXQ
         beq     @whole
         inc     a
-@whole: cmp     #0
-        bne     @n
-        lda     #1
-@n:     jsr     GX_ALLOC
+@whole: sta     units                   ; (1-128: the bytes are 1 to 131,072)
+        ldy     #AP_UNIT
+        lda     (GXP),y
+        cmp     #$FF
+        bne     @named
+        lda     units
+        jsr     GX_ALLOC
         bcc     @got
+        rts
+@named: ldx     units                   ; where the file says: free, and the program's
+        jsr     GXTAKE
+        bcc     @took
         rts
 @got:   ldy     #AP_UNIT
         sta     (GXP),y
+@took:  ldx     part                    ; its units, to free should a later part fail
+        lda     units
+        sta     pcount,x
 @unit:  ldy     #AP_TYPE                ; the sprite parts' units, for SPRFIX
         lda     (GXP),y
         cmp     #AT_SPRITES
@@ -327,4 +429,6 @@ TABSIDES:
 
         .bss
 rest:   .res    2
+units:  .res    1                      ; LOADP's part's units
+pcount: .res    AP_MAX                 ; each part's units taken (0 none): freed on a failure
 tbuf:   .res    512                    ; SPRFIX's copy of the table

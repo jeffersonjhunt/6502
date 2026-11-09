@@ -80,7 +80,11 @@ GX_TGET:
 ; X rows of the map all GX_V: the first entry put, then copied on 2 bytes
 ; at a time by DMA (a forward copy over itself repeats it).
 GX_TFILL:
-        stx     tcnt                    ; the bytes: rows x width x 2, less the 2 put
+        txa                             ; no rows: nothing (never a length of 0 to function 83,
+        bne     @rows                   ; which is 65,536: review F2)
+        clc
+        rts
+@rows:  stx     tcnt                    ; the bytes: rows x width x 2, less the 2 put
         stz     tcnt + 1
         ldx     #0
         ldy     #0

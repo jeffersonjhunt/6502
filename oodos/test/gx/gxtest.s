@@ -84,6 +84,11 @@ c_init: lda     #<AREA
         ldx     #>AREA
         jmp     GX_INIT
 
+c_init0:
+        lda     #0                      ; no event area
+        tax
+        jmp     GX_INIT
+
 c_wboot:
         jmp     WBOOT
 
@@ -93,6 +98,8 @@ c_wboot:
         .word   r
 .endmacro
 cmds:   CMD     'I', c_init
+        CMD     'i', c_init0
+        CMD     '@', GX_ASSET
         CMD     'A', GX_ALLOC
         CMD     'a', GX_FREE
         CMD     'b', GX_BLOCK

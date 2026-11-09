@@ -1049,6 +1049,32 @@ which followed the code (the owner's leave). Where the plan left something open 
   at once) fails the slot's case (the bytes changed at line 51, before the bit); DM_LOAD without its write-back
   reads the card's old record 8. Test programs `oodos/sys/test/l4test.s` and `oodos/test/gx/gxtest.s`. The clock and
   input suites' `FT_INFO` expectations follow the version: `04 0F`, `040F0302`.
+- **The review** (2026-11-08; the owner: fix F1, F2, F4-F9, document F3, F10 disputed: "Since OODOS 0.5" stays):
+  - F1: `DM_VBSET` summed a new length with the others' in 16 bits and lost the carry, so slot 1 at 1 byte and slot
+    0 at `$FFFF` passed: a 64 KB copy, masked, each frame. A length over 1,024 is refused alone now, and the sum
+    refuses a carry (the test: both `$FFFF` and `$FC00` refused, slot 0's length as it was).
+  - F4: a load past the end of a file whose last extent is full left the FCB on the next, empty extent; `LDEND`
+    now positions it at the last loaded record's extent, as 33 does. The test, failing before (EX 1, function 20
+    at the end of the file): a 128-record file loaded with a count of 200, then function 20 reads record 127.
+  - F2: the library never gives function 83 a length of 0 (65,536): `GX_BCOPY` of no width or height and `GX_TFILL`
+    of no rows do nothing, and a `GX_BCOPY` rectangle that leaves the bitmap is refused (`GE_BOUNDS`), not clipped:
+    draws clip, but clipping a copy's one side would move the other. F3, documented: a copy's rows go forward, as
+    memcpy, so a strip moved right on its own rows repeats its first bytes.
+  - F5: `GX_ASSET` checks each part (its type 1-8, its record on 1 KB and not 0, 1 to 131,072 bytes, its records
+    its bytes' rounded up), takes a unit a part names (`GXTAKE`: 13-255, free) as well as allocating `$FF`'s, and frees
+    every unit the file took when a part is refused (the tests: files of our own on M:, each refused and the units
+    free after, a sentinel untouched).
+  - F6: with no event area (`GX_INIT`'s 0) `GX_PALSHOW`, `GX_SPRSHOW` and `GX_FADE` are refused (`GE_AREA`); the
+    `TSB` had nothing but the program's zero page `$0C` to hit.
+  - F7: mkasset.py checks each chunk's length and CRC, IHDR's 13 bytes and size, PLTE's entries and every index,
+    and decompresses no more than the picture needs, refusing a short one: an error line and exit 1, never a
+    traceback (the check builds the bad PNGs itself).
+  - F8: the latest a frame's copies end was measured with half the budget; with all four slots (1,024 bytes), the
+    pointer and a 44.1 kHz stream it is line 508 under a USB batch (16 lines to spare) and 503 under 64 KB loads; a
+    frame of all of it 3,645 cycles.
+  - F9: the Break case checked after a cold boot, which clears what it checked; it now checks a slot and the
+    pointer on before Break, and after it the card's interrupts off and a slot's bit set under the monitor copying
+    nothing.
 
 **Added (2026-11-08, the owner), from OO-Amp's proposal** (`OOLIB-SOUND-PROPOSAL.md` in OO-Amp's repo, written at
 its M4). L3 gives a program the card's parts one at a time; a player also wants the same few verbs whatever is

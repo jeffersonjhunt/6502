@@ -118,7 +118,7 @@ GX_SPRATTR:
 
 GX_SPRSHOW:
         lda     #1 << SLOT
-        jmp     GXTSB
+        jmp     GXGO
 
 GX_COLL:
         lda     VID_ISR

@@ -96,7 +96,7 @@ GX_PALLOAD:
 
 GX_PALSHOW:
         lda     #1 << SLOT
-        jmp     GXTSB
+        jmp     GXGO
 
 ; A frames, GX_V the palette to end at. Each component (blue, green, red:
 ; 4 bits) goes from the shadow's to the target's in A equal steps, kept to
@@ -104,8 +104,15 @@ GX_PALSHOW:
 ; target exactly at the end.
 GX_FADE:
         sta     fsteps
-        cmp     #0
+        lda     GX_AREA                 ; no area: no slot to show it by (refused)
+        ora     GX_AREA + 1
+        bne     @area
+        lda     #GE_AREA
+        sec
+        rts
+@area:  lda     fsteps
         bne     @go
+        clc
         rts
 @go:    jsr     FSETUP
 @frame: jsr     FSTEP

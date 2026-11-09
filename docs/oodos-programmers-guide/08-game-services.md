@@ -505,13 +505,17 @@ reads the W1 map. Then:
 - **The palette** (`gxpal.s`): a shadow of 256 entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`, and
   `GX_FADE` to another palette over n frames, a step a frame.
 - **Sprites** (`gxspr.s`): a shadow table of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG`, `GX_SPRATTR`,
-  `GX_SPRSHOW`; `GX_COLL` the groups that collided, from the card's STATUS and ISR.
+  `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
 - **Tiles** (`gxtile.s`): `GX_TMAP`, `GX_TPUT`, `GX_TGET`, `GX_TFILL`.
 - **Bitmaps** (`gxbmp.s`): bitmap 256 (8 bits a pixel), bitmap 512 (4) and mono (1): `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
-  `GX_BCOPY`.
+  `GX_BCOPY`. Draws are clipped to the bitmap; a copy whose rectangle leaves it is refused, and one of no width or
+  height does nothing. A copy's rows are each one DMA copy forward, as memcpy, not memmove: moving a strip right
+  on the same rows repeats its first bytes, so copy through another place for that.
 - **Text** (`gxtext.s`): an 8 × 16 font on a bitmap, the console's or the program's: `GX_FONT`, `GX_TEXT`.
-- **Assets** (`gxasset.s`): `GX_ASSET` opens an asset file and loads its parts by `DM_LOAD`.
+- **Assets** (`gxasset.s`): `GX_ASSET` opens an asset file and loads its parts by `DM_LOAD`, each part checked
+  first (its type, its place in the file, its records against its bytes, its units free), and every unit freed again
+  if a part is refused.
 
 A program links only the modules it calls. Coordinates and values go in the `GX_` variables; a refusal is the carry
 set with an error in A (`GE_`).
@@ -529,8 +533,10 @@ the card. `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap2
 
 With no slot set and no pointer, nothing: the tick with no event area is 145 cycles and the frame 199, as before,
 and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 516 a frame; a 512-byte slot copied,
-1,774 (1,024 of them the DMA's); the pointer, 728. A copy ends inside the vertical blank even with a USB batch or a
-4 KB load piece holding the interrupt off (`test_oodos_video`: line 502 at the latest; the blank is lines 480–524).
+1,774 (1,024 of them the DMA's); the pointer, 728; the whole budget, four slots of 256 bytes, with the pointer and a
+44.1 kHz stream's fields, 3,645. That ends inside the vertical blank even with a USB batch or a 4 KB load piece
+holding the interrupt off (`test_oodos_video`: line 508 at the latest, 16 lines to spare; the blank is lines
+480–524).
 
 ## When the program ends
 

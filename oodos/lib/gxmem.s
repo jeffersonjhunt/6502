@@ -241,6 +241,57 @@ UBIT:   txa
         plx
         rts
 
+; A the first unit, X the count, taken where they are: carry set (A
+; GE_MEMORY) if any is the console's, past 255, or taken already.
+GXTAKE: sta     ufirst
+        stx     ucount
+        cmp     #UNIT_FIRST
+        bcc     @no
+        txa
+        beq     @no
+        clc
+        adc     ufirst
+        bcc     @fits
+        bne     @no                     ; past 256
+@fits:  ldx     ufirst
+        lda     ucount
+        sta     GXT + 1
+@check: jsr     UBIT
+        and     GX_UNITS,y
+        bne     @no
+        inx
+        dec     GXT + 1
+        bne     @check
+        ldx     ufirst
+        lda     ucount
+        sta     GXT + 1
+@take:  jsr     UBIT
+        ora     GX_UNITS,y
+        sta     GX_UNITS,y
+        inx
+        dec     GXT + 1
+        bne     @take
+        lda     ufirst
+        clc
+        rts
+@no:    lda     #GE_MEMORY
+        sec
+        rts
+
+; The go bits in A set in the event area's EV_VBGO, by GXTSB; refused,
+; carry set and A GE_AREA, with no area (GX_INIT's 0): the TSB would hit
+; the program's zero page (review F6).
+GXGO:   ldx     GX_AREA
+        bne     @go
+        ldx     GX_AREA + 1
+        bne     @go
+        lda     #GE_AREA
+        sec
+        rts
+@go:    jsr     GXTSB
+        clc
+        rts
+
 ; A units, aligned: A the first, or carry set.
 GX_ALLOC:
         sta     ucount

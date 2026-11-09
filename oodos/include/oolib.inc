@@ -90,7 +90,9 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               bound to vertical-blank slot 1
 ;   GX_PALSET   A an entry, X its GGGGBBBB byte, Y its 0000RRRR: in the shadow
 ;   GX_PALLOAD  A/X 512 bytes (256 entries) into the shadow
-;   GX_PALSHOW  the shadow to the card at the next vertical blank (slot 1)
+;   GX_PALSHOW  the shadow to the card at the next vertical blank (slot 1);
+;               with no event area, refused (GE_AREA), as GX_FADE and
+;               GX_SPRSHOW are
 ;   GX_FADE     A frames (1-255), GX_V the address of the 512-byte palette to
 ;               end at: the shadow faded to it a step a frame, shown each frame
 ;   GX_SPRINIT  a unit for the sprite table, SPRBASE on it, its 512-byte
@@ -108,7 +110,7 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;   GX_TMAP     A a map's unit, X its width in entries (32, 64)
 ;   GX_TPUT     X the column, Y the row: GX_V's entry put in the map
 ;   GX_TGET     X the column, Y the row: A/X the entry
-;   GX_TFILL    X the rows: every entry of them GX_V (by DMA)
+;   GX_TFILL    X the rows: every entry of them GX_V (by DMA); 0 rows, nothing
 ;   GX_SCROLL   A a layer: its scrolls GX_X and GX_Y (0-1023)
 ;   GX_BMP      A the bitmap (GB_*), X its first unit: what GX_PLOT and the
 ;               rest draw on
@@ -124,7 +126,13 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               (what it reached filled)
 ;   GX_BCOPY    the rectangle at (GX_X, GX_Y), GX_X2 wide and GX_Y2 high,
 ;               copied by DMA to (GX_DX, GX_DY): 8 bits a pixel, or 4 with
-;               even x and widths; carry set otherwise
+;               even x and widths; carry set otherwise, and for a rectangle
+;               that leaves the bitmap (GE_BOUNDS: a copy isn't clipped, as
+;               a draw is, since clipping one side moves the other); a width
+;               or height of 0, nothing. Rows overlapping downward are copied
+;               from the last, but each row is one copy forward, as memcpy,
+;               not memmove: on the same rows with GX_DX > GX_X the row
+;               repeats its first bytes rather than moving
 ;   GX_FLIP     A a layer, X the unit it shows from the next frame (MAPBASE,
 ;               latched at the vertical blank), then that frame waited for
 ;   GX_FONT     A/X a 4 KB font (256 characters of 16 bytes) in the
@@ -135,7 +143,10 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               header read into GX_HDR and each part loaded by function
 ;               83's DM_LOAD to the unit it names, or to units allocated
 ;               for it ($FF), which GX_HDR's part then says; a sprite
-;               table's image numbers moved on by the sprite images' unit
+;               table's image numbers moved on by the sprite images' unit.
+;               Each part is checked first (its type, its record on 1 KB,
+;               its records its bytes', its units free and the program's):
+;               GE_FORMAT or GE_MEMORY, and every unit the file took freed
 ;
 ; An asset file (format 3; question 8, oodos/tools/mkasset.py): record 0 a
 ; 16-byte header and up to 7 parts of 16 bytes; each part from a 1 KB
@@ -160,7 +171,9 @@ GE_MAP          = 2                    ; a block the W1 map hasn't
 GE_MEMORY       = 3                    ; no units free
 GE_DMA          = 4                    ; function 83 refused
 GE_FILE         = 5                    ; the asset file not found or not read
-GE_FORMAT       = 6                    ; not an asset file of format 3
+GE_FORMAT       = 6                    ; not an asset file of format 3, or a part the library can't take
+GE_AREA         = 7                    ; no event area (GX_INIT's 0): no vertical-blank slot to show by
+GE_BOUNDS       = 8                    ; GX_BCOPY: a rectangle that leaves the bitmap
 
 ; The asset file's header (GX_HDR, record 0) and its parts.
 AH_MAGIC        = 0                    ; 'O', 'G', 'X'

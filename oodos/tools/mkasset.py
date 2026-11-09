@@ -46,6 +46,7 @@ TYPES = {AT_MAP: "map", AT_TILES: "tiles", AT_PALETTE: "palette", AT_SPRITES: "s
 TILE, BITMAP256, BITMAP512 = 2, 3, 4
 TILE16, TILE8BPP, MAP_W64, MAP_H64 = 0x08, 0x10, 0x20, 0x40
 MAX_BYTES = 1 << 17                    # a part's length: 17 bits
+MAX_PIXELS = 1 << 22                   # a PNG's pixels at most: 2048 x 2048, far past any asset
 
 
 class AssetError(Exception):
@@ -71,9 +72,18 @@ def read_png(data):
     while pos + 8 <= len(data):
         n, kind = struct.unpack(">I4s", data[pos:pos + 8])
         body = data[pos + 8:pos + 8 + n]
+        crc = data[pos + 8 + n:pos + 12 + n]
+        if len(body) != n or len(crc) != 4:
+            raise AssetError("a PNG chunk (%s) cut short" % kind.decode("latin-1"))
+        if struct.unpack(">I", crc)[0] != zlib.crc32(kind + body) & 0xFFFFFFFF:
+            raise AssetError("a PNG chunk (%s) whose CRC is wrong" % kind.decode("latin-1"))
         pos += 12 + n
         if kind == b"IHDR":
+            if n != 13:
+                raise AssetError("a PNG IHDR of %d bytes, not 13" % n)
             w, h, depth, ctype, comp, filt, lace = struct.unpack(">IIBBBBB", body)
+            if not w or not h or w * h > MAX_PIXELS:
+                raise AssetError("a PNG of %d x %d" % (w, h))
             if comp or filt:
                 raise AssetError("an unknown PNG compression or filter method")
             if lace:
@@ -95,10 +105,19 @@ def read_png(data):
         raise AssetError("PNG bit depth %d (8 bits a channel, or indexed)" % depth)
     if ctype == 3 and plte is None:
         raise AssetError("an indexed PNG without PLTE")
+    if plte is not None and any(len(c) != 3 for c in plte):
+        raise AssetError("a PNG PLTE that isn't whole entries")
     bits = channels * depth
     stride = (w * bits + 7) // 8
     bpp = max(1, bits // 8)
-    raw = zlib.decompress(idat)
+    want = h * (stride + 1)
+    try:
+        z = zlib.decompressobj()
+        raw = z.decompress(idat, want + 1)  # never more than the picture needs, and one byte to tell
+    except zlib.error as e:
+        raise AssetError("a PNG's image data: %s" % e)
+    if len(raw) < want:
+        raise AssetError("a PNG's image data is %d bytes, short of the %d its size needs" % (len(raw), want))
     rows, prev = [], bytearray(stride)
     for y in range(h):
         f = raw[y * (stride + 1)]
@@ -123,6 +142,8 @@ def read_png(data):
             if ctype == 3:
                 at = x * depth
                 v = (line[at // 8] >> (8 - depth - at % 8)) & ((1 << depth) - 1)
+                if v >= len(plte):
+                    raise AssetError("a PNG pixel of index %d, past its palette's %d" % (v, len(plte)))
                 r, g, b = plte[v]
                 alpha = trns[v] if trns is not None and v < len(trns) else 255
                 row.append((r, g, b, alpha))
@@ -422,7 +443,7 @@ def main(argv=None):
         out = build(parts)
         parse(out)
         open(a.out, "wb").write(out)
-    except (AssetError, OSError, ValueError, zlib.error) as e:
+    except (AssetError, OSError, ValueError, zlib.error, struct.error, IndexError) as e:
         print("mkasset: %s" % e, file=sys.stderr)
         return 1
     return 0

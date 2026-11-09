@@ -1048,7 +1048,30 @@ GX_BCOPY:
         ora     GX_X2
         lsr     a
         jcs     @no
-@w:     lda     GX_X2                   ; the row's bytes
+@w:     lda     GX_X2                   ; a width or a height of 0: nothing (never a length of 0 to
+        ora     GX_X2 + 1               ; function 83, which is 65,536: review F2)
+        jeq     @ok
+        lda     GX_Y2
+        ora     GX_Y2 + 1
+        jeq     @ok
+        ldx     bmode                   ; both rectangles inside the bitmap, or refused (GE_BOUNDS)
+        lda     GX_X
+        ldy     GX_X + 1
+        jsr     OVERW
+        jcs     @out
+        lda     GX_DX
+        ldy     GX_DX + 1
+        jsr     OVERW
+        jcs     @out
+        lda     GX_Y
+        ldy     GX_Y + 1
+        jsr     OVERH
+        jcs     @out
+        lda     GX_DY
+        ldy     GX_DY + 1
+        jsr     OVERH
+        jcs     @out
+        lda     GX_X2                   ; the row's bytes
         sta     cw
         lda     GX_X2 + 1
         sta     cw + 1
@@ -1146,4 +1169,42 @@ GX_BCOPY:
 @ok:    clc
         rts
 @no:    sec
+        rts
+@out:   lda     #GE_BOUNDS
+        sec
+        rts
+
+; Carry set if A/Y + GX_X2 (OVERW) runs past the bitmap's width, or A/Y +
+; GX_Y2 (OVERH) past its height (bmode in X, kept).
+OVERW:  clc
+        adc     GX_X2
+        sta     GXT
+        tya
+        adc     GX_X2 + 1
+        sta     GXT + 1
+        bcs     @past
+        lda     WLO,x                   ; the width - the end: a borrow if past it
+        cmp     GXT
+        lda     WHI,x
+        sbc     GXT + 1
+        bcc     @past
+        clc
+        rts
+@past:  sec
+        rts
+OVERH:  clc
+        adc     GX_Y2
+        sta     GXT
+        tya
+        adc     GX_Y2 + 1
+        sta     GXT + 1
+        bcs     @past
+        lda     HLO,x
+        cmp     GXT
+        lda     HHI,x
+        sbc     GXT + 1
+        bcc     @past
+        clc
+        rts
+@past:  sec
         rts
