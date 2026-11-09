@@ -724,8 +724,11 @@ The same, but for the register: the drive goes in A, where CP/M 3 takes it in E.
 The FCB gets the extent's block pointers and RC (128 if the file goes past this extent, 0 if it doesn't reach it),
 and the attributes f1'–f4' and t1'–t3' from the directory. f7' and f8' are the BDOS's: f8' is set when the file
 was opened from user 0 (below), f7' when it is write-protected and its password wasn't given. With CR `$FF` on
-entry, CR comes back as the byte count of the file's last record (S1, as [function 30](#bdos-30) sets it), and the
-program sets CR to 0 itself before it reads. Otherwise CR is left as it was.
+entry, CR comes back as the byte count of the file's last record, whichever extent is opened: the S1 of the file's
+last directory entry, the one with the highest extent, as [function 30](#bdos-30) sets it and as cpmtools keeps it
+(in that entry only). 0 means a full last record, or no count kept. From OODOS 0.6; before it, open gave the opened
+extent's S1, which for a file of more than one entry made by cpmtools is 0. The program sets CR to 0 itself before
+it reads. Otherwise CR is left as it was.
 
 #### Errors
 
@@ -752,6 +755,9 @@ An FCB in the I/O hole (`$C000`–`$C7FF`) returns A = X = `$FF`, with nothing d
 
 6,694 cycles on an `oodos-8m` drive, BDOSENT to its return, measured by `test_oodos_sys`'s FSTEST
 ([hw/oodos.md](../../hw/oodos.md#the-archive-bit-and-the-update-stamp-item-10), 2026-11-04). The BDOS stub adds 220.
+CR `$FF` costs a second look through the directory, for the file's last entry, as [function 35](#bdos-35) looks: on
+M:, about 2,400 cycles more for a file of one entry and 3,900 for one of three (`test_oodos_load`, 2026-11-08),
+more on a drive with more entries in use. Without CR `$FF` there is no such look.
 
 #### Since
 

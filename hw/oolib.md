@@ -1096,6 +1096,23 @@ and more in L5:
   the book's: with CR `$FF`, open also finds the file's last extent and takes its S1. A test opens a file of three
   extents with a short last record, and PLAYSID loads such a tune to its exact length. OO-Amp's own lookup of the
   last extent can then go.
+  - *L4a, as built (2026-11-08):* first, cpmtools itself: `cpmcp -f oodos-ram` of a 70,050-byte file writes three
+    entries, EX 1, 3 and 4, S1 0, 0 and 34, so a full entry's S1 is 0 and a full last record's too. The rig's
+    `put_m` now writes a file of several entries so (`MFile`'s `count`: S1 in the last entry only); a file of one
+    entry is written as before. The tests showed the bug before the fix: `test_oodos_load` opened a three-entry
+    file at each extent and got CR 0 but from the last; `test_oodos_playsid`'s 34,956-byte PSID (two entries, a
+    last record of 12 bytes) had 116 bytes of padding loaded past its end. The fix (`bdosfile.s`, open's `@count`
+    and `LASTS1`): with CR `$FF`, after the access stamp (which needs extent 0's DIDX), every entry of the file is
+    looked at, as Compute File Size looks, in the user it was opened from (`EXTUSER`: user 0 for a SYS file found
+    there), and CR takes the S1 of the entry with the highest extent (S2, then EX; an entry's EX is its last
+    logical extent, so the extent mask needs nothing more). S1 is copied as it is, so 0 keeps its meaning; the FCB
+    is otherwise as before, byte for byte. Tests: every extent of three, the last extent's entry first in the
+    directory, a SYS file of user 0's opened from user 3, a one-entry file and a full last record as before, the
+    access stamp still extent 0's and nothing else in the directory changed; each fails on the old code (and the
+    user and highest-extent cases on a fix that scans the current user, or takes the last entry found). Cost:
+    block 60 1,493 bytes free to 1,442 (debug 1,477 to 1,426), 51 bytes; about 2,400 cycles more for an open of a
+    one-entry file on M:, 3,900 for three, only with CR `$FF`. The books say "from OODOS 0.6; before it, the
+    opened extent's", as "from OODOS 0.5" says for the video-memory refusal.
 - **L4b: hold, go and volume, in function 82.**
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
     them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.
