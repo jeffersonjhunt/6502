@@ -1105,6 +1105,38 @@ and more in L5:
     (unity), as it puts back the rest of the card; the EQ and the vis page stay linked.
   - The warm boot sets VOLL and VOLR to 255, after a hold as after anything else.
   - `SN_DOCHOLD`/`SN_DOCGO` (the ES5503's RUN) wait for MOD playback, which asks for them.
+  - **Decided (2026-11-08, the owner, from the sizing):** L4a and L4b as planned would leave block 60 about 160 bytes,
+    so L4b's first commit moves function 82 whole into block 61, as function 83 lives: its entry and every operation
+    (PGET and PPUT put W2 back on block 61; nothing in it calls the BDOS's positioning or buffers, which move W2).
+    Block 60 went from 337 bytes free to 1,493, block 61 from 4,618 to 3,462; `test_oodos_sound`'s and
+    `test_oodos_playsid`'s output is identical to main's, line for line. **And hold silences each SID through its own
+    `$D418` volume nibble,** kept and given back by go, not through VOLL/VOLR: the master volume scales the stream's
+    DAC too, so a hold by VOLL would mute a stream playing alongside and fight `SN_VOLUME`. L4a follows, in block 60.
+  - *L4b, as built (2026-11-08):* `SN_HOLD` 17, `SN_GO` 18, `SN_VOLUME` 19 (`SN_OPS` 20), all in block 61. First a
+    test showed the premise: each SID's `$D418` reads back as last written, by the 65C02 or by the 6510 running a
+    tune, and not as VOLL/VOLR scaled it. The hold turns RUN off first (the card drops the 65C02's SID writes while
+    the 6510 runs), reads both SIDs' `$D418` before writing either (with CTRL's BOTH a write to A reaches B), and
+    writes each with its low nibble 0. Decided here: a hold is refused unless RUN is on, which covers a 6510 never
+    started, stopped, or held already (a second hold so can't overwrite the kept bytes), and a go is refused unless
+    held. `SN_STOP`, `SN_START`, a release of the 6510 and the warm boot forget a hold (SIDSTOP clears the flag;
+    `SN_START` too). `SN_VOLUME` takes a block only (+1 VOLL, +2 VOLR) and is refused on revision 1, which has no
+    master volume; no A/X form, since a read form's 255s would look like a refusal. The warm boot (SNDQUIET, so the
+    cold boot's warm boot too) writes both back to `$FF` on revision 2. Memory: three bytes of SYSBSS (`SHELD`,
+    `SVOLA`, `SVOLB`): 59 free to 56 (debug build 56 to 53); block 61 3,462 free to 3,322 (140 bytes, both builds);
+    block 60 unchanged, 1,493 free (debug 1,477). Nothing is added to the tick, the frame or the dispatcher. OOLIB's
+    interface version stays 4 for now: question 15 says a step that adds raises it, but that changes five
+    owner-approved `FT_INFO` expectations, so it is the owner's call.
+  - **Owner (2026-11-08), after the build:** OOLIB's interface version 5 for the three operations (`OOLIB_IFACE`;
+    `FT_INFO` answers `05 0F`, so a program can tell they exist: an OODOS 0.5 refuses them as a refused hold is
+    refused), the five `FT_INFO` expectations changed with it and `test_oodos_gfx`'s patch of the answer looking for
+    5; the books' "since OODOS 0.6", one bump after L4a and L4b; the sound suite's own `SN_OPS` 20, as `oodos.inc`.
+  - *Review round 1 (2026-11-08):* `SN_VOLUME` reads both bytes before writing either, so a block refused at +2
+    (in the I/O hole) changes nothing; `SN_START` forgets a hold only once its block is read, so a refused start
+    leaves the hold for `SN_GO`; `SN_GO` turns RUN off before writing the kept bytes, as a program may have set RUN
+    while held (the card would drop the writes). Tests for each, and for CTRL's NTSC, `$D500` and BOTH bits kept
+    through a hold and a go; L3TEST's B calls function 82 with a block just under `$C000`. Block 61 now 3,310 bytes
+    free (12 more). Accepted risk (F6): a 6510 that stops itself through `$DE02` in the few cycles between the hold's
+    read of CTRL and its write is still recorded as held, so a go would start it again past its own stop.
 
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in

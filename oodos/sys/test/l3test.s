@@ -23,6 +23,14 @@
 ;       must leave the run's bytes where they belong
 ;   W   the warm boot (JMP WBOOT)
 ;   D   spins on in a ^C-able function 10 (^C there ends it)
+;   V   V aa xx: SID A's and SID B's $D418 as the 65C02 reads them
+;   B   B aa xx: function 82 with a block just past the TPA, on the BDOS's jump at $BFFD, running
+;       into the I/O hole at $C000: MBOX + 3's count of bytes from KBLK
+;       copied to MBOX + 1-2's address. That is where the BDOS's jump
+;       ($BFFD) lives, so its three bytes are kept, the stub called through
+;       their address, and put back before anything else
+;   U   U aa xx: MBOX + 1's byte written to SID A's $D418 and MBOX + 2's
+;       to SID B's, then read back as V does
 ;
 ; DOCHOOK counts its calls at DCNT ($2180) and keeps the interrupt
 ; register OODOS gave it (HZP) at DLAST ($2181), and its S at DS ($2182);
@@ -40,6 +48,8 @@ DOCCTL  = $C55E                         ; the sound card's ES5503 port (backplan
 DOCDATA = $C55F
 DOCADDR = $C560
 DOCBANK = $C562
+SIDAVOL = $C518                         ; SID A's $D418, SID B's (backplane.inc's SOUND_SIDA, SOUND_SIDB)
+SIDBVOL = $C538
 MBOX    = $2100
 KBLK    = $2110
 DCNT    = $2180
@@ -216,6 +226,52 @@ DOCRUN: txa
         SAY     "RUN"
         rts
 
+c_u:    lda     MBOX + 1
+        sta     SIDAVOL
+        lda     MBOX + 2
+        sta     SIDBVOL
+        lda     SIDAVOL
+        ldx     SIDBVOL
+        SAY     "U"
+        rts
+
+c_b:    ldx     #2
+@keep:  lda     $BFFD,x
+        sta     bsave,x
+        dex
+        bpl     @keep
+        lda     MBOX + 1
+        sta     t0
+        lda     MBOX + 2
+        sta     t0 + 1
+        ldy     MBOX + 3
+@copy:  dey
+        lda     KBLK,y
+        sta     (t0),y
+        tya
+        bne     @copy
+        lda     MBOX + 1
+        ldx     MBOX + 2
+        ldy     #O_SOUND
+        jsr     bcall
+        sta     bres
+        stx     bres + 1
+        ldx     #2
+@back:  lda     bsave,x
+        sta     $BFFD,x
+        dex
+        bpl     @back
+        lda     bres
+        ldx     bres + 1
+        SAY     "B"
+        rts
+bcall:  jmp     (bsave + 1)             ; the stub, as $BFFD's jump goes
+
+c_v:    lda     SIDAVOL
+        ldx     SIDBVOL
+        SAY     "V"
+        rts
+
 c_line: lda     #<lbuf
         ldx     #>lbuf
         ldy     #C_READSTR
@@ -246,12 +302,17 @@ cmds:   CMD     'K', c_k
         CMD     'R', c_run
         CMD     'W', c_wboot
         CMD     'D', c_line
+        CMD     'U', c_u
+        CMD     'V', c_v
+        CMD     'B', c_b
 CMDS_LEN = * - cmds
 hblk:   .byte   SN_DOCHOOK
         .word   DOCHOOK
         .byte   HZP
 
         .data
+bsave:  .res    3
+bres:   .res    2
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0

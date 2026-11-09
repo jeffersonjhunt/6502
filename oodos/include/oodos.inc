@@ -258,7 +258,11 @@ SN_WAVE         = 14                   ; block: +1-3 a physical address, +4-6 th
 SN_DOCHOOK      = 15                   ; block: +1-2 the ES5503 hook, 0 none; +3 a zero-page byte ($00-$EF)
                                        ;   that gets its interrupt register ($E0) at each call; no block: none [SC_DOC]
 SN_BEEP         = 16                   ; block: +1-2 the pitch in Hz (20-20,000), +3-4 the length in ms
-SN_OPS          = 17
+SN_HOLD         = 17                   ; the 6510 held (RUN off, no reset), each SID's $D418 volume nibble 0,
+                                       ;   the bytes kept; refused if it isn't running [SC_6510]
+SN_GO           = 18                   ; a hold undone: the $D418s back, RUN on; refused if not held [SC_6510]
+SN_VOLUME       = 19                   ; block: +1 VOLL, +2 VOLR, the master volumes (255 unity; revision 2)
+SN_OPS          = 20
 SN_BUSY         = $FE                  ; A when channel 2 is busy (X $FF)
 SC_6510         = $01                  ; the parts: the 6510 and the SIDs,
 SC_STREAM       = $02                  ;   the PCM stream (revision 2),

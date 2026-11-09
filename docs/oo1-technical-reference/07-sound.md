@@ -380,7 +380,8 @@ Status: **built**
 Since OOLIB's L3 ([hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan)) OODOS's function 82 hands the card's parts
 out, one program at a time: the 6510 and the SIDs, the stream, the ES5503
 ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#sound)). A program writes a part's
-registers itself once it holds it; what OODOS keeps is DMA channel 2, the card's DRQSEL and IEN, and the warm boot.
+registers itself once it holds it; what OODOS keeps is DMA channel 2, the card's DRQSEL and IEN, the master
+volumes (VOLL and VOLR, set through function 82's `SN_VOLUME`, since OODOS 0.6), and the warm boot.
 
 - **Loads.** The card's RAM (DRQSEL 0) and the ES5503's wave RAM (DRQSEL 2) are loaded by channel 2, memory to the
   card in demand mode, 4,096 bytes a piece: RAMDATA and DOCDATA hold DRQ always, so each piece holds the CPU 4,096
@@ -401,10 +402,18 @@ registers itself once it holds it; what OODOS keeps is DMA channel 2, the card's
   program that wants to see a refused RUN reads STATE straight after its own DOCCTL or PCMCTL write.
   `SN_SEND` writes MBOUT only while STATUS bit 1 is clear, so OODOS never replaces a byte the 6510 hasn't taken.
   OODOS's turning off of strays leaves these bits, and channel 2 while a stream buffer moves on it, alone.
+- **Hold and go** (`SN_HOLD`, `SN_GO`, since OODOS 0.6). A hold writes CTRL with RUN clear and RESET clear, so the
+  6510 stops between instructions with its registers and the card's RAM as they are. RUN goes off first, since the
+  card drops the host's SID writes while the 6510 runs. Then OODOS reads both SIDs' `$18` (as written, whoever wrote
+  it), keeps the two bytes, and writes each back with bits 0–3 (the volume) clear and bits 4–7 kept (4–6 the filter's outputs, 7 voice 3 off); both are read before either is
+  written, as with CTRL's BOTH a write to SID A reaches SID B. VOLL and VOLR are left alone: they also scale the
+  stream and the ES5503, which go on playing. A go writes CTRL with RUN off (in case the program set it while held), then SID
+  A's kept byte, then SID B's, then CTRL with RUN set and RESET clear, so the 6510 resumes at the instruction it stopped before.
 - **The warm boot** does to the card what QUIET does (CTRL's RUN off, the SIDs' registers 0, on revision 2 PCMCTL
   FLUSH alone and DOCCTL's RUN off), and aborts channel 2 with its MODE 0 and its terminal count cleared, puts
   DRQSEL to 0 and IEN to 0: at every program's end, whether a program claimed the card or not. So a program that
-  used the card behind OODOS's back leaves nothing playing either.
+  used the card behind OODOS's back leaves nothing playing either. On revision 2 it also writes VOLL and VOLR
+  `$FF` (since OODOS 0.6), and it forgets a hold.
 
 ## Registers
 

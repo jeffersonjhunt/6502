@@ -3027,7 +3027,8 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (4: 1 was L1's, 2 L2's, 3 L3's), X = a bit for each service area OODOS
+- `FT_INFO`: A = OOLIB's interface version (5: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+  volume), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
@@ -3200,6 +3201,12 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 14 | `SN_WAVE` | +1–3 a physical address, +4–6 the wave RAM address (17 bits: +6's bit 0 is A16), +7–8 the length (0: 65,536) | loads the ES5503's wave RAM by DMA | ES5503 |
   | 15 | `SN_DOCHOOK` | +1–2 the hook, 0 none; +3 a byte of its zero page (`$00–$EF`); no block: none | sets the ES5503 hook | ES5503 |
   | 16 | `SN_BEEP` | +1–2 the pitch, 20–20,000 Hz; +3–4 the length, ms | sounds the USB card's speaker | |
+  | 17 | `SN_HOLD` | none | holds the 6510 where it is, each SID's volume nibble 0 | 6510 |
+  | 18 | `SN_GO` | none | lets a held 6510 go on, the volumes back | 6510 |
+  | 19 | `SN_VOLUME` | +1 VOLL, +2 VOLR (0–255, 255 unity) | sets the card's master volumes (revision 2) | |
+
+  Operations 17–19 (`SN_HOLD`, `SN_GO`, `SN_VOLUME`) are since OODOS 0.6 (OOLIB's interface version 5, [function 80's](#bdos-80) `FT_INFO`); an OODOS before them
+  refuses them, A = X = `$FF`.
 
 #### Exit
 
@@ -3215,7 +3222,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 16, one that needs a block given none, a block in memory that
+A = X = `$FF`, and nothing done, for an operation past 19, one that needs a block given none, a block in memory that
 isn't the program's (the I/O hole, flash), an operation whose part isn't claimed, and:
 
 - `SN_CLAIM`: no parts asked for, a part the machine hasn't (the stream needs revision 2 and the DMA controller, the
@@ -3228,6 +3235,9 @@ isn't the program's (the I/O hole, flash), an operation whose part isn't claimed
   `$EF`. `SN_WAVE`: a wave RAM address's +6 past 1 (17 bits: `$20000` up isn't there). A refused `SN_DOCHOOK` leaves no hook set (the old one is taken off first), as `FT_FRAMEHOOK` and
   `FT_TICKHOOK` do.
 - `SN_BEEP`: a pitch outside 20–20,000, no USB card, or no VIA (no millisecond counter).
+- `SN_HOLD`: the 6510 not running (CTRL's RUN off): never started, stopped, or held already. A second hold so
+  keeps what the first kept. `SN_GO`: the 6510 not held.
+- `SN_VOLUME`: a card before revision 2, which has no master volume.
 
 A = `$FE` (`SN_BUSY`), X = `$FF`, and nothing done, when what it needs is busy: `SN_LOAD` and `SN_WAVE` while a
 stream buffer is still going to the card (DMA channel 2), `SN_BUFFER` while the buffer whose turn it is is still in
@@ -3247,6 +3257,16 @@ sound (`OA_SOUND`).
   for it and puts DOCCTL back as it was after, leaving DOCADDR and DOCBANK past the last byte; it holds the ES5503's
   interrupt off meanwhile (IEN bit 3), and the hook waits for the load's end. Both leave DRQSEL 0.
 - `SN_START` writes the card's `$FFFC–$FFFD` and CTRL (RUN and RESET with the bits given).
+- `SN_HOLD` turns CTRL's RUN off and doesn't pulse RESET, so the 6510's registers and the card's RAM stay as they
+  are. Then it reads SID A's and SID B's `$D418` (the card gives back what was last written, by the 6510 or the
+  program), keeps both, and writes each back with its low nibble, the volume, 0 and its high nibble (bits 4–6 the filter's outputs, bit 7
+  voice 3 off) as it was.
+  VOLL and VOLR aren't touched, so a stream or the ES5503 playing alongside goes on as loud as before. `SN_GO`
+  turns RUN off (if the program set it while held), writes the two kept bytes back, A's first (with CTRL's BOTH a write to A reaches B too), then sets RUN, again
+  without RESET: the 6510 carries on from the instruction it was held at. `SN_STOP`, `SN_START`, `SN_RELEASE` of
+  the 6510 and the warm boot forget a hold. While held, the SIDs are the program's to write, as when stopped.
+- `SN_VOLUME` writes VOLL and VOLR. They scale every source on the card: the stream, the ES5503 and each SID's
+  `$D418` volume nibble as the chip gets it (the register still reads back as written). It needs no claim.
 - `SN_STREAM` writes PCMCTL (FLUSH, then RUN), CODEC, RATE, PCMFMT, POS (0) and DRQSEL (1), and the DMA controller's
   master enable on. `SN_BUFFER` takes the buffers in turn, 0, 1, 0, 1, from `SN_STREAM` or `SN_SEEK`; the first goes
   to the card at once, by channel 2 (demand mode, its terminal count's interrupt on), the next when it has all gone.
@@ -3262,7 +3282,7 @@ sound (`OA_SOUND`).
   interrupt found them are put back after the hook returns.
 - `SN_RELEASE` and the warm boot stop what they give back: the 6510 (CTRL's RUN off, every SID register 0), the
   stream (channel 2 aborted, PCMCTL FLUSH, DRQSEL 0), the ES5503 (DOCCTL's RUN off, the hook off). The warm boot does
-  all of it whatever was claimed, and turns the card's IEN off.
+  all of it whatever was claimed, and turns the card's IEN off; on revision 2 it sets VOLL and VOLR back to 255.
 
 #### Cycles
 
