@@ -7,7 +7,10 @@
 ; returned them, cc 01 if the carry was set. W is the warm boot. F (L5c)
 ; waits A frames, and at each reads the SIDs into VBLK ($3B00) by SID_VOICES
 ; and moves the envelopes by SID_ENV, logging SID_LVL's six bytes at LOG
-; ($3C00) a frame (up to 128 frames).
+; ($3C00) a frame (up to 128 frames). L5d: O opens a 256-byte event area
+; at AREA ($3800, layout 2); K calls function 82 with A/X a block, k with A
+; the operation and no block; L waits A frames (up to 100) and at each
+; calls PB_LEVELS into LOG, 10 bytes a frame.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -18,6 +21,7 @@
 
 MBOX    = $3900
 
+AREA    = $3800
 VBLK    = $3B00
 LOG     = $3C00
 
@@ -85,6 +89,49 @@ report: pha
 c_wboot:
         jmp     WBOOT
 
+c_open: lda     #<oblk
+        ldx     #>oblk
+        ldy     #O_FRAME
+        jsr     BDOS
+        clc                             ; (the BDOS gives the flags back as they were)
+        rts
+
+c_f82:  ldy     #O_SOUND
+        jmp     BDOS
+
+c_f82op:
+        ldx     #0
+        ldy     #O_SOUND
+        jmp     BDOS
+
+c_levels:
+        sta     frames
+        lda     #<LOG
+        sta     logp
+        lda     #>LOG
+        sta     logp + 1
+@frame: lda     frames
+        beq     @done
+        lda     #FT_WAIT
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        lda     logp
+        ldx     logp + 1
+        jsr     PB_LEVELS
+        bcs     @out
+        lda     logp
+        clc
+        adc     #PBL_LEN
+        sta     logp
+        bcc     @next
+        inc     logp + 1
+@next:  dec     frames
+        bra     @frame
+@done:  lda     #0
+        clc
+@out:   rts
+
 c_frames:
         sta     frames
         lda     #<LOG
@@ -133,10 +180,23 @@ cmds:   CMD     'E', PB_EQ
         CMD     'T', SID_NOTE
         CMD     'Z', SID_ENV0
         CMD     'F', c_frames
+        CMD     'O', c_open
+        CMD     'K', c_f82
+        CMD     'k', c_f82op
+        CMD     'I', PB_INIT
+        CMD     'B', PB_BEGIN
+        CMD     'P', PB_PAUSE
+        CMD     'R', PB_RESUME
+        CMD     'v', PB_VOLUME
+        CMD     'Q', PB_STATUS
+        CMD     'L', c_levels
         CMD     'W', c_wboot
 CMDS_LEN = * - cmds
 
         .data
+oblk:   .byte   FT_OPEN
+        .word   AREA
+        .byte   0                       ; 256 bytes: layout 2
 ; The call, its operand written for each command (in DATA: written).
 call:   jmp     $FFFF
 

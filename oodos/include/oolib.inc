@@ -4,8 +4,8 @@
 ; build/oolib.lib (oodos/Makefile's OOLIB_USERS) and include this.
 ;
 ; Graphics (lib/gx*.s, L4): below, after the .sid tunes. Sound's EQ and vis
-; page (lib/pb*.s, L5b), then the SIDs' voices (lib/sid*.s but sid.s, L5c):
-; after the graphics.
+; page (lib/pb*.s, L5b), the SIDs' voices (lib/sid*.s but sid.s, L5c) and
+; playback (lib/pb.s, pbstat.s, pbvol.s, pblev.s, L5d): after the graphics.
 ;
 ; .sid tunes (lib/sid.s, L3): a C64 PSID file in the program's memory
 ; played on the sound card's 6510, as the emulator's own player plays one
@@ -273,5 +273,60 @@ SID_V_SR        = 6
 SID_F_CUTOFF    = 21                   ; a SID's filter, and its volume
 SID_F_RES       = 23
 SID_F_MODEVOL   = 24
+
+; ---------------------------------------------------------------------------
+; Sound: playback (lib/pb.s, pbstat.s, pbvol.s, pblev.s, L5d): the verbs any
+; player uses, whichever part sounds, over function 82. The source: PB_SID
+; (a .sid on the 6510), PB_STREAM, PB_DOC (the ES5503). The program starts
+; and stops the part itself (SID_PLAY, SN_STREAM ...); PB_BEGIN says which
+; it was. Each returns carry clear and A = 0, or carry set and A an error
+; (PE_*); A, X and Y changed.
+;
+;   PB_INIT     A/X the event area (0: none), for a SID's stall: without
+;               one, a running 6510 is playing
+;   PB_BEGIN    A the source, once started: its time counted from now. A
+;               SID: X bit 0 set if the 6510 reports through the mailbox (a
+;               .sid with a play routine: SID_PLAYA not 0), for the stall
+;               rule; clear, a running 6510 is playing
+;   PB_PAUSE    hold it: SN_HOLD, SN_PAUSE; the ES5503's is PE_REFUSED.
+;               PE_STATE if nothing is begun or it is paused already
+;   PB_RESUME   SN_GO, SN_RESUME; PE_STATE if not paused by PB_PAUSE.
+;               Refused (PE_REFUSED: the part stopped meanwhile), it is no
+;               longer paused: the status is the part's own
+;   PB_VOLUME   A the level (255 unity), X the balance (0 left, 128 the
+;               centre, 255 right): VOLL and VOLR by one law (the far side
+;               falls in a straight line to 0), then SN_VOLUME. PE_NOCARD
+;               on revision 1
+;   PB_STATUS   A/X a block of PBS_LEN: +0 the state (PS_*), +1-4 the
+;               milliseconds played, paused time left out (a stream's from
+;               the frames the card has played), +5-6 a stream's underruns.
+;               A SID is stalled with no mailbox byte for 2 s, or 10 s
+;               before the first (L5a's stamp)
+;   PB_LEVELS   A/X a block of PBL_LEN: +0-7 eight bands, lowest first,
+;               +8-9 the VU, left and right, 0-255. A stream's and the
+;               ES5503's from the vis page; a SID's estimated from its
+;               voices (SID_ENV: so once a frame), each in its octave's band
+
+.global PB_INIT, PB_BEGIN, PB_PAUSE, PB_RESUME, PB_VOLUME, PB_STATUS, PB_LEVELS
+
+PB_SID          = 0                    ; the sources
+PB_STREAM       = 1
+PB_DOC          = 2
+PE_STATE        = 3                    ; nothing begun, or not in the state the call needs
+PE_REFUSED      = 4                    ; function 82 refused it (the part not claimed or running)
+PS_STOPPED      = 0                    ; PB_STATUS's states
+PS_STARTING     = 1                    ;   begun, nothing heard yet
+PS_PLAYING      = 2
+PS_PAUSED       = 3
+PS_STALLED      = 4                    ;   a SID gone quiet, a stream's underrun
+PS_ENDED        = 5                    ;   a stream played out
+PS_ERROR        = 6                    ;   a stream's error (the card's STATE $80 up)
+PBS_STATE       = 0
+PBS_MS          = 1
+PBS_UNDER       = 5
+PBS_LEN         = 7
+PBL_BANDS       = 0
+PBL_VU          = 8
+PBL_LEN         = 10
 
 .endif
