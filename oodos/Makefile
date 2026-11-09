@@ -82,7 +82,7 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 LIBS = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
 OOLIB_USERS = playsid view
 
-$(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s lib/gx.inc include/oodos.inc include/oolib.inc | $(BUILD)
+$(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s lib/gx.inc lib/pb.inc include/oodos.inc include/oolib.inc | $(BUILD)
 	ca65 $(AFLAGS) -I lib $< -o $@
 
 $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o)
