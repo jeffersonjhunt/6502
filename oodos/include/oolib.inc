@@ -3,7 +3,8 @@
 ; OODOS's functions 80-82 for what is shared. Link a program with
 ; build/oolib.lib (oodos/Makefile's OOLIB_USERS) and include this.
 ;
-; Graphics (lib/gx*.s, L4): below, after the .sid tunes.
+; Graphics (lib/gx*.s, L4): below, after the .sid tunes. Sound's EQ and vis
+; page (lib/pb*.s, L5b): after the graphics.
 ;
 ; .sid tunes (lib/sid.s, L3): a C64 PSID file in the program's memory
 ; played on the sound card's 6510, as the emulator's own player plays one
@@ -200,5 +201,34 @@ AT_BITMAP       = 6                    ; a bitmap (its CONFIG says which)
 AT_FONT         = 7                    ; 256 characters of 16 bytes
 AT_RAW          = 8                    ; anything else
 ASSET_FORMAT    = 3
+
+; ---------------------------------------------------------------------------
+; Sound: the EQ and the vis page (lib/pbeq.s, lib/pbvis.s, L5b): the sound
+; card's revision-2 registers, read and written by the library itself. No
+; claim is needed (function 82's are for the 6510, the stream and the
+; ES5503), so a program may set the EQ before its stream starts. The warm
+; boot turns the EQ off with every gain 0 (OODOS 0.7). Each routine: carry
+; clear and A = 0, or carry set and A = PE_NOCARD (no revision-2 card:
+; nothing written) or PE_RANGE (nothing written); X and Y changed. The EQ
+; routines write EQIDX, then EQVAL: don't call one from a hook (function
+; 80's) while the program may be in another itself.
+;
+;   PB_EQ       A the band (0 the preamp, 1-10 the bands, 60 Hz to 16 kHz),
+;               X its gain in signed half-dB, -24 to 24 (-12 to +12 dB)
+;   PB_EQON     A 0: the EQ off (bit-exact); anything else: on. Gains kept
+;   PB_EQALL    A/X 11 bytes: the preamp's gain, then the ten bands', as
+;               PB_EQ's X; all checked before any is written
+;   PB_VIS      A/X a buffer, Y a length, 1-98 (0 is 98): a snapshot of the
+;               vis page, and its first Y bytes copied in: +0-31 the
+;               spectrum's bands, +32-33 VU left and right (0-255 for -60
+;               to 0 dBFS), +34-97 the last 64 samples ($80 zero)
+
+.global PB_EQ, PB_EQON, PB_EQALL, PB_VIS
+
+PE_NOCARD       = 1                    ; no sound card of revision 2 or later
+PE_RANGE        = 2                    ; a band, a gain or a length out of range
+PB_VIS_LEN      = 98                   ; the vis page's bytes
+PB_VIS_VU       = 32                   ; its VU pair
+PB_VIS_WAVE     = 34                   ; its samples
 
 .endif

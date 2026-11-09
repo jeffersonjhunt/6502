@@ -1208,6 +1208,20 @@ and more in L5:
     as the new run's first: the stamp now follows RUN off, and MBIN is read once under the same SEI to drop it
     (a test puts a byte in MBIN at that read, `SMDROP`, and fails without it). F3, a test with the queue full: the
     stamp follows every byte.
+  - *L5b, as built (2026-11-09):* `lib/pbeq.s` (`PB_EQ`, `PB_EQON`, `PB_EQALL`; 95 bytes), `lib/pbvis.s` (`PB_VIS`;
+    41) and `lib/pbcard.s` (22: the card's ID, revision 2 or later, read directly, no BDOS call), with `lib/pb.inc`
+    naming the registers as `gx.inc` does the video card's; 5 bytes of zero page. Two modules so a meter links no
+    EQ. Decided here: a refusal writes nothing and says why (`PE_NOCARD`, `PE_RANGE`); `PB_EQALL` checks all eleven
+    gains before writing any; `PB_EQON` takes any non-zero A as on; `PB_VIS`'s length 0 means the whole page, and
+    over 98 is refused without a snapshot. No claim, as OO-Amp asked. Tests (`test_oodos_pb`, PBTEST as GXTEST): the
+    registers read back through EQIDX/EQVAL after each call; every refusal leaving the EQ as it was; OO-Amp's test,
+    a sine at each band's centre +12 dB by the library, 12.00 dB louder at the tap (fails with the bands shifted by
+    one); the vis copy equal to the card's held page byte for byte and fresh; a revision-1 card refused; the warm
+    boot flat. Nothing in OODOS changed.
+  - *L5b review, round 1 (2026-11-09):* F1, a hook calling an EQ routine while the program is between another's
+    EQIDX and EQVAL writes: documented (chapter 8, oolib.inc), not guarded, as the library turns interrupts off
+    nowhere. F2, the revision-1 case's last check couldn't see a write (that card ignores the registers): taken
+    out, the case named for what it shows.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 
