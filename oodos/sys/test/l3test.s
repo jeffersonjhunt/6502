@@ -24,7 +24,7 @@
 ;   W   the warm boot (JMP WBOOT)
 ;   D   spins on in a ^C-able function 10 (^C there ends it)
 ;   V   V aa xx: SID A's and SID B's $D418 as the 65C02 reads them
-;   B   B aa xx: function 82 with a block at the top of the TPA, running
+;   B   B aa xx: function 82 with a block just past the TPA, on the BDOS's jump at $BFFD, running
 ;       into the I/O hole at $C000: MBOX + 3's count of bytes from KBLK
 ;       copied to MBOX + 1-2's address. That is where the BDOS's jump
 ;       ($BFFD) lives, so its three bytes are kept, the stub called through

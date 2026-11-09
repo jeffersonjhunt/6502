@@ -3262,7 +3262,7 @@ sound (`OA_SOUND`).
   program), keeps both, and writes each back with its low nibble, the volume, 0 and its high nibble (bits 4–6 the filter's outputs, bit 7
   voice 3 off) as it was.
   VOLL and VOLR aren't touched, so a stream or the ES5503 playing alongside goes on as loud as before. `SN_GO`
-  writes the two kept bytes back, A's first (with CTRL's BOTH a write to A reaches B too), then sets RUN, again
+  turns RUN off (if the program set it while held), writes the two kept bytes back, A's first (with CTRL's BOTH a write to A reaches B too), then sets RUN, again
   without RESET: the 6510 carries on from the instruction it was held at. `SN_STOP`, `SN_START`, `SN_RELEASE` of
   the 6510 and the warm boot forget a hold. While held, the SIDs are the program's to write, as when stopped.
 - `SN_VOLUME` writes VOLL and VOLR. They scale every source on the card: the stream, the ES5503 and each SID's

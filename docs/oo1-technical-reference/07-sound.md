@@ -407,8 +407,8 @@ volumes (VOLL and VOLR, set through function 82's `SN_VOLUME`, since OODOS 0.6),
   card drops the host's SID writes while the 6510 runs. Then OODOS reads both SIDs' `$18` (as written, whoever wrote
   it), keeps the two bytes, and writes each back with bits 0–3 (the volume) clear and bits 4–7 kept (4–6 the filter's outputs, 7 voice 3 off); both are read before either is
   written, as with CTRL's BOTH a write to SID A reaches SID B. VOLL and VOLR are left alone: they also scale the
-  stream and the ES5503, which go on playing. A go writes SID A's kept byte, then SID B's, then CTRL with RUN set and
-  RESET clear, so the 6510 resumes at the instruction it stopped before.
+  stream and the ES5503, which go on playing. A go writes CTRL with RUN off (in case the program set it while held), then SID
+  A's kept byte, then SID B's, then CTRL with RUN set and RESET clear, so the 6510 resumes at the instruction it stopped before.
 - **The warm boot** does to the card what QUIET does (CTRL's RUN off, the SIDs' registers 0, on revision 2 PCMCTL
   FLUSH alone and DOCCTL's RUN off), and aborts channel 2 with its MODE 0 and its terminal count cleared, puts
   DRQSEL to 0 and IEN to 0: at every program's end, whether a program claimed the card or not. So a program that
