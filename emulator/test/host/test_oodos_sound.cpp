@@ -42,7 +42,7 @@ namespace
     constexpr unsigned EK_SOUND = 6;
     constexpr uint8_t SN_INFO = 0, SN_CLAIM = 1, SN_RELEASE = 2, SN_LOAD = 3, SN_START = 4, SN_STOP = 5, SN_SEND = 6,
                       SN_STREAM = 7, SN_BUFFER = 8, SN_PAUSE = 9, SN_RESUME = 10, SN_SEEK = 11, SN_END = 12,
-                      SN_WAVE = 14, SN_BEEP = 16, SN_OPS = 17;
+                      SN_WAVE = 14, SN_BEEP = 16, SN_HOLD = 17, SN_GO = 18, SN_VOLUME = 19, SN_OPS = 20;
     constexpr uint8_t SC_6510 = 1, SC_STREAM = 2, SC_DOC = 4;
 
     uint8_t area(Rig &r, unsigned off) { return r.phys(AREA + off); }
@@ -844,7 +844,7 @@ namespace
         0xEE, 0x01, 0x02, 0x4C, 0x12, 0x10};            // INC $0201, JMP $1012
     unsigned count(Rig &r) { return card(r).ram()[COUNT] | card(r).ram()[COUNT + 1] << 8; }
     /// The 6510 claimed, COUNTER loaded and started, run a little.
-    [[maybe_unused]] void counting(CcpRig &r, const std::string &tail = "2")
+    void counting(CcpRig &r, const std::string &tail = "2")
     {
         open(r, tail);
         CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
@@ -886,6 +886,228 @@ TEST(premise_each_sid_s_d418_reads_back_as_last_written_by_the_65c02_or_the_6510
     CHECK_EQ(sidvols(r), std::string("1F 2A"));
     CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x18); // 15 x 128 / 255, rounded
     card(r).write(SoundCard::VOLL, 0xFF);
+}
+
+TEST(hold_stops_the_6510_where_it_is_and_silences_each_sid_through_its_own_volume)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("FF FF")); // not claimed
+    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("FF FF")); // claimed, but the 6510 isn't running
+    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));   // not held
+    CHECK_EQ(sys(r, "SHELD"), 0);
+    wboot(r);
+    counting(r);
+    r.run(ms(20)); // the count well up: a restart's, from 0, would stay below it after go
+    CHECK_EQ(sidvols(r), std::string("1F 2A"));
+    const unsigned resets = card(r).cpu_resets();
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
+    CHECK_EQ(card(r).cpu_resets(), resets); // RESET not pulsed
+    CHECK_EQ(sidvols(r), std::string("10 20")); // the volume nibbles 0, the filter's bits kept
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x10);
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x20);
+    CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF); // the master volumes untouched
+    CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
+    CHECK_EQ(sys(r, "SHELD"), 1);
+    CHECK_EQ(sys(r, "SVOLA"), 0x1F);
+    CHECK_EQ(sys(r, "SVOLB"), 0x2A);
+    // Held: the 6510's state and RAM stay as they are.
+    const unsigned held = count(r);
+    const uint16_t pc = card(r).cpu().regs().pc;
+    const std::vector<uint8_t> ram(card(r).ram().begin(), card(r).ram().end());
+    r.run(ms(50));
+    CHECK_EQ(count(r), held);
+    CHECK_EQ(card(r).cpu().regs().pc, pc);
+    CHECK(std::equal(ram.begin(), ram.end(), card(r).ram().begin()));
+    // A hold while held is refused and keeps what the first kept.
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("FF FF"));
+    CHECK_EQ(sys(r, "SVOLA"), 0x1F);
+    CHECK_EQ(sys(r, "SVOLB"), 0x2A);
+    // Go: the volumes back, then RUN, and the count carries on from where it was (a restart would zero it).
+    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
+    CHECK_EQ(sidvols(r), std::string("1F 2A"));
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F);
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2A);
+    CHECK_EQ(card(r).cpu_resets(), resets);
+    CHECK_EQ(sys(r, "SHELD"), 0);
+    r.run(ms(2));
+    std::printf("  the count %u when held, %u after go\n", held, count(r));
+    CHECK(count(r) > held);
+    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF")); // not held now
+    // SN_STOP, SN_START and a release each forget a hold: go is refused after them.
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    r.run(ms(2));
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    CHECK_EQ(sys(r, "SHELD"), 0);
+    r.run(ms(2));
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_RELEASE, SC_6510}), std::string("00 00"));
+    CHECK_EQ(sys(r, "SHELD"), 0);
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
+}
+
+TEST(hold_and_go_with_both_sids_written_together)
+{
+    // CTRL's BOTH: a write to SID A reaches B too. Both are read before either is written, so B keeps its own.
+    CcpRig r;
+    REQUIRE(r.ok);
+    counting(r);
+    card(r).sid_write(1, SoundCard::SID_MODE_VOL, 0x4B); // B's own, as a tune might have left it
+    CHECK_EQ(sidvols(r), std::string("1F 4B"));
+    card(r).write(SoundCard::CTRL, card(r).ctrl() | 0x10); // BOTH
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(sidvols(r), std::string("10 40"));
+    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK_EQ(sidvols(r), std::string("1F 4B"));
+}
+
+TEST(a_hold_leaves_a_stream_playing_alongside_as_it_was)
+{
+    // The 6510 held while the stream plays: VOLL and VOLR untouched, so the stream's bytes reach the card's
+    // tap (after the master volume) as they were sent, and its position runs on.
+    CcpRig r;
+    REQUIRE(r.ok);
+    counting(r);
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_STREAM}), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 48000, SoundCard::PCMFMT_16BIT | SoundCard::PCMFMT_STEREO)), std::string("00 00"));
+    card(r).set_tap(true, false);
+    constexpr unsigned LEN = 10000;
+    const std::vector<uint8_t> a = noise(LEN, 61), b = noise(LEN, 62);
+    r.poke(0x03000, a);
+    r.poke(0x06000, b);
+    CHECK_EQ(f82(r, buffer_block(0x03000, LEN)), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF);
+    CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
+    CHECK_EQ(f82(r, buffer_block(0x06000, LEN)), std::string("01 00"));
+    const uint32_t pos = area32(r, EV_SPOS);
+    r.run(ms(30));
+    CHECK(area32(r, EV_SPOS) > pos);
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    const uint64_t endc = r.cpu->cycles() + ms(500);
+    while (area(r, EV_SSTATE) != SoundCard::STATE_ENDED && r.cpu->cycles() < endc)
+        r.run(ms(5));
+    CHECK_EQ(area(r, EV_SSTATE), SoundCard::STATE_ENDED);
+    std::vector<uint8_t> sent = a;
+    sent.insert(sent.end(), b.begin(), b.end());
+    const std::vector<uint8_t> played = tap_bytes(card(r));
+    std::printf("  %zu bytes sent, %zu played with the 6510 held\n", sent.size(), played.size());
+    CHECK(played == sent);
+    CHECK_EQ(area32(r, EV_SPOS), LEN * 2 / 4);
+    CHECK_EQ(sys(r, "SHELD"), 1);
+}
+
+TEST(sn_volume_sets_the_master_volumes_which_scale_a_sid_s_volume_as_it_reaches_the_chip)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x40}), std::string("00 00")); // no claim needed
+    CHECK_EQ(reg(r, SoundCard::VOLL), 0x80);
+    CHECK_EQ(reg(r, SoundCard::VOLR), 0x40);
+    CHECK_EQ(f82op(r, SN_VOLUME), std::string("FF FF")); // a block needed
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+    r.poke(MBOX + 1, std::vector<uint8_t>{0x1F, 0x2F});
+    CHECK_EQ(command(r, 'U', "U"), std::string("1F 2F")); // read back as written
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x18); // 15 x 128 / 255, rounded: 8
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x24); // 15 x 64 / 255: 4
+    CHECK_EQ(f82(r, {SN_VOLUME, 0xFF, 0xFF}), std::string("00 00"));
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F); // at once, at unity
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2F);
+}
+
+TEST(on_a_revision_1_card_volume_is_refused_and_hold_and_go_work)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    card(r).set_revision(1);
+    REQUIRE(r.boot());
+    counting(r, "X");
+    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x80}), std::string("FF FF"));
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
+    CHECK_EQ(sidvols(r), std::string("10 20"));
+    const unsigned held = count(r);
+    r.run(ms(20));
+    CHECK_EQ(count(r), held);
+    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK_EQ(sidvols(r), std::string("1F 2A"));
+    r.run(ms(2));
+    CHECK(count(r) > held);
+    wboot(r);
+    CHECK_EQ(sys(r, "SHELD"), 0);
+}
+
+namespace
+{
+    /// The 6510 counting and held, the master volumes lowered: what the warm boot must undo.
+    void held_and_lowered(CcpRig &r)
+    {
+        counting(r);
+        CHECK_EQ(f82(r, {SN_VOLUME, 0x30, 0x60}), std::string("00 00"));
+        CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+        CHECK_EQ(sys(r, "SHELD"), 1);
+    }
+    /// As the warm boot leaves the card: VOLL and VOLR at unity, the hold forgotten, the 6510 stopped and every
+    /// SID register 0, as SIDSTOP leaves them.
+    void unheld(CcpRig &r)
+    {
+        quiet(r);
+        CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF);
+        CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
+        CHECK_EQ(sys(r, "SHELD"), 0);
+        bool zero = true;
+        for (unsigned i = 0; i < SoundCard::POTX; ++i) // the written ones; POTX up are the chip's own
+            zero = zero && reg(r, static_cast<uint8_t>(SoundCard::SID_A + i)) == 0 &&
+                   reg(r, static_cast<uint8_t>(SoundCard::SID_B + i)) == 0;
+        CHECK(zero);
+    }
+} // namespace
+
+TEST(the_warm_boot_puts_the_volumes_back_and_forgets_a_hold_by_wboot_ctrl_c_and_break)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        held_and_lowered(r);
+        wboot(r);
+        unheld(r);
+        open(r, "2"); // and a go after it is refused: nothing is held
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+        CHECK_EQ(f82op(r, SN_GO), std::string("FF FF"));
+        CHECK_EQ(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        held_and_lowered(r);
+        const size_t from = r.out.size();
+        r.poke(MBOX, 'D');
+        CHECK(r.calls(CcpRig::C_READSTR_FN));
+        r.type("\x03");
+        CHECK(r.until("\r\nA>", ms(2000), from));
+        unheld(r);
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        held_and_lowered(r);
+        const size_t from = r.out.size();
+        r.cpu->nmi();
+        CHECK(r.until("\\\r", ms(1000), from));
+        REQUIRE(r.boot());
+        unheld(r);
+    }
 }
 
 int main() { return run_all(); }
