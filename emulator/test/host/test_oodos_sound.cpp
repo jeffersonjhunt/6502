@@ -1249,6 +1249,34 @@ TEST(before_the_first_byte_the_stamp_is_the_start_s_time_and_a_count_of_0)
     CHECK(waiting(r).empty());
 }
 
+TEST(a_byte_the_old_run_left_at_a_restart_is_dropped_not_counted_as_the_new_run_s)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    loaded(r, COUNTER, true); // says nothing
+    r.run(ms(10));
+    r.poke(AREA + EV_SMBOX, 0x55);
+    // The old run's byte arrives once SN_START has stopped it, with interrupts off: MBIN holds it at the drop.
+    const uint16_t drop = static_cast<uint16_t>(sym("SMDROP"));
+    bool sent = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == drop && !sent && r.machine->bus().peek(0xC682) == 61) // W2 on block 61 (NB_WIN2)
+        {
+            card(r).card_send(0x99);
+            sent = true;
+        }
+    };
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    r.watch = nullptr;
+    REQUIRE(sent);
+    r.run(ms(20));
+    CHECK_EQ(area16(r, EV_SMCNT), 0u);
+    CHECK_EQ(area(r, EV_SMBOX), 0x55);
+    CHECK(waiting(r).empty());
+    CHECK_EQ(reg(r, SoundCard::STATUS) & 0x04, 0); // STATUS: nothing waits in MBIN
+}
+
 TEST(with_a_layout_1_area_nothing_is_stamped)
 {
     CcpRig r;

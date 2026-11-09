@@ -977,8 +977,10 @@ SRC:            PHP
 ; +1-2 the entry, +3 CTRL's other bits: the 6510 stopped, its reset vector
 ; the entry, then reset and run. A hold before is forgotten, once the
 ; block has all been read (a refused block leaves the hold as it was).
-; With a layout-2 area, its mailbox stamp starts afresh before the 6510
-; does: EV_SMMS now, EV_SMCNT 0, EV_SMBOX left (L5a).
+; With a layout-2 area, its mailbox stamp starts afresh once the old run
+; is stopped and before the new one runs: a byte the old run left in MBIN
+; dropped (it isn't the new run's), EV_SMMS now, EV_SMCNT 0, EV_SMBOX left
+; (L5a).
 SN_STARTX:      BLOCK
                 NEED    SC_6510
                 JSR     PGET
@@ -989,10 +991,14 @@ SN_STARTX:      BLOCK
                 AND     #SOUND_NTSC | $08 | $10 ; NTSC, SID B at $D500, BOTH
                 STA     T2
                 STZ     SHELD
+                LDA     SOUND_CTRL
+                AND     #<~SOUND_RUN
+                STA     SOUND_CTRL
                 BIT     EVON
-                BPL     @run
+                BPL     SMRUN
                 PHP
                 SEI                    ; W1 borrowed (the BDOS's block 60)
+SMDROP:         LDA     SOUND_MBIN     ; the old run's last byte, if it left one
                 LDA     NB_WIN1
                 PHA
                 LDA     EVBLK
@@ -1006,11 +1012,7 @@ SN_STARTX:      BLOCK
                 PLA
                 STA     NB_WIN1
                 PLP
-@run:
-                LDA     SOUND_CTRL
-                AND     #<~SOUND_RUN
-                STA     SOUND_CTRL
-                LDA     #<SOUND_RAM_VECTOR
+SMRUN:          LDA     #<SOUND_RAM_VECTOR
                 STA     SOUND_RAMADDR
                 LDA     #>SOUND_RAM_VECTOR
                 STA     SOUND_RAMADDR + 1
