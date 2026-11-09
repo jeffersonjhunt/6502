@@ -377,6 +377,14 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     CHECK_EQ(f83(r, vbset(2, 0x10200, 0x92000, 512)), std::string("00 00"));
     CHECK_EQ(f83(r, vbset(2, 0x10200, 0x92000, 1025)), std::string("FF FF"));
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x80000, 16)), std::string("FF FF")); // the console's units
+    // A length whose sum with the others would wrap past 16 bits (review F1): refused, slot 0 as it was.
+    CHECK_EQ(f83(r, vbset(3, 0x10300, 0x93000, 0)), std::string("00 00")); // room for slot 1's byte
+    CHECK_EQ(f83(r, vbset(1, 0x10100, 0x91000, 1)), std::string("00 00"));
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 0xFFFF)), std::string("FF FF"));
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 0xFC00)), std::string("FF FF"));
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("SLLEN")) | r.phys(SYS_BLOCK_PHYS + sym("SLLEN") + 1) << 8, 256u);
+    CHECK_EQ(f83(r, vbset(1, 0x10100, 0x91000, 0)), std::string("00 00"));
+    CHECK_EQ(f83(r, vbset(3, 0x10300, 0x93000, 256)), std::string("00 00"));
     CHECK_EQ(f83(r, vbset(0, 0xF0000, 0x90000, 16)), std::string("FF FF")); // from OODOS's block
     r.poke(0x93000, std::vector<uint8_t>(256, 0));
     r.poke(0x92000, std::vector<uint8_t>(512, 0));
@@ -474,6 +482,84 @@ TEST(the_frame_costs_and_the_latest_a_slot_ends)
     r.watch = nullptr;
     std::printf("  with 64 KB loads under way: %u copies, the latest ended at line %d\n", landed, latest);
     CHECK(landed >= 3 && latest >= 480 && latest <= 524);
+}
+
+TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
+{
+    // Review F8: all four slots, 256 bytes each (1,024 in all), the pointer on and a 44.1 kHz stream playing
+    // (its fields written each frame), the latest a frame's copies end, with a USB batch or a 64 KB load under way.
+    CcpRig r;
+    REQUIRE(r.ok);
+    put_b(r, "PICTURE BIN", noise(65536, 2));
+    open(r, "2");
+    r.poke(0x10000, noise(65536, 1));
+    r.poke(0x3000, std::vector<uint8_t>{1, 2}); // function 82: claim the stream, start it, two 64 KB buffers (0.74 s)
+    CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
+    r.poke(0x3000, std::vector<uint8_t>{7, 0, 0x44, 0xAC, 3});
+    CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
+    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x01, 0x00, 0x00});
+    CHECK_EQ(gcall(r, 82, 0x3000), std::string("00 00"));
+    r.poke(0x3000, std::vector<uint8_t>{8, 0x00, 0x00, 0x02, 0x00, 0x00});
+    CHECK_EQ(gcall(r, 82, 0x3000), std::string("01 00"));
+    for (uint8_t k = 0; k < 4; ++k)
+        CHECK_EQ(f83(r, vbset(k, 0x10000 + k * 0x100u, 0x90000 + k * 0x1000u, 256)), std::string("00 00"));
+    CHECK_EQ(f81(r, {IN_MOUSE, 1, 0x3F, 0x01, 0xEF, 0x00}), std::string("00 00"));
+    vset(r, 0x03, 64);
+    CHECK_EQ(f83(r, {DM_POINTER, 3, 0, 0}), std::string("00 00"));
+    Costs all;
+    r.poke(AREA + EV_VBGO, 0x0F);
+    time_interrupts(r, all, ms(200), [&] {
+        if (!(r.phys(AREA + EV_VBGO) & 0x0F))
+            r.poke(AREA + EV_VBGO, 0x0F);
+    });
+    Costs::print("four slots of 256, the pointer, the stream: a frame", all.frame);
+    UsbCard *usb = r.machine->usb_card();
+    int latest = -1;
+    unsigned landed = 0;
+    bool armed = false;
+    auto track = [&](bool batch) {
+        r.watch = [&, batch](uint16_t) {
+            const unsigned line = vid(r).beam_line();
+            if (batch && !armed && line == 470)
+            {
+                for (int k = 0; k < 16; ++k)
+                    usb->key(static_cast<uint8_t>(0xE0 + (k & 7)), k < 8);
+                armed = true;
+            }
+            if (line < 470)
+                armed = false;
+            if (!(r.phys(AREA + EV_VBGO) & 0x0F))
+            {
+                ++landed;
+                latest = std::max(latest, static_cast<int>(line));
+                r.poke(AREA + EV_VBGO, 0x0F);
+            }
+        };
+    };
+    track(true);
+    r.run(ms(200));
+    r.watch = nullptr;
+    std::printf("  1,024 bytes, the pointer, the stream, a USB batch at 470: %u frames, the latest ended at line %d (%d to spare)\n",
+                landed, latest, 524 - latest);
+    CHECK(landed >= 10 && latest >= 480 && latest <= 524);
+    const int usb_latest = latest;
+    std::vector<uint8_t> fcb(36, 0);
+    fcb[0] = 2;
+    const std::string n = "PICTURE BIN";
+    for (unsigned i = 0; i < 11; ++i)
+        fcb[1 + i] = static_cast<uint8_t>(n[i]);
+    r.poke(0x2140, fcb);
+    CHECK_EQ(command(r, 'O', "O"), std::string("00 00"));
+    latest = -1;
+    landed = 0;
+    track(false);
+    for (int k = 0; k < 3; ++k)
+        CHECK_EQ(f83(r, {1, 0x40, 0x21, 0, 0, 0, 0, 2, 0, 0, 0x0A}), std::string("00 00"));
+    r.watch = nullptr;
+    std::printf("  and under 64 KB loads: %u frames, the latest ended at line %d (%d to spare)\n", landed, latest, 524 - latest);
+    CHECK(landed >= 3 && latest >= 480 && latest <= 524);
+    CHECK(usb_latest <= 524);
+    CHECK_EQ(r.phys(AREA + 106), 0); // the stream's underruns
 }
 
 TEST(the_pointer_follows_the_mouse_less_its_hotspot)
@@ -575,12 +661,20 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         REQUIRE(r.ok);
         open(r, "2");
         junk(r);
+        CHECK(sys(r, "VBON") != 0); // a slot and the pointer on: Break must stop them doing anything
+        CHECK_EQ(sys(r, "PTRON"), 1);
+        r.poke(0x90000, std::vector<uint8_t>(64, 0));
         const size_t from = r.out.size();
         r.cpu->nmi();
         CHECK(r.until("\\\r", ms(1000), from));
         CHECK_EQ(vreg(r, 0x00) & 0x08, 0); // sprites off
+        CHECK_EQ(vreg(r, 0x04), 0);        // the card's interrupts off (the ROM's QUIET): no frame handler
+        r.poke(AREA + EV_VBGO, 1);         // so a slot's bit set under the monitor copies nothing
+        r.run(ms(60));
+        CHECK(mem(r, 0x90000, 64) == std::vector<uint8_t>(64, 0));
+        CHECK_EQ(r.machine->bus().peek(0xC417) & 1, 0); // channel 1 not running
         REQUIRE(r.boot());
-        CHECK_EQ(sys(r, "VBON"), 0);
+        CHECK_EQ(sys(r, "VBON"), 0); // booting again starts afresh
         CHECK_EQ(sys(r, "PTRON"), 0);
     }
     {

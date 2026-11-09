@@ -237,6 +237,31 @@ TEST(the_ends_go_through_the_buffer_and_the_file_s_end_stops_it)
     CHECK(mem(r, 0x94000, 256) == std::vector<uint8_t>(256, 0xEE));
 }
 
+TEST(a_load_past_a_full_extent_s_end_leaves_the_fcb_at_the_last_record)
+{
+    // A file of exactly 128 records (one full extent), loaded from 0 with a count of 200: the step for record 128
+    // finds no extent. The FCB must be left as a random read of record 127 leaves it: extent 0, CR 127, so a
+    // sequential read (20) reads record 127 again, as after function 33 (review F4).
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(128 * 128, 77);
+    put_b(r, "FULL    BIN", data);
+    open(r, "X");
+    open_file(r, 2, "FULL    BIN");
+    Load l = load(r, 0, 200, 0x90000);
+    CHECK_EQ(l.ret, std::string("01 00"));
+    CHECK_EQ(l.records, 128u);
+    CHECK(same(mem(r, 0x90000, 128 * 128), data, "the extent"));
+    std::printf("  the FCB after: EX %u, S2 %02X, CR %u, R %u\n", r.phys(FCB + 12), r.phys(FCB + 14), r.phys(FCB + 32),
+                r.phys(FCB + 33) | r.phys(FCB + 34) << 8);
+    CHECK_EQ(r.phys(FCB + 12), 0);
+    CHECK_EQ(r.phys(FCB + 32), 127);
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x3000), std::string("00 00"));
+    r.poke(0x3000, std::vector<uint8_t>(128, 0xEE));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    CHECK(same(mem(r, 0x3000, 128), slice(data, 127 * 128, 128), "function 20 after the load: record 127"));
+}
+
 TEST(a_block_never_written_ends_the_load)
 {
     CcpRig r;

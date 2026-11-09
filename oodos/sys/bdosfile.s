@@ -2067,8 +2067,8 @@ GENCHK:         LDA     CSLOT
 ; never opened has no blocks: 1, nothing loaded (the owner's decision: the
 ; FCB has no mark of being open the BDOS could trust). +6-7 of the block
 ; get the records loaded; the FCB is written back as a random read of the
-; last record loaded leaves it (R0-R2 and CR that record's), or of the
-; first if none was.
+; last record loaded leaves it (R0-R2 and CR that record's, F on its
+; extent), or of the first if none was.
 .import LFCB, LREC, LCNT, LDST, LDONE  ; video.s's
 .import RDRUN, DRVAPL                  ; bios.s's
 .importzp SRCP
@@ -2255,8 +2255,12 @@ LDEND:          PHA
                 LDA     LREC + 2
                 SBC     #0
                 STA     FC + FCB_R + 2
-                LDA     FC + FCB_R
-                AND     #$7F
+                JSR     RANDPOS        ; and F at that record's extent, as 33 leaves it: a step
+                JSR     SAMEEXT        ; past a full extent's end left F on the next, empty one
+                BEQ     @cr            ; (review F4)
+                LDA     #0
+                JSR     POSITION       ; (its extent was found before: it is there)
+@cr:            LDA     RRCR
                 STA     FC + FCB_CR
 @out:           JSR     FCBOUT
                 CLC                    ; the block's +6-7: the records loaded

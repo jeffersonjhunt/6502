@@ -366,6 +366,11 @@ DM_VBSETX:      BLOCK
                 STA     T2
                 ORA     T1
                 BEQ     @set           ; 0: the slot freed
+                LDA     T1             ; this one 1,024 at most, alone (review F1: no sum wraps)
+                CMP     #<(SLOT_MAX + 1)
+                LDA     T2
+                SBC     #>(SLOT_MAX + 1)
+                BCS     @no0
                 LDA     T0             ; the others' lengths and this one's, against the budget
                 ASL     A
                 STA     T3
@@ -383,6 +388,7 @@ DM_VBSETX:      BLOCK
                 LDA     T5
                 ADC     SLLEN + 1,X
                 STA     T5
+                BCS     @no0           ; (none can carry, each 1,024 at most: but never wrapped)
 @skip:          DEX
                 DEX
                 BPL     @sum
