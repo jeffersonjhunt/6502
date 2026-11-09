@@ -1130,6 +1130,13 @@ and more in L5:
     `FT_INFO` answers `05 0F`, so a program can tell they exist: an OODOS 0.5 refuses them as a refused hold is
     refused), the five `FT_INFO` expectations changed with it and `test_oodos_gfx`'s patch of the answer looking for
     5; the books' "since OODOS 0.6", one bump after L4a and L4b; the sound suite's own `SN_OPS` 20, as `oodos.inc`.
+  - *Review round 1 (2026-11-08):* `SN_VOLUME` reads both bytes before writing either, so a block refused at +2
+    (in the I/O hole) changes nothing; `SN_START` forgets a hold only once its block is read, so a refused start
+    leaves the hold for `SN_GO`; `SN_GO` turns RUN off before writing the kept bytes, as a program may have set RUN
+    while held (the card would drop the writes). Tests for each, and for CTRL's NTSC, `$D500` and BOTH bits kept
+    through a hold and a go; L3TEST's B calls function 82 with a block just under `$C000`. Block 61 now 3,310 bytes
+    free (12 more). Accepted risk (F6): a 6510 that stops itself through `$DE02` in the few cycles between the hold's
+    read of CTRL and its write is still recorded as held, so a go would start it again past its own stop.
 
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in

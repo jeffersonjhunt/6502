@@ -3027,7 +3027,8 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (4: 1 was L1's, 2 L2's, 3 L3's), X = a bit for each service area OODOS
+- `FT_INFO`: A = OOLIB's interface version (5: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+  volume), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
@@ -3258,7 +3259,8 @@ sound (`OA_SOUND`).
 - `SN_START` writes the card's `$FFFC–$FFFD` and CTRL (RUN and RESET with the bits given).
 - `SN_HOLD` turns CTRL's RUN off and doesn't pulse RESET, so the 6510's registers and the card's RAM stay as they
   are. Then it reads SID A's and SID B's `$D418` (the card gives back what was last written, by the 6510 or the
-  program), keeps both, and writes each back with its low nibble, the volume, 0 and its filter bits as they were.
+  program), keeps both, and writes each back with its low nibble, the volume, 0 and its high nibble (bits 4–6 the filter's outputs, bit 7
+  voice 3 off) as it was.
   VOLL and VOLR aren't touched, so a stream or the ES5503 playing alongside goes on as loud as before. `SN_GO`
   writes the two kept bytes back, A's first (with CTRL's BOTH a write to A reaches B too), then sets RUN, again
   without RESET: the 6510 carries on from the instruction it was held at. `SN_STOP`, `SN_START`, `SN_RELEASE` of
