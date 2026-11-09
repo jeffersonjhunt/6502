@@ -663,13 +663,14 @@ namespace oodos_rig
         constexpr uint32_t SCB_PHYS = SYS_BLOCK_PHYS + 0x200; ///< the SCB, CP/M 3's offsets
         constexpr unsigned M_BLS = 2048, M_DIRBLOCKS = 4, M_BLOCKS = 64; ///< M:'s 128 KB
 
-        /// A file for M:'s directory. Its last record is ^Z-padded.
+        /// A file for M:'s directory. Its last record is ^Z-padded. `count`: its last record's byte
+        /// count (data's size mod 128) in its last entry's S1 only, the others' 0, as cpmtools writes it.
         struct MFile
         {
             unsigned user;
             std::string name83; ///< 8 + 3, blank-padded
             std::vector<uint8_t> data;
-            bool sys = false, ro = false;
+            bool sys = false, ro = false, count = false;
         };
 
         inline std::vector<uint8_t> bytes(const std::string &s) { return std::vector<uint8_t>(s.begin(), s.end()); }
@@ -731,33 +732,43 @@ namespace oodos_rig
                 while (phys(MDISK + entry * 32) != 0xE5);
                 return entry;
             }
-            /// Files into M:'s directory and blocks, behind OODOS's back: before M: is logged in.
+            /// Files into M:'s directory and blocks, behind OODOS's back: before M: is logged in. A
+            /// file over 32 KB takes an entry for each 32 KB (16 blocks of 2 KB, EXM 1), in the free
+            /// entries in order, each's EX its last logical extent and RC that one's records, as cpmtools
+            /// writes them.
             void put_m(const std::vector<MFile> &files)
             {
                 for (const MFile &f : files)
                 {
-                    const unsigned at = free_entry();
                     const unsigned records = static_cast<unsigned>((f.data.size() + RECORD - 1) / RECORD);
-                    REQUIRE(records >= 1 && records <= 256); // one entry: 16 blocks of 2 KB, EXM 1
+                    REQUIRE(records >= 1);
                     REQUIRE(block + (records * RECORD + M_BLS - 1) / M_BLS <= M_BLOCKS);
-                    std::vector<uint8_t> e(32, 0);
-                    e[0] = static_cast<uint8_t>(f.user);
-                    for (unsigned i = 0; i < 11; ++i)
-                        e[1 + i] = static_cast<uint8_t>(f.name83[i]);
-                    e[9] = static_cast<uint8_t>(e[9] | (f.ro ? 0x80 : 0));
-                    e[10] = static_cast<uint8_t>(e[10] | (f.sys ? 0x80 : 0));
-                    e[12] = static_cast<uint8_t>((records - 1) / 128);       // EX: 0, or 1 past 16 KB
-                    e[15] = static_cast<uint8_t>(records - e[12] * 128u); // RC: the last 16 KB's records
                     std::vector<uint8_t> data = f.data;
                     data.resize(size_t{records} * RECORD, 0x1A);
-                    for (unsigned k = 0; k * M_BLS < data.size(); ++k)
+                    for (unsigned first = 0; first < records; first += 256)
                     {
-                        e[16 + k] = static_cast<uint8_t>(block);
-                        for (size_t i = 0; i < M_BLS && k * M_BLS + i < data.size(); ++i)
-                            poke(MDISK + block * M_BLS + static_cast<uint32_t>(i), data[k * M_BLS + i]);
-                        ++block;
+                        const unsigned at = free_entry();
+                        const unsigned here = std::min(records - first, 256u); // this entry's records
+                        std::vector<uint8_t> e(32, 0);
+                        e[0] = static_cast<uint8_t>(f.user);
+                        for (unsigned i = 0; i < 11; ++i)
+                            e[1 + i] = static_cast<uint8_t>(f.name83[i]);
+                        e[9] = static_cast<uint8_t>(e[9] | (f.ro ? 0x80 : 0));
+                        e[10] = static_cast<uint8_t>(e[10] | (f.sys ? 0x80 : 0));
+                        e[12] = static_cast<uint8_t>(first / 128 + (here - 1) / 128); // EX: its last 16 KB's
+                        e[15] = static_cast<uint8_t>(here - (here - 1) / 128 * 128u);  // RC: that 16 KB's records
+                        if (f.count && first + here == records)
+                            e[13] = static_cast<uint8_t>(f.data.size() % RECORD);
+                        for (unsigned k = 0; k * M_BLS < here * size_t{RECORD}; ++k)
+                        {
+                            e[16 + k] = static_cast<uint8_t>(block);
+                            const size_t from = size_t{first} * RECORD + size_t{k} * M_BLS;
+                            for (size_t i = 0; i < M_BLS && from + i < data.size() && k * M_BLS + i < here * size_t{RECORD}; ++i)
+                                poke(MDISK + block * M_BLS + static_cast<uint32_t>(i), data[from + i]);
+                            ++block;
+                        }
+                        poke(MDISK + at * 32, e);
                     }
-                    poke(MDISK + at * 32, e);
                 }
             }
             /// An XFCB for a file of M:'s, its mode (bit 7 read, 6 write, 5 delete) and password,

@@ -1096,6 +1096,35 @@ and more in L5:
   the book's: with CR `$FF`, open also finds the file's last extent and takes its S1. A test opens a file of three
   extents with a short last record, and PLAYSID loads such a tune to its exact length. OO-Amp's own lookup of the
   last extent can then go.
+  - *L4a, as built (2026-11-08):* first, cpmtools itself: `cpmcp -f oodos-ram` of a 70,050-byte file writes three
+    entries, EX 1, 3 and 4, S1 0, 0 and 34, so a full entry's S1 is 0 and a full last record's too. The rig's
+    `put_m` now writes a file of several entries so (`MFile`'s `count`: S1 in the last entry only); a file of one
+    entry is written as before. The tests showed the bug before the fix: `test_oodos_load` opened a three-entry
+    file at each extent and got CR 0 but from the last; `test_oodos_playsid`'s 34,956-byte PSID (two entries, a
+    last record of 12 bytes) had 116 bytes of padding loaded past its end. The fix (`bdosfile.s`, open's `@count`
+    and `LASTS1`): with CR `$FF`, after the access stamp (which needs extent 0's DIDX), every entry of the file is
+    looked at, as Compute File Size looks, in the user it was opened from (`EXTUSER`: user 0 for a SYS file found
+    there), and CR takes the S1 of the entry with the highest extent (S2, then EX; an entry's EX is its last
+    logical extent, so the extent mask needs nothing more). S1 is copied as it is, so 0 keeps its meaning; the FCB
+    is otherwise as before, byte for byte. Tests: every extent of three, the last extent's entry first in the
+    directory, a SYS file of user 0's opened from user 3, a one-entry file and a full last record as before, the
+    access stamp still extent 0's and nothing else in the directory changed; each fails on the old code (and the
+    user and highest-extent cases on a fix that scans the current user, or takes the last entry found). Cost:
+    block 60 1,493 bytes free to 1,442 (debug 1,477 to 1,426), 51 bytes (67 after review round 1, below); about 2,400 cycles more for an open of a
+    one-entry file on M:, 3,900 for three, only with CR `$FF`. The books say "from OODOS 0.6; before it, the
+    opened extent's", as "from OODOS 0.5" says for the video-memory refusal.
+  - *L4a review round 1 (2026-11-08):* `LASTS1` now runs before the access stamp, keeping DIDX in `DSAVE` (free once
+    `OPENPW` is done) and giving it back for the stamp, so a read that fails in the look (Disk I/O, no disk on O:
+    or P:) fails the open before anything is written. The access-stamp test still sees only extent 0's slot change,
+    and fails on a version that doesn't give DIDX back (the stamp in another slot). A test that the look's failure
+    leaves no stamp was not made: M: can't fail a read, and on the card the rig can only eject it whole, which
+    fails the stamp's own write as well, so the two orders look the same from outside. New tests: entries written
+    by hand across a module (S2 1, EX 0 first in the directory, S2 0, EX 31 after: S2 1's S1), which fails on a
+    compare of EX alone; a three-entry file with S1 in its first two entries and 0 in the last (function 30's
+    f6', then growth), giving 0, and $44, $44, $33 giving $33, which fail on "the nonzero S1" and "the largest".
+    The function 15 entry's Cycles say the look may read the Disk II on O: and P:. Owner: "from OODOS 0.6; before
+    it, ..." is the books' marker for a behaviour change; F_SIZE's user (`SCB_USER`, not `EXTUSER`) is on the
+    backlog. Block 60 1,426 bytes free (debug 1,410): the look 67 bytes in all.
 - **L4b: hold, go and volume, in function 82.**
   - `SN_HOLD`: the 6510's CTRL RUN off without RESET, the SIDs silenced through VOLL/VOLR (the firmware applies
     them at once, [sound-rev2.md](sound-rev2.md)), the volumes before it kept. `SN_GO`: RUN on, those volumes back.

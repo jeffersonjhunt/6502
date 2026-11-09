@@ -124,7 +124,7 @@ MON:            .res    1              ; 1 once one is done: a physical error ke
 MRAND:          .res    1              ; bit 6: random, R0-R2 back to RSAVE at the end; 7: a read
 MKPW:           .res    1              ; F_MAKE: bit 7, f6' with passwords on: an XFCB too
 RSAVE:          .res    3
-DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for
+DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for (OPENPW) and the last extent (LASTS1)
 
 .segment "BDOS"
 
@@ -387,12 +387,10 @@ F_OPEN:         LDA     #FCB_SEQ
                 STA     FC + FCB_F8
 @found:         JSR     OPENPW
                 JSR     OPENEXT
-                LDA     FC + FCB_CR     ; CR $FF: the byte count into CR
-                CMP     #$FF
+                LDA     FC + FCB_CR     ; CR $FF: the file's byte count into CR,
+                CMP     #$FF           ; before the stamp: a failed look writes nothing
                 BNE     @access
-                LDY     #FCB_S1
-                LDA     (DPTR),Y
-                STA     FC + FCB_CR
+                JSR     LASTS1
 @access:        LDA     MODE           ; the access, in extent 0's slot only
                 AND     #MODE_ACCESS
                 BEQ     @done
@@ -410,6 +408,45 @@ F_OPEN:         LDA     #FCB_SEQ
                 JMP     RET0
 @none:          LDA     #$FF
                 JMP     RETA
+
+; CR = S1, the byte count, of the entry of F's file with the highest extent
+; (S2, then EX), in the user it was opened from: cpmtools keeps the count in
+; the last extent's entry only. Every entry of the file is looked at, as
+; Compute File Size looks (F_SIZE). DIDX as it was, for the access stamp
+; (DSAVE, free once OPENPW is done); SPAT, DPTR and T0-T3 changed.
+LASTS1:         LDA     DIDX
+                STA     DSAVE
+                LDA     DIDX + 1
+                STA     DSAVE + 1
+                JSR     EXTUSER
+                LDX     #SM_ANYEX
+                JSR     SETPAT
+                STZ     T0             ; T1/T0: the highest extent so far
+                STZ     T1
+                STZ     DIDX
+                STZ     DIDX + 1
+                JSR     FIND
+@entry:         BCS     @done
+                JSR     DEXT           ; T3/T2: this entry's
+                LDA     T2
+                CMP     T0
+                LDA     T3
+                SBC     T1
+                BCC     @next          ; below the highest
+                LDA     T2
+                STA     T0
+                LDA     T3
+                STA     T1
+                LDY     #FCB_S1
+                LDA     (DPTR),Y
+                STA     FC + FCB_CR
+@next:          JSR     FINDNXT
+                BRA     @entry
+@done:          LDA     DSAVE
+                STA     DIDX
+                LDA     DSAVE + 1
+                STA     DIDX + 1
+                RTS
 
 ; The file at DPTR (DIDX) opened from user EXTUSER: protected (PWFILE)
 ; without its password given, Password Error in read mode, f7' (read-only)

@@ -704,7 +704,8 @@ against, compared with what the BDOS does on the emulator.
   every attribute 0 (the Guide, 2.3.4 and 22), no blocks. **Open** looks in the current user, then (from another
   user) for user 0's entry with t2': opened from there, f8' set, and the file read-only (File R/O on a write; its
   later extents are user 0's too). It copies f1'–f4' and t1'–t3' from the entry, clears f7', and with CR `$FF`
-  gives the entry's byte count (S1, as 30 sets it with f6') in CR. **Delete** checks every match first (File R/O:
+  gives the byte count (S1, as 30 sets it with f6') of the file's last entry in CR (from OODOS 0.6, OOLIB's L4a,
+  [oolib.md](oolib.md); before it, the opened entry's). **Delete** checks every match first (File R/O:
   none deleted), then deletes every extent and the file's XFCBs (user + 16); with f5', the XFCBs only. **Rename**
   takes the new name's low 7 bits and keeps each entry's attributes, its XFCBs renamed too. **30** sets every
   extent's f1'–f4' and t1'–t3', clears f5'–f8' on the disk, and with f6' sets S1 to CR.
