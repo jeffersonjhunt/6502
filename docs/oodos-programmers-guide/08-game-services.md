@@ -536,8 +536,8 @@ With no slot set and no pointer, nothing: the tick with no event area is 145 cyc
 and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 516 a frame; a 512-byte slot copied,
 1,774 (1,024 of them the DMA's); the pointer, 728; the whole budget, four slots of 256 bytes, with the pointer and a
 44.1 kHz stream's fields, 3,645. That ends inside the vertical blank even with a USB batch or a 4 KB load piece
-holding the interrupt off (`test_oodos_video`: line 508 at the latest, 16 lines to spare; the blank is lines
-480–524).
+holding the interrupt off (`test_oodos_video`: line 508 at the latest under a USB batch, 16 lines to spare, and line 511 under 64 KB loads,
+13 to spare; the blank is lines 480–524).
 
 ## When the program ends
 
