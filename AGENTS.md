@@ -28,8 +28,13 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   and ends with `JMP WBOOT`. Its zero page is `$00-$EF`; `$F0-$FF` is the RSXs'.
 - **Don't take over what OODOS owns:** interrupts and the vectors, the DMA channels, the north bridge's windows,
   the sound card's 6510, the VIA's ACR, IER and IFR, and its timer 1 (don't write it, nor read `T1CL`, which clears
-  the tick's flag). Once OOLIB exists ([hw/oolib.md](hw/oolib.md), phase G3), go through it for the screen, sound,
-  timing and input; until then, ask before a program touches that hardware.
+  the tick's flag). The one exception to the windows is OOLIB's: its linked library maps W1 itself (a video block
+  or one the program allocated), under the W1 contract (OOLIB interface 4,
+  [the Programmer's Guide, chapter 5](docs/oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)); a
+  program draws through OOLIB, not by writing `NB_WIN1` itself, and keeps its code and data out of `$4000-$7FFF`
+  meanwhile. The console's video memory, units 0-12, is OODOS's. Go through OOLIB
+  ([hw/oolib.md](hw/oolib.md), phase G3) for the screen, sound, timing and input; for what it doesn't cover yet,
+  ask before a program touches that hardware.
 - **Keep to the 65C816 rules:** the build checks them (`oodos/tools/rules.py`) and fails a program that breaks them
   ([hw/oodos.md](hw/oodos.md#rules-for-programs-the-65c816)).
 - **No Digital Research text or code,** in programs, tests or books. Write from the meaning, in our own words.

@@ -612,6 +612,15 @@
   "status": "built"
  },
  {
+  "number": 83,
+  "name": "O_DMA",
+  "documented": true,
+  "anchor": "bdos-83",
+  "file": "oodos-programmers-guide/07-function-reference.md",
+  "since": "OODOS 0.5",
+  "status": "built"
+ },
+ {
   "number": 98,
   "name": "DRV_FREE",
   "documented": true,

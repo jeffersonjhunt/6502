@@ -2337,7 +2337,9 @@ A segment may reach any RAM but OODOS's own: banks 0–5, 8–B (the video memor
 hash, the buffers, the system block), C–D (M:), blocks 60–63 (the BDOS, the BIOS, OODOS's resident block, the ROM
 BIOS's copy) and anything past `$FFFFF`. A DMA address whose record would run past `$FFFF` is refused, as it is
 without a segment. A refused record is A = X = `$FF` with nothing done: checked before the first record for 20, 21,
-33, 34 and 40, and when the record moves for 17 and 18.
+33, 34 and 40, and when the record moves for 17 and 18. From OODOS 0.5 a record read (17, 18, 20, 33) into the
+console's video memory, units 0–12 (`$80000–$833FF`), is refused too, when it moves: that memory is OODOS's
+([function 83](#bdos-83), [chapter 8](08-game-services.md#video-memory)).
 
 The segment lasts until the program sets another or ends: each warm boot sets it back to `$FFFF`. Function 13 sets
 the DMA address to `$0280` and keeps the segment.
@@ -3025,9 +3027,9 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (3: 1 was L1's, 2 L2's), X = a bit for each service area OODOS has
-  (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
-  82](#bdos-82)). With a block: +1 and +2 the same, +3 the
+- `FT_INFO`: A = OOLIB's interface version (4: 1 was L1's, 2 L2's, 3 L3's), X = a bit for each service area OODOS
+  has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
+  82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
   serial card's VIA), +4 the highest event area layout it writes (2).
 - `FT_COUNT`: A/X = the millisecond counter's low word. With a block: +1–4 the millisecond counter, +5–8 the
@@ -3279,6 +3281,101 @@ OODOS 0.4
 #### CP/M 3
 
 OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's third service area
+([hw/oolib.md](../../hw/oolib.md#the-plan)).
+
+<a id="bdos-83"></a>
+### 83 O_DMA: DMA and loading
+
+#### Entry
+
+- Y = 83 (`O_DMA`).
+- X = 0: A is the operation, and it takes no parameters.
+- X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation and the
+  operation's parameters after it, as [function 80's](#bdos-80). The operations are oodos.inc's `DM_` names.
+  Addresses are physical, 3 bytes ([function 73](#bdos-73) makes one of a CPU address):
+
+  | A or +0 | Name | The block, after +0 | What it does |
+  |---|---|---|---|
+  | 0 | `DM_INFO` | 12 bytes to fill (optional) | says the units, the slots and the W1 map |
+  | 1 | `DM_LOAD` | +1–2 an open FCB, +3–5 its first record, +6–7 a count of records (1–512), +8–10 the destination | loads the records into physical memory by DMA |
+  | 2 | `DM_COPY` | +1–3 the source, +4–6 the destination, +7–8 the length (0: 65,536) | copies by DMA |
+  | 3 | `DM_FILL` | +1 the byte, +2–4 the destination, +5–6 the length (0: 65,536) | fills by DMA |
+  | 4 | `DM_VBSET` | +1 a slot (0–3), +2–4 the source, +5–7 the destination, +8–9 the length (1–1,024; 0 frees the slot) | sets a vertical-blank copy |
+  | 5 | `DM_POINTER` | +1 a sprite (0–63; `$FF` off), +2 and +3 the hotspot's X and Y | moves the sprite with the mouse |
+  | 6 | `DM_CONSOLE` | none | shows the console's screen again |
+
+#### Exit
+
+- `DM_INFO`: A = the first video memory unit a program may use (13: `DM_UNIT0`), X = the vertical-blank slots (4:
+  `DM_SLOTS`). With a block: +1 and +2 the same, +3 the slots' budget in 256-byte pages (4: `DM_BUDGET`, 1,024
+  bytes), +4 the pointer's sprite (`$FF` off), +5–12 the **W1 map**: bit n & 7 of byte n / 8 set for each block n
+  that OOLIB may put in W1 now (block 1, the blocks the program has allocated by functions 53–56, and video memory's
+  blocks 33–47; [chapter 5](05-memory-and-banking.md#the-w1-contract)).
+- `DM_LOAD`: A = 0, X = 0, every record loaded; A = 1 if the file ended first (a record past the extent's count, a
+  block never written, or an extent never written), its records before that loaded. The block's +6–7 get the records
+  loaded, either way.
+- The rest: A = 0, X = 0. `DM_LOAD`, `DM_COPY` and `DM_FILL` return when they are done.
+- Y is not kept. The flags come back as they were before the call, the decimal flag clear.
+
+#### Errors
+
+A = X = `$FF`, and nothing done, for an operation past 6, one that needs a block given none, a block in memory that
+isn't the program's (the I/O hole, flash), and a destination that isn't memory a DMA segment may reach
+([function 51](#bdos-51): OODOS's own blocks, or past `$FFFFF`) or that touches the console's video memory, units
+0–12 (`$80000–$833FF`). A source may be anything a segment may reach, the console's font (units 1–4) included. And:
+
+- `DM_LOAD`: a count of 0 or past 512. Function 33's errors otherwise, as its error mode says ([function
+  45](#bdos-45)): 3 (an extent that can't be closed) and 6 (past 32 MB) returned in A, a physical error said. An FCB
+  that was never opened has no blocks: A = 1, no records.
+- `DM_VBSET`: no video card or no DMA controller; a slot past 3; a length past 1,024, or that takes the four slots'
+  past 1,024.
+- `DM_POINTER`: a sprite past 63; no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
+  card or no DMA controller. `$FF` (off) is always taken.
+
+An OODOS before L4 answers 83 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says
+whether there is DMA and loading (`OA_DMA`, interface version 4).
+
+#### Side effects
+
+- `DM_LOAD` writes the drive's changed buffers back first, so it loads what was written, closed or not. On an SD
+  drive of OODOS's own formats and on M:, the whole sectors of a CP/M block that the count wants go straight to the
+  destination: one READ of up to 8 sectors (4 KB) on DMA channel 0, the CPU held a cycle a byte, interrupts taken
+  between (M: by channel 3). A first or last record that doesn't fill its sector goes through a BDOS buffer, as
+  function 33 moves a record with a DMA segment. An apple-do drive (O:, P:, an apple-do image on the card) goes
+  through its track buffer whole. The FCB is left as a random read of the last record loaded leaves it (R0–R2 and CR
+  that record's), or of the first if none was; the DMA segment and address aren't changed. No vertical-blank wait:
+  load into a buffer that isn't shown and flip ([chapter 8](08-game-services.md#loading)).
+- `DM_COPY` and `DM_FILL` go by channel 3, 2 KB a block, interrupts taken between. A copy to a lower address is
+  exact over itself; to a higher one it runs forward, a byte at a time (so a copy one byte up repeats the first). A
+  fill writes the byte to the first and copies it forward over the rest.
+- `DM_VBSET`'s slot is copied by channel 1 at each vertical blank after the program sets its bit in the event
+  area's +12 (`EV_VBGO`, bit n slot n), and the bit cleared then; nothing is copied with no event area open. The
+  slots run in order, then the pointer ([chapter 8](08-game-services.md#the-vertical-blank-slots)).
+- `DM_POINTER` sets bytes 2–5 (X and Y) of the sprite's entry in the table at SPRBASE at each vertical blank, from the
+  area's mouse X and Y less the hotspot, modulo 1,024; not while SPRBASE is a console unit (below 13). The program
+  draws the image, sets the entry's other bytes, and puts the mouse in absolute mode with limits 319 and 239
+  ([function 81's](#bdos-81) `IN_MOUSE`): the sprites' space is 320 × 240.
+- `DM_CONSOLE` sets the video card's registers as the cold boot set them for the console (CTRL, BORDER, PALBASE,
+  SPRBASE, the layers): its text, font and palette are where they were, so what was printed meanwhile shows.
+- The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does.
+
+#### Cycles
+
+`DM_LOAD` of 64 KB from an `oodos-8m` drive: 114,442 cycles (16.0 ms), against 620,419 (86.7 ms) by functions 51 and
+33 with a multi-sector count of 128 (test_oodos_load). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call. What
+the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
+
+#### Since
+
+OODOS 0.5
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no function 83 (OODOS's range, 72 on). It is OOLIB's fourth service area
 ([hw/oolib.md](../../hw/oolib.md#the-plan)).
 
 <a id="bdos-98"></a>

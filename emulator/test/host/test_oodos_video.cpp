@@ -500,6 +500,10 @@ TEST(the_pointer_follows_the_mouse_less_its_hotspot)
     r.run(ms(50));
     CHECK_EQ(at(2) | (at(3) << 8), 1023u); // 1 - 2, modulo 1,024
     CHECK_EQ(at(4) | (at(5) << 8), 1023u);
+    Costs ptr;
+    time_interrupts(r, ptr, ms(200));
+    Costs::print("layout 2, the pointer on, a frame", ptr.frame);
+    CHECK(Costs::mode(ptr.frame) > 396 && Costs::mode(ptr.frame) < 396 + 400);
     CHECK_EQ(command(r, 'I', "INFO").substr(0, 14), std::string("0D 04 0D040403")); // the pointer's sprite
     CHECK_EQ(f83(r, {DM_POINTER, 0xFF}), std::string("00 00"));
     usb->mouse_to(200, 100);

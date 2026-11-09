@@ -792,7 +792,8 @@ sizes`, the maps, normal and `DEBUG=1`).
   destination is checked as 51's segment is (SEGOK) and must not touch the console's units 0–12 (`$80000–$833FF`);
   a refusal is A = X = `$FF`, nothing done.
   - `DM_INFO` (0): A = the first video unit a program may use (13), X = the vertical-blank slots (4); a block gets
-    +1 those, +2 the slots' budget in 256-byte pages, +3 the pointer's sprite (`$FF` off), and +4–11 **the W1 map**:
+    +1 and +2 those, +3 the slots' budget in 256-byte pages, +4 the pointer's sprite (`$FF` off), and +5–12 **the W1
+    map** (as built, the owner's: `FT_INFO`'s convention):
     a bit for each of the 64 blocks, set for those W1 may hold now (block 1, the blocks the program has allocated,
     video 33–47). The library reads it at its start and again after it allocates or frees a block.
   - `DM_LOAD` (1): +1–2 an open FCB, +3–5 the first record, +6–7 a count of records (1–512: 64 KB a call), +8–10
@@ -808,7 +809,7 @@ sizes`, the maps, normal and `DEBUG=1`).
     buffer and flips. Estimated 64 KB from `oodos-8m` in about 15 ms against about 0.45 s; the test measures it.
   - `DM_COPY` (2): +1–3 source, +4–6 destination, +7–8 length (0: 65,536), channel 3 by DMAGO. A copy to a lower
     address is exact over itself; to a higher one it runs forward, as DMAGO's do. `DM_FILL` (3): +1 the byte, +2–4
-    destination, +5–6 length, DMAGO with HOLD from a byte in the system block. The source may be anything SEGOK
+    destination, +5–6 length, DMAGO with HOLD from a byte in the system block (as built, the owner's: the byte to the first, then the first copied forward over the rest). The source may be anything SEGOK
     allows, the console's font included (the library copies it for text on bitmaps).
   - `DM_VBSET` (4): +1 a slot 0–3, +2–4 source, +5–7 destination, +8–9 length (1–1,024; all four 1,024 at most;
     0 frees the slot). **Copied at the vertical blank** by channel 1, from the frame handler, each slot whose bit
@@ -932,7 +933,7 @@ sizes`, the maps, normal and `DEBUG=1`).
   - `test_oodos_load` (about 3 s; files put on B: behind OODOS's back, `test_oodos_sound`'s `put_b` moved into
     `oodos_rig.h`): 64 KB into blocks 33–36 byte for byte, its cycles against 51 and 33 with a count of 128 (both
     stated); an unaligned first record and an odd count (both ends through the buffer); the file ending early (A =
-    1, +6–7 the count); an unwritten block; a count of 0 and of 513, an FCB not open, a destination in units 0–12
+    1, +6–7 the count); an unwritten block; a count of 0 and of 513, an FCB not open (as built: 33's answer, A = 1, the owner's), a destination in units 0–12
     or OODOS's memory, all refused with nothing written; records written and not yet closed, then loaded (the
     must-fail: without the write-back the load reads the card's old sectors); M:; an apple-do image on the card
     (the buffer path); no tick lost; a 44.1 kHz stream playing through a 64 KB load with no underrun. O: and P:
@@ -986,6 +987,68 @@ sizes`, the maps, normal and `DEBUG=1`).
    the file says `$FF`, each part on 1 KB of the file), with `mkasset.py` and VIEW.COM. **Recommended:** format 3,
    magic `'OGX'` kept so OO-Amp's reader needs a version check only: format 2 has no room for a layer's CONFIG
    bits or a part longer than 64 KB (its length is 2 bytes; a bitmap 512 is 120 KB), and fixed units clash when two files load together.
+**L4, as built (2026-11-08)** (`oodos/sys/video.s`, new: function 83's entry and operations, the vertical-blank
+slots, the pointer and the warm boot's part, block 61; `bdosfile.s`'s `LOADGO`, DM_LOAD's file part, block 60;
+`bios.s`'s `SDION` and `RDRUN`; `crt.s`'s `CRTREGS`; `bdosmem.s`'s `UNITS0`; `irq.s`'s frame call; `input.s`'s
+WBQUIET call; `oodos/include/oodos.inc`'s `O_DMA`, `DM_*`, `EV_VBGO`; `oodos/lib/gx*.s` and `oodos/include/oolib.inc`'s
+graphics, `oodos/tools/mkasset.py`, `oodos/utils/view.s`, new; `DMA_CH1` in `backplane.inc`, the ROM byte-identical).
+OODOS stays 0.4 (the bump to 0.5 is the owner's next step); OOLIB's interface version is 4, `FT_INFO`'s areas
+`$0F`. L3's load engine and the beep's body went to block 61 first (question 4), its own commit:
+`test_oodos_sound`'s and `test_oodos_playsid`'s output identical to main's, but for the wave-load case's watch range,
+which followed the code (the owner's leave). Where the plan left something open it was decided as below.
+
+- **Owner-approved changes to the plan** (2026-11-08):
+  - `DM_FILL` writes the byte to the destination's first byte by DMAGO, then copies the first forward over the rest
+    (a copy over itself, a byte at a time, repeats it), as `crt.s`'s erase does: the plan's HOLD would have needed a
+    mode byte in DMAGO, which the BIOS's MOVE and the console's scroll use; the cost is the same, 2 cycles a byte.
+  - `DM_LOAD` on an FCB that was never opened answers as function 33 does, A = 1 with 0 records and nothing
+    written, rather than A = X = `$FF`: CP/M's FCB has no mark of being open the BDOS could trust (S2's bit 7 is
+    clear on an FCB that has been written, too).
+  - `DM_INFO`'s block follows `FT_INFO`'s convention: +1 the first unit (13), +2 the slots (4), +3 the budget in
+    256-byte pages (4), +4 the pointer's sprite (`$FF` off), +5–12 the W1 map. The plan's offsets ("+1 those, +2 the
+    budget") contradicted themselves.
+  - `SN_CLAIM` of the stream writes the area's sound part at once (`SFIELDS`, as `SN_STREAM` and `SN_SEEK` do), so
+    `EV_SBUFS` reads 3 straight after the claim rather than at the next frame: `test_oodos_sound` asserted it there
+    and passed only when a vertical blank fell in between. `test_oodos_clock`'s check of the frames between two
+    dumps is bounded by the time between them (`(ms) / 16 + 1`), as 40 ms of printing crosses 2 or 3 blanks.
+- **Decided here, each for its reason:**
+  - The pointer isn't written while SPRBASE is in the console's units (below 13): the warm boot leaves SPRBASE 0,
+    where the table would be the console's palette.
+  - The pointer's four bytes go by channel 1 from a staging copy (`PSTAGE`), as planned, so the interrupt needs no
+    zero page of its own (two bytes are left). A slot's copy is waited for (`CH1GO`), so a burst limit in CONTROL
+    can't let the next slot's programming meet it running.
+  - `SDIO` takes a count (`SDION`, 1 by `SDIO`'s own entry): the READ's sector count and channel 0's length; `RDRUN`
+    is the direct path (an SD unit's sectors, or M:'s by DMAGO). The BDOS selects the BIOS's drive as `DISKOP` does,
+    and puts W2 back on block 61 before calling it (`GETBUF` leaves W2 on the buffers).
+  - `LOADGO` gives 3 and 6 as 33 does (an extent that can't be closed, past 32 MB); 4 (an extent never written) is
+    the file's end, 1. The write-back is `FLUSHD` for the drive; a failure there is 33's physical error (`DERR`).
+  - The library allocates units aligned to 8 for 8 or more (else to the largest power of two at most the count):
+    the plan's "aligned to n" can't be met for 120 units, and 8 gives two bitmaps 512 at 16 and 136. Units 13–15 are
+    in block 32, which the W1 map hasn't: the CPU can't reach them, DMA can (a palette or sprite table shadow, a
+    sprite table GX_ASSET relocates through a copy).
+  - The console's font is read a character at a time (16 bytes by `DM_COPY`), not copied whole: 4 KB of the program's
+    memory below `$4000` is worth more than 500 cycles a character.
+  - The vertical-blank go bits are set by a `TSB` whose operand `GX_INIT` writes (in the DATA segment), so the
+    program's read-modify-write can't be split by the interrupt's.
+  - A function 51 read into units 0–12 is refused at `DOUT` (`UNITS0`), as function 83's destinations are (question
+    2's "and by 51's reads").
+- **Memory** (bytes free after L4, normal build, then debug): common memory 166 (156), down 10 (the frame's call);
+  block 60 347 (331): 905 after the move, then `LOADGO` (about 520), `UNITS0` and `DOUT`'s check; block 61 4,630;
+  block 62's code window 1,183 (980); SYSBSS 59 (56); zero page 2. VIEW.COM is 5,238 bytes, its code and BSS to
+  `$1C0C`; GXTEST, every module linked, ends at `$2A70`.
+- **Costs** (`test_oodos_video`, from the interrupt's first cycle to its RTI's last): a tick with no area **145, L1's
+  to the cycle**; a frame with no area **199, L3's to the cycle** (main 0497570 measured the same way); a layout-2
+  frame 396, L3's 389 and `LDA VBON / BEQ`'s 7; with a slot set and no bit 516; a 512-byte slot copied 1,774 (its
+  1,024 cycles of DMA inside); the pointer on 728. The latest a copy ended: line 502 with a 16-event USB batch at line
+  470, line 495 under 64 KB loads; the blank is lines 480–524. `test_oodos_load`: 64 KB from `oodos-8m` by DM_LOAD
+  in 114,442 cycles (16.0 ms), against 620,419 (86.7 ms) by 51 and 33 with 44's count of 128; 116,346 with a 44.1 kHz
+  stream playing, no underrun; 24 KB from M: 75,534; 20 KB from an apple-do unit 913,717 (through the track buffer).
+- **Tests** (emulator, fast preset): `test_oodos_video` (8 cases, 1.8 s), `test_oodos_load` (6 cases, 1.1 s),
+  `test_oodos_gfx` (7 cases, 2.4 s), and mkasset.py's own (`oodos/test/check_mkasset.py`, from `make -C oodos check`,
+  0.4 s). Must-fail, each against a build with the fault put in: a slot copied in the BDOS's time (DM_VBSET copying
+  at once) fails the slot's case (the bytes changed at line 51, before the bit); DM_LOAD without its write-back
+  reads the card's old record 8. Test programs `oodos/sys/test/l4test.s` and `oodos/test/gx/gxtest.s`. The clock and
+  input suites' `FT_INFO` expectations follow the version: `04 0F`, `040F0302`.
 
 **Added (2026-11-08, the owner), from OO-Amp's proposal** (`OOLIB-SOUND-PROPOSAL.md` in OO-Amp's repo, written at
 its M4). L3 gives a program the card's parts one at a time; a player also wants the same few verbs whatever is

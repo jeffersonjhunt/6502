@@ -78,6 +78,8 @@ the function's entry, and the physical errors, A = `$FF` with a code in X, are i
 | [76](07-function-reference.md#bdos-76) | `O_SECTOR` | an Apple disk's DOS 3.3 sector | A/X = the block | A = 0, 1, 2, `$FF` |
 | [80](07-function-reference.md#bdos-80) | `O_FRAME` | frame and timing | A = the operation (X = 0), or A/X = a block, +0 the operation | per the operation; `$FF` refused |
 | [81](07-function-reference.md#bdos-81) | `O_INPUT` | input | A = the operation (X = 0), or A/X = a block, +0 the operation | per the operation; `$FF` refused |
+| [82](07-function-reference.md#bdos-82) | `O_SOUND` | sound | A = the operation (X = 0), or A/X = a block, +0 the operation | per the operation; `$FF` refused, `$FE` busy |
+| [83](07-function-reference.md#bdos-83) | `O_DMA` | DMA and loading | A = the operation (X = 0), or A/X = a block, +0 the operation | per the operation; `$FF` refused |
 | [98](07-function-reference.md#bdos-98) | `DRV_FREE` | free blocks not closed | — | A/X = 0 |
 | [99](07-function-reference.md#bdos-99) | `F_TRUNCATE` | truncate a file | A/X = the FCB | A = 0, `$FF` |
 | [100](07-function-reference.md#bdos-100) | `DRV_SETLABEL` | make or change a directory label | A/X = the FCB | A = 0, `$FF` |

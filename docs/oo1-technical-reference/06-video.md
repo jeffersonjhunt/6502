@@ -249,8 +249,28 @@ What the BIOS and its video demo (`C803R`, `demo.s`) put where:
 | 36 | `$89000` | the demo's sprite table |
 | 248–249 | `$BE000` | Apple II mode's character ROM, 2 KB (`apple.s`) |
 
-The demo keeps clear of units 0–12, so the text screen is still there when it ends. Under OODOS the console is
-this text screen, and a program leaves the card alone until OOLIB exists ([AGENTS.md](../../AGENTS.md)).
+The demo keeps clear of units 0–12, so the text screen is still there when it ends.
+
+### Under OODOS
+
+Status: **built**
+
+The console is the BIOS's text screen, set up by OODOS's own CRTINIT at cold boot: the palette at unit 0, the font
+at units 1–4, the text at units 8–12. Those units, 0–12 (`$80000–$833FF`), are OODOS's (OOLIB L4): function 83
+refuses them as a destination, a record read through a DMA segment may not land in them, and block 32 is never in
+W1's map. A program has units 13–255. Units 13–15 are in block 32, so only DMA reaches them.
+
+A program may write every video register but IEN (OODOS's: the vertical blank alone) and SPLASH, and of ISR only
+bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt, and turns off a line or
+collision interrupt a program enables). It reaches video memory through OOLIB, which maps W1 itself under the W1
+contract ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)),
+or by function 83. Collisions are read from STATUS and ISR: OODOS keeps no copy of them.
+
+The warm boot (and function 83's `DM_CONSOLE`) sets the registers back as CRTINIT sets them: CTRL `$03`, BORDER,
+PALBASE and SPRBASE 0, layer 0 text at units 8 and 1, unscrolled, layer 1's CONFIG 0, IEN the vertical blank alone.
+It copies nothing: the console's memory was never the program's, so what OODOS printed meanwhile shows. OODOS's
+vertical-blank copies and the pointer sprite run from the frame handler on DMA channel 1
+([chapter 4](04-interrupts.md#under-oodos), [chapter 5](05-dma.md#under-oodos)).
 
 ### When changes show
 
