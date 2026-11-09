@@ -14,6 +14,11 @@ SND_EQVAL       = SND + $5A            ; the gain in half-dB, +-24, or the enabl
 SND_VISIDX      = SND + $5B            ; the vis page's index: 0 written takes a snapshot
 SND_VISDATA     = SND + $5C            ; the byte there, and the index moves on
 SND_ID          = SND + $7F            ; high nibble the module ($A0), low the revision
+SND_CTRL        = SND + $40            ; bit 0 NTSC, bit 1 RUN (the 6510)
+SND_RATE        = SND + $4A            ; 2 bytes: the stream's rate in Hz
+SND_DOCCTL      = SND + $5E            ; bit 0 RUN (the ES5503)
+SND_RUN         = $02
+SND_DOC_RUN     = $01
 SND_TYPE        = $A0
 SND_EQ_ENABLE   = $80
 SND_VIS_BYTES   = 98                   ; 32 bands, the VU pair, 64 samples
@@ -23,5 +28,12 @@ EQ_BANDS        = 10
 ; pbcard.s's: carry clear with a revision-2 card or later (A, X, Y kept);
 ; carry set and A = PE_NOCARD without one
 .global PBCARD
+; pb.s's, for pblev.s: the source begun (PB_SID + 1 ...; 0 none), and a
+; count PB_BEGIN moves on (a new tune: the envelopes from quiet)
+.global PBSRC, PBGEN
+; pbmath.s's: PBMUL A x X into PBP (16 bits); PBDIV PBP / A into A (the
+; quotient's low byte; PBP's high byte must be under A)
+.global PBMUL, PBDIV
+.globalzp PBP
 
 .endif
