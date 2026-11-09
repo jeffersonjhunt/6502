@@ -509,7 +509,8 @@ reads the W1 map. Then:
 - **Tiles** (`gxtile.s`): `GX_TMAP`, `GX_TPUT`, `GX_TGET`, `GX_TFILL`.
 - **Bitmaps** (`gxbmp.s`): bitmap 256 (8 bits a pixel), bitmap 512 (4) and mono (1): `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
-  `GX_BCOPY`. Draws are clipped to the bitmap; a copy whose rectangle leaves it is refused, and one of no width or
+  `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
+  refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or
   height does nothing. A copy's rows are each one DMA copy forward, as memcpy, not memmove: moving a strip right
   on the same rows repeats its first bytes, so copy through another place for that.
 - **Text** (`gxtext.s`): an 8 × 16 font on a bitmap, the console's or the program's: `GX_FONT`, `GX_TEXT`.

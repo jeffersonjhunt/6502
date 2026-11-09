@@ -508,7 +508,7 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
     CHECK_EQ(f83(r, {DM_POINTER, 3, 0, 0}), std::string("00 00"));
     Costs all;
     r.poke(AREA + EV_VBGO, 0x0F);
-    time_interrupts(r, all, ms(200), [&] {
+    time_interrupts(r, all, ms(120), [&] {
         if (!(r.phys(AREA + EV_VBGO) & 0x0F))
             r.poke(AREA + EV_VBGO, 0x0F);
     });
@@ -537,11 +537,11 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
         };
     };
     track(true);
-    r.run(ms(200));
+    r.run(ms(150));
     r.watch = nullptr;
     std::printf("  1,024 bytes, the pointer, the stream, a USB batch at 470: %u frames, the latest ended at line %d (%d to spare)\n",
                 landed, latest, 524 - latest);
-    CHECK(landed >= 10 && latest >= 480 && latest <= 524);
+    CHECK(landed >= 8 && latest >= 480 && latest <= 524);
     const int usb_latest = latest;
     std::vector<uint8_t> fcb(36, 0);
     fcb[0] = 2;
@@ -559,7 +559,12 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
     std::printf("  and under 64 KB loads: %u frames, the latest ended at line %d (%d to spare)\n", landed, latest, 524 - latest);
     CHECK(landed >= 3 && latest >= 480 && latest <= 524);
     CHECK(usb_latest <= 524);
-    CHECK_EQ(r.phys(AREA + 106), 0); // the stream's underruns
+    // The stream still playing at the measurement's end (128 KB of buffers: 0.74 s), and never dry (review R2).
+    std::printf("  the stream at the end: state %u, %u frames played, underruns %u\n",
+                r.machine->sound_card()->peek(0x50), r.phys(AREA + 100) | r.phys(AREA + 101) << 8 | r.phys(AREA + 102) << 16,
+                r.phys(AREA + 106));
+    CHECK_EQ(r.machine->sound_card()->peek(0x50), 2); // SOUND_STATE: playing
+    CHECK_EQ(r.phys(AREA + 106), 0);                 // the stream's underruns
 }
 
 TEST(the_pointer_follows_the_mouse_less_its_hotspot)

@@ -126,8 +126,9 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;               (what it reached filled)
 ;   GX_BCOPY    the rectangle at (GX_X, GX_Y), GX_X2 wide and GX_Y2 high,
 ;               copied by DMA to (GX_DX, GX_DY): 8 bits a pixel, or 4 with
-;               even x and widths; carry set otherwise, and for a rectangle
-;               that leaves the bitmap (GE_BOUNDS: a copy isn't clipped, as
+;               even x and widths; GE_BOUNDS otherwise (mono, an odd x or
+;               width at 4 bits), and for a rectangle that leaves the
+;               bitmap (a copy isn't clipped, as
 ;               a draw is, since clipping one side moves the other); a width
 ;               or height of 0, nothing. Rows overlapping downward are copied
 ;               from the last, but each row is one copy forward, as memcpy,

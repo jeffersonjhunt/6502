@@ -15,6 +15,7 @@
 #include "video_card.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -617,6 +618,13 @@ TEST(empty_and_out_of_bitmap_copies_and_fills_do_nothing_or_are_refused)
     xy(r, 0, 0, 0, 10);
     word(r, "GX_DY", 100);
     CHECK_EQ(gx(r, 'y').substr(6), std::string("00"));
+    xy(r, 1, 0, 10, 10); // an odd x at 4 bits: GE_BOUNDS (review R3)
+    std::string odd = gx(r, 'y');
+    CHECK_EQ(odd.substr(0, 2) + odd.substr(5), std::string("08 01"));
+    gx(r, 'B', 2, static_cast<uint8_t>(bmp)); // mono: no copy, GE_BOUNDS
+    xy(r, 0, 0, 8, 8);
+    odd = gx(r, 'y');
+    CHECK_EQ(odd.substr(0, 2) + odd.substr(5), std::string("08 01"));
     CHECK(mem(r, VRAM + sentinel * 1024u, 65536) == marks);
     // A map filled with 0 rows: nothing.
     const unsigned map = hexa(gx(r, 'A', 4));
@@ -715,6 +723,39 @@ TEST(an_asset_s_header_is_checked_and_what_it_took_is_freed)
     // A good one loads its 1,024 bytes into unit 15, and no further.
     CHECK_EQ(asset(r, "GOOD    OGX").substr(6), std::string("00"));
     CHECK(mem(r, VRAM + 15 * 1024u, 1024) == std::vector<uint8_t>(1024, 0x77));
+}
+
+TEST(a_filled_rectangle_wholly_off_the_bitmap_draws_nothing_at_once)
+{
+    // Review R1: a clip that leaves nothing (lo past hi) once ran a row's loop round 65,536 pixels. Off each edge,
+    // at each depth: nothing drawn, and each call short.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    const unsigned unit = hexa(gx(r, 'A', 120));
+    for (const unsigned mode : {0u, 1u, 2u})
+    {
+        const int w = mode == 0 ? 256 : mode == 1 ? 512 : 640, h = mode == 0 ? 240 : 480;
+        const size_t bytes = mode == 2 ? 80u * 480 : 256u * static_cast<unsigned>(h);
+        gx(r, 'B', static_cast<uint8_t>(mode), static_cast<uint8_t>(unit));
+        r.poke(VRAM + unit * 1024u, std::vector<uint8_t>(bytes, 0));
+        for (const auto &[x0, y0, x1, y1] : std::vector<std::array<int, 4>>{{w + 10, 20, w + 30, 40},    // right
+                                                                            {-20, 20, -5, 40},           // left
+                                                                            {20, h + 10, 40, h + 30},    // below
+                                                                            {20, -20, 40, -5},           // above
+                                                                            {w + 1, h + 1, w + 9, h + 9}}) // past both
+        {
+            xy(r, x0, y0, x1, y1);
+            const uint64_t c0 = r.cpu->cycles();
+            gx(r, 'F', 1, 0, 0, ms(500));
+            const double took = static_cast<double>(r.cpu->cycles() - c0) / HZ * 1000;
+            if (took > 60)
+                std::printf("  mode %u, (%d,%d)-(%d,%d): %.1f ms\n", mode, x0, y0, x1, y1, took);
+            CHECK(took < 60); // the command's line included
+        }
+        CHECK(mem(r, VRAM + unit * 1024u, bytes) == std::vector<uint8_t>(bytes, 0));
+    }
 }
 
 int main() { return run_all(); }

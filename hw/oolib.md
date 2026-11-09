@@ -1070,11 +1070,18 @@ which followed the code (the owner's leave). Where the plan left something open 
     and decompresses no more than the picture needs, refusing a short one: an error line and exit 1, never a
     traceback (the check builds the bad PNGs itself).
   - F8: the latest a frame's copies end was measured with half the budget; with all four slots (1,024 bytes), the
-    pointer and a 44.1 kHz stream it is line 508 under a USB batch (16 lines to spare) and 503 under 64 KB loads; a
-    frame of all of it 3,645 cycles.
+    pointer and a 44.1 kHz stream it is line 508 under a USB batch (16 lines to spare) and 511 under 64 KB loads (13;
+    round 2 has the stream asserted still playing, no underrun, at the end); a frame of all of it 3,645 cycles.
   - F9: the Break case checked after a cold boot, which clears what it checked; it now checks a slot and the
     pointer on before Break, and after it the card's interrupts off and a slot's bit set under the monitor copying
     nothing.
+- **The second review** (2026-11-08; the owner: fix R1-R3 as recommended):
+  - R1: `HRUN` and `VRUN` ran until the pixel reached `hi`, so a clip that left `lo` past `hi` (a rectangle wholly
+    off the bitmap) went round 65,536 pixels a row; both now draw nothing then, and mono's whole-row fill too. The
+    test: a filled rectangle wholly off each edge, at 8, 4 and 1 bits, draws nothing, each call under 60 ms.
+  - R2: the full-budget case asserts the stream still playing at its end, with no underrun (its runs shortened to
+    fit the 0.74 s of buffers).
+  - R3: `GX_BCOPY`'s refusals on a mono bitmap and at an odd x or width at 4 bits return `GE_BOUNDS` in A.
 
 **Added (2026-11-08, the owner), from OO-Amp's proposal** (`OOLIB-SOUND-PROPOSAL.md` in OO-Amp's repo, written at
 its M4). L3 gives a program the card's parts one at a time; a player also wants the same few verbs whatever is

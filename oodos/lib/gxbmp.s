@@ -429,8 +429,10 @@ ORDER:  lda     hi
 @ok:    rts
 
 ; px from lo to hi at py, each plotted (HRUN), or py from lo to hi at px
-; (VRUN).
-HRUN:   lda     lo
+; (VRUN); nothing if hi < lo (a clip that left nothing: review R1).
+HRUN:   jsr     EMPTY
+        bcc     @done
+        lda     lo
         sta     px
         lda     lo + 1
         sta     px + 1
@@ -446,7 +448,9 @@ HRUN:   lda     lo
         inc     px + 1
         bra     @x
 @done:  rts
-VRUN:   lda     lo
+VRUN:   jsr     EMPTY
+        bcc     @done
+        lda     lo
         sta     py
         lda     lo + 1
         sta     py + 1
@@ -462,6 +466,13 @@ VRUN:   lda     lo
         inc     py + 1
         bra     @y
 @done:  rts
+
+; Carry clear if hi < lo: an empty run.
+EMPTY:  lda     hi
+        cmp     lo
+        lda     hi + 1
+        sbc     lo + 1
+        rts
 
 GX_RECT:
         sta     colour
@@ -641,7 +652,10 @@ GX_FRECT:
 ; Mono's whole rows: one DM_FILL of rows x 80 bytes, $00 or $FF.
 MONOBAND:
         jsr     ORDERYC
-        lda     lo
+        jsr     EMPTY                   ; rows all past the last: nothing
+        bcs     @rows
+        rts
+@rows:  lda     lo
         sta     py
         lda     lo + 1
         sta     py + 1
@@ -1040,14 +1054,14 @@ FSLOT:  lda     fsp
 GX_BCOPY:
         lda     bmode
         cmp     #GB_MONO
-        jeq     @no
+        jeq     @out                    ; mono: no copy (GE_BOUNDS, review R3)
         cmp     #GB_512
         bne     @w
         lda     GX_X                    ; 4 bits: even x and widths
         ora     GX_DX
         ora     GX_X2
         lsr     a
-        jcs     @no
+        jcs     @out                    ; odd x or width at 4 bits: GE_BOUNDS
 @w:     lda     GX_X2                   ; a width or a height of 0: nothing (never a length of 0 to
         ora     GX_X2 + 1               ; function 83, which is 65,536: review F2)
         jeq     @ok
