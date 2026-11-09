@@ -3035,8 +3035,8 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (5: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
-  volume), X = a bit for each service area OODOS
+- `FT_INFO`: A = OOLIB's interface version (6: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+  volume; 6 L5a's mailbox stamp, [chapter 8](08-game-services.md#the-6510)), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
@@ -3258,8 +3258,11 @@ sound (`OA_SOUND`).
 - `SN_CLAIM` of the 6510 empties the mailbox from the card. The one to the card it can't: only a /RESET empties it,
   so a byte the last program left there, not taken, survives the warm boot and the claim; a new 6510 driver reads
   `$DE00` once as it starts, to drop it. Then with a layout-2 event area open, a byte the 6510 sends
-  reaches the queue as an `EK_SOUND` event, its value the byte ([chapter 8](08-game-services.md#the-6510)). Of the
+  reaches the queue as an `EK_SOUND` event, its value the byte, and since OODOS 0.7 is stamped in the area's
+  `EV_SMBOX`, `EV_SMMS` and `EV_SMCNT` ([chapter 8](08-game-services.md#the-6510)). Of the
   stream: channel 2 stopped and both buffers free.
+- `SN_START`, with a layout-2 area open, sets the area's `EV_SMMS` to the millisecond counter and `EV_SMCNT` to 0
+  before the 6510 runs (since OODOS 0.7).
 - `SN_LOAD` and `SN_WAVE` move channel 2 4 KB a piece, each waited for, interrupts on between; the card holds the
   CPU 4,096 cycles a piece. `SN_LOAD` sets RAMADDR, past the last byte after; `SN_WAVE` sets DOCCTL's RAM and AUTOINC
   for it and puts DOCCTL back as it was after, leaving DOCADDR and DOCBANK past the last byte; it holds the ES5503's
@@ -3290,7 +3293,9 @@ sound (`OA_SOUND`).
   interrupt found them are put back after the hook returns.
 - `SN_RELEASE` and the warm boot stop what they give back: the 6510 (CTRL's RUN off, every SID register 0), the
   stream (channel 2 aborted, PCMCTL FLUSH, DRQSEL 0), the ES5503 (DOCCTL's RUN off, the hook off). The warm boot does
-  all of it whatever was claimed, and turns the card's IEN off; on revision 2 it sets VOLL and VOLR back to 255.
+  all of it whatever was claimed, and turns the card's IEN off; on revision 2 it sets VOLL and VOLR back to 255, and
+  turns the EQ off with the preamp and every band at 0, as a /RESET leaves it (from OODOS 0.7; before it, the EQ was
+  left as the program set it).
 
 #### Cycles
 

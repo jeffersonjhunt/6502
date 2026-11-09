@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -317,7 +317,8 @@ card hasn't. `SN_RELEASE` gives parts back, each stopped. `SN_INFO` says the car
 block which parts are free. A claimed part is the program's to drive itself, its registers written as the Technical
 Reference has them ([question 6](../../hw/oolib.md#open-questions)): the SIDs while the 6510 is stopped, the
 ES5503's oscillators, the EQ and the vis page. The master volumes are function 82's (`SN_VOLUME`, below), so the
-warm boot can put them back. **DMA channel 2 is OODOS's**: a program reaches it only
+warm boot can put them back. The EQ is the program's to set, but the warm boot turns it off with every gain 0, as a
+/RESET leaves it, so the next program starts flat (from OODOS 0.7; before it, the EQ was left as the program set it). **DMA channel 2 is OODOS's**: a program reaches it only
 through function 82's loads and its stream.
 
 ```
@@ -342,6 +343,20 @@ starts. A byte the
 6510 sends back reaches the event queue as an `EK_SOUND` event, its value the byte, while a layout-2 area is open
 (without one, the program reads the card's MBIN itself), so a program's own driver on the card reports without
 being polled.
+
+**The mailbox's stamp** (since OODOS 0.7). With the 6510 claimed and a layout-2 area open, OODOS also writes the
+last byte into the area's sound part as it queues it, with the time it came and a count. A player can then see that
+a tune has stopped reporting, even if the program hasn't read its queue, and a full queue loses no stamp:
+
+| Offset | Name | What |
+|---|---|---|
+| +108 | `EV_SMBOX` | the last byte from the 6510 |
+| +109–112 | `EV_SMMS` | the millisecond counter when it came; before the first byte, when `SN_START` started the 6510 |
+| +113–114 | `EV_SMCNT` | the bytes since `SN_START`, up to 65,535, where it stays |
+
+`SN_START` sets `EV_SMMS` to its own time and `EV_SMCNT` to 0 before the 6510 runs, and leaves `EV_SMBOX` as it was.
+So "how long since the 6510 last spoke" is the counter now less `EV_SMMS`, from the start if it hasn't yet. With a
+layout-1 area, or no area, nothing is stamped.
 
 ### Pausing a tune, and the volume
 
@@ -396,7 +411,8 @@ writes its state into the area once a frame and at each buffer's end:
 | +100–103 | `EV_SPOS` | the frames played (the card's POS) |
 | +104–105 | `EV_SKBPS` | an MP3's bitrate, kbit/s |
 | +106–107 | `EV_SUNDER` | the underruns seen since the stream started |
-| +108–127 | | reserved, 0 |
+| +108–114 | | the 6510's mailbox stamp ([The 6510](#the-6510)), written while the 6510 is claimed |
+| +115–127 | | reserved, 0 |
 
 **Keeping it fed.** Nothing in this needs the program's time while both buffers and the FIFO have data: a slow
 frame costs nothing. An underrun is the FIFO running dry before `SN_END`, and OODOS counts each it sees (at a frame,
