@@ -1184,6 +1184,30 @@ and more in L5:
     per voice). OO-Amp's `oa_hal.s`/`oa_voices.s` do these now; they move here once reviewed.
   - **EQ and the vis page** (`EQ_SET`, the preamp and ten bands, `EQ_ON`), which L3 planned as linked register
     work and didn't build.
+  - **Planned (2026-11-09, the owner):** four steps, each its own branch. L5a, OODOS: the mailbox stamped in the
+    area and the warm boot's flat EQ (OOLIB interface 6). L5b, the EQ and the vis page (`PB_EQ`, `PB_EQON`,
+    `PB_EQALL`, `PB_VIS`: `EQ_` is the event queue's). L5c, the SID reads. L5d, the playback layer, `PB_LEVELS` with
+    8 bands. Then OODOS 0.7. OO-Amp's half (`oa_hal.s` on OOLIB) was done in its repo on 2026-11-08
+    (`PLAN-L5.md` there); it asked for the EQ and the vis page first (`OOLIB-EQ-VIS-REQUEST.md`).
+  - *L5a, as built (2026-11-09):* with the 6510 claimed and a layout-2 area open, MBOXIN writes the byte
+    (`EV_SMBOX`, +108), the ms counter (`EV_SMMS`, +109-112) and a count held at 65,535 (`EV_SMCNT`, +113-114)
+    before it queues `EK_SOUND`, so a stall shows without the program passing its events on. `SN_START` turns RUN
+    off first, then under SEI drops a byte the old run left in MBIN, sets `EV_SMMS` to its own time and the count
+    to 0 (W1 borrowed), so "no byte yet" has a start; `EV_SMBOX` is left. The count saturates rather than wrapping, so 0 always means none since the
+    start. SNDQUIET, on revision 2, turns the EQ off (EQIDX `$80`, EQVAL 0) and writes the eleven gains 0, as
+    /RESET leaves them. `OOLIB_IFACE` 6, the seven `FT_INFO` expectations and `test_oodos_gfx`'s patch with it;
+    `SOUND_EQ_ENABLE` in backplane.inc. Block 61: 3,310 bytes free to 3,209 (101, more than the plan's 40: the
+    saturating count and the start's own stamp); block 60, SYSBSS and common unchanged. Nothing added to the tick
+    or the frame; on the mailbox's interrupt about 140 cycles more a byte (counted from the code). Tests (`test_oodos_sound`): the byte, its
+    time equal to the queued event's and the count, over two bytes; the count held at 65,535; a restart counted
+    afresh; before a first byte, the start's time and 0; nothing stamped with a layout-1 area; the warm boot's
+    flat EQ by WBOOT, Ctrl-C and BREAK.
+  - *L5a review, round 1 (2026-11-09):* F1, an area opened while the 6510 already runs starts with `EV_SMMS` 0:
+    no OODOS change; chapter 8 says to measure from the later of `EV_SMMS` and the program's own start, and L5d's
+    `PB_STATUS` does so from `PB_BEGIN`'s time. F2, a byte the old run sent between the stamp and RUN off counted
+    as the new run's first: the stamp now follows RUN off, and MBIN is read once under the same SEI to drop it
+    (a test puts a byte in MBIN at that read, `SMDROP`, and fails without it). F3, a test with the queue full: the
+    stamp follows every byte.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 

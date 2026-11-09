@@ -145,7 +145,7 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 5                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5)
+OOLIB_IFACE     = 6                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4, L4b: 5, L5a: 6)
 OOLIB_AREAS     = $0F                  ; the service areas there are (FT_INFO's): frame and timing (80),
                                        ; input (81), sound (82), DMA and loading (83)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)

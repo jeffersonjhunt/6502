@@ -39,6 +39,7 @@ namespace
     // oodos.inc's
     constexpr unsigned EV_LAYOUT = 0, EV_QHEAD = 16, EV_QTAIL = 17, EV_QSLOTS = 18, EV_QUEUE = 128;
     constexpr unsigned EV_SSTATE = 96, EV_SBUFS = 97, EV_SFREE = 98, EV_SPOS = 100, EV_SKBPS = 104, EV_SUNDER = 106;
+    constexpr unsigned EV_SMBOX = 108, EV_SMMS = 109, EV_SMCNT = 113; // the mailbox's stamp (L5a)
     constexpr unsigned EK_SOUND = 6;
     constexpr uint8_t SN_INFO = 0, SN_CLAIM = 1, SN_RELEASE = 2, SN_LOAD = 3, SN_START = 4, SN_STOP = 5, SN_SEND = 6,
                       SN_STREAM = 7, SN_BUFFER = 8, SN_PAUSE = 9, SN_RESUME = 10, SN_SEEK = 11, SN_END = 12,
@@ -1163,6 +1164,224 @@ TEST(the_warm_boot_puts_the_volumes_back_and_forgets_a_hold_by_wboot_ctrl_c_and_
         CHECK(r.until("\\\r", ms(1000), from));
         REQUIRE(r.boot());
         unheld(r);
+    }
+}
+
+namespace
+{
+    /// The 6510's program for the stamp: it says $42, then echoes each byte inverted (the mailbox test's).
+    const std::vector<uint8_t> ECHO = {0xA9, 0x42, 0x8D, 0x00, 0xDE, 0xAD, 0x01, 0xDE, 0x29, 0x01, 0xF0, 0xF9,
+                                       0xAD, 0x00, 0xDE, 0x49, 0xFF, 0x8D, 0x00, 0xDE, 0x4C, 0x05, 0x10};
+    /// The 6510 claimed, `code` loaded at $1000; started if `go`.
+    void loaded(CcpRig &r, const std::vector<uint8_t> &code, bool go)
+    {
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+        r.poke(0x3000, code);
+        CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(code.size()), 0}), std::string("00 00"));
+        if (go)
+            CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    }
+    /// The queue's last event's millisecond count (EQ_MS, +4 in its slot).
+    uint32_t last_event_ms(Rig &r)
+    {
+        const unsigned slots = area(r, EV_QSLOTS);
+        const unsigned last = (area(r, EV_QHEAD) + slots - 1) % slots;
+        return area32(r, EV_QUEUE + last * 8 + 4);
+    }
+} // namespace
+
+TEST(the_mailbox_s_last_byte_its_time_and_a_count_are_stamped_in_the_area)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    const uint32_t before = ms_count(r);
+    loaded(r, ECHO, true);
+    r.run(ms(5));
+    REQUIRE(waiting(r).size() == 1);
+    CHECK_EQ(area(r, EV_SMBOX), 0x42);
+    CHECK_EQ(area16(r, EV_SMCNT), 1u);
+    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r)); // the event's own time, to the millisecond
+    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= ms_count(r));
+    r.run(ms(20));
+    const uint32_t first = area32(r, EV_SMMS);
+    CHECK_EQ(f82(r, {SN_SEND, 0x10}), std::string("00 00"));
+    r.run(ms(5));
+    REQUIRE(waiting(r).size() == 2);
+    CHECK_EQ(area(r, EV_SMBOX), 0xEF);
+    CHECK_EQ(area16(r, EV_SMCNT), 2u);
+    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
+    CHECK(area32(r, EV_SMMS) >= first + 20);
+    // The count stops at 65,535; the byte and its time go on.
+    r.poke(AREA + EV_SMCNT, std::vector<uint8_t>{0xFE, 0xFF});
+    CHECK_EQ(f82(r, {SN_SEND, 0x01}), std::string("00 00"));
+    r.run(ms(5));
+    CHECK_EQ(area16(r, EV_SMCNT), 0xFFFFu);
+    CHECK_EQ(area(r, EV_SMBOX), 0xFE);
+    CHECK_EQ(f82(r, {SN_SEND, 0x02}), std::string("00 00"));
+    r.run(ms(5));
+    CHECK_EQ(area16(r, EV_SMCNT), 0xFFFFu);
+    CHECK_EQ(area(r, EV_SMBOX), 0xFD);
+    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
+    // Started again: counted from that start.
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    r.run(ms(5));
+    CHECK_EQ(area16(r, EV_SMCNT), 1u);
+    CHECK_EQ(area(r, EV_SMBOX), 0x42);
+    CHECK_EQ(area32(r, EV_SMMS), last_event_ms(r));
+}
+
+TEST(before_the_first_byte_the_stamp_is_the_start_s_time_and_a_count_of_0)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    loaded(r, COUNTER, false); // says nothing
+    r.poke(AREA + EV_SMBOX, std::vector<uint8_t>(7, 0x55)); // what a start must overwrite: all but the byte
+    r.run(ms(30));
+    const uint32_t before = ms_count(r);
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    const uint32_t after = ms_count(r);
+    r.run(ms(50));
+    CHECK_EQ(area16(r, EV_SMCNT), 0u);
+    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= after);
+    CHECK_EQ(area(r, EV_SMBOX), 0x55); // no byte yet: the last one's left as it was
+    CHECK(waiting(r).empty());
+}
+
+TEST(a_byte_the_old_run_left_at_a_restart_is_dropped_not_counted_as_the_new_run_s)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    loaded(r, COUNTER, true); // says nothing
+    r.run(ms(10));
+    r.poke(AREA + EV_SMBOX, 0x55);
+    // The old run's byte arrives once SN_START has stopped it, with interrupts off: MBIN holds it at the drop.
+    const uint16_t drop = static_cast<uint16_t>(sym("SMDROP"));
+    bool sent = false;
+    r.watch = [&](uint16_t pc) {
+        if (pc == drop && !sent && r.machine->bus().peek(0xC682) == 61) // W2 on block 61 (NB_WIN2)
+        {
+            card(r).card_send(0x99);
+            sent = true;
+        }
+    };
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    r.watch = nullptr;
+    REQUIRE(sent);
+    r.run(ms(20));
+    CHECK_EQ(area16(r, EV_SMCNT), 0u);
+    CHECK_EQ(area(r, EV_SMBOX), 0x55);
+    CHECK(waiting(r).empty());
+    CHECK_EQ(reg(r, SoundCard::STATUS) & 0x04, 0); // STATUS: nothing waits in MBIN
+}
+
+TEST(a_full_queue_loses_no_stamp)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    loaded(r, ECHO, true);
+    r.run(ms(5));
+    const unsigned slots = area(r, EV_QSLOTS);
+    // Nothing read: the queue fills, and each byte after is still stamped.
+    uint32_t before = 0, after = 0; // around the last byte's send
+    for (unsigned i = 1; i <= slots + 4; ++i)
+    {
+        before = ms_count(r);
+        CHECK_EQ(f82(r, {SN_SEND, static_cast<uint8_t>(i)}), std::string("00 00"));
+        r.run(ms(2));
+        after = ms_count(r);
+    }
+    CHECK(waiting(r).size() < slots + 5); // full: some were lost from the queue
+    CHECK_EQ(area16(r, EV_SMCNT), slots + 5);
+    CHECK_EQ(area(r, EV_SMBOX), static_cast<uint8_t>(~(slots + 4)));
+    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= after);
+}
+
+TEST(with_a_layout_1_area_nothing_is_stamped)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.poke(AREA, std::vector<uint8_t>(256, 0));
+    open(r, "1");
+    loaded(r, ECHO, true);
+    r.run(ms(10));
+    for (unsigned i = 16; i < 128; ++i)
+        CHECK_EQ(area(r, i), 0);
+}
+
+namespace
+{
+    /// The EQ as the card holds it: the enable, then the preamp's and the ten bands' gains (read through
+    /// EQIDX and EQVAL, as a program would; it leaves EQIDX moved).
+    std::vector<int> eq_state(Rig &r)
+    {
+        std::vector<int> out;
+        card(r).write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+        out.push_back(card(r).read(SoundCard::EQVAL));
+        card(r).write(SoundCard::EQIDX, 0);
+        for (unsigned i = 0; i <= SoundCard::EQ_BANDS; ++i)
+            out.push_back(static_cast<int8_t>(card(r).read(SoundCard::EQVAL)));
+        return out;
+    }
+    /// The EQ on, every gain away from 0: what the warm boot must undo.
+    void eq_set(CcpRig &r)
+    {
+        open(r, "2");
+        card(r).write(SoundCard::EQIDX, 0);
+        for (unsigned i = 0; i <= SoundCard::EQ_BANDS; ++i)
+            card(r).write(SoundCard::EQVAL, static_cast<uint8_t>(i & 1 ? -(int)(2 * i) : 2 * i + 1));
+        card(r).write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
+        card(r).write(SoundCard::EQVAL, 1);
+        std::vector<int> st = eq_state(r);
+        CHECK_EQ(st[0], 1);
+        CHECK_EQ(st[1], 1);
+        CHECK_EQ(st[11], 21);
+    }
+    void eq_flat(CcpRig &r)
+    {
+        const std::vector<int> st = eq_state(r);
+        bool flat = true;
+        for (const int v : st)
+            flat = flat && v == 0;
+        CHECK(flat);
+        if (!flat)
+            for (size_t i = 0; i < st.size(); ++i)
+                std::printf("  EQ %s%zu: %d\n", i ? "gain " : "enable", i ? i - 1 : 0, st[i]);
+    }
+} // namespace
+
+TEST(the_warm_boot_turns_the_eq_off_with_every_gain_0_by_wboot_ctrl_c_and_break)
+{
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        eq_set(r);
+        wboot(r);
+        eq_flat(r);
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        eq_set(r);
+        const size_t from = r.out.size();
+        r.poke(MBOX, 'D');
+        CHECK(r.calls(CcpRig::C_READSTR_FN));
+        r.type("\x03");
+        CHECK(r.until("\r\nA>", ms(2000), from));
+        eq_flat(r);
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        eq_set(r);
+        const size_t from = r.out.size();
+        r.cpu->nmi();
+        CHECK(r.until("\\\r", ms(1000), from));
+        REQUIRE(r.boot());
+        eq_flat(r);
     }
 }
 

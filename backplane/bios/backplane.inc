@@ -287,6 +287,7 @@ SOUND_KBPS      = SOUND + $55          ; 2 bytes: the MP3's bitrate
 SOUND_VOLL      = SOUND + $57          ; the master volumes, 255 unity
 SOUND_VOLR      = SOUND + $58
 SOUND_EQIDX     = SOUND + $59          ; 0 the preamp, 1-10 the bands; bit 7 the enable
+SOUND_EQ_ENABLE = $80                  ; EQIDX: EQVAL is the enable (bit 0), not a gain
 SOUND_EQVAL     = SOUND + $5A          ; the gain at EQIDX in half-dB, +-24; EQIDX moves on
 SOUND_VISIDX    = SOUND + $5B          ; the vis page's index; writing 0 takes a snapshot
 SOUND_VISDATA   = SOUND + $5C          ; the byte there, and the index moves on
