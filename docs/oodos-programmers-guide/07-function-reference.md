@@ -757,7 +757,9 @@ An FCB in the I/O hole (`$C000`–`$C7FF`) returns A = X = `$FF`, with nothing d
 ([hw/oodos.md](../../hw/oodos.md#the-archive-bit-and-the-update-stamp-item-10), 2026-11-04). The BDOS stub adds 220.
 CR `$FF` costs a second look through the directory, for the file's last entry, as [function 35](#bdos-35) looks: on
 M:, about 2,400 cycles more for a file of one entry and 3,900 for one of three (`test_oodos_load`, 2026-11-08),
-more on a drive with more entries in use. Without CR `$FF` there is no such look.
+more on a drive with more entries in use. On O: and P: the look may read directory sectors from the Disk II, each a
+real read of milliseconds, when the file's later entries are in sectors not yet in the buffers. The look is made
+before the access stamp, so an open that fails in it has written nothing. Without CR `$FF` there is no such look.
 
 #### Since
 
