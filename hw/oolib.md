@@ -1126,6 +1126,10 @@ and more in L5:
     block 60 unchanged, 1,493 free (debug 1,477). Nothing is added to the tick, the frame or the dispatcher. OOLIB's
     interface version stays 4 for now: question 15 says a step that adds raises it, but that changes five
     owner-approved `FT_INFO` expectations, so it is the owner's call.
+  - **Owner (2026-11-08), after the build:** OOLIB's interface version 5 for the three operations (`OOLIB_IFACE`;
+    `FT_INFO` answers `05 0F`, so a program can tell they exist: an OODOS 0.5 refuses them as a refused hold is
+    refused), the five `FT_INFO` expectations changed with it and `test_oodos_gfx`'s patch of the answer looking for
+    5; the books' "since OODOS 0.6", one bump after L4a and L4b; the sound suite's own `SN_OPS` 20, as `oodos.inc`.
 
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in

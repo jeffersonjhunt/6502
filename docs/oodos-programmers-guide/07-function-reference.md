@@ -3204,8 +3204,8 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 18 | `SN_GO` | none | lets a held 6510 go on, the volumes back | 6510 |
   | 19 | `SN_VOLUME` | +1 VOLL, +2 VOLR (0–255, 255 unity) | sets the card's master volumes (revision 2) | |
 
-  Operations 17–19 (`SN_HOLD`, `SN_GO`, `SN_VOLUME`) are since OODOS 0.6; an OODOS before them refuses them, A = X =
-  `$FF`.
+  Operations 17–19 (`SN_HOLD`, `SN_GO`, `SN_VOLUME`) are since OODOS 0.6 (OOLIB's interface version 5, [function 80's](#bdos-80) `FT_INFO`); an OODOS before them
+  refuses them, A = X = `$FF`.
 
 #### Exit
 
