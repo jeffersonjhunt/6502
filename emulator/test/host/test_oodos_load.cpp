@@ -371,10 +371,21 @@ TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
 // bytes, EX 1, 3 and 4, S1 0, 0 and 34).
 namespace
 {
+    uint64_t open_cycles = 0; ///< open_cr's last call's, from L4TEST's JSR BDOS to its return
     /// The FCB at FCB opened with `ex` and `cr` on entry: "aa xx", and its 36 bytes after.
     std::pair<std::string, std::vector<uint8_t>> open_cr(CcpRig &r, unsigned drive, const std::string &name83,
                                                          uint8_t ex, uint8_t cr)
     {
+        static const std::map<std::string, uint16_t> lbl = labels(SYS + "/l4test.lbl");
+        const uint16_t call = static_cast<uint16_t>(lbl.at("c_o") + 6), back = static_cast<uint16_t>(call + 3);
+        uint64_t c0 = 0;
+        open_cycles = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == call && r.nb(0) == 0)
+                c0 = r.cpu->cycles();
+            else if (pc == back && r.nb(0) == 0 && c0)
+                open_cycles = r.cpu->cycles() - c0;
+        };
         std::vector<uint8_t> fcb(36, 0);
         fcb[0] = static_cast<uint8_t>(drive);
         for (unsigned i = 0; i < 11; ++i)
@@ -383,6 +394,7 @@ namespace
         fcb[32] = cr;
         r.poke(FCB, fcb);
         const std::string ret = command(r, 'O', "O");
+        r.watch = nullptr;
         return {ret, mem(r, FCB, 36)};
     }
     /// M:'s entries of user `user`'s `name83`, in the directory's order.
@@ -406,9 +418,14 @@ namespace
         for (const uint8_t ex : exs)
         {
             const auto [ret0, plain] = open_cr(r, 13, name83, ex, 0);
+            const uint64_t c0 = open_cycles;
             const auto [ret, got] = open_cr(r, 13, name83, ex, 0xFF);
+            const uint64_t cff = open_cycles;
             const auto [ret5, five] = open_cr(r, 13, name83, ex, 5);
-            std::printf("  %s EX %u: CR $%02X (want $%02X), RC $%02X\n", name83.c_str(), ex, got[32], want, got[15]);
+            std::printf("  %s EX %u: CR $%02X (want $%02X), RC $%02X; %llu cycles with CR 0, %llu with $FF\n",
+                        name83.c_str(), ex, got[32], want, got[15], static_cast<unsigned long long>(c0),
+                        static_cast<unsigned long long>(cff));
+            CHECK(c0 > 0 && cff > 0);
             CHECK_EQ(ret0, std::string("00 00"));
             CHECK_EQ(ret, std::string("00 00"));
             CHECK_EQ(got[32], want);
