@@ -1233,6 +1233,9 @@ and more in L5:
     of the rules with no difference, and voice 0 within a frame of the data sheet's times (full 15 against 15.0,
     the sustain 6 after against 5.7, quiet 3 against 2.3). Both cases fail with SID B's offsets or the clock bit
     broken.
+  - *L5c review, round 1 (2026-11-09):* F1, `SID_ENV` a frame's step a call, so missed frames make the meters lag:
+    documented (once a frame, not made up), not given a frame count. F2, a retrigger between two calls unseen and
+    a frequency read across a 6510 write: documented as the estimate's limits.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 

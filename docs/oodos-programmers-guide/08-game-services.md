@@ -498,7 +498,10 @@ register with the last value written to it, by the 6510 playing the tune or by t
   0–255. The card can't read a voice's envelope, so the library moves each level as the chip would: up at the
   attack's rate to full when the gate goes on, down at the decay's to the sustain level, and at the release's to 0
   when it goes off, at the data sheet's times (2 ms to 8 s, 6 ms to 24 s) for a frame of 1/59.94 s. It is an
-  estimate for a meter, not the chip's own curve: the chip's decay and release aren't straight lines. Call
+  estimate for a meter, not the chip's own curve: the chip's decay and release aren't straight lines. It moves a
+  frame's step a call, so call it once a frame: a frame missed isn't made up, and the meters fall behind (at every
+  other frame, a 250 ms attack takes 500 ms). A gate turned off and on again between two calls isn't seen, so no
+  new attack starts; and a frequency read while the 6510 writes it can show the wrong note for a frame. Call
   `SID_ENV0` for a new tune or song.
 
 None of them fails: each returns carry clear. `SID_ENV` costs at most about 150 cycles a voice, some 900 a frame

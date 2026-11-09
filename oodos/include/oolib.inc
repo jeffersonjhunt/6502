@@ -253,7 +253,8 @@ PB_VIS_WAVE     = 34                   ; its samples
 ;   SID_ENV     A/X a SID_VOICES block read this frame: each voice's level
 ;               moved on a frame (1/59.94 s) as the chip would move it, from
 ;               the gate and the ADSR; SID_LVL then has the six, 0-255. An
-;               estimate for a meter: the card can't read a voice's envelope
+;               estimate for a meter: the card can't read a voice's envelope.
+;               Once a frame: a frame missed isn't made up
 ;
 ; None of them fails: each returns carry clear, and changes A, X and Y.
 
