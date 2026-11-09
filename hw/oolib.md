@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)).** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4 merged 2026-11-08, OODOS 0.5.** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -992,7 +992,7 @@ slots, the pointer and the warm boot's part, block 61; `bdosfile.s`'s `LOADGO`, 
 `bios.s`'s `SDION` and `RDRUN`; `crt.s`'s `CRTREGS`; `bdosmem.s`'s `UNITS0`; `irq.s`'s frame call; `input.s`'s
 WBQUIET call; `oodos/include/oodos.inc`'s `O_DMA`, `DM_*`, `EV_VBGO`; `oodos/lib/gx*.s` and `oodos/include/oolib.inc`'s
 graphics, `oodos/tools/mkasset.py`, `oodos/utils/view.s`, new; `DMA_CH1` in `backplane.inc`, the ROM byte-identical).
-OODOS stays 0.4 (the bump to 0.5 is the owner's next step); OOLIB's interface version is 4, `FT_INFO`'s areas
+OODOS stays 0.4 on L4's branch, and became 0.5 straight after its merge (question 15, its own commit); OOLIB's interface version is 4, `FT_INFO`'s areas
 `$0F`. L3's load engine and the beep's body went to block 61 first (question 4), its own commit:
 `test_oodos_sound`'s and `test_oodos_playsid`'s output identical to main's, but for the wave-load case's watch range,
 which followed the code (the owner's leave). Where the plan left something open it was decided as below.
