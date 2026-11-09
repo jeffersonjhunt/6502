@@ -365,4 +365,132 @@ TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
     CHECK_EQ(r.phys(0x2000 + 106), 0); // EV_SUNDER
 }
 
+// L4a (hw/oolib.md, "L4a: open's byte count"): function 15 with CR $FF gives the byte count of the file's
+// last record, which cpmtools keeps in the last extent's entry's S1 only (the others' 0), whichever extent
+// is opened. put_m writes such a file as cpmtools does (make_card.sh's cpmcp, oodos-ram: BIG of 70,050
+// bytes, EX 1, 3 and 4, S1 0, 0 and 34).
+namespace
+{
+    /// The FCB at FCB opened with `ex` and `cr` on entry: "aa xx", and its 36 bytes after.
+    std::pair<std::string, std::vector<uint8_t>> open_cr(CcpRig &r, unsigned drive, const std::string &name83,
+                                                         uint8_t ex, uint8_t cr)
+    {
+        std::vector<uint8_t> fcb(36, 0);
+        fcb[0] = static_cast<uint8_t>(drive);
+        for (unsigned i = 0; i < 11; ++i)
+            fcb[1 + i] = static_cast<uint8_t>(name83[i]);
+        fcb[12] = ex;
+        fcb[32] = cr;
+        r.poke(FCB, fcb);
+        const std::string ret = command(r, 'O', "O");
+        return {ret, mem(r, FCB, 36)};
+    }
+    /// M:'s entries of user `user`'s `name83`, in the directory's order.
+    std::vector<unsigned> m_entries(CcpRig &r, unsigned user, const std::string &name83)
+    {
+        std::vector<unsigned> out;
+        for (unsigned i = 0; i < 256; ++i)
+        {
+            bool match = r.phys(MDISK + i * 32) == user;
+            for (unsigned c = 0; c < 11 && match; ++c)
+                match = (r.phys(MDISK + i * 32 + 1 + c) & 0x7F) == static_cast<uint8_t>(name83[c]);
+            if (match)
+                out.push_back(i);
+        }
+        return out;
+    }
+    /// Each extent `exs` of M:'s `name83` opened with CR $FF gives `want` in CR, and the FCB is otherwise
+    /// byte for byte the one an open with CR 0 gives; an open with CR 5 leaves CR 5.
+    void counts(CcpRig &r, const std::string &name83, const std::vector<uint8_t> &exs, uint8_t want)
+    {
+        for (const uint8_t ex : exs)
+        {
+            const auto [ret0, plain] = open_cr(r, 13, name83, ex, 0);
+            const auto [ret, got] = open_cr(r, 13, name83, ex, 0xFF);
+            const auto [ret5, five] = open_cr(r, 13, name83, ex, 5);
+            std::printf("  %s EX %u: CR $%02X (want $%02X), RC $%02X\n", name83.c_str(), ex, got[32], want, got[15]);
+            CHECK_EQ(ret0, std::string("00 00"));
+            CHECK_EQ(ret, std::string("00 00"));
+            CHECK_EQ(got[32], want);
+            CHECK(std::equal(got.begin(), got.begin() + 32, plain.begin()));
+            CHECK_EQ(plain[32], 0);
+            CHECK_EQ(five[32], 5);
+        }
+    }
+} // namespace
+
+TEST(open_with_cr_ff_gives_the_file_s_last_record_s_count_from_its_last_entry)
+{
+    {
+        // Three entries (EX 1, 3 and 4), the last record 104 bytes: $68 from EX 0, 2 and 4.
+        CcpRig r;
+        REQUIRE(r.ok);
+        r.put_m({{0, "BIG     BIN", noise(65536 + 1000, 3), false, false, true},
+                 {0, "ONE     BIN", noise(1024 + 45, 4), false, false, true},
+                 {0, "FULL    BIN", noise(4096, 5), false, false, true}});
+        const std::vector<unsigned> es = m_entries(r, 0, "BIG     BIN");
+        REQUIRE(es.size() == 3u);
+        CHECK_EQ(r.phys(MDISK + es[0] * 32 + 13), 0);
+        CHECK_EQ(r.phys(MDISK + es[1] * 32 + 13), 0);
+        CHECK_EQ(r.phys(MDISK + es[2] * 32 + 13), 0x68);
+        open(r, "X");
+        counts(r, "BIG     BIN", {0, 1, 2, 3, 4}, 0x68);
+        counts(r, "ONE     BIN", {0}, 45);    // one entry: its own, as before
+        counts(r, "FULL    BIN", {0}, 0);     // a full last record: cpmtools's 0
+    }
+    {
+        // The last extent's entry first in the directory, the middle one last: the highest extent's,
+        // not the last found.
+        CcpRig r;
+        REQUIRE(r.ok);
+        r.put_m({{0, "REV     BIN", noise(65536 + 1000, 6), false, false, true}});
+        const std::vector<unsigned> es = m_entries(r, 0, "REV     BIN");
+        REQUIRE(es.size() == 3u);
+        std::vector<std::vector<uint8_t>> e;
+        for (const unsigned i : es)
+            e.push_back(mem(r, MDISK + i * 32, 32));
+        r.poke(MDISK + es[0] * 32, e[2]);
+        r.poke(MDISK + es[1] * 32, e[0]);
+        r.poke(MDISK + es[2] * 32, e[1]);
+        open(r, "X");
+        counts(r, "REV     BIN", {0, 2, 4}, 0x68);
+    }
+    {
+        // A SYS file of user 0's, opened from user 3 (f8'): its extents are looked for in user 0.
+        CcpRig r;
+        REQUIRE(r.ok);
+        r.put_m({{0, "SYS0    BIN", noise(65536 + 1000, 7), true, false, true}});
+        open(r, "X");
+        r.scb(0x44, 3); // SCB_USER, behind the CCP's back: L4TEST makes no BDOS call as it waits
+        counts(r, "SYS0    BIN", {0, 4}, 0x68);
+        CHECK(r.phys(FCB + 8) & 0x80); // f8': opened from user 0
+        r.scb(0x44, 0);
+    }
+    {
+        // With access stamps, the open of extent 0 with CR $FF stamps extent 0's SFCB slot, and nothing
+        // else in the directory changes.
+        CcpRig r;
+        REQUIRE(r.ok);
+        r.put_m({{0, "BIG     BIN", noise(65536 + 1000, 8), false, false, true}});
+        const std::vector<unsigned> es = m_entries(r, 0, "BIG     BIN");
+        REQUIRE(es.size() == 3u);
+        r.poke(MDISK + 12, 0x61); // the label: access and update stamps
+        r.set_time(2027, 3, 4, 5, 6, 0);
+        open(r, "X");
+        const std::vector<uint8_t> before = mem(r, MDISK, 256 * 32);
+        const auto [ret, got] = open_cr(r, 13, "BIG     BIN", 0, 0xFF);
+        CHECK_EQ(ret, std::string("00 00"));
+        CHECK_EQ(got[32], 0x68);
+        const std::vector<uint8_t> after = mem(r, MDISK, 256 * 32);
+        const unsigned slot = (es[0] | 3) * 32 + 1 + (es[0] & 3) * 10; // extent 0's: its access stamp first
+        for (unsigned i = 0; i < after.size(); ++i)
+            if (after[i] != before[i])
+            {
+                std::printf("  directory byte %u changed: %02X to %02X\n", i, before[i], after[i]);
+                CHECK(i >= slot && i < slot + 4);
+            }
+        CHECK(!std::equal(after.begin() + slot, after.begin() + slot + 4, before.begin() + slot));
+    }
+}
+
 int main() { return run_all(); }
