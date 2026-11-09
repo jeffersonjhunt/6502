@@ -4,7 +4,8 @@
 ; build/oolib.lib (oodos/Makefile's OOLIB_USERS) and include this.
 ;
 ; Graphics (lib/gx*.s, L4): below, after the .sid tunes. Sound's EQ and vis
-; page (lib/pb*.s, L5b): after the graphics.
+; page (lib/pb*.s, L5b), then the SIDs' voices (lib/sid*.s but sid.s, L5c):
+; after the graphics.
 ;
 ; .sid tunes (lib/sid.s, L3): a C64 PSID file in the program's memory
 ; played on the sound card's 6510, as the emulator's own player plays one
@@ -230,5 +231,46 @@ PE_RANGE        = 2                    ; a band, a gain or a length out of range
 PB_VIS_LEN      = 98                   ; the vis page's bytes
 PB_VIS_VU       = 32                   ; its VU pair
 PB_VIS_WAVE     = 34                   ; its samples
+
+; ---------------------------------------------------------------------------
+; Sound: the SIDs' voices (lib/sidv.s, lib/sidnote.s, lib/sidenv.s, L5c):
+; what a tune is doing, for a display. The card answers a read of a SID
+; register with the last value written (by the 6510 or the 65C02); the
+; library only reads. Three modules: a program links the ones it calls.
+;
+;   SID_VOICES  A/X a block of SID_BLOCK bytes: SID A's registers $00-$18,
+;               then SID B's. Voice v (0-5: A's three, then B's) has its 7
+;               from SID_VOFF's byte v (0, 7, 14, 25, 32, 39): +0-1 the frequency, +2-3 the pulse
+;               width, +4 the control (bits 7-4 noise, pulse, saw, triangle;
+;               bit 0 the gate), +5 attack/decay, +6 sustain/release. A SID's
+;               +21-24: the filter's cutoff (2 bytes), resonance and routing,
+;               and its mode and volume
+;   SID_NOTE    A/X a frequency, Y CTRL's bits (SID_CTRL's; bit 0 NTSC): A =
+;               the nearest note, 0 (C-0) to 95 (B-7; A-4 is 57), or
+;               SID_NONE for 0. Noise has no note: that is the caller's to
+;               test (the control's bit 7)
+;   SID_ENV0    every voice's level 0: for a new tune or song
+;   SID_ENV     A/X a SID_VOICES block read this frame: each voice's level
+;               moved on a frame (1/59.94 s) as the chip would move it, from
+;               the gate and the ADSR; SID_LVL then has the six, 0-255. An
+;               estimate for a meter: the card can't read a voice's envelope
+;
+; None of them fails: each returns carry clear, and changes A, X and Y.
+
+.global SID_VOICES, SID_VOFF, SID_NOTE, SID_ENV0, SID_ENV, SID_LVL
+
+SID_REGS        = 25                   ; a SID's registers in a block
+SID_BLOCK       = 2 * SID_REGS
+SID_NVOICES     = 6
+SID_NOTES       = 96
+SID_NONE        = $FF
+SID_V_FREQ      = 0                    ; a voice's registers
+SID_V_PW        = 2
+SID_V_CTRL      = 4
+SID_V_AD        = 5
+SID_V_SR        = 6
+SID_F_CUTOFF    = 21                   ; a SID's filter, and its volume
+SID_F_RES       = 23
+SID_F_MODEVOL   = 24
 
 .endif
