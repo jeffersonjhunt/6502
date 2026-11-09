@@ -474,7 +474,9 @@ meter doesn't link the EQ: `oodos/lib/pbeq.s` and `oodos/lib/pbvis.s`.
   digital path.
 
 Each returns carry clear and A = 0, or carry set with nothing written and A = `PE_NOCARD` (a revision-1 card, or
-none) or `PE_RANGE` (a band past 10, a gain past ±24, a length past 98). The warm boot turns the EQ off with every
+none) or `PE_RANGE` (a band past 10, a gain past ±24, a length past 98). The EQ routines write the card's index,
+then its value, with interrupts on: don't call one from a frame or tick hook while the program may be in another
+itself, or a gain can land on the wrong band. `PB_VIS` has an index of its own. The warm boot turns the EQ off with every
 gain 0 ([When the program ends](#when-the-program-ends)). `PB_VIS` costs about 18 cycles a byte, some 1,800 for the whole page (counted from the code).
 
 ### What sound costs

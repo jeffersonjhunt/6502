@@ -1218,6 +1218,10 @@ and more in L5:
     a sine at each band's centre +12 dB by the library, 12.00 dB louder at the tap (fails with the bands shifted by
     one); the vis copy equal to the card's held page byte for byte and fresh; a revision-1 card refused; the warm
     boot flat. Nothing in OODOS changed.
+  - *L5b review, round 1 (2026-11-09):* F1, a hook calling an EQ routine while the program is between another's
+    EQIDX and EQVAL writes: documented (chapter 8, oolib.inc), not guarded, as the library turns interrupts off
+    nowhere. F2, the revision-1 case's last check couldn't see a write (that card ignores the registers): taken
+    out, the case named for what it shows.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 

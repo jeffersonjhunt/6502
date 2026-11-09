@@ -209,7 +209,9 @@ ASSET_FORMAT    = 3
 ; ES5503), so a program may set the EQ before its stream starts. The warm
 ; boot turns the EQ off with every gain 0 (OODOS 0.7). Each routine: carry
 ; clear and A = 0, or carry set and A = PE_NOCARD (no revision-2 card:
-; nothing written) or PE_RANGE (nothing written); X and Y changed.
+; nothing written) or PE_RANGE (nothing written); X and Y changed. The EQ
+; routines write EQIDX, then EQVAL: don't call one from a hook (function
+; 80's) while the program may be in another itself.
 ;
 ;   PB_EQ       A the band (0 the preamp, 1-10 the bands, 60 Hz to 16 kHz),
 ;               X its gain in signed half-dB, -24 to 24 (-12 to +12 dB)
