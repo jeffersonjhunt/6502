@@ -24,6 +24,11 @@
 ;   W   the warm boot (JMP WBOOT)
 ;   D   spins on in a ^C-able function 10 (^C there ends it)
 ;   V   V aa xx: SID A's and SID B's $D418 as the 65C02 reads them
+;   B   B aa xx: function 82 with a block at the top of the TPA, running
+;       into the I/O hole at $C000: MBOX + 3's count of bytes from KBLK
+;       copied to MBOX + 1-2's address. That is where the BDOS's jump
+;       ($BFFD) lives, so its three bytes are kept, the stub called through
+;       their address, and put back before anything else
 ;   U   U aa xx: MBOX + 1's byte written to SID A's $D418 and MBOX + 2's
 ;       to SID B's, then read back as V does
 ;
@@ -230,6 +235,38 @@ c_u:    lda     MBOX + 1
         SAY     "U"
         rts
 
+c_b:    ldx     #2
+@keep:  lda     $BFFD,x
+        sta     bsave,x
+        dex
+        bpl     @keep
+        lda     MBOX + 1
+        sta     t0
+        lda     MBOX + 2
+        sta     t0 + 1
+        ldy     MBOX + 3
+@copy:  dey
+        lda     KBLK,y
+        sta     (t0),y
+        tya
+        bne     @copy
+        lda     MBOX + 1
+        ldx     MBOX + 2
+        ldy     #O_SOUND
+        jsr     bcall
+        sta     bres
+        stx     bres + 1
+        ldx     #2
+@back:  lda     bsave,x
+        sta     $BFFD,x
+        dex
+        bpl     @back
+        lda     bres
+        ldx     bres + 1
+        SAY     "B"
+        rts
+bcall:  jmp     (bsave + 1)             ; the stub, as $BFFD's jump goes
+
 c_v:    lda     SIDAVOL
         ldx     SIDBVOL
         SAY     "V"
@@ -267,12 +304,15 @@ cmds:   CMD     'K', c_k
         CMD     'D', c_line
         CMD     'U', c_u
         CMD     'V', c_v
+        CMD     'B', c_b
 CMDS_LEN = * - cmds
 hblk:   .byte   SN_DOCHOOK
         .word   DOCHOOK
         .byte   HZP
 
         .data
+bsave:  .res    3
+bres:   .res    2
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0

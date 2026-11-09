@@ -857,6 +857,15 @@ namespace
     }
     /// L3TEST's V: SID A's and SID B's $D418 as the 65C02 reads them, "aa xx".
     std::string sidvols(CcpRig &r) { return command(r, 'V', "V"); }
+    /// Function 82 with `block` at `at`, just below $C000 (L3TEST's B, which keeps the BDOS's jump there): its
+    /// parameters after it run into the I/O hole.
+    std::string f82at(CcpRig &r, uint16_t at, const std::vector<uint8_t> &block)
+    {
+        r.poke(KBLK, block);
+        r.poke(MBOX + 1, std::vector<uint8_t>{static_cast<uint8_t>(at), static_cast<uint8_t>(at >> 8),
+                                              static_cast<uint8_t>(block.size())});
+        return command(r, 'B', "B");
+    }
 } // namespace
 
 TEST(premise_each_sid_s_d418_reads_back_as_last_written_by_the_65c02_or_the_6510)
@@ -939,6 +948,25 @@ TEST(hold_stops_the_6510_where_it_is_and_silences_each_sid_through_its_own_volum
     std::printf("  the count %u when held, %u after go\n", held, count(r));
     CHECK(count(r) > held);
     CHECK_EQ(f82op(r, SN_GO), std::string("FF FF")); // not held now
+    // A refused SN_START (its +3 at $C000, in the I/O hole) leaves the hold as it was: go still resumes.
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    const unsigned held2 = count(r);
+    CHECK_EQ(f82at(r, 0xBFFD, {SN_START, 0x00, 0x10}), std::string("FF FF"));
+    CHECK_EQ(sys(r, "SHELD"), 1);
+    CHECK_EQ(card(r).cpu_resets(), resets);
+    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK_EQ(sidvols(r), std::string("1F 2A"));
+    r.run(ms(2));
+    CHECK(count(r) > held2);
+    // A program that sets RUN itself while held: go still puts the volumes back at the chip (RUN off first,
+    // as the card drops the 65C02's SID writes while the 6510 runs).
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    card(r).write(SoundCard::CTRL, card(r).ctrl() | SoundCard::CTRL_RUN);
+    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F);
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2A);
+    CHECK_EQ(card(r).cpu_resets(), resets);
     // SN_STOP, SN_START and a release each forget a hold: go is refused after them.
     CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
     CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
@@ -966,9 +994,32 @@ TEST(hold_and_go_with_both_sids_written_together)
     CHECK_EQ(sidvols(r), std::string("1F 4B"));
     card(r).write(SoundCard::CTRL, card(r).ctrl() | 0x10); // BOTH
     CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::CTRL), 0x10); // BOTH kept, RUN off
     CHECK_EQ(sidvols(r), std::string("10 40"));
     CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::CTRL), 0x10 | SoundCard::CTRL_RUN);
     CHECK_EQ(sidvols(r), std::string("1F 4B"));
+}
+
+TEST(hold_and_go_keep_ctrl_s_ntsc_d500_and_both_bits)
+{
+    // Started with SN_START's +3 NTSC, SID B at $D500 and BOTH: a hold and a go change RUN alone.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+    r.poke(0x3000, COUNTER);
+    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(COUNTER.size()), 0}), std::string("00 00"));
+    constexpr uint8_t BITS = SoundCard::CTRL_NTSC | SoundCard::CTRL_SID_B_D500 | SoundCard::CTRL_BOTH;
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, BITS}), std::string("00 00"));
+    r.run(ms(5));
+    CHECK_EQ(reg(r, SoundCard::CTRL), BITS | SoundCard::CTRL_RUN);
+    const std::string vols = sidvols(r);
+    CHECK_EQ(f82op(r, SN_HOLD), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::CTRL), BITS);
+    CHECK_EQ(f82op(r, SN_GO), std::string("00 00"));
+    CHECK_EQ(reg(r, SoundCard::CTRL), BITS | SoundCard::CTRL_RUN);
+    CHECK_EQ(sidvols(r), vols);
 }
 
 TEST(a_hold_leaves_a_stream_playing_alongside_as_it_was)
@@ -1016,6 +1067,11 @@ TEST(sn_volume_sets_the_master_volumes_which_scale_a_sid_s_volume_as_it_reaches_
     CHECK_EQ(reg(r, SoundCard::VOLL), 0x80);
     CHECK_EQ(reg(r, SoundCard::VOLR), 0x40);
     CHECK_EQ(f82op(r, SN_VOLUME), std::string("FF FF")); // a block needed
+    CHECK_EQ(f82(r, {SN_VOLUME, 0xFF, 0xFF}), std::string("00 00"));
+    CHECK_EQ(f82at(r, 0xBFFE, {SN_VOLUME, 0x40}), std::string("FF FF")); // +2 at $C000, the I/O hole:
+    CHECK_EQ(reg(r, SoundCard::VOLL), 0xFF);                                // refused, and nothing changed
+    CHECK_EQ(reg(r, SoundCard::VOLR), 0xFF);
+    CHECK_EQ(f82(r, {SN_VOLUME, 0x80, 0x40}), std::string("00 00"));
     CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
     r.poke(MBOX + 1, std::vector<uint8_t>{0x1F, 0x2F});
     CHECK_EQ(command(r, 'U', "U"), std::string("1F 2F")); // read back as written
