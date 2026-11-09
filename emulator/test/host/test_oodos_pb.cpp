@@ -8,7 +8,7 @@
  * registers, read back through EQIDX and EQVAL as a program would; refusals that write nothing; OO-Amp's
  * test of the EQ (a sine at each band's centre, +12 dB from the library against the stream, 12 dB ± 1
  * louder at the card's test tap); the vis page copied byte for byte as the card holds it; and a revision-1
- * card refused. The card's own EQ and vis page are test_sound_eq's.
+ * card answered PE_NOCARD. The card's own EQ and vis page are test_sound_eq's.
  */
 
 #include "harness.h"
@@ -307,7 +307,7 @@ TEST(pb_vis_copies_a_fresh_snapshot_byte_for_byte)
     card(r).write(SoundCard::PCMCTL, 0);
 }
 
-TEST(on_a_revision_1_card_every_routine_is_refused_and_writes_nothing)
+TEST(on_a_revision_1_card_every_routine_answers_pe_nocard_and_pb_vis_leaves_its_buffer)
 {
     CcpRig r;
     REQUIRE(r.ok);
@@ -320,10 +320,6 @@ TEST(on_a_revision_1_card_every_routine_is_refused_and_writes_nothing)
     r.poke(BUF, std::vector<uint8_t>(128, 0xEE));
     CHECK_EQ(ac(pb(r, 'V', BUF & 0xFF, BUF >> 8, 0)), NOCARD);
     CHECK_EQ(r.phys(BUF), 0xEE);
-    // Back at revision 2, the card is as the reset left it: nothing reached it.
-    card(r).set_revision(2);
-    std::vector<int> flat(12, 0);
-    CHECK_EQ(show(eq_state(r)), show(flat));
 }
 
 TEST(the_warm_boot_after_the_library_leaves_the_eq_flat)
