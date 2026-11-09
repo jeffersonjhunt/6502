@@ -66,6 +66,7 @@ CHUNK           = 4096                 ; channel 2's piece: 4,096 cycles at most
 SC_ALL          = SC_6510 | SC_STREAM | SC_DOC
 BEEP_DIV        = 715909               ; 7,159,090 / 2 / 5: a half period in the delay loop's 5 cycles
 BEEP_LOOP       = 12                   ; the beep loop's own cycles, in 5s, besides the delay (about 60)
+SIDVOL          = $18                  ; a SID's $D418: the filter's mode (bits 4-7), the volume (0-3)
 .assert SC_6510 = 1 && SC_STREAM = 2 && SC_DOC = 4, error, "PQUIET and SN_INFO take the parts as bits 0-2"
 
 .segment "SYSBSS"
@@ -93,6 +94,9 @@ SDBANK:         .res    1
 SST:            .res    12             ; SN_STATUS's: its block's +1-12, at one moment
 HTSAVE:         .res    HK_LEN         ; DOCIRQ's: the tick hook's record, set aside
 LDLEN:          .res    3              ; DMALOAD's bytes left (17 bits)
+SHELD:          .res    1              ; 1: the 6510 held (SN_HOLD), SVOLA and SVOLB kept for SN_GO
+SVOLA:          .res    1              ; SID A's $D418 and SID B's as the hold found them
+SVOLB:          .res    1
 
 ; ---------------------------------------------------------------------------
 ; Block 61: the handlers, and what the BDOS and the boots share.
@@ -150,8 +154,10 @@ SNDINIT:        STZ     SREV
 ; the card (the 6510 stopped, the SIDs silenced, on revision 2 the stream
 ; flushed and stopped and the ES5503's RUN cleared), channel 2 aborted and
 ; its interrupt off, DRQSEL 0, the card's interrupts off, the ES5503 hook
-; off, every claim released. Whether or not anything was claimed: a
-; program that used the card behind OODOS's back leaves nothing on either.
+; off, every claim released, a hold forgotten (SIDSTOP), and on revision
+; 2 the master volumes back at 255, unity (SN_VOLUME's, L4b). Whether or
+; not anything was claimed: a program that used the card behind OODOS's
+; back leaves nothing on either.
 SNDQUIET:       LDA     #SC_ALL
                 JSR     PQUIET
                 STZ     SCLAIM
@@ -159,6 +165,11 @@ SNDQUIET:       LDA     #SC_ALL
                 LDA     SREV
                 BEQ     @done
                 STZ     SOUND_IEN
+                CMP     #2
+                BCC     @done
+                LDA     #$FF
+                STA     SOUND_VOLL
+                STA     SOUND_VOLR
 @done:          RTS
 
 ; Parts A stopped and given back (their claims are the caller's to clear):
@@ -192,8 +203,9 @@ PQUIET:         STA     STMP
 @done:          RTS
 
 ; The 6510 stopped (CTRL's other bits kept) and every SID register 0:
-; gates and volumes off. No card: nothing.
-SIDSTOP:        LDA     SREV
+; gates and volumes off; a hold forgotten. No card: nothing.
+SIDSTOP:        STZ     SHELD
+                LDA     SREV
                 BEQ     @done
                 LDA     SOUND_CTRL
                 AND     #<~SOUND_RUN
@@ -760,7 +772,7 @@ F_SOUND:        LDX     PX
 SNFF:           JMP     RETFF
 SNJUMPS:        .word   SN_INFOX, SN_CLAIMX, SN_RELEASEX, SN_LOADX, SN_STARTX, SN_STOPX, SN_SENDX
                 .word   SN_STREAMX, SN_BUFFERX, SN_PAUSEX, SN_RESUMEX, SN_SEEKX, SN_ENDX, SN_STATUSX
-                .word   SN_WAVEX, SN_DOCHOOKX, SN_BEEPX
+                .word   SN_WAVEX, SN_DOCHOOKX, SN_BEEPX, SN_HOLDX, SN_GOX, SN_VOLUMEX
 .assert (* - SNJUMPS) / 2 = SN_OPS, error, "SNJUMPS has an entry for each of oodos.inc's SN_*"
 
 ; The part A claimed, or the function ends: A = X = $FF.
@@ -923,9 +935,10 @@ SRC:            PHP
                 RTS
 
 ; +1-2 the entry, +3 CTRL's other bits: the 6510 stopped, its reset vector
-; the entry, then reset and run.
+; the entry, then reset and run. A hold before is forgotten.
 SN_STARTX:      BLOCK
                 NEED    SC_6510
+                STZ     SHELD
                 JSR     PGET
                 STA     T0
                 JSR     PGET
@@ -951,6 +964,67 @@ SN_STARTX:      BLOCK
 
 SN_STOPX:       NEED    SC_6510
                 JSR     SIDSTOP
+                JMP     SN00
+
+; The 6510 held (L4b): CTRL's RUN off, RESET not pulsed, so its registers
+; and RAM stay as they are; then each SID silenced through its own $D418,
+; both read first (the card gives back what was last written, by the 6510
+; or the 65C02), kept in SVOLA and SVOLB, and written back with the volume
+; nibble 0 and the filter's bits kept. Not by VOLL and VOLR: they scale the
+; stream's DAC too, and are SN_VOLUME's. RUN off first, as the card drops
+; the 65C02's SID writes while the 6510 runs; both read before either is
+; written, as with CTRL's BOTH a write to A reaches B too. Refused if the
+; 6510 isn't running: never started, stopped, or held already (the kept
+; values then stay).
+SN_HOLDX:       NEED    SC_6510
+                LDA     SOUND_CTRL
+                BIT     #SOUND_RUN
+                BEQ     SNFF3
+                AND     #<~SOUND_RUN
+                STA     SOUND_CTRL
+                LDA     SOUND_SIDA + SIDVOL
+                STA     SVOLA
+                LDA     SOUND_SIDB + SIDVOL
+                STA     SVOLB
+                LDA     SVOLA
+                AND     #$F0
+                STA     SOUND_SIDA + SIDVOL
+                LDA     SVOLB
+                AND     #$F0
+                STA     SOUND_SIDB + SIDVOL
+                LDA     #1
+                STA     SHELD
+                JMP     SN00
+SNFF3:          JMP     RETFF
+
+; A hold undone: the kept $D418s written back (A, then B, as with BOTH a
+; write to A reaches B), then RUN on with no RESET, so the 6510 carries on
+; from where it was held. Refused if not held.
+SN_GOX:         NEED    SC_6510
+                LDA     SHELD
+                BEQ     SNFF3
+                LDA     SVOLA
+                STA     SOUND_SIDA + SIDVOL
+                LDA     SVOLB
+                STA     SOUND_SIDB + SIDVOL
+                STZ     SHELD
+                LDA     SOUND_CTRL
+                ORA     #SOUND_RUN
+                STA     SOUND_CTRL
+                JMP     SN00
+
+; +1 VOLL, +2 VOLR (0-255, 255 unity): the card's master volumes, which
+; scale the SIDs' volume nibbles and the stream's and the ES5503's output
+; alike. No claim: the warm boot puts them back at 255. Refused on a card
+; before revision 2, which has none.
+SN_VOLUMEX:     BLOCK
+                LDA     SREV
+                CMP     #2
+                BCC     SNFF3
+                JSR     PGET
+                STA     SOUND_VOLL
+                JSR     PGET
+                STA     SOUND_VOLR
                 JMP     SN00
 
 ; +1 the byte, to MBOUT; SN_BUSY while the 6510 hasn't taken the last.
