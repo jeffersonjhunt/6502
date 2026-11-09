@@ -479,6 +479,34 @@ then its value, with interrupts on: don't call one from a frame or tick hook whi
 itself, or a gain can land on the wrong band. `PB_VIS` has an index of its own. The warm boot turns the EQ off with every
 gain 0 ([When the program ends](#when-the-program-ends)). `PB_VIS` costs about 18 cycles a byte, some 1,800 for the whole page (counted from the code).
 
+### The SIDs' voices
+
+Since OODOS 0.7, the linked library reads what a tune is doing, for a display: the card answers a read of a SID
+register with the last value written to it, by the 6510 playing the tune or by the 65C02 (Technical Reference,
+[chapter 7](../oo1-technical-reference/07-sound.md)). The library only reads; it never writes a SID. Three modules,
+`oodos/lib/sidv.s`, `sidnote.s` and `sidenv.s`, so a program links the ones it calls.
+
+- `SID_VOICES`: A/X a block of 50 bytes (`SID_BLOCK`), SID A's 25 registers (`$00`–`$18`) and then SID B's. Voice
+  v, 0–5 (A's three, then B's), has 7 bytes from `SID_VOFF`'s byte v: +0–1 the frequency, +2–3 the pulse width, +4
+  the control (bits 7–4 noise, pulse, saw, triangle; bit 0 the gate), +5 attack and decay, +6 sustain and release.
+  A SID's +21–24 are its filter's cutoff, resonance and routing, and its mode and volume.
+- `SID_NOTE`: A/X a voice's frequency, Y the 6510's CTRL bits (`SID_CTRL`'s; bit 0 NTSC): A = the nearest note, 0
+  (C-0) to 95 (B-7; A-4, 440 Hz, is 57), or `SID_NONE` (`$FF`) for a frequency of 0. Noise has no note: test the
+  control's bit 7 first. A note's threshold is the geometric mean of its register value and the note below's, so a
+  frequency goes to the note it is nearer.
+- `SID_ENV0`, then `SID_ENV` once a frame with the frame's `SID_VOICES` block: `SID_LVL` has the six voices' levels,
+  0–255. The card can't read a voice's envelope, so the library moves each level as the chip would: up at the
+  attack's rate to full when the gate goes on, down at the decay's to the sustain level, and at the release's to 0
+  when it goes off, at the data sheet's times (2 ms to 8 s, 6 ms to 24 s) for a frame of 1/59.94 s. It is an
+  estimate for a meter, not the chip's own curve: the chip's decay and release aren't straight lines. It moves a
+  frame's step a call, so call it once a frame: a frame missed isn't made up, and the meters fall behind (at every
+  other frame, a 250 ms attack takes 500 ms). A gate turned off and on again between two calls isn't seen, so no
+  new attack starts; and a frequency read while the 6510 writes it can show the wrong note for a frame. Call
+  `SID_ENV0` for a new tune or song.
+
+None of them fails: each returns carry clear. `SID_ENV` costs at most about 150 cycles a voice, some 900 a frame
+(counted from the code).
+
 ### What sound costs
 
 Nothing a tick: the tick with no area is 145 cycles and with a layout-2 area 234, as before. Each terminal count of

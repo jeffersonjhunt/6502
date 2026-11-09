@@ -7,6 +7,8 @@
 PB_INC = 1
 
 SND             = $C500                ; the sound card
+SND_SIDA        = SND + $00            ; SID A's registers, $00-$18 (read: the last written)
+SND_SIDB        = SND + $20            ; SID B's
 SND_EQIDX       = SND + $59            ; 0 the preamp, 1-10 the bands; bit 7: EQVAL is the enable
 SND_EQVAL       = SND + $5A            ; the gain in half-dB, +-24, or the enable; EQIDX moves on
 SND_VISIDX      = SND + $5B            ; the vis page's index: 0 written takes a snapshot

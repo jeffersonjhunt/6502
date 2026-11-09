@@ -1222,6 +1222,20 @@ and more in L5:
     EQIDX and EQVAL writes: documented (chapter 8, oolib.inc), not guarded, as the library turns interrupts off
     nowhere. F2, the revision-1 case's last check couldn't see a write (that card ignores the registers): taken
     out, the case named for what it shows.
+  - *L5c, as built (2026-11-09):* `lib/sidv.s` (`SID_VOICES`, `SID_VOFF`; 36 bytes and 6), `lib/sidnote.s`
+    (`SID_NOTE`; 80, and 384 of thresholds) and `lib/sidenv.s` (`SID_ENV0`, `SID_ENV`, `SID_LVL`; 253, 70 of steps, 27
+    of variables). The rules are OO-Amp's, so its notes and meters stay as they were: `tools/mksidtab.py` writes
+    `lib/sidnote.inc` and `lib/sidenv.inc` (committed), equal to OO-Amp's `build/sidtab.inc` but its padding (the
+    search stops at note 95). Decided here: `SID_ENV` steps all six voices from one block, their levels in
+    `SID_LVL` with `SID_ENV0` to reset, rather than a call a voice; `SID_NOTE` takes CTRL's bits in Y; each returns
+    carry clear. Tests (`test_oodos_pb`): `SID_VOICES` against 50 registers as written; `SID_NOTE` either side of
+    every threshold for both clocks, worked out in the test; `SID_ENV`'s six voices, 100 frames, against a model
+    of the rules with no difference, and voice 0 within a frame of the data sheet's times (full 15 against 15.0,
+    the sustain 6 after against 5.7, quiet 3 against 2.3). Both cases fail with SID B's offsets or the clock bit
+    broken.
+  - *L5c review, round 1 (2026-11-09):* F1, `SID_ENV` a frame's step a call, so missed frames make the meters lag:
+    documented (once a frame, not made up), not given a frame count. F2, a retrigger between two calls unseen and
+    a frequency read across a 6510 write: documented as the estimate's limits.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 
