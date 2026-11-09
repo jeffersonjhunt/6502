@@ -6,13 +6,16 @@
 ;
 ; Where the code lives (the owner's decision, 2026-11-08, from L3's sizing):
 ;
-;   block 60 (BDOS)   function 82: the parameters read and checked, the
-;                     loads and the beep started in the BDOS's time
-;   block 61 (BIOS)   what reads no parameters (L4's question 4, moved out
-;                     of block 60 for function 83's room): the loads' engine
-;                     (DMALOAD, synchronous, a piece at a time; RAMEND),
-;                     the beep's division and its loop (BEEPQ, BEEPGO); and
-;                     the handlers, reached from the dispatcher through a
+;   block 61 (BIOS)   all of it. Function 82 itself (moved out of block 60
+;                     in L4b, 2026-11-08, for L4a's and L4b's room, as
+;                     function 83 lives): its entry (the BDOS's table's,
+;                     reached with W2 on this block, as the stub leaves it)
+;                     and every operation, whose parameters PGET and PPUT
+;                     read in W1 and put W2 back on this block; none of it
+;                     calls what moves W2 (the BDOS's positioning and
+;                     buffers). The loads' engine (DMALOAD, synchronous, a
+;                     piece at a time; RAMEND), the beep's division and its
+;                     loop (BEEPQ, BEEPGO); and the handlers, reached from the dispatcher through a
 ;                     W2 borrow (CALL61: W2 on block 61, the routine, W2
 ;                     back as it was), as CALL62 borrows W3: channel 2's
 ;                     terminal count (the next piece, the next buffer), the
@@ -744,9 +747,7 @@ BEEPHALF:       LDA     USB_SPKR       ; (any access toggles it)
 .assert >BEEPHALF = >*, error, "the beep loop's branches stay in its page (a crossing changes the pitch)"
 
 ; ---------------------------------------------------------------------------
-; Function 82, sound: block 60.
-
-.segment "BDOS"
+; Function 82, sound: block 61, as function 83 (video.s) is.
 
 F_SOUND:        LDX     PX
                 BEQ     @op            ; X = 0: A is the operation

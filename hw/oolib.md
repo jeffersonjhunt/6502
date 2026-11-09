@@ -1105,6 +1105,13 @@ and more in L5:
     (unity), as it puts back the rest of the card; the EQ and the vis page stay linked.
   - The warm boot sets VOLL and VOLR to 255, after a hold as after anything else.
   - `SN_DOCHOLD`/`SN_DOCGO` (the ES5503's RUN) wait for MOD playback, which asks for them.
+  - **Decided (2026-11-08, the owner, from the sizing):** L4a and L4b as planned would leave block 60 about 160 bytes,
+    so L4b's first commit moves function 82 whole into block 61, as function 83 lives: its entry and every operation
+    (PGET and PPUT put W2 back on block 61; nothing in it calls the BDOS's positioning or buffers, which move W2).
+    Block 60 went from 337 bytes free to 1,493, block 61 from 4,618 to 3,462; `test_oodos_sound`'s and
+    `test_oodos_playsid`'s output is identical to main's, line for line. **And hold silences each SID through its own
+    `$D418` volume nibble,** kept and given back by go, not through VOLL/VOLR: the master volume scales the stream's
+    DAC too, so a hold by VOLL would mute a stream playing alongside and fight `SN_VOLUME`. L4a follows, in block 60.
 
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in
