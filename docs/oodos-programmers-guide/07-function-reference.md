@@ -759,7 +759,7 @@ CR `$FF` costs a second look through the directory, for the file's last entry, a
 M:, about 2,400 cycles more for a file of one entry and 3,900 for one of three (`test_oodos_load`, 2026-11-08),
 more on a drive with more entries in use. On O: and P: the look may read directory sectors from the Disk II, each a
 real read of milliseconds, when the file's later entries are in sectors not yet in the buffers. The look is made
-before the access stamp, so an open that fails in it has written nothing. Without CR `$FF` there is no such look.
+before the access stamp, so an open that fails in it has stamped nothing. Without CR `$FF` there is no such look.
 
 #### Since
 

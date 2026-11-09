@@ -124,7 +124,7 @@ MON:            .res    1              ; 1 once one is done: a physical error ke
 MRAND:          .res    1              ; bit 6: random, R0-R2 back to RSAVE at the end; 7: a read
 MKPW:           .res    1              ; F_MAKE: bit 7, f6' with passwords on: an XFCB too
 RSAVE:          .res    3
-DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for
+DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for (OPENPW) and the last extent (LASTS1)
 
 .segment "BDOS"
 
