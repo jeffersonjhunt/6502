@@ -512,23 +512,27 @@ None of them fails: each returns carry clear. `SID_ENV` costs at most about 150 
 Since OODOS 0.7, the linked library has the verbs any player uses, whichever part is sounding: pause and resume,
 volume and balance, how long it has played, whether it still plays, and how loud it is now. The source is a number:
 `PB_SID` (a `.sid` on the 6510), `PB_STREAM`, `PB_DOC` (the ES5503). The program still starts and stops the part
-itself (`SID_PLAY`, `SN_STREAM`, its own ES5503 code) and then calls `PB_BEGIN` with its source. Three modules:
-`oodos/lib/pb.s`, `pbvol.s` and `pblev.s`.
+itself (`SID_PLAY`, `SN_STREAM`, its own ES5503 code) and then calls `PB_BEGIN` with its source. Four modules:
+`oodos/lib/pb.s` (begin, pause and resume), `pbstat.s` (the status), `pbvol.s` and `pblev.s`.
 
 - `PB_INIT`: A/X the event area (0 for none), for a SID's stall. Without one, a running 6510 is taken as playing.
   The area has to be in sight when the library reads it: not in `$4000`–`$7FFF` while the library holds W1.
-- `PB_BEGIN`: A the source, once the program has started it. Its time counts from now.
+- `PB_BEGIN`: A the source, once the program has started it. Its time counts from now. For a SID, X bit 0 says the
+  6510 reports through the mailbox: set it for a `.sid` with a play routine (`SID_PLAYA` not 0), whose player sends
+  a byte at each call. A tune with none installs its own interrupt and sends nothing, so with bit 0 clear a running
+  6510 is simply playing.
 - `PB_PAUSE` and `PB_RESUME`: `SN_HOLD` and `SN_GO` for the 6510, `SN_PAUSE` and `SN_RESUME` for the stream. The
   ES5503's pause is refused (`PE_REFUSED`) until function 82 has one. `PE_STATE` means nothing is begun, it is
-  paused already, or (for `PB_RESUME`) `PB_PAUSE` didn't pause it.
+  paused already, or (for `PB_RESUME`) `PB_PAUSE` didn't pause it. A resume refused because the part was stopped
+  meanwhile (`SID_STOP`, `SN_RELEASE`) leaves it no longer paused, so the status is the part's own.
 - `PB_VOLUME`: A the level (255 unity), X the balance (0 left, 128 the centre, 255 right). At the centre both sides
   get the level; away from it the far side falls in a straight line to 0 at the end (VOLR = level × balance ÷ 128,
   or VOLL = level × (255 − balance) ÷ 127), then `SN_VOLUME`. Every program's balance moves alike.
 - `PB_STATUS`: A/X a block of 7 bytes (`PBS_LEN`): +0 the state, +1–4 the milliseconds played with paused time left
   out, +5–6 a stream's underruns. The states (`PS_*`): 0 stopped, 1 starting, 2 playing, 3 paused, 4 stalled, 5
   ended, 6 an error.
-  - A SID: paused while `PB_PAUSE` holds it, stopped once its RUN is off, and otherwise judged by the mailbox's
-    stamp ([The 6510](#the-6510)): playing with a byte in the last 2 s, starting before the first byte for up to 10
+  - A SID: paused while `PB_PAUSE` holds it, stopped once its RUN is off, playing while it runs if it doesn't report
+    or there is no area, and otherwise judged by the mailbox's stamp ([The 6510](#the-6510)): playing with a byte in the last 2 s, starting before the first byte for up to 10
     s (a tune's init can take seconds), stalled past either. Both count from the later of the stamp and the
     `PB_BEGIN` or last `PB_RESUME`, so neither an area opened late nor a hold reads as a stall. Its milliseconds
     come from the clock.

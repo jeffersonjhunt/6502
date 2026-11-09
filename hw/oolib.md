@@ -1245,6 +1245,12 @@ and more in L5:
     puts a SID's voice in its octave's band, scaled by its SID's volume. Tests (`test_oodos_pb`, 8 new cases) on
     real sources: a 6510 sending mailbox bytes then stopping, a silent one, a 44.1 kHz stream, the ES5503's RUN;
     the law at 45 points. The resume case fails with the stall's restart taken out, the law's with 128 for 127.
+  - *L5d review, round 1 (2026-11-09):* F1, a .sid with no play routine sends no mailbox bytes, so it read as
+    stalled: `PB_BEGIN`'s X bit 0 says whether the 6510 reports (`SID_PLAYA` not 0); clear, a running 6510 is
+    playing. F2, a resume refused after the part was stopped left it paused: it is no longer paused then. F3,
+    `PB_STATUS` and the stream's arithmetic moved to `lib/pbstat.s` (640 bytes), so pausing alone links `pb.s`'s
+    222. F4,
+    a test of `PB_LEVELS` for the ES5503.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 

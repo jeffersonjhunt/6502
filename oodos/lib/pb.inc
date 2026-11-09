@@ -28,9 +28,12 @@ EQ_BANDS        = 10
 ; pbcard.s's: carry clear with a revision-2 card or later (A, X, Y kept);
 ; carry set and A = PE_NOCARD without one
 .global PBCARD
-; pb.s's, for pblev.s: the source begun (PB_SID + 1 ...; 0 none), and a
-; count PB_BEGIN moves on (a new tune: the envelopes from quiet)
-.global PBSRC, PBGEN
+; pb.s's, for pbstat.s and pblev.s: the source begun (PB_SID + 1 ...; 0
+; none), a count PB_BEGIN moves on (a new tune: the envelopes from quiet),
+; the event area, paused, the 6510 reports, and the ms counter's times (4
+; bytes each): the begin, the stall rule's start, the pause, the paused time
+; summed, and now, which PBNOW reads
+.global PBSRC, PBGEN, PBAREA, PBHELD, PBRPT, PBTBEGIN, PBTFLOOR, PBTPAUSE, PBTAWAY, PBTNOW, PBNOW
 ; pbmath.s's: PBMUL A x X into PBP (16 bits); PBDIV PBP / A into A (the
 ; quotient's low byte; PBP's high byte must be under A)
 .global PBMUL, PBDIV

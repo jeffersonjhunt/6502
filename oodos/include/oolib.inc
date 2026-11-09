@@ -5,7 +5,7 @@
 ;
 ; Graphics (lib/gx*.s, L4): below, after the .sid tunes. Sound's EQ and vis
 ; page (lib/pb*.s, L5b), the SIDs' voices (lib/sid*.s but sid.s, L5c) and
-; playback (lib/pb.s, pbvol.s, pblev.s, L5d): after the graphics.
+; playback (lib/pb.s, pbstat.s, pbvol.s, pblev.s, L5d): after the graphics.
 ;
 ; .sid tunes (lib/sid.s, L3): a C64 PSID file in the program's memory
 ; played on the sound card's 6510, as the emulator's own player plays one
@@ -275,7 +275,7 @@ SID_F_RES       = 23
 SID_F_MODEVOL   = 24
 
 ; ---------------------------------------------------------------------------
-; Sound: playback (lib/pb.s, lib/pbvol.s, lib/pblev.s, L5d): the verbs any
+; Sound: playback (lib/pb.s, pbstat.s, pbvol.s, pblev.s, L5d): the verbs any
 ; player uses, whichever part sounds, over function 82. The source: PB_SID
 ; (a .sid on the 6510), PB_STREAM, PB_DOC (the ES5503). The program starts
 ; and stops the part itself (SID_PLAY, SN_STREAM ...); PB_BEGIN says which
@@ -284,10 +284,15 @@ SID_F_MODEVOL   = 24
 ;
 ;   PB_INIT     A/X the event area (0: none), for a SID's stall: without
 ;               one, a running 6510 is playing
-;   PB_BEGIN    A the source, once started: its time counted from now
+;   PB_BEGIN    A the source, once started: its time counted from now. A
+;               SID: X bit 0 set if the 6510 reports through the mailbox (a
+;               .sid with a play routine: SID_PLAYA not 0), for the stall
+;               rule; clear, a running 6510 is playing
 ;   PB_PAUSE    hold it: SN_HOLD, SN_PAUSE; the ES5503's is PE_REFUSED.
 ;               PE_STATE if nothing is begun or it is paused already
-;   PB_RESUME   SN_GO, SN_RESUME; PE_STATE if not paused by PB_PAUSE
+;   PB_RESUME   SN_GO, SN_RESUME; PE_STATE if not paused by PB_PAUSE.
+;               Refused (PE_REFUSED: the part stopped meanwhile), it is no
+;               longer paused: the status is the part's own
 ;   PB_VOLUME   A the level (255 unity), X the balance (0 left, 128 the
 ;               centre, 255 right): VOLL and VOLR by one law (the far side
 ;               falls in a straight line to 0), then SN_VOLUME. PE_NOCARD
