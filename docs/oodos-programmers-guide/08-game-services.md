@@ -316,7 +316,8 @@ block's +1, all of them or none: a part held already, by this program or an RSX,
 card hasn't. `SN_RELEASE` gives parts back, each stopped. `SN_INFO` says the card's revision and codecs, and with a
 block which parts are free. A claimed part is the program's to drive itself, its registers written as the Technical
 Reference has them ([question 6](../../hw/oolib.md#open-questions)): the SIDs while the 6510 is stopped, the
-ES5503's oscillators, the EQ and the vis page. The master volumes are function 82's (`SN_VOLUME`, below), so the
+ES5503's oscillators, the EQ and the vis page (or the library's `PB_EQ` and `PB_VIS`: [The EQ and the vis
+page](#the-eq-and-the-vis-page)). The master volumes are function 82's (`SN_VOLUME`, below), so the
 warm boot can put them back. The EQ is the program's to set, but the warm boot turns it off with every gain 0, as a
 /RESET leaves it, so the next program starts flat (from OODOS 0.7; before it, the EQ was left as the program set it). **DMA channel 2 is OODOS's**: a program reaches it only
 through function 82's loads and its stream.
@@ -455,6 +456,27 @@ does, and `SID_PLAY` claims the 6510, loads the tune, the player and the vectors
 chosen: it is a jumper on the card, not a register, so a tune written for the other plays on the chips fitted. PLAYSID ([the User's
 Guide](../oodos-users-guide/05-utilities.md#util-playsid)) is a program on it.
 
+### The EQ and the vis page
+
+Since OODOS 0.7, the linked library sets the EQ and reads the vis page, on a revision-2 card (Technical Reference,
+[chapter 7](../oo1-technical-reference/07-sound.md#reg-c559)). Both are register work with nothing to share, so
+there is no claim: a program may set the EQ before its stream starts. Two modules, so a program that only draws a
+meter doesn't link the EQ: `oodos/lib/pbeq.s` and `oodos/lib/pbvis.s`.
+
+- `PB_EQ`: A the band (0 the preamp, 1–10 the bands at 60, 170, 310 and 600 Hz and 1, 3, 6, 12, 14 and 16 kHz),
+  X its gain in signed half-dB, −24 to 24 (−12 to +12 dB). The enable and the other gains are kept.
+- `PB_EQON`: A 0 turns the EQ off (the stream passes bit for bit), anything else on. The gains are kept.
+- `PB_EQALL`: A/X 11 bytes, the preamp's gain and then the ten bands', for a stream's start. Every gain is checked
+  before any is written.
+- `PB_VIS`: A/X a buffer, Y a length, 1–98 (0 means 98). The card takes a snapshot, and its first Y bytes are
+  copied in: +0–31 the spectrum's bands, +32–33 the VU pair (both 0–255 for −60 to 0 dBFS), +34–97 the last 64
+  samples (`$80` is zero). A meter takes 34. The SIDs aren't in it: their sound never passes through the card's
+  digital path.
+
+Each returns carry clear and A = 0, or carry set with nothing written and A = `PE_NOCARD` (a revision-1 card, or
+none) or `PE_RANGE` (a band past 10, a gain past ±24, a length past 98). The warm boot turns the EQ off with every
+gain 0 ([When the program ends](#when-the-program-ends)). `PB_VIS` costs about 18 cycles a byte, some 1,800 for the whole page (counted from the code).
+
 ### What sound costs
 
 Nothing a tick: the tick with no area is 145 cycles and with a layout-2 area 234, as before. Each terminal count of
@@ -588,7 +610,8 @@ off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 
 boot sets. For L3's sound it does what the BIOS's Break does to the card, whether a program claimed it or not: the
 6510 stopped, the SIDs silenced, the stream flushed and stopped, the ES5503 stopped; and channel 2 aborted, the card's
 DRQSEL back to 0 and its interrupts off, the ES5503 hook off, every part released, a hold forgotten, and the master
-volumes back at 255. Timer 1 is set up again
+volumes back at 255, and (from OODOS 0.7; before it, the EQ was left as the program set it) the EQ off with every
+gain 0. Timer 1 is set up again
 as the cold boot left it, should the program have changed it. For L4's graphics it frees the vertical-blank slots,
 turns the pointer off, and sets the video card's registers as the cold boot set them for the console (its memory,
 units 0–12, was never the program's, so its text shows again as it was). That is so whether the program ends by `JMP WBOOT`,
