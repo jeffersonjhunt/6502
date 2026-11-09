@@ -387,23 +387,23 @@ F_OPEN:         LDA     #FCB_SEQ
                 STA     FC + FCB_F8
 @found:         JSR     OPENPW
                 JSR     OPENEXT
-                LDA     MODE           ; the access, in extent 0's slot only
+                LDA     FC + FCB_CR     ; CR $FF: the file's byte count into CR,
+                CMP     #$FF           ; before the stamp: a failed look writes nothing
+                BNE     @access
+                JSR     LASTS1
+@access:        LDA     MODE           ; the access, in extent 0's slot only
                 AND     #MODE_ACCESS
-                BEQ     @count
+                BEQ     @done
                 LDA     FC + FCB_S2
                 AND     #$3F
                 ORA     FC + FCB_EX
-                BNE     @count
+                BNE     @done
                 LDA     CDRV           ; not on a read-only drive
                 JSR     DRVBIT
                 AND     ROVEC,X
-                BNE     @count
+                BNE     @done
                 LDA     #0
                 JSR     STAMP
-@count:         LDA     FC + FCB_CR     ; CR $FF: the file's byte count into CR
-                CMP     #$FF
-                BNE     @done
-                JSR     LASTS1
 @done:          JSR     FCBOUT
                 JMP     RET0
 @none:          LDA     #$FF
@@ -412,8 +412,13 @@ F_OPEN:         LDA     #FCB_SEQ
 ; CR = S1, the byte count, of the entry of F's file with the highest extent
 ; (S2, then EX), in the user it was opened from: cpmtools keeps the count in
 ; the last extent's entry only. Every entry of the file is looked at, as
-; Compute File Size looks (F_SIZE). SPAT, DIDX, DPTR and T0-T3 changed.
-LASTS1:         JSR     EXTUSER
+; Compute File Size looks (F_SIZE). DIDX as it was, for the access stamp
+; (DSAVE, free once OPENPW is done); SPAT, DPTR and T0-T3 changed.
+LASTS1:         LDA     DIDX
+                STA     DSAVE
+                LDA     DIDX + 1
+                STA     DSAVE + 1
+                JSR     EXTUSER
                 LDX     #SM_ANYEX
                 JSR     SETPAT
                 STZ     T0             ; T1/T0: the highest extent so far
@@ -437,7 +442,11 @@ LASTS1:         JSR     EXTUSER
                 STA     FC + FCB_CR
 @next:          JSR     FINDNXT
                 BRA     @entry
-@done:          RTS
+@done:          LDA     DSAVE
+                STA     DIDX
+                LDA     DSAVE + 1
+                STA     DIDX + 1
+                RTS
 
 ; The file at DPTR (DIDX) opened from user EXTUSER: protected (PWFILE)
 ; without its password given, Password Error in read mode, f7' (read-only)
