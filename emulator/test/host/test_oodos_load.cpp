@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace ooe::test;
@@ -482,6 +483,44 @@ TEST(open_with_cr_ff_gives_the_file_s_last_record_s_count_from_its_last_entry)
         counts(r, "SYS0    BIN", {0, 4}, 0x68);
         CHECK(r.phys(FCB + 8) & 0x80); // f8': opened from user 0
         r.scb(0x44, 0);
+    }
+    {
+        // Across a module: entries written by hand (no blocks: open reads none), the one of S2 1, EX 0
+        // (extent 32) first in the directory, then extent 0's, then S2 0, EX 31's. S2 1's S1 (9), not
+        // EX 31's (7): the extent is S2's and EX's, not EX alone, and not the last entry found.
+        CcpRig r;
+        REQUIRE(r.ok);
+        auto entry = [&](uint8_t ex, uint8_t s1, uint8_t s2, uint8_t rc) {
+            std::vector<uint8_t> e(32, 0);
+            const std::string name83 = "MOD     BIN";
+            for (unsigned i = 0; i < 11; ++i)
+                e[1 + i] = static_cast<uint8_t>(name83[i]);
+            e[12] = ex, e[13] = s1, e[14] = s2, e[15] = rc;
+            r.poke(MDISK + r.free_entry() * 32, e);
+        };
+        entry(0, 9, 1, 5);
+        entry(0, 0, 0, 128);
+        entry(31, 7, 0, 128);
+        open(r, "X");
+        counts(r, "MOD     BIN", {0, 31}, 9);
+    }
+    {
+        // S1 in every entry but the last, as function 30 with f6' leaves it before the file grows (MAKEENT
+        // gives a new entry S1 0): 0, the last entry's, not the nonzero or the largest. Then $44, $44 and
+        // $33: the last entry's $33, not the largest.
+        for (const auto &[s01, s2, want] : {std::tuple<uint8_t, uint8_t, uint8_t>{0x33, 0, 0}, {0x44, 0x33, 0x33}})
+        {
+            CcpRig r;
+            REQUIRE(r.ok);
+            r.put_m({{0, "GREW    BIN", noise(65536 + 1000, 9)}});
+            const std::vector<unsigned> es = m_entries(r, 0, "GREW    BIN");
+            REQUIRE(es.size() == 3u);
+            r.poke(MDISK + es[0] * 32 + 13, s01);
+            r.poke(MDISK + es[1] * 32 + 13, s01);
+            r.poke(MDISK + es[2] * 32 + 13, s2);
+            open(r, "X");
+            counts(r, "GREW    BIN", {0, 2, 4}, want);
+        }
     }
     {
         // With access stamps, the open of extent 0 with CR $FF stamps extent 0's SFCB slot, and nothing
