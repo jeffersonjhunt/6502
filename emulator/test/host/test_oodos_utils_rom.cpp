@@ -43,7 +43,7 @@ namespace
         {
             // Without the DMA controller the card's sectors don't move and each one waits out SDIO's time
             // limit, so the boot takes longer than CcpRig's 3 s: its prompt, given longer.
-            if (!ok && !machine_text.empty() && out.find("OODOS 0.5") != std::string::npos)
+            if (!ok && !machine_text.empty() && out.find("OODOS 0.6") != std::string::npos)
                 ok = until("\r\nA>", ms(10000), out.size());
         }
         uint8_t nb(unsigned reg) { return machine->bus().read(static_cast<uint16_t>(0xC680 + reg)); }

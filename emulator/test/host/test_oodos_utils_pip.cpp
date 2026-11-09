@@ -301,7 +301,7 @@ TEST(pip_alone_asks_for_a_command_a_line_until_an_empty_one)
     o += r.to("m:a.txt=m:one.txt", "\r\n*");
     o += r.to("m:b.txt=m:nosuch.txt", "\r\n*");
     o += r.cmd("");
-    same(o, "m:pip\r\nOODOS PIP 0.5\r\n*m:a.txt=m:one.txt\r\n*m:b.txt=m:nosuch.txt\r\nFILE NOT FOUND - NOSUCH.TXT\r\n*\r\r\nA>");
+    same(o, "m:pip\r\nOODOS PIP 0.6\r\n*m:a.txt=m:one.txt\r\n*m:b.txt=m:nosuch.txt\r\nFILE NOT FOUND - NOSUCH.TXT\r\n*\r\r\nA>");
     same(text(m_data(r, 0, "A       TXT")), "ONE\r\n");
     failed(r); // an error among them: the return code
     // A ^C at '*' (function 10's warm boot) after a copy to user 5: the CCP's user again (the CCP
