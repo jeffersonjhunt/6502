@@ -1277,6 +1277,29 @@ TEST(a_byte_the_old_run_left_at_a_restart_is_dropped_not_counted_as_the_new_run_
     CHECK_EQ(reg(r, SoundCard::STATUS) & 0x04, 0); // STATUS: nothing waits in MBIN
 }
 
+TEST(a_full_queue_loses_no_stamp)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    loaded(r, ECHO, true);
+    r.run(ms(5));
+    const unsigned slots = area(r, EV_QSLOTS);
+    // Nothing read: the queue fills, and each byte after is still stamped.
+    uint32_t before = 0, after = 0; // around the last byte's send
+    for (unsigned i = 1; i <= slots + 4; ++i)
+    {
+        before = ms_count(r);
+        CHECK_EQ(f82(r, {SN_SEND, static_cast<uint8_t>(i)}), std::string("00 00"));
+        r.run(ms(2));
+        after = ms_count(r);
+    }
+    CHECK(waiting(r).size() < slots + 5); // full: some were lost from the queue
+    CHECK_EQ(area16(r, EV_SMCNT), slots + 5);
+    CHECK_EQ(area(r, EV_SMBOX), static_cast<uint8_t>(~(slots + 4)));
+    CHECK(area32(r, EV_SMMS) >= before && area32(r, EV_SMMS) <= after);
+}
+
 TEST(with_a_layout_1_area_nothing_is_stamped)
 {
     CcpRig r;
