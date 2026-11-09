@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6.** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7.** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
