@@ -289,10 +289,17 @@ add_custom_command(
         DEPENDS ${oodos_deps}
         VERBATIM)
 # The utilities: every oodos/utils/*.s there is (the Makefile's wildcard), so a stamp stands for them.
-file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s")
+# With them, OOLIB L4's: GXTEST (oodos/test/gx, the library's test program, not a utility) and the assets
+# test_oodos_gfx shows with VIEW, from PNGs check_mkasset.py writes (never the owner's).
+file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
+     "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/check_mkasset.py")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/gx "OOLIB_USERS=playsid view gxtest"
+                "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+                "${OODOS_UTILS_DIR}/gxtest.com"
+        COMMAND "${Python3_EXECUTABLE}" -I -B "${OODOS_SRC}/test/check_mkasset.py" --write "${OODOS_UTILS_DIR}/assets"
         COMMAND "${CMAKE_COMMAND}" -E touch "${OODOS_UTILS_DIR}/utils.stamp"
         DEPENDS ${oodos_deps} ${oodos_utils_deps}
         VERBATIM)
