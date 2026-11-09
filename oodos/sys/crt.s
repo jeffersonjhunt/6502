@@ -28,7 +28,7 @@
 .include "sys.inc"
 .import DMAGO
 .importzp SRCP, DSTP, DCOUNT
-.export CRTINIT, CRTOUT
+.export CRTINIT, CRTOUT, CRTREGS
 .import CLOCKS                         ; irq.s's
 .exportzp CESC                         ; WARM resets it
 
@@ -329,7 +329,29 @@ CRTINIT:        STZ     CVOK
                 STA     PAL,X
                 DEX
                 BPL     @pal
-                LDA     CLOCKS         ; the card: its interrupts but the frame counter's
+                JSR     CRTREG0        ; the card's registers for the screen
+                JSR     CLEAR
+                JSR     CURON
+                LDA     #BDOS_BLOCK
+                STA     NB_WIN1
+                DEC     CVOK
+USBINIT:        LDA     USB_ID
+                CMP     #USB_ID_V1
+                BNE     @done
+                STZ     USB_IEN
+                LDA     #USB_NMI_PAUSE ; Pause/Break: the monitor
+                STA     USB_KBCFG
+@done:          RTS
+
+; The console's screen shown again (L4): the card's registers as CRTINIT
+; sets them, for the warm boot (video.s's VBQUIET) and function 83's
+; DM_CONSOLE. Its memory, units 0-12, is never a program's to write
+; (function 83 refuses it, block 32 isn't in the W1 map), so the font, the
+; palette and the text are as they were, the cursor too. Nothing with no
+; screen (CVOK clear).
+CRTREGS:        BIT     CVOK
+                BPL     CRTRET
+CRTREG0:        LDA     CLOCKS         ; the card: its interrupts but the frame counter's
                 AND     #CLK_FRAME     ; (irq.s: none before cold boot starts it) off,
                 STA     VIDEO_IEN      ; layer 0, text, unscrolled
                 STZ     VIDEO_PALBASE
@@ -349,18 +371,7 @@ CRTINIT:        STZ     CVOK
                 STZ     VIDEO_L1_CONFIG
                 LDA     #VIDEO_ON_L0
                 STA     VIDEO_CTRL
-                JSR     CLEAR
-                JSR     CURON
-                LDA     #BDOS_BLOCK
-                STA     NB_WIN1
-                DEC     CVOK
-USBINIT:        LDA     USB_ID
-                CMP     #USB_ID_V1
-                BNE     @done
-                STZ     USB_IEN
-                LDA     #USB_NMI_PAUSE ; Pause/Break: the monitor
-                STA     USB_KBCFG
-@done:          RTS
+CRTRET:         RTS
 
 ; The CGA's 16 colours, 12-bit: GGGGBBBB, then 0000RRRR (video.s's).
 .macro RGB r, g, b

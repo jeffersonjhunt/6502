@@ -15,7 +15,9 @@ in front of W3.
 
 While a program runs, W0–W2 hold blocks 0–2, its 48 KB, and W3 holds block 62: OODOS's resident code in the code
 window, `$C800–$F7FF`, and common memory at `$F800–$FFFF`. The windows belong to OODOS: a program doesn't write the
-window registers ([AGENTS.md](../../AGENTS.md)). It reaches the rest of memory by the functions in this chapter.
+window registers ([AGENTS.md](../../AGENTS.md)). It reaches the rest of memory by the functions in this chapter. The
+one exception is OOLIB's: its linked library may put a video or allocated block in W1, under [the W1
+contract](#the-w1-contract).
 
 | Blocks | Bank | What |
 |---|---|---|
@@ -23,7 +25,7 @@ window registers ([AGENTS.md](../../AGENTS.md)). It reaches the rest of memory b
 | 3 | 0 | not allocated by 53–58; a DMA segment may reach it |
 | 4–23 | 1–5 | the blocks programs allocate (53–58): 20 blocks, 320 KB |
 | 24–31 | 6–7 | OODOS's: the directory hashes, the sector buffers, the system block |
-| 32–47 | 8–B | the video card's memory |
+| 32–47 | 8–B | the video card's memory: block 32's first 13 KB (units 0–12) the console's, OODOS's ([chapter 8](08-game-services.md#video-memory)) |
 | 48–55 | C–D | M:, the RAM disk |
 | 56–59 | E | not allocated: Apple II mode copies the IIe ROM here each time it starts; a DMA segment may reach it |
 | 60–63 | F | the BDOS, the BIOS, OODOS's resident block, and the ROM BIOS's copy |
@@ -125,7 +127,9 @@ A segment may reach any RAM but OODOS's own: banks 0–5, 8–B and E. Banks 6�
 `$FFFFF`, are refused, and so is a record that would run past a DMA address of `$FFFF`. A refused record is A = X =
 `$FF` with nothing done, checked before the first record of a multi-sector call. A record through a segment costs
 238 cycles more than one to a CPU address: a buffered record on M: by function 33, 8,176 cycles against 7,938, as
-`test_oodos_sys` measures.
+`test_oodos_sys` measures. A record read into the console's video memory (units 0–12, `$80000–$833FF`) is refused
+too, from OODOS 0.5. For a file into video memory, [function 83's](07-function-reference.md#bdos-83) `DM_LOAD` is the
+faster way: whole sectors straight from the card.
 
 ## Physical addresses
 
@@ -146,3 +150,27 @@ blocks move by their physical addresses with the DMA controller (the BIOS's MOVE
 blocks read or written a byte at a time (function 9's string, 10's line, the blocks of 49, 50, 72, 104, 105 and 152, the
 MCBs, among others) are reached by mapping the program's block into the BDOS's own W2 for each byte. Neither changes the
 program's windows.
+
+## The W1 contract
+
+OOLIB is OODOS's own extension, there so that programs don't go around the rules; where it does what a program may
+not, OODOS says so here, as part of the interface, and checks it by version. From OOLIB's interface version 4
+([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, OODOS 0.5), **OOLIB may write W1** (`NB_WIN1`,
+`$C681`) with any block [function 83's](07-function-reference.md#bdos-83) `DM_INFO` puts in its W1 map: block 1, the
+blocks the program has allocated, and video memory's blocks 33–47 (32, the console's, never). OODOS keeps that W1:
+
+- **across a BDOS call:** the entry reads W1 itself and puts that value back, and the BDOS reaches the program's
+  `$4000–$7FFF` through it (a record read there lands in the mapped block);
+- **across an interrupt:** the dispatcher borrows W1 for the event area and puts back what it found;
+- **in a hook:** a hook runs with the windows the program had when it set it (W1 among them), and the program's are
+  put back after;
+- **at the warm boot:** block 1 goes back, whatever W1 had.
+
+A single `STA NB_WIN1` can't be split by an interrupt, and costs 4 cycles against about 450 for a BDOS call, which
+matters to a draw that crosses blocks. The library checks `FT_INFO`'s version at its start (`GX_INIT`) and refuses to
+map below 4; a change to the contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
+`$BFFD` in block 2; FARCALL needs common memory in W3's block).
+
+While another block is in W1, the program's own `$4000–$7FFF` is out of its reach, and of the BDOS's: its code, its
+event area, the FCBs and parameter blocks it passes, and what it draws from stay in `$0300–$3FFF` or `$8000–$BFFC`.
+A hook that draws maps W1 itself. A program that doesn't use OOLIB keeps the old rule: the windows are OODOS's.

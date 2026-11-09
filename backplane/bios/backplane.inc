@@ -110,6 +110,7 @@ DMA_GO          = $03                  ; CTRL: ENABLE + REQ
 DMA_ON          = $71                  ; CONTROL: master enable, no burst limit
 DMA_MASTER      = $01                  ; CONTROL: master enable
 DMA_ID_V1       = $81
+DMA_CH1         = $02                  ; ABORT, STATUS: channel 1, OODOS's vertical-blank copies
 DMA_CH2         = $04                  ; ABORT, STATUS: channel 2, the sound card's
 DMA_CH3         = $08                  ; ABORT, STATUS: channel 3
 DMA_ALL         = $0F                  ; ABORT, STATUS: every channel

@@ -1,7 +1,7 @@
 # 5 Utilities
 
 The transient utilities, programs on A: (phase 4b): SET, SHOW, INITDIR, DATE, DEVICE, SETDEF, then PIP (4b2);
-GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
+GENCOM, GET and PUT (phase 5b), which work with RSXs; SUBMIT (phase 5c); DOS33 (phase 6d), for Apple disks; PLAYSID (OOLIB's L3), for C64 tunes; VIEW (L4), for pictures. DIR's, ERASE's, RENAME's and TYPE's full forms are with the
 built-ins, in [chapter 4](04-built-in-commands.md).
 
 The design record, for the reasons: [hw/oodos.md, "Phases"](../../hw/oodos.md#phases).
@@ -1282,6 +1282,64 @@ Each sets the return code to `$FF00`.
 #### Since
 
 OODOS 0.4
+
+#### Status
+
+**built**
+
+#### CP/M 3
+
+OODOS's own: CP/M 3 has no such utility.
+
+## VIEW
+
+<a id="util-view"></a>
+### VIEW: show a picture
+
+VIEW shows an asset file, a picture made for the video card (a bitmap, tiles and their map, sprites, with their
+palette), on the screen until you press a key, then puts the console's screen back. The files are made on Linux from
+PNG images by `oodos/tools/mkasset.py`. VIEW is built on OOLIB's linked graphics library ([the Programmer's Guide,
+chapter 8](../oodos-programmers-guide/08-game-services.md#graphics)), which loads each part of the file straight from
+the card into video memory.
+
+#### Forms
+
+```
+VIEW filespec
+```
+
+- **filespec** is the asset file; `.OGX` if you leave the type out.
+
+#### Options
+
+None.
+
+#### Output
+
+```
+A>VIEW PICTURE
+Press a key to stop.
+```
+
+The picture covers the screen at once; the line goes to the console's own screen, behind it, and shows when VIEW
+ends. A palette in the file sets the colours; a bitmap or a tile map shows on the screen's first layer, as the file
+says it was made; a sprite table turns the sprites on. Any key ends it. Ending any other way (^C, Break) puts the
+console's screen back too: the warm boot does.
+
+#### Errors
+
+- `VIEW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file, or
+  one that can't be read.
+- `Not an asset file.`: the file isn't an asset file of format 3.
+- `Not enough video memory.`: the file's parts need more of the card's memory than there is.
+- `Needs OODOS's interface 4.`: an older OODOS. `Video memory W1 can't reach.` and `The asset wasn't loaded.`: a part
+  OODOS refused.
+
+Each sets the return code to `$FF00`.
+
+#### Since
+
+OODOS 0.5
 
 #### Status
 

@@ -6,10 +6,13 @@
 ;
 ; Where the code lives (the owner's decision, 2026-11-08, from L3's sizing):
 ;
-;   block 60 (BDOS)   function 82, and what it does in the BDOS's time: the
-;                     parameter checks, the loads (synchronous, a piece at
-;                     a time), the beep
-;   block 61 (BIOS)   the handlers, reached from the dispatcher through a
+;   block 60 (BDOS)   function 82: the parameters read and checked, the
+;                     loads and the beep started in the BDOS's time
+;   block 61 (BIOS)   what reads no parameters (L4's question 4, moved out
+;                     of block 60 for function 83's room): the loads' engine
+;                     (DMALOAD, synchronous, a piece at a time; RAMEND),
+;                     the beep's division and its loop (BEEPQ, BEEPGO); and
+;                     the handlers, reached from the dispatcher through a
 ;                     W2 borrow (CALL61: W2 on block 61, the routine, W2
 ;                     back as it was), as CALL62 borrows W3: channel 2's
 ;                     terminal count (the next piece, the next buffer), the
@@ -54,6 +57,7 @@
 .import EVON, EVBLK, MS, CLOCKS, UCARD, HK, DHON, CALLHOOK, HOOKADDR, SETHOOK ; irq.s's
 .import QEV, EVK, EVC, EVV             ; input.s's
 .export F_SOUND, R61, SIENSET, SCLAIM, SIEN, C2ON
+.import VBWORK, VBQUIET                ; video.s's
 
 CHUNK           = 4096                 ; channel 2's piece: 4,096 cycles at most with the CPU held
 SC_ALL          = SC_6510 | SC_STREAM | SC_DOC
@@ -95,7 +99,9 @@ LDLEN:          .res    3              ; DMALOAD's bytes left (17 bits)
 ; irq.s's CALL61 (W2 on this block): routine X (sys.inc's R61_*).
 R61:            JMP     (R61TAB,X)
 R61TAB:         .word   SNDIRQ, SFIELDS, SNDQUIET, SNDINIT
+                .word   VBWORK, VBQUIET ; video.s's (L4)
 .assert R61_IRQ = 0 && R61_FRAME = 2 && R61_QUIET = 4 && R61_INIT = 6, error, "R61TAB is in sys.inc's R61_* order"
+.assert R61_VB = 8 && R61_WARM = 10, error, "R61TAB's video entries are sys.inc's R61_VB, R61_WARM"
 
 BUFBIT:         .byte   $01, $02
 
@@ -552,182 +558,6 @@ SOBS:           LDA     SOUND_STATE
 @seen:          STA     SPREV
                 RTS
 
-; ---------------------------------------------------------------------------
-; Function 82, sound: block 60.
-
-.segment "BDOS"
-
-F_SOUND:        LDX     PX
-                BEQ     @op            ; X = 0: A is the operation
-                JSR     PGET           ; the block's +0; PP then at +1
-@op:            CMP     #SN_OPS
-                BCS     SNFF
-                ASL     A
-                TAX
-                JMP     (SNJUMPS,X)
-SNFF:           JMP     RETFF
-SNJUMPS:        .word   SN_INFOX, SN_CLAIMX, SN_RELEASEX, SN_LOADX, SN_STARTX, SN_STOPX, SN_SENDX
-                .word   SN_STREAMX, SN_BUFFERX, SN_PAUSEX, SN_RESUMEX, SN_SEEKX, SN_ENDX, SN_STATUSX
-                .word   SN_WAVEX, SN_DOCHOOKX, SN_BEEPX
-.assert (* - SNJUMPS) / 2 = SN_OPS, error, "SNJUMPS has an entry for each of oodos.inc's SN_*"
-
-; The part A claimed, or the function ends: A = X = $FF.
-.macro NEED part
-                LDA     #part
-                AND     SCLAIM
-                BNE     :+
-                JMP     RETFF
-:
-.endmacro
-
-; A block, or the function ends.
-.macro BLOCK
-                LDX     PX
-                BNE     :+
-                JMP     RETFF
-:
-.endmacro
-
-SNBUSY:         LDA     #SN_BUSY
-                LDX     #$FF
-                RTS
-SN00:           LDA     #0
-                TAX
-                RTS
-
-; The card's revision in A, its codecs in X; a block gets them at +1 and +2,
-; and the parts no one has claimed at +3.
-SN_INFOX:       LDX     PX
-                BEQ     @ret
-                LDA     SREV
-                JSR     PPUT
-                LDA     SCODECS
-                JSR     PPUT
-                LDA     SCLAIM
-                EOR     #$FF
-                AND     SPARTS
-                JSR     PPUT
-@ret:           LDA     SREV
-                LDX     SCODECS
-                RTS
-
-; +1 the parts: refused if one isn't on this machine, or is held. The
-; 6510's mailbox emptied first (a byte left from before isn't the program's);
-; the stream's state afresh.
-SN_CLAIMX:      BLOCK
-                JSR     PGET
-                AND     #SC_ALL
-                BEQ     @no
-                STA     T0
-                EOR     #$FF
-                AND     SPARTS
-                EOR     SPARTS         ; the parts asked for that are there
-                CMP     T0
-                BNE     @no            ; one isn't
-                AND     SCLAIM
-                BNE     @no            ; one is held
-                PHP
-                SEI
-                LDA     T0
-                AND     #SC_STREAM
-                BEQ     @cpu
-                JSR     C2STOP
-                STZ     SUNDER
-                STZ     SUNDER + 1
-                STZ     SPREV
-@cpu:           LDA     T0
-                AND     #SC_6510
-                BEQ     @set
-                LDA     SOUND_MBIN     ; emptied
-@set:           LDA     T0
-                TSB     SCLAIM
-                PLP
-                JSR     SIENSET
-                JMP     SN00
-@no:            JMP     RETFF
-
-; +1 the parts: each of them held stopped and given back (PQUIET); the
-; others asked for are no one's anyway.
-SN_RELEASEX:    BLOCK
-                JSR     PGET
-                AND     SCLAIM
-                STA     T0
-                PHP
-                SEI
-                JSR     PQUIET
-                LDA     T0
-                TRB     SCLAIM
-                PLP
-                JSR     SIENSET
-                JMP     SN00
-
-; +1-3 the source, +4-5 the card's RAM address, +6-7 the length.
-SN_LOADX:       BLOCK
-                NEED    SC_6510
-                JSR     SRCLEN         ; SG the source, T2/T3 the card's address, LDLEN the length
-                BCS     SNFF2
-                LDA     #1             ; to the card's RAM's end ($10000) at most
-                JSR     RAMEND
-                BCS     SNFF2
-                LDA     C2ON
-                BEQ     @go
-                JMP     SNBUSY
-@go:            LDA     T2
-                STA     SOUND_RAMADDR
-                LDA     T3
-                STA     SOUND_RAMADDR + 1
-                STZ     SOUND_DRQSEL   ; RAMDATA (revision 1 has none: there it is always)
-                JSR     DMALOAD
-                BCS     SNFF2
-                JMP     SN00
-SNFF2:          JMP     RETFF
-
-; The block's +1-3 a physical address (SG), then two bytes (T2, T3), then a
-; length (LDLEN, 0 as 65,536), checked as 51's segment is (SEGOK: memory a
-; segment may reach). Carry set if refused. SN_WAVE's has a third byte
-; (T4) before the length: WAVE3 set.
-SRCLEN:         STZ     T4
-                CLC
-                BRA     SRC
-SRCLEN3:        SEC
-SRC:            PHP
-                JSR     PGET
-                STA     SG
-                JSR     PGET
-                STA     SG + 1
-                JSR     PGET
-                STA     SG + 2
-                JSR     PGET
-                STA     T2
-                JSR     PGET
-                STA     T3
-                PLP
-                BCC     @len
-                JSR     PGET
-                STA     T4
-@len:           JSR     PGET
-                STA     LDLEN
-                JSR     PGET
-                STA     LDLEN + 1
-                STZ     LDLEN + 2
-                ORA     LDLEN
-                BNE     @check
-                INC     LDLEN + 2      ; 0: 65,536
-@check:         LDA     SG + 2
-                CMP     #$10
-                BCS     @no
-                LDA     LDLEN          ; the last byte: SG + length - 1
-                SEC
-                SBC     #1
-                PHA
-                LDA     LDLEN + 1
-                SBC     #0
-                TAY
-                PLA
-                JMP     SEGOK          ; carry set: refused
-@no:            SEC
-                RTS
-
 ; Carry set if the card's address T2/T3 (and T4's bit 0, wave RAM's A16) +
 ; LDLEN runs past A x $10000: the RAM's end (64 KB the card's, 128 KB wave
 ; RAM), where the address would wrap.
@@ -830,6 +660,266 @@ DMALOAD:        LDA     SDMA
 @end:           CLC
                 RTS
 .assert <CHUNK = 0, error, "DMALOAD compares the length's high byte with CHUNK's"
+
+; T4/T5 = BEEP_DIV / T0/T1, less the loop's own BEEP_LOOP (1 at least): a
+; 24-by-16 division by shifts.
+BEEPQ:          LDA     #<BEEP_DIV     ; SG/SG+1/SG+2 the dividend, becoming the quotient
+                STA     SG
+                LDA     #>BEEP_DIV
+                STA     SG + 1
+                LDA     #^BEEP_DIV
+                STA     SG + 2
+                STZ     T4             ; T4/T5 the remainder
+                STZ     T5
+                LDX     #24
+@bit:           ASL     SG
+                ROL     SG + 1
+                ROL     SG + 2
+                ROL     T4
+                ROL     T5
+                LDA     T4
+                SEC
+                SBC     T0
+                TAY
+                LDA     T5
+                SBC     T1
+                BCC     @next
+                STA     T5
+                STY     T4
+                INC     SG
+@next:          DEX
+                BNE     @bit
+                SEC                    ; the quotient fits 16 bits: 20 Hz is 35,795
+                LDA     SG
+                SBC     #BEEP_LOOP
+                STA     T4
+                LDA     SG + 1
+                SBC     #0
+                STA     T5
+                BCC     @one
+                ORA     T4
+                BNE     @done
+@one:           LDA     #1
+                STA     T4
+                STZ     T5
+@done:          RTS
+
+; The beep's body (SN_BEEP, block 60's, which reads and checks the block):
+; T0/T1 the pitch, T2/T3 the length in ms; the speaker toggled each half
+; period until the millisecond counter has moved the length on. Here, not
+; in block 60, as it reads no parameters (L4's question 4). Aligned, as
+; BEEPD is, so the loop's branches never cross a page.
+                .align  64
+BEEPGO:         JSR     BEEPQ          ; T4/T5 the half period, in the delay loop's 5 cycles
+                PHP
+                SEI
+                LDA     MS             ; SG/SG + 1 the start
+                STA     SG
+                LDA     MS + 1
+                STA     SG + 1
+                PLP
+BEEPHALF:       LDA     USB_SPKR       ; (any access toggles it)
+                LDX     T4             ; the delay: X, then 256 a pass, Y passes
+                LDY     T5
+                INY
+                CPX     #0
+                BNE     @d
+                DEY
+@d:             JSR     BEEPD
+                PHP                    ; MS - start, against the length: MS read whole
+                SEI
+                SEC
+                LDA     MS
+                SBC     SG
+                TAX
+                LDA     MS + 1
+                SBC     SG + 1
+                PLP
+                CMP     T3
+                BCC     BEEPHALF
+                BNE     @end
+                CPX     T2
+                BCC     BEEPHALF
+@end:           RTS
+.assert >BEEPHALF = >*, error, "the beep loop's branches stay in its page (a crossing changes the pitch)"
+
+; ---------------------------------------------------------------------------
+; Function 82, sound: block 60.
+
+.segment "BDOS"
+
+F_SOUND:        LDX     PX
+                BEQ     @op            ; X = 0: A is the operation
+                JSR     PGET           ; the block's +0; PP then at +1
+@op:            CMP     #SN_OPS
+                BCS     SNFF
+                ASL     A
+                TAX
+                JMP     (SNJUMPS,X)
+SNFF:           JMP     RETFF
+SNJUMPS:        .word   SN_INFOX, SN_CLAIMX, SN_RELEASEX, SN_LOADX, SN_STARTX, SN_STOPX, SN_SENDX
+                .word   SN_STREAMX, SN_BUFFERX, SN_PAUSEX, SN_RESUMEX, SN_SEEKX, SN_ENDX, SN_STATUSX
+                .word   SN_WAVEX, SN_DOCHOOKX, SN_BEEPX
+.assert (* - SNJUMPS) / 2 = SN_OPS, error, "SNJUMPS has an entry for each of oodos.inc's SN_*"
+
+; The part A claimed, or the function ends: A = X = $FF.
+.macro NEED part
+                LDA     #part
+                AND     SCLAIM
+                BNE     :+
+                JMP     RETFF
+:
+.endmacro
+
+; A block, or the function ends.
+.macro BLOCK
+                LDX     PX
+                BNE     :+
+                JMP     RETFF
+:
+.endmacro
+
+SNBUSY:         LDA     #SN_BUSY
+                LDX     #$FF
+                RTS
+SN00:           LDA     #0
+                TAX
+                RTS
+
+; The card's revision in A, its codecs in X; a block gets them at +1 and +2,
+; and the parts no one has claimed at +3.
+SN_INFOX:       LDX     PX
+                BEQ     @ret
+                LDA     SREV
+                JSR     PPUT
+                LDA     SCODECS
+                JSR     PPUT
+                LDA     SCLAIM
+                EOR     #$FF
+                AND     SPARTS
+                JSR     PPUT
+@ret:           LDA     SREV
+                LDX     SCODECS
+                RTS
+
+; +1 the parts: refused if one isn't on this machine, or is held. The
+; 6510's mailbox emptied first (a byte left from before isn't the program's);
+; the stream's state afresh, and with a layout-2 area the area's sound part
+; written at once (L4's review of L3: not left for the next frame).
+SN_CLAIMX:      BLOCK
+                JSR     PGET
+                AND     #SC_ALL
+                BEQ     @no
+                STA     T0
+                EOR     #$FF
+                AND     SPARTS
+                EOR     SPARTS         ; the parts asked for that are there
+                CMP     T0
+                BNE     @no            ; one isn't
+                AND     SCLAIM
+                BNE     @no            ; one is held
+                PHP
+                SEI
+                LDA     T0
+                AND     #SC_STREAM
+                BEQ     @cpu
+                JSR     C2STOP
+                STZ     SUNDER
+                STZ     SUNDER + 1
+                STZ     SPREV
+@cpu:           LDA     T0
+                AND     #SC_6510
+                BEQ     @set
+                LDA     SOUND_MBIN     ; emptied
+@set:           LDA     T0
+                TSB     SCLAIM
+                JSR     SFIELDS        ; the area's sound part at once, as the stream's start makes it (L4)
+                PLP
+                JSR     SIENSET
+                JMP     SN00
+@no:            JMP     RETFF
+
+; +1 the parts: each of them held stopped and given back (PQUIET); the
+; others asked for are no one's anyway.
+SN_RELEASEX:    BLOCK
+                JSR     PGET
+                AND     SCLAIM
+                STA     T0
+                PHP
+                SEI
+                JSR     PQUIET
+                LDA     T0
+                TRB     SCLAIM
+                PLP
+                JSR     SIENSET
+                JMP     SN00
+
+; +1-3 the source, +4-5 the card's RAM address, +6-7 the length.
+SN_LOADX:       BLOCK
+                NEED    SC_6510
+                JSR     SRCLEN         ; SG the source, T2/T3 the card's address, LDLEN the length
+                BCS     SNFF2
+                LDA     #1             ; to the card's RAM's end ($10000) at most
+                JSR     RAMEND
+                BCS     SNFF2
+                LDA     C2ON
+                BEQ     @go
+                JMP     SNBUSY
+@go:            LDA     T2
+                STA     SOUND_RAMADDR
+                LDA     T3
+                STA     SOUND_RAMADDR + 1
+                STZ     SOUND_DRQSEL   ; RAMDATA (revision 1 has none: there it is always)
+                JSR     DMALOAD
+                BCS     SNFF2
+                JMP     SN00
+SNFF2:          JMP     RETFF
+
+; The block's +1-3 a physical address (SG), then two bytes (T2, T3), then a
+; length (LDLEN, 0 as 65,536), checked as 51's segment is (SEGOK: memory a
+; segment may reach). Carry set if refused. SN_WAVE's has a third byte
+; (T4) before the length: WAVE3 set.
+SRCLEN:         STZ     T4
+                CLC
+                BRA     SRC
+SRCLEN3:        SEC
+SRC:            PHP
+                JSR     PGET
+                STA     SG
+                JSR     PGET
+                STA     SG + 1
+                JSR     PGET
+                STA     SG + 2
+                JSR     PGET
+                STA     T2
+                JSR     PGET
+                STA     T3
+                PLP
+                BCC     @len
+                JSR     PGET
+                STA     T4
+@len:           JSR     PGET
+                STA     LDLEN
+                JSR     PGET
+                STA     LDLEN + 1
+                STZ     LDLEN + 2
+                ORA     LDLEN
+                BNE     @check
+                INC     LDLEN + 2      ; 0: 65,536
+@check:         LDA     SG + 2
+                CMP     #$10
+                BCS     @no
+                LDA     LDLEN          ; the last byte: SG + length - 1
+                SEC
+                SBC     #1
+                PHA
+                LDA     LDLEN + 1
+                SBC     #0
+                TAY
+                PLA
+                JMP     SEGOK          ; carry set: refused
+@no:            SEC
+                RTS
 
 ; +1-2 the entry, +3 CTRL's other bits: the 6510 stopped, its reset vector
 ; the entry, then reset and run.
@@ -1158,78 +1248,7 @@ SN_BEEPX:       BLOCK
                 LDA     T0
                 CMP     #20
                 BCC     @no
-@ok:            JSR     BEEPQ          ; T4/T5 the half period, in the delay loop's 5 cycles
-                PHP
-                SEI
-                LDA     MS             ; SG/SG + 1 the start
-                STA     SG
-                LDA     MS + 1
-                STA     SG + 1
-                PLP
-@half:          LDA     USB_SPKR       ; (any access toggles it)
-                LDX     T4             ; the delay: X, then 256 a pass, Y passes
-                LDY     T5
-                INY
-                CPX     #0
-                BNE     @d
-                DEY
-@d:             JSR     BEEPD          ; (block 61's, W2 on it)
-                PHP                    ; MS - start, against the length: MS read whole
-                SEI
-                SEC
-                LDA     MS
-                SBC     SG
-                TAX
-                LDA     MS + 1
-                SBC     SG + 1
-                PLP
-                CMP     T3
-                BCC     @half
-                BNE     @done
-                CPX     T2
-                BCC     @half
+@ok:            JSR     BEEPGO         ; (block 61's, W2 on it)
 @done:          JMP     SN00
 @no:            JMP     RETFF
 
-; T4/T5 = BEEP_DIV / T0/T1, less the loop's own BEEP_LOOP (1 at least): a
-; 24-by-16 division by shifts.
-BEEPQ:          LDA     #<BEEP_DIV     ; SG/SG+1/SG+2 the dividend, becoming the quotient
-                STA     SG
-                LDA     #>BEEP_DIV
-                STA     SG + 1
-                LDA     #^BEEP_DIV
-                STA     SG + 2
-                STZ     T4             ; T4/T5 the remainder
-                STZ     T5
-                LDX     #24
-@bit:           ASL     SG
-                ROL     SG + 1
-                ROL     SG + 2
-                ROL     T4
-                ROL     T5
-                LDA     T4
-                SEC
-                SBC     T0
-                TAY
-                LDA     T5
-                SBC     T1
-                BCC     @next
-                STA     T5
-                STY     T4
-                INC     SG
-@next:          DEX
-                BNE     @bit
-                SEC                    ; the quotient fits 16 bits: 20 Hz is 35,795
-                LDA     SG
-                SBC     #BEEP_LOOP
-                STA     T4
-                LDA     SG + 1
-                SBC     #0
-                STA     T5
-                BCC     @one
-                ORA     T4
-                BNE     @done
-@one:           LDA     #1
-                STA     T4
-                STZ     T5
-@done:          RTS

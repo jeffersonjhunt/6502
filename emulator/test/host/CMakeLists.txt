@@ -247,7 +247,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -289,10 +289,17 @@ add_custom_command(
         DEPENDS ${oodos_deps}
         VERBATIM)
 # The utilities: every oodos/utils/*.s there is (the Makefile's wildcard), so a stamp stands for them.
-file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s")
+# With them, OOLIB L4's: GXTEST (oodos/test/gx, the library's test program, not a utility) and the assets
+# test_oodos_gfx shows with VIEW, from PNGs check_mkasset.py writes (never the owner's).
+file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
+     "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/check_mkasset.py")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/gx "OOLIB_USERS=playsid view gxtest"
+                "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
+                "${OODOS_UTILS_DIR}/gxtest.com"
+        COMMAND "${Python3_EXECUTABLE}" -I -B "${OODOS_SRC}/test/check_mkasset.py" --write "${OODOS_UTILS_DIR}/assets"
         COMMAND "${CMAKE_COMMAND}" -E touch "${OODOS_UTILS_DIR}/utils.stamp"
         DEPENDS ${oodos_deps} ${oodos_utils_deps}
         VERBATIM)

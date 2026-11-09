@@ -2043,3 +2043,273 @@ GENCHK:         LDA     CSLOT
                 LDA     #RC_MEDIA
                 JMP     RETA
 @same:          RTS
+
+; ---------------------------------------------------------------------------
+; Function 83's DM_LOAD (hw/oolib.md, L4): the file's part, block 60's, as
+; it positions by the extents and reads through the buffers, which move W2.
+; Video.s's DM_LOADX (block 61) has read the block and checked the count
+; (1-512) and the destination's 128 x count bytes: LFCB, LREC, LCNT, LDST.
+;
+; The FCB is read whole (36 bytes) and its drive selected, as 33's; the
+; drive's changed buffers are written back first, so the load sees every
+; write. Then a step at a time, from record LREC, each positioned as 33
+; positions (RANDPOS, SAMEEXT, POSITION): on an SD unit of OODOS's own
+; formats or M:, from a record that starts a sector, the whole sectors of
+; its block that the extent has and the count wants, at most 8 (4 KB) a
+; step, go straight to the destination by the BIOS's RDRUN (one READ on
+; channel 0, or DMAGO for M:); anything else, a record at a time through a
+; buffer (GETBUF) and MOVE to the physical destination, as 33 with a DMA
+; segment does, the DMA segment itself untouched. apple-do drives (O:, P:,
+; an apple-do unit) always go the second way: their sectors are in the
+; track buffer. A = 0; 1 at a record past the extent's RC, a block never
+; written, or an extent never written (as 33's 1 and 4), the step's records
+; done; 3 or 6 as 33 gives them; a physical error as 33's (DERR). An FCB
+; never opened has no blocks: 1, nothing loaded (the owner's decision: the
+; FCB has no mark of being open the BDOS could trust). +6-7 of the block
+; get the records loaded; the FCB is written back as a random read of the
+; last record loaded leaves it (R0-R2 and CR that record's, F on its
+; extent), or of the first if none was.
+.import LFCB, LREC, LCNT, LDST, LDONE  ; video.s's
+.import RDRUN, DRVAPL                  ; bios.s's
+.importzp SRCP
+.export LOADGO
+
+.segment "SYSBSS"
+LDIR:           .res    1              ; bit 7: the drive's whole sectors may go straight
+
+.segment "BDOS"
+
+LOADGO:         LDA     LFCB
+                STA     PP
+                LDA     LFCB + 1
+                STA     PP + 1
+                LDA     #FCB_RAND
+                JSR     FCBSEL
+                JSR     GENCHK
+                LDA     CDRV
+                STA     EDRV
+                INC     A
+                JSR     FLUSHD         ; the drive's changed buffers written first
+                BCC     @flushed
+                LDA     RERR
+                JMP     DERR
+@flushed:       STZ     LDONE
+                STZ     LDONE + 1
+                STZ     LDIR
+                LDA     CDRV
+                CMP     #DRV_M
+                BEQ     @direct
+                CMP     #SD_DRIVES
+                BCS     LDSTEP
+                TAX
+                LDA     DRVAPL,X
+                BMI     LDSTEP         ; apple-do: through its track buffer
+@direct:        DEC     LDIR
+LDSTEP:         LDA     LCNT
+                ORA     LCNT + 1
+                BNE     @more
+                LDA     #0
+                JMP     LDEND
+@more:          LDX     #2
+@r:             LDA     LREC,X
+                STA     FC + FCB_R,X
+                DEX
+                BPL     @r
+                JSR     RANDPOS
+                BCS     @far
+                JSR     SAMEEXT
+                BEQ     @here
+                LDA     #0
+                JSR     POSITION
+                BCC     @here
+                PHA                    ; 3 or 4
+                LDA     RRCR
+                STA     FC + FCB_CR
+                PLA
+                CMP     #4
+                BEQ     @eof0
+                JMP     LDEND          ; 3: as 33
+@far:           LDA     #6
+                JMP     LDEND
+@eof0:          JMP     LDEOF          ; (for the branches below)
+@buf0:          JMP     LDBUF
+@here:          LDA     RRCR
+                STA     FC + FCB_CR
+                CMP     FC + FCB_RC
+                BCS     @eof0
+                JSR     FPIDX
+                JSR     FPTR
+                LDA     T0
+                STA     BLK
+                LDA     T1
+                STA     BLK + 1
+                ORA     BLK
+                BEQ     @eof0         ; a block never written
+                BIT     LDIR
+                BPL     @buf0
+                LDA     FC + FCB_CR
+                AND     #3
+                BNE     @buf0        ; not a sector's first record
+                SEC                    ; T2 = the records here: the extent's, the block's, the count's
+                LDA     FC + FCB_RC
+                SBC     FC + FCB_CR
+                STA     T2
+                LDA     FC + FCB_CR
+                AND     BLM
+                STA     T3
+                SEC
+                LDA     BLM
+                SBC     T3
+                INC     A              ; the block's records from CR on
+                CMP     T2
+                BCS     @blk
+                STA     T2
+@blk:           LDA     LCNT + 1
+                BNE     @cnt
+                LDA     LCNT
+                CMP     T2
+                BCS     @cnt
+                STA     T2
+@cnt:           LSR     T2             ; whole sectors, 8 at most
+                LSR     T2
+                BEQ     @buf0
+                LDA     T2
+                CMP     #9
+                BCC     @run
+                LDA     #8
+                STA     T2
+@run:           JSR     RECSEC         ; LBA: CR's sector (T4 0)
+                LDA     CDRV           ; the BIOS's drive, as DISKOP selects it
+                INC     A
+                CMP     BIOSDRV
+                BEQ     @sel
+                STA     BIOSDRV
+                DEC     A
+                LDX     #1
+                JSR     B_SELDSK
+                STX     T3
+                ORA     T3
+                BNE     @sel
+                STZ     BIOSDRV
+                BRA     @ioerr
+@sel:           LDA     LBA
+                STA     BW1
+                LDA     LBA + 1
+                STA     BW1 + 1
+                LDX     #2
+@d:             LDA     LDST,X
+                STA     SRCP,X
+                DEX
+                BPL     @d
+                LDA     #BIOS_BLOCK    ; block 61's RDRUN, called directly
+                STA     NB_WIN2
+                LDA     T2
+                JSR     RDRUN
+                CMP     #0
+                BNE     @ioerr
+                LDA     T2             ; 4 records a sector
+                ASL     A
+                ASL     A
+                JSR     LDADV
+                JMP     LDSTEP
+@ioerr:         LDA     #ER_IO
+                JMP     DERR
+
+; One record through a buffer to the destination.
+LDBUF:         JSR     RECSEC
+                LDA     #0
+                JSR     GETBUF
+                JSR     RECPTR
+                LDA     RECP
+                STA     BW1
+                LDA     RECP + 1
+                STA     BW1 + 1
+                LDA     LDST
+                STA     BW2
+                LDA     LDST + 1
+                STA     BW2 + 1
+                LDA     LDST + 2       ; a physical bank: $80 + A16-A19
+                ORA     #$80
+                TAX
+                LDA     #BANK_SYS
+                JSR     B_XMOVE
+                LDA     #128
+                LDX     #0
+                JSR     B_MOVE
+                LDA     #1
+                JSR     LDADV
+                JMP     LDSTEP
+
+LDEOF:          LDA     #1
+LDEND:          PHA
+                LDA     LDONE
+                ORA     LDONE + 1
+                BEQ     @out           ; none: R0-R2 the first's, as the step left them
+                SEC                    ; R0-R2 the last loaded, CR its place in its extent
+                LDA     LREC
+                SBC     #1
+                STA     FC + FCB_R
+                LDA     LREC + 1
+                SBC     #0
+                STA     FC + FCB_R + 1
+                LDA     LREC + 2
+                SBC     #0
+                STA     FC + FCB_R + 2
+                JSR     RANDPOS        ; and F at that record's extent, as 33 leaves it: a step
+                JSR     SAMEEXT        ; past a full extent's end left F on the next, empty one
+                BEQ     @cr            ; (review F4)
+                LDA     #0
+                JSR     POSITION       ; (its extent was found before: it is there)
+@cr:            LDA     RRCR
+                STA     FC + FCB_CR
+@out:           JSR     FCBOUT
+                CLC                    ; the block's +6-7: the records loaded
+                LDA     PA
+                ADC     #6
+                STA     PP
+                LDA     PX
+                ADC     #0
+                STA     PP + 1
+                LDA     LDONE
+                JSR     PPUT
+                LDA     LDONE + 1
+                JSR     PPUT
+                PLA
+                JMP     RETA
+
+; A records done (1-32): the record, the count, the records loaded and the
+; destination (A x 128 bytes) moved on.
+LDADV:          STA     T3
+                CLC
+                ADC     LREC
+                STA     LREC
+                BCC     @cnt
+                INC     LREC + 1
+                BNE     @cnt
+                INC     LREC + 2
+@cnt:           SEC
+                LDA     LCNT
+                SBC     T3
+                STA     LCNT
+                BCS     @done
+                DEC     LCNT + 1
+@done:          CLC
+                LDA     LDONE
+                ADC     T3
+                STA     LDONE
+                BCC     @dst
+                INC     LDONE + 1
+@dst:           LDA     T3             ; A x 128: (A / 2) x 256 + (A & 1) x 128
+                LSR     A
+                TAY
+                LDA     #0
+                ROR     A
+                CLC
+                ADC     LDST
+                STA     LDST
+                TYA
+                ADC     LDST + 1
+                STA     LDST + 1
+                BCC     @end
+                INC     LDST + 2
+@end:           RTS

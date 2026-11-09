@@ -8,7 +8,9 @@ keyboard's every press and release in a queue, the keys held, four game controll
 kept in that same block; and [function 81](07-function-reference.md#bdos-81) for the rest. **L3, sound**: the sound
 card's 6510, its stream and its ES5503, each claimed by one program at a time; the card's RAM and wave RAM loaded by
 DMA; a stream fed from two buffers of the program's while it plays; and a C64 `.sid` tune played by OOLIB's linked
-library, which PLAYSID uses; that is [function 82](07-function-reference.md#bdos-82).
+library, which PLAYSID uses; that is [function 82](07-function-reference.md#bdos-82). **L4, graphics**: files loaded
+into video memory by DMA, copies and fills, copies at the vertical blank and the mouse's pointer, which is [function
+83](07-function-reference.md#bdos-83), and OOLIB's linked graphics library, its asset files and VIEW.
 
 The design record, for the reasons: [hw/oolib.md](../../hw/oolib.md#goals), and its plan, step by step:
 [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan).
@@ -24,9 +26,10 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3; each step that adds to the services raises it. X
-has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame and timing),
-`OA_INPUT` (`$02`, 81, input) and `OA_SOUND` (`$04`, 82, sound) now, and later `OA_DMA` (83) and `OA_VIDEO` (84). An OODOS without the services answers 80 as a
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4; each step that adds to the services
+raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
+and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
+now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
 function it doesn't have, A = X = `$FF`, so a version of `$FF` means none. A program that needs what isn't there
 says so and ends, rather than calling it. [Function 72](07-function-reference.md#bdos-72) says OODOS's own version,
 as before.
@@ -106,7 +109,8 @@ area:   .res    EV_LEN
 | +3 | | reserved, 0 |
 | +4–7 | `EV_MS` | the millisecond counter |
 | +8–11 | `EV_FRAMES` | the frame counter |
-| +12–15 | | reserved, 0 |
+| +12 | `EV_VBGO` | the vertical-blank copies' go bits (L4, [below](#the-vertical-blank-slots)), 0 at the open |
+| +13–15 | | reserved, 0 |
 
 - **The area must** be at least 16 bytes (`EV_LEN`; up to 256, given as 0), in one of W0–W2's 16 KB windows
   without crossing into the next, and in the program's own RAM: its blocks 0–2, or a block it allocated in banks 1–5 and mapped. OODOS writes
@@ -419,6 +423,122 @@ FIFO the next piece's 4,096 cycles of DMA come inside it. 44.1 kHz 16-bit stereo
 of the CPU. A frame with the stream claimed and a layout-2 area open costs about 300 cycles more (688 against 389),
 for the area's sound part.
 
+## Graphics
+
+L4's graphics are in two parts. What needs a DMA channel, the vertical blank or physical memory is OODOS's,
+[function 83](07-function-reference.md#bdos-83): loading a file's records into memory, copies and fills, copies at
+the vertical blank, the mouse's pointer sprite, and the console's screen back. What a program draws with is
+register and memory work with nothing to share, so it is **OOLIB's linked library**: `oodos/lib/gx*.s`, linked from
+`build/oolib.lib`, its calls in `include/oolib.inc`. The video card itself, its layers, sprites and registers, is
+the [Technical Reference's chapter 6](../oo1-technical-reference/06-video.md).
+
+### Video memory
+
+The video card draws from banks 8–B, 256 KB, in **units** of 1 KB that its base registers name. Units 0–12
+(`$80000–$833FF`) are the console's: its palette (unit 0), its font (1–4) and its text screen (8–12). They are
+OODOS's: no destination of function 83 may touch them, nor a record read through a DMA segment, and the console's
+block, 32, is never in W1. So the console's text, written on while a game has the screen ([hw/oolib.md, question
+10](../../hw/oolib.md#open-questions)), shows again as it was at the warm boot. The running program has units
+13–255 whole, as it has its TPA; the library hands them out (`GX_ALLOC`, `GX_FREE`), aligned to 8 units for 8 or
+more. Units 13–15 are in block 32, so DMA reaches them and the CPU doesn't: the library keeps them for palettes and
+sprite tables, which go by DMA.
+
+A program's CPU reaches video memory through W1, which the library maps itself ([chapter 5, "The W1
+contract"](05-memory-and-banking.md#the-w1-contract)). A program using the library keeps its code, its event area
+and its data out of `$4000–$7FFF`.
+
+### Loading
+
+`DM_LOAD` loads a count of a file's records, up to 512 (64 KB), from a record of an open FCB, to a physical address:
+whole sectors straight from the SD card by DMA, at most 8 a READ, and the ends through a BDOS buffer. 64 KB takes
+about 16 ms from an `oodos-8m` drive, against 87 ms by functions 51 and 33 a record at a time. It doesn't wait for the
+vertical blank: a program loads into a buffer it isn't showing, then flips to it.
+
+```
+        lda     #<load
+        ldx     #>load
+        ldy     #O_DMA
+        jsr     BDOS            ; A = 0: loaded; 1: the file ended first
+        ...
+load:   .byte   DM_LOAD
+        .word   fcb             ; opened by function 15
+        .byte   0, 0, 0         ; from record 0
+        .word   480             ; 60 KB
+        .byte   $00, $40, $08   ; to $84000: unit 16
+```
+
+### Copies and fills
+
+`DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time: a scroll of a
+bitmap, a cleared screen, the console's font copied out for text. The library fills a bitmap's whole rows in one
+call.
+
+### The vertical-blank slots
+
+Four **slots**, 1 KB of copies in all, run at the vertical blank: a sprite table and a palette from the program's
+memory to the card's, say, so that a frame's changes show together and nothing is torn. `DM_VBSET` sets a slot's
+source, destination and length; the program then sets the slot's bit in the event area's +12 (`EV_VBGO`) with a
+`TSB`, which an interrupt can't split, and OODOS copies the slot at the next vertical blank and clears the bit. A
+bit still set means the copy hasn't happened yet. Nothing is copied while no event area is open. The library binds
+slot 0 to its sprite shadow table and slot 1 to its palette shadow.
+
+```
+        lda     #1              ; slot 0's bit
+        tsb     area + EV_VBGO  ; copied at the next vertical blank
+```
+
+### The pointer
+
+`DM_POINTER` names a sprite OODOS moves with the mouse: at each vertical blank, after the slots, its X and Y in the
+card's sprite table are the mouse's, from a layout-2 event area, less the hotspot. The program draws the image, sets
+the sprite's other bytes, and puts the mouse in absolute mode with limits 319 and 239 ([function
+81's](07-function-reference.md#bdos-81) `IN_MOUSE`), since sprites live in a 320 × 240 space.
+
+### The library
+
+`GX_INIT` first, with the event area's address (or 0): it checks OODOS's interface (4 at least, with `OA_DMA`) and
+reads the W1 map. Then:
+
+- **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type and units, `GX_SHOW` the display,
+  `GX_BORDER`, `GX_PALBASE`, `GX_SPRBASE`, `GX_SCROLL`, `GX_FLIP` (double buffering: MAPBASE, latched at the
+  vertical blank, then the frame waited for), `GX_CONSOLE`; `GX_ALLOC`, `GX_FREE`, `GX_BLOCK`, `GX_W1BACK`.
+- **The palette** (`gxpal.s`): a shadow of 256 entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`, and
+  `GX_FADE` to another palette over n frames, a step a frame.
+- **Sprites** (`gxspr.s`): a shadow table of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG`, `GX_SPRATTR`,
+  `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
+- **Tiles** (`gxtile.s`): `GX_TMAP`, `GX_TPUT`, `GX_TGET`, `GX_TFILL`.
+- **Bitmaps** (`gxbmp.s`): bitmap 256 (8 bits a pixel), bitmap 512 (4) and mono (1): `GX_PLOT`, `GX_POINT`,
+  `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
+  `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
+  refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or
+  height does nothing. A copy's rows are each one DMA copy forward, as memcpy, not memmove: moving a strip right
+  on the same rows repeats its first bytes, so copy through another place for that.
+- **Text** (`gxtext.s`): an 8 × 16 font on a bitmap, the console's or the program's: `GX_FONT`, `GX_TEXT`.
+- **Assets** (`gxasset.s`): `GX_ASSET` opens an asset file and loads its parts by `DM_LOAD`, each part checked
+  first (its type, its place in the file, its records against its bytes, its units free), and every unit freed again
+  if a part is refused.
+
+A program links only the modules it calls. Coordinates and values go in the `GX_` variables; a refusal is the carry
+set with an error in A (`GE_`).
+
+### Assets
+
+An **asset file** (format 3) holds a picture's parts, ready for the card: a palette, a bitmap, tiles and their map,
+sprite images and a sprite table, a font. Record 0 has a 16-byte header (`'OGX'`, the format, the parts) and up to
+7 parts of 16 bytes (the type, the layer's CONFIG it was made for, a unit or `$FF` for any, the first record, the
+records, the bytes, a width and height); each part starts on a 1 KB boundary of the file, so it loads straight from
+the card. `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
+`sprites`, `palette`), and checks one (`check`). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
+
+### What graphics costs
+
+With no slot set and no pointer, nothing: the tick with no event area is 145 cycles and the frame 199, as before,
+and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 516 a frame; a 512-byte slot copied,
+1,774 (1,024 of them the DMA's); the pointer, 728; the whole budget, four slots of 256 bytes, with the pointer and a
+44.1 kHz stream's fields, 3,645. That ends inside the vertical blank even with a USB batch or a 4 KB load piece
+holding the interrupt off (`test_oodos_video`: line 508 at the latest under a USB batch, 16 lines to spare, and line 511 under 64 KB loads,
+13 to spare; the blank is lines 480–524).
+
 ## When the program ends
 
 The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, and every interrupt enable the
@@ -428,13 +548,16 @@ off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 
 boot sets. For L3's sound it does what the BIOS's Break does to the card, whether a program claimed it or not: the
 6510 stopped, the SIDs silenced, the stream flushed and stopped, the ES5503 stopped; and channel 2 aborted, the card's
 DRQSEL back to 0 and its interrupts off, the ES5503 hook off, and every part released. Timer 1 is set up again
-as the cold boot left it, should the program have changed it. That is so whether the program ends by `JMP WBOOT`,
+as the cold boot left it, should the program have changed it. For L4's graphics it frees the vertical-blank slots,
+turns the pointer off, and sets the video card's registers as the cold boot set them for the console (its memory,
+units 0–12, was never the program's, so its text shows again as it was). That is so whether the program ends by `JMP WBOOT`,
 by ^C, or by an error. The counters run on (a program that changed timer 1's latch may cost the millisecond
 counter 1 ms: putting the latch back clears timer 1's flag, and a tick due then with it). Break goes to the
 monitor with the machine's interrupts off, as it always has; booting OODOS again starts the clocks afresh.
 
 ## Still to come
 
-L4 the graphics library, the pointer sprite and the asset loader, L6 the music driver (and with it GW-BASIC's
-SOUND, PLAY and BEEP); RSID tunes and MOD; USB gamepads as controller 4: [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
+L6 the music driver (and with it GW-BASIC's SOUND, PLAY and BEEP); RSID tunes and MOD; USB gamepads as controller
+4; for graphics, a scan-line hook and a collision hook, software sprites, a C target for the library, and a copy of
+the library for FARCALL (with GW-BASIC): [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
 built, a program has none for it: see [AGENTS.md](../../AGENTS.md) for what not to take over in the meantime.

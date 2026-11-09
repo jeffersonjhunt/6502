@@ -216,6 +216,35 @@ SEGOK:          CLC
 @no:            SEC
                 RTS
 
+; Carry set if SG (its A16-A19 in SG + 2's low nibble: DOUT's has $80 in its
+; top) to SG + A/Y meets the console's video memory, units 0-12 at $80000-
+; $833FF, which no program may write (L4's question 2: function 83's
+; destinations, and a record read through a DMA segment). SEGOK has checked
+; the range's end. Keeps X.
+UNITS0:         CLC                    ; the end's bank: SG + 2 and the carries
+                ADC     SG
+                TYA
+                ADC     SG + 1
+                LDA     SG + 2
+                AND     #$0F
+                ADC     #0
+                CMP     #^UNITS_END
+                BCC     @clear         ; it ends below $80000
+                LDA     SG + 2
+                AND     #$0F
+                CMP     #^UNITS_END
+                BCC     @meets         ; from below $80000 into it
+                BNE     @clear         ; from bank 9 on
+                LDA     SG + 1
+                CMP     #>UNITS_END
+                BCC     @meets         ; from below $83400
+@clear:         CLC
+                RTS
+@meets:         SEC
+                RTS
+UNITS_END       = $83400               ; past unit 12
+.assert <UNITS_END = 0 && ^UNITS_END = 8, error, "UNITS0 compares the bank, then the high byte"
+
 ; A = the block (A14-A19) of the physical address at zero page X.
 BLKOF:          LDA     1,X
                 ROL     A

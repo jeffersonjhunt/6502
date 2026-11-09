@@ -145,9 +145,9 @@ TICK_CYCLES     = 7159                 ; the CPU's cycles a millisecond, 7,159,0
 TICK_LATCH      = TICK_CYCLES - 2      ; a free-running period is the latch + 2
 CLK_FRAME       = VIDEO_IRQ_VBLANK     ; CLOCKS: the frame counter runs (VIDEO_IEN's bit, for crt.s)
 CLK_MS          = $02                  ; CLOCKS: the millisecond counter runs
-OOLIB_IFACE     = 3                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3)
-OOLIB_AREAS     = $07                  ; the service areas there are (FT_INFO's): frame and timing (80),
-                                       ; input (81), sound (82)
+OOLIB_IFACE     = 4                    ; OOLIB's interface version: function 80's FT_INFO (L2: 2, L3: 3, L4: 4)
+OOLIB_AREAS     = $0F                  ; the service areas there are (FT_INFO's): frame and timing (80),
+                                       ; input (81), sound (82), DMA and loading (83)
 EVON_L2         = $80                  ; EVON: a layout-2 area open (1: layout 1)
 PAD_MS          = 4                    ; the paddles read this many ms after PTRIG (255 counts: 2.8 ms)
 UBATCH          = 16                   ; the USB FIFO's events taken an interrupt at most (input.s)
@@ -159,6 +159,8 @@ R61_IRQ         = 0                    ; irq.s's CALL61: sound.s's R61TAB, SNDIR
 R61_FRAME       = 2                    ;   SFIELDS: the event area's sound part
 R61_QUIET       = 4                    ;   SNDQUIET: the warm boot's
 R61_INIT        = 6                    ;   SNDINIT: cold boot's
+R61_VB          = 8                    ;   VBWORK: the vertical-blank copies and the pointer (video.s, L4)
+R61_WARM        = 10                   ;   VBQUIET: the warm boot's video part
 R62_HKON        = 6                    ;   a debug build's HKON and HOOKCOST: a hook's cycles
 R62_HKCOST      = 8                    ;   counted (irq.s)
 

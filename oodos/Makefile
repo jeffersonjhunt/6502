@@ -3,7 +3,7 @@
 #   make            # build/NAME.com and build/NAME.prl for each of PROGRAMS,
 #                   # and the utilities
 #   make utils      # build/NAME.com for each utils/NAME.s (phase 4b's)
-#   make check      # the tools' tests (test/check_tools.py)
+#   make check      # the tools' tests (test/check_tools.py, test/check_mkasset.py)
 #
 # Each program is SRC/NAME.s, assembled once and linked as a .COM at $0300
 # (cfg/com.cfg) and as a .PRL: linked three times with cfg/prl.cfg, at page
@@ -80,10 +80,10 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 # assembled once into build/oolib.lib, which ld65 takes only the modules of that a program uses. A
 # utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's).
 LIBS = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
-OOLIB_USERS = playsid
+OOLIB_USERS = playsid view
 
-$(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s include/oodos.inc include/oolib.inc | $(BUILD)
-	ca65 $(AFLAGS) $< -o $@
+$(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s lib/gx.inc include/oodos.inc include/oolib.inc | $(BUILD)
+	ca65 $(AFLAGS) -I lib $< -o $@
 
 $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o)
 	rm -f $@
@@ -112,6 +112,7 @@ $(BUILD)/%.prl: $(BUILD)/%.o cfg/prl.cfg tools/rules.py tools/mkprl.py
 
 check: all
 	$(PYTHON) test/check_tools.py $(BUILD)
+	$(PYTHON) -B test/check_mkasset.py
 
 clean:
 	rm -rf $(BUILD)

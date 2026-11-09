@@ -55,7 +55,7 @@
 .import HKON, HOOKCOST, FHMAX, THMAX  ; irq.s's (a debug build)
 .endif
 .import CALL61, SIEN, C2ON          ; irq.s's, sound.s's
-.export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT, QEV, EVK, EVC, EVV
+.export R62, QSLOTS, L2OPEN, CMAPDEF, WBQUIET, F_INPUT, QEV, EVK, EVC, EVV, MXS, MYS
 
 .segment "SYSBSS"
 QSLOTS:         .res    1              ; the queue's slots (FT_OPEN's; 0 in layout 1)
@@ -109,6 +109,8 @@ WBQUIET:
                 LDX     #R61_QUIET     ; the sound card quiet, channel 2 stopped, the claims
                 JSR     CALL61         ; released (sound.s's SNDQUIET), before DEAFEN
                 JSR     DEAFEN
+                LDX     #R61_WARM      ; the vertical-blank slots freed, the pointer off, the
+                JSR     CALL61         ; console's screen shown again (video.s's VBQUIET, L4)
                 LDA     UCARD
                 BEQ     CMAPDEF
                 STZ     USB_MCTRL

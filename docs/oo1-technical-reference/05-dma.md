@@ -30,6 +30,20 @@ at `$C400 + n × $10`. STATUS, CONTROL and ABORT at `$C440` are shared, and the 
   address never matters. Writing ADDR, COUNT or DEST sets both the start value (for AUTO) and the current one;
   reading gives the current one. COUNT 0 means 65,536.
 
+### Under OODOS
+
+Status: **built**
+
+OODOS owns all four channels; a program reaches them only through its functions. **Channel 0** is the SD card's:
+the BIOS's SDIO, a sector a READ or WRITE, and function 83's `DM_LOAD`, up to 8 sectors (4 KB) a READ, the CPU held
+a cycle a byte. **Channel 1** is the vertical-blank copies' (OOLIB L4): function 83's `DM_VBSET` slots and the
+pointer sprite's four bytes, copied memory to memory from the frame handler, each waited for; nothing else uses it
+(the serial card's DMA, which design.md gives it, isn't built). **Channel 2** is the sound card's, through function
+82's loads and stream (L3). **Channel 3** is the BIOS's DMAGO, 2 KB a block with a pending interrupt taken between
+blocks: MOVE, the console's scroll and erase, and function 83's `DM_COPY` and `DM_FILL`. Since the interrupt has a
+channel of its own, it never meets a copy on channel 3 half programmed. The Programmer's Guide's
+[function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83) has the calls.
+
 ### Apple II mode
 
 Status: **emulated**
@@ -330,7 +344,7 @@ As [DMA0_ADDR](#reg-c400), for channel 1.
 
 #### Notes
 
-No card in the emulator drives DRQ1, so channel 1 runs only as a block started by REQ, or a memory-to-memory copy.
+No card in the emulator drives DRQ1, so channel 1 runs only as a block started by REQ, or a memory-to-memory copy. Under OODOS it is the vertical-blank copies' ([above](#under-oodos)).
 
 <a id="reg-c414"></a>
 ### $C414 DMA1_COUNT: channel 1's count
