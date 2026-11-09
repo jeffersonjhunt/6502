@@ -4,7 +4,10 @@
 ; MBOX ($3900) and the arguments after it, and any block the routine takes
 ; at BUF ($3A00). Each command is a library routine called with A = MBOX + 1,
 ; X = MBOX + 2, Y = MBOX + 3, and prints "c aa xx cc": A and X as it
-; returned them, cc 01 if the carry was set. W is the warm boot.
+; returned them, cc 01 if the carry was set. W is the warm boot. F (L5c)
+; waits A frames, and at each reads the SIDs into VBLK ($3B00) by SID_VOICES
+; and moves the envelopes by SID_ENV, logging SID_LVL's six bytes at LOG
+; ($3C00) a frame (up to 128 frames).
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -15,7 +18,12 @@
 
 MBOX    = $3900
 
+VBLK    = $3B00
+LOG     = $3C00
+
         .zeropage
+logp:   .res    2
+frames: .res    1
 rax:    .res    1
 rxx:    .res    1
 rc:     .res    1
@@ -77,6 +85,41 @@ report: pha
 c_wboot:
         jmp     WBOOT
 
+c_frames:
+        sta     frames
+        lda     #<LOG
+        sta     logp
+        lda     #>LOG
+        sta     logp + 1
+@frame: lda     frames
+        beq     @done
+        lda     #FT_WAIT
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        lda     #<VBLK
+        ldx     #>VBLK
+        jsr     SID_VOICES
+        lda     #<VBLK
+        ldx     #>VBLK
+        jsr     SID_ENV
+        ldy     #SID_NVOICES - 1
+@log:   lda     SID_LVL,y
+        sta     (logp),y
+        dey
+        bpl     @log
+        lda     logp
+        clc
+        adc     #SID_NVOICES
+        sta     logp
+        bcc     @next
+        inc     logp + 1
+@next:  dec     frames
+        bra     @frame
+@done:  lda     #0
+        clc
+        rts
+
         .rodata
 .macro CMD l, r
         .byte   l
@@ -86,6 +129,10 @@ cmds:   CMD     'E', PB_EQ
         CMD     'N', PB_EQON
         CMD     'A', PB_EQALL
         CMD     'V', PB_VIS
+        CMD     'S', SID_VOICES
+        CMD     'T', SID_NOTE
+        CMD     'Z', SID_ENV0
+        CMD     'F', c_frames
         CMD     'W', c_wboot
 CMDS_LEN = * - cmds
 

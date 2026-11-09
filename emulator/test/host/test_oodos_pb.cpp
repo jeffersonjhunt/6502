@@ -9,6 +9,11 @@
  * test of the EQ (a sine at each band's centre, +12 dB from the library against the stream, 12 dB ± 1
  * louder at the card's test tap); the vis page copied byte for byte as the card holds it; and a revision-1
  * card answered PE_NOCARD. The card's own EQ and vis page are test_sound_eq's.
+ *
+ * L5c's SID reads: SID_VOICES against the registers as written; SID_NOTE at both sides of every note's threshold
+ * for both clocks, the thresholds worked out here (the geometric mean of a note's register value and the one
+ * below's, rounded up); SID_ENV's six levels frame by frame against the same rules worked out here, and the
+ * times to full, to the sustain and to quiet within a frame of the data sheet's.
  */
 
 #include "harness.h"
@@ -29,7 +34,7 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    constexpr uint32_t MBOX = 0x3900, BUF = 0x3A00; ///< pbtest.s's
+    constexpr uint32_t MBOX = 0x3900, BUF = 0x3A00, LOG = 0x3C00; ///< pbtest.s's
     constexpr uint8_t PE_NOCARD = 1, PE_RANGE = 2;  ///< oolib.inc's
     constexpr double PI = 3.14159265358979323846;
     const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
@@ -333,6 +338,201 @@ TEST(the_warm_boot_after_the_library_leaves_the_eq_flat)
     r.poke(MBOX, 'W');
     CHECK(r.until("\r\nA>", ms(2000), from));
     CHECK_EQ(show(eq_state(r)), show(std::vector<int>(12, 0)));
+}
+
+// ---- L5c: the SIDs' voices -----------------------------------------------------------------------------------
+
+TEST(sid_voices_reads_both_sids_as_last_written)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    std::vector<uint8_t> want;
+    for (unsigned sid = 0; sid < 2; ++sid)
+        for (unsigned i = 0; i < 25; ++i)
+        {
+            const uint8_t v = static_cast<uint8_t>(0x11 * sid + 7 * i + 3);
+            card(r).write(static_cast<uint8_t>((sid ? SoundCard::SID_B : SoundCard::SID_A) + i), v);
+            want.push_back(v);
+        }
+    r.poke(BUF, std::vector<uint8_t>(64, 0xEE));
+    CHECK_EQ(pb(r, 'S', BUF & 0xFF, BUF >> 8).substr(6), std::string("00"));
+    std::vector<uint8_t> got(50);
+    for (unsigned i = 0; i < 50; ++i)
+        got[i] = r.phys(BUF + i);
+    CHECK(got == want);
+    CHECK_EQ(r.phys(BUF + 50), 0xEE); // and nothing past the block
+}
+
+namespace
+{
+    /// The thresholds, as mksidtab.py's rule says, worked out here: note 0's 0, then each the geometric mean of
+    /// its note's register value and the one below's, rounded up, at most $FFFF.
+    std::vector<unsigned> thresholds(double clock)
+    {
+        std::vector<double> reg(96);
+        for (int n = 0; n < 96; ++n)
+            reg[n] = 440.0 * std::pow(2.0, (n - 57) / 12.0) * 16'777'216.0 / clock;
+        std::vector<unsigned> t = {0};
+        for (int n = 1; n < 96; ++n)
+            t.push_back(static_cast<unsigned>(std::min(65'535.0, std::ceil(std::sqrt(reg[n - 1] * reg[n])))));
+        return t;
+    }
+    unsigned note(CcpRig &r, unsigned f, uint8_t ctrl)
+    {
+        const std::string out = pb(r, 'T', static_cast<uint8_t>(f), static_cast<uint8_t>(f >> 8), ctrl);
+        return static_cast<unsigned>(std::stoul(out.substr(0, 2), nullptr, 16));
+    }
+} // namespace
+
+TEST(sid_note_at_both_sides_of_every_threshold_for_both_clocks)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    for (const auto &[clock, ctrl] : std::vector<std::pair<double, uint8_t>>{{985'248, 0x00}, {1'022'727, 0x01}, {1'022'727, 0x19}})
+    {
+        const std::vector<unsigned> t = thresholds(clock);
+        unsigned wrong = 0;
+        for (unsigned n = 1; n < 96; ++n)
+        {
+            if (t[n] == t[n - 1]) // capped at $FFFF: the last of them is the note
+                continue;
+            wrong += note(r, t[n], ctrl) != n;
+            wrong += note(r, t[n] - 1, ctrl) != n - 1;
+        }
+        CHECK_EQ(wrong, 0u);
+        CHECK_EQ(note(r, 0, ctrl), 0xFFu); // SID_NONE
+        CHECK_EQ(note(r, 1, ctrl), 0u);
+        unsigned top = 95;
+        while (t[top] > 0xFFFF)
+            --top;
+        CHECK_EQ(note(r, 0xFFFF, ctrl), top);
+        std::printf("  clock %.0f (CTRL %02X): A-4 at %u, top %u\n", clock, ctrl, note(r, 0x1D45, ctrl), note(r, 0xFFFF, ctrl));
+    }
+    CHECK_EQ(note(r, 0x1D45, 0), 57u); // 440 Hz on PAL is $1D45: A-4
+}
+
+namespace
+{
+    /// The data sheet's times and mksidtab.py's steps, worked out here.
+    constexpr double FRAME_MS = 1000 / 59.94;
+    constexpr unsigned ATTACK_MS[16] = {2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000, 8000};
+    constexpr unsigned DECAY_MS[16] = {6, 24, 48, 72, 114, 168, 204, 240, 300, 750, 1500, 2400, 3000, 9000, 15000, 24000};
+    unsigned step(unsigned ms) { return std::min(0xFF00u, static_cast<unsigned>(std::lround(0xFF00 * FRAME_MS / ms))); }
+
+    /// A voice's level as sidenv.s's rules move it, a frame at a time.
+    struct Env
+    {
+        unsigned lvl = 0, phase = 0, gate = 0;
+        void frame(uint8_t ctl, uint8_t ad, uint8_t sr)
+        {
+            if ((ctl & 1) != gate)
+            {
+                gate = ctl & 1;
+                phase = gate ? 1 : 3;
+            }
+            const unsigned sus = (sr >> 4) * 0x11 << 8;
+            if (phase == 1)
+            {
+                lvl += step(ATTACK_MS[ad >> 4]);
+                if (lvl >= 0xFF00)
+                {
+                    lvl = 0xFF00;
+                    phase = 2;
+                }
+            }
+            else if (phase == 2 && lvl > sus)
+            {
+                const unsigned d = step(DECAY_MS[ad & 15]);
+                lvl = lvl < d + sus ? sus : lvl - d;
+            }
+            else if (phase == 3)
+            {
+                const unsigned d = step(DECAY_MS[sr & 15]);
+                if (lvl < d)
+                {
+                    lvl = 0;
+                    phase = 0;
+                }
+                else
+                    lvl -= d;
+            }
+        }
+    };
+    constexpr unsigned VOFF[6] = {0, 7, 14, 25, 32, 39};
+    void set_voice(Rig &r, unsigned v, uint8_t ctl, uint8_t ad, uint8_t sr)
+    {
+        const uint8_t base = static_cast<uint8_t>((v < 3 ? SoundCard::SID_A : SoundCard::SID_B) + (v % 3) * 7);
+        card(r).write(base + 5, ad);
+        card(r).write(base + 6, sr);
+        card(r).write(base + 4, ctl);
+    }
+    /// `n` frames by F: the log, voice v's level at frame i at [i * 6 + v].
+    std::vector<uint8_t> frames(CcpRig &r, unsigned n)
+    {
+        CHECK_EQ(pb(r, 'F', static_cast<uint8_t>(n)).substr(6), std::string("00"));
+        std::vector<uint8_t> log(6 * n);
+        for (unsigned i = 0; i < log.size(); ++i)
+            log[i] = r.phys(LOG + i);
+        return log;
+    }
+} // namespace
+
+TEST(sid_env_moves_each_voice_as_the_rules_say_and_near_the_data_sheet_s_times)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    CHECK_EQ(pb(r, 'Z').substr(6), std::string("00"));
+    // Six voices, each its own ADSR: A's three, B's three (so the offsets of both SIDs are taken).
+    const uint8_t AD[6] = {0x96, 0x00, 0x5A, 0x33, 0x0F, 0xC2};
+    const uint8_t SR[6] = {0x83, 0xF0, 0x05, 0x48, 0x00, 0xA1};
+    Env model[6];
+    for (unsigned v = 0; v < 6; ++v)
+        set_voice(r, v, 0x41, AD[v], SR[v]); // pulse, the gate on
+    std::vector<uint8_t> on = frames(r, 60);
+    for (unsigned v = 0; v < 6; ++v)
+        set_voice(r, v, 0x40, AD[v], SR[v]); // the gate off
+    std::vector<uint8_t> off = frames(r, 40);
+    unsigned wrong = 0;
+    for (unsigned v = 0; v < 6; ++v)
+    {
+        for (unsigned i = 0; i < 60; ++i)
+        {
+            model[v].frame(0x41, AD[v], SR[v]);
+            wrong += on[i * 6 + v] != model[v].lvl >> 8;
+        }
+        for (unsigned i = 0; i < 40; ++i)
+        {
+            model[v].frame(0x40, AD[v], SR[v]);
+            wrong += off[i * 6 + v] != model[v].lvl >> 8;
+        }
+    }
+    CHECK_EQ(wrong, 0u);
+    // Voice 0 against the data sheet: attack 9 (250 ms) to full, decay 6 (204 ms over the whole range) to the
+    // sustain 8 ($88), release 3 (72 ms over it) to quiet: each within a frame of its time.
+    auto first = [](const std::vector<uint8_t> &log, unsigned v, auto pred, unsigned from = 0) {
+        for (unsigned i = from; i < log.size() / 6; ++i)
+            if (pred(log[i * 6 + v]))
+                return static_cast<int>(i) + 1;
+        return -1;
+    };
+    const int full = first(on, 0, [](uint8_t l) { return l == 0xFF; });
+    const int sus = first(on, 0, [](uint8_t l) { return l == 0x88; }, static_cast<unsigned>(full)); // after the attack
+    const int quiet = first(off, 0, [](uint8_t l) { return l == 0; });
+    const double t_full = 250 / FRAME_MS, t_sus = 204 * (0xFF - 0x88) / 255.0 / FRAME_MS, t_quiet = 72 * 0x88 / 255.0 / FRAME_MS;
+    std::printf("  frames: full %d (%.1f), sustain after %d (%.1f), quiet %d (%.1f)\n", full, t_full, sus - full,
+                t_sus, quiet, t_quiet);
+    CHECK(std::fabs(full - t_full) <= 1);
+    CHECK(std::fabs((sus - full) - t_sus) <= 1);
+    CHECK(std::fabs(quiet - t_quiet) <= 1);
+    // SID_ENV0: all quiet again, and with the gates off they stay so.
+    CHECK_EQ(pb(r, 'Z').substr(6), std::string("00"));
+    set_voice(r, 1, 0x41, 0x00, 0xF0); // voice 1 was held at full: gated again after the reset, it starts from 0
+    const std::vector<uint8_t> again = frames(r, 1);
+    CHECK_EQ(again[0], 0);
+    CHECK_EQ(again[1], 0xFF); // attack 0: full in one frame
 }
 
 int main() { return run_all(); }
