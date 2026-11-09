@@ -3261,8 +3261,8 @@ sound (`OA_SOUND`).
   reaches the queue as an `EK_SOUND` event, its value the byte, and since OODOS 0.7 is stamped in the area's
   `EV_SMBOX`, `EV_SMMS` and `EV_SMCNT` ([chapter 8](08-game-services.md#the-6510)). Of the
   stream: channel 2 stopped and both buffers free.
-- `SN_START`, with a layout-2 area open, sets the area's `EV_SMMS` to the millisecond counter and `EV_SMCNT` to 0
-  before the 6510 runs (since OODOS 0.7).
+- `SN_START`, with a layout-2 area open, drops a byte the stopped run left in the mailbox from the card, and sets
+  the area's `EV_SMMS` to the millisecond counter and `EV_SMCNT` to 0, before the 6510 runs (since OODOS 0.7).
 - `SN_LOAD` and `SN_WAVE` move channel 2 4 KB a piece, each waited for, interrupts on between; the card holds the
   CPU 4,096 cycles a piece. `SN_LOAD` sets RAMADDR, past the last byte after; `SN_WAVE` sets DOCCTL's RAM and AUTOINC
   for it and puts DOCCTL back as it was after, leaving DOCADDR and DOCBANK past the last byte; it holds the ES5503's

@@ -354,9 +354,11 @@ a tune has stopped reporting, even if the program hasn't read its queue, and a f
 | +109–112 | `EV_SMMS` | the millisecond counter when it came; before the first byte, when `SN_START` started the 6510 |
 | +113–114 | `EV_SMCNT` | the bytes since `SN_START`, up to 65,535, where it stays |
 
-`SN_START` sets `EV_SMMS` to its own time and `EV_SMCNT` to 0 before the 6510 runs, and leaves `EV_SMBOX` as it was.
-So "how long since the 6510 last spoke" is the counter now less `EV_SMMS`, from the start if it hasn't yet. With a
-layout-1 area, or no area, nothing is stamped.
+`SN_START` stops the old run, drops a byte it left in the mailbox, sets `EV_SMMS` to its own time and `EV_SMCNT`
+to 0, then starts the 6510; `EV_SMBOX` is left as it was. So "how long since the 6510 last spoke" is the counter now
+less `EV_SMMS`, from the start if it hasn't yet. An area opened after `SN_START`, while the 6510 already runs, starts
+as every area does, with `EV_SMMS` and `EV_SMCNT` 0 until the next byte: measure from the later of `EV_SMMS` and
+when the program opened the area or started the tune. With a layout-1 area, or no area, nothing is stamped.
 
 ### Pausing a tune, and the volume
 
