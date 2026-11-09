@@ -316,7 +316,8 @@ block's +1, all of them or none: a part held already, by this program or an RSX,
 card hasn't. `SN_RELEASE` gives parts back, each stopped. `SN_INFO` says the card's revision and codecs, and with a
 block which parts are free. A claimed part is the program's to drive itself, its registers written as the Technical
 Reference has them ([question 6](../../hw/oolib.md#open-questions)): the SIDs while the 6510 is stopped, the
-ES5503's oscillators, the EQ, the volumes and the vis page. **DMA channel 2 is OODOS's**: a program reaches it only
+ES5503's oscillators, the EQ and the vis page. The master volumes are function 82's (`SN_VOLUME`, below), so the
+warm boot can put them back. **DMA channel 2 is OODOS's**: a program reaches it only
 through function 82's loads and its stream.
 
 ```
@@ -341,6 +342,27 @@ starts. A byte the
 6510 sends back reaches the event queue as an `EK_SOUND` event, its value the byte, while a layout-2 area is open
 (without one, the program reads the card's MBIN itself), so a program's own driver on the card reports without
 being polled.
+
+### Pausing a tune, and the volume
+
+`SN_HOLD` pauses the 6510 where it is: RUN off without a reset, so its registers and the tune's RAM are left as they
+were, and each SID silenced through its own `$D418` volume nibble, the two bytes kept. `SN_GO` writes them back and
+lets the 6510 run on from the same instruction, so the tune carries on where it stopped. A hold is refused if the
+6510 isn't running, and a go if it isn't held. The hold touches only the 6510 and the SIDs' volumes, not the
+master volumes, so a stream playing alongside goes on unchanged.
+
+`SN_VOLUME` sets the card's master volumes, +1 left (VOLL) and +2 right (VOLR), 255 for unity, on a revision-2
+card. They scale everything the card plays, the stream, the ES5503 and the SIDs alike (SID A by the left, SID B by
+the right), so one call turns all of it down. It needs no claim, and the warm boot sets both back to 255.
+
+```
+        lda     #<vol
+        ldx     #>vol
+        ldy     #O_SOUND
+        jsr     BDOS            ; A = 0: both at half
+        ...
+vol:    .byte   SN_VOLUME, 128, 128
+```
 
 ### The stream
 
@@ -547,7 +569,8 @@ USB card's interrupt off, puts the mouse back in relative mode with the limits a
 off, the repeat as a reset sets it (`$10`), Pause on Break, and the controllers 1 to 4 in order: what the cold
 boot sets. For L3's sound it does what the BIOS's Break does to the card, whether a program claimed it or not: the
 6510 stopped, the SIDs silenced, the stream flushed and stopped, the ES5503 stopped; and channel 2 aborted, the card's
-DRQSEL back to 0 and its interrupts off, the ES5503 hook off, and every part released. Timer 1 is set up again
+DRQSEL back to 0 and its interrupts off, the ES5503 hook off, every part released, a hold forgotten, and the master
+volumes back at 255. Timer 1 is set up again
 as the cold boot left it, should the program have changed it. For L4's graphics it frees the vertical-blank slots,
 turns the pointer off, and sets the video card's registers as the cold boot set them for the console (its memory,
 units 0–12, was never the program's, so its text shows again as it was). That is so whether the program ends by `JMP WBOOT`,

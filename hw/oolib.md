@@ -1112,6 +1112,20 @@ and more in L5:
     `test_oodos_playsid`'s output is identical to main's, line for line. **And hold silences each SID through its own
     `$D418` volume nibble,** kept and given back by go, not through VOLL/VOLR: the master volume scales the stream's
     DAC too, so a hold by VOLL would mute a stream playing alongside and fight `SN_VOLUME`. L4a follows, in block 60.
+  - *L4b, as built (2026-11-08):* `SN_HOLD` 17, `SN_GO` 18, `SN_VOLUME` 19 (`SN_OPS` 20), all in block 61. First a
+    test showed the premise: each SID's `$D418` reads back as last written, by the 65C02 or by the 6510 running a
+    tune, and not as VOLL/VOLR scaled it. The hold turns RUN off first (the card drops the 65C02's SID writes while
+    the 6510 runs), reads both SIDs' `$D418` before writing either (with CTRL's BOTH a write to A reaches B), and
+    writes each with its low nibble 0. Decided here: a hold is refused unless RUN is on, which covers a 6510 never
+    started, stopped, or held already (a second hold so can't overwrite the kept bytes), and a go is refused unless
+    held. `SN_STOP`, `SN_START`, a release of the 6510 and the warm boot forget a hold (SIDSTOP clears the flag;
+    `SN_START` too). `SN_VOLUME` takes a block only (+1 VOLL, +2 VOLR) and is refused on revision 1, which has no
+    master volume; no A/X form, since a read form's 255s would look like a refusal. The warm boot (SNDQUIET, so the
+    cold boot's warm boot too) writes both back to `$FF` on revision 2. Memory: three bytes of SYSBSS (`SHELD`,
+    `SVOLA`, `SVOLB`): 59 free to 56 (debug build 56 to 53); block 61 3,462 free to 3,322 (140 bytes, both builds);
+    block 60 unchanged, 1,493 free (debug 1,477). Nothing is added to the tick, the frame or the dispatcher. OOLIB's
+    interface version stays 4 for now: question 15 says a step that adds raises it, but that changes five
+    owner-approved `FT_INFO` expectations, so it is the owner's call.
 
 - **L5: OO-Amp on OOLIB.** OO-Amp's agent replaces `oa_hal.s` with OOLIB, in its own repo. That's the
   real-program test of L1–L4, as GW-BASIC was meant to be. Our own gate is still the rig's tests. With it, in
