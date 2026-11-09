@@ -831,4 +831,61 @@ TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)
     CHECK(got == want);
 }
 
+namespace
+{
+    /// L4b's 6510 program, at the card's $1000: its count at $0200-$0201 zeroed, SID A's $D418 $1F and SID B's
+    /// $2A (B at $D420), then the count run up for ever. A restart would zero the count again.
+    constexpr uint16_t COUNT = 0x0200;
+    const std::vector<uint8_t> COUNTER = {
+        0xA9, 0x00, 0x8D, 0x00, 0x02, 0x8D, 0x01, 0x02, // LDA #0, STA $0200, STA $0201
+        0xA9, 0x1F, 0x8D, 0x18, 0xD4,                   // LDA #$1F, STA $D418
+        0xA9, 0x2A, 0x8D, 0x38, 0xD4,                   // LDA #$2A, STA $D438
+        0xEE, 0x00, 0x02, 0xD0, 0xFB,                   // $1012: INC $0200, BNE $1012
+        0xEE, 0x01, 0x02, 0x4C, 0x12, 0x10};            // INC $0201, JMP $1012
+    unsigned count(Rig &r) { return card(r).ram()[COUNT] | card(r).ram()[COUNT + 1] << 8; }
+    /// The 6510 claimed, COUNTER loaded and started, run a little.
+    [[maybe_unused]] void counting(CcpRig &r, const std::string &tail = "2")
+    {
+        open(r, tail);
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+        r.poke(0x3000, COUNTER);
+        CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(COUNTER.size()), 0}), std::string("00 00"));
+        CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+        r.run(ms(5));
+        CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
+        CHECK(count(r) > 0);
+    }
+    /// L3TEST's V: SID A's and SID B's $D418 as the 65C02 reads them, "aa xx".
+    std::string sidvols(CcpRig &r) { return command(r, 'V', "V"); }
+} // namespace
+
+TEST(premise_each_sid_s_d418_reads_back_as_last_written_by_the_65c02_or_the_6510)
+{
+    // L4b's hold keeps each SID's $D418 by reading it: the card must answer with what was last written there,
+    // whoever wrote it, not with the chip's (scaled) value or the bus's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00 00"));
+    r.poke(MBOX + 1, std::vector<uint8_t>{0x5C, 0x93}); // the 6510 stopped: the 65C02's writes land
+    CHECK_EQ(command(r, 'U', "U"), std::string("5C 93"));
+    CHECK_EQ(sidvols(r), std::string("5C 93"));
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x5C);
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x93);
+    // The 6510's, while it runs.
+    r.poke(0x3000, COUNTER);
+    CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(COUNTER.size()), 0}), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00 00"));
+    r.run(ms(5));
+    CHECK(reg(r, SoundCard::CTRL) & SoundCard::CTRL_RUN);
+    CHECK_EQ(sidvols(r), std::string("1F 2A"));
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x1F);
+    CHECK_EQ(card(r).chip(1).regs()[SoundCard::SID_MODE_VOL], 0x2A);
+    // Read back as written under a master volume too: the chip has the nibble scaled, the register doesn't.
+    card(r).write(SoundCard::VOLL, 0x80);
+    CHECK_EQ(sidvols(r), std::string("1F 2A"));
+    CHECK_EQ(card(r).chip(0).regs()[SoundCard::SID_MODE_VOL], 0x18); // 15 x 128 / 255, rounded
+    card(r).write(SoundCard::VOLL, 0xFF);
+}
+
 int main() { return run_all(); }
