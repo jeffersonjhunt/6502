@@ -170,7 +170,28 @@ SNDQUIET:       LDA     #SC_ALL
                 LDA     #$FF
                 STA     SOUND_VOLL
                 STA     SOUND_VOLR
+                LDA     #SOUND_EQ_ENABLE ; the EQ off and flat, as /RESET leaves it (L5a)
+                STA     SOUND_EQIDX
+                STZ     SOUND_EQVAL
+                STZ     SOUND_EQIDX
+                LDX     #11            ; the preamp and the ten bands: EQIDX moves on
+@eq:            STZ     SOUND_EQVAL
+                DEX
+                BNE     @eq
 @done:          RTS
+
+; The mailbox stamp's time (L5a): MS into the area's EV_SMMS, W1 on its
+; block and Y = EV_SMMS - 1. Y = EV_SMCNT after.
+SMTIME:         LDX     #0
+@ms:            INY
+                LDA     MS,X
+                STA     (EVP),Y
+                INX
+                CPX     #4
+                BNE     @ms
+                INY
+                RTS
+.assert EV_SMMS = EV_SMBOX + 1 && EV_SMCNT = EV_SMMS + 4, error, "MBOXIN and SN_START write the stamp in EV_SM* order"
 
 ; Parts A stopped and given back (their claims are the caller's to clear):
 ; the stream (channel 2 aborted, the FIFO flushed, RUN off, DRQSEL 0), the
@@ -311,8 +332,9 @@ SNDIRQ:         STZ     SANS
                 RTS
 
 ; A byte from the 6510: MBIN read (the interrupt with it), and with a
-; layout-2 area open queued as EK_SOUND, code 0. QEV is block 62's: W3 is
-; on it, as IRQOTH runs there.
+; layout-2 area open stamped in its sound part (EV_SMBOX, the time at
+; EV_SMMS, EV_SMCNT counted up to 65,535: L5a) and queued as EK_SOUND,
+; code 0. QEV is block 62's: W3 is on it, as IRQOTH runs there.
 MBOXIN:         LDA     SOUND_MBIN
                 BIT     EVON
                 BPL     @done
@@ -324,7 +346,25 @@ MBOXIN:         LDA     SOUND_MBIN
                 PHA
                 LDA     EVBLK
                 STA     NB_WIN1
-                JSR     QEV
+                LDY     #EV_SMBOX
+                LDA     EVV
+                STA     (EVP),Y
+                JSR     SMTIME
+                LDA     (EVP),Y        ; EV_SMCNT: held at $FFFF
+                INY
+                AND     (EVP),Y
+                INC     A
+                BEQ     @q
+                DEY
+                LDA     (EVP),Y
+                INC     A
+                STA     (EVP),Y
+                BNE     @q
+                INY
+                LDA     (EVP),Y
+                INC     A
+                STA     (EVP),Y
+@q:             JSR     QEV
                 PLA
                 STA     NB_WIN1
 @done:          RTS
@@ -937,6 +977,8 @@ SRC:            PHP
 ; +1-2 the entry, +3 CTRL's other bits: the 6510 stopped, its reset vector
 ; the entry, then reset and run. A hold before is forgotten, once the
 ; block has all been read (a refused block leaves the hold as it was).
+; With a layout-2 area, its mailbox stamp starts afresh before the 6510
+; does: EV_SMMS now, EV_SMCNT 0, EV_SMBOX left (L5a).
 SN_STARTX:      BLOCK
                 NEED    SC_6510
                 JSR     PGET
@@ -947,6 +989,24 @@ SN_STARTX:      BLOCK
                 AND     #SOUND_NTSC | $08 | $10 ; NTSC, SID B at $D500, BOTH
                 STA     T2
                 STZ     SHELD
+                BIT     EVON
+                BPL     @run
+                PHP
+                SEI                    ; W1 borrowed (the BDOS's block 60)
+                LDA     NB_WIN1
+                PHA
+                LDA     EVBLK
+                STA     NB_WIN1
+                LDY     #EV_SMMS - 1
+                JSR     SMTIME
+                LDA     #0
+                STA     (EVP),Y
+                INY
+                STA     (EVP),Y
+                PLA
+                STA     NB_WIN1
+                PLP
+@run:
                 LDA     SOUND_CTRL
                 AND     #<~SOUND_RUN
                 STA     SOUND_CTRL
