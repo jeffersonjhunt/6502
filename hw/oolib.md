@@ -1236,6 +1236,15 @@ and more in L5:
   - *L5c review, round 1 (2026-11-09):* F1, `SID_ENV` a frame's step a call, so missed frames make the meters lag:
     documented (once a frame, not made up), not given a frame count. F2, a retrigger between two calls unseen and
     a frequency read across a 6510 write: documented as the estimate's limits.
+  - *L5d, as built (2026-11-09):* `lib/pb.s` (`PB_INIT`, `PB_BEGIN`, `PB_PAUSE`, `PB_RESUME`, `PB_STATUS`; 846
+    bytes, most of it the stream's exact milliseconds), `lib/pbvol.s` (`PB_VOLUME`; 74), `lib/pblev.s`
+    (`PB_LEVELS`; 287) and `lib/pbmath.s` (70). Decided here: `PB_INIT` takes the event area, as `GX_INIT` does;
+    errors `PE_STATE` and `PE_REFUSED`; states `PS_STOPPED` to `PS_ERROR`; a SID with RUN off is stopped (so a
+    hold made with `SN_HOLD` directly reads as stopped); the stall rule counts from the later of `EV_SMMS` and the
+    begin or last resume (review F1 of L5a); a stream's milliseconds are its frames x 1,000 / its rate; `PB_LEVELS`
+    puts a SID's voice in its octave's band, scaled by its SID's volume. Tests (`test_oodos_pb`, 8 new cases) on
+    real sources: a 6510 sending mailbox bytes then stopping, a silent one, a 44.1 kHz stream, the ES5503's RUN;
+    the law at 45 points. The resume case fails with the stall's restart taken out, the law's with 128 for 127.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
 
