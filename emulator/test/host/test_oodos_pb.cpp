@@ -592,14 +592,14 @@ namespace
                 0xCA, 0xD0, 0xED,       // DEX, BNE $1002
                 0x4C, 0x15, 0x10};      // $1015: JMP $1015
     }
-    /// The 6510 claimed, `code` loaded at $1000 and started; PB_BEGIN(PB_SID).
-    void sid_begun(CcpRig &r, const std::vector<uint8_t> &code)
+    /// The 6510 claimed, `code` loaded at $1000 and started; PB_BEGIN(PB_SID), reporting through the mailbox or not.
+    void sid_begun(CcpRig &r, const std::vector<uint8_t> &code, bool reports = true)
     {
         CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00"));
         r.poke(0x3000, code);
         CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(code.size()), 0}), std::string("00"));
         CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00"));
-        CHECK_EQ(ac(pb(r, 'B', 0)), OK);
+        CHECK_EQ(ac(pb(r, 'B', 0, reports ? 1 : 0)), OK);
     }
     void with_area(CcpRig &r)
     {
@@ -686,6 +686,35 @@ TEST(a_sid_that_says_nothing_is_starting_for_10_s_then_stalled_and_without_an_ar
     // Without an area the 6510 running is all there is to go by.
     CHECK_EQ(ac(pb(r, 'I', 0, 0)), OK);
     CHECK_EQ(status(r).state, PS_PLAYING);
+}
+
+TEST(a_sid_begun_as_not_reporting_plays_past_10_s_with_no_mailbox_byte)
+{
+    // A .sid with no play routine installs its own interrupt and sends nothing: begun so, it isn't stalled.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    with_area(r);
+    sid_begun(r, ticker(0), false);
+    r.run(ms(10'500));
+    CHECK_EQ(status(r).state, PS_PLAYING);
+    CHECK_EQ(f82op(r, SN_STOP), std::string("00"));
+    CHECK_EQ(status(r).state, PS_STOPPED);
+}
+
+TEST(a_resume_refused_after_the_part_was_stopped_leaves_it_not_paused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    with_area(r);
+    sid_begun(r, ticker(60));
+    r.run(ms(100));
+    CHECK_EQ(ac(pb(r, 'P')), OK);
+    CHECK_EQ(f82op(r, SN_STOP), std::string("00")); // the hold forgotten
+    CHECK_EQ(ac(pb(r, 'R')), REFUSED);
+    CHECK_EQ(status(r).state, PS_STOPPED);
+    CHECK_EQ(ac(pb(r, 'R')), STATE); // not paused now
 }
 
 TEST(a_stream_s_status_from_the_card_its_milliseconds_from_its_frames)
@@ -865,6 +894,28 @@ TEST(pb_levels_for_a_stream_the_vis_page_s_bands_four_at_a_time)
     card(r).write(SoundCard::PCMCTL, 0);
     card(r).set_revision(1);
     CHECK_EQ(ac(pb(r, 'L', 1)), NOCARD);
+}
+
+TEST(pb_levels_for_the_es5503_the_vis_page_as_for_a_stream)
+{
+    // The ES5503 plays onto the same bus as the stream: its levels are the vis page's too. A sine through the
+    // stream stands in for its sound; the source number is what is tested.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_pb(r);
+    CHECK_EQ(ac(pb(r, 'B', 2)), OK);
+    play(r, sine(60'000, 1'000, 0.5), false);
+    r.run(ms(100));
+    const std::vector<uint8_t> log = levels(r, 1);
+    const std::vector<uint8_t> page = held_page(r);
+    std::vector<uint8_t> want;
+    for (unsigned b = 0; b < 8; ++b)
+        want.push_back(static_cast<uint8_t>((page[4 * b] + page[4 * b + 1] + page[4 * b + 2] + page[4 * b + 3]) / 4));
+    want.push_back(page[32]);
+    want.push_back(page[33]);
+    CHECK(log == want);
+    CHECK(log[8] > 200);
+    card(r).write(SoundCard::PCMCTL, 0);
 }
 
 int main() { return run_all(); }
