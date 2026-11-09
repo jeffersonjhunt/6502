@@ -66,7 +66,7 @@ CHUNK           = 4096                 ; channel 2's piece: 4,096 cycles at most
 SC_ALL          = SC_6510 | SC_STREAM | SC_DOC
 BEEP_DIV        = 715909               ; 7,159,090 / 2 / 5: a half period in the delay loop's 5 cycles
 BEEP_LOOP       = 12                   ; the beep loop's own cycles, in 5s, besides the delay (about 60)
-SIDVOL          = $18                  ; a SID's $D418: the filter's mode (bits 4-7), the volume (0-3)
+SIDVOL          = $18                  ; a SID's $D418: bits 4-6 the filter's outputs, 7 voice 3 off, 0-3 the volume
 .assert SC_6510 = 1 && SC_STREAM = 2 && SC_DOC = 4, error, "PQUIET and SN_INFO take the parts as bits 0-2"
 
 .segment "SYSBSS"
@@ -935,10 +935,10 @@ SRC:            PHP
                 RTS
 
 ; +1-2 the entry, +3 CTRL's other bits: the 6510 stopped, its reset vector
-; the entry, then reset and run. A hold before is forgotten.
+; the entry, then reset and run. A hold before is forgotten, once the
+; block has all been read (a refused block leaves the hold as it was).
 SN_STARTX:      BLOCK
                 NEED    SC_6510
-                STZ     SHELD
                 JSR     PGET
                 STA     T0
                 JSR     PGET
@@ -946,6 +946,7 @@ SN_STARTX:      BLOCK
                 JSR     PGET
                 AND     #SOUND_NTSC | $08 | $10 ; NTSC, SID B at $D500, BOTH
                 STA     T2
+                STZ     SHELD
                 LDA     SOUND_CTRL
                 AND     #<~SOUND_RUN
                 STA     SOUND_CTRL
@@ -970,7 +971,7 @@ SN_STOPX:       NEED    SC_6510
 ; and RAM stay as they are; then each SID silenced through its own $D418,
 ; both read first (the card gives back what was last written, by the 6510
 ; or the 65C02), kept in SVOLA and SVOLB, and written back with the volume
-; nibble 0 and the filter's bits kept. Not by VOLL and VOLR: they scale the
+; nibble 0 and the high nibble (the filter's outputs, voice 3 off) kept. Not by VOLL and VOLR: they scale the
 ; stream's DAC too, and are SN_VOLUME's. RUN off first, as the card drops
 ; the 65C02's SID writes while the 6510 runs; both read before either is
 ; written, as with CTRL's BOTH a write to A reaches B too. Refused if the
@@ -997,12 +998,17 @@ SN_HOLDX:       NEED    SC_6510
                 JMP     SN00
 SNFF3:          JMP     RETFF
 
-; A hold undone: the kept $D418s written back (A, then B, as with BOTH a
-; write to A reaches B), then RUN on with no RESET, so the 6510 carries on
-; from where it was held. Refused if not held.
+; A hold undone: RUN off (should the program have set it while held, the
+; card would drop the SID writes), the kept $D418s written back (A, then
+; B, as with BOTH a write to A reaches B), then RUN on with no RESET, so
+; the 6510 carries on from where it was held. CTRL's other bits kept.
+; Refused if not held.
 SN_GOX:         NEED    SC_6510
                 LDA     SHELD
                 BEQ     SNFF3
+                LDA     SOUND_CTRL
+                AND     #<~SOUND_RUN
+                STA     SOUND_CTRL
                 LDA     SVOLA
                 STA     SOUND_SIDA + SIDVOL
                 LDA     SVOLB
@@ -1021,10 +1027,12 @@ SN_VOLUMEX:     BLOCK
                 LDA     SREV
                 CMP     #2
                 BCC     SNFF3
-                JSR     PGET
-                STA     SOUND_VOLL
+                JSR     PGET           ; both read before either is written: a block
+                STA     T0             ; refused at +2 changes nothing
                 JSR     PGET
                 STA     SOUND_VOLR
+                LDA     T0
+                STA     SOUND_VOLL
                 JMP     SN00
 
 ; +1 the byte, to MBOUT; SN_BUSY while the 6510 hasn't taken the last.
