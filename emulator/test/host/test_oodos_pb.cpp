@@ -985,6 +985,16 @@ TEST(es_noqueue_keeps_the_queue_for_input_while_the_6510_floods_it)
     press(r);
     CHECK(waiting(r) == (std::vector<uint8_t>{EK_KEY, EK_KEY}));
     CHECK_EQ(word(r, EV_QLOST), 0u);
+    // Opened again over the same memory, the flag still set there: FT_OPEN writes the area afresh, so the flag is
+    // 0 and the bytes are queued again.
+    CHECK_EQ(r.phys(AREA + EV_SFLAGS), ES_NOQUEUE);
+    CHECK_EQ(ac(pb(r, 'O')), OK);
+    CHECK_EQ(r.phys(AREA + EV_SFLAGS), 0u);
+    r.run(ms(5));
+    const std::vector<uint8_t> w = waiting(r);
+    CHECK(!w.empty());
+    for (const uint8_t k : w)
+        CHECK_EQ(k, EK_SOUND);
 }
 
 TEST(without_es_noqueue_the_flood_fills_the_queue_and_a_key_is_lost)
