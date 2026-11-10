@@ -84,8 +84,8 @@ SS_LENGTH       = 3                    ;   bytes, at most 16 KB
 SS_RECORD       = 5                    ;   the record of the file it starts at
 SS_LEN          = 8
 SYS_MAX_SEGMENTS = 8
-SYS_MAJOR       = 0                    ; 0.7: OOLIB L5; the version's one source
-SYS_MINOR       = 7                    ; (mksys.py reads both from here)
+SYS_MAJOR       = 0                    ; 0.8: EV_SFLAGS (Plan A); the version's one source
+SYS_MINOR       = 8                    ; (mksys.py reads both from here)
 ; The banners (OOLDR's, the cold boot's, PIP's) print each as one digit
 .assert SYS_MAJOR <= 9 && SYS_MINOR <= 9, error, "SYS_MAJOR and SYS_MINOR are printed as one digit each"
 
