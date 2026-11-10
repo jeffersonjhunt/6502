@@ -16,6 +16,7 @@
 #include "sound_card.h"
 
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -307,6 +308,16 @@ TEST(the_library_linked_into_an_overlay_plays_a_tune_as_playsid_does)
     const std::vector<uint8_t> plug = utility("sidplug.prl");
     REQUIRE(plug.size() > PRL_ZP);
     CHECK_EQ(plug[PRL_ZP], 0);
+    // ... and the SID_ZP it was linked with is SIDOVL's own, from SIDOVL's map (review F2): a wrong address
+    // that happened to be free in SIDOVL would play as well.
+    const std::string zps = read_text(std::string(EMU_OODOS_UTILS_DIR) + "/sidplug.zp.s");
+    const size_t at = zps.find("SID_ZP = $");
+    REQUIRE(at != std::string::npos);
+    const unsigned given = static_cast<unsigned>(std::stoul(zps.substr(at + 10, 2), nullptr, 16));
+    const std::map<std::string, uint16_t> host = labels(std::string(EMU_OODOS_UTILS_DIR) + "/sidovl.lbl");
+    REQUIRE(host.count("SID_ZP") == 1);
+    std::printf("  SID_ZP: SIDOVL's $%02X, SIDPLUG given $%02X\n", host.at("SID_ZP"), given);
+    CHECK_EQ(given, static_cast<unsigned>(host.at("SID_ZP")));
     Header h; // v2, PAL, three songs, start 2, play: the card's frame interrupt
     const std::vector<uint8_t> file = sid_bytes(h, code(0x1000));
     std::string error;

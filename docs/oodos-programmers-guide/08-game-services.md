@@ -759,6 +759,9 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
   it and using the name once: `.importzp SID_ZP` and `lda #SID_ZP` (an import that is never used isn't linked).
   `libzp.py` refuses a name the caller's map doesn't have. Those bytes are the library's while an overlay runs, as
   they would be for the caller's own calls.
+- **One copy for a job.** The zero page is shared, but a module's state is in its own BSS: if the caller links
+  `lib-sid` too, its copy doesn't see what the overlay's `SID_PLAY` set (`SID_STUB`, `SID_CTRL`, the fields). So
+  make a tune's calls, `SID_PARSE` to `SID_STOP`, through one copy, the overlay's.
 - An overlay linked **without** its caller's names takes the zero page modules with the code, and 59 refuses it
   (`$FE02`).
 
