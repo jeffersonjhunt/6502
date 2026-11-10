@@ -6,6 +6,7 @@
 #   tools/check.sh full               # everything: before production
 #   tools/check.sh quick --url URL    # and the e2e smoke set against URL
 #   tools/check.sh full --url URL     # and the whole e2e suite against URL
+#   tools/check.sh full --jobs all    # the sanitizer tests on every CPU, not 4 (a builder instance)
 #
 # quick: the oodos checks; every native test, built optimised without the
 #   sanitizers (the `fast` preset, under a minute); the WebAssembly build
@@ -30,14 +31,22 @@
 set -u
 
 tier=${1:-}
-url=
-if [ "${2:-}" = --url ]; then
-    url=${3:?--url needs a URL}
-fi
+url= jobs=4 # the sanitizer runs' 4 at once: this host is shared; a builder instance gives --jobs all
+[ $# -gt 0 ] && shift
+while [ $# -gt 0 ]; do
+    case $1 in
+    --url) url=${2:?--url needs a URL}; shift ;;
+    --jobs) jobs=${2:?--jobs needs a number or all}; shift ;;
+    *) tier=bad ;;
+    esac
+    shift
+done
+[ "$jobs" = all ] && jobs=$(nproc)
+case $jobs in '' | *[!0-9]* | 0) tier=bad ;; esac
 case $tier in
 quick | full) ;;
 *)
-    echo "usage: tools/check.sh quick|full [--url URL]" >&2
+    echo "usage: tools/check.sh quick|full [--url URL] [--jobs N|all]" >&2
     exit 2
     ;;
 esac
@@ -147,7 +156,7 @@ if [ "$tier" = quick ]; then
     step native-fast native fast
 else
     preset=dev
-    step native-dev native dev 4 # the 4 at once the sanitizer runs have always used
+    step native-dev native dev "$jobs"
 fi
 step wasm wasm
 step vitest vitest

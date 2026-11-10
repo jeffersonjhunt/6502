@@ -11,6 +11,8 @@
 # Options: --on-demand (not spot), --minutes N (the instance's watchdog, 180 by default), --out DIR
 # (where the logs come back; $TMPDIR/cloud-full/RUN by default), --no-wait.
 #
+# The instance is the run's own, so check.sh gets --jobs all (its tier tag is check.sh's arguments).
+#
 # Each run: the image builder/oo1:HASH (HASH of tools/ci/Dockerfile) built and pushed if ECR lacks it;
 # the protected fixtures sent if they changed (tools/aws/oo1-fixtures.sh); REF's tree, by git archive,
 # to oo1/src/RUN.tar.gz; an instance from the builder-oo1 launch template, its run in its tags. It runs
@@ -104,7 +106,7 @@ key="oo1/src/$run.tar.gz"
 git -C "$repo" archive --format=tar.gz "$sha" | aws s3 cp - "s3://$bucket/$key" --only-show-errors
 aws s3api put-object-tagging --bucket "$bucket" --key "$key" --tagging 'TagSet=[{Key=kind,Value=src}]'
 
-tags="{Key=builder,Value=true},{Key=project,Value=oo1},{Key=Name,Value=builder-oo1-$run},{Key=run,Value=$run},{Key=src,Value=$key},{Key=image,Value=$image},{Key=tier,Value=$tier},{Key=minutes,Value=$minutes},{Key=sha,Value=$sha}"
+tags="{Key=builder,Value=true},{Key=project,Value=oo1},{Key=Name,Value=builder-oo1-$run},{Key=run,Value=$run},{Key=src,Value=$key},{Key=image,Value=$image},{Key=tier,Value=$tier --jobs all},{Key=minutes,Value=$minutes},{Key=sha,Value=$sha}"
 subnets=$(aws cloudformation describe-stacks --stack-name builder-base --query 'Stacks[0].Outputs[?OutputKey==`Subnets`].OutputValue' --output text)
 group=$(aws cloudformation describe-stacks --stack-name builder-oo1 --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroup`].OutputValue' --output text)
 launch() { # $1: spot or on-demand, $2: a subnet
