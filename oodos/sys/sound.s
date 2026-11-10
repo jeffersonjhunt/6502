@@ -334,7 +334,11 @@ SNDIRQ:         STZ     SANS
 ; A byte from the 6510: MBIN read (the interrupt with it), and with a
 ; layout-2 area open stamped in its sound part (EV_SMBOX, the time at
 ; EV_SMMS, EV_SMCNT counted up to 65,535: L5a) and queued as EK_SOUND,
-; code 0. QEV is block 62's: W3 is on it, as IRQOTH runs there.
+; code 0, unless the program has set EV_SFLAGS's ES_NOQUEUE (a tune whose
+; player writes the mailbox thousands of times a second would fill the
+; queue and lose its keys). QEV is block 62's: W3 is on it, as IRQOTH runs
+; there.
+.assert ES_NOQUEUE = $01, error, "MBOXIN tests ES_NOQUEUE by LSR"
 MBOXIN:         LDA     SOUND_MBIN
                 BIT     EVON
                 BPL     @done
@@ -364,8 +368,12 @@ MBOXIN:         LDA     SOUND_MBIN
                 LDA     (EVP),Y
                 INC     A
                 STA     (EVP),Y
-@q:             JSR     QEV
-                PLA
+@q:             LDY     #EV_SFLAGS
+                LDA     (EVP),Y
+                LSR     A              ; ES_NOQUEUE: stamped only
+                BCS     @back
+                JSR     QEV
+@back:          PLA
                 STA     NB_WIN1
 @done:          RTS
 

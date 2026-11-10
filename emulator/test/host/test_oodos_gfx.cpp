@@ -426,7 +426,7 @@ TEST(the_library_refuses_to_map_below_interface_4)
     // FT_INFO's answer made 3 in OODOS's block 60, as an L3 OODOS gives it.
     const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
     uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 6 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
+    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 7 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x0F))
         ++p;
     REQUIRE(p < base + 64);
     r.poke(p + 1, 3);

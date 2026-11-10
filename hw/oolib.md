@@ -1318,6 +1318,23 @@ and more in L5:
       just before a `MU_STOP` is let go with its leftovers; F5, a note's seven BDOS calls. `test_oodos_mu` has 12
       cases.
 
+- **OODOS 0.8: `EV_SFLAGS`'s `ES_NOQUEUE`** (OO-Amp's OODOS-EVENT-FLOOD-REQUEST.md, the owner's choice of its
+  option 2, 2026-11-09).
+  - **The problem:** `MBOXIN` queued every byte from the 6510 as `EK_SOUND`. A `.sid` stub sends one at each play
+    call, and a tune on a fast CIA timer makes about 1,900 a second against a queue of 15, so keys were lost and
+    OO-Amp couldn't be quit.
+  - **The fix:** +115 of the area, `EV_SFLAGS`, is the program's. With bit 0, `ES_NOQUEUE`, the bytes are stamped
+    (L5a's `EV_SMBOX`, `EV_SMMS`, `EV_SMCNT`) and not queued. `FT_OPEN` clears it, so nothing changes for a program
+    that doesn't set it. About 8 bytes in `MBOXIN`, which fit in block 61's alignment padding (its free space is
+    unchanged). Interface 7.
+  - **Coalescing was not taken:** it would break L6b's counts, one event per byte. A program with the flag set gets
+    no `MU_EVENT` counts.
+  - **Tests:** `test_oodos_pb` (24 cases). A 6510 sending 2,000 bytes a second with the flag set: about 1,000
+    stamped in 500 ms, nothing queued, nothing lost, a key queued. With it clear (OO-Amp's case, the must-fail):
+    the queue full of `EK_SOUND`, the key lost; set and cleared again, queued again. `MBOXIN` without the test makes
+    both cases fail. Interface 7 in the seven `FT_INFO` expectations and `test_oodos_gfx`'s patch (the owner's
+    approval).
+
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**
 question 15.

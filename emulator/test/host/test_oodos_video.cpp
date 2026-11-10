@@ -185,7 +185,7 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("06 0F")); // interface 6, areas frame, input, sound, DMA
+    CHECK_EQ(command(r, 'F', "F"), std::string("07 0F")); // interface 7, areas frame, input, sound, DMA
     CHECK_EQ(f83op(r, DM_INFO), std::string("0D 04"));
     // +1 13, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, blocks 33-47
     CHECK_EQ(command(r, 'I', "INFO"), std::string("0D 04 0D0404FF02000000FEFF0000"));
@@ -692,7 +692,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(f83op(r, DM_CONSOLE), std::string("00 00"));
         CHECK_EQ(vreg(r, 0x00), 0x03);
         CHECK_EQ(vreg(r, 0x10), 0x80);
-        CHECK_EQ(command(r, 'F', "F"), std::string("06 0F"));
+        CHECK_EQ(command(r, 'F', "F"), std::string("07 0F"));
     }
 }
 

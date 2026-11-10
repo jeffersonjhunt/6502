@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -361,6 +361,14 @@ less `EV_SMMS`, from the start if it hasn't yet. An area opened after `SN_START`
 as every area does, with `EV_SMMS` and `EV_SMCNT` 0 until the next byte: measure from the later of `EV_SMMS` and
 when the program opened the area or started the tune. With a layout-1 area, or no area, nothing is stamped.
 
+**Stamped, not queued** (since OODOS 0.8). A `.sid` player's stub sends a byte at each call of the tune's play
+routine, and a tune on a fast CIA timer calls it thousands of times a second: a 256-byte area's queue holds 15
+events, so the queue fills within a frame and key and mouse events are lost with the rest (`EV_QLOST`). A program
+that needs only the stamps sets `ES_NOQUEUE` in `EV_SFLAGS` (+115): the bytes are still stamped, but not queued.
+Set it after `FT_OPEN`, which fills the area from scratch; clear it again to have them queued. OODOS before 0.8
+(`FT_INFO`'s interface below 7) ignores the byte. The music library ([Music](#music)) counts each voice's notes from
+these events, so a program that sets the flag can't use `MU_EVENT`'s counts.
+
 ### Pausing a tune, and the volume
 
 `SN_HOLD` pauses the 6510 where it is: RUN off without a reset, so its registers and the tune's RAM are left as they
@@ -415,7 +423,8 @@ writes its state into the area once a frame and at each buffer's end:
 | +104–105 | `EV_SKBPS` | an MP3's bitrate, kbit/s |
 | +106–107 | `EV_SUNDER` | the underruns seen since the stream started |
 | +108–114 | | the 6510's mailbox stamp ([The 6510](#the-6510)), written while the 6510 is claimed |
-| +115–127 | | reserved, 0 |
+| +115 | `EV_SFLAGS` | the program's (since OODOS 0.8): bit 0, `ES_NOQUEUE`, the 6510's bytes stamped but not queued |
+| +116–127 | | reserved, 0 |
 
 **Keeping it fed.** Nothing in this needs the program's time while both buffers and the FIFO have data: a slow
 frame costs nothing. An underrun is the FIFO running dry before `SN_END`, and OODOS counts each it sees (at a frame,
@@ -586,7 +595,8 @@ event area ([The 6510](#the-6510)). Open an area of layout 2 first, and hand eac
 had nothing waiting when the driver said so), `MV_MARK`, `MV_REFUSED` (its queue was full), `MV_HELLO`, or
 `MV_NONE` for a byte that isn't the driver's or is left over from a `MU_STOP`. `MU_COUNT` with A a voice gives its
 entries waiting, GW-BASIC's PLAY(n): those sent, less those `MU_EVENT` has been handed as done, reached or refused.
-So the count is only as current as the events handed over, and `MU_NOTE` says `PE_FULL` at 32 even if the driver
+So the count is only as current as the events handed over (and needs them queued: not with `ES_NOQUEUE`,
+[The 6510](#the-6510)), and `MU_NOTE` says `PE_FULL` at 32 even if the driver
 has played some meanwhile: hand the events over often (a queue of 256 bytes holds 15).
 
 Each call but `MU_EVENT` and `MU_COUNT` returns carry clear and A = 0, or carry set and A an error: `PE_STATE`
