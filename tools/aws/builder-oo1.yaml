@@ -86,7 +86,7 @@ Resources:
   NoWayIn:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: builder-oo1 instances, no inbound; out to S3, ECR, the fixtures' and npm's hosts
+      GroupDescription: builder-oo1 instances - nothing in; out to S3, ECR, package mirrors, npm and GitHub
       VpcId: !ImportValue builder-vpc
       SecurityGroupEgress: [{ IpProtocol: "-1", CidrIp: 0.0.0.0/0 }]
       Tags: [{ Key: builder, Value: "true" }]
