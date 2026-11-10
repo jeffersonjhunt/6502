@@ -477,6 +477,27 @@ if(EMU_CA65 AND EMU_LD65)
 endif()
 target_compile_definitions(test_sound_driver PRIVATE EMU_SOUND_DRIVER="${SOUND_DIR}/driver.bin")
 
+# --- OOLIB's music driver ---------------------------------------------------
+#
+# oodos/lib/mudrv/mudrv.s, for the card's 6510 (hw/oolib.md, L6a): assembled
+# here so test_mudrv runs it on the card. Without cc65 it skips.
+
+emu_add_test(test_mudrv)
+set(MUDRV_SRC "${PROJECT_SOURCE_DIR}/../oodos/lib/mudrv")
+set(MUDRV_DIR "${CMAKE_CURRENT_BINARY_DIR}/mudrv")
+if(EMU_CA65 AND EMU_LD65)
+    file(MAKE_DIRECTORY "${MUDRV_DIR}")
+    add_custom_command(
+            OUTPUT "${MUDRV_DIR}/mudrv.bin"
+            COMMAND "${EMU_CA65}" -g -o "${MUDRV_DIR}/mudrv.o" "${MUDRV_SRC}/mudrv.s"
+            COMMAND "${EMU_LD65}" -C "${MUDRV_SRC}/mudrv.cfg" -o "${MUDRV_DIR}/mudrv.bin" "${MUDRV_DIR}/mudrv.o"
+            DEPENDS "${MUDRV_SRC}/mudrv.s" "${MUDRV_SRC}/mudrv.cfg"
+            VERBATIM)
+    add_custom_target(mudrv ALL DEPENDS "${MUDRV_DIR}/mudrv.bin")
+    add_dependencies(test_mudrv mudrv)
+endif()
+target_compile_definitions(test_mudrv PRIVATE EMU_MUDRV="${MUDRV_DIR}/mudrv.bin")
+
 # --- Ben Eater's ROMs -------------------------------------------------------
 #
 # Assembled from eater/src with vasm, as eater/Makefile does (same flags), so
