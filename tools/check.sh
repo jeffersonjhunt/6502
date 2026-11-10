@@ -6,7 +6,7 @@
 #   tools/check.sh full               # everything: before production
 #   tools/check.sh quick --url URL    # and the e2e smoke set against URL
 #   tools/check.sh full --url URL     # and the whole e2e suite against URL
-#   tools/check.sh full --jobs all    # the sanitizer tests on every CPU, not 4 (a builder instance)
+#   tools/check.sh full --jobs 4      # the sanitizer tests 4 at once, not one a CPU (a shared host)
 #
 # quick: the oodos checks; every native test, built optimised without the
 #   sanitizers (the `fast` preset, under a minute); the WebAssembly build
@@ -31,7 +31,7 @@
 set -u
 
 tier=${1:-}
-url= jobs=4 # the sanitizer runs' 4 at once: this host is shared; a builder instance gives --jobs all
+url= jobs=all # the sanitizer tests one a CPU; on a host shared with other work, --jobs 4
 [ $# -gt 0 ] && shift
 while [ $# -gt 0 ]; do
     case $1 in
