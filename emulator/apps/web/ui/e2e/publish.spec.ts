@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { powerOn } from "./ui";
+import { openSettings, powerOn } from "./ui";
 
 // What publishing the page depends on: the core is fetched with the build's
 // version (so a cache cannot serve an old one), and a touch screen is told
@@ -25,6 +25,27 @@ test("a desktop gets no touch note", async ({ page }) => {
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
   await expect(page.getByTestId("touch-note")).toHaveCount(0);
+});
+
+test("the browser note: none in Chromium, once in any other browser; About says it to all @smoke", async ({ page, browserName }) => {
+  await page.goto("./?sd=empty");
+  const note = page.getByTestId("browser-note");
+  if (browserName === "chromium") {
+    await powerOn(page);
+    await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+    await expect(note).toHaveCount(0);
+  } else {
+    await expect(note).toContainText("works best in Chrome or Edge");
+    await expect(note).toContainText("best-effort");
+    await note.getByRole("button", { name: "OK" }).click();
+    await expect(note).toHaveCount(0);
+    await page.reload();
+    await powerOn(page);
+    await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+    await expect(note).toHaveCount(0);
+  }
+  await openSettings(page);
+  await expect(page.getByTestId("best-in")).toContainText("works best in Chrome or Edge");
 });
 
 test.describe("on a touch screen", () => {
