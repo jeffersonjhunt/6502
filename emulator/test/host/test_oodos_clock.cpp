@@ -109,7 +109,7 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CHECK_EQ(field(o, "INFOB"), std::string("070F0302"));    // and both clocks, layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});
-    CHECK_EQ(v.substr(0, 4), std::string("0007"));            // OODOS 0.7 (question 15)
+    CHECK_EQ(v.substr(0, 4), std::string("0008"));            // OODOS 0.8 (question 15)
     CHECK_EQ(v.substr(20), std::string("EEEE"));              // 10 bytes, as on main: 11 and 12 untouched
 }
 
