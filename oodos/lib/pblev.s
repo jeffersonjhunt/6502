@@ -11,8 +11,8 @@
         .include "oolib.inc"
         .include "pb.inc"
 
-        .zeropage
-lp:     .res    2
+        .importzp PBLEV_ZP              ; zppblev.s's
+lp              = PBLEV_ZP
 
         .bss
 out:    .res    PBL_LEN

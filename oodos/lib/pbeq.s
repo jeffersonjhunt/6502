@@ -8,8 +8,8 @@
         .include "oolib.inc"
         .include "pb.inc"
 
-        .zeropage
-eqp:    .res    2
+        .importzp PBEQ_ZP               ; zppbeq.s's
+eqp             = PBEQ_ZP
 
         .code
 

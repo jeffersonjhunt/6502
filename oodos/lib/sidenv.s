@@ -19,8 +19,8 @@ EN_DECAY        = 2                    ; and sustain
 EN_RELEASE      = 3
 EN_FULL         = $FF00
 
-        .zeropage
-ep:     .res    2                       ; the SID_VOICES block
+        .importzp SIDENV_ZP             ; zpsidenv.s's
+ep              = SIDENV_ZP            ; the SID_VOICES block
 
         .bss
 SID_LVL:        .res    SID_NVOICES    ; each voice's level, 0-255 (the high byte)

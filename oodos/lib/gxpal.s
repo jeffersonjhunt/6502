@@ -11,9 +11,9 @@
 
 SLOT            = 1
 
-        .zeropage
-ap:     .res    2                      ; GX_FADE's: an accumulator, and its step
-sp:     .res    2
+        .importzp GXPAL_ZP              ; zpgxpal.s's
+ap              = GXPAL_ZP             ; GX_FADE's: an accumulator, and its step
+sp              = GXPAL_ZP + 2
 
         .bss
 GX_PAL: .res    512                    ; the shadow

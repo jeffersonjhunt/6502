@@ -23,9 +23,6 @@
         .include "mu.inc"
         .include "physof.inc"
 
-        .zeropage
-MUP:    .res    2                       ; a block's pointer (munote.s's and mutone.s's too)
-
         .data
 MUON:   .byte   0                       ; 1 once MU_INIT has started the driver (in DATA: a .COM's BSS
                                         ;   isn't cleared, so a program run again would find the last run's)

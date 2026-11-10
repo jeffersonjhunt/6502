@@ -18,11 +18,6 @@
         .include "oolib.inc"
         .include "gx.inc"
 
-        .zeropage
-GXP:    .res    2                      ; a pointer into W1, or anywhere
-GXQ:    .res    2                      ; a second
-GXT:    .res    2                      ; scratch
-
         .bss
 GX_X:   .res    2                      ; the routines' coordinates and values (oolib.inc)
 GX_Y:   .res    2

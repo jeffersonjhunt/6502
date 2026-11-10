@@ -9,8 +9,8 @@
         .include "oolib.inc"
         .include "pb.inc"
 
-        .zeropage
-svp:    .res    2
+        .importzp SIDV_ZP               ; zpsidv.s's
+svp             = SIDV_ZP
 
         .rodata
 SID_VOFF:       .byte   0, 7, 14, SID_REGS, SID_REGS + 7, SID_REGS + 14

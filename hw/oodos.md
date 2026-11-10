@@ -2102,7 +2102,10 @@ The attached RSX table, if any, follows on a later record (its record is in the 
   with Z + its zero page size past `$F0`. An RSX is given a slice of `$F0–$FF`, and refused if its zero page is
   more than what's left of it. An overlay (function 59) has none of its own: the loader refuses one whose zero
   page size isn't 0. It uses its caller's zero page by importing the caller's symbols, which don't move, as a
-  program's zero page is always at its link address. An overlay's load address must be a page's start.
+  program's zero page is always at its link address (for OOLIB's modules, `oodos/tools/libzp.py names` writes them
+  from the caller's map: the Programmer's Guide, chapter 8, [Linking the library into an
+  overlay](../docs/oodos-programmers-guide/08-game-services.md#linking-the-library-into-an-overlay)). An
+  overlay's load address must be a page's start.
 - **The zero page is BSS only:** no initialized data in it (ld65 drops it with only a warning, and OODOS's build
   fails on any ld65 warning). In OODOS's link configs it ends at `$EF` (`$F0` − the zero page base), so a `.PRL`
   linked at zero page base 5, as the third link is, has at most `$EB` bytes of it.

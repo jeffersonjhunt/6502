@@ -7,9 +7,9 @@
         .include "oolib.inc"
         .include "pb.inc"
 
-        .zeropage
-visp:   .res    2
-vlen:   .res    1
+        .importzp PBVIS_ZP              ; zppbvis.s's
+visp            = PBVIS_ZP
+vlen            = PBVIS_ZP + 2
 
         .code
 

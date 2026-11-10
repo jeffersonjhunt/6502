@@ -16,6 +16,7 @@
 #include "sound_card.h"
 
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -82,6 +83,38 @@ namespace
 
     SoundCard &card(Rig &r) { return *r.machine->sound_card(); }
 
+    /// The card as plan_sid plans `f`'s song: its blocks in the card's RAM (the stub's frame counter aside), CTRL,
+    /// and init and play seen to have run (init with `want_song` less 1).
+    void as_planned(Rig &r, const SidFile &f, const SidPlan &plan, unsigned want_song)
+    {
+        const auto &ram = card(r).ram();
+        for (const SidPlan::Block &b : plan.blocks)
+        {
+            bool same = true;
+            for (size_t i = 0; i < b.bytes.size(); ++i)
+                same = same && ram[static_cast<uint16_t>(b.addr + i)] == b.bytes[i];
+            if (b.addr == plan.stub) // the stub's frame counter moves once play runs
+            {
+                same = true;
+                for (size_t i = 0; i < b.bytes.size(); ++i)
+                    if (static_cast<uint16_t>(b.addr + i) != plan.frame)
+                        same = same && ram[static_cast<uint16_t>(b.addr + i)] == b.bytes[i];
+            }
+            if (!same)
+                std::printf("  block at $%04X (%zu bytes) differs from plan_sid's\n", b.addr, b.bytes.size());
+            CHECK(same);
+        }
+        std::printf("  stub at $%04X, CTRL $%02X (plan $%02X)\n", plan.stub, card(r).peek(SoundCard::CTRL), plan.ctrl);
+        CHECK_EQ(card(r).peek(SoundCard::CTRL), plan.ctrl & ~SoundCard::CTRL_RESET); // RESET a strobe: reads 0
+        const uint16_t page = SCRATCH;
+        if (f.init == f.load)
+            CHECK_EQ(ram[page], want_song - 1); // init ran with the song less 1
+        if (f.play)
+            CHECK(ram[page + 1] > 2); // play called, and the stub's mailbox frame count with it
+        if (f.play)
+            CHECK(ram[plan.frame] > 2);
+    }
+
     /// PLAYSID and T.SID (`file`) on M:, the last record's byte count in its last entry (S1), as cpmtools
     /// writes it (one entry for each 32 KB).
     void put(CcpRig &r, const std::vector<uint8_t> &file)
@@ -131,38 +164,14 @@ namespace
         CHECK(o.find("Playing song " + std::to_string(want_song) + " of " + std::to_string(f->songs) +
                      ": Test Tune, Nobody") != std::string::npos);
         r.run(ms(100));
+        as_planned(r, *f, *plan, want_song);
         const auto &ram = card(r).ram();
-        for (const SidPlan::Block &b : plan->blocks)
-        {
-            bool same = true;
-            for (size_t i = 0; i < b.bytes.size(); ++i)
-                same = same && ram[static_cast<uint16_t>(b.addr + i)] == b.bytes[i];
-            if (b.addr == plan->stub) // the stub's frame counter moves once play runs
-            {
-                same = true;
-                for (size_t i = 0; i < b.bytes.size(); ++i)
-                    if (static_cast<uint16_t>(b.addr + i) != plan->frame)
-                        same = same && ram[static_cast<uint16_t>(b.addr + i)] == b.bytes[i];
-            }
-            if (!same)
-                std::printf("  block at $%04X (%zu bytes) differs from plan_sid's\n", b.addr, b.bytes.size());
-            CHECK(same);
-        }
         unsigned overwritten = 0;
         for (const uint16_t a : past)
             overwritten += ram[a] != 0xA5;
         if (exact)
             std::printf("  %u of them overwritten\n", overwritten);
         CHECK_EQ(overwritten, 0u);
-        std::printf("  stub at $%04X, CTRL $%02X (plan $%02X)\n", plan->stub, card(r).peek(SoundCard::CTRL), plan->ctrl);
-        CHECK_EQ(card(r).peek(SoundCard::CTRL), plan->ctrl & ~SoundCard::CTRL_RESET); // RESET a strobe: reads 0
-        const uint16_t page = SCRATCH;
-        if (f->init == f->load)
-            CHECK_EQ(ram[page], want_song - 1); // init ran with the song less 1
-        if (f->play)
-            CHECK(ram[page + 1] > 2); // play called, and the stub's mailbox frame count with it
-        if (f->play)
-            CHECK(ram[plan->frame] > 2);
         const size_t from = r.out.size();
         r.type("x");
         CHECK(r.until("\r\nA>", ms(2000), from));
@@ -277,6 +286,82 @@ TEST(what_playsid_refuses)
         CHECK(c.cmd("M:PLAYSID M:NONE").find("No File") != std::string::npos);
         CHECK(c.cmd("M:PLAYSID").find("PLAYSID filespec {song}") != std::string::npos);
     }
+}
+
+// ---- The library linked into an overlay ----------------------------------------------------------------------
+// (the Programmer's Guide, chapter 8, "Linking the library into an overlay")
+
+namespace
+{
+    std::vector<uint8_t> utility(const std::string &file)
+    {
+        return read_bytes(std::string(EMU_OODOS_UTILS_DIR) + "/" + file);
+    }
+    constexpr size_t PRL_ZP = 11; ///< a .PRL header's zero page size
+} // namespace
+
+TEST(the_library_linked_into_an_overlay_plays_a_tune_as_playsid_does)
+{
+    // OO-Amp's plugin, in small: SIDPLUG.PRL links lib-sid, its SID_ZP the address SIDOVL's map gives it
+    // (tools/libzp.py names), so its own zero page is none and function 59 takes it; SIDOVL calls it to play
+    // a tune of ours, and the card is as plan_sid plans it, as PLAYSID leaves it.
+    const std::vector<uint8_t> plug = utility("sidplug.prl");
+    REQUIRE(plug.size() > PRL_ZP);
+    CHECK_EQ(plug[PRL_ZP], 0);
+    // ... and the SID_ZP it was linked with is SIDOVL's own, from SIDOVL's map (review F2): a wrong address
+    // that happened to be free in SIDOVL would play as well.
+    const std::string zps = read_text(std::string(EMU_OODOS_UTILS_DIR) + "/sidplug.zp.s");
+    const size_t at = zps.find("SID_ZP = $");
+    REQUIRE(at != std::string::npos);
+    const unsigned given = static_cast<unsigned>(std::stoul(zps.substr(at + 10, 2), nullptr, 16));
+    const std::map<std::string, uint16_t> host = labels(std::string(EMU_OODOS_UTILS_DIR) + "/sidovl.lbl");
+    REQUIRE(host.count("SID_ZP") == 1);
+    std::printf("  SID_ZP: SIDOVL's $%02X, SIDPLUG given $%02X\n", host.at("SID_ZP"), given);
+    CHECK_EQ(given, static_cast<unsigned>(host.at("SID_ZP")));
+    Header h; // v2, PAL, three songs, start 2, play: the card's frame interrupt
+    const std::vector<uint8_t> file = sid_bytes(h, code(0x1000));
+    std::string error;
+    const std::optional<SidFile> f = parse_sid(file, error);
+    REQUIRE(f);
+    const std::optional<SidPlan> plan = plan_sid(*f, 0, error);
+    REQUIRE(plan);
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_util("sidovl");
+    r.put_m({{0, "SIDPLUG PRL", plug}});
+    const std::string o = r.to("M:SIDOVL M:SIDPLUG.PRL", "R\r\n", ms(4000));
+    std::printf("  %s\n", vis(o).c_str());
+    REQUIRE(o.find("L=0000\r\nR\r\n") != std::string::npos);
+    const uint8_t len[] = {static_cast<uint8_t>(file.size()), static_cast<uint8_t>(file.size() >> 8)};
+    r.poke(0x1FFE, std::vector<uint8_t>(len, len + 2)); // TLEN, then the tune
+    r.poke(0x2000, file);
+    size_t from = r.out.size();
+    r.type("x");
+    CHECK(r.until("P=00\r\n", ms(4000), from));
+    r.run(ms(100));
+    as_planned(r, *f, *plan, 2);
+    from = r.out.size();
+    r.type("x");
+    CHECK(r.until("S\r\n", ms(2000), from) && r.until("\r\nA>", ms(2000), from));
+    CHECK_EQ(card(r).peek(SoundCard::CTRL) & SoundCard::CTRL_RUN, 0);
+    CHECK_EQ(r.phys(SYS_BLOCK_PHYS + sym("SCLAIM")), 0);
+}
+
+TEST(the_overlay_linked_without_its_caller_s_zero_page_is_refused)
+{
+    // The same overlay linked without SIDOVL's names: ld65 takes the library's zpsid with lib-sid, the header
+    // says 2 bytes of zero page, and function 59 refuses it (FE02), as it refuses any overlay with its own.
+    const std::vector<uint8_t> plug = utility("sidplugz.prl");
+    REQUIRE(plug.size() > PRL_ZP);
+    CHECK_EQ(plug[PRL_ZP], 2);
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_util("sidovl");
+    r.put_m({{0, "SIDPLUGZPRL", plug}});
+    const std::string o = r.cmd("M:SIDOVL M:SIDPLUGZ.PRL");
+    std::printf("  %s\n", vis(o).c_str());
+    CHECK(o.find("L=FE02\r\n") != std::string::npos);
+    CHECK(o.find("\r\nR\r\n") == std::string::npos);
 }
 
 int main() { return run_all(); }

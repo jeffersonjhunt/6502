@@ -79,7 +79,11 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 # OOLIB, the linked library (lib/*.s, include/oolib.inc; hw/oolib.md, question 9): each lib/NAME.s
 # assembled once into build/oolib.lib, which ld65 takes only the modules of that a program uses. A
 # utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's).
-LIBS = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
+# Each module's zero page, lib/zpNAME.s, goes into the archive right after NAME, so ld65 lays a
+# program's zero page out as it would with the bytes in NAME itself (libzp.py check holds it).
+LIBSRC = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
+LIBS = $(foreach m,$(filter-out zp%,$(LIBSRC)),$(m) $(filter zp$(m),$(LIBSRC)))
+$(if $(filter-out $(LIBS),$(LIBSRC)),$(error lib/: zero page modules without their code: $(filter-out $(LIBS),$(LIBSRC))))
 OOLIB_USERS = playsid view
 
 $(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s $(wildcard lib/*.inc) include/oodos.inc include/oolib.inc | $(BUILD)
@@ -92,9 +96,11 @@ $(BUILD)/mudrv.bin: lib/mudrv/mudrv.s lib/mudrv/mudrv.cfg | $(BUILD)
 	ld65 -C lib/mudrv/mudrv.cfg $(BUILD)/mudrv.o -o $@
 $(BUILD)/lib-mu.o: $(BUILD)/mudrv.bin
 
-$(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o)
+# Every module's zero page in a lib/zp*.s of its own (tools/libzp.py), so an overlay can link the library.
+$(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
+	$(PYTHON) tools/libzp.py check $(LIBS:%=$(BUILD)/lib-%.o)
 	rm -f $@
-	ar65 a $@ $^
+	ar65 a $@ $(LIBS:%=$(BUILD)/lib-%.o)
 
 $(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
 
@@ -107,6 +113,25 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(call LD65,-C cfg/com.cfg $< -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
 	mv $@.tmp $@
+
+# An overlay linked with the library (the Programmer's Guide, chapter 8, "Linking the library into an
+# overlay"): each of OVL_LIB, NAME.prl from NAME.o and oolib.lib, with the caller's addresses for the
+# zero page names OVL_ZP, from the map of OVL_CALLER's .COM (tools/libzp.py names). Its zero page is
+# then its caller's, and its own size 0, as function 59 needs. With OVL_ZP empty, the library's zero
+# page modules come with it (test_oodos_playsid's refused overlay).
+OVL_LIB    =
+OVL_CALLER =
+OVL_ZP     =
+OVLZPO     = $(if $(OVL_ZP),$(BUILD)/$*.zp.o)
+$(OVL_LIB:%=$(BUILD)/%.prl): $(BUILD)/%.prl: $(BUILD)/%.o $(BUILD)/oolib.lib $(BUILD)/$(OVL_CALLER).com cfg/prl.cfg \
+		tools/rules.py tools/mkprl.py tools/libzp.py
+	$(if $(OVL_ZP),$(PYTHON) tools/libzp.py names $(BUILD)/$(OVL_CALLER).map $(OVL_ZP) -o $(BUILD)/$*.zp.s)
+	$(if $(OVL_ZP),ca65 $(AFLAGS) $(BUILD)/$*.zp.s -o $(BUILD)/$*.zp.o)
+	$(call LD65,-C cfg/prl.cfg $< $(OVLZPO) $(BUILD)/oolib.lib -o $(BUILD)/$*.a -m $(BUILD)/$*.a.map,$@)
+	$(call LD65,-C cfg/prl.cfg -D __OODOS_PAGE__=4 -D __OODOS_ZP__=2 $< $(OVLZPO) $(BUILD)/oolib.lib -o $(BUILD)/$*.b,$@)
+	$(call LD65,-C cfg/prl.cfg -D __OODOS_PAGE__=5 -D __OODOS_ZP__=5 $< $(OVLZPO) $(BUILD)/oolib.lib -o $(BUILD)/$*.c,$@)
+	$(PYTHON) tools/rules.py $(BUILD)/$*.a --map $(BUILD)/$*.a.map
+	$(PYTHON) tools/mkprl.py $(BUILD)/$*.a $(BUILD)/$*.b $(BUILD)/$*.c --map $(BUILD)/$*.a.map -o $@
 
 # Link a is the .PRL's image; b is a page and two bytes of zero page above,
 # c two pages and five bytes.

@@ -6,9 +6,6 @@
         .include "oolib.inc"
         .include "pb.inc"
 
-        .zeropage
-PBP:    .res    2                       ; a product, a dividend
-
         .bss
 pm:     .res    1
 pd:     .res    1

@@ -733,6 +733,56 @@ and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 5
 holding the interrupt off (`test_oodos_video`: line 508 at the latest under a USB batch, 16 lines to spare, and line 511 under 64 KB loads,
 13 to spare; the blank is lines 480–524).
 
+## Linking the library into an overlay
+
+An overlay that [function 59](07-function-reference.md#bdos-59) loads has no zero page of its own: the loader
+refuses one whose header says it has. It uses its caller's, by importing the caller's names, which never move. So
+each library module's zero page is in a module of its own, `lib/zp*.s`, which holds nothing else (since
+2026-11-10; nothing in OODOS changed for it):
+
+- **A program** links the library as before, to the byte. ld65 takes a zero page module with the code that names
+  it, and `lib/zpNAME.s` is in `oolib.lib` right after `NAME`, so the program's zero page is laid out as it was.
+- **An overlay** is linked with its caller's addresses for those names, so ld65 doesn't take the zero page modules,
+  and the overlay's zero page size is 0. `oodos/tools/libzp.py names` writes the addresses as a module, from the
+  caller's map (ld65's `-m`). Assemble it, and link it before `oolib.lib` in each of the three links that make a
+  `.PRL` ([chapter 6](06-program-formats.md)):
+
+  ```
+  python3 -I oodos/tools/libzp.py names build/host.map SID_ZP -o build/plugzp.s
+  ca65 build/plugzp.s -o build/plugzp.o
+  ld65 -C oodos/cfg/prl.cfg plug.o build/plugzp.o build/oolib.lib -o build/plug.a -m build/plug.a.map
+  ```
+
+  oodos's Makefile does it for each overlay in `OVL_LIB`, from the map of `OVL_CALLER`'s `.COM` and the names in
+  `OVL_ZP`.
+- **The caller** links each zero page module its overlays need, even one for code it doesn't call itself, by naming
+  it and using the name once: `.importzp SID_ZP` and `lda #SID_ZP` (an import that is never used isn't linked).
+  `libzp.py` refuses a name the caller's map doesn't have. Those bytes are the library's while an overlay runs, as
+  they would be for the caller's own calls.
+- **One copy for a job.** The zero page is shared, but a module's state is in its own BSS: if the caller links
+  `lib-sid` too, its copy doesn't see what the overlay's `SID_PLAY` set (`SID_STUB`, `SID_CTRL`, the fields). So
+  make a tune's calls, `SID_PARSE` to `SID_STOP`, through one copy, the overlay's.
+- An overlay linked **without** its caller's names takes the zero page modules with the code, and 59 refuses it
+  (`$FE02`).
+
+| Modules | Their zero page | Bytes | Defined in |
+| --- | --- | --- | --- |
+| `gxasset`, `gxbmp`, `gxmem`, `gxmode`, `gxpal`, `gxspr`, `gxtext`, `gxtile` | `GXP`, `GXQ`, `GXT` | 6 | `zpgxmem` |
+| `gxpal` | `GXPAL_ZP` | 4 | `zpgxpal` |
+| `mu`, `munote`, `mutone` | `MUP` | 2 | `zpmu` |
+| `pblev`, `pbmath`, `pbvol` | `PBP` | 2 | `zppbmath` |
+| `pbeq` | `PBEQ_ZP` | 2 | `zppbeq` |
+| `pblev` | `PBLEV_ZP` | 2 | `zppblev` |
+| `pbstat` | `PBSTAT_ZP` | 4 | `zppbstat` |
+| `pbvis` | `PBVIS_ZP` | 3 | `zppbvis` |
+| `sid` | `SID_ZP` | 2 | `zpsid` |
+| `sidenv` | `SIDENV_ZP` | 2 | `zpsidenv` |
+| `sidnote` | `SIDNOTE_ZP` | 2 | `zpsidnote` |
+| `sidv` | `SIDV_ZP` | 2 | `zpsidv` |
+
+`pb`, `pbcard` and `physof` have none. The build checks, as `oolib.lib` is made (`libzp.py check`), that no other
+module has zero page of its own and that each `zpNAME` follows its `NAME`.
+
 ## When the program ends
 
 The warm boot takes back what L1 and L2 gave: both hooks off, the event area closed, and every interrupt enable the

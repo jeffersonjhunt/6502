@@ -1335,6 +1335,29 @@ and more in L5:
     both cases fail. Interface 7 in the seven `FT_INFO` expectations and `test_oodos_gfx`'s patch (the owner's
     approval).
 
+- **The library's zero page in modules of its own** (OO-Amp's OOLIB-OVERLAY-ZP-REQUEST.md, the owner's choice of
+  its option 1, 2026-11-09; no OODOS change).
+  - **The problem:** function 59 refuses an overlay with zero page of its own, and 12 library modules had theirs
+    (33 bytes), so none of them could be linked into one. OO-Amp wants `lib-sid` in its SID plugin, to free W0.
+  - **The fix:** each module's zero page moved into `lib/zp*.s`, a module holding only that: `zpgxmem` (`GXP`, `GXQ`,
+    `GXT`), `zppbmath` (`PBP`), `zpmu` (`MUP`), and `NAME_ZP` for each private one (`sid.s`'s pointer is `SID_ZP`,
+    in `zpsid`). The code imports the names, and each `zpNAME` goes into `oolib.lib` right after `NAME`, so
+    ld65 lays a program's zero page out as before. A program links as before, to the byte; an overlay is given its caller's
+    addresses by a module that `oodos/tools/libzp.py names` writes from the caller's map, so ld65 doesn't take
+    the zero page modules. The caller names (and uses) each one its overlays need. The Makefile's `OVL_LIB`,
+    `OVL_CALLER`, `OVL_ZP` do it.
+  - **Not taken:** a second build of the library at fixed addresses (two builds to keep alike), and 59 accepting
+    an overlay's zero page (an OODOS change, against the loader's rule).
+  - **The order matters:** archived in name order, GXTEST's zero page came out the same size but `zpgxpal`'s
+    bytes before `zpgxmem`'s, so `GXP` landed on the byte `test_oodos_gfx` watches (`$0C`, review F6 of L4) and the
+    test failed; sorted, PBTEST's moved instead. Each after its code module, all five programs are as before.
+  - **Tests:** `libzp.py check` on every module as `oolib.lib` is made: no zero page outside `lib-zp*`, and each
+    `zpNAME` right after `NAME` (main's modules: all 12 refused; the glob's order: all 12 out of place); a
+    `zpNAME.s` without `NAME.s` stops the Makefile. PLAYSID, VIEW, GXTEST, PBTEST and MUTEST byte for byte as on
+    main. `test_oodos_playsid` (9 cases): SIDOVL loads SIDPLUG.PRL (lib-sid, zero page 0, its
+    `SID_ZP` SIDOVL's) by 59 and plays a tune of ours as `plan_sid` plans it; SIDPLUGZ, the same linked without
+    the names, has 2 bytes and 59 refuses it (`$FE02`).
+
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**
 question 15.
