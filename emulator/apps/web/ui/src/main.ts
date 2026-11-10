@@ -36,6 +36,7 @@ import { typeText, UsbKeyboard } from "./crt/usb-keyboard";
 import { Terminal } from "./crt/terminal";
 import type { FrameState, MachinePort } from "./port/machine-port";
 import { coreUrl, WasmPort } from "./port/wasm-port";
+import { BEST_IN, chromium } from "./ui/browser";
 import { focusStop, h, prefs, segmented } from "./ui/dom";
 import { debuggerPane } from "./debugger/pane";
 import { frontPanel } from "./panel/panel";
@@ -81,6 +82,21 @@ function touchNote(): HTMLElement[] {
   );
   ok.addEventListener("click", () => {
     prefs.set("touch-note", "seen");
+    note.remove();
+  });
+  return [note];
+}
+
+/**
+ * The emulator is tested in full on Chromium, and on WebKit as a best effort: say so, once, in any other
+ * browser, as the touch note does.
+ */
+function browserNote(): HTMLElement[] {
+  if (chromium(navigator) || prefs.get("browser-note") === "seen") return [];
+  const ok = h("button", { class: "tbtn", type: "button" }, "OK");
+  const note = h("p", { class: "touch-note", role: "note", "data-testid": "browser-note" }, BEST_IN, ok);
+  ok.addEventListener("click", () => {
+    prefs.set("browser-note", "seen");
     note.remove();
   });
   return [note];
@@ -334,7 +350,7 @@ function start(root: HTMLElement, port: MachinePort): void {
   const about = h("button", { class: "linkish", type: "button", "data-testid": "about-link" }, "About and credits");
   about.addEventListener("click", () => openSettings("about", about));
   const note = h("p", { class: "page-note" }, "Your ROMs, disks and card images stay in this browser. ", about);
-  const bench = h("section", { class: "bench" }, ...touchNote(), h("div", { class: "mon-col" }, monitor, strip.element), fitWidth(rack.element), note, mirror);
+  const bench = h("section", { class: "bench" }, ...browserNote(), ...touchNote(), h("div", { class: "mon-col" }, monitor, strip.element), fitWidth(rack.element), note, mirror);
   const drawer_ = drawer(
     {
       settings: { element: settings.element, button: bar.settings, label: "Settings" },

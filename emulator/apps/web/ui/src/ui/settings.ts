@@ -9,6 +9,7 @@
  * the ports (show(), from main.ts with caps.joysticks).
  */
 
+import { BEST_IN } from "./browser";
 import { PHOSPHORS, type Phosphor } from "../crt/crt";
 import { h, prefs, segmented } from "./dom";
 
@@ -62,6 +63,7 @@ export function credits(): HTMLElement {
       ofl(),
       ", bundled with the page.",
     ),
+    h("p", { "data-testid": "best-in" }, BEST_IN),
     h("p", {}, "Apple II mode runs your own Apple IIe ROM and disks: they stay in this browser and are never uploaded. So does a BIOS of your own; an SD card image stays in this page."),
   );
 }

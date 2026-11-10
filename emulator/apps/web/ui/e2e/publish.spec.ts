@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { powerOn } from "./ui";
+import { openSettings, powerOn } from "./ui";
 
 // What publishing the page depends on: the core is fetched with the build's
 // version (so a cache cannot serve an old one), and a touch screen is told
@@ -25,6 +25,30 @@ test("a desktop gets no touch note", async ({ page }) => {
   await powerOn(page);
   await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
   await expect(page.getByTestId("touch-note")).toHaveCount(0);
+});
+
+test("Chromium gets no browser note, and About says where the emulator works best @smoke", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "the note is for every other browser");
+  await page.goto("./?sd=empty");
+  await powerOn(page);
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+  await expect(page.getByTestId("browser-note")).toHaveCount(0);
+  await openSettings(page);
+  await expect(page.getByTestId("best-in")).toContainText("works best in Chrome or Edge");
+});
+
+test("another browser is told the emulator works best in Chrome, once @smoke", async ({ page, browserName }) => {
+  test.skip(browserName === "chromium", "Chromium gets no note");
+  await page.goto("./?sd=empty");
+  const note = page.getByTestId("browser-note");
+  await expect(note).toContainText("works best in Chrome or Edge");
+  await expect(note).toContainText("best-effort");
+  await note.getByRole("button", { name: "OK" }).click();
+  await expect(note).toHaveCount(0);
+  await page.reload();
+  await powerOn(page);
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+  await expect(note).toHaveCount(0);
 });
 
 test.describe("on a touch screen", () => {
