@@ -1,13 +1,15 @@
 """OOLIB's zero page, for overlays (the Programmer's Guide, chapter 8, "Linking the library into an
 overlay").
 
-    python3 -I libzp.py check build/lib-*.o
+    python3 -I libzp.py check build/lib-A.o build/lib-zpA.o build/lib-B.o ...   (the archive's order)
     python3 -I libzp.py names caller.map SID_ZP [NAME ...] -o callerzp.s
 
 check: every library module's zero page is in a module of its own, lib-zpNAME.o, which has nothing
 else; every other module has none. Then an overlay that is given its caller's addresses for those
-names links no zero page of its own, and function 59 takes it. Fails on a module that breaks it, and
-on no modules at all.
+names links no zero page of its own, and function 59 takes it. And each lib-zpNAME.o comes right
+after lib-NAME.o, in the order given (the archive's): ld65 then lays a program's zero page out as it
+did with the bytes in NAME itself, so a program links as it did. Fails on a module that breaks
+either, and on no modules at all.
 
 names: the caller's addresses for zero page names, from its ld65 map (-m), as a module to assemble
 and link into the overlay before oolib.lib. Each name must be in the map's exports as zero page: a
@@ -52,9 +54,14 @@ def check(objs):
             print(f'libzp: {obj}: {zp} bytes of zero page of its own; move them into a lib/zp*.s module',
                   file=sys.stderr)
             bad += 1
+    names = [os.path.basename(o) for o in objs]
+    for i, n in enumerate(names):
+        if n.startswith('lib-zp') and (i == 0 or names[i - 1] != 'lib-' + n[len('lib-zp'):]):
+            print(f'libzp: {n} is not right after lib-{n[len("lib-zp"):]}', file=sys.stderr)
+            bad += 1
     if bad:
         return 1
-    print(f'libzp: {len(objs)} modules, zero page only in lib-zp*')
+    print(f'libzp: {len(objs)} modules, zero page only in lib-zp*, each after its code')
     return 0
 
 

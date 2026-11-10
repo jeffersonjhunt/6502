@@ -740,8 +740,8 @@ refuses one whose header says it has. It uses its caller's, by importing the cal
 each library module's zero page is in a module of its own, `lib/zp*.s`, which holds nothing else (since
 2026-11-10; nothing in OODOS changed for it):
 
-- **A program** links the library as before. ld65 takes a zero page module with the code that names it, and the
-  bytes are the program's own.
+- **A program** links the library as before, to the byte. ld65 takes a zero page module with the code that names
+  it, and `lib/zpNAME.s` is in `oolib.lib` right after `NAME`, so the program's zero page is laid out as it was.
 - **An overlay** is linked with its caller's addresses for those names, so ld65 doesn't take the zero page modules,
   and the overlay's zero page size is 0. `oodos/tools/libzp.py names` writes the addresses as a module, from the
   caller's map (ld65's `-m`). Assemble it, and link it before `oolib.lib` in each of the three links that make a
@@ -764,10 +764,10 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 
 | Modules | Their zero page | Bytes | Defined in |
 | --- | --- | --- | --- |
-| `gxasset`, `gxbmp`, `gxmem`, `gxmode`, `gxpal`, `gxspr`, `gxtext`, `gxtile` | `GXP`, `GXQ`, `GXT` | 6 | `zpgx` |
+| `gxasset`, `gxbmp`, `gxmem`, `gxmode`, `gxpal`, `gxspr`, `gxtext`, `gxtile` | `GXP`, `GXQ`, `GXT` | 6 | `zpgxmem` |
 | `gxpal` | `GXPAL_ZP` | 4 | `zpgxpal` |
 | `mu`, `munote`, `mutone` | `MUP` | 2 | `zpmu` |
-| `pblev`, `pbmath`, `pbvol` | `PBP` | 2 | `zppb` |
+| `pblev`, `pbmath`, `pbvol` | `PBP` | 2 | `zppbmath` |
 | `pbeq` | `PBEQ_ZP` | 2 | `zppbeq` |
 | `pblev` | `PBLEV_ZP` | 2 | `zppblev` |
 | `pbstat` | `PBSTAT_ZP` | 4 | `zppbstat` |
@@ -777,8 +777,8 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 | `sidnote` | `SIDNOTE_ZP` | 2 | `zpsidnote` |
 | `sidv` | `SIDV_ZP` | 2 | `zpsidv` |
 
-`pb`, `pbcard` and `physof` have none. The build checks that no other module has zero page of its own
-(`libzp.py check`, as `oolib.lib` is made).
+`pb`, `pbcard` and `physof` have none. The build checks, as `oolib.lib` is made (`libzp.py check`), that no other
+module has zero page of its own and that each `zpNAME` follows its `NAME`.
 
 ## When the program ends
 

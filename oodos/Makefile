@@ -79,7 +79,11 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 # OOLIB, the linked library (lib/*.s, include/oolib.inc; hw/oolib.md, question 9): each lib/NAME.s
 # assembled once into build/oolib.lib, which ld65 takes only the modules of that a program uses. A
 # utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's).
-LIBS = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
+# Each module's zero page, lib/zpNAME.s, goes into the archive right after NAME, so ld65 lays a
+# program's zero page out as it would with the bytes in NAME itself (libzp.py check holds it).
+LIBSRC = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
+LIBS = $(foreach m,$(filter-out zp%,$(LIBSRC)),$(m) $(filter zp$(m),$(LIBSRC)))
+$(if $(filter-out $(LIBS),$(LIBSRC)),$(error lib/: zero page modules without their code: $(filter-out $(LIBS),$(LIBSRC))))
 OOLIB_USERS = playsid view
 
 $(LIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: lib/%.s $(wildcard lib/*.inc) include/oodos.inc include/oolib.inc | $(BUILD)
