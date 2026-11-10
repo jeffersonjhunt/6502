@@ -153,6 +153,73 @@ Resources:
                 Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/builder/*"
       Tags: [{ Key: builder, Value: "true" }]
 
+  # The builder's own network: public subnets in three zones (spot finds capacity in one), an internet
+  # gateway and no NAT (no cost); S3 by a gateway endpoint. Its instances take a public address to reach
+  # ECR, package mirrors, npm and GitHub, and their security groups let nothing in.
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.250.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: builder, Value: "true" }, { Key: Name, Value: builder }]
+  Gateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: builder, Value: "true" }]
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: { VpcId: !Ref Vpc, InternetGatewayId: !Ref Gateway }
+  Routes:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: builder, Value: "true" }]
+  Out:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties: { RouteTableId: !Ref Routes, DestinationCidrBlock: 0.0.0.0/0, GatewayId: !Ref Gateway }
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.250.0.0/20
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: builder, Value: "true" }]
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.250.16.0/20
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: builder, Value: "true" }]
+  SubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.250.32.0/20
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: builder, Value: "true" }]
+  SubnetARoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref SubnetA, RouteTableId: !Ref Routes }
+  SubnetBRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref SubnetB, RouteTableId: !Ref Routes }
+  SubnetCRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref SubnetC, RouteTableId: !Ref Routes }
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref Routes]
+
   # What is tagged builder=true, by month: mail at 80% spent and when the month is forecast past 100%. The
   # tag must be active as a cost allocation tag (Billing, "Cost allocation tags") for the filter to see it.
   Budget:
@@ -174,3 +241,5 @@ Outputs:
   BucketName: { Value: !Ref Bucket, Export: { Name: builder-bucket } }
   KeyArn: { Value: !GetAtt Key.Arn, Export: { Name: builder-key } }
   BuilderRoleArn: { Value: !GetAtt BuilderRole.Arn }
+  VpcId: { Value: !Ref Vpc, Export: { Name: builder-vpc } }
+  Subnets: { Value: !Join [",", [!Ref SubnetA, !Ref SubnetB, !Ref SubnetC]], Export: { Name: builder-subnets } }

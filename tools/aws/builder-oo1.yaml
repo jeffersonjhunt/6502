@@ -9,9 +9,6 @@ Parameters:
     Type: String
     Default: c7g.4xlarge
     Description: The full tier's instance (arm64, as the image is built here on arm64).
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: The VPC its instances run in (the default VPC; deploy-oo1.sh finds it).
   DiskGb:
     Type: Number
     Default: 120
@@ -90,11 +87,12 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: builder-oo1 instances, no inbound; out to S3, ECR, the fixtures' and npm's hosts
-      VpcId: !Ref VpcId
+      VpcId: !ImportValue builder-vpc
       SecurityGroupEgress: [{ IpProtocol: "-1", CidrIp: 0.0.0.0/0 }]
       Tags: [{ Key: builder, Value: "true" }]
 
-  # A run's parameters come in its instance's tags (read through the metadata service): run, src (the
+  # The network interface (a builder subnet, this group, a public address) is cloud-full.sh's, at
+  # launch, so it can try the next zone when one has no spot capacity. A run's parameters come in its instance's tags (read through the metadata service): run, src (the
   # source archive's key), image (its tag in builder/oo1), tier, minutes (the watchdog). The script
   # below is the same for every run.
   LaunchTemplate:
@@ -109,7 +107,6 @@ Resources:
         InstanceType: !Ref InstanceType
         IamInstanceProfile: { Arn: !GetAtt InstanceProfile.Arn }
         InstanceInitiatedShutdownBehavior: terminate
-        SecurityGroupIds: [!Ref NoWayIn]
         MetadataOptions: { HttpTokens: required, HttpPutResponseHopLimit: 1, InstanceMetadataTags: enabled }
         BlockDeviceMappings:
           - DeviceName: /dev/xvda
@@ -170,3 +167,4 @@ Resources:
 Outputs:
   RepositoryUri: { Value: !GetAtt Repository.RepositoryUri }
   LaunchTemplateId: { Value: !Ref LaunchTemplate }
+  SecurityGroup: { Value: !Ref NoWayIn } # cloud-full.sh puts it, and a builder subnet, on the instance's interface

@@ -99,22 +99,30 @@ git -C "$repo" archive --format=tar.gz "$sha" | aws s3 cp - "s3://$bucket/$key" 
 aws s3api put-object-tagging --bucket "$bucket" --key "$key" --tagging 'TagSet=[{Key=kind,Value=src}]'
 
 tags="{Key=builder,Value=true},{Key=project,Value=oo1},{Key=Name,Value=builder-oo1-$run},{Key=run,Value=$run},{Key=src,Value=$key},{Key=image,Value=$image},{Key=tier,Value=$tier},{Key=minutes,Value=$minutes},{Key=sha,Value=$sha}"
-launch() { # $1: spot or on-demand
+subnets=$(aws cloudformation describe-stacks --stack-name builder-base --query 'Stacks[0].Outputs[?OutputKey==`Subnets`].OutputValue' --output text)
+group=$(aws cloudformation describe-stacks --stack-name builder-oo1 --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroup`].OutputValue' --output text)
+launch() { # $1: spot or on-demand, $2: a subnet
     local opts=()
     [ "$1" = spot ] && opts=(--instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}')
     aws ec2 run-instances --launch-template LaunchTemplateName=builder-oo1 "${opts[@]}" \
+        --network-interfaces "DeviceIndex=0,SubnetId=$2,Groups=$group,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
         --tag-specifications "ResourceType=instance,Tags=[$tags]" "ResourceType=volume,Tags=[{Key=builder,Value=true},{Key=project,Value=oo1}]" \
-        --query 'Instances[0].[InstanceId,InstanceType]' --output text
+        --query 'Instances[0].[InstanceId,InstanceType,Placement.AvailabilityZone]' --output text
 }
-if ! got=$(launch "$market" 2>&1); then
-    if [ "$market" = spot ] && grep -qE 'InsufficientInstanceCapacity|SpotMaxPriceTooLow|MaxSpotInstanceCountExceeded' <<<"$got"; then
-        echo "cloud-full: no spot capacity ($(grep -oE '[A-Za-z]+Capacity|SpotMax[A-Za-z]+' <<<"$got" | head -1)): on-demand"
-        got=$(launch on-demand)
-    else
-        echo "$got" >&2
-        exit 1
-    fi
-fi
+# Spot in each zone in turn, then on-demand.
+got=
+for m in $([ "$market" = spot ] && echo spot) on-demand; do
+    for s in ${subnets//,/ }; do
+        if got=$(launch "$m" "$s" 2>&1); then market=$m; break 2; fi
+        if ! grep -qE 'InsufficientInstanceCapacity|SpotMaxPriceTooLow|MaxSpotInstanceCountExceeded|Unsupported' <<<"$got"; then
+            echo "$got" >&2
+            exit 1
+        fi
+        echo "cloud-full: $m in $s: $(grep -oE '[A-Za-z]*(Capacity|Exceeded|TooLow|Unsupported)' <<<"$got" | head -1)"
+        got=
+    done
+done
+[ -n "$got" ] || { echo "cloud-full: no capacity anywhere" >&2; exit 1; }
 echo "cloud-full: run $run: ${sha:0:7}, check.sh $tier, $got ($market), image $image"
 [ -n "$wait" ] || { echo "cloud-full: tools/cloud-full.sh --wait $run"; exit 0; }
 fetch "$run"

@@ -8,7 +8,7 @@ powers off, which terminates it. Nothing listens on it and nothing of it is left
 
 | What | Where | Made by |
 |---|---|---|
-| Bucket `builder-ACCOUNT-REGION` (SSE-KMS `alias/builder`, no public access, TLS only), the `builder` role, the monthly budget | [builder-base.yaml](builder-base.yaml) | `sh tools/aws/deploy-base.sh EMAIL [USD]`, admin profile |
+| Bucket `builder-ACCOUNT-REGION` (SSE-KMS `alias/builder`, no public access, TLS only), the `builder` role, the monthly budget, the builder's VPC (10.250.0.0/16: three public subnets, an internet gateway, no NAT, an S3 gateway endpoint) | [builder-base.yaml](builder-base.yaml) | `sh tools/aws/deploy-base.sh EMAIL [USD]`, admin profile |
 | The OO-1's image repository `builder/oo1`, instance role `builder/builder-oo1-instance`, a security group with no inbound rule, launch template `builder-oo1` | [builder-oo1.yaml](builder-oo1.yaml) | `sh tools/aws/deploy-oo1.sh [TYPE]`, admin profile |
 | The image: the host's toolchain (Debian 13, gcc 14, cmake 3.31, node 20, cc65 2.19, Playwright's browsers) | [../ci/Dockerfile](../ci/Dockerfile) | `tools/cloud-full.sh`, when ECR lacks its hash |
 | The protected fixtures (SIDs, Apple IIe ROMs, disks, ROM images): one archive named by a content hash | `oo1/fixtures/` | [oo1-fixtures.sh](oo1-fixtures.sh), only when they change |
@@ -33,7 +33,8 @@ The instance (Amazon Linux 2023, arm64) reads its run from its tags, sets a watc
 default), fetches the source and the fixtures, pulls the image and runs `tools/check.sh` in it, with the
 instance's Docker socket and the checkout at the same path inside as out, so the WebAssembly build's and
 the interop stage's containers mount it. The public fixtures (Dormann's, Harte's) are fetched there.
-Spot by default; on-demand if spot has no capacity, or with `--on-demand`.
+Spot by default, in each of the builder's three zones in turn; on-demand if none has spot capacity, or with
+`--on-demand`. The account has no default VPC, and its own VPC is left alone: the builder's is its own.
 
 **Looking in:** Session Manager (`aws ssm start-session --target i-...`), with the admin profile; there
 is no SSH key and no inbound port.
