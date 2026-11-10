@@ -549,6 +549,56 @@ Each returns carry clear and A = 0, or carry set and A an error. `PB_STATUS` cos
 (two BDOS calls and two 32-bit divisions, counted from the code), less for a SID: call it a few times a second, not
 in a hook.
 
+### Music
+
+The linked library plays notes on the two SIDs' six voices, for a program's own music and for GW-BASIC's SOUND
+and PLAY. It needs nothing from OODOS beyond OODOS 0.7's function 82, so it works on 0.7 though it came after it.
+The notes are played by OOLIB's driver on the card's 6510 (`oodos/lib/mudrv/`), which steps every voice each
+millisecond, so the 65C02 spends nothing between notes. Each voice has a queue of 32 entries: notes, rests and
+markers. Three modules: `oodos/lib/mu.s`, `munote.s` (notes by number) and `mutone.s` (tones in Hz).
+
+- `MU_INIT`: A the clock, 0 PAL or 1 NTSC. It claims the 6510 (`SC_6510`), loads the driver and starts it.
+  `PE_REFUSED` without a card, or while the 6510 is claimed already: a `.sid` can't play at the same time.
+  `MU_QUIT` stops it, silences the SIDs and gives the 6510 back; the warm boot does too.
+- `MU_NOTE`: A/X a block of 7 bytes (`MU_NLEN`): +0 the voice, 0–5 (SID A's three, then B's); +1 the note, 0 (C-0)
+  to 95 (B-7; A-4, 440 Hz, is 57), or `MU_REST`; +3–4 the length in milliseconds (0 is 1); +5–6 the gate time in
+  milliseconds. The gate is on for the gate time, then the note's release sounds for the rest of the length; then
+  the next entry starts in the same millisecond. A gate time of 0 is silent; one at the length or past it holds
+  the whole note. PLAY's MN is 7/8 of the length, MS 3/4 and ML all of it (even then the gate drops and rises
+  between two notes, so each note's attack starts afresh). On PAL, B-7 is above the SID's range and plays at its
+  top, 3,848 Hz.
+- `MU_TONE`: the same block with +1–2 a frequency in Hz (0 a rest): SOUND's. Past the SID's top (3,848 Hz on PAL,
+  3,995 on NTSC) it plays the top.
+- `MU_INSTR`: A/X a block of 6 bytes (`MU_ILEN`): +0 the voice, +1 the waveform's bits (`SID_V_CTRL`'s: noise,
+  pulse, saw, triangle, ring and sync; the gate and test bits are ignored), +2 attack and decay, +3 sustain and
+  release, +4–5 the pulse width. It applies from the voice's next note. At the start every voice is a 50% pulse
+  with no attack and full sustain, like a speaker.
+- `MU_STOP`: A a voice, or `MU_ALL`. The queue is emptied, the gate dropped and the count set to 0.
+- `MU_PAUSE` and `MU_RESUME`: every voice held where it is, both SIDs' volume 0 meanwhile.
+- `MU_MARK`: A a voice, X a marker, 0–14 (15 is the library's own). It takes no time: `MU_EVENT` says `MV_MARK` when
+  the voice reaches it, for GW-BASIC's ON PLAY or a program's own sync points.
+- `MU_VOLUME`: A a SID (0, 1 or `MU_ALL`), X its volume, 0–15 (15 at the start), beside `PB_VOLUME`'s level and
+  balance.
+
+The driver answers through the mailbox, one byte at a time, which reaches the program as an `EK_SOUND` event in its
+event area ([The 6510](#the-6510)). Open an area of layout 2 first, and hand each `EK_SOUND` event's value byte to
+`MU_EVENT`: A = what it was, X the voice, Y a marker's number. `MV_DONE` (an entry finished), `MV_EMPTY` (the voice
+had nothing waiting when the driver said so), `MV_MARK`, `MV_REFUSED` (its queue was full), `MV_HELLO`, or
+`MV_NONE` for a byte that isn't the driver's or is left over from a `MU_STOP`. `MU_COUNT` with A a voice gives its
+entries waiting, GW-BASIC's PLAY(n): those sent, less those `MU_EVENT` has been handed as done, reached or refused.
+So the count is only as current as the events handed over, and `MU_NOTE` says `PE_FULL` at 32 even if the driver
+has played some meanwhile: hand the events over often (a queue of 256 bytes holds 15).
+
+Each call but `MU_EVENT` and `MU_COUNT` returns carry clear and A = 0, or carry set and A an error: `PE_STATE`
+before `MU_INIT`, `PE_RANGE` (a voice, note, marker or volume out of range), `PE_FULL`, or `PE_REFUSED`. Each
+command goes to the driver by `SN_SEND`, a byte at a time, so a note costs seven BDOS calls. A driver that takes
+nothing for 50 ms (the 6510 stopped by something else) makes the call `PE_REFUSED`.
+
+The driver takes about 19% of the 6510 with six notes held. Notes of a few milliseconds on several voices make
+events faster than the mailbox carries them, and the driver drops what it can't keep; an event the program's queue
+has no room for is lost too. Either leaves that voice's count high until its next `MU_STOP`. PLAY's shortest note is
+about 15 ms, far from that.
+
 ### What sound costs
 
 Nothing a tick: the tick with no area is 145 cycles and with a layout-2 area 234, as before. Each terminal count of
@@ -693,7 +743,7 @@ monitor with the machine's interrupts off, as it always has; booting OODOS again
 
 ## Still to come
 
-L6 the music driver (and with it GW-BASIC's SOUND, PLAY and BEEP); RSID tunes and MOD; USB gamepads as controller
+GW-BASIC's SOUND, PLAY and BEEP (on [Music](#music) and the beep, with GW-BASIC itself); RSID tunes and MOD; USB gamepads as controller
 4; for graphics, a scan-line hook and a collision hook, software sprites, a C target for the library, and a copy of
 the library for FARCALL (with GW-BASIC): [hw/oolib.md, "The plan"](../../hw/oolib.md#the-plan). Until a service is
 built, a program has none for it: see [AGENTS.md](../../AGENTS.md) for what not to take over in the meantime.

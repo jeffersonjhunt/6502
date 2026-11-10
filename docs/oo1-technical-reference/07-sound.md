@@ -229,6 +229,38 @@ host can count frames. A tune that needs the VIC-II's raster interrupt, CIA 2, t
 stays silent or stops. hw/design.md has the details and their reasons ("`.sid` playback", under
 ["Sound"](../../hw/design.md#sound)).
 
+### OOLIB's music driver
+
+Status: **emulated**
+
+OOLIB's music library ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#music))
+plays notes through a driver of ours on the card's 6510, `oodos/lib/mudrv/mudrv.s`. The library loads it at
+`$1000` of the card's RAM, with CIA 1's latch for a millisecond at `$1003` (984 on the PAL clock, 1,022 on NTSC), and
+starts it there. `$1005` holds its version, 1. `$1006` counts the events it has dropped (held at 255), and
+`$1007–$1009` count the milliseconds it has stepped.
+
+Each millisecond, timer A's interrupt steps the six voices: SID A's at `$D400`, `$D407` and `$D40E`, then SID B's at
+`$D420`, `$D427` and `$D42E`. Each voice has a queue of 32 entries. Between interrupts the main loop takes the host's
+bytes from the mailbox and sends its own. A command is a byte, its high nibble the command and its low a voice
+(0–5), then its operands:
+
+| Bytes | Command |
+|---|---|
+| `$0v`, frequency (2), length ms (2), gate ms (2) | a note queued (frequency 0 a rest; gate 0 silent) |
+| `$1v`, control bits, AD, SR, pulse width (2) | the voice's instrument, from its next note |
+| `$2v` | the voice stopped: its queue emptied, its gate off (`$27`: all six) |
+| `$3v`, m | marker m (0–15) queued |
+| `$40`, `$50` | pause (both volumes 0), resume |
+| `$6s`, n | SID s's volume (0 A, 1 B, 7 both) |
+| `$70` | hello |
+
+Its answers, one byte each, sent only once the host has taken the one before: `$01` hello's, `$1v` an entry finished,
+`$2v` the voice's queue empty, `$3v` an entry refused (32 waiting), `$37` a command refused, and `$80` + v × 16 + m a
+marker reached. Up to 64 wait on the card.
+
+With six notes held the driver takes about 19% of the 6510's time. Six notes starting in the same millisecond take
+about 1,140 clocks, so that step runs past its millisecond and the next starts late, but no step is lost.
+
 ### In Apple II mode
 
 Status: **emulated**
