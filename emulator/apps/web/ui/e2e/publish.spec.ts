@@ -27,28 +27,25 @@ test("a desktop gets no touch note", async ({ page }) => {
   await expect(page.getByTestId("touch-note")).toHaveCount(0);
 });
 
-test("Chromium gets no browser note, and About says where the emulator works best @smoke", async ({ page, browserName }) => {
-  test.skip(browserName !== "chromium", "the note is for every other browser");
-  await page.goto("./?sd=empty");
-  await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
-  await expect(page.getByTestId("browser-note")).toHaveCount(0);
-  await openSettings(page);
-  await expect(page.getByTestId("best-in")).toContainText("works best in Chrome or Edge");
-});
-
-test("another browser is told the emulator works best in Chrome, once @smoke", async ({ page, browserName }) => {
-  test.skip(browserName === "chromium", "Chromium gets no note");
+test("the browser note: none in Chromium, once in any other browser; About says it to all @smoke", async ({ page, browserName }) => {
   await page.goto("./?sd=empty");
   const note = page.getByTestId("browser-note");
-  await expect(note).toContainText("works best in Chrome or Edge");
-  await expect(note).toContainText("best-effort");
-  await note.getByRole("button", { name: "OK" }).click();
-  await expect(note).toHaveCount(0);
-  await page.reload();
-  await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
-  await expect(note).toHaveCount(0);
+  if (browserName === "chromium") {
+    await powerOn(page);
+    await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+    await expect(note).toHaveCount(0);
+  } else {
+    await expect(note).toContainText("works best in Chrome or Edge");
+    await expect(note).toContainText("best-effort");
+    await note.getByRole("button", { name: "OK" }).click();
+    await expect(note).toHaveCount(0);
+    await page.reload();
+    await powerOn(page);
+    await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS", { timeout: 15_000 });
+    await expect(note).toHaveCount(0);
+  }
+  await openSettings(page);
+  await expect(page.getByTestId("best-in")).toContainText("works best in Chrome or Edge");
 });
 
 test.describe("on a touch screen", () => {
