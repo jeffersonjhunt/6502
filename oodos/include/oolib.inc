@@ -344,7 +344,8 @@ PBL_LEN         = 10
 ;   MU_INIT     A the clock: 0 PAL, 1 NTSC. The 6510 claimed (SC_6510) and
 ;               the driver loaded and started. PE_REFUSED: no card, or the
 ;               6510 is claimed (a .sid playing)
-;   MU_QUIT     the driver stopped, the SIDs silenced, the 6510 released
+;   MU_QUIT     the driver stopped, the SIDs silenced, the 6510 released.
+;               Any call: PE_REFUSED if the driver takes nothing for 50 ms
 ;   MU_NOTE     A/X a block of MU_NLEN: +0 the voice (0-5: SID A's three,
 ;               then B's), +1 the note, 0 (C-0) to 95 (B-7; A-4 is 57), or
 ;               MU_REST; +3-4 the length in ms (0 is 1); +5-6 the gate time

@@ -30,7 +30,7 @@ using namespace oodos_rig::ccp;
 namespace
 {
     constexpr uint32_t MBOX = 0x3900, BUF = 0x3A00, LOGN = 0x3B00, LOG = 0x3C00; ///< mutest.s's
-    constexpr uint8_t PE_RANGE = 2, PE_STATE = 3, PE_FULL = 5;                   ///< oolib.inc's
+    constexpr uint8_t PE_RANGE = 2, PE_STATE = 3, PE_REFUSED = 4, PE_FULL = 5;   ///< oolib.inc's
     constexpr uint8_t MV_NONE = 0, MV_DONE = 1, MV_EMPTY = 2, MV_MARK = 3, MV_HELLO = 5;
     constexpr uint8_t REST = 0xFF, ALL = 0xFF;
     constexpr double PAL = 985'248, NTSC = 1'022'727;
@@ -399,6 +399,37 @@ TEST(the_warm_boot_gives_the_6510_back)
     // And a new program may claim it.
     start_mu(r);
     CHECK_EQ(ac(mu(r, 'I', 0)), OK);
+}
+
+TEST(mu_init_refuses_a_6510_claimed_already_and_leaves_the_claim)
+{
+    // A program playing a .sid holds the 6510: MU_INIT must say PE_REFUSED and not take it, stop it or release it.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_mu(r);
+    r.poke(BUF, std::vector<uint8_t>{1, 1}); // SN_CLAIM, SC_6510
+    CHECK_EQ(mu(r, 'K', BUF & 0xFF, BUF >> 8).substr(0, 2), "00"); // the BDOS's own: A, not the flags
+    CHECK_EQ(ac(mu(r, 'I', 0)), err(PE_REFUSED));
+    CHECK_EQ(card(r).peek(SoundCard::CTRL) & SoundCard::CTRL_RUN, 0); // nothing started
+    r.poke(BUF, std::vector<uint8_t>{2, 1}); // SN_RELEASE: still the program's to give back
+    CHECK_EQ(mu(r, 'K', BUF & 0xFF, BUF >> 8).substr(0, 2), "00");
+    CHECK_EQ(ac(mu(r, 'I', 0)), OK); // and now it starts
+}
+
+TEST(a_driver_that_takes_nothing_is_refused_in_about_50_ms)
+{
+    // The 6510 stopped behind the library's back (SN_STOP): the mailbox's first byte stays, and the second can't
+    // go. MU_NOTE says PE_REFUSED once 50 ms of the millisecond counter have gone, not after a count of tries.
+    CcpRig r;
+    REQUIRE(r.ok);
+    ready(r);
+    CHECK_EQ(mu(r, 'k', 5).substr(0, 2), "00"); // SN_STOP
+    block(r, 0, 57, 100, 100);
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(ac(mu(r, 'N', BUF & 0xFF, BUF >> 8)), err(PE_REFUSED));
+    const double took = static_cast<double>(r.cpu->cycles() - c0) / static_cast<double>(ms(1));
+    std::printf("  refused after %.0f ms\n", took);
+    CHECK(took >= 50 && took < 80);
 }
 
 int main() { return run_all(); }

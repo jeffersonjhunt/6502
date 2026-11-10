@@ -7,7 +7,9 @@
 ; opens a 256-byte event area at AREA ($3800, layout 2); D takes every event
 ; waiting (function 81's IN_NEXT) and hands each EK_SOUND one's byte to
 ; MU_EVENT, logging A, X and Y at LOG ($3C00) from LOGN ($3B00, the count,
-; 2 bytes) on, and returns A = the events it handed over; W is the warm boot.
+; 2 bytes) on, and returns A = the events it handed over; K calls function
+; 82 with A/X a block, k with A the operation and no block; W is the warm
+; boot.
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -87,6 +89,14 @@ report: pha
 
 c_wboot:
         jmp     WBOOT
+
+c_f82:  ldy     #O_SOUND
+        jmp     BDOS
+
+c_f82op:
+        ldx     #0
+        ldy     #O_SOUND
+        jmp     BDOS
 
 c_open: lda     #<oblk
         ldx     #>oblk
@@ -176,6 +186,8 @@ cmds:   CMD     'I', MU_INIT
         CMD     'E', MU_EVENT
         CMD     'O', c_open
         CMD     'D', c_drain
+        CMD     'K', c_f82
+        CMD     'k', c_f82op
         CMD     'W', c_wboot
 CMDS_LEN = * - cmds
 

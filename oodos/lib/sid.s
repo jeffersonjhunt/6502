@@ -19,6 +19,7 @@
         .setcpu "65C02"
         .include "oodos.inc"
         .include "oolib.inc"
+        .include "physof.inc"
 
         .zeropage
 sp:     .res    2                       ; the file's bytes
@@ -70,8 +71,6 @@ npage:          .res    1
 ipage:          .res    1
 last:           .res    2              ; the stub's last byte
 blk:            .res    8              ; function 82's block
-pblk:           .res    4              ; function 73's
-phys:           .res    3
 stub:           .res    256            ; the stub as built
 vecs:           .res    6              ; $FFFA-$FFFF: NMI, RESET, IRQ
 
@@ -855,52 +854,15 @@ emit:   ldx     #0
 f82:    ldy     #O_SOUND
         jmp     BDOS
 
-; The physical address of CPU address A/X (the program's windows: 73).
-physof: sta     pblk
-        stx     pblk + 1
-        stz     pblk + 2
-        stz     pblk + 3
-        lda     #<pblk
-        ldx     #>pblk
-        ldy     #O_PHYSADDR
-        jsr     BDOS
-        lda     pblk + 2                ; the paragraph x 16 + the offset (0-15)
-        asl     a
-        asl     a
-        asl     a
-        asl     a
-        ora     pblk
-        sta     phys
-        lda     pblk + 2
-        lsr     a
-        lsr     a
-        lsr     a
-        lsr     a
-        sta     phys + 1
-        lda     pblk + 3
-        asl     a
-        asl     a
-        asl     a
-        asl     a
-        ora     phys + 1
-        sta     phys + 1
-        lda     pblk + 3
-        lsr     a
-        lsr     a
-        lsr     a
-        lsr     a
-        sta     phys + 2
-        rts
-
 ; SN_LOAD of A/X (CPU), to the card's t16, ovf bytes: carry set if refused.
-load:   jsr     physof
+load:   jsr     PHYSOF
         lda     #SN_LOAD
         sta     blk
-        lda     phys
+        lda     PHYS
         sta     blk + 1
-        lda     phys + 1
+        lda     PHYS + 1
         sta     blk + 2
-        lda     phys + 2
+        lda     PHYS + 2
         sta     blk + 3
         lda     t16
         sta     blk + 4

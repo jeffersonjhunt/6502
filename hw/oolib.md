@@ -1289,7 +1289,7 @@ and more in L5:
       lost, markers, STOP, PAUSE, instruments, volumes and refusals, NTSC's latch, the races under load, and the
       step's cost. The must-fail cases: PAL's latch on NTSC (in the NTSC case); events sent before the host took
       the last (the queue case fails); the slot read without interrupts off (the load case fails).
-  - *L6b as built:* `oodos/lib/mu.s` (778 bytes of code, the driver's 938-byte image in DATA with its latch set
+  - *L6b as built:* `oodos/lib/mu.s` (739 bytes of code, the driver's 938-byte image in DATA with its latch set
     there for the clock, 38 of BSS, 2 of zero page), `munote.s` (81 and the 384-byte note tables, `lib/munote.inc`
     by `mksidtab.py`: Hz × 2^24 / the clock, rounded, at most `$FFFF`) and `mutone.s` (145; Hz × 4,359 / 256 on
     PAL, × 4,200 / 256 on NTSC). `include/oolib.inc`'s "Sound: music": `MU_INIT` (A the clock), `MU_QUIT`,
@@ -1310,6 +1310,13 @@ and more in L5:
       kept true while its leftovers arrive, instruments and volumes, `MU_EVENT`'s kinds, the warm boot. The
       must-fail cases: no drain after STOP, and 0 at "queue empty" (the STOP case fails); a wrong tone constant
       (the tone case fails).
+    - *L6b review, round 1 (2026-11-09):* F1, a driver that took nothing held each byte's send for 65,536 tries
+      (a note about 18 s): now 50 ms by the millisecond counter, then `PE_REFUSED` (a case stops the 6510 behind
+      the library and sees 59 ms; at 200 it fails). F3, `MU_INIT`'s refusal of a 6510 claimed already, untested: a
+      case claims it first and sees the claim left alone (MUTEST's `K` and `k` call function 82). F4, `physof`
+      was a copy of `sid.s`'s: both use `lib/physof.s` (68 bytes) now. Accepted: F2, a program's marker reached
+      just before a `MU_STOP` is let go with its leftovers; F5, a note's seven BDOS calls. `test_oodos_mu` has 12
+      cases.
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**

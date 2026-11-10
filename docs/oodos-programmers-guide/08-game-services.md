@@ -591,7 +591,8 @@ has played some meanwhile: hand the events over often (a queue of 256 bytes hold
 
 Each call but `MU_EVENT` and `MU_COUNT` returns carry clear and A = 0, or carry set and A an error: `PE_STATE`
 before `MU_INIT`, `PE_RANGE` (a voice, note, marker or volume out of range), `PE_FULL`, or `PE_REFUSED`. Each
-command goes to the driver by `SN_SEND`, a byte at a time, so a note costs seven BDOS calls.
+command goes to the driver by `SN_SEND`, a byte at a time, so a note costs seven BDOS calls. A driver that takes
+nothing for 50 ms (the 6510 stopped by something else) makes the call `PE_REFUSED`.
 
 The driver takes about 19% of the 6510 with six notes held. Notes of a few milliseconds on several voices make
 events faster than the mailbox carries them, and the driver drops what it can't keep; an event the program's queue

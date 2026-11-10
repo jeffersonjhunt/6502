@@ -21,6 +21,7 @@
         .include "oodos.inc"
         .include "oolib.inc"
         .include "mu.inc"
+        .include "physof.inc"
 
         .zeropage
 MUP:    .res    2                       ; a block's pointer (munote.s's and mutone.s's too)
@@ -37,9 +38,7 @@ MUF:    .res    2                       ; MUQ's entry: the frequency word,
 MUL:    .res    2                       ;   the length,
 MUG:    .res    2                       ;   the gate time
 mblk:   .res    8                       ; function 82's block
-pblk:   .res    4                       ; function 73's
-phys:   .res    3
-tries:  .res    2
+tries:  .res    2                       ; send's: the millisecond counter when the card was busy
 mvoice: .res    1
 mmark:  .res    1
 
@@ -80,11 +79,11 @@ MU_INIT:
         sta     LATCH + 1
         lda     #<image
         ldx     #>image
-        jsr     physof
+        jsr     PHYSOF
         lda     #SN_LOAD
         sta     mblk
         ldx     #2
-@p:     lda     phys,x
+@p:     lda     PHYS,x
         sta     mblk + 1,x
         dex
         bpl     @p
@@ -421,24 +420,43 @@ refused:
         rts
 
 ; A byte to the driver by SN_SEND, again while the card hasn't taken the last
-; (SN_BUSY), at most 65,536 times (about 2 s): carry set and PE_REFUSED if
-; refused or never taken.
+; (SN_BUSY), for up to SEND_MS by the millisecond counter: a running driver
+; takes a byte within microseconds, and its start is about 3 ms. Carry set
+; and PE_REFUSED if refused, or never taken.
+SEND_MS = 50
+
 send:   sta     mblk + 1
         lda     #SN_SEND
         sta     mblk
-        stz     tries
-        stz     tries + 1
+        jsr     f82blk
+        beq     @sent
+        cmp     #SN_BUSY
+        bne     refused
+        jsr     msnow                   ; busy: from now, SEND_MS
+        sta     tries
+        stx     tries + 1
 @try:   jsr     f82blk
         beq     @sent
         cmp     #SN_BUSY
         bne     refused
-        inc     tries
-        bne     @try
-        inc     tries + 1
-        bne     @try
+        jsr     msnow                   ; now - then, 16 bits
+        sec
+        sbc     tries
+        tay
+        txa
+        sbc     tries + 1
+        bne     refused                 ; 256 ms or more
+        cpy     #SEND_MS
+        bcc     @try
         bra     refused
 @sent:  clc
         rts
+
+; A/X = the millisecond counter's low word (function 80's FT_COUNT).
+msnow:  lda     #FT_COUNT
+        ldx     #0
+        ldy     #O_FRAME
+        jmp     BDOS
 
 ; Function 82 with mblk (f82blk) or with operation A and no block (f82op):
 ; Z set if done (A = 0).
@@ -449,41 +467,4 @@ f82op:  ldx     #0
 f82:    ldy     #O_SOUND
         jsr     BDOS
         cmp     #0
-        rts
-
-; The physical address (phys, 3 bytes) of CPU address A/X: function 73.
-physof: sta     pblk
-        stx     pblk + 1
-        stz     pblk + 2
-        stz     pblk + 3
-        lda     #<pblk
-        ldx     #>pblk
-        ldy     #O_PHYSADDR
-        jsr     BDOS
-        lda     pblk + 2                ; the paragraph x 16 + the offset (0-15)
-        asl     a
-        asl     a
-        asl     a
-        asl     a
-        ora     pblk
-        sta     phys
-        lda     pblk + 2
-        lsr     a
-        lsr     a
-        lsr     a
-        lsr     a
-        sta     phys + 1
-        lda     pblk + 3
-        asl     a
-        asl     a
-        asl     a
-        asl     a
-        ora     phys + 1
-        sta     phys + 1
-        lda     pblk + 3
-        lsr     a
-        lsr     a
-        lsr     a
-        lsr     a
-        sta     phys + 2
         rts
