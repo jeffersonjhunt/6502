@@ -1281,14 +1281,35 @@ and more in L5:
       dropped. Each entry's two waits are now worked out when it is queued, and the step counts one negated word.
     - *L6a review, round 1 (2026-11-09):* F3, INSTR kept the SID's TEST bit, which stops the oscillator: masked
       to waveform, ring and sync. F4, the test read the driver's zero page at hand-worked addresses: `LOST` and
-      `TICKS` are in the image's status block. Accepted: F1, an event dropped is said only in `LOST` (L6b resyncs
-      its counts at each `$2v`); F2, no resync for a lost command byte (`SN_SEND` loses none); F5, `TICKS`'s few
+      `TICKS` are in the image's status block. Accepted: F1, an event dropped is said only in `LOST` (then
+      thought resynced by L6b at each `$2v`; L6b found that wrong, and resyncs at `MU_STOP`); F2, no resync for a lost command byte (`SN_SEND` loses none); F5, `TICKS`'s few
       clocks; F6, a legato note's gate drops and rises in one step, so its attack starts afresh.
     - **Tests:** `test_mudrv` (14 cases) runs the driver on the card with the SIDs as the oracle: the gate and the
       length to within 0.5 ms, articulation, rests, six voices, the queue's 32 and the 33rd refused with no event
       lost, markers, STOP, PAUSE, instruments, volumes and refusals, NTSC's latch, the races under load, and the
       step's cost. The must-fail cases: PAL's latch on NTSC (in the NTSC case); events sent before the host took
       the last (the queue case fails); the slot read without interrupts off (the load case fails).
+  - *L6b as built:* `oodos/lib/mu.s` (778 bytes of code, the driver's 938-byte image in DATA with its latch set
+    there for the clock, 38 of BSS, 2 of zero page), `munote.s` (81 and the 384-byte note tables, `lib/munote.inc`
+    by `mksidtab.py`: Hz × 2^24 / the clock, rounded, at most `$FFFF`) and `mutone.s` (145; Hz × 4,359 / 256 on
+    PAL, × 4,200 / 256 on NTSC). `include/oolib.inc`'s "Sound: music": `MU_INIT` (A the clock), `MU_QUIT`,
+    `MU_NOTE`, `MU_TONE`, `MU_INSTR`, `MU_STOP`, `MU_PAUSE`, `MU_RESUME`, `MU_MARK` (0–14), `MU_VOLUME`,
+    `MU_EVENT` (`MV_*`), `MU_COUNT`; `PE_FULL` (5) beside L5's errors. The Makefile builds `mudrv.bin` and takes it
+    into `lib-mu.o` (`--bin-include-dir`).
+    - **The counts** are those sent less those `MU_EVENT` is handed as finished, reached or refused. Decided while
+      building: "queue empty" doesn't set 0, since the program may have queued more before handing it over (the
+      first build did, and a note queued after a STOP was counted out). `MU_STOP` sets 0 and sends marker 15 after
+      the STOP, the library's own; that voice's events are let go until it is back, as what STOP dropped. A lost
+      event leaves a count high until the voice's next `MU_STOP`.
+    - **Found in testing:** `started` changed A, so `MU_STOP` stopped voice 1 whatever it was given; `MUON` was in
+      BSS, which a `.COM`'s load doesn't clear, so a program run again found the last run's (now in DATA); and two
+      tables in CODE, which the rules gate refused.
+    - **Tests:** `test_oodos_mu` (10 cases) with MUTEST (`oodos/test/mu`): the load and the latch for each clock,
+      refusals before `MU_INIT`, every note on both clocks against Hz × 2^24 / the clock worked out in the test,
+      tones within 0.02% and held at the top, a rest, the queue's 32 and `PE_FULL`, markers, `MU_STOP`'s count
+      kept true while its leftovers arrive, instruments and volumes, `MU_EVENT`'s kinds, the warm boot. The
+      must-fail cases: no drain after STOP, and 0 at "queue empty" (the STOP case fails); a wrong tone constant
+      (the tone case fails).
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**

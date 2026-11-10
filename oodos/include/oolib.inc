@@ -5,7 +5,8 @@
 ;
 ; Graphics (lib/gx*.s, L4): below, after the .sid tunes. Sound's EQ and vis
 ; page (lib/pb*.s, L5b), the SIDs' voices (lib/sid*.s but sid.s, L5c) and
-; playback (lib/pb.s, pbstat.s, pbvol.s, pblev.s, L5d): after the graphics.
+; playback (lib/pb.s, pbstat.s, pbvol.s, pblev.s, L5d) and music (lib/mu*.s,
+; L6b): after the graphics.
 ;
 ; .sid tunes (lib/sid.s, L3): a C64 PSID file in the program's memory
 ; played on the sound card's 6510, as the emulator's own player plays one
@@ -328,5 +329,64 @@ PBS_LEN         = 7
 PBL_BANDS       = 0
 PBL_VU          = 8
 PBL_LEN         = 10
+
+; ---------------------------------------------------------------------------
+; Sound: music (lib/mu.s, munote.s, mutone.s, L6b): notes on the two SIDs'
+; six voices, played by OOLIB's driver on the card's 6510 (lib/mudrv/,
+; L6a) in 1 ms steps, each voice with a queue of 32 entries; GW-BASIC's
+; SOUND and PLAY. MU_INIT claims the 6510 and starts the driver; the calls
+; send it commands by function 82. The program opens an event area (layout
+; 2) and hands each EK_SOUND event's value byte to MU_EVENT, which keeps the
+; voices' counts. Each call but MU_EVENT and MU_COUNT returns carry clear and
+; A = 0, or carry set and A an error (PE_*: PE_STATE before MU_INIT or after
+; MU_QUIT, PE_RANGE, PE_FULL, PE_REFUSED); A, X and Y changed.
+;
+;   MU_INIT     A the clock: 0 PAL, 1 NTSC. The 6510 claimed (SC_6510) and
+;               the driver loaded and started. PE_REFUSED: no card, or the
+;               6510 is claimed (a .sid playing)
+;   MU_QUIT     the driver stopped, the SIDs silenced, the 6510 released
+;   MU_NOTE     A/X a block of MU_NLEN: +0 the voice (0-5: SID A's three,
+;               then B's), +1 the note, 0 (C-0) to 95 (B-7; A-4 is 57), or
+;               MU_REST; +3-4 the length in ms (0 is 1); +5-6 the gate time
+;               in ms (0: silent; the length or more: legato). PLAY's MN is
+;               7/8 of the length, MS 3/4. PE_FULL with 32 waiting
+;   MU_TONE     the same with +1-2 a frequency in Hz (0 a rest; past the
+;               register's top, 3,848 Hz on PAL, the highest tone): SOUND
+;   MU_INSTR    A/X a block of MU_ILEN: +0 the voice, +1 the waveform's bits
+;               (SID_V_CTRL's: noise, pulse, saw, triangle, ring, sync),
+;               +2 attack/decay, +3 sustain/release, +4-5 the pulse width;
+;               from the voice's next note on. At the start, every voice is
+;               a 50% pulse ($40, $00, $F0, $0800)
+;   MU_STOP     A a voice, or MU_ALL: its queue emptied, its gate off, its
+;               count 0 (the events from before it let go)
+;   MU_PAUSE    every voice held and both SIDs silent; MU_RESUME goes on
+;   MU_MARK     A a voice, X a marker 0-14: MU_EVENT says MV_MARK when the
+;               voice reaches it (GW-BASIC's ON PLAY; 15 is the library's)
+;   MU_VOLUME   A a SID (0, 1 or MU_ALL), X its volume 0-15 (15 at start)
+;   MU_EVENT    A an EK_SOUND event's byte: A = MV_*, X the voice, Y a
+;               marker's number; carry clear. MV_NONE: not the driver's, or
+;               left over from a STOP
+;   MU_COUNT    A a voice: A = its entries waiting (PLAY(n)): those sent, less
+;               those MU_EVENT has been handed as done, reached or refused
+;
+; The driver takes 19% of the 6510 with six notes held; notes shorter than a
+; few milliseconds on several voices send events faster than the mailbox
+; carries them, and some are dropped; an event the program's queue had no room
+; for is lost too. Either leaves the voice's count high until its MU_STOP.
+
+.global MU_INIT, MU_QUIT, MU_NOTE, MU_TONE, MU_INSTR, MU_STOP, MU_PAUSE, MU_RESUME, MU_MARK, MU_VOLUME
+.global MU_EVENT, MU_COUNT
+
+PE_FULL         = 5                    ; a voice's queue has 32
+MU_ALL          = $FF                  ; every voice (MU_STOP), both SIDs (MU_VOLUME)
+MU_REST         = $FF                  ; MU_NOTE's +1: a rest
+MU_NLEN         = 7
+MU_ILEN         = 6
+MV_NONE         = 0                    ; MU_EVENT's: nothing to do
+MV_DONE         = 1                    ;   an entry finished on voice X
+MV_EMPTY        = 2                    ;   voice X had nothing waiting when the driver said so
+MV_MARK         = 3                    ;   voice X reached marker Y
+MV_REFUSED      = 4                    ;   an entry refused on voice X (its queue was full)
+MV_HELLO        = 5                    ;   the driver's answer to HELLO
 
 .endif

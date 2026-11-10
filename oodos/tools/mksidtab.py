@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""OOLIB's SID tables (lib/sidnote.s, lib/sidenv.s; hw/oolib.md, L5c): writes
-lib/sidnote.inc and lib/sidenv.inc, which are committed. Run it again only if
+"""OOLIB's SID tables (lib/sidnote.s, lib/sidenv.s, L5c; lib/munote.s, L6b;
+hw/oolib.md): writes lib/sidnote.inc, lib/sidenv.inc and lib/munote.inc,
+which are committed. Run it again only if
 a rule below changes; test_oodos_pb works the same values out itself.
 
   sid_note_pal, sid_note_ntsc   for each note from C-0 (0) to B-7 (95), the
@@ -9,6 +10,9 @@ a rule below changes; test_oodos_pb works the same values out itself.
       voice's note is the last whose threshold its value reaches. The
       register's value is Hz x 2^24 / the clock (985,248 Hz PAL, 1,022,727
       NTSC); A-4 is 440 Hz, note 57.
+  mu_note_pal, mu_note_ntsc   for each note from C-0 (0) to B-7 (95), its
+      own frequency register value: Hz x 2^24 / the clock, rounded, at most
+      $FFFF (so PAL's B-7, 3,951 Hz, is held at 3,849 Hz: the register's top).
   sid_env_attack, sid_env_decay   for each of a SID's 16 attack rates and 16
       decay and release rates (the chip's data sheet: 2 ms to 8 s, 6 ms to
       24 s), the step a frame (1/59.94 s) moves a 16-bit level whose full
@@ -26,6 +30,10 @@ ATTACK_MS = (2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000,
 DECAY_MS = (6, 24, 48, 72, 114, 168, 204, 240, 300, 750, 1500, 2400, 3000, 9000, 15000, 24000)
 FRAME_MS = 1000 / 59.94
 FULL = 0xFF00
+
+
+def centres(clock):
+    return [min(0xFFFF, round(A4 * 2 ** ((n - 57) / 12) * (1 << 24) / clock)) for n in range(96)]
 
 
 def thresholds(clock):
@@ -50,6 +58,10 @@ def main(libdir):
     for name, clock in CLOCKS:
         notes += words('sid_note_' + name, thresholds(clock))
     write(os.path.join(libdir, 'sidnote.inc'), notes)
+    mu = []
+    for name, clock in CLOCKS:
+        mu += words('mu_note_' + name, centres(clock))
+    write(os.path.join(libdir, 'munote.inc'), mu)
     env = words('sid_env_attack', [min(FULL, round(FULL * FRAME_MS / t)) for t in ATTACK_MS])
     env += words('sid_env_decay', [min(FULL, round(FULL * FRAME_MS / t)) for t in DECAY_MS])
     write(os.path.join(libdir, 'sidenv.inc'), env)
