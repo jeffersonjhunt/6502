@@ -1253,6 +1253,36 @@ and more in L5:
     a test of `PB_LEVELS` for the ES5503.
 - **L6: the music driver** for SOUND, PLAY and BEEP (question 5), just before GW-BASIC needs it. Nothing before
   then needs it.
+  - *L6's plan (decided 2026-11-09, the owner: as recommended):*
+    - **Scope:** note-level commands, as question 5 has it (note, length, voice, envelope). GW-BASIC parses PLAY.
+    - **Where it runs:** on the card's 6510 (this section's "Sound").
+    - **Timing:** 1 ms steps by CIA 1's timer A.
+    - **Voices:** six (both SIDs), each with a queue of 32 entries, GW-BASIC's buffer.
+    - **Transport:** mailbox bytes by `SN_SEND`, with events back as `EK_SOUND`.
+    - **No OODOS change and no bump:** interface 6 has what it needs. BEEP stays `SN_BEEP`.
+    - **Two steps:** L6a, the driver and its protocol; L6b, the library (`MU_*`) and a test program.
+  - *L6a as built:* `oodos/lib/mudrv/mudrv.s` (its own folder: the Makefile assembles `lib/*.s` as 65C02 library
+    modules), ca65 for the 6502, `mudrv.cfg` at `$1000` of the card's RAM, 913 bytes.
+    - **The image:** `JMP init`; at `$1003` the timer latch for 1 ms, set by the loader (984 PAL, 1,022 NTSC);
+      at `$1005` the version, 1.
+    - **Commands:** `$0v` NOTE (frequency word, length ms, gate ms), `$1v` INSTR (control bits, AD, SR, pulse
+      width), `$2v` STOP (`$27` all), `$3v` MARK (0–15), `$40` PAUSE, `$50` RESUME, `$6s` VOLUME (SID A, B or
+      both), `$70` HELLO. Anything else is refused (`$37`).
+    - **Events:** `$01` HELLO's answer, `$1v` an entry finished, `$2v` the voice's queue empty, `$3v` refused
+      (full), `$80` + v × 16 + m a marker.
+    - **Its cost, measured:** six voices holding take about 18% of the 6510; a voice changing note about 180
+      clocks more; six changing in one step about 1,100 clocks, past the millisecond, with no step lost.
+    - **Two races found in testing, between the main loop and the step:** the queue's slot was read from `CNT` and
+      the head in two reads, so a step taking an entry between them put the new one a slot too far; and the two
+      shared a scratch byte. The slot is now worked out with interrupts off, and the step has no scratch byte of
+      the main loop's.
+    - **The first step** took 57% of the 6510 with six notes held, so the main loop starved and events were
+      dropped. Each entry's two waits are now worked out when it is queued, and the step counts one negated word.
+    - **Tests:** `test_mudrv` (14 cases) runs the driver on the card with the SIDs as the oracle: the gate and the
+      length to within 0.5 ms, articulation, rests, six voices, the queue's 32 and the 33rd refused with no event
+      lost, markers, STOP, PAUSE, instruments, volumes and refusals, NTSC's latch, the races under load, and the
+      step's cost. The must-fail cases: PAL's latch on NTSC (in the NTSC case); events sent before the host took
+      the last (the queue case fails); the slot read without interrupts off (the load case fails).
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**
