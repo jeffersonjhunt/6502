@@ -8,9 +8,9 @@
         .include "oolib.inc"
         .include "pb.inc"
 
-        .zeropage
-pbp:    .res    2                       ; the caller's block
-ap:     .res    2                       ; the event area
+        .importzp PBSTAT_ZP             ; zppbstat.s's
+pbp             = PBSTAT_ZP            ; the caller's block
+ap              = PBSTAT_ZP + 2        ; the event area
 
         .bss
 ms:     .res    4                       ; the status's milliseconds

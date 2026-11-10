@@ -21,8 +21,8 @@
         .include "oolib.inc"
         .include "physof.inc"
 
-        .zeropage
-sp:     .res    2                       ; the file's bytes
+        .importzp SID_ZP                ; zpsid.s's
+sp              = SID_ZP               ; the file's bytes
 
         .bss
 SID_LEN:        .res    2              ; the file's length (the caller's)

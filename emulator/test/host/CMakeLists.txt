@@ -295,10 +295,13 @@ add_custom_command(
 # With them, OOLIB L4's: GXTEST (oodos/test/gx, the library's test program, not a utility) and the assets
 # test_oodos_gfx shows with VIEW, from PNGs check_mkasset.py writes (never the owner's); L5's PBTEST
 # (oodos/test/pb, the sound library's, for test_oodos_pb); and L6b's MUTEST (oodos/test/mu, the music
-# library's, for test_oodos_mu, with the 6510 driver it takes in, lib/mudrv).
+# library's, for test_oodos_mu, with the 6510 driver it takes in, lib/mudrv). And SIDOVL with its overlays
+# SIDPLUG (the library's .sid, its zero page SIDOVL's) and SIDPLUGZ (without, refused), oodos/test/ovl, for
+# test_oodos_playsid.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
      "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
-     "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/check_mkasset.py")
+     "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
+     "${OODOS_SRC}/tools/libzp.py")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -311,6 +314,12 @@ add_custom_command(
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/mu "OOLIB_USERS=playsid view mutest"
                 "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
                 "${OODOS_UTILS_DIR}/mutest.com"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ovl "OOLIB_USERS=playsid view sidovl" OVL_LIB=sidplug
+                OVL_CALLER=sidovl OVL_ZP=SID_ZP "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}"
+                "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/sidovl.com" "${OODOS_UTILS_DIR}/sidplug.prl"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ovl "OOLIB_USERS=playsid view sidovl" OVL_LIB=sidplugz
+                OVL_CALLER=sidovl "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}"
+                "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/sidplugz.prl"
         COMMAND "${Python3_EXECUTABLE}" -I -B "${OODOS_SRC}/test/check_mkasset.py" --write "${OODOS_UTILS_DIR}/assets"
         COMMAND "${CMAKE_COMMAND}" -E touch "${OODOS_UTILS_DIR}/utils.stamp"
         DEPENDS ${oodos_deps} ${oodos_utils_deps}

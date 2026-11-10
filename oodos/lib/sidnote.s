@@ -7,8 +7,8 @@
         .include "oodos.inc"
         .include "oolib.inc"
 
-        .zeropage
-ntp:    .res    2
+        .importzp SIDNOTE_ZP            ; zpsidnote.s's
+ntp             = SIDNOTE_ZP
 
         .bss
 nf:     .res    2
