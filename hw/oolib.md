@@ -1262,22 +1262,28 @@ and more in L5:
     - **No OODOS change and no bump:** interface 6 has what it needs. BEEP stays `SN_BEEP`.
     - **Two steps:** L6a, the driver and its protocol; L6b, the library (`MU_*`) and a test program.
   - *L6a as built:* `oodos/lib/mudrv/mudrv.s` (its own folder: the Makefile assembles `lib/*.s` as 65C02 library
-    modules), ca65 for the 6502, `mudrv.cfg` at `$1000` of the card's RAM, 913 bytes.
+    modules), ca65 for the 6502, `mudrv.cfg` at `$1000` of the card's RAM, 938 bytes.
     - **The image:** `JMP init`; at `$1003` the timer latch for 1 ms, set by the loader (984 PAL, 1,022 NTSC);
-      at `$1005` the version, 1.
+      at `$1005` the version, 1; at `$1006` a status block the host may read: `LOST` (events dropped, held at
+      255) and `TICKS` (the steps since the start, 24 bits).
     - **Commands:** `$0v` NOTE (frequency word, length ms, gate ms), `$1v` INSTR (control bits, AD, SR, pulse
       width), `$2v` STOP (`$27` all), `$3v` MARK (0–15), `$40` PAUSE, `$50` RESUME, `$6s` VOLUME (SID A, B or
       both), `$70` HELLO. Anything else is refused (`$37`).
     - **Events:** `$01` HELLO's answer, `$1v` an entry finished, `$2v` the voice's queue empty, `$3v` refused
       (full), `$80` + v × 16 + m a marker.
-    - **Its cost, measured:** six voices holding take about 18% of the 6510; a voice changing note about 180
-      clocks more; six changing in one step about 1,100 clocks, past the millisecond, with no step lost.
+    - **Its cost, measured:** six voices holding take about 19% of the 6510; a voice changing note about 180
+      clocks more; six changing in one step about 1,140 clocks, past the millisecond, with no step lost.
     - **Two races found in testing, between the main loop and the step:** the queue's slot was read from `CNT` and
       the head in two reads, so a step taking an entry between them put the new one a slot too far; and the two
       shared a scratch byte. The slot is now worked out with interrupts off, and the step has no scratch byte of
       the main loop's.
     - **The first step** took 57% of the 6510 with six notes held, so the main loop starved and events were
       dropped. Each entry's two waits are now worked out when it is queued, and the step counts one negated word.
+    - *L6a review, round 1 (2026-11-09):* F3, INSTR kept the SID's TEST bit, which stops the oscillator: masked
+      to waveform, ring and sync. F4, the test read the driver's zero page at hand-worked addresses: `LOST` and
+      `TICKS` are in the image's status block. Accepted: F1, an event dropped is said only in `LOST` (L6b resyncs
+      its counts at each `$2v`); F2, no resync for a lost command byte (`SN_SEND` loses none); F5, `TICKS`'s few
+      clocks; F6, a legato note's gate drops and rises in one step, so its attack starts afresh.
     - **Tests:** `test_mudrv` (14 cases) runs the driver on the card with the SIDs as the oracle: the gate and the
       length to within 0.5 ms, articulation, rests, six voices, the queue's 32 and the 33rd refused with no event
       lost, markers, STOP, PAUSE, instruments, volumes and refusals, NTSC's latch, the races under load, and the

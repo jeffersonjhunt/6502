@@ -13,14 +13,17 @@
 ;                (985,248 Hz: 985 clocks a step), 1,022 on NTSC (1,022,727
 ;                Hz: 1,023). The default is PAL's.
 ;   $1005        VERSION: 1
+;   $1006        LOST: events dropped with 64 waiting (to 255, then held)
+;   $1007-$1009  TICKS: the milliseconds stepped since the start (24 bits)
 ;
 ; Every millisecond the timer's interrupt steps the six voices (voice 0-2
 ; SID A's, at $D400, $D407, $D40E; 3-5 SID B's, $D420, $D427, $D42E). Each
 ; voice has a queue of 32 entries. A note plays for its length in
 ; milliseconds, its gate on for its gate time (PLAY's articulation: the
 ; whole length legato, 7/8 normal, 3/4 staccato), then the next entry starts
-; in the same step, so notes follow each other exactly. A note of frequency 0
-; is a rest. A marker takes no time: its byte goes back when the voice
+; in the same step, so notes follow each other exactly (legato too: the gate
+; drops and rises again in that step, so the next note's attack starts
+; afresh). A note of frequency 0 is a rest. A marker takes no time: its byte goes back when the voice
 ; reaches it.
 ;
 ; Commands, host to card (the high nibble the command, the low a voice
@@ -28,7 +31,7 @@
 ;   $0v f.lo f.hi l.lo l.hi g.lo g.hi  NOTE: the SID frequency word, the
 ;          length in ms (0 is taken as 1), the gate time in ms (0: none)
 ;   $1v w ad sr p.lo p.hi              INSTR: the control register's bits
-;          (waveform, ring, sync; the gate bit is ignored), attack/decay,
+;          (waveform, ring, sync; the gate and test bits are ignored), attack/decay,
 ;          sustain/release, pulse width; from the voice's next note on.
 ;          At start every voice is a 50% pulse, AD $00, SR $F0
 ;   $2v    STOP: the voice's queue emptied and its gate off; $27 all six
@@ -43,7 +46,7 @@
 ;
 ; Events, card to host (one byte each, sent only once the host has taken the
 ; one before: $DE01 bit 1; 64 wait here meanwhile, and past that they are
-; counted in LOST):
+; counted in LOST, the image's status byte):
 ;   $01        HELLO's answer
 ;   $1v        an entry (a note or a rest) on voice v finished
 ;   $2v        voice v's queue is empty: after its last entry, and after STOP
@@ -54,9 +57,9 @@
 ; says 0.
 ;
 ; What it costs the 6510 (test_mudrv measures it): with six voices holding
-; notes, the step takes about 18% of each millisecond, 134 clocks; a voice
+; notes, the step takes about 19% of each millisecond, 143 clocks; a voice
 ; whose note ends and the next starts, about 180 more. Six starting in one
-; step take about 1,100 clocks, past the millisecond, so the next step runs
+; step take about 1,140 clocks, past the millisecond, so the next step runs
 ; late but none is lost. The main loop has the rest, taking commands and
 ; sending events; a load that keeps the step busy (several voices with notes
 ; of a few milliseconds) sends events faster than they go, and the 65th
@@ -110,11 +113,9 @@ PWH:    .res    VOICES
 CWAVE:  .res    VOICES      ; the playing note's control bits, gate clear
 EVH:    .res    1           ; the next event to send
 EVN:    .res    1           ; events waiting
-LOST:   .res    1           ; events dropped, EVQ full
 PAUSED: .res    1
 VOLA:   .res    1
 VOLB:   .res    1
-TICKS:  .res    3           ; milliseconds stepped since the start
 NEED:   .res    1           ; the command's operands still to come
 PIX:    .res    1           ; the next operand's place in ARG
 OP:     .res    1           ; the command byte
@@ -129,6 +130,8 @@ PY:     .res    1           ; IPUSH's Y
         jmp     init
 LATCH:  .word   985 - 1
 VERSION:.byte   1
+LOST:   .byte   0           ; the status block: the host may read these
+TICKS:  .byte   0, 0, 0
 
 SIDOFF: .byte   0, 7, 14, SID_B - SID, SID_B - SID + 7, SID_B - SID + 14
 QBASE:  .byte   0, 32, 64, 96, 128, 160
@@ -151,7 +154,11 @@ init:   sei
         lda     #>nmi
         sta     $FFFB
 
-        lda     #0              ; our zero page, and both SIDs silent
+        lda     #0              ; the status, our zero page, and both SIDs silent
+        sta     LOST
+        sta     TICKS
+        sta     TICKS + 1
+        sta     TICKS + 2
         ldx     #$10
 @zp:    sta     $00,x
         inx
@@ -385,7 +392,7 @@ entry:  sec
 
 cinstr: sei                     ; whole: a note starting now takes the old or the new
         lda     ARG
-        and     #$FE
+        and     #$F6            ; waveform, ring, sync: not the gate, nor TEST (it stops the oscillator)
         sta     WAVE,x
         lda     ARG + 1
         sta     AD,x
@@ -486,7 +493,9 @@ ipush:  sty     PY
         ldy     PY
         rts
 @lost:  inc     LOST
-        ldy     PY
+        bne     @held
+        dec     LOST            ; 255 stays
+@held:  ldy     PY
         rts
 
 ; The millisecond: each voice stepped, unless paused. A voice holding a note

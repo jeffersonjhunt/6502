@@ -33,8 +33,7 @@ namespace
 {
     int skipped = 0;
     constexpr uint16_t SOUND = 0xC500;
-    constexpr uint16_t BASE = 0x1000, LATCH = 0x1003, VERSION = 0x1005;
-    constexpr uint16_t EVN = 0x10 + 13 * 6 + 1, LOST = EVN + 1; // mudrv.s's zero page: 13 voice arrays, EVH, EVN, LOST
+    constexpr uint16_t BASE = 0x1000, LATCH = 0x1003, VERSION = 0x1005, LOST = 0x1006, TICKS = 0x1007; // the image
     constexpr uint16_t PAL_LATCH = 984, NTSC_LATCH = 1022;
     constexpr double STEP = 0.0001; // the sampling: 0.1 ms
     constexpr double SLACK = 0.5;   // ms: a step's interrupt and the sampling
@@ -226,6 +225,15 @@ TEST(the_image_and_hello)
     CHECK(b.send({0x70}));
     b.run(1);
     CHECK(b.bytes() == std::vector<uint8_t>{0x01});
+    CHECK_EQ(b.sound->ram()[LOST], 0);
+    // TICKS counts the steps: a millisecond each.
+    const auto ticks = [&b] {
+        return static_cast<unsigned>(b.sound->ram()[TICKS] | b.sound->ram()[TICKS + 1] << 8 |
+                                     b.sound->ram()[TICKS + 2] << 16);
+    };
+    const unsigned t0 = ticks();
+    b.run(300);
+    CHECK(ticks() - t0 >= 299 && ticks() - t0 <= 301);
     // Silent at the start: both volumes 15, every voice a pulse with its gate off.
     CHECK_EQ(b.sound->sid(0)[0x18], 15);
     CHECK_EQ(b.sound->sid(1)[0x18], 15);
@@ -403,7 +411,7 @@ TEST(an_instrument_from_the_voice_s_next_note)
 {
     NEED_DRIVER();
     Board b;
-    CHECK(b.send({0x10, 0x21, 0x12, 0x34, 0x23, 0x01})); // saw, the gate bit ignored
+    CHECK(b.send({0x10, 0x29, 0x12, 0x34, 0x23, 0x01})); // saw; the gate and TEST bits ignored
     CHECK(b.note(0, 0x1234, 20, 20));
     b.run(5);
     CHECK_EQ(b.ctrl(0), 0x21);
