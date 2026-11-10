@@ -85,9 +85,15 @@ image=$(sha256sum "$repo/tools/ci/Dockerfile" | cut -c1-12)
 if ! aws ecr describe-images --repository-name "$repository" --image-ids "imageTag=$image" >/dev/null 2>&1; then
     echo "cloud-full: building and pushing $repository:$image"
     docker build -q --platform linux/arm64 -t "$repository:$image" "$repo/tools/ci" >/dev/null
-    aws ecr get-login-password | docker login -u AWS --password-stdin "$registry" >/dev/null
+    # A Docker client config of its own for the login and push: the host's may name a credential helper
+    # for ECR that isn't installed, and the token stays out of it.
+    dc=$(mktemp -d)
+    trap 'rm -rf "$dc"' EXIT
+    aws ecr get-login-password | DOCKER_CONFIG=$dc docker login -u AWS --password-stdin "$registry" >/dev/null
     docker tag "$repository:$image" "$registry/$repository:$image"
-    docker push -q "$registry/$repository:$image" >/dev/null
+    DOCKER_CONFIG=$dc docker push -q "$registry/$repository:$image" >/dev/null
+    rm -rf "$dc"
+    trap - EXIT
 fi
 
 # The fixtures, if they changed (the owner's rule: sent again only on a change).
