@@ -982,7 +982,8 @@ sizes`, the maps, normal and `DEBUG=1`).
 5. **cc65 C headers.** *Decided: as recommended.* The plan's L4 line names them, but there is no C target for OODOS (a crt0 with
    `OODOS_HEADER`, a linker config, the runtime's zero page inside `$00–$EF`, the 65C816 rules over cc65's
    library). **Recommended:** a step of its own after L4, with a C test program, rather than headers nothing can
-   use yet; L4's interface is ca65's, as L3's is.
+   use yet; L4's interface is ca65's, as L3's is. **The target is built (Plan C1, 2026-11-10;
+   [hw/oodos.md](oodos.md#programs-in-c-plan-c1)); OOLIB's C headers are still to come.**
 6. **The asset format.** *Decided: as recommended.* OO-Amp's format 2 as it is, or format 3 (16-byte parts, a part's unit chosen at load when
    the file says `$FF`, each part on 1 KB of the file), with `mkasset.py` and VIEW.COM. **Recommended:** format 3,
    magic `'OGX'` kept so OO-Amp's reader needs a version check only: format 2 has no room for a layer's CONFIG

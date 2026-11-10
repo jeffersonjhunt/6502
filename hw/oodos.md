@@ -2143,6 +2143,49 @@ mkprl.py finds rule 2's 16-bit pointers to zero page in any segment, by the zero
 but only those to the program's own `ZEROPAGE` segment: pointers to an overlay's imported zero page or to absolute
 zero page addresses, in `CODE` or the data segments, rely on the author.
 
+### Programs in C (Plan C1) ###
+
+**Built (2026-11-10)**, OOLIB's question 5 ([hw/oolib.md](oolib.md)): a C program, compiled by cc65 2.19 (Debian's,
+on the host and in the container), links as a `.COM` with `cfg/c.cfg`, `oodosc.lib` (`oodos/c/`) and cc65's
+`none.lib`. The Programmer's Guide, [appendix F](../docs/oodos-programmers-guide/appendix-f-building.md#a-program-in-c),
+is how to use it; this is why it is so.
+
+- **cc65's library, not our own.** `none.lib` is cc65's target-free build of its C library: the runtime, stdio's
+  formatting, string, stdlib, ctype, setjmp, the heap. It leaves a system's part to the system: the start, `read`,
+  `write`, the arguments. `oodosc.lib` is that part and nothing more, so the C library is cc65's, tested by cc65.
+- **The rules gate over all of it.** A spike linked a broad slice of the library (12.7 KB, 5,683 instructions) and the
+  gate found one break: `_printf.o` saves cc65's register bank with `LDA regbank,Y`, rule 2 (the 65C02 has no zero
+  page,Y load). The owner chose (2026-11-10) an altered copy, `oodos/c/_printf.s`, over an exception in the gate or no
+  `printf`: cc65's zlib licence allows it, so long as the copy is marked altered and keeps the notice, which it does.
+  The gate reads `STARTUP`, `ONCE` and `CODE`; `c.cfg` puts the constructor tables in `RODATA` so the three hold code
+  only.
+- **The link is a group.** ld65 searches each library once, in order: `none.lib`'s `fgetc` needed `oodosc.lib`'s
+  `read` after `oodosc.lib` had been searched, and `none.lib`'s own `_printf.o` would have won over ours. Between
+  `--start-group` and `--end-group` ld65 searches again until nothing is missing, `oodosc.lib` first each time.
+  `check_tools.py` checks that the map names `oodosc.lib`'s `_printf.o`, and that the stock one is refused.
+- **The start** ([`oodos/c/crt0.s`](../oodos/c/crt0.s)) takes the C stack from `BP_TOP`, so a resident RSX's memory is
+  kept, and ends the program at once, as a failure, if `BP_TOP` is less than `__STACKSIZE__` above `BSS`'s end
+  (review F3: the stack would run into the program's data unseen; `malloc` is safe, as it stops at `__heapend`);
+  clears `BSS`, which a `.COM`'s loader doesn't; runs the constructors (the heap's floor, `argc` and `argv`)
+  and `main`. Its end runs the destructors and the warm boot: `exit(n)` with `n` other than 0 sets function 108's
+  code to `$FF00`, the CCP's failure for a `:` command. The low byte isn't kept: `$FFFD` and `$FFFE` are OODOS's own
+  (an error, a ^C), and `$FFFF` can't be set.
+- **The console as stdio.** `write` sends `'\n'` as CR LF, so C's newlines are the console's; `read` takes a line by
+  function 10, so a C program gets OODOS's line editing, and gives the line out a byte at a time if asked (cc65's
+  `fgetc` asks for one). Function 10 echoes the CR and not the LF, so `read` writes the LF. A ^Z alone is the end,
+  as CP/M's text files end. Files are a later step: `fopen` on FCBs needs the names parsed (function 152), records
+  of 128 bytes under byte-sized reads, and the end of a text file found by its ^Z.
+- **`oodos.h` from `oodos.inc`.** Its names are written by `oodos/tools/oodosh.py`, and the build checks them, so the
+  two can't drift: a new function in `oodos.inc` fails the next C build until `oodosh.py write` is run.
+- **Tests:** `test_oodos_c` runs CTEST (`oodos/test/c/ctest.c`) from the CCP: the arguments, printf, the heap, lines
+  from stdin to a ^Z, a line over two `read()`s, `exit`'s code seen by a `:` command, `bdos()`, `EBADF`, and a copy
+  linked with a 44 KB stack refused. `check_tools.py`'s "The C target": the
+  gate passes a C program and refuses the stock `_printf.o` and a planted absolute store to zero page; a cc65
+  warning fails the build; a stale `oodos.h` and an `oodos.inc` with no functions are refused. `docs/examples/cargs.c`
+  is the book's example, run by `test_docs_examples`.
+- **Not in C1:** files through stdio; a `.PRL` in C (three links of cc65's output: mkprl.py would check cc65's
+  runtime for pointers to zero page too); OOLIB's C headers, now that there is a target for them.
+
 ## The RSXs, phase 5 ##
 
 **Proposed (phase 5, 2026-11-04; revised the same day after a review against the manuals)** (the Programmer's

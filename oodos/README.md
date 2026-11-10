@@ -70,6 +70,13 @@ page or immediate instruction in `CODE` (`.word ptr` in data, for one). It check
 `ZEROPAGE` segment only: pointers to an overlay's zero page (imported, so it doesn't move) or to absolute zero page
 addresses, in `CODE` or the data segments, rely on the author.
 
+**A program in C** is `NAME.c` in `CPROGRAMS` (`make SRC=dir BUILD=dir CPROGRAMS=NAME dir/NAME.com`), compiled by
+cc65 and linked with `cfg/c.cfg`, `build/oodosc.lib` (`c/*.s`: the start, the console's `read` and `write`, `argc`
+and `argv`, `bdos()`, cc65's `_printf.s` altered for rule 2) and cc65's `none.lib`, through the same gate over
+`STARTUP`, `ONCE` and `CODE`; a cc65 warning fails the build. `include/oodos.h` has the names, written from
+`oodos.inc` by `tools/oodosh.py` and checked by the build. The Programmer's Guide, appendix F, "A program in C";
+[hw/oodos.md](../hw/oodos.md#programs-in-c-plan-c1).
+
 **What a `.PRL` may contain:** addresses and their high and low bytes, and zero page addresses. mkprl.py refuses
 any byte that doesn't move between the three links as nothing does, as a page does (1, then 2) or as the zero page
 does (2, then 5), and says where; so an expression like `>(label*2)`, which moves by 2 and 4, is refused.

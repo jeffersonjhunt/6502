@@ -542,17 +542,22 @@ class Check:
                 elif LISTING_ANY.match(line):
                     self.fail(f"{self.rel(path)}:{n}", "a listing marker that isn't '<!-- listing: path -->' or "
                                                        "'<!-- listing: path:A-B -->'")
+        stems = set()
         for name in sorted(os.listdir(examples)) if os.path.isdir(examples) else []:
-            if not name.endswith(".s"):
+            stem, ext = os.path.splitext(name)
+            if ext not in (".s", ".c"):  # a program in ca65, or in C (the C target)
                 continue
-            if not os.path.exists(os.path.join(examples, name[:-2] + ".out")):
+            if stem in stems:
+                self.fail(f"docs/examples/{name}", f"{stem}.s and {stem}.c: two programs, one {stem}.COM")
+            stems.add(stem)
+            if not os.path.exists(os.path.join(examples, stem + ".out")):
                 self.fail(f"docs/examples/{name}", "no expected output beside it (.out): it isn't tested")
-            if len(name[:-2]) > 8:
+            if len(stem) > 8:
                 self.fail(f"docs/examples/{name}", "a name longer than 8 characters: the test puts it on M:, "
                                                    "whose names are 8.3")
-            if name[:-2] in self.utils:
-                self.fail(f"docs/examples/{name}", f"{name[:-2]} is a utility's name: oodos/Makefile builds "
-                                                   f"oodos/utils/{name} for it, so the book would show this file "
+            if stem in self.utils:
+                self.fail(f"docs/examples/{name}", f"{stem} is a utility's name: oodos/Makefile builds "
+                                                   f"oodos/utils/{stem}.s for it, so the book would show this file "
                                                    f"and the test run that one")
         self.counts.update(links=links, listings=listings)
         if links == 0:
@@ -602,7 +607,7 @@ class Check:
             self.fail(where, f"listing of {m.group(1)} differs from the file at its line {k + 1}: "
                              f"{(got[k] if k < len(got) else '<end>')!r} against "
                              f"{(want[k] if k < len(want) else '<end>')!r}")
-        if os.path.dirname(src) == examples and src.endswith(".s") and not os.path.exists(src[:-2] + ".out"):
+        if os.path.dirname(src) == examples and src.endswith((".s", ".c")) and not os.path.exists(src[:-2] + ".out"):
             self.fail(where, f"listing of {m.group(1)}: an example with no expected output isn't tested")
 
     def status_tags(self):
