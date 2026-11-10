@@ -918,4 +918,116 @@ TEST(pb_levels_for_the_es5503_the_vis_page_as_for_a_stream)
     card(r).write(SoundCard::PCMCTL, 0);
 }
 
+// ---- EV_SFLAGS's ES_NOQUEUE (OODOS 0.8): a 6510 that floods the mailbox --------------------------------------
+
+namespace
+{
+    constexpr uint8_t EV_QHEAD = 16, EV_QTAIL = 17, EV_QSLOTS = 18, EV_QLOST = 20, EV_SMMS = 109, EV_SMCNT = 113,
+                      EV_SFLAGS = 115, ES_NOQUEUE = 1, EK_KEY = 1, EK_SOUND = 6;
+    constexpr unsigned EV_QUEUE = 128, EQ_LEN = 8;
+
+    /// The 6510's program at $1000: a mailbox byte every 0.5 ms or so (2,000 a second, as a .sid on a fast CIA
+    /// timer sends from its stub), for ever.
+    const std::vector<uint8_t> flood{0xA2, 0x00,       // LDX #0
+                                     0x8E, 0x00, 0xDE, // $1002: STX $DE00
+                                     0xA0, 0x61,       // LDY #97
+                                     0x88, 0xD0, 0xFD, // $1007: DEY, BNE $1007
+                                     0xE8,             // INX
+                                     0x4C, 0x02, 0x10};
+    /// The kinds of the events waiting in the area's queue, oldest first.
+    std::vector<uint8_t> waiting(Rig &r)
+    {
+        std::vector<uint8_t> out;
+        const unsigned slots = r.phys(AREA + EV_QSLOTS);
+        for (unsigned i = r.phys(AREA + EV_QTAIL); i != r.phys(AREA + EV_QHEAD); i = (i + 1) % slots)
+            out.push_back(r.phys(AREA + EV_QUEUE + EQ_LEN * i));
+        return out;
+    }
+    unsigned word(Rig &r, unsigned off) { return r.phys(AREA + off) | r.phys(AREA + off + 1) << 8; }
+    void press(Rig &r)
+    {
+        r.machine->usb_card()->key(0x04, true); // A
+        r.run(ms(20));
+        r.machine->usb_card()->key(0x04, false);
+        r.run(ms(20));
+    }
+    void flooding(CcpRig &r)
+    {
+        start_pb(r);
+        CHECK_EQ(ac(pb(r, 'O')), OK); // a 256-byte area, layout 2: 15 events at most
+        CHECK_EQ(f82(r, {SN_CLAIM, SC_6510}), std::string("00"));
+        r.poke(0x3000, flood);
+        CHECK_EQ(f82(r, {SN_LOAD, 0x00, 0x30, 0x00, 0x00, 0x10, static_cast<uint8_t>(flood.size()), 0}),
+                 std::string("00"));
+    }
+} // namespace
+
+TEST(es_noqueue_keeps_the_queue_for_input_while_the_6510_floods_it)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    flooding(r);
+    r.poke(AREA + EV_SFLAGS, ES_NOQUEUE); // after FT_OPEN, which fills the area from scratch
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00"));
+    r.run(ms(500));
+    // Stamped, not queued: the count and the time move, the queue stays empty and nothing is lost.
+    const unsigned cnt = word(r, EV_SMCNT);
+    std::printf("  ES_NOQUEUE: %u bytes stamped in 500 ms, %zu events waiting, %u lost\n", cnt, waiting(r).size(),
+                word(r, EV_QLOST));
+    CHECK(cnt >= 900 && cnt <= 1100);
+    CHECK(waiting(r).empty());
+    CHECK_EQ(word(r, EV_QLOST), 0u);
+    const unsigned t0 = word(r, EV_SMMS);
+    r.run(ms(100));
+    CHECK(word(r, EV_SMMS) != t0);
+    CHECK(word(r, EV_SMCNT) > cnt);
+    // A key meanwhile: queued, pressed and released.
+    press(r);
+    CHECK(waiting(r) == (std::vector<uint8_t>{EK_KEY, EK_KEY}));
+    CHECK_EQ(word(r, EV_QLOST), 0u);
+    // Opened again over the same memory, the flag still set there: FT_OPEN writes the area afresh, so the flag is
+    // 0 and the bytes are queued again.
+    CHECK_EQ(r.phys(AREA + EV_SFLAGS), ES_NOQUEUE);
+    CHECK_EQ(ac(pb(r, 'O')), OK);
+    CHECK_EQ(r.phys(AREA + EV_SFLAGS), 0u);
+    r.run(ms(5));
+    const std::vector<uint8_t> w = waiting(r);
+    CHECK(!w.empty());
+    for (const uint8_t k : w)
+        CHECK_EQ(k, EK_SOUND);
+}
+
+TEST(without_es_noqueue_the_flood_fills_the_queue_and_a_key_is_lost)
+{
+    // OO-Amp's case, as before OODOS 0.8 (and still for a program that leaves the flag clear): every byte queued, the
+    // queue full within a frame, and a key pressed then lost with the rest. Clearing the flag later queues again.
+    CcpRig r;
+    REQUIRE(r.ok);
+    flooding(r);
+    CHECK_EQ(f82(r, {SN_START, 0x00, 0x10, 0}), std::string("00"));
+    r.run(ms(100));
+    std::vector<uint8_t> w = waiting(r);
+    CHECK_EQ(w.size(), static_cast<size_t>(r.phys(AREA + EV_QSLOTS) - 1)); // full
+    for (const uint8_t k : w)
+        CHECK_EQ(k, EK_SOUND);
+    const unsigned lost = word(r, EV_QLOST);
+    CHECK(lost > 0);
+    press(r);
+    w = waiting(r);
+    for (const uint8_t k : w)
+        CHECK(k != EK_KEY);
+    CHECK(word(r, EV_QLOST) > lost);
+    // Set, then cleared again: queued again as the queue makes room.
+    r.poke(AREA + EV_SFLAGS, ES_NOQUEUE);
+    r.poke(AREA + EV_QTAIL, r.phys(AREA + EV_QHEAD)); // the program empties its queue
+    r.run(ms(50));
+    CHECK(waiting(r).empty());
+    r.poke(AREA + EV_SFLAGS, 0);
+    r.run(ms(5));
+    w = waiting(r);
+    CHECK(!w.empty());
+    for (const uint8_t k : w)
+        CHECK_EQ(k, EK_SOUND);
+}
+
 int main() { return run_all(); }

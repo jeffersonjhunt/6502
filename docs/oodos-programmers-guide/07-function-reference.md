@@ -3035,8 +3035,8 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (6: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
-  volume; 6 L5a's mailbox stamp, [chapter 8](08-game-services.md#the-6510)), X = a bit for each service area OODOS
+- `FT_INFO`: A = OOLIB's interface version (7: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+  volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510)), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
@@ -3259,7 +3259,8 @@ sound (`OA_SOUND`).
   so a byte the last program left there, not taken, survives the warm boot and the claim; a new 6510 driver reads
   `$DE00` once as it starts, to drop it. Then with a layout-2 event area open, a byte the 6510 sends
   reaches the queue as an `EK_SOUND` event, its value the byte, and since OODOS 0.7 is stamped in the area's
-  `EV_SMBOX`, `EV_SMMS` and `EV_SMCNT` ([chapter 8](08-game-services.md#the-6510)). Of the
+  `EV_SMBOX`, `EV_SMMS` and `EV_SMCNT` ([chapter 8](08-game-services.md#the-6510)); since OODOS 0.8, with the
+  area's `EV_SFLAGS` bit `ES_NOQUEUE` set, it is stamped but not queued. Of the
   stream: channel 2 stopped and both buffers free.
 - `SN_START`, with a layout-2 area open, drops a byte the stopped run left in the mailbox from the card, and sets
   the area's `EV_SMMS` to the millisecond counter and `EV_SMCNT` to 0, before the 6510 runs (since OODOS 0.7).
