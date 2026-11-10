@@ -227,7 +227,7 @@ namespace
         std::unique_ptr<Cpu6502> cpu;
     };
 
-    constexpr uint64_t BOOT = 1'000'000; // cycles: the copy, then the banner at ~3,840 a character
+    constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash's samples (revision 2: ~0.9M), then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
     const std::string GREETING = "\rBACKPLANE BIOS 0.12\r\\\r";
 
@@ -477,25 +477,50 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         started_together = card->splash_frame() == 0 && (sound->ctrl() & SoundCard::CTRL_RUN);
         CHECK(started_together);
         CHECK_EQ(sound->ctrl() & SoundCard::CTRL_NTSC, SoundCard::CTRL_NTSC);
-        // The tune, from splash/bootsnd.bin in the top block, at $1000; the reset vector at its boot entry.
-        const std::string tune = read_file(EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
+        // The player at $1000, the reset vector at its boot entry: the ES5503's (splash/docsnd.bin) on
+        // revision 2, with the samples (splash/wave.bin, from flash blocks 24-28) in wave RAM and the chip
+        // running for the 6510; the SIDs' (splash/bootsnd.bin) on revision 1.
+        const std::string tune = read_file(rev == 2 ? EMU_BIOS_DIR_SPLASH "/docsnd.bin" : EMU_BIOS_DIR_SPLASH "/bootsnd.bin");
         REQUIRE(!tune.empty());
         size_t differ = 0;
         for (size_t i = 0; i < tune.size(); ++i)
             differ += sound->ram()[0x1000 + i] != static_cast<uint8_t>(tune[i]);
         CHECK_EQ(differ, size_t{0});
         CHECK_EQ(sound->ram()[0xFFFC] | sound->ram()[0xFFFD] << 8, 0x1006);
+        if (rev == 2)
+        {
+            const std::string wave = read_file(EMU_BIOS_DIR_SPLASH "/wave.bin");
+            REQUIRE(wave.size() == 0x14000);
+            size_t wrong = 0;
+            for (size_t i = 0; i < wave.size(); ++i)
+                wrong += sound->doc().ram()[i] != static_cast<uint8_t>(wave[i]);
+            CHECK_EQ(wrong, size_t{0});
+            CHECK(sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN);
+        }
         CHECK_EQ(b.run(BOOT), GREETING); // the boot doesn't wait for it
         b.run(FRAME * 60);
         CHECK(card->splash_frame() > 60);
         CHECK(sound->ctrl() & SoundCard::CTRL_RUN);
-        CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
+        if (rev == 2)
+        {
+            CHECK_EQ(sound->doc().peek(0xE1), 23 << 1); // 24 oscillators
+            CHECK_EQ(sound->doc().peek(0xA0) & 0x01, 0); // O1's engine plays, left ...
+            CHECK_EQ(sound->doc().peek(0xA1) & 0x01, 0); // ... and right
+            CHECK(sound->doc().peek(0x40) || sound->doc().peek(0x41));
+        }
+        else
+            CHECK(sound->sid(0)[0x18] & 0x0F); // engines: SID A's volume up...
         if (rev == 1)
             continue; // revision 1 took the card and plays the tune; how the splash ends doesn't depend on the
                       // revision, so it is watched once, on revision 2 (5 s of machine time, ~45 s under ASan)
         b.run(SPLASH_TIME);
         CHECK_EQ(card->splash_frame(), -1); // ...and both over: the monitor's screen
-        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the tune stopped the card ($DE02)
+        CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0); // the player stopped the card ($DE02) ...
+        CHECK_EQ(sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN, 0); // ... and the chip (its bit 0)
+        unsigned running = 0;
+        for (unsigned n = 0; n < 32; ++n)
+            running += !(sound->doc().peek(static_cast<uint8_t>(0xA0 + n)) & 0x01);
+        CHECK_EQ(running, 0u); // every oscillator halted
         CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
         CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
         CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.12"));
@@ -523,6 +548,8 @@ TEST(break_during_the_boot_splash_stops_it_and_its_sound)
         CHECK_EQ(card->splash_frame(), -1);
         CHECK_EQ(sound->ctrl() & SoundCard::CTRL_RUN, 0);
         CHECK_EQ(sound->sid(0)[0x18], 0); // and QUIET silenced the SIDs
+        if (rev == 2)
+            CHECK_EQ(sound->peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN, 0); // and froze the ES5503
     }
 }
 

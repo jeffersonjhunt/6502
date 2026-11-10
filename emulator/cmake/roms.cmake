@@ -4,7 +4,8 @@
 # The backplane BIOS (backplane/bios), as its Makefile builds it: a full
 # 512 KB ROM A image with the BIOS and Woz Monitor in the top block, the
 # font in block 30 and the video demo in block 29 (and the boot splash's
-# tune, splash/bootsnd.bin, committed), and its ld65 -Ln label file. Target `backplane_bios`; files in EMU_BIOS_DIR.
+# players, splash/bootsnd.bin and splash/docsnd.bin, and its samples in blocks
+# 24-28, splash/wave.bin, all committed), and its ld65 -Ln label file. Target `backplane_bios`; files in EMU_BIOS_DIR.
 # Without cc65 there is no target, and what needs it skips (tests) or
 # refuses to configure (apps/web).
 
@@ -23,7 +24,8 @@ if(EMU_CA65 AND EMU_LD65)
                 COMMAND "${EMU_CA65}" -g -I "${EMU_BIOS_SRC}" --bin-include-dir "${EMU_BIOS_SRC}"
                         -o "${EMU_BIOS_DIR}/${src}.o" "${EMU_BIOS_SRC}/${src}.s"
                 DEPENDS "${EMU_BIOS_SRC}/${src}.s" "${EMU_BIOS_SRC}/backplane.inc" "${EMU_BIOS_SRC}/font/vga8x16.bin"
-                        ${demo_assets} "${EMU_BIOS_SRC}/splash/bootsnd.bin"
+                        ${demo_assets} "${EMU_BIOS_SRC}/splash/bootsnd.bin" "${EMU_BIOS_SRC}/splash/docsnd.bin"
+                        "${EMU_BIOS_SRC}/splash/wave.bin"
                 VERBATIM)
         list(APPEND objs "${EMU_BIOS_DIR}/${src}.o")
     endforeach()

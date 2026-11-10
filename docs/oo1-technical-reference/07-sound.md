@@ -172,13 +172,15 @@ Status: **emulated**
 
 The BIOS plays the boot splash's sound on the card
 ([hw/design.md, "The splash's sound"](../../hw/design.md#the-splashs-sound)) when both a video card and a sound
-card answer. `splash.s` clears CTRL, loads the program, under 2 KB, at `$1000` through RAMDATA, and points the
-card's reset vector at its entry, `$1006`. Then it starts the splash, waits for the vertical blank the splash
-begins on, and writes CTRL:
+card answer. `splash.s` clears CTRL and loads a program, under 2 KB, at `$1000` through RAMDATA: on revision 2 or
+later, a player for the ES5503, after the player's samples, 80 KB from flash, into wave RAM through DOCDATA (about
+0.13 s), and DOCCTL RUN set, so the 6510 has the chip at `$DF00`; on revision 1, a tune for the SIDs. It points the
+card's reset vector at the program's entry, `$1006`. Then it starts the splash, waits for the vertical blank the
+splash begins on, and writes CTRL:
 
-<!-- listing: ../../backplane/bios/splash.s:61-82 -->
+<!-- listing: ../../backplane/bios/splash.s:126-147 -->
 ```
-@vector:        LDA     #$FC           ; the card's reset vector: the tune's boot entry
+@vector:        LDA     #$FC           ; the card's reset vector: the player's boot entry
                 STA     SOUND_RAMADDR
                 LDA     #$FF
                 STA     SOUND_RAMADDR + 1
@@ -203,10 +205,11 @@ begins on, and writes CTRL:
 ```
 
 The program plays from the CIA's timer at 240 Hz, four times a video frame, for 300 frames: 5 s. The sound is over
-by about 2.4 s, but the program runs to the end. Then it zeroes the SIDs' registers and writes `$DE02`. It sends
-nothing through the mailbox. So under the monitor CTRL reads `$03` for the first 5 s and `$01` after, and RAMADDR
-reads `$FFFE`. A program that takes the card in the first 5 s stops the 6510 and silences the SIDs first, as QUIET
-does. Break stops the boot sound early.
+by about 3 s, but the program runs to the end. Then it silences what it played, the SIDs' registers zeroed or the
+ES5503's oscillators halted, and writes `$DE02`; on revision 2 it writes 1 there, which clears DOCCTL RUN too. It
+sends nothing through the mailbox. So under the monitor CTRL reads `$03` for the first 5 s and `$01` after, and
+RAMADDR reads `$FFFE`. A program that takes the card in the first 5 s stops the 6510 and silences the SIDs first,
+and on revision 2 clears DOCCTL RUN, as QUIET does. Break stops the boot sound early.
 
 ### Playing a .sid file
 

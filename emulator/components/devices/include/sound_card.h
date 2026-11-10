@@ -78,7 +78,10 @@
  *                host's stub, and the raster line's switch (below)
  *   $DE00/$DE01  the mailbox and its status
  *   $DE02        STOP: any write clears CTRL RUN, so a one-shot (the boot
- *                splash's tune) hands the SIDs back to the host when done
+ *                splash's tune) hands the SIDs back to the host when done.
+ *                On revision 2 a write with bit 0 set also clears DOCCTL
+ *                RUN, as the host's write does (the ES5503 frozen, its bus
+ *                stopped), so PCM may run again; 0 leaves the ES5503 be
  *
  * The rest of $D000-$DFFF (the rest of the VIC-II, colour RAM, CIA 2, the
  * rest of $DE00-$DFFF) reads $FF
