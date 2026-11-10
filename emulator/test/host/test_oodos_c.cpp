@@ -6,8 +6,10 @@
  * CTEST (oodos/test/c/ctest.c, `make -C oodos CPROGRAMS=ctest`) on M:, its first argument a case: main
  * with no arguments; argc and argv from the command tail, NULL after the last, and at most 16; printf's
  * conversions (cc65's _printf.s, altered for rule 2, the one linked); malloc, realloc and free; lines
- * from stdin through function 10 to a ^Z, each byte by its own read(); exit(n)'s status as function
- * 108's code, seen by a `:` command; bdos(); write() refusing a descriptor that isn't the console's. The
+ * from stdin through function 10 to a ^Z, each byte by its own read(), and by more than a byte, a line
+ * over two calls; exit(n)'s status as function 108's code, seen by a `:` command; bdos(); write()
+ * refusing a descriptor that isn't the console's; and CTEST linked with a C stack too big for the TPA
+ * (oodos_utils/bigstack/, `CLDFLAGS=-D __STACKSIZE__=0xB000`) refused before it runs, as a failure. The
  * build's side (the rules gate over the C library, the stock _printf.o refused, cc65's warnings, oodos.h
  * against oodos.inc) is oodos/test/check_tools.py's.
  */
@@ -41,12 +43,12 @@ namespace
         return out;
     }
 
-    /// A rig with CTEST.COM on M: and M: on the search chain.
+    /// A rig with CTEST.COM on M:, from `dir`.
     struct CRig : CcpRig
     {
-        CRig()
+        explicit CRig(const std::string &dir = UTILS)
         {
-            put_util("ctest", UTILS);
+            put_util("ctest", dir);
         }
         /// Run `line` and return what it printed, showing it on a mismatch with `want`.
         bool says(const std::string &line, const std::string &want)
@@ -121,6 +123,36 @@ TEST(stdin_reads_edited_lines_to_a_ctrl_z)
     CHECK(got == want);
     if (got != want)
         std::printf("  got  '%s'\n  want '%s'\n", vis(got).c_str(), vis(want).c_str());
+}
+
+TEST(stdin_s_read_gives_a_line_over_as_many_calls_as_it_takes)
+{
+    CRig r;
+    REQUIRE(r.ok);
+    const size_t from = r.out.size();
+    r.type("m:ctest parts\r");
+    REQUIRE(r.calls(CcpRig::C_READSTR_FN));
+    r.type("abcdefghijk\r"); // 5, 5, then the rest by 300: the k and the '\n'
+    REQUIRE(r.calls(CcpRig::C_READSTR_FN));
+    r.type("xyz\r"); // a line by 300: all of it
+    REQUIRE(r.until("\r\nA>", ms(3000), from + 15));
+    const std::string got = r.out.substr(from);
+    const std::string want = "m:ctest parts\r\nabcdefghijk\r\nread(5)=5 [abcde]\r\nread(5)=5 [fghij]\r\n"
+                             "read(300)=2 [k|]\r\nxyz\r\nread(300)=4 [xyz|]\r\n\r\nA>";
+    CHECK(got == want);
+    if (got != want)
+        std::printf("  got  '%s'\n  want '%s'\n", vis(got).c_str(), vis(want).c_str());
+}
+
+TEST(a_c_stack_without_room_in_the_tpa_is_refused_as_a_failure)
+{
+    CRig r(UTILS + "/bigstack");
+    REQUIRE(r.ok);
+    CHECK(r.says("m:ctest", "Not enough memory for the C stack\n"));
+    const std::string skipped = r.cmd(":m:ctest"); // the failure's code: a `:` command doesn't run
+    CHECK(skipped == ":m:ctest\r\r\nA>");
+    if (skipped != ":m:ctest\r\r\nA>")
+        std::printf("  :m:ctest after the refusal: '%s'\n", vis(skipped).c_str());
 }
 
 TEST(exit_s_status_is_function_108_s_code)

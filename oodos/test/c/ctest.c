@@ -5,6 +5,7 @@
  *   PRINTF      printf's conversions, through stdout, and sprintf's through a buffer
  *   HEAP        malloc, realloc and free: blocks that keep their bytes, and the heap's room
  *   READ        lines from stdin (fgets) until the end of the file, each echoed as got[...]
+ *   PARTS       read() of stdin by more than a byte: 5 and 5 of one line, the rest by 300, a line by 300
  *   EXIT n      exit(n)
  *   BDOS        bdos(): function 9's string and function 12's version
  *   BADFD       write() to a file descriptor that isn't the console's
@@ -74,6 +75,24 @@ static void reads(void)
     printf("lines=%u eof=%d\n", n, feof(stdin) != 0);
 }
 
+static void part(unsigned n)
+{
+    static char buf[300];
+    int got = read(0, buf, n), i;
+    printf("read(%u)=%d [", n, got);
+    for (i = 0; i < got; ++i)
+        putchar(buf[i] == '\n' ? '|' : buf[i]);
+    puts("]");
+}
+
+static void parts(void)
+{
+    part(5);
+    part(5);
+    part(300);
+    part(300);
+}
+
 static void bdoss(void)
 {
     unsigned v;
@@ -99,6 +118,8 @@ int main(int argc, char **argv)
         heap();
     else if (strcmp(what, "READ") == 0)
         reads();
+    else if (strcmp(what, "PARTS") == 0)
+        parts();
     else if (strcmp(what, "EXIT") == 0)
         exit(argc > 2 ? atoi(argv[2]) : 0);
     else if (strcmp(what, "BDOS") == 0)

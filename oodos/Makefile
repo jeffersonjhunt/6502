@@ -120,7 +120,9 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 # library's). A cc65 warning fails the build, as an ld65 one does. oodosc.lib is c/*.s: the start
 # (crt0.s), the console's read and write, argc and argv, bdos(), and cc65's _printf.s altered for rule
 # 2; ld65 takes its modules ahead of none.lib's. include/oodos.h's names are oodos.inc's (oodosh.py).
+# CLDFLAGS goes to the link: -D __STACKSIZE__=N for another C stack's room than c.cfg's 2 KB.
 CPROGRAMS =
+CLDFLAGS =
 CSRC = $(patsubst c/%.s,%,$(wildcard c/*.s))
 CFLAGS = -t none --cpu 65c02 -O -I include
 CC65 = @echo cc65 $(1); cc65 $(1) 2>$(2).cc; s=$$?; w=$$(cat $(2).cc); rm -f $(2).cc; \
@@ -142,7 +144,7 @@ $(CPROGRAMS:%=$(BUILD)/%.o): $(BUILD)/%.o: $(SRC)/%.c include/oodos.h $(BUILD)/o
 	ca65 --cpu 65c02 -g $(BUILD)/$*.cs -o $@
 
 $(CPROGRAMS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oodosc.lib cfg/c.cfg tools/rules.py
-	$(call LD65,-C cfg/c.cfg $< --start-group $(BUILD)/oodosc.lib none.lib --end-group -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(call LD65,-C cfg/c.cfg $(CLDFLAGS) $< --start-group $(BUILD)/oodosc.lib none.lib --end-group -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map --code STARTUP,ONCE,CODE
 	mv $@.tmp $@
 

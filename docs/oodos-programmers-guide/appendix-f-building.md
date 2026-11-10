@@ -141,7 +141,9 @@ A cc65 warning fails the build, as an ld65 warning does.
   run.
 - **Memory:** cc65's runtime takes 26 bytes of zero page from `$00`, and a program's own zero page follows. The C
   stack runs down from the top of the TPA. The heap (`malloc`) runs up from the end of `BSS` and stops 2 KB below
-  the stack's start.
+  the stack's start. With less than those 2 KB between the end of `BSS` and the top of the TPA (a large program,
+  or RSXs resident below the BDOS), the program prints `Not enough memory for the C stack` and ends as a failure,
+  before `main`. For another size, link with `CLDFLAGS="-D __STACKSIZE__=N"`.
 
 **`cfg/c.cfg`'s segments** are `cfg/com.cfg`'s, with two of cc65's added after `HEADER` and `ZEROPAGE`:
 `STARTUP`, the start ([`oodos/c/crt0.s`](../../oodos/c/crt0.s)), which comes first at `$0300`; and `ONCE`, the code

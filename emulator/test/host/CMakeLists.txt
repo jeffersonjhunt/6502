@@ -298,7 +298,8 @@ add_custom_command(
 # (oodos/test/pb, the sound library's, for test_oodos_pb); and L6b's MUTEST (oodos/test/mu, the music
 # library's, for test_oodos_mu, with the 6510 driver it takes in, lib/mudrv). And SIDOVL with its overlays
 # SIDPLUG (the library's .sid, its zero page SIDOVL's) and SIDPLUGZ (without, refused), oodos/test/ovl, for
-# test_oodos_playsid. And CTEST, the C target's test program (oodos/test/c, Plan C1), for test_oodos_c.
+# test_oodos_playsid. And CTEST, the C target's test program (oodos/test/c, Plan C1), for test_oodos_c, with
+# a copy in bigstack/ linked with a C stack too big for the TPA.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
      "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
@@ -323,6 +324,8 @@ add_custom_command(
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/sidplugz.prl"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/ctest.com"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}/bigstack"
+                "CLDFLAGS=-D __STACKSIZE__=0xB000" "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/bigstack/ctest.com"
         COMMAND "${Python3_EXECUTABLE}" -I -B "${OODOS_SRC}/test/check_mkasset.py" --write "${OODOS_UTILS_DIR}/assets"
         COMMAND "${CMAKE_COMMAND}" -E touch "${OODOS_UTILS_DIR}/utils.stamp"
         DEPENDS ${oodos_deps} ${oodos_utils_deps}

@@ -72,3 +72,5 @@ from is tagged `beta`.
 MIT (`LICENSE`), except the backplane BIOS's font, `backplane/bios/font/vga8x16.bin`: IBM VGA 8x16 from VileR's
 [Ultimate Oldschool PC Font Pack](https://int10h.org/oldschool-pc-fonts/), under CC BY-SA 4.0. It is inside
 `bios.rom` and the emulator's web build, which carry it under that license; see `backplane/bios/font/README.md`.
+And `oodos/c/_printf.s`: cc65's, altered for OODOS (its changed lines are marked), under cc65's zlib license, which
+the file keeps. A C program built for OODOS also links cc65's own library, `none.lib`, under the same license.

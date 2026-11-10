@@ -2164,7 +2164,9 @@ is how to use it; this is why it is so.
   `--start-group` and `--end-group` ld65 searches again until nothing is missing, `oodosc.lib` first each time.
   `check_tools.py` checks that the map names `oodosc.lib`'s `_printf.o`, and that the stock one is refused.
 - **The start** ([`oodos/c/crt0.s`](../oodos/c/crt0.s)) takes the C stack from `BP_TOP`, so a resident RSX's memory is
-  kept; clears `BSS`, which a `.COM`'s loader doesn't; runs the constructors (the heap's floor, `argc` and `argv`)
+  kept, and ends the program at once, as a failure, if `BP_TOP` is less than `__STACKSIZE__` above `BSS`'s end
+  (review F3: the stack would run into the program's data unseen; `malloc` is safe, as it stops at `__heapend`);
+  clears `BSS`, which a `.COM`'s loader doesn't; runs the constructors (the heap's floor, `argc` and `argv`)
   and `main`. Its end runs the destructors and the warm boot: `exit(n)` with `n` other than 0 sets function 108's
   code to `$FF00`, the CCP's failure for a `:` command. The low byte isn't kept: `$FFFD` and `$FFFE` are OODOS's own
   (an error, a ^C), and `$FFFF` can't be set.
@@ -2176,7 +2178,8 @@ is how to use it; this is why it is so.
 - **`oodos.h` from `oodos.inc`.** Its names are written by `oodos/tools/oodosh.py`, and the build checks them, so the
   two can't drift: a new function in `oodos.inc` fails the next C build until `oodosh.py write` is run.
 - **Tests:** `test_oodos_c` runs CTEST (`oodos/test/c/ctest.c`) from the CCP: the arguments, printf, the heap, lines
-  from stdin to a ^Z, `exit`'s code seen by a `:` command, `bdos()`, `EBADF`. `check_tools.py`'s "The C target": the
+  from stdin to a ^Z, a line over two `read()`s, `exit`'s code seen by a `:` command, `bdos()`, `EBADF`, and a copy
+  linked with a 44 KB stack refused. `check_tools.py`'s "The C target": the
   gate passes a C program and refuses the stock `_printf.o` and a planted absolute store to zero page; a cc65
   warning fails the build; a stale `oodos.h` and an `oodos.inc` with no functions are refused. `docs/examples/cargs.c`
   is the book's example, run by `test_docs_examples`.
