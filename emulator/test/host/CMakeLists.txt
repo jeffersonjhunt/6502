@@ -253,6 +253,9 @@ foreach(name ${OODOS_UTILS_SUITES})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
 endforeach()
 set_tests_properties(test_oodos_utils_dir PROPERTIES TIMEOUT 3600) # its page and sheet sweep (some 25 listings): ~1,460 s at load 2, more in a parallel run
+set_tests_properties(test_oodos_disk2_media PROPERTIES TIMEOUT 5400) # 24 cases of Disk II time under ASan: alone 2,050-2,457 s at c11e7e7 and 2,356 s at e4aa5ca (2026-11-09), so the host's spread, not a change
+set_tests_properties(test_oodos_utils_files PROPERTIES TIMEOUT 3600) # 1,291-1,305 s in the full tier under ASan (2026-11-09): 72% of 1,800, with the host's spread of about 30%
+set_tests_properties(test_oodos_disk2 PROPERTIES TIMEOUT 5400) # the Disk II's cases under ASan: 1,724-1,733 s in the full tier (2026-11-09), too close to 1,800
 set(OODOS_SRC "${PROJECT_SOURCE_DIR}/../oodos")
 set(OODOS_SYS_SRC "${OODOS_SRC}/sys")
 set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")
