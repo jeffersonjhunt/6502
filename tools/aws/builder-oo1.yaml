@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  The OO-1's part of the builder (tools/aws/README.md): the image repository builder/oo1, the instance
+  role its throw-away instances run as, a security group with no way in, and the launch template
+  tools/cloud-full.sh launches from. Needs builder-base (its bucket and key exports).
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: c7g.4xlarge
+    Description: The full tier's instance (arm64, as the image is built here on arm64).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC its instances run in (the default VPC; deploy-oo1.sh finds it).
+  DiskGb:
+    Type: Number
+    Default: 120
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: The instance's OS; the work runs in the builder/oo1 image on it.
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: builder/oo1
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"the 5 newest","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}
+      Tags: [{ Key: builder, Value: "true" }]
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: builder-oo1-instance
+      Path: /builder/
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore # Session Manager, to look in on a run; no SSH
+      Policies:
+        - PolicyName: oo1-run
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadItsSourceAndFixtures
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub ["arn:aws:s3:::${B}/oo1/src/*", { B: !ImportValue builder-bucket }]
+                  - !Sub ["arn:aws:s3:::${B}/oo1/fixtures/*", { B: !ImportValue builder-bucket }]
+              - Sid: ListItsRuns
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub ["arn:aws:s3:::${B}", { B: !ImportValue builder-bucket }]
+                Condition: { StringLike: { "s3:prefix": "oo1/runs/*" } }
+              - Sid: WriteItsRuns
+                Effect: Allow
+                Action: [s3:PutObject, s3:PutObjectTagging]
+                Resource: !Sub ["arn:aws:s3:::${B}/oo1/runs/*", { B: !ImportValue builder-bucket }]
+              - Sid: TheBucketsKey
+                Effect: Allow
+                Action: [kms:Decrypt, kms:GenerateDataKey]
+                Resource: !ImportValue builder-key
+              - Sid: PullTheImage
+                Effect: Allow
+                Action: [ecr:GetAuthorizationToken]
+                Resource: "*"
+              - Sid: PullTheImageFromItsRepository
+                Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+                Resource: !GetAtt Repository.Arn
+      Tags: [{ Key: builder, Value: "true" }]
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: builder-oo1-instance
+      Path: /builder/
+      Roles: [!Ref InstanceRole]
+
+  NoWayIn:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: builder-oo1 instances, no inbound; out to S3, ECR, the fixtures' and npm's hosts
+      VpcId: !Ref VpcId
+      SecurityGroupEgress: [{ IpProtocol: "-1", CidrIp: 0.0.0.0/0 }]
+      Tags: [{ Key: builder, Value: "true" }]
+
+  # A run's parameters come in its instance's tags (read through the metadata service): run, src (the
+  # source archive's key), image (its tag in builder/oo1), tier, minutes (the watchdog). The script
+  # below is the same for every run.
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: builder-oo1
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags: [{ Key: builder, Value: "true" }]
+      LaunchTemplateData:
+        ImageId: !Ref ImageId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: { Arn: !GetAtt InstanceProfile.Arn }
+        InstanceInitiatedShutdownBehavior: terminate
+        SecurityGroupIds: [!Ref NoWayIn]
+        MetadataOptions: { HttpTokens: required, HttpPutResponseHopLimit: 1, InstanceMetadataTags: enabled }
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs: { VolumeSize: !Ref DiskGb, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+        TagSpecifications:
+          - ResourceType: instance
+            Tags: [{ Key: builder, Value: "true" }, { Key: project, Value: oo1 }]
+          - ResourceType: volume
+            Tags: [{ Key: builder, Value: "true" }, { Key: project, Value: oo1 }]
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              # A builder-oo1 run (tools/aws/README.md). Ends by powering off: the instance terminates.
+              set -u
+              tag() { curl -sf -H "X-aws-ec2-metadata-token: $T" "http://169.254.169.254/latest/meta-data/tags/instance/$1"; }
+              T=$(curl -sf -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" http://169.254.169.254/latest/api/token)
+              shutdown -h "+$(tag minutes || echo 180)" "builder: the watchdog"
+              run=$(tag run); src=$(tag src); image=$(tag image); tier=$(tag tier || echo full)
+              out="s3://${Bucket}/oo1/runs/$run"
+              log=/work/run.log
+              mkdir -p /work/logs /work/6502
+              exec >"$log" 2>&1
+              say() { echo "$(date -u +%FT%TZ) $*"; aws s3 cp "$log" "$out/run.log" --only-show-errors || true; }
+              finish() {
+                  say "end: $1"
+                  printf '%s\n' "$1" | aws s3 cp - "$out/exit" --only-show-errors
+                  aws s3 cp /work/logs "$out/logs" --recursive --only-show-errors || true
+                  for k in $(aws s3api list-objects-v2 --bucket "${Bucket}" --prefix "oo1/runs/$run/" --query 'Contents[].Key' --output text); do
+                      aws s3api put-object-tagging --bucket "${Bucket}" --key "$k" --tagging 'TagSet=[{Key=kind,Value=run}]' || true
+                  done
+                  shutdown -h now "builder: done"
+                  exit 0
+              }
+              say "start: run $run, $(curl -sf -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/instance-type), image $image, tier $tier, $(nproc) CPUs"
+              dnf install -y -q docker zstd tar >/dev/null && systemctl start docker || finish "error: docker"
+              aws s3 cp "s3://${Bucket}/$src" - | tar -C /work/6502 -xzf - || finish "error: the source"
+              fx=/work/6502/emulator/test/host/fixtures
+              id=$(aws s3 cp "s3://${Bucket}/oo1/fixtures/current" -) || finish "error: no fixtures"
+              aws s3 cp "s3://${Bucket}/oo1/fixtures/$id.tar.zst" - | zstd -dq | tar -C "$fx" -xf - || finish "error: the fixtures"
+              say "fixtures $id"
+              aws ecr get-login-password | docker login -u AWS --password-stdin "${Registry}" >/dev/null || finish "error: ecr login"
+              docker pull -q "${Repo}:$image" >/dev/null || finish "error: the image"
+              say "running tools/check.sh $tier"
+              # The checkout at the same path inside as out, so the bind mounts web_build.sh and make_card.sh
+              # make through the host's Docker resolve to it.
+              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /work:/work -w /work/6502 \
+                  -e CHECK_LOGS=/work/logs -e HOME=/work/home "${Repo}:$image" \
+                  sh -c 'python3 -I emulator/tools/fetch_fixtures.py && (cd emulator/apps/web/ui && npm ci --no-audit --no-fund) && tools/check.sh '"$tier" \
+                  >/work/logs/check.out 2>&1
+              rc=$?
+              aws s3 cp /work/logs/check.out "$out/check.out" --only-show-errors
+              finish "check.sh $tier exit $rc"
+            - Bucket: !ImportValue builder-bucket
+              Registry: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+              Repo: !GetAtt Repository.RepositoryUri
+
+Outputs:
+  RepositoryUri: { Value: !GetAtt Repository.RepositoryUri }
+  LaunchTemplateId: { Value: !Ref LaunchTemplate }
