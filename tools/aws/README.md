@@ -35,6 +35,8 @@ instance's Docker socket and the checkout at the same path inside as out, so the
 the interop stage's containers mount it. The public fixtures (Dormann's, Harte's) are fetched there.
 Spot by default, in each of the builder's three zones in turn; on-demand if none has spot capacity, or with
 `--on-demand`. The account has no default VPC, and its own VPC is left alone: the builder's is its own.
+Spot needs EC2's service-linked role, made once for the account with the admin profile:
+`aws iam create-service-linked-role --aws-service-name spot.amazonaws.com`; without it, runs go on-demand.
 
 **Looking in:** Session Manager (`aws ssm start-session --target i-...`), with the admin profile; there
 is no SSH key and no inbound port.

@@ -89,9 +89,9 @@ if ! aws ecr describe-images --repository-name "$repository" --image-ids "imageT
     # for ECR that isn't installed, and the token stays out of it.
     dc=$(mktemp -d)
     trap 'rm -rf "$dc"' EXIT
-    aws ecr get-login-password | DOCKER_CONFIG=$dc docker login -u AWS --password-stdin "$registry" >/dev/null
+    aws ecr get-login-password | DOCKER_CONFIG=$dc docker login -u AWS --password-stdin "$registry" >/dev/null 2>&1
     docker tag "$repository:$image" "$registry/$repository:$image"
-    DOCKER_CONFIG=$dc docker push -q "$registry/$repository:$image" >/dev/null
+    DOCKER_CONFIG=$dc docker push -q "$registry/$repository:$image" >/dev/null 2>&1
     rm -rf "$dc"
     trap - EXIT
 fi
@@ -120,6 +120,11 @@ got=
 for m in $([ "$market" = spot ] && echo spot) on-demand; do
     for s in ${subnets//,/ }; do
         if got=$(launch "$m" "$s" 2>&1); then market=$m; break 2; fi
+        if grep -q ServiceLinkedRoleCreationNotPermitted <<<"$got"; then # no spot role in the account (README)
+            echo "cloud-full: spot needs its service-linked role (tools/aws/README.md): on-demand"
+            got=
+            continue 2
+        fi
         if ! grep -qE 'InsufficientInstanceCapacity|SpotMaxPriceTooLow|MaxSpotInstanceCountExceeded|Unsupported' <<<"$got"; then
             echo "$got" >&2
             exit 1
