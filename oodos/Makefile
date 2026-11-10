@@ -114,6 +114,38 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
 	mv $@.tmp $@
 
+# The C target (Plan C1; the Programmer's Guide, appendix F, "A program in C"): each of CPROGRAMS is
+# SRC/NAME.c, compiled by cc65 for the 65C02 and linked as a .COM with cfg/c.cfg, build/oodosc.lib and
+# cc65's none.lib, through the same rules gate (STARTUP, ONCE and CODE: the program's code and the C
+# library's). A cc65 warning fails the build, as an ld65 one does. oodosc.lib is c/*.s: the start
+# (crt0.s), the console's read and write, argc and argv, bdos(), and cc65's _printf.s altered for rule
+# 2; ld65 takes its modules ahead of none.lib's. include/oodos.h's names are oodos.inc's (oodosh.py).
+CPROGRAMS =
+CSRC = $(patsubst c/%.s,%,$(wildcard c/*.s))
+CFLAGS = -t none --cpu 65c02 -O -I include
+CC65 = @echo cc65 $(1); cc65 $(1) 2>$(2).cc; s=$$?; w=$$(cat $(2).cc); rm -f $(2).cc; \
+	[ -z "$$w" ] || echo "$$w" >&2; [ $$s = 0 ] && [ -z "$$w" ]
+
+$(CSRC:%=$(BUILD)/c-%.o): $(BUILD)/c-%.o: c/%.s include/oodos.inc | $(BUILD)
+	ca65 --cpu 65c02 $(AFLAGS) $< -o $@
+
+$(BUILD)/oodosc.lib: $(CSRC:%=$(BUILD)/c-%.o)
+	rm -f $@
+	ar65 a $@ $^
+
+$(BUILD)/oodosh.ok: include/oodos.h include/oodos.inc tools/oodosh.py | $(BUILD)
+	$(PYTHON) tools/oodosh.py check include/oodos.inc include/oodos.h
+	touch $@
+
+$(CPROGRAMS:%=$(BUILD)/%.o): $(BUILD)/%.o: $(SRC)/%.c include/oodos.h $(BUILD)/oodosh.ok | $(BUILD)
+	$(call CC65,$(CFLAGS) $< -o $(BUILD)/$*.cs,$@)
+	ca65 --cpu 65c02 -g $(BUILD)/$*.cs -o $@
+
+$(CPROGRAMS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oodosc.lib cfg/c.cfg tools/rules.py
+	$(call LD65,-C cfg/c.cfg $< --start-group $(BUILD)/oodosc.lib none.lib --end-group -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map --code STARTUP,ONCE,CODE
+	mv $@.tmp $@
+
 # An overlay linked with the library (the Programmer's Guide, chapter 8, "Linking the library into an
 # overlay"): each of OVL_LIB, NAME.prl from NAME.o and oolib.lib, with the caller's addresses for the
 # zero page names OVL_ZP, from the map of OVL_CALLER's .COM (tools/libzp.py names). Its zero page is

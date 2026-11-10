@@ -247,7 +247,7 @@ emu_add_test(test_oodos_rsx)
 set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and the RSXs (phase 5a), test_oodos_ccp's machinery
 # Phase 4b's utilities (oodos/utils, `make -C oodos utils`): a suite each group, test_oodos_ccp's
 # machinery. A new suite is its name here and its .cpp.
-set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_pb test_oodos_mu)
+set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_pb test_oodos_mu test_oodos_c)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
@@ -264,8 +264,9 @@ set(OODOS_PRL_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_prl")
 set(OODOS_UTILS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_utils")
 find_package(Python3 COMPONENTS Interpreter)
 find_program(EMU_MAKE make)
-if(NOT (EMU_CA65 AND EMU_LD65 AND Python3_FOUND AND EMU_MAKE))
-    message(FATAL_ERROR "emu: the OODOS tests need cc65 (ca65, ld65), python3 and make")
+find_program(EMU_CC65 cc65)
+if(NOT (EMU_CA65 AND EMU_LD65 AND EMU_CC65 AND Python3_FOUND AND EMU_MAKE))
+    message(FATAL_ERROR "emu: the OODOS tests need cc65 (cc65, ca65, ld65), python3 and make")
 endif()
 file(GLOB oodos_includes CONFIGURE_DEPENDS "${OODOS_SRC}/include/*.inc")
 file(GLOB oodos_deps CONFIGURE_DEPENDS
@@ -297,11 +298,11 @@ add_custom_command(
 # (oodos/test/pb, the sound library's, for test_oodos_pb); and L6b's MUTEST (oodos/test/mu, the music
 # library's, for test_oodos_mu, with the 6510 driver it takes in, lib/mudrv). And SIDOVL with its overlays
 # SIDPLUG (the library's .sid, its zero page SIDOVL's) and SIDPLUGZ (without, refused), oodos/test/ovl, for
-# test_oodos_playsid.
+# test_oodos_playsid. And CTEST, the C target's test program (oodos/test/c, Plan C1), for test_oodos_c.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
      "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
-     "${OODOS_SRC}/tools/libzp.py")
+     "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -320,6 +321,8 @@ add_custom_command(
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ovl "OOLIB_USERS=playsid view sidovl" OVL_LIB=sidplugz
                 OVL_CALLER=sidovl "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/sidplugz.prl"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}"
+                "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/ctest.com"
         COMMAND "${Python3_EXECUTABLE}" -I -B "${OODOS_SRC}/test/check_mkasset.py" --write "${OODOS_UTILS_DIR}/assets"
         COMMAND "${CMAKE_COMMAND}" -E touch "${OODOS_UTILS_DIR}/utils.stamp"
         DEPENDS ${oodos_deps} ${oodos_utils_deps}
@@ -401,8 +404,8 @@ target_compile_definitions(test_oodos_boot PRIVATE
 # test_docs: docs/tools/check_docs.py, the books held to oodos.inc and
 # backplane.inc (entries, the unwritten list, anchors, links, listings, the
 # indexes); test_docs_check: its own cases, each check made to fail on a
-# broken copy of the tree. test_docs_examples: each docs/examples program,
-# built by docs/examples/Makefile through oodos/Makefile's rules, run from
+# broken copy of the tree. test_docs_examples: each docs/examples program
+# (ca65's NAME.s or C's NAME.c), built by docs/examples/Makefile through oodos/Makefile's rules, run from
 # the CCP (oodos_rig.h's CcpRig) and its output compared with NAME.out.
 
 get_filename_component(DOCS_SRC "${PROJECT_SOURCE_DIR}/../docs" ABSOLUTE)
@@ -412,7 +415,8 @@ set_tests_properties(test_docs test_docs_check PROPERTIES TIMEOUT 120)
 emu_add_test(test_docs_examples)
 set_tests_properties(test_docs_examples PROPERTIES TIMEOUT 600) # a boot and a command a program, under ASan
 set(DOCS_EXAMPLES_DIR "${CMAKE_CURRENT_BINARY_DIR}/docs_examples")
-file(GLOB docs_examples CONFIGURE_DEPENDS "${DOCS_SRC}/examples/*.s")
+file(GLOB docs_examples CONFIGURE_DEPENDS "${DOCS_SRC}/examples/*.s" "${DOCS_SRC}/examples/*.c")
+file(GLOB oodos_c_lib CONFIGURE_DEPENDS "${OODOS_SRC}/c/*.s")
 set(docs_example_coms)
 foreach(src ${docs_examples})
     get_filename_component(name "${src}" NAME_WE)
@@ -422,7 +426,8 @@ add_custom_command(
         OUTPUT ${docs_example_coms}
         COMMAND "${EMU_MAKE}" -s -C "${DOCS_SRC}/examples" "BUILD=${DOCS_EXAMPLES_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
         DEPENDS ${docs_examples} ${oodos_includes} "${DOCS_SRC}/examples/Makefile" "${OODOS_SRC}/Makefile"
-                "${OODOS_SRC}/cfg/com.cfg" "${OODOS_SRC}/tools/rules.py"
+                "${OODOS_SRC}/cfg/com.cfg" "${OODOS_SRC}/tools/rules.py" "${OODOS_SRC}/cfg/c.cfg"
+                "${OODOS_SRC}/include/oodos.h" "${OODOS_SRC}/tools/oodosh.py" ${oodos_c_lib}
         VERBATIM)
 add_custom_target(docs_examples ALL DEPENDS ${docs_example_coms})
 add_dependencies(test_docs_examples docs_examples oodos_sys backplane_bios)

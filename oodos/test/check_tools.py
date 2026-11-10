@@ -1,5 +1,5 @@
 """Checks OODOS's build tools (README.md): the header, mkprl.py's .PRL and loader, the rules gate, and
-dos33.py (phase 6d): its images, listing, extraction and check.
+dos33.py (phase 6d): its images, listing, extraction and check; and the C target's build (Plan C1).
 
     make check                       # from oodos/, after make
     python3 -I test/check_tools.py [BUILD]
@@ -582,8 +582,70 @@ def dos33_checks():
     ok(any("starts at sector" in x for x in p), "a list's offset wrong: found: %s" % p[:1])
 
 
+C_HELLO = '#include <stdio.h>\n#include "oodos.h"\nint main(void)\n{\n    printf("%d\\n", C_WRITE);\n%s    return 0;\n}\n'
+
+
+def cbuild(tmp, name, body=""):
+    """make CPROGRAMS=name from C_HELLO with body in main. @return (status, output, made)"""
+    with open(os.path.join(tmp, name + ".c"), "w") as f:
+        f.write(C_HELLO.replace("%s", body))
+    out = os.path.join(tmp, "cbuild", name + ".com")
+    r = run("make", "--no-print-directory", "SRC=" + tmp, "BUILD=" + os.path.join(tmp, "cbuild"), "CPROGRAMS=" + name, out)
+    return r.returncode, r.stdout + r.stderr, os.path.exists(out)
+
+
+def c_checks(tmp):
+    """The C target (Plan C1): the build's gates. Running a C program is test_oodos_c's."""
+    status, out, made = cbuild(tmp, "chello")
+    ok(not status and made and "0 problems" in out, "make chello.com (C, printf) passes the rules gate")
+    if status or not made:
+        print(out)
+        return
+    b = os.path.join(tmp, "cbuild")
+    com, cmap = read(os.path.join(b, "chello.com")), open(os.path.join(b, "chello.map")).read()
+    ok(com[:4] == b"OOD\x1a" and com[16] == 0xAD, "chello.com: OODOS's header, and the image starts with crt0's LDA BP_TOP")
+    ok("oodosc.lib(c-_printf.o)" in cmap and "none.lib(_printf.o)" not in cmap,
+       "chello.com: _printf.o is oodosc.lib's, not none.lib's")
+    # none.lib's own _printf.o, linked when oodosc.lib has none: rule 2 refuses it.
+    lib = os.path.join(tmp, "noprintf.lib")
+    objs = [os.path.join(b, "c-%s.o" % m[:-2]) for m in sorted(os.listdir(os.path.join(ROOT, "c")))
+            if m.endswith(".s") and m != "_printf.s"]
+    r = run("ar65", "a", lib, *objs)
+    ok(r.returncode == 0 and len(objs) >= 5, "a library of oodosc.lib's modules but _printf.o (%d)" % len(objs))
+    stock = os.path.join(tmp, "stock.com")
+    r = run("ld65", "-C", os.path.join(ROOT, "cfg", "c.cfg"), os.path.join(b, "chello.o"), "--start-group", lib,
+            "none.lib", "--end-group", "-o", stock, "-m", stock + ".map")
+    smap = open(stock + ".map").read() if os.path.exists(stock + ".map") else ""
+    ok(r.returncode == 0 and "none.lib(_printf.o)" in smap, "linked with none.lib's _printf.o: %s" % (r.stderr.strip() or "linked"))
+    r = run(sys.executable, "-I", "tools/rules.py", stock, "--map", stock + ".map", "--code", "STARTUP,ONCE,CODE")
+    line = r.stdout.splitlines()[0] if r.stdout else ""
+    ok(r.returncode == 1 and "rule 2" in line, "none.lib's _printf.o refused: %s" % line.replace(tmp + os.sep, ""))
+    # The gate sees the program's own code: an absolute operand in zero page, from C (a store: cc65
+    # takes out a dead load, even one written in __asm__).
+    status, out, made = cbuild(tmp, "crule2", '    __asm__("sta a:$0010");\n')
+    ok(status and "rule 2" in out and not made, "make crule2.com with a planted STA a:$0010 fails")
+    # A cc65 warning fails the build.
+    status, out, made = cbuild(tmp, "cwarn", "    { int unused; }\n")
+    ok(status and "Warning" in out and not made, "make cwarn.com with an unused variable fails: %s" % (
+        [l for l in out.splitlines() if "Warning" in l] or ["no warning"])[0].replace(tmp + os.sep, ""))
+    # oodos.h's names against oodos.inc's.
+    inc, h = os.path.join(ROOT, "include", "oodos.inc"), os.path.join(ROOT, "include", "oodos.h")
+    r = run(sys.executable, "-I", "tools/oodosh.py", "check", inc, h)
+    ok(r.returncode == 0, "oodos.h's names are oodos.inc's: %s" % r.stdout.strip())
+    stale = os.path.join(tmp, "stale.h")
+    with open(stale, "w") as f:
+        f.write(open(h).read().replace("#define C_WRITE          2", "#define C_WRITE          3"))
+    r = run(sys.executable, "-I", "tools/oodosh.py", "check", inc, stale)
+    ok(r.returncode == 1 and "differ" in r.stderr, "an oodos.h with C_WRITE 3 refused")
+    empty = os.path.join(tmp, "empty.inc")
+    with open(empty, "w") as f:
+        f.write("; The base page\nBP_WBOOT = $0200\n")
+    r = run(sys.executable, "-I", "tools/oodosh.py", "check", empty, h)
+    ok(r.returncode != 0 and "no BDOS functions" in (r.stdout + r.stderr), "an oodos.inc with no functions refused, not passed")
+
+
 def main():
-    built = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
+    built =os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
     with tempfile.TemporaryDirectory() as tmp:
         r = run("make", "--no-print-directory", "SRC=examples", "BUILD=" + os.path.join(tmp, "hello"), "PROGRAMS=hello")
         if r.returncode:
@@ -609,6 +671,8 @@ def main():
         rules_checks(hello, tmp)
         print("Running hello")
         run_checks(hello, tmp)
+        print("The C target")
+        c_checks(tmp)
     print("dos33.py")
     dos33_checks()
     print("FAIL %d (PASS %d)" % (failed, passed) if failed else "PASS %d" % passed)
