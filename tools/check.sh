@@ -142,6 +142,9 @@ native() { # $1: the preset; $2: the jobs; then ctest's own arguments (-L, -R)
     preset=$1
     j=${2:-$(nproc)}
     shift 2
+    # The summary counts this run's skipped parts, not an earlier run's: emptied before anything can fail.
+    last=$emu/build/$preset/Testing/Temporary/LastTest.log
+    [ ! -f "$last" ] || : >"$last"
     build "$preset" || return 1
     # A suite left out by --exclude goes with every entry it has (a split suite's parts, its _cases).
     excluded=
@@ -152,8 +155,6 @@ native() { # $1: the preset; $2: the jobs; then ctest's own arguments (-L, -R)
         [ -s "$logs/excluded-$preset" ] || { echo "tools/check.sh: --exclude $exclude: no entries"; return 1; }
         excluded="^($(paste -sd'|' "$logs/excluded-$preset"))\$"
     fi
-    last=$emu/build/$preset/Testing/Temporary/LastTest.log
-    [ ! -f "$last" ] || : >"$last" # the summary counts this run's skipped parts, not an earlier run's
     ctest --preset "$preset" -j"$j" ${excluded:+-E "$excluded"} "$@"
     rc=$?
     rm -f "$emu/stand_in_iie.rom" # test_oodos_utils_rom's own stand-in, if it ran from here

@@ -107,9 +107,16 @@ and the SIDs the sound card's), and each card of the backplane machine chooses `
 runs (every backplane card, the card media, `.sid` files and `components/debug`; the BIOS, its ROM and labels;
 `backplane.machine`; `test/host/sd/`, whose `demo.sparse` the page boots: `apps/web/CMakeLists.txt`,
 `ui/scripts/copy-core.mjs`), and a suite's own file when the web preset runs that suite. `test_map.py check`
-derives the page's inputs from the CMake files (oo1's link closure: every file of `emu_session`, `emu_machine`,
-`emu_devices`, `emu_debug` and the rest, the machines they embed, the web preset's suite list) and fails on one
-whose rule doesn't choose `web`. `docs` is chosen by everything `docs/tools/check_docs.py` reads besides the books:
+derives three things from the CMake files and fails on any of them whose rule doesn't choose `web` (or `all`):
+the tracked files of the component directories in oo1's link closure (`target_link_libraries` followed from
+`apps/web/CMakeLists.txt` through `emulator/components/*/CMakeLists.txt`: `emu_session`, `emu_machine`,
+`emu_devices`, `emu_debug` and the rest), the `machines/` files those CMake files name literally
+(`${PROJECT_SOURCE_DIR}/machines/...`), and the `.cpp` of each suite in the web preset's list
+(`test/host/CMakeLists.txt`'s `if(EMSCRIPTEN)` block). It fails too when that derives nothing: no suite list, no
+closure, a closure without `emu_session`, or a library in it with no `add_library`. The rest is kept to `web` by
+hand in the map, and nothing checks it: `third_party/minimp3/`, the BIOS's sources (`backplane/bios/`, of which
+the embedded `bios.rom` and its labels are built), the web suites' headers (`sd_images.h`, `test_support.h`),
+and the data they read (`test/host/sd/`, `test/host/mp3/`, `oodos/diskdefs`). `docs` is chosen by everything `docs/tools/check_docs.py` reads besides the books:
 `backplane/bios/` (17 listings of its sources, byte for byte; `backplane.inc`'s equates), all of `oodos/` (an
 entry for each utility and each built-in of `ccp.s`; `oodos.inc`'s functions), the files the books link to
 (`apple_io.cpp`, `apps/emu/`, `apps/web/`, `oodos_rig.h`, `test_docs_examples.cpp`, the Apple-1 and Eater
@@ -192,6 +199,10 @@ python3 -I -B tools/test_coverage.py --from /tmp/cov/files.json           # afte
 ```
 
 (reconfigure the coverage build after changing the labels, so `--from` reads them).
+
+**Later (accepted 2026-11-11, not built):** derive the hand-kept part of the web inputs above too (the files the
+CMake builds into `bios.rom` and embeds, the headers and data the web suites read), so the map can't drift there
+either; for now it is a known limit (review finding H1).
 
 **Later (accepted 2026-11-11, not built):** extend `test_coverage.py` to compare line coverage between the `emu`
 suites and the others, and give `emu` to a non-`emu` suite that alone reaches emulator lines; run it with the

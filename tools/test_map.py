@@ -140,10 +140,17 @@ def _cmake(path):
         return "\n".join(line.split("#", 1)[0] for line in f)
 
 
+HOST_CMAKE = "emulator/test/host/CMakeLists.txt"
+WEB_CMAKE = "emulator/apps/web/CMakeLists.txt"
+_texts = {}  # check --web-cmake/--host-cmake: another text for one of those (a doctored copy, to see it fail)
+
+
 def web_suites():
     """The suites the web preset builds and runs under node: the list in test/host/CMakeLists.txt's
     if(EMSCRIPTEN) block."""
-    text = _cmake("emulator/test/host/CMakeLists.txt")
+    text = _texts.get(HOST_CMAKE) or _cmake(HOST_CMAKE)
+    if "if(EMSCRIPTEN)" not in text:
+        return set()
     block = text[text.index("if(EMSCRIPTEN)"):]
     m = re.search(r"foreach\(name\s+([^)]*)\)", block)
     return set(m.group(1).split()) if m else set()
@@ -153,7 +160,10 @@ def web_inputs(paths):
     """The tracked paths in oo1.wasm, the page's core: every file of the libraries it links, in the closure
     of target_link_libraries from apps/web/CMakeLists.txt's oo1, and every machines/ file those CMake files
     or apps/web's embed. Read from the CMake files, so a library or an embedded file added there is held to
-    the map's `web` without a word here."""
+    the map's `web` without a word here. Returns (paths, the libraries, problems): a derivation that finds
+    nothing (no suites, no closure, no emu_session in it, a library linked with no add_library) is a problem,
+    not a pass."""
+    problems = []
     libs = {}  # emu_x: (its component directory, the emu_ libraries it links)
     for p in paths:
         if re.fullmatch(r"emulator/components/[^/]+/CMakeLists.txt", p):
@@ -163,24 +173,34 @@ def web_inputs(paths):
             for name, args in re.findall(r"target_link_libraries\((emu_\w+)([^)]*)\)", text):
                 if name in libs:
                     libs[name][1].update(re.findall(r"\bemu_\w+", args))
-    web = _cmake("emulator/apps/web/CMakeLists.txt")
+    web = _texts.get(WEB_CMAKE) or _cmake(WEB_CMAKE)
     todo = set()
     for args in re.findall(r"target_link_libraries\(oo1([^)]*)\)", web):
         todo |= set(re.findall(r"\bemu_\w+", args))
     seen = set()
     while todo:
         lib = todo.pop()
-        if lib in seen or lib not in libs:
+        if lib in seen:
+            continue
+        if lib not in libs:
+            problems.append(f"{lib}: linked into oo1's closure, but no component CMakeLists.txt has its add_library")
+            seen.add(lib)
             continue
         seen.add(lib)
         todo |= libs[lib][1]
-    dirs = {libs[l][0] for l in seen}
+    if not seen:
+        problems.append(f"{WEB_CMAKE}: no target_link_libraries(oo1 emu_...) found, so no link closure")
+    elif "emu_session" not in seen:
+        problems.append(f"oo1's link closure ({' '.join(sorted(seen))}) has no emu_session")
+    if not web_suites():
+        problems.append(f"{HOST_CMAKE}: no suite list in its if(EMSCRIPTEN) block")
+    dirs = {libs[l][0] for l in seen if l in libs}
     texts = [web] + [_cmake(d + "CMakeLists.txt") for d in dirs]
     machines = {"emulator/" + m for t in texts for m in re.findall(r"\$\{PROJECT_SOURCE_DIR\}/(machines/[\w.-]+)", t)}
     out = {p for p in paths if any(p.startswith(d) for d in dirs) and not p.endswith("CMakeLists.txt")}
     out |= {p for p in paths if p in machines}
     out |= {f"emulator/test/host/{n}.cpp" for n in web_suites()} & set(paths)
-    return out, sorted(seen)
+    return out, sorted(seen), problems
 
 
 def is_cxx(path):
@@ -239,7 +259,14 @@ def cmd_check(args):
                 print(f"{p}: self, but no suite is named {stem(p)}")
                 problems += 1
     # Everything in the page's core, or run by the web preset's tests, must choose `web` (or `all`).
-    inputs, libs = web_inputs(paths)
+    for opt, key in ((args.web_cmake, WEB_CMAKE), (args.host_cmake, HOST_CMAKE)):
+        if opt:
+            with open(opt, encoding="utf-8") as f:
+                _texts[key] = "\n".join(line.split("#", 1)[0] for line in f)
+    inputs, libs, derive_problems = web_inputs(paths)
+    for msg in derive_problems:
+        print(msg)
+        problems += 1
     for p in sorted(inputs):
         r = match(rules, p)
         if not r:
@@ -327,6 +354,8 @@ def main():
     c = sub.add_parser("check")
     c.add_argument("--build")
     c.add_argument("--map", default=MAP, help="another map (a broken copy, to see the check fail)")
+    c.add_argument("--web-cmake", help="another text for apps/web/CMakeLists.txt (likewise)")
+    c.add_argument("--host-cmake", help="another text for test/host/CMakeLists.txt (likewise)")
     s = sub.add_parser("select")
     s.add_argument("--map", default=MAP)
     s.add_argument("--build", default=os.path.join(REPO, "emulator", "build", "fast"))
