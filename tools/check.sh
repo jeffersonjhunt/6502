@@ -215,7 +215,7 @@ if [ "$tier" = changed ]; then
         exit 0
     fi
     echo
-    steps=$(cat "$logs/select/steps")
+    steps=$(tr '\n' ' ' <"$logs/select/steps") # one line: the case patterns below match " name "
     preset=fast
     if [ -s "$logs/select/suites" ]; then
         step native-fast native fast "$(nproc)" -R "$(regex "$logs/select/suites")"
