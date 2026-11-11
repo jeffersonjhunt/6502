@@ -48,16 +48,17 @@ def entries(build):
         if t["name"].endswith("_cases"):
             continue  # the split's check lists cases and runs none
         labels = set(props.get("LABELS", []))
-        groups.setdefault(suite_of(t["name"]), []).append((t["name"], cmd, props.get("WORKING_DIRECTORY", build), env,
+        groups.setdefault(suite_of(t["name"], cmd, env), []).append((t["name"], cmd, props.get("WORKING_DIRECTORY", build), env,
                                              labels, props.get("SKIP_RETURN_CODE")))
     return groups
 
 
-def suite_of(name):
-    """A split suite's entries (NAME_KofN) are one suite."""
-    head, _, tail = name.rpartition("_")
-    if head and "of" in tail and tail.replace("of", "", 1).isdigit():
-        return head
+def suite_of(name, cmd, env):
+    """The suite an entry is part of: a split suite's entries (its shares, its cases alone: an OOE_TEST_
+    selection in the ENVIRONMENT) are the binary they all run, as tools/test_map.py entries has them.
+    Any other entry is its own (test_dormann's three runs are three, each its own image)."""
+    if any(k.startswith("OOE_TEST_") and v for k, v in env.items()):
+        return os.path.basename(cmd[0])
     return name
 
 

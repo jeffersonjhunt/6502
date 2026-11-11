@@ -18,6 +18,7 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -122,12 +123,64 @@ def resolve(tests, path, labels):
             chosen |= set(tests)
         elif label == "self":
             chosen |= named_for(tests, stem(path))
+            if stem(path) in web_suites():
+                chosen_labels.add("web")  # the web preset runs it too (tools/web_build.sh)
         elif label.startswith("test_"):
             chosen |= named_for(tests, label)
+            if label in web_suites():
+                chosen_labels.add("web")
         else:
             chosen_labels.add(label)
             chosen |= {t for t, (l, _) in tests.items() if label in l}
     return chosen_labels, chosen
+
+
+def _cmake(path):
+    with open(os.path.join(REPO, path), encoding="utf-8") as f:
+        return "\n".join(line.split("#", 1)[0] for line in f)
+
+
+def web_suites():
+    """The suites the web preset builds and runs under node: the list in test/host/CMakeLists.txt's
+    if(EMSCRIPTEN) block."""
+    text = _cmake("emulator/test/host/CMakeLists.txt")
+    block = text[text.index("if(EMSCRIPTEN)"):]
+    m = re.search(r"foreach\(name\s+([^)]*)\)", block)
+    return set(m.group(1).split()) if m else set()
+
+
+def web_inputs(paths):
+    """The tracked paths in oo1.wasm, the page's core: every file of the libraries it links, in the closure
+    of target_link_libraries from apps/web/CMakeLists.txt's oo1, and every machines/ file those CMake files
+    or apps/web's embed. Read from the CMake files, so a library or an embedded file added there is held to
+    the map's `web` without a word here."""
+    libs = {}  # emu_x: (its component directory, the emu_ libraries it links)
+    for p in paths:
+        if re.fullmatch(r"emulator/components/[^/]+/CMakeLists.txt", p):
+            text = _cmake(p)
+            for name in re.findall(r"add_library\((emu_\w+)", text):
+                libs[name] = (os.path.dirname(p) + "/", set())
+            for name, args in re.findall(r"target_link_libraries\((emu_\w+)([^)]*)\)", text):
+                if name in libs:
+                    libs[name][1].update(re.findall(r"\bemu_\w+", args))
+    web = _cmake("emulator/apps/web/CMakeLists.txt")
+    todo = set()
+    for args in re.findall(r"target_link_libraries\(oo1([^)]*)\)", web):
+        todo |= set(re.findall(r"\bemu_\w+", args))
+    seen = set()
+    while todo:
+        lib = todo.pop()
+        if lib in seen or lib not in libs:
+            continue
+        seen.add(lib)
+        todo |= libs[lib][1]
+    dirs = {libs[l][0] for l in seen}
+    texts = [web] + [_cmake(d + "CMakeLists.txt") for d in dirs]
+    machines = {"emulator/" + m for t in texts for m in re.findall(r"\$\{PROJECT_SOURCE_DIR\}/(machines/[\w.-]+)", t)}
+    out = {p for p in paths if any(p.startswith(d) for d in dirs) and not p.endswith("CMakeLists.txt")}
+    out |= {p for p in paths if p in machines}
+    out |= {f"emulator/test/host/{n}.cpp" for n in web_suites()} & set(paths)
+    return out, sorted(seen)
 
 
 def is_cxx(path):
@@ -185,7 +238,18 @@ def cmd_check(args):
             if r and "self" in r[2] and not named_for(tests, stem(p)):
                 print(f"{p}: self, but no suite is named {stem(p)}")
                 problems += 1
-    print(f"{len(paths)} tracked paths, {len(rules)} rules, {problems} problem(s)")
+    # Everything in the page's core, or run by the web preset's tests, must choose `web` (or `all`).
+    inputs, libs = web_inputs(paths)
+    for p in sorted(inputs):
+        r = match(rules, p)
+        if not r:
+            continue
+        words = set(r[2])
+        named = stem(p) in web_suites() and "self" in words
+        if not (words & {"web", "all"} or named):
+            print(f"{p}: in oo1.wasm or the web preset's tests ({' '.join(libs)}), but its rule ({r[1]}) doesn't choose web")
+            problems += 1
+    print(f"{len(paths)} tracked paths, {len(rules)} rules, {len(inputs)} in the web build, {problems} problem(s)")
     return 1 if problems else 0
 
 
@@ -194,7 +258,7 @@ def cmd_select(args):
     tests = suites(args.build)
     if not args.paths:
         die("no paths")
-    labels, chosen, unmapped, cxx = set(), set(), [], False
+    labels, chosen, unmapped, chose_nothing, cxx = set(), set(), [], [], False
     print("paths, and the labels and suites each chose:")
     for p in args.paths:
         r = match(rules, p)
@@ -208,9 +272,18 @@ def cmd_select(args):
         chosen |= s
         cxx = cxx or is_cxx(p)
         what = " ".join(words)
-        print(f"  {p}: {what} (line {n}, {pattern}): {len(s)} suite(s)")
+        # A rule that isn't `none` and chose no suite and no step (a self rule for a suite no CMake file
+        # registers, a label no suite carries) examined nothing for that path.
+        nothing = set(words) != {"none"} and not s and not any(x in STEPS for x in l)
+        if nothing:
+            chose_nothing.append(p)
+        print(f"  {p}: {what} (line {n}, {pattern}): {len(s)} suite(s){': NOTHING' if nothing else ''}")
     if unmapped:
         print(f"{len(unmapped)} path(s) not in {args.map}: add a rule for each", file=sys.stderr)
+        return 1
+    if chose_nothing:
+        print(f"{len(chose_nothing)} path(s) whose rule chose no suite and no step: register the suite "
+              f"(emu_add_test, a line in the labels table) or fix the rule", file=sys.stderr)
         return 1
     sanitize = sorted(t for t in chosen if EMU in tests[t][0]) if cxx else []
     steps = sorted({step for l in labels if l in STEPS for step in STEPS[l]})
@@ -222,8 +295,11 @@ def cmd_select(args):
         print("under the sanitizers: none (no path is the emulator's C++)")
     print(f"steps beyond ctest: {' '.join(steps) or '(none)'}")
     os.makedirs(args.out, exist_ok=True)
+    # The labels the chosen entries carry: what decides the tools they need (an eater suite is chosen by
+    # via, acia, lcd and self as well as by eater).
+    entry_labels = sorted(set().union(*(tests[t][0] for t in chosen)) if chosen else set())
     for name, items in (("suites", sorted(chosen)), ("sanitize", sanitize), ("steps", steps),
-                        ("labels", sorted(labels))):
+                        ("labels", sorted(labels)), ("entry_labels", entry_labels)):
         with open(os.path.join(args.out, name), "w", encoding="utf-8") as f:
             f.write("".join(f"{i}\n" for i in items))
     with open(os.path.join(args.out, "cxx"), "w", encoding="utf-8") as f:

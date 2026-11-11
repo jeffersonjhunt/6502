@@ -20,8 +20,8 @@
 # --- the emulator's core: every suite runs it ---------------------------------------------------------
 emulator/components/cpu6502/                    cpu all
 emulator/components/bus/                        bus all
-emulator/components/machine/apple1.cpp          apple1
-emulator/components/machine/include/apple1.h    apple1
+emulator/components/machine/apple1.cpp          apple1 web
+emulator/components/machine/include/apple1.h    apple1 web
 emulator/components/machine/                    machine all
 emulator/components/session/                    machine all
 emulator/components/emu_log/                    all
@@ -65,11 +65,11 @@ emulator/components/devices/*es5503*            es5503 sound backplane web
 emulator/components/devices/*fat_volume*        sd web
 emulator/components/devices/*sd_card*           sd backplane web
 emulator/components/devices/*sd_media*          sd web
-emulator/components/devices/*hd44780*           lcd
-emulator/components/devices/*ps2_keyboard*      lcd
+emulator/components/devices/*hd44780*           lcd web
+emulator/components/devices/*ps2_keyboard*      lcd web
 emulator/components/devices/*joystick_ports*    joy backplane web
 emulator/components/devices/*minimp3*           sound backplane web
-emulator/components/devices/*pia6821*           pia
+emulator/components/devices/*pia6821*           pia web
 emulator/components/devices/*sid_file*          sid web
 emulator/components/devices/*sid.*              sid sound backplane web
 emulator/components/devices/*sound_card*        sound backplane web
@@ -89,11 +89,11 @@ emulator/apps/web/                              web docs
 # --- the tests' own files -------------------------------------------------------------------------------
 emulator/test/host/oodos_rig.h                  oodos docs
 emulator/test/host/disk2_rig.h                  disk2
-emulator/test/host/sd_images.h                  sd
+emulator/test/host/sd_images.h                  sd web
 emulator/test/host/check_split.py               split
 emulator/test/host/sid_known_failures.txt       test_sid_corpus
 emulator/test/host/sd/                          sd oodos web
-emulator/test/host/mp3/                         sound
+emulator/test/host/mp3/                         sound web
 emulator/test/host/sound/                       test_sound_driver
 emulator/test/host/fixtures/                    none
 emulator/test/host/README.md                    docs
@@ -106,7 +106,7 @@ emulator/tools/web_build.sh                     web
 emulator/tools/__pycache__/                     none
 
 # --- the emulator's prose and settings ---------------------------------------------------------------
-emulator/machines/apple1*                       apple1 docs
+emulator/machines/apple1*                       apple1 docs web
 emulator/machines/eater*                        eater docs
 emulator/machines/backplane.machine             all
 emulator/docs/                                  docs
@@ -118,6 +118,10 @@ emulator/.gitignore                             none
 # --- the machine's software: the BIOS, OODOS, the books ------------------------------------------------
 backplane/bios/backplane.inc                    bios oodos docs web
 backplane/bios/apple.s                          bios apple docs web
+# The ROM BIOS's SD code (sd.s, and bios.s's reset of the card) is on the path of the cards the tests write
+# and interop reads: `sd` chooses interop.
+backplane/bios/sd.s                             bios sd docs web
+backplane/bios/bios.s                           bios sd docs web
 backplane/bios/                                 bios docs web
 backplane/README.md                             none
 oodos/include/                                  oodos docs

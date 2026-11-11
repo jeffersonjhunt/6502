@@ -146,9 +146,11 @@ native() { # $1: the preset; $2: the jobs; then ctest's own arguments (-L, -R)
     # A suite left out by --exclude goes with every entry it has (a split suite's parts, its _cases).
     excluded=
     if [ -n "$exclude" ]; then
-        excluded=$(python3 -I -B "$repo/tools/test_map.py" entries --build "$emu/build/$preset" \
-            $(echo "$exclude" | tr '|' ' ') | paste -sd'|') || return 1
-        excluded="^($excluded)\$"
+        # Its status is test_map.py's, not a pipe's: a name that is no suite fails, rather than exclude nothing.
+        python3 -I -B "$repo/tools/test_map.py" entries --build "$emu/build/$preset" \
+            $(echo "$exclude" | tr '|' ' ') >"$logs/excluded-$preset" || return 1
+        [ -s "$logs/excluded-$preset" ] || { echo "tools/check.sh: --exclude $exclude: no entries"; return 1; }
+        excluded="^($(paste -sd'|' "$logs/excluded-$preset"))\$"
     fi
     ctest --preset "$preset" -j"$j" ${excluded:+-E "$excluded"} "$@"
     rc=$?
@@ -240,7 +242,8 @@ changed_select() {
 }
 # needs: the tools what was chosen will run, there before anything runs: a suite without its assembler skips,
 # and a skip passes. ca65, ld65 and cc65 for any suite (configuring needs them for the OODOS suites, and the
-# BIOS, the Apple-1 ROMs and the drivers are assembled with them), vasm for the eater suites, docker for the
+# BIOS, the Apple-1 ROMs and the drivers are assembled with them), vasm for any chosen entry labelled eater
+# (whatever path chose it: via, acia, lcd and self choose them too), docker for the
 # WebAssembly build and interop.
 needs() {
     cache=$emu/build/fast/CMakeCache.txt
@@ -250,7 +253,7 @@ needs() {
         for t in EMU_CA65 EMU_LD65 EMU_CC65; do
             [ -x "$(tool $t)" ] || lack="$lack $t"
         done
-        if grep -qx eater "$logs/select/labels" && [ ! -x "$(tool EMU_VASM)" ]; then
+        if grep -qx eater "$logs/select/entry_labels" && [ ! -x "$(tool EMU_VASM)" ]; then
             lack="$lack vasm6502_oldstyle(eater)"
         fi
     fi
