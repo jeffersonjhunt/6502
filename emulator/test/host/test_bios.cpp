@@ -1852,6 +1852,104 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
     CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's reset code ran
 }
 
+// --- golden frames (hw/video-rev2.md, "Emulator changes": the BIOS screen and the demo) -----------------
+//
+// Whole frames, hashed (FNV-1a over the pixels, as test_video's splash frames): any change to what the card
+// draws for them, the BIOS's screen or the renderer, shows here. The hashes come from this emulator, never from a
+// fixture. Each is taken at a fixed frame number, not a cycle count, so a BIOS that merely runs faster or slower
+// keeps them; the cursor's and the caption's blink depend on that number too. A change that should change the
+// picture (a new BIOS version in the banner, a new demo) fails them: look at the PPM the failure writes beside
+// the test, and if it is right, put the hash it printed here.
+
+namespace
+{
+    uint32_t frame_hash(const VideoCard &card)
+    {
+        uint32_t h = 2166136261u;
+        for (unsigned i = 0; i < VideoCard::WIDTH * VideoCard::HEIGHT; ++i)
+            h = (h ^ card.frame()[i]) * 16777619u;
+        return h;
+    }
+
+    /// Run until the card has finished frame `n` (and not the next): frame() is that one.
+    void run_to_frame(Board &b, uint64_t n)
+    {
+        const VideoCard &card = *b.machine->video_card();
+        while (card.frames() < n)
+            b.run(FRAME / 64);
+    }
+
+    /// The frame's hash is `want`; if not, say the new one and write the frame as golden-`name`.ppm to look at.
+    bool golden(const VideoCard &card, const char *name, uint32_t want)
+    {
+        const uint32_t got = frame_hash(card);
+        if (got == want)
+            return true;
+        const std::string ppm = std::string("golden-") + name + ".ppm";
+        std::printf("  golden frame %s: hash 0x%08X, want 0x%08X; the frame is in %s\n", name, got, want,
+                    write_ppm(card, ppm) ? ppm.c_str() : "(not written)");
+        return false;
+    }
+
+    constexpr uint64_t MONITOR_FRAME = 360;   // after the splash's 300, the cursor lit (frame / 16 even)
+    constexpr uint32_t MONITOR_HASH = 0xECF44BE7;
+    constexpr uint32_t DEMO_FIRST_HASH = 0xA6F79AEF;   // the first frame the demo draws whole: the fade's start
+    constexpr uint32_t DEMO_SETTLED_HASH = 0x0D630073; // 30 frames on: faded in, the balls under way
+} // namespace
+
+TEST(golden_frame_the_monitors_text_screen)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    CHECK_EQ(b.run(BOOT), GREETING);
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    b.run(SPLASH_TIME);
+    REQUIRE(card->splash_frame() == -1);
+    REQUIRE(card->frames() < MONITOR_FRAME);
+    run_to_frame(b, MONITOR_FRAME);
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.13"));
+    CHECK(golden(*card, "monitor", MONITOR_HASH));
+}
+
+TEST(golden_frames_the_demos_first_and_a_settled_one)
+{
+    Board b{Board::Rev2{}};
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    // CTRL turning $0F (display, both layers, sprites) starts the demo's screen. A frame the beam was drawing
+    // then is torn (above that line the monitor's, below it the new layers on bases that latch only at line
+    // 480): the first the demo draws whole is the next.
+    bool on = false;
+    uint64_t at = 0;
+    unsigned line = 0;
+    b.on_step = [&] {
+        if (!on && card->peek(VideoCard::CTRL) == 0x0F)
+        {
+            on = true;
+            at = card->frames();
+            line = card->beam_line();
+        }
+    };
+    CHECK(b.run(4 * FRAME, "C803R\r").find("C803: 4C\\") == std::string::npos); // C803 took the card
+    for (int f = 0; f < 60 && !on; ++f)
+        b.run(FRAME);
+    b.on_step = nullptr;
+    REQUIRE(on);
+    const uint64_t first = at + (line < VideoCard::HEIGHT ? 2 : 1);
+    std::printf("  CTRL $0F at line %u of frame %llu: the demo's first whole frame is %llu\n", line,
+                static_cast<unsigned long long>(at + 1), static_cast<unsigned long long>(first));
+    run_to_frame(b, first);
+    CHECK(golden(*card, "demo-first", DEMO_FIRST_HASH));
+    run_to_frame(b, first + 30);
+    CHECK(colours(*card) >= 12);
+    CHECK(golden(*card, "demo-settled", DEMO_SETTLED_HASH));
+}
+
 int main()
 {
     if (!std::ifstream(EMU_BIOS_ROM))
