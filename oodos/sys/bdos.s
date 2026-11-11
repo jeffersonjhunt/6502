@@ -626,9 +626,9 @@ DOUT:           LDX     #BW2
                 JSR     DSEG
                 BCC     POUT
                 PHA
-                LDA     #127           ; not into the console's video memory (UNITS0: L4)
+                LDA     #127           ; not into OODOS's card memory (OSWIN: L4)
                 LDY     #0
-                JSR     UNITS0
+                JSR     OSWIN
                 BCC     @ok
                 JMP     ABORT
 @ok:

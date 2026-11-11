@@ -29,9 +29,14 @@
 ;     $87FFF) in W1. While it is there the program's own $4000-$7FFF is out
 ;     of reach, as before: its code, its event area, the FCBs and blocks it
 ;     passes and what it draws from stay in $0300-$3FFF or $8000-$BFFC.
-;     Slot 0 is OODOS's: it shows bank 0, the console, always, and no
-;     program writes SLOT0. Function 83's DM_VCOPY borrows slots 2 and 3
-;     inside the call and puts them back; OOLIB doesn't use them.
+;     The warm boot (and the cold boot, which ends in it) puts slot 1 on
+;     the program's first bank (VM_PROG_BANK), so block 33 never shows
+;     OODOS's part, even before GX_VMAP. Slot 0 is OODOS's: it shows bank
+;     0, the console, always, and no program writes SLOT0. Slots 2 and 3
+;     are OODOS's too, on banks 2 and 3 but inside function 83's DM_VCOPY,
+;     which borrows them and puts them back; OOLIB doesn't use them, their
+;     windows' blocks (34, 35) aren't in DM_INFO's W1 map, and no physical
+;     destination of function 83 may touch them ($88000-$8FFFF).
 ;   - Bulk copies, fills and the vertical-blank copies through the card's
 ;     data port by DMA channel 1, OODOS's: function 83 (oodos.inc's DM_*).
 ;     A program never writes the port's registers itself.

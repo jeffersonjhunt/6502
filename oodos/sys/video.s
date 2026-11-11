@@ -20,11 +20,15 @@
 ; of 24 bits. OODOS owns $000000-$03FFFF (the console's palette, font and
 ; text, its units 0-12, in bank 0, which aperture slot 0 always shows: block
 ; 32, $80000-$83FFF); the program owns $040000-$1BFFFF, through OOLIB; Apple
-; II mode $1C0000-$1FFFFF. No physical destination of function 83 may touch
-; slot 0's window (bdosmem.s's UNITS0), nor a record read through a DMA
-; segment (bdos.s's DOUT), and block 32 isn't in DM_INFO's W1 map; no card
-; destination may leave the program's part (CDSTOK). So the warm boot only
-; sets the card's registers (crt.s's CRTREGS).
+; II mode $1C0000-$1FFFFF. The warm boot (and so the cold boot, which ends in
+; it) puts slot 1 on the program's first card bank (VM_PROG_BANK) and slots
+; 2 and 3 on banks 2 and 3, OODOS's; DM_VCOPY borrows those two inside the
+; call. No physical destination of function 83 may touch slot 0's window,
+; nor slots 2 and 3's, $88000-$8FFFF (bdosmem.s's OSWIN), nor may a record
+; read through a DMA segment (bdos.s's DOUT), and blocks 32, 34 and 35 aren't
+; in DM_INFO's W1 map: only slot 1's window, block 33, is the program's. No
+; card destination may leave the program's part (CDSTOK). So the warm boot
+; only sets the card's registers (crt.s's CRTREGS) and the slots.
 ;
 ; The card's data port (PADDR, PDATA, PSTEP, PCTL) and DMA channel 1, on
 ; which the card asks, are OODOS's: the vertical-blank copies and the
@@ -35,15 +39,16 @@
 ;
 ; The vertical-blank copies (question 3): four slots, each a source in
 ; system memory, a destination in the program's card memory and a length,
-; written through the port, 1,024 bytes in all (2,048 cycles with the CPU
-; held, inside the blank's 10,240 even when the interrupt is held off by a
-; 4 KB DMA piece: test_oodos_video's latest end, all four slots with the
-; pointer and a stream, is line 508 of 480-524 under a USB batch and 511
-; under 64 KB loads). A slot is 1,024 bytes at
-; most alone and the four's sum too, checked so that no sum wraps. A slot is copied at the first vertical blank after the
-; program sets its bit in the event area's EV_VBGO (with TSB, which an
-; interrupt can't split), and the bit cleared then, so a program sets a bit
-; once a frame at most and sees it clear when the copy is on the card.
+; written through the port, 1,024 bytes in all: 1,024 cycles with the CPU
+; held, since the port asks for every byte at once (PORTGO), inside the
+; blank's 10,240 even when the interrupt is held off by a 4 KB DMA piece
+; (test_oodos_video's latest end, all four slots with the pointer and a
+; stream, is line 504 of 480-524 under a USB batch and 502 under 64 KB
+; loads). A slot is 1,024 bytes at most alone and the four's sum too,
+; checked so that no sum wraps. A slot is copied at the first vertical blank
+; after the program sets its bit in the event area's EV_VBGO (with TSB, which
+; an interrupt can't split), and the bit cleared then, so a program sets a
+; bit once a frame at most and sees it clear when the copy is on the card.
 ; Channel 1, which the BDOS uses only masked, so the interrupt never meets a
 ; BDOS copy half-programmed on channel 1 or 3. Nothing is copied with no event area
 ; open (the frame handler calls VBWORK after EVALL), and only while VBON.
@@ -54,15 +59,16 @@
 ; MXS, MYS) less the hotspot, modulo 1,024. Four bytes by channel 1 from a
 ; staging copy here (PSTAGE), through the port, so the interrupt needs no
 ; zero page of its own; the program draws the image and sets the entry's
-; other bytes. Only while SPRBASE points into the program's part of card
-; memory (the warm boot leaves it 0, the console's palette).
+; other bytes. Only while the sprite's entry, all four bytes, is in the
+; program's part of card memory (the warm boot leaves SPRBASE 0, the
+; console's palette).
 
 .setcpu "65C02"
 .include "sys.inc"
 .include "oodos.inc"
 .include "vmem.inc"
 .importzp PX, PP, T0, T1, T2, T3, T4, T5, SG ; the BDOS's (bdos.inc)
-.import RETFF, PGET, PPUT, SEGOK, UNITS0, AMAP
+.import RETFF, PGET, PPUT, SEGOK, OSWIN, AMAP
 .importzp SRCP, DSTP, DCOUNT           ; bios.s's
 .import DMAGO
 .importzp EVP                          ; irq.s's
@@ -139,7 +145,8 @@ GETSG:          JSR     PGET
 
 ; Carry set if SG's VLEN + 1 bytes aren't all memory a segment may reach
 ; (SEGOK: not past $FFFFF, none of OODOS's own blocks) or, for a
-; destination (DSTOK), if they touch the console's units 0-12.
+; destination (DSTOK), if they touch an aperture window that shows OODOS's
+; card memory (OSWIN: slots 0, 2 and 3's).
 SRCOK:          LDA     VLEN
                 LDY     VLEN + 1
                 JMP     SEGOK
@@ -147,16 +154,20 @@ DSTOK:          JSR     SRCOK
                 BCS     @no
                 LDA     VLEN
                 LDY     VLEN + 1
-                JMP     UNITS0
+                JMP     OSWIN
 @no:            RTS
 
 ; Carry set unless the card address SG to SG + VLEN is all in the fitted
 ; card memory (CSRCOK) and, for a destination (CDSTOK), in the program's
 ; part, $040000-$1BFFFF; with no revision 2 card (CLOCKS's frame bit, which
-; irq.s sets only for one), never.
+; irq.s sets only for one) or no DMA controller (every card operation's
+; bytes go by DMA: review F4), never.
 CSRCOK:         LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @no
+                LDA     DMA_ID
+                CMP     #DMA_ID_V1
+                BNE     @no
                 CLC                    ; the end's top byte, from SG + VLEN
                 LDA     SG
                 ADC     VLEN
@@ -194,10 +205,11 @@ LENSET:         SEC
 ; A = the card's memory in 64 KB units (0 with no revision 2 card), X =
 ; the slots; a block gets +1 those, +3 the slots' budget in pages, +4 the
 ; pointer's sprite ($FF off), +5-12 the W1 map: block 1, the blocks the
-; program has allocated (53-58's AMAP, blocks 4-23), aperture slots 1-3's
-; windows (33-35) and banks 9-B (36-47), but not slot 0's (32), the
-; console's; +13-16 the program's card pages, its first and the one past
-; its last (the fitted memory's end if that is sooner; 0, 0 with no card).
+; program has allocated (53-58's AMAP, blocks 4-23), aperture slot 1's
+; window (33, the program's card bank OOLIB sets) and banks 9-B (36-47), but
+; not slots 0, 2 and 3's (32, 34, 35: OODOS's card banks 0, 2 and 3);
+; +13-16 the program's card pages, its first and the one past its last (the
+; fitted memory's end if that is sooner; 0, 0 with no card).
 DM_INFOX:       LDX     PX
                 BNE     @block
                 JMP     @ret
@@ -273,7 +285,7 @@ MEMSZ:          LDA     CLOCKS
                 LDA     VIDEO_MEMSIZE
 @no:            RTS
 .assert <DM_PAGE0 = 0 && <DM_PAGEEND = 0, error, "DM_INFO writes the pages' low bytes as 0"
-W1FIX:          .byte   $02, 0, 0, 0, $FE, $FF, 0, 0 ; block 1; blocks 33-47
+W1FIX:          .byte   $02, 0, 0, 0, $F2, $FF, 0, 0 ; block 1; blocks 33 and 36-47
 BITS:           .byte   $01, $02, $04, $08, $10, $20, $40, $80
 .assert AMAP_LEN = 20, error, "DM_INFO's map takes AMAP as blocks 4-23"
 
@@ -728,7 +740,8 @@ GETLEN:         JSR     PGET
 ; SRCP (physical) and DSTP (card) on, VLEFT bytes (0: 65,536) through the
 ; port by channel 1, A its mode and X the port's PCTL: in pieces of
 ; PORT_PIECE at most, each masked, the port and the channel set for it, so
-; that the frame handler's copies may come between. Ends the function.
+; that the frame handler's copies may come between. Ends the function: A =
+; X = 0, or $FF if a piece timed out (PORTGO), the pieces after it not run.
 PORT_PIECE      = 2048
 PORTRUN:        STA     PMODE
                 STX     PPCTL
@@ -774,8 +787,9 @@ PORTRUN:        STA     PMODE
                 LDA     PMODE
                 LDX     PPCTL
                 JSR     PORTGO
-                PLA
+                PLA                    ; (PLA and STA keep PORTGO's carry)
                 STA     DMA_CONTROL
+                BCS     @late
                 PLP
                 CLC                    ; on by the piece: the card's address
                 LDA     DSTP
@@ -809,6 +823,8 @@ PORTRUN:        STA     PMODE
                 BEQ     @end
                 JMP     @piece
 @end:           JMP     DM00
+@late:          PLP                    ; a piece that didn't end: refused (review F4)
+                JMP     RETFF
 .assert <PORT_PIECE = 0, error, "PORTRUN's pieces are whole pages"
 
 ; Channel 1 to or from the card's port, masked by the caller, the master
@@ -816,8 +832,9 @@ PORTRUN:        STA     PMODE
 ; set: A the channel's mode (DMA_DEMAND_OUT to the card, with DMA_HOLD a
 ; fill; DMA_DEMAND_IN from it), X the port's PCTL (DRQ, with FROM for
 ; DMA_DEMAND_IN). The card asks for every byte at once, so it runs with the
-; CPU held, a cycle a byte; stopped if it hasn't ended after 65,536 polls.
-; The port's PCTL 0 after, the terminal count cleared.
+; CPU held, a cycle a byte; stopped if it hasn't ended after 65,536 polls,
+; and carry set then (clear when it ended). The port's PCTL 0 after, the
+; terminal count cleared.
 PORTGO:         STA     DMA1_MODE
                 STX     VIDEO_PCTL
                 LDA     #DMA_ENABLE
@@ -833,7 +850,8 @@ PORTGO:         STA     DMA1_MODE
                 BNE     @wait
                 LDA     #DMA_CH1
                 STA     DMA_ABORT
-@done:          STZ     VIDEO_PCTL
+                SEC                    ; timed out
+@done:          STZ     VIDEO_PCTL     ; (carry kept from here: clear when it ended, by LSR)
                 LDA     #DMA_CH1
                 STA     DMA_STATUS
                 RTS
@@ -1025,11 +1043,30 @@ VBWORK:         LDA     NB_WIN1
                 BEQ     @done
                 BIT     EVON
                 BPL     @done          ; MXS and MYS only with a layout-2 area
+                LDA     PTRSPR         ; the entry's card address: SPRBASE x 256 + the sprite x 8 + 2,
+                LSR     A              ;   its page SPRBASE + the sprite / 32 (its 4 bytes in that page)
+                LSR     A
+                LSR     A
+                LSR     A
+                LSR     A
+                CLC
+                ADC     VIDEO_SPRBASE
+                TAX                    ; X: the address's middle byte
                 LDA     VIDEO_SPRBASE + 1
+                ADC     #0             ; A: its top byte (review F3: the entry's, not SPRBASE's)
+                BCS     @done          ; past page $FFFF
                 CMP     #>DM_PAGE0
-                BCC     @done          ; a sprite table in OODOS's card memory: not written there
+                BCC     @done          ; in OODOS's card memory: not written there
                 CMP     #>DM_PAGEEND
-                BCS     @done          ; nor in Apple II mode's
+                BCS     @done          ; nor in Apple II mode's, nor past it
+                STA     VIDEO_PADDR + 2
+                STX     VIDEO_PADDR + 1
+                LDA     PTRSPR
+                ASL     A
+                ASL     A
+                ASL     A
+                ORA     #2
+                STA     VIDEO_PADDR
                 SEC                    ; X and Y less the hotspot, modulo 1,024
                 LDA     MXS
                 SBC     PHOTX
@@ -1052,24 +1089,6 @@ VBWORK:         LDA     NB_WIN1
                 STA     DMA1_ADDR + 1
                 LDA     #^PSTAGE_PHYS
                 STA     DMA1_ADDR + 2
-                LDA     PTRSPR         ; to the card at SPRBASE x 256 + the sprite x 8 + 2
-                ASL     A
-                ASL     A
-                ASL     A
-                ORA     #2
-                STA     VIDEO_PADDR
-                LDA     PTRSPR
-                LSR     A
-                LSR     A
-                LSR     A
-                LSR     A
-                LSR     A
-                CLC
-                ADC     VIDEO_SPRBASE
-                STA     VIDEO_PADDR + 1
-                LDA     VIDEO_SPRBASE + 1
-                ADC     #0
-                STA     VIDEO_PADDR + 2
                 LDA     #1
                 STA     VIDEO_PSTEP
                 STZ     VIDEO_PSTEP + 1
@@ -1089,9 +1108,13 @@ PORTOUT:        LDA     #DMA_DEMAND_OUT
                 LDX     #VIDEO_PCTL_DRQ
                 JMP     PORTGO
 
-; The warm boot's (input.s's WBQUIET, after DEAFEN): the slots freed, the
-; pointer off, channel 1 stopped, the port's DRQ off, aperture slot n on
-; card bank n again, and the console's screen shown again.
+; The warm boot's (input.s's WBQUIET, after DEAFEN; the cold boot ends in
+; the warm boot): the slots freed, the pointer off, channel 1 stopped, the
+; port's DRQ off, the aperture's slots set (slot 0 on card bank 0, the
+; console's; slot 1 on the program's first bank, VM_PROG_BANK, so that block
+; 33 shows only the program's card memory; slots 2 and 3 on banks 2 and 3,
+; OODOS's, whose windows no program reaches: review F2), and the console's
+; screen shown again.
 VBQUIET:        STZ     VBON
                 STZ     PTRON
                 LDX     #2 * DM_SLOTS - 1
@@ -1103,16 +1126,15 @@ VBQUIET:        STZ     VBON
                 BNE     @card
                 LDA     #DMA_CH1
                 STA     DMA_ABORT
-@card:          LDA     CLOCKS         ; a revision 2 card: its port quiet, the slots as /RESET
-                AND     #CLK_FRAME     ; leaves them (slot n on bank n: slot 0 the console's)
+@card:          LDA     CLOCKS         ; a revision 2 card: its port quiet, the slots set
+                AND     #CLK_FRAME
                 BEQ     @crt
                 STZ     VIDEO_PCTL
                 LDX     #7
-@slot:          TXA
-                LSR     A
-                BCC     @lo
-                LDA     #0             ; a slot's high byte
-@lo:            STA     VIDEO_SLOT0,X
+@slot:          LDA     QSLOT,X
+                STA     VIDEO_SLOT0,X
                 DEX
                 BPL     @slot
 @crt:           JMP     CRTREGS
+QSLOT:          .word   0, VM_PROG_BANK, 2, 3 ; SLOT0-SLOT3 as the warm boot leaves them
+.assert VIDEO_SLOT3 = VIDEO_SLOT0 + 6, error, "VBQUIET sets the four slots as eight bytes"
