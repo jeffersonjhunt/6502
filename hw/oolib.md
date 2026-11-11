@@ -1414,6 +1414,14 @@ and more in L5:
   - **Asset format 4** (`mkasset.py`): a part's place is a card page (+2–3, `$FFFF` any, a multiple of 4 in the
     program's part); sprite images are padded to 256 bytes and the table counts them in pages. `GX_ASSET` loads a
     part 4 KB at a time by `DM_LOAD` into the staging buffer and `DM_VWRITE` on. Format 3 isn't read.
+  - **Measured on revision 2** (2026-11-11, stream E: `ctest --preset fast -R test_oodos_video$` on
+    feat/video-rev2-docs at 08fd25f, whose code is main's f662e36). L4's figures above (a 512-byte slot 1,774, the
+    pointer 728, all of it 3,645, lines 508 and 511) are revision 1's and stay as history. The test printed, cycles
+    a frame: no area 199; layout 2, no slot 396; a slot set, no bit 516; a 512-byte slot each frame 1,304; the
+    pointer on 734; four slots of 256 bytes, the pointer and the stream 2,765. The latest a frame's copies ended,
+    with 1,024 bytes, the pointer and the stream: line 504 under a USB batch at line 470 (20 to spare), line 502
+    under 64 KB loads (22 to spare). And `DM_VWRITE` of 61,440 bytes: 17 ms in the test's round trip (its command
+    line included), about 61,500 cycles of it DMA, a cycle a byte.
   - **Tests:** the OODOS rig runs on revision 2 (`MachineOptions::video_revision`). `test_oodos_video` gains a case
     for the four card operations (60 KB to the card byte for byte with no tick lost, back unaligned across a bank,
     fills, 40,000 bytes card to card across banks with the borrowed slots put back, down over itself, and every

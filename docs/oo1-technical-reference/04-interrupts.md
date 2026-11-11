@@ -162,7 +162,7 @@ W3 holds.
   or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1, through
   video card revision 2's data port into card memory (*proposed*; the CPU held a cycle a byte, 1 KB at most: inside
   the blank's 10,240 cycles, with the pointer and a stream, line 504 at the latest under a USB batch and line 502
-  under 64 KB loads), then writes the pointer sprite's X and Y the same way, before
+  under 64 KB loads, as [hw/oolib.md](../../hw/oolib.md#the-plan) records), then writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
 - **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 234

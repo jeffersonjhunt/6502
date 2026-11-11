@@ -3441,8 +3441,9 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
 
 `DM_LOAD` of 64 KB from an `oodos-8m` drive: 114,442 cycles (16.0 ms), against 620,419 (86.7 ms) by functions 51 and
 33 with a multi-sector count of 128 (test_oodos_load). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call.
-`DM_VWRITE`: 60 KB to the card in about 17 ms (test_oodos_video), a cycle a byte through the port and the pieces'
-setting up. What the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
+`DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a cycle a byte by DMA, the CPU held, and each 2 KB piece's setting up: 60 KB
+(61,440 bytes) is about 61,500 cycles of DMA, 8.6 ms at 7.16 MHz. test_oodos_video measures 17 ms for it, a round
+trip that includes its rig's command line. What the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
 
 #### Since
 

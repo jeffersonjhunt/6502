@@ -171,8 +171,8 @@ channel's ADDR as the system-RAM side:
 - **Copies within card memory** have no port path of their own: the card has no copy engine yet. Out to RAM and
   back in is two port transfers; OODOS's `DM_VCOPY` instead maps the two places through aperture slots and copies
   memory to memory on channel 3.
-- **The serial card** loses channel 1, which hw/design.md gave it; its DMASEL3 still reaches channel 3. Which
-  channel its second stream takes is open ([hw/design.md, "DMA"](../../hw/design.md#dma)).
+- **The serial card's** DMASEL1, which hw/design.md puts on channel 1, then needs moving or sharing; that is open
+  ([hw/design.md, "DMA"](../../hw/design.md#dma)). Its DMASEL3 still reaches channel 3.
 - **In Apple II mode** the controller is idle, as [above](#apple-ii-mode), so the port is never used there.
 
 Under OODOS the port and channel 1 are OODOS's ([above](#under-oodos)); a program reaches card memory in bulk

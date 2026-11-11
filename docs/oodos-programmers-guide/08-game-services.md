@@ -703,7 +703,7 @@ put:    .byte   DM_VWRITE
 `DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time. For card memory
 (*proposed*, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
 `DM_VFILL` fills it, and `DM_VCOPY` copies within it: a scroll of a bitmap, a cleared screen, the console's font read
-for text. 60 KB goes to the card in about 17 ms. The library fills a bitmap's whole rows in one call
+for text. Through the port a byte is a cycle of DMA, so 60 KB is about 8.6 ms of it, the CPU held. The library fills a bitmap's whole rows in one call
 (`GX_FRECT`, by `DM_VFILL`) and copies its rectangles a row a call (`GX_BCOPY`, by `DM_VCOPY`).
 
 ### The vertical-blank slots
@@ -784,7 +784,8 @@ and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 5
 through the port, 1,304 (512 of them the DMA's, a cycle a byte); the pointer, 734; the whole budget, four slots of
 256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,765. That ends inside the vertical blank even with a
 USB batch or a 4 KB load piece holding the interrupt off (`test_oodos_video`: line 504 at the latest under a USB
-batch, 20 lines to spare, and line 502 under 64 KB loads, 22 to spare; the blank is lines 480–524).
+batch, 20 lines to spare, and line 502 under 64 KB loads, 22 to spare; the blank is lines 480–524). The figures are
+recorded with their source in [hw/oolib.md, "Video card revision 2"](../../hw/oolib.md#the-plan).
 
 ## Linking the library into an overlay
 

@@ -743,7 +743,7 @@ value *u* × 4.
 
 | Range | Owner | Use |
 |---|---|---|
-| `$000000–$03FFFF` | OODOS (the BIOS before it) | as banks 8–B today: the palette at `$000000`, the font at `$000400`, the console's text at `$002000`, OODOS's video units 0–12, its sprites and pointer |
+| `$000000–$03FFFF` | OODOS (the BIOS before it) | as banks 8–B today: the palette at `$000000`, the font at `$000400`, the console's text at `$002000`, OODOS's video units 0–12; the pointer's sprite table is a program's, in its part, as OODOS's `DM_POINTER` writes it |
 | `$040000–$1BFFFF` | programs, through OOLIB | screens, bitmaps, tiles, sprite images |
 | `$1C0000–$1DFFFF` | Apple II mode | the banks 0–1 mirror, 128 KB |
 | `$1E0000–$1E0FFF` | Apple II mode | the IIe's character ROM, which `C806R` copies there |
@@ -1888,8 +1888,9 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    IFR. In the WebUI gamepads drive the sticks, each keeping its stick until it goes, and keys too once Settings turns them on; the
    terminal app's debugger has `joy`.)*
 10. **Video card revision 2** ([above](#video-card-revision-2); proposed, 2026-11-10). *(Built: `VideoCard` owns
-    2 MB when it is revision 2 and draws from it with 24-bit bases; the `aperture` line, `80000-8FFFF`, is a memory
-    device with the four slot registers, mapped after every other line so that it answers over RAM C's bank 8,
+    2 MB when it is revision 2 and draws from it with 24-bit bases; the `aperture` line, `80000-8FFFF`, is a bare 64 KB
+    memory device that forwards each access to the card (`$FF` and writes lost with no card), whose slot registers
+    are the card's own (`$C4B0–$C4B7`); it is mapped after every other line so that it answers over RAM C's bank 8,
     whose `ram` line is unchanged, and inert with a revision 1 card or none; the port (PADDR, PDATA, PSTEP, PCTL) has
     its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2. The `video` line's `rev=` (1 or 2,
     1 if left out; `backplane.machine` has 2), or `MachineOptions::video_revision` over it, picks the revision,

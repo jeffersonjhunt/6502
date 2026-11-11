@@ -484,7 +484,7 @@ How the 2 MB is shared:
 
 | Card addresses | Whose | What |
 |---|---|---|
-| `$000000–$03FFFF` | OODOS, and the BIOS before it | what revision 1 keeps in banks 8–B, at the same offsets: the palette at `$000000`, the font at `$000400`, the text screen at `$002000`, OODOS's video units 0–12, its sprites and the pointer |
+| `$000000–$03FFFF` | OODOS, and the BIOS before it | what revision 1 keeps in banks 8–B, at the same offsets: the palette at `$000000`, the font at `$000400`, the text screen at `$002000`, OODOS's video units 0–12; the pointer's sprite table is a program's, in its part, as function 83's `DM_POINTER` writes it |
 | `$040000–$1BFFFF` | programs, through OOLIB | screens, bitmaps, tiles, sprite images: 1.5 MB |
 | `$1C0000–$1DFFFF` | Apple II mode | its copy of banks 0–1, 128 KB |
 | `$1E0000–$1E0FFF` | Apple II mode | the IIe's character ROM, which `C806R` puts there |
@@ -524,8 +524,10 @@ sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
 | PSTEP | `$C4BC–$C4BD` | the step, 16 bits, low byte first; 0 holds the address. /RESET sets 1 |
 | PCTL | `$C4BE` | bit 0: DRQ enable. Bit 1: the direction, 0 to the card (DMA writes PDATA), 1 from the card (DMA reads it). Bit 2: PADDR steps down. The other bits read 0 |
 
-- **The step** lets one stream fill a column or a rectangle: 160 for a column of the 80-column text screen, 640 for
-  a row of a 640-pixel bitmap.
+- **The step** lets one stream write a column or a rectangle: 160 for a column of the 80-column text screen (80
+  cells of 2 bytes a row), 256 for a column of bitmap 256 or bitmap 512 (256 bytes a row), 80 for one of mono.
+  PSTEP 0 holds the card address, so every access is the same byte. The BIOS's fills step 2, with the DMA's
+  source held on one byte.
 - **PADDR wraps** at the end of the fitted memory, up or down. Set at or past that end, it reads back as written and
   steps as a plain 24-bit counter (each PDATA read giving `$FF`, each write lost) until it wraps from `$FFFFFF` to
   `$000000`, inside the memory again.
