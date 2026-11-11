@@ -121,6 +121,16 @@ The north bridge turns every CPU access into a 20-bit physical address (A0–A19
 | E | `$E0000–$EFFFF` | user memory; the Apple IIe ROM image once Apple mode starts | IIe ROM (`$C100–$FFFF`), write-protected |
 | F | `$F0000–$FFFFF` | BIOS, Monitor, BASIC, DOS, write-protected | unused |
 
+**Proposed (2026-11-10): video card revision 2** ([below](#video-card-revision-2), [video-rev2.md](video-rev2.md))
+gives the card memory of its own, so banks 8–B stop being video memory:
+
+| Bank | Physical | Native mode | Apple II mode |
+|---|---|---|---|
+| 8 | `$80000–$8FFFF` | the video card's aperture: four 16 KB slots onto card memory. No RAM is fitted here; the north bridge decodes the bank to the video card | unused (the card ignores it) |
+| 9–B | `$90000–$BFFFF` | user memory | unused |
+
+So the machine has 960 KB of RAM and the 64 KB aperture. With a revision 1 card the table above stands.
+
 ### Native mode: four windows of 16 KB ###
 
 **Decided.** The CPU's 64 KB is four windows of 16 KB. Each window has a **6-bit register** naming any of the 64
@@ -230,6 +240,8 @@ rules. This is the IIe's design: auxiliary memory is the same addresses in bank 
 - **The video card's character ROM** for Apple text is 2 KB in video memory at `$BE000`, which the BIOS copies from
   the cartridge (`$84000`) before entering the mode, or builds from the VGA font when there is none. It is the IIe
   video ROM's first 2 KB: 8 bytes a code, bit 0 the leftmost of 7 dots, a dot lit where its bit is 0.
+  **Proposed (2026-11-10), video card revision 2:** the same 2 KB goes into the card's own memory at `$1E0000`,
+  copied through the data port, instead of to `$BE000` ([below](#video-card-revision-2)).
 - **Apple colours:** the 16 lo-res colours (and hi-res's violet, green, blue, orange and white among them) are the
   usual NTSC approximations, rounded to the card's 12 bits. Hi-res colour is the simple artifact rule: a lone dot
   takes its column's colour, two together are white, and a gap between two dots of one colour takes it; no NTSC
@@ -483,6 +495,10 @@ The machine works without it, so it can come later.
   never matters. Setting ENABLE commits.
 - **Channels (proposed):** 0 mass storage (SD), 1 serial and parallel, 2 USB, 3 general
   use (memory to memory and blits).
+- **Channel 1 with video card revision 2 (proposed, 2026-11-10):** the video card's data port, its DRQ wired to
+  channel 1 ([below](#video-card-revision-2)). Under OODOS channel 1 already carries the vertical-blank copies,
+  which become port transfers. The serial card's DMASEL1 (DRQ1) then needs moving or sharing; its DMASEL3 still
+  reaches channel 3. Open.
 
 The front panel's Console card is a bus master too: EXAM and DEP take the bus the same way the DMA controller does.
 See [Front Panel](#front-panel).
@@ -499,6 +515,10 @@ See [Front Panel](#front-panel).
   - No CPU cycles are taken, so Apple II timing is undisturbed.
   - The PC never refreshed video by DMA either; a 640×480 refresh would need more than twice what the bus can
     carry.
+  - **Proposed (2026-11-10): revision 2 reverses this for native mode.** The card draws from 2 MB of its own
+    memory, which the CPU reaches through an aperture and a data port, and it snoops nothing in native mode; banks
+    8–B go back to the system. Apple II mode keeps snooping as above.
+    [Video card revision 2](#video-card-revision-2) has it, and [video-rev2.md](video-rev2.md) the reasons.
 - **Native use is mostly an OS and games,** so the card has tiles and sprites.
 - **Bitmaps are 256 or 512 pixels wide,** so each row is one 6502 page: y is the address's high byte and x the low
   byte.
@@ -532,11 +552,14 @@ See [Front Panel](#front-panel).
 **Where the data lives.** All video data (maps, tiles, sprite tables, bitmaps) is in banks 8–B, 256 KB, which the
 card mirrors. A game keeps its sprite table anywhere in RAM and copies it into the video banks with one 512-byte
 DMA during vertical blank, about 72 µs, as the NES does. Storage can load tiles and pictures straight into the video
-banks.
+banks. **Proposed, revision 2:** all of it is in card memory instead, 2 MB, and the sprite table goes to the card
+through the data port by DMA on channel 1.
 
 **Hardware.** The card needs an FPGA: it must capture an address and data every 140 ns (every 70 ns in turbo),
 and draw layers and sprites at the VGA pixel clock (25.175 MHz). The Commander X16's VERA is a useful reference.
 The difference is that VERA's memory is reached through I/O ports, while here the screen is ordinary memory.
+**Proposed, revision 2:** the card no longer captures native writes; it has an SRAM bus of its own, which scanout,
+the aperture, the port and the Apple mirror share.
 
 **Apple II mode.** The card snoops what the IIe's video reads, in banks 0 and 1:
 
@@ -560,7 +583,8 @@ Pico-based Apple II VGA cards (AppleII-VGA, A2DVI) work the same way.
 ### Video registers ###
 
 **Decided.** The card's block is `$C480–$C4FF` (module ID `0x9`). The registers only set up the display; all
-display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snooped video banks 8–B.
+display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snooped video banks 8–B. This is revision
+1, ID `$91`; revision 2 (proposed) moves the bases and the layers' registers ([below](#video-card-revision-2)).
 
 - **Base registers** are one byte in **1 KB units** of video memory: physical address `$80000 + base × 1024`.
   Sprite images use 12-bit addresses in 64-byte units.
@@ -640,6 +664,86 @@ display data (text, maps, tiles, bitmaps, sprite table, palette) is in the snoop
   colour is its palette offset x 16 + pixel; an 8-bit sprite's is the pixel. Images are row by row, left pixel high.
 - **Collisions:** opaque pixels of two drawn sprites on the same spot whose groups share a bit. At the vertical
   blank after the frame, STATUS COLL holds the shared groups and ISR bit 2 is set.
+
+### Video card revision 2 ###
+
+**Proposed (2026-11-10), owner to confirm:** everything in this section, from [video-rev2.md](video-rev2.md),
+whose register map and card memory layout are frozen for the work. The ID becomes `$92`, so software tells the
+revisions apart; what isn't said here is as revision 1 has it, above.
+
+- **Card memory.** 2 MB of asynchronous SRAM (1M × 16, about 10 ns) on the card, shared by scanout, the aperture,
+  the port and the Apple-mode mirror. Scanout reads only card memory. MEMSIZE reports what is fitted, so OODOS and
+  OOLIB allocate from what is there; a later card with more changes only MEMSIZE (and, with SDRAM, the aperture's
+  wait states).
+- **Addresses** in card memory are 24 bits. Base registers are two bytes in **256-byte units** (card address
+  `base × 256`); sprite images are 15 bits in 256-byte units, reaching 8 MB.
+- **No native snooping.** Writes to banks 8–B are no longer copied; bank 8 is the aperture and banks 9–B are RAM
+  ([Memory](#physical-memory-1-mb-in-16-banks)).
+- **The palette** stays in card memory at PALBASE and is read each line, as the emulator does today, rather than
+  copied into the card on a PALBASE write.
+- **The aperture** is physical bank 8, `$80000–$8FFFF`, four 16 KB slots. Slot *n*, blocks 32 + *n*, shows card
+  memory from SLOT*n* × `$4000`, so any window can be pointed at any slot. The card answers there as a memory
+  module, with no wait states at ÷2. The machine fits no RAM at bank 8: the north bridge decodes it to the video
+  card.
+- **The data port:** PADDR, a 24-bit card address, and PDATA. Each access to PDATA moves PADDR by PSTEP, up or
+  down, so a column or a rectangle's rows go as one stream. While PCTL's DRQ enable is set the card raises DRQ on
+  channel 1 whenever the port can take or give a byte, so the DMA controller streams to or from system RAM. Copies
+  inside card memory go out and back through the port for now; a copy engine on the card is a later feature.
+- **Latching:** the two-byte bases are latched at line 480, as the one-byte ones were.
+
+**Registers** (offset from `$C480`; frozen 2026-11-10):
+
+| Offset | Name | Access | Purpose |
+|---|---|---|---|
+| `$00`, `$01` | CTRL, BORDER | read/write | as revision 1 |
+| `$02`, `$03` | | read | reserved, read 0: PALBASE and SPRBASE moved to `$0A` and `$0C` |
+| `$04`–`$09` | IEN, ISR, LINE, STATUS, SPLASH | | as revision 1 |
+| `$0A`–`$0B` | PALBASE | read/write | the palette's card address in 256-byte units, low byte first |
+| `$0C`–`$0D` | SPRBASE | read/write | the sprite table's, the same |
+| `$0E`–`$0F` | | read | reserved, read 0 |
+| `$10`, `$20` | layers 0 and 1 | | below |
+| `$30`–`$37` | SLOT0–SLOT3 | read/write | the aperture's page registers, two bytes each, low byte first, in 16 KB pages: slot *n* shows card memory from SLOT*n* × `$4000`. /RESET sets SLOT*n* to *n*, so the aperture shows card memory `$000000–$00FFFF` in order |
+| `$38`–`$3A` | PADDR | read/write | the port's card address, 24 bits, low byte first |
+| `$3B` | PDATA | read/write | a write stores the byte at PADDR, a read returns it; either then moves PADDR by PSTEP |
+| `$3C`–`$3D` | PSTEP | read/write | the step after each PDATA access, 16 bits, low byte first; 0 holds the address. /RESET sets 1 |
+| `$3E` | PCTL | read/write | bit 0 DRQ enable. Bit 1 direction: 0 to the card (DMA writes PDATA), 1 from the card (DMA reads it). Bit 2: PADDR steps down. The other bits read 0 |
+| `$3F` | MEMSIZE | read | the fitted memory in 64 KB units: 32 for 2 MB |
+| `$40`–`$7E` | | read | reserved, read 0 |
+| `$7F` | ID | read | `$92` |
+
+**Layers** (layer 0 at `$10`, layer 1 at `$20`):
+
+| Offset | Name | Purpose |
+|---|---|---|
+| `+$0` | CONFIG | as revision 1 |
+| `+$1`–`$2` | MAPBASE | two bytes, 256-byte units, low byte first |
+| `+$3`–`$4` | TILEBASE | the same |
+| `+$5`–`$6`, `+$7`–`$8` | HSCROLL, VSCROLL | as revision 1, one byte higher |
+| `+$9` | PALOFS | as revision 1 |
+| `+$A`–`$F` | | reserved, read 0 |
+
+- **Past the end.** PADDR wraps at the fitted memory's end. Aperture and port addresses past MEMSIZE read `$FF` and
+  ignore writes.
+- **/RESET** resets the registers and never touches card memory.
+- **Sprite entries** keep the 8-byte layout, but the image address is 15 bits in 256-byte units: byte 0 its bits
+  7–0, byte 1 bits 6–0 its bits 14–8, byte 1 bit 7 the colour depth as before. Bytes 2–7 are unchanged.
+- **Apple II mode:** the card ignores the aperture and its registers can't be reached; DMA is idle, so the port is
+  never used there ([Apple II Mode](#apple-ii-mode-1)).
+
+**Card memory layout** (frozen 2026-11-10, owner to confirm). OODOS's region keeps today's layout at the same
+offsets: what the BIOS and OODOS call unit *u* (1 KB of banks 8–B) is card address *u* × 1 KB, the base-register
+value *u* × 4.
+
+| Range | Owner | Use |
+|---|---|---|
+| `$000000–$03FFFF` | OODOS (the BIOS before it) | as banks 8–B today: the palette at `$000000`, the font at `$000400`, the console's text at `$002000`, OODOS's video units 0–12, its sprites and pointer |
+| `$040000–$1BFFFF` | programs, through OOLIB | screens, bitmaps, tiles, sprite images |
+| `$1C0000–$1DFFFF` | Apple II mode | the banks 0–1 mirror, 128 KB |
+| `$1E0000–$1E0FFF` | Apple II mode | the IIe's character ROM, which `C806R` copies there |
+| `$1E1000–$1FFFFF` | Apple II mode | spare |
+
+**Open:** the FPGA part, given the SRAM bus and the bus-target timing ([video-rev2.md](video-rev2.md#open-questions),
+question 7).
 
 ### Boot splash ###
 
@@ -1346,6 +1450,19 @@ the tables leave open:
 Before the switch, the BIOS has loaded the ROM image into bank E and cleared banks 0–3 and the second `$D000` bank
 (`$D000–$DFFF` of banks 4 and 5).
 
+**Proposed (2026-11-10), video card revision 2** ([above](#video-card-revision-2)). The mode works as it does
+today; only where the card keeps its copy and the character ROM changes:
+
+- The card still snoops writes to banks 0–1 and the display switches (`$C050–$C05F`, `$C00C–$C00F`); it is now
+  the card's only snoop path. Its copy of banks 0–1 is in card memory, `$1C0000–$1DFFFF`, which nothing outside
+  the card can see.
+- `C806R` copies the character ROM into card memory at `$1E0000` through the port before it writes MODE, instead
+  of to `$BE000`.
+- Card memory survives /RESET: the pulse that enters the mode, and every Ctrl-Reset, reset the card's registers but
+  never its memory, so the character ROM stays.
+- The aperture is inert while APPLE is set, the registers can't be reached, and DMA is idle, so the port is never
+  used. The timing is unchanged: 640×480 out, 560×384 centred, `$C019` in Apple timing.
+
 **Leaving (decided):** only by hard reset. Power-on and the reset button always start in native mode, so nothing
 an Apple program does can leave by accident.
 
@@ -1763,6 +1880,15 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    mirror. INTSTAT isn't modelled: `$C322` is still the 6551's mirror, so for now a handler tells the VIA by its
    IFR. In the WebUI gamepads drive the sticks, each keeping its stick until it goes, and keys too once Settings turns them on; the
    terminal app's debugger has `joy`.)*
+10. **Video card revision 2** ([above](#video-card-revision-2); proposed, 2026-11-10). `VideoCard` owns 2 MB
+    instead of attaching to banks 8–B, and draws from it with 24-bit bases; the aperture is a memory device for
+    bank 8 with the four slot registers, and `backplane.machine`'s RAM line for bank 8 changes to match; the port
+    (PADDR, PDATA, PSTEP, PCTL) has its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2.
+    Apple mode still reads banks 0–1 and takes the character ROM from card memory, and /RESET leaves card memory
+    alone. The new register map with ID `$92`, and a `set_revision` switch that keeps revision 1 for comparison
+    while the BIOS moves. A `vram` debugger command peeks and pokes card memory. The video and Apple suites move to
+    the new model; the BIOS screen's and the demo's golden frames are regenerated once and compared after the
+    migration.
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 
