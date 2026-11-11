@@ -74,8 +74,8 @@ namespace
         return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
 
-    /// The video card these run on: the BIOS is built for revision 2 (hw/video-rev2.md), and backplane.machine
-    /// still says rev=1 until the BIOS, OODOS and the demo move together.
+    /// The video card these run on: revision 2 (hw/video-rev2.md), as backplane.machine says (rev=2) and the BIOS
+    /// is built for; a test that wants revision 1 asks for it.
     constexpr unsigned VIDEO_REVISION = 2;
 
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.

@@ -94,7 +94,7 @@ The ROM is the last argument, not an option's value: there is no `--rom`.
 **The debugger.** Ctrl-] stops the machine at a `debug>` prompt, and `h` lists its commands: `r` run, `s` step
 instructions, `f` show bytes with no side effects, `st` store, `x` the registers, `l` disassemble, `b` and `d`
 breakpoints, `t` the trace on or off, `reset` a hard reset, the cards' and the CPU's, `q` quit. Addresses take
-labels. STP stops into it too. On the OO-1 it has two more:
+labels. STP stops into it too. On the OO-1 it has three more:
 
 - **`rtc`** shows the real-time clock: the time, RTCCTL and the DS3231's registers.
 - **`joy`** shows the joysticks. `joy 1 uf` holds joystick 1 up with fire pressed, and `joy 1 -` lets it go
