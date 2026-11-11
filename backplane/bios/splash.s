@@ -87,6 +87,19 @@ SPLASH:
                 BNE     @block
                 PLA
                 STA     NB_WIN1
+; Every oscillator halted before the 6510 has the chip: after C800R its
+; registers are as the last program left them (QUIET only froze it), and the
+; player halts only the 24 it uses, a frame after RUN.
+                LDA     #SOUND_DOC_AUTOINC ; the registers, from $A0: the 32 controls
+                STA     SOUND_DOCCTL
+                LDA     #$A0
+                STA     SOUND_DOCADDR
+                STZ     SOUND_DOCADDR + 1
+                LDA     #$01           ; HALT
+                LDX     #32
+@halt:          STA     SOUND_DOCDATA
+                DEX
+                BNE     @halt
                 LDA     #SOUND_DOC_RUN ; the chip's registers, at the 6510's $DF00
                 STA     SOUND_DOCCTL
                 LDA     #<DOCTUNE
