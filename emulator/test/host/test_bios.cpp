@@ -498,9 +498,6 @@ namespace
     constexpr uint32_t DEMO_RIPPLE = 0x050000, RIPPLE_SIZE = 0xF000; // 16 bitmaps of 256 x 240
     constexpr uint8_t CONFIG_TILES = 0x22, CONFIG_RIPPLE = 0x03;     // a 64-wide tile map; bitmap 256
 
-    /// A revision 2 two-byte register, low byte first.
-    unsigned reg16(const VideoCard &card, uint8_t r) { return card.peek(r) | unsigned{card.peek(r + 1u)} << 8; }
-
     const std::string &bios_labels()
     {
         static const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
