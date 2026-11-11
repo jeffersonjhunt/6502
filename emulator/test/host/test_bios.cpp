@@ -1893,8 +1893,9 @@ namespace
 
     constexpr uint64_t MONITOR_FRAME = 360;   // after the splash's 300, the cursor lit (frame / 16 even)
     constexpr uint32_t MONITOR_HASH = 0xECF44BE7;
-    constexpr uint32_t DEMO_FIRST_HASH = 0xA6F79AEF;   // the first frame the demo draws whole: the fade's start
-    constexpr uint32_t DEMO_SETTLED_HASH = 0x0D630073; // 30 frames on: faded in, the balls under way
+    constexpr uint32_t DEMO_FIRST_HASH = 0xA8005DC5;   // the demo's first frame, whole: the fade's level 0, black
+    constexpr uint32_t DEMO_LIGHT_HASH = 0xA6F79AEF;   // the next: level 1, the first light
+    constexpr uint32_t DEMO_SETTLED_HASH = 0x19C080E1; // 30 frames on: faded in, the balls under way
 } // namespace
 
 TEST(golden_frame_the_monitors_text_screen)
@@ -1913,7 +1914,7 @@ TEST(golden_frame_the_monitors_text_screen)
     CHECK(golden(*card, "monitor", MONITOR_HASH));
 }
 
-TEST(golden_frames_the_demos_first_and_a_settled_one)
+TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
 {
     Board b{Board::Rev2{}};
     REQUIRE(b.ok());
@@ -1921,18 +1922,20 @@ TEST(golden_frames_the_demos_first_and_a_settled_one)
     b.run(BOOT);
     const VideoCard *card = b.machine->video_card();
     REQUIRE(card != nullptr);
-    // CTRL turning $0F (display, both layers, sprites) starts the demo's screen. A frame the beam was drawing
-    // then is torn (above that line the monitor's, below it the new layers on bases that latch only at line
-    // 480): the first the demo draws whole is the next.
+    // CTRL turning $0F (display, both layers, sprites) starts the demo's screen. The demo writes it in a vertical
+    // blank, where the bases it wrote before latch (line 480), so no frame is torn: the one before is black from
+    // top to bottom (CTRL 0, the display off, since the demo started), and the next is the demo's, whole.
     bool on = false;
     uint64_t at = 0;
     unsigned line = 0;
+    std::vector<uint32_t> before;
     b.on_step = [&] {
         if (!on && card->peek(VideoCard::CTRL) == 0x0F)
         {
             on = true;
             at = card->frames();
             line = card->beam_line();
+            before.assign(card->frame(), card->frame() + VideoCard::WIDTH * VideoCard::HEIGHT);
         }
     };
     CHECK(b.run(4 * FRAME, "C803R\r").find("C803: 4C\\") == std::string::npos); // C803 took the card
@@ -1940,11 +1943,15 @@ TEST(golden_frames_the_demos_first_and_a_settled_one)
         b.run(FRAME);
     b.on_step = nullptr;
     REQUIRE(on);
-    const uint64_t first = at + (line < VideoCard::HEIGHT ? 2 : 1);
-    std::printf("  CTRL $0F at line %u of frame %llu: the demo's first whole frame is %llu\n", line,
-                static_cast<unsigned long long>(at + 1), static_cast<unsigned long long>(first));
+    std::printf("  CTRL $0F at line %u, after frame %llu\n", line, static_cast<unsigned long long>(at));
+    CHECK(line >= VideoCard::HEIGHT);            // in the vertical blank
+    const uint32_t black = VideoCard::rgba(0x000);
+    CHECK(std::all_of(before.begin(), before.end(), [black](uint32_t p) { return p == black; })); // not torn
+    const uint64_t first = at + 1;
     run_to_frame(b, first);
-    CHECK(golden(*card, "demo-first", DEMO_FIRST_HASH));
+    CHECK(golden(*card, "demo-first", DEMO_FIRST_HASH)); // black: the fade's level 0 is a black palette
+    run_to_frame(b, first + 1);
+    CHECK(golden(*card, "demo-light", DEMO_LIGHT_HASH));
     run_to_frame(b, first + 30);
     CHECK(colours(*card) >= 12);
     CHECK(golden(*card, "demo-settled", DEMO_SETTLED_HASH));

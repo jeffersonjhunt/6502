@@ -227,8 +227,9 @@ DEMO_MAIN:
                 STZ     SCROLL+1
                 STZ     FCOUNT
                 STZ     SCENE
-                LDA     #VIDEO_ALL
-                STA     VIDEO_CTRL
+                JSR     WAITVB         ; the bases just written latch at line 480: CTRL with them, in the
+                LDA     #VIDEO_ALL     ; vertical blank, or the rest of this frame draws the new layers
+                STA     VIDEO_CTRL     ; from the old bases (the monitor's text, in its palette)
 
 ; Each frame, in the vertical blank. The base registers and the scroll take
 ; effect at the next line 480, a frame after they are written, but CONFIG at
