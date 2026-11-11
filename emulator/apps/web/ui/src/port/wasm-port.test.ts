@@ -13,7 +13,7 @@ import { fakeSid } from "./fake-sid";
 import { biosVersion, coreUrl, MAX_BIOS, MAX_FRAME_BUDGET_MS, MAX_SLICE, WasmPort, wallClock, type CoreModule, type Scheduler } from "./wasm-port";
 
 const core = fileURLToPath(new URL("../../public/core/oo1.mjs", import.meta.url));
-const GREETING = "\rBACKPLANE BIOS 0.12\r\\\r";
+const GREETING = "\rBACKPLANE BIOS 0.13\r\\\r";
 const FRAME_MS = 1000 / 60;
 const NATIVE_HZ = 7_159_090;
 /** Frames at 7.16 MHz to wait out the boot splash's 5 s (300 frames) and its tune, and a little: test_bios's SPLASH_TIME. */
@@ -43,10 +43,10 @@ beforeAll(() => {
   load = async () => ((await import(pathToFileURL(core).href)) as { default: () => Promise<CoreModule> }).default();
 });
 
-/** Where "0.12" is in "BACKPLANE BIOS 0.12" in a ROM. */
+/** Where "0.13" is in "BACKPLANE BIOS 0.13" in a ROM. */
 function biosVersionAt(rom: Uint8Array): number {
   const text = Array.from(rom, (b) => String.fromCharCode(b)).join("");
-  const at = text.indexOf("BACKPLANE BIOS 0.12");
+  const at = text.indexOf("BACKPLANE BIOS 0.13");
   expect(at).toBeGreaterThanOrEqual(0);
   return at + "BACKPLANE BIOS ".length;
 }
@@ -667,7 +667,7 @@ describe("WasmPort", () => {
 
   test("the owner's BIOS: opened instead of the built-in one, its version read from it", async () => {
     const builtIn = await open();
-    expect(builtIn.connected.bios).toBe("0.12");
+    expect(builtIn.connected.bios).toBe("0.13");
     const core = await load();
     const rom = core.FS!.readFile("/roms/bios.rom").slice();
     const at = biosVersionAt(rom);
@@ -712,8 +712,8 @@ describe("WasmPort", () => {
     expect(f.disk?.motor).toBe(false); // its motor on and off: the drive runs on
     expect(f.disk?.spinning).toBe(true);
     expect(s?.text).toBe(true);
-    expect((await m.port.readMemory(0xc4ff, 1, "io"))[0]).toBe(0x91); // the video card, though...
-    expect((await m.port.readMemory(0xc4ff, 1, "cpu"))[0]).not.toBe(0x91); // ...the CPU sees the Apple's $C4FF
+    expect((await m.port.readMemory(0xc4ff, 1, "io"))[0]).toBe(0x92); // the video card, though...
+    expect((await m.port.readMemory(0xc4ff, 1, "cpu"))[0]).not.toBe(0x92); // ...the CPU sees the Apple's $C4FF
     typeReset(m.port, false); // Ctrl-Delete on the USB keyboard
     for (let i = 0; i < 10; ++i) f = m.step();
     expect((await m.port.readMemory(0x0300, 1, "physical"))[0]).toBe(2);

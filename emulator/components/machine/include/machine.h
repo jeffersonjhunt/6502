@@ -31,8 +31,12 @@
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
  * takes the bus from the CPU), console (the Console card, console_card.h;
  * at most one; the run loop wires it to the CPU, see console_card()), video
- * (the video card, video_card.h; at most one, and banks 8-B, 80000-BFFFF,
- * must be one ram line, which it draws from), usb (the USB card, usb_card.h;
+ * (the video card, video_card.h; at most one; `rev=1` or `rev=2`, 1 if
+ * omitted, or MachineOptions::video_revision; on revision 1 banks 8-B,
+ * 80000-BFFFF, must be one ram line, which it draws from), aperture
+ * (revision 2's 64 KB window on card memory, video_card.h's VideoAperture:
+ * on a revision 2 card it answers over any RAM there, as if mapped last; on
+ * revision 1, or with no video line, it is inert), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
  * card, sound_card.h; at most one), sd (the mass storage card, sd_card.h; at most
@@ -85,6 +89,10 @@ namespace ooe::emu
     {
         /// If set, replaces the image of the first `rom` line.
         std::string rom_override;
+        /// The video card's revision (1 or 2), over the `video` line's `rev=`; 0: the line's. Anything
+        /// else fails the build. The machine wires the bus for it, so the card's revision is then fixed
+        /// (VideoCard::set_revision() returns false).
+        unsigned video_revision{0};
         /// An Apple IIe ROM for the cartridge (the rom line named `rom_b`), at its
         /// start: one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
         /// Apple's ROMs are copyrighted: the owner supplies them.

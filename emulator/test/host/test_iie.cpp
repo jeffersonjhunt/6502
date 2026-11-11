@@ -33,6 +33,21 @@ using namespace ooe::emu;
 
 namespace
 {
+    /// backplane.machine with its video line at revision 2, written beside the test as `name`. The BIOS is built
+    /// for revision 2 (hw/video-rev2.md, proposed), and the file still says rev=1 until the BIOS, OODOS and the
+    /// demo move together; once it says rev=2 this copies it as it is.
+    std::string rev2_machine(const std::string &name)
+    {
+        std::ifstream in(EMU_MACHINE_DIR "/backplane.machine");
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const size_t line = text.find("\nvideo ");
+        const size_t rev = line == std::string::npos ? line : text.find(" rev=1", line);
+        if (rev != std::string::npos && rev < text.find('\n', line + 1))
+            text.replace(rev, 6, " rev=2");
+        std::ofstream(name) << text;
+        return name;
+    }
+    const std::string MACHINE = rev2_machine("test_iie_rev2.machine");
     const std::string ROMS = EMU_FIXTURE_DIR "/apple2e/";
     const std::string IIE = ROMS + "iie-enhanced-c000-ffff.bin";
     const std::string CHARS = ROMS + "iie-video-enhanced-342-0265-a.bin";
@@ -57,7 +72,7 @@ namespace
         explicit IIe(const std::string &rom = IIE, const std::string &disk = "")
         {
             std::string error;
-            Session::Config c{EMU_MACHINE_DIR "/backplane.machine", EMU_BIOS_ROM, ""};
+            Session::Config c{MACHINE, EMU_BIOS_ROM, ""};
             c.apple_rom = {rom};
             c.apple_chars = CHARS;
             if (!disk.empty())

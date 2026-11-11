@@ -17,11 +17,14 @@
 ; keeping); each fill is then a block transfer that is done before the next
 ; instruction, with no wait needed.
 ;
-; The IIe's character ROM goes to video memory too (CHARS), from the
-; cartridge's $84000 or, without one, made from the VGA font.
+; The IIe's character ROM goes into the video card's memory too (CHARS),
+; through its port, from the cartridge's $84000 or, without one, made from
+; the VGA font.
 ;
-; With no IIe ROM in the cartridge, or no DMA controller, it says so and
-; goes back to the monitor.
+; With no revision 2 video card (whose ID is $92: the BIOS no longer drives
+; revision 1, and CHARS writes only revision 2's port), no DMA controller,
+; or no IIe ROM in the cartridge, it says so and goes back to the monitor,
+; still in the native map, with nothing changed.
 
 .setcpu "65C02"
 .include "backplane.inc"
@@ -38,17 +41,19 @@ DST       = $02
 CODE      = $04                        ; CHARS's
 TMP       = $05
 FPTR      = $06
-DPTR      = $08
 CART_CHARS = NB_ROM | NB_RO | 33       ; the cartridge's $84000: the character ROM
-CHARS_BLOCK = 47                       ; RAM block 47: $BC000-$BFFFF
-CHARS_CPU = $A000                      ; $BE000 through W2
-VGA_BLOCK = 32                         ; RAM block 32: video memory's start, the VGA font at unit 1
-VGA_FONT  = $4400
+CHARS_CARD = $1E0000                   ; where the card draws Apple text from (hw/video-rev2.md)
+VGA_FONT  = NB_ROM | NB_RO | 30        ; flash block 30: the BIOS's VGA font, at $4000 through W1
+VGA_CPU   = $4000
 
 .segment "APPLE"
 
 APPLE:
-                LDA     DMA_ID
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V2
+                BEQ     @card
+                JMP     NOCARD_SAY
+@card:          LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BEQ     @dma
                 JMP     NODMA_SAY
@@ -80,7 +85,7 @@ APPLE:
                 CMP     #>(CART_CPU + $4000)
                 BNE     @copy
 
-                JSR     CHARS          ; the character ROM into video memory
+                JSR     CHARS          ; the character ROM into the card's memory
 
                 SEI
                 LDA     #ZERO_BLOCK    ; the fill's source: one zero byte
@@ -133,15 +138,26 @@ APPLE:
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
 @reset:         BRA     @reset         ; ...which takes the CPU from here
 
-; The IIe's character ROM, 2 KB, into video memory at $BE000, where the
-; video card draws Apple text from (video_card.h). From the cartridge at
-; $84000 if one is there; else made from the BIOS's VGA font, so Apple text
-; still shows: each glyph's 16 rows folded to 8 (two ORed), its 7 left dots
-; reversed into the IIe's order (bit 0 leftmost), and normal codes ($80 up)
-; stored inverted, lit where 0, as the real ROM does.
+; The IIe's character ROM, 2 KB, into the video card's memory at $1E0000,
+; where it draws Apple text from (hw/video-rev2.md's layout), through its
+; data port: PADDR there, PSTEP 1, no DMA, and each byte written to PDATA in
+; turn. Card memory outlives the /RESET that enters the mode. From the
+; cartridge at $84000 if one is there; else made from the BIOS's VGA font
+; (flash block 30), so Apple text still shows: each glyph's 16 rows folded
+; to 8 (two ORed), its 7 left dots reversed into the IIe's order (bit 0
+; leftmost), and normal codes ($80 up) stored inverted, lit where 0, as the
+; real ROM does.
 CHARS:
-                LDA     #CHARS_BLOCK   ; $BC000-$BFFFF through W2: $BE000 is $A000
-                STA     NB_WIN2
+                STZ     VIDEO_PCTL
+                LDA     #1
+                STA     VIDEO_PSTEP
+                STZ     VIDEO_PSTEP + 1
+                LDA     #<CHARS_CARD
+                STA     VIDEO_PADDR
+                LDA     #>CHARS_CARD
+                STA     VIDEO_PADDR + 1
+                LDA     #^CHARS_CARD
+                STA     VIDEO_PADDR + 2
                 LDA     #CART_CHARS    ; the cartridge's $84000 through W1
                 STA     NB_WIN1
                 LDX     #7
@@ -152,35 +168,28 @@ CHARS:
                 BPL     @probe
                 BRA     @make
 @copy:          STZ     SRC
-                STZ     DST
                 LDA     #>CART_CPU
                 STA     SRC+1
-                LDA     #>CHARS_CPU
-                STA     DST+1
                 LDX     #8             ; 2 KB
                 LDY     #0
 @page:          LDA     (SRC),Y
-                STA     (DST),Y
+                STA     VIDEO_PDATA
                 INY
                 BNE     @page
                 INC     SRC+1
-                INC     DST+1
                 DEX
                 BNE     @page
                 BRA     @done
 
-@make:          LDA     #VGA_BLOCK     ; the VGA font (video memory unit 1) through W1: $4400
+@make:          LDA     #VGA_FONT      ; the VGA font through W1: $4000
                 STA     NB_WIN1
                 STZ     CODE
-                STZ     DPTR
-                LDA     #>CHARS_CPU
-                STA     DPTR+1
 @code:          LDA     CODE           ; the ASCII it shows: $00-$1F and $80-$9F are capitals
                 AND     #$7F
                 CMP     #$20
                 BCS     @ascii
                 ORA     #$40
-@ascii:         STA     FPTR           ; FPTR = $4400 + ASCII x 16
+@ascii:         STA     FPTR           ; FPTR = $4000 + ASCII x 16
                 STZ     FPTR+1
                 LDX     #4
 @x16:           ASL     FPTR
@@ -189,7 +198,7 @@ CHARS:
                 BNE     @x16
                 LDA     FPTR+1
                 CLC
-                ADC     #>VGA_FONT
+                ADC     #>VGA_CPU
                 STA     FPTR+1
                 LDX     #0             ; the glyph's 8 rows
 @row:           TXA
@@ -208,28 +217,18 @@ CHARS:
                 BIT     CODE
                 BPL     @store         ; inverse and flashing codes: lit where 1
                 EOR     #$FF           ; normal: lit where 0
-@store:         PHA
-                TXA
-                TAY
-                PLA
-                STA     (DPTR),Y
+@store:         STA     VIDEO_PDATA    ; code x 8 + row: the rows in turn, the codes in turn
                 INX
                 CPX     #8
                 BNE     @row
-                LDA     DPTR
-                CLC
-                ADC     #8
-                STA     DPTR
-                BCC     @next
-                INC     DPTR+1
-@next:          INC     CODE
+                INC     CODE
                 BNE     @code
 @done:          LDA     #1
                 STA     NB_WIN1
-                LDA     #2
-                STA     NB_WIN2
                 RTS
 
+NOCARD_SAY:     LDX     #NOCARD - MESSAGES
+                BRA     SAY
 NODMA_SAY:      LDX     #NODMA - MESSAGES
                 BRA     SAY
 NOROM_SAY:      LDA     #1
@@ -245,3 +244,4 @@ SAY:            LDA     MESSAGES,X
 MESSAGES:
 NOROM:          .byte   $0D, "NO APPLE IIE ROM IN THE CARTRIDGE", 0
 NODMA:          .byte   $0D, "APPLE II MODE NEEDS THE DMA CONTROLLER", 0
+NOCARD:         .byte   $0D, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD", 0

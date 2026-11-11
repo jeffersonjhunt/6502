@@ -127,7 +127,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return m;
         }
-        if (!m.until("BACKPLANE BIOS 0.12\r\\\r", 0, 120))
+        if (!m.until("BACKPLANE BIOS 0.13\r\\\r", 0, 120))
             return m;
         if (!m.s->insert_sd(m.card, error))
         {
@@ -160,7 +160,7 @@ TEST(power_on_boots_the_card_after_the_splash_to_the_prompt)
     REQUIRE(m.s != nullptr);
     REQUIRE(m.s->insert_sd(std::make_shared<MemoryMedia>(sd_image("oodos.sparse"), "card"), error));
     REQUIRE(m.until("\nA>", 0, 1200));
-    const size_t greeted = m.out.find("BACKPLANE BIOS 0.12\r");
+    const size_t greeted = m.out.find("BACKPLANE BIOS 0.13\r");
     const size_t booting = m.out.find("\rBOOTING THE SD CARD: A KEY FOR THE MONITOR\r");
     const size_t ooldr = m.out.find("\rOOLDR 0.8\r");
     CHECK(greeted != std::string::npos);

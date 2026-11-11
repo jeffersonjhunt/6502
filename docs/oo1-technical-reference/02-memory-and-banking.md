@@ -21,8 +21,8 @@ physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 | E | `$E0000–$EFFFF` | 56–59 | free; Apple II mode copies the IIe ROM image into it each time it starts, with the zero byte its fills copy from at `$EBFFF` |
 | F | `$F0000–$FFFFF` | 60–63 | free, but for block 63: the BIOS's copy of itself, read-only through W3 |
 
-Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM at `$BE000`, in video memory
-([chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
+Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM in video card revision 2's own
+memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
 The flash is a second physical space, beside the RAM. ROM A (module 4) is 512 KB, 32 blocks, and holds the BIOS.
@@ -34,7 +34,8 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 | 31, `$7C000` | the BIOS and the Woz Monitor, `$C800–$FFFF` of it (the first 2 KB is under the I/O hole) |
 | 30, `$78000` | the 8×16 font, 4 KB |
 | 29, `$74000` | the video demo |
-| 0–28 | erased (`$FF`) |
+| 24–28, `$60000` | the boot splash's samples for the ES5503: wave RAM's image, 80 KB ([chapter 7](07-sound.md)) |
+| 0–23 | erased (`$FF`) |
 
 The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma.md)).
 

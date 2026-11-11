@@ -38,12 +38,17 @@ WebUI asks first, since the IIe's program would be lost.
 
 Status: **emulated**
 
-`APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor if either is missing:
+`APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
+map and with nothing changed, if any of it is missing:
 
-<!-- listing: ../../backplane/bios/apple.s:50-61 -->
+<!-- listing: ../../backplane/bios/apple.s:51-66 -->
 ```
 APPLE:
-                LDA     DMA_ID
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V2
+                BEQ     @card
+                JMP     NOCARD_SAY
+@card:          LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BEQ     @dma
                 JMP     NODMA_SAY
@@ -56,6 +61,9 @@ APPLE:
 @rom:
 ```
 
+- **Video card revision 2** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
+  port, and BIOS 0.13 doesn't drive revision 1 ([chapter 6](06-video.md#revision-2-card-memory)). On any other card,
+  or none, the BIOS prints `APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD`. *Proposed*, with revision 2.
 - **The DMA controller** must answer with its ID (`DMA_ID_V1`). Without it the BIOS prints `APPLE II MODE NEEDS THE
   DMA CONTROLLER`.
 - **A IIe ROM** must be in the cartridge: 16 KB at its start (flash block 32, `CART_BLOCK`), as the ROM sits at
@@ -66,12 +74,15 @@ Then, in order:
 
 1. **The ROM image.** It copies the cartridge's 16 KB, by the CPU, to RAM block 59: `$EC000–$EFFFF`, bank E's
    `$C000–$FFFF`.
-2. **The character ROM.** It puts 2 KB at `$BE000` in video memory, for the video card's Apple text. If the
-   cartridge's `$84000` (flash block 33) holds anything (its first 8 bytes aren't all `$FF`), it copies the 2 KB
-   from there. If not, it makes a set from the BIOS's VGA font, so Apple text still shows: each glyph's 16 rows
-   ORed in pairs to 8, its 7 left dots reversed so that bit 0 is the leftmost, and the codes from `$80` up stored
-   inverted, lit where a bit is 0. In the emulator the cartridge's character ROM comes from `--apple-chars` (a 4 or
-   8 KB file) or the WebUI's Settings.
+2. **The character ROM.** It puts 2 KB into the video card's own memory at card address `$1E0000`, for its Apple
+   text (*proposed*, [video card revision 2](06-video.md#revision-2-card-memory), BIOS 0.13), writing them to the
+   port's PDATA in turn: PADDR `$1E0000`, PSTEP 1, no DMA. If the cartridge's `$84000` (flash block 33) holds
+   anything (its first 8 bytes aren't all `$FF`), it copies the 2 KB from there. If not, it makes a set from the
+   BIOS's VGA font (flash block 30), so Apple text still shows: each glyph's 16 rows ORed in pairs to 8, its 7 left
+   dots reversed so that bit 0 is the leftmost, and the codes from `$80` up stored inverted, lit where a bit is 0.
+   In the emulator the cartridge's character ROM comes from `--apple-chars` (a 4 or 8 KB file) or the WebUI's
+   Settings. Card memory outlives the /RESET that enters the mode, and nothing in system RAM is written for it.
+   (BIOS 0.12, on revision 1, put the 2 KB at `$BE000` in the video banks instead.)
 3. **Interrupts off** (SEI), and a zero byte at `$EBFFF`, the top of block 58.
 4. **The clear,** by DMA, from that zero byte held as the source: banks 0–3 (four fills of 64 KB), then
    `$D000–$DFFF` of banks 4 and 5 (two of 4 KB). Before the first, it aborts every channel, clears their STATUS
@@ -80,7 +91,7 @@ Then, in order:
    zero page with it, so this part runs inline and never returns. apple.s reckons the clear at about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:132-134 -->
+<!-- listing: ../../backplane/bios/apple.s:137-139 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
@@ -89,8 +100,8 @@ Then, in order:
 
 The loop waits for the pulse. In the emulator the pulse comes as soon as the `STA` ends, so the loop never runs.
 
-The rest of memory is left as it was: banks 6–D and F, but for the character ROM at `$BE000–$BE7FF`; bank E below
-`$EBFFF`, the zero byte and the ROM image above it; and banks 4 and 5 outside `$D000–$DFFF`.
+The rest of memory is left as it was: banks 6–D and F; bank E below `$EBFFF`, the zero byte and the ROM image
+above it; and banks 4 and 5 outside `$D000–$DFFF`. The character ROM is in the card's memory, not the system's.
 
 ### The /RESET pulse
 
@@ -154,7 +165,6 @@ The physical banks, as the mode uses them:
 | 3 | `$30000–$3FFFF` | the auxiliary language card, the same |
 | 4 | `$40000–$4FFFF` | the main language card's `$D000–$DFFF` bank 1, at `$4D000` |
 | 5 | `$50000–$5FFFF` | the auxiliary language card's `$D000–$DFFF` bank 1, at `$5D000` |
-| B | `$B0000–$BFFFF` | the character ROM, 2 KB at `$BE000` in video memory |
 | E | `$E0000–$EFFFF` | the IIe ROM image, `$EC000–$EFFFF` |
 
 Of banks 0 and 1 only `$0000–$BFFF` is addressed, and of banks 2 and 3 only `$D000–$FFFF`, though the BIOS clears
@@ -354,7 +364,7 @@ And, written:
 What the card draws:
 
 - **Text,** 40 columns from bank 0, or 80 from banks 1 and 0 in turn, column 0 from bank 1. White on black, from
-  the character ROM at `$BE000`. With ALTCHARSET off, codes `$40–$7F` flash between inverse and normal, about twice
+  the character ROM at card address `$1E0000`. With ALTCHARSET off, codes `$40–$7F` flash between inverse and normal, about twice
   a second.
 - **Lo-res,** 40×48 blocks of the 16 colours, two to a byte.
 - **Hi-res,** 280 dots a line, coloured by the simple NTSC artifact rule: a lone dot violet or green by its column,

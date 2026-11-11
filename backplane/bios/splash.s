@@ -1,6 +1,6 @@
 ; The boot splash (hw/design.md, "Boot splash").
 ;
-; SPLASH, at boot: if the video card answers, start its splash, the One Off
+; SPLASH, at boot: if the video card (revision 2) answers, start its splash, the One Off
 ; Endeavors logo and the VINTAGE FAST stamp, built from the card's own ROM in
 ; 5 s, after which the card goes back to its layers by itself. If the sound
 ; card answers too, start the splash's sound with it, on the card's 6510 from
@@ -38,9 +38,9 @@ W1        = $4000                      ; where W1 shows a block
 
 SPLASH:
                 LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
+                CMP     #VIDEO_ID_V2
                 BEQ     :+
-                RTS                    ; no video card: no splash, and no sound for it
+                RTS                    ; no revision 2 video card: no splash, and no sound for it
 :
                 LDA     SOUND_ID
                 AND     #$F0           ; the sound card at any revision: each runs the 6510 the same
@@ -87,6 +87,19 @@ SPLASH:
                 BNE     @block
                 PLA
                 STA     NB_WIN1
+; Every oscillator halted before the 6510 has the chip: after C800R its
+; registers are as the last program left them (QUIET only froze it), and the
+; player halts only the 24 it uses, a frame after RUN.
+                LDA     #SOUND_DOC_AUTOINC ; the registers, from $A0: the 32 controls
+                STA     SOUND_DOCCTL
+                LDA     #$A0
+                STA     SOUND_DOCADDR
+                STZ     SOUND_DOCADDR + 1
+                LDA     #$01           ; HALT
+                LDX     #32
+@halt:          STA     SOUND_DOCDATA
+                DEX
+                BNE     @halt
                 LDA     #SOUND_DOC_RUN ; the chip's registers, at the 6510's $DF00
                 STA     SOUND_DOCCTL
                 LDA     #<DOCTUNE

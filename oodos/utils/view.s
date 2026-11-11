@@ -1,12 +1,13 @@
 ; VIEW.COM (hw/oolib.md, "The plan", L4; the User's Guide's VIEW): VIEW
-; filespec. An asset file (format 3, oodos/tools/mkasset.py's) shown on
+; filespec. An asset file (format 4, oodos/tools/mkasset.py's) shown on
 ; the screen by OOLIB's linked library (lib/gx*.s, include/oolib.inc) until
 ; a key is pressed, as PLAYSID plays a tune; the library's test program.
 ;
 ;   filespec    the file; .OGX if its type is left out
 ;
-; Its parts are loaded by function 83 (GX_ASSET) to the units they name, or
-; to units the library hands out; then the palette's unit is PALBASE, a
+; Its parts are loaded into video card revision 2's memory (GX_ASSET) at
+; the card pages they name, or at pages the library hands out; then the
+; palette's page is PALBASE, a
 ; bitmap or a tile map (with its tiles) is layer 0 as its CONFIG says, and
 ; a sprite table is SPRBASE with the sprites on. It says "Press a key to
 ; stop." (into the console's text, unseen while the asset shows: question
@@ -14,7 +15,7 @@
 ; screen back and ends. The warm boot would put it back anyway.
 ;
 ; Errors: "Invalid file specification.", "No File", "Not an asset file.",
-; "Not enough video memory.", "Needs OODOS's interface 4.", "The asset
+; "Not enough video memory.", "Needs OODOS's interface 8.", "The asset
 ; wasn't loaded." The return code $FF00 after any of them.
 
         .setcpu "65C02"
@@ -71,6 +72,7 @@ start:  jsr     UT_INIT
         stz     ctrl
         lda     #$FF
         sta     tiles
+        sta     tiles + 1
         lda     #<(GX_HDR + AH_LEN)
         sta     pp
         lda     #>(GX_HDR + AH_LEN)
@@ -84,6 +86,9 @@ start:  jsr     UT_INIT
         ldy     #AP_UNIT
         lda     (pp),y
         sta     tiles
+        iny
+        lda     (pp),y
+        sta     tiles + 1
 @nexta: jsr     nextp
         bne     @part
         lda     #<(GX_HDR + AH_LEN)
@@ -92,14 +97,18 @@ start:  jsr     UT_INIT
         sta     pp + 1
         lda     GX_HDR + AH_PARTS
         sta     parts
-@show:  ldy     #AP_UNIT
+@show:  ldy     #AP_UNIT                ; the part's card page
         lda     (pp),y
         sta     unit
+        iny
+        lda     (pp),y
+        sta     unit + 1
         ldy     #AP_TYPE
         lda     (pp),y
         cmp     #AT_PALETTE
         bne     @bmp
         lda     unit
+        ldx     unit + 1
         jsr     GX_PALBASE
         bra     @next
 @bmp:   cmp     #AT_BITMAP
@@ -107,11 +116,16 @@ start:  jsr     UT_INIT
         cmp     #AT_MAP
         bne     @spr
 @layer: lda     tiles                   ; layer 0: its CONFIG, its map (or bitmap), its tiles
+        sta     GX_R
+        lda     tiles + 1
+        sta     GX_R + 1
+        lda     unit
         sta     GX_V
+        lda     unit + 1
+        sta     GX_V + 1
         ldy     #AP_CONFIG
         lda     (pp),y
         tax
-        ldy     unit
         lda     #0
         jsr     GX_LAYER
         lda     #$02
@@ -120,6 +134,7 @@ start:  jsr     UT_INIT
 @spr:   cmp     #AT_SPRTABLE
         bne     @next
         lda     unit
+        ldx     unit + 1
         jsr     GX_SPRBASE
         lda     #$08
         tsb     ctrl
@@ -171,7 +186,7 @@ susage: .byte   "VIEW filespec$"
 sinv:   .byte   "Invalid file specification.$"
 skey:   .byte   "Press a key to stop.$"
 errs:   .word   e1, e2, e3, e4, e5, e6
-e1:     .byte   "Needs OODOS's interface 4.$"
+e1:     .byte   "Needs OODOS's interface 8.$"
 e2:     .byte   "Video memory W1 can't reach.$"
 e3:     .byte   "Not enough video memory.$"
 e4:     .byte   "The asset wasn't loaded.$"
@@ -181,8 +196,8 @@ e6:     .byte   "Not an asset file.$"
         .bss
 fcb:    .res    36
 ctrl:   .res    1
-tiles:  .res    1
-unit:   .res    1
+tiles:  .res    2                       ; the tiles' card page ($FFFF none)
+unit:   .res    2                       ; a part's card page
 parts:  .res    1
 
         .code

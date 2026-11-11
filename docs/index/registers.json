@@ -567,7 +567,7 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_PALBASE",
+  "equate": "VIDEO_PALBASE_R1",
   "address": "$C482",
   "module": "9",
   "documented": true,
@@ -576,7 +576,7 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_SPRBASE",
+  "equate": "VIDEO_SPRBASE_R1",
   "address": "$C483",
   "module": "9",
   "documented": true,
@@ -630,6 +630,24 @@
   "status": "emulated"
  },
  {
+  "equate": "VIDEO_PALBASE",
+  "address": "$C48A",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c48a",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_SPRBASE",
+  "address": "$C48C",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c48c",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
   "equate": "VIDEO_L0",
   "address": "$C490",
   "module": "9",
@@ -657,7 +675,16 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L0_TILE",
+  "equate": "VIDEO_L0_MAP_R1",
+  "address": "$C491",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c491",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L0_TILE_R1",
   "address": "$C492",
   "module": "9",
   "documented": true,
@@ -666,7 +693,7 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L0_HSCROLL",
+  "equate": "VIDEO_L0_HSCROLL_R1",
   "address": "$C493",
   "module": "9",
   "documented": true,
@@ -675,7 +702,16 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L0_VSCROLL",
+  "equate": "VIDEO_L0_TILE",
+  "address": "$C493",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c493",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L0_HSCROLL",
   "address": "$C495",
   "module": "9",
   "documented": true,
@@ -684,13 +720,40 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L0_PALOFS",
+  "equate": "VIDEO_L0_VSCROLL_R1",
+  "address": "$C495",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c495",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L0_PALOFS_R1",
   "address": "$C497",
   "module": "9",
   "documented": true,
   "anchor": "reg-c497",
   "file": "oo1-technical-reference/06-video.md",
   "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L0_VSCROLL",
+  "address": "$C497",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c497",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L0_PALOFS",
+  "address": "$C499",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c499",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
  },
  {
   "equate": "VIDEO_L1",
@@ -720,7 +783,16 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L1_TILE",
+  "equate": "VIDEO_L1_MAP_R1",
+  "address": "$C4A1",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a1",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_TILE_R1",
   "address": "$C4A2",
   "module": "9",
   "documented": true,
@@ -729,7 +801,7 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L1_HSCROLL",
+  "equate": "VIDEO_L1_HSCROLL_R1",
   "address": "$C4A3",
   "module": "9",
   "documented": true,
@@ -738,7 +810,16 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L1_VSCROLL",
+  "equate": "VIDEO_L1_TILE",
+  "address": "$C4A3",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a3",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_HSCROLL",
   "address": "$C4A5",
   "module": "9",
   "documented": true,
@@ -747,13 +828,121 @@
   "status": "emulated"
  },
  {
-  "equate": "VIDEO_L1_PALOFS",
+  "equate": "VIDEO_L1_VSCROLL_R1",
+  "address": "$C4A5",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a5",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_PALOFS_R1",
   "address": "$C4A7",
   "module": "9",
   "documented": true,
   "anchor": "reg-c4a7",
   "file": "oo1-technical-reference/06-video.md",
   "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_VSCROLL",
+  "address": "$C4A7",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a7",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "emulated"
+ },
+ {
+  "equate": "VIDEO_L1_PALOFS",
+  "address": "$C4A9",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4a9",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_SLOT0",
+  "address": "$C4B0",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4b0",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_SLOT1",
+  "address": "$C4B2",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4b2",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_SLOT2",
+  "address": "$C4B4",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4b4",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_SLOT3",
+  "address": "$C4B6",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4b6",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_PADDR",
+  "address": "$C4B8",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4b8",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_PDATA",
+  "address": "$C4BB",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4bb",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_PSTEP",
+  "address": "$C4BC",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4bc",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_PCTL",
+  "address": "$C4BE",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4be",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
+ },
+ {
+  "equate": "VIDEO_MEMSIZE",
+  "address": "$C4BF",
+  "module": "9",
+  "documented": true,
+  "anchor": "reg-c4bf",
+  "file": "oo1-technical-reference/06-video.md",
+  "status": "proposed"
  },
  {
   "equate": "VIDEO_ID",

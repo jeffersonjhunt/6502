@@ -99,6 +99,11 @@ namespace ooe::emu
         coll_ = frame_coll_ = 0;
         match_line_ = 0;
         layers_ = {};
+        for (unsigned n = 0; n < slot_.size(); ++n)
+            slot_[n] = static_cast<uint16_t>(n); // the aperture shows card memory $000000-$00FFFF
+        paddr_ = 0;
+        pstep_ = 1;
+        pctl_ = 0;
         splash_ = 0;
         splash_live_ = false;
         splash_frame_ = 0;
@@ -110,8 +115,190 @@ namespace ooe::emu
         fraction_ = 0;
     }
 
+    bool VideoCard::set_revision(unsigned rev)
+    {
+        if (revision_locked_)
+            return false; // the bus is wired for the revision it has
+        rev_ = rev == 2 ? 2 : 1;
+        if (rev_ == 2 && memory_.empty())
+            memory_.assign(MEMORY_SIZE, 0);
+        bus_reset();
+        return true;
+    }
+
+    bool VideoCard::apple_mode() const { return bridge_ && bridge_->apple(); }
+
+    uint8_t VideoCard::aperture_peek(uint32_t offset) const
+    {
+        if (rev_ != 2 || apple_mode())
+            return 0xFF; // the card ignores the cycle: a floating bus
+        offset &= APERTURE_SIZE - 1;
+        return card_peek(uint32_t{slot_[offset / SLOT_SIZE]} * SLOT_SIZE + offset % SLOT_SIZE);
+    }
+
+    void VideoCard::aperture_write(uint32_t offset, uint8_t data)
+    {
+        if (rev_ != 2 || apple_mode())
+            return;
+        offset &= APERTURE_SIZE - 1;
+        card_poke(uint32_t{slot_[offset / SLOT_SIZE]} * SLOT_SIZE + offset % SLOT_SIZE, data);
+    }
+
+    void VideoCard::port_step()
+    {
+        const uint32_t size = static_cast<uint32_t>(memory_.size());
+        if (paddr_ < size) // wrap at the fitted memory's end
+        {
+            const uint32_t step = pstep_ % size;
+            paddr_ = pctl_ & Rev2::PCTL_DOWN ? (paddr_ + size - step) % size : (paddr_ + step) % size;
+        }
+        else // past it (software wrote it there): the 24-bit counter
+            paddr_ = (pctl_ & Rev2::PCTL_DOWN ? paddr_ - pstep_ : paddr_ + pstep_) & 0xFFFFFF;
+    }
+
+    uint8_t VideoCard::port_read()
+    {
+        const uint8_t v = card_peek(paddr_);
+        port_step();
+        return v;
+    }
+
+    void VideoCard::port_write(uint8_t data)
+    {
+        card_poke(paddr_, data);
+        port_step();
+    }
+
+    uint8_t VideoCard::dack_read(bool)
+    {
+        if (rev_ != 2 || !(pctl_ & Rev2::PCTL_FROM_CARD))
+            return 0xFF; // the port is taking bytes, not giving them: nothing drives the bus
+        return port_read();
+    }
+
+    void VideoCard::dack_write(uint8_t data, bool)
+    {
+        if (rev_ == 2 && !(pctl_ & Rev2::PCTL_FROM_CARD))
+            port_write(data);
+    }
+
+    uint8_t VideoCard::read(uint32_t offset)
+    {
+        if (rev_ == 2 && offset == Rev2::PDATA)
+            return port_read();
+        return peek(offset);
+    }
+
+    uint8_t VideoCard::peek_rev2(uint32_t offset) const
+    {
+        if (offset >= LAYER0 && offset < LAYER1 + 0x10)
+        {
+            const Layer &l = layers_[(offset - LAYER0) >> 4];
+            switch (offset & 0xF)
+            {
+            case CONFIG: return l.config;
+            case Rev2::MAPBASE: return lo(l.mapbase);
+            case Rev2::MAPBASE + 1: return hi(l.mapbase);
+            case Rev2::TILEBASE: return lo(l.tilebase);
+            case Rev2::TILEBASE + 1: return hi(l.tilebase);
+            case Rev2::HSCROLL: return lo(l.hscroll);
+            case Rev2::HSCROLL + 1: return hi(l.hscroll);
+            case Rev2::VSCROLL: return lo(l.vscroll);
+            case Rev2::VSCROLL + 1: return hi(l.vscroll);
+            case Rev2::PALOFS: return l.palofs;
+            default: return 0; // reserved
+            }
+        }
+        if (offset >= Rev2::SLOT0 && offset < Rev2::SLOT0 + 8)
+        {
+            const uint16_t v = slot_[(offset - Rev2::SLOT0) / 2];
+            return offset & 1 ? hi(v) : lo(v);
+        }
+        switch (offset)
+        {
+        case CTRL: return ctrl_;
+        case BORDER: return border_;
+        case IEN: return ien_;
+        case ISR: return isr_;
+        case LINE: return lo(static_cast<uint16_t>(beam_line()));
+        case LINE + 1: return hi(static_cast<uint16_t>(beam_line()));
+        case STATUS: return static_cast<uint8_t>((beam_line() >= HEIGHT ? IN_VBLANK : 0) | coll_);
+        case SPLASH: return splash_;
+        case Rev2::PALBASE: return lo(palbase_);
+        case Rev2::PALBASE + 1: return hi(palbase_);
+        case Rev2::SPRBASE: return lo(sprbase_);
+        case Rev2::SPRBASE + 1: return hi(sprbase_);
+        case Rev2::PADDR: return static_cast<uint8_t>(paddr_);
+        case Rev2::PADDR + 1: return static_cast<uint8_t>(paddr_ >> 8);
+        case Rev2::PADDR + 2: return static_cast<uint8_t>(paddr_ >> 16);
+        case Rev2::PDATA: return card_peek(paddr_); // peek: the address stays
+        case Rev2::PSTEP: return lo(pstep_);
+        case Rev2::PSTEP + 1: return hi(pstep_);
+        case Rev2::PCTL: return pctl_;
+        case Rev2::MEMSIZE: return static_cast<uint8_t>(memory_.size() >> 16);
+        case ID_REG: return ID_V2;
+        default: return 0; // reserved
+        }
+    }
+
+    void VideoCard::write_rev2(uint32_t offset, uint8_t data)
+    {
+        if (offset >= LAYER0 && offset < LAYER1 + 0x10)
+        {
+            Layer &l = layers_[(offset - LAYER0) >> 4];
+            switch (offset & 0xF)
+            {
+            case CONFIG: l.config = data; break;
+            case Rev2::MAPBASE: set_lo(l.mapbase, data); break;
+            case Rev2::MAPBASE + 1: set_hi(l.mapbase, data, 0xFFFF); break;
+            case Rev2::TILEBASE: set_lo(l.tilebase, data); break;
+            case Rev2::TILEBASE + 1: set_hi(l.tilebase, data, 0xFFFF); break;
+            case Rev2::HSCROLL: set_lo(l.hscroll, data); break;
+            case Rev2::HSCROLL + 1: set_hi(l.hscroll, data, SCROLL_MASK); break;
+            case Rev2::VSCROLL: set_lo(l.vscroll, data); break;
+            case Rev2::VSCROLL + 1: set_hi(l.vscroll, data, SCROLL_MASK); break;
+            case Rev2::PALOFS: l.palofs = data & 0x0F; break;
+            default: break;
+            }
+            return;
+        }
+        if (offset >= Rev2::SLOT0 && offset < Rev2::SLOT0 + 8)
+        {
+            uint16_t &v = slot_[(offset - Rev2::SLOT0) / 2];
+            if (offset & 1)
+                set_hi(v, data, 0xFFFF);
+            else
+                set_lo(v, data);
+            return;
+        }
+        switch (offset)
+        {
+        case CTRL: ctrl_ = data & 0x0F; break;
+        case BORDER: border_ = data; break;
+        case IEN: ien_ = data & 0x07; break;
+        case ISR: isr_ = static_cast<uint8_t>(isr_ & ~data); break;
+        case LINE: set_lo(match_line_, data); break;
+        case LINE + 1: set_hi(match_line_, data, SCROLL_MASK); break;
+        case SPLASH: splash_ = data & SPLASH_ON; break;
+        case Rev2::PALBASE: set_lo(palbase_, data); break;
+        case Rev2::PALBASE + 1: set_hi(palbase_, data, 0xFFFF); break;
+        case Rev2::SPRBASE: set_lo(sprbase_, data); break;
+        case Rev2::SPRBASE + 1: set_hi(sprbase_, data, 0xFFFF); break;
+        case Rev2::PADDR: paddr_ = (paddr_ & 0xFFFF00) | data; break;
+        case Rev2::PADDR + 1: paddr_ = (paddr_ & 0xFF00FF) | uint32_t{data} << 8; break;
+        case Rev2::PADDR + 2: paddr_ = (paddr_ & 0x00FFFF) | uint32_t{data} << 16; break;
+        case Rev2::PDATA: port_write(data); break;
+        case Rev2::PSTEP: set_lo(pstep_, data); break;
+        case Rev2::PSTEP + 1: set_hi(pstep_, data, 0xFFFF); break;
+        case Rev2::PCTL: pctl_ = data & 0x07; break;
+        default: break; // MEMSIZE and ID are read-only; the rest reserved
+        }
+    }
+
     uint8_t VideoCard::peek(uint32_t offset) const
     {
+        if (rev_ == 2)
+            return peek_rev2(offset);
         if (offset >= LAYER0 && offset < LAYER1 + 0x10)
         {
             const Layer &l = layers_[(offset - LAYER0) >> 4];
@@ -120,9 +307,9 @@ namespace ooe::emu
             case CONFIG:
                 return l.config;
             case MAPBASE:
-                return l.mapbase;
+                return lo(l.mapbase);
             case TILEBASE:
-                return l.tilebase;
+                return lo(l.tilebase);
             case HSCROLL:
                 return lo(l.hscroll);
             case HSCROLL + 1:
@@ -144,9 +331,9 @@ namespace ooe::emu
         case BORDER:
             return border_;
         case PALBASE:
-            return palbase_;
+            return lo(palbase_);
         case SPRBASE:
-            return sprbase_;
+            return lo(sprbase_);
         case IEN:
             return ien_;
         case ISR:
@@ -168,6 +355,11 @@ namespace ooe::emu
 
     void VideoCard::write(uint32_t offset, uint8_t data)
     {
+        if (rev_ == 2)
+        {
+            write_rev2(offset, data);
+            return;
+        }
         if (offset >= LAYER0 && offset < LAYER1 + 0x10)
         {
             Layer &l = layers_[(offset - LAYER0) >> 4];
@@ -177,7 +369,7 @@ namespace ooe::emu
                 l.config = data;
                 break;
             case MAPBASE:
-                l.mapbase = data;
+                l.mapbase = data; // one byte on revision 1
                 break;
             case TILEBASE:
                 l.tilebase = data;
@@ -304,7 +496,7 @@ namespace ooe::emu
     void VideoCard::draw_line(unsigned y)
     {
         uint32_t *out = &back_[static_cast<size_t>(y) * WIDTH];
-        if (bridge_ && bridge_->apple())
+        if (apple_mode())
         {
             draw_apple(y, out); // the IIe's display; the native registers are out of reach
             return;
@@ -322,9 +514,9 @@ namespace ooe::emu
         }
         // The palette as it is now: a fade by DMA shows from the next line.
         std::array<uint32_t, 256> pal;
-        const uint32_t base = uint32_t{live_palbase_} * 1024;
+        const uint32_t pal_at = base(live_palbase_);
         for (unsigned i = 0; i < 256; ++i)
-            pal[i] = rgba(static_cast<uint16_t>((vram(base + 2 * i + 1) & 0x0F) << 8 | vram(base + 2 * i)));
+            pal[i] = rgba(static_cast<uint16_t>((vram(pal_at + 2 * i + 1) & 0x0F) << 8 | vram(pal_at + 2 * i)));
 
         // Back to front: border or entry 0, sprites at depth 1, layer 0, depth 2, layer 1, depth 3.
         std::array<int16_t, WIDTH> l0, l1;
@@ -360,7 +552,7 @@ namespace ooe::emu
         // 64 entries of 8 bytes (VERA's): the lowest-numbered 32 on this line are drawn, and a
         // lower number is in front. Collision groups (masks) record where opaque pixels overlap.
         std::array<uint8_t, SPRITE_WIDTH> masks{};
-        const uint32_t table = uint32_t{live_sprbase_} * 1024;
+        const uint32_t table = base(live_sprbase_);
         unsigned drawn = 0;
         for (unsigned n = 0; n < SPRITES && drawn < SPRITES_PER_LINE; ++n)
         {
@@ -376,10 +568,11 @@ namespace ooe::emu
             if (row >= h)
                 continue;
             ++drawn;
-            const unsigned image = vram(e) | (vram(e + 1) & 0x0Fu) << 8;
+            // The image: revision 1, 12 bits of 64-byte units; revision 2, 15 bits of 256-byte units.
+            const unsigned image = vram(e) | (vram(e + 1) & (rev_ == 2 ? 0x7Fu : 0x0Fu)) << 8;
             const bool bpp8 = vram(e + 1) & 0x80;
             const unsigned ty = flags & 0x02 ? h - 1 - row : row;
-            const uint32_t at = uint32_t{image} * 64 + ty * (bpp8 ? w : w / 2);
+            const uint32_t at = uint32_t{image} * (rev_ == 2 ? 256 : 64) + ty * (bpp8 ? w : w / 2);
             const uint8_t group = flags >> 4, palofs = size & 0x0F;
             for (unsigned i = 0; i < w; ++i)
             {
@@ -451,8 +644,8 @@ namespace ooe::emu
     {
         const unsigned cols = wide ? 40 : 80, width = cols * 8;
         const unsigned sy = (y + l.live_vscroll) % HEIGHT;
-        const uint32_t map = uint32_t{l.live_mapbase} * 1024 + (sy / 16) * cols * 2;
-        const uint32_t font = uint32_t{l.live_tilebase} * 1024 + sy % 16;
+        const uint32_t map = base(l.live_mapbase) + (sy / 16) * cols * 2;
+        const uint32_t font = base(l.live_tilebase) + sy % 16;
         const bool blink_mode = l.config & BLINK;
         const bool blink_off = (frames_ / BLINK_FRAMES) & 1;
         for (unsigned x = 0; x < WIDTH; ++x)
@@ -475,7 +668,7 @@ namespace ooe::emu
     void VideoCard::draw_mono(const Layer &l, unsigned y, int16_t *line) const
     {
         const unsigned sy = (y + l.live_vscroll) % HEIGHT;
-        const uint32_t row = uint32_t{l.live_mapbase} * 1024 + sy * (WIDTH / 8);
+        const uint32_t row = base(l.live_mapbase) + sy * (WIDTH / 8);
         for (unsigned x = 0; x < WIDTH; ++x)
         {
             const unsigned sx = (x + l.live_hscroll) % WIDTH;
@@ -489,7 +682,7 @@ namespace ooe::emu
         constexpr unsigned LEFT = (WIDTH - 512) / 2;
         const unsigned h = bpp8 ? 240 : HEIGHT, w = bpp8 ? 256 : 512;
         const unsigned sy = ((bpp8 ? y / 2 : y) + l.live_vscroll) % h;
-        const uint32_t row = uint32_t{l.live_mapbase} * 1024 + sy * 256;
+        const uint32_t row = base(l.live_mapbase) + sy * 256;
         for (unsigned x = LEFT; x < LEFT + 512; ++x)
         {
             const unsigned sx = ((bpp8 ? (x - LEFT) / 2 : x - LEFT) + l.live_hscroll) % w;
@@ -512,8 +705,8 @@ namespace ooe::emu
         const unsigned map_w = l.config & MAP_W64 ? 64 : 32, map_h = l.config & MAP_H64 ? 64 : 32;
         const unsigned tile_bytes = size * size / (bpp8 ? 1 : 2);
         const unsigned ly = (y / 2 + l.live_vscroll) % (map_h * size);
-        const uint32_t map_row = uint32_t{l.live_mapbase} * 1024 + (ly / size) * map_w * 2;
-        const uint32_t tiles = uint32_t{l.live_tilebase} * 1024;
+        const uint32_t map_row = base(l.live_mapbase) + (ly / size) * map_w * 2;
+        const uint32_t tiles = base(l.live_tilebase);
         for (unsigned x = 0; x < WIDTH; ++x)
         {
             const unsigned lx = (x / 2 + l.live_hscroll) % (map_w * size);
@@ -570,7 +763,8 @@ namespace ooe::emu
                 unsigned idx = code;
                 if (!s.altchar && code >= 0x40 && code < 0x80) // flashing: inverse, then normal
                     idx = flash_on ? (code & 0x3Fu) | 0x80 : code & 0x3Fu;
-                return static_cast<uint8_t>(~vram(APPLE_CHARS + idx * 8 + a % 8)); // lit where 0
+                const uint32_t chars = rev_ == 2 ? APPLE_CHARS_V2 : APPLE_CHARS; // card memory on revision 2
+                return static_cast<uint8_t>(~vram(chars + idx * 8 + a % 8)); // lit where 0
             };
             if (s.col80)
             {

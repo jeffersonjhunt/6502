@@ -11,7 +11,7 @@ Status: **emulated**
 
 At reset the north bridge maps W3 and VEC to the top block of the flash, ROM A block 31, read-only (`$DF`). W0–W2
 map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts the BIOS at `$C800`. The block's first
-2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. The BIOS, version 0.12:
+2 KB is under the I/O hole, so the BIOS's code starts at `$C800`. The BIOS, version 0.13:
 
 1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -22,7 +22,7 @@ map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts t
    their own while the boot goes on.
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer.
-7. Prints `BACKPLANE BIOS 0.12` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS 0.13` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
@@ -112,7 +112,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 |---|---|---|
 | `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again |
 | `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29. Any key goes back to the monitor |
-| `$C806` | Apple II mode | Copies the IIe ROM from the cartridge and enters the mode ([chapter 13](13-apple-ii-mode.md)). Only a hard reset comes back |
+| `$C806` | Apple II mode | Copies the IIe ROM from the cartridge and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
