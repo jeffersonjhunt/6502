@@ -577,8 +577,16 @@ TEST(a_busy_run_to_a_golden_hash)
         d.ram()[i] = static_cast<uint8_t>(rnd() % 400 < 2 ? 0 : 1 + rnd() % 255);
     enable(d, 32);
     for (unsigned n = 0; n < 32; ++n)
-        osc(d, n, static_cast<uint16_t>(rnd()), static_cast<uint8_t>(rnd()), static_cast<uint8_t>(rnd()),
-            static_cast<uint8_t>(rnd() & 0x7F), static_cast<uint8_t>(rnd() & 0xFE));
+    {
+        // One draw a statement: the order a call's arguments are evaluated in is unspecified, and GCC takes
+        // them right to left on x86-64 but left to right on AArch64, which gave each its own hash.
+        const auto freq = static_cast<uint16_t>(rnd());
+        const auto vol = static_cast<uint8_t>(rnd());
+        const auto pointer = static_cast<uint8_t>(rnd());
+        const auto table = static_cast<uint8_t>(rnd() & 0x7F);
+        const auto control = static_cast<uint8_t>(rnd() & 0xFE);
+        osc(d, n, freq, vol, pointer, table, control);
+    }
     uint64_t h = 0xCBF29CE484222325ull;
     const auto mix = [&](uint32_t v) {
         for (int b = 0; b < 4; ++b)

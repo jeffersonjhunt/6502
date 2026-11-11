@@ -34,7 +34,8 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 | 31, `$7C000` | the BIOS and the Woz Monitor, `$C800–$FFFF` of it (the first 2 KB is under the I/O hole) |
 | 30, `$78000` | the 8×16 font, 4 KB |
 | 29, `$74000` | the video demo |
-| 0–28 | erased (`$FF`) |
+| 24–28, `$60000` | the boot splash's samples for the ES5503: wave RAM's image, 80 KB ([chapter 7](07-sound.md)) |
+| 0–23 | erased (`$FF`) |
 
 The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma.md)).
 
