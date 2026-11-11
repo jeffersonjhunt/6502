@@ -4,6 +4,7 @@
 #                   # and the utilities
 #   make utils      # build/NAME.com for each utils/NAME.s (phase 4b's)
 #   make check      # the tools' tests (test/check_tools.py, test/check_mkasset.py)
+#   make ooui       # build/ooui.lib, OOUI's archive (below)
 #
 # Each program is SRC/NAME.s, assembled once and linked as a .COM at $0300
 # (cfg/com.cfg) and as a .PRL: linked three times with cfg/prl.cfg, at page
@@ -114,6 +115,34 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
 	mv $@.tmp $@
 
+# OOUI, the UI toolkit (ui/*.s, include/ooui.inc; hw/ooui.md, phase U1): each ui/NAME.s assembled
+# once into build/ooui.lib, as OOLIB's modules are into oolib.lib (lib-NAME.o, its zero page in
+# ui/zpNAME.s right after it, libzp.py check). OOUI draws through OOLIB, so a program in OOUI_USERS
+# is linked with ooui.lib, then oolib.lib, through the same gate.
+UISRC = $(patsubst ui/%.s,%,$(wildcard ui/*.s))
+UILIBS = $(foreach m,$(filter-out zp%,$(UISRC)),$(m) $(filter zp$(m),$(UISRC)))
+$(if $(filter-out $(UILIBS),$(UISRC)),$(error ui/: zero page modules without their code: $(filter-out $(UILIBS),$(UISRC))))
+$(if $(filter $(UISRC),$(LIBSRC)),$(error ui/ and lib/ share a module's name: $(filter $(UISRC),$(LIBSRC))))
+OOUI_USERS =
+
+$(UILIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: ui/%.s $(wildcard ui/*.inc) include/oodos.inc include/oolib.inc \
+		include/vmem.inc include/ooui.inc | $(BUILD)
+	ca65 $(AFLAGS) -I ui $< -o $@
+
+$(BUILD)/ooui.lib: $(UILIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
+	$(PYTHON) tools/libzp.py check $(UILIBS:%=$(BUILD)/lib-%.o)
+	rm -f $@
+	ar65 a $@ $(UILIBS:%=$(BUILD)/lib-%.o)
+
+ooui: $(BUILD)/ooui.lib
+
+$(OOUI_USERS:%=$(BUILD)/%.o): include/ooui.inc include/oolib.inc
+
+$(OOUI_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/ooui.lib $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py
+	$(call LD65,-C cfg/com.cfg $< $(BUILD)/ooui.lib $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	mv $@.tmp $@
+
 # The C target (Plan C1; the Programmer's Guide, appendix F, "A program in C"): each of CPROGRAMS is
 # SRC/NAME.c, compiled by cc65 for the 65C02 and linked as a .COM with cfg/c.cfg, build/oodosc.lib and
 # cc65's none.lib, through the same rules gate (STARTUP, ONCE and CODE: the program's code and the C
@@ -183,5 +212,5 @@ check: all
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all utils check clean
+.PHONY: all utils ooui check clean
 .SECONDARY:
