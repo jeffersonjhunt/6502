@@ -229,7 +229,7 @@ QUIET:
                 STA     VIA_IER
                 RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.12", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.13", $0D, 0
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI

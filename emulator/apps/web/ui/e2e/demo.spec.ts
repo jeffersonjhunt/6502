@@ -5,7 +5,7 @@ import { onTerminal, openSettings, powerOn } from "./ui";
 // splash. A key during the splash is the Woz Monitor instead, and so is a power-on once it's ejected. The other
 // specs open the page with ?sd=empty, for the monitor.
 
-const GREETING = "BACKPLANE BIOS 0.12";
+const GREETING = "BACKPLANE BIOS 0.13";
 const BOOTING = "BOOTING THE SD CARD: A KEY FOR THE MONITOR";
 
 async function command(page: Page, line: string) {

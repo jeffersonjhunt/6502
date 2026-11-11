@@ -39,7 +39,7 @@ OODOS then says who it is and what it found, in four lines, on the screen and th
 
 ```
 OODOS 0.8  2026-11-05 12:00:00
-BIOS 0.12   47K TPA
+BIOS 0.13   47K TPA
 A: 8M   B: 8M   M: 128K
 Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel
 ```
