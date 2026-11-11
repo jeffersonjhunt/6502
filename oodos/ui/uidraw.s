@@ -78,7 +78,8 @@ pi_:    .res    1                      ; SETPAL's
 pdim:   .res    1
 pbase:  .res    1
 ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
-upost:  .res    2                      ; PAINT's last call, 0 none (U2)
+upost:  .res    2                      ; PAINT's last call, 0 none (U2), after a paint that drew
+udrew:  .res    1                      ;   not 0: this paint drew a record (X4)
 blk:    .res    6                      ; IN_MOUSE's block
 
 
@@ -474,7 +475,8 @@ PIX:    asl     mf + 1
 PAINT:  lda     ususp
         beq     @go
         rts
-@go:    jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
+@go:    stz     udrew
+        jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
         ldy     #TH_GROUP
         lda     (UIT),y
         tax
@@ -568,8 +570,9 @@ PAINT:  lda     ususp
 @z:     stz     udmg,x
         dex
         bpl     @z
-        lda     upost                   ; a widget module's after the paint (a slider's sprites, U2)
-        ora     upost + 1
+        lda     udrew                   ; a widget module's after a paint that drew (a slider's
+        beq     @r                      ;   sprites, U2)
+        lda     upost + 1
         beq     @r
         jmp     (upost)
 @r:     rts
@@ -637,10 +640,14 @@ ONE:    sta     dh
         bne     @dirty
         jsr     OVERLAP
         bcs     @r
+        lda     #1                      ; drawn (upost's)
+        sta     udrew
         jsr     CLIPBOX
         jsr     CLIPR
         bra     DRAW
-@dirty: jsr     CLIPALL
+@dirty: lda     #1
+        sta     udrew
+        jsr     CLIPALL
         jsr     CLIPR
         jsr     DRAW
         ldx     pbx

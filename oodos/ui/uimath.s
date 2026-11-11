@@ -3,7 +3,7 @@
 ; the first of them a program uses.
 ;
 ;   SCALE   sr = sv x su / sa, rounded down (sa 0: 0); 16 bits each, the
-;           product 32
+;           product 32; a quotient past 16 bits is held at $FFFF (X2)
 
         .setcpu "65C02"
         .include "ooui.inc"
@@ -19,6 +19,7 @@ sr:     .res    2
 prod:   .res    4                      ; sv x su
 rem:    .res    2
 n:      .res    1
+ov:     .res    1                      ; not 0: the quotient is past 16 bits
 
         .code
 
@@ -47,8 +48,9 @@ SCALE:  stz     prod                    ; prod = sv x su
         ror     prod
         dex
         bne     @m
-        stz     sr                      ; sr = prod / sa (the quotient's low 16 bits)
+        stz     sr                      ; sr = prod / sa, held at $FFFF
         stz     sr + 1
+        stz     ov
         lda     sa
         ora     sa + 1
         beq     @r
@@ -79,6 +81,13 @@ SCALE:  stz     prod                    ; prod = sv x su
 @z:     clc
 @q:     rol     sr
         rol     sr + 1
-        dec     n
+        bcc     @k
+        inc     ov                      ; (32 steps: at most 16 overflow, ov can't wrap)
+@k:     dec     n
         bne     @d
+        lda     ov
+        beq     @r
+        lda     #$FF
+        sta     sr
+        sta     sr + 1
 @r:     rts

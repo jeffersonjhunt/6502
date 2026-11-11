@@ -4,15 +4,20 @@
 ; list of the files (UF_MULTI with UP_MULTI), what it found, a name field
 ; (typed into with UP_NEW), and OK, Cancel and the extra button.
 ;
-; The directory is read by functions 17 and 18, at most four entries a
-; ui_poll, so listing never takes a frame: for each, the program's user,
-; DMA address and segment and error mode are kept, the picker's set
-; (functions 32, 26, 51, 45), and the program's put back after (32, 26, 51,
-; 45; read by 32, 52 and 49). The search names the drive in its FCB, so the
-; current drive never changes, and its extent 0, so a file is listed once
-; however many extents it has. A file whose type isn't one of UP_TYPES is
-; left out. A drive that can't be read says so ("Drive error"); one with no
-; files, "No files".
+; The directory is read by functions 17 and 18 in idle polls, a walk from
+; its start each poll (OODOS keeps one search, which the program may use
+; between polls: the review's Y1), passing what is listed already and
+; listing a few more (4, and half as many as are listed, at most 64): for
+; each, the program's user, DMA address and segment and error mode are
+; kept, the picker's set (functions 32, 26, 51, 45), and the program's put
+; back after (32, 26, 51, 45; read by 32, 52 and 49). The search names the
+; drive in its FCB, so the current drive never changes, and its extent 0, so
+; a file is listed once however many extents it has (and a name listed
+; already isn't again). A file whose type isn't one of UP_TYPES is left
+; out. A drive that can't be read says so ("Drive error"); one with no
+; files, "No files"; a work buffer too small, "n of t files" (Y6). A name
+; typed with UP_NEW is one file's, "d:" before it the drive, or "Not a file
+; name" (Y3). ui_hide(UI_PICKER) stops the walk (Y2).
 ;
 ; The answer is UE_PICK with X UI_PICKER: UV_VALUE 0 chosen (the picker
 ; gone; the entries in the result buffer, their count in the block's
@@ -46,7 +51,7 @@ pdrive: .res    1                      ; the drive listed (1 A:)
 puser:  .res    1
 count:  .res    2                      ; the files listed
 pmax:   .res    2                      ; the work buffer's room, in entries
-lst:    .res    1                      ; the listing: 0 done, 1 to start, 2 going on
+lst:    .res    1                      ; the listing: 0 done, 1 going on
 perr:   .res    1                      ; its error (X of 17 or 18), 0 none
 pcol:   .res    1                      ; 1: a column routine said "not yet": the list again
 rec:    .res    UW_LEN
@@ -56,10 +61,13 @@ keep:   .res    8                      ; the program's user, DMA address and seg
 scbb:   .res    4
 rowbuf: .res    40                     ; a row's text
 fbuf:   .res    13                     ; the name field: 8 + "." + 3 + 0
-sbuf:   .res    16                     ; the status text
+sbuf:   .res    24                     ; the status text
 ent:    .res    2                      ; an entry's address
 n:      .res    1
 didx:   .res    1
+dofs:   .res    1                      ; CONSIDER's entry in dbuf
+lim:    .res    1                      ; IDLEFN's: the new entries a poll lists
+total:  .res    2                      ; the wanted files the last walk found
 rrow:   .res    1                      ; ROWFN's row
 ans:    .res    1                      ; FINISH's answer
 rrowh:  .res    1
@@ -161,6 +169,8 @@ START:  lda     blk + UP_DRIVE
 ; The listing started again: nothing listed, the selection none.
 RELIST: stz     count
         stz     count + 1
+        stz     total
+        stz     total + 1
         stz     perr
         lda     #1
         sta     lst
@@ -427,7 +437,7 @@ PUT:    pha
         jmp     DLGREC
 
 ; ---------------------------------------------------------------------------
-; The listing, at most four entries an idle poll.
+; The listing: an idle poll's walk.
 
 IDLEFN: lda     pcol                    ; a column said "not yet": the list again
         beq     @l
@@ -436,33 +446,47 @@ IDLEFN: lda     pcol                    ; a column said "not yet": the list agai
         jsr     DLGH
         jsr     DIRTY
 @l:     lda     lst
-        bne     @go
-        lda     #UE_NONE
+        bne     @up
+@none:  lda     #UE_NONE
         rts
-@go:    jsr     SAVE
-        lda     #4
-        sta     n
-@one:   ldx     #F_SNEXT
-        lda     lst
-        cmp     #1
-        bne     @call
+@up:    lda     #PW                     ; taken away (ui_hide(UI_PICKER)): the walk stops (Y2)
+        jsr     DLGH
+        jsr     RECT
+        bcc     @go
+        stz     lst                     ;   (as FINISH does, with no answer)
+        stz     uidle + 1
+        stz     udf2 + 1
+        bra     @none
+@go:    jsr     SAVE                    ; a walk of the directory from its start each time (Y1):
+        stz     n                       ;   OODOS keeps one search, and the program may use it
+        stz     total                   ;   between polls; what is listed already is passed by
+        stz     total + 1
+        lda     count + 1               ; this poll's new: 4 and half as many as are listed, at
+        bne     @most                   ;   most 64, so the walks from the start cost about three
+        lda     count                   ;   times the directory's matches, not their square / 8
+        lsr     a
+        clc
+        adc     #4
+        cmp     #64
+        bcc     @lim
+@most:  lda     #64
+@lim:   sta     lim
         jsr     MKFCB
-        lda     #2
-        sta     lst
-        ldx     #F_SFIRST
-@call:  txa
-        tay
-        lda     #<fcb
+        ldy     #F_SFIRST
+@call:  lda     #<fcb
         ldx     #>fcb
         jsr     BDOS
         cmp     #$FF
         bne     @found
-        stx     perr                    ; none more (X 0), or an error
+        stx     perr                    ; the walk's end (X 0), or an error: the listing done
         stz     lst
         bra     @end
-@found: jsr     ADD
-        dec     n
-        bne     @one
+@found: jsr     CONSIDER
+        lda     n
+        cmp     lim                     ; enough for this poll
+        beq     @end
+        ldy     #F_SNEXT
+        bra     @call
 @end:   jsr     PUTBACK
         jsr     COUNTED
         lda     #UE_NONE
@@ -530,52 +554,32 @@ PUTBACK:
         ldy     #F_ERRMODE
         jmp     BDOS
 
-; The entry at dbuf + 32 x A listed, if its type is wanted and there's room.
-ADD:    asl     a
+; The entry at dbuf + 32 x A: if its type is wanted, counted (total); if it
+; isn't listed already, listed while there's room (n counting the new).
+CONSIDER:
         asl     a
         asl     a
         asl     a
         asl     a
-        tax                             ; X: the entry in dbuf
-        lda     blk + UP_TYPES
-        sta     UIQ
-        lda     blk + UP_TYPES + 1
-        sta     UIQ + 1
-        ora     UIQ
-        beq     @want
-        ldy     #0                      ; one of the types?
-@type:  lda     (UIQ),y
-        beq     @r
-        sty     didx
-        lda     dbuf + 9,x
-        and     #$7F
-        cmp     (UIQ),y
-        bne     @nx
-        iny
-        lda     dbuf + 10,x
-        and     #$7F
-        cmp     (UIQ),y
-        bne     @nx
-        iny
-        lda     dbuf + 11,x
-        and     #$7F
-        cmp     (UIQ),y
-        beq     @want
-@nx:    lda     didx
-        clc
-        adc     #3
-        tay
-        bra     @type
-@want:  lda     count                   ; room?
+        asl     a
+        sta     dofs                    ; the entry in dbuf
+        tax
+        jsr     WANTED
+        bcs     @r
+        inc     total
+        bne     @t
+        inc     total + 1
+@t:     jsr     LISTED
+        bcs     @r                      ; listed already
+        lda     count                   ; room?
         cmp     pmax
         lda     count + 1
         sbc     pmax + 1
-        bcs     @r
-        phx
+        bcs     @r                      ; full: counted, not listed (the status says so: Y6)
         lda     count
         ldx     count + 1
         jsr     ENTRY
-        plx
+        ldx     dofs
         ldy     #0
         lda     pdrive
         sta     (UIQ),y
@@ -595,9 +599,86 @@ ADD:    asl     a
         cpy     #UP_ELEN - 1
         bne     @z
         inc     count
-        bne     @r
+        bne     @c
         inc     count + 1
+@c:     inc     n
 @r:     rts
+
+; Carry clear if the entry at dbuf + X has a type UP_TYPES wants (or there is
+; no UP_TYPES).
+WANTED: lda     blk + UP_TYPES
+        sta     UIQ
+        lda     blk + UP_TYPES + 1
+        sta     UIQ + 1
+        ora     UIQ
+        beq     @yes
+        ldy     #0
+@type:  lda     (UIQ),y
+        beq     @no
+        sty     didx
+        lda     dbuf + 9,x
+        and     #$7F
+        cmp     (UIQ),y
+        bne     @nx
+        iny
+        lda     dbuf + 10,x
+        and     #$7F
+        cmp     (UIQ),y
+        bne     @nx
+        iny
+        lda     dbuf + 11,x
+        and     #$7F
+        cmp     (UIQ),y
+        beq     @yes
+@nx:    lda     didx
+        clc
+        adc     #3
+        tay
+        bra     @type
+@yes:   clc
+        rts
+@no:    sec
+        rts
+
+; Carry set if the entry at dbuf + dofs is listed already (its name and
+; type): clear if it is new. The list is walked by address, its first byte
+; compared first, so a walk costs little more than a byte a file.
+LISTED: lda     blk + UP_WORK
+        sta     UIQ
+        lda     blk + UP_WORK + 1
+        sta     UIQ + 1
+        stz     ent
+        stz     ent + 1
+        ldx     dofs
+@e:     lda     ent
+        cmp     count
+        lda     ent + 1
+        sbc     count + 1
+        bcs     @new
+        ldy     #UP_ENAME
+@b:     lda     dbuf + 1,x
+        and     #$7F
+        cmp     (UIQ),y
+        bne     @next
+        inx
+        iny
+        cpy     #UP_ENAME + 11
+        bne     @b
+        sec                             ; the same
+        rts
+@next:  ldx     dofs
+        lda     UIQ
+        clc
+        adc     #UP_ELEN
+        sta     UIQ
+        bcc     @i
+        inc     UIQ + 1
+@i:     inc     ent
+        bne     @e
+        inc     ent + 1
+        bra     @e
+@new:   clc
+        rts
 
 ; UIQ = ROWFN's entry again (the column routine may have used it).
 ENTRY2: phx
@@ -653,19 +734,43 @@ COUNTED:
         lda     #<T_NONE
         ldx     #>T_NONE
         jmp     STATUS
-@some:  jsr     NUMBER                  ; "n files"
-        lda     #<sbuf
+@some:  ldx     #0                      ; "n files", or "n of t files" when the buffer was full (Y6)
+        lda     count
+        ldy     count + 1
+        jsr     NUMBER
+        lda     count
+        cmp     total
+        bne     @of
+        lda     count + 1
+        cmp     total + 1
+        beq     @files
+@of:    ldy     #0
+@o:     lda     T_OF,y
+        beq     @tot
+        sta     sbuf,x
+        inx
+        iny
+        bra     @o
+@tot:   lda     total
+        ldy     total + 1
+        jsr     NUMBER
+@files: ldy     #0
+@f:     lda     T_FILES,y
+        sta     sbuf,x
+        beq     @show
+        inx
+        iny
+        bra     @f
+@show:  lda     #<sbuf
         ldx     #>sbuf
         jmp     STATUS
 @r:     rts
 
-; sbuf = count in decimal and " files".
-NUMBER: lda     count
-        sta     t0
-        lda     count + 1
-        sta     t1
-        ldx     #0
+; A/Y (low, high) in decimal at sbuf + X: X past it.
+NUMBER: sta     t0
+        sty     t1
         ldy     #4                      ; 10,000s to 1s
+        stz     t3                      ; a digit put yet
 @dig:   lda     #'0'
         sta     t2
 @sub:   lda     t0
@@ -682,24 +787,19 @@ NUMBER: lda     count
         bra     @sub
 @less:  pla
         lda     t2
-        cpx     #0                      ; no leading zeros
-        bne     @put
+        bit     t3                      ; no leading zeros
+        bmi     @put
         cmp     #'0'
         bne     @put
         cpy     #0
         bne     @nd
 @put:   sta     sbuf,x
         inx
+        lda     #$FF
+        sta     t3
 @nd:    dey
         bpl     @dig
-        ldy     #0
-@t:     lda     T_FILES,y
-        sta     sbuf,x
-        beq     @r
-        inx
-        iny
-        bra     @t
-@r:     rts
+        rts
 
 ; ---------------------------------------------------------------------------
 ; The list's rows: A/X the row, Y the list: A/X its text, Y its style.
@@ -913,7 +1013,12 @@ FINISH: sta     ans
         lda     fbuf
         beq     @marks
         jsr     TYPED
-        bra     @gone
+        bcc     @gone
+        lda     #<T_BADNAME             ; not a name: it stays, and says so (Y3)
+        ldx     #>T_BADNAME
+        jsr     STATUS
+        lda     #UE_NONE
+        rts
 @marks: lda     blk + UP_FLAGS
         and     #UP_MULTI
         beq     @sel
@@ -1006,7 +1111,11 @@ GIVE:   lda     n
         inc     n
 @r:     rts
 
-; The name typed, as an entry (8 + 3, capitals, spaces): given.
+; The name typed, as an entry (8 + 3, capitals, spaces): given, carry
+; clear. "d:" before it is the drive (A: to P:). Carry set, nothing given, if
+; it isn't one file's name (Y3): a wildcard, a blank or another of the
+; parser's delimiters in it, a name of more than 8 or a type of more than 3,
+; or no name.
 TYPED:  lda     #<rec                   ; built in rec
         sta     UIQ
         lda     #>rec
@@ -1023,30 +1132,74 @@ TYPED:  lda     #<rec                   ; built in rec
         stz     rec + 13
         stz     rec + 14
         stz     rec + 15
-        ldx     #0                      ; the name, to the dot
         ldy     #0
+        lda     fbuf + 1                ; a drive?
+        cmp     #':'
+        bne     @name
+        lda     fbuf
+        jsr     UPPER
+        sec
+        sbc     #'A'
+        cmp     #16
+        bcs     @bad
+        inc     a
+        sta     rec + UP_EDRIVE
+        ldy     #2
+@name:  ldx     #0                      ; the name, to the dot
 @n:     lda     fbuf,y
-        beq     @g
+        beq     @end
         iny
         cmp     #'.'
         beq     @dot
+        jsr     BADCH
+        bcs     @bad
         cpx     #8
-        bcs     @n
+        bcs     @bad
         jsr     UPPER
         sta     rec + UP_ENAME,x
         inx
         bra     @n
-@dot:   ldx     #8                      ; the type
+@dot:   cpx     #0
+        beq     @bad
+        ldx     #8                      ; the type
 @t:     lda     fbuf,y
         beq     @g
         iny
+        jsr     BADCH
+        bcs     @bad
         cpx     #11
-        bcs     @t
+        bcs     @bad
         jsr     UPPER
         sta     rec + UP_ENAME,x
         inx
         bra     @t
-@g:     jmp     GIVE
+@end:   cpx     #0
+        beq     @bad
+@g:     jsr     GIVE
+        clc
+        rts
+@bad:   sec
+        rts
+
+; Carry set if A can't be in a file's name: a control or a blank, DEL and
+; above, a wildcard, or one of the delimiters OODOS's parser stops at.
+; Keeps X and Y.
+BADCH:  cmp     #'!'
+        bcc     @bad
+        cmp     #$7F
+        bcs     @bad
+        phx
+        ldx     #BADS_N - 1
+@l:     cmp     BADS,x
+        beq     @b
+        dex
+        bpl     @l
+        plx
+        clc
+        rts
+@b:     plx
+@bad:   sec
+        rts
 
         .rodata
 MODS:   .word   UIW_CHOICE, UIW_LIST, UIW_FIELD
@@ -1079,5 +1232,9 @@ T_READING: .asciiz "Reading..."
 T_ERROR: .asciiz "Drive error"
 T_NONE: .asciiz "No files"
 T_FILES: .asciiz " files"
+T_OF:   .asciiz " of "
+T_BADNAME: .asciiz "Not a file name"
+BADS:   .byte   "*?.,:;=<>|[]"
+BADS_N = * - BADS
 T_OK:   .asciiz "&OK"
 T_CANCEL: .asciiz "Cancel"

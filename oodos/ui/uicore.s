@@ -37,6 +37,7 @@ umenu:  .res    1                      ; the menu down, UI_NONE none
 umsel:  .res    1                      ;   its item chosen
 upress: .res    1                      ; the button the left button went down on
 ususp:  .res    1                      ; 1: suspended (ui_suspend)
+upmode: .res    1                      ; upost's: 0 a paint's, 1 all thumbs off, 2 and their images (X3)
 umodal: .res    1                      ; the modal window that shows, UI_NONE none (FINDMODAL)
 udmg:   .res    8                      ; the damage: the base's box, the overlay's: c0, r0, c1, r1 each
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
@@ -1015,15 +1016,61 @@ CHECKTAB:
 @top:   lda     t1
         cmp     #$7F
         bne     @bad                    ; a menu, an item, a line or a radio button at the top
-@next:  inc     t0
+@next:  jsr     RECEND                  ; its thumb's sprite (X11), its value in its range (X12)
+        bcs     @r
+        inc     t0
         lda     t0
         cmp     ucount
         beq     @end
         jmp     @rec
 @end:   clc
-        rts
+@r:     rts
 @bad:   lda     #UX_TABLE
         sec
+        rts
+
+; Record t0's last checks: carry set and UX_SPRITE for a thumb's sprite that
+; isn't OOUI's; else its value held to its range. Keeps t0.
+RECEND: lda     t0
+        pha
+        jsr     REC
+        jsr     SPRCHK
+        bcs     @spr
+        jsr     CLAMP
+        pla
+        sta     t0
+        clc
+        rts
+@spr:   pla
+        sta     t0
+        lda     #UX_SPRITE
+        sec
+        rts
+
+; Carry set if record UIR is a slider with a sprite's thumb (UF_SPRITE)
+; whose sprite isn't one of OOUI's (UO_SPRITE to UO_SPRITE + UO_SPRITES - 1)
+; or is the pointer's (UO_SPRITE). Keeps UIR.
+SPRCHK: ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_VSLIDER
+        beq     @s
+        cmp     #UT_HSLIDER
+        bne     @ok
+@s:     ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_SPRITE
+        beq     @ok
+        ldy     #UW_B + 1
+        lda     (UIR),y
+        sec
+        sbc     usprite                 ; its place among OOUI's
+        bcc     @no
+        beq     @no                     ; the pointer's
+        cmp     usprites
+        bcs     @no
+@ok:    clc
+        rts
+@no:    sec
         rts
 
 ; Carry set if record t0 is more than UI_DEPTH deep (its parents are
@@ -1109,7 +1156,10 @@ ui_close:
         lda     uopen
         beq     @r                      ; not open: nothing to free
         stz     uopen
+        jsr     POLLSTOP                ; (no drag left held: X10)
         jsr     PTROFF
+        lda     #2                      ; the thumbs gone, off OOUI's memory (X3)
+        jsr     THUMBSOFF
         jsr     FREE
         jsr     GX_CONSOLE
 @r:     clc
@@ -1129,6 +1179,18 @@ PTROFF: lda     uptr
         sta     dmp + 1
         jmp     POINTER
 @r:     rts
+
+; The widget modules' sprites (the sliders' thumbs, through upost) out of
+; sight: A 1 (ui_suspend), or 2 (ui_close: their images off OOUI's card
+; memory too, which is freed). Keeps nothing.
+THUMBSOFF:
+        sta     upmode
+        lda     upost + 1
+        beq     @r
+        jsr     @go
+@r:     stz     upmode
+        rts
+@go:    jmp     (upost)
 
 ; OOUI's card memory free again.
 FREE:   lda     #<UI_PAGES
@@ -1169,6 +1231,8 @@ ui_hide:
 ; Record A (an internal handle) hidden: what it covered drawn again, a menu
 ; down in it put up, the focus moved on (the dialogs' too).
 HIDEH:  sta     sh_h
+        jsr     DROP                    ; a drag in it ended (X10)
+        lda     sh_h
         jsr     DAMAGE
         jsr     MENUDMG
         lda     umenu                   ; a menu down inside it goes up first, while it shows
@@ -1416,10 +1480,18 @@ ui_theme:
         rts
 
 ui_suspend:
-        lda     #1
-        sta     ususp
         jsr     ENTER
+        lda     ususp                   ; suspended already: nothing more
+        bne     @r
+        lda     uopen                   ; (shut: only kept)
+        beq     @s
+        jsr     POLLSTOP                ; no repeat, no first click, no drag (X1, X9, X10)
         jsr     PTROFF
+        lda     #1                      ; the sliders' sprites out of sight (X3)
+        jsr     THUMBSOFF
+@s:     lda     #1
+        sta     ususp
+@r:
         clc
         rts
 

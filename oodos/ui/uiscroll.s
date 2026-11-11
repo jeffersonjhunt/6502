@@ -369,7 +369,16 @@ MOVE:   lda     drag
         sta     sa
         lda     t1
         sta     sa + 1
-        jsr     SCALE
+        lda     sa                      ; sv held to the track (X2)
+        cmp     sv
+        lda     sa + 1
+        sbc     sv + 1
+        bcs     @in
+        lda     sa
+        sta     sv
+        lda     sa + 1
+        sta     sv + 1
+@in:    jsr     SCALE
         lda     sr
         sta     t0
         lda     sr + 1

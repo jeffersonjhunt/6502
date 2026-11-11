@@ -50,10 +50,13 @@ lmx:    .res    2                      ; the pointer as the last poll saw it
 lmy:    .res    2
 moved:  .res    1                      ;   not 0: it has moved since
 uhot:   .res    1                      ; the widget under it (US_HOT)
-ulastp: .res    1                      ; the last press's widget and frame (the double-click)
-ulastt: .res    1
+ulastp: .res    1                      ; the last press's widget, UI_NONE none or expired, and its frame
+ulastt: .res    2                      ;   (16 bits: the double-click, X1)
+lastp:  .res    1                      ; MDOWN's: ulastp as it was
 urkey:  .res    1                      ; the key repeating, 0 none, and the frame it repeats at
 urnext: .res    1
+urfoc:  .res    1                      ;   the focus and the modal window it began with (X9)
+urmod:  .res    1
 umseen: .res    1                      ; 1: a modal window was up at the last UE_MODAL
 umlast: .res    1
 pw:     .res    1                      ; DOWNW's, HOTBIT's
@@ -86,6 +89,7 @@ ui_poll:
         jmp     @out
 @live:  lda     ususp
         bne     @queue
+        jsr     DCLOCK                  ; a first click too long ago forgotten (X1)
         jsr     POINTED                 ; the pointer moved: a drag, the widget under it
         cmp     #UE_NONE
         beq     @queue
@@ -240,6 +244,8 @@ EVOUT:  sta     UI_EV + UV_CODE
 ; Keys.
 
 KEYDOWN:
+        lda     #UI_NONE                ; a key between two clicks: not a double-click (X1)
+        sta     ulastp
         lda     qev + EQ_CODE
         sta     ku
         cmp     #$E0                    ; a modifier alone: taken, nothing
@@ -696,10 +702,22 @@ CELL:   lda     uarea
         ror     mrowp
         rts
 
-; A the widget at the pointer's cell: the overlay's first, then the base's,
-; each from the table's end down (the frontmost), UI_NONE none, or one
-; under a modal window.
-HIT:    lda     #1
+; A the widget at the pointer's cell: FRONT's, UI_NONE none, or one under a
+; modal window.
+HIT:    jsr     FRONT
+        cmp     #UI_NONE
+        beq     @r
+        ldx     umodal
+        jsr     INSIDE
+        lda     hh
+        bcc     @r
+        lda     #UI_NONE
+@r:     rts
+
+; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
+; base's, each from the table's end down, inside its parents' client areas
+; (X5); UI_NONE none. Menus aren't looked at.
+FRONT:  lda     #1
         sta     hp
 @pass:  lda     utot
         sta     hh
@@ -731,19 +749,29 @@ HIT:    lda     #1
         sbc     UI_RECT + 1
         cmp     UI_RECT + 3
         bcs     @l
-        lda     hh
-        ldx     umodal
-        jsr     INSIDE
-        bcs     @none
+        lda     mcol                    ; and inside its parents' client areas (X5)
+        cmp     rclip
+        bcc     @l
+        cmp     rclip + 2
+        bcs     @l
+        lda     mrowp
+        cmp     rclip + 1
+        bcc     @l
+        cmp     rclip + 3
+        bcs     @l
         lda     hh
         rts
 @np:    dec     hp
         bpl     @pass
-@none:  lda     #UI_NONE
+        lda     #UI_NONE
         rts
 
 ; The left button down.
-MDOWN:  lda     umenu
+MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anywhere else
+        sta     lastp                   ;   ends a double-click
+        lda     #UI_NONE
+        sta     ulastp
+        lda     umenu
         cmp     #UI_NONE
         beq     @nm
         jmp     MCLICK
@@ -765,6 +793,8 @@ MDOWN:  lda     umenu
         beq     @btn
         cmp     #UT_CHECK
         beq     @btn
+        cmp     #UT_GROUP               ; the desktop, a panel, a label: nothing held, nothing
+        bcc     @none                   ;   drawn again (X8)
         jmp     DOWNW                   ; a widget module's (U2)
 @btn:   ldy     #UW_FLAGS
         lda     (UIR),y
@@ -863,24 +893,19 @@ DOWNW:  ldy     #UW_FLAGS
         lda     evh
         sta     upress
         sta     dh
-        jsr     FRAME                   ; the double-click: the same widget within TH_TIMES + 2
-        sec
-        sbc     ulastt
-        ldy     #TH_TIMES + 2
-        cmp     (UIT),y
-        bcs     @first
-        lda     ulastp
+        lda     lastp                   ; the double-click: the same widget within TH_TIMES + 2
         cmp     evh
         bne     @first
-        lda     #UV_DOUBLE
+        jsr     SINCE
+        bcs     @first
+        lda     #UV_DOUBLE              ; (ulastp UI_NONE: a third press is a first)
         tsb     evf
-        lda     #UI_NONE
-        sta     ulastp
         bra     @focus
 @first: lda     evh
         sta     ulastp
-        jsr     FRAME
+        jsr     FRAMEW
         sta     ulastt
+        stx     ulastt + 1
 @focus: stz     pw
         lda     evh
         jsr     CANFOCUS
@@ -905,6 +930,42 @@ DOWNW:  ldy     #UW_FLAGS
         lda     #UE_FOCUS
 @r:     rts
 @none:  lda     #UE_NONE
+        rts
+
+; Carry clear if the last press (ulastt) is within the double-click's time
+; (TH_TIMES + 2 frames).
+SINCE:  jsr     FRAMEW
+        sec
+        sbc     ulastt
+        sta     pw
+        txa
+        sbc     ulastt + 1
+        bne     @no                     ; 256 frames or more
+        lda     pw
+        ldy     #TH_TIMES + 2
+        cmp     (UIT),y
+        rts
+@no:    sec
+        rts
+
+; Each poll: a first press past the double-click's time forgotten, so a
+; counter that comes round again can't make one (X1).
+DCLOCK: lda     ulastp
+        cmp     #UI_NONE
+        beq     @r
+        jsr     SINCE
+        bcc     @r
+        lda     #UI_NONE
+        sta     ulastp
+@r:     rts
+
+; A/X the frame counter's low 16 bits (EV_FRAMES).
+FRAMEW: jsr     FRAME
+        iny
+        lda     (UIP),y
+        tax
+        dey
+        lda     (UIP),y
         rts
 
 ; A the frame counter's low byte (EV_FRAMES).
@@ -1067,6 +1128,10 @@ TOOK:   pha
         cmp     urkey
         beq     @r                      ; repeating already: its time kept
         sta     urkey
+        lda     ufocus
+        sta     urfoc
+        lda     umodal
+        sta     urmod
         jsr     FRAME
         ldy     #TH_TIMES
         clc
@@ -1079,6 +1144,12 @@ TOOK:   pha
 ; key down again, carry clear; carry set if none.
 REPEAT: lda     urkey
         beq     @no
+        lda     ufocus                  ; the focus moved, or a modal window came or went: it
+        cmp     urfoc                   ;   stops (X9)
+        bne     @up
+        lda     umodal
+        cmp     urmod
+        bne     @up
         lda     uarea
         sta     UIP
         lda     uarea + 1
@@ -1168,6 +1239,61 @@ IDLE:   lda     uidle + 1
         jmp     (uidle)
 @none:  lda     #UE_NONE
         rts
+
+; Record A being hidden (HIDEH), or UI_NONE for all (ui_suspend, ui_close):
+; a press held on it or inside it let go. A widget module's is told (WR_UP),
+; and its event waits for the next poll (a slider's last UE_CHANGE: X10); a
+; button's comes up with no click. Keeps nothing.
+DROP:   sta     pw
+        lda     upress
+        cmp     #UI_NONE
+        beq     @r
+        ldx     pw
+        cpx     #UI_NONE
+        beq     @all
+        jsr     INSIDE
+        bcs     @r
+@all:   lda     upress
+        sta     dh
+        lda     #UI_NONE
+        sta     upress
+        lda     dh
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_GROUP
+        beq     @w
+        cmp     #UT_SEP + 1
+        bcs     @w
+        ldy     #UW_STATE               ; a button or a check box
+        lda     (UIR),y
+        and     #<~US_PRESSED
+        sta     (UIR),y
+        lda     dh
+        jmp     DIRTY
+@w:     jsr     MPOS
+        ldy     #WR_UP
+        jsr     WCALL
+        bcs     @r
+        cmp     #UE_CHANGE              ; (a canvas's UC_RELEASE isn't kept: no pointer to give)
+        bne     @r
+        ldx     upend                   ; one waiting already (a field's): it stays
+        bne     @r
+        sta     upend
+        lda     evh
+        sta     upendh
+        lda     evv
+        sta     upendv
+        lda     evv + 1
+        sta     upendv + 1
+@r:     rts
+
+; ui_suspend's: no key repeating, no first click, no press held.
+POLLSTOP:
+        stz     urkey
+        lda     #UI_NONE
+        sta     ulastp
+        jmp     DROP
 
 ; ui_poll's own state at ui_open.
 POLLINIT:

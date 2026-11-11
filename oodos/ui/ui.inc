@@ -27,6 +27,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 .global t0, t1, t2, t3
 
 ; uidraw.s's
+.global upmode, THUMBSOFF
 .global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 
@@ -36,7 +37,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 ; uipoll.s's
 .global UCHAR, ku, km, kc, mcol, mrowp, evv, evh, evy, evf
 .global mpx, mpy, upend, upendh, upendv, HIT, SCOPE, PRESS, sc, wst, evk, evx, evyy, POLLINIT, FRAME
-.global udf1, udf2, uidle, HIDEH
+.global udf1, udf2, uidle, HIDEH, DROP, POLLSTOP, FRONT
 
 ; A widget module's record (U2): what the core calls it for. Each handler
 ; is entered with UIR on the widget's record and dh its handle (and, for

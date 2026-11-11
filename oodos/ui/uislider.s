@@ -36,6 +36,9 @@ pos:    .res    2                      ; the thumb's place in units from the tra
 idx:    .res    1
 drag:   .res    1
 tmp:    .res    1
+tc:     .res    1                      ; the thumb's cell (SHOWS's)
+tr:     .res    1
+old:    .res    2                      ; WHEEL's: the value before
 
         .code
 
@@ -141,11 +144,14 @@ DRAW:   jsr     MEASURE
         jsr     EMIT
         inc     idx
         bra     @cell
-@spr:   ldy     #UW_FLAGS
-        lda     (UIR),y
+@spr:   ldy     #UW_FLAGS               ; a sprite's thumb: placed after the paint (POST),
+        lda     (UIR),y                 ;   when what is in front of it is known (X4)
         and     #UF_SPRITE
         beq     @r
-        jmp     SPRITE
+        lda     #<POST
+        sta     upost
+        lda     #>POST
+        sta     upost + 1
 @r:     rts
 
 ; GOTO cell idx from the low end: the bottom up (vertical), the left on.
@@ -167,31 +173,15 @@ CELLAT: lda     vert
         ldx     UI_RECT + 1
         jmp     GOTO
 
-; The thumb's sprite (UW_B's high byte): OOUI's thumb image (8 x 8, the
-; card page after the pointer's), placed on pos, in front, shown.
-SPRITE: jsr     THUMBIMG
-        ldy     #UW_B + 1
-        lda     (UIR),y
-        sta     tmp
-        lda     upage
-        clc
-        adc     #UI_OFS_SPR + 1
-        sta     GX_V
-        lda     upage + 1
-        adc     #0
-        sta     GX_V + 1
-        lda     tmp
-        jsr     GX_SPRIMG
-        ldy     #TH_OVERGROUP
-        lda     (UIT),y
-        and     #$0F
-        tay                             ; 8 x 8, the overlay's group
-        lda     tmp
-        ldx     #3 << 2
-        jsr     GX_SPRATTR
-        lda     vert                    ; X and Y: the cell's, in sprite units, and pos along
+; The thumb's sprite (UW_B's high byte) for slider idx (MEASURE'd, UI_RECT
+; its place): carry clear and placed on pos, OOUI's thumb image (8 x 8, the
+; card page after the pointer's), in front and shown, if its cell shows (in
+; its parents' client areas, in front of what else is there, under no menu
+; that is down: X4); carry set if it doesn't.
+SPRITE: lda     vert                    ; X and Y: the cell's, in sprite units, and pos along
         beq     @h
         lda     UI_RECT                 ; x = column x 4 - 2
+        sta     tc
         jsr     X4
         sec
         sbc     #2
@@ -214,7 +204,16 @@ SPRITE: jsr     THUMBIMG
         lda     GX_Y + 1
         sbc     pos + 1
         sta     GX_Y + 1
-        bra     @put
+        jsr     PCELL                   ; the cell: the bottom row less pos / 8
+        lda     UI_RECT + 1
+        clc
+        adc     UI_RECT + 3
+        sec
+        sbc     #1
+        sec
+        sbc     t0
+        sta     tr
+        bra     @at
 @h:     lda     UI_RECT                 ; x = column x 4 + pos - 4
         jsr     X4
         clc
@@ -230,15 +229,94 @@ SPRITE: jsr     THUMBIMG
         bcs     @hx
         dec     GX_X + 1
 @hx:    lda     UI_RECT + 1             ; y = row x 8
+        sta     tr
         jsr     X8
         sta     GX_Y
-@put:   lda     tmp
+        jsr     PCELL                   ; the cell: the column plus pos / 4
+        lda     UI_RECT
+        clc
+        adc     t0
+        sta     tc
+@at:    jsr     SHOWS                   ; (UI_RECT and UIR changed)
+        bcs     @r
+        lda     idx
+        jsr     REC
+        jsr     THUMBIMG
+        ldy     #UW_B + 1
+        lda     (UIR),y
+        sta     tmp
+        lda     upage
+        clc
+        adc     #UI_OFS_SPR + 1
+        sta     GX_V
+        lda     upage + 1
+        adc     #0
+        sta     GX_V + 1
+        lda     tmp
+        jsr     GX_SPRIMG
+        ldy     #TH_OVERGROUP
+        lda     (UIT),y
+        and     #$0F
+        tay                             ; 8 x 8, the overlay's group
+        lda     tmp
+        ldx     #3 << 2
+        jsr     GX_SPRATTR
+        lda     tmp
         jsr     GX_SPRPOS
-        jsr     GX_SPRSHOW
-        lda     #<POST                  ; and put out of sight when hidden (PAINT's upost)
-        sta     upost
-        lda     #>POST
-        sta     upost + 1
+        clc
+@r:     rts
+
+; t0 = the thumb's cell along the track: pos / 8 (vertical) or / 4.
+PCELL:  lda     pos + 1
+        sta     t1
+        lda     pos
+        lsr     t1
+        ror     a
+        lsr     t1
+        ror     a
+        ldx     vert
+        beq     @r
+        lsr     t1
+        ror     a
+@r:     sta     t0
+        rts
+
+; Carry clear if cell tc, tr of slider idx shows: the record frontmost there
+; is the slider (FRONT: its parents' client areas, and what is in front),
+; and no menu that is down covers it.
+SHOWS:  lda     mcol                    ; (ui_poll's cell kept)
+        pha
+        lda     mrowp
+        pha
+        lda     tc
+        sta     mcol
+        lda     tr
+        sta     mrowp
+        jsr     FRONT
+        cmp     idx
+        bne     @no
+        lda     umenu
+        cmp     #UI_NONE
+        beq     @yes
+        jsr     RECT
+        bcs     @yes
+        lda     tc
+        sec
+        sbc     UI_RECT
+        cmp     UI_RECT + 2
+        bcs     @yes
+        lda     tr
+        sec
+        sbc     UI_RECT + 1
+        cmp     UI_RECT + 3
+        bcs     @yes
+@no:    sec
+        bra     @put
+@yes:   clc
+@put:   pla
+        sta     mrowp
+        pla
+        sta     mcol
         rts
 
 ; GX_X (or GX_Y) = A x 4 (x 8), its high byte set: A low.
@@ -314,10 +392,11 @@ THUMB:  .byte   $00, $22, $22, $00
         .byte   $00, $22, $22, $00
         .code
 
-; After a paint: every UF_SPRITE slider that doesn't show has its sprite out
-; of sight (depth 0).
-POST:   stz     tmp
-        lda     #$FF
+; After a paint that drew (PAINT's upost): each UF_SPRITE slider's thumb
+; placed if it shows, else out of sight (depth 0). upmode 1: all out of
+; sight (ui_suspend); 2: their images off OOUI's card memory too
+; (ui_close, X3).
+POST:   lda     #$FF
         sta     idx
 @l:     inc     idx
         lda     idx
@@ -334,22 +413,34 @@ POST:   stz     tmp
         lda     (UIR),y
         and     #UF_SPRITE
         beq     @l
+        lda     upmode
+        bne     @off
         lda     idx
+        sta     dh
         jsr     RECT
-        bcc     @l
+        bcs     @off
         lda     idx
+        jsr     REC
+        jsr     MEASURE
+        jsr     SPRITE
+        bcc     @l
+@off:   lda     idx
         jsr     REC
         ldy     #UW_B + 1
         lda     (UIR),y
+        sta     tmp
         ldx     #0
         ldy     #0
         jsr     GX_SPRATTR
-        inc     tmp
+        lda     upmode
+        cmp     #2
+        bne     @l
+        stz     GX_V                    ; (page 0: OODOS's, never freed)
+        stz     GX_V + 1
+        lda     tmp
+        jsr     GX_SPRIMG
         bra     @l
-@done:  lda     tmp
-        beq     @r
-        jmp     GX_SPRSHOW
-@r:     rts
+@done:  jmp     GX_SPRSHOW
 
 ; A key while it has the focus.
 KEY:    jsr     MEASURE
@@ -476,8 +567,14 @@ MOVE:   lda     drag
 @go:    jsr     MEASURE
         lda     vert
         beq     @h
-        jsr     SPAN                    ; vertical: span - mpy, held to 0-span
-        lda     su
+        jsr     SPAN                    ; vertical: span - mpy, held to 0-span (above its top: the
+        lda     mpy + 1                 ;   span, X2)
+        bpl     @below
+        lda     #$FF
+        sta     sv
+        sta     sv + 1
+        bra     @v
+@below: lda     su
         sec
         sbc     mpy
         sta     sv
@@ -495,8 +592,17 @@ MOVE:   lda     drag
         bpl     @v
         stz     sv
         stz     sv + 1
-@v:     jsr     SPAN                    ; value = sv x top / span
+@v:     jsr     SPAN                    ; value = sv x top / span, sv held to the span (X2)
         lda     su
+        cmp     sv
+        lda     su + 1
+        sbc     sv + 1
+        bcs     @in
+        lda     su
+        sta     sv
+        lda     su + 1
+        sta     sv + 1
+@in:    lda     su
         sta     sa
         lda     su + 1
         sta     sa + 1
@@ -549,6 +655,10 @@ UP:     lda     drag
 
 ; The wheel: steps x the step, up for positive.
 WHEEL:  jsr     MEASURE
+        lda     val
+        sta     old
+        lda     val + 1
+        sta     old + 1
         jsr     STEP
         lda     wst
         bmi     @dn
@@ -572,7 +682,16 @@ WHEEL:  jsr     MEASURE
         sta     val + 1
         dec     tmp
         bne     @d
-@ev:    lda     dh
+@ev:    lda     val                     ; held at an end: taken, no event (X13)
+        cmp     old
+        bne     @ch
+        lda     val + 1
+        cmp     old + 1
+        bne     @ch
+        lda     #UE_NONE
+        clc
+        rts
+@ch:    lda     dh
         sta     evh
         lda     val
         sta     evv

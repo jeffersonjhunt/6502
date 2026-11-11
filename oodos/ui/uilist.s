@@ -80,8 +80,31 @@ GETS:   ldy     #UW_VALUE
         sta     wid
         lda     flg
         and     #UF_SCROLL
-        beq     @r
+        beq     @top
         dec     wid
+@top:   lda     cnt                     ; topr at most cnt - rows (0 if fewer), in the record
+        sec                             ;   too: a list that shrank (ui_setrange) shows its
+        sbc     rows                    ;   rows (X6)
+        sta     t0
+        lda     cnt + 1
+        sbc     #0
+        sta     t1
+        bcs     @h
+        stz     t0
+        stz     t1
+@h:     lda     t0
+        cmp     topr
+        lda     t1
+        sbc     topr + 1
+        bcs     @r
+        lda     t0
+        sta     topr
+        ldy     #UW_B
+        sta     (UIR),y
+        lda     t1
+        sta     topr + 1
+        iny
+        sta     (UIR),y
 @r:     rts
 
 ; topr and sel back in the record.
@@ -236,7 +259,10 @@ ROWLINE:
         beq     @len
         inx
         bra     @l
-@len:   stx     rlen
+@len:   cpx     wid                     ; as wide as the list or wider: not shown, so the
+        bcc     @rl                     ;   left part and its spaces fill the line (X7)
+        ldx     #0
+@rl:    stx     rlen
 @draw:  lda     UI_RECT + 1
         clc
         adc     i
@@ -271,8 +297,6 @@ ROWLINE:
         jsr     REPT
         lda     rlen
         beq     @r
-        cmp     wid
-        bcs     @r
         lda     UIQ                     ; the right part
         sec
         adc     tabat

@@ -209,6 +209,7 @@ UX_HANDLE       = 5                    ; a handle past the table, or a call the 
 UX_BUSY         = 6                    ; ui_open while OOUI is open
 UX_LAYER        = 7                    ; ui_open: UO_BASE past 1, or UO_OVER not $FF and not above the base
 UX_PICK         = 8                    ; ui_pick: a block it can't take (no work buffer, no room) (U2)
+UX_SPRITE       = 9                    ; ui_open: a slider's thumb sprite not one of OOUI's after the pointer's (U2)
 
 ; ---------------------------------------------------------------------------
 ; Events (ui_poll's A, and UI_EV's UV_CODE)
