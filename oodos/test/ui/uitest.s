@@ -51,6 +51,7 @@ WORKLEN = 64 * UP_ELEN
 RESULT  = $3800                         ; the picker's result: 16 entries
 STATE   = $3900                         ; c_state's (UITPICK): the user, the DMA address and segment, the error mode
 PDMA    = $3A00                         ; the program's DMA buffer (c_setst)
+BIGWORK = $1C00                         ; a work buffer of 256 files, to $2BFF (uitest.cfg: TPA ends below it)
 
         .zeropage
 rax:    .res    1
@@ -237,7 +238,7 @@ c_text: lda     #<TEXTBUF
         ldx     #>TEXTBUF
         jmp     ui_settext
 
-; U2: ui_msgbox with block A (0-2) (UITBAR), ui_pick with block A (0-3)
+; U2: ui_msgbox with block A (0-2) (UITBAR), ui_pick with block A (0-4)
 ; (UITPICK), ui_setrange (Y the handle, A/X the range).
 .if UIVAR = 2
 c_msg:  asl     a
@@ -249,12 +250,23 @@ c_msg:  asl     a
         jmp     ui_msgbox
 .endif
 .if UIVAR = 3
-; The program's own: its user A, its DMA PDMA, its error mode X (c_setst);
+; The program's own: its user A, its DMA PDMA, its error mode X, its DMA
+; segment $1234 if Y isn't 0, else none (c_setst; Y4b);
 ; them at STATE (c_state); a search of every file of A: (c_search: A 0 the
 ; first, else the next; A the BDOS's answer, the entry at PDMA + 32 x A).
 c_setst:
         phx
+        phy
         ldy     #F_USERNUM
+        jsr     BDOS
+        pla
+        beq     @none
+        lda     #$34
+        ldx     #$12
+        bra     @seg
+@none:  lda     #$FF
+        tax
+@seg:   ldy     #F_DMASEG
         jsr     BDOS
         lda     #<PDMA
         ldx     #>PDMA
@@ -279,6 +291,14 @@ c_state:
         ldy     #S_SCB
         jsr     BDOS
         sta     STATE + 5
+        clc
+        rts
+; The file whose FCB the test put at TEXTBUF deleted (c_erase; Z5).
+c_erase:
+        lda     #<TEXTBUF
+        ldx     #>TEXTBUF
+        ldy     #F_DELETE
+        jsr     BDOS
         clc
         rts
 c_search:
@@ -387,6 +407,7 @@ cmds:   CMD     'o', c_open
         CMD     'e', c_setst
         CMD     'w', c_state
         CMD     'n', c_search
+        CMD     'z', c_erase
 .endif
         CMD     'q', c_range
         CMD     '!', c_wboot
@@ -563,8 +584,9 @@ titleB: .asciiz "Confirm"
 .if UIVAR = 3
 ; ui_pick's blocks: 0 every file, several, drives, users, an extra button
 ; and a column; 1 the TXT and BIN files of M:; 2 a name to save on B:; 3
-; every file of M: into a work buffer of 8.
-picks:  .word   pickA, pickB, pickC, pickD
+; every file of M: into a work buffer of 8; 4 every file of A: into one of
+; 256 (BIGWORK).
+picks:  .word   pickA, pickB, pickC, pickD, pickE
 pickA:  .word   ptitleA, 0
         .byte   UP_MULTI | UP_DRIVES | UP_USERS, 0, $FF
         .word   RESULT
@@ -588,6 +610,12 @@ pickD:  .word   ptitleB, 0
         .word   RESULT
         .byte   16, 0
         .word   0, 0, WORK, 8 * UP_ELEN
+        .byte   0
+pickE:  .word   ptitleA, 0
+        .byte   0, 1, $FF
+        .word   RESULT
+        .byte   16, 0
+        .word   0, 0, BIGWORK, 256 * UP_ELEN
         .byte   0
 .assert pickB - pickA = UP_LEN, error, "a pick block is UP_LEN"
 ptitleA: .asciiz "Load Files"
