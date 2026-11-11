@@ -21,7 +21,9 @@
 #include "usb_card.h"
 #include "video_card.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -39,7 +41,7 @@ namespace
 {
     const std::string UTILS = std::getenv("OODOS_UTILS_DIR") ? std::getenv("OODOS_UTILS_DIR") : EMU_OODOS_UTILS_DIR;
     const std::string GOLDEN = std::string(EMU_GOLDEN_DIR) + "/ooui.txt";
-    constexpr uint32_t MBOX = 0x8100, TEXTBUF = 0x8200; ///< uitest.s's
+    constexpr uint32_t MBOX = 0x3100, TEXTBUF = 0x3200, WORK = 0x3400, RESULT = 0x3800; ///< uitest.s's
 
     // uitest.s's handles (its table's order) and blocks.
     enum : uint8_t
@@ -54,10 +56,14 @@ namespace
     constexpr uint8_t UT_NONE = 0, UT_PANEL = 3;
     enum : uint8_t { BLK_MAIN, BLK_ONE, BLK_DESK };
     // ooui.inc's events
-    enum : uint8_t { UE_NONE, UE_CLICK, UE_CHANGE, UE_SELECT, UE_MARK, UE_MENU, UE_CLOSE, UE_FOCUS, UE_KEY, UE_WHEEL };
+    enum : uint8_t
+    {
+        UE_NONE, UE_CLICK, UE_CHANGE, UE_SELECT, UE_MARK, UE_MENU, UE_CLOSE, UE_FOCUS, UE_KEY, UE_WHEEL, UE_CANVAS, UE_PICK,
+        UE_RAW, UE_MODAL
+    };
     // HID usages
     constexpr uint8_t K_ENTER = 0x28, K_ESC = 0x29, K_TAB = 0x2B, K_SPACE = 0x2C, K_RIGHT = 0x4F, K_DOWN = 0x51,
-                      K_F1 = 0x3A, K_C = 0x06, K_F = 0x09, K_Q = 0x14, K_T = 0x17, K_Z = 0x1D;
+                      K_F1 = 0x3A, K_C = 0x06, K_F = 0x09, K_Q = 0x14, K_T = 0x17, K_Z = 0x1D, K_BACK = 0x2A, K_HOME = 0x4A, K_PGUP = 0x4B, K_DEL = 0x4C, K_END = 0x4D, K_PGDN = 0x4E, K_LEFT = 0x50, K_UP = 0x52;
     constexpr uint8_t L_CTRL = 0xE0, L_SHIFT = 0xE1, L_ALT = 0xE2;
 
     VideoCard &vid(Rig &r) { return *r.machine->video_card(); }
@@ -70,18 +76,34 @@ namespace
         r.run(ms(40));
     }
 
-    void start_ui(CcpRig &r)
+    /// The test program running: uitest (U1's scenes), uitwid, uitbar or uitpick (U2's).
+    std::string &prog()
     {
+        static std::string p = "uitest";
+        return p;
+    }
+    /// The running program's .lbl's address for `name`.
+    uint16_t lab(const char *name)
+    {
+        static std::map<std::string, std::map<std::string, uint16_t>> all;
+        auto it = all.find(prog());
+        if (it == all.end())
+            it = all.emplace(prog(), labels(UTILS + "/" + prog() + ".lbl")).first;
+        return it->second.at(name);
+    }
+    void start_ui(Rig &r, const std::string &program = "uitest")
+    {
+        prog() = program;
         no_splash(r);
         r.poke(MBOX, 0);
-        r.poke_com(read_bytes(UTILS + "/uitest.com"));
+        r.poke_com(read_bytes(UTILS + "/" + program + ".com"));
         const size_t from = r.out.size();
         r.type("GO\r");
         CHECK(r.until("\nO ", ms(2000), from) && r.until("\r\n", ms(200), r.out.find("\nO ", from)));
         CHECK_EQ(field(r.out.substr(from), "O").substr(6), std::string("00")); // GX_INIT, GX_PALINIT, GX_SPRINIT
     }
     /// Command `c` with A, X, Y: "aa xx cc", and the text it printed before (ui_poll's events).
-    std::string ui(CcpRig &r, char c, uint8_t a = 0, uint8_t x = 0, uint8_t y = 0, std::string *before = nullptr)
+    std::string ui(Rig &r, char c, uint8_t a = 0, uint8_t x = 0, uint8_t y = 0, std::string *before = nullptr)
     {
         const size_t from = r.out.size() ? r.out.size() - 1 : 0;
         r.poke(MBOX + 1, std::vector<uint8_t>{a, x, y});
@@ -104,11 +126,12 @@ namespace
     struct Event
     {
         unsigned code, handle, y, value;
+        unsigned kind = 0, x = 0, py = 0, flags = 0; ///< UV_KIND, UV_X, UV_Y, UV_FLAGS (not compared by ==)
         bool operator==(const Event &o) const { return code == o.code && handle == o.handle && y == o.y && value == o.value; }
     };
     /// ui_poll until UE_NONE: the events it returned, "E cc xx yy vvvv" each; then two frames for what it drew
     /// (the palette and the sprites are shown at a vertical blank).
-    std::vector<Event> poll(CcpRig &r)
+    std::vector<Event> poll(Rig &r)
     {
         std::string text;
         ui(r, 'p', 0, 0, 0, &text);
@@ -117,9 +140,9 @@ namespace
         std::string line;
         while (std::getline(in, line))
         {
-            unsigned c = 0, h = 0, y = 0, v = 0;
-            if (std::sscanf(line.c_str(), "E %x %x %x %x", &c, &h, &y, &v) == 4)
-                ev.push_back({c, h, y, v});
+            unsigned c = 0, h = 0, y = 0, v = 0, k = 0, x = 0, py = 0, f = 0;
+            if (std::sscanf(line.c_str(), "E %x %x %x %x %x %x %x %x", &c, &h, &y, &v, &k, &x, &py, &f) >= 4)
+                ev.push_back({c, h, y, v, k, x, py, f});
         }
         r.run(ms(40));
         return ev;
@@ -143,7 +166,7 @@ namespace
     }
 
     /// A key on the USB keyboard, with a modifier held round it (0 none).
-    void key(CcpRig &r, uint8_t usage, uint8_t mod = 0)
+    void key(Rig &r, uint8_t usage, uint8_t mod = 0)
     {
         if (mod)
         {
@@ -161,12 +184,12 @@ namespace
         }
     }
     /// The pointer to the middle of cell (col, row): 4 x 8 pointer units a cell.
-    void point(CcpRig &r, unsigned col, unsigned row)
+    void point(Rig &r, unsigned col, unsigned row)
     {
         usb(r).mouse_to(static_cast<int>(col * 4 + 2), static_cast<int>(row * 8 + 4));
         r.run(ms(30));
     }
-    void button(CcpRig &r, bool down)
+    void button(Rig &r, bool down)
     {
         usb(r).mouse_buttons(down ? 1 : 0);
         r.run(ms(30));
@@ -219,7 +242,7 @@ namespace
         return u && std::string(u) == "update";
     }
     /// The frame now against golden frame `name`; with OOUI_GOLDEN=update, stored as it.
-    void golden(CcpRig &r, const std::string &name)
+    void golden(Rig &r, const std::string &name)
     {
         const uint64_t h = frame_hash(r);
         if (const char *dump = std::getenv("OOUI_DUMP"))
@@ -263,7 +286,7 @@ namespace
         unsigned col, row, w, h;
         bool hidden;
     };
-    Place rect(CcpRig &r, uint8_t h)
+    Place rect(Rig &r, uint8_t h)
     {
         const std::string a = ui(r, 'r', h);
         Place p{};
@@ -272,12 +295,11 @@ namespace
         p.col = static_cast<unsigned>(std::stoul(a.substr(0, 2), nullptr, 16));
         p.row = static_cast<unsigned>(std::stoul(a.substr(3, 2), nullptr, 16));
         p.hidden = a.substr(6, 2) == "01";
-        const std::map<std::string, uint16_t> l = labels(UTILS + "/uitest.lbl");
-        p.w = r.phys(l.at("UI_RECT") + 2u);
-        p.h = r.phys(l.at("UI_RECT") + 3u);
+        p.w = r.phys(lab("UI_RECT") + 2u);
+        p.h = r.phys(lab("UI_RECT") + 3u);
         return p;
     }
-    void expect_place(CcpRig &r, uint8_t h, Place want)
+    void expect_place(Rig &r, uint8_t h, Place want)
     {
         const Place p = rect(r, h);
         if (p.col != want.col || p.row != want.row || p.w != want.w || p.h != want.h || p.hidden != want.hidden)
@@ -286,17 +308,11 @@ namespace
         CHECK(p.col == want.col && p.row == want.row && p.w == want.w && p.h == want.h && p.hidden == want.hidden);
     }
 
-    /// uitest.lbl's address for `name`.
-    uint16_t lab(const char *name)
-    {
-        static const std::map<std::string, uint16_t> l = labels(UTILS + "/uitest.lbl");
-        return l.at(name);
-    }
     /// Record h's address in uitest.s's table, `main`.
     uint16_t rec(uint8_t h) { return static_cast<uint16_t>(lab("main") + h * 16u); }
     void poke_flags(Rig &r, uint8_t h, uint8_t set) { r.poke(rec(h) + UW_FLAGS, static_cast<uint8_t>(r.phys(rec(h) + UW_FLAGS) | set)); }
     /// ui_flags: Y the handle, A to set, X to clear.
-    std::string flags(CcpRig &r, uint8_t h, uint8_t set, uint8_t clear = 0) { return ui(r, 'F', set, clear, h); }
+    std::string flags(Rig &r, uint8_t h, uint8_t set, uint8_t clear = 0) { return ui(r, 'F', set, clear, h); }
     void put_text(Rig &r, const std::string &t)
     {
         std::vector<uint8_t> b(t.begin(), t.end());
@@ -578,8 +594,7 @@ TEST(the_table_is_checked_and_handles_too)
     CcpRig r;
     REQUIRE(r.ok);
     start_ui(r);
-    const std::map<std::string, uint16_t> l = labels(UTILS + "/uitest.lbl");
-    const uint16_t main = l.at("main");
+    const uint16_t main = lab("main");
     const uint8_t at = r.phys(main + B_OK * 16u + 1);
     r.poke(main + B_OK * 16u + 1, static_cast<uint8_t>(B_CAN)); // a parent after its child
     const auto refused = [&r] { const std::string a = ui(r, 'o', BLK_MAIN); return a.substr(0, 2) + a.substr(6); };
@@ -716,7 +731,7 @@ TEST(o5_o12_a_modal_window_keeps_the_keys_and_letters_press_unfocusable_buttons)
     CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
     CHECK_EQ(ui(r, 'h', I_ABOUT).substr(6), std::string("00")); // a hidden item: not chosen by its key
     key(r, K_F1);
-    expect(poll(r), {}, "F1 for a hidden item");
+    expect(poll(r), {{UE_MODAL, W_OVER, 0, 0}}, "F1 for a hidden item"); // (U2: the modal window gone)
     key(r, K_Q, L_CTRL);
     expect(poll(r), {{UE_CLICK, B_CAN, 0, 0}}, "Ctrl+Q with no modal window");
 }
@@ -902,7 +917,7 @@ TEST(p1_a_theme_in_palette_groups_of_its_own)
     CHECK_EQ(frame_hash(r), house); // the same colours, other entries
     CHECK_EQ(flags(r, W_OVER, UF_MODAL).substr(6), std::string("00"));
     CHECK_EQ(ui(r, 's', W_OVER).substr(6), std::string("00"));
-    expect(poll(r), {}, "a modal window shown");
+    expect(poll(r), {{UE_MODAL, W_OVER, 0, 1}}, "a modal window shown"); // (U2: UE_MODAL)
     CHECK_EQ(vid(r).peek(0x19), 4); // the base dimmed (TF_DIM)
     golden(r, "dim-modal");
     // The dim group: the house colours, each component halved (round 2's W7), in OOLIB's shadow.
@@ -920,7 +935,7 @@ TEST(p1_a_theme_in_palette_groups_of_its_own)
     CHECK_EQ(ui(r, 't', 2).substr(6), std::string("00"));
     poll(r);
     CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
-    expect(poll(r), {}, "hidden");
+    expect(poll(r), {{UE_MODAL, W_OVER, 0, 0}}, "hidden"); // (U2: UE_MODAL)
     CHECK_EQ(vid(r).peek(0x19), 2);
     CHECK_EQ(frame_hash(r), house);
 }
@@ -930,7 +945,7 @@ TEST(p1_a_theme_in_palette_groups_of_its_own)
 namespace
 {
     /// The video registers a program sets: CTRL, the layers', PALBASE and SPRBASE.
-    std::vector<uint8_t> vregs(CcpRig &r)
+    std::vector<uint8_t> vregs(Rig &r)
     {
         std::vector<uint8_t> v;
         for (const unsigned a : {0x00u, 0x01u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du})
@@ -1014,7 +1029,7 @@ TEST(w3_w8_dimming_only_under_an_overlay_s_modal_window)
     CHECK_EQ(ui(r, 't', 2).substr(6), std::string("00"));
     poll(r);
     CHECK_EQ(flags(r, W_SIDE, UF_MODAL).substr(6), std::string("00")); // a modal window on the base layer
-    expect(poll(r), {}, "Second modal");
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 1}}, "Second modal"); // (U2: UE_MODAL)
     CHECK_EQ(vid(r).peek(0x19), 2); // not dimmed: the dialog is on the base too
     // W8: one layer, no dimming: the dim group's entries left as they were.
     CcpRig o;
@@ -1056,14 +1071,14 @@ TEST(w5_a_menu_down_goes_up_for_a_modal_window_or_when_disabled)
     poll(r);
     CHECK_EQ(flags(r, W_OVER, UF_MODAL).substr(6), std::string("00"));
     CHECK_EQ(ui(r, 's', W_OVER).substr(6), std::string("00")); // ui_show of a modal window
-    expect(poll(r), {}, "a modal window shown");
+    expect(poll(r), {{UE_MODAL, W_OVER, 0, 1}}, "a modal window shown"); // (U2: UE_MODAL)
     expect_place(r, M_FILE, {1, 1, 19, 6, true});
     CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
     poll(r);
     key(r, K_F, L_ALT);
     poll(r);
     CHECK_EQ(flags(r, W_SIDE, UF_MODAL).substr(6), std::string("00")); // ui_flags making a shown window modal
-    expect(poll(r), {}, "Second made modal");
+    expect(poll(r), {{UE_MODAL, W_SIDE, 0, 1}}, "Second made modal"); // (U2: UE_MODAL; Over's 0 came at the poll before)
     expect_place(r, M_FILE, {1, 1, 19, 6, true});
     CHECK_EQ(flags(r, W_SIDE, 0, UF_MODAL).substr(6), std::string("00"));
     poll(r);
@@ -1089,6 +1104,623 @@ TEST(w10_no_item_chosen_from_a_bar_that_doesn_t_show)
     CHECK_EQ(ui(r, 's', W_DESK).substr(6), std::string("00"));
     key(r, K_F1);
     expect(poll(r), {{UE_MENU, I_ABOUT, M_HELP, 0}}, "F1, shown again");
+}
+
+// ---- U2 (proposed): the remaining widgets, the message box, the file picker -----------------------------------------
+
+namespace
+{
+    // uitwid's scene (uitest.s's u2, UIVAR 1) and uitbar's (UIVAR 2).
+    enum : uint8_t { X_DESK, X_WIN, X_GRP, X_R0, X_R1, X_R2, X_CHO, X_FLD, X_LST, X_VSC, X_LS2, X_CNV, X_HSC, X_LBL, X_OUT, X_DONE };
+    enum : uint8_t { Y_DESK, Y_WIN, Y_VBR, Y_VSL, Y_HBR, Y_HSL, Y_HSP, Y_LBL, Y_MSG };
+    enum : uint8_t { BLK_U2 = 3, BLK_U2ONE = 4 };
+    void open_u2(Rig &r, const std::string &program, uint8_t block = BLK_U2)
+    {
+        start_ui(r, program);
+        CHECK_EQ(ui(r, 'o', block).substr(6), std::string("00"));
+    }
+    /// ui_setvalue Y, A/X.
+    void setv(Rig &r, uint8_t h, unsigned v) { CHECK_EQ(ui(r, 'v', static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8), h).substr(6), std::string("00")); }
+} // namespace
+
+
+namespace
+{
+    /// The record of handle h in the running program's u2 table.
+    uint16_t rec2(uint8_t h) { return static_cast<uint16_t>(lab("u2") + h * 16u); }
+    unsigned word_at(Rig &r, uint32_t a) { return r.phys(a) | r.phys(a + 1) << 8; }
+    unsigned value_of(Rig &r, uint8_t h) { return word_at(r, rec2(h) + UW_VALUE); }
+    /// A dialog record's value: its place k (the picker's 0-8).
+    unsigned value_of_dlg(Rig &r, unsigned k) { return word_at(r, lab("UDLG") + k * 16 + UW_VALUE); }
+    void click(Rig &r, unsigned col, unsigned row)
+    {
+        point(r, col, row);
+        button(r, true);
+        button(r, false);
+    }
+    void type_text(Rig &r, const std::string &t)
+    {
+        for (const char c : t)
+            key(r, static_cast<uint8_t>(c >= 'a' && c <= 'z' ? 0x04 + c - 'a' : c == '.' ? 0x37 : 0x1E + c - '1'));
+    }
+    constexpr uint8_t UV_LIVE = 0x01, UV_DOUBLE = 0x02;
+} // namespace
+
+TEST(u2_widgets_drawn_in_both_themes)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    expect(poll(r), {}, "the first poll");
+    golden(r, "u2-lists");
+    // O16 and clipping: a label sticking out of its group, shown, is cut at the group's client area.
+    const uint64_t before = frame_hash(r);
+    CHECK_EQ(ui(r, 's', X_OUT).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(frame_hash(r), before); // all of it outside: nothing drawn
+    CHECK_EQ(ui(r, 'h', X_OUT).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00"));
+    poll(r);
+    golden(r, "u2-lists-turbo");
+    CcpRig b;
+    REQUIRE(b.ok);
+    open_u2(b, "uitbar");
+    setv(b, Y_VBR, 37);
+    setv(b, Y_HBR, 63);
+    expect(poll(b), {}, "the first poll");
+    golden(b, "u2-levels");
+    CHECK_EQ(ui(b, 't', 1).substr(6), std::string("00"));
+    poll(b);
+    golden(b, "u2-levels-turbo");
+}
+
+TEST(u2_radio_buttons_and_a_choice)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("03")); // the first radio button
+    key(r, K_DOWN);
+    expect(poll(r), {{UE_CHANGE, X_GRP, 0, 1}}, "Down: Medium");
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("04"));
+    key(r, K_UP);
+    expect(poll(r), {{UE_CHANGE, X_GRP, 0, 0}}, "Up: Low");
+    key(r, 0x0B); // H: High's letter
+    expect(poll(r), {{UE_CHANGE, X_GRP, 0, 2}}, "H");
+    key(r, K_SPACE); // High has the focus now, and is chosen: nothing
+    expect(poll(r), {}, "Space on the chosen one");
+    click(r, 6, 4); // Medium
+    expect(poll(r), {{UE_CHANGE, X_GRP, 0, 1}}, "a click on Medium");
+    CHECK_EQ(value_of(r, X_GRP), 1u);
+    // The choice: Right, held at the end; Left; Space round; a click on its halves.
+    CHECK_EQ(ui(r, 'f', X_CHO).substr(6), std::string("00"));
+    key(r, K_RIGHT);
+    key(r, K_RIGHT);
+    expect(poll(r), {{UE_CHANGE, X_CHO, 0, 2}}, "Right, Right");
+    key(r, K_LEFT);
+    key(r, K_SPACE);
+    key(r, K_SPACE);
+    expect(poll(r), {{UE_CHANGE, X_CHO, 0, 1}, {UE_CHANGE, X_CHO, 0, 2}, {UE_CHANGE, X_CHO, 0, 0}}, "Left, Space, Space");
+    click(r, 40, 2); // its right half (each click polled: a click is where the pointer is when ui_poll reads it)
+    expect(poll(r), {{UE_CHANGE, X_CHO, 0, 1}}, "right half");
+    click(r, 30, 2); // its left half
+    expect(poll(r), {{UE_CHANGE, X_CHO, 0, 0}}, "left half");
+}
+
+TEST(u2_a_text_field)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    CHECK_EQ(ui(r, 'f', X_FLD).substr(6), std::string("00"));
+    type_text(r, "abc");
+    std::vector<Event> ev = poll(r);
+    expect(ev, {{UE_CHANGE, X_FLD, 0, 1}, {UE_CHANGE, X_FLD, 0, 2}, {UE_CHANGE, X_FLD, 0, 3}}, "abc");
+    for (const Event &e : ev)
+        CHECK_EQ(e.flags & UV_LIVE, UV_LIVE);
+    key(r, K_BACK);
+    key(r, K_HOME);
+    key(r, K_DEL);
+    expect(poll(r), {{UE_CHANGE, X_FLD, 0, 2}, {UE_CHANGE, X_FLD, 0, 0}}, "Backspace, Home, Delete");
+    const uint16_t buf = lab("fieldbuf");
+    CHECK_EQ(r.phys(buf), 'b');
+    CHECK_EQ(r.phys(buf + 1u), 0);
+    key(r, K_END);
+    golden(r, "u2-field"); // (the frame before the poll: as it was drawn last)
+    key(r, K_ENTER);
+    ev = poll(r);
+    expect(ev, {{UE_CHANGE, X_FLD, 0, 1}}, "End, Enter: the last change");
+    CHECK(!ev.empty() && !(ev[0].flags & UV_LIVE));
+    type_text(r, "x"); // a change, then the focus leaves: its last change follows UE_FOCUS
+    key(r, K_TAB);
+    ev = poll(r);
+    expect(ev, {{UE_CHANGE, X_FLD, 0, 2}, {UE_FOCUS, X_LST, 0, 0}, {UE_CHANGE, X_FLD, 0, 2}}, "x, Tab");
+    CHECK(ev.size() == 3 && (ev[0].flags & UV_LIVE) && !(ev[2].flags & UV_LIVE));
+    // A click puts the cursor; the field is 16 bytes, 15 characters: the 16th refused.
+    CHECK_EQ(ui(r, 'f', X_FLD).substr(6), std::string("00"));
+    click(r, 26, 4);
+    poll(r);
+    CHECK_EQ(value_of(r, X_FLD), 0u);
+}
+
+TEST(u2_a_list_by_keys_and_the_mouse)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    CHECK_EQ(ui(r, 'f', X_LST).substr(6), std::string("00"));
+    key(r, K_DOWN);
+    key(r, K_DOWN);
+    key(r, K_END);
+    expect(poll(r), {{UE_CHANGE, X_LST, 0, 0}, {UE_CHANGE, X_LST, 0, 1}, {UE_CHANGE, X_LST, 0, 19}}, "Down, Down, End");
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 10u); // the top moved: row 19 the last shown
+    golden(r, "u2-list-end");
+    key(r, K_PGUP);
+    key(r, K_HOME);
+    key(r, K_ENTER);
+    expect(poll(r), {{UE_CHANGE, X_LST, 0, 10}, {UE_CHANGE, X_LST, 0, 0}, {UE_SELECT, X_LST, 0, 0}}, "PgUp, Home, Enter");
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 0u);
+    key(r, K_SPACE); // not a UF_MULTI list: Space isn't its
+    expect(poll(r), {}, "Space");
+    click(r, 10, 11); // row 3
+    expect(poll(r), {{UE_CHANGE, X_LST, 0, 3}}, "a click on row 3");
+    click(r, 10, 11);
+    std::vector<Event> ev = poll(r);
+    expect(ev, {{UE_SELECT, X_LST, 0, 3}}, "a double-click on it");
+    CHECK(!ev.empty() && (ev[0].flags & UV_DOUBLE));
+    click(r, 33, 16); // its scroll bar, below the thumb: a page down
+    expect(poll(r), {}, "a page down by its bar");
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 10u);
+    point(r, 10, 12);
+    usb(r).mouse_wheel(3); // three up
+    r.run(ms(30));
+    expect(poll(r), {}, "the wheel");
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 7u);
+    // Key repeat: Down held for 0.8 s moves on after the delay (30 frames) every 2 frames.
+    CHECK_EQ(ui(r, 'f', X_LST).substr(6), std::string("00"));
+    usb(r).key(K_DOWN, true);
+    ev.clear();
+    for (int i = 0; i < 16; ++i) // polled while it is held, as a program polls each frame
+    {
+        r.run(ms(50));
+        for (const Event &e : poll(r))
+            ev.push_back(e);
+    }
+    usb(r).key(K_DOWN, false);
+    r.run(ms(20));
+    poll(r);
+    if (ev.size() < 6)
+        std::printf("  held Down: %zu events\n", ev.size());
+    CHECK(ev.size() >= 6);
+    // The second list: its routine's rows, marks.
+    CHECK_EQ(ui(r, 'f', X_LS2).substr(6), std::string("00"));
+    key(r, K_DOWN);
+    key(r, K_SPACE);
+    expect(poll(r), {{UE_CHANGE, X_LS2, 0, 0}, {UE_MARK, X_LS2, 0, 0}}, "Down, Space on the marked list");
+    click(r, 42, 10); // row 2: a mark
+    expect(poll(r), {{UE_MARK, X_LS2, 0, 2}}, "a click on the marked list");
+}
+
+TEST(u2_scroll_bars)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    click(r, 35, 17); // the down arrow, twice
+    click(r, 35, 17);
+    expect(poll(r), {{UE_CHANGE, X_VSC, 0, 1}, {UE_CHANGE, X_VSC, 0, 2}}, "the down arrow");
+    click(r, 35, 8); // the up arrow
+    expect(poll(r), {{UE_CHANGE, X_VSC, 0, 1}}, "the up arrow");
+    click(r, 35, 15); // the track below the thumb: a page
+    expect(poll(r), {{UE_CHANGE, X_VSC, 0, 11}}, "a page");
+    key(r, 0x3E); // F5: UA_UP
+    key(r, 0x3F); // F6: UA_DOWN
+    key(r, 0x3F);
+    expect(poll(r), {{UE_CHANGE, X_VSC, 0, 10}, {UE_CHANGE, X_VSC, 0, 11}, {UE_CHANGE, X_VSC, 0, 12}}, "F5, F6, F6");
+    point(r, 35, 12);
+    usb(r).mouse_wheel(2);
+    r.run(ms(30));
+    expect(poll(r), {{UE_CHANGE, X_VSC, 0, 10}}, "the wheel up 2");
+    // The thumb dragged: at 10 of 50 its place is 7 x 10 / 50 = 1 (row 10); down to row 16, the end.
+    point(r, 35, 10);
+    button(r, true);
+    expect(poll(r), {}, "the thumb held");
+    point(r, 35, 13);
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && (ev[0].flags & UV_LIVE) && ev[0].value > 10);
+    point(r, 35, 16);
+    poll(r);
+    button(r, false);
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && !(ev[0].flags & UV_LIVE) && ev[0].value == 50);
+    click(r, 33, 19); // the horizontal bar's right arrow
+    expect(poll(r), {{UE_CHANGE, X_HSC, 0, 1}}, "the horizontal bar's right arrow");
+}
+
+TEST(u2_sliders_and_bars)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("03")); // the vertical slider
+    key(r, K_UP);
+    key(r, K_DOWN);
+    key(r, K_PGUP);
+    key(r, K_HOME);
+    key(r, K_END);
+    expect(poll(r), {{UE_CHANGE, Y_VSL, 0, 55}, {UE_CHANGE, Y_VSL, 0, 50}, {UE_CHANGE, Y_VSL, 0, 62}, {UE_CHANGE, Y_VSL, 0, 100},
+                     {UE_CHANGE, Y_VSL, 0, 0}},
+           "Up, Down, PgUp, Home, End");
+    // A press at its top row: (79 - 4) x 100 / 79 = 94, live; let go: the last.
+    point(r, 6, 2);
+    button(r, true);
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].value == 94 && (ev[0].flags & UV_LIVE));
+    button(r, false);
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].value == 94 && !(ev[0].flags & UV_LIVE));
+    // The horizontal one: a drag from column 24 (62 x 100 / 119 = 52).
+    point(r, 24, 4);
+    button(r, true);
+    ev = poll(r); // the focus moves there silently, and the press's change is the event
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Y_HSL && ev[0].value == 52);
+    button(r, false);
+    poll(r);
+    CHECK_EQ(value_of(r, Y_HSL), 52u);
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("05"));
+    point(r, 20, 4);
+    usb(r).mouse_wheel(1);
+    r.run(ms(30));
+    expect(poll(r), {{UE_CHANGE, Y_HSL, 0, 57}}, "the wheel: a step up");
+    // The sprite thumb: at 75, x = 9 x 4 + 75 x 119 / 100 - 4; hidden with its window, out of sight.
+    const uint16_t spr = lab("GX_SPR");
+    CHECK_EQ(word_at(r, spr + 8u + 2), 9u * 4 + 75u * 119 / 100 - 4);
+    CHECK_EQ(r.phys(spr + 8u + 6) & 0x0C, 0x0C);
+    setv(r, Y_HSP, 0);
+    poll(r);
+    CHECK_EQ(word_at(r, spr + 8u + 2), 9u * 4 - 4);
+    CHECK_EQ(ui(r, 'h', Y_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(r.phys(spr + 8u + 6) & 0x0C, 0);
+    // A bar's value is held to its top.
+    setv(r, Y_VBR, 500);
+    CHECK_EQ(value_of(r, Y_VBR), 100u);
+    CHECK_EQ(ui(r, 'q', 40, 0, Y_VBR).substr(6), std::string("00")); // ui_setrange: the top 40
+    CHECK_EQ(value_of(r, Y_VBR), 40u);
+}
+
+TEST(u2_a_canvas_hover_and_a_mouse_plugged_in)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    point(r, 60, 10);
+    button(r, true);
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CANVAS && ev[0].handle == X_CNV && ev[0].kind == 1 && ev[0].x == 22 && ev[0].py == 20);
+    point(r, 61, 10);
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].kind == 3 && ev[0].x == 26);
+    button(r, false);
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].kind == 2);
+    usb(r).mouse_wheel(-1);
+    r.run(ms(30));
+    ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].kind == 4 && ev[0].value == 0xFFFF);
+    // US_HOT: the widget under the pointer.
+    point(r, 6, 26);
+    poll(r);
+    CHECK_EQ(r.phys(rec2(X_DONE) + 7u) & 0x02, 0x02);
+    point(r, 60, 10);
+    poll(r);
+    CHECK_EQ(r.phys(rec2(X_DONE) + 7u) & 0x02, 0);
+    // O13: a mouse plugged in after ui_open gets the pointer. Opened with the area saying no mouse, then an
+    // EK_DEVICE event saying one came.
+    CcpRig m;
+    REQUIRE(m.ok);
+    start_ui(m, "uitwid");
+    const uint32_t area = 0x3000;
+    m.poke(area + 25, 0x01); // EV_DEVICES: a keyboard only
+    CHECK_EQ(ui(m, 'o', BLK_U2).substr(6), std::string("00"));
+    poll(m);
+    CHECK_EQ(m.phys(lab("uptr")), 0);
+    const uint8_t head = m.phys(area + 16), slots = m.phys(area + 18);
+    m.poke(area + 128 + head * 8u, std::vector<uint8_t>{5, 0, 3, 0, 0, 0, 0, 0}); // EK_DEVICE: keyboard and mouse
+    m.poke(area + 16, static_cast<uint8_t>((head + 1) % slots));
+    m.poke(area + 25, 0x03); // (OODOS writes EV_DEVICES as it queues the event)
+    ev = poll(m);
+    CHECK(ev.size() == 1 && ev[0].code == UE_RAW && ev[0].y == 5);
+    CHECK_EQ(m.phys(lab("uptr")), 1);
+}
+
+TEST(u2_the_message_box)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(ui(r, 'm', 0).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, 0xF0, 0, 1}}, "the box up");
+    golden(r, "u2-msg");
+    CHECK_EQ(ui(r, 'm', 1).substr(0, 2) + ui(r, 'm', 1).substr(6), std::string("0601")); // one up: UX_BUSY
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("F3")); // OK, its first button
+    key(r, K_ENTER);
+    expect(poll(r), {{UE_CLOSE, 0xF0, 0, 0}, {UE_MODAL, 0xF0, 0, 0}}, "Enter: OK");
+    CHECK_EQ(ui(r, 'm', 1).substr(6), std::string("00")); // Yes and No, No the default
+    poll(r);
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("F4"));
+    key(r, K_ENTER);
+    expect(poll(r), {{UE_CLOSE, 0xF0, 0, 1}, {UE_MODAL, 0xF0, 0, 0}}, "Enter: No");
+    ui(r, 'm', 1);
+    poll(r);
+    key(r, 0x1C); // Y
+    expect(poll(r), {{UE_CLOSE, 0xF0, 0, 0}, {UE_MODAL, 0xF0, 0, 0}}, "Y");
+    ui(r, 'm', 1);
+    poll(r);
+    key(r, K_ESC);
+    expect(poll(r), {{UE_CLOSE, 0xF0, 0, 1}, {UE_MODAL, 0xF0, 0, 0}}, "Escape: No");
+    ui(r, 'm', 2); // OK and Cancel: Cancel clicked
+    poll(r);
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00"));
+    poll(r);
+    golden(r, "u2-msg-turbo");
+    const Place cancel = rect(r, 0xF4);
+    click(r, cancel.col + 2, cancel.row);
+    expect(poll(r), {{UE_CLOSE, 0xF0, 0, 1}, {UE_MODAL, 0xF0, 0, 0}}, "Cancel clicked"); // (its widgets' own events kept from the program)
+    ui(r, 'm', 0); // taken away by ui_hide: no answer
+    poll(r);
+    CHECK_EQ(ui(r, 'h', 0xF0).substr(6), std::string("00"));
+    expect(poll(r), {{UE_MODAL, 0xF0, 0, 0}}, "ui_hide(UI_MSG)");
+}
+
+
+namespace
+{
+    // The picker's public handles.
+    constexpr uint8_t P_WIN = 0xF1, P_DRV = 0xF5, P_USR = 0xF6, P_LST = 0xF7, P_FLD = 0xF8, P_OK = 0xF9, P_CAN = 0xFA;
+    /// Polls until the listing is done (four entries a poll).
+    std::vector<Event> settle(Rig &r)
+    {
+        std::vector<Event> all;
+        for (int i = 0; i < 400; ++i)
+        {
+            for (const Event &e : poll(r))
+                all.push_back(e);
+            if (r.phys(lab("lst")) == 0)
+                break;
+        }
+        CHECK_EQ(r.phys(lab("lst")), 0);
+        return all;
+    }
+    /// ui_pick with block `blk` and the listing polled to its end: the events on the way.
+    std::vector<Event> pick(Rig &r, uint8_t blk)
+    {
+        CHECK_EQ(ui(r, 'k', blk).substr(6), std::string("00"));
+        return settle(r);
+    }
+    /// The files listed: "NAME.TYP", in the work buffer's order.
+    std::vector<std::string> listed(Rig &r)
+    {
+        std::vector<std::string> names;
+        const unsigned n = word_at(r, lab("count"));
+        for (unsigned i = 0; i < n; ++i)
+        {
+            std::string a, b;
+            for (unsigned k = 0; k < 8; ++k)
+                if (const char c = static_cast<char>(r.phys(WORK + i * 16 + 2 + k)); c != ' ')
+                    a += c;
+            for (unsigned k = 8; k < 11; ++k)
+                if (const char c = static_cast<char>(r.phys(WORK + i * 16 + 2 + k)); c != ' ')
+                    b += c;
+            names.push_back(a + "." + b);
+        }
+        return names;
+    }
+    bool has(const std::vector<std::string> &v, const std::string &n) { return std::find(v.begin(), v.end(), n) != v.end(); }
+    /// The status label's text.
+    std::string status(Rig &r)
+    {
+        const uint32_t rec = lab("UDLG") + 8u * 16;
+        uint32_t p = word_at(r, rec + UW_TEXT);
+        std::string t;
+        for (uint8_t c; (c = r.phys(p)) != 0 && t.size() < 40; ++p)
+            t += static_cast<char>(c);
+        return t;
+    }
+    /// The result buffer's entry i: drive, user, "NAME    TYP".
+    std::string result(Rig &r, unsigned i)
+    {
+        std::string t = std::to_string(r.phys(RESULT + i * 16)) + " " + std::to_string(r.phys(RESULT + i * 16 + 1)) + " ";
+        for (unsigned k = 0; k < 11; ++k)
+            t += static_cast<char>(r.phys(RESULT + i * 16 + 2 + k));
+        return t;
+    }
+    unsigned chosen(Rig &r, const char *block) { return r.phys(lab(block) + 10u); }
+    void next_drive(Rig &r)
+    {
+        key(r, K_RIGHT);
+        settle(r);
+    }
+} // namespace
+
+TEST(u2_the_picker_on_the_card_s_drives)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    // M: forty files, more than a screen, put there before it is logged in; C: the card's apple-do disk; D:
+    // nothing mounted.
+    std::vector<MFile> m;
+    for (unsigned i = 0; i < 40; ++i)
+    {
+        char n[12];
+        std::snprintf(n, sizeof n, "FILE%02u  %s", i, i % 4 == 3 ? "COM" : i % 2 ? "BIN" : "TXT");
+        m.push_back({0, n, std::vector<uint8_t>(100, static_cast<uint8_t>(i))});
+    }
+    r.put_m(m);
+    REQUIRE(r.mount(3, "/DISKS/CPM.DSK") == 0);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    // A: (oodos-8m): every file of user 0, once each, SYS ones too; more than its 16 rows.
+    std::vector<Event> ev = pick(r, 0);
+    CHECK(!ev.empty() && ev[0].code == UE_MODAL && ev[0].handle == P_WIN && ev[0].value == 1);
+    std::vector<std::string> a = listed(r);
+    CHECK(a.size() > 16);
+    CHECK(has(a, "README.TXT") && has(a, "PATTERN.BIN") && has(a, "HELLO.COM") && has(a, "OODOS.SYS"));
+    CHECK(!has(a, "USER3.TXT")); // user 3's
+    std::vector<std::string> sorted = a;
+    std::sort(sorted.begin(), sorted.end());
+    CHECK(std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end()); // each once
+    CHECK_EQ(status(r), std::to_string(a.size()) + " files");
+    golden(r, "u2-pick");
+    // Scrolled to the end: the last name in the field.
+    key(r, K_END);
+    expect(poll(r), {}, "End (the picker's own)");
+    CHECK_EQ(value_of_dlg(r, 3), static_cast<unsigned>(a.size() - 1));
+    std::string fld;
+    for (uint32_t p = lab("fbuf"); r.phys(p); ++p)
+        fld += static_cast<char>(r.phys(p));
+    CHECK_EQ(fld, a.back());
+    // B: empty; C: apple-do (the card's CPM.DSK: README.TXT and PATTERN.BIN for user 0); D: no drive.
+    CHECK_EQ(ui(r, 'f', P_DRV).substr(6), std::string("00"));
+    next_drive(r);
+    CHECK_EQ(listed(r).size(), 0u);
+    CHECK_EQ(status(r), std::string("No files"));
+    next_drive(r);
+    std::vector<std::string> c = listed(r);
+    CHECK(has(c, "README.TXT") && has(c, "PATTERN.BIN") && !has(c, "SMALL.BIN"));
+    next_drive(r);
+    CHECK_EQ(status(r), std::string("Drive error"));
+    for (int i = 0; i < 4; ++i) // E:, F:, G:, then M:
+        next_drive(r);
+    std::vector<std::string> mm = listed(r);
+    CHECK_EQ(mm.size(), 40u);
+    // User 3 on A: again.
+    CHECK_EQ(ui(r, 'f', P_DRV).substr(6), std::string("00"));
+    key(r, K_HOME); // (Home isn't a choice's: nothing)
+    for (int i = 0; i < 7; ++i)
+        key(r, K_LEFT);
+    settle(r);
+    CHECK_EQ(ui(r, 'f', P_USR).substr(6), std::string("00"));
+    key(r, K_RIGHT);
+    key(r, K_RIGHT);
+    key(r, K_RIGHT);
+    settle(r);
+    std::vector<std::string> u3 = listed(r);
+    CHECK(has(u3, "USER3.TXT") && has(u3, "SMALL.BIN") && u3.size() == 2);
+    // Chosen: Down, Enter on the list: the second file, user 3, drive 1.
+    CHECK_EQ(ui(r, 'f', P_LST).substr(6), std::string("00"));
+    key(r, K_DOWN);
+    key(r, K_DOWN);
+    key(r, K_ENTER);
+    ev = poll(r);
+    expect(ev, {{UE_PICK, P_WIN, 0, 0}, {UE_MODAL, P_WIN, 0, 0}}, "Enter on the list");
+    CHECK_EQ(chosen(r, "pickA"), 1u);
+    std::string want = u3[1];
+    const size_t dot = want.find('.');
+    want = want.substr(0, dot) + std::string(8 - dot, ' ') + want.substr(dot + 1) + std::string(3 - (want.size() - dot - 1), ' ');
+    CHECK_EQ(result(r, 0), "1 3 " + want);
+}
+
+TEST(u2_the_picker_s_marks_types_buttons_and_a_typed_name)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    std::vector<MFile> m;
+    for (unsigned i = 0; i < 12; ++i)
+    {
+        char n[12];
+        std::snprintf(n, sizeof n, "DATA%02u  %s", i, i % 3 == 0 ? "COM" : i % 3 == 1 ? "TXT" : "BIN");
+        m.push_back({0, n, std::vector<uint8_t>(10, 1)});
+    }
+    r.put_m(m);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    // Block 1: M:'s TXT and BIN files only.
+    pick(r, 1);
+    std::vector<std::string> t = listed(r);
+    CHECK_EQ(t.size(), 8u);
+    for (const std::string &n : t)
+        CHECK(n.substr(n.size() - 3) != "COM");
+    key(r, K_ESC);
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 1}, {UE_MODAL, P_WIN, 0, 0}}, "Escape: cancelled");
+    CHECK_EQ(chosen(r, "pickB"), 0u);
+    // Block 0 on A:: two marked (Space, Space on another), then OK; the extra button by its letter.
+    pick(r, 0);
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00"));
+    poll(r);
+    golden(r, "u2-pick-turbo");
+    CHECK_EQ(ui(r, 't', 0).substr(6), std::string("00"));
+    key(r, K_DOWN);
+    key(r, K_SPACE);
+    key(r, K_DOWN);
+    key(r, K_DOWN);
+    key(r, K_SPACE);
+    expect(poll(r), {}, "marks (the picker's own)");
+    key(r, 0x10); // M: "&Mount", the extra button: UE_PICK 2, still up
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 2}}, "the extra button");
+    const Place ok = rect(r, P_OK);
+    click(r, ok.col + 3, ok.row);
+    expect(poll(r), {{UE_PICK, P_WIN, 0, 0}, {UE_MODAL, P_WIN, 0, 0}}, "OK");
+    CHECK_EQ(chosen(r, "pickA"), 2u);
+    CHECK(result(r, 0) != result(r, 1));
+    // Block 2: a name typed on B: (UP_NEW).
+    pick(r, 2);
+    CHECK_EQ(status(r), std::string("No files"));
+    CHECK_EQ(ui(r, 'f', P_FLD).substr(6), std::string("00"));
+    type_text(r, "new.txt");
+    key(r, K_ENTER);
+    std::vector<Event> ev = poll(r);
+    CHECK(!ev.empty() && ev[0].code == UE_PICK && ev[0].value == 0);
+    CHECK_EQ(chosen(r, "pickC"), 1u);
+    CHECK_EQ(result(r, 0), std::string("2 0 NEW     TXT"));
+    // Refused: a picker up already.
+    pick(r, 1);
+    CHECK_EQ(ui(r, 'k', 0).substr(0, 2) + ui(r, 'k', 0).substr(6), std::string("0601"));
+    CHECK_EQ(ui(r, 'l').substr(6), std::string("00")); // ui_relist
+    settle(r);
+    CHECK_EQ(listed(r).size(), 8u);
+}
+
+TEST(u2_the_picker_on_an_oodos_32m_drive)
+{
+    // A card of its own: BIG.IMG (32 MB, oodos-32m) as A:, its directory $E5s but for 24 files' entries.
+    std::vector<uint8_t> card = fat16_card({{"BIG.IMG", 65536u * 512}});
+    auto word = [&](size_t at) { return size_t{card[at]} | size_t{card[at + 1]} << 8; };
+    const size_t root = (word(14) + card[16] * word(22)) * SECTOR;
+    const size_t data = root + word(17) * 32;
+    std::fill(card.begin() + static_cast<long>(data), card.begin() + static_cast<long>(data + 2048 * 32), 0xE5);
+    for (unsigned i = 0; i < 24; ++i)
+    {
+        uint8_t *e = card.data() + data + i * 32;
+        std::memset(e, 0, 32);
+        char n[12];
+        std::snprintf(n, sizeof n, "BIG%02u   DAT", i);
+        std::memcpy(e + 1, n, 11);
+        e[15] = 1;                                   // RC: a record
+        e[16] = static_cast<uint8_t>(8 + i);         // its block (16-bit pointers: 4,096 blocks)
+    }
+    Rig r(card);
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    REQUIRE(r.boot());
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 0);
+    std::vector<std::string> b = listed(r);
+    CHECK_EQ(b.size(), 24u);
+    CHECK(has(b, "BIG00.DAT") && has(b, "BIG23.DAT"));
+    CHECK_EQ(status(r), std::string("24 files"));
 }
 
 int main()
