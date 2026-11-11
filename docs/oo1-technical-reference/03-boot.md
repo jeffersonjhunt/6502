@@ -21,7 +21,8 @@ map RAM blocks 0–2. The CPU reads its reset vector from the flash and starts t
 5. Starts the boot splash and its sound, if those cards answer ([chapter 6](06-video.md)). They play for 5 s on
    their own while the boot goes on.
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
-   answer.
+   answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
+   the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
 7. Prints `BACKPLANE BIOS 0.13` on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
@@ -111,7 +112,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 | Address | Entry | What it does |
 |---|---|---|
 | `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again |
-| `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29. Any key goes back to the monitor |
+| `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on video card revision 2 (*proposed*; with any other card it goes straight back). Any key goes back to the monitor |
 | `$C806` | Apple II mode | Copies the IIe ROM from the cartridge and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |

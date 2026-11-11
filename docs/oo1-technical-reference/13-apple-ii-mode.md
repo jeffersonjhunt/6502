@@ -213,7 +213,7 @@ read and writing on, a write goes to the RAM under it. With writing off a write 
 write the image.
 
 hw/design.md says an even address, "or a write to an odd one", clears the write enable
-([`hw/design.md:223`](../../hw/design.md#apple-ii-mode)). In the emulator a write to an odd address clears only the
+([`hw/design.md:235`](../../hw/design.md#apple-ii-mode)). In the emulator a write to an odd address clears only the
 count of reads (`emulator/components/devices/apple_io.cpp:77`); writing, once on, stays on until an even address.
 
 ### The ROM space
@@ -329,9 +329,9 @@ A read of `$C011–$C01F` gives a switch in bit 7, 1 for on, and the keyboard's 
 the video card's own frame, which is VGA's 60 Hz, and the two drift against each other.
 
 hw/design.md has `$C019` driven by the video card, in step with the Apple timing
-([`hw/design.md:217`](../../hw/design.md#apple-ii-mode)). The emulator computes it from the bus's cycle count in
+([`hw/design.md:229`](../../hw/design.md#apple-ii-mode)). The emulator computes it from the bus's cycle count in
 the north bridge's Apple I/O (`emulator/components/devices/apple_io.cpp:25`), as the same section's later list
-says ([`hw/design.md:227`](../../hw/design.md#apple-ii-mode)).
+says ([`hw/design.md:239`](../../hw/design.md#apple-ii-mode)).
 
 ## The display
 
@@ -374,6 +374,26 @@ What the card draws:
 
 Page 2 is shown only with 80STORE off. The colours and their rules are in
 [hw/design.md, "Apple II mode"](../../hw/design.md#apple-ii-mode).
+
+### Revision 2 of the video card
+
+Status: **proposed**
+
+BIOS 0.13 enters the mode only with revision 2 of the video card ([chapter 6](06-video.md#apple-ii-mode-on-revision-2),
+[above](#what-the-bioss-entry-does)). What revision 2 changes is where the card keeps its copy of the display and
+the character ROM; the mode works as this chapter describes:
+
+- **The display.** The card watches the writes to banks 0 and 1 and the display switches on the backplane, as
+  hw/design.md has it, and keeps its copy of the two banks in its own memory, card addresses `$1C0000–$1DFFFF`.
+  Nothing outside the card can see the copy; the modes, the colours, the 560×384 picture and `$C019` are as above.
+  The emulator draws from banks 0 and 1 of its RAM directly instead, so it keeps no such copy.
+- **The character ROM** is in card memory at `$1E0000`, put there through the card's data port by the BIOS's entry,
+  from the cartridge or made from the VGA font. Nothing of the mode is in bank B any more: its banks are 0–5 and E,
+  and system RAM is left as it was in banks 6–D and F whole. (BIOS 0.12, on revision 1, used `$BE000`.)
+- **Card memory survives /RESET.** The pulse that enters the mode, and every Ctrl-Reset, reset the card's registers
+  but never its memory, so the character ROM is still there after each ([above](#the-reset-pulse)).
+- **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture in bank 8, and
+  the DMA controller is idle, so its port isn't used.
 
 ## The clock
 
@@ -459,5 +479,5 @@ Status: **emulated**
   which the IIe's 65C02 doesn't have, work in the mode too.
 
 `$C060` reads 0 in the emulator (`emulator/components/devices/apple_io.cpp:168`). hw/design.md has the cassette
-read `$FF` ([`hw/design.md:229`](../../hw/design.md#apple-ii-mode)), and so does the comment in
+read `$FF` ([`hw/design.md:241`](../../hw/design.md#apple-ii-mode)), and so does the comment in
 `emulator/components/devices/include/apple_io.h:41`.
