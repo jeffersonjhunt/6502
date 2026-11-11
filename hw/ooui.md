@@ -275,14 +275,17 @@ unless `UO_OWNMOUSE`; checks the table; marks every visible widget dirty; and gi
 takes it. Its maps are cleared (`GX_VFILL`) before the layers show them, so nothing from before shows (U1 review,
 O15). Nothing is drawn until `ui_poll`. While OOUI is open, `ui_open` is refused (`UX_BUSY`) and changes nothing;
 `ui_close` when it isn't does nothing (O9). Errors: `UX_VERSION`, `UX_AREA`, `UX_LAYER`, `UX_MEMORY`, `UX_TABLE`,
-`UX_BUSY`.
+`UX_BUSY`, `UX_SPRITE` (U2). *Proposed (the U2 review, X11-X12):* each widget's value is held to its range as the
+table is checked, as `ui_setvalue` would hold it; and a slider's `UF_SPRITE` thumb must be one of OOUI's sprites after
+the pointer's (`UO_SPRITE` + 1 to `UO_SPRITE` + `UO_SPRITES` - 1), or `ui_open` refuses the table with `UX_SPRITE`.
 
 **The table's rules** (`UX_TABLE`): a parent before its child; an unused record (`UT_NONE`) is skipped whatever
 its parent, so a zeroed record is good, but is no one's parent; a menu's parent a menu bar, an item's or a line's
 a menu; and no record more than 16 deep (`UI_DEPTH`: its parents and itself) (O6, O14).
 
 `ui_close` frees OOUI's card memory (`GX_VFREE`), turns the pointer off and shows the console's screen
-(`GX_CONSOLE`). The warm boot does the same for a program that ends without it: the program's card memory is no
+(`GX_CONSOLE`); the sliders' sprite thumbs go out of sight first, their images pointed off the memory it frees (U2
+review, X3). The warm boot does the same for a program that ends without it: the program's card memory is no
 one's after it, and the console's screen comes back. The event area stays the app's to close.
 
 ### The calls ###
@@ -293,7 +296,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_close` | | |
 | `ui_poll` | | A the event (`UE_*`), X its widget, Y as the event says, and `UI_EV` (below). Carry clear |
 | `ui_show` | A a handle | shown with its children; a `UF_MODAL` window takes the input and the focus |
-| `ui_hide` | A a handle | hidden with its children; what it covered drawn again. `UI_PICKER` or `UI_MSG` closes it, with no event |
+| `ui_hide` | A a handle | hidden with its children; what it covered drawn again. `UI_PICKER` or `UI_MSG` closes it, with no event (the picker's listing stops). A widget in it held by the pointer is let go: a slider's or a scroll bar's last `UE_CHANGE` comes at the next poll (U2 review, X10) |
 | `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`) |
 | `ui_settext` | Y a handle, A/X a string | dirty |
 | `ui_setvalue` | Y a handle, A/X the value | held to the widget's range; dirty. No event |
@@ -309,14 +312,15 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_msgbox` | A/X a block (below) | carry set (`UX_BUSY`) if one is up |
 | `ui_pick` | A/X a block (below) | carry set (`UX_BUSY`) if the picker is up |
 | `ui_relist` | | the picker's directory read again (after the app mounted a drive) |
-| `ui_suspend` | | OOUI stops drawing; `ui_poll` returns every key, button and wheel event as `UE_RAW`; the layers are the app's |
+| `ui_suspend` | | OOUI stops drawing; `ui_poll` returns every key, button and wheel event as `UE_RAW`; the layers are the app's. The sliders' sprite thumbs go out of sight; a key repeating, a first click and a press held are dropped (U2 review, X1, X3, X9, X10) |
 | `ui_resume` | | the layers and the pointer set again; everything drawn again |
 
 Errors (`UX_*`, *provisional numbers*): `UX_VERSION` 1 (OODOS's interface below 8, or no input or DMA), `UX_AREA` 2
 (no event area, or layout 1), `UX_MEMORY` 3 (no video memory), `UX_TABLE` 4 (an unknown type, a parent after its
 child, a menu item outside a menu, more than 240 records), `UX_HANDLE` 5 (a handle past the table, or a call the
 type doesn't take), `UX_BUSY` 6 (`ui_open` while open; a box or the picker up), `UX_LAYER` 7 (`UO_BASE` past 1,
-or `UO_OVER` neither `$FF` nor above the base), `UX_PICK` 8 (U2: `ui_pick` given no work buffer or no room).
+or `UO_OVER` neither `$FF` nor above the base), `UX_PICK` 8 (U2: `ui_pick` given no work buffer or no room),
+`UX_SPRITE` 9 (U2 review, *proposed*: `ui_open`, a slider's thumb sprite the pointer's or not OOUI's).
 
 ### Events ###
 
@@ -393,11 +397,16 @@ An entry (16 bytes, `UP_E*`): +0 the drive (1 A:), +1 the user, +2-12 the name a
 (8 + 3, spaces, the attribute bits clear), +13-15 reserved. An app makes an FCB of it by putting +0 at FCB+0 and
 +2-12 at FCB+1, and sets the user (function 32) before opening it.
 
-The picker reads the directory with functions 17 and 18, one directory record (four entries) a `ui_poll`, so
-listing never takes a frame; OODOS keeps a search going across other calls (function 18). It lists each file once,
-however many extents it has. It names the drive in its FCB, so the current drive never changes, and it sets the
-user (function 32), the DMA address and the DMA segment for each read and puts the app's back after it (functions
-26, 51 and 52, and the SCB's `$3C` by function 49). The answer is `UE_PICK`.
+The picker reads the directory with functions 17 and 18 in idle polls, a few matches a `ui_poll` (four, and half
+as many more as it has listed, at most 64), so listing never takes long. OODOS keeps one search, which the app may
+use between polls, so each poll's part walks the directory from its start (function 17 with the picker's own FCB),
+passes the names listed already and lists the next few (U2 review, Y1): an app's search between polls neither ends
+the picker's nor is taken over by it, and a directory that changed between polls is read as it is now. An app's own
+search must end before it polls while the picker is up, since the picker's walk starts a search of its own. It lists
+each file once, however many extents it has. It names the drive in its FCB, so the current drive never changes,
+and it sets the user (function 32), the DMA address and segment (26, 51) and the error mode (45) for each part,
+after reading the app's (32, 52, and the SCB's `$4B` by function 49), and puts the app's back after it. The answer
+is `UE_PICK`.
 
 ### Themes ###
 
@@ -801,31 +810,34 @@ and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8
 
 | Module | What | Code | Tables | BSS | OO-Amp code it would replace |
 | --- | --- | --- | --- | --- | --- |
-| `uicore` | (U1's, grown by U2: registry, dialog handles, clipping, ranges, `ui_setrange`) | 2,580 | 50 | 154 | |
-| `uipoll` | (U1's, grown: the widgets' mouse and keys, drag, double-click, hover, repeat, `UE_MODAL`, the dialogs' filters) | 2,328 | 62 | 58 | `oa_ui.s`'s input and keys |
-| `uidraw` | (U1's, grown: the widgets' drawing, parent clipping, a label's lines) | 2,833 | 270 | 75 | |
+| `uicore` | (U1's, grown by U2: registry, dialog handles, clipping, ranges, `ui_setrange`) | 2,705 | 50 | 155 | |
+| `uipoll` | (U1's, grown: the widgets' mouse and keys, drag, double-click, hover, repeat, `UE_MODAL`, the dialogs' filters) | 2,577 | 62 | 62 | `oa_ui.s`'s input and keys |
+| `uidraw` | (U1's, grown: the widgets' drawing, parent clipping, a label's lines) | 2,848 | 270 | 76 | |
 | `uimenu` | (U1's, unchanged) | 1,912 | 26 | 43 | |
 | `uigroup` | group, radio buttons | 446 | 28 | 4 | the visualizer's and repeat's modes, where radio-like |
 | `uichoice` | a value from a short list (Left and Right) | 252 | 14 | 2 | Settings' lines; the picker's drive and user |
-| `uiscroll` | scroll bars | 812 | 32 | 14 | the playlist's scroll bar (`oa_list.s`) |
-| `uilist` | list boxes, arrays or a row routine, marks, its own scroll bar | 1,440 | 14 | 25 | the playlist's drawing and keys (`oa_list.s`), the dialog's list |
+| `uiscroll` | scroll bars | 838 | 32 | 14 | the playlist's scroll bar (`oa_list.s`) |
+| `uilist` | list boxes, arrays or a row routine, marks, its own scroll bar | 1,501 | 14 | 25 | the playlist's drawing and keys (`oa_list.s`), the dialog's list |
 | `uifield` | a text field | 512 | 14 | 7 | the Load Files name |
 | `uibar` | bars | 265 | 35 | 6 | the VU and level meters |
-| `uislider` | sliders, a sprite thumb | 1,188 | 60 | 11 | seek, volume, balance, the EQ's 11 bands (`oa_ui.s`'s sliders and their sprites) |
+| `uislider` | sliders, a sprite thumb | 1,445 | 60 | 15 | seek, volume, balance, the EQ's 11 bands (`oa_ui.s`'s sliders and their sprites) |
 | `uicanvas` | the canvas (`UE_CANVAS`) | 71 | 14 | 0 | the spectrum's and the time's click zones |
-| `uimath` | the scaling the bars, scroll bars and sliders share | 161 | 0 | 15 | |
+| `uimath` | the scaling the bars, scroll bars and sliders share | 182 | 0 | 16 | |
 | `uidlg` | the dialogs' 13 records | 85 | 0 | 209 | |
 | `uimsg` | `ui_msgbox` | 561 | 31 | 26 | CONFIRM QUIT, the error boxes (`gui/ooadlg.s`'s) |
-| `uipick` | `ui_pick`, `ui_relist` | 2,126 | 322 | 299 | Load Files (`gui/ooadlg.s`, `oa_list.s`'s directory reading) |
+| `uipick` | `ui_pick`, `ui_relist` | 2,412 | 355 | 311 | Load Files (`gui/ooadlg.s`, `oa_list.s`'s directory reading) |
 
 Zero page: still OOUI's 8 bytes (`zpuicore`), none in any U2 module, so an overlay is given its caller's as
-before. **U2's code is 9,594 bytes against the ~3 KB target:** 1,675 the core's growth, 5,147 the nine widget
-modules, 2,772 the dialogs. A program links the core (9,653 bytes of code with U1's) and only the modules it uses:
-OO-Amp's port would take the list, scroll bar, slider, bar, canvas, choice, message box and picker, about 7.5 KB
-more. That is past what one region outside W1 holds with OOLIB's graphics (16 KB at `$8000-$BFFC`, or 15.6 KB at
+before. **U2's code is 10,634 bytes against the ~3 KB target** (9,594 before the U2 review's fixes, which took
+1,040): 2,064 the core's growth, 5,512 the nine widget modules, 3,058 the dialogs. A program links the core (10,042
+bytes of code with U1's) and only the modules it uses: OO-Amp's port would take the list, scroll bar, slider, bar,
+canvas, choice, message box and picker, about 7.6 KB more. That is past what one region outside W1 holds with OOLIB's graphics (16 KB at `$8000-$BFFC`, or 15.6 KB at
 `$0300-$3FFF`): the test programs had to be four (`UITEST`, `UITWID`, `UITBAR`, `UITPICK`, all from
-`oodos/test/ui/uitest.s`), each linked with `test/ui/uitest.cfg`, which puts the code at `$8000` and the tables,
-data and BSS below `$4000` (`OOUI_CFG` in `oodos/Makefile`). So **U3 must take the shared banked block** (risks
+`oodos/test/ui/uitest.s`), each linked with `test/ui/uitest.cfg`, which puts OOUI's and OOLIB's code at `$8000`
+and the test's own code, tables, data and BSS below `$3000` (`OOUI_CFG` in `oodos/Makefile`). That link is the
+tests' only: a real program can't reproduce it, since a `.COM`'s image is one block from `$0300` with its BSS after
+it, and one that ran to `$BFFC` would leave the program no room (U2 review, Y7). `UITPICK` has 38 bytes of
+`$8000-$BFFC` left. So **U3 must take the shared banked block** (risks
 below): the core and the modules in a block of their own reached by FARCALL, the program keeping its 16 KB.
 
 **What each widget does** (as its module's header says): a group frames its radio buttons, `UW_VALUE` the one
@@ -840,7 +852,9 @@ array or a routine (styles `UL_*`), a TAB right-aligning the rest. A field: prin
 without it at Enter or when the focus leaves (`US_EDIT`). A bar: 16 levels a cell up, 8 across. A slider: Up and
 Right up a step (`UW_B`'s low byte), Down and Left down, PgUp and PgDn an eighth, Home the top, End 0, the wheel,
 a click or drag where the pointer is; with `UF_SPRITE` its thumb is an 8 × 8 sprite (`UW_B`'s high byte) placed
-to the pointer unit and put out of sight when the slider is hidden. A canvas leaves its cells transparent and
+to the pointer unit after each paint that drew, shown only where its cell shows (inside its parents' client areas,
+with nothing in front of it, under no menu that is down: U2 review, X4), and put out of sight when the slider is
+hidden, OOUI is suspended or closed. A canvas leaves its cells transparent and
 reports `UE_CANVAS` (`UC_PRESS`, `UC_MOVE`, `UC_RELEASE`, `UC_WHEEL`, `UV_X` and `UV_Y` in pointer units).
 
 **The message box** (`ui_msgbox`): a modal window on the overlay, centred, its text's lines (CR, up to 4), its
@@ -850,18 +864,22 @@ then the live box is left as it was.
 
 **The picker** (`ui_pick`, `ui_relist`): a modal window on the overlay with the drive (a choice: A:-G: and M:,
 `UP_DRIVES`), the user (0-15, `UP_USERS`), the list (16 rows, its scroll bar, a column routine's text after a
-TAB, `UF_MULTI` with `UP_MULTI`), the status ("Reading...", "*n* files", "No files", "Drive error"), the name
-(typed with `UP_NEW`, else showing the selection), OK, Cancel and the extra button. It reads the directory in an
-idle part of `ui_poll`, four entries at a time, by functions 17 and 18 with the drive in the FCB and extent 0
-(each file once), with the program's user, DMA address and segment, and error mode kept and put back around each
-part (32, 52, 49; then 32, 26, 51, 45), errors returned (45 `$FF`) so a drive with no medium says so and doesn't end
-the program. Types are filtered by `UP_TYPES`. It covers every drive OODOS reads: the SD drives (`oodos-8m`,
+TAB, `UF_MULTI` with `UP_MULTI`), the status ("Reading...", "*n* files", "No files", "Drive error", and "*n* of
+*t* files" when the work buffer holds fewer than the drive has: U2 review, Y6), the name (typed with `UP_NEW`, else
+showing the selection), OK, Cancel and the extra button. It reads the directory in an idle part of `ui_poll`, a walk
+from the directory's start each time that passes what is listed and lists a few more (four, and half as many as are
+listed, at most 64: Y1), by functions 17 and 18 with the drive in the FCB and extent 0 (each file once), with the
+program's user, DMA address and segment, and error mode kept and put back around each part (32, 52, 49; then 32, 26,
+51, 45), errors returned (45 `$FF`) so a drive with no medium says so and doesn't end the program. A name typed
+with `UP_NEW` must be one file's: a name of 1-8 and a type of 0-3, no wildcard, blank or delimiter that OODOS's
+parser stops at, and "*d*:" before it names the drive (A: to P:); anything else is refused ("Not a file name",
+the picker stays up: Y3). Types are filtered by `UP_TYPES`. It covers every drive OODOS reads: the SD drives (`oodos-8m`,
 `oodos-32m`, and an `apple-do` image mounted as one), M:, and a drive with nothing mounted (an error). A DOS 3.3
 disk is APPLE2's and DOS33's, not a CP/M drive, so not the picker's. The answer is `UE_PICK` X `UI_PICKER`: 0
 chosen (the marked files, else the selected one, else with `UP_NEW` the name typed, in the result buffer, the count
 at `UP_CHOSEN`), 1 cancelled, 2 the extra button (still up); `UX_BUSY` while one is up, `UX_PICK` with no work
-buffer or no room. A search goes on across polls (function 18): a program that searches its own meanwhile ends the
-picker's, which then shows what it found so far (`ui_relist` reads it again).
+buffer or no room. Each poll's part is a search of its own, so a program's search between polls doesn't disturb
+the listing (Y1); `ui_hide(UI_PICKER)` stops it (Y2); `ui_relist` reads the drive again.
 
 **"Left for U2," done:** key repeat (a module with `WF_REPEAT`: the keys it takes but Enter, Escape, Tab and Space,
 held, after `TH_TIMES`' delay at its rate, from `EV_KEYS` and `EV_FRAMES`, so the program polls each frame); the
@@ -879,15 +897,26 @@ the app: it is left for U3, to be shaped by OO-Amp's port (a flag for a second e
 with a key), and noted there.
 
 **API changes from the text above** (marked where they are): `UO_WIDGETS` at +14 (was reserved); `UT_CHOICE` (22);
-`UX_PICK` (8); the picker's internal handles `$F2-$FC` named; a label's CR lines; `UE_MODAL` now sent, so a U1
+`UX_PICK` (8); `UX_SPRITE` (9, the review's X11); the picker's internal handles `$F2-$FC` named; a label's CR lines; `UE_MODAL` now sent, so a U1
 test's expectations gained it where a modal window comes and goes.
 
-**Testing.** `test_oodos_ui`, 38 cases. Eleven U2 cases through `UITWID`, `UITBAR` and `UITPICK`: every new event
+**Testing.** `test_oodos_ui`, 38 cases at U2's build. Eleven U2 cases through `UITWID`, `UITBAR` and `UITPICK`: every new event
 and key; the gate, the picker on A: (`oodos-8m`, 25 files: more than a screen), an empty B:, an `apple-do` C:, an
 unmounted D:, M: with 40, user 3, a 32 MB `oodos-32m` drive on a card of its own, types, marks, the extra button,
 a typed name, `ui_relist`; ten golden frames more: `u2-lists`, `u2-lists-turbo`, `u2-list-end`, `u2-field`,
 `u2-levels`, `u2-levels-turbo`, `u2-msg`, `u2-msg-turbo`, `u2-pick`, `u2-pick-turbo`. A house theme colour
-changed (`TC_LIST`) fails the four frames with a house list.
+changed (`TC_LIST`) fails the four frames with a house list. The U2 review's fixes added 19 cases (57 now), `y1`
+to `y6` and `x1` to `x13`, one a finding, each failing without its fix (`y4`'s and `y5`'s, which guard what was
+right, fail with the restore or the extent broken); no golden frame changed.
+
+**The U2 review's fixes** (*proposed*, the owner's approval of all 21, 2026-11-11), besides the picker's and the
+errors above: a first click is forgotten after the double-click's time (a 16-bit stamp), and a press on another
+widget, any key, `ui_open` and `ui_suspend` end it (X1); a drag past either end of a track is held to it before
+it is scaled, and the scaling holds at `$FFFF` (X2); a part of a widget clipped away by its parents takes no
+pointer (X5); a list that shrinks moves its top row up so its rows show (X6); a row's right part as wide as the
+list isn't shown, and the line is drawn whole (X7); a press on the desktop, a panel or a label holds nothing and
+draws nothing (X8); a key repeating stops when the focus moves or a modal window comes or goes (X9); the wheel at
+a slider's end makes no event (X13).
 
 ## Risks ##
 
