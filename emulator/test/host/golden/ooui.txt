@@ -1,6 +1,7 @@
 # OOUI's golden frames (test_oodos_ui.cpp): FNV-1a 64 of each frame's 640 x 480 pixels.
 # Made by the emulator from OOUI's drawing: OOUI_GOLDEN=update, after looking (hw/ooui.md).
 desktop 7c6ee7cb3480ed5d
+dim-modal 9a3b31764d125c2a
 focus-ok e0322c5776a8152d
 menu-file d293bab723e16cc9
 menu-select 76905693878746f0

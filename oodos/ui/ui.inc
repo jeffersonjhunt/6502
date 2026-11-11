@@ -25,7 +25,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER
 
 ; uidraw.s's
-.global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG
+.global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 
 ; uimenu.s's

@@ -104,15 +104,34 @@ c_open: asl     a
         plx
         jmp     ui_open
 
-; ui_theme A: 0 the default, 1 Turbo Vision's.
+; ui_theme A: 0 the default, 1 Turbo Vision's, 2 the default's colours in
+; groups 2 (the base), 3 (the overlay) and 4 (dimmed, TF_DIM).
 c_theme:
         cmp     #1
         beq     @tv
+        cmp     #2
+        beq     @grp
         lda     #0
         tax
         jmp     ui_theme
 @tv:    lda     #<UI_TURBO
         ldx     #>UI_TURBO
+        jmp     ui_theme
+@grp:   ldx     #TH_LEN - 1
+@c:     lda     UI_HOUSE,x
+        sta     tgroups,x
+        dex
+        bpl     @c
+        lda     #TF_SHADOW | TF_DIM
+        sta     tgroups + TH_FLAGS
+        lda     #2
+        sta     tgroups + TH_GROUP
+        inc     a
+        sta     tgroups + TH_OVERGROUP
+        inc     a
+        sta     tgroups + TH_DIMGROUP
+        lda     #<tgroups
+        ldx     #>tgroups
         jmp     ui_theme
 
 ; ui_poll until UE_NONE, each event printed.
@@ -258,6 +277,11 @@ U_F1    = $3A
         UI_WINDOW  W_OVER, W_DESK, 20, 19, 34, 8, "Overlay", UF_OVERLAY | UF_HIDDEN | UF_CLOSE
         UI_LABEL   L_OVER, W_OVER, 2, 1, -1, "On layer 1, over layer 0", 0
         UI_BUTTON  B_HIDE, W_OVER, 2, 3, 10, "&Hide", 0
+        ; Sizes that would wrap (the review's O7): a label past its window's
+        ; edge with a width of 0, a window whose negative height passes the
+        ; bottom. Both are nothing when shown.
+        UI_WINDOW  W_TALL, W_DESK, 10, 26, 20, -6, "Tall", UF_HIDDEN
+        UI_LABEL   L_EDGE, W_SIDE, 30, 1, 0, "Edge", UF_HIDDEN
         UI_END     main
 
 ; The accelerator table: Ctrl+Q presses Cancel, F1 chooses About, Ctrl+T
@@ -266,6 +290,9 @@ keys:   .byte   U_Q, UK_CTRL, B_CAN, UA_PRESS
         .byte   U_F1, 0, I_ABOUT, UA_PRESS
         .byte   U_T, UK_CTRL, B_TOG, UA_FOCUS
         .byte   0
+
+        .bss
+tgroups: .res   TH_LEN                  ; c_theme's theme 2
 
         .data
 oblk:   .byte   FT_OPEN

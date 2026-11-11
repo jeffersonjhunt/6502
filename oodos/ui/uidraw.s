@@ -73,6 +73,9 @@ gi:     .res    1                      ; GLYPHS'
 gn:     .res    1
 lb:     .res    1                      ; LAYERS'
 pi_:    .res    1                      ; SETPAL's
+pdim:   .res    1
+pbase:  .res    1
+ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
 blk:    .res    6                      ; IN_MOUSE's block
 
 
@@ -206,6 +209,12 @@ LAYERS: lda     upage
         lda     ubase
         ldx     #0
         jsr     GX_LAYER
+        ldy     #TH_GROUP               ; its palette group (the review's P1)
+        lda     (UIT),y
+        sta     ubofs
+        tax
+        lda     ubase
+        jsr     GX_PALOFS
         lda     ubase
         jsr     LBIT
         sta     lb
@@ -222,6 +231,11 @@ LAYERS: lda     upage
         lda     uover
         ldx     #0
         jsr     GX_LAYER
+        ldy     #TH_OVERGROUP
+        lda     (UIT),y
+        tax
+        lda     uover
+        jsr     GX_PALOFS
         lda     uover
         jsr     LBIT
         tsb     lb
@@ -240,8 +254,11 @@ LBIT:   and     #1
         adc     #2
         rts
 
-; The theme's 16 colours in entries 0-15 of the palette's shadow, shown at
-; the next vertical blank. (Group 0 only: hw/ooui.md, question 7.)
+; The theme's colours in the palette's shadow, shown at the next vertical
+; blank: TH_PALETTE's 16 (the CGA's for 0) in group TH_GROUP; with TF_DIM
+; and a dim group of its own, the same halved in TH_DIMGROUP; TH_OVERPAL's
+; (TH_PALETTE's for 0) in TH_OVERGROUP. The groups are the layers' PALOFS
+; (LAYERS, PAINT), so a theme keeps out of the program's own entries.
 SETPAL: ldy     #TH_PALETTE
         lda     (UIT),y
         sta     UIQ
@@ -254,7 +271,43 @@ SETPAL: ldy     #TH_PALETTE
         sta     UIQ
         lda     #>CGA
         sta     UIQ + 1
-@own:   stz     pi_
+@own:   stz     pdim
+        ldy     #TH_GROUP
+        lda     (UIT),y
+        jsr     PALGRP
+        ldy     #TH_FLAGS
+        lda     (UIT),y
+        and     #TF_DIM
+        beq     @over
+        ldy     #TH_DIMGROUP
+        lda     (UIT),y
+        ldy     #TH_GROUP
+        cmp     (UIT),y
+        beq     @over
+        inc     pdim
+        jsr     PALGRP
+        stz     pdim
+@over:  ldy     #TH_OVERPAL
+        lda     (UIT),y
+        iny
+        ora     (UIT),y
+        beq     @same
+        lda     (UIT),y
+        sta     UIQ + 1
+        dey
+        lda     (UIT),y
+        sta     UIQ
+@same:  ldy     #TH_OVERGROUP
+        lda     (UIT),y
+        jsr     PALGRP
+        jmp     GX_PALSHOW
+; UIQ's 16 colours into group A (entries A x 16 on), halved if pdim.
+PALGRP: asl     a
+        asl     a
+        asl     a
+        asl     a
+        sta     pbase
+        stz     pi_
 @e:     lda     pi_
         asl     a
         tay
@@ -263,13 +316,24 @@ SETPAL: ldy     #TH_PALETTE
         iny
         lda     (UIQ),y
         tay
-        lda     pi_
+        lda     pdim
+        beq     @put
+        txa                             ; each component halved
+        lsr     a
+        and     #$77
+        tax
+        tya
+        lsr     a
+        tay
+@put:   lda     pi_
+        clc
+        adc     pbase
         jsr     GX_PALSET
         inc     pi_
         lda     pi_
         cmp     #16
         bne     @e
-        jmp     GX_PALSHOW
+        rts
 
 ; The pointer: unless the program keeps it (UO_OWNMOUSE), or gave OOUI no
 ; sprite, or no mouse is plugged in: its image, sprite UO_SPRITE on it in
@@ -288,21 +352,7 @@ PTRSET: lda     usprites
         lda     (UIP),y
         and     #ED_MOUSE
         beq     @r
-        jsr     PTRIMG
-        lda     upage
-        clc
-        adc     #UI_OFS_SPR
-        sta     GX_V
-        lda     upage + 1
-        adc     #0
-        sta     GX_V + 1
-        lda     usprite
-        jsr     GX_SPRIMG
-        lda     usprite
-        ldx     #3 << 2                 ; depth 3: in front of both layers
-        ldy     #1 << 6 | 1 << 4        ; 16 x 16, palette offset 0
-        jsr     GX_SPRATTR
-        jsr     GX_SPRSHOW
+        jsr     PTRATTR
         lda     #IN_MOUSE
         sta     blk
         lda     #1
@@ -324,6 +374,31 @@ PTRSET: lda     usprites
         lda     #1
         sta     uptr
 @r:     rts
+
+; The pointer's sprite: its image, the image's address, its depth (in
+; front of both layers) and size and group, shown at the next vertical
+; blank (PTRSET, ui_theme).
+PTRATTR:
+        jsr     PTRIMG
+        lda     upage
+        clc
+        adc     #UI_OFS_SPR
+        sta     GX_V
+        lda     upage + 1
+        adc     #0
+        sta     GX_V + 1
+        lda     usprite
+        jsr     GX_SPRIMG
+        ldy     #TH_OVERGROUP           ; 16 x 16, in the overlay's group
+        lda     (UIT),y
+        and     #$0F
+        ora     #1 << 6 | 1 << 4
+        tay
+        lda     usprite
+        ldx     #3 << 2                 ; depth 3: in front of both layers
+        jsr     GX_SPRATTR
+        jsr     GX_SPRSHOW
+        rts
 
 ; The pointer's image (16 x 16, 4 bits) in the theme's colours, through W1.
 PTRIMG: jsr     MAPW1
@@ -393,7 +468,29 @@ PIX:    asl     mf + 1
 PAINT:  lda     ususp
         beq     @go
         rts
-@go:    jsr     MAPW1
+@go:    jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
+        ldy     #TH_GROUP
+        lda     (UIT),y
+        tax
+        lda     uover
+        cmp     #UI_NONE
+        beq     @nd
+        lda     umodal
+        cmp     #UI_NONE
+        beq     @nd
+        ldy     #TH_FLAGS
+        lda     (UIT),y
+        and     #TF_DIM
+        beq     @nd
+        ldy     #TH_DIMGROUP
+        lda     (UIT),y
+        tax
+@nd:    cpx     ubofs
+        beq     @map
+        stx     ubofs
+        lda     ubase
+        jsr     GX_PALOFS
+@map:   jsr     MAPW1
         lda     mapB
         sta     mapO
         lda     mapB + 1
@@ -543,7 +640,11 @@ MPASS:  lda     umenu
 @r:     rts
 
 ; Record dh (UIR) drawn, rtype its type, at UI_RECT.
-DRAW:   lda     rtype
+DRAW:   lda     UI_RECT + 2             ; nothing to draw in no cells (O7)
+        beq     DNONE
+        lda     UI_RECT + 3
+        beq     DNONE
+        lda     rtype
         asl     a
         tax
         jmp     (DRAWS,x)
@@ -557,15 +658,17 @@ DNONE:  rts
 ; er = UI_RECT as c0, r0, c1, r1, with the shadow a window or a menu casts,
 ; held to the screen. UIR the record.
 EXTRECT:
-        lda     UI_RECT
+        lda     UI_RECT                 ; (each sum held at $FF on a carry: the review's O7)
         sta     er
         clc
         adc     UI_RECT + 2
+        jsr     SAT
         sta     er + 2
         lda     UI_RECT + 1
         sta     er + 1
         clc
         adc     UI_RECT + 3
+        jsr     SAT
         sta     er + 3
         jsr     CASTS
         bcs     @hold
@@ -573,11 +676,13 @@ EXTRECT:
         lda     (UIT),y
         clc
         adc     er + 2
+        jsr     SAT
         sta     er + 2
         iny
         lda     (UIT),y
         clc
         adc     er + 3
+        jsr     SAT
         sta     er + 3
 @hold:  lda     er + 2
         cmp     #UI_COLS + 1
@@ -589,6 +694,11 @@ EXTRECT:
         bcc     @r
         lda     #UI_ROWS
         sta     er + 3
+@r:     rts
+
+; A held at $FF if the add before carried.
+SAT:    bcc     @r
+        lda     #$FF
 @r:     rts
 
 ; Carry clear if the record at UIR (rtype) casts a shadow: the theme has
@@ -713,8 +823,10 @@ EMIT:   ldx     roff
         iny
         lda     uattr
         sta     (UIP),y
-@skip:  inc     ucol
-        rts
+@skip:  inc     ucol                    ; held at 255, never round to column 0
+        bne     @r
+        dec     ucol
+@r:     rts
 
 ; Character A, X times.
 REPT:   cpx     #0

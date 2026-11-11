@@ -272,8 +272,10 @@ KEYDOWN:
         jsr     FINDACC
         bcs     @table
         pha
+        jsr     CANFOCUS                ; the focus there only if it takes it
+        bcs     @nf
         jsr     SETFOCUS
-        pla
+@nf:    pla
         jmp     PRESS
 @table: jsr     KEYTAB
         bcc     @r
@@ -339,15 +341,24 @@ INSCOPE:
 @r:     rts
 
 ; A a letter: carry clear and A the button or check box in the scope whose
-; key it is, that can take the focus.
+; key it is, shown and enabled (one that can't take the focus too).
 FINDACC:
         sta     fb
         stz     fh
-@l:     lda     fh
+@l:     lda     fh                      ; a button or a check box, enabled: focusable or not (O12)
         cmp     ucount
         bcs     @no
-        jsr     CANFOCUS
-        bcs     @n
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_BUTTON
+        beq     @t
+        cmp     #UT_CHECK
+        bne     @n
+@t:     ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DISABLED
+        bne     @n
         jsr     INSCOPE
         bcs     @n
         lda     fh
@@ -444,20 +455,9 @@ KEYTAB: lda     ukeys
         beq     @focus
         cmp     #UA_PRESS
         bne     @took                   ; UA_UP, UA_DOWN: U2's widgets
-        lda     fh                      ; a menu's item, whether its menu is down or not;
-        jsr     REC                     ; a button or a check box that shows and is enabled
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        cmp     #UT_ITEM
-        beq     @press
-        ldy     #UW_FLAGS
-        lda     (UIR),y
-        and     #UF_DISABLED
-        bne     @took
-        lda     fh
-        jsr     RECT
+        jsr     KPRESS
         bcs     @took
-@press: lda     fh
+        lda     fh
         jsr     PRESS
         clc
         rts
@@ -480,6 +480,30 @@ KEYTAB: lda     ukeys
         bcc     @e
         inc     UIQ + 1
         bra     @e
+@no:    sec
+        rts
+
+; Carry clear if the table's record fh may be pressed: a menu's item,
+; whether its menu is down or not (MCHOOSE checks it); a button or a check
+; box that shows, is enabled, and isn't under a modal window (O5).
+KPRESS: lda     fh
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_ITEM
+        beq     @yes
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DISABLED
+        bne     @no
+        lda     fh
+        jsr     RECT
+        bcs     @r
+        lda     fh
+        ldx     umodal
+        jmp     INSIDE
+@yes:   clc
+@r:     rts
 @no:    sec
         rts
 

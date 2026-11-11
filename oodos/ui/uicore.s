@@ -194,8 +194,14 @@ SHRINK: inc     ucli
         rts
 
 ; One axis (X 0 the columns, 1 the rows; Y the position's field, the size's
-; two on): UI_RECT,x and UI_RECT + 2,x from ucli's.
-AXIS:   lda     (UIR),y                 ; the position: negative from the end
+; two on): UI_RECT,x and UI_RECT + 2,x from ucli's. The size is held to
+; the room from the position to the client's end, and a fill that comes
+; to less than nothing is 0 (the review's O7: never a size that wraps).
+AXIS:   lda     ucli,x                  ; the client's end
+        clc
+        adc     ucli + 2,x
+        sta     aend
+        lda     (UIR),y                 ; the position: negative from the end
         bpl     @pos
         clc
         adc     ucli + 2,x
@@ -204,17 +210,32 @@ AXIS:   lda     (UIR),y                 ; the position: negative from the end
         sta     UI_RECT,x
         iny
         iny
-        lda     (UIR),y                 ; the size: 0 or negative, to the end less it
-        beq     @fill
-        bpl     @set
-@fill:  clc
-        adc     ucli,x
+        lda     (UIR),y                 ; the size
+        beq     @room                   ; 0: to the end
+        bmi     @less                   ; negative: to the end less it
+        sta     asz
+        jsr     ROOM
+        cmp     asz
+        bcc     @set                    ; more than the room: the room
+        lda     asz
+        bra     @set
+@less:  sta     asz
+        jsr     ROOM
         clc
-        adc     ucli + 2,x
-        sec
-        sbc     UI_RECT,x
+        adc     asz
+        bcs     @set                    ; (carry: the room covers it)
+        lda     #0
+        bra     @set
+@room:  jsr     ROOM
 @set:   sta     UI_RECT + 2,x
         rts
+; A = the client's end - the position, 0 if the position is at or past it.
+ROOM:   lda     aend
+        sec
+        sbc     UI_RECT,x
+        bcs     @r
+        lda     #0
+@r:     rts
 
 ; UIP a string (0 none): A its length as drawn ('&' marks the next
 ; character; "&&" is one).
@@ -263,7 +284,8 @@ UPPER:  cmp     #'a'
         and     #$DF
 @r:     rts
 
-; A a handle: marked dirty (a menu's bar too, an item's menu). Keeps A.
+; A a handle: marked dirty (a menu's bar too, an item's menu). Keeps A, and
+; leaves UIR on record A (the review's O1: not on the bar it went up to).
 DIRTY:  cmp     ucount
         bcs     @r
         pha
@@ -282,6 +304,7 @@ DIRTY:  cmp     ucount
         lda     (UIR),y
         jsr     DIRTY
 @done:  pla
+        jmp     REC
 @r:     rts
 
 ; A a handle: A the window that holds it (itself, if a window), or UI_NONE.
@@ -430,8 +453,15 @@ FINDMODAL:
 @set:   sta     umodal
         rts
 
-; er (c0, r0, c1, r1) added to box X (0 the base's, 4 the overlay's).
-BOXADD: lda     udmg,x
+; er (c0, r0, c1, r1) added to box X (0 the base's, 4 the overlay's); an
+; empty er adds nothing.
+BOXADD: lda     er
+        cmp     er + 2
+        bcs     @none
+        lda     er + 1
+        cmp     er + 3
+        bcs     @none
+        lda     udmg,x
         cmp     udmg + 2,x
         bcc     @merge
         ldy     #0                      ; empty: er itself
@@ -460,7 +490,8 @@ BOXADD: lda     udmg,x
         bcs     @d
         lda     er + 3
         sta     udmg + 3,x
-@d:     rts
+@d:
+@none:  rts
 
 ; Box X the whole screen.
 BOXFULL:
@@ -500,7 +531,12 @@ FAIL:   sec
 
 ui_open:
         cld
-        sta     UIP
+        ldy     uopen                   ; open already: the session left as it is
+        beq     @shut
+        lda     #UX_BUSY
+        sec
+        rts
+@shut:  sta     UIP
         stx     UIP + 1
         ldy     #UBLK_LEN - 1
 @blk:   lda     (UIP),y
@@ -535,7 +571,20 @@ ui_open:
 @noarea:
         lda     #UX_AREA
         bra     FAIL
-@table: jsr     CHECKTAB
+@table: lda     ubase                   ; the layers: the base 0 or 1, the overlay $FF or above it
+        cmp     #2
+        bcs     @layer
+        lda     uover
+        cmp     #UI_NONE
+        beq     @tab
+        cmp     #2
+        bcs     @layer
+        cmp     ubase
+        beq     @layer
+        bcs     @tab
+@layer: lda     #UX_LAYER
+        bra     FAIL
+@tab:   jsr     CHECKTAB
         bcs     FAIL
         lda     #<UI_PAGES              ; one card bank
         sta     GX_V
@@ -547,10 +596,13 @@ ui_open:
         sta     upage
         stx     upage + 1
         jsr     GLYPHS
+        bcs     @undo
+        jsr     CLEARMAPS
         bcc     @got
-        jsr     FREE
+@undo:  jsr     FREE
 @mem:   lda     #UX_MEMORY
-        bra     FAIL
+        sec
+        rts
 @got:   lda     #UI_NONE
         sta     ufocus
         sta     umenu
@@ -569,7 +621,9 @@ ui_open:
         jsr     NEXTFOCUS
         bcs     @done
         jsr     SETFOCUS
-@done:  clc
+@done:  lda     #1
+        sta     uopen
+        clc
         rts
 
 ; The default theme where utheme is 0.
@@ -583,8 +637,11 @@ THEME0: lda     utheme
 @r:     rts
 
 ; The table checked: carry set and A UX_TABLE for a type U1 doesn't draw, a
-; parent at or after its child, a menu not on a menu bar, an item or a line
-; not in a menu. Each record's state cleared, and its dirty bit set.
+; parent at or after its child, a parent that is an unused record, a menu
+; not on a menu bar, an item or a line not in a menu, or a record more
+; than UI_DEPTH deep. An unused record (UT_NONE) is skipped whatever its
+; parent, so a zeroed one is good. Each other record's state cleared, and
+; its dirty bit set.
 CHECKTAB:
         lda     ucount
         beq     @bad
@@ -598,6 +655,7 @@ CHECKTAB:
         cmp     #UT_SEP + 1
         bcs     @bad
         tax
+        beq     @next                   ; UT_NONE: nothing more
         lda     OKTYPE,x
         beq     @bad
         sta     t1                      ; the parent's type it needs: OKTYPE's
@@ -617,7 +675,10 @@ CHECKTAB:
         jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
+        beq     @bad                    ; an unused record is no one's parent
         tax
+        jsr     DEPTH
+        bcs     @bad
         lda     t1
         cmp     #$FF                    ; any parent but a menu bar, a menu, an item or a line
         bne     @want
@@ -645,6 +706,53 @@ CHECKTAB:
         sec
         rts
 
+; Carry set if record t0 is more than UI_DEPTH deep (its parents are
+; checked already: they come first). Keeps X.
+DEPTH:  lda     t0
+        ldy     #0
+@l:     iny
+        cpy     #UI_DEPTH + 1
+        bcs     @r
+        jsr     REC
+        phy
+        ldy     #UW_PARENT
+        lda     (UIR),y
+        ply
+        cmp     #UI_NONE
+        bne     @l
+        clc
+@r:     rts
+
+; OOUI's maps cleared (character 0, transparent) before the layers show
+; them (the review's O15): the overlay's too when it is a layer. Carry set
+; if function 83 refused.
+CLEARMAPS:
+        stz     GX_A
+        lda     upage
+        sta     GX_A + 1
+        lda     upage + 1
+        sta     GX_A + 2
+        lda     #<(UI_COLS * UI_ROWS * 2)
+        sta     GX_V
+        lda     #>(UI_COLS * UI_ROWS * 2)
+        sta     GX_V + 1
+        lda     #0
+        jsr     GX_VFILL
+        bcs     @r
+        lda     uover
+        cmp     #UI_NONE
+        clc
+        beq     @r
+        lda     GX_A + 1
+        clc
+        adc     #UI_OFS_OVER
+        sta     GX_A + 1
+        bcc     @f
+        inc     GX_A + 2
+@f:     lda     #0
+        jmp     GX_VFILL
+@r:     rts
+
         .rodata
 ; Each type U1 takes: the parent's type it needs ($FF any of the others, 1
 ; any at all); 0 refused (U2's).
@@ -666,16 +774,29 @@ OKTYPE: .byte   1                       ; UT_NONE
 
 ui_close:
         jsr     ENTER
-        lda     uptr
-        beq     @free
+        lda     uopen
+        beq     @r                      ; not open: nothing to free
+        stz     uopen
+        jsr     PTROFF
+        jsr     FREE
+        jsr     GX_CONSOLE
+@r:     clc
+        rts
+
+; The pointer off, if OOUI set it (the review's O17): its sprite's depth 0
+; at the next vertical blank, and OODOS no longer moving it.
+PTROFF: lda     uptr
+        beq     @r
         stz     uptr
+        lda     usprite
+        ldx     #0
+        ldy     #1 << 6 | 1 << 4
+        jsr     GX_SPRATTR
+        jsr     GX_SPRSHOW
         lda     #$FF
         sta     dmp + 1
-        jsr     POINTER
-@free:  jsr     FREE
-        jsr     GX_CONSOLE
-        clc
-        rts
+        jmp     POINTER
+@r:     rts
 
 ; OOUI's card memory free again.
 FREE:   lda     #<UI_PAGES
@@ -712,24 +833,18 @@ ui_hide:
         jsr     ENTER
         jsr     CHKH
         sta     sh_h
-        jsr     RECT
-        bcs     @flag                   ; hidden already
-        lda     sh_h
-        jsr     REC
-        jsr     EXTRECT
-        jsr     LBOX
-        jsr     BOXADD
+        jsr     DAMAGE
+        lda     umenu                   ; a menu down inside it goes up first, while it shows
+        ldx     sh_h
+        jsr     INSIDE
+        bcs     @flag
+        jsr     MCLOSE
 @flag:  lda     sh_h
         jsr     REC
         ldy     #UW_FLAGS
         lda     (UIR),y
         ora     #UF_HIDDEN
         sta     (UIR),y
-        lda     umenu                   ; a menu down inside it goes up
-        ldx     sh_h
-        jsr     INSIDE
-        bcs     REFOCUS
-        jsr     MCLOSE
 ; The focus kept where it can be, else moved on (a modal window shown, or
 ; the focus's widget hidden).
 REFOCUS:
@@ -744,6 +859,18 @@ REFOCUS:
 @set:   jsr     SETFOCUS
 @ok:    clc
         rts
+
+; Record A's place, with its shadow, added to its layer's damage, if it
+; shows.
+DAMAGE: pha
+        jsr     RECT
+        pla
+        bcs     @r
+        jsr     REC
+        jsr     EXTRECT
+        jsr     LBOX
+        jmp     BOXADD
+@r:     rts
 
 ; X the box for the record RECT placed: the overlay's if it is on the
 ; overlay and the overlay is a layer of its own.
@@ -766,12 +893,20 @@ ui_flags:
         tya
         jsr     ENTER
         jsr     CHKH
+        sta     sh_h
+        jsr     DAMAGE                  ; where it was (the review's O11)
+        lda     sh_h
         jsr     DIRTY
         ldy     #UW_FLAGS
         lda     (UIR),y
         ora     t0
         and     t1
         sta     (UIR),y
+        jsr     REFOCUS                 ; the focus and the modal window again
+        lda     sh_h
+        jsr     REC
+        ldy     #UW_FLAGS
+        lda     (UIR),y
         clc
         rts
 
@@ -876,15 +1011,20 @@ ui_theme:
         stx     utheme + 1
         jsr     THEME0
         jsr     ENTER
+        jsr     LAYERS                  ; the groups (PALOFS), then the colours
         jsr     SETPAL
-        jsr     PTRIMG
-        jsr     ALLDIRTY
+        lda     uptr
+        beq     @all
+        jsr     PTRATTR
+@all:   jsr     ALLDIRTY
         clc
         rts
 
 ui_suspend:
         lda     #1
         sta     ususp
+        jsr     ENTER
+        jsr     PTROFF
         clc
         rts
 
@@ -904,4 +1044,9 @@ nf_n:   .res    1
 fm_h:   .res    1
 sh_h:   .res    1
 dl:     .res    1
+aend:   .res    1                      ; AXIS's
+asz:    .res    1
 dmp:    .res    4                      ; DM_POINTER's block
+
+        .data
+uopen:  .byte   0                      ; 1: open (DATA, not BSS: a program's BSS isn't cleared)

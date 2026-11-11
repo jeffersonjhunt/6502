@@ -37,6 +37,7 @@ mtl:    .res    1
 mav:    .res    1
 malt:   .res    1
 mbh:    .res    1
+kp:     .res    1                      ; KID's parent
 kbuf:   .res    16                     ; KEYTEXT's: a key's name
 klen:   .res    1
 kus:    .res    1
@@ -104,6 +105,27 @@ MWALK:  lda     mc0
 @yes:   clc
         rts
 @none:  sec
+        rts
+
+; Carry clear if record mh (UIQ then its) is a shown child of kp, and not
+; an unused record: what a drop-down counts, draws and is clicked on (the
+; review's O3: a hidden item has no row).
+KID:    lda     mh
+        jsr     REQ
+        ldy     #UW_PARENT
+        lda     (UIQ),y
+        cmp     kp
+        bne     @no
+        ldy     #UW_TYPE
+        lda     (UIQ),y
+        beq     @no
+        ldy     #UW_FLAGS
+        lda     (UIQ),y
+        and     #UF_HIDDEN
+        bne     @no
+        clc
+        rts
+@no:    sec
         rts
 
 ; UIP = the text of the record at UIQ.
@@ -213,7 +235,7 @@ KCAT:   lda     KTXT,y
 @r:     rts
 
 ; Menu A's drop-down: mwid its width, mcnt its rows.
-MWIDTH: sta     mm
+MWIDTH: sta     kp
         sta     mh
         stz     mwid
         stz     mcnt
@@ -221,11 +243,8 @@ MWIDTH: sta     mm
         lda     mh
         cmp     ucount
         bcs     @end
-        jsr     REQ
-        ldy     #UW_PARENT
-        lda     (UIQ),y
-        cmp     mm
-        bne     @l
+        jsr     KID
+        bcs     @l
         inc     mcnt
         ldy     #UW_TYPE
         lda     (UIQ),y
@@ -310,20 +329,17 @@ MRECT:  lda     #1
         inc     a
         sta     UI_RECT + 3
         rts
-@item:  ldy     #UW_PARENT              ; its row: the menu's children before it
+@item:  ldy     #UW_PARENT              ; its row: the menu's shown children before it
         lda     (UIR),y
-        sta     mm
+        sta     kp
         sta     mh
         stz     mk
 @l:     inc     mh
         lda     mh
         cmp     rcur
         bcs     @row
-        jsr     REQ
-        ldy     #UW_PARENT
-        lda     (UIQ),y
-        cmp     mm
-        bne     @l
+        jsr     KID
+        bcs     @l
         inc     mk
         bra     @l
 @row:   lda     ucli
@@ -422,15 +438,13 @@ DMENU:  ldy     #TH_FRAMES + 3
         sta     mrow
         lda     dh
         sta     mh
+        sta     kp
 @l:     inc     mh
         lda     mh
         cmp     ucount
         bcs     @sh
-        jsr     REQ
-        ldy     #UW_PARENT
-        lda     (UIQ),y
-        cmp     dh
-        bne     @l
+        jsr     KID
+        bcs     @l
         inc     mrow
         ldy     #UW_TYPE
         lda     (UIQ),y
@@ -535,6 +549,13 @@ DMENU:  ldy     #TH_FRAMES + 3
 ; Menu A down (another up first), its first item chosen.
 MOPEN:  cmp     umenu
         beq     @r
+        jsr     REC                     ; a disabled menu stays up (the review's O4)
+        tax
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DISABLED
+        bne     @r
+        txa
         pha
         jsr     MCLOSE
         pla
@@ -654,15 +675,28 @@ MCHOOSE:
         sta     mh
         cmp     ucount
         bcs     @none
+        ldx     umodal                  ; not under a modal window (the review's O5)
+        jsr     INSIDE
+        bcs     @none
+        lda     mh
         jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_ITEM
         bne     @none
+        ldy     #UW_FLAGS               ; an item hidden or disabled,
+        lda     (UIR),y
+        and     #UF_DISABLED | UF_HIDDEN
+        bne     @none
+        ldy     #UW_PARENT              ;   or in a menu hidden or disabled (O4): none
+        lda     (UIR),y
+        jsr     REC
         ldy     #UW_FLAGS
         lda     (UIR),y
-        and     #UF_DISABLED
+        and     #UF_DISABLED | UF_HIDDEN
         bne     @none
+        lda     mh
+        jsr     REC
         ldy     #UW_VALUE
         lda     (UIR),y
         sta     evv
@@ -758,7 +792,12 @@ MSIB:   sta     mdir
 @in:    sta     mm
         sta     mh
         jsr     ISMENU
-        bcc     @got
+        bcs     @skip
+        ldy     #UW_FLAGS               ; a disabled one passed by (O4)
+        lda     (UIQ),y
+        and     #UF_DISABLED
+        beq     @got
+@skip:
         dec     mn
         bne     @l
         lda     umenu
@@ -865,15 +904,13 @@ MCLICK: lda     umenu
         sta     mk
         lda     umenu
         sta     mh
-@l:     inc     mh                      ; its mk'th child
+        sta     kp
+@l:     inc     mh                      ; its mk'th shown child
         lda     mh
         cmp     ucount
         bcs     @none
-        jsr     REQ
-        ldy     #UW_PARENT
-        lda     (UIQ),y
-        cmp     umenu
-        bne     @l
+        jsr     KID
+        bcs     @l
         lda     mk
         beq     @this
         dec     mk

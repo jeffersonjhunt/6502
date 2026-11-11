@@ -27,6 +27,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ooe::test;
@@ -44,8 +45,13 @@ namespace
     enum : uint8_t
     {
         W_DESK, W_BAR, M_FILE, I_OPEN, I_SAVE, I_SEP, I_EXIT, M_EDIT, I_CUT, I_COPY, M_HELP, I_ABOUT, W_MAIN, L_HEAD,
-        P_OPTS, C_SHAD, C_MOUS, L_RIGHT, L_DIS, B_OK, B_CAN, W_SIDE, B_TOG, L_SIDE, W_OVER, L_OVER, B_HIDE
+        P_OPTS, C_SHAD, C_MOUS, L_RIGHT, L_DIS, B_OK, B_CAN, W_SIDE, B_TOG, L_SIDE, W_OVER, L_OVER, B_HIDE, W_TALL,
+        L_EDGE, MAIN_COUNT
     };
+    // ooui.inc's record fields and flags
+    constexpr unsigned UW_TYPE = 0, UW_PARENT = 1, UW_FLAGS = 6, UW_TEXT = 8, UW_VALUE = 10;
+    constexpr uint8_t UF_DISABLED = 0x02, UF_NOFOCUS = 0x08, UF_MODAL = 0x20, UF_OVERLAY = 0x40, UF_NOFRAME = 0x80;
+    constexpr uint8_t UT_NONE = 0, UT_PANEL = 3;
     enum : uint8_t { BLK_MAIN, BLK_ONE, BLK_DESK };
     // ooui.inc's events
     enum : uint8_t { UE_NONE, UE_CLICK, UE_CHANGE, UE_SELECT, UE_MARK, UE_MENU, UE_CLOSE, UE_FOCUS, UE_KEY, UE_WHEEL };
@@ -278,6 +284,24 @@ namespace
             std::printf("  record %u: %u,%u %ux%u%s, want %u,%u %ux%u%s\n", h, p.col, p.row, p.w, p.h, p.hidden ? " hidden" : "",
                         want.col, want.row, want.w, want.h, want.hidden ? " hidden" : "");
         CHECK(p.col == want.col && p.row == want.row && p.w == want.w && p.h == want.h && p.hidden == want.hidden);
+    }
+
+    /// uitest.lbl's address for `name`.
+    uint16_t lab(const char *name)
+    {
+        static const std::map<std::string, uint16_t> l = labels(UTILS + "/uitest.lbl");
+        return l.at(name);
+    }
+    /// Record h's address in uitest.s's table, `main`.
+    uint16_t rec(uint8_t h) { return static_cast<uint16_t>(lab("main") + h * 16u); }
+    void poke_flags(Rig &r, uint8_t h, uint8_t set) { r.poke(rec(h) + UW_FLAGS, static_cast<uint8_t>(r.phys(rec(h) + UW_FLAGS) | set)); }
+    /// ui_flags: Y the handle, A to set, X to clear.
+    std::string flags(CcpRig &r, uint8_t h, uint8_t set, uint8_t clear = 0) { return ui(r, 'F', set, clear, h); }
+    void put_text(Rig &r, const std::string &t)
+    {
+        std::vector<uint8_t> b(t.begin(), t.end());
+        b.push_back(0);
+        r.poke(TEXTBUF, b);
     }
 
     /// The main scene opened and drawn once: no events.
@@ -568,7 +592,7 @@ TEST(the_table_is_checked_and_handles_too)
     CHECK_EQ(refused(), std::string("0401"));
     r.poke(main + L_SIDE * 16u, 4);
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
-    CHECK_EQ(ui(r, 'd', 27).substr(0, 2) + ui(r, 'd', 27).substr(6), std::string("0501")); // UX_HANDLE
+    CHECK_EQ(ui(r, 'd', MAIN_COUNT).substr(0, 2) + ui(r, 'd', MAIN_COUNT).substr(6), std::string("0501")); // UX_HANDLE
     CHECK_EQ(ui(r, 'f', L_HEAD).substr(6), std::string("01"));                             // a label takes no focus
     CHECK_EQ(ui(r, 'f', B_HIDE).substr(6), std::string("01"));                             // nor a hidden button
     CHECK_EQ(ui(r, 'f', B_CAN).substr(6), std::string("00"));
@@ -576,4 +600,325 @@ TEST(the_table_is_checked_and_handles_too)
 }
 
 
-int main() { return run_all(); }
+// ---- the U1 review's findings (2026-11-11): each case fails without its fix --------------------------------
+
+TEST(o1_a_change_lands_on_the_record_it_names)
+{
+    // ui_flags, ui_setvalue and ui_settext on a menu's item or a menu: the record named, not its bar; and drawn
+    // as the same table opened with the change already in it draws.
+    CcpRig a;
+    REQUIRE(a.ok);
+    open_main(a);
+    const uint8_t bar_flags = a.phys(rec(W_BAR) + UW_FLAGS);
+    CHECK_EQ(flags(a, I_SAVE, UF_DISABLED).substr(6), std::string("00"));
+    CHECK_EQ(ui(a, 'v', 1, 0, I_OPEN).substr(6), std::string("00"));
+    put_text(a, "&Fyle");
+    CHECK_EQ(ui(a, 'x', 0, 0, M_FILE).substr(6), std::string("00"));
+    CHECK(a.phys(rec(I_SAVE) + UW_FLAGS) & UF_DISABLED);
+    CHECK_EQ(a.phys(rec(I_OPEN) + UW_VALUE), 1);
+    CHECK_EQ(static_cast<uint32_t>(a.phys(rec(M_FILE) + UW_TEXT) | a.phys(rec(M_FILE) + UW_TEXT + 1) << 8), TEXTBUF);
+    CHECK_EQ(a.phys(rec(W_BAR) + UW_FLAGS) & ~0x04, bar_flags & ~0x04); // the bar's untouched (its dirty bit aside)
+    CHECK_EQ(a.phys(rec(W_BAR) + UW_VALUE), 0);
+    CHECK_EQ(a.phys(rec(W_BAR) + UW_TEXT) | a.phys(rec(W_BAR) + UW_TEXT + 1) << 8, 0);
+    expect(poll(a), {}, "the changes");
+    key(a, K_F, L_ALT);
+    expect(poll(a), {}, "Alt+F");
+    const uint64_t changed = frame_hash(a);
+
+    CcpRig b;
+    REQUIRE(b.ok);
+    start_ui(b);
+    poke_flags(b, I_SAVE, UF_DISABLED);
+    b.poke(rec(I_OPEN) + UW_VALUE, 1);
+    put_text(b, "&Fyle");
+    b.poke(rec(M_FILE) + UW_TEXT, std::vector<uint8_t>{static_cast<uint8_t>(TEXTBUF), static_cast<uint8_t>(TEXTBUF >> 8)});
+    CHECK_EQ(ui(b, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(b);
+    key(b, K_F, L_ALT);
+    poll(b);
+    CHECK_EQ(changed, frame_hash(b));
+}
+
+TEST(o2_hiding_the_bar_puts_its_menu_up)
+{
+    CcpRig a;
+    REQUIRE(a.ok);
+    open_main(a);
+    key(a, K_F, L_ALT);
+    poll(a);
+    CHECK_EQ(ui(a, 'h', W_BAR).substr(6), std::string("00"));
+    expect(poll(a), {}, "the bar hidden");
+    expect_place(a, M_FILE, {1, 1, 19, 6, true});
+    CcpRig b;
+    REQUIRE(b.ok);
+    open_main(b);
+    CHECK_EQ(ui(b, 'h', W_BAR).substr(6), std::string("00"));
+    poll(b);
+    CHECK_EQ(frame_hash(a), frame_hash(b));
+}
+
+TEST(o3_a_hidden_item_has_no_row)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    CHECK_EQ(ui(r, 'h', I_SAVE).substr(6), std::string("00"));
+    key(r, K_F, L_ALT);
+    expect(poll(r), {}, "Alt+F");
+    expect_place(r, M_FILE, {1, 1, 19, 5, false}); // Open, the line, Exit
+    expect_place(r, I_EXIT, {2, 4, 17, 1, false});
+    point(r, 5, 4);
+    button(r, true);
+    button(r, false);
+    expect(poll(r), {{UE_MENU, I_EXIT, M_FILE, 0}}, "a click on Exit's row");
+}
+
+TEST(o4_a_disabled_menu_stays_up_and_its_items_too)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    CHECK_EQ(flags(r, M_EDIT, UF_DISABLED).substr(6), std::string("00"));
+    point(r, 9, 0); // Edit's title
+    button(r, true);
+    button(r, false);
+    expect(poll(r), {}, "a click on Edit");
+    expect_place(r, M_EDIT, {8, 1, 8, 4, true});
+    key(r, K_F, L_ALT);
+    key(r, K_RIGHT); // past Edit, to Help
+    key(r, K_ENTER);
+    expect(poll(r), {{UE_MENU, I_ABOUT, M_HELP, 0}}, "Alt+F, Right, Enter");
+    CHECK_EQ(flags(r, M_HELP, UF_DISABLED).substr(6), std::string("00"));
+    key(r, K_F1); // About's accelerator: its menu disabled
+    expect(poll(r), {}, "F1");
+}
+
+TEST(o5_o12_a_modal_window_keeps_the_keys_and_letters_press_unfocusable_buttons)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    // O12: a button that takes no focus is still pressed by its letter; the focus stays.
+    CHECK_EQ(flags(r, B_OK, UF_NOFOCUS).substr(6), std::string("00"));
+    key(r, 0x12); // O
+    expect(poll(r), {{UE_CLICK, B_OK, 0, 0}}, "O");
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("0F"));
+    // O5: under a modal window the accelerator table reaches neither a button nor an item outside it.
+    CHECK_EQ(flags(r, W_OVER, UF_MODAL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 's', W_OVER).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("1A")); // Hide, the modal window's
+    key(r, K_Q, L_CTRL);
+    key(r, K_F1);
+    expect(poll(r), {}, "Ctrl+Q, F1 under the modal window");
+    key(r, 0x0B); // H: Hide's letter, in the modal window
+    expect(poll(r), {{UE_CLICK, B_HIDE, 0, 0}}, "H");
+    CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'h', I_ABOUT).substr(6), std::string("00")); // a hidden item: not chosen by its key
+    key(r, K_F1);
+    expect(poll(r), {}, "F1 for a hidden item");
+    key(r, K_Q, L_CTRL);
+    expect(poll(r), {{UE_CLICK, B_CAN, 0, 0}}, "Ctrl+Q with no modal window");
+}
+
+TEST(o6_o14_unused_records_and_the_table_s_depth)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    const auto open = [&r] {
+        const std::string a = ui(r, 'o', BLK_MAIN);
+        if (a.substr(6) != "00")
+            return a.substr(0, 2) + a.substr(6); // the error, and the carry
+        ui(r, 'c');
+        return std::string("ok");
+    };
+    std::vector<uint8_t> keep(16);
+    for (unsigned i = 0; i < 16; ++i)
+        keep[i] = r.phys(rec(L_SIDE) + i);
+    r.poke(rec(L_SIDE) + UW_TYPE, UT_NONE); // unused, at the top
+    r.poke(rec(L_SIDE) + UW_PARENT, 0xFF);
+    CHECK_EQ(open(), std::string("ok"));
+    r.poke(rec(L_SIDE), std::vector<uint8_t>(16, 0)); // zeroed
+    CHECK_EQ(open(), std::string("ok"));
+    r.poke(rec(L_SIDE), keep);
+    r.poke(rec(W_SIDE) + UW_TYPE, UT_NONE); // Toggle's parent unused: refused
+    CHECK_EQ(open(), std::string("0401"));
+    r.poke(rec(W_SIDE) + UW_TYPE, 2);
+    // O14: a chain of 16 records (the desktop, then 12-26 each the last's child) opens; 17 doesn't.
+    for (uint8_t h = 13; h <= 26; ++h)
+    {
+        r.poke(rec(h) + UW_TYPE, UT_PANEL);
+        r.poke(rec(h) + UW_PARENT, static_cast<uint8_t>(h - 1));
+    }
+    r.poke(rec(W_TALL) + UW_TYPE, UT_PANEL);
+    r.poke(rec(L_EDGE) + UW_PARENT, W_DESK);
+    CHECK_EQ(open(), std::string("ok"));
+    r.poke(rec(I_ABOUT) + UW_TYPE, UT_PANEL); // 11 under the desktop, 12 under 11: 17 deep
+    r.poke(rec(I_ABOUT) + UW_PARENT, W_DESK);
+    r.poke(rec(W_MAIN) + UW_PARENT, I_ABOUT);
+    CHECK_EQ(open(), std::string("0401"));
+}
+
+TEST(o7_sizes_that_would_wrap_draw_nothing)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint64_t window = frame_hash(r);
+    CHECK_EQ(ui(r, 's', L_EDGE).substr(6), std::string("00"));
+    expect(poll(r), {}, "Edge shown");
+    expect_place(r, L_EDGE, {79, 14, 0, 1, false}); // past Second's client: width 0, not 252
+    CHECK_EQ(frame_hash(r), window);
+    CHECK_EQ(ui(r, 'h', L_EDGE).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 's', W_TALL).substr(6), std::string("00"));
+    expect(poll(r), {}, "Tall shown");
+    expect_place(r, W_TALL, {10, 26, 20, 0, false}); // 4 rows to the bottom, less 6: 0, not 254
+    CHECK_EQ(frame_hash(r), window);
+    // A size past the client's edge is held to it: Edge at column 20 of Second's 26, 20 wide, is 6 wide, and
+    // draws as a label made 6 wide would.
+    CHECK_EQ(ui(r, 'h', W_TALL).substr(6), std::string("00"));
+    poll(r);
+    r.poke(rec(L_EDGE) + 2u, 20); // UW_X
+    r.poke(rec(L_EDGE) + 4u, 20); // UW_W
+    CHECK_EQ(ui(r, 's', L_EDGE).substr(6), std::string("00"));
+    expect(poll(r), {}, "Edge, 20 wide");
+    expect_place(r, L_EDGE, {69, 14, 6, 1, false});
+    const uint64_t held = frame_hash(r);
+    CHECK_EQ(ui(r, 'h', L_EDGE).substr(6), std::string("00"));
+    poll(r);
+    r.poke(rec(L_EDGE) + 4u, 6);
+    CHECK_EQ(ui(r, 's', L_EDGE).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(frame_hash(r), held);
+}
+
+TEST(o9_o10_one_session_and_its_layers)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    const auto refused = [&r] { const std::string a = ui(r, 'o', BLK_MAIN); return a.substr(0, 2) + a.substr(6); };
+    // O10: the base 0 or 1; the overlay $FF or a layer above the base.
+    const uint16_t blk = lab("blk_main");
+    for (const auto &[base, over] : std::vector<std::pair<uint8_t, uint8_t>>{{2, 0xFF}, {1, 0}, {1, 1}, {0, 0}, {0, 2}})
+    {
+        r.poke(blk + 9u, base);
+        r.poke(blk + 10u, over);
+        CHECK_EQ(refused(), std::string("0701")); // UX_LAYER
+    }
+    r.poke(blk + 9u, 0);
+    r.poke(blk + 10u, 1);
+    // O9: open once; a second open refused (UX_BUSY), the session as it was; closed, opened on the same bank.
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    const uint64_t window = frame_hash(r);
+    const unsigned map0 = vid(r).peek(0x11) | vid(r).peek(0x12) << 8;
+    CHECK_EQ(refused(), std::string("0601"));
+    expect(poll(r), {}, "after the refused open");
+    CHECK_EQ(frame_hash(r), window);
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00")); // closed already: nothing
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x11) | vid(r).peek(0x12) << 8), map0); // its bank freed and taken again
+}
+
+TEST(o11_flags_changed_damage_where_the_widget_was)
+{
+    for (const uint8_t f : {UF_NOFRAME, UF_OVERLAY})
+    {
+        CcpRig a;
+        REQUIRE(a.ok);
+        open_main(a);
+        CHECK_EQ(flags(a, W_SIDE, f).substr(6), std::string("00"));
+        poll(a);
+        CcpRig b;
+        REQUIRE(b.ok);
+        start_ui(b);
+        poke_flags(b, W_SIDE, f);
+        CHECK_EQ(ui(b, 'o', BLK_MAIN).substr(6), std::string("00"));
+        poll(b);
+        if (frame_hash(a) != frame_hash(b))
+            std::printf("  flag %02x: set by ui_flags, the frame differs from the table's\n", f);
+        CHECK_EQ(frame_hash(a), frame_hash(b));
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    CHECK_EQ(flags(r, C_SHAD, UF_DISABLED).substr(0, 2), std::string("06")); // the flags now: dirty, disabled
+    CHECK_EQ(ui(r, 'g').substr(0, 2), std::string("10")); // the focus moved on to Mouse
+}
+
+TEST(o15_the_maps_are_clear_before_the_first_poll)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    // The banks OOUI may take, full of junk: the first is GX_PALINIT's and GX_SPRINIT's, so OOUI's is the next.
+    for (uint32_t a = 0x044000; a < 0x04C000; ++a)
+        vid(r).card_poke(a, static_cast<uint8_t>(a * 7 + 0x41));
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    CHECK_EQ(vid(r).peek(0x11) | vid(r).peek(0x12) << 8, 0x0440); // the bank filled
+    r.run(ms(40));
+    const uint32_t *f = vid(r).frame();
+    const uint32_t bg = VideoCard::rgba(0x112); // palette entry 0, where both layers are transparent
+    size_t other = 0;
+    for (size_t i = 0; i < size_t{640} * 480; ++i)
+        other += f[i] != bg;
+    if (other > 32 * 32)
+        std::printf("  %zu pixels not entry 0's\n", other);
+    CHECK(other <= 32 * 32); // the pointer at most
+}
+
+TEST(o17_the_pointer_off_when_closed_or_suspended)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const auto depth = [&r] {
+        r.run(ms(40));
+        const unsigned sprbase = vid(r).peek(0x0C) | vid(r).peek(0x0D) << 8;
+        return std::make_pair(r.phys(lab("GX_SPR") + 6u) & 0x0C, vid(r).card_peek(sprbase * 256u + 6) & 0x0C);
+    };
+    CHECK(depth() == std::make_pair(0x0C, 0x0C)); // sprite 0, in front of both layers
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    CHECK(depth() == std::make_pair(0, 0));
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    CHECK(depth() == std::make_pair(0x0C, 0x0C));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(r.phys(lab("GX_SPR") + 6u) & 0x0C, 0);
+}
+
+TEST(p1_a_theme_in_palette_groups_of_its_own)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint64_t house = frame_hash(r);
+    CHECK_EQ(ui(r, 't', 2).substr(6), std::string("00")); // the house colours in groups 2, 3 and (dim) 4
+    expect(poll(r), {}, "the grouped theme");
+    CHECK_EQ(vid(r).peek(0x19), 2); // layer 0's PALOFS
+    CHECK_EQ(vid(r).peek(0x29), 3); // layer 1's
+    CHECK_EQ(frame_hash(r), house); // the same colours, other entries
+    CHECK_EQ(flags(r, W_OVER, UF_MODAL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 's', W_OVER).substr(6), std::string("00"));
+    expect(poll(r), {}, "a modal window shown");
+    CHECK_EQ(vid(r).peek(0x19), 4); // the base dimmed (TF_DIM)
+    golden(r, "dim-modal");
+    CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
+    expect(poll(r), {}, "hidden");
+    CHECK_EQ(vid(r).peek(0x19), 2);
+    CHECK_EQ(frame_hash(r), house);
+}
+
+int main()
+{
+    const int failed = run_all();
+    if (updating())
+    {
+        std::printf("\n*** OOUI_GOLDEN=update: golden/ooui.txt was WRITTEN, nothing was compared. ***\n"
+                    "*** Look at the frames (OOUI_DUMP=dir), then run again without it.         ***\n\n");
+        return 77; // CTest's SKIP_RETURN_CODE: an update run never reads as a pass (the review's O18)
+    }
+    return failed;
+}
