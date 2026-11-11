@@ -259,23 +259,40 @@ there when it ends. BIOS 0.12, on revision 1, kept the same screen at units 0, 1
 
 ### Under OODOS
 
-Status: **built**
+Status: **proposed**, on [revision 2](#revision-2-card-memory), which OODOS is built for (`oodos/include/vmem.inc`,
+`oodos/sys/video.s`): its console takes the screen only when the ID reads `$92` and the DMA controller is there. On
+revision 1, or with no card, OODOS has no console screen, only the serial line.
 
-The console is the BIOS's text screen, set up by OODOS's own CRTINIT at cold boot: the palette at unit 0, the font
-at units 1–4, the text at units 8–12. Those units, 0–12 (`$80000–$833FF`), are OODOS's (OOLIB L4): function 83
-refuses them as a destination, a record read through a DMA segment may not land in them, and block 32 is never in
-W1's map. A program has units 13–255. Units 13–15 are in block 32, so only DMA reaches them.
+**Card memory.** OODOS owns card `$000000–$03FFFF`; a program reads it and never writes it. The console is the
+BIOS's text screen, set up again by OODOS's own CRTINIT at cold boot: the palette at `$000000`, the font at
+`$000400`, the 80×30 text at `$002000`, the old video units 0–12 (`$000000–$0033FF`); the rest is kept for OODOS.
+The program owns `$040000–$1BFFFF`, handed out by OOLIB, for as long as it runs; Apple II mode owns
+`$1C0000–$1FFFFF`, never a program's. Function 83's card operations refuse a card destination outside the
+program's part, and its pointer is written only while SPRBASE is in it.
 
-A program may write every video register but IEN (OODOS's: the vertical blank alone) and SPLASH, and of ISR only
-bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt, and turns off a line or
-collision interrupt a program enables). It reaches video memory through OOLIB, which maps W1 itself under the W1
-contract ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)),
-or by function 83. Collisions are read from STATUS and ISR: OODOS keeps no copy of them.
+**The aperture.** Slot 0 is OODOS's and always shows card bank 0, the console's, at `$80000–$83FFF` (block 32),
+where the console writes its text. Slot 1, at `$84000–$87FFF` (block 33), is the program's, through OOLIB under the
+W1 contract ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).
+Slots 2 and 3 are OODOS's too, at `$88000–$8FFFF`: function 83's card-to-card copy borrows them for each piece and
+puts them back. So no physical destination of function 83, and no record read through a DMA segment (function 51),
+may touch `$80000–$83FFF` or `$88000–$8FFFF`: OODOS refuses it. DM_INFO's W1 map leaves out blocks 32, 34 and 35:
+it is block 1, the blocks the program has allocated, 33, and 36–47 (banks 9–B, ordinary RAM on revision 2).
 
-The warm boot (and function 83's `DM_CONSOLE`) sets the registers back as CRTINIT sets them: CTRL `$03`, BORDER,
-PALBASE and SPRBASE 0, layer 0 text at units 8 and 1, unscrolled, layer 1's CONFIG 0, IEN the vertical blank alone.
-It copies nothing: the console's memory was never the program's, so what OODOS printed meanwhile shows. OODOS's
-vertical-blank copies and the pointer sprite run from the frame handler on DMA channel 1
+**Registers.** A program may write the drawing registers, but not IEN (OODOS's: the vertical blank alone) nor
+SPLASH, and of ISR only bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt,
+and turns off a line or collision interrupt a program enables). SLOT0, SLOT2 and SLOT3 and the data port's
+registers (PADDR, PDATA, PSTEP, PCTL) are OODOS's; OOLIB writes SLOT1 alone. Collisions are read from STATUS and
+ISR: OODOS keeps no copy of them.
+
+**The warm boot** (and function 83's `DM_CONSOLE`) sets the card's registers back as CRTINIT sets them: CTRL `$03`
+(the display and layer 0 on), BORDER, PALBASE and SPRBASE 0, layer 0 80×30 text (CONFIG `$80`) with its map at the
+text and its tiles at the font, unscrolled, layer 1's CONFIG 0, IEN the vertical blank alone. The warm boot alone
+also turns the port's DMA request off and puts SLOT0–SLOT3 on card banks 0, 16, 2 and 3: slot 1 on the program's
+first bank, so block 33 never shows OODOS's part. It copies nothing: the console's memory was never the program's,
+so what OODOS printed meanwhile shows.
+
+**The frame handler's copies.** OODOS's vertical-blank copies (from system memory to the program's card memory) and
+the pointer sprite's position go through the data port, on DMA channel 1, from the frame handler
 ([chapter 4](04-interrupts.md#under-oodos), [chapter 5](05-dma.md#under-oodos)).
 
 ### When changes show
