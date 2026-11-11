@@ -51,22 +51,27 @@ python3 tools/fetch_fixtures.py
 cmake --preset dev && cmake --build --preset dev && ctest --preset dev
 ```
 
-Two tiers, run by `tools/check.sh` (it says what each step took and which failed):
+Three tiers, run by `tools/check.sh` (it says what each step took and which failed; [hw/testing.md](hw/testing.md)
+is the plan behind them):
 
+- **`tools/check.sh changed [BASE]`**, on each branch before review and merge: the paths that differ from BASE
+  (main by default, from the merge base), mapped to labels by [`tools/test-map.txt`](tools/test-map.txt); it prints
+  which path chose which labels and suites, and runs those suites in the fast build, the oodos checks, the books'
+  check and the web steps as the labels say. If the branch changed the emulator's C++, the chosen suites that are the
+  emulator's own (label `emu`) run under ASan/UBSan too, `--jobs` at once (4 by default). A path the map doesn't
+  cover fails it, and so does an empty diff (`--allow-empty` if that is meant).
 - **`tools/check.sh quick`**, before a build goes to staging, a few minutes: the oodos checks; every native test,
-  built optimised without the sanitizers (`--preset fast`, under a minute); the WebAssembly build and its tests;
+  built optimised without the sanitizers (`--preset fast`, under two minutes); the WebAssembly build and its tests;
   vitest; the e2e smoke set (the tests tagged `@smoke`, `npm run e2e:smoke`). `--url URL` runs the smoke set
   against the deployed page too.
-- **`tools/check.sh full`**, only for a production release candidate: the same, but the native tests under
-  ASan/UBSan (`--preset dev`, 30 minutes or more), the whole e2e suite (and against `--url URL`), and interop
-  (cpmtools reading the cards OODOS writes, in Docker). The sanitizer tests run one a CPU; on a host shared with
-  other work, `--jobs 4` keeps them to 4 at once.
+- **`tools/check.sh full`**, only for a release whose emulator C++ changed: `quick`'s steps, and the emulator's own
+  suites (label `emu`: never the OODOS, BIOS, Apple-mode or docs suites) under ASan/UBSan (`--preset dev`); the
+  whole e2e suite on Chromium and WebKit's smoke set (and against `--url URL`), and interop (cpmtools reading the
+  cards OODOS writes, in Docker). The sanitizer tests run one a CPU; on a host shared with other work, `--jobs 4`.
 
-The sanitizers are too slow for anything but a release candidate. Between those, a sanitizer build is for an error
-found in testing that the logs can't explain: `cmake --preset dev && cmake --build --preset dev`, then that one test.
-
-A plan to run only the suites a change touches, and the sanitizers only on the emulator's own suites, is
-proposed in [hw/testing.md](hw/testing.md).
+Every suite carries labels for the parts it covers (`ctest --preset fast -L sound`, `ctest --print-labels`), set in
+one table at the end of `emulator/test/host/CMakeLists.txt`. The longest OODOS suites run as several CTest entries
+(`test_oodos_disk2_1of3` ...), each a share of the cases, with a `_cases` check that every case is in one.
 
 The refactor plan is `emulator/docs/EMULATOR_PLAN.md`; the baseline it starts
 from is tagged `beta`.
