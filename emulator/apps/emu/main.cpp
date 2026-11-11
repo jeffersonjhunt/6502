@@ -36,6 +36,9 @@
  * - Ctrl-] stops a running machine into the debugger ('h' for commands).
  * - --screen writes the video card's last frame (if the machine has one)
  *   to FILE as a PPM on the way out.
+ * - `vram` at the debugger's prompt shows and writes a revision 2 video
+ *   card's own memory (hw/video-rev2.md), which the CPU reaches only
+ *   through the aperture's slots.
  * - --apple-rom plugs the owner's Apple IIe ROM into the cartridge (one
  *   16 KB file, or the CD and EF halves, in one option or two), and
  *   --apple-chars its character ROM; C806R at the monitor enters Apple II mode with them.
@@ -223,6 +226,9 @@ namespace
         if (JoystickPorts *joy = machine.joysticks())
             debugger.add_command("joy", "   joy [1|2 STATE]     the joysticks: show, or hold one (u d l r f, uf, - for none)\n",
                                  [joy](const std::vector<std::string> &args) { return joy->command(args); });
+        if (VideoCard *video = machine.video_card())
+            debugger.add_command("vram", "   vram ADDR [N]       card memory (the video card's): show N bytes, or ADDR = BYTE... to write\n",
+                                 [video](const std::vector<std::string> &args) { return video->command(args); });
         int rc = 0;
         for (const std::string &b : settings.breaks)
         {

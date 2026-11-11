@@ -74,8 +74,8 @@ namespace
         return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
 
-    /// The video card these run on: the BIOS is built for revision 2 (hw/video-rev2.md), and backplane.machine
-    /// still says rev=1 until the BIOS, OODOS and the demo move together.
+    /// The video card these run on: revision 2 (hw/video-rev2.md), as backplane.machine says (rev=2) and the BIOS
+    /// is built for; a test that wants revision 1 asks for it.
     constexpr unsigned VIDEO_REVISION = 2;
 
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.
@@ -1850,6 +1850,115 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
     b.run(4 * BOOT, "C806R\r");
     CHECK(b.bridge().apple());
     CHECK_EQ(b.cpu->regs().pc, 0xFA67);          // the IIe ROM's reset code ran
+}
+
+// --- golden frames (hw/video-rev2.md, "Emulator changes": the BIOS screen and the demo) -----------------
+//
+// Whole frames, hashed (FNV-1a over the pixels, as test_video's splash frames): any change to what the card
+// draws for them, the BIOS's screen or the renderer, shows here. The hashes come from this emulator, never from a
+// fixture. Each is taken at a fixed frame number, not a cycle count, so a BIOS that merely runs faster or slower
+// keeps them; the cursor's and the caption's blink depend on that number too. The monitor's leaves out the banner,
+// so a new BIOS version keeps it. A change that should change the picture (a new demo, say) fails them: look at
+// the PPM the failure writes beside the test, and if it is right, put the hash it printed here.
+
+namespace
+{
+    /// From line `top` down (0: the whole frame).
+    uint32_t frame_hash(const VideoCard &card, unsigned top = 0)
+    {
+        uint32_t h = 2166136261u;
+        for (unsigned i = top * VideoCard::WIDTH; i < VideoCard::WIDTH * VideoCard::HEIGHT; ++i)
+            h = (h ^ card.frame()[i]) * 16777619u;
+        return h;
+    }
+
+    /// Run until the card has finished frame `n` (and not the next): frame() is that one.
+    void run_to_frame(Board &b, uint64_t n)
+    {
+        const VideoCard &card = *b.machine->video_card();
+        while (card.frames() < n)
+            b.run(FRAME / 64);
+    }
+
+    /// The frame's hash is `want`; if not, say the new one and write the frame as golden-`name`.ppm to look at.
+    bool golden(const VideoCard &card, const char *name, uint32_t want, unsigned top = 0)
+    {
+        const uint32_t got = frame_hash(card, top);
+        if (got == want)
+            return true;
+        const std::string ppm = std::string("golden-") + name + ".ppm";
+        std::printf("  golden frame %s: hash 0x%08X, want 0x%08X; the frame is in %s\n", name, got, want,
+                    write_ppm(card, ppm) ? ppm.c_str() : "(not written)");
+        return false;
+    }
+
+    constexpr uint64_t MONITOR_FRAME = 360;   // after the splash's 300, the cursor lit (frame / 16 even)
+    /// The monitor's screen below the banner: text rows 0 (blank) and 1 (BACKPLANE BIOS n.nn) are lines 0-31,
+    /// so a new version number leaves the hash alone.
+    constexpr unsigned BELOW_BANNER = 2 * 16;
+    constexpr uint32_t MONITOR_HASH = 0x4751DA17;
+    constexpr uint32_t DEMO_FIRST_HASH = 0xA8005DC5;   // the demo's first frame, whole: the fade's level 0, black
+    constexpr uint32_t DEMO_LIGHT_HASH = 0xA6F79AEF;   // the next: level 1, the first light
+    constexpr uint32_t DEMO_SETTLED_HASH = 0x19C080E1; // 30 frames on: faded in, the balls under way
+} // namespace
+
+TEST(golden_frame_the_monitors_text_screen)
+{
+    Board b;
+    REQUIRE(b.ok());
+    b.reset();
+    CHECK_EQ(b.run(BOOT), GREETING);
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    b.run(SPLASH_TIME);
+    REQUIRE(card->splash_frame() == -1);
+    REQUIRE(card->frames() < MONITOR_FRAME);
+    run_to_frame(b, MONITOR_FRAME);
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.13"));
+    CHECK(golden(*card, "monitor", MONITOR_HASH, BELOW_BANNER)); // rows 2-29: the prompt, the cursor, the rest
+}
+
+TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
+{
+    Board b{Board::Rev2{}};
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    const VideoCard *card = b.machine->video_card();
+    REQUIRE(card != nullptr);
+    // CTRL turning $0F (display, both layers, sprites) starts the demo's screen. The demo writes it in a vertical
+    // blank, where the bases it wrote before latch (line 480), so no frame is torn: the one before is black from
+    // top to bottom (CTRL 0, the display off, since the demo started), and the next is the demo's, whole.
+    bool on = false;
+    uint64_t at = 0;
+    unsigned line = 0;
+    std::vector<uint32_t> before;
+    b.on_step = [&] {
+        if (!on && card->peek(VideoCard::CTRL) == 0x0F)
+        {
+            on = true;
+            at = card->frames();
+            line = card->beam_line();
+            before.assign(card->frame(), card->frame() + VideoCard::WIDTH * VideoCard::HEIGHT);
+        }
+    };
+    CHECK(b.run(4 * FRAME, "C803R\r").find("C803: 4C\\") == std::string::npos); // C803 took the card
+    for (int f = 0; f < 60 && !on; ++f)
+        b.run(FRAME);
+    b.on_step = nullptr;
+    REQUIRE(on);
+    std::printf("  CTRL $0F at line %u, after frame %llu\n", line, static_cast<unsigned long long>(at));
+    CHECK(line >= VideoCard::HEIGHT);            // in the vertical blank
+    const uint32_t black = VideoCard::rgba(0x000);
+    CHECK(std::all_of(before.begin(), before.end(), [black](uint32_t p) { return p == black; })); // not torn
+    const uint64_t first = at + 1;
+    run_to_frame(b, first);
+    CHECK(golden(*card, "demo-first", DEMO_FIRST_HASH)); // black: the fade's level 0 is a black palette
+    run_to_frame(b, first + 1);
+    CHECK(golden(*card, "demo-light", DEMO_LIGHT_HASH));
+    run_to_frame(b, first + 30);
+    CHECK(colours(*card) >= 12);
+    CHECK(golden(*card, "demo-settled", DEMO_SETTLED_HASH));
 }
 
 int main()

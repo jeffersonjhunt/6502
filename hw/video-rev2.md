@@ -127,8 +127,8 @@ space from `$C4B0`. The ID becomes `$92`.
 
 **Frozen (2026-11-10), proposed, owner to confirm.** This is the map the work is built to; it changes only by the
 owner's decision. It differs from the draft in one place: PSTEP is two bytes (`$C4BC`-`$C4BD`), because a column of
-the 80-column text screen steps 160 and a 640-pixel bitmap row 640, which one byte can't hold. PCTL and MEMSIZE move
-up one byte to make room.
+a bitmap steps 256 (its rows are 256 bytes), which one byte can't hold; a column of the 80-column text screen steps
+160. PCTL and MEMSIZE move up one byte to make room.
 
 | Address | Name | What it is |
 | --- | --- | --- |
@@ -167,6 +167,9 @@ PADDR wraps at the fitted memory's end. Aperture and port addresses past MEMSIZE
 - **A DMA cycle against PCTL's direction** (/DACK reading the port while bit 1 says to the card, or writing it
   while bit 1 says from the card) moves nothing: a read gives `$FF`, a write is dropped, and PADDR doesn't step.
 
+**Amended by the owner (2026-11-11):** the layout's pointer row and PSTEP's rationale corrected to match the code;
+nothing in the map changed.
+
 ### Sprite table
 
 Sprite table entries keep VERA's 8-byte layout, with the image address widened into byte 1's spare bits. **Frozen,
@@ -181,7 +184,7 @@ OODOS call unit *u* (1 KB of banks 8-B) is card address *u* × 1 KB, so a unit b
 
 | Range | Owner | Use |
 | --- | --- | --- |
-| `$000000`–`$03FFFF` | OODOS (and the BIOS before it) | As today's banks 8-B: the palette at `$000000`, the font at `$000400`, the console's text at `$002000`, OODOS's video units 0-12, its sprites and pointer |
+| `$000000`–`$03FFFF` | OODOS (and the BIOS before it) | As today's banks 8-B: the palette at `$000000`, the font at `$000400`, the console's text at `$002000`, OODOS's video units 0-12. The pointer's sprite table is the program's, in its part, as OODOS's DM_POINTER writes it |
 | `$040000`–`$1BFFFF` | Programs, through OOLIB | Screens, bitmaps, tiles, sprite images |
 | `$1C0000`–`$1DFFFF` | Apple II mode | The banks 0-1 mirror (128 KB) |
 | `$1E0000`–`$1E0FFF` | Apple II mode | The IIe's character ROM, which `C806R` copies there |

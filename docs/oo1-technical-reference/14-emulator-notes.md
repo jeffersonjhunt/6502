@@ -41,7 +41,8 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
 | `sd 380-3FF … irq drq=0` | the mass storage card, its DRQ on DMA channel 0 ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
-| `video 480-4FF … irq` | the video card, drawing from banks 8–B ([chapter 6](06-video.md)) |
+| `video 480-4FF … irq drq=1 rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DRQ on DMA channel 1. Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
+| `aperture 80000-8FFFF module=9` | revision 2's aperture (*proposed*): 64 KB of memory on a 16 KB boundary, four slots on card memory ([chapter 6](06-video.md#the-aperture)). It is mapped after every other line, so it answers over RAM C's bank 8, whose 64 KB can't then be reached; with a revision 1 card, or none, it is inert and the RAM answers |
 | `sound 500-57F … irq drq=2` | the sound card, RAMDATA on DMA channel 2 ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)) |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
@@ -50,8 +51,11 @@ Each line of `backplane.machine` is a part of the OO-1:
 - **`space=io`** puts a mapping in the I/O hole, `$000–$7FF` of it. It takes the module ID of its 128-byte block,
   so `300-37F` is module 6. A mapping can't cross into the next block.
 - **`irq`** wires the device's interrupt output to /IRQ. A device on a line without it can't interrupt.
-- **`drq=N`** wires the device's DMA request to channel N, 0–3. Only the SD card and the sound card have one
-  ([chapter 5](05-dma.md#transfers-for-a-card)).
+- **`drq=N`** wires the device's DMA request to channel N, 0–3. The SD card, the sound card and the video card
+  have one ([chapter 5](05-dma.md#transfers-for-a-card)).
+- **`rev=N`**, on the `video` line only, picks the card's revision, 1 or 2. A program that builds the machine can
+  override it with `MachineOptions::video_revision` (0 keeps the line's, 1 or 2 overrides it). The revision is fixed
+  once the machine is built: the card's `set_revision` then returns false.
 - **`wait=N`**, which `backplane.machine` doesn't use, holds RDY for N extra cycles on every access to the
   mapping, as a slow card would. The north bridge's WAIT0–3 add theirs on top
   ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
@@ -90,11 +94,17 @@ The ROM is the last argument, not an option's value: there is no `--rom`.
 **The debugger.** Ctrl-] stops the machine at a `debug>` prompt, and `h` lists its commands: `r` run, `s` step
 instructions, `f` show bytes with no side effects, `st` store, `x` the registers, `l` disassemble, `b` and `d`
 breakpoints, `t` the trace on or off, `reset` a hard reset, the cards' and the CPU's, `q` quit. Addresses take
-labels. STP stops into it too. On the OO-1 it has two more:
+labels. STP stops into it too. On the OO-1 it has three more:
 
 - **`rtc`** shows the real-time clock: the time, RTCCTL and the DS3231's registers.
 - **`joy`** shows the joysticks. `joy 1 uf` holds joystick 1 up with fire pressed, and `joy 1 -` lets it go
   ([chapter 9](09-serial-and-via.md#the-joysticks)).
+
+**`vram`** (Proposed, with the video card's [revision 2](06-video.md#revision-2-card-memory)) shows and writes the
+card's own memory, which the CPU reaches only through the aperture: `vram 2000 32` shows 32 bytes from card address
+`$002000`, and `vram 1E1000 = 12 34` writes two there. It takes no bus cycles and leaves the port's registers as they
+are; past the fitted memory it reads `$FF` and drops writes, as the card does. The WebUI has the same, as Card memory
+under the video card in the debugger's Devices tab.
 
 The console card's breakpoint and CTRL's HALT stop the app at its prompt, and going on from there lets the card go
 too ([chapter 12](12-front-panel.md#switches-and-lights)).
@@ -329,6 +339,20 @@ emulator; each link goes to the note.
     reads `$FF`. Without a USB card the whole game port reads `$00`
     ([What isn't there](13-apple-ii-mode.md#what-isnt-there),
     [`apple_io.cpp`](../../emulator/components/devices/apple_io.cpp)).
+
+### Revision 2 of the video card
+
+Status: **proposed**
+
+The emulator has both revisions of the card ([chapter 6](06-video.md#revision-2-card-memory)); `backplane.machine`
+fits revision 2, the card BIOS 0.13 and OODOS drive. Where it differs from the design:
+
+- **The machine's RAM.** The RAM C line still covers bank 8, and the aperture is mapped over it, where the design
+  fits no RAM there ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)). The RAM's bank 8 can't
+  be reached while a revision 2 card is fitted, so software sees no difference.
+- **Apple II mode** reads banks 0 and 1 directly, as with revision 1, where the card keeps a snooped copy in its own
+  memory ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)); only the character ROM comes from card
+  memory. Nothing outside the card can tell the two apart.
 
 ## Known bugs
 

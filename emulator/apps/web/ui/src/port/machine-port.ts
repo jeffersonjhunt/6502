@@ -381,6 +381,15 @@ export interface MachinePort {
    * them ($C000-$CFFF), in Apple II mode too, where the CPU sees the Apple's.
    */
   readMemory(addr: number, length: number, space: "cpu" | "physical" | "io"): Promise<Uint8Array>;
+  /**
+   * A revision 2 video card's own memory (hw/video-rev2.md), the debugger's
+   * `vram`: `length` bytes from a 24-bit card address, with no bus cycle and
+   * the card's port untouched; $FF past what is fitted. null without one
+   * (no video card, or revision 1, which has none).
+   */
+  readCardMemory(addr: number, length: number): Promise<Uint8Array | null>;
+  /** Bytes into card memory there, as readCardMemory() reads it; past what is fitted they are dropped. */
+  writeCardMemory(addr: number, bytes: Uint8Array): void;
   /** What A0-A19 carry for a CPU address now. */
   physical(cpuAddr: number): Promise<number>;
   /** A label or hex ("C800", "$C800") to a CPU address; null if neither. */

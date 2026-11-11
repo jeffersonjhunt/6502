@@ -7,14 +7,18 @@
  * The first cases drive the card alone, its "CPU clock" the pixel clock (as test_video's do);
  * the later ones put it on a backplane machine: backplane.machine itself with the revision
  * chosen by MachineOptions, so the aperture, RAM C and DMA channel 1 are wired as its lines say.
- * Revision 1 keeps test_video and the BIOS and OODOS suites.
+ * Revision 1 keeps test_video. Last, the debugger's `vram` (VideoCard::command), on the card and
+ * through a Debugger as the app wires it.
  */
 
 #include "harness.h"
 
 #include "backplane_bridge.h"
+#include "cpu6502.h"
+#include "debugger.h"
 #include "dma_controller.h"
 #include "machine.h"
+#include "symbols.h"
 #include "video_card.h"
 
 #include <cstdio>
@@ -873,6 +877,75 @@ TEST(a_built_machines_video_revision_is_fixed)
     CHECK(alone.card_memory() != nullptr);
     CHECK(alone.set_revision(1));
     CHECK(alone.card_memory() == nullptr);          // revision 1 has no card memory
+}
+
+TEST(vram_shows_card_memory_at_a_24_bit_address)
+{
+    Rig r;
+    for (unsigned i = 0; i < 20; ++i)
+        r.card.card_poke(0x1E0000 + i, static_cast<uint8_t>(0x41 + i)); // "ABC...", across a row's end
+    CHECK_EQ(r.card.command({"1E0000", "20"}),
+             std::string("1E0000  41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50  ABCDEFGHIJKLMNOP\n"
+                         "1E0010  51 52 53 54                                      QRST\n"));
+    CHECK_EQ(r.card.command({"$1E0002", "1"}), std::string("1E0002  43                                               C\n"));
+    const std::string sixteen = r.card.command({"1E0000"}); // default 16
+    CHECK_EQ(sixteen.size(), std::string("1E0000  41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50  ABCDEFGHIJKLMNOP\n").size());
+    // Past the fitted 2 MB: $FF, as the card reads it; the address wraps at 24 bits.
+    CHECK_EQ(r.card.command({"200000", "2"}), std::string("200000  FF FF                                            ..\n"));
+    r.card.card_poke(0, 0x5A);
+    CHECK_EQ(r.card.command({"FFFFFF", "2"}).substr(0, 14), std::string("FFFFFF  FF 5A "));
+}
+
+TEST(vram_writes_card_memory_without_touching_the_port)
+{
+    Rig r;
+    r.paddr(0x123456);
+    r.reg16(R2::PSTEP, 3);
+    CHECK_EQ(r.card.command({"040000", "=", "12", "$34", "ab"}),
+             std::string("040000  12 34 AB                                         .4.\n"));
+    CHECK_EQ(r.card.card_peek(0x040000), 0x12);
+    CHECK_EQ(r.card.card_peek(0x040001), 0x34);
+    CHECK_EQ(r.card.card_peek(0x040002), 0xAB);
+    CHECK_EQ(r.paddr(), 0x123456u);                 // a debugger's poke: no PDATA cycle
+    CHECK_EQ(r.card.peek(R2::PSTEP), 3);
+    CHECK_EQ(r.card.command({"1FFFFF", "=", "77", "88"}).substr(0, 14), std::string("1FFFFF  77 FF ")); // past it: ignored
+    CHECK_EQ(r.card.card_peek(0x1FFFFF), 0x77);
+}
+
+TEST(vram_refuses_bad_arguments_and_a_revision_1_card)
+{
+    Rig r;
+    r.card.card_poke(0x10, 0x99);
+    const std::string usage = r.card.command({});
+    CHECK(usage.find("vram ADDR [N]") != std::string::npos);
+    CHECK_EQ(r.card.command({"1000000"}), usage);   // 7 digits
+    CHECK_EQ(r.card.command({"XYZ"}), usage);
+    CHECK_EQ(r.card.command({"10", "0"}), usage);
+    CHECK_EQ(r.card.command({"10", "4097"}), usage);
+    CHECK_EQ(r.card.command({"10", "1A"}), usage);  // a count is decimal
+    CHECK_EQ(r.card.command({"10", "="}), usage);
+    CHECK_EQ(r.card.command({"10", "2", "3"}), usage);
+    CHECK_EQ(r.card.command({"10", "=", "100"}), std::string("bad byte '100'\n"));
+    CHECK_EQ(r.card.card_peek(0x10), 0x99);         // nothing written by a refused line
+    CHECK(r.card.command({"0", "4096"}).size() > 256 * 60);
+    VideoCard one; // revision 1: it has no card memory
+    CHECK(one.command({"0"}).find("no card memory") != std::string::npos);
+}
+
+TEST(vram_at_the_debuggers_prompt_reaches_the_machines_card)
+{
+    auto m = backplane(2);
+    REQUIRE(m != nullptr);
+    VideoCard *card = m->video_card();
+    Cpu6502 cpu(m->bus(), Cpu6502::Model::W65C02S);
+    Symbols symbols;
+    Debugger d(cpu, m->bus(), symbols);
+    d.add_command("vram", "   vram ADDR [N]\n", [card](const std::vector<std::string> &args) { return card->command(args); });
+    CHECK(d.command("h").find("vram ADDR [N]") != std::string::npos);
+    CHECK_EQ(d.command("vram 2000 = 48 49"), std::string("002000  48 49                                            HI\n"));
+    CHECK_EQ(m->bus().peek_physical(0x82000), 0x48); // aperture slot 0 shows it
+    CHECK_EQ(m->bus().peek_physical(0x82001), 0x49);
+    CHECK_EQ(d.command("vram 2000 2"), std::string("002000  48 49                                            HI\n"));
 }
 
 int main()

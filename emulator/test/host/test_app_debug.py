@@ -11,7 +11,8 @@ images on the bus, ROM included; STP stops into the debugger; so does a
 Console card's HALT set by the program, and `r` releases it; --trace
 writes a well-formed trace that tools/trace_diff.py agrees with, and
 disagrees with once a byte is changed; --screen saves the video card's
-frame as a PPM, and fails on a machine without one; leaving Apple II mode
+frame as a PPM, and fails on a machine without one; `vram` shows and
+writes a revision 2 card's memory, which the aperture shows too; leaving Apple II mode
 by a hard reset paces at --clock again. Bad --load and --break arguments,
 an option missing its value or given twice, stop the app before the
 terminal goes raw.
@@ -211,6 +212,35 @@ def main():
         rc, lost = s.close()
         check(failures, "screen without a video card", rc == 1 and b"has no video card" in s.log and not lost,
               f"rc={rc} {text(s.log)}")
+
+        # vram: a revision 2 card's own memory at the prompt; the CPU sees the same bytes through the
+        # aperture (W1 at $80000, slot 0). On revision 1 it says the card has none.
+        video2 = os.path.join(cwd, "video2.machine")
+        with open(video2, "w") as f:
+            f.write("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
+                    "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n"
+                    "video 480-4FF space=io name=video irq rev=2\naperture 80000-8FFFF module=9\n")
+        s = Session(binary, ["--machine", video2, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        out = s.send(b"h\n")
+        check(failures, "vram: in the help", b"vram ADDR [N]" in out, text(out))
+        out = s.send(b"vram 10 = A5 5A\n")
+        check(failures, "vram: write", b"000010  A5 5A" in out, text(out))
+        s.send(b"st C681 20\n")  # W1: $4000 = $80000, the aperture
+        out = s.send(b"f 4010 2\n")
+        check(failures, "vram: the aperture shows it", b"4010  A5 5A" in out, text(out))
+        out = s.send(b"vram 1FFFFF 2\n")
+        check(failures, "vram: past the fitted memory", b"1FFFFF  00 FF" in out, text(out))
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "vram session: exit", rc == 0 and not lost, f"rc={rc} lost={lost} {text(s.log)}")
+        s = Session(binary, ["--machine", video, "--halt", rom], cwd)
+        s.expect(PROMPT)
+        out = s.send(b"vram 0\n")
+        check(failures, "vram: revision 1", b"no card memory" in out, text(out))
+        os.write(s.master, b"q\n")
+        rc, lost = s.close()
+        check(failures, "vram rev 1 session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
 
         # Apple II mode paces at its own clock; a hard reset leaves it, and
         # pacing (and the cards) go back to --clock, not stay at 1.02 MHz.

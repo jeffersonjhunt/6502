@@ -2341,13 +2341,18 @@ With a segment, the records of functions 17, 18, 20, 21, 33, 34 and 40 go to and
 segment × 16 + the DMA address (function 26's), not the program's CPU address. Nothing else uses it: FCBs, console
 strings and buffers, function 46's free space and the passwords read from the DMA buffer stay CPU addresses.
 
-A segment may reach any RAM but OODOS's own: banks 0–5, 8–B (the video memory) and E. Refused are banks 6–7 (the
-hash, the buffers, the system block), C–D (M:), blocks 60–63 (the BDOS, the BIOS, OODOS's resident block, the ROM
-BIOS's copy) and anything past `$FFFFF`. A DMA address whose record would run past `$FFFF` is refused, as it is
-without a segment. A refused record is A = X = `$FF` with nothing done: checked before the first record for 20, 21,
-33, 34 and 40, and when the record moves for 17 and 18. From OODOS 0.5 a record read (17, 18, 20, 33) into the
-console's video memory, units 0–12 (`$80000–$833FF`), is refused too, when it moves: that memory is OODOS's
-([function 83](#bdos-83), [chapter 8](08-game-services.md#video-memory)).
+A segment may reach any RAM but OODOS's own: banks 0–5, 8–B and E. Refused are banks 6–7 (the hash, the buffers,
+the system block), C–D (M:), blocks 60–63 (the BDOS, the BIOS, OODOS's resident block, the ROM BIOS's copy) and
+anything past `$FFFFF`. A DMA address whose record would run past `$FFFF` is refused, as it is without a segment. A
+refused record is A = X = `$FF` with nothing done: checked before the first record for 20, 21, 33, 34 and 40, and
+when the record moves for 17 and 18.
+
+A record read (17, 18, 20, 33) is refused too, when it moves, if it would touch an aperture window that shows
+OODOS's card memory: on video card revision 2 (*proposed*, interface version 8) bank 8 is the card's aperture, and
+its slot 0's window, `$80000–$83FFF` (the console's), and slots 2 and 3's, `$88000–$8FFFF`, are OODOS's. Slot 1's,
+`$84000–$87FFF`, shows the program's own card memory, and banks 9–B are ordinary RAM ([chapter
+5](05-memory-and-banking.md#video-memory-on-revision-2)). From OODOS 0.5 to interface version 7, on revision 1,
+the refused range was the console's video memory, units 0–12 (`$80000–$833FF`).
 
 The segment lasts until the program sets another or ends: each warm boot sets it back to `$FFFF`. Function 13 sets
 the DMA address to `$0280` and keeps the segment.
@@ -3039,8 +3044,10 @@ functions, called through 50; OODOS's BDOS owns the buffers, so it is the one to
 
 #### Exit
 
-- `FT_INFO`: A = OOLIB's interface version (7: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
-  volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510)), X = a bit for each service area OODOS
+- `FT_INFO`: A = OOLIB's interface version (8: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
+  volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS`, [chapter 8](08-game-services.md#the-6510); 8 video card
+  revision 2's, *proposed*: function 83's card operations and the W1 contract on the aperture,
+  [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)), X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83)). With a block: +1 and +2 the same, +3 the
   clocks that run (`FC_FRAME` `$01` the frame counter, a video card; `FC_MS` `$02` the millisecond counter, the
@@ -3330,48 +3337,69 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 - X = 0: A is the operation, and it takes no parameters.
 - X not 0: A/X is the address of a parameter block in the program's memory, its +0 the operation and the
   operation's parameters after it, as [function 80's](#bdos-80). The operations are oodos.inc's `DM_` names.
-  Addresses are physical, 3 bytes ([function 73](#bdos-73) makes one of a CPU address):
+  A physical address is 3 bytes ([function 73](#bdos-73) makes one of a CPU address). A card address, in the video
+  card's own memory (*proposed*, revision 2: `oodos/include/vmem.inc`), is 3 bytes too, `$000000–$1FFFFF` on a
+  2 MB card. A length of 0 is 65,536.
 
   | A or +0 | Name | The block, after +0 | What it does |
   |---|---|---|---|
-  | 0 | `DM_INFO` | 12 bytes to fill (optional) | says the units, the slots and the W1 map |
-  | 1 | `DM_LOAD` | +1–2 an open FCB, +3–5 its first record, +6–7 a count of records (1–512), +8–10 the destination | loads the records into physical memory by DMA |
-  | 2 | `DM_COPY` | +1–3 the source, +4–6 the destination, +7–8 the length (0: 65,536) | copies by DMA |
-  | 3 | `DM_FILL` | +1 the byte, +2–4 the destination, +5–6 the length (0: 65,536) | fills by DMA |
-  | 4 | `DM_VBSET` | +1 a slot (0–3), +2–4 the source, +5–7 the destination, +8–9 the length (1–1,024; 0 frees the slot) | sets a vertical-blank copy |
+  | 0 | `DM_INFO` | 16 bytes to fill (optional) | says the card's memory, the slots, the W1 map and the program's card pages |
+  | 1 | `DM_LOAD` | +1–2 an open FCB, +3–5 its first record, +6–7 a count of records (1–512), +8–10 the destination (physical) | loads the records into physical memory by DMA |
+  | 2 | `DM_COPY` | +1–3 the source, +4–6 the destination (physical), +7–8 the length | copies by DMA |
+  | 3 | `DM_FILL` | +1 the byte, +2–4 the destination (physical), +5–6 the length | fills by DMA |
+  | 4 | `DM_VBSET` | +1 a slot (0–3), +2–4 the source (physical), +5–7 the destination (card), +8–9 the length (1–1,024; 0 frees the slot) | sets a vertical-blank copy |
   | 5 | `DM_POINTER` | +1 a sprite (0–63; `$FF` off), +2 and +3 the hotspot's X and Y | moves the sprite with the mouse |
   | 6 | `DM_CONSOLE` | none | shows the console's screen again |
+  | 7 | `DM_VWRITE` | +1–3 the source (physical), +4–6 the destination (card), +7–8 the length | copies system memory to card memory, through the card's port |
+  | 8 | `DM_VREAD` | +1–3 the source (card), +4–6 the destination (physical), +7–8 the length | copies card memory to system memory, the same way |
+  | 9 | `DM_VFILL` | +1 the byte, +2–4 the destination (card), +5–6 the length | fills card memory |
+  | 10 | `DM_VCOPY` | +1–3 the source (card), +4–6 the destination (card), +7–8 the length | copies within card memory |
+
+  Operations 7–10, and card addresses for 4, are *proposed*, with revision 2 of the video card (interface version
+  8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)).
 
 #### Exit
 
-- `DM_INFO`: A = the first video memory unit a program may use (13: `DM_UNIT0`), X = the vertical-blank slots (4:
-  `DM_SLOTS`). With a block: +1 and +2 the same, +3 the slots' budget in 256-byte pages (4: `DM_BUDGET`, 1,024
-  bytes), +4 the pointer's sprite (`$FF` off), +5–12 the **W1 map**: bit n & 7 of byte n / 8 set for each block n
-  that OOLIB may put in W1 now (block 1, the blocks the program has allocated by functions 53–56, and video memory's
-  blocks 33–47; [chapter 5](05-memory-and-banking.md#the-w1-contract)).
+- `DM_INFO`: A = the card's memory in 64 KB units, its MEMSIZE (32 for 2 MB; 0 with no revision 2 card), X = the
+  vertical-blank slots (4: `DM_SLOTS`). With a block: +1 and +2 the same, +3 the slots' budget in 256-byte pages (4:
+  `DM_BUDGET`, 1,024 bytes), +4 the pointer's sprite (`$FF` off), +5–12 the **W1 map**: bit n & 7 of byte n / 8 set
+  for each block n that OOLIB may put in W1 now: block 1, the blocks the program has allocated by functions 53–56,
+  block 33 (aperture slot 1's window) and blocks 36–47 (banks 9–B), never 32, 34 or 35
+  ([chapter 5](05-memory-and-banking.md#the-w1-contract)). +13–14 the program's first card page (a card address
+  ÷ 256: `$0400`, `DM_PAGE0`), +15–16 the page past its last (`$1C00`, `DM_PAGEEND`, or the fitted memory's end if
+  that is sooner); both 0 with no card.
 - `DM_LOAD`: A = 0, X = 0, every record loaded; A = 1 if the file ended first (a record past the extent's count, a
   block never written, or an extent never written), its records before that loaded. The block's +6–7 get the records
   loaded, either way.
-- The rest: A = 0, X = 0. `DM_LOAD`, `DM_COPY` and `DM_FILL` return when they are done.
+- The rest: A = 0, X = 0, when they are done.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 6, one that needs a block given none, a block in memory that
-isn't the program's (the I/O hole, flash), and a destination that isn't memory a DMA segment may reach
-([function 51](#bdos-51): OODOS's own blocks, or past `$FFFFF`) or that touches the console's video memory, units
-0–12 (`$80000–$833FF`). A source may be anything a segment may reach, the console's font (units 1–4) included. And:
+A = X = `$FF`, and nothing done, for an operation past 10, one that needs a block given none, a block in memory that
+isn't the program's (the I/O hole, flash), and:
 
+- **A physical destination** that isn't memory a DMA segment may reach ([function 51](#bdos-51): OODOS's own blocks,
+  or past `$FFFFF`), or that touches an aperture window showing OODOS's card memory: slot 0's, `$80000–$83FFF`, or
+  slots 2 and 3's, `$88000–$8FFFF`. Slot 1's, `$84000–$87FFF`, is the program's. A physical source may be anything
+  a segment may reach.
+- **A card destination** outside the program's part, `$040000–$1BFFFF` (OODOS's `$000000–$03FFFF`, Apple II
+  mode's `$1C0000–$1FFFFF`, past the fitted memory, or wrapping past `$FFFFFF`). A card source may be anywhere in
+  the fitted memory: the console's font at `$000400`, for text on a bitmap.
+- **The card operations** (4 and 7–10) with no revision 2 video card or no DMA controller: every byte they move goes
+  by DMA.
 - `DM_LOAD`: a count of 0 or past 512. Function 33's errors otherwise, as its error mode says ([function
   45](#bdos-45)): 3 (an extent that can't be closed) and 6 (past 32 MB) returned in A, a physical error said. An FCB
   that was never opened has no blocks: A = 1, no records.
-- `DM_VBSET`: no video card or no DMA controller; a slot past 3; a length past 1,024, or that takes the four slots'
-  past 1,024.
+- `DM_VBSET`: a slot past 3; a length past 1,024, or that takes the four slots' past 1,024.
 - `DM_POINTER`: a sprite past 63; no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
-  card or no DMA controller. `$FF` (off) is always taken.
+  card of revision 2 or no DMA controller. `$FF` (off) is always taken.
+- `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a piece through the port that didn't end (no DMA controller answering, or one
+  starved): A = X = `$FF`, the pieces before it done and none after.
 
 An OODOS before L4 answers 83 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says
-whether there is DMA and loading (`OA_DMA`, interface version 4).
+whether there is DMA and loading (`OA_DMA`, interface version 4). Below interface version 8 there are no operations
+7–10, and `DM_INFO`'s A was the first video memory unit a program might use (13), on revision 1's banks 8–B.
 
 #### Side effects
 
@@ -3381,31 +3409,45 @@ whether there is DMA and loading (`OA_DMA`, interface version 4).
   between (M: by channel 3). A first or last record that doesn't fill its sector goes through a BDOS buffer, as
   function 33 moves a record with a DMA segment. An apple-do drive (O:, P:, an apple-do image on the card) goes
   through its track buffer whole. The FCB is left as a random read of the last record loaded leaves it (R0–R2 and CR
-  that record's), or of the first if none was; the DMA segment and address aren't changed. No vertical-blank wait:
-  load into a buffer that isn't shown and flip ([chapter 8](08-game-services.md#loading)).
+  that record's), or of the first if none was; the DMA segment and address aren't changed. Its destination is
+  system memory: a file goes to card memory by `DM_LOAD` into a buffer, then `DM_VWRITE` ([chapter
+  8](08-game-services.md#loading)). No vertical-blank wait: load into a buffer that isn't shown and flip.
 - `DM_COPY` and `DM_FILL` go by channel 3, 2 KB a block, interrupts taken between. A copy to a lower address is
   exact over itself; to a higher one it runs forward, a byte at a time (so a copy one byte up repeats the first). A
   fill writes the byte to the first and copies it forward over the rest.
-- `DM_VBSET`'s slot is copied by channel 1 at each vertical blank after the program sets its bit in the event
-  area's +12 (`EV_VBGO`, bit n slot n), and the bit cleared then; nothing is copied with no event area open. The
-  slots run in order, then the pointer ([chapter 8](08-game-services.md#the-vertical-blank-slots)).
-- `DM_POINTER` sets bytes 2–5 (X and Y) of the sprite's entry in the table at SPRBASE at each vertical blank, from the
-  area's mouse X and Y less the hotspot, modulo 1,024; not while SPRBASE is a console unit (below 13). The program
+- `DM_VWRITE`, `DM_VREAD` and `DM_VFILL` go through the video card's data port by DMA channel 1, in pieces of 2 KB,
+  interrupts masked for each piece, so the frame handler's copies, on the same port and channel, come between pieces
+  and never meet the port half set. The card asks for every byte at once, so a piece runs with the CPU held, a cycle
+  a byte. The port's PCTL is 0 after each piece, its DMA request off.
+- `DM_VCOPY` borrows aperture slots 2 and 3 for each piece, the source's card bank in one and the destination's in
+  the other, copies from one window to the other by channel 3, interrupts masked, and puts both slots back. No piece
+  crosses a card bank of either side. A copy down over itself is exact; up over itself it runs forward, as `DM_COPY`
+  does.
+- `DM_VBSET`'s slot is copied, through the port on channel 1, at each vertical blank after the program sets its bit
+  in the event area's +12 (`EV_VBGO`, bit n slot n), and the bit cleared then; nothing is copied with no event area
+  open. The slots run in order, then the pointer ([chapter 8](08-game-services.md#the-vertical-blank-slots)).
+- `DM_POINTER` sets bytes 2–5 (X and Y) of the sprite's entry in the table at SPRBASE × 256 at each vertical blank,
+  through the port, from the area's mouse X and Y less the hotspot, modulo 1,024; only while the entry is in the
+  program's part of card memory (not while SPRBASE is the console's, 0, as the warm boot leaves it). The program
   draws the image, sets the entry's other bytes, and puts the mouse in absolute mode with limits 319 and 239
   ([function 81's](#bdos-81) `IN_MOUSE`): the sprites' space is 320 × 240.
 - `DM_CONSOLE` sets the video card's registers as the cold boot set them for the console (CTRL, BORDER, PALBASE,
   SPRBASE, the layers): its text, font and palette are where they were, so what was printed meanwhile shows.
-- The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does.
+- The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does. It also
+  turns the port's DMA request off and puts the aperture's slots 0–3 on card banks 0, 16, 2 and 3: slot 1 on the
+  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part.
 
 #### Cycles
 
 `DM_LOAD` of 64 KB from an `oodos-8m` drive: 114,442 cycles (16.0 ms), against 620,419 (86.7 ms) by functions 51 and
-33 with a multi-sector count of 128 (test_oodos_load). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call. What
-the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
+33 with a multi-sector count of 128 (test_oodos_load). `DM_COPY` and `DM_FILL`: 2 cycles a byte, and the call.
+`DM_VWRITE`, `DM_VREAD`, `DM_VFILL`: a cycle a byte by DMA, the CPU held, and each 2 KB piece's setting up: 60 KB
+(61,440 bytes) is about 61,500 cycles of DMA, 8.6 ms at 7.16 MHz. test_oodos_video measures 17 ms for it, a round
+trip that includes its rig's command line. What the slots and the pointer cost a frame is [chapter 8's](08-game-services.md#what-graphics-costs).
 
 #### Since
 
-OODOS 0.5
+OODOS 0.5; operations 7–10 and the card addresses with interface version 8 (*proposed*).
 
 #### Status
 

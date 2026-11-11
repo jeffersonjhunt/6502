@@ -73,3 +73,5 @@
 .devs { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 0; font: 400 11.5px/1.45 "JetBrains Mono", monospace; }
 .devs dt { font: 600 9.5px/1.9 Inter, sans-serif; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
 .devs dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.vram-box { display: flex; flex-direction: column; gap: 6px; }
+.vram { margin: 0; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; max-height: min(40vh, 320px); overflow: auto; font: 400 11.5px/1.5 "JetBrains Mono", monospace; color: var(--text); white-space: pre; }

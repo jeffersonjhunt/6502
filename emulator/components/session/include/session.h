@@ -217,6 +217,8 @@ namespace ooe::emu
 
         /// The video card, if the machine has one: frame() is the screen.
         const VideoCard *video() const { return machine_->video_card(); }
+        /// The same, to write its card memory (a debugger's `vram`).
+        VideoCard *video() { return machine_->video_card(); }
         /// The USB card, if the machine has one: the keyboard, mouse and game port.
         UsbCard *usb() const { return machine_->usb_card(); }
         /// The serial card's joystick ports, if the machine has them (`joyports`).
