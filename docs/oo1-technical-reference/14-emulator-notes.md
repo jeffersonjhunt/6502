@@ -41,7 +41,7 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
 | `sd 380-3FF … irq drq=0` | the mass storage card, its DRQ on DMA channel 0 ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
-| `video 480-4FF … irq` | the video card, drawing from banks 8–B ([chapter 6](06-video.md)) |
+| `video 480-4FF … irq` | the video card, drawing from banks 8–B ([chapter 6](06-video.md)); revision 2's line is to add `drq=1` ([below](#revision-2-of-the-video-card)) |
 | `sound 500-57F … irq drq=2` | the sound card, RAMDATA on DMA channel 2 ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)) |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
@@ -198,6 +198,9 @@ The design has these, and the emulator doesn't:
   ISR, its BE lamp and the ESP32's SPI header** ([chapter 12](12-front-panel.md#what-the-emulator-leaves-out)).
 - **Apple II mode's long cycle,** every 65th cycle stretched
   ([chapter 13](13-apple-ii-mode.md#the-long-cycle)).
+- **Revision 2 of the video card:** its own 2 MB, the aperture in bank 8, the data port on channel 1, the new
+  register map and ID `$92` ([chapter 6](06-video.md#revision-2-the-cards-own-memory)). The emulator's card is
+  revision 1.
 
 The emulator's own backlog, beside the design, has `.nib`, `.d13` and `.2mg` disk images
 ([chapter 10](10-storage.md#disk-images)).
@@ -329,6 +332,21 @@ emulator; each link goes to the note.
     reads `$FF`. Without a USB card the whole game port reads `$00`
     ([What isn't there](13-apple-ii-mode.md#what-isnt-there),
     [`apple_io.cpp`](../../emulator/components/devices/apple_io.cpp)).
+
+### Revision 2 of the video card
+
+Status: **proposed**
+
+What the emulator is to do for revision 2 ([hw/design.md, "Emulator"](../../hw/design.md#emulator), step 10), and
+where it is to differ from the card:
+
+- **The machine.** `backplane.machine`'s RAM line no longer covers bank 8, which becomes the aperture, a memory
+  device decoded to the video card; the `video` line gains `drq=1`, as the sound card's has `drq=2`.
+- **Both revisions.** A `set_revision` switch keeps revision 1 for comparison while the BIOS moves.
+- **The debugger** gains `vram`, to peek and poke card memory; `--screen` is unchanged.
+- **Apple II mode** reads banks 0 and 1 directly, as now, where the card keeps a snooped copy in its own memory
+  ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)); only the character ROM comes from card memory.
+  Nothing outside the card can tell the two apart.
 
 ## Known bugs
 

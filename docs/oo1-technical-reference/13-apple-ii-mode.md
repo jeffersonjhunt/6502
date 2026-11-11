@@ -154,7 +154,7 @@ The physical banks, as the mode uses them:
 | 3 | `$30000–$3FFFF` | the auxiliary language card, the same |
 | 4 | `$40000–$4FFFF` | the main language card's `$D000–$DFFF` bank 1, at `$4D000` |
 | 5 | `$50000–$5FFFF` | the auxiliary language card's `$D000–$DFFF` bank 1, at `$5D000` |
-| B | `$B0000–$BFFFF` | the character ROM, 2 KB at `$BE000` in video memory |
+| B | `$B0000–$BFFFF` | the character ROM, 2 KB at `$BE000` in video memory (with revision 2 of the video card, in card memory instead: [below](#revision-2-of-the-video-card)) |
 | E | `$E0000–$EFFFF` | the IIe ROM image, `$EC000–$EFFFF` |
 
 Of banks 0 and 1 only `$0000–$BFFF` is addressed, and of banks 2 and 3 only `$D000–$FFFF`, though the BIOS clears
@@ -364,6 +364,25 @@ What the card draws:
 
 Page 2 is shown only with 80STORE off. The colours and their rules are in
 [hw/design.md, "Apple II mode"](../../hw/design.md#apple-ii-mode).
+
+### Revision 2 of the video card
+
+Status: **proposed**
+
+With revision 2 of the video card ([chapter 6](06-video.md#apple-ii-mode-on-revision-2)) Apple II mode works as this
+chapter describes. Only where the card keeps its copy of the display and the character ROM changes:
+
+- **The display.** The card watches the writes to banks 0 and 1 and the display switches on the backplane, as
+  hw/design.md has it, and keeps its copy of the two banks in its own memory, card addresses `$1C0000–$1DFFFF`.
+  Nothing outside the card can see the copy; the modes, the colours, the 560×384 picture and `$C019` are as above.
+- **The character ROM.** The BIOS's entry ([above](#what-the-bioss-entry-does)) puts the same 2 KB, from the
+  cartridge or made from the VGA font, in card memory at `$1E0000`, through the card's data port, instead of at
+  `$BE000`. So bank B is no longer used: the mode's banks are 0–5 and E, and system RAM is left as it was in banks
+  6–D and F whole.
+- **Card memory survives /RESET.** The pulse that enters the mode, and every Ctrl-Reset, reset the card's registers
+  but never its memory, so the character ROM is still there after each ([above](#the-reset-pulse)).
+- **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture in bank 8, and
+  the DMA controller is idle, so its port isn't used.
 
 ## The clock
 

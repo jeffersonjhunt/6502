@@ -144,6 +144,36 @@ CPU held, for the same reason), the stream's with MODE's IRQ set so that the nex
 ([chapter 7](07-sound.md#under-oodos)). OODOS sets the master enable for it and leaves it on. The warm boot aborts the
 channel.
 
+## Revision 2: channel 1, the video port
+
+Status: **proposed**
+
+Revision 2 of the video card ([chapter 6](06-video.md#revision-2-the-cards-own-memory)) has a data port, PDATA
+(`$C4BB`), that its DRQ puts on channel 1, as the sound card's RAMDATA is on channel 2. It is a card transfer like
+any other ([above](#transfers-for-a-card)), fly-by, with the card's own PADDR as the card-memory side and the
+channel's ADDR as the system-RAM side:
+
+| To | Channel 1's MODE DIR | The card's PCTL |
+|---|---|---|
+| card memory, from RAM | `%01`, memory to card | bit 1 clear; bit 0 set |
+| RAM, from card memory | `%00`, card to memory | bit 1 set; bit 0 set |
+
+- **The two sides step on their own.** The channel's address steps by one (or down, with DEC); PADDR by the card's
+  PSTEP, up or down. So a 16-byte run of RAM can become a column of a text screen, PSTEP 160.
+- **What it costs.** [hw/video-rev2.md](../../hw/video-rev2.md#data-port-and-dma) reckons two cycles a byte, a 4 KB
+  font in about 8,200 cycles and a 300 KB bitmap in about 0.09 s. A fly-by card transfer is one cycle a byte here,
+  so a port transfer should be nearer 4,100 cycles for the font; the emulator will settle it.
+- **Copies within card memory** go out to RAM and back in, two transfers: the card has no copy engine yet.
+- **The serial card** loses channel 1, which hw/design.md gave it; its DMASEL3 still reaches channel 3. Which
+  channel its second stream takes is open ([hw/design.md, "DMA"](../../hw/design.md#dma)).
+- **In Apple II mode** the controller is idle, as [above](#apple-ii-mode), so the port is never used there.
+
+Under OODOS channel 1 is already the vertical-blank copies' and the pointer's
+([above](#under-oodos)); on revision 2 they become port transfers, from the program's RAM to card memory, run from
+the frame handler as now. Function 83's video copies become port transfers too; which channel each takes is
+OODOS's, and the Programmer's Guide will say
+([function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83)).
+
 ## Registers
 
 Status: **emulated**

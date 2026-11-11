@@ -38,6 +38,23 @@ ROM B (module 5) is the cartridge, 32 blocks more. A window reaches them with it
 
 The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma.md)).
 
+### Revision 2: bank 8, the aperture
+
+Status: **proposed**
+
+With revision 2 of the video card ([chapter 6](06-video.md#revision-2-the-cards-own-memory)) the card draws from 2 MB
+of its own memory, and banks 8–B are no longer video memory:
+
+| Bank | Physical | Blocks | What uses it in native mode |
+|---|---|---|---|
+| 8 | `$80000–$8FFFF` | 32–35 | the video card's aperture: no RAM answers here, the north bridge decodes the bank to the card, and block 32 + *n* is the aperture's slot *n* ([chapter 6](06-video.md#the-aperture)) |
+| 9–B | `$90000–$BFFFF` | 36–47 | free to the system |
+
+The machine then has 960 KB of RAM, and the aperture's 64 KB. A window reaches a slot as it reaches a RAM block,
+its ROM bit clear. Apple II mode doesn't use bank 8 or banks 9–B, and its character ROM is in card memory, not
+at `$BE000` ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)). Everything else in the table above
+is as it is.
+
 ## The four windows
 
 Status: **emulated**
