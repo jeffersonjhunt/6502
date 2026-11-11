@@ -94,11 +94,17 @@ The ROM is the last argument, not an option's value: there is no `--rom`.
 **The debugger.** Ctrl-] stops the machine at a `debug>` prompt, and `h` lists its commands: `r` run, `s` step
 instructions, `f` show bytes with no side effects, `st` store, `x` the registers, `l` disassemble, `b` and `d`
 breakpoints, `t` the trace on or off, `reset` a hard reset, the cards' and the CPU's, `q` quit. Addresses take
-labels. STP stops into it too. On the OO-1 it has two more:
+labels. STP stops into it too. On the OO-1 it has three more:
 
 - **`rtc`** shows the real-time clock: the time, RTCCTL and the DS3231's registers.
 - **`joy`** shows the joysticks. `joy 1 uf` holds joystick 1 up with fire pressed, and `joy 1 -` lets it go
   ([chapter 9](09-serial-and-via.md#the-joysticks)).
+
+**`vram`** (Proposed, with the video card's [revision 2](06-video.md#revision-2-card-memory)) shows and writes the
+card's own memory, which the CPU reaches only through the aperture: `vram 2000 32` shows 32 bytes from card address
+`$002000`, and `vram 1E1000 = 12 34` writes two there. It takes no bus cycles and leaves the port's registers as they
+are; past the fitted memory it reads `$FF` and drops writes, as the card does. The WebUI has the same, as Card memory
+under the video card in the debugger's Devices tab.
 
 The console card's breakpoint and CTRL's HALT stop the app at its prompt, and going on from there lets the card go
 too ([chapter 12](12-front-panel.md#switches-and-lights)).

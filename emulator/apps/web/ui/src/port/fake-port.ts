@@ -33,6 +33,8 @@ export class FakePort implements MachinePort {
   readonly memory = new Map<number, number>();
   /** What readMemory(..., "io") returns where set (else `memory`): the cards, whatever the CPU sees. */
   readonly io = new Map<number, number>();
+  /** A revision 2 video card's memory (readCardMemory), by card address; null: no such card. */
+  cardMemory: Map<number, number> | null = null;
   labels = new Map<string, number>();
   traceRows: TraceRow[] = [];
   /** What readApple() returns. */
@@ -210,6 +212,18 @@ export class FakePort implements MachinePort {
   }
   async readMemory(addr: number, length: number, space: "cpu" | "physical" | "io" = "cpu"): Promise<Uint8Array> {
     return Uint8Array.from({ length }, (_, i) => (space === "io" ? this.io.get(addr + i) : undefined) ?? this.memory.get(addr + i) ?? 0);
+  }
+  async readCardMemory(addr: number, length: number): Promise<Uint8Array | null> {
+    const mem = this.cardMemory;
+    if (!mem) return null;
+    return Uint8Array.from({ length }, (_, i) => ((addr + i) & 0xffffff) >= 0x200000 ? 0xff : mem.get((addr + i) & 0xffffff) ?? 0);
+  }
+  writeCardMemory(addr: number, bytes: Uint8Array): void {
+    this.calls.push(["writeCardMemory", addr, Array.from(bytes)]);
+    bytes.forEach((b, i) => {
+      const at = (addr + i) & 0xffffff;
+      if (at < 0x200000) this.cardMemory?.set(at, b);
+    });
   }
   async physical(cpuAddr: number): Promise<number> {
     return cpuAddr >= 0xc800 ? 0xf0000 | cpuAddr : cpuAddr;

@@ -69,7 +69,9 @@ as far as it is modelled: the W65C02S and north bridge (with the DS3231
 real-time clock, set from the host's clock at start-up; `rtc` at the
 `debug>` prompt shows it), 1 MB of RAM in four
 modules, the 512 KB flash, the DMA controller, the video card ($C480: VGA
-640x480 from banks 8-B: text, bitmaps, tiles and sprites), the USB card
+640x480 from 2 MB of its own memory, through an aperture at bank 8 and a
+port on DMA channel 1: text, bitmaps, tiles and sprites; `vram` at the
+`debug>` prompt shows and writes that memory), the USB card
 ($C580: keyboard, mouse, game port; the WebUI types on it), the mass storage
 card ($C380: an SD card behind an RP2350; `--sd FILE` puts a card image in its
 slot, written through) and the Console card (the front

@@ -8,7 +8,8 @@
  * addresses they point at: on revision 1 (ID $91) the physical address
  * $80000 + base x 1 KB; on revision 2 (ID $92, hw/video-rev2.md) the card
  * memory address, six digits, base x 256, with the aperture's slots, the
- * data port and the fitted memory.
+ * data port and the fitted memory; and, on revision 2, the card's memory
+ * itself (vram.ts: the terminal debugger's `vram`).
  *
  * Then Apple II mode: whether it is on, and the IIe's soft switches
  * (readApple), which keep their state in native mode too. Then the Disk II
@@ -28,6 +29,7 @@ import type { AppleState, DiskInfo, DiskStatus, Envelope, MachinePort, SdInfo, S
 import { h } from "../ui/dom";
 import { cardSize } from "../ui/sd-bar";
 import { hex } from "./breakpoints";
+import { vramView } from "./vram";
 
 export const VIDEO = 0xc480;
 const VIDEO_ID = 0x91;
@@ -230,6 +232,14 @@ export function describeLayer(r: Uint8Array, on: boolean): string {
 
 export function devicesView(port: MachinePort) {
   const rows = h("dl", { class: "devs", "data-testid": "dev-video" });
+  const vram = vramView(port);
+  const vramBox = h(
+    "div",
+    { class: "sec", "data-testid": "dev-vram", hidden: true },
+    h("h4", {}, "Card memory"),
+    h("p", { class: "hint" }, "The card's own 2 MB, as vram shows it at the terminal's debug> prompt: no bus cycles, the port untouched. ADDR [N] shows N bytes, ADDR = BYTE... writes them."),
+    vram.element,
+  );
   const status = h("em", {}, "");
   const usbRows = h("dl", { class: "devs", "data-testid": "dev-usb" });
   const usbStatus = h("em", {}, "");
@@ -253,6 +263,7 @@ export function devicesView(port: MachinePort) {
       { class: "hint" },
       "Module 9 at $C480. Bases and scroll take effect at vertical blank; this shows what was written.",
     ),
+    vramBox,
     h("h4", {}, "USB card ", usbStatus),
     usbRows,
     h("p", { class: "hint" }, "Module B at $C580. On the VGA scene the keyboard and mouse are this card's; on Apple II, the keyboard."),
@@ -422,6 +433,8 @@ export function devicesView(port: MachinePort) {
     await refreshApple();
     await refreshDisk();
     const r = await port.readMemory(VIDEO, 0x80, "io");
+    vramBox.hidden = r[0x7f] !== VIDEO_ID_REV2;
+    if (!vramBox.hidden) await vram.refresh();
     if (r[0x7f] !== VIDEO_ID && r[0x7f] !== VIDEO_ID_REV2) {
       status.textContent = "none";
       rows.replaceChildren(h("dd", {}, "No video card on this machine."));

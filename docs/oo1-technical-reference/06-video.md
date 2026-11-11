@@ -310,7 +310,7 @@ Status: **emulated**
 - **In vertical blank**, lines 480–524, nothing is drawn, and STATUS bit 7 is set. Memory, the palette's contents,
   CTRL, BORDER, CONFIG and PALOFS written then show on the next frame. The demo waits for its start so:
 
-<!-- listing: ../../backplane/bios/demo.s:470-476 -->
+<!-- listing: ../../backplane/bios/demo.s:471-477 -->
 ```
 ; Wait for the start of a vertical blank (STATUS bit 7 going on).
 WAITVB:
@@ -322,7 +322,7 @@ WAITVB:
 ```
 
 After WAITVB the demo copies its sprite table in and writes layer 0's CONFIG and HSCROLL
-(`backplane/bios/demo.s:236–243`). The sprites show on the next frame, but the scroll, latched already, shows a frame
+(`backplane/bios/demo.s:237–244`). The sprites show on the next frame, but the scroll, latched already, shows a frame
 later, so it runs a frame behind. CONFIG isn't latched, so the demo writes it a frame after the MAPBASE it goes with
 (*proposed*, revision 2's demo: [revision 2](#revision-2-card-memory)).
 
