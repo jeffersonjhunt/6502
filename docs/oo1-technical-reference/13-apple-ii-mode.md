@@ -40,7 +40,7 @@ Status: **emulated**
 
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor if either is missing:
 
-<!-- listing: ../../backplane/bios/apple.s:50-61 -->
+<!-- listing: ../../backplane/bios/apple.s:49-60 -->
 ```
 APPLE:
                 LDA     DMA_ID
@@ -71,7 +71,10 @@ Then, in order:
    from there. If not, it makes a set from the BIOS's VGA font, so Apple text still shows: each glyph's 16 rows
    ORed in pairs to 8, its 7 left dots reversed so that bit 0 is the leftmost, and the codes from `$80` up stored
    inverted, lit where a bit is 0. In the emulator the cartridge's character ROM comes from `--apple-chars` (a 4 or
-   8 KB file) or the WebUI's Settings.
+   8 KB file) or the WebUI's Settings. Proposed, with [video card revision 2](06-video.md#revision-2-card-memory)
+   (BIOS 0.13): the 2 KB go into the card's own memory at `$1E0000` instead, written to the port's PDATA in turn
+   (PADDR `$1E0000`, PSTEP 1, no DMA), and the VGA font is read from flash block 30. Card memory outlives the
+   /RESET that enters the mode, and nothing in system RAM is written for it.
 3. **Interrupts off** (SEI), and a zero byte at `$EBFFF`, the top of block 58.
 4. **The clear,** by DMA, from that zero byte held as the source: banks 0–3 (four fills of 64 KB), then
    `$D000–$DFFF` of banks 4 and 5 (two of 4 KB). Before the first, it aborts every channel, clears their STATUS
@@ -80,7 +83,7 @@ Then, in order:
    zero page with it, so this part runs inline and never returns. apple.s reckons the clear at about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:132-134 -->
+<!-- listing: ../../backplane/bios/apple.s:131-133 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
@@ -89,7 +92,8 @@ Then, in order:
 
 The loop waits for the pulse. In the emulator the pulse comes as soon as the `STA` ends, so the loop never runs.
 
-The rest of memory is left as it was: banks 6–D and F, but for the character ROM at `$BE000–$BE7FF`; bank E below
+The rest of memory is left as it was: banks 6–D and F, but for the character ROM at `$BE000–$BE7FF` (on revision
+2, proposed, it is in the card's memory, and banks 6–D and F are all left); bank E below
 `$EBFFF`, the zero byte and the ROM image above it; and banks 4 and 5 outside `$D000–$DFFF`.
 
 ### The /RESET pulse
@@ -154,7 +158,7 @@ The physical banks, as the mode uses them:
 | 3 | `$30000–$3FFFF` | the auxiliary language card, the same |
 | 4 | `$40000–$4FFFF` | the main language card's `$D000–$DFFF` bank 1, at `$4D000` |
 | 5 | `$50000–$5FFFF` | the auxiliary language card's `$D000–$DFFF` bank 1, at `$5D000` |
-| B | `$B0000–$BFFFF` | the character ROM, 2 KB at `$BE000` in video memory |
+| B | `$B0000–$BFFFF` | the character ROM, 2 KB at `$BE000` in video memory (revision 2, proposed: card memory `$1E0000`) |
 | E | `$E0000–$EFFFF` | the IIe ROM image, `$EC000–$EFFFF` |
 
 Of banks 0 and 1 only `$0000–$BFFF` is addressed, and of banks 2 and 3 only `$D000–$FFFF`, though the BIOS clears

@@ -341,7 +341,7 @@ None that the chapters know of. Where the emulator does less than the design, it
 
 Status: **emulated**
 
-Not bugs, but what BIOS 0.12 does, which a program run from the monitor has to know:
+Not bugs, but what BIOS 0.13 does, which a program run from the monitor has to know:
 
 - **Break turns off what the BIOS's IRQ handler can't answer:** the cards' IENs, the clock's TIE, the VIA's IER
   (`$7F`) and the console card's ISR (`$01`), the last two since BIOS 0.11

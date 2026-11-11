@@ -125,7 +125,8 @@ In Apple II mode the card draws the IIe's display instead of its layers: text, l
 from banks 0 and 1, as the north bridge's soft switches say. Each Apple dot is 2×2 pixels, the 560×384 picture
 centred on black. The card's registers can't be reached, and the /RESET that entered the mode has set them all back
 to their reset values. Text is drawn from the IIe's character ROM, which the BIOS's `C806R` puts in video memory at
-`$BE000`. [Chapter 13](13-apple-ii-mode.md) has the mode.
+`$BE000` (on revision 2, proposed, in card memory at `$1E0000`, through the port). [Chapter 13](13-apple-ii-mode.md)
+has the mode.
 
 ## Sprites
 
@@ -189,7 +190,7 @@ so a write to it swaps the whole palette between frames.
 
 The BIOS's palette is the CGA's 16 colours, which VINIT writes to entries 0–15 at unit 0 (`video.s`):
 
-<!-- listing: ../../backplane/bios/video.s:332-351 -->
+<!-- listing: ../../backplane/bios/video.s:460-479 -->
 ```
 ; The CGA's 16 colours, 12-bit: GGGGBBBB, then 0000RRRR.
 .macro RGB r, g, b
@@ -302,42 +303,57 @@ The sprites show on the next frame, but the scroll, latched already, shows a fra
 
 ### The BIOS's text screen
 
-Status: **emulated**
+Status: **emulated** on revision 1; **proposed** on [revision 2](#revision-2-card-memory), which BIOS 0.13 is built
+for (it takes the screen only when the ID reads `$92`).
 
 At boot VINIT copies the font and the palette in, clears the screen, and ends in VSCREEN, which sets the registers.
 Break calls VSCREEN again, after QUIET, so the monitor always comes back to this screen, with its memory as it was
 left. VSCREEN does nothing unless both the video card's and the DMA controller's ID bytes answer:
 
-<!-- listing: ../../backplane/bios/video.s:129-152 -->
+<!-- listing: ../../backplane/bios/video.s:146-176 -->
 ```
 ; The card's registers for the text screen, if there is one: layer 0 only,
-; unscrolled, no interrupts. Its memory is left as it is.
+; unscrolled, no interrupts. Its memory, the aperture's slots and the port
+; are left as they are.
 VSCREEN:
                 JSR     PROBE
                 BPL     @done
                 STZ     VIDEO_IEN
-                STZ     VIDEO_PALBASE_R1
-                STZ     VIDEO_SPRBASE_R1
+                STZ     VIDEO_PALBASE
+                STZ     VIDEO_PALBASE + 1
+                STZ     VIDEO_SPRBASE
+                STZ     VIDEO_SPRBASE + 1
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG
-                LDA     #TEXT_UNIT
-                STA     VIDEO_L0_MAP_R1
-                LDA     #FONT_UNIT
-                STA     VIDEO_L0_TILE_R1
-                STZ     VIDEO_L0_HSCROLL_R1
-                STZ     VIDEO_L0_HSCROLL_R1 + 1
-                STZ     VIDEO_L0_VSCROLL_R1
-                STZ     VIDEO_L0_VSCROLL_R1 + 1
-                STZ     VIDEO_L0_PALOFS_R1
+                LDA     #<(TEXT_CARD >> 8)
+                STA     VIDEO_L0_MAP
+                LDA     #>(TEXT_CARD >> 8)
+                STA     VIDEO_L0_MAP + 1
+                LDA     #<(FONT_CARD >> 8)
+                STA     VIDEO_L0_TILE
+                LDA     #>(FONT_CARD >> 8)
+                STA     VIDEO_L0_TILE + 1
+                STZ     VIDEO_L0_HSCROLL
+                STZ     VIDEO_L0_HSCROLL + 1
+                STZ     VIDEO_L0_VSCROLL
+                STZ     VIDEO_L0_VSCROLL + 1
+                STZ     VIDEO_L0_PALOFS
                 STZ     VIDEO_L1_CONFIG
                 LDA     #VIDEO_ON_L0
                 STA     VIDEO_CTRL
 @done:          RTS
 ```
 
-It leaves ISR, LINE and SPLASH alone, and of layer 1 it writes only CONFIG. VPUTC, run for each character, writes
-it with the CPU through W2, and scrolls the screen and clears its last row by DMA on channel 3
+It leaves ISR, LINE and SPLASH alone, and of layer 1 it writes only CONFIG. Proposed, on revision 2: the font, the
+palette and the text keep their old offsets in card memory (`$000400`, `$000000` and `$002000`, so the base
+registers read `$0004`, `$0000` and `$0020`). VINIT writes the font and the palette into the port's PDATA, and
+clears the screen with two port transfers by DMA on channel 1, held on one byte with PSTEP 2: the characters, then
+the attributes. VPUTC, run for each character, writes it with the CPU through aperture slot 0 (W2 on physical
+`$80000`; it points SLOT0 at page 0 and puts both back after), and scrolls by the port on channel 1: the rows out
+of the card into a 2 KB buffer at `$FC000` (under the I/O hole, in RAM block 63) and back in a row higher, then a
+fill for the last row. It puts the port's PADDR, PSTEP and PCTL back after, but stops a program's own transfer on
+channel 1. Revision 1's BIOS (0.12) wrote it through W2 on RAM block 32 and scrolled by DMA on channel 3
 ([chapter 5](05-dma.md#memory-to-memory)).
 
 ## The boot splash

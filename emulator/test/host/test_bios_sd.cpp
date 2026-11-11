@@ -16,6 +16,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 
@@ -25,7 +26,21 @@ using namespace ooe::emu;
 namespace
 {
     constexpr uint64_t FRAME = 119'318; // 7.15909 MHz / 60
-    const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
+    /// backplane.machine with its video line at revision 2, written beside the test as `name`. The BIOS is built
+    /// for revision 2 (hw/video-rev2.md, proposed), and the file still says rev=1 until the BIOS, OODOS and the
+    /// demo move together; once it says rev=2 this copies it as it is.
+    std::string rev2_machine(const std::string &name)
+    {
+        std::ifstream in(EMU_MACHINE_DIR "/backplane.machine");
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const size_t line = text.find("\nvideo ");
+        const size_t rev = line == std::string::npos ? line : text.find(" rev=1", line);
+        if (rev != std::string::npos && rev < text.find('\n', line + 1))
+            text.replace(rev, 6, " rev=2");
+        std::ofstream(name) << text;
+        return name;
+    }
+    const std::string MACHINE = rev2_machine("test_bios_sd_rev2.machine");
 
     bool run_until(Session &s, std::string &out, const std::string &want, int frames = 120)
     {
@@ -69,7 +84,7 @@ namespace
             return nullptr;
         }
         std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.12\r\\\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.13\r\\\r"))
             return nullptr;
         if (!image.empty() && !s->insert_sd(sd_image(image), image, error))
         {
@@ -89,7 +104,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.12\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.13\r"))
             return nullptr;
         return s;
     }
@@ -153,7 +168,7 @@ TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
     auto s = powered_on_with("fat16.sparse", out);
     REQUIRE(s != nullptr);
     REQUIRE(run_until(*s, out, "\\\r"));
-    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.12\r\\\r")); // no error, no wait
+    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.13\r\\\r")); // no error, no wait
     s->send("C809R\r");                                // and C809R still says what it finds
     REQUIRE(run_until(*s, out, "\\\r"));
 }

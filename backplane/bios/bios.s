@@ -158,7 +158,7 @@ IRQ:            PHA
                 RTI
 
 ; Stop what would go on behind the monitor: every DMA channel, the SD card's
-; command, the boot splash, the sound card's 6510 and SIDs (and from revision
+; command, the boot splash and the video port's DMA request, the sound card's 6510 and SIDs (and from revision
 ; 2, its PCM stream and ES5503); and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on), a front-panel key already pending, and the VIA's. What
@@ -194,10 +194,11 @@ QUIET:
                 BNE     @video
                 STZ     USB_IEN
 @video:         LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
+                CMP     #VIDEO_ID_V2
                 BNE     @sound
                 STZ     VIDEO_IEN
                 STZ     VIDEO_SPLASH   ; the boot splash, if it's still on
+                STZ     VIDEO_PCTL     ; the port's DRQ off (channel 1 is stopped)
 @sound:         LDA     SOUND_ID
                 AND     #$F0           ; any revision: each has CTRL, IEN and the SIDs
                 CMP     #SOUND_TYPE
@@ -228,7 +229,7 @@ QUIET:
                 STA     VIA_IER
                 RTS
 
-GREETING:       .byte   $0D, "BACKPLANE BIOS 0.12", $0D, 0
+GREETING:       .byte   $0D, "BACKPLANE BIOS 0.13", $0D, 0
 
 .segment "VECTORS"
                 .word   BREAK          ; NMI
