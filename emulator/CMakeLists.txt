@@ -22,10 +22,16 @@ endif()
 option(EMU_SANITIZE "Build with ASan/UBSan" OFF)
 option(EMU_TRACE "Compile in per-instruction and per-access tracing (EMU_LOGV)" OFF)
 option(EMU_BUILD_TESTS "Build the host tests" ON)
+option(EMU_COVERAGE "Build with gcc --coverage, for tools/test_coverage.py (the `coverage` preset)" OFF)
 
 if(EMU_SANITIZE AND NOT MSVC)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(EMU_COVERAGE)
+    add_compile_options(--coverage)
+    add_link_options(--coverage)
 endif()
 
 # Applied per target rather than globally, so nothing third-party ever has to

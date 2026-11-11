@@ -26,6 +26,7 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <type_traits>
@@ -88,8 +89,98 @@ namespace ooe::test
     inline std::string show(const char *v) { return v ? std::string("\"") + v + "\"" : "null"; }
     inline std::string show(const std::string &v) { return "\"" + v + "\""; }
 
+    /// The names in a comma-separated list.
+    inline std::vector<std::string> case_names(const char *list)
+    {
+        std::vector<std::string> out;
+        std::string cur;
+        for (const char *p = list;; ++p)
+        {
+            if (*p == ',' || *p == '\0')
+            {
+                if (!cur.empty())
+                    out.push_back(cur);
+                cur.clear();
+                if (*p == '\0')
+                    break;
+            }
+            else
+                cur += *p;
+        }
+        return out;
+    }
+
+    /// The cases this run is to take, from the environment, so one binary can be several CTest entries
+    /// (a variable set empty is as one unset):
+    ///   OOE_TEST_CASES=a,b    only those cases;
+    ///   OOE_TEST_EXCEPT=a,b   every case but those;
+    ///   OOE_TEST_SHARD=K/N    of what is left, the cases whose place in the registry, counted from 0, is
+    ///                         K-1 modulo N (every case in exactly one of 1/N ... N/N).
+    /// A name that is no case is an error, so a renamed case can't drop out of a split unseen. Called by
+    /// run_all(); the registry is trimmed to the selection, so a main() that compares a count with
+    /// registry().size() after run_all() still can. Returns false, having said why, on an error.
+    inline bool select_cases()
+    {
+        for (const char *var : {"OOE_TEST_CASES", "OOE_TEST_EXCEPT"})
+        {
+            const char *list = std::getenv(var);
+            if (list == nullptr || *list == '\0')
+                continue;
+            const bool only = std::strcmp(var, "OOE_TEST_CASES") == 0;
+            const auto names = case_names(list);
+            for (const auto &n : names)
+            {
+                bool found = false;
+                for (const auto &c : registry())
+                    found = found || n == c.name;
+                if (!found)
+                {
+                    std::printf("%s: %s is no case of this suite's\n", var, n.c_str());
+                    return false;
+                }
+            }
+            std::vector<Case> kept;
+            for (const auto &c : registry())
+            {
+                bool named = false;
+                for (const auto &n : names)
+                    named = named || n == c.name;
+                if (named == only)
+                    kept.push_back(c);
+            }
+            registry() = kept;
+        }
+        const char *shard = std::getenv("OOE_TEST_SHARD");
+        if (shard == nullptr || *shard == '\0')
+            return true;
+        unsigned k = 0, n = 0;
+        char tail = 0;
+        if (std::sscanf(shard, "%u/%u%c", &k, &n, &tail) != 2 || n == 0 || k == 0 || k > n)
+        {
+            std::printf("OOE_TEST_SHARD=%s: want K/N with 1 <= K <= N\n", shard);
+            return false;
+        }
+        std::vector<Case> kept;
+        for (std::size_t i = 0; i < registry().size(); ++i)
+            if (i % n == k - 1)
+                kept.push_back(registry()[i]);
+        registry() = kept;
+        return true;
+    }
+
+    /// Runs the cases select_cases() keeps; with OOE_TEST_LIST set, prints their names instead, one a line
+    /// after "case ", and runs none. test/host/check_split.py reads that, to hold a split suite's CTest
+    /// entries to every case.
     inline int run_all()
     {
+        if (!select_cases())
+            return 2;
+        if (const char *list = std::getenv("OOE_TEST_LIST"); list != nullptr && *list != '\0')
+        {
+            for (const auto &c : registry())
+                std::printf("case %s\n", c.name);
+            return 0;
+        }
         int failed_cases = 0;
         for (const auto &c : registry())
         {
