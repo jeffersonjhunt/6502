@@ -53,7 +53,8 @@ namespace
         }
         uint32_t paddr() const
         {
-            return card.peek(R2::PADDR) | card.peek(R2::PADDR + 1) << 8 | uint32_t{card.peek(R2::PADDR + 2)} << 16;
+            return uint32_t{card.peek(R2::PADDR)} | uint32_t{card.peek(R2::PADDR + 1)} << 8 |
+                   uint32_t{card.peek(R2::PADDR + 2)} << 16;
         }
         void colour(uint32_t pal, unsigned index, uint16_t rgb12)
         {
