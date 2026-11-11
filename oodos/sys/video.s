@@ -1054,7 +1054,8 @@ VBWORK:         LDA     NB_WIN1
                 TAX                    ; X: the address's middle byte
                 LDA     VIDEO_SPRBASE + 1
                 ADC     #0             ; A: its top byte (review F3: the entry's, not SPRBASE's)
-                BCS     @done          ; past page $FFFF
+                BCS     @done          ; past page $FFFF: defensive only, as a wrap lands
+                                       ;   below DM_PAGE0, which the next check refuses
                 CMP     #>DM_PAGE0
                 BCC     @done          ; in OODOS's card memory: not written there
                 CMP     #>DM_PAGEEND
