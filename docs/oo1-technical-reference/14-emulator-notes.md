@@ -41,7 +41,8 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
 | `sd 380-3FF … irq drq=0` | the mass storage card, its DRQ on DMA channel 0 ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
-| `video 480-4FF … irq` | the video card, drawing from banks 8–B ([chapter 6](06-video.md)); revision 2's line is to add `drq=1` ([below](#revision-2-of-the-video-card)) |
+| `video 480-4FF … irq drq=1 rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DRQ on DMA channel 1. Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
+| `aperture 80000-8FFFF module=9` | revision 2's aperture (*proposed*): 64 KB of memory on a 16 KB boundary, four slots on card memory ([chapter 6](06-video.md#the-aperture)). It is mapped after every other line, so it answers over RAM C's bank 8, whose 64 KB can't then be reached; with a revision 1 card, or none, it is inert and the RAM answers |
 | `sound 500-57F … irq drq=2` | the sound card, RAMDATA on DMA channel 2 ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)) |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
@@ -50,8 +51,11 @@ Each line of `backplane.machine` is a part of the OO-1:
 - **`space=io`** puts a mapping in the I/O hole, `$000–$7FF` of it. It takes the module ID of its 128-byte block,
   so `300-37F` is module 6. A mapping can't cross into the next block.
 - **`irq`** wires the device's interrupt output to /IRQ. A device on a line without it can't interrupt.
-- **`drq=N`** wires the device's DMA request to channel N, 0–3. Only the SD card and the sound card have one
-  ([chapter 5](05-dma.md#transfers-for-a-card)).
+- **`drq=N`** wires the device's DMA request to channel N, 0–3. The SD card, the sound card and the video card
+  have one ([chapter 5](05-dma.md#transfers-for-a-card)).
+- **`rev=N`**, on the `video` line only, picks the card's revision, 1 or 2. A program that builds the machine can
+  override it with `MachineOptions::video_revision` (0 keeps the line's, 1 or 2 overrides it). The revision is fixed
+  once the machine is built: the card's `set_revision` then returns false.
 - **`wait=N`**, which `backplane.machine` doesn't use, holds RDY for N extra cycles on every access to the
   mapping, as a slow card would. The north bridge's WAIT0–3 add theirs on top
   ([`$C68A`](11-north-bridge-and-rtc.md#reg-c68a)).
@@ -198,9 +202,6 @@ The design has these, and the emulator doesn't:
   ISR, its BE lamp and the ESP32's SPI header** ([chapter 12](12-front-panel.md#what-the-emulator-leaves-out)).
 - **Apple II mode's long cycle,** every 65th cycle stretched
   ([chapter 13](13-apple-ii-mode.md#the-long-cycle)).
-- **Revision 2 of the video card:** its own 2 MB, the aperture in bank 8, the data port on channel 1, the new
-  register map and ID `$92` ([chapter 6](06-video.md#revision-2-card-memory)). The emulator's card is
-  revision 1.
 
 The emulator's own backlog, beside the design, has `.nib`, `.d13` and `.2mg` disk images
 ([chapter 10](10-storage.md#disk-images)).
@@ -337,16 +338,15 @@ emulator; each link goes to the note.
 
 Status: **proposed**
 
-What the emulator is to do for revision 2 ([hw/design.md, "Emulator"](../../hw/design.md#emulator), step 10), and
-where it is to differ from the card:
+The emulator has both revisions of the card ([chapter 6](06-video.md#revision-2-card-memory)); `backplane.machine`
+fits revision 2, the card BIOS 0.13 and OODOS drive. Where it differs from the design:
 
-- **The machine.** `backplane.machine`'s RAM line no longer covers bank 8, which becomes the aperture, a memory
-  device decoded to the video card; the `video` line gains `drq=1`, as the sound card's has `drq=2`.
-- **Both revisions.** A `set_revision` switch keeps revision 1 for comparison while the BIOS moves.
-- **The debugger** gains `vram`, to peek and poke card memory; `--screen` is unchanged.
-- **Apple II mode** reads banks 0 and 1 directly, as now, where the card keeps a snooped copy in its own memory
-  ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)); only the character ROM comes from card memory.
-  Nothing outside the card can tell the two apart.
+- **The machine's RAM.** The RAM C line still covers bank 8, and the aperture is mapped over it, where the design
+  fits no RAM there ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)). The RAM's bank 8 can't
+  be reached while a revision 2 card is fitted, so software sees no difference.
+- **Apple II mode** reads banks 0 and 1 directly, as with revision 1, where the card keeps a snooped copy in its own
+  memory ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)); only the character ROM comes from card
+  memory. Nothing outside the card can tell the two apart.
 
 ## Known bugs
 

@@ -16,10 +16,10 @@ physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 |---|---|---|---|
 | 0 | `$00000–$0FFFF` | 0–3 | the CPU's first 48 KB at reset (blocks 0–2) |
 | 1–7 | `$10000–$7FFFF` | 4–31 | free to the system |
-| 8–B | `$80000–$BFFFF` | 32–47 | video memory, which the video card reads ([chapter 6](06-video.md)) |
-| C–D | `$C0000–$DFFFF` | 48–55 | free to the system |
+| 8 | `$80000–$8FFFF` | 32–35 | the video card's aperture (*proposed*, revision 2): the card answers here, not RAM ([below](#revision-2-bank-8-the-aperture)) |
+| 9–D | `$90000–$DFFFF` | 36–55 | free to the system |
 | E | `$E0000–$EFFFF` | 56–59 | free; Apple II mode copies the IIe ROM image into it each time it starts, with the zero byte its fills copy from at `$EBFFF` |
-| F | `$F0000–$FFFFF` | 60–63 | free, but for block 63: the BIOS's copy of itself, read-only through W3 |
+| F | `$F0000–$FFFFF` | 60–63 | free, but for block 63: the BIOS's copy of itself, read-only through W3, and under the I/O hole its first 2 KB, `$FC000–$FC7FF`, BIOS 0.13's scroll buffer, reached by DMA alone ([chapter 6](06-video.md#the-bioss-text-screen)) |
 
 Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM in video card revision 2's own
 memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
@@ -43,18 +43,20 @@ The DMA controller reaches the RAM only, by physical address ([chapter 5](05-dma
 
 Status: **proposed**
 
-With revision 2 of the video card ([chapter 6](06-video.md#revision-2-card-memory)) the card draws from 2 MB
-of its own memory, and banks 8–B are no longer video memory:
+Revision 2 of the video card ([chapter 6](06-video.md#revision-2-card-memory)), the card BIOS 0.13 and OODOS drive,
+draws from 2 MB of its own memory. Bank 8, blocks 32–35, is its aperture: the north bridge decodes the bank to the
+card, and block 32 + *n* is the aperture's slot *n* ([chapter 6](06-video.md#the-aperture)). A window reaches a
+slot as it reaches a RAM block, its ROM bit clear. Banks 9–B, blocks 36–47, are ordinary RAM. The machine then has
+960 KB of RAM that software can reach, and the aperture's 64 KB.
 
-| Bank | Physical | Blocks | What uses it in native mode |
-|---|---|---|---|
-| 8 | `$80000–$8FFFF` | 32–35 | the video card's aperture: no RAM answers here, the north bridge decodes the bank to the card, and block 32 + *n* is the aperture's slot *n* ([chapter 6](06-video.md#the-aperture)) |
-| 9–B | `$90000–$BFFFF` | 36–47 | free to the system |
+In the emulator RAM C still covers bank 8 (the machine file's RAM line is unchanged), and the aperture is mapped
+over it, so those 64 KB of RAM can't be reached; with revision 1, or no video card, the aperture is inert and the
+RAM answers ([chapter 14](14-emulator-notes.md)). Apple II mode doesn't use banks 8–B: the card ignores the
+aperture in the mode, and the IIe's character ROM is in card memory, not at `$BE000`
+([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
 
-The machine then has 960 KB of RAM, and the aperture's 64 KB. A window reaches a slot as it reaches a RAM block,
-its ROM bit clear. Apple II mode doesn't use bank 8 or banks 9–B, and its character ROM is in card memory, not
-at `$BE000` ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)). Everything else in the table above
-is as it is.
+Revision 1, the old card, had no aperture: banks 8–B, blocks 32–47, were its video memory, ordinary RAM that it
+read by watching every write to them ([chapter 6](06-video.md#video-memory)).
 
 ## The four windows
 
@@ -72,7 +74,7 @@ WIN0–WIN3 ([`$C680`–`$C683`](11-north-bridge-and-rtc.md#reg-c680)), that nam
 
 A register's bits 5–0 are the block: its top four bits become A16–A19 and its bottom two replace the CPU's A14–A15.
 The CPU's A0–A13 pass straight through. So any 16 KB of the megabyte can be in any window: a program can see the
-first 16 KB of video memory without giving up its zero page and stack.
+first 16 KB of the aperture without giving up its zero page and stack.
 
 ```
 CPU address    A15 A14 | A13 ............. A0

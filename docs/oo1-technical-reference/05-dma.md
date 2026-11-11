@@ -36,11 +36,14 @@ Status: **built**
 
 OODOS owns all four channels; a program reaches them only through its functions. **Channel 0** is the SD card's:
 the BIOS's SDIO, a sector a READ or WRITE, and function 83's `DM_LOAD`, up to 8 sectors (4 KB) a READ, the CPU held
-a cycle a byte. **Channel 1** is the vertical-blank copies' (OOLIB L4): function 83's `DM_VBSET` slots and the
-pointer sprite's four bytes, copied memory to memory from the frame handler, each waited for; nothing else uses it
-(the serial card's DMA, which design.md gives it, isn't built). **Channel 2** is the sound card's, through function
+a cycle a byte. **Channel 1** is the video card's data port (revision 2, *proposed*;
+[below](#revision-2-channel-1-the-video-port)): the vertical-blank copies (OOLIB L4), function 83's `DM_VBSET`
+slots and the pointer sprite's four bytes, from the frame handler, each waited for; and function 83's `DM_VWRITE`,
+`DM_VREAD` and `DM_VFILL`, in pieces with interrupts masked for each, so the frame handler never meets the port or
+the channel half set. Nothing else uses it (the serial card's DMA, which design.md gives it, isn't built). **Channel 2** is the sound card's, through function
 82's loads and stream (L3). **Channel 3** is the BIOS's DMAGO, 2 KB a block with a pending interrupt taken between
-blocks: MOVE, the console's scroll and erase, and function 83's `DM_COPY` and `DM_FILL`. Since the interrupt has a
+blocks: MOVE, the console's scroll and erase, and function 83's `DM_COPY` and `DM_FILL`, and `DM_VCOPY`'s pieces, card to
+card through aperture slots 2 and 3, which it borrows for each piece. Since the interrupt has a
 channel of its own, it never meets a copy on channel 3 half programmed. The Programmer's Guide's
 [function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83) has the calls.
 
@@ -69,10 +72,11 @@ then the write, so 64 KB takes about 18 ms at 7.16 MHz.
 - **The master enable** is the whole controller's. Turning it on for a copy runs any other channel a program has
   left armed. To keep a channel from running, abort it.
 
-The BIOS's copies, the text screen's scroll among them, are done this way on channel 3 (`video.s`). The routine
-turns the master enable on, starts the channel, and waits for ENABLE to clear, then puts CONTROL back as it found
-it, which under the monitor is `$71`. A copy still
-running after 65,536 polls, about 0.1 s, is aborted: no controller there, or a busier channel starving it.
+The BIOS's routine for a copy this way on channel 3 is DMA3RUN (`video.s`); BIOS 0.12 scrolled the text screen
+with it. BIOS 0.13 scrolls and clears the screen through revision 2's port on channel 1 instead, and waits for
+that the same way ([chapter 6](06-video.md#the-bioss-text-screen)). DMA3RUN turns the master enable on, starts
+the channel, and waits for ENABLE to clear, then puts CONTROL back as it found it, which under the monitor is
+`$71`. A copy still running after 65,536 polls, about 0.1 s, is aborted: no controller there, or a busier channel starving it.
 
 <!-- listing: ../../backplane/bios/video.s:431-458 -->
 ```
@@ -161,18 +165,19 @@ channel's ADDR as the system-RAM side:
 - **The two sides step on their own.** The channel's address steps by one (or down, with DEC); PADDR by the card's
   PSTEP, up or down. So a 16-byte run of RAM can become a column of a text screen, PSTEP 160.
 - **What it costs.** [hw/video-rev2.md](../../hw/video-rev2.md#data-port-and-dma) reckons two cycles a byte, a 4 KB
-  font in about 8,200 cycles and a 300 KB bitmap in about 0.09 s. A fly-by card transfer is one cycle a byte here,
-  so a port transfer should be nearer 4,100 cycles for the font; the emulator will settle it.
-- **Copies within card memory** go out to RAM and back in, two transfers: the card has no copy engine yet.
+  font in about 8,200 cycles and a 300 KB bitmap in about 0.09 s. The emulator moves a port byte as any fly-by card
+  transfer, in one cycle, and the card asks for every byte at once, so a 4 KB font takes about 4,100 cycles and
+  OODOS's 1,024 bytes of vertical-blank copies about 1,024, the CPU held.
+- **Copies within card memory** have no port path of their own: the card has no copy engine yet. Out to RAM and
+  back in is two port transfers; OODOS's `DM_VCOPY` instead maps the two places through aperture slots and copies
+  memory to memory on channel 3.
 - **The serial card** loses channel 1, which hw/design.md gave it; its DMASEL3 still reaches channel 3. Which
   channel its second stream takes is open ([hw/design.md, "DMA"](../../hw/design.md#dma)).
 - **In Apple II mode** the controller is idle, as [above](#apple-ii-mode), so the port is never used there.
 
-Under OODOS channel 1 is already the vertical-blank copies' and the pointer's
-([above](#under-oodos)); on revision 2 they become port transfers, from the program's RAM to card memory, run from
-the frame handler as now. Function 83's video copies become port transfers too; which channel each takes is
-OODOS's, and the Programmer's Guide will say
-([function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83)).
+Under OODOS the port and channel 1 are OODOS's ([above](#under-oodos)); a program reaches card memory in bulk
+through function 83's card operations
+([function 83](../oodos-programmers-guide/07-function-reference.md#bdos-83)), which need the DMA controller.
 
 ## Registers
 
@@ -374,7 +379,9 @@ As [DMA0_ADDR](#reg-c400), for channel 1.
 
 #### Notes
 
-No card in the emulator drives DRQ1, so channel 1 runs only as a block started by REQ, or a memory-to-memory copy. Under OODOS it is the vertical-blank copies' ([above](#under-oodos)).
+Revision 2 of the video card drives DRQ1, from its data port (`drq=1`, *proposed*:
+[above](#revision-2-channel-1-the-video-port)). Under OODOS it is the port's: the vertical-blank copies and function
+83's card transfers ([above](#under-oodos)).
 
 <a id="reg-c414"></a>
 ### $C414 DMA1_COUNT: channel 1's count
