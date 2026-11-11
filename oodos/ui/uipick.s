@@ -61,18 +61,40 @@ ent:    .res    2                      ; an entry's address
 n:      .res    1
 didx:   .res    1
 rrow:   .res    1                      ; ROWFN's row
+ans:    .res    1                      ; FINISH's answer
 rrowh:  .res    1
 
         .code
 
 ui_pick:
         jsr     ENTER
-        sta     pblk
-        stx     pblk + 1
-        sta     UIQ
-        stx     UIQ + 1
+        sta     t0                      ; (pblk and blk kept till it is known not to be up)
+        stx     t1
         lda     uopen
         beq     @busy
+        jsr     DLGON
+        lda     #PW                     ; up already: refused, the live one untouched
+        jsr     DLGH
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        beq     @take
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_HIDDEN
+        bne     @take
+@busy:  lda     #UX_BUSY
+        sec
+        rts
+@bad:   lda     #UX_PICK
+        sec
+        rts
+@take:  lda     t0
+        sta     pblk
+        sta     UIQ
+        lda     t1
+        sta     pblk + 1
+        sta     UIQ + 1
         ldy     #UP_LEN - 1
 @b:     lda     (UIQ),y
         sta     blk,y
@@ -92,23 +114,6 @@ ui_pick:
         beq     @bad
         lda     blk + UP_ROOM
         beq     @bad
-        jsr     DLGON
-        lda     #PW                     ; up already?
-        jsr     DLGH
-        jsr     REC
-        ldy     #UW_TYPE
-        lda     (UIR),y
-        beq     @free
-        ldy     #UW_FLAGS
-        lda     (UIR),y
-        and     #UF_HIDDEN
-        bne     @free
-@busy:  lda     #UX_BUSY
-        sec
-        rts
-@bad:   lda     #UX_PICK
-        sec
-        rts
 @free:  ldx     #0                      ; the widgets it uses
 @w:     lda     MODS,x
         sta     UIP
@@ -349,8 +354,10 @@ MAKE:   jsr     CLEAR                   ; the window, centred
         sta     rec + UW_A
         lda     blk + UP_FLAGS
         and     #UP_NEW
-        bne     @nw
-        lda     #UF_DISABLED
+        beq     @old
+        lda     #0                      ; (UP_NEW's bit isn't a flag)
+        bra     @nw
+@old:   lda     #UF_DISABLED
 @nw:    ora     #UF_UPPER
         sta     rec + UW_FLAGS
         lda     #PFLD
@@ -896,9 +903,9 @@ NAMEOF: lda     evv
 ; The answer A (0 chosen, 1 cancelled): the picker gone, UE_PICK. Chosen:
 ; the result buffer filled and UP_CHOSEN set; nothing to choose, nothing
 ; done (it stays).
-FINISH: sta     t3
+FINISH: sta     ans
         stz     n                       ; the entries given
-        lda     t3
+        lda     ans
         bne     @gone
         lda     blk + UP_FLAGS          ; a name typed (UP_NEW)
         and     #UP_NEW
@@ -958,7 +965,7 @@ FINISH: sta     t3
         jsr     HIDEH
         stz     uidle + 1
         stz     lst
-        lda     t3
+        lda     ans
         sta     evv
         stz     evv + 1
         lda     #PW

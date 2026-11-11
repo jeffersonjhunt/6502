@@ -433,6 +433,8 @@ FINDACC:
         cmp     #UT_BUTTON
         beq     @t
         cmp     #UT_CHECK
+        beq     @t
+        cmp     #UT_RADIO               ; (U2: a radio button's letter chooses it)
         bne     @n
 @t:     ldy     #UW_FLAGS
         lda     (UIR),y

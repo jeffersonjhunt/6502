@@ -677,8 +677,14 @@ WFLAGS: jsr     WREC
 @r:     rts
 
 ; The handler at Y (WR_DRAW ...) of widget dh's module, jumped to with UIR
-; on dh's record; carry set and A 0 if it has none.
+; on dh's record and UI_RECT its place (the drawing's placed already);
+; carry set and A 0 if it has none.
 WCALL:  sty     wo
+        cpy     #WR_DRAW
+        beq     @placed
+        lda     dh
+        jsr     RECT
+@placed:
         lda     dh
         jsr     REC
         ldy     #UW_TYPE

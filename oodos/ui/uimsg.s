@@ -35,26 +35,26 @@ ui_msgbox:
         stx     UIQ + 1
         lda     uopen
         beq     @busy
-        ldy     #UM_LEN - 1
-@b:     lda     (UIQ),y
-        sta     blk,y
-        dey
-        bpl     @b
         jsr     DLGON
-        lda     #PW                     ; one up already?
+        lda     #PW                     ; one up already: refused, the live one untouched
         jsr     DLGH
         jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
-        beq     @free
+        beq     @take
         ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_HIDDEN
-        bne     @free
+        bne     @take
 @busy:  lda     #UX_BUSY
         sec
         rts
-@free:  jsr     MEASURE
+@take:  ldy     #UM_LEN - 1
+@b:     lda     (UIQ),y
+        sta     blk,y
+        dey
+        bpl     @b
+        jsr     MEASURE
         jsr     MAKE
         lda     #<FILTER
         sta     udf1
