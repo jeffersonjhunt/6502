@@ -303,7 +303,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_getfocus` | | A the handle, `UI_NONE` none |
 | `ui_rect` | A a handle | `UI_RECT`: +0 column, +1 row, +2 width, +3 height, on the screen in cells; carry set if hidden |
 | `ui_info` | | A the grid's columns, X its rows, Y the backend (`UB_TEXT` 0, `UB_BITMAP` 1) |
-| `ui_theme` | A/X a theme (0: the default) | colours and metrics changed; everything drawn again |
+| `ui_theme` | A/X a theme (0: the default) | colours and metrics changed; everything drawn again. While OOUI is shut or suspended, only kept: nothing on the card is touched, and `ui_open` or `ui_resume` sets it |
 | `ui_msgbox` | A/X a block (below) | carry set (`UX_BUSY`) if one is up |
 | `ui_pick` | A/X a block (below) | carry set (`UX_BUSY`) if the picker is up |
 | `ui_relist` | | the picker's directory read again (after the app mounted a drive) |
@@ -481,8 +481,9 @@ its sprites.
 PALOFS is `TH_GROUP`, and `TH_PALETTE`'s 16 colours (the CGA's for 0) go in its entries (*group* × 16 on); the
 overlay's is `TH_OVERGROUP`, with `TH_OVERPAL`'s colours (`TH_PALETTE`'s for 0); and the pointer's sprite takes
 the overlay's group too. With `TF_DIM`, a dim group of its own and an overlay layer, `TH_DIMGROUP` gets the base's
-colours each component halved, and the base layer is put on it while a modal window shows (the dialog on the
-overlay stays bright). A theme in groups other than 0 keeps out of the program's own entries; colour 0 is still
+colours each component halved, and the base layer is put on it while a modal window *on the overlay* shows (the
+dialog stays bright). A modal window on the base layer dims nothing, since it would dim itself; with no overlay
+layer (`UO_OVER` `$FF`) nothing is dimmed and the dim group's entries aren't written. A theme in groups other than 0 keeps out of the program's own entries; colour 0 is still
 transparent, and where both layers are, the palette's entry 0 shows, whatever the groups.
 
 **The pointer and hit-testing.** The pointer is OODOS's sprite (`DM_POINTER`), in the sprites' 320×240 space, the
@@ -503,7 +504,7 @@ pointer unit (`GX_SPRPOS`).
     `$4000-$7FFF` as the W1 contract wants. Its state is about 100 bytes of `BSS`; the message box and the picker
   bring their own records (about 128 and 640 bytes) only when linked. *Target, measured at U1's and U2's gates:*
     about 4 KB of code for U1's core and text backend, about 3 KB more for U2. *Measured at U1 (2026-11-11, after
-  its review):* 7.7 KB of code, 0.6 KB of tables and 236 bytes of `BSS` ([U1](#u1-the-core-and-the-text-backend)).
+  its review):* 7.8 KB of code, 0.6 KB of tables and 236 bytes of `BSS` ([U1](#u1-the-core-and-the-text-backend)).
 - **The event area** is the app's (function 80's `FT_OPEN`, layout 2). OOUI reads `EV_QHEAD`, `EV_QTAIL`,
   `EV_QSLOTS` and `EV_QUEUE` (and writes `EV_QTAIL`), `EV_MODS`, `EV_DEVICES` (no mouse: no pointer), `EV_MX`,
   `EV_MY`, `EV_MBUTTONS`, `EV_KEYS` (repeat) and `EV_FRAMES` (times). It leaves `EV_QLOST`,
@@ -683,15 +684,15 @@ bytes):
 
 | Module | What | Code | Tables | BSS |
 | --- | --- | --- | --- | --- |
-| `uicore` | `ui_open`, `ui_close`, the calls that change a widget, places (`RECT`), focus, damage | 1,842 | 14 | 96 |
+| `uicore` | `ui_open`, `ui_close`, the calls that change a widget, places (`RECT`), focus, damage | 1,930 | 14 | 96 |
 | `zpuicore` | `UIP`, `UIQ`, `UIR`, `UIT`: zero page | | | 8 (zero page) |
-| `uidraw` | the text backend: card memory, font and glyphs, layers, colours and groups, pointer, painting | 2,712 | 270 | 71 |
-| `uimenu` | menu bar, drop-downs, menu keys and clicks | 1,903 | 26 | 43 |
+| `uidraw` | the text backend: card memory, font and glyphs, layers, colours and groups, pointer, painting | 2,732 | 270 | 71 |
+| `uimenu` | menu bar, drop-downs, menu keys and clicks | 1,912 | 26 | 43 |
 | `uipoll` | `ui_poll`: the queue, keys, focus moves, accelerators, the mouse | 1,404 | 54 | 26 |
 | `uitheme` | `UI_HOUSE`, the default: OO-Amp's 16 colours from its skin sheet | | 96 | |
 | `uiturbo` | `UI_TURBO`: Turbo Vision's blue (entry 13 an opaque black, colour 0 being transparent) | | 96 | |
 
-So 7.7 KB of code (7.1 KB before the review's fixes and the groups) against the 4 KB target: the menus (1.9 KB)
+So 7.8 KB of code (7.1 KB before the review's two rounds of fixes and the groups) against the 4 KB target: the menus (1.9 KB)
 and the damage-box painting are most of the difference. `uiturbo` is linked only by a program that names `UI_TURBO`; the rest come together, since `uicore`
 draws and polls through the others.
 
@@ -720,7 +721,10 @@ So a window hidden, or a menu put up, leaves the screen as it was, which the tes
 - The palette: the theme's groups as above. The pointer is 16×16 at 4 bits on sprite `UO_SPRITE`, depth 3, in the
   theme's `TH_POINTER` colours, in the overlay's group; `ui_close` and `ui_suspend` put its depth to 0 (O17).
 - Sizes never wrap (O7): a fill, or a negative size, that comes to less than nothing is 0, and a size past the
-  parent's client area is held to it; a widget of no cells draws nothing.
+  parent's client area is held to it; a frame's client area is never less than 0 wide or high; a widget of no
+  cells draws nothing and isn't hit.
+- A menu that is down goes up when a modal window outside it shows (`ui_show`, or `ui_flags` making one modal),
+  and when `ui_flags` disables it; an item shown or hidden while its menu is down redraws the menu whole.
 
 **Changed in the API text** (marked where they are): `ui_open` needs `GX_INIT`, `GX_PALINIT` and `GX_SPRINIT`
 called first (a program's `BSS` isn't cleared, so OOUI can't tell); interface 8, not 4; a negative width or height
@@ -734,11 +738,11 @@ box only; so a child that sticks out of its parent stays drawn when the parent i
 after `ui_open` (OOUI sets the pointer up only at `ui_open` and `ui_resume`: an app that sees `EK_DEVICE` bring a
 mouse calls `ui_suspend` and `ui_resume` meanwhile, O13), and the widgets of U2's row in the plan.
 
-**Testing.** `test_oodos_ui` (21 cases) through `UITEST`, as above in [Emulator and testing](#emulator-and-testing).
+**Testing.** `test_oodos_ui` (27 cases) through `UITEST`, as above in [Emulator and testing](#emulator-and-testing).
 Eleven golden frames: `desktop`, `window`, `menu-file`, `menu-select`, `focus-ok`, `turbo-window`, `turbo-menu`,
 `pointer-press`, `pointer-hit`, `overlay`, and `dim-modal` (the review's: the base on its dim group under a modal
 window). With `OOUI_GOLDEN=update` the suite writes the hashes, prints so loudly, and exits 77, which CTest reports
-as skipped, never passed (O18). Besides them, every event `ui_poll` returns for the keys and clicks
+as skipped, never passed (O18); if anything else failed, it exits with the failure count instead (W7). Besides them, every event `ui_poll` returns for the keys and clicks
 (the menus by keys, by Alt and a letter, by an item's letter, by the accelerator table; Tab and Shift+Tab; Space,
 Enter, Escape and a button's letter; toggles; the close box; a click off a menu; the wheel), `ui_rect`'s places,
 the table's refusals, and frames that must equal others: a menu put up, a window hidden and shown again, a label's
@@ -755,6 +759,13 @@ letter didn't press a button that takes no focus (O12); a table deeper than `UI_
 showed what was in card memory until the first `ui_poll` (O15); the pointer stayed on after `ui_close` and
 `ui_suspend` (O17). And the link-time W1 check below (O8).
 
+**Its second round (2026-11-11)**, fixed the same way: `ui_theme` set the layers while suspended, or shut, on
+memory no longer OOUI's (W1); an item hidden or shown while its menu was down didn't redraw the menu (W2); a modal
+window on the base layer dimmed itself (W3); a framed window of no width gave its client area 254 columns (W4); a
+menu stayed down under a new modal window, or when disabled (W5); `w1.py` passed a map with no segments in it
+(W6); an update run that failed something still exited 77 (W7); a one-layer app's dim group was written (W8); an
+item could be chosen by its key from a bar that doesn't show (W10).
+
 **What it found in OOLIB**, and the owner's answers (2026-11-11), made on this branch:
 
 - **`gxpal.s` brought 3.6 KB of `BSS`** with `GX_PALSET`: `GX_FADE`'s accumulators shared its module, so a program
@@ -764,8 +775,11 @@ showed what was in card memory until the first `ui_poll` (O15); the pointer stay
   `$4000`; `GXTEST`, which calls `GX_FADE`, keeps its 6,160.
 - **No call set a layer's PALOFS:** `GX_PALOFS` (`lib/gxmode.s`; [oolib.md](oolib.md), "Video card revision 2").
 - **The W1 contract is checked when a program is linked** (O8): `tools/w1.py` reads the map of every program in
-  `OOLIB_USERS` and `OOUI_USERS` and fails the build if any of its segments overlaps `$4000-$7FFF`
-  (`test/check_tools.py` makes one that crosses, for OOLIB and for OOUI, and sees the build stop).
+    `OOLIB_USERS` and `OOUI_USERS` and fails the build if any of its segments overlaps `$4000-$7FFF`, or if the map
+  has no segments to check (`test/check_tools.py` makes one that crosses, for OOLIB and for OOUI, and sees the build
+  stop, and a doctored map fail). It doesn't see absolute equates (an event area at a fixed address isn't a
+  segment), nor a `.PRL` overlay linked with the library, which has no address until function 59 relocates it: the
+  program keeps those out of `$4000-$7FFF` itself.
 
 ## Risks ##
 
