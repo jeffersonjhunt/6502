@@ -708,8 +708,8 @@ CLKINIT:        STZ     CLOCKS
                 TSB     CLOCKS
                 LDA     #<~NB_IRQ_VIA
                 STA     VIAL           ; the dispatcher's fast path, and VIASRV, from here
-@video:         LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
+@video:         LDA     VIDEO_ID       ; revision 2 only (hw/video-rev2.md): CLK_FRAME says
+                CMP     #VIDEO_ID_V2   ; there is one, for function 83 too
                 BNE     @done
                 LDA     #VIDEO_IRQ_ALL
                 STA     VIDEO_ISR

@@ -280,6 +280,7 @@ namespace oodos_rig
         {
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
+            opt.video_revision = 2; // OODOS is built for video card revision 2 only (hw/video-rev2.md)
             opt.apple_rom = std::move(apple_rom);
             opt.disk2_sequencer = disk2_sequencer;
             std::string error;

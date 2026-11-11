@@ -321,7 +321,7 @@ CARDS:          LDA     #<SCARDS
                 .word   name
 .endmacro
 CARD_LEN        = 6
-CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V1, $FF, CVIDEO
+CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V2, $FF, CVIDEO ; revision 2 only
                 CARD    SOUND_ID, SOUND_TYPE, $F0, CSOUND
                 CARD    SD_ID, SD_ID_V1, $FF, CSD
                 CARD    DISK2_ID, DISK2_ID_V1, $FF, CDISK2

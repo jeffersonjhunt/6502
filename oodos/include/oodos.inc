@@ -273,31 +273,48 @@ SC_6510         = $01                  ; the parts: the 6510 and the SIDs,
 SC_STREAM       = $02                  ;   the PCM stream (revision 2),
 SC_DOC          = $04                  ;   the ES5503 (revision 2)
 
-; Function 83's operations (L4, DMA and loading), as 80's: X = 0, A is the
-; operation; else A/X is a block, its +0 the operation. Addresses are
-; physical, 3 bytes (function 73 makes one of a CPU address). A destination
-; must be memory a DMA segment may reach (51) and not the console's video
-; memory, units 0-12 ($80000-$833FF). A = X = $FF for one that isn't, a
-; block needed and not given, or a refusal: nothing done.
-DM_INFO         = 0                    ; A = the first video unit a program may use (13), X = the slots (4);
-                                       ;   a block +1, +2 those, +3 the slots' budget in 256-byte pages (4),
-                                       ;   +4 the pointer's sprite ($FF off), +5-12 the W1 map: bit n & 7
-                                       ;   of byte n / 8 set for each block n that OOLIB may put in W1 now
+; Function 83's operations (L4, DMA and loading; video card revision 2,
+; interface version 8: hw/oolib.md, "Video card revision 2"), as 80's: X =
+; 0, A is the operation; else A/X is a block, its +0 the operation. A
+; physical address is 3 bytes (function 73 makes one of a CPU address); a
+; card address, in the video card's own memory (vmem.inc), 3 bytes too. A
+; physical destination must be memory a DMA segment may reach (51) and not
+; aperture slot 0's window, $80000-$83FFF (the console's). A card
+; destination must be in the program's part, $040000-$1BFFFF; a card source
+; anywhere in the fitted memory. A = X = $FF for one that isn't, a block
+; needed and not given, or a refusal: nothing done. A length of 0 is 65,536.
+DM_INFO         = 0                    ; A = the card's memory in 64 KB units (0: no revision 2 card), X =
+                                       ;   the slots (4); a block +1, +2 those, +3 the slots' budget in
+                                       ;   256-byte pages (4), +4 the pointer's sprite ($FF off), +5-12 the
+                                       ;   W1 map: bit n & 7 of byte n / 8 set for each block n that OOLIB
+                                       ;   may put in W1 now, +13-14 the program's first card page, +15-16
+                                       ;   the page past its last (0, 0 with no card)
 DM_LOAD         = 1                    ; block: +1-2 an open FCB, +3-5 its first record, +6-7 a count of
-                                       ;   records (1-512), +8-10 the destination: A = 0; 1 the file ended
-                                       ;   or a block was never written; else 33's error. +6-7 rewritten
-                                       ;   with the records loaded
-DM_COPY         = 2                    ; block: +1-3 the source, +4-6 the destination, +7-8 the length
-                                       ;   (0: 65,536), by DMA, in the BDOS's time
-DM_FILL         = 3                    ; block: +1 the byte, +2-4 the destination, +5-6 the length (0: 65,536)
-DM_VBSET        = 4                    ; block: +1 a slot (0-3), +2-4 the source, +5-7 the destination, +8-9
-                                       ;   the length (1-1,024, the four 1,024 at most; 0 frees it): copied at
-                                       ;   the vertical blank after the program sets the slot's EV_VBGO bit
+                                       ;   records (1-512), +8-10 the destination (physical): A = 0; 1 the
+                                       ;   file ended or a block was never written; else 33's error. +6-7
+                                       ;   rewritten with the records loaded
+DM_COPY         = 2                    ; block: +1-3 the source, +4-6 the destination (physical), +7-8 the
+                                       ;   length, by DMA, in the BDOS's time
+DM_FILL         = 3                    ; block: +1 the byte, +2-4 the destination (physical), +5-6 the length
+DM_VBSET        = 4                    ; block: +1 a slot (0-3), +2-4 the source (physical), +5-7 the
+                                       ;   destination (card), +8-9 the length (1-1,024, the four 1,024 at
+                                       ;   most; 0 frees it): copied through the card's port at the vertical
+                                       ;   blank after the program sets the slot's EV_VBGO bit
 DM_POINTER      = 5                    ; block: +1 a sprite (0-63; $FF off), +2 and +3 the hotspot: its X and
-                                       ;   Y set from the mouse's at each vertical blank (a layout-2 area)
+                                       ;   Y set from the mouse's at each vertical blank (a layout-2 area),
+                                       ;   in the table SPRBASE names, when that is in the program's part
 DM_CONSOLE      = 6                    ; the console's screen shown again, as the warm boot shows it
-DM_OPS          = 7
-DM_UNIT0        = 13                   ; DM_INFO's A: units 0-12 are the console's (OODOS's)
+DM_VWRITE       = 7                    ; block: +1-3 the source (physical), +4-6 the destination (card),
+                                       ;   +7-8 the length: through the card's port, by channel 1
+DM_VREAD        = 8                    ; block: +1-3 the source (card), +4-6 the destination (physical),
+                                       ;   +7-8 the length: the same, from the card
+DM_VFILL        = 9                    ; block: +1 the byte, +2-4 the destination (card), +5-6 the length
+DM_VCOPY        = 10                   ; block: +1-3 the source (card), +4-6 the destination (card), +7-8 the
+                                       ;   length: card to card through aperture slots 2 and 3 (borrowed
+                                       ;   inside the call, put back), forward: down over itself exact
+DM_OPS          = 11
+DM_PAGE0        = $0400                ; DM_INFO's +13-14 on a 2 MB card: the program's first card page
+DM_PAGEEND      = $1C00                ;   and +15-16, the page past its last (Apple II mode's from there)
 DM_SLOTS        = 4                    ; DM_INFO's X
 DM_BUDGET       = 1024                 ; the slots' bytes, all four
 
