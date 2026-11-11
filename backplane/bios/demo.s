@@ -145,11 +145,11 @@ DEMO_MAIN:
                 LDA     #TILE_UNIT
                 STA     VIDEO_L0_TILE_R1
                 LDA     #VIDEO_TEXT40
-                STA     VIDEO_L1 + 0
+                STA     VIDEO_L1_CONFIG
                 LDA     #TEXT_UNIT
-                STA     VIDEO_L1 + 1
+                STA     VIDEO_L1_MAP_R1
                 LDA     #1             ; the BIOS's font
-                STA     VIDEO_L1 + 2
+                STA     VIDEO_L1_TILE_R1
                 LDA     #SPR_UNIT
                 STA     VIDEO_SPRBASE_R1
                 STZ     SCROLL
