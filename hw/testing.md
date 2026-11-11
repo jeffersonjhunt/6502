@@ -84,9 +84,10 @@ CloudFormation stacks, an S3 bucket for the protected fixtures, an ECR image). I
 - Spot instances were taken back on two of three runs, losing the run each time.
 - One run went at 4 jobs because the branch's `check.sh` predated `--jobs`, costing hours.
 
-It was removed from the repo on feat/test-plan. `tools/aws-teardown.sh` deletes what is left in the account (the
-stacks, the bucket, the ECR repository); the owner runs it, then a commit removes the script. `check.sh`'s
-`--jobs` and `--exclude` stay: they are useful on any host.
+It was removed from the repo on feat/test-plan. A teardown script deleted what was left in the account (the
+stacks, the bucket and its 61 objects, the ECR repository and its 4 images; the owner ran it on 2026-11-11, and
+nothing tagged `builder=true` is left but two KMS keys pending deletion), and was then removed itself.
+`check.sh`'s `--jobs` and `--exclude` stay: they are useful on any host.
 
 
 ## For the current work ##
