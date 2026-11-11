@@ -80,7 +80,8 @@ export function vramView(port: MachinePort) {
   const refresh = async () => {
     const bytes = await port.readCardMemory(shown.addr, shown.count);
     form.hidden = !bytes;
-    dump.textContent = bytes ? vramDump(shown.addr, bytes) : "This video card has no memory of its own.";
+    const text = bytes ? vramDump(shown.addr, bytes) : "This video card has no memory of its own.";
+    if (dump.textContent !== text) dump.textContent = text; // unchanged: keep the node, and a selection in it
   };
 
   form.addEventListener("submit", (e) => {

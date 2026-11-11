@@ -49,6 +49,23 @@ describe("vram: card memory", () => {
     expect(port.calls.filter((c) => c[0] === "writeCardMemory")).toHaveLength(1);
   });
 
+  test("a refresh with the same bytes leaves the dump's text node alone; changed bytes replace it", async () => {
+    const port = new FakePort();
+    port.cardMemory = new Map([[0x2000, 0x41]]);
+    const v = vramView(port);
+    await v.refresh();
+    const dump = v.element.querySelector('[data-testid="vram-dump"]')!;
+    const node = dump.firstChild;
+    expect(node).not.toBeNull();
+    await v.refresh();
+    await v.refresh();
+    expect(dump.firstChild).toBe(node); // a selection in it survives the poll
+    port.cardMemory.set(0x2000, 0x42);
+    await v.refresh();
+    expect(dump.firstChild).not.toBe(node);
+    expect(dump.textContent).toMatch(/^002000  42 /);
+  });
+
   test("the Devices tab shows it for a revision 2 card only", async () => {
     const port = new FakePort();
     port.io.set(VIDEO + 0x7f, 0x91);
