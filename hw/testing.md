@@ -2,8 +2,9 @@
 
 Nov 11, 2026 · @Jefferson
 
-**Status: proposed (2026-11-11), for the owner's review.** Nothing here is built yet. Until it is, the tiers in
-[../README.md](../README.md) and `tools/check.sh` stand as they are.
+**Status: approved by the owner (2026-11-11).** Nothing here is built yet. Until it is, the tiers in
+[../README.md](../README.md) and `tools/check.sh` stand as they are, and a branch's sanitizer check is the suites
+its change touches, chosen by hand and named in its report. Questions 1-3 below are still open.
 
 
 ## The problem ##
@@ -108,4 +109,5 @@ report.
 2. `test_session` and `test_bios_sd` time out under the sanitizers on main as well. Should they get longer limits,
    or should we find out why they're slow there first? (Proposed: find out first.)
 3. Should the coverage check (item 7) become part of `full`, so the map can't drift?
-4. `perf/wasm` is on GitHub and not merged (2026-11-05, "2.6 is not a win"): keep it or delete it?
+4. `perf/wasm` is on GitHub and not merged (2026-11-05, "2.6 is not a win"): keep it or delete it? **Answered
+   (2026-11-11):** deleted, on the owner's word.
