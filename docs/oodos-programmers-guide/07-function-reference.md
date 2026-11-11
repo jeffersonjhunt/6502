@@ -2767,7 +2767,7 @@ The same. Function bytes 0-127 are for programs' RSXs, 128-255 the system's; OOD
   | Offset | What |
   |---|---|
   | +0, +1 | OODOS's version: major, minor (0, 4) |
-  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.12`) |
+  | +2, +3 | the BIOS's version: major, minor (0, 2): OODOS's own BIOS, in OODOS.SYS, not the ROM's (the boot status's `BIOS 0.13`) |
   | +4-5 | the memory fitted, in KB: 1,024 |
   | +6-7 | the memory the memory functions can give programs, in KB: 320, banks 1-5. The total, fixed: not what is free |
   | +8-9 | FARCALL's address in common memory |
@@ -2913,12 +2913,16 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 
 #### Exit
 
-- A = 0, and A = 1 with a IIe ROM in the cartridge and the DMA controller fitted: it doesn't return.
+- A = 0, and A = 1 with video card revision 2, the DMA controller and a IIe ROM in the cartridge: it doesn't
+  return.
+- A = 1 without video card revision 2 (*proposed*: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
+  `$92`; a revision 1 card, or none): A = `$FF`, X = `$FD`, and OODOS goes on. The ROM no longer starts Apple II
+  mode on a revision 1 card.
 - A = 1 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$81`): A = `$FF`, X = `$FE`,
   and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it without one.
 - A = 1 with no IIe ROM in the cartridge (`$FBB3` isn't `$06`), or any other A: A = X = `$FF`, and OODOS goes on.
-- Every return is a failure, A = `$FF`; X tells the two cases of A = 1 apart. The DMA controller is looked at
-  first.
+- Every return is a failure, A = `$FF`; X tells the three cases of A = 1 apart. They are looked at in the ROM's
+  order: the video card first, then the DMA controller, then the IIe ROM.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
 #### Errors
@@ -2928,8 +2932,8 @@ As in Exit.
 #### Side effects
 
 - For A = 0 or 1, the changed buffers are written back first, as function 48 does, even when there is no IIe ROM
-  to go to. Without the DMA controller nothing is written back: OODOS looks for it before anything else, and
-  OODOS's own card transfers need it too. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  to go to. Without video card revision 2 or the DMA controller nothing is written back: OODOS looks for them
+  before anything else (*proposed*, the card), and OODOS's own card transfers need the DMA controller too. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
   before anything is written back, and a changed disk gets none of it
   ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - OODOS doesn't come back: the ROM's monitor, or a reset, is what follows.

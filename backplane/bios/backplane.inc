@@ -116,31 +116,55 @@ DMA_CH3         = $08                  ; ABORT, STATUS: channel 3
 DMA_ALL         = $0F                  ; ABORT, STATUS: every channel
 DMA_MODE_IRQ    = $80                  ; MODE: interrupt at terminal count
 
-; Video card (module 9): VGA 640x480 from banks 8-B.
+; Video card (module 9): VGA 640x480. Revision 1 (ID $91) draws from banks 8-B,
+; which it snoops; revision 2 (ID $92, hw/video-rev2.md, proposed) from 2 MB of its
+; own memory, through the aperture and the port. The _R1 names are revision 1's
+; registers where revision 2 moved them; the plain names are revision 2's.
 VIDEO           = $C480
 VIDEO_CTRL      = VIDEO + $00
 VIDEO_BORDER    = VIDEO + $01
-VIDEO_PALBASE   = VIDEO + $02
-VIDEO_SPRBASE   = VIDEO + $03
+VIDEO_PALBASE_R1 = VIDEO + $02         ; revision 1
+VIDEO_SPRBASE_R1 = VIDEO + $03         ; revision 1
 VIDEO_IEN       = VIDEO + $04
 VIDEO_ISR       = VIDEO + $05          ; pending: write 1s to clear
 VIDEO_LINE      = VIDEO + $06          ; 2 bytes: write the line to interrupt at; read the beam's line
 VIDEO_STATUS    = VIDEO + $08          ; bit 7: in vertical blank
 VIDEO_SPLASH    = VIDEO + $09          ; the boot splash (splash.s)
+VIDEO_PALBASE   = VIDEO + $0A          ; revision 2: 2 bytes, card address / 256
+VIDEO_SPRBASE   = VIDEO + $0C          ; revision 2: 2 bytes, card address / 256
 VIDEO_L0        = VIDEO + $10          ; layer 0
 VIDEO_L0_CONFIG = VIDEO_L0 + 0
-VIDEO_L0_MAP    = VIDEO_L0 + 1
-VIDEO_L0_TILE   = VIDEO_L0 + 2
-VIDEO_L0_HSCROLL = VIDEO_L0 + 3
-VIDEO_L0_VSCROLL = VIDEO_L0 + 5
-VIDEO_L0_PALOFS = VIDEO_L0 + 7
+VIDEO_L0_MAP_R1 = VIDEO_L0 + 1         ; revision 1's layer registers
+VIDEO_L0_TILE_R1 = VIDEO_L0 + 2
+VIDEO_L0_HSCROLL_R1 = VIDEO_L0 + 3
+VIDEO_L0_VSCROLL_R1 = VIDEO_L0 + 5
+VIDEO_L0_PALOFS_R1 = VIDEO_L0 + 7
+VIDEO_L0_MAP    = VIDEO_L0 + 1         ; revision 2's: 2 bytes, card address / 256
+VIDEO_L0_TILE   = VIDEO_L0 + 3         ; 2 bytes, card address / 256
+VIDEO_L0_HSCROLL = VIDEO_L0 + 5        ; 2 bytes
+VIDEO_L0_VSCROLL = VIDEO_L0 + 7        ; 2 bytes
+VIDEO_L0_PALOFS = VIDEO_L0 + 9
 VIDEO_L1        = VIDEO + $20          ; layer 1, the same registers
 VIDEO_L1_CONFIG = VIDEO_L1 + 0
-VIDEO_L1_MAP    = VIDEO_L1 + 1
-VIDEO_L1_TILE   = VIDEO_L1 + 2
-VIDEO_L1_HSCROLL = VIDEO_L1 + 3
-VIDEO_L1_VSCROLL = VIDEO_L1 + 5
-VIDEO_L1_PALOFS = VIDEO_L1 + 7
+VIDEO_L1_MAP_R1 = VIDEO_L1 + 1         ; revision 1's
+VIDEO_L1_TILE_R1 = VIDEO_L1 + 2
+VIDEO_L1_HSCROLL_R1 = VIDEO_L1 + 3
+VIDEO_L1_VSCROLL_R1 = VIDEO_L1 + 5
+VIDEO_L1_PALOFS_R1 = VIDEO_L1 + 7
+VIDEO_L1_MAP    = VIDEO_L1 + 1         ; revision 2's
+VIDEO_L1_TILE   = VIDEO_L1 + 3
+VIDEO_L1_HSCROLL = VIDEO_L1 + 5
+VIDEO_L1_VSCROLL = VIDEO_L1 + 7
+VIDEO_L1_PALOFS = VIDEO_L1 + 9
+VIDEO_SLOT0     = VIDEO + $30          ; revision 2: aperture slot 0's 16 KB page, 2 bytes
+VIDEO_SLOT1     = VIDEO + $32
+VIDEO_SLOT2     = VIDEO + $34
+VIDEO_SLOT3     = VIDEO + $36
+VIDEO_PADDR     = VIDEO + $38          ; revision 2: the port's address, 3 bytes
+VIDEO_PDATA     = VIDEO + $3B          ; the port's data: each access moves PADDR by PSTEP
+VIDEO_PSTEP     = VIDEO + $3C          ; 2 bytes
+VIDEO_PCTL      = VIDEO + $3E
+VIDEO_MEMSIZE   = VIDEO + $3F          ; card memory in 64 KB units, read-only
 VIDEO_ID        = VIDEO + $7F
 
 VIDEO_ON_L0     = $03                  ; CTRL: display on, layer 0 on
@@ -150,11 +174,17 @@ VIDEO_TILE      = $02                  ; CONFIG: tiles, 8x8 at 4 bits...
 VIDEO_MAP_W64   = $20                  ; ...from a map 64 wide (32 high)
 VIDEO_ALL       = $0F                  ; CTRL: display, both layers, sprites
 VIDEO_ID_V1     = $91
+VIDEO_ID_V2     = $92
 VIDEO_IRQ_VBLANK = $01                 ; IEN, ISR: vertical blank
 VIDEO_IRQ_LINE  = $02                  ; IEN, ISR: the scan line LINE
 VIDEO_IRQ_COLLIDE = $04                ; IEN, ISR: sprite collision
 VIDEO_IRQ_ALL   = $07
 VIDEO_SPLASH_ON = $01                  ; SPLASH: play it (clears itself at the end)
+VIDEO_PCTL_DRQ  = $01                  ; PCTL: assert DRQ, on DMA channel 1 (DMA_CH1)
+VIDEO_PCTL_FROM = $02                  ; PCTL: DMA reads the card (0: DMA writes it)
+VIDEO_PCTL_DOWN = $04                  ; PCTL: PADDR steps down
+VIDEO_MEMSIZE_2MB = 32                 ; MEMSIZE on a 2 MB card
+VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank 8 (four 16 KB slots)
 
 ; Zero page and low RAM, and who has them:
 ;
@@ -168,6 +198,8 @@ VIDEO_SPLASH_ON = $01                  ; SPLASH: play it (clears itself at the e
 ;   $0100      the stack; Break and BRK start it afresh
 ;   $0200-$027F the monitor's input line
 ;   $0400-$05FF the SD card's sector buffer; the demo's sprite table
+;   $FC000-$FC7FF RAM block 63's first 2 KB, under the I/O hole: the
+;              screen's scroll buffer (video.s), reached only by DMA
 BIOS_ZP         = $E0                  ; the screen (video.s)
 
 ; USB card (module B): keyboard, mouse, game port.
@@ -253,6 +285,8 @@ DMA0_CTRL       = DMA + $07
 DMA0_DEST       = DMA + $08            ; memory to memory: the destination, 20 bits
 DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory
 DMA_DEMAND_OUT  = $05                  ; MODE: demand mode, memory to card
+DMA_BLOCK_IN    = $02                  ; MODE: block, card to memory (once DRQ or REQ starts it)
+DMA_BLOCK_OUT   = $06                  ; MODE: block, memory to card
 DMA_ENABLE      = $01                  ; CTRL
 
 ; Sound card (module A): two SIDs and a 6510 of its own.

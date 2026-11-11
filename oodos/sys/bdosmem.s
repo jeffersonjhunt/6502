@@ -217,33 +217,49 @@ SEGOK:          CLC
                 RTS
 
 ; Carry set if SG (its A16-A19 in SG + 2's low nibble: DOUT's has $80 in its
-; top) to SG + A/Y meets the console's video memory, units 0-12 at $80000-
-; $833FF, which no program may write (L4's question 2: function 83's
-; destinations, and a record read through a DMA segment). SEGOK has checked
-; the range's end. Keeps X.
-UNITS0:         CLC                    ; the end's bank: SG + 2 and the carries
+; top) to SG + A/Y meets an aperture window that shows OODOS's card memory,
+; which no program may write (L4's question 2, revision 2: function 83's
+; destinations, and a record read through a DMA segment): slot 0's,
+; $80000-$83FFF (card bank 0: the console's units 0-12 and the rest of
+; OODOS's first 16 KB), and slots 2 and 3's, $88000-$8FFFF (card banks 2 and
+; 3 from the warm boot on, but inside DM_VCOPY, which borrows them). Only
+; slot 1's window, $84000-$87FFF, is the program's: the warm boot puts slot 1
+; on its first card bank (vmem.inc's VM_PROG_BANK) and OOLIB keeps it on the
+; program's. SEGOK has checked the range's end. Keeps X.
+OSWIN:          CLC                    ; the end's high byte and A16-A19: SGE + 1, SGE + 2
                 ADC     SG
                 TYA
                 ADC     SG + 1
+                STA     SGE + 1
                 LDA     SG + 2
                 AND     #$0F
                 ADC     #0
-                CMP     #^UNITS_END
+                STA     SGE + 2
+                CMP     #^APER_WIN
                 BCC     @clear         ; it ends below $80000
                 LDA     SG + 2
                 AND     #$0F
-                CMP     #^UNITS_END
-                BCC     @meets         ; from below $80000 into it
+                CMP     #^APER_WIN
+                BCC     @meets         ; from below $80000 into slot 0's window
                 BNE     @clear         ; from bank 9 on
                 LDA     SG + 1
-                CMP     #>UNITS_END
-                BCC     @meets         ; from below $83400
+                CMP     #>SLOT1_WIN
+                BCC     @meets         ; from slot 0's window
+                LDA     SGE + 2
+                CMP     #^APER_WIN
+                BNE     @meets         ; on past bank 8, through slots 2 and 3's
+                LDA     SGE + 1
+                CMP     #>SLOT1_END
+                BCS     @meets         ; into slot 2's
 @clear:         CLC
                 RTS
 @meets:         SEC
                 RTS
-UNITS_END       = $83400               ; past unit 12
-.assert <UNITS_END = 0 && ^UNITS_END = 8, error, "UNITS0 compares the bank, then the high byte"
+APER_WIN        = $80000               ; the aperture, bank 8: slot n's window at + n x $4000
+SLOT1_WIN       = $84000               ; slot 1's, the program's
+SLOT1_END       = $88000               ; past it: slots 2 and 3's
+.assert ^APER_WIN = 8 && (APER_WIN & $FFFF) = 0, error, "OSWIN compares the bank alone for the aperture's start"
+.assert ^SLOT1_WIN = 8 && <SLOT1_WIN = 0 && ^SLOT1_END = 8 && <SLOT1_END = 0, error, "OSWIN compares slot 1's window by its high bytes in bank 8"
 
 ; A = the block (A14-A19) of the physical address at zero page X.
 BLKOF:          LDA     1,X

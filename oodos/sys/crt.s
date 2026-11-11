@@ -13,11 +13,15 @@
 ; Other control characters and DEL do nothing; anything else is shown, as it
 ; is: lowercase stays lowercase. A character in the last column wraps.
 ;
-; Video memory, in the card's 1 KB units of banks 8-B: the palette at unit
-; 0, the font at unit 1 (copied from flash block 30, as VINIT does), the text
-; at unit 8 ($82000), a character and an attribute a cell. The BIOS reaches
-; it through W1, put on block 32 for the call and back on the BDOS's (60)
-; before it returns; scrolling and erasing are DMA copies, as video.s's.
+; Video card revision 2's memory (hw/video-rev2.md; vmem.inc), OODOS's card
+; bank 0, in 1 KB units: the palette at unit 0 (card $000000), the font at
+; unit 1 ($000400, copied from flash block 30, as VINIT does), the text at
+; unit 8 ($002000), a character and an attribute a cell. Aperture slot 0
+; always shows bank 0 (CRTINIT sets it, the warm boot puts it back, and no
+; program writes SLOT0), so its window, block 32 at $80000-$83FFF, is the
+; console's: the BIOS reaches it through W1, put on block 32 for the call
+; and back on the BDOS's (60) before it returns; scrolling and erasing are
+; DMA copies within the window, as video.s's.
 ; The cursor is the cell's attribute while it is there: black on light
 ; grey, blinking (the card blinks it), the character left as it is.
 ;
@@ -26,6 +30,7 @@
 
 .setcpu "65C02"
 .include "sys.inc"
+.include "vmem.inc"
 .import DMAGO
 .importzp SRCP, DSTP, DCOUNT
 .export CRTINIT, CRTOUT, CRTREGS
@@ -41,10 +46,9 @@ VWIN            = $4000
 PAL             = VWIN                 ; unit 0
 FONT            = VWIN + $0400         ; unit 1
 TEXT            = VWIN + $2000         ; unit 8
-TEXT_PHYS       = $82000
+TEXT_PHYS       = $82000               ; slot 0's window: card $002000
+.assert TEXT_PHYS - $80000 = VM_TEXT, error, "the text where vmem.inc has it"
 FONT_BLOCK      = 30                   ; in the flash
-FONT_UNIT       = 1
-TEXT_UNIT       = 8
 TEXT_END        = TEXT + COLS * ROWS * 2
 
 .zeropage
@@ -292,13 +296,15 @@ ROWHI:
 CRTINIT:        STZ     CVOK
                 STZ     CESC
                 LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
+                CMP     #VIDEO_ID_V2
                 BNE     @nocard
                 LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BEQ     @card
 @nocard:        JMP     USBINIT
-@card:          LDX     #0             ; the page
+@card:          STZ     VIDEO_SLOT0    ; slot 0 on bank 0, as /RESET leaves it
+                STZ     VIDEO_SLOT0 + 1
+                LDX     #0             ; the page
 @font:          LDA     #NB_ROM | NB_RO | FONT_BLOCK
                 STA     NB_WIN1
                 STZ     CP
@@ -346,7 +352,8 @@ USBINIT:        LDA     USB_ID
 ; The console's screen shown again (L4): the card's registers as CRTINIT
 ; sets them, for the warm boot (video.s's VBQUIET) and function 83's
 ; DM_CONSOLE. Its memory, units 0-12, is never a program's to write
-; (function 83 refuses it, block 32 isn't in the W1 map), so the font, the
+; (function 83 refuses OODOS's card memory and slot 0's window, block 32
+; isn't in the W1 map), so the font, the
 ; palette and the text are as they were, the cursor too. Nothing with no
 ; screen (CVOK clear).
 CRTREGS:        BIT     CVOK
@@ -354,15 +361,21 @@ CRTREGS:        BIT     CVOK
 CRTREG0:        LDA     CLOCKS         ; the card: its interrupts but the frame counter's
                 AND     #CLK_FRAME     ; (irq.s: none before cold boot starts it) off,
                 STA     VIDEO_IEN      ; layer 0, text, unscrolled
-                STZ     VIDEO_PALBASE
+                STZ     VIDEO_PALBASE  ; (the base registers in card pages, 2 bytes)
+                STZ     VIDEO_PALBASE + 1
                 STZ     VIDEO_SPRBASE
+                STZ     VIDEO_SPRBASE + 1
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG
-                LDA     #TEXT_UNIT
+                LDA     #<(VM_TEXT / VM_PAGE)
                 STA     VIDEO_L0_MAP
-                LDA     #FONT_UNIT
+                LDA     #>(VM_TEXT / VM_PAGE)
+                STA     VIDEO_L0_MAP + 1
+                LDA     #<(VM_FONT / VM_PAGE)
                 STA     VIDEO_L0_TILE
+                LDA     #>(VM_FONT / VM_PAGE)
+                STA     VIDEO_L0_TILE + 1
                 STZ     VIDEO_L0_HSCROLL
                 STZ     VIDEO_L0_HSCROLL + 1
                 STZ     VIDEO_L0_VSCROLL

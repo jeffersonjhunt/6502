@@ -1,7 +1,8 @@
 # 6 Video
 
-The VGA card (module 9, `$C480`): text, tile and bitmap layers, sprites, the palette, and its memory in banks 8–B;
-and, proposed, [revision 2](#revision-2-the-cards-own-memory), which has 2 MB of its own.
+The VGA card (module 9, `$C480`): text, tile and bitmap layers, sprites, the palette, and its memory. Revision 2,
+which BIOS 0.13 and OODOS drive (*proposed*), draws from 2 MB of its own ([below](#revision-2-card-memory));
+revision 1, the old card, drew from banks 8–B, and the BIOS no longer supports it.
 
 The design record, for the reasons: [hw/design.md, "Video"](../../hw/design.md#video), ["Video
 registers"](../../hw/design.md#video-registers), ["Boot splash"](../../hw/design.md#boot-splash).
@@ -125,8 +126,9 @@ Status: **emulated**
 In Apple II mode the card draws the IIe's display instead of its layers: text, lo-res, hi-res and the double modes,
 from banks 0 and 1, as the north bridge's soft switches say. Each Apple dot is 2×2 pixels, the 560×384 picture
 centred on black. The card's registers can't be reached, and the /RESET that entered the mode has set them all back
-to their reset values. Text is drawn from the IIe's character ROM, which the BIOS's `C806R` puts in video memory at
-`$BE000`. [Chapter 13](13-apple-ii-mode.md) has the mode.
+to their reset values. Text is drawn from the IIe's character ROM, which the BIOS's `C806R` puts in card memory at
+`$1E0000`, through the port (*proposed*, revision 2). On a revision 1 card `C806R` refuses and stays in the monitor.
+[Chapter 13](13-apple-ii-mode.md) has the mode.
 
 ## Sprites
 
@@ -190,7 +192,7 @@ so a write to it swaps the whole palette between frames.
 
 The BIOS's palette is the CGA's 16 colours, which VINIT writes to entries 0–15 at unit 0 (`video.s`):
 
-<!-- listing: ../../backplane/bios/video.s:332-351 -->
+<!-- listing: ../../backplane/bios/video.s:460-479 -->
 ```
 ; The CGA's 16 colours, 12-bit: GGGGBBBB, then 0000RRRR.
 .macro RGB r, g, b
@@ -216,16 +218,21 @@ CGA:            RGB     $0, $0, $0     ; black
 
 hw/design.md, "Video registers" ([`hw/design.md:624–625`](../../hw/design.md#video-registers)), has the card copy
 the 512 bytes into its own RAM when PALBASE changes. The emulator reads them from video memory for every line
-instead (`emulator/components/devices/video_card.cpp:323–327`), which is what lets a DMA fade show with no PALBASE
+instead (`emulator/components/devices/video_card.cpp:515–519`), which is what lets a DMA fade show with no PALBASE
 write.
 
 ## Video memory
 
 Status: **emulated**
 
-In native mode, everything the card draws but the splash is in banks 8–B, physical `$80000–$BFFFF`, 256 KB: the
-cells and fonts, maps and tiles, bitmaps, the sprite table and images, and the palette. The card keeps its own copy
-by watching every write to those banks on the backplane, so it takes no bus cycles. To the CPU and the DMA
+On revision 2 (*proposed*) everything the card draws but the splash is in its own 2 MB, reached through the aperture
+and the data port: [Revision 2: card memory](#revision-2-card-memory). The next three paragraphs are revision 1's,
+the old card, which the BIOS no longer drives (its registers are below as `_R1` entries); the table after them is
+BIOS 0.13's, on revision 2.
+
+On revision 1, in native mode, everything the card draws but the splash is in banks 8–B, physical
+`$80000–$BFFFF`, 256 KB: the cells and fonts, maps and tiles, bitmaps, the sprite table and images, and the
+palette. The card keeps its own copy by watching every write to those banks on the backplane, so it takes no bus cycles. To the CPU and the DMA
 controller the banks are ordinary RAM: a program writes them through a window on RAM blocks 32–47, or by DMA, and
 can read them back ([chapter 2](02-memory-and-banking.md#physical-memory)). The emulator draws from the RAM itself,
 so writes by the CPU, by DMA and from the front panel all show.
@@ -234,44 +241,59 @@ The base registers (PALBASE, SPRBASE, MAPBASE, TILEBASE) are one byte, in 1 KB u
 `$80000` + *u* × 1,024, which is RAM block 32 + *u* / 16, at (*u* mod 16) × 1 KB into it. Sprite images are in
 64-byte units, 12 bits. Every address wraps within the 256 KB, so a map or a bitmap that runs past `$BFFFF` goes on
 at `$80000`. Revision 2 moves all of it into the card's own memory
-([below](#revision-2-the-cards-own-memory)).
+([below](#revision-2-card-memory)).
 
-What the BIOS and its video demo (`C803R`, `demo.s`) put where:
+What BIOS 0.13 puts where, on revision 2, in card addresses (*proposed*; hw/video-rev2.md's layout). The old unit
+*u* of banks 8–B is card address *u* × 1 KB, so the BIOS's screen keeps its offsets:
 
-| Units | Physical | What |
-|---|---|---|
-| 0 | `$80000` | the BIOS's palette, entries 0–15 |
-| 1–4 | `$80400` | the BIOS's font, 4 KB, copied from flash block 30 |
-| 8–12 | `$82000` | the BIOS's text screen, 80×30 cells, 4,800 bytes |
-| 13 | `$83400` | the demo's palette |
-| 16–18 | `$84000` | the demo's caption, a 40×30 text layer |
-| 20 | `$85000` | the demo's tiles |
-| 24–27 | `$86000` | the demo's map, 64×32 |
-| 32 | `$88000` | the demo's ball, sprite image 512 |
-| 36 | `$89000` | the demo's sprite table |
-| 248–249 | `$BE000` | Apple II mode's character ROM, 2 KB (`apple.s`) |
+| Card address | What |
+|---|---|
+| `$000000` | the BIOS's palette, entries 0–15 (`video.s`) |
+| `$000400` | the BIOS's font, 4 KB, copied from flash block 30 |
+| `$002000` | the BIOS's text screen, 80×30 cells, 4,800 bytes |
+| `$040000`–`$13FFFF` | the video demo's (`C803R`, `demo.s`), in the programs' region: [its table](#the-video-demo-on-revision-2) |
+| `$1E0000` | Apple II mode's character ROM, 2 KB (`apple.s`) |
 
-The demo keeps clear of units 0–12, so the text screen is still there when it ends.
+The demo keeps clear of `$000000`–`$03FFFF` and of Apple II mode's `$1C0000`–`$1FFFFF`, so the text screen is still
+there when it ends. BIOS 0.12, on revision 1, kept the same screen at units 0, 1–4 and 8–12 (`$80000`, `$80400`,
+`$82000`), the demo at units 13–36 and the character ROM at `$BE000`.
 
 ### Under OODOS
 
-Status: **built**
+Status: **proposed**, on [revision 2](#revision-2-card-memory), which OODOS is built for (`oodos/include/vmem.inc`,
+`oodos/sys/video.s`): its console takes the screen only when the ID reads `$92` and the DMA controller is there. On
+revision 1, or with no card, OODOS has no console screen, only the serial line.
 
-The console is the BIOS's text screen, set up by OODOS's own CRTINIT at cold boot: the palette at unit 0, the font
-at units 1–4, the text at units 8–12. Those units, 0–12 (`$80000–$833FF`), are OODOS's (OOLIB L4): function 83
-refuses them as a destination, a record read through a DMA segment may not land in them, and block 32 is never in
-W1's map. A program has units 13–255. Units 13–15 are in block 32, so only DMA reaches them.
+**Card memory.** OODOS owns card `$000000–$03FFFF`; a program reads it and never writes it. The console is the
+BIOS's text screen, set up again by OODOS's own CRTINIT at cold boot: the palette at `$000000`, the font at
+`$000400`, the 80×30 text at `$002000`, the old video units 0–12 (`$000000–$0033FF`); the rest is kept for OODOS.
+The program owns `$040000–$1BFFFF`, handed out by OOLIB, for as long as it runs; Apple II mode owns
+`$1C0000–$1FFFFF`, never a program's. Function 83's card operations refuse a card destination outside the
+program's part, and its pointer is written only while SPRBASE is in it.
 
-A program may write every video register but IEN (OODOS's: the vertical blank alone) and SPLASH, and of ISR only
-bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt, and turns off a line or
-collision interrupt a program enables). It reaches video memory through OOLIB, which maps W1 itself under the W1
-contract ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)),
-or by function 83. Collisions are read from STATUS and ISR: OODOS keeps no copy of them.
+**The aperture.** Slot 0 is OODOS's and always shows card bank 0, the console's, at `$80000–$83FFF` (block 32),
+where the console writes its text. Slot 1, at `$84000–$87FFF` (block 33), is the program's, through OOLIB under the
+W1 contract ([the Programmer's Guide, chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)).
+Slots 2 and 3 are OODOS's too, at `$88000–$8FFFF`: function 83's card-to-card copy borrows them for each piece and
+puts them back. So no physical destination of function 83, and no record read through a DMA segment (function 51),
+may touch `$80000–$83FFF` or `$88000–$8FFFF`: OODOS refuses it. DM_INFO's W1 map leaves out blocks 32, 34 and 35:
+it is block 1, the blocks the program has allocated, 33, and 36–47 (banks 9–B, ordinary RAM on revision 2).
 
-The warm boot (and function 83's `DM_CONSOLE`) sets the registers back as CRTINIT sets them: CTRL `$03`, BORDER,
-PALBASE and SPRBASE 0, layer 0 text at units 8 and 1, unscrolled, layer 1's CONFIG 0, IEN the vertical blank alone.
-It copies nothing: the console's memory was never the program's, so what OODOS printed meanwhile shows. OODOS's
-vertical-blank copies and the pointer sprite run from the frame handler on DMA channel 1
+**Registers.** A program may write the drawing registers, but not IEN (OODOS's: the vertical blank alone) nor
+SPLASH, and of ISR only bit 2 (writing `$04` clears the collision flag; OODOS never enables the collision interrupt,
+and turns off a line or collision interrupt a program enables). SLOT0, SLOT2 and SLOT3 and the data port's
+registers (PADDR, PDATA, PSTEP, PCTL) are OODOS's; OOLIB writes SLOT1 alone. Collisions are read from STATUS and
+ISR: OODOS keeps no copy of them.
+
+**The warm boot** (and function 83's `DM_CONSOLE`) sets the card's registers back as CRTINIT sets them: CTRL `$03`
+(the display and layer 0 on), BORDER, PALBASE and SPRBASE 0, layer 0 80×30 text (CONFIG `$80`) with its map at the
+text and its tiles at the font, unscrolled, layer 1's CONFIG 0, IEN the vertical blank alone. The warm boot alone
+also turns the port's DMA request off and puts SLOT0–SLOT3 on card banks 0, 16, 2 and 3: slot 1 on the program's
+first bank, so block 33 never shows OODOS's part. It copies nothing: the console's memory was never the program's,
+so what OODOS printed meanwhile shows.
+
+**The frame handler's copies.** OODOS's vertical-blank copies (from system memory to the program's card memory) and
+the pointer sprite's position go through the data port, on DMA channel 1, from the frame handler
 ([chapter 4](04-interrupts.md#under-oodos), [chapter 5](05-dma.md#under-oodos)).
 
 ### When changes show
@@ -288,7 +310,7 @@ Status: **emulated**
 - **In vertical blank**, lines 480–524, nothing is drawn, and STATUS bit 7 is set. Memory, the palette's contents,
   CTRL, BORDER, CONFIG and PALOFS written then show on the next frame. The demo waits for its start so:
 
-<!-- listing: ../../backplane/bios/demo.s:339-345 -->
+<!-- listing: ../../backplane/bios/demo.s:470-476 -->
 ```
 ; Wait for the start of a vertical blank (STATUS bit 7 going on).
 WAITVB:
@@ -299,34 +321,45 @@ WAITVB:
                 RTS
 ```
 
-After WAITVB the demo copies its sprite table in and writes layer 0's HSCROLL (`backplane/bios/demo.s:160–165`).
-The sprites show on the next frame, but the scroll, latched already, shows a frame later, so it runs a frame behind.
+After WAITVB the demo copies its sprite table in and writes layer 0's CONFIG and HSCROLL
+(`backplane/bios/demo.s:236–243`). The sprites show on the next frame, but the scroll, latched already, shows a frame
+later, so it runs a frame behind. CONFIG isn't latched, so the demo writes it a frame after the MAPBASE it goes with
+(*proposed*, revision 2's demo: [revision 2](#revision-2-card-memory)).
 
 ### The BIOS's text screen
 
-Status: **emulated**
+Status: **proposed**, on [revision 2](#revision-2-card-memory), which BIOS 0.13 is built for: it takes the screen
+only when the ID reads `$92`. On revision 1, or with no card, VOK stays clear and the monitor is on the serial line
+alone; the emulator has both.
 
 At boot VINIT copies the font and the palette in, clears the screen, and ends in VSCREEN, which sets the registers.
 Break calls VSCREEN again, after QUIET, so the monitor always comes back to this screen, with its memory as it was
 left. VSCREEN does nothing unless both the video card's and the DMA controller's ID bytes answer:
 
-<!-- listing: ../../backplane/bios/video.s:129-152 -->
+<!-- listing: ../../backplane/bios/video.s:146-176 -->
 ```
 ; The card's registers for the text screen, if there is one: layer 0 only,
-; unscrolled, no interrupts. Its memory is left as it is.
+; unscrolled, no interrupts. Its memory, the aperture's slots and the port
+; are left as they are.
 VSCREEN:
                 JSR     PROBE
                 BPL     @done
                 STZ     VIDEO_IEN
                 STZ     VIDEO_PALBASE
+                STZ     VIDEO_PALBASE + 1
                 STZ     VIDEO_SPRBASE
+                STZ     VIDEO_SPRBASE + 1
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG
-                LDA     #TEXT_UNIT
+                LDA     #<(TEXT_CARD >> 8)
                 STA     VIDEO_L0_MAP
-                LDA     #FONT_UNIT
+                LDA     #>(TEXT_CARD >> 8)
+                STA     VIDEO_L0_MAP + 1
+                LDA     #<(FONT_CARD >> 8)
                 STA     VIDEO_L0_TILE
+                LDA     #>(FONT_CARD >> 8)
+                STA     VIDEO_L0_TILE + 1
                 STZ     VIDEO_L0_HSCROLL
                 STZ     VIDEO_L0_HSCROLL + 1
                 STZ     VIDEO_L0_VSCROLL
@@ -338,9 +371,16 @@ VSCREEN:
 @done:          RTS
 ```
 
-It leaves ISR, LINE and SPLASH alone, and of layer 1 it writes only CONFIG. VPUTC, run for each character, writes
-it with the CPU through W2, and scrolls the screen and clears its last row by DMA on channel 3
-([chapter 5](05-dma.md#memory-to-memory)).
+It leaves ISR, LINE and SPLASH alone, and of layer 1 it writes only CONFIG. The font, the palette and the text keep
+revision 1's old offsets in card memory (`$000400`, `$000000` and `$002000`, so the base
+registers read `$0004`, `$0000` and `$0020`). VINIT writes the font and the palette into the port's PDATA, and
+clears the screen with two port transfers by DMA on channel 1, held on one byte with PSTEP 2: the characters, then
+the attributes. VPUTC, run for each character, writes it with the CPU through aperture slot 0 (W2 on physical
+`$80000`; it points SLOT0 at page 0 and puts both back after), and scrolls by the port on channel 1: the rows out
+of the card into a 2 KB buffer at `$FC000` (under the I/O hole, in RAM block 63) and back in a row higher, then a
+fill for the last row. It puts the port's PADDR, PSTEP and PCTL back after, but stops a program's own transfer on
+channel 1. BIOS 0.12, on revision 1, wrote it through W2 on RAM block 32 and scrolled by DMA on channel 3
+([chapter 5](05-dma.md#memory-to-memory)); BIOS 0.13 leaves a revision 1 card alone.
 
 ## The boot splash
 
@@ -398,19 +438,27 @@ back to ISR as 1s, which clears them; until it does, /IRQ stays low
   never interrupts there.
 
 hw/design.md's register table ([`hw/design.md:604`](../../hw/design.md#video-registers)) says any pending ISR bit
-pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:189`), as the
+pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:252`), as the
 same section's later list says ([`hw/design.md:650`](../../hw/design.md#video-registers)).
 
-## Revision 2: the card's own memory
+## Revision 2: card memory
 
 Status: **proposed**
 
-Revision 2 of the card (ID `$92`; revision 1, above, reads `$91`) draws native mode from 2 MB of memory of its own,
-not from a snooped copy of banks 8–B. The CPU reaches that memory through a 64 KB aperture in bank 8, and in bulk
-through a data port that the DMA controller feeds on channel 1. Banks 9–B are ordinary RAM again
-([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)). Apple II mode still snoops banks 0–1
-([below](#apple-ii-mode-on-revision-2)). The layers, sprites, palette, splash, interrupts and timing are as
-revision 1 draws them; what changes is where their data is, how it is reached, and where some registers sit.
+Revision 2 ([hw/video-rev2.md](../../hw/video-rev2.md)) draws from 2 MB of its own memory instead of banks 8–B,
+reached through a 64 KB aperture at physical `$80000` (`VIDEO_APERTURE`, four 16 KB slots) and a data port on DMA
+channel 1. Its ID reads `$92` (`VIDEO_ID_V2`). It moves the base registers to two bytes in 256-byte units and the
+layers' registers up a byte; the `_R1` equates are revision 1's names where they moved. Every byte it doesn't name
+reads 0. The emulator has it (`rev=2` on the machine's video line, as `backplane.machine` has it), and BIOS 0.13
+and OODOS drive it and nothing older: on a revision 1 card the BIOS's text screen stays off, `C806R` refuses, and
+OODOS has no console screen. Revision 1 is still documented here, as the old card; the emulator can still build
+one (`rev=1`).
+
+Native mode no longer snoops anything, and banks 9–B are ordinary RAM again: bank 8 is the aperture ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)).
+Apple II mode still snoops banks 0–1 ([below](#apple-ii-mode-on-revision-2)). The layers, sprites, palette, splash,
+interrupts and timing are as revision 1 draws them; what changes is where their data is, how it is reached, and
+where some registers sit. The BIOS's use of it is in [Video memory](#video-memory) and [The BIOS's text
+screen](#the-bioss-text-screen), OODOS's in [Under OODOS](#under-oodos).
 
 The design record, for the reasons: [hw/design.md, "Video card revision
 2"](../../hw/design.md#video-card-revision-2), and [hw/video-rev2.md](../../hw/video-rev2.md), whose register map and
@@ -478,10 +526,13 @@ sound card's RAMADDR and RAMDATA ([chapter 7](07-sound.md)).
 
 - **The step** lets one stream fill a column or a rectangle: 160 for a column of the 80-column text screen, 640 for
   a row of a 640-pixel bitmap.
-- **PADDR wraps** at the end of the fitted memory, up or down.
+- **PADDR wraps** at the end of the fitted memory, up or down. Set at or past that end, it reads back as written and
+  steps as a plain 24-bit counter (each PDATA read giving `$FF`, each write lost) until it wraps from `$FFFFFF` to
+  `$000000`, inside the memory again.
 - **By DMA:** with PCTL's bit 0 set the card raises DRQ on channel 1 whenever the port can take or give a byte, so
   the controller streams system RAM into card memory, or back, fly-by
-  ([chapter 5](05-dma.md#revision-2-channel-1-the-video-port)). PCTL's bit 1 must agree with the channel's DIR.
+  ([chapter 5](05-dma.md#revision-2-channel-1-the-video-port)). PCTL's bit 1 must agree with the channel's DIR: a DMA
+  cycle against it moves nothing (a read gives `$FF`, a write is dropped) and leaves PADDR where it was.
 - **Within card memory,** a scroll or a moved sprite image goes out through the port and back in; the card has no
   copy engine yet.
 
@@ -509,7 +560,7 @@ leaves a `$92` card alone.
 
 Status: **proposed**
 
-The entry keeps its 8 bytes and VERA's layout but for the image address, which takes byte 1's spare bits: 15 bits
+The entry keeps revision 1's 8 bytes and their layout but for the image address, which takes byte 1's spare bits: 15 bits
 in 256-byte units, reaching 8 MB.
 
 | Byte | Bits | Meaning |
@@ -521,25 +572,25 @@ in 256-byte units, reaching 8 MB.
 
 The image is at the unit number × 256 in card memory.
 
-### The BIOS on revision 2
+### The video demo on revision 2
 
 Status: **proposed**
 
-VINIT loads the font and the palette through the port, and VSCREEN writes the two-byte bases. VPUTC writes each
-cell through aperture slot 0, and scrolls the screen by the port. The demo loads its tiles, map, caption and sprite
-table through the port, and sends the sprite table each frame by port DMA. The splash is unchanged: it never came
-from video memory.
+The video demo (`C803R`, `demo.s`) is revision 2's (*proposed*); on a revision 1 card it goes straight back to the
+monitor. It loads everything through the port and keeps to the programs' region of card memory, so the BIOS's
+screen below `$040000` and Apple II mode's memory from `$1C0000` are as they were when it ends:
 
-### Under OODOS on revision 2
+| Card address | What |
+|---|---|
+| `$040000` | the palette, 6 slices: the scene, the 4 balls', the ripple's ramp (colours 80–95) |
+| `$040400` | a copy of the BIOS's font, from flash block 30 |
+| `$041400`, `$041E00` | the caption, a 40×30 text layer: a page for each scene, flipped by layer 1's MAPBASE |
+| `$043000`, `$044000` | the tiles, and the 64×32 map |
+| `$045000`, `$045100` | the ball (sprite image unit `$0450`), and the sprite table, sent by port DMA each frame |
+| `$050000`–`$13FFFF` | the ripple: 16 bitmaps of 256×240 at 8 bits, `$F000` apart, built by port DMA at the start |
 
-Status: **proposed**
-
-OODOS owns `$000000–$03FFFF` and the Apple II region, `$1C0000–$1FFFFF`; programs have `$040000–$1BFFFF`, which they
-allocate through OOLIB. The console is at card page 0. Function 83's video copies become port transfers, its checks
-card-address ranges, and the frame handler's vertical-blank copies and the pointer sprite go through the port on
-channel 1. The Programmer's Guide has the calls
-([chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#video-memory-on-revision-2),
-[chapter 8](../oodos-programmers-guide/08-game-services.md#video-memory-on-revision-2)).
+Every 256 frames layer 0 changes between the scrolling tiles and the ripple, which flips its MAPBASE to the next
+bitmap each frame: 960 KB of frames, more than revision 1's whole video memory.
 
 ### Apple II mode on revision 2
 
@@ -549,7 +600,9 @@ Apple II mode draws as [above](#apple-ii-mode). The card still watches writes to
 switches on the backplane, its one snoop path now, and keeps its copy in card memory at `$1C0000–$1DFFFF`. It draws
 text from the character ROM at `$1E0000`, which `C806R` copies there through the port. Its registers can't be
 reached, it ignores the aperture, and DMA is idle, so the port isn't used in the mode. Card memory survives the
-/RESET that enters it and every Ctrl-Reset ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
+/RESET that enters it and every Ctrl-Reset ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)). The
+emulator draws the mode from banks 0–1 of its RAM directly, as it does with revision 1, so it keeps no copy at
+`$1C0000`; only the character ROM comes from card memory.
 
 ## Registers
 
@@ -632,11 +685,11 @@ The border shows beside the bitmaps (x 0–63 and 576–639), and over the whole
 latched. The BIOS writes `$00` at boot and on Break.
 
 <a id="reg-c482"></a>
-### $C482 VIDEO_PALBASE: where the palette is
+### $C482 VIDEO_PALBASE_R1: where the palette is
 
 #### Equates
 
-`VIDEO_PALBASE`
+`VIDEO_PALBASE_R1`
 
 #### Module
 
@@ -661,15 +714,15 @@ All: the palette's unit, at physical `$80000` + PALBASE × 1,024. It is 512 byte
 #### Notes
 
 Latched at line 480, so a write in vertical blank shows a frame later ([above](#when-changes-show)). The palette's
-contents are read for each line, so they need no PALBASE write to show ([The palette](#the-palette)). The BIOS writes
-`$00` at boot and on Break; the demo uses unit 13.
+contents are read for each line, so they need no PALBASE write to show ([The palette](#the-palette)). BIOS 0.12
+wrote `$00` at boot and on Break, and its demo used unit 13; BIOS 0.13 doesn't drive revision 1.
 
 <a id="reg-c483"></a>
-### $C483 VIDEO_SPRBASE: where the sprite table is
+### $C483 VIDEO_SPRBASE_R1: where the sprite table is
 
 #### Equates
 
-`VIDEO_SPRBASE`
+`VIDEO_SPRBASE_R1`
 
 #### Module
 
@@ -694,8 +747,8 @@ All: the sprite table's unit, at physical `$80000` + SPRBASE × 1,024. It is 64 
 
 #### Notes
 
-Latched at line 480, so a write in vertical blank shows a frame later. The BIOS writes `$00` at boot and on Break;
-the demo uses unit 36.
+Latched at line 480, so a write in vertical blank shows a frame later. BIOS 0.12 wrote `$00` at boot and on Break,
+and its demo used unit 36; BIOS 0.13 doesn't drive revision 1.
 
 <a id="reg-c484"></a>
 ### $C484 VIDEO_IEN: the interrupt enables
@@ -881,6 +934,69 @@ the bit itself when the splash ends.
 splash](#the-boot-splash)). The BIOS writes 1 at boot; Break (QUIET) and the demo write 0. Under the monitor it
 reads 1 for the first 5 s after a reset, then 0.
 
+<a id="reg-c48a"></a>
+### $C48A VIDEO_PALBASE: where the palette is, on revision 2
+
+#### Equates
+
+`VIDEO_PALBASE`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only. Latched at line 480, as on revision 1.
+
+#### Bits
+
+All: a card address in 256-byte units, low byte first: the palette (512 bytes) starts at card address value × 256.
+
+#### Reset
+
+`$00 $00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+Revision 1's is [VIDEO_PALBASE_R1](#reg-c482). BIOS 0.13 writes `$0000` at boot and on Break (card address
+`$000000`, its palette).
+
+<a id="reg-c48c"></a>
+### $C48C VIDEO_SPRBASE: where the sprite table is, on revision 2
+
+#### Equates
+
+`VIDEO_SPRBASE`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only. Latched at line 480, as on revision 1.
+
+#### Bits
+
+All: a card address in 256-byte units, low byte first: the sprite table (64 entries of 8 bytes) starts at card address value × 256.
+
+#### Reset
+
+`$00 $00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+Revision 1's is [VIDEO_SPRBASE_R1](#reg-c483). BIOS 0.13 writes `$0000` at boot and on Break. On revision 2 an entry's image address is 15 bits of 256-byte units: byte 0, then byte 1's bits 6–0; byte 1's bit 7 is still the colour depth.
+
 <a id="reg-c490"></a>
 ### $C490 VIDEO_L0_CONFIG: layer 0's type
 
@@ -923,11 +1039,11 @@ A layer type ignores the bits that aren't its own, and every bit reads back as w
 types.
 
 <a id="reg-c491"></a>
-### $C491 VIDEO_L0_MAP: layer 0's map
+### $C491 VIDEO_L0_MAP_R1: layer 0's map
 
 #### Equates
 
-`VIDEO_L0_MAP`
+`VIDEO_L0_MAP_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_MAP`'s
 
 #### Module
 
@@ -952,15 +1068,16 @@ image of a bitmap or mono layer.
 
 #### Notes
 
-Latched at line 480, so one write flips between two pages; a write in vertical blank shows a frame later. The BIOS
-writes 8 (`$82000`) at boot and on Break.
+Latched at line 480, so one write flips between two pages; a write in vertical blank shows a frame later. BIOS
+0.12 wrote 8 (`$82000`) at boot and on Break; BIOS 0.13 writes revision 2's [VIDEO_L0_MAP](#revision-2-card-memory)
+here, `$0020` (card address `$002000`).
 
 <a id="reg-c492"></a>
-### $C492 VIDEO_L0_TILE: layer 0's tiles or font
+### $C492 VIDEO_L0_TILE_R1: layer 0's tiles or font
 
 #### Equates
 
-`VIDEO_L0_TILE`
+`VIDEO_L0_TILE_R1`
 
 #### Module
 
@@ -985,15 +1102,16 @@ and mono layers don't use it.
 
 #### Notes
 
-Latched at line 480, so a write in vertical blank shows a frame later. The BIOS writes 1 (`$80400`, its font) at
-boot and on Break.
+Latched at line 480, so a write in vertical blank shows a frame later. BIOS 0.12 wrote 1 (`$80400`, its font) at
+boot and on Break; BIOS 0.13 doesn't drive revision 1 (on revision 2 it writes layer 0's TILEBASE, `$0004`: card
+address `$000400`).
 
 <a id="reg-c493"></a>
-### $C493 VIDEO_L0_HSCROLL: layer 0's scroll across
+### $C493 VIDEO_L0_HSCROLL_R1: layer 0's scroll across
 
 #### Equates
 
-`VIDEO_L0_HSCROLL`
+`VIDEO_L0_HSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_TILE`'s
 
 #### Module
 
@@ -1024,11 +1142,11 @@ between two line 480s, take effect together; written in vertical blank, they sho
 ([When changes show](#when-changes-show)). The BIOS writes 0 at boot and on Break.
 
 <a id="reg-c495"></a>
-### $C495 VIDEO_L0_VSCROLL: layer 0's scroll down
+### $C495 VIDEO_L0_VSCROLL_R1: layer 0's scroll down
 
 #### Equates
 
-`VIDEO_L0_VSCROLL`
+`VIDEO_L0_VSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_HSCROLL`'s
 
 #### Module
 
@@ -1058,11 +1176,11 @@ The layer moves up by VSCROLL lines and wraps within its height: the map's for t
 at boot and on Break.
 
 <a id="reg-c497"></a>
-### $C497 VIDEO_L0_PALOFS: layer 0's palette slice
+### $C497 VIDEO_L0_PALOFS_R1: layer 0's palette slice
 
 #### Equates
 
-`VIDEO_L0_PALOFS`
+`VIDEO_L0_PALOFS_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_VSCROLL`'s
 
 #### Module
 
@@ -1092,6 +1210,33 @@ R/W. Not latched: a write shows from the next line drawn.
 It applies to text colours, mono pixels, bitmap 512 and 4-bit tiles (added to the map entry's offset, mod 16). It
 doesn't apply to bitmap 256 or 8-bit tiles. A colour of 0 is transparent before PALOFS is added. The BIOS writes 0
 at boot and on Break.
+
+<a id="reg-c499"></a>
+### $C499 VIDEO_L0_PALOFS: layer 0's palette slice, on revision 2
+
+#### Equates
+
+`VIDEO_L0_PALOFS`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. Not latched.
+
+#### Bits
+
+As revision 1's [VIDEO_L0_PALOFS_R1](#reg-c497): bits 3–0, a 16-colour slice; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
 
 <a id="reg-c4a0"></a>
 ### $C4A0 VIDEO_L1_CONFIG: layer 1's type
@@ -1126,11 +1271,11 @@ Layer 1 is drawn over layer 0, with depth-2 sprites between them. CTRL bit 2 tur
 boot and on Break, with CTRL's bit 2 off; the demo uses it as a 40×30 text layer for its caption.
 
 <a id="reg-c4a1"></a>
-### $C4A1 VIDEO_L1_MAP: layer 1's map
+### $C4A1 VIDEO_L1_MAP_R1: layer 1's map
 
 #### Equates
 
-`VIDEO_L1_MAP`
+`VIDEO_L1_MAP_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_MAP`'s
 
 #### Module
 
@@ -1142,7 +1287,7 @@ R/W, as [layer 0's](#reg-c491).
 
 #### Bits
 
-As [VIDEO_L0_MAP](#reg-c491), for layer 1.
+As [VIDEO_L0_MAP_R1](#reg-c491), for layer 1.
 
 #### Reset
 
@@ -1154,14 +1299,14 @@ As [VIDEO_L0_MAP](#reg-c491), for layer 1.
 
 #### Notes
 
-The BIOS doesn't write it: after Break it is as a program left it (the demo leaves 16).
+The BIOS doesn't write it: after Break it is as a program left it (BIOS 0.12's demo left 16).
 
 <a id="reg-c4a2"></a>
-### $C4A2 VIDEO_L1_TILE: layer 1's tiles or font
+### $C4A2 VIDEO_L1_TILE_R1: layer 1's tiles or font
 
 #### Equates
 
-`VIDEO_L1_TILE`
+`VIDEO_L1_TILE_R1`
 
 #### Module
 
@@ -1173,7 +1318,7 @@ R/W, as [layer 0's](#reg-c492).
 
 #### Bits
 
-As [VIDEO_L0_TILE](#reg-c492), for layer 1.
+As [VIDEO_L0_TILE_R1](#reg-c492), for layer 1.
 
 #### Reset
 
@@ -1185,14 +1330,14 @@ As [VIDEO_L0_TILE](#reg-c492), for layer 1.
 
 #### Notes
 
-The BIOS doesn't write it: after Break it is as a program left it (the demo leaves 1, the BIOS's font).
+The BIOS doesn't write it: after Break it is as a program left it (BIOS 0.12's demo left 1, the BIOS's font).
 
 <a id="reg-c4a3"></a>
-### $C4A3 VIDEO_L1_HSCROLL: layer 1's scroll across
+### $C4A3 VIDEO_L1_HSCROLL_R1: layer 1's scroll across
 
 #### Equates
 
-`VIDEO_L1_HSCROLL`
+`VIDEO_L1_HSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_TILE`'s
 
 #### Module
 
@@ -1204,7 +1349,7 @@ R/W, 2 bytes, as [layer 0's](#reg-c493).
 
 #### Bits
 
-As [VIDEO_L0_HSCROLL](#reg-c493), for layer 1; `$C4A4` is the high byte.
+As [VIDEO_L0_HSCROLL_R1](#reg-c493), for layer 1; `$C4A4` is the high byte.
 
 #### Reset
 
@@ -1219,11 +1364,11 @@ As [VIDEO_L0_HSCROLL](#reg-c493), for layer 1; `$C4A4` is the high byte.
 The BIOS doesn't write it: after Break it is as a program left it.
 
 <a id="reg-c4a5"></a>
-### $C4A5 VIDEO_L1_VSCROLL: layer 1's scroll down
+### $C4A5 VIDEO_L1_VSCROLL_R1: layer 1's scroll down
 
 #### Equates
 
-`VIDEO_L1_VSCROLL`
+`VIDEO_L1_VSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_HSCROLL`'s
 
 #### Module
 
@@ -1235,7 +1380,7 @@ R/W, 2 bytes, as [layer 0's](#reg-c495).
 
 #### Bits
 
-As [VIDEO_L0_VSCROLL](#reg-c495), for layer 1; `$C4A6` is the high byte.
+As [VIDEO_L0_VSCROLL_R1](#reg-c495), for layer 1; `$C4A6` is the high byte.
 
 #### Reset
 
@@ -1250,11 +1395,11 @@ As [VIDEO_L0_VSCROLL](#reg-c495), for layer 1; `$C4A6` is the high byte.
 The BIOS doesn't write it: after Break it is as a program left it.
 
 <a id="reg-c4a7"></a>
-### $C4A7 VIDEO_L1_PALOFS: layer 1's palette slice
+### $C4A7 VIDEO_L1_PALOFS_R1: layer 1's palette slice
 
 #### Equates
 
-`VIDEO_L1_PALOFS`
+`VIDEO_L1_PALOFS_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_VSCROLL`'s
 
 #### Module
 
@@ -1266,7 +1411,7 @@ R/W, as [layer 0's](#reg-c497).
 
 #### Bits
 
-As [VIDEO_L0_PALOFS](#reg-c497), for layer 1.
+As [VIDEO_L0_PALOFS_R1](#reg-c497), for layer 1.
 
 #### Reset
 
@@ -1279,6 +1424,289 @@ As [VIDEO_L0_PALOFS](#reg-c497), for layer 1.
 #### Notes
 
 The BIOS doesn't write it: after Break it is as a program left it.
+
+<a id="reg-c4a9"></a>
+### $C4A9 VIDEO_L1_PALOFS: layer 1's palette slice, on revision 2
+
+#### Equates
+
+`VIDEO_L1_PALOFS`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. Not latched.
+
+#### Bits
+
+As revision 1's [VIDEO_L1_PALOFS_R1](#reg-c4a7): bits 3–0, a 16-colour slice; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b0"></a>
+### $C4B0 VIDEO_SLOT0: aperture slot 0's page
+
+#### Equates
+
+`VIDEO_SLOT0`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 0, physical `$80000`–`$83FFF`, shows card memory from SLOT0 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$00 $00`: slot 0 shows page 0, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b2"></a>
+### $C4B2 VIDEO_SLOT1: aperture slot 1's page
+
+#### Equates
+
+`VIDEO_SLOT1`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 1, physical `$84000`–`$87FFF`, shows card memory from SLOT1 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$01 $00`: slot 1 shows page 1, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b4"></a>
+### $C4B4 VIDEO_SLOT2: aperture slot 2's page
+
+#### Equates
+
+`VIDEO_SLOT2`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 2, physical `$88000`–`$8BFFF`, shows card memory from SLOT2 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$02 $00`: slot 2 shows page 2, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b6"></a>
+### $C4B6 VIDEO_SLOT3: aperture slot 3's page
+
+#### Equates
+
+`VIDEO_SLOT3`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 3, physical `$8C000`–`$8FFFF`, shows card memory from SLOT3 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$03 $00`: slot 3 shows page 3, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b8"></a>
+### $C4B8 VIDEO_PADDR: the port's address
+
+#### Equates
+
+`VIDEO_PADDR`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 3 bytes, low byte first, on [revision 2](#revision-2-card-memory) only. Each access to PDATA moves it by PSTEP.
+
+#### Bits
+
+All: a 24-bit card address. It wraps at the fitted memory's end; an address past MEMSIZE reads `$FF` through PDATA and ignores writes.
+
+#### Reset
+
+`$00 $00 $00`.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4bb"></a>
+### $C4BB VIDEO_PDATA: the port's data
+
+#### Equates
+
+`VIDEO_PDATA`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. A write stores the byte at PADDR, a read returns it; either then moves PADDR by PSTEP. DMA on channel 1 does the same while PCTL bit 0 is set.
+
+#### Bits
+
+All: the byte at PADDR.
+
+#### Reset
+
+Whatever card memory holds at PADDR.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4bc"></a>
+### $C4BC VIDEO_PSTEP: the port's step
+
+#### Equates
+
+`VIDEO_PSTEP`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: how far PADDR moves after each PDATA access, up, or down with PCTL bit 2. 0 holds PADDR.
+
+#### Reset
+
+`$01 $00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+A step of 160 writes a column of the 80-column text screen.
+
+<a id="reg-c4be"></a>
+### $C4BE VIDEO_PCTL: the port's control
+
+#### Equates
+
+`VIDEO_PCTL`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–3 | | 0 |
+| 2 | DOWN | `VIDEO_PCTL_DOWN`: PADDR steps down |
+| 1 | FROM | `VIDEO_PCTL_FROM`: DMA reads PDATA (0: DMA writes it) |
+| 0 | DRQ | `VIDEO_PCTL_DRQ`: ask for DMA on channel 1 |
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+A /DACK cycle in the other direction from bit 1's moves nothing.
+
+<a id="reg-c4bf"></a>
+### $C4BF VIDEO_MEMSIZE: the card memory fitted
+
+#### Equates
+
+`VIDEO_MEMSIZE`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R, on [revision 2](#revision-2-card-memory) only. A write is ignored.
+
+#### Bits
+
+All: card memory in 64 KB units: 32 (`VIDEO_MEMSIZE_2MB`) for 2 MB.
+
+#### Reset
+
+`$20`.
+
+#### Status
+
+**proposed**
 
 <a id="reg-c4ff"></a>
 ### $C4FF VIDEO_ID: the card's ID

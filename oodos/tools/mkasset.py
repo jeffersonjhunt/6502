@@ -1,4 +1,4 @@
-"""Makes OOLIB's asset files (format 3) from PNG images, and checks them (hw/oolib.md, L4; question 8).
+"""Makes OOLIB's asset files (format 4) from PNG images, and checks them (hw/oolib.md, L4; question 8).
 
     python3 -I mkasset.py bitmap256 picture.png PICTURE.OGX
     python3 -I mkasset.py bitmap512 picture.png PICTURE.OGX
@@ -13,18 +13,20 @@ picture with more of them than its bitmap holds (256, or 16 at 4 bits) is refuse
 most used and gives each other pixel the nearest of them. A pixel with alpha below 128 is transparent: colour 0
 (the card shows what is under it), and the palette's entry 0 is then kept for it.
 
-The file (oodos/include/oolib.inc's AH_* and AP_*): record 0 a 16-byte header ('OGX', the format 3, the parts,
-11 bytes 0) and up to 7 parts of 16 bytes: the type (AT_*), the layer CONFIG it was made for, its unit ($FF:
-any, the library allocates), a byte 0, its first record (2 bytes), its records (2), its length in bytes (3),
-its width and height as the type counts them, 3 bytes 0. Each part starts on a 1 KB boundary of the file and
-is padded to one, so its sectors go to video memory straight from the card (function 83's DM_LOAD) and its last
-record stays in its own units. The rest of record 0, and of its 1 KB, is 0.
+The file (oodos/include/oolib.inc's AH_* and AP_*): record 0 a 16-byte header ('OGX', the format 4, the parts,
+11 bytes 0) and up to 7 parts of 16 bytes: the type (AT_*), the layer CONFIG it was made for, its card page (2
+bytes: video card revision 2's memory, card address / 256, a multiple of 4 in the program's part $0400-$1BFF;
+$FFFF: any, the library allocates), its first record (2 bytes), its records (2), its length in bytes (3), its
+width and height as the type counts them, 3 bytes 0. Each part starts on a 1 KB boundary of the file and is
+padded to one, so its sectors come off the card in whole reads (function 83's DM_LOAD, then DM_VWRITE to the
+card's memory). The rest of record 0, and of its 1 KB, is 0. Format 3 (revision 1's video units) isn't read.
 
 The card's layouts (Technical Reference chapter 6): bitmap 256 is 256 x 240 at a byte a pixel; bitmap 512 is
 512 x 480 at 4 bits, the left pixel high, 256 bytes a row; tiles are 8 x 8 or 16 x 16 at 4 or 8 bits, row by
 row; a map is 2-byte entries (the tile's number, bits 0-9; H and V flip, 10 and 11; the palette offset, 12-15);
-a sprite image is its pixels row by row, a sprite's entry 8 bytes (its image's address / 64 with bit 15 for 8
-bits a pixel, X, Y, the flags, the size); a palette 256 entries of GGGGBBBB then 0000RRRR.
+a sprite image is its pixels row by row, on 256 bytes (revision 2's sprite table counts images in card pages), a
+sprite's entry 8 bytes (its image's card page, relative to the sprite images' part, in bits 0-14 with bit 15
+for 8 bits a pixel, X, Y, the flags, the size); a palette 256 entries of GGGGBBBB then 0000RRRR.
 """
 
 import argparse
@@ -33,7 +35,10 @@ import sys
 import zlib
 
 MAGIC = b"OGX"
-FORMAT = 3
+FORMAT = 4
+ANY = 0xFFFF                                 # a part's page: the library allocates
+PAGE = 256                                   # a card page
+PROG_PAGES = (0x0400, 0x1C00)                # the program's part of card memory, in pages (vmem.inc)
 HEADER = 16
 PART = 16
 MAX_PARTS = 7
@@ -233,7 +238,7 @@ def palette_bytes(palette):
 # ---- the file -----------------------------------------------------------------------------------------------
 
 class Part:
-    def __init__(self, kind, data, config=0, unit=0xFF, w=0, h=0):
+    def __init__(self, kind, data, config=0, unit=ANY, w=0, h=0):
         if not data:
             raise AssetError("an empty part")
         if len(data) > MAX_BYTES:
@@ -253,7 +258,7 @@ def build(parts):
     at = UNIT                                # record 0's 1 KB first
     for p in parts:
         records = (len(p.data) + RECORD - 1) // RECORD
-        entries += struct.pack("<BBBBHH", p.kind, p.config, p.unit, 0, at // RECORD, records)
+        entries += struct.pack("<BBHHH", p.kind, p.config, p.unit, at // RECORD, records)
         entries += struct.pack("<I", len(p.data))[:3] + bytes([p.w & 0xFF, p.h & 0xFF, 0, 0, 0])
         chunk = pad(p.data, UNIT)
         body += chunk
@@ -263,13 +268,13 @@ def build(parts):
 
 
 def parse(data):
-    """[(type, config, unit, first record, records, bytes, w, h)], checking the header's limits."""
+    """[(type, config, page, first record, records, bytes, w, h)], checking the header's limits."""
     if len(data) < RECORD:
         raise AssetError("shorter than a record")
     if data[:3] != MAGIC:
         raise AssetError("no 'OGX'")
     if data[3] != FORMAT:
-        raise AssetError("format %d, not 3" % data[3])
+        raise AssetError("format %d, not 4" % data[3])
     n = data[4]
     if not 1 <= n <= MAX_PARTS:
         raise AssetError("%d parts" % n)
@@ -278,19 +283,21 @@ def parse(data):
     out = []
     for i in range(n):
         e = data[HEADER + i * PART:HEADER + (i + 1) * PART]
-        kind, config, unit, zero, first, records = struct.unpack("<BBBBHH", e[:8])
+        kind, config, unit, first, records = struct.unpack("<BBHHH", e[:8])
         size = e[8] | e[9] << 8 | e[10] << 16
         w, h = e[11], e[12]
         if kind not in TYPES:
             raise AssetError("part %d: type %d" % (i + 1, kind))
-        if zero or any(e[13:]):
+        if any(e[13:]):
             raise AssetError("part %d: its reserved bytes aren't 0" % (i + 1))
         if first % (UNIT // RECORD) or first == 0:
             raise AssetError("part %d: record %d isn't on 1 KB of the file" % (i + 1, first))
         if not 0 < size <= MAX_BYTES or records != (size + RECORD - 1) // RECORD:
             raise AssetError("part %d: %d bytes in %d records" % (i + 1, size, records))
-        if unit != 0xFF and (unit < 13 or unit + (size + UNIT - 1) // UNIT > 256):
-            raise AssetError("part %d: unit %d (13-255, and its units with it)" % (i + 1, unit))
+        if unit != ANY and (unit % (UNIT // PAGE) or unit < PROG_PAGES[0] or
+                            unit + (size + PAGE - 1) // PAGE > PROG_PAGES[1]):
+            raise AssetError("part %d: page $%04X (a multiple of 4 in $0400-$1BFF, and its pages with it)" %
+                             (i + 1, unit))
         if (first + records) * RECORD > len(data):
             raise AssetError("part %d: past the file's end" % (i + 1))
         out.append((kind, config, unit, first, records, size, w, h))
@@ -380,13 +387,13 @@ def sprites(png, sw, sh, bpp=4, table=False, quantize=False):
         for fx in range(w // sw):
             px = [index(rows[fy * sh + y][fx * sw + x]) for y in range(sh) for x in range(sw)]
             img = bytes(px[i] << 4 | px[i + 1] for i in range(0, len(px), 2)) if bpp == 4 else bytes(px)
-            frames.append(pad(img, 64))
+            frames.append(pad(img, PAGE))
     if len(frames) > 64:
         raise AssetError("%d sprites: 64 at most" % len(frames))
     parts = [Part(AT_PALETTE, palette_bytes(pal)), Part(AT_SPRITES, b"".join(frames), w=sw, h=sh)]
     if table:
         t = bytearray(512)
-        per = len(frames[0]) // 64
+        per = len(frames[0]) // PAGE
         for n in range(len(frames)):
             image = n * per | (0x8000 if bpp == 8 else 0)
             x, y = 8 + (n * (sw + 4)) % 300, 8 + (n * (sw + 4)) // 300 * (sh + 4)
@@ -424,8 +431,8 @@ def main(argv=None):
         if a.kind == "check":
             data = open(a.file, "rb").read()
             for i, p in enumerate(parse(data)):
-                unit = "any" if p[2] == 0xFF else str(p[2])
-                print("part %d: %s, CONFIG $%02X, unit %s, records %d-%d, %d bytes" %
+                unit = "any" if p[2] == ANY else "$%04X" % p[2]
+                print("part %d: %s, CONFIG $%02X, page %s, records %d-%d, %d bytes" %
                       (i + 1, TYPES[p[0]], p[1], unit, p[3], p[3] + p[4] - 1, p[5]))
             return 0
         png = open(a.png, "rb").read()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make the video demo's graphics (demo.s): tiles, map, a ball, palettes.
+"""Make the video demo's graphics (demo.s): tiles, map, a ball, palettes, a sine.
 
   make_assets.py OUTDIR
 
@@ -8,11 +8,14 @@ Writes, in the video card's formats (hw/design.md, "Formats in video memory"):
   tiles.bin     16 tiles, 8x8 at 4 bits (32 bytes each, left pixel high)
   map.bin       64 x 32 map entries (2 bytes: tile, then palette offset 0 and no flips)
   ball.bin      a 16x16 ball at 4 bits: 1 dark rim, 2 body, 3 highlight
-  palettes.bin  16 fade levels x 5 slices x 16 colours x 2 bytes (GGGGBBBB, 0000RRRR)
+  palettes.bin  16 fade levels x 6 slices x 16 colours x 2 bytes (GGGGBBBB, 0000RRRR)
+  sine.bin      256 steps of one sine wave, 0-15: the ripple's row offsets
 
 The landscape: a night sky in three bands with stars, a moon, rolling hills
 whose shape repeats every 64 tiles (so the scroll wraps without a seam), and
-a brick ground. Slice 0 is the scene and the caption; slices 1-4 the balls.
+a brick ground. Slice 0 is the scene and the caption; slices 1-4 the balls;
+slice 5 the ripple's ramp, deep blue to white, colours 80-95 of its 8-bit
+bitmap (demo.s builds the bitmap itself, through the card's port).
 Deterministic: run again, get the same bytes.
 """
 
@@ -36,6 +39,7 @@ BALLS = [  # dark, body, highlight
     (0x015, 0x36E, 0xAEF),
     (0x640, 0xEB2, 0xFEA),
 ]
+RAMP = [(i * 10 // 15) << 8 | (3 + i * 12 // 15) << 4 | (6 + i * 9 // 15) for i in range(16)]
 
 SKY = [1, 2, 3]
 T_SKY = [1, 2, 3]                       # solid sky tiles, one per band
@@ -141,7 +145,7 @@ def ball():
 
 
 def palettes():
-    slices = [dict(SCENE)] + [{1: d, 2: b, 3: h} for d, b, h in BALLS]
+    slices = [dict(SCENE)] + [{1: d, 2: b, 3: h} for d, b, h in BALLS] + [dict(enumerate(RAMP))]
     out = bytearray()
     for level in range(16):
         for s in slices:
@@ -152,11 +156,16 @@ def palettes():
     return bytes(out)
 
 
+def sine():
+    return bytes(round(7.5 + 7.5 * math.sin(2 * math.pi * i / 256)) for i in range(256))
+
+
 def main():
     if len(sys.argv) != 2:
         print("usage: make_assets.py OUTDIR", file=sys.stderr)
         return 2
-    for name, data in (("tiles.bin", tiles()), ("map.bin", map_()), ("ball.bin", ball()), ("palettes.bin", palettes())):
+    for name, data in (("tiles.bin", tiles()), ("map.bin", map_()), ("ball.bin", ball()), ("palettes.bin", palettes()),
+                       ("sine.bin", sine())):
         with open(os.path.join(sys.argv[1], name), "wb") as f:
             f.write(data)
         print(f"{name}: {len(data)} bytes")

@@ -158,6 +158,15 @@ up one byte to make room.
 PADDR wraps at the fitted memory's end. Aperture and port addresses past MEMSIZE read `$FF` and ignore writes.
 /RESET resets the registers and never touches card memory.
 
+**Settled by the owner (2026-11-11):**
+
+- **PADDR past the fitted memory.** Inside the fitted memory, PADDR steps modulo its size (up or down). If
+  software writes PADDR at or past the fitted end, it reads back as written, and each PDATA access (`$FF` on a
+  read, nothing on a write) steps it as a plain 24-bit counter, wrapping at `$FFFFFF` to `$000000`, where it is
+  inside the fitted memory again.
+- **A DMA cycle against PCTL's direction** (/DACK reading the port while bit 1 says to the card, or writing it
+  while bit 1 says from the card) moves nothing: a read gives `$FF`, a write is dropped, and PADDR doesn't step.
+
 ### Sprite table
 
 Sprite table entries keep VERA's 8-byte layout, with the image address widened into byte 1's spare bits. **Frozen,

@@ -19,7 +19,7 @@
 ;   G   G aa xx: function MBOX + 1, A/X = MBOX + 2-3
 ;   T   T aa xx: function 80 with the block at KBLK
 ;   F   F aa xx: function 80's FT_INFO, X = 0
-;   I   INFO aa xx and DM_INFO's 12 bytes
+;   I   INFO aa xx and DM_INFO's 16 bytes
 ;   M   M ww bb: W1 := MBOX + 1's block, then a function 9 call from W0;
 ;       ww NB_WIN1 after it, bb the byte at $4000 through W1
 ;   P   P 00 00: MBOX + 2's byte to $4000-$40FF, through whatever W1 has
@@ -201,7 +201,7 @@ c_info: lda     #<iblk
         sta     PTR
         lda     #>(iblk + 1)
         sta     PTR + 1
-        ldx     #12
+        ldx     #16
         jsr     HEXN
         jmp     CRLF
 
@@ -358,7 +358,7 @@ oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0
 iblk:   .byte   DM_INFO
-        .res    12, $EE
+        .res    16, $EE
 lbuf:   .byte   20, 0
         .res    20
 

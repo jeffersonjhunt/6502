@@ -12,7 +12,7 @@ render.py - the boot splash as the OO-1 would show and play it.
     splash_doc.mp4, docsnd.bin run on a 6502 with its writes to the ES5503
     ($DF00) played through a model of the chip (Doc below: the emulator's
     es5503.cpp rules for the modes the splash uses, free run and one-shot)
-    from wave.bin, at its 49,716 Hz with 16 oscillators.
+    from wave.bin, at its 34,419 Hz with the 24 oscillators the player enables.
 
 Both previews are scaled to the same peak, to listen to.
 

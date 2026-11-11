@@ -14,7 +14,7 @@ SLOT            = 0
 
         .bss
 GX_SPR: .res    512                    ; the shadow
-GX_SPRU: .res   1                      ; the table's unit on the card
+GX_SPRU: .res   2                      ; the table's card page
 
         .code
 
@@ -32,12 +32,16 @@ GX_SPRINIT:
         inc     GXP + 1
         dex
         bne     @clr
+        lda     #512 / VM_PAGE          ; GX_V in card pages: 512 bytes are two (a unit)
+        sta     GX_V
+        stz     GX_V + 1
         lda     #1
-        jsr     GX_ALLOC
+        jsr     GX_VALLOC
         bcs     @no
         sta     GX_SPRU
+        stx     GX_SPRU + 1
         sta     VID_SPRBASE
-        jsr     GX_UNIT
+        stx     VID_SPRBASE + 1
         ldx     #2
 @dst:   lda     GX_A,x
         sta     GXB + 5,x
@@ -99,8 +103,7 @@ GX_SPRIMG:
         lda     GX_V
         sta     (GXP)
         ldy     #1
-        lda     GX_V + 1
-        and     #$8F
+        lda     GX_V + 1                ; (revision 2: bits 14-8 of the image's card page, and bit 7 the depth)
         sta     (GXP),y
         rts
 

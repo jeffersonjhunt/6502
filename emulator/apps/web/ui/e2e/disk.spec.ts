@@ -9,7 +9,7 @@ import { inKeyLoop, loadBiosLabels } from "./bios-labels";
 async function booted(page: Page) {
   await page.goto("./?sd=empty");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.12", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.13", { timeout: 15_000 });
   await loadBiosLabels(page);
 }
 
@@ -64,7 +64,7 @@ test("a disk goes in, shows on the Devices tab, stays through a reload, saves, a
   await expect(page.getByTestId("pill-d1")).toBeHidden();
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.12", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.13", { timeout: 15_000 });
   await expect(page.getByTestId("disk-meta")).toHaveText("empty");
 });
 

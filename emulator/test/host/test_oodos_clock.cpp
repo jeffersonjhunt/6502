@@ -105,8 +105,8 @@ TEST(function_80_says_oolib_s_version_and_72_keeps_its_10_bytes)
     CcpRig r;
     REQUIRE(r.ok);
     const std::string o = r.go("l1test.com", " I");
-    CHECK_EQ(field(o, "INFO"), std::string("07 0F"));        // interface 7 (EV_SFLAGS), frame and timing, input, sound, DMA
-    CHECK_EQ(field(o, "INFOB"), std::string("070F0302"));    // and both clocks, layouts to 2
+    CHECK_EQ(field(o, "INFO"), std::string("08 0F"));        // interface 8 (video card revision 2), frame and timing, input, sound, DMA
+    CHECK_EQ(field(o, "INFOB"), std::string("080F0302"));    // and both clocks, layouts to 2
     const std::string v = field(o, "VER");
     CHECK_EQ(v.size(), size_t{24});
     CHECK_EQ(v.substr(0, 4), std::string("0008"));            // OODOS 0.8 (question 15)
@@ -349,7 +349,7 @@ TEST(an_interrupt_oodos_doesnt_answer_is_turned_off)
     REQUIRE(r.ok);
     Span s(r);
     const std::string o = r.go("l1test.com", " E");
-    CHECK_EQ(field(o, "ALIVE"), std::string("07 0F")); // FT_INFO answers: OOLIB 7, frame and timing, input, sound and DMA
+    CHECK_EQ(field(o, "ALIVE"), std::string("08 0F")); // FT_INFO answers: OOLIB 8, frame and timing, input, sound and DMA
     CHECK_EQ(field(o, "VIEN VIER"), std::string("01 C0")); // vertical blank and timer 1 alone
     CHECK_EQ(r.machine->bus().peek(VIA_IER), 0xC0);
     s.check("through it", 2, 1);

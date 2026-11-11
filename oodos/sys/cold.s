@@ -113,7 +113,7 @@ NEWLINE:        LDA     #$0D
 
 ; The boot status (2026-11-03, the owner's), three lines under the banner:
 ;
-;   BIOS 0.12   47K TPA                  the ROM BIOS's version, the TPA
+;   BIOS 0.13   47K TPA                  the ROM BIOS's version, the TPA
 ;   A: 8M   B: 8M   M: 128K              each drive and its size
 ;   Cards: video, sound, SD, USB keyboard, DMA, panel
 ;
@@ -321,7 +321,7 @@ CARDS:          LDA     #<SCARDS
                 .word   name
 .endmacro
 CARD_LEN        = 6
-CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V1, $FF, CVIDEO
+CARDTAB:        CARD    VIDEO_ID, VIDEO_ID_V2, $FF, CVIDEO ; revision 2 only
                 CARD    SOUND_ID, SOUND_TYPE, $F0, CSOUND
                 CARD    SD_ID, SD_ID_V1, $FF, CSD
                 CARD    DISK2_ID, DISK2_ID_V1, $FF, CDISK2

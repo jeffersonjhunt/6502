@@ -199,7 +199,7 @@ The design has these, and the emulator doesn't:
 - **Apple II mode's long cycle,** every 65th cycle stretched
   ([chapter 13](13-apple-ii-mode.md#the-long-cycle)).
 - **Revision 2 of the video card:** its own 2 MB, the aperture in bank 8, the data port on channel 1, the new
-  register map and ID `$92` ([chapter 6](06-video.md#revision-2-the-cards-own-memory)). The emulator's card is
+  register map and ID `$92` ([chapter 6](06-video.md#revision-2-card-memory)). The emulator's card is
   revision 1.
 
 The emulator's own backlog, beside the design, has `.nib`, `.d13` and `.2mg` disk images
@@ -359,7 +359,7 @@ None that the chapters know of. Where the emulator does less than the design, it
 
 Status: **emulated**
 
-Not bugs, but what BIOS 0.12 does, which a program run from the monitor has to know:
+Not bugs, but what BIOS 0.13 does, which a program run from the monitor has to know:
 
 - **Break turns off what the BIOS's IRQ handler can't answer:** the cards' IENs, the clock's TIE, the VIA's IER
   (`$7F`) and the console card's ISR (`$01`), the last two since BIOS 0.11

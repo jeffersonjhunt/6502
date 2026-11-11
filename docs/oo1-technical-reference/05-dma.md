@@ -74,7 +74,7 @@ turns the master enable on, starts the channel, and waits for ENABLE to clear, t
 it, which under the monitor is `$71`. A copy still
 running after 65,536 polls, about 0.1 s, is aborted: no controller there, or a busier channel starving it.
 
-<!-- listing: ../../backplane/bios/video.s:280-307 -->
+<!-- listing: ../../backplane/bios/video.s:431-458 -->
 ```
 ; Start channel 3, programmed, and wait for ENABLE to clear at terminal
 ; count, with the master enable on (a program may have turned it off) and
@@ -148,7 +148,7 @@ channel.
 
 Status: **proposed**
 
-Revision 2 of the video card ([chapter 6](06-video.md#revision-2-the-cards-own-memory)) has a data port, PDATA
+Revision 2 of the video card ([chapter 6](06-video.md#revision-2-card-memory)) has a data port, PDATA
 (`$C4BB`), that its DRQ puts on channel 1, as the sound card's RAMDATA is on channel 2. It is a card transfer like
 any other ([above](#transfers-for-a-card)), fly-by, with the card's own PADDR as the card-memory side and the
 channel's ADDR as the system-RAM side:

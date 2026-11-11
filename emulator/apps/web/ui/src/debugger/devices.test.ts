@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { appleLanguageCard, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
+import { appleLanguageCard, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -42,6 +42,29 @@ describe("Devices tab", () => {
     port.memory.set(VIDEO + 0x08, 0x86); // in vertical blank, groups 2 and 4 collided
     await v.refresh();
     expect(text(v.element, "Sprites")).toBe("on · table $8A000 · collided: groups $6");
+  });
+
+  test("a revision 2 card: card memory addresses, the slots, the port", async () => {
+    const port = new FakePort();
+    // As the BIOS's VSCREEN leaves it (hw/video-rev2.md): the text at $002000, the font at $000400.
+    const regs: Record<number, number> = {
+      0x00: 0x0b, 0x05: 0x04, 0x06: 0x10, 0x08: 0x03, 0x0a: 0x00, 0x0b: 0x01, 0x0c: 0x51, 0x0d: 0x04,
+      0x10: 0x80, 0x11: 0x20, 0x13: 0x04, 0x15: 0x2c, 0x16: 0x01, 0x17: 3, 0x19: 2,
+      0x30: 0, 0x32: 1, 0x34: 2, 0x36: 0x7f, 0x38: 0x00, 0x39: 0x40, 0x3a: 0x1e, 0x3c: 160, 0x3e: 0x07, 0x3f: 32, 0x7f: 0x92,
+    };
+    for (const [o, v] of Object.entries(regs)) port.memory.set(VIDEO + Number(o), v);
+    const v = devicesView(port);
+    await v.refresh();
+    expect(v.element.querySelector("h4")!.textContent).toContain("ID $92");
+    expect(text(v.element, "Layer 0")).toBe("text 80×30 · text $002000 · font $000400 · blink · scroll 300,3 · palofs 2");
+    expect(text(v.element, "Layer 1")).toBe("off (text 80×30) · text $000000 · font $000000");
+    expect(text(v.element, "Palette")).toBe("$010000  border 0");
+    expect(text(v.element, "Sprites")).toBe("on · table $045100 · collided: groups $3");
+    expect(text(v.element, "IEN / ISR")).toBe("$00 / $04  collision");
+    expect(text(v.element, "Slots")).toBe("$000000 $004000 $008000 $1FC000");
+    expect(text(v.element, "Port")).toBe("$1E4000 · step 160 down · DMA from the card");
+    expect(text(v.element, "Memory")).toBe("2048 KB");
+    expect(describeLayer2(Uint8Array.from([0x02, 0x00, 0x10, 0x00, 0x08, 0, 0, 0, 0, 0]), true)).toBe("tile · map $100000 · tiles $080000");
   });
 
   test("no card: says so", async () => {

@@ -178,7 +178,7 @@ A hook that draws maps W1 itself. A program that doesn't use OOLIB keeps the old
 ## Video memory on revision 2
 
 **Proposed.** Revision 2 of the video card (its ID `$92`) draws from 2 MB of its own memory instead of banks 8–B
-([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-the-cards-own-memory)). For
+([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). For
 a program under OODOS that changes three things.
 
 - **Banks 8–B.** Bank 8, blocks 32–35, is the card's aperture: four 16 KB slots, each showing a page of card memory

@@ -168,13 +168,23 @@ TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
     open_file(r, 2, "PICTURE BIN");
     const uint32_t m0 = ms_count(r);
     const uint64_t c0 = r.cpu->cycles();
-    Load l = load(r, 0, 512, 0x84000); // blocks 33-36
+    // Into banks 9 (blocks 36-39): 64 KB from $84000 would run through aperture slots 2 and 3's windows,
+    // OODOS's card banks 2 and 3, which function 83 refuses (review F2); slot 1's window below.
+    Load l = load(r, 0, 512, 0x90000);
     const double secs = static_cast<double>(r.cpu->cycles() - c0) / HZ;
     const unsigned counted = ms_count(r) - m0;
     CHECK_EQ(l.ret, std::string("00 00"));
     CHECK_EQ(l.records, 512u);
-    CHECK(same(mem(r, 0x84000, 65536), slice(data, 0, 65536), "64 KB"));
+    CHECK(same(mem(r, 0x90000, 65536), slice(data, 0, 65536), "64 KB"));
     CHECK(counted + 1 >= static_cast<unsigned>(secs * 1000) && counted <= static_cast<unsigned>(secs * 1000) + 1);
+    // Video memory: 16 KB into slot 1's window, block 33, the program's card bank 16 (the warm boot's); 16 KB
+    // and a record is refused, nothing written.
+    r.poke(FCB + 33, std::vector<uint8_t>{0, 0, 0});
+    CHECK_EQ(load(r, 0, 128, 0x84000).ret, std::string("00 00"));
+    CHECK(same(mem(r, 0x84000, 16384), slice(data, 0, 16384), "16 KB to the card"));
+    const std::vector<uint8_t> bank2 = mem(r, 0x88000, 128);
+    CHECK_EQ(load(r, 0, 129, 0x84000).ret, std::string("FF FF"));
+    CHECK(mem(r, 0x88000, 128) == bank2);
     // The same 64 KB by 51 and 33 with a count of 128 (44), four calls, into blocks 40-43.
     static const std::map<std::string, uint16_t> lbl = labels(SYS + "/l4test.lbl");
     const uint16_t sc = lbl.at("scall"), sr = lbl.at("sret");
@@ -205,10 +215,11 @@ TEST(the_ends_go_through_the_buffer_and_the_file_s_end_stops_it)
     open(r, "X");
     open_file(r, 2, "SHORT   BIN");
     // From record 3, 77 records: the first and last partial sectors through the buffer, the middle straight.
-    Load l = load(r, 3, 77, 0x88010);
+    // (Into aperture slot 1's window, the program's card bank 16; slots 2 and 3's are OODOS's: review F2.)
+    Load l = load(r, 3, 77, 0x84010);
     CHECK_EQ(l.ret, std::string("00 00"));
-    CHECK(same(mem(r, 0x88010, 77 * 128), slice(data, 3 * 128, 77 * 128), "records 3-79"));
-    CHECK_EQ(r.phys(0x88010 + 77 * 128), 0); // nothing past
+    CHECK(same(mem(r, 0x84010, 77 * 128), slice(data, 3 * 128, 77 * 128), "records 3-79"));
+    CHECK_EQ(r.phys(0x84010 + 77 * 128), 0); // nothing past
     // The FCB as a random read of the last record leaves it: R0-R2 79, CR 79.
     CHECK_EQ(r.phys(FCB + 33), 79);
     CHECK_EQ(r.phys(FCB + 32), 79);
@@ -217,9 +228,11 @@ TEST(the_ends_go_through_the_buffer_and_the_file_s_end_stops_it)
     CHECK_EQ(l.ret, std::string("01 00"));
     CHECK_EQ(l.records, 10u);
     CHECK(same(mem(r, 0x90000, 1280), slice(data, 90 * 128, 1280), "records 90-99"));
-    // Refusals, nothing written: a count of 0 and of 513, units 0-12, OODOS's memory.
+    // Refusals, nothing written: a count of 0 and of 513, units 0-12, aperture slots 2 and 3's windows (OODOS's
+    // card banks 2 and 3), from slot 1's into slot 2's, OODOS's memory.
     r.poke(0x94000, std::vector<uint8_t>(256, 0xEE));
-    for (const auto &[count, dst] : std::vector<std::pair<unsigned, uint32_t>>{{0, 0x94000}, {513, 0x94000}, {1, 0x83300}, {4, 0xF2000}})
+    for (const auto &[count, dst] : std::vector<std::pair<unsigned, uint32_t>>{
+             {0, 0x94000}, {513, 0x94000}, {1, 0x83300}, {1, 0x88000}, {1, 0x8C000}, {2, 0x87F80}, {4, 0xF2000}})
     {
         const std::vector<uint8_t> before = mem(r, dst, 512);
         CHECK_EQ(load(r, 0, count, dst).ret, std::string("FF FF"));

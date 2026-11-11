@@ -1,8 +1,9 @@
 ; OOLIB's bitmaps (include/oolib.inc, "Graphics"; hw/oolib.md, L4): plot
 ; and point at 8, 4 and 1 bits a pixel, lines, rectangles, circles, a flood
 ; fill by spans (GW-BASIC's PAINT), rectangles copied and filled by
-; function 83, and double buffering. The pixels are reached by the CPU
-; through W1 (gxmem.s's GXPHYS), a byte at a time.
+; function 83 on the card (DM_VCOPY, DM_VFILL), and double buffering. The
+; pixels are reached by the CPU through W1 and aperture slot 1 (gxmem.s's
+; GXPHYS), a byte at a time; a bitmap is in the program's card memory.
 ;
 ; The bitmaps (Technical Reference chapter 6): bitmap 256 is 256 x 240, a
 ; byte a pixel, 256 bytes a row; bitmap 512 is 512 x 480, 4 bits a pixel
@@ -20,7 +21,7 @@ STACK           = 255                  ; GX_FLOOD's seeds (fsp a byte)
 
         .bss
 bmode:  .res    1                      ; GB_*
-bunit:  .res    1
+bunit:  .res    2                      ; the bitmap's first card page
 colour: .res    1
 sub:    .res    1                      ; the pixel in its byte: 4 bits, 0 the high; mono, its bit
 px:     .res    2                      ; the pixel the routines draw: PADDR's
@@ -60,9 +61,12 @@ HLO:    .byte   <240, <480, <480
 HHI:    .byte   >240, >480, >480
         .popseg
 
-; A the bitmap (GB_*), X its first unit.
+; A the bitmap (GB_*), GX_V its first card page.
 GX_BMP: sta     bmode
-        stx     bunit
+        lda     GX_V
+        sta     bunit
+        lda     GX_V + 1
+        sta     bunit + 1
         rts
 
 ; Carry set if (px, py) is off the bitmap.
@@ -83,7 +87,8 @@ OFF:    ldx     bmode
 PCALC:  jsr     OFF
         jcs     @no
         lda     bunit
-        jsr     GX_UNIT
+        ldx     bunit + 1
+        jsr     GX_VADDR
         lda     bmode
         cmp     #GB_MONO
         beq     @mono
@@ -502,8 +507,8 @@ GX_RECT:
         jmp     VRUN
 
 ; Filled: rows from the top. A bitmap 256 or 512 row is 256 bytes, so rows
-; the full width are one run, a DM_FILL of rows x 256 bytes; part rows of a
-; bitmap 256 a DM_FILL each; the rest pixel by pixel.
+; the full width are one run, a DM_VFILL of rows x 256 bytes; part rows of a
+; bitmap 256 a DM_VFILL each; the rest pixel by pixel.
 GX_FRECT:
         sta     colour
         jsr     ORDERXC
@@ -649,7 +654,7 @@ GX_FRECT:
         inc     row + 1
         bra     @prow
 
-; Mono's whole rows: one DM_FILL of rows x 80 bytes, $00 or $FF.
+; Mono's whole rows: one DM_VFILL of rows x 80 bytes, $00 or $FF.
 MONOBAND:
         jsr     ORDERYC
         jsr     EMPTY                   ; rows all past the last: nothing
@@ -693,7 +698,7 @@ MONOBAND:
         lda     GXT + 1
         adc     row + 1
         sta     GXB + 6
-        lda     #DM_FILL
+        lda     #DM_VFILL
         sta     GXB
         lda     colour
         and     #1
@@ -740,9 +745,9 @@ CLIP:   sta     GXT + 1                 ; hi = the last if past it
         sta     hi + 1
 @ok:    rts
 
-; GXB a DM_FILL of the colour (doubled for 4 bits) at GX_A; its length
+; GXB a DM_VFILL of the colour (doubled for 4 bits) at GX_A; its length
 ; at GXB + 5-6 already.
-FILLB:  lda     #DM_FILL
+FILLB:  lda     #DM_VFILL
         sta     GXB
         lda     colour
         ldx     bmode
@@ -1049,7 +1054,7 @@ FSLOT:  lda     fsp
 .assert STACK < 256, error, "PUSH's room: fsp a byte"
 
 ; The rectangle at (GX_X, GX_Y), GX_X2 x GX_Y2, to (GX_DX, GX_DY): a
-; DM_COPY a row, the rows from the bottom when it moves down (so a copy
+; DM_VCOPY a row, the rows from the bottom when it moves down (so a copy
 ; over itself downward is whole).
 GX_BCOPY:
         lda     bmode
@@ -1154,7 +1159,7 @@ GX_BCOPY:
         sta     GXB + 7
         lda     cw + 1
         sta     GXB + 8
-        lda     #DM_COPY
+        lda     #DM_VCOPY
         sta     GXB
         jsr     GXDMA
         bcs     @no
