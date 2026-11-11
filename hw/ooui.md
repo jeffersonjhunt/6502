@@ -92,8 +92,9 @@ The app describes widgets in a table in its own memory; OOUI draws them, routes 
 
 **Proposed (phase U0, 2026-11-10); accepted by the owner (2026-11-11).** What U1 builds and an app is written to. The names below
 become `oodos/include/ooui.inc`'s; the library is `build/ooui.lib`, an ar65 archive as `oolib.lib` is, with its
-modules in `oodos/lib/ui*.s` (or a directory of its own, U1's choice). Numbers marked *provisional* may move in U1
-before anything is built on them; the rest is the interface.
+modules in a directory of its own, `oodos/ui/` (U1's choice: `ui/NAME.s`, its zero page in `ui/zpNAME.s`).
+Numbers marked *provisional* may move in U1 before anything is built on them; the rest is the interface. What U1
+built, and the few places it changed this text, are in [U1](#u1-the-core-and-the-text-backend).
 
 ### Conventions ###
 
@@ -138,8 +139,8 @@ then call `ui_dirty`.
 | +1 | `UW_PARENT` | the parent's handle, `UI_NONE` for a top-level widget |
 | +2 | `UW_X` | column, signed, from the parent's client area's left (inside its frame); negative counts from its right edge, -1 the last column |
 | +3 | `UW_Y` | row, the same from the top and the bottom |
-| +4 | `UW_W` | width in cells (a window's includes its frame); 0 fills to the parent's client edge |
-| +5 | `UW_H` | height in cells; 0 fills |
+| +4 | `UW_W` | width in cells (a window's includes its frame); 0 fills to the parent's client edge, and a negative width fills to that many columns short of it |
+| +5 | `UW_H` | height in cells; 0 fills, negative as the width |
 | +6 | `UW_FLAGS` | `UF_*`: bits 0-3 common, bits 4-7 the type's own |
 | +7 | `UW_STATE` | OOUI's (`US_*`); the app leaves it 0 |
 | +8-9 | `UW_TEXT` | a 0-terminated string (0: none), or what the type says |
@@ -203,8 +204,9 @@ zero page but not OOUI's, and may not call `ui_*`. A multiple-selection list kee
 for them through the style.
 
 **Static layouts.** A screen is assembled as data with macros, and one `ui_open` takes it. Each macro emits one
-record and defines `id` as its handle (`.assert`ing that the parent came first); a text is a string literal, which
-the macro puts in `RODATA` with its 0, or an address (0: none).
+record and defines `id` as its handle (`.assert`ing that the parent came first); `UI_BEGIN` and `UI_END` put the
+table in `DATA`, since OOUI writes its records' flags and state; a text is a string literal, which the macro puts in
+`RODATA` with its 0, or an address (0: none).
 
 ```
 UI_BEGIN    name                                  ; the table's label; handles from 0
@@ -408,7 +410,7 @@ PALOFS), so one theme serves both backends; 0 is transparent, as the card makes 
 | +26-29 | `TH_TIMES` | in frames: +26 a key's delay before it repeats (30), +27 between repeats (2), +28 a double-click's (24), +29 the cursor's blink (16) |
 | +30-33 | `TH_FRAMES` | a frame's style (`TS_NONE` 0, `TS_SINGLE` 1, `TS_DOUBLE` 2, `TS_HEAVY` 3) for +30 a window, +31 a dialog, +32 a panel, +33 a menu; the backend draws each its own way |
 | +34-62 | `TH_COLOURS` | an attribute byte (background in bits 7-4, foreground in 3-0) for each role, `TC_*` below |
-| +63 | | reserved, 0 |
+| +63 | `TH_POINTER` | the pointer's colours (U1): its outline in bits 7-4, its fill in 3-0 |
 
 The roles, in order from +34: `TC_DESKTOP`, `TC_FRAME`, `TC_TITLE`, `TC_TITLEOFF` (an inactive window's),
 `TC_CLIENT`, `TC_LABEL`, `TC_BUTTON`, `TC_BUTTONFOCUS`, `TC_BUTTONDOWN`, `TC_DISABLED`, `TC_ACCEL`, `TC_CHECK`,
@@ -486,9 +488,10 @@ pointer unit (`GX_SPRPOS`).
   not in a row or column routine. OOLIB's `GXP`, `GXQ` and `GXT` (6 bytes) come with the graphics modules OOUI
   links. Nothing in `$F0-$FF`.
 - **The app's memory:** OOUI's code and data are linked into the app's image (`CODE`, `RODATA`, `BSS`), outside
-  `$4000-$7FFF` as the W1 contract wants. Its state is about 100 bytes of `BSS`; the message box and the picker
+    `$4000-$7FFF` as the W1 contract wants. Its state is about 100 bytes of `BSS`; the message box and the picker
   bring their own records (about 128 and 640 bytes) only when linked. *Target, measured at U1's and U2's gates:*
-  about 4 KB of code for U1's core and text backend, about 3 KB more for U2.
+  about 4 KB of code for U1's core and text backend, about 3 KB more for U2. *Measured at U1 (2026-11-11):* 7.1 KB
+  of code, 0.6 KB of tables and 230 bytes of `BSS` ([U1](#u1-the-core-and-the-text-backend)).
 - **The event area** is the app's (function 80's `FT_OPEN`, layout 2). OOUI reads `EV_QHEAD`, `EV_QTAIL`,
   `EV_QSLOTS` and `EV_QUEUE` (and writes `EV_QTAIL`), `EV_MODS`, `EV_DEVICES` (no mouse: no pointer), `EV_MX`,
   `EV_MY`, `EV_MBUTTONS`, `EV_KEYS` (repeat) and `EV_FRAMES` (times). It leaves `EV_QLOST`,
@@ -583,10 +586,17 @@ the video card itself is the better place. Both are optional; the text backend n
 
 The text and bitmap backends need no emulator changes: layers, sprites, DMA and the USB mouse are all emulated.
 
-- **Golden frames.** Scripted test programs build screens and drive input; `--screen` PPMs are compared against
-  stored frames for each widget and theme.
-- **Input scripts.** Keys come through the existing piped input; the WebUI covers mouse testing until a scripted
-  mouse is added.
+- **Golden frames** (U1). A test program (`oodos/test/ui/uitest.s`) opens OOUI on scenes, and a host suite
+  (`emulator/test/host/test_oodos_ui.cpp`) drives it with the USB card's keyboard and mouse, hashes the frame the
+  card shows (FNV-1a over `VideoCard::frame()`'s 640×480 pixels) and compares it with the hash stored in
+  `emulator/test/host/golden/ooui.txt`. A hash, not a picture: a line a frame in the repo, no image library, and
+  the emulator's frames are exact. The hashes are made by the suite from OOUI's own drawing, never from a fixture,
+  and only on purpose: `OOUI_GOLDEN=update ctest --preset fast -R test_oodos_ui`, after looking at the frames
+  (`OOUI_DUMP=dir` writes each as a PPM there). A frame that differs is written as `ooui_NAME.ppm` beside the
+  test. A change that is meant to change the look (a theme's colour, a glyph) regenerates them in the same
+  commit, which says so.
+- **Input scripts.** Keys and the mouse come from the USB card's host side (`UsbCard::key`, `mouse_to`,
+  `mouse_buttons`), as `test_oodos_input` drives them.
 - **Debugger.** ld65 labels (`--symbols`) make OOUI readable at `debug>`; a `ui` command that dumps the widget
   table is a nice-to-have.
 
@@ -643,12 +653,87 @@ Six phases, all software, each closed by a gate:
 | Phase | Work | Gate |
 | --- | --- | --- |
 | U0 | API spec: widget records, events, themes, file picker; checked against OO-Amp and both backends | API decided, open questions settled: **met** (the owner, 2026-11-11) |
-| U1 | Core and text backend: desktop, windows, labels, buttons, menus, focus, themes, glyphs, layer 1 overlays, pointer hit-testing | Golden frames pass |
+| U1 | Core and text backend: desktop, windows, labels, buttons, menus, focus, themes, glyphs, layer 1 overlays, pointer hit-testing | Golden frames pass: **built** (2026-11-11), [below](#u1-the-core-and-the-text-backend) |
 | U2 | Scroll bars, list boxes, message boxes, text fields, sliders, bars, canvas; file picker on OODOS directory calls | File picker works on real disks |
 | U3 | OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend |
 | U4 | Bitmap backend (optional), drawing assist if repaints are slow | Repaints fast enough to feel native |
 | U5 | Programmer's Guide chapter, examples, docs/README.md phases, a second app | A second app built on OOUI |
 
+
+### U1: the core and the text backend ###
+
+**Proposed, built 2026-11-11** on video card revision 2 and OOLIB's interface 8.
+
+**Where it is.** `oodos/include/ooui.inc` (the API: the names above, the layout macros); `oodos/ui/`, built by
+`make -C oodos ooui` into `build/ooui.lib` through `libzp.py`'s check; a program in `OOUI_USERS` is linked with
+`ooui.lib`, then `oolib.lib`, through the rules gate. The modules, and what each costs (code, tables, `BSS`, in
+bytes):
+
+| Module | What | Code | Tables | BSS |
+| --- | --- | --- | --- | --- |
+| `uicore` | `ui_open`, `ui_close`, the calls that change a widget, places (`RECT`), focus, damage | 1,572 | 13 | 94 |
+| `zpuicore` | `UIP`, `UIQ`, `UIR`, `UIT`: zero page | | | 8 (zero page) |
+| `uidraw` | the text backend: card memory, font and glyphs, layers, colours, pointer, painting | 2,508 | 270 | 68 |
+| `uimenu` | menu bar, drop-downs, menu keys and clicks | 1,839 | 26 | 42 |
+| `uipoll` | `ui_poll`: the queue, keys, focus moves, accelerators, the mouse | 1,363 | 54 | 26 |
+| `uitheme` | `UI_HOUSE`, the default: OO-Amp's 16 colours from its skin sheet | | 96 | |
+| `uiturbo` | `UI_TURBO`: Turbo Vision's blue (entry 13 an opaque black, colour 0 being transparent) | | 96 | |
+
+So 7.1 KB of code against the 4 KB target: the menus (1.8 KB) and the damage-box painting are most of the
+difference. `uiturbo` is linked only by a program that names `UI_TURBO`; the rest come together, since `uicore`
+draws and polls through the others.
+
+**What it does.** Types 1-6 and 9-12 (desktop, window, panel, label, button, check box; menu bar, menu, item,
+line); `ui_open` refuses the others (`UX_TABLE`) until U2 builds them, and the group and radio buttons go with
+them. Every call in the table but `ui_setrange`, `ui_msgbox`, `ui_pick` and `ui_relist` (U2's). Painting keeps a
+damage box for each layer: a dirty widget is drawn whole and its rectangle (with its shadow) added to its layer's
+box; any other widget that overlaps the box is drawn again clipped to it, after the box is cleared to transparent.
+So a window hidden, or a menu put up, leaves the screen as it was, which the tests check frame for frame. With
+`UO_OVER` `$FF` the overlay's widgets are drawn on the base layer after the rest, with the same box.
+
+**Choices U1 made** (small, inside the API):
+
+- A button's focus is its colour (`TC_BUTTONFOCUS`) and a ► and ◄ at its ends; a window's close box is `[■]` from
+  its frame's third column; a menu's check mark is `√`; a frame's style per `TH_FRAMES`, CP437's single and
+  double lines, or blocks for `TS_HEAVY`.
+- The menu bar's titles start a column in, `" title "` each with `TM_MENUGAP` between; a drop-down is under its
+  title, moved left to stay on the screen, as wide as its widest item's text and, two columns on, its key's name
+  (`Ctrl+`, `Shift+`, `Alt+`, then a letter, a digit or F1-F12: other keys show none). F10 puts the first menu
+  down, as Alt and a title's letter put that menu down.
+- The focus takes Space and Enter first, so Enter on a check box flips it, and the default button is for Enter
+  when the focus is on something that doesn't take it.
+- A key on its own that is a modifier (usages `$E0-$E7`) is taken and dropped, not `UE_KEY`.
+- A click is where the pointer is when `ui_poll` reads it: the queue's button events carry no position. An app
+  that polls each frame never sees the difference.
+- The palette: the theme's 16 colours in entries 0-15 (question 7). The pointer is 16×16 at 4 bits on sprite
+  `UO_SPRITE`, depth 3, in the theme's `TH_POINTER` colours.
+
+**Changed in the API text** (marked where they are): `ui_open` needs `GX_INIT`, `GX_PALINIT` and `GX_SPRINIT`
+called first (a program's `BSS` isn't cleared, so OOUI can't tell); interface 8, not 4; a negative width or height
+fills to that many cells short of the edge; the layout macros put the table in `DATA`; a theme's +63 is
+`TH_POINTER`.
+
+**Left for U2:** key repeat (no U1 widget takes a held key), the double-click, `US_HOT` and the pointer's hover,
+`UE_MODAL` (a modal window takes the input and the focus in U1, but the event and `TF_DIM` come with the message
+box), drawing clipped to the parent's client area (U1 clips to the screen and the damage box only), and the
+widgets of U2's row in the plan.
+
+**Testing.** `test_oodos_ui` (9 cases) through `UITEST`, as above in [Emulator and testing](#emulator-and-testing).
+Ten golden frames: `desktop`, `window`, `menu-file`, `menu-select`, `focus-ok`, `turbo-window`, `turbo-menu`,
+`pointer-press`, `pointer-hit`, `overlay`. Besides them, every event `ui_poll` returns for the keys and clicks
+(the menus by keys, by Alt and a letter, by an item's letter, by the accelerator table; Tab and Shift+Tab; Space,
+Enter, Escape and a button's letter; toggles; the close box; a click off a menu; the wheel), `ui_rect`'s places,
+the table's refusals, and frames that must equal others: a menu put up, a window hidden and shown again, a label's
+text changed and back, the theme changed and back, and the one-layer mode against two layers. A theme colour
+changed (`TC_FRAME`) fails seven of the ten frames; the damage box not cleared fails seven of the equalities.
+
+**What it found in OOLIB** (for the owner; nothing changed there):
+
+- **`gxpal.s` brings 3.6 KB of `BSS`** with `GX_PALSET`: `GX_FADE`'s accumulators (3 KB) share its module, so a
+  program that sets one colour links them. With `gxspr.s`'s 512-byte shadow and the rest, `UITEST` ends 13 bytes
+  under `$4000` (its event area and mailbox moved to `$8000`). OO-Amp's port (U3) will feel this: `GX_FADE` in a
+  module of its own would give it back.
+- **No call sets a layer's PALOFS** ([question 7](#open-questions)).
 
 ## Risks ##
 
