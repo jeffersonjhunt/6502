@@ -538,8 +538,8 @@ OODOS owns `$000000–$03FFFF` and the Apple II region, `$1C0000–$1FFFFF`; pro
 allocate through OOLIB. The console is at card page 0. Function 83's video copies become port transfers, its checks
 card-address ranges, and the frame handler's vertical-blank copies and the pointer sprite go through the port on
 channel 1. The Programmer's Guide has the calls
-([chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract),
-[chapter 8](../oodos-programmers-guide/08-game-services.md#video-memory)).
+([chapter 5](../oodos-programmers-guide/05-memory-and-banking.md#video-memory-on-revision-2),
+[chapter 8](../oodos-programmers-guide/08-game-services.md#video-memory-on-revision-2)).
 
 ### Apple II mode on revision 2
 

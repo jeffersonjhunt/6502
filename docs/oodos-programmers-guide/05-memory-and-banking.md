@@ -25,7 +25,7 @@ contract](#the-w1-contract).
 | 3 | 0 | not allocated by 53–58; a DMA segment may reach it |
 | 4–23 | 1–5 | the blocks programs allocate (53–58): 20 blocks, 320 KB |
 | 24–31 | 6–7 | OODOS's: the directory hashes, the sector buffers, the system block |
-| 32–47 | 8–B | the video card's memory: block 32's first 13 KB (units 0–12) the console's, OODOS's ([chapter 8](08-game-services.md#video-memory)) |
+| 32–47 | 8–B | the video card's memory: block 32's first 13 KB (units 0–12) the console's, OODOS's ([chapter 8](08-game-services.md#video-memory)); with revision 2 of the card (proposed), blocks 32–35 the card's aperture and 36–47 RAM ([below](#video-memory-on-revision-2)) |
 | 48–55 | C–D | M:, the RAM disk |
 | 56–59 | E | not allocated: Apple II mode copies the IIe ROM here each time it starts; a DMA segment may reach it |
 | 60–63 | F | the BDOS, the BIOS, OODOS's resident block, and the ROM BIOS's copy |
@@ -174,3 +174,28 @@ map below 4; a change to the contract comes with a new version. Only W1: W2 and 
 While another block is in W1, the program's own `$4000–$7FFF` is out of its reach, and of the BDOS's: its code, its
 event area, the FCBs and parameter blocks it passes, and what it draws from stay in `$0300–$3FFF` or `$8000–$BFFC`.
 A hook that draws maps W1 itself. A program that doesn't use OOLIB keeps the old rule: the windows are OODOS's.
+
+## Video memory on revision 2
+
+**Proposed.** Revision 2 of the video card (its ID `$92`) draws from 2 MB of its own memory instead of banks 8–B
+([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-the-cards-own-memory)). For
+a program under OODOS that changes three things.
+
+- **Banks 8–B.** Bank 8, blocks 32–35, is the card's aperture: four 16 KB slots, each showing a page of card memory
+  that the card's slot registers choose. Banks 9–B, blocks 36–47, are ordinary RAM. Which of OODOS's uses they go
+  to (more blocks for 53–58, or OODOS's own) is *TBD: stream C*.
+- **Card memory.** Its addresses are 24 bits, `$000000–$1FFFFF`, not physical addresses. OODOS owns
+  `$000000–$03FFFF` (the console, its palette and font, its sprites and the pointer, at the offsets units 0–12 have
+  today) and Apple II mode's `$1C0000–$1FFFFF`. A program has `$040000–$1BFFFF`, 1.5 MB, which it allocates
+  through OOLIB ([chapter 8](08-game-services.md#video-memory-on-revision-2)); the warm boot takes it all back, as it
+  does the blocks.
+- **The W1 contract.** Video is reached through the aperture's slots, not through blocks 33–47. OOLIB's library
+  still maps W1 itself, now onto an aperture slot that it points at the card memory it draws in, and a program
+  writes neither `NB_WIN1` nor the slot registers. Which slots are OOLIB's, what `DM_INFO`'s W1 map lists, and the
+  interface version that says so are *TBD: stream C*. Bulk loads and copies go through the card's data port by DMA,
+  inside function 83, rather than through a DMA segment; whether a segment may still reach bank 8 is *TBD: stream
+  C*.
+
+The rest of this chapter (allocation, FARCALL, the DMA segment, physical addresses) is unchanged. A program tells the
+revisions apart by the card's ID, or by what OOLIB reports (*TBD: stream C*).
+

@@ -641,6 +641,27 @@ A program's CPU reaches video memory through W1, which the library maps itself (
 contract"](05-memory-and-banking.md#the-w1-contract)). A program using the library keeps its code, its event area
 and its data out of `$4000–$7FFF`.
 
+### Video memory on revision 2
+
+**Proposed.** On revision 2 of the video card (ID `$92`) video memory is the card's own 2 MB, not banks 8–B
+([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). What a program does stays the same: it asks the
+library for video memory and frees it, and never chooses an address OODOS owns. What it gets changes:
+
+- **Where.** The library allocates from card memory `$040000–$1BFFFF`, 1.5 MB on a 2 MB card; OODOS keeps
+  `$000000–$03FFFF` (the console, as units 0–12 are today, its sprites and the pointer) and Apple II mode's
+  `$1C0000–$1FFFFF`. How much is there comes from the card's MEMSIZE, so a larger card gives more.
+- **How it is named.** A card address is 24 bits, and the card's base registers count in 256-byte units, not 1 KB
+  units. How `GX_ALLOC` and `GX_FREE` take and return an allocation (its unit, its alignment, the `GX_` variables
+  it uses), and how an asset part names where it loads, are *TBD: stream C*.
+- **Drawing.** The library plots, fills and copies through an aperture slot it maps into W1, or through the card's
+  data port, under the W1 contract as revised ([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)).
+- **Loading and copies.** `DM_LOAD`, `DM_COPY` and `DM_FILL` reach card memory through the data port by DMA, and
+  the vertical-blank slots and the pointer go through the port on channel 1, from the frame handler as now. How a
+  parameter block names a card address rather than a physical one, and what each costs, are *TBD: stream C*.
+- **Room to spare.** Double-buffered screens and large tile and sprite sets fit, and a full-width 640×480 bitmap
+  (300 KB at 8 bits) would too; the card has no such mode, and adding one is a separate decision
+  ([hw/ooui.md, "Bitmap backend"](../../hw/ooui.md#bitmap-backend)).
+
 ### Loading
 
 `DM_LOAD` loads a count of a file's records, up to 512 (64 KB), from a record of an open FCB, to a physical address:
