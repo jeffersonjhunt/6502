@@ -1737,7 +1737,7 @@ namespace
         for (unsigned i = 0; i < n; ++i)
         {
             char nm[12];
-            std::snprintf(nm, sizeof nm, "FILE%02u  %s", i, i % 2 ? "BIN" : "TXT");
+            std::snprintf(nm, sizeof nm, "FILE%02u  %s", i % 100u, i % 2 ? "BIN" : "TXT");
             m.push_back({0, nm, std::vector<uint8_t>(100, static_cast<uint8_t>(i))});
         }
         if (big)
@@ -1842,7 +1842,7 @@ TEST(y1_a_program_s_search_between_the_picker_s_polls)
     for (unsigned i = 0; i < 40; ++i)
     {
         char nm[16];
-        std::snprintf(nm, sizeof nm, "FILE%02u.%s", i, i % 2 ? "BIN" : "TXT");
+        std::snprintf(nm, sizeof nm, "FILE%02u.%s", i % 100u, i % 2 ? "BIN" : "TXT");
         want.push_back(nm);
     }
     CHECK(sorted_listing(r) == want);
