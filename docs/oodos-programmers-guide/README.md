@@ -18,6 +18,7 @@ words, with what the 6502 and the OO-1 change. The machine underneath, without O
 6. [Program formats](06-program-formats.md): `.COM`, `.PRL`, overlays, the 65C816 rules; RSXs and chaining
 7. [Function reference](07-function-reference.md): one entry per function
 8. [Game services (OOLIB)](08-game-services.md): written in G3
+9. [User interface (OOUI)](09-user-interface.md): proposed; a placeholder until OOUI's phase U5
 
 Appendices:
 
@@ -30,4 +31,5 @@ Appendices:
 - G. [How OODOS differs from CP/M 3](appendix-g-differences.md)
 
 **Written so far:** the skeleton (G0), and G1: chapters 1-7 and the appendices, for what OODOS phases 0-4 have
-built, and phase 5a's loader: functions 59 and 60, RSXs. Chapter 8 comes with OOLIB (G3).
+built, and phase 5a's loader: functions 59 and 60, RSXs. Chapter 8 comes with OOLIB (G3); chapter 9 with
+OOUI ([hw/ooui.md, "The plan"](../../hw/ooui.md#the-plan)).
