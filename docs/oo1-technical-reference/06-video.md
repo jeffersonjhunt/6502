@@ -250,7 +250,8 @@ What the BIOS and its video demo (`C803R`, `demo.s`) put where:
 | 36 | `$89000` | the demo's sprite table |
 | 248–249 | `$BE000` | Apple II mode's character ROM, 2 KB (`apple.s`) |
 
-The demo keeps clear of units 0–12, so the text screen is still there when it ends.
+The demo keeps clear of units 0–12, so the text screen is still there when it ends. The demo's rows are revision
+1's; the demo is moving to revision 2's card memory (*proposed*, [revision 2](#revision-2-card-memory)).
 
 ### Under OODOS
 
@@ -287,7 +288,7 @@ Status: **emulated**
 - **In vertical blank**, lines 480–524, nothing is drawn, and STATUS bit 7 is set. Memory, the palette's contents,
   CTRL, BORDER, CONFIG and PALOFS written then show on the next frame. The demo waits for its start so:
 
-<!-- listing: ../../backplane/bios/demo.s:339-345 -->
+<!-- listing: ../../backplane/bios/demo.s:470-476 -->
 ```
 ; Wait for the start of a vertical blank (STATUS bit 7 going on).
 WAITVB:
@@ -298,8 +299,10 @@ WAITVB:
                 RTS
 ```
 
-After WAITVB the demo copies its sprite table in and writes layer 0's HSCROLL (`backplane/bios/demo.s:160–165`).
-The sprites show on the next frame, but the scroll, latched already, shows a frame later, so it runs a frame behind.
+After WAITVB the demo copies its sprite table in and writes layer 0's CONFIG and HSCROLL
+(`backplane/bios/demo.s:236–243`). The sprites show on the next frame, but the scroll, latched already, shows a frame
+later, so it runs a frame behind. CONFIG isn't latched, so the demo writes it a frame after the MAPBASE it goes with
+(*proposed*, revision 2's demo: [revision 2](#revision-2-card-memory)).
 
 ### The BIOS's text screen
 
@@ -424,6 +427,22 @@ reached through a 64 KB aperture at physical `$80000` (`VIDEO_APERTURE`, four 16
 channel 1. Its ID reads `$92` (`VIDEO_ID_V2`). It moves the base registers to two bytes in 256-byte units and the
 layers' registers up a byte; the `_R1` equates are revision 1's names where they moved. Every byte it doesn't name
 reads 0. The emulator has it (`rev=2` on the machine's video line); the BIOS and OODOS still drive revision 1.
+
+The video demo (`C803R`, `demo.s`) is revision 2's (*proposed*); on a revision 1 card it goes straight back to the
+monitor. It loads everything through the port and keeps to the programs' region of card memory, so the BIOS's
+screen below `$040000` and Apple II mode's memory from `$1C0000` are as they were when it ends:
+
+| Card address | What |
+|---|---|
+| `$040000` | the palette, 6 slices: the scene, the 4 balls', the ripple's ramp (colours 80–95) |
+| `$040400` | a copy of the BIOS's font, from flash block 30 |
+| `$041400`, `$041E00` | the caption, a 40×30 text layer: a page for each scene, flipped by layer 1's MAPBASE |
+| `$043000`, `$044000` | the tiles, and the 64×32 map |
+| `$045000`, `$045100` | the ball (sprite image unit `$0450`), and the sprite table, sent by port DMA each frame |
+| `$050000`–`$13FFFF` | the ripple: 16 bitmaps of 256×240 at 8 bits, `$F000` apart, built by port DMA at the start |
+
+Every 256 frames layer 0 changes between the scrolling tiles and the ripple, which flips its MAPBASE to the next
+bitmap each frame: 960 KB of frames, more than revision 1's whole video memory.
 
 ## Registers
 
