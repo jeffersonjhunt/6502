@@ -59,7 +59,8 @@ Two tiers, run by `tools/check.sh` (it says what each step took and which failed
   against the deployed page too.
 - **`tools/check.sh full`**, only for a production release candidate: the same, but the native tests under
   ASan/UBSan (`--preset dev`, 30 minutes or more), the whole e2e suite (and against `--url URL`), and interop
-  (cpmtools reading the cards OODOS writes, in Docker).
+  (cpmtools reading the cards OODOS writes, in Docker). The sanitizer tests run one a CPU; on a host shared with
+  other work, `--jobs 4` keeps them to 4 at once.
 
 The sanitizers are too slow for anything but a release candidate. Between those, a sanitizer build is for an error
 found in testing that the logs can't explain: `cmake --preset dev && cmake --build --preset dev`, then that one test.
