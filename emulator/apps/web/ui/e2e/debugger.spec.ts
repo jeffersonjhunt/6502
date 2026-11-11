@@ -7,7 +7,7 @@ async function booted(page: Page) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.12", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.13", { timeout: 15_000 });
   await loadBiosLabels(page);
   await openDebugger(page);
 }
@@ -104,13 +104,13 @@ test("the drawer closes, the CRT grows, and whether the debugger was open is rem
   await expect.poll(width).toBeGreaterThan(open);
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.12", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.13", { timeout: 15_000 });
   await expect(page.getByTestId("debugger")).toBeHidden(); // closed, as it was left
   await page.getByTestId("tb-debugger").click();
   await expect(page.getByTestId("debugger")).toBeVisible();
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.12", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.13", { timeout: 15_000 });
   await expect(page.getByTestId("debugger")).toBeVisible(); // open, as it was left
   await expect(page.getByTestId("crt")).toBeFocused(); // and the keyboard still the screen's
 });

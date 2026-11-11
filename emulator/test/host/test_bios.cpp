@@ -11,13 +11,15 @@
  * into the monitor, and the /BOOTSEL boot from an image already in RAM.
  * Then the screen (video.s): the monitor on the video card's text layer,
  * typing and backspace, scrolling by DMA, and a machine with no card. And
- * the video demo (demo.s, C803R): tiles, sprites, scroll and fade on the
- * card, and back to the monitor's screen as it was on a key. And the USB
- * keyboard (input.s): the monitor takes keys from it, Pause/Break breaks
- * in, and a USB key ends the demo. And Apple II mode's way in (apple.s,
- * C806R), with a stand-in for the owner's IIe ROM: these tests never need
- * Apple's. And the BIOS's recovery: Break (in the demo, or inside the screen
- * code) and BRK back into the monitor with the windows and the screen as the
+ * the video demo (demo.s, C803R) on a revision 2 card (hw/video-rev2.md,
+ * proposed): tiles, sprites, scroll, fade and the ripple, loaded through the
+ * card's port, and back to the monitor's screen as it was on a key, the
+ * BIOS's and Apple II mode's card memory untouched; on revision 1 it goes
+ * straight back. And the USB keyboard (input.s): the monitor takes keys
+ * from it, Pause/Break breaks in, and a USB key ends the demo. And Apple
+ * II mode's way in (apple.s, C806R), with a stand-in for the owner's IIe
+ * ROM: these tests never need Apple's. And the BIOS's recovery: Break (in
+ * the demo, or inside the screen code) and BRK back into the monitor with the windows and the screen as the
  * BIOS keeps them, C800R from the flash again (or the RAM image after a
  * /BOOTSEL boot), the cursor kept on the screen whatever its zero page says,
  * and scrolling whole under a DMA burst limit. Break also stops the DMA (a
@@ -55,6 +57,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -71,11 +74,21 @@ namespace
         return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
 
+    /// The video card these run on: the BIOS is built for revision 2 (hw/video-rev2.md), and backplane.machine
+    /// still says rev=1 until the BIOS, OODOS and the demo move together.
+    constexpr unsigned VIDEO_REVISION = 2;
+
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.
     struct Board
     {
+        /// Board(Board::Rev2{}): the video card at revision 2 (hw/video-rev2.md), as the demo needs it.
+        struct Rev2
+        {
+        };
+
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
-                       std::string apple_chars = "", std::vector<std::string> without = {})
+                       std::string apple_chars = "", std::vector<std::string> without = {},
+                       unsigned video_revision = 0)
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
             if (!video)
@@ -105,6 +118,7 @@ namespace
             opt.rtc_time = Ds3231::Time{2026, 10, 26, 12, 0, 0, 2}; // a Monday
             opt.apple_rom = std::move(apple_rom);
             opt.apple_chars = std::move(apple_chars);
+            opt.video_revision = video_revision ? video_revision : VIDEO_REVISION; // 1 only where a test asks
             std::string error;
             machine = Machine::build(text, "backplane.machine", opt, error);
             if (machine)
@@ -116,6 +130,8 @@ namespace
             }
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
         }
+
+        explicit Board(Rev2) : Board(false, true, {}, "", {}, 2) {}
 
         bool ok() const { return cpu != nullptr; }
 
@@ -136,6 +152,8 @@ namespace
             const uint64_t end = cpu->cycles() + cycles;
             while (cpu->cycles() < end)
             {
+                if (on_step)
+                    on_step();
                 cpu->step();
                 if (machine->bus().irq())
                     cpu->irq();
@@ -222,6 +240,8 @@ namespace
 
         static constexpr uint32_t SCREEN = 0x82000;
 
+        /// Called by run() before each instruction, if set.
+        std::function<void()> on_step;
         std::unique_ptr<Machine> machine;
         std::unique_ptr<Console> console;
         std::unique_ptr<Cpu6502> cpu;
@@ -229,7 +249,7 @@ namespace
 
     constexpr uint64_t BOOT = 2'000'000; // cycles: the copy, the splash's samples (revision 2: ~0.9M), then the banner at ~3,840 a character
     constexpr uint64_t SPLASH_TIME = 36'500'000; // cycles: the boot splash's 5 s (300 frames), and a little
-    const std::string GREETING = "\rBACKPLANE BIOS 0.12\r\\\r";
+    const std::string GREETING = "\rBACKPLANE BIOS 0.13\r\\\r";
 
     /// A label's address from the ld65 -Ln file ("al 00C862 .WOZMON"), or 0.
     unsigned label(const std::string &lbl, const std::string &name)
@@ -238,6 +258,12 @@ namespace
         if (at == std::string::npos || at < 6)
             return 0;
         return static_cast<unsigned>(std::stoul(lbl.substr(at - 6, 6), nullptr, 16));
+    }
+
+    /// A revision 2 card's two-byte register at `offset`, low byte first.
+    unsigned reg16(const VideoCard &card, unsigned offset)
+    {
+        return card.peek(offset) | unsigned{card.peek(offset + 1)} << 8;
     }
 
     std::string hex(unsigned v)
@@ -356,10 +382,10 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
     const uint8_t l0 = VideoCard::LAYER0;
     CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80); // text 80x30, blink
-    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
-    CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
     CHECK_EQ(b.row(0), std::string(""));
-    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.12"));
+    CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.13"));
     CHECK_EQ(b.row(2), std::string("\\"));
     CHECK_EQ(b.row(3), std::string("_"));  // the cursor...
     CHECK_EQ(b.attr(3, 0), 0x87);          // ...blinking
@@ -419,7 +445,7 @@ TEST(the_screen_scrolls_by_dma_and_keeps_its_colours)
     }
     b.run(keys.size() * 25'000 + BOOT, keys);
     CHECK(b.find_row(full) >= 0);          // scrolled up many times, still whole
-    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.12"), -1); // scrolled off the top
+    CHECK_EQ(b.find_row("BACKPLANE BIOS 0.13"), -1); // scrolled off the top
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("FFFC: 00 C8"));
     CHECK_EQ(b.row(27), std::string(""));
@@ -464,6 +490,72 @@ namespace
             if (std::find(seen.begin(), seen.end(), card.frame()[i]) == seen.end())
                 seen.push_back(card.frame()[i]);
         return seen.size();
+    }
+
+    // The demo (demo.s) on a revision 2 card: where it puts things in card memory, the programs' region.
+    constexpr uint32_t DEMO_PAL = 0x040000, DEMO_FONT = 0x040400, DEMO_TEXT1 = 0x041400, DEMO_TEXT2 = 0x041E00;
+    constexpr uint32_t DEMO_TILES = 0x043000, DEMO_MAP = 0x044000, DEMO_BALL = 0x045000, DEMO_SPR = 0x045100;
+    constexpr uint32_t DEMO_RIPPLE = 0x050000, RIPPLE_SIZE = 0xF000; // 16 bitmaps of 256 x 240
+    constexpr uint8_t CONFIG_TILES = 0x22, CONFIG_RIPPLE = 0x03;     // a 64-wide tile map; bitmap 256
+
+    const std::string &bios_labels()
+    {
+        static const std::string lbl = read_file(EMU_BIOS_ROM ".lbl");
+        return lbl;
+    }
+
+    /// Flash bytes of the demo's block (29) from CPU address `at` (as W1 shows it), `n` of them.
+    std::string demo_flash(unsigned at, size_t n)
+    {
+        static const std::string flash = read_file(EMU_BIOS_ROM);
+        return flash.substr(29 * 0x4000 + (at - 0x4000), n);
+    }
+
+    std::string card_bytes(const VideoCard &card, uint32_t at, size_t n)
+    {
+        std::string out;
+        for (size_t i = 0; i < n; ++i)
+            out += static_cast<char>(card.card_peek(static_cast<uint32_t>(at + i)));
+        return out;
+    }
+
+    /// Start the demo by C803R and wait for its first frame. `at_entry` runs as the CPU reaches DEMO_MAIN. Typed
+    /// on the serial line, or the USB keyboard if `usb`.
+    void start_demo(Board &b, bool usb = false, const std::function<void()> &at_entry = {})
+    {
+        const unsigned main = label(bios_labels(), "DEMO_MAIN");
+        bool entered = false;
+        b.on_step = [&] {
+            if (!entered && b.cpu->regs().pc == main && b.bridge().window(1) == 0xDD)
+            {
+                entered = true;
+                if (at_entry)
+                    at_entry();
+            }
+        };
+        auto type = [&](const std::string &keys) { return usb ? b.type_usb(keys) : b.run(4 * FRAME, keys); };
+        CHECK(type("C803R\r").find("C803: 4C\\") == std::string::npos); // C803 took the card
+        const VideoCard &card = *b.machine->video_card();
+        for (int f = 0; f < 60 && card.peek(VideoCard::CTRL) != 0x0F; ++f)
+            b.run(FRAME);
+        b.on_step = nullptr;
+        CHECK(entered);
+    }
+
+    /// The BIOS's text screen's registers on revision 2, as Break and the demo's end leave them (VSCREEN: the
+    /// card memory layout of hw/video-rev2.md, the font at $000400 and the text at $002000).
+    void check_text_screen_registers(const VideoCard &card)
+    {
+        const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
+        using R2 = VideoCard::Rev2;
+        CHECK_EQ(card.peek(VideoCard::CTRL), 0x03);
+        CHECK_EQ(reg16(card, R2::PALBASE), 0u);
+        CHECK_EQ(reg16(card, R2::SPRBASE), 0u);
+        CHECK_EQ(card.peek(l0 + VideoCard::CONFIG), 0x80);
+        CHECK_EQ(reg16(card, l0 + R2::MAPBASE), 0x0020u);
+        CHECK_EQ(reg16(card, l0 + R2::TILEBASE), 0x0004u);
+        CHECK_EQ(reg16(card, l0 + R2::HSCROLL), 0u);
+        CHECK_EQ(card.peek(l1 + VideoCard::CONFIG), 0);
     }
 } // namespace
 
@@ -549,7 +641,7 @@ TEST(the_boot_splash_plays_with_its_sound_then_hands_back_the_screen_and_the_sid
         CHECK_EQ(running, 0u); // every oscillator halted
         CHECK_EQ(sound->sid(0)[0x18] & 0x0F, 0);
         CHECK_EQ(sound->sid(1)[0x18] & 0x0F, 0);
-        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.12"));
+        CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.13"));
     }
 }
 
@@ -760,12 +852,12 @@ TEST(the_demos_end_stops_the_pcm_stream_and_the_es5503)
     for (const Noise n : {Noise::pcm, Noise::doc})
     {
         std::printf("  %s\n", name(n));
-        Board b;
+        Board b{Board::Rev2{}};
         REQUIRE(b.ok());
         SoundCard *sound = b.machine->sound_card();
         REQUIRE(sound != nullptr);
         REQUIRE(boot_past_splash(b));
-        b.run(20 * FRAME, "C803R\r");
+        start_demo(b);
         REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
         start_noise(*sound, n);
         b.run(5 * FRAME);
@@ -849,59 +941,202 @@ TEST(break_leaves_a_revision_1_cards_other_offsets_alone)
 
 TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)
 {
-    Board b;
+    Board b{Board::Rev2{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
     const VideoCard *card = b.machine->video_card();
     REQUIRE(card != nullptr);
-    b.run(30 * FRAME, "C803R\r");               // typed, then 20-odd frames: past the fade
-    CHECK_EQ(card->peek(VideoCard::CTRL), 0x0F); // display, both layers, sprites
+    start_demo(b);
+    b.run(20 * FRAME);                           // past the fade
+    using R2 = VideoCard::Rev2;
     const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
-    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x22); // tiles, a 64-wide map
+    CHECK_EQ(card->peek(VideoCard::CTRL), 0x0F); // display, both layers, sprites
+    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), CONFIG_TILES);
     CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0x01); // the caption, text 40x30
-    CHECK_EQ(card->peek(VideoCard::SPRBASE), 36);
+    CHECK_EQ(reg16(*card, R2::PALBASE), DEMO_PAL / 256);
+    CHECK_EQ(reg16(*card, R2::SPRBASE), DEMO_SPR / 256);
+    CHECK_EQ(reg16(*card, l0 + R2::MAPBASE), DEMO_MAP / 256);
+    CHECK_EQ(reg16(*card, l0 + R2::TILEBASE), DEMO_TILES / 256);
+    CHECK_EQ(reg16(*card, l1 + R2::MAPBASE), DEMO_TEXT1 / 256);
+    CHECK_EQ(reg16(*card, l1 + R2::TILEBASE), DEMO_FONT / 256);
     CHECK_EQ(b.bridge().window(1), 0xDD);        // flash block 29, read-only, at $4000
+    // Loaded through the port: the graphics as flash has them, and the font from block 30.
+    const std::string &lbl = bios_labels();
+    CHECK(card_bytes(*card, DEMO_TILES, 512) == demo_flash(label(lbl, "TILES"), 512));
+    CHECK(card_bytes(*card, DEMO_MAP, 4096) == demo_flash(label(lbl, "MAP"), 4096));
+    CHECK(card_bytes(*card, DEMO_BALL, 128) == demo_flash(label(lbl, "BALL"), 128));
+    CHECK(card_bytes(*card, DEMO_FONT, 4096) == read_file(EMU_BIOS_ROM).substr(30 * 0x4000, 4096));
+    std::string caption;
+    for (unsigned c = 1; c < 39; ++c)
+        caption += static_cast<char>(card->card_peek(DEMO_TEXT1 + (1 * 40 + c) * 2));
+    CHECK_EQ(caption, std::string("OO-1 VIDEO CARD 2: TILES, SPRITES, DMA"));
     // The palette faded all the way in: the caption's white is $FFF.
-    CHECK_EQ(b.machine->bus().peek_physical(0x83400 + 2 * 15), 0xFF);
-    CHECK_EQ(b.machine->bus().peek_physical(0x83400 + 2 * 15 + 1), 0x0F);
+    CHECK_EQ(card->card_peek(DEMO_PAL + 2 * 15), 0xFF);
+    CHECK_EQ(card->card_peek(DEMO_PAL + 2 * 15 + 1), 0x0F);
     CHECK(colours(*card) >= 12);                 // sky, hills, bricks, stars, balls, caption
-    // The table the DMA keeps: 12 balls between the layers, and they move.
-    auto ball0 = [&]() -> unsigned { return unsigned{b.machine->bus().peek_physical(0x89000 + 2)} | unsigned{b.machine->bus().peek_physical(0x89004)} << 16; };
-    CHECK_EQ(b.machine->bus().peek_physical(0x89000 + 11 * 8 + 6), 0x18); // the 12th: depth 2, group 1
-    CHECK_EQ(b.machine->bus().peek_physical(0x89000 + 12 * 8 + 6), 0x00); // no 13th
-    const unsigned at = ball0(), scroll = card->peek(l0 + VideoCard::HSCROLL);
+    // The table the port's DMA keeps: 12 balls between the layers, the ball's image at unit $0450, and they move.
+    auto ball0 = [&]() -> unsigned { return unsigned{card->card_peek(DEMO_SPR + 2)} | unsigned{card->card_peek(DEMO_SPR + 4)} << 16; };
+    CHECK_EQ(card->card_peek(DEMO_SPR + 11 * 8 + 0), 0x50);
+    CHECK_EQ(card->card_peek(DEMO_SPR + 11 * 8 + 1), 0x04);
+    CHECK_EQ(card->card_peek(DEMO_SPR + 11 * 8 + 6), 0x18); // the 12th: depth 2, group 1
+    CHECK_EQ(card->card_peek(DEMO_SPR + 12 * 8 + 6), 0x00); // no 13th
+    CHECK_EQ(card->peek(R2::PCTL), 0);           // DRQ off between the copies
+    const unsigned at = ball0(), scroll = card->peek(l0 + R2::HSCROLL);
     b.run(10 * FRAME);
     CHECK_NE(ball0(), at);
-    CHECK_EQ(static_cast<uint8_t>(card->peek(l0 + VideoCard::HSCROLL) - scroll), 10); // a pixel a frame
+    CHECK_EQ(static_cast<uint8_t>(card->peek(l0 + R2::HSCROLL) - scroll), 10); // a pixel a frame
+}
+
+TEST(the_demos_ripple_is_sixteen_bitmaps_in_card_memory_flipped_by_mapbase)
+{
+    // The new effect: 960 KB of frames, more than revision 1's whole 256 KB. Each row of frame f is a window on
+    // the stripes (colours 80-95, a ramp up and down every 32 pixels) at (y / 2 + 2f + sine[4y + 16f]) mod 32.
+    Board b{Board::Rev2{}};
+    REQUIRE(b.ok());
+    b.reset();
+    b.run(BOOT);
+    VideoCard *card = b.machine->video_card();
+    start_demo(b);
+    const std::string sine = demo_flash(label(bios_labels(), "SINE"), 256);
+    auto stripe = [](unsigned x) { return static_cast<uint8_t>(80 + (x % 32 < 16 ? x % 32 : 31 - x % 32)); };
+    unsigned wrong = 0, still = 0;
+    for (unsigned f = 0; f < 16; ++f)
+    {
+        for (unsigned y = 0; y < 240; ++y)
+        {
+            const unsigned o = (y / 2 + 2 * f + static_cast<uint8_t>(sine[(4 * y + 16 * f) & 255])) % 32;
+            for (unsigned x = 0; x < 256; ++x)
+                wrong += card->card_peek(DEMO_RIPPLE + f * RIPPLE_SIZE + y * 256 + x) != stripe(x + o);
+        }
+        const uint32_t next = DEMO_RIPPLE + (f + 1) % 16 * RIPPLE_SIZE;
+        still += card_bytes(*card, DEMO_RIPPLE + f * RIPPLE_SIZE, RIPPLE_SIZE) == card_bytes(*card, next, RIPPLE_SIZE);
+    }
+    CHECK_EQ(wrong, 0u);
+    CHECK_EQ(still, 0u);                         // every frame differs from the next
+    CHECK_EQ(card->card_peek(DEMO_RIPPLE + 16 * RIPPLE_SIZE), 0x00); // and there are 16
+
+    // After 256 frames of tiles, the ripple. CONFIG changes a frame after MAPBASE, as the bases latch at line
+    // 480 and CONFIG doesn't: the first frame drawn as a bitmap is the ripple's (not the tile map read as pixels).
+    using R2 = VideoCard::Rev2;
+    const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
+    const uint64_t first = card->frames();
+    for (int i = 0; i < 300 * 64 && card->peek(l0 + VideoCard::CONFIG) != CONFIG_RIPPLE; ++i)
+        b.run(FRAME / 64);                       // still in the vertical blank that wrote it, at the end
+    REQUIRE(card->peek(l0 + VideoCard::CONFIG) == CONFIG_RIPPLE);
+    std::printf("  the ripple after %llu frames of tiles\n", static_cast<unsigned long long>(card->frames() - first));
+    std::vector<uint32_t> ramp;
+    for (unsigned i = 80; i < 96; ++i)
+        ramp.push_back(VideoCard::rgba(static_cast<uint16_t>(card->card_peek(DEMO_PAL + 2 * i) |
+                                                             card->card_peek(DEMO_PAL + 2 * i + 1) << 8)));
+    auto ramp_share = [&] {
+        unsigned in = 0, n = 0;
+        for (unsigned y = 80; y < 400; y += 4)       // clear of the caption's rows
+            for (unsigned x = 64; x < 576; x += 4, ++n)
+                in += std::find(ramp.begin(), ramp.end(), card->frame()[y * VideoCard::WIDTH + x]) != ramp.end();
+        return 100 * in / n;
+    };
+    b.run(FRAME);                                // the first frame drawn with it
+    std::printf("  the ripple's first frame: %u%% of the samples are its colours\n", ramp_share());
+    CHECK(ramp_share() >= 85);                   // (the balls cover the rest)
+    CHECK(colours(*card) >= 12);
+    CHECK_EQ(reg16(*card, l1 + R2::MAPBASE), DEMO_TEXT2 / 256); // the caption's second page
+    // Then a new bitmap every frame, in order.
+    unsigned last = reg16(*card, l0 + R2::MAPBASE), steps = 0;
+    for (int f = 0; f < 20; ++f)
+    {
+        b.run(FRAME);
+        const unsigned base = reg16(*card, l0 + R2::MAPBASE);
+        CHECK(base >= DEMO_RIPPLE / 256 && base < (DEMO_RIPPLE + 16 * RIPPLE_SIZE) / 256);
+        steps += base == (last - DEMO_RIPPLE / 256 + RIPPLE_SIZE / 256) % (16 * RIPPLE_SIZE / 256) + DEMO_RIPPLE / 256;
+        last = base;
+    }
+    CHECK_EQ(steps, 20u);
+    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), CONFIG_RIPPLE);
+    // And after 256 frames of it, the tiles again.
+    b.run(240 * FRAME);
+    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), CONFIG_TILES);
+    CHECK_EQ(reg16(*card, l0 + R2::MAPBASE), DEMO_MAP / 256);
+    CHECK_EQ(reg16(*card, l1 + R2::MAPBASE), DEMO_TEXT1 / 256);
 }
 
 TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
 {
-    Board b;
+    // On revision 2 the monitor's screen is in card memory, in the BIOS's and OODOS's region below $040000;
+    // Apple II mode's is from $1C0000. The demo leaves both as they were: each is filled with a pattern as the
+    // demo starts and must still hold it when BREAK takes over (whose VSCREEN writes only registers). Then what
+    // was there goes back, for the monitor's checks after.
+    Board b{Board::Rev2{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
     b.run(BOOT, "C680.C684\r");
     const std::string before = b.row(5);
-    REQUIRE(before == "C680: 00 01 02 7F 7F");
-    b.run(20 * FRAME, "C803R\r");
-    REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
+    VideoCard *card = b.machine->video_card();
+    const std::vector<std::pair<uint32_t, uint32_t>> kept_regions = {{0x000000, 0x040000}, {0x1C0000, 0x200000}};
+    auto pattern = [](uint32_t a) { return static_cast<uint8_t>(a * 7 + (a >> 9) + 1); };
+    std::vector<uint8_t> was;
+    start_demo(b, false, [&] {
+        for (const auto &[from, to] : kept_regions)
+            for (uint32_t a = from; a < to; ++a)
+            {
+                was.push_back(card->card_peek(a));
+                card->card_poke(a, pattern(a));
+            }
+    });
+    REQUIRE(card->peek(VideoCard::CTRL) == 0x0F);
+    b.run(20 * FRAME);
+    const unsigned brk = label(bios_labels(), "BREAK");
+    unsigned changed = ~0u;
+    b.on_step = [&] {
+        if (b.cpu->regs().pc != brk || changed != ~0u)
+            return;
+        changed = 0;
+        size_t i = 0;
+        for (const auto &[from, to] : kept_regions)
+            for (uint32_t a = from; a < to; ++a)
+            {
+                changed += card->card_peek(a) != pattern(a);
+                card->card_poke(a, was[i++]);
+            }
+    };
     const std::string out = b.run(10 * FRAME, "X");
+    b.on_step = nullptr;
+    REQUIRE(changed != ~0u);                     // BREAK was reached
+    CHECK_EQ(changed, 0u);                       // the BIOS's, OODOS's and Apple II mode's card memory untouched
     CHECK(has(out, "\\"));                     // the monitor's prompt again
-    const VideoCard *card = b.machine->video_card();
-    const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
-    CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
-    CHECK_EQ(card->peek(VideoCard::PALBASE), 0);
-    CHECK_EQ(card->peek(VideoCard::SPRBASE), 0);
-    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
-    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
-    CHECK_EQ(card->peek(l0 + VideoCard::HSCROLL), 0);
-    CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0);
+    for (unsigned n = 0; n < 4; ++n)             // the aperture's slots as /RESET left them
+        CHECK_EQ(reg16(*card, static_cast<uint8_t>(VideoCard::Rev2::SLOT0 + 2 * n)), n);
+    check_text_screen_registers(*card);
     CHECK_EQ(b.bridge().window(1), 0x01);        // the windows back
     CHECK_EQ(b.bridge().window(2), 0x02);
     CHECK_EQ(b.row(5), before);                  // the text screen kept
     CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // and the monitor works
+}
+
+TEST(on_a_revision_1_card_the_demo_goes_straight_back_to_the_monitor)
+{
+    // The demo is revision 2's: on revision 1 it changes nothing on the card (whether the BIOS's C803 lets it start
+    // or not), and the monitor carries on.
+    Board b(false, true, {}, "", {}, 1);
+    REQUIRE(b.ok());
+    REQUIRE(b.machine->video_card()->revision() == 1);
+    REQUIRE(boot_past_splash(b));                // so Break's end of the splash isn't taken for the demo's doing
+    const VideoCard *card = b.machine->video_card();
+    auto registers = [&] {
+        std::string r; // all but what the beam changes
+        for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+            if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+                r += static_cast<char>(card->peek(o));
+        return r;
+    };
+    const std::string before = registers();
+    const std::string out = b.run(BOOT, "C803R\r");
+    CHECK(has(out, "C803: 4C\\"));
+    CHECK(registers() == before);
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().window(2), 0x02);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
 }
 
 TEST(without_a_video_card_c803_goes_back_to_the_monitor)
@@ -913,6 +1148,50 @@ TEST(without_a_video_card_c803_goes_back_to_the_monitor)
     const std::string out = b.run(BOOT, "C803R\r");
     CHECK(has(out, "C803: 4C\\"));             // R shows the byte, then the prompt at once
     CHECK_EQ(b.bridge().window(1), 0x01);
+}
+
+TEST(printing_through_a_scroll_puts_back_slot_0_and_the_ports_settings)
+{
+    // VPUTC borrows aperture slot 0 and puts it back, and a clear or a scroll (PORTJOBS) puts back the port's
+    // PADDR, PSTEP and PCTL (video.s; the Technical Reference, chapter 6), so a program that prints keeps its own.
+    // A program's settings, none of them the BIOS's: slot 0 on page 7, PADDR mid-card, a step of 160, stepping down,
+    // no DRQ. Then a CR on the bottom row, which scrolls.
+    Board b;
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    VideoCard *card = b.machine->video_card();
+    using R2 = VideoCard::Rev2;
+    constexpr uint32_t TEXT = 0x002000;
+    const std::string mark = "MARK";
+    for (size_t c = 0; c < mark.size(); ++c)
+        card->card_poke(static_cast<uint32_t>(TEXT + 10 * 160 + c * 2), static_cast<uint8_t>(mark[c]));
+    b.machine->bus().write_physical(0x000E2, 0);               // VCOL, VROW (BIOS_ZP + 2, + 3): the bottom row
+    b.machine->bus().write_physical(0x000E3, 29);
+    card->write(R2::SLOT0, 0x07);
+    card->write(R2::SLOT0 + 1, 0x00);
+    card->write(R2::PADDR, 0x56);
+    card->write(R2::PADDR + 1, 0x34);
+    card->write(R2::PADDR + 2, 0x12);
+    card->write(R2::PSTEP, 0xA0);
+    card->write(R2::PSTEP + 1, 0x00);
+    card->write(R2::PCTL, R2::PCTL_DOWN);
+    REQUIRE(reg16(*card, R2::SLOT0) == 0x0007);
+    const std::string out = b.run(BOOT, "\r");                // the monitor: its echo and GETLINE's, two CRs
+    CHECK(has(out, "\r\r"));
+    auto card_row = [&](unsigned r) {
+        std::string t;
+        for (unsigned c = 0; c < mark.size(); ++c)
+            t += static_cast<char>(card->card_peek(TEXT + r * 160 + c * 2));
+        return t;
+    };
+    CHECK_EQ(card_row(10), std::string("    "));               // scrolled: the mark is two rows up
+    CHECK_EQ(card_row(8), mark);
+    CHECK_EQ(reg16(*card, R2::SLOT0), 0x0007u);                // and all four as the program left them
+    CHECK_EQ(card->peek(R2::PADDR) | unsigned{card->peek(R2::PADDR + 1)} << 8 |
+                 unsigned{card->peek(R2::PADDR + 2)} << 16,
+             0x123456u);
+    CHECK_EQ(reg16(*card, R2::PSTEP), 0x00A0u);
+    CHECK_EQ(card->peek(R2::PCTL), R2::PCTL_DOWN);
 }
 
 TEST(the_monitor_takes_keys_from_the_usb_keyboard)
@@ -960,16 +1239,16 @@ TEST(pause_break_on_the_usb_keyboard_enters_the_monitor)
 
 TEST(a_usb_key_ends_the_demo)
 {
-    Board b;
+    Board b{Board::Rev2{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.type_usb("C803R\r");
+    start_demo(b, true);
     b.run(20 * FRAME);
     REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
     const std::string out = b.type_usb(" ");
     CHECK(has(out, "\\"));
-    CHECK_EQ(b.machine->video_card()->peek(VideoCard::CTRL), 0x03);
+    check_text_screen_registers(*b.machine->video_card());
     CHECK_EQ(b.bridge().window(1), 0x01);
 }
 
@@ -1011,6 +1290,39 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     p.reset();
     p.run(BOOT);
     CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN THE CARTRIDGE\\"));
+}
+
+TEST(c806_on_a_revision_1_card_says_so_and_stays_in_the_native_map)
+{
+    // Apple II mode is revision 2's (its character ROM goes in through revision 2's port): with a IIe ROM in the
+    // cartridge but a revision 1 card, C806R refuses before it touches anything, and the monitor carries on.
+    const std::string rom = fake_iie_rom("test_rev1_iie.rom");
+    Board b(false, true, {rom}, "", {}, 1);
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    REQUIRE(b.machine->video_card()->revision() == 1);
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    bus.write_physical(0x2ABCD, 0x5A);                        // what the fills would clear
+    const VideoCard *card = b.machine->video_card();
+    std::string regs;
+    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+            regs += static_cast<char>(card->peek(o));
+    const std::string out = b.run(2 * BOOT, "C806R\r");
+    CHECK(has(out, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD\\")); // then the monitor's prompt
+    CHECK(!b.bridge().apple());                                // still the native map
+    CHECK_EQ(bus.peek_physical(0x2ABCD), 0x5A);                // nothing cleared
+    CHECK(bus.peek_physical(0xEFFFC) != 0x62 || bus.peek_physical(0xEFFFD) != 0xFA); // no IIe ROM copied to bank E
+    std::string after;
+    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+            after += static_cast<char>(card->peek(o));
+    CHECK(after == regs);                                      // the card as it was
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().window(2), 0x02);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // the monitor carries on
 }
 
 TEST(c806_copies_the_iie_rom_to_bank_e_clears_the_iies_memory_and_writes_mode)
@@ -1066,6 +1378,7 @@ TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
         opt.rom_override = EMU_BIOS_ROM;
         opt.apple_rom = std::move(parts);
         opt.apple_chars = std::move(chars);
+        opt.video_revision = VIDEO_REVISION;
         error.clear();
         return Machine::build(text, "backplane.machine", opt, error);
     };
@@ -1097,7 +1410,7 @@ TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
         std::remove(f);
 }
 
-TEST(c806_puts_the_character_rom_in_video_memory_or_makes_one_from_the_vga_font)
+TEST(c806_puts_the_character_rom_in_card_memory_or_makes_one_from_the_vga_font)
 {
     const std::string rom = fake_iie_rom("test_chars_iie.rom");
     {
@@ -1117,50 +1430,48 @@ TEST(c806_puts_the_character_rom_in_video_memory_or_makes_one_from_the_vga_font)
         b->run(BOOT);
         b->run(2 * BOOT, "C806R\r");
     }
+    // In the card's memory at $1E0000 (hw/video-rev2.md's layout), where it draws Apple text from.
+    constexpr uint32_t CHARS = VideoCard::APPLE_CHARS_V2;
+    const VideoCard &with_card = *with.machine->video_card();
     size_t differ = 0;
     for (uint32_t i = 0; i < 0x800; ++i)
-        differ += with.machine->bus().peek_physical(0xBE000 + i) != static_cast<uint8_t>(i * 3 + 1);
+        differ += with_card.card_peek(CHARS + i) != static_cast<uint8_t>(i * 3 + 1);
     CHECK_EQ(differ, size_t{0});                                // the cartridge's, its first 2 KB
-    // Without one: each glyph from the VGA font (video memory unit 1), 16 rows folded to 8,
+    // Without one: each glyph from the VGA font (flash block 30), 16 rows folded to 8,
     // 7 dots reversed, normal codes inverted. Check A both ways: $C1 normal, $01 inverse.
-    Decoder &bus = without.machine->bus();
+    const VideoCard &card = *without.machine->video_card();
+    const std::string flash = read_file(EMU_BIOS_ROM);
+    REQUIRE(flash.size() == 0x80000u);
     size_t wrong = 0;
     for (unsigned r = 0; r < 8; ++r)
     {
-        const uint8_t vga = bus.peek_physical(0x80400 + 'A' * 16 + 2 * r) | bus.peek_physical(0x80400 + 'A' * 16 + 2 * r + 1);
+        const uint8_t vga = static_cast<uint8_t>(flash[0x78000 + 'A' * 16 + 2 * r] | flash[0x78000 + 'A' * 16 + 2 * r + 1]);
         uint8_t dots = 0;
         for (unsigned b = 0; b < 7; ++b)
             dots = static_cast<uint8_t>(dots | ((vga >> (7 - b)) & 1) << b);
-        wrong += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
-        wrong += bus.peek_physical(0xBE000 + 0x01 * 8 + r) != dots;
+        wrong += card.card_peek(CHARS + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
+        wrong += card.card_peek(CHARS + 0x01 * 8 + r) != dots;
     }
     CHECK_EQ(wrong, size_t{0});
     size_t blank = 0;
     for (unsigned r = 0; r < 8; ++r)
-        blank += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) == 0xFF;
+        blank += card.card_peek(CHARS + 0xC1 * 8 + r) == 0xFF;
     CHECK(blank < 8);                                           // something to see: A is not empty
 }
 
 TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
 {
-    Board b;
+    Board b{Board::Rev2{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(20 * FRAME, "C803R\r");
+    start_demo(b);
+    b.run(20 * FRAME);
     const VideoCard *card = b.machine->video_card();
     REQUIRE(card->peek(VideoCard::CTRL) == 0x0F);
     b.cpu->nmi();                                // Pause/Break, mid-frame
     CHECK(has(b.run(BOOT), "\\"));
-    const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
-    CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
-    CHECK_EQ(card->peek(VideoCard::PALBASE), 0);
-    CHECK_EQ(card->peek(VideoCard::SPRBASE), 0);
-    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
-    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
-    CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
-    CHECK_EQ(card->peek(l0 + VideoCard::HSCROLL), 0);
-    CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0);
+    check_text_screen_registers(*card);
     CHECK_EQ(b.bridge().window(0), 0x00);
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK_EQ(b.bridge().window(2), 0x02);
@@ -1222,7 +1533,7 @@ TEST(c800_puts_the_windows_and_the_screen_back_and_copies_the_flash_again)
     CHECK(has(b.run(BOOT, "C800R\r"), GREETING.c_str()));
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK_EQ(b.bridge().window(3), 0x7F);
-    CHECK_EQ(b.machine->video_card()->peek(uint8_t{VideoCard::LAYER0} + VideoCard::HSCROLL), 0);
+    CHECK_EQ(reg16(*b.machine->video_card(), VideoCard::LAYER0 + VideoCard::Rev2::HSCROLL), 0);
 }
 
 TEST(the_cursor_stays_on_the_screen_whatever_is_in_its_zero_page)
@@ -1262,13 +1573,15 @@ TEST(the_screen_scrolls_whole_with_a_burst_limit)
 
 TEST(the_demo_balls_bounce_off_the_bottom)
 {
-    Board b;
+    Board b{Board::Rev2{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    b.run(20 * FRAME, "C803R\r");
+    start_demo(b);
+    b.run(20 * FRAME);
     REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
-    auto y = [&](unsigned n) { return int{b.machine->bus().peek_physical(0x89000 + n * 8 + 4)}; };
+    const VideoCard *card = b.machine->video_card();
+    auto y = [&](unsigned n) { return int{card->card_peek(DEMO_SPR + n * 8 + 4)}; };
     std::vector<int> last;
     for (unsigned n = 0; n < 12; ++n)
         last.push_back(y(n));
@@ -1482,11 +1795,12 @@ TEST(break_during_a_burst_limited_scroll_stops_it)
     b.run(BOOT, "C441: 01\r");                   // a cycle back to the CPU every byte
     b.run(BOOT, "E3: 1D\r");                     // the cursor on the bottom row
     Decoder &bus = b.machine->bus();
-    REQUIRE(step_until(b, [&] { return (bus.peek(0xC437) & 1) != 0; }, BOOT, '\r')); // a scroll under way
+    REQUIRE(step_until(b, [&] { return (bus.peek(0xC417) & 1) != 0; }, BOOT, '\r')); // a scroll under way (the port's channel 1)
     b.cpu->nmi();
     const unsigned wozmon = label(read_file(EMU_BIOS_ROM ".lbl"), "WOZMON");
     REQUIRE(step_until(b, [&] { return b.cpu->regs().pc == wozmon; }, BOOT));
-    CHECK_EQ(bus.peek(0xC437) & 1, 0);           // stopped by Break, not left to run
+    CHECK_EQ(bus.peek(0xC417) & 1, 0);           // stopped by Break, not left to run
+    CHECK_EQ(bus.peek(0xC4BE), 0);               // and the port's DRQ off
     CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("C680: 00"));
@@ -1508,14 +1822,16 @@ TEST(a_scroll_leaves_the_dma_master_enable_as_it_was)
 
 TEST(the_demo_runs_with_the_dma_master_enable_off)
 {
-    Board b;
+    Board b{Board::Rev2{}};
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
     b.run(BOOT, "C441: 70\r");
-    b.run(20 * FRAME, "C803R\r");
+    start_demo(b);
+    b.run(20 * FRAME);
     REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
-    CHECK_EQ(b.machine->bus().peek_physical(0x89000 + 11 * 8 + 6), 0x18); // the sprite table, by DMA
+    CHECK_EQ(b.machine->video_card()->card_peek(DEMO_SPR + 11 * 8 + 6), 0x18); // the sprite table, by port DMA
+    CHECK_EQ(b.machine->video_card()->card_peek(DEMO_RIPPLE + 239 * 256 + 255) & 0xF0, 0x50); // the ripple, too
     CHECK(has(b.run(10 * FRAME, "X"), "\\"));
     CHECK_EQ(b.machine->bus().peek(0xC441), 0x70);
 }

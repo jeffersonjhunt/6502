@@ -1,18 +1,20 @@
 ; OOLIB's text on a bitmap (include/oolib.inc, "Graphics"; hw/oolib.md,
 ; L4): an 8 x 16 font, 256 characters of 16 bytes (the leftmost pixel in
 ; bit 7), drawn a pixel at a time by gxbmp.s's GX_PLOT on the bitmap
-; GX_BMP named. The console's font (its units 1-4) is read a character at a
-; time, its 16 bytes copied by function 83's DM_COPY into the library's own
-; (the console's units are a source a program may read, never a
-; destination, and block 32 isn't in the W1 map); so the program keeps 4
-; KB of its memory below $4000, where the W1 contract wants its data.
+; GX_BMP named. The console's font (card $000400, OODOS's) is read a
+; character at a time, its 16 bytes copied by function 83's DM_VREAD into
+; the library's own (OODOS's card memory is a source a program may read,
+; never a destination, and slot 0's block 32 isn't in the W1 map); so the
+; program keeps 4 KB of its memory below $4000, where the W1 contract
+; wants its data.
 
         .setcpu "65C02"
         .include "oodos.inc"
         .include "oolib.inc"
         .include "gx.inc"
 
-CONSOLE_FONT    = VRAM + 1 * 1024      ; the console's font: unit 1
+CONSOLE_FONT    = VM_FONT              ; the console's font, on the card
+.assert <CONSOLE_FONT = 0, error, "CONGLYPH adds to the font's middle byte"
 
         .bss
 font:   .res    2                      ; the font in use, a CPU address; 0 the console's
@@ -138,7 +140,8 @@ GLYPH:  lda     GX_X
         sta     GX_Y + 1
         rts
 
-; The console's character ch into glyph: 16 bytes from unit 1 + ch x 16.
+; The console's character ch into glyph: 16 bytes from the console's font
+; + ch x 16.
 CONGLYPH:
         lda     ch
         stz     GXB + 2
@@ -165,6 +168,6 @@ CONGLYPH:
         lda     #16
         sta     GXB + 7
         stz     GXB + 8
-        lda     #DM_COPY
+        lda     #DM_VREAD
         sta     GXB
         jmp     GXDMA

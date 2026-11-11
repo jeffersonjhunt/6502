@@ -5,7 +5,10 @@
  * changes nothing (ISR is read, not cleared; the mouse is not latched).
  * They are read in I/O space, so Apple II mode, where the CPU sees the
  * Apple's $C000-$CFFF, does not hide them. Video bases are shown as the
- * physical addresses they point at: $80000 + base x 1 KB.
+ * addresses they point at: on revision 1 (ID $91) the physical address
+ * $80000 + base x 1 KB; on revision 2 (ID $92, hw/video-rev2.md) the card
+ * memory address, six digits, base x 256, with the aperture's slots, the
+ * data port and the fitted memory.
  *
  * Then Apple II mode: whether it is on, and the IIe's soft switches
  * (readApple), which keep their state in native mode too. Then the Disk II
@@ -28,6 +31,7 @@ import { hex } from "./breakpoints";
 
 export const VIDEO = 0xc480;
 const VIDEO_ID = 0x91;
+const VIDEO_ID_REV2 = 0x92;
 export const USB = 0xc580;
 const USB_ID = 0xb1;
 export const SOUND = 0xc500;
@@ -109,6 +113,8 @@ export function sdCardText(c: SdInfo | null): string {
 }
 
 const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
+/** A revision 2 base register's two bytes (256-byte card pages), as the card address it names. */
+const page = (r: Uint8Array, at: number) => `$${hex((r[at] | (r[at + 1] << 8)) * 256, 6)}`;
 const bits = (v: number, names: [number, string][]) => names.filter(([b]) => v & b).map(([, n]) => n).join(" · ") || "none";
 
 const bcd = (v: number) => (v >> 4) * 10 + (v & 15);
@@ -189,6 +195,22 @@ export function soundCpuText(c: SoundCpu, running: boolean): string {
 export function soundPortText(c: SoundCpu): string {
   const lines = (c.port | (~c.ddr & 0xff)) & 7;
   return `DDR $${hex(c.ddr, 2)} · $${hex(c.port, 2)} · ${lines & 4 && lines & 3 ? "I/O in" : "RAM at $D000"}`;
+}
+
+/** A revision 2 layer's registers (hw/video-rev2.md): two-byte bases, the scrolls and PALOFS one byte up. */
+export function describeLayer2(r: Uint8Array, on: boolean): string {
+  const config = r[0];
+  const type = config & 7;
+  const parts = [on ? TYPES[type] : `off (${TYPES[type]})`];
+  if (type <= 1) parts.push(`text ${page(r, 1)}`, `font ${page(r, 3)}`);
+  else if (type === 2) parts.push(`map ${page(r, 1)}`, `tiles ${page(r, 3)}`);
+  else parts.push(`image ${page(r, 1)}`);
+  if (type <= 1 && config & 0x80) parts.push("blink");
+  const hs = r[5] | ((r[6] & 3) << 8);
+  const vs = r[7] | ((r[8] & 3) << 8);
+  if (hs || vs) parts.push(`scroll ${hs},${vs}`);
+  if (r[9]) parts.push(`palofs ${r[9]}`);
+  return parts.join(" · ");
 }
 
 export function describeLayer(r: Uint8Array, on: boolean): string {
@@ -400,7 +422,7 @@ export function devicesView(port: MachinePort) {
     await refreshApple();
     await refreshDisk();
     const r = await port.readMemory(VIDEO, 0x80, "io");
-    if (r[0x7f] !== VIDEO_ID) {
+    if (r[0x7f] !== VIDEO_ID && r[0x7f] !== VIDEO_ID_REV2) {
       status.textContent = "none";
       rows.replaceChildren(h("dd", {}, "No video card on this machine."));
       return;
@@ -408,12 +430,33 @@ export function devicesView(port: MachinePort) {
     const ctrl = r[0];
     status.textContent = `ID $${hex(r[0x7f], 2)}`;
     const line = r[6] | ((r[7] & 3) << 8);
+    const collided = r[8] & 0x0f ? ` · collided: groups $${hex(r[8] & 0x0f, 1)}` : "";
+    if (r[0x7f] === VIDEO_ID_REV2) {
+      const slot = (n: number) => `$${hex((r[0x30 + 2 * n] | (r[0x31 + 2 * n] << 8)) * 0x4000, 6)}`;
+      const paddr = r[0x38] | (r[0x39] << 8) | (r[0x3a] << 16);
+      const pctl = r[0x3e];
+      const dir = pctl & 2 ? "from the card" : "to the card";
+      rows.replaceChildren(
+        ...row("CTRL", `$${hex(ctrl, 2)}  ${bits(ctrl, [[1, "display"], [2, "layer 0"], [4, "layer 1"], [8, "sprites"]])}`),
+        ...row("Layer 0", describeLayer2(r.subarray(0x10, 0x20), (ctrl & 3) === 3)),
+        ...row("Layer 1", describeLayer2(r.subarray(0x20, 0x30), (ctrl & 5) === 5)),
+        ...row("Palette", `${page(r, 0x0a)}  border ${r[1]}`),
+        ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${page(r, 0x0c)}${collided}`),
+        ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
+        ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
+        ...row("Splash", `$${hex(r[9], 2)}  ${r[9] & 1 ? "playing (the card's ROM covers the screen)" : "off"}`),
+        ...row("Slots", [0, 1, 2, 3].map(slot).join(" ")),
+        ...row("Port", `$${hex(paddr, 6)} · step ${r[0x3c] | (r[0x3d] << 8)}${pctl & 4 ? " down" : ""} · ${pctl & 1 ? `DMA ${dir}` : "DMA off"}`),
+        ...row("Memory", `${r[0x3f] * 64} KB`),
+      );
+      return;
+    }
     rows.replaceChildren(
       ...row("CTRL", `$${hex(ctrl, 2)}  ${bits(ctrl, [[1, "display"], [2, "layer 0"], [4, "layer 1"], [8, "sprites"]])}`),
       ...row("Layer 0", describeLayer(r.subarray(0x10, 0x18), (ctrl & 3) === 3)),
       ...row("Layer 1", describeLayer(r.subarray(0x20, 0x28), (ctrl & 5) === 5)),
       ...row("Palette", `${base(r[2])}  border ${r[1]}`),
-      ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${base(r[3])}${r[8] & 0x0f ? ` · collided: groups $${hex(r[8] & 0x0f, 1)}` : ""}`),
+      ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${base(r[3])}${collided}`),
       ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
       ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
       ...row("Splash", `$${hex(r[9], 2)}  ${r[9] & 1 ? "playing (the card's ROM covers the screen)" : "off"}`),

@@ -183,7 +183,7 @@ export const USER_BIOS = "/roms/user-bios.rom";
 /** The flash the BIOS is in: rom_a, $00000-$7FFFF (machines/backplane.machine). */
 export const MAX_BIOS = 512 * 1024;
 
-/** "0.12" from a ROM that greets "BACKPLANE BIOS 0.12", or "". */
+/** "0.13" from a ROM that greets "BACKPLANE BIOS 0.13", or "". */
 export function biosVersion(rom: Uint8Array): string {
   const want = Array.from("BACKPLANE BIOS ", (c) => c.charCodeAt(0));
   outer: for (let i = 0; i + want.length < rom.length; ++i) {

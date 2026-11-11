@@ -1,6 +1,6 @@
 # OOLIB: the OO-1's game and device services #
 
-**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8.** This document proposes how OO-1 programs reach the
+**Status: draft (2026-10-30); the plan and the open questions decided 2026-11-07 ([The plan](#the-plan)); L1–L4, L4a and L4b merged 2026-11-08, OODOS 0.6; L5 merged 2026-11-09, OODOS 0.7; L6 and EV_SFLAGS merged 2026-11-10, OODOS 0.8; video card revision 2 proposed 2026-11-11 (interface version 8, [below](#the-plan)).** This document proposes how OO-1 programs reach the
 graphics, sound, timing and input hardware, so that every game and GW-BASIC use the same calls and nobody invents
 their own. The hardware is in [design.md](design.md); OODOS, the operating system these services join, is in
 [oodos.md](oodos.md). The questions at the end are for the owner to settle, as OODOS's phase 0 settled its own. They
@@ -828,7 +828,8 @@ sizes`, the maps, normal and `DEBUG=1`).
   - **No map operation (decided, question 1):** OOLIB writes W1 itself, under the W1 contract below.
   - **Function 84 isn't needed:** nothing in video memory is shared between owners. The running program has units
     13–255 whole, as it has its TPA, and the library hands them out inside it. `OA_VIDEO` stays unassigned.
-- **The W1 contract** (decided 2026-11-08, the owner: OOLIB is OODOS's extension, there so programs don't go around
+- **The W1 contract** (*revised for video card revision 2 as version 8, proposed: "Video card revision 2" below*;
+  decided 2026-11-08, the owner: OOLIB is OODOS's extension, there so programs don't go around
   the rules, and may do what the rules keep from programs where OODOS states it as part of the interface). From
   interface version 4: OOLIB may write `NB_WIN1` directly, with any block `DM_INFO`'s W1 map allows, and OODOS
   keeps that value across a BDOS call, an interrupt and a hook (each puts back what it found), and puts block 1 back
@@ -1358,6 +1359,73 @@ and more in L5:
     main. `test_oodos_playsid` (9 cases): SIDOVL loads SIDPLUG.PRL (lib-sid, zero page 0, its
     `SID_ZP` SIDOVL's) by 59 and plays a tune of ours as `plan_sid` plans it; SIDPLUGZ, the same linked without
     the names, has 2 bytes and 59 refuses it (`$FE02`).
+
+- **Video card revision 2** (*proposed, 2026-11-11*; [video-rev2.md](video-rev2.md), whose register map and card
+  memory layout are frozen; interface version 8). The card draws from 2 MB of its own memory, reached through a
+  64 KB aperture of four 16 KB slots at physical bank 8 and a data port fed by DMA channel 1. Banks 9–B are RAM
+  again. OODOS and OOLIB are built for revision 2 only: no compatibility mode.
+  - **Who owns card memory** (video-rev2.md's question 6, its proposed default): OODOS `$000000–$03FFFF` (the
+    console's palette at `$000000`, font at `$000400` and text at `$002000`, its units 0–12, the rest kept), the
+    program `$040000–$1BFFFF` through OOLIB, Apple II mode `$1C0000–$1FFFFF`. `oodos/include/vmem.inc` (the
+    interface, published first for OOUI) names them.
+  - **The aperture's slots.** Slot 0 is OODOS's and always shows card bank 0, so its window, block 32
+    (`$80000–$83FFF`), is still the console's, and `crt.s` writes the screen and scrolls it by DMAGO there as
+    before. Slot 1 is OOLIB's. Function 83's `DM_VCOPY` borrows slots 2 and 3 inside the call, a piece at a time
+    with interrupts masked, and puts them back. The warm boot puts slots 0, 2 and 3 on banks 0, 2 and 3, as /RESET
+    leaves them, and slot 1 on bank 16 (`VM_PROG_BANK`), the program's first, so block 33 never shows OODOS's part
+    (review F2).
+  - **The port and channel 1 are OODOS's**, as the DMA channels are: the frame handler's vertical-blank copies and
+    pointer, and function 83's `DM_VWRITE`, `DM_VREAD` and `DM_VFILL`, each in pieces of 2 KB with interrupts
+    masked around each piece (`PORTRUN`, `PORTGO`), so the frame handler never meets the port half set. The card asks
+    for every byte at once, so a piece runs with the CPU held, a cycle a byte (60 KB to the card in about 17 ms).
+  - **Function 83, interface version 8.** `DM_INFO`'s A is the card's memory in 64 KB units (32; 0 with no revision 2
+    card); its block gains +13–16, the program's first card page and the one past its last (`$0400`, `$1C00`). Its W1
+    map is block 1, the allocated blocks, 33 (slot 1's window) and 36–47 (RAM now); 32, 34 and 35, the windows of slots
+    0, 2 and 3, OODOS's, are left out (review F2). New operations: `DM_VWRITE` (7, system to card), `DM_VREAD` (8, card
+    to system), `DM_VFILL` (9) and `DM_VCOPY` (10, card to card), their blocks laid out as `DM_COPY`'s and `DM_FILL`'s
+    with one side a card address. A card destination must be in the program's part; a card source anywhere in the fitted
+    memory (the console's font for text on a bitmap). A physical destination of any operation, and a record read through
+    a DMA segment (51), may not touch the windows that show OODOS's card banks: slot 0's, `$80000–$83FFF`, and slots 2
+    and 3's, `$88000–$8FFFF` (`bdosmem.s`'s `OSWIN`, review F2; slot 1's, `$84000–$87FFF`, is the program's).
+    `DM_VBSET`'s destination is a card address in the program's part, written through the port; `DM_POINTER` writes the
+    pointer's X and Y at SPRBASE × 256 through the port, only while SPRBASE is in the program's part.
+  - **The W1 contract, version 8.** OOLIB may write `NB_WIN1` with any block `DM_INFO`'s W1 map allows, and
+    `SLOT1` with any of the program's card banks (16–111); OODOS keeps both across a BDOS call, an interrupt and a
+    hook, and at the warm boot puts block 1 back in W1 and bank 16 (`VM_PROG_BANK`) in slot 1. What changed for programs:
+    - Video memory is no longer system RAM. A program reaches its card memory through slot 1's window (block 33)
+      by `GX_VMAP` or the drawing calls, or by function 83's card operations; never by a physical address in
+      banks 8–B.
+    - A program never writes `SLOT0`, `SLOT2`, `SLOT3`, or the port's registers (`PADDR`, `PDATA`, `PSTEP`,
+      `PCTL`); OOLIB writes `SLOT1` only.
+    - Banks 9–B (blocks 36–47) are ordinary RAM, the running program's as video memory was: in the W1 map, and
+      reachable by DMA segments and function 83. OOLIB's asset loader stages through `$BF000–$BFFFF` unless the
+      program moves `GX_STAGE`. Functions 53–58 don't hand them out (open question below).
+    - The rule for the program's own `$4000–$7FFF` is unchanged: out of reach while block 33 is in W1.
+  - **OOLIB's changes** (`include/oolib.inc`, `vmem.inc`; every caller of these changes with the version):
+    card memory is named by card pages (card address / 256, a word), what the base registers hold. `GX_ALLOC`,
+    `GX_FREE` and `GX_UNIT` are replaced by `GX_VALLOC` (a size in pages, an alignment in pages, the grain 1 KB:
+    1,536 units in a 192-byte map), `GX_VFREE` and `GX_VADDR`; new are `GX_VMAP`, `GX_VPUT`, `GX_VGET`, `GX_VCOPY`
+    and `GX_VFILL`. `GX_LAYER` takes the map's page in `GX_V` and the tiles' in `GX_R`; `GX_PALBASE`,
+    `GX_SPRBASE` and `GX_TMAP` a page in A/X; `GX_BMP` and `GX_FLIP` a page in `GX_V`; `GX_SPRIMG` the table's
+    own revision 2 encoding (bits 0–14 the image's page, bit 15 the depth). The palette and sprite shadows take
+    two pages each (a unit). Drawing goes through slot 1 (`GXPHYS` sets the slot only when the bank changes),
+    fills and copies through `DM_VFILL` and `DM_VCOPY`, the console's font through `DM_VREAD`. `GX_INIT` refuses
+    an interface below 8 or no revision 2 card (`GE_VERSION`).
+  - **Asset format 4** (`mkasset.py`): a part's place is a card page (+2–3, `$FFFF` any, a multiple of 4 in the
+    program's part); sprite images are padded to 256 bytes and the table counts them in pages. `GX_ASSET` loads a
+    part 4 KB at a time by `DM_LOAD` into the staging buffer and `DM_VWRITE` on. Format 3 isn't read.
+  - **Tests:** the OODOS rig runs on revision 2 (`MachineOptions::video_revision`). `test_oodos_video` gains a case
+    for the four card operations (60 KB to the card byte for byte with no tick lost, back unaligned across a bank,
+    fills, 40,000 bytes card to card across banks with the borrowed slots put back, down over itself, and every
+    refusal: OODOS's part, Apple II mode's, past the fitted memory, a 24-bit wrap, slot 0's window, OODOS's
+    blocks), and its slots, pointer and warm-boot cases move into card memory. `test_oodos_gfx` draws, tiles,
+    sprites, fades, text, flips and loads assets in card memory, maps through slot 1 (`GX_VMAP`'s refusals), and
+    checks the allocator's grain and alignment. `check_mkasset.py` checks format 4.
+  - **Open questions:** (1) should functions 53–58 hand out banks 9–B now that they are RAM? (2) *Answered:* the ROM
+    BIOS's QUIET (`backplane/bios/bios.s`) now quiets a video card of ID `$92` (its interrupts, the splash and the
+    port's DRQ), and the ROM's VSCREEN turns the sprites off, so on revision 2 Break leaves none of them on; the
+    Break cases of `test_oodos_video` and `test_oodos_clock` pass. (3) `DM_LOAD` straight to card memory (a load to
+    RAM, then the port) would save the program the staging buffer; left to OOLIB for now.
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**

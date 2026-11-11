@@ -138,7 +138,7 @@ AUTOBOOT:       LDA     #$80
 @wait:          JSR     KEYHIT         ; a key: the monitor (the key is taken)
                 BCS     @monitor
                 LDA     VIDEO_ID
-                CMP     #VIDEO_ID_V1
+                CMP     #VIDEO_ID_V2
                 BNE     @nosplash
                 LDA     VIDEO_SPLASH
                 AND     #VIDEO_SPLASH_ON

@@ -338,7 +338,7 @@ export const CARD = {
 export interface MachinePort {
   readonly caps: PortCaps;
 
-  /** Open the machine and start running. Rejects with a readable reason. `bios`: its version, if its ROM says ("0.12"). */
+  /** Open the machine and start running. Rejects with a readable reason. `bios`: its version, if its ROM says ("0.13"). */
   connect(): Promise<{ machine: string; bios?: string }>;
   /** Stop the frame loop and let go of the backend. */
   close(): void;
