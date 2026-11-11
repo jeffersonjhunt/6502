@@ -46,6 +46,16 @@ namespace
         r.poke(at(name), static_cast<uint8_t>(v));
         r.poke(at(name) + 1u, static_cast<uint8_t>(v >> 8));
     }
+    /// GX_A or GX_C: a card address, 3 bytes.
+    void addr3(Rig &r, const char *name, uint32_t a)
+    {
+        for (unsigned i = 0; i < 3; ++i)
+            r.poke(at(name) + i, static_cast<uint8_t>(a >> (8 * i)));
+    }
+    uint32_t addr3(Rig &r, const char *name)
+    {
+        return r.phys(at(name)) | r.phys(at(name) + 1u) << 8 | static_cast<uint32_t>(r.phys(at(name) + 2u)) << 16;
+    }
     VideoCard &vid(Rig &r) { return *r.machine->video_card(); }
     uint8_t vreg(Rig &r, uint8_t off) { return vid(r).peek(off); }
     unsigned vreg2(Rig &r, uint8_t off) { return vreg(r, off) | vreg(r, static_cast<uint8_t>(off + 1)) << 8; }
@@ -525,7 +535,7 @@ TEST(tiles_maps_scrolling_sprites_and_collisions)
     // Sprites: the shadow on the card only after GX_SPRSHOW and the next vertical blank.
     gx(r, 'Z');
     const unsigned table = vreg2(r, 0x0C);
-    CHECK(table >= PAGE0);
+    CHECK_EQ(table, map + 16); // the next unit after the map's four
     xy(r, 100, 50);
     gx(r, 'X', 5);
     word(r, "GX_V", 0x8012);
@@ -539,6 +549,7 @@ TEST(tiles_maps_scrolling_sprites_and_collisions)
     CHECK_EQ(r.phys(AREA + 12), 0); // the go bit cleared
     // Two sprites of group 1 on one spot: the card's collision, read and cleared by GX_COLL.
     const unsigned img = alloc(r, 1);
+    CHECK_EQ(img, table + 4); // review F1: the table took one unit (512 bytes), not 512 pages
     cpoke(r, img * 256, std::vector<uint8_t>(256, 0x11));
     for (const uint8_t s : {uint8_t{6}, uint8_t{7}})
     {
@@ -609,6 +620,7 @@ TEST(a_fade_text_and_double_buffering)
     CHECK(std::set<unsigned>(greens.begin(), greens.end()).size() >= 6); // a step a frame
     // Text: the console's font, opaque, on a bitmap 256.
     const unsigned bmp = alloc(r, 240);
+    CHECK_EQ(bmp, pal + 4); // review F1: the palette took one unit (512 bytes), not 512 pages
     bmp_at(r, 0, bmp);
     gx(r, 'G', 0, 0);
     r.poke(at("GX_FG"), 15);
@@ -720,6 +732,9 @@ TEST(no_event_area_refuses_the_shows_and_leaves_zero_page_alone)
     CHECK_EQ(gx(r, 'i').substr(6), std::string("00"));
     CHECK_EQ(gx(r, 'K').substr(6), std::string("00")); // the palette's slot set: that much needs no area
     gx(r, 'Z');                                         // and the sprites' (both allocate: GXT, now at $0C, moves)
+    CHECK_EQ(vreg2(r, 0x0A), PAGE0);                    // a unit each (review F1)
+    CHECK_EQ(vreg2(r, 0x0C), PAGE0 + 4);
+    CHECK_EQ(hexax(valloc(r, 1)), PAGE0 + 8);
     const uint8_t z = r.phys(0x000C);
     std::string a = gx(r, 'H');
     CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("07 01")); // GE_AREA
@@ -759,6 +774,99 @@ namespace
         return gx(r, '@', 0x80, 0x3A);
     }
 } // namespace
+
+TEST(card_memory_put_got_copied_and_filled_through_function_83)
+{
+    // Review F8: GX_VADDR, GX_VPUT, GX_VGET, GX_VCOPY and GX_VFILL (vmem.inc), unaligned and across a 16 KB
+    // bank; GX_A kept; a length of 0 nothing; OODOS's part and Apple II mode's refused with nothing written.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    CHECK_EQ(gx(r, 'd', 0x41, 0x05).substr(0, 5), std::string("41 05")); // A/X kept
+    CHECK_EQ(addr3(r, "GX_A"), 0x054100u);
+    const unsigned page = alloc(r, 192, 64); // 48 KB on 16 KB: three banks
+    CHECK(page >= PAGE0 && page % 64 == 0);
+    const uint32_t base = page * 256u, at_a = base + 0x3F00 + 0x83; // 300 bytes from $..3F83: over the bank's end
+    cpoke(r, base, std::vector<uint8_t>(0xC000, 0xEE));
+    std::vector<uint8_t> src(300);
+    for (size_t i = 0; i < src.size(); ++i)
+        src[i] = static_cast<uint8_t>(i * 7 + 3);
+    constexpr uint16_t SRC = 0x3A01, DST = 0x3C03; // the program's memory, past gxtest's, unaligned
+    r.poke(SRC, src);
+    // GX_VPUT: the program's bytes to the card, and not a byte either side.
+    addr3(r, "GX_A", at_a);
+    word(r, "GX_V", 300);
+    CHECK_EQ(gx(r, 'v', SRC & 0xFF, SRC >> 8).substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), at_a);
+    CHECK(cmem(r, at_a, 300) == src);
+    CHECK_EQ(card(r, at_a - 1), 0xEE);
+    CHECK_EQ(card(r, at_a + 300), 0xEE);
+    // GX_VGET: back to the program's memory.
+    r.poke(DST, std::vector<uint8_t>(302, 0x11));
+    CHECK_EQ(gx(r, 'g', DST & 0xFF, DST >> 8).substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), at_a);
+    std::vector<uint8_t> got(300);
+    for (unsigned i = 0; i < 300; ++i)
+        got[i] = r.phys(DST + i);
+    CHECK(got == src);
+    CHECK_EQ(r.phys(DST + 300u), 0x11);
+    // GX_VCOPY: card to card, the destination over the third bank's start.
+    const uint32_t to = base + 0x7FC1;
+    addr3(r, "GX_C", to);
+    CHECK_EQ(gx(r, 'k').substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), at_a);
+    CHECK(cmem(r, to, 300) == src);
+    CHECK_EQ(card(r, to + 300), 0xEE);
+    // GX_VFILL: 1,000 bytes of $C3 over the boundary.
+    const uint32_t fill = base + 0x3E05;
+    addr3(r, "GX_A", fill);
+    word(r, "GX_V", 1000);
+    CHECK_EQ(gx(r, 'f', 0xC3).substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), fill);
+    CHECK(cmem(r, fill, 1000) == std::vector<uint8_t>(1000, 0xC3));
+    CHECK_EQ(card(r, fill - 1), 0xEE);
+    CHECK_EQ(card(r, fill + 1000), 0xEE);
+    // A length of 0: nothing, carry clear (never function 83's 65,536).
+    const std::vector<uint8_t> before = cmem(r, base, 0xC000);
+    addr3(r, "GX_A", base);
+    addr3(r, "GX_C", base + 0x100);
+    word(r, "GX_V", 0);
+    r.poke(DST, std::vector<uint8_t>(16, 0x22));
+    for (const char c : {'v', 'g', 'k', 'f'})
+    {
+        const uint8_t a = c == 'f' ? uint8_t{0x99} : static_cast<uint8_t>(DST), x = c == 'f' ? uint8_t{0} : static_cast<uint8_t>(DST >> 8);
+        CHECK_EQ(gx(r, c, a, x).substr(6), std::string("00"));
+        CHECK_EQ(addr3(r, "GX_A"), base);
+    }
+    CHECK(cmem(r, base, 0xC000) == before);
+    CHECK_EQ(r.phys(DST), 0x22);
+    // Refused (GE_DMA, carry set), nothing written: OODOS's part, Apple II mode's, and a run into it.
+    word(r, "GX_V", 64);
+    for (const uint32_t bad : {0x000100u, 0x03FFF0u, 0x1C0000u, 0x1BFFF0u})
+    {
+        const std::vector<uint8_t> was = cmem(r, bad, 64);
+        addr3(r, "GX_A", bad);
+        std::string a = gx(r, 'v', SRC & 0xFF, SRC >> 8);
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("04 01"));
+        CHECK_EQ(addr3(r, "GX_A"), bad);
+        a = gx(r, 'f', 0x55);
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("04 01"));
+        addr3(r, "GX_A", base); // a good source, the bad destination
+        addr3(r, "GX_C", bad);
+        a = gx(r, 'k');
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("04 01"));
+        if (cmem(r, bad, 64) != was)
+            std::printf("  card $%06X written\n", bad);
+        CHECK(cmem(r, bad, 64) == was);
+    }
+    // But a source anywhere in the fitted memory: OODOS's font back to the program.
+    addr3(r, "GX_A", 0x000400);
+    word(r, "GX_V", 16);
+    CHECK_EQ(gx(r, 'g', DST & 0xFF, DST >> 8).substr(6), std::string("00"));
+    for (unsigned i = 0; i < 16; ++i)
+        CHECK_EQ(r.phys(DST + i), card(r, 0x000400 + i));
+}
 
 TEST(an_asset_s_header_is_checked_and_what_it_took_is_freed)
 {

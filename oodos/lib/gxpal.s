@@ -27,9 +27,9 @@ fcomp:  .res    1
         .code
 
 GX_PALINIT:
-        stz     GX_V                    ; 512 bytes: two card pages (a unit)
-        lda     #>512
-        sta     GX_V + 1
+        lda     #512 / VM_PAGE          ; GX_V in card pages: 512 bytes are two (a unit)
+        sta     GX_V
+        stz     GX_V + 1
         lda     #1
         jsr     GX_VALLOC
         bcs     @no

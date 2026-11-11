@@ -51,7 +51,9 @@
 ;               whole kilobytes (VM_UNIT), so a size or an alignment under 4
 ;               pages takes 4
 ;   GX_VFREE    A/X the first card page, GX_V the size in pages: that run
-;               free again (pages outside the program's part are skipped)
+;               free again, whole or not at all: nothing freed for a first
+;               page off a unit or below $0400, a size of 0, or a run past
+;               the card's room
 ;   GX_VADDR    A/X a card page: GX_A its card address (page x 256)
 ;   GX_VMAP     A/X a card page: its bank shown in slot 1 and block 33 put
 ;               in W1; A/X and GXP the page's CPU address ($4000-$7F00).

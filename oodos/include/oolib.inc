@@ -185,7 +185,7 @@ GE_MAP          = 2                    ; a block the W1 map hasn't
 GE_MEMORY       = 3                    ; no card memory free, or not the program's
 GE_DMA          = 4                    ; function 83 refused
 GE_FILE         = 5                    ; the asset file not found or not read
-GE_FORMAT       = 6                    ; not an asset file of format 3, or a part the library can't take
+GE_FORMAT       = 6                    ; not an asset file of format 4, or a part the library can't take
 GE_AREA         = 7                    ; no event area (GX_INIT's 0): no vertical-blank slot to show by
 GE_BOUNDS       = 8                    ; GX_BCOPY: a rectangle that leaves the bitmap
 
