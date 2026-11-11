@@ -420,7 +420,8 @@ namespace ooe::emu
                         return fail("video: only one per machine");
                     auto card = std::make_unique<VideoCard>();
                     video_rev = options.video_revision ? options.video_revision : rev ? rev : 1;
-                    card->set_revision(video_rev);
+                    if (!card->set_revision(video_rev)) // a new card: never locked yet
+                        return fail("video: the revision didn't take");
                     m->video_card_ = card.get();
                     dev = std::move(card);
                 }

@@ -95,9 +95,10 @@
  * 2x2 pixels, the 560x384 picture centred in 640x480 on black. Text, 40 or
  * 80 columns (80: aux, main, aux...), with the IIe's character ROM at
  * APPLE_CHARS (on revision 2, card $1E0000: APPLE_CHARS_V2; 2 KB: 8 bytes
- * a code, bit 0 the leftmost of 7 dots, lit where the bit is 0): ALTCHARSET off makes $40-$7F flash between inverse and
- * normal, on shows them as they are (MouseText, inverse lowercase). Lo-res:
- * 40x48 blocks of 16 colours. Hi-res: 280 dots a line, colour from NTSC
+ * a code, bit 0 the leftmost of 7 dots, lit where the bit is 0): ALTCHARSET
+ * off makes $40-$7F flash between inverse and normal, on shows them as they
+ * are (MouseText, inverse lowercase). Lo-res: 40x48 blocks of 16 colours.
+ * Hi-res: 280 dots a line, colour from NTSC
  * artifacts (a lone dot is violet or green, blue or orange when its byte's
  * bit 7 shifts it half a dot right; two together are white). MIXED: the last
  * four text rows over graphics. PAGE2 picks page 2 unless 80STORE. With
@@ -210,8 +211,9 @@ namespace ooe::emu
         void attach(const uint8_t *vram) { vram_ = vram; }
         /// 1 (snooped banks 8-B, ID $91) or 2 (card memory, ID $92). Resets the registers, not memory.
         /// Build time only: once lock_revision() has been called (a Machine does, as it wires the bus
-        /// for the revision its description chose) it changes nothing and returns false.
-        bool set_revision(unsigned rev);
+        /// for the revision its description chose) it changes nothing and returns false, so the result
+        /// must be looked at: a caller that ignored it would go on with the other revision unawares.
+        [[nodiscard]] bool set_revision(unsigned rev);
         void lock_revision() { revision_locked_ = true; }
         unsigned revision() const { return rev_; }
         /// Revision 2's card memory, MEMORY_SIZE bytes; nullptr on revision 1, which has none.

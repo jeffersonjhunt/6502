@@ -18,6 +18,7 @@
 #include "video_card.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -36,7 +37,8 @@ namespace
     {
         Rig()
         {
-            card.set_revision(2);
+            if (!card.set_revision(2)) // a card on its own: never locked
+                std::abort();
             card.set_cpu_hz(VideoCard::PIXEL_HZ); // one cycle, one pixel clock
         }
         void reg(uint8_t r, uint8_t v) { card.write(r, v); }
@@ -242,9 +244,9 @@ TEST(set_revision_1_is_todays_card)
     VideoCard c;
     CHECK_EQ(c.revision(), 1u);       // the default, until the BIOS and OODOS move
     CHECK_EQ(c.peek(VideoCard::ID_REG), 0x91);
-    c.set_revision(2);
+    CHECK(c.set_revision(2));
     CHECK_EQ(c.peek(VideoCard::ID_REG), 0x92);
-    c.set_revision(1);
+    CHECK(c.set_revision(1));
     CHECK_EQ(c.peek(VideoCard::ID_REG), 0x91);
     CHECK_EQ(c.peek(0x40), 0xFF);       // revision 1's unused bytes read $FF
     c.write(VideoCard::PALBASE, 0x34);  // and PALBASE is at $02
