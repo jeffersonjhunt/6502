@@ -525,7 +525,7 @@ TEST(tiles_maps_scrolling_sprites_and_collisions)
     // Sprites: the shadow on the card only after GX_SPRSHOW and the next vertical blank.
     gx(r, 'Z');
     const unsigned table = vreg2(r, 0x0C);
-    CHECK(table >= PAGE0);
+    CHECK_EQ(table, map + 16); // the next unit after the map's four
     xy(r, 100, 50);
     gx(r, 'X', 5);
     word(r, "GX_V", 0x8012);
@@ -539,6 +539,7 @@ TEST(tiles_maps_scrolling_sprites_and_collisions)
     CHECK_EQ(r.phys(AREA + 12), 0); // the go bit cleared
     // Two sprites of group 1 on one spot: the card's collision, read and cleared by GX_COLL.
     const unsigned img = alloc(r, 1);
+    CHECK_EQ(img, table + 4); // review F1: the table took one unit (512 bytes), not 512 pages
     cpoke(r, img * 256, std::vector<uint8_t>(256, 0x11));
     for (const uint8_t s : {uint8_t{6}, uint8_t{7}})
     {
@@ -609,6 +610,7 @@ TEST(a_fade_text_and_double_buffering)
     CHECK(std::set<unsigned>(greens.begin(), greens.end()).size() >= 6); // a step a frame
     // Text: the console's font, opaque, on a bitmap 256.
     const unsigned bmp = alloc(r, 240);
+    CHECK_EQ(bmp, pal + 4); // review F1: the palette took one unit (512 bytes), not 512 pages
     bmp_at(r, 0, bmp);
     gx(r, 'G', 0, 0);
     r.poke(at("GX_FG"), 15);
@@ -720,6 +722,9 @@ TEST(no_event_area_refuses_the_shows_and_leaves_zero_page_alone)
     CHECK_EQ(gx(r, 'i').substr(6), std::string("00"));
     CHECK_EQ(gx(r, 'K').substr(6), std::string("00")); // the palette's slot set: that much needs no area
     gx(r, 'Z');                                         // and the sprites' (both allocate: GXT, now at $0C, moves)
+    CHECK_EQ(vreg2(r, 0x0A), PAGE0);                    // a unit each (review F1)
+    CHECK_EQ(vreg2(r, 0x0C), PAGE0 + 4);
+    CHECK_EQ(hexax(valloc(r, 1)), PAGE0 + 8);
     const uint8_t z = r.phys(0x000C);
     std::string a = gx(r, 'H');
     CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("07 01")); // GE_AREA
