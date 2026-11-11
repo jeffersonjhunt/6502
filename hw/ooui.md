@@ -401,7 +401,11 @@ The picker reads the directory with functions 17 and 18 in idle polls, a few mat
 as many more as it has listed, at most 64), so listing never takes long. OODOS keeps one search, which the app may
 use between polls, so each poll's part walks the directory from its start (function 17 with the picker's own FCB),
 passes the names listed already and lists the next few (U2 review, Y1): an app's search between polls neither ends
-the picker's nor is taken over by it, and a directory that changed between polls is read as it is now. An app's own
+the picker's nor is taken over by it, and a directory that changed between polls is read as it is now. A directory
+that hasn't changed comes back in the same order, so each match is compared with the listed entry where it should
+be, and the whole list is looked through only when they differ; past the list's end with every match in its place,
+a match is new (round 2, Z1). A walk that reaches the directory's end takes out the files it no longer found, and
+the selection is held to what is left (Z5). An app's own
 search must end before it polls while the picker is up, since the picker's walk starts a search of its own. It lists
 each file once, however many extents it has. It names the drive in its FCB, so the current drive never changes,
 and it sets the user (function 32), the DMA address and segment (26, 51) and the error mode (45) for each part,
@@ -812,7 +816,7 @@ and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8
 | --- | --- | --- | --- | --- | --- |
 | `uicore` | (U1's, grown by U2: registry, dialog handles, clipping, ranges, `ui_setrange`) | 2,705 | 50 | 155 | |
 | `uipoll` | (U1's, grown: the widgets' mouse and keys, drag, double-click, hover, repeat, `UE_MODAL`, the dialogs' filters) | 2,577 | 62 | 62 | `oa_ui.s`'s input and keys |
-| `uidraw` | (U1's, grown: the widgets' drawing, parent clipping, a label's lines) | 2,848 | 270 | 76 | |
+| `uidraw` | (U1's, grown: the widgets' drawing, parent clipping, a label's lines) | 2,869 | 270 | 76 | |
 | `uimenu` | (U1's, unchanged) | 1,912 | 26 | 43 | |
 | `uigroup` | group, radio buttons | 446 | 28 | 4 | the visualizer's and repeat's modes, where radio-like |
 | `uichoice` | a value from a short list (Left and Right) | 252 | 14 | 2 | Settings' lines; the picker's drive and user |
@@ -825,18 +829,20 @@ and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8
 | `uimath` | the scaling the bars, scroll bars and sliders share | 182 | 0 | 16 | |
 | `uidlg` | the dialogs' 13 records | 85 | 0 | 209 | |
 | `uimsg` | `ui_msgbox` | 561 | 31 | 26 | CONFIRM QUIT, the error boxes (`gui/ooadlg.s`'s) |
-| `uipick` | `ui_pick`, `ui_relist` | 2,412 | 355 | 311 | Load Files (`gui/ooadlg.s`, `oa_list.s`'s directory reading) |
+| `uipick` | `ui_pick`, `ui_relist` | 2,338 | 499 | 319 | Load Files (`gui/ooadlg.s`, `oa_list.s`'s directory reading) |
 
 Zero page: still OOUI's 8 bytes (`zpuicore`), none in any U2 module, so an overlay is given its caller's as
-before. **U2's code is 10,634 bytes against the ~3 KB target** (9,594 before the U2 review's fixes, which took
-1,040): 2,064 the core's growth, 5,512 the nine widget modules, 3,058 the dialogs. A program links the core (10,042
-bytes of code with U1's) and only the modules it uses: OO-Amp's port would take the list, scroll bar, slider, bar,
-canvas, choice, message box and picker, about 7.6 KB more. That is past what one region outside W1 holds with OOLIB's graphics (16 KB at `$8000-$BFFC`, or 15.6 KB at
+before. **U2's code is 10,581 bytes against the ~3 KB target** (9,594 before the U2 review's fixes; 10,634 after
+round 1; round 2 made the picker's records from a table of templates, 144 bytes of tables for about 320 of code):
+2,085 the core's growth, 5,512 the nine widget modules, 2,984 the dialogs. A program links the core (10,063 bytes of
+code with U1's) and only the modules it uses: OO-Amp's port would take the list, scroll bar, slider, bar, canvas,
+choice, message box and picker, about 7.5 KB more. That is past what one region outside W1 holds with OOLIB's graphics (16 KB at `$8000-$BFFC`, or 15.6 KB at
 `$0300-$3FFF`): the test programs had to be four (`UITEST`, `UITWID`, `UITBAR`, `UITPICK`, all from
 `oodos/test/ui/uitest.s`), each linked with `test/ui/uitest.cfg`, which puts OOUI's and OOLIB's code at `$8000`
-and the test's own code, tables, data and BSS below `$3000` (`OOUI_CFG` in `oodos/Makefile`). That link is the
+and the test's own code, tables, data and BSS below `$1C00`, `$1C00-$2FFF` a 256-file work buffer for the picker
+(`OOUI_CFG` in `oodos/Makefile`). That link is the
 tests' only: a real program can't reproduce it, since a `.COM`'s image is one block from `$0300` with its BSS after
-it, and one that ran to `$BFFC` would leave the program no room (U2 review, Y7). `UITPICK` has 38 bytes of
+it, and one that ran to `$BFFC` would leave the program no room (U2 review, Y7). `UITPICK` has 86 bytes of
 `$8000-$BFFC` left. So **U3 must take the shared banked block** (risks
 below): the core and the modules in a block of their own reached by FARCALL, the program keeping its 16 KB.
 
@@ -865,8 +871,8 @@ then the live box is left as it was.
 **The picker** (`ui_pick`, `ui_relist`): a modal window on the overlay with the drive (a choice: A:-G: and M:,
 `UP_DRIVES`), the user (0-15, `UP_USERS`), the list (16 rows, its scroll bar, a column routine's text after a
 TAB, `UF_MULTI` with `UP_MULTI`), the status ("Reading...", "*n* files", "No files", "Drive error", and "*n* of
-*t* files" when the work buffer holds fewer than the drive has: U2 review, Y6), the name (typed with `UP_NEW`, else
-showing the selection), OK, Cancel and the extra button. It reads the directory in an idle part of `ui_poll`, a walk
+*t* files" when fewer are listed than found, the work buffer too small: U2 review, Y6, Z5), the name (14 characters,
+"*d*:" and a whole 8.3 name: Z4; typed with `UP_NEW`, else showing the selection), OK, Cancel and the extra button. It reads the directory in an idle part of `ui_poll`, a walk
 from the directory's start each time that passes what is listed and lists a few more (four, and half as many as are
 listed, at most 64: Y1), by functions 17 and 18 with the drive in the FCB and extent 0 (each file once), with the
 program's user, DMA address and segment, and error mode kept and put back around each part (32, 52, 49; then 32, 26,
@@ -905,9 +911,16 @@ and key; the gate, the picker on A: (`oodos-8m`, 25 files: more than a screen), 
 unmounted D:, M: with 40, user 3, a 32 MB `oodos-32m` drive on a card of its own, types, marks, the extra button,
 a typed name, `ui_relist`; ten golden frames more: `u2-lists`, `u2-lists-turbo`, `u2-list-end`, `u2-field`,
 `u2-levels`, `u2-levels-turbo`, `u2-msg`, `u2-msg-turbo`, `u2-pick`, `u2-pick-turbo`. A house theme colour
-changed (`TC_LIST`) fails the four frames with a house list. The U2 review's fixes added 19 cases (57 now), `y1`
+changed (`TC_LIST`) fails the four frames with a house list. The U2 review's fixes added 19 cases (57 then), `y1`
 to `y6` and `x1` to `x13`, one a finding, each failing without its fix (`y4`'s and `y5`'s, which guard what was
-right, fail with the restore or the extent broken); no golden frame changed.
+right, fail with the restore or the extent broken); no golden frame changed. Round 2 added `z1`, `z2`, `z4` and `z5`
+(61 now) and `y4`'s segment (Y4b); `z1` bounds the instructions a poll runs in the walk's code over 200 files, about
+54,000 where the round-1 walk ran 1.27 million. `u2-pick` changed: the name field two columns wider (Z4).
+
+**The U2 review's round 2** (*proposed*, the owner's approval, 2026-11-11): Z1, Z4 and Z5 as above; a paint with
+damage but nothing drawn (a window hidden over nothing) places the sliders' thumbs too (Z2). Left for U3a: a test of
+a menu over a thumb, the pointer's image off the freed memory at `ui_close`, and the cost of placing the thumbs after
+each paint (Z3).
 
 **The U2 review's fixes** (*proposed*, the owner's approval of all 21, 2026-11-11), besides the picker's and the
 errors above: a first click is forgotten after the double-click's time (a 16-bit stamp), and a press on another
