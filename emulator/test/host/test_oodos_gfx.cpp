@@ -949,4 +949,21 @@ TEST(a_filled_rectangle_wholly_off_the_bitmap_draws_nothing_at_once)
     }
 }
 
+TEST(a_layer_s_palette_group)
+{
+    // GX_PALOFS (the OOUI U1 review, P1): A the layer, X the group, held to 4 bits; the other layer's untouched.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
+    CHECK_EQ(gx(r, 'l', 1, 5).substr(6), std::string("00"));
+    CHECK_EQ(vreg(r, 0x29), 5);
+    CHECK_EQ(vreg(r, 0x19), 0);
+    CHECK_EQ(gx(r, 'l', 0, 0x1C).substr(6), std::string("00")); // 4 bits: 12
+    CHECK_EQ(vreg(r, 0x19), 12);
+    CHECK_EQ(vreg(r, 0x29), 5);
+    CHECK_EQ(gx(r, 'l', 3, 7).substr(6), std::string("00")); // layer 3 is layer 1 (bit 0 only), as GX_LAYER takes it
+    CHECK_EQ(vreg(r, 0x29), 7);
+}
+
 int main() { return run_all(); }

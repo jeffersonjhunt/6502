@@ -43,6 +43,17 @@ GX_LAYER:
         sta     VID_L0 + VL_PALOFS,y
         rts
 
+; A the layer, X its palette group (PALOFS, 0-15: a pixel's colour is PALOFS
+; x 16 + its value; 0 stays transparent): shown from the next line, as the
+; card latches it. Carry clear (the OOUI U1 review, P1).
+GX_PALOFS:
+        jsr     LAYERY
+        txa
+        and     #$0F
+        sta     VID_L0 + VL_PALOFS,y
+        clc
+        rts
+
 ; A CTRL's layer and sprite bits: the display on with them.
 GX_SHOW:
         and     #$0E
