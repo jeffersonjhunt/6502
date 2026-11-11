@@ -7,7 +7,10 @@
 ; The W1 contract (interface version 8): OOLIB may write W1 with any block
 ; DM_INFO's W1 map allows, and SLOT1 with any of the program's card banks
 ; (16-111), and OODOS keeps both across a BDOS call, an interrupt and a
-; hook, and puts block 1 back in W1 and bank 1 in slot 1 at the warm boot.
+; hook, and puts block 1 back in W1 and the program's first card bank, 16
+; (VM_PROG_BANK), in slot 1 at the warm boot. The W1 map is block 1, the
+; allocated blocks, 33 and 36-47; OODOS's OSWIN refuses $80000-$83FFF and
+; $88000-$8FFFF as a physical destination.
 ; GX_INIT checks the version, so an older OODOS is never mapped under. The
 ; block in W1 (GXCUR) and the bank in slot 1 (GXBANK) are kept, so a draw
 ; maps only when it moves to another.

@@ -1371,24 +1371,27 @@ and more in L5:
   - **The aperture's slots.** Slot 0 is OODOS's and always shows card bank 0, so its window, block 32
     (`$80000–$83FFF`), is still the console's, and `crt.s` writes the screen and scrolls it by DMAGO there as
     before. Slot 1 is OOLIB's. Function 83's `DM_VCOPY` borrows slots 2 and 3 inside the call, a piece at a time
-    with interrupts masked, and puts them back. The warm boot puts slot *n* back on bank *n*, as /RESET leaves it.
+    with interrupts masked, and puts them back. The warm boot puts slots 0, 2 and 3 on banks 0, 2 and 3, as /RESET
+    leaves them, and slot 1 on bank 16 (`VM_PROG_BANK`), the program's first, so block 33 never shows OODOS's part
+    (review F2).
   - **The port and channel 1 are OODOS's**, as the DMA channels are: the frame handler's vertical-blank copies and
     pointer, and function 83's `DM_VWRITE`, `DM_VREAD` and `DM_VFILL`, each in pieces of 2 KB with interrupts
     masked around each piece (`PORTRUN`, `PORTGO`), so the frame handler never meets the port half set. The card asks
     for every byte at once, so a piece runs with the CPU held, a cycle a byte (60 KB to the card in about 17 ms).
-  - **Function 83, interface version 8.** `DM_INFO`'s A is the card's memory in 64 KB units (32; 0 with no
-    revision 2 card); its block gains +13–16, the program's first card page and the one past its last (`$0400`,
-    `$1C00`). Its W1 map is as before (block 1, the allocated blocks, 33–47), but 33–35 are now slots 1–3's windows
-    and 36–47 RAM. New operations: `DM_VWRITE` (7, system to card), `DM_VREAD` (8, card to system), `DM_VFILL` (9)
-    and `DM_VCOPY` (10, card to card), their blocks laid out as `DM_COPY`'s and `DM_FILL`'s with one side a card
-    address. A card destination must be in the program's part; a card source anywhere in the fitted memory (the
-    console's font for text on a bitmap). A physical destination of any operation, and a record read through a
-    DMA segment (51), may not touch slot 0's window (`UNITS0` now ends at `$84000`, not `$83400`). `DM_VBSET`'s
-    destination is a card address in the program's part, written through the port; `DM_POINTER` writes the
+  - **Function 83, interface version 8.** `DM_INFO`'s A is the card's memory in 64 KB units (32; 0 with no revision 2
+    card); its block gains +13–16, the program's first card page and the one past its last (`$0400`, `$1C00`). Its W1
+    map is block 1, the allocated blocks, 33 (slot 1's window) and 36–47 (RAM now); 32, 34 and 35, the windows of slots
+    0, 2 and 3, OODOS's, are left out (review F2). New operations: `DM_VWRITE` (7, system to card), `DM_VREAD` (8, card
+    to system), `DM_VFILL` (9) and `DM_VCOPY` (10, card to card), their blocks laid out as `DM_COPY`'s and `DM_FILL`'s
+    with one side a card address. A card destination must be in the program's part; a card source anywhere in the fitted
+    memory (the console's font for text on a bitmap). A physical destination of any operation, and a record read through
+    a DMA segment (51), may not touch the windows that show OODOS's card banks: slot 0's, `$80000–$83FFF`, and slots 2
+    and 3's, `$88000–$8FFFF` (`bdosmem.s`'s `OSWIN`, review F2; slot 1's, `$84000–$87FFF`, is the program's).
+    `DM_VBSET`'s destination is a card address in the program's part, written through the port; `DM_POINTER` writes the
     pointer's X and Y at SPRBASE × 256 through the port, only while SPRBASE is in the program's part.
   - **The W1 contract, version 8.** OOLIB may write `NB_WIN1` with any block `DM_INFO`'s W1 map allows, and
     `SLOT1` with any of the program's card banks (16–111); OODOS keeps both across a BDOS call, an interrupt and a
-    hook, and at the warm boot puts block 1 back in W1 and bank 1 in slot 1. What changed for programs:
+    hook, and at the warm boot puts block 1 back in W1 and bank 16 (`VM_PROG_BANK`) in slot 1. What changed for programs:
     - Video memory is no longer system RAM. A program reaches its card memory through slot 1's window (block 33)
       by `GX_VMAP` or the drawing calls, or by function 83's card operations; never by a physical address in
       banks 8–B.

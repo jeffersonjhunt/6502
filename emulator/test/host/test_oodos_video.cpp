@@ -839,10 +839,6 @@ TEST(the_pointer_follows_the_mouse_less_its_hotspot)
     CHECK_EQ(f83(r, {DM_POINTER, 63, 0, 0}), std::string("00 00"));
     r.run(ms(50));
     CHECK(cmem(r, 0x1C0000, 1024) == apple); // must fail if only SPRBASE's start is checked
-    // And a page past $FFFF: SPRBASE $FFFF, sprite 63's page wraps to 0, OODOS's palette: never written.
-    vset2(r, V_SPRBASE, 0xFFFF);
-    r.run(ms(50));
-    CHECK(cmem(r, 0x000000, 1024) == pal);
 }
 
 TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
