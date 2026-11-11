@@ -11,8 +11,8 @@ oscillators in each ear, so every bike pans on its own:
   PITCH       the oscillators' frequency for the engine's table: 512 plays it
               a sample a step, whose firing frequency is docsamples.F0; it's
               oversampled, so a bike is near 512 x OVERSAMPLE
-  VOL_L/R     each ear's volume, 0-255: the distance (Y0 / r) and an
-              equal-power pan, with the ignition cut at the upshift (the
+  VOL_L/R     each ear's volume, 0-255, written at half scale (0-127): the
+              distance (Y0 / r) and an equal-power pan, with the ignition cut at the upshift (the
               quickshifter's crack plays then) and a fade at the end
 
 Oscillators (24 enabled, 34,419 Hz). A voice peaks at 1/8 of the card's

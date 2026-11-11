@@ -4,7 +4,7 @@
 # demo's graphics are made by demo/make_assets.py, and committed. The boot
 # splash's sound, its two players in the top block (splash/bootsnd.bin for
 # the SIDs, splash/docsnd.bin for the ES5503) and the ES5503's samples in
-# blocks 21-28 (splash/wave.bin, committed), are assembled here from
+# blocks 24-28 (splash/wave.bin, committed), are assembled here from
 # splash/bootsnd.s and splash/docsnd.s; `make splash` remakes their tables,
 # the samples, the video card's splash ROM and the preview (splash/README.md).
 #

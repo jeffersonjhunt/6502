@@ -115,7 +115,8 @@ RESET restarts the 6510 from its vector. It also resets the 6510's port, the imi
 Setting RUN without RESET lets the 6510 go on from wherever it stopped, so start a new program with RESET.
 
 **Stopping it.** Clear RUN from the host. The 6510 can also stop itself by writing to `$DE02`, which clears RUN, so
-a one-shot program hands the SIDs back when it is done. A /RESET stops it too. The card's RAM keeps its contents
+a one-shot program hands the SIDs back when it is done. On revision 2, a write with bit 0 set clears DOCCTL RUN too,
+as the host's write does, so the program hands back the ES5503 as well; with bit 0 clear the ES5503 is left as it is. A /RESET stops it too. The card's RAM keeps its contents
 through all three.
 
 ### Its memory map
@@ -134,7 +135,7 @@ The map follows the C64's, so a C64 player runs as it is.
 | `$DC00–$DCFF` | CIA 1, imitated, every 16 bytes: timer A at `$DC04–$DC05`, its interrupt control at `$DC0D`, its control at `$DC0E` |
 | `$DE00` | the mailbox: a read takes the host's byte, a write sends one to the host |
 | `$DE01` | the mailbox's status: bit 0, a byte from the host is waiting; bit 1, the card's last byte hasn't been taken |
-| `$DE02` | STOP: any write clears CTRL's RUN |
+| `$DE02` | STOP: any write clears CTRL's RUN. On revision 2, bit 0 set clears DOCCTL RUN too (the ES5503 frozen, as the host's write does); bit 0 clear leaves it |
 | `$DE03` | FRAME: bit 0 is set at each frame's start, and writing 1 clears it; bit 7 reads 1 while it interrupts |
 | `$DE04` | FRAMEEN: bit 0 lets FRAME interrupt; bit 1 shows the raster line at `$D011`/`$D012` |
 
@@ -178,7 +179,7 @@ later, a player for the ES5503, after the player's samples, 80 KB from flash, in
 card's reset vector at the program's entry, `$1006`. Then it starts the splash, waits for the vertical blank the
 splash begins on, and writes CTRL:
 
-<!-- listing: ../../backplane/bios/splash.s:126-147 -->
+<!-- listing: ../../backplane/bios/splash.s:139-160 -->
 ```
 @vector:        LDA     #$FC           ; the card's reset vector: the player's boot entry
                 STA     SOUND_RAMADDR
@@ -205,7 +206,7 @@ splash begins on, and writes CTRL:
 ```
 
 The program plays from the CIA's timer at 240 Hz, four times a video frame, for 300 frames: 5 s. The sound is over
-by about 3 s, but the program runs to the end. Then it silences what it played, the SIDs' registers zeroed or the
+by about 3 s on the ES5503 (about 2.4 s on the SIDs), but the program runs to the end. Then it silences what it played, the SIDs' registers zeroed or the
 ES5503's oscillators halted, and writes `$DE02`; on revision 2 it writes 1 there, which clears DOCCTL RUN too. It
 sends nothing through the mailbox. So under the monitor CTRL reads `$03` for the first 5 s and `$01` after, and
 RAMADDR reads `$FFFE`. A program that takes the card in the first 5 s stops the 6510 and silences the SIDs first,
