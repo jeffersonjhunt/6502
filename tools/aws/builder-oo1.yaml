@@ -7,15 +7,17 @@ Description: >-
 Parameters:
   InstanceType:
     Type: String
-    Default: c7g.4xlarge
-    Description: The full tier's instance (arm64, as the image is built here on arm64).
+    Default: c8a.4xlarge
+    Description: >-
+      The full tier's instance. c8a (AMD Turin, 16 real cores): the run's length is its longest
+      sanitizer suite's, so the fastest core. Either architecture: the instance builds its own image.
   DiskGb:
     Type: Number
     Default: 120
   ImageId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
-    Description: The instance's OS; the work runs in the builder/oo1 image on it.
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: The instance's OS, for InstanceType's architecture (deploy-oo1.sh picks it); the work runs in the builder/oo1 image on it.
 
 Resources:
   Repository:
@@ -70,9 +72,10 @@ Resources:
                 Effect: Allow
                 Action: [ecr:GetAuthorizationToken]
                 Resource: "*"
-              - Sid: PullTheImageFromItsRepository
+              - Sid: PullOrPushTheImageInItsRepository # an instance builds the image when its tag is missing
                 Effect: Allow
-                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability,
+                         ecr:InitiateLayerUpload, ecr:UploadLayerPart, ecr:CompleteLayerUpload, ecr:PutImage]
                 Resource: !GetAtt Repository.Arn
       Tags: [{ Key: builder, Value: "true" }]
 
@@ -92,9 +95,12 @@ Resources:
       Tags: [{ Key: builder, Value: "true" }]
 
   # The network interface (a builder subnet, this group, a public address) is cloud-full.sh's, at
-  # launch, so it can try the next zone when one has no spot capacity. A run's parameters come in its instance's tags (read through the metadata service): run, src (the
-  # source archive's key), image (its tag in builder/oo1), tier, minutes (the watchdog). The script
-  # below is the same for every run.
+  # launch, so it can try the next zone when one has no spot capacity. A run's parameters come in its
+  # instance's tags (read through the metadata service): run, src (the source archive's key), image (the
+  # hash of tools/ci/Dockerfile: the image is builder/oo1:HASH-ARCH), rebuild (1: build the image even if
+  # it is there, for package updates), tier, minutes (the watchdog). The script below is the same for
+  # every run. check.out goes to S3 every 5 minutes, and at once on a spot interruption's notice, so a
+  # run that ends early leaves what it got to.
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -125,19 +131,23 @@ Resources:
               tag() { curl -sf -H "X-aws-ec2-metadata-token: $T" "http://169.254.169.254/latest/meta-data/tags/instance/$1"; }
               T=$(curl -sf -X PUT -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" http://169.254.169.254/latest/api/token)
               shutdown -h "+$(tag minutes || echo 180)" "builder: the watchdog"
-              run=$(tag run); src=$(tag src); image=$(tag image); tier=$(tag tier || echo full)
+              run=$(tag run); src=$(tag src); tier=$(tag tier || echo full); rebuild=$(tag rebuild || echo 0)
+              arch=$(uname -m); image="$(tag image)-${!arch/x86_64/amd64}"; image=${!image/aarch64/arm64}
               out="s3://${Bucket}/oo1/runs/$run"
               log=/work/run.log
               mkdir -p /work/logs /work/6502
               exec >"$log" 2>&1
               say() { echo "$(date -u +%FT%TZ) $*"; aws s3 cp "$log" "$out/run.log" --only-show-errors || true; }
-              finish() {
-                  say "end: $1"
-                  printf '%s\n' "$1" | aws s3 cp - "$out/exit" --only-show-errors
+              logs() { # the logs to S3, each tagged kind=run (the bucket ends those after 30 days)
                   aws s3 cp /work/logs "$out/logs" --recursive --only-show-errors || true
                   for k in $(aws s3api list-objects-v2 --bucket "${Bucket}" --prefix "oo1/runs/$run/" --query 'Contents[].Key' --output text); do
                       aws s3api put-object-tagging --bucket "${Bucket}" --key "$k" --tagging 'TagSet=[{Key=kind,Value=run}]' || true
                   done
+              }
+              finish() {
+                  say "end: $1"
+                  printf '%s\n' "$1" | aws s3 cp - "$out/exit" --only-show-errors
+                  logs
                   shutdown -h now "builder: done"
                   exit 0
               }
@@ -149,7 +159,23 @@ Resources:
               aws s3 cp "s3://${Bucket}/oo1/fixtures/$id.tar.zst" - | zstd -dq | tar -C "$fx" -xf - || finish "error: the fixtures"
               say "fixtures $id"
               aws ecr get-login-password | docker login -u AWS --password-stdin "${Registry}" >/dev/null || finish "error: ecr login"
-              docker pull -q "${Repo}:$image" >/dev/null || finish "error: the image"
+              if [ "$rebuild" = 1 ] || ! docker pull -q "${Repo}:$image" >/dev/null 2>&1; then
+                  say "building ${Repo}:$image (rebuild $rebuild)"
+                  docker build -q --pull -t "${Repo}:$image" /work/6502/tools/ci >/work/logs/image.log 2>&1 &&
+                      docker push -q "${Repo}:$image" >>/work/logs/image.log 2>&1 || finish "error: building the image"
+              fi
+              say "image ${Repo}:$image $(docker image inspect -f '{{index .RepoDigests 0}}' "${Repo}:$image" | sed 's/.*@//')"
+              # check.out to S3 every 5 minutes, and at once when spot gives its 2 minutes' notice.
+              (n=0; while sleep 30; do
+                  n=$((n + 1))
+                  if curl -sf -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/spot/instance-action >/dev/null; then
+                      say "spot: interrupted, AWS is taking the instance back"
+                      aws s3 cp /work/logs/check.out "$out/check.out" --only-show-errors
+                      logs
+                      exit 0
+                  fi
+                  [ $((n % 10)) = 0 ] && aws s3 cp /work/logs/check.out "$out/check.out" --only-show-errors
+              done) &
               say "running tools/check.sh $tier"
               # The checkout at the same path inside as out, so the bind mounts web_build.sh and make_card.sh
               # make through the host's Docker resolve to it.

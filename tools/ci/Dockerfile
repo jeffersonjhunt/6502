@@ -6,7 +6,7 @@
 # come from package-lock.json at each run (npm ci), so a change to them needs no new image; Playwright's
 # browsers are this image's, so its version is pinned here to package.json's.
 #
-#   docker build -t builder/oo1 tools/ci      (tools/cloud-full.sh --image does this and pushes it)
+#   docker build -t builder/oo1 tools/ci      (a builder instance does this when ECR lacks the image)
 FROM debian:trixie
 
 ARG PLAYWRIGHT=1.64.1
