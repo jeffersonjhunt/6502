@@ -1,7 +1,7 @@
 ; OOLIB's tile maps (include/oolib.inc, "Graphics"; hw/oolib.md, L4): a
 ; map's 2-byte entries (VERA's: the tile's number, its flips and palette
-; offset) put and got through W1, filled by function 83's DM_COPY, and a
-; layer scrolled (gxmode.s's GX_SCROLL).
+; offset) put and got through W1 (aperture slot 1), filled by function 83's
+; DM_VCOPY on the card, and a layer scrolled (gxmode.s's GX_SCROLL).
 
         .setcpu "65C02"
         .include "oodos.inc"
@@ -9,25 +9,31 @@
         .include "gx.inc"
 
         .bss
-tmu:    .res    1                      ; the map's unit and its width
+tmu:    .res    2                      ; the map's card page and its width
 tmw:    .res    1
 toff:   .res    2
 tcnt:   .res    2
 
         .code
 
+; A/X the map's card page, Y its width in entries (32, 64).
 GX_TMAP:
         sta     tmu
-        stx     tmw
+        stx     tmu + 1
+        sty     tmw
         rts
 
-; GX_A = the entry at column X, row Y: the unit's address + (row x width +
+; GX_A = the map's card address.
+TBASE:  lda     tmu
+        ldx     tmu + 1
+        jmp     GX_VADDR
+
+; GX_A = the entry at column X, row Y: the map's address + (row x width +
 ; column) x 2. Carry set if W1 can't have it.
 TADDR:  stx     GXT
         sty     toff
         stz     toff + 1
-        lda     tmu
-        jsr     GX_UNIT
+        jsr     TBASE
         ldx     #5                      ; row x 32, or x 64
         lda     tmw
         cmp     #64
@@ -106,8 +112,7 @@ GX_TFILL:
         lda     tcnt + 1
         sbc     #0
         sta     GXB + 8
-        lda     tmu
-        jsr     GX_UNIT
+        jsr     TBASE
         ldx     #2
 @src:   lda     GX_A,x
         sta     GXB + 1,x
@@ -123,7 +128,7 @@ GX_TFILL:
         lda     GX_A + 2
         adc     #0
         sta     GXB + 6
-        lda     #DM_COPY
+        lda     #DM_VCOPY
         sta     GXB
         jmp     GXDMA
 @no:    rts

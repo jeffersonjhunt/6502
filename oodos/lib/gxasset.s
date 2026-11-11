@@ -1,11 +1,13 @@
 ; OOLIB's asset files (include/oolib.inc, "Graphics"; hw/oolib.md, L4,
-; question 8: format 3, oodos/tools/mkasset.py makes them): the header read
-; with function 33 (record 0), then each part loaded by function 83's
-; DM_LOAD into its units, straight from the card. A part that names no unit
-; ($FF) gets units allocated (GX_ALLOC) and its header part says which.
-; A sprite table's entries name their images by the sprite images' part:
-; once both are loaded, each entry's image number is moved on by that
-; part's unit's address / 64 (a unit is 16 images' worth).
+; question 8, and "Video card revision 2": format 4, oodos/tools/mkasset.py
+; makes them): the header read with function 33 (record 0), then each part
+; loaded into the program's card memory where it names (a card page) or
+; where GX_VALLOC finds room ($FFFF, and its header part then says which):
+; 4 KB at a time by function 83's DM_LOAD into a staging buffer in system
+; memory (GX_STAGE, physical: $BF000 unless the program says), then
+; DM_VWRITE through the card's port. A sprite table's entries name their
+; images by the sprite images' part: once both are loaded, each entry's
+; image (card pages, bits 0-14) is moved on by that part's first page.
 
         .setcpu "65C02"
         .macpack longbranch
@@ -18,8 +20,11 @@ GX_HDR: .res    128                    ; record 0: the header and the parts
 fcbp:   .res    2
 part:   .res    1                      ; the part, 0-6
 lblk:   .res    11                     ; DM_LOAD's block
-imgu:   .res    1                      ; the sprite images' unit ($FF none)
-tabu:   .res    1                      ; and the table's
+imgu:   .res    2                      ; the sprite images' first page ($FFFF none)
+tabu:   .res    2                      ; and the table's
+
+        .data
+GX_STAGE: .faraddr STAGE_DEF           ; the staging buffer's physical address (4 KB): the program's to move
 
         .code
 
@@ -76,8 +81,10 @@ GX_ASSET:
         bcs     @format
         lda     #$FF
         sta     imgu
+        sta     imgu + 1
         sta     tabu
-        ldx     #AP_MAX - 1             ; no part's units taken yet
+        sta     tabu + 1
+        ldx     #2 * AP_MAX - 1         ; no part's pages taken yet
 @none:  stz     pcount,x
         dex
         bpl     @none
@@ -119,19 +126,28 @@ PARTP:  lda     part
         sta     GXP + 1
         rts
 
-; The units every part took (pcount), freed.
+; The pages every part took (pcount), freed.
 FREEALL:
         stz     part
-@p:     ldx     part
-        lda     pcount,x
-        beq     @n
+@p:     lda     part
+        asl     a
         tax
-        phx
+        lda     pcount,x
+        ora     pcount + 1,x
+        beq     @n
+        lda     pcount,x
+        sta     GX_V
+        lda     pcount + 1,x
+        sta     GX_V + 1
         jsr     PARTP
         ldy     #AP_UNIT
         lda     (GXP),y
-        plx
-        jsr     GX_FREE
+        pha
+        iny
+        lda     (GXP),y
+        tax
+        pla
+        jsr     GX_VFREE
 @n:     inc     part
         lda     part
         cmp     #AP_MAX
@@ -141,10 +157,11 @@ FREEALL:
 ; The part at GXP checked against what the library needs (review F5: the
 ; file is untrusted, whatever mkasset.py's check said): a type of 1-8,
 ; its first record a multiple of 8 and not 0, 1 to 131,072 bytes, its
-; records the bytes' (rounded up); then its units, its bytes' rounded up
-; to 1 KB: allocated if it says $FF, else taken where it says (13-255, the
-; run inside 256, none of it taken already); then DM_LOAD of its records
-; there. Carry set and A the error.
+; records the bytes' (rounded up); then its card pages, its bytes' rounded
+; up to 256: allocated if it says $FFFF, else taken where it says (a page
+; on a unit, the run in the program's part, none of it taken already);
+; then its records, 4 KB at a time, by DM_LOAD to GX_STAGE and DM_VWRITE
+; on to the card. Carry set and A the error.
 LOADP:  ldy     #AP_TYPE
         lda     (GXP),y
         beq     @bad
@@ -205,60 +222,72 @@ LOADP:  ldy     #AP_TYPE
 @bad:   lda     #GE_FORMAT
         sec
         rts
-@good:  ldy     #AP_BYTES + 1           ; units = (bytes + 1,023) / 1,024
-        lda     (GXP),y
-        sta     GXT
-        iny
+@good:  ldy     #AP_BYTES + 2           ; GX_V = the pages: (bytes + 255) / 256 (1-512)
         lda     (GXP),y
         sta     GXT + 1
-        ldy     #AP_BYTES               ; any bytes past whole units?
-        lda     GXT
-        and     #$03
-        ora     (GXP),y
-        sta     GXQ
-        lda     GXT                     ; bytes >> 10, + 1 for a part unit
-        lsr     GXT + 1
-        ror     a
-        lsr     GXT + 1
-        ror     a
-        ldx     GXQ
-        beq     @whole
-        inc     a
-@whole: sta     units                   ; (1-128: the bytes are 1 to 131,072)
-        ldy     #AP_UNIT
+        dey
         lda     (GXP),y
+        sta     GXT
+        dey
+        lda     (GXP),y
+        beq     @whole
+        inc     GXT                     ; (a part page: never past $200, the bytes 1 to $20000)
+        bne     @whole
+        inc     GXT + 1
+@whole: lda     GXT
+        sta     GX_V
+        lda     GXT + 1
+        sta     GX_V + 1
+        ldy     #AP_UNIT + 1
+        lda     (GXP),y
+        tax
+        dey
+        lda     (GXP),y
+        cpx     #$FF
+        bne     @named
         cmp     #$FF
         bne     @named
-        lda     units
-        jsr     GX_ALLOC
+        lda     #VM_UNIT / VM_PAGE      ; anywhere: allocated
+        jsr     GX_VALLOC
         bcc     @got
         rts
-@named: ldx     units                   ; where the file says: free, and the program's
-        jsr     GXTAKE
+@named: jsr     GXTAKE                  ; where the file says: free, and the program's
         bcc     @took
         rts
 @got:   ldy     #AP_UNIT
         sta     (GXP),y
-@took:  ldx     part                    ; its units, to free should a later part fail
-        lda     units
+        iny
+        txa
+        sta     (GXP),y
+@took:  lda     part                    ; its pages, to free should a later part fail
+        asl     a
+        tax
+        lda     GX_V
         sta     pcount,x
-@unit:  ldy     #AP_TYPE                ; the sprite parts' units, for SPRFIX
+        lda     GX_V + 1
+        sta     pcount + 1,x
+        ldy     #AP_TYPE                ; the sprite parts' pages, for SPRFIX
         lda     (GXP),y
+        ldx     #imgu - imgu
         cmp     #AT_SPRITES
-        bne     @tab
-        ldy     #AP_UNIT
-        lda     (GXP),y
-        sta     imgu
-@tab:   ldy     #AP_TYPE
-        lda     (GXP),y
+        beq     @keep
+        ldx     #tabu - imgu
         cmp     #AT_SPRTABLE
         bne     @load
-        ldy     #AP_UNIT
+@keep:  ldy     #AP_UNIT
         lda     (GXP),y
-        sta     tabu
-@load:  ldy     #AP_UNIT
+        sta     imgu,x
+        iny
         lda     (GXP),y
-        jsr     GX_UNIT
+        sta     imgu + 1,x
+@load:  ldy     #AP_UNIT                ; GX_A: the card address it goes to
+        lda     (GXP),y
+        pha
+        iny
+        lda     (GXP),y
+        tax
+        pla
+        jsr     GX_VADDR
         lda     #DM_LOAD
         sta     lblk
         lda     fcbp
@@ -272,57 +301,82 @@ LOADP:  ldy     #AP_TYPE
         lda     (GXP),y
         sta     lblk + 4
         stz     lblk + 5
-        ldy     #AP_RECORDS
+        ldy     #AP_RECORDS             ; rest: the records left
         lda     (GXP),y
-        sta     lblk + 6
+        sta     rest
         iny
         lda     (GXP),y
-        sta     lblk + 7
-        ldx     #2
-@a:     lda     GX_A,x
+        sta     rest + 1
+@chunk: lda     rest                    ; this piece: STAGE_RECS records, or what is left
+        ora     rest + 1
+        beq     @done
+        lda     rest + 1
+        bne     @full
+        lda     rest
+        cmp     #STAGE_RECS
+        bcc     @some
+@full:  lda     #STAGE_RECS
+@some:  sta     lblk + 6
+        stz     lblk + 7
+        ldx     #2                      ; to the staging buffer
+@st:    lda     GX_STAGE,x
         sta     lblk + 8,x
         dex
-        bpl     @a
-        lda     lblk + 6                ; 512 records a call at most
-        ora     lblk + 7
-        beq     @done
-@call:  lda     lblk + 7
-        cmp     #2
-        bcc     @last
-        bne     @big
-        lda     lblk + 6
-        beq     @last                   ; exactly 512
-@big:   lda     #<512                   ; 512 now, the rest after
-        sta     GXT
-        lda     #>512
-        sta     GXT + 1
-        lda     lblk + 6
-        sec
-        sbc     #<512
-        sta     rest
-        lda     lblk + 7
-        sbc     #>512
-        sta     rest + 1
-        stz     lblk + 6
-        lda     #>512
-        sta     lblk + 7
+        bpl     @st
         jsr     ONE
         bcs     @no
-        lda     rest                    ; on: 512 records (64 KB) further
-        sta     lblk + 6
-        lda     rest + 1
-        sta     lblk + 7
-        clc
-        lda     lblk + 4
-        adc     #>512
-        sta     lblk + 4
-        inc     lblk + 10               ; 64 KB on: the bank
-        lda     lblk + 3                ; the record: + 512
-        bra     @call
-@last:  jsr     ONE
+        lda     lblk + 6                ; GX_V = its bytes: records x 128 (at most 4,096)
+        lsr     a
+        sta     GX_V + 1
+        lda     #0
+        ror     a
+        sta     GX_V
+        jsr     STAGEOUT                ; the staging buffer to GX_A on the card
         bcs     @no
+        clc                             ; on: GX_A by the bytes, the record, what is left
+        lda     GX_A
+        adc     GX_V
+        sta     GX_A
+        lda     GX_A + 1
+        adc     GX_V + 1
+        sta     GX_A + 1
+        bcc     @rec
+        inc     GX_A + 2
+@rec:   clc
+        lda     lblk + 3
+        adc     lblk + 6
+        sta     lblk + 3
+        bcc     @left
+        inc     lblk + 4
+@left:  sec
+        lda     rest
+        sbc     lblk + 6
+        sta     rest
+        bcs     @chunk
+        dec     rest + 1
+        bra     @chunk
 @done:  clc
 @no:    rts
+STAGE_RECS      = 32                   ; 4 KB a piece: a CP/M block of oodos-8m, one READ
+STAGE_DEF       = $BF000               ; bank B's last 4 KB: the program's RAM on revision 2
+.assert STAGE_RECS * 128 = 4096, error, "the staging buffer is 4 KB"
+
+; GX_V bytes from the staging buffer to GX_A on the card (DM_VWRITE).
+STAGEOUT:
+        lda     #DM_VWRITE
+        sta     GXB
+        ldx     #2
+@a:     lda     GX_STAGE,x
+        sta     GXB + 1,x
+        lda     GX_A,x
+        sta     GXB + 4,x
+        dex
+        bpl     @a
+        lda     GX_V
+        sta     GXB + 7
+        lda     GX_V + 1
+        sta     GXB + 8
+        jmp     GXDMA
 
 ; DM_LOAD with lblk: carry set unless A = 0.
 ONE:    lda     #<lblk
@@ -337,26 +391,22 @@ ONE:    lda     #<lblk
 @ok:    clc
         rts
 
-; The sprite table's 64 entries' images moved on by the images' unit x 16
-; (a unit is 1,024 bytes, an image number 64): the table copied into the
-; library's memory by DM_COPY, changed there and copied back (its unit may
-; be 13-15, in block 32, which W1 never has).
+; The sprite table's 64 entries' images moved on by the images' first
+; page (bits 0-14, card pages; bit 15, a byte a pixel, kept): the table
+; read from the card into the library's memory (DM_VREAD), changed there
+; and written back (DM_VWRITE).
 SPRFIX: lda     imgu
+        and     imgu + 1
         cmp     #$FF
         beq     @done
         lda     tabu
+        and     tabu + 1
         cmp     #$FF
         beq     @done
-        jsr     TABIN                   ; the card's table to tbuf
+        lda     #DM_VREAD               ; the card's table to tbuf
+        jsr     TABSIDES
+        jsr     GXDMA
         bcs     @no
-        lda     imgu                    ; the step: unit x 16, 12 bits
-        stz     GXT + 1
-        ldx     #4
-@x16:   asl     a
-        rol     GXT + 1
-        dex
-        bne     @x16
-        sta     GXT
         lda     #<tbuf
         sta     GXP
         lda     #>tbuf
@@ -365,7 +415,7 @@ SPRFIX: lda     imgu
         ldy     #0
 @entry: clc
         lda     (GXP),y
-        adc     GXT
+        adc     imgu
         sta     (GXP),y
         iny
         lda     (GXP),y
@@ -373,8 +423,8 @@ SPRFIX: lda     imgu
         and     #$80                    ; its 8-bit flag kept
         sta     GXQ
         pla
-        adc     GXT + 1
-        and     #$0F
+        adc     imgu + 1
+        and     #$7F
         ora     GXQ
         sta     (GXP),y
         tya
@@ -385,50 +435,52 @@ SPRFIX: lda     imgu
         inc     GXP + 1
 @n:     dex
         bne     @entry
-        jmp     TABOUT
+        lda     #DM_VWRITE              ; and back
+        jsr     TABSIDES
+        jmp     GXDMA
 @done:  clc
 @no:    rts
 
-; DM_COPY of the 512-byte table between unit tabu and tbuf: TABIN in,
-; TABOUT back.
-TABIN:  jsr     TABSIDES
-        jmp     GXDMA
-TABOUT: jsr     TABSIDES
-        ldx     #2                      ; the other way: the two sides swapped
-@swap:  lda     GXB + 1,x
-        pha
-        lda     GXB + 4,x
-        sta     GXB + 1,x
-        pla
-        sta     GXB + 4,x
-        dex
-        bpl     @swap
-        jmp     GXDMA
+; GXB: operation A (DM_VREAD or DM_VWRITE) of the 512-byte table between
+; the card (page tabu) and tbuf.
 TABSIDES:
+        sta     GXB
         lda     #<tbuf
         ldx     #>tbuf
-        jsr     GXCPU
-        ldx     #2
-@d:     lda     GX_A,x
-        sta     GXB + 4,x
-        dex
-        bpl     @d
-        lda     tabu
-        jsr     GX_UNIT
-        ldx     #2
+        jsr     GXCPU                   ; GX_A: tbuf's physical address
+        lda     GXB                     ; the program's side: +4-6 for a read, +1-3 for a write
+        ldy     #4
+        cmp     #DM_VREAD
+        beq     @sys
+        ldy     #1
+@sys:   ldx     #0
 @s:     lda     GX_A,x
-        sta     GXB + 1,x
-        dex
-        bpl     @s
+        sta     GXB,y
+        iny
+        inx
+        cpx     #3
+        bne     @s
+        lda     tabu                    ; the card's: the other three
+        ldx     tabu + 1
+        jsr     GX_VADDR
+        lda     GXB
+        ldy     #1
+        cmp     #DM_VREAD
+        beq     @card
+        ldy     #4
+@card:  ldx     #0
+@c:     lda     GX_A,x
+        sta     GXB,y
+        iny
+        inx
+        cpx     #3
+        bne     @c
         stz     GXB + 7
         lda     #>512
         sta     GXB + 8
-        lda     #DM_COPY
-        sta     GXB
         rts
 
         .bss
-rest:   .res    2
-units:  .res    1                      ; LOADP's part's units
-pcount: .res    AP_MAX                 ; each part's units taken (0 none): freed on a failure
+rest:   .res    2                      ; LOADP's records left
+pcount: .res    2 * AP_MAX             ; each part's pages taken (0 none): freed on a failure
 tbuf:   .res    512                    ; SPRFIX's copy of the table

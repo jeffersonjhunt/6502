@@ -29,8 +29,9 @@
 ;     $87FFF) in W1. While it is there the program's own $4000-$7FFF is out
 ;     of reach, as before: its code, its event area, the FCBs and blocks it
 ;     passes and what it draws from stay in $0300-$3FFF or $8000-$BFFC.
-;     Slot 0 is OODOS's: it shows bank 0, the console, always. Slots 2 and
-;     3 are function 83's to borrow inside a call; a program leaves them be.
+;     Slot 0 is OODOS's: it shows bank 0, the console, always, and no
+;     program writes SLOT0. Function 83's DM_VCOPY borrows slots 2 and 3
+;     inside the call and puts them back; OOLIB doesn't use them.
 ;   - Bulk copies, fills and the vertical-blank copies through the card's
 ;     data port by DMA channel 1, OODOS's: function 83 (oodos.inc's DM_*).
 ;     A program never writes the port's registers itself.
@@ -64,10 +65,11 @@
 ;               nothing): filled through the port (DM_VFILL)
 ;
 ; And for pointing the card at what was allocated (lib/gxmode.s, gxspr.s;
-; oolib.inc says the rest): GX_LAYER takes the map's and the tiles' card
-; pages, GX_PALBASE and GX_SPRBASE a card page in A/X, GX_FLIP a card page
-; in GX_V, and GX_SPRIMG an image address in card pages (bits 0-14) with
-; bit 15 for 8 bits a pixel, which is the sprite table's own encoding.
+; oolib.inc says the rest): GX_LAYER takes the map's card page in GX_V and
+; the tiles' in GX_R, GX_PALBASE and GX_SPRBASE a card page in A/X, GX_FLIP
+; a card page in GX_V, and GX_SPRIMG an image address in card pages (bits
+; 0-14) with bit 15 for 8 bits a pixel, which is the sprite table's own
+; encoding.
 
 .ifndef VMEM_INC
 VMEM_INC = 1
