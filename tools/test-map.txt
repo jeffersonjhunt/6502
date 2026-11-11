@@ -41,32 +41,36 @@ emulator/components/debug/                      debug
 emulator/tools/trace_diff.py                    debug
 
 # --- the devices: one label each -----------------------------------------------------------------------
-emulator/components/devices/*acia6551*          acia
-emulator/components/devices/*apple_io*          iie
-emulator/components/devices/*backplane_bridge*  bridge
-emulator/components/devices/*console_card*      console
-emulator/components/devices/*disk2_card*        disk2
+# A part inside another chooses both (the RTC and Apple II mode's I/O are the bridge's, the DOC and the
+# SIDs the sound card's), and every card of machines/backplane.machine chooses `backplane` too: the suites
+# that build that machine run every card on it (its reset, its registers probed by the BIOS), so a change to
+# any card can break them. Coverage says so (tools/test_coverage.py).
+emulator/components/devices/*acia6551*          acia backplane
+emulator/components/devices/*apple_io*          iie bridge backplane
+emulator/components/devices/*backplane_bridge*  bridge backplane
+emulator/components/devices/*console_card*      console backplane
+emulator/components/devices/*disk2_card*        disk2 backplane
 emulator/components/devices/*disk_image*        disk2
-emulator/components/devices/*dma_controller*    dma
-emulator/components/devices/*ds3231*            rtc
-emulator/components/devices/*es5503*            es5503
+emulator/components/devices/*dma_controller*    dma backplane
+emulator/components/devices/*ds3231*            rtc bridge backplane
+emulator/components/devices/*es5503*            es5503 sound backplane
 emulator/components/devices/*fat_volume*        sd
-emulator/components/devices/*sd_card*           sd
+emulator/components/devices/*sd_card*           sd backplane
 emulator/components/devices/*sd_media*          sd
 emulator/components/devices/*hd44780*           lcd
 emulator/components/devices/*ps2_keyboard*      lcd
-emulator/components/devices/*joystick_ports*    joy
-emulator/components/devices/*minimp3*           sound
+emulator/components/devices/*joystick_ports*    joy backplane
+emulator/components/devices/*minimp3*           sound backplane
 emulator/components/devices/*pia6821*           pia
 emulator/components/devices/*sid_file*          sid
-emulator/components/devices/*sid.*              sid
-emulator/components/devices/*sound_card*        sound
-emulator/components/devices/*sound_dsp*         sound
-emulator/components/devices/*usb_card*          usb
-emulator/components/devices/*via6522*           via
-emulator/components/devices/*video_card*        video
-emulator/components/devices/splash_rom.h        video bios
-emulator/third_party/minimp3/                   sound
+emulator/components/devices/*sid.*              sid sound backplane
+emulator/components/devices/*sound_card*        sound backplane
+emulator/components/devices/*sound_dsp*         sound backplane
+emulator/components/devices/*usb_card*          usb backplane
+emulator/components/devices/*via6522*           via backplane
+emulator/components/devices/*video_card*        video backplane
+emulator/components/devices/splash_rom.h        video bios backplane
+emulator/third_party/minimp3/                   sound backplane
 emulator/licenses/                              none
 
 # --- the apps ----------------------------------------------------------------------------------------
