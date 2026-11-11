@@ -215,7 +215,7 @@ CGA:            RGB     $0, $0, $0     ; black
 
 hw/design.md, "Video registers" ([`hw/design.md:593–594`](../../hw/design.md#video-registers)), has the card copy
 the 512 bytes into its own RAM when PALBASE changes. The emulator reads them from video memory for every line
-instead (`emulator/components/devices/video_card.cpp:323–327`), which is what lets a DMA fade show with no PALBASE
+instead (`emulator/components/devices/video_card.cpp:512–516`), which is what lets a DMA fade show with no PALBASE
 write.
 
 ## Video memory
@@ -316,20 +316,20 @@ VSCREEN:
                 JSR     PROBE
                 BPL     @done
                 STZ     VIDEO_IEN
-                STZ     VIDEO_PALBASE
-                STZ     VIDEO_SPRBASE
+                STZ     VIDEO_PALBASE_R1
+                STZ     VIDEO_SPRBASE_R1
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG
                 LDA     #TEXT_UNIT
-                STA     VIDEO_L0_MAP
+                STA     VIDEO_L0_MAP_R1
                 LDA     #FONT_UNIT
-                STA     VIDEO_L0_TILE
-                STZ     VIDEO_L0_HSCROLL
-                STZ     VIDEO_L0_HSCROLL + 1
-                STZ     VIDEO_L0_VSCROLL
-                STZ     VIDEO_L0_VSCROLL + 1
-                STZ     VIDEO_L0_PALOFS
+                STA     VIDEO_L0_TILE_R1
+                STZ     VIDEO_L0_HSCROLL_R1
+                STZ     VIDEO_L0_HSCROLL_R1 + 1
+                STZ     VIDEO_L0_VSCROLL_R1
+                STZ     VIDEO_L0_VSCROLL_R1 + 1
+                STZ     VIDEO_L0_PALOFS_R1
                 STZ     VIDEO_L1_CONFIG
                 LDA     #VIDEO_ON_L0
                 STA     VIDEO_CTRL
@@ -396,8 +396,18 @@ back to ISR as 1s, which clears them; until it does, /IRQ stays low
   never interrupts there.
 
 hw/design.md's register table ([`hw/design.md:573`](../../hw/design.md#video-registers)) says any pending ISR bit
-pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:189`), as the
+pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:246`), as the
 same section's later list says ([`hw/design.md:619`](../../hw/design.md#video-registers)).
+
+## Revision 2: card memory
+
+Status: **proposed**
+
+Revision 2 ([hw/video-rev2.md](../../hw/video-rev2.md)) draws from 2 MB of its own memory instead of banks 8–B,
+reached through a 64 KB aperture at physical `$80000` (`VIDEO_APERTURE`, four 16 KB slots) and a data port on DMA
+channel 1. Its ID reads `$92` (`VIDEO_ID_V2`). It moves the base registers to two bytes in 256-byte units and the
+layers' registers up a byte; the `_R1` equates are revision 1's names where they moved. Every byte it doesn't name
+reads 0. The emulator has it (`rev=2` on the machine's video line); the BIOS and OODOS still drive revision 1.
 
 ## Registers
 
@@ -480,11 +490,11 @@ The border shows beside the bitmaps (x 0–63 and 576–639), and over the whole
 latched. The BIOS writes `$00` at boot and on Break.
 
 <a id="reg-c482"></a>
-### $C482 VIDEO_PALBASE: where the palette is
+### $C482 VIDEO_PALBASE_R1: where the palette is
 
 #### Equates
 
-`VIDEO_PALBASE`
+`VIDEO_PALBASE_R1`
 
 #### Module
 
@@ -513,11 +523,11 @@ contents are read for each line, so they need no PALBASE write to show ([The pal
 `$00` at boot and on Break; the demo uses unit 13.
 
 <a id="reg-c483"></a>
-### $C483 VIDEO_SPRBASE: where the sprite table is
+### $C483 VIDEO_SPRBASE_R1: where the sprite table is
 
 #### Equates
 
-`VIDEO_SPRBASE`
+`VIDEO_SPRBASE_R1`
 
 #### Module
 
@@ -729,6 +739,68 @@ the bit itself when the splash ends.
 splash](#the-boot-splash)). The BIOS writes 1 at boot; Break (QUIET) and the demo write 0. Under the monitor it
 reads 1 for the first 5 s after a reset, then 0.
 
+<a id="reg-c48a"></a>
+### $C48A VIDEO_PALBASE: where the palette is, on revision 2
+
+#### Equates
+
+`VIDEO_PALBASE`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only. Latched at line 480, as on revision 1.
+
+#### Bits
+
+All: a card address in 256-byte units, low byte first: the palette (512 bytes) starts at card address value × 256.
+
+#### Reset
+
+`$00 $00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+Revision 1's is [VIDEO_PALBASE_R1](#reg-c482).
+
+<a id="reg-c48c"></a>
+### $C48C VIDEO_SPRBASE: where the sprite table is, on revision 2
+
+#### Equates
+
+`VIDEO_SPRBASE`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only. Latched at line 480, as on revision 1.
+
+#### Bits
+
+All: a card address in 256-byte units, low byte first: the sprite table (64 entries of 8 bytes) starts at card address value × 256.
+
+#### Reset
+
+`$00 $00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+Revision 1's is [VIDEO_SPRBASE_R1](#reg-c483). On revision 2 an entry's image address is 15 bits of 256-byte units: byte 0, then byte 1's bits 6–0; byte 1's bit 7 is still the colour depth.
+
 <a id="reg-c490"></a>
 ### $C490 VIDEO_L0_CONFIG: layer 0's type
 
@@ -771,11 +843,11 @@ A layer type ignores the bits that aren't its own, and every bit reads back as w
 types.
 
 <a id="reg-c491"></a>
-### $C491 VIDEO_L0_MAP: layer 0's map
+### $C491 VIDEO_L0_MAP_R1: layer 0's map
 
 #### Equates
 
-`VIDEO_L0_MAP`
+`VIDEO_L0_MAP_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_MAP`'s
 
 #### Module
 
@@ -804,11 +876,11 @@ Latched at line 480, so one write flips between two pages; a write in vertical b
 writes 8 (`$82000`) at boot and on Break.
 
 <a id="reg-c492"></a>
-### $C492 VIDEO_L0_TILE: layer 0's tiles or font
+### $C492 VIDEO_L0_TILE_R1: layer 0's tiles or font
 
 #### Equates
 
-`VIDEO_L0_TILE`
+`VIDEO_L0_TILE_R1`
 
 #### Module
 
@@ -837,11 +909,11 @@ Latched at line 480, so a write in vertical blank shows a frame later. The BIOS 
 boot and on Break.
 
 <a id="reg-c493"></a>
-### $C493 VIDEO_L0_HSCROLL: layer 0's scroll across
+### $C493 VIDEO_L0_HSCROLL_R1: layer 0's scroll across
 
 #### Equates
 
-`VIDEO_L0_HSCROLL`
+`VIDEO_L0_HSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_TILE`'s
 
 #### Module
 
@@ -872,11 +944,11 @@ between two line 480s, take effect together; written in vertical blank, they sho
 ([When changes show](#when-changes-show)). The BIOS writes 0 at boot and on Break.
 
 <a id="reg-c495"></a>
-### $C495 VIDEO_L0_VSCROLL: layer 0's scroll down
+### $C495 VIDEO_L0_VSCROLL_R1: layer 0's scroll down
 
 #### Equates
 
-`VIDEO_L0_VSCROLL`
+`VIDEO_L0_VSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_HSCROLL`'s
 
 #### Module
 
@@ -906,11 +978,11 @@ The layer moves up by VSCROLL lines and wraps within its height: the map's for t
 at boot and on Break.
 
 <a id="reg-c497"></a>
-### $C497 VIDEO_L0_PALOFS: layer 0's palette slice
+### $C497 VIDEO_L0_PALOFS_R1: layer 0's palette slice
 
 #### Equates
 
-`VIDEO_L0_PALOFS`
+`VIDEO_L0_PALOFS_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L0_VSCROLL`'s
 
 #### Module
 
@@ -940,6 +1012,33 @@ R/W. Not latched: a write shows from the next line drawn.
 It applies to text colours, mono pixels, bitmap 512 and 4-bit tiles (added to the map entry's offset, mod 16). It
 doesn't apply to bitmap 256 or 8-bit tiles. A colour of 0 is transparent before PALOFS is added. The BIOS writes 0
 at boot and on Break.
+
+<a id="reg-c499"></a>
+### $C499 VIDEO_L0_PALOFS: layer 0's palette slice, on revision 2
+
+#### Equates
+
+`VIDEO_L0_PALOFS`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. Not latched.
+
+#### Bits
+
+As revision 1's [VIDEO_L0_PALOFS_R1](#reg-c497): bits 3–0, a 16-colour slice; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
 
 <a id="reg-c4a0"></a>
 ### $C4A0 VIDEO_L1_CONFIG: layer 1's type
@@ -974,11 +1073,11 @@ Layer 1 is drawn over layer 0, with depth-2 sprites between them. CTRL bit 2 tur
 boot and on Break, with CTRL's bit 2 off; the demo uses it as a 40×30 text layer for its caption.
 
 <a id="reg-c4a1"></a>
-### $C4A1 VIDEO_L1_MAP: layer 1's map
+### $C4A1 VIDEO_L1_MAP_R1: layer 1's map
 
 #### Equates
 
-`VIDEO_L1_MAP`
+`VIDEO_L1_MAP_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_MAP`'s
 
 #### Module
 
@@ -990,7 +1089,7 @@ R/W, as [layer 0's](#reg-c491).
 
 #### Bits
 
-As [VIDEO_L0_MAP](#reg-c491), for layer 1.
+As [VIDEO_L0_MAP_R1](#reg-c491), for layer 1.
 
 #### Reset
 
@@ -1005,11 +1104,11 @@ As [VIDEO_L0_MAP](#reg-c491), for layer 1.
 The BIOS doesn't write it: after Break it is as a program left it (the demo leaves 16).
 
 <a id="reg-c4a2"></a>
-### $C4A2 VIDEO_L1_TILE: layer 1's tiles or font
+### $C4A2 VIDEO_L1_TILE_R1: layer 1's tiles or font
 
 #### Equates
 
-`VIDEO_L1_TILE`
+`VIDEO_L1_TILE_R1`
 
 #### Module
 
@@ -1021,7 +1120,7 @@ R/W, as [layer 0's](#reg-c492).
 
 #### Bits
 
-As [VIDEO_L0_TILE](#reg-c492), for layer 1.
+As [VIDEO_L0_TILE_R1](#reg-c492), for layer 1.
 
 #### Reset
 
@@ -1036,11 +1135,11 @@ As [VIDEO_L0_TILE](#reg-c492), for layer 1.
 The BIOS doesn't write it: after Break it is as a program left it (the demo leaves 1, the BIOS's font).
 
 <a id="reg-c4a3"></a>
-### $C4A3 VIDEO_L1_HSCROLL: layer 1's scroll across
+### $C4A3 VIDEO_L1_HSCROLL_R1: layer 1's scroll across
 
 #### Equates
 
-`VIDEO_L1_HSCROLL`
+`VIDEO_L1_HSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_TILE`'s
 
 #### Module
 
@@ -1052,7 +1151,7 @@ R/W, 2 bytes, as [layer 0's](#reg-c493).
 
 #### Bits
 
-As [VIDEO_L0_HSCROLL](#reg-c493), for layer 1; `$C4A4` is the high byte.
+As [VIDEO_L0_HSCROLL_R1](#reg-c493), for layer 1; `$C4A4` is the high byte.
 
 #### Reset
 
@@ -1067,11 +1166,11 @@ As [VIDEO_L0_HSCROLL](#reg-c493), for layer 1; `$C4A4` is the high byte.
 The BIOS doesn't write it: after Break it is as a program left it.
 
 <a id="reg-c4a5"></a>
-### $C4A5 VIDEO_L1_VSCROLL: layer 1's scroll down
+### $C4A5 VIDEO_L1_VSCROLL_R1: layer 1's scroll down
 
 #### Equates
 
-`VIDEO_L1_VSCROLL`
+`VIDEO_L1_VSCROLL_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_HSCROLL`'s
 
 #### Module
 
@@ -1083,7 +1182,7 @@ R/W, 2 bytes, as [layer 0's](#reg-c495).
 
 #### Bits
 
-As [VIDEO_L0_VSCROLL](#reg-c495), for layer 1; `$C4A6` is the high byte.
+As [VIDEO_L0_VSCROLL_R1](#reg-c495), for layer 1; `$C4A6` is the high byte.
 
 #### Reset
 
@@ -1098,11 +1197,11 @@ As [VIDEO_L0_VSCROLL](#reg-c495), for layer 1; `$C4A6` is the high byte.
 The BIOS doesn't write it: after Break it is as a program left it.
 
 <a id="reg-c4a7"></a>
-### $C4A7 VIDEO_L1_PALOFS: layer 1's palette slice
+### $C4A7 VIDEO_L1_PALOFS_R1: layer 1's palette slice
 
 #### Equates
 
-`VIDEO_L1_PALOFS`
+`VIDEO_L1_PALOFS_R1`; on [revision 2](#revision-2-card-memory) (proposed) this address is `VIDEO_L1_VSCROLL`'s
 
 #### Module
 
@@ -1114,7 +1213,7 @@ R/W, as [layer 0's](#reg-c497).
 
 #### Bits
 
-As [VIDEO_L0_PALOFS](#reg-c497), for layer 1.
+As [VIDEO_L0_PALOFS_R1](#reg-c497), for layer 1.
 
 #### Reset
 
@@ -1127,6 +1226,289 @@ As [VIDEO_L0_PALOFS](#reg-c497), for layer 1.
 #### Notes
 
 The BIOS doesn't write it: after Break it is as a program left it.
+
+<a id="reg-c4a9"></a>
+### $C4A9 VIDEO_L1_PALOFS: layer 1's palette slice, on revision 2
+
+#### Equates
+
+`VIDEO_L1_PALOFS`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. Not latched.
+
+#### Bits
+
+As revision 1's [VIDEO_L1_PALOFS_R1](#reg-c4a7): bits 3–0, a 16-colour slice; bits 7–4 read 0.
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b0"></a>
+### $C4B0 VIDEO_SLOT0: aperture slot 0's page
+
+#### Equates
+
+`VIDEO_SLOT0`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 0, physical `$80000`–`$83FFF`, shows card memory from SLOT0 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$00 $00`: slot 0 shows page 0, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b2"></a>
+### $C4B2 VIDEO_SLOT1: aperture slot 1's page
+
+#### Equates
+
+`VIDEO_SLOT1`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 1, physical `$84000`–`$87FFF`, shows card memory from SLOT1 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$01 $00`: slot 1 shows page 1, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b4"></a>
+### $C4B4 VIDEO_SLOT2: aperture slot 2's page
+
+#### Equates
+
+`VIDEO_SLOT2`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 2, physical `$88000`–`$8BFFF`, shows card memory from SLOT2 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$02 $00`: slot 2 shows page 2, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b6"></a>
+### $C4B6 VIDEO_SLOT3: aperture slot 3's page
+
+#### Equates
+
+`VIDEO_SLOT3`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: a 16 KB page of card memory: aperture slot 3, physical `$8C000`–`$8FFFF`, shows card memory from SLOT3 × `$4000`. A page past MEMSIZE reads `$FF` and ignores writes.
+
+#### Reset
+
+`$03 $00`: slot 3 shows page 3, so the aperture shows card memory `$000000`–`$00FFFF` in order.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4b8"></a>
+### $C4B8 VIDEO_PADDR: the port's address
+
+#### Equates
+
+`VIDEO_PADDR`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 3 bytes, low byte first, on [revision 2](#revision-2-card-memory) only. Each access to PDATA moves it by PSTEP.
+
+#### Bits
+
+All: a 24-bit card address. It wraps at the fitted memory's end; an address past MEMSIZE reads `$FF` through PDATA and ignores writes.
+
+#### Reset
+
+`$00 $00 $00`.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4bb"></a>
+### $C4BB VIDEO_PDATA: the port's data
+
+#### Equates
+
+`VIDEO_PDATA`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only. A write stores the byte at PADDR, a read returns it; either then moves PADDR by PSTEP. DMA on channel 1 does the same while PCTL bit 0 is set.
+
+#### Bits
+
+All: the byte at PADDR.
+
+#### Reset
+
+Whatever card memory holds at PADDR.
+
+#### Status
+
+**proposed**
+
+<a id="reg-c4bc"></a>
+### $C4BC VIDEO_PSTEP: the port's step
+
+#### Equates
+
+`VIDEO_PSTEP`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, 2 bytes, low byte first, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+All: how far PADDR moves after each PDATA access, up, or down with PCTL bit 2. 0 holds PADDR.
+
+#### Reset
+
+`$01 $00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+A step of 160 writes a column of the 80-column text screen.
+
+<a id="reg-c4be"></a>
+### $C4BE VIDEO_PCTL: the port's control
+
+#### Equates
+
+`VIDEO_PCTL`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R/W, on [revision 2](#revision-2-card-memory) only.
+
+#### Bits
+
+| Bit | Name | Meaning |
+|---|---|---|
+| 7–3 | | 0 |
+| 2 | DOWN | `VIDEO_PCTL_DOWN`: PADDR steps down |
+| 1 | FROM | `VIDEO_PCTL_FROM`: DMA reads PDATA (0: DMA writes it) |
+| 0 | DRQ | `VIDEO_PCTL_DRQ`: ask for DMA on channel 1 |
+
+#### Reset
+
+`$00`.
+
+#### Status
+
+**proposed**
+
+#### Notes
+
+A /DACK cycle in the other direction from bit 1's moves nothing.
+
+<a id="reg-c4bf"></a>
+### $C4BF VIDEO_MEMSIZE: the card memory fitted
+
+#### Equates
+
+`VIDEO_MEMSIZE`
+
+#### Module
+
+9, the video card
+
+#### Access
+
+R, on [revision 2](#revision-2-card-memory) only. A write is ignored.
+
+#### Bits
+
+All: card memory in 64 KB units: 32 (`VIDEO_MEMSIZE_2MB`) for 2 MB.
+
+#### Reset
+
+`$20`.
+
+#### Status
+
+**proposed**
 
 <a id="reg-c4ff"></a>
 ### $C4FF VIDEO_ID: the card's ID

@@ -136,14 +136,14 @@ DEMO_MAIN:
 
                 ; the card: palette, layers, sprites
                 LDA     #PAL_UNIT
-                STA     VIDEO_PALBASE
+                STA     VIDEO_PALBASE_R1
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TILE | VIDEO_MAP_W64
                 STA     VIDEO_L0_CONFIG
                 LDA     #MAP_UNIT
-                STA     VIDEO_L0_MAP
+                STA     VIDEO_L0_MAP_R1
                 LDA     #TILE_UNIT
-                STA     VIDEO_L0_TILE
+                STA     VIDEO_L0_TILE_R1
                 LDA     #VIDEO_TEXT40
                 STA     VIDEO_L1 + 0
                 LDA     #TEXT_UNIT
@@ -151,7 +151,7 @@ DEMO_MAIN:
                 LDA     #1             ; the BIOS's font
                 STA     VIDEO_L1 + 2
                 LDA     #SPR_UNIT
-                STA     VIDEO_SPRBASE
+                STA     VIDEO_SPRBASE_R1
                 STZ     SCROLL
                 STZ     SCROLL+1
                 LDA     #VIDEO_ALL
@@ -160,9 +160,9 @@ DEMO_MAIN:
 FRAME:          JSR     WAITVB         ; the picture is not being drawn: change it now
                 JSR     DMASPRITES
                 LDA     SCROLL
-                STA     VIDEO_L0_HSCROLL
+                STA     VIDEO_L0_HSCROLL_R1
                 LDA     SCROLL+1
-                STA     VIDEO_L0_HSCROLL + 1
+                STA     VIDEO_L0_HSCROLL_R1 + 1
                 LDA     LEVEL
                 CMP     #15
                 BCS     @lit

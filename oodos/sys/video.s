@@ -555,7 +555,7 @@ VBWORK:         LDA     NB_WIN1
                 BEQ     @done
                 BIT     EVON
                 BPL     @done          ; MXS and MYS only with a layout-2 area
-                LDA     VIDEO_SPRBASE
+                LDA     VIDEO_SPRBASE_R1
                 CMP     #DM_UNIT0
                 BCC     @done          ; a sprite table in the console's units: not written there
                 SEC                    ; X and Y less the hotspot, modulo 1,024
@@ -586,7 +586,7 @@ VBWORK:         LDA     NB_WIN1
                 ASL     A
                 ORA     #2
                 STA     DMA1_DEST
-                LDA     VIDEO_SPRBASE
+                LDA     VIDEO_SPRBASE_R1
                 ASL     A
                 ASL     A
                 STA     T0WORK
@@ -598,7 +598,7 @@ VBWORK:         LDA     NB_WIN1
                 LSR     A
                 ORA     T0WORK
                 STA     DMA1_DEST + 1
-                LDA     VIDEO_SPRBASE
+                LDA     VIDEO_SPRBASE_R1
                 LSR     A
                 LSR     A
                 LSR     A

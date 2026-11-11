@@ -750,11 +750,11 @@ sizes`, the maps, normal and `DEBUG=1`).
     side), bitmap 256 (256×240, 8 bits, 60 KB), bitmap 512 (512×480, 4 bits, 120 KB) or mono (640×480, 37.5 KB);
     64 hardware sprites of 8 bytes (512-byte table at SPRBASE, VERA's layout), 8 to 64 pixels a side, 32 a line,
     four collision groups (STATUS bits 3–0, ISR bit 2); a palette of 256 12-bit entries in video memory, read
-    afresh for every line (`video_card.cpp:323`); PALBASE, SPRBASE, MAPBASE, TILEBASE and the scrolls latched at
+    afresh for every line (`video_card.cpp:512`); PALBASE, SPRBASE, MAPBASE, TILEBASE and the scrolls latched at
     line 480; interrupts at vertical blank, a chosen line and a collision. Vertical blank is lines 480–524, 1.43 ms,
     about 10,240 cycles. **No hardware blitter, no frame counter, no line-buffer DMA:** the card draws from memory
     and is told where things are. Video memory is banks 8–B, physical `$80000–$BFFFF`, RAM blocks 32–47
-    (`video_card.h:131`), in 1 KB units for the base registers; the card snoops writes, so the CPU and the DMA
+    (`video_card.h:162`), in 1 KB units for the base registers; the card snoops writes, so the CPU and the DMA
     controller see ordinary RAM.
   - **The console's part of it** (`crt.s`'s CRTINIT, cold boot only): the palette at unit 0, the font at units
     1–4 (copied from flash block 30), the text screen at units 8–12 (4,800 bytes). **The warm boot doesn't put the
