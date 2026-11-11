@@ -28,19 +28,21 @@ tools/cloud-full.sh --quick REF    # the quick tier on REF
 tools/cloud-full.sh --list         # what is running
 tools/cloud-full.sh --kill i-...   # end one
 tools/cloud-full.sh --rebuild-image  # the image built again on the instance (package updates)
+tools/cloud-full.sh --jobs 12 REF   # check.sh --jobs 12 (16, the instance's cores, by default)
 ```
 
-The instance (Amazon Linux 2023, arm64) reads its run from its tags, sets a watchdog (`--minutes`, 180 by
+The instance (Amazon Linux 2023, x86_64) reads its run from its tags, sets a watchdog (`--minutes`, 180 by
 default), fetches the source and the fixtures, pulls the image (or builds and pushes it, the first run
-after a Dockerfile change: a few minutes, on the instance's own architecture) and runs `tools/check.sh` in it,
-with the
+after a Dockerfile change: a few minutes, on the instance's own architecture) and runs `tools/check.sh` in it, with the
 instance's Docker socket and the checkout at the same path inside as out, so the WebAssembly build's and
 the interop stage's containers mount it. The public fixtures (Dormann's, Harte's) are fetched there.
 Spot by default, in each of the builder's three zones in turn (a zone without the type is passed over);
 on-demand if none has spot capacity, or with `--on-demand`. The instance puts `check.out` in S3 every 5
 minutes, and its logs at once when spot gives notice that it is taking the instance back; `cloud-full.sh`
 sees an instance that ended without an exit, fetches what it left and fails, rather than waiting out the
-watchdog. The account has no default VPC, and its own VPC is left alone: the builder's is its own.
+watchdog. `check.sh` always gets `--jobs`: a commit whose `check.sh` doesn't take it (one cut from main
+before the builder) is refused before anything is sent, since its fixed 4 would use a quarter of the
+instance; merge main into it first. The account has no default VPC, and its own VPC is left alone: the builder's is its own.
 Spot needs EC2's service-linked role, made once for the account with the admin profile:
 `aws iam create-service-linked-role --aws-service-name spot.amazonaws.com`; without it, runs go on-demand.
 

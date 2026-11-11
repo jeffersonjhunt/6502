@@ -8,12 +8,15 @@
 #   tools/cloud-full.sh --kill ID        # terminate one
 #   tools/cloud-full.sh --wait RUN       # wait for a run already started, and fetch it
 #
-# Options: --on-demand (not spot), --minutes N (the instance's watchdog, 180 by default), --out DIR
-# (where the logs come back; $TMPDIR/cloud-full/RUN by default), --no-wait, --rebuild-image (the
-# instance builds the image again though ECR has it: for package updates).
+# Options: --jobs N (check.sh's --jobs; 16 by default, the instance's cores), --on-demand (not spot),
+# --minutes N (the instance's watchdog, 180 by default), --out DIR (where the logs come back;
+# $TMPDIR/cloud-full/RUN by default), --no-wait, --rebuild-image (the instance builds the image again
+# though ECR has it: for package updates).
 #
-# check.sh gets --exclude test_app_tty (where it takes it): its Ctrl-Z cases need a terminal with job
-# control, which the instance's container doesn't have (the tier tag is check.sh's arguments).
+# check.sh always gets --jobs: a commit whose check.sh doesn't take it is refused, since its own fixed 4
+# would run the sanitizer suite on a quarter of the instance. check.sh gets --exclude test_app_tty (where
+# it takes it): its Ctrl-Z cases need a terminal with job control, which the instance's container
+# doesn't have (the tier tag is check.sh's arguments).
 #
 # Each run: the image builder/oo1:HASH-ARCH (HASH of tools/ci/Dockerfile), which the instance builds and
 # pushes when ECR lacks it (once a Dockerfile change, on the instance's own architecture); the protected
@@ -25,10 +28,11 @@ set -euo pipefail
 profile=${AWS_PROFILE:-builder}
 aws() { command aws --profile "$profile" "$@"; }
 repo=$(cd "$(dirname "$0")/.." && pwd)
-tier=full market=spot minutes=180 out= wait=1 ref=HEAD action=run arg= rebuild=0
+tier=full jobs=16 market=spot minutes=180 out= wait=1 ref=HEAD action=run arg= rebuild=0
 while [ $# -gt 0 ]; do
     case $1 in
     --quick) tier=quick ;;
+    --jobs) jobs=${2:?--jobs needs a number}; shift ;;
     --on-demand) market=on-demand ;;
     --minutes) minutes=$2; shift ;;
     --out) out=$2; shift ;;
@@ -37,7 +41,7 @@ while [ $# -gt 0 ]; do
     --list) action=list ;;
     --kill) action=kill; arg=$2; shift ;;
     --wait) action=wait; arg=$2; shift ;;
-    -h | --help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,26p' "$0"; exit 0 ;;
     -*) echo "cloud-full: $1?" >&2; exit 2 ;;
     *) ref=$1 ;;
     esac
@@ -102,6 +106,16 @@ esac
 sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}")
 run="$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:7}"
 
+# check.sh's arguments, settled before anything is sent: --jobs always (a check.sh without it is refused),
+# --exclude test_app_tty where the commit's check.sh takes it (an older one would refuse the option).
+check=$(git -C "$repo" show "$sha:tools/check.sh")
+if ! grep -q -- '--jobs)' <<<"$check"; then
+    echo "cloud-full: ${sha:0:7}'s check.sh doesn't take --jobs, so it would run at its fixed 4; merge main into it first" >&2
+    exit 2
+fi
+skip=" --jobs $jobs"
+grep -q -- '--exclude)' <<<"$check" && skip+=" --exclude test_app_tty"
+
 # The image, by its Dockerfile's hash; the instance builds it if ECR lacks HASH-ARCH.
 image=$(sha256sum "$repo/tools/ci/Dockerfile" | cut -c1-12)
 
@@ -113,10 +127,6 @@ key="oo1/src/$run.tar.gz"
 git -C "$repo" archive --format=tar.gz "$sha" | aws s3 cp - "s3://$bucket/$key" --only-show-errors
 aws s3api put-object-tagging --bucket "$bucket" --key "$key" --tagging 'TagSet=[{Key=kind,Value=src}]'
 
-# check.sh's arguments: --exclude test_app_tty where the commit's check.sh takes it (an older one would
-# refuse the option and run nothing).
-skip=
-git -C "$repo" show "$sha:tools/check.sh" | grep -q -- '--exclude)' && skip=" --exclude test_app_tty"
 tags="{Key=builder,Value=true},{Key=project,Value=oo1},{Key=Name,Value=builder-oo1-$run},{Key=run,Value=$run},{Key=src,Value=$key},{Key=image,Value=$image},{Key=tier,Value=$tier$skip},{Key=minutes,Value=$minutes},{Key=rebuild,Value=$rebuild},{Key=sha,Value=$sha}"
 subnets=$(aws cloudformation describe-stacks --stack-name builder-base --query 'Stacks[0].Outputs[?OutputKey==`Subnets`].OutputValue' --output text)
 group=$(aws cloudformation describe-stacks --stack-name builder-oo1 --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroup`].OutputValue' --output text)
