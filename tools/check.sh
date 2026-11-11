@@ -7,6 +7,7 @@
 #   tools/check.sh quick --url URL    # and the e2e smoke set against URL
 #   tools/check.sh full --url URL     # and the whole e2e suite against URL
 #   tools/check.sh full --jobs 4      # the sanitizer tests 4 at once, not one a CPU (a shared host)
+#   tools/check.sh full --exclude test_app_tty   # a native suite left out (builders: no terminal)
 #
 # quick: the oodos checks; every native test, built optimised without the
 #   sanitizers (the `fast` preset, under a minute); the WebAssembly build
@@ -32,11 +33,13 @@ set -u
 
 tier=${1:-}
 url= jobs=all # the sanitizer tests one a CPU; on a host shared with other work, --jobs 4
+exclude= # --exclude NAME: native suites left out (ctest -E); the summary names them
 [ $# -gt 0 ] && shift
 while [ $# -gt 0 ]; do
     case $1 in
     --url) url=${2:?--url needs a URL}; shift ;;
     --jobs) jobs=${2:?--jobs needs a number or all}; shift ;;
+    --exclude) exclude="${exclude:+$exclude|}${2:?--exclude needs a suite}"; shift ;;
     *) tier=bad ;;
     esac
     shift
@@ -46,7 +49,7 @@ case $jobs in '' | *[!0-9]* | 0) tier=bad ;; esac
 case $tier in
 quick | full) ;;
 *)
-    echo "usage: tools/check.sh quick|full [--url URL] [--jobs N|all]" >&2
+    echo "usage: tools/check.sh quick|full [--url URL] [--jobs N|all] [--exclude SUITE]..." >&2
     exit 2
     ;;
 esac
@@ -103,7 +106,7 @@ oodos_checks() {
 }
 native() { # $1: the preset
     cd "$emu" && cmake --preset "$1" && cmake --build --preset "$1" -j"$(nproc)" &&
-        ctest --preset "$1" -j"${2:-$(nproc)}"
+        ctest --preset "$1" -j"${2:-$(nproc)}" ${exclude:+-E "^($exclude)\$"}
     rc=$?
     rm -f "$emu/stand_in_iie.rom" # test_oodos_utils_rom's own stand-in, if it ran from here
     return $rc
@@ -177,6 +180,7 @@ if [ -f "$last" ]; then
     printf '%-28s %s parts skipped\n' "native-$preset" "$(grep -c '^  SKIP' "$last")"
     grep '^  SKIP' "$last" | sort | uniq -c | sed 's/^/    /'
 fi
+[ -z "$exclude" ] || printf '%-28s %s\n' "native-$preset" "left out (--exclude): $(echo "$exclude" | tr '|' ' ')"
 for f in "$logs"/e2e*.log; do
     [ -f "$f" ] && printf '%-28s %s\n' "$(basename "$f" .log)" "$(grep -E '^ +[0-9]+ (passed|failed|skipped|flaky)' "$f" | tr -s ' ' | tr '\n' ',' | sed 's/,$//')"
 done

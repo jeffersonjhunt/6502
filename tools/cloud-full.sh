@@ -12,6 +12,9 @@
 # (where the logs come back; $TMPDIR/cloud-full/RUN by default), --no-wait, --rebuild-image (the
 # instance builds the image again though ECR has it: for package updates).
 #
+# check.sh gets --exclude test_app_tty (where it takes it): its Ctrl-Z cases need a terminal with job
+# control, which the instance's container doesn't have (the tier tag is check.sh's arguments).
+#
 # Each run: the image builder/oo1:HASH-ARCH (HASH of tools/ci/Dockerfile), which the instance builds and
 # pushes when ECR lacks it (once a Dockerfile change, on the instance's own architecture); the protected
 # fixtures sent if they changed (tools/aws/oo1-fixtures.sh); REF's tree, by git archive,
@@ -110,7 +113,11 @@ key="oo1/src/$run.tar.gz"
 git -C "$repo" archive --format=tar.gz "$sha" | aws s3 cp - "s3://$bucket/$key" --only-show-errors
 aws s3api put-object-tagging --bucket "$bucket" --key "$key" --tagging 'TagSet=[{Key=kind,Value=src}]'
 
-tags="{Key=builder,Value=true},{Key=project,Value=oo1},{Key=Name,Value=builder-oo1-$run},{Key=run,Value=$run},{Key=src,Value=$key},{Key=image,Value=$image},{Key=tier,Value=$tier},{Key=minutes,Value=$minutes},{Key=rebuild,Value=$rebuild},{Key=sha,Value=$sha}"
+# check.sh's arguments: --exclude test_app_tty where the commit's check.sh takes it (an older one would
+# refuse the option and run nothing).
+skip=
+git -C "$repo" show "$sha:tools/check.sh" | grep -q -- '--exclude)' && skip=" --exclude test_app_tty"
+tags="{Key=builder,Value=true},{Key=project,Value=oo1},{Key=Name,Value=builder-oo1-$run},{Key=run,Value=$run},{Key=src,Value=$key},{Key=image,Value=$image},{Key=tier,Value=$tier$skip},{Key=minutes,Value=$minutes},{Key=rebuild,Value=$rebuild},{Key=sha,Value=$sha}"
 subnets=$(aws cloudformation describe-stacks --stack-name builder-base --query 'Stacks[0].Outputs[?OutputKey==`Subnets`].OutputValue' --output text)
 group=$(aws cloudformation describe-stacks --stack-name builder-oo1 --query 'Stacks[0].Outputs[?OutputKey==`SecurityGroup`].OutputValue' --output text)
 launch() { # $1: spot or on-demand, $2: a subnet
