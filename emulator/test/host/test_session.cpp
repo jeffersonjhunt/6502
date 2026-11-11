@@ -506,15 +506,15 @@ TEST(a_cartridge_plugged_in_power_cycles_and_c806_enters_apple_ii_mode)
     REQUIRE(s->apple_switches() != nullptr);
     CHECK(s->apple_switches()->text);
     CHECK(!s->apple_mode());
-    CHECK_EQ(s->peek(0xC4FF), 0x91);             // the video card's ID, at $C480 + $7F
+    CHECK_EQ(s->peek(0xC4FF), 0x92);             // the video card's ID, at $C480 + $7F
     s->send("C806R\r");
     for (int i = 0; i < 120 && s->peek_physical(0x0300) != 0xA5; ++i)
         s->run(FRAME);
     CHECK(s->apple_mode());
     CHECK_EQ(s->peek_physical(0x0300), 0xA5);
     CHECK(!s->apple_switches()->text);           // the ROM's $C050
-    CHECK(s->peek(0xC4FF) != 0x91);              // $C4FF is the Apple's now...
-    CHECK_EQ(s->peek_io(0x4FF), 0x91);           // ...and I/O space still reaches the card
+    CHECK(s->peek(0xC4FF) != 0x92);              // $C4FF is the Apple's now...
+    CHECK_EQ(s->peek_io(0x4FF), 0x92);           // ...and I/O space still reaches the card
 
     REQUIRE(s->set_cartridge({}, "", error));    // taken out
     CHECK(!s->apple_mode());

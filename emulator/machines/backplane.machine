@@ -81,7 +81,7 @@ via6522   340-34F  space=io  name=via  irq          # the serial card's VIA, ove
 joyports  name=joysticks  via=via                    # on PA0-4 and PB0-4
 sd        380-3FF  space=io  name=sd  irq  drq=0
 dma       400-47F  space=io  name=dma  irq
-video     480-4FF  space=io  name=video  irq  drq=1  rev=1
+video     480-4FF  space=io  name=video  irq  drq=1  rev=2
 aperture  80000-8FFFF  module=9  name=aperture   # revision 2: bank 8 is the card's
 sound     500-57F  space=io  name=sound  irq  drq=2
 usb       580-5FF  space=io  name=usb  irq

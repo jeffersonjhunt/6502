@@ -75,7 +75,7 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await page.locator('[data-tab="dev"]').click();
   const dev = page.getByTestId("dev-video");
   await expect(dev.locator('[data-reg="CTRL"]')).toHaveText("$03  display · layer 0");
-  await expect(dev.locator('[data-reg="Layer 0"]')).toHaveText("text 80×30 · text $82000 · font $80400 · blink");
+  await expect(dev.locator('[data-reg="Layer 0"]')).toHaveText("text 80×30 · text $002000 · font $000400 · blink");
   await expect(dev.locator('[data-reg="Beam"]')).toContainText("line ");
   // The sound card, as the boot tune leaves it: the tune ran on the NTSC clock and stopped itself ($DE02),
   // which clears RUN and zeroes the SIDs; its 240 Hz player timer is left counting.
@@ -131,7 +131,7 @@ test("C803R runs the video demo on VGA, and a key goes back to the monitor", asy
   await expect.poll(() => colours(page), { timeout: 10_000 }).toBeGreaterThan(12); // sky, hills, balls, caption
   await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
-  await expect(page.getByTestId("dev-video").locator('[data-reg="Sprites"]')).toContainText("on · table $89000");
+  await expect(page.getByTestId("dev-video").locator('[data-reg="Sprites"]')).toContainText("on · table $045100");
   await page.screenshot({ path: `test-results/vga-demo-${test.info().project.name}.png` });
   await page.getByTestId("crt").click();
   await page.keyboard.press("x");

@@ -441,15 +441,15 @@ TEST(a_sprite_image_address_is_15_bits_of_256_byte_units)
 
 // --- on the machine: the aperture and DMA ------------------------------------------
 
-TEST(backplane_machine_is_revision_1_by_default)
+TEST(backplane_machine_is_revision_2_by_default)
 {
     auto m = backplane(0);
     REQUIRE(m != nullptr);
     REQUIRE(m->video_card() != nullptr);
-    CHECK_EQ(m->video_card()->revision(), 1u);
+    CHECK_EQ(m->video_card()->revision(), 2u);
     Decoder &bus = m->bus();
-    CHECK_EQ(bus.peek(0xC4FF), 0x91);
-    bus.write_physical(0x80800, 0x5A); // bank 8 is RAM C's, and the card draws from it
+    CHECK_EQ(bus.peek(0xC4FF), 0x92);
+    bus.write_physical(0x80800, 0x5A); // bank 8 is ordinary RAM again: the card draws from its own memory
     CHECK_EQ(bus.peek_physical(0x80800), 0x5A);
 }
 

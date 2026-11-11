@@ -519,12 +519,9 @@ namespace
         return out;
     }
 
-    /// Start the demo and wait for its first frame. C803R first. A BIOS whose C803 doesn't yet take a revision 2
-    /// card (video.s's PROBE knows only ID $91 until stream B's revision 2 BIOS lands) prints its prompt again at
-    /// once; then the monitor does what C803 does past that check: W1 on flash block 29, read-only, and 4000R.
-    /// `at_entry` runs as the CPU reaches DEMO_MAIN. Typed on the serial line, or the USB keyboard if `usb`.
-    /// @return whether C803 itself took the card
-    bool start_demo(Board &b, bool usb = false, const std::function<void()> &at_entry = {})
+    /// Start the demo by C803R and wait for its first frame. `at_entry` runs as the CPU reaches DEMO_MAIN. Typed
+    /// on the serial line, or the USB keyboard if `usb`.
+    void start_demo(Board &b, bool usb = false, const std::function<void()> &at_entry = {})
     {
         const unsigned main = label(bios_labels(), "DEMO_MAIN");
         bool entered = false;
@@ -537,30 +534,18 @@ namespace
             }
         };
         auto type = [&](const std::string &keys) { return usb ? b.type_usb(keys) : b.run(4 * FRAME, keys); };
-        const bool gate = type("C803R\r").find("C803: 4C\\") == std::string::npos;
-        if (!gate)
-        {
-            std::printf("  C803 refused the revision 2 card (video.s's PROBE): DEMO_MAIN from the monitor\n");
-            type("C681:DD\r4000R\r");
-        }
+        CHECK(type("C803R\r").find("C803: 4C\\") == std::string::npos); // C803 took the card
         const VideoCard &card = *b.machine->video_card();
         for (int f = 0; f < 60 && card.peek(VideoCard::CTRL) != 0x0F; ++f)
             b.run(FRAME);
         b.on_step = nullptr;
         CHECK(entered);
-        return gate;
     }
 
     /// The BIOS's text screen's registers on revision 2, as Break and the demo's end leave them (VSCREEN: the
-    /// card memory layout of hw/video-rev2.md, the font at $000400 and the text at $002000). Only when the BIOS's
-    /// C803 took the card (start_demo()): an older VSCREEN writes nothing to a revision 2 card.
-    void check_text_screen_registers(const VideoCard &card, bool bios_has_rev2)
+    /// card memory layout of hw/video-rev2.md, the font at $000400 and the text at $002000).
+    void check_text_screen_registers(const VideoCard &card)
     {
-        if (!bios_has_rev2)
-        {
-            std::printf("  VSCREEN's registers not checked: this BIOS has no revision 2 screen\n");
-            return;
-        }
         const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
         using R2 = VideoCard::Rev2;
         CHECK_EQ(card.peek(VideoCard::CTRL), 0x03);
@@ -1091,7 +1076,7 @@ TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
     const std::vector<std::pair<uint32_t, uint32_t>> kept_regions = {{0x000000, 0x040000}, {0x1C0000, 0x200000}};
     auto pattern = [](uint32_t a) { return static_cast<uint8_t>(a * 7 + (a >> 9) + 1); };
     std::vector<uint8_t> was;
-    const bool gate = start_demo(b, false, [&] {
+    start_demo(b, false, [&] {
         for (const auto &[from, to] : kept_regions)
             for (uint32_t a = from; a < to; ++a)
             {
@@ -1122,7 +1107,7 @@ TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
     CHECK(has(out, "\\"));                     // the monitor's prompt again
     for (unsigned n = 0; n < 4; ++n)             // the aperture's slots as /RESET left them
         CHECK_EQ(reg16(*card, static_cast<uint8_t>(VideoCard::Rev2::SLOT0 + 2 * n)), n);
-    check_text_screen_registers(*card, gate);
+    check_text_screen_registers(*card);
     CHECK_EQ(b.bridge().window(1), 0x01);        // the windows back
     CHECK_EQ(b.bridge().window(2), 0x02);
     CHECK_EQ(b.row(5), before);                  // the text screen kept
@@ -1214,12 +1199,12 @@ TEST(a_usb_key_ends_the_demo)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    const bool gate = start_demo(b, true);
+    start_demo(b, true);
     b.run(20 * FRAME);
     REQUIRE(b.machine->video_card()->peek(VideoCard::CTRL) == 0x0F);
     const std::string out = b.type_usb(" ");
     CHECK(has(out, "\\"));
-    check_text_screen_registers(*b.machine->video_card(), gate);
+    check_text_screen_registers(*b.machine->video_card());
     CHECK_EQ(b.bridge().window(1), 0x01);
 }
 
@@ -1403,19 +1388,18 @@ TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
-    const bool gate = start_demo(b);
+    start_demo(b);
     b.run(20 * FRAME);
     const VideoCard *card = b.machine->video_card();
     REQUIRE(card->peek(VideoCard::CTRL) == 0x0F);
     b.cpu->nmi();                                // Pause/Break, mid-frame
     CHECK(has(b.run(BOOT), "\\"));
-    check_text_screen_registers(*card, gate);
+    check_text_screen_registers(*card);
     CHECK_EQ(b.bridge().window(0), 0x00);
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK_EQ(b.bridge().window(2), 0x02);
     CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
-    if (gate)
-        CHECK(b.find_row("C680: 00 01 02 7F 7F") >= 0); // on the screen too
+    CHECK(b.find_row("C680: 00 01 02 7F 7F") >= 0); // on the screen too
 }
 
 TEST(break_inside_vputc_puts_w2_back)

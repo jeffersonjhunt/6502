@@ -712,8 +712,8 @@ describe("WasmPort", () => {
     expect(f.disk?.motor).toBe(false); // its motor on and off: the drive runs on
     expect(f.disk?.spinning).toBe(true);
     expect(s?.text).toBe(true);
-    expect((await m.port.readMemory(0xc4ff, 1, "io"))[0]).toBe(0x91); // the video card, though...
-    expect((await m.port.readMemory(0xc4ff, 1, "cpu"))[0]).not.toBe(0x91); // ...the CPU sees the Apple's $C4FF
+    expect((await m.port.readMemory(0xc4ff, 1, "io"))[0]).toBe(0x92); // the video card, though...
+    expect((await m.port.readMemory(0xc4ff, 1, "cpu"))[0]).not.toBe(0x92); // ...the CPU sees the Apple's $C4FF
     typeReset(m.port, false); // Ctrl-Delete on the USB keyboard
     for (let i = 0; i < 10; ++i) f = m.step();
     expect((await m.port.readMemory(0x0300, 1, "physical"))[0]).toBe(2);
