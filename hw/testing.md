@@ -106,12 +106,18 @@ and the SIDs the sound card's), and each card of the backplane machine chooses `
 `web` is chosen by everything in the page: `emulator/apps/web/`, `web_build.sh`, and what `oo1.wasm` embeds or
 runs (every backplane card, the card media, `.sid` files and `components/debug`; the BIOS, its ROM and labels;
 `backplane.machine`; `test/host/sd/`, whose `demo.sparse` the page boots: `apps/web/CMakeLists.txt`,
-`ui/scripts/copy-core.mjs`). `docs` is chosen by everything `docs/tools/check_docs.py` reads besides the books:
+`ui/scripts/copy-core.mjs`), and a suite's own file when the web preset runs that suite. `test_map.py check`
+derives the page's inputs from the CMake files (oo1's link closure: every file of `emu_session`, `emu_machine`,
+`emu_devices`, `emu_debug` and the rest, the machines they embed, the web preset's suite list) and fails on one
+whose rule doesn't choose `web`. `docs` is chosen by everything `docs/tools/check_docs.py` reads besides the books:
 `backplane/bios/` (17 listings of its sources, byte for byte; `backplane.inc`'s equates), all of `oodos/` (an
 entry for each utility and each built-in of `ccp.s`; `oodos.inc`'s functions), the files the books link to
 (`apple_io.cpp`, `apps/emu/`, `apps/web/`, `oodos_rig.h`, `test_docs_examples.cpp`, the Apple-1 and Eater
 machines, the emulator's READMEs and plan), and hw/, README.md and AGENTS.md, whose links into the books it
 checks.
+
+The ROM BIOS's `sd.s` and `bios.s` (its reset of the card) choose `sd` too, so interop: they are on the path of
+the cards the tests write.
 
 The selection is broad, and the owner accepted that (2026-11-11): a change to any card chooses every suite that
 builds the backplane machine, about 60 of them, in the fast build (a minute or two), and the web steps. The
@@ -127,8 +133,10 @@ sanitizer suites in all. It runs the chosen suites (`ctest --preset fast -R` wit
 `-L` with those labels, and it takes the suites a path names by `self` too); the oodos checks if `oodos` is
 chosen, `make -C docs check` if `docs` is, the WebAssembly build, vitest, the page build, the whole e2e suite on
 Chromium and WebKit's smoke set if `web` is, and interop if `oodos` or `sd` is. Before any of it, it checks for the
-tools those need (ca65, ld65 and cc65 from the build's cache; vasm for the `eater` suites; docker for the web
-steps and interop) and fails naming what's missing; and it fails when every chosen CTest entry skipped. Every
+tools those need (ca65, ld65 and cc65 from the build's cache; vasm when a chosen entry carries `eater`, whatever
+path chose it; docker for the web steps and interop) and fails naming what's missing; it fails on a path whose
+rule isn't `none` but chose no suite and no step (a `test_foo.cpp` no CMake file registers); and when every
+chosen CTest entry skipped. A misspelt `--exclude` fails the step. Every
 tier's summary counts the entries skipped or not run, by name. If a path is the emulator's C++ or its build (`emulator/**/*.cpp`, `.h`, the CMake files; not
 `apps/web`), it builds `dev` and runs the chosen `emu` suites under ASan/UBSan, `--jobs` at once (4 by default).
 An unmapped path fails it before anything runs; so does an empty diff, unless `--allow-empty`. A diff of `none`
