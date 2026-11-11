@@ -7,7 +7,7 @@
 #   tools/check.sh quick --url URL    # and the e2e smoke set against URL
 #   tools/check.sh full --url URL     # and the whole e2e suite against URL
 #   tools/check.sh full --jobs 4      # the sanitizer tests 4 at once, not one a CPU (a shared host)
-#   tools/check.sh full --exclude test_app_tty   # a native suite left out (builders: no terminal)
+#   tools/check.sh full --exclude test_app_tty   # a native suite left out (e.g. no terminal for Ctrl-Z)
 #
 # quick: the oodos checks; every native test, built optimised without the
 #   sanitizers (the `fast` preset, under a minute); the WebAssembly build
