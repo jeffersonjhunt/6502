@@ -207,16 +207,24 @@ TEST(dm_info_ft_info_and_the_w1_map)
     open(r, "X");
     CHECK_EQ(command(r, 'F', "F"), std::string("08 0F")); // interface 8, areas frame, input, sound, DMA
     CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
-    // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, blocks 33-47 (aperture slots 1-3's
-    // windows, banks 9-B), not 32 (slot 0's, the console's); +13-16 the program's card pages $0400-$1BFF
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000FEFF00000004001C"));
+    // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, block 33 (aperture slot 1's window,
+    // the program's card bank) and 36-47 (banks 9-B), not 32, 34 or 35 (slots 0, 2 and 3's: OODOS's card banks,
+    // review F2); +13-16 the program's card pages $0400-$1BFF
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000F2FF00000004001C"));
+    const std::string map = command(r, 'I', "INFO").substr(14, 16);
+    const auto in_map = [&](unsigned block) {
+        return (std::stoul(map.substr(block / 8 * 2, 2), nullptr, 16) >> (block & 7) & 1) != 0;
+    };
+    CHECK(in_map(1) && in_map(33) && in_map(36) && in_map(47));
+    CHECK(!in_map(32) && !in_map(34) && !in_map(35)); // must fail if slots 2-3's windows are handed out
+    CHECK(!in_map(0) && !in_map(2) && !in_map(31) && !in_map(48));
     // An allocation (55): the lowest free block, 4, joins the map; freed (57), it leaves it.
     r.poke(0x2150, std::vector<uint8_t>{0, 0, 0x00, 0x04, 0}); // 1,024 paragraphs
     CHECK_EQ(gcall(r, MC_ALLOC, 0x2150), std::string("00 00"));
     CHECK_EQ(r.phys(0x2151), 0x10); // M_BASE $1000: block 4
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF12000000FEFF00000004001C"));
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF12000000F2FF00000004001C"));
     CHECK_EQ(gcall(r, MC_FREE, 0x2150), std::string("00 00"));
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000FEFF00000004001C"));
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000F2FF00000004001C"));
     // Refusals: an operation that isn't one; a block needed and not given.
     CHECK_EQ(f83op(r, DM_OPS), std::string("FF FF"));
     CHECK_EQ(f83op(r, DM_COPY), std::string("FF FF"));
@@ -228,9 +236,10 @@ TEST(w1_holds_a_video_or_allocated_block_across_bdos_calls_interrupts_and_hooks)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    // Aperture slot 1 on the program's card bank 16 and its window, block 33, in W1: the CPU's writes land in
-    // the card's memory at $040000, and W1 is kept across function 9.
-    vset2(r, V_SLOT0 + 2, 16);
+    // The cold boot (which ends in the warm boot) leaves aperture slot 1 on the program's first card bank, 16
+    // (review F2): its window, block 33, in W1, the CPU's writes land in the card's memory at $040000, never in
+    // OODOS's part; and W1 is kept across function 9.
+    CHECK_EQ(vreg2(r, V_SLOT0 + 2), 16u);
     CHECK_EQ(command(r, 'M', "M", {33}), std::string("21 00"));
     CHECK_EQ(command(r, 'P', "P", {0, 0x5A}), std::string("00 00"));
     CHECK(cmem(r, 0x040000, 256) == std::vector<uint8_t>(256, 0x5A));
@@ -276,13 +285,14 @@ TEST(w1_holds_a_video_or_allocated_block_across_bdos_calls_interrupts_and_hooks)
     CHECK_EQ(command(r, 'M', "M", {4}), std::string("04 00"));
     CHECK_EQ(command(r, 'P', "P", {0, 0xC3}), std::string("00 00"));
     CHECK(mem(r, 4 * BLOCK, 256) == std::vector<uint8_t>(256, 0xC3));
-    // The warm boot puts block 1 back, and the slots on banks 0-3 as /RESET leaves them: the next program
-    // finds them there.
+    // The warm boot puts block 1 back, and the slots on banks 0, 16, 2 and 3 (slot 1 on the program's first
+    // bank, review F2): the next program finds them there.
+    vset2(r, V_SLOT0 + 2, 1); // (as a program that broke the contract would leave it: OODOS's bank 1)
     wboot(r);
     open(r, "X");
     CHECK_EQ(command(r, 'V', "V"), std::string("01 00"));
     for (unsigned n = 0; n < 4; ++n)
-        CHECK_EQ(vreg2(r, static_cast<uint8_t>(V_SLOT0 + 2 * n)), n);
+        CHECK_EQ(vreg2(r, static_cast<uint8_t>(V_SLOT0 + 2 * n)), n == 1 ? 16u : n);
 }
 
 TEST(a_function_33_into_4000_lands_in_the_block_w1_holds)
@@ -300,11 +310,11 @@ TEST(a_function_33_into_4000_lands_in_the_block_w1_holds)
     fcb[33] = 5; // record 5
     r.poke(0x2140, fcb);
     CHECK_EQ(command(r, 'O', "O"), std::string("00 00"));
-    vset2(r, V_SLOT0 + 4, 20); // slot 2 on card bank 20 ($050000)
-    CHECK_EQ(command(r, 'M', "M", {34}), std::string("22 00"));
+    vset2(r, V_SLOT0 + 2, 20); // slot 1 on the program's card bank 20 ($050000), as GX_VMAP sets it
+    CHECK_EQ(command(r, 'M', "M", {33}), std::string("21 00"));
     CHECK_EQ(command(r, 'R', "R"), std::string("00 00"));
     CHECK(cmem(r, 0x050000, 128) == std::vector<uint8_t>(data.begin() + 5 * 128, data.begin() + 6 * 128));
-    CHECK_EQ(command(r, 'V', "V"), std::string("22 00"));
+    CHECK_EQ(command(r, 'V', "V"), std::string("21 00"));
 }
 
 TEST(dm_copy_and_dm_fill_move_60_kb_byte_for_byte_and_lose_no_tick)
@@ -355,6 +365,20 @@ TEST(dm_copy_and_dm_fill_move_60_kb_byte_for_byte_and_lose_no_tick)
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x83400), w2(16)})), std::string("FF FF")); // unit 13: slot 0's still
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x83FF0), w2(32)})), std::string("FF FF")); // from slot 0 into 1
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x84000), w2(16)})), std::string("00 00")); // slot 1's window
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x84000), w2(0x4000)})), std::string("00 00")); //   all of it
+    // Slots 2 and 3's windows, $88000-$8FFFF, show OODOS's card banks 2 and 3 (review F2): refused, nothing
+    // written there.
+    const std::vector<uint8_t> banks23 = cmem(r, 0x008000, 0x8000);
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x88000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x8C000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x87FF0), w2(32)})), std::string("FF FF")); // from slot 1 into 2
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x84000), w2(0x4001)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x8FFF0), w2(32)})), std::string("FF FF")); // from slot 3 on
+    CHECK_EQ(f83(r, cat({{DM_FILL, 0xE7}, a3(0x88000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_FILL, 0xE7}, a3(0x8C000), w2(1)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_FILL, 0xE7}, a3(0x8BFFF), w2(1)})), std::string("FF FF"));
+    CHECK(cmem(r, 0x008000, 0x8000) == banks23);
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x90000), w2(16)})), std::string("00 00")); // bank 9: RAM
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x7C000), w2(16)})), std::string("FF FF")); // block 31
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0xF0000), a3(0x90000), w2(16)})), std::string("FF FF")); // from block 60
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0xBFF00), w2(0x100)})), std::string("00 00")); // to bank B's end
@@ -416,6 +440,16 @@ TEST(the_card_operations_move_bytes_through_the_port_and_the_slots_and_refuse_wh
     CHECK_EQ(vreg2(r, V_SLOT0 + 6), 51u);
     CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x0A4000), a3(0x0A3F00), w2(8192)})), std::string("00 00"));
     CHECK(cmem(r, 0x0A3F00, 8192) == std::vector<uint8_t>(src.begin() + 0x223, src.begin() + 0x223 + 8192));
+    // Up over itself, 5 bytes on, 3,000 bytes across a 2 KB piece (review F10): each byte copied forward, as
+    // DM_COPY is, so the first 5 repeat; checked byte for byte against a forward copy here.
+    {
+        cpoke(r, 0x0B0100, noise(3005, 11));
+        std::vector<uint8_t> want = cmem(r, 0x0B0000, 0x1000);
+        for (unsigned i = 0; i < 3000; ++i)
+            want[0x105 + i] = want[0x100 + i];
+        CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x0B0100), a3(0x0B0105), w2(3000)})), std::string("00 00"));
+        CHECK(cmem(r, 0x0B0000, 0x1000) == want);
+    }
     // The console's font copied into the program's card memory (as OOLIB's text does).
     CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x000400), a3(0x100000), w2(4096)})), std::string("00 00"));
     CHECK(cmem(r, 0x100000, 4096) == cmem(r, 0x000400, 4096));
@@ -434,12 +468,81 @@ TEST(the_card_operations_move_bytes_through_the_port_and_the_slots_and_refuse_wh
     CHECK_EQ(f83(r, cat({{DM_VFILL, 0}, a3(0x1C0000), w2(1)})), std::string("FF FF"));
     CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x040000), a3(0x000000), w2(16)})), std::string("FF FF"));
     CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x1FFFF0), a3(0x040000), w2(32)})), std::string("FF FF"));
+    // DM_VREAD's refusals: the physical destinations compared too, which is all a read could change (review
+    // F10); the card's $040000 set apart from them first, so a read that went ahead would show.
+    cpoke(r, 0x040000, std::vector<uint8_t>(32, 0x5D));
+    cpoke(r, 0x1FFFF0, std::vector<uint8_t>(16, 0x6E));
+    r.poke(0x30000, std::vector<uint8_t>(32, 0x00));
+    const std::vector<uint8_t> at30000 = mem(r, 0x30000, 32), at7c000 = mem(r, 0x7C000, 16),
+                               at88000 = mem(r, 0x88000, 16);
     CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x1FFFF0), a3(0x30000), w2(32)})), std::string("FF FF"));
     CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x040000), a3(0x80000), w2(16)})), std::string("FF FF"));
     CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x040000), a3(0x7C000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x040000), a3(0x88000), w2(16)})), std::string("FF FF")); // slot 2's window
+    CHECK(mem(r, 0x30000, 32) == at30000);
+    CHECK(mem(r, 0x7C000, 16) == at7c000);
+    CHECK(mem(r, 0x88000, 16) == at88000);
     CHECK(cat({cmem(r, 0x000000, 0x1400), cmem(r, 0x003400, 0x3CC00)}) == oodos);
     CHECK(cmem(r, 0x1C0000, 0x100) == std::vector<uint8_t>(apple.begin() + 0x100, apple.end()));
     CHECK_EQ(f83op(r, DM_VWRITE), std::string("FF FF")); // a block needed
+}
+
+TEST(a_card_transfer_that_doesnt_end_is_refused_and_the_next_goes_on)
+{
+    // Review F4: PORTGO stops channel 1 after 65,536 polls; the operation then answers $FF, not success. The
+    // card's DRQ taken away behind OODOS's back just before the channel starts, so the channel never ends.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    r.poke(0x10000, noise(16, 13));
+    cpoke(r, 0x050000, std::vector<uint8_t>(16, 0));
+    const uint16_t en = static_cast<uint16_t>(sym("PORTGO") + 6); // its LDA #DMA_ENABLE, after STA MODE, STX PCTL
+    bool hit = false;
+    r.watch = [&](uint16_t pc) {
+        if (!hit && pc == en && r.machine->bus().peek(pc) == 0xA9)
+        {
+            hit = true;
+            vset(r, V_PCTL, 0);
+        }
+    };
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x050000), w2(16)})), std::string("FF FF"));
+    r.watch = nullptr;
+    CHECK(hit);
+    CHECK(cmem(r, 0x050000, 16) == std::vector<uint8_t>(16, 0));
+    CHECK_EQ(vreg(r, V_PCTL), 0);
+    CHECK_EQ(r.machine->bus().peek(0xC417) & 1, 0); // channel 1 stopped
+    // The next goes on.
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x050000), w2(16)})), std::string("00 00"));
+    CHECK(cmem(r, 0x050000, 16) == mem(r, 0x10000, 16));
+}
+
+TEST(the_card_operations_are_refused_without_the_dma_controller)
+{
+    // Review F4: as DM_VBSET is. backplane.machine less its DMA controller (test_oodos_utils_rom's way): the
+    // card's sectors don't move, so the boot waits out SDIO's limits and L4TEST is put in memory, not loaded.
+    std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+    const size_t at = text.find("\ndma ");
+    REQUIRE(at != std::string::npos);
+    text.erase(at + 1, text.find('\n', at + 1) - at);
+    CcpRig r({}, text);
+    if (!r.ok && r.out.find("OODOS ") != std::string::npos)
+        r.ok = r.until("\r\nA>", ms(10000), r.out.size());
+    REQUIRE(r.ok);
+    REQUIRE(r.machine->bus().read(0xC47F) != 0x81); // DMA_ID: no controller answers
+    open(r, "X");
+    CHECK_EQ(f83op(r, DM_INFO), std::string("20 04")); // the card is there
+    r.poke(0x10000, noise(16, 17));
+    cpoke(r, 0x050000, std::vector<uint8_t>(16, 0));
+    const uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x050000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x050000), a3(0x30000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VFILL, 0x5A}, a3(0x050000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x060000), a3(0x050000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x050000, 16)), std::string("FF FF"));
+    const double secs = static_cast<double>(r.cpu->cycles() - c0) / HZ;
+    std::printf("  five refusals without the DMA controller: %.1f ms\n", secs * 1000);
+    CHECK(secs < 0.1); // refused at once, not after 65,536 polls of a channel that isn't there
+    CHECK(cmem(r, 0x050000, 16) == std::vector<uint8_t>(16, 0));
 }
 
 TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
@@ -725,6 +828,21 @@ TEST(the_pointer_follows_the_mouse_less_its_hotspot)
     vset2(r, V_SPRBASE, 0x1C00);
     r.run(ms(50));
     CHECK(cmem(r, 0x1C0000, 1024) == apple);
+    // SPRBASE on the program's last page, $1BFF (review F3): sprite 31's entry is in that page and written,
+    // sprite 63's is at $1C00F8, Apple II mode's, and never written: the entry's own address is checked.
+    vset2(r, V_SPRBASE, 0x1BFF);
+    cpoke(r, 0x1BFF00 + 31 * 8, std::vector<uint8_t>(8, 0));
+    CHECK_EQ(f83(r, {DM_POINTER, 31, 0, 0}), std::string("00 00"));
+    r.run(ms(50));
+    CHECK_EQ(vid(r).card_peek(0x1BFF00 + 31 * 8 + 2) | vid(r).card_peek(0x1BFF00 + 31 * 8 + 3) << 8, 200u);
+    CHECK_EQ(vid(r).card_peek(0x1BFF00 + 31 * 8 + 4) | vid(r).card_peek(0x1BFF00 + 31 * 8 + 5) << 8, 100u);
+    CHECK_EQ(f83(r, {DM_POINTER, 63, 0, 0}), std::string("00 00"));
+    r.run(ms(50));
+    CHECK(cmem(r, 0x1C0000, 1024) == apple); // must fail if only SPRBASE's start is checked
+    // And a page past $FFFF: SPRBASE $FFFF, sprite 63's page wraps to 0, OODOS's palette: never written.
+    vset2(r, V_SPRBASE, 0xFFFF);
+    r.run(ms(50));
+    CHECK(cmem(r, 0x000000, 1024) == pal);
 }
 
 TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
@@ -759,8 +877,8 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg2(r, V_L0 + 7), 0u);
         CHECK_EQ(vreg(r, V_L0 + 9), 0);
         CHECK_EQ(vreg(r, V_L1), 0);
-        for (unsigned n = 0; n < 4; ++n)
-            CHECK_EQ(vreg2(r, static_cast<uint8_t>(V_SLOT0 + 2 * n)), n); // slot n on card bank n, as /RESET leaves it
+        for (unsigned n = 0; n < 4; ++n) // slot n on card bank n but slot 1, on the program's first (review F2)
+            CHECK_EQ(vreg2(r, static_cast<uint8_t>(V_SLOT0 + 2 * n)), n == 1 ? 16u : n);
         CHECK_EQ(vreg(r, V_PCTL), 0);
         CHECK_EQ(vreg(r, 0x04), 0x01);       // IEN: the vertical blank alone
         CHECK_EQ(sys(r, "VBON"), 0);
@@ -810,6 +928,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         REQUIRE(r.boot());
         CHECK_EQ(sys(r, "VBON"), 0); // booting again starts afresh
         CHECK_EQ(sys(r, "PTRON"), 0);
+        CHECK_EQ(vreg2(r, V_SLOT0 + 2), 16u); // the cold boot's slot 1: the program's first card bank
     }
     {
         // DM_CONSOLE: the console's screen now, the program going on.

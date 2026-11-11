@@ -279,16 +279,21 @@ SC_DOC          = $04                  ;   the ES5503 (revision 2)
 ; physical address is 3 bytes (function 73 makes one of a CPU address); a
 ; card address, in the video card's own memory (vmem.inc), 3 bytes too. A
 ; physical destination must be memory a DMA segment may reach (51) and not
-; aperture slot 0's window, $80000-$83FFF (the console's). A card
-; destination must be in the program's part, $040000-$1BFFFF; a card source
-; anywhere in the fitted memory. A = X = $FF for one that isn't, a block
-; needed and not given, or a refusal: nothing done. A length of 0 is 65,536.
+; an aperture window that shows OODOS's card memory: slot 0's, $80000-$83FFF
+; (the console's), nor slots 2 and 3's, $88000-$8FFFF; only slot 1's,
+; $84000-$87FFF, is the program's. A card destination must be in the
+; program's part, $040000-$1BFFFF; a card source anywhere in the fitted
+; memory; the card operations (4, 7-10) need the DMA controller. A = X = $FF
+; for one that isn't, a block needed and not given, or a refusal: nothing
+; done; and for a transfer through the card's port that didn't end, only
+; the pieces before it done. A length of 0 is 65,536.
 DM_INFO         = 0                    ; A = the card's memory in 64 KB units (0: no revision 2 card), X =
                                        ;   the slots (4); a block +1, +2 those, +3 the slots' budget in
                                        ;   256-byte pages (4), +4 the pointer's sprite ($FF off), +5-12 the
                                        ;   W1 map: bit n & 7 of byte n / 8 set for each block n that OOLIB
-                                       ;   may put in W1 now, +13-14 the program's first card page, +15-16
-                                       ;   the page past its last (0, 0 with no card)
+                                       ;   may put in W1 now (block 1, the program's allocated blocks, 33
+                                       ;   and 36-47; never 32, 34 or 35), +13-14 the program's first card
+                                       ;   page, +15-16 the page past its last (0, 0 with no card)
 DM_LOAD         = 1                    ; block: +1-2 an open FCB, +3-5 its first record, +6-7 a count of
                                        ;   records (1-512), +8-10 the destination (physical): A = 0; 1 the
                                        ;   file ended or a block was never written; else 33's error. +6-7
