@@ -46,6 +46,16 @@ namespace
         r.poke(at(name), static_cast<uint8_t>(v));
         r.poke(at(name) + 1u, static_cast<uint8_t>(v >> 8));
     }
+    /// GX_A or GX_C: a card address, 3 bytes.
+    void addr3(Rig &r, const char *name, uint32_t a)
+    {
+        for (unsigned i = 0; i < 3; ++i)
+            r.poke(at(name) + i, static_cast<uint8_t>(a >> (8 * i)));
+    }
+    uint32_t addr3(Rig &r, const char *name)
+    {
+        return r.phys(at(name)) | r.phys(at(name) + 1u) << 8 | static_cast<uint32_t>(r.phys(at(name) + 2u)) << 16;
+    }
     VideoCard &vid(Rig &r) { return *r.machine->video_card(); }
     uint8_t vreg(Rig &r, uint8_t off) { return vid(r).peek(off); }
     unsigned vreg2(Rig &r, uint8_t off) { return vreg(r, off) | vreg(r, static_cast<uint8_t>(off + 1)) << 8; }
@@ -764,6 +774,99 @@ namespace
         return gx(r, '@', 0x80, 0x3A);
     }
 } // namespace
+
+TEST(card_memory_put_got_copied_and_filled_through_function_83)
+{
+    // Review F8: GX_VADDR, GX_VPUT, GX_VGET, GX_VCOPY and GX_VFILL (vmem.inc), unaligned and across a 16 KB
+    // bank; GX_A kept; a length of 0 nothing; OODOS's part and Apple II mode's refused with nothing written.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_gx(r);
+    gx(r, 'I');
+    CHECK_EQ(gx(r, 'd', 0x41, 0x05).substr(0, 5), std::string("41 05")); // A/X kept
+    CHECK_EQ(addr3(r, "GX_A"), 0x054100u);
+    const unsigned page = alloc(r, 192, 64); // 48 KB on 16 KB: three banks
+    CHECK(page >= PAGE0 && page % 64 == 0);
+    const uint32_t base = page * 256u, at_a = base + 0x3F00 + 0x83; // 300 bytes from $..3F83: over the bank's end
+    cpoke(r, base, std::vector<uint8_t>(0xC000, 0xEE));
+    std::vector<uint8_t> src(300);
+    for (size_t i = 0; i < src.size(); ++i)
+        src[i] = static_cast<uint8_t>(i * 7 + 3);
+    constexpr uint16_t SRC = 0x3A01, DST = 0x3C03; // the program's memory, past gxtest's, unaligned
+    r.poke(SRC, src);
+    // GX_VPUT: the program's bytes to the card, and not a byte either side.
+    addr3(r, "GX_A", at_a);
+    word(r, "GX_V", 300);
+    CHECK_EQ(gx(r, 'v', SRC & 0xFF, SRC >> 8).substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), at_a);
+    CHECK(cmem(r, at_a, 300) == src);
+    CHECK_EQ(card(r, at_a - 1), 0xEE);
+    CHECK_EQ(card(r, at_a + 300), 0xEE);
+    // GX_VGET: back to the program's memory.
+    r.poke(DST, std::vector<uint8_t>(302, 0x11));
+    CHECK_EQ(gx(r, 'g', DST & 0xFF, DST >> 8).substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), at_a);
+    std::vector<uint8_t> got(300);
+    for (unsigned i = 0; i < 300; ++i)
+        got[i] = r.phys(DST + i);
+    CHECK(got == src);
+    CHECK_EQ(r.phys(DST + 300u), 0x11);
+    // GX_VCOPY: card to card, the destination over the third bank's start.
+    const uint32_t to = base + 0x7FC1;
+    addr3(r, "GX_C", to);
+    CHECK_EQ(gx(r, 'k').substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), at_a);
+    CHECK(cmem(r, to, 300) == src);
+    CHECK_EQ(card(r, to + 300), 0xEE);
+    // GX_VFILL: 1,000 bytes of $C3 over the boundary.
+    const uint32_t fill = base + 0x3E05;
+    addr3(r, "GX_A", fill);
+    word(r, "GX_V", 1000);
+    CHECK_EQ(gx(r, 'f', 0xC3).substr(6), std::string("00"));
+    CHECK_EQ(addr3(r, "GX_A"), fill);
+    CHECK(cmem(r, fill, 1000) == std::vector<uint8_t>(1000, 0xC3));
+    CHECK_EQ(card(r, fill - 1), 0xEE);
+    CHECK_EQ(card(r, fill + 1000), 0xEE);
+    // A length of 0: nothing, carry clear (never function 83's 65,536).
+    const std::vector<uint8_t> before = cmem(r, base, 0xC000);
+    addr3(r, "GX_A", base);
+    addr3(r, "GX_C", base + 0x100);
+    word(r, "GX_V", 0);
+    r.poke(DST, std::vector<uint8_t>(16, 0x22));
+    for (const char c : {'v', 'g', 'k', 'f'})
+    {
+        const uint8_t a = c == 'f' ? uint8_t{0x99} : static_cast<uint8_t>(DST), x = c == 'f' ? uint8_t{0} : static_cast<uint8_t>(DST >> 8);
+        CHECK_EQ(gx(r, c, a, x).substr(6), std::string("00"));
+        CHECK_EQ(addr3(r, "GX_A"), base);
+    }
+    CHECK(cmem(r, base, 0xC000) == before);
+    CHECK_EQ(r.phys(DST), 0x22);
+    // Refused (GE_DMA, carry set), nothing written: OODOS's part, Apple II mode's, and a run into it.
+    word(r, "GX_V", 64);
+    for (const uint32_t bad : {0x000100u, 0x03FFF0u, 0x1C0000u, 0x1BFFF0u})
+    {
+        const std::vector<uint8_t> was = cmem(r, bad, 64);
+        addr3(r, "GX_A", bad);
+        std::string a = gx(r, 'v', SRC & 0xFF, SRC >> 8);
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("04 01"));
+        CHECK_EQ(addr3(r, "GX_A"), bad);
+        a = gx(r, 'f', 0x55);
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("04 01"));
+        addr3(r, "GX_A", base); // a good source, the bad destination
+        addr3(r, "GX_C", bad);
+        a = gx(r, 'k');
+        CHECK_EQ(a.substr(0, 2) + a.substr(5), std::string("04 01"));
+        if (cmem(r, bad, 64) != was)
+            std::printf("  card $%06X written\n", bad);
+        CHECK(cmem(r, bad, 64) == was);
+    }
+    // But a source anywhere in the fitted memory: OODOS's font back to the program.
+    addr3(r, "GX_A", 0x000400);
+    word(r, "GX_V", 16);
+    CHECK_EQ(gx(r, 'g', DST & 0xFF, DST >> 8).substr(6), std::string("00"));
+    for (unsigned i = 0; i < 16; ++i)
+        CHECK_EQ(r.phys(DST + i), card(r, 0x000400 + i));
+}
 
 TEST(an_asset_s_header_is_checked_and_what_it_took_is_freed)
 {
