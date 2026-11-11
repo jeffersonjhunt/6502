@@ -112,7 +112,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 |---|---|---|
 | `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again |
 | `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29. Any key goes back to the monitor |
-| `$C806` | Apple II mode | Copies the IIe ROM from the cartridge and enters the mode ([chapter 13](13-apple-ii-mode.md)). Only a hard reset comes back |
+| `$C806` | Apple II mode | Copies the IIe ROM from the cartridge and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
