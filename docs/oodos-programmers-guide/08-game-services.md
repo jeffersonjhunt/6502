@@ -799,6 +799,10 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 
 - **A program** links the library as before, to the byte. ld65 takes a zero page module with the code that names
   it, and `lib/zpNAME.s` is in `oolib.lib` right after `NAME`, so the program's zero page is laid out as it was.
+- **Where it goes** (*proposed*): while the library draws, block 33 is in W1, so an overlay linked with the
+  library's graphics modules is loaded outside `$4000–$7FFF`, as the program's code and data are (the W1 contract).
+  The build checks a program linked with the library for that (`oodos/tools/w1.py`), but not an overlay, which has
+  no address until function 59 relocates it, nor a buffer the program puts at a fixed address.
 - **An overlay** is linked with its caller's addresses for those names, so ld65 doesn't take the zero page modules,
   and the overlay's zero page size is 0. `oodos/tools/libzp.py names` writes the addresses as a module, from the
   caller's map (ld65's `-m`). Assemble it, and link it before `oolib.lib` in each of the three links that make a

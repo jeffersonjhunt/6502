@@ -431,6 +431,18 @@ def w1_checks(tmp):
                "make %s (%s) with BSS across $4000 fails: %s" % (name, users, said[:1]))
         else:
             ok(r.returncode == 0 and os.path.exists(out), "make %s (%s) below $4000 links: %s" % (name, users, said[:1]))
+    # A map whose segment list has no rows checked nothing, and fails (round 2's W6); so does one with no list.
+    good = open(os.path.join(tmp, "build", "w1low.map")).read()
+    head = good.index("Segment list:")
+    rows = good.index("\n\n", head)
+    lines = good[head:rows].splitlines()
+    for what, text in (("no rows", good[:head] + "\n".join(lines[:4]) + good[rows:]),
+                       ("no list", good[:head] + good[rows:])):
+        path = os.path.join(tmp, "w1doctored.map")
+        with open(path, "w") as f:
+            f.write(text)
+        r = run(sys.executable, "-I", "tools/w1.py", path)
+        ok(r.returncode == 1 and "no segments" in r.stderr, "w1.py on a map with %s fails: %s" % (what, r.stderr.strip()))
 
 
 def run_checks(hello, tmp):
