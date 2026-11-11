@@ -10,7 +10,9 @@
 #include "splash_rom.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
 
 namespace ooe::emu
 {
@@ -142,6 +144,78 @@ namespace ooe::emu
             return;
         offset &= APERTURE_SIZE - 1;
         card_poke(uint32_t{slot_[offset / SLOT_SIZE]} * SLOT_SIZE + offset % SLOT_SIZE, data);
+    }
+
+    namespace
+    {
+        /// Hex, `$` optional, at most `digits` of them.
+        bool parse_hex(std::string s, unsigned digits, uint32_t &value)
+        {
+            if (!s.empty() && s[0] == '$')
+                s.erase(0, 1);
+            if (s.empty() || s.size() > digits)
+                return false;
+            for (const char c : s)
+                if (!std::isxdigit(static_cast<unsigned char>(c)))
+                    return false;
+            value = static_cast<uint32_t>(std::strtoul(s.c_str(), nullptr, 16));
+            return true;
+        }
+    } // namespace
+
+    std::string VideoCard::command(const std::vector<std::string> &args)
+    {
+        const char *usage = "vram ADDR [N] | vram ADDR = BYTE...: card memory, ADDR 24-bit hex, N decimal (1-4096)\n";
+        if (rev_ != 2)
+            return "no card memory: a revision 1 card draws from banks 8-B (f and st reach them)\n";
+        uint32_t addr = 0;
+        if (args.empty() || !parse_hex(args[0], 6, addr))
+            return usage;
+        unsigned count = 16;
+        if (args.size() >= 2 && args[1] == "=")
+        {
+            if (args.size() == 2)
+                return usage;
+            std::vector<uint8_t> bytes;
+            for (size_t i = 2; i < args.size(); ++i)
+            {
+                uint32_t v = 0;
+                if (!parse_hex(args[i], 2, v))
+                    return "bad byte '" + args[i] + "'\n";
+                bytes.push_back(static_cast<uint8_t>(v));
+            }
+            for (size_t i = 0; i < bytes.size(); ++i)
+                card_poke((addr + static_cast<uint32_t>(i)) & 0xFFFFFF, bytes[i]);
+            count = static_cast<unsigned>(bytes.size());
+        }
+        else if (args.size() == 2)
+        {
+            char *end = nullptr;
+            const unsigned long n = std::strtoul(args[1].c_str(), &end, 10);
+            if (args[1].empty() || *end != '\0' || n == 0 || n > 4096)
+                return usage;
+            count = static_cast<unsigned>(n);
+        }
+        else if (args.size() > 2)
+            return usage;
+        std::string out;
+        for (unsigned row = 0; row < count; row += 16)
+        {
+            const uint32_t at = (addr + row) & 0xFFFFFF;
+            std::string hex, text;
+            for (unsigned i = 0; i < 16 && row + i < count; ++i)
+            {
+                const uint8_t v = card_peek((at + i) & 0xFFFFFF);
+                char b[4];
+                std::snprintf(b, sizeof b, "%02X ", v);
+                hex += b;
+                text += std::isprint(v) ? static_cast<char>(v) : '.';
+            }
+            char line[96];
+            std::snprintf(line, sizeof line, "%06X  %-48s %s\n", static_cast<unsigned>(at), hex.c_str(), text.c_str());
+            out += line;
+        }
+        return out;
     }
 
     void VideoCard::port_step()

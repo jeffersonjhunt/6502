@@ -16,15 +16,15 @@
  *   layer n at $10 + n x $10:  +0 CONFIG  +1 MAPBASE  +2 TILEBASE
  *                              +3-4 HSCROLL  +5-6 VSCROLL  +7 PALOFS
  *
- * Memory, revision 1 (the default for now; set_revision()). The card draws
+ * Memory, revision 1 (kept for comparison; set_revision(1), or `rev=1`). The card draws
  * from banks 8-B ($80000-$BFFFF), which on the board it keeps a copy of by
  * snooping every write to them. A copy that sees every write is the same as
  * the RAM, so the emulator reads the RAM (attach()), with no bus cycles:
  * CPU, DMA and front-panel writes all show. Bases are in 1 KB units of that
  * 256 KB, and addresses wrap within it.
  *
- * Revision 2 (hw/video-rev2.md, proposed; set_revision(2), or `rev=2` on the
- * machine line): the card owns 2 MB of card memory and snoops nothing in
+ * Revision 2 (hw/video-rev2.md, proposed; backplane.machine's `rev=2`, or
+ * set_revision(2)): the card owns 2 MB of card memory and snoops nothing in
  * native mode. Registers ($C480 + offset; Rev2 names the moved ones):
  *
  *   $00 CTRL  $01 BORDER  $04 IEN  $05 ISR  $06-$07 LINE  $08 STATUS  $09 SPLASH
@@ -227,6 +227,12 @@ namespace ooe::emu
             if (addr < memory_.size())
                 memory_[addr] = data;
         }
+        /// The debugger's `vram` (hw/video-rev2.md, "Emulator changes"): card memory without bus cycles, the
+        /// port's registers untouched. `ADDR [N]` shows N bytes (decimal, default 16, up to 4096) from a 24-bit
+        /// hex address; `ADDR = BYTE...` writes the bytes there and shows them. Past what is fitted reads $FF and
+        /// ignores writes, as the card does. Revision 1 has no card memory: it says so.
+        /// @return the text to show, each line ending in '\n'
+        std::string command(const std::vector<std::string> &args);
         /// The aperture's byte at `offset` (0-$FFFF): slot offset / 16 KB. Revision 2; ignored in Apple II mode.
         uint8_t aperture_peek(uint32_t offset) const;
         void aperture_write(uint32_t offset, uint8_t data);
