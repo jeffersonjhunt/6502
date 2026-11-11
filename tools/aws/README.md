@@ -47,6 +47,16 @@ Spot needs EC2's service-linked role, made once for the account with the admin p
 **Looking in:** Session Manager (`aws ssm start-session --target i-...`), with the admin profile; there
 is no SSH key and no inbound port.
 
+**Its metrics:** the CloudWatch agent puts memory (`mem_used_percent`, `mem_used`, `mem_available`), the
+disk (`disk_used_percent`) and CPU (`cpu_usage_active`) each minute in the namespace `builder`, by
+`InstanceId` and `run`; they stay in CloudWatch 15 days at that resolution. A run's memory, for one:
+
+```
+aws cloudwatch get-metric-statistics --namespace builder --metric-name mem_used_percent \
+  --dimensions Name=InstanceId,Value=i-... Name=run,Value=RUN \
+  --start-time ... --end-time ... --period 60 --statistics Maximum --output table
+```
+
 ## Cost
 
 c8a.4xlarge (AMD EPYC Turin, 16 cores without SMT, 32 GB): $0.86 an hour on-demand in us-east-1, about

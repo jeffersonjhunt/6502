@@ -64,6 +64,11 @@ Resources:
                 Effect: Allow
                 Action: [s3:PutObject, s3:PutObjectTagging]
                 Resource: !Sub ["arn:aws:s3:::${B}/oo1/runs/*", { B: !ImportValue builder-bucket }]
+              - Sid: ItsMetricsInTheBuilderNamespace # the CloudWatch agent: memory, disk and CPU each minute
+                Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition: { StringEquals: { "cloudwatch:namespace": builder } }
               - Sid: TheBucketsKey
                 Effect: Allow
                 Action: [kms:Decrypt, kms:GenerateDataKey]
@@ -153,6 +158,21 @@ Resources:
               }
               say "start: run $run, $(curl -sf -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/instance-type), image $image, tier $tier, $(nproc) CPUs"
               dnf install -y -q docker zstd tar >/dev/null && systemctl start docker || finish "error: docker"
+              # The CloudWatch agent: memory, the disk and CPU each minute, in the namespace builder, by
+              # InstanceId and run (EC2 itself reports CPU only, every 5 minutes). Not needed for the run.
+              mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+              cat >/opt/aws/amazon-cloudwatch-agent/etc/builder.json <<EOF
+              {"agent": {"metrics_collection_interval": 60},
+               "metrics": {"namespace": "builder", "append_dimensions": {"InstanceId": "\${!aws:InstanceId}"},
+                "metrics_collected": {
+                 "mem": {"measurement": ["used_percent", "used", "available"], "append_dimensions": {"run": "$run"}},
+                 "disk": {"measurement": ["used_percent"], "resources": ["/"], "append_dimensions": {"run": "$run"}},
+                 "cpu": {"measurement": ["usage_active"], "totalcpu": true, "append_dimensions": {"run": "$run"}}}}}
+              EOF
+              { dnf install -y -q amazon-cloudwatch-agent >/dev/null &&
+                  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+                      -c file:/opt/aws/amazon-cloudwatch-agent/etc/builder.json >/dev/null; } &&
+                  say "cloudwatch agent: namespace builder, run $run" || say "cloudwatch agent: not started (the run goes on)"
               aws s3 cp "s3://${Bucket}/$src" - | tar -C /work/6502 -xzf - || finish "error: the source"
               fx=/work/6502/emulator/test/host/fixtures
               id=$(aws s3 cp "s3://${Bucket}/oo1/fixtures/current" -) || finish "error: no fixtures"
