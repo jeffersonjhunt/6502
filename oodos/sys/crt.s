@@ -354,20 +354,20 @@ CRTREGS:        BIT     CVOK
 CRTREG0:        LDA     CLOCKS         ; the card: its interrupts but the frame counter's
                 AND     #CLK_FRAME     ; (irq.s: none before cold boot starts it) off,
                 STA     VIDEO_IEN      ; layer 0, text, unscrolled
-                STZ     VIDEO_PALBASE
-                STZ     VIDEO_SPRBASE
+                STZ     VIDEO_PALBASE_R1
+                STZ     VIDEO_SPRBASE_R1
                 STZ     VIDEO_BORDER
                 LDA     #VIDEO_TEXT80B
                 STA     VIDEO_L0_CONFIG
                 LDA     #TEXT_UNIT
-                STA     VIDEO_L0_MAP
+                STA     VIDEO_L0_MAP_R1
                 LDA     #FONT_UNIT
-                STA     VIDEO_L0_TILE
-                STZ     VIDEO_L0_HSCROLL
-                STZ     VIDEO_L0_HSCROLL + 1
-                STZ     VIDEO_L0_VSCROLL
-                STZ     VIDEO_L0_VSCROLL + 1
-                STZ     VIDEO_L0_PALOFS
+                STA     VIDEO_L0_TILE_R1
+                STZ     VIDEO_L0_HSCROLL_R1
+                STZ     VIDEO_L0_HSCROLL_R1 + 1
+                STZ     VIDEO_L0_VSCROLL_R1
+                STZ     VIDEO_L0_VSCROLL_R1 + 1
+                STZ     VIDEO_L0_PALOFS_R1
                 STZ     VIDEO_L1_CONFIG
                 LDA     #VIDEO_ON_L0
                 STA     VIDEO_CTRL
