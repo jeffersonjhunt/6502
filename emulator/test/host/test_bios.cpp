@@ -1123,18 +1123,24 @@ TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
 
 TEST(on_a_revision_1_card_the_demo_goes_straight_back_to_the_monitor)
 {
-    // The demo is revision 2's: on revision 1 it writes nothing to the card, and the monitor's screen stays.
+    // The demo is revision 2's: on revision 1 it changes nothing on the card (whether the BIOS's C803 lets it start
+    // or not), and the monitor carries on.
     Board b;
     REQUIRE(b.ok());
     REQUIRE(b.machine->video_card()->revision() == 1);
-    b.reset();
-    b.run(BOOT);
+    REQUIRE(boot_past_splash(b));                // so Break's end of the splash isn't taken for the demo's doing
+    const VideoCard *card = b.machine->video_card();
+    auto registers = [&] {
+        std::string r; // all but what the beam changes
+        for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+            if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+                r += static_cast<char>(card->peek(o));
+        return r;
+    };
+    const std::string before = registers();
     const std::string out = b.run(BOOT, "C803R\r");
     CHECK(has(out, "C803: 4C\\"));
-    const VideoCard *card = b.machine->video_card();
-    CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
-    const uint8_t l0 = VideoCard::LAYER0;
-    CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
+    CHECK(registers() == before);
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK_EQ(b.bridge().window(2), 0x02);
     CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
