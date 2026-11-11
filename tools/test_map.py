@@ -108,7 +108,8 @@ def stem(word):
 
 def named_for(tests, name):
     """The CTest entries of the suite named `name`: those whose command runs test/host's `name` binary or script."""
-    return {t for t, (_, cmd) in tests.items() if any(stem(w) == name for w in cmd)}
+    # ctest leaves out a command whose binary isn't built yet: such an entry is the suite by its own name.
+    return {t for t, (_, cmd) in tests.items() if any(stem(w) == name for w in cmd) or (not cmd and t == name)}
 
 
 def resolve(tests, path, labels):

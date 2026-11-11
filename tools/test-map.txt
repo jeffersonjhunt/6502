@@ -92,6 +92,7 @@ emulator/test/host/disk2_rig.h                  disk2
 emulator/test/host/sd_images.h                  sd web
 emulator/test/host/check_split.py               split
 emulator/test/host/sid_known_failures.txt       test_sid_corpus
+emulator/test/host/golden/ooui.txt              test_oodos_ui
 emulator/test/host/sd/                          sd oodos web
 emulator/test/host/mp3/                         sound web
 emulator/test/host/sound/                       test_sound_driver

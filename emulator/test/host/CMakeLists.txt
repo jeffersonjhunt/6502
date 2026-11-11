@@ -759,6 +759,7 @@ set(EMU_TEST_LABELS
     test_oodos_video            "oodos bios sd video dma backplane"
     test_oodos_load             "oodos bios sd dma sound backplane"
     test_oodos_gfx              "oodos bios sd video dma backplane"
+    test_oodos_ui               "oodos bios sd video dma usb backplane"
     test_oodos_pb               "oodos bios sd sound dma backplane"
     test_oodos_mu               "oodos bios sd sound sid backplane"
     test_oodos_c                "oodos bios sd backplane"
