@@ -167,7 +167,7 @@ async function builtInBios(page: Page): Promise<Buffer> {
 test("a BIOS of your own: the machine restarts on it, it is kept, and Use built-in goes back", async ({ page }) => {
   await booted(page);
   await openSettings(page);
-  await expect(page.getByTestId("bios-meta")).toHaveText("built-in 0.12 · or load your own build");
+  await expect(page.getByTestId("bios-meta")).toHaveText("built-in 0.13 · or load your own build");
   const rom = await builtInBios(page);
   const at = rom.indexOf("BACKPLANE BIOS 0.13") + "BACKPLANE BIOS ".length;
   rom.write("7.77", at, "latin1"); // a build of its own
