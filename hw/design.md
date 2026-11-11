@@ -129,7 +129,9 @@ gives the card memory of its own, so banks 8–B stop being video memory:
 | 8 | `$80000–$8FFFF` | the video card's aperture: four 16 KB slots onto card memory. No RAM is fitted here; the north bridge decodes the bank to the video card | unused (the card ignores it) |
 | 9–B | `$90000–$BFFFF` | user memory | unused |
 
-So the machine has 960 KB of RAM and the 64 KB aperture. With a revision 1 card the table above stands.
+So the machine has 960 KB of RAM and the 64 KB aperture. With a revision 1 card the table above stands, but BIOS
+0.13 and OODOS drive revision 2 alone. The emulator keeps RAM C's line over bank 8 and maps the aperture over it,
+so those 64 KB of RAM can't be reached while a revision 2 card is fitted ([Emulator](#emulator), step 10).
 
 ### Native mode: four windows of 16 KB ###
 
@@ -722,8 +724,13 @@ revisions apart; what isn't said here is as revision 1 has it, above.
 | `+$9` | PALOFS | as revision 1 |
 | `+$A`–`$F` | | reserved, read 0 |
 
-- **Past the end.** PADDR wraps at the fitted memory's end. Aperture and port addresses past MEMSIZE read `$FF` and
-  ignore writes.
+- **Past the end.** Inside the fitted memory PADDR steps modulo its size, up or down. Written at or past the fitted
+  end, it reads back as written and steps as a plain 24-bit counter, each PDATA access reading `$FF` or dropping
+  its write, until it wraps from `$FFFFFF` to `$000000` (settled by the owner, 2026-11-11). Aperture addresses past
+  MEMSIZE read `$FF` and ignore writes.
+- **A DMA cycle against PCTL's direction** (/DACK reading the port while bit 1 says to the card, or writing it
+  while bit 1 says from the card) moves nothing: a read gives `$FF`, a write is dropped, and PADDR doesn't step
+  (settled by the owner, 2026-11-11).
 - **/RESET** resets the registers and never touches card memory.
 - **Sprite entries** keep the 8-byte layout, but the image address is 15 bits in 256-byte units: byte 0 its bits
   7–0, byte 1 bits 6–0 its bits 14–8, byte 1 bit 7 the colour depth as before. Bytes 2–7 are unchanged.
@@ -1880,15 +1887,15 @@ The emulator ([emulator/](../emulator/)) can run this design before any hardware
    mirror. INTSTAT isn't modelled: `$C322` is still the 6551's mirror, so for now a handler tells the VIA by its
    IFR. In the WebUI gamepads drive the sticks, each keeping its stick until it goes, and keys too once Settings turns them on; the
    terminal app's debugger has `joy`.)*
-10. **Video card revision 2** ([above](#video-card-revision-2); proposed, 2026-11-10). `VideoCard` owns 2 MB
-    instead of attaching to banks 8–B, and draws from it with 24-bit bases; the aperture is a memory device for
-    bank 8 with the four slot registers, and `backplane.machine`'s RAM line for bank 8 changes to match; the port
-    (PADDR, PDATA, PSTEP, PCTL) has its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2.
-    Apple mode still reads banks 0–1 and takes the character ROM from card memory, and /RESET leaves card memory
-    alone. The new register map with ID `$92`, and a `set_revision` switch that keeps revision 1 for comparison
-    while the BIOS moves. A `vram` debugger command peeks and pokes card memory. The video and Apple suites move to
-    the new model; the BIOS screen's and the demo's golden frames are regenerated once and compared after the
-    migration.
+10. **Video card revision 2** ([above](#video-card-revision-2); proposed, 2026-11-10). *(Built: `VideoCard` owns
+    2 MB when it is revision 2 and draws from it with 24-bit bases; the `aperture` line, `80000-8FFFF`, is a memory
+    device with the four slot registers, mapped after every other line so that it answers over RAM C's bank 8,
+    whose `ram` line is unchanged, and inert with a revision 1 card or none; the port (PADDR, PDATA, PSTEP, PCTL) has
+    its DRQ on channel 1 (`drq=1`), as the sound card's RAMDATA is on channel 2. The `video` line's `rev=` (1 or 2,
+    1 if left out; `backplane.machine` has 2), or `MachineOptions::video_revision` over it, picks the revision,
+    fixed once the machine is built. Apple mode still reads banks 0–1 of the RAM, keeping no copy of them, and takes
+    the character ROM from card memory; /RESET leaves card memory alone. BIOS 0.13, OODOS (interface 8) and OOLIB
+    drive revision 2 alone. The plan's `vram` debugger command, to peek and poke card memory, is its own step.)*
 
 Each step can be checked against real software, the same way the Ben Eater programs checked the 6522 and 6551.
 

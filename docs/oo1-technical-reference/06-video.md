@@ -173,7 +173,7 @@ demo does: its 96 bytes take about 27 µs, at two cycles a byte ([chapter 5](05-
 tables and a SPRBASE write to flip between them also work, but SPRBASE is latched at line 480: written before it, the
 flip shows on the next frame; written in the vertical blank, a frame later.
 
-hw/design.md, "Video" ([`hw/design.md:554`](../../hw/design.md#video)), puts a copy of the whole 512-byte table at
+hw/design.md, "Video" ([`hw/design.md:556`](../../hw/design.md#video)), puts a copy of the whole 512-byte table at
 about 72 µs. The DMA controller takes two cycles a byte for a memory-to-memory copy
 (`emulator/components/devices/dma_controller.cpp:109–110`), so it is about 143 µs at 7.16 MHz.
 
@@ -216,7 +216,7 @@ CGA:            RGB     $0, $0, $0     ; black
                 RGB     $F, $F, $F     ; white
 ```
 
-hw/design.md, "Video registers" ([`hw/design.md:624–625`](../../hw/design.md#video-registers)), has the card copy
+hw/design.md, "Video registers" ([`hw/design.md:626–627`](../../hw/design.md#video-registers)), has the card copy
 the 512 bytes into its own RAM when PALBASE changes. The emulator reads them from video memory for every line
 instead (`emulator/components/devices/video_card.cpp:515–519`), which is what lets a DMA fade show with no PALBASE
 write.
@@ -437,9 +437,9 @@ back to ISR as 1s, which clears them; until it does, /IRQ stays low
 - In Apple II mode the registers can't be reached, and the /RESET that entered the mode cleared IEN, so the card
   never interrupts there.
 
-hw/design.md's register table ([`hw/design.md:604`](../../hw/design.md#video-registers)) says any pending ISR bit
+hw/design.md's register table ([`hw/design.md:606`](../../hw/design.md#video-registers)) says any pending ISR bit
 pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:252`), as the
-same section's later list says ([`hw/design.md:650`](../../hw/design.md#video-registers)).
+same section's later list says ([`hw/design.md:652`](../../hw/design.md#video-registers)).
 
 ## Revision 2: card memory
 
