@@ -159,9 +159,10 @@ W3 holds.
   reached through a borrow of W2 and put back byte for byte, from the same path as the USB card's; W1 is kept for
   the event area. OODOS's turning off of strays leaves those bits and channel 2 alone while they are its own.
 - **The vertical-blank copies and the pointer** (OOLIB L4): after the event area's counters, while a slot is set
-  or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1 (the CPU held
-  2 cycles a byte, 1 KB at most: inside the blank's 10,240 cycles, with the pointer and a stream, line 508 at
-  the latest under a USB batch and line 511 under 64 KB loads), then writes the pointer sprite's X and Y, before
+  or the pointer is on, the frame handler copies each slot whose bit the program set by DMA channel 1, through
+  video card revision 2's data port into card memory (*proposed*; the CPU held a cycle a byte, 1 KB at most: inside
+  the blank's 10,240 cycles, with the pointer and a stream, line 504 at the latest under a USB batch and line 502
+  under 64 KB loads), then writes the pointer sprite's X and Y the same way, before
   the sound part and the frame hook. It is in block 61, reached as the sound card's handler is; with nothing set it
   costs the frame 7 cycles, and with no event area nothing ([chapter 6](06-video.md#under-oodos)).
 - **What it costs:** a tick is 145 cycles through the dispatcher, 2% of the CPU; with a layout-2 area open, 234
