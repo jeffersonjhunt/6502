@@ -4,12 +4,13 @@
     tools/test_map.py check [--build DIR]          every path git tracks is mapped; the map's labels are real
     tools/test_map.py select --build DIR --out D [--] PATH...
                                                    the suites PATH... choose, for tools/check.sh changed
+    tools/test_map.py entries [--build DIR] SUITE...  each suite's CTest entries (a split suite has several)
 
 DIR is a configured CMake build of the emulator with its tests (default emulator/build/fast): the suites
 and their labels are read from it (ctest --show-only=json-v1). `select` prints which path chose which labels
 and which suites, and writes to D: suites (the CTest names chosen, one a line), sanitize (those of them
 that are the emulator's own: the label emu), steps (the steps beyond ctest: web,
-docs, oodos) and cxx (1 if a path is the emulator's C++ or its build, else 0). It fails on a path no rule
+docs, oodos, interop), labels and cxx (1 if a path is the emulator's C++ or its build, else 0). It fails on a path no rule
 maps, so a change can't go unexamined.
 """
 
@@ -26,8 +27,9 @@ SPECIAL = {"all", "self", "web", "none"}
 # The label that marks the emulator's own suites (CPU, bus, machine, devices), the only ones the sanitizers
 # run (hw/testing.md, item 4): a kind of suite, not a part, so no path chooses it.
 EMU = "emu"
-# The steps a label adds beyond its ctest suites.
-STEPS = {"web": "web", "docs": "docs", "oodos": "oodos"}
+# The steps a label adds beyond its ctest suites: interop (cpmtools reading the cards OODOS writes) for
+# OODOS and the SD card's code, the cards, make_card.sh, the diskdefs.
+STEPS = {"web": ["web"], "docs": ["docs"], "oodos": ["oodos", "interop"], "sd": ["interop"]}
 
 
 def die(msg):
@@ -211,7 +213,7 @@ def cmd_select(args):
         print(f"{len(unmapped)} path(s) not in {args.map}: add a rule for each", file=sys.stderr)
         return 1
     sanitize = sorted(t for t in chosen if EMU in tests[t][0]) if cxx else []
-    steps = sorted({STEPS[l] for l in labels if l in STEPS})
+    steps = sorted({step for l in labels if l in STEPS for step in STEPS[l]})
     print(f"labels: {' '.join(sorted(labels)) or '(none)'}")
     print(f"suites ({len(chosen)}): {' '.join(sorted(chosen)) or '(none)'}")
     if cxx:
@@ -220,12 +222,27 @@ def cmd_select(args):
         print("under the sanitizers: none (no path is the emulator's C++)")
     print(f"steps beyond ctest: {' '.join(steps) or '(none)'}")
     os.makedirs(args.out, exist_ok=True)
-    for name, items in (("suites", sorted(chosen)), ("sanitize", sanitize), ("steps", steps)):
+    for name, items in (("suites", sorted(chosen)), ("sanitize", sanitize), ("steps", steps),
+                        ("labels", sorted(labels))):
         with open(os.path.join(args.out, name), "w", encoding="utf-8") as f:
             f.write("".join(f"{i}\n" for i in items))
     with open(os.path.join(args.out, "cxx"), "w", encoding="utf-8") as f:
         f.write("1\n" if cxx else "0\n")
     return 0
+
+
+def cmd_entries(args):
+    """The CTest entries of each suite named: its own, or its split's parts and _cases."""
+    tests = suites(args.build)
+    bad = 0
+    for name in args.names:
+        got = named_for(tests, name) | ({name} if name in tests else set())
+        if not got:
+            print(f"tools/test_map.py: {name} is no suite in {args.build}", file=sys.stderr)
+            bad = 1
+        for t in sorted(got):
+            print(t)
+    return bad
 
 
 def main():
@@ -239,8 +256,11 @@ def main():
     s.add_argument("--build", default=os.path.join(REPO, "emulator", "build", "fast"))
     s.add_argument("--out", required=True)
     s.add_argument("paths", nargs="*")
+    e = sub.add_parser("entries")
+    e.add_argument("--build", default=os.path.join(REPO, "emulator", "build", "fast"))
+    e.add_argument("names", nargs="+")
     args = ap.parse_args()
-    return cmd_check(args) if args.cmd == "check" else cmd_select(args)
+    return {"check": cmd_check, "select": cmd_select, "entries": cmd_entries}[args.cmd](args)
 
 
 if __name__ == "__main__":

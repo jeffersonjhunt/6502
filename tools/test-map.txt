@@ -37,58 +37,67 @@ emulator/test/host/harness.h                    all
 emulator/test/host/test_support.h               all
 
 # --- the debugger and the bus trace ------------------------------------------------------------------
-emulator/components/debug/                      debug
+emulator/components/debug/                      debug web
 emulator/tools/trace_diff.py                    debug
 
 # --- the devices: one label each -----------------------------------------------------------------------
 # A part inside another chooses both (the RTC and Apple II mode's I/O are the bridge's, the DOC and the
 # SIDs the sound card's), and every card of machines/backplane.machine chooses `backplane` too: the suites
 # that build that machine run every card on it (its reset, its registers probed by the BIOS), so a change to
-# any card can break them. Coverage says so (tools/test_coverage.py).
-emulator/components/devices/*acia6551*          acia backplane
-emulator/components/devices/*apple_io*          iie bridge backplane
-emulator/components/devices/*backplane_bridge*  bridge backplane
-emulator/components/devices/*console_card*      console backplane
-emulator/components/devices/*disk2_card*        disk2 backplane
-emulator/components/devices/*disk_image*        disk2
-emulator/components/devices/*dma_controller*    dma backplane
-emulator/components/devices/*ds3231*            rtc bridge backplane
-emulator/components/devices/*es5503*            es5503 sound backplane
-emulator/components/devices/*fat_volume*        sd
-emulator/components/devices/*sd_card*           sd backplane
-emulator/components/devices/*sd_media*          sd
+# any card can break them. Coverage says so (tools/test_coverage.py). Each of those, and the files the
+# session runs a card's media or a tune through, chooses `web` too: they are all in oo1.wasm, which the page
+# runs, with the BIOS ROM and its labels, components/debug, backplane.machine and sd/demo.sparse
+# (apps/web/CMakeLists.txt, ui/scripts/copy-core.mjs).
+#
+# `docs` is chosen by everything docs/tools/check_docs.py reads besides the books: the BIOS sources (the
+# books list them byte for byte), OODOS (its utilities and the CCP's built-ins each have an entry; oodos.inc
+# and backplane.inc are held to the entries), the files the books link to, and the design record, the
+# READMEs and AGENTS.md, whose links into the books it checks.
+emulator/components/devices/*acia6551*          acia backplane web
+emulator/components/devices/*apple_io*          iie bridge backplane web docs
+emulator/components/devices/*backplane_bridge*  bridge backplane web
+emulator/components/devices/*console_card*      console backplane web
+emulator/components/devices/*disk2_card*        disk2 backplane web
+emulator/components/devices/*disk_image*        disk2 web
+emulator/components/devices/*dma_controller*    dma backplane web
+emulator/components/devices/*ds3231*            rtc bridge backplane web
+emulator/components/devices/*es5503*            es5503 sound backplane web
+emulator/components/devices/*fat_volume*        sd web
+emulator/components/devices/*sd_card*           sd backplane web
+emulator/components/devices/*sd_media*          sd web
 emulator/components/devices/*hd44780*           lcd
 emulator/components/devices/*ps2_keyboard*      lcd
-emulator/components/devices/*joystick_ports*    joy backplane
-emulator/components/devices/*minimp3*           sound backplane
+emulator/components/devices/*joystick_ports*    joy backplane web
+emulator/components/devices/*minimp3*           sound backplane web
 emulator/components/devices/*pia6821*           pia
-emulator/components/devices/*sid_file*          sid
-emulator/components/devices/*sid.*              sid sound backplane
-emulator/components/devices/*sound_card*        sound backplane
-emulator/components/devices/*sound_dsp*         sound backplane
-emulator/components/devices/*usb_card*          usb backplane
-emulator/components/devices/*via6522*           via backplane
-emulator/components/devices/*video_card*        video backplane
-emulator/components/devices/splash_rom.h        video bios backplane
-emulator/third_party/minimp3/                   sound backplane
+emulator/components/devices/*sid_file*          sid web
+emulator/components/devices/*sid.*              sid sound backplane web
+emulator/components/devices/*sound_card*        sound backplane web
+emulator/components/devices/*sound_dsp*         sound backplane web
+emulator/components/devices/*usb_card*          usb backplane web
+emulator/components/devices/*via6522*           via backplane web
+emulator/components/devices/*video_card*        video backplane web
+emulator/components/devices/splash_rom.h        video bios backplane web
+emulator/third_party/minimp3/                   sound backplane web
 emulator/licenses/                              none
 
 # --- the apps ----------------------------------------------------------------------------------------
-emulator/apps/emu/                              app
+emulator/apps/emu/                              app docs
 emulator/apps/sidcheck/                         none
-emulator/apps/web/                              web
+emulator/apps/web/                              web docs
 
 # --- the tests' own files -------------------------------------------------------------------------------
-emulator/test/host/oodos_rig.h                  oodos
+emulator/test/host/oodos_rig.h                  oodos docs
 emulator/test/host/disk2_rig.h                  disk2
 emulator/test/host/sd_images.h                  sd
 emulator/test/host/check_split.py               split
 emulator/test/host/sid_known_failures.txt       test_sid_corpus
-emulator/test/host/sd/                          sd oodos
+emulator/test/host/sd/                          sd oodos web
 emulator/test/host/mp3/                         sound
 emulator/test/host/sound/                       test_sound_driver
 emulator/test/host/fixtures/                    none
-emulator/test/host/README.md                    none
+emulator/test/host/README.md                    docs
+emulator/test/host/test_docs_examples.cpp       self docs
 emulator/test/host/test_*                       self
 emulator/tools/fetch_fixtures.py                test_fetch_fixtures
 emulator/tools/make_sd_images.sh                sd
@@ -97,25 +106,25 @@ emulator/tools/web_build.sh                     web
 emulator/tools/__pycache__/                     none
 
 # --- the emulator's prose and settings ---------------------------------------------------------------
-emulator/machines/apple1*                       apple1
-emulator/machines/eater*                        eater
+emulator/machines/apple1*                       apple1 docs
+emulator/machines/eater*                        eater docs
 emulator/machines/backplane.machine             all
-emulator/docs/                                  none
-emulator/README.md                              none
+emulator/docs/                                  docs
+emulator/README.md                              docs
 emulator/LICENSE                                none
 emulator/.clangd                                none
 emulator/.gitignore                             none
 
 # --- the machine's software: the BIOS, OODOS, the books ------------------------------------------------
-backplane/bios/backplane.inc                    bios oodos docs
-backplane/bios/apple.s                          bios apple
-backplane/bios/                                 bios
+backplane/bios/backplane.inc                    bios oodos docs web
+backplane/bios/apple.s                          bios apple docs web
+backplane/bios/                                 bios docs web
 backplane/README.md                             none
 oodos/include/                                  oodos docs
-oodos/lib/mudrv/                                oodos test_mudrv
+oodos/lib/mudrv/                                oodos test_mudrv docs
 oodos/spike/                                    none
-oodos/README.md                                 none
-oodos/                                          oodos
+oodos/README.md                                 docs
+oodos/                                          oodos docs
 docs/                                           docs
 apple1/README.md                                none
 apple1/                                         apple1
@@ -130,9 +139,9 @@ tools/test_map.py                               tools
 tools/test_coverage.py                          tools
 
 # --- prose, licenses and settings ----------------------------------------------------------------------
-hw/                                             none
-README.md                                       none
-AGENTS.md                                       none
+hw/                                             docs
+README.md                                       docs
+AGENTS.md                                       docs
 LICENSE                                         none
 env.default                                     none
 .devcontainer/                                  none
