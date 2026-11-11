@@ -275,12 +275,15 @@ namespace oodos_rig
         /// `apple_rom`: a IIe ROM image's path for the cartridge (none by default), as MachineOptions takes it.
         /// `machine_text`: a machine description in place of backplane.machine's (fewer cards, say).
         /// `disk2_sequencer`: the Disk II's sequencer PROM, the owner's, from the fixtures (none by default).
+        /// `video_revision`: the video card's, 2 by default: OODOS is built for revision 2 only
+        /// (hw/video-rev2.md); 1 where a test asks what OODOS does on the old card.
         explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"), std::vector<std::string> apple_rom = {},
-                     const std::string &machine_text = {}, const std::string &disk2_sequencer = {})
+                     const std::string &machine_text = {}, const std::string &disk2_sequencer = {},
+                     unsigned video_revision = 2)
         {
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
-            opt.video_revision = 2; // OODOS is built for video card revision 2 only (hw/video-rev2.md)
+            opt.video_revision = video_revision;
             opt.apple_rom = std::move(apple_rom);
             opt.disk2_sequencer = disk2_sequencer;
             std::string error;
@@ -716,8 +719,8 @@ namespace oodos_rig
             unsigned entry = 0, block = M_DIRBLOCKS; ///< M:'s last entry and next block put_m() used
 
             explicit CcpRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
-                            const std::string &disk2_sequencer = {})
-                : Rig(sd_image("oodos.sparse"), std::move(apple_rom), machine_text, disk2_sequencer)
+                            const std::string &disk2_sequencer = {}, unsigned video_revision = 2)
+                : Rig(sd_image("oodos.sparse"), std::move(apple_rom), machine_text, disk2_sequencer, video_revision)
             {
                 if (!ok)
                     return;

@@ -699,10 +699,10 @@ B_CLS:          JSR     CLEARSCR
 ; WOZMON and APPLE2 (ours, 2026-11-03): leave OODOS for the ROM BIOS by
 ; function 75, which writes back the changed buffers first. WOZMON clears
 ; the screen, then the Woz Monitor, as Break; it doesn't come back. APPLE2
-; restarts in Apple II mode if the cartridge holds a IIe ROM and the DMA
-; controller is there, and otherwise says which is missing (75's X: $FE no
-; DMA controller), the return code $FF00, and OODOS goes on. Their tails are
-; ignored.
+; restarts in Apple II mode if the revision 2 video card and the DMA
+; controller are there and the cartridge holds a IIe ROM, and otherwise says
+; which is missing (75's X: $FD no revision 2 card, $FE no DMA controller),
+; the return code $FF00, and OODOS goes on. Their tails are ignored.
 B_WOZMON:       JSR     BIENTER
                 JSR     CLEARSCR
                 LDA     #0             ; the monitor
@@ -712,7 +712,9 @@ B_WOZMON:       JSR     BIENTER
 B_APPLE2:       JSR     BIENTER
                 LDA     #1             ; Apple II mode
                 LDY     #O_ROM
-                JSR     BDOS           ; back only if there is no IIe ROM or no DMA controller
+                JSR     BDOS           ; back only if the card, the DMA controller or the IIe ROM is missing
+                CPX     #$FD
+                BEQ     @nocard
                 CPX     #$FE
                 BEQ     @nodma
                 LDA     #<NOIIE
@@ -720,6 +722,9 @@ B_APPLE2:       JSR     BIENTER
                 JMP     FAILSAY
 @nodma:         LDA     #<NODMA
                 LDX     #>NODMA
+                JMP     FAILSAY
+@nocard:        LDA     #<NOCARD
+                LDX     #>NOCARD
                 JMP     FAILSAY
 
 
@@ -1984,6 +1989,7 @@ SEP:            .byte   " : $"
 CLEARS:         .byte   27, 'E', '$'   ; ESC E: the screen's clear
 NOIIE:          .byte   "No IIe ROM in the cartridge (the emulator: Settings, ROMs)$"
 NODMA:          .byte   "Apple II mode needs the DMA controller$"
+NOCARD:         .byte   "Apple II mode needs the revision 2 video card$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 NOMEM:          .byte   "Insufficient Memory$"

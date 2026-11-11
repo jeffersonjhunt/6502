@@ -16,7 +16,12 @@
  *   - with the IIe ROM but no DMA controller (backplane.machine less its
  *     `dma` line): APPLE2 says so and OODOS goes on, and a program's
  *     function 75 comes back with A = $FF, X = $FE, where with no IIe ROM
- *     it's X = $FF; the ROM's APPLE would have gone to its monitor.
+ *     it's X = $FF; the ROM's APPLE would have gone to its monitor;
+ *   - with the IIe ROM and the DMA controller but a revision 1 video card, or
+ *     none (backplane.machine less its `video` and `aperture` lines): APPLE2
+ *     says the revision 2 card is needed and OODOS goes on, function 75 comes
+ *     back with A = $FF, X = $FD (review R1: the ROM's APPLE refuses there too,
+ *     into its monitor). OODOS boots on both.
  */
 
 #include "harness.h"
@@ -38,8 +43,9 @@ namespace
     /// The CCP's rig, and the north bridge's registers.
     struct RomRig : CcpRig
     {
-        explicit RomRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {})
-            : CcpRig(std::move(apple_rom), machine_text)
+        explicit RomRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
+                        unsigned video_revision = 2)
+            : CcpRig(std::move(apple_rom), machine_text, {}, video_revision)
         {
             // Without the DMA controller the card's sectors don't move and each one waits out SDIO's time
             // limit, so the boot takes longer than CcpRig's 3 s: its prompt, given longer.
@@ -76,6 +82,20 @@ namespace
         if (at == std::string::npos)
             return {};
         text.erase(at + 1, text.find('\n', at + 1) - at);
+        return text;
+    }
+
+    /// backplane.machine without its video card (the card's line and its aperture's).
+    std::string no_video_machine()
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        for (const char *line : {"\nvideo ", "\naperture "})
+        {
+            const size_t at = text.find(line);
+            if (at == std::string::npos)
+                return {};
+            text.erase(at + 1, text.find('\n', at + 1) - at);
+        }
         return text;
     }
 
@@ -186,6 +206,40 @@ TEST(function_75_without_a_iie_rom_returns_ff_ff)
     r.poke_com(romtest());
     CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
     CHECK(!r.bridge().apple());
+}
+
+// Review R1: the ROM's APPLE refuses without the revision 2 video card, before its DMA and IIe ROM checks,
+// into its monitor; function 75 looks first, so a refusal comes back to OODOS. The IIe ROM and the DMA
+// controller are there, so only the card's check can refuse.
+TEST(apple2_on_a_revision_1_video_card_says_so_and_oodos_goes_on)
+{
+    RomRig r({stand_in_rom()}, {}, 1);
+    REQUIRE(r.ok);
+    REQUIRE(r.machine->bus().read(0xC4FF) == 0x91);         // VIDEO_ID: revision 1
+    const std::string o = r.cmd("APPLE2");
+    CHECK(o.find("\r\nApple II mode needs the revision 2 video card\r\nA>") != std::string::npos);
+    CHECK(o.find("No IIe ROM") == std::string::npos);
+    CHECK(!r.bridge().apple());
+    CHECK(r.cmd(":APPLE2").find("video card") == std::string::npos); // the return code: a failure
+    CHECK(r.cmd("APPLE2").find("revision 2 video card") != std::string::npos); // and again: OODOS goes on
+    r.poke_com(romtest());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
+    CHECK(!r.bridge().apple());
+}
+
+TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
+{
+    const std::string text = no_video_machine();
+    REQUIRE(!text.empty());
+    RomRig r({stand_in_rom()}, text);
+    REQUIRE(r.ok);
+    REQUIRE(r.machine->bus().read(0xC4FF) != 0x92);          // VIDEO_ID: no revision 2 card answers
+    const std::string o = r.cmd("APPLE2");
+    CHECK(o.find("\r\nApple II mode needs the revision 2 video card\r\nA>") != std::string::npos);
+    CHECK(!r.bridge().apple());
+    r.poke_com(romtest());
+    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
+    CHECK(r.cmd("APPLE2").find("revision 2 video card") != std::string::npos); // and again: OODOS goes on
 }
 
 int main()
