@@ -26,6 +26,7 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <type_traits>
@@ -88,8 +89,44 @@ namespace ooe::test
     inline std::string show(const char *v) { return v ? std::string("\"") + v + "\"" : "null"; }
     inline std::string show(const std::string &v) { return "\"" + v + "\""; }
 
+    /// The cases this run is to take, from the environment, so one binary can be several CTest entries:
+    /// OOE_TEST_SHARD=K/N keeps the cases whose place in the registry, counted from 0, is K-1 modulo N
+    /// (every case in exactly one of 1/N ... N/N). Unset, every case. Called by run_all(); the registry is
+    /// trimmed to the selection, so a main() that compares a count with registry().size() after run_all()
+    /// still can. Returns false, having said why, if the variable is malformed.
+    inline bool select_cases()
+    {
+        const char *shard = std::getenv("OOE_TEST_SHARD");
+        if (shard == nullptr || *shard == '\0')
+            return true;
+        unsigned k = 0, n = 0;
+        char tail = 0;
+        if (std::sscanf(shard, "%u/%u%c", &k, &n, &tail) != 2 || n == 0 || k == 0 || k > n)
+        {
+            std::printf("OOE_TEST_SHARD=%s: want K/N with 1 <= K <= N\n", shard);
+            return false;
+        }
+        std::vector<Case> kept;
+        for (std::size_t i = 0; i < registry().size(); ++i)
+            if (i % n == k - 1)
+                kept.push_back(registry()[i]);
+        registry() = kept;
+        return true;
+    }
+
+    /// Runs the cases select_cases() keeps; with OOE_TEST_LIST set, prints their names instead, one a line
+    /// after "case ", and runs none. test/host/check_split.py reads that, to hold a split suite's CTest
+    /// entries to every case.
     inline int run_all()
     {
+        if (!select_cases())
+            return 2;
+        if (const char *list = std::getenv("OOE_TEST_LIST"); list != nullptr && *list != '\0')
+        {
+            for (const auto &c : registry())
+                std::printf("case %s\n", c.name);
+            return 0;
+        }
         int failed_cases = 0;
         for (const auto &c : registry())
         {

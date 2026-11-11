@@ -1,0 +1,138 @@
+# Paths to test labels (hw/testing.md, "The plan", item 2), read by tools/test_map.py and so by
+# `tools/check.sh changed`.
+#
+# One rule a line: a pattern, then the labels a change to a matching path chooses. The first rule that
+# matches a path is the one that counts, so a specific rule goes above a general one. A pattern ending
+# in / matches everything under that directory; any other is a glob over the whole path (fnmatch: *
+# crosses /). Every path git tracks must match some rule: `tools/test_map.py check`, the suite
+# test_test_map, fails on one that doesn't.
+#
+# A label is one the suites carry (emulator/test/host/CMakeLists.txt, "Labels"), or one of:
+#   all    every label: the emulator's core, which every suite runs
+#   self   the suite the file is named for (emulator/test/host/test_NAME.cpp or .py: test_NAME)
+#   web    the WebAssembly build and its tests, vitest, the page build, the e2e smoke set
+#   none   nothing to run: prose, editor settings, code no test runs (every build still builds it)
+# or a suite's name (test_NAME), for a file only that suite reads.
+#
+# The labels on the suites were checked against coverage (tools/test_coverage.py, hw/testing.md item 7):
+# rerun it when a device or a suite is added.
+
+# --- the emulator's core: every suite runs it ---------------------------------------------------------
+emulator/components/cpu6502/                    cpu all
+emulator/components/bus/                        bus all
+emulator/components/machine/apple1.cpp          apple1
+emulator/components/machine/include/apple1.h    apple1
+emulator/components/machine/                    machine all
+emulator/components/session/                    machine all
+emulator/components/emu_log/                    all
+emulator/components/devices/memory_devices.cpp  all
+emulator/components/devices/include/memory_devices.h  all
+emulator/components/devices/include/peripheral.h      all
+emulator/components/devices/CMakeLists.txt      all
+emulator/CMakeLists.txt                         all
+emulator/CMakePresets.json                      all
+emulator/cmake/                                 all
+emulator/test/host/CMakeLists.txt               all
+emulator/test/host/harness.h                    all
+emulator/test/host/test_support.h               all
+
+# --- the debugger and the bus trace ------------------------------------------------------------------
+emulator/components/debug/                      debug
+emulator/tools/trace_diff.py                    debug
+
+# --- the devices: one label each -----------------------------------------------------------------------
+emulator/components/devices/*acia6551*          acia
+emulator/components/devices/*apple_io*          iie
+emulator/components/devices/*backplane_bridge*  bridge
+emulator/components/devices/*console_card*      console
+emulator/components/devices/*disk2_card*        disk2
+emulator/components/devices/*disk_image*        disk2
+emulator/components/devices/*dma_controller*    dma
+emulator/components/devices/*ds3231*            rtc
+emulator/components/devices/*es5503*            es5503
+emulator/components/devices/*fat_volume*        sd
+emulator/components/devices/*sd_card*           sd
+emulator/components/devices/*sd_media*          sd
+emulator/components/devices/*hd44780*           lcd
+emulator/components/devices/*ps2_keyboard*      lcd
+emulator/components/devices/*joystick_ports*    joy
+emulator/components/devices/*minimp3*           sound
+emulator/components/devices/*pia6821*           pia
+emulator/components/devices/*sid_file*          sid
+emulator/components/devices/*sid.*              sid
+emulator/components/devices/*sound_card*        sound
+emulator/components/devices/*sound_dsp*         sound
+emulator/components/devices/*usb_card*          usb
+emulator/components/devices/*via6522*           via
+emulator/components/devices/*video_card*        video
+emulator/components/devices/splash_rom.h        video bios
+emulator/third_party/minimp3/                   sound
+emulator/licenses/                              none
+
+# --- the apps ----------------------------------------------------------------------------------------
+emulator/apps/emu/                              app
+emulator/apps/sidcheck/                         none
+emulator/apps/web/                              web
+
+# --- the tests' own files -------------------------------------------------------------------------------
+emulator/test/host/oodos_rig.h                  oodos
+emulator/test/host/disk2_rig.h                  disk2
+emulator/test/host/sd_images.h                  sd
+emulator/test/host/check_split.py               split
+emulator/test/host/sid_known_failures.txt       test_sid_corpus
+emulator/test/host/sd/                          sd oodos
+emulator/test/host/mp3/                         sound
+emulator/test/host/sound/                       test_sound_driver
+emulator/test/host/fixtures/                    none
+emulator/test/host/README.md                    none
+emulator/test/host/test_*                       self
+emulator/tools/fetch_fixtures.py                test_fetch_fixtures
+emulator/tools/make_sd_images.sh                sd
+emulator/tools/make_mp3_fixtures.sh             sound
+emulator/tools/web_build.sh                     web
+emulator/tools/__pycache__/                     none
+
+# --- the emulator's prose and settings ---------------------------------------------------------------
+emulator/machines/apple1*                       apple1
+emulator/machines/eater*                        eater
+emulator/machines/backplane.machine             all
+emulator/docs/                                  none
+emulator/README.md                              none
+emulator/LICENSE                                none
+emulator/.clangd                                none
+emulator/.gitignore                             none
+
+# --- the machine's software: the BIOS, OODOS, the books ------------------------------------------------
+backplane/bios/backplane.inc                    bios oodos docs
+backplane/bios/apple.s                          bios apple
+backplane/bios/                                 bios
+backplane/README.md                             none
+oodos/include/                                  oodos docs
+oodos/lib/mudrv/                                oodos test_mudrv
+oodos/spike/                                    none
+oodos/README.md                                 none
+oodos/                                          oodos
+docs/                                           docs
+apple1/README.md                                none
+apple1/                                         apple1
+eater/README.md                                 none
+eater/                                          eater
+basic/                                          none
+
+# --- the test tiers themselves -------------------------------------------------------------------------
+tools/check.sh                                  tools
+tools/test-map.txt                              tools
+tools/test_map.py                               tools
+tools/test_coverage.py                          tools
+
+# --- prose, licenses and settings ----------------------------------------------------------------------
+hw/                                             none
+README.md                                       none
+AGENTS.md                                       none
+LICENSE                                         none
+env.default                                     none
+.devcontainer/                                  none
+.vscode/                                        none
+.gitignore                                      none
+.gitattributes                                  none
+.gitmodules                                     none
