@@ -203,7 +203,7 @@ read and writing on, a write goes to the RAM under it. With writing off a write 
 write the image.
 
 hw/design.md says an even address, "or a write to an odd one", clears the write enable
-([`hw/design.md:223`](../../hw/design.md#apple-ii-mode)). In the emulator a write to an odd address clears only the
+([`hw/design.md:233`](../../hw/design.md#apple-ii-mode)). In the emulator a write to an odd address clears only the
 count of reads (`emulator/components/devices/apple_io.cpp:77`); writing, once on, stays on until an even address.
 
 ### The ROM space
@@ -319,9 +319,9 @@ A read of `$C011–$C01F` gives a switch in bit 7, 1 for on, and the keyboard's 
 the video card's own frame, which is VGA's 60 Hz, and the two drift against each other.
 
 hw/design.md has `$C019` driven by the video card, in step with the Apple timing
-([`hw/design.md:217`](../../hw/design.md#apple-ii-mode)). The emulator computes it from the bus's cycle count in
+([`hw/design.md:227`](../../hw/design.md#apple-ii-mode)). The emulator computes it from the bus's cycle count in
 the north bridge's Apple I/O (`emulator/components/devices/apple_io.cpp:25`), as the same section's later list
-says ([`hw/design.md:227`](../../hw/design.md#apple-ii-mode)).
+says ([`hw/design.md:237`](../../hw/design.md#apple-ii-mode)).
 
 ## The display
 
@@ -468,5 +468,5 @@ Status: **emulated**
   which the IIe's 65C02 doesn't have, work in the mode too.
 
 `$C060` reads 0 in the emulator (`emulator/components/devices/apple_io.cpp:168`). hw/design.md has the cassette
-read `$FF` ([`hw/design.md:229`](../../hw/design.md#apple-ii-mode)), and so does the comment in
+read `$FF` ([`hw/design.md:239`](../../hw/design.md#apple-ii-mode)), and so does the comment in
 `emulator/components/devices/include/apple_io.h:41`.
