@@ -67,7 +67,7 @@ change affects: that has to be written down, and checked against coverage.
 | Tier | When | What |
 | --- | --- | --- |
 | `quick` | Before staging, as now | Unchanged: every suite, fast build, a few minutes |
-| `changed` | Each branch, before review and merge | The suites the branch's paths choose; sanitizers on those that are emulator suites, when emulator C++ changed |
+| `changed` | Each branch, before review and merge | The suites the branch's paths choose, in the fast build; sanitizers on those that are emulator suites (`emu`), when emulator C++ changed; the oodos checks if `oodos` is chosen, the books' check if `docs` is; if `web` is, the WebAssembly build, vitest, the page build, the whole e2e suite on Chromium and WebKit's smoke set; interop if `oodos` or `sd` is |
 | `full` | A release whose emulator C++ changed | `quick`, plus the sanitizer build of the emulator suites only (label `emu`), the whole e2e suite on Chromium and WebKit's smoke set, interop |
 
 `quick` already runs every suite in the fast build, so nothing goes untested. What goes is the sanitizers on
@@ -98,21 +98,38 @@ docs or Python-only suites.
 path counts. Besides the labels: `all` (the core: `emulator/components/{cpu6502,bus,machine,session,emu_log}`,
 `memory_devices`, the CMake files, `harness.h`, `test_support.h`, `machines/backplane.machine`), `self` (a suite's
 own `test_NAME.cpp` or `.py` chooses that suite), a suite's name (a file only it reads: `sid_known_failures.txt`,
-`test/host/sound/`, `fetch_fixtures.py`, `oodos/lib/mudrv/`), `web` (`emulator/apps/web/`, `web_build.sh`), and
-`none` (hw/, the READMEs, licenses, editor settings, `basic/`, `oodos/spike/`, `apps/sidcheck/`: nothing tests
-them; every build still builds the code among them). A part inside another chooses both (the RTC and Apple II
-mode's I/O are the bridge's, the DOC and the SIDs the sound card's), and each card of the backplane machine
-chooses `backplane` too. `backplane.inc` chooses `bios`, `oodos` and `docs`; `oodos/include/` `oodos` and `docs`.
+`test/host/sound/`, `fetch_fixtures.py`, `oodos/lib/mudrv/`), `web` (the web steps), and `none` (licenses,
+editor settings, `basic/`, `oodos/spike/`, `apps/sidcheck/`: nothing tests them; every build still builds the
+code among them). A part inside another chooses both (the RTC and Apple II mode's I/O are the bridge's, the DOC
+and the SIDs the sound card's), and each card of the backplane machine chooses `backplane` too.
+
+`web` is chosen by everything in the page: `emulator/apps/web/`, `web_build.sh`, and what `oo1.wasm` embeds or
+runs (every backplane card, the card media, `.sid` files and `components/debug`; the BIOS, its ROM and labels;
+`backplane.machine`; `test/host/sd/`, whose `demo.sparse` the page boots: `apps/web/CMakeLists.txt`,
+`ui/scripts/copy-core.mjs`). `docs` is chosen by everything `docs/tools/check_docs.py` reads besides the books:
+`backplane/bios/` (17 listings of its sources, byte for byte; `backplane.inc`'s equates), all of `oodos/` (an
+entry for each utility and each built-in of `ccp.s`; `oodos.inc`'s functions), the files the books link to
+(`apple_io.cpp`, `apps/emu/`, `apps/web/`, `oodos_rig.h`, `test_docs_examples.cpp`, the Apple-1 and Eater
+machines, the emulator's READMEs and plan), and hw/, README.md and AGENTS.md, whose links into the books it
+checks.
+
+The selection is broad, and the owner accepted that (2026-11-11): a change to any card chooses every suite that
+builds the backplane machine, about 60 of them, in the fast build (a minute or two), and the web steps. The
+sanitizers still run only the `emu` suites among them.
 `tools/test_map.py check` (the suite `test_test_map`) fails on a tracked path no rule matches, a rule that
 matches nothing, a label no suite carries, or a suite's label no rule chooses.
 
 **3. `tools/check.sh changed [BASE]`.** The paths `git diff --no-renames --name-only` gives from the merge base of
-BASE (main) and HEAD to the working tree (committed or not; a new file counts once it is added). It builds `fast`,
+BASE (main) and HEAD to the working tree (committed or not; a new file counts once it is added; an untracked
+file fails it, named, unless `--allow-untracked`). It builds `fast`,
 then prints each path, its rule, its labels and how many suites they choose, and the labels, the suites and the
 sanitizer suites in all. It runs the chosen suites (`ctest --preset fast -R` with their exact names: the same as
 `-L` with those labels, and it takes the suites a path names by `self` too); the oodos checks if `oodos` is
-chosen, `make -C docs check` if `docs` is, and the WebAssembly build, vitest, the page build and the e2e smoke set
-if `web` is. If a path is the emulator's C++ or its build (`emulator/**/*.cpp`, `.h`, the CMake files; not
+chosen, `make -C docs check` if `docs` is, the WebAssembly build, vitest, the page build, the whole e2e suite on
+Chromium and WebKit's smoke set if `web` is, and interop if `oodos` or `sd` is. Before any of it, it checks for the
+tools those need (ca65, ld65 and cc65 from the build's cache; vasm for the `eater` suites; docker for the web
+steps and interop) and fails naming what's missing; and it fails when every chosen CTest entry skipped. Every
+tier's summary counts the entries skipped or not run, by name. If a path is the emulator's C++ or its build (`emulator/**/*.cpp`, `.h`, the CMake files; not
 `apps/web`), it builds `dev` and runs the chosen `emu` suites under ASan/UBSan, `--jobs` at once (4 by default).
 An unmapped path fails it before anything runs; so does an empty diff, unless `--allow-empty`. A diff of `none`
 paths alone says there is nothing to run, and passes.
@@ -121,11 +138,14 @@ paths alone says there is nothing to run, and passes.
 (`--project chromium`) and WebKit's smoke set, and interop (on the fast build's `test_oodos_card`).
 **5.** Nothing runs an OODOS suite under the sanitizers now: neither tier's `dev` step can choose one.
 
-**6. The split.** `harness.h` takes `OOE_TEST_SHARD=K/N` (the cases at K-1 modulo N, in the order they are
-registered) and `OOE_TEST_LIST=1` (their names, none run). `set(EMU_SPLIT_<name> N)` before a suite's
-`emu_add_test` makes N CTest entries `<name>_KofN` of one binary, and `<name>_cases`, `check_split.py`, which reads
-the entries' `OOE_TEST_SHARD` from `ctest --show-only` and fails unless every case of the whole binary's is in
-exactly one. No case or expectation changed. Measured in the fast build, each alone, on this host (2026-11-11; no
+**6. The split.** `harness.h` takes `OOE_TEST_CASES=a,b` (only those), `OOE_TEST_EXCEPT=a,b` (all but those),
+`OOE_TEST_SHARD=K/N` (of the rest, the cases at K-1 modulo N, in the order they are registered) and
+`OOE_TEST_LIST=1` (their names, none run); a name that is no case is an error. `set(EMU_SPLIT_<name> N)` before
+a suite's `emu_add_test` makes N CTest entries `<name>_KofN` of one binary; `set(EMU_SPLIT_ALONE_<name> case...)`
+gives each such case an entry of its own, `<name>_<case>`, the N shares taking the rest; and `<name>_cases`,
+`check_split.py`, reads the entries' selections from `ctest --show-only` and fails unless every case of the whole
+binary's is in exactly one. Every entry sets all four variables (empty where unused), and `check.sh` unsets
+them, so one exported by hand changes nothing. No case or expectation changed. Measured in the fast build, each alone, on this host (2026-11-11; no
 other fast-build suite was over 40 s, the next being `test_oodos_sys` and `test_oodos_model` at about 35):
 
 | Suite | Cases | Alone before | Entries | Each, alone | Its longest case |
@@ -136,6 +156,12 @@ other fast-build suite was over 40 s, the next being `test_oodos_sys` and `test_
 | `test_oodos_utils_files` | 17 | 33 s | 2 | 26, 5 s | 22.5 s (files past 16 KB) |
 
 A share can't be shorter than its longest case; splitting those cases would change the tests, so they stay.
+
+`test_session` is split for the sanitizers (the owner's decision on question 2): its long case,
+`the_speaker_and_the_sids_mix_into_the_same_stream`, has an entry of its own, and the other 21 cases two shares.
+Under `dev`, in `check.sh changed main` at 4 jobs with the host's load about 12 (2026-11-11): the long case's
+entry 71.8 s, the shares 31.3 and 40.1 s, against 120 s each (the whole suite had been 104-120 s, and timed out
+once at 120.1 under load 17).
 
 **7. The coverage check,** `tools/test_coverage.py`, on the `coverage` preset (Debug, gcc `--coverage`, no
 sanitizers). It runs every suite alone (each with its own `GCOV_PREFIX`, so 8 run at once), reads with `gcov` the
@@ -158,6 +184,13 @@ python3 -I -B tools/test_coverage.py --from /tmp/cov/files.json           # afte
 ```
 
 (reconfigure the coverage build after changing the labels, so `--from` reads them).
+
+**Later (accepted 2026-11-11, not built):** extend `test_coverage.py` to compare line coverage between the `emu`
+suites and the others, and give `emu` to a non-`emu` suite that alone reaches emulator lines; run it with the
+coverage check, when a device or a suite is added.
+
+pinled (the firmware this harness was copied from) has its own `harness.h`, without the case selection; the
+two now differ there.
 
 
 ## The AWS builder: tried and retired ##

@@ -57,9 +57,11 @@ is the plan behind them):
 - **`tools/check.sh changed [BASE]`**, on each branch before review and merge: the paths that differ from BASE
   (main by default, from the merge base), mapped to labels by [`tools/test-map.txt`](tools/test-map.txt); it prints
   which path chose which labels and suites, and runs those suites in the fast build, the oodos checks, the books'
-  check and the web steps as the labels say. If the branch changed the emulator's C++, the chosen suites that are the
-  emulator's own (label `emu`) run under ASan/UBSan too, `--jobs` at once (4 by default). A path the map doesn't
-  cover fails it, and so does an empty diff (`--allow-empty` if that is meant).
+  check, the web steps (the whole e2e suite on Chromium, WebKit's smoke set) and interop as the labels say. If the
+  branch changed the emulator's C++, the chosen suites that are the emulator's own (label `emu`) run under
+  ASan/UBSan too, `--jobs` at once (4 by default). A path the map doesn't cover fails it, and so do an untracked
+  file, a tool the chosen suites need that isn't there, a run whose every suite skipped, and an empty diff
+  (`--allow-empty` if that is meant).
 - **`tools/check.sh quick`**, before a build goes to staging, a few minutes: the oodos checks; every native test,
   built optimised without the sanitizers (`--preset fast`, under two minutes); the WebAssembly build and its tests;
   vitest; the e2e smoke set (the tests tagged `@smoke`, `npm run e2e:smoke`). `--url URL` runs the smoke set
