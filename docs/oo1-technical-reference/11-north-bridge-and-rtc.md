@@ -242,8 +242,9 @@ As [WIN0](#reg-c680): bit 7 ROM, bit 6 RO, bits 5–0 the block, for CPU `$8000�
 #### Notes
 
 The BIOS borrows W2 to copy itself into RAM block 63 at boot, then sets it to block 2. VINIT, setting up the text
-screen, borrows W1 for the font (ROM A block 30) and W2 for video memory (RAM block 32). VPUTC borrows W2 for each
-character that ECHO puts on the screen. Both put back whatever the windows held before.
+screen, borrows W1 for the font (ROM A block 30), which it writes to the video card's port. VPUTC borrows W2 for each
+character that ECHO puts on the screen, on block 32, the card's aperture slot 0 (*proposed*, revision 2:
+[chapter 6](06-video.md#the-bioss-text-screen)). Both put back whatever the windows held before.
 
 <a id="reg-c683"></a>
 ### $C683 NB_WIN3: window 3, CPU $C000–$FFFF
