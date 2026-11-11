@@ -36,6 +36,17 @@
       }
     },
     {
+      "name": "coverage",
+      "displayName": "Debug + gcc --coverage + tests, no sanitizers: which files each suite runs (tools/test_coverage.py)",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "EMU_SANITIZE": "OFF",
+        "EMU_COVERAGE": "ON",
+        "EMU_BUILD_TESTS": "ON"
+      }
+    },
+    {
       "name": "trace",
       "displayName": "Debug with EMU_LOGV tracing compiled in",
       "inherits": "dev",
@@ -68,6 +79,10 @@
     {
       "name": "fast",
       "configurePreset": "fast"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
     },
     {
       "name": "trace",

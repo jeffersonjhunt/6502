@@ -22,10 +22,61 @@ function(emu_add_test_exe name)
     target_link_libraries(${name} PRIVATE emu_session emu_debug emu_cpu6502 emu_machine emu_devices emu_bus emu_log)
 endfunction()
 
+# A suite's CTest entries: EMU_RUNS_<suite>, those that run its cases (the suite's own name, or its parts
+# when split), and EMU_ENTRIES_<suite>, those and the split's check. The labels (below, "Labels") go on
+# every entry of a suite.
+function(emu_entry suite test)
+    set_property(GLOBAL APPEND PROPERTY EMU_RUNS_${suite} ${test})
+    set_property(GLOBAL APPEND PROPERTY EMU_ENTRIES_${suite} ${test})
+endfunction()
+
+# set_tests_properties on the entries that run a suite's cases, split or not.
+function(emu_suite_properties suite)
+    get_property(runs GLOBAL PROPERTY EMU_RUNS_${suite})
+    if(NOT runs)
+        message(FATAL_ERROR "emu: emu_suite_properties(${suite}): no such suite")
+    endif()
+    set_tests_properties(${runs} PROPERTIES ${ARGN})
+endfunction()
+
+# A long suite is split (hw/testing.md, item 6) by set(EMU_SPLIT_<name> N) before its emu_add_test: one
+# binary, N CTest entries <name>_1ofN ... <name>_NofN, each taking every Nth case (OOE_TEST_SHARD=K/N,
+# harness.h), and <name>_cases, check_split.py holding the entries to every case of the binary's. And
+# set(EMU_SPLIT_ALONE_<name> case...) gives each of those cases an entry of its own, <name>_<case>
+# (OOE_TEST_CASES), the N shares taking the rest (OOE_TEST_EXCEPT): for a case far longer than the others.
+# Every entry sets all four selection variables (empty is unset), so one exported by hand changes nothing.
+set(EMU_TEST_ENV_CLEAR "OOE_TEST_LIST=" "OOE_TEST_SHARD=" "OOE_TEST_CASES=" "OOE_TEST_EXCEPT=")
 function(emu_add_test name)
     emu_add_test_exe(${name})
-    add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-    set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120) # a hang fails, not stalls
+    if(DEFINED EMU_SPLIT_${name})
+        set(n ${EMU_SPLIT_${name}})
+        set(alone ${EMU_SPLIT_ALONE_${name}})
+        string(JOIN "," except ${alone})
+        foreach(k RANGE 1 ${n})
+            add_test(NAME ${name}_${k}of${n} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+            set_tests_properties(${name}_${k}of${n} PROPERTIES
+                    ENVIRONMENT "OOE_TEST_LIST=;OOE_TEST_CASES=;OOE_TEST_EXCEPT=${except};OOE_TEST_SHARD=${k}/${n}"
+                    SKIP_RETURN_CODE 77 TIMEOUT 120)
+            emu_entry(${name} ${name}_${k}of${n})
+        endforeach()
+        foreach(c ${alone})
+            add_test(NAME ${name}_${c} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+            set_tests_properties(${name}_${c} PROPERTIES
+                    ENVIRONMENT "OOE_TEST_LIST=;OOE_TEST_SHARD=;OOE_TEST_EXCEPT=;OOE_TEST_CASES=${c}"
+                    SKIP_RETURN_CODE 77 TIMEOUT 120)
+            emu_entry(${name} ${name}_${c})
+        endforeach()
+        add_test(NAME ${name}_cases
+                 COMMAND "${Python3_EXECUTABLE}" -I -B "${CMAKE_CURRENT_LIST_DIR}/check_split.py"
+                         "${CMAKE_BINARY_DIR}" $<TARGET_FILE:${name}>)
+        set_tests_properties(${name}_cases PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+        set_property(GLOBAL APPEND PROPERTY EMU_ENTRIES_${name} ${name}_cases)
+    else()
+        add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+        set_tests_properties(${name} PROPERTIES ENVIRONMENT "${EMU_TEST_ENV_CLEAR}"
+                SKIP_RETURN_CODE 77 TIMEOUT 120) # a hang fails, not stalls
+        emu_entry(${name} ${name})
+    endif()
 endfunction()
 
 # --- WebAssembly (the `web` preset) -----------------------------------------
@@ -65,6 +116,17 @@ if(EMSCRIPTEN)
     return()
 endif()
 
+find_package(Python3 COMPONENTS Interpreter) # the Python suites, and a split suite's check
+
+# The long suites, split (hw/testing.md, item 6): over ~45 s alone in the fast build (2026-11-11).
+set(EMU_SPLIT_test_oodos_disk2_media 4)
+set(EMU_SPLIT_test_oodos_disk2 3)
+set(EMU_SPLIT_test_oodos_utils_dir 3)
+set(EMU_SPLIT_test_oodos_utils_files 2)
+# test_session under the sanitizers (dev, alone, 2026-11-11): 106 s of its 120, 50 of them one case's.
+set(EMU_SPLIT_test_session 2)
+set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stream)
+
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)
 foreach(run "6502_functional_test 6502" "6502_functional_test w65c02s" "65C02_extended_opcodes_test w65c02s")
@@ -72,6 +134,7 @@ foreach(run "6502_functional_test 6502" "6502_functional_test w65c02s" "65C02_ex
     list(GET args 0 image)
     list(GET args 1 cpu)
     add_test(NAME test_dormann_${image}_${cpu} COMMAND test_dormann ${args})
+    emu_entry(test_dormann test_dormann_${image}_${cpu})
     # ~30M instructions each; under ASan that is well past CTest's default.
     set_tests_properties(test_dormann_${image}_${cpu} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 endforeach()
@@ -79,6 +142,7 @@ endforeach()
 emu_add_test_exe(test_harte)
 foreach(cpu 6502 wdc65c02)
     add_test(NAME test_harte_${cpu} COMMAND test_harte ${cpu})
+    emu_entry(test_harte test_harte_${cpu})
     set_tests_properties(test_harte_${cpu} PROPERTIES SKIP_RETURN_CODE 77)
 endforeach()
 emu_add_test(test_pia)
@@ -253,12 +317,12 @@ set_tests_properties(test_oodos_rsx PROPERTIES TIMEOUT 1800) # the loader and th
 set(OODOS_UTILS_SUITES test_oodos_apple test_oodos_disk2 test_oodos_disk2_media test_oodos_disk2_noprom test_oodos_dos33 test_oodos_dos33_iie test_oodos_err10 test_oodos_utils test_oodos_utils_set test_oodos_utils_files test_oodos_utils_dir test_oodos_utils_sys test_oodos_utils_rom test_oodos_utils_pip test_oodos_utils_rsx test_oodos_utils_submit test_oodos_clock test_oodos_clock_disk2 test_oodos_input test_oodos_sound test_oodos_playsid test_oodos_video test_oodos_load test_oodos_gfx test_oodos_ui test_oodos_pb test_oodos_mu test_oodos_c)
 foreach(name ${OODOS_UTILS_SUITES})
     emu_add_test(${name})
-    set_tests_properties(${name} PROPERTIES TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
+    emu_suite_properties(${name} TIMEOUT 1800) # boots and command lines under ASan, as test_oodos_ccp
 endforeach()
-set_tests_properties(test_oodos_utils_dir PROPERTIES TIMEOUT 3600) # its page and sheet sweep (some 25 listings): ~1,460 s at load 2, more in a parallel run
-set_tests_properties(test_oodos_disk2_media PROPERTIES TIMEOUT 5400) # 24 cases of Disk II time under ASan: alone 2,050-2,457 s at c11e7e7 and 2,356 s at e4aa5ca (2026-11-09), so the host's spread, not a change
-set_tests_properties(test_oodos_utils_files PROPERTIES TIMEOUT 3600) # 1,291-1,305 s in the full tier under ASan (2026-11-09): 72% of 1,800, with the host's spread of about 30%
-set_tests_properties(test_oodos_disk2 PROPERTIES TIMEOUT 5400) # the Disk II's cases under ASan: 1,724-1,733 s in the full tier (2026-11-09), too close to 1,800
+emu_suite_properties(test_oodos_utils_dir TIMEOUT 3600) # its page and sheet sweep (some 25 listings): ~1,460 s at load 2, more in a parallel run
+emu_suite_properties(test_oodos_disk2_media TIMEOUT 5400) # 24 cases of Disk II time under ASan: alone 2,050-2,457 s at c11e7e7 and 2,356 s at e4aa5ca (2026-11-09), so the host's spread, not a change
+emu_suite_properties(test_oodos_utils_files TIMEOUT 3600) # 1,291-1,305 s in the full tier under ASan (2026-11-09): 72% of 1,800, with the host's spread of about 30%
+emu_suite_properties(test_oodos_disk2 TIMEOUT 5400) # the Disk II's cases under ASan: 1,724-1,733 s in the full tier (2026-11-09), too close to 1,800
 set(OODOS_SRC "${PROJECT_SOURCE_DIR}/../oodos")
 set(OODOS_SYS_SRC "${OODOS_SRC}/sys")
 set(OODOS_SYS_DIR "${CMAKE_CURRENT_BINARY_DIR}/oodos_sys")
@@ -588,3 +652,158 @@ if(Python3_FOUND)
              COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_CURRENT_LIST_DIR}/test_trace_diff.py"
                      "${PROJECT_SOURCE_DIR}/tools/trace_diff.py")
 endif()
+
+# --- the map's own check -----------------------------------------------------
+#
+# tools/test_map.py check: every path git tracks is in tools/test-map.txt, and the map's labels are the
+# suites' (below). Python3 and git are needed; without git (a source tarball) it skips.
+
+find_program(EMU_GIT git)
+if(EMU_GIT)
+    add_test(NAME test_test_map
+             COMMAND "${Python3_EXECUTABLE}" -I -B "${PROJECT_SOURCE_DIR}/../tools/test_map.py" check
+                     --build "${CMAKE_BINARY_DIR}")
+    set_tests_properties(test_test_map PROPERTIES TIMEOUT 120)
+endif()
+
+# --- Labels ------------------------------------------------------------------
+#
+# What each suite covers (hw/testing.md, items 1-4), for `ctest -L` and tools/check.sh changed, which picks
+# the suites a branch's paths choose through tools/test-map.txt. One place: a suite and its labels a line.
+# The parts: cpu, bus, machine (the core: a change there runs everything), debug, app (apps/emu), a label a
+# device (acia, bridge, console, disk2, dma, es5503, iie, joy, lcd, pia, rtc, sd, sid, sound, usb, via,
+# video), backplane (the suite builds machines/backplane.machine, so runs every card on it), and the
+# software a suite runs: bios, oodos, apple (the owner's Apple IIe ROMs and disks), apple1,
+# eater, docs, and tools (the tiers' own scripts). And one that is a kind, not a part: emu, the emulator's own
+# suites, the ones `full` and `changed` run under the sanitizers (never an OODOS, BIOS, Apple-mode or docs
+# suite). The device labels were checked against coverage (tools/test_coverage.py, item 7): rerun it when a
+# device or a suite is added. Every CTest entry must get a label: configuring fails on one that hasn't.
+#
+# A split suite's entries all get its labels, and its _cases check `split` too.
+
+set(EMU_TEST_LABELS
+    test_cpu_smoke              "emu cpu"
+    test_dormann                "emu cpu"
+    test_harte                  "emu cpu"
+    test_pia                    "emu pia"
+    test_via                    "emu via"
+    test_acia                   "emu acia"
+    test_lcd                    "emu lcd via"
+    test_decoder                "emu bus pia via"
+    test_machine                "emu machine apple1 acia bridge console dma lcd pia via"
+    test_loader                 "emu machine debug"
+    test_rom_boot               "emu apple1 pia"
+    test_eater                  "emu eater lcd via acia"
+    test_disasm                 "emu debug"
+    test_debugger               "emu debug pia"
+    test_backplane              "emu bridge pia backplane"
+    test_ds3231                 "emu rtc"
+    test_rtc                    "emu rtc bridge debug backplane"
+    test_joyports               "emu joy via acia bridge debug backplane lcd"
+    test_bios                   "bios bridge console video sound es5503 sid usb dma sd backplane"
+    test_dma                    "emu dma bridge"
+    test_console_card           "emu console dma bridge"
+    test_video                  "emu video bridge"
+    test_video_rev2             "emu video bridge dma debug backplane"
+    test_usb                    "emu usb dma bridge"
+    test_sound                  "emu sound dma bridge"
+    test_sound_pcm              "emu sound dma bridge"
+    test_sound_mix              "emu sound"
+    test_sound_mp3              "emu sound dma bridge"
+    test_sound_eq               "emu sound"
+    test_es5503                 "emu es5503"
+    test_sound_doc              "emu sound es5503 dma bridge"
+    test_sid                    "emu sid sound"
+    test_sid_audio              "emu sid sound"
+    test_sid_file               "emu sid sound"
+    test_sid_corpus             "emu sid sound"
+    test_apple                  "emu iie bridge usb"
+    test_disk_image             "emu disk2"
+    test_disk2                  "emu disk2"
+    test_disk2_native           "emu disk2 bridge bios backplane"
+    test_disk2_prom             "emu disk2"
+    test_session                "emu machine bios bridge console video sound sid es5503 usb dma iie disk2 rtc backplane debug"
+    test_sd                     "emu sd dma bios backplane"
+    test_sd_fat                 "emu sd"
+    test_bios_sd                "bios sd backplane debug"
+    test_oodos_card             "oodos bios sd backplane debug"
+    test_oodos_boot             "oodos bios sd backplane debug"
+    test_oodos_e2e              "oodos bios sd backplane debug"
+    test_iie                    "apple iie bios usb video disk2 backplane"
+    test_pacing                 "emu app"
+    test_oodos_sys              "oodos bios sd usb backplane"
+    test_oodos_ccp              "oodos bios sd backplane"
+    test_oodos_rsx              "oodos bios sd backplane"
+    test_oodos_apple            "oodos bios sd backplane"
+    test_oodos_disk2            "oodos bios sd disk2 backplane"
+    test_oodos_disk2_media      "oodos bios sd disk2 backplane"
+    test_oodos_disk2_noprom     "oodos bios sd disk2 backplane"
+    test_oodos_dos33            "oodos bios sd disk2 backplane"
+    test_oodos_dos33_iie        "oodos apple bios sd disk2 iie usb backplane"
+    test_oodos_err10            "oodos bios sd disk2 backplane"
+    test_oodos_utils            "oodos bios sd backplane"
+    test_oodos_utils_set        "oodos bios sd backplane"
+    test_oodos_utils_files      "oodos bios sd backplane"
+    test_oodos_utils_dir        "oodos bios sd backplane"
+    test_oodos_utils_sys        "oodos bios sd rtc backplane"
+    test_oodos_utils_rom        "oodos bios sd backplane"
+    test_oodos_utils_pip        "oodos bios sd disk2 backplane"
+    test_oodos_utils_rsx        "oodos bios sd backplane"
+    test_oodos_utils_submit     "oodos bios sd backplane"
+    test_oodos_clock            "oodos bios sd backplane"
+    test_oodos_clock_disk2      "oodos bios sd disk2 backplane"
+    test_oodos_clock_debug      "oodos bios sd backplane"
+    test_oodos_input            "oodos bios sd usb joy backplane"
+    test_oodos_sound            "oodos bios sd sound sid es5503 dma backplane"
+    test_oodos_playsid          "oodos bios sd sound sid backplane"
+    test_oodos_video            "oodos bios sd video dma backplane"
+    test_oodos_load             "oodos bios sd dma sound backplane"
+    test_oodos_gfx              "oodos bios sd video dma backplane"
+    test_oodos_ui               "oodos bios sd video dma usb backplane"
+    test_oodos_pb               "oodos bios sd sound dma backplane"
+    test_oodos_mu               "oodos bios sd sound sid backplane"
+    test_oodos_c                "oodos bios sd backplane"
+    test_oodos_model            "oodos bios sd backplane"
+    test_oodos_model_py         "oodos"
+    test_docs                   "docs"
+    test_docs_check             "docs"
+    test_docs_examples          "docs oodos bios sd backplane"
+    test_sound_driver           "emu sound bridge"
+    test_mudrv                  "oodos sound sid bridge"
+    test_app_tty                "emu app apple1 debug pia"
+    test_app_debug              "emu app apple1 debug backplane pia"
+    test_app_eater              "emu app eater acia debug lcd via"
+    test_fetch_fixtures         "tools"
+    test_trace_diff             "debug"
+    test_test_map               "tools")
+
+list(LENGTH EMU_TEST_LABELS n)
+math(EXPR last "${n} - 1")
+set(labelled)
+foreach(i RANGE 0 ${last} 2)
+    math(EXPR j "${i} + 1")
+    list(GET EMU_TEST_LABELS ${i} suite)
+    list(GET EMU_TEST_LABELS ${j} labels)
+    separate_arguments(labels UNIX_COMMAND "${labels}")
+    get_property(entries GLOBAL PROPERTY EMU_ENTRIES_${suite})
+    if(NOT entries)
+        if(NOT TEST ${suite})
+            if(suite STREQUAL "test_test_map" AND NOT EMU_GIT)
+                continue()
+            endif()
+            message(FATAL_ERROR "emu: labels for ${suite}, which is no suite")
+        endif()
+        set(entries ${suite})
+    endif()
+    set_tests_properties(${entries} PROPERTIES LABELS "${labels}")
+    if(TEST ${suite}_cases)
+        set_tests_properties(${suite}_cases PROPERTIES LABELS "${labels};split")
+    endif()
+    list(APPEND labelled ${entries})
+endforeach()
+get_property(all_tests DIRECTORY PROPERTY TESTS)
+foreach(t ${all_tests})
+    if(NOT t IN_LIST labelled)
+        message(FATAL_ERROR "emu: ${t} has no labels: give its suite a line in EMU_TEST_LABELS (\"Labels\")")
+    endif()
+endforeach()

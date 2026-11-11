@@ -18,6 +18,18 @@ Run a suite directly for its full output:
 HARTE_VERBOSE=1 ./build/dev/test/host/test_harte wdc65c02  # every failing case, not just the first
 ```
 
+Each suite carries labels for what it covers (the table at the end of `CMakeLists.txt`; `ctest --print-labels`,
+`ctest -L video`), and `tools/check.sh changed` picks suites by them through `tools/test-map.txt`
+([hw/testing.md](../../../hw/testing.md)). A suite with no labels fails the configure. A long suite can be split
+(`set(EMU_SPLIT_<name> N)` before its `emu_add_test`): N CTest entries `<name>_1ofN` ... of one binary, each
+taking every Nth case by `OOE_TEST_SHARD=K/N` (`harness.h`), and `<name>_cases`, which holds them to every case
+(`check_split.py`, reading the cases from `OOE_TEST_LIST=1`). Both variables work on any suite by hand:
+
+```sh
+OOE_TEST_LIST=1 ./build/fast/test/host/test_oodos_disk2          # its cases' names, none run
+OOE_TEST_SHARD=2/3 ./build/fast/test/host/test_oodos_disk2       # the second of three shares
+```
+
 ## Suites
 
 | Suite | Covers | Fixtures |
