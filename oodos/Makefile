@@ -79,7 +79,8 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 
 # OOLIB, the linked library (lib/*.s, include/oolib.inc; hw/oolib.md, question 9): each lib/NAME.s
 # assembled once into build/oolib.lib, which ld65 takes only the modules of that a program uses. A
-# utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's).
+# utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's), and
+# tools/w1.py: none of its segments in W1's $4000-$7FFF (the W1 contract), or the build fails.
 # Each module's zero page, lib/zpNAME.s, goes into the archive right after NAME, so ld65 lays a
 # program's zero page out as it would with the bytes in NAME itself (libzp.py check holds it).
 LIBSRC = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
@@ -105,9 +106,10 @@ $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 
 $(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
 
-$(OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py
+$(OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py tools/w1.py
 	$(call LD65,-C cfg/com.cfg $< $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	$(PYTHON) tools/w1.py $(BUILD)/$*.map
 	mv $@.tmp $@
 
 $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
@@ -138,9 +140,11 @@ ooui: $(BUILD)/ooui.lib
 
 $(OOUI_USERS:%=$(BUILD)/%.o): include/ooui.inc include/oolib.inc
 
-$(OOUI_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/ooui.lib $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py
+$(OOUI_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/ooui.lib $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py \
+		tools/w1.py
 	$(call LD65,-C cfg/com.cfg $< $(BUILD)/ooui.lib $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	$(PYTHON) tools/w1.py $(BUILD)/$*.map
 	mv $@.tmp $@
 
 # The C target (Plan C1; the Programmer's Guide, appendix F, "A program in C"): each of CPROGRAMS is
