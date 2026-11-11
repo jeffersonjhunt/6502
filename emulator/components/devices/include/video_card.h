@@ -16,11 +16,39 @@
  *   layer n at $10 + n x $10:  +0 CONFIG  +1 MAPBASE  +2 TILEBASE
  *                              +3-4 HSCROLL  +5-6 VSCROLL  +7 PALOFS
  *
- * Memory. The card draws from banks 8-B ($80000-$BFFFF), which on the
- * board it keeps a copy of by snooping every write to them. A copy that
- * sees every write is the same as the RAM, so the emulator reads the RAM
- * (attach()), with no bus cycles: CPU, DMA and front-panel writes all show.
- * Bases are in 1 KB units of that 256 KB, and addresses wrap within it.
+ * Memory, revision 1 (the default for now; set_revision()). The card draws
+ * from banks 8-B ($80000-$BFFFF), which on the board it keeps a copy of by
+ * snooping every write to them. A copy that sees every write is the same as
+ * the RAM, so the emulator reads the RAM (attach()), with no bus cycles:
+ * CPU, DMA and front-panel writes all show. Bases are in 1 KB units of that
+ * 256 KB, and addresses wrap within it.
+ *
+ * Revision 2 (hw/video-rev2.md, proposed; set_revision(2), or `rev=2` on the
+ * machine line): the card owns 2 MB of card memory and snoops nothing in
+ * native mode. Registers ($C480 + offset; Rev2 names the moved ones):
+ *
+ *   $00 CTRL  $01 BORDER  $04 IEN  $05 ISR  $06-$07 LINE  $08 STATUS  $09 SPLASH
+ *   $0A-$0B PALBASE  $0C-$0D SPRBASE      card address / 256, low byte first
+ *   layer n at $10 + n x $10:  +0 CONFIG  +1-2 MAPBASE  +3-4 TILEBASE
+ *                              +5-6 HSCROLL  +7-8 VSCROLL  +9 PALOFS
+ *   $30-$37 SLOT0-3   aperture pages (16 KB), low byte first; /RESET: SLOTn = n
+ *   $38-$3A PADDR     the port's 24-bit address    $3B PDATA  the port's data
+ *   $3C-$3D PSTEP     the step after each PDATA access (0 holds); /RESET: 1
+ *   $3E PCTL          bit 0 DRQ enable, bit 1 from the card, bit 2 step down
+ *   $3F MEMSIZE       64 KB units fitted: 32     $7F ID  $92
+ *
+ * Every other byte reads 0. Bases are 24-bit card addresses (unit x 256);
+ * the sprite image address is 15 bits of 256-byte units (byte 0, then byte 1
+ * bits 0-6; bit 7 is still the depth). Card memory past MEMSIZE reads $FF
+ * and ignores writes, by scanout, the aperture and the port alike. The
+ * aperture (VideoAperture, a memory device on bank 8) shows four 16 KB slots
+ * of card memory, slot n from SLOTn x $4000, and ignores cycles while the
+ * north bridge is in Apple II mode. Each PDATA read or write moves PADDR by
+ * PSTEP, up or (PCTL bit 2) down, wrapping at the fitted memory's end. While
+ * PCTL bit 0 is set the card asserts DRQ (its machine line's `drq=`, channel
+ * 1), and /DACK cycles move bytes through the port in PCTL bit 1's
+ * direction; a /DACK cycle the other way is ignored. /RESET resets the
+ * registers and never touches card memory.
  *
  * Time. VGA 640x480 at 60 Hz: 800 pixel clocks a line at 25.175 MHz, 525
  * lines, 480 of them shown. The card is timed: tick() turns CPU cycles
@@ -122,7 +150,10 @@ namespace ooe::emu
     {
     public:
         static constexpr uint8_t MODULE = 0x9;
-        static constexpr uint8_t ID = MODULE << 4 | 1; ///< +$7F: type (module ID) and revision
+        static constexpr uint8_t ID = MODULE << 4 | 1; ///< +$7F, revision 1: type (module ID) and revision
+        static constexpr uint8_t ID_V2 = MODULE << 4 | 2; ///< +$7F, revision 2 (hw/video-rev2.md)
+        static constexpr uint32_t MEMORY_SIZE = 0x200000; ///< revision 2: 2 MB of card memory
+        static constexpr uint32_t APERTURE_SIZE = 0x10000, SLOT_SIZE = 0x4000; ///< four 16 KB slots
 
         static constexpr unsigned WIDTH = 640, HEIGHT = 480;
         static constexpr unsigned LINE_CLOCKS = 800, LINES = 525;
@@ -154,6 +185,16 @@ namespace ooe::emu
             VSCROLL = 0x5,
             PALOFS = 0x7,
         };
+        /// Revision 2's register offsets where they differ from revision 1's (the rest are the same).
+        struct Rev2
+        {
+            static constexpr uint8_t PALBASE = 0x0A, SPRBASE = 0x0C; ///< two bytes each
+            static constexpr uint8_t MAPBASE = 0x1, TILEBASE = 0x3;  ///< layer +, two bytes each
+            static constexpr uint8_t HSCROLL = 0x5, VSCROLL = 0x7, PALOFS = 0x9;
+            static constexpr uint8_t SLOT0 = 0x30; ///< SLOTn at SLOT0 + 2n, two bytes
+            static constexpr uint8_t PADDR = 0x38, PDATA = 0x3B, PSTEP = 0x3C, PCTL = 0x3E, MEMSIZE = 0x3F;
+            static constexpr uint8_t PCTL_DRQ = 0x01, PCTL_FROM_CARD = 0x02, PCTL_DOWN = 0x04;
+        };
         static constexpr uint8_t DISPLAY = 0x01, LAYER0_ON = 0x02, LAYER1_ON = 0x04, SPRITES_ON = 0x08;
         static constexpr uint8_t VBLANK = 0x01, LINE_MATCH = 0x02, COLLISION = 0x04;
         static constexpr uint8_t IN_VBLANK = 0x80;
@@ -165,8 +206,24 @@ namespace ooe::emu
 
         VideoCard();
 
-        /// Banks 8-B: VRAM_SIZE bytes, as the RAM holds them. Not owned; null draws $FF.
+        /// Revision 1: banks 8-B, VRAM_SIZE bytes, as the RAM holds them. Not owned; null draws $FF.
         void attach(const uint8_t *vram) { vram_ = vram; }
+        /// 1 (snooped banks 8-B, ID $91) or 2 (card memory, ID $92). Resets the registers, not memory.
+        void set_revision(unsigned rev);
+        unsigned revision() const { return rev_; }
+        /// Revision 2's card memory, MEMORY_SIZE bytes (for tests and the debugger).
+        uint8_t *card_memory() { return memory_.data(); }
+        const uint8_t *card_memory() const { return memory_.data(); }
+        /// Card memory at a 24-bit card address: $FF past what is fitted (revision 2).
+        uint8_t card_peek(uint32_t addr) const { return addr < memory_.size() ? memory_[addr] : 0xFF; }
+        void card_poke(uint32_t addr, uint8_t data)
+        {
+            if (addr < memory_.size())
+                memory_[addr] = data;
+        }
+        /// The aperture's byte at `offset` (0-$FFFF): slot offset / 16 KB. Revision 2; ignored in Apple II mode.
+        uint8_t aperture_peek(uint32_t offset) const;
+        void aperture_write(uint32_t offset, uint8_t data);
         /// Apple II mode: banks 0 and 1 (main and auxiliary, 128 KB as the RAM holds
         /// them), and the north bridge whose mode and switches say what to draw. Not owned.
         void attach_apple(const uint8_t *banks01, const BackplaneBridge *bridge)
@@ -183,10 +240,14 @@ namespace ooe::emu
 
         // Device: the registers at $C480
         size_t size() const override { return 0x80; }
-        uint8_t read(uint32_t offset) override { return peek(offset); }
+        uint8_t read(uint32_t offset) override; ///< revision 2's PDATA steps PADDR
         uint8_t peek(uint32_t offset) const override;
         void write(uint32_t offset, uint8_t data) override;
         bool irq() const override { return (isr_ & ien_ & 0x07) != 0; }
+        /// Revision 2: the port asks for DMA while PCTL bit 0 is set.
+        bool drq() const override { return rev_ == 2 && (pctl_ & Rev2::PCTL_DRQ); }
+        uint8_t dack_read(bool tc) override;
+        void dack_write(uint8_t data, bool tc) override;
         /// /RESET (START, Ctrl-Reset, entering Apple II mode): the registers back to their
         /// reset values, interrupts off. The beam and the picture run on: the monitor keeps its sync.
         void bus_reset() override;
@@ -217,14 +278,29 @@ namespace ooe::emu
         struct Layer
         {
             uint8_t config{0};
-            uint8_t mapbase{0}, tilebase{0}; ///< as written
+            uint16_t mapbase{0}, tilebase{0}; ///< as written (revision 1: the low byte only)
             uint16_t hscroll{0}, vscroll{0};  ///< as written, 10 bits
             uint8_t palofs{0};
-            uint8_t live_mapbase{0}, live_tilebase{0}; ///< in effect since the last vertical blank
+            uint16_t live_mapbase{0}, live_tilebase{0}; ///< in effect since the last vertical blank
             uint16_t live_hscroll{0}, live_vscroll{0};
         };
 
-        uint8_t vram(uint32_t offset) const { return vram_ ? vram_[offset & (VRAM_SIZE - 1)] : 0xFF; }
+        /// What scanout reads: revision 1, banks 8-B, wrapping; revision 2, card memory.
+        uint8_t vram(uint32_t offset) const
+        {
+            if (rev_ == 2)
+                return card_peek(offset);
+            return vram_ ? vram_[offset & (VRAM_SIZE - 1)] : 0xFF;
+        }
+        /// A base register's card address: 1 KB units on revision 1, 256 bytes on revision 2.
+        uint32_t base(uint16_t reg) const { return rev_ == 2 ? uint32_t{reg} << 8 : uint32_t{reg} << 10; }
+        uint8_t peek_rev2(uint32_t offset) const;
+        void write_rev2(uint32_t offset, uint8_t data);
+        /// The port: the byte at PADDR, or a byte stored there; then PADDR moves by PSTEP.
+        uint8_t port_read();
+        void port_write(uint8_t data);
+        void port_step();
+        bool apple_mode() const;
         /// Pixel clocks: draw each line as it ends, start each one.
         void advance(uint64_t clocks);
         void start_line(unsigned y);
@@ -245,7 +321,13 @@ namespace ooe::emu
         /// Vertical blank: start, advance or end the splash.
         void splash_vblank();
 
+        unsigned rev_{1};
         const uint8_t *vram_{nullptr};
+        std::vector<uint8_t> memory_; ///< revision 2: card memory (empty on revision 1)
+        std::array<uint16_t, 4> slot_{};
+        uint32_t paddr_{0}; ///< 24 bits
+        uint16_t pstep_{1};
+        uint8_t pctl_{0};
         const uint8_t *apple_ram_{nullptr};
         const BackplaneBridge *bridge_{nullptr};
         /// Pixel clocks per CPU cycle, 32.32 fixed point: tick() is a multiply, and
@@ -256,8 +338,8 @@ namespace ooe::emu
         uint64_t frames_{0};
 
         uint8_t ctrl_{0}, border_{0};
-        uint8_t palbase_{0}, live_palbase_{0};
-        uint8_t sprbase_{0}, live_sprbase_{0};
+        uint16_t palbase_{0}, live_palbase_{0}; ///< revision 1: the low byte only
+        uint16_t sprbase_{0}, live_sprbase_{0};
         uint8_t ien_{0}, isr_{0};
         uint8_t coll_{0};       ///< STATUS COLL: the groups in the last frame with a collision
         uint8_t frame_coll_{0}; ///< groups that collided in the frame being drawn
@@ -268,6 +350,28 @@ namespace ooe::emu
         unsigned splash_frame_{0};
 
         std::vector<uint32_t> front_, back_;
+    };
+
+    /**
+     * @brief Revision 2's aperture: 64 KB of physical memory (bank 8 on the backplane) that the
+     * card answers, four 16 KB slots of card memory (VideoCard::aperture_peek()). The machine's
+     * `aperture` line; without a revision 2 card it shows nothing (reads $FF).
+     */
+    class VideoAperture : public Device
+    {
+    public:
+        void attach(VideoCard *card) { card_ = card; }
+        size_t size() const override { return VideoCard::APERTURE_SIZE; }
+        uint8_t read(uint32_t offset) override { return peek(offset); }
+        uint8_t peek(uint32_t offset) const override { return card_ ? card_->aperture_peek(offset) : 0xFF; }
+        void write(uint32_t offset, uint8_t data) override
+        {
+            if (card_)
+                card_->aperture_write(offset, data);
+        }
+
+    private:
+        VideoCard *card_{nullptr};
     };
 
     /// Write the card's last frame as a binary PPM (P6). @return false if the file cannot be written
