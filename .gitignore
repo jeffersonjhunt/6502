@@ -4,3 +4,4 @@ build/
 .sdlc-state.json
 # test_bios: a golden frame that failed, written beside the test to look at
 golden-*.ppm
+__pycache__/

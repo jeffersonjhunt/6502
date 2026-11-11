@@ -65,6 +65,9 @@ Two tiers, run by `tools/check.sh` (it says what each step took and which failed
 The sanitizers are too slow for anything but a release candidate. Between those, a sanitizer build is for an error
 found in testing that the logs can't explain: `cmake --preset dev && cmake --build --preset dev`, then that one test.
 
+A plan to run only the suites a change touches, and the sanitizers only on the emulator's own suites, is
+proposed in [hw/testing.md](hw/testing.md).
+
 The refactor plan is `emulator/docs/EMULATOR_PLAN.md`; the baseline it starts
 from is tagged `beta`.
 
