@@ -2,12 +2,13 @@
 
 Nov 10, 2026 · @Jefferson
 
-**Status: proposed (2026-11-10).** Phase U0 (below) settles the API and the open questions, as OOLIB's plan did.
-**U0's proposal (2026-11-10), owner to confirm:** [the API](#the-api), [what OO-Amp needs](#what-oo-amp-needs-from-ooui)
-and a recommended answer to each [open question](#open-questions).
-The video memory it allocates from is changing with [video-rev2.md](video-rev2.md); OOUI's API doesn't depend on
-which card is fitted. A richer, LVGL-based GPU was considered and parked for a future machine:
-[future/gpu-lvgl.md](future/gpu-lvgl.md).
+**Status: proposed (2026-11-10).** Phase U0 (below) settled the API and the open questions, as OOLIB's plan did.
+**U0 accepted by the owner (2026-11-11):** [the API](#the-api), [what OO-Amp needs](#what-oo-amp-needs-from-ooui)
+and the six recommended answers to the [open questions](#open-questions) stand, and U0's gate is met. U1, the core
+and the text backend, builds the API as it is written here.
+The video memory it allocates from is video card revision 2's ([video-rev2.md](video-rev2.md)): the program's part
+of card memory, handed out by OOLIB ([oolib.md](oolib.md), "Video card revision 2"; `oodos/include/vmem.inc`).
+A richer, LVGL-based GPU was considered and parked for a future machine: [future/gpu-lvgl.md](future/gpu-lvgl.md).
 
 
 ## Goal and approach ##
@@ -33,7 +34,7 @@ centrally.
 | Where it runs | Entirely on the 6502, linked into the app. No resident OODOS service is needed at first |
 | Display | 640×480, existing layer types, palette-based. No new modes |
 | Backends | Text layer first (80×30); bitmap later if needed |
-| Video memory | Allocated through OOLIB, so it works on today's card and on revision 2 ([video-rev2.md](video-rev2.md)) |
+| Video memory | Card memory of video card revision 2 ([video-rev2.md](video-rev2.md)), allocated through OOLIB (`GX_VALLOC`) |
 | Apple II mode | Unaffected: OOUI runs only under OODOS in native mode |
 | Docs | This design record, and its own Programmer's Guide chapter |
 
@@ -89,7 +90,7 @@ The app describes widgets in a table in its own memory; OOUI draws them, routes 
 
 ## The API ##
 
-**Proposed (phase U0, 2026-11-10), owner to confirm.** What U1 builds and an app is written to. The names below
+**Proposed (phase U0, 2026-11-10); accepted by the owner (2026-11-11).** What U1 builds and an app is written to. The names below
 become `oodos/include/ooui.inc`'s; the library is `build/ooui.lib`, an ar65 archive as `oolib.lib` is, with its
 modules in `oodos/lib/ui*.s` (or a directory of its own, U1's choice). Numbers marked *provisional* may move in U1
 before anything is built on them; the rest is the interface.
@@ -102,11 +103,12 @@ before anything is built on them; the rest is the interface.
   takes the handle in Y. A result comes back in A, or A and X.
 - **Carry is the answer:** clear for done, set for refused with A an error (`UX_*`). Unlike the BDOS, the flags are
   not put back.
-- **Every call changes A, X and Y** unless it says otherwise, and W1 (OOLIB's rule: OOUI draws through OOLIB, which
-  maps W1 itself). The decimal flag is clear on return and the interrupt flag as it was.
-- **The W1 contract holds:** everything OOUI reads while drawing (the widget table, the texts, the theme, the
-  accelerator table, the event area, the picker's buffers) is in `$0300-$3FFF` or `$8000-$BFFC`, never
-  `$4000-$7FFF`.
+- **Every call changes A, X and Y** unless it says otherwise, and W1 and aperture slot 1 (OOLIB's rule: OOUI draws
+  through OOLIB, whose `GX_VMAP` puts one of the program's card banks in slot 1 and slot 1's window, block 33, in
+  W1). The decimal flag is clear on return and the interrupt flag as it was.
+- **The W1 contract holds** (interface version 8): while OOUI draws, block 33 is in W1, so everything OOUI reads
+  then (the widget table, the texts, the theme, the accelerator table, the event area, the picker's buffers) is in
+  `$0300-$3FFF` or `$8000-$BFFC`, never `$4000-$7FFF`.
 - **No call from a hook** (functions 80's frame or tick hook, 82's ES5503 hook). OOUI runs only in the program's
   own time.
 - **No BDOS call** except in `ui_open`, `ui_close` and `ui_resume` (functions 80, 81 and 83: the interface, the
@@ -257,15 +259,21 @@ For example, a window with a list and two buttons:
 | +13 | `UO_FLAGS` | `UO_OWNMOUSE` `$01`: the app sets the mouse's mode and the pointer itself |
 | +14-15 | | reserved, 0 |
 
-It checks OODOS's interface (function 80's `FT_INFO`: version 4 or more, with `OA_INPUT` and `OA_DMA`) and the
-area (layout 2); takes its video memory; makes its font; sets the layers it was given; puts the theme's colours in
-OOLIB's palette shadow (`GX_PALINIT` first if the app hasn't); sets the mouse to absolute mode with limits 319 and
-239 (function 81's `IN_MOUSE`) and the pointer on `UO_SPRITE` (function 83's `DM_POINTER`), unless
-`UO_OWNMOUSE`; checks the table; marks every visible widget dirty; and gives the focus to the first that takes it.
+**Before `ui_open`** the app calls OOLIB's `GX_INIT` with the same event area, then `GX_PALINIT` and `GX_SPRINIT`:
+the palette and the sprite table are OOLIB's, shared with the app, and OOUI can't tell whether they were made (a
+program's BSS isn't cleared), so it never makes them itself.
+
+It checks OODOS's interface (function 80's `FT_INFO`: version 8 or more, with `OA_INPUT` and `OA_DMA`, as `GX_INIT`
+does) and the area (layout 2); takes its card memory (`GX_VALLOC`); makes its font; sets the layers it was given;
+puts the theme's colours in OOLIB's palette shadow (`GX_PALSET`, then `GX_PALSHOW`); sets the mouse to absolute mode
+with limits 319 and 239 (function 81's `IN_MOUSE`) and the pointer on `UO_SPRITE` (function 83's `DM_POINTER`),
+unless `UO_OWNMOUSE`; checks the table; marks every visible widget dirty; and gives the focus to the first that
+takes it.
 Nothing is drawn until `ui_poll`. Errors: `UX_VERSION`, `UX_AREA`, `UX_MEMORY`, `UX_TABLE`.
 
-`ui_close` frees OOUI's video memory, turns the pointer off and shows the console's screen (`GX_CONSOLE`). The
-warm boot does the same for a program that ends without it. The event area stays the app's to close.
+`ui_close` frees OOUI's card memory (`GX_VFREE`), turns the pointer off and shows the console's screen
+(`GX_CONSOLE`). The warm boot does the same for a program that ends without it: the program's card memory is no
+one's after it, and the console's screen comes back. The event area stays the app's to close.
 
 ### The calls ###
 
@@ -294,7 +302,7 @@ warm boot does the same for a program that ends without it. The event area stays
 | `ui_suspend` | | OOUI stops drawing; `ui_poll` returns every key, button and wheel event as `UE_RAW`; the layers are the app's |
 | `ui_resume` | | the layers and the pointer set again; everything drawn again |
 
-Errors (`UX_*`, *provisional numbers*): `UX_VERSION` 1 (OODOS's interface below 4, or no input or DMA), `UX_AREA` 2
+Errors (`UX_*`, *provisional numbers*): `UX_VERSION` 1 (OODOS's interface below 8, or no input or DMA), `UX_AREA` 2
 (no event area, or layout 1), `UX_MEMORY` 3 (no video memory), `UX_TABLE` 4 (an unknown type, a parent after its
 child, a menu item outside a menu, more than 240 records), `UX_HANDLE` 5 (a handle past the table, or a call the
 type doesn't take), `UX_BUSY` 6.
@@ -415,8 +423,8 @@ columns) with OOUI's font, and PALOFS the theme's groups. With both layers OOUI'
 the border, so a **canvas needs the app's own layer**: `UO_BASE` 1, `UO_OVER` `$FF`, the app's tiles or bitmap on
 layer 0. A drop shadow on the overlay layer copies the characters under it from the base layer in `TC_SHADOW`.
 
-**Glyphs.** OOUI copies the console's font (units 1-4, by function 83; a copy's source may be the console's) and
-redefines these codes (*provisional*; `UG_*` in ooui.inc), keeping CP437's box drawing (`$B3-$DA`), shades
+**Glyphs.** OOUI copies the console's font (card `$000400`, `VM_FONT`, OODOS's part: a card-to-card copy's source
+may be anywhere in card memory, so `GX_VCOPY` copies it in one call) and redefines these codes (*provisional*; `UG_*` in ooui.inc), keeping CP437's box drawing (`$B3-$DA`), shades
 (`$B0-$B2`), blocks (`$DB-$DF`) and arrows (`$10`, `$11`, `$18-$1F`):
 
 | Codes | Redefined as |
@@ -430,32 +438,38 @@ redefines these codes (*provisional*; `UG_*` in ooui.inc), keeping CP437's box d
 So a vertical bar or slider *n* cells long draws 16*n* levels, and a horizontal one 8*n*. CP437's accented letters
 (`$80-$9A`, `$A0-$A8`) stay, for names that have them.
 
-**Video memory.** One piece of 16 KB, on a 16 KB boundary, so that one window mapping reaches all of it:
+**Card memory.** One piece of 16 KB, a card bank (`GX_VALLOC` 64 card pages, aligned to 64), so that one
+`GX_VMAP` (aperture slot 1, block 33 in W1) reaches all of it and OOUI draws by writing cells there:
 
 | Offset | Size | What |
 | --- | --- | --- |
 | `$0000` | 5 KB | the base layer's map (4,800 bytes) |
 | `$1400` | 5 KB | the overlay layer's map (not used when `UO_OVER` is `$FF`) |
-| `$2800` | 2 KB | sprite images: the pointer and slider thumbs, 16×16 at 4 bits, 128 bytes each |
+| `$2800` | 2 KB | sprite images: the pointer and slider thumbs, 16×16 at 4 bits, a card page (256 bytes) each, since a sprite's image address counts card pages: 8 of them |
 | `$3000` | 4 KB | the font |
 
-Each part starts on 1 KB, which today's base registers need. The palette and the sprite table are OOLIB's
-(`GX_PALINIT`, `GX_SPRINIT`), shared with the app; OOUI writes only its groups and its sprites.
+Each part starts on a card page, which the base registers count (`GX_LAYER` takes the map's page in `GX_V`, the
+font's in `GX_R`; `GX_SPRIMG` an image's page). The palette and the sprite table are OOLIB's (`GX_PALINIT`,
+`GX_SPRINIT`, which the app calls before `ui_open`), shared with the app; OOUI writes only its group's entries and
+its sprites.
 
-**What OOUI expects from OOLIB's video-memory allocation.** OODOS's function 84 and OOLIB's allocation for
-revision 2 are being written now; OOUI needs, under whatever names they get:
+**What OOUI uses of OOLIB** (`oolib.inc`, `vmem.inc`, interface version 8; no function 84 is needed, as
+[oolib.md](oolib.md) says):
 
-1. **Allocate** a size in 256-byte pages (a word), with an alignment (16 KB here): the card address (24 bits), or
-   carry set if none is free.
-2. **Free** it.
-3. **Reach it:** a card address's 16 KB page mapped into W1 (or another window), with the CPU address of its
-   start; and the program's own block put back.
-4. **Copy** program memory to card memory, and card memory to card memory (the font), by DMA or the port.
-5. **Point a register at it:** a layer's MAPBASE and TILEBASE, and a sprite's image, set from a card address.
+1. **Allocate:** `GX_VALLOC`, `GX_V` 64 card pages, A 64 (the alignment): A/X the first card page, a card bank's
+   first; `GE_MEMORY` becomes `UX_MEMORY`.
+2. **Free:** `GX_VFREE`, the same page and size.
+3. **Reach it:** `GX_VMAP` the first page: slot 1 on that bank and block 33 in W1, A/X the CPU address (`$4000`);
+   `GX_W1BACK` puts block 1 back.
+4. **Copy:** `GX_VCOPY` (card to card: the console's font), `GX_VFILL` (the maps cleared); the cells, glyphs and
+   pointer image are written through W1.
+5. **Point the card at it:** `GX_LAYER` (CONFIG 0, text 80×30; `GX_V` the map's page, `GX_R` the font's),
+   `GX_SHOW`, `GX_SPRIMG`, `GX_SPRATTR`, `GX_SPRSHOW`, and `GX_PALSET` and `GX_PALSHOW` for the theme's colours.
 
-On today's card, OOLIB has all five: `GX_ALLOC` (1 KB units; OOUI asks for 32 and frees the half it doesn't need
-if the run isn't on a 16 KB boundary), `GX_FREE`, `GX_BLOCK` and `GX_W1BACK`, `DM_COPY`, and `GX_LAYER` and
-`GX_SPRIMG`.
+One thing OOLIB doesn't offer: **a layer's PALOFS.** `GX_LAYER` sets it to 0 and no call sets it otherwise, so a
+theme's `TH_GROUP`, `TH_OVERGROUP` and `TH_DIMGROUP` can't be honoured through OOLIB. Until the owner decides
+([question 7](#open-questions)), OOUI uses group 0 on both layers: it puts the theme's 16 colours in entries 0-15
+and ignores the groups and `TH_OVERPAL`.
 
 **The pointer and hit-testing.** The pointer is OODOS's sprite (`DM_POINTER`), in the sprites' 320×240 space, the
 mouse in absolute mode with limits 319 and 239. A cell is 4×8 pointer units, so the cell under the pointer is
@@ -499,7 +513,7 @@ palette entries, frames are styles, and the backend turns them into cells or pix
   `UO_OVER` `$FF` and covered widgets drawn again, as the text backend's one-layer mode does.
 - **Hit-testing** is the same with the theme's cell size: column (2 × `EV_MX` − 64) / 8 on bitmap 512, which starts
   at x 64.
-- **Memory:** 120 KB for a bitmap 512 screen: half the units a program has on today's card, little on revision 2.
+- **Memory:** 120 KB for a bitmap 512 screen, of the 1.5 MB of card memory a program has on revision 2.
 
 So, for an app, only the theme (and the grid's width) changes; the records, the calls, the events, the macros and
 the picker are the same.
@@ -628,7 +642,7 @@ Six phases, all software, each closed by a gate:
 
 | Phase | Work | Gate |
 | --- | --- | --- |
-| U0 | API spec: widget records, events, themes, file picker; checked against OO-Amp and both backends | API decided, open questions settled |
+| U0 | API spec: widget records, events, themes, file picker; checked against OO-Amp and both backends | API decided, open questions settled: **met** (the owner, 2026-11-11) |
 | U1 | Core and text backend: desktop, windows, labels, buttons, menus, focus, themes, glyphs, layer 1 overlays, pointer hit-testing | Golden frames pass |
 | U2 | Scroll bars, list boxes, message boxes, text fields, sliders, bars, canvas; file picker on OODOS directory calls | File picker works on real disks |
 | U3 | OO-Amp rebuilt on OOUI; gaps fixed in OOUI, not the app; before and after code size compared | OO-Amp clearly smaller; decide on the bitmap backend |
@@ -649,27 +663,33 @@ Six phases, all software, each closed by a gate:
 
 ## Open Questions ##
 
-**Recommended answers (U0, 2026-11-10), owner to confirm.** Each answer follows its question.
+**Recommended answers (U0, 2026-11-10); all six accepted by the owner (2026-11-11).** Each answer follows its
+question.
 
 1. Name: OOUI (proposed) or OOTK?
-   **Recommended, owner to confirm:** OOUI, with the prefix `ui`, as the decisions above and the API use it.
+      **Accepted (2026-11-11):** OOUI, with the prefix `ui`, as the decisions above and the API use it.
 2. Linked into each app, or a shared banked block or RSX from the start?
-   **Recommended, owner to confirm:** linked into each app first, as OOLIB is and as the decisions above say; ar65
+      **Accepted (2026-11-11):** linked into each app first, as OOLIB is and as the decisions above say; ar65
    links only the modules an app uses. A shared banked block (FARCALL) is reconsidered at U3's gate with OO-Amp's
    measured sizes, as the risks table says.
 3. Which theme look: Turbo Vision blue, a grey Windows 3.1 feel, or an OO-1 house style?
-   **Recommended, owner to confirm:** an OO-1 house style as the default theme, taken from OO-Amp's skin-sheet
+      **Accepted (2026-11-11):** an OO-1 house style as the default theme, taken from OO-Amp's skin-sheet
    colours, so the proving app and the toolkit look like one machine; and a Turbo Vision blue theme beside it in
    U1, which costs one 64-byte table and proves that a theme restyles everything. The grey Windows 3.1 feel waits
    for the bitmap backend, where its bevels can be drawn.
 4. Does OO-Amp's visualizer stay app-drawn on a canvas, or become an OOUI widget?
-   **Recommended, owner to confirm:** it stays app-drawn on a canvas, as the text backend's canvas is meant for
+      **Accepted (2026-11-11):** it stays app-drawn on a canvas, as the text backend's canvas is meant for
    ("a visualizer or waveform at pixel resolution"); OOUI's bars cover simple meters such as a VU. Revisited only
    if a second app wants the same spectrum.
 5. Is the bitmap backend wanted at all, or is a well-themed text UI enough for OO-1?
-   **Recommended, owner to confirm:** decided at U3's gate, as the plan says, once OO-Amp runs on the text
+      **Accepted (2026-11-11):** decided at U3's gate, as the plan says, once OO-Amp runs on the text
    backend. The API is kept free of text-mode numbers ([Against both backends](#against-both-backends)), so
    nothing is lost by waiting.
 6. Build the drawing assist only if the bitmap backend is built?
-   **Recommended, owner to confirm:** yes: the text backend never needs it, so it is built only with the bitmap
-   backend (U4), and only if that backend's repaints are measured too slow; with revision 2, on the video card.
+      **Accepted (2026-11-11):** yes: the text backend never needs it, so it is built only with the bitmap
+      backend (U4), and only if that backend's repaints are measured too slow; with revision 2, on the video card.
+7. **Open (2026-11-11, from fitting U0 to OOLIB):** a layer's PALOFS. OOLIB's `GX_LAYER` sets it to 0 and nothing
+   sets it otherwise, so OOUI can't put its layers on a theme's groups (`TH_GROUP`, `TH_OVERGROUP`) or dim the base
+   layer under a modal window (`TF_DIM`, `TH_DIMGROUP`) through OOLIB. Should OOLIB gain a call (say `GX_PALOFS`, A
+   a layer, X the group), or may OOUI write the layer's PALOFS register itself, as the Technical Reference lets a
+   program? Until then OOUI uses group 0 on both layers.
