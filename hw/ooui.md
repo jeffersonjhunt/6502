@@ -255,7 +255,7 @@ For example, a window with a list and two buttons:
 | +5-6 | `UO_THEME` | a theme (0: the default) |
 | +7-8 | `UO_KEYS` | the accelerator table (0: none) |
 | +9 | `UO_BASE` | the layer the widgets go on, 0 or 1 |
-| +10 | `UO_OVER` | the layer for menus, dialogs and `UF_OVERLAY` windows, 0 or 1, or `$FF`: none, they go on the base layer and what they covered is drawn again when they close |
+| +10 | `UO_OVER` | the layer for menus, dialogs and `UF_OVERLAY` windows: `$FF`, none (they go on the base layer and what they covered is drawn again when they close), or the layer above the base (1, with `UO_BASE` 0), so the overlay is on top; anything else is `UX_LAYER` (U1 review, O10) |
 | +11 | `UO_SPRITE` | the first sprite OOUI may use (the pointer, then slider thumbs) |
 | +12 | `UO_SPRITES` | how many, 0-16 (0: no pointer sprite) |
 | +13 | `UO_FLAGS` | `UO_OWNMOUSE` `$01`: the app sets the mouse's mode and the pointer itself |
@@ -270,8 +270,14 @@ does) and the area (layout 2); takes its card memory (`GX_VALLOC`); makes its fo
 puts the theme's colours in OOLIB's palette shadow (`GX_PALSET`, then `GX_PALSHOW`); sets the mouse to absolute mode
 with limits 319 and 239 (function 81's `IN_MOUSE`) and the pointer on `UO_SPRITE` (function 83's `DM_POINTER`),
 unless `UO_OWNMOUSE`; checks the table; marks every visible widget dirty; and gives the focus to the first that
-takes it.
-Nothing is drawn until `ui_poll`. Errors: `UX_VERSION`, `UX_AREA`, `UX_MEMORY`, `UX_TABLE`.
+takes it. Its maps are cleared (`GX_VFILL`) before the layers show them, so nothing from before shows (U1 review,
+O15). Nothing is drawn until `ui_poll`. While OOUI is open, `ui_open` is refused (`UX_BUSY`) and changes nothing;
+`ui_close` when it isn't does nothing (O9). Errors: `UX_VERSION`, `UX_AREA`, `UX_LAYER`, `UX_MEMORY`, `UX_TABLE`,
+`UX_BUSY`.
+
+**The table's rules** (`UX_TABLE`): a parent before its child; an unused record (`UT_NONE`) is skipped whatever
+its parent, so a zeroed record is good, but is no one's parent; a menu's parent a menu bar, an item's or a line's
+a menu; and no record more than 16 deep (`UI_DEPTH`: its parents and itself) (O6, O14).
 
 `ui_close` frees OOUI's card memory (`GX_VFREE`), turns the pointer off and shows the console's screen
 (`GX_CONSOLE`). The warm boot does the same for a program that ends without it: the program's card memory is no
@@ -307,7 +313,8 @@ one's after it, and the console's screen comes back. The event area stays the ap
 Errors (`UX_*`, *provisional numbers*): `UX_VERSION` 1 (OODOS's interface below 8, or no input or DMA), `UX_AREA` 2
 (no event area, or layout 1), `UX_MEMORY` 3 (no video memory), `UX_TABLE` 4 (an unknown type, a parent after its
 child, a menu item outside a menu, more than 240 records), `UX_HANDLE` 5 (a handle past the table, or a call the
-type doesn't take), `UX_BUSY` 6.
+type doesn't take), `UX_BUSY` 6 (`ui_open` while open; a box or the picker up), `UX_LAYER` 7 (`UO_BASE` past 1,
+or `UO_OVER` neither `$FF` nor above the base).
 
 ### Events ###
 
@@ -427,7 +434,8 @@ layer 0. A drop shadow on the overlay layer copies the characters under it from 
 
 **Glyphs.** OOUI copies the console's font (card `$000400`, `VM_FONT`, OODOS's part: a card-to-card copy's source
 may be anywhere in card memory, so `GX_VCOPY` copies it in one call) and redefines these codes (*provisional*; `UG_*` in ooui.inc), keeping CP437's box drawing (`$B3-$DA`), shades
-(`$B0-$B2`), blocks (`$DB-$DF`) and arrows (`$10`, `$11`, `$18-$1F`):
+(`$B0-$B2`), blocks (`$DB-$DF`) and arrows (`$10`, `$11`, `$18-$1B`, `$1D-$1F`; `$1C`, CP437's right angle, is
+`UG_HBAR7`):
 
 | Codes | Redefined as |
 | --- | --- |
@@ -466,12 +474,16 @@ its sprites.
 4. **Copy:** `GX_VCOPY` (card to card: the console's font), `GX_VFILL` (the maps cleared); the cells, glyphs and
    pointer image are written through W1.
 5. **Point the card at it:** `GX_LAYER` (CONFIG 0, text 80×30; `GX_V` the map's page, `GX_R` the font's),
-   `GX_SHOW`, `GX_SPRIMG`, `GX_SPRATTR`, `GX_SPRSHOW`, and `GX_PALSET` and `GX_PALSHOW` for the theme's colours.
+      `GX_PALOFS` (the layers' groups), `GX_SHOW`, `GX_SPRIMG`, `GX_SPRATTR`, `GX_SPRSHOW`, and `GX_PALSET` and
+   `GX_PALSHOW` for the theme's colours.
 
-One thing OOLIB doesn't offer: **a layer's PALOFS.** `GX_LAYER` sets it to 0 and no call sets it otherwise, so a
-theme's `TH_GROUP`, `TH_OVERGROUP` and `TH_DIMGROUP` can't be honoured through OOLIB. Until the owner decides
-([question 7](#open-questions)), OOUI uses group 0 on both layers: it puts the theme's 16 colours in entries 0-15
-and ignores the groups and `TH_OVERPAL`.
+**The groups** ([question 7](#open-questions), answered: OOLIB's `GX_PALOFS`, added for OOUI). The base layer's
+PALOFS is `TH_GROUP`, and `TH_PALETTE`'s 16 colours (the CGA's for 0) go in its entries (*group* × 16 on); the
+overlay's is `TH_OVERGROUP`, with `TH_OVERPAL`'s colours (`TH_PALETTE`'s for 0); and the pointer's sprite takes
+the overlay's group too. With `TF_DIM`, a dim group of its own and an overlay layer, `TH_DIMGROUP` gets the base's
+colours each component halved, and the base layer is put on it while a modal window shows (the dialog on the
+overlay stays bright). A theme in groups other than 0 keeps out of the program's own entries; colour 0 is still
+transparent, and where both layers are, the palette's entry 0 shows, whatever the groups.
 
 **The pointer and hit-testing.** The pointer is OODOS's sprite (`DM_POINTER`), in the sprites' 320×240 space, the
 mouse in absolute mode with limits 319 and 239. A cell is 4×8 pointer units, so the cell under the pointer is
@@ -490,8 +502,8 @@ pointer unit (`GX_SPRPOS`).
 - **The app's memory:** OOUI's code and data are linked into the app's image (`CODE`, `RODATA`, `BSS`), outside
     `$4000-$7FFF` as the W1 contract wants. Its state is about 100 bytes of `BSS`; the message box and the picker
   bring their own records (about 128 and 640 bytes) only when linked. *Target, measured at U1's and U2's gates:*
-  about 4 KB of code for U1's core and text backend, about 3 KB more for U2. *Measured at U1 (2026-11-11):* 7.1 KB
-  of code, 0.6 KB of tables and 230 bytes of `BSS` ([U1](#u1-the-core-and-the-text-backend)).
+    about 4 KB of code for U1's core and text backend, about 3 KB more for U2. *Measured at U1 (2026-11-11, after
+  its review):* 7.7 KB of code, 0.6 KB of tables and 236 bytes of `BSS` ([U1](#u1-the-core-and-the-text-backend)).
 - **The event area** is the app's (function 80's `FT_OPEN`, layout 2). OOUI reads `EV_QHEAD`, `EV_QTAIL`,
   `EV_QSLOTS` and `EV_QUEUE` (and writes `EV_QTAIL`), `EV_MODS`, `EV_DEVICES` (no mouse: no pointer), `EV_MX`,
   `EV_MY`, `EV_MBUTTONS`, `EV_KEYS` (repeat) and `EV_FRAMES` (times). It leaves `EV_QLOST`,
@@ -671,16 +683,16 @@ bytes):
 
 | Module | What | Code | Tables | BSS |
 | --- | --- | --- | --- | --- |
-| `uicore` | `ui_open`, `ui_close`, the calls that change a widget, places (`RECT`), focus, damage | 1,572 | 13 | 94 |
+| `uicore` | `ui_open`, `ui_close`, the calls that change a widget, places (`RECT`), focus, damage | 1,842 | 14 | 96 |
 | `zpuicore` | `UIP`, `UIQ`, `UIR`, `UIT`: zero page | | | 8 (zero page) |
-| `uidraw` | the text backend: card memory, font and glyphs, layers, colours, pointer, painting | 2,508 | 270 | 68 |
-| `uimenu` | menu bar, drop-downs, menu keys and clicks | 1,839 | 26 | 42 |
-| `uipoll` | `ui_poll`: the queue, keys, focus moves, accelerators, the mouse | 1,363 | 54 | 26 |
+| `uidraw` | the text backend: card memory, font and glyphs, layers, colours and groups, pointer, painting | 2,712 | 270 | 71 |
+| `uimenu` | menu bar, drop-downs, menu keys and clicks | 1,903 | 26 | 43 |
+| `uipoll` | `ui_poll`: the queue, keys, focus moves, accelerators, the mouse | 1,404 | 54 | 26 |
 | `uitheme` | `UI_HOUSE`, the default: OO-Amp's 16 colours from its skin sheet | | 96 | |
 | `uiturbo` | `UI_TURBO`: Turbo Vision's blue (entry 13 an opaque black, colour 0 being transparent) | | 96 | |
 
-So 7.1 KB of code against the 4 KB target: the menus (1.8 KB) and the damage-box painting are most of the
-difference. `uiturbo` is linked only by a program that names `UI_TURBO`; the rest come together, since `uicore`
+So 7.7 KB of code (7.1 KB before the review's fixes and the groups) against the 4 KB target: the menus (1.9 KB)
+and the damage-box painting are most of the difference. `uiturbo` is linked only by a program that names `UI_TURBO`; the rest come together, since `uicore`
 draws and polls through the others.
 
 **What it does.** Types 1-6 and 9-12 (desktop, window, panel, label, button, check box; menu bar, menu, item,
@@ -705,8 +717,10 @@ So a window hidden, or a menu put up, leaves the screen as it was, which the tes
 - A key on its own that is a modifier (usages `$E0-$E7`) is taken and dropped, not `UE_KEY`.
 - A click is where the pointer is when `ui_poll` reads it: the queue's button events carry no position. An app
   that polls each frame never sees the difference.
-- The palette: the theme's 16 colours in entries 0-15 (question 7). The pointer is 16×16 at 4 bits on sprite
-  `UO_SPRITE`, depth 3, in the theme's `TH_POINTER` colours.
+- The palette: the theme's groups as above. The pointer is 16×16 at 4 bits on sprite `UO_SPRITE`, depth 3, in the
+  theme's `TH_POINTER` colours, in the overlay's group; `ui_close` and `ui_suspend` put its depth to 0 (O17).
+- Sizes never wrap (O7): a fill, or a negative size, that comes to less than nothing is 0, and a size past the
+  parent's client area is held to it; a widget of no cells draws nothing.
 
 **Changed in the API text** (marked where they are): `ui_open` needs `GX_INIT`, `GX_PALINIT` and `GX_SPRINIT`
 called first (a program's `BSS` isn't cleared, so OOUI can't tell); interface 8, not 4; a negative width or height
@@ -714,26 +728,44 @@ fills to that many cells short of the edge; the layout macros put the table in `
 `TH_POINTER`.
 
 **Left for U2:** key repeat (no U1 widget takes a held key), the double-click, `US_HOT` and the pointer's hover,
-`UE_MODAL` (a modal window takes the input and the focus in U1, but the event and `TF_DIM` come with the message
-box), drawing clipped to the parent's client area (U1 clips to the screen and the damage box only), and the
-widgets of U2's row in the plan.
+`UE_MODAL` (a modal window takes the input and the focus in U1, and dims the base with `TF_DIM`, but the event
+comes with the message box), drawing clipped to the parent's client area (U1 clips to the screen and the damage
+box only; so a child that sticks out of its parent stays drawn when the parent is hidden, O16), a mouse plugged in
+after `ui_open` (OOUI sets the pointer up only at `ui_open` and `ui_resume`: an app that sees `EK_DEVICE` bring a
+mouse calls `ui_suspend` and `ui_resume` meanwhile, O13), and the widgets of U2's row in the plan.
 
-**Testing.** `test_oodos_ui` (9 cases) through `UITEST`, as above in [Emulator and testing](#emulator-and-testing).
-Ten golden frames: `desktop`, `window`, `menu-file`, `menu-select`, `focus-ok`, `turbo-window`, `turbo-menu`,
-`pointer-press`, `pointer-hit`, `overlay`. Besides them, every event `ui_poll` returns for the keys and clicks
+**Testing.** `test_oodos_ui` (21 cases) through `UITEST`, as above in [Emulator and testing](#emulator-and-testing).
+Eleven golden frames: `desktop`, `window`, `menu-file`, `menu-select`, `focus-ok`, `turbo-window`, `turbo-menu`,
+`pointer-press`, `pointer-hit`, `overlay`, and `dim-modal` (the review's: the base on its dim group under a modal
+window). With `OOUI_GOLDEN=update` the suite writes the hashes, prints so loudly, and exits 77, which CTest reports
+as skipped, never passed (O18). Besides them, every event `ui_poll` returns for the keys and clicks
 (the menus by keys, by Alt and a letter, by an item's letter, by the accelerator table; Tab and Shift+Tab; Space,
 Enter, Escape and a button's letter; toggles; the close box; a click off a menu; the wheel), `ui_rect`'s places,
 the table's refusals, and frames that must equal others: a menu put up, a window hidden and shown again, a label's
 text changed and back, the theme changed and back, and the one-layer mode against two layers. A theme colour
 changed (`TC_FRAME`) fails seven of the ten frames; the damage box not cleared fails seven of the equalities.
 
-**What it found in OOLIB** (for the owner; nothing changed there):
+**The U1 review (2026-11-11)** found these, fixed on this branch, each with a case in `test_oodos_ui` that fails
+without its fix: a change to a menu's item or a menu landed on its bar's record (O1); hiding a menu's bar left
+its drop-down up (O2); a hidden item kept its row (O3); a disabled menu opened, and its items could be chosen (O4);
+the accelerator table and a menu's item reached past a modal window (O5); unused records were refused where they
+should pass, and accepted as a parent (O6); sizes could wrap round 256 (O7); `ui_open` could open over an open
+session (O9) or on layers the wrong way round (O10); `ui_flags` left its old place and the focus stale (O11); a
+letter didn't press a button that takes no focus (O12); a table deeper than `UI_DEPTH` opened (O14); the maps
+showed what was in card memory until the first `ui_poll` (O15); the pointer stayed on after `ui_close` and
+`ui_suspend` (O17). And the link-time W1 check below (O8).
 
-- **`gxpal.s` brings 3.6 KB of `BSS`** with `GX_PALSET`: `GX_FADE`'s accumulators (3 KB) share its module, so a
-  program that sets one colour links them. With `gxspr.s`'s 512-byte shadow and the rest, `UITEST` ends 13 bytes
-  under `$4000` (its event area and mailbox moved to `$8000`). OO-Amp's port (U3) will feel this: `GX_FADE` in a
-  module of its own would give it back.
-- **No call sets a layer's PALOFS** ([question 7](#open-questions)).
+**What it found in OOLIB**, and the owner's answers (2026-11-11), made on this branch:
+
+- **`gxpal.s` brought 3.6 KB of `BSS`** with `GX_PALSET`: `GX_FADE`'s accumulators shared its module, so a program
+  that set one colour linked them. `GX_FADE` is now `lib/gxfade.s` with its zero page in `zpgxfade.s`
+  (`GXFADE_ZP`, was `zpgxpal.s`'s `GXPAL_ZP`). `UITEST`'s `BSS` went from 4,615 bytes (ending at `$3FF3`) to 1,597
+  (ending at `$34F9`, with a 64-byte theme of its own added), so its event area and buffers could come back below
+  `$4000`; `GXTEST`, which calls `GX_FADE`, keeps its 6,160.
+- **No call set a layer's PALOFS:** `GX_PALOFS` (`lib/gxmode.s`; [oolib.md](oolib.md), "Video card revision 2").
+- **The W1 contract is checked when a program is linked** (O8): `tools/w1.py` reads the map of every program in
+  `OOLIB_USERS` and `OOUI_USERS` and fails the build if any of its segments overlaps `$4000-$7FFF`
+  (`test/check_tools.py` makes one that crosses, for OOLIB and for OOUI, and sees the build stop).
 
 ## Risks ##
 
@@ -773,8 +805,8 @@ question.
 6. Build the drawing assist only if the bitmap backend is built?
       **Accepted (2026-11-11):** yes: the text backend never needs it, so it is built only with the bitmap
       backend (U4), and only if that backend's repaints are measured too slow; with revision 2, on the video card.
-7. **Open (2026-11-11, from fitting U0 to OOLIB):** a layer's PALOFS. OOLIB's `GX_LAYER` sets it to 0 and nothing
-   sets it otherwise, so OOUI can't put its layers on a theme's groups (`TH_GROUP`, `TH_OVERGROUP`) or dim the base
-   layer under a modal window (`TF_DIM`, `TH_DIMGROUP`) through OOLIB. Should OOLIB gain a call (say `GX_PALOFS`, A
-   a layer, X the group), or may OOUI write the layer's PALOFS register itself, as the Technical Reference lets a
-   program? Until then OOUI uses group 0 on both layers.
+7. A layer's PALOFS (raised 2026-11-11, fitting U0 to OOLIB): `GX_LAYER` set it to 0 and nothing set it
+   otherwise, so OOUI couldn't put its layers on a theme's groups or dim the base under a modal window. Should
+   OOLIB gain a call, or may OOUI write the register itself?
+   **Answered (the owner, 2026-11-11):** OOLIB gains `GX_PALOFS` (A a layer, X the group), and OOUI uses it for
+   `TH_GROUP`, `TH_OVERGROUP` and `TH_DIMGROUP` ([Text backend: resources](#text-backend-resources)).
