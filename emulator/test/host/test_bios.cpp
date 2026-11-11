@@ -1857,16 +1857,17 @@ TEST(c806_stops_a_programs_dma_before_its_fills)
 // Whole frames, hashed (FNV-1a over the pixels, as test_video's splash frames): any change to what the card
 // draws for them, the BIOS's screen or the renderer, shows here. The hashes come from this emulator, never from a
 // fixture. Each is taken at a fixed frame number, not a cycle count, so a BIOS that merely runs faster or slower
-// keeps them; the cursor's and the caption's blink depend on that number too. A change that should change the
-// picture (a new BIOS version in the banner, a new demo) fails them: look at the PPM the failure writes beside
-// the test, and if it is right, put the hash it printed here.
+// keeps them; the cursor's and the caption's blink depend on that number too. The monitor's leaves out the banner,
+// so a new BIOS version keeps it. A change that should change the picture (a new demo, say) fails them: look at
+// the PPM the failure writes beside the test, and if it is right, put the hash it printed here.
 
 namespace
 {
-    uint32_t frame_hash(const VideoCard &card)
+    /// From line `top` down (0: the whole frame).
+    uint32_t frame_hash(const VideoCard &card, unsigned top = 0)
     {
         uint32_t h = 2166136261u;
-        for (unsigned i = 0; i < VideoCard::WIDTH * VideoCard::HEIGHT; ++i)
+        for (unsigned i = top * VideoCard::WIDTH; i < VideoCard::WIDTH * VideoCard::HEIGHT; ++i)
             h = (h ^ card.frame()[i]) * 16777619u;
         return h;
     }
@@ -1880,9 +1881,9 @@ namespace
     }
 
     /// The frame's hash is `want`; if not, say the new one and write the frame as golden-`name`.ppm to look at.
-    bool golden(const VideoCard &card, const char *name, uint32_t want)
+    bool golden(const VideoCard &card, const char *name, uint32_t want, unsigned top = 0)
     {
-        const uint32_t got = frame_hash(card);
+        const uint32_t got = frame_hash(card, top);
         if (got == want)
             return true;
         const std::string ppm = std::string("golden-") + name + ".ppm";
@@ -1892,7 +1893,10 @@ namespace
     }
 
     constexpr uint64_t MONITOR_FRAME = 360;   // after the splash's 300, the cursor lit (frame / 16 even)
-    constexpr uint32_t MONITOR_HASH = 0xECF44BE7;
+    /// The monitor's screen below the banner: text rows 0 (blank) and 1 (BACKPLANE BIOS n.nn) are lines 0-31,
+    /// so a new version number leaves the hash alone.
+    constexpr unsigned BELOW_BANNER = 2 * 16;
+    constexpr uint32_t MONITOR_HASH = 0x4751DA17;
     constexpr uint32_t DEMO_FIRST_HASH = 0xA8005DC5;   // the demo's first frame, whole: the fade's level 0, black
     constexpr uint32_t DEMO_LIGHT_HASH = 0xA6F79AEF;   // the next: level 1, the first light
     constexpr uint32_t DEMO_SETTLED_HASH = 0x19C080E1; // 30 frames on: faded in, the balls under way
@@ -1911,7 +1915,7 @@ TEST(golden_frame_the_monitors_text_screen)
     REQUIRE(card->frames() < MONITOR_FRAME);
     run_to_frame(b, MONITOR_FRAME);
     CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.13"));
-    CHECK(golden(*card, "monitor", MONITOR_HASH));
+    CHECK(golden(*card, "monitor", MONITOR_HASH, BELOW_BANNER)); // rows 2-29: the prompt, the cursor, the rest
 }
 
 TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
