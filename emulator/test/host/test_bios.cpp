@@ -1150,6 +1150,50 @@ TEST(without_a_video_card_c803_goes_back_to_the_monitor)
     CHECK_EQ(b.bridge().window(1), 0x01);
 }
 
+TEST(printing_through_a_scroll_puts_back_slot_0_and_the_ports_settings)
+{
+    // VPUTC borrows aperture slot 0 and puts it back, and a clear or a scroll (PORTJOBS) puts back the port's
+    // PADDR, PSTEP and PCTL (video.s; the Technical Reference, chapter 6), so a program that prints keeps its own.
+    // A program's settings, none of them the BIOS's: slot 0 on page 7, PADDR mid-card, a step of 160, stepping down,
+    // no DRQ. Then a CR on the bottom row, which scrolls.
+    Board b;
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    VideoCard *card = b.machine->video_card();
+    using R2 = VideoCard::Rev2;
+    constexpr uint32_t TEXT = 0x002000;
+    const std::string mark = "MARK";
+    for (size_t c = 0; c < mark.size(); ++c)
+        card->card_poke(static_cast<uint32_t>(TEXT + 10 * 160 + c * 2), static_cast<uint8_t>(mark[c]));
+    b.machine->bus().write_physical(0x000E2, 0);               // VCOL, VROW (BIOS_ZP + 2, + 3): the bottom row
+    b.machine->bus().write_physical(0x000E3, 29);
+    card->write(R2::SLOT0, 0x07);
+    card->write(R2::SLOT0 + 1, 0x00);
+    card->write(R2::PADDR, 0x56);
+    card->write(R2::PADDR + 1, 0x34);
+    card->write(R2::PADDR + 2, 0x12);
+    card->write(R2::PSTEP, 0xA0);
+    card->write(R2::PSTEP + 1, 0x00);
+    card->write(R2::PCTL, R2::PCTL_DOWN);
+    REQUIRE(reg16(*card, R2::SLOT0) == 0x0007);
+    const std::string out = b.run(BOOT, "\r");                // the monitor: its echo and GETLINE's, two CRs
+    CHECK(has(out, "\r\r"));
+    auto card_row = [&](unsigned r) {
+        std::string t;
+        for (unsigned c = 0; c < mark.size(); ++c)
+            t += static_cast<char>(card->card_peek(TEXT + r * 160 + c * 2));
+        return t;
+    };
+    CHECK_EQ(card_row(10), std::string("    "));               // scrolled: the mark is two rows up
+    CHECK_EQ(card_row(8), mark);
+    CHECK_EQ(reg16(*card, R2::SLOT0), 0x0007u);                // and all four as the program left them
+    CHECK_EQ(card->peek(R2::PADDR) | unsigned{card->peek(R2::PADDR + 1)} << 8 |
+                 unsigned{card->peek(R2::PADDR + 2)} << 16,
+             0x123456u);
+    CHECK_EQ(reg16(*card, R2::PSTEP), 0x00A0u);
+    CHECK_EQ(card->peek(R2::PCTL), R2::PCTL_DOWN);
+}
+
 TEST(the_monitor_takes_keys_from_the_usb_keyboard)
 {
     Board b;
