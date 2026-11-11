@@ -63,7 +63,7 @@ GX_ASSET:
         pla
         cmp     #0
         bne     @file
-        lda     GX_HDR + AH_MAGIC       ; 'OGX', format 3, 1-7 parts
+        lda     GX_HDR + AH_MAGIC       ; 'OGX', format 4, 1-7 parts
         cmp     #'O'
         bne     @format
         lda     GX_HDR + AH_MAGIC + 1
