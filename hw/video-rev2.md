@@ -3,7 +3,8 @@
 Nov 10, 2026 · @Jefferson
 
 **Status: proposed (2026-11-10).** Decided in discussion: 2 MB of card memory, a 64 KB aperture in four 16 KB
-slots, and no native-mode snooping. The register details below are **proposed**; mark them that way in
+slots, and no native-mode snooping. The register map is frozen for the work (proposed, owner to confirm), and
+questions 1-6 have proposed defaults. The register details below are **proposed**; mark them that way in
 [design.md](design.md) when it is updated. The UI toolkit that rides on this card is [ooui.md](ooui.md).
 
 ## Summary
@@ -122,30 +123,60 @@ Bulk transfers go through a data port, the sound card's RAMADDR/RAMDATA model, s
 ## Register changes
 
 The block stays at `$C480`–`$C4FF`; base registers widen to two bytes, and the aperture and port take the unused
-space from `$C4B0`. The ID becomes `$92`. Every address here is a draft.
+space from `$C4B0`. The ID becomes `$92`.
 
-| Address | Name | Change |
+**Frozen (2026-11-10), proposed, owner to confirm.** This is the map the work is built to; it changes only by the
+owner's decision. It differs from the draft in one place: PSTEP is two bytes (`$C4BC`-`$C4BD`), because a column of
+the 80-column text screen steps 160 and a 640-pixel bitmap row 640, which one byte can't hold. PCTL and MEMSIZE move
+up one byte to make room.
+
+| Address | Name | What it is |
 | --- | --- | --- |
 | `$C480`, `$C481` | CTRL, BORDER | Unchanged |
-| `$C482`, `$C483` | (reserved) | PALBASE and SPRBASE move to two-byte registers below |
-| `$C484`–`$C489` | IEN, ISR, LINE, STATUS, SPLASH | Unchanged |
-| `$C48A`–`$C48B` | PALBASE | Card address in 256-byte units, latched at line 480 |
-| `$C48C`–`$C48D` | SPRBASE | Same |
+| `$C482`, `$C483` | (reserved) | Read 0; PALBASE and SPRBASE moved to two-byte registers below |
+| `$C484`–`$C489` | IEN, ISR, LINE, STATUS, SPLASH | Unchanged (LINE is `$C486`-`$C487`) |
+| `$C48A`–`$C48B` | PALBASE | Card address in 256-byte units, low byte first; latched at line 480 |
+| `$C48C`–`$C48D` | SPRBASE | The same |
+| `$C48E`–`$C48F` | (reserved) | Read 0 |
+| `$C490`–`$C49F` | Layer 0 | The layer registers below, from `$C490` |
+| `$C4A0`–`$C4AF` | Layer 1 | The same, from `$C4A0` |
 | Layer +0 | CONFIG | Unchanged |
-| Layer +1–+2 | MAPBASE | Two bytes, 256-byte units |
-| Layer +3–+4 | TILEBASE | Two bytes, 256-byte units |
-| Layer +5–+6, +7–+8 | HSCROLL, VSCROLL | Moved up one byte |
-| Layer +9 | PALOFS | Moved |
-| `$C4B0`–`$C4B7` | SLOT0–SLOT3 | Aperture page registers, two bytes each, 16 KB pages |
-| `$C4B8`–`$C4BA` | PADDR | Port address, 24 bits |
-| `$C4BB` | PDATA | Port data; each access moves PADDR on by PSTEP |
-| `$C4BC` | PSTEP | Address step after each PDATA access |
-| `$C4BD` | PCTL | DRQ enable, direction (to card or from card) |
-| `$C4BE` | MEMSIZE | Fitted memory in 64 KB units; 32 for 2 MB |
-| `$C4FF` | ID | `$92` |
+| Layer +1–+2 | MAPBASE | Two bytes, 256-byte units, low byte first |
+| Layer +3–+4 | TILEBASE | Two bytes, 256-byte units, low byte first |
+| Layer +5–+6, +7–+8 | HSCROLL, VSCROLL | Moved up one byte; otherwise unchanged |
+| Layer +9 | PALOFS | Moved; otherwise unchanged |
+| Layer +A–+F | (reserved) | Read 0 |
+| `$C4B0`–`$C4B7` | SLOT0–SLOT3 | Aperture page registers, two bytes each, low byte first, in 16 KB pages: slot *n* shows card memory from SLOT*n* × `$4000`. /RESET sets SLOT*n* to *n*, so the aperture shows card memory `$000000`-`$00FFFF` in order |
+| `$C4B8`–`$C4BA` | PADDR | Port address, 24 bits, low byte first |
+| `$C4BB` | PDATA | Port data. A write stores the byte at PADDR; a read returns the byte at PADDR. Either then moves PADDR by PSTEP |
+| `$C4BC`–`$C4BD` | PSTEP | The step after each PDATA access, 16 bits, low byte first (0 holds the address). /RESET sets 1 |
+| `$C4BE` | PCTL | Bit 0: DRQ enable. Bit 1: direction, 0 to the card (DMA writes PDATA), 1 from the card (DMA reads it). Bit 2: PADDR steps down instead of up. Other bits read 0 |
+| `$C4BF` | MEMSIZE | Fitted memory in 64 KB units, read-only: 32 for 2 MB |
+| `$C4C0`–`$C4FE` | (reserved) | Read 0 |
+| `$C4FF` | ID | `$92` (revision 1 reads `$91`) |
 
-Sprite table entries keep VERA's 8-byte layout, with the image address widened into byte 1's spare bits; its exact
-encoding is an open question.
+PADDR wraps at the fitted memory's end. Aperture and port addresses past MEMSIZE read `$FF` and ignore writes.
+/RESET resets the registers and never touches card memory.
+
+### Sprite table
+
+Sprite table entries keep VERA's 8-byte layout, with the image address widened into byte 1's spare bits. **Frozen,
+proposed default:** the image address is 15 bits in 256-byte units, reaching 8 MB. Byte 0 holds bits 7-0 of the
+unit number, byte 1 bits 6-0 hold bits 14-8, and byte 1 bit 7 is the colour depth, as before. Bytes 2-7 are
+unchanged.
+
+### Card memory layout (frozen)
+
+**Proposed default, owner to confirm.** OODOS's region keeps today's layout at the same offsets: what the BIOS and
+OODOS call unit *u* (1 KB of banks 8-B) is card address *u* × 1 KB, so a unit becomes the base-register value *u* × 4.
+
+| Range | Owner | Use |
+| --- | --- | --- |
+| `$000000`–`$03FFFF` | OODOS (and the BIOS before it) | As today's banks 8-B: the palette at `$000000`, the font at `$000400`, the console's text at `$002000`, OODOS's video units 0-12, its sprites and pointer |
+| `$040000`–`$1BFFFF` | Programs, through OOLIB | Screens, bitmaps, tiles, sprite images |
+| `$1C0000`–`$1DFFFF` | Apple II mode | The banks 0-1 mirror (128 KB) |
+| `$1E0000`–`$1E0FFF` | Apple II mode | The IIe's character ROM, which `C806R` copies there |
+| `$1E1000`–`$1FFFFF` | Apple II mode | Spare |
 
 ## Apple II mode
 
@@ -202,15 +233,26 @@ already uses.
 
 ## Open questions
 
+Questions 1-6 have **proposed defaults, owner to confirm** (2026-11-10); the work proceeds on them. Question 7 is
+open.
+
 1. Aperture location: bank 8 as proposed? How do the north bridge and the RAM cards hand that bank to the video
    card?
+   **Proposed default, owner to confirm:** physical bank 8, `$80000`-`$8FFFF`. The machine fits no RAM at bank 8
+   and decodes it to the video card; banks 9-B are ordinary RAM.
 2. DMA channel for the port: channel 1 as proposed, moving OODOS's vertical-blank copies onto it?
+   **Proposed default, owner to confirm:** channel 1; OODOS's vertical-blank copies become port transfers on it.
 3. Sprite image address encoding: 15 bits in 128-byte units (4 MB), or in 256-byte units (8 MB)?
+   **Proposed default, owner to confirm:** 15 bits in 256-byte units ([the sprite table](#sprite-table)).
 4. Base register units: 256 bytes as proposed, or 1 KB to keep alignment simple?
+   **Proposed default, owner to confirm:** 256-byte units.
 5. Does the palette stay in card memory (read per line, as emulated) or get copied into the card's own RAM on a
    PALBASE write (as design.md says)?
+   **Proposed default, owner to confirm:** in card memory, read each line, as emulated today.
 6. Card memory layout: does OODOS own the whole map, or only its region with programs allocating the rest?
-7. Which FPGA part, given the SRAM bus and the bus-target timing?
+   **Proposed default, owner to confirm:** OODOS owns `$000000`-`$03FFFF` and the Apple region
+   `$1C0000`-`$1FFFFF`; programs allocate the rest through OOLIB ([the layout](#card-memory-layout-frozen)).
+7. Which FPGA part, given the SRAM bus and the bus-target timing? **Open.**
 
 ## Docs to update when accepted
 
