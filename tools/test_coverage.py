@@ -38,10 +38,8 @@ NOT_CXX = {"bios", "oodos", "apple", "apple1", "eater", "docs", "tools", "split"
 
 def entries(build):
     """{suite: [(name, command, cwd, env)]}, grouped by the binary or script they run."""
-    out = subprocess.run(["ctest", "--test-dir", build, "--show-only=json-v1"],
-                         check=True, capture_output=True, text=True).stdout
     groups = {}
-    for t in json.loads(out)["tests"]:
+    for t in test_map.ctest_json(build)["tests"]:
         cmd = t.get("command") or []
         if not cmd:
             continue

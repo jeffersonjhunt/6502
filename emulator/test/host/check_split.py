@@ -16,6 +16,23 @@ import subprocess
 import sys
 
 
+def ctest_json(build):
+    """ctest --show-only=json-v1 for a build, run on a copy of its CTestTestfile.cmake files: ctest writes
+    Testing/Temporary/LastTest.log wherever it runs, even to list, and in the build itself that would clobber
+    the log of a run in progress (this runs inside one, as a test) or just finished (tools/check.sh reads it)."""
+    import shutil
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="ctest_json.") as tmp:
+        for root, _, names in os.walk(build):
+            if "CTestTestfile.cmake" in names:
+                dest = os.path.join(tmp, os.path.relpath(root, build))
+                os.makedirs(dest, exist_ok=True)
+                shutil.copy(os.path.join(root, "CTestTestfile.cmake"), dest)
+        out = subprocess.run(["ctest", "--test-dir", tmp, "--show-only=json-v1"],
+                             check=True, capture_output=True, text=True).stdout
+    return json.loads(out)
+
+
 def cases(exe, shard):
     env = dict(os.environ, OOE_TEST_LIST="1")
     env.pop("OOE_TEST_SHARD", None)
@@ -35,10 +52,8 @@ def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     build, exe = sys.argv[1], os.path.realpath(sys.argv[2])
-    out = subprocess.run(["ctest", "--test-dir", build, "--show-only=json-v1"],
-                         check=True, capture_output=True, text=True).stdout
     shards = {}
-    for t in json.loads(out)["tests"]:
+    for t in ctest_json(build)["tests"]:
         cmd = t.get("command") or []
         if not cmd or os.path.realpath(cmd[0]) != exe:
             continue
