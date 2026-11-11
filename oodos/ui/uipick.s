@@ -60,13 +60,18 @@ dbuf:   .res    128                    ; the directory records
 keep:   .res    8                      ; the program's user, DMA address and segment, error mode
 scbb:   .res    4
 rowbuf: .res    40                     ; a row's text
-fbuf:   .res    13                     ; the name field: 8 + "." + 3 + 0
+fbuf:   .res    15                     ; the name field: "d:" + 8 + "." + 3 + 0 (Z4)
 sbuf:   .res    24                     ; the status text
 ent:    .res    2                      ; an entry's address
 n:      .res    1
 didx:   .res    1
 dofs:   .res    1                      ; CONSIDER's entry in dbuf
 lim:    .res    1                      ; IDLEFN's: the new entries a poll lists
+cur:    .res    2                      ; the list's entry the walk's next match should be (Z1)
+wstamp: .res    1                      ; the walk's stamp, in each entry it finds (+14: Z5)
+atend:  .res    1                      ; CONSIDER's
+sync:   .res    1                      ;   1 while each match has been the list's entry cur
+mk:     .res    1                      ; MAKE's place
 total:  .res    2                      ; the wanted files the last walk found
 rrow:   .res    1                      ; ROWFN's row
 ans:    .res    1                      ; FINISH's answer
@@ -227,42 +232,40 @@ STATUS: pha
         lda     n
         jmp     DIRTY
 
-; The records.
-MAKE:   jsr     CLEAR                   ; the window, centred
-        lda     #UT_WINDOW
-        sta     rec + UW_TYPE
-        lda     #UI_NONE
-        sta     rec + UW_PARENT
-        lda     #7
-        sta     rec + UW_X
-        lda     #2
-        sta     rec + UW_Y
-        lda     #66
-        sta     rec + UW_W
-        lda     #ROWS + 9
-        sta     rec + UW_H
-        lda     #UF_MODAL | UF_OVERLAY
-        sta     rec + UW_FLAGS
-        lda     blk + UP_TITLE
-        sta     rec + UW_TEXT
-        lda     blk + UP_TITLE + 1
-        sta     rec + UW_TEXT + 1
-        lda     #PW
+; The records: each place's from TPL, then what the block and the drive
+; make of it.
+MAKE:   stz     mk
+@p:     lda     mk
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        tay
+        ldx     #0
+@c:     lda     TPL,y
+        sta     rec,x
+        iny
+        inx
+        cpx     #UW_LEN
+        bne     @c
+        jsr     PATCH
+        lda     mk
         jsr     PUT
-        jsr     CHILD                   ; the drive: a choice of 8
-        lda     #UT_CHOICE
-        sta     rec + UW_TYPE
-        lda     #1
-        sta     rec + UW_X
-        lda     #12
-        sta     rec + UW_W
-        lda     #<DRIVES
-        sta     rec + UW_TEXT
-        lda     #>DRIVES
-        sta     rec + UW_TEXT + 1
-        lda     #DRIVES_N
-        sta     rec + UW_A
-        ldx     #DRIVES_N - 1           ; the value: the drive's place, A: if it has none
+        inc     mk
+        lda     mk
+        cmp     #PSTA + 1
+        bne     @p
+        jmp     RELIST
+
+; Place mk's record in rec made the block's.
+PATCH:  ldx     mk
+        bne     @drv
+        lda     blk + UP_TITLE          ; the window: the block's title
+        ldx     blk + UP_TITLE + 1
+        bra     @text
+@drv:   dex
+        bne     @usr
+        ldx     #DRIVES_N - 1           ; the drive: its place, A: if it has none
 @dv:    lda     DRVMAP,x
         cmp     pdrive
         beq     @df
@@ -272,161 +275,44 @@ MAKE:   jsr     CLEAR                   ; the window, centred
         lda     #1
         sta     pdrive
 @df:    stx     rec + UW_VALUE
-        lda     blk + UP_FLAGS
-        and     #UP_DRIVES
-        bne     @dsh
-        lda     #UF_HIDDEN
-        sta     rec + UW_FLAGS
-@dsh:   lda     #PDRV
-        jsr     PUT
-        jsr     CHILD                   ; the user: a choice of 16
-        lda     #UT_CHOICE
-        sta     rec + UW_TYPE
-        lda     #15
-        sta     rec + UW_X
-        lda     #12
-        sta     rec + UW_W
-        lda     #<USERS
-        sta     rec + UW_TEXT
-        lda     #>USERS
-        sta     rec + UW_TEXT + 1
-        lda     #16
-        sta     rec + UW_A
-        lda     puser
+        lda     #UP_DRIVES
+        bra     @shown
+@usr:   dex
+        bne     @lst
+        lda     puser                   ; the user
         sta     rec + UW_VALUE
-        lda     blk + UP_FLAGS
-        and     #UP_USERS
-        bne     @ush
-        lda     #UF_HIDDEN
-        sta     rec + UW_FLAGS
-@ush:   lda     #PUSR
-        jsr     PUT
-        jsr     CHILD                   ; the list
-        lda     #UT_LIST
-        sta     rec + UW_TYPE
-        lda     #1
-        sta     rec + UW_X
-        lda     #2
-        sta     rec + UW_Y
-        lda     #<-1
-        sta     rec + UW_W
-        lda     #ROWS
-        sta     rec + UW_H
-        lda     #<ROWFN
-        sta     rec + UW_TEXT
-        lda     #>ROWFN
-        sta     rec + UW_TEXT + 1
-        lda     #$FF
-        sta     rec + UW_VALUE
-        sta     rec + UW_VALUE + 1
-        lda     blk + UP_FLAGS
+        lda     #UP_USERS
+@shown: and     blk + UP_FLAGS          ; hidden unless the block wants it
+        bne     @r
+@hide:  lda     #UF_HIDDEN
+        tsb     rec + UW_FLAGS
+@r:     rts
+@lst:   dex
+        bne     @fld
+        lda     blk + UP_FLAGS          ; the list: marks with UP_MULTI
         and     #UP_MULTI
-        beq     @m
+        beq     @r
         lda     #UF_MULTI
-@m:     ora     #UF_ROUTINE | UF_SCROLL
-        sta     rec + UW_FLAGS
-        lda     #PLST
-        jsr     PUT
-        jsr     CHILD                   ; the status
-        lda     #UT_LABEL
-        sta     rec + UW_TYPE
-        lda     #1
-        sta     rec + UW_X
-        lda     #ROWS + 2
-        sta     rec + UW_Y
-        lda     #<-1
-        sta     rec + UW_W
-        lda     #1
-        sta     rec + UW_H
-        lda     #<T_READING
-        sta     rec + UW_TEXT
-        lda     #>T_READING
-        sta     rec + UW_TEXT + 1
-        lda     #PSTA
-        jsr     PUT
-        jsr     CHILD                   ; the name: typed only with UP_NEW
-        stz     fbuf
-        lda     #UT_FIELD
-        sta     rec + UW_TYPE
-        lda     #1
-        sta     rec + UW_X
-        lda     #ROWS + 4
-        sta     rec + UW_Y
-        lda     #14
-        sta     rec + UW_W
-        lda     #1
-        sta     rec + UW_H
-        lda     #<fbuf
-        sta     rec + UW_TEXT
-        lda     #>fbuf
-        sta     rec + UW_TEXT + 1
-        lda     #13
-        sta     rec + UW_A
+        tsb     rec + UW_FLAGS
+        rts
+@fld:   dex
+        bne     @ext
+        stz     fbuf                    ; the name: typed only with UP_NEW
         lda     blk + UP_FLAGS
         and     #UP_NEW
-        beq     @old
-        lda     #0                      ; (UP_NEW's bit isn't a flag)
-        bra     @nw
-@old:   lda     #UF_DISABLED
-@nw:    ora     #UF_UPPER
-        sta     rec + UW_FLAGS
-        lda     #PFLD
-        jsr     PUT
-        jsr     CHILD                   ; OK, Cancel, the extra button: its client's last row
-        lda     #<T_OK
-        ldx     #>T_OK
-        ldy     #<-36
-        jsr     BUTTON
-        lda     #UF_DEFAULT
-        sta     rec + UW_FLAGS
-        lda     #POK
-        jsr     PUT
-        jsr     CHILD
-        lda     #<T_CANCEL
-        ldx     #>T_CANCEL
-        ldy     #<-24
-        jsr     BUTTON
-        lda     #UF_CANCEL
-        sta     rec + UW_FLAGS
-        lda     #PCAN
-        jsr     PUT
-        jsr     CHILD
-        lda     blk + UP_EXTRA
+        bne     @r
+        lda     #UF_DISABLED
+        tsb     rec + UW_FLAGS
+        rts
+@ext:   cpx     #PEXT - PFLD
+        bne     @r
+        lda     blk + UP_EXTRA          ; the extra button: hidden with no text
         ldx     blk + UP_EXTRA + 1
-        ldy     #<-12
-        jsr     BUTTON
-        lda     blk + UP_EXTRA
-        ora     blk + UP_EXTRA + 1
-        bne     @x
-        lda     #UF_HIDDEN
-        sta     rec + UW_FLAGS
-@x:     lda     #PEXT
-        jsr     PUT
-        jmp     RELIST
-
-; rec cleared, the window's child at its client's top left.
-CHILD:  jsr     CLEAR
-        lda     #PW
-        sta     rec + UW_PARENT
-        lda     #1
-        sta     rec + UW_H
-        rts
-CLEAR:  ldy     #UW_LEN - 1
-        lda     #0
-@z:     sta     rec,y
-        dey
-        bpl     @z
-        rts
-; rec a button: text A/X, at column Y from the right, the last row, 10 wide.
-BUTTON: sta     rec + UW_TEXT
+        bne     @text
+        cmp     #0
+        beq     @hide
+@text:  sta     rec + UW_TEXT
         stx     rec + UW_TEXT + 1
-        sty     rec + UW_X
-        lda     #UT_BUTTON
-        sta     rec + UW_TYPE
-        lda     #<-1
-        sta     rec + UW_Y
-        lda     #10
-        sta     rec + UW_W
         rts
 PUT:    pha
         lda     #<rec
@@ -461,6 +347,11 @@ IDLEFN: lda     pcol                    ; a column said "not yet": the list agai
         stz     n                       ;   OODOS keeps one search, and the program may use it
         stz     total                   ;   between polls; what is listed already is passed by
         stz     total + 1
+        stz     cur                     ; the list's entry the next match should be (Z1)
+        stz     cur + 1
+        lda     #1
+        sta     sync
+        inc     wstamp                  ; this walk's stamp (Z5)
         lda     count + 1               ; this poll's new: 4 and half as many as are listed, at
         bne     @most                   ;   most 64, so the walks from the start cost about three
         lda     count                   ;   times the directory's matches, not their square / 8
@@ -480,6 +371,9 @@ IDLEFN: lda     pcol                    ; a column said "not yet": the list agai
         bne     @found
         stx     perr                    ; the walk's end (X 0), or an error: the listing done
         stz     lst
+        cpx     #0
+        bne     @end
+        jsr     PRUNE                   ; whole: what it didn't find is gone (Z5)
         bra     @end
 @found: jsr     CONSIDER
         lda     n
@@ -554,8 +448,12 @@ PUTBACK:
         ldy     #F_ERRMODE
         jmp     BDOS
 
-; The entry at dbuf + 32 x A: if its type is wanted, counted (total); if it
-; isn't listed already, listed while there's room (n counting the new).
+; The entry at dbuf + 32 x A: if its type is wanted, counted (total) and
+; stamped where it is listed: the list's entry cur if it is that one (the
+; directory unchanged comes back in the same order: Z1), else wherever
+; LISTED finds it; if it isn't listed, listed while there's room (n counting
+; the new). Past the list's end with every match in its place so far, a
+; match is new without looking.
 CONSIDER:
         asl     a
         asl     a
@@ -569,13 +467,50 @@ CONSIDER:
         inc     total
         bne     @t
         inc     total + 1
-@t:     jsr     LISTED
-        bcs     @r                      ; listed already
-        lda     count                   ; room?
+@t:     lda     cur                     ; the entry cur?
+        cmp     count
+        lda     cur + 1
+        sbc     count + 1
+        bcc     @cur
+        lda     sync                    ; past the list with every match in its place: new
+        bne     @new
+        bra     @look
+@cur:   lda     cur
+        ldx     cur + 1
+        jsr     ENTRY
+        jsr     MATCH
+        beq     @same
+        stz     sync                    ; out of step: looked for from now on
+        bra     @look
+@same:
+        jsr     STAMP
+        inc     cur
+        bne     @r
+        inc     cur + 1
+@r:     rts
+@look:  jsr     LISTED                  ; elsewhere: the walk goes on after it
+        bcc     @new
+        jsr     STAMP
+        lda     ent
+        clc
+        adc     #1
+        sta     cur
+        lda     ent + 1
+        adc     #0
+        sta     cur + 1
+        rts
+@new:   lda     count                   ; room?
         cmp     pmax
         lda     count + 1
         sbc     pmax + 1
         bcs     @r                      ; full: counted, not listed (the status says so: Y6)
+        lda     cur                     ; cur at the end: it stays there
+        eor     count
+        sta     atend
+        lda     cur + 1
+        eor     count + 1
+        ora     atend
+        sta     atend
         lda     count
         ldx     count + 1
         jsr     ENTRY
@@ -598,11 +533,110 @@ CONSIDER:
         sta     (UIQ),y
         cpy     #UP_ELEN - 1
         bne     @z
+        jsr     STAMP
         inc     count
         bne     @c
         inc     count + 1
 @c:     inc     n
+        lda     atend
+        bne     @x
+        lda     count
+        sta     cur
+        lda     count + 1
+        sta     cur + 1
+@x:     rts
+
+; The entry at UIQ stamped with this walk's stamp.
+STAMP:  ldy     #UP_ELEN - 2
+        lda     wstamp
+        sta     (UIQ),y
+        rts
+
+; Z set if the entry at UIQ has the name and type of dbuf + dofs's.
+MATCH:  ldx     dofs
+        ldy     #UP_ENAME
+@b:     lda     dbuf + 1,x
+        and     #$7F
+        cmp     (UIQ),y
+        bne     @r
+        inx
+        iny
+        cpy     #UP_ENAME + 11
+        bne     @b
 @r:     rts
+
+; Carry set, ent its index and UIQ on it, if the entry at dbuf + dofs is
+; listed already; clear if it is new.
+LISTED: lda     blk + UP_WORK
+        sta     UIQ
+        lda     blk + UP_WORK + 1
+        sta     UIQ + 1
+        stz     ent
+        stz     ent + 1
+@e:     lda     ent
+        cmp     count
+        lda     ent + 1
+        sbc     count + 1
+        bcs     @new
+        jsr     MATCH
+        beq     @yes
+        lda     UIQ
+        clc
+        adc     #UP_ELEN
+        sta     UIQ
+        bcc     @i
+        inc     UIQ + 1
+@i:     inc     ent
+        bne     @e
+        inc     ent + 1
+        bra     @e
+@yes:   sec
+        rts
+@new:   clc
+        rts
+
+; After a whole walk: the entries it didn't stamp (files gone since they
+; were listed) taken out, the rest closed up, count what is left.
+PRUNE:  stz     ent                     ; ent the one read, cur the one written
+        stz     ent + 1
+        stz     cur
+        stz     cur + 1
+@l:     lda     ent
+        cmp     count
+        lda     ent + 1
+        sbc     count + 1
+        bcs     @done
+        lda     ent
+        ldx     ent + 1
+        jsr     ENTRY
+        ldy     #UP_ELEN - 2
+        lda     (UIQ),y
+        cmp     wstamp
+        bne     @next
+        lda     UIQ
+        sta     UIP
+        lda     UIQ + 1
+        sta     UIP + 1
+        lda     cur
+        ldx     cur + 1
+        jsr     ENTRY
+        ldy     #UP_ELEN - 1
+@c:     lda     (UIP),y
+        sta     (UIQ),y
+        dey
+        bpl     @c
+        inc     cur
+        bne     @next
+        inc     cur + 1
+@next:  inc     ent
+        bne     @l
+        inc     ent + 1
+        bra     @l
+@done:  lda     cur
+        sta     count
+        lda     cur + 1
+        sta     count + 1
+        rts
 
 ; Carry clear if the entry at dbuf + X has a type UP_TYPES wants (or there is
 ; no UP_TYPES).
@@ -638,46 +672,6 @@ WANTED: lda     blk + UP_TYPES
 @yes:   clc
         rts
 @no:    sec
-        rts
-
-; Carry set if the entry at dbuf + dofs is listed already (its name and
-; type): clear if it is new. The list is walked by address, its first byte
-; compared first, so a walk costs little more than a byte a file.
-LISTED: lda     blk + UP_WORK
-        sta     UIQ
-        lda     blk + UP_WORK + 1
-        sta     UIQ + 1
-        stz     ent
-        stz     ent + 1
-        ldx     dofs
-@e:     lda     ent
-        cmp     count
-        lda     ent + 1
-        sbc     count + 1
-        bcs     @new
-        ldy     #UP_ENAME
-@b:     lda     dbuf + 1,x
-        and     #$7F
-        cmp     (UIQ),y
-        bne     @next
-        inx
-        iny
-        cpy     #UP_ENAME + 11
-        bne     @b
-        sec                             ; the same
-        rts
-@next:  ldx     dofs
-        lda     UIQ
-        clc
-        adc     #UP_ELEN
-        sta     UIQ
-        bcc     @i
-        inc     UIQ + 1
-@i:     inc     ent
-        bne     @e
-        inc     ent + 1
-        bra     @e
-@new:   clc
         rts
 
 ; UIQ = ROWFN's entry again (the column routine may have used it).
@@ -719,6 +713,7 @@ COUNTED:
         iny
         lda     count + 1
         sta     (UIR),y
+        jsr     CLAMP                   ; the selection held to what is left (Z5)
         lda     n
         jsr     DIRTY
         lda     lst
@@ -738,12 +733,11 @@ COUNTED:
         lda     count
         ldy     count + 1
         jsr     NUMBER
-        lda     count
+        lda     count                   ; fewer listed than found: "n of t" (Z5)
         cmp     total
-        bne     @of
         lda     count + 1
-        cmp     total + 1
-        beq     @files
+        sbc     total + 1
+        bcs     @files
 @of:    ldy     #0
 @o:     lda     T_OF,y
         beq     @tot
@@ -1105,8 +1099,10 @@ GIVE:   lda     n
         sta     (UIP),y
         dey
         bpl     @c
-        ldy     #UP_ELEN - 3
+        ldy     #UP_ELEN - 3                ; its mark and its stamp clear in the copy
         lda     #0
+        sta     (UIP),y
+        iny
         sta     (UIP),y
         inc     n
 @r:     rts
@@ -1202,6 +1198,29 @@ BADCH:  cmp     #'!'
         rts
 
         .rodata
+; The records' templates, by place (UW_*: type, parent, x, y, w, h, flags,
+; state, text, value, A, B): the window centred; the drive and the user, each
+; a choice; the list; the name, 14 characters ("d:" and 8.3: Z4); OK, Cancel
+; and the extra button on its client's last row; the status.
+TPL:    .byte   UT_WINDOW, UI_NONE, 7, 2, 66, ROWS + 9, UF_MODAL | UF_OVERLAY, 0
+        .word   0, 0, 0, 0
+        .byte   UT_CHOICE, PW, 1, 0, 12, 1, 0, 0
+        .word   DRIVES, 0, DRIVES_N, 0
+        .byte   UT_CHOICE, PW, 15, 0, 12, 1, 0, 0
+        .word   USERS, 0, 16, 0
+        .byte   UT_LIST, PW, 1, 2, <-1, ROWS, UF_ROUTINE | UF_SCROLL, 0
+        .word   ROWFN, $FFFF, 0, 0
+        .byte   UT_FIELD, PW, 1, ROWS + 4, 16, 1, UF_UPPER, 0
+        .word   fbuf, 0, 15, 0
+        .byte   UT_BUTTON, PW, <-36, <-1, 10, 1, UF_DEFAULT, 0
+        .word   T_OK, 0, 0, 0
+        .byte   UT_BUTTON, PW, <-24, <-1, 10, 1, UF_CANCEL, 0
+        .word   T_CANCEL, 0, 0, 0
+        .byte   UT_BUTTON, PW, <-12, <-1, 10, 1, 0, 0
+        .word   0, 0, 0, 0
+        .byte   UT_LABEL, PW, 1, ROWS + 2, <-1, 1, 0, 0
+        .word   T_READING, 0, 0, 0
+.assert * - TPL = 9 * UW_LEN, error, "a template a place"
 MODS:   .word   UIW_CHOICE, UIW_LIST, UIW_FIELD
 DRVMAP: .byte   1, 2, 3, 4, 5, 6, 7, 13
 DRIVES_N = * - DRVMAP

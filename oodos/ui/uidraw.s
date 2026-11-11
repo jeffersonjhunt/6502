@@ -566,7 +566,15 @@ PAINT:  lda     ususp
         sta     (UIR),y
         inc     ph
         bra     @c
-@e:     ldx     #7
+@e:     lda     udmg                    ; damage with nothing drawn (a window hidden over
+        cmp     udmg + 2                ;   nothing): what shows changed, upost too (Z2)
+        bcc     @dmg
+        lda     udmg + 4
+        cmp     udmg + 6
+        bcs     @clr
+@dmg:   lda     #1
+        sta     udrew
+@clr:   ldx     #7
 @z:     stz     udmg,x
         dex
         bpl     @z
