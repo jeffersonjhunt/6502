@@ -117,6 +117,11 @@ namespace ooe::emu
     std::unique_ptr<Machine> Machine::build(const std::string &text, const std::string &origin,
                                             const MachineOptions &options, std::string &error)
     {
+        if (options.video_revision > 2)
+        {
+            error = origin + ": video_revision: want the video card's revision, 1 or 2 (0: the description's)";
+            return nullptr;
+        }
         std::unique_ptr<Machine> m(new Machine(options.bridge));
         bool rom_overridden = false;
         std::unordered_map<const Via6522 *, std::string> via_users; // the last peripheral type on each VIA
@@ -485,6 +490,8 @@ namespace ooe::emu
                     m->bus_.map(map);
             }
         }
+        if (m->video_card_)
+            m->video_card_->lock_revision(); // the bus is wired for it now: set_revision() can't change it
         if (m->video_card_ && video_rev == 1)
         {
             // Revision 1 draws from banks 8-B, which it snoops: give it the RAM there.

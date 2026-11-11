@@ -89,7 +89,9 @@ namespace ooe::emu
     {
         /// If set, replaces the image of the first `rom` line.
         std::string rom_override;
-        /// The video card's revision (1 or 2), over the `video` line's `rev=`; 0: the line's.
+        /// The video card's revision (1 or 2), over the `video` line's `rev=`; 0: the line's. Anything
+        /// else fails the build. The machine wires the bus for it, so the card's revision is then fixed
+        /// (VideoCard::set_revision() returns false).
         unsigned video_revision{0};
         /// An Apple IIe ROM for the cartridge (the rom line named `rom_b`), at its
         /// start: one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.

@@ -94,8 +94,8 @@
  * bridge's switches say, its own registers out of reach. Each Apple dot is
  * 2x2 pixels, the 560x384 picture centred in 640x480 on black. Text, 40 or
  * 80 columns (80: aux, main, aux...), with the IIe's character ROM at
- * APPLE_CHARS (2 KB: 8 bytes a code, bit 0 the leftmost of 7 dots, lit where
- * the bit is 0): ALTCHARSET off makes $40-$7F flash between inverse and
+ * APPLE_CHARS (on revision 2, card $1E0000: APPLE_CHARS_V2; 2 KB: 8 bytes
+ * a code, bit 0 the leftmost of 7 dots, lit where the bit is 0): ALTCHARSET off makes $40-$7F flash between inverse and
  * normal, on shows them as they are (MouseText, inverse lowercase). Lo-res:
  * 40x48 blocks of 16 colours. Hi-res: 280 dots a line, colour from NTSC
  * artifacts (a lone dot is violet or green, blue or orange when its byte's
@@ -209,11 +209,15 @@ namespace ooe::emu
         /// Revision 1: banks 8-B, VRAM_SIZE bytes, as the RAM holds them. Not owned; null draws $FF.
         void attach(const uint8_t *vram) { vram_ = vram; }
         /// 1 (snooped banks 8-B, ID $91) or 2 (card memory, ID $92). Resets the registers, not memory.
-        void set_revision(unsigned rev);
+        /// Build time only: once lock_revision() has been called (a Machine does, as it wires the bus
+        /// for the revision its description chose) it changes nothing and returns false.
+        bool set_revision(unsigned rev);
+        void lock_revision() { revision_locked_ = true; }
         unsigned revision() const { return rev_; }
-        /// Revision 2's card memory, MEMORY_SIZE bytes (for tests and the debugger).
-        uint8_t *card_memory() { return memory_.data(); }
-        const uint8_t *card_memory() const { return memory_.data(); }
+        /// Revision 2's card memory, MEMORY_SIZE bytes; nullptr on revision 1, which has none.
+        /// card_peek() and card_poke() are the safe way in.
+        uint8_t *card_memory() { return rev_ == 2 ? memory_.data() : nullptr; }
+        const uint8_t *card_memory() const { return rev_ == 2 ? memory_.data() : nullptr; }
         /// Card memory at a 24-bit card address: $FF past what is fitted (revision 2).
         uint8_t card_peek(uint32_t addr) const { return addr < memory_.size() ? memory_[addr] : 0xFF; }
         void card_poke(uint32_t addr, uint8_t data)
@@ -233,6 +237,8 @@ namespace ooe::emu
         }
         /// The character ROM's 2 KB in video memory (the BIOS's C806R puts it there): $BE000.
         static constexpr uint32_t APPLE_CHARS = 0x3E000;
+        /// Revision 2: the character ROM in card memory (hw/video-rev2.md's layout).
+        static constexpr uint32_t APPLE_CHARS_V2 = 0x1E0000;
         /// The CPU clock that tick()'s cycles run at; 0 = NATIVE_HZ.
         void set_cpu_hz(uint32_t hz);
         /// Power-on: the registers, the beam at line 0 and a black picture.
@@ -322,6 +328,7 @@ namespace ooe::emu
         void splash_vblank();
 
         unsigned rev_{1};
+        bool revision_locked_{false};
         const uint8_t *vram_{nullptr};
         std::vector<uint8_t> memory_; ///< revision 2: card memory (empty on revision 1)
         std::array<uint16_t, 4> slot_{};

@@ -750,7 +750,7 @@ sizes`, the maps, normal and `DEBUG=1`).
     side), bitmap 256 (256×240, 8 bits, 60 KB), bitmap 512 (512×480, 4 bits, 120 KB) or mono (640×480, 37.5 KB);
     64 hardware sprites of 8 bytes (512-byte table at SPRBASE, VERA's layout), 8 to 64 pixels a side, 32 a line,
     four collision groups (STATUS bits 3–0, ISR bit 2); a palette of 256 12-bit entries in video memory, read
-    afresh for every line (`video_card.cpp:512`); PALBASE, SPRBASE, MAPBASE, TILEBASE and the scrolls latched at
+    afresh for every line (`video_card.cpp:515`); PALBASE, SPRBASE, MAPBASE, TILEBASE and the scrolls latched at
     line 480; interrupts at vertical blank, a chosen line and a collision. Vertical blank is lines 480–524, 1.43 ms,
     about 10,240 cycles. **No hardware blitter, no frame counter, no line-buffer DMA:** the card draws from memory
     and is told where things are. Video memory is banks 8–B, physical `$80000–$BFFFF`, RAM blocks 32–47

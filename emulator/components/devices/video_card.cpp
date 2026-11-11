@@ -115,12 +115,15 @@ namespace ooe::emu
         fraction_ = 0;
     }
 
-    void VideoCard::set_revision(unsigned rev)
+    bool VideoCard::set_revision(unsigned rev)
     {
+        if (revision_locked_)
+            return false; // the bus is wired for the revision it has
         rev_ = rev == 2 ? 2 : 1;
         if (rev_ == 2 && memory_.empty())
             memory_.assign(MEMORY_SIZE, 0);
         bus_reset();
+        return true;
     }
 
     bool VideoCard::apple_mode() const { return bridge_ && bridge_->apple(); }
@@ -760,7 +763,8 @@ namespace ooe::emu
                 unsigned idx = code;
                 if (!s.altchar && code >= 0x40 && code < 0x80) // flashing: inverse, then normal
                     idx = flash_on ? (code & 0x3Fu) | 0x80 : code & 0x3Fu;
-                return static_cast<uint8_t>(~vram(APPLE_CHARS + idx * 8 + a % 8)); // lit where 0
+                const uint32_t chars = rev_ == 2 ? APPLE_CHARS_V2 : APPLE_CHARS; // card memory on revision 2
+                return static_cast<uint8_t>(~vram(chars + idx * 8 + a % 8)); // lit where 0
             };
             if (s.col80)
             {

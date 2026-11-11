@@ -215,7 +215,7 @@ CGA:            RGB     $0, $0, $0     ; black
 
 hw/design.md, "Video registers" ([`hw/design.md:593–594`](../../hw/design.md#video-registers)), has the card copy
 the 512 bytes into its own RAM when PALBASE changes. The emulator reads them from video memory for every line
-instead (`emulator/components/devices/video_card.cpp:512–516`), which is what lets a DMA fade show with no PALBASE
+instead (`emulator/components/devices/video_card.cpp:515–519`), which is what lets a DMA fade show with no PALBASE
 write.
 
 ## Video memory
@@ -396,7 +396,7 @@ back to ISR as 1s, which clears them; until it does, /IRQ stays low
   never interrupts there.
 
 hw/design.md's register table ([`hw/design.md:573`](../../hw/design.md#video-registers)) says any pending ISR bit
-pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:246`), as the
+pulls IRQH. The card interrupts on ISR AND IEN (`emulator/components/devices/include/video_card.h:252`), as the
 same section's later list says ([`hw/design.md:619`](../../hw/design.md#video-registers)).
 
 ## Revision 2: card memory
