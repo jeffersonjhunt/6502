@@ -699,7 +699,11 @@ card plays its sound alongside ([below](#the-splashs-sound)).
 
 #### The splash's sound ####
 
-The sound card plays it from a 2 KB program for its 6510 (`backplane/bios/splash/bootsnd.s`; also a stereo PSID,
+The sound card's 6510 plays it, on whatever the card has: on [revision 2](#sound-card-revision-2) the ES5503, from
+samples ([below](#on-the-es5503-revision-2)); on revision 1 the SIDs, as follows. Either way the same bikes pass at
+the same moments and the stamp lands on the same frame.
+
+**On the SIDs (revision 1).** A 2 KB program for the 6510 (`backplane/bios/splash/bootsnd.s`; also a stereo PSID,
 `bootsnd.sid`, for any SID player). SID A is left and SID B right. Play runs 240 times a second, four ticks to a
 video frame, so pitches glide rather than step.
 
@@ -731,6 +735,46 @@ frame *n*. When it's over it zeroes the SIDs' oscillators (TEST) and registers a
 card's 6510 and hands the SIDs back to the host, as after a reset. Break (QUIET) stops both early. A program that
 takes the card within the first 5 s finds the tune's voices still in the SIDs, so it silences them first, as QUIET
 does.
+
+##### On the ES5503 (revision 2) #####
+
+*(Proposed 2026-11-10.)* The same scene from samples: `backplane/bios/splash/docsnd.s`, a 1.5 KB player for the
+6510, and 80 KB of wave RAM made by `docsamples.py`, all synthesised, the same bytes every build; the engine from
+measurements of the real thing (a trackside recording of the 2024 MotoGP tests at Mugello), kept as numbers in
+`docsamples.py`, not the recording. The chip runs 24 oscillators, so 34,419 samples a second; even oscillators go
+left and odd right.
+
+| Table | Wave RAM | Contents |
+|---|---|---|
+| Engine | `$00000`, 32 KB loop | a bike flat out near 16,100 rpm: each 720° cycle from the harmonics measured on ten full-throttle pulls (order-tracked and averaged), their levels and phases and how much of each repeats cycle to cycle, the rest a new phase each cycle (the rasp); softly clipped for level, band-limited to 9.5 kHz; oversampled 4 times, 32 cycles in 0.24 s |
+| Wind | `$08000`, 8 KB loop | a bike's air and tyre roar, at half rate |
+| Crack | `$0A000`, 2 KB one-shot | the quickshifter's crack: two quick bangs and a crackle |
+| Push | `$0A800`, 2 KB one-shot | the air a stamp shoves ahead of it, at half rate |
+| Thunk | `$0C000` left, `$10000` right, 16 KB one-shots | the stamp landing: the contact's click, a sub kick falling from 171 Hz to 46, the rubber's smack, the handle's wooden knock (each ear's a touch apart), the desk, a short room, driven hard so the body stays up behind the hit; at half rate |
+
+- **Each bike** is the engine on two oscillators in each ear, for 6 dB more: a voice peaks at an eighth of the bus,
+  which mixes the chip at a half. Every tick the player glides each bike's pitch (the SIDs' Doppler, with the
+  recording's rpm: climbing about 9 % a second, 11 % down at each upshift; from `docgen.py`) and each ear's volume
+  (its distance and an equal-power pan), so every bike pans on its own. At the first upshift, just after the pass,
+  the crack plays and the engine dips for three frames: the ignition cut; the second, going away, only dips. The
+  lone fourth bike also has the engine an octave down, and the wind, on one oscillator to an ear (half and a
+  quarter level).
+- **The stamp:** the push starts as the stamp does and ends as it lands; then twenty oscillators, ten to an ear,
+  play the thunk, and the bikes stop.
+- **Why oversampled:** the ES5503 doesn't interpolate; it plays the sample its accumulator's whole part points at.
+  At a step that isn't whole, which a gliding pitch never is, every sample is up to one out, and on this engine at
+  one sample a step that error was only 19 dB under the sound: hiss and grit all through it. At about 4 samples a
+  step it's 31 dB under, the 8 bits' own floor. The price is a short loop, so the cycles vary in phase only, not
+  level, and don't beat at its 4 Hz.
+- **Level:** the bikes peak about −12 dBFS on the card's bus, about 5 dB under the SIDs' version; the landing about
+  −4 dBFS, some 14 dB over the bikes for its first 150 ms.
+- **Time:** the player's busiest tick takes about 82 % of the 4,261 SID clocks a tick has.
+
+The BIOS (`splash.s`), when the card's ID is `$A2` or more, stops the card's 6510, copies wave RAM's image from flash
+blocks 24–28 (through W1, by DOCDATA with auto-increment, about 0.13 s), loads the player at `$1000`, sets DOCCTL
+RUN so the 6510 has the chip at `$DF00`, and starts it as for the SIDs, on the splash's first vertical blank. When
+it's over the player halts every oscillator and writes 1 to `$DE02`: the 6510 stops and so does the chip (DOCCTL
+RUN clears), so PCM isn't refused afterwards. Break's QUIET stops both early, as it does any ES5503 program.
 
 
 ## Sound ##
@@ -780,7 +824,7 @@ it commands.
   | `$DC00` | CIA 1, imitated: timer A and its interrupt, for the play routine |
   | `$DE03`/`$DE04` | FRAME and FRAMEEN: the card's frame interrupt, for the host's player stub, and the raster line's switch (below) |
   | `$DE00` | the mailbox: read takes the host's byte, write sends one to the host; `$DE01` is its status (bit 0: a byte from the host is waiting; bit 1: the card's last byte hasn't been taken) |
-  | `$DE02` | STOP *(proposed 2026-10-31)*: any write clears CTRL RUN, so a one-shot such as the [boot splash's sound](#the-splashs-sound) hands the SIDs back when it's done |
+  | `$DE02` | STOP *(proposed 2026-10-31)*: any write clears CTRL RUN, so a one-shot such as the [boot splash's sound](#the-splashs-sound) hands the SIDs back when it's done. On revision 2 a write with bit 0 set also clears DOCCTL RUN, as the host's write does *(proposed 2026-11-10)*, so an ES5503 one-shot hands back the chip too and PCM may run; 0 leaves the ES5503 be |
 
   RSID tunes that need the VIC raster interrupt or a second CIA won't play yet; more of the C64 can be imitated
   later.

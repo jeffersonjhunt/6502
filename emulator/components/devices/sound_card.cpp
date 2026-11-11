@@ -1601,7 +1601,11 @@ namespace ooe::emu
         else if (addr == 0xDE00)
             card_send(data);
         else if (addr == 0xDE02)
+        {
             ctrl_ = static_cast<uint8_t>(ctrl_ & ~CTRL_RUN); // STOP: the 6510 stops itself
+            if ((data & 0x01) && rev_ >= 2 && (docctl_ & DOCCTL_RUN))
+                doc_control(static_cast<uint8_t>(docctl_ & ~DOCCTL_RUN)); // and the ES5503, as the host's write
+        }
         else if (addr >= 0xDF00 && (docctl_ & DOCCTL_RUN))
         {
             catch_up();

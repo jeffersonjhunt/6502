@@ -1,0 +1,4 @@
+# Assembled code, samples, fonts and graphics: bytes, never text (no line-ending
+# conversion, no text diffs). splash/wave.bin happens to hold no NUL in its first
+# 8,000 bytes, so git would otherwise guess text.
+*.bin binary

@@ -1082,3 +1082,28 @@ TEST(a_write_to_de02_stops_the_6510_itself)
     c.write(VOICE1_FREQ_LO, 0x34); // and the host has the SIDs
     CHECK_EQ(c.sid(0)[VOICE1_FREQ_LO], 0x34);
 }
+
+TEST(a_write_to_de02_with_bit_0_stops_the_es5503_too)
+{
+    // Revision 2's boot splash ends this way: the 6510 and the ES5503 stopped, so PCM isn't refused after.
+    for (const uint8_t value : {uint8_t{0x01}, uint8_t{0x00}})
+    {
+        std::printf("  $DE02 written $%02X\n", value);
+        SoundCard c;
+        c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
+        REQUIRE(c.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN);
+        start(c, 0x1000, {0xA9, value,       // LDA #value
+                          0x8D, 0x02, 0xDE,  // STA $DE02
+                          0x4C, 0x05, 0x10}); // JMP (here)
+        host(c, HOST_SECOND / 100);
+        CHECK_EQ(c.ctrl() & SoundCard::CTRL_RUN, 0);
+        CHECK_EQ(c.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN, value & 0x01 ? 0 : SoundCard::DOCCTL_RUN);
+    }
+    // Revision 1 has no ES5503 (DOCCTL can't be reached, so its RUN is never set): bit 0 stops the 6510, as any
+    // write to $DE02 does.
+    SoundCard c;
+    c.set_revision(1);
+    start(c, 0x1000, {0xA9, 0x01, 0x8D, 0x02, 0xDE, 0x4C, 0x05, 0x10});
+    host(c, HOST_SECOND / 100);
+    CHECK_EQ(c.ctrl() & SoundCard::CTRL_RUN, 0);
+}
