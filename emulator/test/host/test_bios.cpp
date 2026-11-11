@@ -71,6 +71,10 @@ namespace
         return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
 
+    /// The video card these run on: the BIOS is built for revision 2 (hw/video-rev2.md), and backplane.machine
+    /// still says rev=1 until the BIOS, OODOS and the demo move together.
+    constexpr unsigned VIDEO_REVISION = 2;
+
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.
     struct Board
     {
@@ -105,6 +109,7 @@ namespace
             opt.rtc_time = Ds3231::Time{2026, 10, 26, 12, 0, 0, 2}; // a Monday
             opt.apple_rom = std::move(apple_rom);
             opt.apple_chars = std::move(apple_chars);
+            opt.video_revision = VIDEO_REVISION;
             std::string error;
             machine = Machine::build(text, "backplane.machine", opt, error);
             if (machine)
@@ -240,6 +245,12 @@ namespace
         return static_cast<unsigned>(std::stoul(lbl.substr(at - 6, 6), nullptr, 16));
     }
 
+    /// A revision 2 card's two-byte register at `offset`, low byte first.
+    unsigned reg16(const VideoCard &card, unsigned offset)
+    {
+        return card.peek(offset) | unsigned{card.peek(offset + 1)} << 8;
+    }
+
     std::string hex(unsigned v)
     {
         char buf[3];
@@ -356,8 +367,8 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
     const uint8_t l0 = VideoCard::LAYER0;
     CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80); // text 80x30, blink
-    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
-    CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
     CHECK_EQ(b.row(0), std::string(""));
     CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.12"));
     CHECK_EQ(b.row(2), std::string("\\"));
@@ -892,11 +903,11 @@ TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
     const VideoCard *card = b.machine->video_card();
     const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
     CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
-    CHECK_EQ(card->peek(VideoCard::PALBASE), 0);
-    CHECK_EQ(card->peek(VideoCard::SPRBASE), 0);
+    CHECK_EQ(reg16(*card, VideoCard::Rev2::PALBASE), 0);
+    CHECK_EQ(reg16(*card, VideoCard::Rev2::SPRBASE), 0);
     CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
-    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
-    CHECK_EQ(card->peek(l0 + VideoCard::HSCROLL), 0);
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::HSCROLL), 0);
     CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0);
     CHECK_EQ(b.bridge().window(1), 0x01);        // the windows back
     CHECK_EQ(b.bridge().window(2), 0x02);
@@ -1066,6 +1077,7 @@ TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
         opt.rom_override = EMU_BIOS_ROM;
         opt.apple_rom = std::move(parts);
         opt.apple_chars = std::move(chars);
+        opt.video_revision = VIDEO_REVISION;
         error.clear();
         return Machine::build(text, "backplane.machine", opt, error);
     };
@@ -1097,7 +1109,7 @@ TEST(the_cartridge_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
         std::remove(f);
 }
 
-TEST(c806_puts_the_character_rom_in_video_memory_or_makes_one_from_the_vga_font)
+TEST(c806_puts_the_character_rom_in_card_memory_or_makes_one_from_the_vga_font)
 {
     const std::string rom = fake_iie_rom("test_chars_iie.rom");
     {
@@ -1117,27 +1129,32 @@ TEST(c806_puts_the_character_rom_in_video_memory_or_makes_one_from_the_vga_font)
         b->run(BOOT);
         b->run(2 * BOOT, "C806R\r");
     }
+    // In the card's memory at $1E0000 (hw/video-rev2.md's layout), where it draws Apple text from.
+    constexpr uint32_t CHARS = VideoCard::APPLE_CHARS_V2;
+    const VideoCard &with_card = *with.machine->video_card();
     size_t differ = 0;
     for (uint32_t i = 0; i < 0x800; ++i)
-        differ += with.machine->bus().peek_physical(0xBE000 + i) != static_cast<uint8_t>(i * 3 + 1);
+        differ += with_card.card_peek(CHARS + i) != static_cast<uint8_t>(i * 3 + 1);
     CHECK_EQ(differ, size_t{0});                                // the cartridge's, its first 2 KB
-    // Without one: each glyph from the VGA font (video memory unit 1), 16 rows folded to 8,
+    // Without one: each glyph from the VGA font (flash block 30), 16 rows folded to 8,
     // 7 dots reversed, normal codes inverted. Check A both ways: $C1 normal, $01 inverse.
-    Decoder &bus = without.machine->bus();
+    const VideoCard &card = *without.machine->video_card();
+    const std::string flash = read_file(EMU_BIOS_ROM);
+    REQUIRE(flash.size() == 0x80000u);
     size_t wrong = 0;
     for (unsigned r = 0; r < 8; ++r)
     {
-        const uint8_t vga = bus.peek_physical(0x80400 + 'A' * 16 + 2 * r) | bus.peek_physical(0x80400 + 'A' * 16 + 2 * r + 1);
+        const uint8_t vga = static_cast<uint8_t>(flash[0x78000 + 'A' * 16 + 2 * r] | flash[0x78000 + 'A' * 16 + 2 * r + 1]);
         uint8_t dots = 0;
         for (unsigned b = 0; b < 7; ++b)
             dots = static_cast<uint8_t>(dots | ((vga >> (7 - b)) & 1) << b);
-        wrong += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
-        wrong += bus.peek_physical(0xBE000 + 0x01 * 8 + r) != dots;
+        wrong += card.card_peek(CHARS + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
+        wrong += card.card_peek(CHARS + 0x01 * 8 + r) != dots;
     }
     CHECK_EQ(wrong, size_t{0});
     size_t blank = 0;
     for (unsigned r = 0; r < 8; ++r)
-        blank += bus.peek_physical(0xBE000 + 0xC1 * 8 + r) == 0xFF;
+        blank += card.card_peek(CHARS + 0xC1 * 8 + r) == 0xFF;
     CHECK(blank < 8);                                           // something to see: A is not empty
 }
 
@@ -1154,12 +1171,12 @@ TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
     CHECK(has(b.run(BOOT), "\\"));
     const uint8_t l0 = VideoCard::LAYER0, l1 = VideoCard::LAYER1;
     CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
-    CHECK_EQ(card->peek(VideoCard::PALBASE), 0);
-    CHECK_EQ(card->peek(VideoCard::SPRBASE), 0);
+    CHECK_EQ(reg16(*card, VideoCard::Rev2::PALBASE), 0);
+    CHECK_EQ(reg16(*card, VideoCard::Rev2::SPRBASE), 0);
     CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80);
-    CHECK_EQ(card->peek(l0 + VideoCard::MAPBASE), 8);
-    CHECK_EQ(card->peek(l0 + VideoCard::TILEBASE), 1);
-    CHECK_EQ(card->peek(l0 + VideoCard::HSCROLL), 0);
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::HSCROLL), 0);
     CHECK_EQ(card->peek(l1 + VideoCard::CONFIG), 0);
     CHECK_EQ(b.bridge().window(0), 0x00);
     CHECK_EQ(b.bridge().window(1), 0x01);
@@ -1222,7 +1239,7 @@ TEST(c800_puts_the_windows_and_the_screen_back_and_copies_the_flash_again)
     CHECK(has(b.run(BOOT, "C800R\r"), GREETING.c_str()));
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK_EQ(b.bridge().window(3), 0x7F);
-    CHECK_EQ(b.machine->video_card()->peek(uint8_t{VideoCard::LAYER0} + VideoCard::HSCROLL), 0);
+    CHECK_EQ(reg16(*b.machine->video_card(), VideoCard::LAYER0 + VideoCard::Rev2::HSCROLL), 0);
 }
 
 TEST(the_cursor_stays_on_the_screen_whatever_is_in_its_zero_page)
@@ -1482,11 +1499,12 @@ TEST(break_during_a_burst_limited_scroll_stops_it)
     b.run(BOOT, "C441: 01\r");                   // a cycle back to the CPU every byte
     b.run(BOOT, "E3: 1D\r");                     // the cursor on the bottom row
     Decoder &bus = b.machine->bus();
-    REQUIRE(step_until(b, [&] { return (bus.peek(0xC437) & 1) != 0; }, BOOT, '\r')); // a scroll under way
+    REQUIRE(step_until(b, [&] { return (bus.peek(0xC417) & 1) != 0; }, BOOT, '\r')); // a scroll under way (the port's channel 1)
     b.cpu->nmi();
     const unsigned wozmon = label(read_file(EMU_BIOS_ROM ".lbl"), "WOZMON");
     REQUIRE(step_until(b, [&] { return b.cpu->regs().pc == wozmon; }, BOOT));
-    CHECK_EQ(bus.peek(0xC437) & 1, 0);           // stopped by Break, not left to run
+    CHECK_EQ(bus.peek(0xC417) & 1, 0);           // stopped by Break, not left to run
+    CHECK_EQ(bus.peek(0xC4BE), 0);               // and the port's DRQ off
     CHECK(has(b.run(BOOT, "C680\r"), "C680: 00"));
     CHECK_EQ(b.row(29), std::string("_"));
     CHECK_EQ(b.row(28), std::string("C680: 00"));

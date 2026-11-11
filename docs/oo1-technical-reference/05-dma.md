@@ -74,7 +74,7 @@ turns the master enable on, starts the channel, and waits for ENABLE to clear, t
 it, which under the monitor is `$71`. A copy still
 running after 65,536 polls, about 0.1 s, is aborted: no controller there, or a busier channel starving it.
 
-<!-- listing: ../../backplane/bios/video.s:280-307 -->
+<!-- listing: ../../backplane/bios/video.s:431-458 -->
 ```
 ; Start channel 3, programmed, and wait for ENABLE to clear at terminal
 ; count, with the master enable on (a program may have turned it off) and

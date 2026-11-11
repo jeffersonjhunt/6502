@@ -198,6 +198,8 @@ VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank
 ;   $0100      the stack; Break and BRK start it afresh
 ;   $0200-$027F the monitor's input line
 ;   $0400-$05FF the SD card's sector buffer; the demo's sprite table
+;   $FC000-$FC7FF RAM block 63's first 2 KB, under the I/O hole: the
+;              screen's scroll buffer (video.s), reached only by DMA
 BIOS_ZP         = $E0                  ; the screen (video.s)
 
 ; USB card (module B): keyboard, mouse, game port.
@@ -283,6 +285,8 @@ DMA0_CTRL       = DMA + $07
 DMA0_DEST       = DMA + $08            ; memory to memory: the destination, 20 bits
 DMA_DEMAND_IN   = $01                  ; MODE: demand mode, card to memory
 DMA_DEMAND_OUT  = $05                  ; MODE: demand mode, memory to card
+DMA_BLOCK_IN    = $02                  ; MODE: block, card to memory (once DRQ or REQ starts it)
+DMA_BLOCK_OUT   = $06                  ; MODE: block, memory to card
 DMA_ENABLE      = $01                  ; CTRL
 
 ; Sound card (module A): two SIDs and a 6510 of its own.

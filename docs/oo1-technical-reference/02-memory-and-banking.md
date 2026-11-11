@@ -22,7 +22,7 @@ physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 | F | `$F0000–$FFFFF` | 60–63 | free, but for block 63: the BIOS's copy of itself, read-only through W3 |
 
 Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM at `$BE000`, in video memory
-([chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
+(on video card revision 2, proposed, in the card's own memory instead: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
 The flash is a second physical space, beside the RAM. ROM A (module 4) is 512 KB, 32 blocks, and holds the BIOS.
