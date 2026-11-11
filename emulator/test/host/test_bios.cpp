@@ -1150,6 +1150,50 @@ TEST(without_a_video_card_c803_goes_back_to_the_monitor)
     CHECK_EQ(b.bridge().window(1), 0x01);
 }
 
+TEST(printing_through_a_scroll_puts_back_slot_0_and_the_ports_settings)
+{
+    // VPUTC borrows aperture slot 0 and puts it back, and a clear or a scroll (PORTJOBS) puts back the port's
+    // PADDR, PSTEP and PCTL (video.s; the Technical Reference, chapter 6), so a program that prints keeps its own.
+    // A program's settings, none of them the BIOS's: slot 0 on page 7, PADDR mid-card, a step of 160, stepping down,
+    // no DRQ. Then a CR on the bottom row, which scrolls.
+    Board b;
+    REQUIRE(b.ok());
+    REQUIRE(boot_past_splash(b));
+    VideoCard *card = b.machine->video_card();
+    using R2 = VideoCard::Rev2;
+    constexpr uint32_t TEXT = 0x002000;
+    const std::string mark = "MARK";
+    for (size_t c = 0; c < mark.size(); ++c)
+        card->card_poke(static_cast<uint32_t>(TEXT + 10 * 160 + c * 2), static_cast<uint8_t>(mark[c]));
+    b.machine->bus().write_physical(0x000E2, 0);               // VCOL, VROW (BIOS_ZP + 2, + 3): the bottom row
+    b.machine->bus().write_physical(0x000E3, 29);
+    card->write(R2::SLOT0, 0x07);
+    card->write(R2::SLOT0 + 1, 0x00);
+    card->write(R2::PADDR, 0x56);
+    card->write(R2::PADDR + 1, 0x34);
+    card->write(R2::PADDR + 2, 0x12);
+    card->write(R2::PSTEP, 0xA0);
+    card->write(R2::PSTEP + 1, 0x00);
+    card->write(R2::PCTL, R2::PCTL_DOWN);
+    REQUIRE(reg16(*card, R2::SLOT0) == 0x0007);
+    const std::string out = b.run(BOOT, "\r");                // the monitor: its echo and GETLINE's, two CRs
+    CHECK(has(out, "\r\r"));
+    auto card_row = [&](unsigned r) {
+        std::string t;
+        for (unsigned c = 0; c < mark.size(); ++c)
+            t += static_cast<char>(card->card_peek(TEXT + r * 160 + c * 2));
+        return t;
+    };
+    CHECK_EQ(card_row(10), std::string("    "));               // scrolled: the mark is two rows up
+    CHECK_EQ(card_row(8), mark);
+    CHECK_EQ(reg16(*card, R2::SLOT0), 0x0007u);                // and all four as the program left them
+    CHECK_EQ(card->peek(R2::PADDR) | unsigned{card->peek(R2::PADDR + 1)} << 8 |
+                 unsigned{card->peek(R2::PADDR + 2)} << 16,
+             0x123456u);
+    CHECK_EQ(reg16(*card, R2::PSTEP), 0x00A0u);
+    CHECK_EQ(card->peek(R2::PCTL), R2::PCTL_DOWN);
+}
+
 TEST(the_monitor_takes_keys_from_the_usb_keyboard)
 {
     Board b;
@@ -1246,6 +1290,39 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     p.reset();
     p.run(BOOT);
     CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN THE CARTRIDGE\\"));
+}
+
+TEST(c806_on_a_revision_1_card_says_so_and_stays_in_the_native_map)
+{
+    // Apple II mode is revision 2's (its character ROM goes in through revision 2's port): with a IIe ROM in the
+    // cartridge but a revision 1 card, C806R refuses before it touches anything, and the monitor carries on.
+    const std::string rom = fake_iie_rom("test_rev1_iie.rom");
+    Board b(false, true, {rom}, "", {}, 1);
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    REQUIRE(b.machine->video_card()->revision() == 1);
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    bus.write_physical(0x2ABCD, 0x5A);                        // what the fills would clear
+    const VideoCard *card = b.machine->video_card();
+    std::string regs;
+    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+            regs += static_cast<char>(card->peek(o));
+    const std::string out = b.run(2 * BOOT, "C806R\r");
+    CHECK(has(out, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD\\")); // then the monitor's prompt
+    CHECK(!b.bridge().apple());                                // still the native map
+    CHECK_EQ(bus.peek_physical(0x2ABCD), 0x5A);                // nothing cleared
+    CHECK(bus.peek_physical(0xEFFFC) != 0x62 || bus.peek_physical(0xEFFFD) != 0xFA); // no IIe ROM copied to bank E
+    std::string after;
+    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+            after += static_cast<char>(card->peek(o));
+    CHECK(after == regs);                                      // the card as it was
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().window(2), 0x02);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // the monitor carries on
 }
 
 TEST(c806_copies_the_iie_rom_to_bank_e_clears_the_iies_memory_and_writes_mode)

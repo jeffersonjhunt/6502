@@ -21,8 +21,10 @@
 ; through its port, from the cartridge's $84000 or, without one, made from
 ; the VGA font.
 ;
-; With no IIe ROM in the cartridge, or no DMA controller, it says so and
-; goes back to the monitor.
+; With no revision 2 video card (whose ID is $92: the BIOS no longer drives
+; revision 1, and CHARS writes only revision 2's port), no DMA controller,
+; or no IIe ROM in the cartridge, it says so and goes back to the monitor,
+; still in the native map, with nothing changed.
 
 .setcpu "65C02"
 .include "backplane.inc"
@@ -47,7 +49,11 @@ VGA_CPU   = $4000
 .segment "APPLE"
 
 APPLE:
-                LDA     DMA_ID
+                LDA     VIDEO_ID
+                CMP     #VIDEO_ID_V2
+                BEQ     @card
+                JMP     NOCARD_SAY
+@card:          LDA     DMA_ID
                 CMP     #DMA_ID_V1
                 BEQ     @dma
                 JMP     NODMA_SAY
@@ -221,6 +227,8 @@ CHARS:
                 STA     NB_WIN1
                 RTS
 
+NOCARD_SAY:     LDX     #NOCARD - MESSAGES
+                BRA     SAY
 NODMA_SAY:      LDX     #NODMA - MESSAGES
                 BRA     SAY
 NOROM_SAY:      LDA     #1
@@ -236,3 +244,4 @@ SAY:            LDA     MESSAGES,X
 MESSAGES:
 NOROM:          .byte   $0D, "NO APPLE IIE ROM IN THE CARTRIDGE", 0
 NODMA:          .byte   $0D, "APPLE II MODE NEEDS THE DMA CONTROLLER", 0
+NOCARD:         .byte   $0D, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD", 0
