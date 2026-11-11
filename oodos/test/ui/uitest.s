@@ -49,6 +49,8 @@ TEXTBUF = $3200                         ; a string the test writes (c_text)
 WORK    = $3400                         ; the picker's work buffer: 64 files (U2)
 WORKLEN = 64 * UP_ELEN
 RESULT  = $3800                         ; the picker's result: 16 entries
+STATE   = $3900                         ; c_state's (UITPICK): the user, the DMA address and segment, the error mode
+PDMA    = $3A00                         ; the program's DMA buffer (c_setst)
 
         .zeropage
 rax:    .res    1
@@ -56,7 +58,7 @@ rxx:    .res    1
 rc:     .res    1
 letter: .res    1
 
-        .code
+        .segment "LOWCODE"              ; the test's own code below $3000 (uitest.cfg)
 start:  stz     MBOX
         lda     #<oblk
         ldx     #>oblk
@@ -235,7 +237,7 @@ c_text: lda     #<TEXTBUF
         ldx     #>TEXTBUF
         jmp     ui_settext
 
-; U2: ui_msgbox with block A (0-2) (UITBAR), ui_pick with block A (0-2)
+; U2: ui_msgbox with block A (0-2) (UITBAR), ui_pick with block A (0-3)
 ; (UITPICK), ui_setrange (Y the handle, A/X the range).
 .if UIVAR = 2
 c_msg:  asl     a
@@ -247,6 +249,48 @@ c_msg:  asl     a
         jmp     ui_msgbox
 .endif
 .if UIVAR = 3
+; The program's own: its user A, its DMA PDMA, its error mode X (c_setst);
+; them at STATE (c_state); a search of every file of A: (c_search: A 0 the
+; first, else the next; A the BDOS's answer, the entry at PDMA + 32 x A).
+c_setst:
+        phx
+        ldy     #F_USERNUM
+        jsr     BDOS
+        lda     #<PDMA
+        ldx     #>PDMA
+        ldy     #F_DMAOFF
+        jsr     BDOS
+        pla
+        ldy     #F_ERRMODE
+        jsr     BDOS
+        clc
+        rts
+c_state:
+        lda     #$FF
+        ldy     #F_USERNUM
+        jsr     BDOS
+        sta     STATE
+        lda     #<(STATE + 1)
+        ldx     #>(STATE + 1)
+        ldy     #F_DMAGET
+        jsr     BDOS
+        lda     #<scbq
+        ldx     #>scbq
+        ldy     #S_SCB
+        jsr     BDOS
+        sta     STATE + 5
+        clc
+        rts
+c_search:
+        ldy     #F_SFIRST
+        cmp     #0
+        beq     @c
+        ldy     #F_SNEXT
+@c:     lda     #<sfcb
+        ldx     #>sfcb
+        jsr     BDOS
+        clc
+        rts
 c_pick: asl     a
         tax
         lda     picks + 1,x
@@ -340,6 +384,9 @@ cmds:   CMD     'o', c_open
 .if UIVAR = 3
         CMD     'k', c_pick
         CMD     'l', ui_relist
+        CMD     'e', c_setst
+        CMD     'w', c_state
+        CMD     'n', c_search
 .endif
         CMD     'q', c_range
         CMD     '!', c_wboot
@@ -515,8 +562,9 @@ titleB: .asciiz "Confirm"
 
 .if UIVAR = 3
 ; ui_pick's blocks: 0 every file, several, drives, users, an extra button
-; and a column; 1 the TXT and BIN files of M:; 2 a name to save on B:.
-picks:  .word   pickA, pickB, pickC
+; and a column; 1 the TXT and BIN files of M:; 2 a name to save on B:; 3
+; every file of M: into a work buffer of 8.
+picks:  .word   pickA, pickB, pickC, pickD
 pickA:  .word   ptitleA, 0
         .byte   UP_MULTI | UP_DRIVES | UP_USERS, 0, $FF
         .word   RESULT
@@ -534,6 +582,12 @@ pickC:  .word   ptitleC, 0
         .word   RESULT
         .byte   16, 0
         .word   0, 0, WORK, WORKLEN
+        .byte   0
+pickD:  .word   ptitleB, 0
+        .byte   0, 13, $FF
+        .word   RESULT
+        .byte   16, 0
+        .word   0, 0, WORK, 8 * UP_ELEN
         .byte   0
 .assert pickB - pickA = UP_LEN, error, "a pick block is UP_LEN"
 ptitleA: .asciiz "Load Files"
@@ -556,11 +610,17 @@ tgroups: .res   TH_LEN                  ; c_theme's theme 2
 fieldbuf: .res  16                      ; U2's field, empty (UITWID)
 rbuf:   .asciiz "Item 00"               ; rowfn's
 cbuf:   .asciiz "c0"                    ; colfn's (UITPICK)
+.if UIVAR = 3
+scbq:   .byte   $4B, 0                  ; c_state's: the error mode, got
+sfcb:   .byte   1, "???????????"        ; c_search's: A:, every name and type, extent 0
+        .res    24
+.endif
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0                       ; 256 bytes
 ; The call, its operand written for each command (in DATA: written).
 call:   jmp     $FFFF
 
-        .code
+        .segment "LOWCODE"              ; the test's own code below $3000 (uitest.cfg)
+PRINT_HERE = 1                          ; (print.inc in LOWCODE too)
         .include "print.inc"
