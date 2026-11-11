@@ -27,8 +27,9 @@ uover:  .res    1
 usprite: .res   1
 usprites: .res  1
 uoflags: .res   1
+uwid:   .res    2                      ; UO_WIDGETS: the widget modules' records the table uses
 UBLK_LEN = * - ublk
-.assert UBLK_LEN = UO_FLAGS + 1, error, "ublk is ui_open's block"
+.assert UBLK_LEN = UO_WIDGETS + 2, error, "ublk is ui_open's block"
 upage:  .res    2                      ; OOUI's card memory: its first card page
 ufocus: .res    1                      ; the focus, UI_NONE none
 ufwin:  .res    1                      ; the window that holds it (PAINT's)
@@ -47,6 +48,12 @@ chain:  .res    UI_DEPTH
 UI_EV:  .res    UV_LEN
 UI_RECT: .res   4
 UI_RAW: .res    8
+utot:   .res    1                      ; the records: the table's, then the dialogs' (ui_msgbox, ui_pick)
+udlgp:  .res    2                      ; the dialogs' records (uidlg.s's), 0 while none is linked
+uvec:   .res    2 * UT_COUNT           ; each widget type's record (WR_*), 0 for the core's own (U2)
+rclip:  .res    4                      ; RECT's: its parents' client areas, c0, r0, c1, r1 (U2: clipping)
+wvec:   .res    2                      ; WCALL's
+wo:     .res    1
 t0:     .res    1                      ; scratch
 t1:     .res    1
 t2:     .res    1
@@ -64,8 +71,11 @@ ENTER:  cld
         pla
         rts
 
-; UIR = record A. Keeps A, X and Y.
-REC:    pha
+; UIR = record A: the table's, or past it a dialog's (the internal handles
+; ucount on, udlgp's). Keeps A, X and Y.
+REC:    cmp     ucount
+        bcs     @dlg
+        pha
         stz     UIR + 1
         asl     a
         rol     UIR + 1
@@ -80,6 +90,26 @@ REC:    pha
         sta     UIR
         lda     UIR + 1
         adc     utab + 1
+        sta     UIR + 1
+        pla
+        rts
+@dlg:   pha
+        sec
+        sbc     ucount
+        stz     UIR + 1
+        asl     a
+        rol     UIR + 1
+        asl     a
+        rol     UIR + 1
+        asl     a
+        rol     UIR + 1
+        asl     a
+        rol     UIR + 1
+        clc
+        adc     udlgp
+        sta     UIR
+        lda     UIR + 1
+        adc     udlgp + 1
         sta     UIR + 1
         pla
         rts
@@ -108,11 +138,18 @@ RECT:   ldx     #0
         sta     UI_RECT + 3
         stz     UI_RECT
         stz     UI_RECT + 1
+        stz     rclip
+        stz     rclip + 1
+        lda     #UI_COLS
+        sta     rclip + 2
+        lda     #UI_ROWS
+        sta     rclip + 3
 @down:  dex
         lda     chain,x
         sta     rcur
         jsr     REC
         phx
+        jsr     CLIPIN                  ; the parent's client area clips it (U2)
         jsr     PLACE
         plx
         cpx     #0
@@ -123,6 +160,37 @@ RECT:   ldx     #0
 @deep:  lda     #1
         sta     rhid
         sec
+        rts
+
+; rclip held to ucli (the parent's client area): a widget is drawn and hit
+; only inside its parents. A menu's drop-down leaves its bar: rclip the
+; screen again for it (its items are clipped to it).
+CLIPIN: ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_MENU
+        bne     @in
+        stz     rclip
+        stz     rclip + 1
+        lda     #UI_COLS
+        sta     rclip + 2
+        lda     #UI_ROWS
+        sta     rclip + 3
+        rts
+@in:    ldx     #1
+@a:     lda     ucli,x                  ; the starts: the greater
+        cmp     rclip,x
+        bcc     @e
+        sta     rclip,x
+@e:     lda     ucli,x                  ; the ends: the lesser
+        clc
+        adc     ucli + 2,x
+        bcc     @ok
+        lda     #$FF
+@ok:    cmp     rclip + 2,x
+        bcs     @n
+        sta     rclip + 2,x
+@n:     dex
+        bpl     @a
         rts
 
 ; The record at UIR placed in ucli (its parent's client area; UI_RECT its
@@ -181,8 +249,10 @@ PLACE:  ldy     #UW_FLAGS
         bne     @r
         bra     SHRINK
 @pan:   cpx     #UT_PANEL
+        beq     @fr
+        cpx     #UT_GROUP
         bne     @r
-        bit     #UF_FRAME
+@fr:    bit     #UF_FRAME
         bne     SHRINK
 @r:     rts
 SHRINK: inc     ucli
@@ -251,6 +321,8 @@ DLEN:   lda     UIP
         stz     dl
 @c:     lda     (UIP),y
         beq     @end
+        cmp     #$0D                    ; a CR ends a line (U2)
+        beq     @end
         iny
         cmp     #'&'
         bne     @n
@@ -291,7 +363,7 @@ UPPER:  cmp     #'a'
 
 ; A a handle: marked dirty (a menu's bar too, an item's menu). Keeps A, and
 ; leaves UIR on record A (the review's O1: not on the bar it went up to).
-DIRTY:  cmp     ucount
+DIRTY:  cmp     utot
         bcs     @r
         pha
         jsr     REC
@@ -313,7 +385,7 @@ DIRTY:  cmp     ucount
 @r:     rts
 
 ; A a handle: A the window that holds it (itself, if a window), or UI_NONE.
-FWIN:   cmp     ucount
+FWIN:   cmp     utot
         bcs     @none
         sta     t1
         jsr     REC
@@ -334,7 +406,7 @@ FWIN:   cmp     ucount
 INSIDE: stx     t2
 @l:     cmp     t2
         beq     @yes
-        cmp     ucount
+        cmp     utot
         bcs     @no
         jsr     REC
         ldy     #UW_PARENT
@@ -348,7 +420,7 @@ INSIDE: stx     t2
 ; A a handle: carry clear (A kept) if it can take the focus: a button or a
 ; check box, shown, enabled, focusable and not under a modal window.
 CANFOCUS:
-        cmp     ucount
+        cmp     utot
         bcs     @no
         sta     t3
         jsr     REC
@@ -357,7 +429,12 @@ CANFOCUS:
         cmp     #UT_BUTTON
         beq     @t
         cmp     #UT_CHECK
-        bne     @no
+        beq     @t
+        jsr     WFLAGS                  ; a widget module's that takes it (U2)
+        and     #WF_FOCUS
+        beq     @no
+        lda     t3
+        jsr     REC
 @t:     ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_DISABLED | UF_NOFOCUS
@@ -393,7 +470,27 @@ SETFOCUS:
         jsr     DIRTY
         lda     sf_old
         jsr     DIRTY
-@same:  lda     t0
+@same:  lda     ufocus                  ; a field edited: its last UE_CHANGE waits (U2)
+        cmp     #UI_NONE
+        beq     @new
+        jsr     REC
+        ldy     #UW_STATE
+        lda     (UIR),y
+        bit     #US_EDIT
+        beq     @new
+        and     #<~US_EDIT
+        sta     (UIR),y
+        lda     #UE_CHANGE
+        sta     upend
+        lda     ufocus
+        sta     upendh
+        ldy     #UW_VALUE
+        lda     (UIR),y
+        sta     upendv
+        iny
+        lda     (UIR),y
+        sta     upendv + 1
+@new:   lda     t0
         sta     ufocus
         jsr     DIRTY
 @r:     rts
@@ -403,25 +500,25 @@ SETFOCUS:
 NEXTFOCUS:
         sta     nf_dir
         lda     ufocus
-        cmp     ucount
+        cmp     utot
         bcc     @from
-        lda     ucount                  ; no focus: from either end
+        lda     utot                  ; no focus: from either end
         ldx     nf_dir
         bmi     @from
         lda     #$FF
 @from:  sta     nf_h
-        lda     ucount
+        lda     utot
         sta     nf_n
 @step:  lda     nf_h
         clc
         adc     nf_dir
-        cmp     ucount
+        cmp     utot
         bcc     @in
         ldx     nf_dir                  ; round: past the end to 0, below 0 to the end
         bmi     @top
         lda     #0
         bra     @in
-@top:   lda     ucount
+@top:   lda     utot
         dec     a
 @in:    sta     nf_h
         jsr     CANFOCUS
@@ -436,7 +533,7 @@ NEXTFOCUS:
 
 ; umodal = the last modal window that shows, or UI_NONE.
 FINDMODAL:
-        lda     ucount
+        lda     utot
         sta     fm_h
 @l:     dec     fm_h
         lda     fm_h
@@ -519,13 +616,154 @@ ALLDIRTY:
 ; UX_HANDLE (CHKH leaves the caller's return on the stack only when it's
 ; good).
 CHKH:   cmp     ucount
+        bcc     @r
+        cmp     #UI_MSG                 ; a dialog's public handle: its internal one
+        bcc     @bad
+        cmp     #UI_MSG + DLG_RECS
         bcs     @bad
-        rts
+        ldx     utot
+        cpx     ucount
+        beq     @bad                    ; no dialog module linked and opened
+        sec
+        sbc     #UI_MSG
+        tax
+        lda     PUB2INT,x
+        clc
+        adc     ucount
+@r:     rts
 @bad:   pla
         pla
         lda     #UX_HANDLE
         sec
         rts
+
+; A an internal handle: A the public one (a dialog's: $F0 on). Keeps X, Y.
+PUBH:   cmp     ucount
+        bcc     @r
+        cmp     #UI_NONE
+        beq     @r
+        phx
+        sec
+        sbc     ucount
+        tax
+        lda     INT2PUB,x
+        plx
+@r:     rts
+
+; A a widget type: UIP its module's record (WR_*), Z set (and A 0) if it
+; has none (a core type, or a module not registered). Keeps X, Y.
+WREC:   cmp     #UT_COUNT
+        bcs     @none
+        phx
+        asl     a
+        tax
+        lda     uvec,x
+        sta     UIP
+        lda     uvec + 1,x
+        sta     UIP + 1
+        plx
+        ora     UIP
+        rts
+@none:  lda     #0
+        rts
+
+; A a widget type: A its module's WR_FLAGS, 0 for none. Keeps X.
+WFLAGS: jsr     WREC
+        beq     @r
+        phy
+        ldy     #WR_FLAGS
+        lda     (UIP),y
+        ply
+@r:     rts
+
+; The handler at Y (WR_DRAW ...) of widget dh's module, jumped to with UIR
+; on dh's record; carry set and A 0 if it has none.
+WCALL:  sty     wo
+        lda     dh
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        jsr     WREC
+        beq     @none
+        ldy     wo
+        lda     (UIP),y
+        sta     wvec
+        iny
+        lda     (UIP),y
+        sta     wvec + 1
+        ora     wvec
+        beq     @none
+        lda     dh
+        jsr     REC
+        jmp     (wvec)
+@none:  lda     #0
+        sec
+        rts
+
+; Record UIR's value held to its type's range (WF_RANGE: 0 to UW_A; WF_LIST:
+; below UW_A, or $FFFF none). Keeps nothing.
+CLAMP:  ldy     #UW_TYPE
+        lda     (UIR),y
+        jsr     WFLAGS
+        tax
+        and     #WF_RANGE | WF_LIST
+        bne     @go
+        rts
+@go:    ldy     #UW_VALUE + 1
+        lda     (UIR),y
+        sta     t1
+        dey
+        lda     (UIR),y
+        sta     t0
+        ldy     #UW_A
+        lda     (UIR),y
+        sta     t2
+        iny
+        lda     (UIR),y
+        sta     t3
+        txa
+        and     #WF_LIST
+        beq     @range
+        lda     t0                      ; a list: $FFFF stays; else below the count
+        and     t1
+        cmp     #$FF
+        beq     @r
+        lda     t2
+        ora     t3
+        bne     @some
+        lda     #$FF                    ; no rows: none
+        sta     t0
+        sta     t1
+        bra     @put
+@some:  lda     t0
+        cmp     t2
+        lda     t1
+        sbc     t3
+        bcc     @r
+        lda     t2                      ; the last row
+        sec
+        sbc     #1
+        sta     t0
+        lda     t3
+        sbc     #0
+        sta     t1
+        bra     @put
+@range: lda     t2                      ; 0 to the top
+        cmp     t0
+        lda     t3
+        sbc     t1
+        bcs     @r
+        lda     t2
+        sta     t0
+        lda     t3
+        sta     t1
+@put:   ldy     #UW_VALUE
+        lda     t0
+        sta     (UIR),y
+        iny
+        lda     t1
+        sta     (UIR),y
+@r:     rts
 
 ; A UX_* error: carry set.
 FAIL:   sec
@@ -589,7 +827,9 @@ ui_open:
         bcs     @tab
 @layer: lda     #UX_LAYER
         bra     FAIL
-@tab:   jsr     CHECKTAB
+@tab:   jsr     REGISTER
+        bcs     FAIL
+        jsr     CHECKTAB
         bcs     FAIL
         lda     #<UI_PAGES              ; one card bank
         sta     GX_V
@@ -619,6 +859,7 @@ ui_open:
         stz     udmg + 4
         stz     udmg + 6
         jsr     ENTER
+        jsr     POLLINIT
         jsr     SETUP
         jsr     ALLDIRTY
         jsr     FINDMODAL
@@ -630,6 +871,65 @@ ui_open:
         sta     uopen
         clc
         rts
+
+; The widget modules the table uses (UO_WIDGETS: a list of their records,
+; ended by 0; UI_END makes it): each type's record in uvec. Carry set and
+; UX_TABLE for a record of no type U2 knows.
+REGISTER:
+        ldx     #2 * UT_COUNT - 1
+@z:     stz     uvec,x
+        dex
+        bpl     @z
+        lda     ucount
+        sta     utot
+        stz     udlgp
+        stz     udlgp + 1
+        stz     upost
+        stz     upost + 1
+        lda     uwid
+        sta     UIQ
+        lda     uwid + 1
+        sta     UIQ + 1
+        ora     UIQ
+        beq     @done
+@next:  ldy     #1
+        lda     (UIQ),y
+        tax
+        dey
+        lda     (UIQ),y
+        sta     UIP
+        stx     UIP + 1
+        ora     UIP + 1
+        beq     @done
+        jsr     ADDW
+        bcs     @bad
+        lda     UIQ
+        clc
+        adc     #2
+        sta     UIQ
+        bcc     @next
+        inc     UIQ + 1
+        bra     @next
+@done:  clc
+        rts
+@bad:   lda     #UX_TABLE
+        sec
+        rts
+
+; The module record at UIP registered for its type (WR_TYPE): carry set if
+; the type is past UT_COUNT. The dialogs (uimsg.s, uipick.s) register what
+; they use this way too.
+ADDW:   lda     (UIP)
+        cmp     #UT_COUNT
+        bcs     @r
+        asl     a
+        tax
+        lda     UIP
+        sta     uvec,x
+        lda     UIP + 1
+        sta     uvec + 1,x
+        clc
+@r:     rts
 
 ; The default theme where utheme is 0.
 THEME0: lda     utheme
@@ -649,19 +949,27 @@ THEME0: lda     utheme
 ; its dirty bit set.
 CHECKTAB:
         lda     ucount
-        beq     @bad
+        beq     @b0
         cmp     #UI_MAXREC + 1
-        bcs     @bad
-        stz     t0
+        bcc     @go
+@b0:    jmp     @bad
+@go:    stz     t0
 @rec:   lda     t0
         jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
-        cmp     #UT_SEP + 1
+        cmp     #UT_COUNT
         bcs     @bad
         tax
         beq     @next                   ; UT_NONE: nothing more
         lda     OKTYPE,x
+        bpl     @core
+        txa
+        jsr     WREC                    ; a widget module's: registered (UO_WIDGETS)
+        beq     @bad
+        lda     OKTYPE,x
+        and     #$7F
+@core:  cmp     #0
         beq     @bad
         sta     t1                      ; the parent's type it needs: OKTYPE's
         ldy     #UW_STATE
@@ -685,7 +993,7 @@ CHECKTAB:
         jsr     DEPTH
         bcs     @bad
         lda     t1
-        cmp     #$FF                    ; any parent but a menu bar, a menu, an item or a line
+        cmp     #$7F                    ; any parent but a menu bar, a menu, an item or a line
         bne     @want
         cpx     #UT_MENUBAR
         bcc     @next
@@ -699,13 +1007,14 @@ CHECKTAB:
         bne     @bad
         bra     @next
 @top:   lda     t1
-        cmp     #$FF
-        bne     @bad                    ; a menu, an item or a line at the top
+        cmp     #$7F
+        bne     @bad                    ; a menu, an item, a line or a radio button at the top
 @next:  inc     t0
         lda     t0
         cmp     ucount
-        bne     @rec
-        clc
+        beq     @end
+        jmp     @rec
+@end:   clc
         rts
 @bad:   lda     #UX_TABLE
         sec
@@ -761,19 +1070,31 @@ CLEARMAPS:
         .rodata
 ; Each type U1 takes: the parent's type it needs ($FF any of the others, 1
 ; any at all); 0 refused (U2's).
+; Bit 7: a widget module's type, which its record must be registered for.
 OKTYPE: .byte   1                       ; UT_NONE
-        .byte   $FF                     ; UT_DESKTOP
-        .byte   $FF                     ; UT_WINDOW
-        .byte   $FF                     ; UT_PANEL
-        .byte   $FF                     ; UT_LABEL
-        .byte   $FF                     ; UT_BUTTON
-        .byte   $FF                     ; UT_CHECK
-        .byte   0, 0                    ; UT_GROUP, UT_RADIO: U2
-        .byte   $FF                     ; UT_MENUBAR
+        .byte   $7F                     ; UT_DESKTOP
+        .byte   $7F                     ; UT_WINDOW
+        .byte   $7F                     ; UT_PANEL
+        .byte   $7F                     ; UT_LABEL
+        .byte   $7F                     ; UT_BUTTON
+        .byte   $7F                     ; UT_CHECK
+        .byte   $80 | $7F               ; UT_GROUP
+        .byte   $80 | UT_GROUP          ; UT_RADIO
+        .byte   $7F                     ; UT_MENUBAR
         .byte   UT_MENUBAR              ; UT_MENU
         .byte   UT_MENU                 ; UT_ITEM
         .byte   UT_MENU                 ; UT_SEP
-.assert UT_NONE = 0 && UT_SEP = 12 && UT_MENUBAR = 9, error, "OKTYPE's order"
+        .res    UT_CHOICE - UT_VSCROLL + 1, $80 | $7F ; UT_VSCROLL ... UT_CHOICE
+.assert * - OKTYPE = UT_COUNT, error, "OKTYPE: a byte a type"
+.assert UT_NONE = 0 && UT_SEP = 12 && UT_MENUBAR = 9 && UT_VSCROLL = 13, error, "OKTYPE's order"
+
+; The dialogs' handles: the public ones (UI_MSG on) and the internal ones
+; (ucount on), in the order they are drawn: the picker's window and its
+; widgets, then the message box's, so a box is over the picker.
+PUB2INT: .byte  9, 0, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8
+INT2PUB: .byte  UI_MSG + 1, UI_MSG + 5, UI_MSG + 6, UI_MSG + 7, UI_MSG + 8, UI_MSG + 9, UI_MSG + 10
+        .byte   UI_MSG + 11, UI_MSG + 12, UI_MSG, UI_MSG + 2, UI_MSG + 3, UI_MSG + 4
+.assert * - INT2PUB = DLG_RECS, error, "a public handle a dialog record"
 
         .code
 
@@ -839,7 +1160,9 @@ ui_show:
 ui_hide:
         jsr     ENTER
         jsr     CHKH
-        sta     sh_h
+; Record A (an internal handle) hidden: what it covered drawn again, a menu
+; down in it put up, the focus moved on (the dialogs' too).
+HIDEH:  sta     sh_h
         jsr     DAMAGE
         jsr     MENUDMG
         lda     umenu                   ; a menu down inside it goes up first, while it shows
@@ -985,6 +1308,28 @@ SETW:   sta     t2
         iny
         lda     t1
         sta     (UIR),y
+        cpy     #UW_VALUE + 1
+        bne     @done
+        jsr     CLAMP                   ; held to its range (U2)
+@done:  clc
+        rts
+
+; Y a handle, A/X a list's count, or a bar's, slider's or scroll bar's top
+; (UW_A): the value held to it; dirty.
+ui_setrange:
+        sta     t0
+        stx     t1
+        tya
+        jsr     ENTER
+        jsr     CHKH
+        jsr     DIRTY
+        ldy     #UW_A
+        lda     t0
+        sta     (UIR),y
+        iny
+        lda     t1
+        sta     (UIR),y
+        jsr     CLAMP
         clc
         rts
 
@@ -1015,6 +1360,7 @@ ui_redraw:
 
 ui_focus:
         jsr     ENTER
+        jsr     CHKH
         sta     t3
         jsr     FINDMODAL
         lda     t3
@@ -1029,6 +1375,7 @@ ui_focus:
 
 ui_getfocus:
         lda     ufocus
+        jsr     PUBH
         clc
         rts
 

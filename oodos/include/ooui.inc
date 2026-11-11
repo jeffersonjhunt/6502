@@ -4,10 +4,12 @@
 ; build/oolib.lib (OOUI draws through OOLIB), and include this after
 ; oodos.inc and oolib.inc.
 ;
-; Phase U1 builds the core and the text backend: the desktop, windows,
+; Phase U1 built the core and the text backend: the desktop, windows,
 ; panels, labels, buttons, check boxes, the menu bar and its menus, focus,
-; the themes, OOUI's glyphs, overlays on layer 1 and the pointer. The other
-; types are U2's: ui_open refuses them (UX_TABLE) until then.
+; the themes, OOUI's glyphs, overlays on layer 1 and the pointer. Phase U2
+; (proposed) adds the other widgets, each a module of its own that ld65
+; links only when the program uses it (UO_WIDGETS, below: UI_END lists
+; them), the message box (ui_msgbox) and the file picker (ui_pick).
 ;
 ; Before ui_open the program opens an event area (function 80's FT_OPEN,
 ; layout 2) and calls GX_INIT with it, then GX_PALINIT and GX_SPRINIT.
@@ -41,12 +43,18 @@
 ;   ui_theme    A/X a theme (0: the default): everything drawn again
 ;   ui_suspend  OOUI stops drawing, and ui_poll gives every event as UE_RAW
 ;   ui_resume   the layers, colours and pointer set again; everything drawn
+;   ui_setrange Y a handle, A/X a list's count, or a bar's, slider's, scroll
+;               bar's or choice's top: the value held to it (U2)
+;   ui_msgbox   A/X a block of UM_LEN: the message box up (U2, uimsg.s)
+;   ui_pick     A/X a block of UP_LEN: the file picker up (U2, uipick.s)
+;   ui_relist   the picker's directory read again (U2)
 
 .ifndef OOUI_INC
 OOUI_INC = 1
 
 .global ui_open, ui_close, ui_poll, ui_show, ui_hide, ui_flags, ui_settext, ui_setvalue, ui_getvalue
 .global ui_dirty, ui_redraw, ui_focus, ui_getfocus, ui_rect, ui_info, ui_theme, ui_suspend, ui_resume
+.global ui_setrange, ui_msgbox, ui_pick, ui_relist
 .global UI_EV, UI_RECT, UI_RAW
 .global UI_HOUSE, UI_TURBO              ; the themes: the default (OO-1's house look), Turbo Vision's blue
 
@@ -95,6 +103,8 @@ UT_HBAR         = 18
 UT_VSLIDER      = 19
 UT_HSLIDER      = 20
 UT_CANVAS       = 21
+UT_CHOICE       = 22                   ; U2 (proposed): text an array of UW_A strings, value the one shown
+UT_COUNT        = 23
 
 ; UW_FLAGS: bits 0-3 every type's, 4-7 the type's own.
 UF_HIDDEN       = $01
@@ -111,6 +121,11 @@ UF_RIGHT        = $20                  ;   right-aligned
 UF_DEFAULT      = $10                  ; a button: Enter presses it
 UF_CANCEL       = $20                  ;   Escape presses it
 UF_TOGGLE       = $40                  ;   a toggle: each press flips its value
+UF_MULTI        = $10                  ; a list: rows marked (UE_MARK)
+UF_SCROLL       = $20                  ;   its own scroll bar, in its last column
+UF_ROUTINE      = $40                  ;   its rows from a routine (UW_TEXT)
+UF_UPPER        = $10                  ; a field: letters in capitals
+UF_SPRITE       = $10                  ; a slider: its thumb a sprite (+15)
 
 ; UW_STATE (OOUI's)
 US_PRESSED      = $01
@@ -118,6 +133,7 @@ US_HOT          = $02
 US_OPEN         = $04                  ; a menu down
 US_FOCUS        = $08
 US_DRAG         = $10
+US_EDIT         = $20                  ; a field edited since it took the focus (U2)
 
 ; ---------------------------------------------------------------------------
 ; ui_open's block
@@ -131,8 +147,54 @@ UO_OVER         = 10                   ; the menus' and overlay windows' layer, 
 UO_SPRITE       = 11                   ; the first sprite OOUI may use (the pointer)
 UO_SPRITES      = 12                   ; how many, 0-16 (0: no pointer)
 UO_FLAGS        = 13                   ; UO_OWNMOUSE
+UO_WIDGETS      = 14                   ; the widget modules' records the table uses (UI_END's name_WIDGETS), 0 none
 UO_LEN          = 16
 UO_OWNMOUSE     = $01                  ; the program sets the mouse's mode and the pointer itself
+
+; A list's row routine's Y (U2)
+UL_NORMAL       = 0
+UL_CURRENT      = 1
+UL_DIM          = 2
+UL_MARKED       = $80
+
+; A canvas's UV_KIND (U2)
+UC_PRESS        = 1
+UC_RELEASE      = 2
+UC_MOVE         = 3
+UC_WHEEL        = 4
+
+; ui_msgbox's block (U2)
+UM_TEXT         = 0                    ; the text, lines split at CR ($0D), at most 4
+UM_TITLE        = 2
+UM_BUTTONS      = 4                    ; UM_OK, UM_OKCANCEL, UM_YESNO
+UM_DEFAULT      = 5                    ; the button the focus starts on, 0 or 1
+UM_LEN          = 6
+UM_OK           = 0
+UM_OKCANCEL     = 1
+UM_YESNO        = 2
+
+; ui_pick's block (U2)
+UP_TITLE        = 0
+UP_TYPES        = 2                    ; three-letter types one after another, ended by 0; 0 every file
+UP_FLAGS        = 4                    ; UP_MULTI, UP_NEW, UP_DRIVES, UP_USERS
+UP_DRIVE        = 5                    ; the drive to start on (0 the current, 1 A:)
+UP_USER         = 6                    ; the user to start on ($FF the current)
+UP_RESULT       = 7                    ; the result buffer: UP_ELEN bytes an entry
+UP_ROOM         = 9                    ; its room, in entries
+UP_CHOSEN       = 10                   ; the entries chosen (OOUI writes it)
+UP_COLUMN       = 11                   ; a column routine, 0 none
+UP_EXTRA        = 13                   ; an extra button's text, 0 none
+UP_WORK         = 15                   ; a work buffer for the listing
+UP_WORKLEN      = 17                   ;   its length: UP_ELEN bytes a file listed
+UP_LEN          = 20
+UP_MULTI        = $01
+UP_NEW          = $02
+UP_DRIVES       = $04
+UP_USERS        = $08
+UP_EDRIVE       = 0                    ; an entry: the drive (1 A:)
+UP_EUSER        = 1                    ;   the user
+UP_ENAME        = 2                    ;   the name and type, 8 + 3, as an FCB holds them
+UP_ELEN         = 16
 
 ; ui_info's Y
 UB_TEXT         = 0
@@ -146,6 +208,7 @@ UX_TABLE        = 4                    ; an unknown type, a parent after its chi
 UX_HANDLE       = 5                    ; a handle past the table, or a call the type doesn't take
 UX_BUSY         = 6                    ; ui_open while OOUI is open
 UX_LAYER        = 7                    ; ui_open: UO_BASE past 1, or UO_OVER not $FF and not above the base
+UX_PICK         = 8                    ; ui_pick: a block it can't take (no work buffer, no room) (U2)
 
 ; ---------------------------------------------------------------------------
 ; Events (ui_poll's A, and UI_EV's UV_CODE)
@@ -306,6 +369,33 @@ name:
 .macro UI_END name
         .ident(.concat(.string(name), "_COUNT")) = _UI_N
         .popseg
+        .pushseg
+        .rodata
+.ident(.concat(.string(name), "_WIDGETS")):     ; UO_WIDGETS: the modules the table uses
+        _UI_W   GROUP
+        _UI_W   RADIO
+        _UI_W   VSCROLL
+        _UI_W   HSCROLL
+        _UI_W   LIST
+        _UI_W   FIELD
+        _UI_W   VBAR
+        _UI_W   HBAR
+        _UI_W   VSLIDER
+        _UI_W   HSLIDER
+        _UI_W   CANVAS
+        _UI_W   CHOICE
+        .word   0
+        .popseg
+.endmacro
+; UIW_kind, imported once, if a macro has used the kind.
+.macro _UI_W kind
+        .ifdef  .ident(.concat("_UI_U_", .string(kind)))
+                .ifndef .ident(.concat("_UI_I_", .string(kind)))
+                        .import .ident(.concat("UIW_", .string(kind)))
+                        .ident(.concat("_UI_I_", .string(kind))) = 1
+                .endif
+                .word   .ident(.concat("UIW_", .string(kind)))
+        .endif
 .endmacro
 .macro UI_DESKTOP id
         _UI_REC id, UT_DESKTOP, UI_NONE, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -336,6 +426,55 @@ name:
 .endmacro
 .macro UI_SEP id, menu
         _UI_REC id, UT_SEP, menu, 0, 0, 0, 1, 0, 0, 0, 0, 0
+.endmacro
+; U2's (proposed): each marks its module for UI_END's list.
+.macro UI_GROUP id, parent, xx, yy, ww, hh, text, value, flags
+        _UI_U_GROUP .set 1
+        _UI_REC id, UT_GROUP, parent, xx, yy, ww, hh, flags, text, value, 0, 0
+.endmacro
+.macro UI_RADIO id, group, xx, yy, ww, text, flags
+        _UI_U_RADIO .set 1
+        _UI_REC id, UT_RADIO, group, xx, yy, ww, 1, flags, text, 0, 0, 0
+.endmacro
+.macro UI_VSCROLL id, parent, xx, yy, len, last, page, flags
+        _UI_U_VSCROLL .set 1
+        _UI_REC id, UT_VSCROLL, parent, xx, yy, 1, len, flags, 0, 0, last, page
+.endmacro
+.macro UI_HSCROLL id, parent, xx, yy, len, last, page, flags
+        _UI_U_HSCROLL .set 1
+        _UI_REC id, UT_HSCROLL, parent, xx, yy, len, 1, flags, 0, 0, last, page
+.endmacro
+.macro UI_LIST id, parent, xx, yy, ww, hh, rows, count, flags
+        _UI_U_LIST .set 1
+        _UI_REC id, UT_LIST, parent, xx, yy, ww, hh, flags, rows, $FFFF, count, 0
+.endmacro
+.macro UI_FIELD id, parent, xx, yy, ww, buffer, size, flags
+        _UI_U_FIELD .set 1
+        _UI_REC id, UT_FIELD, parent, xx, yy, ww, 1, flags, buffer, 0, size, 0
+.endmacro
+.macro UI_VBAR id, parent, xx, yy, len, top, flags
+        _UI_U_VBAR .set 1
+        _UI_REC id, UT_VBAR, parent, xx, yy, 1, len, flags, 0, 0, top, 0
+.endmacro
+.macro UI_HBAR id, parent, xx, yy, len, top, flags
+        _UI_U_HBAR .set 1
+        _UI_REC id, UT_HBAR, parent, xx, yy, len, 1, flags, 0, 0, top, 0
+.endmacro
+.macro UI_VSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags
+        _UI_U_VSLIDER .set 1
+        _UI_REC id, UT_VSLIDER, parent, xx, yy, 1, len, flags, 0, value, top, (step) | (sprite) << 8
+.endmacro
+.macro UI_HSLIDER id, parent, xx, yy, len, top, value, step, sprite, flags
+        _UI_U_HSLIDER .set 1
+        _UI_REC id, UT_HSLIDER, parent, xx, yy, len, 1, flags, 0, value, top, (step) | (sprite) << 8
+.endmacro
+.macro UI_CANVAS id, parent, xx, yy, ww, hh, flags
+        _UI_U_CANVAS .set 1
+        _UI_REC id, UT_CANVAS, parent, xx, yy, ww, hh, flags, 0, 0, 0, 0
+.endmacro
+.macro UI_CHOICE id, parent, xx, yy, ww, texts, count, value, flags
+        _UI_U_CHOICE .set 1
+        _UI_REC id, UT_CHOICE, parent, xx, yy, ww, 1, flags, texts, value, count, 0
 .endmacro
 
 .endif

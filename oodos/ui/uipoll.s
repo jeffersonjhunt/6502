@@ -38,12 +38,59 @@ sc:     .res    1                      ; the scope: the modal window or the focu
 fb:     .res    1                      ; FINDBTN's
 fh:     .res    1
 um:     .res    1                      ; UCHAR's
+mpx:    .res    2                      ; the pointer from the widget's top left, in pointer units (U2)
+mpy:    .res    2
+evk:    .res    1                      ; UV_KIND, UV_X, UV_Y of the event (a canvas's)
+evx:    .res    2
+evyy:   .res    1
+upend:  .res    1                      ; an event waiting (a field's last change, U2): its code, 0 none
+upendh: .res    1
+upendv: .res    2
+lmx:    .res    2                      ; the pointer as the last poll saw it
+lmy:    .res    2
+moved:  .res    1                      ;   not 0: it has moved since
+uhot:   .res    1                      ; the widget under it (US_HOT)
+ulastp: .res    1                      ; the last press's widget and frame (the double-click)
+ulastt: .res    1
+urkey:  .res    1                      ; the key repeating, 0 none, and the frame it repeats at
+urnext: .res    1
+umseen: .res    1                      ; 1: a modal window was up at the last UE_MODAL
+umlast: .res    1
+pw:     .res    1                      ; DOWNW's, HOTBIT's
+wst:    .res    1                      ; WHEELW's: the steps
+udf1:   .res    2                      ; the dialogs' event filters (the message box's, the picker's)
+udf2:   .res    2
+uidle:  .res    2                      ; a dialog's work at each idle poll (the picker's listing)
 
         .code
 
 ui_poll:
         jsr     ENTER
-@next:  lda     uarea
+@next:  stz     evv
+        stz     evv + 1
+        stz     evf
+        stz     evy
+        stz     evk
+        stz     kc
+        lda     #UI_NONE
+        sta     evh
+        lda     upend                   ; an event waiting first
+        beq     @live
+        stz     upend
+        ldx     upendh
+        stx     evh
+        ldx     upendv
+        stx     evv
+        ldx     upendv + 1
+        stx     evv + 1
+        jmp     @out
+@live:  lda     ususp
+        bne     @queue
+        jsr     POINTED                 ; the pointer moved: a drag, the widget under it
+        cmp     #UE_NONE
+        beq     @queue
+        jmp     @out
+@queue: lda     uarea
         sta     UIP
         lda     uarea + 1
         sta     UIP + 1
@@ -54,7 +101,20 @@ ui_poll:
         lda     (UIP),y
         cmp     qt
         bne     @take
-        jsr     PAINT
+        lda     ususp
+        bne     @paint
+        jsr     IDLE                    ; a dialog's work (the picker's listing, U2)
+        cmp     #UE_NONE
+        beq     @rep
+        jmp     @out
+@rep:   jsr     REPEAT                  ; a key held repeats (U2)
+        bcs     @modal
+        jmp     @key2
+@modal: jsr     MODALEV                 ; the first modal window up, the last down (UE_MODAL)
+        cmp     #UE_NONE
+        beq     @paint
+        jmp     @out
+@paint: jsr     PAINT
         stz     evv
         stz     evv + 1
         stz     evf
@@ -87,13 +147,6 @@ ui_poll:
         lda     #0
 @t:     ldy     #EV_QTAIL
         sta     (UIP),y
-        stz     evv
-        stz     evv + 1
-        stz     evf
-        stz     evy
-        stz     kc
-        lda     #UI_NONE
-        sta     evh
         lda     ususp
         bne     @raw
         jsr     FINDMODAL
@@ -104,6 +157,9 @@ ui_poll:
         beq     @btn
         cmp     #EK_WHEEL
         beq     @whl
+        cmp     #EK_DEVICE
+        bne     @raw
+        jsr     PLUGGED                 ; a mouse plugged in: the pointer set up (U2, O13)
 @raw:   ldx     #EQ_LEN - 1
 @rc:    lda     qev,x
         sta     UI_RAW,x
@@ -115,6 +171,7 @@ ui_poll:
         bra     @out
 @key:   lda     qev + EQ_VALUE
         beq     @again                  ; released
+@key2:  jsr     FINDMODAL
         jsr     KEYDOWN
         bra     @res
 @btn:   lda     qev + EQ_CODE
@@ -129,6 +186,9 @@ ui_poll:
 @whl:   jsr     CELL
         jsr     HIT
         sta     evh
+        sta     dh
+        jsr     WHEELW                  ; a list's or a scroll bar's (U2)
+        bcc     @res
         lda     qev + EQ_VALUE          ; the steps, signed
         sta     evv
         bpl     @w
@@ -138,20 +198,31 @@ ui_poll:
 @res:   cmp     #UE_NONE
         bne     @out
 @again: jmp     @next
-@out:   ldx     evh
+@out:   jsr     DFILT                   ; the dialogs see it first (U2)
+        cmp     #UE_NONE
+        beq     @again
+        ldx     evh
         ldy     evy
-; The event A (X its widget, Y its Y) returned, and in UI_EV.
+; The event A (X its widget, Y its Y) returned, and in UI_EV. A dialog's
+; widget is given by its public handle.
 EVOUT:  sta     UI_EV + UV_CODE
-        stx     UI_EV + UV_HANDLE
         pha
+        txa
+        jsr     PUBH
+        tax
+        stx     UI_EV + UV_HANDLE
         lda     evv
         sta     UI_EV + UV_VALUE
         lda     evv + 1
         sta     UI_EV + UV_VALUE + 1
-        stz     UI_EV + UV_X
-        stz     UI_EV + UV_X + 1
-        stz     UI_EV + UV_Y
-        stz     UI_EV + UV_KIND
+        lda     evx
+        sta     UI_EV + UV_X
+        lda     evx + 1
+        sta     UI_EV + UV_X + 1
+        lda     evyy
+        sta     UI_EV + UV_Y
+        lda     evk
+        sta     UI_EV + UV_KIND
         lda     qev + EQ_MODS
         sta     UI_EV + UV_MODS
         lda     qev + EQ_CODE
@@ -190,7 +261,15 @@ KEYDOWN:
         jmp     MKEY
 @nomenu:
         jsr     SCOPE
-        lda     ku                      ; Space and Enter: the focus's
+        lda     ufocus                  ; a widget module's focus takes its keys first (U2)
+        cmp     #UI_NONE
+        beq     @core
+        sta     dh
+        ldy     #WR_KEY
+        jsr     WCALL
+        bcs     @core
+        jmp     TOOK
+@core:  lda     ku                      ; Space and Enter: the focus's
         cmp     #K_SPACE
         beq     @act
         cmp     #K_ENTER
@@ -303,7 +382,7 @@ FINDBTN:
         sta     fb
         stz     fh
 @l:     lda     fh
-        cmp     ucount
+        cmp     utot
         bcs     @no
         jsr     REC
         ldy     #UW_TYPE
@@ -346,7 +425,7 @@ FINDACC:
         sta     fb
         stz     fh
 @l:     lda     fh                      ; a button or a check box, enabled: focusable or not (O12)
-        cmp     ucount
+        cmp     utot
         bcs     @no
         jsr     REC
         ldy     #UW_TYPE
@@ -387,9 +466,20 @@ PRESS:  sta     evh
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_ITEM
-        bne     @btn
+        bne     @mod
         lda     evh
         jmp     MCHOOSE
+@mod:   cmp     #UT_GROUP               ; a widget module's: as Space to it (U2)
+        bcc     @btn
+@w:     lda     evh
+        sta     dh
+        lda     #K_SPACE
+        sta     ku
+        ldy     #WR_KEY
+        jsr     WCALL
+        bcc     @r
+        lda     #UE_NONE
+@r:     rts
 @btn:   ldx     #UE_CLICK
         cmp     #UT_BUTTON
         beq     @b
@@ -436,8 +526,10 @@ KEYTAB: lda     ukeys
         sta     fb
 @e:     ldy     #UK_USAGE
         lda     (UIQ),y
-        beq     @no
-        cmp     ku
+        bne     @u
+        sec
+        rts
+@u:     cmp     ku
         bne     @n
         ldy     #UK_MODS
         lda     (UIQ),y
@@ -447,15 +539,31 @@ KEYTAB: lda     ukeys
         ldy     #UK_HANDLE
         lda     (UIQ),y
         sta     fh
-        cmp     ucount
+        cmp     utot
         bcs     @took
         ldy     #UK_ACTION
         lda     (UIQ),y
         cmp     #UA_FOCUS
         beq     @focus
         cmp     #UA_PRESS
-        bne     @took                   ; UA_UP, UA_DOWN: U2's widgets
+        beq     @press
+        ldx     #K_UP                   ; UA_UP, UA_DOWN: as the arrow to the widget (U2)
+        cmp     #UA_UP
+        beq     @arrow
+        ldx     #K_DOWN
+        cmp     #UA_DOWN
+        bne     @took
+@arrow: stx     ku
         jsr     KPRESS
+        bcs     @took
+        lda     fh
+        sta     dh
+        ldy     #WR_KEY
+        jsr     WCALL
+        bcs     @took
+        clc
+        rts
+@press: jsr     KPRESS
         bcs     @took
         lda     fh
         jsr     PRESS
@@ -477,9 +585,9 @@ KEYTAB: lda     ukeys
         lda     UIQ
         adc     #UK_LEN
         sta     UIQ
-        bcc     @e
+        bcc     @j
         inc     UIQ + 1
-        bra     @e
+@j:     jmp     @e
 @no:    sec
         rts
 
@@ -591,7 +699,7 @@ CELL:   lda     uarea
 ; under a modal window.
 HIT:    lda     #1
         sta     hp
-@pass:  lda     ucount
+@pass:  lda     utot
         sta     hh
 @l:     dec     hh
         lda     hh
@@ -654,7 +762,8 @@ MDOWN:  lda     umenu
         cmp     #UT_BUTTON
         beq     @btn
         cmp     #UT_CHECK
-        bne     @none
+        beq     @btn
+        jmp     DOWNW                   ; a widget module's (U2)
 @btn:   ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_DISABLED
@@ -697,10 +806,28 @@ MDOWN:  lda     umenu
         rts
 
 ; The left button up: the button it went down on clicked, if it is still
-; over it.
+; over it; a widget module's told (WR_UP).
 MUP:    lda     upress
         cmp     #UI_NONE
         beq     @none
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_GROUP
+        beq     @w
+        cmp     #UT_SEP + 1
+        bcc     @core
+@w:     lda     upress
+        sta     dh
+        lda     #UI_NONE
+        sta     upress
+        jsr     MPOS
+        ldy     #WR_UP
+        jsr     WCALL
+        bcc     @r
+@none:  lda     #UE_NONE
+@r:     rts
+@core:  lda     upress
         jsr     REC
         ldy     #UW_STATE
         lda     (UIR),y
@@ -714,13 +841,353 @@ MUP:    lda     upress
         sty     upress
         stx     evh
         cmp     evh
-        bne     @none
+        bne     @no
         lda     evh
         jmp     PRESS
+@no:    lda     #UE_NONE
+        rts
+
+; ---------------------------------------------------------------------------
+; U2: the widget modules' mouse, the wheel, held keys, the modal event.
+
+; The left button down on widget evh (A its type), a widget module's: it is
+; held (upress), a second press soon after on it a double-click (UV_DOUBLE),
+; the focus there if it takes it, and its WR_DOWN; UE_FOCUS if the focus
+; moved and the widget said nothing.
+DOWNW:  ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DISABLED
+        bne     @none
+        lda     evh
+        sta     upress
+        sta     dh
+        jsr     FRAME                   ; the double-click: the same widget within TH_TIMES + 2
+        sec
+        sbc     ulastt
+        ldy     #TH_TIMES + 2
+        cmp     (UIT),y
+        bcs     @first
+        lda     ulastp
+        cmp     evh
+        bne     @first
+        lda     #UV_DOUBLE
+        tsb     evf
+        lda     #UI_NONE
+        sta     ulastp
+        bra     @focus
+@first: lda     evh
+        sta     ulastp
+        jsr     FRAME
+        sta     ulastt
+@focus: stz     pw
+        lda     evh
+        jsr     CANFOCUS
+        bcs     @call
+        cmp     ufocus
+        beq     @call
+        jsr     SETFOCUS
+        inc     pw
+@call:  lda     evh
+        sta     dh
+        jsr     MPOS
+        ldy     #WR_DOWN
+        jsr     WCALL
+        bcs     @nothing
+        cmp     #UE_NONE
+        bne     @r
+@nothing:
+        lda     pw
+        beq     @none
+        lda     evh
+        sta     evh
+        lda     #UE_FOCUS
+@r:     rts
 @none:  lda     #UE_NONE
         rts
 
+; A the frame counter's low byte (EV_FRAMES).
+FRAME:  lda     uarea
+        sta     UIP
+        lda     uarea + 1
+        sta     UIP + 1
+        ldy     #EV_FRAMES
+        lda     (UIP),y
+        rts
+
+; The pointer's cell (mcol, mrowp) and its place from widget dh's top left
+; in pointer units (mpx, mpy). UI_RECT dh's place after.
+MPOS:   jsr     CELL
+        lda     dh
+        jsr     RECT
+        lda     uarea
+        sta     UIP
+        lda     uarea + 1
+        sta     UIP + 1
+        lda     UI_RECT                 ; mpx = EV_MX - column x 4
+        stz     mpx + 1
+        asl     a
+        rol     mpx + 1
+        asl     a
+        rol     mpx + 1
+        sta     mpx
+        ldy     #EV_MX
+        lda     (UIP),y
+        sec
+        sbc     mpx
+        sta     mpx
+        iny
+        lda     (UIP),y
+        sbc     mpx + 1
+        sta     mpx + 1
+        lda     UI_RECT + 1             ; mpy = EV_MY - row x 8
+        stz     mpy + 1
+        asl     a
+        rol     mpy + 1
+        asl     a
+        rol     mpy + 1
+        asl     a
+        rol     mpy + 1
+        sta     mpy
+        ldy     #EV_MY
+        lda     (UIP),y
+        sec
+        sbc     mpy
+        sta     mpy
+        iny
+        lda     (UIP),y
+        sbc     mpy + 1
+        sta     mpy + 1
+        rts
+
+; The wheel over widget dh (UI_NONE none): its module's WR_WHEEL with wst
+; the steps; carry set if it takes none.
+WHEELW: lda     dh
+        cmp     #UI_NONE
+        beq     @no
+        jsr     REC
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_DISABLED
+        bne     @no
+        lda     qev + EQ_VALUE
+        sta     wst
+        jsr     MPOS                    ; (a canvas's UV_X and UV_Y)
+        ldy     #WR_WHEEL
+        jmp     WCALL
+@no:    sec
+        rts
+
+; The pointer, if it moved since the last poll: US_HOT moved to the widget
+; under it, and the widget held (upress) told (WR_MOVE). A its event, or
+; UE_NONE.
+POINTED:
+        lda     uarea
+        sta     UIP
+        lda     uarea + 1
+        sta     UIP + 1
+        stz     moved
+        ldx     #3
+@cmp:   txa
+        clc
+        adc     #EV_MX
+        tay
+        lda     (UIP),y
+        cmp     lmx,x
+        beq     @same
+        sta     lmx,x
+        inc     moved
+@same:  dex
+        bpl     @cmp
+.assert lmy = lmx + 2 && EV_MY = EV_MX + 2, error, "lmx and lmy follow EV_MX's order"
+        lda     moved
+        beq     @none
+        jsr     CELL
+        jsr     HIT
+        cmp     uhot
+        beq     @drag
+        pha
+        lda     uhot
+        ldx     #0
+        jsr     HOTBIT
+        pla
+        sta     uhot
+        ldx     #US_HOT
+        jsr     HOTBIT
+@drag:  lda     upress
+        cmp     #UI_NONE
+        beq     @none
+        sta     dh
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_SEP + 1
+        bcs     @w
+        cmp     #UT_GROUP
+        bcc     @none
+@w:     jsr     MPOS
+        ldy     #WR_MOVE
+        jsr     WCALL
+        bcc     @r
+@none:  lda     #UE_NONE
+@r:     rts
+; Record A's US_HOT: X it (US_HOT) or 0.
+HOTBIT: cmp     #UI_NONE
+        beq     @r
+        jsr     REC
+        stx     pw
+        ldy     #UW_STATE
+        lda     (UIR),y
+        and     #<~US_HOT
+        ora     pw
+        sta     (UIR),y
+@r:     rts
+
+; A key a widget module took: A its event. One its module repeats
+; (WF_REPEAT), but Enter, Escape, Tab and Space, repeats while it is held,
+; after TH_TIMES' delay, then at TH_TIMES + 1's rate.
+TOOK:   pha
+        lda     ufocus
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        jsr     WFLAGS
+        and     #WF_REPEAT
+        beq     @r
+        lda     ku
+        cmp     #K_ENTER
+        beq     @r
+        cmp     #K_ESC
+        beq     @r
+        cmp     #K_TAB
+        beq     @r
+        cmp     #K_SPACE
+        beq     @r
+        cmp     urkey
+        beq     @r                      ; repeating already: its time kept
+        sta     urkey
+        jsr     FRAME
+        ldy     #TH_TIMES
+        clc
+        adc     (UIT),y
+        sta     urnext
+@r:     pla
+        rts
+
+; The key repeating, if it is still held and its time has come: qev that
+; key down again, carry clear; carry set if none.
+REPEAT: lda     urkey
+        beq     @no
+        lda     uarea
+        sta     UIP
+        lda     uarea + 1
+        sta     UIP + 1
+        lda     urkey                   ; held? EV_KEYS's bit
+        lsr     a
+        lsr     a
+        lsr     a
+        clc
+        adc     #EV_KEYS
+        tay
+        lda     urkey
+        and     #7
+        tax
+        lda     BITS,x
+        and     (UIP),y
+        beq     @up
+        jsr     FRAME
+        sec
+        sbc     urnext
+        bmi     @no                     ; not yet
+        jsr     FRAME
+        ldy     #TH_TIMES + 1
+        clc
+        adc     (UIT),y
+        sta     urnext
+        lda     #EK_KEY
+        sta     qev + EQ_KIND
+        lda     urkey
+        sta     qev + EQ_CODE
+        lda     #1
+        sta     qev + EQ_VALUE
+        ldy     #EV_MODS
+        lda     (UIP),y
+        sta     qev + EQ_MODS
+        clc
+        rts
+@up:    stz     urkey
+@no:    sec
+        rts
+
+; UE_MODAL when the first modal window has come up (UV_VALUE 1, X it) or
+; the last gone (0, X the last that was up); UE_NONE else.
+MODALEV:
+        jsr     FINDMODAL
+        ldx     #0
+        lda     umodal
+        cmp     #UI_NONE
+        beq     @n
+        sta     umlast
+        inx
+@n:     cpx     umseen
+        beq     @none
+        stx     umseen
+        stx     evv
+        lda     umlast
+        sta     evh
+        lda     #UE_MODAL
+        rts
+@none:  lda     #UE_NONE
+        rts
+
+; A device plugged in or out (EK_DEVICE): a mouse, if OOUI hasn't the
+; pointer yet, gets it (O13).
+PLUGGED:
+        lda     uptr
+        bne     @r
+        lda     qev + EQ_VALUE
+        and     #ED_MOUSE
+        beq     @r
+        jsr     PTRSET
+@r:     rts
+
+; Event A through the dialogs' filters: A what they make of it.
+DFILT:  ldx     udf1 + 1
+        beq     @2
+        jsr     @f1
+@2:     ldx     udf2 + 1
+        beq     @r
+        jmp     (udf2)
+@f1:    jmp     (udf1)
+@r:     rts
+
+; A dialog's idle work: A an event, UE_NONE none.
+IDLE:   lda     uidle + 1
+        beq     @none
+        jmp     (uidle)
+@none:  lda     #UE_NONE
+        rts
+
+; ui_poll's own state at ui_open.
+POLLINIT:
+        stz     upend
+        stz     udf1 + 1
+        stz     udf2 + 1
+        stz     uidle + 1
+        stz     urkey
+        stz     umseen
+        lda     #UI_NONE
+        sta     uhot
+        sta     ulastp
+        sta     umlast
+        lda     #$FF
+        ldx     #3
+@m:     sta     lmx,x
+        dex
+        bpl     @m
+        rts
+
         .rodata
+BITS:   .byte   $01, $02, $04, $08, $10, $20, $40, $80
 ; Usages $1E-$38, each its character and its character with Shift.
 UCTAB:  .byte   "1!2@3#4$5%6^7&8*9(0)"
         .byte   $0D, $0D, $1B, $1B, $08, $08, $09, $09, ' ', ' '

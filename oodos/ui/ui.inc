@@ -23,9 +23,11 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 .global upage, ufocus, ufwin, umenu, umsel, upress, ususp, umodal, udmg, ucli, rhid, rover, rtype
 .global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER
+.global utot, udlgp, uvec, rclip, WREC, WFLAGS, WCALL, CLAMP, ADDW, PUBH, CHKH, DAMAGE, REFOCUS, uopen, uwid
+.global t0, t1, t2, t3
 
 ; uidraw.s's
-.global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS
+.global PAINT, SETUP, GLYPHS, EXTRECT, er, SETPAL, PTRIMG, PTRATTR, LAYERS, PTRSET, FRAMES, upost, MAPW1
 .global GOTO, EMIT, REPT, PUTS, FILLR, BOXD, SHADOW, TATTR, NOACC, uattr, uacc, cmap, mapB, ucol, dh, TEXTLINE, tal, CLIPALL
 
 ; uimenu.s's
@@ -33,6 +35,29 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 
 ; uipoll.s's
 .global UCHAR, ku, km, kc, mcol, mrowp, evv, evh, evy, evf
+.global mpx, mpy, upend, upendh, upendv, HIT, SCOPE, PRESS, sc, wst, evk, evx, evyy, POLLINIT, FRAME
+.global udf1, udf2, uidle, HIDEH
+
+; A widget module's record (U2): what the core calls it for. Each handler
+; is entered with UIR on the widget's record and dh its handle (and, for
+; the drawing, UI_RECT its place, UIT the theme); 0 for none.
+WR_TYPE         = 0                    ; its UT_*
+WR_FLAGS        = 1                    ; WF_*
+WR_DRAW         = 2                    ; draw it at UI_RECT
+WR_KEY          = 4                    ; a key (ku, km, kc) while it has the focus: carry clear and A an
+                                       ;   event (UE_NONE: taken), or carry set: not taken
+WR_DOWN         = 6                    ; the left button down on it (mcol, mrowp; mpx, mpy from its top
+                                       ;   left in pointer units): A an event; it is held (upress) till up
+WR_MOVE         = 8                    ; the pointer moved while held: A an event
+WR_UP           = 10                   ; the left button up: A an event
+WR_WHEEL        = 12                   ; A the wheel's steps over it: as WR_KEY
+WR_LEN          = 14
+WF_FOCUS        = $01                  ; it takes the focus
+WF_RANGE        = $02                  ; its value is held to 0-UW_A
+WF_LIST         = $04                  ;   below UW_A, or $FFFF none
+WF_REPEAT       = $08                  ; the keys it takes repeat while held
+
+DLG_RECS        = 13                   ; the dialogs' records (uidlg.s): the picker's 9, the box's 4
 
 ; HID usages
 K_ENTER         = $28
@@ -44,5 +69,11 @@ K_RIGHT         = $4F
 K_LEFT          = $50
 K_DOWN          = $51
 K_UP            = $52
+K_BACK          = $2A
+K_PGUP          = $4B
+K_PGDN          = $4E
+K_HOME          = $4A
+K_END           = $4D
+K_DEL           = $4C
 
 .endif

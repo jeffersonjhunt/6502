@@ -74,7 +74,7 @@ MWALK:  lda     mc0
         sta     mh
 @l:     inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @none
         jsr     ISMENU
         bcs     @l
@@ -241,7 +241,7 @@ MWIDTH: sta     kp
         stz     mcnt
 @l:     inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @end
         jsr     KID
         bcs     @l
@@ -369,7 +369,7 @@ DMBAR:  ldy     #TC_MENUBAR
         sta     mcx
 @l:     inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @r
         jsr     ISMENU
         bcs     @l
@@ -441,7 +441,7 @@ DMENU:  ldy     #TH_FRAMES + 3
         sta     kp
 @l:     inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @sh
         jsr     KID
         bcs     @l
@@ -621,7 +621,7 @@ MFIRST: lda     umenu
         sta     mh
 @l:     inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @n
         jsr     ISSEL
         bcs     @l
@@ -639,24 +639,24 @@ MNEXT:  sta     mdir
         sta     umsel
         bra     @d
 @s:     sta     mh
-        lda     ucount
+        lda     utot
         sta     mn
 @l:     lda     mh
         clc
         adc     mdir
-        cmp     ucount
+        cmp     utot
         bcc     @in
         ldx     mdir
         bmi     @top
         lda     umenu
         inc     a
         bra     @in
-@top:   lda     ucount
+@top:   lda     utot
         dec     a
 @in:    sta     mh
         cmp     umenu
         bne     @t
-        lda     ucount
+        lda     utot
         dec     a
         sta     mh
 @t:     jsr     ISSEL
@@ -673,7 +673,7 @@ MNEXT:  sta     mdir
 ; UV_VALUE its value; UE_NONE (A 0) for none or one disabled.
 MCHOOSE:
         sta     mh
-        cmp     ucount
+        cmp     utot
         bcs     @none
         ldx     umodal                  ; not under a modal window (the review's O5)
         jsr     INSIDE
@@ -758,7 +758,7 @@ MKEY:   lda     ku
         sta     mh
 @il:    inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @none
         jsr     ISSEL
         bcs     @il
@@ -780,18 +780,18 @@ MSIB:   sta     mdir
         sta     mbar
         lda     umenu
         sta     mm
-        lda     ucount
+        lda     utot
         sta     mn
 @l:     lda     mm
         clc
         adc     mdir
-        cmp     ucount
+        cmp     utot
         bcc     @in
         ldx     mdir
         bmi     @top
         lda     #0
         bra     @in
-@top:   lda     ucount
+@top:   lda     utot
         dec     a
 @in:    sta     mm
         sta     mh
@@ -838,7 +838,7 @@ NEXTBAR:
 ; shows and isn't under a modal window; UI_NONE none.
 MBARAT: lda     #1
         sta     mwmode
-        lda     ucount
+        lda     utot
         sta     mbh
 @b:     jsr     NEXTBAR
         bcs     @none
@@ -859,7 +859,7 @@ MBARAT: lda     #1
 ; down, on a bar that shows and isn't under a modal window. Carry set if
 ; none.
 MALT:   sta     malt
-        lda     ucount
+        lda     utot
         sta     mbh
 @b:     jsr     NEXTBAR
         bcs     @no
@@ -867,7 +867,7 @@ MALT:   sta     malt
         sta     mh
 @m:     inc     mh
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @b
         jsr     ISMENU
         bcs     @m
@@ -911,7 +911,7 @@ MCLICK: lda     umenu
         sta     kp
 @l:     inc     mh                      ; its mk'th shown child
         lda     mh
-        cmp     ucount
+        cmp     utot
         bcs     @none
         jsr     KID
         bcs     @l
