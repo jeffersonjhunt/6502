@@ -112,6 +112,7 @@ cmds:   CMD     'I', c_init
         CMD     'b', GX_BLOCK
         CMD     'w', GX_W1BACK
         CMD     'L', GX_LAYER
+        CMD     'l', GX_PALOFS
         CMD     'S', GX_SHOW
         CMD     'r', GX_BORDER
         CMD     'c', GX_CONSOLE

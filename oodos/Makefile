@@ -4,6 +4,7 @@
 #                   # and the utilities
 #   make utils      # build/NAME.com for each utils/NAME.s (phase 4b's)
 #   make check      # the tools' tests (test/check_tools.py, test/check_mkasset.py)
+#   make ooui       # build/ooui.lib, OOUI's archive (below)
 #
 # Each program is SRC/NAME.s, assembled once and linked as a .COM at $0300
 # (cfg/com.cfg) and as a .PRL: linked three times with cfg/prl.cfg, at page
@@ -78,7 +79,8 @@ $(BUILD)/submit.com: $(BUILD)/submit.o $(BUILD)/subrsx.rsx cfg/com.cfg tools/rul
 
 # OOLIB, the linked library (lib/*.s, include/oolib.inc; hw/oolib.md, question 9): each lib/NAME.s
 # assembled once into build/oolib.lib, which ld65 takes only the modules of that a program uses. A
-# utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's).
+# utility in OOLIB_USERS is linked with it, through the same gate (its code and the library's), and
+# tools/w1.py: none of its segments in W1's $4000-$7FFF (the W1 contract), or the build fails.
 # Each module's zero page, lib/zpNAME.s, goes into the archive right after NAME, so ld65 lays a
 # program's zero page out as it would with the bytes in NAME itself (libzp.py check holds it).
 LIBSRC = $(patsubst lib/%.s,%,$(wildcard lib/*.s))
@@ -104,14 +106,45 @@ $(BUILD)/oolib.lib: $(LIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 
 $(OOLIB_USERS:%=$(BUILD)/%.o): include/oolib.inc
 
-$(OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py
+$(OOLIB_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py tools/w1.py
 	$(call LD65,-C cfg/com.cfg $< $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	$(PYTHON) tools/w1.py $(BUILD)/$*.map
 	mv $@.tmp $@
 
 $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(call LD65,-C cfg/com.cfg $< -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	mv $@.tmp $@
+
+# OOUI, the UI toolkit (ui/*.s, include/ooui.inc; hw/ooui.md, phase U1): each ui/NAME.s assembled
+# once into build/ooui.lib, as OOLIB's modules are into oolib.lib (lib-NAME.o, its zero page in
+# ui/zpNAME.s right after it, libzp.py check). OOUI draws through OOLIB, so a program in OOUI_USERS
+# is linked with ooui.lib, then oolib.lib, through the same gate.
+UISRC = $(patsubst ui/%.s,%,$(wildcard ui/*.s))
+UILIBS = $(foreach m,$(filter-out zp%,$(UISRC)),$(m) $(filter zp$(m),$(UISRC)))
+$(if $(filter-out $(UILIBS),$(UISRC)),$(error ui/: zero page modules without their code: $(filter-out $(UILIBS),$(UISRC))))
+$(if $(filter $(UISRC),$(LIBSRC)),$(error ui/ and lib/ share a module's name: $(filter $(UISRC),$(LIBSRC))))
+OOUI_USERS =
+
+$(UILIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: ui/%.s $(wildcard ui/*.inc) include/oodos.inc include/oolib.inc \
+		include/vmem.inc include/ooui.inc | $(BUILD)
+	ca65 $(AFLAGS) -I ui $< -o $@
+
+$(BUILD)/ooui.lib: $(UILIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
+	$(PYTHON) tools/libzp.py check $(UILIBS:%=$(BUILD)/lib-%.o)
+	rm -f $@
+	ar65 a $@ $(UILIBS:%=$(BUILD)/lib-%.o)
+
+ooui: $(BUILD)/ooui.lib
+
+$(OOUI_USERS:%=$(BUILD)/%.o): include/ooui.inc include/oolib.inc
+
+$(OOUI_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/ooui.lib $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py \
+		tools/w1.py
+	$(call LD65,-C cfg/com.cfg $< $(BUILD)/ooui.lib $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
+	$(PYTHON) tools/w1.py $(BUILD)/$*.map
 	mv $@.tmp $@
 
 # The C target (Plan C1; the Programmer's Guide, appendix F, "A program in C"): each of CPROGRAMS is
@@ -183,5 +216,5 @@ check: all
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all utils check clean
+.PHONY: all utils ooui check clean
 .SECONDARY:

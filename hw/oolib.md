@@ -1408,7 +1408,15 @@ and more in L5:
     and `GX_VFILL`. `GX_LAYER` takes the map's page in `GX_V` and the tiles' in `GX_R`; `GX_PALBASE`,
     `GX_SPRBASE` and `GX_TMAP` a page in A/X; `GX_BMP` and `GX_FLIP` a page in `GX_V`; `GX_SPRIMG` the table's
     own revision 2 encoding (bits 0–14 the image's page, bit 15 the depth). The palette and sprite shadows take
-    two pages each (a unit). Drawing goes through slot 1 (`GXPHYS` sets the slot only when the bank changes),
+    two pages each (a unit). *Added for OOUI (proposed; the owner, 2026-11-11, the OOUI U1 review):* `GX_PALOFS`
+    (`gxmode.s`; A a layer, X its palette group 0–15, written to the layer's PALOFS, +9, as `GX_LAYER` writes its
+    registers; a register a program may write), so a layer keeps to its own 16 entries; and `GX_FADE` moved to a
+    module of its own, `gxfade.s` (its zero page `GXFADE_ZP` in `zpgxfade.s`, was `zpgxpal.s`'s `GXPAL_ZP`), so
+    `GX_PALSET` no longer links its 3 KB of accumulators. `tools/w1.py` checks every program in `OOLIB_USERS` (and
+    `OOUI_USERS`) for a segment in `$4000–$7FFF` when it is linked, and fails the build if one is, or if its map
+    has no segments to check. It can't see an absolute equate (an event area or a buffer at a fixed address isn't a
+    segment), nor a `.PRL` overlay linked with the library (`OVL_LIB`), which has no load address until function 59
+    relocates it: a program keeps both out of `$4000–$7FFF` itself, and loads such an overlay outside it. Drawing goes through slot 1 (`GXPHYS` sets the slot only when the bank changes),
     fills and copies through `DM_VFILL` and `DM_VCOPY`, the console's font through `DM_VREAD`. `GX_INIT` refuses
     an interface below 8 or no revision 2 card (`GE_VERSION`).
   - **Asset format 4** (`mkasset.py`): a part's place is a card page (+2–3, `$FFFF` any, a multiple of 4 in the

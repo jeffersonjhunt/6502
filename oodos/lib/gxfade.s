@@ -1,0 +1,273 @@
+; OOLIB's palette fade (include/oolib.inc, "Graphics"; hw/oolib.md, L4):
+; GX_FADE, the shadow (gxpal.s's GX_PAL) moved to a target a step a frame,
+; each shown at its vertical blank. In a module of its own, with its 3 KB
+; of accumulators, so that GX_PALSET doesn't bring them (the OOUI U1
+; review, P2).
+
+        .setcpu "65C02"
+        .include "oodos.inc"
+        .include "oolib.inc"
+        .include "gx.inc"
+
+        .importzp GXFADE_ZP             ; zpgxfade.s's
+ap              = GXFADE_ZP            ; an accumulator, and its step
+sp              = GXFADE_ZP + 2
+
+        .bss
+fsteps: .res    1                      ; the frames left
+facc:   .res    2 * 768                ; each entry's three components, 8.8 (blue, green, red)
+fstep:  .res    2 * 768                ;   and their steps a frame (signed)
+
+        .code
+
+; A frames, GX_V the palette to end at. Each component (blue, green, red:
+; 4 bits) goes from the shadow's to the target's in A equal steps, kept to
+; 8 fractional bits; a step a frame, shown at its vertical blank. The
+; target exactly at the end.
+GX_FADE:
+        sta     fsteps
+        lda     GX_AREA                 ; no area: no slot to show it by (refused)
+        ora     GX_AREA + 1
+        bne     @area
+        lda     #GE_AREA
+        sec
+        rts
+@area:  lda     fsteps
+        bne     @go
+        clc
+        rts
+@go:    jsr     FSETUP
+@frame: jsr     FSTEP
+        jsr     GX_PALSHOW
+        lda     #FT_WAIT
+        ldx     #0
+        ldy     #O_FRAME
+        jsr     BDOS
+        dec     fsteps
+        bne     @frame
+        lda     GX_V
+        ldx     GX_V + 1
+        jsr     GX_PALLOAD
+        jsr     GX_PALSHOW
+        lda     #FT_WAIT
+        ldx     #0
+        ldy     #O_FRAME
+        jmp     BDOS
+
+; Component n (0-767) of entry n / 3 of the palette at GXP: its 4 bits in A.
+; n % 3: 0 blue (byte 0's low), 1 green (byte 0's high), 2 red (byte 1's).
+; FSETUP walks entries with GXP (the shadow) and GXQ (the target).
+FSETUP: lda     #<GX_PAL
+        sta     GXP
+        lda     #>GX_PAL
+        sta     GXP + 1
+        lda     GX_V
+        sta     GXQ
+        lda     GX_V + 1
+        sta     GXQ + 1
+        lda     #<facc
+        sta     ap
+        lda     #>facc
+        sta     ap + 1
+        lda     #<fstep
+        sta     sp
+        lda     #>fstep
+        sta     sp + 1
+        stz     ent
+        stz     ent + 1
+@entry: ldy     #0
+        lda     (GXP),y
+        and     #$0F
+        sta     c0
+        lda     (GXP),y
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     c0 + 1
+        iny
+        lda     (GXP),y
+        and     #$0F
+        sta     c0 + 2
+        dey
+        lda     (GXQ),y
+        and     #$0F
+        sta     c1
+        lda     (GXQ),y
+        lsr     a
+        lsr     a
+        lsr     a
+        lsr     a
+        sta     c1 + 1
+        iny
+        lda     (GXQ),y
+        and     #$0F
+        sta     c1 + 2
+        ldx     #0
+@comp:  lda     c0,x                    ; the accumulator: the start, 8.8
+        jsr     PUTACC
+        sec                             ; the step: (target - start) x 256 / frames
+        lda     c1,x
+        sbc     c0,x
+        jsr     STEPOF
+        jsr     PUTSTEP
+        inx
+        cpx     #3
+        bne     @comp
+        lda     GXP
+        clc
+        adc     #2
+        sta     GXP
+        bcc     @q
+        inc     GXP + 1
+@q:     lda     GXQ
+        clc
+        adc     #2
+        sta     GXQ
+        bcc     @n
+        inc     GXQ + 1
+@n:     inc     ent
+        bne     @entry
+        rts
+
+; The accumulator at ap: 0, A (the integer part), and ap moved on 2.
+PUTACC: ldy     #0
+        pha
+        lda     #$80                    ; a half: the result rounds
+        sta     (ap),y
+        pla
+        iny
+        sta     (ap),y
+        lda     ap
+        clc
+        adc     #2
+        sta     ap
+        bcc     @d
+        inc     ap + 1
+@d:     rts
+PUTSTEP: ldy    #0
+        lda     q16
+        sta     (sp),y
+        iny
+        lda     q16 + 1
+        sta     (sp),y
+        lda     sp
+        clc
+        adc     #2
+        sta     sp
+        bcc     @d
+        inc     sp + 1
+@d:     rts
+
+; q16 = A (a signed difference, -15 to 15) x 256 / fsteps, signed.
+STEPOF: sta     dsign
+        cmp     #$80
+        bcc     @pos
+        eor     #$FF
+        inc     a
+@pos:   sta     dvd + 1                 ; |d| x 256, divided by the frames
+        stz     dvd
+        stz     q16
+        stz     q16 + 1
+        stz     rem
+        phx
+        ldx     #16
+@bit:   asl     dvd
+        rol     dvd + 1
+        rol     rem
+        bcs     @sub                    ; past 255: more than the frames
+        lda     rem
+        cmp     fsteps
+        bcc     @zero
+@sub:   lda     rem
+        sbc     fsteps                  ; (carry set)
+        sta     rem
+        sec
+        bra     @in
+@zero:  clc
+@in:    rol     q16
+        rol     q16 + 1
+        dex
+        bne     @bit
+        plx
+        lda     dsign
+        bpl     @done
+        sec
+        lda     #0
+        sbc     q16
+        sta     q16
+        lda     #0
+        sbc     q16 + 1
+        sta     q16 + 1
+@done:  rts
+
+; A step: every accumulator moved on its step, the shadow its integer parts.
+FSTEP:  lda     #<GX_PAL
+        sta     GXP
+        lda     #>GX_PAL
+        sta     GXP + 1
+        lda     #<facc
+        sta     ap
+        lda     #>facc
+        sta     ap + 1
+        lda     #<fstep
+        sta     sp
+        lda     #>fstep
+        sta     sp + 1
+        stz     ent
+@entry: ldx     #0
+@comp:  ldy     #0
+        clc
+        lda     (ap),y
+        adc     (sp),y
+        sta     (ap),y
+        iny
+        lda     (ap),y
+        adc     (sp),y
+        sta     (ap),y
+        and     #$0F
+        sta     c0,x
+        lda     ap
+        clc
+        adc     #2
+        sta     ap
+        bcc     @a
+        inc     ap + 1
+@a:     lda     sp
+        clc
+        adc     #2
+        sta     sp
+        bcc     @s
+        inc     sp + 1
+@s:     inx
+        cpx     #3
+        bne     @comp
+        lda     c0 + 1                  ; GGGGBBBB, then 0000RRRR
+        asl     a
+        asl     a
+        asl     a
+        asl     a
+        ora     c0
+        sta     (GXP)
+        ldy     #1
+        lda     c0 + 2
+        sta     (GXP),y
+        lda     GXP
+        clc
+        adc     #2
+        sta     GXP
+        bcc     @n
+        inc     GXP + 1
+@n:     inc     ent
+        bne     @entry
+        rts
+
+
+        .bss
+ent:    .res    2
+c0:     .res    3
+c1:     .res    3
+dsign:  .res    1
+dvd:    .res    2
+rem:    .res    1
+q16:    .res    2

@@ -734,13 +734,16 @@ revision 2 card; `GE_VERSION` otherwise), reads the W1 map and the card's room (
 card memory all free. Then:
 
 - **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type (X, its CONFIG), its map's card page
-  (`GX_V`) and its tiles' or font's (`GX_R`); `GX_SHOW` the display, `GX_BORDER`, `GX_PALBASE` and `GX_SPRBASE` (a
+  (`GX_V`) and its tiles' or font's (`GX_R`), its scrolls and PALOFS 0; `GX_PALOFS` (*proposed*) a layer's palette
+  group, A the layer and X the group, 0–15 (its PALOFS: a text, mono or 4-bit pixel's colour is the group × 16 + its
+  value, 0 still transparent), so a layer can keep to its own 16 entries; `GX_SHOW` the display, `GX_BORDER`, `GX_PALBASE` and `GX_SPRBASE` (a
   card page in A/X), `GX_SCROLL`, `GX_FLIP` (double buffering: a layer in A, the card page in `GX_V` its MAPBASE
   takes, latched at the vertical blank, then the frame waited for), `GX_CONSOLE`; the card memory calls
   ([above](#video-memory)), `GX_BLOCK`, `GX_W1BACK`.
 - **The palette** (`gxpal.s`): `GX_PALINIT` takes two card pages for it and points PALBASE there; a shadow of 256
-  entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`, and
-  `GX_FADE` to another palette over n frames, a step a frame.
+  entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`; and (`gxfade.s`, a module of its own, *proposed*,
+  so a program that only sets colours doesn't link its 3 KB of accumulators) `GX_FADE` to another palette over n
+  frames, a step a frame.
 - **Sprites** (`gxspr.s`): `GX_SPRINIT` takes two card pages for the table and points SPRBASE there; a shadow table
   of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG` (the image in `GX_V` as revision 2's table holds it: bits 0–14
   its card page, bit 15 set for 8 bits a pixel), `GX_SPRATTR`,
@@ -796,6 +799,10 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 
 - **A program** links the library as before, to the byte. ld65 takes a zero page module with the code that names
   it, and `lib/zpNAME.s` is in `oolib.lib` right after `NAME`, so the program's zero page is laid out as it was.
+- **Where it goes** (*proposed*): while the library draws, block 33 is in W1, so an overlay linked with the
+  library's graphics modules is loaded outside `$4000–$7FFF`, as the program's code and data are (the W1 contract).
+  The build checks a program linked with the library for that (`oodos/tools/w1.py`), but not an overlay, which has
+  no address until function 59 relocates it, nor a buffer the program puts at a fixed address.
 - **An overlay** is linked with its caller's addresses for those names, so ld65 doesn't take the zero page modules,
   and the overlay's zero page size is 0. `oodos/tools/libzp.py names` writes the addresses as a module, from the
   caller's map (ld65's `-m`). Assemble it, and link it before `oolib.lib` in each of the three links that make a
@@ -821,8 +828,8 @@ each library module's zero page is in a module of its own, `lib/zp*.s`, which ho
 
 | Modules | Their zero page | Bytes | Defined in |
 | --- | --- | --- | --- |
-| `gxasset`, `gxbmp`, `gxmem`, `gxmode`, `gxpal`, `gxspr`, `gxtext`, `gxtile` | `GXP`, `GXQ`, `GXT` | 6 | `zpgxmem` |
-| `gxpal` | `GXPAL_ZP` | 4 | `zpgxpal` |
+| `gxasset`, `gxbmp`, `gxfade`, `gxmem`, `gxmode`, `gxpal`, `gxspr`, `gxtext`, `gxtile` | `GXP`, `GXQ`, `GXT` | 6 | `zpgxmem` |
+| `gxfade` | `GXFADE_ZP` (*proposed*: was `gxpal`'s `GXPAL_ZP`) | 4 | `zpgxfade` |
 | `mu`, `munote`, `mutone` | `MUP` | 2 | `zpmu` |
 | `pblev`, `pbmath`, `pbvol` | `PBP` | 2 | `zppbmath` |
 | `pbeq` | `PBEQ_ZP` | 2 | `zppbeq` |
