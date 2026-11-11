@@ -113,7 +113,10 @@ the machine's, so F6 takes the keyboard off the screen to what follows it,
 Shift+F6 to what comes before. Pause/Break breaks into the monitor. Type `C803R` for the video demo (tiles, sprites, scrolling, a
 palette fade); any key goes back. The Devices tab in the debugger decodes the
 card's registers, and the north bridge's real-time clock, which the page sets
-from this computer's clock when it opens the machine.
+from this computer's clock when it opens the machine. Under the video card,
+Card memory is the terminal debugger's `vram`: `2000 64` shows 64 bytes of the
+card's own memory (revision 2) from card address $002000, `1E1000 = 12 34`
+writes two bytes there; the dump follows the machine as it runs.
 
 Settings, in sections:
 

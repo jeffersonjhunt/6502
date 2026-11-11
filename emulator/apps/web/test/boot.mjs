@@ -83,6 +83,14 @@ check("video: a 640x480 RGBA frame", pixels instanceof Uint8Array && pixels.leng
 const at = (x, y) => Array.from(pixels.subarray((y * 640 + x) * 4, (y * 640 + x) * 4 + 4)).join(",");
 check("video: the B of BACKPLANE, lit in light grey", at(0, 18) === "170,170,170,255", at(0, 18)); // row 1, glyph row 2: 11111100
 check("video: and dark beside it", at(6, 18) === "0,0,0,255", at(6, 18));
+// The card's own memory (vram): 2 MB, the BIOS's text at $002000, as the aperture's slot 0 shows it at $82000.
+check("vram: 2 MB of card memory", m.vramSize() === 0x200000, String(m.vramSize()));
+check("vram: the banner's B at card $002000 + one row", m.vramPeek(0x2000 + 160) === 0x42, hex2(m.vramPeek(0x2000 + 160)));
+const spare = 0x1e1000; // the Apple region's spare: nothing draws it
+m.vramPoke(spare, 0x5a);
+check("vram: a poke reads back", m.vramPeek(spare) === 0x5a, hex2(m.vramPeek(spare)));
+m.vramPoke(spare, 0);
+check("vram: past the fitted memory reads $FF", m.vramPeek(0x200000) === 0xff, hex2(m.vramPeek(0x200000)));
 const before = m.videoFrames();
 m.run(FRAME * 60);
 const second = (n) => n === 59 || n === 60; // 59.94 Hz: where the beam starts decides

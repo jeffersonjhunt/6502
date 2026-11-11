@@ -25,6 +25,7 @@ Everything in the port is something the real board can also do:
 | SD card | `insertSd`, `ejectSd`, `readSdInfo`, `saveSd`, `setSdWriteProtect`, `FrameState.sd` | the card in the mass storage card's slot: an image in, out, saved with the machine's writes; the card's light |
 | Real-time clock | `readClock` | the north bridge's DS3231 and its registers, for the debugger; the emulator sets it from the page's clock at `connect`, as an owner sets a board's |
 | Sound card | `readSound`, and its registers through `readMemory(0xC500, 0x80, "io")` | the card's 6510 and its SIDs, for the debugger |
+| Video card memory | `readCardMemory`, `writeCardMemory` | a revision 2 card's own 2 MB (hw/video-rev2.md), for the debugger's `vram`, without bus cycles. Emulator only for now: the board has no way in but the CPU's (the aperture, the port), so a backend without one returns null |
 | Sound | `listen`, `FrameState.audio` | the sound card's audio and the USB card's speaker, mixed (emulator only: the board's cards play through their own jacks) |
 | A tune | `playSid`, `playSong`, `stopSid`, `FrameState.soundRunning` | a `.sid` file onto the sound card (emulator only, `caps.sid`: on the board a program on the CPU would load it) |
 | Pacing | `setClock`, `onFrame` | the clock select; the ESP32's report rate |

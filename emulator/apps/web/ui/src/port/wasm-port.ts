@@ -89,6 +89,9 @@ export interface CoreMachine {
   hasVideo(): boolean;
   videoFrames(): number;
   videoFrame(): Uint8Array;
+  vramSize(): number;
+  vramPeek(addr: number): number;
+  vramPoke(addr: number, value: number): void;
   setAudioRate(rate: number): void;
   loadSid(bytes: string, song: number): boolean;
   sidSong(song: number): boolean;
@@ -541,6 +544,20 @@ export class WasmPort implements MachinePort {
     const out = new Uint8Array(length);
     for (let i = 0; i < length; ++i) out[i] = read(addr + i);
     return out;
+  }
+
+  async readCardMemory(addr: number, length: number): Promise<Uint8Array | null> {
+    const m = this.machine;
+    if (!m.vramSize()) return null;
+    const out = new Uint8Array(length);
+    for (let i = 0; i < length; ++i) out[i] = m.vramPeek((addr + i) & 0xffffff);
+    return out;
+  }
+
+  writeCardMemory(addr: number, bytes: Uint8Array): void {
+    const m = this.m;
+    if (!m) return;
+    bytes.forEach((b, i) => m.vramPoke((addr + i) & 0xffffff, b));
   }
 
   async insertCartridge(cartridge: Cartridge | null): Promise<void> {

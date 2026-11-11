@@ -87,6 +87,28 @@ test("the Devices tab decodes the video card's registers", async ({ page }) => {
   await expect(sound.locator('[data-reg="Timer A"]')).toHaveText(/^\$[0-9A-F]{4} of \$10A4 · counting$/);
 });
 
+test("Card memory: vram shows the card's own memory, and a write shows on VGA", async ({ page }) => {
+  await booted(page);
+  await pastSplash(page);
+  await openDebugger(page);
+  await page.locator('[data-tab="dev"]').click();
+  const box = page.getByTestId("dev-vram");
+  await expect(box).toBeVisible();
+  // The console's text at card $002000, first; row 1 is the banner, "B" in grey ($07).
+  await expect(box.getByTestId("vram-dump")).toContainText("002000  20 07 20 07 20 07 20 07   . . . .");
+  await box.getByTestId("vram-input").fill("20A0 16");
+  await box.getByTestId("vram-go").click();
+  await expect(box.getByTestId("vram-dump")).toHaveText("0020A0  42 07 41 07 43 07 4B 07  B.A.C.K.\n0020A8  50 07 4C 07 41 07 4E 07  P.L.A.N.");
+  expect(await litInRow(page, 8)).toBe(0);
+  await box.getByTestId("vram-input").fill("2500 = 48 0F 49 0F"); // row 8, column 0: "HI" in white
+  await box.getByTestId("vram-go").click();
+  await expect(box.getByTestId("vram-dump")).toContainText("002500  48 0F 49 0F");
+  await expect.poll(() => litInRow(page, 8)).toBeGreaterThan(10);
+  await box.getByTestId("vram-input").fill("2500 = 1G");
+  await box.getByTestId("vram-go").click();
+  await expect(box.getByTestId("vram-error")).toHaveText("bad byte '1G'");
+});
+
 test("the page credits its fonts, in Settings' About", async ({ page }) => {
   await booted(page);
   await page.getByTestId("about-link").click(); // under the panel
