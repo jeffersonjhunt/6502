@@ -1248,6 +1248,39 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN THE CARTRIDGE\\"));
 }
 
+TEST(c806_on_a_revision_1_card_says_so_and_stays_in_the_native_map)
+{
+    // Apple II mode is revision 2's (its character ROM goes in through revision 2's port): with a IIe ROM in the
+    // cartridge but a revision 1 card, C806R refuses before it touches anything, and the monitor carries on.
+    const std::string rom = fake_iie_rom("test_rev1_iie.rom");
+    Board b(false, true, {rom}, "", {}, 1);
+    std::remove(rom.c_str());
+    REQUIRE(b.ok());
+    REQUIRE(b.machine->video_card()->revision() == 1);
+    b.reset();
+    b.run(BOOT);
+    Decoder &bus = b.machine->bus();
+    bus.write_physical(0x2ABCD, 0x5A);                        // what the fills would clear
+    const VideoCard *card = b.machine->video_card();
+    std::string regs;
+    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+            regs += static_cast<char>(card->peek(o));
+    const std::string out = b.run(2 * BOOT, "C806R\r");
+    CHECK(has(out, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD\\")); // then the monitor's prompt
+    CHECK(!b.bridge().apple());                                // still the native map
+    CHECK_EQ(bus.peek_physical(0x2ABCD), 0x5A);                // nothing cleared
+    CHECK(bus.peek_physical(0xEFFFC) != 0x62 || bus.peek_physical(0xEFFFD) != 0xFA); // no IIe ROM copied to bank E
+    std::string after;
+    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
+        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
+            after += static_cast<char>(card->peek(o));
+    CHECK(after == regs);                                      // the card as it was
+    CHECK_EQ(b.bridge().window(1), 0x01);
+    CHECK_EQ(b.bridge().window(2), 0x02);
+    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // the monitor carries on
+}
+
 TEST(c806_copies_the_iie_rom_to_bank_e_clears_the_iies_memory_and_writes_mode)
 {
     const std::string rom = fake_iie_rom("test_fake_iie.rom");
