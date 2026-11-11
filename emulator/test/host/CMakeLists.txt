@@ -41,16 +41,30 @@ endfunction()
 
 # A long suite is split (hw/testing.md, item 6) by set(EMU_SPLIT_<name> N) before its emu_add_test: one
 # binary, N CTest entries <name>_1ofN ... <name>_NofN, each taking every Nth case (OOE_TEST_SHARD=K/N,
-# harness.h), and <name>_cases, check_split.py holding the entries to every case of the binary's.
+# harness.h), and <name>_cases, check_split.py holding the entries to every case of the binary's. And
+# set(EMU_SPLIT_ALONE_<name> case...) gives each of those cases an entry of its own, <name>_<case>
+# (OOE_TEST_CASES), the N shares taking the rest (OOE_TEST_EXCEPT): for a case far longer than the others.
+# Every entry sets all four selection variables (empty is unset), so one exported by hand changes nothing.
+set(EMU_TEST_ENV_CLEAR "OOE_TEST_LIST=" "OOE_TEST_SHARD=" "OOE_TEST_CASES=" "OOE_TEST_EXCEPT=")
 function(emu_add_test name)
     emu_add_test_exe(${name})
     if(DEFINED EMU_SPLIT_${name})
         set(n ${EMU_SPLIT_${name}})
+        set(alone ${EMU_SPLIT_ALONE_${name}})
+        string(JOIN "," except ${alone})
         foreach(k RANGE 1 ${n})
             add_test(NAME ${name}_${k}of${n} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-            set_tests_properties(${name}_${k}of${n} PROPERTIES ENVIRONMENT "OOE_TEST_SHARD=${k}/${n}"
+            set_tests_properties(${name}_${k}of${n} PROPERTIES
+                    ENVIRONMENT "OOE_TEST_LIST=;OOE_TEST_CASES=;OOE_TEST_EXCEPT=${except};OOE_TEST_SHARD=${k}/${n}"
                     SKIP_RETURN_CODE 77 TIMEOUT 120)
             emu_entry(${name} ${name}_${k}of${n})
+        endforeach()
+        foreach(c ${alone})
+            add_test(NAME ${name}_${c} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+            set_tests_properties(${name}_${c} PROPERTIES
+                    ENVIRONMENT "OOE_TEST_LIST=;OOE_TEST_SHARD=;OOE_TEST_EXCEPT=;OOE_TEST_CASES=${c}"
+                    SKIP_RETURN_CODE 77 TIMEOUT 120)
+            emu_entry(${name} ${name}_${c})
         endforeach()
         add_test(NAME ${name}_cases
                  COMMAND "${Python3_EXECUTABLE}" -I -B "${CMAKE_CURRENT_LIST_DIR}/check_split.py"
@@ -59,7 +73,8 @@ function(emu_add_test name)
         set_property(GLOBAL APPEND PROPERTY EMU_ENTRIES_${name} ${name}_cases)
     else()
         add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-        set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120) # a hang fails, not stalls
+        set_tests_properties(${name} PROPERTIES ENVIRONMENT "${EMU_TEST_ENV_CLEAR}"
+                SKIP_RETURN_CODE 77 TIMEOUT 120) # a hang fails, not stalls
         emu_entry(${name} ${name})
     endif()
 endfunction()
@@ -108,6 +123,9 @@ set(EMU_SPLIT_test_oodos_disk2_media 4)
 set(EMU_SPLIT_test_oodos_disk2 3)
 set(EMU_SPLIT_test_oodos_utils_dir 3)
 set(EMU_SPLIT_test_oodos_utils_files 2)
+# test_session under the sanitizers (dev, alone, 2026-11-11): 106 s of its 120, 50 of them one case's.
+set(EMU_SPLIT_test_session 2)
+set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sids_mix_into_the_same_stream)
 
 emu_add_test(test_cpu_smoke)
 emu_add_test_exe(test_dormann)

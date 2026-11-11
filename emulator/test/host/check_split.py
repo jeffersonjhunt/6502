@@ -3,10 +3,10 @@
 
     check_split.py BUILD EXE
 
-BUILD is the CMake build directory, EXE the suite's binary. Reads the entries that run EXE with
-OOE_TEST_SHARD set (ctest --show-only=json-v1), lists the cases each takes (OOE_TEST_LIST=1, harness.h),
-and the cases EXE has with no shard; fails unless every case is in exactly one entry, and there are two
-entries or more. Exits 77 (skipped) if EXE skips, as a suite does without its fixtures.
+BUILD is the CMake build directory, EXE the suite's binary. Reads the entries that run EXE and their
+selection (OOE_TEST_SHARD, OOE_TEST_CASES, OOE_TEST_EXCEPT in their ENVIRONMENT; ctest --show-only=json-v1),
+lists the cases each takes (OOE_TEST_LIST=1, harness.h), and the cases EXE has with no selection; fails
+unless every case is in exactly one entry, and there are two entries or more. Exits 77 (skipped) if EXE skips, as a suite does without its fixtures.
 """
 
 import collections
@@ -33,18 +33,20 @@ def ctest_json(build):
     return json.loads(out)
 
 
-def cases(exe, shard):
-    env = dict(os.environ, OOE_TEST_LIST="1")
-    env.pop("OOE_TEST_SHARD", None)
-    if shard:
-        env["OOE_TEST_SHARD"] = shard
+SELECTION = ("OOE_TEST_SHARD", "OOE_TEST_CASES", "OOE_TEST_EXCEPT")
+
+
+def cases(exe, selection):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("OOE_TEST_")}
+    env.update(selection, OOE_TEST_LIST="1")
+    shard = " ".join(f"{k}={v}" for k, v in sorted(selection.items()) if v) or "none"
     run = subprocess.run([exe], env=env, capture_output=True, text=True, cwd=os.path.dirname(exe))
     if run.returncode == 77:
         print(f"{os.path.basename(exe)}: skips (its fixtures?), so nothing to check")
         sys.exit(77)
     if run.returncode != 0:
         print(run.stdout + run.stderr)
-        sys.exit(f"{exe} (OOE_TEST_SHARD={shard or 'unset'}): exit {run.returncode}")
+        sys.exit(f"{exe} ({shard}): exit {run.returncode}")
     return [line[5:] for line in run.stdout.splitlines() if line.startswith("case ")]
 
 
@@ -57,15 +59,19 @@ def main():
         cmd = t.get("command") or []
         if not cmd or os.path.realpath(cmd[0]) != exe:
             continue
+        sel = {}
         for prop in t.get("properties", []):
             if prop["name"] == "ENVIRONMENT":
                 for var in prop["value"]:
-                    if var.startswith("OOE_TEST_SHARD="):
-                        shards[t["name"]] = var.split("=", 1)[1]
+                    k, _, v = var.partition("=")
+                    if k in SELECTION:
+                        sel[k] = v
+        if any(sel.values()):
+            shards[t["name"]] = sel
     name = os.path.basename(exe)
     if len(shards) < 2:
         sys.exit(f"{name}: {len(shards)} split entr{'y' if len(shards) == 1 else 'ies'} in {build}; want 2 or more")
-    whole = cases(exe, None)
+    whole = cases(exe, {})
     if not whole:
         sys.exit(f"{name}: no cases")
     if len(set(whole)) != len(whole):
@@ -73,7 +79,8 @@ def main():
     taken = collections.Counter()
     for entry, shard in sorted(shards.items()):
         got = cases(exe, shard)
-        print(f"{entry} (OOE_TEST_SHARD={shard}): {len(got)} case(s)")
+        what = " ".join(f"{k}={v}" for k, v in sorted(shard.items()) if v)
+        print(f"{entry} ({what}): {len(got)} case(s)")
         taken.update(got)
     lost = [c for c in whole if c not in taken]
     twice = sorted(c for c, n in taken.items() if n > 1)
