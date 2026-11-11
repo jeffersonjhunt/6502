@@ -1,7 +1,8 @@
 ; OOLIB's palette (include/oolib.inc, "Graphics"; hw/oolib.md, L4): 256
 ; entries of 12 bits, two bytes each (GGGGBBBB, then 0000RRRR), kept in a
 ; 512-byte shadow in the program's memory and copied to the card's palette
-; unit at the vertical blank by OODOS's slot 1 (function 83's DM_VBSET),
+; (two card pages) at the vertical blank by OODOS's slot 1 (function 83's
+; DM_VBSET, through the card's port),
 ; so a change shows whole on the next frame, and a fade costs a TSB a frame.
 
         .setcpu "65C02"
@@ -17,7 +18,7 @@ sp              = GXPAL_ZP + 2
 
         .bss
 GX_PAL: .res    512                    ; the shadow
-GX_PALU: .res   1                      ; its unit on the card
+GX_PALU: .res   2                      ; its card page
 fsteps: .res    1                      ; GX_FADE's frames left
 facc:   .res    2 * 768                ; each entry's three components, 8.8 (blue, green, red)
 fstep:  .res    2 * 768                ;   and their steps a frame (signed)
@@ -26,12 +27,16 @@ fcomp:  .res    1
         .code
 
 GX_PALINIT:
+        stz     GX_V                    ; 512 bytes: two card pages (a unit)
+        lda     #>512
+        sta     GX_V + 1
         lda     #1
-        jsr     GX_ALLOC
+        jsr     GX_VALLOC
         bcs     @no
         sta     GX_PALU
+        stx     GX_PALU + 1
         sta     VID_PALBASE
-        jsr     GX_UNIT                 ; the slot: the shadow to the unit, 512 bytes
+        stx     VID_PALBASE + 1         ; the slot: the shadow to it, 512 bytes
         ldx     #2
 @dst:   lda     GX_A,x
         sta     GXB + 5,x

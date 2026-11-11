@@ -217,9 +217,10 @@ SEGOK:          CLC
                 RTS
 
 ; Carry set if SG (its A16-A19 in SG + 2's low nibble: DOUT's has $80 in its
-; top) to SG + A/Y meets the console's video memory, units 0-12 at $80000-
-; $833FF, which no program may write (L4's question 2: function 83's
-; destinations, and a record read through a DMA segment). SEGOK has checked
+; top) to SG + A/Y meets aperture slot 0's window, $80000-$83FFF: the video
+; card's bank 0, the console's units 0-12 and the rest of OODOS's first 16
+; KB of card memory, which no program may write (L4's question 2, revision
+; 2: function 83's destinations, and a record read through a DMA segment). SEGOK has checked
 ; the range's end. Keeps X.
 UNITS0:         CLC                    ; the end's bank: SG + 2 and the carries
                 ADC     SG
@@ -237,12 +238,12 @@ UNITS0:         CLC                    ; the end's bank: SG + 2 and the carries
                 BNE     @clear         ; from bank 9 on
                 LDA     SG + 1
                 CMP     #>UNITS_END
-                BCC     @meets         ; from below $83400
+                BCC     @meets         ; from below $84000
 @clear:         CLC
                 RTS
 @meets:         SEC
                 RTS
-UNITS_END       = $83400               ; past unit 12
+UNITS_END       = $84000               ; past slot 0's window
 .assert <UNITS_END = 0 && ^UNITS_END = 8, error, "UNITS0 compares the bank, then the high byte"
 
 ; A = the block (A14-A19) of the physical address at zero page X.

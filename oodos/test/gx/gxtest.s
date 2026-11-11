@@ -1,4 +1,5 @@
-; GXTEST: OOLIB's graphics library (lib/gx*.s, L4), for test_oodos_gfx.cpp.
+; GXTEST: OOLIB's graphics library (lib/gx*.s, L4; video card revision 2),
+; for test_oodos_gfx.cpp.
 ; It opens a 16-byte event area at AREA ($3800, layout 1) and says OPEN aa
 ; xx, then waits for a command, spinning with no BDOS call: the test puts a
 ; letter in MBOX ($3900) and the arguments after it, and pokes the library's
@@ -100,8 +101,14 @@ c_wboot:
 cmds:   CMD     'I', c_init
         CMD     'i', c_init0
         CMD     '@', GX_ASSET
-        CMD     'A', GX_ALLOC
-        CMD     'a', GX_FREE
+        CMD     'A', GX_VALLOC
+        CMD     'a', GX_VFREE
+        CMD     'd', GX_VADDR
+        CMD     'm', GX_VMAP
+        CMD     'v', GX_VPUT
+        CMD     'g', GX_VGET
+        CMD     'k', GX_VCOPY
+        CMD     'f', GX_VFILL
         CMD     'b', GX_BLOCK
         CMD     'w', GX_W1BACK
         CMD     'L', GX_LAYER

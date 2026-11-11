@@ -1,7 +1,9 @@
 /**
  * @file test_oodos_video.cpp
  * @brief OOLIB's L4 (hw/oolib.md, "The plan"): function 83's DM_INFO, copies, fills, vertical-blank slots,
- * pointer and console; the W1 contract; and the warm boot's video part.
+ * pointer and console; the W1 contract; and the warm boot's video part. On video card revision 2 (hw/video-rev2.md,
+ * interface version 8): the slots' destinations and the pointer's table in the card's own memory, written through
+ * its port; the card operations DM_VWRITE, DM_VREAD, DM_VFILL and DM_VCOPY; aperture slot 0 the console's.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * OODOS.SYS booted as test_oodos_sound boots it (oodos_rig.h). L4TEST (oodos/sys/test/l4test.s), run by
@@ -29,7 +31,10 @@ namespace
     constexpr uint32_t AREA = 0x2000, MBOX = 0x2100, KBLK = 0x2110, HW1 = 0x2180, HCNT = 0x2181; ///< l4test.s's
     constexpr unsigned EV_VBGO = 12;
     // oodos.inc's
-    constexpr uint8_t DM_INFO = 0, DM_COPY = 2, DM_FILL = 3, DM_VBSET = 4, DM_POINTER = 5, DM_CONSOLE = 6, DM_OPS = 7;
+    constexpr uint8_t DM_INFO = 0, DM_COPY = 2, DM_FILL = 3, DM_VBSET = 4, DM_POINTER = 5, DM_CONSOLE = 6, DM_VWRITE = 7,
+                      DM_VREAD = 8, DM_VFILL = 9, DM_VCOPY = 10, DM_OPS = 11;
+    // backplane.inc's revision 2 registers, as offsets in the card's block
+    constexpr uint8_t V_PALBASE = 0x0A, V_SPRBASE = 0x0C, V_L0 = 0x10, V_L1 = 0x20, V_SLOT0 = 0x30, V_PCTL = 0x3E;
     constexpr uint8_t IN_MOUSE = 4, MC_ALLOC = 55, MC_FREE = 57;
     constexpr uint16_t VIDEO = 0xC480;
 
@@ -43,6 +48,21 @@ namespace
     VideoCard &vid(Rig &r) { return *r.machine->video_card(); }
     uint8_t vreg(Rig &r, uint8_t off) { return vid(r).peek(off); }
     void vset(Rig &r, uint8_t off, uint8_t v) { r.machine->bus().write(static_cast<uint16_t>(VIDEO + off), v); }
+    void vset2(Rig &r, uint8_t off, unsigned v) { vset(r, off, static_cast<uint8_t>(v)), vset(r, off + 1, static_cast<uint8_t>(v >> 8)); }
+    unsigned vreg2(Rig &r, uint8_t off) { return vreg(r, off) | vreg(r, off + 1) << 8; }
+    /// The card's own memory (revision 2), as the tests read and write it behind the machine's back.
+    std::vector<uint8_t> cmem(Rig &r, uint32_t at, size_t n)
+    {
+        std::vector<uint8_t> b(n);
+        for (size_t i = 0; i < n; ++i)
+            b[i] = vid(r).card_peek(at + static_cast<uint32_t>(i));
+        return b;
+    }
+    void cpoke(Rig &r, uint32_t at, const std::vector<uint8_t> &b)
+    {
+        for (size_t i = 0; i < b.size(); ++i)
+            vid(r).card_poke(at + static_cast<uint32_t>(i), b[i]);
+    }
 
     std::vector<uint8_t> noise(size_t n, uint32_t seed)
     {
@@ -185,17 +205,18 @@ TEST(dm_info_ft_info_and_the_w1_map)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
-    CHECK_EQ(command(r, 'F', "F"), std::string("07 0F")); // interface 7, areas frame, input, sound, DMA
-    CHECK_EQ(f83op(r, DM_INFO), std::string("0D 04"));
-    // +1 13, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, blocks 33-47
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("0D 04 0D0404FF02000000FEFF0000"));
+    CHECK_EQ(command(r, 'F', "F"), std::string("08 0F")); // interface 8, areas frame, input, sound, DMA
+    CHECK_EQ(f83op(r, DM_INFO), std::string("20 04"));       // 2 MB of card memory, 4 slots
+    // +1 32, +2 4 slots, +3 4 pages, +4 no pointer, +5-12 the map: block 1, blocks 33-47 (aperture slots 1-3's
+    // windows, banks 9-B), not 32 (slot 0's, the console's); +13-16 the program's card pages $0400-$1BFF
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000FEFF00000004001C"));
     // An allocation (55): the lowest free block, 4, joins the map; freed (57), it leaves it.
     r.poke(0x2150, std::vector<uint8_t>{0, 0, 0x00, 0x04, 0}); // 1,024 paragraphs
     CHECK_EQ(gcall(r, MC_ALLOC, 0x2150), std::string("00 00"));
     CHECK_EQ(r.phys(0x2151), 0x10); // M_BASE $1000: block 4
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("0D 04 0D0404FF12000000FEFF0000"));
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF12000000FEFF00000004001C"));
     CHECK_EQ(gcall(r, MC_FREE, 0x2150), std::string("00 00"));
-    CHECK_EQ(command(r, 'I', "INFO"), std::string("0D 04 0D0404FF02000000FEFF0000"));
+    CHECK_EQ(command(r, 'I', "INFO"), std::string("20 04 200404FF02000000FEFF00000004001C"));
     // Refusals: an operation that isn't one; a block needed and not given.
     CHECK_EQ(f83op(r, DM_OPS), std::string("FF FF"));
     CHECK_EQ(f83op(r, DM_COPY), std::string("FF FF"));
@@ -207,10 +228,12 @@ TEST(w1_holds_a_video_or_allocated_block_across_bdos_calls_interrupts_and_hooks)
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "2");
-    // A video block in W1: the CPU's writes land there, and W1 is kept across function 9.
+    // Aperture slot 1 on the program's card bank 16 and its window, block 33, in W1: the CPU's writes land in
+    // the card's memory at $040000, and W1 is kept across function 9.
+    vset2(r, V_SLOT0 + 2, 16);
     CHECK_EQ(command(r, 'M', "M", {33}), std::string("21 00"));
     CHECK_EQ(command(r, 'P', "P", {0, 0x5A}), std::string("00 00"));
-    CHECK(mem(r, 33 * BLOCK, 256) == std::vector<uint8_t>(256, 0x5A));
+    CHECK(cmem(r, 0x040000, 256) == std::vector<uint8_t>(256, 0x5A));
     // Kept across ticks, frames and USB interrupts (a layout-2 area: the keys are queued) while it spins.
     UsbCard *usb = r.machine->usb_card();
     const uint32_t f0 = r.phys(SYS_BLOCK_PHYS + sym("FRAMES")), m0 = ms_count(r);
@@ -246,16 +269,20 @@ TEST(w1_holds_a_video_or_allocated_block_across_bdos_calls_interrupts_and_hooks)
     CHECK(r.phys(HCNT) >= 3);
     CHECK_EQ(r.phys(HW1), 33);
     CHECK_EQ(command(r, 'V', "V"), std::string("01 00"));
+    CHECK_EQ(vreg2(r, V_SLOT0 + 2), 16u); // the slot kept through it all
     // An allocated block (55's, block 4) in W1: written through it.
     r.poke(0x2150, std::vector<uint8_t>{0, 0, 0x00, 0x04, 0});
     CHECK_EQ(gcall(r, MC_ALLOC, 0x2150), std::string("00 00"));
     CHECK_EQ(command(r, 'M', "M", {4}), std::string("04 00"));
     CHECK_EQ(command(r, 'P', "P", {0, 0xC3}), std::string("00 00"));
     CHECK(mem(r, 4 * BLOCK, 256) == std::vector<uint8_t>(256, 0xC3));
-    // The warm boot puts block 1 back: the next program finds it there.
+    // The warm boot puts block 1 back, and the slots on banks 0-3 as /RESET leaves them: the next program
+    // finds them there.
     wboot(r);
     open(r, "X");
     CHECK_EQ(command(r, 'V', "V"), std::string("01 00"));
+    for (unsigned n = 0; n < 4; ++n)
+        CHECK_EQ(vreg2(r, static_cast<uint8_t>(V_SLOT0 + 2 * n)), n);
 }
 
 TEST(a_function_33_into_4000_lands_in_the_block_w1_holds)
@@ -273,9 +300,10 @@ TEST(a_function_33_into_4000_lands_in_the_block_w1_holds)
     fcb[33] = 5; // record 5
     r.poke(0x2140, fcb);
     CHECK_EQ(command(r, 'O', "O"), std::string("00 00"));
+    vset2(r, V_SLOT0 + 4, 20); // slot 2 on card bank 20 ($050000)
     CHECK_EQ(command(r, 'M', "M", {34}), std::string("22 00"));
     CHECK_EQ(command(r, 'R', "R"), std::string("00 00"));
-    CHECK(mem(r, 34 * BLOCK, 128) == std::vector<uint8_t>(data.begin() + 5 * 128, data.begin() + 6 * 128));
+    CHECK(cmem(r, 0x050000, 128) == std::vector<uint8_t>(data.begin() + 5 * 128, data.begin() + 6 * 128));
     CHECK_EQ(command(r, 'V', "V"), std::string("22 00"));
 }
 
@@ -313,7 +341,8 @@ TEST(dm_copy_and_dm_fill_move_60_kb_byte_for_byte_and_lose_no_tick)
     CHECK_EQ(f83(r, cat({{DM_FILL, 0x3C}, a3(0xB0000), w2(1)})), std::string("00 00"));
     CHECK_EQ(r.phys(0xB0000), 0x3C);
     CHECK_EQ(r.phys(0xB0001), 0x00);
-    // The console's font may be a source; units 0-12, OODOS's blocks and past $FFFFF are refused.
+    // The console's font (through slot 0's window) may be a source; slot 0's window, OODOS's blocks and past
+    // $FFFFF are refused.
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x80400), a3(0xB1000), w2(4096)})), std::string("00 00"));
     CHECK(mem(r, 0xB1000, 4096) == mem(r, 0x80400, 4096));
     const std::vector<uint8_t> unit0 = mem(r, 0x80000, 0x1400); // the palette and the font (the text moves as it prints)
@@ -323,12 +352,94 @@ TEST(dm_copy_and_dm_fill_move_60_kb_byte_for_byte_and_lose_no_tick)
     CHECK_EQ(f83(r, cat({{DM_FILL, 0}, a3(0x82000), w2(1)})), std::string("FF FF"));
     CHECK(mem(r, 0x80000, 0x1400) == unit0);
     CHECK(mem(r, 0x832C0, 0x140) == std::vector<uint8_t>(0x140, 0)); // unit 12 past the text, never written
-    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x83400), w2(16)})), std::string("00 00")); // unit 13
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x83400), w2(16)})), std::string("FF FF")); // unit 13: slot 0's still
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x83FF0), w2(32)})), std::string("FF FF")); // from slot 0 into 1
+    CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x84000), w2(16)})), std::string("00 00")); // slot 1's window
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0x7C000), w2(16)})), std::string("FF FF")); // block 31
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0xF0000), a3(0x90000), w2(16)})), std::string("FF FF")); // from block 60
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0xBFF00), w2(0x100)})), std::string("00 00")); // to bank B's end
     CHECK_EQ(f83(r, cat({{DM_COPY}, a3(0x10000), a3(0xBFF00), w2(0x101)})), std::string("FF FF")); // into M:'s bank C
     CHECK_EQ(f83(r, cat({{DM_FILL, 0}, a3(0xFFF00), w2(0x200)})), std::string("FF FF")); // past $FFFFF
+}
+
+TEST(the_card_operations_move_bytes_through_the_port_and_the_slots_and_refuse_what_isnt_the_programs)
+{
+    // Video card revision 2: DM_VWRITE, DM_VREAD and DM_VFILL through the card's port by channel 1, DM_VCOPY card
+    // to card through slots 2 and 3; each byte for byte, across banks and pieces, with no tick lost.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    const std::vector<uint8_t> src = noise(61440, 5);
+    r.poke(0x10000, src);
+    cpoke(r, 0x043FFF, {0x77});
+    cpoke(r, 0x043FFF + 1 + 61440, {0x88});
+    uint32_t m0 = ms_count(r);
+    uint64_t c0 = r.cpu->cycles();
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x044000), w2(61440)})), std::string("00 00"));
+    double secs = static_cast<double>(r.cpu->cycles() - c0) / HZ;
+    unsigned counted = ms_count(r) - m0;
+    std::printf("  60 KB to the card: %u ms counted, %.1f in the cycles\n", counted, secs * 1000);
+    CHECK(cmem(r, 0x044000, 61440) == src);
+    CHECK_EQ(vid(r).card_peek(0x043FFF), 0x77);
+    CHECK_EQ(vid(r).card_peek(0x044000 + 61440), 0x88);
+    CHECK(counted + 1 >= static_cast<unsigned>(secs * 1000) && counted <= static_cast<unsigned>(secs * 1000) + 1);
+    CHECK_EQ(vreg(r, V_PCTL), 0); // the port's DRQ off after
+    // Back from the card, unaligned, crossing a bank: what went there.
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x047F00), a3(0x30000), w2(5000)})), std::string("00 00"));
+    CHECK(mem(r, 0x30000, 5000) == std::vector<uint8_t>(src.begin() + 0x3F00, src.begin() + 0x3F00 + 5000));
+    // The console's font may be read: OODOS's card memory is a source.
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x000400), a3(0x31000), w2(4096)})), std::string("00 00"));
+    CHECK(mem(r, 0x31000, 4096) == cmem(r, 0x000400, 4096));
+    // A fill of 10,000 bytes from an odd address, its neighbours untouched; and one byte.
+    cpoke(r, 0x060000, {0x11});
+    cpoke(r, 0x060001 + 10000, {0x22});
+    CHECK_EQ(f83(r, cat({{DM_VFILL, 0xA5}, a3(0x060001), w2(10000)})), std::string("00 00"));
+    CHECK(cmem(r, 0x060001, 10000) == std::vector<uint8_t>(10000, 0xA5));
+    CHECK_EQ(vid(r).card_peek(0x060000), 0x11);
+    CHECK_EQ(vid(r).card_peek(0x060001 + 10000), 0x22);
+    CHECK_EQ(f83(r, cat({{DM_VFILL, 0x3C}, a3(0x070000), w2(1)})), std::string("00 00"));
+    CHECK_EQ(vid(r).card_peek(0x070000), 0x3C);
+    CHECK_EQ(vid(r).card_peek(0x070001), 0x00);
+    // Card to card: 40,000 bytes from an offset that isn't the destination's, so pieces end at either's bank;
+    // the slots it borrows put back; then down over itself, exact.
+    vset2(r, V_SLOT0 + 4, 50);
+    vset2(r, V_SLOT0 + 6, 51);
+    m0 = ms_count(r);
+    c0 = r.cpu->cycles();
+    CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x044123), a3(0x0A3F00), w2(40000)})), std::string("00 00"));
+    secs = static_cast<double>(r.cpu->cycles() - c0) / HZ;
+    counted = ms_count(r) - m0;
+    std::printf("  40,000 bytes card to card: %u ms counted, %.1f in the cycles\n", counted, secs * 1000);
+    CHECK(cmem(r, 0x0A3F00, 40000) == std::vector<uint8_t>(src.begin() + 0x123, src.begin() + 0x123 + 40000));
+    CHECK(counted + 1 >= static_cast<unsigned>(secs * 1000) && counted <= static_cast<unsigned>(secs * 1000) + 1);
+    CHECK_EQ(vreg2(r, V_SLOT0 + 4), 50u);
+    CHECK_EQ(vreg2(r, V_SLOT0 + 6), 51u);
+    CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x0A4000), a3(0x0A3F00), w2(8192)})), std::string("00 00"));
+    CHECK(cmem(r, 0x0A3F00, 8192) == std::vector<uint8_t>(src.begin() + 0x223, src.begin() + 0x223 + 8192));
+    // The console's font copied into the program's card memory (as OOLIB's text does).
+    CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x000400), a3(0x100000), w2(4096)})), std::string("00 00"));
+    CHECK(cmem(r, 0x100000, 4096) == cmem(r, 0x000400, 4096));
+    // Refusals, with nothing written: a card destination in OODOS's part, into Apple II mode's, past the fitted
+    // memory; a source past it; a physical destination in slot 0's window or OODOS's blocks.
+    // (OODOS's part but the text, which moves as the commands print)
+    const std::vector<uint8_t> oodos = cat({cmem(r, 0x000000, 0x1400), cmem(r, 0x003400, 0x3CC00)}),
+                               apple = cmem(r, 0x1BFF00, 0x200);
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x000000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x03FFF0), w2(32)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x1BFFF0), w2(32)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0x1BFFF0), w2(16)})), std::string("00 00")); // its last bytes
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0x10000), a3(0xFFFFF0), w2(32)})), std::string("FF FF")); // wraps 24 bits
+    CHECK_EQ(f83(r, cat({{DM_VWRITE}, a3(0xF0000), a3(0x040000), w2(16)})), std::string("FF FF")); // from block 60
+    CHECK_EQ(f83(r, cat({{DM_VFILL, 0}, a3(0x002000), w2(1)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VFILL, 0}, a3(0x1C0000), w2(1)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x040000), a3(0x000000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VCOPY}, a3(0x1FFFF0), a3(0x040000), w2(32)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x1FFFF0), a3(0x30000), w2(32)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x040000), a3(0x80000), w2(16)})), std::string("FF FF"));
+    CHECK_EQ(f83(r, cat({{DM_VREAD}, a3(0x040000), a3(0x7C000), w2(16)})), std::string("FF FF"));
+    CHECK(cat({cmem(r, 0x000000, 0x1400), cmem(r, 0x003400, 0x3CC00)}) == oodos);
+    CHECK(cmem(r, 0x1C0000, 0x100) == std::vector<uint8_t>(apple.begin() + 0x100, apple.end()));
+    CHECK_EQ(f83op(r, DM_VWRITE), std::string("FF FF")); // a block needed
 }
 
 TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
@@ -338,7 +449,7 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     open(r, "2");
     const std::vector<uint8_t> src = noise(512, 9);
     r.poke(0x10000, src);
-    const std::vector<uint8_t> before = mem(r, 0x90000, 512);
+    const std::vector<uint8_t> before = cmem(r, 0x090000, 512); // the card's memory: the slots' destinations
     // Each instruction looked at from before the slot is set: when the bytes change the beam must be in
     // the blank, lines 480-524, after the bit is set (as the program's TSB would), not in the BDOS's time.
     int line = -1;
@@ -346,7 +457,7 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     bool bit = false, early = false;
     const uint32_t frames = SYS_BLOCK_PHYS + sym("FRAMES");
     r.watch = [&](uint16_t) {
-        if (line < 0 && r.phys(0x90000) == src[0] && r.phys(0x90000 + 511) == src[511])
+        if (line < 0 && vid(r).card_peek(0x090000) == src[0] && vid(r).card_peek(0x090000 + 511) == src[511])
         {
             line = static_cast<int>(vid(r).beam_line());
             changed_at_frame = r.phys(frames);
@@ -355,7 +466,7 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     };
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 512)), std::string("00 00"));
     r.run(ms(40));
-    CHECK(mem(r, 0x90000, 512) == before); // no bit set: nothing copied
+    CHECK(cmem(r, 0x090000, 512) == before); // no bit set: nothing copied
     bit = true;
     r.poke(AREA + EV_VBGO, 0x01);
     const unsigned f0 = r.phys(frames);
@@ -364,7 +475,7 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     CHECK(!early);
     std::printf("  the slot's 512 bytes changed at line %d, %u frame(s) after the bit\n", line, (changed_at_frame - f0) & 0xFF);
     CHECK(line >= 480 && line <= 524);
-    CHECK(mem(r, 0x90000, 512) == src);
+    CHECK(cmem(r, 0x090000, 512) == src);
     CHECK_EQ(area(r, EV_VBGO), 0); // cleared when done
     // Four slots, the budget: 4 x 256; a fifth byte refused; a slot that isn't; 1,025; freed and set again.
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 256)), std::string("00 00"));
@@ -376,7 +487,10 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     CHECK_EQ(f83(r, vbset(1, 0x10100, 0x91000, 0)), std::string("00 00")); // freed
     CHECK_EQ(f83(r, vbset(2, 0x10200, 0x92000, 512)), std::string("00 00"));
     CHECK_EQ(f83(r, vbset(2, 0x10200, 0x92000, 1025)), std::string("FF FF"));
-    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x80000, 16)), std::string("FF FF")); // the console's units
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x000000, 16)), std::string("FF FF")); // OODOS's card memory
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x03FFF0, 32)), std::string("FF FF")); //   into the program's
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x1BFFF0, 32)), std::string("FF FF")); // into Apple II mode's
+    CHECK_EQ(f83(r, vbset(0, 0x10000, 0x1FFFF0, 32)), std::string("FF FF")); // past the fitted memory
     // A length whose sum with the others would wrap past 16 bits (review F1): refused, slot 0 as it was.
     CHECK_EQ(f83(r, vbset(3, 0x10300, 0x93000, 0)), std::string("00 00")); // room for slot 1's byte
     CHECK_EQ(f83(r, vbset(1, 0x10100, 0x91000, 1)), std::string("00 00"));
@@ -386,20 +500,20 @@ TEST(a_vertical_blank_slot_is_copied_only_in_the_blank_and_its_bit_cleared)
     CHECK_EQ(f83(r, vbset(1, 0x10100, 0x91000, 0)), std::string("00 00"));
     CHECK_EQ(f83(r, vbset(3, 0x10300, 0x93000, 256)), std::string("00 00"));
     CHECK_EQ(f83(r, vbset(0, 0xF0000, 0x90000, 16)), std::string("FF FF")); // from OODOS's block
-    r.poke(0x93000, std::vector<uint8_t>(256, 0));
-    r.poke(0x92000, std::vector<uint8_t>(512, 0));
+    cpoke(r, 0x093000, std::vector<uint8_t>(256, 0));
+    cpoke(r, 0x092000, std::vector<uint8_t>(512, 0));
     r.poke(AREA + EV_VBGO, 0x0F); // all four bits, slot 1 free
     r.run(ms(40));
     CHECK_EQ(area(r, EV_VBGO), 0);
-    CHECK(mem(r, 0x92000, 512) == mem(r, 0x10200, 512));
-    CHECK(mem(r, 0x93000, 256) == mem(r, 0x10300, 256));
+    CHECK(cmem(r, 0x092000, 512) == mem(r, 0x10200, 512));
+    CHECK(cmem(r, 0x093000, 256) == mem(r, 0x10300, 256));
     // No area: nothing copied, whatever the slots.
     wboot(r);
     open(r, "X");
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x94000, 64)), std::string("00 00"));
-    r.poke(0x94000, std::vector<uint8_t>(64, 0));
+    cpoke(r, 0x094000, std::vector<uint8_t>(64, 0));
     r.run(ms(50));
-    CHECK(mem(r, 0x94000, 64) == std::vector<uint8_t>(64, 0));
+    CHECK(cmem(r, 0x094000, 64) == std::vector<uint8_t>(64, 0));
 }
 
 TEST(the_frame_costs_and_the_latest_a_slot_ends)
@@ -504,7 +618,7 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
     for (uint8_t k = 0; k < 4; ++k)
         CHECK_EQ(f83(r, vbset(k, 0x10000 + k * 0x100u, 0x90000 + k * 0x1000u, 256)), std::string("00 00"));
     CHECK_EQ(f81(r, {IN_MOUSE, 1, 0x3F, 0x01, 0xEF, 0x00}), std::string("00 00"));
-    vset(r, 0x03, 64);
+    vset2(r, V_SPRBASE, 0x0A00); // the table at card $0A0000
     CHECK_EQ(f83(r, {DM_POINTER, 3, 0, 0}), std::string("00 00"));
     Costs all;
     r.poke(AREA + EV_VBGO, 0x0F);
@@ -576,14 +690,14 @@ TEST(the_pointer_follows_the_mouse_less_its_hotspot)
     wboot(r);
     open(r, "2");
     CHECK_EQ(f81(r, {IN_MOUSE, 1, 0x3F, 0x01, 0xEF, 0x00}), std::string("00 00")); // absolute, 319 x 239
-    vset(r, 0x03, 64);                                                              // SPRBASE: unit 64, $90000
-    r.poke(0x90000 + 3 * 8, std::vector<uint8_t>(8, 0));
+    vset2(r, V_SPRBASE, 0x0900);                                                    // SPRBASE: card $090000
+    cpoke(r, 0x090000 + 3 * 8, std::vector<uint8_t>(8, 0));
     CHECK_EQ(f83(r, {DM_POINTER, 3, 2, 1}), std::string("00 00"));
     CHECK_EQ(f83(r, {DM_POINTER, 64, 0, 0}), std::string("FF FF"));
     UsbCard *usb = r.machine->usb_card();
     usb->mouse_to(100, 50);
     r.run(ms(50));
-    auto at = [&](unsigned b) { return r.phys(0x90000 + 3 * 8 + b); };
+    auto at = [&](unsigned b) { return vid(r).card_peek(0x090000 + 3 * 8 + b); };
     CHECK_EQ(at(2) | (at(3) << 8), 98u);
     CHECK_EQ(at(4) | (at(5) << 8), 49u);
     CHECK_EQ(at(0), 0); // the program's bytes left alone
@@ -595,17 +709,22 @@ TEST(the_pointer_follows_the_mouse_less_its_hotspot)
     time_interrupts(r, ptr, ms(200));
     Costs::print("layout 2, the pointer on, a frame", ptr.frame);
     CHECK(Costs::mode(ptr.frame) > 396 && Costs::mode(ptr.frame) < 396 + 400);
-    CHECK_EQ(command(r, 'I', "INFO").substr(0, 14), std::string("0D 04 0D040403")); // the pointer's sprite
+    CHECK_EQ(command(r, 'I', "INFO").substr(0, 14), std::string("20 04 20040403")); // the pointer's sprite
     CHECK_EQ(f83(r, {DM_POINTER, 0xFF}), std::string("00 00"));
     usb->mouse_to(200, 100);
     r.run(ms(50));
     CHECK_EQ(at(2) | (at(3) << 8), 1023u); // off: not moved
-    // A table at SPRBASE 0, in the console's units: never written there.
-    const std::vector<uint8_t> pal = mem(r, 0x80000, 1024);
-    vset(r, 0x03, 0);
+    // A table at SPRBASE 0, in OODOS's card memory (the console's palette), or in Apple II mode's: never
+    // written there.
+    const std::vector<uint8_t> pal = cmem(r, 0x000000, 1024);
+    vset2(r, V_SPRBASE, 0);
     CHECK_EQ(f83(r, {DM_POINTER, 3, 0, 0}), std::string("00 00"));
     r.run(ms(50));
-    CHECK(mem(r, 0x80000, 1024) == pal);
+    CHECK(cmem(r, 0x000000, 1024) == pal);
+    const std::vector<uint8_t> apple = cmem(r, 0x1C0000, 1024);
+    vset2(r, V_SPRBASE, 0x1C00);
+    r.run(ms(50));
+    CHECK(cmem(r, 0x1C0000, 1024) == apple);
 }
 
 TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
@@ -613,12 +732,17 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
     auto junk = [](CcpRig &r) {
         vset(r, 0x00, 0x0F);       // CTRL: both layers and sprites
         vset(r, 0x01, 0x07);       // BORDER
-        vset(r, 0x02, 20);         // PALBASE
-        vset(r, 0x03, 64);         // SPRBASE
-        vset(r, 0x10, 0x03);       // layer 0: bitmap 256
-        vset(r, 0x11, 16);         //   its map
-        vset(r, 0x13, 0x10);       //   scrolled
-        vset(r, 0x20, 0x02);       // layer 1: tiles
+        vset2(r, V_PALBASE, 0x0500); // PALBASE
+        vset2(r, V_SPRBASE, 0x0900); // SPRBASE
+        vset(r, V_L0, 0x03);         // layer 0: bitmap 256
+        vset2(r, V_L0 + 1, 0x0600);  //   its map
+        vset2(r, V_L0 + 3, 0x0700);  //   its tiles
+        vset(r, V_L0 + 5, 0x10);     //   scrolled
+        vset(r, V_L0 + 9, 3);        //   PALOFS
+        vset(r, V_L1, 0x02);         // layer 1: tiles
+        vset2(r, V_SLOT0 + 2, 40);   // aperture slots 1-3 on the program's banks
+        vset2(r, V_SLOT0 + 4, 41);
+        vset2(r, V_SLOT0 + 6, 42);
         r.poke(0x10000, noise(64, 1));
         CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 64)), std::string("00 00"));
         CHECK_EQ(f83(r, {DM_POINTER, 3, 0, 0}), std::string("00 00"));
@@ -626,22 +750,27 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
     auto console = [](CcpRig &r, const std::vector<uint8_t> &units) {
         CHECK_EQ(vreg(r, 0x00), 0x03);
         CHECK_EQ(vreg(r, 0x01), 0);
-        CHECK_EQ(vreg(r, 0x02), 0);
-        CHECK_EQ(vreg(r, 0x03), 0);
-        CHECK_EQ(vreg(r, 0x10), 0x80);
-        CHECK_EQ(vreg(r, 0x11), 8);
-        CHECK_EQ(vreg(r, 0x12), 1);
-        CHECK_EQ(vreg(r, 0x13), 0);
-        CHECK_EQ(vreg(r, 0x20), 0);
+        CHECK_EQ(vreg2(r, V_PALBASE), 0u);
+        CHECK_EQ(vreg2(r, V_SPRBASE), 0u);
+        CHECK_EQ(vreg(r, V_L0), 0x80);
+        CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u); // the text at card $002000
+        CHECK_EQ(vreg2(r, V_L0 + 3), 0x04u); // the font at card $000400
+        CHECK_EQ(vreg2(r, V_L0 + 5), 0u);
+        CHECK_EQ(vreg2(r, V_L0 + 7), 0u);
+        CHECK_EQ(vreg(r, V_L0 + 9), 0);
+        CHECK_EQ(vreg(r, V_L1), 0);
+        for (unsigned n = 0; n < 4; ++n)
+            CHECK_EQ(vreg2(r, static_cast<uint8_t>(V_SLOT0 + 2 * n)), n); // slot n on card bank n, as /RESET leaves it
+        CHECK_EQ(vreg(r, V_PCTL), 0);
         CHECK_EQ(vreg(r, 0x04), 0x01);       // IEN: the vertical blank alone
         CHECK_EQ(sys(r, "VBON"), 0);
         CHECK_EQ(sys(r, "PTRON"), 0);
-        CHECK(mem(r, 0x80000, 0x1400) == units); // the palette and the font, as before the program
+        CHECK(cmem(r, 0x000000, 0x1400) == units); // the palette and the font, as before the program
     };
     {
         CcpRig r;
         REQUIRE(r.ok);
-        const std::vector<uint8_t> units = mem(r, 0x80000, 0x1400);
+        const std::vector<uint8_t> units = cmem(r, 0x000000, 0x1400);
         open(r, "2");
         junk(r);
         wboot(r);
@@ -650,7 +779,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
     {
         CcpRig r;
         REQUIRE(r.ok);
-        const std::vector<uint8_t> units = mem(r, 0x80000, 0x1400);
+        const std::vector<uint8_t> units = cmem(r, 0x000000, 0x1400);
         open(r, "2");
         junk(r);
         const size_t from = r.out.size();
@@ -668,7 +797,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         junk(r);
         CHECK(sys(r, "VBON") != 0); // a slot and the pointer on: Break must stop them doing anything
         CHECK_EQ(sys(r, "PTRON"), 1);
-        r.poke(0x90000, std::vector<uint8_t>(64, 0));
+        cpoke(r, 0x090000, std::vector<uint8_t>(64, 0));
         const size_t from = r.out.size();
         r.cpu->nmi();
         CHECK(r.until("\\\r", ms(1000), from));
@@ -676,7 +805,7 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         CHECK_EQ(vreg(r, 0x04), 0);        // the card's interrupts off (the ROM's QUIET): no frame handler
         r.poke(AREA + EV_VBGO, 1);         // so a slot's bit set under the monitor copies nothing
         r.run(ms(60));
-        CHECK(mem(r, 0x90000, 64) == std::vector<uint8_t>(64, 0));
+        CHECK(cmem(r, 0x090000, 64) == std::vector<uint8_t>(64, 0));
         CHECK_EQ(r.machine->bus().peek(0xC417) & 1, 0); // channel 1 not running
         REQUIRE(r.boot());
         CHECK_EQ(sys(r, "VBON"), 0); // booting again starts afresh
@@ -688,11 +817,15 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
         REQUIRE(r.ok);
         open(r, "X");
         vset(r, 0x00, 0x0F);
-        vset(r, 0x10, 0x03);
+        vset(r, V_L0, 0x03);
+        vset2(r, V_L0 + 1, 0x0600);
+        vset2(r, V_SLOT0 + 2, 40);
         CHECK_EQ(f83op(r, DM_CONSOLE), std::string("00 00"));
         CHECK_EQ(vreg(r, 0x00), 0x03);
-        CHECK_EQ(vreg(r, 0x10), 0x80);
-        CHECK_EQ(command(r, 'F', "F"), std::string("07 0F"));
+        CHECK_EQ(vreg(r, V_L0), 0x80);
+        CHECK_EQ(vreg2(r, V_L0 + 1), 0x20u);
+        CHECK_EQ(vreg2(r, V_SLOT0 + 2), 40u); // the program's slot left as it is: it goes on
+        CHECK_EQ(command(r, 'F', "F"), std::string("08 0F"));
     }
 }
 

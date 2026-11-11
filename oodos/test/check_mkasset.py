@@ -146,9 +146,11 @@ def main():
     pal = pal_of(data, find(parts, m.AT_PALETTE))
     img = m.part_bytes(data, find(parts, m.AT_SPRITES))
     tab = m.part_bytes(data, find(parts, m.AT_SPRTABLE))
-    check(img[0] == 0 and len(img) == 4 * 128, "a sprite's corner transparent, 4 frames of 128 bytes")
-    check(rgb12(pal[img[128 + 4 * 8 + 3] >> 4]) == rgb12(0x0F0), "frame 1's inside")
-    check([struct.unpack_from("<H", tab, n * 8)[0] for n in range(4)] == [0, 2, 4, 6], "the table's images")
+    # (revision 2: each 128-byte frame on a card page of its own, the table counting pages)
+    check(img[0] == 0 and len(img) == 4 * 256 and not any(img[128:256]),
+          "a sprite's corner transparent, 4 frames of 128 bytes, each on 256")
+    check(rgb12(pal[img[256 + 4 * 8 + 3] >> 4]) == rgb12(0x0F0), "frame 1's inside")
+    check([struct.unpack_from("<H", tab, n * 8)[0] for n in range(4)] == [0, 1, 2, 3], "the table's images, in pages")
     check(tab[6] == 3 << 2 and tab[7] == (1 << 6 | 1 << 4), "the table's depth and size")
 
     # The limits.
@@ -163,12 +165,18 @@ def main():
     good = m.build([m.Part(m.AT_RAW, b"abc")])
     raises(lambda: m.parse(b"OGY" + good[3:]), "no magic")
     raises(lambda: m.parse(good[:3] + b"\x02" + good[4:]), "format 2")
+    raises(lambda: m.parse(good[:3] + b"\x03" + good[4:]), "format 3 (revision 1's units)")
     bad = bytearray(good)
     bad[HEADER_FIRST] = 3                  # the part's record: not on 1 KB
     raises(lambda: m.parse(bytes(bad)), "a part off 1 KB")
-    bad = bytearray(good)
-    bad[m.HEADER + 2] = 12                 # unit 12: the console's
-    raises(lambda: m.parse(bytes(bad)), "unit 12")
+    for page, why in ((0x0000, "page $0000: OODOS's"), (0x03FC, "page $03FC: OODOS's"),
+                      (0x0401, "page $0401: not on a unit"), (0x1C00, "page $1C00: Apple II mode's")):
+        bad = bytearray(good)
+        struct.pack_into("<H", bad, m.HEADER + 2, page)
+        raises(lambda: m.parse(bytes(bad)), why)
+    ok = bytearray(good)
+    struct.pack_into("<H", ok, m.HEADER + 2, 0x1BFC)  # the program's last unit: 3 bytes fit
+    check(m.parse(bytes(ok))[0][2] == 0x1BFC, "page $1BFC, the program's last unit")
     raises(lambda: m.read_png(b"not a png"), "not a PNG")
     # Malformed PNGs (review F7), each built here from a good one: refused as AssetError, never a traceback.
     import zlib as z
@@ -197,7 +205,7 @@ def main():
     raises(lambda: m.read_png(png(struct.pack(">IIBBBBB", 4096, 4096, 8, 6, 0, 0, 0), b"")), "4096 x 4096")
     rc = m.main(["check", os.devnull])
     check(rc == 1, "check of an empty file: exit 1")
-    check(m.parse(good)[0][2] == 0xFF and m.part_bytes(good, m.parse(good)[0]) == b"abc", "a raw part")
+    check(m.parse(good)[0][2] == m.ANY and m.part_bytes(good, m.parse(good)[0]) == b"abc", "a raw part")
 
     print("mkasset: %d failure(s)" % failures)
     return 1 if failures else 0
