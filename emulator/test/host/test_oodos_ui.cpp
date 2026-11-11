@@ -22,11 +22,13 @@
 #include "video_card.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <tuple>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -1486,7 +1488,7 @@ namespace
 {
     // The picker's public handles.
     constexpr uint8_t P_WIN = 0xF1, P_DRV = 0xF5, P_USR = 0xF6, P_LST = 0xF7, P_FLD = 0xF8, P_OK = 0xF9, P_CAN = 0xFA;
-    /// Polls until the listing is done (four entries a poll).
+    /// Polls until the listing is done (a few more entries a poll).
     std::vector<Event> settle(Rig &r)
     {
         std::vector<Event> all;
@@ -1721,6 +1723,651 @@ TEST(u2_the_picker_on_an_oodos_32m_drive)
     CHECK_EQ(b.size(), 24u);
     CHECK(has(b, "BIG00.DAT") && has(b, "BIG23.DAT"));
     CHECK_EQ(status(r), std::string("24 files"));
+}
+
+// ---------------------------------------------------------------------------
+// U2's review fixes (Y1-Y8, X1-X13): each case fails without its fix.
+
+namespace
+{
+    /// M: with `n` files FILEnn, TXT and BIN in turn (`big` a 40 KB TXT more: two directory entries).
+    void m_files(CcpRig &r, unsigned n, bool big = false)
+    {
+        std::vector<MFile> m;
+        for (unsigned i = 0; i < n; ++i)
+        {
+            char nm[12];
+            std::snprintf(nm, sizeof nm, "FILE%02u  %s", i, i % 2 ? "BIN" : "TXT");
+            m.push_back({0, nm, std::vector<uint8_t>(100, static_cast<uint8_t>(i))});
+        }
+        if (big)
+            m.push_back({0, "BIGFILE TXT", std::vector<uint8_t>(40000, 0x55)});
+        r.put_m(m);
+    }
+    constexpr uint32_t STATE = 0x3900, PDMA = 0x3A00; ///< uitest.s's (UITPICK)
+    /// The program's own search of A: to its end (uitest.s's c_search), between two polls: the names it found.
+    std::vector<std::string> own_search(Rig &r, unsigned stop_after = 1000)
+    {
+        std::vector<std::string> names;
+        for (unsigned i = 0; i < 200 && names.size() < stop_after; ++i)
+        {
+            const unsigned a = static_cast<unsigned>(std::stoul(ui(r, 'n', i ? 1 : 0).substr(0, 2), nullptr, 16));
+            if (a > 3)
+                break;
+            std::string n;
+            for (unsigned k = 1; k <= 11; ++k)
+                n += static_cast<char>(r.phys(PDMA + a * 32 + k) & 0x7F);
+            if (r.phys(PDMA + a * 32) == 0) // user 0's
+                names.push_back(n);
+        }
+        return names;
+    }
+    /// The picker's listing as it stands, sorted (listed() with the order dropped).
+    std::vector<std::string> sorted_listing(Rig &r)
+    {
+        std::vector<std::string> v = listed(r);
+        std::sort(v.begin(), v.end());
+        return v;
+    }
+    /// Keys for a name typed in a field: letters, digits, '.', ':', ';', '*', '?' and a space; polled after
+    /// each, so the event queue holds them all.
+    void type_name(Rig &r, const std::string &t)
+    {
+        for (const char c : t)
+        {
+            poll(r);
+            if (c >= 'a' && c <= 'z')
+                key(r, static_cast<uint8_t>(0x04 + c - 'a'));
+            else if (c >= '1' && c <= '9')
+                key(r, static_cast<uint8_t>(0x1E + c - '1'));
+            else if (c == '0')
+                key(r, 0x27);
+            else if (c == '.')
+                key(r, 0x37);
+            else if (c == ';')
+                key(r, 0x33);
+            else if (c == ':')
+                key(r, 0x33, L_SHIFT);
+            else if (c == '*')
+                key(r, 0x25, L_SHIFT);
+            else if (c == '?')
+                key(r, 0x38, L_SHIFT);
+            else if (c == ' ')
+                key(r, K_SPACE);
+        }
+    }
+    /// The program's user, DMA address and segment and error mode, as uitest.s's c_state reads them.
+    std::string own_state(Rig &r)
+    {
+        CHECK_EQ(ui(r, 'w').substr(6), std::string("00"));
+        char b[40];
+        std::snprintf(b, sizeof b, "user %u dma %04X seg %04X err %02X", r.phys(STATE), word_at(r, STATE + 1), word_at(r, STATE + 3),
+                      r.phys(STATE + 5));
+        return b;
+    }
+    /// The base layer's character at (col, row).
+    char cell_char(Rig &r, unsigned col, unsigned row)
+    {
+        const unsigned map0 = vid(r).peek(0x11) | vid(r).peek(0x12) << 8;
+        return static_cast<char>(vid(r).card_peek(map0 * 256u + row * 160u + col * 2u));
+    }
+    /// Sprite n's shadow in OOLIB's table: its image word (page and depth bit), X, attribute.
+    unsigned spr_image(Rig &r, unsigned n) { return word_at(r, lab("GX_SPR") + n * 8u); }
+    unsigned spr_depth(Rig &r, unsigned n) { return r.phys(lab("GX_SPR") + n * 8u + 6) & 0x0C; }
+} // namespace
+
+TEST(y1_a_program_s_search_between_the_picker_s_polls)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 40);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'e', 0, 0).substr(6), std::string("00")); // user 0, DMA PDMA, the error mode 0
+    const std::vector<std::string> a_files = own_search(r);
+    CHECK(a_files.size() > 16);
+    // The picker on M:'s TXT and BIN (block 1): a poll lists four; the program searches A: to its end between
+    // polls, then half way, then to the end again. Each walk is right, and the picker lists all 40.
+    CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00"));
+    poll(r);
+    CHECK(r.phys(lab("lst")) != 0);
+    CHECK(own_search(r) == a_files);
+    poll(r);
+    CHECK(own_search(r, 3).size() == 3);
+    poll(r);
+    CHECK(own_search(r) == a_files);
+    settle(r);
+    std::vector<std::string> want;
+    for (unsigned i = 0; i < 40; ++i)
+    {
+        char nm[16];
+        std::snprintf(nm, sizeof nm, "FILE%02u.%s", i, i % 2 ? "BIN" : "TXT");
+        want.push_back(nm);
+    }
+    CHECK(sorted_listing(r) == want);
+    CHECK_EQ(status(r), std::string("40 files"));
+}
+
+TEST(y2_the_picker_hidden_mid_listing_stops_its_walk)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 40);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00"));
+    poll(r);
+    CHECK(r.phys(lab("lst")) != 0);
+    CHECK_EQ(ui(r, 'h', P_WIN).substr(6), std::string("00")); // ui_hide(UI_PICKER): closed, no event
+    poll(r);
+    const unsigned n = word_at(r, lab("count"));
+    CHECK_EQ(r.phys(lab("lst")), 0);
+    CHECK_EQ(r.phys(lab("uidle") + 1u), 0);
+    for (int i = 0; i < 5; ++i)
+        expect(poll(r), {}, "polls after the picker went");
+    CHECK_EQ(word_at(r, lab("count")), n);
+    // A picker again lists from the start.
+    pick(r, 1);
+    CHECK_EQ(listed(r).size(), 40u);
+}
+
+TEST(y3_a_typed_name_that_isn_t_one_file_s_is_refused)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 2); // UP_NEW on B:
+    CHECK_EQ(ui(r, 'f', P_FLD).substr(6), std::string("00"));
+    for (const char *bad : {"a*.txt", "a?.txt", "a b.txt", "a;b.txt", "abcdefghi.tx", "a.text", ".txt", "a.b.c", "q:x.txt", "a:b:c"})
+    {
+        type_name(r, bad);
+        poll(r);
+        std::string fld;
+        for (uint32_t p = lab("fbuf"); r.phys(p); ++p)
+            fld += static_cast<char>(std::tolower(r.phys(p)));
+        CHECK_EQ(fld, std::string(bad)); // typed whole (the field folds to capitals)
+        key(r, K_ENTER);
+        const std::vector<Event> ev = poll(r);
+        if (!ev.empty())
+            std::printf("  \"%s\": %s\n", bad, show(ev).c_str());
+        CHECK(ev.empty());
+        CHECK_EQ(status(r), std::string("Not a file name"));
+        CHECK_EQ(chosen(r, "pickC"), 0u);
+        for (int i = 0; i < 16; ++i)
+        {
+            key(r, K_BACK);
+            poll(r);
+        }
+    }
+    // "c:" is the drive: C:, not the B: the block lists.
+    type_name(r, "c:new.txt");
+    poll(r);
+    key(r, K_ENTER);
+    const std::vector<Event> ev = poll(r);
+    CHECK(!ev.empty() && ev[0].code == UE_PICK && ev[0].value == 0);
+    CHECK_EQ(chosen(r, "pickC"), 1u);
+    CHECK_EQ(result(r, 0), std::string("3 0 NEW     TXT"));
+}
+
+TEST(y4_the_program_s_state_after_each_batch_and_a_drive_error)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'e', 5, 0xFE).substr(6), std::string("00")); // user 5, DMA PDMA, the error mode $FE
+    const std::string mine = own_state(r);
+    CHECK_EQ(mine.substr(0, 16), std::string("user 5 dma 3A00 "));
+    CHECK_EQ(mine.substr(mine.size() - 2), std::string("FE"));
+    CHECK_EQ(ui(r, 'k', 0).substr(6), std::string("00")); // A:, the drives and users
+    for (int i = 0; i < 40 && r.phys(lab("lst")); ++i)
+    {
+        poll(r);
+        CHECK_EQ(own_state(r), mine);
+    }
+    CHECK_EQ(r.phys(lab("lst")), 0);
+    CHECK_EQ(ui(r, 'f', P_USR).substr(6), std::string("00")); // the picker's user 6
+    key(r, K_RIGHT);
+    poll(r);
+    CHECK_EQ(own_state(r), mine);
+    settle(r);
+    CHECK_EQ(own_state(r), mine);
+    CHECK_EQ(ui(r, 'f', P_DRV).substr(6), std::string("00")); // B:, C:, D: (no drive: an error)
+    for (int i = 0; i < 3; ++i)
+    {
+        key(r, K_RIGHT);
+        settle(r);
+        CHECK_EQ(own_state(r), mine);
+    }
+    CHECK_EQ(status(r), std::string("Drive error"));
+}
+
+TEST(y5_a_file_of_two_directory_entries_listed_once)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 6, true);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 1);
+    const std::vector<std::string> v = sorted_listing(r);
+    CHECK_EQ(v.size(), 7u);
+    CHECK_EQ(std::count(v.begin(), v.end(), std::string("BIGFILE.TXT")), 1);
+    CHECK_EQ(status(r), std::string("7 files"));
+}
+
+TEST(y6_a_full_work_buffer_says_how_many_it_left_out)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 12);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 3); // every file of M: into a buffer of 8
+    CHECK_EQ(listed(r).size(), 8u);
+    CHECK_EQ(word_at(r, lab("count")), 8u);
+    CHECK_EQ(status(r), std::string("8 of 12 files"));
+    CHECK_EQ(value_of_dlg(r, 3) == 0xFFFF || value_of_dlg(r, 3) < 8u, true);
+}
+
+TEST(x1_a_double_click_expires)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    auto selected = [](const std::vector<Event> &ev) {
+        return std::any_of(ev.begin(), ev.end(), [](const Event &e) { return e.code == UE_SELECT; });
+    };
+    click(r, 10, 11); // row 3
+    expect(poll(r), {{UE_CHANGE, X_LST, 0, 3}}, "a click on row 3");
+    // 266 frames later (10 past 256): a first click, not a second.
+    r.run(ms(4433));
+    click(r, 10, 11);
+    std::vector<Event> ev = poll(r);
+    if (selected(ev))
+        std::printf("  266 frames on: %s\n", show(ev).c_str());
+    CHECK(!selected(ev));
+    // Within the time but after a press on the label, a key, or a suspend: a first click.
+    r.run(ms(600));
+    click(r, 10, 11);
+    poll(r);
+    click(r, 10, 21); // the label
+    poll(r);
+    click(r, 10, 11);
+    CHECK(!selected(poll(r)));
+    r.run(ms(600));
+    click(r, 10, 11);
+    poll(r);
+    key(r, K_Z);
+    click(r, 10, 11);
+    {
+        CHECK(!selected(poll(r)));
+    }
+    r.run(ms(600));
+    click(r, 10, 11);
+    poll(r);
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    click(r, 10, 11);
+    CHECK(!selected(poll(r)));
+    // And a double-click still is one.
+    r.run(ms(600));
+    click(r, 10, 11);
+    poll(r);
+    click(r, 10, 11);
+    CHECK(selected(poll(r)));
+}
+
+TEST(x2_a_drag_far_past_either_end_of_a_long_range)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    // The sliders, their tops 60,000: past the right (horizontal) or the top (vertical) is the top, past the
+    // other end 0.
+    CHECK_EQ(ui(r, 'q', 0x60, 0xEA, Y_HSL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'q', 0x60, 0xEA, Y_VSL).substr(6), std::string("00"));
+    poll(r);
+    point(r, 9, 4);
+    button(r, true);
+    poll(r);
+    for (const auto &[col, want] : std::vector<std::pair<unsigned, unsigned>>{{79, 60000}, {0, 0}, {79, 60000}})
+    {
+        point(r, col, 4);
+        poll(r);
+        CHECK_EQ(value_of(r, Y_HSL), want);
+    }
+    button(r, false);
+    poll(r);
+    point(r, 6, 11);
+    button(r, true);
+    poll(r);
+    for (const auto &[row, want] : std::vector<std::pair<unsigned, unsigned>>{{0, 60000}, {29, 0}, {0, 60000}})
+    {
+        point(r, 6, row);
+        poll(r);
+        CHECK_EQ(value_of(r, Y_VSL), want);
+    }
+    button(r, false);
+    poll(r);
+    // The scroll bars, their last 60,000: the thumb (1 cell, at 0) dragged past each end.
+    CcpRig w;
+    REQUIRE(w.ok);
+    open_u2(w, "uitwid");
+    poll(w);
+    CHECK_EQ(ui(w, 'q', 0x60, 0xEA, X_VSC).substr(6), std::string("00"));
+    CHECK_EQ(ui(w, 'q', 0x60, 0xEA, X_HSC).substr(6), std::string("00"));
+    setv(w, X_VSC, 0);
+    setv(w, X_HSC, 0);
+    poll(w);
+    point(w, 35, 9);
+    button(w, true);
+    poll(w);
+    for (const auto &[row, want] : std::vector<std::pair<unsigned, unsigned>>{{29, 60000}, {0, 0}, {29, 60000}})
+    {
+        point(w, 35, row);
+        poll(w);
+        CHECK_EQ(value_of(w, X_VSC), want);
+    }
+    button(w, false);
+    poll(w);
+    setv(w, X_VSC, 0);
+    point(w, 5, 19);
+    button(w, true);
+    poll(w);
+    for (const auto &[col, want] : std::vector<std::pair<unsigned, unsigned>>{{79, 60000}, {0, 0}, {79, 60000}})
+    {
+        point(w, col, 19);
+        poll(w);
+        CHECK_EQ(value_of(w, X_HSC), want);
+    }
+    button(w, false);
+    poll(w);
+}
+
+TEST(x3_thumbs_out_of_sight_when_suspended_and_let_go_when_closed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    const unsigned page = r.phys(lab("upage")) | r.phys(lab("upage") + 1u) << 8;
+    CHECK_EQ(spr_image(r, 1) & 0x7FFF, page + 0x29); // OOUI's thumb image (UI_OFS_SPR + 1)
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    CHECK_EQ(spr_depth(r, 1), 0);
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(spr_depth(r, 1), 0);
+    const unsigned img = spr_image(r, 1) & 0x7FFF;
+    CHECK(img < page || img >= page + 64); // not in the card memory ui_close freed
+}
+
+TEST(x4_a_thumb_under_a_dialog_or_clipped_is_out_of_sight)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    // The message box up, the thumb moved under it.
+    CHECK_EQ(ui(r, 'm', 0).substr(6), std::string("00"));
+    poll(r);
+    const Place box = rect(r, 0xF0);
+    r.poke(rec2(Y_HSP) + 3u, static_cast<uint8_t>(box.row + 1 - 2)); // its row: the box's second
+    const unsigned col = box.col + 3;                                 // its column: the box's fourth
+    setv(r, Y_HSP, ((col - 9) * 4 + 2) * 100 / 119);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    key(r, K_ESC); // the box gone: the thumb again
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    // The window narrowed and moved right, the slider put to start left of its client area: a thumb at 0 is
+    // clipped away, one at the top inside it isn't.
+    r.poke(rec2(Y_WIN) + 2u, 30);
+    r.poke(rec2(Y_WIN) + 4u, 20);
+    r.poke(rec2(Y_HSP) + 2u, 0xE8); // 24 from the client's right: 6 left of its left
+    r.poke(rec2(Y_HSP) + 3u, 4);
+    setv(r, Y_HSP, 0);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    const Place win = rect(r, Y_WIN), sl = rect(r, Y_HSP);
+    REQUIRE(sl.col < win.col + 1 && sl.col + sl.w > win.col + 1);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    setv(r, Y_HSP, 100);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+}
+
+TEST(x5_a_clipped_away_part_takes_no_pointer)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    // The label moved to stick out of its group's left (the group's client area 18 wide): it starts 3 left of
+    // it, its last columns inside.
+    r.poke(rec2(X_OUT) + 2u, static_cast<uint8_t>(256 - 21));
+    CHECK_EQ(ui(r, 's', X_OUT).substr(6), std::string("00"));
+    poll(r);
+    const Place out = rect(r, X_OUT);
+    const Place grp = rect(r, X_GRP);
+    REQUIRE(out.col < grp.col + 1 && out.col + out.w > grp.col + 1);
+    point(r, out.col + out.w - 1, out.row);
+    poll(r);
+    CHECK_EQ(r.phys(rec2(X_OUT) + 7u) & 0x02, 0x02); // US_HOT: inside, it is there
+    point(r, out.col, out.row);
+    poll(r);
+    CHECK_EQ(r.phys(rec2(X_OUT) + 7u) & 0x02, 0); // outside: not
+}
+
+TEST(x6_a_list_that_shrinks_shows_its_rows)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    CHECK_EQ(ui(r, 'f', X_LST).substr(6), std::string("00"));
+    key(r, K_END);
+    poll(r);
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 10u);
+    CHECK_EQ(ui(r, 'q', 12, 0, X_LST).substr(6), std::string("00")); // 12 rows: the top 2, the selection 11
+    poll(r);
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 2u);
+    CHECK_EQ(value_of(r, X_LST), 11u);
+    CHECK_EQ(ui(r, 'q', 4, 0, X_LST).substr(6), std::string("00")); // fewer than it shows: the top 0
+    poll(r);
+    CHECK_EQ(word_at(r, rec2(X_LST) + 14), 0u);
+}
+
+TEST(x7_a_row_whose_right_part_fills_it)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    CHECK_EQ(cell_char(r, 4, 8), 'T'); // row 0: "Track 00"
+    put_text(r, "\t" + std::string(29, 'R'));          // a TAB and 29 characters: as wide as its text
+    r.poke(lab("row0") - 2u * 20, std::vector<uint8_t>{0x00, 0x32}); // rows[0] (row0's, less ROWS_N words): TEXTBUF
+    CHECK_EQ(ui(r, 'd', X_LST).substr(6), std::string("00"));
+    poll(r);
+    std::string line;
+    for (unsigned c = 4; c < 4 + 29; ++c)
+        line += cell_char(r, c, 8);
+    CHECK_EQ(line, std::string(29, ' '));
+}
+
+TEST(x8_a_click_on_the_desktop_or_a_label_draws_nothing)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    const uint16_t clipr = lab("CLIPR");
+    unsigned drawn = 0;
+    r.watch = [&](uint16_t pc) {
+        if (pc == clipr)
+            ++drawn;
+    };
+    for (const auto &[col, row, what] : std::vector<std::tuple<unsigned, unsigned, const char *>>{
+             {79, 29, "the desktop"}, {10, 24, "the label"}, {1, 1, "the desktop again"}})
+    {
+        point(r, col, row);
+        poll(r);
+        drawn = 0;
+        click(r, col, row);
+        expect(poll(r), {}, what);
+        if (drawn)
+            std::printf("  %s: %u records drawn\n", what, drawn);
+        CHECK_EQ(drawn, 0u);
+    }
+    r.watch = nullptr;
+}
+
+TEST(x9_a_held_key_stops_when_the_focus_moves_or_a_modal_box_comes)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitwid");
+    poll(r);
+    CHECK_EQ(ui(r, 'f', X_LST).substr(6), std::string("00"));
+    usb(r).key(K_DOWN, true);
+    std::vector<Event> ev;
+    for (int i = 0; i < 16; ++i)
+    {
+        r.run(ms(50));
+        for (const Event &e : poll(r))
+            ev.push_back(e);
+    }
+    CHECK(ev.size() >= 6);
+    CHECK_EQ(ui(r, 'f', X_LS2).substr(6), std::string("00")); // still held
+    ev.clear();
+    for (int i = 0; i < 10; ++i)
+    {
+        r.run(ms(50));
+        for (const Event &e : poll(r))
+            ev.push_back(e);
+    }
+    usb(r).key(K_DOWN, false);
+    r.run(ms(20));
+    poll(r);
+    expect(ev, {}, "held on after the focus moved");
+    // The message box: Up held on the slider, then the box.
+    CcpRig b;
+    REQUIRE(b.ok);
+    open_u2(b, "uitbar");
+    poll(b);
+    usb(b).key(K_UP, true);
+    for (int i = 0; i < 12; ++i)
+    {
+        b.run(ms(50));
+        poll(b);
+    }
+    CHECK(value_of(b, Y_VSL) > 60u);
+    CHECK_EQ(ui(b, 'm', 0).substr(6), std::string("00"));
+    poll(b);
+    const unsigned v = value_of(b, Y_VSL);
+    ev.clear();
+    for (int i = 0; i < 10; ++i)
+    {
+        b.run(ms(50));
+        for (const Event &e : poll(b))
+            ev.push_back(e);
+    }
+    usb(b).key(K_UP, false);
+    b.run(ms(20));
+    poll(b);
+    CHECK_EQ(value_of(b, Y_VSL), v);
+    expect(ev, {}, "held on with the box up");
+}
+
+TEST(x10_a_window_hidden_mid_drag_ends_it)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    point(r, 24, 4);
+    button(r, true);
+    poll(r);
+    point(r, 30, 4);
+    std::vector<Event> ev = poll(r);
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && (ev[0].flags & UV_LIVE));
+    const unsigned v = value_of(r, Y_HSL);
+    CHECK_EQ(ui(r, 'h', Y_WIN).substr(6), std::string("00"));
+    ev = poll(r); // the drag's last change, as a let-go gives it
+    CHECK(ev.size() == 1 && ev[0].code == UE_CHANGE && ev[0].handle == Y_HSL && ev[0].value == v && !(ev[0].flags & UV_LIVE));
+    CHECK_EQ(r.phys(lab("upress")), 0xFF);
+    CHECK_EQ(ui(r, 's', Y_WIN).substr(6), std::string("00"));
+    poll(r);
+    point(r, 36, 4); // the button still down: no drag
+    expect(poll(r), {}, "moved after");
+    button(r, false);
+    expect(poll(r), {}, "let go after");
+    CHECK_EQ(value_of(r, Y_HSL), v);
+}
+
+TEST(x11_a_thumb_s_sprite_must_be_one_of_ooui_s)
+{
+    for (const uint8_t sprite : {uint8_t{0}, uint8_t{2}, uint8_t{200}, uint8_t{1}})
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        start_ui(r, "uitbar");
+        r.poke(rec2(Y_HSP) + 15u, sprite); // UO_SPRITE 0 (the pointer), UO_SPRITES 2
+        const std::string a = ui(r, 'o', BLK_U2);
+        if (sprite == 1)
+            CHECK_EQ(a.substr(6), std::string("00"));
+        else
+            CHECK_EQ(a.substr(0, 2) + a.substr(6), std::string("0901")); // UX_SPRITE
+    }
+}
+
+TEST(x12_values_held_to_their_ranges_at_ui_open)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    r.poke(rec2(Y_VBR) + UW_VALUE, std::vector<uint8_t>{0xF4, 0x01}); // 500 of 100
+    r.poke(rec2(Y_VSL) + UW_VALUE, std::vector<uint8_t>{0xC8, 0x00}); // 200 of 100
+    CHECK_EQ(ui(r, 'o', BLK_U2).substr(6), std::string("00"));
+    CHECK_EQ(value_of(r, Y_VBR), 100u);
+    CHECK_EQ(value_of(r, Y_VSL), 100u);
+    CcpRig w;
+    REQUIRE(w.ok);
+    start_ui(w, "uitwid");
+    w.poke(rec2(X_LST) + UW_VALUE, std::vector<uint8_t>{40, 0}); // row 40 of 20
+    CHECK_EQ(ui(w, 'o', BLK_U2).substr(6), std::string("00"));
+    CHECK_EQ(value_of(w, X_LST), 19u);
+}
+
+TEST(x13_the_wheel_at_a_slider_s_end_says_nothing)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    setv(r, Y_HSL, 100);
+    poll(r);
+    point(r, 20, 4);
+    usb(r).mouse_wheel(1);
+    r.run(ms(30));
+    expect(poll(r), {}, "the wheel up at the top");
+    usb(r).mouse_wheel(-1);
+    r.run(ms(30));
+    expect(poll(r), {{UE_CHANGE, Y_HSL, 0, 95}}, "the wheel down");
 }
 
 int main()
