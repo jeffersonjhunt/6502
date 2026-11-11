@@ -16,8 +16,8 @@ in front of W3.
 While a program runs, W0–W2 hold blocks 0–2, its 48 KB, and W3 holds block 62: OODOS's resident code in the code
 window, `$C800–$F7FF`, and common memory at `$F800–$FFFF`. The windows belong to OODOS: a program doesn't write the
 window registers ([AGENTS.md](../../AGENTS.md)). It reaches the rest of memory by the functions in this chapter. The
-one exception is OOLIB's: its linked library may put a video or allocated block in W1, under [the W1
-contract](#the-w1-contract).
+one exception is OOLIB's: its linked library may put an allocated block, a block of banks 9–B or the video card's
+aperture slot 1 in W1, under [the W1 contract](#the-w1-contract).
 
 | Blocks | Bank | What |
 |---|---|---|
@@ -25,7 +25,10 @@ contract](#the-w1-contract).
 | 3 | 0 | not allocated by 53–58; a DMA segment may reach it |
 | 4–23 | 1–5 | the blocks programs allocate (53–58): 20 blocks, 320 KB |
 | 24–31 | 6–7 | OODOS's: the directory hashes, the sector buffers, the system block |
-| 32–47 | 8–B | the video card's memory: block 32's first 13 KB (units 0–12) the console's, OODOS's ([chapter 8](08-game-services.md#video-memory)); with revision 2 of the card (proposed), blocks 32–35 the card's aperture and 36–47 RAM ([below](#video-memory-on-revision-2)) |
+| 32 | 8 | the video card's aperture, slot 0: the console's card memory, OODOS's (*proposed*, revision 2: [below](#video-memory-on-revision-2)) |
+| 33 | 8 | the aperture's slot 1: the program's card memory, through OOLIB |
+| 34–35 | 8 | the aperture's slots 2 and 3, OODOS's |
+| 36–47 | 9–B | ordinary RAM, the running program's (not allocated by 53–58); OOLIB stages its asset loads in `$BF000–$BFFFF` unless the program moves `GX_STAGE` |
 | 48–55 | C–D | M:, the RAM disk |
 | 56–59 | E | not allocated: Apple II mode copies the IIe ROM here each time it starts; a DMA segment may reach it |
 | 60–63 | F | the BDOS, the BIOS, OODOS's resident block, and the ROM BIOS's copy |
@@ -113,7 +116,7 @@ the DMA segment or function 50's MOVE.
 Function [51 F_DMASEG](07-function-reference.md#bdos-51) sets a DMA segment, a paragraph, as CP/M-86 does. With one
 set, the records the disk functions move (17 and 18's directory record, and the records of 20, 21, 33, 34 and 40)
 go to and from physical memory at the segment × 16 + the DMA address, not the program's CPU address. So a program
-can read a file straight into an allocated block, or into the video card's memory. Function
+can read a file straight into an allocated block, or into banks 9–B. Function
 [52 F_DMAGET](07-function-reference.md#bdos-52) returns the DMA address and the segment.
 
 `$FFFF` is no segment: the DMA address is then a CPU address, as in CP/M 3. It is the default, and the warm boot sets
@@ -127,9 +130,10 @@ A segment may reach any RAM but OODOS's own: banks 0–5, 8–B and E. Banks 6�
 `$FFFFF`, are refused, and so is a record that would run past a DMA address of `$FFFF`. A refused record is A = X =
 `$FF` with nothing done, checked before the first record of a multi-sector call. A record through a segment costs
 238 cycles more than one to a CPU address: a buffered record on M: by function 33, 8,176 cycles against 7,938, as
-`test_oodos_sys` measures. A record read into the console's video memory (units 0–12, `$80000–$833FF`) is refused
-too, from OODOS 0.5. For a file into video memory, [function 83's](07-function-reference.md#bdos-83) `DM_LOAD` is the
-faster way: whole sectors straight from the card.
+`test_oodos_sys` measures. A record read into an aperture window that shows OODOS's card memory, slot 0's
+`$80000–$83FFF` or slots 2 and 3's `$88000–$8FFFF`, is refused too ([below](#video-memory-on-revision-2)). For a
+file into memory, [function 83's](07-function-reference.md#bdos-83) `DM_LOAD` is the faster way: whole sectors
+straight from the SD card; and into card memory, `DM_LOAD` into a buffer, then `DM_VWRITE`.
 
 ## Physical addresses
 
@@ -156,19 +160,24 @@ program's windows.
 OOLIB is OODOS's own extension, there so that programs don't go around the rules; where it does what a program may
 not, OODOS says so here, as part of the interface, and checks it by version. From OOLIB's interface version 4
 ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, OODOS 0.5), **OOLIB may write W1** (`NB_WIN1`,
-`$C681`) with any block [function 83's](07-function-reference.md#bdos-83) `DM_INFO` puts in its W1 map: block 1, the
-blocks the program has allocated, and video memory's blocks 33–47 (32, the console's, never). OODOS keeps that W1:
+`$C681`) with any block [function 83's](07-function-reference.md#bdos-83) `DM_INFO` puts in its W1 map. From
+interface version 8 (*proposed*, video card revision 2) that is block 1, the blocks the program has allocated, block
+33 (aperture slot 1's window) and blocks 36–47 (banks 9–B); never 32, 34 or 35, the windows of OODOS's slots. And
+**OOLIB may write `SLOT1`** (`VIDEO_SLOT1`, `$C4B2`) with any of the program's card banks, 16–111, so that
+block 33 shows the card memory it draws in. OODOS keeps W1 and `SLOT1`:
 
 - **across a BDOS call:** the entry reads W1 itself and puts that value back, and the BDOS reaches the program's
   `$4000–$7FFF` through it (a record read there lands in the mapped block);
 - **across an interrupt:** the dispatcher borrows W1 for the event area and puts back what it found;
 - **in a hook:** a hook runs with the windows the program had when it set it (W1 among them), and the program's are
   put back after;
-- **at the warm boot:** block 1 goes back, whatever W1 had.
+- **at the warm boot:** block 1 goes back, whatever W1 had, and slot 1 goes to card bank 16 (`VM_PROG_BANK`), the
+  program's first.
 
 A single `STA NB_WIN1` can't be split by an interrupt, and costs 4 cycles against about 450 for a BDOS call, which
 matters to a draw that crosses blocks. The library checks `FT_INFO`'s version at its start (`GX_INIT`) and refuses to
-map below 4; a change to the contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
+map below 8 (interface versions 4–7 were revision 1's: video memory's blocks 33–47 in W1); a change to the
+contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
 `$BFFD` in block 2; FARCALL needs common memory in W3's block).
 
 While another block is in W1, the program's own `$4000–$7FFF` is out of its reach, and of the BDOS's: its code, its
@@ -177,25 +186,31 @@ A hook that draws maps W1 itself. A program that doesn't use OOLIB keeps the old
 
 ## Video memory on revision 2
 
-**Proposed.** Revision 2 of the video card (its ID `$92`) draws from 2 MB of its own memory instead of banks 8–B
-([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). For
-a program under OODOS that changes three things.
+**Proposed.** OODOS and OOLIB are built for revision 2 of the video card (its ID `$92`), from interface version 8:
+the card draws from 2 MB of its own memory instead of banks 8–B
+([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). On an older
+card, or none, OODOS has no console screen and the card operations are refused. For a program:
 
-- **Banks 8–B.** Bank 8, blocks 32–35, is the card's aperture: four 16 KB slots, each showing a page of card memory
-  that the card's slot registers choose. Banks 9–B, blocks 36–47, are ordinary RAM. Which of OODOS's uses they go
-  to (more blocks for 53–58, or OODOS's own) is *TBD: stream C*.
+- **Banks 8–B.** Bank 8, blocks 32–35, is the card's aperture: four 16 KB slots, each showing a 16 KB card bank that
+  its slot register chooses. Slot 0 (block 32) always shows card bank 0, the console's; slots 2 and 3 (blocks 34
+  and 35) are OODOS's, borrowed by `DM_VCOPY`; slot 1 (block 33) is the program's, through OOLIB. Banks 9–B, blocks
+  36–47, are ordinary RAM, the running program's as video memory was: in the W1 map, reachable by DMA segments and
+  function 83, but not handed out by functions 53–58.
 - **Card memory.** Its addresses are 24 bits, `$000000–$1FFFFF`, not physical addresses. OODOS owns
-  `$000000–$03FFFF` (the console, its palette and font, its sprites and the pointer, at the offsets units 0–12 have
-  today) and Apple II mode's `$1C0000–$1FFFFF`. A program has `$040000–$1BFFFF`, 1.5 MB, which it allocates
-  through OOLIB ([chapter 8](08-game-services.md#video-memory-on-revision-2)); the warm boot takes it all back, as it
-  does the blocks.
-- **The W1 contract.** Video is reached through the aperture's slots, not through blocks 33–47. OOLIB's library
-  still maps W1 itself, now onto an aperture slot that it points at the card memory it draws in, and a program
-  writes neither `NB_WIN1` nor the slot registers. Which slots are OOLIB's, what `DM_INFO`'s W1 map lists, and the
-  interface version that says so are *TBD: stream C*. Bulk loads and copies go through the card's data port by DMA,
-  inside function 83, rather than through a DMA segment; whether a segment may still reach bank 8 is *TBD: stream
-  C*.
+  `$000000–$03FFFF` (the console's palette at `$000000`, its font at `$000400` and its text at `$002000`, what units
+  0–12 were, and the rest kept) and Apple II mode's `$1C0000–$1FFFFF`. A program has `$040000–$1BFFFF`, 1.5 MB, card
+  banks 16–111, which it allocates through OOLIB ([chapter 8](08-game-services.md#video-memory)); the warm boot takes
+  it all back, as it does the blocks. A program may read OODOS's part (a card source of function 83) but never write
+  it. `oodos/include/vmem.inc` names the parts.
+- **Reaching it.** The CPU reaches the program's card memory through slot 1 in W1, under the W1 contract
+  ([above](#the-w1-contract)); in bulk, function 83's card operations (`DM_VWRITE`, `DM_VREAD`, `DM_VFILL`,
+  `DM_VCOPY`) go through the card's data port or the borrowed slots, by DMA. A program writes neither `NB_WIN1` nor
+  any slot register itself, nor the port's registers (`PADDR`, `PDATA`, `PSTEP`, `PCTL`), which are OODOS's: OOLIB
+  writes `NB_WIN1` and `SLOT1` alone.
+- **What is refused.** No physical destination of function 83, and no record read through a DMA segment, may touch
+  `$80000–$83FFF` or `$88000–$8FFFF`, the windows of OODOS's slots. No card destination may leave the program's
+  part. The card operations need the DMA controller.
 
-The rest of this chapter (allocation, FARCALL, the DMA segment, physical addresses) is unchanged. A program tells the
-revisions apart by the card's ID, or by what OOLIB reports (*TBD: stream C*).
-
+The rest of this chapter (allocation, FARCALL, the DMA segment, physical addresses) is unchanged. A program tells
+the revisions apart by OOLIB's interface version ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, 8)
+and `DM_INFO`'s A, the card's memory (0 with no revision 2 card).

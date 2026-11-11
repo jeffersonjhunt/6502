@@ -26,7 +26,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's `SN_HOLD`, `SN_GO` and `SN_VOLUME`), 6 from L5a (the mailbox's stamp, [below](#the-6510)), 7 from OODOS 0.8 (`EV_SFLAGS`, the same), 8 with video card revision 2 (*proposed*: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound) and `OA_DMA` (`$08`, 83, DMA and loading)
 now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -628,46 +628,48 @@ the [Technical Reference's chapter 6](../oo1-technical-reference/06-video.md).
 
 ### Video memory
 
-The video card draws from banks 8–B, 256 KB, in **units** of 1 KB that its base registers name. Units 0–12
-(`$80000–$833FF`) are the console's: its palette (unit 0), its font (1–4) and its text screen (8–12). They are
-OODOS's: no destination of function 83 may touch them, nor a record read through a DMA segment, and the console's
-block, 32, is never in W1. So the console's text, written on while a game has the screen ([hw/oolib.md, question
-10](../../hw/oolib.md#open-questions)), shows again as it was at the warm boot. The running program has units
-13–255 whole, as it has its TPA; the library hands them out (`GX_ALLOC`, `GX_FREE`), aligned to 8 units for 8 or
-more. Units 13–15 are in block 32, so DMA reaches them and the CPU doesn't: the library keeps them for palettes and
-sprite tables, which go by DMA.
+**Proposed**, from interface version 8: video memory is the video card's own, revision 2's 2 MB, not system RAM
+([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); the card itself is the [Technical Reference's
+chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). Its addresses are **card addresses**, 24
+bits, and the library names it in **card pages**, a card address ÷ 256, a word, which is what the card's base
+registers hold: PALBASE, SPRBASE, a layer's MAPBASE and TILEBASE, and a sprite's image.
 
-A program's CPU reaches video memory through W1, which the library maps itself ([chapter 5, "The W1
+`$000000–$03FFFF` is OODOS's: the console's palette (`$000000`), font (`$000400`) and text (`$002000`), and the rest
+kept. No card destination of function 83 may touch it, so the console's text, written on while a game has the
+screen ([hw/oolib.md, question 10](../../hw/oolib.md#open-questions)), shows again as it was at the warm boot. A
+program may read it: the console's font, for text on a bitmap. `$1C0000–$1FFFFF` is Apple II mode's, never a
+program's. The running program has `$040000–$1BFFFF` whole, card pages `$0400–$1BFF`, as it has its TPA, and the
+library hands it out:
+
+- `GX_VALLOC`: `GX_V` the size in card pages (1–6,144), A the alignment in pages (a power of two, 1–128; 0 is 1):
+  A/X the first page of a free run, aligned, and `GX_A` its card address; `GE_MEMORY` if there is none. Memory is
+  taken in whole kilobytes, 4 pages, so a size or an alignment under 4 takes 4.
+- `GX_VFREE`: A/X the first page, `GX_V` the size: the run free again, whole or not at all.
+- `GX_VADDR`: A/X a card page: `GX_A` its card address.
+- `GX_VMAP`: A/X a card page: its 16 KB card bank shown in aperture slot 1 and block 33 put in W1; A/X and `GXP` the
+  page's CPU address (`$4000–$7F00`). `GE_MAP` for a page outside the program's part. `GX_W1BACK` puts block 1 back.
+- `GX_VPUT` and `GX_VGET`: A/X a CPU address in the program's memory, `GX_A` a card address, `GX_V` the length: to
+  the card or from it, by `DM_VWRITE` or `DM_VREAD`.
+- `GX_VCOPY`: `GX_A` the source's card address (anywhere in the fitted memory), `GX_C` the destination's (the
+  program's part), `GX_V` the length: card to card, by `DM_VCOPY`. `GX_VFILL`: A the byte, `GX_A`, `GX_V`: by
+  `DM_VFILL`.
+
+A program's CPU reaches its card memory through slot 1 in W1, which the library maps itself ([chapter 5, "The W1
 contract"](05-memory-and-banking.md#the-w1-contract)). A program using the library keeps its code, its event area
-and its data out of `$4000–$7FFF`.
+and its data out of `$4000–$7FFF`. Banks 9–B are ordinary RAM again, the program's, and `GX_BLOCK` maps one of their
+blocks (36–47) as it maps an allocated block.
 
-### Video memory on revision 2
-
-**Proposed.** On revision 2 of the video card (ID `$92`) video memory is the card's own 2 MB, not banks 8–B
-([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). What a program does stays the same: it asks the
-library for video memory and frees it, and never chooses an address OODOS owns. What it gets changes:
-
-- **Where.** The library allocates from card memory `$040000–$1BFFFF`, 1.5 MB on a 2 MB card; OODOS keeps
-  `$000000–$03FFFF` (the console, as units 0–12 are today, its sprites and the pointer) and Apple II mode's
-  `$1C0000–$1FFFFF`. How much is there comes from the card's MEMSIZE, so a larger card gives more.
-- **How it is named.** A card address is 24 bits, and the card's base registers count in 256-byte units, not 1 KB
-  units. How `GX_ALLOC` and `GX_FREE` take and return an allocation (its unit, its alignment, the `GX_` variables
-  it uses), and how an asset part names where it loads, are *TBD: stream C*.
-- **Drawing.** The library plots, fills and copies through an aperture slot it maps into W1, or through the card's
-  data port, under the W1 contract as revised ([chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)).
-- **Loading and copies.** `DM_LOAD`, `DM_COPY` and `DM_FILL` reach card memory through the data port by DMA, and
-  the vertical-blank slots and the pointer go through the port on channel 1, from the frame handler as now. How a
-  parameter block names a card address rather than a physical one, and what each costs, are *TBD: stream C*.
-- **Room to spare.** Double-buffered screens and large tile and sprite sets fit, and a full-width 640×480 bitmap
-  (300 KB at 8 bits) would too; the card has no such mode, and adding one is a separate decision
-  ([hw/ooui.md, "Bitmap backend"](../../hw/ooui.md#bitmap-backend)).
+Before interface version 8, on revision 1, the card drew from banks 8–B in 1 KB units: the library's `GX_ALLOC`,
+`GX_FREE` and `GX_UNIT`, which `GX_VALLOC`, `GX_VFREE` and `GX_VADDR` replace.
 
 ### Loading
 
 `DM_LOAD` loads a count of a file's records, up to 512 (64 KB), from a record of an open FCB, to a physical address:
 whole sectors straight from the SD card by DMA, at most 8 a READ, and the ends through a BDOS buffer. 64 KB takes
-about 16 ms from an `oodos-8m` drive, against 87 ms by functions 51 and 33 a record at a time. It doesn't wait for the
-vertical blank: a program loads into a buffer it isn't showing, then flips to it.
+about 16 ms from an `oodos-8m` drive, against 87 ms by functions 51 and 33 a record at a time. The destination is
+system memory, so a file goes to the card in two steps: `DM_LOAD` into a buffer, then `DM_VWRITE` from it, as the
+library's `GX_ASSET` does 4 KB at a time. Neither waits for the vertical blank: a program loads into card memory it
+isn't showing, then flips to it.
 
 ```
         lda     #<load
@@ -678,20 +680,36 @@ vertical blank: a program loads into a buffer it isn't showing, then flips to it
 load:   .byte   DM_LOAD
         .word   fcb             ; opened by function 15
         .byte   0, 0, 0         ; from record 0
-        .word   480             ; 60 KB
-        .byte   $00, $40, $08   ; to $84000: unit 16
+        .word   32              ; 4 KB
+        .byte   $00, $F0, $0B   ; to $BF000, in bank B
+```
+
+Then to the card:
+
+```
+        lda     #<put
+        ldx     #>put
+        ldy     #O_DMA
+        jsr     BDOS            ; A = 0: on the card
+        ...
+put:    .byte   DM_VWRITE
+        .byte   $00, $F0, $0B   ; from $BF000
+        .byte   $00, $00, $05   ; to card address $050000
+        .word   4096
 ```
 
 ### Copies and fills
 
-`DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time: a scroll of a
-bitmap, a cleared screen, the console's font copied out for text. The library fills a bitmap's whole rows in one
-call.
+`DM_COPY` copies and `DM_FILL` fills physical memory by DMA, 2 cycles a byte, in the BDOS's time. For card memory
+(*proposed*, interface version 8) `DM_VWRITE` and `DM_VREAD` copy to it and from it through the card's data port,
+`DM_VFILL` fills it, and `DM_VCOPY` copies within it: a scroll of a bitmap, a cleared screen, the console's font read
+for text. 60 KB goes to the card in about 17 ms. The library fills a bitmap's whole rows in one call
+(`GX_FRECT`, by `DM_VFILL`) and copies its rectangles a row a call (`GX_BCOPY`, by `DM_VCOPY`).
 
 ### The vertical-blank slots
 
 Four **slots**, 1 KB of copies in all, run at the vertical blank: a sprite table and a palette from the program's
-memory to the card's, say, so that a frame's changes show together and nothing is torn. `DM_VBSET` sets a slot's
+memory to card memory, say, through the card's port, so that a frame's changes show together and nothing is torn. `DM_VBSET` sets a slot's
 source, destination and length; the program then sets the slot's bit in the event area's +12 (`EV_VBGO`) with a
 `TSB`, which an interrupt can't split, and OODOS copies the slot at the next vertical blank and clears the bit. A
 bit still set means the copy hasn't happened yet. Nothing is copied while no event area is open. The library binds
@@ -705,54 +723,68 @@ slot 0 to its sprite shadow table and slot 1 to its palette shadow.
 ### The pointer
 
 `DM_POINTER` names a sprite OODOS moves with the mouse: at each vertical blank, after the slots, its X and Y in the
-card's sprite table are the mouse's, from a layout-2 event area, less the hotspot. The program draws the image, sets
+card's sprite table (at SPRBASE, which must be in the program's part of card memory) are the mouse's, from a layout-2 event area, less the hotspot. The program draws the image, sets
 the sprite's other bytes, and puts the mouse in absolute mode with limits 319 and 239 ([function
 81's](07-function-reference.md#bdos-81) `IN_MOUSE`), since sprites live in a 320 × 240 space.
 
 ### The library
 
-`GX_INIT` first, with the event area's address (or 0): it checks OODOS's interface (4 at least, with `OA_DMA`) and
-reads the W1 map. Then:
+`GX_INIT` first, with the event area's address (or 0): it checks OODOS's interface (8 at least, with `OA_DMA`, and a
+revision 2 card; `GE_VERSION` otherwise), reads the W1 map and the card's room (`DM_INFO`), and marks the program's
+card memory all free. Then:
 
-- **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type and units, `GX_SHOW` the display,
-  `GX_BORDER`, `GX_PALBASE`, `GX_SPRBASE`, `GX_SCROLL`, `GX_FLIP` (double buffering: MAPBASE, latched at the
-  vertical blank, then the frame waited for), `GX_CONSOLE`; `GX_ALLOC`, `GX_FREE`, `GX_BLOCK`, `GX_W1BACK`.
-- **The palette** (`gxpal.s`): a shadow of 256 entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`, and
+- **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type (X, its CONFIG), its map's card page
+  (`GX_V`) and its tiles' or font's (`GX_R`); `GX_SHOW` the display, `GX_BORDER`, `GX_PALBASE` and `GX_SPRBASE` (a
+  card page in A/X), `GX_SCROLL`, `GX_FLIP` (double buffering: a layer in A, the card page in `GX_V` its MAPBASE
+  takes, latched at the vertical blank, then the frame waited for), `GX_CONSOLE`; the card memory calls
+  ([above](#video-memory)), `GX_BLOCK`, `GX_W1BACK`.
+- **The palette** (`gxpal.s`): `GX_PALINIT` takes two card pages for it and points PALBASE there; a shadow of 256
+  entries on slot 1, `GX_PALSET`, `GX_PALLOAD`, `GX_PALSHOW`, and
   `GX_FADE` to another palette over n frames, a step a frame.
-- **Sprites** (`gxspr.s`): a shadow table of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG`, `GX_SPRATTR`,
+- **Sprites** (`gxspr.s`): `GX_SPRINIT` takes two card pages for the table and points SPRBASE there; a shadow table
+  of 64 entries on slot 0, `GX_SPRPOS`, `GX_SPRIMG` (the image in `GX_V` as revision 2's table holds it: bits 0–14
+  its card page, bit 15 set for 8 bits a pixel), `GX_SPRATTR`,
   `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
-- **Tiles** (`gxtile.s`): `GX_TMAP`, `GX_TPUT`, `GX_TGET`, `GX_TFILL`.
-- **Bitmaps** (`gxbmp.s`): bitmap 256 (8 bits a pixel), bitmap 512 (4) and mono (1): `GX_PLOT`, `GX_POINT`,
+- **Tiles** (`gxtile.s`): `GX_TMAP` (a map's card page in A/X, its width in Y), `GX_TPUT`, `GX_TGET`, `GX_TFILL`
+  (by `DM_VCOPY`).
+- **Bitmaps** (`gxbmp.s`): `GX_BMP` names the bitmap (its type in A, its first card page in `GX_V`), drawn through
+  slot 1; bitmap 256 (8 bits a pixel), bitmap 512 (4) and mono (1): `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
   `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
   refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or
-  height does nothing. A copy's rows are each one DMA copy forward, as memcpy, not memmove: moving a strip right
+  height does nothing. A copy's rows are each one card copy forward, as memcpy, not memmove: moving a strip right
   on the same rows repeats its first bytes, so copy through another place for that.
-- **Text** (`gxtext.s`): an 8 × 16 font on a bitmap, the console's or the program's: `GX_FONT`, `GX_TEXT`.
-- **Assets** (`gxasset.s`): `GX_ASSET` opens an asset file and loads its parts by `DM_LOAD`, each part checked
-  first (its type, its place in the file, its records against its bytes, its units free), and every unit freed again
-  if a part is refused.
+- **Text** (`gxtext.s`): an 8 × 16 font on a bitmap, the console's (read from the card a character at a time, by
+  `DM_VREAD`) or the program's: `GX_FONT`, `GX_TEXT`.
+- **Assets** (`gxasset.s`): `GX_ASSET` opens an asset file and loads each part into the card at the page it names, or
+  at pages it allocates, 4 KB at a time by `DM_LOAD` into a staging buffer, `GX_STAGE` (physical: `$BF000`, bank
+  B's last 4 KB, unless the program moves it), and `DM_VWRITE` on. Each part is checked first (its type, its place
+  in the file, its records against its bytes, its pages free and the program's), and every page the file took is
+  freed again if a part is refused.
 
 A program links only the modules it calls. Coordinates and values go in the `GX_` variables; a refusal is the carry
 set with an error in A (`GE_`).
 
 ### Assets
 
-An **asset file** (format 3) holds a picture's parts, ready for the card: a palette, a bitmap, tiles and their map,
-sprite images and a sprite table, a font. Record 0 has a 16-byte header (`'OGX'`, the format, the parts) and up to
-7 parts of 16 bytes (the type, the layer's CONFIG it was made for, a unit or `$FF` for any, the first record, the
-records, the bytes, a width and height); each part starts on a 1 KB boundary of the file, so it loads straight from
-the card. `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
+An **asset file** (format 4, *proposed* with interface version 8) holds a picture's parts, ready for the card: a
+palette, a bitmap, tiles and their map, sprite images and a sprite table, a font. Record 0 has a 16-byte header
+(`'OGX'`, the format, the parts) and up to 7 parts of 16 bytes (the type, the layer's CONFIG it was made for, at +2–3
+a card page, a multiple of 4 in the program's part or `$FFFF` for any, the first record, the records, the bytes, a
+width and height); each part starts on a 1 KB boundary of the file, so it loads in whole sectors. Sprite images are
+each padded to 256 bytes, a card page, and a sprite table's entries count them in pages from the images' part, which
+`GX_ASSET` moves on by where that part went. The library reads format 4 alone: format 3, revision 1's (a unit, one
+byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
 `sprites`, `palette`), and checks one (`check`). [VIEW](../oodos-users-guide/05-utilities.md#util-view) shows one.
 
 ### What graphics costs
 
 With no slot set and no pointer, nothing: the tick with no event area is 145 cycles and the frame 199, as before,
-and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 516 a frame; a 512-byte slot copied,
-1,774 (1,024 of them the DMA's); the pointer, 728; the whole budget, four slots of 256 bytes, with the pointer and a
-44.1 kHz stream's fields, 3,645. That ends inside the vertical blank even with a USB batch or a 4 KB load piece
-holding the interrupt off (`test_oodos_video`: line 508 at the latest under a USB batch, 16 lines to spare, and line 511 under 64 KB loads,
-13 to spare; the blank is lines 480–524).
+and a layout-2 area's frame 7 cycles more (396). A slot set but its bit not is 516 a frame; a 512-byte slot copied
+through the port, 1,304 (512 of them the DMA's, a cycle a byte); the pointer, 734; the whole budget, four slots of
+256 bytes, with the pointer and a 44.1 kHz stream's fields, 2,765. That ends inside the vertical blank even with a
+USB batch or a 4 KB load piece holding the interrupt off (`test_oodos_video`: line 504 at the latest under a USB
+batch, 20 lines to spare, and line 502 under 64 KB loads, 22 to spare; the blank is lines 480–524).
 
 ## Linking the library into an overlay
 
@@ -816,8 +848,9 @@ DRQSEL back to 0 and its interrupts off, the ES5503 hook off, every part release
 volumes back at 255, and (from OODOS 0.7; before it, the EQ was left as the program set it) the EQ off with every
 gain 0. Timer 1 is set up again
 as the cold boot left it, should the program have changed it. For L4's graphics it frees the vertical-blank slots,
-turns the pointer off, and sets the video card's registers as the cold boot set them for the console (its memory,
-units 0–12, was never the program's, so its text shows again as it was). That is so whether the program ends by `JMP WBOOT`,
+turns the pointer off, sets the video card's registers as the cold boot set them for the console (its card memory,
+`$000000–$03FFFF`, was never the program's, so its text shows again as it was), turns the port's DMA request off, and
+puts the aperture's slots on card banks 0, 16, 2 and 3. That is so whether the program ends by `JMP WBOOT`,
 by ^C, or by an error. The counters run on (a program that changed timer 1's latch may cost the millisecond
 counter 1 ms: putting the latch back clears timer 1's flag, and a tick due then with it). Break goes to the
 monitor with the machine's interrupts off, as it always has; booting OODOS again starts the clocks afresh.
