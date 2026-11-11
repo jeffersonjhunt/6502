@@ -1418,11 +1418,11 @@ and more in L5:
     blocks), and its slots, pointer and warm-boot cases move into card memory. `test_oodos_gfx` draws, tiles,
     sprites, fades, text, flips and loads assets in card memory, maps through slot 1 (`GX_VMAP`'s refusals), and
     checks the allocator's grain and alignment. `check_mkasset.py` checks format 4.
-  - **Open questions:** (1) should functions 53–58 hand out banks 9–B now that they are RAM? (2) The ROM BIOS's
-    QUIET (`backplane/bios/bios.s`) only quiets a video card of ID `$91`, so on revision 2 Break leaves the card's
-    interrupts and sprites on until OODOS boots again; the Break cases of `test_oodos_video` and `test_oodos_clock`
-    fail until it does. (3) `DM_LOAD` straight to card memory (a load to RAM, then the port) would save the program
-    the staging buffer; left to OOLIB for now.
+  - **Open questions:** (1) should functions 53–58 hand out banks 9–B now that they are RAM? (2) *Answered:* the ROM
+    BIOS's QUIET (`backplane/bios/bios.s`) now quiets a video card of ID `$92` (its interrupts, the splash and the
+    port's DRQ), and the ROM's VSCREEN turns the sprites off, so on revision 2 Break leaves none of them on; the
+    Break cases of `test_oodos_video` and `test_oodos_clock` pass. (3) `DM_LOAD` straight to card memory (a load to
+    RAM, then the port) would save the program the staging buffer; left to OOLIB for now.
 
 **The books:** the Programmer's Guide's chapter 8 (phase G3) and each new function's entry, written step by step
 as each part is decided; the Technical Reference's interrupts chapter says who owns the IRQ. **The version:**
