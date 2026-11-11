@@ -617,7 +617,7 @@
   "documented": true,
   "anchor": "bdos-83",
   "file": "oodos-programmers-guide/07-function-reference.md",
-  "since": "OODOS 0.5",
+  "since": "OODOS 0.5; operations 7\u201310 and the card addresses with interface version 8 (*proposed*).",
   "status": "built"
  },
  {

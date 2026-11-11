@@ -1,0 +1,25 @@
+# 9 User interface (OOUI)
+
+**Proposed.** Nothing in this chapter is built yet. It is a placeholder for OOUI, the OO-1's UI toolkit, and is
+written in OOUI's phase U5, once the toolkit is built. Until then the API is [hw/ooui.md's](../../hw/ooui.md): its
+phase U0 set it down and the owner accepted it, with the six recommended answers to its open questions, on
+2026-11-11. Phase U1, the core and the text backend, builds it now and may still change it, so this chapter doesn't
+repeat it. Until OOUI is built, a program builds its own screens with OOLIB ([chapter 8](08-game-services.md)).
+
+OOUI is a library of 6502 code that a program links in, as it links OOLIB's graphics library, to get the same
+windows, menus, dialogs, lists, scroll bars and file picker as every other OO-1 program. The program describes its
+widgets in a table in its own memory; OOUI draws them on the video card's layers, takes the keyboard and the mouse
+from OOLIB's event area, and hands the program back events. The program never draws a widget itself.
+
+What U0 settled, in short ([hw/ooui.md, "Open Questions"](../../hw/ooui.md#open-questions)):
+
+- **The name** is OOUI, its calls `ui`.
+- **It is linked into each program,** as OOLIB is; a shared banked block is weighed again once OO-Amp runs on it.
+- **Its default theme** is an OO-1 house style, with a second theme beside it to show that a theme restyles
+  everything.
+- **The text backend comes first:** 80×30 cells on the card's two layers. Whether a bitmap backend follows, and a
+  drawing assist with it, is decided after OO-Amp is rebuilt on OOUI. A program's own pixels, such as OO-Amp's
+  visualizer, go on a canvas widget.
+
+OOUI takes its card memory from OOLIB, under OODOS's interface version 8 on video card revision 2 ([chapter 8,
+"Video memory"](08-game-services.md#video-memory)), and leaves the console's card memory and Apple II mode alone.
