@@ -554,6 +554,16 @@ TEST(tiles_maps_scrolling_sprites_and_collisions)
     const std::string c = gx(r, 'x');
     CHECK_EQ(c.substr(0, 2), std::string("01")); // group 1
     CHECK_EQ(c.substr(6), std::string("01"));    // the flag, then cleared
+    // While the two still overlap, each frame's vertical blank sets the flag again, so whether it reads clear
+    // here depends only on where in the frame GX_COLL ran. Part them, let the last colliding frame's flag
+    // arrive and clear it, and then it stays clear.
+    xy(r, 400, 300);
+    gx(r, 'X', 7);
+    gx(r, 'z');
+    r.run(ms(40));
+    gx(r, 'x');
+    r.run(ms(20));
+    CHECK_EQ(gx(r, 'x').substr(6), std::string("00")); // no collision since
     CHECK_EQ(vreg(r, 0x05) & 0x04, 0);
 }
 
