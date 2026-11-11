@@ -207,8 +207,9 @@ LENSET:         SEC
 ; pointer's sprite ($FF off), +5-12 the W1 map: block 1, the blocks the
 ; program has allocated (53-58's AMAP, blocks 4-23), aperture slot 1's
 ; window (33, the program's card bank OOLIB sets) and banks 9-B (36-47), but
-; not slots 0, 2 and 3's (32, 34, 35: OODOS's card banks 0, 2 and 3); +13-16 the program's card pages, its first and the one past
-; its last (the fitted memory's end if that is sooner; 0, 0 with no card).
+; not slots 0, 2 and 3's (32, 34, 35: OODOS's card banks 0, 2 and 3);
+; +13-16 the program's card pages, its first and the one past its last (the
+; fitted memory's end if that is sooner; 0, 0 with no card).
 DM_INFOX:       LDX     PX
                 BNE     @block
                 JMP     @ret
