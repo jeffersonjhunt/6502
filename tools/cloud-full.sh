@@ -116,12 +116,13 @@ group=$(aws cloudformation describe-stacks --stack-name builder-oo1 --query 'Sta
 launch() { # $1: spot or on-demand, $2: a subnet
     local opts=()
     [ "$1" = spot ] && opts=(--instance-market-options 'MarketType=spot,SpotOptions={SpotInstanceType=one-time,InstanceInterruptionBehavior=terminate}')
-    aws ec2 run-instances --launch-template LaunchTemplateName=builder-oo1 "${opts[@]}" \
+    aws ec2 run-instances --launch-template 'LaunchTemplateName=builder-oo1,Version=$Latest' "${opts[@]}" \
         --network-interfaces "DeviceIndex=0,SubnetId=$2,Groups=$group,AssociatePublicIpAddress=true,DeleteOnTermination=true" \
         --tag-specifications "ResourceType=instance,Tags=[$tags]" "ResourceType=volume,Tags=[{Key=builder,Value=true},{Key=project,Value=oo1}]" \
         --query 'Instances[0].[InstanceId,InstanceType,Placement.AvailabilityZone]' --output text
 }
-# Spot in each zone in turn, then on-demand.
+# Spot in each zone in turn, then on-demand. The template's latest version: a stack update adds one
+# and leaves the default where it was.
 got=
 for m in $([ "$market" = spot ] && echo spot) on-demand; do
     for s in ${subnets//,/ }; do
