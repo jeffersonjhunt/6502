@@ -414,6 +414,37 @@ def rules_checks(hello, tmp):
         ok(status and "contains initialized data" in out and not made, "make zpinit.%s with .byte 5 in ZEROPAGE fails" % kind)
 
 
+def w1_checks(tmp):
+    """A program linked with OOLIB (OOLIB_USERS) or OOUI (OOUI_USERS) keeps out of $4000-$7FFF: tools/w1.py
+    stops the build of one whose BSS crosses $4000, and lets one that ends below it through."""
+    src = lambda n: ('        .include "oodos.inc"\n        .include "oolib.inc"\n        OODOS_HEADER\n'
+                     "        .code\n        jsr GX_INIT\n        jmp WBOOT\n        .bss\n        .res %d\n" % n)
+    for users, name, size, crosses in (("OOLIB_USERS", "w1low", 0x0400, False), ("OOLIB_USERS", "w1over", 0x3D00, True),
+                                       ("OOUI_USERS", "w1ui", 0x3D00, True)):
+        with open(os.path.join(tmp, name + ".s"), "w") as f:
+            f.write(src(size))
+        out = os.path.join(tmp, "build", name + ".com")
+        r = run("make", "--no-print-directory", "SRC=" + tmp, "BUILD=" + os.path.join(tmp, "build"), users + "=" + name, out)
+        said = [l for l in (r.stdout + r.stderr).splitlines() if l.startswith("w1:")]
+        if crosses:
+            ok(r.returncode != 0 and not os.path.exists(out) and any("overlaps W1" in l for l in said),
+               "make %s (%s) with BSS across $4000 fails: %s" % (name, users, said[:1]))
+        else:
+            ok(r.returncode == 0 and os.path.exists(out), "make %s (%s) below $4000 links: %s" % (name, users, said[:1]))
+    # A map whose segment list has no rows checked nothing, and fails (round 2's W6); so does one with no list.
+    good = open(os.path.join(tmp, "build", "w1low.map")).read()
+    head = good.index("Segment list:")
+    rows = good.index("\n\n", head)
+    lines = good[head:rows].splitlines()
+    for what, text in (("no rows", good[:head] + "\n".join(lines[:4]) + good[rows:]),
+                       ("no list", good[:head] + good[rows:])):
+        path = os.path.join(tmp, "w1doctored.map")
+        with open(path, "w") as f:
+            f.write(text)
+        r = run(sys.executable, "-I", "tools/w1.py", path)
+        ok(r.returncode == 1 and "no segments" in r.stderr, "w1.py on a map with %s fails: %s" % (what, r.stderr.strip()))
+
+
 def run_checks(hello, tmp):
     """hello on the emulator's W65C02S (spike/gwbasic's run6502), with command tails."""
     r = run("make", "--no-print-directory", "-C", SPIKE, "run6502")
@@ -669,6 +700,8 @@ def main():
         tpa_checks(tmp)
         print("The 65C816 rules")
         rules_checks(hello, tmp)
+        print("W1 kept clear")
+        w1_checks(tmp)
         print("Running hello")
         run_checks(hello, tmp)
         print("The C target")

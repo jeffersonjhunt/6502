@@ -85,6 +85,9 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 ;   GX_LAYER    A the layer (0, 1), X its CONFIG, GX_V its map's card page
 ;               (MAPBASE), GX_R its tiles' or font's (TILEBASE): scrolls and
 ;               PALOFS 0
+;   GX_PALOFS   A the layer (0, 1), X its palette group, 0-15 (PALOFS: a
+;               text, mono or 4-bit pixel's colour is PALOFS x 16 + its
+;               value, and 0 stays transparent); carry clear
 ;   GX_SHOW     A CTRL's layer and sprite bits ($02 layer 0, $04 layer 1,
 ;               $08 sprites): the display on with them
 ;   GX_BORDER   A the border's palette entry
@@ -167,7 +170,7 @@ SE_LOAD         = 13                   ; a load into the card's RAM refused
 .include "vmem.inc"
 
 .global GX_INIT, GX_REMAP, GX_BLOCK
-.global GX_LAYER, GX_SHOW, GX_BORDER, GX_CONSOLE, GX_PALBASE, GX_SPRBASE
+.global GX_LAYER, GX_PALOFS, GX_SHOW, GX_BORDER, GX_CONSOLE, GX_PALBASE, GX_SPRBASE
 .global GX_PALINIT, GX_PALSET, GX_PALLOAD, GX_PALSHOW, GX_FADE
 .global GX_SPRINIT, GX_SPRPOS, GX_SPRIMG, GX_SPRATTR, GX_SPRSHOW, GX_COLL
 .global GX_TMAP, GX_TPUT, GX_TGET, GX_TFILL, GX_SCROLL
