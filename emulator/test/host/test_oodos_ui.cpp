@@ -46,7 +46,7 @@ namespace
     {
         W_DESK, W_BAR, M_FILE, I_OPEN, I_SAVE, I_SEP, I_EXIT, M_EDIT, I_CUT, I_COPY, M_HELP, I_ABOUT, W_MAIN, L_HEAD,
         P_OPTS, C_SHAD, C_MOUS, L_RIGHT, L_DIS, B_OK, B_CAN, W_SIDE, B_TOG, L_SIDE, W_OVER, L_OVER, B_HIDE, W_TALL,
-        L_EDGE, MAIN_COUNT
+        L_EDGE, W_THIN, L_THIN, MAIN_COUNT
     };
     // ooui.inc's record fields and flags
     constexpr unsigned UW_TYPE = 0, UW_PARENT = 1, UW_FLAGS = 6, UW_TEXT = 8, UW_VALUE = 10;
@@ -905,15 +905,197 @@ TEST(p1_a_theme_in_palette_groups_of_its_own)
     expect(poll(r), {}, "a modal window shown");
     CHECK_EQ(vid(r).peek(0x19), 4); // the base dimmed (TF_DIM)
     golden(r, "dim-modal");
+    // The dim group: the house colours, each component halved (round 2's W7), in OOLIB's shadow.
+    const uint32_t pal = lab("GX_PAL"), colours = r.phys(lab("UI_HOUSE") + 2u) | r.phys(lab("UI_HOUSE") + 3u) << 8;
+    for (uint32_t i = 0; i < 16; ++i)
+    {
+        CHECK_EQ(r.phys(pal + 2 * (64 + i)), (r.phys(colours + 2 * i) >> 1) & 0x77);
+        CHECK_EQ(r.phys(pal + 2 * (64 + i) + 1), r.phys(colours + 2 * i + 1) >> 1);
+    }
+    const uint64_t dim = frame_hash(r);
+    CHECK_EQ(ui(r, 't', 3).substr(6), std::string("00")); // the same groups, TF_DIM clear
+    expect(poll(r), {}, "no dimming");
+    CHECK_EQ(vid(r).peek(0x19), 2);
+    CHECK_NE(frame_hash(r), dim);
+    CHECK_EQ(ui(r, 't', 2).substr(6), std::string("00"));
+    poll(r);
     CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
     expect(poll(r), {}, "hidden");
     CHECK_EQ(vid(r).peek(0x19), 2);
     CHECK_EQ(frame_hash(r), house);
 }
 
+// ---- round 2 of the review (2026-11-11): each case fails without its fix -------------------------------------
+
+namespace
+{
+    /// The video registers a program sets: CTRL, the layers', PALBASE and SPRBASE.
+    std::vector<uint8_t> vregs(CcpRig &r)
+    {
+        std::vector<uint8_t> v;
+        for (const unsigned a : {0x00u, 0x01u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du})
+            v.push_back(vid(r).peek(static_cast<uint8_t>(a)));
+        for (uint8_t a = 0x10; a <= 0x29; ++a)
+            v.push_back(vid(r).peek(a));
+        return v;
+    }
+} // namespace
+
+TEST(w1_ui_theme_leaves_the_card_alone_while_shut_or_suspended)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    std::vector<uint8_t> before = vregs(r);
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00")); // before ui_open: kept, nothing set
+    r.run(ms(40));
+    CHECK(vregs(r) == before);
+    CHECK_EQ(ui(r, 't', 0).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    const unsigned map0 = vid(r).peek(0x11) | vid(r).peek(0x12) << 8;
+    CHECK_EQ(ui(r, 'S').substr(6), std::string("00"));
+    // The layers are the program's now: it sets layer 0 and CTRL its own way.
+    r.machine->bus().write(0xC490, 0x02); // tiles
+    r.machine->bus().write(0xC491, 0x00);
+    r.machine->bus().write(0xC492, 0x05);
+    r.machine->bus().write(0xC499, 0x07); // PALOFS
+    r.machine->bus().write(0xC480, 0x03);
+    r.run(ms(40));
+    before = vregs(r);
+    CHECK_EQ(ui(r, 't', 1).substr(6), std::string("00"));
+    r.run(ms(40));
+    CHECK(vregs(r) == before);
+    // ui_resume sets OOUI's layers again, in the theme chosen meanwhile.
+    CHECK_EQ(ui(r, 'U').substr(6), std::string("00"));
+    expect(poll(r), {}, "resumed");
+    CHECK_EQ(vid(r).peek(0x10), 0);
+    CHECK_EQ(static_cast<unsigned>(vid(r).peek(0x11) | vid(r).peek(0x12) << 8), map0);
+    CHECK_EQ(vid(r).peek(0x00) & 0x0F, 0x0F);
+    if (!updating())
+        CHECK_EQ(frame_hash(r), read_golden().at("turbo-window"));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00")); // after ui_close: kept, nothing set
+    r.run(ms(40));
+    before = vregs(r);
+    CHECK_EQ(ui(r, 't', 0).substr(6), std::string("00"));
+    r.run(ms(40));
+    CHECK(vregs(r) == before);
+}
+
+TEST(w2_an_item_hidden_or_shown_while_its_menu_is_down)
+{
+    CcpRig a;
+    REQUIRE(a.ok);
+    open_main(a);
+    key(a, K_F, L_ALT);
+    poll(a);
+    const uint64_t down = frame_hash(a);
+    CHECK_EQ(ui(a, 'h', I_SAVE).substr(6), std::string("00"));
+    expect(poll(a), {}, "Save hidden");
+    CcpRig b;
+    REQUIRE(b.ok);
+    start_ui(b);
+    b.poke(rec(I_SAVE) + UW_FLAGS, static_cast<uint8_t>(b.phys(rec(I_SAVE) + UW_FLAGS) | 0x01));
+    CHECK_EQ(ui(b, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(b);
+    key(b, K_F, L_ALT);
+    poll(b);
+    CHECK_EQ(frame_hash(a), frame_hash(b)); // as if opened with Save hidden: no row of it left
+    CHECK_EQ(ui(a, 's', I_SAVE).substr(6), std::string("00"));
+    expect(poll(a), {}, "Save shown");
+    CHECK_EQ(frame_hash(a), down);
+}
+
+TEST(w3_w8_dimming_only_under_an_overlay_s_modal_window)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    CHECK_EQ(ui(r, 't', 2).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(flags(r, W_SIDE, UF_MODAL).substr(6), std::string("00")); // a modal window on the base layer
+    expect(poll(r), {}, "Second modal");
+    CHECK_EQ(vid(r).peek(0x19), 2); // not dimmed: the dialog is on the base too
+    // W8: one layer, no dimming: the dim group's entries left as they were.
+    CcpRig o;
+    REQUIRE(o.ok);
+    start_ui(o);
+    CHECK_EQ(ui(o, 'o', BLK_ONE).substr(6), std::string("00"));
+    poll(o);
+    const uint16_t pal = lab("GX_PAL");
+    o.poke(pal + 2u * 64, std::vector<uint8_t>(32, 0x5A));
+    CHECK_EQ(ui(o, 't', 2).substr(6), std::string("00"));
+    poll(o);
+    for (unsigned i = 0; i < 32; ++i)
+        CHECK_EQ(o.phys(pal + 2u * 64 + i), 0x5A);
+}
+
+TEST(w4_a_framed_window_of_no_width)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint64_t window = frame_hash(r);
+    CHECK_EQ(ui(r, 's', W_THIN).substr(6), std::string("00"));
+    expect(poll(r), {}, "Thin shown");
+    expect_place(r, W_THIN, {0, 27, 0, 3, false});
+    expect_place(r, L_THIN, {1, 28, 0, 1, false}); // its client 0 wide, not 254
+    CHECK_EQ(frame_hash(r), window);
+    point(r, 5, 28);
+    usb(r).mouse_wheel(-1);
+    r.run(ms(30));
+    expect(poll(r), {{UE_WHEEL, W_DESK, 0, 0xFFFF}}, "the wheel over it: the desktop's");
+}
+
+TEST(w5_a_menu_down_goes_up_for_a_modal_window_or_when_disabled)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    key(r, K_F, L_ALT);
+    poll(r);
+    CHECK_EQ(flags(r, W_OVER, UF_MODAL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 's', W_OVER).substr(6), std::string("00")); // ui_show of a modal window
+    expect(poll(r), {}, "a modal window shown");
+    expect_place(r, M_FILE, {1, 1, 19, 6, true});
+    CHECK_EQ(ui(r, 'h', W_OVER).substr(6), std::string("00"));
+    poll(r);
+    key(r, K_F, L_ALT);
+    poll(r);
+    CHECK_EQ(flags(r, W_SIDE, UF_MODAL).substr(6), std::string("00")); // ui_flags making a shown window modal
+    expect(poll(r), {}, "Second made modal");
+    expect_place(r, M_FILE, {1, 1, 19, 6, true});
+    CHECK_EQ(flags(r, W_SIDE, 0, UF_MODAL).substr(6), std::string("00"));
+    poll(r);
+    key(r, K_F, L_ALT);
+    poll(r);
+    CHECK_EQ(flags(r, M_FILE, UF_DISABLED).substr(6), std::string("00")); // the menu down disabled
+    expect(poll(r), {}, "File disabled");
+    expect_place(r, M_FILE, {1, 1, 19, 6, true});
+}
+
+TEST(w10_no_item_chosen_from_a_bar_that_doesn_t_show)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    CHECK_EQ(ui(r, 'h', W_BAR).substr(6), std::string("00"));
+    key(r, K_F1);
+    expect(poll(r), {}, "F1, the bar hidden");
+    CHECK_EQ(ui(r, 's', W_BAR).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'h', W_DESK).substr(6), std::string("00")); // the bar's parent hidden
+    key(r, K_F1);
+    expect(poll(r), {}, "F1, the desktop hidden");
+    CHECK_EQ(ui(r, 's', W_DESK).substr(6), std::string("00"));
+    key(r, K_F1);
+    expect(poll(r), {{UE_MENU, I_ABOUT, M_HELP, 0}}, "F1, shown again");
+}
+
 int main()
 {
     const int failed = run_all();
+    if (updating() && failed)
+        return failed; // an update run that failed anything else fails (round 2's W7)
     if (updating())
     {
         std::printf("\n*** OOUI_GOLDEN=update: golden/ooui.txt was WRITTEN, nothing was compared. ***\n"

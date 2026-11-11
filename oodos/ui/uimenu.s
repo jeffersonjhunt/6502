@@ -695,6 +695,10 @@ MCHOOSE:
         lda     (UIR),y
         and     #UF_DISABLED | UF_HIDDEN
         bne     @none
+        ldy     #UW_PARENT              ;   or on a bar that doesn't show (round 2's W10)
+        lda     (UIR),y
+        jsr     RECT
+        bcs     @none
         lda     mh
         jsr     REC
         ldy     #UW_VALUE

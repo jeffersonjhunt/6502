@@ -187,10 +187,15 @@ PLACE:  ldy     #UW_FLAGS
 @r:     rts
 SHRINK: inc     ucli
         inc     ucli + 1
-        dec     ucli + 2
-        dec     ucli + 2
-        dec     ucli + 3
-        dec     ucli + 3
+        ldx     #2
+@d:     lda     ucli + 2 - 1,x          ; each size less 2, never below 0 (round 2's W4)
+        sec
+        sbc     #2
+        bcs     @s
+        lda     #0
+@s:     sta     ucli + 2 - 1,x
+        dex
+        bne     @d
         rts
 
 ; One axis (X 0 the columns, 1 the rows; Y the position's field, the size's
@@ -821,11 +826,13 @@ POINTER:
 ui_show:
         jsr     ENTER
         jsr     CHKH
-        jsr     REC
+        sta     sh_h
+        jsr     MENUDMG
+        lda     sh_h
+        jsr     DIRTY                   ; (an item's menu too: round 2's W2)
         ldy     #UW_FLAGS
         lda     (UIR),y
         and     #<~UF_HIDDEN
-        ora     #UF_DIRTY
         sta     (UIR),y
         bra     REFOCUS
 
@@ -834,13 +841,14 @@ ui_hide:
         jsr     CHKH
         sta     sh_h
         jsr     DAMAGE
+        jsr     MENUDMG
         lda     umenu                   ; a menu down inside it goes up first, while it shows
         ldx     sh_h
         jsr     INSIDE
         bcs     @flag
         jsr     MCLOSE
 @flag:  lda     sh_h
-        jsr     REC
+        jsr     DIRTY                   ; (an item's menu drawn again: W2)
         ldy     #UW_FLAGS
         lda     (UIR),y
         ora     #UF_HIDDEN
@@ -849,7 +857,14 @@ ui_hide:
 ; the focus's widget hidden).
 REFOCUS:
         jsr     FINDMODAL
-        lda     ufocus
+        lda     umenu                   ; a menu down outside the modal window goes up (W5)
+        cmp     #UI_NONE
+        beq     @f
+        ldx     umodal
+        jsr     INSIDE
+        bcc     @f
+        jsr     MCLOSE
+@f:     lda     ufocus
         jsr     CANFOCUS
         bcc     @ok
         lda     #1
@@ -859,6 +874,22 @@ REFOCUS:
 @set:   jsr     SETFOCUS
 @ok:    clc
         rts
+
+; Record sh_h, if it is an item or a line of the menu down: the menu's
+; place added to the damage, before the record's flags change its rows
+; (round 2's W2). Keeps nothing.
+MENUDMG:
+        lda     umenu
+        cmp     #UI_NONE
+        beq     @r
+        lda     sh_h
+        jsr     REC
+        ldy     #UW_PARENT
+        lda     (UIR),y
+        cmp     umenu
+        bne     @r
+        jmp     DAMAGE
+@r:     rts
 
 ; Record A's place, with its shadow, added to its layer's damage, if it
 ; shows.
@@ -895,6 +926,7 @@ ui_flags:
         jsr     CHKH
         sta     sh_h
         jsr     DAMAGE                  ; where it was (the review's O11)
+        jsr     MENUDMG
         lda     sh_h
         jsr     DIRTY
         ldy     #UW_FLAGS
@@ -902,7 +934,13 @@ ui_flags:
         ora     t0
         and     t1
         sta     (UIR),y
-        jsr     REFOCUS                 ; the focus and the modal window again
+        and     #UF_DISABLED            ; the menu down, disabled: up (W5)
+        beq     @re
+        lda     sh_h
+        cmp     umenu
+        bne     @re
+        jsr     MCLOSE
+@re:    jsr     REFOCUS                 ; the focus and the modal window again
         lda     sh_h
         jsr     REC
         ldy     #UW_FLAGS
@@ -1010,6 +1048,10 @@ ui_theme:
         sta     utheme
         stx     utheme + 1
         jsr     THEME0
+        lda     uopen                   ; shut, or suspended (the layers the program's): only
+        beq     @r                      ;   kept, for ui_open or ui_resume to set (round 2's W1)
+        lda     ususp
+        bne     @r
         jsr     ENTER
         jsr     LAYERS                  ; the groups (PALOFS), then the colours
         jsr     SETPAL
@@ -1017,7 +1059,7 @@ ui_theme:
         beq     @all
         jsr     PTRATTR
 @all:   jsr     ALLDIRTY
-        clc
+@r:     clc
         rts
 
 ui_suspend:

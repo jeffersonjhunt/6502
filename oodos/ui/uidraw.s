@@ -275,6 +275,9 @@ SETPAL: ldy     #TH_PALETTE
         ldy     #TH_GROUP
         lda     (UIT),y
         jsr     PALGRP
+        lda     uover                   ; no overlay layer: no dimming, its group untouched (W8)
+        cmp     #UI_NONE
+        beq     @over
         ldy     #TH_FLAGS
         lda     (UIT),y
         and     #TF_DIM
@@ -481,6 +484,12 @@ PAINT:  lda     ususp
         ldy     #TH_FLAGS
         lda     (UIT),y
         and     #TF_DIM
+        beq     @nd
+        phx                             ; only a modal window on the overlay (round 2's W3)
+        lda     umodal
+        jsr     RECT
+        plx
+        lda     rover
         beq     @nd
         ldy     #TH_DIMGROUP
         lda     (UIT),y

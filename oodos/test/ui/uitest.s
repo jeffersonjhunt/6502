@@ -105,11 +105,14 @@ c_open: asl     a
         jmp     ui_open
 
 ; ui_theme A: 0 the default, 1 Turbo Vision's, 2 the default's colours in
-; groups 2 (the base), 3 (the overlay) and 4 (dimmed, TF_DIM).
+; groups 2 (the base), 3 (the overlay) and 4 (dimmed, TF_DIM); 3 the same
+; with TF_DIM clear.
 c_theme:
         cmp     #1
         beq     @tv
         cmp     #2
+        beq     @grp
+        cmp     #3
         beq     @grp
         lda     #0
         tax
@@ -117,13 +120,18 @@ c_theme:
 @tv:    lda     #<UI_TURBO
         ldx     #>UI_TURBO
         jmp     ui_theme
-@grp:   ldx     #TH_LEN - 1
+@grp:   pha
+        ldx     #TH_LEN - 1
 @c:     lda     UI_HOUSE,x
         sta     tgroups,x
         dex
         bpl     @c
+        pla
+        cmp     #3
         lda     #TF_SHADOW | TF_DIM
-        sta     tgroups + TH_FLAGS
+        bcc     @dim
+        lda     #TF_SHADOW
+@dim:   sta     tgroups + TH_FLAGS
         lda     #2
         sta     tgroups + TH_GROUP
         inc     a
@@ -282,6 +290,10 @@ U_F1    = $3A
         ; bottom. Both are nothing when shown.
         UI_WINDOW  W_TALL, W_DESK, 10, 26, 20, -6, "Tall", UF_HIDDEN
         UI_LABEL   L_EDGE, W_SIDE, 30, 1, 0, "Edge", UF_HIDDEN
+        ; A framed window of no width at column 0 (round 2's W4): its client
+        ; area is 0 wide, not 254, so its label is nothing too.
+        UI_WINDOW  W_THIN, W_DESK, 0, 27, -80, 3, "Thin", UF_HIDDEN
+        UI_LABEL   L_THIN, W_THIN, 0, 0, 0, "Thin label", 0
         UI_END     main
 
 ; The accelerator table: Ctrl+Q presses Cancel, F1 chooses About, Ctrl+T
