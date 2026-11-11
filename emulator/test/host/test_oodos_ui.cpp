@@ -1920,10 +1920,9 @@ TEST(y4_the_program_s_state_after_each_batch_and_a_drive_error)
     start_ui(r, "uitpick");
     CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
     poll(r);
-    CHECK_EQ(ui(r, 'e', 5, 0xFE).substr(6), std::string("00")); // user 5, DMA PDMA, the error mode $FE
+    CHECK_EQ(ui(r, 'e', 5, 0xFE, 1).substr(6), std::string("00")); // user 5, DMA PDMA, the error mode $FE, segment $1234
     const std::string mine = own_state(r);
-    CHECK_EQ(mine.substr(0, 16), std::string("user 5 dma 3A00 "));
-    CHECK_EQ(mine.substr(mine.size() - 2), std::string("FE"));
+    CHECK_EQ(mine, std::string("user 5 dma 3A00 seg 1234 err FE")); // (Y4b: the picker's segment is $FFFF)
     CHECK_EQ(ui(r, 'k', 0).substr(6), std::string("00")); // A:, the drives and users
     for (int i = 0; i < 40 && r.phys(lab("lst")); ++i)
     {
@@ -2368,6 +2367,121 @@ TEST(x13_the_wheel_at_a_slider_s_end_says_nothing)
     usb(r).mouse_wheel(-1);
     r.run(ms(30));
     expect(poll(r), {{UE_CHANGE, Y_HSL, 0, 95}}, "the wheel down");
+}
+
+// ---------------------------------------------------------------------------
+// U2's review, round 2 (Z1, Z2, Z4, Z5; Y4b is y4's segment).
+
+TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
+{
+    // A card of its own: BIG.IMG (oodos-32m) as A:, 200 files SONG0000-SONG0199.SID (names sharing 5 characters).
+    std::vector<uint8_t> card = fat16_card({{"BIG.IMG", 65536u * 512}});
+    auto word = [&](size_t at) { return size_t{card[at]} | size_t{card[at + 1]} << 8; };
+    const size_t root = (word(14) + card[16] * word(22)) * SECTOR;
+    const size_t data = root + word(17) * 32;
+    std::fill(card.begin() + static_cast<long>(data), card.begin() + static_cast<long>(data + 2048 * 32), 0xE5);
+    for (unsigned i = 0; i < 200; ++i)
+    {
+        uint8_t *e = card.data() + data + i * 32;
+        std::memset(e, 0, 32);
+        char n[16];
+        std::snprintf(n, sizeof n, "SONG%04uSID", i % 10000u);
+        std::memcpy(e + 1, n, 11);
+        e[15] = 1;
+        e[16] = static_cast<uint8_t>(8 + i);
+    }
+    Rig r(card);
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    REQUIRE(r.boot());
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    // The instructions a poll runs in the walk's own code (CONSIDER to COUNTED: the compares, not the BDOS).
+    const uint16_t from = lab("CONSIDER"), to = lab("COUNTED");
+    unsigned long n = 0, most = 0;
+    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to; };
+    CHECK_EQ(ui(r, 'k', 4).substr(6), std::string("00"));
+    for (int i = 0; i < 100 && r.phys(lab("lst")); ++i)
+    {
+        n = 0;
+        poll(r);
+        most = std::max(most, n);
+    }
+    r.watch = nullptr;
+    std::printf("  the most a poll ran in the walk: %lu instructions\n", most);
+    CHECK(most < 100000); // (about 54,000 at its last walk, the prune with it: a list's squared /2 is past 600,000)
+    CHECK_EQ(r.phys(lab("lst")), 0);
+    CHECK_EQ(word_at(r, lab("count")), 200u);
+    CHECK_EQ(status(r), std::string("200 files"));
+}
+
+TEST(z2_an_overlay_window_hidden_over_nothing_takes_its_thumb)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    r.poke(rec2(Y_DESK) + UW_TYPE, 0);    // no desktop
+    r.poke(rec2(Y_WIN) + UW_PARENT, 0xFF); // the window at the top, on the overlay
+    r.poke(rec2(Y_WIN) + UW_FLAGS, static_cast<uint8_t>(r.phys(rec2(Y_WIN) + UW_FLAGS) | 0x40));
+    CHECK_EQ(ui(r, 'o', BLK_U2).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(ui(r, 'f', Y_VSL).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'h', Y_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    CHECK_EQ(ui(r, 's', Y_WIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+}
+
+TEST(z4_a_drive_and_a_whole_8_3_name_typed)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 2); // UP_NEW on B:
+    CHECK_EQ(ui(r, 'f', P_FLD).substr(6), std::string("00"));
+    type_name(r, "b:songname.sid");
+    poll(r);
+    std::string fld;
+    for (uint32_t p = lab("fbuf"); r.phys(p); ++p)
+        fld += static_cast<char>(r.phys(p));
+    CHECK_EQ(fld, std::string("B:SONGNAME.SID"));
+    key(r, K_ENTER);
+    const std::vector<Event> ev = poll(r);
+    CHECK(!ev.empty() && ev[0].code == UE_PICK && ev[0].value == 0);
+    CHECK_EQ(result(r, 0), std::string("2 0 SONGNAMESID"));
+}
+
+TEST(z5_a_file_deleted_after_it_was_listed_leaves_the_list)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 40);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00"));
+    for (int i = 0; i < 3; ++i)
+        poll(r);
+    CHECK(r.phys(lab("lst")) != 0);
+    CHECK(has(listed(r), "FILE02.TXT"));
+    std::vector<uint8_t> fcb(36, 0);
+    fcb[0] = 13; // M:
+    const char *nm = "FILE02  TXT";
+    std::memcpy(fcb.data() + 1, nm, 11);
+    r.poke(TEXTBUF, fcb);
+    CHECK_EQ(ui(r, 'z').substr(0, 2), std::string("00")); // deleted
+    settle(r);
+    const std::vector<std::string> v = listed(r);
+    CHECK(!has(v, "FILE02.TXT"));
+    CHECK_EQ(v.size(), 39u);
+    CHECK_EQ(status(r), std::string("39 files"));
+    CHECK(has(v, "FILE01.BIN") && has(v, "FILE39.BIN"));
 }
 
 int main()
