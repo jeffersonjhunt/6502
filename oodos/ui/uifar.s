@@ -3,7 +3,7 @@
 ; uib.s, uic.s: its first bytes after UICOM), and the selector they read.
 ; Only these name another block's symbol (AENT, BENT, CENT: mkbank.py lets
 ; them). The XGO macro (ui.inc) sets the selector and calls the stub,
-; keeping A, X, Y and the carry; FARCALL keeps A, X, Y and the flags across.
+; keeping A, X, Y, the carry and V; FARCALL keeps A, X, Y and the flags across.
 
         .setcpu "65C02"
         .include "oodos.inc"

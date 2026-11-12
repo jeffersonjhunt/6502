@@ -1425,7 +1425,7 @@ program's 320 KB.
 | UISTATE, used of the 1,536 reserved | 1,531 | 5 |
 | Fixups: A, B, C (UICOM's in each) | 1,846, 1,688, 1,132 | |
 | `OOUI.BNK` | 37,248 | |
-| The program part: `ui_load` (code 1,100, tables 56, `DATA` 4) | 1,160 | |
+| The program part: `ui_load` (code 1,259, tables 56, `DATA` 4; with the code review's C2 checks) | 1,319 | |
 | The program part: the stubs (`DATA`) | 154 | |
 | The program part: zero page | 8 | |
 | The program part: `UI_HOUSE`, `UI_TURBO`, each when named | 96 | |
@@ -1471,6 +1471,36 @@ program's 320 KB.
   table's end. Now it counts the encoded entries; every frame shows it.
 - **The link's order.** It is sorted, since make's wildcard ordered `ui/*.s` differently in make_card.sh's
   container, and OOUI.BNK's bytes with it.
+
+**The code review (2026-11-12), all six fixed:**
+- **C1.** A thumb whose cover hid only it kept the slider's first cell as its last, so it stayed out of sight
+  when the cover went. SPRITE now keeps the thumb's own cell, shown or not. The case
+  `c1_a_thumb_shows_again_when_what_covered_only_it_goes` fails without the fix (depth 0 after the window hid).
+  Its second half, a second menu of UITBAR's over the thumb only, passes either way, since the menu bar's redraw
+  widens the damage box.
+- **C2.** ui_load checks every header field and fixup before using it, and refuses a file that fails (UX_LOAD,
+  through FREE):
+  - before anything is allocated: each block's image 1 to `$3000` bytes, and each call's block 0-2 and its address
+    in `$C800-$F7FF`;
+  - for each fixup: inside the image, a word's second byte too; a kind mkbank.py makes; a block number 1-3; an
+    import below the header's count.
+  
+  `c2_a_hostile_ooui_bnk_writes_nothing_outside_its_blocks` has seven files, each refused with the blocks free and
+  the user and DMA as they were. The loader before accepted all seven.
+- **C3.** mkbank.py refuses an unnamed label in the bank's sources: the debug file doesn't list one, so a `jmp :+`
+  across blocks couldn't be seen. The mkbank.py before accepted check_tools' case.
+- **C4.** The must-fails added:
+  - in check_tools: a `#<` of an import, and a `.byte >FARCALL`;
+  - `c4_a_short_ooui_bnk_is_refused_with_its_blocks_freed`: a file short in an image, and one short in the fixups.
+
+  The two hand must-fails, run on 2026-11-12, each broke the window's case:
+  - common memory not copied into the blocks: `a_window_with_labels_buttons_and_a_check_box` NOT OK, 12 failed
+    assertions;
+  - the page fixups skipped in ui_load: the same, 12 failed assertions.
+- **C5.** The dispatchers' headers say that A, X, Y, the carry and V are kept across a crossing, and N and Z
+  aren't.
+- **C6.** `rules.py`'s rule 4 is given only the routine imports; `ui/uiimp.inc` marks the variables `UIIMPV`. A
+  JSR to `GX_V` is refused (check_tools); the mkbank.py before let it through.
 
 **Changes from the design text:**
 - **The X4 menu-over-thumb test** adds a menu bar to UITBAR's scene that is hidden there and shown by the test, so
