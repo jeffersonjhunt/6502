@@ -3255,7 +3255,7 @@ TEST(c4_a_short_ooui_bnk_is_refused_with_its_blocks_freed)
 
 namespace
 {
-    enum : uint8_t { Z_DESK, Z_WIN, Z_OWN, Z_STD, Z_VSC, Z_HSC, Z_LBL, Z_BTN };
+    enum : uint8_t { Z_DESK, Z_WIN, Z_OWN, Z_STD, Z_VSC, Z_HSC, Z_LBL, Z_BTN, Z_COVER, Z_BAR };
     enum : uint8_t { BLK_U3B = 6, BLK_OWN = 7 }; ///< uitest.s's (UITBAR)
     constexpr uint8_t P_ALL = 0xFD;              ///< the picker's Add all (U3b)
     constexpr unsigned TH_COLOURS_ = 34, TC_LABEL_ = 5, TC_BUTTON_ = 6, TC_BUTTONFOCUS_ = 7;
@@ -3379,6 +3379,38 @@ TEST(u3b_a_scroll_bar_s_sprite_thumb)
     poll(r);
     CHECK_EQ(spr_depth(r, 3), 0);
     CHECK_EQ(spr_depth(r, 4), 0);
+}
+
+TEST(u3b_a_tall_thumb_covered_at_one_end_is_hidden)
+{
+    // The U3b review's G2: the 8 x 32 thumb of the vertical scroll bar (column 43, rows 5-8 at 0) shows only when
+    // its first and last cells along the track both show, not its middle's (row 7) alone. A window over its last
+    // row (8) hides it, and when the window goes, its damage there (rows 8-10) brings it back, the Z3 filter
+    // looking at all its cells; a menu's drop-down over its first row (5), the same.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(spr_y(r, 3), 5u * 8);
+    CHECK_EQ(ui(r, 's', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    const Place cover = rect(r, Z_COVER);
+    CHECK(cover.col == 42 && cover.row == 8);
+    CHECK_EQ(spr_depth(r, 3), 0); // its last row covered: hidden (its middle's row shows)
+    CHECK_EQ(spr_depth(r, 4), 0x0C);
+    CHECK_EQ(ui(r, 'h', Z_COVER).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C); // back: the window's damage met its last row
+    CHECK_EQ(ui(r, 's', Z_BAR).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    key(r, 0x43); // F10: the drop-down, its bottom row 5, over the thumb's first row only
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0);
+    CHECK_EQ(spr_depth(r, 4), 0x0C); // (the horizontal bar's, row 10, below it)
+    key(r, K_ESC);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
 }
 
 TEST(u3b_a_label_in_a_colour_of_its_own)

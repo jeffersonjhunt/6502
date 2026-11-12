@@ -21,7 +21,7 @@
         .import SCALE, sv, su, sa, sr
         .import SCMEAS, SCPLACE
         .export UIW_VSLIDER, UIW_HSLIDER, PNONEW
-        .export TSIZE, SPRTAIL, POST, hw, hh, tc, tr
+        .export TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1
 
         .segment "BRODATA"
 UIW_VSLIDER:
@@ -50,6 +50,14 @@ old:    .res    2                      ; WHEEL's: the value before
 tsize:  .res    1                      ; the thumb's size byte (TSIZE)
 hw:     .res    1                      ;   half its width, in sprite units
 hh:     .res    1                      ;   half its height
+tc1:    .res    1                      ; the thumb's last cell along the track (SHOWS's, U3b review, G2)
+tr1:    .res    1
+pend:   .res    2 * 16                 ; each of OOUI's sprites' thumb: its last cell's other end (Z3, G2)
+clo:    .res    1                      ; ENDS's: the thumb's first and last cells from the track's low end
+chi:    .res    1
+wp:     .res    1                      ; SHOWS's walk: its pass's layer, its record, its first cell's
+wi:     .res    1                      ;   answer
+wk:     .res    1
 
         .segment "BCODE"
 
@@ -185,10 +193,12 @@ CELLAT: lda     vert
         jmp     GOTO
 
 ; The thumb's sprite (UW_B's high byte) for slider idx (MEASURE'd, UI_RECT
-; its place): carry clear and placed on pos, OOUI's thumb image (8 x 8, the
-; card page after the pointer's), in front and shown, if its cell shows (in
-; its parents' client areas, in front of what else is there, under no menu
-; that is down: X4); carry set if it doesn't.
+; its place): carry clear and placed on pos, its image OOUI's (8 x 8, the
+; card page after the pointer's) or with UF_OWNTHUMB the program's, in front
+; and shown, if its cells show (its first and last along the track, held to
+; the track: in its parents' client areas, in front of what else is there,
+; under no menu that is down: X4, and the U3b review's G2); carry set if
+; they don't.
 SPRITE: jsr     TSIZE                   ; its size: hw, hh half its width and height
         lda     vert                    ; X and Y: the cell's, in sprite units, and pos along
         beq     @h
@@ -215,15 +225,22 @@ SPRITE: jsr     TSIZE                   ; its size: hw, hh half its width and he
         lda     GX_Y + 1
         sbc     pos + 1
         sta     GX_Y + 1
-        jsr     PCELL                   ; the cell: the bottom row less pos / 8
+        lda     tc                      ; its cells: the column; the bottom row less chi, to the
+        sta     tc1                     ;   bottom row less clo
+        jsr     ENDS
         lda     UI_RECT + 1
         clc
         adc     UI_RECT + 3
         sec
         sbc     #1
+        pha
         sec
-        sbc     t0
+        sbc     chi
         sta     tr
+        pla
+        sec
+        sbc     clo
+        sta     tr1
         bra     SPRTAIL
 @h:     lda     UI_RECT                 ; x = column x 4 + pos - hw
         jsr     X4
@@ -244,19 +261,31 @@ SPRITE: jsr     TSIZE                   ; its size: hw, hh half its width and he
         bcc     @hy
         inc     GX_Y + 1
 @hy:    jsr     LESSH
-        jsr     PCELL                   ; the cell: the column plus pos / 4
+        lda     tr                      ; its cells: the row; the column plus clo, to the column
+        sta     tr1                     ;   plus chi
+        jsr     ENDS
         lda     UI_RECT
         clc
-        adc     t0
+        adc     clo
         sta     tc
+        lda     UI_RECT
+        clc
+        adc     chi
+        sta     tc1
 ; A thumb's common part (U3b: a scroll bar's too, from uiscroll.s's SCPLACE):
-; GX_X, GX_Y its place, tc, tr its cell, idx its record, pk its POST place.
+; GX_X, GX_Y its place, tc, tr and tc1, tr1 its first and last cells (the
+; top left and the bottom right of its cells on the track), idx its record,
+; pk its POST place.
 SPRTAIL:
-        ldx     pk                      ; the thumb's cell, shown or not, for POST's next filter:
+        ldx     pk                      ; the thumb's cells, shown or not, for POST's next filter:
         lda     tc                      ;   when what covers only the thumb goes, its damage is
-        sta     plast,x                 ;   there (the U3a review's C1)
-        lda     tr
+        sta     plast,x                 ;   there (the U3a review's C1); all of them, not its
+        lda     tr                      ;   middle's only (the U3b review's G2)
         sta     plast + 1,x
+        lda     tc1
+        sta     pend,x
+        lda     tr1
+        sta     pend + 1,x
         jsr     SHOWS                   ; (UI_RECT and UIR changed)
         bcs     @r
         lda     idx
@@ -341,57 +370,173 @@ LESSH:  lda     GX_Y
         dec     GX_Y + 1
 @r:     rts
 
-; t0 = the thumb's cell along the track: pos / 8 (vertical) or / 4.
-PCELL:  lda     pos + 1
+; The thumb's first and last cells along the track, from its low end (U3b
+; review, G2): clo and chi, the cells its sprite's units cover, held to the
+; track's 0 to len - 1. Vertical, pos the unit its middle is on: units pos -
+; hh + 1 to pos + hh, 8 a cell; horizontal, pos - hw to pos + hw - 1, 4 a
+; cell. OOUI's 8 x 8 thumb covers one or two cells; the program's 8 x 32 on
+; a vertical track up to five.
+ENDS:   lda     hw
+        ldx     vert
+        beq     @h
+        lda     hh
+@h:     sta     t2                      ; half its length along
+        lda     pos                     ; t0/t1 = pos + vert, the units from it
+        clc
+        adc     vert
+        sta     t0
+        lda     pos + 1
+        adc     #0
         sta     t1
-        lda     pos
+        pha
+        lda     t0
+        pha
+        sec                             ; its first: pos + vert - half, at least 0
+        sbc     t2
+        sta     t0
+        lda     t1
+        sbc     #0
+        sta     t1
+        bpl     @lo
+        stz     t0
+        stz     t1
+@lo:    jsr     UCELL
+        sta     clo
+        pla                             ; its last: pos + vert + half - 1, at most len - 1
+        clc
+        adc     t2
+        sta     t0
+        pla
+        adc     #0
+        sta     t1
+        lda     t0
+        bne     @d
+        dec     t1
+@d:     dec     t0
+        jsr     UCELL
+        ldx     t1                      ; (past 255 cells: past the track)
+        bne     @end
+        cmp     len
+        bcc     @in
+@end:   lda     len
+        beq     @in
+        dec     a
+@in:    sta     chi
+        rts
+; A = t0/t1's cell: / 8 (vertical) or / 4; t1 what is left above it.
+UCELL:  lsr     t1
+        ror     t0
         lsr     t1
-        ror     a
-        lsr     t1
-        ror     a
+        ror     t0
         ldx     vert
         beq     @r
         lsr     t1
-        ror     a
-@r:     sta     t0
+        ror     t0
+@r:     lda     t0
         rts
 
-; Carry clear if cell tc, tr of slider idx shows: the record frontmost there
-; is the slider (FRONT: its parents' client areas, and what is in front),
-; and no menu that is down covers it.
-SHOWS:  lda     mcol                    ; (ui_poll's cell kept)
-        pha
-        lda     mrowp
-        pha
+; Carry clear if the thumb's cells show: its first and last along the
+; track (tc, tr and tc1, tr1; the U3b review's G2), each where the record
+; frontmost is slider or scroll bar idx, and no menu that is down covers
+; either. One walk in FRONT's order for both (the overlay's pass first if
+; something can be on it, each from the table's end down, inside the
+; parents' client areas: X5): the first record either cell is on must be
+; idx with both on it. (Two FRONTs cost a band's move on OO-Amp's screen
+; 50,000 cycles more.)
+SHOWS:  lda     #1                      ; RECT's sibling cache on for the walk (Z3)
+        sta     rcv
+        lda     #$FE
+        sta     rcp
+        jsr     OVERS
+        sta     wp
+@pass:  lda     utot
+        sta     wi
+@l:     dec     wi
+        lda     wi
+        cmp     #UI_NONE
+        beq     @np
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        beq     @l
+        cmp     #UT_MENU
+        bcc     @p
+        cmp     #UT_SEP + 1
+        bcc     @l
+@p:     lda     wi
+        jsr     RECT
+        bcs     @l
+        lda     rover
+        cmp     wp
+        bne     @l
         lda     tc
-        sta     mcol
-        lda     tr
-        sta     mrowp
-        jsr     FRONT
+        ldx     tr
+        jsr     INCLIP
+        rol     wk                      ; (bit 0: the first cell not on it)
+        lda     tc1
+        ldx     tr1
+        jsr     INCLIP
+        lda     wk
+        and     #1
+        bcc     @on2
+        bne     @l                      ; on neither: on down
+        bra     @no                     ; on the first only: covered, or idx not whole
+@on2:   bne     @no                     ; on the last only
+        lda     wi                      ; on both: shown if it is idx
         cmp     idx
         bne     @no
-        lda     umenu
+        stz     rcv
+        lda     umenu                   ; and under no menu that is down (X4)
         cmp     #UI_NONE
         beq     @yes
         jsr     RECT
         bcs     @yes
         lda     tc
+        ldx     tr
+        jsr     INRECT
+        bcc     @no
+        lda     tc1
+        ldx     tr1
+        jsr     INRECT
+        bcc     @no
+@yes:   clc
+        rts
+@np:    dec     wp
+        bmi     @no
+        jmp     @pass
+@no:    stz     rcv
+        sec
+        rts
+
+; Carry clear if cell A, X is in UI_RECT (INRECT), and (INCLIP) in rclip,
+; its parents' client areas, too.
+INCLIP: jsr     INRECT
+        bcs     @r
+        cmp     rclip
+        bcc     @out
+        cmp     rclip + 2
+        bcs     @r
+        cpx     rclip + 1
+        bcc     @out
+        cpx     rclip + 3
+        rts
+@out:   sec
+@r:     rts
+INRECT: pha
         sec
         sbc     UI_RECT
         cmp     UI_RECT + 2
-        bcs     @yes
-        lda     tr
+        bcs     @no
+        txa
         sec
         sbc     UI_RECT + 1
         cmp     UI_RECT + 3
-        bcs     @yes
-@no:    sec
-        bra     @put
-@yes:   clc
-@put:   pla
-        sta     mrowp
+        bcs     @no
         pla
-        sta     mcol
+        clc
+        rts
+@no:    pla
+        sec
         rts
 
 ; GX_X (or GX_Y) = A x 4 (x 8), its high byte set: A low.
@@ -490,14 +635,21 @@ POST:   lda     #$FF
         lda     upmode
         bne     @off
         ldx     pk                      ; outside the last paint's damage, its thumb as it was:
-        lda     plast,x                 ;   no RECT, no FRONT (U3a: Z3)
-        cmp     #$FF
+        lda     plast,x                 ;   no RECT, no FRONT (U3a: Z3); its cells from the
+        cmp     #$FF                    ;   first to the last (the U3b review's G2)
         beq     @go
         sta     UI_RECT
+        lda     pend,x
+        sec
+        sbc     UI_RECT
+        inc     a
+        sta     UI_RECT + 2
         lda     plast + 1,x
         sta     UI_RECT + 1
-        lda     #1
-        sta     UI_RECT + 2
+        lda     pend + 1,x
+        sec
+        sbc     UI_RECT + 1
+        inc     a
         sta     UI_RECT + 3
         jsr     TOUCHED
         bcs     @next
@@ -508,8 +660,10 @@ POST:   lda     #$FF
         ldx     pk                      ; its place's first cell kept, till its thumb has one
         lda     UI_RECT
         sta     plast,x
+        sta     pend,x
         lda     UI_RECT + 1
         sta     plast + 1,x
+        sta     pend + 1,x
         plp
         bcs     @off
         lda     idx

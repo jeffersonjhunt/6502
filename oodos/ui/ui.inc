@@ -37,7 +37,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 ; uipoll.s's
 .global UCHAR, ku, km, kc, mcol, mrowp, evv, evh, evy, evf
 .global mpx, mpy, upend, upendh, upendv, HIT, SCOPE, PRESS, sc, wst, evk, evx, evyy, POLLINIT, FRAME
-.global udf1, udf2, uidle, HIDEH, DROP, POLLSTOP, FRONT
+.global udf1, udf2, uidle, HIDEH, DROP, POLLSTOP, FRONT, OVERS
 
 ; A widget module's record (U2): what the core calls it for. Each handler
 ; is entered with UIR on the widget's record and dh its handle (and, for

@@ -829,6 +829,15 @@ blk_own: .word  AREA, u3b
         UI_HSCROLL Z_HSC, Z_WIN, 6, 8, 30, 100, 10, UF_SPRITE, 4
         UI_LABEL   Z_LBL, Z_WIN, 6, 10, 20, "Its own colour", 0, $4E
         UI_BUTTON  Z_BTN, Z_WIN, 6, 12, 12, "&Hot", 0
+; (The U3b review's G2: the 8 x 32 thumb, rows 5-8 at 0, its ends covered
+; one at a time: a small window over its last row, 8, and a menu bar's
+; drop-down over its first, 5, each hidden till the test shows it.)
+        UI_WINDOW  Z_COVER, Z_DESK, 42, 8, 4, 3, 0, UF_HIDDEN
+        _UI_REC    Z_BAR, UT_MENUBAR, UI_NONE, 0, 0, 0, 1, UF_HIDDEN, 0, 0, 0, 0
+        UI_MENU    Z_MENU, Z_BAR, "&Ends"
+        UI_ITEM    Z_I1, Z_MENU, "An item wider than the scroll bar's column, as far", 0, 0, 0
+        UI_ITEM    Z_I2, Z_MENU, "A second", 0, 0, 0
+        UI_ITEM    Z_I3, Z_MENU, "A third", 0, 0, 0
         UI_END     u3b
 
 ; ui_msgbox's blocks: OK; Yes and No (No the default); OK and Cancel.

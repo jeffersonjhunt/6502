@@ -22,7 +22,7 @@
         .include "ui.inc"
 
         .import SCALE, sv, su, sa, sr
-        .import TSIZE, SPRTAIL, POST, hw, hh, tc, tr
+        .import TSIZE, SPRTAIL, POST, hw, hh, tc, tr, tc1, tr1
         .export UIW_VSCROLL, UIW_HSCROLL, SCMEAS, SCPLACE
 
         .segment "BRODATA"
@@ -174,14 +174,16 @@ MEASURE:
 SCMEAS = MEASURE
 
 ; The bar's sprite thumb (UIR, MEASURE'd, UI_RECT its place) to its place:
-; GX_X and GX_Y, and its cell (tc, tr) for SHOWS, then uislider.s's
-; SPRTAIL. Vertical: x = column x 4 + 2 - hw, y = (row + 1) x 8 + tu;
-; horizontal: x = (column + 1) x 4 + tu, y = row x 8 + 4 - hh.
+; GX_X and GX_Y, and its first and last cells along the track (tc, tr and
+; tc1, tr1) for SHOWS, then uislider.s's SPRTAIL. Vertical: x = column x 4
+; + 2 - hw, y = (row + 1) x 8 + tu; horizontal: x = (column + 1) x 4 + tu,
+; y = row x 8 + 4 - hh.
 SCPLACE:
         lda     vert
         beq     @h
         lda     UI_RECT
         sta     tc
+        sta     tc1
         jsr     X4V
         clc
         adc     #2
@@ -199,22 +201,15 @@ SCPLACE:
         lda     GX_Y + 1
         adc     tu + 1
         sta     GX_Y + 1
-        lda     tu                      ; its middle's row: row + 1 + (tu + hh) / 8
-        clc
-        adc     hh
-        sta     t0
-        lda     tu + 1
-        adc     #0
-        lsr     a
-        ror     t0
-        lsr     a
-        ror     t0
-        lsr     a
-        ror     t0
+        jsr     SENDS                   ; its rows: row + 1 + its first and last cells
         lda     UI_RECT + 1
         sec
-        adc     t0
+        adc     t2
         sta     tr
+        lda     UI_RECT + 1
+        sec
+        adc     t3
+        sta     tr1
         jmp     SPRTAIL
 @h:     lda     UI_RECT
         inc     a
@@ -227,6 +222,7 @@ SCPLACE:
         sta     GX_X + 1
         lda     UI_RECT + 1
         sta     tr
+        sta     tr1
         jsr     X8V
         clc
         adc     #4
@@ -235,21 +231,60 @@ SCPLACE:
         sta     GX_Y
         bcs     @y
         dec     GX_Y + 1
-@y:     lda     tu                      ; its middle's column: column + 1 + (tu + hw) / 4
+@y:     jsr     SENDS                   ; its columns: column + 1 + its first and last cells
+        lda     UI_RECT
+        sec
+        adc     t2
+        sta     tc
+        lda     UI_RECT
+        sec
+        adc     t3
+        sta     tc1
+        jmp     SPRTAIL
+; The thumb's first and last cells in the track (U3b review, G2): t2 = tu /
+; u, t3 = (tu + sth - 1) / u, held to the track's len - 1 (and to t2 at
+; least: a thumb longer than the track); u is 8 units a cell (vertical) or
+; 4.
+SENDS:  lda     tu
+        sta     t0
+        lda     tu + 1
+        sta     t1
+        jsr     @cell
+        sta     t2
+        lda     tu
         clc
-        adc     hw
+        adc     sth
         sta     t0
         lda     tu + 1
         adc     #0
-        lsr     a
+        sta     t1
+        lda     t0
+        bne     @d
+        dec     t1
+@d:     dec     t0
+        jsr     @cell
+        ldx     t1                      ; (past 255 cells: past the track)
+        bne     @end
+        cmp     len
+        bcc     @in
+@end:   lda     len
+        beq     @lo
+        dec     a
+@in:    cmp     t2
+        bcs     @put
+@lo:    lda     t2
+@put:   sta     t3
+        rts
+@cell:  lsr     t1                      ; A = t0/t1 / 8 or / 4
         ror     t0
-        lsr     a
+        lsr     t1
         ror     t0
-        lda     UI_RECT
-        sec
-        adc     t0
-        sta     tc
-        jmp     SPRTAIL
+        ldx     vert
+        beq     @r
+        lsr     t1
+        ror     t0
+@r:     lda     t0
+        rts
 ; GX_X (GX_Y) = A x 4 (x 8): A its low byte, its high byte set.
 X4V:    stz     GX_X + 1
         asl     a
