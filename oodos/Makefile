@@ -141,7 +141,7 @@ UI_INCS = $(wildcard ui/*.inc) include/oodos.inc include/oolib.inc include/vmem.
 $(BANKMODS:%=$(BUILD)/bnk-%.o): $(BUILD)/bnk-%.o: ui/%.s $(UI_INCS) | $(BUILD)
 	ca65 $(AFLAGS) -I ui -D UIBANK=1 $< -o $@
 
-$(BUILD)/OOUI.BNK: $(BANKMODS:%=$(BUILD)/bnk-%.o) cfg/ooui-bnk.cfg ui/uiimp.inc tools/mkbank.py tools/rules.py
+$(BUILD)/OOUI.BNK: $(BANKMODS:%=$(BUILD)/bnk-%.o) cfg/ooui-bnk.cfg ui/uiimp.inc tools/mkbank.py tools/rules.py Makefile
 	$(PYTHON) tools/mkbank.py --cfg cfg/ooui-bnk.cfg --iface ui/uiimp.inc --work $(BUILD)/bnk -o $@ \
 		--lbl $(BUILD)/ooui-bnk.lbl --src $(BANKMODS:%=ui/%.s) -- $(BANKMODS:%=$(BUILD)/bnk-%.o)
 
