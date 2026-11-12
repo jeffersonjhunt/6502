@@ -941,8 +941,9 @@ a slider's end makes no event (X13).
 2026-11-11) that OOUI's core and widgets live in banked memory that a program reaches by FARCALL, not in its image.
 OO-Amp has 389 bytes of W0 free, and its port would link about 17.7 KB of OOUI's code. **The owner approved this
 design with all seven recommended answers (2026-11-11).** A design review then found eight problems (D1-D8). They
-are fixed below, each marked where it is answered. One of them, D5, reopens answer 3: see
-[the blocks](#u3a-the-blocks) and [question 3](#u3a-questions). The design needs no change to OODOS or OOLIB; the
+are fixed below, each marked where it is answered. D5 reopened answer 3, and the owner then chose three blocks
+([the blocks](#u3a-the-blocks), [question 3](#u3a-questions)). A second round found four more (E1-E4), also fixed
+below. The design needs no change to OODOS or OOLIB; the
 questions say where it leans on them.
 
 **What there is.**
@@ -992,6 +993,7 @@ questions say where it leans on them.
   - `UX_GX` (11, new): `GX_BLOCK` refused a block (`GE_MAP`, `gxmem.s`). That is what happens when `GX_INIT`
     wasn't called first, or refused (D8). The program must call `GX_INIT` first. OOLIB's state is in the
     program's uncleared `BSS`, so a `ui_load` before it is undefined; `UX_GX` is what OOLIB's own check catches.
+  - `UX_STATE` (12, new): `UISTATE` not on a page (round 2, E2), checked first.
   - `UX_BUSY`: loaded already (a flag in the program part's `DATA`, not in `UISTATE`).
 - **Cleanup on a refusal** (D8). On every refusal after the first allocation, `ui_load` frees each block it took
   (function 57), calls `GX_REMAP` again, puts block 1 back in W1 and puts the program's user back. The program is
@@ -1026,24 +1028,49 @@ with no `$34`, and the stream after it can't be parsed either way). So none of i
   build. Calls across blocks go only through `UICOM`'s stubs, which far call a dispatcher at a block's first
   address after `UICOM`. That address is known from `UICOM`'s size alone, so no link depends on another
   block's link.
-- **The fixups are found by difference and then proved** (D1). `mkbank.py` links everything three times:
-  - **L0:** `__UIS__` at page `$10`, `__UIZ__` at `$10`, each OOLIB import at its own page (`$40nn` + its index
-    × `$100`), FARCALL at `$3F00`, and the blocks' numbers 1, 2 and 3.
-  - **L1:** `UISTATE` a page up, the zero page 5 up, each word import `$0111` up, and the blocks' numbers `$40`
-    up.
-  - **L2, a check:** values unlike both: `UISTATE` at page `$87`, the zero page at `$2A`, the imports at odd
-    addresses, and blocks 9, 13 and 17.
-  
-  Each byte that differs between L0 and L1 must fit exactly one kind of fixup, or the build fails:
-  - **a page fixup:** one byte up by 1, which is `UISTATE`'s high byte;
-  - **a zero-page fixup:** one byte up by 5;
-  - **a word fixup:** two bytes, a whole word `$0111` up. The import is read from L0's high byte, the addend from
-    its low byte;
-  - **a block number:** one byte up by `$40`.
-  
-  Then the table is applied to L0 with L2's values, and the result must equal L2 byte for byte; otherwise the build
-  fails. That proves the table complete for values the derivation never saw.
-- **Page alignment** (D1). `UISTATE` is page-aligned in the program, so a page fixup never carries. A low byte of
+- **The fixups are found by difference and then proved** (D1; round 2, E1). `mkbank.py` links everything three
+  times. Each kind of fixup moves by its own step between L0 and L1:
+
+  | Kind | L0 | L1's step |
+  | --- | --- | --- |
+  | `UISTATE`'s page | page `$10` (`__UIS__` = `$1000`) | `+$0100`: the high byte +1, the low byte unchanged |
+  | OOUI's zero page | `__UIZ__` = `$10` | `+5` |
+  | a word import (an OOLIB routine or variable, FARCALL) | import *i* at `$4000` + *i* × `$400` | `+$0302`: the low byte +2, the high byte +3 (or +4 with a carry) |
+  | a block number | 1, 2, 3 | `+$40` |
+
+  - **L2, a check,** uses values unlike both: `UISTATE` at page `$87`, the zero page at `$2A`, the imports at
+    irregular addresses that aren't spaced by pages or by any common step (`$5A3B`, `$6117`, `$4E85`, and so on;
+    each a fixed constant in `mkbank.py`), and blocks 9, 13 and 17.
+  - **Classifying the differences.** `mkbank.py` reads every place where L0 and L1 differ, in this order, and fails
+    the build on any byte that is left over:
+    1. **A word fixup:** two bytes whose 16-bit value is exactly `$0302` higher in L1. The import must be a real
+       one: L0's value *v* must lie in some import's slot, `$4000` + *i* × `$400` to that plus `$3FF`, with *i* below
+       the number of imports. That gives the import *i* and the addend, *v* − its base.
+    2. **A page fixup:** a byte exactly 1 higher, with the byte before it unchanged.
+    3. **A zero-page fixup:** a byte exactly 5 higher.
+    4. **A block number:** a byte exactly `$40` higher, whose L0 value is 1, 2 or 3.
+  - **Why nothing can be taken for something else.**
+    - A lone byte can move only by 1, 5 or `$40`: none of these is a word's low step (+2), and none is its high
+      step (+3, or +4 after a carry).
+    - Two neighbouring lone fixups (a page byte, a zero-page byte or a block byte, in either order) make a 16-bit
+      change whose high byte moves by 1, 5 or `$40`, and so is never `$0302`.
+    - So a lone `#<` of an import moves by 2 and fits no kind; a lone `#>` (`#>GX_V`, `.byte >FARCALL`) moves by 3
+      or 4 and fits no kind. Either is refused.
+    - With slots `$400` apart and the addend held below `$400`, `GX_V+$100` still names `GX_V`, not the next
+      import. An addend of `$400` or more is refused: no OOUI code uses one, since the variables are a few bytes
+      each.
+  - **The proof.** The table is applied to L0 with L2's values, and the result must equal L2 byte for byte, or the
+    build fails. That proves the table complete for values the derivation never saw.
+- **Page alignment** (D1; round 2, E2). `UISTATE` is page-aligned in the program, so a page fixup never carries.
+  ld65 only warns when a segment can't be aligned (the review's probe links with a return code of 0). Two things
+  catch it:
+  - the oodos Makefile fails on any ld65 warning, and the program part's `uistate.s` holds a `.assert`
+    `<UISTATE = 0`, which ld65 checks as an error when it links;
+  - `ui_load` refuses, before it allocates anything, a `UISTATE` whose low byte isn't 0. It uses an error of its
+    own, `UX_STATE` (12): `UX_VERSION` is for a file and a program that don't match, and this is the program's
+    link alone.
+
+  So a high byte never needs a carry. A low byte of
   a `UISTATE` address (`#<`) never changes and needs no fixup; a high byte (`#>`, as `uidlg.s`'s `lda #>UDLG`) is
   the page plus the offset's high byte, exact. An OOLIB import, or FARCALL, is taken only as a whole word (`JSR`,
   `STA` and the like). A `#<` or `#>` of one would differ by a single byte that fits no kind, and the build stops
@@ -1088,8 +1115,12 @@ over the modules' listings. The script followed each routine's calls, jumps, dat
   and `ADDW`'s registering go.
 - **What is left crossing back** from the widgets to the core: nothing in a paint or a poll. `REFOCUS` and `HIDEH`
   are called only from the dialogs, when one opens or closes.
-- **The dialogs.** The picker's list's row routine, in block C, is reached from the list, in B, through a stub in
-  `UICOM`: the picker puts that stub's address in the list's `UW_TEXT`.
+- **Into block C, the dialogs.**
+  - **The row routine.** The picker's list's row routine, in block C, is reached from the list, in B, through a
+    stub in `UICOM`: the picker puts that stub's address in the list's `UW_TEXT`.
+  - **The event filters.** While a dialog is up, `ui_poll` hands each event to the dialog's filter first (`DFILT`,
+    through `udf1` and `udf2`, which point into C): one crossing from A to C for each event (round 2, E3).
+  - **The listing part,** in an idle poll.
 
 **The split, from U2's measured sizes less `UICOM`'s closure** (estimates, bytes, of 12,288 each):
 
@@ -1099,16 +1130,9 @@ over the modules' listings. The script followed each routine's calls, jumps, dat
 | B | the nine widget modules but `uimath`; their private variables (73) | 5,670 | 8,620 | 3,670 |
 | C | `uimsg`, `uipick`, `uidlg`'s code; the picker's private variables (FCB, directory buffer: about 270) | 3,770 | 6,720 | 5,570 |
 
-**Two blocks** (the approved answer 3) don't fit any more:
-
-- B would be the widgets and the dialogs together: 9,460 of its own, and 12,410 with `UICOM`, which is 122 bytes
-  over.
-- Keeping `RECT`'s menu branch in A instead (A computes a menu's place, `UICOM` everything else) takes 629 bytes
-  out of `UICOM`. That gives B 11,780, which is 508 bytes free. That is already under the 512-byte trigger this
-  design set, before U3's own additions (W2, ADD ALL, Z3's fix), which land in B.
-
-So the recommendation is now three blocks (question 3). Every other part of the design is the same for two or
-three.
+**Three blocks: the owner's answer (round 2, 2026-11-11).** With two, block B (the widgets and the dialogs) came to
+12,410 bytes with `UICOM`, 122 over. Keeping `RECT`'s menu branch in A would have left it 508 bytes free, already
+under this design's 512-byte trigger before U3's own additions.
 
 **The program's data, and OOUI's.** W0-W2 stay mapped through a far call, so every address the program gives OOUI
 is the same address inside the block. That covers the table, the texts, the theme, the accelerator table, the
@@ -1121,7 +1145,8 @@ inside a block means nothing to the program or to another block. So:
   - What more than one block uses: `uicore`'s state with `uopen`, the dialogs' 13 records, the types' flags, the
     picker's row, name and status texts (drawn by B's list and field and A's label), and what `UICOM`'s code
     touches.
-  - Its size is about 700 bytes, reserved as 768 (answer 5: a whole 256 more than it needs, rounded).
+  - Its size is about 1,300 bytes with the picker's row buffer (E3, question 8; about 700 without it). It is
+    reserved as 1,536, its size rounded up to a whole multiple of 256 (answer 5).
   - It is a page-aligned `BSS` segment (`align = $100`) in the program part's `uistate` module. `tools/w1.py`
     keeps it outside `$4000-$7FFF`, as it does any segment.
 - **Strings and tables another block reads,** or whose address goes into a record (a dialog button's text, the
@@ -1131,12 +1156,12 @@ inside a block means nothing to the program or to another block. So:
   buffer can stay in block C.
 
 **Where `UISTATE` goes, and its padding** (D1). Placed after a program's `BSS` with `align = $100`, it costs up to
-255 bytes of padding. That is too much to find in OO-Amp's 389 free bytes of W0 on top of its own 768 (OO-Amp's
+255 bytes of padding. That is too much to find in OO-Amp's 389 free bytes of W0 on top of its own 1,536 (OO-Amp's
 own UI code, which the port removes, frees more, but the port must not depend on it). So:
 
 - **The rule:** a program puts `UISTATE` in a memory area of its own that starts on a page, outside
   `$4000-$7FFF`. Then there is no padding at all.
-- **For OO-Amp:** the first pages of `$8000-$BFFC` (`$8000-$82FF`), if its overlays and buffers leave them, so
+- **For OO-Amp:** the first pages of `$8000-$BFFC` (`$8000-$85FF`), if its overlays and buffers leave them, so
   `UISTATE` takes nothing of W0. Otherwise the page below `$4000` that its `BSS` reaches. U3b settles which, from
   OO-Amp's map.
 - `com.cfg` gains no area. A program that uses OOUI adds one to its own config, as `uitest.cfg` adds its own, and
@@ -1239,15 +1264,43 @@ the stub, FARCALL and the dispatcher.
 | OO-Amp's screen drawn whole: about 30 such widgets | 30 | about 9,000 | 7.5%, once |
 | An event a widget of B's takes (a key, a press, a drag's move) | 1 | about 300 | 0.25% |
 | The sliders' sprite thumbs placed after a paint that drew: one crossing for all of them (`FRONT` and `RECT` are in `UICOM`) | 1 | about 300 | 0.25% |
-| Each idle poll while the picker is up: its listing part, in C | 1 | about 300 | 0.25% |
-| The picker's list drawn whole: 16 rows, each row's routine in C reached from B | 16 | about 4,800 | 4%, when it scrolls |
+| Each event while a dialog is up: its filter in C (`DFILT`) | 1 | about 300 | 0.25% |
 | `ui_open`: the types' flags from B | 1 | about 300 | once |
 | A dialog opened or closed (`REFOCUS`, `HIDEH` back into A) | 2-3 | about 900 | once |
 | OOLIB, the BDOS, callbacks, `UISTATE` and the zero page | 0 | none | |
 
-With two blocks, the picker's row crossings would go, but the blocks don't fit (above).
+**The picker's list** (round 2, E3). Its rows come from C's row routine, which B's list calls once for each row it
+draws. The list is drawn whole far more often than "when it scrolls":
 
-**Sizes.** The program part is about 1.5 KB, against about 17.7 KB of OOUI's code and 1.3 KB of tables that
+- **After every listing poll.** `COUNTED` (`uipick.s`) marks the list dirty after each idle poll that lists more
+  files.
+- **After every selection move.** That is Up, Down, a click or the wheel.
+
+As built today, that costs:
+
+| What | Crossings | Cycles added | Of a frame |
+| --- | --- | --- | --- |
+| An idle poll while the picker lists: its listing part, then the list's 16 rows | 17 | about 5,100 | 4.3%, each frame till the listing ends |
+| A selection move: `DFILT`, the list's key handler, then 16 rows | 18 | about 5,400 | 4.5% |
+
+**The plan for phase 2: one crossing for the rows of a draw.**
+
+- **How.** When B's list draws a list whose row routine is the picker's stub, it makes one call into C, which fills
+  the text and style of every row shown (16 at most) into a row buffer in `UISTATE`. The list then draws those
+  rows from the buffer. The public row routine (`UF_ROUTINE` in a program's table) is unchanged: it is the
+  program's code, called by `JSR` with no crossing.
+- **The revised cost:**
+
+  | What | Crossings | Cycles added | Of a frame |
+  | --- | --- | --- | --- |
+  | An idle poll while the picker lists | 2 | about 600 | 0.5% |
+  | A selection move | 3 | about 900 | 0.75% |
+
+- **Its price.** The buffer is 16 rows of 40 bytes, which replaces the picker's one 40-byte row and is about 600
+  bytes more of `UISTATE`. That moves `UISTATE` from about 700 to about 1,300 bytes, reserved as 1,536 (answer 5),
+  and the program part from about 1.5 KB to about 2.3 KB (question 8).
+
+**Sizes.** The program part is about 2.3 KB, against about 17.7 KB of OOUI's code and 1.3 KB of tables that
 OO-Amp's port would link today:
 
 | Part | Bytes (estimate) |
@@ -1255,7 +1308,7 @@ OO-Amp's port would link today:
 | The stubs (22 calls, `DATA`) | 154 |
 | `ui_load`, with its refusals' cleanup, the user switch and the zeroing | 480 |
 | The import table | 50 |
-| `UISTATE`, in a page-aligned area of its own | 768 |
+| `UISTATE`, in a page-aligned area of its own, with the picker's row buffer (E3) | 1,536 |
 | Zero page | 8 |
 | `UI_HOUSE` and `UI_TURBO`, each only if named | 96 each |
 
@@ -1264,9 +1317,18 @@ program's 320 KB.
 
 **API changes** (all *proposed*):
 
-- **New:** `ui_load`, `UX_LOAD` (10), `UX_GX` (11) and `UI_IFACE`.
-- **Every widget module is in the file,** so `UO_WIDGETS` is ignored and `UI_END` sets `name_WIDGETS` to 0 (the
-  macros no longer import `UIW_*`).
+- **New:** `ui_load`, `UX_LOAD` (10), `UX_GX` (11), `UX_STATE` (12) and `UI_IFACE`.
+- **Every widget module is in the file** (round 2, E4), and that changes three things:
+  - `UO_WIDGETS` is ignored, and `UI_END` sets `name_WIDGETS` to 0.
+  - **`ui_open` no longer refuses a table** with a widget type whose module wasn't registered (`UX_TABLE`,
+    `uicore.s`'s `CHECKTAB`, through `WREC`). Every type of U2's is always there; an unknown type is still
+    refused.
+  - **The modules' records and the `UIW_*` exports go.** The macros no longer import `UIW_*`, and a program that
+    named one (none does but through `UI_END`) no longer links.
+  
+  When this is built, the U2 text above that describes the registry ("Each widget a module of its own": the
+  module records, `UO_WIDGETS`, "refuses a table with a type whose module isn't there") and `ooui.inc`'s
+  `UO_WIDGETS` comment are changed to match.
 - **The themes** (D4). `UO_THEME` 0 is still the default, the block's own copy of the house theme. `UI_HOUSE` and
   `UI_TURBO` stay tables a program can link (`uitheme`, `uiturbo`: 96 bytes each, linked only when named), so a
   program can still pass the house theme by address or build a theme from it. `UITEST`'s `c_theme` copies
@@ -1282,14 +1344,17 @@ program's 320 KB.
   D4, `c_theme`'s `UI_HOUSE` copy unchanged too). The one exception is `u2-levels`, which X4's menu-over-thumb
   test changes (the decisions for U3a).
 - **New cases:**
-  - `ui_load`'s refusals: no file, a bad header, an older interface, too little `UISTATE`, no block free, and
-    `UX_GX`. Each checks that the blocks it took are free again (a second `ui_load` succeeds, and function 53
+  - `ui_load`'s refusals: no file, a bad header, an older interface, too little `UISTATE`, no block free,
+    `UX_GX`, and `UX_STATE`: a test program linked with `UISTATE` off a page (one byte in), refused before anything
+    is allocated (E2). Each checks that the blocks it took are free again (a second `ui_load` succeeds, and function 53
     finds the memory), and that the user is put back;
   - `UISTATE` filled with `$FF` before `ui_load`, then `ui_open` succeeding and the frames unchanged (D2);
   - the default name opened from user 3 with `OOUI.BNK` in user 0 and its SYS attribute clear (D8);
   - the program's DMA address and segment the same after `ui_load` (D8);
   - the blocks freed by the warm boot;
-  - the cycles of an idle `ui_poll` and of a crossing.
+  - the cycles of an idle `ui_poll` and of a crossing;
+  - the picker's crossings counted in a listing poll and in a selection move: 2 and 3, with its rows filled in
+    one crossing (E3).
 - **Must-fails:**
   - the copy of common memory left out: the first call never comes back, and the case fails on its time limit;
   - a kind of fixup skipped: the frames differ;
@@ -1297,28 +1362,32 @@ program's 320 KB.
     - a test object in block A that does `JSR` to a block B symbol: ld65 stops the build (D3);
     - a `UICOM` routine that calls into A: the same;
     - a fixup table with one site dropped: `mkbank.py`'s L2 comparison fails (D1);
-    - a `#>` of an OOLIB import: `mkbank.py` refuses it (D1).
+    - a `#<` and a `#>` of an OOLIB import, and a `.byte >FARCALL`: `mkbank.py` refuses each (D1, E1);
+    - an addend of `$400` on an import: refused (E1);
+    - `UISTATE` misaligned in a program's link: ld65's assertion stops the build (E2).
 - **Phase 2's other items** (Z3, W2, the menu-over-thumb test, the pointer's image after `ui_close`) are built on
   top of this.
 
 #### U3a: questions ####
 
-**The owner's answers (2026-11-11):** all seven as recommended. The D5 closure reopens answer 3; the rest stand.
-None of these needs an OODOS or OOLIB change.
+**The owner's answers (2026-11-11):** all seven as recommended. The D5 closure reopened answer 3, and the owner
+chose three blocks (round 2). None of these needs an OODOS or OOLIB change.
 
 1. **Common memory in OOUI's blocks:** rely on the interim copy. *Answered.*
 2. **`OOUI.BNK` on the card:** in phase 2, a line in `make_card.sh` and the cards regenerated. *Answered.* The
    file's SYS attribute isn't needed, since `ui_load` opens it in user 0 (D8).
-3. **Two blocks or three.** *Answered: two. Reopened by D5:* the closure makes `UICOM` about 2,950 bytes, and two
-   blocks no longer fit (block B 122 bytes over, or 508 bytes free with `RECT`'s menu branch kept in A, before
-   U3's additions). **Recommended:** three (A: the core and the menus; B: the widgets; C: the dialogs). That costs
-   16 KB more of the program's 320 KB, and about 300 cycles per picker row drawn. **Alternative:** two, with the
-   menu branch in A and the picker's private variables (about 270 bytes) moved to `UISTATE` in the program, for
-   about 780 bytes free in B, and less room for later growth.
+3. **Two blocks or three.** *Answered: three* (the owner, round 2, 2026-11-11): A, the core and the menus; B, the
+   widgets; C, the dialogs. First answered two, then reopened by D5: the closure makes `UICOM` about 2,950 bytes,
+   and two blocks no longer fit ([the blocks](#u3a-the-blocks)).
 4. **`uitest.cfg`:** retired once `test_oodos_ui` runs only through the blocks. *Answered.*
 5. **`UISTATE`'s reserve:** rounded up to a whole 256. *Answered.*
 6. **Overlays:** `libzp.py` exports the core's stubs, and, with D6, the core's OOLIB, to an overlay. *Answered.*
 7. **A lean crossing:** no; FARCALL only. *Answered.*
+8. **The picker's row buffer** (round 2, E3). Filling the shown rows in one crossing needs a 16-row buffer of about
+   600 bytes more in `UISTATE`, which is in the program's memory. **Recommended:** the buffer, as planned above:
+   it keeps the picker's code in C. **Alternative:** put the picker's row routine (`ROWFN`, 143 bytes, with what it
+   calls) in `UICOM`. Then B's list calls it directly, with no crossing and no buffer, at the cost of about 150-300
+   bytes in each of the three blocks (A has about 1,190 free).
 
 ## Risks ##
 
