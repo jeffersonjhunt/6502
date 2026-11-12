@@ -2759,3 +2759,64 @@ TEST(the_pointer_s_image_off_ooui_s_memory_after_ui_close)
     CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
     CHECK_EQ(image(), 0);
 }
+
+TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
+{
+    // Left for U3a by U2's review (W2): once a match was out of place, each new file past the list's end in
+    // that walk was looked for through the whole list. Now a walk takes a match past the list's end as new unless
+    // it is one of the entries it passed unfound: the place a walk compares at jumps only over a few entries, those it passes unfound kept
+    // (8 at most), and an entry it has stamped already is passed. A:, 200 files (as z1's); listed part way,
+    // then SONG0003.SID deleted and NEWFILE.SID made in its directory entry, mid-listing: each later poll's walk
+    // costs as z1's do (before the fix the most was 823,876 instructions).
+    std::vector<uint8_t> card = fat16_card({{"BIG.IMG", 65536u * 512}});
+    auto word = [&](size_t at) { return size_t{card[at]} | size_t{card[at + 1]} << 8; };
+    const size_t root = (word(14) + card[16] * word(22)) * SECTOR;
+    const size_t data = root + word(17) * 32;
+    std::fill(card.begin() + static_cast<long>(data), card.begin() + static_cast<long>(data + 2048 * 32), 0xE5);
+    for (unsigned i = 0; i < 200; ++i)
+    {
+        uint8_t *e = card.data() + data + i * 32;
+        std::memset(e, 0, 32);
+        char n[16];
+        std::snprintf(n, sizeof n, "SONG%04uSID", i % 10000u);
+        std::memcpy(e + 1, n, 11);
+        e[15] = 1;
+        e[16] = static_cast<uint8_t>(8 + i);
+    }
+    Rig r(card);
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    REQUIRE(r.boot());
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'k', 4).substr(6), std::string("00"));
+    for (int i = 0; i < 4; ++i)
+        poll(r);
+    CHECK(word_at(r, lab("count")) > 20u);
+    CHECK(word_at(r, lab("count")) < 150u);
+    for (const auto &[c, name] : std::vector<std::pair<char, const char *>>{{'z', "SONG0003SID"}, {'Z', "NEWFILE SID"}})
+    {
+        std::vector<uint8_t> fcb(36, 0);
+        fcb[0] = 1; // A:
+        std::memcpy(fcb.data() + 1, name, 11);
+        r.poke(TEXTBUF, fcb);
+        CHECK_EQ(ui(r, c).substr(0, 2), std::string("00"));
+    }
+    const uint16_t from = lab("CONSIDER"), to = lab("COUNTED");
+    const unsigned blk = bank_block(r, "CONSIDER");
+    unsigned long n = 0, most = 0;
+    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to && (r.nb(3) & 0x3F) == blk; };
+    for (int i = 0; i < 100 && r.phys(lab("lst")); ++i)
+    {
+        n = 0;
+        poll(r);
+        most = std::max(most, n);
+    }
+    r.watch = nullptr;
+    std::printf("  the most a poll ran in the walk after a file was added mid-listing: %lu instructions\n", most);
+    CHECK(most < 100000);
+    CHECK_EQ(r.phys(lab("lst")), 0);
+    CHECK_EQ(word_at(r, lab("count")), 200u);
+    CHECK_EQ(status(r), std::string("200 files"));
+}

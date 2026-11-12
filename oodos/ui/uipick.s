@@ -44,6 +44,7 @@ PCAN            = 6
 PEXT            = 7
 PSTA            = 8
 ROWS            = 16                   ; the list's rows
+SKIPQ           = 8                    ; a walk's listed entries passed unfound that it keeps (W2)
 
         .bss
 pblk:   .res    2                      ; the program's block
@@ -72,6 +73,8 @@ cur:    .res    2                      ; the list's entry the walk's next match 
 wstamp: .res    1                      ; the walk's stamp, in each entry it finds (+14: Z5)
 atend:  .res    1                      ; CONSIDER's
 sync:   .res    1                      ;   1 while each match has been the list's entry cur
+nskip:  .res    1                      ; the listed entries a walk's lookups passed unfound, $FF too many (W2)
+skipq:  .res    2 * SKIPQ              ;   their indices
 mk:     .res    1                      ; MAKE's place
 psel:   .res    2                      ; PRUNE's: the selection
 total:  .res    2                      ; the wanted files the last walk found
@@ -337,6 +340,7 @@ IDLEFN: lda     pcol                    ; a column said "not yet": the list agai
         stz     cur + 1
         lda     #1
         sta     sync
+        stz     nskip                   ; none passed unfound yet (W2)
         inc     wstamp                  ; this walk's stamp (Z5)
         lda     count + 1               ; this poll's new: 4 and half as many as are listed, at
         bne     @most                   ;   most 64, so the walks from the start cost about three
@@ -453,18 +457,28 @@ CONSIDER:
         inc     total
         bne     @t
         inc     total + 1
-@t:     lda     cur                     ; the entry cur?
-        cmp     count
+@t:     lda     cur                     ; the entry cur? (one this walk found already passed:
+        cmp     count                   ;   a file listed as new mid-listing, W2)
         lda     cur + 1
         sbc     count + 1
         bcc     @cur
         lda     sync                    ; past the list with every match in its place: new
         bne     @new
-        bra     @look
+        jsr     SKIPPED                 ; past it: one of those passed unfound, or new (W2)
+        bcc     @new
+        jmp     STAMP
 @cur:   lda     cur
         ldx     cur + 1
         jsr     ENTRY
-        jsr     MATCH
+        ldy     #UP_ELEN - 2            ; stamped this walk already: passed
+        lda     (UIQ),y
+        cmp     wstamp
+        bne     @cmp
+        inc     cur
+        bne     @t
+        inc     cur + 1
+        bra     @t
+@cmp:   jsr     MATCH
         beq     @same
         stz     sync                    ; out of step: looked for from now on
         bra     @look
@@ -474,10 +488,25 @@ CONSIDER:
         bne     @r
         inc     cur + 1
 @r:     rts
-@look:  jsr     LISTED                  ; elsewhere: the walk goes on after it
-        bcc     @new
-        jsr     STAMP
-        lda     ent
+@look:  jsr     LISTED                  ; elsewhere: the walk goes on after it, unless that
+        bcc     @new                    ;   is far on (W2: a file listed as new mid-listing is at
+        jsr     STAMP                   ;   the list's end, and the walk's place stays where it
+        lda     ent                     ;   was); those passed over, unfound, kept (PASSED)
+        sec
+        sbc     cur
+        tax
+        lda     ent + 1
+        sbc     cur + 1
+        bcc     @jump                   ; (back: what is between is stamped already)
+        bne     @r
+        txa
+        clc
+        adc     nskip
+        bcs     @r                      ; (nskip $FF)
+        cmp     #SKIPQ + 1
+        bcs     @r
+        jsr     PASSED
+@jump:  lda     ent
         clc
         adc     #1
         sta     cur
@@ -537,6 +566,84 @@ STAMP:  ldy     #UP_ELEN - 2
         lda     wstamp
         sta     (UIQ),y
         rts
+
+; The list's entries from cur to ent (LISTED's find, which the walk jumps
+; to) that this walk hasn't stamped: in skipq, or nskip $FF when there are
+; more than SKIPQ (W2). Past the list's end they are all a match can be
+; besides a new file.
+PASSED: lda     cur
+        sta     t2
+        lda     cur + 1
+        sta     t3
+@p:     lda     t2
+        cmp     ent
+        lda     t3
+        sbc     ent + 1
+        bcs     @r
+        lda     t2
+        ldx     t3
+        jsr     ENTRY
+        ldy     #UP_ELEN - 2
+        lda     (UIQ),y
+        cmp     wstamp
+        beq     @n
+        lda     nskip
+        cmp     #SKIPQ
+        bcs     @full
+        asl     a
+        tax
+        lda     t2
+        sta     skipq,x
+        lda     t3
+        sta     skipq + 1,x
+        inc     nskip
+@n:     inc     t2
+        bne     @p
+        inc     t3
+        bra     @p
+@full:  lda     #$FF
+        sta     nskip
+@r:     rts
+
+; Past the list's end out of step: carry set and UIQ on it if the entry at
+; dbuf + dofs is one of those the walk passed unfound (skipq), and not
+; stamped since; clear if new. With too many passed, the whole list looked
+; through (LISTED), as before W2.
+SKIPPED:
+        lda     nskip
+        cmp     #$FF
+        bne     @q
+        jmp     LISTED                  ; (carry and UIQ as SKIPPED gives them)
+@q:     ldx     #0
+@l:     cpx     nskip
+        bcs     @no
+        phx
+        txa
+        asl     a
+        tax
+        lda     skipq,x
+        pha
+        lda     skipq + 1,x
+        tax
+        pla
+        jsr     ENTRY
+        plx
+        ldy     #UP_ELEN - 2
+        lda     (UIQ),y
+        cmp     wstamp
+        beq     @n
+        phx
+        jsr     MATCH
+        php                             ; (MATCH's Z, past the PLX)
+        plx
+        plp
+        beq     @yes
+@n:     inx
+        bra     @l
+@yes:   sec
+        rts
+@no:    clc
+@r:     rts
 
 ; Z set if the entry at UIQ has the name and type of dbuf + dofs's.
 MATCH:  ldx     dofs

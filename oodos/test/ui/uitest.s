@@ -300,6 +300,18 @@ c_erase:
         jsr     BDOS
         clc
         rts
+; A file made with the name the test put at TEXTBUF, and closed (W2: in
+; the first free directory entry, which a file deleted mid-listing left).
+c_make: lda     #<TEXTBUF
+        ldx     #>TEXTBUF
+        ldy     #F_MAKE
+        jsr     BDOS
+        lda     #<TEXTBUF
+        ldx     #>TEXTBUF
+        ldy     #F_CLOSE
+        jsr     BDOS
+        clc
+        rts
 c_search:
         ldy     #F_SFIRST
         cmp     #0
@@ -445,6 +457,7 @@ cmds:   CMD     'o', c_open
         CMD     'w', c_state
         CMD     'n', c_search
         CMD     'z', c_erase
+        CMD     'Z', c_make
 .endif
         CMD     'q', c_range
         CMD     'L', c_load
