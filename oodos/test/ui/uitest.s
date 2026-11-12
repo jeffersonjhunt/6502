@@ -400,7 +400,10 @@ colfn:  tya
         sta     cbuf + 1
         lda     #<cbuf
         ldx     #>cbuf
-        rts
+        bit     cdec                    ; (the U3b review's round 3, J1: D set)
+        bpl     @x
+        sed
+@x:     rts
 
 .endif
 
@@ -977,7 +980,7 @@ eaten:  .res    2 * 20
 fieldbuf: .res  16                      ; U2's field, empty (UITWID)
 rbuf:   .asciiz "Item 00"               ; rowfn's
 cbuf:   .asciiz "c0"                    ; colfn's (UITPICK)
-cdec:   .byte   0                       ; bit 7: rowfn and crows return with D set (U3b review round 2, H4)
+cdec:   .byte   0                       ; bit 7: rowfn, crows and colfn return with D set (U3b review rounds 2, 3: H4, J1)
 .if UIVAR = 2
 cnone:  .byte   $FF                     ; crows's row given as 0 (the test writes it; U3b, Q1)
 ccalls: .res    4                       ; crows's calls for each row (the U3b review's round 2, H3)

@@ -3615,6 +3615,18 @@ TEST(u3b_r2_a_routine_of_0_draws_nothing)
     CHECK_EQ(cell_attr(l, 39, 9), house(l, 15)); // TC_LIST: a row with no style
     std::printf("  a list's row (style %02X before) with no routine: %02X\n", list_attr, cell_attr(l, 39, 9));
     expect(poll(l), {}, "still running");
+    // The selection's row still in its colour (the U3b review's round 3, J3): row 2 chosen, TC_LISTCUR without
+    // the focus, TC_LISTSEL with it; its neighbours TC_LIST.
+    CHECK(ui(l, 'g').substr(0, 2) != hex2(X_LS2));
+    setv(l, X_LS2, 2);
+    poll(l);
+    CHECK_EQ(cell_attr(l, 39, 10), house(l, 17)); // TC_LISTCUR
+    CHECK_EQ(cell_attr(l, 39, 11), house(l, 15));
+    CHECK_EQ(ui(l, 'f', X_LS2).substr(6), std::string("00"));
+    poll(l);
+    CHECK_EQ(cell_attr(l, 39, 10), house(l, 16)); // TC_LISTSEL
+    CHECK_EQ(cell_attr(l, 39, 9), house(l, 15));
+    CHECK(house(l, 16) != house(l, 15) && house(l, 17) != house(l, 15));
 }
 
 TEST(u3b_r2_a_canvas_s_routine_is_called_only_for_the_rows_redrawn)
@@ -3709,6 +3721,85 @@ TEST(u3b_r2_a_routine_returning_with_d_set)
     CHECK_EQ(ui(l, 'd', X_LS2).substr(6), std::string("00"));
     poll(l);
     CHECK_EQ(frame_hash(l), before);
+}
+
+// The U3b review's round 3 (J1-J3): each case fails without its fix.
+
+TEST(u3b_r3_a_column_routine_returning_with_d_set)
+{
+    // J1: OOUI clears the decimal flag after the picker's column routine too, so one that returns with it set
+    // leaves the picker's rows as they were.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    pick(r, 0); // block A: a column ("c" and the row's number)
+    poll(r);
+    const uint64_t before = frame_hash(r);
+    CHECK_EQ(ui(r, 'd', P_LST).substr(6), std::string("00")); // drawn again as it was
+    poll(r);
+    CHECK_EQ(frame_hash(r), before);
+    r.poke(lab("cdec"), 0x80);
+    CHECK_EQ(ui(r, 'd', P_LST).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(frame_hash(r), before);
+    expect(poll(r), {}, "still running");
+}
+
+TEST(u3b_r3_ui_flags_keeps_an_own_thumb_while_its_sprite_shows)
+{
+    // J2: ui_flags refuses (UX_SPRITE, carry set, the flags as they were, nothing dirtied) a change to UF_OWNTHUMB
+    // while UF_SPRITE is on before and after: the sprite's image would change hands while it shows. UF_SPRITE
+    // turned off with it, or on with it, is taken.
+    constexpr unsigned UX_SPRITE_ = 9;
+    constexpr uint8_t UF_SPRITE_ = 0x10, UF_OWNTHUMB_ = 0x20;
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const auto flags = [&r](uint8_t h) { return static_cast<unsigned>(r.phys(rec3(h) + UW_FLAGS)); };
+    struct Bad
+    {
+        uint8_t h, set, clear;
+        const char *what;
+    };
+    for (const Bad &b : {Bad{Z_OWN, 0, UF_OWNTHUMB_, "a slider's own thumb made OOUI's"},
+                         Bad{Z_STD, UF_OWNTHUMB_, 0, "a slider's OOUI thumb made the program's"},
+                         Bad{Z_VSC, 0, UF_OWNTHUMB_, "a scroll bar's own thumb made OOUI's"}})
+    {
+        const unsigned before = flags(b.h);
+        CHECK_EQ(before & 0x04u, 0u); // (clean after the paint)
+        const std::string a = ac(ui(r, 'F', b.set, b.clear, b.h));
+        if (a != hex2(UX_SPRITE_) + "01")
+            std::printf("  %s: %s\n", b.what, a.c_str());
+        CHECK_EQ(a, hex2(UX_SPRITE_) + "01");
+        CHECK_EQ(flags(b.h), before); // the flags as they were, not dirty
+    }
+    poll(r);
+    CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(spr_image(r, 2) & 0x7FFF, upage(r) + 0x29);
+    CHECK_EQ(spr_depth(r, 2), 0x0C);
+    // Both off together, then both on: taken; the thumb hidden, then the program's again.
+    CHECK_EQ(ui(r, 'F', 0, UF_SPRITE_ | UF_OWNTHUMB_, Z_OWN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    CHECK_EQ(ui(r, 'F', UF_SPRITE_ | UF_OWNTHUMB_, 0, Z_OWN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+    // The scroll bar's: off together, then on as OOUI's own (UF_SPRITE alone): taken, OOUI's image on it.
+    CHECK_EQ(ui(r, 'F', 0, UF_SPRITE_ | UF_OWNTHUMB_, Z_VSC).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0);
+    CHECK_EQ(ui(r, 'F', UF_SPRITE_, 0, Z_VSC).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(spr_image(r, 3) & 0x7FFF, upage(r) + 0x29);
+    // UF_OWNTHUMB changed while UF_SPRITE is off: taken (no sprite shows), and still checked when it goes on.
+    CHECK_EQ(ui(r, 'F', 0, UF_SPRITE_, Z_STD).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'F', UF_OWNTHUMB_, 0, Z_STD).substr(6), std::string("00"));
+    CHECK_EQ(ac(ui(r, 'F', UF_SPRITE_, 0, Z_STD)), hex2(UX_SPRITE_) + "01"); // its size byte 0 (SPRCHK)
 }
 
 TEST(u3b_a_label_in_a_colour_of_its_own)

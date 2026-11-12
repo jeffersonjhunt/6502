@@ -1364,9 +1364,12 @@ ui_flags:
 
 ; Record sh_h's new flags ((old | t0) & t1) checked, if it is a slider or a
 ; scroll bar, as ui_open checks the table (SPRCHK; the U3b review's round
-; 2, H1): carry set if refused, the record as it was. Taken, a sprite
-; thumb whose UF_SPRITE goes off has its sprite put out of sight (depth 0).
-; Keeps t0, t1 and sh_h; the flags are ui_flags's to write.
+; 2, H1): carry set if refused, the record as it was. Refused too: a change
+; to UF_OWNTHUMB while UF_SPRITE is on before and after (round 3, J2: the
+; sprite's image would change hands while it shows); UF_SPRITE turned on or
+; off with it is taken. Taken, a sprite thumb whose UF_SPRITE goes off has
+; its sprite put out of sight (depth 0). Keeps t0, t1 and sh_h; the flags
+; are ui_flags's to write.
 FLGCHK: lda     sh_h
         jsr     REC
         ldy     #UW_TYPE
@@ -1385,11 +1388,21 @@ FLGCHK: lda     sh_h
         ldy     #UW_FLAGS
         lda     (UIR),y
         pha                             ; the old flags
+        sta     t2
         ora     t0
         and     t1
         sta     (UIR),y
-        jsr     SPRCHK
-        ply                             ; (the old flags in Y, carry kept)
+        tax                             ; (J2) UF_OWNTHUMB changed,
+        eor     t2
+        and     #UF_OWNTHUMB
+        beq     @spr
+        txa                             ;   UF_SPRITE on before and after: refused
+        and     t2
+        and     #UF_SPRITE
+        sec
+        bne     @old
+@spr:   jsr     SPRCHK
+@old:   ply                             ; (the old flags in Y, carry kept)
         tya
         ldy     #UW_FLAGS
         sta     (UIR),y                 ; the old flags again, refused or not

@@ -989,6 +989,7 @@ ROWFN:  sta     rrow
         ldx     UIQ + 1
         ldy     rrow
         jsr     @col
+        cld                             ; (the routine may leave D set: the U3b review's round 3, J1)
         sta     UIP
         stx     UIP + 1
         plx
