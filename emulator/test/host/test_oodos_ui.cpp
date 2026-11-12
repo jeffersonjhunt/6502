@@ -3042,6 +3042,29 @@ TEST(what_a_call_and_a_crossing_cost)
                 k.crossing);
     CHECK(k.crossings >= 2u);
     CHECK(k.crossing > 281u && k.crossing < 500u);
+    // ui_load from M:, once: its cycles, from its entry to its return.
+    CcpRig l;
+    REQUIRE(l.ok);
+    l.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(l, "uitest", 'N');
+    const uint16_t entry = lab("ui_load");
+    uint64_t from = 0, took = 0;
+    uint16_t ret = 0;
+    uint8_t sp = 0;
+    l.watch = [&](uint16_t pc) {
+        if (pc == entry && !from)
+        {
+            from = l.cpu->cycles();
+            sp = static_cast<uint8_t>(l.cpu->regs().s + 2);
+            ret = static_cast<uint16_t>((l.phys(0x100u + static_cast<uint8_t>(sp - 1)) | l.phys(0x100u + sp) << 8) + 1);
+        }
+        else if (from && !took && pc == ret && l.cpu->regs().s == sp)
+            took = l.cpu->cycles() - from;
+    };
+    CHECK_EQ(ui(l, 'L', 1).substr(6), std::string("00"));
+    l.watch = nullptr;
+    std::printf("  ui_load from M:: %lu cycles (%.2f s at 7.15909 MHz)\n", static_cast<unsigned long>(took), static_cast<double>(took) / 7159090.0);
+    CHECK(took > 0 && took < 7159090u); // under a second
 }
 
 TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
