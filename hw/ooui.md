@@ -916,8 +916,9 @@ to `y6` and `x1` to `x13`, one a finding, each failing without its fix (`y4`'s a
 right, fail with the restore or the extent broken); no golden frame changed. Round 2 added `z1`, `z2`, `z4` and `z5`
 (61 now) and `y4`'s segment (Y4b); `z1` bounds the instructions a poll runs in the walk's code over 200 files, about
 54,000 where the round-1 walk ran 1.27 million. `u2-pick` changed: the name field two columns wider (Z4). Round 3
-added the two `w1` cases (63 now): a file before the selection deleted mid-listing, and the selected file itself;
-no golden frame changed.
+added the two `w1` cases: a file before the selection deleted mid-listing, and the selected file itself; round 4
+the two `v1` cases (65 now), two files gone in one walk (both before the selection; one before it and the selected
+one), each place compared after the pruning so far (V1); no golden frame changed.
 
 **The U2 review's round 2** (*proposed*, the owner's approval, 2026-11-11): Z1, Z4 and Z5 as above; a paint with
 damage but nothing drawn (a window hidden over nothing) places the sliders' thumbs too (Z2). Left for U3a: a test of
