@@ -179,7 +179,7 @@ def crossrefs(dbgfile):
 
 
 TERMINAL = re.compile(r"^\s*(?:[A-Za-z_@][\w]*:)?\s*(rts|rti|jmp|bra)\b", re.I)
-SEGDIR = re.compile(r"^\s*(?:\.segment\s+\"(\w+)\"|\.(code|rodata|bss|data|zeropage))\b", re.I)
+SEGDIR = re.compile(r"^\s*(?:\.segment\s+\"(\w+)\"|\.(code|rodata|bss|data|zeropage)\b)", re.I)
 INSTR = re.compile(r"^\s*(?:[A-Za-z_@][\w]*:)?\s*([a-z]{3})\b(?!\s*=)", re.I)
 
 
