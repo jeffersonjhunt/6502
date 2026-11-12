@@ -3065,3 +3065,22 @@ TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
     std::printf("  a selection move: %lu crossings\n", move.crossings);
     CHECK_EQ(move.crossings, 6u);
 }
+
+TEST(ui_load_s_default_name_from_another_user)
+{
+    // The demo card has OOUI.BNK on A: in user 0, not SYS (make_card.sh): the program in user 3 loads it by its
+    // default name, ui_load opening it in user 0 (D8: the switch, not the SYS attribute, finds it), and is in user
+    // 3 after.
+    Rig r(sd_image("demo.sparse"));
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
+    REQUIRE(r.boot());
+    start_ui(r, "uitpick", 'N');
+    CHECK_EQ(ui(r, 'e', 3, 0xFE, 0).substr(6), std::string("00"));
+    const std::string mine = own_state(r);
+    CHECK_EQ(mine.substr(0, 7), std::string("user 3 "));
+    CHECK_EQ(ui(r, 'L', 0).substr(6), std::string("00"));
+    CHECK_EQ(own_state(r), mine);
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+}
