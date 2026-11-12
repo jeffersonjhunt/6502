@@ -117,15 +117,17 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
 	mv $@.tmp $@
 
-# OOUI, the UI toolkit (ui/*.s, include/ooui.inc; hw/ooui.md, phase U1): each ui/NAME.s assembled
+# OOUI, the UI toolkit (ui/*.s, include/ooui.inc; hw/ooui.md, phases U1 and U2): each ui/NAME.s assembled
 # once into build/ooui.lib, as OOLIB's modules are into oolib.lib (lib-NAME.o, its zero page in
 # ui/zpNAME.s right after it, libzp.py check). OOUI draws through OOLIB, so a program in OOUI_USERS
-# is linked with ooui.lib, then oolib.lib, through the same gate.
+# is linked with ooui.lib, then oolib.lib, through the same gate; OOUI_CFG the link config (cfg/com.cfg,
+# or one that puts a large program's code above W1, as test/ui/uitest.cfg does).
 UISRC = $(patsubst ui/%.s,%,$(wildcard ui/*.s))
 UILIBS = $(foreach m,$(filter-out zp%,$(UISRC)),$(m) $(filter zp$(m),$(UISRC)))
 $(if $(filter-out $(UILIBS),$(UISRC)),$(error ui/: zero page modules without their code: $(filter-out $(UILIBS),$(UISRC))))
 $(if $(filter $(UISRC),$(LIBSRC)),$(error ui/ and lib/ share a module's name: $(filter $(UISRC),$(LIBSRC))))
 OOUI_USERS =
+OOUI_CFG = cfg/com.cfg
 
 $(UILIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: ui/%.s $(wildcard ui/*.inc) include/oodos.inc include/oolib.inc \
 		include/vmem.inc include/ooui.inc | $(BUILD)
@@ -138,11 +140,11 @@ $(BUILD)/ooui.lib: $(UILIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 
 ooui: $(BUILD)/ooui.lib
 
-$(OOUI_USERS:%=$(BUILD)/%.o): include/ooui.inc include/oolib.inc
+$(OOUI_USERS:%=$(BUILD)/%.o): include/ooui.inc include/oolib.inc $(wildcard $(SRC)/*.s) # (one may include another)
 
-$(OOUI_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/ooui.lib $(BUILD)/oolib.lib cfg/com.cfg tools/rules.py \
+$(OOUI_USERS:%=$(BUILD)/%.com): $(BUILD)/%.com: $(BUILD)/%.o $(BUILD)/ooui.lib $(BUILD)/oolib.lib $(OOUI_CFG) tools/rules.py \
 		tools/w1.py
-	$(call LD65,-C cfg/com.cfg $< $(BUILD)/ooui.lib $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
+	$(call LD65,-C $(OOUI_CFG) $< $(BUILD)/ooui.lib $(BUILD)/oolib.lib -o $@.tmp -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl,$@)
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
 	$(PYTHON) tools/w1.py $(BUILD)/$*.map
 	mv $@.tmp $@

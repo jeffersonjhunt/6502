@@ -72,10 +72,14 @@ pc:     .res    1
 gi:     .res    1                      ; GLYPHS'
 gn:     .res    1
 lb:     .res    1                      ; LAYERS'
+lrow:   .res    1                      ; DLABEL's
+lrows:  .res    1
 pi_:    .res    1                      ; SETPAL's
 pdim:   .res    1
 pbase:  .res    1
 ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
+upost:  .res    2                      ; PAINT's last call, 0 none (U2), after a paint that drew
+udrew:  .res    1                      ;   not 0: this paint drew a record (X4)
 blk:    .res    6                      ; IN_MOUSE's block
 
 
@@ -471,7 +475,8 @@ PIX:    asl     mf + 1
 PAINT:  lda     ususp
         beq     @go
         rts
-@go:    jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
+@go:    stz     udrew
+        jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
         ldy     #TH_GROUP
         lda     (UIT),y
         tax
@@ -552,7 +557,7 @@ PAINT:  lda     ususp
         jsr     MPASS
         stz     ph                      ; nothing dirty, no damage
 @c:     lda     ph
-        cmp     ucount
+        cmp     utot
         bcs     @e
         jsr     REC
         ldy     #UW_FLAGS
@@ -561,11 +566,24 @@ PAINT:  lda     ususp
         sta     (UIR),y
         inc     ph
         bra     @c
-@e:     ldx     #7
+@e:     lda     udmg                    ; damage with nothing drawn (a window hidden over
+        cmp     udmg + 2                ;   nothing): what shows changed, upost too (Z2)
+        bcc     @dmg
+        lda     udmg + 4
+        cmp     udmg + 6
+        bcs     @clr
+@dmg:   lda     #1
+        sta     udrew
+@clr:   ldx     #7
 @z:     stz     udmg,x
         dex
         bpl     @z
-        rts
+        lda     udrew                   ; a widget module's after a paint that drew (a slider's
+        beq     @r                      ;   sprites, U2)
+        lda     upost + 1
+        beq     @r
+        jmp     (upost)
+@r:     rts
 
 ; One layer's pass (pl the layer, pbx its box, pclr 1 to clear the box,
 ; cmap its map).
@@ -597,7 +615,7 @@ PASS:   ldx     pbx
         jsr     FILLR
 @go:    stz     ph
 @rec:   lda     ph
-        cmp     ucount
+        cmp     utot
         bcs     @r
         jsr     REC
         ldy     #UW_TYPE
@@ -630,9 +648,15 @@ ONE:    sta     dh
         bne     @dirty
         jsr     OVERLAP
         bcs     @r
+        lda     #1                      ; drawn (upost's)
+        sta     udrew
         jsr     CLIPBOX
+        jsr     CLIPR
         bra     DRAW
-@dirty: jsr     CLIPALL
+@dirty: lda     #1
+        sta     udrew
+        jsr     CLIPALL
+        jsr     CLIPR
         jsr     DRAW
         ldx     pbx
         jmp     BOXADD
@@ -654,12 +678,31 @@ DRAW:   lda     UI_RECT + 2             ; nothing to draw in no cells (O7)
         lda     UI_RECT + 3
         beq     DNONE
         lda     rtype
+        cmp     #UT_SEP + 1
+        bcs     DWID
         asl     a
         tax
         jmp     (DRAWS,x)
+; A widget module's type: its WR_DRAW.
+DWID:   ldy     #WR_DRAW
+        jmp     WCALL
+
+; The clip held inside rclip, the widget's parents' client areas (RECT's).
+CLIPR:  ldx     #1
+@a:     lda     rclip,x
+        cmp     clip,x
+        bcc     @e
+        sta     clip,x
+@e:     lda     rclip + 2,x
+        cmp     clip + 2,x
+        bcs     @n
+        sta     clip + 2,x
+@n:     dex
+        bpl     @a
+        rts
 
         .rodata
-DRAWS:  .word   DNONE, DDESK, DWIN, DPANEL, DLABEL, DBUTTON, DCHECK, DNONE, DNONE
+DRAWS:  .word   DNONE, DDESK, DWIN, DPANEL, DLABEL, DBUTTON, DCHECK, DWID, DWID
         .word   DMBAR, DMENU, DNONE, DNONE
         .code
 DNONE:  rts
@@ -858,6 +901,8 @@ PUTS:   stx     pm
         beq     @r
         ldy     pidx
         lda     (UIQ),y
+        beq     @r
+        cmp     #$0D                    ; a CR ends a line too (U2: a label's lines)
         beq     @r
         inc     pidx
         cmp     #'&'
@@ -1279,10 +1324,29 @@ DLABEL: ldy     #UW_FLAGS
         lda     #2
         sta     tal
 @go:    jsr     TEXTP
-        lda     UI_RECT
-        ldx     UI_RECT + 1
+        lda     UI_RECT + 1             ; a line a row: the text split at CR (U2)
+        sta     lrow
+        lda     UI_RECT + 3
+        sta     lrows
+@line:  lda     UI_RECT
+        ldx     lrow
         ldy     UI_RECT + 2
-        jmp     TEXTLINE
+        jsr     TEXTLINE
+        dec     lrows
+        beq     @r
+        inc     lrow
+        lda     UIQ                     ; past the next CR, or stay on the 0 (blank rows after)
+        ora     UIQ + 1
+        beq     @line
+@cr:    lda     (UIQ)
+        beq     @line
+        inc     UIQ
+        bne     @t
+        inc     UIQ + 1
+@t:     cmp     #$0D
+        bne     @cr
+        bra     @line
+@r:     rts
 
 DBUTTON:
         jsr     BATTR

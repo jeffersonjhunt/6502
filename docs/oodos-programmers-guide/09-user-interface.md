@@ -6,6 +6,13 @@ phase U0 set it down and the owner accepted it, with the six recommended answers
 2026-11-11. Phase U1, the core and the text backend, builds it now and may still change it, so this chapter doesn't
 repeat it. Until OOUI is built, a program builds its own screens with OOLIB ([chapter 8](08-game-services.md)).
 
+**What is built so far** (*proposed*; [hw/ooui.md](../../hw/ooui.md), phases U1 and U2): the core and the text
+backend (the desktop, windows, panels, labels, buttons, check boxes, the menu bar and its menus, the focus, two
+themes, the pointer), and in U2 the group and radio buttons, a choice, scroll bars, list boxes, a text field, bars,
+sliders and the canvas, each a module a program links only if it uses it, with the message box (`ui_msgbox`) and the
+file picker (`ui_pick`), which reads the directory of an SD drive, M: or an Apple CP/M disk image a few entries a
+frame. The reference comes with phase U5.
+
 OOUI is a library of 6502 code that a program links in, as it links OOLIB's graphics library, to get the same
 windows, menus, dialogs, lists, scroll bars and file picker as every other OO-1 program. The program describes its
 widgets in a table in its own memory; OOUI draws them on the video card's layers, takes the keyboard and the mouse

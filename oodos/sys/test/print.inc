@@ -10,9 +10,12 @@
 ;   HEX4     A (low) and X (high) as four, high first
 ;   HEXN     the X bytes at PTR, as hex, no spaces
 ; Its zero page is printzp.inc's, included before the code, so operands
-; are zero page ones (rule 2).
+; are zero page ones (rule 2). In CODE, or the segment the includer is in
+; if it defines PRINT_HERE (UITEST's, whose CODE is OOUI's at $8000).
 
+.ifndef PRINT_HERE
         .code
+.endif
 PUTC:   ldy     #C_WRITE
         jmp     BDOS
 PUTS:   ldy     #C_WRITESTR
