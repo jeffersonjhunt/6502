@@ -171,13 +171,13 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 10 | `UT_MENU` | the title (the menu bar's child) | - | - | - |
 | 11 | `UT_ITEM` | the text (a menu's child) | a check mark, 0 or 1 | +12 a key's HID usage shown, +13 its modifiers (`UK_*`) | - |
 | 12 | `UT_SEP` | - (a menu's line) | - | - | - |
-| 13 | `UT_VSCROLL` | - (*U3b, proposed:* with `UF_SPRITE`, +9 the thumb's sprite, and with `UF_OWNTHUMB` +8 its size byte) | the position, 0 to `UW_A` | the last position | the page (the thumb's size) |
+| 13 | `UT_VSCROLL` | - (*U3b, proposed:* with `UF_SPRITE`, +9 the thumb's sprite, and with `UF_OWNTHUMB` +8 its size byte) | the position, 0 to `UW_A` | the last position | the page (the thumb's size); *U3b, proposed:* with `UF_MARGIN`, +15 the margin byte and +14 the page, 0-255 |
 | 14 | `UT_HSCROLL` | the same | | | |
 | 15 | `UT_LIST` | the rows: an array of string pointers, or with `UF_ROUTINE` the row routine | the selection, `$FFFF` none | the rows' count | the top row shown |
 | 16 | `UT_FIELD` | the buffer (0-terminated) | the cursor | +12 the buffer's size with its 0, +13 the first character shown | - |
 | 17 | `UT_VBAR` | - | the level, 0 to `UW_A` | the top | - |
 | 18 | `UT_HBAR` | the same | | | |
-| 19 | `UT_VSLIDER` | - (*U3b, proposed:* with `UF_OWNTHUMB`, +8 the thumb's size byte) | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
+| 19 | `UT_VSLIDER` | - (*U3b, proposed:* with `UF_OWNTHUMB`, +8 the thumb's size byte; with `UF_MARGIN`, +9 the margin byte) | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
 | 20 | `UT_HSLIDER` | the same | | | |
 | 21 | `UT_CANVAS` | - (*U3b, proposed:* with `UF_ROUTINE`, the routine of its cells) | - | - | - |
 | 22 | `UT_CHOICE` (U2, proposed) | an array of `UW_A` string pointers | the one shown | the count | - |
@@ -192,7 +192,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 3 `$08` | `UF_NOFOCUS`: Tab passes it by | | | | | | | |
 | 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb (*U3b:* a scroll bar's too) |
 | 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | `UF_OWNTHUMB` (*U3b:* with `UF_SPRITE`, the program's image; a scroll bar's too) |
-| 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows (*U3b:* a canvas's cells too) | | |
+| 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows (*U3b:* a canvas's cells too) | | `UF_MARGIN` (*U3b, proposed:* a press in its margin is its own; a scroll bar's too) |
 | 7 `$80` | | `UF_NOFRAME` | | | | | | |
 
 `UW_STATE` (OOUI's): `US_PRESSED` `$01`, `US_HOT` `$02` (the pointer is over it), `US_OPEN` `$04` (a menu down),
@@ -225,11 +225,11 @@ UI_MENUBAR  id, parent
 UI_MENU     id, menubar, text
 UI_ITEM     id, menu, text, usage, mods, flags
 UI_SEP      id, menu
-UI_VSCROLL  id, parent, x, y, len, last, page, flags      ; UI_HSCROLL the same
+UI_VSCROLL  id, parent, x, y, len, last, page, flags [, sprite, thumb, margin]   ; UI_HSCROLL the same; (U3b) the rest
 UI_LIST     id, parent, x, y, w, h, rows, count, flags
 UI_FIELD    id, parent, x, y, w, buffer, size, flags
 UI_VBAR     id, parent, x, y, len, top, flags              ; UI_HBAR the same
-UI_VSLIDER  id, parent, x, y, len, top, value, step, sprite, flags   ; UI_HSLIDER the same
+UI_VSLIDER  id, parent, x, y, len, top, value, step, sprite, flags [, thumb, margin]   ; UI_HSLIDER the same; (U3b) the rest
 UI_CANVAS   id, parent, x, y, w, h, flags [, routine]       ; (U3b) the routine with UF_ROUTINE
 UI_END      name                                  ; name_COUNT: its records
 ```
@@ -298,7 +298,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_poll` | | A the event (`UE_*`), X its widget, Y as the event says, and `UI_EV` (below). Carry clear |
 | `ui_show` | A a handle | shown with its children; a `UF_MODAL` window takes the input and the focus |
 | `ui_hide` | A a handle | hidden with its children; what it covered drawn again. `UI_PICKER` or `UI_MSG` closes it, with no event (the picker's listing stops). A widget in it held by the pointer is let go: a slider's or a scroll bar's last `UE_CHANGE` comes at the next poll (U2 review, X10) |
-| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`). *(U3b review round 2, proposed:)* a slider's or a scroll bar's new flags are checked as `ui_open` checks the table: refused, carry set and A `UX_SPRITE`, the flags unchanged; `UF_SPRITE` cleared puts the thumb's sprite out of sight |
+| `ui_flags` | Y a handle, A the bits to set, X the bits to clear | A the flags now; dirty. Not `UF_DIRTY` or `UF_HIDDEN` (`ui_show`, `ui_hide`). *(U3b review round 2, proposed:)* a slider's or a scroll bar's new flags are checked as `ui_open` checks the table: refused, carry set and A `UX_SPRITE`, the flags unchanged; `UF_SPRITE` cleared puts the thumb's sprite out of sight. *(Round 3, J2:)* refused the same way, a change to `UF_OWNTHUMB` while `UF_SPRITE` is on before and after the call; with `UF_SPRITE` turned on or off in the same call, it is taken |
 | `ui_settext` | Y a handle, A/X a string | dirty |
 | `ui_setvalue` | Y a handle, A/X the value | held to the widget's range; dirty. No event |
 | `ui_getvalue` | Y a handle | A/X the value |
@@ -388,7 +388,7 @@ field, OK and Cancel. It takes a block of 20 bytes (`UP_*`):
 | +7-8 | the result buffer |
 | +9 | its room, in entries |
 | +10 | the entries chosen (OOUI writes it) |
-| +11-12 | a column routine, 0 none: A/X an entry, Y its row; it returns A/X a short string for the row's right, or 0 for "not yet" (asked again later), so a slow look inside a file can be spread over frames |
+| +11-12 | a column routine, 0 none: A/X an entry, Y its row; it returns A/X a short string for the row's right, or 0 for "not yet" (asked again later), so a slow look inside a file can be spread over frames. *(U3b review round 3, proposed:)* OOUI clears the decimal flag after the call (J1) |
 | +13-14 | an extra button's text (0 none), such as MOUNT |
 | +15-16 | a work buffer for the listing |
 | +17-18 | its length: 16 bytes a file listed |
@@ -1578,6 +1578,50 @@ its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record 
     plain canvas. The rest is the paint around it, the same for either kind: the records walked, the damage box
     cleared, the window's inside drawn again under it, and the interrupts that fall in that time.
 
+- **A margin for sliders and scroll bars** (`UF_MARGIN`, `$40`; owner-approved 2026-11-12, after OO-Amp's port
+  found OOUI's hit areas smaller than its own: a vertical slider's one column wide, so its EQ bands' targets 584
+  pixels smaller than today's, the playlist's scroll bar 352, volume and balance 96 each). Opt-in, and additive:
+  without the flag nothing changes.
+  - **The margin byte.** A slider's is `UW_TEXT`'s high byte (+9, free: its low byte is the own thumb's size); a
+    scroll bar's is `UW_B`'s high byte (+15; it has no free byte, so with `UF_MARGIN` its page is `UW_B`'s low byte,
+    0-255). Bits 0-3: the cells across the track on each side. Bits 4-7: the cells beyond each end along it, a
+    slider's only; a scroll bar's ends are its arrows, and these bits do nothing there. `UI_*SLIDER` and
+    `UI_*SCROLL` take it as an optional last argument.
+  - **What a press there does.** A press in the margin is a press on the widget, as on its track: the same
+    `WR_DOWN` with the pointer where it is, so the same value as the track's cell in that column (a horizontal
+    slider) or row (a vertical one), an end's value beyond the end, the same page or thumb drag on a scroll bar,
+    and the drag that follows. Only the press: the wheel and `US_HOT` look at the widget's own cells.
+  - **What it never takes.** `MARGIN` (`uipoll.s`, block A) runs after `HIT` on a press: a margin takes the press
+    only where what `HIT` found is one of the widget's own parents (its window's or panel's inside, the desktop)
+    or nothing. So it never takes a press from another widget, whether drawn in front of it (FRONT's order: a
+    window over it, a later record) or behind it. Behind too, which is more than "in front" asks: OO-Amp's volume
+    (row 12) and balance (row 13) are neighbours, and a margin across either would otherwise take the other's
+    presses. Where two margins meet, the frontmost widget's (the table's later record) has the cell. A margin is
+    inside the widget's parents' client areas and the modal window, as `HIT` is, and a hidden widget has none.
+  - **What OO-Amp sets** (its `tools/mkgfx.py`, from `art/art.json`'s hit rectangles; a cell is 4 x 8 pixels):
+
+    | Widget | Type | `UF_MARGIN` and the byte | Its target then (today's) |
+    | --- | --- | --- | --- |
+    | `eq0`-`eq10` | `UT_VSLIDER` | `UW_TEXT` = `$11` << 8 \| the size byte | 12 x 80 (12 x 70): one column each side, one row beyond each end; each band's columns start 1 pixel right of today's |
+    | `vol`, `bal` | `UT_HSLIDER` | `UW_TEXT` = `$20` << 8 \| the size byte | 96 x 8 (92 x 8): two columns beyond each end |
+    | `seek` | `UT_HSLIDER` | `UW_TEXT` = `$11` << 8 \| the size byte | 312 x 24 (312 x 12): its pixels 86-97 cover three rows |
+    | `plscroll` | `UT_VSCROLL` | `UW_B` = `$01` << 8 \| the page (the rows shown, under 256) | 12 x 88 (8 x 88): one column each side |
+
+    Each covers today's rectangle (the bands' but for its first pixel column). Where a margin meets another of
+    OO-Amp's widgets, that widget keeps its cells: if the playlist's list reaches column 77, the scroll bar's
+    left margin is the list's there. A label or a canvas in a margin keeps it too (it is a widget, not a
+    parent); OO-Amp's generator should check none sits in one. (The seek bar's difference by this count is
+    1,312 pixels, against the port's 780; the port's numbers may come from a later layout.)
+  - **The cost:** 205 bytes of block A (`MARGIN`, `MTEST`), 11 of block B (the scroll bar's page byte); no
+    `UISTATE` (it uses `fb`, `fh` and `t0`-`t2`); nothing on a poll without a press. A press walks the records
+    once more, a type test each, and `RECT` only for a flagged slider or scroll bar.
+  - **Tests** (`u3b_a_slider_s_margin_takes_a_press`, `u3b_a_margin_takes_no_press_from_another_widget`,
+    `u3b_a_scroll_bar_s_margin_takes_a_press`): without the flag (and with the byte alone) the margin's cells are
+    the window's; with it, across and along, the ends' values, a drag begun there, past the margin nothing,
+    hidden nothing; a window in front, a modal window, and a neighbour slider in front with its own margin each
+    keep their cells; a scroll bar's page from `UW_B`'s low byte, its along bits ignored, its thumb dragged from
+    beside it. No golden frame changed.
+
 **Tests:** `test_oodos_ui` gains six `u3b_*` cases (and the review's rounds, below, more) (a scene of UITBAR's, blocks 6 and 7, and the picker's block F):
 five fail without their change; one confirms what `UO_OWNMOUSE` already did. One existing case changed how it
 measures, not what it expects:
@@ -1609,8 +1653,9 @@ No golden frame changed.
 - **H1.** `ui_flags` on a slider or a scroll bar checks the new flags with `SPRCHK`, as `ui_open` and `ui_settext`
   do: `UF_SPRITE` set onto the pointer's sprite, or `UF_OWNTHUMB` with a size byte of 0, is refused with
   `UX_SPRITE`, carry set, the flags (and the rest of the record) as they were, nothing marked dirty. When
-  `UF_SPRITE` goes off, the thumb's sprite goes out of sight (depth 0); set again, the next paint places it, since
-  the record is dirty. `u3b_r2_ui_flags_on_a_thumb_is_checked`.
+  `UF_SPRITE` goes off, the thumb's sprite goes out of sight (depth 0); set again, the next paint places it again,
+  because `ui_flags` damages the record's area, which covers the thumb's last cells (POST's filter places a thumb
+  whose cells the paint touched; round 3, J4, the wording). `u3b_r2_ui_flags_on_a_thumb_is_checked`.
 - **H2.** A `UF_ROUTINE` routine of 0 calls nothing, and isn't refused: a canvas's rows are transparent; a list's
   rows are empty, in `TC_LIST` with no style (the selection's row still in its colour). For the list, empty rows
   were chosen over the array path (`UW_TEXT` 0 read as an array at `$0000`, which would draw whatever the zero page
@@ -1624,7 +1669,8 @@ No golden frame changed.
   (`u3b_a_canvas_s_cells_from_a_routine`): its cells 21,907 before, 21,990 after (the row's clip test, and the test
   routine's call count, which this round added); its `ui_poll` 73,313 before, 74,039 after, against 66,122 and
   66,328 for a plain canvas, which doesn't reach the changed code: the difference is where the interrupts fall.
-- **H4.** OOUI clears the decimal flag after the canvas's routine and after the list's row routine.
+- **H4.** OOUI clears the decimal flag after each of the program's three callbacks: the canvas's routine, the
+  list's row routine and (round 3, J1) the picker's column routine.
   `u3b_r2_a_routine_returning_with_d_set`: test routines that return with D set; without the `CLD` the canvas's
   row addresses come out in decimal and the program stops answering, and the list's frame changes.
 - **H5.** `u3b_r2_ui_open_checks_a_scroll_bar_s_and_an_own_thumb_s_sprite`: `ui_open` refuses (`UX_SPRITE`) a
@@ -1637,6 +1683,33 @@ No golden frame changed.
 free; 685 after round 1, 817 before U3b), B 10,537 (1,751 free; 1,803 after round 1, 2,396 before U3b), C 7,222
 (5,066 free, unchanged); `UISTATE` 1,463 of 1,536, unchanged (round 2 added no variable; the canvas's are block
 B's own).
+
+**The code review, round 3 (2026-11-12):** the owner had J1-J4 fixed as recommended. Each code change has a case
+that fails without it.
+- **J1.** OOUI clears the decimal flag after the picker's column routine (`ROWFN` in block C), as after the other
+  two callbacks (H4). `u3b_r3_a_column_routine_returning_with_d_set`: the test's column routine returns with D
+  set; without the `CLD` the picker's rows (the entries' addresses, added in decimal) come out wrong.
+- **J2.** `ui_flags` refuses (`UX_SPRITE`, carry set, the flags as they were, nothing dirtied) a change to
+  `UF_OWNTHUMB` on a slider or a scroll bar while `UF_SPRITE` is on both before and after the call: the sprite's
+  image would change hands while it shows (OOUI's image over the program's sprite, or the program's thumb left
+  with OOUI's image). Taken: both set together from off, both cleared together, `UF_SPRITE` turned on or off in
+  the same call as the change, and a change while `UF_SPRITE` is off (no sprite shows); `SPRCHK` still checks what
+  results. `ui_open`'s and `ui_settext`'s checks are unchanged. `u3b_r3_ui_flags_keeps_an_own_thumb_while_its_sprite_shows`:
+  each direction refused (a slider's own thumb made OOUI's, a slider's OOUI thumb made the program's, a scroll
+  bar's own made OOUI's), then each allowed path. Round 2's case that sets `UF_OWNTHUMB` on `Z_HSC` with a size
+  byte of 0 is now refused by J2 first; the same refusal, unchanged expectation.
+- **J3.** `u3b_r2_a_routine_of_0_draws_nothing` also checks the selection's row in a list with a routine of 0:
+  `TC_LISTCUR` without the focus, `TC_LISTSEL` with it, its neighbours `TC_LIST`. (It fails if the selection's
+  colour is taken away.)
+- **J4.** H1's note above says why the thumb is placed again: `ui_flags` damages the record's area, which covers
+  the thumb's last cells.
+
+And the margin for sliders and scroll bars ([above](#u3b-the-gaps-oo-amps-port-found)), a new gap the owner
+approved with round 3.
+
+**Sizes after round 3** (mkbank.py): `UICOM` 3,298, unchanged; block A 11,935 (353 free: J2 20 bytes, the margin
+205), B 10,548 (1,740 free: the margin's scroll-bar page 11), C 7,223 (5,065 free: J1's `CLD`); `UISTATE` 1,463 of
+1,536, unchanged.
 
 #### U3a: questions ####
 
