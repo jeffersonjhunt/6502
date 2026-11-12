@@ -3324,6 +3324,13 @@ TEST(u3b_a_slider_s_own_thumb)
     poll(r);
     CHECK_EQ(spr_depth(r, 1), 0);
     CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+    // ui_close (the U3b review's G1): OOUI's own thumbs' images go off the card memory it frees, to page 0; the
+    // program's own (sprites 1 and 3) are left as it set them, in its own memory.
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(spr_image(r, 1), 0x0ABCu);
+    CHECK_EQ(spr_image(r, 3), 0x0ABDu);
+    CHECK_EQ(spr_image(r, 2), 0u);
+    CHECK_EQ(spr_image(r, 4), 0u);
 }
 
 TEST(u3b_a_scroll_bar_s_sprite_thumb)

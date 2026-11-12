@@ -2,9 +2,11 @@
 ; UW_VALUE from 0 to UW_A (the top: a vertical slider's top end, a
 ; horizontal one's right), UW_B's low byte a key's step (0 is 1), its high
 ; byte the thumb's sprite with UF_SPRITE. The track in TC_SCROLL, the thumb
-; a cell in TC_THUMB, or with UF_SPRITE an 8 x 8 sprite placed to the
-; pointer unit (OOUI's thumb image, in the overlay's group), which is put
-; out of sight when the slider is hidden. It takes the focus: Up and Right
+; a cell in TC_THUMB, or with UF_SPRITE a sprite placed to the pointer unit
+; and centred by its size: OOUI's 8 x 8 thumb image in the overlay's group,
+; or (U3b) with UF_OWNTHUMB the program's own image, its size and group
+; UW_TEXT's low byte, which OOUI never writes. It is put out of sight when
+; the slider is hidden. It takes the focus: Up and Right
 ; step it up, Down and Left down, PgUp and PgDn an eighth, Home the top,
 ; End 0; the wheel steps it; a click or a drag puts it where the pointer
 ; is (UE_CHANGE with UV_LIVE as it moves, then without at the release).
@@ -465,10 +467,11 @@ THUMB:  .byte   $00, $22, $22, $00
         .byte   $00, $22, $22, $00
         .segment "BCODE"
 
-; After a paint that drew (PAINT's upost): each UF_SPRITE slider's thumb
-; placed if it shows, else out of sight (depth 0). upmode 1: all out of
-; sight (ui_suspend); 2: their images off OOUI's card memory too
-; (ui_close, X3).
+; After a paint that drew (PAINT's upost): each UF_SPRITE slider's or (U3b)
+; scroll bar's thumb placed if it shows, else out of sight (depth 0).
+; upmode 1: all out of sight (ui_suspend); 2: OOUI's own images off its card
+; memory too (ui_close, X3), a UF_OWNTHUMB image left as the program set it
+; (U3b review, G1).
 POST:   lda     #$FF
         sta     idx
 @l:     inc     idx
@@ -522,6 +525,10 @@ POST:   lda     #$FF
         jsr     GX_SPRATTR
         lda     upmode
         cmp     #2
+        bne     @next
+        ldy     #UW_FLAGS               ; the program's own image (UF_OWNTHUMB) left alone: it
+        lda     (UIR),y                 ;   is in the program's memory, not OOUI's (U3b review, G1)
+        and     #UF_OWNTHUMB
         bne     @next
         stz     GX_V                    ; (page 0: OODOS's, never freed)
         stz     GX_V + 1
