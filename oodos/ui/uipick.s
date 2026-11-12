@@ -642,15 +642,17 @@ PRUNE:  jsr     SELREC                  ; the selection, moved with what is take
 
 ; Entry ent taken out: before the selection, the selection moves up one;
 ; the selection itself, none, and the field that showed its name cleared
-; (with UP_NEW the field is the user's: it stays).
+; (with UP_NEW the field is the user's: it stays). Both are compared after
+; the pruning so far: the entry's place is cur, the ones kept before it,
+; and psel is the selection's with the earlier ones taken out (V1).
 GONE:   lda     psel + 1
         cmp     #$FF
         beq     @r
-        lda     ent
+        lda     cur
         sec
         sbc     psel
         sta     t0
-        lda     ent + 1
+        lda     cur + 1
         sbc     psel + 1
         bcs     @at
         lda     psel
