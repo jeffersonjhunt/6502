@@ -2946,11 +2946,13 @@ namespace
 {
     /// What a 'p' (ui_poll till UE_NONE) cost: the cycles of its first ui_poll (from its stub to its return in
     /// c_poll, PRET), the crossings between OOUI's blocks (FARCALLs made with an OOUI block in W3), and what a
-    /// crossing adds, on average: from FARCALL's entry to the routine's first instruction (past the dispatcher's
-    /// JMP), and from FCRET's entry (the routine's RTS) back to the caller.
+    /// crossing adds: from FARCALL's entry to the routine's first instruction (past the dispatcher's JMP), and
+    /// from FCRET's entry (the routine's RTS) back to the caller. `crossing` is the least of those timed (U3b: an
+    /// interrupt inside one lengthens it by chance), `mean` and `most` their mean and the longest (the U3b
+    /// review's G7: a slow path in some crossings shows there).
     struct Costs
     {
-        unsigned long poll = 0, crossings = 0, crossing = 0;
+        unsigned long poll = 0, crossings = 0, crossing = 0, mean = 0, most = 0;
     };
     Costs poll_costs(Rig &r)
     {
@@ -2959,9 +2961,8 @@ namespace
         const uint16_t jumps[] = {static_cast<uint16_t>(lab("AENT") + 23), static_cast<uint16_t>(lab("BENT") + 23),
                                   static_cast<uint16_t>(lab("CENT") + 23)}; // each dispatcher's JMP (xjmp)
         Costs c;
-        uint64_t start = 0, xsum = 0, xstart = 0, ostart = 0, xmin = ~uint64_t{0}; // (U3b: the least, as an
-                                                                                    //   interrupt inside one
-                                                                                    //   lengthens it by chance)
+        uint64_t start = 0, xsum = 0, xstart = 0, ostart = 0, xmin = ~uint64_t{0}, xall = 0, xmax = 0;
+        unsigned long xdone = 0;
         uint16_t xret = 0, prev = 0;
         uint8_t xsp = 0;
         bool done = false, in = false;
@@ -2989,6 +2990,9 @@ namespace
                 if (ostart)
                     xsum += now - ostart; // out: FCRET to the caller
                 xmin = std::min(xmin, xsum);
+                xmax = std::max(xmax, xsum);
+                xall += xsum;
+                ++xdone;
                 xsum = 0;
                 xret = 0;
                 ostart = 0;
@@ -3017,6 +3021,8 @@ namespace
         poll(r);
         r.watch = nullptr;
         c.crossing = timed ? static_cast<unsigned long>(xmin) : 0;
+        c.mean = xdone ? static_cast<unsigned long>(xall / xdone) : 0;
+        c.most = static_cast<unsigned long>(xmax);
         return c;
     }
 } // namespace
@@ -3042,8 +3048,8 @@ TEST(what_a_call_and_a_crossing_cost)
     poll(w);
     key(w, K_DOWN);
     const Costs k = poll_costs(w);
-    std::printf("  a list's Down: the first ui_poll %lu cycles, %lu crossings of %lu cycles each\n", k.poll, k.crossings,
-                k.crossing);
+    std::printf("  a list's Down: the first ui_poll %lu cycles, %lu crossings; a crossing's overhead %lu cycles at least,"
+                " %lu on average, %lu at most\n", k.poll, k.crossings, k.crossing, k.mean, k.most);
     CHECK(k.crossings >= 2u);
     CHECK(k.crossing > 281u && k.crossing < 500u);
     // ui_load from M:, once: its cycles, from its entry to its return.
