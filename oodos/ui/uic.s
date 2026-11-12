@@ -1,7 +1,8 @@
 ; OOUI's block C's dispatcher (hw/ooui.md, "U3a: OOUI as a banked
 ; library"): CENT, the block's first bytes after UICOM, which another
 ; block far calls through uifar.s's FARC: xsel picks the routine in
-; CTAB, and A, X, Y and the flags reach it as the caller left them.
+; CTAB, and A, X, Y, the carry and V reach it as the caller left them;
+; N and Z don't (its LDAs and PLA set them, as XGO's PLA does: review C5).
 
         .setcpu "65C02"
         .include "oodos.inc"

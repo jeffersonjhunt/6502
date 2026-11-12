@@ -61,7 +61,8 @@ WF_REPEAT       = $08                  ; the keys it takes repeat while held
 DLG_RECS        = 13
 
 ; The crossings between blocks (U3a: uifar.s, and each block's dispatcher,
-; uia.s, uib.s, uic.s): XGO FARx, a selector, keeping A, X, Y and the carry.
+; uia.s, uib.s, uic.s): XGO FARx, a selector, keeping A, X, Y, the carry
+; and V (N and Z not: review C5).
 .global xsel, xsx, xjmp, FARA, FARB, FARC, AENT, BENT, CENT
 XA_HIDEH        = 0                    ; uia.s's ATAB
 XA_REFOCUS      = 2
