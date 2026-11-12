@@ -261,7 +261,7 @@ For example, a window with a list and two buttons:
 | +11 | `UO_SPRITE` | the first sprite OOUI may use (the pointer, then slider thumbs) |
 | +12 | `UO_SPRITES` | how many, 0-16 (0: no pointer sprite) |
 | +13 | `UO_FLAGS` | `UO_OWNMOUSE` `$01`: the app sets the mouse's mode and the pointer itself |
-| +14-15 | `UO_WIDGETS` | (U2, proposed) the widget modules' records the table uses, a list ended by 0: `UI_END`'s `name_WIDGETS`; 0 none (a table of U1's types only) |
+| +14-15 | `UO_WIDGETS` | (U2, proposed) the widget modules' records the table uses, a list ended by 0: `UI_END`'s `name_WIDGETS`; 0 none (a table of U1's types only). *Ignored from U3a: every module is in OOUI.BNK* |
 
 **Before `ui_open`** the app calls OOLIB's `GX_INIT` with the same event area, then `GX_PALINIT` and `GX_SPRINIT`:
 the palette and the sprite table are OOLIB's, shared with the app, and OOUI can't tell whether they were made (a
@@ -805,7 +805,10 @@ item could be chosen by its key from a bar that doesn't show (W10).
 the button down, the pointer moved while held, the button up, the wheel). The layout macros mark the modules a
 table uses and `UI_END` lists their records as `name_WIDGETS`; the program gives the list to `ui_open` at
 `UO_WIDGETS` (+14), which registers them, and refuses a table with a type whose module isn't there (`UX_TABLE`).
-The message box and the picker register what they use themselves. Their widgets are records of OOUI's own after
+The message box and the picker register what they use themselves. *(U3a, proposed, built: every module is in
+OOUI.BNK's block B, whose dispatcher finds a type's record itself; `UO_WIDGETS` is ignored, `UI_END`'s
+`name_WIDGETS` is 0, and nothing is registered or refused for want of a module:
+[U3a, as built](#u3a-as-built).)* Their widgets are records of OOUI's own after
 the program's table (`uidlg.s`), given by public handles: `UI_MSG` `$F0` and its text `$F2` and buttons `$F3`
 and `$F4`; `UI_PICKER` `$F1`, its drive `$F5`, user `$F6`, list `$F7`, name `$F8`, OK `$F9`, Cancel `$FA`, extra
 `$FB` and status `$FC`.
@@ -1327,9 +1330,8 @@ program's 320 KB.
   - **The modules' records and the `UIW_*` exports go.** The macros no longer import `UIW_*`, and a program that
     named one (none does but through `UI_END`) no longer links.
   
-  When this is built, the U2 text above that describes the registry ("Each widget a module of its own": the
-  module records, `UO_WIDGETS`, "refuses a table with a type whose module isn't there") and `ooui.inc`'s
-  `UO_WIDGETS` comment are changed to match.
+  Built: the U2 text above that describes the registry ("Each widget a module of its own") and `ooui.inc`'s
+  `UO_WIDGETS` comment say so.
 - **The themes** (D4). `UO_THEME` 0 is still the default, the block's own copy of the house theme. `UI_HOUSE` and
   `UI_TURBO` stay tables a program can link (`uitheme`, `uiturbo`: 96 bytes each, linked only when named), so a
   program can still pass the house theme by address or build a theme from it. `UITEST`'s `c_theme` copies
@@ -1368,6 +1370,117 @@ program's 320 KB.
     - `UISTATE` misaligned in a program's link: ld65's assertion stops the build (E2).
 - **Phase 2's other items** (Z3, W2, the menu-over-thumb test, the pointer's image after `ui_close`) are built on
   top of this.
+
+#### U3a: as built ####
+
+**Proposed, built 2026-11-12** on `feat/ooui-u3a`, as the design above says but where this says otherwise.
+
+**Where it is.**
+- **The bank's modules** are `oodos/ui/*.s` but `uiturbo.s`, assembled with `UIBANK` defined. `uia.s`, `uib.s` and
+  `uic.s` are the dispatchers. `uifar.s` holds UICOM's stubs, and `uirows.s` the picker's row buffer (E3).
+- **`ui/uiimp.inc`** lists the calls and the imports, in order.
+- **`cfg/ooui-bnk.cfg`** and **`tools/mkbank.py`** make `build/OOUI.BNK` (`make -C oodos ooui`), with
+  `build/ooui-bnk.lbl` for the tests.
+- **The program part** is `oodos/uiprog/`: `uistub.s`, `uiload.s`, `uistate.s`, and `zpuiload.s`, which is
+  `zpuicore.s` again. It is built with `uitheme.s` and `uiturbo.s` into `build/ooui.lib`.
+- **The test programs** link with `test/ui/uiprog.cfg`, a `.COM` with a UISTATE area at `$8000`. `uitest.cfg` is
+  gone.
+
+**How the blocks are linked: one link, not one a block.**
+- An object can't be split across links, and UICOM's routines live in their modules' sources (they are wrapped in
+  `.segment "UCODE"` where they are). So mkbank.py links every module once. UICOM, A, B and C are memory areas of
+  their own, the three blocks all starting after UICOM at the same address, each written to its own file.
+- **No call across blocks** is checked from L0's debug file, not by an undefined symbol. Every reference is a line
+  in a segment, and the symbol it names is in a segment, so a reference from one block's segment to another
+  block's symbol, or from UICOM's to any block's, fails the build. The dispatchers' entries, `AENT`, `BENT` and
+  `CENT`, are allowed.
+- **A segment that falls through into another** fails it too: the last instruction before a segment directive
+  in a code segment must be RTS, RTI, JMP or BRA.
+- **`check_tools.py` sees each refusal:** block A calling block B's `PNONEW`, UICOM calling `ui_open`, UICOM
+  falling into A's code, a `#>` of an import, an addend of `$400` (the proof), and a table with one fixup left
+  out (the proof).
+
+**Crossings.**
+- Each block's dispatcher takes a selector (`xsel`) to a table of its routines.
+- Block B has every widget module's record. The core's `WCALL` crosses to B with the type and the handler.
+  `ui_open` crosses once, for the types' flags (`ufl`).
+- Calls into block C are the dialogs' filters (`DFILT`), their idle part (`IDLE`) and the row fill (E3).
+- Calls into block A are `REFOCUS` and `HIDEH`, from the dialogs. So are the sliders' post-paint call (`upost`)
+  and `THUMBSOFF`, which go A to B through `XB_POST`.
+- **UICOM is the measured closure** (2,604 bytes then), with:
+  - the tables its routines read: `INT2PUB`, `FRAMES`, the menus' key names;
+  - the dialogs' strings a record points to;
+  - the house theme;
+  - the row routine `PROWS`;
+  - the stubs.
+
+**Sizes, measured** (bytes; a block's code window is 12,288):
+
+| Part | Bytes | Free |
+| --- | --- | --- |
+| UICOM, in every block | 3,283 | |
+| Block A, with UICOM | 11,369 | 919 |
+| Block B, with UICOM | 9,278 | 3,010 |
+| Block C, with UICOM (and its own 164: the picker's FCB and directory buffer) | 7,005 | 5,283 |
+| UISTATE, used of the 1,536 reserved | 1,531 | 5 |
+| Fixups: A, B, C (UICOM's in each) | 1,846, 1,688, 1,132 | |
+| `OOUI.BNK` | 37,248 | |
+| The program part: `ui_load` (code 1,100, tables 56, `DATA` 4) | 1,160 | |
+| The program part: the stubs (`DATA`) | 154 | |
+| The program part: zero page | 8 | |
+| The program part: `UI_HOUSE`, `UI_TURBO`, each when named | 96 | |
+
+- **UISTATE is full.** A variable more needs a whole page more of the reserve (answer 5), or a block's own
+  variables moved out of it.
+- **`ui_load` is larger than the 480 estimated.** Its refusals' cleanup and its fixup kinds took more. It runs
+  once, so a program short of room can put it in an overlay.
+- **The test programs** are now 4,818 to 6,621 bytes each (`UITEST` to `UITBAR`), where they had been about 26 KB
+  linked at `$8000`.
+
+**Cycles, measured** (`test_oodos_ui`; a frame is 119,318):
+
+| What | Crossings | Cycles |
+| --- | --- | --- |
+| A crossing's overhead (FARCALL in, the dispatcher, FCRET out) | 1 | 322 |
+| An idle `ui_poll` on UITEST's scene (31 records) | 0 | 20,433 (17%) |
+| The sliders' thumbs after a band moved, on a screen shaped as OO-Amp's (Z3) | 0 | 69,591 (58%) |
+| The sliders' thumbs after a status line's text changed far from them | 0 | 9,638 |
+| A picker listing poll | 3 | |
+| A picker selection move | 6 | |
+| `ui_load` from M:, once | | 2,067,222 (0.29 s) |
+
+- **The idle `ui_poll`** was 98,858 cycles, 83% of a frame, before the fix below; U1 and U2 had the same cost, and
+  the banking adds only the call's FARCALL.
+- **The thumbs after a band moved** were 3,302,244 cycles, 28 frames, before Z3's fix.
+- **The selection move's 6 crossings** are the list's key, the picker's filter of its `UE_CHANGE`, the picker's
+  idle part, the list's paint, its rows, and the name field's paint. Round 3's F1 counted 4.
+
+**Fixed on the way, besides the design** (each with a case that fails without it):
+- **Z3.**
+  - A sprite slider whose last thumb cell is outside the paint's damage (`pdmg`, kept from `udmg`) is left as it
+    was.
+  - `FRONT` skips the overlay's pass when no window can be on it.
+  - `RECT` reuses its parent's placing for a sibling during a `FRONT`.
+- **An idle paint.** `PASS` no longer places a clean record when its layer's damage box is empty (it would draw
+  nothing). No golden frame changed.
+- **W2.** The picker's compare place jumps only over a few entries (kept in `skipq`, 8 at most, to check past the
+  list's end), stays put for a far find, and passes entries this walk has stamped. The worst poll's walk went from
+  823,876 instructions to 57,906.
+- **The pointer's image.** `ui_close` points the pointer's image at card page 0.
+- **The fixups' count.** It was the sites, not the encoded entries (skips too), so ui_load stopped short of the
+  table's end. Now it counts the encoded entries; every frame shows it.
+- **The link's order.** It is sorted, since make's wildcard ordered `ui/*.s` differently in make_card.sh's
+  container, and OOUI.BNK's bytes with it.
+
+**Changes from the design text:**
+- **The X4 menu-over-thumb test** adds a menu bar to UITBAR's scene that is hidden there and shown by the test, so
+  `u2-levels` didn't change: no golden frame changed in U3a.
+- **The tests load OOUI.BNK from M: in user 15**, out of the picker's listings of user 0. The four cases with 50
+  files on M: load it from B:, since M: (120 KB) can't hold both.
+- **`the_table_is_checked_and_handles_too`** has E4's change: a list in a table without its module registered is
+  opened (and closed again before the case goes on), not refused.
+- **The demo card has OOUI.BNK on A:** (user 0, not SYS), and test_oodos_boot's demo-card case wants it. The test
+  card is unchanged.
 
 #### U3a: questions ####
 
