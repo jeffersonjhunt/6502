@@ -2838,7 +2838,11 @@ namespace
         return b;
     }
     /// The blocks free (uitest.s's 'B').
-    unsigned free_blocks(Rig &r) { return static_cast<unsigned>(std::stoul(ui(r, 'B').substr(0, 2), nullptr, 16)); }
+    unsigned free_blocks(Rig &r)
+    {
+        const std::string a = ui(r, 'B').substr(0, 2);
+        return std::isxdigit(static_cast<unsigned char>(a[0])) ? static_cast<unsigned>(std::stoul(a, nullptr, 16)) : 999u;
+    }
     /// OOUI.BNK, as built.
     std::vector<uint8_t> bnk() { return read_bytes(UTILS + "/OOUI.BNK"); }
 } // namespace
@@ -2882,7 +2886,7 @@ TEST(ui_load_s_refusals_leave_nothing_taken)
     start_ui(r, "uitest", 'N');
     const unsigned all = free_blocks(r);
     CHECK(all >= 3u);
-    CHECK_EQ(std::stoul(ui(r, 'E', 2).substr(0, 2), nullptr, 16), all - 2);
+    CHECK_EQ(ui(r, 'E', 2).substr(0, 2), hex2(all - 2));
     CHECK_EQ(ac(ui(r, 'L', 1)), hex2(UX_MEMORY_) + "01");
     CHECK_EQ(free_blocks(r), 2u);
     CHECK_EQ(ac(ui(r, 'R')).substr(2), std::string("00"));
