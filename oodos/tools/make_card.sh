@@ -62,7 +62,9 @@
 #   /BOOT.BIN, /OODOS/DRIVES.TXT   as the test card's
 #   /OODOS/A.IMG       oodos-8m, label mode 0x31: README.TXT (what to try,
 #                      in our words), OODOS.SYS, HELLO.COM and the utilities
-#                      (SYS, as on the test card)
+#                      (SYS, as on the test card), and OOUI.BNK (user 0, not
+#                      SYS: OOUI's banked library, which an OOUI program's
+#                      ui_load opens by default, hw/ooui.md, U3a)
 #   /OODOS/B.IMG       oodos-8m, label mode 0x31, empty: B: to work on
 #
 # A binary file's byte i is ((i >> 7) * 31 + i * 7 + seed) & 0xFF, a
@@ -76,7 +78,7 @@ out="$root/emulator/test/host/sd"
 # What the container copies in (below), and so what's on the cards: a commit
 # elsewhere in oodos/ (its tests, its README) leaves the stamp as it was.
 src="oodos/Makefile oodos/include oodos/sys oodos/ldr oodos/examples oodos/cfg oodos/tools
-     oodos/utils oodos/rsx oodos/lib oodos/card oodos/diskdefs backplane/bios/backplane.inc"
+     oodos/utils oodos/rsx oodos/lib oodos/ui oodos/uiprog oodos/card oodos/diskdefs backplane/bios/backplane.inc"
 # shellcheck disable=SC2086 # src is a list of paths
 stamp=$(cd "$root" && TZ=UTC git -c safe.directory='*' log -1 --format=%cd \
     --date=format-local:'%Y-%m-%d %H:%M:%S' -- $src)
@@ -138,13 +140,14 @@ PY
 # utilities, from their sources, in a copy laid out as the repo is (/o and /b
 # are read-only).
 mkdir -p src/oodos src/backplane/bios
-cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx /o/lib src/oodos/
+cp -r /o/Makefile /o/include /o/sys /o/ldr /o/examples /o/cfg /o/tools /o/utils /o/rsx /o/lib /o/ui /o/uiprog src/oodos/
 cp /b/backplane.inc src/backplane/bios/
 rm -rf src/oodos/ldr/build src/oodos/sys/build src/oodos/build
 make -s -C src/oodos/ldr
 make -s -C src/oodos/sys build/OODOS.SYS build/hello.com build/writeoo1.com
 make -s -C src/oodos build/hello.prl
 make -s -C src/oodos utils
+make -s -C src/oodos build/OOUI.BNK
 utils=
 for s in src/oodos/utils/*.s; do
   n=$(basename "$s" .s | tr a-z A-Z)
@@ -157,6 +160,7 @@ cp src/oodos/sys/build/OODOS.SYS OODOS.SYS
 cp src/oodos/sys/build/hello.com HELLO.COM
 cp src/oodos/build/hello.prl HELLO.PRL
 cp src/oodos/sys/build/writeoo1.com WRITEOO1.COM
+cp src/oodos/build/OOUI.BNK OOUI.BNK
 
 # A.IMG: made, its label's mode set to 0x31 (oodos/README.md), the files in.
 cp /o/diskdefs diskdefs
@@ -258,7 +262,7 @@ python3 text.py demo/README.TXT \
     "START, on the front panel, boots OODOS again. A key during the logo" \
     "at power-on goes to the Woz Monitor instead, and so does a power-on" \
     "with no card."
-demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils 0:
+demo_at cpmcp -f oodos-8m demo/A.IMG demo/README.TXT OODOS.SYS HELLO.COM $utils OOUI.BNK 0:
 demo_at cpmchattr -f oodos-8m demo/A.IMG s 0:HELLO.COM
 for u in $utils; do demo_at cpmchattr -f oodos-8m demo/A.IMG s "0:$u"; done
 fsck.cpm -f oodos-8m -n demo/A.IMG

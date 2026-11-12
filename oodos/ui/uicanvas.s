@@ -12,12 +12,12 @@
 
         .export UIW_CANVAS
 
-        .rodata
+        .segment "BRODATA"
 UIW_CANVAS:
         .byte   UT_CANVAS, 0
         .word   DRAW, 0, DOWN, MOVE, UP, WHEEL
 
-        .code
+        .segment "BCODE"
 
 ; Transparent: character 0, attribute 0.
 DRAW:   stz     uattr

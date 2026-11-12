@@ -1,5 +1,6 @@
 """Checks OODOS's build tools (README.md): the header, mkprl.py's .PRL and loader, the rules gate, and
-dos33.py (phase 6d): its images, listing, extraction and check; and the C target's build (Plan C1).
+dos33.py (phase 6d): its images, listing, extraction and check; the C target's build (Plan C1); and
+mkbank.py's OOUI.BNK and its refusals (OOUI U3a).
 
     make check                       # from oodos/, after make
     python3 -I test/check_tools.py [BUILD]
@@ -675,6 +676,88 @@ def c_checks(tmp):
     ok(r.returncode != 0 and "no BDOS functions" in (r.stdout + r.stderr), "an oodos.inc with no functions refused, not passed")
 
 
+def bank_objects(tmp):
+    """OOUI.BNK's objects assembled as the Makefile does (UIBANK), in tmp/bnk: (objects, sources)."""
+    d = os.path.join(tmp, "bnk")
+    os.makedirs(d, exist_ok=True)
+    objs, srcs = [], []
+    for src in sorted(glob.glob(os.path.join(ROOT, "ui", "*.s"))):
+        name = os.path.basename(src)[:-2]
+        if name == "uiturbo":
+            continue
+        obj = os.path.join(d, "bnk-%s.o" % name)
+        r = run("ca65", "-g", "-I", "include", "-I", "ui", "-D", "UIBANK=1", src, "-o", obj)
+        if r.returncode:
+            raise SystemExit("ca65 %s failed:\n%s" % (src, r.stderr))
+        objs.append(obj)
+        srcs.append(src)
+    return objs, srcs
+
+
+def mkbank(tmp, objs, srcs, name):
+    work = os.path.join(tmp, "bnk-" + name)
+    return run(sys.executable, "-I", "tools/mkbank.py", "--cfg", "cfg/ooui-bnk.cfg", "--iface", "ui/uiimp.inc",
+               "--work", work, "-o", os.path.join(work, "OOUI.BNK"), "--src", *srcs, "--", *objs)
+
+
+def mkbank_checks(tmp):
+    """OOUI.BNK's build (hw/ooui.md, U3a): mkbank.py makes it from the bank's objects, and refuses a call across
+    blocks (block A naming block B's routine, UICOM naming block A's), a code segment that falls into another, and
+    an import used other than whole (a #>, an addend of $400); its proof refuses a table with a fixup dropped; and
+    a program linked with UISTATE off a page doesn't link (ld65's check in uistate.s). And (the U3a review's C3,
+    C4, C6) an unnamed label, a #< of an import, a .byte >FARCALL, and a JSR to an OOLIB variable."""
+    objs, srcs = bank_objects(tmp)
+    r = mkbank(tmp, objs, srcs, "good")
+    ok(r.returncode == 0 and "mkbank:" in r.stdout, "mkbank.py makes OOUI.BNK: %s" % r.stdout.strip()[:120])
+    extra = os.path.join(tmp, "bnkx.s")
+    for what, src, expect in (
+            ("block A calls block B's PNONEW", '.import PNONEW\n.code\nXA:     jsr PNONEW\n        rts\n',
+             "a reference across blocks"),
+            ("UICOM calls block A's ui_open", '.import ui_open\n.segment "UCODE"\nXU:     jsr ui_open\n        rts\n',
+             "a reference across blocks"),
+            ("a #> of an import", '.import GX_V\n.code\nXH:     lda #>GX_V\n        rts\n', "no kind of fixup"),
+            ("an addend of $400 on an import", '.import GX_V\n.code\nXW:     lda GX_V + $400\n        rts\n',
+             "aren't L2"),
+            ("UICOM falling into block A's code", '.segment "UCODE"\nXF:     lda #1\n.code\n        rts\n',
+             "falls through"),
+            ("a jmp :+ from UICOM into block A (an unnamed label: C3)",
+             '.segment "UCODE"\nXJ:     jmp :+\n.code\n:       rts\n', "unnamed label"),
+            ("a #< of an import (C4)", '.import GX_V\n.code\nXL:     lda #<GX_V\n        rts\n', "no kind of fixup"),
+            ("a .byte >FARCALL (C4)", '.import FARCALL\n.code\nXB:     rts\n        .byte >FARCALL\n',
+             "no kind of fixup"),
+            ("a JSR to an OOLIB variable, GX_V (rule 4: C6)", '.import GX_V\n.code\nXV:     jsr GX_V\n        rts\n',
+             "rule 4")):
+        with open(extra, "w") as f:
+            f.write(src)
+        obj = extra[:-2] + ".o"
+        a = run("ca65", "-g", extra, "-o", obj)
+        ok(a.returncode == 0, "assembled: %s" % what)
+        r = mkbank(tmp, objs + [obj], srcs + [extra], "bad")
+        ok(r.returncode != 0 and expect in r.stderr, "mkbank.py refuses %s: %s" % (what, r.stderr.strip()[:160]))
+    # The proof: the table with one fixup left out, applied to L0, isn't L2.
+    spec = importlib.util.spec_from_file_location("mkbank", os.path.join(ROOT, "tools", "mkbank.py"))
+    mb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mb)
+    real = mb.classify
+    mb.classify = lambda l0, l1, imports, where: real(l0, l1, imports, where)[1:]
+    try:
+        mb.main(["--cfg", "cfg/ooui-bnk.cfg", "--iface", "ui/uiimp.inc", "--work", os.path.join(tmp, "bnk-drop"),
+                 "-o", os.path.join(tmp, "bnk-drop", "OOUI.BNK")] + objs)
+        dropped = os.path.exists(os.path.join(tmp, "bnk-drop", "OOUI.BNK"))
+    finally:
+        mb.classify = real
+    ok(not dropped, "mkbank.py's proof refuses a fixup table with one site left out")
+    # UISTATE off a page: the program doesn't link.
+    with open(os.path.join(tmp, "uimisl.s"), "w") as f:
+        f.write('        .include "oodos.inc"\n        .include "oolib.inc"\n        .include "ooui.inc"\n'
+                "        OODOS_HEADER\n        .code\n        jsr GX_INIT\n        jsr ui_load\n        jmp WBOOT\n")
+    out = os.path.join(tmp, "build", "uimisl.com")
+    r = run("make", "--no-print-directory", "SRC=" + tmp, "BUILD=" + os.path.join(tmp, "build"), "OOUI_USERS=uimisl",
+            "OOUI_CFG=test/ui/uimis.cfg", out)
+    ok(r.returncode != 0 and not os.path.exists(out) and "must start on a page" in r.stdout + r.stderr,
+       "a program with UISTATE off a page doesn't link")
+
+
 def main():
     built =os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))
     with tempfile.TemporaryDirectory() as tmp:
@@ -702,6 +785,8 @@ def main():
         rules_checks(hello, tmp)
         print("W1 kept clear")
         w1_checks(tmp)
+        print("OOUI.BNK")
+        mkbank_checks(tmp)
         print("Running hello")
         run_checks(hello, tmp)
         print("The C target")

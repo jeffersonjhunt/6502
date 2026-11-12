@@ -20,28 +20,18 @@
 ; Four programs from this source (U2): UIVAR 0 UITEST, the U1 scenes; 1
 ; UITWID, the lists, field, choice, group, scroll bars and canvas; 2
 ; UITBAR, the bars, sliders and the message box; 3 UITPICK, the picker.
-; Each with all of OOUI is past what one region outside W1 holds.
+; From U3a each is an ordinary .COM, linked with OOUI's program part
+; (build/ooui.lib) and test/ui/uiprog.cfg (UISTATE at $8000), and loads
+; OOUI.BNK from M:, user 15, at its start (ui_load), unless the test has put 'N' at
+; MBOX + 4 before it runs: then 'L' loads it (A 0: the default, A:OOUI.BNK;
+; 1: M:OOUI.BNK, user 15; 2: B:OOUI.BNK). 'G' there: not even GX_INIT.
 .ifndef UIVAR
 UIVAR   = 0
 .endif
 
-; The header: OODOS_HEADER's, but the image runs to CODE's end (uitest.cfg)
-; and its BSS is in it.
-        .import __OODOS_FLAGS__, __TPA_START__, __CODE_RUN__, __CODE_SIZE__
-        .import __ZP_START__, __ZEROPAGE_SIZE__
-        .segment "HEADER"
-        .byte   OODOS_MAGIC
-        .byte   <__OODOS_FLAGS__
-        .byte   >__TPA_START__
-        .word   __CODE_RUN__ + __CODE_SIZE__ - __TPA_START__
-        .word   0
-        .byte   <__ZP_START__, <__ZEROPAGE_SIZE__
-        .byte   0, 0
-        .word   0
+        OODOS_HEADER
         .include "printzp.inc"
 
-        .segment "STARTUP"              ; $0300 (uitest.cfg: the code is at $8000)
-        jmp     start
 
 AREA    = $3000
 MBOX    = $3100
@@ -59,12 +49,15 @@ rxx:    .res    1
 rc:     .res    1
 letter: .res    1
 
-        .segment "LOWCODE"              ; the test's own code below $3000 (uitest.cfg)
+        .code
 start:  stz     MBOX
         lda     #<oblk
         ldx     #>oblk
         ldy     #O_FRAME
         jsr     BDOS
+        lda     MBOX + 4                ; 'G': no GX_INIT, nor anything after it (U3a: UX_GX)
+        cmp     #'G'
+        beq     @nol
         lda     #<AREA
         ldx     #>AREA
         jsr     GX_INIT
@@ -72,6 +65,15 @@ start:  stz     MBOX
         jsr     GX_PALINIT
         bcs     @say
         jsr     GX_SPRINIT
+        bcs     @say
+        lda     MBOX + 4                ; OOUI.BNK from M: (U3a), unless the test says not
+        cmp     #'N'
+        beq     @nol
+        jsr     mload
+        bra     @say
+@nol:   lda     #0
+        tax
+        clc
 @say:   stx     rxx
         pha
         lda     #0
@@ -175,6 +177,7 @@ c_theme:
 
 ; ui_poll until UE_NONE, each event printed.
 c_poll: jsr     ui_poll
+PRET:                                   ; (test_oodos_ui times a call to here: U3a)
         cmp     #UE_NONE
         beq     @done
         sta     rax
@@ -301,6 +304,18 @@ c_erase:
         jsr     BDOS
         clc
         rts
+; A file made with the name the test put at TEXTBUF, and closed (W2: in
+; the first free directory entry, which a file deleted mid-listing left).
+c_make: lda     #<TEXTBUF
+        ldx     #>TEXTBUF
+        ldy     #F_MAKE
+        jsr     BDOS
+        lda     #<TEXTBUF
+        ldx     #>TEXTBUF
+        ldy     #F_CLOSE
+        jsr     BDOS
+        clc
+        rts
 c_search:
         ldy     #F_SFIRST
         cmp     #0
@@ -375,6 +390,142 @@ colfn:  tya
 c_wboot:
         jmp     WBOOT
 
+; The blocks free (U3a's cases: what ui_load took is free again): each
+; taken by function 55, a block at a time, till there is none, counted,
+; then each given back (57). A the count.
+c_free: stz     nfree
+@a:     jsr     mcb1
+        ldy     #MC_ALLOC
+        jsr     BDOS
+        cmp     #0
+        bne     @back
+        lda     nfree                   ; its base kept
+        asl     a
+        tax
+        lda     tmcb
+        sta     bases,x
+        lda     tmcb + 1
+        sta     bases + 1,x
+        inc     nfree
+        bra     @a
+@back:  ldx     nfree
+        phx
+@f:     dec     nfree
+        bmi     @done
+        jsr     mcb1
+        lda     nfree
+        asl     a
+        tax
+        lda     bases,x
+        sta     tmcb
+        lda     bases + 1,x
+        sta     tmcb + 1
+        lda     #<tmcb
+        ldx     #>tmcb
+        ldy     #MC_FREE
+        jsr     BDOS
+        bra     @f
+@done:  pla
+        ldx     #0
+        clc
+        rts
+; Blocks taken and kept, all but A of them free (c_eat), or given back
+; (c_release): ui_load's UX_MEMORY.
+c_eat:  sta     nleave
+        jsr     c_free
+        sec
+        sbc     nleave
+        sta     neaten
+        stz     nfree
+@a:     lda     nfree
+        cmp     neaten
+        beq     @done
+        jsr     mcb1
+        ldy     #MC_ALLOC
+        jsr     BDOS
+        lda     nfree
+        asl     a
+        tax
+        lda     tmcb
+        sta     eaten,x
+        lda     tmcb + 1
+        sta     eaten + 1,x
+        inc     nfree
+        bra     @a
+@done:  lda     neaten
+        clc
+        rts
+c_release:
+        stz     nfree
+@f:     lda     nfree
+        cmp     neaten
+        beq     @done
+        jsr     mcb1
+        lda     nfree
+        asl     a
+        tax
+        lda     eaten,x
+        sta     tmcb
+        lda     eaten + 1,x
+        sta     tmcb + 1
+        lda     #<tmcb
+        ldx     #>tmcb
+        ldy     #MC_FREE
+        jsr     BDOS
+        inc     nfree
+        bra     @f
+@done:  stz     neaten
+        clc
+        rts
+; tmcb: base 0, a block's 1,024 paragraphs, the extra byte 0; A/X it.
+mcb1:   stz     tmcb
+        stz     tmcb + 1
+        stz     tmcb + 2
+        lda     #4
+        sta     tmcb + 3
+        stz     tmcb + 4
+        lda     #<tmcb
+        ldx     #>tmcb
+        rts
+
+; ui_load: A 0 the default (A:OOUI.BNK, user 0), 1 M:OOUI.BNK (user 15),
+; 2 B:OOUI.BNK (the current user) (U3a).
+c_load: cmp     #0
+        bne     @m
+        tax
+        jmp     ui_load
+@m:     cmp     #2
+        bne     mload
+        lda     #<bfcb
+        ldx     #>bfcb
+        jmp     ui_load
+; M:OOUI.BNK, in user 15 (the test puts it there, out of the picker's
+; listings of user 0): the user set for the call and put back after.
+mload:  lda     #$FF
+        ldy     #F_USERNUM
+        jsr     BDOS
+        pha
+        lda     #15
+        ldy     #F_USERNUM
+        jsr     BDOS
+        lda     #<mfcb
+        ldx     #>mfcb
+        jsr     ui_load
+        php
+        sta     rax
+        stx     rxx
+        pla
+        sta     rc
+        pla
+        ldy     #F_USERNUM
+        jsr     BDOS
+        lda     rc
+        pha
+        lda     rax
+        ldx     rxx
+        plp
+        rts
+
         .rodata
 .macro CMD l, r
         .byte   l
@@ -408,8 +559,13 @@ cmds:   CMD     'o', c_open
         CMD     'w', c_state
         CMD     'n', c_search
         CMD     'z', c_erase
+        CMD     'Z', c_make
 .endif
         CMD     'q', c_range
+        CMD     'L', c_load
+        CMD     'B', c_free
+        CMD     'E', c_eat
+        CMD     'R', c_release
         CMD     '!', c_wboot
 CMDS_LEN = * - cmds
 
@@ -419,6 +575,9 @@ CMDS_LEN = * - cmds
 blocks: .word   blk_main, blk_one, blk_desk
 .if UIVAR = 1 || UIVAR = 2
         .word   blk_u2, blk_u2one
+.endif
+.if UIVAR = 2
+        .word   blk_amp
 .endif
 
 ; 0: the main scene, menus and overlay windows on layer 1.
@@ -564,7 +723,72 @@ keys2:  .byte   0
         UI_HSLIDER Y_HSP, Y_WIN, 6, 4, 30, 100, 75, 5, 1, UF_SPRITE
         UI_LABEL   Y_LBL, Y_WIN, 6, 6, -1, "Phase U2: bars and sliders", 0
         UI_BUTTON  Y_MSG, Y_WIN, 1, -2, 14, "&Message", 0
+; (U3a, the U2 review's X4: a menu down over the sprite thumb hides it.
+; After the rest, so their handles stay as they were; the bar at the top,
+; hidden till the test shows it, so the scene's frames are as they were.)
+        _UI_REC    Y_BAR, UT_MENUBAR, UI_NONE, 0, 0, 0, 1, UF_HIDDEN, 0, 0, 0, 0
+        UI_MENU    Y_MENU, Y_BAR, "&Levels"
+        UI_ITEM    Y_I1, Y_MENU, "A first item, as wide as the thumb", 0, 0, 0
+        UI_ITEM    Y_I2, Y_MENU, "A second", 0, 0, 0
+        UI_ITEM    Y_I3, Y_MENU, "A third", 0, 0, 0
+        UI_ITEM    Y_I4, Y_MENU, "A fourth", 0, 0, 0
+        UI_ITEM    Y_I5, Y_MENU, "A fifth, over the slider's row", 0, 0, 0
+        UI_ITEM    Y_I6, Y_MENU, "A sixth", 0, 0, 0
+; (The U3a review's C1: a second menu, whose drop-down covers the thumb
+; but not the slider's first cell.)
+        UI_MENU    Y_MENU2, Y_BAR, "&Thumb"
+        UI_ITEM    Y_J1, Y_MENU2, "Over the thumb, not its start", 0, 0, 0
+        UI_ITEM    Y_J2, Y_MENU2, "Two", 0, 0, 0
+        UI_ITEM    Y_J3, Y_MENU2, "Three", 0, 0, 0
+        UI_ITEM    Y_J4, Y_MENU2, "Four", 0, 0, 0
+        UI_ITEM    Y_J5, Y_MENU2, "Five", 0, 0, 0
+        UI_ITEM    Y_J6, Y_MENU2, "Six", 0, 0, 0
         UI_END     u2
+
+; 5 (U3a, Z3): a screen shaped as OO-Amp's, to time the sliders' thumbs
+; placed after a paint: 15 sliders with sprite thumbs (11 bands, seek,
+; volume, balance, the playlist's), each band's label, buttons, bars and
+; canvases, 59 records; sprites 0 (the pointer) to 15.
+blk_amp: .word  AREA, amp
+        .byte   amp_COUNT
+        .word   0, keys2
+        .byte   0, 1, 0, 16, 0
+        .word   amp_WIDGETS
+
+        UI_BEGIN amp
+        UI_DESKTOP A_DESK
+        UI_WINDOW  A_WIN, A_DESK, 1, 1, 78, 28, "Amp", 0
+        UI_LABEL   A_TIME, A_WIN, 1, 0, 10, "00:00", 0
+        UI_LABEL   A_TITLE, A_WIN, 12, 0, 40, "A title, scrolling", 0
+        UI_CANVAS  A_CTIME, A_WIN, 1, 1, 10, 2, 0
+        UI_CANVAS  A_CVIS, A_WIN, 54, 0, 20, 4, 0
+        UI_HSLIDER A_SEEK, A_WIN, 1, 4, 50, 1000, 100, 10, 1, UF_SPRITE
+        UI_HSLIDER A_VOL, A_WIN, 1, 6, 20, 100, 70, 5, 2, UF_SPRITE
+        UI_HSLIDER A_BAL, A_WIN, 24, 6, 20, 100, 50, 5, 3, UF_SPRITE
+        UI_VBAR    A_VUL, A_WIN, 46, 5, 3, 100, 0
+        UI_VBAR    A_VUR, A_WIN, 48, 5, 3, 100, 0
+.repeat 11, i
+        UI_VSLIDER .ident(.sprintf("A_EQ%d", i)), A_WIN, 2 + i * 4, 9, 8, 100, 50, 5, 4 + i, UF_SPRITE
+.endrepeat
+.repeat 11, i
+        UI_LABEL   .ident(.sprintf("A_EQL%d", i)), A_WIN, 1 + i * 4, 18, 4, "Band", 0
+.endrepeat
+        UI_VSLIDER A_PLS, A_WIN, 74, 9, 12, 100, 0, 5, 15, UF_SPRITE
+        UI_BUTTON  A_PREV, A_WIN, 1, 20, 6, "&Z", 0
+        UI_BUTTON  A_PLAY, A_WIN, 8, 20, 6, "&X", 0
+        UI_BUTTON  A_PAUSE, A_WIN, 15, 20, 6, "&C", 0
+        UI_BUTTON  A_STOP, A_WIN, 22, 20, 6, "&V", 0
+        UI_BUTTON  A_NEXT, A_WIN, 29, 20, 6, "&B", 0
+        UI_BUTTON  A_SHUF, A_WIN, 36, 20, 8, "&Shuffle", UF_TOGGLE
+        UI_BUTTON  A_REP, A_WIN, 45, 20, 8, "&Repeat", UF_TOGGLE
+        UI_BUTTON  A_EQB, A_WIN, 54, 20, 6, "&EQ", UF_TOGGLE
+        UI_BUTTON  A_PLB, A_WIN, 61, 20, 6, "&PL", UF_TOGGLE
+        UI_BUTTON  A_LOAD, A_WIN, 68, 20, 8, "&Load", 0
+.repeat 15, i
+        UI_LABEL   .ident(.sprintf("A_ST%d", i)), A_WIN, 1 + (i .mod 4) * 18, 22 + i / 4, 17, "Status", 0
+.endrepeat
+        UI_END     amp
+.assert amp_COUNT = 59, error, "the amp scene's records"
 
 ; ui_msgbox's blocks: OK; Yes and No (No the default); OK and Cancel.
 msgs:   .word   msgA, msgB, msgC
@@ -632,6 +856,12 @@ keys:   .byte   U_Q, UK_CTRL, B_CAN, UA_PRESS
 
         .bss
 tgroups: .res   TH_LEN                  ; c_theme's theme 2
+tmcb:   .res    5                       ; c_free's and c_eat's MCB
+nfree:  .res    1
+nleave: .res    1
+neaten: .res    1
+bases:  .res    2 * 20
+eaten:  .res    2 * 20
 
 
         .data
@@ -643,12 +873,16 @@ scbq:   .byte   $4B, 0                  ; c_state's: the error mode, got
 sfcb:   .byte   1, "???????????"        ; c_search's: A:, every name and type, extent 0
         .res    24
 .endif
+mfcb:   .byte   13, "OOUI    BNK"        ; M:OOUI.BNK (U3a)
+        .res    24
+bfcb:   .byte   2, "OOUI    BNK"         ; B:OOUI.BNK (a crowded M:'s tests)
+        .res    24
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0                       ; 256 bytes
 ; The call, its operand written for each command (in DATA: written).
 call:   jmp     $FFFF
 
-        .segment "LOWCODE"              ; the test's own code below $3000 (uitest.cfg)
-PRINT_HERE = 1                          ; (print.inc in LOWCODE too)
+        .code
+PRINT_HERE = 1
         .include "print.inc"

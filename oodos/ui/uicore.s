@@ -15,6 +15,14 @@
         .include "ooui.inc"
         .include "ui.inc"
 
+; UISTATE's start (hw/ooui.md, U3a): what the program reads, at fixed places,
+; the program part's uistate.s naming them UISTATE + 0, + 12 and + 16.
+        .segment "UIHEAD"
+UI_EV:  .res    UV_LEN
+UI_RECT: .res   4
+UI_RAW: .res    8
+.assert UV_LEN = 12, error, "UI_RECT is UISTATE + 12"
+
         .bss
 ublk:                                  ; ui_open's block, as it gives them (UO_*)
 uarea:  .res    2
@@ -46,14 +54,15 @@ rover:  .res    1                      ;   1: on the overlay
 rtype:  .res    1                      ;   its type
 rcur:   .res    1                      ;   the record being placed (MRECT's)
 chain:  .res    UI_DEPTH
-UI_EV:  .res    UV_LEN
-UI_RECT: .res   4
-UI_RAW: .res    8
 utot:   .res    1                      ; the records: the table's, then the dialogs' (ui_msgbox, ui_pick)
 udlgp:  .res    2                      ; the dialogs' records (uidlg.s's), 0 while none is linked
-uvec:   .res    2 * UT_COUNT           ; each widget type's record (WR_*), 0 for the core's own (U2)
+ufl:    .res    UT_COUNT               ; each widget type's WR_FLAGS, 0 for the core's own (U3a: block B's, at ui_open)
+wtype:  .res    1                      ; WCALL's: the widget's type, for block B's dispatcher
 rclip:  .res    4                      ; RECT's: its parents' client areas, c0, r0, c1, r1 (U2: clipping)
-wvec:   .res    2                      ; WCALL's
+rcv:    .res    1                      ; not 0: RECT's cache on (FRONT's, Z3)
+rcp:    .res    1                      ;   the parent it holds, and that parent placed:
+rcs:    .res    10                     ;   ucli, rhid and rover, then rclip, after it was placed
+rdep:   .res    1                      ; RECT's: the chain's length
 wo:     .res    1
 t0:     .res    1                      ; scratch
 t1:     .res    1
@@ -62,6 +71,7 @@ t3:     .res    1
 
         .code
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; Every call's start: D clear, UIT the theme. Keeps A, X and Y.
 ENTER:  cld
         pha
@@ -117,10 +127,38 @@ REC:    cmp     ucount
 
 ; A a handle: UI_RECT its place, ucli its client area, rtype, rover; carry
 ; set if it is hidden. UIR the record's.
-RECT:   ldx     #0
+RECT:   ldx     rcv                     ; FRONT's cache: a sibling of the last placed (Z3)
+        beq     @walk
+        pha
+        jsr     REC
+        ldy     #UW_PARENT
+        lda     (UIR),y
+        cmp     rcp
+        bne     @miss
+        ldx     #5                      ; its parent's as it was placed: ucli, rhid, rover
+@g:     lda     rcs,x
+        sta     ucli,x
+        dex
+        bpl     @g
+        ldx     #3                      ;   and rclip
+@gc:    lda     rcs + 6,x
+        sta     rclip,x
+        dex
+        bpl     @gc
+        pla
+        sta     rcur
+        jsr     REC
+        jsr     CLIPIN
+        jsr     PLACE
+        lda     rhid
+        cmp     #1
+        rts
+@miss:  pla
+@walk:  ldx     #0
 @up:    cpx     #UI_DEPTH
-        bcs     @deep
-        sta     chain,x
+        bcc     @in
+        jmp     @deep
+@in:    sta     chain,x
         inx
         jsr     REC
         ldy     #UW_PARENT
@@ -145,8 +183,29 @@ RECT:   ldx     #0
         sta     rclip + 2
         lda     #UI_ROWS
         sta     rclip + 3
+        stx     rdep
 @down:  dex
-        lda     chain,x
+        bne     @one
+        lda     rcv                     ; the record's parent placed: kept for FRONT's next
+        beq     @one
+        ldx     #5
+@k:     lda     ucli,x
+        sta     rcs,x
+        dex
+        bpl     @k
+        ldx     #3
+@kc:    lda     rclip,x
+        sta     rcs + 6,x
+        dex
+        bpl     @kc
+        lda     #UI_NONE                ; its parent: the screen for a top-level record
+        ldx     rdep
+        cpx     #1
+        beq     @p
+        lda     chain + 1
+@p:     sta     rcp
+        ldx     #0
+@one:   lda     chain,x
         sta     rcur
         jsr     REC
         phx
@@ -334,6 +393,7 @@ DLEN:   lda     UIP
         bra     @c
 @end:   lda     dl
 @r:     rts
+        .code
 
 ; UIP a string (0 none): A its key, the letter after its first single '&'
 ; in capitals, or 0.
@@ -354,6 +414,7 @@ ACCEL:  lda     UIP
         jmp     UPPER
 @r:     rts
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; A in capitals if a small letter.
 UPPER:  cmp     #'a'
         bcc     @r
@@ -495,6 +556,7 @@ SETFOCUS:
         sta     ufocus
         jsr     DIRTY
 @r:     rts
+        .code
 
 ; A the way (1 on, $FF back): A the next handle that can take the focus from
 ; the focus, round the table; carry set if none can.
@@ -638,6 +700,7 @@ CHKH:   cmp     ucount
         sec
         rts
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; A an internal handle: A the public one (a dialog's: $F0 on). Keeps X, Y.
 PUBH:   cmp     ucount
         bcc     @r
@@ -651,31 +714,18 @@ PUBH:   cmp     ucount
         plx
 @r:     rts
 
-; A a widget type: UIP its module's record (WR_*), Z set (and A 0) if it
-; has none (a core type, or a module not registered). Keeps X, Y.
-WREC:   cmp     #UT_COUNT
+; A a widget type: A its module's WR_FLAGS, 0 for none (a core type). Keeps
+; X and Y.
+WFLAGS: cmp     #UT_COUNT
         bcs     @none
         phx
-        asl     a
         tax
-        lda     uvec,x
-        sta     UIP
-        lda     uvec + 1,x
-        sta     UIP + 1
+        lda     ufl,x
         plx
-        ora     UIP
         rts
 @none:  lda     #0
         rts
-
-; A a widget type: A its module's WR_FLAGS, 0 for none. Keeps X.
-WFLAGS: jsr     WREC
-        beq     @r
-        phy
-        ldy     #WR_FLAGS
-        lda     (UIP),y
-        ply
-@r:     rts
+        .code
 
 ; The handler at Y (WR_DRAW ...) of widget dh's module, jumped to with UIR
 ; on dh's record and UI_RECT its place (the drawing's placed already);
@@ -690,23 +740,11 @@ WCALL:  sty     wo
         jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
-        jsr     WREC
-        beq     @none
-        ldy     wo
-        lda     (UIP),y
-        sta     wvec
-        iny
-        lda     (UIP),y
-        sta     wvec + 1
-        ora     wvec
-        beq     @none
-        lda     dh
-        jsr     REC
-        jmp     (wvec)
-@none:  lda     #0
-        sec
+        sta     wtype
+        XGO     FARB, XB_WCALL          ; block B's dispatcher finds the handler (U3a)
         rts
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; Record UIR's value held to its type's range (WF_RANGE: 0 to UW_A; WF_LIST:
 ; below UW_A, or $FFFF none). Keeps nothing.
 CLAMP:  ldy     #UW_TYPE
@@ -771,6 +809,7 @@ CLAMP:  ldy     #UW_TYPE
         lda     t1
         sta     (UIR),y
 @r:     rts
+        .code
 
 ; A UX_* error: carry set.
 FAIL:   sec
@@ -879,64 +918,18 @@ ui_open:
         clc
         rts
 
-; The widget modules the table uses (UO_WIDGETS: a list of their records,
-; ended by 0; UI_END makes it): each type's record in uvec. Carry set and
-; UX_TABLE for a record of no type U2 knows.
+; The widget types' flags from block B, which has every module (U3a:
+; UO_WIDGETS is ignored), and the dialogs' records none.
 REGISTER:
-        ldx     #2 * UT_COUNT - 1
-@z:     stz     uvec,x
-        dex
-        bpl     @z
         lda     ucount
         sta     utot
         stz     udlgp
         stz     udlgp + 1
         stz     upost
         stz     upost + 1
-        lda     uwid
-        sta     UIQ
-        lda     uwid + 1
-        sta     UIQ + 1
-        ora     UIQ
-        beq     @done
-@next:  ldy     #1
-        lda     (UIQ),y
-        tax
-        dey
-        lda     (UIQ),y
-        sta     UIP
-        stx     UIP + 1
-        ora     UIP + 1
-        beq     @done
-        jsr     ADDW
-        bcs     @bad
-        lda     UIQ
+        XGO     FARB, XB_INIT
         clc
-        adc     #2
-        sta     UIQ
-        bcc     @next
-        inc     UIQ + 1
-        bra     @next
-@done:  clc
         rts
-@bad:   lda     #UX_TABLE
-        sec
-        rts
-
-; The module record at UIP registered for its type (WR_TYPE): carry set if
-; the type is past UT_COUNT. The dialogs (uimsg.s, uipick.s) register what
-; they use this way too.
-ADDW:   lda     (UIP)
-        cmp     #UT_COUNT
-        bcs     @r
-        asl     a
-        tax
-        lda     UIP
-        sta     uvec,x
-        lda     UIP + 1
-        sta     uvec + 1,x
-        clc
-@r:     rts
 
 ; The default theme where utheme is 0.
 THEME0: lda     utheme
@@ -971,10 +964,7 @@ CHECKTAB:
         beq     @next                   ; UT_NONE: nothing more
         lda     OKTYPE,x
         bpl     @core
-        txa
-        jsr     WREC                    ; a widget module's: registered (UO_WIDGETS)
-        beq     @bad
-        lda     OKTYPE,x
+        lda     OKTYPE,x                ; a widget module's: block B has them all (U3a)
         and     #$7F
 @core:  cmp     #0
         beq     @bad
@@ -1145,9 +1135,11 @@ OKTYPE: .byte   1                       ; UT_NONE
 ; (ucount on), in the order they are drawn: the picker's window and its
 ; widgets, then the message box's, so a box is over the picker.
 PUB2INT: .byte  9, 0, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8
+        .segment "URODATA"              ; (PUBH's: UICOM's, U3a)
 INT2PUB: .byte  UI_MSG + 1, UI_MSG + 5, UI_MSG + 6, UI_MSG + 7, UI_MSG + 8, UI_MSG + 9, UI_MSG + 10
         .byte   UI_MSG + 11, UI_MSG + 12, UI_MSG, UI_MSG + 2, UI_MSG + 3, UI_MSG + 4
 .assert * - INT2PUB = DLG_RECS, error, "a public handle a dialog record"
+        .rodata
 
         .code
 
@@ -1158,7 +1150,17 @@ ui_close:
         stz     uopen
         jsr     POLLSTOP                ; (no drag left held: X10)
         jsr     PTROFF
-        lda     #2                      ; the thumbs gone, off OOUI's memory (X3)
+        lda     usprites                ; the pointer's image off OOUI's memory too, which is
+        beq     @nop                    ;   freed (U3a, from U2's review), if the sprite is OOUI's
+        lda     uoflags
+        and     #UO_OWNMOUSE
+        bne     @nop
+        stz     GX_V                    ; (page 0: OODOS's, never freed)
+        stz     GX_V + 1
+        lda     usprite
+        jsr     GX_SPRIMG
+        jsr     GX_SPRSHOW
+@nop:   lda     #2                      ; the thumbs gone, off OOUI's memory (X3)
         jsr     THUMBSOFF
         jsr     FREE
         jsr     GX_CONSOLE
@@ -1190,7 +1192,8 @@ THUMBSOFF:
         jsr     @go
 @r:     stz     upmode
         rts
-@go:    jmp     (upost)
+@go:    XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
+        rts
 
 ; OOUI's card memory free again.
 FREE:   lda     #<UI_PAGES
@@ -1515,5 +1518,5 @@ aend:   .res    1                      ; AXIS's
 asz:    .res    1
 dmp:    .res    4                      ; DM_POINTER's block
 
-        .data
-uopen:  .byte   0                      ; 1: open (DATA, not BSS: a program's BSS isn't cleared)
+        .bss
+uopen:  .res    1                      ; 1: open (ui_load zeroes UISTATE: hw/ooui.md, U3a, D2)

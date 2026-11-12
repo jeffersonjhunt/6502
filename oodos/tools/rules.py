@@ -13,7 +13,8 @@ A file that starts with OODOS's header (a .COM, or a .PRL's link) is read from i
            through zero page operands;
   rule 3   an absolute operand in the stack page ($0100-$01FF);
   rule 4   a JSR or JMP outside the image but to $0203 (the BDOS) or $0200
-           (warm boot);
+           (warm boot), or to an --import address (OOUI.BNK's blocks: the
+           program's OOLIB, FARCALL);
   and      an opcode the code shouldn't have (an undocumented NOP), which
            would mean data in a code segment.
 
@@ -75,7 +76,7 @@ def labels(lblfile):
     return out
 
 
-def check(data, load, segs, code, inline=()):
+def check(data, load, segs, code, inline=(), imports=(), farcall=None):
     """Returns (instructions, problems): each problem a line to print."""
     problems = []
     count = 0
@@ -104,7 +105,8 @@ def check(data, load, segs, code, inline=()):
                 why = "absolute zero page operand (rule 2)"
             elif mode in ABSOLUTE and operand < 0x200:
                 why = "absolute stack page operand (rule 3)"
-            elif op in (0x20, 0x4C) and not (load <= operand < load + len(data)) and operand not in OS:
+            elif op in (0x20, 0x4C) and not (load <= operand < load + len(data)) and operand not in OS \
+                    and operand not in imports and operand != farcall:
                 why = "%s outside the program, not the BDOS (rule 4)" % ("JSR" if op == 0x20 else "JMP")
             if why:
                 problems.append("%s $%04X: opcode $%02X %s" % (name, pc, op, why))
@@ -112,6 +114,8 @@ def check(data, load, segs, code, inline=()):
             pc += n
             if op == 0x20 and operand in inline:
                 pc += 1
+            if op == 0x20 and farcall is not None and operand == farcall:
+                pc += 3  # FARCALL's block and address
         if pc != end + 1:
             problems.append("%s: disassembly ran past the segment's end" % name)
     return count, problems
@@ -125,6 +129,10 @@ def main():
     ap.add_argument("--load", type=lambda s: int(s, 0), help="a bare image's load address")
     ap.add_argument("--lbl", help="ld65's -Ln labels, for --inline")
     ap.add_argument("--inline", default="", help="routines whose JSR is followed by a data byte")
+    ap.add_argument("--import", dest="imports", default="",
+                    help="addresses outside the image a JSR or JMP may go to (OOUI.BNK's imports), comma separated")
+    ap.add_argument("--farcall", type=lambda s: int(s, 0),
+                    help="FARCALL's address: a JSR to it is followed by 3 bytes (a block, an address)")
     a = ap.parse_args()
     data = open(a.image, "rb").read()
     if data[:4] == MAGIC:
@@ -141,7 +149,8 @@ def main():
         lbl = labels(a.lbl)
         inline = tuple(lbl[n] for n in a.inline.split(","))
     code = a.code.split(",")
-    count, problems = check(data, load, segments(a.map), code, inline)
+    imports = tuple(int(x, 0) for x in a.imports.split(",") if x)
+    count, problems = check(data, load, segments(a.map), code, inline, imports, a.farcall)
     for p in problems:
         print("%s: %s" % (a.image, p))
     print("OODOS rules: %d instructions in %s, %d problems" % (count, ", ".join(code), len(problems)))

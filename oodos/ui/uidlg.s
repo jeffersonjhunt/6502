@@ -21,7 +21,7 @@
 UDLG:   .res    DLG_RECS * UW_LEN
 k:      .res    1
 
-        .code
+        .segment "CCODE"
 
 DLGON:  lda     udlgp + 1
         bne     @r

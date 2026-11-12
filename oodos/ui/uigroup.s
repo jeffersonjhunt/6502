@@ -13,7 +13,7 @@
 
         .export UIW_GROUP, UIW_RADIO
 
-        .rodata
+        .segment "BRODATA"
 UIW_GROUP:
         .byte   UT_GROUP, 0
         .word   GDRAW, 0, 0, 0, 0, 0
@@ -27,7 +27,7 @@ pos:    .res    1                      ;   its place in it
 h:      .res    1
 want:   .res    1
 
-        .code
+        .segment "BCODE"
 
 ; A group: a panel's look (TC_CLIENT, a frame and its title with UF_FRAME).
 GDRAW:  ldy     #UW_FLAGS

@@ -714,10 +714,15 @@ HIT:    jsr     FRONT
         lda     #UI_NONE
 @r:     rts
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
 ; base's, each from the table's end down, inside its parents' client areas
 ; (X5); UI_NONE none. Menus aren't looked at.
-FRONT:  lda     #1
+FRONT:  lda     #1                      ; RECT's sibling cache on for the walk (Z3)
+        sta     rcv
+        lda     #$FE
+        sta     rcp
+        jsr     OVERS                   ; the overlay's pass only if something can be on it (Z3)
         sta     hp
 @pass:  lda     utot
         sta     hh
@@ -759,12 +764,38 @@ FRONT:  lda     #1
         bcc     @l
         cmp     rclip + 3
         bcs     @l
+        stz     rcv
         lda     hh
         rts
 @np:    dec     hp
         bpl     @pass
+        stz     rcv
         lda     #UI_NONE
         rts
+
+; A = 1 if a record can be on the overlay (a shown window with UF_OVERLAY:
+; the dialogs' are), else 0. Menus, which FRONT passes by, don't count.
+OVERS:  ldx     #0
+@l:     cpx     utot
+        bcs     @no
+        txa
+        jsr     REC
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_WINDOW
+        bne     @n
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_OVERLAY | UF_HIDDEN
+        cmp     #UF_OVERLAY
+        bne     @n
+        lda     #1
+        rts
+@n:     inx
+        bra     @l
+@no:    lda     #0
+        rts
+        .code
 
 ; The left button down.
 MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anywhere else
@@ -1224,19 +1255,19 @@ PLUGGED:
 @r:     rts
 
 ; Event A through the dialogs' filters: A what they make of it.
-DFILT:  ldx     udf1 + 1
+DFILT:  ldx     udf1 + 1                ; (their filters are block C's: U3a)
         beq     @2
-        jsr     @f1
+        XGO     FARC, XC_DF1
 @2:     ldx     udf2 + 1
         beq     @r
-        jmp     (udf2)
-@f1:    jmp     (udf1)
+        XGO     FARC, XC_DF2
 @r:     rts
 
 ; A dialog's idle work: A an event, UE_NONE none.
 IDLE:   lda     uidle + 1
         beq     @none
-        jmp     (uidle)
+        XGO     FARC, XC_IDLE           ; (block C's: U3a)
+        rts
 @none:  lda     #UE_NONE
         rts
 

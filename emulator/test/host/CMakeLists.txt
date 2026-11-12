@@ -367,13 +367,16 @@ add_custom_command(
 # SIDPLUG (the library's .sid, its zero page SIDOVL's) and SIDPLUGZ (without, refused), oodos/test/ovl, for
 # test_oodos_playsid. And CTEST, the C target's test program (oodos/test/c, Plan C1), for test_oodos_c, with
 # a copy in bigstack/ linked with a C stack too big for the TPA. And UITEST (oodos/test/ui), OOUI's test
-# program (phases U1 and U2), linked with ooui.lib and oolib.lib, for test_oodos_ui: four programs from
-# its one source (UITEST, UITWID, UITBAR, UITPICK), their code above W1 (test/ui/uitest.cfg).
+# program, for test_oodos_ui: four programs from its one source (UITEST, UITWID, UITBAR, UITPICK), each an
+# ordinary .COM linked with OOUI's program part (ooui.lib) and oolib.lib (test/ui/uiprog.cfg), and
+# OOUI.BNK, the banked library they load (U3a), with its labels (ooui-bnk.lbl); and UITMIS, UITEST with
+# UISTATE off a page (test/ui/uimis.cfg), for ui_load's UX_STATE.
 file(GLOB oodos_utils_deps CONFIGURE_DEPENDS "${OODOS_SRC}/utils/*.s" "${OODOS_SRC}/rsx/*.s" "${OODOS_SRC}/lib/*.s"
      "${OODOS_SRC}/lib/*.inc" "${OODOS_SRC}/lib/mudrv/*" "${OODOS_SRC}/test/gx/*.s" "${OODOS_SRC}/test/pb/*.s"
      "${OODOS_SRC}/test/mu/*.s" "${OODOS_SRC}/test/ovl/*.s" "${OODOS_SRC}/test/check_mkasset.py"
      "${OODOS_SRC}/tools/libzp.py" "${OODOS_SRC}/c/*.s" "${OODOS_SRC}/test/c/*.c" "${OODOS_SRC}/include/oodos.h"
-     "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg")
+     "${OODOS_SRC}/ui/*.s" "${OODOS_SRC}/ui/*.inc" "${OODOS_SRC}/test/ui/*.s" "${OODOS_SRC}/test/ui/*.cfg"
+     "${OODOS_SRC}/uiprog/*.s" "${OODOS_SRC}/cfg/ooui-bnk.cfg" "${OODOS_SRC}/tools/mkbank.py" "${OODOS_SRC}/tools/rules.py")
 add_custom_command(
         OUTPUT "${OODOS_UTILS_DIR}/utils.stamp"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" utils "BUILD=${OODOS_UTILS_DIR}" "PYTHON=${Python3_EXECUTABLE} -I"
@@ -393,9 +396,12 @@ add_custom_command(
                 OVL_CALLER=sidovl "AFLAGS=-g -I include -I sys/test" "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/sidplugz.prl"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ui "OOUI_USERS=uitest uitwid uitbar uitpick"
-                OOUI_CFG=test/ui/uitest.cfg "AFLAGS=-g -I include -I sys/test -I test/ui" "BUILD=${OODOS_UTILS_DIR}"
+                "AFLAGS=-g -I include -I sys/test -I test/ui" "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/uitest.com" "${OODOS_UTILS_DIR}/uitwid.com"
-                "${OODOS_UTILS_DIR}/uitbar.com" "${OODOS_UTILS_DIR}/uitpick.com"
+                "${OODOS_UTILS_DIR}/uitbar.com" "${OODOS_UTILS_DIR}/uitpick.com" "${OODOS_UTILS_DIR}/OOUI.BNK"
+        COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/ui OOUI_USERS=uitmis OOUI_CFG=test/ui/uimis.cfg
+                "AFLAGS=-g -I include -I sys/test -I test/ui" "BUILD=${OODOS_UTILS_DIR}"
+                "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/uitmis.com"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}"
                 "PYTHON=${Python3_EXECUTABLE} -I" "${OODOS_UTILS_DIR}/ctest.com"
         COMMAND "${EMU_MAKE}" -s -C "${OODOS_SRC}" SRC=test/c CPROGRAMS=ctest "BUILD=${OODOS_UTILS_DIR}/bigstack"

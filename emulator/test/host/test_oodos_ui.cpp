@@ -84,20 +84,90 @@ namespace
         static std::string p = "uitest";
         return p;
     }
-    /// The running program's .lbl's address for `name`.
-    uint16_t lab(const char *name)
+    /// OOUI.BNK's labels (mkbank.py's --lbl, U3a): name to its area (U UICOM, A, B, C the blocks, V the
+    /// variables at UISTATE, Z the zero page) and its address in L0's link.
+    const std::map<std::string, std::pair<char, uint16_t>> &bank_labels()
+    {
+        static std::map<std::string, std::pair<char, uint16_t>> l;
+        if (l.empty())
+        {
+            std::istringstream in(read_text(UTILS + "/ooui-bnk.lbl"));
+            std::string area, name, hex;
+            while (in >> area >> name >> hex)
+                l[name] = {area[0], static_cast<uint16_t>(std::stoul(hex, nullptr, 16))};
+        }
+        return l;
+    }
+    std::map<std::string, uint16_t> &prog_labels()
     {
         static std::map<std::string, std::map<std::string, uint16_t>> all;
         auto it = all.find(prog());
         if (it == all.end())
             it = all.emplace(prog(), labels(UTILS + "/" + prog() + ".lbl")).first;
-        return it->second.at(name);
+        return it->second;
     }
-    void start_ui(Rig &r, const std::string &program = "uitest")
+    /// The running program's .lbl's address for `name`; else OOUI.BNK's (U3a): a variable's in UISTATE,
+    /// as the program's link put it, a code label's in its block (in W3: bank_block() says which).
+    uint16_t lab(const char *name)
+    {
+        const auto &p = prog_labels();
+        if (const auto it = p.find(name); it != p.end())
+            return it->second;
+        const auto &[area, addr] = bank_labels().at(name);
+        if (area == 'V')
+            return static_cast<uint16_t>(p.at("UISTATE") + addr - 0x1000);
+        return addr;
+    }
+    /// The block (A, B, C) that holds OOUI.BNK's code label `name`, as ui_load took it (UI_BLOCKS).
+    unsigned bank_block(Rig &r, const char *name)
+    {
+        const char area = bank_labels().at(name).first;
+        CHECK(area >= 'A' && area <= 'C');
+        return r.phys(prog_labels().at("UI_BLOCKS") + static_cast<unsigned>(area - 'A'));
+    }
+    /// OOUI.BNK's user on M:, out of the picker's listings of user 0 (uitest.s loads it from there).
+    constexpr unsigned BNK_USER = 15;
+    /// M: has OOUI.BNK already (a second start_ui on the same rig).
+    bool has_bnk(Rig &r)
+    {
+        for (unsigned i = 0; i < 256; ++i)
+        {
+            bool match = r.phys(MDISK + i * 32) == BNK_USER;
+            for (unsigned c = 0; c < 11 && match; ++c)
+                match = (r.phys(MDISK + i * 32 + 1 + c) & 0x7F) == static_cast<uint8_t>("OOUI    BNK"[c]);
+            if (match)
+                return true;
+        }
+        return false;
+    }
+    /// OOUI.BNK on M: (U3a: each test program loads it from there), once a rig, before M: is logged in:
+    /// a CcpRig's put_m, or a card of the test's own's fresh M:.
+    void put_bnk(CcpRig &r)
+    {
+        if (!has_bnk(r))
+            r.put_m({{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
+    }
+    void put_bnk(Rig &r)
+    {
+        if (has_bnk(r))
+            return;
+        unsigned entry = 0, block = M_DIRBLOCKS;
+        for (unsigned i = 0; i < 256; ++i) // past what M:'s files hold already
+            if (r.phys(MDISK + i * 32) < 0x10)
+                for (unsigned k = 16; k < 32; ++k)
+                    block = std::max(block, r.phys(MDISK + i * 32 + k) + 1u);
+        put_m_files(r, entry, block, {{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
+    }
+    /// `program` run (GO), OOLIB set up, and OOUI.BNK loaded from M: (put there first); with `flag` 'N' not
+    /// loaded (the test says 'L'), 'G' not even GX_INIT (U3a).
+    template <class R> void start_ui(R &r, const std::string &program = "uitest", char flag = 0)
     {
         prog() = program;
         no_splash(r);
+        if (!flag)
+            put_bnk(r);
         r.poke(MBOX, 0);
+        r.poke(MBOX + 4, static_cast<uint8_t>(flag));
         r.poke_com(read_bytes(UTILS + "/" + program + ".com"));
         const size_t from = r.out.size();
         r.type("GO\r");
@@ -605,8 +675,9 @@ TEST(the_table_is_checked_and_handles_too)
     r.poke(main + I_CUT * 16u + 1, static_cast<uint8_t>(W_DESK)); // an item outside a menu
     CHECK_EQ(refused(), std::string("0401"));
     r.poke(main + I_CUT * 16u + 1, static_cast<uint8_t>(M_EDIT));
-    r.poke(main + L_SIDE * 16u, 15); // a list: U2's
-    CHECK_EQ(refused(), std::string("0401"));
+    r.poke(main + L_SIDE * 16u, 15); // a list: U2's, no longer refused unregistered (U3a, E4: OOUI.BNK has them all)
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
     r.poke(main + L_SIDE * 16u, 4);
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
     CHECK_EQ(ui(r, 'd', MAIN_COUNT).substr(0, 2) + ui(r, 'd', MAIN_COUNT).substr(6), std::string("0501")); // UX_HANDLE
@@ -1114,9 +1185,9 @@ namespace
 {
     // uitwid's scene (uitest.s's u2, UIVAR 1) and uitbar's (UIVAR 2).
     enum : uint8_t { X_DESK, X_WIN, X_GRP, X_R0, X_R1, X_R2, X_CHO, X_FLD, X_LST, X_VSC, X_LS2, X_CNV, X_HSC, X_LBL, X_OUT, X_DONE };
-    enum : uint8_t { Y_DESK, Y_WIN, Y_VBR, Y_VSL, Y_HBR, Y_HSL, Y_HSP, Y_LBL, Y_MSG };
+    enum : uint8_t { Y_DESK, Y_WIN, Y_VBR, Y_VSL, Y_HBR, Y_HSL, Y_HSP, Y_LBL, Y_MSG, Y_BAR };
     enum : uint8_t { BLK_U2 = 3, BLK_U2ONE = 4 };
-    void open_u2(Rig &r, const std::string &program, uint8_t block = BLK_U2)
+    template <class R> void open_u2(R &r, const std::string &program, uint8_t block = BLK_U2)
     {
         start_ui(r, program);
         CHECK_EQ(ui(r, 'o', block).substr(6), std::string("00"));
@@ -1532,6 +1603,8 @@ namespace
     {
         const uint32_t rec = lab("UDLG") + 8u * 16;
         uint32_t p = word_at(r, rec + UW_TEXT);
+        if (p >= 0xC800 && p < 0xF800) // a string of OOUI.BNK's UICOM, the same in each block: block A's (U3a)
+            p = r.phys(lab("UI_BLOCKS")) * 0x4000u + p - 0xC000;
         std::string t;
         for (uint8_t c; (c = r.phys(p)) != 0 && t.size() < 40; ++p)
             t += static_cast<char>(c);
@@ -2215,9 +2288,10 @@ TEST(x8_a_click_on_the_desktop_or_a_label_draws_nothing)
     open_u2(r, "uitwid");
     poll(r);
     const uint16_t clipr = lab("CLIPR");
+    const unsigned blk = bank_block(r, "CLIPR"); // (block A's, at $C800-$F7FF only while W3 holds it: U3a)
     unsigned drawn = 0;
     r.watch = [&](uint16_t pc) {
-        if (pc == clipr)
+        if (pc == clipr && (r.nb(3) & 0x3F) == blk)
             ++drawn;
     };
     for (const auto &[col, row, what] : std::vector<std::tuple<unsigned, unsigned, const char *>>{
@@ -2400,7 +2474,8 @@ TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
     // The instructions a poll runs in the walk's own code (CONSIDER to COUNTED: the compares, not the BDOS).
     const uint16_t from = lab("CONSIDER"), to = lab("COUNTED");
     unsigned long n = 0, most = 0;
-    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to; };
+    const unsigned blk = bank_block(r, "CONSIDER"); // (block C's: U3a)
+    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to && (r.nb(3) & 0x3F) == blk; };
     CHECK_EQ(ui(r, 'k', 4).substr(6), std::string("00"));
     for (int i = 0; i < 100 && r.phys(lab("lst")); ++i)
     {
@@ -2500,8 +2575,10 @@ namespace
     /// deleted and the listing let run to its end.
     void select_then_delete(CcpRig &r, const std::vector<const char *> &gone)
     {
-        m_files(r, 50);
-        start_ui(r, "uitpick");
+        m_files(r, 50); // (M: too full for OOUI.BNK as well: it is loaded from B: here, U3a)
+        put_b(r, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK"));
+        start_ui(r, "uitpick", 'N');
+        CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
         CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
         poll(r);
         CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00"));
@@ -2599,4 +2676,572 @@ int main()
         return 77; // CTest's SKIP_RETURN_CODE: an update run never reads as a pass (the review's O18)
     }
     return failed;
+}
+
+// ---------------------------------------------------------------------------
+// U3a (hw/ooui.md, "U3a: OOUI as a banked library"): the items it took over from U2's review, and the banked
+// library's own cases.
+
+namespace
+{
+    enum : uint8_t { BLK_AMP = 5 };       ///< uitest.s's (UITBAR): a screen shaped as OO-Amp's
+    constexpr uint8_t A_EQ5 = 16, A_ST0 = 44; ///< one of its 15 sprite sliders, a band; a status line
+    /// The cycles from POST (block B: the sprite sliders' thumbs placed after a paint that drew) to its return
+    /// in PAINT (PDONE, block A), for a paint after command `c` (A `a`, X `x`, Y `y`).
+    unsigned long post_cycles(CcpRig &r, char c, uint8_t a, uint8_t x, uint8_t y)
+    {
+        const uint16_t post = lab("POST"), done = lab("PDONE");
+        const unsigned bb = bank_block(r, "POST"), ba = bank_block(r, "PDONE");
+        uint64_t start = 0, took = 0;
+        r.watch = [&](uint16_t pc) {
+            const unsigned w3 = r.nb(3) & 0x3F;
+            if (pc == post && w3 == bb && !start)
+                start = r.cpu->cycles();
+            else if (pc == done && w3 == ba && start && !took)
+                took = r.cpu->cycles() - start;
+        };
+        CHECK_EQ(ui(r, c, a, x, y).substr(6), std::string("00"));
+        poll(r);
+        r.watch = nullptr;
+        CHECK(took != 0);
+        return static_cast<unsigned long>(took);
+    }
+} // namespace
+
+TEST(z3_the_thumbs_placed_after_a_paint_cost_little)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_AMP).substr(6), std::string("00"));
+    poll(r);
+    // A band moved (its value set): its own thumb placed again, the 14 others outside the paint's damage left
+    // as they were. Before U3a's fix each of the 15 took a RECT of itself and a FRONT (a RECT of every record):
+    // 3,302,244 cycles, 28 frames.
+    const unsigned long one = post_cycles(r, 'v', 20, 0, A_EQ5);
+    std::printf("  the thumbs placed after a band moved: %lu cycles (a frame is 119,318)\n", one);
+    CHECK(one < 100000);
+    // A status line's text changed, far from every slider: no thumb placed again.
+    r.poke(TEXTBUF, bytes(std::string("Playing", 8)));
+    const unsigned long none = post_cycles(r, 'x', 0, 0, A_ST0);
+    std::printf("  the thumbs after a status line's text changed: %lu cycles\n", none);
+    CHECK(none < 20000);
+}
+
+TEST(x4_a_menu_down_over_a_thumb_hides_it)
+{
+    // The U2 review's X4, left for U3a: the thumb shows only under no menu that is down. UITBAR's scene has a
+    // menu bar now (hidden till shown), its menu's drop-down wide and long enough to cover the sprite slider's
+    // thumb.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    CHECK_EQ(ui(r, 's', Y_BAR).substr(6), std::string("00")); // the bar shown (hidden in the scene's frames)
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    key(r, 0x43); // F10: the menu down, over the thumb
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    key(r, K_ESC); // up again: the thumb again
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+}
+
+TEST(the_pointer_s_image_off_ooui_s_memory_after_ui_close)
+{
+    // Left for U3a by U2's review: ui_close frees OOUI's card memory, so the pointer's sprite (UO_SPRITE, 0
+    // here) is pointed at card page 0 (OODOS's, never freed), as the thumbs' are (X3).
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const auto image = [&r] { const uint16_t s = lab("GX_SPR"); return r.phys(s) | (r.phys(s + 1u) & 0x7F) << 8; };
+    CHECK_EQ(image(), r.phys(lab("upage")) + (r.phys(lab("upage") + 1u) << 8) + 0x28); // UI_OFS_SPR: the pointer's
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    CHECK_EQ(image(), 0);
+}
+
+TEST(w2_a_walk_gets_back_in_step_after_a_file_added_mid_listing)
+{
+    // Left for U3a by U2's review (W2): once a match was out of place, each new file past the list's end in
+    // that walk was looked for through the whole list. Now a walk takes a match past the list's end as new unless
+    // it is one of the entries it passed unfound: the place a walk compares at jumps only over a few entries, those it passes unfound kept
+    // (8 at most), and an entry it has stamped already is passed. A:, 200 files (as z1's); listed part way,
+    // then SONG0003.SID deleted and NEWFILE.SID made in its directory entry, mid-listing: each later poll's walk
+    // costs as z1's do (before the fix the most was 823,876 instructions).
+    std::vector<uint8_t> card = fat16_card({{"BIG.IMG", 65536u * 512}});
+    auto word = [&](size_t at) { return size_t{card[at]} | size_t{card[at + 1]} << 8; };
+    const size_t root = (word(14) + card[16] * word(22)) * SECTOR;
+    const size_t data = root + word(17) * 32;
+    std::fill(card.begin() + static_cast<long>(data), card.begin() + static_cast<long>(data + 2048 * 32), 0xE5);
+    for (unsigned i = 0; i < 200; ++i)
+    {
+        uint8_t *e = card.data() + data + i * 32;
+        std::memset(e, 0, 32);
+        char n[16];
+        std::snprintf(n, sizeof n, "SONG%04uSID", i % 10000u);
+        std::memcpy(e + 1, n, 11);
+        e[15] = 1;
+        e[16] = static_cast<uint8_t>(8 + i);
+    }
+    Rig r(card);
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/BIG.IMG") == 0);
+    REQUIRE(r.boot());
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'k', 4).substr(6), std::string("00"));
+    for (int i = 0; i < 4; ++i)
+        poll(r);
+    CHECK(word_at(r, lab("count")) > 20u);
+    CHECK(word_at(r, lab("count")) < 150u);
+    for (const auto &[c, name] : std::vector<std::pair<char, const char *>>{{'z', "SONG0003SID"}, {'Z', "NEWFILE SID"}})
+    {
+        std::vector<uint8_t> fcb(36, 0);
+        fcb[0] = 1; // A:
+        std::memcpy(fcb.data() + 1, name, 11);
+        r.poke(TEXTBUF, fcb);
+        CHECK_EQ(ui(r, c).substr(0, 2), std::string("00"));
+    }
+    const uint16_t from = lab("CONSIDER"), to = lab("COUNTED");
+    const unsigned blk = bank_block(r, "CONSIDER");
+    unsigned long n = 0, most = 0;
+    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to && (r.nb(3) & 0x3F) == blk; };
+    for (int i = 0; i < 100 && r.phys(lab("lst")); ++i)
+    {
+        n = 0;
+        poll(r);
+        most = std::max(most, n);
+    }
+    r.watch = nullptr;
+    std::printf("  the most a poll ran in the walk after a file was added mid-listing: %lu instructions\n", most);
+    CHECK(most < 100000);
+    CHECK_EQ(r.phys(lab("lst")), 0);
+    CHECK_EQ(word_at(r, lab("count")), 200u);
+    CHECK_EQ(status(r), std::string("200 files"));
+}
+
+namespace
+{
+    enum : uint8_t
+    {
+        UX_VERSION_ = 1, UX_MEMORY_ = 3, UX_BUSY_ = 6, UX_LOAD_ = 10, UX_GX_ = 11, UX_STATE_ = 12 ///< ooui.inc's
+    };
+    /// A and the carry of a command, "aacc".
+    std::string ac(const std::string &f) { return f.substr(0, 2) + f.substr(6); }
+    std::string hex2(unsigned v)
+    {
+        char b[8];
+        std::snprintf(b, sizeof b, "%02X", v & 0xFF);
+        return b;
+    }
+    /// The blocks free (uitest.s's 'B').
+    unsigned free_blocks(Rig &r)
+    {
+        const std::string a = ui(r, 'B').substr(0, 2);
+        return std::isxdigit(static_cast<unsigned char>(a[0])) ? static_cast<unsigned>(std::stoul(a, nullptr, 16)) : 999u;
+    }
+    /// OOUI.BNK, as built.
+    std::vector<uint8_t> bnk() { return read_bytes(UTILS + "/OOUI.BNK"); }
+} // namespace
+
+TEST(ui_load_s_refusals_leave_nothing_taken)
+{
+    // Each refusal (uiprog/uiload.s): the error, and the blocks free as before (any it took freed again).
+    const auto refused = [](const std::vector<uint8_t> *file, const char *program, char flag, uint8_t err, const char *what)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        if (file)
+            r.put_m({{BNK_USER, "OOUI    BNK", *file}});
+        start_ui(r, program, flag);
+        const unsigned before = free_blocks(r);
+        const std::string got = ac(ui(r, 'L', 1));
+        if (got != hex2(err) + "01")
+            std::printf("  %s: got %s\n", what, got.c_str());
+        CHECK_EQ(got, hex2(err) + "01");
+        CHECK_EQ(free_blocks(r), before);
+    };
+    refused(nullptr, "uitest", 'N', UX_LOAD_, "no file");
+    std::vector<uint8_t> f = bnk();
+    f[0] = 'X';
+    refused(&f, "uitest", 'N', UX_LOAD_, "not an OOUI.BNK");
+    f = bnk();
+    f[4] = 0;
+    refused(&f, "uitest", 'N', UX_VERSION_, "an older interface");
+    f = bnk();
+    f[6] = 0x01;
+    f[7] = 0x06; // 1,537 bytes of UISTATE: more than the program's 1,536
+    refused(&f, "uitest", 'N', UX_VERSION_, "too little UISTATE");
+    f = bnk();
+    refused(&f, "uitest", 'G', UX_GX_, "no GX_INIT");
+    refused(&f, "uitmis", 'N', UX_STATE_, "UISTATE off a page");
+    // No block free for the third: the two it took freed again; then, the blocks back, it loads; and again is
+    // UX_BUSY.
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(r, "uitest", 'N');
+    const unsigned all = free_blocks(r);
+    CHECK(all >= 3u);
+    CHECK_EQ(ui(r, 'E', 2).substr(0, 2), hex2(all - 2));
+    CHECK_EQ(ac(ui(r, 'L', 1)), hex2(UX_MEMORY_) + "01");
+    CHECK_EQ(free_blocks(r), 2u);
+    CHECK_EQ(ac(ui(r, 'R')).substr(2), std::string("00"));
+    CHECK_EQ(free_blocks(r), all);
+    CHECK_EQ(ui(r, 'L', 1).substr(6), std::string("00"));
+    CHECK_EQ(free_blocks(r), all - 3);
+    CHECK_EQ(ac(ui(r, 'L', 1)), hex2(UX_BUSY_) + "01");
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+}
+
+TEST(ui_load_zeroes_uistate_and_the_warm_boot_frees_the_blocks)
+{
+    // UISTATE full of $FF before ui_load (a program's memory isn't cleared): OOUI opens and draws as ever (D2).
+    CcpRig r;
+    REQUIRE(r.ok);
+    r.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(r, "uitest", 'N');
+    const unsigned all = free_blocks(r);
+    r.poke(lab("UISTATE"), std::vector<uint8_t>(1536, 0xFF));
+    CHECK_EQ(ui(r, 'L', 1).substr(6), std::string("00"));
+    CHECK_EQ(r.phys(lab("UISTATE") + 1535u), 0);
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(frame_hash(r), read_golden().at("window"));
+    CHECK_EQ(free_blocks(r), all - 3);
+    // The program ended by the warm boot: its blocks are free again.
+    ui(r, '!');
+    r.run(ms(200));
+    start_ui(r, "uitest", 'N');
+    CHECK_EQ(free_blocks(r), all);
+}
+
+TEST(ui_load_keeps_the_program_s_user_and_dma)
+{
+    // From B: in the program's user (0), its DMA address, segment and error mode set (UITPICK's 'e'): all as
+    // they were after ui_load (D8); and the default name (A:OOUI.BNK, user 0, not on the test card) refused,
+    // the program's user 5 put back.
+    CcpRig r;
+    REQUIRE(r.ok);
+    put_b(r, "OOUI    BNK", bnk());
+    start_ui(r, "uitpick", 'N');
+    CHECK_EQ(ui(r, 'e', 0, 0xFE, 1).substr(6), std::string("00"));
+    const std::string mine = own_state(r);
+    CHECK_EQ(mine, std::string("user 0 dma 3A00 seg 1234 err FE"));
+    CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
+    CHECK_EQ(own_state(r), mine);
+    CcpRig s;
+    REQUIRE(s.ok);
+    start_ui(s, "uitpick", 'N');
+    CHECK_EQ(ui(s, 'e', 5, 0xFE, 1).substr(6), std::string("00"));
+    const std::string five = own_state(s);
+    CHECK_EQ(ac(ui(s, 'L', 0)), hex2(UX_LOAD_) + "01");
+    CHECK_EQ(own_state(s), five);
+}
+
+namespace
+{
+    /// What a 'p' (ui_poll till UE_NONE) cost: the cycles of its first ui_poll (from its stub to its return in
+    /// c_poll, PRET), the crossings between OOUI's blocks (FARCALLs made with an OOUI block in W3), and what a
+    /// crossing adds, on average: from FARCALL's entry to the routine's first instruction (past the dispatcher's
+    /// JMP), and from FCRET's entry (the routine's RTS) back to the caller.
+    struct Costs
+    {
+        unsigned long poll = 0, crossings = 0, crossing = 0;
+    };
+    Costs poll_costs(Rig &r)
+    {
+        const uint16_t stub = lab("ui_poll"), back = lab("PRET");
+        const uint16_t far = sys_labels().at("FARCALL"), fcret = sys_labels().at("FCRET");
+        const uint16_t jumps[] = {static_cast<uint16_t>(lab("AENT") + 23), static_cast<uint16_t>(lab("BENT") + 23),
+                                  static_cast<uint16_t>(lab("CENT") + 23)}; // each dispatcher's JMP (xjmp)
+        Costs c;
+        uint64_t start = 0, xsum = 0, xstart = 0, ostart = 0;
+        uint16_t xret = 0, prev = 0;
+        uint8_t xsp = 0;
+        bool done = false, in = false;
+        unsigned long timed = 0;
+        r.watch = [&](uint16_t pc) {
+            const uint64_t now = r.cpu->cycles();
+            const uint16_t was = prev;
+            prev = pc;
+            if (in && (was == jumps[0] || was == jumps[1] || was == jumps[2]))
+            {
+                xsum += now - xstart; // in: FARCALL and the dispatcher
+                in = false;
+            }
+            if (xret && pc == fcret && !ostart)
+                ostart = now;
+            if (pc == stub && !start)
+                start = now;
+            else if (pc == back && start && !done)
+            {
+                c.poll = static_cast<unsigned long>(now - start);
+                done = true;
+            }
+            if (xret && pc == xret && r.cpu->regs().s == xsp)
+            {
+                if (ostart)
+                    xsum += now - ostart; // out: FCRET to the caller
+                xret = 0;
+                ostart = 0;
+            }
+            if (pc == far && (r.nb(3) & 0x3F) != 62)
+            {
+                if (std::getenv("OOUI_XLOG")) // (which crossing: the stub's return, the selector)
+                {
+                    const uint8_t sp = r.cpu->regs().s;
+                    std::printf("    crossing: from $%04X, xsel %u\n", r.phys(0x100u + static_cast<uint8_t>(sp + 1)) |
+                                r.phys(0x100u + static_cast<uint8_t>(sp + 2)) << 8, r.phys(lab("xsel")));
+                }
+                ++c.crossings;
+                if (!xret)
+                {
+                    const uint8_t sp = r.cpu->regs().s;
+                    xret = static_cast<uint16_t>((r.phys(0x100u + static_cast<uint8_t>(sp + 1)) |
+                                                  r.phys(0x100u + static_cast<uint8_t>(sp + 2)) << 8) + 4); // past its 3 bytes
+                    xsp = static_cast<uint8_t>(sp + 2);
+                    xstart = now;
+                    in = true;
+                    ++timed;
+                }
+            }
+        };
+        poll(r);
+        r.watch = nullptr;
+        c.crossing = timed ? static_cast<unsigned long>(xsum / timed) : 0;
+        return c;
+    }
+} // namespace
+
+TEST(what_a_call_and_a_crossing_cost)
+{
+    // An event loop's frame with nothing waiting: one ui_poll, through its stub and FARCALL; and a crossing between
+    // OOUI's blocks (hw/ooui.md, U3a's cost table). A frame is 119,318 cycles.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const Costs first = poll_costs(r);
+    const Costs idle = poll_costs(r);
+    std::printf("  an idle ui_poll: %lu cycles, %lu crossings (the one before: %lu)\n", idle.poll, idle.crossings, first.poll);
+    CHECK(idle.poll > 0 && idle.poll < 30000); // (98,858 before U3a skipped placing clean records over no damage)
+    CHECK_EQ(idle.crossings, 0u);
+    // A U2 widget's key: the list takes Down (a crossing to its handler, and one to draw it).
+    CcpRig w;
+    REQUIRE(w.ok);
+    open_u2(w, "uitwid");
+    poll(w);
+    CHECK_EQ(ui(w, 'f', 8).substr(6), std::string("00")); // X_LST
+    poll(w);
+    key(w, K_DOWN);
+    const Costs k = poll_costs(w);
+    std::printf("  a list's Down: the first ui_poll %lu cycles, %lu crossings of %lu cycles each\n", k.poll, k.crossings,
+                k.crossing);
+    CHECK(k.crossings >= 2u);
+    CHECK(k.crossing > 281u && k.crossing < 500u);
+    // ui_load from M:, once: its cycles, from its entry to its return.
+    CcpRig l;
+    REQUIRE(l.ok);
+    l.put_m({{BNK_USER, "OOUI    BNK", bnk()}});
+    start_ui(l, "uitest", 'N');
+    const uint16_t entry = lab("ui_load");
+    uint64_t from = 0, took = 0;
+    uint16_t ret = 0;
+    uint8_t sp = 0;
+    l.watch = [&](uint16_t pc) {
+        if (pc == entry && !from)
+        {
+            from = l.cpu->cycles();
+            sp = static_cast<uint8_t>(l.cpu->regs().s + 2);
+            ret = static_cast<uint16_t>((l.phys(0x100u + static_cast<uint8_t>(sp - 1)) | l.phys(0x100u + sp) << 8) + 1);
+        }
+        else if (from && !took && pc == ret && l.cpu->regs().s == sp)
+            took = l.cpu->cycles() - from;
+    };
+    CHECK_EQ(ui(l, 'L', 1).substr(6), std::string("00"));
+    l.watch = nullptr;
+    std::printf("  ui_load from M:: %lu cycles (%.2f s at 7.15909 MHz)\n", static_cast<unsigned long>(took), static_cast<double>(took) / 7159090.0);
+    CHECK(took > 0 && took < 7159090u); // under a second
+}
+
+TEST(the_picker_s_crossings_a_listing_poll_and_a_selection_move)
+{
+    // Round 3's F1: a listing poll crosses 3 times (its listing part in C, the list's paint in B, its rows filled
+    // in C in one crossing: E3). A selection move, measured, 6: the list's key, the picker's filter of its
+    // UE_CHANGE (DFILT), the picker's idle part, the list's paint, its rows, and the name field's paint (it shows
+    // the selection); F1 counted 4, without the idle part and the field.
+    CcpRig r;
+    REQUIRE(r.ok);
+    m_files(r, 40);
+    start_ui(r, "uitpick");
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00")); // M:'s TXT and BIN files
+    poll(r);
+    const Costs listing = poll_costs(r);
+    std::printf("  a listing poll: %lu crossings\n", listing.crossings);
+    CHECK_EQ(listing.crossings, 3u);
+    settle(r);
+    CHECK_EQ(ui(r, 'f', P_LST).substr(6), std::string("00"));
+    poll(r);
+    key(r, K_DOWN);
+    const Costs move = poll_costs(r);
+    std::printf("  a selection move: %lu crossings\n", move.crossings);
+    CHECK_EQ(move.crossings, 6u);
+}
+
+TEST(ui_load_s_default_name_from_another_user)
+{
+    // The demo card has OOUI.BNK on A: in user 0, not SYS (make_card.sh): the program in user 3 loads it by its
+    // default name, ui_load opening it in user 0 (D8: the switch, not the SYS attribute, finds it), and is in user
+    // 3 after.
+    Rig r(sd_image("demo.sparse"));
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
+    REQUIRE(r.boot());
+    start_ui(r, "uitpick", 'N');
+    CHECK_EQ(ui(r, 'e', 3, 0xFE, 0).substr(6), std::string("00"));
+    const std::string mine = own_state(r);
+    CHECK_EQ(mine.substr(0, 7), std::string("user 3 "));
+    CHECK_EQ(ui(r, 'L', 0).substr(6), std::string("00"));
+    CHECK_EQ(own_state(r), mine);
+    CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
+}
+
+TEST(c1_a_thumb_shows_again_when_what_covered_only_it_goes)
+{
+    // The U3a review's C1: a cover over the thumb alone hid it, and POST kept the slider's first cell as its
+    // last, so when the cover went its damage missed that cell and the thumb stayed out of sight. Now the
+    // thumb's own cell is kept, shown or not. A small overlay window over the thumb (about column 31, row 6),
+    // not over the slider's start (9, 6), then hidden; and the second menu's drop-down, the same. (Only the window
+    // fails without the fix: the menu bar's own redraw widens its layer's damage box over the slider's start.)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        start_ui(r, "uitbar");
+        r.poke(rec2(Y_LBL) + UW_TYPE, 2); // Y_LBL a non-modal overlay window at the top
+        r.poke(rec2(Y_LBL) + UW_PARENT, 0xFF);
+        r.poke(rec2(Y_LBL) + 2u, 27);
+        r.poke(rec2(Y_LBL) + 3u, 5);
+        r.poke(rec2(Y_LBL) + 4u, 9);
+        r.poke(rec2(Y_LBL) + 5u, 3);
+        r.poke(rec2(Y_LBL) + UW_FLAGS, 0x40);
+        CHECK_EQ(ui(r, 'o', BLK_U2).substr(6), std::string("00"));
+        poll(r);
+        const Place w = rect(r, Y_LBL), sl = rect(r, Y_HSP);
+        REQUIRE(w.col > sl.col);
+        CHECK_EQ(spr_depth(r, 1), 0);
+        CHECK_EQ(ui(r, 'h', Y_LBL).substr(6), std::string("00"));
+        poll(r);
+        CHECK_EQ(spr_depth(r, 1), 0x0C);
+    }
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u2(r, "uitbar");
+    poll(r);
+    CHECK_EQ(ui(r, 's', Y_BAR).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+    key(r, 0x17, L_ALT); // Alt+T: the second menu down, over the thumb only
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0);
+    key(r, K_ESC);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 1), 0x0C);
+}
+
+namespace
+{
+    /// OOUI.BNK's header fields (mkbank.py's format 1): block b's image and fixups.
+    unsigned bnk_word(const std::vector<uint8_t> &f, size_t at) { return f[at] | f[at + 1] << 8u; }
+    size_t bnk_image(const std::vector<uint8_t> &f, unsigned b) { return bnk_word(f, 10 + 8 * b) * 128u; }
+    size_t bnk_fixups(const std::vector<uint8_t> &f, unsigned b) { return bnk_word(f, 14 + 8 * b) * 128u; }
+    /// Block b's first fixup of kind `kind` (0x80 any word): its entry's place in the file and the image's offset.
+    std::pair<size_t, unsigned> bnk_fixup(const std::vector<uint8_t> &f, unsigned b, uint8_t kind)
+    {
+        size_t e = bnk_fixups(f, b);
+        unsigned off = 0;
+        for (unsigned n = bnk_word(f, 16 + 8 * b); n; --n, e += 2)
+        {
+            off += f[e];
+            if (f[e + 1] == kind || (kind == 0x80 && f[e + 1] >= 0x80 && f[e + 1] != 0xFF))
+                return {e, off};
+        }
+        return {0, 0};
+    }
+    /// ui_load of `file` from B: (UITPICK, user 0, its DMA state set): refused with `err`, the blocks free as
+    /// before and the program's user, DMA address, segment and error mode as they were.
+    void refused_from_b(const std::vector<uint8_t> &file, uint8_t err, const char *what)
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        put_b(r, "OOUI    BNK", file);
+        start_ui(r, "uitpick", 'N');
+        CHECK_EQ(ui(r, 'e', 0, 0xFE, 1).substr(6), std::string("00"));
+        const std::string mine = own_state(r);
+        const unsigned before = free_blocks(r);
+        const std::string got = ac(ui(r, 'L', 2));
+        if (got != hex2(err) + "01")
+            std::printf("  %s: got %s\n", what, got.c_str());
+        CHECK_EQ(got, hex2(err) + "01");
+        CHECK_EQ(free_blocks(r), before);
+        CHECK_EQ(own_state(r), mine);
+    }
+} // namespace
+
+TEST(c2_a_hostile_ooui_bnk_writes_nothing_outside_its_blocks)
+{
+    // The U3a review's C2: each header and fixup ui_load reads is checked before it is used, and a file that
+    // fails one is refused (UX_LOAD), what it took freed and the user put back.
+    const std::vector<uint8_t> good = bnk();
+    std::vector<uint8_t> f = good;
+    f[12] = 0x00; // block A's image $4000 long: past its code window
+    f[13] = 0x40;
+    refused_from_b(f, UX_LOAD_, "an image too long");
+    f = good;
+    for (size_t e = bnk_fixups(f, 0), i = 0; i < 60; ++i, e += 2) // block A's fixups: skips, past its image
+    {
+        f[e] = 0xFF;
+        f[e + 1] = 0xFF;
+    }
+    refused_from_b(f, UX_LOAD_, "a skip run past the image");
+    f = good;
+    f[bnk_fixups(f, 0) + 1] = 0x05; // a kind mkbank.py doesn't make
+    refused_from_b(f, UX_LOAD_, "a bad kind");
+    f = good;
+    {
+        const auto [e, off] = bnk_fixup(f, 0, 0x02);
+        REQUIRE(e != 0);
+        f[bnk_image(f, 0) + off] = 4; // a block number's byte not 1-3
+    }
+    refused_from_b(f, UX_LOAD_, "a bad block byte");
+    f = good;
+    {
+        const auto [e, off] = bnk_fixup(f, 0, 0x80);
+        REQUIRE(e != 0);
+        f[e + 1] = static_cast<uint8_t>(0x80 + f[8]); // an import past the header's count
+    }
+    refused_from_b(f, UX_LOAD_, "an import index too high");
+    f = good;
+    f[34] = 3; // ui_open's block: none
+    refused_from_b(f, UX_LOAD_, "a bad entry block");
+    f = good;
+    f[35] = 0x00; // ui_open at $F800: common memory, not a code window
+    f[36] = 0xF8;
+    refused_from_b(f, UX_LOAD_, "a bad entry address");
+}
+
+TEST(c4_a_short_ooui_bnk_is_refused_with_its_blocks_freed)
+{
+    // The U3a review's C4: a file that ends inside block A's image, or inside its fixups, after the blocks are
+    // taken: refused (UX_LOAD), the blocks freed, the user and DMA put back.
+    const std::vector<uint8_t> good = bnk();
+    refused_from_b(std::vector<uint8_t>(good.begin(), good.begin() + static_cast<long>(bnk_image(good, 0) + 4096)),
+                   UX_LOAD_, "short in an image");
+    refused_from_b(std::vector<uint8_t>(good.begin(), good.begin() + static_cast<long>(bnk_fixups(good, 0) + 128)),
+                   UX_LOAD_, "short in the fixups");
 }

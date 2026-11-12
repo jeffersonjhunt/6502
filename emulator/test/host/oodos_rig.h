@@ -713,6 +713,53 @@ namespace oodos_rig
             return t;
         }
 
+        /// Files into M:'s directory and blocks, behind OODOS's back: before M: is logged in. `entry` and
+        /// `block` are M:'s last entry and next block used (0 and M_DIRBLOCKS for a fresh M:), as a CcpRig
+        /// keeps them; any rig's M: will do (OOUI's tests put OOUI.BNK on a card of their own's, U3a). A
+        /// file over 32 KB takes an entry for each 32 KB (16 blocks of 2 KB, EXM 1), in the free entries in
+        /// order, each's EX its last logical extent and RC that one's records, as cpmtools writes them.
+        inline void put_m_files(Rig &r, unsigned &entry, unsigned &block, const std::vector<MFile> &files)
+        {
+            auto free_entry = [&]() {
+                do
+                    ++entry;
+                while (r.phys(MDISK + entry * 32) != 0xE5);
+                return entry;
+            };
+            for (const MFile &f : files)
+            {
+                const unsigned records = static_cast<unsigned>((f.data.size() + RECORD - 1) / RECORD);
+                REQUIRE(records >= 1);
+                REQUIRE(block + (records * RECORD + M_BLS - 1) / M_BLS <= M_BLOCKS);
+                std::vector<uint8_t> data = f.data;
+                data.resize(size_t{records} * RECORD, 0x1A);
+                for (unsigned first = 0; first < records; first += 256)
+                {
+                    const unsigned at = free_entry();
+                    const unsigned here = std::min(records - first, 256u); // this entry's records
+                    std::vector<uint8_t> e(32, 0);
+                    e[0] = static_cast<uint8_t>(f.user);
+                    for (unsigned i = 0; i < 11; ++i)
+                        e[1 + i] = static_cast<uint8_t>(f.name83[i]);
+                    e[9] = static_cast<uint8_t>(e[9] | (f.ro ? 0x80 : 0));
+                    e[10] = static_cast<uint8_t>(e[10] | (f.sys ? 0x80 : 0));
+                    e[12] = static_cast<uint8_t>(first / 128 + (here - 1) / 128); // EX: its last 16 KB's
+                    e[15] = static_cast<uint8_t>(here - (here - 1) / 128 * 128u);  // RC: that 16 KB's records
+                    if (f.count && first + here == records)
+                        e[13] = static_cast<uint8_t>(f.data.size() % RECORD);
+                    for (unsigned k = 0; k * M_BLS < here * size_t{RECORD}; ++k)
+                    {
+                        e[16 + k] = static_cast<uint8_t>(block);
+                        const size_t from = size_t{first} * RECORD + size_t{k} * M_BLS;
+                        for (size_t i = 0; i < M_BLS && from + i < data.size() && k * M_BLS + i < here * size_t{RECORD}; ++i)
+                            r.poke(MDISK + block * M_BLS + static_cast<uint32_t>(i), data[from + i]);
+                        ++block;
+                    }
+                    r.poke(MDISK + at * 32, e);
+                }
+            }
+        }
+
         /// OODOS.SYS booted with the card's A.IMG as A: and B.IMG (empty) as B:.
         struct CcpRig : Rig
         {
@@ -736,45 +783,9 @@ namespace oodos_rig
                 while (phys(MDISK + entry * 32) != 0xE5);
                 return entry;
             }
-            /// Files into M:'s directory and blocks, behind OODOS's back: before M: is logged in. A
-            /// file over 32 KB takes an entry for each 32 KB (16 blocks of 2 KB, EXM 1), in the free
-            /// entries in order, each's EX its last logical extent and RC that one's records, as cpmtools
-            /// writes them.
-            void put_m(const std::vector<MFile> &files)
-            {
-                for (const MFile &f : files)
-                {
-                    const unsigned records = static_cast<unsigned>((f.data.size() + RECORD - 1) / RECORD);
-                    REQUIRE(records >= 1);
-                    REQUIRE(block + (records * RECORD + M_BLS - 1) / M_BLS <= M_BLOCKS);
-                    std::vector<uint8_t> data = f.data;
-                    data.resize(size_t{records} * RECORD, 0x1A);
-                    for (unsigned first = 0; first < records; first += 256)
-                    {
-                        const unsigned at = free_entry();
-                        const unsigned here = std::min(records - first, 256u); // this entry's records
-                        std::vector<uint8_t> e(32, 0);
-                        e[0] = static_cast<uint8_t>(f.user);
-                        for (unsigned i = 0; i < 11; ++i)
-                            e[1 + i] = static_cast<uint8_t>(f.name83[i]);
-                        e[9] = static_cast<uint8_t>(e[9] | (f.ro ? 0x80 : 0));
-                        e[10] = static_cast<uint8_t>(e[10] | (f.sys ? 0x80 : 0));
-                        e[12] = static_cast<uint8_t>(first / 128 + (here - 1) / 128); // EX: its last 16 KB's
-                        e[15] = static_cast<uint8_t>(here - (here - 1) / 128 * 128u);  // RC: that 16 KB's records
-                        if (f.count && first + here == records)
-                            e[13] = static_cast<uint8_t>(f.data.size() % RECORD);
-                        for (unsigned k = 0; k * M_BLS < here * size_t{RECORD}; ++k)
-                        {
-                            e[16 + k] = static_cast<uint8_t>(block);
-                            const size_t from = size_t{first} * RECORD + size_t{k} * M_BLS;
-                            for (size_t i = 0; i < M_BLS && from + i < data.size() && k * M_BLS + i < here * size_t{RECORD}; ++i)
-                                poke(MDISK + block * M_BLS + static_cast<uint32_t>(i), data[from + i]);
-                            ++block;
-                        }
-                        poke(MDISK + at * 32, e);
-                    }
-                }
-            }
+            /// Files into M:'s directory and blocks, behind OODOS's back: before M: is logged in
+            /// (put_m_files, above).
+            void put_m(const std::vector<MFile> &files) { put_m_files(*this, entry, block, files); }
             /// An XFCB for a file of M:'s, its mode (bit 7 read, 6 write, 5 delete) and password,
             /// and M:'s label's passwords on.
             void xfcb_m(unsigned user, const std::string &name83, uint8_t mode, const std::string &pw8)

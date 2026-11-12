@@ -14,7 +14,7 @@
 
         .export UIW_CHOICE
 
-        .rodata
+        .segment "BRODATA"
 UIW_CHOICE:
         .byte   UT_CHOICE, WF_FOCUS | WF_LIST | WF_REPEAT
         .word   DRAW, KEY, DOWN, 0, 0, 0
@@ -23,7 +23,7 @@ UIW_CHOICE:
 v:      .res    1                      ; the value (a choice has under 256)
 n:      .res    1                      ; the count
 
-        .code
+        .segment "BCODE"
 
 DRAW:   ldy     #TC_FIELD
         lda     dh

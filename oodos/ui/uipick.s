@@ -31,7 +31,8 @@
         .include "ooui.inc"
         .include "ui.inc"
 
-        .import DLGON, DLGREC, DLGH, UIW_CHOICE, UIW_LIST, UIW_FIELD
+        .import DLGON, DLGREC, DLGH
+        .export FILLROWS
 
 PW              = 0                    ; the dialog records' places
 PDRV            = 1
@@ -43,6 +44,7 @@ PCAN            = 6
 PEXT            = 7
 PSTA            = 8
 ROWS            = 16                   ; the list's rows
+SKIPQ           = 8                    ; a walk's listed entries passed unfound that it keeps (W2)
 
         .bss
 pblk:   .res    2                      ; the program's block
@@ -55,11 +57,11 @@ lst:    .res    1                      ; the listing: 0 done, 1 going on
 perr:   .res    1                      ; its error (X of 17 or 18), 0 none
 pcol:   .res    1                      ; 1: a column routine said "not yet": the list again
 rec:    .res    UW_LEN
-fcb:    .res    36
-dbuf:   .res    128                    ; the directory records
 keep:   .res    8                      ; the program's user, DMA address and segment, error mode
 scbb:   .res    4
 rowbuf: .res    40                     ; a row's text
+frs:    .res    1                      ; FILLROWS's slot
+frr:    .res    2                      ;   and row
 fbuf:   .res    15                     ; the name field: "d:" + 8 + "." + 3 + 0 (Z4)
 sbuf:   .res    24                     ; the status text
 ent:    .res    2                      ; an entry's address
@@ -71,6 +73,8 @@ cur:    .res    2                      ; the list's entry the walk's next match 
 wstamp: .res    1                      ; the walk's stamp, in each entry it finds (+14: Z5)
 atend:  .res    1                      ; CONSIDER's
 sync:   .res    1                      ;   1 while each match has been the list's entry cur
+nskip:  .res    1                      ; the listed entries a walk's lookups passed unfound, $FF too many (W2)
+skipq:  .res    2 * SKIPQ              ;   their indices
 mk:     .res    1                      ; MAKE's place
 psel:   .res    2                      ; PRUNE's: the selection
 total:  .res    2                      ; the wanted files the last walk found
@@ -78,7 +82,11 @@ rrow:   .res    1                      ; ROWFN's row
 ans:    .res    1                      ; FINISH's answer
 rrowh:  .res    1
 
-        .code
+        .segment "CBSS"                 ; block C's own (hw/ooui.md, U3a): the BDOS reaches them through W3
+fcb:    .res    36
+dbuf:   .res    128                    ; the directory records
+
+        .segment "CCODE"
 
 ui_pick:
         jsr     ENTER
@@ -128,19 +136,7 @@ ui_pick:
         beq     @bad
         lda     blk + UP_ROOM
         beq     @bad
-@free:  ldx     #0                      ; the widgets it uses
-@w:     lda     MODS,x
-        sta     UIP
-        lda     MODS + 1,x
-        sta     UIP + 1
-        phx
-        jsr     ADDW
-        plx
-        inx
-        inx
-        cpx     #6
-        bne     @w
-        jsr     START
+@free:  jsr     START                   ; (its widgets are block B's, there at ui_open: U3a)
         jsr     MAKE
         lda     #<FILTER
         sta     udf2
@@ -150,7 +146,7 @@ ui_pick:
         sta     uidle
         lda     #>IDLEFN
         sta     uidle + 1
-        jsr     REFOCUS
+        XGO     FARA, XA_REFOCUS
         jsr     LISTH                   ; the focus on the list
         jsr     SETFOCUS
         clc
@@ -344,6 +340,7 @@ IDLEFN: lda     pcol                    ; a column said "not yet": the list agai
         stz     cur + 1
         lda     #1
         sta     sync
+        stz     nskip                   ; none passed unfound yet (W2)
         inc     wstamp                  ; this walk's stamp (Z5)
         lda     count + 1               ; this poll's new: 4 and half as many as are listed, at
         bne     @most                   ;   most 64, so the walks from the start cost about three
@@ -460,18 +457,28 @@ CONSIDER:
         inc     total
         bne     @t
         inc     total + 1
-@t:     lda     cur                     ; the entry cur?
-        cmp     count
+@t:     lda     cur                     ; the entry cur? (one this walk found already passed:
+        cmp     count                   ;   a file listed as new mid-listing, W2)
         lda     cur + 1
         sbc     count + 1
         bcc     @cur
         lda     sync                    ; past the list with every match in its place: new
         bne     @new
-        bra     @look
+        jsr     SKIPPED                 ; past it: one of those passed unfound, or new (W2)
+        bcc     @new
+        jmp     STAMP
 @cur:   lda     cur
         ldx     cur + 1
         jsr     ENTRY
-        jsr     MATCH
+        ldy     #UP_ELEN - 2            ; stamped this walk already: passed
+        lda     (UIQ),y
+        cmp     wstamp
+        bne     @cmp
+        inc     cur
+        bne     @t
+        inc     cur + 1
+        bra     @t
+@cmp:   jsr     MATCH
         beq     @same
         stz     sync                    ; out of step: looked for from now on
         bra     @look
@@ -481,10 +488,25 @@ CONSIDER:
         bne     @r
         inc     cur + 1
 @r:     rts
-@look:  jsr     LISTED                  ; elsewhere: the walk goes on after it
-        bcc     @new
-        jsr     STAMP
-        lda     ent
+@look:  jsr     LISTED                  ; elsewhere: the walk goes on after it, unless that
+        bcc     @new                    ;   is far on (W2: a file listed as new mid-listing is at
+        jsr     STAMP                   ;   the list's end, and the walk's place stays where it
+        lda     ent                     ;   was); those passed over, unfound, kept (PASSED)
+        sec
+        sbc     cur
+        tax
+        lda     ent + 1
+        sbc     cur + 1
+        bcc     @jump                   ; (back: what is between is stamped already)
+        bne     @r
+        txa
+        clc
+        adc     nskip
+        bcs     @r                      ; (nskip $FF)
+        cmp     #SKIPQ + 1
+        bcs     @r
+        jsr     PASSED
+@jump:  lda     ent
         clc
         adc     #1
         sta     cur
@@ -544,6 +566,84 @@ STAMP:  ldy     #UP_ELEN - 2
         lda     wstamp
         sta     (UIQ),y
         rts
+
+; The list's entries from cur to ent (LISTED's find, which the walk jumps
+; to) that this walk hasn't stamped: in skipq, or nskip $FF when there are
+; more than SKIPQ (W2). Past the list's end they are all a match can be
+; besides a new file.
+PASSED: lda     cur
+        sta     t2
+        lda     cur + 1
+        sta     t3
+@p:     lda     t2
+        cmp     ent
+        lda     t3
+        sbc     ent + 1
+        bcs     @r
+        lda     t2
+        ldx     t3
+        jsr     ENTRY
+        ldy     #UP_ELEN - 2
+        lda     (UIQ),y
+        cmp     wstamp
+        beq     @n
+        lda     nskip
+        cmp     #SKIPQ
+        bcs     @full
+        asl     a
+        tax
+        lda     t2
+        sta     skipq,x
+        lda     t3
+        sta     skipq + 1,x
+        inc     nskip
+@n:     inc     t2
+        bne     @p
+        inc     t3
+        bra     @p
+@full:  lda     #$FF
+        sta     nskip
+@r:     rts
+
+; Past the list's end out of step: carry set and UIQ on it if the entry at
+; dbuf + dofs is one of those the walk passed unfound (skipq), and not
+; stamped since; clear if new. With too many passed, the whole list looked
+; through (LISTED), as before W2.
+SKIPPED:
+        lda     nskip
+        cmp     #$FF
+        bne     @q
+        jmp     LISTED                  ; (carry and UIQ as SKIPPED gives them)
+@q:     ldx     #0
+@l:     cpx     nskip
+        bcs     @no
+        phx
+        txa
+        asl     a
+        tax
+        lda     skipq,x
+        pha
+        lda     skipq + 1,x
+        tax
+        pla
+        jsr     ENTRY
+        plx
+        ldy     #UP_ELEN - 2
+        lda     (UIQ),y
+        cmp     wstamp
+        beq     @n
+        phx
+        jsr     MATCH
+        php                             ; (MATCH's Z, past the PLX)
+        plx
+        plp
+        beq     @yes
+@n:     inx
+        bra     @l
+@yes:   sec
+        rts
+@no:    clc
+@r:     rts
 
 ; Z set if the entry at UIQ has the name and type of dbuf + dofs's.
 MATCH:  ldx     dofs
@@ -906,6 +1006,52 @@ ROWFN:  sta     rrow
         rts
 @col:   jmp     (blk + UP_COLUMN)
 
+; The shown rows, prtop on, prn of them (block B's list, as it starts to
+; draw: one crossing for them all, U3a's E3), each ROWFN's text and style
+; into prbuf and prsty (uirows.s); those past the files listed none.
+FILLROWS:
+        stz     frs
+@s:     lda     frs
+        cmp     prn
+        bcs     @r
+        clc
+        adc     prtop
+        sta     frr
+        lda     prtop + 1
+        adc     #0
+        sta     frr + 1
+        lda     frr
+        cmp     count
+        lda     frr + 1
+        sbc     count + 1
+        bcs     @r
+        lda     frr
+        ldx     frr + 1
+        jsr     ROWFN
+        tya
+        ldx     frs
+        sta     prsty,x
+        txa
+        asl     a
+        tax
+        lda     PROFS,x
+        sta     UIP
+        lda     PROFS + 1,x
+        sta     UIP + 1
+        ldy     #0
+@c:     lda     rowbuf,y
+        sta     (UIP),y
+        beq     @n
+        iny
+        cpy     #PR_LEN - 1
+        bcc     @c
+        lda     #0
+        sta     (UIP),y
+@n:     inc     frs
+        bra     @s
+@r:     rts
+.assert PR_LEN = 40, error, "a prbuf row holds rowbuf"
+
 ; ---------------------------------------------------------------------------
 ; The picker's events, before the program sees them.
 
@@ -1098,7 +1244,7 @@ FINISH: sta     ans
         sta     (UIQ),y
         lda     #PW
         jsr     DLGH
-        jsr     HIDEH
+        XGO     FARA, XA_HIDEH
         stz     uidle + 1
         stz     lst
         lda     ans
@@ -1234,7 +1380,7 @@ BADCH:  cmp     #'!'
 @bad:   sec
         rts
 
-        .rodata
+        .segment "CRODATA"
 ; The records' templates, by place (UW_*: type, parent, x, y, w, h, flags,
 ; state, text, value, A, B): the window centred; the drive and the user, each
 ; a choice; the list; the name, 14 characters ("d:" and 8.3: Z4); OK, Cancel
@@ -1246,7 +1392,7 @@ TPL:    .byte   UT_WINDOW, UI_NONE, 7, 2, 66, ROWS + 9, UF_MODAL | UF_OVERLAY, 0
         .byte   UT_CHOICE, PW, 15, 0, 12, 1, 0, 0
         .word   USERS, 0, 16, 0
         .byte   UT_LIST, PW, 1, 2, <-1, ROWS, UF_ROUTINE | UF_SCROLL, 0
-        .word   ROWFN, $FFFF, 0, 0
+        .word   PROWS, $FFFF, 0, 0      ; (its rows from prbuf, filled in one crossing: U3a, E3)
         .byte   UT_FIELD, PW, 1, ROWS + 4, 16, 1, UF_UPPER, 0
         .word   fbuf, 0, 15, 0
         .byte   UT_BUTTON, PW, <-36, <-1, 10, 1, UF_DEFAULT, 0
@@ -1258,9 +1404,10 @@ TPL:    .byte   UT_WINDOW, UI_NONE, 7, 2, 66, ROWS + 9, UF_MODAL | UF_OVERLAY, 0
         .byte   UT_LABEL, PW, 1, ROWS + 2, <-1, 1, 0, 0
         .word   T_READING, 0, 0, 0
 .assert * - TPL = 9 * UW_LEN, error, "a template a place"
-MODS:   .word   UIW_CHOICE, UIW_LIST, UIW_FIELD
 DRVMAP: .byte   1, 2, 3, 4, 5, 6, 7, 13
 DRIVES_N = * - DRVMAP
+; What a record points to, which blocks A and B draw: UICOM's (U3a).
+        .segment "URODATA"
 DRIVES: .word   D_A, D_B, D_C, D_D, D_E, D_F, D_G, D_M
 D_A:    .asciiz "Drive A:"
 D_B:    .asciiz "Drive B:"
