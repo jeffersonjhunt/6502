@@ -714,6 +714,7 @@ HIT:    jsr     FRONT
         lda     #UI_NONE
 @r:     rts
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; A the record frontmost at cell mcol, mrowp: the overlay's first, then the
 ; base's, each from the table's end down, inside its parents' client areas
 ; (X5); UI_NONE none. Menus aren't looked at.
@@ -765,6 +766,7 @@ FRONT:  lda     #1
         bpl     @pass
         lda     #UI_NONE
         rts
+        .code
 
 ; The left button down.
 MDOWN:  lda     ulastp                  ; only DOWNW keeps it (X1): a press anywhere else
@@ -1224,19 +1226,19 @@ PLUGGED:
 @r:     rts
 
 ; Event A through the dialogs' filters: A what they make of it.
-DFILT:  ldx     udf1 + 1
+DFILT:  ldx     udf1 + 1                ; (their filters are block C's: U3a)
         beq     @2
-        jsr     @f1
+        XGO     FARC, XC_DF1
 @2:     ldx     udf2 + 1
         beq     @r
-        jmp     (udf2)
-@f1:    jmp     (udf1)
+        XGO     FARC, XC_DF2
 @r:     rts
 
 ; A dialog's idle work: A an event, UE_NONE none.
 IDLE:   lda     uidle + 1
         beq     @none
-        jmp     (uidle)
+        XGO     FARC, XC_IDLE           ; (block C's: U3a)
+        rts
 @none:  lda     #UE_NONE
         rts
 

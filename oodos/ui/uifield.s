@@ -15,7 +15,7 @@
 
         .export UIW_FIELD
 
-        .rodata
+        .segment "BRODATA"
 UIW_FIELD:
         .byte   UT_FIELD, WF_FOCUS | WF_REPEAT
         .word   DRAW, KEY, DOWN, 0, 0, 0
@@ -29,7 +29,7 @@ wid:    .res    1
 i:      .res    1
 ch:     .res    1
 
-        .code
+        .segment "BCODE"
 
 ; UIQ the buffer; cur, len, room, first, wid.
 GETS:   ldy     #UW_TEXT

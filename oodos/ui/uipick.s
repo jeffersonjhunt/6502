@@ -31,7 +31,8 @@
         .include "ooui.inc"
         .include "ui.inc"
 
-        .import DLGON, DLGREC, DLGH, UIW_CHOICE, UIW_LIST, UIW_FIELD
+        .import DLGON, DLGREC, DLGH
+        .export FILLROWS
 
 PW              = 0                    ; the dialog records' places
 PDRV            = 1
@@ -55,11 +56,11 @@ lst:    .res    1                      ; the listing: 0 done, 1 going on
 perr:   .res    1                      ; its error (X of 17 or 18), 0 none
 pcol:   .res    1                      ; 1: a column routine said "not yet": the list again
 rec:    .res    UW_LEN
-fcb:    .res    36
-dbuf:   .res    128                    ; the directory records
 keep:   .res    8                      ; the program's user, DMA address and segment, error mode
 scbb:   .res    4
 rowbuf: .res    40                     ; a row's text
+frs:    .res    1                      ; FILLROWS's slot
+frr:    .res    2                      ;   and row
 fbuf:   .res    15                     ; the name field: "d:" + 8 + "." + 3 + 0 (Z4)
 sbuf:   .res    24                     ; the status text
 ent:    .res    2                      ; an entry's address
@@ -78,7 +79,11 @@ rrow:   .res    1                      ; ROWFN's row
 ans:    .res    1                      ; FINISH's answer
 rrowh:  .res    1
 
-        .code
+        .segment "CBSS"                 ; block C's own (hw/ooui.md, U3a): the BDOS reaches them through W3
+fcb:    .res    36
+dbuf:   .res    128                    ; the directory records
+
+        .segment "CCODE"
 
 ui_pick:
         jsr     ENTER
@@ -128,19 +133,7 @@ ui_pick:
         beq     @bad
         lda     blk + UP_ROOM
         beq     @bad
-@free:  ldx     #0                      ; the widgets it uses
-@w:     lda     MODS,x
-        sta     UIP
-        lda     MODS + 1,x
-        sta     UIP + 1
-        phx
-        jsr     ADDW
-        plx
-        inx
-        inx
-        cpx     #6
-        bne     @w
-        jsr     START
+@free:  jsr     START                   ; (its widgets are block B's, there at ui_open: U3a)
         jsr     MAKE
         lda     #<FILTER
         sta     udf2
@@ -150,7 +143,7 @@ ui_pick:
         sta     uidle
         lda     #>IDLEFN
         sta     uidle + 1
-        jsr     REFOCUS
+        XGO     FARA, XA_REFOCUS
         jsr     LISTH                   ; the focus on the list
         jsr     SETFOCUS
         clc
@@ -906,6 +899,52 @@ ROWFN:  sta     rrow
         rts
 @col:   jmp     (blk + UP_COLUMN)
 
+; The shown rows, prtop on, prn of them (block B's list, as it starts to
+; draw: one crossing for them all, U3a's E3), each ROWFN's text and style
+; into prbuf and prsty (uirows.s); those past the files listed none.
+FILLROWS:
+        stz     frs
+@s:     lda     frs
+        cmp     prn
+        bcs     @r
+        clc
+        adc     prtop
+        sta     frr
+        lda     prtop + 1
+        adc     #0
+        sta     frr + 1
+        lda     frr
+        cmp     count
+        lda     frr + 1
+        sbc     count + 1
+        bcs     @r
+        lda     frr
+        ldx     frr + 1
+        jsr     ROWFN
+        tya
+        ldx     frs
+        sta     prsty,x
+        txa
+        asl     a
+        tax
+        lda     PROFS,x
+        sta     UIP
+        lda     PROFS + 1,x
+        sta     UIP + 1
+        ldy     #0
+@c:     lda     rowbuf,y
+        sta     (UIP),y
+        beq     @n
+        iny
+        cpy     #PR_LEN - 1
+        bcc     @c
+        lda     #0
+        sta     (UIP),y
+@n:     inc     frs
+        bra     @s
+@r:     rts
+.assert PR_LEN = 40, error, "a prbuf row holds rowbuf"
+
 ; ---------------------------------------------------------------------------
 ; The picker's events, before the program sees them.
 
@@ -1098,7 +1137,7 @@ FINISH: sta     ans
         sta     (UIQ),y
         lda     #PW
         jsr     DLGH
-        jsr     HIDEH
+        XGO     FARA, XA_HIDEH
         stz     uidle + 1
         stz     lst
         lda     ans
@@ -1234,7 +1273,7 @@ BADCH:  cmp     #'!'
 @bad:   sec
         rts
 
-        .rodata
+        .segment "CRODATA"
 ; The records' templates, by place (UW_*: type, parent, x, y, w, h, flags,
 ; state, text, value, A, B): the window centred; the drive and the user, each
 ; a choice; the list; the name, 14 characters ("d:" and 8.3: Z4); OK, Cancel
@@ -1246,7 +1285,7 @@ TPL:    .byte   UT_WINDOW, UI_NONE, 7, 2, 66, ROWS + 9, UF_MODAL | UF_OVERLAY, 0
         .byte   UT_CHOICE, PW, 15, 0, 12, 1, 0, 0
         .word   USERS, 0, 16, 0
         .byte   UT_LIST, PW, 1, 2, <-1, ROWS, UF_ROUTINE | UF_SCROLL, 0
-        .word   ROWFN, $FFFF, 0, 0
+        .word   PROWS, $FFFF, 0, 0      ; (its rows from prbuf, filled in one crossing: U3a, E3)
         .byte   UT_FIELD, PW, 1, ROWS + 4, 16, 1, UF_UPPER, 0
         .word   fbuf, 0, 15, 0
         .byte   UT_BUTTON, PW, <-36, <-1, 10, 1, UF_DEFAULT, 0
@@ -1258,9 +1297,10 @@ TPL:    .byte   UT_WINDOW, UI_NONE, 7, 2, 66, ROWS + 9, UF_MODAL | UF_OVERLAY, 0
         .byte   UT_LABEL, PW, 1, ROWS + 2, <-1, 1, 0, 0
         .word   T_READING, 0, 0, 0
 .assert * - TPL = 9 * UW_LEN, error, "a template a place"
-MODS:   .word   UIW_CHOICE, UIW_LIST, UIW_FIELD
 DRVMAP: .byte   1, 2, 3, 4, 5, 6, 7, 13
 DRIVES_N = * - DRVMAP
+; What a record points to, which blocks A and B draw: UICOM's (U3a).
+        .segment "URODATA"
 DRIVES: .word   D_A, D_B, D_C, D_D, D_E, D_F, D_G, D_M
 D_A:    .asciiz "Drive A:"
 D_B:    .asciiz "Drive B:"

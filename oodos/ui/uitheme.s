@@ -28,7 +28,11 @@ WHT     = 14
 LEDOFF  = 15
 .define AT(b, f) ((b) << 4 | (f))
 
+.ifdef UIBANK
+        .segment "URODATA"              ; the bank's own copy: UICOM's, so every block reads it (U3a)
+.else
         .rodata
+.endif
 UI_HOUSE:
         .byte   1                       ; TH_VERSION
         .byte   TF_SHADOW               ; TH_FLAGS

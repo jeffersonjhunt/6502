@@ -19,7 +19,7 @@
         .import SCALE, sv, su, sa, sr
         .export UIW_VSLIDER, UIW_HSLIDER
 
-        .rodata
+        .segment "BRODATA"
 UIW_VSLIDER:
         .byte   UT_VSLIDER, WF_FOCUS | WF_RANGE | WF_REPEAT
         .word   DRAW, KEY, DOWN, MOVE, UP, WHEEL
@@ -40,7 +40,7 @@ tc:     .res    1                      ; the thumb's cell (SHOWS's)
 tr:     .res    1
 old:    .res    2                      ; WHEEL's: the value before
 
-        .code
+        .segment "BCODE"
 
 ; vert, len, val, top; pos = val x (len x units - 1) / top.
 MEASURE:
@@ -381,7 +381,7 @@ NIB:    and     #$0F
         lsr     a
 @r:     rts
 
-        .rodata
+        .segment "BRODATA"
 THUMB:  .byte   $00, $22, $22, $00
         .byte   $02, $11, $11, $20
         .byte   $21, $11, $11, $12
@@ -390,7 +390,7 @@ THUMB:  .byte   $00, $22, $22, $00
         .byte   $21, $11, $11, $12
         .byte   $02, $11, $11, $20
         .byte   $00, $22, $22, $00
-        .code
+        .segment "BCODE"
 
 ; After a paint that drew (PAINT's upost): each UF_SPRITE slider's thumb
 ; placed if it shows, else out of sight (depth 0). upmode 1: all out of

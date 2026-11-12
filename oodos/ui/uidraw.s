@@ -89,6 +89,7 @@ blk:    .res    6                      ; IN_MOUSE's block
 ; ---------------------------------------------------------------------------
 ; Setting up.
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; OOUI's bank in W1: mapB its CPU address.
 MAPW1:  lda     upage
         ldx     upage + 1
@@ -96,6 +97,7 @@ MAPW1:  lda     upage
         sta     mapB
         stx     mapB + 1
         rts
+        .code
 
 ; The console's font copied to OOUI's, and OOUI's glyphs written over it:
 ; carry set if the copy was refused.
@@ -582,7 +584,8 @@ PAINT:  lda     ususp
         beq     @r                      ;   sprites, U2)
         lda     upost + 1
         beq     @r
-        jmp     (upost)
+        XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
+        rts
 @r:     rts
 
 ; One layer's pass (pl the layer, pbx its box, pclr 1 to clear the box,
@@ -818,6 +821,7 @@ CLIPALL:
 ; ---------------------------------------------------------------------------
 ; The cells.
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; The next cell at column A, row X of cmap. UIP its row; roff 1 if clipped.
 GOTO:   sta     ucol
         stz     roff
@@ -1062,6 +1066,7 @@ BLINE:  sty     bwhich
         plx
         lda     FRAMES + 1,x            ; the right corner
         jmp     EMIT
+        .code
 
 ; The shadow of UI_RECT, if the theme has shadows: the cells to its right
 ; and below, their characters the base layer's, in TC_SHADOW.
@@ -1152,6 +1157,7 @@ SHADES: cpx     #0
         bne     @l
 @r:     rts
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; uattr the theme's attribute at Y, and uacc it with TC_ACCEL's colour.
 TATTR:  lda     (UIT),y
         sta     uattr
@@ -1168,6 +1174,7 @@ NOACC:  jsr     TATTR
         lda     uattr
         sta     uacc
         rts
+        .code
 
 ; ---------------------------------------------------------------------------
 ; The widgets.
@@ -1449,10 +1456,12 @@ DCHECK: ldy     #UW_FLAGS
 ; The frames, 8 bytes a style (TS_*): the top's corners, the bottom's, the
 ; top's line, the bottom's, the sides; +7 unused.
 .global FRAMES
+        .segment "URODATA"              ; (BOXD's: UICOM's, U3a)
 FRAMES: .byte   ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '              ; TS_NONE
         .byte   $DA, $BF, $C0, $D9, $C4, $C4, $B3, $C3              ; TS_SINGLE
         .byte   $C9, $BB, $C8, $BC, $CD, $CD, $BA, $C7              ; TS_DOUBLE
         .byte   $DB, $DB, $DB, $DB, $DF, $DC, $DB, $DB              ; TS_HEAVY
+        .rodata
 
 ; The horizontal bars' codes and masks, 1-7 eighths.
 HCODES: .byte   $12, $13, $14, $15, $16, $17, $1C

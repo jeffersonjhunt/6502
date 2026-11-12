@@ -1,15 +1,24 @@
 ; OOUI, the OO-1's UI toolkit (hw/ooui.md, "The API"; proposed): windows,
-; menus, buttons and the rest, drawn on the video card's text layers by a
-; library linked into the program. Link a program with build/ooui.lib, then
-; build/oolib.lib (OOUI draws through OOLIB), and include this after
-; oodos.inc and oolib.inc.
+; menus, buttons and the rest, drawn on the video card's text layers. From
+; U3a (proposed) OOUI is a banked library, OOUI.BNK, in three blocks the
+; program allocates and reaches by FARCALL (hw/ooui.md, "U3a: OOUI as a
+; banked library"): the program links build/ooui.lib, the program part (the
+; calls' stubs, ui_load, UISTATE, OOUI's zero page, and the themes UI_HOUSE
+; and UI_TURBO when it names them), then build/oolib.lib, and puts the
+; UISTATE segment in a memory area of its own on a page outside $4000-$7FFF
+; (test/ui/uiprog.cfg shows how). Include this after oodos.inc and oolib.inc.
+;
+; ui_load      A/X an FCB (its drive and name set), or 0 for A:OOUI.BNK in
+;              user 0: OOUI.BNK loaded and the stubs filled. After GX_INIT,
+;              before ui_open. Refusals: UX_STATE, UX_BUSY, UX_LOAD,
+;              UX_VERSION, UX_MEMORY, UX_GX (uiprog/uiload.s says when).
 ;
 ; Phase U1 built the core and the text backend: the desktop, windows,
 ; panels, labels, buttons, check boxes, the menu bar and its menus, focus,
 ; the themes, OOUI's glyphs, overlays on layer 1 and the pointer. Phase U2
-; (proposed) adds the other widgets, each a module of its own that ld65
-; links only when the program uses it (UO_WIDGETS, below: UI_END lists
-; them), the message box (ui_msgbox) and the file picker (ui_pick).
+; (proposed) adds the other widgets, the message box (ui_msgbox) and the
+; file picker (ui_pick). Every widget is in OOUI.BNK (U3a), so UO_WIDGETS is
+; ignored and UI_END's name_WIDGETS is 0.
 ;
 ; Before ui_open the program opens an event area (function 80's FT_OPEN,
 ; layout 2) and calls GX_INIT with it, then GX_PALINIT and GX_SPRINIT.
@@ -56,6 +65,7 @@ OOUI_INC = 1
 .global ui_dirty, ui_redraw, ui_focus, ui_getfocus, ui_rect, ui_info, ui_theme, ui_suspend, ui_resume
 .global ui_setrange, ui_msgbox, ui_pick, ui_relist
 .global UI_EV, UI_RECT, UI_RAW
+.global ui_load, UISTATE
 .global UI_HOUSE, UI_TURBO              ; the themes: the default (OO-1's house look), Turbo Vision's blue
 
 ; ---------------------------------------------------------------------------
@@ -147,7 +157,7 @@ UO_OVER         = 10                   ; the menus' and overlay windows' layer, 
 UO_SPRITE       = 11                   ; the first sprite OOUI may use (the pointer)
 UO_SPRITES      = 12                   ; how many, 0-16 (0: no pointer)
 UO_FLAGS        = 13                   ; UO_OWNMOUSE
-UO_WIDGETS      = 14                   ; the widget modules' records the table uses (UI_END's name_WIDGETS), 0 none
+UO_WIDGETS      = 14                   ; ignored (U3a: every widget is in OOUI.BNK); UI_END's name_WIDGETS is 0
 UO_LEN          = 16
 UO_OWNMOUSE     = $01                  ; the program sets the mouse's mode and the pointer itself
 
@@ -210,6 +220,13 @@ UX_BUSY         = 6                    ; ui_open while OOUI is open
 UX_LAYER        = 7                    ; ui_open: UO_BASE past 1, or UO_OVER not $FF and not above the base
 UX_PICK         = 8                    ; ui_pick: a block it can't take (no work buffer, no room) (U2)
 UX_SPRITE       = 9                    ; ui_open: a slider's thumb sprite not one of OOUI's after the pointer's (U2)
+UX_LOAD         = 10                   ; ui_load (U3a): no file, a short read, not an OOUI.BNK
+UX_GX           = 11                   ; ui_load: OOLIB refused a block in W1 (GX_INIT not called, or refused)
+UX_STATE        = 12                   ; ui_load: UISTATE not on a page
+
+UI_IFACE        = 1                    ; OOUI.BNK's interface version this program is built for (U3a)
+UI_STATE_LEN    = 1536                 ; UISTATE's bytes: whole pages (hw/ooui.md, U3a: answer 5, question 8)
+UI_STUB_LEN     = 7                    ; a call's stub (uiprog/uistub.s)
 
 ; ---------------------------------------------------------------------------
 ; Events (ui_poll's A, and UI_EV's UV_CODE)
@@ -372,31 +389,8 @@ name:
         .popseg
         .pushseg
         .rodata
-.ident(.concat(.string(name), "_WIDGETS")):     ; UO_WIDGETS: the modules the table uses
-        _UI_W   GROUP
-        _UI_W   RADIO
-        _UI_W   VSCROLL
-        _UI_W   HSCROLL
-        _UI_W   LIST
-        _UI_W   FIELD
-        _UI_W   VBAR
-        _UI_W   HBAR
-        _UI_W   VSLIDER
-        _UI_W   HSLIDER
-        _UI_W   CANVAS
-        _UI_W   CHOICE
-        .word   0
+.ident(.concat(.string(name), "_WIDGETS")) = 0   ; UO_WIDGETS: ignored (U3a)
         .popseg
-.endmacro
-; UIW_kind, imported once, if a macro has used the kind.
-.macro _UI_W kind
-        .ifdef  .ident(.concat("_UI_U_", .string(kind)))
-                .ifndef .ident(.concat("_UI_I_", .string(kind)))
-                        .import .ident(.concat("UIW_", .string(kind)))
-                        .ident(.concat("_UI_I_", .string(kind))) = 1
-                .endif
-                .word   .ident(.concat("UIW_", .string(kind)))
-        .endif
 .endmacro
 .macro UI_DESKTOP id
         _UI_REC id, UT_DESKTOP, UI_NONE, 0, 0, 0, 0, 0, 0, 0, 0, 0

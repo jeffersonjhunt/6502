@@ -12,7 +12,7 @@
         .import SCALE, sv, su, sa, sr
         .export UIW_VBAR, UIW_HBAR
 
-        .rodata
+        .segment "BRODATA"
 UIW_VBAR:
         .byte   UT_VBAR, WF_RANGE
         .word   DRAW, 0, 0, 0, 0, 0
@@ -30,7 +30,7 @@ part:   .res    1                      ;   and the next one's part (0 none)
 idx:    .res    1                      ; the cell being drawn, from the bar's start
 ch:     .res    1
 
-        .code
+        .segment "BCODE"
 
 ; The level in units (16 or 8 a cell): sr = value x len x units / top.
 DRAW:   ldy     #UW_TYPE

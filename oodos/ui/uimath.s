@@ -21,7 +21,7 @@ rem:    .res    2
 n:      .res    1
 ov:     .res    1                      ; not 0: the quotient is past 16 bits
 
-        .code
+        .segment "UCODE"
 
 SCALE:  stz     prod                    ; prod = sv x su
         stz     prod + 1

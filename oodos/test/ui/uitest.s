@@ -20,28 +20,18 @@
 ; Four programs from this source (U2): UIVAR 0 UITEST, the U1 scenes; 1
 ; UITWID, the lists, field, choice, group, scroll bars and canvas; 2
 ; UITBAR, the bars, sliders and the message box; 3 UITPICK, the picker.
-; Each with all of OOUI is past what one region outside W1 holds.
+; From U3a each is an ordinary .COM, linked with OOUI's program part
+; (build/ooui.lib) and test/ui/uiprog.cfg (UISTATE at $8000), and loads
+; OOUI.BNK from M:, user 15, at its start (ui_load), unless the test has put 'N' at
+; MBOX + 4 before it runs: then 'L' loads it (A 0: the default, A:OOUI.BNK;
+; 1: M:OOUI.BNK, user 15; 2: B:OOUI.BNK).
 .ifndef UIVAR
 UIVAR   = 0
 .endif
 
-; The header: OODOS_HEADER's, but the image runs to CODE's end (uitest.cfg)
-; and its BSS is in it.
-        .import __OODOS_FLAGS__, __TPA_START__, __CODE_RUN__, __CODE_SIZE__
-        .import __ZP_START__, __ZEROPAGE_SIZE__
-        .segment "HEADER"
-        .byte   OODOS_MAGIC
-        .byte   <__OODOS_FLAGS__
-        .byte   >__TPA_START__
-        .word   __CODE_RUN__ + __CODE_SIZE__ - __TPA_START__
-        .word   0
-        .byte   <__ZP_START__, <__ZEROPAGE_SIZE__
-        .byte   0, 0
-        .word   0
+        OODOS_HEADER
         .include "printzp.inc"
 
-        .segment "STARTUP"              ; $0300 (uitest.cfg: the code is at $8000)
-        jmp     start
 
 AREA    = $3000
 MBOX    = $3100
@@ -59,7 +49,7 @@ rxx:    .res    1
 rc:     .res    1
 letter: .res    1
 
-        .segment "LOWCODE"              ; the test's own code below $3000 (uitest.cfg)
+        .code
 start:  stz     MBOX
         lda     #<oblk
         ldx     #>oblk
@@ -72,6 +62,15 @@ start:  stz     MBOX
         jsr     GX_PALINIT
         bcs     @say
         jsr     GX_SPRINIT
+        bcs     @say
+        lda     MBOX + 4                ; OOUI.BNK from M: (U3a), unless the test says not
+        cmp     #'N'
+        beq     @nol
+        jsr     mload
+        bra     @say
+@nol:   lda     #0
+        tax
+        clc
 @say:   stx     rxx
         pha
         lda     #0
@@ -375,6 +374,44 @@ colfn:  tya
 c_wboot:
         jmp     WBOOT
 
+; ui_load: A 0 the default (A:OOUI.BNK, user 0), 1 M:OOUI.BNK (user 15),
+; 2 B:OOUI.BNK (the current user) (U3a).
+c_load: cmp     #0
+        bne     @m
+        tax
+        jmp     ui_load
+@m:     cmp     #2
+        bne     mload
+        lda     #<bfcb
+        ldx     #>bfcb
+        jmp     ui_load
+; M:OOUI.BNK, in user 15 (the test puts it there, out of the picker's
+; listings of user 0): the user set for the call and put back after.
+mload:  lda     #$FF
+        ldy     #F_USERNUM
+        jsr     BDOS
+        pha
+        lda     #15
+        ldy     #F_USERNUM
+        jsr     BDOS
+        lda     #<mfcb
+        ldx     #>mfcb
+        jsr     ui_load
+        php
+        sta     rax
+        stx     rxx
+        pla
+        sta     rc
+        pla
+        ldy     #F_USERNUM
+        jsr     BDOS
+        lda     rc
+        pha
+        lda     rax
+        ldx     rxx
+        plp
+        rts
+
         .rodata
 .macro CMD l, r
         .byte   l
@@ -410,6 +447,7 @@ cmds:   CMD     'o', c_open
         CMD     'z', c_erase
 .endif
         CMD     'q', c_range
+        CMD     'L', c_load
         CMD     '!', c_wboot
 CMDS_LEN = * - cmds
 
@@ -643,12 +681,16 @@ scbq:   .byte   $4B, 0                  ; c_state's: the error mode, got
 sfcb:   .byte   1, "???????????"        ; c_search's: A:, every name and type, extent 0
         .res    24
 .endif
+mfcb:   .byte   13, "OOUI    BNK"        ; M:OOUI.BNK (U3a)
+        .res    24
+bfcb:   .byte   2, "OOUI    BNK"         ; B:OOUI.BNK (a crowded M:'s tests)
+        .res    24
 oblk:   .byte   FT_OPEN
         .word   AREA
         .byte   0                       ; 256 bytes
 ; The call, its operand written for each command (in DATA: written).
 call:   jmp     $FFFF
 
-        .segment "LOWCODE"              ; the test's own code below $3000 (uitest.cfg)
-PRINT_HERE = 1                          ; (print.inc in LOWCODE too)
+        .code
+PRINT_HERE = 1
         .include "print.inc"

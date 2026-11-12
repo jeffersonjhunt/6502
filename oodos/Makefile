@@ -4,7 +4,7 @@
 #                   # and the utilities
 #   make utils      # build/NAME.com for each utils/NAME.s (phase 4b's)
 #   make check      # the tools' tests (test/check_tools.py, test/check_mkasset.py)
-#   make ooui       # build/ooui.lib, OOUI's archive (below)
+#   make ooui       # build/ooui.lib, OOUI's program part, and build/OOUI.BNK (below)
 #
 # Each program is SRC/NAME.s, assembled once and linked as a .COM at $0300
 # (cfg/com.cfg) and as a .PRL: linked three times with cfg/prl.cfg, at page
@@ -43,7 +43,7 @@ RSXS = $(patsubst rsx/%.s,%,$(wildcard rsx/*.s))
 ATTACHED = get put
 # SUBMIT.COM's RSX is subrsx.rsx (an RSX's name is at most 8 characters).
 
-all: $(COMS) $(PRLS) $(UTIL_COMS)
+all: $(COMS) $(PRLS) $(UTIL_COMS) $(BUILD)/ooui.lib $(BUILD)/OOUI.BNK
 
 utils: $(UTIL_COMS) $(RSXS:%=$(BUILD)/%.rsx) | $(BUILD)
 
@@ -117,20 +117,37 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 	$(PYTHON) tools/rules.py $@.tmp --map $(BUILD)/$*.map
 	mv $@.tmp $@
 
-# OOUI, the UI toolkit (ui/*.s, include/ooui.inc; hw/ooui.md, phases U1 and U2): each ui/NAME.s assembled
-# once into build/ooui.lib, as OOLIB's modules are into oolib.lib (lib-NAME.o, its zero page in
-# ui/zpNAME.s right after it, libzp.py check). OOUI draws through OOLIB, so a program in OOUI_USERS
-# is linked with ooui.lib, then oolib.lib, through the same gate; OOUI_CFG the link config (cfg/com.cfg,
-# or one that puts a large program's code above W1, as test/ui/uitest.cfg does).
+# OOUI, the UI toolkit (include/ooui.inc; hw/ooui.md): a banked library from U3a. Its modules, ui/*.s
+# (but uiturbo, a program's only), are assembled with UIBANK defined (bnk-NAME.o) and made into
+# build/OOUI.BNK by tools/mkbank.py: three links of cfg/ooui-bnk.cfg, the fixups found and proved, the
+# references across blocks, the fall-throughs between segments and the 65C816 rules checked
+# (hw/ooui.md, "U3a: OOUI as a banked library"); build/ooui-bnk.lbl its labels, for the tests. The
+# program part, build/ooui.lib, is uiprog/*.s (the stubs, ui_load, UISTATE, and zpuiload.s: OOUI's zero
+# page, ui/zpuicore.s's, the program's) and the themes ui/uitheme.s and ui/uiturbo.s (lib-NAME.o,
+# libzp.py check).
+# A program in OOUI_USERS is linked with ooui.lib, then oolib.lib, through the rules gate and w1.py,
+# with OOUI_CFG: a config with a UISTATE area of its own on a page (test/ui/uiprog.cfg shows one).
 UISRC = $(patsubst ui/%.s,%,$(wildcard ui/*.s))
-UILIBS = $(foreach m,$(filter-out zp%,$(UISRC)),$(m) $(filter zp$(m),$(UISRC)))
-$(if $(filter-out $(UILIBS),$(UISRC)),$(error ui/: zero page modules without their code: $(filter-out $(UILIBS),$(UISRC))))
+BANKMODS = $(filter-out uiturbo,$(UISRC))
+UIPRSRC = $(patsubst uiprog/%.s,%,$(wildcard uiprog/*.s))
+UIPROG = $(foreach m,$(filter-out zp%,$(UIPRSRC)),$(m) $(filter zp$(m),$(UIPRSRC)))
+UILIBS = $(UIPROG) uitheme uiturbo
 $(if $(filter $(UISRC),$(LIBSRC)),$(error ui/ and lib/ share a module's name: $(filter $(UISRC),$(LIBSRC))))
+$(if $(filter $(UIPROG),$(UISRC) $(LIBSRC)),$(error uiprog/ shares a module's name: $(filter $(UIPROG),$(UISRC) $(LIBSRC))))
 OOUI_USERS =
-OOUI_CFG = cfg/com.cfg
+OOUI_CFG = test/ui/uiprog.cfg
+UI_INCS = $(wildcard ui/*.inc) include/oodos.inc include/oolib.inc include/vmem.inc include/ooui.inc
 
-$(UILIBS:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: ui/%.s $(wildcard ui/*.inc) include/oodos.inc include/oolib.inc \
-		include/vmem.inc include/ooui.inc | $(BUILD)
+$(BANKMODS:%=$(BUILD)/bnk-%.o): $(BUILD)/bnk-%.o: ui/%.s $(UI_INCS) | $(BUILD)
+	ca65 $(AFLAGS) -I ui -D UIBANK=1 $< -o $@
+
+$(BUILD)/OOUI.BNK: $(BANKMODS:%=$(BUILD)/bnk-%.o) cfg/ooui-bnk.cfg ui/uiimp.inc tools/mkbank.py tools/rules.py
+	$(PYTHON) tools/mkbank.py --cfg cfg/ooui-bnk.cfg --iface ui/uiimp.inc --work $(BUILD)/bnk -o $@ \
+		--lbl $(BUILD)/ooui-bnk.lbl --src $(BANKMODS:%=ui/%.s) -- $(BANKMODS:%=$(BUILD)/bnk-%.o)
+
+$(UIPROG:%=$(BUILD)/lib-%.o): $(BUILD)/lib-%.o: uiprog/%.s $(UI_INCS) | $(BUILD)
+	ca65 $(AFLAGS) -I ui $< -o $@
+$(BUILD)/lib-uitheme.o $(BUILD)/lib-uiturbo.o: $(BUILD)/lib-%.o: ui/%.s $(UI_INCS) | $(BUILD)
 	ca65 $(AFLAGS) -I ui $< -o $@
 
 $(BUILD)/ooui.lib: $(UILIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
@@ -138,7 +155,7 @@ $(BUILD)/ooui.lib: $(UILIBS:%=$(BUILD)/lib-%.o) tools/libzp.py
 	rm -f $@
 	ar65 a $@ $(UILIBS:%=$(BUILD)/lib-%.o)
 
-ooui: $(BUILD)/ooui.lib
+ooui: $(BUILD)/ooui.lib $(BUILD)/OOUI.BNK
 
 $(OOUI_USERS:%=$(BUILD)/%.o): include/ooui.inc include/oolib.inc $(wildcard $(SRC)/*.s) # (one may include another)
 

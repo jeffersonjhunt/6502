@@ -27,7 +27,7 @@ rec:    .res    UW_LEN                 ; a record being made
 ww:     .res    1
 wh:     .res    1
 
-        .code
+        .segment "CCODE"
 
 ui_msgbox:
         jsr     ENTER
@@ -60,7 +60,7 @@ ui_msgbox:
         sta     udf1
         lda     #>FILTER
         sta     udf1 + 1
-        jsr     REFOCUS                 ; the focus into the box, on the default's button
+        XGO     FARA, XA_REFOCUS        ; the focus into the box, on the default's button
         lda     blk + UM_DEFAULT
         beq     @done
         lda     blk + UM_BUTTONS
@@ -276,7 +276,7 @@ FILTER: sta     t0
         lda     #PW
         jsr     DLGH
         sta     evh
-        jsr     HIDEH
+        XGO     FARA, XA_HIDEH
         lda     #PW
         jsr     DLGH
         sta     evh
@@ -290,7 +290,7 @@ FILTER: sta     t0
 @keep:  lda     t0
         rts
 
-        .rodata
+        .segment "URODATA"              ; what its buttons point to, which block A draws (U3a)
 TEXTS:  .word   T_OK, 0, T_OK, T_CANCEL, T_YES, T_NO
 T_OK:   .asciiz "OK"
 T_CANCEL: .asciiz "Cancel"

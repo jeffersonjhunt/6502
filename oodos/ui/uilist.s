@@ -27,7 +27,7 @@
 
         .export UIW_LIST
 
-        .rodata
+        .segment "BRODATA"
 UIW_LIST:
         .byte   UT_LIST, WF_FOCUS | WF_LIST | WF_REPEAT
         .word   DRAW, KEY, DOWN, 0, 0, WHEEL
@@ -49,7 +49,7 @@ flg:    .res    1
 myh:    .res    1
 rcall:  .res    2                      ; the row routine
 
-        .code
+        .segment "BCODE"
 
 ; cnt, topr, sel, rows, wid, flg from the record.
 GETS:   ldy     #UW_VALUE
@@ -125,6 +125,7 @@ PUTS2:  ldy     #UW_VALUE
 DRAW:   jsr     GETS
         lda     dh
         sta     myh
+        jsr     PFILL
         stz     i
 @row:   lda     i
         cmp     rows
@@ -158,6 +159,36 @@ DRAW:   jsr     GETS
         jsr     ROWLINE
 @next:  inc     i
         bra     @row
+
+; The picker's list (its row routine PROWS, uirows.s): its shown rows filled
+; in one crossing into block C, as the draw starts (U3a, E3); then W1 mapped
+; again and UIR on the list again, as after a row routine.
+PFILL:  lda     flg
+        and     #UF_ROUTINE
+        beq     @r
+        ldy     #UW_TEXT
+        lda     (UIR),y
+        cmp     #<PROWS
+        bne     @r
+        iny
+        lda     (UIR),y
+        cmp     #>PROWS
+        bne     @r
+        lda     topr
+        sta     prtop
+        lda     topr + 1
+        sta     prtop + 1
+        lda     rows
+        cmp     #PR_ROWS
+        bcc     @n
+        lda     #PR_ROWS
+@n:     sta     prn
+        XGO     FARC, XC_ROWS
+        jsr     MAPW1
+        lda     myh
+        sta     dh
+        jmp     REC
+@r:     rts
 
 ; str and sty for row: the array's entry, or the routine's answer (W1
 ; mapped again after it, UIR on the list again).
@@ -439,7 +470,7 @@ DIVW:   stx     dv
 mx:     .res    1
 dv:     .res    1
 prod:   .res    2
-        .code
+        .segment "BCODE"
 
 ; The selection's row kept on view: topr moved if it is off.
 SHOW:   lda     sel

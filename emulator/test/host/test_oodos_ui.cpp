@@ -84,20 +84,88 @@ namespace
         static std::string p = "uitest";
         return p;
     }
-    /// The running program's .lbl's address for `name`.
-    uint16_t lab(const char *name)
+    /// OOUI.BNK's labels (mkbank.py's --lbl, U3a): name to its area (U UICOM, A, B, C the blocks, V the
+    /// variables at UISTATE, Z the zero page) and its address in L0's link.
+    const std::map<std::string, std::pair<char, uint16_t>> &bank_labels()
+    {
+        static std::map<std::string, std::pair<char, uint16_t>> l;
+        if (l.empty())
+        {
+            std::istringstream in(read_text(UTILS + "/ooui-bnk.lbl"));
+            std::string area, name, hex;
+            while (in >> area >> name >> hex)
+                l[name] = {area[0], static_cast<uint16_t>(std::stoul(hex, nullptr, 16))};
+        }
+        return l;
+    }
+    std::map<std::string, uint16_t> &prog_labels()
     {
         static std::map<std::string, std::map<std::string, uint16_t>> all;
         auto it = all.find(prog());
         if (it == all.end())
             it = all.emplace(prog(), labels(UTILS + "/" + prog() + ".lbl")).first;
-        return it->second.at(name);
+        return it->second;
     }
-    void start_ui(Rig &r, const std::string &program = "uitest")
+    /// The running program's .lbl's address for `name`; else OOUI.BNK's (U3a): a variable's in UISTATE,
+    /// as the program's link put it, a code label's in its block (in W3: bank_block() says which).
+    uint16_t lab(const char *name)
+    {
+        const auto &p = prog_labels();
+        if (const auto it = p.find(name); it != p.end())
+            return it->second;
+        const auto &[area, addr] = bank_labels().at(name);
+        if (area == 'V')
+            return static_cast<uint16_t>(p.at("UISTATE") + addr - 0x1000);
+        return addr;
+    }
+    /// The block (A, B, C) that holds OOUI.BNK's code label `name`, as ui_load took it (UI_BLOCKS).
+    unsigned bank_block(Rig &r, const char *name)
+    {
+        const char area = bank_labels().at(name).first;
+        CHECK(area >= 'A' && area <= 'C');
+        return r.phys(prog_labels().at("UI_BLOCKS") + static_cast<unsigned>(area - 'A'));
+    }
+    /// OOUI.BNK's user on M:, out of the picker's listings of user 0 (uitest.s loads it from there).
+    constexpr unsigned BNK_USER = 15;
+    /// M: has OOUI.BNK already (a second start_ui on the same rig).
+    bool has_bnk(Rig &r)
+    {
+        for (unsigned i = 0; i < 256; ++i)
+        {
+            bool match = r.phys(MDISK + i * 32) == BNK_USER;
+            for (unsigned c = 0; c < 11 && match; ++c)
+                match = (r.phys(MDISK + i * 32 + 1 + c) & 0x7F) == static_cast<uint8_t>("OOUI    BNK"[c]);
+            if (match)
+                return true;
+        }
+        return false;
+    }
+    /// OOUI.BNK on M: (U3a: each test program loads it from there), once a rig, before M: is logged in:
+    /// a CcpRig's put_m, or a card of the test's own's fresh M:.
+    void put_bnk(CcpRig &r)
+    {
+        if (!has_bnk(r))
+            r.put_m({{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
+    }
+    void put_bnk(Rig &r)
+    {
+        if (has_bnk(r))
+            return;
+        unsigned entry = 0, block = M_DIRBLOCKS;
+        for (unsigned i = 0; i < 256; ++i) // past what M:'s files hold already
+            if (r.phys(MDISK + i * 32) < 0x10)
+                for (unsigned k = 16; k < 32; ++k)
+                    block = std::max(block, r.phys(MDISK + i * 32 + k) + 1u);
+        put_m_files(r, entry, block, {{BNK_USER, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK")}});
+    }
+    template <class R> void start_ui(R &r, const std::string &program = "uitest", bool load = true)
     {
         prog() = program;
         no_splash(r);
+        if (load)
+            put_bnk(r);
         r.poke(MBOX, 0);
+        r.poke(MBOX + 4, load ? 0 : 'N');
         r.poke_com(read_bytes(UTILS + "/" + program + ".com"));
         const size_t from = r.out.size();
         r.type("GO\r");
@@ -605,8 +673,9 @@ TEST(the_table_is_checked_and_handles_too)
     r.poke(main + I_CUT * 16u + 1, static_cast<uint8_t>(W_DESK)); // an item outside a menu
     CHECK_EQ(refused(), std::string("0401"));
     r.poke(main + I_CUT * 16u + 1, static_cast<uint8_t>(M_EDIT));
-    r.poke(main + L_SIDE * 16u, 15); // a list: U2's
-    CHECK_EQ(refused(), std::string("0401"));
+    r.poke(main + L_SIDE * 16u, 15); // a list: U2's, no longer refused unregistered (U3a, E4: OOUI.BNK has them all)
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
     r.poke(main + L_SIDE * 16u, 4);
     CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
     CHECK_EQ(ui(r, 'd', MAIN_COUNT).substr(0, 2) + ui(r, 'd', MAIN_COUNT).substr(6), std::string("0501")); // UX_HANDLE
@@ -1116,7 +1185,7 @@ namespace
     enum : uint8_t { X_DESK, X_WIN, X_GRP, X_R0, X_R1, X_R2, X_CHO, X_FLD, X_LST, X_VSC, X_LS2, X_CNV, X_HSC, X_LBL, X_OUT, X_DONE };
     enum : uint8_t { Y_DESK, Y_WIN, Y_VBR, Y_VSL, Y_HBR, Y_HSL, Y_HSP, Y_LBL, Y_MSG };
     enum : uint8_t { BLK_U2 = 3, BLK_U2ONE = 4 };
-    void open_u2(Rig &r, const std::string &program, uint8_t block = BLK_U2)
+    template <class R> void open_u2(R &r, const std::string &program, uint8_t block = BLK_U2)
     {
         start_ui(r, program);
         CHECK_EQ(ui(r, 'o', block).substr(6), std::string("00"));
@@ -1532,6 +1601,8 @@ namespace
     {
         const uint32_t rec = lab("UDLG") + 8u * 16;
         uint32_t p = word_at(r, rec + UW_TEXT);
+        if (p >= 0xC800 && p < 0xF800) // a string of OOUI.BNK's UICOM, the same in each block: block A's (U3a)
+            p = r.phys(lab("UI_BLOCKS")) * 0x4000u + p - 0xC000;
         std::string t;
         for (uint8_t c; (c = r.phys(p)) != 0 && t.size() < 40; ++p)
             t += static_cast<char>(c);
@@ -2215,9 +2286,10 @@ TEST(x8_a_click_on_the_desktop_or_a_label_draws_nothing)
     open_u2(r, "uitwid");
     poll(r);
     const uint16_t clipr = lab("CLIPR");
+    const unsigned blk = bank_block(r, "CLIPR"); // (block A's, at $C800-$F7FF only while W3 holds it: U3a)
     unsigned drawn = 0;
     r.watch = [&](uint16_t pc) {
-        if (pc == clipr)
+        if (pc == clipr && (r.nb(3) & 0x3F) == blk)
             ++drawn;
     };
     for (const auto &[col, row, what] : std::vector<std::tuple<unsigned, unsigned, const char *>>{
@@ -2400,7 +2472,8 @@ TEST(z1_a_poll_s_walk_costs_little_in_a_large_directory)
     // The instructions a poll runs in the walk's own code (CONSIDER to COUNTED: the compares, not the BDOS).
     const uint16_t from = lab("CONSIDER"), to = lab("COUNTED");
     unsigned long n = 0, most = 0;
-    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to; };
+    const unsigned blk = bank_block(r, "CONSIDER"); // (block C's: U3a)
+    r.watch = [&](uint16_t pc) { n += pc >= from && pc < to && (r.nb(3) & 0x3F) == blk; };
     CHECK_EQ(ui(r, 'k', 4).substr(6), std::string("00"));
     for (int i = 0; i < 100 && r.phys(lab("lst")); ++i)
     {
@@ -2500,8 +2573,10 @@ namespace
     /// deleted and the listing let run to its end.
     void select_then_delete(CcpRig &r, const std::vector<const char *> &gone)
     {
-        m_files(r, 50);
-        start_ui(r, "uitpick");
+        m_files(r, 50); // (M: too full for OOUI.BNK as well: it is loaded from B: here, U3a)
+        put_b(r, "OOUI    BNK", read_bytes(UTILS + "/OOUI.BNK"));
+        start_ui(r, "uitpick", false);
+        CHECK_EQ(ui(r, 'L', 2).substr(6), std::string("00"));
         CHECK_EQ(ui(r, 'o', BLK_DESK).substr(6), std::string("00"));
         poll(r);
         CHECK_EQ(ui(r, 'k', 1).substr(6), std::string("00"));

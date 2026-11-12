@@ -15,7 +15,7 @@
         .import SCALE, sv, su, sa, sr
         .export UIW_VSCROLL, UIW_HSCROLL
 
-        .rodata
+        .segment "BRODATA"
 UIW_VSCROLL:
         .byte   UT_VSCROLL, WF_RANGE
         .word   DRAW, KEY, DOWN, MOVE, UP, WHEEL
@@ -35,7 +35,7 @@ idx:    .res    1
 grab:   .res    2                      ; a drag: the pointer's units into the thumb
 drag:   .res    1                      ; 1: the thumb is held
 
-        .code
+        .segment "BCODE"
 
 ; The bar's measures: vert, len, val, last, page, tsz, tpos.
 MEASURE:
@@ -157,9 +157,9 @@ DRAW:   jsr     MEASURE
         bra     @cell
 @r:     rts
 
-        .rodata
+        .segment "BRODATA"
 ARROWS: .byte   $11, $10, $1E, $1F      ; horizontal's left and right, vertical's up and down
-        .code
+        .segment "BCODE"
 
 KEY:    lda     ku
         ldx     #$FF

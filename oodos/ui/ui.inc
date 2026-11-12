@@ -23,7 +23,7 @@ UI_CHAR_SHADOW  = 0                    ; (not a character: the shadow takes what
 .global upage, ufocus, ufwin, umenu, umsel, upress, ususp, umodal, udmg, ucli, rhid, rover, rtype
 .global ENTER, REC, RECT, DLEN, DIRTY, FWIN, INSIDE, CANFOCUS, SETFOCUS, NEXTFOCUS, FINDMODAL, BOXADD, BOXFULL
 .global ALLDIRTY, POINTER, LBOX, dmp, uptr, rcur, ACCEL, UPPER
-.global utot, udlgp, uvec, rclip, WREC, WFLAGS, WCALL, CLAMP, ADDW, PUBH, CHKH, DAMAGE, REFOCUS, uopen, uwid
+.global utot, udlgp, ufl, wtype, wo, rclip, WFLAGS, WCALL, CLAMP, PUBH, CHKH, DAMAGE, REFOCUS, uopen, uwid
 .global t0, t1, t2, t3
 
 ; uidraw.s's
@@ -58,7 +58,30 @@ WF_RANGE        = $02                  ; its value is held to 0-UW_A
 WF_LIST         = $04                  ;   below UW_A, or $FFFF none
 WF_REPEAT       = $08                  ; the keys it takes repeat while held
 
-DLG_RECS        = 13                   ; the dialogs' records (uidlg.s): the picker's 9, the box's 4
+DLG_RECS        = 13
+
+; The crossings between blocks (U3a: uifar.s, and each block's dispatcher,
+; uia.s, uib.s, uic.s): XGO FARx, a selector, keeping A, X, Y and the carry.
+.global xsel, xsx, xjmp, FARA, FARB, FARC, AENT, BENT, CENT
+XA_HIDEH        = 0                    ; uia.s's ATAB
+XA_REFOCUS      = 2
+XB_INIT         = 0                    ; uib.s's BTAB
+XB_WCALL        = 2
+XB_POST         = 4
+XC_DF1          = 0                    ; uic.s's CTAB
+XC_DF2          = 2
+XC_IDLE         = 4
+XC_ROWS         = 6
+PR_ROWS         = 16                   ; uirows.s's prbuf: the picker's rows shown
+PR_LEN          = 40                   ;   each one's text with its 0, as uipick.s's rowbuf
+.global prtop, prn, prsty, prbuf, PROFS, PROWS
+.macro XGO far, sel
+        pha
+        lda     #sel
+        sta     xsel
+        pla
+        jsr     far
+.endmacro                   ; the dialogs' records (uidlg.s): the picker's 9, the box's 4
 
 ; HID usages
 K_ENTER         = $28

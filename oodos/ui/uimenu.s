@@ -45,6 +45,7 @@ kmo:    .res    1
 
         .code
 
+        .segment "UCODE"                ; UICOM: every block's (hw/ooui.md, U3a)
 ; UIQ = record A. Keeps A, X and Y.
 REQ:    pha
         stz     UIQ + 1
@@ -355,6 +356,7 @@ MRECT:  lda     #1
         sta     UI_RECT + 3
         sta     ucli + 3
         rts
+        .code
 
 ; The menu bar dh (UIR, at UI_RECT): its titles, the menu down's lit.
 DMBAR:  ldy     #TC_MENUBAR
@@ -934,10 +936,11 @@ MCLICK: lda     umenu
 @none:  lda     #UE_NONE
         rts
 
-        .rodata
+        .segment "URODATA"              ; (KEYTEXT's: UICOM's, U3a)
 KTXT:
 KT_CTRL:  .asciiz "Ctrl+"
 KT_SHIFT: .asciiz "Shift+"
 KT_ALT:   .asciiz "Alt+"
+        .rodata
 ; A line's ends in a menu, a style's two.
 SEPS:   .byte   ' ', ' ', $C3, $B4, $C7, $B6, $DB, $DB
