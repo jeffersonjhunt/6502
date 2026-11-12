@@ -3413,6 +3413,49 @@ TEST(u3b_a_tall_thumb_covered_at_one_end_is_hidden)
     CHECK_EQ(spr_depth(r, 3), 0x0C);
 }
 
+TEST(u3b_ui_settext_on_a_thumb_is_checked)
+{
+    // The U3b review's G3: a slider's or a scroll bar's UW_TEXT is its thumb's size byte (UF_OWNTHUMB) and a scroll
+    // bar's its sprite, so ui_settext checks the word as ui_open checks the table: refused with UX_SPRITE and the
+    // record as it was (the pointer's sprite, one not OOUI's, an own thumb's size 0); taken, the thumb moves to
+    // the new sprite and the old goes out of sight.
+    constexpr unsigned UX_SPRITE_ = 9;
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const unsigned x = spr_x(r, 3), y = spr_y(r, 3);
+    for (const unsigned w : {0x0081u, 0x0681u, 0x0300u})
+    {
+        CHECK_EQ(ac(ui(r, 'T', static_cast<uint8_t>(w), static_cast<uint8_t>(w >> 8), Z_VSC)), hex2(UX_SPRITE_) + "01");
+        CHECK_EQ(word_at(r, rec3(Z_VSC) + UW_TEXT), 0x0381u);
+    }
+    CHECK_EQ(ac(ui(r, 'T', 0, 0, Z_OWN)), hex2(UX_SPRITE_) + "01"); // the slider's own thumb: size 0
+    CHECK_EQ(word_at(r, rec3(Z_OWN) + UW_TEXT), 0x11u);
+    poll(r);
+    CHECK_EQ(spr_depth(r, 3), 0x0C);
+    CHECK_EQ(spr_size(r, 3), 0x81u);
+    CHECK_EQ(spr_y(r, 3), y);
+    CHECK_EQ(ui(r, 'T', 0x12, 0, Z_OWN).substr(6), std::string("00")); // its size and group: 16 x 8, group 2
+    poll(r);
+    CHECK_EQ(spr_size(r, 1), 0x12u);
+    // The horizontal bar's thumb to sprite 5, the old (4) out of sight; then the vertical one's to 4, which the
+    // horizontal one's last place mustn't keep from being placed (POST's filter: the new sprite has none).
+    const unsigned hx = spr_x(r, 4), hy = spr_y(r, 4);
+    CHECK_EQ(ui(r, 'T', 0, 5, Z_HSC).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(word_at(r, rec3(Z_HSC) + UW_TEXT), 0x0500u);
+    CHECK_EQ(spr_depth(r, 5), 0x0C);
+    CHECK(spr_x(r, 5) == hx && spr_y(r, 5) == hy);
+    CHECK_EQ(spr_depth(r, 4), 0);
+    CHECK_EQ(ui(r, 'T', 0x81, 4, Z_VSC).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(word_at(r, rec3(Z_VSC) + UW_TEXT), 0x0481u);
+    CHECK_EQ(spr_depth(r, 4), 0x0C);
+    CHECK_EQ(spr_size(r, 4), 0x81u);
+    CHECK(spr_x(r, 4) == x && spr_y(r, 4) == y);
+    CHECK_EQ(spr_depth(r, 3), 0);
+}
+
 TEST(u3b_a_label_in_a_colour_of_its_own)
 {
     // A label's UW_VALUE low byte, not 0: its own attribute ($4E); 0: the theme's TC_LABEL.

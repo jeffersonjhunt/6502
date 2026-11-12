@@ -1039,7 +1039,8 @@ RECEND: lda     t0
 
 ; Carry set if record UIR is a slider or (U3b) a scroll bar with a sprite's thumb (UF_SPRITE)
 ; whose sprite isn't one of OOUI's (UO_SPRITE to UO_SPRITE + UO_SPRITES - 1)
-; or is the pointer's (UO_SPRITE). Keeps UIR.
+; or is the pointer's (UO_SPRITE), or (U3b review, G3) whose own thumb's
+; size byte (UF_OWNTHUMB, UW_TEXT's low byte) is 0. Keeps UIR.
 SPRCHK: ldy     #UW_TYPE
         lda     (UIR),y
         ldx     #UW_B + 1
@@ -1054,9 +1055,14 @@ SPRCHK: ldy     #UW_TYPE
         bne     @ok
 @s:     ldy     #UW_FLAGS
         lda     (UIR),y
-        and     #UF_SPRITE
+        bit     #UF_SPRITE
         beq     @ok
-        txa
+        and     #UF_OWNTHUMB
+        beq     @num
+        ldy     #UW_TEXT                ; the program's own thumb: a size byte
+        lda     (UIR),y
+        beq     @no
+@num:   txa
         tay
         lda     (UIR),y
         sec
@@ -1370,7 +1376,9 @@ SETW:   sta     t2
         lda     (UIR),y
         ldy     t2
         cpy     #UW_VALUE
-        bne     @put
+        beq     @val
+        jmp     TXTCHK                  ; UW_TEXT: a thumb's is checked (U3b review, G3)
+@val:
         cmp     #UT_BUTTON
         beq     @bool
         cmp     #UT_CHECK
@@ -1392,6 +1400,79 @@ SETW:   sta     t2
         bne     @done
         jsr     CLAMP                   ; held to its range (U2)
 @done:  clc
+        rts
+
+; ui_settext's word (t0, t1) to record UIR, of type A (the U3b review's
+; G3). A slider's or a scroll bar's UW_TEXT is its thumb's size byte (with
+; UF_OWNTHUMB) and a scroll bar's its sprite, so the word is checked as
+; ui_open checks the table (SPRCHK): refused, carry set and A UX_SPRITE,
+; the record as it was. Taken, a scroll bar's thumb whose sprite changed
+; has its old sprite put out of sight (depth 0, shown with the next paint's
+; thumbs), and the new one no last place (POST's filter).
+TXTCHK: cmp     #UT_VSCROLL
+        bcc     @plain
+        cmp     #UT_HSCROLL + 1
+        bcc     @chk
+        cmp     #UT_VSLIDER
+        bcc     @plain
+        cmp     #UT_HSLIDER + 1
+        bcs     @plain
+@chk:   ldy     #UW_TEXT + 1
+        lda     (UIR),y
+        pha                             ; the old word, its high byte on top
+        dey
+        lda     (UIR),y
+        pha
+        lda     t0
+        sta     (UIR),y
+        iny
+        lda     t1
+        sta     (UIR),y
+        jsr     SPRCHK
+        bcc     @took
+        ldy     #UW_TEXT                ; refused: the old word again
+        pla
+        sta     (UIR),y
+        iny
+        pla
+        sta     (UIR),y
+        lda     #UX_SPRITE
+        sec
+        rts
+@took:  pla
+        pla                             ; the old sprite
+        ldy     #UW_TYPE
+        tax
+        lda     (UIR),y
+        cmp     #UT_VSLIDER
+        bcs     @ok                     ; a slider's sprite is UW_B's: unchanged
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_SPRITE
+        beq     @ok
+        cpx     t1
+        beq     @ok
+        lda     t1                      ; the new sprite: no last place, so placed (Z3)
+        sec
+        sbc     usprite
+        and     #$0F
+        asl     a
+        tay
+        lda     #$FF
+        sta     plast,y
+        txa                             ; the old one out of sight
+        ldx     #0
+        ldy     #0
+        jsr     GX_SPRATTR
+@ok:    clc
+        rts
+@plain: ldy     #UW_TEXT
+        lda     t0
+        sta     (UIR),y
+        iny
+        lda     t1
+        sta     (UIR),y
+        clc
         rts
 
 ; Y a handle, A/X a list's count, or a bar's, slider's or scroll bar's top

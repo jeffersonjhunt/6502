@@ -561,6 +561,7 @@ cmds:   CMD     'o', c_open
         CMD     'D', ui_redraw
         CMD     'i', ui_info
         CMD     'x', c_text
+        CMD     'T', ui_settext         ; (U3b review, G3: A/X the word itself)
         CMD     'S', ui_suspend
         CMD     'U', ui_resume
 .if UIVAR = 2
@@ -807,11 +808,12 @@ blk_amp: .word  AREA, amp
 ; 6 (U3b): the gaps OO-Amp's port found: a slider with a thumb of the
 ; program's own (16 x 8, group 1: UF_OWNTHUMB), one with OOUI's; scroll bars
 ; with sprite thumbs, the program's 8 x 32 and OOUI's 8 x 8; a label in a
-; colour of its own; a button for TF_HOT. Sprites 0 (the pointer) to 4.
+; colour of its own; a button for TF_HOT. Sprites 0 (the pointer) to 5
+; (5 free, for the U3b review's G3: ui_settext moves a thumb to it).
 blk_u3b: .word  AREA, u3b
         .byte   u3b_COUNT
         .word   0, keys2
-        .byte   0, 1, 0, 5, 0
+        .byte   0, 1, 0, 6, 0
         .word   0
 ; 7 (U3b): the same with UO_OWNMOUSE: the program's pointer, OOUI's hits.
 blk_own: .word  AREA, u3b
