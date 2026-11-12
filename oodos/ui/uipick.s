@@ -72,6 +72,7 @@ wstamp: .res    1                      ; the walk's stamp, in each entry it find
 atend:  .res    1                      ; CONSIDER's
 sync:   .res    1                      ;   1 while each match has been the list's entry cur
 mk:     .res    1                      ; MAKE's place
+psel:   .res    2                      ; PRUNE's: the selection
 total:  .res    2                      ; the wanted files the last walk found
 rrow:   .res    1                      ; ROWFN's row
 ans:    .res    1                      ; FINISH's answer
@@ -150,8 +151,7 @@ ui_pick:
         lda     #>IDLEFN
         sta     uidle + 1
         jsr     REFOCUS
-        lda     #PLST                   ; the focus on the list
-        jsr     DLGH
+        jsr     LISTH                   ; the focus on the list
         jsr     SETFOCUS
         clc
         rts
@@ -179,8 +179,7 @@ RELIST: stz     count
         stz     perr
         lda     #1
         sta     lst
-        lda     #PLST
-        jsr     DLGH
+        jsr     LISTH
         sta     n
         jsr     REC
         lda     udlgp + 1
@@ -188,20 +187,15 @@ RELIST: stz     count
         ldy     #UW_TYPE
         lda     (UIR),y
         beq     @r
-        ldy     #UW_VALUE               ; no selection, no rows, the top 0
+        ldy     #UW_B + 1               ; no selection, no rows, the top 0
+@z:     lda     #0
+        cpy     #UW_A
+        bcs     @v
         lda     #$FF
-        sta     (UIR),y
-        iny
-        sta     (UIR),y
-        lda     #0
-        iny
-        sta     (UIR),y
-        iny
-        sta     (UIR),y
-        iny
-        sta     (UIR),y
-        iny
-        sta     (UIR),y
+@v:     sta     (UIR),y
+        dey
+        cpy     #UW_VALUE - 1
+        bne     @z
         lda     n
         jsr     DIRTY
         lda     #<T_READING
@@ -328,8 +322,7 @@ PUT:    pha
 IDLEFN: lda     pcol                    ; a column said "not yet": the list again
         beq     @l
         stz     pcol
-        lda     #PLST
-        jsr     DLGH
+        jsr     LISTH
         jsr     DIRTY
 @l:     lda     lst
         bne     @up
@@ -567,26 +560,19 @@ MATCH:  ldx     dofs
 
 ; Carry set, ent its index and UIQ on it, if the entry at dbuf + dofs is
 ; listed already; clear if it is new.
-LISTED: lda     blk + UP_WORK
-        sta     UIQ
-        lda     blk + UP_WORK + 1
-        sta     UIQ + 1
-        stz     ent
+LISTED: stz     ent
         stz     ent + 1
 @e:     lda     ent
         cmp     count
         lda     ent + 1
         sbc     count + 1
         bcs     @new
+        lda     ent
+        ldx     ent + 1
+        jsr     ENTRY
         jsr     MATCH
         beq     @yes
-        lda     UIQ
-        clc
-        adc     #UP_ELEN
-        sta     UIQ
-        bcc     @i
-        inc     UIQ + 1
-@i:     inc     ent
+        inc     ent
         bne     @e
         inc     ent + 1
         bra     @e
@@ -597,7 +583,14 @@ LISTED: lda     blk + UP_WORK
 
 ; After a whole walk: the entries it didn't stamp (files gone since they
 ; were listed) taken out, the rest closed up, count what is left.
-PRUNE:  stz     ent                     ; ent the one read, cur the one written
+PRUNE:  jsr     SELREC                  ; the selection, moved with what is taken out (W1)
+        ldy     #UW_VALUE
+        lda     (UIR),y
+        sta     psel
+        iny
+        lda     (UIR),y
+        sta     psel + 1
+        stz     ent                     ; ent the one read, cur the one written
         stz     ent + 1
         stz     cur
         stz     cur + 1
@@ -612,8 +605,10 @@ PRUNE:  stz     ent                     ; ent the one read, cur the one written
         ldy     #UP_ELEN - 2
         lda     (UIQ),y
         cmp     wstamp
-        bne     @next
-        lda     UIQ
+        beq     @keep
+        jsr     GONE                    ; gone: the selection moved (W1)
+        bra     @next
+@keep:  lda     UIQ
         sta     UIP
         lda     UIQ + 1
         sta     UIP + 1
@@ -636,7 +631,52 @@ PRUNE:  stz     ent                     ; ent the one read, cur the one written
         sta     count
         lda     cur + 1
         sta     count + 1
-        rts
+        jsr     SELREC
+        ldy     #UW_VALUE
+        lda     psel
+        sta     (UIR),y
+        iny
+        lda     psel + 1
+        sta     (UIR),y
+        rts                             ; (COUNTED marks the list dirty)
+
+; Entry ent taken out: before the selection, the selection moves up one;
+; the selection itself, none, and the field that showed its name cleared
+; (with UP_NEW the field is the user's: it stays).
+GONE:   lda     psel + 1
+        cmp     #$FF
+        beq     @r
+        lda     ent
+        sec
+        sbc     psel
+        sta     t0
+        lda     ent + 1
+        sbc     psel + 1
+        bcs     @at
+        lda     psel
+        bne     @d
+        dec     psel + 1
+@d:     dec     psel
+@r:     rts
+@at:    ora     t0                      ; after it: nothing
+        bne     @r
+        lda     #$FF
+        sta     psel
+        sta     psel + 1
+        lda     blk + UP_FLAGS
+        and     #UP_NEW
+        bne     @r
+        stz     fbuf
+        lda     #PFLD
+        jsr     DLGH
+        jmp     DIRTY
+
+; UIR on the list's record.
+SELREC: jsr     LISTH
+        jmp     REC
+; A the list's handle.
+LISTH:  lda     #PLST
+        jmp     DLGH
 
 ; Carry clear if the entry at dbuf + X has a type UP_TYPES wants (or there is
 ; no UP_TYPES).
@@ -703,8 +743,7 @@ ENTRY:  stx     t0
 ; The list's rows the count; the status what was found when the listing
 ; is done.
 COUNTED:
-        lda     #PLST
-        jsr     DLGH
+        jsr     LISTH
         sta     n
         jsr     REC
         ldy     #UW_A
@@ -738,26 +777,25 @@ COUNTED:
         lda     count + 1
         sbc     total + 1
         bcs     @files
-@of:    ldy     #0
-@o:     lda     T_OF,y
-        beq     @tot
-        sta     sbuf,x
-        inx
-        iny
-        bra     @o
-@tot:   lda     total
+        ldy     #T_OF - T_FILES
+        jsr     CAT
+        lda     total
         ldy     total + 1
         jsr     NUMBER
 @files: ldy     #0
-@f:     lda     T_FILES,y
-        sta     sbuf,x
-        beq     @show
-        inx
-        iny
-        bra     @f
-@show:  lda     #<sbuf
+        jsr     CAT
+        lda     #<sbuf
         ldx     #>sbuf
         jmp     STATUS
+@r:     rts
+
+; T_FILES + Y's string at sbuf + X, its 0 too: X on the 0.
+CAT:    lda     T_FILES,y
+        sta     sbuf,x
+        beq     @r
+        inx
+        iny
+        bra     CAT
 @r:     rts
 
 ; A/Y (low, high) in decimal at sbuf + X: X past it.
@@ -954,8 +992,7 @@ MARK:   lda     evv
         lda     (UIQ),y
         eor     #1
         sta     (UIQ),y
-        lda     #PLST
-        jsr     DLGH
+        jsr     LISTH
         jmp     DIRTY
 
 ; The selected row's name in the field, as "NAME.TYP".
@@ -1036,9 +1073,7 @@ FINISH: sta     ans
         bra     @m
 @msel:  lda     n
         bne     @gone
-@sel:   lda     #PLST                   ; the selection
-        jsr     DLGH
-        jsr     REC
+@sel:   jsr     SELREC                  ; the selection
         ldy     #UW_VALUE
         lda     (UIR),y
         sta     ent
