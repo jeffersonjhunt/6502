@@ -179,7 +179,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 18 | `UT_HBAR` | the same | | | |
 | 19 | `UT_VSLIDER` | - (*U3b, proposed:* with `UF_OWNTHUMB`, +8 the thumb's size byte) | the value, 0 to `UW_A` | the top | +14 a key's step, +15 the thumb's sprite (`UF_SPRITE`) |
 | 20 | `UT_HSLIDER` | the same | | | |
-| 21 | `UT_CANVAS` | - | - | - | - |
+| 21 | `UT_CANVAS` | - (*U3b, proposed:* with `UF_ROUTINE`, the routine of its cells) | - | - | - |
 | 22 | `UT_CHOICE` (U2, proposed) | an array of `UW_A` string pointers | the one shown | the count | - |
 
 **The flags** (`UW_FLAGS`):
@@ -192,7 +192,7 @@ colour; `&&` is a `&`. In a list row, a TAB (`$09`) right-aligns what follows it
 | 3 `$08` | `UF_NOFOCUS`: Tab passes it by | | | | | | | |
 | 4 `$10` | | `UF_CLOSE` close box | `UF_FRAME` | `UF_CENTRE` | `UF_DEFAULT` (Enter) | `UF_MULTI` marks | `UF_UPPER` folds to capitals | `UF_SPRITE` thumb (*U3b:* a scroll bar's too) |
 | 5 `$20` | | `UF_MODAL` | | `UF_RIGHT` | `UF_CANCEL` (Escape) | `UF_SCROLL` its own scroll bar | | `UF_OWNTHUMB` (*U3b:* with `UF_SPRITE`, the program's image; a scroll bar's too) |
-| 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows | | |
+| 6 `$40` | | `UF_OVERLAY` on the overlay layer | | | `UF_TOGGLE` | `UF_ROUTINE` rows (*U3b:* a canvas's cells too) | | |
 | 7 `$80` | | `UF_NOFRAME` | | | | | | |
 
 `UW_STATE` (OOUI's): `US_PRESSED` `$01`, `US_HOT` `$02` (the pointer is over it), `US_OPEN` `$04` (a menu down),
@@ -229,7 +229,7 @@ UI_LIST     id, parent, x, y, w, h, rows, count, flags
 UI_FIELD    id, parent, x, y, w, buffer, size, flags
 UI_VBAR     id, parent, x, y, len, top, flags              ; UI_HBAR the same
 UI_VSLIDER  id, parent, x, y, len, top, value, step, sprite, flags   ; UI_HSLIDER the same
-UI_CANVAS   id, parent, x, y, w, h, flags
+UI_CANVAS   id, parent, x, y, w, h, flags [, routine]       ; (U3b) the routine with UF_ROUTINE
 UI_END      name                                  ; name_COUNT: its records
 ```
 
@@ -1546,6 +1546,26 @@ its dialogs OOUI's windows). Each is an addition: no U1, U2 or U3a call, record 
   uses 1,463 bytes now (1,531 before).
 - **The program's own pointer:** `UO_OWNMOUSE` already did it (no change): OOUI sets no pointer and still takes the
   mouse's clicks from the event area. A case checks it.
+- **A canvas whose cells are the program's** (the owner's Q1, 2026-11-12; additive). `UF_ROUTINE` (`$40`, a list's
+  bit) on a `UT_CANVAS` makes `UW_TEXT` a row routine, called as a list's row routine is. OO-Amp's zone C needs it:
+  its scope and VU modes colour each cell, on OOUI's layer.
+  - **The call.** For each row it draws, top first, OOUI calls the routine with a `JSR` from block B, with OOUI.BNK
+    in the bank's window, as a list's row routine is called: there is no crossing, and the routine is the program's
+    own code, in its memory. A/X is the row (0 the canvas's first) and Y the canvas's handle.
+  - **The answer.** A/X is the row's cells, as many as the canvas is wide (`ui_rect`'s width): each a character
+    (code page 437) and an attribute, as a cell on the card is, in the layer's palette group, outside
+    `$4000-$7FFF`. A/X 0 leaves the row transparent.
+  - **What the routine may and may not do.** It may map W1 itself (OOUI maps its own again after each call). It may
+    use the program's zero page, not OOUI's. It may not call `ui_*` or the BDOS. It returns with the decimal flag
+    clear.
+  - **Each frame.** OOUI draws the cells when the canvas is dirty or under the paint's damage, so the program calls
+    `ui_dirty` on the canvas when they change (OO-Amp: each frame). The pointer on it is still `UE_CANVAS`. Without
+    `UF_ROUTINE` a canvas is transparent, as before.
+  - **The cost** (`u3b_a_canvas_s_cells_from_a_routine`, 40 x 4 cells in a window): 21,907 cycles to draw the canvas
+    (18% of a frame), with the routine's four calls and its own `GX_VMAP`. A plain canvas's transparent fill costs
+    about 14,700 in the same place. The whole `ui_poll` after `ui_dirty` takes 73,313 cycles, against 66,122 for a
+    plain canvas. The rest is the paint around it, the same for either kind: the records walked, the damage box
+    cleared, the window's inside drawn again under it, and the interrupts that fall in that time.
 
 **Tests:** `test_oodos_ui` gains six `u3b_*` cases (a scene of UITBAR's, blocks 6 and 7, and the picker's block F):
 five fail without their change; one confirms what `UO_OWNMOUSE` already did. One existing case changed how it

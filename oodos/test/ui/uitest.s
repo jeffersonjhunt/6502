@@ -840,7 +840,45 @@ blk_own: .word  AREA, u3b
         UI_ITEM    Z_I1, Z_MENU, "An item wider than the scroll bar's column, as far", 0, 0, 0
         UI_ITEM    Z_I2, Z_MENU, "A second", 0, 0, 0
         UI_ITEM    Z_I3, Z_MENU, "A third", 0, 0, 0
+; (U3b, the owner's Q1: a canvas whose cells are the program's, 40 x 4, as
+; OO-Amp's zone C scope and VU: crows, rows 18-21 of the window.)
+        UI_CANVAS  Z_CNV, Z_WIN, 6, 18, 40, 4, UF_ROUTINE, crows
         UI_END     u3b
+
+; The canvas's row routine (U3b, Q1): row A's 40 cells from ccells, a
+; character ($21 + column + row) and an attribute (the column's low four bits
+; above, column + 5 x row's below) each; row cnone's 0 (transparent). Row
+; 0 maps the program's last card bank into W1 first, as a routine may (OOUI
+; maps its own again after).
+        .pushseg
+        .code
+crows:  cmp     cnone
+        beq     @none
+        cmp     #0
+        bne     @get
+        lda     #<((VM_PROG_BANK + VM_PROG_BANKS - 1) * 64)
+        ldx     #>((VM_PROG_BANK + VM_PROG_BANKS - 1) * 64)
+        jsr     GX_VMAP
+        lda     #0
+@get:
+        asl     a
+        tax
+        lda     crowp + 1,x
+        pha
+        lda     crowp,x
+        plx
+        rts
+@none:  lda     #0
+        tax
+        rts
+        .popseg
+crowp:  .word   ccells, ccells + 80, ccells + 160, ccells + 240
+ccells:
+.repeat 4, R
+.repeat 40, C
+        .byte   $21 + C + R, ((C & 15) << 4) | ((C + R * 5) & 15)
+.endrepeat
+.endrepeat
 
 ; ui_msgbox's blocks: OK; Yes and No (No the default); OK and Cancel.
 msgs:   .word   msgA, msgB, msgC
@@ -928,6 +966,9 @@ eaten:  .res    2 * 20
 fieldbuf: .res  16                      ; U2's field, empty (UITWID)
 rbuf:   .asciiz "Item 00"               ; rowfn's
 cbuf:   .asciiz "c0"                    ; colfn's (UITPICK)
+.if UIVAR = 2
+cnone:  .byte   $FF                     ; crows's row given as 0 (the test writes it; U3b, Q1)
+.endif
 .if UIVAR = 3
 scbq:   .byte   $4B, 0                  ; c_state's: the error mode, got
 sfcb:   .byte   1, "???????????"        ; c_search's: A:, every name and type, extent 0

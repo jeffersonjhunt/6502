@@ -3261,7 +3261,7 @@ TEST(c4_a_short_ooui_bnk_is_refused_with_its_blocks_freed)
 
 namespace
 {
-    enum : uint8_t { Z_DESK, Z_WIN, Z_OWN, Z_STD, Z_VSC, Z_HSC, Z_LBL, Z_BTN, Z_COVER, Z_BAR };
+    enum : uint8_t { Z_DESK, Z_WIN, Z_OWN, Z_STD, Z_VSC, Z_HSC, Z_LBL, Z_BTN, Z_COVER, Z_BAR, Z_CNV = 14 };
     enum : uint8_t { BLK_U3B = 6, BLK_OWN = 7 }; ///< uitest.s's (UITBAR)
     constexpr uint8_t P_ALL = 0xFD;              ///< the picker's Add all (U3b)
     constexpr unsigned TH_COLOURS_ = 34, TC_LABEL_ = 5, TC_BUTTON_ = 6, TC_BUTTONFOCUS_ = 7;
@@ -3460,6 +3460,64 @@ TEST(u3b_ui_settext_on_a_thumb_is_checked)
     CHECK_EQ(spr_size(r, 4), 0x81u);
     CHECK(spr_x(r, 4) == x && spr_y(r, 4) == y);
     CHECK_EQ(spr_depth(r, 3), 0);
+}
+
+TEST(u3b_a_canvas_s_cells_from_a_routine)
+{
+    // The owner's Q1 (U3b): a canvas with UF_ROUTINE draws the cells its row routine gives, a character and an
+    // attribute each (OO-Amp's scope and VU, per-cell colours on OOUI's layer). UITBAR's crows: row r's column c
+    // is $21 + c + r in ((c & 15) << 4) | ((c + 5r) & 15); the canvas at columns 9-48, rows 20-23. A row given as 0
+    // is transparent; without UF_ROUTINE the canvas is transparent, as before.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_u3b(r);
+    const auto cells_ok = [&r](unsigned rows) {
+        unsigned bad = 0;
+        for (unsigned y = 0; y < 4; ++y)
+            for (unsigned c = 0; c < 40; ++c)
+            {
+                const bool drawn = y < rows;
+                const unsigned ch = drawn ? 0x21 + c + y : 0, at = drawn ? ((c & 15) << 4) | ((c + y * 5) & 15) : 0;
+                bad += static_cast<uint8_t>(cell_char(r, 9 + c, 20 + y)) != ch || cell_attr(r, 9 + c, 20 + y) != at;
+            }
+        return bad;
+    };
+    CHECK_EQ(cells_ok(4), 0u);
+    CHECK_EQ(cell_char(r, 8, 20), ' '); // beside it, the window's inside, as before
+    // The program changes its cells each frame and calls ui_dirty: what one such frame's ui_poll costs, and the
+    // canvas's own drawing in it (CNROWS: 4 rows of 40 cells, 4 calls of the routine).
+    const uint16_t rows = lab("CNROWS"), done = lab("CNDONE");
+    const unsigned bb = bank_block(r, "CNROWS");
+    uint64_t from = 0, took = 0;
+    r.watch = [&](uint16_t pc) {
+        if ((r.nb(3) & 0x3F) != bb)
+            return;
+        if (pc == rows && !from)
+            from = r.cpu->cycles();
+        else if (pc == done && from && !took)
+            took = r.cpu->cycles() - from;
+    };
+    CHECK_EQ(ui(r, 'd', Z_CNV).substr(6), std::string("00"));
+    poll(r);
+    r.watch = nullptr;
+    CHECK_EQ(ui(r, 'd', Z_CNV).substr(6), std::string("00"));
+    const Costs frame = poll_costs(r);
+    CHECK(took > 0 && took < 30000);
+    CHECK_EQ(cells_ok(4), 0u);
+    r.poke(lab("cnone"), 3); // row 3 given as 0: transparent
+    CHECK_EQ(ui(r, 'd', Z_CNV).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(cells_ok(3), 0u);
+    CHECK_EQ(ui(r, 'F', 0, 0x40, Z_CNV).substr(6), std::string("00")); // UF_ROUTINE cleared: transparent
+    poll(r);
+    CHECK_EQ(cells_ok(0), 0u);
+    // The same frame for the canvas without UF_ROUTINE (its cells transparent): the rest of that ui_poll's cost,
+    // the damage cleared and the window's inside drawn again under it.
+    CHECK_EQ(ui(r, 'd', Z_CNV).substr(6), std::string("00"));
+    const Costs plain = poll_costs(r);
+    std::printf("  a 40 x 4 routine canvas drawn again: its ui_poll %lu cycles, its cells %lu of them; the same ui_poll"
+                " for a plain canvas %lu (a frame is 119,318)\n", frame.poll, static_cast<unsigned long>(took), plain.poll);
+    CHECK(frame.poll > plain.poll && frame.poll - plain.poll < 30000);
 }
 
 TEST(u3b_a_label_in_a_colour_of_its_own)

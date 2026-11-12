@@ -133,7 +133,7 @@ UF_CANCEL       = $20                  ;   Escape presses it
 UF_TOGGLE       = $40                  ;   a toggle: each press flips its value
 UF_MULTI        = $10                  ; a list: rows marked (UE_MARK)
 UF_SCROLL       = $20                  ;   its own scroll bar, in its last column
-UF_ROUTINE      = $40                  ;   its rows from a routine (UW_TEXT)
+UF_ROUTINE      = $40                  ;   its rows from a routine (UW_TEXT); (U3b) a canvas: its cells too
 UF_UPPER        = $10                  ; a field: letters in capitals
 UF_SPRITE       = $10                  ; a slider: its thumb a sprite (+15); (U3b) a scroll bar: the same (+9)
 UF_OWNTHUMB     = $20                  ; (U3b) with UF_SPRITE: the program's own thumb image, which OOUI
@@ -488,9 +488,13 @@ name:
         _UI_THUMB , thumb
         _UI_REC id, UT_HSLIDER, parent, xx, yy, len, 1, flags, _UI_T, value, top, (step) | (sprite) << 8
 .endmacro
-.macro UI_CANVAS id, parent, xx, yy, ww, hh, flags
+.macro UI_CANVAS id, parent, xx, yy, ww, hh, flags, routine
         _UI_U_CANVAS .set 1
+.ifblank routine                        ; (U3b) routine: with UF_ROUTINE, the row routine of its cells
         _UI_REC id, UT_CANVAS, parent, xx, yy, ww, hh, flags, 0, 0, 0, 0
+.else
+        _UI_REC id, UT_CANVAS, parent, xx, yy, ww, hh, flags, routine, 0, 0, 0
+.endif
 .endmacro
 .macro UI_CHOICE id, parent, xx, yy, ww, texts, count, value, flags
         _UI_U_CHOICE .set 1
