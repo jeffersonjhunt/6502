@@ -127,9 +127,9 @@ $(BUILD)/%.com: $(BUILD)/%.o cfg/com.cfg tools/rules.py
 # libzp.py check).
 # A program in OOUI_USERS is linked with ooui.lib, then oolib.lib, through the rules gate and w1.py,
 # with OOUI_CFG: a config with a UISTATE area of its own on a page (test/ui/uiprog.cfg shows one).
-UISRC = $(patsubst ui/%.s,%,$(wildcard ui/*.s))
+UISRC = $(sort $(patsubst ui/%.s,%,$(wildcard ui/*.s))) # sorted: the link's order is OOUI.BNK's layout, the same in make_card.sh's container
 BANKMODS = $(filter-out uiturbo,$(UISRC))
-UIPRSRC = $(patsubst uiprog/%.s,%,$(wildcard uiprog/*.s))
+UIPRSRC = $(sort $(patsubst uiprog/%.s,%,$(wildcard uiprog/*.s)))
 UIPROG = $(foreach m,$(filter-out zp%,$(UIPRSRC)),$(m) $(filter zp$(m),$(UIPRSRC)))
 UILIBS = $(UIPROG) uitheme uiturbo
 $(if $(filter $(UISRC),$(LIBSRC)),$(error ui/ and lib/ share a module's name: $(filter $(UISRC),$(LIBSRC))))
